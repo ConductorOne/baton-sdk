@@ -2,24 +2,11 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
+import "c1/connector/v2/annotation_vendor.proto";
 import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
-
-message Money {
-  // Signed amount in the currency's minor unit.
-  // USD: 12345 means $123.45.
-  // JPY: 12345 means ¥12,345.
-  int64 amount_minor = 1;
-
-  // ISO 4217 when possible. Allow wider codes only if you truly need them.
-  string currency_code = 2 [(validate.rules).string = {
-    min_bytes: 3
-    max_bytes: 8
-    pattern: "^[A-Za-z0-9]{3,8}$"
-  }];
-}
 
 // LineItem is per-line-item billing detail from a vendor agreement.
 message LineItem {
@@ -36,14 +23,14 @@ message LineItem {
 
 // VendorAgreementTrait is the trait annotation for resources with
 // TRAIT_VENDOR_AGREEMENT. It carries agreement-specific data: term,
-// renewal status, total value, line items, pricing model, pre-aggregated
-// trailing-window spend, and the vendor-side account manager contact.
+// renewal status, total value, line items, pricing model, and the
+// vendor-side account manager contact.
 //
 // Vendor identity (id, name, website, external IDs, deep link, scoping)
-// lives on VendorTrait — a separate trait designed to be attached to any
-// vendor-shaped resource regardless of whether it has an agreement. A
-// resource representing an agreement typically carries both VendorTrait
-// and VendorAgreementTrait.
+// and trailing-window spend live on VendorTrait — spend is a property
+// of the vendor (not of any individual agreement) in every
+// vendor-management system the SDK targets. A resource representing an
+// agreement typically carries both VendorTrait and VendorAgreementTrait.
 //
 // Money values are in source currency; cross-currency normalization is
 // the consumer's concern. Internal owners (security owner, business
@@ -116,23 +103,17 @@ message VendorAgreementTrait {
   }
   PricingModel pricing_model = 10;
 
-  // Trailing-window spend pre-aggregated by the source. Pass through
-  // verbatim; populate only what the source returns.
-  Money trailing_30d_spend = 11;
-  Money trailing_365d_spend = 12;
-  Money ytd_spend = 13;
-
   // The vendor-side point of contact (i.e. someone at the vendor, not the
   // customer). Carried as strings because this person is not a principal
   // in the customer's user namespace and so cannot be modeled as a Baton
   // user resource. For internal (customer-side) owners, use entitlements
   // + grants on the resource.
-  string external_account_manager_email = 14 [(validate.rules).string = {
+  string external_account_manager_email = 11 [(validate.rules).string = {
     max_bytes: 1024
     email: true
     ignore_empty: true
   }];
-  string external_account_manager_name = 15 [(validate.rules).string = {
+  string external_account_manager_name = 12 [(validate.rules).string = {
     max_bytes: 1024
     ignore_empty: true
   }];

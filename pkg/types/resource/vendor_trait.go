@@ -77,6 +77,32 @@ func WithVendorSourceScoping(businessID string, entityID string) VendorTraitOpti
 	}
 }
 
+// WithTrailing30DaySpend sets the trailing-30-day spend aggregate. Use
+// only when the source pre-aggregates and returns it. Spend is always a
+// vendor-level (not agreement-level) property.
+func WithTrailing30DaySpend(m *v2.Money) VendorTraitOption {
+	return func(t *v2.VendorTrait) error {
+		t.SetTrailing_30DSpend(m)
+		return nil
+	}
+}
+
+// WithTrailing365DaySpend sets the trailing-365-day spend aggregate.
+func WithTrailing365DaySpend(m *v2.Money) VendorTraitOption {
+	return func(t *v2.VendorTrait) error {
+		t.SetTrailing_365DSpend(m)
+		return nil
+	}
+}
+
+// WithYTDSpend sets the year-to-date spend aggregate.
+func WithYTDSpend(m *v2.Money) VendorTraitOption {
+	return func(t *v2.VendorTrait) error {
+		t.SetYtdSpend(m)
+		return nil
+	}
+}
+
 // NewVendorTrait builds a VendorTrait. WithVendorIdentity is required.
 //
 // Example:
@@ -85,7 +111,9 @@ func WithVendorSourceScoping(businessID string, entityID string) VendorTraitOpti
 //	    WithVendorIdentity("vendor-uuid", "Acme Software, Inc.", "Acme"),
 //	    WithVendorWebsite("example.com"),
 //	    WithExternalVendorID("acme-prod"),
-//	    WithVendorDeepLinkURL("https://example.com/vendors/v123"))
+//	    WithVendorDeepLinkURL("https://example.com/vendors/v123"),
+//	    WithTrailing30DaySpend(NewMoney(400_000, "USD")),
+//	    WithYTDSpend(NewMoney(400_000, "USD")))
 func NewVendorTrait(opts ...VendorTraitOption) (*v2.VendorTrait, error) {
 	trait := &v2.VendorTrait{}
 

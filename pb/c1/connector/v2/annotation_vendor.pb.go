@@ -23,18 +23,105 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Money is a decimal-as-int64 monetary amount with an explicit currency
+// code. Defined here (rather than alongside LineItem in
+// annotation_vendor_agreement.proto) because it's used by both VendorTrait
+// (vendor spend) and VendorAgreementTrait (contract value, line item
+// prices), and the vendor-side primitive is the more fundamental of the
+// two.
+type Money struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Signed amount in the currency's minor unit.
+	// USD: 12345 means $123.45.
+	// JPY: 12345 means ¥12,345.
+	AmountMinor int64 `protobuf:"varint,1,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
+	// ISO 4217 when possible. Allow wider codes only if you truly need them.
+	CurrencyCode  string `protobuf:"bytes,2,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Money) Reset() {
+	*x = Money{}
+	mi := &file_c1_connector_v2_annotation_vendor_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Money) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Money) ProtoMessage() {}
+
+func (x *Money) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_vendor_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *Money) GetAmountMinor() int64 {
+	if x != nil {
+		return x.AmountMinor
+	}
+	return 0
+}
+
+func (x *Money) GetCurrencyCode() string {
+	if x != nil {
+		return x.CurrencyCode
+	}
+	return ""
+}
+
+func (x *Money) SetAmountMinor(v int64) {
+	x.AmountMinor = v
+}
+
+func (x *Money) SetCurrencyCode(v string) {
+	x.CurrencyCode = v
+}
+
+type Money_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Signed amount in the currency's minor unit.
+	// USD: 12345 means $123.45.
+	// JPY: 12345 means ¥12,345.
+	AmountMinor int64
+	// ISO 4217 when possible. Allow wider codes only if you truly need them.
+	CurrencyCode string
+}
+
+func (b0 Money_builder) Build() *Money {
+	m0 := &Money{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.AmountMinor = b.AmountMinor
+	x.CurrencyCode = b.CurrencyCode
+	return m0
+}
+
 // VendorTrait is the trait annotation for resources with TRAIT_VENDOR.
 // It carries the cross-system identity and reference data for a vendor
 // as it appears in a single source system: who the vendor is, where to
 // view it in the source, and the IDs by which it can be cross-referenced
-// against other sources.
+// against other sources. It also carries trailing-window spend
+// pre-aggregated by the source, when available — spend is a property of
+// the vendor (not of any one of its agreements) in every vendor-management
+// system the SDK targets.
 //
-// VendorTrait is intentionally narrow. It does NOT carry agreement,
-// spend, risk, or owner data — those concerns belong on adjacent traits
-// (e.g. VendorAgreementTrait) or in the resource graph (entitlements +
-// grants for owners). Resources representing a vendor in a source that
-// also has agreements typically carry both VendorTrait and
-// VendorAgreementTrait.
+// VendorTrait is intentionally narrow. It does NOT carry agreement, risk,
+// or owner data — those concerns belong on adjacent traits (e.g.
+// VendorAgreementTrait) or in the resource graph (entitlements + grants
+// for owners). Resources representing a vendor in a source that also has
+// agreements typically carry both VendorTrait and VendorAgreementTrait.
 type VendorTrait struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// Source-system vendor ID. The upsert key for storage; the join key
@@ -61,13 +148,20 @@ type VendorTrait struct {
 	// Entity scoping within a single business, when the source supports
 	// it.
 	SourceEntityId string `protobuf:"bytes,8,opt,name=source_entity_id,json=sourceEntityId,proto3" json:"source_entity_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Trailing-window spend pre-aggregated by the source. Pass through
+	// verbatim; populate only what the source returns. Spend is a property
+	// of the vendor — when one vendor has multiple agreements, the spend
+	// applies to the vendor in aggregate, not to any individual agreement.
+	Trailing_30DSpend  *Money `protobuf:"bytes,9,opt,name=trailing_30d_spend,json=trailing30dSpend,proto3" json:"trailing_30d_spend,omitempty"`
+	Trailing_365DSpend *Money `protobuf:"bytes,10,opt,name=trailing_365d_spend,json=trailing365dSpend,proto3" json:"trailing_365d_spend,omitempty"`
+	YtdSpend           *Money `protobuf:"bytes,11,opt,name=ytd_spend,json=ytdSpend,proto3" json:"ytd_spend,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *VendorTrait) Reset() {
 	*x = VendorTrait{}
-	mi := &file_c1_connector_v2_annotation_vendor_proto_msgTypes[0]
+	mi := &file_c1_connector_v2_annotation_vendor_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -79,7 +173,7 @@ func (x *VendorTrait) String() string {
 func (*VendorTrait) ProtoMessage() {}
 
 func (x *VendorTrait) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_vendor_proto_msgTypes[0]
+	mi := &file_c1_connector_v2_annotation_vendor_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -146,6 +240,27 @@ func (x *VendorTrait) GetSourceEntityId() string {
 	return ""
 }
 
+func (x *VendorTrait) GetTrailing_30DSpend() *Money {
+	if x != nil {
+		return x.Trailing_30DSpend
+	}
+	return nil
+}
+
+func (x *VendorTrait) GetTrailing_365DSpend() *Money {
+	if x != nil {
+		return x.Trailing_365DSpend
+	}
+	return nil
+}
+
+func (x *VendorTrait) GetYtdSpend() *Money {
+	if x != nil {
+		return x.YtdSpend
+	}
+	return nil
+}
+
 func (x *VendorTrait) SetVendorId(v string) {
 	x.VendorId = v
 }
@@ -178,6 +293,51 @@ func (x *VendorTrait) SetSourceEntityId(v string) {
 	x.SourceEntityId = v
 }
 
+func (x *VendorTrait) SetTrailing_30DSpend(v *Money) {
+	x.Trailing_30DSpend = v
+}
+
+func (x *VendorTrait) SetTrailing_365DSpend(v *Money) {
+	x.Trailing_365DSpend = v
+}
+
+func (x *VendorTrait) SetYtdSpend(v *Money) {
+	x.YtdSpend = v
+}
+
+func (x *VendorTrait) HasTrailing_30DSpend() bool {
+	if x == nil {
+		return false
+	}
+	return x.Trailing_30DSpend != nil
+}
+
+func (x *VendorTrait) HasTrailing_365DSpend() bool {
+	if x == nil {
+		return false
+	}
+	return x.Trailing_365DSpend != nil
+}
+
+func (x *VendorTrait) HasYtdSpend() bool {
+	if x == nil {
+		return false
+	}
+	return x.YtdSpend != nil
+}
+
+func (x *VendorTrait) ClearTrailing_30DSpend() {
+	x.Trailing_30DSpend = nil
+}
+
+func (x *VendorTrait) ClearTrailing_365DSpend() {
+	x.Trailing_365DSpend = nil
+}
+
+func (x *VendorTrait) ClearYtdSpend() {
+	x.YtdSpend = nil
+}
+
 type VendorTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -205,6 +365,13 @@ type VendorTrait_builder struct {
 	// Entity scoping within a single business, when the source supports
 	// it.
 	SourceEntityId string
+	// Trailing-window spend pre-aggregated by the source. Pass through
+	// verbatim; populate only what the source returns. Spend is a property
+	// of the vendor — when one vendor has multiple agreements, the spend
+	// applies to the vendor in aggregate, not to any individual agreement.
+	Trailing_30DSpend  *Money
+	Trailing_365DSpend *Money
+	YtdSpend           *Money
 }
 
 func (b0 VendorTrait_builder) Build() *VendorTrait {
@@ -219,6 +386,9 @@ func (b0 VendorTrait_builder) Build() *VendorTrait {
 	x.DeepLinkUrl = b.DeepLinkUrl
 	x.SourceBusinessId = b.SourceBusinessId
 	x.SourceEntityId = b.SourceEntityId
+	x.Trailing_30DSpend = b.Trailing_30DSpend
+	x.Trailing_365DSpend = b.Trailing_365DSpend
+	x.YtdSpend = b.YtdSpend
 	return m0
 }
 
@@ -226,7 +396,10 @@ var File_c1_connector_v2_annotation_vendor_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_vendor_proto_rawDesc = "" +
 	"\n" +
-	"'c1/connector/v2/annotation_vendor.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"\xb7\x03\n" +
+	"'c1/connector/v2/annotation_vendor.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"n\n" +
+	"\x05Money\x12!\n" +
+	"\famount_minor\x18\x01 \x01(\x03R\vamountMinor\x12B\n" +
+	"\rcurrency_code\x18\x02 \x01(\tB\x1d\xfaB\x1ar\x18 \x03(\b2\x12^[A-Za-z0-9]{3,8}$R\fcurrencyCode\"\xfa\x04\n" +
 	"\vVendorTrait\x12'\n" +
 	"\tvendor_id\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\x02R\bvendorId\x12+\n" +
@@ -238,18 +411,26 @@ const file_c1_connector_v2_annotation_vendor_proto_rawDesc = "" +
 	"\x12external_vendor_id\x18\x05 \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x10externalVendorId\x12<\n" +
 	"\rdeep_link_url\x18\x06 \x01(\tB\x18\xfaB\x15r\x13(\x80 :\bhttps://\xd0\x01\x01\x88\x01\x01R\vdeepLinkUrl\x129\n" +
 	"\x12source_business_id\x18\a \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x10sourceBusinessId\x125\n" +
-	"\x10source_entity_id\x18\b \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x0esourceEntityIdB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"\x10source_entity_id\x18\b \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x0esourceEntityId\x12D\n" +
+	"\x12trailing_30d_spend\x18\t \x01(\v2\x16.c1.connector.v2.MoneyR\x10trailing30dSpend\x12F\n" +
+	"\x13trailing_365d_spend\x18\n" +
+	" \x01(\v2\x16.c1.connector.v2.MoneyR\x11trailing365dSpend\x123\n" +
+	"\tytd_spend\x18\v \x01(\v2\x16.c1.connector.v2.MoneyR\bytdSpendB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_annotation_vendor_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_c1_connector_v2_annotation_vendor_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_c1_connector_v2_annotation_vendor_proto_goTypes = []any{
-	(*VendorTrait)(nil), // 0: c1.connector.v2.VendorTrait
+	(*Money)(nil),       // 0: c1.connector.v2.Money
+	(*VendorTrait)(nil), // 1: c1.connector.v2.VendorTrait
 }
 var file_c1_connector_v2_annotation_vendor_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0, // 0: c1.connector.v2.VendorTrait.trailing_30d_spend:type_name -> c1.connector.v2.Money
+	0, // 1: c1.connector.v2.VendorTrait.trailing_365d_spend:type_name -> c1.connector.v2.Money
+	0, // 2: c1.connector.v2.VendorTrait.ytd_spend:type_name -> c1.connector.v2.Money
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_vendor_proto_init() }
@@ -263,7 +444,7 @@ func file_c1_connector_v2_annotation_vendor_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_vendor_proto_rawDesc), len(file_c1_connector_v2_annotation_vendor_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

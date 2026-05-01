@@ -116,30 +116,10 @@ func WithPricingModel(pm v2.VendorAgreementTrait_PricingModel) VendorAgreementTr
 	}
 }
 
-// WithTrailing30DaySpend sets the trailing-30-day spend aggregate. Use
-// only when the source pre-aggregates and returns it.
-func WithTrailing30DaySpend(m *v2.Money) VendorAgreementTraitOption {
-	return func(t *v2.VendorAgreementTrait) error {
-		t.SetTrailing_30DSpend(m)
-		return nil
-	}
-}
-
-// WithTrailing365DaySpend sets the trailing-365-day spend aggregate.
-func WithTrailing365DaySpend(m *v2.Money) VendorAgreementTraitOption {
-	return func(t *v2.VendorAgreementTrait) error {
-		t.SetTrailing_365DSpend(m)
-		return nil
-	}
-}
-
-// WithYTDSpend sets the year-to-date spend aggregate.
-func WithYTDSpend(m *v2.Money) VendorAgreementTraitOption {
-	return func(t *v2.VendorAgreementTrait) error {
-		t.SetYtdSpend(m)
-		return nil
-	}
-}
+// Trailing-window spend helpers (WithTrailing30DaySpend, WithTrailing365DaySpend,
+// WithYTDSpend) live on VendorTrait — see vendor_trait.go. Spend is a
+// property of the vendor (not of any individual agreement) in every
+// vendor-management system the SDK targets.
 
 // WithExternalAccountManager sets the vendor-side point of contact: the
 // email and display name of the account manager at the vendor (not at
@@ -169,8 +149,6 @@ func WithExternalAccountManager(email string, name string) VendorAgreementTraitO
 //	    WithLineItems(NewLineItem("Enterprise Plan", 200, "seat",
 //	        NewMoney(2_000, "USD"), NewMoney(4_800_000, "USD"))),
 //	    WithPricingModel(v2.VendorAgreementTrait_PRICING_MODEL_PER_SEAT),
-//	    WithTrailing30DaySpend(NewMoney(400_000, "USD")),
-//	    WithYTDSpend(NewMoney(400_000, "USD")),
 //	    WithExternalAccountManager("am@vendor.example", "Account Manager"))
 func NewVendorAgreementTrait(opts ...VendorAgreementTraitOption) (*v2.VendorAgreementTrait, error) {
 	trait := &v2.VendorAgreementTrait{}
