@@ -291,6 +291,7 @@ type ConnectorMetadata struct {
 	Description           string                          `protobuf:"bytes,7,opt,name=description,proto3" json:"description,omitempty"`
 	Capabilities          *ConnectorCapabilities          `protobuf:"bytes,8,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
 	AccountCreationSchema *ConnectorAccountCreationSchema `protobuf:"bytes,9,opt,name=account_creation_schema,json=accountCreationSchema,proto3" json:"account_creation_schema,omitempty"`
+	Version               string                          `protobuf:"bytes,10,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -383,6 +384,13 @@ func (x *ConnectorMetadata) GetAccountCreationSchema() *ConnectorAccountCreation
 	return nil
 }
 
+func (x *ConnectorMetadata) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 func (x *ConnectorMetadata) SetDisplayName(v string) {
 	x.DisplayName = v
 }
@@ -417,6 +425,10 @@ func (x *ConnectorMetadata) SetCapabilities(v *ConnectorCapabilities) {
 
 func (x *ConnectorMetadata) SetAccountCreationSchema(v *ConnectorAccountCreationSchema) {
 	x.AccountCreationSchema = v
+}
+
+func (x *ConnectorMetadata) SetVersion(v string) {
+	x.Version = v
 }
 
 func (x *ConnectorMetadata) HasIcon() bool {
@@ -486,6 +498,7 @@ type ConnectorMetadata_builder struct {
 	Description           string
 	Capabilities          *ConnectorCapabilities
 	AccountCreationSchema *ConnectorAccountCreationSchema
+	Version               string
 }
 
 func (b0 ConnectorMetadata_builder) Build() *ConnectorMetadata {
@@ -501,6 +514,7 @@ func (b0 ConnectorMetadata_builder) Build() *ConnectorMetadata {
 	x.Description = b.Description
 	x.Capabilities = b.Capabilities
 	x.AccountCreationSchema = b.AccountCreationSchema
+	x.Version = b.Version
 	return m0
 }
 
@@ -2131,7 +2145,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x0eactive_sync_id\x18\x02 \x01(\tB\r\xfaB\n" +
 	"r\b \x01(\x80\b\xd0\x01\x01R\factiveSyncId\"Y\n" +
 	"\x1fConnectorServiceCleanupResponse\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xa8\x04\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xc2\x04\n" +
 	"\x11ConnectorMetadata\x12-\n" +
 	"\fdisplay_name\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\vdisplayName\x125\n" +
@@ -2143,7 +2157,9 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\vdescription\x18\a \x01(\tB\r\xfaB\n" +
 	"r\b \x01(\x80 \xd0\x01\x01R\vdescription\x12J\n" +
 	"\fcapabilities\x18\b \x01(\v2&.c1.connector.v2.ConnectorCapabilitiesR\fcapabilities\x12g\n" +
-	"\x17account_creation_schema\x18\t \x01(\v2/.c1.connector.v2.ConnectorAccountCreationSchemaR\x15accountCreationSchema\"\x8e\x02\n" +
+	"\x17account_creation_schema\x18\t \x01(\v2/.c1.connector.v2.ConnectorAccountCreationSchemaR\x15accountCreationSchema\x12\x18\n" +
+	"\aversion\x18\n" +
+	" \x01(\tR\aversion\"\x8e\x02\n" +
 	"\x11CredentialDetails\x12}\n" +
 	"\x1fcapability_account_provisioning\x18\x01 \x01(\v25.c1.connector.v2.CredentialDetailsAccountProvisioningR\x1dcapabilityAccountProvisioning\x12z\n" +
 	"\x1ecapability_credential_rotation\x18\x02 \x01(\v24.c1.connector.v2.CredentialDetailsCredentialRotationR\x1ccapabilityCredentialRotation\"\x8e\x02\n" +

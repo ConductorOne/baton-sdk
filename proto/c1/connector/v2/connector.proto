@@ -51,6 +51,7 @@ message ConnectorMetadata {
   }];
   ConnectorCapabilities capabilities = 8;
   ConnectorAccountCreationSchema account_creation_schema = 9;
+  string version = 10;
 }
 
 enum Capability {

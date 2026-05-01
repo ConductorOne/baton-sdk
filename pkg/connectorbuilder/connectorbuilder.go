@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"time"
@@ -308,6 +309,12 @@ func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceG
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
+	}
+
+	if md.GetVersion() == "" {
+		if bi, ok := debug.ReadBuildInfo(); ok {
+			md.SetVersion(bi.Main.Version)
+		}
 	}
 
 	annos := annotations.Annotations(md.GetAnnotations())
