@@ -125,19 +125,29 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	previous := r.current
 	replaced, drained, err := r.server.ReplaceServiceImplementation(previous.connector, next.connector)
 	if err != nil {
+		closeAbandonedConnectorGeneration(ctx, next)
 		return err
 	}
 	if replaced == 0 {
+		closeAbandonedConnectorGeneration(ctx, next)
 		return fmt.Errorf("no registered services matched the current connector generation")
 	}
 
 	r.current = next
+	closeCtx := context.WithoutCancel(ctx)
+	go closeConnectorGenerationAfterDrain(closeCtx, previous, drained, lambdaConnectorDrainTimeout, lambdaConnectorCloseTimeout)
+
 	if err := applyLambdaLogLevel(next.logging, time.Now()); err != nil {
 		return err
 	}
-	closeCtx := context.WithoutCancel(ctx)
-	go closeConnectorGenerationAfterDrain(closeCtx, previous, drained, lambdaConnectorDrainTimeout, lambdaConnectorCloseTimeout)
 	return nil
+}
+
+func closeAbandonedConnectorGeneration(ctx context.Context, generation *lambdaConnectorGeneration) {
+	closeCtx := context.WithoutCancel(ctx)
+	drained := make(chan struct{})
+	close(drained)
+	go closeConnectorGenerationAfterDrain(closeCtx, generation, drained, lambdaConnectorDrainTimeout, lambdaConnectorCloseTimeout)
 }
 
 func closeConnectorGenerationAfterDrain(ctx context.Context, generation *lambdaConnectorGeneration, drained <-chan struct{}, drainTimeout time.Duration, closeTimeout time.Duration) {
