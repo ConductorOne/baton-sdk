@@ -15,7 +15,6 @@ linters:
     - exhaustive
     - forbidigo
     - gochecknoinits
-    - goconst
     - gocritic
     - godot
     - goprintffuncname

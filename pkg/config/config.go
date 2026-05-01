@@ -281,7 +281,7 @@ func verifyStructFields[T field.Configurable](schema field.Configuration) error 
 		return nil
 	}
 	configType := reflect.TypeOf(config)
-	if configType.Kind() == reflect.Ptr {
+	if configType.Kind() == reflect.Pointer {
 		configType = configType.Elem()
 	}
 	if configType.Kind() != reflect.Struct {
