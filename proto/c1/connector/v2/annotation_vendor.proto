@@ -6,18 +6,40 @@ import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
+// Money is a decimal-as-int64 monetary amount with an explicit currency
+// code. Defined here (rather than alongside LineItem in
+// annotation_vendor_agreement.proto) because it's used by both VendorTrait
+// (vendor spend) and VendorAgreementTrait (contract value, line item
+// prices), and the vendor-side primitive is the more fundamental of the
+// two.
+message Money {
+  // Signed amount in the currency's minor unit.
+  // USD: 12345 means $123.45.
+  // JPY: 12345 means ¥12,345.
+  int64 amount_minor = 1;
+
+  // ISO 4217 when possible. Allow wider codes only if you truly need them.
+  string currency_code = 2 [(validate.rules).string = {
+    min_bytes: 3
+    max_bytes: 8
+    pattern: "^[A-Za-z0-9]{3,8}$"
+  }];
+}
+
 // VendorTrait is the trait annotation for resources with TRAIT_VENDOR.
 // It carries the cross-system identity and reference data for a vendor
 // as it appears in a single source system: who the vendor is, where to
 // view it in the source, and the IDs by which it can be cross-referenced
-// against other sources.
+// against other sources. It also carries trailing-window spend
+// pre-aggregated by the source, when available — spend is a property of
+// the vendor (not of any one of its agreements) in every vendor-management
+// system the SDK targets.
 //
-// VendorTrait is intentionally narrow. It does NOT carry agreement,
-// spend, risk, or owner data — those concerns belong on adjacent traits
-// (e.g. VendorAgreementTrait) or in the resource graph (entitlements +
-// grants for owners). Resources representing a vendor in a source that
-// also has agreements typically carry both VendorTrait and
-// VendorAgreementTrait.
+// VendorTrait is intentionally narrow. It does NOT carry agreement, risk,
+// or owner data — those concerns belong on adjacent traits (e.g.
+// VendorAgreementTrait) or in the resource graph (entitlements + grants
+// for owners). Resources representing a vendor in a source that also has
+// agreements typically carry both VendorTrait and VendorAgreementTrait.
 message VendorTrait {
   // Source-system vendor ID. The upsert key for storage; the join key
   // when a single connector emits multiple resources for the same vendor.
@@ -72,4 +94,12 @@ message VendorTrait {
     max_bytes: 256
     ignore_empty: true
   }];
+
+  // Trailing-window spend pre-aggregated by the source. Pass through
+  // verbatim; populate only what the source returns. Spend is a property
+  // of the vendor — when one vendor has multiple agreements, the spend
+  // applies to the vendor in aggregate, not to any individual agreement.
+  Money trailing_30d_spend = 9;
+  Money trailing_365d_spend = 10;
+  Money ytd_spend = 11;
 }

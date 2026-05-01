@@ -35,6 +35,130 @@ var (
 	_ = sort.Sort
 )
 
+// Validate checks the field values on Money with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *Money) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Money with the rules defined in the
+// proto definition for this message. If any rules are violated, the result is
+// a list of violation errors wrapped in MoneyMultiError, or nil if none found.
+func (m *Money) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Money) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for AmountMinor
+
+	if l := len(m.GetCurrencyCode()); l < 3 || l > 8 {
+		err := MoneyValidationError{
+			field:  "CurrencyCode",
+			reason: "value length must be between 3 and 8 bytes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if !_Money_CurrencyCode_Pattern.MatchString(m.GetCurrencyCode()) {
+		err := MoneyValidationError{
+			field:  "CurrencyCode",
+			reason: "value does not match regex pattern \"^[A-Za-z0-9]{3,8}$\"",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return MoneyMultiError(errors)
+	}
+
+	return nil
+}
+
+// MoneyMultiError is an error wrapping multiple validation errors returned by
+// Money.ValidateAll() if the designated constraints aren't met.
+type MoneyMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m MoneyMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m MoneyMultiError) AllErrors() []error { return m }
+
+// MoneyValidationError is the validation error returned by Money.Validate if
+// the designated constraints aren't met.
+type MoneyValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e MoneyValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e MoneyValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e MoneyValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e MoneyValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e MoneyValidationError) ErrorName() string { return "MoneyValidationError" }
+
+// Error satisfies the builtin error interface
+func (e MoneyValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sMoney.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = MoneyValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = MoneyValidationError{}
+
+var _Money_CurrencyCode_Pattern = regexp.MustCompile("^[A-Za-z0-9]{3,8}$")
+
 // Validate checks the field values on VendorTrait with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.
@@ -199,6 +323,93 @@ func (m *VendorTrait) validate(all bool) error {
 			errors = append(errors, err)
 		}
 
+	}
+
+	if all {
+		switch v := interface{}(m.GetTrailing_30DSpend()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, VendorTraitValidationError{
+					field:  "Trailing_30DSpend",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, VendorTraitValidationError{
+					field:  "Trailing_30DSpend",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetTrailing_30DSpend()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return VendorTraitValidationError{
+				field:  "Trailing_30DSpend",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetTrailing_365DSpend()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, VendorTraitValidationError{
+					field:  "Trailing_365DSpend",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, VendorTraitValidationError{
+					field:  "Trailing_365DSpend",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetTrailing_365DSpend()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return VendorTraitValidationError{
+				field:  "Trailing_365DSpend",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetYtdSpend()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, VendorTraitValidationError{
+					field:  "YtdSpend",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, VendorTraitValidationError{
+					field:  "YtdSpend",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetYtdSpend()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return VendorTraitValidationError{
+				field:  "YtdSpend",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
 	}
 
 	if len(errors) > 0 {

@@ -154,81 +154,6 @@ func (x VendorAgreementTrait_PricingModel) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-type Money struct {
-	state                   protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_AmountMinor  int64                  `protobuf:"varint,1,opt,name=amount_minor,json=amountMinor,proto3"`
-	xxx_hidden_CurrencyCode string                 `protobuf:"bytes,2,opt,name=currency_code,json=currencyCode,proto3"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
-}
-
-func (x *Money) Reset() {
-	*x = Money{}
-	mi := &file_c1_connector_v2_annotation_vendor_agreement_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Money) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Money) ProtoMessage() {}
-
-func (x *Money) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_vendor_agreement_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *Money) GetAmountMinor() int64 {
-	if x != nil {
-		return x.xxx_hidden_AmountMinor
-	}
-	return 0
-}
-
-func (x *Money) GetCurrencyCode() string {
-	if x != nil {
-		return x.xxx_hidden_CurrencyCode
-	}
-	return ""
-}
-
-func (x *Money) SetAmountMinor(v int64) {
-	x.xxx_hidden_AmountMinor = v
-}
-
-func (x *Money) SetCurrencyCode(v string) {
-	x.xxx_hidden_CurrencyCode = v
-}
-
-type Money_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	// Signed amount in the currency's minor unit.
-	// USD: 12345 means $123.45.
-	// JPY: 12345 means ¥12,345.
-	AmountMinor int64
-	// ISO 4217 when possible. Allow wider codes only if you truly need them.
-	CurrencyCode string
-}
-
-func (b0 Money_builder) Build() *Money {
-	m0 := &Money{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.xxx_hidden_AmountMinor = b.AmountMinor
-	x.xxx_hidden_CurrencyCode = b.CurrencyCode
-	return m0
-}
-
 // LineItem is per-line-item billing detail from a vendor agreement.
 type LineItem struct {
 	state                           protoimpl.MessageState `protogen:"opaque.v1"`
@@ -243,7 +168,7 @@ type LineItem struct {
 
 func (x *LineItem) Reset() {
 	*x = LineItem{}
-	mi := &file_c1_connector_v2_annotation_vendor_agreement_proto_msgTypes[1]
+	mi := &file_c1_connector_v2_annotation_vendor_agreement_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -255,7 +180,7 @@ func (x *LineItem) String() string {
 func (*LineItem) ProtoMessage() {}
 
 func (x *LineItem) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_vendor_agreement_proto_msgTypes[1]
+	mi := &file_c1_connector_v2_annotation_vendor_agreement_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -371,14 +296,14 @@ func (b0 LineItem_builder) Build() *LineItem {
 
 // VendorAgreementTrait is the trait annotation for resources with
 // TRAIT_VENDOR_AGREEMENT. It carries agreement-specific data: term,
-// renewal status, total value, line items, pricing model, pre-aggregated
-// trailing-window spend, and the vendor-side account manager contact.
+// renewal status, total value, line items, pricing model, and the
+// vendor-side account manager contact.
 //
 // Vendor identity (id, name, website, external IDs, deep link, scoping)
-// lives on VendorTrait — a separate trait designed to be attached to any
-// vendor-shaped resource regardless of whether it has an agreement. A
-// resource representing an agreement typically carries both VendorTrait
-// and VendorAgreementTrait.
+// and trailing-window spend live on VendorTrait — spend is a property
+// of the vendor (not of any individual agreement) in every
+// vendor-management system the SDK targets. A resource representing an
+// agreement typically carries both VendorTrait and VendorAgreementTrait.
 //
 // Money values are in source currency; cross-currency normalization is
 // the consumer's concern. Internal owners (security owner, business
@@ -398,18 +323,15 @@ type VendorAgreementTrait struct {
 	xxx_hidden_TotalValue                  *Money                             `protobuf:"bytes,8,opt,name=total_value,json=totalValue,proto3"`
 	xxx_hidden_LineItems                   *[]*LineItem                       `protobuf:"bytes,9,rep,name=line_items,json=lineItems,proto3"`
 	xxx_hidden_PricingModel                VendorAgreementTrait_PricingModel  `protobuf:"varint,10,opt,name=pricing_model,json=pricingModel,proto3,enum=c1.connector.v2.VendorAgreementTrait_PricingModel"`
-	xxx_hidden_Trailing_30DSpend           *Money                             `protobuf:"bytes,11,opt,name=trailing_30d_spend,json=trailing30dSpend,proto3"`
-	xxx_hidden_Trailing_365DSpend          *Money                             `protobuf:"bytes,12,opt,name=trailing_365d_spend,json=trailing365dSpend,proto3"`
-	xxx_hidden_YtdSpend                    *Money                             `protobuf:"bytes,13,opt,name=ytd_spend,json=ytdSpend,proto3"`
-	xxx_hidden_ExternalAccountManagerEmail string                             `protobuf:"bytes,14,opt,name=external_account_manager_email,json=externalAccountManagerEmail,proto3"`
-	xxx_hidden_ExternalAccountManagerName  string                             `protobuf:"bytes,15,opt,name=external_account_manager_name,json=externalAccountManagerName,proto3"`
+	xxx_hidden_ExternalAccountManagerEmail string                             `protobuf:"bytes,11,opt,name=external_account_manager_email,json=externalAccountManagerEmail,proto3"`
+	xxx_hidden_ExternalAccountManagerName  string                             `protobuf:"bytes,12,opt,name=external_account_manager_name,json=externalAccountManagerName,proto3"`
 	unknownFields                          protoimpl.UnknownFields
 	sizeCache                              protoimpl.SizeCache
 }
 
 func (x *VendorAgreementTrait) Reset() {
 	*x = VendorAgreementTrait{}
-	mi := &file_c1_connector_v2_annotation_vendor_agreement_proto_msgTypes[2]
+	mi := &file_c1_connector_v2_annotation_vendor_agreement_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -421,7 +343,7 @@ func (x *VendorAgreementTrait) String() string {
 func (*VendorAgreementTrait) ProtoMessage() {}
 
 func (x *VendorAgreementTrait) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_vendor_agreement_proto_msgTypes[2]
+	mi := &file_c1_connector_v2_annotation_vendor_agreement_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -504,27 +426,6 @@ func (x *VendorAgreementTrait) GetPricingModel() VendorAgreementTrait_PricingMod
 	return VendorAgreementTrait_PRICING_MODEL_UNSPECIFIED
 }
 
-func (x *VendorAgreementTrait) GetTrailing_30DSpend() *Money {
-	if x != nil {
-		return x.xxx_hidden_Trailing_30DSpend
-	}
-	return nil
-}
-
-func (x *VendorAgreementTrait) GetTrailing_365DSpend() *Money {
-	if x != nil {
-		return x.xxx_hidden_Trailing_365DSpend
-	}
-	return nil
-}
-
-func (x *VendorAgreementTrait) GetYtdSpend() *Money {
-	if x != nil {
-		return x.xxx_hidden_YtdSpend
-	}
-	return nil
-}
-
 func (x *VendorAgreementTrait) GetExternalAccountManagerEmail() string {
 	if x != nil {
 		return x.xxx_hidden_ExternalAccountManagerEmail
@@ -579,18 +480,6 @@ func (x *VendorAgreementTrait) SetPricingModel(v VendorAgreementTrait_PricingMod
 	x.xxx_hidden_PricingModel = v
 }
 
-func (x *VendorAgreementTrait) SetTrailing_30DSpend(v *Money) {
-	x.xxx_hidden_Trailing_30DSpend = v
-}
-
-func (x *VendorAgreementTrait) SetTrailing_365DSpend(v *Money) {
-	x.xxx_hidden_Trailing_365DSpend = v
-}
-
-func (x *VendorAgreementTrait) SetYtdSpend(v *Money) {
-	x.xxx_hidden_YtdSpend = v
-}
-
 func (x *VendorAgreementTrait) SetExternalAccountManagerEmail(v string) {
 	x.xxx_hidden_ExternalAccountManagerEmail = v
 }
@@ -627,27 +516,6 @@ func (x *VendorAgreementTrait) HasTotalValue() bool {
 	return x.xxx_hidden_TotalValue != nil
 }
 
-func (x *VendorAgreementTrait) HasTrailing_30DSpend() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_Trailing_30DSpend != nil
-}
-
-func (x *VendorAgreementTrait) HasTrailing_365DSpend() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_Trailing_365DSpend != nil
-}
-
-func (x *VendorAgreementTrait) HasYtdSpend() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_YtdSpend != nil
-}
-
 func (x *VendorAgreementTrait) ClearStartDate() {
 	x.xxx_hidden_StartDate = nil
 }
@@ -662,18 +530,6 @@ func (x *VendorAgreementTrait) ClearLastDateToTerminate() {
 
 func (x *VendorAgreementTrait) ClearTotalValue() {
 	x.xxx_hidden_TotalValue = nil
-}
-
-func (x *VendorAgreementTrait) ClearTrailing_30DSpend() {
-	x.xxx_hidden_Trailing_30DSpend = nil
-}
-
-func (x *VendorAgreementTrait) ClearTrailing_365DSpend() {
-	x.xxx_hidden_Trailing_365DSpend = nil
-}
-
-func (x *VendorAgreementTrait) ClearYtdSpend() {
-	x.xxx_hidden_YtdSpend = nil
 }
 
 type VendorAgreementTrait_builder struct {
@@ -697,11 +553,6 @@ type VendorAgreementTrait_builder struct {
 	TotalValue       *Money
 	LineItems        []*LineItem
 	PricingModel     VendorAgreementTrait_PricingModel
-	// Trailing-window spend pre-aggregated by the source. Pass through
-	// verbatim; populate only what the source returns.
-	Trailing_30DSpend  *Money
-	Trailing_365DSpend *Money
-	YtdSpend           *Money
 	// The vendor-side point of contact (i.e. someone at the vendor, not the
 	// customer). Carried as strings because this person is not a principal
 	// in the customer's user namespace and so cannot be modeled as a Baton
@@ -725,9 +576,6 @@ func (b0 VendorAgreementTrait_builder) Build() *VendorAgreementTrait {
 	x.xxx_hidden_TotalValue = b.TotalValue
 	x.xxx_hidden_LineItems = &b.LineItems
 	x.xxx_hidden_PricingModel = b.PricingModel
-	x.xxx_hidden_Trailing_30DSpend = b.Trailing_30DSpend
-	x.xxx_hidden_Trailing_365DSpend = b.Trailing_365DSpend
-	x.xxx_hidden_YtdSpend = b.YtdSpend
 	x.xxx_hidden_ExternalAccountManagerEmail = b.ExternalAccountManagerEmail
 	x.xxx_hidden_ExternalAccountManagerName = b.ExternalAccountManagerName
 	return m0
@@ -737,17 +585,14 @@ var File_c1_connector_v2_annotation_vendor_agreement_proto protoreflect.FileDesc
 
 const file_c1_connector_v2_annotation_vendor_agreement_proto_rawDesc = "" +
 	"\n" +
-	"1c1/connector/v2/annotation_vendor_agreement.proto\x12\x0fc1.connector.v2\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"n\n" +
-	"\x05Money\x12!\n" +
-	"\famount_minor\x18\x01 \x01(\x03R\vamountMinor\x12B\n" +
-	"\rcurrency_code\x18\x02 \x01(\tB\x1d\xfaB\x1ar\x18 \x03(\b2\x12^[A-Za-z0-9]{3,8}$R\fcurrencyCode\"\xfb\x01\n" +
+	"1c1/connector/v2/annotation_vendor_agreement.proto\x12\x0fc1.connector.v2\x1a'c1/connector/v2/annotation_vendor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\xfb\x01\n" +
 	"\bLineItem\x12?\n" +
 	"\x17product_or_service_name\x18\x01 \x01(\tB\b\xfaB\x05r\x03(\x80\bR\x14productOrServiceName\x12\x1a\n" +
 	"\bquantity\x18\x02 \x01(\x01R\bquantity\x12\x1b\n" +
 	"\x04unit\x18\x03 \x01(\tB\a\xfaB\x04r\x02(@R\x04unit\x12<\n" +
 	"\x0eprice_per_unit\x18\x04 \x01(\v2\x16.c1.connector.v2.MoneyR\fpricePerUnit\x127\n" +
 	"\vtotal_price\x18\x05 \x01(\v2\x16.c1.connector.v2.MoneyR\n" +
-	"totalPrice\"\xae\v\n" +
+	"totalPrice\"\xeb\t\n" +
 	"\x14VendorAgreementTrait\x122\n" +
 	"\x0eagreement_name\x18\x01 \x01(\tB\v\xfaB\br\x06(\x80\b\xd0\x01\x01R\ragreementName\x129\n" +
 	"\n" +
@@ -762,13 +607,10 @@ const file_c1_connector_v2_annotation_vendor_agreement_proto_rawDesc = "" +
 	"\n" +
 	"line_items\x18\t \x03(\v2\x19.c1.connector.v2.LineItemR\tlineItems\x12W\n" +
 	"\rpricing_model\x18\n" +
-	" \x01(\x0e22.c1.connector.v2.VendorAgreementTrait.PricingModelR\fpricingModel\x12D\n" +
-	"\x12trailing_30d_spend\x18\v \x01(\v2\x16.c1.connector.v2.MoneyR\x10trailing30dSpend\x12F\n" +
-	"\x13trailing_365d_spend\x18\f \x01(\v2\x16.c1.connector.v2.MoneyR\x11trailing365dSpend\x123\n" +
-	"\tytd_spend\x18\r \x01(\v2\x16.c1.connector.v2.MoneyR\bytdSpend\x12R\n" +
-	"\x1eexternal_account_manager_email\x18\x0e \x01(\tB\r\xfaB\n" +
+	" \x01(\x0e22.c1.connector.v2.VendorAgreementTrait.PricingModelR\fpricingModel\x12R\n" +
+	"\x1eexternal_account_manager_email\x18\v \x01(\tB\r\xfaB\n" +
 	"r\b(\x80\b\xd0\x01\x01`\x01R\x1bexternalAccountManagerEmail\x12N\n" +
-	"\x1dexternal_account_manager_name\x18\x0f \x01(\tB\v\xfaB\br\x06(\x80\b\xd0\x01\x01R\x1aexternalAccountManagerName\"\xe0\x01\n" +
+	"\x1dexternal_account_manager_name\x18\f \x01(\tB\v\xfaB\br\x06(\x80\b\xd0\x01\x01R\x1aexternalAccountManagerName\"\xe0\x01\n" +
 	"\rRenewalStatus\x12\x1e\n" +
 	"\x1aRENEWAL_STATUS_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aRENEWAL_STATUS_NOT_STARTED\x10\x01\x12\x1c\n" +
@@ -787,33 +629,30 @@ const file_c1_connector_v2_annotation_vendor_agreement_proto_rawDesc = "" +
 	"\x13PRICING_MODEL_USAGE\x10\x06B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_vendor_agreement_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_c1_connector_v2_annotation_vendor_agreement_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_c1_connector_v2_annotation_vendor_agreement_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_c1_connector_v2_annotation_vendor_agreement_proto_goTypes = []any{
 	(VendorAgreementTrait_RenewalStatus)(0), // 0: c1.connector.v2.VendorAgreementTrait.RenewalStatus
 	(VendorAgreementTrait_PricingModel)(0),  // 1: c1.connector.v2.VendorAgreementTrait.PricingModel
-	(*Money)(nil),                           // 2: c1.connector.v2.Money
-	(*LineItem)(nil),                        // 3: c1.connector.v2.LineItem
-	(*VendorAgreementTrait)(nil),            // 4: c1.connector.v2.VendorAgreementTrait
+	(*LineItem)(nil),                        // 2: c1.connector.v2.LineItem
+	(*VendorAgreementTrait)(nil),            // 3: c1.connector.v2.VendorAgreementTrait
+	(*Money)(nil),                           // 4: c1.connector.v2.Money
 	(*timestamppb.Timestamp)(nil),           // 5: google.protobuf.Timestamp
 }
 var file_c1_connector_v2_annotation_vendor_agreement_proto_depIdxs = []int32{
-	2,  // 0: c1.connector.v2.LineItem.price_per_unit:type_name -> c1.connector.v2.Money
-	2,  // 1: c1.connector.v2.LineItem.total_price:type_name -> c1.connector.v2.Money
-	5,  // 2: c1.connector.v2.VendorAgreementTrait.start_date:type_name -> google.protobuf.Timestamp
-	5,  // 3: c1.connector.v2.VendorAgreementTrait.end_date:type_name -> google.protobuf.Timestamp
-	5,  // 4: c1.connector.v2.VendorAgreementTrait.last_date_to_terminate:type_name -> google.protobuf.Timestamp
-	0,  // 5: c1.connector.v2.VendorAgreementTrait.renewal_status:type_name -> c1.connector.v2.VendorAgreementTrait.RenewalStatus
-	2,  // 6: c1.connector.v2.VendorAgreementTrait.total_value:type_name -> c1.connector.v2.Money
-	3,  // 7: c1.connector.v2.VendorAgreementTrait.line_items:type_name -> c1.connector.v2.LineItem
-	1,  // 8: c1.connector.v2.VendorAgreementTrait.pricing_model:type_name -> c1.connector.v2.VendorAgreementTrait.PricingModel
-	2,  // 9: c1.connector.v2.VendorAgreementTrait.trailing_30d_spend:type_name -> c1.connector.v2.Money
-	2,  // 10: c1.connector.v2.VendorAgreementTrait.trailing_365d_spend:type_name -> c1.connector.v2.Money
-	2,  // 11: c1.connector.v2.VendorAgreementTrait.ytd_spend:type_name -> c1.connector.v2.Money
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	4, // 0: c1.connector.v2.LineItem.price_per_unit:type_name -> c1.connector.v2.Money
+	4, // 1: c1.connector.v2.LineItem.total_price:type_name -> c1.connector.v2.Money
+	5, // 2: c1.connector.v2.VendorAgreementTrait.start_date:type_name -> google.protobuf.Timestamp
+	5, // 3: c1.connector.v2.VendorAgreementTrait.end_date:type_name -> google.protobuf.Timestamp
+	5, // 4: c1.connector.v2.VendorAgreementTrait.last_date_to_terminate:type_name -> google.protobuf.Timestamp
+	0, // 5: c1.connector.v2.VendorAgreementTrait.renewal_status:type_name -> c1.connector.v2.VendorAgreementTrait.RenewalStatus
+	4, // 6: c1.connector.v2.VendorAgreementTrait.total_value:type_name -> c1.connector.v2.Money
+	2, // 7: c1.connector.v2.VendorAgreementTrait.line_items:type_name -> c1.connector.v2.LineItem
+	1, // 8: c1.connector.v2.VendorAgreementTrait.pricing_model:type_name -> c1.connector.v2.VendorAgreementTrait.PricingModel
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_vendor_agreement_proto_init() }
@@ -821,13 +660,14 @@ func file_c1_connector_v2_annotation_vendor_agreement_proto_init() {
 	if File_c1_connector_v2_annotation_vendor_agreement_proto != nil {
 		return
 	}
+	file_c1_connector_v2_annotation_vendor_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_vendor_agreement_proto_rawDesc), len(file_c1_connector_v2_annotation_vendor_agreement_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   3,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

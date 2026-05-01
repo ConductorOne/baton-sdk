@@ -50,6 +50,9 @@ func TestNewVendorTrait_FullPopulation(t *testing.T) {
 		WithExternalVendorID("acme-prod"),
 		WithVendorDeepLinkURL("https://example.com/vendors/v123"),
 		WithVendorSourceScoping("source-business-id", "source-entity-id"),
+		WithTrailing30DaySpend(NewMoney(400_000, "USD")),
+		WithTrailing365DaySpend(NewMoney(4_800_000, "USD")),
+		WithYTDSpend(NewMoney(400_000, "USD")),
 	)
 	require.NoError(t, err)
 
@@ -61,6 +64,49 @@ func TestNewVendorTrait_FullPopulation(t *testing.T) {
 	require.Equal(t, "https://example.com/vendors/v123", trait.GetDeepLinkUrl())
 	require.Equal(t, "source-business-id", trait.GetSourceBusinessId())
 	require.Equal(t, "source-entity-id", trait.GetSourceEntityId())
+	require.Equal(t, int64(400_000), trait.GetTrailing_30DSpend().GetAmountMinor())
+	require.Equal(t, int64(4_800_000), trait.GetTrailing_365DSpend().GetAmountMinor())
+	require.Equal(t, int64(400_000), trait.GetYtdSpend().GetAmountMinor())
+}
+
+// TestVendorTrait_SpendWindowsIndependent verifies each spend-window
+// option sets only its own field. Spend lives on VendorTrait because spend
+// is a property of the vendor (not of any individual agreement).
+func TestVendorTrait_SpendWindowsIndependent(t *testing.T) {
+	t.Run("only 30d", func(t *testing.T) {
+		trait, err := NewVendorTrait(
+			WithVendorIdentity("vendor-uuid", "Acme", ""),
+			WithTrailing30DaySpend(NewMoney(400_000, "USD")),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, trait.GetTrailing_30DSpend())
+		require.Nil(t, trait.GetTrailing_365DSpend())
+		require.Nil(t, trait.GetYtdSpend())
+	})
+
+	t.Run("only ytd", func(t *testing.T) {
+		trait, err := NewVendorTrait(
+			WithVendorIdentity("vendor-uuid", "Acme", ""),
+			WithYTDSpend(NewMoney(12_345, "USD")),
+		)
+		require.NoError(t, err)
+		require.Nil(t, trait.GetTrailing_30DSpend())
+		require.Nil(t, trait.GetTrailing_365DSpend())
+		require.Equal(t, int64(12_345), trait.GetYtdSpend().GetAmountMinor())
+	})
+
+	t.Run("all three", func(t *testing.T) {
+		trait, err := NewVendorTrait(
+			WithVendorIdentity("vendor-uuid", "Acme", ""),
+			WithTrailing30DaySpend(NewMoney(100, "USD")),
+			WithTrailing365DaySpend(NewMoney(200, "USD")),
+			WithYTDSpend(NewMoney(300, "USD")),
+		)
+		require.NoError(t, err)
+		require.Equal(t, int64(100), trait.GetTrailing_30DSpend().GetAmountMinor())
+		require.Equal(t, int64(200), trait.GetTrailing_365DSpend().GetAmountMinor())
+		require.Equal(t, int64(300), trait.GetYtdSpend().GetAmountMinor())
+	})
 }
 
 // TestWithVendorTrait_AppliesToResource verifies the ResourceOption

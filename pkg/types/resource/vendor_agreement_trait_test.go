@@ -40,9 +40,6 @@ func TestNewVendorAgreementTrait_FullPopulation(t *testing.T) {
 			),
 		),
 		WithPricingModel(v2.VendorAgreementTrait_PRICING_MODEL_PER_SEAT),
-		WithTrailing30DaySpend(NewMoney(400_000, "USD")),
-		WithTrailing365DaySpend(NewMoney(4_800_000, "USD")),
-		WithYTDSpend(NewMoney(400_000, "USD")),
 		WithExternalAccountManager("am@vendor.example", "Account Manager"),
 	)
 	require.NoError(t, err)
@@ -75,11 +72,6 @@ func TestNewVendorAgreementTrait_FullPopulation(t *testing.T) {
 	// Pricing model
 	require.Equal(t, v2.VendorAgreementTrait_PRICING_MODEL_PER_SEAT, trait.GetPricingModel())
 
-	// Spend windows
-	require.Equal(t, int64(400_000), trait.GetTrailing_30DSpend().GetAmountMinor())
-	require.Equal(t, int64(4_800_000), trait.GetTrailing_365DSpend().GetAmountMinor())
-	require.Equal(t, int64(400_000), trait.GetYtdSpend().GetAmountMinor())
-
 	// External account manager
 	require.Equal(t, "am@vendor.example", trait.GetExternalAccountManagerEmail())
 	require.Equal(t, "Account Manager", trait.GetExternalAccountManagerName())
@@ -93,42 +85,6 @@ func TestWithLastDateToTerminate_ZeroTimeSkips(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Nil(t, trait.GetLastDateToTerminate())
-}
-
-// TestSpendWindows_IndependentOptions verifies each spend-window option
-// sets only its own field.
-func TestSpendWindows_IndependentOptions(t *testing.T) {
-	t.Run("only 30d", func(t *testing.T) {
-		trait, err := NewVendorAgreementTrait(
-			WithTrailing30DaySpend(NewMoney(400_000, "USD")),
-		)
-		require.NoError(t, err)
-		require.NotNil(t, trait.GetTrailing_30DSpend())
-		require.Nil(t, trait.GetTrailing_365DSpend())
-		require.Nil(t, trait.GetYtdSpend())
-	})
-
-	t.Run("only ytd", func(t *testing.T) {
-		trait, err := NewVendorAgreementTrait(
-			WithYTDSpend(NewMoney(12_345, "USD")),
-		)
-		require.NoError(t, err)
-		require.Nil(t, trait.GetTrailing_30DSpend())
-		require.Nil(t, trait.GetTrailing_365DSpend())
-		require.Equal(t, int64(12_345), trait.GetYtdSpend().GetAmountMinor())
-	})
-
-	t.Run("all three", func(t *testing.T) {
-		trait, err := NewVendorAgreementTrait(
-			WithTrailing30DaySpend(NewMoney(100, "USD")),
-			WithTrailing365DaySpend(NewMoney(200, "USD")),
-			WithYTDSpend(NewMoney(300, "USD")),
-		)
-		require.NoError(t, err)
-		require.Equal(t, int64(100), trait.GetTrailing_30DSpend().GetAmountMinor())
-		require.Equal(t, int64(200), trait.GetTrailing_365DSpend().GetAmountMinor())
-		require.Equal(t, int64(300), trait.GetYtdSpend().GetAmountMinor())
-	})
 }
 
 // TestNewVendorAgreementTrait_DateOrdering verifies cross-field date
