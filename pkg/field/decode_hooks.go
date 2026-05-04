@@ -11,7 +11,10 @@ import (
 	"github.com/mitchellh/mapstructure"
 )
 
-const defaultFileUploadMaxFileSize = 2 * 1024 * 1024
+const (
+	defaultFileUploadMaxFileSize    = 2 * 1024 * 1024
+	defaultFileUploadMaxDecodedSize = defaultFileUploadMaxFileSize
+)
 
 type DecodeHookOption func(*decodeHookConfig)
 
@@ -62,7 +65,8 @@ type fileUploadDecodeConfig struct {
 
 func defaultFileUploadDecodeConfig() *fileUploadDecodeConfig {
 	return &fileUploadDecodeConfig{
-		maxFileSize: defaultFileUploadMaxFileSize,
+		maxDecodedSize: defaultFileUploadMaxDecodedSize,
+		maxFileSize:    defaultFileUploadMaxFileSize,
 	}
 }
 
@@ -76,8 +80,10 @@ func WithFileUploadMaxDecodedSize(maxBytes int64) FileUploadDecodeOption {
 
 // DecodeFileUploadValue decodes a single file upload value using the selected mode.
 // Content-only mode supports JSON base64 data URLs, raw base64 content, and raw
-// unencoded content. Path-only mode reads the named file and never falls back to
-// content decoding.
+// unencoded content, in that order. A raw string that is also valid base64 will
+// decode as base64. Path-only mode reads the named file and never falls back to
+// content decoding. Callers that accept paths from untrusted input must validate
+// allowed paths before calling DecodeFileUploadValue.
 func DecodeFileUploadValue(value string, mode FileUploadDecodeMode, opts ...FileUploadDecodeOption) ([]byte, error) {
 	config := defaultFileUploadDecodeConfig()
 	for _, opt := range opts {
@@ -118,7 +124,7 @@ func FileUploadDecodeHook(readFromPath bool) mapstructure.DecodeHookFunc {
 			return DecodeFileUploadValue(str, FileUploadDecodeModePathOnly)
 		}
 
-		return DecodeFileUploadValue(str, FileUploadDecodeModeContentOnly)
+		return DecodeFileUploadValue(str, FileUploadDecodeModeContentOnly, WithFileUploadMaxDecodedSize(0))
 	}
 }
 
@@ -135,7 +141,7 @@ func getFileContentFromPath(path string, maxFileSize int64) ([]byte, error) {
 		return nil, fmt.Errorf("cannot access file: %w", err)
 	}
 
-	// Check file size limit (2MB)
+	// Check file size limit.
 	if maxFileSize > 0 && fileInfo.Size() > maxFileSize {
 		return nil, fmt.Errorf("file too large: %d bytes exceeds limit of %d bytes", fileInfo.Size(), maxFileSize)
 	}
@@ -157,32 +163,60 @@ func parseFileContent(data string, config *fileUploadDecodeConfig) ([]byte, erro
 
 	// Check if it's a data URL first
 	if strings.HasPrefix(data, "data:") {
-		decoded, err := parseJSONBase64DataURL(data)
-		return applyMaxDecodedSize(decoded, err, config.maxDecodedSize)
+		decoded, err := parseJSONBase64DataURL(data, config.maxDecodedSize)
+		if err != nil {
+			return nil, err
+		}
+		return checkAndReturnDecodedContent(decoded, config.maxDecodedSize)
 	}
 
 	// Check if it's a base64 encoded string
+	if err := checkBase64DecodedSize(data, config.maxDecodedSize); err != nil {
+		return nil, err
+	}
 	if decoded, err := base64.StdEncoding.DecodeString(data); err == nil {
-		return applyMaxDecodedSize(decoded, nil, config.maxDecodedSize)
+		return checkAndReturnDecodedContent(decoded, config.maxDecodedSize)
 	}
 
 	// Return the content as-is
-	return applyMaxDecodedSize([]byte(data), nil, config.maxDecodedSize)
+	return checkAndReturnDecodedContent([]byte(data), config.maxDecodedSize)
 }
 
-func applyMaxDecodedSize(data []byte, err error, maxDecodedSize int64) ([]byte, error) {
-	if err != nil {
+func checkAndReturnDecodedContent(data []byte, maxDecodedSize int64) ([]byte, error) {
+	if err := checkMaxDecodedSize(int64(len(data)), maxDecodedSize); err != nil {
 		return nil, err
-	}
-	if maxDecodedSize > 0 && int64(len(data)) > maxDecodedSize {
-		return nil, fmt.Errorf("decoded file upload content too large: %d bytes exceeds limit of %d bytes", len(data), maxDecodedSize)
 	}
 	return data, nil
 }
 
+func checkMaxDecodedSize(size int64, maxDecodedSize int64) error {
+	if maxDecodedSize > 0 && size > maxDecodedSize {
+		return fmt.Errorf("decoded file upload content too large: %d bytes exceeds limit of %d bytes", size, maxDecodedSize)
+	}
+	return nil
+}
+
+func checkBase64DecodedSize(data string, maxDecodedSize int64) error {
+	if maxDecodedSize <= 0 {
+		return nil
+	}
+
+	decodedSize := base64.StdEncoding.DecodedLen(len(data))
+	switch {
+	case strings.HasSuffix(data, "=="):
+		decodedSize -= 2
+	case strings.HasSuffix(data, "="):
+		decodedSize--
+	}
+	if decodedSize < 0 {
+		decodedSize = 0
+	}
+	return checkMaxDecodedSize(int64(decodedSize), maxDecodedSize)
+}
+
 // parseJSONBase64DataURL parses a data URL and returns the decoded content.
 // Errors if the data is not MIME type application/json and base64 encoded.
-func parseJSONBase64DataURL(dataURL string) ([]byte, error) {
+func parseJSONBase64DataURL(dataURL string, maxDecodedSize int64) ([]byte, error) {
 	parsedURL, err := url.Parse(dataURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid data URL: %w", err)
@@ -208,6 +242,9 @@ func parseJSONBase64DataURL(dataURL string) ([]byte, error) {
 		return nil, fmt.Errorf("expected MIME type application/json, got: %s", mediaType)
 	}
 
+	if err := checkBase64DecodedSize(data, maxDecodedSize); err != nil {
+		return nil, err
+	}
 	decoded, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode base64 data: %w", err)

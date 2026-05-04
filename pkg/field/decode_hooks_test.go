@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mitchellh/mapstructure"
@@ -223,6 +224,12 @@ func TestDecodeFileUploadValue(t *testing.T) {
 			expected: []byte(`{"key": "value"}`),
 		},
 		{
+			name:     "content-only accepts empty string",
+			value:    "",
+			mode:     FileUploadDecodeModeContentOnly,
+			expected: []byte{},
+		},
+		{
 			name:        "content-only rejects non-JSON data URL",
 			value:       "data:text/plain;base64," + base64.StdEncoding.EncodeToString([]byte("encoded content")),
 			mode:        FileUploadDecodeModeContentOnly,
@@ -234,6 +241,13 @@ func TestDecodeFileUploadValue(t *testing.T) {
 			mode:        FileUploadDecodeModeContentOnly,
 			opts:        []FileUploadDecodeOption{WithFileUploadMaxDecodedSize(4)},
 			expectError: true,
+		},
+		{
+			name:     "content-only ignores nil options",
+			value:    "content",
+			mode:     FileUploadDecodeModeContentOnly,
+			opts:     []FileUploadDecodeOption{nil},
+			expected: []byte("content"),
 		},
 		{
 			name:        "unspecified mode returns error",
@@ -254,6 +268,54 @@ func TestDecodeFileUploadValue(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestDecodeFileUploadValueSizeLimits(t *testing.T) {
+	largeContent := strings.Repeat("!", int(defaultFileUploadMaxDecodedSize)+1)
+
+	_, err := DecodeFileUploadValue(largeContent, FileUploadDecodeModeContentOnly)
+	require.Error(t, err)
+
+	result, err := DecodeFileUploadValue(largeContent, FileUploadDecodeModeContentOnly, WithFileUploadMaxDecodedSize(0))
+	require.NoError(t, err)
+	require.Len(t, result, len(largeContent))
+
+	result, err = DecodeFileUploadValue(largeContent, FileUploadDecodeModeContentOnly, WithFileUploadMaxDecodedSize(-1))
+	require.NoError(t, err)
+	require.Len(t, result, len(largeContent))
+
+	encoded := base64.StdEncoding.EncodeToString([]byte(largeContent))
+	_, err = DecodeFileUploadValue(encoded, FileUploadDecodeModeContentOnly)
+	require.Error(t, err)
+
+	dataURL := "data:application/json;base64," + encoded
+	_, err = DecodeFileUploadValue(dataURL, FileUploadDecodeModeContentOnly)
+	require.Error(t, err)
+}
+
+func TestFileUploadDecodeHookContentModePreservesLegacySizeBehavior(t *testing.T) {
+	largeContent := strings.Repeat("!", int(defaultFileUploadMaxDecodedSize)+1)
+
+	result, err := mapstructure.DecodeHookExec(
+		FileUploadDecodeHook(false),
+		reflect.ValueOf(largeContent),
+		reflect.ValueOf([]byte{}),
+	)
+
+	require.NoError(t, err)
+	require.Len(t, result, len(largeContent))
+}
+
+func TestDecodeFileUploadValuePathSizeLimit(t *testing.T) {
+	tempDir := t.TempDir()
+	largeFilePath := filepath.Join(tempDir, "large.txt")
+	largeFileContent := []byte(strings.Repeat("!", int(defaultFileUploadMaxFileSize)+1))
+
+	err := os.WriteFile(largeFilePath, largeFileContent, 0600)
+	require.NoError(t, err)
+
+	_, err = DecodeFileUploadValue(largeFilePath, FileUploadDecodeModePathOnly)
+	require.Error(t, err)
 }
 
 func TestStringToSliceHookFunc(t *testing.T) {
