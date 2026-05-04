@@ -892,6 +892,15 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	if err != nil {
 		return nil, err
 	}
+	// From here on, any error path that hasn't flipped cwReady leaves the
+	// connector wrapper to be closed by the deferred guard so we don't leak
+	// its subprocess plugin / pooled resources.
+	cwReady := false
+	defer func() {
+		if !cwReady {
+			_ = cw.Close()
+		}
+	}()
 
 	resources := make([]*v2.Resource, 0, len(cfg.targetedSyncResourceIDs))
 	for _, resourceId := range cfg.targetedSyncResourceIDs {
@@ -988,9 +997,14 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		runner.tasks = tm
 
 		runner.oneShot = true
+		cwReady = true
 		return runner, nil
 	}
 
+	// At this point we are definitively in service / daemon mode: one-shot
+	// (cfg.onDemand) returned above, and Lambda mode never reaches
+	// NewConnectorRunner. Only this path sends a startup Hello to Conductor
+	// One — local / one-shot managers and Lambda intentionally do not.
 	tm, err := c1api.NewC1TaskManager(
 		ctx,
 		cfg.clientID,
@@ -1006,6 +1020,18 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	if err != nil {
 		return nil, err
 	}
+
+	// Run the startup Hello handshake before handing control to the task loop.
+	// Bootstrap blocks (with exponential backoff up to 5 minutes) on transient
+	// failures and returns an error on ctx cancel or non-retryable responses
+	// like bad credentials.
+	cc, err := cw.C(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("runner: failed to get connector client for startup Hello: %w", err)
+	}
+	if err := tm.Bootstrap(ctx, cc); err != nil {
+		return nil, fmt.Errorf("runner: startup Hello failed: %w", err)
+	}
 	runner.tasks = tm
 
 	// Start health check server if enabled (only for daemon mode)
@@ -1017,11 +1043,11 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		}
 		healthServer := healthcheck.NewServer(healthCfg, cw.C)
 		if err := healthServer.Start(ctx); err != nil {
-			_ = cw.Close() // Clean up connector wrapper on failure
 			return nil, fmt.Errorf("failed to start health check server: %w", err)
 		}
 		runner.healthServer = healthServer
 	}
 
+	cwReady = true
 	return runner, nil
 }
