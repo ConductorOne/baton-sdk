@@ -1208,6 +1208,8 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 					Description: description,
 					GrantableTo: ent.GetGrantableTo(),
 					Annotations: ent.GetAnnotations(),
+					Slug:        ent.GetSlug(),
+					Purpose:     ent.GetPurpose(),
 				})
 			}
 			err = s.store.PutEntitlements(ctx, entitlements...)
