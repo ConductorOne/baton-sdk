@@ -11,6 +11,8 @@ import (
 	"github.com/mitchellh/mapstructure"
 )
 
+const defaultFileUploadMaxFileSize = 2 * 1024 * 1024
+
 type DecodeHookOption func(*decodeHookConfig)
 
 type decodeHookConfig struct {
@@ -39,6 +41,61 @@ func WithAdditionalDecodeHooks(funcs ...mapstructure.DecodeHookFunc) DecodeHookO
 	}
 }
 
+// FileUploadDecodeMode controls how DecodeFileUploadValue interprets the value.
+type FileUploadDecodeMode int
+
+const (
+	fileUploadDecodeModeUnspecified FileUploadDecodeMode = iota
+	// FileUploadDecodeModeContentOnly decodes the value as file content.
+	FileUploadDecodeModeContentOnly
+	// FileUploadDecodeModePathOnly reads the value as a filesystem path.
+	FileUploadDecodeModePathOnly
+)
+
+// FileUploadDecodeOption configures DecodeFileUploadValue.
+type FileUploadDecodeOption func(*fileUploadDecodeConfig)
+
+type fileUploadDecodeConfig struct {
+	maxDecodedSize int64
+	maxFileSize    int64
+}
+
+func defaultFileUploadDecodeConfig() *fileUploadDecodeConfig {
+	return &fileUploadDecodeConfig{
+		maxFileSize: defaultFileUploadMaxFileSize,
+	}
+}
+
+// WithFileUploadMaxDecodedSize limits decoded content bytes in content-only mode.
+// Values less than or equal to zero disable the limit.
+func WithFileUploadMaxDecodedSize(maxBytes int64) FileUploadDecodeOption {
+	return func(c *fileUploadDecodeConfig) {
+		c.maxDecodedSize = maxBytes
+	}
+}
+
+// DecodeFileUploadValue decodes a single file upload value using the selected mode.
+// Content-only mode supports JSON base64 data URLs, raw base64 content, and raw
+// unencoded content. Path-only mode reads the named file and never falls back to
+// content decoding.
+func DecodeFileUploadValue(value string, mode FileUploadDecodeMode, opts ...FileUploadDecodeOption) ([]byte, error) {
+	config := defaultFileUploadDecodeConfig()
+	for _, opt := range opts {
+		if opt != nil {
+			opt(config)
+		}
+	}
+
+	switch mode {
+	case FileUploadDecodeModeContentOnly:
+		return parseFileContent(value, config)
+	case FileUploadDecodeModePathOnly:
+		return getFileContentFromPath(value, config.maxFileSize)
+	default:
+		return nil, fmt.Errorf("unsupported file upload decode mode: %d", mode)
+	}
+}
+
 // FileUploadDecodeHook returns a mapstructure.DecodeHookFunc that automatically
 // converts string values to []byte for file upload fields, supporting:
 // 1. File paths (reads file content)
@@ -58,15 +115,15 @@ func FileUploadDecodeHook(readFromPath bool) mapstructure.DecodeHookFunc {
 		}
 
 		if readFromPath {
-			return getFileContentFromPath(str)
+			return DecodeFileUploadValue(str, FileUploadDecodeModePathOnly)
 		}
 
-		return parseFileContent(str)
+		return DecodeFileUploadValue(str, FileUploadDecodeModeContentOnly)
 	}
 }
 
 // getFileContentFromPath returns the file content from a path.
-func getFileContentFromPath(path string) ([]byte, error) {
+func getFileContentFromPath(path string, maxFileSize int64) ([]byte, error) {
 	if path == "" {
 		// don't error if the path is empty, leave that to the field validation rules
 		return []byte{}, nil
@@ -79,8 +136,7 @@ func getFileContentFromPath(path string) ([]byte, error) {
 	}
 
 	// Check file size limit (2MB)
-	maxFileSize := 2 * 1024 * 1024
-	if fileInfo.Size() > int64(maxFileSize) {
+	if maxFileSize > 0 && fileInfo.Size() > maxFileSize {
 		return nil, fmt.Errorf("file too large: %d bytes exceeds limit of %d bytes", fileInfo.Size(), maxFileSize)
 	}
 
@@ -93,7 +149,7 @@ func getFileContentFromPath(path string) ([]byte, error) {
 }
 
 // parseFileContent returns the file upload content from a string field value.
-func parseFileContent(data string) ([]byte, error) {
+func parseFileContent(data string, config *fileUploadDecodeConfig) ([]byte, error) {
 	if data == "" {
 		// don't error if the data is empty, leave that to the field validation rules
 		return []byte{}, nil
@@ -101,16 +157,27 @@ func parseFileContent(data string) ([]byte, error) {
 
 	// Check if it's a data URL first
 	if strings.HasPrefix(data, "data:") {
-		return parseJSONBase64DataURL(data)
+		decoded, err := parseJSONBase64DataURL(data)
+		return applyMaxDecodedSize(decoded, err, config.maxDecodedSize)
 	}
 
 	// Check if it's a base64 encoded string
 	if decoded, err := base64.StdEncoding.DecodeString(data); err == nil {
-		return decoded, nil
+		return applyMaxDecodedSize(decoded, nil, config.maxDecodedSize)
 	}
 
 	// Return the content as-is
-	return []byte(data), nil
+	return applyMaxDecodedSize([]byte(data), nil, config.maxDecodedSize)
+}
+
+func applyMaxDecodedSize(data []byte, err error, maxDecodedSize int64) ([]byte, error) {
+	if err != nil {
+		return nil, err
+	}
+	if maxDecodedSize > 0 && int64(len(data)) > maxDecodedSize {
+		return nil, fmt.Errorf("decoded file upload content too large: %d bytes exceeds limit of %d bytes", len(data), maxDecodedSize)
+	}
+	return data, nil
 }
 
 // parseJSONBase64DataURL parses a data URL and returns the decoded content.

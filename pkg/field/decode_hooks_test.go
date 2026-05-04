@@ -176,6 +176,86 @@ func TestFileUploadDecodeHook(t *testing.T) {
 	}
 }
 
+func TestDecodeFileUploadValue(t *testing.T) {
+	tempDir := t.TempDir()
+	tempFilePath := filepath.Join(tempDir, "test.txt")
+	tempFileContent := []byte("test file content")
+
+	err := os.WriteFile(tempFilePath, tempFileContent, 0600)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		value       string
+		mode        FileUploadDecodeMode
+		opts        []FileUploadDecodeOption
+		expected    []byte
+		expectError bool
+	}{
+		{
+			name:     "path-only reads file",
+			value:    tempFilePath,
+			mode:     FileUploadDecodeModePathOnly,
+			expected: tempFileContent,
+		},
+		{
+			name:        "path-only rejects missing file",
+			value:       filepath.Join(tempDir, "missing.txt"),
+			mode:        FileUploadDecodeModePathOnly,
+			expectError: true,
+		},
+		{
+			name:     "content-only keeps path string as content",
+			value:    tempFilePath,
+			mode:     FileUploadDecodeModeContentOnly,
+			expected: []byte(tempFilePath),
+		},
+		{
+			name:     "content-only decodes base64",
+			value:    base64.StdEncoding.EncodeToString([]byte("encoded content")),
+			mode:     FileUploadDecodeModeContentOnly,
+			expected: []byte("encoded content"),
+		},
+		{
+			name:     "content-only decodes JSON data URL",
+			value:    "data:application/json;base64," + base64.StdEncoding.EncodeToString([]byte(`{"key": "value"}`)),
+			mode:     FileUploadDecodeModeContentOnly,
+			expected: []byte(`{"key": "value"}`),
+		},
+		{
+			name:        "content-only rejects non-JSON data URL",
+			value:       "data:text/plain;base64," + base64.StdEncoding.EncodeToString([]byte("encoded content")),
+			mode:        FileUploadDecodeModeContentOnly,
+			expectError: true,
+		},
+		{
+			name:        "content-only enforces decoded size option",
+			value:       base64.StdEncoding.EncodeToString([]byte("12345")),
+			mode:        FileUploadDecodeModeContentOnly,
+			opts:        []FileUploadDecodeOption{WithFileUploadMaxDecodedSize(4)},
+			expectError: true,
+		},
+		{
+			name:        "unspecified mode returns error",
+			value:       "content",
+			mode:        fileUploadDecodeModeUnspecified,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := DecodeFileUploadValue(tt.value, tt.mode, tt.opts...)
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestStringToSliceHookFunc(t *testing.T) {
 	tests := []struct {
 		name     string
