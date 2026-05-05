@@ -19,6 +19,7 @@ option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
 service BatonService {
   rpc Hello(BatonServiceHelloRequest) returns (BatonServiceHelloResponse) {}
   rpc GetTask(BatonServiceGetTaskRequest) returns (BatonServiceGetTaskResponse) {}
+  rpc GetTasks(BatonServiceGetTasksRequest) returns (BatonServiceGetTasksResponse) {}
 
   rpc Heartbeat(BatonServiceHeartbeatRequest) returns (BatonServiceHeartbeatResponse) {}
 
@@ -248,6 +249,27 @@ message BatonServiceGetTaskRequest {
   }];
 }
 
+message BatonServiceGetTasksRequest {
+  string host_id = 1 [(validate.rules).string = {
+    min_len: 1
+    max_len: 256
+  }];
+  uint32 page_size = 2 [(validate.rules).uint32 = {gt: 0, lte: 100}];
+  repeated string known_task_ids = 3 [(validate.rules).repeated = {
+    items: {
+      string: {pattern: "^[a-zA-Z0-9]{27}$"}
+    }
+  }];
+  repeated google.protobuf.Any annotations = 4 [(validate.rules).repeated = {max_items: 16}];
+}
+
+message BatonServiceGetTasksResponse {
+  repeated Task tasks = 1 [(validate.rules).repeated = {max_items: 100}];
+  google.protobuf.Duration next_poll = 2;
+  google.protobuf.Duration next_heartbeat = 3;
+  repeated google.protobuf.Any annotations = 4;
+}
+
 message BatonServiceGetTaskResponse {
   Task task = 1;
   google.protobuf.Duration next_poll = 2;
@@ -262,12 +284,21 @@ message BatonServiceHeartbeatRequest {
   }];
   string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
   repeated google.protobuf.Any annotations = 3 [(validate.rules).repeated = {max_items: 16}]; // Useful for returning status updates on the task
+
+  // New batch heartbeat path.
+  repeated string task_ids = 4 [(validate.rules).repeated = {
+    max_items: 100
+    items: {
+      string: {pattern: "^[a-zA-Z0-9]{27}$"}
+    }
+  }];
 }
 
 message BatonServiceHeartbeatResponse {
   google.protobuf.Duration next_heartbeat = 1;
   bool cancelled = 2; // Backend has decided that we should stop working on this
   repeated google.protobuf.Any annotations = 3;
+  repeated string cancelled_task_ids = 4;
 }
 
 message BatonServiceUploadAssetRequest {
