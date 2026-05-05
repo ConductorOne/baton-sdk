@@ -406,6 +406,13 @@ func MakeMainCommand[T field.Configurable](
 		}
 		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
 
+		taskConcurrency := v.GetInt(field.TaskConcurrencyField.GetName())
+		taskConcurrencyField := field.TaskConcurrencyField
+		if _, err := field.ValidateField(&taskConcurrencyField, taskConcurrency); err != nil {
+			return err
+		}
+		opts = append(opts, connectorrunner.WithTaskConcurrency(taskConcurrency))
+
 		// Save the selected authentication method and get the connector.
 		c, err := getconnector(runCtx, t, RunTimeOpts{
 			SelectedAuthMethod:  v.GetString("auth-method"),

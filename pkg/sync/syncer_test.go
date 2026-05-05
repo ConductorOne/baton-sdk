@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"testing"
 
@@ -46,7 +45,7 @@ var syncModes = []struct {
 	opts []SyncOpt
 }{
 	{"sequential", nil},
-	{"parallel", []SyncOpt{WithWorkerCount(min(max(runtime.GOMAXPROCS(0), 1), 4))}},
+	{"parallel", []SyncOpt{WithWorkerCount(-1)}},
 }
 
 // runWithSyncModes runs the given test function in both sequential and parallel modes.

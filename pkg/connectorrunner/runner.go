@@ -13,6 +13,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/healthcheck"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor"
 	"golang.org/x/sync/semaphore"
@@ -34,18 +35,14 @@ import (
 	"github.com/conductorone/baton-sdk/internal/connector"
 )
 
-const (
-	// taskConcurrency configures how many tasks we run concurrently.
-	taskConcurrency = 3
-)
-
 type connectorRunner struct {
-	cw             types.ClientWrapper
-	oneShot        bool
-	tasks          tasks.Manager
-	debugFile      *os.File
-	debugFileMutex sync.Mutex
-	healthServer   *healthcheck.Server
+	cw              types.ClientWrapper
+	oneShot         bool
+	tasks           tasks.Manager
+	taskConcurrency int // concurrent task slots (>= 1)
+	debugFile       *os.File
+	debugFileMutex  sync.Mutex
+	healthServer    *healthcheck.Server
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
@@ -207,7 +204,11 @@ func (c *connectorRunner) backoff(_ context.Context, errCount int) time.Duration
 func (c *connectorRunner) run(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
-	sem := semaphore.NewWeighted(int64(taskConcurrency))
+	if !c.oneShot && c.taskConcurrency != field.TaskConcurrencySchemaDefault {
+		l.Info("runner: task concurrency", zap.Int("slots", c.taskConcurrency))
+	}
+
+	sem := semaphore.NewWeighted(int64(c.taskConcurrency))
 
 	waitDuration := time.Second * 0
 	errCount := 0
@@ -432,6 +433,8 @@ type runnerConfig struct {
 	healthCheckEnabled                    bool
 	healthCheckPort                       int
 	healthCheckBindAddress                string
+	taskConcurrency                       int // effective task slots after applying WithTaskConcurrency
+	taskConcurrencySet                    bool
 }
 
 func WithSessionStoreEnabled() Option {
@@ -656,6 +659,17 @@ func WithFullSyncDisabled() Option {
 func WithWorkerCount(workerCount int) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.workerCount = workerCount
+		return nil
+	}
+}
+
+// WithTaskConcurrency sets how many Baton tasks may run concurrently in service mode.
+// n uses the same raw sentinels as sync workers: -1 for auto-detect, 0 for sequential,
+// and >0 for that many concurrent tasks.
+func WithTaskConcurrency(n int) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.taskConcurrency = n
+		cfg.taskConcurrencySet = true
 		return nil
 	}
 }
@@ -912,6 +926,12 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	}
 
 	runner.cw = cw
+
+	if cfg.taskConcurrencySet {
+		runner.taskConcurrency = cfg.taskConcurrency
+	} else {
+		runner.taskConcurrency = field.TaskConcurrencySchemaDefault
+	}
 
 	if cfg.onDemand {
 		if cfg.c1zPath == "" &&

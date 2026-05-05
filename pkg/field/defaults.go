@@ -15,6 +15,9 @@ const (
 	OtelCollectorEndpointTLSInsecureFieldName = "otel-collector-endpoint-tls-insecure"
 	OtelTracingDisabledFieldName              = "otel-tracing-disabled"
 	OtelLoggingDisabledFieldName              = "otel-logging-disabled"
+
+	// TaskConcurrencySchemaDefault is the configured default for [TaskConcurrencyField].
+	TaskConcurrencySchemaDefault = 3
 )
 
 func defaultLogFormat() any {
@@ -325,6 +328,19 @@ var (
 		WithInt(func(r *IntRuler) {
 			r.Gte(1).Lte(1800)
 		}))
+
+	// TaskConcurrencyField limits concurrent Baton task execution in the runner
+	// (service mode). Semantics match [WorkerCountField] / sync worker parallelism.
+	TaskConcurrencyField = IntField("task-concurrency",
+		WithDescription("The number of Baton tasks to run concurrently in service mode. "+
+			"Tasks may include sync, grant, revoke, and more. "+
+			"Minimum value is 1, maximum value is 100."),
+		WithDefaultValue(TaskConcurrencySchemaDefault),
+		WithInt(func(r *IntRuler) {
+			r.Gte(1).Lte(100)
+		}),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
 )
 
 func LambdaServerFields() []SchemaField {
@@ -416,6 +432,7 @@ var DefaultFields = []SchemaField{
 	healthCheckBindAddressField,
 
 	HttpTimeoutField,
+	TaskConcurrencyField,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {
