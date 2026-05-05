@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	defaultMaxDecodedSize   = 3 * 1024 * 1024 * 1024 // 3GiB
-	defaultDecoderMaxMemory = 128 * 1024 * 1024      // 128MiB
+	defaultMaxDecodedSize   = 10 * 1024 * 1024 * 1024 // 10GiB
+	defaultDecoderMaxMemory = 128 * 1024 * 1024       // 128MiB
 	maxDecodedSizeEnvVar    = "BATON_DECODER_MAX_DECODED_SIZE_MB"
 	maxDecoderMemorySizeEnv = "BATON_DECODER_MAX_MEMORY_MB"
 
