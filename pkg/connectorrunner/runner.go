@@ -39,7 +39,7 @@ type connectorRunner struct {
 	cw              types.ClientWrapper
 	oneShot         bool
 	tasks           tasks.Manager
-	taskConcurrency int // effective concurrent task slots (>= 1)
+	taskConcurrency int // concurrent task slots (>= 1)
 	debugFile       *os.File
 	debugFileMutex  sync.Mutex
 	healthServer    *healthcheck.Server
@@ -204,8 +204,7 @@ func (c *connectorRunner) backoff(_ context.Context, errCount int) time.Duration
 func (c *connectorRunner) run(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
-	defaultTaskSlots := field.EffectiveTaskConcurrency(field.TaskConcurrencySchemaDefault)
-	if !c.oneShot && c.taskConcurrency != defaultTaskSlots {
+	if !c.oneShot && c.taskConcurrency != field.TaskConcurrencySchemaDefault {
 		l.Info("runner: task concurrency", zap.Int("slots", c.taskConcurrency))
 	}
 
@@ -669,7 +668,7 @@ func WithWorkerCount(workerCount int) Option {
 // and >0 for that many concurrent tasks.
 func WithTaskConcurrency(n int) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.taskConcurrency = field.EffectiveTaskConcurrency(n)
+		cfg.taskConcurrency = n
 		cfg.taskConcurrencySet = true
 		return nil
 	}
@@ -928,10 +927,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 	runner.cw = cw
 
-	if !cfg.taskConcurrencySet {
-		runner.taskConcurrency = field.EffectiveTaskConcurrency(field.TaskConcurrencySchemaDefault)
-	} else {
+	if cfg.taskConcurrencySet {
 		runner.taskConcurrency = cfg.taskConcurrency
+	} else {
+		runner.taskConcurrency = field.TaskConcurrencySchemaDefault
 	}
 
 	if cfg.onDemand {

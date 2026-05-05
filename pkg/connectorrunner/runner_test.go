@@ -11,36 +11,9 @@ import (
 
 	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
-	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/stretchr/testify/require"
 )
-
-func TestWithTaskConcurrency_wiresEffectiveConcurrency(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	tests := []struct {
-		name string
-		n    int // raw sentinel value passed through WithTaskConcurrency
-		want int
-	}{
-		{"sequential_sentinel", 0, 1},
-		{"auto_sentinel", -1, field.EffectiveTaskConcurrency(-1)},
-		{"explicit_parallelism", 3, 3},
-		{"below_minus_one_sequential", -99, 1},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := &runnerConfig{}
-			err := WithTaskConcurrency(tt.n)(ctx, cfg)
-			require.NoError(t, err)
-			require.Equal(t, tt.want, cfg.taskConcurrency)
-			require.True(t, cfg.taskConcurrencySet)
-		})
-	}
-}
 
 func TestRun_DoesNotPollAllFreeSlotsWhenNoTasksAvailable(t *testing.T) {
 	t.Parallel()
