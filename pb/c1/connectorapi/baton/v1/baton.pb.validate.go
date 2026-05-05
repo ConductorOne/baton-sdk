@@ -1605,6 +1605,434 @@ var _ interface {
 	ErrorName() string
 } = BatonServiceGetTaskRequestValidationError{}
 
+// Validate checks the field values on BatonServiceGetTasksRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceGetTasksRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceGetTasksRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceGetTasksRequestMultiError, or nil if none found.
+func (m *BatonServiceGetTasksRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *BatonServiceGetTasksRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if l := utf8.RuneCountInString(m.GetHostId()); l < 1 || l > 256 {
+		err := BatonServiceGetTasksRequestValidationError{
+			field:  "HostId",
+			reason: "value length must be between 1 and 256 runes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if val := m.GetPageSize(); val <= 0 || val > 100 {
+		err := BatonServiceGetTasksRequestValidationError{
+			field:  "PageSize",
+			reason: "value must be inside range (0, 100]",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	for idx, item := range m.GetKnownTaskIds() {
+		_, _ = idx, item
+
+		if !_BatonServiceGetTasksRequest_KnownTaskIds_Pattern.MatchString(item) {
+			err := BatonServiceGetTasksRequestValidationError{
+				field:  fmt.Sprintf("KnownTaskIds[%v]", idx),
+				reason: "value does not match regex pattern \"^[a-zA-Z0-9]{27}$\"",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if len(m.GetAnnotations()) > 16 {
+		err := BatonServiceGetTasksRequestValidationError{
+			field:  "Annotations",
+			reason: "value must contain no more than 16 item(s)",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, BatonServiceGetTasksRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, BatonServiceGetTasksRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return BatonServiceGetTasksRequestValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return BatonServiceGetTasksRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// BatonServiceGetTasksRequestMultiError is an error wrapping multiple
+// validation errors returned by BatonServiceGetTasksRequest.ValidateAll() if
+// the designated constraints aren't met.
+type BatonServiceGetTasksRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m BatonServiceGetTasksRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m BatonServiceGetTasksRequestMultiError) AllErrors() []error { return m }
+
+// BatonServiceGetTasksRequestValidationError is the validation error returned
+// by BatonServiceGetTasksRequest.Validate if the designated constraints
+// aren't met.
+type BatonServiceGetTasksRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e BatonServiceGetTasksRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e BatonServiceGetTasksRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e BatonServiceGetTasksRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e BatonServiceGetTasksRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e BatonServiceGetTasksRequestValidationError) ErrorName() string {
+	return "BatonServiceGetTasksRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e BatonServiceGetTasksRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sBatonServiceGetTasksRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = BatonServiceGetTasksRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = BatonServiceGetTasksRequestValidationError{}
+
+var _BatonServiceGetTasksRequest_KnownTaskIds_Pattern = regexp.MustCompile("^[a-zA-Z0-9]{27}$")
+
+// Validate checks the field values on BatonServiceGetTasksResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceGetTasksResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceGetTasksResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceGetTasksResponseMultiError, or nil if none found.
+func (m *BatonServiceGetTasksResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *BatonServiceGetTasksResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(m.GetTasks()) > 100 {
+		err := BatonServiceGetTasksResponseValidationError{
+			field:  "Tasks",
+			reason: "value must contain no more than 100 item(s)",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	for idx, item := range m.GetTasks() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, BatonServiceGetTasksResponseValidationError{
+						field:  fmt.Sprintf("Tasks[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, BatonServiceGetTasksResponseValidationError{
+						field:  fmt.Sprintf("Tasks[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return BatonServiceGetTasksResponseValidationError{
+					field:  fmt.Sprintf("Tasks[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if all {
+		switch v := interface{}(m.GetNextPoll()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, BatonServiceGetTasksResponseValidationError{
+					field:  "NextPoll",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, BatonServiceGetTasksResponseValidationError{
+					field:  "NextPoll",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetNextPoll()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return BatonServiceGetTasksResponseValidationError{
+				field:  "NextPoll",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetNextHeartbeat()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, BatonServiceGetTasksResponseValidationError{
+					field:  "NextHeartbeat",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, BatonServiceGetTasksResponseValidationError{
+					field:  "NextHeartbeat",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetNextHeartbeat()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return BatonServiceGetTasksResponseValidationError{
+				field:  "NextHeartbeat",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, BatonServiceGetTasksResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, BatonServiceGetTasksResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return BatonServiceGetTasksResponseValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return BatonServiceGetTasksResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// BatonServiceGetTasksResponseMultiError is an error wrapping multiple
+// validation errors returned by BatonServiceGetTasksResponse.ValidateAll() if
+// the designated constraints aren't met.
+type BatonServiceGetTasksResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m BatonServiceGetTasksResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m BatonServiceGetTasksResponseMultiError) AllErrors() []error { return m }
+
+// BatonServiceGetTasksResponseValidationError is the validation error returned
+// by BatonServiceGetTasksResponse.Validate if the designated constraints
+// aren't met.
+type BatonServiceGetTasksResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e BatonServiceGetTasksResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e BatonServiceGetTasksResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e BatonServiceGetTasksResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e BatonServiceGetTasksResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e BatonServiceGetTasksResponseValidationError) ErrorName() string {
+	return "BatonServiceGetTasksResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e BatonServiceGetTasksResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sBatonServiceGetTasksResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = BatonServiceGetTasksResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = BatonServiceGetTasksResponseValidationError{}
+
 // Validate checks the field values on BatonServiceGetTaskResponse with the
 // rules defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
@@ -1918,6 +2346,33 @@ func (m *BatonServiceHeartbeatRequest) validate(all bool) error {
 
 	}
 
+	if len(m.GetTaskIds()) > 100 {
+		err := BatonServiceHeartbeatRequestValidationError{
+			field:  "TaskIds",
+			reason: "value must contain no more than 100 item(s)",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	for idx, item := range m.GetTaskIds() {
+		_, _ = idx, item
+
+		if !_BatonServiceHeartbeatRequest_TaskIds_Pattern.MatchString(item) {
+			err := BatonServiceHeartbeatRequestValidationError{
+				field:  fmt.Sprintf("TaskIds[%v]", idx),
+				reason: "value does not match regex pattern \"^[a-zA-Z0-9]{27}$\"",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return BatonServiceHeartbeatRequestMultiError(errors)
 	}
@@ -2000,6 +2455,8 @@ var _ interface {
 } = BatonServiceHeartbeatRequestValidationError{}
 
 var _BatonServiceHeartbeatRequest_TaskId_Pattern = regexp.MustCompile("^[a-zA-Z0-9]{27}$")
+
+var _BatonServiceHeartbeatRequest_TaskIds_Pattern = regexp.MustCompile("^[a-zA-Z0-9]{27}$")
 
 // Validate checks the field values on BatonServiceHeartbeatResponse with the
 // rules defined in the proto definition for this message. If any rules are
