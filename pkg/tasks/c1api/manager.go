@@ -3,7 +3,7 @@ package c1api
 import (
 	"context"
 	"errors"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -42,21 +42,28 @@ var (
 	ErrTaskHeartbeatFailed = errors.New("task failed heartbeat")
 
 	ErrTaskNonRetryable = errors.New("task failed and is non-retryable")
+
+	// initialHelloBackoff / maxHelloBackoff bound the exponential backoff used
+	// when the startup Hello fails with a retryable error. They are package
+	// vars (rather than const) so tests can override them with small values.
+	initialHelloBackoff = 1 * time.Second
+	maxHelloBackoff     = 5 * time.Minute
 )
 
 type c1ApiTaskManager struct {
-	mtx                                 sync.Mutex
-	started                             bool
-	queue                               []*v1.Task
 	serviceClient                       BatonServiceClient
 	tempDir                             string
 	skipFullSync                        bool
-	runnerShouldDebug                   bool
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
 	workerCount                         int
+
+	// runnerShouldDebug is flipped by the StartDebugging task handler (which
+	// runs on a task-processing goroutine) and read by the runner loop via
+	// ShouldDebug(). It is atomic to avoid a data race between those two.
+	runnerShouldDebug atomic.Bool
 }
 
 // getHeartbeatInterval returns an appropriate heartbeat interval. If the interval is 0, it will return the default heartbeat interval.
@@ -86,33 +93,109 @@ func getNextPoll(d time.Duration) time.Duration {
 	}
 }
 
+// Bootstrap performs the startup Hello handshake with exponential backoff,
+// retrying transient failures up to maxHelloBackoff and bailing on ctx cancel
+// or known-permanent gRPC codes (auth, malformed, unimplemented, etc.). The
+// runner is expected to call this exactly once after construction and before
+// entering the task loop.
+type BootstrappingTaskManager interface {
+	tasks.Manager
+	Bootstrap(ctx context.Context, cc types.ConnectorClient) error
+}
+
+func (c *c1ApiTaskManager) Bootstrap(ctx context.Context, cc types.ConnectorClient) error {
+	ctx, span := tracer.Start(ctx, "c1ApiTaskManager.Bootstrap")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	l := ctxzap.Extract(ctx)
+
+	backoff := initialHelloBackoff
+	attempt := 0
+	for {
+		attempt++
+		err = sendHello(ctx, cc, c.serviceClient, "")
+		if err == nil {
+			l.Info("c1_api_task_manager: startup Hello succeeded.", zap.Int("attempts", attempt))
+			return nil
+		}
+
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+
+		if !isRetryableHelloError(err) {
+			l.Error(
+				"c1_api_task_manager: startup Hello failed with non-retryable error; giving up",
+				zap.Error(err),
+				zap.Int("attempts", attempt),
+			)
+			return err
+		}
+
+		l.Warn(
+			"c1_api_task_manager: startup Hello failed; will retry",
+			zap.Error(err),
+			zap.Int("attempt", attempt),
+			zap.Duration("next_backoff", backoff),
+		)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+
+		backoff *= 2
+		if backoff > maxHelloBackoff {
+			backoff = maxHelloBackoff
+		}
+	}
+}
+
+// isRetryableHelloError classifies Hello errors. Non-gRPC and unclassified
+// errors are treated as retryable by default; known-permanent gRPC codes
+// (auth, malformed, unimplemented, missing tenant/connector, server-side
+// precondition) short-circuit the retry loop.
+func isRetryableHelloError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// If the caller's ctx already expired/cancelled, retrying would just burn
+	// time we no longer have. We check this via errors.Is on the sentinels so
+	// a gRPC-wrapped DeadlineExceeded that originated from our ctx still
+	// counts as non-retryable. A bare codes.DeadlineExceeded from the server
+	// (without a ctx sentinel in the chain) falls through to the default
+	// branch below and is treated as transient — that's the server-side
+	// timeout case, which can succeed on a retry.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return true
+	}
+	switch st.Code() {
+	case codes.Unauthenticated,
+		codes.PermissionDenied,
+		codes.InvalidArgument,
+		codes.Unimplemented,
+		codes.FailedPrecondition,
+		codes.NotFound:
+		return false
+	default:
+		return true
+	}
+}
+
+// Next fetches the next task to run. The connector runner calls Next serially
+// from its scheduler loop, so no synchronization is required here — Process is
+// the side that runs concurrently and it shares no mutable state with Next.
 func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	ctx, span := tracer.Start(ctx, "c1ApiTaskManager.Next", trace.WithNewRoot())
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
-
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
-	if !c.started {
-		l.Debug("c1_api_task_manager.Next(): queueing initial hello task")
-		c.started = true
-		// Append a hello task to the queue on startup.
-		c.queue = append(c.queue, v1.Task_builder{
-			Id:     "",
-			Status: v1.Task_STATUS_PENDING,
-			Hello:  &v1.Task_HelloTask{},
-		}.Build())
-
-		// TODO(morgabra) Get resumable tasks here and queue them.
-	}
-
-	if len(c.queue) != 0 {
-		t := c.queue[0]
-		c.queue = c.queue[1:]
-		l.Debug("c1_api_task_manager.Next(): returning queued task", zap.String("task_id", t.GetId()), zap.Stringer("task_type", tasks.GetType(t)))
-		return t, 0, nil
-	}
 
 	l.Debug("c1_api_task_manager.Next(): checking for new tasks")
 
@@ -218,7 +301,7 @@ func (c *c1ApiTaskManager) GetTempDir() string {
 }
 
 func (c *c1ApiTaskManager) ShouldDebug() bool {
-	return c.runnerShouldDebug
+	return c.runnerShouldDebug.Load()
 }
 
 func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
@@ -313,6 +396,9 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	return nil
 }
 
+// ensure *c1ApiTaskManager satisfies BootstrappingTaskManager.
+var _ BootstrappingTaskManager = (*c1ApiTaskManager)(nil)
+
 func NewC1TaskManager(
 	ctx context.Context,
 	clientID string,
@@ -324,7 +410,7 @@ func NewC1TaskManager(
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 	workerCount int,
-) (tasks.Manager, error) {
+) (BootstrappingTaskManager, error) {
 	serviceClient, err := newServiceClient(ctx, clientID, clientSecret)
 	if err != nil {
 		return nil, err

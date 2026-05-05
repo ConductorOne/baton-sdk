@@ -18,6 +18,6 @@ func (c *debugHandler) HandleTask(ctx context.Context) error {
 	_, span := tracer.Start(ctx, "debugHandler.HandleTask")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-	c.taskmanager.runnerShouldDebug = true
+	c.taskmanager.runnerShouldDebug.Store(true)
 	return nil
 }
