@@ -210,7 +210,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 
 	sem := semaphore.NewWeighted(int64(c.taskConcurrency))
 
-	waitDuration := time.Second * 0
+	nextCheckAfter := time.Second * 0
 	errCount := 0
 	stopForLoop := false
 	var err error
@@ -218,7 +218,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return c.handleContextCancel(ctx)
-		case <-time.After(waitDuration):
+		case <-time.After(nextCheckAfter):
 			l.Debug("runner: claiming worker")
 			// Acquire a worker slot before we call Next() so we don't claim a task before we can actually process it.
 			err = sem.Acquire(ctx, 1)
@@ -228,24 +228,25 @@ func (c *connectorRunner) run(ctx context.Context) error {
 			}
 			l.Debug("runner: worker claimed, checking for next task")
 
-			// Fetch the next task.
-			nextTask, nextWaitDuration, err := c.tasks.Next(ctx)
+			// Ask the manager for local or remote work. With batched task managers,
+			// the manager owns remote poll deadlines while it buffers local tasks.
+			nextTask, nextCheckAfterFromManager, err := c.tasks.Next(ctx)
 			if err != nil {
 				// TODO(morgabra) Use a library with jitter for this?
 				errCount++
-				waitDuration = c.backoff(ctx, errCount)
-				l.Error("runner: error getting next task", zap.Error(err), zap.Int("err_count", errCount), zap.Duration("wait_duration", waitDuration))
+				nextCheckAfter = c.backoff(ctx, errCount)
+				l.Error("runner: error getting next task", zap.Error(err), zap.Int("err_count", errCount), zap.Duration("next_check_after", nextCheckAfter))
 				sem.Release(1)
 				continue
 			}
 
 			errCount = 0
-			waitDuration = nextWaitDuration
+			nextCheckAfter = nextCheckAfterFromManager
 
 			// nil tasks mean there are no tasks to process.
 			if nextTask == nil {
 				sem.Release(1)
-				l.Debug("runner: no tasks to process", zap.Duration("wait_duration", waitDuration))
+				l.Debug("runner: no tasks to process", zap.Duration("next_check_after", nextCheckAfter))
 				if c.oneShot {
 					l.Debug("runner: one-shot mode enabled. Exiting.")
 					return nil
@@ -287,7 +288,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 				l.Debug("runner: task processed", zap.String("task_id", t.GetId()), zap.String("task_type", tasks.GetType(t).String()))
 			}(nextTask)
 
-			l.Debug("runner: dispatched task, waiting for next task", zap.Duration("wait_duration", waitDuration))
+			l.Debug("runner: dispatched task, asking manager again after delay", zap.Duration("next_check_after", nextCheckAfter))
 		}
 	}
 
@@ -1036,6 +1037,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		resources,
 		cfg.syncResourceTypeIDs,
 		cfg.workerCount,
+		runner.taskConcurrency,
 	)
 	if err != nil {
 		return nil, err

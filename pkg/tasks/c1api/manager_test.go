@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -25,6 +26,10 @@ type fakeBatonServiceClient struct {
 
 	helloResponses []error
 	helloCalls     int
+	getTasksReqs   []*v1.BatonServiceGetTasksRequest
+	getTasksResp   *v1.BatonServiceGetTasksResponse
+	getTasksErr    error
+	getTaskCalls   int
 }
 
 func newFakeBatonServiceClient(helloResponses []error) *fakeBatonServiceClient {
@@ -48,7 +53,23 @@ func (f *fakeBatonServiceClient) Hello(ctx context.Context, req *v1.BatonService
 }
 
 func (f *fakeBatonServiceClient) GetTask(context.Context, *v1.BatonServiceGetTaskRequest) (*v1.BatonServiceGetTaskResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.getTaskCalls++
 	return v1.BatonServiceGetTaskResponse_builder{}.Build(), nil
+}
+
+func (f *fakeBatonServiceClient) GetTasks(_ context.Context, req *v1.BatonServiceGetTasksRequest) (*v1.BatonServiceGetTasksResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.getTasksReqs = append(f.getTasksReqs, req)
+	if f.getTasksErr != nil {
+		return nil, f.getTasksErr
+	}
+	if f.getTasksResp != nil {
+		return f.getTasksResp, nil
+	}
+	return v1.BatonServiceGetTasksResponse_builder{}.Build(), nil
 }
 
 func (f *fakeBatonServiceClient) Heartbeat(context.Context, *v1.BatonServiceHeartbeatRequest) (*v1.BatonServiceHeartbeatResponse, error) {
@@ -100,7 +121,16 @@ func withFastBackoff(t *testing.T) {
 }
 
 func newTestManager(sc BatonServiceClient) *c1ApiTaskManager {
-	return &c1ApiTaskManager{serviceClient: sc}
+	return &c1ApiTaskManager{
+		serviceClient:   sc,
+		taskQueue:       newTaskQueue(3),
+		getTasksEnabled: getTasksEnabledFromEnv(),
+	}
+}
+
+func enableGetTasks(t *testing.T) {
+	t.Helper()
+	t.Setenv(getTasksEnv, "true")
 }
 
 func TestBootstrapSucceedsOnFirstAttempt(t *testing.T) {
@@ -205,7 +235,7 @@ func TestBootstrapPropagatesGetMetadataError(t *testing.T) {
 
 func TestNextDoesNotSelfQueueHello(t *testing.T) {
 	// With Bootstrap owning the startup handshake, Next() must no longer
-	// self-enqueue a Hello task. First Next() call should just go to GetTask.
+	// self-enqueue a Hello task. First Next() call should just poll C1.
 	sc := newFakeBatonServiceClient(nil)
 	mgr := newTestManager(sc)
 
@@ -216,6 +246,256 @@ func TestNextDoesNotSelfQueueHello(t *testing.T) {
 	if task != nil && task.GetHello() != nil {
 		t.Fatalf("Next must not self-queue a Hello task, got %+v", task)
 	}
+	if sc.getTaskCalls != 1 {
+		t.Fatalf("expected default path to use GetTask once, got %d calls", sc.getTaskCalls)
+	}
+	if len(sc.getTasksReqs) != 0 {
+		t.Fatalf("expected default path not to use GetTasks, got %d calls", len(sc.getTasksReqs))
+	}
+}
+
+func TestNextUsesGetTasksAndQueuesBatch(t *testing.T) {
+	enableGetTasks(t)
+	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
+	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
+	sc := newFakeBatonServiceClient(nil)
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
+		Tasks:    []*v1.Task{task1, task2},
+		NextPoll: durationpb.New(time.Hour),
+	}.Build()
+	mgr := newTestManager(sc)
+
+	got1, _, err := mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	if got1.GetId() != task1.GetId() {
+		t.Fatalf("first task id = %q, want %q", got1.GetId(), task1.GetId())
+	}
+
+	got2, _, err := mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	if got2.GetId() != task2.GetId() {
+		t.Fatalf("second task id = %q, want %q", got2.GetId(), task2.GetId())
+	}
+	if len(sc.getTasksReqs) != 1 {
+		t.Fatalf("expected one GetTasks call, got %d", len(sc.getTasksReqs))
+	}
+}
+
+func TestNextSendsKnownTaskIDs(t *testing.T) {
+	enableGetTasks(t)
+	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
+	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
+	sc := newFakeBatonServiceClient(nil)
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
+		Tasks: []*v1.Task{task1, task2},
+	}.Build()
+	mgr := newTestManager(sc)
+
+	got1, _, err := mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{}.Build()
+
+	_, _, err = mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next queued: %v", err)
+	}
+
+	if len(sc.getTasksReqs) != 2 {
+		t.Fatalf("expected two GetTasks calls, got %d", len(sc.getTasksReqs))
+	}
+	known := sc.getTasksReqs[1].GetKnownTaskIds()
+	if !containsString(known, got1.GetId()) {
+		t.Fatalf("known task IDs %v did not include in-flight task %q", known, got1.GetId())
+	}
+}
+
+func TestNextRequestsOnlyEnoughTasksToReachKnownTarget(t *testing.T) {
+	enableGetTasks(t)
+	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
+	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
+	sc := newFakeBatonServiceClient(nil)
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
+		Tasks: []*v1.Task{task1, task2},
+	}.Build()
+	mgr := newTestManager(sc)
+
+	if _, _, err := mgr.Next(context.Background()); err != nil {
+		t.Fatalf("Next first fetch: %v", err)
+	}
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{}.Build()
+	if _, _, err := mgr.Next(context.Background()); err != nil {
+		t.Fatalf("Next queued: %v", err)
+	}
+
+	if len(sc.getTasksReqs) != 2 {
+		t.Fatalf("expected two GetTasks calls, got %d", len(sc.getTasksReqs))
+	}
+	if got := sc.getTasksReqs[0].GetPageSize(); got != 6 {
+		t.Fatalf("first page size = %d, want 6", got)
+	}
+	if got := sc.getTasksReqs[1].GetPageSize(); got != 4 {
+		t.Fatalf("second page size = %d, want 4", got)
+	}
+}
+
+func TestNextDoesNotTopUpQueuedTasksBeforeNextPoll(t *testing.T) {
+	enableGetTasks(t)
+	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
+	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
+	sc := newFakeBatonServiceClient(nil)
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
+		Tasks:    []*v1.Task{task1, task2},
+		NextPoll: durationpb.New(time.Hour),
+	}.Build()
+	mgr := newTestManager(sc)
+
+	if _, _, err := mgr.Next(context.Background()); err != nil {
+		t.Fatalf("Next first fetch: %v", err)
+	}
+	if _, _, err := mgr.Next(context.Background()); err != nil {
+		t.Fatalf("Next queued: %v", err)
+	}
+	if len(sc.getTasksReqs) != 1 {
+		t.Fatalf("expected no top-up before next_poll, got %d GetTasks calls", len(sc.getTasksReqs))
+	}
+}
+
+func TestNextReturnsWaitWhenBatchIsEmpty(t *testing.T) {
+	enableGetTasks(t)
+	sc := newFakeBatonServiceClient(nil)
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
+		NextPoll: durationpb.New(time.Hour),
+	}.Build()
+	mgr := newTestManager(sc)
+
+	task, wait, err := mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	if task != nil {
+		t.Fatalf("expected no task, got %+v", task)
+	}
+	if wait <= 0 {
+		t.Fatalf("expected positive wait for empty batch, got %s", wait)
+	}
+}
+
+func TestNextWaitsWhenEnoughKnownTasksAreInFlight(t *testing.T) {
+	enableGetTasks(t)
+	sc := newFakeBatonServiceClient(nil)
+	mgr := newTestManager(sc)
+	for _, id := range []string{
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"ccccccccccccccccccccccccccc",
+	} {
+		mgr.taskQueue.inFlight[id] = struct{}{}
+	}
+
+	task, wait, err := mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	if task != nil {
+		t.Fatalf("expected no queued task, got %+v", task)
+	}
+	if wait <= 0 {
+		t.Fatalf("expected positive wait when enough tasks are already in flight, got %s", wait)
+	}
+	if len(sc.getTasksReqs) != 0 {
+		t.Fatalf("expected no GetTasks call while enough tasks are in flight, got %d", len(sc.getTasksReqs))
+	}
+}
+
+func TestNextDoesNotTopUpWhenKnownTasksAtLowWater(t *testing.T) {
+	enableGetTasks(t)
+	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
+	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
+	task3 := v1.Task_builder{Id: "ccccccccccccccccccccccccccc", Hello: &v1.Task_HelloTask{}}.Build()
+	sc := newFakeBatonServiceClient(nil)
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
+		Tasks: []*v1.Task{task1, task2, task3},
+	}.Build()
+	mgr := newTestManager(sc)
+
+	if _, _, err := mgr.Next(context.Background()); err != nil {
+		t.Fatalf("Next first fetch: %v", err)
+	}
+	if _, _, err := mgr.Next(context.Background()); err != nil {
+		t.Fatalf("Next queued: %v", err)
+	}
+	if len(sc.getTasksReqs) != 1 {
+		t.Fatalf("expected no top-up at low-water, got %d GetTasks calls", len(sc.getTasksReqs))
+	}
+}
+
+func TestNextTopsUpQueuedTasksAfterNextPoll(t *testing.T) {
+	enableGetTasks(t)
+	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
+	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
+	task3 := v1.Task_builder{Id: "ccccccccccccccccccccccccccc", Hello: &v1.Task_HelloTask{}}.Build()
+	sc := newFakeBatonServiceClient(nil)
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
+		Tasks: []*v1.Task{task1, task2},
+	}.Build()
+	mgr := newTestManager(sc)
+
+	if _, _, err := mgr.Next(context.Background()); err != nil {
+		t.Fatalf("Next first fetch: %v", err)
+	}
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
+		Tasks: []*v1.Task{task3},
+	}.Build()
+	if _, _, err := mgr.Next(context.Background()); err != nil {
+		t.Fatalf("Next queued/top-up: %v", err)
+	}
+	if len(sc.getTasksReqs) != 2 {
+		t.Fatalf("expected top-up after elapsed next_poll, got %d GetTasks calls", len(sc.getTasksReqs))
+	}
+}
+
+func TestProcessRemovesKnownTaskID(t *testing.T) {
+	task := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
+	sc := newFakeBatonServiceClient(nil)
+	mgr := newTestManager(sc)
+	mgr.taskQueue.inFlight[task.GetId()] = struct{}{}
+
+	if err := mgr.Process(context.Background(), task, &fakeConnectorClient{}); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if got, _ := mgr.taskQueue.fetchParams(); containsString(got, task.GetId()) {
+		t.Fatalf("known task IDs %v still include completed task %q", got, task.GetId())
+	}
+}
+
+func TestNextReturnsGetTasksErrorWhenEnabled(t *testing.T) {
+	enableGetTasks(t)
+	sc := newFakeBatonServiceClient(nil)
+	sc.getTasksErr = status.Error(codes.Unimplemented, "not implemented")
+	mgr := newTestManager(sc)
+
+	_, _, err := mgr.Next(context.Background())
+	if status.Code(err) != codes.Unimplemented {
+		t.Fatalf("expected Unimplemented error, got %v", err)
+	}
+	if sc.getTaskCalls != 0 {
+		t.Fatalf("expected no GetTask fallback calls, got %d", sc.getTaskCalls)
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestIsRetryableHelloErrorClassification(t *testing.T) {
