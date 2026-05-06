@@ -120,9 +120,36 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 		return fmt.Errorf("expander: %w (%d)", ErrMaxDepthExceeded, depth)
 	}
 
-	// Generate new actions from expandable entitlements
+	// Generate new actions from expandable entitlements.
+	//
+	// Pre-prune duplicates: when the same (source, descendant) edge is
+	// reachable from multiple paths at the current depth, GetExpandable…
+	// can yield it more than once across the source iteration. Without
+	// this dedup we'd queue the edge multiple times and pay one connector
+	// ListGrants round-trip per duplicate. MarkEdgeExpanded is idempotent,
+	// so correctness isn't at risk — only throughput.
+	//
+	// The seen set is seeded with anything already in the queue so we
+	// don't re-queue an in-flight edge either (rare but possible if a
+	// previous depth's actions weren't fully drained before we got here).
+	type edgeKey struct {
+		source     string
+		descendant string
+	}
+	seen := make(map[edgeKey]struct{}, len(e.graph.Actions))
+	for _, a := range e.graph.Actions {
+		seen[edgeKey{a.SourceEntitlementID, a.DescendantEntitlementID}] = struct{}{}
+	}
+	queued := 0
+	skipped := 0
 	for sourceEntitlementID := range e.graph.GetExpandableEntitlements(ctx) {
 		for descendantEntitlementID, grantInfo := range e.graph.GetExpandableDescendantEntitlements(ctx, sourceEntitlementID) {
+			k := edgeKey{sourceEntitlementID, descendantEntitlementID}
+			if _, dup := seen[k]; dup {
+				skipped++
+				continue
+			}
+			seen[k] = struct{}{}
 			e.graph.Actions = append(e.graph.Actions, &EntitlementGraphAction{
 				SourceEntitlementID:     sourceEntitlementID,
 				DescendantEntitlementID: descendantEntitlementID,
@@ -130,7 +157,21 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 				Shallow:                 grantInfo.IsShallow,
 				ResourceTypeIDs:         grantInfo.ResourceTypeIDs,
 			})
+			queued++
 		}
+	}
+
+	if skipped > 0 {
+		// Logged at Info so operators can grep without enabling debug
+		// globally, but rate-limited by being once per depth-increment
+		// (one log per call to RunSingleStep that actually adds actions).
+		// queued + skipped is the upper-bound work this depth would have
+		// done before dedup; (skipped / (queued + skipped)) is the win.
+		l.Info("expander: pre-pruned duplicate (source, descendant) actions",
+			zap.Int("depth", e.graph.Depth),
+			zap.Int("queued", queued),
+			zap.Int("skipped", skipped),
+		)
 	}
 
 	e.graph.Depth++
