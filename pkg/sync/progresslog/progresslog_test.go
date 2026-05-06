@@ -279,27 +279,35 @@ func TestLogExpandProgress_PerStepExpanderShape(t *testing.T) {
 	ctx, logs := observedLogger(t)
 
 	probe := &sizeProbe{size: 1_000_000}
+	// Tight window. We don't actually wait for it to elapse — we backdate
+	// p.lastActionLog between the calls we want to land. This keeps the
+	// test deterministic on coarse-clock CI runners (Windows, busy CI)
+	// where time.Sleep can return early or late by tens of ms.
 	p := NewProgressCounts(ctx,
-		WithLogFrequency(15*time.Millisecond),
+		WithLogFrequency(time.Hour),
 		WithDBSizeProvider(probe),
 	)
 
-	// Simulate ~50 steps across a ~100ms window. 2ms inter-step sleep keeps
-	// the loop well outside sub-ms clock noise on Windows while still
-	// producing enough samples to exercise rate-limiting.
+	// Simulate ~50 steps where most are rate-limited and a handful land.
+	// Land emits at step 0 (lastActionLog is zero on first call) and at
+	// step 25 (we backdate just before that one). Steps 26..49 are
+	// rate-limited by the freshly-set lastActionLog.
 	totalSteps := 50
 	for i := 0; i < totalSteps; i++ {
 		_ = expand.NewExpander(nil, nil) // throwaway, matches per-step construction
 		probe.size += 500_000            // simulate growth between steps
+		if i == 25 {
+			// Force the second emission deterministically.
+			p.expandMu.Lock()
+			p.lastActionLog = time.Time{}
+			p.expandMu.Unlock()
+		}
 		p.LogExpandProgress(ctx, nil)
-		time.Sleep(2 * time.Millisecond)
 	}
 
 	entries := logs.filterMessage("Expanding grants")
-	require.GreaterOrEqual(t, len(entries), 2,
-		"at least two logs must emit across 50 steps in a ~100ms window with 15ms rate-limit")
-	require.Less(t, len(entries), totalSteps,
-		"logs must be rate-limited, not one-per-step")
+	require.Len(t, entries, 2,
+		"backdated lastActionLog must produce exactly two emissions (step 0 and step 25); intermediate calls are rate-limited")
 
 	// Second log's delta must be growth since the first, not full size —
 	// proves state persisted across the simulated per-step calls.
@@ -333,46 +341,65 @@ func TestLogExpandProgress_EmitsMetrics(t *testing.T) {
 
 	probe := &sizeProbe{size: 100_000_000}
 	handler := newFakeHandler()
+	// Tight rate-limit window — we backdate p.lastActionLog between
+	// samples instead of sleeping, so the test is deterministic on
+	// coarse-clock CI runners.
 	p := NewProgressCounts(ctx,
-		WithLogFrequency(10*time.Millisecond),
+		WithLogFrequency(time.Hour),
 		WithDBSizeProvider(probe),
 		WithMetricsHandler(handler),
 	)
 
+	// resetWindow lets the next LogExpandProgress emit by clearing the
+	// rate-limit timestamp. Real production waits through the window;
+	// the test injects the precondition directly.
+	resetWindow := func() {
+		p.expandMu.Lock()
+		p.lastActionLog = time.Time{}
+		p.expandMu.Unlock()
+	}
+
+	gaugeLast := func(t *testing.T, name string) int64 {
+		t.Helper()
+		g := handler.gauges[name]
+		require.NotNil(t, g, "gauge %q must be registered", name)
+		v, ok := g.last()
+		require.True(t, ok, "gauge %q must have at least one observation", name)
+		return v
+	}
+	counterSum := func(t *testing.T, name string) int64 {
+		t.Helper()
+		c := handler.counters[name]
+		require.NotNil(t, c, "counter %q must be registered", name)
+		return c.sum()
+	}
+
 	// Sample 1: 5 actions queued. Establishes the baseline gauge value;
 	// burned counter should NOT increment (no prior remaining to delta against).
 	p.LogExpandProgress(ctx, make([]*expand.EntitlementGraphAction, 5))
-	if v, ok := handler.gauges[metricActionsRemaining].last(); !ok || v != 5 {
-		t.Fatalf("actions_remaining gauge expected 5, got %d (ok=%v)", v, ok)
-	}
-	require.Equal(t, int64(0), handler.counters[metricActionsBurnedTotal].sum(),
+	require.EqualValues(t, 5, gaugeLast(t, metricActionsRemaining))
+	require.EqualValues(t, 0, counterSum(t, metricActionsBurnedTotal),
 		"burned counter must not increment on the first sample")
 
-	// Sample 2 (after window): 3 actions remaining → 2 burned.
-	time.Sleep(15 * time.Millisecond)
+	// Sample 2: 3 actions remaining → 2 burned, c1z grew by 30M.
+	resetWindow()
 	probe.size = 130_000_000
 	p.LogExpandProgress(ctx, make([]*expand.EntitlementGraphAction, 3))
-	if v, ok := handler.gauges[metricActionsRemaining].last(); !ok || v != 3 {
-		t.Fatalf("actions_remaining gauge expected 3, got %d (ok=%v)", v, ok)
-	}
-	require.EqualValues(t, 2, handler.counters[metricActionsBurnedTotal].sum(),
+	require.EqualValues(t, 3, gaugeLast(t, metricActionsRemaining))
+	require.EqualValues(t, 2, counterSum(t, metricActionsBurnedTotal),
 		"5 -> 3 transition must increment burned counter by 2")
-	if v, ok := handler.gauges[metricDecompressedBytes].last(); !ok || v != 130_000_000 {
-		t.Fatalf("decompressed_bytes gauge expected 130M, got %d (ok=%v)", v, ok)
-	}
-	require.EqualValues(t, 30_000_000, handler.counters[metricDecompressedBytesDelta].sum(),
+	require.EqualValues(t, 130_000_000, gaugeLast(t, metricDecompressedBytes))
+	require.EqualValues(t, 30_000_000, counterSum(t, metricDecompressedBytesDelta),
 		"100M -> 130M transition must increment growth counter by 30M")
 
-	// Sample 3 (after window): queue GREW from 3 to 7 (depth++ effect).
-	// Burned counter must not move backwards.
-	time.Sleep(15 * time.Millisecond)
-	prevBurned := handler.counters[metricActionsBurnedTotal].sum()
+	// Sample 3: queue GREW from 3 to 7 (depth++ effect). Burned counter
+	// must not move backwards.
+	resetWindow()
+	prevBurned := counterSum(t, metricActionsBurnedTotal)
 	p.LogExpandProgress(ctx, make([]*expand.EntitlementGraphAction, 7))
-	require.Equal(t, prevBurned, handler.counters[metricActionsBurnedTotal].sum(),
+	require.EqualValues(t, prevBurned, counterSum(t, metricActionsBurnedTotal),
 		"queue growth must not decrement the monotonic burned counter")
-	if v, ok := handler.gauges[metricActionsRemaining].last(); !ok || v != 7 {
-		t.Fatalf("actions_remaining gauge expected 7, got %d (ok=%v)", v, ok)
-	}
+	require.EqualValues(t, 7, gaugeLast(t, metricActionsRemaining))
 }
 
 // TestLogExpandProgress_NoMetricsHandlerIsSafe verifies that the default

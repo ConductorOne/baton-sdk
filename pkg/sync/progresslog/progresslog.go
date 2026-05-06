@@ -14,13 +14,21 @@ import (
 
 const defaultMaxLogFrequency = 10 * time.Second
 
-// Metric names emitted by LogExpandProgress. Stable identifiers — operators
-// build dashboards on these, so renames are breaking changes.
+// Metric names emitted by LogExpandProgress. The string values are the
+// stable external contract — operators build Datadog dashboards and alert
+// rules on these names, so renames are breaking changes. The Go-level
+// constants are unexported because callers don't need them; the metric
+// names are discovered out-of-band from documentation / dashboards.
+//
+// Counter names mirror the structured-log field names emitted next to
+// each value (`actions_remaining`, `decompressed_bytes`,
+// `decompressed_bytes_delta`) so an operator who sees a field in a log
+// entry can derive the metric name by mechanical substitution.
 const (
 	metricActionsRemaining       = "baton.sync.expand.actions_remaining"
 	metricActionsBurnedTotal     = "baton.sync.expand.actions_burned"
 	metricDecompressedBytes      = "baton.sync.expand.decompressed_bytes"
-	metricDecompressedBytesDelta = "baton.sync.expand.decompressed_bytes_growth"
+	metricDecompressedBytesDelta = "baton.sync.expand.decompressed_bytes_delta"
 )
 
 type rwMutex interface {
@@ -186,7 +194,7 @@ func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 	)
 	p.metricsExpandBurned = p.metricsHandler.Int64Counter(
 		metricActionsBurnedTotal,
-		"Entitlement-graph actions completed since the previous LogExpandProgress emission",
+		"Total entitlement-graph actions completed during grant expansion (cumulative; use rate() for throughput)",
 		metrics.Dimensionless,
 	)
 	p.metricsExpandDBSize = p.metricsHandler.Int64Gauge(
@@ -196,7 +204,7 @@ func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 	)
 	p.metricsExpandDBGrowth = p.metricsHandler.Int64Counter(
 		metricDecompressedBytesDelta,
-		"Uncompressed c1z growth since the previous LogExpandProgress emission",
+		"Cumulative uncompressed c1z growth during grant expansion (use rate() for growth rate)",
 		metrics.Bytes,
 	)
 	return p
