@@ -23,6 +23,14 @@ var maxDepth, _ = strconv.ParseInt(os.Getenv("BATON_GRAPH_EXPAND_MAX_DEPTH"), 10
 // ErrMaxDepthExceeded is returned when the expansion graph exceeds the maximum allowed depth.
 var ErrMaxDepthExceeded = errors.New("max depth exceeded")
 
+// edgeKey is the dedup key used in RunSingleStep's action-generation loop:
+// (source, descendant) entitlement-ID pair. Hoisted to package scope so the
+// type isn't redeclared on every call.
+type edgeKey struct {
+	source     string
+	descendant string
+}
+
 // ExpanderStore defines the minimal store interface needed for grant expansion.
 // Implementations:
 //   - *dotc1z.C1File (via dotc1z.C1ZStore) for production syncs
@@ -124,22 +132,23 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 	//
 	// Pre-prune duplicates: when the same (source, descendant) edge is
 	// reachable from multiple paths at the current depth, GetExpandable…
-	// can yield it more than once across the source iteration. Without
-	// this dedup we'd queue the edge multiple times and pay one connector
-	// ListGrants round-trip per duplicate. MarkEdgeExpanded is idempotent,
-	// so correctness isn't at risk — only throughput.
+	// can yield it more than once across the source iteration (e.g. if
+	// SCC merging left the same entitlement ID listed twice in a node's
+	// EntitlementIDs slice). Without this dedup we'd queue the edge
+	// multiple times and pay one connector ListGrants round-trip per
+	// duplicate. MarkEdgeExpanded is idempotent, so correctness isn't at
+	// risk — only throughput.
 	//
-	// The seen set is seeded with anything already in the queue so we
-	// don't re-queue an in-flight edge either (rare but possible if a
-	// previous depth's actions weren't fully drained before we got here).
-	type edgeKey struct {
-		source     string
-		descendant string
-	}
-	seen := make(map[edgeKey]struct{}, len(e.graph.Actions))
-	for _, a := range e.graph.Actions {
-		seen[edgeKey{a.SourceEntitlementID, a.DescendantEntitlementID}] = struct{}{}
-	}
+	// The control flow above (the second len(e.graph.Actions) > 0 guard)
+	// already guarantees the queue is empty here, so there's no
+	// "in-flight action also in the iteration" case to defend against;
+	// the seen set only protects the iteration itself.
+	//
+	// Sized off len(e.graph.Nodes) as a coarse upper bound on the number
+	// of edges this depth could enqueue. The exact count isn't reachable
+	// without iterating, but Nodes is a good O(1) approximation that
+	// avoids rehashes for typical graphs.
+	seen := make(map[edgeKey]struct{}, len(e.graph.Nodes))
 	queued := 0
 	skipped := 0
 	for sourceEntitlementID := range e.graph.GetExpandableEntitlements(ctx) {
@@ -167,8 +176,9 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 		// (one log per call to RunSingleStep that actually adds actions).
 		// queued + skipped is the upper-bound work this depth would have
 		// done before dedup; (skipped / (queued + skipped)) is the win.
+		// `depth` is already on `l` via the With(...) at the top of the
+		// function, so it's intentionally omitted from the inline fields.
 		l.Info("expander: pre-pruned duplicate (source, descendant) actions",
-			zap.Int("depth", e.graph.Depth),
 			zap.Int("queued", queued),
 			zap.Int("skipped", skipped),
 		)

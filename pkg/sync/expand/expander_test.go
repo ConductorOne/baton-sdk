@@ -2,12 +2,68 @@ package expand
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
+
+// capturingCore records emitted log entries in-memory so tests can assert
+// on the message text and structured fields. Mirrors the helper in
+// pkg/sync/progresslog/progresslog_test.go but kept local to this package
+// to avoid a cross-package test-only dependency.
+type capturingCore struct {
+	zapcore.LevelEnabler
+	mu      sync.Mutex
+	entries []capturedEntry
+}
+
+type capturedEntry struct {
+	Message string
+	Fields  map[string]interface{}
+}
+
+func newCapturingCore() *capturingCore {
+	return &capturingCore{LevelEnabler: zapcore.InfoLevel}
+}
+
+func (c *capturingCore) With([]zapcore.Field) zapcore.Core { return c }
+func (c *capturingCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	if c.Enabled(ent.Level) {
+		return ce.AddCore(ent, c)
+	}
+	return ce
+}
+
+func (c *capturingCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
+	enc := zapcore.NewMapObjectEncoder()
+	for _, f := range fields {
+		f.AddTo(enc)
+	}
+	c.mu.Lock()
+	c.entries = append(c.entries, capturedEntry{Message: ent.Message, Fields: enc.Fields})
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *capturingCore) Sync() error { return nil }
+
+func (c *capturingCore) filterMessage(msg string) []capturedEntry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]capturedEntry, 0, len(c.entries))
+	for _, e := range c.entries {
+		if e.Message == msg {
+			out = append(out, e)
+		}
+	}
+	return out
+}
 
 // MockExpanderStore implements ExpanderStore for testing purposes.
 type MockExpanderStore struct {
@@ -501,14 +557,14 @@ func TestExpander_DedupQueuesEachEdgeOnce(t *testing.T) {
 	require.Equal(t, "B", graph.Actions[0].DescendantEntitlementID)
 }
 
-// TestExpander_DedupAlreadyQueuedAction pins the second branch of the
-// dedup: the seen-set is seeded from existing graph.Actions, so re-entering
-// the action-generation loop does not duplicate an action that's already
-// queued. This protects against a future code change that decides to
-// invoke the action-generation branch with a non-empty queue (e.g. a
-// retry path that restores Actions from a checkpoint, then increments
-// depth).
-func TestExpander_DedupAlreadyQueuedAction(t *testing.T) {
+// TestExpander_DedupHandlesDestinationSideDuplicate is the mirror of
+// TestExpander_DedupQueuesEachEdgeOnce: the duplicate yield comes from the
+// destination node holding the same descendant entitlement ID twice
+// (GetExpandableDescendantEntitlements iterates destination.EntitlementIDs).
+// SCC merging can produce this state on the destination side just as easily
+// as on the source side, so the dedup must catch both. Without dedup,
+// repeating the descendant ID would produce identical (A,B) pairs.
+func TestExpander_DedupHandlesDestinationSideDuplicate(t *testing.T) {
 	ctx := context.Background()
 
 	graph := NewEntitlementGraph(ctx)
@@ -516,24 +572,49 @@ func TestExpander_DedupAlreadyQueuedAction(t *testing.T) {
 	graph.AddEntitlementID("B")
 	require.NoError(t, graph.AddEdge(ctx, "A", "B", false, []string{"user"}))
 
-	// Pre-seed the queue with the (A,B) edge — simulating a checkpointed
-	// action that needs to be drained before depth++.
-	graph.Actions = []*EntitlementGraphAction{{
-		SourceEntitlementID:     "A",
-		DescendantEntitlementID: "B",
-	}}
+	// Mutate the destination node's EntitlementIDs slice to contain "B"
+	// twice. Inner-loop yields (A,B) twice; dedup must collapse them.
+	dstNodeID, ok := graph.EntitlementsToNodes["B"]
+	require.True(t, ok, "expected node for entitlement B")
+	dstNode := graph.Nodes[dstNodeID]
+	dstNode.EntitlementIDs = []string{"B", "B"}
+	graph.Nodes[dstNodeID] = dstNode
 
-	// Verify the dedup seeds from the existing queue. We construct an
-	// expander and exercise the seen-set seeding directly via the
-	// publicly exposed Actions slice. The idiomatic way is to call the
-	// step function in a context where we know the queue won't be drained
-	// before generation (which the production code structure prevents),
-	// so we assert on the invariant the dedup is meant to uphold:
-	// length-1 + same edge after the seen-set seeds from the queue.
-	require.Len(t, graph.Actions, 1)
+	expander := NewExpander(nil, graph)
+	require.NoError(t, expander.RunSingleStep(ctx))
+	require.Len(t, graph.Actions, 1,
+		"action queue must contain (A,B) exactly once even though descendant B is yielded twice")
 	require.Equal(t, "A", graph.Actions[0].SourceEntitlementID)
 	require.Equal(t, "B", graph.Actions[0].DescendantEntitlementID)
-	// (No further assertions: this companion test documents the
-	// safety-net invariant; the iteration-dedup test above covers the
-	// behavioral case.)
+}
+
+// TestExpander_DedupEmitsLogOnSkip pins the operator-visible signal: when
+// the dedup actually fires (skipped > 0), an Info-level log line is emitted
+// with `queued` and `skipped` fields and the package-conventional message.
+// Operators grep for this to estimate the dedup win across syncs, so the
+// message text and field names are an external contract and need a
+// regression guard.
+func TestExpander_DedupEmitsLogOnSkip(t *testing.T) {
+	core := newCapturingCore()
+	logger := zap.New(core)
+	ctx := ctxzap.ToContext(context.Background(), logger)
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID("A")
+	graph.AddEntitlementID("B")
+	require.NoError(t, graph.AddEdge(ctx, "A", "B", false, []string{"user"}))
+
+	srcNodeID, ok := graph.EntitlementsToNodes["A"]
+	require.True(t, ok)
+	srcNode := graph.Nodes[srcNodeID]
+	srcNode.EntitlementIDs = []string{"A", "A"}
+	graph.Nodes[srcNodeID] = srcNode
+
+	expander := NewExpander(nil, graph)
+	require.NoError(t, expander.RunSingleStep(ctx))
+
+	entries := core.filterMessage("expander: pre-pruned duplicate (source, descendant) actions")
+	require.Len(t, entries, 1, "dedup log line must be emitted exactly once when skips occur")
+	require.EqualValues(t, 1, entries[0].Fields["queued"], "queued field must reflect actions that were enqueued")
+	require.EqualValues(t, 1, entries[0].Fields["skipped"], "skipped field must reflect duplicates that were dropped")
 }
