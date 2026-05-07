@@ -9,6 +9,18 @@ The missing `generic` set collection for the Go language.  Until Go has sets bui
 ## Psst
 * Hi there, 👋! Do you use or have interest in the [Zig programming language](https://ziglang.org/) created by Andrew Kelley? If so, the golang-set project has a new sibling project: [ziglang-set](https://github.com/deckarep/ziglang-set)! Come check it out!
 
+## Update 4/20/2026
+* Packaged version: `2.9.0` contains the following:
+  *  Address an edge case where a deadlock may occur with `Each` should a panic occur: [PR #164](https://github.com/deckarep/golang-set/pull/164)
+  *  BSON Marshaling support for Marshaling and Unmarshaling: [PR #142](https://github.com/deckarep/golang-set/pull/142)
+  *  New PopN method: [PR #166](https://github.com/deckarep/golang-set/pull/166)
+  *  Reduced allocations by using capacity arg for some methods that may allocate: [PR #171](https://github.com/deckarep/golang-set/pull/171)
+
+## Update 3/14/2025
+* Packaged version: `2.8.0` introduces support for true iterators for Go 1.23+. Please see [issue #141](https://github.com/deckarep/golang-set/issues/141)
+for further details on the implications of how iterations work between older Go versions vs newer Go versions. Additionally, this
+release has a minor unit-test spelling fix.
+
 ## Update 12/3/2024
 * Packaged version: `2.7.0` fixes a long-standing bug with *JSON Unmarshaling*. A large refactor in the interest of performance
 introduced this bug and there was no way around it but to revert the code back to how it was previously. The performance

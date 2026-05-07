@@ -6,8 +6,8 @@ import (
 	"time"
 
 	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
-	_ "github.com/glebarez/go-sqlite"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 )
 
 var urlTest = "https://jsonplaceholder.typicode.com/posts/1/comments"
