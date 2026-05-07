@@ -254,7 +254,10 @@ message BatonServiceGetTasksRequest {
     min_len: 1
     max_len: 256
   }];
-  uint32 page_size = 2 [(validate.rules).uint32 = {gt: 0, lte: 100}];
+  uint32 page_size = 2 [(validate.rules).uint32 = {
+    gt: 0
+    lte: 100
+  }];
   repeated string known_task_ids = 3 [(validate.rules).repeated = {
     items: {
       string: {pattern: "^[a-zA-Z0-9]{27}$"}

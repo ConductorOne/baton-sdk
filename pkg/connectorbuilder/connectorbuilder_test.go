@@ -12,6 +12,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -431,6 +432,46 @@ func (t *testAccountManager) CreateAccount(
 }
 
 func (t *testAccountManager) CreateAccountCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
+	return nil, annotations.Annotations{}, nil
+}
+
+// testInvitationAccountManager returns a SuccessResult with a fixed
+// InvitationExpiresAt so tests can assert the field passes through the
+// connectorbuilder switch arm and survives wire-format round-trips. Models
+// connectors (e.g. GitHub) whose CreateAccount produces a pending invitation
+// rather than a fully-provisioned account.
+type testInvitationAccountManager struct {
+	ResourceSyncer
+	invitationExpiresAt time.Time
+}
+
+func newTestInvitationAccountManager(resourceType string, invitationExpiresAt time.Time) AccountManager {
+	return &testInvitationAccountManager{
+		ResourceSyncer:      newTestResourceSyncer(resourceType),
+		invitationExpiresAt: invitationExpiresAt,
+	}
+}
+
+func (t *testInvitationAccountManager) CreateAccount(
+	ctx context.Context,
+	accountInfo *v2.AccountInfo,
+	credentialOptions *v2.LocalCredentialOptions,
+) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error) {
+	r := v2.CreateAccountResponse_SuccessResult_builder{
+		IsCreateAccountResult: true,
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: t.ResourceType(ctx).GetId(),
+				Resource:     "invited-account",
+			}.Build(),
+			DisplayName: "Invited User",
+		}.Build(),
+		InvitationExpiresAt: timestamppb.New(t.invitationExpiresAt),
+	}.Build()
+	return r, []*v2.PlaintextData{}, annotations.Annotations{}, nil
+}
+
+func (t *testInvitationAccountManager) CreateAccountCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
 	return nil, annotations.Annotations{}, nil
 }
 
@@ -1082,6 +1123,56 @@ func TestAccountManager(t *testing.T) {
 	require.NotNil(t, createAccountResp)
 	require.Equal(t, "created-account", createAccountResp.GetSuccess().GetResource().GetId().GetResource())
 	require.Equal(t, "Test User", createAccountResp.GetSuccess().GetResource().GetDisplayName())
+}
+
+// TestAccountManagerSuccessInvitationExpiresAt asserts that a connector
+// returning a SuccessResult with InvitationExpiresAt set has the field
+// preserved through the connectorbuilder CreateAccount switch arm and
+// survives a proto Marshal/Unmarshal round-trip on the wire format. Models
+// the GitHub-org-invite flow where CreateAccount returns a successful but
+// pending invitation with a 7-day TTL.
+func TestAccountManagerSuccessInvitationExpiresAt(t *testing.T) {
+	ctx := context.Background()
+
+	// Fixed, sub-second-precision UTC time to verify nanosecond fidelity
+	// through Marshal/Unmarshal.
+	invitationExpiresAt := time.Date(2026, 5, 14, 15, 4, 5, 123456789, time.UTC)
+
+	accountManager := newTestInvitationAccountManager("user", invitationExpiresAt)
+	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{accountManager}))
+	require.NoError(t, err)
+
+	resp, err := connector.CreateAccount(ctx, v2.CreateAccountRequest_builder{
+		AccountInfo: v2.AccountInfo_builder{
+			Profile: &structpb.Struct{Fields: map[string]*structpb.Value{}},
+		}.Build(),
+		CredentialOptions: v2.CredentialOptions_builder{
+			NoPassword: &v2.CredentialOptions_NoPassword{},
+		}.Build(),
+	}.Build())
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	success := resp.GetSuccess()
+	require.NotNil(t, success, "expected Success result on response")
+	require.Equal(t, "invited-account", success.GetResource().GetId().GetResource())
+	require.NotNil(t, success.GetInvitationExpiresAt(), "InvitationExpiresAt should be set on response")
+	require.True(t, success.GetInvitationExpiresAt().AsTime().Equal(invitationExpiresAt),
+		"InvitationExpiresAt: got %s, want %s", success.GetInvitationExpiresAt().AsTime(), invitationExpiresAt)
+
+	// Wire-format round-trip: InvitationExpiresAt must survive Marshal/Unmarshal
+	// to the nanosecond, since older c1 readers must reliably observe new fields.
+	wire, err := proto.Marshal(resp)
+	require.NoError(t, err)
+
+	var got v2.CreateAccountResponse
+	require.NoError(t, proto.Unmarshal(wire, &got))
+
+	gotSuccess := got.GetSuccess()
+	require.NotNil(t, gotSuccess)
+	require.NotNil(t, gotSuccess.GetInvitationExpiresAt())
+	require.True(t, gotSuccess.GetInvitationExpiresAt().AsTime().Equal(invitationExpiresAt),
+		"round-tripped InvitationExpiresAt: got %s, want %s", gotSuccess.GetInvitationExpiresAt().AsTime(), invitationExpiresAt)
 }
 
 func TestCredentialManager(t *testing.T) {
