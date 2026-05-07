@@ -12,6 +12,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -431,6 +432,47 @@ func (t *testAccountManager) CreateAccount(
 }
 
 func (t *testAccountManager) CreateAccountCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
+	return nil, annotations.Annotations{}, nil
+}
+
+// testActionRequiredAccountManager returns an ActionRequiredResult with a fixed
+// ExpiresAt and Message so tests can assert the field passes through the
+// connectorbuilder switch arm and survives wire-format round-trips.
+type testActionRequiredAccountManager struct {
+	ResourceSyncer
+	expiresAt time.Time
+	message   string
+}
+
+func newTestActionRequiredAccountManager(resourceType string, expiresAt time.Time, message string) AccountManager {
+	return &testActionRequiredAccountManager{
+		ResourceSyncer: newTestResourceSyncer(resourceType),
+		expiresAt:      expiresAt,
+		message:        message,
+	}
+}
+
+func (t *testActionRequiredAccountManager) CreateAccount(
+	ctx context.Context,
+	accountInfo *v2.AccountInfo,
+	credentialOptions *v2.LocalCredentialOptions,
+) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error) {
+	r := v2.CreateAccountResponse_ActionRequiredResult_builder{
+		IsCreateAccountResult: true,
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: t.ResourceType(ctx).GetId(),
+				Resource:     "pending-account",
+			}.Build(),
+			DisplayName: "Pending User",
+		}.Build(),
+		Message:   t.message,
+		ExpiresAt: timestamppb.New(t.expiresAt),
+	}.Build()
+	return r, []*v2.PlaintextData{}, annotations.Annotations{}, nil
+}
+
+func (t *testActionRequiredAccountManager) CreateAccountCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
 	return nil, annotations.Annotations{}, nil
 }
 
@@ -1082,6 +1124,57 @@ func TestAccountManager(t *testing.T) {
 	require.NotNil(t, createAccountResp)
 	require.Equal(t, "created-account", createAccountResp.GetSuccess().GetResource().GetId().GetResource())
 	require.Equal(t, "Test User", createAccountResp.GetSuccess().GetResource().GetDisplayName())
+}
+
+// TestAccountManagerActionRequiredExpiresAt asserts that a connector returning
+// an ActionRequiredResult with ExpiresAt set has the field preserved through
+// the connectorbuilder CreateAccount switch arm and survives a proto
+// Marshal/Unmarshal round-trip on the wire format.
+func TestAccountManagerActionRequiredExpiresAt(t *testing.T) {
+	ctx := context.Background()
+
+	// Use a fixed, sub-second-precision UTC time so we can verify nanosecond
+	// fidelity through the round-trip.
+	expiresAt := time.Date(2026, 5, 14, 15, 4, 5, 123456789, time.UTC)
+	const wantMessage = "GitHub org invite sent. Waiting for user to accept."
+
+	accountManager := newTestActionRequiredAccountManager("user", expiresAt, wantMessage)
+	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{accountManager}))
+	require.NoError(t, err)
+
+	resp, err := connector.CreateAccount(ctx, v2.CreateAccountRequest_builder{
+		AccountInfo: v2.AccountInfo_builder{
+			Profile: &structpb.Struct{Fields: map[string]*structpb.Value{}},
+		}.Build(),
+		CredentialOptions: v2.CredentialOptions_builder{
+			NoPassword: &v2.CredentialOptions_NoPassword{},
+		}.Build(),
+	}.Build())
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	ar := resp.GetActionRequired()
+	require.NotNil(t, ar, "expected ActionRequired result on response")
+	require.Equal(t, wantMessage, ar.GetMessage())
+	require.Equal(t, "pending-account", ar.GetResource().GetId().GetResource())
+	require.NotNil(t, ar.GetExpiresAt(), "ExpiresAt should be set on response")
+	require.True(t, ar.GetExpiresAt().AsTime().Equal(expiresAt),
+		"ExpiresAt: got %s, want %s", ar.GetExpiresAt().AsTime(), expiresAt)
+
+	// Wire-format round-trip: ExpiresAt must survive Marshal/Unmarshal to the
+	// nanosecond, since older c1 readers must reliably observe new fields.
+	wire, err := proto.Marshal(resp)
+	require.NoError(t, err)
+
+	var got v2.CreateAccountResponse
+	require.NoError(t, proto.Unmarshal(wire, &got))
+
+	gotAR := got.GetActionRequired()
+	require.NotNil(t, gotAR)
+	require.Equal(t, wantMessage, gotAR.GetMessage())
+	require.NotNil(t, gotAR.GetExpiresAt())
+	require.True(t, gotAR.GetExpiresAt().AsTime().Equal(expiresAt),
+		"round-tripped ExpiresAt: got %s, want %s", gotAR.GetExpiresAt().AsTime(), expiresAt)
 }
 
 func TestCredentialManager(t *testing.T) {

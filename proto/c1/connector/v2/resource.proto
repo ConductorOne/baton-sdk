@@ -4,6 +4,7 @@ package c1.connector.v2;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
@@ -232,6 +233,13 @@ message CreateAccountResponse {
     Resource resource = 1;
     string message = 2;
     bool is_create_account_result = 3;
+    // Optional. Absolute wall-clock time at which the connector-side artifact
+    // (e.g. a GitHub org invite) will expire and become unusable. When set, c1
+    // surfaces this in the task UI and transitions the provisioning action to a
+    // terminal failure if the user has not completed the required action by
+    // expires_at. Leave unset for connectors with no enforced TTL.
+    // Construct with: timestamppb.New(t).
+    google.protobuf.Timestamp expires_at = 4;
   }
   message AlreadyExistsResult {
     Resource resource = 1;
