@@ -126,7 +126,7 @@ func (q *taskQueue) pollDecision() pollDecision {
 		return pollDecision{action: pollActionFetch}
 	}
 	d := time.Until(q.nextPollAt)
-	if d < 0 {
+	if d <= 0 {
 		return pollDecision{action: pollActionFetch}
 	}
 	return pollDecision{action: pollActionWait, wait: d}

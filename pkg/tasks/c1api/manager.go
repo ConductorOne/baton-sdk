@@ -237,8 +237,10 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 		if task == nil {
 			// no tasks in our queue, so bubble up the mandatory wait time (or default to 100ms to avoid a spinlock).
 			wait = cmp.Or(decision.wait, 100*time.Millisecond)
+			l.Debug("c1_api_task_manager.Next(): no tasks in queue, waiting", zap.Duration("wait", wait))
+		} else {
+			l.Debug("c1_api_task_manager.Next(): returning queued task", zap.String("task_id", task.GetId()), zap.Stringer("task_type", tasks.GetType(task)))
 		}
-		l.Debug("c1_api_task_manager.Next(): returning queued task", zap.String("task_id", task.GetId()), zap.Stringer("task_type", tasks.GetType(task)))
 		return task, wait, nil
 	}
 
