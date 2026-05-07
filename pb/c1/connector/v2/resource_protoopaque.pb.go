@@ -4065,6 +4065,7 @@ type CreateAccountResponse_SuccessResult struct {
 	state                            protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Resource              *Resource              `protobuf:"bytes,1,opt,name=resource,proto3"`
 	xxx_hidden_IsCreateAccountResult bool                   `protobuf:"varint,2,opt,name=is_create_account_result,json=isCreateAccountResult,proto3"`
+	xxx_hidden_InvitationExpiresAt   *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=invitation_expires_at,json=invitationExpiresAt,proto3"`
 	unknownFields                    protoimpl.UnknownFields
 	sizeCache                        protoimpl.SizeCache
 }
@@ -4108,12 +4109,23 @@ func (x *CreateAccountResponse_SuccessResult) GetIsCreateAccountResult() bool {
 	return false
 }
 
+func (x *CreateAccountResponse_SuccessResult) GetInvitationExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_InvitationExpiresAt
+	}
+	return nil
+}
+
 func (x *CreateAccountResponse_SuccessResult) SetResource(v *Resource) {
 	x.xxx_hidden_Resource = v
 }
 
 func (x *CreateAccountResponse_SuccessResult) SetIsCreateAccountResult(v bool) {
 	x.xxx_hidden_IsCreateAccountResult = v
+}
+
+func (x *CreateAccountResponse_SuccessResult) SetInvitationExpiresAt(v *timestamppb.Timestamp) {
+	x.xxx_hidden_InvitationExpiresAt = v
 }
 
 func (x *CreateAccountResponse_SuccessResult) HasResource() bool {
@@ -4123,8 +4135,19 @@ func (x *CreateAccountResponse_SuccessResult) HasResource() bool {
 	return x.xxx_hidden_Resource != nil
 }
 
+func (x *CreateAccountResponse_SuccessResult) HasInvitationExpiresAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_InvitationExpiresAt != nil
+}
+
 func (x *CreateAccountResponse_SuccessResult) ClearResource() {
 	x.xxx_hidden_Resource = nil
+}
+
+func (x *CreateAccountResponse_SuccessResult) ClearInvitationExpiresAt() {
+	x.xxx_hidden_InvitationExpiresAt = nil
 }
 
 type CreateAccountResponse_SuccessResult_builder struct {
@@ -4132,6 +4155,16 @@ type CreateAccountResponse_SuccessResult_builder struct {
 
 	Resource              *Resource
 	IsCreateAccountResult bool
+	// Optional. When the connector created an invitation-style artifact
+	// (e.g. a GitHub org invite) rather than a fully-provisioned account,
+	// this is the absolute wall-clock time at which that invitation expires
+	// and becomes unusable. c1 surfaces this in the task UI and transitions
+	// the provisioning action to a terminal failure if the user has not
+	// accepted the invitation by this time. Leave unset for connectors whose
+	// CreateAccount truly creates a usable account, or for invitations with
+	// no enforced TTL.
+	// Construct with: timestamppb.New(t).
+	InvitationExpiresAt *timestamppb.Timestamp
 }
 
 func (b0 CreateAccountResponse_SuccessResult_builder) Build() *CreateAccountResponse_SuccessResult {
@@ -4140,6 +4173,7 @@ func (b0 CreateAccountResponse_SuccessResult_builder) Build() *CreateAccountResp
 	_, _ = b, x
 	x.xxx_hidden_Resource = b.Resource
 	x.xxx_hidden_IsCreateAccountResult = b.IsCreateAccountResult
+	x.xxx_hidden_InvitationExpiresAt = b.InvitationExpiresAt
 	return m0
 }
 
@@ -4148,7 +4182,6 @@ type CreateAccountResponse_ActionRequiredResult struct {
 	xxx_hidden_Resource              *Resource              `protobuf:"bytes,1,opt,name=resource,proto3"`
 	xxx_hidden_Message               string                 `protobuf:"bytes,2,opt,name=message,proto3"`
 	xxx_hidden_IsCreateAccountResult bool                   `protobuf:"varint,3,opt,name=is_create_account_result,json=isCreateAccountResult,proto3"`
-	xxx_hidden_ExpiresAt             *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=expires_at,json=expiresAt,proto3"`
 	unknownFields                    protoimpl.UnknownFields
 	sizeCache                        protoimpl.SizeCache
 }
@@ -4199,13 +4232,6 @@ func (x *CreateAccountResponse_ActionRequiredResult) GetIsCreateAccountResult() 
 	return false
 }
 
-func (x *CreateAccountResponse_ActionRequiredResult) GetExpiresAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.xxx_hidden_ExpiresAt
-	}
-	return nil
-}
-
 func (x *CreateAccountResponse_ActionRequiredResult) SetResource(v *Resource) {
 	x.xxx_hidden_Resource = v
 }
@@ -4218,10 +4244,6 @@ func (x *CreateAccountResponse_ActionRequiredResult) SetIsCreateAccountResult(v 
 	x.xxx_hidden_IsCreateAccountResult = v
 }
 
-func (x *CreateAccountResponse_ActionRequiredResult) SetExpiresAt(v *timestamppb.Timestamp) {
-	x.xxx_hidden_ExpiresAt = v
-}
-
 func (x *CreateAccountResponse_ActionRequiredResult) HasResource() bool {
 	if x == nil {
 		return false
@@ -4229,19 +4251,8 @@ func (x *CreateAccountResponse_ActionRequiredResult) HasResource() bool {
 	return x.xxx_hidden_Resource != nil
 }
 
-func (x *CreateAccountResponse_ActionRequiredResult) HasExpiresAt() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_ExpiresAt != nil
-}
-
 func (x *CreateAccountResponse_ActionRequiredResult) ClearResource() {
 	x.xxx_hidden_Resource = nil
-}
-
-func (x *CreateAccountResponse_ActionRequiredResult) ClearExpiresAt() {
-	x.xxx_hidden_ExpiresAt = nil
 }
 
 type CreateAccountResponse_ActionRequiredResult_builder struct {
@@ -4250,13 +4261,6 @@ type CreateAccountResponse_ActionRequiredResult_builder struct {
 	Resource              *Resource
 	Message               string
 	IsCreateAccountResult bool
-	// Optional. Absolute wall-clock time at which the connector-side artifact
-	// (e.g. a GitHub org invite) will expire and become unusable. When set, c1
-	// surfaces this in the task UI and transitions the provisioning action to a
-	// terminal failure if the user has not completed the required action by
-	// expires_at. Leave unset for connectors with no enforced TTL.
-	// Construct with: timestamppb.New(t).
-	ExpiresAt *timestamppb.Timestamp
 }
 
 func (b0 CreateAccountResponse_ActionRequiredResult_builder) Build() *CreateAccountResponse_ActionRequiredResult {
@@ -4266,7 +4270,6 @@ func (b0 CreateAccountResponse_ActionRequiredResult_builder) Build() *CreateAcco
 	x.xxx_hidden_Resource = b.Resource
 	x.xxx_hidden_Message = b.Message
 	x.xxx_hidden_IsCreateAccountResult = b.IsCreateAccountResult
-	x.xxx_hidden_ExpiresAt = b.ExpiresAt
 	return m0
 }
 
@@ -4613,7 +4616,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x12credential_options\x18\x02 \x01(\v2\".c1.connector.v2.CredentialOptionsR\x11credentialOptions\x12P\n" +
 	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\x127\n" +
 	"\x10resource_type_id\x18\x04 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\x0eresourceTypeId\"\x87\t\n" +
+	"r\b \x01(\x80\b\xd0\x01\x01R\x0eresourceTypeId\"\x9d\t\n" +
 	"\x15CreateAccountResponse\x12P\n" +
 	"\asuccess\x18d \x01(\v24.c1.connector.v2.CreateAccountResponse.SuccessResultH\x00R\asuccess\x12f\n" +
 	"\x0faction_required\x18e \x01(\v2;.c1.connector.v2.CreateAccountResponse.ActionRequiredResultH\x00R\x0eactionRequired\x12c\n" +
@@ -4621,16 +4624,15 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\vin_progress\x18g \x01(\v27.c1.connector.v2.CreateAccountResponse.InProgressResultH\x00R\n" +
 	"inProgress\x12E\n" +
 	"\x0eencrypted_data\x18\x02 \x03(\v2\x1e.c1.connector.v2.EncryptedDataR\rencryptedData\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\x7f\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\xcf\x01\n" +
 	"\rSuccessResult\x125\n" +
 	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x127\n" +
-	"\x18is_create_account_result\x18\x02 \x01(\bR\x15isCreateAccountResult\x1a\xdb\x01\n" +
+	"\x18is_create_account_result\x18\x02 \x01(\bR\x15isCreateAccountResult\x12N\n" +
+	"\x15invitation_expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x13invitationExpiresAt\x1a\xa0\x01\n" +
 	"\x14ActionRequiredResult\x125\n" +
 	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x127\n" +
-	"\x18is_create_account_result\x18\x03 \x01(\bR\x15isCreateAccountResult\x129\n" +
-	"\n" +
-	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x1a\x85\x01\n" +
+	"\x18is_create_account_result\x18\x03 \x01(\bR\x15isCreateAccountResult\x1a\x85\x01\n" +
 	"\x13AlreadyExistsResult\x125\n" +
 	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x127\n" +
 	"\x18is_create_account_result\x18\x02 \x01(\bR\x15isCreateAccountResult\x1a\x82\x01\n" +
@@ -4839,8 +4841,8 @@ var file_c1_connector_v2_resource_proto_depIdxs = []int32{
 	19, // 57: c1.connector.v2.CredentialOptions.EncryptedPassword.encrypted_passwords:type_name -> c1.connector.v2.EncryptedData
 	16, // 58: c1.connector.v2.LocalCredentialOptions.RandomPassword.constraints:type_name -> c1.connector.v2.PasswordConstraint
 	23, // 59: c1.connector.v2.CreateAccountResponse.SuccessResult.resource:type_name -> c1.connector.v2.Resource
-	23, // 60: c1.connector.v2.CreateAccountResponse.ActionRequiredResult.resource:type_name -> c1.connector.v2.Resource
-	45, // 61: c1.connector.v2.CreateAccountResponse.ActionRequiredResult.expires_at:type_name -> google.protobuf.Timestamp
+	45, // 60: c1.connector.v2.CreateAccountResponse.SuccessResult.invitation_expires_at:type_name -> google.protobuf.Timestamp
+	23, // 61: c1.connector.v2.CreateAccountResponse.ActionRequiredResult.resource:type_name -> c1.connector.v2.Resource
 	23, // 62: c1.connector.v2.CreateAccountResponse.AlreadyExistsResult.resource:type_name -> c1.connector.v2.Resource
 	23, // 63: c1.connector.v2.CreateAccountResponse.InProgressResult.resource:type_name -> c1.connector.v2.Resource
 	3,  // 64: c1.connector.v2.ResourceTypesService.ListResourceTypes:input_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesRequest
