@@ -178,6 +178,7 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 		var err error
 		c1z, err = zstd.NewWriter(io.Discard,
 			zstd.WithEncoderConcurrency(encoderConcurrency),
+			zstd.WithEncoderLevel(zstd.SpeedFastest),
 		)
 		if err != nil {
 			return err
