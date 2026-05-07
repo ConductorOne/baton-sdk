@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	BatonService_Hello_FullMethodName          = "/c1.connectorapi.baton.v1.BatonService/Hello"
 	BatonService_GetTask_FullMethodName        = "/c1.connectorapi.baton.v1.BatonService/GetTask"
+	BatonService_GetTasks_FullMethodName       = "/c1.connectorapi.baton.v1.BatonService/GetTasks"
 	BatonService_Heartbeat_FullMethodName      = "/c1.connectorapi.baton.v1.BatonService/Heartbeat"
 	BatonService_FinishTask_FullMethodName     = "/c1.connectorapi.baton.v1.BatonService/FinishTask"
 	BatonService_UploadAsset_FullMethodName    = "/c1.connectorapi.baton.v1.BatonService/UploadAsset"
@@ -33,6 +34,7 @@ const (
 type BatonServiceClient interface {
 	Hello(ctx context.Context, in *BatonServiceHelloRequest, opts ...grpc.CallOption) (*BatonServiceHelloResponse, error)
 	GetTask(ctx context.Context, in *BatonServiceGetTaskRequest, opts ...grpc.CallOption) (*BatonServiceGetTaskResponse, error)
+	GetTasks(ctx context.Context, in *BatonServiceGetTasksRequest, opts ...grpc.CallOption) (*BatonServiceGetTasksResponse, error)
 	Heartbeat(ctx context.Context, in *BatonServiceHeartbeatRequest, opts ...grpc.CallOption) (*BatonServiceHeartbeatResponse, error)
 	FinishTask(ctx context.Context, in *BatonServiceFinishTaskRequest, opts ...grpc.CallOption) (*BatonServiceFinishTaskResponse, error)
 	UploadAsset(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[BatonServiceUploadAssetRequest, BatonServiceUploadAssetResponse], error)
@@ -61,6 +63,16 @@ func (c *batonServiceClient) GetTask(ctx context.Context, in *BatonServiceGetTas
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BatonServiceGetTaskResponse)
 	err := c.cc.Invoke(ctx, BatonService_GetTask_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *batonServiceClient) GetTasks(ctx context.Context, in *BatonServiceGetTasksRequest, opts ...grpc.CallOption) (*BatonServiceGetTasksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatonServiceGetTasksResponse)
+	err := c.cc.Invoke(ctx, BatonService_GetTasks_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -116,6 +128,7 @@ func (c *batonServiceClient) StartDebugging(ctx context.Context, in *StartDebugg
 type BatonServiceServer interface {
 	Hello(context.Context, *BatonServiceHelloRequest) (*BatonServiceHelloResponse, error)
 	GetTask(context.Context, *BatonServiceGetTaskRequest) (*BatonServiceGetTaskResponse, error)
+	GetTasks(context.Context, *BatonServiceGetTasksRequest) (*BatonServiceGetTasksResponse, error)
 	Heartbeat(context.Context, *BatonServiceHeartbeatRequest) (*BatonServiceHeartbeatResponse, error)
 	FinishTask(context.Context, *BatonServiceFinishTaskRequest) (*BatonServiceFinishTaskResponse, error)
 	UploadAsset(grpc.ClientStreamingServer[BatonServiceUploadAssetRequest, BatonServiceUploadAssetResponse]) error
@@ -134,6 +147,9 @@ func (UnimplementedBatonServiceServer) Hello(context.Context, *BatonServiceHello
 }
 func (UnimplementedBatonServiceServer) GetTask(context.Context, *BatonServiceGetTaskRequest) (*BatonServiceGetTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTask not implemented")
+}
+func (UnimplementedBatonServiceServer) GetTasks(context.Context, *BatonServiceGetTasksRequest) (*BatonServiceGetTasksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTasks not implemented")
 }
 func (UnimplementedBatonServiceServer) Heartbeat(context.Context, *BatonServiceHeartbeatRequest) (*BatonServiceHeartbeatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Heartbeat not implemented")
@@ -199,6 +215,24 @@ func _BatonService_GetTask_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(BatonServiceServer).GetTask(ctx, req.(*BatonServiceGetTaskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BatonService_GetTasks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatonServiceGetTasksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BatonServiceServer).GetTasks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BatonService_GetTasks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BatonServiceServer).GetTasks(ctx, req.(*BatonServiceGetTasksRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -278,6 +312,10 @@ var BatonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetTask",
 			Handler:    _BatonService_GetTask_Handler,
+		},
+		{
+			MethodName: "GetTasks",
+			Handler:    _BatonService_GetTasks_Handler,
 		},
 		{
 			MethodName: "Heartbeat",

@@ -1,8 +1,11 @@
 package c1api
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"os"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -50,8 +53,12 @@ var (
 	maxHelloBackoff     = 5 * time.Minute
 )
 
+const getTasksEnv = "BATON_GET_TASKS"
+
 type c1ApiTaskManager struct {
 	serviceClient                       BatonServiceClient
+	taskQueue                           *taskQueue
+	getTasksEnabled                     bool
 	tempDir                             string
 	skipFullSync                        bool
 	externalResourceC1Z                 string
@@ -197,28 +204,91 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
-	l.Debug("c1_api_task_manager.Next(): checking for new tasks")
+	if !c.getTasksEnabled {
+		l.Debug("c1_api_task_manager.Next(): checking for new task")
+		resp, err := c.serviceClient.GetTask(ctx, &v1.BatonServiceGetTaskRequest{})
+		if err != nil {
+			return nil, 0, err
+		}
 
-	resp, err := c.serviceClient.GetTask(ctx, &v1.BatonServiceGetTaskRequest{})
+		nextPoll := getNextPoll(resp.GetNextPoll().AsDuration())
+		l = l.With(zap.Duration("next_poll", nextPoll))
+
+		if resp.GetTask() == nil || tasks.Is(resp.GetTask(), taskTypes.NoneType) {
+			l.Debug("c1_api_task_manager.Next(): no tasks available")
+			return nil, nextPoll, nil
+		}
+
+		l = l.With(
+			zap.String("task_id", resp.GetTask().GetId()),
+			zap.Stringer("task_type", tasks.GetType(resp.GetTask())),
+		)
+
+		l.Debug("c1_api_task_manager.Next(): got task", zap.Duration("next_poll", nextPoll))
+		return resp.GetTask(), nextPoll, nil
+	}
+
+	// Bulk fetch & queue path.
+	task := c.taskQueue.take()
+	wait := time.Duration(0)
+	decision := c.taskQueue.pollDecision()
+	// Can we do any work right now?
+	if decision.action == pollActionWait {
+		if task == nil {
+			// no tasks in our queue, so bubble up the mandatory wait time (or default to 100ms to avoid a spinlock).
+			wait = cmp.Or(decision.wait, 100*time.Millisecond)
+		}
+		l.Debug("c1_api_task_manager.Next(): returning queued task", zap.String("task_id", task.GetId()), zap.Stringer("task_type", tasks.GetType(task)))
+		return task, wait, nil
+	}
+
+	// Should we do work now?
+	if decision.action == pollActionFetch {
+		knownTaskIDs, pageSize := c.taskQueue.fetchParams()
+
+		resp, err := c.serviceClient.GetTasks(ctx, &v1.BatonServiceGetTasksRequest{
+			PageSize:     pageSize,
+			KnownTaskIds: knownTaskIDs,
+		})
+
+		if err == nil {
+			nextPoll := getNextPoll(resp.GetNextPoll().AsDuration())
+			l.Debug("c1_api_task_manager.Next(): fetched task batch", zap.Duration("next_poll", nextPoll), zap.Int("tasks", len(resp.GetTasks())), zap.Uint32("page_size", pageSize))
+			c.taskQueue.setNextPoll(nextPoll)
+			c.taskQueue.enqueue(resp.GetTasks())
+		} else {
+			l.Error("c1_api_task_manager.Next(): failed to top up task batch", zap.Error(err))
+			if task == nil {
+				// our queue is empty, and we can't fetch more, thats an error.
+				return nil, 0, err
+			}
+			// swallow error, maybe the next one will work.
+		}
+	}
+
+	// Maybe we don't have a task but fetched one...
+	if task == nil {
+		task = c.taskQueue.take()
+	}
+
+	if task == nil {
+		// Maybe we fetched tasks and there were none, so use a fresh wait time.
+		wait = cmp.Or(c.taskQueue.pollDecision().wait, 100*time.Millisecond)
+	}
+
+	return task, wait, nil
+}
+
+func getTasksEnabledFromEnv() bool {
+	raw, ok := os.LookupEnv(getTasksEnv)
+	if !ok {
+		return false
+	}
+	enabled, err := strconv.ParseBool(raw)
 	if err != nil {
-		return nil, 0, err
+		return false
 	}
-
-	nextPoll := getNextPoll(resp.GetNextPoll().AsDuration())
-	l = l.With(zap.Duration("next_poll", nextPoll))
-
-	if resp.GetTask() == nil || tasks.Is(resp.GetTask(), taskTypes.NoneType) {
-		l.Debug("c1_api_task_manager.Next(): no tasks available")
-		return nil, nextPoll, nil
-	}
-
-	l = l.With(
-		zap.String("task_id", resp.GetTask().GetId()),
-		zap.Stringer("task_type", tasks.GetType(resp.GetTask())),
-	)
-
-	l.Debug("c1_api_task_manager.Next(): got task", zap.Duration("next_poll", nextPoll))
-	return resp.GetTask(), nextPoll, nil
+	return enabled
 }
 
 func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, taskError error) error {
@@ -313,6 +383,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		l.Debug("c1_api_task_manager.Process(): process called with nil task -- continuing")
 		return nil
 	}
+	defer c.taskQueue.markDone(task)
 
 	l = l.With(
 		zap.String("task_id", task.GetId()),
@@ -410,6 +481,7 @@ func NewC1TaskManager(
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 	workerCount int,
+	taskConcurrency int,
 ) (BootstrappingTaskManager, error) {
 	serviceClient, err := newServiceClient(ctx, clientID, clientSecret)
 	if err != nil {
@@ -418,6 +490,8 @@ func NewC1TaskManager(
 
 	return &c1ApiTaskManager{
 		serviceClient:                       serviceClient,
+		taskQueue:                           newTaskQueue(taskConcurrency),
+		getTasksEnabled:                     getTasksEnabledFromEnv(),
 		tempDir:                             tempDir,
 		skipFullSync:                        skipFullSync,
 		externalResourceC1Z:                 externalC1Z,

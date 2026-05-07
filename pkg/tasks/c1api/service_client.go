@@ -30,6 +30,7 @@ type BatonServiceClient interface {
 	batonHelloClient
 
 	GetTask(ctx context.Context, req *v1.BatonServiceGetTaskRequest) (*v1.BatonServiceGetTaskResponse, error)
+	GetTasks(ctx context.Context, req *v1.BatonServiceGetTasksRequest) (*v1.BatonServiceGetTasksResponse, error)
 	Heartbeat(ctx context.Context, req *v1.BatonServiceHeartbeatRequest) (*v1.BatonServiceHeartbeatResponse, error)
 	FinishTask(ctx context.Context, req *v1.BatonServiceFinishTaskRequest) (*v1.BatonServiceFinishTaskResponse, error)
 	Upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error
@@ -112,6 +113,22 @@ func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.BatonServiceGetTas
 	in.SetHostId(c.getHostID())
 
 	resp, err := client.GetTask(ctx, in)
+	return resp, err
+}
+
+func (c *c1ServiceClient) GetTasks(ctx context.Context, in *v1.BatonServiceGetTasksRequest) (*v1.BatonServiceGetTasksResponse, error) {
+	ctx, span := tracer.Start(ctx, "c1ServiceClient.GetTasks")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+	client, done, err := c.getClientConn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
+	in.SetHostId(c.getHostID())
+
+	resp, err := client.GetTasks(ctx, in)
 	return resp, err
 }
 
