@@ -131,7 +131,9 @@ func benchmarkExpand(b *testing.B, syncID string) {
 		b.Skipf("testdata file not found: %s", c1zPath)
 	}
 
-	ctx := b.Context()
+	// Do not use b.Context() here. Doing so causes the benchmark to run slower.
+	// The SQL library's interruptOnDone() is called if ctx.Done() is not nil.
+	ctx := context.Background()
 
 	// Open the c1z file once to get stats
 	c1f, err := dotc1z.NewC1ZFile(ctx, c1zPath)

@@ -14,53 +14,52 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.75.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.10
 	github.com/aws/smithy-go v1.24.0
-	github.com/conductorone/dpop v0.2.3
-	github.com/conductorone/dpop/integrations/dpop_grpc v0.2.3
+	github.com/conductorone/dpop v0.2.6
+	github.com/conductorone/dpop/integrations/dpop_grpc v0.2.4
 	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.5
-	github.com/deckarep/golang-set/v2 v2.7.0
+	github.com/deckarep/golang-set/v2 v2.9.0
 	github.com/doug-martin/goqu/v9 v9.19.0
-	github.com/envoyproxy/protoc-gen-validate v1.2.1
-	github.com/glebarez/go-sqlite v1.22.0
-	github.com/go-jose/go-jose/v4 v4.1.3
+	github.com/envoyproxy/protoc-gen-validate v1.3.3
+	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
-	github.com/klauspost/compress v1.18.0
-	github.com/maypok86/otter/v2 v2.2.1
+	github.com/klauspost/compress v1.18.6
+	github.com/maypok86/otter/v2 v2.3.0
 	github.com/mitchellh/mapstructure v1.5.0
-	github.com/pquerna/xjwt v0.3.0
+	github.com/pquerna/xjwt v0.4.0
 	github.com/pquerna/xjwt/xkeyset v0.0.0-20241217022915-10fc997b2a9f
 	github.com/segmentio/ksuid v1.0.4
-	github.com/shirou/gopsutil/v4 v4.25.11
+	github.com/shirou/gopsutil/v4 v4.26.4
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/pflag v1.0.6
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/contrib/bridges/otelzap v0.14.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.63.0
-	go.opentelemetry.io/otel v1.39.0
+	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.15.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.39.0
 	go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.39.0
-	go.opentelemetry.io/otel/metric v1.39.0
-	go.opentelemetry.io/otel/sdk v1.39.0
+	go.opentelemetry.io/otel/metric v1.43.0
+	go.opentelemetry.io/otel/sdk v1.43.0
 	go.opentelemetry.io/otel/sdk/log v0.15.0
-	go.opentelemetry.io/otel/sdk/metric v1.39.0
-	go.opentelemetry.io/otel/trace v1.39.0
+	go.opentelemetry.io/otel/sdk/metric v1.43.0
+	go.opentelemetry.io/otel/trace v1.43.0
 	go.uber.org/ratelimit v0.3.1
-	go.uber.org/zap v1.27.1
-	golang.org/x/crypto v0.44.0
-	golang.org/x/net v0.47.0
-	golang.org/x/oauth2 v0.32.0
-	golang.org/x/sync v0.18.0
-	golang.org/x/sys v0.39.0
-	golang.org/x/term v0.37.0
-	golang.org/x/text v0.31.0
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217
-	google.golang.org/grpc v1.78.0
-	google.golang.org/protobuf v1.36.10
+	go.uber.org/zap v1.28.0
+	golang.org/x/crypto v0.50.0
+	golang.org/x/net v0.53.0
+	golang.org/x/oauth2 v0.36.0
+	golang.org/x/sync v0.20.0
+	golang.org/x/sys v0.43.0
+	golang.org/x/term v0.42.0
+	golang.org/x/text v0.36.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260504160031-60b97b32f348
+	google.golang.org/grpc v1.81.0
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v2 v2.4.0
-	modernc.org/sqlite v1.34.5
+	modernc.org/sqlite v1.50.0
 )
 
 require (
@@ -82,7 +81,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ebitengine/purego v0.9.1 // indirect
+	github.com/ebitengine/purego v0.10.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -96,7 +95,7 @@ require (
 	github.com/magiconair/properties v1.8.9 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
-	github.com/ncruces/go-strftime v0.1.9 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
@@ -105,12 +104,13 @@ require (
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
-	github.com/spf13/afero v1.12.0 // indirect
+	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	go.mongodb.org/mongo-driver v1.17.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.39.0 // indirect
 	go.opentelemetry.io/otel/log v0.15.0 // indirect
@@ -118,13 +118,15 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20250128182459-e0ece0dbea4c // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20251202230838-ff82c1b0f217 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	modernc.org/libc v1.61.10 // indirect
+	modernc.org/libc v1.72.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.8.2 // indirect
+	modernc.org/memory v1.11.0 // indirect
 )
 
 // Remove once https://github.com/doug-martin/goqu/pull/440 merges
 replace github.com/doug-martin/goqu/v9 => github.com/ductone/goqu/v9 v9.19.1
+
+replace modernc.org/sqlite => github.com/ductone/cznic-sqlite v1.50.0-bind-perf

@@ -25,7 +25,7 @@ import (
 	// and allocates a ton of memory.
 	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 
-	_ "github.com/glebarez/go-sqlite"
+	_ "modernc.org/sqlite"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -487,6 +487,15 @@ func (c *C1File) init(ctx context.Context) error {
 		l.Warn("c1file-init: WAL checkpoint after init failed", zap.Error(err))
 	}
 
+	// Optimize DB. Desired after running migrations to improve performance.
+	_, err = c.db.ExecContext(ctx, "PRAGMA optimize")
+	if err != nil {
+		return err
+	}
+	l.Debug("c1file-init: optimized database",
+		zap.String("db_file_path", c.dbFilePath),
+	)
+
 	if c.readOnly {
 		// Disable journaling in read only mode, since we're not writing to the database.
 		_, err = c.db.ExecContext(ctx, "PRAGMA journal_mode = OFF")
@@ -495,6 +504,20 @@ func (c *C1File) init(ctx context.Context) error {
 		}
 		// Disable synchronous writes in read only mode, since we're not writing to the database.
 		_, err = c.db.ExecContext(ctx, "PRAGMA synchronous = OFF")
+		if err != nil {
+			return err
+		}
+	} else {
+		// Use NORMAL synchronous mode instead of FULL (default).
+		// Normal is faster and only unsafe on old filesystems.
+		_, err = c.db.ExecContext(ctx, "PRAGMA synchronous = NORMAL")
+		if err != nil {
+			return err
+		}
+
+		// Use TRUNCATE journal mode instead of DELETE (default).
+		// User-specified pragmas such as journal_mode=WAL will override this.
+		_, err = c.db.ExecContext(ctx, "PRAGMA journal_mode = TRUNCATE")
 		if err != nil {
 			return err
 		}

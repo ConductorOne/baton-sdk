@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	_ "github.com/glebarez/go-sqlite"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 )
 
 func TestValidateColumnName(t *testing.T) {
