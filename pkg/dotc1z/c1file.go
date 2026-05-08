@@ -70,24 +70,7 @@ type C1File struct {
 	syncLimit   int
 	skipCleanup bool
 
-	// v2GrantsWriter, when true, causes PutGrants/UpsertGrants to strip
-	// Grant.Entitlement and Grant.Principal from the serialized data blob.
-	// Those fields are reconstituted at read time as minimal stubs built
-	// from the grants row's identity columns (entitlement_id,
-	// resource_type_id, resource_id, principal_resource_type_id,
-	// principal_resource_id) — no joins against v1_entitlements or
-	// v1_resources. Stubs carry identity only (Id + nested Resource.Id);
-	// DisplayName, Annotations, Purpose, Slug, traits, and other rich
-	// fields are zero-value. Readers handle full and slim blobs
-	// transparently per row, so mixed syncs in the same table are
-	// supported.
-	//
-	// Slim is gated per-grant: a grant carrying InsertResourceGrants or
-	// any ExternalResourceMatch* annotation stays full-blob even when
-	// this flag is on, because the syncer reads non-identity fields off
-	// its embedded Resource / Principal. See unsafeForSlim in grants.go.
-	//
-	// Default false; enabled via WithC1FV2GrantsWriter / WithV2GrantsWriter.
+	// See WithC1FV2GrantsWriter.
 	v2GrantsWriter bool
 }
 
@@ -144,31 +127,18 @@ func WithC1FSyncCountLimit(limit int) C1FOption {
 	}
 }
 
-// WithC1FV2GrantsWriter toggles the slim-blob writer path for grants.
-// When true, Grant.Entitlement and Grant.Principal are stripped from
-// the serialized data blob at write time; readers reconstitute them
-// as minimal identity-only stubs (Id + nested Resource.Id) using the
-// grants row's existing columns — no joins against v1_entitlements or
-// v1_resources. Stubs do NOT carry DisplayName, Annotations, Purpose,
-// Slug, traits, or any other non-identity field; callers that need
-// those must fetch the Entitlement / Resource directly via
-// GetEntitlement / GetResource. Default false. Readers always accept
-// both shapes regardless of this flag.
+// WithC1FV2GrantsWriter strips Grant.Entitlement and Grant.Principal
+// from the serialized data blob at write time. Readers rebuild them
+// as identity-only stubs (Id + nested Resource.Id) from the grants
+// row's columns. Stubs carry no DisplayName, Annotations, Purpose,
+// Slug, or traits; callers that need those must fetch the Entitlement
+// or Resource directly. Readers accept both shapes regardless of this
+// flag, so old and new rows coexist. Default false.
 //
-// Slim is gated per-grant: a grant carrying any of these annotations
-// is left full-blob even when the option is on, because downstream
-// sync code reads non-identity fields off its embedded Resource /
-// Principal:
-//
-//   - v2.InsertResourceGrants  (response-level; the syncer copies it
-//     onto each grant in the batch before UpsertGrants)
-//   - v2.ExternalResourceMatchAll
-//   - v2.ExternalResourceMatch
-//   - v2.ExternalResourceMatchID
-//
-// All other grants are eligible for slim. Connectors emitting flat
-// (non-hierarchical) principals and no external-resource matching see
-// every grant slimmed.
+// Per-grant escape hatch: see unsafeForSlim. Grants carrying
+// InsertResourceGrants or any ExternalResourceMatch* annotation stay
+// full-blob — those code paths read non-identity fields off the
+// embedded Resource / Principal.
 func WithC1FV2GrantsWriter(enabled bool) C1FOption {
 	return func(o *C1File) {
 		o.v2GrantsWriter = enabled

@@ -129,17 +129,8 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 	}.Build(), nil
 }
 
-// listGrantsGeneric is the grants-specific list implementation backing
-// ListGrants / ListGrantsFor{Entitlement,Principal,ResourceType}. It
-// mirrors the filter dispatch of the generic listConnectorObjects but
-// pulls the join-key columns (entitlement_id, resource_type_id,
-// resource_id, principal_resource_type_id, principal_resource_id) in
-// the main SELECT so the slim-blob hydration pass can construct
-// identity-only stubs from the row itself without a second query.
-//
-// Hydration short-circuits when no row on the page is slim (no nil
-// Entitlement / Principal). For slim rows, hydrateGrants populates
-// Entitlement and Principal from the join-key columns directly.
+// listGrantsGeneric pulls the grant identity columns inline so slim-blob
+// rows can be hydrated without a second query.
 func listGrantsGeneric(ctx context.Context, c *C1File, req listRequest) ([]*v2.Grant, string, error) {
 	if err := c.validateDb(ctx); err != nil {
 		return nil, "", err
@@ -235,12 +226,6 @@ func listGrantsGeneric(ctx context.Context, c *C1File, req listRequest) ([]*v2.G
 	var out []*v2.Grant
 	var slimGrants []*v2.Grant
 	var slimKeys []grantJoinKeys
-	// Hoist scan destinations out of the loop. data and the five identity
-	// columns use sql.RawBytes so the SQLite driver writes back into the
-	// same buffer each iteration instead of allocating a fresh []byte /
-	// string per row. We materialize Go strings only when a slim row
-	// triggers hydration bookkeeping (string(b) copies into a Go-managed
-	// buffer before the next rows.Scan invalidates the source).
 	var (
 		rowID          int
 		data           sql.RawBytes
@@ -308,10 +293,8 @@ func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderSe
 		return nil, fmt.Errorf("error fetching grant '%s': %w", request.GetGrantId(), err)
 	}
 
-	// Hydrate Entitlement / Principal when the row was written by the
-	// slim-blob writer. Non-slim rows short-circuit. We re-resolve the
-	// sync id with the same cascade getConnectorObject used so the
-	// join-key lookup hits the same row.
+	// Re-resolve sync_id with the same cascade as getConnectorObject so
+	// hydration hits the same row.
 	if ret.GetEntitlement() == nil || ret.GetPrincipal() == nil {
 		resolvedSyncID, rerr := c.resolveSyncIDForGrantGet(ctx, syncId)
 		if rerr != nil {
@@ -327,10 +310,8 @@ func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderSe
 	}.Build(), nil
 }
 
-// resolveSyncIDForGrantGet mirrors the sync_id resolution cascade used
-// by getConnectorObject: explicit > currentSyncID > viewSyncID > latest
-// finished > latest unfinished. Needed so slim-grant hydration after
-// GetGrant queries the same row getConnectorObject saw.
+// resolveSyncIDForGrantGet mirrors getConnectorObject's sync_id cascade
+// so slim-grant hydration queries the same row.
 func (c *C1File) resolveSyncIDForGrantGet(ctx context.Context, explicit string) (string, error) {
 	if explicit != "" {
 		return explicit, nil
@@ -469,9 +450,8 @@ func baseGrantRecord(grant *v2.Grant) goqu.Record {
 	}
 }
 
-// Sentinels for unsafeForSlim's membership check. Hoisted to package
-// scope so the gate doesn't allocate four zero-value protos per grant
-// on every UpsertGrants call.
+// Hoisted so the per-grant gate doesn't allocate four zero-value
+// protos per UpsertGrants call.
 var (
 	unsafeForSlimSentinels = []proto.Message{
 		&v2.InsertResourceGrants{},
@@ -481,25 +461,18 @@ var (
 	}
 )
 
-// unsafeForSlim returns true when a grant carries an annotation that
-// implies downstream code (in baton-sdk's syncer) reads non-identity
-// fields off the grant's embedded Entitlement.Resource or Principal.
-// Slimming such grants would silently corrupt those code paths:
+// unsafeForSlim returns true when a grant's annotations imply the
+// syncer reads non-identity fields off its embedded Entitlement.Resource
+// or Principal. Slimming silently corrupts those paths.
 //
-//   - InsertResourceGrants: the syncer extracts grant.Entitlement.Resource
-//     and writes it to v1_resources via PutResources (syncer.go:1731-1737).
-//     Identity-only stubs from a slim re-read would overwrite the
-//     resources table with stripped data on etag-replay.
-//   - ExternalResourceMatch{All,Match,ID}: processGrantsWithExternalPrincipals
-//     uses bid.MakeBid(grant.GetPrincipal()) for a key lookup whose map
-//     keys encode ParentResourceId when set. A slim stub principal has
-//     no parent; its 2-part bid misses 4-part map keys, silently losing
-//     transitive expansion through the external-resource match.
+// InsertResourceGrants — the syncer extracts grant.Entitlement.Resource
+// and writes it to v1_resources via PutResources. Stubs would overwrite
+// the resources table with stripped data on etag-replay.
 //
-// Note that InsertResourceGrants is canonically a response-level
-// annotation; the syncer copies it onto each grant's annotations
-// before UpsertGrants so the writer can see it per-row. The other
-// three are emitted by connectors directly on the grant.
+// ExternalResourceMatch{All,Match,ID} — processGrantsWithExternalPrincipals
+// builds a bid key from grant.GetPrincipal() that encodes ParentResourceId.
+// A slim stub principal has no parent, so its bid misses keys and loses
+// transitive expansion through the external-resource match.
 func unsafeForSlim(grant *v2.Grant) bool {
 	annos := annotations.Annotations(grant.GetAnnotations())
 	return annos.ContainsAny(unsafeForSlimSentinels...)
@@ -508,18 +481,12 @@ func unsafeForSlim(grant *v2.Grant) bool {
 func grantExtractFields(c *C1File, mode grantUpsertMode) func(grant *v2.Grant) (goqu.Record, error) {
 	return func(grant *v2.Grant) (goqu.Record, error) {
 		rec := baseGrantRecord(grant)
-		// Gate slim per-grant: skip slim when the grant carries an
-		// annotation that implies the embedded Entitlement.Resource or
-		// Principal is read for non-identity fields downstream.
 		slim := c.v2GrantsWriter && !unsafeForSlim(grant)
 		preserveExpansion := mode == grantUpsertModePreserveExpansion
 
-		// PreserveExpansion mode does not touch the expansion / needs_expansion
-		// columns — the UPSERT's ON CONFLICT branch keeps existing values. The
-		// data blob still needs to be slimmed when the writer option is on,
-		// otherwise slim-writer tenants would silently store full blobs for
-		// every grant that came through the expander (the majority for
-		// group-grant-heavy tenants).
+		// PreserveExpansion still must slim the data blob — otherwise
+		// expanded grants (the majority for group-heavy tenants) silently
+		// stay full-blob.
 		if preserveExpansion {
 			if !slim {
 				return rec, nil
@@ -568,16 +535,8 @@ func grantExtractFields(c *C1File, mode grantUpsertMode) func(grant *v2.Grant) (
 	}
 }
 
-// slimGrantForWrite zeroes Grant.Entitlement and Grant.Principal on a
-// cloned grant before it is marshaled into the data blob. The reader
-// reconstitutes both fields as identity-only stubs from the grant
-// row's own columns (entitlement_id, resource_type_id, resource_id,
-// principal_resource_type_id, principal_resource_id). See
-// hydrateGrants in grants_hydrate.go.
-//
-// Grant.Id is intentionally NOT zeroed — keeping it costs ~40 B/grant (vs.
-// ~390 B savings from the two message fields) and avoids routing hydration
-// through the generic single-row getConnectorObject path that backs GetGrant.
+// Id is intentionally kept — stripping it would force GetGrant through
+// the slow generic single-row hydration path.
 func slimGrantForWrite(grant *v2.Grant) {
 	grant.SetEntitlement(nil)
 	grant.SetPrincipal(nil)
