@@ -1734,18 +1734,14 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	insertResourceGrants := respAnnos.Contains(&v2.InsertResourceGrants{})
 
-	// InsertResourceGrants is canonically a response-level annotation but
-	// the slim-blob writer's per-grant safety gate (grantExtractFields →
-	// unsafeForSlim) needs to see it per-row to avoid stripping the
-	// embedded Resource that this code path will subsequently extract via
-	// grant.GetEntitlement().GetResource() and write to v1_resources.
-	// Stamp the marker onto each grant so the writer treats them as
-	// full-blob.
+	// Stamp InsertResourceGrants per-grant so the slim-blob writer's
+	// gate sees it. The annotation is response-level, but the writer
+	// needs it per-row to avoid stripping the Resource this path
+	// subsequently writes to v1_resources.
 	//
-	// Marshal the *anypb.Any once and append the shared pointer to each
-	// grant — Any is treated as immutable downstream, so aliasing is
-	// safe and avoids per-grant proto-marshal + slice rebuild that
-	// annotations.Update would do.
+	// Aliasing the same *anypb.Any across grants is safe — Any is
+	// treated as immutable downstream. Avoids the per-grant proto
+	// marshal that annotations.Update would do.
 	if insertResourceGrants {
 		insertResourceGrantsSentinel := &v2.InsertResourceGrants{}
 		var insertAny *anypb.Any

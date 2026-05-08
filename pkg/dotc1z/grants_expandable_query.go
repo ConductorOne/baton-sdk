@@ -207,11 +207,6 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts grant
 		DiscardUnknown: true,
 	}
 
-	// Hoist scan destinations and reuse RawBytes buffers across rows so the
-	// SQLite driver doesn't allocate fresh slices/strings every iteration.
-	// Strings are only materialized when we need them downstream (expansion
-	// def populated, or slim row triggers hydration bookkeeping); RawBytes
-	// contents are invalidated on the next rows.Scan.
 	var (
 		rowID          int64
 		grantData      sql.RawBytes
