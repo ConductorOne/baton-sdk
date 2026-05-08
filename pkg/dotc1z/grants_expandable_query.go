@@ -226,10 +226,6 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts grant
 		count          uint32
 		lastRow        int64
 	)
-	// Result and slim-row bookkeeping start nil and grow via append.
-	// Pre-sizing to maxPageSize is wasteful for queries that return
-	// few rows; at scale append's doubling-grow is amortized against
-	// per-row proto unmarshal.
 	var result []*internalGrantRow
 	var pageGrants []*v2.Grant
 	var pageKeys []grantJoinKeys

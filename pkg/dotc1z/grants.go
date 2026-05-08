@@ -232,11 +232,6 @@ func listGrantsGeneric(ctx context.Context, c *C1File, req listRequest) ([]*v2.G
 
 	unmarshal := proto.UnmarshalOptions{Merge: true, DiscardUnknown: true}
 
-	// Output and slim bookkeeping slices stay nil and grow via append
-	// rather than being pre-sized to maxPageSize (10000). For 1-row
-	// queries (e.g. ListGrantsForPrincipal) the cap-hint allocation
-	// dominated the per-query cost; at scale append's doubling-grow
-	// is amortized against the per-row proto unmarshal.
 	var out []*v2.Grant
 	var slimGrants []*v2.Grant
 	var slimKeys []grantJoinKeys
