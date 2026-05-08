@@ -6,12 +6,30 @@ import (
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
 
 const defaultMaxLogFrequency = 10 * time.Second
+
+// Metric names emitted by LogExpandProgress. The string values are the
+// stable external contract — operators build Datadog dashboards and alert
+// rules on these names, so renames are breaking changes. The Go-level
+// constants are unexported because callers don't need them; the metric
+// names are discovered out-of-band from documentation / dashboards.
+//
+// Counter names mirror the structured-log field names emitted next to
+// each value (`actions_remaining`, `decompressed_bytes`,
+// `decompressed_bytes_delta`) so an operator who sees a field in a log
+// entry can derive the metric name by mechanical substitution.
+const (
+	metricActionsRemaining       = "baton.sync.expand.actions_remaining"
+	metricActionsBurnedTotal     = "baton.sync.expand.actions_burned"
+	metricDecompressedBytes      = "baton.sync.expand.decompressed_bytes"
+	metricDecompressedBytesDelta = "baton.sync.expand.decompressed_bytes_delta"
+)
 
 type rwMutex interface {
 	Lock()
@@ -54,6 +72,20 @@ type ProgressLog struct {
 	dbSize           connectorstore.DBSizeProvider
 	lastLoggedDBSize int64
 	hasLoggedDBSize  bool // false until the first successful size read; gates the delta field
+
+	// Optional OTel metrics handler. Mirrors the fields emitted by
+	// LogExpandProgress so operators don't have to back trends out of log
+	// timestamps. Initialized once in NewProgressCounts (default no-op);
+	// callers wire a real handler via WithMetricsHandler. The expand metrics
+	// are looked up lazily on first emission so the no-op path costs nothing
+	// when expand never runs (e.g. resource-only syncs).
+	metricsHandler         metrics.Handler
+	metricsExpandRemaining metrics.Int64Gauge
+	metricsExpandBurned    metrics.Int64Counter
+	metricsExpandDBSize    metrics.Int64Gauge
+	metricsExpandDBGrowth  metrics.Int64Counter
+	lastEmittedRemaining   int64
+	hasEmittedRemaining    bool // gates the burned-counter delta on the first sample
 }
 
 type Option func(*ProgressLog)
@@ -109,6 +141,22 @@ func WithDBSizeProvider(p connectorstore.DBSizeProvider) Option {
 	}
 }
 
+// WithMetricsHandler attaches an optional metrics.Handler. When set,
+// LogExpandProgress emits gauges/counters mirroring the structured log fields
+// (actions_remaining, actions_burned, decompressed_bytes, decompressed_bytes_growth)
+// so operators can build dashboards instead of scraping log timestamps.
+//
+// The handler should be pre-tagged by the caller (e.g. via Handler.WithTags
+// for connector_id / tenant_id) so emitted metrics carry the dimensions
+// operators want to slice by. nil is treated as "no metrics" (default).
+func WithMetricsHandler(h metrics.Handler) Option {
+	return func(p *ProgressLog) {
+		if h != nil {
+			p.metricsHandler = h
+		}
+	}
+}
+
 // SetDBSizeProvider updates the DBSizeProvider attached to this ProgressLog.
 // Intended for callers (notably the syncer) that construct the ProgressLog
 // before the store is known (e.g. WithC1ZPath path, where the store is
@@ -131,10 +179,34 @@ func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 		l:                    ctxzap.Extract(ctx),
 		maxLogFrequency:      defaultMaxLogFrequency,
 		mu:                   &noOpMutex{}, // Default to sequential mode for backward compatibility
+		metricsHandler:       metrics.NewNoOpHandler(ctx),
 	}
 	for _, o := range opts {
 		o(p)
 	}
+	// Resolve metric instruments after options apply. Counters/gauges are
+	// idempotent within a Handler (otelHandler caches by name), so re-resolving
+	// here is safe even if the no-op handler was replaced via WithMetricsHandler.
+	p.metricsExpandRemaining = p.metricsHandler.Int64Gauge(
+		metricActionsRemaining,
+		"Current entitlement-graph actions queued for grant expansion",
+		metrics.Dimensionless,
+	)
+	p.metricsExpandBurned = p.metricsHandler.Int64Counter(
+		metricActionsBurnedTotal,
+		"Total entitlement-graph actions completed during grant expansion (cumulative; use rate() for throughput)",
+		metrics.Dimensionless,
+	)
+	p.metricsExpandDBSize = p.metricsHandler.Int64Gauge(
+		metricDecompressedBytes,
+		"Live uncompressed c1z file size during grant expansion",
+		metrics.Bytes,
+	)
+	p.metricsExpandDBGrowth = p.metricsHandler.Int64Counter(
+		metricDecompressedBytesDelta,
+		"Cumulative uncompressed c1z growth during grant expansion (use rate() for growth rate)",
+		metrics.Bytes,
+	)
 	return p
 }
 
@@ -288,17 +360,42 @@ func (p *ProgressLog) LogExpandProgress(ctx context.Context, actions []*expand.E
 	}
 	p.lastActionLog = time.Now()
 
-	fields := []zap.Field{zap.Int("actions_remaining", len(actions))}
+	remaining := int64(len(actions))
+	fields := []zap.Field{zap.Int64("actions_remaining", remaining)}
+
+	// Mirror the actions_remaining gauge to OTel and emit a delta counter so
+	// rate(actions_burned) over a window answers "is this connector still
+	// burning through actions?" without an operator having to scrape log
+	// timestamps. Skip the burned delta on the first sample for the same
+	// reason we skip decompressed_bytes_delta below.
+	p.metricsExpandRemaining.Observe(ctx, remaining, nil)
+	if p.hasEmittedRemaining {
+		// "Burned" is positive when the queue shrank between samples. New
+		// actions appended during this step (e.g. depth++ enqueueing the next
+		// layer) make the queue grow — count those as zero rather than
+		// negative so the counter stays monotonic. Operators interpreting
+		// rate() on a counter that goes backwards is the bigger surprise.
+		if delta := p.lastEmittedRemaining - remaining; delta > 0 {
+			p.metricsExpandBurned.Add(ctx, delta, nil)
+		}
+	}
+	p.lastEmittedRemaining = remaining
+	p.hasEmittedRemaining = true
 
 	if p.dbSize != nil {
 		if sz, err := p.dbSize.CurrentDBSizeBytes(); err == nil {
 			fields = append(fields, zap.Int64("decompressed_bytes", sz))
+			p.metricsExpandDBSize.Observe(ctx, sz, nil)
 			// Omit the delta on the very first sample — it would equal the
 			// full size and create a spurious spike in any Datadog graph of
 			// growth rate. Subsequent samples compute delta relative to the
 			// previous emitted size, which is the real signal operators want.
 			if p.hasLoggedDBSize {
-				fields = append(fields, zap.Int64("decompressed_bytes_delta", sz-p.lastLoggedDBSize))
+				delta := sz - p.lastLoggedDBSize
+				fields = append(fields, zap.Int64("decompressed_bytes_delta", delta))
+				if delta > 0 {
+					p.metricsExpandDBGrowth.Add(ctx, delta, nil)
+				}
 			}
 			p.lastLoggedDBSize = sz
 			p.hasLoggedDBSize = true

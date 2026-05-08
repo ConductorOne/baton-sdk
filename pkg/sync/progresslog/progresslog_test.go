@@ -12,8 +12,93 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 )
+
+// fakeCounter / fakeGauge / fakeHandler capture metric emissions in-memory so
+// tests can assert on values without standing up an OTel pipeline. Mirrors the
+// shape of pkg/metrics.NoOpHandler with a recording side.
+type fakeCounter struct {
+	mu     sync.Mutex
+	values []int64
+}
+
+func (c *fakeCounter) Add(_ context.Context, value int64, _ map[string]string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.values = append(c.values, value)
+}
+
+func (c *fakeCounter) sum() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var s int64
+	for _, v := range c.values {
+		s += v
+	}
+	return s
+}
+
+type fakeGauge struct {
+	mu     sync.Mutex
+	values []int64
+}
+
+func (g *fakeGauge) Observe(_ context.Context, value int64, _ map[string]string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.values = append(g.values, value)
+}
+
+func (g *fakeGauge) last() (int64, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(g.values) == 0 {
+		return 0, false
+	}
+	return g.values[len(g.values)-1], true
+}
+
+type fakeHandler struct {
+	counters map[string]*fakeCounter
+	gauges   map[string]*fakeGauge
+}
+
+func newFakeHandler() *fakeHandler {
+	return &fakeHandler{
+		counters: make(map[string]*fakeCounter),
+		gauges:   make(map[string]*fakeGauge),
+	}
+}
+
+func (h *fakeHandler) Int64Counter(name string, _ string, _ metrics.Unit) metrics.Int64Counter {
+	if c, ok := h.counters[name]; ok {
+		return c
+	}
+	c := &fakeCounter{}
+	h.counters[name] = c
+	return c
+}
+
+func (h *fakeHandler) Int64Gauge(name string, _ string, _ metrics.Unit) metrics.Int64Gauge {
+	if g, ok := h.gauges[name]; ok {
+		return g
+	}
+	g := &fakeGauge{}
+	h.gauges[name] = g
+	return g
+}
+
+func (h *fakeHandler) Int64Histogram(_ string, _ string, _ metrics.Unit) metrics.Int64Histogram {
+	return &noopHistogram{}
+}
+
+func (h *fakeHandler) WithTags(_ map[string]string) metrics.Handler { return h }
+
+type noopHistogram struct{}
+
+func (*noopHistogram) Record(_ context.Context, _ int64, _ map[string]string) {}
 
 // capturingCore is a minimal zapcore.Core that records entries in-memory so
 // tests can assert on fields without depending on zaptest/observer (not vendored).
@@ -194,27 +279,35 @@ func TestLogExpandProgress_PerStepExpanderShape(t *testing.T) {
 	ctx, logs := observedLogger(t)
 
 	probe := &sizeProbe{size: 1_000_000}
+	// Tight window. We don't actually wait for it to elapse — we backdate
+	// p.lastActionLog between the calls we want to land. This keeps the
+	// test deterministic on coarse-clock CI runners (Windows, busy CI)
+	// where time.Sleep can return early or late by tens of ms.
 	p := NewProgressCounts(ctx,
-		WithLogFrequency(15*time.Millisecond),
+		WithLogFrequency(time.Hour),
 		WithDBSizeProvider(probe),
 	)
 
-	// Simulate ~50 steps across a ~100ms window. 2ms inter-step sleep keeps
-	// the loop well outside sub-ms clock noise on Windows while still
-	// producing enough samples to exercise rate-limiting.
+	// Simulate ~50 steps where most are rate-limited and a handful land.
+	// Land emits at step 0 (lastActionLog is zero on first call) and at
+	// step 25 (we backdate just before that one). Steps 26..49 are
+	// rate-limited by the freshly-set lastActionLog.
 	totalSteps := 50
 	for i := 0; i < totalSteps; i++ {
 		_ = expand.NewExpander(nil, nil) // throwaway, matches per-step construction
 		probe.size += 500_000            // simulate growth between steps
+		if i == 25 {
+			// Force the second emission deterministically.
+			p.expandMu.Lock()
+			p.lastActionLog = time.Time{}
+			p.expandMu.Unlock()
+		}
 		p.LogExpandProgress(ctx, nil)
-		time.Sleep(2 * time.Millisecond)
 	}
 
 	entries := logs.filterMessage("Expanding grants")
-	require.GreaterOrEqual(t, len(entries), 2,
-		"at least two logs must emit across 50 steps in a ~100ms window with 15ms rate-limit")
-	require.Less(t, len(entries), totalSteps,
-		"logs must be rate-limited, not one-per-step")
+	require.Len(t, entries, 2,
+		"backdated lastActionLog must produce exactly two emissions (step 0 and step 25); intermediate calls are rate-limited")
 
 	// Second log's delta must be growth since the first, not full size —
 	// proves state persisted across the simulated per-step calls.
@@ -225,4 +318,98 @@ func TestLogExpandProgress_PerStepExpanderShape(t *testing.T) {
 	require.Greater(t, delta, int64(0))
 	require.Less(t, delta, size,
 		"delta must be < full size, proving the ProgressLog kept its prior sample")
+}
+
+// TestLogExpandProgress_EmitsMetrics pins the OTel metric emission contract:
+//
+//  1. actions_remaining gauge mirrors the log field on every emission.
+//  2. actions_burned counter accumulates the queue-shrink delta across
+//     emissions, but skips the first sample (no prior to delta against).
+//  3. decompressed_bytes gauge / decompressed_bytes_growth counter fire
+//     whenever the size provider returns a value.
+//  4. Queue growth between samples (e.g. depth++ enqueueing a new layer)
+//     does not produce a negative counter increment — the counter stays
+//     monotonic so rate() queries don't break.
+//
+// Without these invariants, an operator dashboard query like
+// `rate(baton.sync.expand.actions_burned)` would either be unavailable
+// (no metric) or non-monotonic (counter going backwards), neither of
+// which is acceptable for a primary "is this connector still alive?"
+// signal.
+func TestLogExpandProgress_EmitsMetrics(t *testing.T) {
+	ctx, _ := observedLogger(t)
+
+	probe := &sizeProbe{size: 100_000_000}
+	handler := newFakeHandler()
+	// Tight rate-limit window — we backdate p.lastActionLog between
+	// samples instead of sleeping, so the test is deterministic on
+	// coarse-clock CI runners.
+	p := NewProgressCounts(ctx,
+		WithLogFrequency(time.Hour),
+		WithDBSizeProvider(probe),
+		WithMetricsHandler(handler),
+	)
+
+	// resetWindow lets the next LogExpandProgress emit by clearing the
+	// rate-limit timestamp. Real production waits through the window;
+	// the test injects the precondition directly.
+	resetWindow := func() {
+		p.expandMu.Lock()
+		p.lastActionLog = time.Time{}
+		p.expandMu.Unlock()
+	}
+
+	gaugeLast := func(t *testing.T, name string) int64 {
+		t.Helper()
+		g := handler.gauges[name]
+		require.NotNil(t, g, "gauge %q must be registered", name)
+		v, ok := g.last()
+		require.True(t, ok, "gauge %q must have at least one observation", name)
+		return v
+	}
+	counterSum := func(t *testing.T, name string) int64 {
+		t.Helper()
+		c := handler.counters[name]
+		require.NotNil(t, c, "counter %q must be registered", name)
+		return c.sum()
+	}
+
+	// Sample 1: 5 actions queued. Establishes the baseline gauge value;
+	// burned counter should NOT increment (no prior remaining to delta against).
+	p.LogExpandProgress(ctx, make([]*expand.EntitlementGraphAction, 5))
+	require.EqualValues(t, 5, gaugeLast(t, metricActionsRemaining))
+	require.EqualValues(t, 0, counterSum(t, metricActionsBurnedTotal),
+		"burned counter must not increment on the first sample")
+
+	// Sample 2: 3 actions remaining → 2 burned, c1z grew by 30M.
+	resetWindow()
+	probe.size = 130_000_000
+	p.LogExpandProgress(ctx, make([]*expand.EntitlementGraphAction, 3))
+	require.EqualValues(t, 3, gaugeLast(t, metricActionsRemaining))
+	require.EqualValues(t, 2, counterSum(t, metricActionsBurnedTotal),
+		"5 -> 3 transition must increment burned counter by 2")
+	require.EqualValues(t, 130_000_000, gaugeLast(t, metricDecompressedBytes))
+	require.EqualValues(t, 30_000_000, counterSum(t, metricDecompressedBytesDelta),
+		"100M -> 130M transition must increment growth counter by 30M")
+
+	// Sample 3: queue GREW from 3 to 7 (depth++ effect). Burned counter
+	// must not move backwards.
+	resetWindow()
+	prevBurned := counterSum(t, metricActionsBurnedTotal)
+	p.LogExpandProgress(ctx, make([]*expand.EntitlementGraphAction, 7))
+	require.EqualValues(t, prevBurned, counterSum(t, metricActionsBurnedTotal),
+		"queue growth must not decrement the monotonic burned counter")
+	require.EqualValues(t, 7, gaugeLast(t, metricActionsRemaining))
+}
+
+// TestLogExpandProgress_NoMetricsHandlerIsSafe verifies that the default
+// no-op handler path does not panic and does not produce any visible metric
+// activity. Guards against a regression where a future refactor passes a
+// nil handler instead of NoOp and panics on Observe.
+func TestLogExpandProgress_NoMetricsHandlerIsSafe(t *testing.T) {
+	ctx, _ := observedLogger(t)
+	p := NewProgressCounts(ctx, WithLogFrequency(1*time.Millisecond))
+	require.NotPanics(t, func() {
+		p.LogExpandProgress(ctx, []*expand.EntitlementGraphAction{{}, {}})
+	})
 }
