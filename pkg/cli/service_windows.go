@@ -344,12 +344,29 @@ func interactiveSetup(ctx context.Context, outputFilePath string, fields []field
 		l.Error("Failed to create config file.", zap.Error(err))
 		return err
 	}
-	defer f.Close()
+	fClosed := false
+	defer func() {
+		if !fClosed {
+			_ = f.Close()
+		}
+	}()
 
 	err = yaml.NewEncoder(f).Encode(config)
 	if err != nil {
 		return err
 	}
+
+	// Sync + Close + err-check before logging success. Without this
+	// the deferred Close would silently discard any write-back error
+	// (out-of-disk, IO error) and the user would see "Config file
+	// created." for a torn config they then try to load.
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("failed to sync config file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("failed to close config file: %w", err)
+	}
+	fClosed = true
 
 	l.Info("Config file created.", zap.String("path", outputFilePath))
 
