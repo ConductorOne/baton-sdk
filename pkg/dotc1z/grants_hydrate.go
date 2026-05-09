@@ -17,7 +17,7 @@ type grantJoinKeys struct {
 	PrincipalResourceID       string
 }
 
-// grantKeys must be index-aligned with grants.
+// grantKeys[i] must describe grants[i] — same length, same order.
 func hydrateGrants(grants []*v2.Grant, grantKeys []grantJoinKeys) {
 	for i, g := range grants {
 		entNil := g.GetEntitlement() == nil
