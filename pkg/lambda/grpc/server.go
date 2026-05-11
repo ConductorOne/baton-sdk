@@ -85,6 +85,9 @@ func (r *TransportStream) SetHeader(md metadata.MD) error {
 	}
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+	if r.headersSent.Load() {
+		return ErrIllegalHeaderWrite
+	}
 	r.headers = metadata.Join(r.headers, md)
 	return nil
 }
@@ -95,6 +98,15 @@ func (r *TransportStream) SendHeader(md metadata.MD) error {
 	}
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+	// Re-check inside the mutex: between the unlocked Load above and
+	// taking r.mtx, a concurrent caller may have already set
+	// headersSent and joined headers. Without this check, both
+	// callers reach the Store(true)/Join below and end up
+	// double-joining headers; the second caller would also fail to
+	// return ErrIllegalSendHeader, violating the once-only contract.
+	if r.headersSent.Load() {
+		return ErrIllegalSendHeader
+	}
 	r.headersSent.Store(true)
 	r.headers = metadata.Join(r.headers, md)
 	return nil
@@ -109,6 +121,9 @@ func (r *TransportStream) SetTrailer(md metadata.MD) error {
 	}
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+	if r.headersSent.Load() {
+		return ErrIllegalHeaderWrite
+	}
 	r.trailers = metadata.Join(r.trailers, md)
 	return nil
 }
