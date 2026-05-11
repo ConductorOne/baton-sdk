@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
@@ -53,12 +54,24 @@ var (
 	maxHelloBackoff     = 5 * time.Minute
 )
 
-const getTasksEnv = "BATON_GET_TASKS"
+const (
+	getTasksEnv                     = "BATON_GET_TASKS"
+	selfHostedRuntimeConfigGetTasks = "service-mode-get-tasks"
+	defaultGetTasksDisableDrainWait = 100 * time.Millisecond
+)
+
+type getTasksMode int32
+
+const (
+	getTasksModeDisabled getTasksMode = iota
+	getTasksModeEnabled
+	getTasksModeDisablePending
+)
 
 type c1ApiTaskManager struct {
 	serviceClient                       BatonServiceClient
 	taskQueue                           *taskQueue
-	getTasksEnabled                     bool
+	getTasksMode                        atomic.Int32
 	tempDir                             string
 	skipFullSync                        bool
 	externalResourceC1Z                 string
@@ -121,8 +134,12 @@ func (c *c1ApiTaskManager) Bootstrap(ctx context.Context, cc types.ConnectorClie
 	attempt := 0
 	for {
 		attempt++
-		err = sendHello(ctx, cc, c.serviceClient, "")
+		var resp *v1.BatonServiceHelloResponse
+		resp, err = sendHello(ctx, cc, c.serviceClient, "")
 		if err == nil {
+			if err = c.applyHelloRuntimeConfig(ctx, resp); err != nil {
+				return err
+			}
 			l.Info("c1_api_task_manager: startup Hello succeeded.", zap.Int("attempts", attempt))
 			return nil
 		}
@@ -204,7 +221,7 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
-	if !c.getTasksEnabled {
+	if c.currentGetTasksMode() == getTasksModeDisabled {
 		l.Debug("c1_api_task_manager.Next(): checking for new task")
 		resp, err := c.serviceClient.GetTask(ctx, &v1.BatonServiceGetTaskRequest{})
 		if err != nil {
@@ -226,6 +243,22 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 
 		l.Debug("c1_api_task_manager.Next(): got task", zap.Duration("next_poll", nextPoll))
 		return resp.GetTask(), nextPoll, nil
+	}
+
+	if c.currentGetTasksMode() == getTasksModeDisablePending {
+		task := c.taskQueue.take()
+		if task != nil {
+			l.Debug("c1_api_task_manager.Next(): draining queued task before disabling GetTasks", zap.String("task_id", task.GetId()), zap.Stringer("task_type", tasks.GetType(task)))
+			return task, 0, nil
+		}
+		queued, inFlight := c.taskQueue.counts()
+		if queued == 0 && inFlight == 0 {
+			c.getTasksMode.Store(int32(getTasksModeDisabled))
+			l.Info("c1_api_task_manager.Next(): GetTasks disabled after draining local task queue")
+			return c.Next(ctx)
+		}
+		l.Debug("c1_api_task_manager.Next(): waiting for in-flight tasks before disabling GetTasks", zap.Int("in_flight", inFlight))
+		return nil, defaultGetTasksDisableDrainWait, nil
 	}
 
 	// Bulk fetch & queue path.
@@ -281,16 +314,90 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 	return task, wait, nil
 }
 
-func getTasksEnabledFromEnv() bool {
+func getTasksModeFromEnv() getTasksMode {
 	raw, ok := os.LookupEnv(getTasksEnv)
 	if !ok {
-		return false
+		return getTasksModeDisabled
 	}
 	enabled, err := strconv.ParseBool(raw)
 	if err != nil {
-		return false
+		return getTasksModeDisabled
 	}
-	return enabled
+	if enabled {
+		return getTasksModeEnabled
+	}
+	return getTasksModeDisabled
+}
+
+func (c *c1ApiTaskManager) currentGetTasksMode() getTasksMode {
+	return getTasksMode(c.getTasksMode.Load())
+}
+
+func (c *c1ApiTaskManager) setGetTasksEnabled(ctx context.Context, enabled bool) {
+	l := ctxzap.Extract(ctx)
+	current := c.currentGetTasksMode()
+	if enabled {
+		if current != getTasksModeEnabled {
+			c.taskQueue.resetNextPoll()
+			c.getTasksMode.Store(int32(getTasksModeEnabled))
+			l.Info("c1_api_task_manager: GetTasks enabled by runtime config")
+		}
+		return
+	}
+
+	switch current {
+	case getTasksModeDisabled:
+		return
+	case getTasksModeDisablePending:
+		return
+	default:
+		c.getTasksMode.Store(int32(getTasksModeDisablePending))
+		l.Info("c1_api_task_manager: GetTasks disable requested; draining local task queue")
+	}
+}
+
+func (c *c1ApiTaskManager) applyHelloRuntimeConfig(ctx context.Context, resp *v1.BatonServiceHelloResponse) error {
+	if resp == nil {
+		return nil
+	}
+	cfg := &v1.SelfHostedRuntimeConfig{}
+	annos := annotations.Annotations(resp.GetAnnotations())
+	ok, err := annos.Pick(cfg)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+
+	if enabled, ok, err := selfHostedRuntimeConfigBool(cfg, selfHostedRuntimeConfigGetTasks); err != nil {
+		return err
+	} else if ok {
+		c.setGetTasksEnabled(ctx, enabled)
+	}
+	return nil
+}
+
+func selfHostedRuntimeConfigBool(cfg *v1.SelfHostedRuntimeConfig, name string) (bool, bool, error) {
+	if cfg == nil {
+		return false, false, nil
+	}
+	value := cfg.GetValues()[name]
+	if value == nil {
+		return false, false, nil
+	}
+	switch kind := value.GetKind().(type) {
+	case *structpb.Value_BoolValue:
+		return kind.BoolValue, true, nil
+	case *structpb.Value_StringValue:
+		parsed, err := strconv.ParseBool(kind.StringValue)
+		if err != nil {
+			return false, true, err
+		}
+		return parsed, true, nil
+	default:
+		return false, true, status.Errorf(codes.InvalidArgument, "self-hosted runtime config %q must be a bool", name)
+	}
 }
 
 func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, taskError error) error {
@@ -395,11 +502,12 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	l.Info("c1_api_task_manager.Process(): processing task")
 
 	tHelpers := &taskHelpers{
-		task:          task,
-		cc:            cc,
-		serviceClient: c.serviceClient,
-		taskFinisher:  c.finishTask,
-		tempDir:       c.tempDir,
+		task:                      task,
+		cc:                        cc,
+		serviceClient:             c.serviceClient,
+		taskFinisher:              c.finishTask,
+		helloRuntimeConfigApplier: c.applyHelloRuntimeConfig,
+		tempDir:                   c.tempDir,
 	}
 
 	// Based on the task type, call a handler to process the task.
@@ -490,10 +598,9 @@ func NewC1TaskManager(
 		return nil, err
 	}
 
-	return &c1ApiTaskManager{
+	manager := &c1ApiTaskManager{
 		serviceClient:                       serviceClient,
 		taskQueue:                           newTaskQueue(taskConcurrency),
-		getTasksEnabled:                     getTasksEnabledFromEnv(),
 		tempDir:                             tempDir,
 		skipFullSync:                        skipFullSync,
 		externalResourceC1Z:                 externalC1Z,
@@ -501,5 +608,7 @@ func NewC1TaskManager(
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
 		workerCount:                         workerCount,
-	}, nil
+	}
+	manager.getTasksMode.Store(int32(getTasksModeFromEnv()))
+	return manager, nil
 }

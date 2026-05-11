@@ -547,14 +547,15 @@ func (b0 FieldGroup_builder) Build() *FieldGroup {
 }
 
 type Field struct {
-	state       protoimpl.MessageState `protogen:"hybrid.v1"`
-	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // canonical name, typically in snake
-	DisplayName string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Description string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
-	Placeholder string                 `protobuf:"bytes,4,opt,name=placeholder,proto3" json:"placeholder,omitempty"`
-	IsRequired  bool                   `protobuf:"varint,5,opt,name=is_required,json=isRequired,proto3" json:"is_required,omitempty"`
-	IsOps       bool                   `protobuf:"varint,6,opt,name=is_ops,json=isOps,proto3" json:"is_ops,omitempty"`
-	IsSecret    bool                   `protobuf:"varint,7,opt,name=is_secret,json=isSecret,proto3" json:"is_secret,omitempty"`
+	state        protoimpl.MessageState `protogen:"hybrid.v1"`
+	Name         string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // canonical name, typically in snake
+	DisplayName  string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Description  string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	Placeholder  string                 `protobuf:"bytes,4,opt,name=placeholder,proto3" json:"placeholder,omitempty"`
+	IsRequired   bool                   `protobuf:"varint,5,opt,name=is_required,json=isRequired,proto3" json:"is_required,omitempty"`
+	IsOps        bool                   `protobuf:"varint,6,opt,name=is_ops,json=isOps,proto3" json:"is_ops,omitempty"`
+	IsSecret     bool                   `protobuf:"varint,7,opt,name=is_secret,json=isSecret,proto3" json:"is_secret,omitempty"`
+	IsSelfHosted bool                   `protobuf:"varint,8,opt,name=is_self_hosted,json=isSelfHosted,proto3" json:"is_self_hosted,omitempty"`
 	// Types that are valid to be assigned to Field:
 	//
 	//	*Field_StringField
@@ -643,6 +644,13 @@ func (x *Field) GetIsOps() bool {
 func (x *Field) GetIsSecret() bool {
 	if x != nil {
 		return x.IsSecret
+	}
+	return false
+}
+
+func (x *Field) GetIsSelfHosted() bool {
+	if x != nil {
+		return x.IsSelfHosted
 	}
 	return false
 }
@@ -779,6 +787,10 @@ func (x *Field) SetIsOps(v bool) {
 
 func (x *Field) SetIsSecret(v bool) {
 	x.IsSecret = v
+}
+
+func (x *Field) SetIsSelfHosted(v bool) {
+	x.IsSelfHosted = v
 }
 
 func (x *Field) SetStringField(v *StringField) {
@@ -1082,13 +1094,14 @@ func (x *Field) WhichField() case_Field_Field {
 type Field_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Name        string
-	DisplayName string
-	Description string
-	Placeholder string
-	IsRequired  bool
-	IsOps       bool
-	IsSecret    bool
+	Name         string
+	DisplayName  string
+	Description  string
+	Placeholder  string
+	IsRequired   bool
+	IsOps        bool
+	IsSecret     bool
+	IsSelfHosted bool
 	// Fields of oneof Field:
 	StringField          *StringField
 	IntField             *IntField
@@ -1116,6 +1129,7 @@ func (b0 Field_builder) Build() *Field {
 	x.IsRequired = b.IsRequired
 	x.IsOps = b.IsOps
 	x.IsSecret = b.IsSecret
+	x.IsSelfHosted = b.IsSelfHosted
 	if b.StringField != nil {
 		x.Field = &Field_StringField{b.StringField}
 	}
@@ -2751,7 +2765,7 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x1b\n" +
 	"\thelp_text\x18\x03 \x01(\tR\bhelpText\x12\x16\n" +
 	"\x06fields\x18\x04 \x03(\tR\x06fields\x12\x18\n" +
-	"\adefault\x18\x05 \x01(\bR\adefault\"\x9d\b\n" +
+	"\adefault\x18\x05 \x01(\bR\adefault\"\xc3\b\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12 \n" +
@@ -2760,7 +2774,8 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\vis_required\x18\x05 \x01(\bR\n" +
 	"isRequired\x12\x15\n" +
 	"\x06is_ops\x18\x06 \x01(\bR\x05isOps\x12\x1b\n" +
-	"\tis_secret\x18\a \x01(\bR\bisSecret\x12>\n" +
+	"\tis_secret\x18\a \x01(\bR\bisSecret\x12$\n" +
+	"\x0eis_self_hosted\x18\b \x01(\bR\fisSelfHosted\x12>\n" +
 	"\fstring_field\x18d \x01(\v2\x19.c1.config.v1.StringFieldH\x00R\vstringField\x125\n" +
 	"\tint_field\x18e \x01(\v2\x16.c1.config.v1.IntFieldH\x00R\bintField\x128\n" +
 	"\n" +

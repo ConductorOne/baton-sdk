@@ -12,7 +12,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -24,12 +26,13 @@ import (
 type fakeBatonServiceClient struct {
 	mu sync.Mutex
 
-	helloResponses []error
-	helloCalls     int
-	getTasksReqs   []*v1.BatonServiceGetTasksRequest
-	getTasksResp   *v1.BatonServiceGetTasksResponse
-	getTasksErr    error
-	getTaskCalls   int
+	helloResponses      []error
+	helloProtoResponses []*v1.BatonServiceHelloResponse
+	helloCalls          int
+	getTasksReqs        []*v1.BatonServiceGetTasksRequest
+	getTasksResp        *v1.BatonServiceGetTasksResponse
+	getTasksErr         error
+	getTaskCalls        int
 }
 
 func newFakeBatonServiceClient(helloResponses []error) *fakeBatonServiceClient {
@@ -41,13 +44,17 @@ func (f *fakeBatonServiceClient) Hello(ctx context.Context, req *v1.BatonService
 	defer f.mu.Unlock()
 
 	f.helloCalls++
-	if len(f.helloResponses) == 0 {
-		return &v1.BatonServiceHelloResponse{}, nil
+	if len(f.helloResponses) > 0 {
+		err := f.helloResponses[0]
+		f.helloResponses = f.helloResponses[1:]
+		if err != nil {
+			return nil, err
+		}
 	}
-	err := f.helloResponses[0]
-	f.helloResponses = f.helloResponses[1:]
-	if err != nil {
-		return nil, err
+	if len(f.helloProtoResponses) > 0 {
+		resp := f.helloProtoResponses[0]
+		f.helloProtoResponses = f.helloProtoResponses[1:]
+		return resp, nil
 	}
 	return &v1.BatonServiceHelloResponse{}, nil
 }
@@ -121,16 +128,33 @@ func withFastBackoff(t *testing.T) {
 }
 
 func newTestManager(sc BatonServiceClient) *c1ApiTaskManager {
-	return &c1ApiTaskManager{
-		serviceClient:   sc,
-		taskQueue:       newTaskQueue(3),
-		getTasksEnabled: getTasksEnabledFromEnv(),
+	mgr := &c1ApiTaskManager{
+		serviceClient: sc,
+		taskQueue:     newTaskQueue(3),
 	}
+	mgr.getTasksMode.Store(int32(getTasksModeFromEnv()))
+	return mgr
 }
 
 func enableGetTasks(t *testing.T) {
 	t.Helper()
 	t.Setenv(getTasksEnv, "true")
+}
+
+func helloRuntimeConfigResponse(t *testing.T, getTasks bool) *v1.BatonServiceHelloResponse {
+	t.Helper()
+	cfg := v1.SelfHostedRuntimeConfig_builder{
+		Values: map[string]*structpb.Value{
+			selfHostedRuntimeConfigGetTasks: structpb.NewBoolValue(getTasks),
+		},
+	}.Build()
+	anno, err := anypb.New(cfg)
+	if err != nil {
+		t.Fatalf("anypb.New: %v", err)
+	}
+	return v1.BatonServiceHelloResponse_builder{
+		Annotations: []*anypb.Any{anno},
+	}.Build()
 }
 
 func TestBootstrapSucceedsOnFirstAttempt(t *testing.T) {
@@ -143,6 +167,34 @@ func TestBootstrapSucceedsOnFirstAttempt(t *testing.T) {
 	}
 	if sc.helloCalls != 1 {
 		t.Fatalf("expected 1 Hello call, got %d", sc.helloCalls)
+	}
+}
+
+func TestBootstrapAppliesGetTasksRuntimeConfig(t *testing.T) {
+	task := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
+	sc := newFakeBatonServiceClient([]error{nil})
+	sc.helloProtoResponses = []*v1.BatonServiceHelloResponse{helloRuntimeConfigResponse(t, true)}
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
+		Tasks: []*v1.Task{task},
+	}.Build()
+	cc := &fakeConnectorClient{}
+	mgr := newTestManager(sc)
+
+	if err := mgr.Bootstrap(context.Background(), cc); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	got, _, err := mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	if got.GetId() != task.GetId() {
+		t.Fatalf("task id = %q, want %q", got.GetId(), task.GetId())
+	}
+	if len(sc.getTasksReqs) != 1 {
+		t.Fatalf("expected GetTasks after runtime config, got %d calls", len(sc.getTasksReqs))
+	}
+	if sc.getTaskCalls != 0 {
+		t.Fatalf("expected no GetTask calls after enabling GetTasks, got %d", sc.getTaskCalls)
 	}
 }
 
@@ -254,6 +306,21 @@ func TestNextDoesNotSelfQueueHello(t *testing.T) {
 	}
 }
 
+func TestHelloTaskAppliesGetTasksRuntimeConfig(t *testing.T) {
+	enableGetTasks(t)
+	sc := newFakeBatonServiceClient([]error{nil})
+	sc.helloProtoResponses = []*v1.BatonServiceHelloResponse{helloRuntimeConfigResponse(t, false)}
+	mgr := newTestManager(sc)
+	task := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
+
+	if err := mgr.Process(context.Background(), task, &fakeConnectorClient{}); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if got := mgr.currentGetTasksMode(); got != getTasksModeDisablePending {
+		t.Fatalf("mode = %v, want disable pending", got)
+	}
+}
+
 func TestNextUsesGetTasksAndQueuesBatch(t *testing.T) {
 	enableGetTasks(t)
 	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
@@ -282,6 +349,173 @@ func TestNextUsesGetTasksAndQueuesBatch(t *testing.T) {
 	}
 	if len(sc.getTasksReqs) != 1 {
 		t.Fatalf("expected one GetTasks call, got %d", len(sc.getTasksReqs))
+	}
+}
+
+func TestGetTasksDisableDrainsQueuedAndInFlightTasks(t *testing.T) {
+	enableGetTasks(t)
+	sc := newFakeBatonServiceClient(nil)
+	mgr := newTestManager(sc)
+	queuedTask := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
+	inFlightTask := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
+	mgr.taskQueue.enqueue([]*v1.Task{queuedTask})
+	mgr.taskQueue.inFlight[inFlightTask.GetId()] = struct{}{}
+
+	if err := mgr.applyHelloRuntimeConfig(context.Background(), helloRuntimeConfigResponse(t, false)); err != nil {
+		t.Fatalf("applyHelloRuntimeConfig: %v", err)
+	}
+	got, _, err := mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next queued drain: %v", err)
+	}
+	if got.GetId() != queuedTask.GetId() {
+		t.Fatalf("drained task id = %q, want %q", got.GetId(), queuedTask.GetId())
+	}
+	if len(sc.getTasksReqs) != 0 || sc.getTaskCalls != 0 {
+		t.Fatalf("drain should not poll while queued tasks remain; GetTasks=%d GetTask=%d", len(sc.getTasksReqs), sc.getTaskCalls)
+	}
+
+	mgr.taskQueue.markDone(queuedTask)
+	got, wait, err := mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next in-flight drain: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected no task while waiting for in-flight drain, got %+v", got)
+	}
+	if wait <= 0 {
+		t.Fatalf("expected positive drain wait, got %s", wait)
+	}
+	if sc.getTaskCalls != 0 {
+		t.Fatalf("expected no GetTask while in-flight task remains, got %d", sc.getTaskCalls)
+	}
+
+	mgr.taskQueue.markDone(inFlightTask)
+	if _, _, err := mgr.Next(context.Background()); err != nil {
+		t.Fatalf("Next after drain: %v", err)
+	}
+	if got := mgr.currentGetTasksMode(); got != getTasksModeDisabled {
+		t.Fatalf("mode = %v, want disabled", got)
+	}
+	if sc.getTaskCalls != 1 {
+		t.Fatalf("expected GetTask after drain, got %d", sc.getTaskCalls)
+	}
+}
+
+func TestGetTasksCanSwitchBackAndForth(t *testing.T) {
+	sc := newFakeBatonServiceClient(nil)
+	mgr := newTestManager(sc)
+	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
+	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
+	task3 := v1.Task_builder{Id: "ccccccccccccccccccccccccccc", Hello: &v1.Task_HelloTask{}}.Build()
+
+	if _, _, err := mgr.Next(context.Background()); err != nil {
+		t.Fatalf("initial GetTask Next: %v", err)
+	}
+	if sc.getTaskCalls != 1 {
+		t.Fatalf("expected initial GetTask call, got %d", sc.getTaskCalls)
+	}
+
+	if err := mgr.applyHelloRuntimeConfig(context.Background(), helloRuntimeConfigResponse(t, true)); err != nil {
+		t.Fatalf("enable runtime config: %v", err)
+	}
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
+		Tasks:    []*v1.Task{task1, task2},
+		NextPoll: durationpb.New(time.Hour),
+	}.Build()
+	got, _, err := mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("enabled GetTasks Next: %v", err)
+	}
+	if got.GetId() != task1.GetId() {
+		t.Fatalf("enabled task id = %q, want %q", got.GetId(), task1.GetId())
+	}
+	if len(sc.getTasksReqs) != 1 {
+		t.Fatalf("expected one GetTasks call after enable, got %d", len(sc.getTasksReqs))
+	}
+
+	if err := mgr.applyHelloRuntimeConfig(context.Background(), helloRuntimeConfigResponse(t, false)); err != nil {
+		t.Fatalf("disable runtime config: %v", err)
+	}
+	got, _, err = mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("disable pending drain Next: %v", err)
+	}
+	if got.GetId() != task2.GetId() {
+		t.Fatalf("drained task id = %q, want %q", got.GetId(), task2.GetId())
+	}
+	if len(sc.getTasksReqs) != 1 {
+		t.Fatalf("disable drain should not fetch another batch, got %d GetTasks calls", len(sc.getTasksReqs))
+	}
+
+	mgr.taskQueue.markDone(task1)
+	mgr.taskQueue.markDone(task2)
+	if _, _, err := mgr.Next(context.Background()); err != nil {
+		t.Fatalf("post-drain GetTask Next: %v", err)
+	}
+	if got := mgr.currentGetTasksMode(); got != getTasksModeDisabled {
+		t.Fatalf("mode after drain = %v, want disabled", got)
+	}
+	if sc.getTaskCalls != 2 {
+		t.Fatalf("expected GetTask after drain, got %d calls", sc.getTaskCalls)
+	}
+
+	if err := mgr.applyHelloRuntimeConfig(context.Background(), helloRuntimeConfigResponse(t, true)); err != nil {
+		t.Fatalf("re-enable runtime config: %v", err)
+	}
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
+		Tasks: []*v1.Task{task3},
+	}.Build()
+	got, _, err = mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("re-enabled GetTasks Next: %v", err)
+	}
+	if got.GetId() != task3.GetId() {
+		t.Fatalf("re-enabled task id = %q, want %q", got.GetId(), task3.GetId())
+	}
+	if len(sc.getTasksReqs) != 2 {
+		t.Fatalf("expected second GetTasks call after re-enable, got %d", len(sc.getTasksReqs))
+	}
+}
+
+func TestGetTasksReEnableCancelsPendingDisable(t *testing.T) {
+	enableGetTasks(t)
+	sc := newFakeBatonServiceClient(nil)
+	mgr := newTestManager(sc)
+	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
+	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
+	task3 := v1.Task_builder{Id: "ccccccccccccccccccccccccccc", Hello: &v1.Task_HelloTask{}}.Build()
+	mgr.taskQueue.enqueue([]*v1.Task{task1, task2})
+
+	if err := mgr.applyHelloRuntimeConfig(context.Background(), helloRuntimeConfigResponse(t, false)); err != nil {
+		t.Fatalf("disable runtime config: %v", err)
+	}
+	if got := mgr.currentGetTasksMode(); got != getTasksModeDisablePending {
+		t.Fatalf("mode = %v, want disable pending", got)
+	}
+	if err := mgr.applyHelloRuntimeConfig(context.Background(), helloRuntimeConfigResponse(t, true)); err != nil {
+		t.Fatalf("re-enable runtime config: %v", err)
+	}
+	if got := mgr.currentGetTasksMode(); got != getTasksModeEnabled {
+		t.Fatalf("mode = %v, want enabled", got)
+	}
+
+	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
+		Tasks: []*v1.Task{task3},
+	}.Build()
+	got, _, err := mgr.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next after re-enable: %v", err)
+	}
+	if got.GetId() != task1.GetId() {
+		t.Fatalf("first queued task id = %q, want %q", got.GetId(), task1.GetId())
+	}
+	if len(sc.getTasksReqs) != 1 {
+		t.Fatalf("expected GetTasks top-up after re-enable, got %d calls", len(sc.getTasksReqs))
+	}
+	known := sc.getTasksReqs[0].GetKnownTaskIds()
+	if !containsString(known, task1.GetId()) || !containsString(known, task2.GetId()) {
+		t.Fatalf("known task IDs %v should include queued/in-flight tasks %q and %q", known, task1.GetId(), task2.GetId())
 	}
 }
 

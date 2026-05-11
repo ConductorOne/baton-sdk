@@ -93,11 +93,16 @@ var (
 	ticketTemplatePathField = StringField("ticket-template-path", WithHidden(true), WithDescription("A JSON file describing the ticket to create"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	logLevelField = StringField("log-level", WithDefaultValue("info"), WithDescription("The log level: debug, info, warn, error"), WithPersistent(true),
-		WithExportTarget(ExportTargetOps))
+		WithExportTargets(ExportTargetOps, ExportTargetSelfHosted, ExportTargetCLI))
 	logLevelDebugExpiresAtField = StringField("log-level-debug-expires-at",
 		WithDescription("The timestamp indicating when debug-level logging should expire"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetOps))
+	serviceModeGetTasksField = BoolField("service-mode-get-tasks",
+		WithHidden(true),
+		WithDescription("Enables batched task claiming for service-mode connectors"),
+		WithPersistent(true),
+		WithExportTargets(ExportTargetSelfHosted))
 	skipFullSync     = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	WorkerCountField = IntField("workers",
 		WithDescription("The number of sync workers to use. -1 for auto-detect, 0 for sequential, >0 for parallel"),
@@ -391,6 +396,7 @@ var DefaultFields = []SchemaField{
 	ticketTemplatePathField,
 	logLevelField,
 	logLevelDebugExpiresAtField,
+	serviceModeGetTasksField,
 	skipFullSync,
 	targetedSyncResourceIDs,
 	syncResourceTypeIDs,
