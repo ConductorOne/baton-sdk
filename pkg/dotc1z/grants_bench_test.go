@@ -139,3 +139,45 @@ func BenchmarkListGrantsForEntitlement(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkListGrantsForEntitlementStream is the streaming counterpart to
+// BenchmarkListGrantsForEntitlement (OPS-1483). Compare alloc/op and ns/op
+// across the two paths. Total bytes allocated should be similar — both decode
+// the same N protos overall — but the streaming variant keeps only ~100 decoded
+// grants resident at a time, regardless of N. The peak-inuse difference is not
+// captured by standard benchmark metrics; see the issue for measurement notes.
+func BenchmarkListGrantsForEntitlementStream(b *testing.B) {
+	for _, numGrants := range grantCounts {
+		b.Run(fmt.Sprintf("grants=%d", numGrants), func(b *testing.B) {
+			f, entitlementID, cleanup := setupBenchmarkDB(b, numGrants)
+			defer cleanup()
+
+			ctx := b.Context()
+
+			entResp, err := f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+				EntitlementId: entitlementID,
+			}.Build())
+			require.NoError(b, err)
+
+			req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+				Entitlement: entResp.GetEntitlement(),
+			}.Build()
+
+			b.ReportAllocs()
+
+			for b.Loop() {
+				totalGrants := 0
+				err := f.ListGrantsForEntitlementStream(ctx, req, func(g *v2.Grant) error {
+					totalGrants++
+					return nil
+				})
+				if err != nil {
+					b.Fatal(err)
+				}
+				if totalGrants != numGrants {
+					b.Fatalf("expected %d grants, got %d", numGrants, totalGrants)
+				}
+			}
+		})
+	}
+}
