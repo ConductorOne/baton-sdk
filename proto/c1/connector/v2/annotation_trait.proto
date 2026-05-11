@@ -24,6 +24,8 @@ message UserTrait {
       STATUS_ENABLED = 1;
       STATUS_DISABLED = 2;
       STATUS_DELETED = 3;
+      STATUS_PENDING_INVITATION = 4;
+      STATUS_INVITATION_EXPIRED = 5;
     }
     Status status = 1 [(validate.rules).enum = {defined_only: true}];
     string details = 2 [(validate.rules).string = {
