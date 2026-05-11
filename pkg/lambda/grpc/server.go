@@ -85,6 +85,9 @@ func (r *TransportStream) SetHeader(md metadata.MD) error {
 	}
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+	if r.headersSent.Load() {
+		return ErrIllegalHeaderWrite
+	}
 	r.headers = metadata.Join(r.headers, md)
 	return nil
 }
@@ -118,6 +121,9 @@ func (r *TransportStream) SetTrailer(md metadata.MD) error {
 	}
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+	if r.headersSent.Load() {
+		return ErrIllegalHeaderWrite
+	}
 	r.trailers = metadata.Join(r.trailers, md)
 	return nil
 }
