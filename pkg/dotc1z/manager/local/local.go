@@ -158,7 +158,12 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
+	dstFileClosed := false
+	defer func() {
+		if !dstFileClosed {
+			_ = dstFile.Close()
+		}
+	}()
 
 	size, err := io.Copy(dstFile, tmpFile)
 	if err != nil {
@@ -170,6 +175,15 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 	if err := dstFile.Sync(); err != nil {
 		return fmt.Errorf("failed to sync destination file: %w", err)
 	}
+	// Surface late write-back errors via explicit Close. The deferred
+	// Close above is a safety net for error paths; on the success path
+	// we set dstFileClosed=true to suppress it. Without this the
+	// deferred Close error would be silently discarded after the
+	// function reports success.
+	if err := dstFile.Close(); err != nil {
+		return fmt.Errorf("failed to close destination file: %w", err)
+	}
+	dstFileClosed = true
 
 	log.Debug(
 		"successfully saved c1z locally",

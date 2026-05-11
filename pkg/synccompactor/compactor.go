@@ -297,12 +297,30 @@ func cpFile(ctx context.Context, sourcePath string, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	defer destination.Close()
+	destinationClosed := false
+	defer func() {
+		if !destinationClosed {
+			_ = destination.Close()
+		}
+	}()
 
 	_, err = io.Copy(destination, source)
 	if err != nil {
 		return fmt.Errorf("failed to copy file: %w", err)
 	}
+
+	// Sync + Close + err-check so write-back failures (out-of-disk,
+	// IO error, quota exhaustion) surface here rather than being
+	// silently discarded by the deferred Close after the function
+	// has reported success. Required because the compacted file is
+	// the canonical artifact downstream consumers read.
+	if err := destination.Sync(); err != nil {
+		return fmt.Errorf("failed to sync destination file: %w", err)
+	}
+	if err := destination.Close(); err != nil {
+		return fmt.Errorf("failed to close destination file: %w", err)
+	}
+	destinationClosed = true
 
 	return nil
 }
