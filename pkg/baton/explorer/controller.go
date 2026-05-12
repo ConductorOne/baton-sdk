@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"runtime"
 
+	"github.com/conductorone/baton-sdk/pkg/baton/storecache"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/storecache"
 	"github.com/gin-gonic/contrib/static"
 	"github.com/gin-gonic/gin"
 )

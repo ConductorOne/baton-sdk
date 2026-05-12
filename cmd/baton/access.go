@@ -6,10 +6,10 @@ import (
 
 	v1 "github.com/conductorone/baton-sdk/pb/baton/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/baton/output"
+	"github.com/conductorone/baton-sdk/pkg/baton/storecache"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/conductorone/baton-sdk/pkg/output"
-	"github.com/conductorone/baton-sdk/pkg/storecache"
 	"github.com/spf13/cobra"
 )
 

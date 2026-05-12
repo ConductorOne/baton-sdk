@@ -7,8 +7,8 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/conductorone/baton-sdk/pkg/baton/explorer"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
-	"github.com/conductorone/baton-sdk/pkg/explorer"
 	"github.com/spf13/cobra"
 )
 

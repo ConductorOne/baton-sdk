@@ -8,8 +8,8 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/baton/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/baton/storecache"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/storecache"
 )
 
 // extractProfileFields extracts profile attributes from a resource's UserTrait annotations.

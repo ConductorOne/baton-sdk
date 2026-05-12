@@ -2,7 +2,7 @@ VERSION := $(shell git describe --tags)
 GOOS = $(shell go env GOOS)
 GOARCH = $(shell go env GOARCH)
 BUILD_DIR = dist/${GOOS}_${GOARCH}
-OUTPUT_PATH = ${BUILD_DIR}/$(notdir $(CURDIR))
+OUTPUT_PATH = ${BUILD_DIR}/baton
 
 .PHONY: build
 build: frontend
