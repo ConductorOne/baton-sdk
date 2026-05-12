@@ -1,4 +1,18 @@
 VERSION := $(shell git describe --tags)
+GOOS = $(shell go env GOOS)
+GOARCH = $(shell go env GOARCH)
+BUILD_DIR = dist/${GOOS}_${GOARCH}
+OUTPUT_PATH = ${BUILD_DIR}/baton
+
+.PHONY: build
+build: frontend
+	rm -f ${OUTPUT_PATH}
+	mkdir -p ${BUILD_DIR}
+	go build -o ${OUTPUT_PATH} ./cmd/baton
+
+.PHONY: frontend
+frontend:
+	cd frontend && npm install && npm run build
 
 .PHONY: lint
 lint:

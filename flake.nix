@@ -7,6 +7,9 @@
     # track nix-unstable
     nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/*.tar.gz";
 
+    # Newer Go than FlakeHub nixpkgs pin (needed for go.mod toolchain); only used for baton package + dev shell `go`.
+    nixpkgs-go.url = "github:NixOS/nixpkgs/nixos-unstable";
+
     # Seamless integration of https://pre-commit.com git hooks with Nix
     pre-commit-hooks.url = "github:cachix/pre-commit-hooks.nix";
   };
@@ -16,12 +19,34 @@
     self,
     flake-schemas,
     nixpkgs,
+    nixpkgs-go,
     pre-commit-hooks,
   }: let
-    # Helpers for producing system-specific outputs
-    supportedSystems = ["x86_64-linux"];
-    forEachSupportedSystem = f:
-      nixpkgs.lib.genAttrs supportedSystems (
+    inherit (nixpkgs) lib;
+
+    # Pre-commit hooks are only wired for Linux CI; packages and dev shells support
+    # the same systems as the former standalone baton flake.
+    packageSystems = [
+      "x86_64-linux"
+      "aarch64-linux"
+      "aarch64-darwin"
+      "x86_64-darwin"
+    ];
+    checkSystems = ["x86_64-linux"];
+
+    forPackageSystems = f:
+      lib.genAttrs packageSystems (
+        system: let
+          pkgs = import nixpkgs {inherit system;};
+          pkgsGo = import nixpkgs-go {inherit system;};
+        in
+          f {
+            inherit pkgs pkgsGo system;
+          }
+      );
+
+    forCheckSystems = f:
+      lib.genAttrs checkSystems (
         system:
           f {
             pkgs = import nixpkgs {inherit system;};
@@ -32,7 +57,7 @@
     # Schemas tell Nix about the structure of your flake's outputs
     schemas = flake-schemas.schemas;
 
-    checks = forEachSupportedSystem (
+    checks = forCheckSystems (
       {system, ...}: {
         # check that the code complies with a minimum standard use `--no-verify`
         # to bypass this check when committing or pushing code
@@ -68,26 +93,60 @@
       }
     );
 
-    # Development environments
-    devShells = forEachSupportedSystem (
+    packages = forPackageSystems (
       {
         pkgs,
-        system,
+        pkgsGo,
+        ...
       }: {
-        default = pkgs.mkShell {
-          buildInputs = self.checks.${system}.pre-commit-check.enabledPackages;
-          # Pinned packages available in the environment
-          packages = with pkgs; [
-            buf
-            golines
-          ];
-          shellHook = self.checks.${system}.pre-commit-check.shellHook;
-          # option needed for debugging
-          hardeningDisable = ["all"];
-          env = {
-            CGO_CFLAGS = "-Wno-error";
+        default = pkgsGo.buildGoModule {
+          pname = "baton";
+          version =
+            if (self ? shortRev) && (self.shortRev != null)
+            then self.shortRev
+            else "dev";
+
+          src = ./.;
+
+          subPackages = ["cmd/baton"];
+
+          # Repository vendors deps under ./vendor; buildGoModule uses that when null.
+          vendorHash = null;
+
+          meta = with pkgs.lib; {
+            description = "Baton SDK and baton CLI — identity governance toolkit";
+            license = licenses.asl20;
           };
         };
+      }
+    );
+
+    # Development environments
+    devShells = forPackageSystems (
+      {
+        pkgs,
+        pkgsGo,
+        system,
+      }: {
+        default = pkgs.mkShell ({
+            packages = with pkgs;
+              [
+                buf
+                golines
+                self.packages.${system}.default
+              ]
+              ++ [
+                pkgsGo.go
+              ];
+            hardeningDisable = ["all"];
+            env = {
+              CGO_CFLAGS = "-Wno-error";
+            };
+          }
+          // lib.optionalAttrs (lib.elem system checkSystems) {
+            buildInputs = self.checks.${system}.pre-commit-check.enabledPackages;
+            shellHook = self.checks.${system}.pre-commit-check.shellHook;
+          });
       }
     );
   };
