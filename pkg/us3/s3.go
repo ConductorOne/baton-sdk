@@ -18,7 +18,8 @@ import (
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
-	s3manager "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
+	tmtypes "github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3Types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -433,21 +434,24 @@ func (s *S3Client) Get(ctx context.Context, key string) (io.Reader, error) {
 		return nil, err
 	}
 
-	in := &s3.GetObjectInput{
-		Bucket: awsSdk.String(s.cfg.bucketName),
-		Key:    awsSdk.String(key),
-	}
-
-	downloader := s3manager.NewDownloader(s3svc, func(dl *s3manager.Downloader) {
-		dl.Concurrency = 1
-		dl.PartSize = 5 * 1024 * 1024
+	tm := transfermanager.New(s3svc, func(o *transfermanager.Options) {
+		o.Concurrency = 1
+		o.PartSizeBytes = 5 * 1024 * 1024
+		o.GetObjectType = tmtypes.GetObjectRanges
 	})
 
-	b := s3manager.NewWriteAtBuffer(make([]byte, info.ContentLength))
-	downloadedBytes, err := downloader.Download(ctx, b, in)
+	wbuf := tmtypes.NewWriteAtBuffer(make([]byte, info.ContentLength))
+	out, err := tm.DownloadObject(ctx, &transfermanager.DownloadObjectInput{
+		Bucket:       awsSdk.String(s.cfg.bucketName),
+		Key:          awsSdk.String(key),
+		WriterAt:     wbuf,
+		ChecksumMode: tmtypes.ChecksumModeEnabled,
+	})
 	if err != nil {
 		return nil, err
 	}
+
+	downloadedBytes := awsSdk.ToInt64(out.ContentLength)
 
 	l.Info(
 		"downloaded file from s3",
@@ -456,7 +460,7 @@ func (s *S3Client) Get(ctx context.Context, key string) (io.Reader, error) {
 		zap.Int64("downloaded_bytes", downloadedBytes),
 	)
 
-	ret := bytes.NewBuffer(b.Bytes())
+	ret := bytes.NewBuffer(wbuf.Bytes())
 
 	return ret, nil
 }
@@ -506,20 +510,20 @@ func (s *S3Client) Put(ctx context.Context, key string, r io.Reader, contentType
 		return err
 	}
 
-	uploader := s3manager.NewUploader(s3svc)
-	input := &s3.PutObjectInput{
-		ACL:               s3Types.ObjectCannedACLPrivate,
+	tm := transfermanager.New(s3svc)
+	input := &transfermanager.UploadObjectInput{
+		ACL:               tmtypes.ObjectCannedACLPrivate,
 		Bucket:            awsSdk.String(s.cfg.bucketName),
 		Key:               awsSdk.String(key),
 		Body:              r,
-		ChecksumAlgorithm: s3Types.ChecksumAlgorithmSha256,
+		ChecksumAlgorithm: tmtypes.ChecksumAlgorithmSha256,
 	}
 
 	if contentType != "" {
 		input.ContentType = awsSdk.String(contentType)
 	}
 
-	output, err := uploader.Upload(ctx, input)
+	output, err := tm.UploadObject(ctx, input)
 	if err != nil {
 		return err
 	}
