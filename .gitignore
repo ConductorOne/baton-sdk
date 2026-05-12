@@ -6,7 +6,11 @@
 *.dll
 *.so
 *.dylib
-*.c1z 
+build/
+*.c1z
+*.db
+*.csv
+*.xlsx
 
 build/
 dist/
@@ -22,3 +26,5 @@ dist/
 /.pre-commit-config.yaml
 
 .claude/settings.local.json
+
+*.map
