@@ -177,6 +177,11 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		slowQueryThreshold:    5 * time.Second,
 		slowQueryLogFrequency: 1 * time.Minute,
 		encoderConcurrency:    1,
+		// Smoke default-on for d2 testing — slim-blob writer is opt-in
+		// via WithC1FV2GrantsWriter; this default makes it the default
+		// so c1's sync activity exercises slim writes without plumbing
+		// changes. Revert before merge.
+		v2GrantsWriter: true,
 	}
 
 	for _, opt := range opts {
@@ -277,6 +282,8 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 
 	options := &c1zOptions{
 		encoderConcurrency: 1,
+		// Smoke default-on for d2 testing — see same comment in NewC1File.
+		v2GrantsWriter: true,
 	}
 	for _, opt := range opts {
 		opt(options)
