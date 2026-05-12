@@ -7,14 +7,54 @@ on:
 
 jobs:
   release:
-    uses: ConductorOne/github-workflows/.github/workflows/release.yaml@v4
-    with:
-      tag: ${{ github.ref_name }}
-      lambda: false
-    secrets:
-      RELENG_GITHUB_TOKEN: ${{ secrets.RELENG_GITHUB_TOKEN }}
-      APPLE_SIGNING_KEY_P12: ${{ secrets.APPLE_SIGNING_KEY_P12 }}
-      APPLE_SIGNING_KEY_P12_PASSWORD: ${{ secrets.APPLE_SIGNING_KEY_P12_PASSWORD }}
-      AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
-      AC_PROVIDER: ${{ secrets.AC_PROVIDER }}
-      DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+    runs-on: macos-latest
+    steps:
+      - name: Mint baton-ci app token
+        id: ci-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.BATON_CI_CLIENT_ID }}
+          private-key: ${{ secrets.BATON_CI_SECRET_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Set up Gon
+        run: brew tap conductorone/gon && brew install conductorone/gon/gon
+
+      - name: Import Keychain Certs
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_SIGNING_KEY_P12 }}
+          p12-password: ${{ secrets.APPLE_SIGNING_KEY_P12_PASSWORD }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Download syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::025044153841:role/GHA-Artifacts-${{ github.event.repository.owner.login }}-${{ github.event.repository.name }}
+          aws-region: us-west-2
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.ci-token.outputs.token }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2.13"
+          args: release --clean --config .goreleaser.yaml
+        env:
+          GITHUB_TOKEN: ${{ steps.ci-token.outputs.token }}
+          AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
+          AC_PROVIDER: ${{ secrets.AC_PROVIDER }}
