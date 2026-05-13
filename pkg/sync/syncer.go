@@ -35,6 +35,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -1732,6 +1733,30 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 	resourcesToInsertMap := make(map[string]*v2.Resource, 0)
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	insertResourceGrants := respAnnos.Contains(&v2.InsertResourceGrants{})
+
+	// Stamp InsertResourceGrants per-grant so the slim-blob writer's
+	// gate sees it. The annotation is response-level, but the writer
+	// needs it per-row to avoid stripping the Resource this path
+	// subsequently writes to v1_resources.
+	//
+	// Aliasing the same *anypb.Any across grants is safe — Any is
+	// treated as immutable downstream. Avoids the per-grant proto
+	// marshal that annotations.Update would do.
+	if insertResourceGrants {
+		insertResourceGrantsSentinel := &v2.InsertResourceGrants{}
+		var insertAny *anypb.Any
+		insertAny, err = anypb.New(insertResourceGrantsSentinel)
+		if err != nil {
+			return fmt.Errorf("error marshaling InsertResourceGrants annotation: %w", err)
+		}
+		for _, g := range grants {
+			annos := annotations.Annotations(g.GetAnnotations())
+			if annos.Contains(insertResourceGrantsSentinel) {
+				continue
+			}
+			g.SetAnnotations(append(annos, insertAny))
+		}
+	}
 
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
