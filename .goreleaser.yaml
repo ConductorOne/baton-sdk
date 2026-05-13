@@ -1,0 +1,126 @@
+## Binary template for signed artifacts, pushes to public registry (S3 bucket)
+version: 2
+project_name: "baton"
+builds:
+  - binary: "baton"
+    env:
+      - CGO_ENABLED=0
+    id: linux
+    main: ./cmd/baton
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+  - binary: "baton"
+    env:
+      - CGO_ENABLED=0
+    id: macos-amd64
+    main: ./cmd/baton
+    goos:
+      - darwin
+    goarch:
+      - amd64
+    hooks:
+      post:
+        - gon .gon-amd64.json
+  - binary: "baton"
+    env:
+      - CGO_ENABLED=0
+    id: macos-arm64
+    main: ./cmd/baton
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    hooks:
+      post:
+        - gon .gon-arm64.json
+  - binary: "baton"
+    env:
+      - CGO_ENABLED=0
+    id: windows-amd64
+    main: ./cmd/baton
+    goos:
+      - windows
+    goarch:
+      - amd64
+archives:
+  - id: linux-archive
+    ids:
+      - linux
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    files:
+      - none*
+  - id: windows-archive
+    ids:
+      - windows-amd64
+    formats:
+      - zip
+    name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    files:
+      - none*
+  - id: darwin-archive
+    ids:
+      - macos-amd64
+      - macos-arm64
+    formats:
+      - zip
+    name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    files:
+      - none*
+release:
+  ids:
+    - linux-archive
+    - darwin-archive
+    - windows-archive
+snapshot:
+  version_template: "{{ incpatch .Version }}-dev"
+checksum:
+  # Note: checksums are NOT uploaded here - they're merged with Windows hashes
+  # and uploaded by the record-connector-registry job
+  ids:
+    - linux-archive
+    - darwin-archive
+    - windows-archive
+sboms:
+  - artifacts: archive
+signs:
+  - id: cosign-archives
+    output: true
+    cmd: cosign
+    artifacts: archive
+    ids:
+      - linux-archive
+      - darwin-archive
+      - windows-archive
+    certificate: "{{ .Env.artifact }}.cert"
+    args:
+      - "sign-blob"
+      - "--yes"
+      - "--output-signature={{ .Env.signature }}"
+      - "--output-certificate={{ .Env.certificate }}"
+      - "{{ .Env.artifact }}"
+    env:
+      - COSIGN_EXPERIMENTAL=1
+  # Note: checksums signing moved to record-connector-registry job
+  # to allow merging with Windows hashes first
+brews:
+  - repository:
+      owner: conductorone
+      name: homebrew-baton
+    directory: Formula
+    homepage: https://conductorone.com
+    test: |
+      system "#{bin}/baton -v"
+    install: |-
+      bin.install "baton"
+changelog:
+  filters:
+    exclude:
+      - "^docs:"
+      - typo
+      - lint
+      - Merge pull request
