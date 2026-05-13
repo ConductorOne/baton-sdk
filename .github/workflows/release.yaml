@@ -42,6 +42,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
+          fetch-depth: 0 # Required to get the tags & commit history for changelog.
           token: ${{ steps.ci-token.outputs.token }}
 
       - name: Setup Go
