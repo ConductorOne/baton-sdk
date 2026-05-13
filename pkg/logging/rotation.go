@@ -43,6 +43,7 @@ type DailyRotator struct {
 	currentFile   *os.File
 	currentDate   string
 	retentionDays int
+	bg            sync.WaitGroup // tracks background compress/cleanup goroutines
 }
 
 // NewDailyRotator creates a new DailyRotator that writes to the given file path.
@@ -128,7 +129,11 @@ func (r *DailyRotator) rotateStaleFile() error {
 		return err
 	}
 
-	go r.compressAndRemove(rotated, fileDate)
+	r.bg.Add(1)
+	go func() {
+		defer r.bg.Done()
+		r.compressAndRemove(rotated, fileDate)
+	}()
 	return nil
 }
 
@@ -163,17 +168,24 @@ func (r *DailyRotator) Sync() error {
 	return r.currentFile.Sync()
 }
 
-// Close syncs and closes the underlying file.
+// Close syncs and closes the underlying file. It also waits for any in-flight
+// background compression/cleanup goroutines so that callers (and test temp-dir
+// cleanup on Windows, which refuses to remove directories that still hold open
+// file handles) can rely on no further file activity after Close returns.
 func (r *DailyRotator) Close() error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if r.currentFile == nil {
+		r.mu.Unlock()
+		r.bg.Wait()
 		return nil
 	}
 	err := r.currentFile.Sync()
 	closeErr := r.currentFile.Close()
 	r.currentFile = nil
+	r.mu.Unlock()
+
+	r.bg.Wait()
+
 	if err != nil {
 		return err
 	}
@@ -203,7 +215,9 @@ func (r *DailyRotator) rotateLocked() error {
 	}
 
 	// Compress the old file and clean up expired logs in the background.
+	r.bg.Add(1)
 	go func() {
+		defer r.bg.Done()
 		r.compressAndRemove(rotated, oldDate)
 		r.cleanup()
 	}()
