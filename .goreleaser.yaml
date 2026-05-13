@@ -47,24 +47,27 @@ builds:
       - amd64
 archives:
   - id: linux-archive
-    builds:
+    ids:
       - linux
-    format: tar.gz
+    formats:
+      - tar.gz
     name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
     files:
       - none*
   - id: windows-archive
-    builds:
+    ids:
       - windows-amd64
-    format: zip
+    formats:
+      - zip
     name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
     files:
       - none*
   - id: darwin-archive
-    builds:
+    ids:
       - macos-amd64
       - macos-arm64
-    format: zip
+    formats:
+      - zip
     name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
     files:
       - none*
