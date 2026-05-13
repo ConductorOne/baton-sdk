@@ -86,11 +86,17 @@ func (t *Transport) cycle(ctx context.Context) (http.RoundTripper, error) {
 	if t.nextCycle.After(n) && t.roundTripper != nil {
 		return t.roundTripper, nil
 	}
-	var err error
-	t.roundTripper, err = t.make(ctx)
+	// Build into a local; only swap into t.roundTripper after make
+	// succeeds. The previous direct assignment
+	// (`t.roundTripper, err = t.make(ctx)`) clobbered the existing
+	// working RoundTripper with nil on transient make() errors --
+	// subsequent requests served by this Transport would then fail
+	// until the next successful cycle.
+	newRoundTripper, err := t.make(ctx)
 	if err != nil {
 		return nil, err
 	}
+	t.roundTripper = newRoundTripper
 	t.nextCycle = n.Add(time.Minute * 5)
 	return t.roundTripper, nil
 }
