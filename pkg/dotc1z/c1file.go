@@ -396,13 +396,7 @@ func (c *C1File) Close(ctx context.Context) error {
 
 		err = c.rawDb.Close()
 		if err != nil {
-			// Drop handle references on the Close-failure path
-			// too. The success-path nil assignments below (kept
-			// per the original shape, so validateDb() returns
-			// ErrDbNotOpen) only run if we don't return here, so
-			// without these the failed Close would leave c.rawDb
-			// pointing at a dead handle and validateDb would
-			// report success.
+			// Nil handles on failure, matching the WAL-failure paths above.
 			c.rawDb = nil
 			c.db = nil
 			return cleanupDbDir(c.dbFilePath, err)
