@@ -395,18 +395,21 @@ func (c *C1File) Close(ctx context.Context) error {
 		}
 
 		err = c.rawDb.Close()
-		// Always drop the handle references, even on Close error: the
-		// handle is dead either way, and the WAL-failure branches
-		// above already nil them before returning. Without this,
-		// after a Close() failure c.rawDb still points at the failed
-		// handle, leaving the C1File in an inconsistent half-closed
-		// state where c.closed is still false but the DB is unusable.
-		c.rawDb = nil
-		c.db = nil
 		if err != nil {
+			// Drop handle references on the Close-failure path
+			// too. The success-path nil assignments below (kept
+			// per the original shape, so validateDb() returns
+			// ErrDbNotOpen) only run if we don't return here, so
+			// without these the failed Close would leave c.rawDb
+			// pointing at a dead handle and validateDb would
+			// report success.
+			c.rawDb = nil
+			c.db = nil
 			return cleanupDbDir(c.dbFilePath, err)
 		}
 	}
+	c.rawDb = nil
+	c.db = nil
 
 	// We only want to save the file if we've made any changes
 	if c.dbUpdated {
