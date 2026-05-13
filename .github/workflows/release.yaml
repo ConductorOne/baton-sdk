@@ -33,12 +33,6 @@ jobs:
       - name: Download syft
         uses: anchore/sbom-action/download-syft@v0
 
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: arn:aws:iam::025044153841:role/GHA-Artifacts-${{ github.event.repository.owner.login }}-${{ github.event.repository.name }}
-          aws-region: us-west-2
-
       - name: Checkout code
         uses: actions/checkout@v6
         with:
