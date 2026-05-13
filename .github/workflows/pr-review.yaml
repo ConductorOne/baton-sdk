@@ -1,0 +1,31 @@
+name: PR Review
+
+on:
+  pull_request_target:
+
+concurrency:
+  group: pr-review-${{ github.workflow_ref }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-review:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout PR base
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Run PR Review
+        uses: ConductorOne/github-workflows/.github/actions/pr-review@main
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          pr_number: ${{ github.event.pull_request.number }}
+          review_prompt: general
+    timeout-minutes: 10
