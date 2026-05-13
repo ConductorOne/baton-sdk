@@ -227,7 +227,7 @@ func listGrantsGeneric(ctx context.Context, c *C1File, req listRequest) ([]*v2.G
 	var slimGrants []*v2.Grant
 	var slimKeys []grantJoinKeys
 	var (
-		rowID          int
+		rowID          int64
 		data           sql.RawBytes
 		entIDRaw       sql.RawBytes
 		entRTRaw       sql.RawBytes
@@ -235,7 +235,7 @@ func listGrantsGeneric(ctx context.Context, c *C1File, req listRequest) ([]*v2.G
 		principalRTRaw sql.RawBytes
 		principalRRaw  sql.RawBytes
 		count          uint32
-		lastRow        int
+		lastRow        int64
 	)
 	for rows.Next() {
 		count++
@@ -273,7 +273,7 @@ func listGrantsGeneric(ctx context.Context, c *C1File, req listRequest) ([]*v2.G
 
 	nextPageToken := ""
 	if count > pageSize {
-		nextPageToken = strconv.Itoa(lastRow + 1)
+		nextPageToken = strconv.FormatInt(lastRow+1, 10)
 	}
 	return out, nextPageToken, nil
 }
