@@ -122,7 +122,7 @@ func (c *Client) addOperationGetFunctionMiddlewares(stack *middleware.Stack, opt
 	if err = addComputePayloadSHA256(stack); err != nil {
 		return err
 	}
-	if err = addRetry(stack, options); err != nil {
+	if err = addRetry(stack, options, c); err != nil {
 		return err
 	}
 	if err = addRawResponseToMetadata(stack); err != nil {
@@ -144,9 +144,6 @@ func (c *Client) addOperationGetFunctionMiddlewares(stack *middleware.Stack, opt
 		return err
 	}
 	if err = addSetLegacyContextSigningOptionsMiddleware(stack); err != nil {
-		return err
-	}
-	if err = addTimeOffsetBuild(stack, c); err != nil {
 		return err
 	}
 	if err = addUserAgentRetryMode(stack, options); err != nil {
@@ -176,16 +173,13 @@ func (c *Client) addOperationGetFunctionMiddlewares(stack *middleware.Stack, opt
 	if err = addDisableHTTPSMiddleware(stack, options); err != nil {
 		return err
 	}
-	if err = addSpanInitializeStart(stack); err != nil {
+	if err = addInterceptBeforeRetryLoop(stack, options); err != nil {
 		return err
 	}
-	if err = addSpanInitializeEnd(stack); err != nil {
+	if err = addInterceptAttempt(stack, options); err != nil {
 		return err
 	}
-	if err = addSpanBuildRequestStart(stack); err != nil {
-		return err
-	}
-	if err = addSpanBuildRequestEnd(stack); err != nil {
+	if err = addInterceptors(stack, options); err != nil {
 		return err
 	}
 	return nil
@@ -214,7 +208,7 @@ type FunctionActiveV2WaiterOptions struct {
 	MinDelay time.Duration
 
 	// MaxDelay is the maximum amount of time to delay between retries. If unset or
-	// set to zero, FunctionActiveV2Waiter will use default max delay of 120 seconds.
+	// set to zero, FunctionActiveV2Waiter will use default max delay of 300 seconds.
 	// Note that MaxDelay must resolve to value greater than or equal to the MinDelay.
 	MaxDelay time.Duration
 
@@ -244,7 +238,7 @@ type FunctionActiveV2Waiter struct {
 func NewFunctionActiveV2Waiter(client GetFunctionAPIClient, optFns ...func(*FunctionActiveV2WaiterOptions)) *FunctionActiveV2Waiter {
 	options := FunctionActiveV2WaiterOptions{}
 	options.MinDelay = 1 * time.Second
-	options.MaxDelay = 120 * time.Second
+	options.MaxDelay = 300 * time.Second
 	options.Retryable = functionActiveV2StateRetryable
 
 	for _, fn := range optFns {
@@ -279,7 +273,7 @@ func (w *FunctionActiveV2Waiter) WaitForOutput(ctx context.Context, params *GetF
 	}
 
 	if options.MaxDelay <= 0 {
-		options.MaxDelay = 120 * time.Second
+		options.MaxDelay = 300 * time.Second
 	}
 
 	if options.MinDelay > options.MaxDelay {
@@ -424,8 +418,8 @@ type FunctionExistsWaiterOptions struct {
 	MinDelay time.Duration
 
 	// MaxDelay is the maximum amount of time to delay between retries. If unset or
-	// set to zero, FunctionExistsWaiter will use default max delay of 120 seconds.
-	// Note that MaxDelay must resolve to value greater than or equal to the MinDelay.
+	// set to zero, FunctionExistsWaiter will use default max delay of 20 seconds. Note
+	// that MaxDelay must resolve to value greater than or equal to the MinDelay.
 	MaxDelay time.Duration
 
 	// LogWaitAttempts is used to enable logging for waiter retry attempts
@@ -454,7 +448,7 @@ type FunctionExistsWaiter struct {
 func NewFunctionExistsWaiter(client GetFunctionAPIClient, optFns ...func(*FunctionExistsWaiterOptions)) *FunctionExistsWaiter {
 	options := FunctionExistsWaiterOptions{}
 	options.MinDelay = 1 * time.Second
-	options.MaxDelay = 120 * time.Second
+	options.MaxDelay = 20 * time.Second
 	options.Retryable = functionExistsStateRetryable
 
 	for _, fn := range optFns {
@@ -489,7 +483,7 @@ func (w *FunctionExistsWaiter) WaitForOutput(ctx context.Context, params *GetFun
 	}
 
 	if options.MaxDelay <= 0 {
-		options.MaxDelay = 120 * time.Second
+		options.MaxDelay = 20 * time.Second
 	}
 
 	if options.MinDelay > options.MaxDelay {
@@ -600,7 +594,7 @@ type FunctionUpdatedV2WaiterOptions struct {
 	MinDelay time.Duration
 
 	// MaxDelay is the maximum amount of time to delay between retries. If unset or
-	// set to zero, FunctionUpdatedV2Waiter will use default max delay of 120 seconds.
+	// set to zero, FunctionUpdatedV2Waiter will use default max delay of 300 seconds.
 	// Note that MaxDelay must resolve to value greater than or equal to the MinDelay.
 	MaxDelay time.Duration
 
@@ -630,7 +624,7 @@ type FunctionUpdatedV2Waiter struct {
 func NewFunctionUpdatedV2Waiter(client GetFunctionAPIClient, optFns ...func(*FunctionUpdatedV2WaiterOptions)) *FunctionUpdatedV2Waiter {
 	options := FunctionUpdatedV2WaiterOptions{}
 	options.MinDelay = 1 * time.Second
-	options.MaxDelay = 120 * time.Second
+	options.MaxDelay = 300 * time.Second
 	options.Retryable = functionUpdatedV2StateRetryable
 
 	for _, fn := range optFns {
@@ -665,7 +659,7 @@ func (w *FunctionUpdatedV2Waiter) WaitForOutput(ctx context.Context, params *Get
 	}
 
 	if options.MaxDelay <= 0 {
-		options.MaxDelay = 120 * time.Second
+		options.MaxDelay = 300 * time.Second
 	}
 
 	if options.MinDelay > options.MaxDelay {
