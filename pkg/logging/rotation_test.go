@@ -515,12 +515,15 @@ func TestInit_WithFileRotation(t *testing.T) {
 	_ = ctx
 
 	// Clean up the rotator created by Init.
-	if activeRotator != nil {
+	activeMu.Lock()
+	rotator := activeRotator
+	activeRotator = nil
+	activeMu.Unlock()
+	if rotator != nil {
 		defer func() {
-			if err := activeRotator.Close(); err != nil {
+			if err := rotator.Close(); err != nil {
 				t.Logf("close activeRotator: %v", err)
 			}
-			activeRotator = nil
 		}()
 	}
 

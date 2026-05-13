@@ -30,8 +30,9 @@ type logConfig struct {
 type Option func(*logConfig)
 
 var (
-	activeLevelMu sync.RWMutex
+	activeMu      sync.RWMutex
 	activeLevel   *zap.AtomicLevel
+	activeRotator *DailyRotator
 )
 
 func WithLogLevel(level string) Option {
@@ -70,9 +71,9 @@ func SetLogLevel(level string) error {
 		return err
 	}
 
-	activeLevelMu.RLock()
+	activeMu.RLock()
 	levelHandle := activeLevel
-	activeLevelMu.RUnlock()
+	activeMu.RUnlock()
 	if levelHandle == nil {
 		return nil
 	}
@@ -131,10 +132,6 @@ func WithFileOnly(fileOnly bool) Option {
 	}
 }
 
-// activeRotator tracks the current DailyRotator so it can be closed
-// when the logger is reinitialized.
-var activeRotator *DailyRotator
-
 // Init creates a new zap logger and attaches it to the provided context.
 // When file rotation is configured via WithFileRotation, it builds a custom
 // logger core with daily rotation. Otherwise it falls back to the standard
@@ -161,9 +158,9 @@ func Init(ctx context.Context, opts ...Option) (context.Context, error) {
 	if err != nil {
 		return nil, err
 	}
-	activeLevelMu.Lock()
+	activeMu.Lock()
 	activeLevel = &cfg.zapConfig.Level
-	activeLevelMu.Unlock()
+	activeMu.Unlock()
 	zap.ReplaceGlobals(l)
 
 	l.Debug("Logger created!", zap.String("log_level", cfg.zapConfig.Level.String()))
@@ -174,11 +171,14 @@ func Init(ctx context.Context, opts ...Option) (context.Context, error) {
 // buildRotatingLogger creates a zap.Logger backed by a DailyRotator.
 func buildRotatingLogger(cfg *logConfig) (*zap.Logger, error) {
 	// Close previous rotator if the logger is being reinitialized.
-	if activeRotator != nil {
-		if err := activeRotator.Close(); err != nil {
+	activeMu.Lock()
+	previous := activeRotator
+	activeRotator = nil
+	activeMu.Unlock()
+	if previous != nil {
+		if err := previous.Close(); err != nil {
 			zap.L().Error("close previous log rotator", zap.Error(err))
 		}
-		activeRotator = nil
 	}
 
 	retentionDays := cfg.retentionDays
@@ -190,7 +190,9 @@ func buildRotatingLogger(cfg *logConfig) (*zap.Logger, error) {
 	if err != nil {
 		return nil, err
 	}
+	activeMu.Lock()
 	activeRotator = rotator
+	activeMu.Unlock()
 
 	// Build encoder matching the configured format.
 	var encoder zapcore.Encoder
