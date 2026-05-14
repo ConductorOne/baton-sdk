@@ -158,6 +158,10 @@ func (r *DailyRotator) Write(p []byte) (int, error) {
 		}
 	}
 
+	if r.currentFile == nil {
+		return 0, fmt.Errorf("log file unavailable after failed rotation")
+	}
+
 	return r.currentFile.Write(p)
 }
 
