@@ -60,11 +60,11 @@ func TestSpanToLogFields_ValidSpanProducesDDFields(t *testing.T) {
 	}
 	wantTrace := "81985529216486895"
 	wantSpan := "81985529216486895"
-	if fields[0].Key != TraceIdLogKey || fields[0].String != wantTrace {
-		t.Fatalf("trace field = %q=%q, want %q=%q", fields[0].Key, fields[0].String, TraceIdLogKey, wantTrace)
+	if fields[0].Key != TraceIDLogKey || fields[0].String != wantTrace {
+		t.Fatalf("trace field = %q=%q, want %q=%q", fields[0].Key, fields[0].String, TraceIDLogKey, wantTrace)
 	}
-	if fields[1].Key != SpanIdLogKey || fields[1].String != wantSpan {
-		t.Fatalf("span field = %q=%q, want %q=%q", fields[1].Key, fields[1].String, SpanIdLogKey, wantSpan)
+	if fields[1].Key != SpanIDLogKey || fields[1].String != wantSpan {
+		t.Fatalf("span field = %q=%q, want %q=%q", fields[1].Key, fields[1].String, SpanIDLogKey, wantSpan)
 	}
 
 	ctx := trace.ContextWithSpanContext(context.Background(), sc)

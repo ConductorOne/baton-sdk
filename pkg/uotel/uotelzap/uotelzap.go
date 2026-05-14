@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	// TraceIdLogKey is the zap field name Datadog uses to correlate logs with
+	// TraceIDLogKey is the zap field name Datadog uses to correlate logs with
 	// traces when the SDK is running under the OTel-to-Datadog pipeline.
-	TraceIdLogKey = "dd.trace_id"
-	// SpanIdLogKey is the zap field name Datadog uses to correlate logs with
+	TraceIDLogKey = "dd.trace_id"
+	// SpanIDLogKey is the zap field name Datadog uses to correlate logs with
 	// spans when the SDK is running under the OTel-to-Datadog pipeline.
-	SpanIdLogKey = "dd.span_id"
+	SpanIDLogKey = "dd.span_id"
 )
 
 // ConvertTraceID converts an OTel hex trace/span id to the decimal form
@@ -47,8 +47,8 @@ func SpanToLogFields(spanContext trace.SpanContext) []zap.Field {
 		return nil
 	}
 	return []zap.Field{
-		zap.String(TraceIdLogKey, ConvertTraceID(spanContext.TraceID().String())),
-		zap.String(SpanIdLogKey, ConvertTraceID(spanContext.SpanID().String())),
+		zap.String(TraceIDLogKey, ConvertTraceID(spanContext.TraceID().String())),
+		zap.String(SpanIDLogKey, ConvertTraceID(spanContext.SpanID().String())),
 	}
 }
 
