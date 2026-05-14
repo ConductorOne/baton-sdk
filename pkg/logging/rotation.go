@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	// DefaultRetentionDays is the default number of days to keep compressed log files.
-	DefaultRetentionDays = 30
-	dateFormat           = "2006-01-02"
+	// DefaultLogRotationDays is the default number of days to keep compressed log files.
+	DefaultLogRotationDays = 30
+	logFileExt             = ".log"
+	dateFormat             = "2006-01-02"
 )
 
 // DailyRotator is a zapcore.WriteSyncer that rotates log files daily,
@@ -25,61 +26,53 @@ const (
 //
 // File naming convention:
 //
-//	Active:     {baseName}{ext}            e.g. baton.log
-//	Rotated:    {baseName}-{date}{ext}     e.g. baton-2026-03-29.log
-//	Compressed: {baseName}-{date}{ext}.gz  e.g. baton-2026-03-29.log.gz
+//	Active:     {dir}/{prefix}-{today}.log         e.g. baton-2026-03-29.log
+//	Compressed: {dir}/{prefix}-{date}.log.gz       e.g. baton-2026-03-28.log.gz
 type DailyRotator struct {
-	mu            sync.Mutex
-	dir           string
-	baseName      string // filename without extension (e.g. "baton")
-	ext           string // file extension including dot (e.g. ".log")
-	currentFile   *os.File
-	currentDate   string
-	retentionDays int
-	nowFunc       func() time.Time
+	mu              sync.Mutex
+	dir             string
+	prefix          string
+	currentFile     *os.File
+	currentDate     string
+	logRotationDays int
+	nowFunc         func() time.Time
 }
 
-// NewDailyRotator creates a new DailyRotator that writes to the given file path.
-// Rotated logs are stored in the same directory with a date suffix.
-// Logs older than retentionDays are automatically deleted.
-func NewDailyRotator(filePath string, retentionDays int) (*DailyRotator, error) {
-	return newDailyRotator(filePath, retentionDays, time.Now)
+// NewDailyRotator creates a new DailyRotator that writes daily log files into
+// dir named "{prefix}-{YYYY-MM-DD}.log". Logs older than logRotationDays are
+// automatically deleted.
+func NewDailyRotator(dir, prefix string, logRotationDays int) (*DailyRotator, error) {
+	return newDailyRotator(dir, prefix, logRotationDays, time.Now)
 }
 
 // newDailyRotator is the internal constructor that accepts a custom time
 // source. Tests use it to inject a fake clock; the exported NewDailyRotator
 // always passes time.Now.
-func newDailyRotator(filePath string, retentionDays int, nowFn func() time.Time) (*DailyRotator, error) {
-	if retentionDays <= 0 {
-		retentionDays = DefaultRetentionDays
+func newDailyRotator(dir, prefix string, logRotationDays int, nowFn func() time.Time) (*DailyRotator, error) {
+	if logRotationDays <= 0 {
+		logRotationDays = DefaultLogRotationDays
 	}
 	if nowFn == nil {
 		nowFn = time.Now
 	}
 
-	dir := filepath.Dir(filePath)
-	base := filepath.Base(filePath)
-	ext := filepath.Ext(base)
-	name := strings.TrimSuffix(base, ext)
-
 	r := &DailyRotator{
-		dir:           dir,
-		baseName:      name,
-		ext:           ext,
-		retentionDays: retentionDays,
-		nowFunc:       nowFn,
+		dir:             dir,
+		prefix:          prefix,
+		logRotationDays: logRotationDays,
+		nowFunc:         nowFn,
 	}
 
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, fmt.Errorf("create log directory: %w", err)
 	}
 
-	// If active log file exists and is from a previous day, rotate it.
-	if err := r.rotateStaleFile(); err != nil {
-		return nil, fmt.Errorf("rotate stale log: %w", err)
+	// Compress any leftover .log files from previous days.
+	if err := r.compressStaleFiles(); err != nil {
+		return nil, fmt.Errorf("compress stale logs: %w", err)
 	}
 
-	// Open or create the active log file.
+	// Open or create today's active log file.
 	if err := r.openActive(); err != nil {
 		return nil, fmt.Errorf("open log file: %w", err)
 	}
@@ -94,16 +87,16 @@ func (r *DailyRotator) today() string {
 	return r.nowFunc().Format(dateFormat)
 }
 
+func (r *DailyRotator) pathForDate(date string) string {
+	return filepath.Join(r.dir, fmt.Sprintf("%s-%s%s", r.prefix, date, logFileExt))
+}
+
+func (r *DailyRotator) compressedPathForDate(date string) string {
+	return r.pathForDate(date) + ".gz"
+}
+
 func (r *DailyRotator) activePath() string {
-	return filepath.Join(r.dir, r.baseName+r.ext)
-}
-
-func (r *DailyRotator) rotatedPath(date string) string {
-	return filepath.Join(r.dir, fmt.Sprintf("%s-%s%s", r.baseName, date, r.ext))
-}
-
-func (r *DailyRotator) compressedPath(date string) string {
-	return filepath.Join(r.dir, fmt.Sprintf("%s-%s%s.gz", r.baseName, date, r.ext))
+	return r.pathForDate(r.today())
 }
 
 func (r *DailyRotator) openActive() error {
@@ -116,28 +109,24 @@ func (r *DailyRotator) openActive() error {
 	return nil
 }
 
-// rotateStaleFile checks if the active log file exists and is from a previous
-// day. If so, it renames the file with a date suffix and compresses it.
-func (r *DailyRotator) rotateStaleFile() error {
-	info, err := os.Stat(r.activePath())
+// compressStaleFiles finds uncompressed log files in dir whose date is not
+// today and compresses them. This handles the case where the process exited
+// before its last-day file could be compressed.
+func (r *DailyRotator) compressStaleFiles() error {
+	pattern := filepath.Join(r.dir, fmt.Sprintf("%s-*%s", r.prefix, logFileExt))
+	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
+		return err
+	}
+
+	today := r.today()
+	for _, path := range matches {
+		date, ok := r.parseDateFromPath(path)
+		if !ok || date == today {
+			continue
 		}
-		return err
+		r.compressAndRemove(path, date)
 	}
-
-	fileDate := info.ModTime().Format(dateFormat)
-	if fileDate == r.today() {
-		return nil
-	}
-
-	rotated := r.rotatedPath(fileDate)
-	if err := os.Rename(r.activePath(), rotated); err != nil {
-		return err
-	}
-
-	r.compressAndRemove(rotated, fileDate)
 	return nil
 }
 
@@ -176,10 +165,7 @@ func (r *DailyRotator) Sync() error {
 	return r.currentFile.Sync()
 }
 
-// Close syncs and closes the underlying file. It also waits for any in-flight
-// background compression/cleanup goroutines so that callers (and test temp-dir
-// cleanup on Windows, which refuses to remove directories that still hold open
-// file handles) can rely on no further file activity after Close returns.
+// Close syncs and closes the underlying file.
 func (r *DailyRotator) Close() error {
 	r.mu.Lock()
 	if r.currentFile == nil {
@@ -200,6 +186,7 @@ func (r *DailyRotator) Close() error {
 // rotateLocked performs the actual rotation. Must be called with mu held.
 func (r *DailyRotator) rotateLocked() error {
 	oldDate := r.currentDate
+	oldPath := r.pathForDate(oldDate)
 
 	if r.currentFile != nil {
 		if err := r.currentFile.Close(); err != nil {
@@ -208,19 +195,12 @@ func (r *DailyRotator) rotateLocked() error {
 		r.currentFile = nil
 	}
 
-	rotated := r.rotatedPath(oldDate)
-	if err := os.Rename(r.activePath(), rotated); err != nil {
-		// If rename fails, try to reopen the active file.
-		_ = r.openActive()
-		return fmt.Errorf("rename log for rotation: %w", err)
-	}
-
 	if err := r.openActive(); err != nil {
 		return fmt.Errorf("open new log after rotation: %w", err)
 	}
 
 	// Compress the old file and clean up expired logs in the background.
-	r.compressAndRemove(rotated, oldDate)
+	r.compressAndRemove(oldPath, oldDate)
 	r.cleanup()
 
 	return nil
@@ -230,7 +210,7 @@ func (r *DailyRotator) rotateLocked() error {
 // The source file is explicitly closed before removal to avoid file-locking
 // issues on Windows.
 func (r *DailyRotator) compressAndRemove(srcPath, date string) {
-	dstPath := r.compressedPath(date)
+	dstPath := r.compressedPathForDate(date)
 
 	if err := r.compressFile(srcPath, dstPath); err != nil {
 		zap.L().Error("compress rotated log", zap.Error(err),
@@ -282,19 +262,26 @@ func (r *DailyRotator) compressFile(srcPath, dstPath string) (retErr error) {
 	return nil
 }
 
+// parseDateFromPath extracts the YYYY-MM-DD date from a rotated log filename.
+// Accepts both "{prefix}-{date}.log" and "{prefix}-{date}.log.gz".
+func (r *DailyRotator) parseDateFromPath(path string) (string, bool) {
+	base := filepath.Base(path)
+	base = strings.TrimSuffix(base, ".gz")
+	base = strings.TrimSuffix(base, logFileExt)
+	dateStr := strings.TrimPrefix(base, r.prefix+"-")
+	if _, err := time.Parse(dateFormat, dateStr); err != nil {
+		return "", false
+	}
+	return dateStr, true
+}
+
 // cleanup removes rotated and compressed log files older than the retention period.
 func (r *DailyRotator) cleanup() {
-	cutoff := r.nowFunc().AddDate(0, 0, -r.retentionDays)
+	cutoff := r.nowFunc().AddDate(0, 0, -r.logRotationDays)
 
-	// Match compressed rotated logs: baton-*.log.gz
-	compressedPattern := filepath.Join(r.dir, fmt.Sprintf("%s-*%s.gz", r.baseName, r.ext))
-	compressedMatches, _ := filepath.Glob(compressedPattern)
+	compressedMatches, _ := filepath.Glob(filepath.Join(r.dir, fmt.Sprintf("%s-*%s.gz", r.prefix, logFileExt)))
+	uncompressedMatches, _ := filepath.Glob(filepath.Join(r.dir, fmt.Sprintf("%s-*%s", r.prefix, logFileExt)))
 
-	// Match uncompressed rotated logs: baton-*.log (in case compression failed)
-	uncompressedPattern := filepath.Join(r.dir, fmt.Sprintf("%s-*%s", r.baseName, r.ext))
-	uncompressedMatches, _ := filepath.Glob(uncompressedPattern)
-
-	// Collect all matches without mutating either source slice (gocritic: appendAssign).
 	allMatches := make([]string, 0, len(compressedMatches)+len(uncompressedMatches))
 	allMatches = append(allMatches, compressedMatches...)
 	allMatches = append(allMatches, uncompressedMatches...)
@@ -306,15 +293,13 @@ func (r *DailyRotator) cleanup() {
 			continue
 		}
 
-		// Extract date from filename.
-		base := filepath.Base(path)
-		base = strings.TrimSuffix(base, ".gz")
-		dateStr := strings.TrimPrefix(base, r.baseName+"-")
-		dateStr = strings.TrimSuffix(dateStr, r.ext)
-
+		dateStr, ok := r.parseDateFromPath(path)
+		if !ok {
+			continue
+		}
 		logDate, err := time.Parse(dateFormat, dateStr)
 		if err != nil {
-			continue // not our naming convention
+			continue
 		}
 
 		if logDate.Before(cutoff) {

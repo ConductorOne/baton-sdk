@@ -20,10 +20,11 @@ const (
 // logConfig holds both the standard zap configuration and optional
 // file rotation settings.
 type logConfig struct {
-	zapConfig     zap.Config
-	filePath      string
-	retentionDays int
-	fileOnly      bool
+	zapConfig       zap.Config
+	logRotationDir  string
+	logPrefix       string
+	logRotationDays int
+	fileOnly        bool
 }
 
 // Option configures the logger created by Init.
@@ -109,18 +110,20 @@ func WithInitialFields(fields map[string]interface{}) Option {
 	}
 }
 
-// WithFileRotation enables daily log file rotation with gzip compression
-// and automatic cleanup of logs older than retentionDays.
-// When enabled, logs are written to both the specified file and stderr
+// WithLogRotation enables daily log file rotation with gzip compression
+// and automatic cleanup of logs older than logRotationDays. Active log
+// files are written to "{dir}/{prefix}-{YYYY-MM-DD}.log".
+// When enabled, logs are written to both the rotated file and stderr
 // unless WithFileOnly is also set.
-// If filePath is empty, this option is a no-op.
-func WithFileRotation(filePath string, retentionDays int) Option {
+// If dir is empty, this option is a no-op.
+func WithLogRotation(dir, prefix string, logRotationDays int) Option {
 	return func(c *logConfig) {
-		if filePath == "" {
+		if dir == "" {
 			return
 		}
-		c.filePath = filePath
-		c.retentionDays = retentionDays
+		c.logRotationDir = dir
+		c.logPrefix = prefix
+		c.logRotationDays = logRotationDays
 	}
 }
 
@@ -133,7 +136,7 @@ func WithFileOnly(fileOnly bool) Option {
 }
 
 // Init creates a new zap logger and attaches it to the provided context.
-// When file rotation is configured via WithFileRotation, it builds a custom
+// When log rotation is configured via WithLogRotation, it builds a custom
 // logger core with daily rotation. Otherwise it falls back to the standard
 // zap.Config.Build() path.
 func Init(ctx context.Context, opts ...Option) (context.Context, error) {
@@ -150,7 +153,7 @@ func Init(ctx context.Context, opts ...Option) (context.Context, error) {
 	var l *zap.Logger
 	var err error
 
-	if cfg.filePath != "" {
+	if cfg.logRotationDir != "" {
 		l, err = buildRotatingLogger(cfg)
 	} else {
 		l, err = cfg.zapConfig.Build()
@@ -181,12 +184,17 @@ func buildRotatingLogger(cfg *logConfig) (*zap.Logger, error) {
 		}
 	}
 
-	retentionDays := cfg.retentionDays
-	if retentionDays <= 0 {
-		retentionDays = DefaultRetentionDays
+	logRotationDays := cfg.logRotationDays
+	if logRotationDays <= 0 {
+		logRotationDays = DefaultLogRotationDays
 	}
 
-	rotator, err := NewDailyRotator(cfg.filePath, retentionDays)
+	prefix := cfg.logPrefix
+	if prefix == "" {
+		prefix = "baton"
+	}
+
+	rotator, err := NewDailyRotator(cfg.logRotationDir, prefix, logRotationDays)
 	if err != nil {
 		return nil, err
 	}

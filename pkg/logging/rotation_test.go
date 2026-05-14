@@ -12,19 +12,24 @@ import (
 	"time"
 )
 
+const testPrefix = "app"
+
 // fakeClock returns a now-function backed by a pointer the test can mutate
 // to advance simulated time.
 func fakeClock(t *time.Time) func() time.Time {
 	return func() time.Time { return *t }
 }
 
+func activeLogPath(dir, date string) string {
+	return filepath.Join(dir, testPrefix+"-"+date+".log")
+}
+
 // --- Basic operation tests ---
 
 func TestDailyRotator_WritesToActiveFile(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
-	r, err := NewDailyRotator(logPath, 10)
+	r, err := NewDailyRotator(dir, testPrefix, 10)
 	if err != nil {
 		t.Fatalf("NewDailyRotator: %v", err)
 	}
@@ -43,6 +48,7 @@ func TestDailyRotator_WritesToActiveFile(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
+	logPath := activeLogPath(dir, time.Now().Format(dateFormat))
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -54,9 +60,8 @@ func TestDailyRotator_WritesToActiveFile(t *testing.T) {
 
 func TestDailyRotator_MultipleWritesAppend(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
-	r, err := NewDailyRotator(logPath, 10)
+	r, err := NewDailyRotator(dir, testPrefix, 10)
 	if err != nil {
 		t.Fatalf("NewDailyRotator: %v", err)
 	}
@@ -71,6 +76,7 @@ func TestDailyRotator_MultipleWritesAppend(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
+	logPath := activeLogPath(dir, time.Now().Format(dateFormat))
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -85,10 +91,9 @@ func TestDailyRotator_MultipleWritesAppend(t *testing.T) {
 
 func TestDailyRotator_RotatesOnDateChange(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
 	now := time.Date(2026, 3, 28, 10, 0, 0, 0, time.UTC)
-	r, err := newDailyRotator(logPath, 10, fakeClock(&now))
+	r, err := newDailyRotator(dir, testPrefix, 10, fakeClock(&now))
 	if err != nil {
 		t.Fatalf("newDailyRotator: %v", err)
 	}
@@ -111,33 +116,33 @@ func TestDailyRotator_RotatesOnDateChange(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
-	// Active file should contain only day2 content.
-	data, err := os.ReadFile(logPath)
+	// Day 2 file should contain only day2 content.
+	day2 := activeLogPath(dir, "2026-03-29")
+	data, err := os.ReadFile(day2)
 	if err != nil {
-		t.Fatalf("ReadFile active: %v", err)
+		t.Fatalf("ReadFile day2: %v", err)
 	}
 	if string(data) != "day2 log\n" {
-		t.Fatalf("active file: got %q, want %q", data, "day2 log\n")
+		t.Fatalf("day2 file: got %q, want %q", data, "day2 log\n")
 	}
 
-	// Rotated file should exist with day1 date.
-	rotated := filepath.Join(dir, "app-2026-03-28.log")
-	compressed := rotated + ".gz"
-	if _, err := os.Stat(rotated); err != nil {
+	// Day 1 file should exist either uncompressed or compressed.
+	day1 := activeLogPath(dir, "2026-03-28")
+	compressed := day1 + ".gz"
+	if _, err := os.Stat(day1); err != nil {
 		if _, err2 := os.Stat(compressed); err2 != nil {
-			t.Fatalf("neither rotated nor compressed file exists: %v / %v", err, err2)
+			t.Fatalf("neither day1 nor compressed file exists: %v / %v", err, err2)
 		}
 	}
 }
 
 func TestDailyRotator_MultipleRotations(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
 	base := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	current := base
 
-	r, err := newDailyRotator(logPath, 30, fakeClock(&current))
+	r, err := newDailyRotator(dir, testPrefix, 30, fakeClock(&current))
 	if err != nil {
 		t.Fatalf("newDailyRotator: %v", err)
 	}
@@ -154,19 +159,20 @@ func TestDailyRotator_MultipleRotations(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
-	// Active file should have content from the last day only.
-	data, err := os.ReadFile(logPath)
+	// Last day's file should have content.
+	lastDate := base.AddDate(0, 0, 4).Format(dateFormat)
+	data, err := os.ReadFile(activeLogPath(dir, lastDate))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
 	if string(data) != "log\n" {
-		t.Fatalf("active: got %q, want %q", data, "log\n")
+		t.Fatalf("last day: got %q, want %q", data, "log\n")
 	}
 
-	// We should have 4 rotated files (day 0 through day 3).
+	// We should have 4 rotated files (day 0 through day 3) either compressed or not.
 	for day := 0; day < 4; day++ {
 		date := base.AddDate(0, 0, day).Format(dateFormat)
-		rotated := filepath.Join(dir, "app-"+date+".log")
+		rotated := activeLogPath(dir, date)
 		compressed := rotated + ".gz"
 		if _, err := os.Stat(rotated); err != nil {
 			if _, err2 := os.Stat(compressed); err2 != nil {
@@ -180,10 +186,9 @@ func TestDailyRotator_MultipleRotations(t *testing.T) {
 
 func TestDailyRotator_CompressesRotatedFile(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
 	now := time.Date(2026, 3, 28, 10, 0, 0, 0, time.UTC)
-	r, err := newDailyRotator(logPath, 10, fakeClock(&now))
+	r, err := newDailyRotator(dir, testPrefix, 10, fakeClock(&now))
 	if err != nil {
 		t.Fatalf("newDailyRotator: %v", err)
 	}
@@ -205,14 +210,14 @@ func TestDailyRotator_CompressesRotatedFile(t *testing.T) {
 	}
 
 	// Wait for background compression goroutine to finish.
-	compressed := filepath.Join(dir, "app-2026-03-28.log.gz")
+	compressed := activeLogPath(dir, "2026-03-28") + ".gz"
 	waitForFile(t, compressed, 5*time.Second)
 
 	// Verify the compressed file contains the original content.
 	assertGzipContents(t, compressed, content)
 
 	// Uncompressed rotated file should have been removed.
-	rotated := filepath.Join(dir, "app-2026-03-28.log")
+	rotated := activeLogPath(dir, "2026-03-28")
 	waitForFileRemoval(t, rotated, 5*time.Second)
 }
 
@@ -220,33 +225,32 @@ func TestDailyRotator_CompressesRotatedFile(t *testing.T) {
 
 func TestDailyRotator_CleansUpExpiredLogs(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
 	now := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
 
 	// Expired: 15 days ago with 10-day retention.
 	oldDate := now.AddDate(0, 0, -15).Format(dateFormat)
-	oldFile := filepath.Join(dir, "app-"+oldDate+".log.gz")
+	oldFile := activeLogPath(dir, oldDate) + ".gz"
 	if err := os.WriteFile(oldFile, []byte("old"), 0600); err != nil {
 		t.Fatalf("WriteFile old: %v", err)
 	}
 
 	// Not expired: 5 days ago.
 	recentDate := now.AddDate(0, 0, -5).Format(dateFormat)
-	recentFile := filepath.Join(dir, "app-"+recentDate+".log.gz")
+	recentFile := activeLogPath(dir, recentDate) + ".gz"
 	if err := os.WriteFile(recentFile, []byte("recent"), 0600); err != nil {
 		t.Fatalf("WriteFile recent: %v", err)
 	}
 
 	// Expired uncompressed file (compression may have failed previously).
 	oldUncompressedDate := now.AddDate(0, 0, -12).Format(dateFormat)
-	oldUncompressed := filepath.Join(dir, "app-"+oldUncompressedDate+".log")
+	oldUncompressed := activeLogPath(dir, oldUncompressedDate)
 	if err := os.WriteFile(oldUncompressed, []byte("old-uncompressed"), 0600); err != nil {
 		t.Fatalf("WriteFile old uncompressed: %v", err)
 	}
 
 	// newDailyRotator runs cleanup on startup.
-	r, err := newDailyRotator(logPath, 10, fakeClock(&now))
+	r, err := newDailyRotator(dir, testPrefix, 10, fakeClock(&now))
 	if err != nil {
 		t.Fatalf("newDailyRotator: %v", err)
 	}
@@ -255,8 +259,13 @@ func TestDailyRotator_CleansUpExpiredLogs(t *testing.T) {
 	if _, err := os.Stat(oldFile); !os.IsNotExist(err) {
 		t.Fatalf("old compressed file should have been cleaned up")
 	}
+	// The old uncompressed file is first compressed by compressStaleFiles, then
+	// the compressed result is older than retention and should be cleaned up.
 	if _, err := os.Stat(oldUncompressed); !os.IsNotExist(err) {
 		t.Fatalf("old uncompressed file should have been cleaned up")
+	}
+	if _, err := os.Stat(oldUncompressed + ".gz"); !os.IsNotExist(err) {
+		t.Fatalf("compressed-from-old-uncompressed file should have been cleaned up")
 	}
 	if _, err := os.Stat(recentFile); err != nil {
 		t.Fatalf("recent file should still exist: %v", err)
@@ -265,17 +274,16 @@ func TestDailyRotator_CleansUpExpiredLogs(t *testing.T) {
 
 func TestDailyRotator_CleanupIgnoresUnrelatedFiles(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
 	now := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
 
 	// Create a file that matches the glob but has a non-date name.
-	unrelated := filepath.Join(dir, "app-config.log")
+	unrelated := filepath.Join(dir, testPrefix+"-config.log")
 	if err := os.WriteFile(unrelated, []byte("config"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	r, err := newDailyRotator(logPath, 1, fakeClock(&now))
+	r, err := newDailyRotator(dir, testPrefix, 1, fakeClock(&now))
 	if err != nil {
 		t.Fatalf("newDailyRotator: %v", err)
 	}
@@ -289,21 +297,18 @@ func TestDailyRotator_CleanupIgnoresUnrelatedFiles(t *testing.T) {
 
 // --- Stale file startup tests ---
 
-func TestDailyRotator_RotatesStaleFileOnStartup(t *testing.T) {
+func TestDailyRotator_CompressesStaleFileOnStartup(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
-	yesterday := time.Date(2026, 3, 29, 15, 0, 0, 0, time.UTC)
-	if err := os.WriteFile(logPath, []byte("stale content\n"), 0600); err != nil {
+	// Pre-existing log file for an earlier day.
+	stale := activeLogPath(dir, "2026-03-29")
+	if err := os.WriteFile(stale, []byte("stale content\n"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
-	}
-	if err := os.Chtimes(logPath, yesterday, yesterday); err != nil {
-		t.Fatalf("Chtimes: %v", err)
 	}
 
 	todayTime := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
 
-	r, err := newDailyRotator(logPath, 10, fakeClock(&todayTime))
+	r, err := newDailyRotator(dir, testPrefix, 10, fakeClock(&todayTime))
 	if err != nil {
 		t.Fatalf("newDailyRotator: %v", err)
 	}
@@ -316,60 +321,56 @@ func TestDailyRotator_RotatesStaleFileOnStartup(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
-	data, err := os.ReadFile(logPath)
+	// Today's file should contain only fresh content.
+	today := activeLogPath(dir, "2026-03-30")
+	data, err := os.ReadFile(today)
 	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
+		t.Fatalf("ReadFile today: %v", err)
 	}
 	if strings.Contains(string(data), "stale") {
-		t.Fatalf("active file should not contain stale content: %q", data)
+		t.Fatalf("today's file should not contain stale content: %q", data)
 	}
 
-	rotated := filepath.Join(dir, "app-2026-03-29.log")
-	compressed := rotated + ".gz"
-	if _, errR := os.Stat(rotated); errR != nil {
-		if _, errC := os.Stat(compressed); errC != nil {
-			t.Fatalf("neither rotated nor compressed stale file found")
-		}
-	}
+	// Stale file should have been compressed.
+	compressed := stale + ".gz"
+	waitForFile(t, compressed, 5*time.Second)
+	waitForFileRemoval(t, stale, 5*time.Second)
 }
 
 // --- Default / edge case tests ---
 
 func TestDailyRotator_DefaultRetention(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
-	r, err := NewDailyRotator(logPath, 0)
+	r, err := NewDailyRotator(dir, testPrefix, 0)
 	if err != nil {
 		t.Fatalf("NewDailyRotator: %v", err)
 	}
 	defer r.Close()
 
-	if r.retentionDays != DefaultRetentionDays {
-		t.Fatalf("retentionDays: got %d, want %d", r.retentionDays, DefaultRetentionDays)
+	if r.logRotationDays != DefaultLogRotationDays {
+		t.Fatalf("logRotationDays: got %d, want %d", r.logRotationDays, DefaultLogRotationDays)
 	}
 }
 
 func TestDailyRotator_NegativeRetention(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
-	r, err := NewDailyRotator(logPath, -5)
+	r, err := NewDailyRotator(dir, testPrefix, -5)
 	if err != nil {
 		t.Fatalf("NewDailyRotator: %v", err)
 	}
 	defer r.Close()
 
-	if r.retentionDays != DefaultRetentionDays {
-		t.Fatalf("retentionDays: got %d, want %d", r.retentionDays, DefaultRetentionDays)
+	if r.logRotationDays != DefaultLogRotationDays {
+		t.Fatalf("logRotationDays: got %d, want %d", r.logRotationDays, DefaultLogRotationDays)
 	}
 }
 
 func TestDailyRotator_WriteAfterClose(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
-	r, err := NewDailyRotator(logPath, 10)
+	r, err := NewDailyRotator(dir, testPrefix, 10)
 	if err != nil {
 		t.Fatalf("NewDailyRotator: %v", err)
 	}
@@ -387,9 +388,8 @@ func TestDailyRotator_WriteAfterClose(t *testing.T) {
 
 func TestDailyRotator_DoubleClose(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
-	r, err := NewDailyRotator(logPath, 10)
+	r, err := NewDailyRotator(dir, testPrefix, 10)
 	if err != nil {
 		t.Fatalf("NewDailyRotator: %v", err)
 	}
@@ -405,9 +405,8 @@ func TestDailyRotator_DoubleClose(t *testing.T) {
 
 func TestDailyRotator_SyncAfterClose(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
-	r, err := NewDailyRotator(logPath, 10)
+	r, err := NewDailyRotator(dir, testPrefix, 10)
 	if err != nil {
 		t.Fatalf("NewDailyRotator: %v", err)
 	}
@@ -424,9 +423,8 @@ func TestDailyRotator_SyncAfterClose(t *testing.T) {
 func TestDailyRotator_CreatesDirectory(t *testing.T) {
 	dir := t.TempDir()
 	nested := filepath.Join(dir, "a", "b", "c")
-	logPath := filepath.Join(nested, "app.log")
 
-	r, err := NewDailyRotator(logPath, 10)
+	r, err := NewDailyRotator(nested, testPrefix, 10)
 	if err != nil {
 		t.Fatalf("NewDailyRotator: %v", err)
 	}
@@ -441,9 +439,8 @@ func TestDailyRotator_CreatesDirectory(t *testing.T) {
 
 func TestDailyRotator_ConcurrentWrites(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "app.log")
 
-	r, err := NewDailyRotator(logPath, 10)
+	r, err := NewDailyRotator(dir, testPrefix, 10)
 	if err != nil {
 		t.Fatalf("NewDailyRotator: %v", err)
 	}
@@ -472,6 +469,7 @@ func TestDailyRotator_ConcurrentWrites(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
+	logPath := activeLogPath(dir, time.Now().Format(dateFormat))
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -485,15 +483,14 @@ func TestDailyRotator_ConcurrentWrites(t *testing.T) {
 
 // --- Init integration test ---
 
-func TestInit_WithFileRotation(t *testing.T) {
+func TestInit_WithLogRotation(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "test.log")
 
 	ctx, err := Init(
 		context.Background(),
 		WithLogFormat(LogFormatJSON),
 		WithLogLevel("info"),
-		WithFileRotation(logPath, 5),
+		WithLogRotation(dir, "test", 5),
 		WithFileOnly(true),
 	)
 	if err != nil {
@@ -515,6 +512,7 @@ func TestInit_WithFileRotation(t *testing.T) {
 	}
 
 	// The log file should have been created.
+	logPath := filepath.Join(dir, "test-"+time.Now().Format(dateFormat)+".log")
 	if _, err := os.Stat(logPath); err != nil {
 		t.Fatalf("log file should exist: %v", err)
 	}
@@ -533,13 +531,13 @@ func TestInit_WithoutRotation_Regression(t *testing.T) {
 	_ = ctx
 }
 
-func TestInit_EmptyLogFilePath_NoOp(t *testing.T) {
-	// WithFileRotation with empty path should be a no-op.
+func TestInit_EmptyLogDir_NoOp(t *testing.T) {
+	// WithLogRotation with empty dir should be a no-op.
 	ctx, err := Init(
 		context.Background(),
 		WithLogFormat(LogFormatJSON),
 		WithLogLevel("info"),
-		WithFileRotation("", 10),
+		WithLogRotation("", "baton", 10),
 	)
 	if err != nil {
 		t.Fatalf("Init: %v", err)
