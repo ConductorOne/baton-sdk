@@ -95,8 +95,8 @@ func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGran
 		if retryer.ShouldWaitAndRetry(ctx, grantErr) {
 			continue
 		}
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), grantErr)
 		err = fmt.Errorf("grant failed: %w", grantErr)
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
 }
@@ -141,8 +141,8 @@ func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRev
 		if retryer.ShouldWaitAndRetry(ctx, revokeErr) {
 			continue
 		}
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), revokeErr)
 		err = fmt.Errorf("revoke failed: %w", revokeErr)
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
 }
