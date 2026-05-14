@@ -38,7 +38,8 @@ create table if not exists %s (
 create index if not exists %s on %s (resource_type_id, resource_id);
 create index if not exists %s on %s (principal_resource_type_id, principal_resource_id);
 create index if not exists %s on %s (entitlement_id, principal_resource_type_id, principal_resource_id);
-create unique index if not exists %s on %s (external_id, sync_id);`
+create unique index if not exists %s on %s (external_id, sync_id);
+create index if not exists %s on %s (entitlement_id, sync_id, id);`
 
 var grants = (*grantsTable)(nil)
 
@@ -64,6 +65,8 @@ func (r *grantsTable) Schema() (string, []any) {
 		fmt.Sprintf("idx_grants_entitlement_id_principal_id_v%s", r.Version()),
 		r.Name(),
 		fmt.Sprintf("idx_grants_external_sync_v%s", r.Version()),
+		r.Name(),
+		fmt.Sprintf("idx_grants_entitlement_sync_grant_v%s", r.Version()),
 		r.Name(),
 	}
 }
@@ -110,7 +113,20 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 	}
 
 	// Backfill expansion column from stored grant bytes.
-	return backfillGrantExpansionColumn(ctx, db, r.Name())
+	if err := backfillGrantExpansionColumn(ctx, db, r.Name()); err != nil {
+		return err
+	}
+
+	// Create index on entitlement_id, sync_id, and grant id.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+		"create index if not exists %s on %s (entitlement_id, sync_id, id)",
+		fmt.Sprintf("idx_grants_entitlement_sync_grant_v%s", r.Version()),
+		r.Name(),
+	)); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
