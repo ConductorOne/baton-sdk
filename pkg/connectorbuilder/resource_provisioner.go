@@ -68,6 +68,11 @@ type GrantProvisioner interface {
 //
 // This is the recommended interface for implementing provisioning operations in new connectors.
 // It differs from ResourceProvisioner by returning a list of grants from the Grant method.
+//
+// The same terminal-error contract as ResourceProvisioner applies — return
+// errors built with pkg/connectorerrors.NewTerminalError when the upstream
+// system has signaled a permanent failure, so callers don't retry. See
+// the ResourceProvisioner docstring above for the full rationale.
 type ResourceProvisionerV2 interface {
 	ResourceSyncerV2
 	ResourceProvisionerV2Limited
