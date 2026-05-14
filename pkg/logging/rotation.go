@@ -15,7 +15,7 @@ import (
 
 const (
 	// DefaultRetentionDays is the default number of days to keep compressed log files.
-	DefaultRetentionDays = 10
+	DefaultRetentionDays = 30
 	dateFormat           = "2006-01-02"
 )
 
@@ -262,7 +262,7 @@ func (r *DailyRotator) compressFile(srcPath, dstPath string) (retErr error) {
 		}
 		// If compression failed, clean up the partial file.
 		if retErr != nil {
-			_ = os.RemoveAll(dstPath)
+			_ = os.Remove(dstPath)
 		}
 	}()
 
@@ -314,7 +314,7 @@ func (r *DailyRotator) cleanup() {
 		}
 
 		if logDate.Before(cutoff) {
-			if err := os.RemoveAll(path); err != nil {
+			if err := os.Remove(path); err != nil {
 				zap.L().Error("remove expired log", zap.Error(err), zap.String("path", path))
 			}
 		}
