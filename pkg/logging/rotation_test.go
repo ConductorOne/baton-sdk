@@ -12,13 +12,10 @@ import (
 	"time"
 )
 
-// setNowFunc overrides the package-level time function for a single test
-// and restores it on cleanup. Tests that call this must NOT run in parallel.
-func setNowFunc(t *testing.T, fn func() time.Time) {
-	t.Helper()
-	original := nowFunc
-	nowFunc = fn
-	t.Cleanup(func() { nowFunc = original })
+// fakeClock returns a now-function backed by a pointer the test can mutate
+// to advance simulated time.
+func fakeClock(t *time.Time) func() time.Time {
+	return func() time.Time { return *t }
 }
 
 // --- Basic operation tests ---
@@ -90,12 +87,10 @@ func TestDailyRotator_RotatesOnDateChange(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "app.log")
 
-	day1 := time.Date(2026, 3, 28, 10, 0, 0, 0, time.UTC)
-	setNowFunc(t, func() time.Time { return day1 })
-
-	r, err := NewDailyRotator(logPath, 10)
+	now := time.Date(2026, 3, 28, 10, 0, 0, 0, time.UTC)
+	r, err := newDailyRotator(logPath, 10, fakeClock(&now))
 	if err != nil {
-		t.Fatalf("NewDailyRotator: %v", err)
+		t.Fatalf("newDailyRotator: %v", err)
 	}
 	defer r.Close()
 
@@ -107,8 +102,7 @@ func TestDailyRotator_RotatesOnDateChange(t *testing.T) {
 	}
 
 	// Advance to day 2 — triggers rotation on next write.
-	day2 := time.Date(2026, 3, 29, 10, 0, 0, 0, time.UTC)
-	setNowFunc(t, func() time.Time { return day2 })
+	now = time.Date(2026, 3, 29, 10, 0, 0, 0, time.UTC)
 
 	if _, err := r.Write([]byte("day2 log\n")); err != nil {
 		t.Fatalf("Write day2: %v", err)
@@ -142,11 +136,10 @@ func TestDailyRotator_MultipleRotations(t *testing.T) {
 
 	base := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	current := base
-	setNowFunc(t, func() time.Time { return current })
 
-	r, err := NewDailyRotator(logPath, 30)
+	r, err := newDailyRotator(logPath, 30, fakeClock(&current))
 	if err != nil {
-		t.Fatalf("NewDailyRotator: %v", err)
+		t.Fatalf("newDailyRotator: %v", err)
 	}
 	defer r.Close()
 
@@ -189,12 +182,10 @@ func TestDailyRotator_CompressesRotatedFile(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "app.log")
 
-	day1 := time.Date(2026, 3, 28, 10, 0, 0, 0, time.UTC)
-	setNowFunc(t, func() time.Time { return day1 })
-
-	r, err := NewDailyRotator(logPath, 10)
+	now := time.Date(2026, 3, 28, 10, 0, 0, 0, time.UTC)
+	r, err := newDailyRotator(logPath, 10, fakeClock(&now))
 	if err != nil {
-		t.Fatalf("NewDailyRotator: %v", err)
+		t.Fatalf("newDailyRotator: %v", err)
 	}
 	defer r.Close()
 
@@ -207,8 +198,7 @@ func TestDailyRotator_CompressesRotatedFile(t *testing.T) {
 	}
 
 	// Advance to day 2, triggering rotation.
-	day2 := time.Date(2026, 3, 29, 10, 0, 0, 0, time.UTC)
-	setNowFunc(t, func() time.Time { return day2 })
+	now = time.Date(2026, 3, 29, 10, 0, 0, 0, time.UTC)
 
 	if _, err := r.Write([]byte("day2\n")); err != nil {
 		t.Fatalf("Write day2: %v", err)
@@ -233,7 +223,6 @@ func TestDailyRotator_CleansUpExpiredLogs(t *testing.T) {
 	logPath := filepath.Join(dir, "app.log")
 
 	now := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
-	setNowFunc(t, func() time.Time { return now })
 
 	// Expired: 15 days ago with 10-day retention.
 	oldDate := now.AddDate(0, 0, -15).Format(dateFormat)
@@ -256,10 +245,10 @@ func TestDailyRotator_CleansUpExpiredLogs(t *testing.T) {
 		t.Fatalf("WriteFile old uncompressed: %v", err)
 	}
 
-	// NewDailyRotator runs cleanup on startup.
-	r, err := NewDailyRotator(logPath, 10)
+	// newDailyRotator runs cleanup on startup.
+	r, err := newDailyRotator(logPath, 10, fakeClock(&now))
 	if err != nil {
-		t.Fatalf("NewDailyRotator: %v", err)
+		t.Fatalf("newDailyRotator: %v", err)
 	}
 	defer r.Close()
 
@@ -279,7 +268,6 @@ func TestDailyRotator_CleanupIgnoresUnrelatedFiles(t *testing.T) {
 	logPath := filepath.Join(dir, "app.log")
 
 	now := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
-	setNowFunc(t, func() time.Time { return now })
 
 	// Create a file that matches the glob but has a non-date name.
 	unrelated := filepath.Join(dir, "app-config.log")
@@ -287,9 +275,9 @@ func TestDailyRotator_CleanupIgnoresUnrelatedFiles(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	r, err := NewDailyRotator(logPath, 1)
+	r, err := newDailyRotator(logPath, 1, fakeClock(&now))
 	if err != nil {
-		t.Fatalf("NewDailyRotator: %v", err)
+		t.Fatalf("newDailyRotator: %v", err)
 	}
 	defer r.Close()
 
@@ -314,11 +302,10 @@ func TestDailyRotator_RotatesStaleFileOnStartup(t *testing.T) {
 	}
 
 	todayTime := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
-	setNowFunc(t, func() time.Time { return todayTime })
 
-	r, err := NewDailyRotator(logPath, 10)
+	r, err := newDailyRotator(logPath, 10, fakeClock(&todayTime))
 	if err != nil {
-		t.Fatalf("NewDailyRotator: %v", err)
+		t.Fatalf("newDailyRotator: %v", err)
 	}
 	defer r.Close()
 
