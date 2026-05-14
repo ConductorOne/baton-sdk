@@ -49,7 +49,7 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 	manager, ok := b.credentialManagers[rt]
 	if !ok {
 		l.Error("error: resource type does not have credential manager configured", zap.String("resource_type", rt))
-		err := status.Error(codes.Unimplemented, "resource type does not have credential manager configured")
+		err = status.Error(codes.Unimplemented, "resource type does not have credential manager configured")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -77,7 +77,8 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 
 	var encryptedDatas []*v2.EncryptedData
 	for _, plaintextCredential := range plaintexts {
-		encryptedData, err := pkem.Encrypt(ctx, plaintextCredential)
+		var encryptedData []*v2.EncryptedData
+		encryptedData, err = pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
 			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 			return nil, err
