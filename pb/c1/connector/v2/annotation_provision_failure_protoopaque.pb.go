@@ -37,20 +37,26 @@ const (
 	// delivered security group. Resolves when the rule is changed or the
 	// subject is moved out of the rule's source set.
 	ProvisionFailureDetail_REASON_TARGET_MANAGED_EXTERNALLY ProvisionFailureDetail_Reason = 2
-	// The upstream system has no remaining capacity for this operation.
-	// Examples: Jira "exceeds number of allowed users licensed";
-	// Salesforce license type cap; Okta seat limit. Resolves when seats
-	// free up or the tenant purchases more.
+	// CAPACITY problem: the upstream system has run out of seats /
+	// licenses / quota for this operation. Examples: Jira "exceeds
+	// number of allowed users licensed"; Salesforce license type cap;
+	// Okta seat limit. Resolves when seats free up or the tenant
+	// purchases more. Use this only for numerical capacity; for
+	// capability or feature toggles, prefer REASON_OPERATION_NOT_PERMITTED.
 	ProvisionFailureDetail_REASON_LICENSE_EXHAUSTED ProvisionFailureDetail_Reason = 3
 	// Upstream API validation rejected the operation for a reason that
-	// won't change on retry: malformed reference, conflicting policy,
-	// schema-level invariant. Use this for non-categorized terminal
-	// validation failures.
+	// won't change on retry: malformed reference, schema-level
+	// invariant. Use this for non-categorized terminal validation
+	// failures. (For policy-driven rejection where the upstream itself
+	// says the operation isn't allowed, prefer
+	// REASON_OPERATION_NOT_PERMITTED.)
 	ProvisionFailureDetail_REASON_VALIDATION_FAILURE ProvisionFailureDetail_Reason = 4
-	// The connector or upstream system does not permit the requested
-	// operation regardless of state. Examples: cannot revoke a
-	// self-managed group; cannot grant via this endpoint; required
-	// capability disabled by tenant admin.
+	// POLICY problem: the connector or upstream system does not permit
+	// the requested operation regardless of state. Examples: cannot
+	// revoke a self-managed group; cannot grant via this endpoint;
+	// required capability disabled by tenant admin; feature toggle off.
+	// Use this when the upstream is saying "you're not allowed to do
+	// this"; use REASON_LICENSE_EXHAUSTED only for numerical capacity.
 	ProvisionFailureDetail_REASON_OPERATION_NOT_PERMITTED ProvisionFailureDetail_Reason = 5
 )
 

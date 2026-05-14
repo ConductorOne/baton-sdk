@@ -1,26 +1,11 @@
 // Package connectorerrors helps connectors signal terminal (non-retryable)
-// failures from Grant and Revoke in a structured way that upstream callers
-// can act on.
+// failures from Grant and Revoke in a way upstream callers can act on.
 //
-// Today, when a connector returns a plain Go error, the upstream framing
-// (in baton-sdk: fmt.Errorf("grant failed: %w", err), then again in the
-// caller: codes.Unknown) erases information about whether the failure is
-// retryable. Callers fall back to message-substring matching, which is
-// brittle and per-connector.
-//
-// This package gives connectors a single helper that:
-//   - picks the right gRPC status code for a known terminal reason, so
-//     callers that inspect status.Code(err) automatically classify the
-//     error as non-retryable;
-//   - attaches a ProvisionFailureDetail (proto) as a gRPC status detail,
-//     so callers that want a typed reason and an upstream-facing detail
-//     string can read it without parsing free text.
-//
-// Connectors should still return ordinary errors for transient failures
-// (network blips, 5xx, rate limits — those have their own annotation,
-// RateLimitDescription). Only call NewTerminalError when you have
-// positively identified an upstream signal that means "this will not
-// succeed on retry without external state change."
+// Use NewTerminalError when an upstream API has signaled a permanent
+// failure (target user state, externally-managed group, license cap,
+// validation). For transient failures — 5xx, network blips, rate limits
+// — return ordinary errors; rate limits have their own annotation
+// (RateLimitDescription) on the response.
 package connectorerrors
 
 import (
@@ -44,6 +29,10 @@ import (
 // REASON_UNSPECIFIED is rejected — pass a real reason. If you genuinely
 // don't know which bucket fits, REASON_VALIDATION_FAILURE is the
 // catch-all for upstream rejections that won't change on retry.
+//
+// Contract: Reason is the authoritative semantic signal; the gRPC code
+// is a coarse retryability hint maintained for callers that classify
+// purely on status.Code. New callers should branch on Reason.
 func NewTerminalError(reason v2.ProvisionFailureDetail_Reason, format string, args ...any) error {
 	if reason == v2.ProvisionFailureDetail_REASON_UNSPECIFIED {
 		// Programmer error — callers must pick a reason. Return an
@@ -51,7 +40,12 @@ func NewTerminalError(reason v2.ProvisionFailureDetail_Reason, format string, ar
 		return status.Error(codes.Internal, "connectorerrors.NewTerminalError: reason must not be REASON_UNSPECIFIED")
 	}
 
-	msg := fmt.Sprintf(format, args...)
+	// Pass format through verbatim when no args, so a `%` in an
+	// upstream message ("E0000099: 50% capacity") isn't reinterpreted.
+	msg := format
+	if len(args) > 0 {
+		msg = fmt.Sprintf(format, args...)
+	}
 	st := status.New(codeForReason(reason), msg)
 
 	detail := v2.ProvisionFailureDetail_builder{
@@ -61,11 +55,12 @@ func NewTerminalError(reason v2.ProvisionFailureDetail_Reason, format string, ar
 
 	withDetails, err := st.WithDetails(detail)
 	if err != nil {
-		// status.WithDetails only fails if the detail can't be
-		// marshaled; for a fixed proto we control, that should not
-		// happen in practice. Fall back to the status without
-		// details so the code is still correct.
-		return st.Err()
+		// Unreachable for a proto we own — WithDetails only fails on
+		// marshal error, and ProvisionFailureDetail has no fields that
+		// can fail to marshal. Panic so we notice if a future field
+		// change breaks the invariant, rather than silently returning
+		// a status without the detail.
+		panic(fmt.Sprintf("connectorerrors: status.WithDetails failed on ProvisionFailureDetail: %v", err))
 	}
 	return withDetails.Err()
 }
@@ -74,6 +69,11 @@ func NewTerminalError(reason v2.ProvisionFailureDetail_Reason, format string, ar
 // returning (detail, true) when one is present. It walks fmt.Errorf
 // %w and errors.Join chains via status.FromError (which uses errors.As),
 // so wrapped errors are handled transparently.
+//
+// Forward compat: proto3 preserves unknown enum integers on the wire,
+// so a future REASON_* value sent by a newer connector decodes here
+// without error and detail.GetReason() returns the integer. Callers
+// switching on Reason must include a default case for unknown values.
 func FailureDetail(err error) (*v2.ProvisionFailureDetail, bool) {
 	if err == nil {
 		return nil, false
@@ -94,15 +94,18 @@ func FailureDetail(err error) (*v2.ProvisionFailureDetail, bool) {
 }
 
 // IsTerminal reports whether the error carries a ProvisionFailureDetail.
-// Equivalent to "_, ok := FailureDetail(err)" with no allocation in the
-// false path; convenient when callers only need a yes/no.
+// Equivalent to `_, ok := FailureDetail(err); return ok` — convenient
+// when callers only need a yes/no.
 func IsTerminal(err error) bool {
 	_, ok := FailureDetail(err)
 	return ok
 }
 
 // codeForReason maps a ProvisionFailureDetail reason to the gRPC status
-// code callers should observe.
+// code callers should observe. This mapping is part of the package
+// contract — connector authors should not rely on a specific code beyond
+// "non-retryable", and callers wanting fine-grained classification
+// should read Reason from the attached ProvisionFailureDetail.
 //
 // The codes here are the same ones baton-sdk's existing isClientErrorCode
 // logic already treats as non-retryable, so connectors adopting this
