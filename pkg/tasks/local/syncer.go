@@ -15,6 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
+	"github.com/conductorone/baton-sdk/pkg/uotel/uotelzap"
 )
 
 type localSyncer struct {
@@ -100,6 +101,7 @@ func (m *localSyncer) Next(ctx context.Context) (*v1.Task, time.Duration, error)
 
 func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localSyncer.Process", trace.WithNewRoot())
+	ctx = uotelzap.WithSpanLogFields(ctx)
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 

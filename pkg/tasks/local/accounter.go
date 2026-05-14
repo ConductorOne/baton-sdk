@@ -13,6 +13,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
+	"github.com/conductorone/baton-sdk/pkg/uotel/uotelzap"
 )
 
 type localAccountManager struct {
@@ -47,6 +48,7 @@ func (m *localAccountManager) Next(ctx context.Context) (*v1.Task, time.Duration
 
 func (m *localAccountManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localAccountManager.Process", trace.WithNewRoot())
+	ctx = uotelzap.WithSpanLogFields(ctx)
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
