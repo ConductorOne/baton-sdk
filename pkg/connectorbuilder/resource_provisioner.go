@@ -23,6 +23,28 @@ import (
 //
 // Implementing this interface indicates the connector supports provisioning operations
 // for the associated resource type.
+//
+// # Signaling terminal failures
+//
+// Grant and Revoke errors flow back to a remote caller that has to decide
+// whether to retry. By default that decision is based on the gRPC status
+// code: codes.Unavailable / Internal / DeadlineExceeded / ResourceExhausted
+// retry; codes.FailedPrecondition / PermissionDenied / InvalidArgument do
+// not. A plain `errors.New(...)` resolves to codes.Unknown and is treated
+// as retryable, which causes upstream-permanent failures (target user
+// SUSPENDED, group governed by a rule, license cap reached) to loop until
+// a higher-level timeout fires.
+//
+// When the upstream system has told you the operation will not succeed
+// on retry without external state change, return an error built with
+// pkg/connectorerrors.NewTerminalError. It picks a non-retryable gRPC
+// code and attaches a ProvisionFailureDetail proto so callers can also
+// read a structured reason and admin-facing detail string.
+//
+// Transient failures (5xx, network blips, rate limits) should continue
+// to be returned as ordinary errors — those are retryable, and rate
+// limits in particular have their own annotation (RateLimitDescription)
+// on the response.
 type ResourceProvisioner interface {
 	ResourceSyncer
 	ResourceProvisionerLimited
