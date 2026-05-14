@@ -138,8 +138,8 @@ func (b *builder) ListTicketSchemas(ctx context.Context, request *v2.TicketsServ
 		if retryer.ShouldWaitAndRetry(ctx, listErr) {
 			continue
 		}
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), listErr)
 		err = fmt.Errorf("error: listing ticket schemas failed: %w", listErr)
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
 }
