@@ -9,10 +9,13 @@ import (
 	grpc_logging "github.com/grpc-ecosystem/go-grpc-middleware/logging"
 	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+
+	"github.com/conductorone/baton-sdk/pkg/uotel/uotelzap"
 )
 
 // UnaryServerInterceptor returns a new unary server interceptors that adds zap.Logger to the context.
@@ -72,7 +75,12 @@ func newLoggerForCall(ctx context.Context, logger *zap.Logger, fullMethodString 
 	if d, ok := ctx.Deadline(); ok {
 		f = append(f, zap.String("grpc.request.deadline", d.Format(time.RFC3339)))
 	}
-	callLog := logger.With(append(f, serverCallFields(fullMethodString)...)...)
+	f = append(f, serverCallFields(fullMethodString)...)
+	// Attach trace_id/span_id from the active OTel span so log lines can be
+	// correlated with the surrounding trace. The otelgrpc stats handler runs
+	// before unary/stream interceptors so the span is already on ctx.
+	f = append(f, uotelzap.SpanToLogFields(trace.SpanContextFromContext(ctx))...)
+	callLog := logger.With(f...)
 	return ctxzap.ToContext(ctx, callLog)
 }
 
