@@ -180,22 +180,22 @@ func runGrants(cmd *cobra.Command, args []string) error {
 		}
 
 		for _, g := range grants {
-			en, err := sc.GetEntitlement(ctx, g.Entitlement.Id)
+			en, err := sc.GetEntitlement(ctx, g.GetEntitlement().GetId())
 			if err != nil {
 				return err
 			}
 
-			principal, err := sc.GetResource(ctx, g.Principal.Id)
+			principal, err := sc.GetResource(ctx, g.GetPrincipal().GetId())
 			if err != nil {
 				return err
 			}
 
-			resource, err := sc.GetResource(ctx, g.Entitlement.Resource.Id)
+			resource, err := sc.GetResource(ctx, g.GetEntitlement().GetResource().GetId())
 			if err != nil {
 				return err
 			}
 
-			resourceType, err := sc.GetResourceType(ctx, g.Entitlement.Resource.Id.ResourceType)
+			resourceType, err := sc.GetResourceType(ctx, g.GetEntitlement().GetResource().GetId().GetResourceType())
 			if err != nil {
 				return err
 			}

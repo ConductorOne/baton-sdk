@@ -347,6 +347,10 @@ func buildXLSX(ctx context.Context, d dataBag, outPath string) error {
 			if en, ok := d.entitlementsByID[g.Entitlement.Id]; ok {
 				e = en
 			} else {
+				// Orphan grant — entitlement isn't in v1_entitlements.
+				// With slim writes the embedded entitlement is a stub,
+				// so the row renders with blank metadata. Orphans have
+				// no canonical source either way.
 				e = g.Entitlement
 			}
 

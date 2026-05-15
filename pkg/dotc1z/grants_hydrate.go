@@ -35,6 +35,39 @@ func hydrateGrants(grants []*v2.Grant, grantKeys []grantJoinKeys) {
 	}
 }
 
+// Use before comparing two grants that may have come from c1z files
+// written in different writer modes. Slim and full grants for the same
+// logical row carry different embedded metadata; normalize both first
+// and they compare equal.
+//
+// Mutates in place. nil grant is a no-op.
+func NormalizeGrantForCompare(grant *v2.Grant) {
+	if grant == nil {
+		return
+	}
+	if e := grant.GetEntitlement(); e != nil {
+		rid := e.GetResource().GetId()
+		grant.SetEntitlement(v2.Entitlement_builder{
+			Id: e.GetId(),
+			Resource: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
+					ResourceType: rid.GetResourceType(),
+					Resource:     rid.GetResource(),
+				}.Build(),
+			}.Build(),
+		}.Build())
+	}
+	if p := grant.GetPrincipal(); p != nil {
+		pid := p.GetId()
+		grant.SetPrincipal(v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: pid.GetResourceType(),
+				Resource:     pid.GetResource(),
+			}.Build(),
+		}.Build())
+	}
+}
+
 func stubEntitlement(k grantJoinKeys) *v2.Entitlement {
 	return v2.Entitlement_builder{
 		Id: k.EntitlementID,
