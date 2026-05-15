@@ -358,6 +358,7 @@ var checkpointTimeout, _ = strconv.ParseInt(os.Getenv("BATON_WAL_CHECKPOINT_TIME
 // Close ensures that the sqlite database is flushed to disk, and if any changes were made we update the original database
 // with our changes. The provided context is used for the WAL checkpoint operation. If the context is already expired,
 // a fresh context with a timeout is used to ensure the checkpoint completes.
+//
 //nolint:nonamedreturns // named return required so the deferred span captures all early-return error paths
 func (c *C1File) Close(ctx context.Context) (retErr error) {
 	ctx, span := tracer.Start(ctx, "C1File.Close")
