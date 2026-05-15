@@ -15,6 +15,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
+	"github.com/conductorone/baton-sdk/pkg/uotel/uotelzap"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -112,6 +113,7 @@ type BootstrappingTaskManager interface {
 
 func (c *c1ApiTaskManager) Bootstrap(ctx context.Context, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "c1ApiTaskManager.Bootstrap")
+	ctx = uotelzap.WithSpanLogFields(ctx)
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
@@ -200,6 +202,7 @@ func isRetryableHelloError(err error) bool {
 // the side that runs concurrently and it shares no mutable state with Next.
 func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	ctx, span := tracer.Start(ctx, "c1ApiTaskManager.Next", trace.WithNewRoot())
+	ctx = uotelzap.WithSpanLogFields(ctx)
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
@@ -378,6 +381,7 @@ func (c *c1ApiTaskManager) ShouldDebug() bool {
 
 func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "c1ApiTaskManager.Process", trace.WithNewRoot())
+	ctx = uotelzap.WithSpanLogFields(ctx)
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)

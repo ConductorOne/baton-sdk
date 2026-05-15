@@ -55,3 +55,4 @@ Output message types defined in `proto/baton/v1/outputs.proto`. Generated with B
 - **Nix flake** for dev environment (`.envrc` + `flake.nix`)
 - **golangci-lint v2** with 26+ linters; line length limit of 200 chars
 - **Buf** for protobuf generation and linting
+

@@ -13,6 +13,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
+	"github.com/conductorone/baton-sdk/pkg/uotel/uotelzap"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -66,6 +67,7 @@ func (m *localBulkCreateTicket) Next(ctx context.Context) (*v1.Task, time.Durati
 
 func (m *localBulkCreateTicket) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localBulkCreateTicket.Process", trace.WithNewRoot())
+	ctx = uotelzap.WithSpanLogFields(ctx)
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
