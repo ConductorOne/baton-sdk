@@ -415,12 +415,9 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 				l.Error("WAL checkpoint failed before close",
 					zap.Error(err),
 					zap.String("db_path", c.dbFilePath))
-				closeErr := c.rawDb.Close()
-				if closeErr != nil {
+				if closeErr := c.closeRawDB(ctx); closeErr != nil {
 					l.Error("error closing raw db", zap.Error(closeErr))
 				}
-				c.rawDb = nil
-				c.db = nil
 				return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint failed: %w", err))
 			}
 			if busy != 0 || (log >= 0 && checkpointed < log) {
@@ -429,32 +426,18 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 					zap.Int("log", log),
 					zap.Int("checkpointed", checkpointed),
 					zap.String("db_path", c.dbFilePath))
-				closeErr := c.rawDb.Close()
-				if closeErr != nil {
+				if closeErr := c.closeRawDB(ctx); closeErr != nil {
 					l.Error("error closing raw db", zap.Error(closeErr))
 				}
-				c.rawDb = nil
-				c.db = nil
 				return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint incomplete: busy=%d log=%d checkpointed=%d", busy, log, checkpointed))
 			}
 		}
 
 		err = c.closeRawDB(ctx)
 		if err != nil {
-			// Drop handle references on the Close-failure path
-			// too. The success-path nil assignments below (kept
-			// per the original shape, so validateDb() returns
-			// ErrDbNotOpen) only run if we don't return here, so
-			// without these the failed Close would leave c.rawDb
-			// pointing at a dead handle and validateDb would
-			// report success.
-			c.rawDb = nil
-			c.db = nil
 			return cleanupDbDir(c.dbFilePath, err)
 		}
 	}
-	c.rawDb = nil
-	c.db = nil
 
 	// We only want to save the file if we've made any changes
 	if c.dbUpdated {
@@ -470,7 +453,17 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 			return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL file not empty after close (size=%d) - refusing to save incomplete data", walInfo.Size()))
 		}
 
-		err = c.runSaveC1z(ctx)
+		_, saveSpan := tracer.Start(ctx, "C1File.saveC1z")
+		saveSpan.SetAttributes(
+			attribute.String("db_path", c.dbFilePath),
+			attribute.String("output_path", c.outputFilePath),
+			attribute.Int("encoder_concurrency", c.encoderConcurrency),
+		)
+		if dbInfo, statErr := os.Stat(c.dbFilePath); statErr == nil {
+			saveSpan.SetAttributes(attribute.Int64("input_size_bytes", dbInfo.Size()))
+		}
+		err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
+		uotel.EndSpanWithError(saveSpan, err)
 		if err != nil {
 			return cleanupDbDir(c.dbFilePath, err)
 		}
@@ -485,31 +478,17 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 	return nil
 }
 
-// closeRawDB wraps c.rawDb.Close with a span so the pure-Go SQLite
-// handle-close cost is visible alongside truncateWAL and saveC1z.
+// closeRawDB wraps c.rawDb.Close with a span and drops the handle
+// references on the C1File so callers do not have to repeat the
+// nil-out. Returns the error from rawDb.Close so error paths can
+// still propagate or log it.
 func (c *C1File) closeRawDB(ctx context.Context) error {
 	_, span := tracer.Start(ctx, "C1File.closeRawDB")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 	err = c.rawDb.Close()
-	return err
-}
-
-// runSaveC1z wraps saveC1z with a span so the zstd recompression to the
-// output c1z file (the heavy work for large databases) is visible.
-func (c *C1File) runSaveC1z(ctx context.Context) error {
-	_, span := tracer.Start(ctx, "C1File.saveC1z")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-	span.SetAttributes(
-		attribute.String("db_path", c.dbFilePath),
-		attribute.String("output_path", c.outputFilePath),
-		attribute.Int("encoder_concurrency", c.encoderConcurrency),
-	)
-	if dbInfo, statErr := os.Stat(c.dbFilePath); statErr == nil {
-		span.SetAttributes(attribute.Int64("input_size_bytes", dbInfo.Size()))
-	}
-	err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
+	c.rawDb = nil
+	c.db = nil
 	return err
 }
 
