@@ -2,9 +2,6 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
-import "c1/connector/v2/entitlement.proto";
-import "c1/connector/v2/grant.proto";
-
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 // EntitlementExclusionGroup declares that this entitlement belongs to a
@@ -44,20 +41,4 @@ message EntitlementExclusionGroup {
   //
   // At most one entitlement per exclusion group should set is_default = true.
   bool is_default = 3;
-}
-
-// SwapPartialFailure is attached as a gRPC error detail (via status.WithDetails)
-// when a fallback swap partially completes: the revoke succeeded but the grant
-// failed. ConductorOne reads this to decide on compensating actions (re-grant
-// original, grant the group default, or alert an admin).
-message SwapPartialFailure {
-  // The grant that was successfully revoked.
-  Grant revoked_grant = 1;
-
-  // The entitlement that failed to be granted.
-  Entitlement failed_grant_entitlement = 2;
-
-  // The exclusion_group_id of the affected group (extracted from the
-  // revoked entitlement's annotations).
-  string exclusion_group_id = 3;
 }

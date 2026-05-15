@@ -158,155 +158,27 @@ func (b0 EntitlementExclusionGroup_builder) Build() *EntitlementExclusionGroup {
 	return m0
 }
 
-// SwapPartialFailure is attached as a gRPC error detail (via status.WithDetails)
-// when a fallback swap partially completes: the revoke succeeded but the grant
-// failed. ConductorOne reads this to decide on compensating actions (re-grant
-// original, grant the group default, or alert an admin).
-type SwapPartialFailure struct {
-	state protoimpl.MessageState `protogen:"hybrid.v1"`
-	// The grant that was successfully revoked.
-	RevokedGrant *Grant `protobuf:"bytes,1,opt,name=revoked_grant,json=revokedGrant,proto3" json:"revoked_grant,omitempty"`
-	// The entitlement that failed to be granted.
-	FailedGrantEntitlement *Entitlement `protobuf:"bytes,2,opt,name=failed_grant_entitlement,json=failedGrantEntitlement,proto3" json:"failed_grant_entitlement,omitempty"`
-	// The exclusion_group_id of the affected group (extracted from the
-	// revoked entitlement's annotations).
-	ExclusionGroupId string `protobuf:"bytes,3,opt,name=exclusion_group_id,json=exclusionGroupId,proto3" json:"exclusion_group_id,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *SwapPartialFailure) Reset() {
-	*x = SwapPartialFailure{}
-	mi := &file_c1_connector_v2_annotation_exclusion_group_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SwapPartialFailure) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SwapPartialFailure) ProtoMessage() {}
-
-func (x *SwapPartialFailure) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_exclusion_group_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *SwapPartialFailure) GetRevokedGrant() *Grant {
-	if x != nil {
-		return x.RevokedGrant
-	}
-	return nil
-}
-
-func (x *SwapPartialFailure) GetFailedGrantEntitlement() *Entitlement {
-	if x != nil {
-		return x.FailedGrantEntitlement
-	}
-	return nil
-}
-
-func (x *SwapPartialFailure) GetExclusionGroupId() string {
-	if x != nil {
-		return x.ExclusionGroupId
-	}
-	return ""
-}
-
-func (x *SwapPartialFailure) SetRevokedGrant(v *Grant) {
-	x.RevokedGrant = v
-}
-
-func (x *SwapPartialFailure) SetFailedGrantEntitlement(v *Entitlement) {
-	x.FailedGrantEntitlement = v
-}
-
-func (x *SwapPartialFailure) SetExclusionGroupId(v string) {
-	x.ExclusionGroupId = v
-}
-
-func (x *SwapPartialFailure) HasRevokedGrant() bool {
-	if x == nil {
-		return false
-	}
-	return x.RevokedGrant != nil
-}
-
-func (x *SwapPartialFailure) HasFailedGrantEntitlement() bool {
-	if x == nil {
-		return false
-	}
-	return x.FailedGrantEntitlement != nil
-}
-
-func (x *SwapPartialFailure) ClearRevokedGrant() {
-	x.RevokedGrant = nil
-}
-
-func (x *SwapPartialFailure) ClearFailedGrantEntitlement() {
-	x.FailedGrantEntitlement = nil
-}
-
-type SwapPartialFailure_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	// The grant that was successfully revoked.
-	RevokedGrant *Grant
-	// The entitlement that failed to be granted.
-	FailedGrantEntitlement *Entitlement
-	// The exclusion_group_id of the affected group (extracted from the
-	// revoked entitlement's annotations).
-	ExclusionGroupId string
-}
-
-func (b0 SwapPartialFailure_builder) Build() *SwapPartialFailure {
-	m0 := &SwapPartialFailure{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.RevokedGrant = b.RevokedGrant
-	x.FailedGrantEntitlement = b.FailedGrantEntitlement
-	x.ExclusionGroupId = b.ExclusionGroupId
-	return m0
-}
-
 var File_c1_connector_v2_annotation_exclusion_group_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_exclusion_group_proto_rawDesc = "" +
 	"\n" +
-	"0c1/connector/v2/annotation_exclusion_group.proto\x12\x0fc1.connector.v2\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\"~\n" +
+	"0c1/connector/v2/annotation_exclusion_group.proto\x12\x0fc1.connector.v2\"~\n" +
 	"\x19EntitlementExclusionGroup\x12,\n" +
 	"\x12exclusion_group_id\x18\x01 \x01(\tR\x10exclusionGroupId\x12\x14\n" +
 	"\x05order\x18\x02 \x01(\rR\x05order\x12\x1d\n" +
 	"\n" +
-	"is_default\x18\x03 \x01(\bR\tisDefault\"\xd7\x01\n" +
-	"\x12SwapPartialFailure\x12;\n" +
-	"\rrevoked_grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\frevokedGrant\x12V\n" +
-	"\x18failed_grant_entitlement\x18\x02 \x01(\v2\x1c.c1.connector.v2.EntitlementR\x16failedGrantEntitlement\x12,\n" +
-	"\x12exclusion_group_id\x18\x03 \x01(\tR\x10exclusionGroupIdB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"is_default\x18\x03 \x01(\bR\tisDefaultB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_annotation_exclusion_group_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_c1_connector_v2_annotation_exclusion_group_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_c1_connector_v2_annotation_exclusion_group_proto_goTypes = []any{
 	(*EntitlementExclusionGroup)(nil), // 0: c1.connector.v2.EntitlementExclusionGroup
-	(*SwapPartialFailure)(nil),        // 1: c1.connector.v2.SwapPartialFailure
-	(*Grant)(nil),                     // 2: c1.connector.v2.Grant
-	(*Entitlement)(nil),               // 3: c1.connector.v2.Entitlement
 }
 var file_c1_connector_v2_annotation_exclusion_group_proto_depIdxs = []int32{
-	2, // 0: c1.connector.v2.SwapPartialFailure.revoked_grant:type_name -> c1.connector.v2.Grant
-	3, // 1: c1.connector.v2.SwapPartialFailure.failed_grant_entitlement:type_name -> c1.connector.v2.Entitlement
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	0, // [0:0] is the sub-list for method output_type
+	0, // [0:0] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_exclusion_group_proto_init() }
@@ -314,15 +186,13 @@ func file_c1_connector_v2_annotation_exclusion_group_proto_init() {
 	if File_c1_connector_v2_annotation_exclusion_group_proto != nil {
 		return
 	}
-	file_c1_connector_v2_entitlement_proto_init()
-	file_c1_connector_v2_grant_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_exclusion_group_proto_rawDesc), len(file_c1_connector_v2_annotation_exclusion_group_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

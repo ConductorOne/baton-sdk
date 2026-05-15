@@ -53,7 +53,6 @@ type connectorClient struct {
 	connectorV2.EventServiceClient
 	connectorV2.TicketsServiceClient
 	connectorV2.ActionServiceClient
-	connectorV2.SwapServiceClient
 
 	sessionStoreSetter sessions.SetSessionStore // this is the session store server
 }
@@ -500,7 +499,6 @@ func Register(ctx context.Context, s grpc.ServiceRegistrar, srv types.ConnectorS
 		connectorV2.RegisterResourceDeleterServiceServer(s, srv)
 		connectorV2.RegisterAccountManagerServiceServer(s, srv)
 		connectorV2.RegisterCredentialManagerServiceServer(s, srv)
-		connectorV2.RegisterSwapServiceServer(s, srv)
 	} else {
 		noop := &noopProvisioner{}
 		connectorV2.RegisterGrantManagerServiceServer(s, noop)
@@ -508,7 +506,6 @@ func Register(ctx context.Context, s grpc.ServiceRegistrar, srv types.ConnectorS
 		connectorV2.RegisterResourceDeleterServiceServer(s, noop)
 		connectorV2.RegisterAccountManagerServiceServer(s, noop)
 		connectorV2.RegisterCredentialManagerServiceServer(s, noop)
-		connectorV2.RegisterSwapServiceServer(s, noop)
 	}
 
 	if opts.Ratelimiter != nil {
@@ -536,6 +533,5 @@ func NewConnectorClient(_ context.Context, cc grpc.ClientConnInterface) *connect
 		TicketsServiceClient:           connectorV2.NewTicketsServiceClient(cc),
 		ActionServiceClient:            connectorV2.NewActionServiceClient(cc),
 		ResourceGetterServiceClient:    connectorV2.NewResourceGetterServiceClient(cc),
-		SwapServiceClient:              connectorV2.NewSwapServiceClient(cc),
 	}
 }

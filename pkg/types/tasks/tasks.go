@@ -66,8 +66,6 @@ func (tt TaskType) String() string {
 		return "action_status"
 	case CreateSyncDiff:
 		return "create_sync_diff"
-	case SwapType:
-		return "swap"
 	default:
 		return "unknown"
 	}
@@ -106,5 +104,4 @@ const (
 	ActionStatusType
 	CreateSyncDiff
 	ListStaticEntitlementsType
-	SwapType
 )
