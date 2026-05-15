@@ -46,8 +46,7 @@ func WithSkipCleanup(skip bool) Option {
 }
 
 // See dotc1z.WithC1FV2GrantsWriter for what slim actually changes and
-// when it bails out via unsafeForSlim. Default off; c1 turns it on per
-// connector instance through the support dashboard.
+// when it bails out via unsafeForSlim. Default off.
 func WithV2GrantsWriter(enabled bool) Option {
 	return func(o *localManager) {
 		o.v2GrantsWriter = enabled

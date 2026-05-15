@@ -21,9 +21,8 @@ func TestWithV2GrantsWriter_SetsField(t *testing.T) {
 }
 
 func TestLoadC1Z_SlimWriterOptionPropagates(t *testing.T) {
-	// Write a grant with metadata-rich Entitlement and Principal,
-	// read it back, and confirm the metadata is gone. Proves the
-	// option reached the underlying C1File's writer.
+	// Proves the option reaches the underlying C1File's writer, not
+	// just the localManager struct.
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "slim.c1z")
 
