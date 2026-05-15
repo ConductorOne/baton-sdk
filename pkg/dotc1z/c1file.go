@@ -14,6 +14,7 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -358,7 +359,10 @@ var checkpointTimeout, _ = strconv.ParseInt(os.Getenv("BATON_WAL_CHECKPOINT_TIME
 // with our changes. The provided context is used for the WAL checkpoint operation. If the context is already expired,
 // a fresh context with a timeout is used to ensure the checkpoint completes.
 func (c *C1File) Close(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "C1File.Close")
 	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
 	l := ctxzap.Extract(ctx)
 
 	c.closedMu.Lock()
@@ -367,6 +371,12 @@ func (c *C1File) Close(ctx context.Context) error {
 		l.Warn("close called on already-closed c1file", zap.String("db_path", c.dbFilePath))
 		return nil
 	}
+
+	span.SetAttributes(
+		attribute.Bool("read_only", c.readOnly),
+		attribute.Bool("db_updated", c.dbUpdated),
+		attribute.String("db_path", c.dbFilePath),
+	)
 
 	if c.rawDb != nil {
 		// CRITICAL: Force a full WAL checkpoint before closing the database.
@@ -427,7 +437,7 @@ func (c *C1File) Close(ctx context.Context) error {
 			}
 		}
 
-		err = c.rawDb.Close()
+		err = c.closeRawDB(ctx)
 		if err != nil {
 			// Drop handle references on the Close-failure path
 			// too. The success-path nil assignments below (kept
@@ -458,7 +468,7 @@ func (c *C1File) Close(ctx context.Context) error {
 			return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL file not empty after close (size=%d) - refusing to save incomplete data", walInfo.Size()))
 		}
 
-		err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
+		err = c.runSaveC1z(ctx)
 		if err != nil {
 			return cleanupDbDir(c.dbFilePath, err)
 		}
@@ -471,6 +481,34 @@ func (c *C1File) Close(ctx context.Context) error {
 	c.closed = true
 
 	return nil
+}
+
+// closeRawDB wraps c.rawDb.Close with a span so the pure-Go SQLite
+// handle-close cost is visible alongside truncateWAL and saveC1z.
+func (c *C1File) closeRawDB(ctx context.Context) error {
+	_, span := tracer.Start(ctx, "C1File.closeRawDB")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+	err = c.rawDb.Close()
+	return err
+}
+
+// runSaveC1z wraps saveC1z with a span so the zstd recompression to the
+// output c1z file (the heavy work for large databases) is visible.
+func (c *C1File) runSaveC1z(ctx context.Context) error {
+	_, span := tracer.Start(ctx, "C1File.saveC1z")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+	span.SetAttributes(
+		attribute.String("db_path", c.dbFilePath),
+		attribute.String("output_path", c.outputFilePath),
+		attribute.Int("encoder_concurrency", c.encoderConcurrency),
+	)
+	if dbInfo, statErr := os.Stat(c.dbFilePath); statErr == nil {
+		span.SetAttributes(attribute.Int64("input_size_bytes", dbInfo.Size()))
+	}
+	err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
+	return err
 }
 
 // truncateWAL truncates the WAL file.
