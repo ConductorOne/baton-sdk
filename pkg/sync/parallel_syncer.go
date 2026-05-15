@@ -46,15 +46,21 @@ func (s *syncer) sequentialSync(
 			switch {
 			case errors.Is(err, context.DeadlineExceeded):
 				l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", s.syncID))
-				// It would be nice to remove this once we're more confident in the checkpointing logic.
 				checkpointErr := s.Checkpoint(ctx, true)
 				if checkpointErr != nil {
 					l.Error("error checkpointing before exiting sync", zap.Error(checkpointErr))
 				}
 				return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
 			default:
-				l.Error("sync context cancelled", zap.String("sync_id", s.syncID), zap.Error(err))
-				return warnings, err
+				l.Info("sync context cancelled, checkpointing before exit", zap.String("sync_id", s.syncID), zap.Error(err))
+				// Use a background context for the checkpoint since the caller's
+				// context may already be cancelled (e.g. worker shutdown SIGTERM).
+				checkpointCtx, checkpointCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer checkpointCancel()
+				if checkpointErr := s.Checkpoint(checkpointCtx, true); checkpointErr != nil {
+					l.Error("error checkpointing before exiting cancelled sync", zap.Error(checkpointErr))
+				}
+				return warnings, errors.Join(err, ErrSyncNotComplete)
 			}
 		default:
 		}
@@ -273,15 +279,19 @@ func (s *syncer) parallelSync(
 			switch {
 			case errors.Is(err, context.DeadlineExceeded):
 				l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", s.syncID))
-				// It would be nice to remove this once we're more confident in the checkpointing logic.
 				checkpointErr := s.Checkpoint(ctx, true)
 				if checkpointErr != nil {
 					l.Error("error checkpointing before exiting sync", zap.Error(checkpointErr))
 				}
 				return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
 			default:
-				l.Error("sync context cancelled", zap.String("sync_id", s.syncID), zap.Error(err))
-				return warnings, err
+				l.Info("sync context cancelled, checkpointing before exit", zap.String("sync_id", s.syncID), zap.Error(err))
+				checkpointCtx, checkpointCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer checkpointCancel()
+				if checkpointErr := s.Checkpoint(checkpointCtx, true); checkpointErr != nil {
+					l.Error("error checkpointing before exiting cancelled sync", zap.Error(checkpointErr))
+				}
+				return warnings, errors.Join(err, ErrSyncNotComplete)
 			}
 		default:
 		}
