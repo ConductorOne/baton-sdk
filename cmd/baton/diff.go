@@ -321,16 +321,7 @@ func bucketGrants(ctx context.Context, store *dotc1z.C1File, oldSyncID string, n
 
 	for oldID, oldR := range oldGrants {
 		if newR, ok := newGrants[oldID]; ok {
-			// Strip embedded entitlement and principal metadata before
-			// compare. bucketEntitlements and bucketResources already
-			// diff that data; keeping it here would double-report
-			// sub-entity changes and would flag grants as modified
-			// whenever the embedded copies shifted shape between syncs.
-			oldNorm := proto.Clone(oldR).(*v2.Grant)
-			newNorm := proto.Clone(newR).(*v2.Grant)
-			dotc1z.NormalizeGrantForCompare(oldNorm)
-			dotc1z.NormalizeGrantForCompare(newNorm)
-			equal, err := compareProto(ctx, oldNorm, newNorm)
+			equal, err := compareProto(ctx, oldR, newR)
 			if err != nil {
 				return nil, err
 			}
