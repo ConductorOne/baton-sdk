@@ -15,7 +15,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-
 // ResourceProvisioner extends ResourceSyncer to add capabilities for granting and revoking access.
 //
 // Note: ResourceProvisionerV2 is preferred for new connectors as it provides
