@@ -27,6 +27,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -358,7 +360,22 @@ var checkpointTimeout, _ = strconv.ParseInt(os.Getenv("BATON_WAL_CHECKPOINT_TIME
 // with our changes. The provided context is used for the WAL checkpoint operation. If the context is already expired,
 // a fresh context with a timeout is used to ensure the checkpoint completes.
 func (c *C1File) Close(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "C1File.Close")
 	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	// Record up-front attributes so even the early-return / fast-path
+	// no-op closes are filterable in Datadog. dbUpdated may flip between
+	// here and the saveC1z call below — that's fine: this attribute
+	// captures the writer-vs-reader split at the time Close was called,
+	// which is what operators want when answering "is close slow for
+	// writers (sync) vs readers (uplift)?".
+	span.SetAttributes(
+		attribute.String("db_file_path", c.dbFilePath),
+		attribute.Bool("read_only", c.readOnly),
+		attribute.Bool("db_updated", c.dbUpdated),
+	)
+
 	l := ctxzap.Extract(ctx)
 
 	c.closedMu.Lock()
@@ -398,18 +415,18 @@ func (c *C1File) Close(ctx context.Context) error {
 			// ExecContext silently discards these values, making partial
 			// checkpoints undetectable — the PRAGMA returns nil error even when
 			// it can't checkpoint all frames due to concurrent readers.
-			busy, log, checkpointed, err := c.truncateWAL(checkpointCtx)
-			if err != nil {
+			busy, log, checkpointed, walErr := c.truncateWAL(checkpointCtx)
+			if walErr != nil {
 				l.Error("WAL checkpoint failed before close",
-					zap.Error(err),
+					zap.Error(walErr),
 					zap.String("db_path", c.dbFilePath))
-				closeErr := c.rawDb.Close()
-				if closeErr != nil {
+				if closeErr := c.closeRawDb(ctx); closeErr != nil {
 					l.Error("error closing raw db", zap.Error(closeErr))
 				}
 				c.rawDb = nil
 				c.db = nil
-				return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint failed: %w", err))
+				err = cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint failed: %w", walErr))
+				return err
 			}
 			if busy != 0 || (log >= 0 && checkpointed < log) {
 				l.Error("WAL checkpoint incomplete before close",
@@ -417,17 +434,17 @@ func (c *C1File) Close(ctx context.Context) error {
 					zap.Int("log", log),
 					zap.Int("checkpointed", checkpointed),
 					zap.String("db_path", c.dbFilePath))
-				closeErr := c.rawDb.Close()
-				if closeErr != nil {
+				if closeErr := c.closeRawDb(ctx); closeErr != nil {
 					l.Error("error closing raw db", zap.Error(closeErr))
 				}
 				c.rawDb = nil
 				c.db = nil
-				return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint incomplete: busy=%d log=%d checkpointed=%d", busy, log, checkpointed))
+				err = cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint incomplete: busy=%d log=%d checkpointed=%d", busy, log, checkpointed))
+				return err
 			}
 		}
 
-		err = c.rawDb.Close()
+		err = c.closeRawDb(ctx)
 		if err != nil {
 			// Drop handle references on the Close-failure path
 			// too. The success-path nil assignments below (kept
@@ -438,7 +455,8 @@ func (c *C1File) Close(ctx context.Context) error {
 			// report success.
 			c.rawDb = nil
 			c.db = nil
-			return cleanupDbDir(c.dbFilePath, err)
+			err = cleanupDbDir(c.dbFilePath, err)
+			return err
 		}
 	}
 	c.rawDb = nil
@@ -447,7 +465,8 @@ func (c *C1File) Close(ctx context.Context) error {
 	// We only want to save the file if we've made any changes
 	if c.dbUpdated {
 		if c.readOnly {
-			return cleanupDbDir(c.dbFilePath, ErrReadOnly)
+			err = cleanupDbDir(c.dbFilePath, ErrReadOnly)
+			return err
 		}
 
 		// Verify WAL was fully checkpointed. If it still has data,
@@ -455,12 +474,14 @@ func (c *C1File) Close(ctx context.Context) error {
 		// it only reads the main database file.
 		walPath := c.dbFilePath + "-wal"
 		if walInfo, statErr := os.Stat(walPath); statErr == nil && walInfo.Size() > 0 {
-			return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL file not empty after close (size=%d) - refusing to save incomplete data", walInfo.Size()))
+			err = cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL file not empty after close (size=%d) - refusing to save incomplete data", walInfo.Size()))
+			return err
 		}
 
-		err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
+		err = c.saveC1z(ctx)
 		if err != nil {
-			return cleanupDbDir(c.dbFilePath, err)
+			err = cleanupDbDir(c.dbFilePath, err)
+			return err
 		}
 	}
 
@@ -470,6 +491,62 @@ func (c *C1File) Close(ctx context.Context) error {
 	}
 	c.closed = true
 
+	return nil
+}
+
+// closeRawDb closes the underlying pure-Go SQLite handle with its own span.
+// The handle close can be slow on large WAL-backed databases (modernc.org/sqlite
+// has to free per-connection state, finalize statements, etc.), so it gets a
+// dedicated span separate from the outer C1File.Close so operators can tell
+// SQLite-handle-close time apart from saveC1z (zstd recompress) time.
+func (c *C1File) closeRawDb(ctx context.Context) error {
+	_, span := tracer.Start(ctx, "C1File.closeRawDb")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	span.SetAttributes(attribute.String("db_file_path", c.dbFilePath))
+
+	if c.rawDb == nil {
+		return nil
+	}
+	err = c.rawDb.Close()
+	return err
+}
+
+// saveC1z wraps the package-level saveC1z helper in a span. This is the heavy
+// writer-side path — zstd recompression of the entire decompressed database
+// file and an atomic rename of the result. For large c1z files (hundreds of
+// GB decompressed) this dominates Close time, so it gets a dedicated span
+// with the output size as an attribute so Datadog can correlate duration
+// with file size.
+func (c *C1File) saveC1z(ctx context.Context) error {
+	_, span := tracer.Start(ctx, "C1File.saveC1z")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	span.SetAttributes(
+		attribute.String("db_file_path", c.dbFilePath),
+		attribute.String("output_file_path", c.outputFilePath),
+	)
+
+	// Best-effort decompressed input size so latency-by-size is graph-able
+	// in Datadog. Failure to stat is non-fatal — saveC1z below will
+	// surface the real error if the file is gone.
+	if fi, statErr := os.Stat(c.dbFilePath); statErr == nil {
+		span.SetAttributes(attribute.Int64("input_size_bytes", fi.Size()))
+	}
+
+	err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
+	if err != nil {
+		return err
+	}
+
+	// Record the compressed output size on the success path. saveC1z already
+	// logs both sizes; surfacing output_size_bytes on the span lets us
+	// answer "compression ratio for slow saves?" without joining logs.
+	if fi, statErr := os.Stat(c.outputFilePath); statErr == nil {
+		span.SetAttributes(attribute.Int64("output_size_bytes", fi.Size()))
+	}
 	return nil
 }
 
