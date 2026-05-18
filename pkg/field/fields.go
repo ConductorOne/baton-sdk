@@ -60,12 +60,13 @@ type connectorConfig struct {
 }
 
 type SchemaField struct {
-	FieldName    string
-	Required     bool
-	DefaultValue any
-	Description  string
-	ExportTarget ExportTarget
-	HelpURL      string
+	FieldName     string
+	Required      bool
+	DefaultValue  any
+	Description   string
+	ExportTarget  ExportTarget
+	ExportTargets ExportTargets // Internal multi-target state; only self-hosted is exported on the wire.
+	HelpURL       string
 
 	Variant         Variant
 	Rules           FieldRule
@@ -90,6 +91,13 @@ type SchemaTypes interface {
 
 func (s SchemaField) GetName() string {
 	return s.FieldName
+}
+
+func (s SchemaField) ExportsTo(target ExportTarget) bool {
+	if s.ExportTargets != exportTargetsNone {
+		return s.ExportTargets.exportsTo(target)
+	}
+	return s.ExportTarget.ExportsTo(target)
 }
 
 func (s SchemaField) GetCLIShortHand() string {

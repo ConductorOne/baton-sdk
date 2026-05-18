@@ -20,6 +20,7 @@ import (
 type helloHelpers interface {
 	ConnectorClient() types.ConnectorClient
 	HelloClient() batonHelloClient
+	ApplyHelloRuntimeConfig(ctx context.Context, resp *v1.BatonServiceHelloResponse) error
 }
 
 type helloTaskHandler struct {
@@ -119,24 +120,24 @@ func collectBuildInfo(ctx context.Context) *v1.BatonServiceHelloRequest_BuildInf
 // sendHello performs a single Hello RPC. It is the shared implementation used
 // by both the startup handshake (taskID == "") and server-scheduled HelloTasks
 // dispatched through Process (taskID == the task's id).
-func sendHello(ctx context.Context, cc types.ConnectorClient, svc batonHelloClient, taskID string) error {
+func sendHello(ctx context.Context, cc types.ConnectorClient, svc batonHelloClient, taskID string) (*v1.BatonServiceHelloResponse, error) {
 	mdResp, err := cc.GetMetadata(ctx, &v2.ConnectorServiceGetMetadataRequest{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	osInfo, err := collectOSInfo(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	_, err = svc.Hello(ctx, v1.BatonServiceHelloRequest_builder{
+	resp, err := svc.Hello(ctx, v1.BatonServiceHelloRequest_builder{
 		TaskId:            taskID,
 		BuildInfo:         collectBuildInfo(ctx),
 		OsInfo:            osInfo,
 		ConnectorMetadata: mdResp.GetMetadata(),
 	}.Build())
-	return err
+	return resp, err
 }
 
 func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
@@ -152,9 +153,13 @@ func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 		zap.Stringer("task_type", tasks.GetType(c.task)),
 	)
 
-	err = sendHello(ctx, c.helpers.ConnectorClient(), c.helpers.HelloClient(), c.task.GetId())
+	resp, err := sendHello(ctx, c.helpers.ConnectorClient(), c.helpers.HelloClient(), c.task.GetId())
 	if err != nil {
 		l.Error("failed while sending hello", zap.Error(err))
+		return err
+	}
+	if err := c.helpers.ApplyHelloRuntimeConfig(ctx, resp); err != nil {
+		l.Error("failed while applying hello runtime config", zap.Error(err))
 		return err
 	}
 	return nil

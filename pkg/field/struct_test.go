@@ -3,6 +3,8 @@ package field
 import (
 	"encoding/json"
 	"testing"
+
+	v1_conf "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 )
 
 func normalizeJSON(jsonStr string) (string, error) {
@@ -19,6 +21,26 @@ func normalizeJSON(jsonStr string) (string, error) {
 
 	return string(normalized), nil
 }
+
+func TestExportTargetPublicValues(t *testing.T) {
+	cases := []struct {
+		target ExportTarget
+		want   string
+	}{
+		{ExportTargetNone, "none"},
+		{ExportTargetGUI, "gui"},
+		{ExportTargetOps, "ops"},
+		{ExportTargetSelfHosted, "self_hosted"},
+		{ExportTargetCLI, "cli"},
+		{ExportTargetCLIOnly, "cli"},
+	}
+	for _, tc := range cases {
+		if string(tc.target) != tc.want {
+			t.Fatalf("ExportTarget value = %q, want %q", tc.target, tc.want)
+		}
+	}
+}
+
 func TestConfiguration_MarshalJSON(t *testing.T) {
 	ss := StringField("ss", WithDescription("Field 1"), WithDefaultValue("default"))
 	intF := IntField("if", WithDescription("Field 2"), WithDefaultValue(42))
@@ -144,5 +166,56 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 	}
 	if n1 != n2 {
 		t.Errorf("Expected JSON: \n%s\n\n but got: \n%s\n", n1, n2)
+	}
+}
+
+func TestConfiguration_MarshalSelfHosted(t *testing.T) {
+	config := NewConfiguration([]SchemaField{
+		StringField("multi-target", WithExportTargets(ExportTargetOps, ExportTargetSelfHosted, ExportTargetCLI)),
+		StringField("self-hosted-only", WithExportTargets(ExportTargetSelfHosted)),
+		StringField("gui-and-self-hosted", WithExportTargets(ExportTargetGUI, ExportTargetSelfHosted)),
+	})
+
+	marshaled, err := config.marshal()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	fields := make(map[string]*v1_conf.Field)
+	for _, f := range marshaled.GetFields() {
+		fields[f.GetName()] = f
+	}
+
+	multi := fields["multi-target"]
+	if multi == nil {
+		t.Fatal("multi-target field missing")
+	}
+	if !multi.GetIsOps() {
+		t.Fatal("multi-target should set legacy is_ops")
+	}
+	if !multi.GetIsSelfHosted() {
+		t.Fatal("multi-target should set is_self_hosted")
+	}
+
+	selfHostedOnly := fields["self-hosted-only"]
+	if selfHostedOnly == nil {
+		t.Fatal("self-hosted-only field missing")
+	}
+	if !selfHostedOnly.GetIsOps() {
+		t.Fatal("self-hosted-only should set legacy is_ops to hide from old GUI consumers")
+	}
+	if !selfHostedOnly.GetIsSelfHosted() {
+		t.Fatal("self-hosted-only should set is_self_hosted")
+	}
+
+	guiAndSelfHosted := fields["gui-and-self-hosted"]
+	if guiAndSelfHosted == nil {
+		t.Fatal("gui-and-self-hosted field missing")
+	}
+	if guiAndSelfHosted.GetIsOps() {
+		t.Fatal("gui-and-self-hosted should not set legacy is_ops")
+	}
+	if !guiAndSelfHosted.GetIsSelfHosted() {
+		t.Fatal("gui-and-self-hosted should set is_self_hosted")
 	}
 }

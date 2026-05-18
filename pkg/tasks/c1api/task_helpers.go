@@ -24,7 +24,8 @@ type taskHelpers struct {
 	cc            types.ConnectorClient
 	tempDir       string
 
-	taskFinisher func(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, err error) error
+	taskFinisher              func(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, err error) error
+	helloRuntimeConfigApplier func(ctx context.Context, resp *v1.BatonServiceHelloResponse) error
 }
 
 func (t *taskHelpers) ConnectorClient() types.ConnectorClient {
@@ -53,6 +54,13 @@ func (t *taskHelpers) FinishTask(ctx context.Context, resp proto.Message, annos 
 
 func (t *taskHelpers) HelloClient() batonHelloClient {
 	return t.serviceClient
+}
+
+func (t *taskHelpers) ApplyHelloRuntimeConfig(ctx context.Context, resp *v1.BatonServiceHelloResponse) error {
+	if t.helloRuntimeConfigApplier == nil {
+		return nil
+	}
+	return t.helloRuntimeConfigApplier(ctx, resp)
 }
 
 func (t *taskHelpers) TempDir() string {

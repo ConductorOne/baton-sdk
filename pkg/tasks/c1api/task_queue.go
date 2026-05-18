@@ -82,6 +82,13 @@ func (q *taskQueue) markDone(task *v1.Task) {
 	}
 }
 
+func (q *taskQueue) counts() (int, int) {
+	q.mtx.Lock()
+	defer q.mtx.Unlock()
+
+	return len(q.queued), len(q.inFlight)
+}
+
 // fetchParams returns the params for the next GetTasks request: the IDs the
 // server should skip (queued + in-flight) and how many additional tasks we
 // want. Computed under a single lock so the two values agree on the same
@@ -112,6 +119,13 @@ func (q *taskQueue) setNextPoll(nextPoll time.Duration) {
 	defer q.mtx.Unlock()
 
 	q.nextPollAt = time.Now().Add(nextPoll)
+}
+
+func (q *taskQueue) resetNextPoll() {
+	q.mtx.Lock()
+	defer q.mtx.Unlock()
+
+	q.nextPollAt = time.Time{}
 }
 
 func (q *taskQueue) pollDecision() pollDecision {

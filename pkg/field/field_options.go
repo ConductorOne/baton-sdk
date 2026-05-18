@@ -91,34 +91,91 @@ func WithHidden(hidden bool) fieldOption {
 	}
 }
 
-/*
-ExportTarget specifies who sets the flag.
-
-	CLI: dev ops invoking the connector, as for service mode, eg flag that specifies a file path on disk
-	GUI: C1 tenant admin on the Web.  Inclusive of CLI.  eg service user name
-	Ops: C1 support dashbaord. Inclusive of CLI. eg log level
-	None: Only currently usable for the default fields.  Those flags are consumed by the Syncer, not the Connector.
-
-	ExportTarget is used by both dynamic conf generation and the conf schema exporting logic
-*/
+// ExportTarget specifies a runtime/configuration surface a field may be exported to.
+// The string values are part of the public SDK interface and must remain stable.
 type ExportTarget string
 
 const (
-	ExportTargetNone    ExportTarget = "none"
-	ExportTargetGUI     ExportTarget = "gui"
-	ExportTargetOps     ExportTarget = "ops"
-	ExportTargetCLIOnly ExportTarget = "cli"
+	ExportTargetNone       ExportTarget = "none"
+	ExportTargetGUI        ExportTarget = "gui"
+	ExportTargetOps        ExportTarget = "ops"
+	ExportTargetSelfHosted ExportTarget = "self_hosted"
+	ExportTargetCLI        ExportTarget = "cli"
+
+	// ExportTargetCLIOnly is kept as a compatibility alias for existing callers.
+	ExportTargetCLIOnly = ExportTargetCLI
 )
 
-// WithExportTarget sets the export target for the field. See ExportTarget for more details.
-func WithExportTarget(target ExportTarget) fieldOption {
+type ExportTargets uint32
+
+const (
+	exportTargetsNone ExportTargets = 0
+	exportTargetsGUI  ExportTargets = 1 << iota
+	exportTargetsOps
+	exportTargetsSelfHosted
+	exportTargetsCLI
+)
+
+func exportTargetBit(target ExportTarget) ExportTargets {
+	switch target {
+	case ExportTargetGUI:
+		return exportTargetsGUI
+	case ExportTargetOps:
+		return exportTargetsOps
+	case ExportTargetSelfHosted:
+		return exportTargetsSelfHosted
+	case ExportTargetCLI:
+		return exportTargetsCLI
+	default:
+		return exportTargetsNone
+	}
+}
+
+func combineExportTargets(targets ...ExportTarget) ExportTargets {
+	var combined ExportTargets
+	for _, target := range targets {
+		combined |= exportTargetBit(target)
+	}
+	return combined
+}
+
+func (e ExportTarget) ExportsTo(target ExportTarget) bool {
+	if target == ExportTargetNone {
+		return e == ExportTargetNone
+	}
+	return exportTargetBit(e)&exportTargetBit(target) != 0
+}
+
+func (e ExportTargets) exportsTo(target ExportTarget) bool {
+	if target == ExportTargetNone {
+		return e == exportTargetsNone
+	}
+	return e&exportTargetBit(target) != 0
+}
+
+// WithExportTargets sets the export targets for the field. See ExportTarget for more details.
+func WithExportTargets(targets ...ExportTarget) fieldOption {
+	combined := combineExportTargets(targets...)
 	return func(o SchemaField) SchemaField {
-		if o.ExportTarget != ExportTargetGUI && target != o.ExportTarget {
-			panic(fmt.Sprintf("target %s would be overwritten by %s for %s", o.ExportTarget, target, o.FieldName))
+		if o.ExportTarget != ExportTargetGUI && len(targets) == 1 && targets[0] != o.ExportTarget {
+			panic(fmt.Sprintf("target %s would be overwritten by %s for %s", o.ExportTarget, targets[0], o.FieldName))
 		}
-		o.ExportTarget = target
+		if len(targets) == 1 {
+			o.ExportTarget = targets[0]
+			o.ExportTargets = exportTargetsNone
+			return o
+		}
+		o.ExportTargets = combined
+		if len(targets) > 0 {
+			o.ExportTarget = targets[0]
+		}
 		return o
 	}
+}
+
+// WithExportTarget sets a single export target for the field.
+func WithExportTarget(target ExportTarget) fieldOption {
+	return WithExportTargets(target)
 }
 
 func WithRequiredInGUI(value bool) fieldOption {

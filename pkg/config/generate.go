@@ -66,7 +66,7 @@ func Generate(name string, schema field.Configuration) {
 		Fields:     []FieldInfo{},
 	}
 	for _, f := range schema.Fields {
-		if f.ExportTarget != field.ExportTargetGUI && f.ExportTarget != field.ExportTargetOps && f.ExportTarget != field.ExportTargetCLIOnly {
+		if !f.ExportsTo(field.ExportTargetGUI) && !f.ExportsTo(field.ExportTargetOps) && !f.ExportsTo(field.ExportTargetCLI) {
 			continue
 		}
 		fieldName := f.StructFieldName
