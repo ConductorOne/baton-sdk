@@ -170,7 +170,9 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts grant
 		q = q.Where(goqu.C("resource_type_id").Eq(resource.GetId().GetResourceType()))
 	}
 
-	q = q.Where(goqu.C("sync_id").Eq(syncID))
+	if syncID != "" {
+		q = q.Where(goqu.C("sync_id").Eq(syncID))
+	}
 
 	if opts.ExpandableOnly {
 		q = q.Where(goqu.C("expansion").IsNotNull())
@@ -316,7 +318,7 @@ func (c *C1File) resolveSyncIDForPayloadQuery(ctx context.Context) (string, erro
 	if latestSyncRun != nil {
 		return latestSyncRun.ID, nil
 	}
-	return "", sql.ErrNoRows
+	return "", nil
 }
 
 func (c *C1File) resolveSyncIDForInternalQuery(ctx context.Context, forced string) (string, error) {
