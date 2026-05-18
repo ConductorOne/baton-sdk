@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -62,13 +64,31 @@ type ConnectorBuilderV2 interface {
 
 type closeHook func(context.Context) error
 
-type closeWithContext interface {
+// ConnectorCloser is an optional interface that connectors may implement to
+// participate in graceful shutdown. Implementations should honor ctx.Done()
+// when performing blocking work (network IO, subprocess wait, etc.) so that
+// callers can bound shutdown time. This is the canonical Close shape for
+// connectors; the legacy Close() error shape is accepted but deprecated.
+type ConnectorCloser interface {
 	Close(context.Context) error
 }
 
+// closeWithContext is an internal alias retained for backwards compatibility
+// with prior internal callers. New code should reference ConnectorCloser.
+type closeWithContext = ConnectorCloser
+
+// closeWithoutContext matches the legacy connector Close shape.
+//
+// Deprecated: implement ConnectorCloser (Close(context.Context) error) instead.
+// The context-free shape cannot participate in graceful shutdown and will be
+// removed in a future release.
 type closeWithoutContext interface {
 	Close() error
 }
+
+// legacyCloseWarned tracks which connector types we have already warned about
+// implementing the deprecated Close() error shape, so reloads don't spam logs.
+var legacyCloseWarned sync.Map
 
 type builder struct {
 	ticketingEnabled        bool
@@ -272,15 +292,27 @@ func closeHookFor(in any) closeHook {
 		return nil
 	}
 
-	if closer, ok := in.(closeWithContext); ok {
+	if closer, ok := in.(ConnectorCloser); ok {
 		return closer.Close
 	}
 	if closer, ok := in.(closeWithoutContext); ok {
+		warnLegacyClose(in)
 		return func(context.Context) error {
 			return closer.Close()
 		}
 	}
 	return nil
+}
+
+func warnLegacyClose(in any) {
+	key := reflect.TypeOf(in)
+	if _, loaded := legacyCloseWarned.LoadOrStore(key, struct{}{}); loaded {
+		return
+	}
+	zap.L().Warn(
+		"connector implements deprecated Close() error; implement connectorbuilder.ConnectorCloser (Close(context.Context) error) to support graceful shutdown",
+		zap.String("connector_type", fmt.Sprintf("%T", in)),
+	)
 }
 
 func (b *builder) Close(ctx context.Context) error {
