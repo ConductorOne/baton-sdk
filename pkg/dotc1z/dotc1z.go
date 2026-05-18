@@ -7,13 +7,39 @@ import (
 	"io"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
 
-var tracer = otel.Tracer("baton-sdk/pkg.dotc1z")
+var (
+	tracer = otel.Tracer("baton-sdk/pkg.dotc1z")
+	meter  = otel.Meter("baton-sdk/pkg.dotc1z")
+
+	// One increment per grant written. The slim attribute lets you
+	// confirm a slim-flipped connector is actually producing slim rows.
+	// Fires per grant — don't add high-cardinality attributes.
+	grantWriteCounter, _ = meter.Int64Counter(
+		"c1z_grant_writes_total",
+		metric.WithDescription("Grant writes through the c1z writer. Attribute: slim (bool)."),
+	)
+
+	// Increments when unsafeForSlim keeps a grant full-blob on a
+	// slim-enabled connector. Use to measure how often the hatch fires.
+	grantUnsafeForSlimCounter, _ = meter.Int64Counter(
+		"c1z_grant_unsafe_for_slim_total",
+		metric.WithDescription("Grants kept full-blob by the unsafeForSlim escape hatch on slim-enabled writers."),
+	)
+
+	// Pre-built so we don't allocate a fresh attribute.Set on every
+	// grant write. WithAttributes sorts and dedups on each call;
+	// WithAttributeSet on a shared Set is allocation-free.
+	slimWriteAttrTrue  = metric.WithAttributeSet(attribute.NewSet(attribute.Bool("slim", true)))
+	slimWriteAttrFalse = metric.WithAttributeSet(attribute.NewSet(attribute.Bool("slim", false)))
+)
 
 // NewC1FileReader returns a connectorstore.Reader implementation for the given sqlite db file path.
 func NewC1FileReader(ctx context.Context, dbFilePath string, opts ...C1FOption) (connectorstore.Reader, error) {

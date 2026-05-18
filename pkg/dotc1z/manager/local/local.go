@@ -22,6 +22,7 @@ type localManager struct {
 	tmpDir         string
 	decoderOptions []dotc1z.DecoderOption
 	skipCleanup    bool
+	v2GrantsWriter bool
 }
 
 type Option func(*localManager)
@@ -41,6 +42,14 @@ func WithDecoderOptions(opts ...dotc1z.DecoderOption) Option {
 func WithSkipCleanup(skip bool) Option {
 	return func(o *localManager) {
 		o.skipCleanup = skip
+	}
+}
+
+// See dotc1z.WithC1FV2GrantsWriter for what slim actually changes and
+// when it bails out via unsafeForSlim. Default off.
+func WithV2GrantsWriter(enabled bool) Option {
+	return func(o *localManager) {
+		o.v2GrantsWriter = enabled
 	}
 }
 
@@ -128,6 +137,9 @@ func (l *localManager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 	}
 	if l.skipCleanup {
 		opts = append(opts, dotc1z.WithSkipCleanup(true))
+	}
+	if l.v2GrantsWriter {
+		opts = append(opts, dotc1z.WithV2GrantsWriter(true))
 	}
 	return dotc1z.NewC1ZFile(ctx, l.tmpPath, opts...)
 }

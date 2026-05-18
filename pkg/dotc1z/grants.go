@@ -497,7 +497,19 @@ func unsafeForSlim(grant *v2.Grant) bool {
 func grantExtractFields(c *C1File, mode grantUpsertMode) func(grant *v2.Grant) (goqu.Record, error) {
 	return func(grant *v2.Grant) (goqu.Record, error) {
 		rec := baseGrantRecord(grant)
-		slim := c.v2GrantsWriter && !unsafeForSlim(grant)
+		isUnsafe := unsafeForSlim(grant)
+		slim := c.v2GrantsWriter && !isUnsafe
+		// No request ctx threaded through prepareConnectorObjectRows.
+		// Plumbing one through just for exemplar correlation isn't
+		// worth the churn on the hot path.
+		attr := slimWriteAttrFalse
+		if slim {
+			attr = slimWriteAttrTrue
+		}
+		grantWriteCounter.Add(context.Background(), 1, attr)
+		if c.v2GrantsWriter && isUnsafe {
+			grantUnsafeForSlimCounter.Add(context.Background(), 1)
+		}
 		preserveExpansion := mode == grantUpsertModePreserveExpansion
 
 		// PreserveExpansion still must slim the data blob — otherwise

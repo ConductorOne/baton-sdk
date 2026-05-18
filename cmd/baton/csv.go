@@ -376,6 +376,11 @@ func buildCSV(ctx context.Context, d dataBag, outPath string) error {
 			if en, ok := d.entitlementsByID[g.Entitlement.Id]; ok {
 				e = en
 			} else {
+				// Fallback when the grant references an entitlement that
+				// isn't in the c1z. The grant carries the entitlement's
+				// ID but not its display fields, so the row renders with
+				// blank metadata. There's no source to pull from — the
+				// entitlement is genuinely missing.
 				e = g.Entitlement
 			}
 
