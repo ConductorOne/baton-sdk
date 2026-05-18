@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -21,7 +22,12 @@ func createSigv4STSGetCallerIdentityRequest(ctx context.Context, cfg *aws.Config
 	region := cfg.Region
 	body := "Action=GetCallerIdentity&Version=2011-06-15"
 	service := "sts"
-	endpoint := fmt.Sprintf("https://sts.%s.amazonaws.com", region)
+
+	endpoint := (&url.URL{
+		Scheme: "https",
+		Host:   fmt.Sprintf("sts.%s.amazonaws.com", region),
+	}).String()
+
 	method := "POST"
 
 	reqHeaders := map[string][]string{
