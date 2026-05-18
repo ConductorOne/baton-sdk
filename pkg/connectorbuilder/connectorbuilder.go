@@ -333,19 +333,20 @@ func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceVali
 	})
 
 	for {
-		annos, err := b.validateProvider.Validate(ctx)
-		if err == nil {
+		annos, validateErr := b.validateProvider.Validate(ctx)
+		if validateErr == nil {
 			return v2.ConnectorServiceValidateResponse_builder{
 				Annotations: annos,
 				SdkVersion:  sdk.Version,
 			}.Build(), nil
 		}
 
-		if retryer.ShouldWaitAndRetry(ctx, err) {
+		if retryer.ShouldWaitAndRetry(ctx, validateErr) {
 			continue
 		}
 
-		return nil, fmt.Errorf("validate failed: %w", err)
+		err = fmt.Errorf("validate failed: %w", validateErr)
+		return nil, err
 	}
 }
 

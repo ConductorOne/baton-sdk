@@ -75,7 +75,7 @@ func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGran
 
 	if !ok {
 		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-		err := status.Errorf(codes.Unimplemented, "resource type %s does not have provisioner configured", rt)
+		err = status.Errorf(codes.Unimplemented, "resource type %s does not have provisioner configured", rt)
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -87,16 +87,17 @@ func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGran
 	})
 
 	for {
-		grants, annos, err := provisioner.Grant(ctx, request.GetPrincipal(), request.GetEntitlement())
-		if err == nil {
+		grants, annos, grantErr := provisioner.Grant(ctx, request.GetPrincipal(), request.GetEntitlement())
+		if grantErr == nil {
 			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 			return v2.GrantManagerServiceGrantResponse_builder{Annotations: annos, Grants: grants}.Build(), nil
 		}
-		if retryer.ShouldWaitAndRetry(ctx, err) {
+		if retryer.ShouldWaitAndRetry(ctx, grantErr) {
 			continue
 		}
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("grant failed: %w", err)
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), grantErr)
+		err = fmt.Errorf("grant failed: %w", grantErr)
+		return nil, err
 	}
 }
 
@@ -120,7 +121,7 @@ func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRev
 
 	if revokeProvisioner == nil {
 		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-		err := status.Errorf(codes.Unimplemented, "resource type %s does not have provisioner configured", rt)
+		err = status.Errorf(codes.Unimplemented, "resource type %s does not have provisioner configured", rt)
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -132,16 +133,17 @@ func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRev
 	})
 
 	for {
-		annos, err := revokeProvisioner.Revoke(ctx, request.GetGrant())
-		if err == nil {
+		annos, revokeErr := revokeProvisioner.Revoke(ctx, request.GetGrant())
+		if revokeErr == nil {
 			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 			return v2.GrantManagerServiceRevokeResponse_builder{Annotations: annos}.Build(), nil
 		}
-		if retryer.ShouldWaitAndRetry(ctx, err) {
+		if retryer.ShouldWaitAndRetry(ctx, revokeErr) {
 			continue
 		}
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("revoke failed: %w", err)
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), revokeErr)
+		err = fmt.Errorf("revoke failed: %w", revokeErr)
+		return nil, err
 	}
 }
 

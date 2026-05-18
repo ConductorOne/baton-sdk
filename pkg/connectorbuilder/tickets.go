@@ -41,14 +41,14 @@ func (b *builder) BulkCreateTickets(ctx context.Context, request *v2.TicketsServ
 	start := b.nowFunc()
 	tt := tasks.BulkCreateTicketsType
 	if b.ticketManager == nil {
-		err := status.Error(codes.Unimplemented, "ticket manager not implemented")
+		err = status.Error(codes.Unimplemented, "ticket manager not implemented")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
 
 	reqBody := request.GetTicketRequests()
 	if len(reqBody) == 0 {
-		err := status.Error(codes.InvalidArgument, "request body had no items")
+		err = status.Error(codes.InvalidArgument, "request body had no items")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -73,14 +73,14 @@ func (b *builder) BulkGetTickets(ctx context.Context, request *v2.TicketsService
 	start := b.nowFunc()
 	tt := tasks.BulkGetTicketsType
 	if b.ticketManager == nil {
-		err := status.Error(codes.Unimplemented, "ticket manager not implemented")
+		err = status.Error(codes.Unimplemented, "ticket manager not implemented")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
 
 	reqBody := request.GetTicketRequests()
 	if len(reqBody) == 0 {
-		err := status.Error(codes.InvalidArgument, "request body had no items")
+		err = status.Error(codes.InvalidArgument, "request body had no items")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (b *builder) ListTicketSchemas(ctx context.Context, request *v2.TicketsServ
 	start := b.nowFunc()
 	tt := tasks.ListTicketSchemasType
 	if b.ticketManager == nil {
-		err := status.Error(codes.Unimplemented, "ticket manager not implemented")
+		err = status.Error(codes.Unimplemented, "ticket manager not implemented")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -117,13 +117,13 @@ func (b *builder) ListTicketSchemas(ctx context.Context, request *v2.TicketsServ
 	})
 
 	for {
-		out, nextPageToken, annos, err := b.ticketManager.ListTicketSchemas(ctx, &pagination.Token{
+		out, nextPageToken, annos, listErr := b.ticketManager.ListTicketSchemas(ctx, &pagination.Token{
 			Size:  int(request.GetPageSize()),
 			Token: request.GetPageToken(),
 		})
-		if err == nil {
+		if listErr == nil {
 			if request.GetPageToken() != "" && request.GetPageToken() == nextPageToken {
-				err := status.Error(codes.Internal, "listing ticket schemas failed: next page token unchanged - likely a connector bug")
+				err = status.Error(codes.Internal, "listing ticket schemas failed: next page token unchanged - likely a connector bug")
 				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 				return nil, err
 			}
@@ -135,11 +135,12 @@ func (b *builder) ListTicketSchemas(ctx context.Context, request *v2.TicketsServ
 				Annotations:   annos,
 			}.Build(), nil
 		}
-		if retryer.ShouldWaitAndRetry(ctx, err) {
+		if retryer.ShouldWaitAndRetry(ctx, listErr) {
 			continue
 		}
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("error: listing ticket schemas failed: %w", err)
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), listErr)
+		err = fmt.Errorf("error: listing ticket schemas failed: %w", listErr)
+		return nil, err
 	}
 }
 
@@ -151,14 +152,14 @@ func (b *builder) CreateTicket(ctx context.Context, request *v2.TicketsServiceCr
 	start := b.nowFunc()
 	tt := tasks.CreateTicketType
 	if b.ticketManager == nil {
-		err := status.Error(codes.Unimplemented, "ticket manager not implemented")
+		err = status.Error(codes.Unimplemented, "ticket manager not implemented")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
 
 	reqBody := request.GetRequest()
 	if reqBody == nil {
-		err := status.Error(codes.InvalidArgument, "request body is nil")
+		err = status.Error(codes.InvalidArgument, "request body is nil")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -199,7 +200,7 @@ func (b *builder) GetTicket(ctx context.Context, request *v2.TicketsServiceGetTi
 	start := b.nowFunc()
 	tt := tasks.GetTicketType
 	if b.ticketManager == nil {
-		err := status.Error(codes.Unimplemented, "ticket manager not implemented")
+		err = status.Error(codes.Unimplemented, "ticket manager not implemented")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -232,7 +233,7 @@ func (b *builder) GetTicketSchema(ctx context.Context, request *v2.TicketsServic
 	start := b.nowFunc()
 	tt := tasks.GetTicketSchemaType
 	if b.ticketManager == nil {
-		err := status.Error(codes.Unimplemented, "ticket manager not implemented")
+		err = status.Error(codes.Unimplemented, "ticket manager not implemented")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
