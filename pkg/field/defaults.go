@@ -117,6 +117,7 @@ var (
 		WithDescription(""),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
+		WithHidden(true),
 	)
 
 	skipGrants = BoolField("skip-grants",
