@@ -192,6 +192,8 @@ func (m *GetConnectorConfigResponse) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for Version
+
 	if len(errors) > 0 {
 		return GetConnectorConfigResponseMultiError(errors)
 	}

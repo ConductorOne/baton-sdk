@@ -84,6 +84,7 @@ type GetConnectorConfigResponse struct {
 	state                  protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Config      []byte                 `protobuf:"bytes,1,opt,name=config,proto3"`
 	xxx_hidden_LastUpdated *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=last_updated,json=lastUpdated,proto3"`
+	xxx_hidden_Version     string                 `protobuf:"bytes,3,opt,name=version,proto3"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -127,6 +128,13 @@ func (x *GetConnectorConfigResponse) GetLastUpdated() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *GetConnectorConfigResponse) GetVersion() string {
+	if x != nil {
+		return x.xxx_hidden_Version
+	}
+	return ""
+}
+
 func (x *GetConnectorConfigResponse) SetConfig(v []byte) {
 	if v == nil {
 		v = []byte{}
@@ -136,6 +144,10 @@ func (x *GetConnectorConfigResponse) SetConfig(v []byte) {
 
 func (x *GetConnectorConfigResponse) SetLastUpdated(v *timestamppb.Timestamp) {
 	x.xxx_hidden_LastUpdated = v
+}
+
+func (x *GetConnectorConfigResponse) SetVersion(v string) {
+	x.xxx_hidden_Version = v
 }
 
 func (x *GetConnectorConfigResponse) HasLastUpdated() bool {
@@ -154,6 +166,7 @@ type GetConnectorConfigResponse_builder struct {
 
 	Config      []byte
 	LastUpdated *timestamppb.Timestamp
+	Version     string
 }
 
 func (b0 GetConnectorConfigResponse_builder) Build() *GetConnectorConfigResponse {
@@ -162,6 +175,7 @@ func (b0 GetConnectorConfigResponse_builder) Build() *GetConnectorConfigResponse
 	_, _ = b, x
 	x.xxx_hidden_Config = b.Config
 	x.xxx_hidden_LastUpdated = b.LastUpdated
+	x.xxx_hidden_Version = b.Version
 	return m0
 }
 
@@ -449,10 +463,11 @@ const file_c1_connectorapi_baton_v1_config_proto_rawDesc = "" +
 	"\n" +
 	"%c1/connectorapi/baton/v1/config.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"H\n" +
 	"\x19GetConnectorConfigRequest\x12+\n" +
-	"\x11requested_version\x18\x01 \x01(\tR\x10requestedVersion\"s\n" +
+	"\x11requested_version\x18\x01 \x01(\tR\x10requestedVersion\"\x8d\x01\n" +
 	"\x1aGetConnectorConfigResponse\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12=\n" +
-	"\flast_updated\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\vlastUpdated\"6\n" +
+	"\flast_updated\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\vlastUpdated\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\tR\aversion\"6\n" +
 	"\fSignedHeader\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x03(\tR\x05value\"\xb2\x01\n" +
