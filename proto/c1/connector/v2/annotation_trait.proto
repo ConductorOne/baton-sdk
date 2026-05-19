@@ -133,17 +133,14 @@ message SecretTrait {
   connector.v2.ResourceId identity_id = 6;
 }
 
-// LicenseTrait is the trait annotation for resources with TRAIT_LICENSE. A
-// license resource represents a vendor-defined seat or plan that users on
-// the connector can hold (e.g. Microsoft "E3", Atlassian "Business Plus").
-// The entitlements listed in profile.entitlement_ids identify, on this
-// connector, the grants that mean "the principal holds this license seat" —
-// typically the membership entitlement of a license-backing group/role.
-message LicenseTrait {
-  LicenseProfile profile = 1;
-}
-
-message LicenseProfile {
+// LicenseProfileTrait is the trait annotation for resources with
+// TRAIT_LICENSE_PROFILE. A license-profile resource represents a
+// vendor-defined seat or plan that users on the connector can hold
+// (e.g. Microsoft "E3", Atlassian "Business Plus"). The entitlements listed
+// in entitlement_ids identify, on this connector, the grants that mean
+// "the principal holds this license seat" — typically the membership
+// entitlement of a license-backing group/role.
+message LicenseProfileTrait {
   // Human-readable license name (e.g. "Enterprise", "Business Plus", "E3").
   string license_name = 1 [(validate.rules).string = {
     max_bytes: 1024

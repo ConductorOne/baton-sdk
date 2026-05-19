@@ -7,18 +7,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNewLicenseTrait_AllFieldsOptional verifies the constructor accepts
-// an empty trait — every field is optional.
-func TestNewLicenseTrait_AllFieldsOptional(t *testing.T) {
-	trait, err := NewLicenseTrait()
+// TestNewLicenseProfileTrait_AllFieldsOptional verifies the constructor
+// accepts an empty trait — every field is optional.
+func TestNewLicenseProfileTrait_AllFieldsOptional(t *testing.T) {
+	trait, err := NewLicenseProfileTrait()
 	require.NoError(t, err)
-	require.Nil(t, trait.GetProfile())
+	require.Empty(t, trait.GetLicenseName())
+	require.Equal(t, int64(0), trait.GetPurchasedSeats())
+	require.Empty(t, trait.GetCurrency())
 }
 
-// TestNewLicenseTrait_FullPopulation exercises every option to confirm
-// fields round-trip through the proto.
-func TestNewLicenseTrait_FullPopulation(t *testing.T) {
-	trait, err := NewLicenseTrait(
+// TestNewLicenseProfileTrait_FullPopulation exercises every option to
+// confirm fields round-trip through the proto.
+func TestNewLicenseProfileTrait_FullPopulation(t *testing.T) {
+	trait, err := NewLicenseProfileTrait(
 		WithLicenseName("Enterprise"),
 		WithLicenseSeats(200, 175),
 		WithLicenseCost(2400, "USD"),
@@ -26,63 +28,52 @@ func TestNewLicenseTrait_FullPopulation(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	p := trait.GetProfile()
-	require.NotNil(t, p)
-	require.Equal(t, "Enterprise", p.GetLicenseName())
-	require.Equal(t, int64(200), p.GetPurchasedSeats())
-	require.Equal(t, int64(175), p.GetConsumedSeats())
-	require.Equal(t, int64(2400), p.GetCostPerUnitInCents())
-	require.Equal(t, "USD", p.GetCurrency())
+	require.Equal(t, "Enterprise", trait.GetLicenseName())
+	require.Equal(t, int64(200), trait.GetPurchasedSeats())
+	require.Equal(t, int64(175), trait.GetConsumedSeats())
+	require.Equal(t, int64(2400), trait.GetCostPerUnitInCents())
+	require.Equal(t, "USD", trait.GetCurrency())
 	require.Equal(t,
 		[]string{"ent-enterprise-member", "ent-enterprise-admin"},
-		p.GetEntitlementIds(),
+		trait.GetEntitlementIds(),
 	)
 }
 
-// TestNewLicenseTrait_CurrencyDefaultsToUSD confirms that when a cost is
-// set without a currency, the trait fills in USD on construction.
-func TestNewLicenseTrait_CurrencyDefaultsToUSD(t *testing.T) {
-	trait, err := NewLicenseTrait(
+// TestNewLicenseProfileTrait_CurrencyDefaultsToUSD confirms that when a
+// cost is set without a currency, the trait fills in USD.
+func TestNewLicenseProfileTrait_CurrencyDefaultsToUSD(t *testing.T) {
+	trait, err := NewLicenseProfileTrait(
 		WithLicenseCost(1000, ""),
 	)
 	require.NoError(t, err)
-	require.Equal(t, "USD", trait.GetProfile().GetCurrency())
-}
-
-// TestNewLicenseTrait_NoDefaultCurrencyWithoutProfile confirms that when
-// no options touch the profile, the constructor does not synthesize one
-// just to set a currency default.
-func TestNewLicenseTrait_NoDefaultCurrencyWithoutProfile(t *testing.T) {
-	trait, err := NewLicenseTrait()
-	require.NoError(t, err)
-	require.Nil(t, trait.GetProfile())
+	require.Equal(t, "USD", trait.GetCurrency())
 }
 
 // TestWithLicenseSeats_ZeroValuesAccepted documents the spec: zero means
 // "not available from the vendor" and is a valid value.
 func TestWithLicenseSeats_ZeroValuesAccepted(t *testing.T) {
-	trait, err := NewLicenseTrait(
+	trait, err := NewLicenseProfileTrait(
 		WithLicenseName("Free Tier"),
 		WithLicenseSeats(0, 0),
 	)
 	require.NoError(t, err)
-	require.Equal(t, int64(0), trait.GetProfile().GetPurchasedSeats())
-	require.Equal(t, int64(0), trait.GetProfile().GetConsumedSeats())
+	require.Equal(t, int64(0), trait.GetPurchasedSeats())
+	require.Equal(t, int64(0), trait.GetConsumedSeats())
 }
 
-// TestWithLicenseTrait_AppliesToResource verifies the ResourceOption
-// attaches the trait to a resource's annotations and that GetLicenseTrait
-// round-trips it.
-func TestWithLicenseTrait_AppliesToResource(t *testing.T) {
+// TestWithLicenseProfileTrait_AppliesToResource verifies the ResourceOption
+// attaches the trait to a resource's annotations and that
+// GetLicenseProfileTrait round-trips it.
+func TestWithLicenseProfileTrait_AppliesToResource(t *testing.T) {
 	rt := &v2.ResourceType{}
 	rt.SetId("license")
-	rt.SetTraits([]v2.ResourceType_Trait{v2.ResourceType_TRAIT_LICENSE})
+	rt.SetTraits([]v2.ResourceType_Trait{v2.ResourceType_TRAIT_LICENSE_PROFILE})
 
 	r, err := NewResource(
 		"Enterprise",
 		rt,
 		"license-enterprise",
-		WithLicenseTrait(
+		WithLicenseProfileTrait(
 			WithLicenseName("Enterprise"),
 			WithLicenseSeats(200, 175),
 			WithLicenseCost(2400, "USD"),
@@ -91,29 +82,29 @@ func TestWithLicenseTrait_AppliesToResource(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	got, err := GetLicenseTrait(r)
+	got, err := GetLicenseProfileTrait(r)
 	require.NoError(t, err)
-	require.Equal(t, "Enterprise", got.GetProfile().GetLicenseName())
-	require.Equal(t, int64(200), got.GetProfile().GetPurchasedSeats())
-	require.Equal(t, int64(175), got.GetProfile().GetConsumedSeats())
-	require.Equal(t, int64(2400), got.GetProfile().GetCostPerUnitInCents())
-	require.Equal(t, "USD", got.GetProfile().GetCurrency())
-	require.Equal(t, []string{"ent-enterprise-member"}, got.GetProfile().GetEntitlementIds())
+	require.Equal(t, "Enterprise", got.GetLicenseName())
+	require.Equal(t, int64(200), got.GetPurchasedSeats())
+	require.Equal(t, int64(175), got.GetConsumedSeats())
+	require.Equal(t, int64(2400), got.GetCostPerUnitInCents())
+	require.Equal(t, "USD", got.GetCurrency())
+	require.Equal(t, []string{"ent-enterprise-member"}, got.GetEntitlementIds())
 }
 
-// TestWithLicenseTrait_UpdatesExistingAnnotation confirms merge semantics
-// on subsequent applications: each option overwrites only its field, and
-// repeated fields are replaced wholesale.
-func TestWithLicenseTrait_UpdatesExistingAnnotation(t *testing.T) {
+// TestWithLicenseProfileTrait_UpdatesExistingAnnotation confirms merge
+// semantics on subsequent applications: each option overwrites only its
+// field, and repeated fields are replaced wholesale.
+func TestWithLicenseProfileTrait_UpdatesExistingAnnotation(t *testing.T) {
 	rt := &v2.ResourceType{}
 	rt.SetId("license")
-	rt.SetTraits([]v2.ResourceType_Trait{v2.ResourceType_TRAIT_LICENSE})
+	rt.SetTraits([]v2.ResourceType_Trait{v2.ResourceType_TRAIT_LICENSE_PROFILE})
 
 	r, err := NewResource(
 		"Enterprise",
 		rt,
 		"license-enterprise",
-		WithLicenseTrait(
+		WithLicenseProfileTrait(
 			WithLicenseName("Enterprise"),
 			WithLicenseSeats(100, 50),
 			WithLicenseEntitlementIDs("ent-a", "ent-b"),
@@ -121,22 +112,22 @@ func TestWithLicenseTrait_UpdatesExistingAnnotation(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.NoError(t, WithLicenseTrait(
+	require.NoError(t, WithLicenseProfileTrait(
 		WithLicenseSeats(200, 175),
 		WithLicenseEntitlementIDs("ent-c"),
 	)(r))
 
-	got, err := GetLicenseTrait(r)
+	got, err := GetLicenseProfileTrait(r)
 	require.NoError(t, err)
-	require.Equal(t, "Enterprise", got.GetProfile().GetLicenseName())
-	require.Equal(t, int64(200), got.GetProfile().GetPurchasedSeats())
-	require.Equal(t, int64(175), got.GetProfile().GetConsumedSeats())
-	require.Equal(t, []string{"ent-c"}, got.GetProfile().GetEntitlementIds())
+	require.Equal(t, "Enterprise", got.GetLicenseName())
+	require.Equal(t, int64(200), got.GetPurchasedSeats())
+	require.Equal(t, int64(175), got.GetConsumedSeats())
+	require.Equal(t, []string{"ent-c"}, got.GetEntitlementIds())
 }
 
-// TestGetLicenseTrait_NotPresent verifies the read helper surfaces a clear
-// error when the trait is missing.
-func TestGetLicenseTrait_NotPresent(t *testing.T) {
+// TestGetLicenseProfileTrait_NotPresent verifies the read helper surfaces a
+// clear error when the trait is missing.
+func TestGetLicenseProfileTrait_NotPresent(t *testing.T) {
 	rt := &v2.ResourceType{}
 	rt.SetId("user")
 	rt.SetTraits([]v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER})
@@ -144,45 +135,45 @@ func TestGetLicenseTrait_NotPresent(t *testing.T) {
 	r, err := NewResource("Alice", rt, "alice-id")
 	require.NoError(t, err)
 
-	_, err = GetLicenseTrait(r)
+	_, err = GetLicenseProfileTrait(r)
 	require.Error(t, err)
-	require.ErrorContains(t, err, "license trait was not found")
+	require.ErrorContains(t, err, "license profile trait was not found")
 }
 
-// TestIsLicenseResource verifies the trait check.
-func TestIsLicenseResource(t *testing.T) {
+// TestIsLicenseProfileResource verifies the trait check.
+func TestIsLicenseProfileResource(t *testing.T) {
 	t.Run("with trait", func(t *testing.T) {
 		rt := &v2.ResourceType{}
-		rt.SetTraits([]v2.ResourceType_Trait{v2.ResourceType_TRAIT_LICENSE})
-		require.True(t, IsLicenseResource(rt))
+		rt.SetTraits([]v2.ResourceType_Trait{v2.ResourceType_TRAIT_LICENSE_PROFILE})
+		require.True(t, IsLicenseProfileResource(rt))
 	})
 
 	t.Run("without trait", func(t *testing.T) {
 		rt := &v2.ResourceType{}
 		rt.SetTraits([]v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER})
-		require.False(t, IsLicenseResource(rt))
+		require.False(t, IsLicenseProfileResource(rt))
 	})
 
 	t.Run("nil resource type", func(t *testing.T) {
-		require.False(t, IsLicenseResource(nil))
+		require.False(t, IsLicenseProfileResource(nil))
 	})
 
-	t.Run("multiple traits including license", func(t *testing.T) {
+	t.Run("multiple traits including license profile", func(t *testing.T) {
 		rt := &v2.ResourceType{}
 		rt.SetTraits([]v2.ResourceType_Trait{
 			v2.ResourceType_TRAIT_GROUP,
-			v2.ResourceType_TRAIT_LICENSE,
+			v2.ResourceType_TRAIT_LICENSE_PROFILE,
 		})
-		require.True(t, IsLicenseResource(rt))
+		require.True(t, IsLicenseProfileResource(rt))
 	})
 }
 
-// TestLicenseProfile_Validate exercises the proto-generated Validate method
-// directly. Pins the proto-level rules so future edits that loosen them are
-// caught in CI.
-func TestLicenseProfile_Validate(t *testing.T) {
-	validProfile := func(mut func(*v2.LicenseProfile)) *v2.LicenseProfile {
-		p := &v2.LicenseProfile{}
+// TestLicenseProfileTrait_Validate exercises the proto-generated Validate
+// method directly. Pins the proto-level rules so future edits that loosen
+// them are caught in CI.
+func TestLicenseProfileTrait_Validate(t *testing.T) {
+	validTrait := func(mut func(*v2.LicenseProfileTrait)) *v2.LicenseProfileTrait {
+		p := &v2.LicenseProfileTrait{}
 		p.SetLicenseName("Enterprise")
 		p.SetCurrency("USD")
 		if mut != nil {
@@ -193,36 +184,36 @@ func TestLicenseProfile_Validate(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		profile *v2.LicenseProfile
+		trait   *v2.LicenseProfileTrait
 		wantErr string
 	}{
 		{
-			name:    "happy path",
-			profile: validProfile(nil),
+			name:  "happy path",
+			trait: validTrait(nil),
 		},
 		{
 			name: "empty currency accepted (ignore_empty)",
-			profile: validProfile(func(p *v2.LicenseProfile) {
+			trait: validTrait(func(p *v2.LicenseProfileTrait) {
 				p.SetCurrency("")
 			}),
 		},
 		{
 			name: "currency too long rejected",
-			profile: validProfile(func(p *v2.LicenseProfile) {
+			trait: validTrait(func(p *v2.LicenseProfileTrait) {
 				p.SetCurrency("VERYLONGCURRENCY")
 			}),
 			wantErr: "Currency",
 		},
 		{
 			name: "duplicate entitlement_ids rejected",
-			profile: validProfile(func(p *v2.LicenseProfile) {
+			trait: validTrait(func(p *v2.LicenseProfileTrait) {
 				p.SetEntitlementIds([]string{"ent-a", "ent-a"})
 			}),
 			wantErr: "EntitlementIds",
 		},
 		{
 			name: "negative seats accepted (proto has no rule)",
-			profile: validProfile(func(p *v2.LicenseProfile) {
+			trait: validTrait(func(p *v2.LicenseProfileTrait) {
 				p.SetPurchasedSeats(-1)
 				p.SetConsumedSeats(-1)
 			}),
@@ -231,7 +222,7 @@ func TestLicenseProfile_Validate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.profile.Validate()
+			err := tc.trait.Validate()
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 				return
