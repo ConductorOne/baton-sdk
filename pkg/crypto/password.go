@@ -11,12 +11,22 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
+// Character classes used by random password generation. Exposed so callers
+// (e.g., connectors building their own policies) can reason about the alphabet
+// without duplicating the literals.
 const (
-	upperCaseLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	lowerCaseLetters = "abcdefghijklmnopqrstuvwxyz"
-	digits           = "0123456789"
-	symbols          = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
-	characters       = upperCaseLetters + lowerCaseLetters + digits + symbols
+	UpperCaseLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	LowerCaseLetters = "abcdefghijklmnopqrstuvwxyz"
+	Digits           = "0123456789"
+	Symbols          = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+
+	// Internal aliases. Kept lowercase to avoid touching unrelated call sites
+	// in this package; new code should reference the exported names above.
+	upperCaseLetters = UpperCaseLetters
+	lowerCaseLetters = LowerCaseLetters
+	digits           = Digits
+	symbols          = Symbols
+	characters       = UpperCaseLetters + LowerCaseLetters + Digits + Symbols
 )
 
 var ErrInvalidCredentialOptions = errors.New("unknown credential options")
