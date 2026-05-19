@@ -159,6 +159,41 @@ func TestGenerateRandomPasswordWithPolicy_LengthEnforcement(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, p, 20)
 	})
+
+	t.Run("MinLength greater than MaxLength is an unsatisfiable conflict (Strict)", func(t *testing.T) {
+		policy := &RandomPasswordPolicy{MinLength: 20, MaxLength: 16}
+		_, err := GenerateRandomPasswordWithPolicy(randomOpts(18), policy)
+		require.Error(t, err)
+		require.True(t, errors.Is(err, ErrPolicyConflict),
+			"expected ErrPolicyConflict, got %v", err)
+		require.Contains(t, err.Error(), "MinLength 20 is greater than MaxLength 16")
+	})
+
+	t.Run("MinLength greater than MaxLength fails under Clamp (no silent violation)", func(t *testing.T) {
+		// With Clamp, naïvely clamping max-then-min would silently return
+		// MinLength even though it exceeds MaxLength. The upfront conflict
+		// check ensures the call fails loudly.
+		policy := &RandomPasswordPolicy{MinLength: 20, MaxLength: 16, Enforcement: PolicyEnforcementClamp}
+		_, err := GenerateRandomPasswordWithPolicy(randomOpts(12), policy)
+		require.Error(t, err)
+		require.True(t, errors.Is(err, ErrPolicyConflict))
+	})
+
+	t.Run("MinLength greater than MaxLength fails under WarnOnly", func(t *testing.T) {
+		// Same loud-fail behavior under WarnOnly — the bounds themselves
+		// are nonsensical regardless of enforcement mode.
+		policy := &RandomPasswordPolicy{MinLength: 20, MaxLength: 16, Enforcement: PolicyEnforcementWarnOnly}
+		_, err := GenerateRandomPasswordWithPolicy(randomOpts(18), policy)
+		require.Error(t, err)
+		require.True(t, errors.Is(err, ErrPolicyConflict))
+	})
+
+	t.Run("MinLength equal to MaxLength is allowed", func(t *testing.T) {
+		policy := &RandomPasswordPolicy{MinLength: 16, MaxLength: 16}
+		p, err := GenerateRandomPasswordWithPolicy(randomOpts(16), policy)
+		require.NoError(t, err)
+		require.Len(t, p, 16)
+	})
 }
 
 func TestGenerateRandomPasswordWithPolicy_RequiredClasses(t *testing.T) {

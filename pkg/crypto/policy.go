@@ -217,6 +217,11 @@ func applyLengthPolicy(length int64, policy *RandomPasswordPolicy) (int64, error
 	if policy == nil {
 		return length, nil
 	}
+	// Internally inconsistent bounds: neither Strict nor Clamp nor WarnOnly can
+	// produce output that satisfies both, so this is always a policy conflict.
+	if policy.MinLength > 0 && policy.MaxLength > 0 && policy.MinLength > policy.MaxLength {
+		return 0, fmt.Errorf("%w: MinLength %d is greater than MaxLength %d", ErrPolicyConflict, policy.MinLength, policy.MaxLength)
+	}
 	if policy.MaxLength > 0 && length > policy.MaxLength {
 		switch policy.Enforcement {
 		case PolicyEnforcementClamp, PolicyEnforcementWarnOnly:
