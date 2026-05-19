@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
@@ -51,27 +52,30 @@ func (p *recordingProcessor) OnEnd(s sdktrace.ReadOnlySpan)                   { 
 func (p *recordingProcessor) Shutdown(context.Context) error                  { return nil }
 func (p *recordingProcessor) ForceFlush(context.Context) error                { return nil }
 
-func TestStartLinkedRoot(t *testing.T) {
-	rec := &recordingProcessor{}
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
-	tracer := tp.Tracer("test")
+// findSpan returns the first recorded span with the given name.
+func findSpan(rec *recordingProcessor, name string) sdktrace.ReadOnlySpan {
+	for _, s := range rec.ended {
+		if s.Name() == name {
+			return s
+		}
+	}
+	return nil
+}
 
+func TestStartWithLink(t *testing.T) {
 	t.Run("with parent span produces new root with link", func(t *testing.T) {
-		rec.ended = nil
+		rec := &recordingProcessor{}
+		tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+		tracer := tp.Tracer("test")
 
 		ctx, parent := tracer.Start(context.Background(), "parent")
 		parentTraceID := parent.SpanContext().TraceID()
 
-		_, child := StartLinkedRoot(ctx, tracer, "child")
+		_, child := StartWithLink(ctx, tracer, "child")
 		child.End()
 		parent.End()
 
-		var childSpan sdktrace.ReadOnlySpan
-		for _, s := range rec.ended {
-			if s.Name() == "child" {
-				childSpan = s
-			}
-		}
+		childSpan := findSpan(rec, "child")
 		if childSpan == nil {
 			t.Fatal("child span not recorded")
 		}
@@ -91,9 +95,16 @@ func TestStartLinkedRoot(t *testing.T) {
 	})
 
 	t.Run("without parent span behaves like normal Start", func(t *testing.T) {
-		rec.ended = nil
+		rec := &recordingProcessor{}
+		tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+		tracer := tp.Tracer("test")
 
-		_, span := StartLinkedRoot(context.Background(), tracer, "orphan")
+		ctx := context.Background()
+		if trace.SpanContextFromContext(ctx).IsValid() {
+			t.Fatal("background context should not carry a valid span context")
+		}
+
+		_, span := StartWithLink(ctx, tracer, "orphan")
 		span.End()
 
 		if len(rec.ended) != 1 {
@@ -106,7 +117,83 @@ func TestStartLinkedRoot(t *testing.T) {
 			t.Errorf("expected valid span context")
 		}
 	})
-}
 
-// Reference trace package to make the import explicit beyond the embedded use.
-var _ = trace.SpanContextFromContext
+	t.Run("caller-supplied SpanStartOptions are preserved", func(t *testing.T) {
+		rec := &recordingProcessor{}
+		tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+		tracer := tp.Tracer("test")
+
+		ctx, parent := tracer.Start(context.Background(), "parent")
+		_, child := StartWithLink(ctx, tracer, "child",
+			trace.WithAttributes(attribute.String("custom", "val")),
+			trace.WithSpanKind(trace.SpanKindClient),
+		)
+		child.End()
+		parent.End()
+
+		childSpan := findSpan(rec, "child")
+		if childSpan == nil {
+			t.Fatal("child span not recorded")
+		}
+
+		var gotCustom string
+		for _, attr := range childSpan.Attributes() {
+			if attr.Key == "custom" {
+				gotCustom = attr.Value.AsString()
+			}
+		}
+		if gotCustom != "val" {
+			t.Errorf("expected attribute custom=val to pass through, got %q", gotCustom)
+		}
+		if childSpan.SpanKind() != trace.SpanKindClient {
+			t.Errorf("expected SpanKindClient, got %v", childSpan.SpanKind())
+		}
+		if len(childSpan.Links()) != 1 {
+			t.Errorf("expected 1 link (parent), got %d", len(childSpan.Links()))
+		}
+	})
+
+	t.Run("caller-supplied links are additive with the parent link", func(t *testing.T) {
+		rec := &recordingProcessor{}
+		tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+		tracer := tp.Tracer("test")
+
+		// Build a synthetic link target by starting and ending an unrelated span.
+		_, other := tracer.Start(context.Background(), "other")
+		otherSC := other.SpanContext()
+		other.End()
+
+		ctx, parent := tracer.Start(context.Background(), "parent")
+		parentTraceID := parent.SpanContext().TraceID()
+
+		_, child := StartWithLink(ctx, tracer, "child",
+			trace.WithLinks(trace.Link{SpanContext: otherSC}),
+		)
+		child.End()
+		parent.End()
+
+		childSpan := findSpan(rec, "child")
+		if childSpan == nil {
+			t.Fatal("child span not recorded")
+		}
+		links := childSpan.Links()
+		if len(links) != 2 {
+			t.Fatalf("expected 2 links (caller-supplied + parent), got %d", len(links))
+		}
+		var sawOther, sawParent bool
+		for _, l := range links {
+			switch l.SpanContext.TraceID() {
+			case otherSC.TraceID():
+				sawOther = true
+			case parentTraceID:
+				sawParent = true
+			}
+		}
+		if !sawOther {
+			t.Errorf("expected caller-supplied link to be preserved")
+		}
+		if !sawParent {
+			t.Errorf("expected parent link to be added")
+		}
+	})
+}

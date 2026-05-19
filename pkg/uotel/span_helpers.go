@@ -10,17 +10,22 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// StartLinkedRoot starts a new root span linked to the current span in ctx.
+// StartWithLink starts a new root span linked to the current span in ctx.
 //
 // When ctx already carries a valid span context, the new span is started with
 // trace.WithNewRoot() and a trace.Link back to that span. This breaks the
-// causal chain into a new trace while preserving navigability via the link,
-// and is the recommended way to bound the size of long-running traces (e.g.
-// per-iteration spans inside a loop that processes thousands of items under
-// a single root).
+// causal chain into a new trace while preserving navigability via the link.
 //
-// If ctx has no span context, this behaves identically to tracer.Start.
-func StartLinkedRoot(
+// Prefer plain tracer.Start for ordinary nested spans. Reach for this only
+// when an outer span would otherwise accumulate hundreds or thousands of
+// children — e.g. a long-running loop that processes each item via a chain
+// of helper spans. Mirrors ctxotel.StartWithLink in the ConductorOne
+// platform repo.
+//
+// Safe to call with the no-op tracer or with a ctx that has no span: the
+// link is omitted and behavior matches tracer.Start. The returned ctx
+// carries the new span, so descendants attach to the new root.
+func StartWithLink(
 	ctx context.Context,
 	tracer trace.Tracer,
 	name string,
