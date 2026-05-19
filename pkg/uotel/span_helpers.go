@@ -10,6 +10,29 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// StartLinkedRoot starts a new root span linked to the current span in ctx.
+//
+// When ctx already carries a valid span context, the new span is started with
+// trace.WithNewRoot() and a trace.Link back to that span. This breaks the
+// causal chain into a new trace while preserving navigability via the link,
+// and is the recommended way to bound the size of long-running traces (e.g.
+// per-iteration spans inside a loop that processes thousands of items under
+// a single root).
+//
+// If ctx has no span context, this behaves identically to tracer.Start.
+func StartLinkedRoot(
+	ctx context.Context,
+	tracer trace.Tracer,
+	name string,
+	opts ...trace.SpanStartOption,
+) (context.Context, trace.Span) {
+	parentSpanCtx := trace.SpanContextFromContext(ctx)
+	if parentSpanCtx.IsValid() {
+		opts = append(opts, trace.WithNewRoot(), trace.WithLinks(trace.Link{SpanContext: parentSpanCtx}))
+	}
+	return tracer.Start(ctx, name, opts...)
+}
+
 // IsExpectedError returns true for errors that are expected during normal
 // operation and should not be recorded as span errors.
 func IsExpectedError(err error) bool {
