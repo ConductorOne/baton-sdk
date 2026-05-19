@@ -238,6 +238,11 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 		return resp, err
 	}
 
+	if err := validateExclusionGroupAnnotations(out); err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return resp, nil
 }
@@ -279,6 +284,11 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 		err := status.Error(codes.Internal, "listing entitlements failed: next page token unchanged - likely a connector bug")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return resp, err
+	}
+
+	if err := validateExclusionGroupAnnotations(out); err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
@@ -425,5 +435,26 @@ func (b *builder) addResourceSyncers(ctx context.Context, typeId string, in any)
 		}
 	}
 
+	return nil
+}
+
+// validateExclusionGroupAnnotations checks that each entitlement has at most one
+// EntitlementExclusionGroup annotation. An entitlement may belong to at most one
+// exclusion group.
+func validateExclusionGroupAnnotations(ents []*v2.Entitlement) error {
+	for _, ent := range ents {
+		count := 0
+		for _, a := range ent.GetAnnotations() {
+			if a.MessageIs(&v2.EntitlementExclusionGroup{}) {
+				count++
+				if count > 1 {
+					return status.Errorf(codes.InvalidArgument,
+						"entitlement %s has multiple ExclusionGroup annotations; "+
+							"an entitlement may belong to at most one exclusion group",
+						ent.GetId())
+				}
+			}
+		}
+	}
 	return nil
 }

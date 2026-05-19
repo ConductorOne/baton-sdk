@@ -9,6 +9,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -295,3 +297,58 @@ func (e *ActionManagerNotImplementedError) Error() string { return "action manag
 type EventProviderNotImplementedError struct{}
 
 func (e *EventProviderNotImplementedError) Error() string { return "event provider not implemented" }
+
+// --- Exclusion group validation tests ---
+
+func TestValidateExclusionGroup_NoneOK(t *testing.T) {
+	ents := []*v2.Entitlement{
+		v2.Entitlement_builder{Id: "ent-1"}.Build(),
+		v2.Entitlement_builder{Id: "ent-2"}.Build(),
+	}
+	err := validateExclusionGroupAnnotations(ents)
+	require.NoError(t, err)
+}
+
+func TestValidateExclusionGroup_SingleOK(t *testing.T) {
+	annos := annotations.Annotations{}
+	annos.Append(&v2.EntitlementExclusionGroup{ExclusionGroupId: "tier"})
+
+	ents := []*v2.Entitlement{
+		v2.Entitlement_builder{Id: "ent-1", Annotations: annos}.Build(),
+	}
+	err := validateExclusionGroupAnnotations(ents)
+	require.NoError(t, err)
+}
+
+func TestValidateExclusionGroup_DuplicateRejected(t *testing.T) {
+	annos := annotations.Annotations{}
+	annos.Append(&v2.EntitlementExclusionGroup{ExclusionGroupId: "tier-a"})
+	annos.Append(&v2.EntitlementExclusionGroup{ExclusionGroupId: "tier-b"})
+
+	ents := []*v2.Entitlement{
+		v2.Entitlement_builder{Id: "bad-ent", Annotations: annos}.Build(),
+	}
+	err := validateExclusionGroupAnnotations(ents)
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.InvalidArgument, st.Code())
+	require.Contains(t, st.Message(), "bad-ent")
+}
+
+func TestValidateExclusionGroup_MixedEntitlements(t *testing.T) {
+	goodAnnos := annotations.Annotations{}
+	goodAnnos.Append(&v2.EntitlementExclusionGroup{ExclusionGroupId: "tier"})
+
+	badAnnos := annotations.Annotations{}
+	badAnnos.Append(&v2.EntitlementExclusionGroup{ExclusionGroupId: "tier-a"})
+	badAnnos.Append(&v2.EntitlementExclusionGroup{ExclusionGroupId: "tier-b"})
+
+	ents := []*v2.Entitlement{
+		v2.Entitlement_builder{Id: "good-ent", Annotations: goodAnnos}.Build(),
+		v2.Entitlement_builder{Id: "bad-ent", Annotations: badAnnos}.Build(),
+	}
+	err := validateExclusionGroupAnnotations(ents)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "bad-ent")
+}

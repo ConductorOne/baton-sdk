@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// GrantReplaced is attached by a connector to a Grant response when the new
+// grant atomically replaced an existing grant on the same principal.
+//
+// This signals to ConductorOne that the listed grant should be marked revoked
+// without dispatching a separate Revoke RPC.
+//
+// Typical use: an entitlement in an exclusion group is granted via a single
+// statement that overwrites the principal's prior role (e.g. UPDATE-style
+// SQL or a "set role" API). The connector reports the replacement so
+// ConductorOne does not dispatch a redundant Revoke.
+message GrantReplaced {
+  // The grant ID that the new grant replaced. Required.
+  string replaced_grant_id = 1 [(validate.rules).string = {min_bytes: 1}];
+}
