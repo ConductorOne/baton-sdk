@@ -132,3 +132,31 @@ message SecretTrait {
   connector.v2.ResourceId created_by_id = 5;
   connector.v2.ResourceId identity_id = 6;
 }
+
+// LicenseProfileTrait is the trait annotation for resources with
+// TRAIT_LICENSE_PROFILE. A license-profile resource represents a
+// vendor-defined seat or plan that users on the connector can hold
+// (e.g. Microsoft "E3", Atlassian "Business Plus"). The entitlements listed
+// in entitlement_ids identify, on this connector, the grants that mean
+// "the principal holds this license seat" — typically the membership
+// entitlement of a license-backing group/role.
+message LicenseProfileTrait {
+  // Human-readable license name (e.g. "Enterprise", "Business Plus", "E3").
+  string license_name = 1 [(validate.rules).string = {
+    max_bytes: 1024
+    ignore_empty: true
+  }];
+  // Total seats from the vendor API. Zero when not available.
+  int64 purchased_seats = 2;
+  // Consumed seats from the vendor API. Zero when not available.
+  int64 consumed_seats = 3;
+  // Optional per-seat cost from the vendor API. Zero when not available.
+  int64 cost_per_unit_in_cents = 4;
+  // ISO 4217 currency code. Defaults to "USD" when unset.
+  string currency = 5 [(validate.rules).string = {
+    max_bytes: 8
+    ignore_empty: true
+  }];
+  // Entitlements on this connector that indicate a user holds this seat.
+  repeated string entitlement_ids = 6 [(validate.rules).repeated = {unique: true}];
+}
