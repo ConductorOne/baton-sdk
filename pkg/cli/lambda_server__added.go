@@ -443,7 +443,13 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 }
 
 func lambdaConnectorConfigVersion(config *v1.GetConnectorConfigResponse) string {
-	if config == nil || config.GetLastUpdated() == nil {
+	if config == nil {
+		return ""
+	}
+	if config.GetVersion() != "" {
+		return config.GetVersion()
+	}
+	if config.GetLastUpdated() == nil {
 		return ""
 	}
 	return config.GetLastUpdated().AsTime().UTC().Format(time.RFC3339Nano)
