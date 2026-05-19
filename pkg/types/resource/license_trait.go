@@ -34,12 +34,12 @@ func WithLicenseSeats(purchased, consumed int64) LicenseTraitOption {
 	}
 }
 
-// WithLicenseCost sets the per-seat cost and ISO 4217 currency. An empty
-// currency defaults to USD.
-func WithLicenseCost(costPerUnit float64, currency string) LicenseTraitOption {
+// WithLicenseCost sets the per-seat cost in cents and the ISO 4217 currency.
+// An empty currency defaults to USD.
+func WithLicenseCost(costPerUnitInCents int64, currency string) LicenseTraitOption {
 	return func(t *v2.LicenseTrait) error {
 		p := licenseProfile(t)
-		p.SetCostPerUnit(costPerUnit)
+		p.SetCostPerUnitInCents(costPerUnitInCents)
 		if currency == "" {
 			currency = defaultLicenseCurrency
 		}

@@ -21,7 +21,7 @@ func TestNewLicenseTrait_FullPopulation(t *testing.T) {
 	trait, err := NewLicenseTrait(
 		WithLicenseName("Enterprise"),
 		WithLicenseSeats(200, 175),
-		WithLicenseCost(24.00, "USD"),
+		WithLicenseCost(2400, "USD"),
 		WithLicenseEntitlementIDs("ent-enterprise-member", "ent-enterprise-admin"),
 	)
 	require.NoError(t, err)
@@ -31,7 +31,7 @@ func TestNewLicenseTrait_FullPopulation(t *testing.T) {
 	require.Equal(t, "Enterprise", p.GetLicenseName())
 	require.Equal(t, int64(200), p.GetPurchasedSeats())
 	require.Equal(t, int64(175), p.GetConsumedSeats())
-	require.Equal(t, 24.00, p.GetCostPerUnit())
+	require.Equal(t, int64(2400), p.GetCostPerUnitInCents())
 	require.Equal(t, "USD", p.GetCurrency())
 	require.Equal(t,
 		[]string{"ent-enterprise-member", "ent-enterprise-admin"},
@@ -43,7 +43,7 @@ func TestNewLicenseTrait_FullPopulation(t *testing.T) {
 // set without a currency, the trait fills in USD on construction.
 func TestNewLicenseTrait_CurrencyDefaultsToUSD(t *testing.T) {
 	trait, err := NewLicenseTrait(
-		WithLicenseCost(10.0, ""),
+		WithLicenseCost(1000, ""),
 	)
 	require.NoError(t, err)
 	require.Equal(t, "USD", trait.GetProfile().GetCurrency())
@@ -85,7 +85,7 @@ func TestWithLicenseTrait_AppliesToResource(t *testing.T) {
 		WithLicenseTrait(
 			WithLicenseName("Enterprise"),
 			WithLicenseSeats(200, 175),
-			WithLicenseCost(24.00, "USD"),
+			WithLicenseCost(2400, "USD"),
 			WithLicenseEntitlementIDs("ent-enterprise-member"),
 		),
 	)
@@ -96,7 +96,7 @@ func TestWithLicenseTrait_AppliesToResource(t *testing.T) {
 	require.Equal(t, "Enterprise", got.GetProfile().GetLicenseName())
 	require.Equal(t, int64(200), got.GetProfile().GetPurchasedSeats())
 	require.Equal(t, int64(175), got.GetProfile().GetConsumedSeats())
-	require.Equal(t, 24.00, got.GetProfile().GetCostPerUnit())
+	require.Equal(t, int64(2400), got.GetProfile().GetCostPerUnitInCents())
 	require.Equal(t, "USD", got.GetProfile().GetCurrency())
 	require.Equal(t, []string{"ent-enterprise-member"}, got.GetProfile().GetEntitlementIds())
 }

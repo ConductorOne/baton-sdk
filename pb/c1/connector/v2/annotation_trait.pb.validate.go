@@ -1837,7 +1837,7 @@ func (m *LicenseProfile) validate(all bool) error {
 
 	// no validation rules for ConsumedSeats
 
-	// no validation rules for CostPerUnit
+	// no validation rules for CostPerUnitInCents
 
 	if m.GetCurrency() != "" {
 

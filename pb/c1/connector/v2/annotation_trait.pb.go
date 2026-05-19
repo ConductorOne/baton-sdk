@@ -1324,7 +1324,7 @@ type LicenseProfile struct {
 	// Consumed seats from the vendor API. Zero when not available.
 	ConsumedSeats int64 `protobuf:"varint,3,opt,name=consumed_seats,json=consumedSeats,proto3" json:"consumed_seats,omitempty"`
 	// Optional per-seat cost from the vendor API. Zero when not available.
-	CostPerUnit float64 `protobuf:"fixed64,4,opt,name=cost_per_unit,json=costPerUnit,proto3" json:"cost_per_unit,omitempty"`
+	CostPerUnitInCents int64 `protobuf:"varint,4,opt,name=cost_per_unit_in_cents,json=costPerUnitInCents,proto3" json:"cost_per_unit_in_cents,omitempty"`
 	// ISO 4217 currency code. Defaults to "USD" when unset.
 	Currency string `protobuf:"bytes,5,opt,name=currency,proto3" json:"currency,omitempty"`
 	// Entitlements on this connector that indicate a user holds this seat.
@@ -1379,9 +1379,9 @@ func (x *LicenseProfile) GetConsumedSeats() int64 {
 	return 0
 }
 
-func (x *LicenseProfile) GetCostPerUnit() float64 {
+func (x *LicenseProfile) GetCostPerUnitInCents() int64 {
 	if x != nil {
-		return x.CostPerUnit
+		return x.CostPerUnitInCents
 	}
 	return 0
 }
@@ -1412,8 +1412,8 @@ func (x *LicenseProfile) SetConsumedSeats(v int64) {
 	x.ConsumedSeats = v
 }
 
-func (x *LicenseProfile) SetCostPerUnit(v float64) {
-	x.CostPerUnit = v
+func (x *LicenseProfile) SetCostPerUnitInCents(v int64) {
+	x.CostPerUnitInCents = v
 }
 
 func (x *LicenseProfile) SetCurrency(v string) {
@@ -1434,7 +1434,7 @@ type LicenseProfile_builder struct {
 	// Consumed seats from the vendor API. Zero when not available.
 	ConsumedSeats int64
 	// Optional per-seat cost from the vendor API. Zero when not available.
-	CostPerUnit float64
+	CostPerUnitInCents int64
 	// ISO 4217 currency code. Defaults to "USD" when unset.
 	Currency string
 	// Entitlements on this connector that indicate a user holds this seat.
@@ -1448,7 +1448,7 @@ func (b0 LicenseProfile_builder) Build() *LicenseProfile {
 	x.LicenseName = b.LicenseName
 	x.PurchasedSeats = b.PurchasedSeats
 	x.ConsumedSeats = b.ConsumedSeats
-	x.CostPerUnit = b.CostPerUnit
+	x.CostPerUnitInCents = b.CostPerUnitInCents
 	x.Currency = b.Currency
 	x.EntitlementIds = b.EntitlementIds
 	return m0
@@ -1925,12 +1925,12 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\videntity_id\x18\x06 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
 	"identityId\"I\n" +
 	"\fLicenseTrait\x129\n" +
-	"\aprofile\x18\x01 \x01(\v2\x1f.c1.connector.v2.LicenseProfileR\aprofile\"\x8f\x02\n" +
+	"\aprofile\x18\x01 \x01(\v2\x1f.c1.connector.v2.LicenseProfileR\aprofile\"\x9f\x02\n" +
 	"\x0eLicenseProfile\x12.\n" +
 	"\flicense_name\x18\x01 \x01(\tB\v\xfaB\br\x06(\x80\b\xd0\x01\x01R\vlicenseName\x12'\n" +
 	"\x0fpurchased_seats\x18\x02 \x01(\x03R\x0epurchasedSeats\x12%\n" +
-	"\x0econsumed_seats\x18\x03 \x01(\x03R\rconsumedSeats\x12\"\n" +
-	"\rcost_per_unit\x18\x04 \x01(\x01R\vcostPerUnit\x12&\n" +
+	"\x0econsumed_seats\x18\x03 \x01(\x03R\rconsumedSeats\x122\n" +
+	"\x16cost_per_unit_in_cents\x18\x04 \x01(\x03R\x12costPerUnitInCents\x12&\n" +
 	"\bcurrency\x18\x05 \x01(\tB\n" +
 	"\xfaB\ar\x05(\b\xd0\x01\x01R\bcurrency\x121\n" +
 	"\x0fentitlement_ids\x18\x06 \x03(\tB\b\xfaB\x05\x92\x01\x02\x18\x01R\x0eentitlementIdsB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"

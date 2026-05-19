@@ -154,7 +154,7 @@ message LicenseProfile {
   // Consumed seats from the vendor API. Zero when not available.
   int64 consumed_seats = 3;
   // Optional per-seat cost from the vendor API. Zero when not available.
-  double cost_per_unit = 4;
+  int64 cost_per_unit_in_cents = 4;
   // ISO 4217 currency code. Defaults to "USD" when unset.
   string currency = 5 [(validate.rules).string = {
     max_bytes: 8
