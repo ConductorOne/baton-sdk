@@ -29,7 +29,7 @@ message GetRequest {
 
   string key = 2 [(validate.rules).string = {
     min_len: 1
-    max_len: 256
+    max_len: 512
   }];
 
   string prefix = 3 [(validate.rules).string = {max_len: 512}];
@@ -50,7 +50,7 @@ message GetManyRequest {
     items: {
       string: {
         min_len: 1
-        max_len: 256
+        max_len: 512
       }
     }
   }];
@@ -89,12 +89,12 @@ message SetRequest {
   string sync_id = 1 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
   string key = 2 [(validate.rules).string = {
     min_len: 1
-    max_len: 256
+    max_len: 512
   }];
   bytes value = 3 [(validate.rules).bytes = {
     min_len: 0
     // Max GRPC size of 4MB minus 35kb for other fields.
-    max_len: 4158464
+    max_len: 4132864
   }];
 
   string prefix = 4 [(validate.rules).string = {max_len: 512}];
@@ -110,14 +110,14 @@ message SetManyRequest {
     keys: {
       string: {
         min_len: 1
-        max_len: 256
+        max_len: 512
       }
     }
     values: {
       bytes: {
         min_len: 0
         // Max GRPC size of 4MB minus 35kb for other fields.
-        max_len: 4158464
+        max_len: 4132864
       }
     }
   }];
@@ -131,7 +131,7 @@ message DeleteRequest {
   string sync_id = 1 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
   string key = 2 [(validate.rules).string = {
     min_len: 1
-    max_len: 256
+    max_len: 512
   }];
 
   string prefix = 3 [(validate.rules).string = {max_len: 512}];
@@ -147,7 +147,7 @@ message DeleteManyRequest {
     items: {
       string: {
         min_len: 1
-        max_len: 256
+        max_len: 512
       }
     }
   }];
