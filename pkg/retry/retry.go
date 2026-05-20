@@ -47,9 +47,10 @@ func NewRetryer(ctx context.Context, config RetryConfig) *Retryer {
 }
 
 func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
-	ctx, span := tracer.Start(ctx, "retry.ShouldWaitAndRetry")
-	defer span.End()
-
+	// Fast paths that are not actually retrying skip span emission. The
+	// success path is hit once per completed action in the syncer loop,
+	// which historically inflated long-running sync traces by thousands
+	// of no-op spans.
 	if err == nil {
 		r.mu.Lock()
 		r.attempts = 0
@@ -59,6 +60,9 @@ func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
 	if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded {
 		return false
 	}
+
+	ctx, span := tracer.Start(ctx, "retry.ShouldWaitAndRetry")
+	defer span.End()
 
 	r.mu.Lock()
 	r.attempts++

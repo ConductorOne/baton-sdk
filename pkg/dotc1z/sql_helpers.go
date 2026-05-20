@@ -593,11 +593,10 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 }
 
 func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceId, m *v2.Resource, syncID string) error {
-	ctx, span := tracer.Start(ctx, "C1File.getResourceObject")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
-	err = c.validateDb(ctx)
+	// No span here: this function is always called from C1File.GetResource
+	// which already owns a span. The duplicate emitted one span per
+	// resource-fetch and was a top contributor to mega-trace span counts.
+	err := c.validateDb(ctx)
 	if err != nil {
 		return err
 	}

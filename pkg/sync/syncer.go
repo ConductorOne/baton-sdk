@@ -573,7 +573,7 @@ func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.Resou
 
 // SyncResourceTypes calls the ListResourceType() connector endpoint and persists the results in to the datasource.
 func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
-	ctx, span := tracer.Start(ctx, "syncer.SyncResourceTypes")
+	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncResourceTypes")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
@@ -714,7 +714,7 @@ func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.Re
 }
 
 func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error {
-	ctx, span := tracer.Start(ctx, "syncer.SyncTargetedResource")
+	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncTargetedResource")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
@@ -793,7 +793,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 // SyncResources handles fetching all of the resources from the connector given the provided resource types. For each
 // resource, we gather any child resource types it may emit, and traverse the resource tree.
 func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
-	ctx, span := tracer.Start(ctx, "syncer.SyncResources")
+	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncResources")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
@@ -1050,7 +1050,7 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bo
 // SyncEntitlements fetches the entitlements from the connector. It first lists each resource from the datastore,
 // and pushes an action to fetch the entitlements for each resource.
 func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
-	ctx, span := tracer.Start(ctx, "syncer.SyncEntitlements")
+	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncEntitlements")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
@@ -1132,7 +1132,7 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 }
 
 func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) error {
-	ctx, span := tracer.Start(ctx, "syncer.SyncStaticEntitlements")
+	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncStaticEntitlements")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
@@ -1345,7 +1345,7 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, action *Action) erro
 
 // SyncAssets iterates each resource in the data store, and adds an action to fetch all of the assets for that resource.
 func (s *syncer) SyncAssets(ctx context.Context, action *Action) error {
-	ctx, span := tracer.Start(ctx, "syncer.SyncAssets")
+	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncAssets")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
@@ -1380,7 +1380,7 @@ func (s *syncer) SyncAssets(ctx context.Context, action *Action) error {
 // SyncGrantExpansion handles the grant expansion phase of sync.
 // It first loads the entitlement graph from grants, fixes any cycles, then runs expansion.
 func (s *syncer) SyncGrantExpansion(ctx context.Context, action *Action) error {
-	ctx, span := tracer.Start(ctx, "syncer.SyncGrantExpansion")
+	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrantExpansion")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
@@ -1521,7 +1521,7 @@ func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.En
 // SyncGrants fetches the grants for each resource from the connector. It iterates each resource
 // from the datastore, and pushes a new action to sync the grants for each individual resource.
 func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
-	ctx, span := tracer.Start(ctx, "syncer.SyncGrants")
+	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrants")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
@@ -1859,7 +1859,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 }
 
 func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) error {
-	ctx, span := tracer.Start(ctx, "syncer.SyncExternalResources")
+	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncExternalResources")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
