@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -168,7 +169,7 @@ func closeLambdaConnectorGeneration(ctx context.Context, connector types.Connect
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					errCh <- fmt.Errorf("panic in connector Close(ctx): %v", r)
+					errCh <- fmt.Errorf("panic in connector Close(ctx): %v\n%s", r, debug.Stack())
 				}
 			}()
 			errCh <- closer.Close(ctx)
@@ -177,7 +178,7 @@ func closeLambdaConnectorGeneration(ctx context.Context, connector types.Connect
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					errCh <- fmt.Errorf("panic in connector Close(): %v", r)
+					errCh <- fmt.Errorf("panic in connector Close(): %v\n%s", r, debug.Stack())
 				}
 			}()
 			errCh <- closer.Close()
