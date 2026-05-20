@@ -91,6 +91,14 @@ func (s *Server) Start(ctx context.Context) error {
 	s.started = true
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				l.Error("health check server goroutine panicked",
+					zap.Any("panic", r),
+					zap.Stack("stack"),
+				)
+			}
+		}()
 		l.Info("health check server starting", zap.String("address", addr))
 		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			l.Error("health check server error", zap.Error(err))
