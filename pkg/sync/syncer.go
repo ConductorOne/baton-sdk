@@ -651,11 +651,10 @@ func (s *syncer) hasChildResources(resource *v2.Resource) bool {
 }
 
 // getSubResources fetches the sub resource types from a resources' annotations.
+// No span here: this is per-resource in-memory annotation iteration with no I/O.
+// At sync scale (100k+ resources per trace) the span overhead and trace bloat
+// outweighed any debugging value.
 func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error {
-	ctx, span := tracer.Start(ctx, "syncer.getSubResources")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	syncResourceTypeMap := make(map[string]bool)
 	for _, rt := range s.syncResourceTypes {
 		syncResourceTypeMap[rt] = true
@@ -910,11 +909,11 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
 }
 
+// No span here: this is called per-resource, but only does I/O on the
+// first time a resource type is seen (cached afterward). The wrapped
+// C1File.GetResourceType call is itself spanned, so we still see the
+// uncached path.
 func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) error {
-	ctx, span := tracer.Start(ctx, "syncer.validateResourceTraits")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	resourceTypeTraits, ok := s.resourceTypeTraits.Load(r.GetId().GetResourceType())
 	if !ok {
 		resourceTypeResponse, err := s.store.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
@@ -962,11 +961,9 @@ func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) err
 
 // shouldSkipEntitlementsAndGrants determines if we should sync entitlements for a given resource. We cache the
 // result of this function for each resource type to avoid constant lookups in the database.
+// No span here: the function is called per-resource and is almost always a cached map
+// lookup; the uncached path hits C1File.GetResourceType, which is itself spanned.
 func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Resource) (bool, error) {
-	ctx, span := tracer.Start(ctx, "syncer.shouldSkipEntitlementsAndGrants")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	if s.state.ShouldSkipEntitlementsAndGrants() {
 		return true, nil
 	}
@@ -1009,11 +1006,10 @@ func (s *syncer) shouldSkipGrants(ctx context.Context, r *v2.Resource) (bool, er
 	return s.shouldSkipEntitlementsAndGrants(ctx, r)
 }
 
+// No span here: shouldSkipEntitlements is called per-resource and almost
+// always a cached map lookup; uncached path hits C1File.GetResourceType,
+// which is itself spanned.
 func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bool, error) {
-	ctx, span := tracer.Start(ctx, "syncer.shouldSkipEntitlements")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	ok, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
 	if err != nil {
 		return false, err
