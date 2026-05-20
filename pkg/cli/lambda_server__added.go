@@ -166,10 +166,20 @@ func closeLambdaConnectorGeneration(ctx context.Context, connector types.Connect
 	errCh := make(chan error, 1)
 	if closer, ok := connector.(lambdaConnectorCloserWithContext); ok {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					errCh <- fmt.Errorf("panic in connector Close(ctx): %v", r)
+				}
+			}()
 			errCh <- closer.Close(ctx)
 		}()
 	} else if closer, ok := connector.(lambdaConnectorCloser); ok {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					errCh <- fmt.Errorf("panic in connector Close(): %v", r)
+				}
+			}()
 			errCh <- closer.Close()
 		}()
 	} else {

@@ -444,6 +444,15 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 	// If handler takes longer than an hour, return status failed.
 	go func() { //nolint:gosec // We want to run this in the background.
 		defer close(done)
+		defer func() {
+			if r := recover(); r != nil {
+				ctxzap.Extract(ctx).Error("panic in global action handler",
+					zap.String("action", name),
+					zap.Any("panic", r),
+					zap.Stack("stack"))
+				oa.SetError(ctx, fmt.Errorf("panic in action handler: %v", r))
+			}
+		}()
 		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
 		bgCtx := trace.ContextWithSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
 		handlerCtx, cancel := context.WithTimeoutCause(bgCtx, 1*time.Hour, errors.New("action handler timed out"))
@@ -523,6 +532,16 @@ func (a *ActionManager) invokeResourceAction(
 	// Invoke handler in goroutine
 	go func() { //nolint:gosec // We want to run this in the background.
 		defer close(done)
+		defer func() {
+			if r := recover(); r != nil {
+				ctxzap.Extract(ctx).Error("panic in resource action handler",
+					zap.String("resource_type", resourceTypeID),
+					zap.String("action", actionName),
+					zap.Any("panic", r),
+					zap.Stack("stack"))
+				oa.SetError(ctx, fmt.Errorf("panic in action handler: %v", r))
+			}
+		}()
 		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
 		bgCtx := trace.ContextWithSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
 		bgCtx = ctxzap.ToContext(bgCtx, ctxzap.Extract(ctx))

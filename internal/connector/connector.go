@@ -272,6 +272,13 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		cw.SessionServer = server
 		go func() {
 			defer sessionListener.Close()
+			defer func() {
+				if r := recover(); r != nil {
+					l.Error("panic in session store server goroutine",
+						zap.Any("panic", r),
+						zap.Stack("stack"))
+				}
+			}()
 			serverErr := session.StartGRPCSessionServerWithOptions(ctx, sessionListener, server,
 				grpc.Creds(credentials.NewTLS(tlsConfig)),
 				grpc.ChainUnaryInterceptor(ugrpc.UnaryServerInterceptor(ctx)...),
