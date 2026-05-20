@@ -157,7 +157,12 @@ func (e *Expander) IsDone(ctx context.Context) bool {
 // single trace produced 100k+-span mega-traces. Per-action new roots split
 // the work into one trace per source/descendant entitlement pair while
 // preserving the link back to the originating expansion call.
-func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction) (nextPage string, err error) { //nolint:nonamedreturns // named return is required so the deferred span error recorder sees the function's error.
+//
+// Named err is required so the deferred span error recorder observes the
+// function's return value.
+//
+//nolint:nonamedreturns // see doc comment above.
+func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction) (nextPage string, err error) {
 	ctx, span := uotel.StartWithLink(ctx, tracer, "expand.runAction",
 		trace.WithAttributes(
 			attribute.String("source_entitlement_id", action.SourceEntitlementID),
