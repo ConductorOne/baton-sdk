@@ -136,10 +136,15 @@ func (t *Transport) make(_ context.Context) (http.RoundTripper, error) {
 		ResponseHeaderTimeout: 60 * time.Second,
 		TLSClientConfig:       t.tlsClientConfig,
 	}
-	err := http2.ConfigureTransport(baseTransport)
+	// PING-frame keepalive: keeps streams alive across intermediaries (e.g.
+	// NLB) that RST idle tunnels. TCP keepalive doesn't cover sockets with
+	// an outstanding write — the state during a slow response.
+	h2, err := http2.ConfigureTransports(baseTransport)
 	if err != nil {
 		return nil, err
 	}
+	h2.ReadIdleTimeout = 15 * time.Second
+	h2.PingTimeout = 15 * time.Second
 	var rv http.RoundTripper = baseTransport
 	rv = &userAgentTripper{next: rv, userAgent: t.userAgent}
 	return rv, nil
