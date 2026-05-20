@@ -67,6 +67,7 @@ type c1ApiTaskManager struct {
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
 	workerCount                         int
+	connectorVersion                    string
 
 	// runnerShouldDebug is flipped by the StartDebugging task handler (which
 	// runs on a task-processing goroutine) and read by the runner loop via
@@ -123,7 +124,7 @@ func (c *c1ApiTaskManager) Bootstrap(ctx context.Context, cc types.ConnectorClie
 	attempt := 0
 	for {
 		attempt++
-		err = sendHello(ctx, cc, c.serviceClient, "")
+		err = sendHello(ctx, cc, c.serviceClient, "", c.connectorVersion)
 		if err == nil {
 			l.Info("c1_api_task_manager: startup Hello succeeded.", zap.Int("attempts", attempt))
 			return nil
@@ -423,7 +424,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 			c.workerCount,
 		)
 	case taskTypes.HelloType:
-		handler = newHelloTaskHandler(task, tHelpers)
+		handler = newHelloTaskHandler(task, tHelpers, c.connectorVersion)
 	case taskTypes.GrantType:
 		handler = newGrantTaskHandler(task, tHelpers)
 	case taskTypes.RevokeType:
@@ -488,6 +489,7 @@ func NewC1TaskManager(
 	syncResourceTypeIDs []string,
 	workerCount int,
 	taskConcurrency int,
+	connectorVersion string,
 ) (BootstrappingTaskManager, error) {
 	serviceClient, err := newServiceClient(ctx, clientID, clientSecret)
 	if err != nil {
@@ -505,5 +507,6 @@ func NewC1TaskManager(
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
 		workerCount:                         workerCount,
+		connectorVersion:                    connectorVersion,
 	}, nil
 }

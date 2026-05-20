@@ -435,6 +435,7 @@ type runnerConfig struct {
 	healthCheckPort                       int
 	healthCheckBindAddress                string
 	taskConcurrency                       int // effective task slots after applying WithTaskConcurrency
+	connectorVersion                      string
 	taskConcurrencySet                    bool
 }
 
@@ -826,6 +827,13 @@ func WithHealthCheck(enabled bool, port int, bindAddress string) Option {
 	}
 }
 
+func WithConnectorVersion(version string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.connectorVersion = version
+		return nil
+	}
+}
+
 func ExtractDefaultConnector(ctx context.Context, options ...Option) (any, error) {
 	cfg := &runnerConfig{}
 
@@ -1038,6 +1046,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		cfg.syncResourceTypeIDs,
 		cfg.workerCount,
 		runner.taskConcurrency,
+		cfg.connectorVersion,
 	)
 	if err != nil {
 		return nil, err
