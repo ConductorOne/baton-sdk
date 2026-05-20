@@ -21,8 +21,9 @@ type helloHelpers interface {
 }
 
 type helloTaskHandler struct {
-	task    *v1.Task
-	helpers helloHelpers
+	task             *v1.Task
+	helpers          helloHelpers
+	connectorVersion string
 }
 
 func (c *helloTaskHandler) osInfo(ctx context.Context) (*v1.BatonServiceHelloRequest_OSInfo, error) {
@@ -56,13 +57,22 @@ func (c *helloTaskHandler) buildInfo(ctx context.Context) *v1.BatonServiceHelloR
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
 		l.Error("failed to get build info")
-		return &v1.BatonServiceHelloRequest_BuildInfo{}
+		ret := &v1.BatonServiceHelloRequest_BuildInfo{}
+		if c.connectorVersion != "" {
+			ret.PackageVersion = c.connectorVersion
+		}
+		return ret
+	}
+
+	packageVersion := bi.Main.Version
+	if c.connectorVersion != "" {
+		packageVersion = c.connectorVersion
 	}
 
 	return &v1.BatonServiceHelloRequest_BuildInfo{
 		LangVersion:    bi.GoVersion,
 		Package:        bi.Main.Path,
-		PackageVersion: bi.Main.Version,
+		PackageVersion: packageVersion,
 	}
 }
 
@@ -105,9 +115,10 @@ func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 	return nil
 }
 
-func newHelloTaskHandler(task *v1.Task, helpers helloHelpers) *helloTaskHandler {
+func newHelloTaskHandler(task *v1.Task, helpers helloHelpers, connectorVersion string) *helloTaskHandler {
 	return &helloTaskHandler{
-		task:    task,
-		helpers: helpers,
+		task:             task,
+		helpers:          helpers,
+		connectorVersion: connectorVersion,
 	}
 }

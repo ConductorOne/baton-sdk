@@ -344,6 +344,14 @@ type runnerConfig struct {
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
 	skipEntitlementsAndGrants           bool
+	connectorVersion                    string
+}
+
+func WithConnectorVersion(version string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.connectorVersion = version
+		return nil
+	}
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -766,7 +774,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		return runner, nil
 	}
 
-	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.tempDir, cfg.skipFullSync, cfg.externalResourceC1Z, cfg.externalResourceEntitlementIdFilter, cfg.targetedSyncResourceIDs)
+	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.tempDir, cfg.skipFullSync, cfg.externalResourceC1Z, cfg.externalResourceEntitlementIdFilter, cfg.targetedSyncResourceIDs, cfg.connectorVersion)
 	if err != nil {
 		return nil, err
 	}
