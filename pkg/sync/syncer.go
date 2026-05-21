@@ -2150,6 +2150,31 @@ func (s *syncer) listExternalResourcesForResourceType(ctx context.Context, resou
 	return resources, nil
 }
 
+// listAllEntitlementIDs paginates every entitlement in the local store and
+// returns just the ID set. processGrantsWithExternalPrincipals needs only
+// existence, not the full entitlement blob, so this avoids the per-slug
+// GetEntitlement N+1 inside its nested match-by-id / match-by-key loops.
+func (s *syncer) listAllEntitlementIDs(ctx context.Context) (mapset.Set[string], error) {
+	ids := mapset.NewSet[string]()
+	pageToken := ""
+	for {
+		resp, err := s.store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return nil, err
+		}
+		for _, ent := range resp.GetList() {
+			ids.Add(ent.GetId())
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+	return ids, nil
+}
+
 func (s *syncer) listExternalEntitlementsForResource(ctx context.Context, resource *v2.Resource) ([]*v2.Entitlement, error) {
 	ents := make([]*v2.Entitlement, 0)
 	entitlementToken := ""
@@ -2237,6 +2262,15 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	}
 
 	l := ctxzap.Extract(ctx)
+
+	// One ListEntitlements paginate replaces the per-slug GetEntitlement
+	// existence checks below. Entitlement counts are 10^2-10^4 on real
+	// tenants, so the in-memory set fits comfortably and the grant-iteration
+	// loop's inner GetEntitlement fanout collapses to set membership.
+	knownEntitlementIDs, err := s.listAllEntitlementIDs(ctx)
+	if err != nil {
+		return err
+	}
 
 	groupPrincipals := make([]*v2.Resource, 0)
 	userPrincipals := make([]*v2.Resource, 0)
@@ -2347,13 +2381,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					principalEntitlementSlugs := expandableEntitlementsResourceMap[groupPrincipalBID]
 					for _, slug := range principalEntitlementSlugs {
 						newExpandableEntId := entitlement.NewEntitlementID(principal, slug)
-						_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
-						if err != nil {
-							if errors.Is(err, sql.ErrNoRows) {
-								l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
-								continue
-							}
-							return err
+						if !knownEntitlementIDs.ContainsOne(newExpandableEntId) {
+							l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
+							continue
 						}
 						newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
 					}
@@ -2426,13 +2456,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 							principalEntitlementSlugs := expandableEntitlementsResourceMap[groupPrincipalBID]
 							for _, slug := range principalEntitlementSlugs {
 								newExpandableEntId := entitlement.NewEntitlementID(groupPrincipal, slug)
-								_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
-								if err != nil {
-									if errors.Is(err, sql.ErrNoRows) {
-										l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
-										continue
-									}
-									return err
+								if !knownEntitlementIDs.ContainsOne(newExpandableEntId) {
+									l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
+									continue
 								}
 								newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
 							}
