@@ -54,8 +54,8 @@ func (r *resourcesTable) Schema() (string, []interface{}) {
 	}
 }
 
-func (r *resourcesTable) Migrations(ctx context.Context, db *goqu.Database) error {
-	return nil
+func (r *resourcesTable) Migrations(ctx context.Context, db *goqu.Database) (bool, error) {
+	return false, nil
 }
 
 func (c *C1File) ListResources(ctx context.Context, request *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
