@@ -53,6 +53,8 @@ func WithAppHelpURL(helpURL string) AppTraitOption {
 	}
 }
 
+// WithAppSourceType is free-form: AppTrait has no normalized vocabulary
+// yet, unlike GroupSourceType.
 func WithAppSourceType(sourceType string) AppTraitOption {
 	return func(at *v2.AppTrait) error {
 		at.SetAppSourceType(sourceType)

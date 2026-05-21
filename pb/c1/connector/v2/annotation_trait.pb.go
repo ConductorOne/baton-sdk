@@ -949,8 +949,9 @@ type AppTrait struct {
 	Logo    *AssetRef              `protobuf:"bytes,3,opt,name=logo,proto3" json:"logo,omitempty"`
 	Profile *structpb.Struct       `protobuf:"bytes,4,opt,name=profile,proto3" json:"profile,omitempty"`
 	Flags   []AppTrait_AppFlag     `protobuf:"varint,5,rep,packed,name=flags,proto3,enum=c1.connector.v2.AppTrait_AppFlag" json:"flags,omitempty"`
-	// C1-normalized source type for the app. Free-form for now; a typed
-	// vocabulary will be introduced in a follow-up RFC.
+	// C1-normalized source type for the app. Free-form pending a typed
+	// vocabulary; expected values describe the integration kind (for
+	// example: "saml", "oidc", "scim", or vendor-defined classes).
 	AppSourceType string `protobuf:"bytes,6,opt,name=app_source_type,json=appSourceType,proto3" json:"app_source_type,omitempty"`
 	// Raw IDP-specific value as returned by the connector's upstream API.
 	RawAppSourceType string `protobuf:"bytes,7,opt,name=raw_app_source_type,json=rawAppSourceType,proto3" json:"raw_app_source_type,omitempty"`
@@ -1101,8 +1102,9 @@ type AppTrait_builder struct {
 	Logo    *AssetRef
 	Profile *structpb.Struct
 	Flags   []AppTrait_AppFlag
-	// C1-normalized source type for the app. Free-form for now; a typed
-	// vocabulary will be introduced in a follow-up RFC.
+	// C1-normalized source type for the app. Free-form pending a typed
+	// vocabulary; expected values describe the integration kind (for
+	// example: "saml", "oidc", "scim", or vendor-defined classes).
 	AppSourceType string
 	// Raw IDP-specific value as returned by the connector's upstream API.
 	RawAppSourceType string

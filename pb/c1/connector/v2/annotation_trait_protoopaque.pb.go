@@ -1093,8 +1093,9 @@ type AppTrait_builder struct {
 	Logo    *AssetRef
 	Profile *structpb.Struct
 	Flags   []AppTrait_AppFlag
-	// C1-normalized source type for the app. Free-form for now; a typed
-	// vocabulary will be introduced in a follow-up RFC.
+	// C1-normalized source type for the app. Free-form pending a typed
+	// vocabulary; expected values describe the integration kind (for
+	// example: "saml", "oidc", "scim", or vendor-defined classes).
 	AppSourceType string
 	// Raw IDP-specific value as returned by the connector's upstream API.
 	RawAppSourceType string

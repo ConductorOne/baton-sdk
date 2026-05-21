@@ -1,9 +1,12 @@
 package resource
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -78,4 +81,47 @@ func TestAppTraitSourceType(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "native", at.GetAppSourceType())
 	require.Equal(t, "OKTA_APP", at.GetRawAppSourceType())
+}
+
+func TestAppTraitValidateSourceType(t *testing.T) {
+	cases := []struct {
+		name     string
+		srcType  string
+		rawType  string
+		errField string
+	}{
+		{"empty passes", "", "", ""},
+		{"valid passes", "saml", "OKTA_APP", ""},
+		{"normalized too long", strings.Repeat("a", 65), "", "AppSourceType"},
+		{"raw too long", "saml", strings.Repeat("a", 257), "RawAppSourceType"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			at := &v2.AppTrait{}
+			at.SetAppSourceType(tc.srcType)
+			at.SetRawAppSourceType(tc.rawType)
+			err := at.Validate()
+			if tc.errField == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			var vErr v2.AppTraitValidationError
+			require.True(t, errors.As(err, &vErr))
+			require.Equal(t, tc.errField, vErr.Field())
+		})
+	}
+}
+
+func TestAppTraitAnnotationRoundTrip(t *testing.T) {
+	src, err := NewAppTrait(
+		WithAppSourceType("saml"),
+		WithRawAppSourceType("OKTA_APP"),
+	)
+	require.NoError(t, err)
+	resource := &v2.Resource{Annotations: annotations.New(src)}
+	got, err := GetAppTrait(resource)
+	require.NoError(t, err)
+	require.Equal(t, "saml", got.GetAppSourceType())
+	require.Equal(t, "OKTA_APP", got.GetRawAppSourceType())
 }
