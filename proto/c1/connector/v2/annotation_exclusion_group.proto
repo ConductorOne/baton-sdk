@@ -41,4 +41,14 @@ message EntitlementExclusionGroup {
   //
   // At most one entitlement per exclusion group should set is_default = true.
   bool is_default = 3;
+
+  // Scopes the exclusion group to each resource when used on a static
+  // entitlement. When true, the syncer appends "-<resource_id>" to
+  // exclusion_group_id while generating per-resource entitlements, producing
+  // one independent exclusion group per resource of the resource type.
+  //
+  // Leave false (the default) for cross-resource exclusion groups, where every
+  // resource in the resource type shares a single group identified by
+  // exclusion_group_id.
+  bool scope_to_resource = 4;
 }
