@@ -1191,7 +1191,7 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 			if err != nil {
 				return err
 			}
-			
+
 			annos := annotations.Annotations(ent.GetAnnotations())
 			exclusionGroup := &v2.EntitlementExclusionGroup{}
 			hasExclusionGroup, err := annos.Pick(exclusionGroup)
