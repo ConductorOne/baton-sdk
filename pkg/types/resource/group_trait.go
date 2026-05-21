@@ -8,6 +8,21 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+// GroupSourceType is the C1-normalized vocabulary used for
+// GroupTrait.group_source_type. Connectors should pick the closest match
+// for the IDP's group kind and pass the raw IDP value to
+// raw_group_source_type via WithRawGroupSourceType.
+type GroupSourceType string
+
+const (
+	GroupSourceTypeNative          GroupSourceType = "native"
+	GroupSourceTypeAppImported     GroupSourceType = "app_imported"
+	GroupSourceTypeBuiltIn         GroupSourceType = "built_in"
+	GroupSourceTypeDirectorySynced GroupSourceType = "directory_synced"
+	GroupSourceTypeDynamic         GroupSourceType = "dynamic"
+	GroupSourceTypeDistribution    GroupSourceType = "distribution"
+)
+
 type GroupTraitOption func(gt *v2.GroupTrait) error
 
 func WithGroupProfile(profile map[string]interface{}) GroupTraitOption {
@@ -26,6 +41,20 @@ func WithGroupProfile(profile map[string]interface{}) GroupTraitOption {
 func WithGroupIcon(assetRef *v2.AssetRef) GroupTraitOption {
 	return func(gt *v2.GroupTrait) error {
 		gt.SetIcon(assetRef)
+		return nil
+	}
+}
+
+func WithGroupSourceType(sourceType GroupSourceType) GroupTraitOption {
+	return func(gt *v2.GroupTrait) error {
+		gt.SetGroupSourceType(string(sourceType))
+		return nil
+	}
+}
+
+func WithRawGroupSourceType(raw string) GroupTraitOption {
+	return func(gt *v2.GroupTrait) error {
+		gt.SetRawGroupSourceType(raw)
 		return nil
 	}
 }

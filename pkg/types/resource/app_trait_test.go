@@ -64,3 +64,18 @@ func TestAppTrait(t *testing.T) {
 	require.NotNil(t, at.GetLogo())
 	require.Equal(t, "logoID", at.GetLogo().GetId())
 }
+
+func TestAppTraitSourceType(t *testing.T) {
+	at, err := NewAppTrait()
+	require.NoError(t, err)
+	require.Empty(t, at.GetAppSourceType())
+	require.Empty(t, at.GetRawAppSourceType())
+
+	at, err = NewAppTrait(
+		WithAppSourceType("native"),
+		WithRawAppSourceType("OKTA_APP"),
+	)
+	require.NoError(t, err)
+	require.Equal(t, "native", at.GetAppSourceType())
+	require.Equal(t, "OKTA_APP", at.GetRawAppSourceType())
+}

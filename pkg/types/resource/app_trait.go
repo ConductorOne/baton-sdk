@@ -53,6 +53,20 @@ func WithAppHelpURL(helpURL string) AppTraitOption {
 	}
 }
 
+func WithAppSourceType(sourceType string) AppTraitOption {
+	return func(at *v2.AppTrait) error {
+		at.SetAppSourceType(sourceType)
+		return nil
+	}
+}
+
+func WithRawAppSourceType(raw string) AppTraitOption {
+	return func(at *v2.AppTrait) error {
+		at.SetRawAppSourceType(raw)
+		return nil
+	}
+}
+
 // NewAppTrait creates a new `AppTrait` with the given help URL, and profile.
 func NewAppTrait(opts ...AppTraitOption) (*v2.AppTrait, error) {
 	at := &v2.AppTrait{}

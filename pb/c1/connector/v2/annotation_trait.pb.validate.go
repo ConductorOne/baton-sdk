@@ -504,6 +504,36 @@ func (m *GroupTrait) validate(all bool) error {
 		}
 	}
 
+	if m.GetGroupSourceType() != "" {
+
+		if len(m.GetGroupSourceType()) > 64 {
+			err := GroupTraitValidationError{
+				field:  "GroupSourceType",
+				reason: "value length must be at most 64 bytes",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if m.GetRawGroupSourceType() != "" {
+
+		if len(m.GetRawGroupSourceType()) > 256 {
+			err := GroupTraitValidationError{
+				field:  "RawGroupSourceType",
+				reason: "value length must be at most 256 bytes",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return GroupTraitMultiError(errors)
 	}
@@ -1316,6 +1346,36 @@ func (m *AppTrait) validate(all bool) error {
 				cause:  err,
 			}
 		}
+	}
+
+	if m.GetAppSourceType() != "" {
+
+		if len(m.GetAppSourceType()) > 64 {
+			err := AppTraitValidationError{
+				field:  "AppSourceType",
+				reason: "value length must be at most 64 bytes",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if m.GetRawAppSourceType() != "" {
+
+		if len(m.GetRawAppSourceType()) > 256 {
+			err := AppTraitValidationError{
+				field:  "RawAppSourceType",
+				reason: "value length must be at most 256 bytes",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
 	}
 
 	if len(errors) > 0 {
