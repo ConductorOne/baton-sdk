@@ -76,19 +76,19 @@ func isAlreadyExistsError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "duplicate column name")
 }
 
-func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
+func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) (bool, error) {
 	// Add expansion column if missing (for older files).
 	if _, err := db.ExecContext(ctx, fmt.Sprintf(
 		"alter table %s add column expansion blob", r.Name(),
 	)); err != nil && !isAlreadyExistsError(err) {
-		return err
+		return false, err
 	}
 
 	// Add needs_expansion column if missing.
 	if _, err := db.ExecContext(ctx, fmt.Sprintf(
 		"alter table %s add column needs_expansion integer not null default 0", r.Name(),
 	)); err != nil && !isAlreadyExistsError(err) {
-		return err
+		return false, err
 	}
 
 	// Create partial index for efficient queries on expandable grants.
@@ -97,7 +97,7 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 		fmt.Sprintf("idx_grants_sync_expansion_v%s", r.Version()),
 		r.Name(),
 	)); err != nil {
-		return err
+		return false, err
 	}
 
 	// Create partial index for grants needing expansion processing.
@@ -109,12 +109,13 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 		fmt.Sprintf("idx_grants_sync_needs_expansion_v%s", r.Version()),
 		r.Name(),
 	)); err != nil {
-		return err
+		return false, err
 	}
 
 	// Backfill expansion column from stored grant bytes.
-	if err := backfillGrantExpansionColumn(ctx, db, r.Name()); err != nil {
-		return err
+	backfilled, err := backfillGrantExpansionColumn(ctx, db, r.Name())
+	if err != nil {
+		return false, err
 	}
 
 	// Create index on entitlement_id, sync_id, and grant id.
@@ -123,10 +124,10 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 		fmt.Sprintf("idx_grants_entitlement_sync_grant_v%s", r.Version()),
 		r.Name(),
 	)); err != nil {
-		return err
+		return false, err
 	}
 
-	return nil
+	return backfilled, nil
 }
 
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
@@ -651,7 +652,7 @@ func extractAndStripExpansion(grant *v2.Grant) ([]byte, bool) {
 	return data, true
 }
 
-func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableName string) error {
+func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableName string) (bool, error) {
 	// Backfill grants only for syncs that have not yet been processed.
 	// The grants_backfilled flag is the single source of truth for whether
 	// this migration work still needs to run for a sync.
@@ -670,25 +671,25 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 		`SELECT sync_id FROM %s WHERE grants_backfilled = 0`, syncRuns.Name(),
 	))
 	if err != nil {
-		return err
+		return false, err
 	}
 	var pendingSyncIDs []any
 	for syncRows.Next() {
 		var sid string
 		if err := syncRows.Scan(&sid); err != nil {
 			_ = syncRows.Close()
-			return err
+			return false, err
 		}
 		pendingSyncIDs = append(pendingSyncIDs, sid)
 	}
 	if err := syncRows.Err(); err != nil {
 		_ = syncRows.Close()
-		return err
+		return false, err
 	}
 	_ = syncRows.Close()
 
 	if len(pendingSyncIDs) == 0 {
-		return nil
+		return false, nil
 	}
 
 	placeholders := strings.Repeat("?,", len(pendingSyncIDs))
@@ -710,7 +711,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 			tableName, placeholders,
 		), args...)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		type row struct {
@@ -722,13 +723,13 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 			var r row
 			if err := rows.Scan(&r.id, &r.data); err != nil {
 				_ = rows.Close()
-				return err
+				return false, err
 			}
 			batch = append(batch, r)
 		}
 		if err := rows.Err(); err != nil {
 			_ = rows.Close()
-			return err
+			return false, err
 		}
 		_ = rows.Close()
 
@@ -752,7 +753,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 		for _, r := range batch {
 			g := &v2.Grant{}
 			if err := proto.Unmarshal(r.data, g); err != nil {
-				return err
+				return false, err
 			}
 
 			expansionBytes, needsExpansion := extractAndStripExpansion(g)
@@ -764,7 +765,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 
 			newData, err := proto.Marshal(g)
 			if err != nil {
-				return err
+				return false, err
 			}
 			expandableRows = append(expandableRows, expandableRow{
 				id:             r.id,
@@ -776,7 +777,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		// Batch-mark non-expandable grants with the sentinel in one statement.
@@ -787,7 +788,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 				`UPDATE %s SET expansion=X'' WHERE id IN (%s)`, tableName, sp,
 			), sentinelIDs...); err != nil {
 				_ = tx.Rollback()
-				return err
+				return false, err
 			}
 		}
 
@@ -798,33 +799,33 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 			))
 			if err != nil {
 				_ = tx.Rollback()
-				return err
+				return false, err
 			}
 			for _, er := range expandableRows {
 				if _, err := fullStmt.ExecContext(ctx, er.expansionBytes, er.needsExpansion, er.data, er.id); err != nil {
 					_ = fullStmt.Close()
 					_ = tx.Rollback()
-					return err
+					return false, err
 				}
 			}
 			_ = fullStmt.Close()
 		}
 
 		if err := tx.Commit(); err != nil {
-			return err
+			return false, err
 		}
 	}
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	// Convert empty-blob sentinels back to NULL.
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(
 		`UPDATE %s SET expansion = NULL WHERE expansion = X''`, tableName,
 	)); err != nil {
 		_ = tx.Rollback()
-		return err
+		return false, err
 	}
 	// Mark all not-yet-processed syncs as backfilled so migration work only runs once.
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(
@@ -832,13 +833,13 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 		syncRuns.Name(),
 	)); err != nil {
 		_ = tx.Rollback()
-		return err
+		return false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return err
+		return false, err
 	}
 
-	return nil
+	return true, nil
 }
 
 func executeGrantChunkedUpsert(

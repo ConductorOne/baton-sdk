@@ -63,56 +63,72 @@ func (r *syncRunsTable) Schema() (string, []interface{}) {
 	}
 }
 
-func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) error {
+func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) (bool, error) {
+	migrated := false
+
 	// Check if sync_type column exists
 	var syncTypeExists int
 	err := db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='sync_type'", r.Name())).Scan(&syncTypeExists)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if syncTypeExists == 0 {
 		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column sync_type text not null default 'full'", r.Name()))
 		if err != nil {
-			return err
+			return false, err
 		}
+		migrated = true
 	}
 
 	// Check if parent_sync_id column exists
 	var parentSyncIDExists int
 	err = db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='parent_sync_id'", r.Name())).Scan(&parentSyncIDExists)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if parentSyncIDExists == 0 {
 		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column parent_sync_id text not null default ''", r.Name()))
 		if err != nil {
-			return err
+			return false, err
 		}
+		migrated = true
 	}
 
 	// Check if linked_sync_id column exists
 	var linkedSyncIDExists int
 	err = db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='linked_sync_id'", r.Name())).Scan(&linkedSyncIDExists)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if linkedSyncIDExists == 0 {
 		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column linked_sync_id text not null default ''", r.Name()))
 		if err != nil {
-			return err
+			return false, err
 		}
+		migrated = true
 	}
 
 	// Add supports_diff column if missing (for older files).
-	if _, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column supports_diff integer not null default 0", r.Name())); err != nil && !isAlreadyExistsError(err) {
-		return err
-	}
-	// Track whether grant expansion backfill has completed for this sync.
-	if _, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column grants_backfilled integer not null default 0", r.Name())); err != nil && !isAlreadyExistsError(err) {
-		return err
+	_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column supports_diff integer not null default 0", r.Name()))
+	if err != nil {
+		if !isAlreadyExistsError(err) {
+			return false, err
+		}
+	} else {
+		migrated = true
 	}
 
-	return nil
+	// Track whether grant expansion backfill has completed for this sync.
+	_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column grants_backfilled integer not null default 0", r.Name()))
+	if err != nil {
+		if !isAlreadyExistsError(err) {
+			return false, err
+		}
+	} else {
+		migrated = true
+	}
+
+	return migrated, nil
 }
 
 type syncRun struct {

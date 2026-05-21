@@ -101,12 +101,18 @@ func WithC1FPragma(name string, value string) C1FOption {
 	}
 }
 
+// WithC1FReadOnly opens the c1file in read only mode.
+// Write operations will return an error.
+// Read only mode is faster, as it disables journaling and synchronous writes.
 func WithC1FReadOnly(readOnly bool) C1FOption {
 	return func(o *C1File) {
 		o.readOnly = readOnly
 	}
 }
 
+// WithC1FEncoderConcurrency sets the number of created encoders.
+// Default is 1, which disables async encoding/concurrency.
+// 0 uses GOMAXPROCS.
 func WithC1FEncoderConcurrency(concurrency int) C1FOption {
 	return func(o *C1File) {
 		o.encoderConcurrency = concurrency
@@ -532,7 +538,7 @@ func (c *C1File) init(ctx context.Context) error {
 		return err
 	}
 
-	err = c.InitTables(ctx)
+	shouldOptimize, err := c.InitTables(ctx)
 	if err != nil {
 		l.Error("c1file-init: error initializing tables", zap.Error(err))
 		return err
@@ -549,13 +555,18 @@ func (c *C1File) init(ctx context.Context) error {
 	}
 
 	// Optimize DB. Desired after running migrations to improve performance.
-	_, err = c.db.ExecContext(ctx, "PRAGMA optimize")
-	if err != nil {
-		return err
+	if shouldOptimize {
+		l.Debug("c1file-init: optimizing database", zap.String("db_file_path", c.dbFilePath))
+		startTime := time.Now()
+		_, err = c.db.ExecContext(ctx, "PRAGMA optimize")
+		if err != nil {
+			return err
+		}
+		l.Debug("c1file-init: optimized database",
+			zap.Duration("time_taken", time.Since(startTime)),
+			zap.String("db_file_path", c.dbFilePath),
+		)
 	}
-	l.Debug("c1file-init: optimized database",
-		zap.String("db_file_path", c.dbFilePath),
-	)
 
 	if c.readOnly {
 		// Disable journaling in read only mode, since we're not writing to the database.
@@ -610,32 +621,89 @@ func (c *C1File) init(ctx context.Context) error {
 	return nil
 }
 
-func (c *C1File) InitTables(ctx context.Context) error {
+func getSchemaVersion(ctx context.Context, db *goqu.Database) (int, error) {
+	rows, err := db.QueryContext(ctx, "SELECT schema_version FROM pragma_schema_version;")
+	if err != nil {
+		return 0, fmt.Errorf("c1file-init-tables: error getting schema version: %w", err)
+	}
+	defer rows.Close()
+
+	var schemaVersion int
+	for rows.Next() {
+		err = rows.Scan(&schemaVersion)
+		if err != nil {
+			return 0, fmt.Errorf("c1file-init-tables: error scanning schema version: %w", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("c1file-init-tables: error iterating schema version rows: %w", err)
+	}
+
+	return schemaVersion, nil
+}
+
+// InitTables initializes the tables in the database.
+// Returns true if the any migrations were run, false otherwise.
+func (c *C1File) InitTables(ctx context.Context) (bool, error) {
 	ctx, span := tracer.Start(ctx, "C1File.InitTables")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
+	shouldOptimize := false
 	err = c.validateDb(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	l := ctxzap.Extract(ctx).With(zap.String("db_file_path", c.dbFilePath))
+
+	// Get schema version before creating tables/indexes/running migrations.
+	schemaVersion, err := getSchemaVersion(ctx, c.db)
+	if err != nil {
+		return false, fmt.Errorf("c1file-init-tables: error getting schema version: %w", err)
+	}
+
 	for _, t := range allTableDescriptors {
 		query, args := t.Schema()
+
+		startTime := time.Now()
 		_, err = c.db.ExecContext(ctx, fmt.Sprintf(query, args...))
 		if err != nil {
 			l.Error("c1file-init-tables: error initializing table schema", zap.Error(err), zap.String("table_name", t.Name()))
-			return fmt.Errorf("c1file-init-tables: error initializing table %s: %w", t.Name(), err)
+			return false, fmt.Errorf("c1file-init-tables: error initializing table %s: %w", t.Name(), err)
 		}
-		err = t.Migrations(ctx, c.db)
+		l.Debug("c1file-init-tables: initialized table",
+			zap.String("table_name", t.Name()),
+			zap.Duration("time_taken", time.Since(startTime)),
+		)
+
+		startTime = time.Now()
+		migrated, err := t.Migrations(ctx, c.db)
 		if err != nil {
-			l.Error("c1file-init-tables: error running migration", zap.Error(err), zap.String("table_name", t.Name()))
-			return fmt.Errorf("c1file-init-tables: error running migration for table %s: %w", t.Name(), err)
+			l.Error("c1file-init-tables: error running migrations", zap.Error(err), zap.String("table_name", t.Name()))
+			return false, fmt.Errorf("c1file-init-tables: error running migrations for table %s: %w", t.Name(), err)
+		}
+		l.Debug("c1file-init-tables: ran migrations",
+			zap.String("table_name", t.Name()),
+			zap.Duration("time_taken", time.Since(startTime)),
+			zap.Bool("migrated", migrated),
+		)
+		if migrated {
+			shouldOptimize = true
 		}
 	}
 
-	return nil
+	if !shouldOptimize {
+		newSchemaVersion, err := getSchemaVersion(ctx, c.db)
+		if err != nil {
+			return false, fmt.Errorf("c1file-init-tables: error getting schema version: %w", err)
+		}
+		if newSchemaVersion > schemaVersion {
+			shouldOptimize = true
+		}
+	}
+
+	return shouldOptimize, nil
 }
 
 // Stats introspects the database and returns the count of objects for the given sync run.

@@ -55,8 +55,8 @@ func (r *sessionStoreTable) Schema() (string, []interface{}) {
 	}
 }
 
-func (r *sessionStoreTable) Migrations(ctx context.Context, db *goqu.Database) error {
-	return nil
+func (r *sessionStoreTable) Migrations(ctx context.Context, db *goqu.Database) (bool, error) {
+	return false, nil
 }
 
 func applyBag(ctx context.Context, opt ...sessions.SessionStoreOption) (*sessions.SessionStoreBag, error) {
