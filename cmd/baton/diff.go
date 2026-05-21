@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -341,36 +339,21 @@ func bucketGrants(ctx context.Context, store *dotc1z.C1File, oldSyncID string, n
 	return ret, nil
 }
 
+// compareProto reports whether two protobuf messages are semantically equal.
+//
+// The previous implementation serialized each message via protojson, json-
+// roundtripped it through interface{}, re-marshaled, and bytes-compared the
+// result on both sides — six full payload traversals per call. That was a
+// brute-force normalization to paper over protojson's non-deterministic map
+// iteration order. proto.Equal handles canonicalization correctly (map order,
+// default-vs-unset fields, NaN, *anypb.Any) without serializing, which is
+// dramatically faster on the hot path of bucketResources / bucketEntitlements
+// / bucketGrants. See investigations/c1-uplift-perf-r1.md rec #2.
+//
+// The signature keeps ctx and error to minimize churn at call sites; both are
+// vestigial under the new implementation.
 func compareProto(ctx context.Context, oldR proto.Message, newR proto.Message) (bool, error) {
-	oldBytes, err := protojson.Marshal(oldR)
-	if err != nil {
-		return false, err
-	}
-	var oldIface interface{}
-	err = json.Unmarshal(oldBytes, &oldIface)
-	if err != nil {
-		return false, err
-	}
-	oldBytes, err = json.Marshal(oldIface)
-	if err != nil {
-		return false, err
-	}
-
-	newBytes, err := protojson.Marshal(newR)
-	if err != nil {
-		return false, err
-	}
-	var newIface interface{}
-	err = json.Unmarshal(newBytes, &newIface)
-	if err != nil {
-		return false, err
-	}
-	newBytes, err = json.Marshal(newIface)
-	if err != nil {
-		return false, err
-	}
-
-	return bytes.Equal(oldBytes, newBytes), nil
+	return proto.Equal(oldR, newR), nil
 }
 
 func stringifyResourceID(rID *v2.ResourceId) string {
