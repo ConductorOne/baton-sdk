@@ -490,17 +490,11 @@ func (b0 UserTrait_builder) Build() *UserTrait {
 }
 
 type GroupTrait struct {
-	state   protoimpl.MessageState `protogen:"hybrid.v1"`
-	Icon    *AssetRef              `protobuf:"bytes,1,opt,name=icon,proto3" json:"icon,omitempty"`
-	Profile *structpb.Struct       `protobuf:"bytes,2,opt,name=profile,proto3" json:"profile,omitempty"`
-	// C1-normalized source type. Canonical vocabulary lives in
-	// pkg/types/resource (GroupSourceType): native, app_imported, built_in,
-	// directory_synced, dynamic, distribution.
-	GroupSourceType string `protobuf:"bytes,3,opt,name=group_source_type,json=groupSourceType,proto3" json:"group_source_type,omitempty"`
-	// Raw IDP-specific value as returned by the connector's upstream API
-	// (e.g. "OKTA_GROUP", "APP_GROUP"). Preserved alongside the normalized
-	// field for traceability.
-	RawGroupSourceType string `protobuf:"bytes,4,opt,name=raw_group_source_type,json=rawGroupSourceType,proto3" json:"raw_group_source_type,omitempty"`
+	state              protoimpl.MessageState `protogen:"hybrid.v1"`
+	Icon               *AssetRef              `protobuf:"bytes,1,opt,name=icon,proto3" json:"icon,omitempty"`
+	Profile            *structpb.Struct       `protobuf:"bytes,2,opt,name=profile,proto3" json:"profile,omitempty"`
+	GroupSourceType    string                 `protobuf:"bytes,3,opt,name=group_source_type,json=groupSourceType,proto3" json:"group_source_type,omitempty"`
+	RawGroupSourceType string                 `protobuf:"bytes,4,opt,name=raw_group_source_type,json=rawGroupSourceType,proto3" json:"raw_group_source_type,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -599,15 +593,9 @@ func (x *GroupTrait) ClearProfile() {
 type GroupTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Icon    *AssetRef
-	Profile *structpb.Struct
-	// C1-normalized source type. Canonical vocabulary lives in
-	// pkg/types/resource (GroupSourceType): native, app_imported, built_in,
-	// directory_synced, dynamic, distribution.
-	GroupSourceType string
-	// Raw IDP-specific value as returned by the connector's upstream API
-	// (e.g. "OKTA_GROUP", "APP_GROUP"). Preserved alongside the normalized
-	// field for traceability.
+	Icon               *AssetRef
+	Profile            *structpb.Struct
+	GroupSourceType    string
 	RawGroupSourceType string
 }
 
@@ -943,18 +931,14 @@ func (b0 ScopeBindingTrait_builder) Build() *ScopeBindingTrait {
 }
 
 type AppTrait struct {
-	state   protoimpl.MessageState `protogen:"hybrid.v1"`
-	HelpUrl string                 `protobuf:"bytes,1,opt,name=help_url,json=helpUrl,proto3" json:"help_url,omitempty"`
-	Icon    *AssetRef              `protobuf:"bytes,2,opt,name=icon,proto3" json:"icon,omitempty"`
-	Logo    *AssetRef              `protobuf:"bytes,3,opt,name=logo,proto3" json:"logo,omitempty"`
-	Profile *structpb.Struct       `protobuf:"bytes,4,opt,name=profile,proto3" json:"profile,omitempty"`
-	Flags   []AppTrait_AppFlag     `protobuf:"varint,5,rep,packed,name=flags,proto3,enum=c1.connector.v2.AppTrait_AppFlag" json:"flags,omitempty"`
-	// C1-normalized source type for the app. Free-form pending a typed
-	// vocabulary; expected values describe the integration kind (for
-	// example: "saml", "oidc", "scim", or vendor-defined classes).
-	AppSourceType string `protobuf:"bytes,6,opt,name=app_source_type,json=appSourceType,proto3" json:"app_source_type,omitempty"`
-	// Raw IDP-specific value as returned by the connector's upstream API.
-	RawAppSourceType string `protobuf:"bytes,7,opt,name=raw_app_source_type,json=rawAppSourceType,proto3" json:"raw_app_source_type,omitempty"`
+	state            protoimpl.MessageState `protogen:"hybrid.v1"`
+	HelpUrl          string                 `protobuf:"bytes,1,opt,name=help_url,json=helpUrl,proto3" json:"help_url,omitempty"`
+	Icon             *AssetRef              `protobuf:"bytes,2,opt,name=icon,proto3" json:"icon,omitempty"`
+	Logo             *AssetRef              `protobuf:"bytes,3,opt,name=logo,proto3" json:"logo,omitempty"`
+	Profile          *structpb.Struct       `protobuf:"bytes,4,opt,name=profile,proto3" json:"profile,omitempty"`
+	Flags            []AppTrait_AppFlag     `protobuf:"varint,5,rep,packed,name=flags,proto3,enum=c1.connector.v2.AppTrait_AppFlag" json:"flags,omitempty"`
+	AppSourceType    string                 `protobuf:"bytes,6,opt,name=app_source_type,json=appSourceType,proto3" json:"app_source_type,omitempty"`
+	RawAppSourceType string                 `protobuf:"bytes,7,opt,name=raw_app_source_type,json=rawAppSourceType,proto3" json:"raw_app_source_type,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1097,16 +1081,12 @@ func (x *AppTrait) ClearProfile() {
 type AppTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	HelpUrl string
-	Icon    *AssetRef
-	Logo    *AssetRef
-	Profile *structpb.Struct
-	Flags   []AppTrait_AppFlag
-	// C1-normalized source type for the app. Free-form pending a typed
-	// vocabulary; expected values describe the integration kind (for
-	// example: "saml", "oidc", "scim", or vendor-defined classes).
-	AppSourceType string
-	// Raw IDP-specific value as returned by the connector's upstream API.
+	HelpUrl          string
+	Icon             *AssetRef
+	Logo             *AssetRef
+	Profile          *structpb.Struct
+	Flags            []AppTrait_AppFlag
+	AppSourceType    string
 	RawAppSourceType string
 }
 

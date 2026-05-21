@@ -593,15 +593,9 @@ func (x *GroupTrait) ClearProfile() {
 type GroupTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Icon    *AssetRef
-	Profile *structpb.Struct
-	// C1-normalized source type. Canonical vocabulary lives in
-	// pkg/types/resource (GroupSourceType): native, app_imported, built_in,
-	// directory_synced, dynamic, distribution.
-	GroupSourceType string
-	// Raw IDP-specific value as returned by the connector's upstream API
-	// (e.g. "OKTA_GROUP", "APP_GROUP"). Preserved alongside the normalized
-	// field for traceability.
+	Icon               *AssetRef
+	Profile            *structpb.Struct
+	GroupSourceType    string
 	RawGroupSourceType string
 }
 
@@ -1088,16 +1082,12 @@ func (x *AppTrait) ClearProfile() {
 type AppTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	HelpUrl string
-	Icon    *AssetRef
-	Logo    *AssetRef
-	Profile *structpb.Struct
-	Flags   []AppTrait_AppFlag
-	// C1-normalized source type for the app. Free-form pending a typed
-	// vocabulary; expected values describe the integration kind (for
-	// example: "saml", "oidc", "scim", or vendor-defined classes).
-	AppSourceType string
-	// Raw IDP-specific value as returned by the connector's upstream API.
+	HelpUrl          string
+	Icon             *AssetRef
+	Logo             *AssetRef
+	Profile          *structpb.Struct
+	Flags            []AppTrait_AppFlag
+	AppSourceType    string
 	RawAppSourceType string
 }
 

@@ -76,16 +76,10 @@ message UserTrait {
 message GroupTrait {
   c1.connector.v2.AssetRef icon = 1;
   google.protobuf.Struct profile = 2;
-  // C1-normalized source type. Canonical vocabulary lives in
-  // pkg/types/resource (GroupSourceType): native, app_imported, built_in,
-  // directory_synced, dynamic, distribution.
   string group_source_type = 3 [(validate.rules).string = {
     max_bytes: 64
     ignore_empty: true
   }];
-  // Raw IDP-specific value as returned by the connector's upstream API
-  // (e.g. "OKTA_GROUP", "APP_GROUP"). Preserved alongside the normalized
-  // field for traceability.
   string raw_group_source_type = 4 [(validate.rules).string = {
     max_bytes: 256
     ignore_empty: true
@@ -136,14 +130,10 @@ message AppTrait {
     APP_FLAG_BOOKMARK = 5;
   }
   repeated AppFlag flags = 5;
-  // C1-normalized source type for the app. Free-form pending a typed
-  // vocabulary; expected values describe the integration kind (for
-  // example: "saml", "oidc", "scim", or vendor-defined classes).
   string app_source_type = 6 [(validate.rules).string = {
     max_bytes: 64
     ignore_empty: true
   }];
-  // Raw IDP-specific value as returned by the connector's upstream API.
   string raw_app_source_type = 7 [(validate.rules).string = {
     max_bytes: 256
     ignore_empty: true

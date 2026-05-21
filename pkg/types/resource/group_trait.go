@@ -8,10 +8,6 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// GroupSourceType is the C1-normalized vocabulary used for
-// GroupTrait.group_source_type. Connectors should pick the closest match
-// for the IDP's group kind and pass the raw IDP value to
-// raw_group_source_type via WithRawGroupSourceType.
 type GroupSourceType string
 
 const (

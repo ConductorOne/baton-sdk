@@ -56,9 +56,7 @@ func TestGroupTraitSourceType(t *testing.T) {
 	require.Equal(t, "OKTA_GROUP", gt.GetRawGroupSourceType())
 }
 
-// Marshals a GroupTrait built from each constant and asserts the wire
-// bytes round-trip back to the documented literal string. A constant
-// rename or typo trips this; a same-value alias does not.
+// A constant rename or typo trips this; a same-value alias does not.
 func TestGroupSourceTypeWireFormat(t *testing.T) {
 	cases := []struct {
 		c    GroupSourceType
