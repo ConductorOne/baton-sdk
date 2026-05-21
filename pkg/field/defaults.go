@@ -258,6 +258,10 @@ var (
 		WithDescription("The path to the c1z file to sync external baton resources with"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
+	sourceCacheC1ZField = StringField("source-cache-c1z",
+		WithDescription("The path to a previous c1z file to use for source cache lookup and replay"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
 	externalResourceEntitlementIdFilter = StringField("external-resource-entitlement-id-filter",
 		WithDescription("The entitlement that external users, groups must have access to sync external baton resources"),
 		WithPersistent(true),
@@ -397,6 +401,7 @@ var DefaultFields = []SchemaField{
 	skipEntitlementsAndGrants,
 	skipGrants,
 	externalResourceC1ZField,
+	sourceCacheC1ZField,
 	externalResourceEntitlementIdFilter,
 	diffSyncsField,
 	diffSyncsBaseSyncField,

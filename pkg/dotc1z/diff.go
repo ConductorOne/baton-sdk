@@ -40,7 +40,7 @@ func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, applie
 	}
 
 	for _, t := range allTableDescriptors {
-		if strings.Contains(t.Name(), syncRunsTableName) {
+		if strings.Contains(t.Name(), syncRunsTableName) || strings.Contains(t.Name(), sourceCacheEntriesTableName) {
 			continue
 		}
 

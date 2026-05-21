@@ -40,6 +40,15 @@ func RunConnector[T field.Configurable](
 		}
 
 		builderOpts = append(builderOpts, connectorbuilder.WithSessionStore(runTimeOpts.SessionStore))
+		if runTimeOpts.SourceCacheLookup != nil {
+			// In subprocess mode runTimeOpts.SourceCacheLookup is a
+			// gRPC-backed Lookup talking to BatonSourceCacheService on the
+			// parent SDK. Wiring it here means every connector built via
+			// RunConnector picks up real source-cache lookups automatically,
+			// without each connector having to remember to call
+			// WithSourceCache.
+			builderOpts = append(builderOpts, connectorbuilder.WithSourceCache(runTimeOpts.SourceCacheLookup))
+		}
 
 		c, err := connectorbuilder.NewConnector(ctx, connector, builderOpts...)
 		if err != nil {

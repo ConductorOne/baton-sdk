@@ -22,6 +22,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
@@ -76,6 +77,7 @@ type builder struct {
 	nowFunc                 func() time.Time
 	clientSecret            *jose.JSONWebKey
 	sessionStore            sessions.SessionStore
+	sourceCache             sourcecache.Lookup
 	metadataProvider        MetadataProvider
 	validateProvider        ValidateProvider
 	ticketManager           TicketManagerLimited
@@ -239,6 +241,23 @@ func WithSessionStore(ss sessions.SessionStore) Opt {
 		b.sessionStore = ss
 		return nil
 	}
+}
+
+func WithSourceCache(lookup sourcecache.Lookup) Opt {
+	return func(b *builder) error {
+		if lookup == nil {
+			lookup = sourcecache.NoopLookup{}
+		}
+		b.sourceCache = lookup
+		return nil
+	}
+}
+
+func (b *builder) SetSourceCache(_ context.Context, lookup sourcecache.Lookup) {
+	if lookup == nil {
+		lookup = sourcecache.NoopLookup{}
+	}
+	b.sourceCache = lookup
 }
 
 func (b *builder) options(opts ...Opt) error {

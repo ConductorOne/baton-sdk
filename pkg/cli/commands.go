@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/maypok86/otter/v2"
@@ -46,29 +48,58 @@ const (
 
 type ContrainstSetter func(*cobra.Command, field.Configuration) error
 
-// In one shot & service mode, the child process uses this client to connect to the session store server...
+// dialParentControlPlane opens (lazily) a single gRPC connection from the
+// connector subprocess back to the parent SDK's control-plane listener. The
+// same connection multiplexes BatonSessionService (connector session data)
+// and BatonSourceCacheService (etag/scope-hash lookups) — the two services
+// share a listener on the parent so they share a client conn here as well.
 //
-//	which uses the C1Z for storage.  Unfortunately the C1Z is instantiated well after we fork the child process,
-//	so there is quite a bit of pass through.
-func getGRPCSessionStoreClient(ctx context.Context, serverCfg *v1.ServerConfig) func(ctx context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
-	return func(_ context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
-		l := ctxzap.Extract(ctx)
-		clientTLSConfig, err := utls2.ClientConfig(ctx, serverCfg.GetCredential())
+// Returns (nil, nil) when the parent did not start a control-plane listener
+// (e.g. session store disabled), so callers should treat a nil conn as
+// "no parent transport available" and substitute no-op implementations.
+type parentControlPlaneDialer struct {
+	once    sync.Once
+	conn    *grpc.ClientConn
+	dialErr error
+	ctx     context.Context
+	cfg     *v1.ServerConfig
+}
+
+func newParentControlPlaneDialer(ctx context.Context, serverCfg *v1.ServerConfig) *parentControlPlaneDialer {
+	return &parentControlPlaneDialer{ctx: ctx, cfg: serverCfg}
+}
+
+// Close releases the underlying gRPC connection if dial() ever succeeded.
+// Safe to call when dial() never ran, returned an error, or returned a
+// no-listener result; Close is also safe to call multiple times because the
+// underlying *grpc.ClientConn.Close is idempotent on a closed conn (it
+// returns ErrClientConnClosing, which we deliberately drop here so callers
+// can defer Close without inspecting the result).
+func (d *parentControlPlaneDialer) Close() {
+	if d.conn == nil {
+		return
+	}
+	_ = d.conn.Close()
+}
+
+func (d *parentControlPlaneDialer) dial() (*grpc.ClientConn, error) {
+	d.once.Do(func() {
+		if d.cfg.GetSessionStoreListenPort() == 0 {
+			return
+		}
+		clientTLSConfig, err := utls2.ClientConfig(d.ctx, d.cfg.GetCredential())
 		if err != nil {
-			return nil, err
+			d.dialErr = err
+			return
 		}
-		if serverCfg.GetSessionStoreListenPort() == 0 {
-			return &session.NoOpSessionStore{}, nil
-		}
-		// connected, grpc will handle retries for us.
-		dialCtx, canc := context.WithTimeout(ctx, 5*time.Second)
+		dialCtx, canc := context.WithTimeout(d.ctx, 5*time.Second)
 		defer canc()
 		var dialErr error
 		var conn *grpc.ClientConn
 		for {
 			conn, err = grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still.
-				ctx,
-				fmt.Sprintf("127.0.0.1:%d", serverCfg.GetSessionStoreListenPort()),
+				d.ctx,
+				fmt.Sprintf("127.0.0.1:%d", d.cfg.GetSessionStoreListenPort()),
 				grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
 				grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
 			)
@@ -77,24 +108,57 @@ func getGRPCSessionStoreClient(ctx context.Context, serverCfg *v1.ServerConfig) 
 				select {
 				case <-time.After(time.Millisecond * 500):
 				case <-dialCtx.Done():
-					return nil, dialErr
+					d.dialErr = dialErr
+					return
 				}
 				continue
 			}
 			break
 		}
+		d.conn = conn
+	})
+	return d.conn, d.dialErr
+}
 
-		client := baton_v1.NewBatonSessionServiceClient(conn)
-		ss, err := session.NewGRPCSessionStore(ctx, client, opt...)
+// In one shot & service mode, the child process uses this client to connect to the session store server...
+//
+//	which uses the C1Z for storage.  Unfortunately the C1Z is instantiated well after we fork the child process,
+//	so there is quite a bit of pass through.
+func getGRPCSessionStoreClient(ctx context.Context, dialer *parentControlPlaneDialer) func(ctx context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
+	return func(_ context.Context, _ ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
+		l := ctxzap.Extract(ctx)
+		conn, err := dialer.dial()
 		if err != nil {
-			err2 := conn.Close()
-			if err2 != nil {
-				l.Error("error closing connection", zap.Error(err2))
-			}
+			return nil, err
+		}
+		if conn == nil {
+			return &session.NoOpSessionStore{}, nil
+		}
+		client := baton_v1.NewBatonSessionServiceClient(conn)
+		ss, err := session.NewGRPCSessionStore(ctx, client)
+		if err != nil {
+			l.Error("error creating session store client", zap.Error(err))
 			return nil, err
 		}
 		return ss, nil
 	}
+}
+
+// buildGRPCSourceCacheLookup returns the connector-side source-cache Lookup
+// adapter that talks to the parent's BatonSourceCacheService over the same
+// loopback-TLS connection the session client uses. Returns NoopLookup if no
+// parent control-plane listener is configured (matches the "no previous
+// sync" behavior).
+func buildGRPCSourceCacheLookup(ctx context.Context, dialer *parentControlPlaneDialer) (sourcecache.Lookup, error) {
+	conn, err := dialer.dial()
+	if err != nil {
+		return nil, err
+	}
+	if conn == nil {
+		return sourcecache.NoopLookup{}, nil
+	}
+	client := baton_v1.NewBatonSourceCacheServiceClient(conn)
+	return sourcecache.NewGRPCLookup(client), nil
 }
 
 func MakeMainCommand[T field.Configurable](
@@ -378,11 +442,18 @@ func MakeMainCommand[T field.Configurable](
 
 		if v.GetString("external-resource-c1z") != "" {
 			externalResourceC1ZPath := v.GetString("external-resource-c1z")
-			_, err := os.Open(externalResourceC1ZPath)
-			if err != nil {
+			if _, err := os.Stat(externalResourceC1ZPath); err != nil {
 				return fmt.Errorf("the specified external resource c1z file does not exist: %s", externalResourceC1ZPath)
 			}
 			opts = append(opts, connectorrunner.WithExternalResourceC1Z(externalResourceC1ZPath))
+		}
+
+		if v.GetString("source-cache-c1z") != "" {
+			sourceCacheC1ZPath := v.GetString("source-cache-c1z")
+			if _, err := os.Stat(sourceCacheC1ZPath); err != nil {
+				return fmt.Errorf("the specified source cache c1z file does not exist: %s", sourceCacheC1ZPath)
+			}
+			opts = append(opts, connectorrunner.WithSourceCacheC1Z(sourceCacheC1ZPath))
 		}
 
 		if v.GetString("external-resource-entitlement-id-filter") != "" {
@@ -587,7 +658,18 @@ func MakeGRPCServerCommand[T field.Configurable](
 		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
 
 		sessionStoreMaximumSize := v.GetInt(field.ServerSessionStoreMaximumSizeField.GetName())
-		sessionConstructor := getGRPCSessionStoreClient(runCtx, serverCfg)
+		// One dialer per subprocess; both the session store client and the
+		// source-cache lookup client share the underlying gRPC connection.
+		// They land on the same parent listener (registered with both
+		// services in pkg/internal/connector/connector.go), so this is a
+		// single transport per child.
+		controlPlaneDialer := newParentControlPlaneDialer(runCtx, serverCfg)
+		defer controlPlaneDialer.Close()
+		sessionConstructor := getGRPCSessionStoreClient(runCtx, controlPlaneDialer)
+		sourceCacheLookup, err := buildGRPCSourceCacheLookup(runCtx, controlPlaneDialer)
+		if err != nil {
+			return fmt.Errorf("failed to build source cache lookup: %w", err)
+		}
 		c, err := getconnector(runCtx, t, RunTimeOpts{
 			SessionStore: NewLazyCachingSessionStore(sessionConstructor, func(otterOptions *otter.Options[string, []byte]) {
 				if sessionStoreMaximumSize <= 0 {
@@ -596,6 +678,7 @@ func MakeGRPCServerCommand[T field.Configurable](
 					otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
 				}
 			}),
+			SourceCacheLookup:   sourceCacheLookup,
 			SelectedAuthMethod:  v.GetString("auth-method"),
 			SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
 		})

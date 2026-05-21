@@ -63,6 +63,7 @@ type c1ApiTaskManager struct {
 	tempDir                             string
 	skipFullSync                        bool
 	externalResourceC1Z                 string
+	sourceCacheC1Z                      string
 	externalResourceEntitlementIdFilter string
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
@@ -417,6 +418,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 			tHelpers,
 			c.skipFullSync,
 			c.externalResourceC1Z,
+			c.sourceCacheC1Z,
 			c.externalResourceEntitlementIdFilter,
 			c.targetedSyncResources,
 			c.syncResourceTypeIDs,
@@ -483,6 +485,7 @@ func NewC1TaskManager(
 	tempDir string,
 	skipFullSync bool,
 	externalC1Z string,
+	sourceCacheC1Z string,
 	externalResourceEntitlementIdFilter string,
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
@@ -501,6 +504,7 @@ func NewC1TaskManager(
 		tempDir:                             tempDir,
 		skipFullSync:                        skipFullSync,
 		externalResourceC1Z:                 externalC1Z,
+		sourceCacheC1Z:                      sourceCacheC1Z,
 		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,

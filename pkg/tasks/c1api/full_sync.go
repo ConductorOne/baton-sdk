@@ -34,6 +34,7 @@ type fullSyncTaskHandler struct {
 	helpers                             fullSyncHelpers
 	skipFullSync                        bool
 	externalResourceC1ZPath             string
+	sourceCacheC1ZPath                  string
 	externalResourceEntitlementIdFilter string
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
@@ -72,6 +73,9 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 
 	if c.externalResourceC1ZPath != "" {
 		syncOpts = append(syncOpts, sdkSync.WithExternalResourceC1ZPath(c.externalResourceC1ZPath))
+	}
+	if c.sourceCacheC1ZPath != "" {
+		syncOpts = append(syncOpts, sdkSync.WithSourceCacheC1ZPath(c.sourceCacheC1ZPath))
 	}
 
 	if c.externalResourceEntitlementIdFilter != "" {
@@ -208,6 +212,7 @@ func newFullSyncTaskHandler(
 	helpers fullSyncHelpers,
 	skipFullSync bool,
 	externalResourceC1ZPath string,
+	sourceCacheC1ZPath string,
 	externalResourceEntitlementIdFilter string,
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
@@ -218,6 +223,7 @@ func newFullSyncTaskHandler(
 		helpers:                             helpers,
 		skipFullSync:                        skipFullSync,
 		externalResourceC1ZPath:             externalResourceC1ZPath,
+		sourceCacheC1ZPath:                  sourceCacheC1ZPath,
 		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,

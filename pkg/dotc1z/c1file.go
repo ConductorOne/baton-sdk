@@ -73,6 +73,21 @@ type C1File struct {
 
 	// See WithC1FV2GrantsWriter.
 	v2GrantsWriter bool
+
+	// sourceCacheRefAttached records whether SourceCache().AttachExternalSource
+	// has run an `ATTACH ... AS source_cache_ref` on this store's single pool
+	// connection. Cross-store source-cache replay queries assume the attach
+	// is in place; DetachExternalSource clears it. Safe to read/write without
+	// a mutex because SetMaxOpenConns(1) serializes every c.db call through
+	// one physical SQLite connection.
+	sourceCacheRefAttached bool
+
+	// tableColumnCache memoizes PRAGMA table_info() results keyed by
+	// "<schema>.<table>". Table schemas don't change during a sync, so a
+	// single PRAGMA per (schema, table) pair is sufficient and the
+	// per-replay PRAGMA round-trip can be skipped on every subsequent call.
+	tableColumnCache   map[string][]string
+	tableColumnCacheMu sync.Mutex
 }
 
 // *C1File satisfies connectorstore.Writer (the connector-facing contract),
@@ -167,12 +182,6 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		zap.String("db_file_path", dbFilePath),
 	)
 
-	// Limit to a single connection so idle pool connections don't hold WAL
-	// read locks that prevent PRAGMA wal_checkpoint(TRUNCATE) from completing
-	// all frames. Without this, saveC1z() can read an incomplete main db file
-	// because uncheckpointed WAL frames are invisible to raw file I/O.
-	rawDB.SetMaxOpenConns(1)
-
 	db := goqu.New("sqlite3", rawDB)
 
 	c1File := &C1File{
@@ -184,10 +193,26 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		slowQueryThreshold:    5 * time.Second,
 		slowQueryLogFrequency: 1 * time.Minute,
 		encoderConcurrency:    1,
+		tableColumnCache:      make(map[string][]string),
 	}
 
 	for _, opt := range opts {
 		opt(c1File)
+	}
+
+	// Writable stores limit to a single connection so idle pool connections
+	// don't hold WAL read locks that prevent PRAGMA wal_checkpoint(TRUNCATE)
+	// from completing all frames. Without this, saveC1z() can read an
+	// incomplete main db file because uncheckpointed WAL frames are invisible
+	// to raw file I/O.
+	//
+	// Read-only stores never write, never checkpoint, and never save, so they
+	// have no reason to serialize behind a single connection. Leaving the
+	// default pool lets multiple readers (including in-process ATTACH from
+	// another C1File for source-cache replay) run in parallel against the
+	// same file.
+	if !c1File.readOnly {
+		rawDB.SetMaxOpenConns(1)
 	}
 
 	err = c1File.validateDb(ctx)
@@ -603,7 +628,13 @@ func (c *C1File) init(ctx context.Context) error {
 			break
 		}
 	}
-	if !hasLockingPragma {
+	// Only writable stores get the default EXCLUSIVE locking_mode. The
+	// pragma exists to keep the writer from releasing its file lock between
+	// statements (a perf win for the single-writer sync pipeline). Read-only
+	// stores must allow other in-process readers (including ATTACH from the
+	// destination C1File during source-cache replay) to acquire SHARED locks
+	// in parallel, so we leave them in the SQLite default (NORMAL).
+	if !hasLockingPragma && !c.readOnly {
 		l.Debug("c1file-init: setting locking mode to EXCLUSIVE", zap.String("db_file_path", c.dbFilePath))
 		_, err = c.db.ExecContext(ctx, "PRAGMA main.locking_mode = EXCLUSIVE")
 		if err != nil {

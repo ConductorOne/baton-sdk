@@ -43,12 +43,10 @@ func (s *GRPCSessionServer) Get(ctx context.Context, req *v1.GetRequest) (*v1.Ge
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}
-
 	value, found, err := s.store.Get(ctx, req.GetKey(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get value from cache: %w", err)
 	}
-
 	return v1.GetResponse_builder{
 		Value: value,
 		Found: found,

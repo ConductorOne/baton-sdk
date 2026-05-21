@@ -2,7 +2,6 @@ package dotc1z
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -39,8 +38,8 @@ func quoteIdentifier(name string) string {
 // by querying PRAGMA table_info on the given connection. The column names are
 // returned in schema-definition order for the source table, which may differ
 // from a freshly-created table when columns were added via ALTER TABLE.
-func cloneTableColumns(ctx context.Context, conn *sql.Conn, tableName string) ([]string, error) {
-	rows, err := conn.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", tableName))
+func cloneTableColumns(ctx context.Context, q sqlQuerier, tableName string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", tableName))
 	if err != nil {
 		return nil, err
 	}
