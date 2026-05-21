@@ -2269,3 +2269,77 @@ func TestSyncGrants_DoesNotPropagateAnnotationWhenAbsent(t *testing.T) {
 			"grant %s carries InsertResourceGrants annotation but response did not", g.GetId())
 	}
 }
+
+func TestValidateExclusionGroupResourceTypes(t *testing.T) {
+	newEntitlement := func(t *testing.T, rt *v2.ResourceType, resourceID, slug string, groupID string) *v2.Entitlement {
+		t.Helper()
+		r, err := rs.NewResource(resourceID, rt, resourceID)
+		require.NoError(t, err)
+		opts := []et.EntitlementOption{}
+		if groupID != "" {
+			opts = append(opts, et.WithExclusionGroup(groupID))
+		}
+		return et.NewPermissionEntitlement(r, slug, opts...)
+	}
+
+	t.Run("empty input is a no-op", func(t *testing.T) {
+		s := &syncer{state: newState()}
+		require.NoError(t, s.validateExclusionGroupResourceTypes(nil))
+	})
+
+	t.Run("entitlements without exclusion group annotation pass", func(t *testing.T) {
+		s := &syncer{state: newState()}
+		ents := []*v2.Entitlement{
+			newEntitlement(t, userResourceType, "user1", "member", ""),
+			newEntitlement(t, groupResourceType, "group1", "admin", ""),
+		}
+		require.NoError(t, s.validateExclusionGroupResourceTypes(ents))
+	})
+
+	t.Run("shared group id within one resource type passes", func(t *testing.T) {
+		s := &syncer{state: newState()}
+		ents := []*v2.Entitlement{
+			newEntitlement(t, userResourceType, "user1", "viewer", "role"),
+			newEntitlement(t, userResourceType, "user2", "editor", "role"),
+			newEntitlement(t, userResourceType, "user3", "owner", "role"),
+		}
+		require.NoError(t, s.validateExclusionGroupResourceTypes(ents))
+	})
+
+	t.Run("distinct group ids across resource types are independent", func(t *testing.T) {
+		s := &syncer{state: newState()}
+		ents := []*v2.Entitlement{
+			newEntitlement(t, userResourceType, "user1", "viewer", "user-role"),
+			newEntitlement(t, groupResourceType, "group1", "admin", "group-role"),
+		}
+		require.NoError(t, s.validateExclusionGroupResourceTypes(ents))
+	})
+
+	t.Run("same group id on two resource types fails", func(t *testing.T) {
+		s := &syncer{state: newState()}
+		ents := []*v2.Entitlement{
+			newEntitlement(t, userResourceType, "user1", "viewer", "role"),
+			newEntitlement(t, groupResourceType, "group1", "admin", "role"),
+		}
+		err := s.validateExclusionGroupResourceTypes(ents)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `"role"`)
+		require.Contains(t, err.Error(), `"user"`)
+		require.Contains(t, err.Error(), `"group"`)
+	})
+
+	t.Run("conflict is detected across separate batches via persisted state", func(t *testing.T) {
+		s := &syncer{state: newState()}
+		// Batch 1: register "role" on the user resource type.
+		require.NoError(t, s.validateExclusionGroupResourceTypes([]*v2.Entitlement{
+			newEntitlement(t, userResourceType, "user1", "viewer", "role"),
+		}))
+		// Batch 2: a later call from a different resource type must fail, proving the
+		// state map carries observations across calls — i.e., across resumable actions.
+		err := s.validateExclusionGroupResourceTypes([]*v2.Entitlement{
+			newEntitlement(t, groupResourceType, "group1", "admin", "role"),
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `"role"`)
+	})
+}

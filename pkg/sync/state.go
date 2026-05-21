@@ -38,6 +38,13 @@ type State interface {
 	ShouldSkipGrants() bool
 	SetShouldSkipGrants()
 	GetCompletedActionsCount() uint64
+	// CheckAndSetExclusionGroupResourceType records that exclusionGroupID is
+	// used on resourceTypeID. If the group was already recorded against a
+	// different resource type, the prior value is returned with seen=true and
+	// the map is not modified. If the group was unseen or already maps to
+	// resourceTypeID, the map is updated and (resourceTypeID, false) is
+	// returned.
+	CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) (existing string, conflict bool)
 }
 
 // ActionOp represents a sync operation.
@@ -163,6 +170,7 @@ type state struct {
 	shouldSkipEntitlementsAndGrants bool
 	shouldSkipGrants                bool
 	completedActionsCount           uint64
+	exclusionGroupResourceTypes     map[string]string
 }
 
 // Original serialized token format. Needed to parse/resume syncs started by older versions of baton-sdk.
@@ -191,16 +199,18 @@ type serializedTokenV1 struct {
 	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants,omitempty"`
 	ShouldSkipGrants                bool                     `json:"should_skip_grants,omitempty"`
 	CompletedActionsCount           uint64                   `json:"completed_actions_count,omitempty"`
+	ExclusionGroupResourceTypes     map[string]string        `json:"exclusion_group_resource_types,omitempty"`
 	Version                         uint64                   `json:"version"`
 }
 
 func newState() *state {
 	return &state{
-		actions:          make(map[string]Action),
-		actionOrder:      []string{},
-		currentActionID:  0,
-		entitlementGraph: nil,
-		needsExpansion:   false,
+		actions:                     make(map[string]Action),
+		actionOrder:                 []string{},
+		currentActionID:             0,
+		entitlementGraph:            nil,
+		needsExpansion:              false,
+		exclusionGroupResourceTypes: make(map[string]string),
 	}
 }
 
@@ -319,6 +329,10 @@ func (st *state) Unmarshal(input string) error {
 		st.shouldSkipGrants = token.ShouldSkipGrants
 		st.shouldFetchRelatedResources = token.ShouldFetchRelatedResources
 		st.completedActionsCount = token.CompletedActionsCount
+		st.exclusionGroupResourceTypes = token.ExclusionGroupResourceTypes
+		if st.exclusionGroupResourceTypes == nil {
+			st.exclusionGroupResourceTypes = make(map[string]string)
+		}
 	} else {
 		st.actions = make(map[string]Action)
 		st.actionOrder = []string{}
@@ -332,6 +346,7 @@ func (st *state) Unmarshal(input string) error {
 		st.actions[actionID] = Action{Op: InitOp, ID: actionID}
 		st.actionOrder = append(st.actionOrder, actionID)
 		st.completedActionsCount = 0
+		st.exclusionGroupResourceTypes = make(map[string]string)
 	}
 
 	return nil
@@ -353,6 +368,7 @@ func (st *state) Marshal() (string, error) {
 		ShouldSkipEntitlementsAndGrants: st.shouldSkipEntitlementsAndGrants,
 		ShouldSkipGrants:                st.shouldSkipGrants,
 		CompletedActionsCount:           st.completedActionsCount,
+		ExclusionGroupResourceTypes:     st.exclusionGroupResourceTypes,
 		Version:                         1,
 	})
 	if err != nil {
@@ -483,4 +499,21 @@ func (st *state) GetCompletedActionsCount() uint64 {
 	st.mtx.RLock()
 	defer st.mtx.RUnlock()
 	return st.completedActionsCount
+}
+
+func (st *state) CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) (string, bool) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	if st.exclusionGroupResourceTypes == nil {
+		st.exclusionGroupResourceTypes = make(map[string]string)
+	}
+	if existing, ok := st.exclusionGroupResourceTypes[exclusionGroupID]; ok {
+		if existing != resourceTypeID {
+			return existing, true
+		}
+		return existing, false
+	}
+	st.exclusionGroupResourceTypes[exclusionGroupID] = resourceTypeID
+	return resourceTypeID, false
 }

@@ -396,3 +396,69 @@ func TestSyncerTokenEntitlementGraphMarshalUnmarshal(t *testing.T) {
 	require.Equal(t, graph.NextNodeID, restoredGraph.NextNodeID)
 	require.Equal(t, graph.NextEdgeID, restoredGraph.NextEdgeID)
 }
+
+func TestCheckAndSetExclusionGroupResourceType(t *testing.T) {
+	st := newState()
+
+	// First write for a group records the resource type and reports no conflict.
+	existing, conflict := st.CheckAndSetExclusionGroupResourceType("group-a", "user")
+	require.False(t, conflict)
+	require.Equal(t, "user", existing)
+
+	// Re-recording the same (group, resource type) pair is idempotent and not a conflict.
+	existing, conflict = st.CheckAndSetExclusionGroupResourceType("group-a", "user")
+	require.False(t, conflict)
+	require.Equal(t, "user", existing)
+
+	// A different group on a different resource type is independent and not a conflict.
+	existing, conflict = st.CheckAndSetExclusionGroupResourceType("group-b", "team")
+	require.False(t, conflict)
+	require.Equal(t, "team", existing)
+
+	// Reusing an existing group id on a different resource type is a conflict, and
+	// the originally-recorded resource type is returned.
+	existing, conflict = st.CheckAndSetExclusionGroupResourceType("group-a", "team")
+	require.True(t, conflict)
+	require.Equal(t, "user", existing)
+
+	// Conflicting attempt must not have rewritten the map; the original mapping holds.
+	existing, conflict = st.CheckAndSetExclusionGroupResourceType("group-a", "user")
+	require.False(t, conflict)
+	require.Equal(t, "user", existing)
+}
+
+func TestSyncerTokenExclusionGroupResourceTypesRoundTrip(t *testing.T) {
+	st := newState()
+
+	// Seed the map.
+	_, conflict := st.CheckAndSetExclusionGroupResourceType("group-a", "user")
+	require.False(t, conflict)
+	_, conflict = st.CheckAndSetExclusionGroupResourceType("group-b", "team")
+	require.False(t, conflict)
+
+	tokenString, err := st.Marshal()
+	require.NoError(t, err)
+
+	restored := newState()
+	require.NoError(t, restored.Unmarshal(tokenString))
+
+	// Reusing a group id on the same resource type should still not conflict after resume.
+	existing, conflict := restored.CheckAndSetExclusionGroupResourceType("group-a", "user")
+	require.False(t, conflict)
+	require.Equal(t, "user", existing)
+
+	// And reusing across resource types should conflict — proving the map crossed Marshal/Unmarshal.
+	existing, conflict = restored.CheckAndSetExclusionGroupResourceType("group-a", "team")
+	require.True(t, conflict)
+	require.Equal(t, "user", existing)
+}
+
+func TestSyncerTokenUnmarshalEmptyStringInitsExclusionGroupMap(t *testing.T) {
+	st := newState()
+	require.NoError(t, st.Unmarshal(""))
+
+	// A fresh-but-unmarshalled state must accept writes without panicking on a nil map.
+	existing, conflict := st.CheckAndSetExclusionGroupResourceType("group-a", "user")
+	require.False(t, conflict)
+	require.Equal(t, "user", existing)
+}

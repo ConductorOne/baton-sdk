@@ -231,6 +231,33 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 	}
 }
 
+// validateExclusionGroupResourceTypes records the resource type each
+// exclusion group id is observed on, and fails if a group id is reused across
+// different resource types. Exclusion groups may span multiple resources of a
+// single resource type but must not cross resource types.
+func (s *syncer) validateExclusionGroupResourceTypes(ents []*v2.Entitlement) error {
+	for _, ent := range ents {
+		eg := &v2.EntitlementExclusionGroup{}
+		entAnnos := annotations.Annotations(ent.GetAnnotations())
+		ok, err := entAnnos.Pick(eg)
+		if err != nil {
+			return err
+		}
+		groupID := eg.GetExclusionGroupId()
+		if !ok || groupID == "" {
+			continue
+		}
+		rtID := ent.GetResource().GetId().GetResourceType()
+		existing, conflict := s.state.CheckAndSetExclusionGroupResourceType(groupID, rtID)
+		if conflict {
+			return fmt.Errorf("exclusion group %q is used on multiple resource types (%q and %q); "+
+				"exclusion groups may span resources but must be scoped to a single resource type",
+				groupID, existing, rtID)
+		}
+	}
+	return nil
+}
+
 // nextPageOrFinishAction updates the action with the next page token, or if there is no next page, finishes the action.
 // It also pushes any child actions before updating/finishing the action.
 // This is useful for pagination, and for actions that create other actions.
@@ -1117,6 +1144,9 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	if err != nil {
 		return err
 	}
+	if err := s.validateExclusionGroupResourceTypes(resp.GetList()); err != nil {
+		return err
+	}
 	err = s.store.PutEntitlements(ctx, resp.GetList()...)
 	if err != nil {
 		return err
@@ -1214,6 +1244,16 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 				if hasExclusionGroup && exclusionGroup.GetScopeToResource() {
 					exclusionGroup.SetExclusionGroupId(baseExclusionGroupID + "-" + resource.GetId().GetResource())
 					annos.Update(exclusionGroup)
+				}
+
+				if hasExclusionGroup {
+					groupID := exclusionGroup.GetExclusionGroupId()
+					rtID := resource.GetId().GetResourceType()
+					if existing, conflict := s.state.CheckAndSetExclusionGroupResourceType(groupID, rtID); conflict {
+						return fmt.Errorf("exclusion group %q is used on multiple resource types (%q and %q); "+
+							"exclusion groups may span resources but must be scoped to a single resource type",
+							groupID, existing, rtID)
+					}
 				}
 
 				entitlements = append(entitlements, &v2.Entitlement{
