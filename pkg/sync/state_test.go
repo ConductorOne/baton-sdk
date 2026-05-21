@@ -461,4 +461,63 @@ func TestSyncerTokenUnmarshalEmptyStringInitsExclusionGroupMap(t *testing.T) {
 	existing, conflict := st.CheckAndSetExclusionGroupResourceType("group-a", "user")
 	require.False(t, conflict)
 	require.Equal(t, "user", existing)
+
+	existing, conflict = st.CheckAndSetExclusionGroupDefault("group-a", "user:user1:admin")
+	require.False(t, conflict)
+	require.Equal(t, "user:user1:admin", existing)
+}
+
+func TestCheckAndSetExclusionGroupDefault(t *testing.T) {
+	st := newState()
+
+	// First default for a group is recorded with no conflict.
+	existing, conflict := st.CheckAndSetExclusionGroupDefault("role", "user:user1:admin")
+	require.False(t, conflict)
+	require.Equal(t, "user:user1:admin", existing)
+
+	// Re-recording the same (group, entitlement) pair is idempotent.
+	existing, conflict = st.CheckAndSetExclusionGroupDefault("role", "user:user1:admin")
+	require.False(t, conflict)
+	require.Equal(t, "user:user1:admin", existing)
+
+	// A default in a different group is independent.
+	existing, conflict = st.CheckAndSetExclusionGroupDefault("other", "user:user2:owner")
+	require.False(t, conflict)
+	require.Equal(t, "user:user2:owner", existing)
+
+	// A second, different default in the same group is a conflict; the original is returned.
+	existing, conflict = st.CheckAndSetExclusionGroupDefault("role", "user:user2:editor")
+	require.True(t, conflict)
+	require.Equal(t, "user:user1:admin", existing)
+
+	// Conflicting attempt must not have rewritten the map.
+	existing, conflict = st.CheckAndSetExclusionGroupDefault("role", "user:user1:admin")
+	require.False(t, conflict)
+	require.Equal(t, "user:user1:admin", existing)
+}
+
+func TestSyncerTokenExclusionGroupDefaultsRoundTrip(t *testing.T) {
+	st := newState()
+
+	_, conflict := st.CheckAndSetExclusionGroupDefault("role-a", "user:user1:admin")
+	require.False(t, conflict)
+	_, conflict = st.CheckAndSetExclusionGroupDefault("role-b", "team:team1:lead")
+	require.False(t, conflict)
+
+	tokenString, err := st.Marshal()
+	require.NoError(t, err)
+
+	restored := newState()
+	require.NoError(t, restored.Unmarshal(tokenString))
+
+	// Re-recording the same default is idempotent.
+	existing, conflict := restored.CheckAndSetExclusionGroupDefault("role-a", "user:user1:admin")
+	require.False(t, conflict)
+	require.Equal(t, "user:user1:admin", existing)
+
+	// A conflicting default after resume is correctly rejected — proving the
+	// map crossed Marshal/Unmarshal.
+	existing, conflict = restored.CheckAndSetExclusionGroupDefault("role-a", "user:user2:editor")
+	require.True(t, conflict)
+	require.Equal(t, "user:user1:admin", existing)
 }

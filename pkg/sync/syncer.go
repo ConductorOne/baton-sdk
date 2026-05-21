@@ -231,31 +231,37 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 	}
 }
 
-// recordExclusionGroupResourceType records that exclusionGroupID is observed
-// on resourceTypeID and returns an error if the same group id was previously
-// recorded on a different resource type. Exclusion groups may span multiple
-// resources of a single resource type but must not cross resource types.
-// Empty group ids are treated as "no exclusion group" and skipped.
-func (s *syncer) recordExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) error {
-	if exclusionGroupID == "" {
+// recordEntitlementExclusionGroup enforces the invariants on an exclusion
+// group membership: a given exclusion_group_id must stay within one resource
+// type, and a group may have at most one entitlement marked is_default. Empty
+// group ids are treated as "no exclusion group" and skipped.
+func (s *syncer) recordEntitlementExclusionGroup(eg *v2.EntitlementExclusionGroup, entitlementID, resourceTypeID string) error {
+	groupID := eg.GetExclusionGroupId()
+	if groupID == "" {
 		return nil
 	}
-	existing, conflict := s.state.CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID)
-	if conflict {
+	if existing, conflict := s.state.CheckAndSetExclusionGroupResourceType(groupID, resourceTypeID); conflict {
 		return fmt.Errorf("exclusion group %q is used on multiple resource types (%q and %q); "+
 			"exclusion groups may span resources but must be scoped to a single resource type",
-			exclusionGroupID, existing, resourceTypeID)
+			groupID, existing, resourceTypeID)
+	}
+	if eg.GetIsDefault() {
+		if existing, conflict := s.state.CheckAndSetExclusionGroupDefault(groupID, entitlementID); conflict {
+			return fmt.Errorf("exclusion group %q has multiple default entitlements (%q and %q); "+
+				"at most one entitlement per exclusion group may set is_default=true",
+				groupID, existing, entitlementID)
+		}
 	}
 	return nil
 }
 
-// validateExclusionGroupResourceTypes picks the exclusion group annotation off
-// each entitlement (if present) and forwards to recordExclusionGroupResourceType.
+// validateEntitlementExclusionGroups picks the exclusion group annotation off
+// each entitlement (if present) and forwards to recordEntitlementExclusionGroup.
 // Use this on lists of entitlements that may independently carry exclusion
 // group annotations (e.g., the dynamic ListEntitlements path); callers that
-// already know the group/resource-type pair should call
-// recordExclusionGroupResourceType directly to avoid the per-entitlement Pick.
-func (s *syncer) validateExclusionGroupResourceTypes(ents []*v2.Entitlement) error {
+// already have the annotation in hand should call recordEntitlementExclusionGroup
+// directly to avoid the per-entitlement Pick.
+func (s *syncer) validateEntitlementExclusionGroups(ents []*v2.Entitlement) error {
 	for _, ent := range ents {
 		eg := &v2.EntitlementExclusionGroup{}
 		entAnnos := annotations.Annotations(ent.GetAnnotations())
@@ -266,7 +272,7 @@ func (s *syncer) validateExclusionGroupResourceTypes(ents []*v2.Entitlement) err
 		if !ok {
 			continue
 		}
-		if err := s.recordExclusionGroupResourceType(eg.GetExclusionGroupId(), ent.GetResource().GetId().GetResourceType()); err != nil {
+		if err := s.recordEntitlementExclusionGroup(eg, ent.GetId(), ent.GetResource().GetId().GetResourceType()); err != nil {
 			return err
 		}
 	}
@@ -1159,7 +1165,7 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	if err != nil {
 		return err
 	}
-	if err := s.validateExclusionGroupResourceTypes(resp.GetList()); err != nil {
+	if err := s.validateEntitlementExclusionGroups(resp.GetList()); err != nil {
 		return err
 	}
 	err = s.store.PutEntitlements(ctx, resp.GetList()...)
@@ -1261,15 +1267,16 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 					annos.Update(exclusionGroup)
 				}
 
+				entID := entitlement.NewEntitlementID(resource, ent.GetSlug())
 				if hasExclusionGroup {
-					if err := s.recordExclusionGroupResourceType(exclusionGroup.GetExclusionGroupId(), resource.GetId().GetResourceType()); err != nil {
+					if err := s.recordEntitlementExclusionGroup(exclusionGroup, entID, resource.GetId().GetResourceType()); err != nil {
 						return err
 					}
 				}
 
 				entitlements = append(entitlements, &v2.Entitlement{
 					Resource:    resource,
-					Id:          entitlement.NewEntitlementID(resource, ent.GetSlug()),
+					Id:          entID,
 					DisplayName: displayName,
 					Description: description,
 					GrantableTo: ent.GetGrantableTo(),
