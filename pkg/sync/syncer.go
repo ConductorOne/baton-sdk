@@ -231,10 +231,30 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 	}
 }
 
-// validateExclusionGroupResourceTypes records the resource type each
-// exclusion group id is observed on, and fails if a group id is reused across
-// different resource types. Exclusion groups may span multiple resources of a
-// single resource type but must not cross resource types.
+// recordExclusionGroupResourceType records that exclusionGroupID is observed
+// on resourceTypeID and returns an error if the same group id was previously
+// recorded on a different resource type. Exclusion groups may span multiple
+// resources of a single resource type but must not cross resource types.
+// Empty group ids are treated as "no exclusion group" and skipped.
+func (s *syncer) recordExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) error {
+	if exclusionGroupID == "" {
+		return nil
+	}
+	existing, conflict := s.state.CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID)
+	if conflict {
+		return fmt.Errorf("exclusion group %q is used on multiple resource types (%q and %q); "+
+			"exclusion groups may span resources but must be scoped to a single resource type",
+			exclusionGroupID, existing, resourceTypeID)
+	}
+	return nil
+}
+
+// validateExclusionGroupResourceTypes picks the exclusion group annotation off
+// each entitlement (if present) and forwards to recordExclusionGroupResourceType.
+// Use this on lists of entitlements that may independently carry exclusion
+// group annotations (e.g., the dynamic ListEntitlements path); callers that
+// already know the group/resource-type pair should call
+// recordExclusionGroupResourceType directly to avoid the per-entitlement Pick.
 func (s *syncer) validateExclusionGroupResourceTypes(ents []*v2.Entitlement) error {
 	for _, ent := range ents {
 		eg := &v2.EntitlementExclusionGroup{}
@@ -243,16 +263,11 @@ func (s *syncer) validateExclusionGroupResourceTypes(ents []*v2.Entitlement) err
 		if err != nil {
 			return err
 		}
-		groupID := eg.GetExclusionGroupId()
-		if !ok || groupID == "" {
+		if !ok {
 			continue
 		}
-		rtID := ent.GetResource().GetId().GetResourceType()
-		existing, conflict := s.state.CheckAndSetExclusionGroupResourceType(groupID, rtID)
-		if conflict {
-			return fmt.Errorf("exclusion group %q is used on multiple resource types (%q and %q); "+
-				"exclusion groups may span resources but must be scoped to a single resource type",
-				groupID, existing, rtID)
+		if err := s.recordExclusionGroupResourceType(eg.GetExclusionGroupId(), ent.GetResource().GetId().GetResourceType()); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1247,12 +1262,8 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 				}
 
 				if hasExclusionGroup {
-					groupID := exclusionGroup.GetExclusionGroupId()
-					rtID := resource.GetId().GetResourceType()
-					if existing, conflict := s.state.CheckAndSetExclusionGroupResourceType(groupID, rtID); conflict {
-						return fmt.Errorf("exclusion group %q is used on multiple resource types (%q and %q); "+
-							"exclusion groups may span resources but must be scoped to a single resource type",
-							groupID, existing, rtID)
+					if err := s.recordExclusionGroupResourceType(exclusionGroup.GetExclusionGroupId(), resource.GetId().GetResourceType()); err != nil {
+						return err
 					}
 				}
 
