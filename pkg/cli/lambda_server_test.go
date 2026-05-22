@@ -49,6 +49,33 @@ func (c *testLambdaConnectorCloseWithContext) Close(context.Context) error {
 	return nil
 }
 
+type testLambdaStringMapConfig struct {
+	UserCustomFields map[string]any `mapstructure:"user-custom-fields"`
+}
+
+func (c *testLambdaStringMapConfig) GetStringSlice(string) []string {
+	return nil
+}
+
+func (c *testLambdaStringMapConfig) GetString(string) string {
+	return ""
+}
+
+func (c *testLambdaStringMapConfig) GetInt(string) int {
+	return 0
+}
+
+func (c *testLambdaStringMapConfig) GetBool(string) bool {
+	return false
+}
+
+func (c *testLambdaStringMapConfig) GetStringMap(fieldName string) map[string]any {
+	if fieldName == "user-custom-fields" {
+		return c.UserCustomFields
+	}
+	return nil
+}
+
 func TestCloseLambdaConnectorGenerationSupportsCloseWithoutContext(t *testing.T) {
 	connector := &testLambdaConnectorCloseWithoutContext{}
 
@@ -86,5 +113,31 @@ func TestEffectiveLambdaConfigSyncResourceTypeIDs(t *testing.T) {
 	want := []string{"user", "group"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sync-resource-types = %#v, want %#v", got, want)
+	}
+}
+
+func TestMakeLambdaConnectorConfigurationPreservesStringMapKeyCase(t *testing.T) {
+	t.Parallel()
+
+	base := viper.New()
+	connectorConfig := map[string]any{
+		"user-custom-fields": map[string]any{
+			"departmentNav/name": "Department",
+			"customString10":     "Custom String 10",
+		},
+	}
+
+	config, err := makeLambdaConnectorConfiguration[*testLambdaStringMapConfig](base, effectiveLambdaConfig(base, connectorConfig), connectorConfig)
+	if err != nil {
+		t.Fatalf("makeLambdaConnectorConfiguration: %v", err)
+	}
+
+	got := config.GetStringMap("user-custom-fields")
+	want := map[string]any{
+		"departmentNav/name": "Department",
+		"customString10":     "Custom String 10",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("user-custom-fields = %#v, want %#v", got, want)
 	}
 }
