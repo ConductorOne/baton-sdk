@@ -38,6 +38,7 @@ type EntitlementExclusionGroup struct {
 	xxx_hidden_ExclusionGroupId string                 `protobuf:"bytes,1,opt,name=exclusion_group_id,json=exclusionGroupId,proto3"`
 	xxx_hidden_Order            uint32                 `protobuf:"varint,2,opt,name=order,proto3"`
 	xxx_hidden_IsDefault        bool                   `protobuf:"varint,3,opt,name=is_default,json=isDefault,proto3"`
+	xxx_hidden_ScopeToResource  bool                   `protobuf:"varint,4,opt,name=scope_to_resource,json=scopeToResource,proto3"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }
@@ -88,6 +89,13 @@ func (x *EntitlementExclusionGroup) GetIsDefault() bool {
 	return false
 }
 
+func (x *EntitlementExclusionGroup) GetScopeToResource() bool {
+	if x != nil {
+		return x.xxx_hidden_ScopeToResource
+	}
+	return false
+}
+
 func (x *EntitlementExclusionGroup) SetExclusionGroupId(v string) {
 	x.xxx_hidden_ExclusionGroupId = v
 }
@@ -98,6 +106,10 @@ func (x *EntitlementExclusionGroup) SetOrder(v uint32) {
 
 func (x *EntitlementExclusionGroup) SetIsDefault(v bool) {
 	x.xxx_hidden_IsDefault = v
+}
+
+func (x *EntitlementExclusionGroup) SetScopeToResource(v bool) {
+	x.xxx_hidden_ScopeToResource = v
 }
 
 type EntitlementExclusionGroup_builder struct {
@@ -126,6 +138,15 @@ type EntitlementExclusionGroup_builder struct {
 	//
 	// At most one entitlement per exclusion group should set is_default = true.
 	IsDefault bool
+	// Scopes the exclusion group to each resource when used on a static
+	// entitlement. When true, the syncer appends "-<resource_id>" to
+	// exclusion_group_id while generating per-resource entitlements, producing
+	// one independent exclusion group per resource of the resource type.
+	//
+	// Leave false (the default) for cross-resource exclusion groups, where every
+	// resource in the resource type shares a single group identified by
+	// exclusion_group_id.
+	ScopeToResource bool
 }
 
 func (b0 EntitlementExclusionGroup_builder) Build() *EntitlementExclusionGroup {
@@ -135,6 +156,7 @@ func (b0 EntitlementExclusionGroup_builder) Build() *EntitlementExclusionGroup {
 	x.xxx_hidden_ExclusionGroupId = b.ExclusionGroupId
 	x.xxx_hidden_Order = b.Order
 	x.xxx_hidden_IsDefault = b.IsDefault
+	x.xxx_hidden_ScopeToResource = b.ScopeToResource
 	return m0
 }
 
@@ -142,12 +164,13 @@ var File_c1_connector_v2_annotation_exclusion_group_proto protoreflect.FileDescr
 
 const file_c1_connector_v2_annotation_exclusion_group_proto_rawDesc = "" +
 	"\n" +
-	"0c1/connector/v2/annotation_exclusion_group.proto\x12\x0fc1.connector.v2\"~\n" +
+	"0c1/connector/v2/annotation_exclusion_group.proto\x12\x0fc1.connector.v2\"\xaa\x01\n" +
 	"\x19EntitlementExclusionGroup\x12,\n" +
 	"\x12exclusion_group_id\x18\x01 \x01(\tR\x10exclusionGroupId\x12\x14\n" +
 	"\x05order\x18\x02 \x01(\rR\x05order\x12\x1d\n" +
 	"\n" +
-	"is_default\x18\x03 \x01(\bR\tisDefaultB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"is_default\x18\x03 \x01(\bR\tisDefault\x12*\n" +
+	"\x11scope_to_resource\x18\x04 \x01(\bR\x0fscopeToResourceB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_exclusion_group_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_c1_connector_v2_annotation_exclusion_group_proto_goTypes = []any{

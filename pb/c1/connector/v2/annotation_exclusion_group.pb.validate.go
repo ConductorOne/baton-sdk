@@ -63,6 +63,8 @@ func (m *EntitlementExclusionGroup) validate(all bool) error {
 
 	// no validation rules for IsDefault
 
+	// no validation rules for ScopeToResource
+
 	if len(errors) > 0 {
 		return EntitlementExclusionGroupMultiError(errors)
 	}

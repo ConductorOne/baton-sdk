@@ -1191,6 +1191,15 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 			if err != nil {
 				return err
 			}
+
+			annos := annotations.Annotations(ent.GetAnnotations())
+			exclusionGroup := &v2.EntitlementExclusionGroup{}
+			hasExclusionGroup, err := annos.Pick(exclusionGroup)
+			if err != nil {
+				return err
+			}
+			baseExclusionGroupID := exclusionGroup.GetExclusionGroupId()
+
 			entitlements := []*v2.Entitlement{}
 			for _, resource := range resourcesResp.GetList() {
 				displayName := ent.GetDisplayName()
@@ -1202,13 +1211,18 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 					description = resource.GetDescription()
 				}
 
+				if hasExclusionGroup && exclusionGroup.GetScopeToResource() {
+					exclusionGroup.SetExclusionGroupId(baseExclusionGroupID + "-" + resource.GetId().GetResource())
+					annos.Update(exclusionGroup)
+				}
+
 				entitlements = append(entitlements, &v2.Entitlement{
 					Resource:    resource,
 					Id:          entitlement.NewEntitlementID(resource, ent.GetSlug()),
 					DisplayName: displayName,
 					Description: description,
 					GrantableTo: ent.GetGrantableTo(),
-					Annotations: ent.GetAnnotations(),
+					Annotations: annos,
 					Slug:        ent.GetSlug(),
 					Purpose:     ent.GetPurpose(),
 				})

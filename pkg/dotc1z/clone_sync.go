@@ -187,7 +187,10 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) e
 
 	// Open a fresh C1File to compress the populated db into a c1z.
 	// No other connections are open on dbPath at this point.
-	outFile, err := NewC1File(ctx, dbPath)
+	outFile, err := NewC1File(ctx, dbPath,
+		WithC1FEncoderConcurrency(0),
+		WithC1FSkipCleanup(true), // No need to clean up old syncs, as we only copied one sync into the new file.
+	)
 	if err != nil {
 		return err
 	}

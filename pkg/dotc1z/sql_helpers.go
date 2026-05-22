@@ -44,7 +44,8 @@ type tableDescriptor interface {
 	Name() string
 	Schema() (string, []any)
 	Version() string
-	Migrations(ctx context.Context, db *goqu.Database) error
+	// Returns true if the any migrations were run, false otherwise.
+	Migrations(ctx context.Context, db *goqu.Database) (bool, error)
 }
 
 type listRequest interface {
