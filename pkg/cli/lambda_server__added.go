@@ -20,6 +20,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/maypok86/otter/v2"
+	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -321,13 +322,17 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				return nil, fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
 			}
 
-			effectiveConfig := effectiveLambdaConfig(v, configStruct.AsMap())
+			connectorConfig := configStruct.AsMap()
+			effectiveConfig, err := effectiveLambdaConfig(v, connectorConfig, connectorSchema)
+			if err != nil {
+				return nil, err
+			}
 			logLevelConfig, err := lambdaLogLevelConfigFromViper(effectiveConfig)
 			if err != nil {
 				return nil, err
 			}
 
-			t, err := MakeGenericConfiguration[T](effectiveConfig, decodeOpts)
+			t, err := makeLambdaConnectorConfiguration[T](v, effectiveConfig, connectorConfig, decodeOpts)
 			if err != nil {
 				return nil, fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
 			}
@@ -475,12 +480,90 @@ func cloneViperSettings(v *viper.Viper) *viper.Viper {
 	return cloned
 }
 
-func effectiveLambdaConfig(v *viper.Viper, connectorConfig map[string]any) *viper.Viper {
+func effectiveLambdaConfig(v *viper.Viper, connectorConfig map[string]any, connectorSchema field.Configuration) (*viper.Viper, error) {
 	effectiveConfig := cloneViperSettings(v)
+	stringMapFields := lambdaStringMapFields(connectorSchema)
 	for key, value := range connectorConfig {
+		var err error
+		value, err = lambdaViperConfigValue(key, value, stringMapFields)
+		if err != nil {
+			return nil, fmt.Errorf("lambda-run: failed to preserve StringMap config %q: %w", key, err)
+		}
 		effectiveConfig.Set(key, value)
 	}
-	return effectiveConfig
+	return effectiveConfig, nil
+}
+
+func lambdaStringMapFields(connectorSchema field.Configuration) map[string]struct{} {
+	fields := make(map[string]struct{})
+	add := func(schemaFields []field.SchemaField) {
+		for _, schemaField := range schemaFields {
+			if schemaField.Variant == field.StringMapVariant {
+				fields[schemaField.FieldName] = struct{}{}
+			}
+		}
+	}
+	add(connectorSchema.Fields)
+	for _, fieldGroup := range connectorSchema.FieldGroups {
+		add(fieldGroup.Fields)
+	}
+	return fields
+}
+
+func lambdaViperConfigValue(key string, value any, stringMapFields map[string]struct{}) (any, error) {
+	if _, ok := stringMapFields[key]; !ok {
+		return value, nil
+	}
+	switch value.(type) {
+	case map[string]any:
+	default:
+		return value, nil
+	}
+	// Viper.GetStringMap parses JSON strings without lowercasing their keys.
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return string(encoded), nil
+}
+
+// Viper.Set lowercases map keys recursively, so typed connector configs decode
+// merged settings with the raw lambda payload to preserve StringMap key case.
+func makeLambdaConnectorConfiguration[T field.Configurable](v *viper.Viper, effectiveConfig *viper.Viper, connectorConfig map[string]any, opts ...field.DecodeHookOption) (T, error) {
+	var config T
+	if _, ok := any(config).(*viper.Viper); ok {
+		if t, ok := any(effectiveConfig).(T); ok {
+			return t, nil
+		}
+		return config, fmt.Errorf("cannot convert *viper.Viper to %T", config)
+	}
+
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		DecodeHook:       field.ComposeDecodeHookFunc(opts...),
+		Result:           &config,
+		WeaklyTypedInput: true,
+		ZeroFields:       true,
+	})
+	if err != nil {
+		return config, err
+	}
+	if err := decoder.Decode(lambdaConnectorSettings(v, connectorConfig)); err != nil {
+		return config, err
+	}
+	return config, nil
+}
+
+func lambdaConnectorSettings(v *viper.Viper, connectorConfig map[string]any) map[string]any {
+	settings := map[string]any{}
+	if v != nil {
+		for key, value := range v.AllSettings() {
+			settings[key] = value
+		}
+	}
+	for key, value := range connectorConfig {
+		settings[key] = value
+	}
+	return settings
 }
 
 // createSessionCacheConstructor creates a session cache constructor function that uses the provided gRPC client.
