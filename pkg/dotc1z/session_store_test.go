@@ -18,7 +18,7 @@ func TestC1FileSessionStore_Get(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 	defer c1zFile.Close(ctx)
 
@@ -76,7 +76,7 @@ func TestC1FileSessionStore_Set(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 	defer c1zFile.Close(ctx)
 
@@ -144,7 +144,7 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 	defer c1zFile.Close(ctx)
 
@@ -473,7 +473,7 @@ func TestC1FileSessionStore_SetMany(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 	defer c1zFile.Close(ctx)
 
@@ -554,7 +554,7 @@ func TestC1FileSessionStore_Delete(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 	defer c1zFile.Close(ctx)
 
@@ -625,7 +625,7 @@ func TestC1FileSessionStore_Clear(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 	defer c1zFile.Close(ctx)
 
@@ -766,7 +766,7 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 	defer c1zFile.Close(ctx)
 
@@ -1742,7 +1742,7 @@ func TestC1FileSessionStore_Isolation(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 	defer c1zFile.Close(ctx)
 
@@ -1809,7 +1809,7 @@ func TestC1FileSessionStore_ConcurrentAccess(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"), WithPragma("main.locking_mode", "NORMAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("main.locking_mode", "NORMAL"))
 	require.NoError(t, err)
 	defer c1zFile.Close(ctx)
 
@@ -1862,7 +1862,7 @@ func TestC1FileSessionStore_ErrorHandling(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 	defer c1zFile.Close(ctx)
 
@@ -1894,7 +1894,7 @@ func TestC1FileSessionStore_Performance(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 	defer c1zFile.Close(ctx)
 

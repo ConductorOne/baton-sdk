@@ -58,7 +58,7 @@ func TestPutResources(t *testing.T) {
 
 	tempDir := filepath.Join(t.TempDir(), "test.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 
 	syncId, err := c1zFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -94,7 +94,7 @@ func TestListResources(t *testing.T) {
 
 	tempDir := filepath.Join(t.TempDir(), "test.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 	defer func() {
 		err := c1zFile.Close(ctx)
@@ -183,7 +183,7 @@ func TestListResourcesWithParentFilter(t *testing.T) {
 
 	tempDir := filepath.Join(t.TempDir(), "test.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir)
 	require.NoError(t, err)
 	defer func() {
 		err := c1zFile.Close(ctx)
@@ -361,7 +361,7 @@ func BenchmarkPutResources(b *testing.B) {
 
 				tempDir := filepath.Join(b.TempDir(), "test.c1z")
 
-				c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+				c1zFile, err := NewC1ZFile(ctx, tempDir)
 				require.NoError(b, err)
 
 				_, err = c1zFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")

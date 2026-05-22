@@ -55,7 +55,6 @@ func TestAttachedCompactorWithTmpDir(t *testing.T) {
 
 func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
 	opts := []dotc1z.C1ZOption{
-		dotc1z.WithPragma("journal_mode", "WAL"),
 		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
 	}
 
@@ -854,7 +853,6 @@ func runSyncTypeTest(
 	expectedSyncType connectorstore.SyncType,
 ) {
 	opts := []dotc1z.C1ZOption{
-		dotc1z.WithPragma("journal_mode", "WAL"),
 		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
 	}
 
@@ -906,7 +904,6 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 	appliedFile := filepath.Join(outputDir, "applied.c1z")
 
 	opts := []dotc1z.C1ZOption{
-		dotc1z.WithPragma("journal_mode", "WAL"),
 		dotc1z.WithTmpDir(tmpDir),
 	}
 

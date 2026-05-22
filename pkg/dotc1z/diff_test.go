@@ -19,7 +19,7 @@ func TestGenerateSyncDiff(t *testing.T) {
 	filePath := filepath.Join(c1zTests.workingDir, "diff_additions.c1z")
 
 	// Create the base C1Z file
-	syncFile, err := NewC1ZFile(ctx, filePath, WithPragma("journal_mode", "WAL"))
+	syncFile, err := NewC1ZFile(ctx, filePath)
 	require.NoError(t, err)
 	defer syncFile.Close(ctx)
 
@@ -112,7 +112,7 @@ func TestGenerateSyncDiffFromFile_Additions(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 
 	// Create the OLD file with one resource.
 	// We're attaching this later, so don't use an exclusive lock.
@@ -241,7 +241,7 @@ func TestGenerateSyncDiffFromFile_Deletions(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 
 	// Create the OLD file with two resources
 	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
@@ -345,7 +345,7 @@ func TestGenerateSyncDiffFromFile_Modifications(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 
 	// Create the OLD file with a resource
 	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
@@ -441,7 +441,7 @@ func TestGenerateSyncDiffFromFile_MixedChanges(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 	resourceTypeID := testResourceType
 
 	// Create OLD file with resources A, B, C
@@ -574,7 +574,7 @@ func TestGenerateSyncDiffFromFile_NoChanges(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 	resourceTypeID := testResourceType
 
 	// Create OLD file with resource A
@@ -668,7 +668,7 @@ func TestGenerateSyncDiffFromFile_EntitlementsOnly(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 	resourceTypeID := testResourceType
 
 	// Create OLD file with entitlement A
@@ -777,7 +777,7 @@ func TestGenerateSyncDiffFromFile_GrantsOnly(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 	resourceTypeID := testResourceType
 
 	// Create OLD file with grant A
@@ -910,7 +910,7 @@ func TestGenerateSyncDiffFromFile_EmptyBase(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 	resourceTypeID := testResourceType
 
 	// Create OLD file with empty sync (no resources)
@@ -1014,7 +1014,7 @@ func TestGenerateSyncDiffFromFile_EmptyNew(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 	resourceTypeID := testResourceType
 
 	// Create OLD file with resources A and B
@@ -1118,7 +1118,7 @@ func TestGenerateSyncDiffFromFile_EntitlementsDeletions(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 	resourceTypeID := testResourceType
 
 	// Create OLD file with entitlements A and B
@@ -1227,7 +1227,7 @@ func TestGenerateSyncDiffFromFile_EntitlementsModifications(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 	resourceTypeID := testResourceType
 
 	// Create OLD file with entitlement A
@@ -1325,7 +1325,7 @@ func TestGenerateSyncDiffFromFile_GrantsDeletions(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 	resourceTypeID := testResourceType
 
 	// Create OLD file with grants A and B

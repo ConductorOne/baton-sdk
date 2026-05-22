@@ -63,7 +63,7 @@ func TestCleanupVacuumWAL(t *testing.T) {
 
 	testFilePath := filepath.Join(tmpDir, "test.c1z")
 
-	f, err := dotc1z.NewC1ZFile(ctx, testFilePath, dotc1z.WithPragma("journal_mode", "WAL"))
+	f, err := dotc1z.NewC1ZFile(ctx, testFilePath)
 	require.NoError(t, err)
 
 	_, err = c1ztest.CreateTestSync(ctx, t, f, c1ztest.C1ZCounts{
