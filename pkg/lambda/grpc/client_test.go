@@ -73,9 +73,11 @@ func TestIsLambdaOOM(t *testing.T) {
 			want:   false,
 		},
 		{
-			name:   "OOM via signal killed",
-			rawLog: "START RequestId: abc-123\nRequestId: abc-123 Error: Runtime exited with error: signal: killed\nRuntime.ExitError\nEND RequestId: abc-123\nREPORT RequestId: abc-123 Duration: 5000 ms Memory Size: 512 MB Max Memory Used: 512 MB\n",
-			want:   true,
+			name: "OOM via signal killed",
+			rawLog: "START RequestId: abc-123\nRequestId: abc-123 Error: Runtime exited with error: signal: killed\n" +
+				"Runtime.ExitError\nEND RequestId: abc-123\n" +
+				"REPORT RequestId: abc-123 Duration: 5000 ms Memory Size: 512 MB Max Memory Used: 512 MB\n",
+			want: true,
 		},
 		{
 			name:   "OOM via memory match without signal killed",
@@ -148,7 +150,9 @@ func TestClassifyLambdaError(t *testing.T) {
 			functionError: "Unhandled",
 			statusCode:    200,
 			payload:       []byte(`{}`),
-			rawLog:        "START RequestId: abc-123\nRequestId: abc-123 Error: Runtime exited with error: signal: killed\nRuntime.ExitError\nEND RequestId: abc-123\nREPORT RequestId: abc-123 Duration: 5000 ms Memory Size: 512 MB Max Memory Used: 512 MB\n",
+			rawLog: "START RequestId: abc-123\nRequestId: abc-123 Error: Runtime exited with error: signal: killed\n" +
+				"Runtime.ExitError\nEND RequestId: abc-123\n" +
+				"REPORT RequestId: abc-123 Duration: 5000 ms Memory Size: 512 MB Max Memory Used: 512 MB\n",
 			wantCode:      codes.ResourceExhausted,
 			wantSubstring: "function ran out of memory",
 			wantIsGRPC:    true,
