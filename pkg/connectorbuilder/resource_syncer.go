@@ -238,7 +238,7 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 		return resp, err
 	}
 
-	if err := validateExclusionGroupAnnotations(out); err != nil {
+	if err = validateExclusionGroupAnnotations(out); err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -286,7 +286,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 		return resp, err
 	}
 
-	if err := validateExclusionGroupAnnotations(out); err != nil {
+	if err = validateExclusionGroupAnnotations(out); err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
