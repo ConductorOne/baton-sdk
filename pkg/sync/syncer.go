@@ -826,11 +826,10 @@ func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
 }
 
 // syncResources fetches a given resource from the connector, and returns a slice of new child resources to fetch.
+// No span here: this is the only call site of SyncResources, which already
+// owns a span — the duplicate inflated trace span counts without adding
+// information.
 func (s *syncer) syncResources(ctx context.Context, action *Action) error {
-	ctx, span := tracer.Start(ctx, "syncer.syncResources")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	req := v2.ResourcesServiceListResourcesRequest_builder{
 		ResourceTypeId: action.ResourceTypeID,
 		PageToken:      action.PageToken,
@@ -1087,11 +1086,8 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 }
 
 // syncEntitlementsForResource fetches the entitlements for a specific resource from the connector.
+// No span here: only call site is SyncEntitlements, which already owns a span.
 func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action) error {
-	ctx, span := tracer.Start(ctx, "syncer.syncEntitlementsForResource")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	resourceID := v2.ResourceId_builder{
 		ResourceType: action.ResourceTypeID,
 		Resource:     action.ResourceID,
@@ -1688,11 +1684,8 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 }
 
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
+// No span here: only call site is SyncGrants, which already owns a span.
 func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) error {
-	ctx, span := tracer.Start(ctx, "syncer.syncGrantsForResource")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	resourceID := v2.ResourceId_builder{
 		ResourceType: action.ResourceTypeID,
 		Resource:     action.ResourceID,

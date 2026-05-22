@@ -654,12 +654,11 @@ func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceI
 	return nil
 }
 
+// No span here: every call site (C1File.GetResourceType, GetEntitlement,
+// GetGrant) already owns a span. The duplicate emitted one span per
+// per-resource lookup and was a top contributor to mega-trace span counts.
 func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id string, syncID string, m proto.Message) error {
-	ctx, span := tracer.Start(ctx, "C1File.getConnectorObject")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
-	err = c.validateDb(ctx)
+	err := c.validateDb(ctx)
 	if err != nil {
 		return err
 	}
