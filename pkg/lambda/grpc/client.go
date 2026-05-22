@@ -218,7 +218,7 @@ func classifyLambdaError(functionError string, statusCode int32, payload []byte,
 	if strings.Contains(string(payload), "Task timed out after") {
 		return status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", functionError, filteredLogs)
 	}
-	if strings.Contains(filteredLogs, `\"error\":\"context deadline exceeded\"`) {
+	if strings.Contains(rawLog, "context deadline exceeded") {
 		return status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", functionError, filteredLogs)
 	}
 
