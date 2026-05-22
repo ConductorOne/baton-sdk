@@ -62,42 +62,47 @@ func startFrontendServer() error {
 	return nil
 }
 
-func startExplorerAPI(cmd *cobra.Command, devMode bool, port int) {
+// startExplorerAPI loads the c1z and runs the explorer HTTP server.
+// Returns error so deferred Closes on m and store fire on the
+// return path; the previous log.Fatal-based shape skipped them via
+// os.Exit and left the sqlite WAL un-checkpointed and the meta
+// store un-flushed.
+func startExplorerAPI(cmd *cobra.Command, devMode bool, port int) error {
 	ctx := cmd.Context()
 
 	filePath, err := cmd.Flags().GetString("file")
 	if err != nil {
-		log.Fatal("error fetching file path", err)
+		return fmt.Errorf("error fetching file path: %w", err)
 	}
 
 	syncID, err := cmd.Flags().GetString("sync-id")
 	if err != nil {
-		log.Fatal("error fetching syncID", err)
+		return fmt.Errorf("error fetching syncID: %w", err)
 	}
 
 	resourceType, err := cmd.Flags().GetString(resourceTypeFlag)
 	if err != nil {
-		log.Fatal("error fetching resourceType", err)
+		return fmt.Errorf("error fetching resourceType: %w", err)
 	}
 
 	m, err := manager.New(ctx, filePath)
 	if err != nil {
-		log.Fatal("error creating c1z manager", err)
+		return fmt.Errorf("error creating c1z manager: %w", err)
 	}
 	defer m.Close(ctx)
 
 	store, err := m.LoadC1Z(ctx)
 	if err != nil {
-		log.Fatal("error loading c1z", err) //nolint:gocritic // reason
+		return fmt.Errorf("error loading c1z: %w", err)
 	}
 	defer store.Close(ctx)
 
 	addr := fmt.Sprintf(":%d", port)
 	ctrl := explorer.NewController(ctx, store, syncID, resourceType, devMode)
-	e := ctrl.Run(addr)
-	if e != nil {
-		log.Fatal("error running explorer", err)
+	if err := ctrl.Run(addr); err != nil {
+		return fmt.Errorf("error running explorer: %w", err)
 	}
+	return nil
 }
 
 func runExplorer(cmd *cobra.Command, args []string) error {
@@ -112,13 +117,17 @@ func runExplorer(cmd *cobra.Command, args []string) error {
 	}
 
 	if isDevMode {
-		go startExplorerAPI(cmd, isDevMode, port)
-		err = startFrontendServer()
-		if err != nil {
-			log.Fatal(err)
+		// API goroutine has no return channel; log + continue.
+		// The frontend server's exit is the loop's terminator.
+		go func() {
+			if apiErr := startExplorerAPI(cmd, isDevMode, port); apiErr != nil {
+				log.Default().Printf("explorer API exited: %v", apiErr)
+			}
+		}()
+		if err := startFrontendServer(); err != nil {
+			return fmt.Errorf("error running frontend server: %w", err)
 		}
+		return nil
 	}
-	startExplorerAPI(cmd, isDevMode, port)
-
-	return nil
+	return startExplorerAPI(cmd, isDevMode, port)
 }
