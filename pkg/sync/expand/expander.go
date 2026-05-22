@@ -9,12 +9,18 @@ import (
 	"strconv"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
+
+var tracer = otel.Tracer("baton-sdk/sync.expand")
 
 const defaultMaxDepth int64 = 20
 
@@ -144,7 +150,29 @@ func (e *Expander) IsDone(ctx context.Context) bool {
 
 // runAction processes a single action and returns the next page token.
 // If the returned page token is empty, the action is complete.
-func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction) (string, error) {
+//
+// Starts a new root span linked to the calling expandGrantsForEntitlements
+// span. One expansion run can process thousands of actions, each of which
+// paginates ListGrantsForEntitlement many times; keeping them all under a
+// single trace produced 100k+-span mega-traces. Per-action new roots split
+// the work into one trace per source/descendant entitlement pair while
+// preserving the link back to the originating expansion call.
+//
+// Named err is required so the deferred span error recorder observes the
+// function's return value.
+//
+//nolint:nonamedreturns // see doc comment above.
+func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction) (nextPage string, err error) {
+	ctx, span := uotel.StartWithLink(ctx, tracer, "expand.runAction",
+		trace.WithAttributes(
+			attribute.String("source_entitlement_id", action.SourceEntitlementID),
+			attribute.String("descendant_entitlement_id", action.DescendantEntitlementID),
+			attribute.Int("depth", e.graph.Depth),
+			attribute.Bool("shallow", action.Shallow),
+		),
+	)
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
 	l := ctxzap.Extract(ctx)
 	l = l.With(
 		zap.Int("depth", e.graph.Depth),
