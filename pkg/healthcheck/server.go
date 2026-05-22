@@ -91,6 +91,11 @@ func (s *Server) Start(ctx context.Context) error {
 	s.started = true
 
 	go func() {
+		// Intentionally no panic recover: a panic in the health check
+		// server should crash the process. Recovering here would leave
+		// a dead server that orchestrators still believe is alive,
+		// which is worse than the process exiting and getting
+		// restarted.
 		l.Info("health check server starting", zap.String("address", addr))
 		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			l.Error("health check server error", zap.Error(err))

@@ -153,7 +153,6 @@ func (d *DBCache) load(ctx context.Context) (*DBCache, error) {
 	}
 
 	file := filepath.Join(cacheDir, "lcache.db")
-	d.location = file
 
 	l.Debug("Opening database", zap.String("location", file))
 	rawDB, err := sql.Open("sqlite", file)
@@ -162,6 +161,9 @@ func (d *DBCache) load(ctx context.Context) (*DBCache, error) {
 	}
 	l.Debug("Opened database", zap.String("location", file))
 
+	// Commit all derived state together so a sql.Open failure can't leave the
+	// receiver half-initialised (location set, db nil).
+	d.location = file
 	d.db = goqu.New("sqlite3", rawDB)
 	d.rawDb = rawDB
 	return d, nil

@@ -673,20 +673,24 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 	if err != nil {
 		return false, err
 	}
+	// Defer Close so a panic mid-iteration still releases the sql connection.
+	// Close's error is intentionally discarded -- iteration errors surface via
+	// syncRows.Err() below, and Close after a completed iteration has no
+	// meaningful error to report.
 	var pendingSyncIDs []any
-	for syncRows.Next() {
-		var sid string
-		if err := syncRows.Scan(&sid); err != nil {
-			_ = syncRows.Close()
-			return false, err
+	if err := func() error {
+		defer func() { _ = syncRows.Close() }()
+		for syncRows.Next() {
+			var sid string
+			if err := syncRows.Scan(&sid); err != nil {
+				return err
+			}
+			pendingSyncIDs = append(pendingSyncIDs, sid)
 		}
-		pendingSyncIDs = append(pendingSyncIDs, sid)
-	}
-	if err := syncRows.Err(); err != nil {
-		_ = syncRows.Close()
+		return syncRows.Err()
+	}(); err != nil {
 		return false, err
 	}
-	_ = syncRows.Close()
 
 	if len(pendingSyncIDs) == 0 {
 		return false, nil
@@ -701,37 +705,41 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 		args = append(args, lastID)
 		args = append(args, pendingSyncIDs...)
 
-		rows, err := db.QueryContext(ctx, fmt.Sprintf(
-			`SELECT g.id, g.data FROM %s g
+		type row struct {
+			id   int64
+			data []byte
+		}
+		// Scan one page in a closure so defer rows.Close() fires per iteration
+		// (a plain defer in the surrounding for-loop would leak connections
+		// across pages). The closure also guarantees Close on panic.
+		var batch []row
+		if err := func() error {
+			rows, err := db.QueryContext(ctx, fmt.Sprintf(
+				`SELECT g.id, g.data FROM %s g
 			 WHERE g.id > ?
 			   AND g.expansion IS NULL
 			   AND g.sync_id IN (%s)
 			 ORDER BY g.id
 			 LIMIT 1000`,
-			tableName, placeholders,
-		), args...)
-		if err != nil {
-			return false, err
-		}
-
-		type row struct {
-			id   int64
-			data []byte
-		}
-		batch := make([]row, 0, 1000)
-		for rows.Next() {
-			var r row
-			if err := rows.Scan(&r.id, &r.data); err != nil {
-				_ = rows.Close()
-				return false, err
+				tableName, placeholders,
+			), args...)
+			if err != nil {
+				return err
 			}
-			batch = append(batch, r)
-		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
+			defer func() { _ = rows.Close() }()
+
+			batch = make([]row, 0, 1000)
+			for rows.Next() {
+				var r row
+				if err := rows.Scan(&r.id, &r.data); err != nil {
+					return err
+				}
+				batch = append(batch, r)
+			}
+			return rows.Err()
+		}(); err != nil {
 			return false, err
 		}
-		_ = rows.Close()
 
 		if len(batch) == 0 {
 			break
