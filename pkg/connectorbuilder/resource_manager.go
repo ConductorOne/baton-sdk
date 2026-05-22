@@ -84,7 +84,7 @@ func (b *builder) CreateResource(ctx context.Context, request *v2.CreateResource
 	manager, ok := b.resourceManagers[rt]
 	if !ok {
 		l.Error("error: resource type does not have resource Create() configured", zap.String("resource_type", rt))
-		err := status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Create() configured", rt))
+		err = status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Create() configured", rt))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -118,7 +118,7 @@ func (b *builder) DeleteResource(ctx context.Context, request *v2.DeleteResource
 
 	if !ok {
 		l.Error("error: resource type does not have resource Delete() configured", zap.String("resource_type", rt))
-		err := status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Delete() configured", rt))
+		err = status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Delete() configured", rt))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -153,7 +153,7 @@ func (b *builder) DeleteResourceV2(ctx context.Context, request *v2.DeleteResour
 
 	if !ok {
 		l.Error("error: resource type does not have resource Delete() configured", zap.String("resource_type", rt))
-		err := status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Delete() configured", rt))
+		err = status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Delete() configured", rt))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
