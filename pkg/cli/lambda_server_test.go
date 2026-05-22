@@ -125,6 +125,7 @@ func TestEffectiveLambdaConfigPreservesStringMapKeyCaseForViper(t *testing.T) {
 		"user-custom-fields": map[string]any{
 			"departmentNav/name": "Department",
 			"customString10":     "Custom String 10",
+			"isActive":           true,
 		},
 	}
 	schema := field.NewConfiguration([]field.SchemaField{
@@ -137,6 +138,7 @@ func TestEffectiveLambdaConfigPreservesStringMapKeyCaseForViper(t *testing.T) {
 	wantStringMap := map[string]any{
 		"departmentNav/name": "Department",
 		"customString10":     "Custom String 10",
+		"isActive":           "true",
 	}
 	if !reflect.DeepEqual(gotStringMap, wantStringMap) {
 		t.Fatalf("GetStringMap(user-custom-fields) = %#v, want %#v", gotStringMap, wantStringMap)
@@ -146,6 +148,7 @@ func TestEffectiveLambdaConfigPreservesStringMapKeyCaseForViper(t *testing.T) {
 	wantStringMapString := map[string]string{
 		"departmentNav/name": "Department",
 		"customString10":     "Custom String 10",
+		"isActive":           "true",
 	}
 	if !reflect.DeepEqual(gotStringMapString, wantStringMapString) {
 		t.Fatalf("GetStringMapString(user-custom-fields) = %#v, want %#v", gotStringMapString, wantStringMapString)

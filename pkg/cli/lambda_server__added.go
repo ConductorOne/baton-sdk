@@ -23,6 +23,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/maypok86/otter/v2"
 	"github.com/mitchellh/mapstructure"
+	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -524,7 +525,7 @@ func lambdaStringMapValueForViper(value any) any {
 	}
 	// Viper.GetStringMap and GetStringMapString parse JSON strings, while
 	// Viper.Set lowercases nested map[string]any keys.
-	encoded, err := json.Marshal(value)
+	encoded, err := json.Marshal(cast.ToStringMapString(value))
 	if err != nil {
 		return value
 	}
