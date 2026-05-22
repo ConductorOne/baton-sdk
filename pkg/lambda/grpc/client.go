@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -54,29 +56,7 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 			}
 		}
 
-		filteredLogs := extractMeaningfulLogLines(logSummary)
-
-		// If payload contains "Task timed out after", return a retryable error.
-		// This means the lambda function timed out.
-		// Status code is 200 in this case, so we have to check the payload for a special string.
-		if strings.Contains(string(invokeResp.Payload), "Task timed out after") {
-			return nil, status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", *invokeResp.FunctionError, filteredLogs)
-		}
-		// If log summary contains \"error\":\"context deadline exceeded\", return a retryable error.
-		if strings.Contains(filteredLogs, `\"error\":\"context deadline exceeded\"`) {
-			return nil, status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", *invokeResp.FunctionError, filteredLogs)
-		}
-		// If a third case is ever added to this, put the logic in its own function and add some test cases.
-
-		if filteredLogs != "" {
-			return nil, fmt.Errorf("%s", filteredLogs)
-		}
-
-		return nil, fmt.Errorf(
-			"lambda_transport: function returned error: %s; status code: %d",
-			*invokeResp.FunctionError,
-			invokeResp.StatusCode,
-		)
+		return nil, classifyLambdaError(*invokeResp.FunctionError, invokeResp.StatusCode, invokeResp.Payload, logSummary)
 	}
 
 	resp := &Response{}
@@ -191,7 +171,7 @@ func extractMeaningfulLogLines(raw string) string {
 
 		if slices.ContainsFunc(ignoredLogPrefixes, func(prefix string) bool {
 			return strings.HasPrefix(line, prefix)
-		}) || strings.Contains(line, "Runtime.ExitError") {
+		}) {
 			continue
 		}
 
@@ -205,4 +185,54 @@ func extractMeaningfulLogLines(raw string) string {
 	}
 
 	return strings.Join(filtered, "\n")
+}
+
+var (
+	lambdaMemorySizeRegex = regexp.MustCompile(`Memory Size:\s*(\d+)\s*MB`)
+	lambdaMaxMemUsedRegex = regexp.MustCompile(`Max Memory Used:\s*(\d+)\s*MB`)
+)
+
+// isLambdaOOM checks Lambda log output for signs of an out-of-memory crash.
+func isLambdaOOM(rawLog string) bool {
+	if strings.Contains(rawLog, "Runtime.ExitError") && strings.Contains(rawLog, "signal: killed") {
+		return true
+	}
+
+	sizeMatch := lambdaMemorySizeRegex.FindStringSubmatch(rawLog)
+	usedMatch := lambdaMaxMemUsedRegex.FindStringSubmatch(rawLog)
+	if len(sizeMatch) == 2 && len(usedMatch) == 2 {
+		memorySize, err1 := strconv.Atoi(sizeMatch[1])
+		maxUsed, err2 := strconv.Atoi(usedMatch[1])
+		if err1 == nil && err2 == nil && memorySize > 0 && maxUsed >= memorySize {
+			return true
+		}
+	}
+
+	return false
+}
+
+// classifyLambdaError determines the appropriate error type for a Lambda function error.
+func classifyLambdaError(functionError string, statusCode int32, payload []byte, rawLog string) error {
+	filteredLogs := extractMeaningfulLogLines(rawLog)
+
+	if strings.Contains(string(payload), "Task timed out after") {
+		return status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", functionError, filteredLogs)
+	}
+	if strings.Contains(filteredLogs, `\"error\":\"context deadline exceeded\"`) {
+		return status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", functionError, filteredLogs)
+	}
+
+	if isLambdaOOM(rawLog) {
+		return status.Errorf(codes.ResourceExhausted, "lambda_transport: function ran out of memory: %s; logSummary: %s", functionError, filteredLogs)
+	}
+
+	if filteredLogs != "" {
+		return fmt.Errorf("%s", filteredLogs)
+	}
+
+	return fmt.Errorf(
+		"lambda_transport: function returned error: %s; status code: %d",
+		functionError,
+		statusCode,
+	)
 }
