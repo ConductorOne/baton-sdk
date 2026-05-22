@@ -56,11 +56,12 @@ func benchmarkCloneSync(b *testing.B, syncID string) {
 		err = c1f.CloneSync(ctx, outPath, syncID)
 		b.StopTimer()
 		require.NoError(b, err)
-		err = c1f.Close(ctx)
-		require.NoError(b, err)
 
 		require.NoError(b, os.Remove(outPath))
 	}
+
+	err = c1f.Close(ctx)
+	require.NoError(b, err)
 }
 
 func BenchmarkCloneSyncSmall(b *testing.B) {
