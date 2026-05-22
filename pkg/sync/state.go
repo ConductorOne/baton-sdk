@@ -40,17 +40,17 @@ type State interface {
 	GetCompletedActionsCount() uint64
 	// CheckAndSetExclusionGroupResourceType records that exclusionGroupID is
 	// used on resourceTypeID. If the group was already recorded against a
-	// different resource type, the prior value is returned with seen=true and
-	// the map is not modified. If the group was unseen or already maps to
-	// resourceTypeID, the map is updated and (resourceTypeID, false) is
-	// returned.
+	// different resource type, the prior value is returned with conflict=true
+	// and the map is not modified. Otherwise the map is updated (if needed)
+	// and ("", false) is returned. The existing return value is meaningful
+	// only when conflict is true.
 	CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) (existing string, conflict bool)
 	// CheckAndSetExclusionGroupDefault records that entitlementID is the
 	// default entitlement for exclusionGroupID. If the group already has a
 	// recorded default that is not entitlementID, the prior value is returned
-	// with conflict=true and the map is not modified. If the group has no
-	// recorded default or the recorded default is entitlementID, the map is
-	// updated and (entitlementID, false) is returned.
+	// with conflict=true and the map is not modified. Otherwise the map is
+	// updated (if needed) and ("", false) is returned. The existing return
+	// value is meaningful only when conflict is true.
 	CheckAndSetExclusionGroupDefault(exclusionGroupID, entitlementID string) (existing string, conflict bool)
 }
 
@@ -517,7 +517,7 @@ func (st *state) GetCompletedActionsCount() uint64 {
 	return st.completedActionsCount
 }
 
-func (st *state) CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) (string, bool) {
+func (st *state) CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) (existing string, conflict bool) {
 	st.mtx.Lock()
 	defer st.mtx.Unlock()
 
@@ -528,13 +528,13 @@ func (st *state) CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourc
 		if existing != resourceTypeID {
 			return existing, true
 		}
-		return existing, false
+		return "", false
 	}
 	st.exclusionGroupResourceTypes[exclusionGroupID] = resourceTypeID
-	return resourceTypeID, false
+	return "", false
 }
 
-func (st *state) CheckAndSetExclusionGroupDefault(exclusionGroupID, entitlementID string) (string, bool) {
+func (st *state) CheckAndSetExclusionGroupDefault(exclusionGroupID, entitlementID string) (existing string, conflict bool) {
 	st.mtx.Lock()
 	defer st.mtx.Unlock()
 
@@ -545,8 +545,8 @@ func (st *state) CheckAndSetExclusionGroupDefault(exclusionGroupID, entitlementI
 		if existing != entitlementID {
 			return existing, true
 		}
-		return existing, false
+		return "", false
 	}
 	st.exclusionGroupDefaults[exclusionGroupID] = entitlementID
-	return entitlementID, false
+	return "", false
 }

@@ -403,17 +403,17 @@ func TestCheckAndSetExclusionGroupResourceType(t *testing.T) {
 	// First write for a group records the resource type and reports no conflict.
 	existing, conflict := st.CheckAndSetExclusionGroupResourceType("group-a", "user")
 	require.False(t, conflict)
-	require.Equal(t, "user", existing)
+	require.Empty(t, existing)
 
 	// Re-recording the same (group, resource type) pair is idempotent and not a conflict.
 	existing, conflict = st.CheckAndSetExclusionGroupResourceType("group-a", "user")
 	require.False(t, conflict)
-	require.Equal(t, "user", existing)
+	require.Empty(t, existing)
 
 	// A different group on a different resource type is independent and not a conflict.
 	existing, conflict = st.CheckAndSetExclusionGroupResourceType("group-b", "team")
 	require.False(t, conflict)
-	require.Equal(t, "team", existing)
+	require.Empty(t, existing)
 
 	// Reusing an existing group id on a different resource type is a conflict, and
 	// the originally-recorded resource type is returned.
@@ -424,7 +424,7 @@ func TestCheckAndSetExclusionGroupResourceType(t *testing.T) {
 	// Conflicting attempt must not have rewritten the map; the original mapping holds.
 	existing, conflict = st.CheckAndSetExclusionGroupResourceType("group-a", "user")
 	require.False(t, conflict)
-	require.Equal(t, "user", existing)
+	require.Empty(t, existing)
 }
 
 func TestSyncerTokenExclusionGroupResourceTypesRoundTrip(t *testing.T) {
@@ -445,7 +445,7 @@ func TestSyncerTokenExclusionGroupResourceTypesRoundTrip(t *testing.T) {
 	// Reusing a group id on the same resource type should still not conflict after resume.
 	existing, conflict := restored.CheckAndSetExclusionGroupResourceType("group-a", "user")
 	require.False(t, conflict)
-	require.Equal(t, "user", existing)
+	require.Empty(t, existing)
 
 	// And reusing across resource types should conflict — proving the map crossed Marshal/Unmarshal.
 	existing, conflict = restored.CheckAndSetExclusionGroupResourceType("group-a", "team")
@@ -460,11 +460,11 @@ func TestSyncerTokenUnmarshalEmptyStringInitsExclusionGroupMap(t *testing.T) {
 	// A fresh-but-unmarshalled state must accept writes without panicking on a nil map.
 	existing, conflict := st.CheckAndSetExclusionGroupResourceType("group-a", "user")
 	require.False(t, conflict)
-	require.Equal(t, "user", existing)
+	require.Empty(t, existing)
 
 	existing, conflict = st.CheckAndSetExclusionGroupDefault("group-a", "user:user1:admin")
 	require.False(t, conflict)
-	require.Equal(t, "user:user1:admin", existing)
+	require.Empty(t, existing)
 }
 
 func TestCheckAndSetExclusionGroupDefault(t *testing.T) {
@@ -473,17 +473,17 @@ func TestCheckAndSetExclusionGroupDefault(t *testing.T) {
 	// First default for a group is recorded with no conflict.
 	existing, conflict := st.CheckAndSetExclusionGroupDefault("role", "user:user1:admin")
 	require.False(t, conflict)
-	require.Equal(t, "user:user1:admin", existing)
+	require.Empty(t, existing)
 
 	// Re-recording the same (group, entitlement) pair is idempotent.
 	existing, conflict = st.CheckAndSetExclusionGroupDefault("role", "user:user1:admin")
 	require.False(t, conflict)
-	require.Equal(t, "user:user1:admin", existing)
+	require.Empty(t, existing)
 
 	// A default in a different group is independent.
 	existing, conflict = st.CheckAndSetExclusionGroupDefault("other", "user:user2:owner")
 	require.False(t, conflict)
-	require.Equal(t, "user:user2:owner", existing)
+	require.Empty(t, existing)
 
 	// A second, different default in the same group is a conflict; the original is returned.
 	existing, conflict = st.CheckAndSetExclusionGroupDefault("role", "user:user2:editor")
@@ -493,7 +493,7 @@ func TestCheckAndSetExclusionGroupDefault(t *testing.T) {
 	// Conflicting attempt must not have rewritten the map.
 	existing, conflict = st.CheckAndSetExclusionGroupDefault("role", "user:user1:admin")
 	require.False(t, conflict)
-	require.Equal(t, "user:user1:admin", existing)
+	require.Empty(t, existing)
 }
 
 func TestSyncerTokenExclusionGroupDefaultsRoundTrip(t *testing.T) {
@@ -513,7 +513,7 @@ func TestSyncerTokenExclusionGroupDefaultsRoundTrip(t *testing.T) {
 	// Re-recording the same default is idempotent.
 	existing, conflict := restored.CheckAndSetExclusionGroupDefault("role-a", "user:user1:admin")
 	require.False(t, conflict)
-	require.Equal(t, "user:user1:admin", existing)
+	require.Empty(t, existing)
 
 	// A conflicting default after resume is correctly rejected — proving the
 	// map crossed Marshal/Unmarshal.
