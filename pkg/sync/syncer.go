@@ -2962,6 +2962,9 @@ func NormalizeWorkerCount(count int) int {
 // in — baton-sdk has no view of those identifiers.
 func WithMetricsHandler(h metrics.Handler) SyncOpt {
 	return func(s *syncer) {
+		if h == nil {
+			return
+		}
 		s.metricsHandler = h
 	}
 }
