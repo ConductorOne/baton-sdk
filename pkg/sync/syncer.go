@@ -42,6 +42,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/sync/progresslog"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
@@ -141,6 +142,7 @@ type syncer struct {
 	previousSyncMu                      native_sync.Mutex
 	previousSyncIDPtr                   atomic.Pointer[string]
 	workerCount                         int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
+	metricsHandler                      metrics.Handler
 }
 
 var _ Syncer = (*syncer)(nil)
@@ -2949,6 +2951,21 @@ func NormalizeWorkerCount(count int) int {
 	return max(count, 1)
 }
 
+// WithMetricsHandler attaches a metrics.Handler that the syncer forwards to
+// progresslog.NewProgressCounts so the grant-expansion OTel instruments
+// (baton.sync.expand.actions_remaining / actions_burned /
+// decompressed_bytes / decompressed_bytes_delta) actually reach the
+// configured exporter instead of the default no-op handler.
+//
+// Callers should pre-tag the handler with the dimensions they want to slice
+// by (e.g. tenant_id, connector_id) via Handler.WithTags before passing it
+// in — baton-sdk has no view of those identifiers.
+func WithMetricsHandler(h metrics.Handler) SyncOpt {
+	return func(s *syncer) {
+		s.metricsHandler = h
+	}
+}
+
 // WithWorkerCount sets the number of workers to use.
 // If <=1, 1 worker is used (default). If > 1, parallel sync is used.
 // If -1, the number of workers is set to the number of CPU cores or 4, whichever is lower.
@@ -2976,6 +2993,9 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 	}
 
 	progressLogOpts := []progresslog.Option{}
+	if s.metricsHandler != nil {
+		progressLogOpts = append(progressLogOpts, progresslog.WithMetricsHandler(s.metricsHandler))
+	}
 	s.counts = progresslog.NewProgressCounts(ctx, progressLogOpts...)
 	// Wire the DBSizeProvider now if the store is already set (WithConnectorStore
 	// case). For WithC1ZPath, the store is populated later inside loadStore,
