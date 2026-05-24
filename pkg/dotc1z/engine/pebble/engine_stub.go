@@ -16,12 +16,10 @@ import (
 	"errors"
 )
 
-// Engine is the v3 storage engine. Stack 1 provides only the struct
-// skeleton with sentinels; Stack 3 wires up the full implementation
-// of connectorstore.Reader/Writer/C1ZStore.
-type Engine struct {
-	// fields land in Stack 3
-}
+// The Engine struct itself lives in engine.go (Stack 3). This file
+// retains only the centralized sentinel-error declarations so other
+// packages (format/v3, synccompactor/pebble) can reference them
+// without depending on the full engine implementation.
 
 // Sentinel errors from Appendix E. Centralized here so the codec
 // package + engine package + envelope package all reference one
