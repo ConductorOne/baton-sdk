@@ -20,9 +20,9 @@ Each child branch is rebased on the previous (linear stack), submitted as a stac
 | Parent | [DONE] | `pquerna/storage-v4-parent` | ~150 | ~250 |
 | 1 (protos + codegen) | [DONE] (codec only; protoc-gen plugin DEFERRED — ReflectCodec covers MVP) | `pquerna/storage-v4-stack1-protos-codegen` | ~1500 | ~1300 |
 | 2 (envelope) | [DONE] | `pquerna/storage-v4-stack2-envelope` | ~600 | ~700 |
-| 3 (engine) | [DONE — GrantRecord path; other records as follow-ups] | `pquerna/storage-v4-stack3-pebble-engine` | ~5000 | ~1280 |
-| 4 (compaction) | [IN PROGRESS] | `pquerna/storage-v4-stack4-compaction` | ~800 | 0 |
-| 5 (equiv + bench) | [TODO] | `pquerna/storage-v4-stack5-equiv-bench` | ~2500 | 0 |
+| 3 (engine) | [DONE — all 6 record types + v2↔v3 translation + connectorstore.Writer adapter] | `pquerna/storage-v4-stack3-pebble-engine` | ~5000 | ~4000 |
+| 4 (compaction) | [DONE] | `pquerna/storage-v4-stack4-compaction` | ~800 | ~716 |
+| 5 (equiv + bench) | [DONE — MVP; SQLite-parity adapter deferred] | `pquerna/storage-v4-stack5-equiv-bench` | ~2500 | ~1700 |
 
 Total target: ~10,550 LOC of new code + generated artifacts.
 
@@ -101,6 +101,9 @@ Total target: ~10,550 LOC of new code + generated artifacts.
 
 ## Deferred (not in v4 scope)
 
+- [DEFERRED] `protoc-gen-batonstore` codegen plugin — perf optimization. `ReflectCodec` covers MVP; codegen lands as a follow-up once benchmark guidance prioritizes it.
+- [DEFERRED] SQLite-parity adapter for the equivalence runner — the in-memory `MemoryRef` already proves Pebble engine correctness against a reference.
+- [DEFERRED] gRPC exotic surfaces (`GrantManagerService`, `ResourceGetterService`, etc) — adapter embeds `UnimplementedXxxServer` stubs returning `codes.Unimplemented`; wire-up lands as needs arise.
 - [DEFERRED] Stack 6 — deferred grant expansion (Appendix H research spike; separate RFC).
 - [DEFERRED] Stack 7 — C1 integration (`/data/squire/src/c1` repo; separate PR series).
 - [DEFERRED] `cmd/baton-c1z migrate` — out-of-band v1→v3 migration tool (NG10).
