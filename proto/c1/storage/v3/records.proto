@@ -1,0 +1,161 @@
+// V3 storage record types. All messages here are the durable on-disk
+// shape; no consumer ever depends on these types beyond the engine
+// itself. Translation to/from c1.connector.v2 happens at the engine
+// boundary.
+//
+// Import boundary (RFC v4 §3.4): files in c1.storage.v3 may only
+// import google.protobuf.* and other c1.storage.v3 files. Enforced
+// by `buf lint` config in this repo.
+
+syntax = "proto3";
+
+package c1.storage.v3;
+
+import "c1/storage/v3/options.proto";
+import "c1/storage/v3/refs.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/storage/v3";
+
+// SyncType is the v3-owned mirror of c1.connector.v2.SyncType. Field
+// numbers match v2 to keep translation cheap. Changes to v2 require
+// an explicit mirror update here (no automatic propagation).
+enum SyncType {
+  SYNC_TYPE_UNSPECIFIED       = 0;
+  SYNC_TYPE_FULL              = 1;
+  SYNC_TYPE_PARTIAL           = 2;
+  SYNC_TYPE_RESOURCES_ONLY    = 3;
+  SYNC_TYPE_PARTIAL_UPSERTS   = 4;
+  SYNC_TYPE_PARTIAL_DELETIONS = 5;
+}
+
+// GrantExpandableRecord mirrors c1.connector.v2.GrantExpandable.
+// Field numbers must match v2; drift detection via CI lint.
+message GrantExpandableRecord {
+  repeated string entitlement_ids   = 1;
+  bool            shallow           = 2;
+  repeated string resource_type_ids = 3;
+}
+
+// GrantSourceRecord mirrors one entry from
+// c1.connector.v2.GrantSources.sources. The map key (source
+// entitlement ID) is the same as the map key in GrantRecord.sources.
+message GrantSourceRecord {
+  // resource_type_id and resource_id name the resource the source
+  // entitlement belongs to. Useful for audit chains without a second
+  // lookup.
+  string resource_type_id = 1;
+  string resource_id      = 2;
+  string entitlement_id   = 3;
+  bool   is_direct        = 4;
+}
+
+message ResourceTypeRecord {
+  option (table) = {
+    name: "resource_types"
+    primary_key: ["sync_id", "external_id"]
+  };
+
+  string sync_id                              = 1;
+  string external_id                          = 2;
+  string display_name                         = 3;
+  repeated string traits                      = 4;
+  repeated google.protobuf.Any annotations    = 5;
+  google.protobuf.Timestamp discovered_at     = 6;
+}
+
+message ResourceRecord {
+  option (table) = {
+    name: "resources"
+    primary_key: ["sync_id", "resource_type_id", "resource_id"]
+  };
+
+  string      sync_id          = 1;
+  string      resource_type_id = 2;
+  string      resource_id      = 3;
+  string      display_name     = 4;
+  string      description      = 5;
+  ResourceRef parent           = 6 [(index) = {
+    name: "by_parent"
+    composite: ["resource_type_id", "resource_id"]
+  }];
+  repeated google.protobuf.Any annotations = 7;
+  google.protobuf.Timestamp     discovered_at = 8;
+}
+
+message EntitlementRecord {
+  option (table) = {
+    name: "entitlements"
+    primary_key: ["sync_id", "external_id"]
+  };
+
+  string      sync_id      = 1;
+  string      external_id  = 2;
+  ResourceRef resource     = 3 [(index) = {
+    name: "by_resource"
+    composite: ["resource_type_id", "resource_id"]
+  }];
+  string      display_name = 4;
+  string      description  = 5;
+  string      purpose      = 6;
+  repeated google.protobuf.Any annotations  = 7;
+  google.protobuf.Timestamp     discovered_at = 8;
+}
+
+message GrantRecord {
+  option (table) = {
+    name: "grants"
+    primary_key: ["sync_id", "external_id"]
+  };
+
+  string         sync_id     = 1;
+  string         external_id = 2;
+  EntitlementRef entitlement = 3 [(index) = {
+    name: "by_entitlement"
+    composite: ["entitlement_id", "principal.resource_type_id", "principal.resource_id"]
+  }];
+  PrincipalRef   principal   = 4 [(index) = {
+    name: "by_principal"
+    composite: ["resource_type_id", "resource_id"]
+  }];
+
+  google.protobuf.Timestamp discovered_at = 5;
+  GrantExpandableRecord     expansion       = 6;
+  bool                      needs_expansion = 7 [(index) = {
+    name: "by_needs_expansion"
+    partial: "needs_expansion = true"
+  }];
+  repeated google.protobuf.Any annotations = 8;
+  // map<source_entitlement_id, GrantSourceRecord> — same wire shape as
+  // c1.connector.v2.GrantSources.sources.
+  map<string, GrantSourceRecord> sources = 9;
+}
+
+message AssetRecord {
+  option (table) = {
+    name: "assets"
+    primary_key: ["sync_id", "external_id"]
+  };
+
+  string sync_id      = 1;
+  string external_id  = 2;
+  string content_type = 3;
+  bytes  data         = 4;
+  google.protobuf.Timestamp discovered_at = 5;
+}
+
+message SyncRunRecord {
+  option (table) = {
+    name: "sync_runs"
+    primary_key: ["sync_id"]
+  };
+
+  string                    sync_id         = 1;
+  SyncType                  type            = 2;
+  string                    parent_sync_id  = 3;
+  google.protobuf.Timestamp started_at      = 4;
+  google.protobuf.Timestamp ended_at        = 5;
+  string                    sync_token      = 6;
+  bool                      supports_diff   = 7;
+}
