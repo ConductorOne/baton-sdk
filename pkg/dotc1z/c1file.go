@@ -590,6 +590,10 @@ func (c *C1File) closeRawDB(ctx context.Context) error {
 
 func (c *C1File) getOrPrepare(ctx context.Context, query string) (*sql.Stmt, error) {
 	c.stmtCacheMu.Lock()
+	if c.stmtCache == nil {
+		c.stmtCacheMu.Unlock()
+		return nil, ErrDbNotOpen
+	}
 	if stmt, ok := c.stmtCache[query]; ok {
 		c.stmtCacheMu.Unlock()
 		return stmt, nil
@@ -598,7 +602,7 @@ func (c *C1File) getOrPrepare(ctx context.Context, query string) (*sql.Stmt, err
 
 	stmt, err := c.rawDb.PrepareContext(ctx, query)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getOrPrepare: %w", err)
 	}
 
 	c.stmtCacheMu.Lock()
