@@ -67,6 +67,11 @@ type C1File struct {
 	slowQueryThreshold    time.Duration
 	slowQueryLogFrequency time.Duration
 
+	// Prepared statement cache: keyed by SQL text, lazily populated.
+	// With MaxOpenConns(1) all stmts are bound to the single connection.
+	stmtCache   map[string]*sql.Stmt
+	stmtCacheMu sync.Mutex
+
 	// Sync cleanup settings
 	syncLimit   int
 	skipCleanup bool
@@ -216,6 +221,7 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		slowQueryThreshold:    5 * time.Second,
 		slowQueryLogFrequency: 1 * time.Minute,
 		encoderConcurrency:    1,
+		stmtCache:             make(map[string]*sql.Stmt),
 	}
 
 	for _, opt := range opts {
@@ -568,10 +574,42 @@ func (c *C1File) closeRawDB(ctx context.Context) error {
 	_, span := tracer.Start(ctx, "C1File.closeRawDB")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	c.stmtCacheMu.Lock()
+	for _, stmt := range c.stmtCache {
+		stmt.Close()
+	}
+	c.stmtCache = nil
+	c.stmtCacheMu.Unlock()
+
 	err = c.rawDb.Close()
 	c.rawDb = nil
 	c.db = nil
 	return err
+}
+
+func (c *C1File) getOrPrepare(ctx context.Context, query string) (*sql.Stmt, error) {
+	c.stmtCacheMu.Lock()
+	if stmt, ok := c.stmtCache[query]; ok {
+		c.stmtCacheMu.Unlock()
+		return stmt, nil
+	}
+	c.stmtCacheMu.Unlock()
+
+	stmt, err := c.rawDb.PrepareContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	c.stmtCacheMu.Lock()
+	if existing, ok := c.stmtCache[query]; ok {
+		c.stmtCacheMu.Unlock()
+		stmt.Close()
+		return existing, nil
+	}
+	c.stmtCache[query] = stmt
+	c.stmtCacheMu.Unlock()
+	return stmt, nil
 }
 
 // truncateWAL truncates the WAL file.

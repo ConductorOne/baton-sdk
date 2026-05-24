@@ -73,7 +73,11 @@ func (c *C1File) listExpandableGrantsInternal(
 		return nil, "", err
 	}
 
-	rows, err := c.db.QueryContext(ctx, query, args...)
+	stmt, err := c.getOrPrepare(ctx, query)
+	if err != nil {
+		return nil, "", err
+	}
+	rows, err := stmt.QueryContext(ctx, args...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -196,7 +200,11 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts grant
 		return nil, err
 	}
 
-	rows, err := c.db.QueryContext(ctx, query, args...)
+	stmt, err := c.getOrPrepare(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := stmt.QueryContext(ctx, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -229,7 +229,11 @@ func listGrantsGeneric(ctx context.Context, c *C1File, req listRequest) ([]*v2.G
 	}
 
 	queryStart := time.Now()
-	rows, err := c.db.QueryContext(ctx, query, args...)
+	stmt, err := c.getOrPrepare(ctx, query)
+	if err != nil {
+		return nil, "", err
+	}
+	rows, err := stmt.QueryContext(ctx, args...)
 	if err != nil {
 		return nil, "", err
 	}
