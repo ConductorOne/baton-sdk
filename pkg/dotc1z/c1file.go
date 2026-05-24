@@ -606,6 +606,11 @@ func (c *C1File) getOrPrepare(ctx context.Context, query string) (*sql.Stmt, err
 	}
 
 	c.stmtCacheMu.Lock()
+	if c.stmtCache == nil {
+		c.stmtCacheMu.Unlock()
+		stmt.Close()
+		return nil, ErrDbNotOpen
+	}
 	if existing, ok := c.stmtCache[query]; ok {
 		c.stmtCacheMu.Unlock()
 		stmt.Close()
