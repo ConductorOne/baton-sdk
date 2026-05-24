@@ -49,6 +49,21 @@ React 18 + TypeScript app using Material-UI, ReactFlow for graph visualization, 
 ### Protobuf (`proto/` → `pb/`)
 Output message types defined in `proto/baton/v1/outputs.proto`. Generated with Buf into `pb/`. CI validates lint and breaking changes.
 
+## Public Repository — Content Guidelines
+
+This repository is **open source**. All issues, PRs, commit messages, and code comments are publicly visible.
+
+**Never include:**
+- Customer or tenant names
+- Production identifiers (tenant IDs, connector IDs, app IDs, workflow IDs)
+- Internal infrastructure details (hostnames, AWS account IDs, internal URLs)
+- Links to internal monitoring tools with production filters
+
+**Use instead:**
+- Generic descriptions: "a large tenant", "a tenant with N users"
+- Anonymized metrics: row counts, timing data, percentages, function names
+- Internal ticket IDs only (the ticket body is private)
+
 ## Dependencies & Tooling
 
 - **Go 1.25.2** with vendored dependencies (`vendor/`)
