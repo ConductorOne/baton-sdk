@@ -73,6 +73,11 @@ type C1File struct {
 
 	// See WithC1FV2GrantsWriter.
 	v2GrantsWriter bool
+
+	// engine is the storage engine to use for newly created files.
+	// Reads dispatch on magic byte regardless of this value. Default
+	// is EngineSQLite (v1 .c1z format).
+	engine Engine
 }
 
 // *C1File satisfies connectorstore.Writer (the connector-facing contract),
@@ -134,6 +139,22 @@ func WithC1FSyncCountLimit(limit int) C1FOption {
 	}
 }
 
+// WithC1FEngine selects the storage engine for new .c1z files. The
+// default is EngineSQLite, which keeps the legacy v1 file format and
+// behavior. EnginePebble selects the v3 engine introduced by the
+// storage-engine-v4 RFC; under default build tags the Pebble engine
+// is not linked in and an attempt to use it returns
+// ErrEngineNotAvailable.
+//
+// Engine selection only affects newly created files. Existing files
+// dispatch on their magic byte; readers handle both v1 and v3
+// regardless of this option.
+func WithC1FEngine(engine Engine) C1FOption {
+	return func(o *C1File) {
+		o.engine = engine
+	}
+}
+
 // WithC1FV2GrantsWriter strips Grant.Entitlement and Grant.Principal
 // from the serialized data blob at write time. Readers rebuild them
 // as identity-only stubs (Id + nested Resource.Id) from the grants
@@ -190,6 +211,12 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		opt(c1File)
 	}
 
+	// Normalize the engine zero value so downstream switch/if-eq
+	// checks treat an unset engine as EngineSQLite.
+	if c1File.engine == "" {
+		c1File.engine = EngineSQLite
+	}
+
 	err = c1File.validateDb(ctx)
 	if err != nil {
 		return nil, err
@@ -212,6 +239,10 @@ type c1zOptions struct {
 	syncLimit          int
 	skipCleanup        bool
 	v2GrantsWriter     bool
+
+	// engine is the storage engine to use for newly created files.
+	// Reads dispatch on magic byte regardless. Default EngineSQLite.
+	engine Engine
 }
 
 type C1ZOption func(*c1zOptions)
@@ -268,6 +299,19 @@ func WithSyncLimit(limit int) C1ZOption {
 	}
 }
 
+// WithEngine selects the storage engine for newly created .c1z files.
+// Default is EngineSQLite (v1 format). EnginePebble enables the v3
+// engine; under default build tags it returns ErrEngineNotAvailable
+// when the file is opened.
+//
+// Reading existing files dispatches on the file's magic byte and is
+// independent of this option.
+func WithEngine(engine Engine) C1ZOption {
+	return func(o *c1zOptions) {
+		o.engine = engine
+	}
+}
+
 // WithV2GrantsWriter toggles the slim-blob writer path for grants.
 // See WithC1FV2GrantsWriter for details.
 func WithV2GrantsWriter(enabled bool) C1ZOption {
@@ -321,6 +365,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	}
 	if options.v2GrantsWriter {
 		c1fopts = append(c1fopts, WithC1FV2GrantsWriter(true))
+	}
+	if options.engine != "" {
+		c1fopts = append(c1fopts, WithC1FEngine(options.engine))
 	}
 
 	c1File, err := NewC1File(ctx, dbFilePath, c1fopts...)
