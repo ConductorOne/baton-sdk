@@ -17,11 +17,11 @@ Each child branch is rebased on the previous (linear stack), submitted as a stac
 
 | Stack | Status | Branch | LOC est | LOC actual |
 |---|---|---|---|---|
-| Parent | [IN PROGRESS] | `pquerna/storage-v4-parent` | ~150 | 0 |
-| 1 (protos + codegen) | [TODO] | `pquerna/storage-v4-stack1-protos-codegen` | ~1500 | 0 |
-| 2 (envelope) | [TODO] | `pquerna/storage-v4-stack2-envelope` | ~600 | 0 |
-| 3 (engine) | [TODO] | `pquerna/storage-v4-stack3-pebble-engine` | ~5000 | 0 |
-| 4 (compaction) | [TODO] | `pquerna/storage-v4-stack4-compaction` | ~800 | 0 |
+| Parent | [DONE] | `pquerna/storage-v4-parent` | ~150 | ~250 |
+| 1 (protos + codegen) | [DONE] (codec only; protoc-gen plugin DEFERRED — ReflectCodec covers MVP) | `pquerna/storage-v4-stack1-protos-codegen` | ~1500 | ~1300 |
+| 2 (envelope) | [DONE] | `pquerna/storage-v4-stack2-envelope` | ~600 | ~700 |
+| 3 (engine) | [DONE — GrantRecord path; other records as follow-ups] | `pquerna/storage-v4-stack3-pebble-engine` | ~5000 | ~1280 |
+| 4 (compaction) | [IN PROGRESS] | `pquerna/storage-v4-stack4-compaction` | ~800 | 0 |
 | 5 (equiv + bench) | [TODO] | `pquerna/storage-v4-stack5-equiv-bench` | ~2500 | 0 |
 
 Total target: ~10,550 LOC of new code + generated artifacts.
