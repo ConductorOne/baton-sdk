@@ -1,0 +1,102 @@
+package dotc1z
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+)
+
+// C1ZFormat identifies the on-disk format of a .c1z file. The format byte
+// is the first 5 bytes of the file; see ReadHeaderFormat.
+type C1ZFormat int
+
+const (
+	// C1ZFormatUnknown is the zero value. Returned when the header bytes
+	// match neither the v1 nor the v3 magic, or when the read failed.
+	C1ZFormatUnknown C1ZFormat = iota
+
+	// C1ZFormatV1 is the original .c1z format: 5-byte magic "C1ZF\x00"
+	// followed by a zstd-compressed SQLite database.
+	C1ZFormatV1
+
+	// C1ZFormatV3 is the v3 format introduced by the storage-engine-v4
+	// RFC: 5-byte magic "C1Z3\x00", a length-prefixed proto manifest,
+	// and a zstd-tar payload of a Pebble Checkpoint directory. v3 is
+	// only opened when a v3-aware engine is linked in; under default
+	// build tags (no batonsdkv2), opening a v3 file returns
+	// ErrEngineNotAvailable.
+	C1ZFormatV3
+)
+
+// String returns a stable human-readable name for the format.
+func (f C1ZFormat) String() string {
+	switch f {
+	case C1ZFormatV1:
+		return "v1"
+	case C1ZFormatV3:
+		return "v3"
+	default:
+		return "unknown"
+	}
+}
+
+// C1Z3FileHeader is the magic byte sequence for v3 files.
+var C1Z3FileHeader = []byte("C1Z3\x00")
+
+// Engine identifies a storage engine implementation. The engine is
+// chosen by callers via WithEngine(...) on write; on read, the engine
+// is dictated by the file's magic byte and (for v3) the manifest's
+// engine field.
+type Engine string
+
+const (
+	// EngineSQLite is the default engine: the v1 .c1z format backed by
+	// a zstd-compressed SQLite database. Connectors use this; backend
+	// infra can opt out.
+	EngineSQLite Engine = "sqlite"
+
+	// EnginePebble is the v3 engine: a Pebble LSM wrapped in the v3
+	// envelope. Only available when the batonsdkv2 build tag is set;
+	// otherwise WithEngine(EnginePebble) returns ErrEngineNotAvailable
+	// at engine-construction time.
+	EnginePebble Engine = "pebble"
+)
+
+// ErrEngineNotAvailable is returned when a caller requests an engine
+// that the binary does not have linked in. The Pebble engine lives
+// behind //go:build batonsdkv2 — default-tag connector binaries do
+// not link it. Calling WithEngine(EnginePebble) from a default-build
+// binary surfaces this error at the engine-construction call site.
+var ErrEngineNotAvailable = fmt.Errorf("dotc1z: engine not available (build-tag gated)")
+
+// ReadHeaderFormat reads the first 5 bytes of reader and returns the
+// detected format. On return, the reader is positioned immediately
+// after the header bytes. If reader is also an io.Seeker, it is
+// rewound to offset 0 before reading.
+//
+// Returns:
+//   - C1ZFormatV1, nil — file starts with "C1ZF\x00".
+//   - C1ZFormatV3, nil — file starts with "C1Z3\x00".
+//   - C1ZFormatUnknown, ErrInvalidFile — header matched no known magic.
+//   - C1ZFormatUnknown, err — underlying read error.
+func ReadHeaderFormat(reader io.Reader) (C1ZFormat, error) {
+	if rs, ok := reader.(io.Seeker); ok {
+		if _, err := rs.Seek(0, io.SeekStart); err != nil {
+			return C1ZFormatUnknown, err
+		}
+	}
+
+	headerBytes := make([]byte, len(C1ZFileHeader))
+	if _, err := io.ReadFull(reader, headerBytes); err != nil {
+		return C1ZFormatUnknown, err
+	}
+
+	switch {
+	case bytes.Equal(headerBytes, C1ZFileHeader):
+		return C1ZFormatV1, nil
+	case bytes.Equal(headerBytes, C1Z3FileHeader):
+		return C1ZFormatV3, nil
+	default:
+		return C1ZFormatUnknown, ErrInvalidFile
+	}
+}

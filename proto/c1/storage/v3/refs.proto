@@ -1,0 +1,36 @@
+// Reference types for the v3 storage layer. Each Ref is an
+// identity-only pointer to another record — no rich fields.
+//
+// The principle (RFC v4 §3.4): each entity owns its rich fields;
+// cross-entity links are Refs.
+
+syntax = "proto3";
+
+package c1.storage.v3;
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/storage/v3";
+
+// EntitlementRef is the identity-only reference to an entitlement.
+// Carries the three string fields that uniquely identify it:
+// the entitlement's resource (type + id) and the entitlement's own id.
+message EntitlementRef {
+  string resource_type_id = 1;
+  string resource_id      = 2;
+  string entitlement_id   = 3;
+}
+
+// PrincipalRef is the identity-only reference to a principal resource.
+// A principal is always a resource; the resource type identifies what
+// kind of principal (user, service-principal, group, ...).
+message PrincipalRef {
+  string resource_type_id = 1;
+  string resource_id      = 2;
+}
+
+// ResourceRef is the identity-only reference to any resource (used
+// for parent-resource pointers, entitlement-resource links, and other
+// cross-entity references that don't need the resource's rich fields).
+message ResourceRef {
+  string resource_type_id = 1;
+  string resource_id      = 2;
+}
