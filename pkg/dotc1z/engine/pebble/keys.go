@@ -125,6 +125,166 @@ func encodeGrantByPrincipalPrefix(syncIDBytes []byte, principalRT, principalID s
 	return buf
 }
 
+// --- ResourceType ---
+
+// encodeResourceTypeKey returns the primary key for a resource_type:
+//
+//	v3 | typeResourceType | sync_id_bytes | external_id
+func encodeResourceTypeKey(syncIDBytes []byte, externalID string) []byte {
+	buf := make([]byte, 0, 5+len(syncIDBytes)+len(externalID))
+	buf = append(buf, versionV3, typeResourceType)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, externalID)
+	return buf
+}
+
+func encodeResourceTypePrefix(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 2+len(syncIDBytes))
+	buf = append(buf, versionV3, typeResourceType)
+	buf = append(buf, syncIDBytes...)
+	return buf
+}
+
+// --- Resource ---
+
+// encodeResourceKey returns the primary key for a resource:
+//
+//	v3 | typeResource | sync_id_bytes | resource_type_id | resource_id
+func encodeResourceKey(syncIDBytes []byte, resourceTypeID, resourceID string) []byte {
+	buf := make([]byte, 0, 32)
+	buf = append(buf, versionV3, typeResource)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, resourceTypeID)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, resourceID)
+	return buf
+}
+
+func encodeResourcePrefix(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 2+len(syncIDBytes))
+	buf = append(buf, versionV3, typeResource)
+	buf = append(buf, syncIDBytes...)
+	return buf
+}
+
+// encodeResourceByParentIndexKey: index of children-by-parent.
+func encodeResourceByParentIndexKey(syncIDBytes []byte, parentRT, parentID, childRT, childID string) []byte {
+	buf := make([]byte, 0, 64)
+	buf = append(buf, versionV3, typeIndex, idxResourceByParent)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, parentRT)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, parentID)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, childRT)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, childID)
+	return buf
+}
+
+func encodeResourceByParentPrefix(syncIDBytes []byte, parentRT, parentID string) []byte {
+	buf := make([]byte, 0, 32+len(parentRT)+len(parentID))
+	buf = append(buf, versionV3, typeIndex, idxResourceByParent)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, parentRT)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, parentID)
+	buf = codec.AppendTupleSeparator(buf)
+	return buf
+}
+
+// --- Entitlement ---
+
+// encodeEntitlementKey:
+//
+//	v3 | typeEntitlement | sync_id_bytes | external_id
+func encodeEntitlementKey(syncIDBytes []byte, externalID string) []byte {
+	buf := make([]byte, 0, 5+len(syncIDBytes)+len(externalID))
+	buf = append(buf, versionV3, typeEntitlement)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, externalID)
+	return buf
+}
+
+func encodeEntitlementPrefix(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 2+len(syncIDBytes))
+	buf = append(buf, versionV3, typeEntitlement)
+	buf = append(buf, syncIDBytes...)
+	return buf
+}
+
+// encodeEntitlementByResourceIndexKey: index of entitlements-on-resource.
+func encodeEntitlementByResourceIndexKey(syncIDBytes []byte, resourceTypeID, resourceID, externalID string) []byte {
+	buf := make([]byte, 0, 64)
+	buf = append(buf, versionV3, typeIndex, idxEntitlementByResource)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, resourceTypeID)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, resourceID)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, externalID)
+	return buf
+}
+
+func encodeEntitlementByResourcePrefix(syncIDBytes []byte, resourceTypeID, resourceID string) []byte {
+	buf := make([]byte, 0, 32+len(resourceTypeID)+len(resourceID))
+	buf = append(buf, versionV3, typeIndex, idxEntitlementByResource)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, resourceTypeID)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, resourceID)
+	buf = codec.AppendTupleSeparator(buf)
+	return buf
+}
+
+// --- Asset ---
+
+// encodeAssetKey:
+//
+//	v3 | typeAsset | sync_id_bytes | external_id
+func encodeAssetKey(syncIDBytes []byte, externalID string) []byte {
+	buf := make([]byte, 0, 5+len(syncIDBytes)+len(externalID))
+	buf = append(buf, versionV3, typeAsset)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, externalID)
+	return buf
+}
+
+func encodeAssetPrefix(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 2+len(syncIDBytes))
+	buf = append(buf, versionV3, typeAsset)
+	buf = append(buf, syncIDBytes...)
+	return buf
+}
+
+// --- SyncRun ---
+
+// encodeSyncRunKey:
+//
+//	v3 | typeSyncRun | sync_id_bytes
+//
+// SyncRunRecord has only sync_id as primary key.
+func encodeSyncRunKey(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 2+len(syncIDBytes))
+	buf = append(buf, versionV3, typeSyncRun)
+	buf = append(buf, syncIDBytes...)
+	return buf
+}
+
+// encodeSyncRunFullPrefix returns the prefix for iterating ALL sync
+// runs across the engine (no sync_id constraint).
+func encodeSyncRunFullPrefix() []byte {
+	return []byte{versionV3, typeSyncRun}
+}
+
 // upperBoundOf returns the smallest key strictly greater than every
 // key with the given prefix. Used as the UpperBound in pebble.IterOptions
 // for range scans. Increments the last byte; if the prefix is all

@@ -310,6 +310,74 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, syncID, principal
 	return iter.Error()
 }
 
+// decodeTwoTupleComponents decodes the last two tuple-encoded string
+// components from an index key relative to its prefix. The components
+// are separated by a single 0x00 byte; embedded NULs in the components
+// are escape-encoded per the tuple encoder. Returns (a, b, true) on
+// success.
+func decodeTwoTupleComponents(key, prefix []byte) (string, string, bool) {
+	if len(key) <= len(prefix) {
+		return "", "", false
+	}
+	tail := key[len(prefix):]
+	// Find the separator between the two components. We can't just
+	// scan for 0x00 because intra-component NULs are escaped — but in
+	// the escape sequence 0x01 0x01 the 0x01 comes first, so a bare
+	// 0x00 is always a separator.
+	first := make([]byte, 0, len(tail)/2)
+	i := 0
+	for i < len(tail) {
+		b := tail[i]
+		if b == 0x00 {
+			// Found separator.
+			second := decodeOneTupleComponent(tail[i+1:])
+			return string(first), second, true
+		}
+		if b == 0x01 && i+1 < len(tail) {
+			switch tail[i+1] {
+			case 0x01:
+				first = append(first, 0x00)
+			case 0x02:
+				first = append(first, 0x01)
+			default:
+				return "", "", false
+			}
+			i += 2
+			continue
+		}
+		first = append(first, b)
+		i++
+	}
+	return "", "", false
+}
+
+func decodeOneTupleComponent(b []byte) string {
+	out := make([]byte, 0, len(b))
+	i := 0
+	for i < len(b) {
+		c := b[i]
+		if c == 0x01 && i+1 < len(b) {
+			switch b[i+1] {
+			case 0x01:
+				out = append(out, 0x00)
+			case 0x02:
+				out = append(out, 0x01)
+			default:
+				return string(out)
+			}
+			i += 2
+			continue
+		}
+		if c == 0x00 {
+			// Should not happen in a single component — return what we have.
+			return string(out)
+		}
+		out = append(out, c)
+		i++
+	}
+	return string(out)
+}
+
 // lastTupleComponent returns the decoded string of the last component
 // in an index key relative to its prefix. Returns empty string if the
 // key doesn't extend past the prefix.
