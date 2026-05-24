@@ -48,6 +48,9 @@ type ExpanderStore interface {
 type Expander struct {
 	store ExpanderStore
 	graph *EntitlementGraph
+
+	prefetchedDescendantID string
+	prefetchedDescendants  map[string][]*v2.Grant
 }
 
 // NewExpander creates a new Expander with the given store and graph.
@@ -107,6 +110,8 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 			// Action is complete - mark edge expanded and remove from queue
 			e.graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
 			e.graph.Actions = e.graph.Actions[1:]
+			e.prefetchedDescendantID = ""
+			e.prefetchedDescendants = nil
 		}
 	}
 
@@ -148,19 +153,28 @@ func (e *Expander) IsDone(ctx context.Context) bool {
 	return e.graph.IsExpanded()
 }
 
+const maxPrefetchPages = 10000
+
 func descendantGrantKey(resourceTypeID, resourceID string) string {
 	return resourceTypeID + "\x00" + resourceID
 }
 
-func prefetchDescendantGrants(
+func (e *Expander) getDescendantGrants(
 	ctx context.Context,
-	store ExpanderStore,
 	entitlement *v2.Entitlement,
 ) (map[string][]*v2.Grant, error) {
+	entID := entitlement.GetId()
+	if e.prefetchedDescendantID == entID && e.prefetchedDescendants != nil {
+		return e.prefetchedDescendants, nil
+	}
+
 	result := make(map[string][]*v2.Grant)
 	pageToken := ""
-	for {
-		resp, err := store.ListGrantsForEntitlement(ctx,
+	for page := 0; page < maxPrefetchPages; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		resp, err := e.store.ListGrantsForEntitlement(ctx,
 			reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 				Entitlement: entitlement,
 				PageToken:   pageToken,
@@ -178,6 +192,9 @@ func prefetchDescendantGrants(
 			break
 		}
 	}
+
+	e.prefetchedDescendantID = entID
+	e.prefetchedDescendants = result
 	return result, nil
 }
 
@@ -241,7 +258,7 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 		return "", fmt.Errorf("runAction: error fetching source grants: %w", err)
 	}
 
-	descendantByPrincipal, err := prefetchDescendantGrants(ctx, e.store, descendantEntitlement.GetEntitlement())
+	descendantByPrincipal, err := e.getDescendantGrants(ctx, descendantEntitlement.GetEntitlement())
 	if err != nil {
 		l.Error("runAction: error prefetching descendant grants", zap.Error(err))
 		return "", fmt.Errorf("runAction: error prefetching descendant grants: %w", err)
@@ -250,6 +267,9 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 
 	var newGrants = make([]*v2.Grant, 0)
 	for _, sourceGrant := range sourceGrants.GetList() {
+		if sourceGrant.GetPrincipal() == nil {
+			continue
+		}
 		if action.Shallow {
 			sourcesMap := sourceGrant.GetSources().GetSources()
 			foundDirectGrant := len(sourcesMap) == 0
