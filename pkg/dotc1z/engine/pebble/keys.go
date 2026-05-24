@@ -38,6 +38,8 @@ const (
 	idxGrantByNeedsExpansion byte = 0x05
 )
 
+// --- Grant ---
+
 // encodeGrantKey returns the primary key for a grant.
 //
 //	v3 | typeGrant | sync_id_bytes | external_id
@@ -199,9 +201,6 @@ func encodeResourceByParentPrefix(syncIDBytes []byte, parentRT, parentID string)
 
 // --- Entitlement ---
 
-// encodeEntitlementKey:
-//
-//	v3 | typeEntitlement | sync_id_bytes | external_id
 func encodeEntitlementKey(syncIDBytes []byte, externalID string) []byte {
 	buf := make([]byte, 0, 5+len(syncIDBytes)+len(externalID))
 	buf = append(buf, versionV3, typeEntitlement)
@@ -218,7 +217,6 @@ func encodeEntitlementPrefix(syncIDBytes []byte) []byte {
 	return buf
 }
 
-// encodeEntitlementByResourceIndexKey: index of entitlements-on-resource.
 func encodeEntitlementByResourceIndexKey(syncIDBytes []byte, resourceTypeID, resourceID, externalID string) []byte {
 	buf := make([]byte, 0, 64)
 	buf = append(buf, versionV3, typeIndex, idxEntitlementByResource)
@@ -246,9 +244,6 @@ func encodeEntitlementByResourcePrefix(syncIDBytes []byte, resourceTypeID, resou
 
 // --- Asset ---
 
-// encodeAssetKey:
-//
-//	v3 | typeAsset | sync_id_bytes | external_id
 func encodeAssetKey(syncIDBytes []byte, externalID string) []byte {
 	buf := make([]byte, 0, 5+len(syncIDBytes)+len(externalID))
 	buf = append(buf, versionV3, typeAsset)
@@ -267,11 +262,6 @@ func encodeAssetPrefix(syncIDBytes []byte) []byte {
 
 // --- SyncRun ---
 
-// encodeSyncRunKey:
-//
-//	v3 | typeSyncRun | sync_id_bytes
-//
-// SyncRunRecord has only sync_id as primary key.
 func encodeSyncRunKey(syncIDBytes []byte) []byte {
 	buf := make([]byte, 0, 2+len(syncIDBytes))
 	buf = append(buf, versionV3, typeSyncRun)
@@ -279,10 +269,53 @@ func encodeSyncRunKey(syncIDBytes []byte) []byte {
 	return buf
 }
 
-// encodeSyncRunFullPrefix returns the prefix for iterating ALL sync
-// runs across the engine (no sync_id constraint).
 func encodeSyncRunFullPrefix() []byte {
 	return []byte{versionV3, typeSyncRun}
+}
+
+// --- Exported bound helpers for synccompactor/pebble ---
+
+// GrantSyncLowerBound returns the lowest key in the grant primary
+// bucket for a given sync. Together with GrantSyncUpperBound it gives
+// the half-open [lo, hi) range covering every grant under that sync.
+// Exported for the synccompactor/pebble package; not part of the
+// stable public API of the engine.
+func GrantSyncLowerBound(syncIDBytes []byte) []byte {
+	return encodeGrantPrefix(syncIDBytes)
+}
+
+// GrantSyncUpperBound returns the exclusive upper bound for the
+// grant primary bucket under a sync.
+func GrantSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(encodeGrantPrefix(syncIDBytes))
+}
+
+// GrantByEntitlementSyncLowerBound returns the lowest key in the
+// by_entitlement index bucket for a given sync.
+func GrantByEntitlementSyncLowerBound(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 3+len(syncIDBytes))
+	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlement)
+	buf = append(buf, syncIDBytes...)
+	return buf
+}
+
+// GrantByEntitlementSyncUpperBound is the exclusive upper bound.
+func GrantByEntitlementSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(GrantByEntitlementSyncLowerBound(syncIDBytes))
+}
+
+// GrantByPrincipalSyncLowerBound returns the lowest key in the
+// by_principal index bucket for a given sync.
+func GrantByPrincipalSyncLowerBound(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 3+len(syncIDBytes))
+	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipal)
+	buf = append(buf, syncIDBytes...)
+	return buf
+}
+
+// GrantByPrincipalSyncUpperBound is the exclusive upper bound.
+func GrantByPrincipalSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(GrantByPrincipalSyncLowerBound(syncIDBytes))
 }
 
 // upperBoundOf returns the smallest key strictly greater than every

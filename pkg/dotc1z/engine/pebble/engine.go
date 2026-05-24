@@ -257,6 +257,12 @@ func (e *Engine) Save(ctx context.Context, dest string) error {
 	return errors.New("pebble engine: Save requires the dotc1z.Save shim (envelope write); use CheckpointTo for direct directory access")
 }
 
+// DB returns the underlying *pebble.DB. Exported for the
+// synccompactor/pebble package; callers must not Close it directly
+// (use Engine.Close) and must respect the engine's lifecycle. Returns
+// nil after Close.
+func (e *Engine) DB() *pebble.DB { return e.db }
+
 // CheckpointTo writes a self-contained Pebble directory snapshot to
 // destDir. destDir must not exist yet. Pebble creates it and
 // hard-links SSTs where possible.
