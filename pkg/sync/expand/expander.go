@@ -48,9 +48,6 @@ type ExpanderStore interface {
 type Expander struct {
 	store ExpanderStore
 	graph *EntitlementGraph
-
-	prefetchedDescendantID string
-	prefetchedDescendants  map[string][]*v2.Grant
 }
 
 // NewExpander creates a new Expander with the given store and graph.
@@ -110,8 +107,6 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 			// Action is complete - mark edge expanded and remove from queue
 			e.graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
 			e.graph.Actions = e.graph.Actions[1:]
-			e.prefetchedDescendantID = ""
-			e.prefetchedDescendants = nil
 		}
 	}
 
@@ -159,22 +154,18 @@ func descendantGrantKey(resourceTypeID, resourceID string) string {
 	return resourceTypeID + "\x00" + resourceID
 }
 
-func (e *Expander) getDescendantGrants(
+func prefetchDescendantGrants(
 	ctx context.Context,
+	store ExpanderStore,
 	entitlement *v2.Entitlement,
 ) (map[string][]*v2.Grant, error) {
-	entID := entitlement.GetId()
-	if e.prefetchedDescendantID == entID && e.prefetchedDescendants != nil {
-		return e.prefetchedDescendants, nil
-	}
-
 	result := make(map[string][]*v2.Grant)
 	pageToken := ""
 	for page := 0; page < maxPrefetchPages; page++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		resp, err := e.store.ListGrantsForEntitlement(ctx,
+		resp, err := store.ListGrantsForEntitlement(ctx,
 			reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 				Entitlement: entitlement,
 				PageToken:   pageToken,
@@ -192,9 +183,6 @@ func (e *Expander) getDescendantGrants(
 			break
 		}
 	}
-
-	e.prefetchedDescendantID = entID
-	e.prefetchedDescendants = result
 	return result, nil
 }
 
@@ -258,7 +246,7 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 		return "", fmt.Errorf("runAction: error fetching source grants: %w", err)
 	}
 
-	descendantByPrincipal, err := e.getDescendantGrants(ctx, descendantEntitlement.GetEntitlement())
+	descendantByPrincipal, err := prefetchDescendantGrants(ctx, e.store, descendantEntitlement.GetEntitlement())
 	if err != nil {
 		l.Error("runAction: error prefetching descendant grants", zap.Error(err))
 		return "", fmt.Errorf("runAction: error prefetching descendant grants: %w", err)
