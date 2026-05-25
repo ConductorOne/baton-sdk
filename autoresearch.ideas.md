@@ -79,4 +79,28 @@ of those closed axes likely apply here too:
 
 ## Tried — see jsonl for verdicts
 
-(populated by the loop)
+### Kept
+
+- **#51 outer-only grantReadArena** (-2.3% primary). Collapses the 1 M
+  v3.GrantRecord outer allocations to one slice alloc per page. Small-
+  scale regression (1k +14 %, 100 +20 %) is the known arena-over-allocation
+  tradeoff. WritePack + SQLite sentinels flat.
+- **#53 grantV2ReadArena** (-20.7 % primary). Arena-allocates the 6
+  v2.Grant nested stubs (Grant + Entitlement + 2 Resources + 2 ResourceIds)
+  in adapter.ListGrants. Pre-sized to len(records) so no waste at any scale
+  for the arena itself (small-scale regression unchanged from #51, came from
+  the OUTER GrantRecord arena, not this one). Allocs/op 17M→10M.
+
+### Discarded
+
+- **#50 grantReadArena with pre-populated nested fields** — proto.Unmarshal
+  didn't reuse the pre-populated EntitlementRef/PrincipalRef/Timestamp
+  pointers despite the consumeMessageInfo source-level read suggesting it
+  should. Only the outer GrantRecord was reused (-1 alloc/grant), while the
+  unused pre-populated arenas added bytes_op +15 % and regressed smaller
+  scales +28-40 %. Probable causes recorded in the jsonl ASI.
+- **#52 slab-style growable arena** — attempted to fix #51's small-scale
+  regression by sizing arenas to actual records via doubling-slab strategy.
+  Slab management overhead (per-call cap check + slice-header sync) cancelled
+  the saved memclr at small scales. Fixed-size arena from #51 is the better
+  tradeoff.
