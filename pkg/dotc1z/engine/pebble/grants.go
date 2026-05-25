@@ -44,8 +44,23 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		return nil
 	}
 	return e.withWrite(func() error {
-		batch := e.db.NewBatch()
-		defer batch.Close()
+		// Two batches: primaries vs indexes. Pebble's flushable-batch
+		// promotion (triggered when batch > MemTableSize) sort.Sorts every
+		// entry to make the batch behave like a memtable. When the input
+		// is already key-sorted, pdqsort short-circuits to nearly O(N).
+		// Connector grants typically arrive in external_id order (paginated
+		// sources walk in stable order), so the primary key stream
+		// (v3|G|sync|external_id) is nearly always pre-sorted by
+		// construction. Splitting the index writes (which interleave
+		// unsorted entitlement_id / principal_id) into a separate batch
+		// lets the primary batch's sort take that fast path. Indexes are
+		// still committed atomically per-batch; cross-batch consistency
+		// for fresh-sync is acceptable because fresh-sync replays from the
+		// connector on crash.
+		priBatch := e.db.NewBatch()
+		defer priBatch.Close()
+		idxBatch := e.db.NewBatch()
+		defer idxBatch.Close()
 
 		fresh := e.IsFreshSync()
 		// Scratch buffers reused across all records in the batch. Batch.Set
@@ -105,7 +120,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 					closer.Close()
 					return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
 				}
-				if err := e.deleteGrantIndexes(batch, idBytes, old); err != nil {
+				if err := e.deleteGrantIndexes(idxBatch, idBytes, old); err != nil {
 					closer.Close()
 					return err
 				}
@@ -115,10 +130,10 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			default:
 				return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
 			}
-			if err := batch.Set(keyBuf, valBuf, nil); err != nil {
+			if err := priBatch.Set(keyBuf, valBuf, nil); err != nil {
 				return err
 			}
-			idx1Buf, idx2Buf, err = appendGrantIndexes(batch, idBytes, r, idx1Buf[:0], idx2Buf[:0])
+			idx1Buf, idx2Buf, err = appendGrantIndexes(idxBatch, idBytes, r, idx1Buf[:0], idx2Buf[:0])
 			if err != nil {
 				return err
 			}
@@ -127,7 +142,10 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		if fresh {
 			opts = pebble.NoSync
 		}
-		return batch.Commit(opts)
+		if err := priBatch.Commit(opts); err != nil {
+			return err
+		}
+		return idxBatch.Commit(opts)
 	})
 }
 
