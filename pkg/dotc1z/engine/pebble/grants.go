@@ -48,6 +48,19 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		defer batch.Close()
 
 		fresh := e.IsFreshSync()
+		// Scratch buffers reused across all records in the batch. Batch.Set
+		// copies key+value into its internal buffer (vendor/pebble/v2/batch.go
+		// Set: `copy(deferredOp.Key, key); copy(deferredOp.Value, value)`),
+		// so these slices can be reused immediately. Saves ~4 allocs per
+		// grant on the hot path — 5M+ fewer GC objects on the 1M workload.
+		var (
+			keyBuf  = make([]byte, 0, 64)
+			idx1Buf = make([]byte, 0, 96)
+			idx2Buf = make([]byte, 0, 96)
+			valBuf  = make([]byte, 0, 512)
+		)
+		marshalOpts := proto.MarshalOptions{Deterministic: true}
+
 		for _, r := range records {
 			if r == nil {
 				continue
@@ -56,12 +69,12 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			if err != nil {
 				return err
 			}
-			key := encodeGrantKey(idBytes, r.GetExternalId())
-			val, err := marshalRecord(r)
+			keyBuf = appendGrantKey(keyBuf[:0], idBytes, r.GetExternalId())
+			valBuf, err = marshalOpts.MarshalAppend(valBuf[:0], r)
 			if err != nil {
 				return err
 			}
-			oldVal, closer, getErr := e.db.Get(key)
+			oldVal, closer, getErr := e.db.Get(keyBuf)
 			switch {
 			case getErr == nil:
 				old := &v3.GrantRecord{}
@@ -79,10 +92,11 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			default:
 				return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
 			}
-			if err := batch.Set(key, val, nil); err != nil {
+			if err := batch.Set(keyBuf, valBuf, nil); err != nil {
 				return err
 			}
-			if err := e.writeGrantIndexes(batch, idBytes, r); err != nil {
+			idx1Buf, idx2Buf, err = appendGrantIndexes(batch, idBytes, r, idx1Buf[:0], idx2Buf[:0])
+			if err != nil {
 				return err
 			}
 		}
@@ -92,6 +106,41 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		}
 		return batch.Commit(opts)
 	})
+}
+
+// appendGrantIndexes is the scratch-buffer variant of writeGrantIndexes,
+// used by the hot PutGrantRecords path. Caller supplies two pre-truncated
+// scratch buffers; returned buffers carry the underlying capacity for
+// the next iteration.
+func appendGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *v3.GrantRecord, idx1, idx2 []byte) ([]byte, []byte, error) {
+	ent := r.GetEntitlement()
+	princ := r.GetPrincipal()
+	ext := r.GetExternalId()
+
+	if ent != nil && princ != nil {
+		idx1 = appendGrantByEntitlementIndexKey(idx1,
+			syncIDBytes,
+			ent.GetEntitlementId(),
+			princ.GetResourceTypeId(),
+			princ.GetResourceId(),
+			ext,
+		)
+		if err := batch.Set(idx1, nil, nil); err != nil {
+			return idx1, idx2, err
+		}
+	}
+	if princ != nil {
+		idx2 = appendGrantByPrincipalIndexKey(idx2,
+			syncIDBytes,
+			princ.GetResourceTypeId(),
+			princ.GetResourceId(),
+			ext,
+		)
+		if err := batch.Set(idx2, nil, nil); err != nil {
+			return idx1, idx2, err
+		}
+	}
+	return idx1, idx2, nil
 }
 
 // GetGrantRecord fetches a grant record by sync_id + external_id.

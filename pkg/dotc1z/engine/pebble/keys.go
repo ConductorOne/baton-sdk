@@ -35,18 +35,25 @@ const (
 
 // --- Grant ---
 
+// appendGrantKey appends the primary grant key to dst (no leading
+// truncation). Hot-path callers reuse a single scratch buffer across
+// thousands of records to avoid per-record allocation; pebble.Batch.Set
+// copies the key so the buffer can be reused immediately.
+func appendGrantKey(dst []byte, syncIDBytes []byte, externalID string) []byte {
+	dst = append(dst, versionV3, typeGrant)
+	dst = append(dst, syncIDBytes...)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = codec.AppendTupleString(dst, externalID)
+	return dst
+}
+
 // encodeGrantKey returns the primary key for a grant.
 //
 //	v3 | typeGrant | sync_id_bytes | external_id
 //
 // sync_id is the 20-byte canonical KSUID binary form (see codec.EncodeSyncID).
 func encodeGrantKey(syncIDBytes []byte, externalID string) []byte {
-	buf := make([]byte, 0, 5+len(syncIDBytes)+len(externalID))
-	buf = append(buf, versionV3, typeGrant)
-	buf = append(buf, syncIDBytes...)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, externalID)
-	return buf
+	return appendGrantKey(make([]byte, 0, 5+len(syncIDBytes)+len(externalID)), syncIDBytes, externalID)
 }
 
 // encodeGrantPrefix returns the prefix key for iterating all grants
@@ -64,36 +71,42 @@ func encodeGrantPrefix(syncIDBytes []byte) []byte {
 //	v3 | typeIndex | idxGrantByEntitlement | sync_id_bytes |
 //	    entitlement_id | principal_resource_type | principal_resource_id |
 //	    external_id  (tail for uniqueness)
+func appendGrantByEntitlementIndexKey(dst []byte, syncIDBytes []byte, entitlementID, principalRT, principalID, externalID string) []byte {
+	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlement)
+	dst = append(dst, syncIDBytes...)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = codec.AppendTupleString(dst, entitlementID)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = codec.AppendTupleString(dst, principalRT)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = codec.AppendTupleString(dst, principalID)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = codec.AppendTupleString(dst, externalID)
+	return dst
+}
+
 func encodeGrantByEntitlementIndexKey(syncIDBytes []byte, entitlementID, principalRT, principalID, externalID string) []byte {
-	buf := make([]byte, 0, 64)
-	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlement)
-	buf = append(buf, syncIDBytes...)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, entitlementID)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, principalRT)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, principalID)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, externalID)
-	return buf
+	return appendGrantByEntitlementIndexKey(make([]byte, 0, 64), syncIDBytes, entitlementID, principalRT, principalID, externalID)
 }
 
 // encodeGrantByPrincipalIndexKey:
 //
 //	v3 | typeIndex | idxGrantByPrincipal | sync_id_bytes |
 //	    principal_resource_type | principal_resource_id | external_id
+func appendGrantByPrincipalIndexKey(dst []byte, syncIDBytes []byte, principalRT, principalID, externalID string) []byte {
+	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipal)
+	dst = append(dst, syncIDBytes...)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = codec.AppendTupleString(dst, principalRT)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = codec.AppendTupleString(dst, principalID)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = codec.AppendTupleString(dst, externalID)
+	return dst
+}
+
 func encodeGrantByPrincipalIndexKey(syncIDBytes []byte, principalRT, principalID, externalID string) []byte {
-	buf := make([]byte, 0, 64)
-	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipal)
-	buf = append(buf, syncIDBytes...)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, principalRT)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, principalID)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, externalID)
-	return buf
+	return appendGrantByPrincipalIndexKey(make([]byte, 0, 64), syncIDBytes, principalRT, principalID, externalID)
 }
 
 // encodeGrantByEntitlementPrefix returns the prefix for "all grants
