@@ -38,6 +38,12 @@ status (kept / discarded / crashed) so we don't repeat them.
   goroutine + channel coordination overhead exceeds the engine.Close wallclock
   savings (~30-50 ms). At smaller scales the overhead dominates and regresses
   10-15%. Not a clean win at any size.
+- **Parallelize large heap allocations across goroutines** (#47 priBatch/idxBatch,
+  #48 priBatch sub-shards). Three different attempts. Go's heap allocator
+  serializes large (>32 KB) allocations through the central heap-arena mutex;
+  OS mmap underneath has kernel-level locks. Concurrent 150 MB-class allocs
+  from N goroutines queue serially, plus goroutine scheduling adds overhead
+  proportional to N. Stick to single-goroutine allocation for the big buffers.
 - **FlushSplitBytes axis** (tried 2 MiB → 16 MiB at #21, #31; 2 MiB → 64 MiB at #37).
   Pebble doesn't honor very large hints, or bigger SSTs lose write parallelism.
   All flat-to-mildly-negative across multiple baselines.
