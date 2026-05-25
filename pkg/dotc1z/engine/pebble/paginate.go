@@ -257,14 +257,11 @@ func (e *Engine) PaginateGrantsBySync(
 	arena := &grantReadArena{grants: make([]v3.GrantRecord, limit)}
 
 	const (
-		// 6 workers (was 4). Profile shows workers do ~125 ms wallclock
-		// in 4-way parallel vs main's ~137 ms iter loop — workers slightly
-		// under-saturated. With 6 workers, parallel work drops to ~83 ms
-		// wallclock, eliminating the residual wg.Wait at page boundaries
-		// where workers were still draining batches when main reached
-		// the close(jobs) point. Tradeoff: 2 extra goroutines per page ×
-		// 100 pages = 200 extra goroutine spawns per bench iter.
-		pageUnmarshalWorkers = 6
+		// 7 workers — bisecting #63 (6 → 405.9 ms) and #64 (8 → 416.6 ms).
+		// Identifies whether the optimum is 6 or 7. 6→8 went +2.6 %, so
+		// per-worker overhead crossed over. The true minimum could be 6 or
+		// 7 depending on the exact shape of the overhead curve.
+		pageUnmarshalWorkers = 7
 		// Batch size of 256 matches the translate pool (#61). Reduces
 		// dispatches 4× vs the original 64 — at 1 M bench scale this is
 		// 156→39 batches per page. With 6 workers × ~7 batches each per
