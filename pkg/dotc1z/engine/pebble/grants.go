@@ -150,10 +150,11 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 	})
 }
 
-// buildPriBatchSkipGet emits only primary-key Sets to priBatch. Used in
-// the parallel skipGet path — the sibling goroutine writes idxBatch
-// concurrently. No db.Get; the keyspace is provably empty.
-func (e *Engine) buildPriBatchSkipGet(priBatch *pebble.Batch, records []*v3.GrantRecord) error {
+// buildPriBatchSkipGetIntoLocal is the per-shard worker for the
+// parallel-build path. Each goroutine writes Sets into its own private
+// pebble.Batch (no shared state), which the caller then Applies into the
+// final priBatch.
+func (e *Engine) buildPriBatchSkipGetIntoLocal(local *pebble.Batch, records []*v3.GrantRecord) error {
 	keyBuf := make([]byte, 0, 64)
 	valBuf := make([]byte, 0, 512)
 	marshalOpts := proto.MarshalOptions{Deterministic: true}
@@ -186,7 +187,73 @@ func (e *Engine) buildPriBatchSkipGet(priBatch *pebble.Batch, records []*v3.Gran
 		if err != nil {
 			return err
 		}
-		if err := priBatch.Set(keyBuf, valBuf, nil); err != nil {
+		if err := local.Set(keyBuf, valBuf, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// buildPriBatchSkipGet shards records across N goroutines, each building
+// a local pebble.Batch. The resulting batches are Apply'd into the final
+// priBatch in order. proto.Marshal of GrantRecords is the long pole on
+// the parallel-build path; sharding it across cores cuts wallclock on
+// the goroutine A side roughly N×, at the cost of an Apply memcpy
+// (~530 MB total for 1M records, ≈50 ms at 10 GB/s).
+func (e *Engine) buildPriBatchSkipGet(priBatch *pebble.Batch, records []*v3.GrantRecord) error {
+	// Heuristic: shard count = min(4, runtime.GOMAXPROCS/4). On a
+	// 16-core box this is 4. Each shard handles ~250k records of ~530 B
+	// for 1M-grant workloads. Below ~1000 records per shard the Apply
+	// memcpy overhead dominates, so bail to the single-pass path.
+	const targetShards = 4
+	const minShardSize = 1024
+
+	shards := targetShards
+	if n := len(records) / minShardSize; n < shards {
+		shards = n
+	}
+	if shards < 2 {
+		return e.buildPriBatchSkipGetIntoLocal(priBatch, records)
+	}
+
+	// Build sub-batches in parallel.
+	locals := make([]*pebble.Batch, shards)
+	errs := make([]error, shards)
+	var wg sync.WaitGroup
+	wg.Add(shards)
+	chunkSize := (len(records) + shards - 1) / shards
+	for s := 0; s < shards; s++ {
+		start := s * chunkSize
+		end := start + chunkSize
+		if end > len(records) {
+			end = len(records)
+		}
+		s := s
+		slice := records[start:end]
+		local := e.db.NewBatchWithSize(len(slice) * 600)
+		locals[s] = local
+		go func() {
+			defer wg.Done()
+			errs[s] = e.buildPriBatchSkipGetIntoLocal(local, slice)
+		}()
+	}
+	wg.Wait()
+	defer func() {
+		for _, l := range locals {
+			if l != nil {
+				_ = l.Close()
+			}
+		}
+	}()
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	// Concatenate into the final priBatch in shard order. Apply does a
+	// single memcpy per call.
+	for _, l := range locals {
+		if err := priBatch.Apply(l, nil); err != nil {
 			return err
 		}
 	}
