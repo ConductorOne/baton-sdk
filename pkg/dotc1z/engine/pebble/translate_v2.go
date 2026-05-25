@@ -2,6 +2,7 @@ package pebble
 
 import (
 	"strings"
+	"sync"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -111,6 +112,108 @@ type grantV2ReadArena struct {
 	entitlementResourceIDs []v2.ResourceId
 	principalResources     []v2.Resource
 	principalResourceIDs   []v2.ResourceId
+}
+
+// translateParallelThreshold is the page-size cutoff below which
+// adapter.ListGrants uses the serial append-arena translate (no
+// dispatch overhead). Above this threshold we switch to the parallel
+// pool. Set to 1024 so the small-page bench scales (100, 1k) stay on
+// the serial path — their wallclock is too small for parallel
+// dispatch overhead to pay back.
+const translateParallelThreshold = 1024
+
+// translateGrantsParallel translates records[i] → arena.grants[i] via
+// a 4-worker pool. Batched dispatch (batchSize records per channel
+// msg) keeps channel-op overhead negligible. arena must have been
+// built with newGrantV2ReadArenaPrealloc(len(records)).
+func translateGrantsParallel(arena *grantV2ReadArena, records []*v3.GrantRecord) {
+	const (
+		translateWorkers   = 4
+		translateBatchSize = 256
+	)
+	jobs := make(chan int, translateWorkers*2)
+	var wg sync.WaitGroup
+	wg.Add(translateWorkers)
+	for w := 0; w < translateWorkers; w++ {
+		go func() {
+			defer wg.Done()
+			for start := range jobs {
+				end := start + translateBatchSize
+				if end > len(records) {
+					end = len(records)
+				}
+				for i := start; i < end; i++ {
+					arena.translateV3GrantAt(i, records[i])
+				}
+			}
+		}()
+	}
+	for s := 0; s < len(records); s += translateBatchSize {
+		jobs <- s
+	}
+	close(jobs)
+	wg.Wait()
+}
+
+// newGrantV2ReadArenaPrealloc builds an arena with every backing
+// slice pre-sized to length n (not capacity — length). Caller fills
+// slots via translateV3GrantAt(idx, rec); safe to call concurrently
+// for distinct idx values because writes target independent slice
+// elements (Go memory model: writes to different indices are
+// independent). Used by adapter.ListGrants for parallel post-decode
+// v3→v2 translation.
+func newGrantV2ReadArenaPrealloc(n int) *grantV2ReadArena {
+	if n <= 0 {
+		return nil
+	}
+	return &grantV2ReadArena{
+		grants:                 make([]v2.Grant, n),
+		entitlements:           make([]v2.Entitlement, n),
+		entitlementResources:   make([]v2.Resource, n),
+		entitlementResourceIDs: make([]v2.ResourceId, n),
+		principalResources:     make([]v2.Resource, n),
+		principalResourceIDs:   make([]v2.ResourceId, n),
+	}
+}
+
+// translateV3GrantAt fills arena slot `idx` with the v2.Grant
+// translation of r. Safe to call concurrently for distinct idx values.
+// Requires the arena to have been built with newGrantV2ReadArenaPrealloc.
+func (a *grantV2ReadArena) translateV3GrantAt(idx int, r *v3.GrantRecord) *v2.Grant {
+	if r == nil {
+		return nil
+	}
+	g := &a.grants[idx]
+	g.SetId(r.GetExternalId())
+	if ref := r.GetEntitlement(); ref != nil {
+		rid := &a.entitlementResourceIDs[idx]
+		rid.SetResourceType(ref.GetResourceTypeId())
+		rid.SetResource(ref.GetResourceId())
+
+		res := &a.entitlementResources[idx]
+		res.SetId(rid)
+
+		ent := &a.entitlements[idx]
+		ent.SetId(ref.GetEntitlementId())
+		ent.SetResource(res)
+		g.SetEntitlement(ent)
+	}
+	if ref := r.GetPrincipal(); ref != nil {
+		rid := &a.principalResourceIDs[idx]
+		rid.SetResourceType(ref.GetResourceTypeId())
+		rid.SetResource(ref.GetResourceId())
+
+		res := &a.principalResources[idx]
+		res.SetId(rid)
+		g.SetPrincipal(res)
+	}
+	if ann := r.GetAnnotations(); len(ann) > 0 {
+		g.SetAnnotations(ann)
+	}
+	if src := v3GrantSourcesToV2(r.GetSources()); src != nil {
+		g.SetSources(src)
+	}
+	return g
 }
 
 // newGrantV2ReadArena pre-allocates backing arrays exactly sized to

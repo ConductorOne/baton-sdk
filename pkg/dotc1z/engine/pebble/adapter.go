@@ -500,16 +500,34 @@ func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrant
 	if err != nil {
 		return nil, err
 	}
-	// Arena the v2.Grant + nested stubs so a page of N grants costs 6
-	// slice allocs instead of 6 × N individual mallocs. Pre-sized to
-	// the EXACT record count returned (no over-allocation), so small
-	// pages don't pay the cost of unused arena slots. The arena's
-	// backing arrays are held alive via the *v2.Grant pointers in `out`,
-	// which the caller receives in the response.
-	arena := newGrantV2ReadArena(len(records))
-	out := make([]*v2.Grant, 0, len(records))
-	for _, rec := range records {
-		out = append(out, arena.translateV3Grant(rec))
+	// Translate v3.GrantRecord → v2.Grant. Two strategies depending
+	// on page size:
+	//
+	//   - Small pages (≤ translateParallelThreshold): serial loop with
+	//     append-based arena. Cheap, no dispatch overhead.
+	//   - Large pages: parallel pool, pre-allocated arena sized to
+	//     EXACT len(records) (not limit — #57's regression came from
+	//     limit-sized arenas wasting slots at small scales).
+	//
+	// The parallel pool runs AFTER PaginateGrantsBySync's decode
+	// workers have finished, so there is no memory-bandwidth contention
+	// with proto.Unmarshal (#57's other failure mode, which folded
+	// translate INTO the decode workers and stole bandwidth from
+	// Unmarshal at 1 M scale).
+	var out []*v2.Grant
+	if len(records) <= translateParallelThreshold {
+		arena := newGrantV2ReadArena(len(records))
+		out = make([]*v2.Grant, 0, len(records))
+		for _, rec := range records {
+			out = append(out, arena.translateV3Grant(rec))
+		}
+	} else {
+		arena := newGrantV2ReadArenaPrealloc(len(records))
+		out = make([]*v2.Grant, len(records))
+		translateGrantsParallel(arena, records)
+		for i := range records {
+			out[i] = &arena.grants[i]
+		}
 	}
 	return v2.GrantsServiceListGrantsResponse_builder{
 		List:          out,
