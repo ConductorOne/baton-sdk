@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/proto"
@@ -155,23 +156,26 @@ type grantReadArena struct {
 	grants []v3.GrantRecord
 }
 
-func newGrantReadArena(pageLimit int) *grantReadArena {
-	return &grantReadArena{
-		grants: make([]v3.GrantRecord, 0, pageLimit),
-	}
-}
-
-func (a *grantReadArena) allocGrant() *v3.GrantRecord {
-	a.grants = append(a.grants, v3.GrantRecord{})
-	return &a.grants[len(a.grants)-1]
-}
-
 // PaginateGrantsBySync returns up to `limit` grants from the
 // primary-key range, starting strictly after `cursor`. Returns the
 // next cursor (empty if no more) plus the materialized records.
 //
-// Uses grantReadArena for the per-iter outer-struct allocations —
-// 1 page = 1 arena slice rather than O(page-size) individual mallocs.
+// The page's proto.Unmarshal work is parallelized via BATCHED dispatch
+// to a worker pool. Main goroutine iterates Pebble (iter.Value()'s
+// storage is invalidated by iter.Next, so iteration must be serial),
+// copies wire bytes into a per-batch concatenated buffer, and
+// dispatches the batch to a worker. Workers proto.Unmarshal each
+// record in their batch into pre-allocated arena slots.
+//
+// Batched dispatch (vs the per-record dispatch attempt #54) avoids:
+//
+//   - 1 M individual `make([]byte, N)` allocs for value buffers
+//     (one slab per batch instead)
+//   - 1 M channel send + receive pairs (≈64 × fewer at batchSize=64)
+//
+// At the 1 M paginated read bench, proto.Unmarshal is ≈470 ms of the
+// 974 ms wallclock. 4-way parallel decode targets ≈120 ms decode +
+// ≈50 ms dispatch/copy overhead = ≈170 ms total.
 func (e *Engine) PaginateGrantsBySync(
 	ctx context.Context, syncID, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
@@ -187,8 +191,121 @@ func (e *Engine) PaginateGrantsBySync(
 		limit = DefaultPageSize
 	}
 	prefix := encodeGrantPrefix(idBytes)
-	arena := newGrantReadArena(limit)
-	return iteratePrimaryPageWithKey(ctx, e.db, prefix, cursorBytes, limit, arena.allocGrant)
+	lower, upper := rangeAfter(prefix, cursorBytes)
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: lower,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("page iter: %w", err)
+	}
+	defer iter.Close()
+
+	// Pre-allocate arena slots up to limit. Workers index into these
+	// slots directly; no append, no race.
+	arena := &grantReadArena{grants: make([]v3.GrantRecord, limit)}
+
+	const (
+		pageUnmarshalWorkers = 4
+		unmarshalBatchSize   = 64
+	)
+
+	// Per-batch buffer: one concatenated []byte for all the record
+	// values in the batch, plus per-record end-offsets. Workers split
+	// the buffer by offsets and unmarshal each slice into
+	// arena.grants[startIdx + i].
+	type unmarshalBatch struct {
+		startIdx int    // first arena.grants index this batch covers
+		count    int    // records in this batch
+		valueBuf []byte // concatenated value bytes
+		ends     []int  // ends[i] = absolute end offset of record i in valueBuf
+	}
+	jobs := make(chan *unmarshalBatch, pageUnmarshalWorkers*2)
+
+	var wg sync.WaitGroup
+	var firstErr error
+	var errMu sync.Mutex
+	setErr := func(err error) {
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		errMu.Unlock()
+	}
+
+	wg.Add(pageUnmarshalWorkers)
+	for w := 0; w < pageUnmarshalWorkers; w++ {
+		go func() {
+			defer wg.Done()
+			for b := range jobs {
+				prev := 0
+				for i := 0; i < b.count; i++ {
+					end := b.ends[i]
+					if err := proto.Unmarshal(b.valueBuf[prev:end], &arena.grants[b.startIdx+i]); err != nil {
+						setErr(fmt.Errorf("page unmarshal: %w", err))
+						return
+					}
+					prev = end
+				}
+			}
+		}()
+	}
+
+	// flushBatch sends `cur` to workers and prepares a fresh batch.
+	newBatch := func(startIdx int) *unmarshalBatch {
+		return &unmarshalBatch{
+			startIdx: startIdx,
+			valueBuf: make([]byte, 0, unmarshalBatchSize*512), // ~512 B/record estimate
+			ends:     make([]int, 0, unmarshalBatchSize),
+		}
+	}
+	cur := newBatch(0)
+
+	count := 0
+	var lastReturnedKey []byte
+	hasMore := false
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			close(jobs)
+			wg.Wait()
+			return nil, "", err
+		}
+		if count == limit {
+			hasMore = true
+			break
+		}
+		v := iter.Value()
+		cur.valueBuf = append(cur.valueBuf, v...)
+		cur.ends = append(cur.ends, len(cur.valueBuf))
+		cur.count++
+		lastReturnedKey = append(lastReturnedKey[:0], iter.Key()...)
+		count++
+		if cur.count == unmarshalBatchSize {
+			jobs <- cur
+			cur = newBatch(count)
+		}
+	}
+	if cur.count > 0 {
+		jobs <- cur
+	}
+	close(jobs)
+	wg.Wait()
+	if iterErr := iter.Error(); iterErr != nil {
+		return nil, "", iterErr
+	}
+	if firstErr != nil {
+		return nil, "", firstErr
+	}
+
+	out := make([]*v3.GrantRecord, count)
+	for i := 0; i < count; i++ {
+		out[i] = &arena.grants[i]
+	}
+	var nextCursor string
+	if hasMore {
+		nextCursor = encodeCursor(lastReturnedKey)
+	}
+	return out, nextCursor, nil
 }
 
 // PaginateGrantsByEntitlement uses the by_entitlement index. The
