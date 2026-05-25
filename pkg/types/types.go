@@ -1,4 +1,3 @@
-//nolint:revive // Package name is part of the public baton-sdk API.
 package types
 
 import (

@@ -149,7 +149,7 @@ func knownTaskLowWater(parallelism int) uint32 {
 	if p > int64(^uint32(0)) {
 		return ^uint32(0)
 	}
-	return uint32(p) //nolint:gosec // p is positive and clamped to uint32 above.
+	return uint32(p)
 }
 
 func knownTaskHighWater(parallelism int) uint32 {

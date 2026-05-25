@@ -32,6 +32,7 @@ func benchmarkCloneSync(b *testing.B, syncID string) {
 	sourcePath := filepath.Join(tempDir, fmt.Sprintf("source.%s.c1z", syncID))
 	srcData, err := os.ReadFile(c1zPath)
 	require.NoError(b, err)
+	//nolint:gosec // sourcePath is created under b.TempDir in this benchmark.
 	err = os.WriteFile(sourcePath, srcData, 0600)
 	require.NoError(b, err)
 
