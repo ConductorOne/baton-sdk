@@ -62,11 +62,18 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 				switch {
 				case getErr == nil:
 					old := &v3.GrantRecord{}
-					if err := proto.Unmarshal(oldVal, old); err == nil {
-						if err := e.deleteGrantIndexes(batch, idBytes, old); err != nil {
-							closer.Close()
-							return err
-						}
+					if err := proto.Unmarshal(oldVal, old); err != nil {
+						closer.Close()
+						// Stored record won't decode. Returning the
+						// error here keeps index integrity (skipping
+						// cleanup would orphan the old index entries
+						// while the new write proceeds). Caller can
+						// recover by deleting the corrupt key.
+						return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
+					}
+					if err := e.deleteGrantIndexes(batch, idBytes, old); err != nil {
+						closer.Close()
+						return err
 					}
 					closer.Close()
 				case errors.Is(getErr, pebble.ErrNotFound):
@@ -130,7 +137,11 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, syncID, externalID strin
 			return err
 		}
 		old := &v3.GrantRecord{}
-		if err := proto.Unmarshal(oldVal, old); err == nil {
+		if err := proto.Unmarshal(oldVal, old); err != nil {
+			closer.Close()
+			return fmt.Errorf("DeleteGrantRecord: unmarshal old %q: %w", externalID, err)
+		}
+		{
 			if err := e.deleteGrantIndexes(batch, idBytes, old); err != nil {
 				closer.Close()
 				return err

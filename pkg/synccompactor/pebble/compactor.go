@@ -73,8 +73,17 @@ func NewCompactor(base *enginepkg.Engine, tmpDir string) (*Compactor, error) {
 // excised before the new data is ingested — base ends up with exactly
 // source's view of that sync.
 //
-// The operation is atomic from base's perspective: a concurrent reader
-// either sees only the old data or only the new data, never a mixture.
+// Atomicity: per-bucket atomic, NOT whole-Compact atomic. Each
+// IngestAndExcise call (one per record-type bucket: grants,
+// by_entitlement index, by_principal index) is atomic from base's
+// perspective — a concurrent reader sees the old-or-new state of that
+// bucket, never a mixture. However, the multi-bucket loop is NOT
+// transactional as a whole: a crash or hard cancellation mid-loop
+// leaves base with new data in some buckets and old data in others
+// (and the same for the DeleteRange-only path used for empty
+// buckets). Recovery is "re-run Compact for the same syncID" — every
+// step is idempotent (excise + ingest the same SSTs again converges
+// to the source's view).
 //
 // Caller is responsible for quiescing writes to `source` for the
 // duration of the call (an active syncer would invalidate the SST as

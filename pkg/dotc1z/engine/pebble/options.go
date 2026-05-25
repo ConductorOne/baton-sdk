@@ -2,6 +2,7 @@ package pebble
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"time"
 
@@ -169,10 +170,22 @@ func defaultOptions() *Options {
 	}
 }
 
+// discardPebbleLogger silences Pebble's WAL discovery / compaction
+// chatter on Infof, surfaces Errorf to stderr (compaction errors and
+// WAL recovery warnings are operationally significant — silencing them
+// would hide real problems), and terminates on Fatalf via os.Exit(1)
+// to match Pebble's default-logger semantics. We deliberately do NOT
+// panic on Fatalf: a recover() in a gRPC interceptor or HTTP framework
+// could otherwise swallow it and let the program continue on a
+// potentially-corrupted storage engine.
 type discardPebbleLogger struct{}
 
-func (discardPebbleLogger) Infof(format string, args ...interface{})  {}
-func (discardPebbleLogger) Errorf(format string, args ...interface{}) {}
+func (discardPebbleLogger) Infof(format string, args ...interface{}) {}
+func (discardPebbleLogger) Errorf(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "pebble: "+format+"\n", args...)
+}
+
 func (discardPebbleLogger) Fatalf(format string, args ...interface{}) {
-	panic(fmt.Sprintf(format, args...))
+	fmt.Fprintf(os.Stderr, "pebble FATAL: "+format+"\n", args...)
+	os.Exit(1)
 }

@@ -47,11 +47,13 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 				switch {
 				case getErr == nil:
 					old := &v3.EntitlementRecord{}
-					if err := proto.Unmarshal(oldVal, old); err == nil {
-						if err := e.deleteEntitlementIndexes(batch, idBytes, old); err != nil {
-							closer.Close()
-							return err
-						}
+					if err := proto.Unmarshal(oldVal, old); err != nil {
+						closer.Close()
+						return fmt.Errorf("PutEntitlementRecords: unmarshal old %q: %w", r.GetExternalId(), err)
+					}
+					if err := e.deleteEntitlementIndexes(batch, idBytes, old); err != nil {
+						closer.Close()
+						return err
 					}
 					closer.Close()
 				case errors.Is(getErr, pebble.ErrNotFound):
@@ -108,11 +110,13 @@ func (e *Engine) DeleteEntitlementRecord(ctx context.Context, syncID, externalID
 			return err
 		}
 		old := &v3.EntitlementRecord{}
-		if err := proto.Unmarshal(oldVal, old); err == nil {
-			if err := e.deleteEntitlementIndexes(batch, idBytes, old); err != nil {
-				closer.Close()
-				return err
-			}
+		if err := proto.Unmarshal(oldVal, old); err != nil {
+			closer.Close()
+			return fmt.Errorf("DeleteEntitlementRecord: unmarshal old %q: %w", externalID, err)
+		}
+		if err := e.deleteEntitlementIndexes(batch, idBytes, old); err != nil {
+			closer.Close()
+			return err
 		}
 		closer.Close()
 		if err := batch.Delete(key, nil); err != nil {

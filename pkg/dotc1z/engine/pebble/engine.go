@@ -79,6 +79,13 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 
 	db, err := pebble.Open(dir, pebbleOpts)
 	if err != nil {
+		// pebble.Open failure path: we minted a Cache (when no shared
+		// cache was supplied) and won't reach Engine.Close. Unref it
+		// here so the cache memory is released. If the caller supplied
+		// the cache, they own its lifecycle and we leave it alone.
+		if o.sharedCache == nil && pebbleOpts.Cache != nil {
+			pebbleOpts.Cache.Unref()
+		}
 		return nil, fmt.Errorf("pebble.Open: %w", err)
 	}
 

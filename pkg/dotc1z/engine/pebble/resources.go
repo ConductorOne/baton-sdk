@@ -49,11 +49,14 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 				switch {
 				case getErr == nil:
 					old := &v3.ResourceRecord{}
-					if err := proto.Unmarshal(oldVal, old); err == nil {
-						if err := e.deleteResourceIndexes(batch, idBytes, old); err != nil {
-							closer.Close()
-							return err
-						}
+					if err := proto.Unmarshal(oldVal, old); err != nil {
+						closer.Close()
+						return fmt.Errorf("PutResourceRecords: unmarshal old %s/%s: %w",
+							r.GetResourceTypeId(), r.GetResourceId(), err)
+					}
+					if err := e.deleteResourceIndexes(batch, idBytes, old); err != nil {
+						closer.Close()
+						return err
 					}
 					closer.Close()
 				case errors.Is(getErr, pebble.ErrNotFound):
@@ -113,7 +116,11 @@ func (e *Engine) DeleteResourceRecord(ctx context.Context, syncID, resourceTypeI
 			return err
 		}
 		old := &v3.ResourceRecord{}
-		if err := proto.Unmarshal(oldVal, old); err == nil {
+		if err := proto.Unmarshal(oldVal, old); err != nil {
+			closer.Close()
+			return fmt.Errorf("DeleteResourceRecord: unmarshal old %s/%s: %w", resourceTypeID, resourceID, err)
+		}
+		{
 			if err := e.deleteResourceIndexes(batch, idBytes, old); err != nil {
 				closer.Close()
 				return err
