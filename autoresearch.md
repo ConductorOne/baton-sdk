@@ -108,6 +108,48 @@ Already-applied wins (the status quo baseline):
 - 256 MiB block cache.
 - `CompactionConcurrencyRange` capped at `(2, min(8, GOMAXPROCS/4))`.
 
+### Wins kept by this loop (cumulative -52.3% from 4292 → 2046 ms at 1M)
+
+In order applied (compounds multiplicatively):
+
+1. **`L0CompactionThreshold` 2 → 8** (-15.8%). The default 2 over-eagerly compacted during the 1M write burst, stealing CPU from writers. 8 lets ~8 L0 sub-levels accumulate before compaction kicks in; L0StopWritesThreshold=20 still bounds the worst case. Knee mapped: 2/4/6 worse; 16 flat vs 8.
+2. **Scratch byte buffers + `proto.MarshalAppend`** (-5.6%). Reused `keyBuf` / `idx1Buf` / `idx2Buf` / `valBuf` across the loop; Pebble's `batch.Set` is documented as safe to modify args after return (it copies into batch buffer). Added `appendGrantKey` / `appendGrantBy*IndexKey` variants taking `dst []byte`. Allocs 9.0M→4.0M.
+3. **Hoisted `resolveSyncBytes`** (-4.9%). Cache last-resolved (string, bytes) pair across loop iterations; falls back to per-record resolve when string differs. Adapter typically stamps a uniform sync_id, so the cache hits 1M times.
+4. **Split `priBatch` / `idxBatch`** (-12.8%). Primary writes (sorted by external_id by construction) go to one batch; index writes (unsorted) go to another. pdqsort early-exits the priBatch's flushable-batch promotion sort; only the idxBatch pays full O(N log N) on 2/3 the entries. Cross-batch atomicity is fine for fresh-sync (replays from connector).
+5. **`NewBatchWithSize(len*600)` / `(len*140)`** (-6.1%). Pre-size the batches so they don't grow-by-2x internally; saves ~10 reallocations and up to 2x peak slack. bytes_op -23%.
+6. **Skip read-before-write Get for fresh-sync first call** (-14.5%). New engine flag `freshGrantsEmpty` is true between `MarkFreshSync` and the first `PutGrantRecords` commit. While true, the 1M `e.db.Get` calls are skipped — they'd all return ErrNotFound anyway (db.Get doesn't see in-batch writes; the keyspace is empty). Across-call dup detection preserved by clearing the flag after first commit.
+7. **Parallel-build the two batches for batches ≥ 256** (-8.8%). When skipGet is true, the two batches have no shared mutable state. Two goroutines build them concurrently; each has its own scratch buffers and sync_id cache. Threshold of 256 records avoids goroutine setup overhead on tiny calls (solo write regression bounded to +11%).
+
+### Major dead ends (do NOT retry)
+
+- **MemTableSize >64 MiB at any size** (-1% primary, +30%+ at 100k). Larger memtable lets the entire 100k workload fit in memory → no during-write flushes → forced end-of-sync serial flush. The 64→256 MiB attempt regressed 100k by 32%; 128 MiB by 34%. Memtable should be sized so the workload triggers ≥3 flushes during writes.
+- **Chunking PutGrantRecords commits** (+83% at 1M). Splitting one big batch into 16Ki-grant chunks force memtable rotation per chunk → many L0 files → compaction storm. The single-big-batch path takes Pebble's optimized flushable-batch promotion (sort once, swap in as memtable atomically).
+- **Bloom filters on all levels** (+2.9%). Fresh-sync workloads have unique external_ids; the Get-before-Put population is 100% misses, and the bench's read path is range iteration not point Gets. Filters add construction CPU during flushes with no payoff. They MIGHT help in C1 prod where ReaderCache does point Gets across syncs, but that's not measured here.
+- **`zstd.SpeedDefault` → `SpeedFastest` + `WithEncoderConcurrency(0)`** (flat). The c1z pack tar wraps Pebble SSTs that are already Snappy-compressed internally; outer zstd is nearly incompressible regardless of level.
+- **`L0CompactionThreshold` ≠ 8** — axis fully mapped. 2/4/6 worse, 16 flat with all other wins.
+- **`CompactionConcurrencyRange` (2, GOMAXPROCS/2 capped 8)** (flat). With L0=8 the compactor isn't the bottleneck; adding lanes makes no difference.
+- **`LBaseMaxBytes` 256 → 512 MiB** (-1.6% within noise). L1 consolidation doesn't matter at our workload size.
+- **`FlushSplitBytes` 2 → 16 MiB** (-1.1% within noise). Per-SST overhead is small.
+- **`DisableAutomaticCompactions: true`** (-1% within noise). With L0=8 already limiting compaction-during-writes, disabling shifts work later but saves no wallclock.
+- **`SetDeferred` for primary key+value** (+2.3%). `proto.Size` traversal cost exceeds the `batch.Set` memcpy savings; no net win.
+- **`appendEscaped` bytes.IndexByte fast path** (+1.7% within noise). The tuple encoder lives on the smaller goroutine (idxBatch); parallel wallclock = max(A,B), so optimizing B doesn't reduce max when B<A.
+
+### Open ideas for future work (not pursued in this loop)
+
+- **Codec codegen via `cmd/protoc-gen-batonstore`** replacing proto reflection for the per-record marshal. The priBatch goroutine is now the long pole; cutting its proto.Marshal cost would directly drop primary. Big refactor (touches generated code surface).
+- **Apply scratch-buffer + dual-batch + skipGet + parallel pattern to `PutResources` / `PutEntitlements` / `PutResourceTypes`**. Transferable production win; not measured by this bench so not pursued by the loop, but high-value follow-up.
+- **3+ way parallel split of the priBatch path** via `batch.Apply` concatenation. The Apply does an extra memcpy; uncertain net win.
+- **`SetDeferred` + cached marshal size** could eliminate the per-record memcpy if we can avoid the double-traverse of proto.Size+MarshalAppend. Would require dropping into proto/protoreflect lower-level APIs.
+
+### Production safety follow-up (see `autoresearch.ideas.md`)
+
+The split-batch change (commit 63c0869b onward) breaks cross-batch atomicity:
+if priBatch commits but idxBatch fails, primary records exist without their
+by_entitlement / by_principal index entries. Fresh-sync replays the whole sync
+on crash so it's safe there. Incremental upserts (mid-sync mutate) might leak.
+Human-review item: either gate the split behind IsFreshSync() or document the
+contract change.
+
 ## Stop Conditions
 
 - Primary plateau for 20 consecutive iterations.
