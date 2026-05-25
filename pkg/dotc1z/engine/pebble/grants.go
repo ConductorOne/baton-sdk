@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/proto"
@@ -83,80 +84,50 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		// external_id twice in one PutGrants call already leaves stale
 		// indexes under the previous code, so this is no behavioral change.
 		skipGet := e.takeFreshGrantsEmpty()
-		// Scratch buffers reused across all records in the batch. Batch.Set
-		// copies key+value into its internal buffer (vendor/pebble/v2/batch.go
-		// Set: `copy(deferredOp.Key, key); copy(deferredOp.Value, value)`),
-		// so these slices can be reused immediately. Saves ~4 allocs per
-		// grant on the hot path — 5M+ fewer GC objects on the 1M workload.
-		var (
-			keyBuf  = make([]byte, 0, 64)
-			idx1Buf = make([]byte, 0, 96)
-			idx2Buf = make([]byte, 0, 96)
-			valBuf  = make([]byte, 0, 512)
-		)
-		marshalOpts := proto.MarshalOptions{Deterministic: true}
 
-		// Cache the resolved sync_id across records sharing the same
-		// string. The common case is all-records-same-sync (the adapter's
-		// V2 → V3 translator stamps every record with the engine's current
-		// sync), so we resolve once instead of per-record. Per-record
-		// resolveSyncBytes does an RLock + 20-byte make+copy; hoisting saves
-		// ~1M of each on the 1M workload.
-		var (
-			lastSyncIDStr string
-			lastIDBytes   []byte
-			haveLast      bool
-		)
+		// Parallel-build threshold. Below this, goroutine setup (~5 µs
+		// per goroutine + sync.WaitGroup) exceeds the loop-body savings;
+		// the sequential path wins for tiny batches.
+		const parallelMinRecords = 256
 
-		for _, r := range records {
-			if r == nil {
-				continue
+		switch {
+		case skipGet && len(records) >= parallelMinRecords:
+			// Parallel build path: with no read-before-write Get, the two
+			// batches have no shared mutable state — priBatch holds only
+			// primary writes, idxBatch holds only fresh index writes (no
+			// old-index Deletes since skipGet implies provably-empty
+			// keyspace). We can build them on two goroutines in parallel,
+			// roughly halving the loop-body wallclock on a multi-core host.
+			// Each goroutine has its own scratch buffers and its own
+			// per-call sync_id cache. The proto.Marshal of GrantRecord is
+			// concurrent-safe (read-only on the message); the appendGrantKey
+			// / appendGrantBy*IndexKey encoders are pure functions.
+			var wg sync.WaitGroup
+			var priErr, idxErr error
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				priErr = e.buildPriBatchSkipGet(priBatch, records)
+			}()
+			go func() {
+				defer wg.Done()
+				idxErr = e.buildIdxBatchSkipGet(idxBatch, records)
+			}()
+			wg.Wait()
+			if priErr != nil {
+				return priErr
 			}
-			var (
-				idBytes []byte
-				err     error
-			)
-			if sid := r.GetSyncId(); haveLast && sid == lastSyncIDStr {
-				idBytes = lastIDBytes
-			} else {
-				idBytes, err = e.resolveSyncBytes(sid)
-				if err != nil {
-					return err
-				}
-				lastSyncIDStr = sid
-				lastIDBytes = idBytes
-				haveLast = true
+			if idxErr != nil {
+				return idxErr
 			}
-			keyBuf = appendGrantKey(keyBuf[:0], idBytes, r.GetExternalId())
-			valBuf, err = marshalOpts.MarshalAppend(valBuf[:0], r)
-			if err != nil {
+		case skipGet:
+			// Below the parallel threshold, but still skipGet — use the
+			// sequential path without the Get to retain the skip-Get win.
+			if err := e.buildBothBatchesSequentialSkipGet(priBatch, idxBatch, records); err != nil {
 				return err
 			}
-			if !skipGet {
-				oldVal, closer, getErr := e.db.Get(keyBuf)
-				switch {
-				case getErr == nil:
-					old := &v3.GrantRecord{}
-					if err := proto.Unmarshal(oldVal, old); err != nil {
-						closer.Close()
-						return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
-					}
-					if err := e.deleteGrantIndexes(idxBatch, idBytes, old); err != nil {
-						closer.Close()
-						return err
-					}
-					closer.Close()
-				case errors.Is(getErr, pebble.ErrNotFound):
-					// no prior record — write unconditionally
-				default:
-					return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
-				}
-			}
-			if err := priBatch.Set(keyBuf, valBuf, nil); err != nil {
-				return err
-			}
-			idx1Buf, idx2Buf, err = appendGrantIndexes(idxBatch, idBytes, r, idx1Buf[:0], idx2Buf[:0])
-			if err != nil {
+		default:
+			if err := e.buildBothBatchesSequential(priBatch, idxBatch, records); err != nil {
 				return err
 			}
 		}
@@ -177,6 +148,204 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		}
 		return nil
 	})
+}
+
+// buildPriBatchSkipGet emits only primary-key Sets to priBatch. Used in
+// the parallel skipGet path — the sibling goroutine writes idxBatch
+// concurrently. No db.Get; the keyspace is provably empty.
+func (e *Engine) buildPriBatchSkipGet(priBatch *pebble.Batch, records []*v3.GrantRecord) error {
+	keyBuf := make([]byte, 0, 64)
+	valBuf := make([]byte, 0, 512)
+	marshalOpts := proto.MarshalOptions{Deterministic: true}
+	var (
+		lastSyncIDStr string
+		lastIDBytes   []byte
+		haveLast      bool
+	)
+	for _, r := range records {
+		if r == nil {
+			continue
+		}
+		var (
+			idBytes []byte
+			err     error
+		)
+		if sid := r.GetSyncId(); haveLast && sid == lastSyncIDStr {
+			idBytes = lastIDBytes
+		} else {
+			idBytes, err = e.resolveSyncBytes(sid)
+			if err != nil {
+				return err
+			}
+			lastSyncIDStr = sid
+			lastIDBytes = idBytes
+			haveLast = true
+		}
+		keyBuf = appendGrantKey(keyBuf[:0], idBytes, r.GetExternalId())
+		valBuf, err = marshalOpts.MarshalAppend(valBuf[:0], r)
+		if err != nil {
+			return err
+		}
+		if err := priBatch.Set(keyBuf, valBuf, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// buildIdxBatchSkipGet emits both by_entitlement and by_principal index
+// Sets to idxBatch. Used in the parallel skipGet path — no Deletes
+// because there's no prior data.
+func (e *Engine) buildIdxBatchSkipGet(idxBatch *pebble.Batch, records []*v3.GrantRecord) error {
+	idx1Buf := make([]byte, 0, 96)
+	idx2Buf := make([]byte, 0, 96)
+	var (
+		lastSyncIDStr string
+		lastIDBytes   []byte
+		haveLast      bool
+	)
+	for _, r := range records {
+		if r == nil {
+			continue
+		}
+		var (
+			idBytes []byte
+			err     error
+		)
+		if sid := r.GetSyncId(); haveLast && sid == lastSyncIDStr {
+			idBytes = lastIDBytes
+		} else {
+			idBytes, err = e.resolveSyncBytes(sid)
+			if err != nil {
+				return err
+			}
+			lastSyncIDStr = sid
+			lastIDBytes = idBytes
+			haveLast = true
+		}
+		idx1Buf, idx2Buf, err = appendGrantIndexes(idxBatch, idBytes, r, idx1Buf[:0], idx2Buf[:0])
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// buildBothBatchesSequentialSkipGet is the small-batch fresh-sync path.
+// Same as Sequential but without the per-record db.Get — cheaper for
+// tiny batches where parallel goroutine setup would dominate.
+func (e *Engine) buildBothBatchesSequentialSkipGet(priBatch, idxBatch *pebble.Batch, records []*v3.GrantRecord) error {
+	keyBuf := make([]byte, 0, 64)
+	idx1Buf := make([]byte, 0, 96)
+	idx2Buf := make([]byte, 0, 96)
+	valBuf := make([]byte, 0, 512)
+	marshalOpts := proto.MarshalOptions{Deterministic: true}
+	var (
+		lastSyncIDStr string
+		lastIDBytes   []byte
+		haveLast      bool
+	)
+	for _, r := range records {
+		if r == nil {
+			continue
+		}
+		var (
+			idBytes []byte
+			err     error
+		)
+		if sid := r.GetSyncId(); haveLast && sid == lastSyncIDStr {
+			idBytes = lastIDBytes
+		} else {
+			idBytes, err = e.resolveSyncBytes(sid)
+			if err != nil {
+				return err
+			}
+			lastSyncIDStr = sid
+			lastIDBytes = idBytes
+			haveLast = true
+		}
+		keyBuf = appendGrantKey(keyBuf[:0], idBytes, r.GetExternalId())
+		valBuf, err = marshalOpts.MarshalAppend(valBuf[:0], r)
+		if err != nil {
+			return err
+		}
+		if err := priBatch.Set(keyBuf, valBuf, nil); err != nil {
+			return err
+		}
+		idx1Buf, idx2Buf, err = appendGrantIndexes(idxBatch, idBytes, r, idx1Buf[:0], idx2Buf[:0])
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// buildBothBatchesSequential is the safe sequential path. Used when
+// skipGet is false (resume / mid-sync put), so the per-record db.Get
+// might find a prior record whose old indexes must be Deleted in
+// idxBatch — not safe to interleave with parallel idx writes.
+func (e *Engine) buildBothBatchesSequential(priBatch, idxBatch *pebble.Batch, records []*v3.GrantRecord) error {
+	keyBuf := make([]byte, 0, 64)
+	idx1Buf := make([]byte, 0, 96)
+	idx2Buf := make([]byte, 0, 96)
+	valBuf := make([]byte, 0, 512)
+	marshalOpts := proto.MarshalOptions{Deterministic: true}
+	var (
+		lastSyncIDStr string
+		lastIDBytes   []byte
+		haveLast      bool
+	)
+	for _, r := range records {
+		if r == nil {
+			continue
+		}
+		var (
+			idBytes []byte
+			err     error
+		)
+		if sid := r.GetSyncId(); haveLast && sid == lastSyncIDStr {
+			idBytes = lastIDBytes
+		} else {
+			idBytes, err = e.resolveSyncBytes(sid)
+			if err != nil {
+				return err
+			}
+			lastSyncIDStr = sid
+			lastIDBytes = idBytes
+			haveLast = true
+		}
+		keyBuf = appendGrantKey(keyBuf[:0], idBytes, r.GetExternalId())
+		valBuf, err = marshalOpts.MarshalAppend(valBuf[:0], r)
+		if err != nil {
+			return err
+		}
+		oldVal, closer, getErr := e.db.Get(keyBuf)
+		switch {
+		case getErr == nil:
+			old := &v3.GrantRecord{}
+			if err := proto.Unmarshal(oldVal, old); err != nil {
+				closer.Close()
+				return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
+			}
+			if err := e.deleteGrantIndexes(idxBatch, idBytes, old); err != nil {
+				closer.Close()
+				return err
+			}
+			closer.Close()
+		case errors.Is(getErr, pebble.ErrNotFound):
+			// no prior record — write unconditionally
+		default:
+			return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
+		}
+		if err := priBatch.Set(keyBuf, valBuf, nil); err != nil {
+			return err
+		}
+		idx1Buf, idx2Buf, err = appendGrantIndexes(idxBatch, idBytes, r, idx1Buf[:0], idx2Buf[:0])
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // appendGrantIndexes is the scratch-buffer variant of writeGrantIndexes,
