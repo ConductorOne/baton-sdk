@@ -163,6 +163,23 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			// Once any grant batch commits, future PutGrantRecords calls in
 			// the same fresh sync need the Get for cross-call dup detection.
 			e.clearFreshGrantsEmpty()
+
+			// Force the Pebble flusher to wake up NOW. After both flushable
+			// batches were committed, they sit in the flush queue — the
+			// flusher goroutine processes them, but there can be a small
+			// scheduling delay before it picks them up. AsyncFlush rotates
+			// the (now-empty) memtable, which signals the flusher to start
+			// processing the queued flushable batches immediately. We don't
+			// wait on the returned channel — EndFreshSync's synchronous
+			// Flush() will join the work. Net effect: a few extra ms of
+			// overlap between the flush and any post-PutGrants work (markDirty
+			// bookkeeping, adapter return) before EndFreshSync blocks.
+			//
+			// Only run on the parallel skipGet path; small-batch paths don't
+			// build large enough batches for this to matter.
+			if len(records) >= parallelMinRecords {
+				_, _ = e.db.AsyncFlush()
+			}
 		}
 		return nil
 	})
