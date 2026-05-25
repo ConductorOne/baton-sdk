@@ -49,6 +49,23 @@ import (
 // If the proto IDL changes, the fast path needs updating. We rely on
 // the protobuf-frozen IDL constraint from autoresearch.md
 // (`proto/c1/storage/v3/` is off-limits).
+// Pre-computed single-byte wire tags for v3.GrantRecord fields 1-4.
+// Each is (fieldNum << 3) | wireType (2 = BytesType / length-delimited).
+// For field numbers 1-15, the tag fits in a single varint byte, so we
+// can compare data[0] directly without calling protowire.ConsumeTag
+// (which does varint-decode + bit-split per field).
+const (
+	grantWireTagSyncID         byte = 0x0A // (1<<3)|2
+	grantWireTagExternalID     byte = 0x12 // (2<<3)|2
+	grantWireTagEntitlement    byte = 0x1A // (3<<3)|2
+	grantWireTagPrincipal      byte = 0x22 // (4<<3)|2
+	grantWireTagDiscoveredAt   byte = 0x2A // (5<<3)|2
+	grantWireTagExpansion      byte = 0x32 // (6<<3)|2
+	grantWireTagNeedsExpansion byte = 0x38 // (7<<3)|0 varint
+	grantWireTagAnnotations    byte = 0x42 // (8<<3)|2
+	grantWireTagSources        byte = 0x4A // (9<<3)|2
+)
+
 func unmarshalGrantRecordFast(
 	data []byte,
 	rec *v3.GrantRecord,
@@ -58,38 +75,40 @@ func unmarshalGrantRecordFast(
 	full := data
 	var sawEnt, sawPrinc bool
 	for len(data) > 0 {
-		num, typ, n := protowire.ConsumeTag(data)
-		if n < 0 {
-			rec.Reset()
-			return proto.Unmarshal(full, rec)
+		// Fast tag-byte fast path: fields 1-15 have single-byte tags.
+		// If the first byte's high bit is set, the tag is multi-byte
+		// (field >= 16 or varint-encoded reserved range) — fall back
+		// to protowire.ConsumeTag for general decoding.
+		tagByte := data[0]
+		if tagByte&0x80 != 0 {
+			return fallbackUnmarshalGrant(full, rec)
 		}
-		data = data[n:]
-		switch num {
-		case 1: // sync_id (string) — skipped; no read-path consumer of
-			// PaginateGrantsBySync reads r.GetSyncId() (sync_id is passed
-			// separately by the caller). Consume bytes without storing.
-			if typ != protowire.BytesType {
-				return fallbackUnmarshalGrant(full, rec)
-			}
-			m := protowire.ConsumeFieldValue(num, typ, data)
+		switch tagByte {
+		case grantWireTagAnnotations, grantWireTagSources:
+			return fallbackUnmarshalGrant(full, rec)
+		case grantWireTagSyncID:
+			data = data[1:]
+			// Skip the length-prefixed bytes without parsing the
+			// string — no read-path consumer reads SyncId. Use
+			// ConsumeBytes which does internal bounds checks and
+			// returns the consumed byte count.
+			_, m := protowire.ConsumeBytes(data)
 			if m < 0 {
 				return fallbackUnmarshalGrant(full, rec)
 			}
 			data = data[m:]
-		case 2: // external_id (string)
-			if typ != protowire.BytesType {
-				return fallbackUnmarshalGrant(full, rec)
-			}
+			continue
+		case grantWireTagExternalID:
+			data = data[1:]
 			val, m := protowire.ConsumeString(data)
 			if m < 0 {
 				return fallbackUnmarshalGrant(full, rec)
 			}
 			data = data[m:]
 			rec.SetExternalId(val)
-		case 3: // entitlement (EntitlementRef msg)
-			if typ != protowire.BytesType {
-				return fallbackUnmarshalGrant(full, rec)
-			}
+			continue
+		case grantWireTagEntitlement:
+			data = data[1:]
 			val, m := protowire.ConsumeBytes(data)
 			if m < 0 {
 				return fallbackUnmarshalGrant(full, rec)
@@ -100,10 +119,9 @@ func unmarshalGrantRecordFast(
 			}
 			rec.SetEntitlement(ent)
 			sawEnt = true
-		case 4: // principal (PrincipalRef msg)
-			if typ != protowire.BytesType {
-				return fallbackUnmarshalGrant(full, rec)
-			}
+			continue
+		case grantWireTagPrincipal:
+			data = data[1:]
 			val, m := protowire.ConsumeBytes(data)
 			if m < 0 {
 				return fallbackUnmarshalGrant(full, rec)
@@ -114,21 +132,41 @@ func unmarshalGrantRecordFast(
 			}
 			rec.SetPrincipal(princ)
 			sawPrinc = true
-		case 8, 9: // annotations / sources — v2 translation reads these
-			return fallbackUnmarshalGrant(full, rec)
-		default:
-			// Fields 5 (discovered_at), 6 (expansion), 7 (needs_expansion),
-			// plus any unknown fields. v2 translation doesn't read these
-			// for grants, so we safely skip. (Unknown fields go through
-			// the unknownFields tail in proto.Unmarshal; the fast path
-			// drops them, which is acceptable because callers don't
-			// read unknown fields from v2.Grant.)
-			m := protowire.ConsumeFieldValue(num, typ, data)
+			continue
+		case grantWireTagDiscoveredAt, grantWireTagExpansion:
+			// Length-delimited skip via ConsumeBytes (bounds-checked).
+			data = data[1:]
+			_, m := protowire.ConsumeBytes(data)
 			if m < 0 {
 				return fallbackUnmarshalGrant(full, rec)
 			}
 			data = data[m:]
+			continue
+		case grantWireTagNeedsExpansion:
+			// Varint skip: 1 byte tag + varint value
+			data = data[1:]
+			_, m := protowire.ConsumeVarint(data)
+			if m < 0 {
+				return fallbackUnmarshalGrant(full, rec)
+			}
+			data = data[m:]
+			continue
 		}
+		// Unrecognized single-byte tag (fields 10-15 or reserved range
+		// with high bit clear) — fall back to general loop.
+		num, typ, n := protowire.ConsumeTag(data)
+		if n < 0 {
+			rec.Reset()
+			return proto.Unmarshal(full, rec)
+		}
+		data = data[n:]
+		// Multi-byte tags (fields >= 16) or fields 10-15 with single
+		// byte not matched above. Use general consume + skip.
+		m := protowire.ConsumeFieldValue(num, typ, data)
+		if m < 0 {
+			return fallbackUnmarshalGrant(full, rec)
+		}
+		data = data[m:]
 	}
 	// Suppress "declared and not used" if compiler doesn't see the
 	// branch paths. These bools are intentionally unused in the success
