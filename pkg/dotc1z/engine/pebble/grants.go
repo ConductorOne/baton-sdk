@@ -92,28 +92,42 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		// the sequential path wins for tiny batches.
 		const parallelMinRecords = 256
 
+		opts := writeOpts(e.opts.durability)
+		if fresh {
+			opts = pebble.NoSync
+		}
+
 		switch {
 		case skipGet && len(records) >= parallelMinRecords:
-			// Parallel build path: with no read-before-write Get, the two
-			// batches have no shared mutable state — priBatch holds only
-			// primary writes, idxBatch holds only fresh index writes (no
-			// old-index Deletes since skipGet implies provably-empty
-			// keyspace). We can build them on two goroutines in parallel,
-			// roughly halving the loop-body wallclock on a multi-core host.
-			// Each goroutine has its own scratch buffers and its own
-			// per-call sync_id cache. The proto.Marshal of GrantRecord is
-			// concurrent-safe (read-only on the message); the appendGrantKey
-			// / appendGrantBy*IndexKey encoders are pure functions.
+			// Parallel build + commit: with no read-before-write Get, the
+			// two batches have no shared mutable state — priBatch holds
+			// only primary writes, idxBatch holds only fresh index writes
+			// (no old-index Deletes since skipGet implies provably-empty
+			// keyspace). Each goroutine builds AND commits its batch; the
+			// two commits interleave through Pebble's writeMu but the
+			// faster-finishing priBatch can commit while idxBatch is still
+			// running its sort+merge, shaving ~commit-time off the
+			// critical path. Pebble.Batch.Commit is safe to call from a
+			// goroutine that owns the batch; Pebble serializes concurrent
+			// commits internally.
 			var wg sync.WaitGroup
 			var priErr, idxErr error
 			wg.Add(2)
 			go func() {
 				defer wg.Done()
-				priErr = e.buildPriBatchSkipGet(priBatch, records)
+				if err := e.buildPriBatchSkipGet(priBatch, records); err != nil {
+					priErr = err
+					return
+				}
+				priErr = priBatch.Commit(opts)
 			}()
 			go func() {
 				defer wg.Done()
-				idxErr = e.buildIdxBatchSkipGet(idxBatch, records)
+				if err := e.buildIdxBatchSkipGet(idxBatch, records); err != nil {
+					idxErr = err
+					return
+				}
+				idxErr = idxBatch.Commit(opts)
 			}()
 			wg.Wait()
 			if priErr != nil {
@@ -128,20 +142,22 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			if err := e.buildBothBatchesSequentialSkipGet(priBatch, idxBatch, records); err != nil {
 				return err
 			}
+			if err := priBatch.Commit(opts); err != nil {
+				return err
+			}
+			if err := idxBatch.Commit(opts); err != nil {
+				return err
+			}
 		default:
 			if err := e.buildBothBatchesSequential(priBatch, idxBatch, records); err != nil {
 				return err
 			}
-		}
-		opts := writeOpts(e.opts.durability)
-		if fresh {
-			opts = pebble.NoSync
-		}
-		if err := priBatch.Commit(opts); err != nil {
-			return err
-		}
-		if err := idxBatch.Commit(opts); err != nil {
-			return err
+			if err := priBatch.Commit(opts); err != nil {
+				return err
+			}
+			if err := idxBatch.Commit(opts); err != nil {
+				return err
+			}
 		}
 		if skipGet {
 			// Once any grant batch commits, future PutGrantRecords calls in
