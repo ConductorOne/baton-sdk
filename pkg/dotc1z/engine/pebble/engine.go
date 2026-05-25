@@ -40,10 +40,18 @@ type Engine struct {
 	// and EndSync. Indicates the engine can take perf shortcuts that
 	// trade durability for throughput while the connector is the
 	// source of truth (host crash → connector replays). Concretely:
-	// writes skip per-batch fsync (use pebble.NoSync) and PutXRecord
-	// can skip the read-before-write index-cleanup path because this
-	// sync_id is guaranteed to be empty.
+	// writes skip per-batch fsync (use pebble.NoSync).
 	freshSync bool
+
+	// freshGrantsEmpty is true between MarkFreshSync and the first
+	// successful PutGrantRecords during a fresh sync. While true,
+	// PutGrantRecords skips the per-record read-before-write Get because
+	// the grant keyspace for this sync is provably empty (the sync was
+	// just created). Flipped to false after the first PutGrantRecords
+	// batch commits; subsequent calls do the Get so cross-call duplicate
+	// external_ids still trigger index cleanup. Guarded by
+	// currentSyncMu (same protocol as freshSync).
+	freshGrantsEmpty bool
 
 	// writeWG tracks in-flight writes for the strict quiesce
 	// protocol. Incremented at the start of every Writer method,
@@ -156,6 +164,7 @@ func (e *Engine) SetCurrentSync(syncID string) error {
 	e.currentSyncMu.Lock()
 	e.currentSync = idBytes
 	e.freshSync = false
+	e.freshGrantsEmpty = false
 	e.currentSyncMu.Unlock()
 	return nil
 }
@@ -178,8 +187,29 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 	e.currentSyncMu.Lock()
 	e.currentSync = idBytes
 	e.freshSync = true
+	e.freshGrantsEmpty = true
 	e.currentSyncMu.Unlock()
 	return nil
+}
+
+// takeFreshGrantsEmpty returns true if the engine is in fresh-sync
+// AND no PutGrantRecords batch has committed yet for this sync. On a
+// true return, the caller MUST clear the flag (after a successful
+// commit) so subsequent calls fall through to the safe read-before-
+// write path. Guarded by currentSyncMu so concurrent PutGrantRecords
+// calls (serialized externally by writeMu) see consistent state.
+func (e *Engine) takeFreshGrantsEmpty() bool {
+	e.currentSyncMu.Lock()
+	defer e.currentSyncMu.Unlock()
+	return e.freshSync && e.freshGrantsEmpty
+}
+
+// clearFreshGrantsEmpty flips freshGrantsEmpty to false. Called by
+// PutGrantRecords after the first batch in a fresh sync commits.
+func (e *Engine) clearFreshGrantsEmpty() {
+	e.currentSyncMu.Lock()
+	e.freshGrantsEmpty = false
+	e.currentSyncMu.Unlock()
 }
 
 // IsFreshSync reports whether the engine is in the fresh-sync write
@@ -197,6 +227,7 @@ func (e *Engine) EndFreshSync(ctx context.Context) error {
 	e.currentSyncMu.Lock()
 	wasFresh := e.freshSync
 	e.freshSync = false
+	e.freshGrantsEmpty = false
 	e.currentSyncMu.Unlock()
 	if !wasFresh {
 		return nil

@@ -69,6 +69,20 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		defer idxBatch.Close()
 
 		fresh := e.IsFreshSync()
+		// Skip-Get fast path. When this is the first PutGrantRecords call
+		// in a fresh sync, the grant keyspace for this sync is provably
+		// empty (MarkFreshSync just created it). The per-record
+		// e.db.Get(key) cannot find anything — querying the DB returns
+		// ErrNotFound for every record, and the batch's pending writes
+		// aren't visible to db.Get until Commit. So 1M point lookups are
+		// pure overhead in this case. Subsequent PutGrantRecords calls
+		// within the same sync still need the Get for cross-call
+		// duplicate detection (e.g. paginated connector sources emitting
+		// the same external_id on two pages). NB: within-call duplicates
+		// are still NOT detected here — a connector that emits the same
+		// external_id twice in one PutGrants call already leaves stale
+		// indexes under the previous code, so this is no behavioral change.
+		skipGet := e.takeFreshGrantsEmpty()
 		// Scratch buffers reused across all records in the batch. Batch.Set
 		// copies key+value into its internal buffer (vendor/pebble/v2/batch.go
 		// Set: `copy(deferredOp.Key, key); copy(deferredOp.Value, value)`),
@@ -118,23 +132,25 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			if err != nil {
 				return err
 			}
-			oldVal, closer, getErr := e.db.Get(keyBuf)
-			switch {
-			case getErr == nil:
-				old := &v3.GrantRecord{}
-				if err := proto.Unmarshal(oldVal, old); err != nil {
+			if !skipGet {
+				oldVal, closer, getErr := e.db.Get(keyBuf)
+				switch {
+				case getErr == nil:
+					old := &v3.GrantRecord{}
+					if err := proto.Unmarshal(oldVal, old); err != nil {
+						closer.Close()
+						return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
+					}
+					if err := e.deleteGrantIndexes(idxBatch, idBytes, old); err != nil {
+						closer.Close()
+						return err
+					}
 					closer.Close()
-					return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
+				case errors.Is(getErr, pebble.ErrNotFound):
+					// no prior record — write unconditionally
+				default:
+					return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
 				}
-				if err := e.deleteGrantIndexes(idxBatch, idBytes, old); err != nil {
-					closer.Close()
-					return err
-				}
-				closer.Close()
-			case errors.Is(getErr, pebble.ErrNotFound):
-				// no prior record — write unconditionally
-			default:
-				return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
 			}
 			if err := priBatch.Set(keyBuf, valBuf, nil); err != nil {
 				return err
@@ -151,7 +167,15 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		if err := priBatch.Commit(opts); err != nil {
 			return err
 		}
-		return idxBatch.Commit(opts)
+		if err := idxBatch.Commit(opts); err != nil {
+			return err
+		}
+		if skipGet {
+			// Once any grant batch commits, future PutGrantRecords calls in
+			// the same fresh sync need the Get for cross-call dup detection.
+			e.clearFreshGrantsEmpty()
+		}
+		return nil
 	})
 }
 
