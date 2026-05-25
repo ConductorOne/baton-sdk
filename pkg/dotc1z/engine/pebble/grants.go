@@ -61,13 +61,36 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		)
 		marshalOpts := proto.MarshalOptions{Deterministic: true}
 
+		// Cache the resolved sync_id across records sharing the same
+		// string. The common case is all-records-same-sync (the adapter's
+		// V2 → V3 translator stamps every record with the engine's current
+		// sync), so we resolve once instead of per-record. Per-record
+		// resolveSyncBytes does an RLock + 20-byte make+copy; hoisting saves
+		// ~1M of each on the 1M workload.
+		var (
+			lastSyncIDStr string
+			lastIDBytes   []byte
+			haveLast      bool
+		)
+
 		for _, r := range records {
 			if r == nil {
 				continue
 			}
-			idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-			if err != nil {
-				return err
+			var (
+				idBytes []byte
+				err     error
+			)
+			if sid := r.GetSyncId(); haveLast && sid == lastSyncIDStr {
+				idBytes = lastIDBytes
+			} else {
+				idBytes, err = e.resolveSyncBytes(sid)
+				if err != nil {
+					return err
+				}
+				lastSyncIDStr = sid
+				lastIDBytes = idBytes
+				haveLast = true
 			}
 			keyBuf = appendGrantKey(keyBuf[:0], idBytes, r.GetExternalId())
 			valBuf, err = marshalOpts.MarshalAppend(valBuf[:0], r)
