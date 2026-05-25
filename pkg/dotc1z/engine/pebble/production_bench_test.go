@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -178,8 +180,34 @@ func BenchmarkRegisteredSQLiteWriteGrant(b *testing.B) {
 	benchmarkRegisteredWriteGrant(b, dotc1z.EngineSQLite)
 }
 
+// writePackScales is the grant-count grid the bench sweeps. Small
+// sizes catch fixed-cost regressions (startup, encode). The 100k/1M
+// sizes catch the LSM-vs-B-tree scaling curve where SQLite's per-row
+// cost grows nonlinearly and Pebble's stays flat. Filter via
+// `-bench='/grants=100000$'` or set BATONSDK_BENCH_SCALES=100,1000.
+var writePackScales = []int{100, 1000, 10000, 100000, 1000000}
+
+func grantsScales() []int {
+	if env := os.Getenv("BATONSDK_BENCH_SCALES"); env != "" {
+		out := []int{}
+		for _, s := range strings.Split(env, ",") {
+			n, err := strconv.Atoi(strings.TrimSpace(s))
+			if err == nil && n > 0 {
+				out = append(out, n)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	if testing.Short() {
+		return []int{100, 1000, 10000}
+	}
+	return writePackScales
+}
+
 func BenchmarkRegisteredPebbleWritePack(b *testing.B) {
-	for _, n := range []int{100, 1000, 10000} {
+	for _, n := range grantsScales() {
 		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
 			benchmarkRegisteredWritePack(b, dotc1z.EnginePebble, n)
 		})
@@ -187,7 +215,7 @@ func BenchmarkRegisteredPebbleWritePack(b *testing.B) {
 }
 
 func BenchmarkRegisteredSQLiteWritePack(b *testing.B) {
-	for _, n := range []int{100, 1000, 10000} {
+	for _, n := range grantsScales() {
 		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
 			benchmarkRegisteredWritePack(b, dotc1z.EngineSQLite, n)
 		})
@@ -195,7 +223,7 @@ func BenchmarkRegisteredSQLiteWritePack(b *testing.B) {
 }
 
 func BenchmarkRegisteredPebbleUnpackReadGrants(b *testing.B) {
-	for _, n := range []int{100, 1000, 10000} {
+	for _, n := range grantsScales() {
 		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
 			benchmarkRegisteredUnpackReadGrants(b, dotc1z.EnginePebble, n)
 		})
@@ -203,7 +231,7 @@ func BenchmarkRegisteredPebbleUnpackReadGrants(b *testing.B) {
 }
 
 func BenchmarkRegisteredSQLiteUnpackReadGrants(b *testing.B) {
-	for _, n := range []int{100, 1000, 10000} {
+	for _, n := range grantsScales() {
 		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
 			benchmarkRegisteredUnpackReadGrants(b, dotc1z.EngineSQLite, n)
 		})

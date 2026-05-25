@@ -16,44 +16,61 @@ func (e *Engine) PutEntitlementRecord(ctx context.Context, r *v3.EntitlementReco
 	if r == nil {
 		return errors.New("PutEntitlementRecord: nil record")
 	}
-	return e.withWrite(func() error {
-		idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-		if err != nil {
-			return err
-		}
-		key := encodeEntitlementKey(idBytes, r.GetExternalId())
-		val, err := marshalRecord(r)
-		if err != nil {
-			return err
-		}
+	return e.PutEntitlementRecords(ctx, r)
+}
 
+// PutEntitlementRecords writes N entitlements in one batch. Fresh-sync
+// fast path mirrors PutGrantRecords.
+func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.EntitlementRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	return e.withWrite(func() error {
 		batch := e.db.NewBatch()
 		defer batch.Close()
-
-		oldVal, closer, err := e.db.Get(key)
-		switch {
-		case err == nil:
-			old := &v3.EntitlementRecord{}
-			if err := proto.Unmarshal(oldVal, old); err == nil {
-				if err := e.deleteEntitlementIndexes(batch, idBytes, old); err != nil {
+		fresh := e.IsFreshSync()
+		for _, r := range records {
+			if r == nil {
+				continue
+			}
+			idBytes, err := e.resolveSyncBytes(r.GetSyncId())
+			if err != nil {
+				return err
+			}
+			key := encodeEntitlementKey(idBytes, r.GetExternalId())
+			val, err := marshalRecord(r)
+			if err != nil {
+				return err
+			}
+			if !fresh {
+				oldVal, closer, getErr := e.db.Get(key)
+				switch {
+				case getErr == nil:
+					old := &v3.EntitlementRecord{}
+					if err := proto.Unmarshal(oldVal, old); err == nil {
+						if err := e.deleteEntitlementIndexes(batch, idBytes, old); err != nil {
+							closer.Close()
+							return err
+						}
+					}
 					closer.Close()
-					return err
+				case errors.Is(getErr, pebble.ErrNotFound):
+				default:
+					return fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
 				}
 			}
-			closer.Close()
-		case errors.Is(err, pebble.ErrNotFound):
-			// no-op
-		default:
-			return fmt.Errorf("PutEntitlementRecord: get old: %w", err)
+			if err := batch.Set(key, val, nil); err != nil {
+				return err
+			}
+			if err := e.writeEntitlementIndexes(batch, idBytes, r); err != nil {
+				return err
+			}
 		}
-
-		if err := batch.Set(key, val, nil); err != nil {
-			return err
+		opts := writeOpts(e.opts.durability)
+		if fresh {
+			opts = pebble.NoSync
 		}
-		if err := e.writeEntitlementIndexes(batch, idBytes, r); err != nil {
-			return err
-		}
-		return batch.Commit(writeOpts(e.opts.durability))
+		return batch.Commit(opts)
 	})
 }
 

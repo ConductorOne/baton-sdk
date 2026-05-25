@@ -17,17 +17,41 @@ func (e *Engine) PutResourceTypeRecord(ctx context.Context, r *v3.ResourceTypeRe
 	if r == nil {
 		return errors.New("PutResourceTypeRecord: nil record")
 	}
+	return e.PutResourceTypeRecords(ctx, r)
+}
+
+// PutResourceTypeRecords writes N resource_types in one batch.
+// Fresh-sync uses pebble.NoSync (one fsync at EndFreshSync).
+func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.ResourceTypeRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
 	return e.withWrite(func() error {
-		idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-		if err != nil {
-			return err
+		batch := e.db.NewBatch()
+		defer batch.Close()
+		fresh := e.IsFreshSync()
+		for _, r := range records {
+			if r == nil {
+				continue
+			}
+			idBytes, err := e.resolveSyncBytes(r.GetSyncId())
+			if err != nil {
+				return err
+			}
+			key := encodeResourceTypeKey(idBytes, r.GetExternalId())
+			val, err := marshalRecord(r)
+			if err != nil {
+				return err
+			}
+			if err := batch.Set(key, val, nil); err != nil {
+				return err
+			}
 		}
-		key := encodeResourceTypeKey(idBytes, r.GetExternalId())
-		val, err := marshalRecord(r)
-		if err != nil {
-			return err
+		opts := writeOpts(e.opts.durability)
+		if fresh {
+			opts = pebble.NoSync
 		}
-		return e.db.Set(key, val, writeOpts(e.opts.durability))
+		return batch.Commit(opts)
 	})
 }
 

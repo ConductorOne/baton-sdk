@@ -18,44 +18,61 @@ func (e *Engine) PutResourceRecord(ctx context.Context, r *v3.ResourceRecord) er
 	if r == nil {
 		return errors.New("PutResourceRecord: nil record")
 	}
-	return e.withWrite(func() error {
-		idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-		if err != nil {
-			return err
-		}
-		key := encodeResourceKey(idBytes, r.GetResourceTypeId(), r.GetResourceId())
-		val, err := marshalRecord(r)
-		if err != nil {
-			return err
-		}
+	return e.PutResourceRecords(ctx, r)
+}
 
+// PutResourceRecords writes N resources in one batch. Fresh-sync fast
+// path mirrors PutGrantRecords.
+func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.ResourceRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	return e.withWrite(func() error {
 		batch := e.db.NewBatch()
 		defer batch.Close()
-
-		oldVal, closer, err := e.db.Get(key)
-		switch {
-		case err == nil:
-			old := &v3.ResourceRecord{}
-			if err := proto.Unmarshal(oldVal, old); err == nil {
-				if err := e.deleteResourceIndexes(batch, idBytes, old); err != nil {
+		fresh := e.IsFreshSync()
+		for _, r := range records {
+			if r == nil {
+				continue
+			}
+			idBytes, err := e.resolveSyncBytes(r.GetSyncId())
+			if err != nil {
+				return err
+			}
+			key := encodeResourceKey(idBytes, r.GetResourceTypeId(), r.GetResourceId())
+			val, err := marshalRecord(r)
+			if err != nil {
+				return err
+			}
+			if !fresh {
+				oldVal, closer, getErr := e.db.Get(key)
+				switch {
+				case getErr == nil:
+					old := &v3.ResourceRecord{}
+					if err := proto.Unmarshal(oldVal, old); err == nil {
+						if err := e.deleteResourceIndexes(batch, idBytes, old); err != nil {
+							closer.Close()
+							return err
+						}
+					}
 					closer.Close()
-					return err
+				case errors.Is(getErr, pebble.ErrNotFound):
+				default:
+					return fmt.Errorf("PutResourceRecords: get old: %w", getErr)
 				}
 			}
-			closer.Close()
-		case errors.Is(err, pebble.ErrNotFound):
-			// no-op
-		default:
-			return fmt.Errorf("PutResourceRecord: get old: %w", err)
+			if err := batch.Set(key, val, nil); err != nil {
+				return err
+			}
+			if err := e.writeResourceIndexes(batch, idBytes, r); err != nil {
+				return err
+			}
 		}
-
-		if err := batch.Set(key, val, nil); err != nil {
-			return err
+		opts := writeOpts(e.opts.durability)
+		if fresh {
+			opts = pebble.NoSync
 		}
-		if err := e.writeResourceIndexes(batch, idBytes, r); err != nil {
-			return err
-		}
-		return batch.Commit(writeOpts(e.opts.durability))
+		return batch.Commit(opts)
 	})
 }
 

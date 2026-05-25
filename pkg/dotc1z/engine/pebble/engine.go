@@ -36,6 +36,14 @@ type Engine struct {
 	// they return ErrNoCurrentSync.
 	currentSyncMu sync.RWMutex
 	currentSync   []byte
+	// freshSync is true between MarkFreshSync (called by StartNewSync)
+	// and EndSync. Indicates the engine can take perf shortcuts that
+	// trade durability for throughput while the connector is the
+	// source of truth (host crash → connector replays). Concretely:
+	// writes skip per-batch fsync (use pebble.NoSync) and PutXRecord
+	// can skip the read-before-write index-cleanup path because this
+	// sync_id is guaranteed to be empty.
+	freshSync bool
 
 	// writeWG tracks in-flight writes for the strict quiesce
 	// protocol. Incremented at the start of every Writer method,
@@ -130,7 +138,9 @@ func (e *Engine) Quiesce(ctx context.Context) error {
 
 // SetCurrentSync sets the engine's tracked current sync_id from a
 // string KSUID. Subsequent Put*/List* calls with an empty syncID
-// use this value.
+// use this value. Clears the freshSync flag — a bare SetCurrentSync
+// is conservative (treats the sync as resumable, so writes keep
+// fsync + read-before-write).
 func (e *Engine) SetCurrentSync(syncID string) error {
 	idBytes, err := codec.EncodeSyncID(syncID)
 	if err != nil {
@@ -138,7 +148,60 @@ func (e *Engine) SetCurrentSync(syncID string) error {
 	}
 	e.currentSyncMu.Lock()
 	e.currentSync = idBytes
+	e.freshSync = false
 	e.currentSyncMu.Unlock()
+	return nil
+}
+
+// MarkFreshSync sets currentSync AND flags the sync as freshly
+// started (no prior records under this sync_id). The engine then
+// takes the perf-fast write path: pebble.NoSync per commit and skip
+// read-before-write index cleanup. The host crash semantics match
+// SQLite's PRAGMA synchronous=NORMAL — the connector is the source
+// of truth during the sync; a crash forces re-sync rather than
+// silent data loss.
+//
+// Callers should call EndFreshSync (via Flush) at sync end to harden
+// the data with a single fsync.
+func (e *Engine) MarkFreshSync(syncID string) error {
+	idBytes, err := codec.EncodeSyncID(syncID)
+	if err != nil {
+		return err
+	}
+	e.currentSyncMu.Lock()
+	e.currentSync = idBytes
+	e.freshSync = true
+	e.currentSyncMu.Unlock()
+	return nil
+}
+
+// IsFreshSync reports whether the engine is in the fresh-sync write
+// path (set by MarkFreshSync).
+func (e *Engine) IsFreshSync() bool {
+	e.currentSyncMu.RLock()
+	defer e.currentSyncMu.RUnlock()
+	return e.freshSync
+}
+
+// EndFreshSync clears the fresh-sync flag and flushes the memtable
+// + fsyncs the WAL so the data written during the sync is on disk
+// before the caller returns. Called by Adapter.EndSync.
+func (e *Engine) EndFreshSync(ctx context.Context) error {
+	e.currentSyncMu.Lock()
+	wasFresh := e.freshSync
+	e.freshSync = false
+	e.currentSyncMu.Unlock()
+	if !wasFresh {
+		return nil
+	}
+	// Flush the memtable (turns NoSync-buffered writes into on-disk
+	// SSTs) and let pebble.LogData with Sync force-fsync the WAL tail.
+	if err := e.db.Flush(); err != nil {
+		return fmt.Errorf("EndFreshSync: flush: %w", err)
+	}
+	if err := e.db.LogData(nil, pebble.Sync); err != nil {
+		return fmt.Errorf("EndFreshSync: fsync WAL: %w", err)
+	}
 	return nil
 }
 

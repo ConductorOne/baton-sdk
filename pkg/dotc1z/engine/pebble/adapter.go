@@ -81,7 +81,10 @@ func (a *Adapter) StartNewSync(ctx context.Context, syncType connectorstore.Sync
 	syncID := ksuid.New().String()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if err := a.engine.SetCurrentSync(syncID); err != nil {
+	// MarkFreshSync flips the engine into the perf-fast write path:
+	// pebble.NoSync per commit, skip read-before-write index cleanup.
+	// EndSync calls EndFreshSync to flush + fsync once at the end.
+	if err := a.engine.MarkFreshSync(syncID); err != nil {
 		return "", err
 	}
 	a.current = syncRunState{
@@ -206,21 +209,28 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	if err := a.engine.PutSyncRunRecord(ctx, updated); err != nil {
 		return err
 	}
+	// Single flush + WAL fsync at sync end. This is the durability
+	// boundary — counterpart to MarkFreshSync at StartNewSync. After
+	// this returns, all writes from the sync are on disk.
+	if err := a.engine.EndFreshSync(ctx); err != nil {
+		return err
+	}
 	a.current = syncRunState{}
 	return nil
 }
 
 // === writes ===
 
-// PutGrants writes a batch of grants. Each grant is translated v2→v3
-// and stored via the engine's PutGrantRecord (which handles index
-// maintenance). Atomicity: each grant is its own batch — there is no
-// cross-grant transaction.
+// PutGrants writes a batch of grants in a single Pebble batch. v2 is
+// translated to v3 first; the engine then commits the whole batch
+// with one fsync (or NoSync during a fresh sync — see MarkFreshSync).
 func (a *Adapter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 	syncID := a.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
+	records := make([]*v3.GrantRecord, 0, len(grants))
+	now := timestamppb.Now()
 	for _, g := range grants {
 		if g == nil {
 			continue
@@ -229,23 +239,26 @@ func (a *Adapter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 		if rec == nil {
 			continue
 		}
-		// Stamp discovered_at if the caller didn't.
 		if rec.GetDiscoveredAt() == nil {
-			rec.SetDiscoveredAt(timestamppb.Now())
+			rec.SetDiscoveredAt(now)
 		}
-		if err := a.engine.PutGrantRecord(ctx, rec); err != nil {
-			return fmt.Errorf("PutGrants: %w", err)
-		}
+		records = append(records, rec)
+	}
+	if err := a.engine.PutGrantRecords(ctx, records...); err != nil {
+		return fmt.Errorf("PutGrants: %w", err)
 	}
 	return nil
 }
 
-// PutResourceTypes writes a batch of resource types.
+// PutResourceTypes writes a batch of resource types in a single
+// Pebble batch.
 func (a *Adapter) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType) error {
 	syncID := a.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
+	records := make([]*v3.ResourceTypeRecord, 0, len(rts))
+	now := timestamppb.Now()
 	for _, rt := range rts {
 		if rt == nil {
 			continue
@@ -255,21 +268,24 @@ func (a *Adapter) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType)
 			continue
 		}
 		if rec.GetDiscoveredAt() == nil {
-			rec.SetDiscoveredAt(timestamppb.Now())
+			rec.SetDiscoveredAt(now)
 		}
-		if err := a.engine.PutResourceTypeRecord(ctx, rec); err != nil {
-			return fmt.Errorf("PutResourceTypes: %w", err)
-		}
+		records = append(records, rec)
+	}
+	if err := a.engine.PutResourceTypeRecords(ctx, records...); err != nil {
+		return fmt.Errorf("PutResourceTypes: %w", err)
 	}
 	return nil
 }
 
-// PutResources writes a batch of resources.
+// PutResources writes a batch of resources in a single Pebble batch.
 func (a *Adapter) PutResources(ctx context.Context, resources ...*v2.Resource) error {
 	syncID := a.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
+	records := make([]*v3.ResourceRecord, 0, len(resources))
+	now := timestamppb.Now()
 	for _, r := range resources {
 		if r == nil {
 			continue
@@ -279,21 +295,24 @@ func (a *Adapter) PutResources(ctx context.Context, resources ...*v2.Resource) e
 			continue
 		}
 		if rec.GetDiscoveredAt() == nil {
-			rec.SetDiscoveredAt(timestamppb.Now())
+			rec.SetDiscoveredAt(now)
 		}
-		if err := a.engine.PutResourceRecord(ctx, rec); err != nil {
-			return fmt.Errorf("PutResources: %w", err)
-		}
+		records = append(records, rec)
+	}
+	if err := a.engine.PutResourceRecords(ctx, records...); err != nil {
+		return fmt.Errorf("PutResources: %w", err)
 	}
 	return nil
 }
 
-// PutEntitlements writes a batch of entitlements.
+// PutEntitlements writes a batch of entitlements in a single Pebble batch.
 func (a *Adapter) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
 	syncID := a.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
+	records := make([]*v3.EntitlementRecord, 0, len(entitlements))
+	now := timestamppb.Now()
 	for _, e := range entitlements {
 		if e == nil {
 			continue
@@ -303,11 +322,12 @@ func (a *Adapter) PutEntitlements(ctx context.Context, entitlements ...*v2.Entit
 			continue
 		}
 		if rec.GetDiscoveredAt() == nil {
-			rec.SetDiscoveredAt(timestamppb.Now())
+			rec.SetDiscoveredAt(now)
 		}
-		if err := a.engine.PutEntitlementRecord(ctx, rec); err != nil {
-			return fmt.Errorf("PutEntitlements: %w", err)
-		}
+		records = append(records, rec)
+	}
+	if err := a.engine.PutEntitlementRecords(ctx, records...); err != nil {
+		return fmt.Errorf("PutEntitlements: %w", err)
 	}
 	return nil
 }
