@@ -44,10 +44,12 @@ status (kept / discarded / crashed) so we don't repeat them.
 - **Tournament tree / prefix-skip merge optimizations** (#39, #40). The naive
   4-way bytes.Compare scan is already optimally branch-predictable and SIMD-tight;
   wrapping with anything in Go costs more than it saves at k=4.
-- **Bulk-pre-read for WriteEnvelope** (#43). Three-phase walk → read-all → write-all
-  doesn't overlap reads with writes; just shifts work to goroutines while serializing
-  the dependency graph. Holding all checkpoint bytes simultaneously hurt with
-  bytes_op +10%.
+- **Parallel reads for WriteEnvelope** (#43 bulk-pre-read; #46 streaming with bounded
+  lookahead). Two different failure modes: #43 didn't actually overlap reads with
+  writes (3 serial phases); #46 did overlap but per-file os.ReadFile allocated
+  ~530 MB of one-shot buffers vs io.Copy's reused 32 KB buffer. Pebble checkpoint
+  files are page-cache-hot anyway — io.Copy pulls them at memory speed, so serial
+  reading is already efficient. Closed axis.
 - **Background WAL fsync** (WALBytesPerSync=4MiB, #38). On this hardware fsync
   isn't a meaningful bottleneck; spreading it via background syncs doesn't help.
 - **MemTableSize > 64 MiB** (#1 256 MiB, #16 128 MiB). Larger memtable lets entire
