@@ -78,6 +78,104 @@ func resourceToPrincipalRef(r *v2.Resource) *v3.PrincipalRef {
 	}.Build()
 }
 
+// grantV2ReadArena batches the v2.Grant + nested-stub allocations
+// done when V3GrantToV2 hydrates a page of read results. Each grant
+// becomes 6 individual heap allocations via the default builder path:
+//
+//	*v2.Grant
+//	*v2.Entitlement
+//	*v2.Resource       (entitlement's Resource)
+//	*v2.ResourceId     (entitlement's Resource.Id)
+//	*v2.Resource       (principal)
+//	*v2.ResourceId     (principal.Id)
+//
+// For the 1 M paginated read bench that's 6 M allocations on top of
+// the proto.Unmarshal allocations from the engine side. The arena
+// pre-allocates 6 backing arrays sized to the actual returned page
+// count, and translateV3Grant fills them in via the Set* methods. GC
+// sees 6 large objects per page instead of 6 × records.
+//
+// Lifetime: the arena lives for one ListGrants call (or transitively,
+// for the lifetime of the Response.List slice the caller holds).
+// Pointers into the arena slices stay valid as long as the arena is
+// reachable — Go's GC keeps the backing arrays alive while any pointer
+// to an element is held. The caller never sees the arena directly;
+// they see *v2.Grant pointers into it.
+//
+// Pre-sized to exact `n` capacity, so append never reallocates and
+// returned pointers are stable for the arena's lifetime.
+type grantV2ReadArena struct {
+	grants                 []v2.Grant
+	entitlements           []v2.Entitlement
+	entitlementResources   []v2.Resource
+	entitlementResourceIDs []v2.ResourceId
+	principalResources     []v2.Resource
+	principalResourceIDs   []v2.ResourceId
+}
+
+// newGrantV2ReadArena pre-allocates backing arrays exactly sized to
+// the number of records that will be translated. Returns nil if n
+// is 0 — caller can use V3GrantToV2 directly in that case.
+func newGrantV2ReadArena(n int) *grantV2ReadArena {
+	if n <= 0 {
+		return nil
+	}
+	return &grantV2ReadArena{
+		grants:                 make([]v2.Grant, 0, n),
+		entitlements:           make([]v2.Entitlement, 0, n),
+		entitlementResources:   make([]v2.Resource, 0, n),
+		entitlementResourceIDs: make([]v2.ResourceId, 0, n),
+		principalResources:     make([]v2.Resource, 0, n),
+		principalResourceIDs:   make([]v2.ResourceId, 0, n),
+	}
+}
+
+// translateV3Grant is the arena-allocating counterpart to V3GrantToV2.
+// Returns a pointer into the arena; behavior matches V3GrantToV2 for
+// all valid inputs.
+func (a *grantV2ReadArena) translateV3Grant(r *v3.GrantRecord) *v2.Grant {
+	if r == nil {
+		return nil
+	}
+	a.grants = append(a.grants, v2.Grant{})
+	g := &a.grants[len(a.grants)-1]
+	g.SetId(r.GetExternalId())
+	if ref := r.GetEntitlement(); ref != nil {
+		a.entitlementResourceIDs = append(a.entitlementResourceIDs, v2.ResourceId{})
+		rid := &a.entitlementResourceIDs[len(a.entitlementResourceIDs)-1]
+		rid.SetResourceType(ref.GetResourceTypeId())
+		rid.SetResource(ref.GetResourceId())
+
+		a.entitlementResources = append(a.entitlementResources, v2.Resource{})
+		res := &a.entitlementResources[len(a.entitlementResources)-1]
+		res.SetId(rid)
+
+		a.entitlements = append(a.entitlements, v2.Entitlement{})
+		ent := &a.entitlements[len(a.entitlements)-1]
+		ent.SetId(ref.GetEntitlementId())
+		ent.SetResource(res)
+		g.SetEntitlement(ent)
+	}
+	if ref := r.GetPrincipal(); ref != nil {
+		a.principalResourceIDs = append(a.principalResourceIDs, v2.ResourceId{})
+		rid := &a.principalResourceIDs[len(a.principalResourceIDs)-1]
+		rid.SetResourceType(ref.GetResourceTypeId())
+		rid.SetResource(ref.GetResourceId())
+
+		a.principalResources = append(a.principalResources, v2.Resource{})
+		res := &a.principalResources[len(a.principalResources)-1]
+		res.SetId(rid)
+		g.SetPrincipal(res)
+	}
+	if ann := r.GetAnnotations(); len(ann) > 0 {
+		g.SetAnnotations(ann)
+	}
+	if src := v3GrantSourcesToV2(r.GetSources()); src != nil {
+		g.SetSources(src)
+	}
+	return g
+}
+
 // grantTranslateArena batches v3.GrantRecord / EntitlementRef /
 // PrincipalRef allocations for one PutGrants call. The default
 // V2GrantToV3 builder pattern heap-allocates each of the three structs

@@ -500,9 +500,16 @@ func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrant
 	if err != nil {
 		return nil, err
 	}
+	// Arena the v2.Grant + nested stubs so a page of N grants costs 6
+	// slice allocs instead of 6 × N individual mallocs. Pre-sized to
+	// the EXACT record count returned (no over-allocation), so small
+	// pages don't pay the cost of unused arena slots. The arena's
+	// backing arrays are held alive via the *v2.Grant pointers in `out`,
+	// which the caller receives in the response.
+	arena := newGrantV2ReadArena(len(records))
 	out := make([]*v2.Grant, 0, len(records))
 	for _, rec := range records {
-		out = append(out, V3GrantToV2(rec))
+		out = append(out, arena.translateV3Grant(rec))
 	}
 	return v2.GrantsServiceListGrantsResponse_builder{
 		List:          out,
