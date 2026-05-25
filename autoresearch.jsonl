@@ -1,0 +1,1 @@
+{"type":"config","name":"Pebble engine read perf — minimize UnpackReadGrants 1M paginated read","metricName":"pebble_readpaginated_1m_ms","metricUnit":"ms","bestDirection":"lower"}
