@@ -30,3 +30,33 @@ status (kept / discarded / crashed) so we don't repeat them.
     - Apply split only when IsFreshSync() is true; keep one-batch atomic
       semantics outside fresh-sync.
     - Or: document the contract change.
+
+## Closed axes (do NOT retry — multiple attempts confirm dead)
+
+- **Parallel engine.Close + WriteEnvelope** (tried at #19, #28, #45 — three baselines).
+  Mechanism is theoretically safe (CheckpointTo creates self-contained dir), but
+  goroutine + channel coordination overhead exceeds the engine.Close wallclock
+  savings (~30-50 ms). At smaller scales the overhead dominates and regresses
+  10-15%. Not a clean win at any size.
+- **FlushSplitBytes axis** (tried 2 MiB → 16 MiB at #21, #31; 2 MiB → 64 MiB at #37).
+  Pebble doesn't honor very large hints, or bigger SSTs lose write parallelism.
+  All flat-to-mildly-negative across multiple baselines.
+- **Tournament tree / prefix-skip merge optimizations** (#39, #40). The naive
+  4-way bytes.Compare scan is already optimally branch-predictable and SIMD-tight;
+  wrapping with anything in Go costs more than it saves at k=4.
+- **Bulk-pre-read for WriteEnvelope** (#43). Three-phase walk → read-all → write-all
+  doesn't overlap reads with writes; just shifts work to goroutines while serializing
+  the dependency graph. Holding all checkpoint bytes simultaneously hurt with
+  bytes_op +10%.
+- **Background WAL fsync** (WALBytesPerSync=4MiB, #38). On this hardware fsync
+  isn't a meaningful bottleneck; spreading it via background syncs doesn't help.
+- **MemTableSize > 64 MiB** (#1 256 MiB, #16 128 MiB). Larger memtable lets entire
+  100k workload fit in memory → no during-write flushes → forced serial flush at
+  EndSync. 100k workload regresses ~30%.
+- **L0CompactionThreshold ≠ 8** axis fully mapped (2/4/6/16). 8 is the knee.
+- **CompactionConcurrencyRange** (#7). With L0=8 compactor isn't the bottleneck.
+- **DisableAutomaticCompactions** (#20). With L0=8 it's already idle.
+- **proto.MarshalAppend with SetDeferred + cached size** (#23). proto.Size
+  double-traversal eats the memcpy savings.
+- **appendEscaped bytes.IndexByte fast path** (#22). Tuple encoder is on the
+  smaller goroutine; max(A,B) wallclock means optimizing B doesn't help when B<A.
