@@ -1,5 +1,3 @@
-//go:build batonsdkv2
-
 package pebble
 
 import (
@@ -8,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cockroachdb/pebble"
-	"github.com/cockroachdb/pebble/objstorage/objstorageprovider"
-	"github.com/cockroachdb/pebble/sstable"
-	"github.com/cockroachdb/pebble/vfs"
+	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/objstorage/objstorageprovider"
+	"github.com/cockroachdb/pebble/v2/sstable"
+	"github.com/cockroachdb/pebble/v2/vfs"
 
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )

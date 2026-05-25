@@ -142,9 +142,7 @@ func WithC1FSyncCountLimit(limit int) C1FOption {
 // WithC1FEngine selects the storage engine for new .c1z files. The
 // default is EngineSQLite, which keeps the legacy v1 file format and
 // behavior. EnginePebble selects the v3 engine introduced by the
-// storage-engine-v4 RFC; under default build tags the Pebble engine
-// is not linked in and an attempt to use it returns
-// ErrEngineNotAvailable.
+// storage-engine-v4 RFC.
 //
 // Engine selection only affects newly created files. Existing files
 // dispatch on their magic byte; readers handle both v1 and v3
@@ -301,8 +299,7 @@ func WithSyncLimit(limit int) C1ZOption {
 
 // WithEngine selects the storage engine for newly created .c1z files.
 // Default is EngineSQLite (v1 format). EnginePebble enables the v3
-// engine; under default build tags it returns ErrEngineNotAvailable
-// when the file is opened.
+// engine.
 //
 // Reading existing files dispatches on the file's magic byte and is
 // independent of this option.
@@ -326,14 +323,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	options := &c1zOptions{
-		encoderConcurrency: 1,
-	}
-	for _, opt := range opts {
-		opt(options)
-	}
-	if options.encoderConcurrency < 0 {
-		return nil, fmt.Errorf("encoder concurrency must not be negative: %d", options.encoderConcurrency)
+	options, err := buildC1ZOptions(opts...)
+	if err != nil {
+		return nil, err
 	}
 
 	dbFilePath, _, err := decompressC1z(outputFilePath, options.tmpDir, options.decoderOptions...)

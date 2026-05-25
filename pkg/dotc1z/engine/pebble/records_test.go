@@ -1,5 +1,3 @@
-//go:build batonsdkv2
-
 package pebble
 
 import (
@@ -7,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/segmentio/ksuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 

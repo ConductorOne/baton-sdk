@@ -1,5 +1,3 @@
-//go:build batonsdkv2
-
 package v3
 
 import (
@@ -37,6 +35,7 @@ var ErrEnvelopeTruncated = errors.New("c1z v3: envelope truncated")
 // usage and protects against a malicious file claiming a billion-byte
 // manifest length.
 const maxManifestBytes = 16 << 20
+const maxTarEntryBytes int64 = 4 << 30
 
 // WriteEnvelope writes a complete v3 envelope to w:
 //
@@ -64,7 +63,7 @@ func WriteEnvelope(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string) error
 		return fmt.Errorf("c1z v3: manifest is %d bytes, exceeds %d", len(mb), maxManifestBytes)
 	}
 	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(mb)))
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(mb))) //nolint:gosec // len(mb) is capped at maxManifestBytes above.
 	if _, err := w.Write(lenBuf[:]); err != nil {
 		return fmt.Errorf("c1z v3: write manifest length: %w", err)
 	}
@@ -106,7 +105,7 @@ func ReadEnvelope(r io.Reader) (*Envelope, error) {
 	// 1. Magic.
 	magic := make([]byte, len(C1Z3Magic))
 	if _, err := io.ReadFull(r, magic); err != nil {
-		return nil, fmt.Errorf("%w: reading magic: %v", ErrEnvelopeTruncated, err)
+		return nil, fmt.Errorf("%w: reading magic: %w", ErrEnvelopeTruncated, err)
 	}
 	if !bytes.Equal(magic, C1Z3Magic) {
 		return nil, ErrInvalidV3Magic
@@ -114,7 +113,7 @@ func ReadEnvelope(r io.Reader) (*Envelope, error) {
 	// 2. Manifest length.
 	var lenBuf [4]byte
 	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
-		return nil, fmt.Errorf("%w: reading manifest length: %v", ErrEnvelopeTruncated, err)
+		return nil, fmt.Errorf("%w: reading manifest length: %w", ErrEnvelopeTruncated, err)
 	}
 	mlen := binary.BigEndian.Uint32(lenBuf[:])
 	if mlen > maxManifestBytes {
@@ -123,7 +122,7 @@ func ReadEnvelope(r io.Reader) (*Envelope, error) {
 	// 3. Manifest bytes.
 	mb := make([]byte, mlen)
 	if _, err := io.ReadFull(r, mb); err != nil {
-		return nil, fmt.Errorf("%w: reading manifest: %v", ErrEnvelopeTruncated, err)
+		return nil, fmt.Errorf("%w: reading manifest: %w", ErrEnvelopeTruncated, err)
 	}
 	m, err := UnmarshalManifest(mb)
 	if err != nil {
@@ -155,11 +154,9 @@ func writeZstdTar(w io.Writer, dir string) error {
 	if err != nil {
 		return err
 	}
-	defer zw.Close()
 	tw := tar.NewWriter(zw)
-	defer tw.Close()
 
-	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -184,13 +181,34 @@ func writeZstdTar(w io.Writer, dir string) error {
 				return err
 			}
 			_, err = io.Copy(tw, f)
-			f.Close()
+			if closeErr := f.Close(); err == nil {
+				err = closeErr
+			}
 			if err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+	if walkErr != nil {
+		if err := tw.Close(); err != nil {
+			walkErr = errors.Join(walkErr, fmt.Errorf("close tar writer: %w", err))
+		}
+		if err := zw.Close(); err != nil {
+			walkErr = errors.Join(walkErr, fmt.Errorf("close zstd writer: %w", err))
+		}
+		return walkErr
+	}
+	if err := tw.Close(); err != nil {
+		if closeErr := zw.Close(); closeErr != nil {
+			return errors.Join(fmt.Errorf("close tar writer: %w", err), fmt.Errorf("close zstd writer: %w", closeErr))
+		}
+		return fmt.Errorf("close tar writer: %w", err)
+	}
+	if err := zw.Close(); err != nil {
+		return fmt.Errorf("close zstd writer: %w", err)
+	}
+	return nil
 }
 
 // ExtractZstdTar reads a zstd-tar payload stream from r and unpacks
@@ -208,34 +226,54 @@ func ExtractZstdTar(r io.Reader, destDir string) error {
 		if err != nil {
 			return fmt.Errorf("c1z v3: tar Next: %w", err)
 		}
-		target := filepath.Join(destDir, hdr.Name)
-		// Guard against tar entries escaping destDir.
 		if !filepath.IsLocal(hdr.Name) {
 			return fmt.Errorf("c1z v3: unsafe tar entry path: %q", hdr.Name)
 		}
+		target := filepath.Join(destDir, hdr.Name) //nolint:gosec // hdr.Name is guarded by filepath.IsLocal above.
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(hdr.Mode)&0o755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode)&0o644)
+			mode, err := tarFileMode(hdr.Mode, 0o755)
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
+			if err := os.MkdirAll(target, mode); err != nil {
 				return err
 			}
-			if err := f.Close(); err != nil {
+		case tar.TypeReg:
+			if hdr.Size < 0 || hdr.Size > maxTarEntryBytes {
+				return fmt.Errorf("c1z v3: tar entry %q size %d exceeds cap %d", hdr.Name, hdr.Size, maxTarEntryBytes)
+			}
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
+			}
+			mode, err := tarFileMode(hdr.Mode, 0o644)
+			if err != nil {
+				return err
+			}
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			if err != nil {
+				return err
+			}
+			n, err := io.Copy(f, io.LimitReader(tr, hdr.Size))
+			if closeErr := f.Close(); err == nil {
+				err = closeErr
+			}
+			if err != nil {
+				return err
+			}
+			if n != hdr.Size {
+				return io.ErrUnexpectedEOF
 			}
 		default:
 			// Skip other types (symlinks, etc.) — Pebble directories
 			// contain only directories and regular files.
 		}
 	}
+}
+
+func tarFileMode(mode int64, mask os.FileMode) (os.FileMode, error) {
+	if mode < 0 || mode > 0o777 {
+		return 0, fmt.Errorf("c1z v3: unsafe tar mode %d", mode)
+	}
+	return os.FileMode(mode) & mask, nil
 }

@@ -1,9 +1,7 @@
-//go:build batonsdkv2
-
 // Package microtests holds the 5 risk-validation tests that were
-// written before Stack 3 to prove the material design choices in RFC
-// 0004 (storage engine v4) actually hold under Pebble's real
-// behavior. They were originally at /tmp/baton-rfc-microtests/ during
+// written to prove the material design choices in RFC 0004 (storage
+// engine v4) actually hold under Pebble's real behavior. They were
+// originally at /tmp/baton-rfc-microtests/ during
 // the RFC pressure-test phase; lifting them into the repo keeps them
 // as regression tests against the production code.
 //
@@ -20,7 +18,4 @@
 //     key range with an externally-built SST.
 //   - codec_perf_test.go — codegen-emitted codecs are ~5× faster than
 //     reflection-based codecs (justifies the hybrid registry).
-//
-// All are gated by //go:build batonsdkv2 so they only run when the
-// engine package itself is buildable.
 package microtests

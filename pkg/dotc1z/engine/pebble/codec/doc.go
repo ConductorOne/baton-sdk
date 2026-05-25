@@ -11,7 +11,4 @@
 //     other proto message — debug paths, manifest descriptor walking,
 //     potential future extension protos. Lazily constructed on first
 //     Lookup miss and cached process-wide.
-//
-// The codec layer is build-tag-gated behind `//go:build batonsdkv2`
-// and is never linked into default connector binaries.
 package codec

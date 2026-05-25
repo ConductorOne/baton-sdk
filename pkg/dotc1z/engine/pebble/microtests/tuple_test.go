@@ -1,5 +1,3 @@
-//go:build batonsdkv2
-
 // Micro-test 3 — validates the production tuple key encoding's
 // prefix-free property. The encoder's escape rule:
 //

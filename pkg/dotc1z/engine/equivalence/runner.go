@@ -1,19 +1,16 @@
-//go:build batonsdkv2
-
 // Package equivalence runs the same workload through two storage
 // backends and asserts they produce equivalent results across every
-// reader method (RFC 0004 Stack 5).
+// reader method.
 //
-// Stack 5 MVP scope: a small property-test harness that drives the
-// canonical GrantRecord path through both the v3 Pebble engine and a
-// reference implementation (a deterministic in-memory map). For each
-// case we Put N grants, then for each reader method (GetGrantRecord,
-// IterateGrantsBySync, IterateGrantsByEntitlement, IterateGrantsByPrincipal)
-// we compare the returned set against the reference.
+// The harness drives the canonical GrantRecord path through both the
+// v3 Pebble engine and a reference implementation (a deterministic
+// in-memory map). For each case we Put N grants, then for each reader
+// method (GetGrantRecord, IterateGrantsBySync, IterateGrantsByEntitlement,
+// IterateGrantsByPrincipal) we compare the returned set against the
+// reference.
 //
-// The runner is intentionally pluggable: future stacks (Stack 6+) can
-// register the SQLite engine as a second `Reference` once the
-// v2 ↔ v3 translation layer is implemented.
+// The runner is intentionally pluggable: additional engines can
+// register as References when their adapters expose this contract.
 package equivalence
 
 import (

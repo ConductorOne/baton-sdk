@@ -1,5 +1,3 @@
-//go:build batonsdkv2
-
 package pebble
 
 import (
@@ -7,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -19,8 +17,7 @@ import (
 // This is the engine's canonical write path; other record types
 // follow the same shape (read the previous primary if any → delete
 // its index entries → write the new primary → write the new index
-// entries → commit). Fresh-sync fast path (skip the read) is wired
-// once Stack 3 lands the sync sentinel.
+// entries → commit).
 func (e *Engine) PutGrantRecord(ctx context.Context, r *v3.GrantRecord) error {
 	if r == nil {
 		return errors.New("PutGrantRecord: nil record")
@@ -41,8 +38,7 @@ func (e *Engine) PutGrantRecord(ctx context.Context, r *v3.GrantRecord) error {
 		defer batch.Close()
 
 		// Read-before-write so index cleanup catches an overwrite that
-		// changes the indexed fields. Stack 3 MVP path; the fresh-sync
-		// fast-path (RFC v4 §3.6) lands once sync sentinels are wired.
+		// changes the indexed fields.
 		oldVal, closer, err := e.db.Get(key)
 		switch {
 		case err == nil:
@@ -125,10 +121,7 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, syncID, externalID strin
 	})
 }
 
-// writeGrantIndexes adds index entries for r to batch. Mirrors the
-// codegen-emitted WriteIndexes; for Stack 3 we keep it inline so the
-// canonical-path engine compiles without depending on the (deferred)
-// codegen plugin.
+// writeGrantIndexes adds index entries for r to batch.
 func (e *Engine) writeGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *v3.GrantRecord) error {
 	ent := r.GetEntitlement()
 	princ := r.GetPrincipal()

@@ -21,10 +21,7 @@ const (
 
 	// C1ZFormatV3 is the v3 format introduced by the storage-engine-v4
 	// RFC: 5-byte magic "C1Z3\x00", a length-prefixed proto manifest,
-	// and a zstd-tar payload of a Pebble Checkpoint directory. v3 is
-	// only opened when a v3-aware engine is linked in; under default
-	// build tags (no batonsdkv2), opening a v3 file returns
-	// ErrEngineNotAvailable.
+	// and a zstd-tar payload of a Pebble Checkpoint directory.
 	C1ZFormatV3
 )
 
@@ -56,18 +53,13 @@ const (
 	EngineSQLite Engine = "sqlite"
 
 	// EnginePebble is the v3 engine: a Pebble LSM wrapped in the v3
-	// envelope. Only available when the batonsdkv2 build tag is set;
-	// otherwise WithEngine(EnginePebble) returns ErrEngineNotAvailable
-	// at engine-construction time.
+	// envelope.
 	EnginePebble Engine = "pebble"
 )
 
 // ErrEngineNotAvailable is returned when a caller requests an engine
-// that the binary does not have linked in. The Pebble engine lives
-// behind //go:build batonsdkv2 — default-tag connector binaries do
-// not link it. Calling WithEngine(EnginePebble) from a default-build
-// binary surfaces this error at the engine-construction call site.
-var ErrEngineNotAvailable = fmt.Errorf("dotc1z: engine not available (build-tag gated)")
+// that the binary does not support.
+var ErrEngineNotAvailable = fmt.Errorf("dotc1z: engine not available")
 
 // ReadHeaderFormat reads the first 5 bytes of reader and returns the
 // detected format. On return, the reader is positioned immediately

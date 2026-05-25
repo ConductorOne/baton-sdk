@@ -1,5 +1,3 @@
-//go:build batonsdkv2
-
 package pebble
 
 import (

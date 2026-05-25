@@ -1,25 +1,13 @@
-//go:build batonsdkv2
-
 // Package pebble is the v3 storage engine for baton-sdk. It is the
 // implementation behind dotc1z.EnginePebble and the v3 envelope.
-//
-// Build tag: this package is gated by `//go:build batonsdkv2` so
-// default connector binaries never link Pebble or its transitive
-// dependencies. A CI grep-check on connector binaries enforces this
-// (RFC v4 §I.7).
-//
-// Stack 1 ships only the codec layer + this skeleton; the full
-// engine implementation lands in Stack 3.
 package pebble
 
 import (
 	"errors"
 )
 
-// The Engine struct itself lives in engine.go (Stack 3). This file
-// retains only the centralized sentinel-error declarations so other
-// packages (format/v3, synccompactor/pebble) can reference them
-// without depending on the full engine implementation.
+// The Engine struct itself lives in engine.go. This file retains only
+// the centralized sentinel-error declarations.
 
 // Sentinel errors from Appendix E. Centralized here so the codec
 // package + engine package + envelope package all reference one
@@ -27,7 +15,7 @@ import (
 var (
 	ErrEngineClosing                 = errors.New("pebble engine: closing")
 	ErrEngineQuiesced                = errors.New("pebble engine: quiesced; writes refused")
-	ErrEngineNotAvailable            = errors.New("pebble engine: not available (build-tag gated)")
+	ErrEngineNotAvailable            = errors.New("pebble engine: not available")
 	ErrEngineMismatch                = errors.New("pebble engine: source/dest engine mismatch")
 	ErrManifestInvalid               = errors.New("pebble engine: manifest unmarshal failed")
 	ErrManifestIncompleteDescriptors = errors.New("pebble engine: manifest descriptor closure incomplete")

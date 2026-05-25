@@ -1,18 +1,19 @@
-//go:build batonsdkv2
-
 package pebble
 
 import (
 	"context"
 	"io"
 	"testing"
+	"time"
+
+	"github.com/segmentio/ksuid"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
-func newAdapter(t *testing.T) *Adapter {
+func newAdapter(t testing.TB) *Adapter {
 	t.Helper()
 	e, _ := newTestEngine(t)
 	return NewAdapter(e)
@@ -272,25 +273,112 @@ func TestAdapterLatestFinishedSyncID(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
 
-	// 3 syncs: first 2 are finished, the 3rd is still open.
-	id1, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err := a.EndSync(ctx); err != nil {
-		t.Fatal(err)
-	}
-	id2, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err := a.EndSync(ctx); err != nil {
-		t.Fatal(err)
-	}
-	_, _ = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	// Don't end this one.
-
-	got, err := a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
+	got, err := a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// id2 was the most-recently-ended.
-	if got != id2 {
-		t.Errorf("LatestFinishedSyncID: got %q, want %q (id1=%q)", got, id2, id1)
+	if got != "" {
+		t.Fatalf("LatestFinishedSyncID with no syncs = %q, want empty", got)
+	}
+
+	openID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("LatestFinishedSyncID with only open sync %q = %q, want empty", openID, got)
+	}
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(time.Millisecond)
+	fullID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(time.Millisecond)
+	partialID, err := a.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	unfinishedID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Don't end this one.
+
+	got, err = a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != fullID {
+		t.Errorf("LatestFinishedSyncID full: got %q, want %q (unfinished=%q)", got, fullID, unfinishedID)
+	}
+
+	got, err = a.LatestFinishedSyncID(ctx, connectorstore.SyncTypePartial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != partialID {
+		t.Errorf("LatestFinishedSyncID partial: got %q, want %q", got, partialID)
+	}
+
+	got, err = a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != partialID {
+		t.Errorf("LatestFinishedSyncID any: got %q, want latest finished %q", got, partialID)
+	}
+}
+
+func TestAdapterCurrentDBSizeBytes(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	a := NewAdapter(e)
+
+	initial, err := a.CurrentDBSizeBytes()
+	if err != nil {
+		t.Fatalf("CurrentDBSizeBytes initial: %v", err)
+	}
+	if initial <= 0 {
+		t.Fatalf("CurrentDBSizeBytes initial = %d, want > 0", initial)
+	}
+	if want := regularFileSizeUnder(t, e.dbDir); initial != want {
+		t.Fatalf("CurrentDBSizeBytes initial = %d, want regular file sum %d", initial, want)
+	}
+
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 25; i++ {
+		if err := a.PutGrants(ctx, mkV2Grant(ksuid.New().String(), "ent", "user", ksuid.New().String())); err != nil {
+			t.Fatalf("PutGrants: %v", err)
+		}
+	}
+
+	after, err := a.CurrentDBSizeBytes()
+	if err != nil {
+		t.Fatalf("CurrentDBSizeBytes after writes: %v", err)
+	}
+	if want := regularFileSizeUnder(t, e.dbDir); after != want {
+		t.Fatalf("CurrentDBSizeBytes after writes = %d, want regular file sum %d", after, want)
+	}
+	if after < initial {
+		t.Fatalf("CurrentDBSizeBytes after writes = %d, want >= initial %d", after, initial)
 	}
 }
 

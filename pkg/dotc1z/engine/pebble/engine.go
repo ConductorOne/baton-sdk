@@ -1,16 +1,15 @@
-//go:build batonsdkv2
-
 package pebble
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
@@ -25,11 +24,6 @@ import (
 //     Writer calls return ErrEngineQuiesced.
 //   - Close() releases all resources. After Close, all methods return
 //     ErrEngineClosing.
-//
-// Stack 3 ships the GrantRecord path end-to-end (Put, Get, range
-// scans by primary key and by_entitlement / by_principal indexes,
-// Save via DB.Checkpoint). Other record types follow the same pattern
-// and land as follow-up commits on this branch.
 type Engine struct {
 	db         *pebble.DB
 	dbDir      string
@@ -48,6 +42,7 @@ type Engine struct {
 	// decremented in defer. Quiesce flips closing=true then waits
 	// for writeWG to drain.
 	writeWG sync.WaitGroup
+	writeMu sync.Mutex
 	closing atomicBool // strict write-barrier flag
 	closeMu sync.Mutex
 }
@@ -66,10 +61,6 @@ func (a *atomicBool) Store(v bool) { a.mu.Lock(); a.v = v; a.mu.Unlock() }
 // not exist, Pebble creates it. The caller is responsible for
 // providing a directory that won't be shared with another Pebble
 // instance.
-//
-// Returns ErrEngineNotAvailable if the binary was built without the
-// batonsdkv2 tag — defended at compile time, so this never fires in
-// practice, but the sentinel is wired for safety.
 func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	o := defaultOptions()
 	for _, opt := range opts {
@@ -205,56 +196,46 @@ func (e *Engine) withWrite(fn func() error) error {
 	if e.closing.Load() {
 		return ErrEngineQuiesced
 	}
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
 	return fn()
 }
 
-// Save snapshots the engine to a v3 c1z file at dest. Uses
-// DB.Checkpoint per RFC v4 §3.7 and the micro-test in import-11. The
-// source DB remains writable after Save returns.
-//
-// Save creates dest's parent directory if needed. Returns
-// ErrSaveDestExists if dest already exists. Returns
-// ErrCrossFilesystem if the engine's working directory and dest are
-// on different filesystems (the atomic rename at the end requires
-// same-FS).
 func (e *Engine) Save(ctx context.Context, dest string) error {
-	// dest existence guard.
-	if _, err := os.Stat(dest); err == nil {
-		return fmt.Errorf("%w: %s", ErrSaveDestExists, dest)
-	}
-	// Parent dir.
-	parent := filepath.Dir(dest)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return fmt.Errorf("save: create parent dir: %w", err)
-	}
-	// Strict quiesce — refuses all subsequent writes; flushes memtable.
-	if err := e.Quiesce(ctx); err != nil {
-		return fmt.Errorf("save: quiesce: %w", err)
-	}
-	// Checkpoint into a tmp dir adjacent to dest (same filesystem so
-	// the eventual rename is atomic).
-	ckDir, err := os.MkdirTemp(parent, ".c1z3-checkpoint-")
-	if err != nil {
-		return fmt.Errorf("save: tmp dir: %w", err)
-	}
-	// Pebble's Checkpoint requires the destDir to not exist yet —
-	// remove the empty tmp we just made so Checkpoint creates the real one.
-	if err := os.Remove(ckDir); err != nil {
-		return fmt.Errorf("save: prep checkpoint dir: %w", err)
-	}
-	if err := e.db.Checkpoint(ckDir, pebble.WithFlushedWAL()); err != nil {
-		return fmt.Errorf("save: db.Checkpoint: %w", err)
-	}
-	defer os.RemoveAll(ckDir)
-
-	// Envelope write is in the v3 format package — but importing it
-	// here would create a cycle (format/v3 imports the codec; the
-	// engine imports the codec). The cycle is broken by the caller
-	// (typically dotc1z.Save) invoking format/v3.WriteEnvelope after
-	// the engine produces the Pebble directory. Stack 3 leaves the
-	// envelope write to a higher-level shim; see CheckpointTo below.
-	_ = ckDir
 	return errors.New("pebble engine: Save requires the dotc1z.Save shim (envelope write); use CheckpointTo for direct directory access")
+}
+
+// CurrentDBSizeBytes returns the total size of regular files in the Pebble
+// database directory. This is the Pebble equivalent of C1File's SQLite
+// DBSizeProvider capability: it reports the uncompressed working set on disk,
+// including WAL/log, MANIFEST, OPTIONS, and SST files currently present.
+func (e *Engine) CurrentDBSizeBytes() (int64, error) {
+	if e.dbDir == "" {
+		return 0, errors.New("pebble engine: db dir is empty")
+	}
+	var total int64
+	if err := filepath.WalkDir(e.dbDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", path, err)
+		}
+		if info.Mode().IsRegular() {
+			total += info.Size()
+		}
+		return nil
+	}); err != nil {
+		if os.IsNotExist(err) {
+			return 0, fmt.Errorf("pebble engine: db dir missing: %w", err)
+		}
+		return 0, err
+	}
+	return total, nil
 }
 
 // DB returns the underlying *pebble.DB. Exported for the
@@ -271,8 +252,8 @@ func (e *Engine) DB() *pebble.DB { return e.db }
 // is the building block dotc1z's higher-level Save wraps with the v3
 // envelope format.
 func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
-	if err := e.Quiesce(ctx); err != nil {
-		return err
+	if err := e.db.Flush(); err != nil {
+		return fmt.Errorf("checkpoint flush: %w", err)
 	}
 	if err := e.db.Checkpoint(destDir, pebble.WithFlushedWAL()); err != nil {
 		return fmt.Errorf("checkpoint: %w", err)

@@ -1,5 +1,3 @@
-//go:build batonsdkv2
-
 package pebble
 
 import (
@@ -7,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"

@@ -1,8 +1,7 @@
-//go:build batonsdkv2
-
 package v3
 
 import (
+	"archive/tar"
 	"bytes"
 	"errors"
 	"io"
@@ -28,7 +27,7 @@ func TestEnvelopeRoundtrip(t *testing.T) {
 		"000005.sst":      "sst contents — these would be real SSTs in production",
 	} {
 		path := filepath.Join(srcDir, name)
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -175,7 +174,7 @@ func TestEnvelopePayloadAtEnd(t *testing.T) {
 	if err := os.MkdirAll(srcDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(srcDir, "f"), []byte("hi"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(srcDir, "f"), []byte("hi"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -206,5 +205,75 @@ func TestEnvelopePayloadAtEnd(t *testing.T) {
 	_, err = io.Copy(io.Discard, env.PayloadReader)
 	if err != nil {
 		t.Fatalf("draining payload: %v", err)
+	}
+}
+
+func TestExtractZstdTarRejectsOversizedEntry(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "too-large.sst",
+		Mode: 0o644,
+		Size: maxTarEntryBytes + 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := ExtractZstdTar(&buf, t.TempDir())
+	if err == nil {
+		t.Fatal("expected oversized tar entry error")
+	}
+}
+
+func TestTarFileMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    int64
+		mask    os.FileMode
+		want    os.FileMode
+		wantErr bool
+	}{
+		{
+			name: "regular file mode is masked",
+			mode: 0o666,
+			mask: 0o644,
+			want: 0o644,
+		},
+		{
+			name: "directory mode is masked",
+			mode: 0o777,
+			mask: 0o755,
+			want: 0o755,
+		},
+		{
+			name:    "negative mode is rejected",
+			mode:    -1,
+			mask:    0o644,
+			wantErr: true,
+		},
+		{
+			name:    "non-permission bits are rejected",
+			mode:    0o1000,
+			mask:    0o644,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tarFileMode(tt.mode, tt.mask)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("tarFileMode: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("tarFileMode(%#o, %#o) = %#o, want %#o", tt.mode, tt.mask, got, tt.want)
+			}
+		})
 	}
 }

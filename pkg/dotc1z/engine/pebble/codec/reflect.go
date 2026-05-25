@@ -1,19 +1,17 @@
-//go:build batonsdkv2
-
 package codec
 
 import (
 	"fmt"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // ReflectCodec encodes records via cached descriptor reflection. It
-// satisfies the Codec interface for any message — including messages
-// that don't carry the (storage.v3.table) option (in which case key
-// encoding returns ErrReflectMissingTable).
+// satisfies the value-encoding portions of the Codec interface for
+// any message. Key and index encoding require typed metadata and are
+// provided by the built-in codecs.
 //
 // ReflectCodec is constructed lazily by Lookup() and cached
 // process-wide. The construction cost — resolving primary-key field
@@ -21,9 +19,7 @@ import (
 // the entire process; subsequent calls reuse the cached codec.
 //
 // Performance: ~5× slower than a generated typed codec at the same
-// workload (measured in `/tmp/baton-rfc-microtests/codec_perf_test.go`
-// — see `research/import-13.md` in the pebble-baton-sdk plan). Used
-// only off the engine's hot write path.
+// workload. Used only off the engine's hot write path.
 type ReflectCodec struct {
 	md protoreflect.MessageDescriptor
 }
@@ -40,20 +36,13 @@ func NewReflectCodec(md protoreflect.MessageDescriptor) *ReflectCodec {
 // require the table metadata.
 var ErrReflectMissingTable = fmt.Errorf("codec: descriptor missing (storage.v3.table) option")
 
-// EncodeKey is a placeholder — the full implementation resolves
-// the (storage.v3.table).primary_key field paths against the
-// descriptor and tuple-encodes each component. For Stack 1's MVP
-// scope this returns ErrReflectMissingTable; Stack 3 wires up the
-// full implementation once the engine layer needs reflection-based
-// key encoding for non-built-in descriptors.
+// EncodeKey is unsupported for reflection codecs. Built-in record
+// types use typed codecs for primary keys and indexes.
 func (c *ReflectCodec) EncodeKey(msg proto.Message) ([]byte, error) {
 	if msg.ProtoReflect().Descriptor().FullName() != c.md.FullName() {
 		return nil, fmt.Errorf("%w: want %s, got %s",
 			ErrCodecTypeMismatch, c.md.FullName(), msg.ProtoReflect().Descriptor().FullName())
 	}
-	// TODO(Stack 3): walk (storage.v3.table).primary_key paths and
-	// emit tuple bytes for each. For now reflection codecs are
-	// value-only.
 	return nil, ErrReflectMissingTable
 }
 
@@ -76,8 +65,6 @@ func (c *ReflectCodec) DecodeValue(b []byte, dst proto.Message) error {
 }
 
 func (c *ReflectCodec) WriteIndexes(batch *pebble.Batch, msg proto.Message) error {
-	// TODO(Stack 3): walk fields for (storage.v3.index) options and
-	// emit index entries.
 	return ErrReflectMissingTable
 }
 

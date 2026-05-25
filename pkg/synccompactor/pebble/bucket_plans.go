@@ -1,5 +1,3 @@
-//go:build batonsdkv2
-
 package pebble
 
 import (
@@ -21,16 +19,33 @@ type bucketPlan struct {
 // together cover every key in the engine that belongs to a single
 // sync_id. The order is fixed and deterministic so logs and tests are
 // stable.
-//
-// Stack 4 MVP covers the GrantRecord buckets implemented by Stack 3:
-//   - grant primary records
-//   - grant_by_entitlement index
-//   - grant_by_principal index
-//
-// Other record-type buckets are added in the same commit series as
-// their Stack 3 implementations.
 func buildBucketPlans(syncIDBytes []byte) []bucketPlan {
 	return []bucketPlan{
+		{
+			name:  "resource_type",
+			lower: enginepkg.ResourceTypeSyncLowerBound(syncIDBytes),
+			upper: enginepkg.ResourceTypeSyncUpperBound(syncIDBytes),
+		},
+		{
+			name:  "resource",
+			lower: enginepkg.ResourceSyncLowerBound(syncIDBytes),
+			upper: enginepkg.ResourceSyncUpperBound(syncIDBytes),
+		},
+		{
+			name:  "resource_by_parent",
+			lower: enginepkg.ResourceByParentSyncLowerBound(syncIDBytes),
+			upper: enginepkg.ResourceByParentSyncUpperBound(syncIDBytes),
+		},
+		{
+			name:  "entitlement",
+			lower: enginepkg.EntitlementSyncLowerBound(syncIDBytes),
+			upper: enginepkg.EntitlementSyncUpperBound(syncIDBytes),
+		},
+		{
+			name:  "entitlement_by_resource",
+			lower: enginepkg.EntitlementByResourceSyncLowerBound(syncIDBytes),
+			upper: enginepkg.EntitlementByResourceSyncUpperBound(syncIDBytes),
+		},
 		{
 			name:  "grant",
 			lower: enginepkg.GrantSyncLowerBound(syncIDBytes),
@@ -45,6 +60,16 @@ func buildBucketPlans(syncIDBytes []byte) []bucketPlan {
 			name:  "grant_by_principal",
 			lower: enginepkg.GrantByPrincipalSyncLowerBound(syncIDBytes),
 			upper: enginepkg.GrantByPrincipalSyncUpperBound(syncIDBytes),
+		},
+		{
+			name:  "asset",
+			lower: enginepkg.AssetSyncLowerBound(syncIDBytes),
+			upper: enginepkg.AssetSyncUpperBound(syncIDBytes),
+		},
+		{
+			name:  "sync_run",
+			lower: enginepkg.SyncRunLowerBound(syncIDBytes),
+			upper: enginepkg.SyncRunUpperBound(syncIDBytes),
 		},
 	}
 }

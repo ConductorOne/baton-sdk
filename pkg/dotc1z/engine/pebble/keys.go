@@ -1,16 +1,11 @@
-//go:build batonsdkv2
-
 package pebble
 
 import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
-// Type-discriminator bytes for the v3 keyspace. Central table; the
-// RFC v4 Appendix C.1 has the full list. Each top-level keyspace
-// occupies one byte. Reserved bytes (0xCC, 0xEA-0xEC) are noted in
-// the RFC for the deferred-expansion future work (Appendix H); not
-// emitted by Stack 3.
+// Type-discriminator bytes for the v3 keyspace. Each top-level
+// keyspace occupies one byte.
 const (
 	versionV3 byte = 0x03
 
@@ -275,6 +270,52 @@ func encodeSyncRunFullPrefix() []byte {
 
 // --- Exported bound helpers for synccompactor/pebble ---
 
+func ResourceTypeSyncLowerBound(syncIDBytes []byte) []byte {
+	return encodeResourceTypePrefix(syncIDBytes)
+}
+
+func ResourceTypeSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(ResourceTypeSyncLowerBound(syncIDBytes))
+}
+
+func ResourceSyncLowerBound(syncIDBytes []byte) []byte {
+	return encodeResourcePrefix(syncIDBytes)
+}
+
+func ResourceSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(ResourceSyncLowerBound(syncIDBytes))
+}
+
+func ResourceByParentSyncLowerBound(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 3+len(syncIDBytes))
+	buf = append(buf, versionV3, typeIndex, idxResourceByParent)
+	buf = append(buf, syncIDBytes...)
+	return buf
+}
+
+func ResourceByParentSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(ResourceByParentSyncLowerBound(syncIDBytes))
+}
+
+func EntitlementSyncLowerBound(syncIDBytes []byte) []byte {
+	return encodeEntitlementPrefix(syncIDBytes)
+}
+
+func EntitlementSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(EntitlementSyncLowerBound(syncIDBytes))
+}
+
+func EntitlementByResourceSyncLowerBound(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 3+len(syncIDBytes))
+	buf = append(buf, versionV3, typeIndex, idxEntitlementByResource)
+	buf = append(buf, syncIDBytes...)
+	return buf
+}
+
+func EntitlementByResourceSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(EntitlementByResourceSyncLowerBound(syncIDBytes))
+}
+
 // GrantSyncLowerBound returns the lowest key in the grant primary
 // bucket for a given sync. Together with GrantSyncUpperBound it gives
 // the half-open [lo, hi) range covering every grant under that sync.
@@ -318,10 +359,27 @@ func GrantByPrincipalSyncUpperBound(syncIDBytes []byte) []byte {
 	return upperBoundOf(GrantByPrincipalSyncLowerBound(syncIDBytes))
 }
 
+func AssetSyncLowerBound(syncIDBytes []byte) []byte {
+	return encodeAssetPrefix(syncIDBytes)
+}
+
+func AssetSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(AssetSyncLowerBound(syncIDBytes))
+}
+
+func SyncRunLowerBound(syncIDBytes []byte) []byte {
+	return encodeSyncRunKey(syncIDBytes)
+}
+
+func SyncRunUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(SyncRunLowerBound(syncIDBytes))
+}
+
 // upperBoundOf returns the smallest key strictly greater than every
 // key with the given prefix. Used as the UpperBound in pebble.IterOptions
 // for range scans. Increments the last byte; if the prefix is all
-// 0xff, appends a 0x00 to mark the boundary.
+// 0xff, no finite exclusive upper bound exists and nil leaves the
+// iterator unbounded above.
 func upperBoundOf(prefix []byte) []byte {
 	end := make([]byte, len(prefix))
 	copy(end, prefix)
@@ -331,6 +389,5 @@ func upperBoundOf(prefix []byte) []byte {
 			return end[:i+1]
 		}
 	}
-	// All 0xff — append 0x00 to end the range.
-	return append(end, 0x00)
+	return nil
 }

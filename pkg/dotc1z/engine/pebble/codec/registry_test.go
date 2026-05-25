@@ -1,11 +1,9 @@
-//go:build batonsdkv2
-
 package codec
 
 import (
 	"testing"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -61,8 +59,7 @@ func TestLookup_ReflectionFallback(t *testing.T) {
 
 func TestRegisteredNames(t *testing.T) {
 	names := RegisteredNames()
-	// Smoke check: returns a slice (may be empty at this point in
-	// Stack 1; populated by generated init() in Stack 3 onwards).
+	// Smoke check: returns a slice.
 	if names == nil {
 		t.Fatal("RegisteredNames returned nil")
 	}

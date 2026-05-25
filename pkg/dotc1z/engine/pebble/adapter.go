@@ -1,5 +1,3 @@
-//go:build batonsdkv2
-
 package pebble
 
 import (
@@ -25,19 +23,9 @@ import (
 // record types via translate_v2.go and routes Put/Get/List into the
 // engine's per-record-type methods.
 //
-// Stack 3 follow-up scope:
-//   - Full Writer: PutGrants, PutResources, PutResourceTypes,
-//     PutEntitlements, DeleteGrant, PutAsset, sync lifecycle.
-//   - Full Reader (gRPC service surface): ListGrants, ListResources,
-//     ListResourceTypes, ListEntitlements, GetAsset, sync queries.
-//   - Reader pagination tokens are opaque strings: an empty token
-//     means "from the beginning"; a non-empty token returned by
-//     a previous List call resumes from where it left off (the
-//     adapter uses the last external_id as the cursor).
-//   - The exotic gRPC methods (GrantManagerService actions,
-//     ResourceGetterService, etc) are NOT implemented — connector
-//     binaries that need them fall through to the engine's
-//     UnimplementedXxxServer embeds and get codes.Unimplemented.
+// The adapter implements the common connectorstore writer and reader
+// paths directly. gRPC methods outside that surface fall through to
+// the embedded UnimplementedXxxServer stubs.
 //
 // Adapter is goroutine-safe modulo Close — concurrent reads + writes
 // are fine, but caller must serialize Close against other calls.
@@ -78,8 +66,13 @@ func NewAdapter(e *Engine) *Adapter {
 	return &Adapter{engine: e}
 }
 
-// Compile-time check that Adapter implements the full Writer interface.
-var _ connectorstore.Writer = (*Adapter)(nil)
+// Compile-time checks for the full Writer interface and the optional
+// connectorstore capabilities that SQLite's *C1File also exposes.
+var (
+	_ connectorstore.Writer                      = (*Adapter)(nil)
+	_ connectorstore.LatestFinishedSyncIDFetcher = (*Adapter)(nil)
+	_ connectorstore.DBSizeProvider              = (*Adapter)(nil)
+)
 
 // === sync lifecycle ===
 
@@ -368,9 +361,7 @@ func (a *Adapter) Close(ctx context.Context) error {
 
 // GetAsset returns the (content_type, data-reader) for the given
 // asset. The returned reader is backed by a bytes.Reader over the
-// fully-materialized blob — fine for assets up to a few MiB. Larger
-// assets are out-of-scope for v4 (sessions/value-separation lands in
-// a follow-up RFC).
+// fully-materialized blob.
 func (a *Adapter) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequest) (string, io.Reader, error) {
 	syncID := a.currentSyncID()
 	if syncID == "" {
@@ -538,6 +529,13 @@ func (a *Adapter) LatestFinishedSyncID(ctx context.Context, syncType connectorst
 		return "", nil
 	}
 	return latest.GetSyncId(), nil
+}
+
+// CurrentDBSizeBytes returns the current uncompressed Pebble working-set size
+// on disk. Implements connectorstore.DBSizeProvider for progress logging
+// parity with the SQLite-backed *dotc1z.C1File.
+func (a *Adapter) CurrentDBSizeBytes() (int64, error) {
+	return a.engine.CurrentDBSizeBytes()
 }
 
 // === helpers ===

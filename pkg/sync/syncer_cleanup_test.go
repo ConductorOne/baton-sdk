@@ -1,5 +1,6 @@
 //go:build !windows
 
+//revive:disable-next-line:var-naming Package name matches the existing sync package under test.
 package sync
 
 import (

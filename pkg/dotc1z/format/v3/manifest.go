@@ -1,5 +1,3 @@
-//go:build batonsdkv2
-
 package v3
 
 import (
@@ -7,6 +5,7 @@ import (
 	"fmt"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -34,11 +33,6 @@ var (
 // The closure invariant: for every file F in the result, every file F
 // imports is also in the result. Reader-side verification can detect
 // any missing import and return ErrManifestIncompleteDescriptors.
-//
-// At Stack 2's MVP, this walks protoregistry.GlobalFiles. The fuller
-// version in Stack 3 lets the engine pass a curated set of record-
-// type FullNames so the closure is bounded to what was actually
-// written (not every storage.v3 file the binary happens to link).
 func BuildDescriptorClosure() (*descriptorpb.FileDescriptorSet, error) {
 	// Collect all files whose package is c1.storage.v3 OR which any
 	// such file transitively imports.
@@ -66,41 +60,9 @@ func BuildDescriptorClosure() (*descriptorpb.FileDescriptorSet, error) {
 		File: make([]*descriptorpb.FileDescriptorProto, 0, len(seen)),
 	}
 	for _, fd := range seen {
-		set.File = append(set.File, protodesc(fd))
+		set.File = append(set.File, protodesc.ToFileDescriptorProto(fd))
 	}
 	return set, nil
-}
-
-// protodesc converts a FileDescriptor to a FileDescriptorProto.
-// Standard helper; lives here so callers don't have to thread the
-// google.golang.org/protobuf/reflect/protodesc import.
-func protodesc(fd protoreflect.FileDescriptor) *descriptorpb.FileDescriptorProto {
-	// protoreflect.FileDescriptor → wire-form descriptor.
-	// We use a minimal projection because the engine doesn't care about
-	// source-info or syntax-specific metadata, only the structural
-	// declaration. Full implementations (e.g. golang/protobuf) round-trip
-	// through proto.Marshal on the file's descriptor; we do the same by
-	// going through the Options.
-	out := &descriptorpb.FileDescriptorProto{
-		Name:    proto.String(fd.Path()),
-		Package: proto.String(string(fd.Package())),
-	}
-	syntax := "proto3"
-	if fd.Syntax() == protoreflect.Proto2 {
-		syntax = "proto2"
-	}
-	out.Syntax = proto.String(syntax)
-	imports := fd.Imports()
-	for i := 0; i < imports.Len(); i++ {
-		out.Dependency = append(out.Dependency, imports.Get(i).Path())
-	}
-	// NB: messages, enums, fields, options are NOT serialized here.
-	// Stack 3's closure builder uses google.golang.org/protobuf/reflect/protodesc.ToFileDescriptorProto
-	// which round-trips faithfully. For Stack 2 MVP we ship the import
-	// graph + package names so readers can detect closure incompleteness
-	// even though they can't reconstruct field-level descriptors yet.
-	// TODO(Stack 3): swap to protodesc.ToFileDescriptorProto.
-	return out
 }
 
 // VerifyDescriptorClosure checks that every file referenced by every
@@ -137,7 +99,7 @@ func MarshalManifest(m *c1zv3.C1ZManifestV3) ([]byte, error) {
 func UnmarshalManifest(b []byte) (*c1zv3.C1ZManifestV3, error) {
 	m := &c1zv3.C1ZManifestV3{}
 	if err := proto.Unmarshal(b, m); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrManifestInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrManifestInvalid, err)
 	}
 	if m.GetEngine() == "" {
 		return nil, ErrManifestEmptyEngine

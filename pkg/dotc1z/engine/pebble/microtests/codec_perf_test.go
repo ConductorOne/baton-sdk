@@ -1,10 +1,8 @@
-//go:build batonsdkv2
-
 // Micro-test 4 — codegen vs cached-reflection codec performance.
 //
 // Run as benchmark:
 //
-//	go test -tags=batonsdkv2 -bench=BenchmarkCodec -benchmem \
+//	go test -bench=BenchmarkCodec -benchmem \
 //	    -run=^$ -benchtime=2s -count=3 \
 //	    ./pkg/dotc1z/engine/pebble/microtests/
 //

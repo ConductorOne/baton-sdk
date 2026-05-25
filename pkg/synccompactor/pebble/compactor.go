@@ -1,7 +1,5 @@
-//go:build batonsdkv2
-
 // Package pebble implements the cross-engine compaction primitive for
-// the v3 Pebble-backed storage engine (RFC 0004 §3.10, Stack 4).
+// the v3 Pebble-backed storage engine.
 //
 // The compactor takes a `base` engine and one or more `applied`
 // engines (each representing a sync_run worth of records) and atomically
@@ -32,7 +30,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
@@ -104,16 +102,10 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 	}
 
 	// The full key range that belongs to this sync across all record
-	// types and indexes. The v3 key layout puts sync_id as the third
-	// byte tuple component within each type bucket, so a single
-	// (sync_id_lower, sync_id_upper) range does not cover *all* of
-	// them at once. Instead we walk each record-type bucket and emit
-	// one SST per bucket, exciseing each bucket's [sync_lo, sync_hi).
-	//
-	// For Stack 4 MVP we cover the canonical record-type buckets
-	// already implemented in Stack 3 (the GrantRecord primary +
-	// by-entitlement + by-principal indexes); other record types ship
-	// alongside their Stack 3 commits.
+	// types and indexes. The v3 key layout puts sync_id inside each
+	// type bucket, so a single range does not cover all sync-owned
+	// keys. Instead we walk each bucket and emit one SST per bucket,
+	// excising each bucket's [sync_lo, sync_hi) range.
 	plans := buildBucketPlans(syncIDBytes)
 
 	type pendingIngest struct {
@@ -198,8 +190,8 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 		if _, err := dstDB.IngestAndExcise(
 			ctx,
 			[]string{p.sstPath},
-			nil, // no shared SSTs
-			nil, // no external SSTs
+			nil,
+			nil,
 			p.exciseSpan,
 		); err != nil {
 			return fmt.Errorf("compact: IngestAndExcise: %w", err)

@@ -1,17 +1,16 @@
-//go:build batonsdkv2
-
 package pebble
 
 import (
+	"fmt"
 	"runtime"
 	"time"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 )
 
 // SDKPebbleFormat is the on-disk format version this SDK release
-// writes. Bumping it is a deliberate SDK-version-bump gated by an
-// RFC, not a transitive consequence of a go.mod upgrade. The reader
+// writes. Bumping it is a deliberate SDK compatibility decision, not
+// a transitive consequence of a go.mod upgrade. The reader
 // compares against pebble.FormatNewest at open and refuses files
 // newer than what the binary supports.
 const SDKPebbleFormat = pebble.FormatNewest
@@ -49,7 +48,7 @@ type Durability int
 const (
 	DurabilityDefault Durability = iota // == DurabilitySync
 	DurabilitySync                      // fsync per batch commit
-	DurabilityNoSync                    // OS deferred; faster, weaker guarantees
+	DurabilityNoSync                    // buffered by the OS; faster, weaker guarantees
 )
 
 // Options configures an Engine. Construct via the WithXxx functional
@@ -116,11 +115,6 @@ func newPebbleOptions(o *Options) *pebble.Options {
 		FlushSplitBytes:           2 << 20,
 		LBaseMaxBytes:             256 << 20,
 
-		// [lower, upper] = [2, max(2, min(8, GOMAXPROCS/4))]. Modern
-		// Pebble uses a range; the picker scales within it under
-		// pressure. Tuned per the scale-realist judge's F-10:
-		// unbounded GOMAXPROCS-1 starves the actual workload on
-		// many-core hosts.
 		CompactionConcurrencyRange: func() (int, int) {
 			upper := runtime.GOMAXPROCS(0) / 4
 			if upper < 2 {
@@ -135,9 +129,10 @@ func newPebbleOptions(o *Options) *pebble.Options {
 		DisableWAL: false,
 		Comparer:   pebble.DefaultComparer,
 		ReadOnly:   o.readOnly,
+		Logger:     discardPebbleLogger{},
 	}
-	// L0 BlockSize tuning lands per-level below; bloom-filter wiring is
-	// a Stack 5 benchmark decision (RFC v4 §8 open question 3).
+	// L0 BlockSize tuning lands per-level below; bloom-filter wiring can
+	// be added after benchmark data justifies it.
 	opts.Levels[0].BlockSize = 32 << 10
 
 	// Cache: shared or minted per preset.
@@ -172,4 +167,12 @@ func defaultOptions() *Options {
 		durability:         DurabilitySync,
 		slowQueryThreshold: 5 * time.Second,
 	}
+}
+
+type discardPebbleLogger struct{}
+
+func (discardPebbleLogger) Infof(format string, args ...interface{})  {}
+func (discardPebbleLogger) Errorf(format string, args ...interface{}) {}
+func (discardPebbleLogger) Fatalf(format string, args ...interface{}) {
+	panic(fmt.Sprintf(format, args...))
 }

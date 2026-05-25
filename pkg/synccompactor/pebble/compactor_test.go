@@ -1,5 +1,3 @@
-//go:build batonsdkv2
-
 package pebble
 
 import (
@@ -158,6 +156,153 @@ func TestCompactReplacesExisting(t *testing.T) {
 	}
 	if freshCount != 50 {
 		t.Errorf("fresh-ent index: got %d, want 50", freshCount)
+	}
+}
+
+func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
+	ctx := context.Background()
+
+	src, _ := newEngine(t, "src")
+	dst, _ := newEngine(t, "dst")
+
+	syncID := ksuid.New().String()
+	for _, e := range []*enginepkg.Engine{src, dst} {
+		if err := e.SetCurrentSync(syncID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := dst.PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
+		SyncId: syncID, ExternalId: "rt-stale", DisplayName: "stale",
+	}.Build()); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.PutResourceRecord(ctx, v3.ResourceRecord_builder{
+		SyncId: syncID, ResourceTypeId: "user", ResourceId: "stale-child",
+		Parent: v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
+	}.Build()); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.PutEntitlementRecord(ctx, v3.EntitlementRecord_builder{
+		SyncId: syncID, ExternalId: "ent-stale",
+		Resource: v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
+	}.Build()); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.PutAssetRecord(ctx, v3.AssetRecord_builder{
+		SyncId: syncID, ExternalId: "asset-stale", Data: []byte("stale"),
+	}.Build()); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+		SyncId: syncID, Type: v3.SyncType_SYNC_TYPE_FULL, SyncToken: "stale",
+	}.Build()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := src.PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
+		SyncId: syncID, ExternalId: "rt-fresh", DisplayName: "fresh",
+	}.Build()); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.PutResourceRecord(ctx, v3.ResourceRecord_builder{
+		SyncId: syncID, ResourceTypeId: "group", ResourceId: "admins",
+	}.Build()); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.PutResourceRecord(ctx, v3.ResourceRecord_builder{
+		SyncId: syncID, ResourceTypeId: "user", ResourceId: "fresh-child",
+		Parent: v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
+	}.Build()); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.PutEntitlementRecord(ctx, v3.EntitlementRecord_builder{
+		SyncId: syncID, ExternalId: "ent-fresh",
+		Resource: v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
+	}.Build()); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.PutAssetRecord(ctx, v3.AssetRecord_builder{
+		SyncId: syncID, ExternalId: "asset-fresh", Data: []byte("fresh"),
+	}.Build()); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+		SyncId: syncID, Type: v3.SyncType_SYNC_TYPE_FULL, SyncToken: "fresh",
+	}.Build()); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := NewCompactor(dst, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Compact(ctx, src, syncID); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+
+	rtCount := 0
+	if err := dst.IterateResourceTypesBySync(ctx, syncID, func(*v3.ResourceTypeRecord) bool {
+		rtCount++
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if rtCount != 1 {
+		t.Fatalf("resource_types: got %d, want 1", rtCount)
+	}
+	if _, err := dst.GetResourceTypeRecord(ctx, syncID, "rt-stale"); err == nil {
+		t.Fatal("stale resource type survived compaction")
+	}
+
+	childCount := 0
+	if err := dst.IterateResourcesByParent(ctx, syncID, "group", "admins", func(r *v3.ResourceRecord) bool {
+		if r.GetResourceId() != "fresh-child" {
+			t.Fatalf("unexpected child resource %q", r.GetResourceId())
+		}
+		childCount++
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if childCount != 1 {
+		t.Fatalf("child resources: got %d, want 1", childCount)
+	}
+
+	entCount := 0
+	if err := dst.IterateEntitlementsByResource(ctx, syncID, "group", "admins", func(r *v3.EntitlementRecord) bool {
+		if r.GetExternalId() != "ent-fresh" {
+			t.Fatalf("unexpected entitlement %q", r.GetExternalId())
+		}
+		entCount++
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if entCount != 1 {
+		t.Fatalf("entitlements: got %d, want 1", entCount)
+	}
+
+	assetCount := 0
+	if err := dst.IterateAssetsBySync(ctx, syncID, func(r *v3.AssetRecord) bool {
+		if r.GetExternalId() != "asset-fresh" || string(r.GetData()) != "fresh" {
+			t.Fatalf("unexpected asset %q data=%q", r.GetExternalId(), string(r.GetData()))
+		}
+		assetCount++
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if assetCount != 1 {
+		t.Fatalf("assets: got %d, want 1", assetCount)
+	}
+
+	syncRun, err := dst.GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if syncRun.GetSyncToken() != "fresh" {
+		t.Fatalf("sync_run token: got %q, want fresh", syncRun.GetSyncToken())
 	}
 }
 
