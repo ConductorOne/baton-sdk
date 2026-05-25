@@ -28,4 +28,5 @@ var (
 	ErrNoCurrentSync                 = errors.New("pebble engine: no current sync")
 	ErrSaveDestExists                = errors.New("pebble engine: save destination already exists")
 	ErrCrossFilesystem               = errors.New("pebble engine: save tmpDir and dest must be on the same filesystem")
+	ErrInvalidPageToken              = errors.New("pebble engine: invalid page token")
 )

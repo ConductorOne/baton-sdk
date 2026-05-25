@@ -404,109 +404,156 @@ func (a *Adapter) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequ
 // adapter implements the most-called paths directly and leaves the
 // rest to the embedded Unimplemented* stubs.
 
-// ListGrants returns all grants on the active sync, optionally
-// filtered by Resource (= principal) when req.Resource is set.
+// ListGrants returns up to page_size grants on the active sync.
+// Pagination matches the SQLite engine's semantics:
+//   - page_size == 0 || page_size > MaxPageSize → DefaultPageSize (10000)
+//   - page_token is opaque base64; pass nextPageToken back verbatim
+//   - filter by req.Resource (= principal) when set; uses by_principal index
 func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
 	syncID := a.resolveActiveSync(req.GetActiveSyncId())
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
-	out := make([]*v2.Grant, 0)
-	var iter func(yield func(*v3.GrantRecord) bool) error
+	limit := clampPageSize(req.GetPageSize())
+	cursor := req.GetPageToken()
+	var records []*v3.GrantRecord
+	var nextCursor string
+	var err error
 	if r := req.GetResource(); r != nil && r.GetId() != nil {
-		// Filter by principal.
-		iter = func(yield func(*v3.GrantRecord) bool) error {
-			return a.engine.IterateGrantsByPrincipal(ctx, syncID,
-				r.GetId().GetResourceType(), r.GetId().GetResource(), yield)
-		}
+		records, nextCursor, err = a.engine.PaginateGrantsByPrincipal(ctx, syncID,
+			r.GetId().GetResourceType(), r.GetId().GetResource(), cursor, limit)
 	} else {
-		iter = func(yield func(*v3.GrantRecord) bool) error {
-			return a.engine.IterateGrantsBySync(ctx, syncID, yield)
-		}
+		records, nextCursor, err = a.engine.PaginateGrantsBySync(ctx, syncID, cursor, limit)
 	}
-	if err := iter(func(rec *v3.GrantRecord) bool {
-		out = append(out, V3GrantToV2(rec))
-		return true
-	}); err != nil {
+	if err != nil {
 		return nil, err
 	}
-	return v2.GrantsServiceListGrantsResponse_builder{List: out}.Build(), nil
+	out := make([]*v2.Grant, 0, len(records))
+	for _, rec := range records {
+		out = append(out, V3GrantToV2(rec))
+	}
+	return v2.GrantsServiceListGrantsResponse_builder{
+		List:          out,
+		NextPageToken: nextCursor,
+	}.Build(), nil
 }
 
-// ListResources returns all resources on the active sync,
-// optionally filtered by parent resource id.
+// ListResources returns up to page_size resources, optionally filtered
+// by parent resource id and/or resource_type_id. Pagination matches
+// SQLite (see ListGrants).
+//
+// Note on the resource_type_id filter: when parent is also set, the
+// by_parent index is used and we post-filter by resource_type_id (the
+// index doesn't carry resource_type_id in the lookup prefix). When
+// only resource_type_id is set, we still iterate the full primary
+// range and post-filter — adding a by_resource_type index is a
+// future-work item if this path becomes hot.
 func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
 	syncID := a.resolveActiveSync(req.GetActiveSyncId())
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
-	out := make([]*v2.Resource, 0)
-	var iter func(yield func(*v3.ResourceRecord) bool) error
-	if p := req.GetParentResourceId(); p != nil && p.GetResource() != "" {
-		iter = func(yield func(*v3.ResourceRecord) bool) error {
-			return a.engine.IterateResourcesByParent(ctx, syncID,
-				p.GetResourceType(), p.GetResource(), yield)
+	limit := clampPageSize(req.GetPageSize())
+	cursor := req.GetPageToken()
+	rtFilter := req.GetResourceTypeId()
+
+	out := make([]*v2.Resource, 0, limit)
+	var nextCursor string
+	for len(out) < limit {
+		pageLimit := limit - len(out)
+		// Over-fetch a little when post-filtering so a sparse hit rate
+		// doesn't force a tail of extra round-trips. 4x is the cap; if
+		// rtFilter is empty we skip the over-fetch entirely.
+		fetchLimit := pageLimit
+		if rtFilter != "" {
+			fetchLimit = pageLimit * 4
+			if fetchLimit > MaxPageSize {
+				fetchLimit = MaxPageSize
+			}
 		}
-	} else {
-		iter = func(yield func(*v3.ResourceRecord) bool) error {
-			return a.engine.IterateResourcesBySync(ctx, syncID, yield)
+		var records []*v3.ResourceRecord
+		var err error
+		if p := req.GetParentResourceId(); p != nil && p.GetResource() != "" {
+			records, nextCursor, err = a.engine.PaginateResourcesByParent(ctx, syncID,
+				p.GetResourceType(), p.GetResource(), cursor, fetchLimit)
+		} else {
+			records, nextCursor, err = a.engine.PaginateResourcesBySync(ctx, syncID, cursor, fetchLimit)
 		}
+		if err != nil {
+			return nil, err
+		}
+		for _, rec := range records {
+			if rtFilter != "" && rec.GetResourceTypeId() != rtFilter {
+				continue
+			}
+			out = append(out, V3ResourceToV2(rec))
+			if len(out) == limit {
+				break
+			}
+		}
+		if nextCursor == "" || len(records) == 0 {
+			break
+		}
+		cursor = nextCursor
 	}
-	if err := iter(func(rec *v3.ResourceRecord) bool {
-		// Only include resources of the requested type if specified.
-		if rtID := req.GetResourceTypeId(); rtID != "" && rec.GetResourceTypeId() != rtID {
-			return true
-		}
-		out = append(out, V3ResourceToV2(rec))
-		return true
-	}); err != nil {
-		return nil, err
-	}
-	return v2.ResourcesServiceListResourcesResponse_builder{List: out}.Build(), nil
+	return v2.ResourcesServiceListResourcesResponse_builder{
+		List:          out,
+		NextPageToken: nextCursor,
+	}.Build(), nil
 }
 
-// ListResourceTypes returns all resource_types on the active sync.
+// ListResourceTypes returns up to page_size resource_types. Pagination
+// matches SQLite (see ListGrants).
 func (a *Adapter) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesServiceListResourceTypesRequest) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
 	syncID := a.resolveActiveSync(req.GetActiveSyncId())
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
-	out := make([]*v2.ResourceType, 0)
-	if err := a.engine.IterateResourceTypesBySync(ctx, syncID, func(rec *v3.ResourceTypeRecord) bool {
-		out = append(out, V3ResourceTypeToV2(rec))
-		return true
-	}); err != nil {
+	limit := clampPageSize(req.GetPageSize())
+	records, nextCursor, err := a.engine.PaginateResourceTypesBySync(ctx, syncID, req.GetPageToken(), limit)
+	if err != nil {
 		return nil, err
 	}
-	return v2.ResourceTypesServiceListResourceTypesResponse_builder{List: out}.Build(), nil
+	out := make([]*v2.ResourceType, 0, len(records))
+	for _, rec := range records {
+		out = append(out, V3ResourceTypeToV2(rec))
+	}
+	return v2.ResourceTypesServiceListResourceTypesResponse_builder{
+		List:          out,
+		NextPageToken: nextCursor,
+	}.Build(), nil
 }
 
-// ListEntitlements returns all entitlements on the active sync,
-// optionally filtered by Resource (resource_type_id, resource_id).
+// ListEntitlements returns up to page_size entitlements, optionally
+// filtered by Resource (resource_type_id, resource_id). Pagination
+// matches SQLite (see ListGrants).
 func (a *Adapter) ListEntitlements(ctx context.Context, req *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
 	syncID := a.resolveActiveSync(req.GetActiveSyncId())
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
-	out := make([]*v2.Entitlement, 0)
-	var iter func(yield func(*v3.EntitlementRecord) bool) error
+	limit := clampPageSize(req.GetPageSize())
+	cursor := req.GetPageToken()
+	var records []*v3.EntitlementRecord
+	var nextCursor string
+	var err error
 	if r := req.GetResource(); r != nil && r.GetId() != nil {
-		iter = func(yield func(*v3.EntitlementRecord) bool) error {
-			return a.engine.IterateEntitlementsByResource(ctx, syncID,
-				r.GetId().GetResourceType(), r.GetId().GetResource(), yield)
-		}
+		records, nextCursor, err = a.engine.PaginateEntitlementsByResource(ctx, syncID,
+			r.GetId().GetResourceType(), r.GetId().GetResource(), cursor, limit)
 	} else {
-		iter = func(yield func(*v3.EntitlementRecord) bool) error {
-			return a.engine.IterateEntitlementsBySync(ctx, syncID, yield)
-		}
+		records, nextCursor, err = a.engine.PaginateEntitlementsBySync(ctx, syncID, cursor, limit)
 	}
-	if err := iter(func(rec *v3.EntitlementRecord) bool {
-		out = append(out, V3EntitlementToV2(rec))
-		return true
-	}); err != nil {
+	if err != nil {
 		return nil, err
 	}
-	return v2.EntitlementsServiceListEntitlementsResponse_builder{List: out}.Build(), nil
+	out := make([]*v2.Entitlement, 0, len(records))
+	for _, rec := range records {
+		out = append(out, V3EntitlementToV2(rec))
+	}
+	return v2.EntitlementsServiceListEntitlementsResponse_builder{
+		List:          out,
+		NextPageToken: nextCursor,
+	}.Build(), nil
 }
 
 // === reader_v2 surface ===

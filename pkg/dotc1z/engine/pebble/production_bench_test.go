@@ -102,12 +102,24 @@ func benchmarkRegisteredUnpackReadGrants(b *testing.B, engine dotc1z.Engine, n i
 		if err := store.SetCurrentSync(ctx, syncID); err != nil {
 			b.Fatalf("SetCurrentSync: %v", err)
 		}
-		resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-		if err != nil {
-			b.Fatalf("ListGrants: %v", err)
+		// Walk pages — both engines clamp page_size to 10000.
+		total := 0
+		pageToken := ""
+		for {
+			resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+				PageToken: pageToken,
+			}.Build())
+			if err != nil {
+				b.Fatalf("ListGrants: %v", err)
+			}
+			total += len(resp.GetList())
+			pageToken = resp.GetNextPageToken()
+			if pageToken == "" {
+				break
+			}
 		}
-		if got := len(resp.GetList()); got != n {
-			b.Fatalf("ListGrants count = %d, want %d", got, n)
+		if total != n {
+			b.Fatalf("paginated ListGrants total = %d, want %d", total, n)
 		}
 		if err := store.Close(ctx); err != nil {
 			b.Fatalf("Close: %v", err)
