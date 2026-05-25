@@ -242,7 +242,11 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 	if syncType != connectorstore.SyncTypeAny {
 		q = q.Where(goqu.C("sync_type").Eq(syncType))
 	}
-	q = q.Order(goqu.C("ended_at").Desc())
+	// Tiebreak on sync_id when ended_at ties — Windows can have
+	// coarser-than-nanosecond time resolution, so two adjacent
+	// EndSync calls can produce identical ended_at strings. sync_ids
+	// are KSUIDs (timestamp-sortable) so DESC picks the later one.
+	q = q.Order(goqu.C("ended_at").Desc(), goqu.C("sync_id").Desc())
 	q = q.Limit(1)
 
 	if offset != 0 {
