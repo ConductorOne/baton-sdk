@@ -136,6 +136,7 @@ In order applied (compounds multiplicatively):
 - **`appendEscaped` bytes.IndexByte fast path** (+1.7% within noise). The tuple encoder lives on the smaller goroutine (idxBatch); parallel wallclock = max(A,B), so optimizing B doesn't reduce max when B<A.
 - **`idxBatch` 4-way shard** (-0.1% within noise). Mirrors the priBatch shard but the idxBatch's bottleneck is the flushable-batch sort, not the build cost — sharding the build doesn't help the unsharded sort.
 - **`priBatch` 8-way shard** (-0.6% within noise). Marshal parallelism saturates at 4 shards; goroutine setup overhead eats further gains.
+- **Parallel engine.Close() + WriteEnvelope** (flat on re-run). First run showed promising 1k/10k secondaries (-15%/-10%) but a second run with the same code showed all scales flat — the gains were favorable noise from `-benchtime=2x`. The change is correct (CheckpointTo produces a self-contained directory; engine.Close has no dependency on the envelope writer) but doesn't help systematically at this measurement precision.
 
 ### Open ideas for future work (not pursued in this loop)
 
@@ -143,6 +144,14 @@ In order applied (compounds multiplicatively):
 - **Apply scratch-buffer + dual-batch + skipGet + parallel pattern to `PutResources` / `PutEntitlements` / `PutResourceTypes`**. Transferable production win; not measured by this bench so not pursued by the loop, but high-value follow-up.
 - **3+ way parallel split of the priBatch path** via `batch.Apply` concatenation. The Apply does an extra memcpy; uncertain net win.
 - **`SetDeferred` + cached marshal size** could eliminate the per-record memcpy if we can avoid the double-traverse of proto.Size+MarshalAppend. Would require dropping into proto/protoreflect lower-level APIs.
+
+### Noise floor calibration
+
+At `-benchtime=2x` (2 iterations per scale), the secondary metrics for
+smaller workloads (1k/10k) vary up to **~10–15%** run-to-run. Primary
+(1M) is more stable at **~2–3%**. Future experiments that move only the
+secondary by a margin within this band should not be interpreted as
+real wins without a confirmation run on the same commit.
 
 ### Production safety follow-up (see `autoresearch.ideas.md`)
 
