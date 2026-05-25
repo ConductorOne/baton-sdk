@@ -108,7 +108,7 @@ Already-applied wins (the status quo baseline):
 - 256 MiB block cache.
 - `CompactionConcurrencyRange` capped at `(2, min(8, GOMAXPROCS/4))`.
 
-### Wins kept by this loop (cumulative -52.3% from 4292 → 2046 ms at 1M)
+### Wins kept by this loop (cumulative -56.1% from 4292 → 1884 ms at 1M)
 
 In order applied (compounds multiplicatively):
 
@@ -119,6 +119,7 @@ In order applied (compounds multiplicatively):
 5. **`NewBatchWithSize(len*600)` / `(len*140)`** (-6.1%). Pre-size the batches so they don't grow-by-2x internally; saves ~10 reallocations and up to 2x peak slack. bytes_op -23%.
 6. **Skip read-before-write Get for fresh-sync first call** (-14.5%). New engine flag `freshGrantsEmpty` is true between `MarkFreshSync` and the first `PutGrantRecords` commit. While true, the 1M `e.db.Get` calls are skipped — they'd all return ErrNotFound anyway (db.Get doesn't see in-batch writes; the keyspace is empty). Across-call dup detection preserved by clearing the flag after first commit.
 7. **Parallel-build the two batches for batches ≥ 256** (-8.8%). When skipGet is true, the two batches have no shared mutable state. Two goroutines build them concurrently; each has its own scratch buffers and sync_id cache. Threshold of 256 records avoids goroutine setup overhead on tiny calls (solo write regression bounded to +11%).
+8. **4-way shard the priBatch build** (-7.9%). proto.Marshal of 1M GrantRecords is the parallel-path long pole on goroutine A; sharding it across 4 worker goroutines cuts that wallclock ~4×, at the cost of 4 batch.Apply memcpy concatenations (~50 ms total). Shard count caps at min(4, len/1024) so small batches bypass the parallelism overhead. 8-way sharding saturated (no further benefit).
 
 ### Major dead ends (do NOT retry)
 
@@ -133,6 +134,8 @@ In order applied (compounds multiplicatively):
 - **`DisableAutomaticCompactions: true`** (-1% within noise). With L0=8 already limiting compaction-during-writes, disabling shifts work later but saves no wallclock.
 - **`SetDeferred` for primary key+value** (+2.3%). `proto.Size` traversal cost exceeds the `batch.Set` memcpy savings; no net win.
 - **`appendEscaped` bytes.IndexByte fast path** (+1.7% within noise). The tuple encoder lives on the smaller goroutine (idxBatch); parallel wallclock = max(A,B), so optimizing B doesn't reduce max when B<A.
+- **`idxBatch` 4-way shard** (-0.1% within noise). Mirrors the priBatch shard but the idxBatch's bottleneck is the flushable-batch sort, not the build cost — sharding the build doesn't help the unsharded sort.
+- **`priBatch` 8-way shard** (-0.6% within noise). Marshal parallelism saturates at 4 shards; goroutine setup overhead eats further gains.
 
 ### Open ideas for future work (not pursued in this loop)
 
