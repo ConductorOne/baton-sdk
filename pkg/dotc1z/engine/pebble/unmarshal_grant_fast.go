@@ -65,16 +65,17 @@ func unmarshalGrantRecordFast(
 		}
 		data = data[n:]
 		switch num {
-		case 1: // sync_id (string)
+		case 1: // sync_id (string) — skipped; no read-path consumer of
+			// PaginateGrantsBySync reads r.GetSyncId() (sync_id is passed
+			// separately by the caller). Consume bytes without storing.
 			if typ != protowire.BytesType {
 				return fallbackUnmarshalGrant(full, rec)
 			}
-			val, m := protowire.ConsumeString(data)
+			m := protowire.ConsumeFieldValue(num, typ, data)
 			if m < 0 {
 				return fallbackUnmarshalGrant(full, rec)
 			}
 			data = data[m:]
-			rec.SetSyncId(val)
 		case 2: // external_id (string)
 			if typ != protowire.BytesType {
 				return fallbackUnmarshalGrant(full, rec)
