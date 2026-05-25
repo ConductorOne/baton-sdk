@@ -136,9 +136,42 @@ func iteratePrimaryPageWithKey[T proto.Message](
 
 // === Paginated grant variants ===
 
+// grantReadArena batches the OUTER v3.GrantRecord allocations done
+// when hydrating a page of grants via proto.Unmarshal. Each iter step
+// of the page-read loop allocates a fresh GrantRecord; for a 1 M
+// paginated read in 10 k chunks that's 1 M outer-struct allocs +
+// associated memclr work. Arena collapses these to 100 slice allocs
+// (one per page).
+//
+// We do NOT pre-populate nested fields (Entitlement/Principal/
+// DiscoveredAt). An earlier attempt to do so (paginate.go, run #50)
+// only saved the OUTER GrantRecord allocations, not the nested ones,
+// while wasting memory on unused pre-populated arena slots at smaller
+// scales. proto.Unmarshal's nested-message reuse path didn't trigger
+// on our pre-populated pointers — the protobuf runtime's actual
+// behavior differed from the consumeMessageInfo source-level read.
+// Leaving nested message allocation to the runtime.
+type grantReadArena struct {
+	grants []v3.GrantRecord
+}
+
+func newGrantReadArena(pageLimit int) *grantReadArena {
+	return &grantReadArena{
+		grants: make([]v3.GrantRecord, 0, pageLimit),
+	}
+}
+
+func (a *grantReadArena) allocGrant() *v3.GrantRecord {
+	a.grants = append(a.grants, v3.GrantRecord{})
+	return &a.grants[len(a.grants)-1]
+}
+
 // PaginateGrantsBySync returns up to `limit` grants from the
 // primary-key range, starting strictly after `cursor`. Returns the
 // next cursor (empty if no more) plus the materialized records.
+//
+// Uses grantReadArena for the per-iter outer-struct allocations —
+// 1 page = 1 arena slice rather than O(page-size) individual mallocs.
 func (e *Engine) PaginateGrantsBySync(
 	ctx context.Context, syncID, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
@@ -150,10 +183,12 @@ func (e *Engine) PaginateGrantsBySync(
 	if err != nil {
 		return nil, "", err
 	}
+	if limit <= 0 {
+		limit = DefaultPageSize
+	}
 	prefix := encodeGrantPrefix(idBytes)
-	return iteratePrimaryPageWithKey(ctx, e.db, prefix, cursorBytes, limit, func() *v3.GrantRecord {
-		return &v3.GrantRecord{}
-	})
+	arena := newGrantReadArena(limit)
+	return iteratePrimaryPageWithKey(ctx, e.db, prefix, cursorBytes, limit, arena.allocGrant)
 }
 
 // PaginateGrantsByEntitlement uses the by_entitlement index. The
