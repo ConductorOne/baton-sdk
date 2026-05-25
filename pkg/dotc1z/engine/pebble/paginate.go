@@ -156,6 +156,54 @@ type grantReadArena struct {
 	grants []v3.GrantRecord
 }
 
+// pebbleUnmarshalBatch carries a concatenated value buffer plus per-
+// record end-offsets from the main goroutine to a worker. Pooled via
+// unmarshalBatchPool so the (potentially multi-KB) backing arrays
+// are reused across PaginateGrantsBySync calls instead of allocated
+// fresh per batch. Channel send transfers ownership: main allocates
+// & fills, workers consume & putBatch back to the pool.
+type pebbleUnmarshalBatch struct {
+	startIdx int    // first arena.grants index this batch covers
+	count    int    // records in this batch
+	valueBuf []byte // concatenated value bytes
+	ends     []int  // ends[i] = absolute end offset of record i in valueBuf
+}
+
+// unmarshalBatchPool reuses pebbleUnmarshalBatch structs and their
+// backing arrays across PaginateGrantsBySync calls. At 1 M bench scale
+// this collapses ~15 600 fresh batch allocations (and their underlying
+// ~32 KB value-buffer mallocs) into a handful of pool-owned buffers.
+// Outsized batches are dropped on Put to keep pool memory bounded.
+var unmarshalBatchPool = sync.Pool{
+	New: func() any {
+		return &pebbleUnmarshalBatch{
+			valueBuf: make([]byte, 0, 32*1024),
+			ends:     make([]int, 0, 64),
+		}
+	},
+}
+
+const (
+	unmarshalBatchValueBufCap = 256 * 1024 // cap pool-retained valueBuf at 256 KB
+	unmarshalBatchEndsCap     = 256        // cap pool-retained ends at 256 entries
+)
+
+func getUnmarshalBatch(startIdx int) *pebbleUnmarshalBatch {
+	b := unmarshalBatchPool.Get().(*pebbleUnmarshalBatch)
+	b.startIdx = startIdx
+	b.count = 0
+	b.valueBuf = b.valueBuf[:0]
+	b.ends = b.ends[:0]
+	return b
+}
+
+func putUnmarshalBatch(b *pebbleUnmarshalBatch) {
+	if cap(b.valueBuf) > unmarshalBatchValueBufCap || cap(b.ends) > unmarshalBatchEndsCap {
+		return // GC reclaims oversized batches
+	}
+	unmarshalBatchPool.Put(b)
+}
+
 // PaginateGrantsBySync returns up to `limit` grants from the
 // primary-key range, starting strictly after `cursor`. Returns the
 // next cursor (empty if no more) plus the materialized records.
@@ -210,17 +258,11 @@ func (e *Engine) PaginateGrantsBySync(
 		unmarshalBatchSize   = 64
 	)
 
-	// Per-batch buffer: one concatenated []byte for all the record
-	// values in the batch, plus per-record end-offsets. Workers split
-	// the buffer by offsets and unmarshal each slice into
-	// arena.grants[startIdx + i].
-	type unmarshalBatch struct {
-		startIdx int    // first arena.grants index this batch covers
-		count    int    // records in this batch
-		valueBuf []byte // concatenated value bytes
-		ends     []int  // ends[i] = absolute end offset of record i in valueBuf
-	}
-	jobs := make(chan *unmarshalBatch, pageUnmarshalWorkers*2)
+	// Per-batch buffer carrier; see pebbleUnmarshalBatch above for
+	// pool semantics. Workers split the buffer by offsets and
+	// unmarshal each slice into arena.grants[startIdx + i], then
+	// putUnmarshalBatch back to the pool.
+	jobs := make(chan *pebbleUnmarshalBatch, pageUnmarshalWorkers*2)
 
 	var wg sync.WaitGroup
 	var firstErr error
@@ -243,23 +285,17 @@ func (e *Engine) PaginateGrantsBySync(
 					end := b.ends[i]
 					if err := proto.Unmarshal(b.valueBuf[prev:end], &arena.grants[b.startIdx+i]); err != nil {
 						setErr(fmt.Errorf("page unmarshal: %w", err))
+						putUnmarshalBatch(b)
 						return
 					}
 					prev = end
 				}
+				putUnmarshalBatch(b)
 			}
 		}()
 	}
 
-	// flushBatch sends `cur` to workers and prepares a fresh batch.
-	newBatch := func(startIdx int) *unmarshalBatch {
-		return &unmarshalBatch{
-			startIdx: startIdx,
-			valueBuf: make([]byte, 0, unmarshalBatchSize*512), // ~512 B/record estimate
-			ends:     make([]int, 0, unmarshalBatchSize),
-		}
-	}
-	cur := newBatch(0)
+	cur := getUnmarshalBatch(0)
 
 	count := 0
 	var lastReturnedKey []byte
@@ -282,11 +318,13 @@ func (e *Engine) PaginateGrantsBySync(
 		count++
 		if cur.count == unmarshalBatchSize {
 			jobs <- cur
-			cur = newBatch(count)
+			cur = getUnmarshalBatch(count)
 		}
 	}
 	if cur.count > 0 {
 		jobs <- cur
+	} else {
+		putUnmarshalBatch(cur)
 	}
 	close(jobs)
 	wg.Wait()
