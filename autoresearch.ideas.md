@@ -18,3 +18,15 @@ status (kept / discarded / crashed) so we don't repeat them.
 ## Tried — see jsonl for verdicts
 
 (populated by the loop)
+
+## Follow-up / human review
+
+- Split-batch in PutGrantRecords (commit 63c0869b) breaks cross-batch atomicity:
+  if priBatch commits but idxBatch fails, primary records exist without
+  by_entitlement / by_principal index entries. Fresh-sync replays the
+  whole sync from the connector so it's OK there, but incremental Put
+  paths (mid-sync upserts) might leak. RFC stack-6 grant expansion path
+  could be a concrete victim. Consider:
+    - Apply split only when IsFreshSync() is true; keep one-batch atomic
+      semantics outside fresh-sync.
+    - Or: document the contract change.

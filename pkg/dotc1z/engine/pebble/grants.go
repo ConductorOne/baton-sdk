@@ -57,9 +57,15 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		// still committed atomically per-batch; cross-batch consistency
 		// for fresh-sync is acceptable because fresh-sync replays from the
 		// connector on crash.
-		priBatch := e.db.NewBatch()
+		// Pre-size the batches. Each grant contributes ~600 bytes to the
+		// primary batch (key + marshaled GrantRecord value + entry header)
+		// and ~140 bytes to the index batch (2 index keys + headers).
+		// Pre-sizing avoids the internal grow-by-2x reallocations Pebble
+		// would otherwise do as the batch fills. NewBatchWithSize accepts
+		// the hint as a starting allocation size.
+		priBatch := e.db.NewBatchWithSize(len(records) * 600)
 		defer priBatch.Close()
-		idxBatch := e.db.NewBatch()
+		idxBatch := e.db.NewBatchWithSize(len(records) * 140)
 		defer idxBatch.Close()
 
 		fresh := e.IsFreshSync()
