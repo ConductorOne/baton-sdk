@@ -153,7 +153,9 @@ func iteratePrimaryPageWithKey[T proto.Message](
 // behavior differed from the consumeMessageInfo source-level read.
 // Leaving nested message allocation to the runtime.
 type grantReadArena struct {
-	grants []v3.GrantRecord
+	grants       []v3.GrantRecord
+	entitlements []v3.EntitlementRef // nested arena for fast decoder
+	principals   []v3.PrincipalRef   // nested arena for fast decoder
 }
 
 // pebbleUnmarshalBatch carries a concatenated value buffer plus per-
@@ -253,8 +255,14 @@ func (e *Engine) PaginateGrantsBySync(
 	defer iter.Close()
 
 	// Pre-allocate arena slots up to limit. Workers index into these
-	// slots directly; no append, no race.
-	arena := &grantReadArena{grants: make([]v3.GrantRecord, limit)}
+	// slots directly; no append, no race. Includes nested EntitlementRef
+	// and PrincipalRef arenas for the custom fast decoder — collapses 2
+	// nested allocations per record into 2 slice allocations per page.
+	arena := &grantReadArena{
+		grants:       make([]v3.GrantRecord, limit),
+		entitlements: make([]v3.EntitlementRef, limit),
+		principals:   make([]v3.PrincipalRef, limit),
+	}
 
 	const (
 		// 7 workers — bisecting #63 (6 → 405.9 ms) and #64 (8 → 416.6 ms).
@@ -294,7 +302,13 @@ func (e *Engine) PaginateGrantsBySync(
 				prev := 0
 				for i := 0; i < b.count; i++ {
 					end := b.ends[i]
-					if err := proto.Unmarshal(b.valueBuf[prev:end], &arena.grants[b.startIdx+i]); err != nil {
+					idx := b.startIdx + i
+					if err := unmarshalGrantRecordFast(
+						b.valueBuf[prev:end],
+						&arena.grants[idx],
+						&arena.entitlements[idx],
+						&arena.principals[idx],
+					); err != nil {
 						setErr(fmt.Errorf("page unmarshal: %w", err))
 						putUnmarshalBatch(b)
 						return
