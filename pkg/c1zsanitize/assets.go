@@ -84,6 +84,18 @@ func (a *assetRefSet) drain() []string {
 	return out
 }
 
+// drainAndClose consumes the reader and closes it if the underlying
+// type also implements io.Closer. The connectorstore.Reader.GetAsset
+// contract returns an io.Reader, but at least one implementation
+// returns *os.File; not closing it leaks a fd per asset.
+func drainAndClose(r io.Reader) error {
+	if c, ok := r.(io.Closer); ok {
+		defer c.Close()
+	}
+	_, err := io.Copy(io.Discard, r)
+	return err
+}
+
 func (s *sanitizer) copyAssets(
 	ctx context.Context,
 	src connectorstore.Reader,
@@ -104,7 +116,7 @@ func (s *sanitizer) copyAssets(
 			s.log.Debug("c1zsanitize: asset ref not found in source", zap.String("asset_id", srcID), zap.Error(err))
 			continue
 		}
-		if _, err := io.Copy(io.Discard, r); err != nil && !errors.Is(err, io.EOF) {
+		if err := drainAndClose(r); err != nil && !errors.Is(err, io.EOF) {
 			return fmt.Errorf("drain source asset %s: %w", srcID, err)
 		}
 		dstID := s.id(srcID)

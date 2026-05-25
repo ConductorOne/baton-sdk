@@ -16,8 +16,11 @@ package c1zsanitize
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"hash"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -80,6 +83,7 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 
 	s := &sanitizer{
 		secret:                 opts.Secret,
+		idHmac:                 hmac.New(sha256.New, opts.Secret),
 		domains:                newDomainMap(),
 		shifter:                newTimestampShifter(anchor, findTMax(srcSyncs)),
 		dropUnknownAnnotations: opts.DropUnknownAnnotations,
@@ -98,6 +102,7 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 
 type sanitizer struct {
 	secret                 []byte
+	idHmac                 hash.Hash
 	domains                *domainMap
 	shifter                *timestampShifter
 	dropUnknownAnnotations bool
@@ -106,8 +111,18 @@ type sanitizer struct {
 	syncIDMap              map[string]string
 }
 
+// id is the per-sanitizer hot path. SanitizeID stays as the
+// allocation-y reference implementation; this one reuses a single
+// hmac.Hash so the SHA-256 key schedule isn't redone every call.
+// Sanitize runs single-threaded, so no locking is needed.
 func (s *sanitizer) id(input string) string {
-	return SanitizeID(s.secret, input)
+	if input == "" {
+		return ""
+	}
+	s.idHmac.Reset()
+	s.idHmac.Write([]byte(input))
+	sum := s.idHmac.Sum(nil)
+	return idEncoding.EncodeToString(sum[:idTruncationBytes])
 }
 
 func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader, dst connectorstore.Writer, sr *reader_v2.SyncRun) error {

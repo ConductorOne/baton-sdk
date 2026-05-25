@@ -87,7 +87,12 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("open dst c1z: %w", err)
 	}
-	defer dst.Close(ctx)
+	dstClosed := false
+	defer func() {
+		if !dstClosed {
+			_ = dst.Close(ctx)
+		}
+	}()
 
 	opts := c1zsanitize.Options{
 		Secret:                 secret,
@@ -103,6 +108,10 @@ func run() error {
 	start := time.Now()
 	if err := c1zsanitize.Sanitize(ctx, src, dst, opts); err != nil {
 		return fmt.Errorf("sanitize: %w", err)
+	}
+	dstClosed = true
+	if err := dst.Close(ctx); err != nil {
+		return fmt.Errorf("close dst c1z: %w", err)
 	}
 	log.Info("c1zsanitize: done", zap.Duration("elapsed", time.Since(start)))
 	return nil

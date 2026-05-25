@@ -61,9 +61,6 @@ func TestSanitizeCrossReferenceIntegrity(t *testing.T) {
 	}
 
 	srcResourceTypeIDs := map[string]struct{}{}
-	for _, id := range srcRecords.idOccurrences {
-		_ = id
-	}
 	for _, rt := range srcRecords.resourceTypes {
 		srcResourceTypeIDs[rt.GetId()] = struct{}{}
 	}
