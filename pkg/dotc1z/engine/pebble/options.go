@@ -110,7 +110,7 @@ func newPebbleOptions(o *Options) *pebble.Options {
 		MaxOpenFiles:                1024,
 
 		// L0 tuning matches the RFC v4 Appendix C.6 values.
-		L0CompactionThreshold:     2,
+		L0CompactionThreshold:     8,
 		L0CompactionFileThreshold: 500,
 		L0StopWritesThreshold:     20,
 		FlushSplitBytes:           2 << 20,
