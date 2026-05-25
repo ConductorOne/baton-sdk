@@ -301,14 +301,37 @@ func (e *Engine) buildIdxBatchSkipGetUnsortedInto(batch *pebble.Batch, records [
 	return nil
 }
 
-// collectIdxKeys gathers all by_entitlement + by_principal index keys
-// for the given record slice into a [][]byte, then sorts that slice in
-// place by bytewise comparison. Used by the parallel-sort+merge
-// idxBatch builder. Each key is its own slice (no scratch reuse), so
-// the returned slice owns ~2N+1 allocations — trade memory for sort
-// throughput.
-func (e *Engine) collectAndSortIdxKeys(records []*v3.GrantRecord) ([][]byte, error) {
-	keys := make([][]byte, 0, 2*len(records))
+// keyArena holds many variable-length keys in a single underlying
+// []byte (data) with one (start, end) offset pair per key (bounds).
+// Two GC objects regardless of how many keys — replaces a [][]byte of
+// N entries (N+1 GC objects, 24*N bytes of slice headers) and lets the
+// GC scanner skip the per-key walk. bounds is sortable in-place; the
+// data arena stays put after sort.
+type keyArena struct {
+	data   []byte
+	bounds [][2]uint32 // bounds[i] = [start, end) of key i in data
+}
+
+func (a *keyArena) key(i int) []byte {
+	return a.data[a.bounds[i][0]:a.bounds[i][1]]
+}
+
+func (a *keyArena) keyCount() int { return len(a.bounds) }
+
+// collectAndSortIdxKeys gathers all by_entitlement + by_principal
+// index keys for the given record slice into a keyArena, then sorts
+// bounds in place by bytewise key comparison. Used by the parallel-
+// sort+merge idxBatch builder. The arena pattern matters at this scale
+// because the prior [][]byte approach allocated ~500k slice headers
+// per shard, which dominated GC scan cost (~670 ms in the v8 profile).
+func (e *Engine) collectAndSortIdxKeys(records []*v3.GrantRecord) (*keyArena, error) {
+	// Pre-size: typical keys are ~60 bytes. Pre-allocating avoids the
+	// arena's grow-by-2x reallocs as it fills.
+	const estKeyBytes = 80
+	arena := &keyArena{
+		data:   make([]byte, 0, 2*len(records)*estKeyBytes),
+		bounds: make([][2]uint32, 0, 2*len(records)),
+	}
 	var (
 		lastSyncIDStr string
 		lastIDBytes   []byte
@@ -336,28 +359,37 @@ func (e *Engine) collectAndSortIdxKeys(records []*v3.GrantRecord) ([][]byte, err
 		ent := r.GetEntitlement()
 		princ := r.GetPrincipal()
 		ext := r.GetExternalId()
+		// uint32 conversions are bounded: per-shard arena is at most
+		// ~200 MiB worth of keys (well under 2³² bytes), and a single
+		// PutGrants call won't hand us 4 billion records.
 		if ent != nil && princ != nil {
-			k := appendGrantByEntitlementIndexKey(make([]byte, 0, 96),
+			start := uint32(len(arena.data)) //nolint:gosec // bounded; see above
+			arena.data = appendGrantByEntitlementIndexKey(arena.data,
 				idBytes,
 				ent.GetEntitlementId(),
 				princ.GetResourceTypeId(),
 				princ.GetResourceId(),
 				ext,
 			)
-			keys = append(keys, k)
+			arena.bounds = append(arena.bounds, [2]uint32{start, uint32(len(arena.data))}) //nolint:gosec // bounded
 		}
 		if princ != nil {
-			k := appendGrantByPrincipalIndexKey(make([]byte, 0, 96),
+			start := uint32(len(arena.data)) //nolint:gosec // bounded
+			arena.data = appendGrantByPrincipalIndexKey(arena.data,
 				idBytes,
 				princ.GetResourceTypeId(),
 				princ.GetResourceId(),
 				ext,
 			)
-			keys = append(keys, k)
+			arena.bounds = append(arena.bounds, [2]uint32{start, uint32(len(arena.data))}) //nolint:gosec // bounded
 		}
 	}
-	slices.SortFunc(keys, bytes.Compare)
-	return keys, nil
+	// Capture data once so the closure doesn't re-deref arena every cmp.
+	data := arena.data
+	slices.SortFunc(arena.bounds, func(x, y [2]uint32) int {
+		return bytes.Compare(data[x[0]:x[1]], data[y[0]:y[1]])
+	})
+	return arena, nil
 }
 
 // buildIdxBatchSkipGet builds the index batch with entries in sorted
@@ -386,10 +418,11 @@ func (e *Engine) buildIdxBatchSkipGet(idxBatch *pebble.Batch, records []*v3.Gran
 		return e.buildIdxBatchSkipGetUnsortedInto(idxBatch, records)
 	}
 
-	// Step 1: shard records, each goroutine collects + sorts.
+	// Step 1: shard records, each goroutine collects + sorts into its
+	// own arena.
 	type shardResult struct {
-		keys [][]byte
-		err  error
+		arena *keyArena
+		err   error
 	}
 	results := make([]shardResult, shards)
 	var wg sync.WaitGroup
@@ -405,8 +438,8 @@ func (e *Engine) buildIdxBatchSkipGet(idxBatch *pebble.Batch, records []*v3.Gran
 		slice := records[start:end]
 		go func() {
 			defer wg.Done()
-			keys, err := e.collectAndSortIdxKeys(slice)
-			results[s].keys = keys
+			arena, err := e.collectAndSortIdxKeys(slice)
+			results[s].arena = arena
 			results[s].err = err
 		}()
 	}
@@ -417,26 +450,32 @@ func (e *Engine) buildIdxBatchSkipGet(idxBatch *pebble.Batch, records []*v3.Gran
 		}
 	}
 
-	// Step 2: 4-way merge into idxBatch. Naive scan finds min head
-	// among the (at most 4) shards — cheap and branch-predictable for
-	// k≤4.
+	// Step 2: k-way merge across the per-shard sorted arenas into
+	// idxBatch. Naive linear scan picks the min head among (at most 4)
+	// shards — cheap and branch-predictable for k≤4 and avoids
+	// container/heap allocation overhead.
 	idx := make([]int, shards)
+	counts := make([]int, shards)
+	for s := 0; s < shards; s++ {
+		counts[s] = results[s].arena.keyCount()
+	}
 	for {
-		// Find the shard whose current head is smallest.
 		minShard := -1
+		var minKey []byte
 		for s := 0; s < shards; s++ {
-			if idx[s] >= len(results[s].keys) {
+			if idx[s] >= counts[s] {
 				continue
 			}
-			if minShard == -1 || bytes.Compare(results[s].keys[idx[s]], results[minShard].keys[idx[minShard]]) < 0 {
+			k := results[s].arena.key(idx[s])
+			if minShard == -1 || bytes.Compare(k, minKey) < 0 {
 				minShard = s
+				minKey = k
 			}
 		}
 		if minShard == -1 {
 			break // all shards drained
 		}
-		k := results[minShard].keys[idx[minShard]]
-		if err := idxBatch.Set(k, nil, nil); err != nil {
+		if err := idxBatch.Set(minKey, nil, nil); err != nil {
 			return err
 		}
 		idx[minShard]++
