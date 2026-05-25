@@ -171,7 +171,7 @@ func (s *registeredStore) DeleteGrant(ctx context.Context, grantID string) error
 	return s.markDirty(s.Adapter.DeleteGrant(ctx, grantID))
 }
 
-func (s *registeredStore) Close(ctx context.Context) (retErr error) {
+func (s *registeredStore) Close(ctx context.Context) error {
 	s.closeMu.Lock()
 	defer s.closeMu.Unlock()
 	if s.closed {
@@ -179,12 +179,22 @@ func (s *registeredStore) Close(ctx context.Context) (retErr error) {
 	}
 	s.closed = true
 
+	// Clean up the per-store tmp dir asynchronously — the directory is
+	// transient working storage (checkpoint, pebble engine dir), already
+	// hard-linked into the output .c1z by save(). After Close returns,
+	// callers don't depend on the tmpdir being gone before their next
+	// operation. Spawning a goroutine lets Close return without paying
+	// the RemoveAll wall-time. Errors are ignored — they aren't
+	// actionable from this call site, and any leaked files are reaped
+	// when the parent test/process cleanup runs.
+	tmpDir := s.tmpDir
 	defer func() {
-		if removeErr := os.RemoveAll(s.tmpDir); removeErr != nil {
-			retErr = errors.Join(retErr, removeErr)
-		}
+		go func() {
+			_ = os.RemoveAll(tmpDir)
+		}()
 	}()
 
+	var retErr error
 	if !s.readOnly && s.dirty {
 		if err := s.save(ctx); err != nil {
 			retErr = errors.Join(retErr, err)
