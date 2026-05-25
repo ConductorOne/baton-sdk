@@ -176,16 +176,19 @@ type pebbleUnmarshalBatch struct {
 // Outsized batches are dropped on Put to keep pool memory bounded.
 var unmarshalBatchPool = sync.Pool{
 	New: func() any {
+		// Pool default sized to fit 256 records × ~250 B avg = 64 KiB,
+		// matching the new unmarshalBatchSize=256. Saves an append-grow
+		// on first use.
 		return &pebbleUnmarshalBatch{
-			valueBuf: make([]byte, 0, 32*1024),
-			ends:     make([]int, 0, 64),
+			valueBuf: make([]byte, 0, 96*1024),
+			ends:     make([]int, 0, 256),
 		}
 	},
 }
 
 const (
-	unmarshalBatchValueBufCap = 256 * 1024 // cap pool-retained valueBuf at 256 KB
-	unmarshalBatchEndsCap     = 256        // cap pool-retained ends at 256 entries
+	unmarshalBatchValueBufCap = 512 * 1024 // cap pool-retained valueBuf at 512 KB
+	unmarshalBatchEndsCap     = 1024       // cap pool-retained ends at 1024 entries
 )
 
 func getUnmarshalBatch(startIdx int) *pebbleUnmarshalBatch {
@@ -255,7 +258,11 @@ func (e *Engine) PaginateGrantsBySync(
 
 	const (
 		pageUnmarshalWorkers = 4
-		unmarshalBatchSize   = 64
+		// Batch size of 256 matches the translate pool (#61). Lowering
+		// dispatches 4× vs the original 64 — at 1 M bench scale this is
+		// 156→39 batches per page. Workers still get good granularity
+		// (4 workers × ~10 batches each per page at 10 k records).
+		unmarshalBatchSize = 256
 	)
 
 	// Per-batch buffer carrier; see pebbleUnmarshalBatch above for
