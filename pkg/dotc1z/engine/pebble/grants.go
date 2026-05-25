@@ -1,9 +1,11 @@
 package pebble
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -260,10 +262,11 @@ func (e *Engine) buildPriBatchSkipGet(priBatch *pebble.Batch, records []*v3.Gran
 	return nil
 }
 
-// buildIdxBatchSkipGet emits both by_entitlement and by_principal index
-// Sets to idxBatch. Used in the parallel skipGet path — no Deletes
-// because there's no prior data.
-func (e *Engine) buildIdxBatchSkipGet(idxBatch *pebble.Batch, records []*v3.GrantRecord) error {
+// buildIdxBatchSkipGetUnsortedInto emits both by_entitlement and
+// by_principal index Sets to the given batch in record-iteration order
+// (i.e. unsorted by key). Used as a fallback for small workloads where
+// the parallel-sort+merge overhead isn't justified.
+func (e *Engine) buildIdxBatchSkipGetUnsortedInto(batch *pebble.Batch, records []*v3.GrantRecord) error {
 	idx1Buf := make([]byte, 0, 96)
 	idx2Buf := make([]byte, 0, 96)
 	var (
@@ -290,10 +293,153 @@ func (e *Engine) buildIdxBatchSkipGet(idxBatch *pebble.Batch, records []*v3.Gran
 			lastIDBytes = idBytes
 			haveLast = true
 		}
-		idx1Buf, idx2Buf, err = appendGrantIndexes(idxBatch, idBytes, r, idx1Buf[:0], idx2Buf[:0])
+		idx1Buf, idx2Buf, err = appendGrantIndexes(batch, idBytes, r, idx1Buf[:0], idx2Buf[:0])
 		if err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// collectIdxKeys gathers all by_entitlement + by_principal index keys
+// for the given record slice into a [][]byte, then sorts that slice in
+// place by bytewise comparison. Used by the parallel-sort+merge
+// idxBatch builder. Each key is its own slice (no scratch reuse), so
+// the returned slice owns ~2N+1 allocations — trade memory for sort
+// throughput.
+func (e *Engine) collectAndSortIdxKeys(records []*v3.GrantRecord) ([][]byte, error) {
+	keys := make([][]byte, 0, 2*len(records))
+	var (
+		lastSyncIDStr string
+		lastIDBytes   []byte
+		haveLast      bool
+	)
+	for _, r := range records {
+		if r == nil {
+			continue
+		}
+		var (
+			idBytes []byte
+			err     error
+		)
+		if sid := r.GetSyncId(); haveLast && sid == lastSyncIDStr {
+			idBytes = lastIDBytes
+		} else {
+			idBytes, err = e.resolveSyncBytes(sid)
+			if err != nil {
+				return nil, err
+			}
+			lastSyncIDStr = sid
+			lastIDBytes = idBytes
+			haveLast = true
+		}
+		ent := r.GetEntitlement()
+		princ := r.GetPrincipal()
+		ext := r.GetExternalId()
+		if ent != nil && princ != nil {
+			k := appendGrantByEntitlementIndexKey(make([]byte, 0, 96),
+				idBytes,
+				ent.GetEntitlementId(),
+				princ.GetResourceTypeId(),
+				princ.GetResourceId(),
+				ext,
+			)
+			keys = append(keys, k)
+		}
+		if princ != nil {
+			k := appendGrantByPrincipalIndexKey(make([]byte, 0, 96),
+				idBytes,
+				princ.GetResourceTypeId(),
+				princ.GetResourceId(),
+				ext,
+			)
+			keys = append(keys, k)
+		}
+	}
+	slices.SortFunc(keys, bytes.Compare)
+	return keys, nil
+}
+
+// buildIdxBatchSkipGet builds the index batch with entries in sorted
+// key order, so the flushable-batch promotion sort (when batch >
+// largeBatchThreshold ≈ 32 MiB) takes pdqsort's already-sorted
+// short-circuit. The idx keys interleave by_entitlement (sorted by
+// entitlement_id) and by_principal (sorted by principal_id, different
+// from iteration order). Without pre-sorting, the flushable-batch
+// sort over ~2M entries was the single largest remaining cost in the
+// 1M-grant workload (≈630 ms in cmpbody+Less per profile).
+//
+// Strategy: shard records, each shard sorts its own ~500k keys in
+// parallel (slices.SortFunc with bytes.Compare — pdqsort), then a
+// 4-way merge writes them to idxBatch in global sort order. Cost ~250 ms
+// wallclock vs ~630 ms saved on the flushable-batch sort. Memory
+// peak: ~170 MB temporary (2M []byte key copies).
+func (e *Engine) buildIdxBatchSkipGet(idxBatch *pebble.Batch, records []*v3.GrantRecord) error {
+	const targetShards = 4
+	const minShardSize = 1024
+
+	shards := targetShards
+	if n := len(records) / minShardSize; n < shards {
+		shards = n
+	}
+	if shards < 2 {
+		return e.buildIdxBatchSkipGetUnsortedInto(idxBatch, records)
+	}
+
+	// Step 1: shard records, each goroutine collects + sorts.
+	type shardResult struct {
+		keys [][]byte
+		err  error
+	}
+	results := make([]shardResult, shards)
+	var wg sync.WaitGroup
+	wg.Add(shards)
+	chunkSize := (len(records) + shards - 1) / shards
+	for s := 0; s < shards; s++ {
+		start := s * chunkSize
+		end := start + chunkSize
+		if end > len(records) {
+			end = len(records)
+		}
+		s := s
+		slice := records[start:end]
+		go func() {
+			defer wg.Done()
+			keys, err := e.collectAndSortIdxKeys(slice)
+			results[s].keys = keys
+			results[s].err = err
+		}()
+	}
+	wg.Wait()
+	for _, r := range results {
+		if r.err != nil {
+			return r.err
+		}
+	}
+
+	// Step 2: 4-way merge into idxBatch. Naive scan finds min head
+	// among the (at most 4) shards — cheap and branch-predictable for
+	// k≤4.
+	idx := make([]int, shards)
+	for {
+		// Find the shard whose current head is smallest.
+		minShard := -1
+		for s := 0; s < shards; s++ {
+			if idx[s] >= len(results[s].keys) {
+				continue
+			}
+			if minShard == -1 || bytes.Compare(results[s].keys[idx[s]], results[minShard].keys[idx[minShard]]) < 0 {
+				minShard = s
+			}
+		}
+		if minShard == -1 {
+			break // all shards drained
+		}
+		k := results[minShard].keys[idx[minShard]]
+		if err := idxBatch.Set(k, nil, nil); err != nil {
+			return err
+		}
+		idx[minShard]++
 	}
 	return nil
 }
