@@ -53,7 +53,7 @@ func TestPebbleMatchesMemoryRef(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		ext := ksuid.New().String()
 		externalIDs = append(externalIDs, ext)
-		ent := entPool[i%len(entPool)]
+		ent := entPool[i%len(entPool)] //nolint:gosec // i%len(entPool) is always in range; gosec G602 false positive
 		principalRT := "user"
 		principalID := ksuid.New().String()
 		// Reuse 10 principals' IDs to make the per-principal index
