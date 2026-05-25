@@ -28,13 +28,17 @@ func (e *Engine) PutGrantRecord(ctx context.Context, r *v3.GrantRecord) error {
 // PutGrantRecords writes N grants in a single pebble.Batch, fsyncing
 // once at the end. This is the bulk path the adapter's PutGrants uses.
 //
-// Fresh-sync fast path: when IsFreshSync() is true, the read-before-
-// write Get is skipped entirely (the sync_id has no prior records),
-// and the batch commits with pebble.NoSync. EndFreshSync then does
-// one Flush+fsync to harden the data.
+// Read-before-write index cleanup runs unconditionally — even during
+// a fresh sync, a connector that emits the same external_id twice (a
+// real bug class, e.g. paginated source where the same record appears
+// on two pages) would otherwise leak orphan index entries pointing at
+// stale entitlement/principal values. The Get cost is small (memtable
+// hit during a sync's hot phase) and the integrity guarantee is worth
+// it.
 //
-// Mixed-sync / overwrite path (not fresh): per-grant Get for index
-// cleanup, batch.Commit with pebble.Sync.
+// Fresh-sync still uses pebble.NoSync for batch commits — that's the
+// larger perf win (skips per-batch fsync). EndFreshSync does one
+// Flush+fsync at sync end to harden the data.
 func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -57,30 +61,23 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			if err != nil {
 				return err
 			}
-			if !fresh {
-				oldVal, closer, getErr := e.db.Get(key)
-				switch {
-				case getErr == nil:
-					old := &v3.GrantRecord{}
-					if err := proto.Unmarshal(oldVal, old); err != nil {
-						closer.Close()
-						// Stored record won't decode. Returning the
-						// error here keeps index integrity (skipping
-						// cleanup would orphan the old index entries
-						// while the new write proceeds). Caller can
-						// recover by deleting the corrupt key.
-						return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
-					}
-					if err := e.deleteGrantIndexes(batch, idBytes, old); err != nil {
-						closer.Close()
-						return err
-					}
+			oldVal, closer, getErr := e.db.Get(key)
+			switch {
+			case getErr == nil:
+				old := &v3.GrantRecord{}
+				if err := proto.Unmarshal(oldVal, old); err != nil {
 					closer.Close()
-				case errors.Is(getErr, pebble.ErrNotFound):
-					// no-op
-				default:
-					return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
+					return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
 				}
+				if err := e.deleteGrantIndexes(batch, idBytes, old); err != nil {
+					closer.Close()
+					return err
+				}
+				closer.Close()
+			case errors.Is(getErr, pebble.ErrNotFound):
+				// no prior record — write unconditionally
+			default:
+				return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
 			}
 			if err := batch.Set(key, val, nil); err != nil {
 				return err

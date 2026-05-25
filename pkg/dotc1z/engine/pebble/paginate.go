@@ -3,6 +3,7 @@ package pebble
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -200,7 +201,12 @@ func (e *Engine) PaginateGrantsByEntitlement(
 		}
 		val, closer, getErr := e.db.Get(encodeGrantKey(idBytes, externalID))
 		if getErr != nil {
-			continue
+			if errors.Is(getErr, pebble.ErrNotFound) {
+				// Orphan index entry — primary deleted before the
+				// index. Reconcile via fsck; keep iterating.
+				continue
+			}
+			return nil, "", fmt.Errorf("paginate: get primary: %w", getErr)
 		}
 		r := &v3.GrantRecord{}
 		err = proto.Unmarshal(val, r)
@@ -264,7 +270,12 @@ func (e *Engine) PaginateGrantsByPrincipal(
 		}
 		val, closer, getErr := e.db.Get(encodeGrantKey(idBytes, externalID))
 		if getErr != nil {
-			continue
+			if errors.Is(getErr, pebble.ErrNotFound) {
+				// Orphan index entry — primary deleted before the
+				// index. Reconcile via fsck; keep iterating.
+				continue
+			}
+			return nil, "", fmt.Errorf("paginate: get primary: %w", getErr)
 		}
 		r := &v3.GrantRecord{}
 		err = proto.Unmarshal(val, r)
@@ -348,7 +359,10 @@ func (e *Engine) PaginateResourcesByParent(
 		}
 		val, closer, getErr := e.db.Get(encodeResourceKey(idBytes, childRT, childID))
 		if getErr != nil {
-			continue
+			if errors.Is(getErr, pebble.ErrNotFound) {
+				continue
+			}
+			return nil, "", fmt.Errorf("paginate: get primary: %w", getErr)
 		}
 		r := &v3.ResourceRecord{}
 		err = proto.Unmarshal(val, r)
@@ -448,7 +462,10 @@ func (e *Engine) PaginateEntitlementsByResource(
 		}
 		val, closer, getErr := e.db.Get(encodeEntitlementKey(idBytes, externalID))
 		if getErr != nil {
-			continue
+			if errors.Is(getErr, pebble.ErrNotFound) {
+				continue
+			}
+			return nil, "", fmt.Errorf("paginate: get primary: %w", getErr)
 		}
 		r := &v3.EntitlementRecord{}
 		err = proto.Unmarshal(val, r)

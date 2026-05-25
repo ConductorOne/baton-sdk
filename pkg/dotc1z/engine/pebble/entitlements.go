@@ -42,24 +42,23 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 			if err != nil {
 				return err
 			}
-			if !fresh {
-				oldVal, closer, getErr := e.db.Get(key)
-				switch {
-				case getErr == nil:
-					old := &v3.EntitlementRecord{}
-					if err := proto.Unmarshal(oldVal, old); err != nil {
-						closer.Close()
-						return fmt.Errorf("PutEntitlementRecords: unmarshal old %q: %w", r.GetExternalId(), err)
-					}
-					if err := e.deleteEntitlementIndexes(batch, idBytes, old); err != nil {
-						closer.Close()
-						return err
-					}
+			oldVal, closer, getErr := e.db.Get(key)
+			switch {
+			case getErr == nil:
+				old := &v3.EntitlementRecord{}
+				if err := proto.Unmarshal(oldVal, old); err != nil {
 					closer.Close()
-				case errors.Is(getErr, pebble.ErrNotFound):
-				default:
-					return fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
+					return fmt.Errorf("PutEntitlementRecords: unmarshal old %q: %w", r.GetExternalId(), err)
 				}
+				if err := e.deleteEntitlementIndexes(batch, idBytes, old); err != nil {
+					closer.Close()
+					return err
+				}
+				closer.Close()
+			case errors.Is(getErr, pebble.ErrNotFound):
+				// no prior — write unconditionally
+			default:
+				return fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
 			}
 			if err := batch.Set(key, val, nil); err != nil {
 				return err
