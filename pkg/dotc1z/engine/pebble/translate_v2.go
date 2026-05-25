@@ -78,6 +78,86 @@ func resourceToPrincipalRef(r *v2.Resource) *v3.PrincipalRef {
 	}.Build()
 }
 
+// grantTranslateArena batches v3.GrantRecord / EntitlementRef /
+// PrincipalRef allocations for one PutGrants call. The default
+// V2GrantToV3 builder pattern heap-allocates each of the three structs
+// individually — 3 × N allocations for N grants. With N=1M that's 3M
+// tiny live objects, which dominates GC scan cost during the parallel-
+// build phase (~440 ms scanObjectsSmall CPU in profile).
+//
+// The arena pre-allocates three contiguous backing arrays sized to N,
+// and hands out &arena.grantRecords[i] / etc. as the result. GC sees
+// 3 large objects instead of 3M small ones; the bytes used per grant
+// are identical. Pointers into pre-sized slices are stable: since we
+// never grow past the initial capacity, no reallocation invalidates
+// earlier pointers.
+//
+// Lifetime: the arena lives for one PutGrants call. After
+// engine.PutGrantRecords returns, the adapter drops the arena and the
+// underlying arrays become garbage. The proto.Marshal calls in the
+// engine treat &arena.grantRecords[i] like any other heap-allocated
+// proto message — the generated Set* / Get* methods are simple field
+// reads/writes that don't care where the struct lives.
+type grantTranslateArena struct {
+	grantRecords    []v3.GrantRecord
+	entitlementRefs []v3.EntitlementRef
+	principalRefs   []v3.PrincipalRef
+}
+
+// newGrantTranslateArena pre-allocates the backing arrays. Caller
+// passes the expected number of grants; the arena handles up to that
+// many translations without growing.
+func newGrantTranslateArena(n int) *grantTranslateArena {
+	return &grantTranslateArena{
+		grantRecords:    make([]v3.GrantRecord, 0, n),
+		entitlementRefs: make([]v3.EntitlementRef, 0, n),
+		principalRefs:   make([]v3.PrincipalRef, 0, n),
+	}
+}
+
+// translateV2Grant is the arena-allocating counterpart to V2GrantToV3.
+// Returns a pointer into the arena's grantRecords slice; the caller
+// must not retain it past the arena's lifetime. Behaviorally
+// equivalent to V2GrantToV3 for all valid inputs.
+func (a *grantTranslateArena) translateV2Grant(syncID string, g *v2.Grant) *v3.GrantRecord {
+	if g == nil {
+		return nil
+	}
+	var entRef *v3.EntitlementRef
+	if e := g.GetEntitlement(); e != nil {
+		res := e.GetResource()
+		a.entitlementRefs = append(a.entitlementRefs, v3.EntitlementRef{})
+		entRef = &a.entitlementRefs[len(a.entitlementRefs)-1]
+		entRef.SetResourceTypeId(res.GetId().GetResourceType())
+		entRef.SetResourceId(res.GetId().GetResource())
+		entRef.SetEntitlementId(e.GetId())
+	}
+	var princRef *v3.PrincipalRef
+	if p := g.GetPrincipal(); p != nil {
+		a.principalRefs = append(a.principalRefs, v3.PrincipalRef{})
+		princRef = &a.principalRefs[len(a.principalRefs)-1]
+		princRef.SetResourceTypeId(p.GetId().GetResourceType())
+		princRef.SetResourceId(p.GetId().GetResource())
+	}
+	a.grantRecords = append(a.grantRecords, v3.GrantRecord{})
+	rec := &a.grantRecords[len(a.grantRecords)-1]
+	rec.SetSyncId(syncID)
+	rec.SetExternalId(g.GetId())
+	if entRef != nil {
+		rec.SetEntitlement(entRef)
+	}
+	if princRef != nil {
+		rec.SetPrincipal(princRef)
+	}
+	if ann := g.GetAnnotations(); len(ann) > 0 {
+		rec.SetAnnotations(ann)
+	}
+	if src := v2GrantSourcesToV3(g.GetSources()); src != nil {
+		rec.SetSources(src)
+	}
+	return rec
+}
+
 func entitlementRefToStub(ref *v3.EntitlementRef) *v2.Entitlement {
 	if ref == nil {
 		return nil

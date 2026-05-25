@@ -224,18 +224,25 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 // PutGrants writes a batch of grants in a single Pebble batch. v2 is
 // translated to v3 first; the engine then commits the whole batch
 // with one fsync (or NoSync during a fresh sync — see MarkFreshSync).
+//
+// The translation uses a per-call arena (grantTranslateArena) so the
+// 3 × N proto-struct allocations from V2GrantToV3's builder pattern
+// collapse to 3 slice allocations. For large fresh-sync writes this
+// substantially reduces GC scan pressure during the engine's parallel
+// build phase.
 func (a *Adapter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 	syncID := a.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
+	arena := newGrantTranslateArena(len(grants))
 	records := make([]*v3.GrantRecord, 0, len(grants))
 	now := timestamppb.Now()
 	for _, g := range grants {
 		if g == nil {
 			continue
 		}
-		rec := V2GrantToV3(syncID, g)
+		rec := arena.translateV2Grant(syncID, g)
 		if rec == nil {
 			continue
 		}
