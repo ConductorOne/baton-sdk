@@ -66,12 +66,12 @@ func decodeCursor(s string) ([]byte, error) {
 // equal to `cursor + 0x00` for our tuple-encoded keyspace because
 // tuple-encoded strings always end at the separator (0x00) or
 // end-of-prefix, never with a bare 0x00 byte at the tail.
-func rangeAfter(prefix, cursor []byte) (lower, upper []byte) {
-	upper = upperBoundOf(prefix)
+func rangeAfter(prefix, cursor []byte) ([]byte, []byte) {
+	upper := upperBoundOf(prefix)
 	if len(cursor) == 0 {
 		return prefix, upper
 	}
-	lower = make([]byte, 0, len(cursor)+1)
+	lower := make([]byte, 0, len(cursor)+1)
 	lower = append(lower, cursor...)
 	lower = append(lower, 0x00)
 	return lower, upper

@@ -1,0 +1,353 @@
+package pebble
+
+import (
+	"context"
+	"errors"
+	"strconv"
+	"testing"
+
+	"github.com/cockroachdb/pebble/v2"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+)
+
+func TestGetEntitlementResourceResourceType(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	rt := v2.ResourceType_builder{Id: "user", DisplayName: "User",
+		Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build()
+	if err := a.PutResourceTypes(ctx, rt); err != nil {
+		t.Fatal(err)
+	}
+	r := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+		DisplayName: "Alice",
+	}.Build()
+	if err := a.PutResources(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	ent := v2.Entitlement_builder{
+		Id: "github-read",
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build(),
+		}.Build(),
+		DisplayName: "Read",
+		Purpose:     v2.Entitlement_PURPOSE_VALUE_PERMISSION,
+	}.Build()
+	if err := a.PutEntitlements(ctx, ent); err != nil {
+		t.Fatal(err)
+	}
+
+	// GetResourceType
+	rtResp, err := a.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
+		ResourceTypeId: "user",
+	}.Build())
+	if err != nil {
+		t.Fatalf("GetResourceType: %v", err)
+	}
+	if got := rtResp.GetResourceType().GetDisplayName(); got != "User" {
+		t.Errorf("GetResourceType display: got %q want User", got)
+	}
+	if len(rtResp.GetResourceType().GetTraits()) != 1 {
+		t.Errorf("GetResourceType traits: got %d want 1", len(rtResp.GetResourceType().GetTraits()))
+	}
+
+	// GetResource
+	rResp, err := a.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+		ResourceId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+	}.Build())
+	if err != nil {
+		t.Fatalf("GetResource: %v", err)
+	}
+	if got := rResp.GetResource().GetDisplayName(); got != "Alice" {
+		t.Errorf("GetResource display: got %q want Alice", got)
+	}
+
+	// GetEntitlement
+	eResp, err := a.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+		EntitlementId: "github-read",
+	}.Build())
+	if err != nil {
+		t.Fatalf("GetEntitlement: %v", err)
+	}
+	if got := eResp.GetEntitlement().GetId(); got != "github-read" {
+		t.Errorf("GetEntitlement id: got %q", got)
+	}
+	if got := eResp.GetEntitlement().GetPurpose(); got != v2.Entitlement_PURPOSE_VALUE_PERMISSION {
+		t.Errorf("GetEntitlement purpose: got %v want PERMISSION", got)
+	}
+
+	// Missing entity returns pebble.ErrNotFound
+	if _, err := a.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+		EntitlementId: "does-not-exist",
+	}.Build()); !errors.Is(err, pebble.ErrNotFound) {
+		t.Errorf("missing entitlement: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// 5 grants on ent-A with user principals, 3 on ent-A with group
+	// principals, 2 on ent-B with user principals.
+	grants := []*v2.Grant{}
+	for i := 0; i < 5; i++ {
+		grants = append(grants, mkV2Grant("u-a-"+strconv.Itoa(i), "ent-A", "user", "u"+strconv.Itoa(i)))
+	}
+	for i := 0; i < 3; i++ {
+		grants = append(grants, mkV2Grant("g-a-"+strconv.Itoa(i), "ent-A", "group", "g"+strconv.Itoa(i)))
+	}
+	for i := 0; i < 2; i++ {
+		grants = append(grants, mkV2Grant("u-b-"+strconv.Itoa(i), "ent-B", "user", "u"+strconv.Itoa(i)))
+	}
+	if err := a.PutGrants(ctx, grants...); err != nil {
+		t.Fatal(err)
+	}
+
+	// ListGrantsForEntitlement(ent-A) → 8 grants total
+	resp, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
+		PageSize:    100,
+	}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.GetList()) != 8 {
+		t.Errorf("ListGrantsForEntitlement(ent-A): got %d, want 8", len(resp.GetList()))
+	}
+
+	// ListGrantsForEntitlement(ent-A) filtered by principal RT=user → 5
+	respFiltered, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		Entitlement:              v2.Entitlement_builder{Id: "ent-A"}.Build(),
+		PrincipalResourceTypeIds: []string{"user"},
+		PageSize:                 100,
+	}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(respFiltered.GetList()) != 5 {
+		t.Errorf("ListGrantsForEntitlement(ent-A, user): got %d, want 5", len(respFiltered.GetList()))
+	}
+
+	// ListGrantsForResourceType(user) → 7 grants (5 ent-A + 2 ent-B)
+	rtResp, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
+		ResourceTypeId: "user",
+		PageSize:       100,
+	}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rtResp.GetList()) != 7 {
+		t.Errorf("ListGrantsForResourceType(user): got %d, want 7", len(rtResp.GetList()))
+	}
+}
+
+func TestSyncsReaderMethods(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+
+	// Create 3 syncs; finish 2.
+	id1, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	id2, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	id3, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	// Don't end id3.
+
+	// GetSync(id2) → has ended_at
+	resp, err := a.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{
+		SyncId: id2,
+	}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.GetSync().GetId() != id2 {
+		t.Errorf("GetSync id: got %q want %q", resp.GetSync().GetId(), id2)
+	}
+	if resp.GetSync().GetEndedAt() == nil {
+		t.Errorf("GetSync ended_at: want non-nil")
+	}
+
+	// GetSync(id3) → no ended_at
+	resp3, err := a.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{
+		SyncId: id3,
+	}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp3.GetSync().GetEndedAt() != nil {
+		t.Errorf("GetSync(id3) ended_at: want nil, got %v", resp3.GetSync().GetEndedAt().AsTime())
+	}
+
+	// ListSyncs → all 3
+	listResp, err := a.ListSyncs(ctx, reader_v2.SyncsReaderServiceListSyncsRequest_builder{
+		PageSize: 100,
+	}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listResp.GetSyncs()) != 3 {
+		t.Errorf("ListSyncs: got %d, want 3", len(listResp.GetSyncs()))
+	}
+
+	// GetLatestFinishedSync → id2 (most recent ended)
+	latest, err := a.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.GetSync().GetId() != id2 {
+		t.Errorf("GetLatestFinishedSync: got %q, want %q (id1=%q)", latest.GetSync().GetId(), id2, id1)
+	}
+
+	// GetLatestFinishedSync filtered by sync_type=full → id2
+	latestFull, err := a.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
+		SyncType: string(connectorstore.SyncTypeFull),
+	}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latestFull.GetSync().GetId() != id2 {
+		t.Errorf("GetLatestFinishedSync(full): got %q want %q", latestFull.GetSync().GetId(), id2)
+	}
+
+	// GetLatestFinishedSync filtered by a sync_type that doesn't exist
+	latestNone, err := a.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
+		SyncType: string(connectorstore.SyncTypePartial),
+	}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latestNone.GetSync() != nil {
+		t.Errorf("GetLatestFinishedSync(partial): expected nil sync, got %v", latestNone.GetSync())
+	}
+}
+
+func TestStatsAndGrantStats(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	syncID, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+
+	if err := a.PutResourceTypes(ctx,
+		v2.ResourceType_builder{Id: "user"}.Build(),
+		v2.ResourceType_builder{Id: "group"}.Build()); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.PutResources(ctx,
+		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "a"}.Build()}.Build(),
+		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "b"}.Build()}.Build(),
+		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "c"}.Build()}.Build()); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.PutGrants(ctx,
+		mkV2Grant("g1", "e1", "user", "a"),
+		mkV2Grant("g2", "e1", "user", "b"),
+		mkV2Grant("g3", "e2", "group", "c")); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := a.Stats(ctx, connectorstore.SyncTypeAny, syncID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats["resource_types"] != 2 {
+		t.Errorf("stats[resource_types] = %d, want 2", stats["resource_types"])
+	}
+	if stats["resources"] != 3 {
+		t.Errorf("stats[resources] = %d, want 3", stats["resources"])
+	}
+	if stats["grants"] != 3 {
+		t.Errorf("stats[grants] = %d, want 3", stats["grants"])
+	}
+
+	// GrantStats partitions by entitlement resource type. Our
+	// mkV2Grant always sets the entitlement's resource to (app, github),
+	// so all 3 grants count under "app".
+	gs, err := a.GrantStats(ctx, connectorstore.SyncTypeAny, syncID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gs["app"] != 3 {
+		t.Errorf("GrantStats[app] = %d, want 3", gs["app"])
+	}
+}
+
+// TestIfNewerSkipsStaleGrants exercises the engine-level
+// PutGrantRecordsIfNewer directly so the freshSync flag doesn't
+// short-circuit the read-before-write. Verifies the SQLite semantics:
+// older discovered_at is silently dropped; newer discovered_at wins.
+func TestIfNewerSkipsStaleGrants(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID := "2BnzhUf3aJZ9Y6cQ7vWmRk0hZJa"
+	if err := e.SetCurrentSync(syncID); err != nil {
+		t.Fatal(err)
+	}
+	// Build NEW record with timestamp T+1h.
+	now := timestamppb.Now()
+	older := timestamppb.New(now.AsTime().Add(-1 * 3600 * 1e9))
+	newer := timestamppb.New(now.AsTime().Add(1 * 3600 * 1e9))
+
+	mid := makeGrant(syncID, "g1", "ent-mid", "alice")
+	mid.SetDiscoveredAt(now)
+	if err := e.PutGrantRecord(ctx, mid); err != nil {
+		t.Fatal(err)
+	}
+
+	// IfNewer with an OLDER timestamp must be a no-op.
+	stale := makeGrant(syncID, "g1", "ent-stale", "alice")
+	stale.SetDiscoveredAt(older)
+	if err := e.PutGrantRecordsIfNewer(ctx, stale); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.GetGrantRecord(ctx, syncID, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.GetEntitlement().GetEntitlementId() != "ent-mid" {
+		t.Errorf("after stale IfNewer: got entitlement %q want ent-mid", got.GetEntitlement().GetEntitlementId())
+	}
+
+	// IfNewer with a STRICTLY NEWER timestamp must overwrite.
+	fresh := makeGrant(syncID, "g1", "ent-fresh", "alice")
+	fresh.SetDiscoveredAt(newer)
+	if err := e.PutGrantRecordsIfNewer(ctx, fresh); err != nil {
+		t.Fatal(err)
+	}
+	got, err = e.GetGrantRecord(ctx, syncID, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.GetEntitlement().GetEntitlementId() != "ent-fresh" {
+		t.Errorf("after newer IfNewer: got entitlement %q want ent-fresh", got.GetEntitlement().GetEntitlementId())
+	}
+
+	// IfNewer with the SAME timestamp must NOT overwrite (strictly
+	// newer required, matches SQLite EXCLUDED.discovered_at > X).
+	same := makeGrant(syncID, "g1", "ent-same", "alice")
+	same.SetDiscoveredAt(newer)
+	if err := e.PutGrantRecordsIfNewer(ctx, same); err != nil {
+		t.Fatal(err)
+	}
+	got, err = e.GetGrantRecord(ctx, syncID, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.GetEntitlement().GetEntitlementId() != "ent-fresh" {
+		t.Errorf("equal-timestamp IfNewer should be no-op: got %q want ent-fresh", got.GetEntitlement().GetEntitlementId())
+	}
+}

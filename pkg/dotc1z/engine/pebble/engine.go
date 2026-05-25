@@ -268,6 +268,12 @@ func (e *Engine) Save(ctx context.Context, dest string) error {
 	return errors.New("pebble engine: Save requires the dotc1z.Save shim (envelope write); use CheckpointTo for direct directory access")
 }
 
+// DBDir returns the on-disk path the engine writes to. Exported so
+// the Adapter can implement OutputFilepath / CurrentDBSizeBytes.
+func (e *Engine) DBDir() string {
+	return e.dbDir
+}
+
 // CurrentDBSizeBytes returns the total size of regular files in the Pebble
 // database directory. This is the Pebble equivalent of C1File's SQLite
 // DBSizeProvider capability: it reports the uncompressed working set on disk,

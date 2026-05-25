@@ -82,6 +82,12 @@ message ResourceRecord {
   }];
   repeated google.protobuf.Any annotations = 7;
   google.protobuf.Timestamp     discovered_at = 8;
+
+  // NOTE on v2.Resource traits: connector-level traits (UserTrait,
+  // GroupTrait, AppTrait, RoleTrait, SecretTrait, etc.) are packed
+  // into `annotations` as Any (the v2 connector contract — see
+  // pkg/types/resource/user_trait.go). The annotations field above
+  // round-trips them lossless; no extra field is needed.
 }
 
 message EntitlementRecord {

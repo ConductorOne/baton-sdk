@@ -37,7 +37,7 @@ func pageThroughGrants(t *testing.T, a *Adapter, pageSize uint32, expectedTotal 
 			t.Fatalf("ListGrants page %d: %v", pages, err)
 		}
 		got := resp.GetList()
-		if pageSize > 0 && uint32(len(got)) > pageSize {
+		if pageSize > 0 && uint32(len(got)) > pageSize { //nolint:gosec // page count is bounded
 			t.Errorf("page %d returned %d records, want <= %d", pages, len(got), pageSize)
 		}
 		for _, g := range got {
