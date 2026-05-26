@@ -29,18 +29,27 @@ S5 (read arena)       UnmarshalVT + nested-message arena. **DONE.** commit `aad1
 
 S3 Tier-B/C (split + dedup + skipGet)  **DONE** for Grants, Resources, Entitlements. commits `deab18c1` + `44f877a7`.
 baton-demo realistic Sync() bench       **DONE** as `BenchmarkSyncShape_BatonDemo` in pkg/dotc1z/engine/pebble/. Approximates baton-demo's 5k user / 200 group / 25 role / 100k grant data shape. Runs against both engines: SQLite ~3100 ms/100k-grants vs Pebble ~310 ms — Pebble ≈10× faster, c1z output ≈40% smaller. Selectable via SYNC_BENCH_ENGINE env var (sqlite | pebble | both).
+Pebble end-to-end Sync()                **DONE** as TestPebbleFullSyncThroughSyncer in pkg/sync/. Confirms NewSyncer + WithConnectorStore + Pebble runs a full sync against the mockConnector and grants round-trip on reopen.
 
 ## Deferred (out of scope for this RFC, retained in the queue)
 
-- **Pebble C1ZStore adapter.** The Pebble engine currently exposes
-  only `connectorstore.Writer`. The full `dotc1z.C1ZStore`
-  interface (Grants() sub-store, SyncMeta(), FileOps()) is still
-  SQLite-only. Plumbing Pebble through the canonical
-  `pkg/sync.NewSyncer` path needs a thin adapter that satisfies
-  these sub-store interfaces. Until that lands, the
-  `BenchmarkSyncShape_BatonDemo` bench drives the engine's writer
-  surface directly (which is the same per-call shape `pkg/sync`
-  would produce) rather than running through `pkg/sync` itself.
+- **Pebble C1ZStore adapter** — ✅ **DONE.** Adapter exposes
+  Grants() / SyncMeta() / FileOps() sub-stores; FileOps methods
+  return ErrFileOpsUnsupported (CloneSync + GenerateSyncDiff are
+  separate follow-ups that need the IngestAndExcise / range-pair
+  walk machinery). pkg/sync.NewSyncer now drives Pebble
+  end-to-end via WithConnectorStore — exercised by
+  TestPebbleFullSyncThroughSyncer. Adapter normalizes
+  pebble.ErrNotFound → sql.ErrNoRows at the boundary so
+  pkg/sync and pkg/sync/expand can use one sentinel across
+  engines.
+
+- **FileOps.CloneSync / GenerateSyncDiff.** Returns
+  ErrFileOpsUnsupported on Pebble today. CloneSync needs an
+  IngestAndExcise scoped to a single sync's key range;
+  GenerateSyncDiff needs a range-pair walk between two sync
+  prefixes. Both are net-new code, not on the pkg/sync hot
+  path, so they don't block landing.
 - **Autoresearch parallel-build / parallel-idx-sort cherry-picks**
   (99c76cd2 / de099547 / a864d686 / 3d660b9d / 8525c149 / 9b8fc472
   / 4995f17e). The simpler split-batch + skipGet + dedup pieces
