@@ -318,6 +318,78 @@ func (e *Engine) PaginateGrantsByPrincipal(
 	return out, nextCursor, nil
 }
 
+// PaginateGrantsByNeedsExpansion returns a page of grants whose
+// NeedsExpansion flag is set. Backs the GrantStore
+// PendingExpansionPage path; the SQLite equivalent is a query
+// guarded by the partial index `WHERE needs_expansion = 1`.
+//
+// Cursor is the needs_expansion index key.
+func (e *Engine) PaginateGrantsByNeedsExpansion(
+	ctx context.Context, syncID, cursor string, limit int,
+) ([]*v3.GrantRecord, string, error) {
+	idBytes, err := e.resolveSyncBytes(syncID)
+	if err != nil {
+		return nil, "", err
+	}
+	cursorBytes, err := decodeCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
+	if limit <= 0 {
+		limit = DefaultPageSize
+	}
+	indexPrefix := encodeGrantByNeedsExpansionPrefix(idBytes)
+	lower, upper := rangeAfter(indexPrefix, cursorBytes)
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: lower,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("page iter: %w", err)
+	}
+	defer iter.Close()
+	out := make([]*v3.GrantRecord, 0, limit)
+	var lastReturnedKey []byte
+	hasMore := false
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+		if len(out) == limit {
+			hasMore = true
+			break
+		}
+		externalID := lastTupleComponent(iter.Key(), indexPrefix)
+		if externalID == "" {
+			continue
+		}
+		val, closer, getErr := e.db.Get(encodeGrantKey(idBytes, externalID))
+		if getErr != nil {
+			if errors.Is(getErr, pebble.ErrNotFound) {
+				// Orphan index entry; skip.
+				continue
+			}
+			return nil, "", fmt.Errorf("paginate: get primary: %w", getErr)
+		}
+		r := &v3.GrantRecord{}
+		err = unmarshalRecord(val, r)
+		closer.Close()
+		if err != nil {
+			return nil, "", err
+		}
+		lastReturnedKey = append(lastReturnedKey[:0], iter.Key()...)
+		out = append(out, r)
+	}
+	if err := iter.Error(); err != nil {
+		return nil, "", err
+	}
+	var nextCursor string
+	if hasMore {
+		nextCursor = encodeCursor(lastReturnedKey)
+	}
+	return out, nextCursor, nil
+}
+
 // === Paginated resource / entitlement / resource-type variants ===
 
 // PaginateResourcesBySync returns a page of resources in primary

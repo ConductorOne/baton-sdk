@@ -108,6 +108,31 @@ func encodeGrantByEntitlementPrefix(syncIDBytes []byte, entitlementID string) []
 	return buf
 }
 
+// encodeGrantByNeedsExpansionIndexKey: index of grants whose
+// NeedsExpansion flag is true. Pebble equivalent of the SQLite
+// partial index `WHERE needs_expansion = 1`. The grant is added to
+// this keyspace on Put when NeedsExpansion=true and removed when
+// NeedsExpansion=false (or when the grant is deleted).
+//
+//	v3 | typeIndex | idxGrantByNeedsExpansion | sync_id_bytes | external_id
+func encodeGrantByNeedsExpansionIndexKey(syncIDBytes []byte, externalID string) []byte {
+	buf := make([]byte, 0, 5+len(syncIDBytes)+len(externalID))
+	buf = append(buf, versionV3, typeIndex, idxGrantByNeedsExpansion)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, externalID)
+	return buf
+}
+
+// encodeGrantByNeedsExpansionPrefix returns the prefix for "all
+// grants in this sync that still need expansion processing."
+func encodeGrantByNeedsExpansionPrefix(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 3+len(syncIDBytes))
+	buf = append(buf, versionV3, typeIndex, idxGrantByNeedsExpansion)
+	buf = append(buf, syncIDBytes...)
+	return buf
+}
+
 // encodeGrantByPrincipalPrefix returns the prefix for "all grants for
 // this principal" range scan.
 func encodeGrantByPrincipalPrefix(syncIDBytes []byte, principalRT, principalID string) []byte {
@@ -357,6 +382,17 @@ func GrantByPrincipalSyncLowerBound(syncIDBytes []byte) []byte {
 // GrantByPrincipalSyncUpperBound is the exclusive upper bound.
 func GrantByPrincipalSyncUpperBound(syncIDBytes []byte) []byte {
 	return upperBoundOf(GrantByPrincipalSyncLowerBound(syncIDBytes))
+}
+
+// GrantByNeedsExpansionSyncLowerBound returns the lowest key in the
+// needs_expansion index bucket for a given sync.
+func GrantByNeedsExpansionSyncLowerBound(syncIDBytes []byte) []byte {
+	return encodeGrantByNeedsExpansionPrefix(syncIDBytes)
+}
+
+// GrantByNeedsExpansionSyncUpperBound is the exclusive upper bound.
+func GrantByNeedsExpansionSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(GrantByNeedsExpansionSyncLowerBound(syncIDBytes))
 }
 
 func AssetSyncLowerBound(syncIDBytes []byte) []byte {

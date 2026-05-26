@@ -258,6 +258,18 @@ func (e *Engine) writeGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *v
 			return err
 		}
 	}
+	// needs_expansion index — populated only when the grant
+	// currently carries the flag. Mirrors the SQLite partial
+	// index `WHERE needs_expansion = 1`. PendingExpansion scans
+	// this keyspace; on overwrite (cross-call) the deleteGrantIndexes
+	// pass removes the old key first, so a flag-flip is reflected
+	// correctly.
+	if r.GetNeedsExpansion() {
+		k := encodeGrantByNeedsExpansionIndexKey(syncIDBytes, ext)
+		if err := batch.Set(k, nil, nil); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -289,6 +301,15 @@ func (e *Engine) deleteGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *
 		if err := batch.Delete(k, nil); err != nil {
 			return err
 		}
+	}
+	// Always Delete the needs_expansion key, even when the old
+	// record didn't carry the flag. Delete on a non-existent key
+	// is a Pebble no-op, so this is cheaper than checking the
+	// flag first and gives correct behavior when a connector
+	// flips needs_expansion=false on a subsequent write of the
+	// same external_id.
+	if err := batch.Delete(encodeGrantByNeedsExpansionIndexKey(syncIDBytes, ext), nil); err != nil {
+		return err
 	}
 	return nil
 }
@@ -403,6 +424,55 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, syncID, principal
 		closer.Close()
 		if err != nil {
 			return err
+		}
+		if !yield(r) {
+			return nil
+		}
+	}
+	return iter.Error()
+}
+
+// IterateGrantsByNeedsExpansion iterates the needs_expansion index
+// for a sync, yielding each grant whose NeedsExpansion flag is
+// currently set. yield returns false to stop.
+//
+// Pebble-equivalent of the SQLite partial index
+// `WHERE needs_expansion = 1`. Backs PendingExpansionPage on the
+// grant store.
+func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, syncID string, yield func(*v3.GrantRecord) bool) error {
+	idBytes, err := e.resolveSyncBytes(syncID)
+	if err != nil {
+		return err
+	}
+	indexPrefix := encodeGrantByNeedsExpansionPrefix(idBytes)
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: indexPrefix,
+		UpperBound: upperBoundOf(indexPrefix),
+	})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	for iter.First(); iter.Valid(); iter.Next() {
+		externalID := lastTupleComponent(iter.Key(), indexPrefix)
+		if externalID == "" {
+			continue
+		}
+		key := encodeGrantKey(idBytes, externalID)
+		val, closer, err := e.db.Get(key)
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+				// Orphan: index entry without a primary. Skip;
+				// fsck reconciles.
+				continue
+			}
+			return err
+		}
+		r := &v3.GrantRecord{}
+		err = unmarshalRecord(val, r)
+		closer.Close()
+		if err != nil {
+			return fmt.Errorf("iterate needs_expansion: %w", err)
 		}
 		if !yield(r) {
 			return nil

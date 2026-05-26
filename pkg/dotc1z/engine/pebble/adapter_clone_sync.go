@@ -97,6 +97,7 @@ func cloneSync(
 		{encodeGrantPrefix(syncIDBytes), upperBoundOf(encodeGrantPrefix(syncIDBytes))},
 		{GrantByEntitlementSyncLowerBound(syncIDBytes), GrantByEntitlementSyncUpperBound(syncIDBytes)},
 		{GrantByPrincipalSyncLowerBound(syncIDBytes), GrantByPrincipalSyncUpperBound(syncIDBytes)},
+		{GrantByNeedsExpansionSyncLowerBound(syncIDBytes), GrantByNeedsExpansionSyncUpperBound(syncIDBytes)},
 		{encodeAssetPrefix(syncIDBytes), upperBoundOf(encodeAssetPrefix(syncIDBytes))},
 	}
 	for _, r := range ranges {

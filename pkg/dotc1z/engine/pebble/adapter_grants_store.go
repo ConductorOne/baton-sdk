@@ -45,20 +45,72 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 }
 
 // PendingExpansionPage returns the next page of grants whose
-// expansion metadata still needs processing. Grant expansion is
-// deferred to Stack 6 — until then, no grants have needs_expansion=
-// true in v3, so this always returns an empty page.
+// NeedsExpansion flag is set on the current sync. Backed by the
+// engine's by_needs_expansion index keyspace (populated by
+// writeGrantIndexes when r.NeedsExpansion=true and removed by
+// deleteGrantIndexes on overwrite/delete). Equivalent to the
+// SQLite partial index `WHERE needs_expansion = 1`.
 //
-// Returning empty is the safe / correct no-op: the syncer's
-// ExpandGrants loop terminates immediately and the sync proceeds.
+// The materialized GrantRecord is reshaped into the
+// PendingExpansion struct the syncer's ExpandGrants loop expects.
+// A grant that lost its expansion annotation between Put and the
+// index scan (e.g. partial overwrite) is skipped — same orphan
+// semantic as the by_entitlement / by_principal indexes.
 func (g pebbleGrantStore) PendingExpansionPage(ctx context.Context, pageToken string) ([]dotc1z.PendingExpansion, string, error) {
-	return nil, "", nil
+	syncID := g.a.currentSyncID()
+	if syncID == "" {
+		return nil, "", ErrNoCurrentSync
+	}
+	records, next, err := g.a.engine.PaginateGrantsByNeedsExpansion(ctx, syncID, pageToken, DefaultPageSize)
+	if err != nil {
+		return nil, "", err
+	}
+	out := make([]dotc1z.PendingExpansion, 0, len(records))
+	for _, rec := range records {
+		if rec.GetExpansion() == nil {
+			// Index entry without expansion metadata on the
+			// primary — defensive skip; mirrors the orphan path.
+			continue
+		}
+		exp := rec.GetExpansion()
+		out = append(out, dotc1z.PendingExpansion{
+			GrantExternalID:         rec.GetExternalId(),
+			TargetEntitlementID:     rec.GetEntitlement().GetEntitlementId(),
+			PrincipalResourceTypeID: rec.GetPrincipal().GetResourceTypeId(),
+			PrincipalResourceID:     rec.GetPrincipal().GetResourceId(),
+			Annotation: v2.GrantExpandable_builder{
+				EntitlementIds:  exp.GetEntitlementIds(),
+				Shallow:         exp.GetShallow(),
+				ResourceTypeIds: exp.GetResourceTypeIds(),
+			}.Build(),
+			NeedsExpansion: true,
+		})
+	}
+	return out, next, nil
 }
 
-// PendingExpansion walks PendingExpansionPage; today returns empty.
+// PendingExpansion walks PendingExpansionPage page-by-page.
+// Iteration contract matches the SQLite GrantStore implementation:
+// on error the sequence yields (zero, err) and terminates.
 func (g pebbleGrantStore) PendingExpansion(ctx context.Context) iter.Seq2[dotc1z.PendingExpansion, error] {
 	return func(yield func(dotc1z.PendingExpansion, error) bool) {
-		// No pages — Stack 6 fills this in.
+		pageToken := ""
+		for {
+			rows, next, err := g.PendingExpansionPage(ctx, pageToken)
+			if err != nil {
+				yield(dotc1z.PendingExpansion{}, err)
+				return
+			}
+			for _, pe := range rows {
+				if !yield(pe, nil) {
+					return
+				}
+			}
+			if next == "" {
+				return
+			}
+			pageToken = next
+		}
 	}
 }
 
