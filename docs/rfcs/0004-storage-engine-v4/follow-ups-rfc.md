@@ -28,81 +28,94 @@ independently.
 ### Current state
 
 `pkg/dotc1z/format/v3/envelope.go` always writes zstd-tar via
-`writeZstdTar`. The proto already enumerates 3 encodings:
+`writeZstdTar`. The proto enumerates 4 values today, two of which are
+dead enum slots (RAW, single-stream ZSTD) that no caller ever needed:
 
 ```proto
-// proto/c1/c1z/v3/manifest.proto
+// proto/c1/c1z/v3/manifest.proto (current, pre-RFC)
 enum PayloadEncoding {
   PAYLOAD_ENCODING_UNSPECIFIED = 0;
-  PAYLOAD_ENCODING_RAW         = 1; // debug only
-  PAYLOAD_ENCODING_ZSTD        = 2; // single-stream zstd (sqlite-style)
+  PAYLOAD_ENCODING_RAW         = 1; // debug only — never wired
+  PAYLOAD_ENCODING_ZSTD        = 2; // single-stream zstd — never wired
   PAYLOAD_ENCODING_ZSTD_TAR    = 3; // zstd-tar of a Pebble directory
 }
 ```
 
-`PAYLOAD_ENCODING_RAW` is reserved but unwired and the writer can't
-emit anything other than zstd-tar.
+c1z3 is unreleased, so neither RAW nor single-stream ZSTD has shipped.
+We can clean them out without backwards-compatibility cost.
 
 ### Proposed change
 
-Add `PAYLOAD_ENCODING_TAR = 4` to the enum: an uncompressed tar of a
-Pebble directory. Why a separate enum entry rather than reusing
-`RAW`: the reader needs to know whether to expect tar framing or a
-raw byte stream — they're not the same shape.
+Collapse to **only two encodings**: tar + tar-then-zstd. Reserve the
+old enum values to prevent future reuse.
 
 ```proto
+// proto/c1/c1z/v3/manifest.proto (post-RFC)
 enum PayloadEncoding {
   PAYLOAD_ENCODING_UNSPECIFIED = 0;
-  PAYLOAD_ENCODING_RAW         = 1; // debug only — single raw stream, no tar
-  PAYLOAD_ENCODING_ZSTD        = 2; // single-stream zstd, no tar (sqlite-style)
-  PAYLOAD_ENCODING_ZSTD_TAR    = 3; // zstd-tar of a Pebble directory
-  PAYLOAD_ENCODING_TAR         = 4; // tar of a Pebble directory, no compression
+  reserved 1, 2;                       // formerly RAW + single-stream ZSTD
+  reserved "PAYLOAD_ENCODING_RAW", "PAYLOAD_ENCODING_ZSTD";
+  PAYLOAD_ENCODING_TAR_ZSTD    = 3;    // tar then zstd (= the old ZSTD_TAR; same wire number)
+  PAYLOAD_ENCODING_TAR         = 4;    // tar of a Pebble directory, no compression
 }
 ```
 
+Notes on the move:
+
+- **Wire number 3 stays.** The current `ZSTD_TAR = 3` is the only
+  encoding ever written; keeping its wire number means existing
+  test fixtures and any in-flight dev c1z3 files keep reading
+  identically. The Go API name flips from `ZSTD_TAR` → `TAR_ZSTD`
+  (proto field/enum renames don't change wire format).
+- **`reserved 1, 2`** prevents anyone from re-using those numbers
+  for an unrelated future encoding — keeps the bytes meaning the
+  same forever even if we don't ship them.
+- **Default unchanged.** `WriteEnvelope` continues to write
+  `TAR_ZSTD` unless the caller passes `WithPayloadEncoding(TAR)`.
+
 Wire it through:
 
-- `format/v3.WriteEnvelope` gains an optional `Encoding` arg. Default
-  remains `PAYLOAD_ENCODING_ZSTD_TAR`.
-- `format/v3.ReadEnvelope` already dispatches on the manifest's
-  declared encoding; add the `TAR` case.
+- `format/v3.WriteEnvelope` gains a `Encoding` parameter (or, via
+  an option struct, `WriteEnvelope(w, manifest, payloadDir,
+  opts...WriteEnvelopeOption)` with `WithEncoding(enc)`). Default
+  remains `TAR_ZSTD`.
+- `format/v3.ReadEnvelope` switches on the two values; any other
+  enum returns a clean `c1z v3: unsupported payload encoding %v`
+  error. (No more RAW / single-stream ZSTD case branches to
+  maintain.)
 - New `dotc1z.WithPayloadEncoding(enc Encoding)` option threaded
-  through `c1zOptions → c1fopts → C1File.payloadEncoding`. Engine code
-  reads it at envelope-write time.
+  through `c1zOptions → c1fopts → C1File.payloadEncoding`. Engine
+  code reads it at envelope-write time.
 - `cmd/baton-c1z` (when we add it) gets a `--no-compress` flag.
 
 ### Why we want this
 
 1. **Pebble's L5/L6 SSTs are already zstd-compressed.** Outer zstd
-   over an inner-zstd payload is mostly a CPU cost for a few percent
+   over inner-zstd payload is mostly a CPU cost for a few percent
    size gain on the WAL/manifest/MANIFEST bookkeeping. RFC §3.5
    already documents this; we just never gave callers a choice.
 2. **Snapshot performance.** Skipping outer zstd cuts unpack
-   wallclock by ~30% at 100GB c1z based on the
-   `BenchmarkRegisteredPebbleUnpackReadGrants` sweep — confirmed by
-   the parallel-tar work in `autoresearch/pebble-read-perf-20260525`
-   (commit `8abd20bc`, "-1.2% at 1M but -13 to -16% at 10k/1k"). The
-   regime where the tar matters more than ListGrants is exactly the
-   one the autoresearch bench under-weights.
+   wallclock — confirmed by the parallel-tar work in
+   `autoresearch/pebble-read-perf-20260525` (commit `8abd20bc`,
+   "-1.2% at 1M but -13 to -16% at 10k/1k"). The regime where the
+   tar matters more than ListGrants is exactly the one the
+   autoresearch bench under-weights.
 3. **Plays well with object stores** that do compression at the
    storage layer (S3 with `Content-Encoding: zstd` headers, GCS
-   transparent compression).
+   transparent compression). Letting them handle compression lets
+   the c1z payload stay opaque tar.
+4. **Smaller surface to maintain.** RAW + single-stream ZSTD were
+   "what if we want them later" speculation. Deleting them removes
+   the read-side case branches in `envelope.go` and the (never-
+   tested) decoder paths. Less dead code in the security-critical
+   envelope reader.
 
 ### Maintainability
 
-Tiny — one new enum value, one switch case, one option setter. The
-read path is already enum-dispatched. Risk: someone writes a `TAR`
-envelope and reads it back with an old binary that pre-dates the
-enum. Mitigated by the existing version-gate on the manifest's
-`pebble_engine.format_major_version` field; old readers refuse
-unknown encodings.
-
-### Open question (review needed)
-
-**Should `RAW` and `ZSTD` (non-tar) ever ship?** They were enumerated
-"because we might want them" but no caller exists. Probably the
-right move is keep the slots reserved, never implement them, and
-document `TAR` + `ZSTD_TAR` as the only supported encodings.
+Two enum values, one switch case in WriteEnvelope, one in
+ReadEnvelope, one option setter. Read path stays enum-dispatched.
+The `reserved` line prevents accidental future re-use; that single
+mechanism handles backwards-compat by design.
 
 ---
 
@@ -342,7 +355,8 @@ infer the plan from commit titles.
 - `make lint/pre-push` (or equivalent in this repo: `make lint`)
   clean.
 - For S1 specifically: a new envelope_test.go test case for each
-  PayloadEncoding value (TAR, ZSTD_TAR, error-on-unknown).
+  PayloadEncoding value (TAR, TAR_ZSTD, error-on-unknown including
+  the now-reserved 1 and 2).
 - **For S5 specifically (v4 added):** post-stack benchmark
   `writepack_1m ≤ 1.5s` AND `readpaginated_1m ≤ 500ms`. If either
   misses, gate the merge until the regression is investigated.
@@ -446,12 +460,14 @@ L = monitor post-merge), trigger, mitigation.
    path by construction. Add a fault-injection test that delays one
    of the 4 worker writes by 100ms and verifies the result is still
    correct.
-7. **Existing c1z files written by current code** — **L.** Reading
-   an existing c1z3 file with the post-S1-S5 binary should work
-   transparently. Mitigation: the wire format of v3 records is
-   unchanged in any S commit; PayloadEncoding ZSTD_TAR remains the
-   default. Cross-version round-trip test: write c1z3 with current
-   binary, read with post-S5 binary, assert content equivalence.
+7. **Existing c1z3 files written by current code** — **L.** Reading
+   an existing c1z3 file with the post-S1-S5 binary works
+   transparently: the only encoding ever written is wire-number 3,
+   which keeps its meaning (now named `TAR_ZSTD`, same bytes).
+   Mitigation: the wire format of v3 records is unchanged in any S
+   commit; `TAR_ZSTD` remains the default. Cross-version round-trip
+   test: write c1z3 with current binary, read with post-S5 binary,
+   assert content equivalence.
 8. **vtprotobuf interface check at runtime** — **L.** The
    `marshalRecord` helper does a type assertion `if vtm, ok := m.(vtMarshaler); ok`.
    A non-Grant proto type that's not vtprotobuf-generated would fall
@@ -480,7 +496,7 @@ puts Pebble at ~50x faster than SQLite at 1M grants**.
 
 | Date | Question | Decision | Rationale |
 |---|---|---|---|
-| draft v1 | Carry-forward of `RAW` and `ZSTD` enum values? | hold | Reserve enum slots; document as unimplemented; revisit if a caller needs them. |
+| v4 update | Carry-forward of `RAW` and single-stream `ZSTD`? | **Drop. `reserved 1, 2;` in the enum.** | Speculative slots that no caller ever needed. c1z3 unreleased so there's no compat cost. Removes dead read-side branches from the security-critical envelope reader. Only TAR + TAR_ZSTD ship. |
 | v3 | `SyncId` clear on write — keep, drop, or move? | **Keep, with an `Adapter.useEmbeddedSyncId` debug option (default false) that re-enables the clear.** | Production deployments always know sync_id from request context; the wire-format saving is +4.3% perf for free. Reviewer can flip the default if the migration cost is too high; the option keeps the door open. |
 | v3 | Small-scale arena regression in §3b | **Threshold-gate the arenas at ≥1024 records** | Same pattern the agent already used for parallel translate. Small pages (API single-record fetch) skip the arena. |
 | v3 | Squash S3 and S4 or preserve individual commits? | **Squash, preserve shas in message body** | PR #874 already has 11 commits; +25 makes review impractical. Bisection still possible via the autoresearch branches. |
