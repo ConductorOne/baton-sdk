@@ -120,6 +120,15 @@ type registeredStore struct {
 // the same way they route SQLite *C1File handles today.
 var _ dotc1z.C1ZStore = (*registeredStore)(nil)
 
+// FileOps overrides the Adapter-level FileOps so CloneSync threads
+// the registeredStore's configured payload encoding into the
+// destination c1z. Without this, clone output would always use
+// the default TAR_ZSTD even when the source store was opened with
+// WithPayloadEncoding(PayloadEncodingTar).
+func (s *registeredStore) FileOps() dotc1z.FileOps {
+	return s.FileOpsWithEncoding(s.payloadEncoding)
+}
+
 func (s *registeredStore) markDirty(err error) error {
 	if err == nil {
 		s.closeMu.Lock()

@@ -10,15 +10,22 @@ import (
 // FileOps returns the FileOps sub-store backed by the Pebble
 // adapter. Implements dotc1z.C1ZStore.FileOps().
 //
-// Both methods (CloneSync, GenerateSyncDiff) return
-// ErrFileOpsUnsupported today — these operations are SQLite-only
-// machinery (SQL ATTACH / VACUUM INTO patterns). They aren't on the
-// pkg/sync.NewSyncer hot path so a sync end-to-end through Pebble
-// works without them; callers that explicitly need cross-sync
-// clone or diff (the c1 archive activity, the local differ CLI)
-// still route through the SQLite path.
+// CloneSync materializes one sync's data into a fresh c1z (used by
+// `baton clone`). GenerateSyncDiff returns ErrFileOpsUnsupported on
+// Pebble today — the diff walker is separate work tracked in
+// tracker.md; the local differ CLI is the only caller and still
+// routes through the SQLite path.
 func (a *Adapter) FileOps() dotc1z.FileOps {
-	return pebbleFileOps{a: a}
+	return pebbleFileOps{a: a, encoding: dotc1z.PayloadEncodingTarZstd}
+}
+
+// FileOpsWithEncoding returns a FileOps that emits new c1z files
+// using the given payload encoding. Used by registeredStore to
+// propagate its configured encoding (e.g. PayloadEncodingTar for
+// callers that want uncompressed envelopes) through to CloneSync's
+// output file.
+func (a *Adapter) FileOpsWithEncoding(encoding dotc1z.PayloadEncoding) dotc1z.FileOps {
+	return pebbleFileOps{a: a, encoding: encoding}
 }
 
 // ErrFileOpsUnsupported signals that a FileOps method isn't
@@ -27,20 +34,22 @@ func (a *Adapter) FileOps() dotc1z.FileOps {
 var ErrFileOpsUnsupported = errors.New("pebble engine: FileOps method not implemented")
 
 type pebbleFileOps struct {
-	a *Adapter
+	a        *Adapter
+	encoding dotc1z.PayloadEncoding
 }
 
-// CloneSync would materialize the given sync's data into a fresh
-// c1z file at outPath. The Pebble equivalent is an IngestAndExcise
-// range-scoped to the sync's key prefix; not wired yet — tracker.md
-// has the follow-up.
+// CloneSync materializes the given sync's data into a fresh
+// Pebble-backed c1z at outPath. See cloneSync for the strategy:
+// range-copy every sync-scoped keyspace into a fresh engine,
+// checkpoint, and emit a v3 envelope.
 func (f pebbleFileOps) CloneSync(ctx context.Context, outPath string, syncID string) error {
-	return ErrFileOpsUnsupported
+	return cloneSync(ctx, f.a, f.encoding, outPath, syncID)
 }
 
-// GenerateSyncDiff would compute the diff between two sync runs in
-// this file and emit a new SyncTypePartial sync. The Pebble
-// equivalent is a range-pair walk; not wired yet.
+// GenerateSyncDiff is not implemented for the Pebble engine yet.
+// The diff walker between two sync key ranges is separate work
+// tracked in tracker.md. The local differ CLI is the only caller
+// and still routes through the SQLite path.
 func (f pebbleFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (string, error) {
 	return "", ErrFileOpsUnsupported
 }
