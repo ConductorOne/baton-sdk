@@ -216,11 +216,9 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, syncID, externalID strin
 			closer.Close()
 			return fmt.Errorf("DeleteGrantRecord: unmarshal old %q: %w", externalID, err)
 		}
-		{
-			if err := e.deleteGrantIndexes(batch, idBytes, old); err != nil {
-				closer.Close()
-				return err
-			}
+		if err := e.deleteGrantIndexes(batch, idBytes, old); err != nil {
+			closer.Close()
+			return err
 		}
 		closer.Close()
 

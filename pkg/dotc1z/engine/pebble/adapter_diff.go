@@ -64,10 +64,6 @@ func generateSyncDiff(ctx context.Context, a *Adapter, baseSyncID, appliedSyncID
 	if err != nil {
 		return "", fmt.Errorf("generate-diff: encode base: %w", err)
 	}
-	diffBytes, err := codec.EncodeSyncID(diffSyncID)
-	if err != nil {
-		return "", fmt.Errorf("generate-diff: encode diff: %w", err)
-	}
 	appliedBytes, err := codec.EncodeSyncID(appliedSyncID)
 	if err != nil {
 		return "", fmt.Errorf("generate-diff: encode applied: %w", err)
@@ -90,19 +86,19 @@ func generateSyncDiff(ctx context.Context, a *Adapter, baseSyncID, appliedSyncID
 	// applied sync's primary keyspace, checks base for the same
 	// identity, and writes the diff sync's keys (primary + any
 	// secondary indexes) for records absent from base.
-	if err := diffResourceTypes(ctx, a, baseBytes, appliedBytes, diffBytes); err != nil {
+	if err := diffResourceTypes(ctx, a, baseBytes, appliedBytes, diffSyncID); err != nil {
 		return "", fmt.Errorf("generate-diff: resource_types: %w", err)
 	}
-	if err := diffResources(ctx, a, baseBytes, appliedBytes, diffBytes); err != nil {
+	if err := diffResources(ctx, a, baseBytes, appliedBytes, diffSyncID); err != nil {
 		return "", fmt.Errorf("generate-diff: resources: %w", err)
 	}
-	if err := diffEntitlements(ctx, a, baseBytes, appliedBytes, diffBytes); err != nil {
+	if err := diffEntitlements(ctx, a, baseBytes, appliedBytes, diffSyncID); err != nil {
 		return "", fmt.Errorf("generate-diff: entitlements: %w", err)
 	}
-	if err := diffGrants(ctx, a, baseBytes, appliedBytes, diffBytes); err != nil {
+	if err := diffGrants(ctx, a, baseBytes, appliedBytes, diffSyncID); err != nil {
 		return "", fmt.Errorf("generate-diff: grants: %w", err)
 	}
-	if err := diffAssets(ctx, a, baseBytes, appliedBytes, diffBytes); err != nil {
+	if err := diffAssets(ctx, a, baseBytes, appliedBytes, diffSyncID); err != nil {
 		return "", fmt.Errorf("generate-diff: assets: %w", err)
 	}
 
@@ -132,7 +128,7 @@ func existsAt(db *pebble.DB, key []byte) (bool, error) {
 // diffResourceTypes copies resource_types that exist under
 // appliedBytes but not under baseBytes, rewriting their stored
 // SyncId to the diff sync.
-func diffResourceTypes(ctx context.Context, a *Adapter, baseBytes, appliedBytes, diffBytes []byte) error {
+func diffResourceTypes(ctx context.Context, a *Adapter, baseBytes, appliedBytes []byte, diffSyncID string) error {
 	srcPrefix := encodeResourceTypePrefix(appliedBytes)
 	return iterDiff(ctx, a.engine.DB(), srcPrefix, upperBoundOf(srcPrefix), func(_ []byte, val []byte) error {
 		var rec v3.ResourceTypeRecord
@@ -145,12 +141,12 @@ func diffResourceTypes(ctx context.Context, a *Adapter, baseBytes, appliedBytes,
 		} else if exists {
 			return nil
 		}
-		rec.SetSyncId(asKsuidStringFromBytes(diffBytes))
+		rec.SetSyncId(diffSyncID)
 		return a.engine.PutResourceTypeRecord(ctx, &rec)
 	})
 }
 
-func diffResources(ctx context.Context, a *Adapter, baseBytes, appliedBytes, diffBytes []byte) error {
+func diffResources(ctx context.Context, a *Adapter, baseBytes, appliedBytes []byte, diffSyncID string) error {
 	srcPrefix := encodeResourcePrefix(appliedBytes)
 	return iterDiff(ctx, a.engine.DB(), srcPrefix, upperBoundOf(srcPrefix), func(_ []byte, val []byte) error {
 		var rec v3.ResourceRecord
@@ -163,12 +159,12 @@ func diffResources(ctx context.Context, a *Adapter, baseBytes, appliedBytes, dif
 		} else if exists {
 			return nil
 		}
-		rec.SetSyncId(asKsuidStringFromBytes(diffBytes))
+		rec.SetSyncId(diffSyncID)
 		return a.engine.PutResourceRecord(ctx, &rec)
 	})
 }
 
-func diffEntitlements(ctx context.Context, a *Adapter, baseBytes, appliedBytes, diffBytes []byte) error {
+func diffEntitlements(ctx context.Context, a *Adapter, baseBytes, appliedBytes []byte, diffSyncID string) error {
 	srcPrefix := encodeEntitlementPrefix(appliedBytes)
 	return iterDiff(ctx, a.engine.DB(), srcPrefix, upperBoundOf(srcPrefix), func(_ []byte, val []byte) error {
 		var rec v3.EntitlementRecord
@@ -181,12 +177,12 @@ func diffEntitlements(ctx context.Context, a *Adapter, baseBytes, appliedBytes, 
 		} else if exists {
 			return nil
 		}
-		rec.SetSyncId(asKsuidStringFromBytes(diffBytes))
+		rec.SetSyncId(diffSyncID)
 		return a.engine.PutEntitlementRecord(ctx, &rec)
 	})
 }
 
-func diffGrants(ctx context.Context, a *Adapter, baseBytes, appliedBytes, diffBytes []byte) error {
+func diffGrants(ctx context.Context, a *Adapter, baseBytes, appliedBytes []byte, diffSyncID string) error {
 	srcPrefix := encodeGrantPrefix(appliedBytes)
 	return iterDiff(ctx, a.engine.DB(), srcPrefix, upperBoundOf(srcPrefix), func(_ []byte, val []byte) error {
 		var rec v3.GrantRecord
@@ -199,12 +195,12 @@ func diffGrants(ctx context.Context, a *Adapter, baseBytes, appliedBytes, diffBy
 		} else if exists {
 			return nil
 		}
-		rec.SetSyncId(asKsuidStringFromBytes(diffBytes))
+		rec.SetSyncId(diffSyncID)
 		return a.engine.PutGrantRecord(ctx, &rec)
 	})
 }
 
-func diffAssets(ctx context.Context, a *Adapter, baseBytes, appliedBytes, diffBytes []byte) error {
+func diffAssets(ctx context.Context, a *Adapter, baseBytes, appliedBytes []byte, diffSyncID string) error {
 	srcPrefix := encodeAssetPrefix(appliedBytes)
 	return iterDiff(ctx, a.engine.DB(), srcPrefix, upperBoundOf(srcPrefix), func(_ []byte, val []byte) error {
 		var rec v3.AssetRecord
@@ -217,7 +213,7 @@ func diffAssets(ctx context.Context, a *Adapter, baseBytes, appliedBytes, diffBy
 		} else if exists {
 			return nil
 		}
-		rec.SetSyncId(asKsuidStringFromBytes(diffBytes))
+		rec.SetSyncId(diffSyncID)
 		return a.engine.PutAssetRecord(ctx, &rec)
 	})
 }
@@ -240,16 +236,4 @@ func iterDiff(ctx context.Context, db *pebble.DB, lower, upper []byte, fn func(k
 		}
 	}
 	return iter.Error()
-}
-
-// asKsuidStringFromBytes is a tiny shim that turns the 20-byte
-// canonical KSUID binary form back into the string KSUID form.
-// PutXxxRecord paths re-encode internally; we just need the
-// string back for the record's SyncId field.
-func asKsuidStringFromBytes(b []byte) string {
-	id, err := ksuid.FromBytes(b)
-	if err != nil {
-		return ""
-	}
-	return id.String()
 }

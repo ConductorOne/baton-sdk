@@ -8,13 +8,11 @@ import (
 )
 
 // FileOps returns the FileOps sub-store backed by the Pebble
-// adapter. Implements dotc1z.C1ZStore.FileOps().
-//
-// CloneSync materializes one sync's data into a fresh c1z (used by
-// `baton clone`). GenerateSyncDiff returns ErrFileOpsUnsupported on
-// Pebble today — the diff walker is separate work tracked in
-// tracker.md; the local differ CLI is the only caller and still
-// routes through the SQLite path.
+// adapter. Implements dotc1z.C1ZStore.FileOps(). Both methods are
+// fully implemented: CloneSync materializes one sync's data into a
+// fresh c1z (used by `baton clone`), and GenerateSyncDiff computes
+// the additions-only set difference between two ended syncs and
+// emits a new SyncTypePartial sync (used by the local differ CLI).
 func (a *Adapter) FileOps() dotc1z.FileOps {
 	return pebbleFileOps{a: a, encoding: dotc1z.PayloadEncodingTarZstd}
 }

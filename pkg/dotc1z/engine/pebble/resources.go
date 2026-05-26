@@ -170,11 +170,9 @@ func (e *Engine) DeleteResourceRecord(ctx context.Context, syncID, resourceTypeI
 			closer.Close()
 			return fmt.Errorf("DeleteResourceRecord: unmarshal old %s/%s: %w", resourceTypeID, resourceID, err)
 		}
-		{
-			if err := e.deleteResourceIndexes(batch, idBytes, old); err != nil {
-				closer.Close()
-				return err
-			}
+		if err := e.deleteResourceIndexes(batch, idBytes, old); err != nil {
+			closer.Close()
+			return err
 		}
 		closer.Close()
 		if err := batch.Delete(key, nil); err != nil {
