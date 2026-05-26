@@ -240,6 +240,65 @@ func TestFreshSyncDuplicateExternalIDCleansIndexes(t *testing.T) {
 	}
 }
 
+// TestFreshSyncWithinCallDuplicateExternalIDDedup exercises the
+// within-call dedup path: the same external_id appears TWICE in a
+// single PutGrants call (paginated source emitting the same record
+// on two pages and the connector concatenating before the call to
+// the engine). The dedup map must keep only the latest occurrence;
+// no orphan index entry should remain pointing at the earlier
+// (ent-A / alice) record. This case is independent of skipGet
+// because db.Get doesn't see in-batch writes — without the dedup
+// pre-pass both records would write their own index entries.
+func TestFreshSyncWithinCallDuplicateExternalIDDedup(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	syncID, err := a.StartNewSync(ctx, "full", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One PutGrants call carrying two records with the same id g1.
+	if err := a.PutGrants(ctx,
+		mkV2Grant("g1", "ent-A", "user", "alice"),
+		mkV2Grant("g1", "ent-B", "user", "bob"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range []struct {
+		ent      string
+		expected int
+	}{{"ent-A", 0}, {"ent-B", 1}} {
+		n := 0
+		if err := a.engine.IterateGrantsByEntitlement(ctx, syncID, c.ent, func(*v3.GrantRecord) bool {
+			n++
+			return true
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if n != c.expected {
+			t.Errorf("within-call dup: by_ent(%s) = %d, want %d", c.ent, n, c.expected)
+		}
+	}
+	for _, c := range []struct {
+		principal string
+		expected  int
+	}{{"alice", 0}, {"bob", 1}} {
+		n := 0
+		if err := a.engine.IterateGrantsByPrincipal(ctx, syncID, "user", c.principal, func(*v3.GrantRecord) bool {
+			n++
+			return true
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if n != c.expected {
+			t.Errorf("within-call dup: by_principal(%s) = %d, want %d", c.principal, n, c.expected)
+		}
+	}
+}
+
 // TestNonFreshSyncOverwriteWorksThroughAdapter exercises the adapter
 // path (which sets freshSync=true via StartNewSync). After EndSync,
 // SetCurrentSync clears freshSync, and a subsequent write of a known

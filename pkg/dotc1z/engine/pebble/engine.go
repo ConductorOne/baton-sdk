@@ -44,6 +44,14 @@ type Engine struct {
 	// can skip the read-before-write index-cleanup path because this
 	// sync_id is guaranteed to be empty.
 	freshSync bool
+	// freshGrantsEmpty is a one-shot bit guarded by currentSyncMu.
+	// MarkFreshSync sets it true; the first PutGrantRecords call of
+	// the fresh sync calls takeFreshGrantsEmpty which returns the
+	// value and clears it. Concrete use: gate the skip-Get fast path
+	// on "first call only" — subsequent calls in the same fresh sync
+	// must still read-before-write to clean up cross-call duplicate
+	// index entries.
+	freshGrantsEmpty bool
 
 	// writeWG tracks in-flight writes for the strict quiesce
 	// protocol. Incremented at the start of every Writer method,
@@ -156,6 +164,7 @@ func (e *Engine) SetCurrentSync(syncID string) error {
 	e.currentSyncMu.Lock()
 	e.currentSync = idBytes
 	e.freshSync = false
+	e.freshGrantsEmpty = false
 	e.currentSyncMu.Unlock()
 	return nil
 }
@@ -178,6 +187,7 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 	e.currentSyncMu.Lock()
 	e.currentSync = idBytes
 	e.freshSync = true
+	e.freshGrantsEmpty = true
 	e.currentSyncMu.Unlock()
 	return nil
 }
@@ -190,6 +200,22 @@ func (e *Engine) IsFreshSync() bool {
 	return e.freshSync
 }
 
+// takeFreshGrantsEmpty returns true exactly once per fresh sync —
+// for the first PutGrantRecords call after MarkFreshSync. Subsequent
+// calls within the same fresh sync (and any call after EndSync) see
+// false. PutGrantRecords uses this to safely skip its read-before-
+// write Get path on the first bulk write: the grant keyspace under
+// the freshly-minted sync_id is provably empty by construction.
+func (e *Engine) takeFreshGrantsEmpty() bool {
+	e.currentSyncMu.Lock()
+	defer e.currentSyncMu.Unlock()
+	if !e.freshGrantsEmpty {
+		return false
+	}
+	e.freshGrantsEmpty = false
+	return true
+}
+
 // EndFreshSync clears the fresh-sync flag and flushes the memtable
 // + fsyncs the WAL so the data written during the sync is on disk
 // before the caller returns. Called by Adapter.EndSync.
@@ -197,6 +223,7 @@ func (e *Engine) EndFreshSync(ctx context.Context) error {
 	e.currentSyncMu.Lock()
 	wasFresh := e.freshSync
 	e.freshSync = false
+	e.freshGrantsEmpty = false
 	e.currentSyncMu.Unlock()
 	if !wasFresh {
 		return nil

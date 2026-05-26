@@ -24,43 +24,95 @@ func (e *Engine) PutGrantRecord(ctx context.Context, r *v3.GrantRecord) error {
 	return e.PutGrantRecords(ctx, r)
 }
 
-// PutGrantRecords writes N grants in a single pebble.Batch, fsyncing
-// once at the end. This is the bulk path the adapter's PutGrants uses.
+// PutGrantRecords writes N grants in two pebble.Batches — one for
+// primary-key writes, one for index-key writes — and commits them
+// sequentially. This is the bulk path the adapter's PutGrants uses.
 //
-// Read-before-write index cleanup runs unconditionally — even during
-// a fresh sync, a connector that emits the same external_id twice (a
-// real bug class, e.g. paginated source where the same record appears
-// on two pages) would otherwise leak orphan index entries pointing at
-// stale entitlement/principal values. The Get cost is small (memtable
-// hit during a sync's hot phase) and the integrity guarantee is worth
-// it.
+// Mutation safety. Connectors can legitimately emit the same
+// external_id twice within a single sync (paginated sources,
+// deduplication bugs in upstream APIs, etc.). To prevent orphan
+// index entries from earlier duplicates, we pre-scan records to find
+// the latest occurrence of each (sync_id, external_id) tuple and
+// process only those — earlier duplicates are dropped before any
+// batch byte is written. db.Get doesn't see in-batch writes either
+// way, so this dedup pass is the load-bearing safety net that
+// neither the old read-before-write path nor a pure skip-Get path
+// provides.
 //
-// Fresh-sync still uses pebble.NoSync for batch commits — that's the
-// larger perf win (skips per-batch fsync). EndFreshSync does one
+// Read-before-write index cleanup. On a NON-fresh sync the engine
+// must Get the prior primary value so it can delete the index keys
+// the previous sync wrote (entitlement/principal can change between
+// syncs). On a FRESH sync the keyspace under this sync is empty by
+// construction (MarkFreshSync ranges-delete it) so the Get is
+// guaranteed to return ErrNotFound and we skip it — saves an LSM
+// lookup per record on the bulk path.
+//
+// Two batches. The primary keys arrive in roughly sorted order from
+// the adapter (V2→V3 translator preserves the connector's record
+// order, and most connectors emit grants clustered by entitlement
+// which tends to cluster external_ids). The index keys are sorted on
+// a totally different field (entitlement_id / principal), so
+// interleaving them in one batch makes Pebble's flushable-batch
+// promotion path quote sort. Splitting them lets each batch's
+// natural order survive.
+//
+// Fresh-sync still uses pebble.NoSync — EndFreshSync does one
 // Flush+fsync at sync end to harden the data.
 func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
 	return e.withWrite(func() error {
-		batch := e.db.NewBatch()
-		defer batch.Close()
+		priBatch := e.db.NewBatch()
+		defer priBatch.Close()
+		idxBatch := e.db.NewBatch()
+		defer idxBatch.Close()
 
 		fresh := e.IsFreshSync()
+		// skipGet fires exactly once per fresh sync — only the first
+		// PutGrantRecords call sees the keyspace empty by construction.
+		// Subsequent calls in the same fresh sync still need
+		// read-before-write to clean up index entries that the prior
+		// in-sync calls already committed (e.g. paginated sources
+		// emitting an external_id on two pages).
+		skipGet := e.takeFreshGrantsEmpty()
+
+		// Dedup pre-pass: keep only the LAST occurrence of each
+		// (sync_id, external_id). The map value is the records[]
+		// index — when we re-iterate, we process record i only if
+		// dedup[(sync,ext)] == i.
+		type dedupKey struct {
+			syncID string
+			extID  string
+		}
+		var dedup map[dedupKey]int
+		if len(records) > 1 {
+			dedup = make(map[dedupKey]int, len(records))
+			for i, r := range records {
+				if r == nil {
+					continue
+				}
+				dedup[dedupKey{r.GetSyncId(), r.GetExternalId()}] = i
+			}
+		}
+
 		// Cache the resolved sync_id across records sharing the same
 		// string. The adapter's V2→V3 translator stamps every record
 		// with the engine's current sync, so the common case is one
-		// distinct sync_id per call. Per-record resolveSyncBytes does
-		// an RLock + 20-byte make+copy; hoisting saves ~1M of each on
-		// the 1M-grant workload.
+		// distinct sync_id per call.
 		var (
 			lastSyncIDStr string
 			lastIDBytes   []byte
 			haveLast      bool
 		)
-		for _, r := range records {
+		for i, r := range records {
 			if r == nil {
 				continue
+			}
+			if dedup != nil {
+				if dedup[dedupKey{r.GetSyncId(), r.GetExternalId()}] != i {
+					continue
+				}
 			}
 			var (
 				idBytes []byte
@@ -82,28 +134,30 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			if err != nil {
 				return err
 			}
-			oldVal, closer, getErr := e.db.Get(key)
-			switch {
-			case getErr == nil:
-				old := &v3.GrantRecord{}
-				if err := unmarshalRecord(oldVal, old); err != nil {
+			if !skipGet {
+				oldVal, closer, getErr := e.db.Get(key)
+				switch {
+				case getErr == nil:
+					old := &v3.GrantRecord{}
+					if err := unmarshalRecord(oldVal, old); err != nil {
+						closer.Close()
+						return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
+					}
+					if err := e.deleteGrantIndexes(idxBatch, idBytes, old); err != nil {
+						closer.Close()
+						return err
+					}
 					closer.Close()
-					return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
+				case errors.Is(getErr, pebble.ErrNotFound):
+					// no prior record — write unconditionally
+				default:
+					return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
 				}
-				if err := e.deleteGrantIndexes(batch, idBytes, old); err != nil {
-					closer.Close()
-					return err
-				}
-				closer.Close()
-			case errors.Is(getErr, pebble.ErrNotFound):
-				// no prior record — write unconditionally
-			default:
-				return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
 			}
-			if err := batch.Set(key, val, nil); err != nil {
+			if err := priBatch.Set(key, val, nil); err != nil {
 				return err
 			}
-			if err := e.writeGrantIndexes(batch, idBytes, r); err != nil {
+			if err := e.writeGrantIndexes(idxBatch, idBytes, r); err != nil {
 				return err
 			}
 		}
@@ -111,7 +165,10 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		if fresh {
 			opts = pebble.NoSync
 		}
-		return batch.Commit(opts)
+		if err := priBatch.Commit(opts); err != nil {
+			return err
+		}
+		return idxBatch.Commit(opts)
 	})
 }
 
