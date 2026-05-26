@@ -84,6 +84,34 @@ func TestTransportRoundTrip_ClassifiesTimeout(t *testing.T) {
 	require.Contains(t, st.Message(), "request timeout")
 }
 
+func TestTransportRoundTrip_ClassifiesHTTP2ClientConnectionLost(t *testing.T) {
+	tp := &Transport{
+		roundTripper: errorRoundTripper{
+			err: &url.Error{
+				Op:  "Get",
+				URL: "https://example.com",
+				Err: fmt.Errorf("http2: client connection lost"),
+			},
+		},
+		nextCycle: time.Now().Add(time.Minute),
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", nil)
+	require.NoError(t, err)
+
+	resp, err := tp.RoundTrip(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	require.Nil(t, resp)
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.Unavailable, st.Code())
+	require.Contains(t, st.Message(), "http2 client connection lost")
+}
+
 type timeoutError struct {
 	err error
 }

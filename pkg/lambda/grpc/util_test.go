@@ -26,6 +26,7 @@ func TestIsTransientNetworkError(t *testing.T) {
 		{name: "connection reset by peer", err: fmt.Errorf("read tcp 169.254.100.6:53312->10.102.197.53:3128: read: connection reset by peer"), want: true},
 		{name: "broken pipe", err: fmt.Errorf("write: broken pipe"), want: true},
 		{name: "connection refused", err: fmt.Errorf("dial tcp 10.0.0.1:443: connection refused"), want: true},
+		{name: "http2 client connection lost", err: fmt.Errorf("Get \"https://api.github.com/repos/example/repo/collaborators\": http2: client connection lost"), want: true},
 		{name: "i/o timeout", err: fmt.Errorf("dial tcp 10.0.0.1:443: i/o timeout"), want: true},
 		{name: "no such host", err: fmt.Errorf("dial tcp: lookup example.invalid: no such host"), want: true},
 		{name: "unexpected EOF", err: fmt.Errorf("unexpected EOF"), want: true},
@@ -54,6 +55,18 @@ func TestErrorResponse_TransientNetworkError(t *testing.T) {
 	require.Equal(t, codes.Unavailable, st.Code())
 	require.Contains(t, st.Message(), "transient network error")
 	require.Contains(t, st.Message(), "connection reset by peer")
+}
+
+func TestErrorResponse_HTTP2ClientConnectionLost(t *testing.T) {
+	err := fmt.Errorf("github-connector: failed to list collaborators: Get \"https://api.github.com/repos/example/repo/collaborators\": http2: client connection lost")
+	resp := ErrorResponse(err)
+	require.NotNil(t, resp)
+
+	st, stErr := resp.Status()
+	require.NoError(t, stErr)
+	require.Equal(t, codes.Unavailable, st.Code())
+	require.Contains(t, st.Message(), "transient network error")
+	require.Contains(t, st.Message(), "http2: client connection lost")
 }
 
 func TestStatusForApplicationError_ConnectionResetWrapped(t *testing.T) {

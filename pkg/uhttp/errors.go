@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 	"syscall"
 
 	"google.golang.org/grpc/codes"
@@ -24,6 +25,9 @@ func wrapTransientNetworkError(err error) error {
 	if errors.Is(err, syscall.ECONNRESET) {
 		return WrapErrors(codes.Unavailable, "connection reset", err)
 	}
+	if isHTTP2ClientConnectionLost(err) {
+		return WrapErrors(codes.Unavailable, "http2 client connection lost", err)
+	}
 
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
@@ -40,4 +44,8 @@ func wrapTransientNetworkError(err error) error {
 	}
 
 	return err
+}
+
+func isHTTP2ClientConnectionLost(err error) bool {
+	return strings.Contains(err.Error(), "http2: client connection lost")
 }

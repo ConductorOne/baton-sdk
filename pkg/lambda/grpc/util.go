@@ -144,6 +144,7 @@ func isTransientNetworkError(err error) bool {
 	return strings.Contains(msg, "connection reset by peer") ||
 		strings.Contains(msg, "broken pipe") ||
 		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "http2: client connection lost") ||
 		strings.Contains(msg, "i/o timeout") ||
 		strings.Contains(msg, "no such host") ||
 		(strings.Contains(msg, "unexpected EOF") && !strings.Contains(msg, "unexpected EOF on client connection"))
