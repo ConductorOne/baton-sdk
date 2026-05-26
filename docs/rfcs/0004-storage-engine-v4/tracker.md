@@ -44,12 +44,22 @@ Pebble end-to-end Sync()                **DONE** as TestPebbleFullSyncThroughSyn
   pkg/sync and pkg/sync/expand can use one sentinel across
   engines.
 
-- **FileOps.CloneSync / GenerateSyncDiff.** Returns
-  ErrFileOpsUnsupported on Pebble today. CloneSync needs an
-  IngestAndExcise scoped to a single sync's key range;
-  GenerateSyncDiff needs a range-pair walk between two sync
-  prefixes. Both are net-new code, not on the pkg/sync hot
-  path, so they don't block landing.
+- **FileOps.CloneSync** — ✅ **DONE.** Byte-level range copy of
+  every sync-scoped keyspace into a fresh Pebble engine, then
+  Checkpoint + v3 envelope at outPath. Wired through
+  registeredStore.FileOps so the destination's payload encoding
+  matches the source. Tests: TestCloneSyncRoundtrip,
+  TestCloneSyncRefusesExistingOutPath,
+  TestCloneSyncRefusesUnfinishedSync.
+
+- **FileOps.GenerateSyncDiff** — ✅ **DONE.** Additions-only
+  set difference matching the SQLite contract: walks each
+  record type under appliedSync, looks up base by record
+  identity, writes records absent from base under the new
+  diff sync's prefix via PutXxxRecord (which handles primary
+  + secondary index updates). Tests:
+  TestGenerateSyncDiffAdditionsOnly,
+  TestGenerateSyncDiffRejectsSameSyncIDs.
 - **Autoresearch parallel-build / parallel-idx-sort cherry-picks**
   (99c76cd2 / de099547 / a864d686 / 3d660b9d / 8525c149 / 9b8fc472
   / 4995f17e). The simpler split-batch + skipGet + dedup pieces
