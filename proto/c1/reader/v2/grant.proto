@@ -14,6 +14,10 @@ service GrantsReaderService {
   rpc GetGrant(GrantsReaderServiceGetGrantRequest) returns (GrantsReaderServiceGetGrantResponse);
   rpc ListGrantsForEntitlement(GrantsReaderServiceListGrantsForEntitlementRequest) returns (GrantsReaderServiceListGrantsForEntitlementResponse);
   rpc ListGrantsForResourceType(GrantsReaderServiceListGrantsForResourceTypeRequest) returns (GrantsReaderServiceListGrantsForResourceTypeResponse);
+  // ListGrantsForEntitlements walks grants for up to 128 entitlements
+  // in a single RPC. Page boundaries land between entitlements so
+  // the cursor only needs to encode (entitlement_index, intra_cursor).
+  rpc ListGrantsForEntitlements(GrantsReaderServiceListGrantsForEntitlementsRequest) returns (GrantsReaderServiceListGrantsForEntitlementsResponse);
 }
 
 message GrantsReaderServiceGetGrantRequest {
@@ -78,5 +82,44 @@ message GrantsReaderServiceListGrantsForResourceTypeResponse {
     ignore_empty: true
     min_bytes: 1
     max_bytes: 2048
+  }];
+}
+
+message GrantsReaderServiceListGrantsForEntitlementsRequest {
+  // The entitlements (by id) to fetch grants for. Server caps at
+  // 128 to bound per-RPC work; clients should chunk above that.
+  repeated c1.connector.v2.Entitlement entitlements = 1 [(validate.rules).repeated = {
+    max_items: 128
+  }];
+  // Optional filters apply uniformly to every entitlement in the
+  // batch. Same semantics as ListGrantsForEntitlement.
+  c1.connector.v2.ResourceId principal_id = 2 [(validate.rules).message = {required: false}];
+  repeated string principal_resource_type_ids = 3;
+
+  uint32 page_size = 10 [(validate.rules).uint32 = {
+    ignore_empty: true
+    lte: 1024
+  }];
+  // Cursor encoding: base64(varint entitlement_index, varint
+  // intra_cursor_len, intra_cursor_bytes, list_checksum_bytes).
+  // The list_checksum stamps the entitlement list shape; mismatch
+  // means the caller changed the input between pages and we
+  // restart from the beginning rather than silently mis-paginate.
+  string page_token = 11 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 4096
+  }];
+  repeated google.protobuf.Any annotations = 100;
+}
+
+message GrantsReaderServiceListGrantsForEntitlementsResponse {
+  // Grants from all requested entitlements, in the order the server
+  // visited them. Caller groups by Grant.Entitlement.Id.
+  repeated c1.connector.v2.Grant list = 1;
+  string next_page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 4096
   }];
 }

@@ -554,6 +554,237 @@ func (b0 GrantsReaderServiceListGrantsForResourceTypeResponse_builder) Build() *
 	return m0
 }
 
+type GrantsReaderServiceListGrantsForEntitlementsRequest struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// The entitlements (by id) to fetch grants for. Server caps at
+	// 128 to bound per-RPC work; clients should chunk above that.
+	Entitlements []*v2.Entitlement `protobuf:"bytes,1,rep,name=entitlements,proto3" json:"entitlements,omitempty"`
+	// Optional filters apply uniformly to every entitlement in the
+	// batch. Same semantics as ListGrantsForEntitlement.
+	PrincipalId              *v2.ResourceId `protobuf:"bytes,2,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
+	PrincipalResourceTypeIds []string       `protobuf:"bytes,3,rep,name=principal_resource_type_ids,json=principalResourceTypeIds,proto3" json:"principal_resource_type_ids,omitempty"`
+	PageSize                 uint32         `protobuf:"varint,10,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// Cursor encoding: base64(varint entitlement_index, varint
+	// intra_cursor_len, intra_cursor_bytes, list_checksum_bytes).
+	// The list_checksum stamps the entitlement list shape; mismatch
+	// means the caller changed the input between pages and we
+	// restart from the beginning rather than silently mis-paginate.
+	PageToken     string       `protobuf:"bytes,11,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	Annotations   []*anypb.Any `protobuf:"bytes,100,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) Reset() {
+	*x = GrantsReaderServiceListGrantsForEntitlementsRequest{}
+	mi := &file_c1_reader_v2_grant_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GrantsReaderServiceListGrantsForEntitlementsRequest) ProtoMessage() {}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_reader_v2_grant_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) GetEntitlements() []*v2.Entitlement {
+	if x != nil {
+		return x.Entitlements
+	}
+	return nil
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) GetPrincipalId() *v2.ResourceId {
+	if x != nil {
+		return x.PrincipalId
+	}
+	return nil
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) GetPrincipalResourceTypeIds() []string {
+	if x != nil {
+		return x.PrincipalResourceTypeIds
+	}
+	return nil
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) GetAnnotations() []*anypb.Any {
+	if x != nil {
+		return x.Annotations
+	}
+	return nil
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) SetEntitlements(v []*v2.Entitlement) {
+	x.Entitlements = v
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) SetPrincipalId(v *v2.ResourceId) {
+	x.PrincipalId = v
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) SetPrincipalResourceTypeIds(v []string) {
+	x.PrincipalResourceTypeIds = v
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) SetPageSize(v uint32) {
+	x.PageSize = v
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) SetPageToken(v string) {
+	x.PageToken = v
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) SetAnnotations(v []*anypb.Any) {
+	x.Annotations = v
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) HasPrincipalId() bool {
+	if x == nil {
+		return false
+	}
+	return x.PrincipalId != nil
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) ClearPrincipalId() {
+	x.PrincipalId = nil
+}
+
+type GrantsReaderServiceListGrantsForEntitlementsRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// The entitlements (by id) to fetch grants for. Server caps at
+	// 128 to bound per-RPC work; clients should chunk above that.
+	Entitlements []*v2.Entitlement
+	// Optional filters apply uniformly to every entitlement in the
+	// batch. Same semantics as ListGrantsForEntitlement.
+	PrincipalId              *v2.ResourceId
+	PrincipalResourceTypeIds []string
+	PageSize                 uint32
+	// Cursor encoding: base64(varint entitlement_index, varint
+	// intra_cursor_len, intra_cursor_bytes, list_checksum_bytes).
+	// The list_checksum stamps the entitlement list shape; mismatch
+	// means the caller changed the input between pages and we
+	// restart from the beginning rather than silently mis-paginate.
+	PageToken   string
+	Annotations []*anypb.Any
+}
+
+func (b0 GrantsReaderServiceListGrantsForEntitlementsRequest_builder) Build() *GrantsReaderServiceListGrantsForEntitlementsRequest {
+	m0 := &GrantsReaderServiceListGrantsForEntitlementsRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Entitlements = b.Entitlements
+	x.PrincipalId = b.PrincipalId
+	x.PrincipalResourceTypeIds = b.PrincipalResourceTypeIds
+	x.PageSize = b.PageSize
+	x.PageToken = b.PageToken
+	x.Annotations = b.Annotations
+	return m0
+}
+
+type GrantsReaderServiceListGrantsForEntitlementsResponse struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Grants from all requested entitlements, in the order the server
+	// visited them. Caller groups by Grant.Entitlement.Id.
+	List          []*v2.Grant `protobuf:"bytes,1,rep,name=list,proto3" json:"list,omitempty"`
+	NextPageToken string      `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsResponse) Reset() {
+	*x = GrantsReaderServiceListGrantsForEntitlementsResponse{}
+	mi := &file_c1_reader_v2_grant_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GrantsReaderServiceListGrantsForEntitlementsResponse) ProtoMessage() {}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_reader_v2_grant_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsResponse) GetList() []*v2.Grant {
+	if x != nil {
+		return x.List
+	}
+	return nil
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsResponse) SetList(v []*v2.Grant) {
+	x.List = v
+}
+
+func (x *GrantsReaderServiceListGrantsForEntitlementsResponse) SetNextPageToken(v string) {
+	x.NextPageToken = v
+}
+
+type GrantsReaderServiceListGrantsForEntitlementsResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Grants from all requested entitlements, in the order the server
+	// visited them. Caller groups by Grant.Entitlement.Id.
+	List          []*v2.Grant
+	NextPageToken string
+}
+
+func (b0 GrantsReaderServiceListGrantsForEntitlementsResponse_builder) Build() *GrantsReaderServiceListGrantsForEntitlementsResponse {
+	m0 := &GrantsReaderServiceListGrantsForEntitlementsResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.List = b.List
+	x.NextPageToken = b.NextPageToken
+	return m0
+}
+
 var File_c1_reader_v2_grant_proto protoreflect.FileDescriptor
 
 const file_c1_reader_v2_grant_proto_rawDesc = "" +
@@ -591,13 +822,29 @@ const file_c1_reader_v2_grant_proto_rawDesc = "" +
 	"4GrantsReaderServiceListGrantsForResourceTypeResponse\x12*\n" +
 	"\x04list\x18\x01 \x03(\v2\x16.c1.connector.v2.GrantR\x04list\x125\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\x10\xd0\x01\x01R\rnextPageToken2\xcd\x03\n" +
+	"r\b \x01(\x80\x10\xd0\x01\x01R\rnextPageToken\"\x9a\x03\n" +
+	"3GrantsReaderServiceListGrantsForEntitlementsRequest\x12K\n" +
+	"\fentitlements\x18\x01 \x03(\v2\x1c.c1.connector.v2.EntitlementB\t\xfaB\x06\x92\x01\x03\x10\x80\x01R\fentitlements\x12H\n" +
+	"\fprincipal_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x00R\vprincipalId\x12=\n" +
+	"\x1bprincipal_resource_type_ids\x18\x03 \x03(\tR\x18principalResourceTypeIds\x12'\n" +
+	"\tpage_size\x18\n" +
+	" \x01(\rB\n" +
+	"\xfaB\a*\x05\x18\x80\b@\x01R\bpageSize\x12,\n" +
+	"\n" +
+	"page_token\x18\v \x01(\tB\r\xfaB\n" +
+	"r\b \x01(\x80 \xd0\x01\x01R\tpageToken\x126\n" +
+	"\vannotations\x18d \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x99\x01\n" +
+	"4GrantsReaderServiceListGrantsForEntitlementsResponse\x12*\n" +
+	"\x04list\x18\x01 \x03(\v2\x16.c1.connector.v2.GrantR\x04list\x125\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tB\r\xfaB\n" +
+	"r\b \x01(\x80 \xd0\x01\x01R\rnextPageToken2\xf2\x04\n" +
 	"\x13GrantsReaderService\x12o\n" +
 	"\bGetGrant\x120.c1.reader.v2.GrantsReaderServiceGetGrantRequest\x1a1.c1.reader.v2.GrantsReaderServiceGetGrantResponse\x12\x9f\x01\n" +
 	"\x18ListGrantsForEntitlement\x12@.c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementRequest\x1aA.c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementResponse\x12\xa2\x01\n" +
-	"\x19ListGrantsForResourceType\x12A.c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeRequest\x1aB.c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeResponseB3Z1github.com/conductorone/baton-sdk/pb/c1/reader/v2b\x06proto3"
+	"\x19ListGrantsForResourceType\x12A.c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeRequest\x1aB.c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeResponse\x12\xa2\x01\n" +
+	"\x19ListGrantsForEntitlements\x12A.c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsRequest\x1aB.c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsResponseB3Z1github.com/conductorone/baton-sdk/pb/c1/reader/v2b\x06proto3"
 
-var file_c1_reader_v2_grant_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_c1_reader_v2_grant_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_c1_reader_v2_grant_proto_goTypes = []any{
 	(*GrantsReaderServiceGetGrantRequest)(nil),                   // 0: c1.reader.v2.GrantsReaderServiceGetGrantRequest
 	(*GrantsReaderServiceGetGrantResponse)(nil),                  // 1: c1.reader.v2.GrantsReaderServiceGetGrantResponse
@@ -605,31 +852,39 @@ var file_c1_reader_v2_grant_proto_goTypes = []any{
 	(*GrantsReaderServiceListGrantsForEntitlementResponse)(nil),  // 3: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementResponse
 	(*GrantsReaderServiceListGrantsForResourceTypeRequest)(nil),  // 4: c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeRequest
 	(*GrantsReaderServiceListGrantsForResourceTypeResponse)(nil), // 5: c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeResponse
-	(*anypb.Any)(nil),      // 6: google.protobuf.Any
-	(*v2.Grant)(nil),       // 7: c1.connector.v2.Grant
-	(*v2.Entitlement)(nil), // 8: c1.connector.v2.Entitlement
-	(*v2.ResourceId)(nil),  // 9: c1.connector.v2.ResourceId
+	(*GrantsReaderServiceListGrantsForEntitlementsRequest)(nil),  // 6: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsRequest
+	(*GrantsReaderServiceListGrantsForEntitlementsResponse)(nil), // 7: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsResponse
+	(*anypb.Any)(nil),      // 8: google.protobuf.Any
+	(*v2.Grant)(nil),       // 9: c1.connector.v2.Grant
+	(*v2.Entitlement)(nil), // 10: c1.connector.v2.Entitlement
+	(*v2.ResourceId)(nil),  // 11: c1.connector.v2.ResourceId
 }
 var file_c1_reader_v2_grant_proto_depIdxs = []int32{
-	6,  // 0: c1.reader.v2.GrantsReaderServiceGetGrantRequest.annotations:type_name -> google.protobuf.Any
-	7,  // 1: c1.reader.v2.GrantsReaderServiceGetGrantResponse.grant:type_name -> c1.connector.v2.Grant
-	8,  // 2: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementRequest.entitlement:type_name -> c1.connector.v2.Entitlement
-	9,  // 3: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementRequest.principal_id:type_name -> c1.connector.v2.ResourceId
-	6,  // 4: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementRequest.annotations:type_name -> google.protobuf.Any
-	7,  // 5: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementResponse.list:type_name -> c1.connector.v2.Grant
-	6,  // 6: c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeRequest.annotations:type_name -> google.protobuf.Any
-	7,  // 7: c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeResponse.list:type_name -> c1.connector.v2.Grant
-	0,  // 8: c1.reader.v2.GrantsReaderService.GetGrant:input_type -> c1.reader.v2.GrantsReaderServiceGetGrantRequest
-	2,  // 9: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlement:input_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementRequest
-	4,  // 10: c1.reader.v2.GrantsReaderService.ListGrantsForResourceType:input_type -> c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeRequest
-	1,  // 11: c1.reader.v2.GrantsReaderService.GetGrant:output_type -> c1.reader.v2.GrantsReaderServiceGetGrantResponse
-	3,  // 12: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlement:output_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementResponse
-	5,  // 13: c1.reader.v2.GrantsReaderService.ListGrantsForResourceType:output_type -> c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeResponse
-	11, // [11:14] is the sub-list for method output_type
-	8,  // [8:11] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	8,  // 0: c1.reader.v2.GrantsReaderServiceGetGrantRequest.annotations:type_name -> google.protobuf.Any
+	9,  // 1: c1.reader.v2.GrantsReaderServiceGetGrantResponse.grant:type_name -> c1.connector.v2.Grant
+	10, // 2: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementRequest.entitlement:type_name -> c1.connector.v2.Entitlement
+	11, // 3: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementRequest.principal_id:type_name -> c1.connector.v2.ResourceId
+	8,  // 4: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementRequest.annotations:type_name -> google.protobuf.Any
+	9,  // 5: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementResponse.list:type_name -> c1.connector.v2.Grant
+	8,  // 6: c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeRequest.annotations:type_name -> google.protobuf.Any
+	9,  // 7: c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeResponse.list:type_name -> c1.connector.v2.Grant
+	10, // 8: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsRequest.entitlements:type_name -> c1.connector.v2.Entitlement
+	11, // 9: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsRequest.principal_id:type_name -> c1.connector.v2.ResourceId
+	8,  // 10: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsRequest.annotations:type_name -> google.protobuf.Any
+	9,  // 11: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsResponse.list:type_name -> c1.connector.v2.Grant
+	0,  // 12: c1.reader.v2.GrantsReaderService.GetGrant:input_type -> c1.reader.v2.GrantsReaderServiceGetGrantRequest
+	2,  // 13: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlement:input_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementRequest
+	4,  // 14: c1.reader.v2.GrantsReaderService.ListGrantsForResourceType:input_type -> c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeRequest
+	6,  // 15: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlements:input_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsRequest
+	1,  // 16: c1.reader.v2.GrantsReaderService.GetGrant:output_type -> c1.reader.v2.GrantsReaderServiceGetGrantResponse
+	3,  // 17: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlement:output_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementResponse
+	5,  // 18: c1.reader.v2.GrantsReaderService.ListGrantsForResourceType:output_type -> c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeResponse
+	7,  // 19: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlements:output_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsResponse
+	16, // [16:20] is the sub-list for method output_type
+	12, // [12:16] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_c1_reader_v2_grant_proto_init() }
@@ -643,7 +898,7 @@ func file_c1_reader_v2_grant_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_reader_v2_grant_proto_rawDesc), len(file_c1_reader_v2_grant_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

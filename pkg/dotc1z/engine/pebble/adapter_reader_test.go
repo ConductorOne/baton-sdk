@@ -315,6 +315,117 @@ func TestBulkByIdsRoundtripPebble(t *testing.T) {
 	})
 }
 
+// TestListGrantsForEntitlementsPebble exercises the new batched
+// reader against the Pebble adapter (RFC §A4).
+func TestListGrantsForEntitlementsPebble(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatal(err)
+	}
+	mkRes := func(rt, id string) *v2.Resource {
+		return v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: rt, Resource: id}.Build(),
+		}.Build()
+	}
+	appRes := mkRes("app", "gh")
+	if err := a.PutResources(ctx, appRes); err != nil {
+		t.Fatal(err)
+	}
+	entA := v2.Entitlement_builder{Id: "ent-A", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "A"}.Build()
+	entB := v2.Entitlement_builder{Id: "ent-B", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "B"}.Build()
+	entC := v2.Entitlement_builder{Id: "ent-C", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "C"}.Build()
+	if err := a.PutEntitlements(ctx, entA, entB, entC); err != nil {
+		t.Fatal(err)
+	}
+	mkGrant := func(id, entID, princRT, princID string) *v2.Grant {
+		return v2.Grant_builder{
+			Id:          id,
+			Entitlement: v2.Entitlement_builder{Id: entID, Resource: appRes}.Build(),
+			Principal:   mkRes(princRT, princID),
+		}.Build()
+	}
+	grants := []*v2.Grant{}
+	for i := 0; i < 5; i++ {
+		grants = append(grants, mkGrant("a-u-"+strconv.Itoa(i), "ent-A", "user", "u"+strconv.Itoa(i)))
+	}
+	for i := 0; i < 3; i++ {
+		grants = append(grants, mkGrant("b-g-"+strconv.Itoa(i), "ent-B", "group", "g"+strconv.Itoa(i)))
+	}
+	for i := 0; i < 7; i++ {
+		grants = append(grants, mkGrant("c-u-"+strconv.Itoa(i), "ent-C", "user", "uc"+strconv.Itoa(i)))
+	}
+	if err := a.PutGrants(ctx, grants...); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("aggregate all", func(t *testing.T) {
+		resp, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+			Entitlements: []*v2.Entitlement{entA, entB, entC},
+			PageSize:     100,
+		}.Build())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.GetList()) != 15 {
+			t.Errorf("len=%d, want 15", len(resp.GetList()))
+		}
+	})
+	t.Run("pagination crosses entitlement boundary", func(t *testing.T) {
+		seen := map[string]bool{}
+		token := ""
+		for i := 0; i < 10; i++ {
+			resp, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+				Entitlements: []*v2.Entitlement{entA, entB, entC},
+				PageSize:     4,
+				PageToken:    token,
+			}.Build())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, g := range resp.GetList() {
+				if seen[g.GetId()] {
+					t.Errorf("dup grant %s", g.GetId())
+				}
+				seen[g.GetId()] = true
+			}
+			token = resp.GetNextPageToken()
+			if token == "" {
+				break
+			}
+		}
+		if len(seen) != 15 {
+			t.Errorf("seen=%d, want 15", len(seen))
+		}
+	})
+	t.Run("checksum mismatch resets", func(t *testing.T) {
+		resp1, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+			Entitlements: []*v2.Entitlement{entA, entB, entC},
+			PageSize:     2,
+		}.Build())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp1.GetNextPageToken() == "" {
+			t.Fatal("first page should overflow")
+		}
+		resp2, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+			Entitlements: []*v2.Entitlement{entA, entB},
+			PageSize:     2,
+			PageToken:    resp1.GetNextPageToken(),
+		}.Build())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(resp2.GetList()) != 2 {
+			t.Errorf("after checksum mismatch len=%d, want 2", len(resp2.GetList()))
+		}
+		if resp2.GetList()[0].GetEntitlement().GetId() != "ent-A" {
+			t.Errorf("after reset first ent=%q, want ent-A", resp2.GetList()[0].GetEntitlement().GetId())
+		}
+	})
+}
+
 func TestSyncsReaderMethods(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
