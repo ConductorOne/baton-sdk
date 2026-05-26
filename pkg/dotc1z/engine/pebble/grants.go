@@ -48,13 +48,35 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		defer batch.Close()
 
 		fresh := e.IsFreshSync()
+		// Cache the resolved sync_id across records sharing the same
+		// string. The adapter's V2→V3 translator stamps every record
+		// with the engine's current sync, so the common case is one
+		// distinct sync_id per call. Per-record resolveSyncBytes does
+		// an RLock + 20-byte make+copy; hoisting saves ~1M of each on
+		// the 1M-grant workload.
+		var (
+			lastSyncIDStr string
+			lastIDBytes   []byte
+			haveLast      bool
+		)
 		for _, r := range records {
 			if r == nil {
 				continue
 			}
-			idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-			if err != nil {
-				return err
+			var (
+				idBytes []byte
+				err     error
+			)
+			if sid := r.GetSyncId(); haveLast && sid == lastSyncIDStr {
+				idBytes = lastIDBytes
+			} else {
+				idBytes, err = e.resolveSyncBytes(sid)
+				if err != nil {
+					return err
+				}
+				lastSyncIDStr = sid
+				lastIDBytes = idBytes
+				haveLast = true
 			}
 			key := encodeGrantKey(idBytes, r.GetExternalId())
 			val, err := marshalRecord(r)

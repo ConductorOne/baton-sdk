@@ -224,27 +224,99 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 // PutGrants writes a batch of grants in a single Pebble batch. v2 is
 // translated to v3 first; the engine then commits the whole batch
 // with one fsync (or NoSync during a fresh sync — see MarkFreshSync).
+//
+// The translation uses per-shard arenas (grantTranslateArena) so the
+// 3 × N proto-struct allocations from V2GrantToV3's builder pattern
+// collapse to 3 slice allocations per shard. For large fresh-sync
+// writes this substantially reduces GC scan pressure during the
+// engine's parallel build phase.
+//
+// The translation itself runs in parallel across translateShards
+// workers when the input is large enough — protobuf Get/Set methods
+// on the underlying v2.Grant and v3 arena structs are thread-safe for
+// read+arena-private-write access patterns. Each worker writes to a
+// disjoint range of the records slice and uses its own arena, so no
+// shared mutable state across workers.
 func (a *Adapter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 	syncID := a.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
-	records := make([]*v3.GrantRecord, 0, len(grants))
 	now := timestamppb.Now()
-	for _, g := range grants {
-		if g == nil {
-			continue
-		}
-		rec := V2GrantToV3(syncID, g)
-		if rec == nil {
-			continue
-		}
-		if rec.GetDiscoveredAt() == nil {
-			rec.SetDiscoveredAt(now)
-		}
-		records = append(records, rec)
+
+	// Parallel translation. Below the threshold, single-goroutine
+	// translation avoids goroutine setup cost on small calls.
+	const translateMinPerShard = 1024
+	const translateShards = 4
+	shards := translateShards
+	if n := len(grants) / translateMinPerShard; n < shards {
+		shards = n
 	}
-	if err := a.engine.PutGrantRecords(ctx, records...); err != nil {
+	if shards < 2 {
+		// Serial path: one arena, one pass.
+		arena := newGrantTranslateArena(len(grants))
+		records := make([]*v3.GrantRecord, 0, len(grants))
+		for _, g := range grants {
+			if g == nil {
+				continue
+			}
+			rec := arena.translateV2Grant(syncID, g)
+			if rec == nil {
+				continue
+			}
+			if rec.GetDiscoveredAt() == nil {
+				rec.SetDiscoveredAt(now)
+			}
+			records = append(records, rec)
+		}
+		if err := a.engine.PutGrantRecords(ctx, records...); err != nil {
+			return fmt.Errorf("PutGrants: %w", err)
+		}
+		return nil
+	}
+
+	// Parallel path: shard workers each translate their range into a
+	// private arena and write into their owned slot of records.
+	records := make([]*v3.GrantRecord, len(grants))
+	chunkSize := (len(grants) + shards - 1) / shards
+	var wg sync.WaitGroup
+	wg.Add(shards)
+	for s := 0; s < shards; s++ {
+		start := s * chunkSize
+		end := start + chunkSize
+		if end > len(grants) {
+			end = len(grants)
+		}
+		go func(start, end int) {
+			defer wg.Done()
+			arena := newGrantTranslateArena(end - start)
+			for i := start; i < end; i++ {
+				g := grants[i]
+				if g == nil {
+					continue
+				}
+				rec := arena.translateV2Grant(syncID, g)
+				if rec == nil {
+					continue
+				}
+				if rec.GetDiscoveredAt() == nil {
+					rec.SetDiscoveredAt(now)
+				}
+				records[i] = rec
+			}
+		}(start, end)
+	}
+	wg.Wait()
+
+	// Compact: drop nil slots from skipped grants. Usually len(records)
+	// equals len(grants) when no input was nil.
+	compact := records[:0]
+	for _, r := range records {
+		if r != nil {
+			compact = append(compact, r)
+		}
+	}
+	if err := a.engine.PutGrantRecords(ctx, compact...); err != nil {
 		return fmt.Errorf("PutGrants: %w", err)
 	}
 	return nil

@@ -110,7 +110,12 @@ func newPebbleOptions(o *Options) *pebble.Options {
 		MaxOpenFiles:                1024,
 
 		// L0 tuning matches the RFC v4 Appendix C.6 values.
-		L0CompactionThreshold:     2,
+		// L0CompactionThreshold raised 2→8 (autoresearch P1.2b):
+		// L0=2 made the compactor wake on every L0 add, stealing CPU
+		// from the write path during bulk syncs. Letting ~8 L0 files
+		// accumulate frees that CPU at the cost of a slightly deeper
+		// L0 read fan-out (still well under L0StopWritesThreshold).
+		L0CompactionThreshold:     8,
 		L0CompactionFileThreshold: 500,
 		L0StopWritesThreshold:     20,
 		FlushSplitBytes:           2 << 20,
