@@ -156,7 +156,11 @@ func cloneSync(
 }
 
 // copyRange iterates [lower, upper) on src and Sets each key/value
-// into a single Batch on dst, then commits with pebble.Sync.
+// onto dst in fixed-size batches, committing each batch with
+// pebble.Sync. Chunking caps the per-batch memory at
+// copyRangeBatchKeys keys regardless of total range size, so a
+// clone of a 1M-grant sync uses ~80 batches instead of one
+// gigabyte-scale batch.
 func copyRange(ctx context.Context, src, dst *pebble.DB, lower, upper []byte) error {
 	iter, err := src.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
@@ -164,13 +168,23 @@ func copyRange(ctx context.Context, src, dst *pebble.DB, lower, upper []byte) er
 	}
 	defer iter.Close()
 	batch := dst.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
+	count := 0
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if err := batch.Set(iter.Key(), iter.Value(), nil); err != nil {
 			return err
+		}
+		count++
+		if count >= copyRangeBatchKeys {
+			if err := batch.Commit(pebble.Sync); err != nil {
+				return err
+			}
+			_ = batch.Close()
+			batch = dst.NewBatch()
+			count = 0
 		}
 	}
 	if err := iter.Error(); err != nil {
@@ -181,3 +195,9 @@ func copyRange(ctx context.Context, src, dst *pebble.DB, lower, upper []byte) er
 	}
 	return batch.Commit(pebble.Sync)
 }
+
+// copyRangeBatchKeys caps copyRange's per-batch memory footprint.
+// Chosen at 10k keys to roughly match the engine's DefaultPageSize;
+// larger batches don't improve commit throughput once Pebble's
+// memtable already absorbs the writes.
+const copyRangeBatchKeys = 10_000

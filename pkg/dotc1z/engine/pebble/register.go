@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"os"
 	"path/filepath"
 	"sync"
@@ -188,6 +189,70 @@ func (s *registeredStore) PutEntitlements(ctx context.Context, entitlements ...*
 
 func (s *registeredStore) DeleteGrant(ctx context.Context, grantID string) error {
 	return s.markDirty(s.Adapter.DeleteGrant(ctx, grantID))
+}
+
+// PutGrantsIfNewer / PutResourcesIfNewer / PutEntitlementsIfNewer
+// / PutResourceTypesIfNewer aren't on connectorstore.Writer (they
+// live on *Adapter via the partial-sync path) but are reachable
+// from typed callers — without these overrides those callers
+// would mutate the engine without flipping the dirty bit, and a
+// subsequent Close would skip the c1z save.
+func (s *registeredStore) PutGrantsIfNewer(ctx context.Context, grants ...*v2.Grant) error {
+	return s.markDirty(s.Adapter.PutGrantsIfNewer(ctx, grants...))
+}
+
+func (s *registeredStore) PutResourcesIfNewer(ctx context.Context, resources ...*v2.Resource) error {
+	return s.markDirty(s.Adapter.PutResourcesIfNewer(ctx, resources...))
+}
+
+func (s *registeredStore) PutEntitlementsIfNewer(ctx context.Context, entitlements ...*v2.Entitlement) error {
+	return s.markDirty(s.Adapter.PutEntitlementsIfNewer(ctx, entitlements...))
+}
+
+func (s *registeredStore) PutResourceTypesIfNewer(ctx context.Context, rts ...*v2.ResourceType) error {
+	return s.markDirty(s.Adapter.PutResourceTypesIfNewer(ctx, rts...))
+}
+
+// Grants overrides Adapter.Grants() so the returned GrantStore
+// routes StoreExpandedGrants through the registered store's
+// dirty-marking path. The Adapter-level wrapper calls
+// Adapter.PutGrants directly, which skips the dirty flag.
+func (s *registeredStore) Grants() dotc1z.GrantStore {
+	return registeredStoreGrants{inner: s.Adapter.Grants(), store: s}
+}
+
+// registeredStoreGrants wraps the Adapter-level pebbleGrantStore
+// and overrides only StoreExpandedGrants (the lone mutating method)
+// to flip the dirty bit. Read-only methods pass through.
+type registeredStoreGrants struct {
+	inner dotc1z.GrantStore
+	store *registeredStore
+}
+
+func (g registeredStoreGrants) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
+}
+
+func (g registeredStoreGrants) PendingExpansionPage(ctx context.Context, pageToken string) ([]dotc1z.PendingExpansion, string, error) {
+	return g.inner.PendingExpansionPage(ctx, pageToken)
+}
+
+func (g registeredStoreGrants) PendingExpansion(ctx context.Context) iter.Seq2[dotc1z.PendingExpansion, error] {
+	return g.inner.PendingExpansion(ctx)
+}
+
+func (g registeredStoreGrants) ListWithAnnotationsPage(ctx context.Context, pageToken string) ([]dotc1z.GrantAnnotation, string, error) {
+	return g.inner.ListWithAnnotationsPage(ctx, pageToken)
+}
+
+func (g registeredStoreGrants) ListWithAnnotationsForResourcePage(
+	ctx context.Context, resource *v2.Resource, syncID string, pageToken string, pageSize uint32,
+) ([]dotc1z.GrantAnnotation, string, error) {
+	return g.inner.ListWithAnnotationsForResourcePage(ctx, resource, syncID, pageToken, pageSize)
+}
+
+func (g registeredStoreGrants) ListWithAnnotations(ctx context.Context) iter.Seq2[dotc1z.GrantAnnotation, error] {
+	return g.inner.ListWithAnnotations(ctx)
 }
 
 func (s *registeredStore) Close(ctx context.Context) (retErr error) {
