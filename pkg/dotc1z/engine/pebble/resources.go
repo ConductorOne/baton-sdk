@@ -20,52 +20,101 @@ func (e *Engine) PutResourceRecord(ctx context.Context, r *v3.ResourceRecord) er
 	return e.PutResourceRecords(ctx, r)
 }
 
-// PutResourceRecords writes N resources in one batch. Fresh-sync fast
-// path mirrors PutGrantRecords.
+// PutResourceRecords writes N resources in two pebble.Batches —
+// primary keys in one, by_parent index keys in the other. Mirrors
+// the PutGrantRecords pattern (RFC §3a Tier-B/C):
+//   - within-call dedup pre-pass keyed by (sync, rt, res_id) drops
+//     earlier occurrences of repeated resources;
+//   - the first PutResourceRecords call of a fresh sync skips the
+//     read-before-write Get (keyspace provably empty);
+//   - subsequent calls fall back to read-before-write so cross-call
+//     duplicates can clean up index entries the prior call wrote.
 func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.ResourceRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
 	return e.withWrite(func() error {
-		batch := e.db.NewBatch()
-		defer batch.Close()
+		priBatch := e.db.NewBatch()
+		defer priBatch.Close()
+		idxBatch := e.db.NewBatch()
+		defer idxBatch.Close()
+
 		fresh := e.IsFreshSync()
-		for _, r := range records {
+		skipGet := e.takeFreshResourcesEmpty()
+
+		type dedupKey struct {
+			syncID, rtID, resID string
+		}
+		var dedup map[dedupKey]int
+		if len(records) > 1 {
+			dedup = make(map[dedupKey]int, len(records))
+			for i, r := range records {
+				if r == nil {
+					continue
+				}
+				dedup[dedupKey{r.GetSyncId(), r.GetResourceTypeId(), r.GetResourceId()}] = i
+			}
+		}
+
+		var (
+			lastSyncIDStr string
+			lastIDBytes   []byte
+			haveLast      bool
+		)
+		for i, r := range records {
 			if r == nil {
 				continue
 			}
-			idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-			if err != nil {
-				return err
+			if dedup != nil {
+				if dedup[dedupKey{r.GetSyncId(), r.GetResourceTypeId(), r.GetResourceId()}] != i {
+					continue
+				}
+			}
+			var (
+				idBytes []byte
+				err     error
+			)
+			if sid := r.GetSyncId(); haveLast && sid == lastSyncIDStr {
+				idBytes = lastIDBytes
+			} else {
+				idBytes, err = e.resolveSyncBytes(sid)
+				if err != nil {
+					return err
+				}
+				lastSyncIDStr = sid
+				lastIDBytes = idBytes
+				haveLast = true
 			}
 			key := encodeResourceKey(idBytes, r.GetResourceTypeId(), r.GetResourceId())
 			val, err := marshalRecord(r)
 			if err != nil {
 				return err
 			}
-			oldVal, closer, getErr := e.db.Get(key)
-			switch {
-			case getErr == nil:
-				old := &v3.ResourceRecord{}
-				if err := unmarshalRecord(oldVal, old); err != nil {
+			if !skipGet {
+				oldVal, closer, getErr := e.db.Get(key)
+				switch {
+				case getErr == nil:
+					old := &v3.ResourceRecord{}
+					if err := unmarshalRecord(oldVal, old); err != nil {
+						closer.Close()
+						return fmt.Errorf("PutResourceRecords: unmarshal old %s/%s: %w",
+							r.GetResourceTypeId(), r.GetResourceId(), err)
+					}
+					if err := e.deleteResourceIndexes(idxBatch, idBytes, old); err != nil {
+						closer.Close()
+						return err
+					}
 					closer.Close()
-					return fmt.Errorf("PutResourceRecords: unmarshal old %s/%s: %w",
-						r.GetResourceTypeId(), r.GetResourceId(), err)
+				case errors.Is(getErr, pebble.ErrNotFound):
+					// no prior — write unconditionally
+				default:
+					return fmt.Errorf("PutResourceRecords: get old: %w", getErr)
 				}
-				if err := e.deleteResourceIndexes(batch, idBytes, old); err != nil {
-					closer.Close()
-					return err
-				}
-				closer.Close()
-			case errors.Is(getErr, pebble.ErrNotFound):
-				// no prior — write unconditionally
-			default:
-				return fmt.Errorf("PutResourceRecords: get old: %w", getErr)
 			}
-			if err := batch.Set(key, val, nil); err != nil {
+			if err := priBatch.Set(key, val, nil); err != nil {
 				return err
 			}
-			if err := e.writeResourceIndexes(batch, idBytes, r); err != nil {
+			if err := e.writeResourceIndexes(idxBatch, idBytes, r); err != nil {
 				return err
 			}
 		}
@@ -73,7 +122,10 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 		if fresh {
 			opts = pebble.NoSync
 		}
-		return batch.Commit(opts)
+		if err := priBatch.Commit(opts); err != nil {
+			return err
+		}
+		return idxBatch.Commit(opts)
 	})
 }
 

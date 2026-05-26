@@ -18,51 +18,100 @@ func (e *Engine) PutEntitlementRecord(ctx context.Context, r *v3.EntitlementReco
 	return e.PutEntitlementRecords(ctx, r)
 }
 
-// PutEntitlementRecords writes N entitlements in one batch. Fresh-sync
-// fast path mirrors PutGrantRecords.
+// PutEntitlementRecords writes N entitlements in two pebble.Batches
+// — primary keys in one, by_resource index keys in the other.
+// Mirrors the PutGrantRecords pattern (RFC §3a Tier-B/C):
+//   - within-call dedup pre-pass keyed by (sync, external_id) drops
+//     earlier occurrences;
+//   - the first PutEntitlementRecords call of a fresh sync skips
+//     the read-before-write Get (keyspace provably empty);
+//   - subsequent calls fall back to read-before-write so cross-call
+//     duplicates can clean up the prior call's index entries.
 func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.EntitlementRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
 	return e.withWrite(func() error {
-		batch := e.db.NewBatch()
-		defer batch.Close()
+		priBatch := e.db.NewBatch()
+		defer priBatch.Close()
+		idxBatch := e.db.NewBatch()
+		defer idxBatch.Close()
+
 		fresh := e.IsFreshSync()
-		for _, r := range records {
+		skipGet := e.takeFreshEntitlementsEmpty()
+
+		type dedupKey struct {
+			syncID, extID string
+		}
+		var dedup map[dedupKey]int
+		if len(records) > 1 {
+			dedup = make(map[dedupKey]int, len(records))
+			for i, r := range records {
+				if r == nil {
+					continue
+				}
+				dedup[dedupKey{r.GetSyncId(), r.GetExternalId()}] = i
+			}
+		}
+
+		var (
+			lastSyncIDStr string
+			lastIDBytes   []byte
+			haveLast      bool
+		)
+		for i, r := range records {
 			if r == nil {
 				continue
 			}
-			idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-			if err != nil {
-				return err
+			if dedup != nil {
+				if dedup[dedupKey{r.GetSyncId(), r.GetExternalId()}] != i {
+					continue
+				}
+			}
+			var (
+				idBytes []byte
+				err     error
+			)
+			if sid := r.GetSyncId(); haveLast && sid == lastSyncIDStr {
+				idBytes = lastIDBytes
+			} else {
+				idBytes, err = e.resolveSyncBytes(sid)
+				if err != nil {
+					return err
+				}
+				lastSyncIDStr = sid
+				lastIDBytes = idBytes
+				haveLast = true
 			}
 			key := encodeEntitlementKey(idBytes, r.GetExternalId())
 			val, err := marshalRecord(r)
 			if err != nil {
 				return err
 			}
-			oldVal, closer, getErr := e.db.Get(key)
-			switch {
-			case getErr == nil:
-				old := &v3.EntitlementRecord{}
-				if err := unmarshalRecord(oldVal, old); err != nil {
+			if !skipGet {
+				oldVal, closer, getErr := e.db.Get(key)
+				switch {
+				case getErr == nil:
+					old := &v3.EntitlementRecord{}
+					if err := unmarshalRecord(oldVal, old); err != nil {
+						closer.Close()
+						return fmt.Errorf("PutEntitlementRecords: unmarshal old %q: %w", r.GetExternalId(), err)
+					}
+					if err := e.deleteEntitlementIndexes(idxBatch, idBytes, old); err != nil {
+						closer.Close()
+						return err
+					}
 					closer.Close()
-					return fmt.Errorf("PutEntitlementRecords: unmarshal old %q: %w", r.GetExternalId(), err)
+				case errors.Is(getErr, pebble.ErrNotFound):
+					// no prior — write unconditionally
+				default:
+					return fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
 				}
-				if err := e.deleteEntitlementIndexes(batch, idBytes, old); err != nil {
-					closer.Close()
-					return err
-				}
-				closer.Close()
-			case errors.Is(getErr, pebble.ErrNotFound):
-				// no prior — write unconditionally
-			default:
-				return fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
 			}
-			if err := batch.Set(key, val, nil); err != nil {
+			if err := priBatch.Set(key, val, nil); err != nil {
 				return err
 			}
-			if err := e.writeEntitlementIndexes(batch, idBytes, r); err != nil {
+			if err := e.writeEntitlementIndexes(idxBatch, idBytes, r); err != nil {
 				return err
 			}
 		}
@@ -70,7 +119,10 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		if fresh {
 			opts = pebble.NoSync
 		}
-		return batch.Commit(opts)
+		if err := priBatch.Commit(opts); err != nil {
+			return err
+		}
+		return idxBatch.Commit(opts)
 	})
 }
 

@@ -240,6 +240,88 @@ func TestFreshSyncDuplicateExternalIDCleansIndexes(t *testing.T) {
 	}
 }
 
+// TestFreshSyncWithinCallDuplicateResourceDedup covers the
+// (sync, rt, res_id) dedup in PutResourceRecords. Two records with
+// the same identity but different by_parent indexes in one call:
+// the second must win, the first must leave no orphan by_parent
+// entry.
+func TestFreshSyncWithinCallDuplicateResourceDedup(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID := ksuid.New().String()
+	if err := e.MarkFreshSync(syncID); err != nil {
+		t.Fatal(err)
+	}
+	mkRes := func(parentID string) *v3.ResourceRecord {
+		return v3.ResourceRecord_builder{
+			SyncId:         syncID,
+			ResourceTypeId: "user",
+			ResourceId:     "alice",
+			Parent: v3.ResourceRef_builder{
+				ResourceTypeId: "group",
+				ResourceId:     parentID,
+			}.Build(),
+		}.Build()
+	}
+	if err := e.PutResourceRecords(ctx, mkRes("admins"), mkRes("users")); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		parentID string
+		expected int
+	}{{"admins", 0}, {"users", 1}} {
+		n := 0
+		if err := e.IterateResourcesByParent(ctx, syncID, "group", c.parentID, func(*v3.ResourceRecord) bool {
+			n++
+			return true
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if n != c.expected {
+			t.Errorf("within-call dup resource: by_parent(%s) = %d, want %d", c.parentID, n, c.expected)
+		}
+	}
+}
+
+// TestFreshSyncWithinCallDuplicateEntitlementDedup covers the
+// (sync, external_id) dedup in PutEntitlementRecords.
+func TestFreshSyncWithinCallDuplicateEntitlementDedup(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID := ksuid.New().String()
+	if err := e.MarkFreshSync(syncID); err != nil {
+		t.Fatal(err)
+	}
+	mkEnt := func(resID string) *v3.EntitlementRecord {
+		return v3.EntitlementRecord_builder{
+			SyncId:     syncID,
+			ExternalId: "read",
+			Resource: v3.ResourceRef_builder{
+				ResourceTypeId: "app",
+				ResourceId:     resID,
+			}.Build(),
+		}.Build()
+	}
+	if err := e.PutEntitlementRecords(ctx, mkEnt("github"), mkEnt("gitlab")); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		resID    string
+		expected int
+	}{{"github", 0}, {"gitlab", 1}} {
+		n := 0
+		if err := e.IterateEntitlementsByResource(ctx, syncID, "app", c.resID, func(*v3.EntitlementRecord) bool {
+			n++
+			return true
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if n != c.expected {
+			t.Errorf("within-call dup entitlement: by_resource(%s) = %d, want %d", c.resID, n, c.expected)
+		}
+	}
+}
+
 // TestFreshSyncWithinCallDuplicateExternalIDDedup exercises the
 // within-call dedup path: the same external_id appears TWICE in a
 // single PutGrants call (paginated source emitting the same record
