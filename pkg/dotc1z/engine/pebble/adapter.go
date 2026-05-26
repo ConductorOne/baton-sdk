@@ -547,6 +547,31 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 	parent := req.GetParentResourceId()
 	useParent := parent != nil && parent.GetResource() != ""
 
+	// Trait filter (RFC §B2): pre-resolve the resource_type set so
+	// the post-filter only admits resources whose RT carries the
+	// trait. resource_types is small (O(10-100)) so the up-front
+	// scan is negligible compared to the resources scan we save.
+	var traitRTs map[string]struct{}
+	if t := req.GetTrait(); t != v2.ResourceType_TRAIT_UNSPECIFIED {
+		ids, err := a.resourceTypeIDsWithTrait(ctx, syncID, t)
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			return v2.ResourcesServiceListResourcesResponse_builder{}.Build(), nil
+		}
+		traitRTs = make(map[string]struct{}, len(ids))
+		for _, id := range ids {
+			traitRTs[id] = struct{}{}
+		}
+		// If an explicit RT filter is set, intersect.
+		if rtFilter != "" {
+			if _, ok := traitRTs[rtFilter]; !ok {
+				return v2.ResourcesServiceListResourcesResponse_builder{}.Build(), nil
+			}
+		}
+	}
+
 	// cursorFor returns the engine cursor for rec under the path
 	// this call is iterating — primary keyspace for the unfiltered
 	// case, by_parent index for the parent-scoped case. We need
@@ -573,7 +598,7 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 		// doesn't force a tail of extra round-trips. 4x is the cap; if
 		// rtFilter is empty we skip the over-fetch entirely.
 		fetchLimit := pageLimit
-		if rtFilter != "" {
+		if rtFilter != "" || traitRTs != nil {
 			fetchLimit = pageLimit * 4
 			if fetchLimit > MaxPageSize {
 				fetchLimit = MaxPageSize
@@ -594,6 +619,11 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 		for _, rec := range records {
 			if rtFilter != "" && rec.GetResourceTypeId() != rtFilter {
 				continue
+			}
+			if traitRTs != nil {
+				if _, ok := traitRTs[rec.GetResourceTypeId()]; !ok {
+					continue
+				}
 			}
 			out = append(out, V3ResourceToV2(rec))
 			if len(out) == limit {

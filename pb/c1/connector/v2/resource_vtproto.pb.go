@@ -2368,6 +2368,11 @@ func (m *ResourcesServiceListResourcesRequest) MarshalToSizedBufferVT(dAtA []byt
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.Trait != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Trait))
+		i--
+		dAtA[i] = 0x38
+	}
 	if len(m.ActiveSyncId) > 0 {
 		i -= len(m.ActiveSyncId)
 		copy(dAtA[i:], m.ActiveSyncId)
@@ -3606,6 +3611,9 @@ func (m *ResourcesServiceListResourcesRequest) SizeVT() (n int) {
 	l = len(m.ActiveSyncId)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.Trait != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.Trait))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -9120,6 +9128,25 @@ func (m *ResourcesServiceListResourcesRequest) UnmarshalVT(dAtA []byte) error {
 			}
 			m.ActiveSyncId = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 7:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Trait", wireType)
+			}
+			m.Trait = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Trait |= ResourceType_Trait(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

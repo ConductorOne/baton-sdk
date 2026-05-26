@@ -4212,6 +4212,8 @@ func (m *ResourcesServiceListResourcesRequest) validate(all bool) error {
 
 	}
 
+	// no validation rules for Trait
+
 	if len(errors) > 0 {
 		return ResourcesServiceListResourcesRequestMultiError(errors)
 	}
