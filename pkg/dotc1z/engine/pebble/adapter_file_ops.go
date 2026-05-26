@@ -2,7 +2,6 @@ package pebble
 
 import (
 	"context"
-	"errors"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 )
@@ -25,11 +24,6 @@ func (a *Adapter) FileOps() dotc1z.FileOps {
 func (a *Adapter) FileOpsWithEncoding(encoding dotc1z.PayloadEncoding) dotc1z.FileOps {
 	return pebbleFileOps{a: a, encoding: encoding}
 }
-
-// ErrFileOpsUnsupported signals that a FileOps method isn't
-// implemented for the Pebble engine yet. Tracker.md captures the
-// follow-up.
-var ErrFileOpsUnsupported = errors.New("pebble engine: FileOps method not implemented")
 
 type pebbleFileOps struct {
 	a        *Adapter

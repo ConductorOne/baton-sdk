@@ -703,6 +703,20 @@ func (a *Adapter) ListEntitlements(ctx context.Context, req *v2.EntitlementsServ
 	}.Build(), nil
 }
 
+// ListStaticEntitlements is the always-empty counterpart to
+// ListEntitlements that some connectors expose for static (compile-
+// time-known) entitlements. C1File returns an empty list; the
+// Pebble adapter mirrors that contract.
+func (a *Adapter) ListStaticEntitlements(
+	_ context.Context,
+	_ *v2.EntitlementsServiceListStaticEntitlementsRequest,
+) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
+	return v2.EntitlementsServiceListStaticEntitlementsResponse_builder{
+		List:          []*v2.Entitlement{},
+		NextPageToken: "",
+	}.Build(), nil
+}
+
 // === reader_v2 surface ===
 
 // GetGrant fetches a single grant by ID.
@@ -763,12 +777,21 @@ func (a *Adapter) currentSyncID() string {
 }
 
 // resolveActiveSync uses the request's ActiveSyncId override if set,
-// else the adapter's current sync.
+// else the adapter's current sync, else the most-recent finished
+// sync. The fallback matches the SQLite path so Reader calls
+// against a closed c1z still work — caught by the cross-engine
+// parity test.
 func (a *Adapter) resolveActiveSync(reqSyncID string) string {
 	if reqSyncID != "" {
 		return reqSyncID
 	}
-	return a.currentSyncID()
+	if id := a.currentSyncID(); id != "" {
+		return id
+	}
+	if id, err := a.LatestFinishedSyncID(context.Background(), connectorstore.SyncTypeAny); err == nil && id != "" {
+		return id
+	}
+	return ""
 }
 
 // v2SyncTypeToV3 maps the connectorstore.SyncType string to the v3

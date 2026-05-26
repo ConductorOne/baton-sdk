@@ -281,6 +281,51 @@ func (a *Adapter) ListGrantsForEntitlement(
 	}.Build(), nil
 }
 
+// ListGrantsForPrincipal is the Go-level convenience method that
+// matches C1File.ListGrantsForPrincipal. It is NOT a gRPC RPC —
+// the explorer / cel-search consumers reach C1File directly today.
+// Adapter exposes the same shape for callers that take a typed
+// store (refactor to a shared interface is tracked separately).
+//
+// Semantically equivalent to ListGrantsForEntitlement(req) where
+// the request carries a principal filter — the underlying
+// PaginateGrantsByPrincipal index walk is what makes this O(K).
+func (a *Adapter) ListGrantsForPrincipal(
+	ctx context.Context,
+	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+	syncID := a.resolveActiveSyncForReader(req.GetAnnotations())
+	if syncID == "" {
+		return nil, ErrNoCurrentSync
+	}
+	principal := req.GetPrincipalId()
+	if principal == nil || principal.GetResource() == "" {
+		return nil, errors.New("ListGrantsForPrincipal: missing principal_id")
+	}
+	limit := clampPageSize(req.GetPageSize())
+	cursor := req.GetPageToken()
+	records, next, err := a.engine.PaginateGrantsByPrincipal(ctx, syncID,
+		principal.GetResourceType(), principal.GetResource(), cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*v2.Grant, 0, len(records))
+	for _, rec := range records {
+		// Optional entitlement filter — narrows the principal scan
+		// to a single entitlement when the caller passes one.
+		if ent := req.GetEntitlement(); ent != nil && ent.GetId() != "" {
+			if rec.GetEntitlement().GetEntitlementId() != ent.GetId() {
+				continue
+			}
+		}
+		out = append(out, V3GrantToV2(rec))
+	}
+	return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{
+		List:          out,
+		NextPageToken: next,
+	}.Build(), nil
+}
+
 // ListGrantsForResourceType paginates grants whose principal is of
 // the given resource_type_id, via idxGrantByPrincipalResourceType.
 // The cursor is the index key.
@@ -452,9 +497,19 @@ func v3SyncTypeToString(t v3.SyncType) string {
 }
 
 // resolveActiveSyncForReader resolves the sync_id for a read request.
-// Today the v2 reader requests don't carry an active_sync_id field, so
-// this is just the adapter's current sync; if/when annotations grow a
-// way to override the active sync, this is the place to plumb it.
+// Priority order matches the SQLite path's getConnectorObject:
+//  1. The adapter's current sync (set by StartNewSync / SetCurrentSync).
+//  2. The most recent finished sync (for queries against a closed file).
+//
+// Without (2) a Reader call after EndSync would return ErrNoCurrentSync
+// even though the data is right there on disk. SQLite already does this
+// fallback; the cross-engine parity test caught the divergence.
 func (a *Adapter) resolveActiveSyncForReader(_ []*anypb.Any) string {
-	return a.currentSyncID()
+	if id := a.currentSyncID(); id != "" {
+		return id
+	}
+	if id, err := a.LatestFinishedSyncID(context.Background(), connectorstore.SyncTypeAny); err == nil && id != "" {
+		return id
+	}
+	return ""
 }

@@ -55,6 +55,20 @@ func SyncStatsSidecarUpperBound() []byte {
 	return upperBoundOf(SyncStatsSidecarLowerBound())
 }
 
+// SyncStatsSidecarSyncLowerBound returns the lowest key in the
+// sidecar keyspace for a specific sync. The sidecar stores exactly
+// one record per sync_id; this single-key range is used by
+// CloneSync and the synccompactor bucket plan.
+func SyncStatsSidecarSyncLowerBound(syncIDBytes []byte) []byte {
+	return encodeSyncStatsKey(syncIDBytes)
+}
+
+// SyncStatsSidecarSyncUpperBound is the exclusive upper bound for
+// SyncStatsSidecarSyncLowerBound.
+func SyncStatsSidecarSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(SyncStatsSidecarSyncLowerBound(syncIDBytes))
+}
+
 // readSyncStats returns the persisted SyncStatsRecord for the named
 // sync, or (nil, nil) if no sidecar exists yet. Errors surface for
 // real read failures only.

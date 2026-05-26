@@ -608,6 +608,97 @@ func TestStreamingReaderPebble(t *testing.T) {
 	var _ connectorstore.StreamingReader = (*Adapter)(nil)
 }
 
+// TestListGrantsForPrincipalPebble covers the parity gap audit
+// found on 2026-05-26: C1File has ListGrantsForPrincipal but
+// Adapter didn't. Verifies the principal-scoped grant index walk
+// and the optional entitlement narrowing.
+func TestListGrantsForPrincipalPebble(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatal(err)
+	}
+	mkRes := func(rt, id string) *v2.Resource {
+		return v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: rt, Resource: id}.Build(),
+		}.Build()
+	}
+	appRes := mkRes("app", "gh")
+	if err := a.PutResources(ctx, appRes); err != nil {
+		t.Fatal(err)
+	}
+	entA := v2.Entitlement_builder{Id: "ent-A", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "A"}.Build()
+	entB := v2.Entitlement_builder{Id: "ent-B", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "B"}.Build()
+	if err := a.PutEntitlements(ctx, entA, entB); err != nil {
+		t.Fatal(err)
+	}
+	mkGrant := func(id, entID, princRT, princID string) *v2.Grant {
+		return v2.Grant_builder{
+			Id:          id,
+			Entitlement: v2.Entitlement_builder{Id: entID, Resource: appRes}.Build(),
+			Principal:   mkRes(princRT, princID),
+		}.Build()
+	}
+	if err := a.PutGrants(ctx,
+		mkGrant("g1", "ent-A", "user", "alice"),
+		mkGrant("g2", "ent-B", "user", "alice"),
+		mkGrant("g3", "ent-A", "user", "bob"),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("returns all grants for principal", func(t *testing.T) {
+		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+			PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+			PageSize:    100,
+		}.Build())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := len(resp.GetList()); got != 2 {
+			t.Errorf("len=%d, want 2", got)
+		}
+	})
+
+	t.Run("entitlement filter narrows", func(t *testing.T) {
+		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+			Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
+			PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+			PageSize:    100,
+		}.Build())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := len(resp.GetList()); got != 1 {
+			t.Errorf("filter len=%d, want 1", got)
+		}
+		if resp.GetList()[0].GetId() != "g1" {
+			t.Errorf("got %q, want g1", resp.GetList()[0].GetId())
+		}
+	})
+}
+
+// TestListStaticEntitlementsPebble is a parity smoke test for the
+// always-empty static-entitlements RPC. Both backends return an
+// empty list; this test guards against a future divergence.
+func TestListStaticEntitlementsPebble(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := a.ListStaticEntitlements(ctx, v2.EntitlementsServiceListStaticEntitlementsRequest_builder{}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(resp.GetList()); got != 0 {
+		t.Errorf("expected empty list, got %d", got)
+	}
+	if resp.GetNextPageToken() != "" {
+		t.Errorf("expected empty cursor, got %q", resp.GetNextPageToken())
+	}
+}
+
 func TestSyncsReaderMethods(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)

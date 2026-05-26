@@ -81,5 +81,10 @@ func buildBucketPlans(syncIDBytes []byte) []bucketPlan {
 			lower: enginepkg.SyncRunLowerBound(syncIDBytes),
 			upper: enginepkg.SyncRunUpperBound(syncIDBytes),
 		},
+		{
+			name:  "sync_stats_sidecar",
+			lower: enginepkg.SyncStatsSidecarSyncLowerBound(syncIDBytes),
+			upper: enginepkg.SyncStatsSidecarSyncUpperBound(syncIDBytes),
+		},
 	}
 }
