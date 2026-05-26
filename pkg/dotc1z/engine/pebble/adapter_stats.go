@@ -79,12 +79,25 @@ func (a *Adapter) Stats(ctx context.Context, syncType connectorstore.SyncType, s
 // GrantStats returns just the grant count, partitioned by entitlement
 // resource_type_id. Used by progresslog to show per-RT progress. Like
 // Stats, this is an exact count via iteration.
+//
+// syncType is validated against the sync_run's actual type to match
+// SQLite's C1File.GrantStats: SyncTypeAny accepts any sync; otherwise
+// we require the sync_run.Type to match exactly. A type mismatch
+// returns (nil, nil) — the syncer treats that as "nothing to show
+// for this view," same as the SQLite contract.
 func (a *Adapter) GrantStats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
 	if syncID == "" {
 		syncID = a.currentSyncID()
 	}
 	if syncID == "" {
 		return map[string]int64{}, nil
+	}
+	sr, err := a.engine.GetSyncRunRecord(ctx, syncID)
+	if err == nil && sr != nil {
+		if syncType != connectorstore.SyncTypeAny &&
+			syncType != connectorstore.SyncType(v3SyncTypeToString(sr.GetType())) {
+			return nil, nil
+		}
 	}
 	counts := map[string]int64{}
 	if err := a.engine.IterateGrantsBySync(ctx, syncID, func(rec *v3.GrantRecord) bool {

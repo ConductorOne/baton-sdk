@@ -15,6 +15,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // Adapter wraps an *Engine and implements connectorstore.Writer
@@ -525,9 +526,33 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
+	idBytes, err := codec.EncodeSyncID(syncID)
+	if err != nil {
+		return nil, err
+	}
 	limit := clampPageSize(req.GetPageSize())
 	cursor := req.GetPageToken()
 	rtFilter := req.GetResourceTypeId()
+	parent := req.GetParentResourceId()
+	useParent := parent != nil && parent.GetResource() != ""
+
+	// cursorFor returns the engine cursor for rec under the path
+	// this call is iterating — primary keyspace for the unfiltered
+	// case, by_parent index for the parent-scoped case. We need
+	// per-record cursors because a post-filter break at len(out) ==
+	// limit may leave matching records unconsumed in the engine
+	// page; emitting the engine's end-of-page cursor would skip
+	// them on the next call.
+	cursorFor := func(rec *v3.ResourceRecord) string {
+		if useParent {
+			return encodeCursor(encodeResourceByParentIndexKey(
+				idBytes,
+				parent.GetResourceType(), parent.GetResource(),
+				rec.GetResourceTypeId(), rec.GetResourceId(),
+			))
+		}
+		return encodeCursor(encodeResourceKey(idBytes, rec.GetResourceTypeId(), rec.GetResourceId()))
+	}
 
 	out := make([]*v2.Resource, 0, limit)
 	var nextCursor string
@@ -545,23 +570,32 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 		}
 		var records []*v3.ResourceRecord
 		var err error
-		if p := req.GetParentResourceId(); p != nil && p.GetResource() != "" {
+		if useParent {
 			records, nextCursor, err = a.engine.PaginateResourcesByParent(ctx, syncID,
-				p.GetResourceType(), p.GetResource(), cursor, fetchLimit)
+				parent.GetResourceType(), parent.GetResource(), cursor, fetchLimit)
 		} else {
 			records, nextCursor, err = a.engine.PaginateResourcesBySync(ctx, syncID, cursor, fetchLimit)
 		}
 		if err != nil {
 			return nil, err
 		}
+		brokeEarly := false
 		for _, rec := range records {
 			if rtFilter != "" && rec.GetResourceTypeId() != rtFilter {
 				continue
 			}
 			out = append(out, V3ResourceToV2(rec))
 			if len(out) == limit {
+				// Override the engine's end-of-page cursor with
+				// THIS record's cursor so the next page resumes
+				// strictly after this record.
+				nextCursor = cursorFor(rec)
+				brokeEarly = true
 				break
 			}
+		}
+		if brokeEarly {
+			break
 		}
 		if nextCursor == "" || len(records) == 0 {
 			break

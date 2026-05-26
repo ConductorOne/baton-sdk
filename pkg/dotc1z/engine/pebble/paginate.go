@@ -231,7 +231,7 @@ func (e *Engine) PaginateGrantsByEntitlement(
 			return nil, "", fmt.Errorf("paginate: get primary: %w", getErr)
 		}
 		r := &v3.GrantRecord{}
-		err = proto.Unmarshal(val, r)
+		err = unmarshalRecord(val, r)
 		closer.Close()
 		if err != nil {
 			return nil, "", err
@@ -300,7 +300,7 @@ func (e *Engine) PaginateGrantsByPrincipal(
 			return nil, "", fmt.Errorf("paginate: get primary: %w", getErr)
 		}
 		r := &v3.GrantRecord{}
-		err = proto.Unmarshal(val, r)
+		err = unmarshalRecord(val, r)
 		closer.Close()
 		if err != nil {
 			return nil, "", err
@@ -387,7 +387,7 @@ func (e *Engine) PaginateResourcesByParent(
 			return nil, "", fmt.Errorf("paginate: get primary: %w", getErr)
 		}
 		r := &v3.ResourceRecord{}
-		err = proto.Unmarshal(val, r)
+		err = unmarshalRecord(val, r)
 		closer.Close()
 		if err != nil {
 			return nil, "", err
@@ -490,7 +490,7 @@ func (e *Engine) PaginateEntitlementsByResource(
 			return nil, "", fmt.Errorf("paginate: get primary: %w", getErr)
 		}
 		r := &v3.EntitlementRecord{}
-		err = proto.Unmarshal(val, r)
+		err = unmarshalRecord(val, r)
 		closer.Close()
 		if err != nil {
 			return nil, "", err

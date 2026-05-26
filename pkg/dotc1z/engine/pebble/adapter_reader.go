@@ -6,13 +6,13 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // Reader gRPC service methods. The syncer (`pkg/sync/syncer.go`) and
@@ -95,6 +95,10 @@ func (a *Adapter) ListGrantsForEntitlement(
 	if ent == nil || ent.GetId() == "" {
 		return nil, errors.New("ListGrantsForEntitlement: missing entitlement id")
 	}
+	idBytes, err := codec.EncodeSyncID(syncID)
+	if err != nil {
+		return nil, err
+	}
 	limit := clampPageSize(req.GetPageSize())
 	cursor := req.GetPageToken()
 
@@ -105,6 +109,20 @@ func (a *Adapter) ListGrantsForEntitlement(
 	rtSet := make(map[string]struct{}, len(rtFilter))
 	for _, rt := range rtFilter {
 		rtSet[rt] = struct{}{}
+	}
+
+	// cursorFor returns the by_entitlement index key for rec —
+	// needed because a post-filter break at len(out) == limit may
+	// leave matching records unconsumed in the engine page, and
+	// the engine's end-of-page cursor would skip them.
+	cursorFor := func(rec *v3.GrantRecord) string {
+		p := rec.GetPrincipal()
+		return encodeCursor(encodeGrantByEntitlementIndexKey(
+			idBytes,
+			ent.GetId(),
+			p.GetResourceTypeId(), p.GetResourceId(),
+			rec.GetExternalId(),
+		))
 	}
 
 	out := make([]*v2.Grant, 0, limit)
@@ -123,6 +141,8 @@ func (a *Adapter) ListGrantsForEntitlement(
 		if err != nil {
 			return nil, err
 		}
+		nextCursor = next
+		brokeEarly := false
 		for _, rec := range records {
 			if principalID != nil {
 				p := rec.GetPrincipal()
@@ -138,10 +158,14 @@ func (a *Adapter) ListGrantsForEntitlement(
 			}
 			out = append(out, V3GrantToV2(rec))
 			if len(out) == limit {
+				nextCursor = cursorFor(rec)
+				brokeEarly = true
 				break
 			}
 		}
-		nextCursor = next
+		if brokeEarly {
+			break
+		}
 		if nextCursor == "" || len(records) == 0 {
 			break
 		}
@@ -173,8 +197,21 @@ func (a *Adapter) ListGrantsForResourceType(
 	if rtFilter == "" {
 		return nil, errors.New("ListGrantsForResourceType: missing resource_type_id")
 	}
+	idBytes, err := codec.EncodeSyncID(syncID)
+	if err != nil {
+		return nil, err
+	}
 	limit := clampPageSize(req.GetPageSize())
 	cursor := req.GetPageToken()
+
+	// cursorFor returns the grant primary key for rec — needed to
+	// resume after this record when len(out) == limit breaks the
+	// inner loop with matching records still unconsumed in the
+	// engine page.
+	cursorFor := func(rec *v3.GrantRecord) string {
+		return encodeCursor(encodeGrantKey(idBytes, rec.GetExternalId()))
+	}
+
 	out := make([]*v2.Grant, 0, limit)
 	var nextCursor string
 	for len(out) < limit {
@@ -189,16 +226,22 @@ func (a *Adapter) ListGrantsForResourceType(
 		if err != nil {
 			return nil, err
 		}
+		nextCursor = next
+		brokeEarly := false
 		for _, rec := range records {
 			if rec.GetPrincipal().GetResourceTypeId() != rtFilter {
 				continue
 			}
 			out = append(out, V3GrantToV2(rec))
 			if len(out) == limit {
+				nextCursor = cursorFor(rec)
+				brokeEarly = true
 				break
 			}
 		}
-		nextCursor = next
+		if brokeEarly {
+			break
+		}
 		if nextCursor == "" || len(records) == 0 {
 			break
 		}
@@ -257,7 +300,7 @@ func (a *Adapter) ListSyncs(ctx context.Context, req *reader_v2.SyncsReaderServi
 			break
 		}
 		r := &v3.SyncRunRecord{}
-		if err := proto.Unmarshal(iter.Value(), r); err != nil {
+		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return nil, err
 		}
 		lastKey = append(lastKey[:0], iter.Key()...)
