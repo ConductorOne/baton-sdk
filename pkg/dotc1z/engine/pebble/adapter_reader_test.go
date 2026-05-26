@@ -502,6 +502,112 @@ func TestListResourcesTraitFilterPebble(t *testing.T) {
 	})
 }
 
+// TestStreamingReaderPebble exercises iter.Seq2 streaming on the
+// Pebble adapter (RFC §B3).
+func TestStreamingReaderPebble(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mkRes := func(rt, id string) *v2.Resource {
+		return v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: rt, Resource: id}.Build(),
+		}.Build()
+	}
+	appRes := mkRes("app", "gh")
+	if err := a.PutResources(ctx, appRes); err != nil {
+		t.Fatal(err)
+	}
+	entA := v2.Entitlement_builder{Id: "ent-A", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "A"}.Build()
+	if err := a.PutEntitlements(ctx, entA); err != nil {
+		t.Fatal(err)
+	}
+	const userCount = 25
+	users := make([]*v2.Resource, userCount)
+	for i := 0; i < userCount; i++ {
+		users[i] = mkRes("user", "u"+strconv.Itoa(i))
+	}
+	if err := a.PutResources(ctx, users...); err != nil {
+		t.Fatal(err)
+	}
+	grants := make([]*v2.Grant, userCount)
+	for i := 0; i < userCount; i++ {
+		grants[i] = v2.Grant_builder{
+			Id:          "g-" + strconv.Itoa(i),
+			Entitlement: entA,
+			Principal:   mkRes("user", "u"+strconv.Itoa(i)),
+		}.Build()
+	}
+	if err := a.PutGrants(ctx, grants...); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("StreamGrants yields all", func(t *testing.T) {
+		seen := 0
+		for g, err := range a.StreamGrants(ctx, syncID, connectorstore.StreamGrantsOptions{}) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g == nil {
+				t.Fatal("nil grant")
+			}
+			seen++
+		}
+		if seen != userCount {
+			t.Errorf("seen=%d, want %d", seen, userCount)
+		}
+	})
+	t.Run("StreamResources RT filter", func(t *testing.T) {
+		seen := 0
+		for r, err := range a.StreamResources(ctx, syncID, connectorstore.StreamResourcesOptions{ResourceTypeID: "user"}) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.GetId().GetResourceType() != "user" {
+				t.Errorf("unexpected rt %q", r.GetId().GetResourceType())
+			}
+			seen++
+		}
+		if seen != userCount {
+			t.Errorf("seen=%d, want %d", seen, userCount)
+		}
+	})
+	t.Run("StreamEntitlements", func(t *testing.T) {
+		seen := 0
+		for e, err := range a.StreamEntitlements(ctx, syncID) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if e.GetId() != "ent-A" {
+				t.Errorf("got %q", e.GetId())
+			}
+			seen++
+		}
+		if seen != 1 {
+			t.Errorf("seen=%d, want 1", seen)
+		}
+	})
+	t.Run("early stop honored", func(t *testing.T) {
+		count := 0
+		for _, err := range a.StreamGrants(ctx, syncID, connectorstore.StreamGrantsOptions{}) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			count++
+			if count == 3 {
+				break
+			}
+		}
+		if count != 3 {
+			t.Errorf("count=%d, want 3", count)
+		}
+	})
+	// Compile-time check.
+	var _ connectorstore.StreamingReader = (*Adapter)(nil)
+}
+
 func TestSyncsReaderMethods(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
