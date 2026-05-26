@@ -185,7 +185,7 @@ Session: 4245.86 → 1251 ms at 1M grants = **-70.5% cumulative**.
 | `20a8ecdb` | L0CompactionThreshold 2→8 | -15.8% | Pure Pebble config tune. General-purpose. Single-line change. **Ship.** |
 | `e8729767` | Scratch byte buffers reused + `proto.MarshalAppend` | -5.6% | Standard alloc-reduction pattern. **Ship** (works with or without vtprotobuf). |
 | `47a1ec91` | Hoist `resolveSyncBytes` with last-value cache | -4.9% | Tiny patch. Per-record sync resolution is a no-op when the sync doesn't change (which is almost always). **Ship.** |
-| `63c0869b` | Split PutGrantRecords into two batches (primary + index) | -12.8% | Architectural — but it's a textbook "sort-friendly batch" optimization. **Ship** (no skipGet dependency in this commit). |
+| `63c0869b` | Split PutGrantRecords into two batches (primary + index) | -12.8% | Architectural — textbook "sort-friendly batch" optimization. **Ship + generalize** (see §3a.1 below). |
 | `b1a1700c` | Skip read-before-write Get during first PutGrantRecords of a fresh sync | -14.5% | **Caveat below.** Restores the original `MarkFreshSync` design that we backed out in our PR's mutation-safety fix. The autoresearch agent argued for re-enabling on the grounds that "within a single call, db.Get won't see batch writes anyway". |
 | `99c76cd2` | Parallel-build PutGrantRecords for skipGet path with len>=256 | -8.8% | Depends on `b1a1700c`. Concurrent build of priBatch and idxBatch. **Ship if `b1a1700c` ships.** |
 | `de099547` | 4-way shard the priBatch build | -7.9% | Builds on `99c76cd2`. **Ship if both above ship.** |
@@ -196,6 +196,61 @@ Session: 4245.86 → 1251 ms at 1M grants = **-70.5% cumulative**.
 | `d919128b` | `grantTranslateArena` for V2→V3 translation | -4.8% | Allocs -99.3% (3M→22K). Big alloc win for GC. **Ship.** |
 | `d4b7e292` | Parallelize V2→V3 translation with 4 shard workers | -2.6% | Plain old "split the loop". Threshold of 1024 keeps small calls serial. **Ship.** |
 | `4995f17e` | Async tmpdir cleanup in `registeredStore.Close` | **-5.1%** | Spawns `os.RemoveAll` in a goroutine. **Two caveats (v2):** (1) `writegrant_solo` regressed +19% — amortized at production scale, but matters in unit-test cold-start. (2) The diff **silently drops `RemoveAll` errors** (was `errors.Join(retErr, removeErr)`, becomes `_ = os.RemoveAll(...)`). For production deployments, this masks disk-full / EACCES on tmpdir — symptoms surface later as orphan dirs. **Iterate:** keep the async cleanup but capture errors into a debug counter (Pebble engine has an event listener slot) so they're surfaceable in metrics. |
+
+#### §3a.1 — Generalize the split-batches pattern to Resources + Entitlements
+
+The autoresearch commit `63c0869b` only touched PutGrantRecords.
+The same pattern applies to two other indexed record types:
+
+| Record | PK | Indexes | Split benefit |
+|---|---|---|---|
+| Grant | `(sync_id, ext_id)` | `by_entitlement`, `by_principal` | ✅ original commit. -12.8% at 1M. |
+| Resource | `(sync_id, rt_id, res_id)` | `by_parent` | ✅ Connectors typically emit clustered by RT; PK arrives near-sorted, idx interleaves. |
+| Entitlement | `(sync_id, ext_id)` | `by_resource` | ✅ Same shape as Grant. |
+| ResourceType | `(sync_id, ext_id)` | none | ❌ Single batch already optimal. |
+| Asset | `(sync_id, ext_id)` | none | ❌ Same. |
+| SyncRun | `(sync_id,)` | none | ❌ Same. |
+
+**Practical magnitude:** grants are typically 1M+ per sync; resources
+and entitlements are 1k–100k. The split's absolute win shrinks with
+N. At 1k entitlements the sort short-circuit saves <1 ms. Worth
+generalizing for pattern consistency, not for the perf delta in
+isolation.
+
+**Design — `writeWithSplitBatches` helper.** Extract from `grants.go`
+into a new shared helper used by Grant, Resource, Entitlement writes:
+
+```go
+// pkg/dotc1z/engine/pebble/split_batch.go (new in S3)
+type splitBatchEncoder[R any] struct {
+    encodePrimary func(b *pebble.Batch, idBytes []byte, r R) error
+    encodeIndexes func(b *pebble.Batch, idBytes []byte, r R) error
+    marshal       func(r R) ([]byte, error)  // or use vtMarshaler interface
+}
+func writeWithSplitBatches[R any](
+    e *Engine, ctx context.Context, records []R,
+    enc splitBatchEncoder[R],
+) error { /* shared: read-before-write, dedup, build pri+idx, commit-each */ }
+```
+
+**Three-regime dispatch** (records count → strategy):
+
+| Records | Strategy |
+|---:|---|
+| < 32 | Single batch, no split. Sort-promotion isn't a win at this scale; the overhead of the second batch's flushable-batch promotion costs more than it saves. |
+| 32 – 1024 | Split into pri + idx batches, serial build, two sequential commits. Captures the sort-promotion win without the goroutine overhead. |
+| ≥ 1024 | Split + parallel build (per `99c76cd2`/`de099547`) + parallel idx sort+merge (per `a864d686`). The full machinery. |
+
+Resources and entitlements rarely hit the ≥1024 regime in practice;
+they share the helper but exercise the smaller regimes most of the
+time. The shared helper means future record-type indexes inherit
+the optimization automatically.
+
+**LOC budget after generalization:** ~250 LOC total for
+`split_batch.go` (helper + 3-regime dispatch + tests). PutGrants/
+PutResources/PutEntitlements each shrink to ~40 LOC of glue
+(encoders + the call). Net code-size change: roughly flat vs the
+current per-method implementations, with much less duplication.
 
 #### Mutation-safety re-validation needed for `b1a1700c` / `99c76cd2` / `de099547`
 
