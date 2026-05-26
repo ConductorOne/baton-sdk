@@ -171,7 +171,7 @@ func runOneFullSync(b *testing.B, engine string, nUsers, nGroups, membershipsPer
 	}
 	elapsed := time.Since(start)
 
-	fi, statErr := os.Stat(c1zPath) //nolint:gosec // path is from b.TempDir() — bench-controlled.
+	fi, statErr := os.Stat(c1zPath)
 	var size int64
 	if statErr == nil {
 		size = fi.Size()
