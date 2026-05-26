@@ -124,8 +124,8 @@ func encodeGrantByNeedsExpansionIndexKey(syncIDBytes []byte, externalID string) 
 	return buf
 }
 
-// encodeGrantByNeedsExpansionPrefix returns the prefix for "all
-// grants in this sync that still need expansion processing."
+// encodeGrantByNeedsExpansionPrefix returns the prefix for all
+// grants in this sync that still need expansion processing.
 func encodeGrantByNeedsExpansionPrefix(syncIDBytes []byte) []byte {
 	buf := make([]byte, 0, 3+len(syncIDBytes))
 	buf = append(buf, versionV3, typeIndex, idxGrantByNeedsExpansion)
