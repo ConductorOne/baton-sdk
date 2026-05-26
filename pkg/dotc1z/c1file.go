@@ -810,6 +810,27 @@ func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, sy
 	}
 	syncType = connectorstore.SyncType(sync.GetSyncType())
 
+	// Fast path: read the sidecar populated at endSyncRun. Sidecar
+	// is one indexed Get vs the legacy fallback's COUNT(*) +
+	// GROUP BY scans. Missing-row → fall through to legacy aggregate.
+	if cached, cerr := c.readCachedSyncStats(ctx, syncId); cerr == nil && cached != nil {
+		out := map[string]int64{
+			"resource_types": cached.resourceTypes,
+			"entitlements":   cached.entitlements,
+			"grants":         cached.grants,
+		}
+		for rt, n := range cached.resourcesByResourceType {
+			out[rt] = n
+		}
+		// The legacy Stats path omits "entitlements"/"grants" on
+		// ResourcesOnly syncs; mirror that.
+		if syncType == connectorstore.SyncTypeResourcesOnly {
+			delete(out, "entitlements")
+			delete(out, "grants")
+		}
+		return out, nil
+	}
+
 	counts["resource_types"] = 0
 
 	var rtStats []*v2.ResourceType
@@ -1062,6 +1083,16 @@ func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncTyp
 	// grants exist for it in this sync.
 	for _, rt := range allResourceTypes {
 		stats[rt.GetId()] = 0
+	}
+
+	// Fast path: cached sync_stats row.
+	if cached, cerr := c.readCachedSyncStats(ctx, syncId); cerr == nil && cached != nil {
+		for rt, n := range cached.grantsByEntitlementResourceType {
+			if _, known := stats[rt]; known {
+				stats[rt] = n
+			}
+		}
+		return stats, nil
 	}
 
 	grantCounts, err := c.countBySyncAndResourceType(ctx, grants.Name(), syncId)

@@ -99,6 +99,10 @@ func cloneSync(
 		{GrantByPrincipalSyncLowerBound(syncIDBytes), GrantByPrincipalSyncUpperBound(syncIDBytes)},
 		{GrantByNeedsExpansionSyncLowerBound(syncIDBytes), GrantByNeedsExpansionSyncUpperBound(syncIDBytes)},
 		{encodeAssetPrefix(syncIDBytes), upperBoundOf(encodeAssetPrefix(syncIDBytes))},
+		// Stats sidecar — single key per sync; copyRange's [lo, hi)
+		// shape requires a half-open range, so we synthesize one
+		// that contains exactly this sync's stats key.
+		{encodeSyncStatsKey(syncIDBytes), upperBoundOf(encodeSyncStatsKey(syncIDBytes))},
 	}
 	for _, r := range ranges {
 		if err := copyRange(ctx, a.engine.DB(), dest.DB(), r[0], r[1]); err != nil {

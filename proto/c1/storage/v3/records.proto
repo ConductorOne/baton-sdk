@@ -165,3 +165,26 @@ message SyncRunRecord {
   string                    sync_token      = 6;
   bool                      supports_diff   = 7;
 }
+
+// SyncStatsRecord is the engine-internal sidecar populated at
+// EndFreshSync so Stats() and GrantStats() are O(1) reads instead
+// of O(N) range scans. Stored under the engine-meta keyspace at
+// (typeEngineMeta | "stats" | sync_id_bytes), not in the c1z record
+// namespace — readers consume it via the SDK's Stats() RPC and
+// never see the proto directly.
+message SyncStatsRecord {
+  string                    sync_id                              = 1;
+  int64                     resource_types                       = 2;
+  int64                     resources                            = 3;
+  int64                     entitlements                         = 4;
+  int64                     grants                               = 5;
+  int64                     assets                               = 6;
+  // Per-resource-type counts: keyed by resource_type_id.
+  map<string, int64>        resources_by_resource_type           = 7;
+  // Per-entitlement-resource-type grant counts (drives GrantStats).
+  // The "resource_type" here is the entitlement's resource-type
+  // (matching the SQLite grants table's resource_type_id column
+  // semantic, NOT the principal's resource type).
+  map<string, int64>        grants_by_entitlement_resource_type  = 8;
+  google.protobuf.Timestamp written_at                           = 100;
+}

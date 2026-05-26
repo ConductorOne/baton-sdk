@@ -1430,3 +1430,148 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = SyncRunRecordValidationError{}
+
+// Validate checks the field values on SyncStatsRecord with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *SyncStatsRecord) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on SyncStatsRecord with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// SyncStatsRecordMultiError, or nil if none found.
+func (m *SyncStatsRecord) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *SyncStatsRecord) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for SyncId
+
+	// no validation rules for ResourceTypes
+
+	// no validation rules for Resources
+
+	// no validation rules for Entitlements
+
+	// no validation rules for Grants
+
+	// no validation rules for Assets
+
+	// no validation rules for ResourcesByResourceType
+
+	// no validation rules for GrantsByEntitlementResourceType
+
+	if all {
+		switch v := interface{}(m.GetWrittenAt()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, SyncStatsRecordValidationError{
+					field:  "WrittenAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, SyncStatsRecordValidationError{
+					field:  "WrittenAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetWrittenAt()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return SyncStatsRecordValidationError{
+				field:  "WrittenAt",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return SyncStatsRecordMultiError(errors)
+	}
+
+	return nil
+}
+
+// SyncStatsRecordMultiError is an error wrapping multiple validation errors
+// returned by SyncStatsRecord.ValidateAll() if the designated constraints
+// aren't met.
+type SyncStatsRecordMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m SyncStatsRecordMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m SyncStatsRecordMultiError) AllErrors() []error { return m }
+
+// SyncStatsRecordValidationError is the validation error returned by
+// SyncStatsRecord.Validate if the designated constraints aren't met.
+type SyncStatsRecordValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e SyncStatsRecordValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e SyncStatsRecordValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e SyncStatsRecordValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e SyncStatsRecordValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e SyncStatsRecordValidationError) ErrorName() string { return "SyncStatsRecordValidationError" }
+
+// Error satisfies the builtin error interface
+func (e SyncStatsRecordValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sSyncStatsRecord.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = SyncStatsRecordValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = SyncStatsRecordValidationError{}

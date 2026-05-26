@@ -210,6 +210,17 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	if err := a.engine.PutSyncRunRecord(ctx, updated); err != nil {
 		return err
 	}
+	// Populate the stats sidecar BEFORE the durability flush. Stats
+	// is engine-meta keyspace; the EndFreshSync flush below covers
+	// the WAL fsync for both the sync_run record and the stats key.
+	// Failures here are logged but non-fatal — Stats() falls back
+	// to legacy iteration on a missing sidecar, and the on-Open
+	// migration framework will backfill next time the file opens.
+	if err := a.engine.PersistSyncStats(ctx, existing.GetSyncId()); err != nil {
+		// Don't fail the sync end on stats-sidecar trouble; legacy
+		// path still works.
+		_ = err
+	}
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After
 	// this returns, all writes from the sync are on disk.

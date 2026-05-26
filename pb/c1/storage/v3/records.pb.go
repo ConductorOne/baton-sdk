@@ -1283,6 +1283,202 @@ func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
 	return m0
 }
 
+// SyncStatsRecord is the engine-internal sidecar populated at
+// EndFreshSync so Stats() and GrantStats() are O(1) reads instead
+// of O(N) range scans. Stored under the engine-meta keyspace at
+// (typeEngineMeta | "stats" | sync_id_bytes), not in the c1z record
+// namespace — readers consume it via the SDK's Stats() RPC and
+// never see the proto directly.
+type SyncStatsRecord struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	SyncId        string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
+	ResourceTypes int64                  `protobuf:"varint,2,opt,name=resource_types,json=resourceTypes,proto3" json:"resource_types,omitempty"`
+	Resources     int64                  `protobuf:"varint,3,opt,name=resources,proto3" json:"resources,omitempty"`
+	Entitlements  int64                  `protobuf:"varint,4,opt,name=entitlements,proto3" json:"entitlements,omitempty"`
+	Grants        int64                  `protobuf:"varint,5,opt,name=grants,proto3" json:"grants,omitempty"`
+	Assets        int64                  `protobuf:"varint,6,opt,name=assets,proto3" json:"assets,omitempty"`
+	// Per-resource-type counts: keyed by resource_type_id.
+	ResourcesByResourceType map[string]int64 `protobuf:"bytes,7,rep,name=resources_by_resource_type,json=resourcesByResourceType,proto3" json:"resources_by_resource_type,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	// Per-entitlement-resource-type grant counts (drives GrantStats).
+	// The "resource_type" here is the entitlement's resource-type
+	// (matching the SQLite grants table's resource_type_id column
+	// semantic, NOT the principal's resource type).
+	GrantsByEntitlementResourceType map[string]int64       `protobuf:"bytes,8,rep,name=grants_by_entitlement_resource_type,json=grantsByEntitlementResourceType,proto3" json:"grants_by_entitlement_resource_type,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	WrittenAt                       *timestamppb.Timestamp `protobuf:"bytes,100,opt,name=written_at,json=writtenAt,proto3" json:"written_at,omitempty"`
+	unknownFields                   protoimpl.UnknownFields
+	sizeCache                       protoimpl.SizeCache
+}
+
+func (x *SyncStatsRecord) Reset() {
+	*x = SyncStatsRecord{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncStatsRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncStatsRecord) ProtoMessage() {}
+
+func (x *SyncStatsRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *SyncStatsRecord) GetSyncId() string {
+	if x != nil {
+		return x.SyncId
+	}
+	return ""
+}
+
+func (x *SyncStatsRecord) GetResourceTypes() int64 {
+	if x != nil {
+		return x.ResourceTypes
+	}
+	return 0
+}
+
+func (x *SyncStatsRecord) GetResources() int64 {
+	if x != nil {
+		return x.Resources
+	}
+	return 0
+}
+
+func (x *SyncStatsRecord) GetEntitlements() int64 {
+	if x != nil {
+		return x.Entitlements
+	}
+	return 0
+}
+
+func (x *SyncStatsRecord) GetGrants() int64 {
+	if x != nil {
+		return x.Grants
+	}
+	return 0
+}
+
+func (x *SyncStatsRecord) GetAssets() int64 {
+	if x != nil {
+		return x.Assets
+	}
+	return 0
+}
+
+func (x *SyncStatsRecord) GetResourcesByResourceType() map[string]int64 {
+	if x != nil {
+		return x.ResourcesByResourceType
+	}
+	return nil
+}
+
+func (x *SyncStatsRecord) GetGrantsByEntitlementResourceType() map[string]int64 {
+	if x != nil {
+		return x.GrantsByEntitlementResourceType
+	}
+	return nil
+}
+
+func (x *SyncStatsRecord) GetWrittenAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.WrittenAt
+	}
+	return nil
+}
+
+func (x *SyncStatsRecord) SetSyncId(v string) {
+	x.SyncId = v
+}
+
+func (x *SyncStatsRecord) SetResourceTypes(v int64) {
+	x.ResourceTypes = v
+}
+
+func (x *SyncStatsRecord) SetResources(v int64) {
+	x.Resources = v
+}
+
+func (x *SyncStatsRecord) SetEntitlements(v int64) {
+	x.Entitlements = v
+}
+
+func (x *SyncStatsRecord) SetGrants(v int64) {
+	x.Grants = v
+}
+
+func (x *SyncStatsRecord) SetAssets(v int64) {
+	x.Assets = v
+}
+
+func (x *SyncStatsRecord) SetResourcesByResourceType(v map[string]int64) {
+	x.ResourcesByResourceType = v
+}
+
+func (x *SyncStatsRecord) SetGrantsByEntitlementResourceType(v map[string]int64) {
+	x.GrantsByEntitlementResourceType = v
+}
+
+func (x *SyncStatsRecord) SetWrittenAt(v *timestamppb.Timestamp) {
+	x.WrittenAt = v
+}
+
+func (x *SyncStatsRecord) HasWrittenAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.WrittenAt != nil
+}
+
+func (x *SyncStatsRecord) ClearWrittenAt() {
+	x.WrittenAt = nil
+}
+
+type SyncStatsRecord_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	SyncId        string
+	ResourceTypes int64
+	Resources     int64
+	Entitlements  int64
+	Grants        int64
+	Assets        int64
+	// Per-resource-type counts: keyed by resource_type_id.
+	ResourcesByResourceType map[string]int64
+	// Per-entitlement-resource-type grant counts (drives GrantStats).
+	// The "resource_type" here is the entitlement's resource-type
+	// (matching the SQLite grants table's resource_type_id column
+	// semantic, NOT the principal's resource type).
+	GrantsByEntitlementResourceType map[string]int64
+	WrittenAt                       *timestamppb.Timestamp
+}
+
+func (b0 SyncStatsRecord_builder) Build() *SyncStatsRecord {
+	m0 := &SyncStatsRecord{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.SyncId = b.SyncId
+	x.ResourceTypes = b.ResourceTypes
+	x.Resources = b.Resources
+	x.Entitlements = b.Entitlements
+	x.Grants = b.Grants
+	x.Assets = b.Assets
+	x.ResourcesByResourceType = b.ResourcesByResourceType
+	x.GrantsByEntitlementResourceType = b.GrantsByEntitlementResourceType
+	x.WrittenAt = b.WrittenAt
+	return m0
+}
+
 var File_c1_storage_v3_records_proto protoreflect.FileDescriptor
 
 const file_c1_storage_v3_records_proto_rawDesc = "" +
@@ -1367,7 +1563,24 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\n" +
 	"sync_token\x18\x06 \x01(\tR\tsyncToken\x12#\n" +
 	"\rsupports_diff\x18\a \x01(\bR\fsupportsDiff:\x18\x82\xf9+\x14\n" +
-	"\tsync_runs\x12\async_id*\xae\x01\n" +
+	"\tsync_runs\x12\async_id\"\xac\x05\n" +
+	"\x0fSyncStatsRecord\x12\x17\n" +
+	"\async_id\x18\x01 \x01(\tR\x06syncId\x12%\n" +
+	"\x0eresource_types\x18\x02 \x01(\x03R\rresourceTypes\x12\x1c\n" +
+	"\tresources\x18\x03 \x01(\x03R\tresources\x12\"\n" +
+	"\fentitlements\x18\x04 \x01(\x03R\fentitlements\x12\x16\n" +
+	"\x06grants\x18\x05 \x01(\x03R\x06grants\x12\x16\n" +
+	"\x06assets\x18\x06 \x01(\x03R\x06assets\x12x\n" +
+	"\x1aresources_by_resource_type\x18\a \x03(\v2;.c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntryR\x17resourcesByResourceType\x12\x91\x01\n" +
+	"#grants_by_entitlement_resource_type\x18\b \x03(\v2C.c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntryR\x1fgrantsByEntitlementResourceType\x129\n" +
+	"\n" +
+	"written_at\x18d \x01(\v2\x1a.google.protobuf.TimestampR\twrittenAt\x1aJ\n" +
+	"\x1cResourcesByResourceTypeEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aR\n" +
+	"$GrantsByEntitlementResourceTypeEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01*\xae\x01\n" +
 	"\bSyncType\x12\x19\n" +
 	"\x15SYNC_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSYNC_TYPE_FULL\x10\x01\x12\x15\n" +
@@ -1377,7 +1590,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
 var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_c1_storage_v3_records_proto_goTypes = []any{
 	(SyncType)(0),                 // 0: c1.storage.v3.SyncType
 	(*GrantExpandableRecord)(nil), // 1: c1.storage.v3.GrantExpandableRecord
@@ -1388,38 +1601,44 @@ var file_c1_storage_v3_records_proto_goTypes = []any{
 	(*GrantRecord)(nil),           // 6: c1.storage.v3.GrantRecord
 	(*AssetRecord)(nil),           // 7: c1.storage.v3.AssetRecord
 	(*SyncRunRecord)(nil),         // 8: c1.storage.v3.SyncRunRecord
-	nil,                           // 9: c1.storage.v3.GrantRecord.SourcesEntry
-	(*anypb.Any)(nil),             // 10: google.protobuf.Any
-	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
-	(*ResourceRef)(nil),           // 12: c1.storage.v3.ResourceRef
-	(*EntitlementRef)(nil),        // 13: c1.storage.v3.EntitlementRef
-	(*PrincipalRef)(nil),          // 14: c1.storage.v3.PrincipalRef
+	(*SyncStatsRecord)(nil),       // 9: c1.storage.v3.SyncStatsRecord
+	nil,                           // 10: c1.storage.v3.GrantRecord.SourcesEntry
+	nil,                           // 11: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	nil,                           // 12: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	(*anypb.Any)(nil),             // 13: google.protobuf.Any
+	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
+	(*ResourceRef)(nil),           // 15: c1.storage.v3.ResourceRef
+	(*EntitlementRef)(nil),        // 16: c1.storage.v3.EntitlementRef
+	(*PrincipalRef)(nil),          // 17: c1.storage.v3.PrincipalRef
 }
 var file_c1_storage_v3_records_proto_depIdxs = []int32{
-	10, // 0: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
-	11, // 1: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	12, // 2: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
-	10, // 3: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
-	11, // 4: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	12, // 5: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
-	10, // 6: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
-	11, // 7: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	13, // 8: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
-	14, // 9: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
-	11, // 10: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	13, // 0: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
+	14, // 1: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	15, // 2: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
+	13, // 3: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
+	14, // 4: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	15, // 5: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
+	13, // 6: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
+	14, // 7: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	16, // 8: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
+	17, // 9: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
+	14, // 10: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	1,  // 11: c1.storage.v3.GrantRecord.expansion:type_name -> c1.storage.v3.GrantExpandableRecord
-	10, // 12: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
-	9,  // 13: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
-	11, // 14: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	13, // 12: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
+	10, // 13: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
+	14, // 14: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	0,  // 15: c1.storage.v3.SyncRunRecord.type:type_name -> c1.storage.v3.SyncType
-	11, // 16: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
-	11, // 17: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
-	2,  // 18: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
-	19, // [19:19] is the sub-list for method output_type
-	19, // [19:19] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	14, // 16: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
+	14, // 17: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
+	11, // 18: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	12, // 19: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	14, // 20: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
+	2,  // 21: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
+	22, // [22:22] is the sub-list for method output_type
+	22, // [22:22] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_c1_storage_v3_records_proto_init() }
@@ -1435,7 +1654,7 @@ func file_c1_storage_v3_records_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_storage_v3_records_proto_rawDesc), len(file_c1_storage_v3_records_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   9,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

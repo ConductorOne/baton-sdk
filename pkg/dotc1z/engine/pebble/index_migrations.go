@@ -69,6 +69,11 @@ var indexMigrations = []indexMigration{
 		Version: 1,
 		Apply:   backfillGrantNeedsExpansion,
 	},
+	{
+		Name:    "sync_stats_sidecar",
+		Version: 1,
+		Apply:   backfillSyncStatsSidecar,
+	},
 }
 
 // applyIndexMigrations runs on engine Open (writable opens only —
@@ -204,6 +209,25 @@ func backfillGrantNeedsExpansion(ctx context.Context, e *Engine) error {
 // migrationBatchKeys caps per-batch memory during backfill. The
 // same chunking constant as CloneSync's copyRange.
 const migrationBatchKeys = 10_000
+
+// backfillSyncStatsSidecar walks every sync and writes the
+// (typeEngineMeta | "stats" | sync_id) sidecar record for it.
+// Idempotent: PersistSyncStats overwrites any existing key.
+func backfillSyncStatsSidecar(ctx context.Context, e *Engine) error {
+	syncIDs, err := collectSyncIDs(ctx, e)
+	if err != nil {
+		return err
+	}
+	for _, syncID := range syncIDs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := e.PersistSyncStats(ctx, syncID); err != nil {
+			return fmt.Errorf("backfill stats for sync %q: %w", syncID, err)
+		}
+	}
+	return nil
+}
 
 // collectSyncIDs returns every sync_id present in the engine.
 // Used by migrations that need to walk every primary-record range.

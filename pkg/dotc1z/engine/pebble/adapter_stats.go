@@ -35,6 +35,22 @@ func (a *Adapter) Stats(ctx context.Context, syncType connectorstore.SyncType, s
 		}
 	}
 
+	// Fast path: read the sidecar populated at EndFreshSync. Sidecar
+	// is one LSM Get vs the legacy fallback's O(N) iteration. Sync
+	// types that haven't run through the sidecar writer (Partial /
+	// Incremental that bypass EndFreshSync) fall through to the
+	// legacy path below.
+	if stats, err := a.engine.readSyncStats(ctx, syncID); err == nil && stats != nil {
+		return statsRecordToMap(stats), nil
+	}
+
+	return a.statsFromIteration(ctx, syncID)
+}
+
+// statsFromIteration is the legacy O(N) path retained as the
+// sidecar fallback. Used by older c1z files that predate the
+// sidecar and by sync types that don't go through EndFreshSync.
+func (a *Adapter) statsFromIteration(ctx context.Context, syncID string) (map[string]int64, error) {
 	counts := map[string]int64{
 		"resource_types": 0,
 		"resources":      0,
@@ -49,8 +65,9 @@ func (a *Adapter) Stats(ctx context.Context, syncType connectorstore.SyncType, s
 	}); err != nil {
 		return nil, err
 	}
-	if err := a.engine.IterateResourcesBySync(ctx, syncID, func(*v3.ResourceRecord) bool {
+	if err := a.engine.IterateResourcesBySync(ctx, syncID, func(r *v3.ResourceRecord) bool {
 		counts["resources"]++
+		counts[r.GetResourceTypeId()]++
 		return true
 	}); err != nil {
 		return nil, err
@@ -76,6 +93,25 @@ func (a *Adapter) Stats(ctx context.Context, syncType connectorstore.SyncType, s
 	return counts, nil
 }
 
+// statsRecordToMap renders a sidecar SyncStatsRecord into the
+// map[string]int64 shape Stats() returns. Includes both the
+// aggregate keys (resource_types, resources, entitlements, grants,
+// assets) and the per-resource-type counts the SQLite Stats() path
+// also surfaces.
+func statsRecordToMap(s *v3.SyncStatsRecord) map[string]int64 {
+	out := map[string]int64{
+		"resource_types": s.GetResourceTypes(),
+		"resources":      s.GetResources(),
+		"entitlements":   s.GetEntitlements(),
+		"grants":         s.GetGrants(),
+		"assets":         s.GetAssets(),
+	}
+	for rt, n := range s.GetResourcesByResourceType() {
+		out[rt] = n
+	}
+	return out
+}
+
 // GrantStats returns just the grant count, partitioned by entitlement
 // resource_type_id. Used by progresslog to show per-RT progress. Like
 // Stats, this is an exact count via iteration.
@@ -99,8 +135,20 @@ func (a *Adapter) GrantStats(ctx context.Context, syncType connectorstore.SyncTy
 			return nil, nil
 		}
 	}
+	// Fast path: sidecar.
+	if stats, err := a.engine.readSyncStats(ctx, syncID); err == nil && stats != nil {
+		out := make(map[string]int64, len(stats.GetGrantsByEntitlementResourceType()))
+		for rt, n := range stats.GetGrantsByEntitlementResourceType() {
+			out[rt] = n
+		}
+		return out, nil
+	}
+	// Fallback: iterate.
 	counts := map[string]int64{}
 	if err := a.engine.IterateGrantsBySync(ctx, syncID, func(rec *v3.GrantRecord) bool {
+		// Match SQLite's `resource_type_id` column semantic on
+		// the grants table — that's the *entitlement's*
+		// resource type, not the principal's.
 		rt := rec.GetEntitlement().GetResourceTypeId()
 		counts[rt]++
 		return true

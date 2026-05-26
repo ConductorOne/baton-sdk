@@ -38,6 +38,7 @@ var allTableDescriptors = []tableDescriptor{
 	grants,
 	assets,
 	sessionStore,
+	syncStatsTable, // populated at endSyncRun; sidecar for Stats() / GrantStats() O(1) reads
 }
 
 type tableDescriptor interface {

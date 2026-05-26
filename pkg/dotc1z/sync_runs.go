@@ -713,6 +713,14 @@ func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 	}
 	c.dbUpdated = true
 
+	// Populate the stats sidecar so future Stats() / GrantStats()
+	// calls are O(1) reads instead of O(N) COUNT/GROUP BY queries.
+	// Failures are non-fatal: Stats() falls back to the legacy
+	// aggregate path when the row is missing.
+	if statsErr := c.upsertSyncStats(ctx, syncID); statsErr != nil {
+		_ = statsErr // intentional: legacy path still works
+	}
+
 	return nil
 }
 

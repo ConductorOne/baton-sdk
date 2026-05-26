@@ -90,14 +90,11 @@ func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.S
 	return syncRunRecordToExported(best), nil
 }
 
-// Stats returns a map of record-type → row count for the named sync
-// (or the latest sync of the given type if syncID is empty). Today
-// the Pebble engine doesn't maintain per-table counters; rather
-// than walk every record-type bucket on every Stats call (expensive
-// at production scale) we return an empty map. Callers in pkg/sync
-// treat Stats as informational and tolerate an empty result.
+// Stats returns a map of record-type → row count for the named sync.
+// Delegates to Adapter.Stats, which reads the EndFreshSync stats
+// sidecar (O(1)) when present and falls back to iteration when not.
 func (s pebbleSyncMeta) Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
-	return map[string]int64{}, nil
+	return s.a.Stats(ctx, syncType, syncID)
 }
 
 // syncRunRecordToExported translates the Pebble v3.SyncRunRecord
