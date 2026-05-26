@@ -150,6 +150,13 @@ func (e *Expander) IsDone(ctx context.Context) bool {
 
 const maxPrefetchPages = 10000
 
+// ErrPrefetchPageCapExceeded means the prefetch hit maxPrefetchPages without
+// reaching the last page. Returning a partial map is unsafe — runAction would
+// see the missing principals as "no existing descendant grant" and emit a
+// fresh grant instead of merging sources, producing duplicate grants with
+// wrong source attribution. Caller should surface this rather than continue.
+var ErrPrefetchPageCapExceeded = errors.New("descendant-grant prefetch exceeded maxPrefetchPages cap")
+
 func descendantGrantKey(resourceTypeID, resourceID string) string {
 	return resourceTypeID + "\x00" + resourceID
 }
@@ -180,10 +187,11 @@ func prefetchDescendantGrants(
 		}
 		pageToken = resp.GetNextPageToken()
 		if pageToken == "" {
-			break
+			return result, nil
 		}
 	}
-	return result, nil
+	return nil, fmt.Errorf("prefetchDescendantGrants: %w (entitlement=%s, pages=%d)",
+		ErrPrefetchPageCapExceeded, entitlement.GetId(), maxPrefetchPages)
 }
 
 // runAction processes a single action and returns the next page token.

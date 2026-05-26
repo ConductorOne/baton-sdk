@@ -454,3 +454,37 @@ func TestExpanderMixedDirectness(t *testing.T) {
 	require.Contains(t, sourcesC, entB.GetId())
 	require.False(t, sourcesC[entB.GetId()].GetIsDirect(), "source B should be transitive")
 }
+
+// pageCapStubStore always returns a non-empty NextPageToken so the prefetch
+// loop never terminates naturally. Used to exercise the maxPrefetchPages cap.
+type pageCapStubStore struct {
+	MockExpanderStore
+	calls int
+}
+
+func (s *pageCapStubStore) ListGrantsForEntitlement(
+	_ context.Context,
+	_ *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+	s.calls++
+	return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{
+		List:          []*v2.Grant{},
+		NextPageToken: "more",
+	}.Build(), nil
+}
+
+// TestPrefetchDescendantGrants_PageCapExceeded locks in that the prefetch
+// errors instead of returning a partial map when maxPrefetchPages is hit.
+// A silently truncated map would cause runAction to emit duplicate grants
+// with wrong source attribution for any principal whose grants landed on a
+// dropped page (see comment on ErrPrefetchPageCapExceeded).
+func TestPrefetchDescendantGrants_PageCapExceeded(t *testing.T) {
+	store := &pageCapStubStore{MockExpanderStore: *NewMockExpanderStore()}
+	ent := v2.Entitlement_builder{Id: "entitlement:1"}.Build()
+
+	result, err := prefetchDescendantGrants(context.Background(), store, ent)
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrPrefetchPageCapExceeded)
+	require.Equal(t, maxPrefetchPages, store.calls, "loop must iterate exactly the cap before erroring")
+}
