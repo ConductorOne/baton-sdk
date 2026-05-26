@@ -139,7 +139,10 @@ func (c *C1File) ListGrantsForEntitlements(
 		}
 	}
 
-	q = q.Order(goqu.C("entitlement_id").Asc(), goqu.C("id").Asc()).Limit(uint(limit + 1))
+	if limit < 0 {
+		limit = 0
+	}
+	q = q.Order(goqu.C("entitlement_id").Asc(), goqu.C("id").Asc()).Limit(uint(limit + 1)) //nolint:gosec // bounds-checked above
 
 	query, args, err := q.ToSQL()
 	if err != nil {
@@ -169,11 +172,7 @@ func (c *C1File) ListGrantsForEntitlements(
 		princRIDRaw  sql.RawBytes
 		lastRowID    int64
 		lastEntID    string
-		nextEntID    string
-		nextRowID    int64
 		haveOverflow bool
-		_            = nextEntID
-		_            = nextRowID
 	)
 	for rows.Next() {
 		if err := rows.Scan(&rowID, &data, &entIDRaw, &rtIDRaw, &ridRaw, &princRTIDRaw, &princRIDRaw); err != nil {
@@ -182,8 +181,6 @@ func (c *C1File) ListGrantsForEntitlements(
 		entID := string(entIDRaw)
 		if len(out) == limit {
 			haveOverflow = true
-			nextEntID = entID
-			nextRowID = rowID
 			break
 		}
 		g := &v2.Grant{}
@@ -239,9 +236,12 @@ func entitlementListChecksum(ents []*v2.Entitlement) uint32 {
 }
 
 func encodeBatchCursor(idx int, intra string, checksum uint32) string {
+	if idx < 0 {
+		idx = 0
+	}
 	buf := make([]byte, 0, 16+len(intra))
 	var v [binary.MaxVarintLen64]byte
-	n := binary.PutUvarint(v[:], uint64(idx))
+	n := binary.PutUvarint(v[:], uint64(idx)) //nolint:gosec // bounds-checked above
 	buf = append(buf, v[:n]...)
 	intraBytes := []byte(intra)
 	n = binary.PutUvarint(v[:], uint64(len(intraBytes)))
@@ -281,6 +281,10 @@ func decodeBatchCursor(token string, currentChecksum uint32) (int, string, error
 		// Caller changed the entitlement set between pages —
 		// restart from the beginning rather than mis-paginate.
 		return 0, "", nil
+	}
+	const maxInt = int(^uint(0) >> 1)
+	if idxU > uint64(maxInt) {
+		return 0, "", errors.New("ListGrantsForEntitlements: cursor index out of range")
 	}
 	return int(idxU), intra, nil
 }

@@ -82,6 +82,8 @@ func (a *Adapter) GetResourceType(ctx context.Context, req *reader_v2.ResourceTy
 // ListResourcesByIds returns all resources matching the supplied
 // (resource_type_id, resource_id) pairs. Missing rows are silently
 // omitted. Callers detect partial misses by length comparison.
+//
+//nolint:revive // method name mirrors the protobuf-generated gRPC server interface
 func (a *Adapter) ListResourcesByIds(
 	ctx context.Context,
 	req *reader_v2.ResourcesReaderServiceListResourcesByIdsRequest,
@@ -115,6 +117,8 @@ func (a *Adapter) ListResourcesByIds(
 
 // ListEntitlementsByIds returns entitlements for the requested
 // external_ids. Missing rows are silently omitted.
+//
+//nolint:revive // method name mirrors the protobuf-generated gRPC server interface
 func (a *Adapter) ListEntitlementsByIds(
 	ctx context.Context,
 	req *reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest,

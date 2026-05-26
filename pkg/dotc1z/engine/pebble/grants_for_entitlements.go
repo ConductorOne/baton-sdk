@@ -171,7 +171,10 @@ func entitlementListChecksum(ents []*v2.Entitlement) uint32 {
 func encodeBatchCursor(idx int, intra string, listChecksum uint32) string {
 	buf := make([]byte, 0, 16+len(intra))
 	var v [binary.MaxVarintLen64]byte
-	n := binary.PutUvarint(v[:], uint64(idx))
+	if idx < 0 {
+		idx = 0
+	}
+	n := binary.PutUvarint(v[:], uint64(idx)) //nolint:gosec // bounds-checked above
 	buf = append(buf, v[:n]...)
 	intraBytes := []byte(intra)
 	n = binary.PutUvarint(v[:], uint64(len(intraBytes)))
@@ -215,6 +218,10 @@ func decodeBatchCursor(token string, currentChecksum uint32) (int, string, error
 		// Caller changed the entitlement set between pages. Don't
 		// silently mis-paginate — restart from the beginning.
 		return 0, "", nil
+	}
+	const maxInt = int(^uint(0) >> 1)
+	if idxU > uint64(maxInt) {
+		return 0, "", errors.New("ListGrantsForEntitlements: cursor index out of range")
 	}
 	return int(idxU), intra, nil
 }

@@ -24,6 +24,8 @@ const inClauseChunkSize = 500
 // ListEntitlementsByIds returns the entitlements for the requested
 // ids in any order. Missing rows are silently omitted; callers
 // detect partial misses by length / id comparison.
+//
+//nolint:revive // method name mirrors the protobuf-generated gRPC server interface
 func (c *C1File) ListEntitlementsByIds(
 	ctx context.Context,
 	req *reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest,
@@ -89,6 +91,8 @@ func (c *C1File) GetResourceTypes(
 // ListResourcesByIds returns the resources for the supplied
 // ResourceId pairs (resource_type:resource composite externals).
 // Missing rows are silently omitted.
+//
+//nolint:revive // method name mirrors the protobuf-generated gRPC server interface
 func (c *C1File) ListResourcesByIds(
 	ctx context.Context,
 	req *reader_v2.ResourcesReaderServiceListResourcesByIdsRequest,

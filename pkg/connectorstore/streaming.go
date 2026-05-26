@@ -37,7 +37,7 @@ type StreamingReader interface {
 }
 
 // StreamGrantsOptions narrows the stream to a single entitlement
-// and/or principal. Empty fields mean "no filter."
+// and/or principal. Empty fields mean no filter.
 type StreamGrantsOptions struct {
 	EntitlementID         string
 	PrincipalResourceType string
