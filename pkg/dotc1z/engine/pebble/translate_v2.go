@@ -3,6 +3,8 @@ package pebble
 import (
 	"strings"
 
+	"google.golang.org/protobuf/types/known/anypb"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
@@ -22,18 +24,79 @@ import (
 // V2GrantToV3 produces a v3.GrantRecord from a v2.Grant. The caller
 // supplies sync_id since v2.Grant has no sync_id field (the connector
 // writes are scoped to the engine's current sync).
+//
+// The GrantExpandable annotation (if any) is extracted into the
+// dedicated Expansion field and stripped from Annotations, and
+// NeedsExpansion is set to true. This matches the SQLite path
+// (extractAndStripExpansion in pkg/dotc1z/grants.go). Without
+// this extraction the grant expansion pipeline silently no-ops on
+// Pebble — idxGrantByNeedsExpansion stays empty and PendingExpansion
+// returns no grants.
 func V2GrantToV3(syncID string, g *v2.Grant) *v3.GrantRecord {
 	if g == nil {
 		return nil
 	}
+	expansion, annotations := extractV2Expansion(g.GetAnnotations())
 	return v3.GrantRecord_builder{
-		SyncId:      syncID,
-		ExternalId:  g.GetId(),
-		Entitlement: entitlementToRef(g.GetEntitlement()),
-		Principal:   resourceToPrincipalRef(g.GetPrincipal()),
-		Annotations: g.GetAnnotations(),
-		Sources:     v2GrantSourcesToV3(g.GetSources()),
+		SyncId:         syncID,
+		ExternalId:     g.GetId(),
+		Entitlement:    entitlementToRef(g.GetEntitlement()),
+		Principal:      resourceToPrincipalRef(g.GetPrincipal()),
+		Annotations:    annotations,
+		Sources:        v2GrantSourcesToV3(g.GetSources()),
+		Expansion:      expansion,
+		NeedsExpansion: expansion != nil,
 	}.Build()
+}
+
+// extractV2Expansion pulls the GrantExpandable annotation out of the
+// annotation list (if present) and returns it as a v3
+// GrantExpandableRecord plus the filtered annotation list. Returns
+// (nil, original) when no GrantExpandable annotation exists or the
+// payload has no usable entitlement_ids — matches the SQLite
+// extractAndStripExpansion contract.
+func extractV2Expansion(anns []*anypb.Any) (*v3.GrantExpandableRecord, []*anypb.Any) {
+	if len(anns) == 0 {
+		return nil, anns
+	}
+	out := make([]*anypb.Any, 0, len(anns))
+	var found *v2.GrantExpandable
+	for _, a := range anns {
+		if a == nil {
+			out = append(out, a)
+			continue
+		}
+		if a.MessageIs((*v2.GrantExpandable)(nil)) && found == nil {
+			candidate := &v2.GrantExpandable{}
+			if err := a.UnmarshalTo(candidate); err == nil {
+				found = candidate
+				continue
+			}
+		}
+		out = append(out, a)
+	}
+	if found == nil {
+		return nil, anns
+	}
+	// Mirror SQLite: only treat as expandable when there's at
+	// least one non-whitespace entitlement id. Otherwise the
+	// annotation is still stripped but no expansion payload is
+	// recorded.
+	hasValid := false
+	for _, id := range found.GetEntitlementIds() {
+		if strings.TrimSpace(id) != "" {
+			hasValid = true
+			break
+		}
+	}
+	if !hasValid {
+		return nil, out
+	}
+	return v3.GrantExpandableRecord_builder{
+		EntitlementIds:  found.GetEntitlementIds(),
+		Shallow:         found.GetShallow(),
+		ResourceTypeIds: found.GetResourceTypeIds(),
+	}.Build(), out
 }
 
 // V3GrantToV2 hydrates a v2.Grant from a v3.GrantRecord. The output
@@ -43,15 +106,32 @@ func V2GrantToV3(syncID string, g *v2.Grant) *v3.GrantRecord {
 //
 // This stub-hydration approach matches the v3 design where references
 // are identity-only.
+//
+// The expansion payload stored in the dedicated Expansion field is
+// re-attached to the v2.Grant's Annotations list so downstream
+// callers (the syncer's expander, ListWithAnnotations consumers)
+// see the GrantExpandable annotation that V2GrantToV3 stripped at
+// write time. Matches the SQLite read path.
 func V3GrantToV2(r *v3.GrantRecord) *v2.Grant {
 	if r == nil {
 		return nil
+	}
+	anns := r.GetAnnotations()
+	if exp := r.GetExpansion(); exp != nil {
+		annotation := v2.GrantExpandable_builder{
+			EntitlementIds:  exp.GetEntitlementIds(),
+			Shallow:         exp.GetShallow(),
+			ResourceTypeIds: exp.GetResourceTypeIds(),
+		}.Build()
+		if a, err := anypb.New(annotation); err == nil {
+			anns = append(anns, a)
+		}
 	}
 	return v2.Grant_builder{
 		Id:          r.GetExternalId(),
 		Entitlement: entitlementRefToStub(r.GetEntitlement()),
 		Principal:   principalRefToStubResource(r.GetPrincipal()),
-		Annotations: r.GetAnnotations(),
+		Annotations: anns,
 		Sources:     v3GrantSourcesToV2(r.GetSources()),
 	}.Build()
 }
@@ -149,8 +229,13 @@ func (a *grantTranslateArena) translateV2Grant(syncID string, g *v2.Grant) *v3.G
 	if princRef != nil {
 		rec.SetPrincipal(princRef)
 	}
-	if ann := g.GetAnnotations(); len(ann) > 0 {
-		rec.SetAnnotations(ann)
+	expansion, anns := extractV2Expansion(g.GetAnnotations())
+	if len(anns) > 0 {
+		rec.SetAnnotations(anns)
+	}
+	if expansion != nil {
+		rec.SetExpansion(expansion)
+		rec.SetNeedsExpansion(true)
 	}
 	if src := v2GrantSourcesToV3(g.GetSources()); src != nil {
 		rec.SetSources(src)
