@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// SourceCacheCapability lets a connector opt into source-row replay.
+//
+// Source-cache replay is request/page scoped. A connector computes a stable
+// source scope for an upstream request, asks SyncOpAttrs.SourceCache for the
+// previous ETag for that scope, and sends If-None-Match upstream when a
+// previous entry exists.
+message SourceCacheCapability {
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    MODE_DISABLED = 1;
+    MODE_READ_WRITE = 2;
+  }
+  Mode mode = 1;
+}
+
+// SourceCacheEntry is returned on successful upstream fetches that produced
+// rows from a cacheable source scope.
+//
+// The SDK stores this key on every produced source row and records one manifest
+// entry for the scope so future syncs can look up the previous ETag before
+// making the upstream request.
+message SourceCacheEntry {
+  string key = 1;
+}
+
+// SourceCacheReplayRequest is returned when the connector made a conditional
+// upstream request and the upstream returned "not modified" (for example HTTP
+// 304). The SDK uses key to bulk-copy rows from the previous source-cache
+// reference into the current sync.
+message SourceCacheReplayRequest {
+  string key = 1;
+}

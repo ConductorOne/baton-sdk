@@ -7,7 +7,9 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"google.golang.org/grpc/codes"
@@ -62,6 +64,29 @@ type ResourceSyncerV2Limited interface {
 
 type StaticEntitlementSyncerV2 interface {
 	StaticEntitlements(ctx context.Context, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error)
+}
+
+func (b *builder) syncOpAttrs(activeSyncID string, token pagination.Token) resource.SyncOpAttrs {
+	var session sessions.SessionStore
+	if b.sessionStore != nil {
+		session = WithSyncId(b.sessionStore, activeSyncID)
+	}
+	// b.sourceCache is set by WithSourceCache. In subprocess mode the SDK
+	// wires this to a gRPC client talking to BatonSourceCacheService on the
+	// parent (see pkg/config/config.go RunConnector). In in-process mode it
+	// is the syncer's own Lookup. When nothing has been wired we hand the
+	// connector NoopLookup so the call site doesn't need a nil check; this
+	// is the same behavior as "no previous sync available".
+	lookup := b.sourceCache
+	if lookup == nil {
+		lookup = sourcecache.NoopLookup{}
+	}
+	return resource.SyncOpAttrs{
+		SyncID:      activeSyncID,
+		PageToken:   token,
+		Session:     session,
+		SourceCache: lookup,
+	}
 }
 
 // ResourceTargetedSyncer extends ResourceSyncer to add capabilities for directly syncing an individual resource
@@ -129,7 +154,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
 	}
-	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId())}
+	opts := b.syncOpAttrs(request.GetActiveSyncId(), token)
 	out, retOptions, err := rb.List(ctx, request.GetParentResourceId(), opts)
 	if retOptions == nil {
 		retOptions = &resource.SyncOpResults{}
@@ -217,7 +242,7 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
 	}
-	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId())}
+	opts := b.syncOpAttrs(request.GetActiveSyncId(), token)
 	out, retOptions, err := rbse.StaticEntitlements(ctx, opts)
 	if retOptions == nil {
 		retOptions = &resource.SyncOpResults{}
@@ -265,7 +290,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
 	}
-	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId())}
+	opts := b.syncOpAttrs(request.GetActiveSyncId(), token)
 	out, retOptions, err := rb.Entitlements(ctx, request.GetResource(), opts)
 	if retOptions == nil {
 		retOptions = &resource.SyncOpResults{}
@@ -322,7 +347,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
 	}
-	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId())}
+	opts := b.syncOpAttrs(request.GetActiveSyncId(), token)
 	out, retOptions, err := rb.Grants(ctx, request.GetResource(), opts)
 	if retOptions == nil {
 		retOptions = &resource.SyncOpResults{}

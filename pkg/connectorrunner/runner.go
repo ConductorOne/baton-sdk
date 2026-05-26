@@ -424,6 +424,7 @@ type runnerConfig struct {
 	workerCount                           int
 	targetedSyncResourceIDs               []string
 	externalResourceC1Z                   string
+	sourceCacheC1Z                        string
 	externalResourceEntitlementIdFilter   string
 	skipEntitlementsAndGrants             bool
 	skipGrants                            bool
@@ -748,6 +749,20 @@ func WithExternalResourceC1Z(externalResourceC1Z string) Option {
 	}
 }
 
+func WithSourceCacheC1Z(sourceCacheC1Z string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.sourceCacheC1Z = sourceCacheC1Z
+		if sourceCacheC1Z != "" {
+			// Source-cache lookup for subprocess connectors reuses the
+			// session-store gRPC side channel as a transport adapter. This is
+			// transport-only; connector-facing source cache remains explicit on
+			// SyncOpAttrs.SourceCache.
+			cfg.sessionStoreEnabled = true
+		}
+		return nil
+	}
+}
+
 func WithExternalResourceEntitlementFilter(entitlementId string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.externalResourceEntitlementIdFilter = entitlementId
@@ -1003,6 +1018,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath,
 				local.WithTmpDir(cfg.tempDir),
 				local.WithExternalResourceC1Z(cfg.externalResourceC1Z),
+				local.WithSourceCacheC1Z(cfg.sourceCacheC1Z),
 				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
 				local.WithTargetedSyncResources(resources),
 				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
@@ -1033,6 +1049,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		cfg.tempDir,
 		cfg.skipFullSync,
 		cfg.externalResourceC1Z,
+		cfg.sourceCacheC1Z,
 		cfg.externalResourceEntitlementIdFilter,
 		resources,
 		cfg.syncResourceTypeIDs,

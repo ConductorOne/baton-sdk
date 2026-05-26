@@ -15,10 +15,11 @@ import (
 // wrapper structs satisfy each sub-interface. These assertions catch
 // signature drift at build time rather than at the first runtime call.
 var (
-	_ C1ZStore   = (*C1File)(nil)
-	_ GrantStore = c1FileGrantStore{}
-	_ SyncMeta   = c1FileSyncMeta{}
-	_ FileOps    = c1FileFileOps{}
+	_ C1ZStore         = (*C1File)(nil)
+	_ GrantStore       = c1FileGrantStore{}
+	_ SyncMeta         = c1FileSyncMeta{}
+	_ FileOps          = c1FileFileOps{}
+	_ SourceCacheStore = c1FileSourceCache{}
 )
 
 // Grants returns the grant-store slice of this c1z.
@@ -26,6 +27,9 @@ func (c *C1File) Grants() GrantStore { return c1FileGrantStore{c} }
 
 // SyncMeta returns the sync-metadata slice of this c1z.
 func (c *C1File) SyncMeta() SyncMeta { return c1FileSyncMeta{c} }
+
+// SourceCache returns the source-cache slice of this c1z.
+func (c *C1File) SourceCache() SourceCacheStore { return c1FileSourceCache{c} }
 
 // FileOps returns the file-operations slice of this c1z.
 func (c *C1File) FileOps() FileOps { return c1FileFileOps{c} }

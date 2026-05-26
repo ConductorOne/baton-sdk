@@ -36,6 +36,7 @@ var allTableDescriptors = []tableDescriptor{
 	entitlements,
 	syncRuns, // Must be before grants since grants migration joins sync_runs.
 	grants,
+	sourceCacheEntries,
 	assets,
 	sessionStore,
 }
@@ -299,7 +300,10 @@ var protoMarshaler = proto.MarshalOptions{Deterministic: true}
 
 // prepareSingleConnectorObjectRow processes a single message and returns the prepared record.
 func prepareSingleConnectorObjectRow[T proto.Message](
-	c *C1File,
+	ctx context.Context,
+	syncID string,
+	includeSourceCacheKey bool,
+	sourceCacheKey string,
 	msg T,
 	extractFields func(m T) (goqu.Record, error),
 ) (*goqu.Record, error) {
@@ -330,8 +334,11 @@ func prepareSingleConnectorObjectRow[T proto.Message](
 		}
 		fields["data"] = messageBlob
 	}
-	fields["sync_id"] = c.currentSyncID
+	fields["sync_id"] = syncID
 	fields["discovered_at"] = time.Now().Format("2006-01-02 15:04:05.999999999")
+	if _, sourceCacheKeySet := fields["source_cache_key"]; includeSourceCacheKey && !sourceCacheKeySet {
+		fields["source_cache_key"] = sourceCacheKey
+	}
 
 	return &fields, nil
 }
@@ -339,12 +346,15 @@ func prepareSingleConnectorObjectRow[T proto.Message](
 // prepareConnectorObjectRowsSerial prepares rows sequentially for bulk insertion.
 func prepareConnectorObjectRowsSerial[T proto.Message](
 	c *C1File,
+	ctx context.Context,
+	includeSourceCacheKey bool,
+	sourceCacheKey string,
 	msgs []T,
 	extractFields func(m T) (goqu.Record, error),
 ) ([]*goqu.Record, error) {
 	rows := make([]*goqu.Record, len(msgs))
 	for i, m := range msgs {
-		row, err := prepareSingleConnectorObjectRow(c, m, extractFields)
+		row, err := prepareSingleConnectorObjectRow(ctx, c.currentSyncID, includeSourceCacheKey, sourceCacheKey, m, extractFields)
 		if err != nil {
 			return nil, err
 		}
@@ -357,6 +367,9 @@ func prepareConnectorObjectRowsSerial[T proto.Message](
 // For batches smaller than bulkPutParallelThreshold, it falls back to sequential processing.
 func prepareConnectorObjectRowsParallel[T proto.Message](
 	c *C1File,
+	ctx context.Context,
+	includeSourceCacheKey bool,
+	sourceCacheKey string,
 	msgs []T,
 	extractFields func(m T) (goqu.Record, error),
 ) ([]*goqu.Record, error) {
@@ -423,6 +436,9 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 				}
 				fields["sync_id"] = syncID
 				fields["discovered_at"] = discoveredAt
+				if _, sourceCacheKeySet := fields["source_cache_key"]; includeSourceCacheKey && !sourceCacheKeySet {
+					fields["source_cache_key"] = sourceCacheKey
+				}
 				rows[i] = &fields
 			}
 		}(start, end, w)
@@ -444,13 +460,17 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 // It uses parallel processing if the row count is greater than bulkPutParallelThreshold.
 func prepareConnectorObjectRows[T proto.Message](
 	c *C1File,
+	ctx context.Context,
+	tableName string,
+	sourceCacheKey string,
 	msgs []T,
 	extractFields func(m T) (goqu.Record, error),
 ) ([]*goqu.Record, error) {
+	includeSourceCacheKey := sourceCacheTableHasRowColumn(ctx, c, tableName)
 	if len(msgs) > bulkPutParallelThreshold {
-		return prepareConnectorObjectRowsParallel(c, msgs, extractFields)
+		return prepareConnectorObjectRowsParallel(c, ctx, includeSourceCacheKey, sourceCacheKey, msgs, extractFields)
 	}
-	return prepareConnectorObjectRowsSerial(c, msgs, extractFields)
+	return prepareConnectorObjectRowsSerial(c, ctx, includeSourceCacheKey, sourceCacheKey, msgs, extractFields)
 }
 
 // executeChunkedInsert executes the insert query in chunks.
@@ -467,6 +487,9 @@ func executeChunkedInsert(
 		chunks++
 	}
 
+	if c.db == nil {
+		return ErrDbNotOpen
+	}
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -521,6 +544,16 @@ func bulkPutConnectorObject[T proto.Message](
 	extractFields func(m T) (goqu.Record, error),
 	msgs ...T,
 ) error {
+	return bulkPutConnectorObjectWithSourceCacheKey(ctx, c, tableName, "", extractFields, msgs...)
+}
+
+func bulkPutConnectorObjectWithSourceCacheKey[T proto.Message](
+	ctx context.Context, c *C1File,
+	tableName string,
+	sourceCacheKey string,
+	extractFields func(m T) (goqu.Record, error),
+	msgs ...T,
+) error {
 	if len(msgs) == 0 {
 		return nil
 	}
@@ -534,15 +567,20 @@ func bulkPutConnectorObject[T proto.Message](
 	}
 
 	// Prepare rows
-	rows, err := prepareConnectorObjectRows(c, msgs, extractFields)
+	includeSourceCacheKey := sourceCacheTableHasRowColumn(ctx, c, tableName)
+	rows, err := prepareConnectorObjectRows(c, ctx, tableName, sourceCacheKey, msgs, extractFields)
 	if err != nil {
 		return err
 	}
 
 	// Define query building function
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
+		updateRecord := goqu.Record{"data": goqu.I("EXCLUDED.data")}
+		if includeSourceCacheKey {
+			updateRecord["source_cache_key"] = goqu.I("EXCLUDED.source_cache_key")
+		}
 		return insertDs.
-			OnConflict(goqu.DoUpdate("external_id, sync_id", goqu.C("data").Set(goqu.I("EXCLUDED.data")))).
+			OnConflict(goqu.DoUpdate("external_id, sync_id", updateRecord)).
 			Rows(chunkedRows).
 			Prepared(true), nil
 	}
@@ -570,19 +608,23 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 	}
 
 	// Prepare rows
-	rows, err := prepareConnectorObjectRows(c, msgs, extractFields)
+	includeSourceCacheKey := sourceCacheTableHasRowColumn(ctx, c, tableName)
+	rows, err := prepareConnectorObjectRows(c, ctx, tableName, "", msgs, extractFields)
 	if err != nil {
 		return err
 	}
 
 	// Define query building function
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
+		updateRecord := goqu.Record{
+			"data":          goqu.I("EXCLUDED.data"),
+			"discovered_at": goqu.I("EXCLUDED.discovered_at"),
+		}
+		if includeSourceCacheKey {
+			updateRecord["source_cache_key"] = goqu.I("EXCLUDED.source_cache_key")
+		}
 		return insertDs.
-			OnConflict(goqu.DoUpdate("external_id, sync_id",
-				goqu.Record{
-					"data":          goqu.I("EXCLUDED.data"),
-					"discovered_at": goqu.I("EXCLUDED.discovered_at"),
-				}).Where(
+			OnConflict(goqu.DoUpdate("external_id, sync_id", updateRecord).Where(
 				goqu.L("EXCLUDED.discovered_at > ?.discovered_at", goqu.I(tableName)),
 			)).
 			Rows(chunkedRows).

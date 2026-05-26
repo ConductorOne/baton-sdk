@@ -16,6 +16,7 @@ import (
 //
 //   - Grant operations with expansion-aware semantics, accessed via Grants().
 //   - Sync-run metadata operations, accessed via SyncMeta().
+//   - Source-cache lookup/replay operations, accessed via SourceCache().
 //   - File-level operations (clone, diff), accessed via FileOps().
 //
 // *C1File is the sole implementation.
@@ -31,6 +32,9 @@ type C1ZStore interface {
 
 	// SyncMeta returns the sync-run metadata sub-store.
 	SyncMeta() SyncMeta
+
+	// SourceCache returns the source-cache lookup/replay sub-store.
+	SourceCache() SourceCacheStore
 
 	// FileOps returns the file-level operations sub-store.
 	FileOps() FileOps

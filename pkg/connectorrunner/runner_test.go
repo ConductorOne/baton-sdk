@@ -101,6 +101,12 @@ func TestRun_TaskConcurrencyCapsProcessing(t *testing.T) {
 	}
 }
 
+func TestWithSourceCacheC1ZEnablesSessionStoreTransport(t *testing.T) {
+	enabled, err := IsSessionStoreEnabled(context.Background(), WithSourceCacheC1Z("previous.c1z"))
+	require.NoError(t, err)
+	require.True(t, enabled)
+}
+
 func waitForStartedTasks(t *testing.T, started <-chan struct{}, count int) {
 	t.Helper()
 	for range count {

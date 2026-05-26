@@ -11,6 +11,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/field"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/spf13/cobra"
@@ -20,7 +21,14 @@ import (
 )
 
 type RunTimeOpts struct {
-	SessionStore        sessions.SessionStore
+	SessionStore sessions.SessionStore
+	// SourceCacheLookup is the connector-facing Lookup that returns the
+	// previous sync's etag for a given (rowKind, scope_hash). In subprocess
+	// mode this is a gRPC client to the parent SDK's BatonSourceCacheService;
+	// in in-process mode it can be a direct Lookup. Connectors should pass
+	// this to connectorbuilder.WithSourceCache(...) so the framework's
+	// SyncOpAttrs.SourceCache is populated for every per-resource-type sync.
+	SourceCacheLookup   sourcecache.Lookup
 	TokenSource         oauth2.TokenSource
 	SelectedAuthMethod  string
 	SyncResourceTypeIDs []string

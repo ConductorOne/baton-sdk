@@ -33,7 +33,8 @@ create table if not exists %s (
     needs_expansion integer not null default 0, -- 1 if grant should be processed during expansion.
     data blob not null,
     sync_id text not null,
-    discovered_at datetime not null
+    discovered_at datetime not null,
+    source_cache_key text not null default ''
 );
 create index if not exists %s on %s (resource_type_id, resource_id);
 create index if not exists %s on %s (principal_resource_type_id, principal_resource_id);
@@ -127,7 +128,12 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) (bool, 
 		return false, err
 	}
 
-	return backfilled, nil
+	sourceCacheMigrated, err := sourceCacheColumnMigration(ctx, db, r.Name(), fmt.Sprintf("idx_grants_sync_source_cache_key_v%s", r.Version()))
+	if err != nil {
+		return false, err
+	}
+
+	return backfilled || sourceCacheMigrated, nil
 }
 
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
@@ -457,6 +463,17 @@ func (c *C1File) upsertGrants(ctx context.Context, opts grantUpsertOptions, bulk
 	return nil
 }
 
+func (c *C1File) upsertGrantsWithSourceCacheKey(ctx context.Context, sourceCacheKey string, bulkGrants ...*v2.Grant) error {
+	if c.readOnly {
+		return ErrReadOnly
+	}
+	if err := upsertGrantsInternalWithSourceCacheKey(ctx, c, grantUpsertModeReplace, sourceCacheKey, bulkGrants...); err != nil {
+		return err
+	}
+	c.dbUpdated = true
+	return nil
+}
+
 func baseGrantRecord(grant *v2.Grant) goqu.Record {
 	return goqu.Record{
 		"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
@@ -495,9 +512,15 @@ func unsafeForSlim(grant *v2.Grant) bool {
 	return annos.ContainsAny(unsafeForSlimSentinels...)
 }
 
-func grantExtractFields(c *C1File, mode grantUpsertMode) func(grant *v2.Grant) (goqu.Record, error) {
+func grantExtractFields(c *C1File, mode grantUpsertMode, includeSourceCacheKey bool, sourceCacheKey string) func(grant *v2.Grant) (goqu.Record, error) {
+	if mode == grantUpsertModePreserveExpansion {
+		sourceCacheKey = ""
+	}
 	return func(grant *v2.Grant) (goqu.Record, error) {
 		rec := baseGrantRecord(grant)
+		if includeSourceCacheKey {
+			rec["source_cache_key"] = sourceCacheKey
+		}
 		isUnsafe := unsafeForSlim(grant)
 		slim := c.v2GrantsWriter && !isUnsafe
 		// No request ctx threaded through prepareConnectorObjectRows.
@@ -577,6 +600,16 @@ func upsertGrantsInternal(
 	mode grantUpsertMode,
 	msgs ...*v2.Grant,
 ) error {
+	return upsertGrantsInternalWithSourceCacheKey(ctx, c, mode, "", msgs...)
+}
+
+func upsertGrantsInternalWithSourceCacheKey(
+	ctx context.Context,
+	c *C1File,
+	mode grantUpsertMode,
+	sourceCacheKey string,
+	msgs ...*v2.Grant,
+) error {
 	if len(msgs) == 0 {
 		return nil
 	}
@@ -588,7 +621,8 @@ func upsertGrantsInternal(
 		return err
 	}
 
-	rows, err := prepareConnectorObjectRows(c, msgs, grantExtractFields(c, mode))
+	includeSourceCacheKey := sourceCacheTableHasRowColumn(ctx, c, grants.Name())
+	rows, err := prepareConnectorObjectRows(c, ctx, grants.Name(), sourceCacheKey, msgs, grantExtractFields(c, mode, includeSourceCacheKey, sourceCacheKey))
 	if err != nil {
 		return err
 	}
@@ -856,6 +890,7 @@ func executeGrantChunkedUpsert(
 	mode grantUpsertMode,
 ) error {
 	tableName := grants.Name()
+	includeSourceCacheKey := sourceCacheTableHasRowColumn(ctx, c, tableName)
 	// Expansion column update logic built conditionally in Go so the query planner
 	// sees simple expressions instead of parameterized CASE branches.
 	var expansionExpr goqu.Expression
@@ -885,6 +920,9 @@ func executeGrantChunkedUpsert(
 			"data":            goqu.I("EXCLUDED.data"),
 			"expansion":       expansionExpr,
 			"needs_expansion": needsExpansionExpr,
+		}
+		if includeSourceCacheKey {
+			update["source_cache_key"] = goqu.I("EXCLUDED.source_cache_key")
 		}
 		if mode == grantUpsertModeIfNewer {
 			update["discovered_at"] = goqu.I("EXCLUDED.discovered_at")

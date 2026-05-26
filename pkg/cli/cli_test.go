@@ -24,6 +24,16 @@ func setupCommand(t *testing.T, schema field.Configuration, v *viper.Viper) *cob
 	return cmd
 }
 
+func TestDefaultFieldsIncludeSourceCacheC1ZFlag(t *testing.T) {
+	cmd := &cobra.Command{Use: "test"}
+	err := SetFlagsAndConstraints(cmd, field.Configuration{Fields: field.DefaultFields})
+	require.NoError(t, err)
+
+	flag := cmd.PersistentFlags().Lookup("source-cache-c1z")
+	require.NotNil(t, flag)
+	require.Contains(t, flag.Usage, "The path to a previous c1z file to use for source cache lookup and replay")
+}
+
 func writeYAML(t *testing.T, dir, content string) string {
 	t.Helper()
 	p := filepath.Join(dir, "config.yaml")
