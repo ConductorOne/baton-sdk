@@ -142,7 +142,7 @@ type syncer struct {
 	syncResourceTypes                   []string
 	previousSyncMu                      native_sync.Mutex
 	previousSyncIDPtr                   atomic.Pointer[string]
-	workerCount                         int // If 0, sequential sync is used. If > 0, parallel sync is used.
+	workerCount                         int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
 }
 
 var _ Syncer = (*syncer)(nil)
@@ -452,17 +452,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 		)
 	}
 
-	var warnings []error
-	if s.workerCount == 0 {
-		warnings, err = s.sequentialSync(ctx, runCtx, targetedResources)
-		if err != nil {
-			return err
-		}
-	} else {
-		warnings, err = s.parallelSync(ctx, runCtx, targetedResources)
-		if err != nil {
-			return err
-		}
+	warnings, err := s.parallelSync(ctx, runCtx, targetedResources)
+	if err != nil {
+		return err
 	}
 
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
@@ -2813,14 +2805,13 @@ func NormalizeWorkerCount(count int) int {
 	if count == -1 {
 		return min(max(runtime.GOMAXPROCS(0), 1), 4)
 	}
-	return max(count, 0)
+	return max(count, 1)
 }
 
 // WithWorkerCount sets the number of workers to use.
-// If 0, sequential sync is used. If > 0, parallel sync is used.
+// If <=1, 1 worker is used (default). If > 1, parallel sync is used.
 // If -1, the number of workers is set to the number of CPU cores or 4, whichever is lower.
-// If < -1, sequential sync is used.
-// Yes, this allows for a "parallel" sync with one worker, effectively making it sequential.
+// If < -1, 1 worker is used. (Nothing should do this, but there's no way to return an error in this option.)
 func WithWorkerCount(count int) SyncOpt {
 	return func(s *syncer) {
 		s.workerCount = NormalizeWorkerCount(count)
@@ -2830,8 +2821,9 @@ func WithWorkerCount(count int) SyncOpt {
 // NewSyncer returns a new syncer object.
 func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
 	s := &syncer{
-		connector: c,
-		syncType:  connectorstore.SyncTypeFull,
+		connector:   c,
+		syncType:    connectorstore.SyncTypeFull,
+		workerCount: 1,
 	}
 
 	for _, o := range opts {
@@ -2843,9 +2835,6 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 	}
 
 	progressLogOpts := []progresslog.Option{}
-	if s.workerCount > 0 {
-		progressLogOpts = append(progressLogOpts, progresslog.WithSequentialMode(false))
-	}
 	s.counts = progresslog.NewProgressCounts(ctx, progressLogOpts...)
 	// Wire the DBSizeProvider now if the store is already set (WithConnectorStore
 	// case). For WithC1ZPath, the store is populated later inside loadStore,
