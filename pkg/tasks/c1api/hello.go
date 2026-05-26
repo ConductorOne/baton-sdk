@@ -23,8 +23,9 @@ type helloHelpers interface {
 }
 
 type helloTaskHandler struct {
-	task    *v1.Task
-	helpers helloHelpers
+	task             *v1.Task
+	helpers          helloHelpers
+	connectorVersion string
 }
 
 // collectOSInfo queries gopsutil for host info and fills in conservative
@@ -80,8 +81,10 @@ func collectOSInfo(ctx context.Context) (*v1.BatonServiceHelloRequest_OSInfo, er
 }
 
 // collectBuildInfo reads runtime/debug build metadata, falling back to safe
-// placeholder values when a field is missing.
-func collectBuildInfo(ctx context.Context) *v1.BatonServiceHelloRequest_BuildInfo {
+// placeholder values when a field is missing. When connectorVersion is
+// non-empty it takes precedence over the module version reported by the Go
+// runtime (which is "(devel)" for binaries built with `go build`).
+func collectBuildInfo(ctx context.Context, connectorVersion string) *v1.BatonServiceHelloRequest_BuildInfo {
 	l := ctxzap.Extract(ctx)
 	buildInfo := v1.BatonServiceHelloRequest_BuildInfo_builder{
 		LangVersion:    "0.0.0",
@@ -92,6 +95,9 @@ func collectBuildInfo(ctx context.Context) *v1.BatonServiceHelloRequest_BuildInf
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
 		l.Error("failed to get build info")
+		if connectorVersion != "" {
+			buildInfo.SetPackageVersion(connectorVersion)
+		}
 		return buildInfo
 	}
 
@@ -101,9 +107,12 @@ func collectBuildInfo(ctx context.Context) *v1.BatonServiceHelloRequest_BuildInf
 		buildInfo.SetPackage(bi.Main.Path)
 	}
 
-	if bi.Main.Version == "" {
+	switch {
+	case connectorVersion != "":
+		buildInfo.SetPackageVersion(connectorVersion)
+	case bi.Main.Version == "":
 		l.Warn("missing build info Main.version")
-	} else {
+	default:
 		buildInfo.SetPackageVersion(bi.Main.Version)
 	}
 
@@ -119,7 +128,7 @@ func collectBuildInfo(ctx context.Context) *v1.BatonServiceHelloRequest_BuildInf
 // sendHello performs a single Hello RPC. It is the shared implementation used
 // by both the startup handshake (taskID == "") and server-scheduled HelloTasks
 // dispatched through Process (taskID == the task's id).
-func sendHello(ctx context.Context, cc types.ConnectorClient, svc batonHelloClient, taskID string) error {
+func sendHello(ctx context.Context, cc types.ConnectorClient, svc batonHelloClient, taskID string, connectorVersion string) error {
 	mdResp, err := cc.GetMetadata(ctx, &v2.ConnectorServiceGetMetadataRequest{})
 	if err != nil {
 		return err
@@ -132,7 +141,7 @@ func sendHello(ctx context.Context, cc types.ConnectorClient, svc batonHelloClie
 
 	_, err = svc.Hello(ctx, v1.BatonServiceHelloRequest_builder{
 		TaskId:            taskID,
-		BuildInfo:         collectBuildInfo(ctx),
+		BuildInfo:         collectBuildInfo(ctx, connectorVersion),
 		OsInfo:            osInfo,
 		ConnectorMetadata: mdResp.GetMetadata(),
 	}.Build())
@@ -152,7 +161,7 @@ func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 		zap.Stringer("task_type", tasks.GetType(c.task)),
 	)
 
-	err = sendHello(ctx, c.helpers.ConnectorClient(), c.helpers.HelloClient(), c.task.GetId())
+	err = sendHello(ctx, c.helpers.ConnectorClient(), c.helpers.HelloClient(), c.task.GetId(), c.connectorVersion)
 	if err != nil {
 		l.Error("failed while sending hello", zap.Error(err))
 		return err
@@ -160,9 +169,10 @@ func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 	return nil
 }
 
-func newHelloTaskHandler(task *v1.Task, helpers helloHelpers) *helloTaskHandler {
+func newHelloTaskHandler(task *v1.Task, helpers helloHelpers, connectorVersion string) *helloTaskHandler {
 	return &helloTaskHandler{
-		task:    task,
-		helpers: helpers,
+		task:             task,
+		helpers:          helpers,
+		connectorVersion: connectorVersion,
 	}
 }

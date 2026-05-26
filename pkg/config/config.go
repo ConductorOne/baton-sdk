@@ -49,6 +49,7 @@ func RunConnector[T field.Configurable](
 		return c, nil
 	}
 
+	options = append(options, connectorrunner.WithConnectorVersion(version))
 	_, cmd, err := DefineConfigurationV2(ctx, connectorName, f, schema, options...)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
