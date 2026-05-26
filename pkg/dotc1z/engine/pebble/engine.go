@@ -337,7 +337,26 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	return nil
 }
 
+// vtMarshaler is the subset of vtprotobuf-generated methods that
+// marshalRecord uses. Messages whose proto sources are configured for
+// vtprotobuf in buf.gen.yaml satisfy this interface; everything else
+// falls back to the reflection-based proto.Marshal path. The two
+// produce byte-identical wire output for the same message.
+type vtMarshaler interface {
+	SizeVT() int
+	MarshalToSizedBufferVT([]byte) (int, error)
+}
+
 // internal: marshal a record value deterministically.
 func marshalRecord(m proto.Message) ([]byte, error) {
+	if vm, ok := m.(vtMarshaler); ok {
+		size := vm.SizeVT()
+		buf := make([]byte, size)
+		n, err := vm.MarshalToSizedBufferVT(buf)
+		if err != nil {
+			return nil, err
+		}
+		return buf[:n], nil
+	}
 	return proto.MarshalOptions{Deterministic: true}.Marshal(m)
 }
