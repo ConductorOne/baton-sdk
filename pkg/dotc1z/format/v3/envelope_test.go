@@ -3,6 +3,7 @@ package v3
 import (
 	"archive/tar"
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"os"
@@ -35,7 +36,7 @@ func TestEnvelopeRoundtrip(t *testing.T) {
 	manifest := &c1zv3.C1ZManifestV3{
 		Engine:              "pebble",
 		EngineSchemaVersion: 17,
-		PayloadEncoding:     c1zv3.PayloadEncoding_PAYLOAD_ENCODING_ZSTD_TAR,
+		PayloadEncoding:     c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD,
 		CreatedAt:           timestamppb.Now(),
 		CreatedBySdkVersion: "test-sdk/0.0.1",
 		CreatedByTool:       "envelope_test",
@@ -71,7 +72,7 @@ func TestEnvelopeRoundtrip(t *testing.T) {
 	if env.Manifest.GetEngineSchemaVersion() != 17 {
 		t.Errorf("engine_schema_version: got %d", env.Manifest.GetEngineSchemaVersion())
 	}
-	if env.Manifest.GetPayloadEncoding() != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_ZSTD_TAR {
+	if env.Manifest.GetPayloadEncoding() != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD {
 		t.Errorf("payload_encoding: got %v", env.Manifest.GetPayloadEncoding())
 	}
 
@@ -183,7 +184,7 @@ func TestEnvelopePayloadAtEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := &c1zv3.C1ZManifestV3{Engine: "pebble", PayloadEncoding: c1zv3.PayloadEncoding_PAYLOAD_ENCODING_ZSTD_TAR}
+	m := &c1zv3.C1ZManifestV3{Engine: "pebble", PayloadEncoding: c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD}
 	if err := WriteEnvelope(f, m, srcDir); err != nil {
 		t.Fatal(err)
 	}
@@ -275,5 +276,178 @@ func TestTarFileMode(t *testing.T) {
 				t.Fatalf("tarFileMode(%#o, %#o) = %#o, want %#o", tt.mode, tt.mask, got, tt.want)
 			}
 		})
+	}
+}
+
+// === S1 — selectable PayloadEncoding ===
+
+// roundTripEnvelope writes a tiny synthetic payload dir under the
+// given encoding then reads it back, returning the resulting
+// PayloadEncoding from the manifest and the round-tripped CURRENT
+// file contents.
+func roundTripEnvelope(t *testing.T, enc c1zv3.PayloadEncoding) (c1zv3.PayloadEncoding, string) {
+	t.Helper()
+	tmp := t.TempDir()
+	srcDir := filepath.Join(tmp, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"CURRENT":         "MANIFEST-000001\n",
+		"MANIFEST-000001": "manifest bytes",
+		"000005.sst":      "fake sst",
+	} {
+		if err := os.WriteFile(filepath.Join(srcDir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	manifest := &c1zv3.C1ZManifestV3{
+		Engine:              "pebble",
+		EngineSchemaVersion: 1,
+		PayloadEncoding:     enc,
+		CreatedAt:           timestamppb.Now(),
+		CreatedByTool:       "envelope_test",
+	}
+
+	envPath := filepath.Join(tmp, "out.c1z3")
+	f, err := os.Create(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteEnvelope(f, manifest, srcDir); err != nil {
+		t.Fatalf("WriteEnvelope: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	rf, err := os.Open(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rf.Close()
+	env, err := ReadEnvelope(rf)
+	if err != nil {
+		t.Fatalf("ReadEnvelope: %v", err)
+	}
+	defer env.Close()
+
+	dest := filepath.Join(tmp, "extracted")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExtractZstdTar(env.PayloadReader, dest); err != nil {
+		t.Fatalf("ExtractZstdTar: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dest, "CURRENT"))
+	if err != nil {
+		t.Fatalf("read CURRENT: %v", err)
+	}
+	return env.Manifest.GetPayloadEncoding(), string(got)
+}
+
+// TestEnvelopeRoundtripTar exercises PAYLOAD_ENCODING_TAR — no outer
+// zstd compression. The payload reader hands the tar bytes through
+// directly; ExtractZstdTar handles them as plain tar.
+func TestEnvelopeRoundtripTar(t *testing.T) {
+	got, content := roundTripEnvelope(t, c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR)
+	if got != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR {
+		t.Errorf("manifest payload_encoding: got %v, want TAR", got)
+	}
+	if content != "MANIFEST-000001\n" {
+		t.Errorf("CURRENT roundtrip: got %q", content)
+	}
+}
+
+// TestEnvelopeRoundtripTarZstd exercises the explicit TAR_ZSTD path.
+func TestEnvelopeRoundtripTarZstd(t *testing.T) {
+	got, content := roundTripEnvelope(t, c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD)
+	if got != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD {
+		t.Errorf("manifest payload_encoding: got %v, want TAR_ZSTD", got)
+	}
+	if content != "MANIFEST-000001\n" {
+		t.Errorf("CURRENT roundtrip: got %q", content)
+	}
+}
+
+// TestEnvelopeUnspecifiedDefaultsToTarZstd verifies that a manifest
+// with the zero-value PayloadEncoding gets upgraded to TAR_ZSTD by
+// WriteEnvelope, and reads back with that value.
+func TestEnvelopeUnspecifiedDefaultsToTarZstd(t *testing.T) {
+	got, content := roundTripEnvelope(t, c1zv3.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED)
+	if got != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD {
+		t.Errorf("manifest payload_encoding: got %v, want TAR_ZSTD (default)", got)
+	}
+	if content != "MANIFEST-000001\n" {
+		t.Errorf("CURRENT roundtrip: got %q", content)
+	}
+}
+
+// TestWriteEnvelopeRejectsReservedEncoding pins the contract that
+// the now-reserved wire numbers 1 (formerly RAW) and 2 (formerly
+// single-stream ZSTD) are rejected at write time, before any bytes
+// go to disk. The proto generator does not synthesize Go constants
+// for reserved values, so we feed the raw wire number via the
+// underlying enum's integer type.
+func TestWriteEnvelopeRejectsReservedEncoding(t *testing.T) {
+	tmp := t.TempDir()
+	srcDir := filepath.Join(tmp, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, reservedValue := range []c1zv3.PayloadEncoding{1, 2} {
+		m := &c1zv3.C1ZManifestV3{
+			Engine:              "pebble",
+			EngineSchemaVersion: 1,
+			PayloadEncoding:     reservedValue,
+			CreatedAt:           timestamppb.Now(),
+		}
+		envPath := filepath.Join(tmp, "out.c1z3")
+		f, err := os.Create(envPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = WriteEnvelope(f, m, srcDir)
+		_ = f.Close()
+		if err == nil {
+			t.Errorf("PayloadEncoding=%d: expected error from WriteEnvelope, got nil", reservedValue)
+		}
+		// Should not have produced a usable file.
+		st, statErr := os.Stat(envPath)
+		if statErr == nil && st.Size() > 0 {
+			t.Errorf("PayloadEncoding=%d: WriteEnvelope wrote %d bytes before erroring", reservedValue, st.Size())
+		}
+		_ = os.Remove(envPath)
+	}
+}
+
+// TestReadEnvelopeRejectsReservedEncoding constructs an envelope
+// with a reserved wire encoding by hand and confirms ReadEnvelope
+// refuses it.
+func TestReadEnvelopeRejectsReservedEncoding(t *testing.T) {
+	for _, reservedValue := range []c1zv3.PayloadEncoding{1, 2} {
+		manifest := &c1zv3.C1ZManifestV3{
+			Engine:              "pebble",
+			EngineSchemaVersion: 1,
+			PayloadEncoding:     reservedValue,
+			CreatedAt:           timestamppb.Now(),
+		}
+		mb, err := MarshalManifest(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf := &bytes.Buffer{}
+		buf.Write(C1Z3Magic)
+		var lenBuf [4]byte
+		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(mb))) //nolint:gosec // test fixture; mb has a known small size.
+		buf.Write(lenBuf[:])
+		buf.Write(mb)
+		buf.WriteString("trailing bytes — ReadEnvelope should never look at these")
+
+		_, err = ReadEnvelope(buf)
+		if err == nil {
+			t.Errorf("PayloadEncoding=%d: expected ReadEnvelope error, got nil", reservedValue)
+		}
 	}
 }

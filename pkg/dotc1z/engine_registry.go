@@ -30,6 +30,11 @@ type StoreOptions struct {
 	SkipCleanup        bool
 	V2GrantsWriter     bool
 	Engine             Engine
+
+	// PayloadEncoding selects the v3 envelope payload framing for
+	// engines that produce a v3 envelope (currently Pebble). Zero
+	// value means "engine default" (PayloadEncodingTarZstd for Pebble).
+	PayloadEncoding PayloadEncoding
 }
 
 // EngineDriver opens a .c1z file for a specific storage engine. Drivers live
@@ -134,6 +139,7 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 		SkipCleanup:        options.skipCleanup,
 		V2GrantsWriter:     options.v2GrantsWriter,
 		Engine:             options.engine,
+		PayloadEncoding:    options.payloadEncoding,
 	}
 	if out.Engine == "" {
 		out.Engine = EngineSQLite

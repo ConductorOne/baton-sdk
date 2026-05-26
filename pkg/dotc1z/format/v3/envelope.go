@@ -42,7 +42,20 @@ const maxTarEntryBytes int64 = 4 << 30
 //  1. The 5-byte C1Z3 magic.
 //  2. A uint32 BE length prefix for the marshaled manifest.
 //  3. The marshaled manifest bytes.
-//  4. The zstd-compressed tar of payloadDir.
+//  4. The payload (tar, or tar then zstd, per the manifest's
+//     PayloadEncoding).
+//
+// The manifest's PayloadEncoding field selects the payload format:
+//
+//   - PAYLOAD_ENCODING_TAR_ZSTD (3): default; tar then zstd. The
+//     manifest can leave PayloadEncoding as the zero value
+//     (UNSPECIFIED) and WriteEnvelope will write TAR_ZSTD and patch
+//     the manifest in place so the reader sees the same value.
+//   - PAYLOAD_ENCODING_TAR (4): uncompressed tar.
+//   - PAYLOAD_ENCODING_UNSPECIFIED (0): treated as TAR_ZSTD.
+//
+// Any other value (including the now-reserved 1 and 2) returns an
+// error before any bytes are written to w.
 //
 // payloadDir is walked in sorted lexical order; file mtimes are NOT
 // normalized (the RFC documents tar as not byte-stable). w is typically
@@ -52,6 +65,22 @@ func WriteEnvelope(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string) error
 	if m == nil {
 		return errors.New("c1z v3: WriteEnvelope: nil manifest")
 	}
+
+	// Resolve the encoding. Validate before we write any bytes so a
+	// bad PayloadEncoding doesn't leave a partial file on disk.
+	enc := m.GetPayloadEncoding()
+	if enc == c1zv3.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED {
+		enc = c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD
+		m.SetPayloadEncoding(enc)
+	}
+	switch enc {
+	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD,
+		c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
+		// ok
+	default:
+		return fmt.Errorf("c1z v3: WriteEnvelope: unsupported payload encoding %v", enc)
+	}
+
 	if _, err := w.Write(C1Z3Magic); err != nil {
 		return fmt.Errorf("c1z v3: write magic: %w", err)
 	}
@@ -70,8 +99,19 @@ func WriteEnvelope(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string) error
 	if _, err := w.Write(mb); err != nil {
 		return fmt.Errorf("c1z v3: write manifest: %w", err)
 	}
-	if err := writeZstdTar(w, payloadDir); err != nil {
-		return fmt.Errorf("c1z v3: write payload: %w", err)
+	switch enc {
+	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD:
+		if err := writeZstdTar(w, payloadDir); err != nil {
+			return fmt.Errorf("c1z v3: write tar_zstd payload: %w", err)
+		}
+	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
+		if err := writeTar(w, payloadDir); err != nil {
+			return fmt.Errorf("c1z v3: write tar payload: %w", err)
+		}
+	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED:
+		// Unreachable: the validation block above normalises
+		// UNSPECIFIED to TAR_ZSTD before this point.
+		return fmt.Errorf("c1z v3: WriteEnvelope: payload encoding was not resolved")
 	}
 	return nil
 }
@@ -98,9 +138,11 @@ func (e *Envelope) Close() error {
 
 // ReadEnvelope reads a v3 envelope from r. r must be positioned at the
 // start of the file (the C1Z3 magic). Returns an Envelope whose
-// PayloadReader streams the uncompressed tar bytes when the manifest
-// declares PAYLOAD_ENCODING_ZSTD_TAR, or the raw bytes for
-// PAYLOAD_ENCODING_RAW / PAYLOAD_ENCODING_ZSTD.
+// PayloadReader streams the uncompressed tar bytes for both
+// PAYLOAD_ENCODING_TAR_ZSTD (transparently decoding zstd first) and
+// PAYLOAD_ENCODING_TAR (passing through unchanged). The reserved
+// values 1 (RAW) and 2 (single-stream ZSTD) return an error — they
+// were never wired and aren't supported.
 func ReadEnvelope(r io.Reader) (*Envelope, error) {
 	// 1. Magic.
 	magic := make([]byte, len(C1Z3Magic))
@@ -131,16 +173,15 @@ func ReadEnvelope(r io.Reader) (*Envelope, error) {
 	// 4. Payload. The reader is positioned at the first payload byte.
 	env := &Envelope{Manifest: m}
 	switch m.GetPayloadEncoding() {
-	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_RAW:
-		env.PayloadReader = r
-	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_ZSTD,
-		c1zv3.PayloadEncoding_PAYLOAD_ENCODING_ZSTD_TAR:
+	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD:
 		zr, err := zstd.NewReader(r)
 		if err != nil {
 			return nil, fmt.Errorf("c1z v3: zstd reader: %w", err)
 		}
 		env.zstdReader = zr
 		env.PayloadReader = zr
+	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
+		env.PayloadReader = r
 	default:
 		return nil, fmt.Errorf("c1z v3: unsupported payload encoding %v", m.GetPayloadEncoding())
 	}
@@ -213,9 +254,67 @@ func writeZstdTar(w io.Writer, dir string) error {
 	return nil
 }
 
+// writeTar walks dir in sorted order, writing each entry directly to
+// w as a tar stream (no compression). Used when PayloadEncoding is
+// PAYLOAD_ENCODING_TAR. The shape mirrors writeZstdTar so any future
+// refactor can lift the common walk-and-emit body into a helper.
+func writeTar(w io.Writer, dir string) error {
+	tw := tar.NewWriter(w)
+
+	walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		hdr, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		hdr.Name = rel
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		if info.Mode().IsRegular() {
+			f, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(tw, f)
+			if closeErr := f.Close(); err == nil {
+				err = closeErr
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		if err := tw.Close(); err != nil {
+			walkErr = errors.Join(walkErr, fmt.Errorf("close tar writer: %w", err))
+		}
+		return walkErr
+	}
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("close tar writer: %w", err)
+	}
+	return nil
+}
+
 // ExtractZstdTar reads a zstd-tar payload stream from r and unpacks
 // it into destDir. destDir must exist. Used by the engine to
 // rematerialize a Pebble directory at open time.
+//
+// Despite the name, the function accepts ANY tar stream — the
+// Envelope's payload reader has already transparently decoded the
+// outer zstd layer when the encoding was TAR_ZSTD, or is a plain tar
+// reader when the encoding was TAR. Same downstream code path.
 func ExtractZstdTar(r io.Reader, destDir string) error {
 	// r already came through Envelope's zstd decoder; we just need
 	// to walk the tar entries.

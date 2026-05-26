@@ -52,7 +52,7 @@ func writeV3EnvelopeForEngine(t *testing.T, path string, engine Engine) {
 	defer f.Close()
 	manifest := c1zv3.C1ZManifestV3_builder{
 		Engine:          string(engine),
-		PayloadEncoding: c1zv3.PayloadEncoding_PAYLOAD_ENCODING_ZSTD_TAR,
+		PayloadEncoding: c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD,
 	}.Build()
 	if err := formatv3.WriteEnvelope(f, manifest, payloadDir); err != nil {
 		t.Fatalf("WriteEnvelope: %v", err)

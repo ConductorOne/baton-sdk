@@ -56,11 +56,12 @@ func (driver) OpenStore(ctx context.Context, outputFilePath string, opts dotc1z.
 		return nil, cleanupOnError(err)
 	}
 	return &registeredStore{
-		Adapter:        NewAdapter(e),
-		engine:         e,
-		outputFilePath: outputFilePath,
-		tmpDir:         tmpDir,
-		readOnly:       opts.ReadOnly,
+		Adapter:         NewAdapter(e),
+		engine:          e,
+		outputFilePath:  outputFilePath,
+		tmpDir:          tmpDir,
+		readOnly:        opts.ReadOnly,
+		payloadEncoding: opts.PayloadEncoding,
 	}, nil
 }
 
@@ -100,10 +101,11 @@ func unpackExisting(outputFilePath string, dbDir string) error {
 
 type registeredStore struct {
 	*Adapter
-	engine         *Engine
-	outputFilePath string
-	tmpDir         string
-	readOnly       bool
+	engine          *Engine
+	outputFilePath  string
+	tmpDir          string
+	readOnly        bool
+	payloadEncoding dotc1z.PayloadEncoding
 
 	closeMu sync.Mutex
 	closed  bool
@@ -249,9 +251,27 @@ func (s *registeredStore) manifest() (*c1zv3.C1ZManifestV3, error) {
 	return c1zv3.C1ZManifestV3_builder{
 		Engine:              string(dotc1z.EnginePebble),
 		EngineSchemaVersion: uint32(SDKPebbleFormat),
-		PayloadEncoding:     c1zv3.PayloadEncoding_PAYLOAD_ENCODING_ZSTD_TAR,
+		PayloadEncoding:     payloadEncodingToProto(s.payloadEncoding),
 		Descriptors:         descriptors,
 		CreatedAt:           timestamppb.Now(),
 		CreatedByTool:       "baton-sdk",
 	}.Build(), nil
+}
+
+// payloadEncodingToProto maps the public dotc1z.PayloadEncoding to
+// the c1zv3 enum. PayloadEncodingUnspecified means "engine default"
+// for our purposes: TAR_ZSTD.
+func payloadEncodingToProto(enc dotc1z.PayloadEncoding) c1zv3.PayloadEncoding {
+	switch enc {
+	case dotc1z.PayloadEncodingTar:
+		return c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR
+	case dotc1z.PayloadEncodingTarZstd, dotc1z.PayloadEncodingUnspecified:
+		return c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD
+	default:
+		// Any non-enumerated value (including the reserved 1 and 2)
+		// falls back to the default. WriteEnvelope will reject any
+		// non-TAR/non-TAR_ZSTD value before writing bytes, so a
+		// caller setting a bogus encoding gets an error at save time.
+		return c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD
+	}
 }

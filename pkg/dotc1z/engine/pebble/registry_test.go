@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
@@ -72,8 +73,8 @@ func TestRegisteredPebbleNewStoreRoundtrip(t *testing.T) {
 	if env.Manifest.GetEngineSchemaVersion() != uint32(SDKPebbleFormat) {
 		t.Fatalf("manifest schema = %d, want %d", env.Manifest.GetEngineSchemaVersion(), SDKPebbleFormat)
 	}
-	if env.Manifest.GetPayloadEncoding() != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_ZSTD_TAR {
-		t.Fatalf("payload encoding = %v, want zstd tar", env.Manifest.GetPayloadEncoding())
+	if env.Manifest.GetPayloadEncoding() != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD {
+		t.Fatalf("payload encoding = %v, want tar_zstd", env.Manifest.GetPayloadEncoding())
 	}
 	if env.Manifest.GetDescriptors() == nil || len(env.Manifest.GetDescriptors().GetFile()) == 0 {
 		t.Fatal("manifest descriptor closure is empty")
@@ -131,5 +132,95 @@ func TestRegisteredPebbleNewStoreRoundtrip(t *testing.T) {
 	}
 	if got.GetGrant().GetId() != "g1" {
 		t.Fatalf("GetGrant id = %q, want g1", got.GetGrant().GetId())
+	}
+}
+
+// TestPebbleRegisteredStoreWithPayloadEncodingTar exercises the
+// dotc1z.WithPayloadEncoding option threaded through C1ZOption →
+// StoreOptions → registeredStore → manifest.PayloadEncoding.
+func TestPebbleRegisteredStoreWithPayloadEncodingTar(t *testing.T) {
+	if err := Register(); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	ctx := context.Background()
+	tmp := t.TempDir()
+	out := filepath.Join(tmp, "tar.c1z")
+	store, err := dotc1z.NewStore(ctx, out,
+		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithPayloadEncoding(dotc1z.PayloadEncodingTar),
+	)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	if err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+	_ = syncID
+	if err := store.PutGrants(ctx, &v2.Grant{Id: "g1"}); err != nil {
+		t.Fatalf("PutGrants: %v", err)
+	}
+	if err := store.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
+	if err := store.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Read the envelope back and confirm the manifest declares TAR.
+	f, err := os.Open(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	env, err := formatv3.ReadEnvelope(f)
+	if err != nil {
+		t.Fatalf("ReadEnvelope: %v", err)
+	}
+	defer env.Close()
+	if env.Manifest.GetPayloadEncoding() != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR {
+		t.Fatalf("manifest payload_encoding: got %v, want TAR", env.Manifest.GetPayloadEncoding())
+	}
+}
+
+// TestPebbleRegisteredStoreDefaultsToTarZstd confirms that omitting
+// dotc1z.WithPayloadEncoding gives TAR_ZSTD (current production
+// default).
+func TestPebbleRegisteredStoreDefaultsToTarZstd(t *testing.T) {
+	if err := Register(); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	ctx := context.Background()
+	tmp := t.TempDir()
+	out := filepath.Join(tmp, "default.c1z")
+	store, err := dotc1z.NewStore(ctx, out, dotc1z.WithEngine(dotc1z.EnginePebble))
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if _, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+	if err := store.PutGrants(ctx, &v2.Grant{Id: "g1"}); err != nil {
+		t.Fatalf("PutGrants: %v", err)
+	}
+	if err := store.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
+	if err := store.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	f, err := os.Open(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	env, err := formatv3.ReadEnvelope(f)
+	if err != nil {
+		t.Fatalf("ReadEnvelope: %v", err)
+	}
+	defer env.Close()
+	if env.Manifest.GetPayloadEncoding() != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD {
+		t.Fatalf("manifest payload_encoding: got %v, want TAR_ZSTD", env.Manifest.GetPayloadEncoding())
 	}
 }

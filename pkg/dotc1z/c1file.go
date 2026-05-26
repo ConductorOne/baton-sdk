@@ -78,6 +78,11 @@ type C1File struct {
 	// Reads dispatch on magic byte regardless of this value. Default
 	// is EngineSQLite (v1 .c1z format).
 	engine Engine
+
+	// payloadEncoding selects the v3 envelope payload framing for
+	// Pebble-written files. Zero value = PayloadEncodingTarZstd
+	// (default). Ignored by the SQLite engine.
+	payloadEncoding PayloadEncoding
 }
 
 // *C1File satisfies connectorstore.Writer (the connector-facing contract),
@@ -150,6 +155,14 @@ func WithC1FSyncCountLimit(limit int) C1FOption {
 func WithC1FEngine(engine Engine) C1FOption {
 	return func(o *C1File) {
 		o.engine = engine
+	}
+}
+
+// WithC1FPayloadEncoding selects the v3 envelope payload encoding
+// (TAR_ZSTD default, TAR uncompressed). No-op for SQLite engines.
+func WithC1FPayloadEncoding(enc PayloadEncoding) C1FOption {
+	return func(o *C1File) {
+		o.payloadEncoding = enc
 	}
 }
 
@@ -241,6 +254,12 @@ type c1zOptions struct {
 	// engine is the storage engine to use for newly created files.
 	// Reads dispatch on magic byte regardless. Default EngineSQLite.
 	engine Engine
+
+	// payloadEncoding controls the v3 envelope payload framing. Only
+	// honored when engine == EnginePebble (the v3 path). Allowed
+	// values: PayloadEncodingTarZstd (default), PayloadEncodingTar.
+	// Zero value means PayloadEncodingTarZstd.
+	payloadEncoding PayloadEncoding
 }
 
 type C1ZOption func(*c1zOptions)
@@ -317,6 +336,21 @@ func WithV2GrantsWriter(enabled bool) C1ZOption {
 	}
 }
 
+// WithPayloadEncoding selects the c1z v3 envelope payload encoding
+// for newly created files written by the Pebble engine. Default is
+// PayloadEncodingTarZstd. PayloadEncodingTar skips the outer zstd
+// compression — useful when Pebble's L5/L6 SSTs are already
+// zstd-compressed at the engine layer, or when the storage target
+// (S3 with Content-Encoding negotiation, etc.) compresses in transit.
+//
+// No-op for SQLite engines; the encoding selector applies only to
+// the v3 envelope written by Pebble.
+func WithPayloadEncoding(enc PayloadEncoding) C1ZOption {
+	return func(o *c1zOptions) {
+		o.payloadEncoding = enc
+	}
+}
+
 // Returns a new C1File instance with its state stored at the provided filename.
 func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
@@ -360,6 +394,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	}
 	if options.engine != "" {
 		c1fopts = append(c1fopts, WithC1FEngine(options.engine))
+	}
+	if options.payloadEncoding != PayloadEncodingUnspecified {
+		c1fopts = append(c1fopts, WithC1FPayloadEncoding(options.payloadEncoding))
 	}
 
 	c1File, err := NewC1File(ctx, dbFilePath, c1fopts...)

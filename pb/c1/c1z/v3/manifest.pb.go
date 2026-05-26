@@ -41,24 +41,28 @@ type PayloadEncoding int32
 
 const (
 	PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED PayloadEncoding = 0
-	PayloadEncoding_PAYLOAD_ENCODING_RAW         PayloadEncoding = 1 // debug only
-	PayloadEncoding_PAYLOAD_ENCODING_ZSTD        PayloadEncoding = 2 // single-stream zstd (sqlite-style)
-	PayloadEncoding_PAYLOAD_ENCODING_ZSTD_TAR    PayloadEncoding = 3 // zstd-tar of a Pebble directory
+	// Tar of a Pebble directory, compressed with zstd. The production
+	// default. Wire number 3 is retained from the prior ZSTD_TAR name
+	// so existing dev c1z3 files keep reading identically.
+	PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD PayloadEncoding = 3
+	// Tar of a Pebble directory, uncompressed. For tenants whose
+	// Pebble L5/L6 SSTs are already zstd-compressed at the engine
+	// layer and want to avoid double-compression CPU at envelope
+	// time, or for object-storage targets that compress in-transit.
+	PayloadEncoding_PAYLOAD_ENCODING_TAR PayloadEncoding = 4
 )
 
 // Enum value maps for PayloadEncoding.
 var (
 	PayloadEncoding_name = map[int32]string{
 		0: "PAYLOAD_ENCODING_UNSPECIFIED",
-		1: "PAYLOAD_ENCODING_RAW",
-		2: "PAYLOAD_ENCODING_ZSTD",
-		3: "PAYLOAD_ENCODING_ZSTD_TAR",
+		3: "PAYLOAD_ENCODING_TAR_ZSTD",
+		4: "PAYLOAD_ENCODING_TAR",
 	}
 	PayloadEncoding_value = map[string]int32{
 		"PAYLOAD_ENCODING_UNSPECIFIED": 0,
-		"PAYLOAD_ENCODING_RAW":         1,
-		"PAYLOAD_ENCODING_ZSTD":        2,
-		"PAYLOAD_ENCODING_ZSTD_TAR":    3,
+		"PAYLOAD_ENCODING_TAR_ZSTD":    3,
+		"PAYLOAD_ENCODING_TAR":         4,
 	}
 )
 
@@ -100,7 +104,7 @@ type C1ZManifestV3 struct {
 	// its compiled-in registry; unknown type-URLs are treated as
 	// "no hint" (advisory only — the dispatch key is `engine`).
 	EngineConfig *anypb.Any `protobuf:"bytes,3,opt,name=engine_config,json=engineConfig,proto3" json:"engine_config,omitempty"`
-	// Payload encoding. PAYLOAD_ENCODING_ZSTD_TAR is the production
+	// Payload encoding. PAYLOAD_ENCODING_TAR_ZSTD is the production
 	// default for Pebble engines.
 	PayloadEncoding PayloadEncoding `protobuf:"varint,4,opt,name=payload_encoding,json=payloadEncoding,proto3,enum=c1.c1z.v3.PayloadEncoding" json:"payload_encoding,omitempty"`
 	// Transitively-closed FileDescriptorSet of every record type stored
@@ -321,7 +325,7 @@ type C1ZManifestV3_builder struct {
 	// its compiled-in registry; unknown type-URLs are treated as
 	// "no hint" (advisory only — the dispatch key is `engine`).
 	EngineConfig *anypb.Any
-	// Payload encoding. PAYLOAD_ENCODING_ZSTD_TAR is the production
+	// Payload encoding. PAYLOAD_ENCODING_TAR_ZSTD is the production
 	// default for Pebble engines.
 	PayloadEncoding PayloadEncoding
 	// Transitively-closed FileDescriptorSet of every record type stored
@@ -689,12 +693,11 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\bended_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendedAt\"p\n" +
 	"\x12PebbleEngineConfig\x120\n" +
 	"\x14format_major_version\x18\x01 \x01(\rR\x12formatMajorVersion\x12(\n" +
-	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*\x87\x01\n" +
+	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*\xa5\x01\n" +
 	"\x0fPayloadEncoding\x12 \n" +
-	"\x1cPAYLOAD_ENCODING_UNSPECIFIED\x10\x00\x12\x18\n" +
-	"\x14PAYLOAD_ENCODING_RAW\x10\x01\x12\x19\n" +
-	"\x15PAYLOAD_ENCODING_ZSTD\x10\x02\x12\x1d\n" +
-	"\x19PAYLOAD_ENCODING_ZSTD_TAR\x10\x03B0Z.github.com/conductorone/baton-sdk/pb/c1/c1z/v3b\x06proto3"
+	"\x1cPAYLOAD_ENCODING_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19PAYLOAD_ENCODING_TAR_ZSTD\x10\x03\x12\x18\n" +
+	"\x14PAYLOAD_ENCODING_TAR\x10\x04\"\x04\b\x01\x10\x01\"\x04\b\x02\x10\x02*\x14PAYLOAD_ENCODING_RAW*\x15PAYLOAD_ENCODING_ZSTDB0Z.github.com/conductorone/baton-sdk/pb/c1/c1z/v3b\x06proto3"
 
 var file_c1_c1z_v3_manifest_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_c1_c1z_v3_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
