@@ -517,7 +517,7 @@ func (st *state) GetCompletedActionsCount() uint64 {
 	return st.completedActionsCount
 }
 
-func (st *state) CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) (existing string, conflict bool) {
+func (st *state) CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) (string, bool) {
 	st.mtx.Lock()
 	defer st.mtx.Unlock()
 
@@ -534,7 +534,7 @@ func (st *state) CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourc
 	return "", false
 }
 
-func (st *state) CheckAndSetExclusionGroupDefault(exclusionGroupID, entitlementID string) (existing string, conflict bool) {
+func (st *state) CheckAndSetExclusionGroupDefault(exclusionGroupID, entitlementID string) (string, bool) {
 	st.mtx.Lock()
 	defer st.mtx.Unlock()
 
