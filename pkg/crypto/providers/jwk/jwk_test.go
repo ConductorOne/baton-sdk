@@ -12,7 +12,15 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+func TestUnmarshalJWK_InvalidArgument(t *testing.T) {
+	_, err := unmarshalJWK([]byte("not valid jwk json"))
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
 
 func TestGenerateKey(t *testing.T) {
 	provider := &JWKEncryptionProvider{}

@@ -15,6 +15,8 @@ import (
 
 	"filippo.io/age"
 	"github.com/go-jose/go-jose/v4"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
@@ -30,7 +32,7 @@ func unmarshalJWK(jwkBytes []byte) (*jose.JSONWebKey, error) {
 	jwk := &jose.JSONWebKey{}
 	err := jwk.UnmarshalJSON(jwkBytes)
 	if err != nil {
-		return nil, fmt.Errorf("jwk: failed to unmarshal jwk: %w", err)
+		return nil, status.Errorf(codes.InvalidArgument, "jwk: failed to unmarshal jwk: %v", err)
 	}
 	return jwk, nil
 }
