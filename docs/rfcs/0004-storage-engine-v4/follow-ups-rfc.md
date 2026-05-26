@@ -662,3 +662,27 @@ acceptance-criteria addition. v4 RFC is implementation-ready.
 
 **Closing the OODA loop here.** Further iteration on the RFC
 substitutes for implementing. The right next step is S1, not v5.
+
+## 15. Implementation outcome (post-execution)
+
+Commits landed on `pquerna/storage-v4-combined`:
+
+| Stack | SHA | What | Outcome |
+|---|---|---|---|
+| S0 | `aa797511` `d9f5b843` `9676f153` `2771d3e9` | RFC + tracker scaffolding | Landed (this doc + tracker.md) |
+| S1 | `7c522722` | TAR + TAR_ZSTD selectable container | Landed; 5 new envelope tests; reserved enum values 1+2 |
+| S2 | `a832d6af` | vtprotobuf MarshalVT auto-detect | Landed; equivalence runner verifies byte-identical output |
+| S3 | `77ca3360` | Tier-A write-side cherry-picks (L0=8, syncBytes hoist, grantTranslateArena, parallel V2→V3) | Landed |
+| S4 | `5c1deb44` | UnmarshalVT auto-detect + parallel ExtractZstdTar | Landed |
+| S5 | — | Nested-message arena | **Deferred** — see tracker §Deferred. UnmarshalVT in S4 captures the dominant win (2–3× over proto.Unmarshal); the additional arena delta needs a production-realistic bench (baton-demo) to justify the decoder complexity. |
+
+**S3 Tier-B/C deferred** to a separate follow-up. The
+`split_batch.go` generalization (§3a.1) and the autoresearch
+parallel-build / parallel-idx-sort cherry-picks depend on
+infrastructure that doesn't exist on the squashed PR — they're new
+design work, not cherry-picks. Tracker carries the open items.
+
+Net delivered: ~30% cumulative write_1m perf, plus a comparable
+read win from UnmarshalVT, plus the container format flexibility
+S1 unlocks. All commits pass the existing equivalence runner +
+full test suite + lint baseline.
