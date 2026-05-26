@@ -46,10 +46,11 @@ func (f pebbleFileOps) CloneSync(ctx context.Context, outPath string, syncID str
 	return cloneSync(ctx, f.a, f.encoding, outPath, syncID)
 }
 
-// GenerateSyncDiff is not implemented for the Pebble engine yet.
-// The diff walker between two sync key ranges is separate work
-// tracked in tracker.md. The local differ CLI is the only caller
-// and still routes through the SQLite path.
+// GenerateSyncDiff computes the additions-only set difference
+// between two ended syncs and emits a new SyncTypePartial sync
+// containing them. Matches the SQLite contract in
+// pkg/dotc1z/diff.go (no modifications or deletions captured).
+// Returns the diff sync's ID.
 func (f pebbleFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (string, error) {
-	return "", ErrFileOpsUnsupported
+	return generateSyncDiff(ctx, f.a, baseSyncID, appliedSyncID)
 }
