@@ -241,6 +241,80 @@ func TestListGrantsForResourceTypePagination(t *testing.T) {
 	}
 }
 
+// TestBulkByIdsRoundtripPebble exercises the Adapter's
+// ListResourcesByIds / ListEntitlementsByIds / GetResourceTypes
+// (RFC §A3 — collapse N point Gets into one round-trip).
+func TestBulkByIdsRoundtripPebble(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	rtUser := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+	rtGroup := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	rtApp := v2.ResourceType_builder{Id: "app", DisplayName: "App"}.Build()
+	if err := a.PutResourceTypes(ctx, rtUser, rtGroup, rtApp); err != nil {
+		t.Fatal(err)
+	}
+	mkRes := func(rt, id string) *v2.Resource {
+		return v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: rt, Resource: id}.Build(),
+		}.Build()
+	}
+	if err := a.PutResources(ctx,
+		mkRes("user", "u1"), mkRes("user", "u2"),
+		mkRes("group", "g1"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.PutEntitlements(ctx,
+		v2.Entitlement_builder{Id: "ent-A", Resource: mkRes("app", "github")}.Build(),
+		v2.Entitlement_builder{Id: "ent-B", Resource: mkRes("app", "github")}.Build(),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("GetResourceTypes", func(t *testing.T) {
+		resp, err := a.GetResourceTypes(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypesRequest_builder{
+			ResourceTypeIds: []string{"user", "missing", "group"},
+		}.Build())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.GetList()) != 2 {
+			t.Errorf("len=%d, want 2", len(resp.GetList()))
+		}
+	})
+	t.Run("ListEntitlementsByIds", func(t *testing.T) {
+		resp, err := a.ListEntitlementsByIds(ctx, reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest_builder{
+			EntitlementIds: []string{"ent-A", "ent-zzz", "ent-B"},
+		}.Build())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.GetList()) != 2 {
+			t.Errorf("len=%d, want 2", len(resp.GetList()))
+		}
+	})
+	t.Run("ListResourcesByIds", func(t *testing.T) {
+		ids := []*v2.ResourceId{
+			v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(),
+			v2.ResourceId_builder{ResourceType: "user", Resource: "u-missing"}.Build(),
+			v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+		}
+		resp, err := a.ListResourcesByIds(ctx, reader_v2.ResourcesReaderServiceListResourcesByIdsRequest_builder{
+			ResourceIds: ids,
+		}.Build())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.GetList()) != 2 {
+			t.Errorf("len=%d, want 2", len(resp.GetList()))
+		}
+	})
+}
+
 func TestSyncsReaderMethods(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)

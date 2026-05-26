@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ResourceTypesReaderService_GetResourceType_FullMethodName = "/c1.reader.v2.ResourceTypesReaderService/GetResourceType"
+	ResourceTypesReaderService_GetResourceType_FullMethodName  = "/c1.reader.v2.ResourceTypesReaderService/GetResourceType"
+	ResourceTypesReaderService_GetResourceTypes_FullMethodName = "/c1.reader.v2.ResourceTypesReaderService/GetResourceTypes"
 )
 
 // ResourceTypesReaderServiceClient is the client API for ResourceTypesReaderService service.
@@ -27,6 +28,10 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ResourceTypesReaderServiceClient interface {
 	GetResourceType(ctx context.Context, in *ResourceTypesReaderServiceGetResourceTypeRequest, opts ...grpc.CallOption) (*ResourceTypesReaderServiceGetResourceTypeResponse, error)
+	// GetResourceTypes returns all resource types whose id appears in
+	// the request. Missing ids are silently omitted from the response;
+	// callers detect partial misses by length / id comparison.
+	GetResourceTypes(ctx context.Context, in *ResourceTypesReaderServiceGetResourceTypesRequest, opts ...grpc.CallOption) (*ResourceTypesReaderServiceGetResourceTypesResponse, error)
 }
 
 type resourceTypesReaderServiceClient struct {
@@ -47,11 +52,25 @@ func (c *resourceTypesReaderServiceClient) GetResourceType(ctx context.Context, 
 	return out, nil
 }
 
+func (c *resourceTypesReaderServiceClient) GetResourceTypes(ctx context.Context, in *ResourceTypesReaderServiceGetResourceTypesRequest, opts ...grpc.CallOption) (*ResourceTypesReaderServiceGetResourceTypesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResourceTypesReaderServiceGetResourceTypesResponse)
+	err := c.cc.Invoke(ctx, ResourceTypesReaderService_GetResourceTypes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ResourceTypesReaderServiceServer is the server API for ResourceTypesReaderService service.
 // All implementations should embed UnimplementedResourceTypesReaderServiceServer
 // for forward compatibility.
 type ResourceTypesReaderServiceServer interface {
 	GetResourceType(context.Context, *ResourceTypesReaderServiceGetResourceTypeRequest) (*ResourceTypesReaderServiceGetResourceTypeResponse, error)
+	// GetResourceTypes returns all resource types whose id appears in
+	// the request. Missing ids are silently omitted from the response;
+	// callers detect partial misses by length / id comparison.
+	GetResourceTypes(context.Context, *ResourceTypesReaderServiceGetResourceTypesRequest) (*ResourceTypesReaderServiceGetResourceTypesResponse, error)
 }
 
 // UnimplementedResourceTypesReaderServiceServer should be embedded to have
@@ -63,6 +82,9 @@ type UnimplementedResourceTypesReaderServiceServer struct{}
 
 func (UnimplementedResourceTypesReaderServiceServer) GetResourceType(context.Context, *ResourceTypesReaderServiceGetResourceTypeRequest) (*ResourceTypesReaderServiceGetResourceTypeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetResourceType not implemented")
+}
+func (UnimplementedResourceTypesReaderServiceServer) GetResourceTypes(context.Context, *ResourceTypesReaderServiceGetResourceTypesRequest) (*ResourceTypesReaderServiceGetResourceTypesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetResourceTypes not implemented")
 }
 func (UnimplementedResourceTypesReaderServiceServer) testEmbeddedByValue() {}
 
@@ -102,6 +124,24 @@ func _ResourceTypesReaderService_GetResourceType_Handler(srv interface{}, ctx co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ResourceTypesReaderService_GetResourceTypes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResourceTypesReaderServiceGetResourceTypesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResourceTypesReaderServiceServer).GetResourceTypes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ResourceTypesReaderService_GetResourceTypes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResourceTypesReaderServiceServer).GetResourceTypes(ctx, req.(*ResourceTypesReaderServiceGetResourceTypesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ResourceTypesReaderService_ServiceDesc is the grpc.ServiceDesc for ResourceTypesReaderService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -113,13 +153,18 @@ var ResourceTypesReaderService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetResourceType",
 			Handler:    _ResourceTypesReaderService_GetResourceType_Handler,
 		},
+		{
+			MethodName: "GetResourceTypes",
+			Handler:    _ResourceTypesReaderService_GetResourceTypes_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "c1/reader/v2/resource.proto",
 }
 
 const (
-	ResourcesReaderService_GetResource_FullMethodName = "/c1.reader.v2.ResourcesReaderService/GetResource"
+	ResourcesReaderService_GetResource_FullMethodName        = "/c1.reader.v2.ResourcesReaderService/GetResource"
+	ResourcesReaderService_ListResourcesByIds_FullMethodName = "/c1.reader.v2.ResourcesReaderService/ListResourcesByIds"
 )
 
 // ResourcesReaderServiceClient is the client API for ResourcesReaderService service.
@@ -127,6 +172,9 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ResourcesReaderServiceClient interface {
 	GetResource(ctx context.Context, in *ResourcesReaderServiceGetResourceRequest, opts ...grpc.CallOption) (*ResourcesReaderServiceGetResourceResponse, error)
+	// ListResourcesByIds returns the resources for the supplied
+	// ResourceId list. Missing ids are omitted from the response.
+	ListResourcesByIds(ctx context.Context, in *ResourcesReaderServiceListResourcesByIdsRequest, opts ...grpc.CallOption) (*ResourcesReaderServiceListResourcesByIdsResponse, error)
 }
 
 type resourcesReaderServiceClient struct {
@@ -147,11 +195,24 @@ func (c *resourcesReaderServiceClient) GetResource(ctx context.Context, in *Reso
 	return out, nil
 }
 
+func (c *resourcesReaderServiceClient) ListResourcesByIds(ctx context.Context, in *ResourcesReaderServiceListResourcesByIdsRequest, opts ...grpc.CallOption) (*ResourcesReaderServiceListResourcesByIdsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResourcesReaderServiceListResourcesByIdsResponse)
+	err := c.cc.Invoke(ctx, ResourcesReaderService_ListResourcesByIds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ResourcesReaderServiceServer is the server API for ResourcesReaderService service.
 // All implementations should embed UnimplementedResourcesReaderServiceServer
 // for forward compatibility.
 type ResourcesReaderServiceServer interface {
 	GetResource(context.Context, *ResourcesReaderServiceGetResourceRequest) (*ResourcesReaderServiceGetResourceResponse, error)
+	// ListResourcesByIds returns the resources for the supplied
+	// ResourceId list. Missing ids are omitted from the response.
+	ListResourcesByIds(context.Context, *ResourcesReaderServiceListResourcesByIdsRequest) (*ResourcesReaderServiceListResourcesByIdsResponse, error)
 }
 
 // UnimplementedResourcesReaderServiceServer should be embedded to have
@@ -163,6 +224,9 @@ type UnimplementedResourcesReaderServiceServer struct{}
 
 func (UnimplementedResourcesReaderServiceServer) GetResource(context.Context, *ResourcesReaderServiceGetResourceRequest) (*ResourcesReaderServiceGetResourceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetResource not implemented")
+}
+func (UnimplementedResourcesReaderServiceServer) ListResourcesByIds(context.Context, *ResourcesReaderServiceListResourcesByIdsRequest) (*ResourcesReaderServiceListResourcesByIdsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListResourcesByIds not implemented")
 }
 func (UnimplementedResourcesReaderServiceServer) testEmbeddedByValue() {}
 
@@ -202,6 +266,24 @@ func _ResourcesReaderService_GetResource_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ResourcesReaderService_ListResourcesByIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResourcesReaderServiceListResourcesByIdsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResourcesReaderServiceServer).ListResourcesByIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ResourcesReaderService_ListResourcesByIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResourcesReaderServiceServer).ListResourcesByIds(ctx, req.(*ResourcesReaderServiceListResourcesByIdsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ResourcesReaderService_ServiceDesc is the grpc.ServiceDesc for ResourcesReaderService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -212,6 +294,10 @@ var ResourcesReaderService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetResource",
 			Handler:    _ResourcesReaderService_GetResource_Handler,
+		},
+		{
+			MethodName: "ListResourcesByIds",
+			Handler:    _ResourcesReaderService_ListResourcesByIds_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

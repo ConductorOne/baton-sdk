@@ -79,6 +79,106 @@ func (a *Adapter) GetResourceType(ctx context.Context, req *reader_v2.ResourceTy
 	}.Build(), nil
 }
 
+// ListResourcesByIds returns all resources matching the supplied
+// (resource_type_id, resource_id) pairs. Missing rows are silently
+// omitted. Callers detect partial misses by length comparison.
+func (a *Adapter) ListResourcesByIds(
+	ctx context.Context,
+	req *reader_v2.ResourcesReaderServiceListResourcesByIdsRequest,
+) (*reader_v2.ResourcesReaderServiceListResourcesByIdsResponse, error) {
+	syncID := a.resolveActiveSyncForReader(req.GetAnnotations())
+	if syncID == "" {
+		return nil, ErrNoCurrentSync
+	}
+	ids := req.GetResourceIds()
+	out := make([]*v2.Resource, 0, len(ids))
+	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if id == nil {
+			continue
+		}
+		rec, err := a.engine.GetResourceRecord(ctx, syncID, id.GetResourceType(), id.GetResource())
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		out = append(out, V3ResourceToV2(rec))
+	}
+	return reader_v2.ResourcesReaderServiceListResourcesByIdsResponse_builder{
+		List: out,
+	}.Build(), nil
+}
+
+// ListEntitlementsByIds returns entitlements for the requested
+// external_ids. Missing rows are silently omitted.
+func (a *Adapter) ListEntitlementsByIds(
+	ctx context.Context,
+	req *reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest,
+) (*reader_v2.EntitlementsReaderServiceListEntitlementsByIdsResponse, error) {
+	syncID := a.resolveActiveSyncForReader(req.GetAnnotations())
+	if syncID == "" {
+		return nil, ErrNoCurrentSync
+	}
+	ids := req.GetEntitlementIds()
+	out := make([]*v2.Entitlement, 0, len(ids))
+	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if id == "" {
+			continue
+		}
+		rec, err := a.engine.GetEntitlementRecord(ctx, syncID, id)
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		out = append(out, V3EntitlementToV2(rec))
+	}
+	return reader_v2.EntitlementsReaderServiceListEntitlementsByIdsResponse_builder{
+		List: out,
+	}.Build(), nil
+}
+
+// GetResourceTypes returns resource_types for the requested ids.
+// Missing rows are silently omitted.
+func (a *Adapter) GetResourceTypes(
+	ctx context.Context,
+	req *reader_v2.ResourceTypesReaderServiceGetResourceTypesRequest,
+) (*reader_v2.ResourceTypesReaderServiceGetResourceTypesResponse, error) {
+	syncID := a.resolveActiveSyncForReader(req.GetAnnotations())
+	if syncID == "" {
+		return nil, ErrNoCurrentSync
+	}
+	ids := req.GetResourceTypeIds()
+	out := make([]*v2.ResourceType, 0, len(ids))
+	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if id == "" {
+			continue
+		}
+		rec, err := a.engine.GetResourceTypeRecord(ctx, syncID, id)
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		out = append(out, V3ResourceTypeToV2(rec))
+	}
+	return reader_v2.ResourceTypesReaderServiceGetResourceTypesResponse_builder{
+		List: out,
+	}.Build(), nil
+}
+
 // ListGrantsForEntitlement paginates grants on a specific
 // entitlement, optionally narrowed by principal_id or
 // principal_resource_type_ids. Implements
