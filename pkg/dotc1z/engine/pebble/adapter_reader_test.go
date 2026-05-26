@@ -2,11 +2,11 @@ package pebble
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strconv"
 	"testing"
 
-	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -84,11 +84,14 @@ func TestGetEntitlementResourceResourceType(t *testing.T) {
 		t.Errorf("GetEntitlement purpose: got %v want PERMISSION", got)
 	}
 
-	// Missing entity returns pebble.ErrNotFound
+	// Missing entity returns sql.ErrNoRows — the Adapter normalizes
+	// pebble.ErrNotFound at the boundary so engine-agnostic
+	// consumers (pkg/sync, pkg/sync/expand) can use one sentinel
+	// across both engines. See adapter_errors.go.
 	if _, err := a.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: "does-not-exist",
-	}.Build()); !errors.Is(err, pebble.ErrNotFound) {
-		t.Errorf("missing entitlement: got %v, want ErrNotFound", err)
+	}.Build()); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("missing entitlement: got %v, want sql.ErrNoRows", err)
 	}
 }
 

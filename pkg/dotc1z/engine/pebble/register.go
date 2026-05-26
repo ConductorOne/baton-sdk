@@ -112,6 +112,14 @@ type registeredStore struct {
 	dirty   bool
 }
 
+// Compile-time guard: a registered Pebble store satisfies the full
+// dotc1z.C1ZStore contract — connectorstore.Writer (via Adapter)
+// plus the three sub-store methods (Grants, SyncMeta, FileOps) and
+// the C1ZStore Close(ctx) signature. Lets callers route Pebble
+// stores through pkg/sync.NewSyncer's WithConnectorStore option
+// the same way they route SQLite *C1File handles today.
+var _ dotc1z.C1ZStore = (*registeredStore)(nil)
+
 func (s *registeredStore) markDirty(err error) error {
 	if err == nil {
 		s.closeMu.Lock()

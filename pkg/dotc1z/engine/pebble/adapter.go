@@ -464,7 +464,7 @@ func (a *Adapter) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequ
 	}
 	rec, err := a.engine.GetAssetRecord(ctx, syncID, req.GetAsset().GetId())
 	if err != nil {
-		return "", nil, err
+		return "", nil, adaptNotFound(err)
 	}
 	return rec.GetContentType(), &bytesReader{b: rec.GetData()}, nil
 }
@@ -638,7 +638,7 @@ func (a *Adapter) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServi
 	}
 	rec, err := a.engine.GetGrantRecord(ctx, syncID, req.GetGrantId())
 	if err != nil {
-		return nil, err
+		return nil, adaptNotFound(err)
 	}
 	return reader_v2.GrantsReaderServiceGetGrantResponse_builder{
 		Grant: V3GrantToV2(rec),

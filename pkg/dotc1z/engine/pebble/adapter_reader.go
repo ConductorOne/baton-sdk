@@ -32,6 +32,7 @@ func (a *Adapter) GetEntitlement(ctx context.Context, req *reader_v2.Entitlement
 		return nil, ErrNoCurrentSync
 	}
 	rec, err := a.engine.GetEntitlementRecord(ctx, syncID, req.GetEntitlementId())
+	err = adaptNotFound(err)
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +53,7 @@ func (a *Adapter) GetResource(ctx context.Context, req *reader_v2.ResourcesReade
 		return nil, errors.New("GetResource: nil resource_id")
 	}
 	rec, err := a.engine.GetResourceRecord(ctx, syncID, rid.GetResourceType(), rid.GetResource())
+	err = adaptNotFound(err)
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +70,7 @@ func (a *Adapter) GetResourceType(ctx context.Context, req *reader_v2.ResourceTy
 		return nil, ErrNoCurrentSync
 	}
 	rec, err := a.engine.GetResourceTypeRecord(ctx, syncID, req.GetResourceTypeId())
+	err = adaptNotFound(err)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +218,7 @@ func (a *Adapter) GetSync(ctx context.Context, req *reader_v2.SyncsReaderService
 	}
 	rec, err := a.engine.GetSyncRunRecord(ctx, req.GetSyncId())
 	if err != nil {
-		return nil, err
+		return nil, adaptNotFound(err)
 	}
 	return reader_v2.SyncsReaderServiceGetSyncResponse_builder{
 		Sync: v3SyncRunToV2(rec),
