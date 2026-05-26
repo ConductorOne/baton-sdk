@@ -521,3 +521,62 @@ func TestSyncerTokenExclusionGroupDefaultsRoundTrip(t *testing.T) {
 	require.True(t, conflict)
 	require.Equal(t, "user:user1:admin", existing)
 }
+
+func TestIncrementExclusionGroupCount(t *testing.T) {
+	st := newState()
+
+	require.Equal(t, uint32(1), st.IncrementExclusionGroupCount("role"))
+	require.Equal(t, uint32(2), st.IncrementExclusionGroupCount("role"))
+	require.Equal(t, uint32(3), st.IncrementExclusionGroupCount("role"))
+
+	// Counts are independent per group.
+	require.Equal(t, uint32(1), st.IncrementExclusionGroupCount("other"))
+	require.Equal(t, uint32(4), st.IncrementExclusionGroupCount("role"))
+}
+
+func TestSyncerTokenExclusionGroupCountsRoundTrip(t *testing.T) {
+	st := newState()
+
+	st.IncrementExclusionGroupCount("role")
+	st.IncrementExclusionGroupCount("role")
+	st.IncrementExclusionGroupCount("other")
+
+	tokenString, err := st.Marshal()
+	require.NoError(t, err)
+
+	restored := newState()
+	require.NoError(t, restored.Unmarshal(tokenString))
+
+	// Counts resume where they left off — the next increment continues from the
+	// persisted value rather than starting over.
+	require.Equal(t, uint32(3), restored.IncrementExclusionGroupCount("role"))
+	require.Equal(t, uint32(2), restored.IncrementExclusionGroupCount("other"))
+}
+
+func TestClearExclusionGroupTracking(t *testing.T) {
+	ctx := t.Context()
+	st := newState()
+
+	_, conflict := st.CheckAndSetExclusionGroupResourceType("role", "user")
+	require.False(t, conflict)
+	_, conflict = st.CheckAndSetExclusionGroupDefault("role", "user:user1:admin")
+	require.False(t, conflict)
+	st.IncrementExclusionGroupCount("role")
+
+	tokenBefore, err := st.Marshal()
+	require.NoError(t, err)
+	require.Contains(t, tokenBefore, "exclusion_group")
+
+	st.ClearExclusionGroupTracking(ctx)
+
+	tokenAfter, err := st.Marshal()
+	require.NoError(t, err)
+	// The omitempty maps drop out of the serialized token once cleared.
+	require.NotContains(t, tokenAfter, "exclusion_group")
+
+	// After clearing, tracking starts fresh without panicking on nil maps.
+	require.Equal(t, uint32(1), st.IncrementExclusionGroupCount("role"))
+	existing, conflict := st.CheckAndSetExclusionGroupResourceType("role", "team")
+	require.False(t, conflict)
+	require.Empty(t, existing)
+}

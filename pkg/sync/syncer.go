@@ -231,9 +231,14 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 	}
 }
 
+// maxEntitlementsPerExclusionGroup caps how many entitlements may share a
+// single exclusion_group_id. Phase 1 limit.
+const maxEntitlementsPerExclusionGroup = 50
+
 // recordEntitlementExclusionGroup enforces the invariants on an exclusion
 // group membership: a given exclusion_group_id must stay within one resource
-// type, and a group may have at most one entitlement marked is_default. Empty
+// type, a group may have at most one entitlement marked is_default, and a group
+// may contain at most maxEntitlementsPerExclusionGroup entitlements. Empty
 // group ids are treated as "no exclusion group" and skipped.
 func (s *syncer) recordEntitlementExclusionGroup(eg *v2.EntitlementExclusionGroup, entitlementID, resourceTypeID string) error {
 	groupID := eg.GetExclusionGroupId()
@@ -251,6 +256,11 @@ func (s *syncer) recordEntitlementExclusionGroup(eg *v2.EntitlementExclusionGrou
 				"at most one entitlement per exclusion group may set is_default=true",
 				groupID, existing, entitlementID)
 		}
+	}
+	if count := s.state.IncrementExclusionGroupCount(groupID); count > maxEntitlementsPerExclusionGroup {
+		return fmt.Errorf("exclusion group %q has too many entitlements (%d); "+
+			"at most %d entitlements are allowed per exclusion group",
+			groupID, count, maxEntitlementsPerExclusionGroup)
 	}
 	return nil
 }
@@ -515,6 +525,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
 	s.state.ClearEntitlementGraph(ctx)
+	s.state.ClearExclusionGroupTracking(ctx)
 
 	err = s.Checkpoint(ctx, true)
 	if err != nil {

@@ -2377,4 +2377,42 @@ func TestValidateEntitlementExclusionGroups(t *testing.T) {
 		}
 		require.NoError(t, s.validateEntitlementExclusionGroups(ents))
 	})
+
+	t.Run("group at the cap passes", func(t *testing.T) {
+		s := &syncer{state: newState()}
+		ents := make([]*v2.Entitlement, 0, maxEntitlementsPerExclusionGroup)
+		for i := 0; i < maxEntitlementsPerExclusionGroup; i++ {
+			ents = append(ents, newEntitlement(t, userResourceType, fmt.Sprintf("user%d", i), "member", et.WithExclusionGroup("role")))
+		}
+		require.NoError(t, s.validateEntitlementExclusionGroups(ents))
+	})
+
+	t.Run("group over the cap fails", func(t *testing.T) {
+		s := &syncer{state: newState()}
+		ents := make([]*v2.Entitlement, 0, maxEntitlementsPerExclusionGroup+1)
+		for i := 0; i < maxEntitlementsPerExclusionGroup+1; i++ {
+			ents = append(ents, newEntitlement(t, userResourceType, fmt.Sprintf("user%d", i), "member", et.WithExclusionGroup("role")))
+		}
+		err := s.validateEntitlementExclusionGroups(ents)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `"role"`)
+		require.Contains(t, err.Error(), "too many entitlements")
+	})
+
+	t.Run("cap is enforced across separate batches via persisted state", func(t *testing.T) {
+		s := &syncer{state: newState()}
+		// First batch fills the group exactly to the cap.
+		first := make([]*v2.Entitlement, 0, maxEntitlementsPerExclusionGroup)
+		for i := 0; i < maxEntitlementsPerExclusionGroup; i++ {
+			first = append(first, newEntitlement(t, userResourceType, fmt.Sprintf("user%d", i), "member", et.WithExclusionGroup("role")))
+		}
+		require.NoError(t, s.validateEntitlementExclusionGroups(first))
+
+		// A later batch adding one more member to the same group pushes it over.
+		err := s.validateEntitlementExclusionGroups([]*v2.Entitlement{
+			newEntitlement(t, userResourceType, "extra", "member", et.WithExclusionGroup("role")),
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "too many entitlements")
+	})
 }
