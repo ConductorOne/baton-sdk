@@ -139,6 +139,14 @@ func iteratePrimaryPageWithKey[T proto.Message](
 // PaginateGrantsBySync returns up to `limit` grants from the
 // primary-key range, starting strictly after `cursor`. Returns the
 // next cursor (empty if no more) plus the materialized records.
+//
+// Uses a per-call grantReadArena to pre-allocate the GrantRecord +
+// nested EntitlementRef + PrincipalRef slots. The vtproto-generated
+// UnmarshalVT detects the pre-set pointers and reuses the arena
+// slots instead of heap-allocating a fresh nested struct per record,
+// collapsing 2N nested allocs into 2 slice allocs per page. The
+// arena lifetime ends with this function — callers receive pointers
+// into the arena's backing arrays, so retention is intentional.
 func (e *Engine) PaginateGrantsBySync(
 	ctx context.Context, syncID, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
@@ -150,10 +158,24 @@ func (e *Engine) PaginateGrantsBySync(
 	if err != nil {
 		return nil, "", err
 	}
+	if limit <= 0 {
+		limit = DefaultPageSize
+	}
+	arena := newGrantReadArena(limit)
+	idx := 0
 	prefix := encodeGrantPrefix(idBytes)
-	return iteratePrimaryPageWithKey(ctx, e.db, prefix, cursorBytes, limit, func() *v3.GrantRecord {
-		return &v3.GrantRecord{}
+	records, next, err := iteratePrimaryPageWithKey(ctx, e.db, prefix, cursorBytes, limit, func() *v3.GrantRecord {
+		slot := arena.nextSlot(idx)
+		idx++
+		return slot
 	})
+	if err != nil {
+		return nil, "", err
+	}
+	for _, r := range records {
+		arena.reconcileAbsentFields(r)
+	}
+	return records, next, nil
 }
 
 // PaginateGrantsByEntitlement uses the by_entitlement index. The
