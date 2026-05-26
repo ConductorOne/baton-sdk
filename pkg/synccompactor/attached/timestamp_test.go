@@ -25,7 +25,6 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		appliedFile := filepath.Join(tmpDir, "applied.c1z")
 
 		opts := []dotc1z.C1ZOption{
-			dotc1z.WithPragma("journal_mode", "WAL"),
 			dotc1z.WithTmpDir(tmpDir),
 		}
 
@@ -104,7 +103,6 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		appliedFile := filepath.Join(tmpDir, "applied.c1z")
 
 		opts := []dotc1z.C1ZOption{
-			dotc1z.WithPragma("journal_mode", "WAL"),
 			dotc1z.WithTmpDir(tmpDir),
 		}
 

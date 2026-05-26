@@ -66,7 +66,6 @@ func runGrantStatsParityCase(t *testing.T, numResourceTypes, grantsPerSync, numS
 	testFilePath := filepath.Join(tempDir, "parity.c1z")
 	f, err := NewC1ZFile(ctx, testFilePath,
 		WithTmpDir(tempDir),
-		WithPragma("journal_mode", "WAL"),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = f.Close(ctx) })

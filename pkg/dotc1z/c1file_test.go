@@ -76,7 +76,6 @@ func TestC1Z(t *testing.T) {
 	testFilePath := filepath.Join(c1zTests.workingDir, "test.c1z")
 
 	var opts []C1ZOption
-	opts = append(opts, WithPragma("journal_mode", "WAL"))
 
 	// Open file
 	f, err := NewC1ZFile(ctx, testFilePath, opts...)
@@ -164,7 +163,7 @@ func TestC1ZDecoder(t *testing.T) {
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-decoder.c1z")
 
 	// Open file
-	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	f, err := NewC1ZFile(ctx, testFilePath)
 	require.NoError(t, err)
 
 	// Start a new sync
@@ -268,7 +267,7 @@ func TestCurrentDBSizeBytes(t *testing.T) {
 	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-currentdbsize.c1z")
 
-	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	f, err := NewC1ZFile(ctx, testFilePath)
 	require.NoError(t, err)
 	defer func() { _ = f.Close(ctx) }()
 
@@ -354,7 +353,7 @@ func TestC1ZInvalidFile(t *testing.T) {
 	err = f.Close()
 	require.NoError(t, err)
 
-	_, err = NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	_, err = NewC1ZFile(ctx, testFilePath)
 	require.ErrorIs(t, err, ErrInvalidFile)
 }
 
@@ -362,7 +361,7 @@ func TestC1ZStats(t *testing.T) {
 	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-stats.c1z")
 
-	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	f, err := NewC1ZFile(ctx, testFilePath)
 	require.NoError(t, err)
 
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -413,7 +412,7 @@ func TestC1ZStatsPartialSync(t *testing.T) {
 	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-stats-partial-sync.c1z")
 
-	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	f, err := NewC1ZFile(ctx, testFilePath)
 	require.NoError(t, err)
 
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
@@ -453,7 +452,7 @@ func TestC1ZStatsResourcesOnlySync(t *testing.T) {
 	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-stats-resources-only-sync.c1z")
 
-	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	f, err := NewC1ZFile(ctx, testFilePath)
 	require.NoError(t, err)
 
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeResourcesOnly, "")
@@ -509,7 +508,7 @@ func TestC1ZGrantStatsSync(t *testing.T) {
 
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-grant-stats-sync.c1z")
 
-	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	f, err := NewC1ZFile(ctx, testFilePath)
 	require.NoError(t, err)
 
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
@@ -628,7 +627,7 @@ func TestC1ZCachedViewSyncRunInvalidation(t *testing.T) {
 	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-cached-view-sync-invalidation.c1z")
 
-	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	f, err := NewC1ZFile(ctx, testFilePath)
 	require.NoError(t, err)
 
 	// Start first sync and add a resource

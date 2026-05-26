@@ -262,7 +262,7 @@ func TestDiffDetectsExpansionAnnotationChange(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 
 	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
 	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
@@ -354,7 +354,7 @@ func TestDiffDetectsDataOnlyChange(t *testing.T) {
 	defer os.Remove(oldPath)
 	defer os.Remove(newPath)
 
-	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	opts := []C1ZOption{}
 
 	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
 	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
