@@ -318,6 +318,74 @@ func (e *Engine) PaginateGrantsByPrincipal(
 	return out, nextCursor, nil
 }
 
+// PaginateGrantsByPrincipalResourceType walks the by-principal-RT
+// index. Cursor is the index key. Drives the new fast path for
+// the Adapter's ListGrantsForResourceType.
+func (e *Engine) PaginateGrantsByPrincipalResourceType(
+	ctx context.Context, syncID, principalRT, cursor string, limit int,
+) ([]*v3.GrantRecord, string, error) {
+	idBytes, err := e.resolveSyncBytes(syncID)
+	if err != nil {
+		return nil, "", err
+	}
+	cursorBytes, err := decodeCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
+	if limit <= 0 {
+		limit = DefaultPageSize
+	}
+	indexPrefix := encodeGrantByPrincipalResourceTypePrefix(idBytes, principalRT)
+	lower, upper := rangeAfter(indexPrefix, cursorBytes)
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: lower,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("page iter: %w", err)
+	}
+	defer iter.Close()
+	out := make([]*v3.GrantRecord, 0, limit)
+	var lastReturnedKey []byte
+	hasMore := false
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+		if len(out) == limit {
+			hasMore = true
+			break
+		}
+		externalID := lastTupleComponent(iter.Key(), indexPrefix)
+		if externalID == "" {
+			continue
+		}
+		val, closer, getErr := e.db.Get(encodeGrantKey(idBytes, externalID))
+		if getErr != nil {
+			if errors.Is(getErr, pebble.ErrNotFound) {
+				continue
+			}
+			return nil, "", fmt.Errorf("paginate: get primary: %w", getErr)
+		}
+		r := &v3.GrantRecord{}
+		err = unmarshalRecord(val, r)
+		closer.Close()
+		if err != nil {
+			return nil, "", err
+		}
+		lastReturnedKey = append(lastReturnedKey[:0], iter.Key()...)
+		out = append(out, r)
+	}
+	if err := iter.Error(); err != nil {
+		return nil, "", err
+	}
+	var nextCursor string
+	if hasMore {
+		nextCursor = encodeCursor(lastReturnedKey)
+	}
+	return out, nextCursor, nil
+}
+
 // PaginateGrantsByNeedsExpansion returns a page of grants whose
 // NeedsExpansion flag is set. Backs the GrantStore
 // PendingExpansionPage path; the SQLite equivalent is a query

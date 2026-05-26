@@ -62,6 +62,11 @@ func buildBucketPlans(syncIDBytes []byte) []bucketPlan {
 			upper: enginepkg.GrantByPrincipalSyncUpperBound(syncIDBytes),
 		},
 		{
+			name:  "grant_by_principal_resource_type",
+			lower: enginepkg.GrantByPrincipalResourceTypeSyncLowerBound(syncIDBytes),
+			upper: enginepkg.GrantByPrincipalResourceTypeSyncUpperBound(syncIDBytes),
+		},
+		{
 			name:  "grant_by_needs_expansion",
 			lower: enginepkg.GrantByNeedsExpansionSyncLowerBound(syncIDBytes),
 			upper: enginepkg.GrantByNeedsExpansionSyncUpperBound(syncIDBytes),

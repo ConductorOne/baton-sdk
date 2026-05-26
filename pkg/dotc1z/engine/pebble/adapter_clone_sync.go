@@ -97,6 +97,7 @@ func cloneSync(
 		{encodeGrantPrefix(syncIDBytes), upperBoundOf(encodeGrantPrefix(syncIDBytes))},
 		{GrantByEntitlementSyncLowerBound(syncIDBytes), GrantByEntitlementSyncUpperBound(syncIDBytes)},
 		{GrantByPrincipalSyncLowerBound(syncIDBytes), GrantByPrincipalSyncUpperBound(syncIDBytes)},
+		{GrantByPrincipalResourceTypeSyncLowerBound(syncIDBytes), GrantByPrincipalResourceTypeSyncUpperBound(syncIDBytes)},
 		{GrantByNeedsExpansionSyncLowerBound(syncIDBytes), GrantByNeedsExpansionSyncUpperBound(syncIDBytes)},
 		{encodeAssetPrefix(syncIDBytes), upperBoundOf(encodeAssetPrefix(syncIDBytes))},
 		// Stats sidecar — single key per sync; copyRange's [lo, hi)

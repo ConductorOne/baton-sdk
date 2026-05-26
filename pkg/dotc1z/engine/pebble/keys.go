@@ -26,11 +26,12 @@ const (
 // types is fine because the index key is scoped by the type byte that
 // preceded it.
 const (
-	idxResourceByParent      byte = 0x01
-	idxEntitlementByResource byte = 0x02
-	idxGrantByEntitlement    byte = 0x03
-	idxGrantByPrincipal      byte = 0x04
-	idxGrantByNeedsExpansion byte = 0x05
+	idxResourceByParent             byte = 0x01
+	idxEntitlementByResource        byte = 0x02
+	idxGrantByEntitlement           byte = 0x03
+	idxGrantByPrincipal             byte = 0x04
+	idxGrantByNeedsExpansion        byte = 0x05
+	idxGrantByPrincipalResourceType byte = 0x06
 )
 
 // --- Grant ---
@@ -121,6 +122,37 @@ func encodeGrantByNeedsExpansionIndexKey(syncIDBytes []byte, externalID string) 
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleString(buf, externalID)
+	return buf
+}
+
+// encodeGrantByPrincipalResourceTypeIndexKey: by-principal-RT
+// index. Closes the only O(G) full-scan path in the Reader
+// (ListGrantsForResourceType, which previously walked the entire
+// grant primary range and post-filtered).
+//
+//	v3 | typeIndex | idxGrantByPrincipalResourceType | sync_id_bytes |
+//	    principal_resource_type | external_id
+func encodeGrantByPrincipalResourceTypeIndexKey(syncIDBytes []byte, principalRT, externalID string) []byte {
+	buf := make([]byte, 0, 64)
+	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipalResourceType)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, principalRT)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, externalID)
+	return buf
+}
+
+// encodeGrantByPrincipalResourceTypePrefix returns the prefix
+// scanning all grants in this sync whose principal has the given
+// resource_type.
+func encodeGrantByPrincipalResourceTypePrefix(syncIDBytes []byte, principalRT string) []byte {
+	buf := make([]byte, 0, 32+len(principalRT))
+	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipalResourceType)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, principalRT)
+	buf = codec.AppendTupleSeparator(buf)
 	return buf
 }
 
@@ -393,6 +425,20 @@ func GrantByNeedsExpansionSyncLowerBound(syncIDBytes []byte) []byte {
 // GrantByNeedsExpansionSyncUpperBound is the exclusive upper bound.
 func GrantByNeedsExpansionSyncUpperBound(syncIDBytes []byte) []byte {
 	return upperBoundOf(GrantByNeedsExpansionSyncLowerBound(syncIDBytes))
+}
+
+// GrantByPrincipalResourceTypeSyncLowerBound returns the lowest key
+// in the by-principal-resource-type index bucket for a given sync.
+func GrantByPrincipalResourceTypeSyncLowerBound(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 3+len(syncIDBytes))
+	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipalResourceType)
+	buf = append(buf, syncIDBytes...)
+	return buf
+}
+
+// GrantByPrincipalResourceTypeSyncUpperBound is the exclusive upper bound.
+func GrantByPrincipalResourceTypeSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(GrantByPrincipalResourceTypeSyncLowerBound(syncIDBytes))
 }
 
 func AssetSyncLowerBound(syncIDBytes []byte) []byte {

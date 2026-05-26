@@ -178,11 +178,8 @@ func (a *Adapter) ListGrantsForEntitlement(
 }
 
 // ListGrantsForResourceType paginates grants whose principal is of
-// the given resource_type_id. There is no v3 index keyed on
-// principal_resource_type alone; we walk the primary range and
-// post-filter. For tenants where principal_resource_type filtering
-// becomes hot, an idxGrantByPrincipalResourceType index is a
-// straightforward extension.
+// the given resource_type_id, via idxGrantByPrincipalResourceType.
+// The cursor is the index key.
 //
 // Implements reader_v2.GrantsReaderServiceServer.
 func (a *Adapter) ListGrantsForResourceType(
@@ -197,59 +194,19 @@ func (a *Adapter) ListGrantsForResourceType(
 	if rtFilter == "" {
 		return nil, errors.New("ListGrantsForResourceType: missing resource_type_id")
 	}
-	idBytes, err := codec.EncodeSyncID(syncID)
+	limit := clampPageSize(req.GetPageSize())
+	cursor := req.GetPageToken()
+	records, next, err := a.engine.PaginateGrantsByPrincipalResourceType(ctx, syncID, rtFilter, cursor, limit)
 	if err != nil {
 		return nil, err
 	}
-	limit := clampPageSize(req.GetPageSize())
-	cursor := req.GetPageToken()
-
-	// cursorFor returns the grant primary key for rec — needed to
-	// resume after this record when len(out) == limit breaks the
-	// inner loop with matching records still unconsumed in the
-	// engine page.
-	cursorFor := func(rec *v3.GrantRecord) string {
-		return encodeCursor(encodeGrantKey(idBytes, rec.GetExternalId()))
-	}
-
-	out := make([]*v2.Grant, 0, limit)
-	var nextCursor string
-	for len(out) < limit {
-		pageLimit := limit - len(out)
-		// Over-fetch with a 4x cap to amortize the post-filter pass
-		// when most grants don't match the RT filter.
-		fetchLimit := pageLimit * 4
-		if fetchLimit > MaxPageSize {
-			fetchLimit = MaxPageSize
-		}
-		records, next, err := a.engine.PaginateGrantsBySync(ctx, syncID, cursor, fetchLimit)
-		if err != nil {
-			return nil, err
-		}
-		nextCursor = next
-		brokeEarly := false
-		for _, rec := range records {
-			if rec.GetPrincipal().GetResourceTypeId() != rtFilter {
-				continue
-			}
-			out = append(out, V3GrantToV2(rec))
-			if len(out) == limit {
-				nextCursor = cursorFor(rec)
-				brokeEarly = true
-				break
-			}
-		}
-		if brokeEarly {
-			break
-		}
-		if nextCursor == "" || len(records) == 0 {
-			break
-		}
-		cursor = nextCursor
+	out := make([]*v2.Grant, 0, len(records))
+	for _, rec := range records {
+		out = append(out, V3GrantToV2(rec))
 	}
 	return reader_v2.GrantsReaderServiceListGrantsForResourceTypeResponse_builder{
 		List:          out,
-		NextPageToken: nextCursor,
+		NextPageToken: next,
 	}.Build(), nil
 }
 

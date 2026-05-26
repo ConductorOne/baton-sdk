@@ -257,6 +257,18 @@ func (e *Engine) writeGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *v
 		if err := batch.Set(k, nil, nil); err != nil {
 			return err
 		}
+		// by-principal-resource-type index — independent of
+		// principal_id; sized at one entry per grant. Drives
+		// ListGrantsForResourceType (the only previously-O(G)
+		// full-scan Reader method).
+		kRT := encodeGrantByPrincipalResourceTypeIndexKey(
+			syncIDBytes,
+			princ.GetResourceTypeId(),
+			ext,
+		)
+		if err := batch.Set(kRT, nil, nil); err != nil {
+			return err
+		}
 	}
 	// needs_expansion index — populated only when the grant
 	// currently carries the flag. Mirrors the SQLite partial
@@ -299,6 +311,14 @@ func (e *Engine) deleteGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *
 			ext,
 		)
 		if err := batch.Delete(k, nil); err != nil {
+			return err
+		}
+		kRT := encodeGrantByPrincipalResourceTypeIndexKey(
+			syncIDBytes,
+			princ.GetResourceTypeId(),
+			ext,
+		)
+		if err := batch.Delete(kRT, nil); err != nil {
 			return err
 		}
 	}
@@ -424,6 +444,50 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, syncID, principal
 		closer.Close()
 		if err != nil {
 			return err
+		}
+		if !yield(r) {
+			return nil
+		}
+	}
+	return iter.Error()
+}
+
+// IterateGrantsByPrincipalResourceType iterates the by-principal-RT
+// index for a sync. Yields each grant whose principal carries the
+// given resource_type, in encoded external_id order. Stops when
+// yield returns false.
+func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, syncID, principalRT string, yield func(*v3.GrantRecord) bool) error {
+	idBytes, err := e.resolveSyncBytes(syncID)
+	if err != nil {
+		return err
+	}
+	indexPrefix := encodeGrantByPrincipalResourceTypePrefix(idBytes, principalRT)
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: indexPrefix,
+		UpperBound: upperBoundOf(indexPrefix),
+	})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	for iter.First(); iter.Valid(); iter.Next() {
+		externalID := lastTupleComponent(iter.Key(), indexPrefix)
+		if externalID == "" {
+			continue
+		}
+		key := encodeGrantKey(idBytes, externalID)
+		val, closer, err := e.db.Get(key)
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+				continue
+			}
+			return err
+		}
+		r := &v3.GrantRecord{}
+		err = unmarshalRecord(val, r)
+		closer.Close()
+		if err != nil {
+			return fmt.Errorf("iterate by principal_rt: %w", err)
 		}
 		if !yield(r) {
 			return nil

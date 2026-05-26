@@ -156,6 +156,91 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 	}
 }
 
+// TestListGrantsForResourceTypePagination drives the new
+// idxGrantByPrincipalResourceType index across a page boundary
+// and verifies that updates flip-flop the index correctly.
+func TestListGrantsForResourceTypePagination(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	const userCount = 50
+	const groupCount = 20
+	grants := make([]*v2.Grant, 0, userCount+groupCount)
+	for i := 0; i < userCount; i++ {
+		grants = append(grants, mkV2Grant("u-"+strconv.Itoa(i), "ent-A", "user", "u"+strconv.Itoa(i)))
+	}
+	for i := 0; i < groupCount; i++ {
+		grants = append(grants, mkV2Grant("g-"+strconv.Itoa(i), "ent-A", "group", "g"+strconv.Itoa(i)))
+	}
+	if err := a.PutGrants(ctx, grants...); err != nil {
+		t.Fatal(err)
+	}
+
+	// Walk all user grants across multiple pages.
+	collected := map[string]bool{}
+	cursor := ""
+	for i := 0; i < 20; i++ {
+		resp, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
+			ResourceTypeId: "user",
+			PageSize:       7,
+			PageToken:      cursor,
+		}.Build())
+		if err != nil {
+			t.Fatalf("page %d: %v", i, err)
+		}
+		for _, g := range resp.GetList() {
+			if g.GetPrincipal().GetId().GetResourceType() != "user" {
+				t.Errorf("non-user grant returned: %v", g)
+			}
+			if collected[g.GetId()] {
+				t.Errorf("duplicate grant id %q", g.GetId())
+			}
+			collected[g.GetId()] = true
+		}
+		cursor = resp.GetNextPageToken()
+		if cursor == "" {
+			break
+		}
+	}
+	if len(collected) != userCount {
+		t.Errorf("paginated user grants: got %d, want %d", len(collected), userCount)
+	}
+
+	// Re-put a subset with a different principal RT to verify index
+	// flip on overwrite. The first 10 "user" grants become "group"
+	// principals; ListGrantsForResourceType(user) should drop to 40
+	// and ListGrantsForResourceType(group) should rise to 30.
+	updated := make([]*v2.Grant, 0, 10)
+	for i := 0; i < 10; i++ {
+		updated = append(updated, mkV2Grant("u-"+strconv.Itoa(i), "ent-A", "group", "moved-"+strconv.Itoa(i)))
+	}
+	if err := a.PutGrants(ctx, updated...); err != nil {
+		t.Fatal(err)
+	}
+
+	respUser, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
+		ResourceTypeId: "user", PageSize: 1000,
+	}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(respUser.GetList()); got != userCount-10 {
+		t.Errorf("after move, user grants = %d, want %d", got, userCount-10)
+	}
+	respGroup, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
+		ResourceTypeId: "group", PageSize: 1000,
+	}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(respGroup.GetList()); got != groupCount+10 {
+		t.Errorf("after move, group grants = %d, want %d", got, groupCount+10)
+	}
+}
+
 func TestSyncsReaderMethods(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
