@@ -38,6 +38,28 @@ type State interface {
 	ShouldSkipGrants() bool
 	SetShouldSkipGrants()
 	GetCompletedActionsCount() uint64
+	// CheckAndSetExclusionGroupResourceType records that exclusionGroupID is
+	// used on resourceTypeID. If the group was already recorded against a
+	// different resource type, the prior value is returned with conflict=true
+	// and the map is not modified. Otherwise the map is updated (if needed)
+	// and ("", false) is returned. The existing return value is meaningful
+	// only when conflict is true.
+	CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) (existing string, conflict bool)
+	// CheckAndSetExclusionGroupDefault records that entitlementID is the
+	// default entitlement for exclusionGroupID. If the group already has a
+	// recorded default that is not entitlementID, the prior value is returned
+	// with conflict=true and the map is not modified. Otherwise the map is
+	// updated (if needed) and ("", false) is returned. The existing return
+	// value is meaningful only when conflict is true.
+	CheckAndSetExclusionGroupDefault(exclusionGroupID, entitlementID string) (existing string, conflict bool)
+	// IncrementExclusionGroupCount increments the running count of entitlements
+	// observed for exclusionGroupID and returns the new count. The count is
+	// global per exclusion group id (across all resources) and survives resume.
+	IncrementExclusionGroupCount(exclusionGroupID string) uint32
+	// ClearExclusionGroupTracking drops the exclusion group bookkeeping maps so
+	// they don't bloat the token of a completed sync, mirroring
+	// ClearEntitlementGraph.
+	ClearExclusionGroupTracking(ctx context.Context)
 }
 
 // ActionOp represents a sync operation.
@@ -163,6 +185,9 @@ type state struct {
 	shouldSkipEntitlementsAndGrants bool
 	shouldSkipGrants                bool
 	completedActionsCount           uint64
+	exclusionGroupResourceTypes     map[string]string
+	exclusionGroupDefaults          map[string]string
+	exclusionGroupCounts            map[string]uint32
 }
 
 // Original serialized token format. Needed to parse/resume syncs started by older versions of baton-sdk.
@@ -191,16 +216,22 @@ type serializedTokenV1 struct {
 	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants,omitempty"`
 	ShouldSkipGrants                bool                     `json:"should_skip_grants,omitempty"`
 	CompletedActionsCount           uint64                   `json:"completed_actions_count,omitempty"`
+	ExclusionGroupResourceTypes     map[string]string        `json:"exclusion_group_resource_types,omitempty"`
+	ExclusionGroupDefaults          map[string]string        `json:"exclusion_group_defaults,omitempty"`
+	ExclusionGroupCounts            map[string]uint32        `json:"exclusion_group_counts,omitempty"`
 	Version                         uint64                   `json:"version"`
 }
 
 func newState() *state {
 	return &state{
-		actions:          make(map[string]Action),
-		actionOrder:      []string{},
-		currentActionID:  0,
-		entitlementGraph: nil,
-		needsExpansion:   false,
+		actions:                     make(map[string]Action),
+		actionOrder:                 []string{},
+		currentActionID:             0,
+		entitlementGraph:            nil,
+		needsExpansion:              false,
+		exclusionGroupResourceTypes: make(map[string]string),
+		exclusionGroupDefaults:      make(map[string]string),
+		exclusionGroupCounts:        make(map[string]uint32),
 	}
 }
 
@@ -319,6 +350,18 @@ func (st *state) Unmarshal(input string) error {
 		st.shouldSkipGrants = token.ShouldSkipGrants
 		st.shouldFetchRelatedResources = token.ShouldFetchRelatedResources
 		st.completedActionsCount = token.CompletedActionsCount
+		st.exclusionGroupResourceTypes = token.ExclusionGroupResourceTypes
+		if st.exclusionGroupResourceTypes == nil {
+			st.exclusionGroupResourceTypes = make(map[string]string)
+		}
+		st.exclusionGroupDefaults = token.ExclusionGroupDefaults
+		if st.exclusionGroupDefaults == nil {
+			st.exclusionGroupDefaults = make(map[string]string)
+		}
+		st.exclusionGroupCounts = token.ExclusionGroupCounts
+		if st.exclusionGroupCounts == nil {
+			st.exclusionGroupCounts = make(map[string]uint32)
+		}
 	} else {
 		st.actions = make(map[string]Action)
 		st.actionOrder = []string{}
@@ -332,6 +375,9 @@ func (st *state) Unmarshal(input string) error {
 		st.actions[actionID] = Action{Op: InitOp, ID: actionID}
 		st.actionOrder = append(st.actionOrder, actionID)
 		st.completedActionsCount = 0
+		st.exclusionGroupResourceTypes = make(map[string]string)
+		st.exclusionGroupDefaults = make(map[string]string)
+		st.exclusionGroupCounts = make(map[string]uint32)
 	}
 
 	return nil
@@ -353,6 +399,9 @@ func (st *state) Marshal() (string, error) {
 		ShouldSkipEntitlementsAndGrants: st.shouldSkipEntitlementsAndGrants,
 		ShouldSkipGrants:                st.shouldSkipGrants,
 		CompletedActionsCount:           st.completedActionsCount,
+		ExclusionGroupResourceTypes:     st.exclusionGroupResourceTypes,
+		ExclusionGroupDefaults:          st.exclusionGroupDefaults,
+		ExclusionGroupCounts:            st.exclusionGroupCounts,
 		Version:                         1,
 	})
 	if err != nil {
@@ -483,4 +532,60 @@ func (st *state) GetCompletedActionsCount() uint64 {
 	st.mtx.RLock()
 	defer st.mtx.RUnlock()
 	return st.completedActionsCount
+}
+
+func (st *state) CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) (string, bool) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	if st.exclusionGroupResourceTypes == nil {
+		st.exclusionGroupResourceTypes = make(map[string]string)
+	}
+	if existing, ok := st.exclusionGroupResourceTypes[exclusionGroupID]; ok {
+		if existing != resourceTypeID {
+			return existing, true
+		}
+		return "", false
+	}
+	st.exclusionGroupResourceTypes[exclusionGroupID] = resourceTypeID
+	return "", false
+}
+
+func (st *state) CheckAndSetExclusionGroupDefault(exclusionGroupID, entitlementID string) (string, bool) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	if st.exclusionGroupDefaults == nil {
+		st.exclusionGroupDefaults = make(map[string]string)
+	}
+	if existing, ok := st.exclusionGroupDefaults[exclusionGroupID]; ok {
+		if existing != entitlementID {
+			return existing, true
+		}
+		return "", false
+	}
+	st.exclusionGroupDefaults[exclusionGroupID] = entitlementID
+	return "", false
+}
+
+func (st *state) IncrementExclusionGroupCount(exclusionGroupID string) uint32 {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	if st.exclusionGroupCounts == nil {
+		st.exclusionGroupCounts = make(map[string]uint32)
+	}
+	st.exclusionGroupCounts[exclusionGroupID]++
+	return st.exclusionGroupCounts[exclusionGroupID]
+}
+
+// ClearExclusionGroupTracking drops the exclusion group bookkeeping maps. This
+// is meant to keep the final sync token small, mirroring ClearEntitlementGraph.
+func (st *state) ClearExclusionGroupTracking(ctx context.Context) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	st.exclusionGroupResourceTypes = nil
+	st.exclusionGroupDefaults = nil
+	st.exclusionGroupCounts = nil
 }
