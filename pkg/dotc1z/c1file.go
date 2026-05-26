@@ -566,6 +566,25 @@ func (c *C1File) init(ctx context.Context) error {
 			zap.Duration("time_taken", time.Since(startTime)),
 			zap.String("db_file_path", c.dbFilePath),
 		)
+	} else {
+		// Steady-state opens (no migrations triggered PRAGMA optimize above)
+		// still need sqlite_stat1 populated for the grants table so the
+		// planner can pick the principal index for batched
+		// ListGrantsForEntitlement queries. See ensureGrantsAnalyzed for
+		// the full rationale. One-shot per file: cheap when stats exist,
+		// bounded by analyze_limit when they don't.
+		startTime := time.Now()
+		if err := ensureGrantsAnalyzed(ctx, c); err != nil {
+			l.Warn("c1file-init: ensuring grants statistics failed",
+				zap.Error(err),
+				zap.String("db_file_path", c.dbFilePath),
+			)
+		} else {
+			l.Debug("c1file-init: ensured grants statistics",
+				zap.Duration("time_taken", time.Since(startTime)),
+				zap.String("db_file_path", c.dbFilePath),
+			)
+		}
 	}
 
 	if c.readOnly {

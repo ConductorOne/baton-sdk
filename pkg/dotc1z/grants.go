@@ -130,6 +130,52 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) (bool, 
 	return backfilled, nil
 }
 
+// ensureGrantsAnalyzed runs a sampled ANALYZE on the grants table when no
+// optimizer statistics exist for it yet. Without sqlite_stat1 entries, the
+// SQLite planner falls back to a heuristic that prefers
+// idx_grants_entitlement_sync_grant (which natively satisfies ORDER BY id)
+// over idx_grants_entitlement_id_principal_id (which actually narrows the
+// result set) for batched ListGrantsForEntitlement queries that use the
+// principal_ids IN-list. The wrong choice scans every grant for the
+// (entitlement, sync) pair instead of probing the principal index, which
+// benchmarks as ~13× slower than the right plan.
+//
+// analyze_limit = 1000 caps per-index sampling so even multi-GB grants tables
+// finish in seconds, not minutes. Once stats exist, subsequent file opens see
+// sqlite_stat1 populated for the grants table and skip immediately. PRAGMA
+// optimize (run elsewhere when migrations execute) keeps the stats fresh from
+// that point on.
+func ensureGrantsAnalyzed(ctx context.Context, c *C1File) error {
+	tableName := grants.Name()
+
+	var statTableExists int
+	if err := c.db.QueryRowContext(ctx,
+		`select count(*) from sqlite_master where type = 'table' and name = 'sqlite_stat1'`,
+	).Scan(&statTableExists); err != nil {
+		return fmt.Errorf("ensureGrantsAnalyzed: checking sqlite_stat1: %w", err)
+	}
+
+	if statTableExists > 0 {
+		var grantsHasStats int
+		if err := c.db.QueryRowContext(ctx,
+			`select count(*) from sqlite_stat1 where tbl = ?`, tableName,
+		).Scan(&grantsHasStats); err != nil {
+			return fmt.Errorf("ensureGrantsAnalyzed: checking sqlite_stat1 for %s: %w", tableName, err)
+		}
+		if grantsHasStats > 0 {
+			return nil
+		}
+	}
+
+	if _, err := c.db.ExecContext(ctx, "PRAGMA analyze_limit = 1000"); err != nil {
+		return fmt.Errorf("ensureGrantsAnalyzed: setting analyze_limit: %w", err)
+	}
+	if _, err := c.db.ExecContext(ctx, fmt.Sprintf("analyze %s", tableName)); err != nil {
+		return fmt.Errorf("ensureGrantsAnalyzed: analyzing %s: %w", tableName, err)
+	}
+	return nil
+}
+
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrants")
 	var err error
