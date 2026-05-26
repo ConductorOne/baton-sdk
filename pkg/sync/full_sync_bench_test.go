@@ -45,11 +45,28 @@ func BenchmarkFullSync_BatonDemoShape(b *testing.B) {
 		{"small", 200, 20, 10},
 		{"medium", 2_000, 100, 25},
 		{"large", 10_000, 500, 25},
+		// xlarge approximates a "real production tenant" scale —
+		// 50k groups × 200 memberships ≈ 10M grants. Skipped by
+		// default (set SYNC_BENCH_SCALE=xlarge to opt in). Expect
+		// SQLite to take minutes; Pebble should land in the
+		// low-tens-of-seconds range.
+		{"xlarge", 50_000, 50_000, 200},
 	}
 	if env := os.Getenv("SYNC_BENCH_SCALE"); env != "" {
 		filtered := scales[:0]
 		for _, s := range scales {
 			if s.name == env {
+				filtered = append(filtered, s)
+			}
+		}
+		scales = filtered
+	} else {
+		// Default excludes xlarge — it produces ~10M grants and
+		// takes several minutes on SQLite. Opt in via
+		// SYNC_BENCH_SCALE=xlarge.
+		filtered := scales[:0]
+		for _, s := range scales {
+			if s.name != "xlarge" {
 				filtered = append(filtered, s)
 			}
 		}

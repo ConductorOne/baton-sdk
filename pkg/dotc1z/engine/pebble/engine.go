@@ -100,12 +100,20 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		return nil, fmt.Errorf("pebble.Open: %w", err)
 	}
 
-	return &Engine{
+	e := &Engine{
 		db:         db,
 		dbDir:      dir,
 		opts:       o,
 		pebbleOpts: pebbleOpts,
-	}, nil
+	}
+	// Run secondary-index migrations before returning. Migrations
+	// are skipped for read-only opens (the on-disk file is
+	// immutable, so we'd error out trying to backfill).
+	if err := e.applyIndexMigrations(ctx); err != nil {
+		_ = e.Close()
+		return nil, fmt.Errorf("pebble: apply index migrations: %w", err)
+	}
+	return e, nil
 }
 
 // Close shuts down the engine. After Close, all methods return
