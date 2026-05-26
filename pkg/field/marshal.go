@@ -57,8 +57,12 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 	fieldGroups := make([]*v1_conf.FieldGroup, 0)
 	for _, group := range c.FieldGroups {
 		// ExportTarget controls whether a field group is included in the exported configuration.
-		// Groups targeting CLI-only or none are excluded since they are not relevant to the GUI or ops.
-		if group.ExportTarget == ExportTargetCLIOnly || group.ExportTarget == ExportTargetNone {
+		// Groups targeting only local CLI or none are excluded since they are not relevant to C1-managed config.
+		if group.ExportTarget != "" &&
+			group.ExportTarget != ExportTargetNone &&
+			!group.ExportTarget.ExportsTo(ExportTargetGUI) &&
+			!group.ExportTarget.ExportsTo(ExportTargetOps) &&
+			!group.ExportTarget.ExportsTo(ExportTargetSelfHosted) {
 			continue
 		}
 		fieldGroups = append(fieldGroups, fieldGroupToV1(group))
@@ -90,7 +94,7 @@ func mapFieldsAndConstraints(fields []SchemaField, constraints []SchemaFieldRela
 
 	ignore := make(map[string]struct{})
 	for _, f := range fields {
-		if f.ExportTarget != ExportTargetGUI && f.ExportTarget != ExportTargetOps {
+		if !f.ExportsTo(ExportTargetGUI) && !f.ExportsTo(ExportTargetOps) && !f.ExportsTo(ExportTargetSelfHosted) {
 			ignore[f.FieldName] = struct{}{}
 			continue
 		}
@@ -117,6 +121,15 @@ func mapFieldsAndConstraints(fields []SchemaField, constraints []SchemaFieldRela
 	}
 
 	return resultFields, resultConstraints, nil
+}
+
+func legacyIsOps(f SchemaField) bool {
+	if f.ExportsTo(ExportTargetOps) {
+		return true
+	}
+	// Older C1 consumers only know is_ops. Treat non-GUI self-hosted fields as
+	// ops/internal so they are not exposed as tenant connector configuration.
+	return f.ExportsTo(ExportTargetSelfHosted) && !f.ExportsTo(ExportTargetGUI)
 }
 
 func constraintToV1(rel SchemaFieldRelationship, ignore map[string]struct{}) (*v1_conf.Constraint, error) {
@@ -157,13 +170,14 @@ func constraintToV1(rel SchemaFieldRelationship, ignore map[string]struct{}) (*v
 
 func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 	field := v1_conf.Field_builder{
-		Name:        f.FieldName,
-		DisplayName: f.ConnectorConfig.DisplayName,
-		Description: f.Description,
-		Placeholder: f.ConnectorConfig.Placeholder,
-		IsRequired:  f.Required,
-		IsOps:       f.ExportTarget == ExportTargetOps,
-		IsSecret:    f.Secret,
+		Name:         f.FieldName,
+		DisplayName:  f.ConnectorConfig.DisplayName,
+		Description:  f.Description,
+		Placeholder:  f.ConnectorConfig.Placeholder,
+		IsRequired:   f.Required,
+		IsOps:        legacyIsOps(f),
+		IsSecret:     f.Secret,
+		IsSelfHosted: f.ExportsTo(ExportTargetSelfHosted),
 	}.Build()
 
 	switch f.Variant {

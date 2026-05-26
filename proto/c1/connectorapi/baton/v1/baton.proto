@@ -242,6 +242,10 @@ message BatonServiceHelloResponse {
   repeated google.protobuf.Any annotations = 1;
 }
 
+message SelfHostedRuntimeConfig {
+  map<string, google.protobuf.Value> values = 1;
+}
+
 message BatonServiceGetTaskRequest {
   string host_id = 1 [(validate.rules).string = {
     min_len: 1
