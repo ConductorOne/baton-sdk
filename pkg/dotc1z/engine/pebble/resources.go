@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
-	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
@@ -48,7 +47,7 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 			switch {
 			case getErr == nil:
 				old := &v3.ResourceRecord{}
-				if err := proto.Unmarshal(oldVal, old); err != nil {
+				if err := unmarshalRecord(oldVal, old); err != nil {
 					closer.Close()
 					return fmt.Errorf("PutResourceRecords: unmarshal old %s/%s: %w",
 						r.GetResourceTypeId(), r.GetResourceId(), err)
@@ -90,7 +89,7 @@ func (e *Engine) GetResourceRecord(ctx context.Context, syncID, resourceTypeID, 
 	}
 	defer closer.Close()
 	r := &v3.ResourceRecord{}
-	if err := proto.Unmarshal(val, r); err != nil {
+	if err := unmarshalRecord(val, r); err != nil {
 		return nil, fmt.Errorf("GetResourceRecord: unmarshal: %w", err)
 	}
 	return r, nil
@@ -115,7 +114,7 @@ func (e *Engine) DeleteResourceRecord(ctx context.Context, syncID, resourceTypeI
 			return err
 		}
 		old := &v3.ResourceRecord{}
-		if err := proto.Unmarshal(oldVal, old); err != nil {
+		if err := unmarshalRecord(oldVal, old); err != nil {
 			closer.Close()
 			return fmt.Errorf("DeleteResourceRecord: unmarshal old %s/%s: %w", resourceTypeID, resourceID, err)
 		}
@@ -175,7 +174,7 @@ func (e *Engine) IterateResourcesBySync(ctx context.Context, syncID string, yiel
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
 		r := &v3.ResourceRecord{}
-		if err := proto.Unmarshal(iter.Value(), r); err != nil {
+		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate resources: %w", err)
 		}
 		if !yield(r) {
@@ -213,7 +212,7 @@ func (e *Engine) IterateResourcesByParent(ctx context.Context, syncID, parentRT,
 			return err
 		}
 		r := &v3.ResourceRecord{}
-		err = proto.Unmarshal(val, r)
+		err = unmarshalRecord(val, r)
 		closer.Close()
 		if err != nil {
 			return err

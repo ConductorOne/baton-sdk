@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
-	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
@@ -40,7 +39,7 @@ func (e *Engine) GetAssetRecord(ctx context.Context, syncID, externalID string) 
 	}
 	defer closer.Close()
 	r := &v3.AssetRecord{}
-	if err := proto.Unmarshal(val, r); err != nil {
+	if err := unmarshalRecord(val, r); err != nil {
 		return nil, fmt.Errorf("GetAssetRecord: unmarshal: %w", err)
 	}
 	return r, nil
@@ -72,7 +71,7 @@ func (e *Engine) IterateAssetsBySync(ctx context.Context, syncID string, yield f
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
 		r := &v3.AssetRecord{}
-		if err := proto.Unmarshal(iter.Value(), r); err != nil {
+		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate assets: %w", err)
 		}
 		if !yield(r) {

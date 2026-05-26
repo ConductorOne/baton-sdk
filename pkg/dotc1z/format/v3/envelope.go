@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	"github.com/klauspost/compress/zstd"
@@ -315,61 +316,120 @@ func writeTar(w io.Writer, dir string) error {
 // Envelope's payload reader has already transparently decoded the
 // outer zstd layer when the encoding was TAR_ZSTD, or is a plain tar
 // reader when the encoding was TAR. Same downstream code path.
+//
+// Parallelism: the tar reader pulls bytes from the underlying stream
+// serially in this goroutine (tar framing is sequential). For each
+// regular-file entry we read the bytes into a freshly-allocated
+// buffer and dispatch (target, mode, buffer) to a writer worker pool.
+// Workers perform the per-file open/write/close syscalls in parallel.
+// Memory peak is bounded by extractWorkerCount × max-entry-size; at
+// Pebble's typical 2 MiB FlushSplitBytes this is a few tens of MiB
+// regardless of total c1z size — the per-entry parallelism win
+// compounds at production-scale c1z files (100s GB).
+//
+// Directory creation stays on the main goroutine because tar entries
+// are emitted in walk order — a TypeDir must finish before a TypeReg
+// child can be written.
 func ExtractZstdTar(r io.Reader, destDir string) error {
-	// r already came through Envelope's zstd decoder; we just need
-	// to walk the tar entries.
+	const extractWorkerCount = 4
+
+	type writeJob struct {
+		target string
+		mode   os.FileMode
+		data   []byte
+	}
+	jobs := make(chan writeJob, extractWorkerCount)
+
+	var wg sync.WaitGroup
+	var firstErr error
+	var errMu sync.Mutex
+	setErr := func(err error) {
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		errMu.Unlock()
+	}
+	wg.Add(extractWorkerCount)
+	for w := 0; w < extractWorkerCount; w++ {
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				f, err := os.OpenFile(j.target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, j.mode)
+				if err != nil {
+					setErr(err)
+					continue
+				}
+				_, werr := f.Write(j.data)
+				if cerr := f.Close(); werr == nil {
+					werr = cerr
+				}
+				if werr != nil {
+					setErr(werr)
+				}
+			}
+		}()
+	}
+
 	tr := tar.NewReader(r)
+	var readErr error
+entryLoop:
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
-			return nil
+			break
 		}
 		if err != nil {
-			return fmt.Errorf("c1z v3: tar Next: %w", err)
+			readErr = fmt.Errorf("c1z v3: tar Next: %w", err)
+			break
 		}
 		if !filepath.IsLocal(hdr.Name) {
-			return fmt.Errorf("c1z v3: unsafe tar entry path: %q", hdr.Name)
+			readErr = fmt.Errorf("c1z v3: unsafe tar entry path: %q", hdr.Name)
+			break
 		}
 		target := filepath.Join(destDir, hdr.Name) //nolint:gosec // hdr.Name is guarded by filepath.IsLocal above.
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			mode, err := tarFileMode(hdr.Mode, 0o755)
 			if err != nil {
-				return err
+				readErr = err
+				break entryLoop
 			}
 			if err := os.MkdirAll(target, mode); err != nil {
-				return err
+				readErr = err
+				break entryLoop
 			}
 		case tar.TypeReg:
 			if hdr.Size < 0 || hdr.Size > maxTarEntryBytes {
-				return fmt.Errorf("c1z v3: tar entry %q size %d exceeds cap %d", hdr.Name, hdr.Size, maxTarEntryBytes)
+				readErr = fmt.Errorf("c1z v3: tar entry %q size %d exceeds cap %d", hdr.Name, hdr.Size, maxTarEntryBytes)
+				break entryLoop
 			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
+				readErr = err
+				break entryLoop
 			}
 			mode, err := tarFileMode(hdr.Mode, 0o644)
 			if err != nil {
-				return err
+				readErr = err
+				break entryLoop
 			}
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-			if err != nil {
-				return err
+			buf := make([]byte, hdr.Size)
+			if _, err := io.ReadFull(tr, buf); err != nil {
+				readErr = fmt.Errorf("c1z v3: tar read %q: %w", hdr.Name, err)
+				break entryLoop
 			}
-			n, err := io.Copy(f, io.LimitReader(tr, hdr.Size))
-			if closeErr := f.Close(); err == nil {
-				err = closeErr
-			}
-			if err != nil {
-				return err
-			}
-			if n != hdr.Size {
-				return io.ErrUnexpectedEOF
-			}
+			jobs <- writeJob{target: target, mode: mode, data: buf}
 		default:
 			// Skip other types (symlinks, etc.) — Pebble directories
 			// contain only directories and regular files.
 		}
 	}
+	close(jobs)
+	wg.Wait()
+	if readErr != nil {
+		return readErr
+	}
+	return firstErr
 }
 
 func tarFileMode(mode int64, mask os.FileMode) (os.FileMode, error) {

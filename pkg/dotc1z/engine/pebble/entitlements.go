@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
-	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
@@ -46,7 +45,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 			switch {
 			case getErr == nil:
 				old := &v3.EntitlementRecord{}
-				if err := proto.Unmarshal(oldVal, old); err != nil {
+				if err := unmarshalRecord(oldVal, old); err != nil {
 					closer.Close()
 					return fmt.Errorf("PutEntitlementRecords: unmarshal old %q: %w", r.GetExternalId(), err)
 				}
@@ -86,7 +85,7 @@ func (e *Engine) GetEntitlementRecord(ctx context.Context, syncID, externalID st
 	}
 	defer closer.Close()
 	r := &v3.EntitlementRecord{}
-	if err := proto.Unmarshal(val, r); err != nil {
+	if err := unmarshalRecord(val, r); err != nil {
 		return nil, fmt.Errorf("GetEntitlementRecord: unmarshal: %w", err)
 	}
 	return r, nil
@@ -109,7 +108,7 @@ func (e *Engine) DeleteEntitlementRecord(ctx context.Context, syncID, externalID
 			return err
 		}
 		old := &v3.EntitlementRecord{}
-		if err := proto.Unmarshal(oldVal, old); err != nil {
+		if err := unmarshalRecord(oldVal, old); err != nil {
 			closer.Close()
 			return fmt.Errorf("DeleteEntitlementRecord: unmarshal old %q: %w", externalID, err)
 		}
@@ -167,7 +166,7 @@ func (e *Engine) IterateEntitlementsBySync(ctx context.Context, syncID string, y
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
 		r := &v3.EntitlementRecord{}
-		if err := proto.Unmarshal(iter.Value(), r); err != nil {
+		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate entitlements: %w", err)
 		}
 		if !yield(r) {
@@ -204,7 +203,7 @@ func (e *Engine) IterateEntitlementsByResource(ctx context.Context, syncID, reso
 			return err
 		}
 		r := &v3.EntitlementRecord{}
-		err = proto.Unmarshal(val, r)
+		err = unmarshalRecord(val, r)
 		closer.Close()
 		if err != nil {
 			return err

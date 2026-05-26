@@ -347,6 +347,13 @@ type vtMarshaler interface {
 	MarshalToSizedBufferVT([]byte) (int, error)
 }
 
+// vtUnmarshaler is the subset of vtprotobuf-generated methods that
+// unmarshalRecord uses. Same shape as vtMarshaler but on the read
+// path.
+type vtUnmarshaler interface {
+	UnmarshalVT([]byte) error
+}
+
 // internal: marshal a record value deterministically.
 func marshalRecord(m proto.Message) ([]byte, error) {
 	if vm, ok := m.(vtMarshaler); ok {
@@ -359,4 +366,15 @@ func marshalRecord(m proto.Message) ([]byte, error) {
 		return buf[:n], nil
 	}
 	return proto.MarshalOptions{Deterministic: true}.Marshal(m)
+}
+
+// internal: unmarshal a record value. Prefers vtprotobuf's
+// generated UnmarshalVT when available — it's typically 2–3× faster
+// than the reflection-based proto.Unmarshal because it skips message
+// descriptor lookups. Wire-compatible.
+func unmarshalRecord(b []byte, m proto.Message) error {
+	if vu, ok := m.(vtUnmarshaler); ok {
+		return vu.UnmarshalVT(b)
+	}
+	return proto.Unmarshal(b, m)
 }

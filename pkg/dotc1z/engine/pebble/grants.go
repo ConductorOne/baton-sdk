@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
-	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
@@ -87,7 +86,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			switch {
 			case getErr == nil:
 				old := &v3.GrantRecord{}
-				if err := proto.Unmarshal(oldVal, old); err != nil {
+				if err := unmarshalRecord(oldVal, old); err != nil {
 					closer.Close()
 					return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
 				}
@@ -130,7 +129,7 @@ func (e *Engine) GetGrantRecord(ctx context.Context, syncID, externalID string) 
 	}
 	defer closer.Close()
 	r := &v3.GrantRecord{}
-	if err := proto.Unmarshal(val, r); err != nil {
+	if err := unmarshalRecord(val, r); err != nil {
 		return nil, fmt.Errorf("GetGrantRecord: unmarshal: %w", err)
 	}
 	return r, nil
@@ -156,7 +155,7 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, syncID, externalID strin
 			return err
 		}
 		old := &v3.GrantRecord{}
-		if err := proto.Unmarshal(oldVal, old); err != nil {
+		if err := unmarshalRecord(oldVal, old); err != nil {
 			closer.Close()
 			return fmt.Errorf("DeleteGrantRecord: unmarshal old %q: %w", externalID, err)
 		}
@@ -257,7 +256,7 @@ func (e *Engine) IterateGrantsBySync(ctx context.Context, syncID string, yield f
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
 		r := &v3.GrantRecord{}
-		if err := proto.Unmarshal(iter.Value(), r); err != nil {
+		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate grants: %w", err)
 		}
 		if !yield(r) {
@@ -304,7 +303,7 @@ func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, syncID, entitle
 			return err
 		}
 		r := &v3.GrantRecord{}
-		err = proto.Unmarshal(val, r)
+		err = unmarshalRecord(val, r)
 		closer.Close()
 		if err != nil {
 			return fmt.Errorf("iterate by entitlement: %w", err)
@@ -345,7 +344,7 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, syncID, principal
 			return err
 		}
 		r := &v3.GrantRecord{}
-		err = proto.Unmarshal(val, r)
+		err = unmarshalRecord(val, r)
 		closer.Close()
 		if err != nil {
 			return err

@@ -118,7 +118,7 @@ func iteratePrimaryPageWithKey[T proto.Message](
 			break
 		}
 		v := newT()
-		if err := proto.Unmarshal(iter.Value(), v); err != nil {
+		if err := unmarshalRecord(iter.Value(), v); err != nil {
 			return nil, "", fmt.Errorf("page unmarshal: %w", err)
 		}
 		lastReturnedKey = append(lastReturnedKey[:0], iter.Key()...)

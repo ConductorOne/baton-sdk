@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
-	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
@@ -67,7 +66,7 @@ func (e *Engine) GetResourceTypeRecord(ctx context.Context, syncID, externalID s
 	}
 	defer closer.Close()
 	r := &v3.ResourceTypeRecord{}
-	if err := proto.Unmarshal(val, r); err != nil {
+	if err := unmarshalRecord(val, r); err != nil {
 		return nil, fmt.Errorf("GetResourceTypeRecord: unmarshal: %w", err)
 	}
 	return r, nil
@@ -99,7 +98,7 @@ func (e *Engine) IterateResourceTypesBySync(ctx context.Context, syncID string, 
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
 		r := &v3.ResourceTypeRecord{}
-		if err := proto.Unmarshal(iter.Value(), r); err != nil {
+		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate resource_types: %w", err)
 		}
 		if !yield(r) {

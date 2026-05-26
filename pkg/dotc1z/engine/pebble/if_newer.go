@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -52,7 +51,7 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 			switch {
 			case getErr == nil:
 				old := &v3.GrantRecord{}
-				if err := proto.Unmarshal(oldVal, old); err != nil {
+				if err := unmarshalRecord(oldVal, old); err != nil {
 					closer.Close()
 					return fmt.Errorf("PutGrantRecordsIfNewer: unmarshal old: %w", err)
 				}
@@ -110,7 +109,7 @@ func (e *Engine) PutResourceRecordsIfNewer(ctx context.Context, records ...*v3.R
 			switch {
 			case getErr == nil:
 				old := &v3.ResourceRecord{}
-				if err := proto.Unmarshal(oldVal, old); err != nil {
+				if err := unmarshalRecord(oldVal, old); err != nil {
 					closer.Close()
 					return fmt.Errorf("PutResourceRecordsIfNewer: unmarshal old: %w", err)
 				}
@@ -166,7 +165,7 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 			switch {
 			case getErr == nil:
 				old := &v3.EntitlementRecord{}
-				if err := proto.Unmarshal(oldVal, old); err != nil {
+				if err := unmarshalRecord(oldVal, old); err != nil {
 					closer.Close()
 					return fmt.Errorf("PutEntitlementRecordsIfNewer: unmarshal old: %w", err)
 				}
@@ -222,7 +221,7 @@ func (e *Engine) PutResourceTypeRecordsIfNewer(ctx context.Context, records ...*
 			switch {
 			case getErr == nil:
 				old := &v3.ResourceTypeRecord{}
-				if err := proto.Unmarshal(oldVal, old); err != nil {
+				if err := unmarshalRecord(oldVal, old); err != nil {
 					closer.Close()
 					return fmt.Errorf("PutResourceTypeRecordsIfNewer: unmarshal old: %w", err)
 				}
