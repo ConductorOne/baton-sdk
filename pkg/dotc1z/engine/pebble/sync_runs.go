@@ -92,3 +92,54 @@ func (e *Engine) IterateAllSyncRuns(ctx context.Context, yield func(*v3.SyncRunR
 	}
 	return iter.Error()
 }
+
+// LatestFinishedSyncRecord returns the SyncRunRecord with the latest
+// ended_at that matches typeOK, or (nil, nil) when no finished sync
+// matches. typeOK may be nil to accept any sync type.
+//
+// This is the single source of truth for "pick the latest finished
+// sync" on the Pebble engine; all three external entry points
+// (connectorstore.LatestFinishedSyncIDFetcher,
+// dotc1z.SyncMeta.LatestFullSync / LatestFinishedSyncOfAnyType, and
+// reader_v2.SyncsReaderService.GetLatestFinishedSync) call here so
+// the tiebreaker and predicate semantics stay consistent.
+//
+// Ties on ended_at are broken by sync_id (KSUIDs sort by time, so
+// the lexicographically greater id is the later sync). Matches the
+// SQLite-side `ORDER BY ended_at DESC, sync_id DESC` in
+// pkg/dotc1z/sync_runs.go:getFinishedSync (commit 1627b047) which
+// closes a Windows coarse-time-resolution race where adjacent
+// EndSync calls can produce identical ended_at timestamps.
+//
+// O(N) in the count of sync_runs (one record per sync; typically a
+// few hundred over a c1z's lifetime, not millions).
+func (e *Engine) LatestFinishedSyncRecord(ctx context.Context, typeOK func(v3.SyncType) bool) (*v3.SyncRunRecord, error) {
+	var best *v3.SyncRunRecord
+	err := e.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
+		if r == nil || r.GetEndedAt() == nil {
+			return true
+		}
+		if typeOK != nil && !typeOK(r.GetType()) {
+			return true
+		}
+		if best == nil {
+			best = r
+			return true
+		}
+		curEnd := r.GetEndedAt().AsTime()
+		bestEnd := best.GetEndedAt().AsTime()
+		if curEnd.After(bestEnd) {
+			best = r
+			return true
+		}
+		// Equal ended_at: tiebreak on sync_id (KSUID > sort = later).
+		if curEnd.Equal(bestEnd) && r.GetSyncId() > best.GetSyncId() {
+			best = r
+		}
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	return best, nil
+}

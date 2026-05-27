@@ -63,41 +63,11 @@ func (s pebbleSyncMeta) LatestFinishedSyncOfAnyType(ctx context.Context) (*dotc1
 	return s.latestFinishedSync(ctx, func(v3.SyncType) bool { return true })
 }
 
-// latestFinishedSync walks IterateAllSyncRuns once and returns the
-// finished-sync (ended_at != nil) with the latest ended_at that
-// matches the type predicate. O(N) in sync-run count, which is
-// fine — the workload's sync_runs table is small (a few hundred
-// rows at most over a c1z's lifetime).
-//
-// Ties on ended_at are broken by sync_id (KSUIDs sort by time, so
-// the lexicographically greater id is the later sync). Matches the
-// SQLite-side `ORDER BY ended_at DESC, sync_id DESC` fix in
-// pkg/dotc1z/sync_runs.go:getFinishedSync (commit 1627b047) which
-// closes a Windows coarse-time-resolution race.
+// latestFinishedSync delegates to Engine.LatestFinishedSyncRecord and
+// translates the result into the exported dotc1z.SyncRun shape.
+// typeOK is passed through verbatim; nil matches any sync type.
 func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.SyncType) bool) (*dotc1z.SyncRun, error) {
-	var best *v3.SyncRunRecord
-	err := s.a.engine.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
-		if r == nil || r.GetEndedAt() == nil {
-			return true
-		}
-		if !typeOK(r.GetType()) {
-			return true
-		}
-		if best == nil {
-			best = r
-			return true
-		}
-		curEnd := r.GetEndedAt().AsTime()
-		bestEnd := best.GetEndedAt().AsTime()
-		if curEnd.After(bestEnd) {
-			best = r
-			return true
-		}
-		if curEnd.Equal(bestEnd) && r.GetSyncId() > best.GetSyncId() {
-			best = r
-		}
-		return true
-	})
+	best, err := s.a.engine.LatestFinishedSyncRecord(ctx, typeOK)
 	if err != nil {
 		return nil, err
 	}

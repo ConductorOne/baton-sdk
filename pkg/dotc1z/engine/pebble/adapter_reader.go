@@ -427,43 +427,15 @@ func (a *Adapter) ListSyncs(ctx context.Context, req *reader_v2.SyncsReaderServi
 
 // GetLatestFinishedSync returns the most-recently-ended sync_run,
 // optionally filtered by sync_type. Implements
-// reader_v2.SyncsReaderServiceServer.
+// reader_v2.SyncsReaderServiceServer. Delegates to
+// Engine.LatestFinishedSyncRecord.
 //
-// Linear scan across sync_runs (one record per sync; counts in the
-// tens-thousands range for the lifetime of a tenant, not the
-// millions). If this becomes hot, a "latest by type" sidecar key
-// keyed on (typeFinishedSyncByType | type) → sync_id would make it
-// O(1) — straightforward future work.
-//
-// Ties on ended_at are broken by sync_id (KSUIDs sort by time) to
-// match the SQLite-side `ORDER BY ended_at DESC, sync_id DESC`
-// (commit 1627b047) on Windows hosts whose time resolution can
-// produce identical timestamps for adjacent EndSync calls.
+// Future work: if this becomes hot, a "latest by type" sidecar key
+// keyed on (typeFinishedSyncByType | type) → sync_id would let
+// Engine.LatestFinishedSyncRecord short-circuit to O(1).
 func (a *Adapter) GetLatestFinishedSync(ctx context.Context, req *reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest) (*reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse, error) {
-	syncTypeFilter := req.GetSyncType()
-	var latest *v3.SyncRunRecord
-	if err := a.engine.IterateAllSyncRuns(ctx, func(rec *v3.SyncRunRecord) bool {
-		if rec.GetEndedAt() == nil {
-			return true
-		}
-		if syncTypeFilter != "" && v3SyncTypeToString(rec.GetType()) != syncTypeFilter {
-			return true
-		}
-		if latest == nil {
-			latest = rec
-			return true
-		}
-		curEnd := rec.GetEndedAt().AsTime()
-		bestEnd := latest.GetEndedAt().AsTime()
-		if curEnd.After(bestEnd) {
-			latest = rec
-			return true
-		}
-		if curEnd.Equal(bestEnd) && rec.GetSyncId() > latest.GetSyncId() {
-			latest = rec
-		}
-		return true
-	}); err != nil {
+	latest, err := a.engine.LatestFinishedSyncRecord(ctx, syncTypeFilterFromString(req.GetSyncType()))
+	if err != nil {
 		return nil, err
 	}
 	if latest == nil {
@@ -472,6 +444,17 @@ func (a *Adapter) GetLatestFinishedSync(ctx context.Context, req *reader_v2.Sync
 	return reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse_builder{
 		Sync: v3SyncRunToV2(latest),
 	}.Build(), nil
+}
+
+// syncTypeFilterFromString returns a predicate that matches sync_runs
+// whose v3 type round-trips to the given string form. Empty string
+// returns nil (no filter), matching the
+// Engine.LatestFinishedSyncRecord contract.
+func syncTypeFilterFromString(s string) func(v3.SyncType) bool {
+	if s == "" {
+		return nil
+	}
+	return func(t v3.SyncType) bool { return v3SyncTypeToString(t) == s }
 }
 
 // v3SyncRunToV2 maps a v3.SyncRunRecord to the reader_v2.SyncRun

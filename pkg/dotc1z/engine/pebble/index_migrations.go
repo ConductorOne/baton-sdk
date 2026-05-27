@@ -112,14 +112,15 @@ func (e *Engine) applyIndexMigrations(ctx context.Context) error {
 // encodeIndexAppliedKey returns the engine-meta key for the
 // applied-version of an index migration.
 //
-//	v3 | typeEngineMeta | tup_string("idx") | tup_string(name)
+//	v3 | typeEngineMeta | "idx" | 0x00 | name
+//
+// Note: unlike the standard keys.go layout this shape has no
+// sync_id region — index migrations are engine-global, not
+// per-sync.
 func encodeIndexAppliedKey(name string) []byte {
 	buf := make([]byte, 0, 4+len("idx")+len(name)+4)
 	buf = append(buf, versionV3, typeEngineMeta)
-	buf = codec.AppendTupleString(buf, "idx")
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, name)
-	return buf
+	return codec.AppendTupleStrings(buf, "idx", name)
 }
 
 // readAppliedIndexVersion returns the stored applied-version for
