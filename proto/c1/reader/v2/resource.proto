@@ -10,10 +10,6 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/reader/v2";
 
 service ResourceTypesReaderService {
   rpc GetResourceType(ResourceTypesReaderServiceGetResourceTypeRequest) returns (ResourceTypesReaderServiceGetResourceTypeResponse);
-  // GetResourceTypes returns all resource types whose id appears in
-  // the request. Missing ids are silently omitted from the response;
-  // callers detect partial misses by length / id comparison.
-  rpc GetResourceTypes(ResourceTypesReaderServiceGetResourceTypesRequest) returns (ResourceTypesReaderServiceGetResourceTypesResponse);
 }
 
 message ResourceTypesReaderServiceGetResourceTypeRequest {
@@ -23,17 +19,6 @@ message ResourceTypesReaderServiceGetResourceTypeRequest {
 
 message ResourceTypesReaderServiceGetResourceTypeResponse {
   c1.connector.v2.ResourceType resource_type = 1;
-}
-
-message ResourceTypesReaderServiceGetResourceTypesRequest {
-  repeated string resource_type_ids = 1 [(validate.rules).repeated = {
-    max_items: 1024
-  }];
-  repeated google.protobuf.Any annotations = 100;
-}
-
-message ResourceTypesReaderServiceGetResourceTypesResponse {
-  repeated c1.connector.v2.ResourceType list = 1;
 }
 
 service ResourcesReaderService {
@@ -53,9 +38,7 @@ message ResourcesReaderServiceGetResourceResponse {
 }
 
 message ResourcesReaderServiceListResourcesByIdsRequest {
-  repeated c1.connector.v2.ResourceId resource_ids = 1 [(validate.rules).repeated = {
-    max_items: 1024
-  }];
+  repeated c1.connector.v2.ResourceId resource_ids = 1 [(validate.rules).repeated = {max_items: 1024}];
   repeated google.protobuf.Any annotations = 100;
 }
 

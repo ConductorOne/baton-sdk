@@ -383,7 +383,7 @@ func (c *C1File) ListGrantsForPrincipal(
 
 	ret, nextPageToken, err := listGrantsGeneric(ctx, c, request)
 	if err != nil {
-		return nil, fmt.Errorf("error listing grants for principal '%s': %w", request.GetPrincipalId(), err)
+		return nil, fmt.Errorf("error listing grants for principal '%s': %w", request.GetPrincipalId(), err) //nolint:staticcheck // ignore deprecated field
 	}
 
 	return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{

@@ -273,17 +273,6 @@ func TestBulkByIdsRoundtripPebble(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Run("GetResourceTypes", func(t *testing.T) {
-		resp, err := a.GetResourceTypes(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypesRequest_builder{
-			ResourceTypeIds: []string{"user", "missing", "group"},
-		}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(resp.GetList()) != 2 {
-			t.Errorf("len=%d, want 2", len(resp.GetList()))
-		}
-	})
 	t.Run("ListEntitlementsByIds", func(t *testing.T) {
 		resp, err := a.ListEntitlementsByIds(ctx, reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest_builder{
 			EntitlementIds: []string{"ent-A", "ent-zzz", "ent-B"},

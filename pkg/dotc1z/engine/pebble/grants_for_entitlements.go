@@ -54,13 +54,6 @@ func (a *Adapter) ListGrantsForEntitlements(
 		return nil, err
 	}
 
-	principalID := req.GetPrincipalId()
-	rtFilter := req.GetPrincipalResourceTypeIds()
-	rtSet := make(map[string]struct{}, len(rtFilter))
-	for _, rt := range rtFilter {
-		rtSet[rt] = struct{}{}
-	}
-
 	out := make([]*v2.Grant, 0, limit)
 	var nextToken string
 
@@ -79,32 +72,13 @@ EntitlementLoop:
 				return nil, err
 			}
 			remaining := limit - len(out)
-			fetchLimit := remaining
-			if principalID != nil || len(rtFilter) > 0 {
-				fetchLimit = remaining * 4
-				if fetchLimit > MaxPageSize {
-					fetchLimit = MaxPageSize
-				}
-			}
-			records, next, err := a.engine.PaginateGrantsByEntitlement(ctx, syncID, entID, intraCursor, fetchLimit)
+			records, next, err := a.engine.PaginateGrantsByEntitlement(ctx, syncID, entID, intraCursor, remaining)
 			if err != nil {
 				return nil, err
 			}
 			brokeEarly := false
 			var lastIntra string
 			for _, rec := range records {
-				if principalID != nil {
-					p := rec.GetPrincipal()
-					if p.GetResourceTypeId() != principalID.GetResourceType() ||
-						p.GetResourceId() != principalID.GetResource() {
-						continue
-					}
-				}
-				if len(rtSet) > 0 {
-					if _, ok := rtSet[rec.GetPrincipal().GetResourceTypeId()]; !ok {
-						continue
-					}
-				}
 				out = append(out, V3GrantToV2(rec))
 				if len(out) == limit {
 					p := rec.GetPrincipal()

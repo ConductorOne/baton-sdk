@@ -236,18 +236,6 @@ func TestCrossEngineParity(t *testing.T) {
 		require.Equal(t, entitlementIDSet(sResp.GetList()), entitlementIDSet(pResp.GetList()))
 	})
 
-	// GetResourceTypes — bulk Get parity.
-	t.Run("GetResourceTypes parity", func(t *testing.T) {
-		req := reader_v2.ResourceTypesReaderServiceGetResourceTypesRequest_builder{
-			ResourceTypeIds: []string{"user", "group", "app", "missing"},
-		}.Build()
-		sResp, err := pair.sqlite.GetResourceTypes(ctx, req)
-		require.NoError(t, err)
-		pResp, err := pair.pebble.GetResourceTypes(ctx, req)
-		require.NoError(t, err)
-		require.Equal(t, resourceTypeIDSet(sResp.GetList()), resourceTypeIDSet(pResp.GetList()))
-	})
-
 	// ListResources with trait filter — closes B2 parity question.
 	t.Run("ListResources trait=USER parity", func(t *testing.T) {
 		req := v2.ResourcesServiceListResourcesRequest_builder{
@@ -325,15 +313,6 @@ func entitlementIDSet(es []*v2.Entitlement) []string {
 	ids := make([]string, 0, len(es))
 	for _, e := range es {
 		ids = append(ids, e.GetId())
-	}
-	sort.Strings(ids)
-	return ids
-}
-
-func resourceTypeIDSet(rts []*v2.ResourceType) []string {
-	ids := make([]string, 0, len(rts))
-	for _, rt := range rts {
-		ids = append(ids, rt.GetId())
 	}
 	sort.Strings(ids)
 	return ids

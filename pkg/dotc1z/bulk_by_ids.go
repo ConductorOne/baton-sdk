@@ -56,38 +56,6 @@ func (c *C1File) ListEntitlementsByIds(
 	}.Build(), nil
 }
 
-// GetResourceTypes returns the resource_types for the requested ids
-// in any order. Missing rows are silently omitted.
-func (c *C1File) GetResourceTypes(
-	ctx context.Context,
-	req *reader_v2.ResourceTypesReaderServiceGetResourceTypesRequest,
-) (*reader_v2.ResourceTypesReaderServiceGetResourceTypesResponse, error) {
-	ctx, span := tracer.Start(ctx, "C1File.GetResourceTypes")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
-	syncID, err := c.resolveSyncIDForRead(ctx, req.GetAnnotations())
-	if err != nil {
-		return nil, err
-	}
-	ids := req.GetResourceTypeIds()
-	out := make([]*v2.ResourceType, 0, len(ids))
-	err = c.scanByExternalIDs(ctx, resourceTypes.Name(), syncID, ids, func(data []byte) error {
-		m := &v2.ResourceType{}
-		if err := proto.Unmarshal(data, m); err != nil {
-			return err
-		}
-		out = append(out, m)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return reader_v2.ResourceTypesReaderServiceGetResourceTypesResponse_builder{
-		List: out,
-	}.Build(), nil
-}
-
 // ListResourcesByIds returns the resources for the supplied
 // ResourceId pairs (resource_type:resource composite externals).
 // Missing rows are silently omitted.

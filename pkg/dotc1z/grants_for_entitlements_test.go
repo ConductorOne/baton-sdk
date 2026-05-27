@@ -81,16 +81,6 @@ func TestListGrantsForEntitlementsRoundtrip(t *testing.T) {
 		require.Equal(t, map[string]int{"ent-A": 5, "ent-B": 3, "ent-C": 7}, got)
 	})
 
-	t.Run("filter by principal_resource_type_ids", func(t *testing.T) {
-		resp, err := c1z.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
-			Entitlements:             []*v2.Entitlement{entA, entB, entC},
-			PrincipalResourceTypeIds: []string{"user"},
-			PageSize:                 100,
-		}.Build())
-		require.NoError(t, err)
-		require.Len(t, resp.GetList(), 12) // 5 + 7
-	})
-
 	t.Run("pagination crosses entitlement boundary", func(t *testing.T) {
 		seen := map[string]bool{}
 		token := ""
