@@ -174,7 +174,7 @@ func encodeBatchCursor(idx int, intra string, listChecksum uint32) string {
 	if idx < 0 {
 		idx = 0
 	}
-	n := binary.PutUvarint(v[:], uint64(idx)) //nolint:gosec // bounds-checked above
+	n := binary.PutUvarint(v[:], uint64(idx))
 	buf = append(buf, v[:n]...)
 	intraBytes := []byte(intra)
 	n = binary.PutUvarint(v[:], uint64(len(intraBytes)))
