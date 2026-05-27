@@ -771,6 +771,25 @@ func (a *Adapter) CurrentDBSizeBytes() (int64, error) {
 	return a.engine.CurrentDBSizeBytes()
 }
 
+// Metadata describes the storage backing this adapter. The Pebble
+// adapter always reports the v3 format; PayloadEncoding is set by
+// the writer at envelope time and is not directly visible on the
+// Adapter itself — registeredStore (in pkg/dotc1z/engine/pebble/
+// register.go) overrides this method to fill PayloadEncoding from
+// its configured value.
+//
+// Strings are inlined rather than referencing dotc1z constants
+// because this subpackage is imported by dotc1z, so the reverse
+// import would cycle. The values match dotc1z.EnginePebble.String()
+// and dotc1z.C1ZFormatV3.String() — see connectorstore.StoreMetadata
+// docs for the canonical value list.
+func (a *Adapter) Metadata() connectorstore.StoreMetadata {
+	return connectorstore.StoreMetadata{
+		Engine: "pebble",
+		Format: "v3",
+	}
+}
+
 // === helpers ===
 
 // currentSyncID returns the adapter's current sync id under the

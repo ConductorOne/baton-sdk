@@ -967,6 +967,21 @@ func (c *C1File) OutputFilepath() (string, error) {
 	return c.outputFilePath, nil
 }
 
+// Metadata describes the storage backing this c1z. C1File is the
+// SQLite-engine implementation; the v1 file format is implied by
+// the engine. No I/O is performed.
+func (c *C1File) Metadata() connectorstore.StoreMetadata {
+	engine := c.engine
+	if engine == "" {
+		engine = EngineSQLite
+	}
+	return connectorstore.StoreMetadata{
+		Engine: string(engine),
+		Format: C1ZFormatV1.String(),
+		// PayloadEncoding is v3-only; v1 has no envelope framing.
+	}
+}
+
 // CurrentDBSizeBytes returns the current total on-disk size of the underlying
 // uncompressed sqlite database, including the write-ahead log if present.
 // Used by operational tooling (e.g. the grant-expansion progress logger) to

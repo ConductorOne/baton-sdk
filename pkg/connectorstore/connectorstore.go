@@ -28,6 +28,41 @@ var AllSyncTypes = []SyncType{
 	SyncTypePartialDeletions,
 }
 
+// StoreMetadata describes the storage backing a Reader. Returned by
+// Reader.Metadata() — present on every Reader, no type assertion
+// needed. Fields are best-effort: implementations that don't back an
+// on-disk c1z artifact (mocks, in-memory wrappers, gRPC clients)
+// return a zero StoreMetadata.
+//
+// The struct may grow over time. Consumers must treat unknown values
+// gracefully — e.g. log them but don't switch behavior on them
+// unless the value is recognized.
+type StoreMetadata struct {
+	// Engine identifies the storage backend. Values match
+	// dotc1z.Engine string values; using string here keeps
+	// connectorstore from depending on dotc1z (avoids an import
+	// cycle).
+	//   "sqlite" — original .c1z, v1 magic + zstd-compressed SQLite
+	//   "pebble" — v3 .c1z3, Pebble LSM in a v3 envelope
+	//   ""       — unknown or not backed by an on-disk c1z
+	Engine string
+
+	// Format identifies the on-disk magic-byte format. Values match
+	// dotc1z.C1ZFormat.String().
+	//   "v1" — "C1ZF\x00" magic (SQLite payload)
+	//   "v3" — "C1Z3\x00" magic (Pebble payload + manifest)
+	//   ""   — unknown / virtual store
+	Format string
+
+	// PayloadEncoding identifies the v3 envelope payload framing.
+	// Empty for v1 / SQLite. Values match
+	// dotc1z.PayloadEncoding.String():
+	//   "tar_zstd" — Pebble checkpoint as zstd-compressed tar
+	//   "tar"      — Pebble checkpoint as uncompressed tar
+	//   ""         — N/A or unset
+	PayloadEncoding string
+}
+
 // ConnectorStoreReader implements the ConnectorV2 API, along with getters for individual objects.
 type Reader interface {
 	v2.ResourceTypesServiceServer
@@ -47,6 +82,12 @@ type Reader interface {
 	// GetAsset does not implement the AssetServer on the reader here. In other situations we were able to easily 'fake'
 	// the GRPC api, but because this is defined as a streaming RPC, it isn't trivial to implement grpc streaming as part of the c1z format.
 	GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequest) (string, io.Reader, error)
+
+	// Metadata describes the storage backing this Reader. Required
+	// on every implementation; readers that don't back an on-disk
+	// c1z return a zero StoreMetadata. Cheap call — implementations
+	// must not perform I/O.
+	Metadata() StoreMetadata
 
 	Close(ctx context.Context) error
 }
