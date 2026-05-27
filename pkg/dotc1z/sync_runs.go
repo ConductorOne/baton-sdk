@@ -716,9 +716,14 @@ func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 	// Populate the stats sidecar so future Stats() / GrantStats()
 	// calls are O(1) reads instead of O(N) COUNT/GROUP BY queries.
 	// Failures are non-fatal: Stats() falls back to the legacy
-	// aggregate path when the row is missing.
+	// aggregate path when the row is missing. Log the failure so
+	// it's visible in production telemetry but don't propagate it
+	// — the sync itself is durable.
 	if statsErr := c.upsertSyncStats(ctx, syncID); statsErr != nil {
-		_ = statsErr // intentional: legacy path still works
+		ctxzap.Extract(ctx).Warn("c1z: upsert sync_stats sidecar failed; Stats() will fall back to O(N) COUNT/GROUP BY until the row is rebuilt",
+			zap.String("sync_id", syncID),
+			zap.Error(statsErr),
+		)
 	}
 
 	return nil

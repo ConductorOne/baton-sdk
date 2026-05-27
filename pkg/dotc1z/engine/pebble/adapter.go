@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -213,13 +215,16 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	// Populate the stats sidecar BEFORE the durability flush. Stats
 	// is engine-meta keyspace; the EndFreshSync flush below covers
 	// the WAL fsync for both the sync_run record and the stats key.
-	// Failures here are logged but non-fatal — Stats() falls back
-	// to legacy iteration on a missing sidecar, and the on-Open
-	// migration framework will backfill next time the file opens.
+	// Failures here are non-fatal — Stats() falls back to legacy
+	// iteration on a missing sidecar, and the on-Open migration
+	// framework will backfill next time the file opens. We log a
+	// warning so the failure is visible in production telemetry but
+	// don't fail the sync end on stats-sidecar trouble.
 	if err := a.engine.PersistSyncStats(ctx, existing.GetSyncId()); err != nil {
-		// Don't fail the sync end on stats-sidecar trouble; legacy
-		// path still works.
-		_ = err
+		ctxzap.Extract(ctx).Warn("pebble: persist sync stats sidecar failed; Stats() will fall back to O(N) iteration until the next Open backfills it",
+			zap.String("sync_id", existing.GetSyncId()),
+			zap.Error(err),
+		)
 	}
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After
