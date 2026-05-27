@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"testing"
 
-	"google.golang.org/protobuf/types/known/timestamppb"
-
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -829,71 +827,5 @@ func TestStatsAndGrantStats(t *testing.T) {
 	}
 	if gs["app"] != 3 {
 		t.Errorf("GrantStats[app] = %d, want 3", gs["app"])
-	}
-}
-
-// TestIfNewerSkipsStaleGrants exercises the engine-level
-// PutGrantRecordsIfNewer directly so the freshSync flag doesn't
-// short-circuit the read-before-write. Verifies the SQLite semantics:
-// older discovered_at is silently dropped; newer discovered_at wins.
-func TestIfNewerSkipsStaleGrants(t *testing.T) {
-	ctx := context.Background()
-	e, _ := newTestEngine(t)
-	syncID := "2BnzhUf3aJZ9Y6cQ7vWmRk0hZJa"
-	if err := e.SetCurrentSync(syncID); err != nil {
-		t.Fatal(err)
-	}
-	// Build NEW record with timestamp T+1h.
-	now := timestamppb.Now()
-	older := timestamppb.New(now.AsTime().Add(-1 * 3600 * 1e9))
-	newer := timestamppb.New(now.AsTime().Add(1 * 3600 * 1e9))
-
-	mid := makeGrant(syncID, "g1", "ent-mid", "alice")
-	mid.SetDiscoveredAt(now)
-	if err := e.PutGrantRecord(ctx, mid); err != nil {
-		t.Fatal(err)
-	}
-
-	// IfNewer with an OLDER timestamp must be a no-op.
-	stale := makeGrant(syncID, "g1", "ent-stale", "alice")
-	stale.SetDiscoveredAt(older)
-	if err := e.PutGrantRecordsIfNewer(ctx, stale); err != nil {
-		t.Fatal(err)
-	}
-	got, err := e.GetGrantRecord(ctx, syncID, "g1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.GetEntitlement().GetEntitlementId() != "ent-mid" {
-		t.Errorf("after stale IfNewer: got entitlement %q want ent-mid", got.GetEntitlement().GetEntitlementId())
-	}
-
-	// IfNewer with a STRICTLY NEWER timestamp must overwrite.
-	fresh := makeGrant(syncID, "g1", "ent-fresh", "alice")
-	fresh.SetDiscoveredAt(newer)
-	if err := e.PutGrantRecordsIfNewer(ctx, fresh); err != nil {
-		t.Fatal(err)
-	}
-	got, err = e.GetGrantRecord(ctx, syncID, "g1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.GetEntitlement().GetEntitlementId() != "ent-fresh" {
-		t.Errorf("after newer IfNewer: got entitlement %q want ent-fresh", got.GetEntitlement().GetEntitlementId())
-	}
-
-	// IfNewer with the SAME timestamp must NOT overwrite (strictly
-	// newer required, matches SQLite EXCLUDED.discovered_at > X).
-	same := makeGrant(syncID, "g1", "ent-same", "alice")
-	same.SetDiscoveredAt(newer)
-	if err := e.PutGrantRecordsIfNewer(ctx, same); err != nil {
-		t.Fatal(err)
-	}
-	got, err = e.GetGrantRecord(ctx, syncID, "g1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.GetEntitlement().GetEntitlementId() != "ent-fresh" {
-		t.Errorf("equal-timestamp IfNewer should be no-op: got %q want ent-fresh", got.GetEntitlement().GetEntitlementId())
 	}
 }
