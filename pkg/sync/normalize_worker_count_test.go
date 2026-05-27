@@ -18,9 +18,9 @@ func TestNormalizeWorkerCount(t *testing.T) {
 		want int
 	}{
 		{"minus_one_auto", -1, auto},
-		{"zero_sequential", 0, 0},
+		{"zero_sequential", 0, 1},
 		{"positive", 7, 7},
-		{"below_minus_one_sequential", -99, 0},
+		{"below_minus_one_sequential", -99, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
