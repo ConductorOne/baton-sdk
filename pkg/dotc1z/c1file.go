@@ -58,7 +58,7 @@ type C1File struct {
 	closedMu           sync.Mutex
 
 	// Cached sync run for listConnectorObjects (avoids N+1 queries)
-	cachedViewSyncRun *syncRun
+	cachedViewSyncRun *SyncRun
 	cachedViewSyncMu  sync.Mutex
 	cachedViewSyncErr error
 

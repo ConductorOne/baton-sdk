@@ -456,9 +456,17 @@ func (a *Adapter) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentTy
 	return a.engine.PutAssetRecord(ctx, rec)
 }
 
-// Cleanup is a no-op for the Pebble engine; callers historically used
-// it on the SQLite engine to drop temp tables. Kept to satisfy the
-// connectorstore.Writer interface.
+// Cleanup on the bare Adapter is a no-op. The real Pebble
+// retention policy lives on *registeredStore (see register.go) —
+// it needs access to caller-supplied options (SyncLimit,
+// SkipCleanup) that the engine itself doesn't track, plus the
+// dirty-flag plumbing on the wrapper.
+//
+// Callers that open through dotc1z.NewStore(..., WithEngine(EnginePebble))
+// get the real Cleanup; callers that build a bare Adapter (unit
+// tests, embedding) silently get retention=disabled. The method is
+// kept on the Adapter only to satisfy the connectorstore.Writer
+// interface contract regardless of how the adapter was constructed.
 func (a *Adapter) Cleanup(ctx context.Context) error { return nil }
 
 // Close shuts down the engine. After Close, all methods return errors.

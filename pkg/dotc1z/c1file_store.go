@@ -275,7 +275,7 @@ func (s c1FileSyncMeta) LatestFullSync(ctx context.Context) (*SyncRun, error) {
 	if err != nil {
 		return nil, err
 	}
-	return syncRunToExported(run), nil
+	return run, nil
 }
 
 // LatestFinishedSyncOfAnyType implements SyncMeta. Returns the most-recent
@@ -285,30 +285,12 @@ func (s c1FileSyncMeta) LatestFinishedSyncOfAnyType(ctx context.Context) (*SyncR
 	if err != nil {
 		return nil, err
 	}
-	return syncRunToExported(run), nil
+	return run, nil
 }
 
 // Stats implements SyncMeta. Signature matches *C1File.Stats exactly.
 func (s c1FileSyncMeta) Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
 	return s.c.Stats(ctx, syncType, syncID)
-}
-
-// syncRunToExported lifts an internal syncRun into the exported SyncRun shape.
-// Returns nil if run is nil.
-func syncRunToExported(run *syncRun) *SyncRun {
-	if run == nil {
-		return nil
-	}
-	return &SyncRun{
-		ID:           run.ID,
-		StartedAt:    run.StartedAt,
-		EndedAt:      run.EndedAt,
-		SyncToken:    run.SyncToken,
-		Type:         run.Type,
-		ParentSyncID: run.ParentSyncID,
-		LinkedSyncID: run.LinkedSyncID,
-		SupportsDiff: run.SupportsDiff,
-	}
 }
 
 // -----------------------------------------------------------------------------
