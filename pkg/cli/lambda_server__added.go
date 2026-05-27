@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/maypok86/otter/v2"
 	"github.com/mitchellh/mapstructure"
+	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -334,7 +336,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			}
 
 			connectorConfig := configStruct.AsMap()
-			effectiveConfig := effectiveLambdaConfig(v, connectorConfig)
+			effectiveConfig := effectiveLambdaConfig(v, connectorConfig, connectorSchema)
 			logLevelConfig, err := lambdaLogLevelConfigFromViper(effectiveConfig)
 			if err != nil {
 				return nil, err
@@ -488,12 +490,46 @@ func cloneViperSettings(v *viper.Viper) *viper.Viper {
 	return cloned
 }
 
-func effectiveLambdaConfig(v *viper.Viper, connectorConfig map[string]any) *viper.Viper {
+func effectiveLambdaConfig(v *viper.Viper, connectorConfig map[string]any, connectorSchema field.Configuration) *viper.Viper {
 	effectiveConfig := cloneViperSettings(v)
+	stringMapFields := lambdaStringMapFields(connectorSchema)
 	for key, value := range connectorConfig {
+		if _, ok := stringMapFields[strings.ToLower(key)]; ok {
+			value = lambdaStringMapValueForViper(value)
+		}
 		effectiveConfig.Set(key, value)
 	}
 	return effectiveConfig
+}
+
+func lambdaStringMapFields(connectorSchema field.Configuration) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, schemaField := range connectorSchema.Fields {
+		if schemaField.Variant == field.StringMapVariant {
+			out[strings.ToLower(schemaField.FieldName)] = struct{}{}
+		}
+	}
+	for _, fieldGroup := range connectorSchema.FieldGroups {
+		for _, schemaField := range fieldGroup.Fields {
+			if schemaField.Variant == field.StringMapVariant {
+				out[strings.ToLower(schemaField.FieldName)] = struct{}{}
+			}
+		}
+	}
+	return out
+}
+
+func lambdaStringMapValueForViper(value any) any {
+	if _, ok := value.(string); ok {
+		return value
+	}
+	// Viper.GetStringMap and GetStringMapString parse JSON strings, while
+	// Viper.Set lowercases nested map[string]any keys.
+	encoded, err := json.Marshal(cast.ToStringMapString(value))
+	if err != nil {
+		return value
+	}
+	return string(encoded)
 }
 
 // Typed configs must decode the raw lambda payload directly. Decoding them from

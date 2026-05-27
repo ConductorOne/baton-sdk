@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/spf13/viper"
 )
 
@@ -107,12 +108,50 @@ func TestEffectiveLambdaConfigSyncResourceTypeIDs(t *testing.T) {
 		"sync-resource-types": []any{"user", "group"},
 	}
 
-	effectiveConfig := effectiveLambdaConfig(base, connectorConfig)
+	effectiveConfig := effectiveLambdaConfig(base, connectorConfig, field.Configuration{})
 
 	got := effectiveConfig.GetStringSlice("sync-resource-types")
 	want := []string{"user", "group"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sync-resource-types = %#v, want %#v", got, want)
+	}
+}
+
+func TestEffectiveLambdaConfigPreservesStringMapKeyCaseForViper(t *testing.T) {
+	t.Parallel()
+
+	base := viper.New()
+	connectorConfig := map[string]any{
+		"user-custom-fields": map[string]any{
+			"departmentNav/name": "Department",
+			"customString10":     "Custom String 10",
+			"isActive":           true,
+		},
+	}
+	schema := field.NewConfiguration([]field.SchemaField{
+		field.StringMapField("user-custom-fields"),
+	})
+
+	effectiveConfig := effectiveLambdaConfig(base, connectorConfig, schema)
+
+	gotStringMap := effectiveConfig.GetStringMap("user-custom-fields")
+	wantStringMap := map[string]any{
+		"departmentNav/name": "Department",
+		"customString10":     "Custom String 10",
+		"isActive":           "true",
+	}
+	if !reflect.DeepEqual(gotStringMap, wantStringMap) {
+		t.Fatalf("GetStringMap(user-custom-fields) = %#v, want %#v", gotStringMap, wantStringMap)
+	}
+
+	gotStringMapString := effectiveConfig.GetStringMapString("user-custom-fields")
+	wantStringMapString := map[string]string{
+		"departmentNav/name": "Department",
+		"customString10":     "Custom String 10",
+		"isActive":           "true",
+	}
+	if !reflect.DeepEqual(gotStringMapString, wantStringMapString) {
+		t.Fatalf("GetStringMapString(user-custom-fields) = %#v, want %#v", gotStringMapString, wantStringMapString)
 	}
 }
 
@@ -127,7 +166,10 @@ func TestMakeLambdaConnectorConfigurationPreservesStringMapKeyCase(t *testing.T)
 		},
 	}
 
-	config, err := makeLambdaConnectorConfiguration[*testLambdaStringMapConfig](base, effectiveLambdaConfig(base, connectorConfig), connectorConfig)
+	schema := field.NewConfiguration([]field.SchemaField{
+		field.StringMapField("user-custom-fields"),
+	})
+	config, err := makeLambdaConnectorConfiguration[*testLambdaStringMapConfig](base, effectiveLambdaConfig(base, connectorConfig, schema), connectorConfig)
 	if err != nil {
 		t.Fatalf("makeLambdaConnectorConfiguration: %v", err)
 	}
