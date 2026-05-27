@@ -129,6 +129,24 @@ func (s *registeredStore) FileOps() dotc1z.FileOps {
 	return s.FileOpsWithEncoding(s.payloadEncoding)
 }
 
+// Metadata extends the embedded Adapter's Metadata with this store's
+// configured payload encoding. Encoding lives on the registered store
+// (not the inner Adapter) because it's a writer-side option threaded
+// through the envelope, not a property of the Pebble engine itself.
+//
+// Unspecified is resolved to the engine's effective default (TarZstd
+// — see payloadEncodingToProto). Callers see the value the writer
+// will actually use, not the literal option supplied.
+func (s *registeredStore) Metadata() connectorstore.StoreMetadata {
+	md := s.Adapter.Metadata()
+	enc := s.payloadEncoding
+	if enc == dotc1z.PayloadEncodingUnspecified {
+		enc = dotc1z.PayloadEncodingTarZstd
+	}
+	md.PayloadEncoding = enc.String()
+	return md
+}
+
 func (s *registeredStore) markDirty(err error) error {
 	if err == nil {
 		s.closeMu.Lock()
