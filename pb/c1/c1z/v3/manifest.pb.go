@@ -43,7 +43,9 @@ const (
 	PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED PayloadEncoding = 0
 	// Tar of a Pebble directory, compressed with zstd. The production
 	// default. Wire number 3 is retained from the prior ZSTD_TAR name
-	// so existing dev c1z3 files keep reading identically.
+	// so existing dev c1z3 files keep reading identically; 1 and 2
+	// (briefly held by speculative RAW / ZSTD shapes that were never
+	// wired) are free for future use.
 	PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD PayloadEncoding = 3
 	// Tar of a Pebble directory, uncompressed. For tenants whose
 	// Pebble L5/L6 SSTs are already zstd-compressed at the engine
@@ -693,11 +695,11 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\bended_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendedAt\"p\n" +
 	"\x12PebbleEngineConfig\x120\n" +
 	"\x14format_major_version\x18\x01 \x01(\rR\x12formatMajorVersion\x12(\n" +
-	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*\xa5\x01\n" +
+	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*l\n" +
 	"\x0fPayloadEncoding\x12 \n" +
 	"\x1cPAYLOAD_ENCODING_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19PAYLOAD_ENCODING_TAR_ZSTD\x10\x03\x12\x18\n" +
-	"\x14PAYLOAD_ENCODING_TAR\x10\x04\"\x04\b\x01\x10\x01\"\x04\b\x02\x10\x02*\x14PAYLOAD_ENCODING_RAW*\x15PAYLOAD_ENCODING_ZSTDB0Z.github.com/conductorone/baton-sdk/pb/c1/c1z/v3b\x06proto3"
+	"\x14PAYLOAD_ENCODING_TAR\x10\x04B0Z.github.com/conductorone/baton-sdk/pb/c1/c1z/v3b\x06proto3"
 
 var file_c1_c1z_v3_manifest_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_c1_c1z_v3_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 4)

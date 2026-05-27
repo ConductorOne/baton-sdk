@@ -68,16 +68,11 @@ message C1ZManifestV3 {
 enum PayloadEncoding {
   PAYLOAD_ENCODING_UNSPECIFIED = 0;
 
-  // RAW (single-stream, no tar) and ZSTD (single-stream zstd, no
-  // tar) were speculative in early v3 drafts and never wired. Both
-  // values are reserved so they can't be reused for an unrelated
-  // future encoding — keeps the bytes meaning the same forever.
-  reserved 1, 2;
-  reserved "PAYLOAD_ENCODING_RAW", "PAYLOAD_ENCODING_ZSTD";
-
   // Tar of a Pebble directory, compressed with zstd. The production
   // default. Wire number 3 is retained from the prior ZSTD_TAR name
-  // so existing dev c1z3 files keep reading identically.
+  // so existing dev c1z3 files keep reading identically; 1 and 2
+  // (briefly held by speculative RAW / ZSTD shapes that were never
+  // wired) are free for future use.
   PAYLOAD_ENCODING_TAR_ZSTD = 3;
 
   // Tar of a Pebble directory, uncompressed. For tenants whose
