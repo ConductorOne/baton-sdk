@@ -7,6 +7,9 @@ import (
 	"os"
 	"sync"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 )
@@ -107,7 +110,7 @@ func NewStore(ctx context.Context, outputFilePath string, opts ...C1ZOption) (co
 	if err != nil {
 		return nil, err
 	}
-	driver, err := selectStoreDriver(outputFilePath, options)
+	driver, err := selectStoreDriver(ctx, outputFilePath, options)
 	if err != nil {
 		return nil, err
 	}
@@ -151,24 +154,41 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 	return out
 }
 
-func selectStoreDriver(outputFilePath string, options *c1zOptions) (EngineDriver, error) {
-	engine := options.engine
-	if engine == "" {
-		engine = EngineSQLite
+// selectStoreDriver picks the engine driver for outputFilePath.
+//
+// Dispatch policy (in order):
+//
+//  1. If the file doesn't exist or is empty, honor the caller's
+//     `WithEngine(...)` choice (defaulting to EngineSQLite when
+//     unset). The about-to-be-written file gets the requested format.
+//  2. If the file exists with content, dispatch by the on-disk magic
+//     byte — v1 → SQLite, v3 → whatever engine name the manifest
+//     records. The caller's `WithEngine` choice is overridden in this
+//     case because we can't re-encode an existing file at open time;
+//     the on-disk format is authoritative. This preserves the
+//     read-any-format semantics that pre-dates the engine option.
+//
+// When the caller's WithEngine disagrees with the on-disk format we
+// log a warning so the divergence is observable. Callers that want
+// to *fail* on engine mismatch (vs silently switching) should stat
+// the file and read the header themselves before calling NewStore.
+func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zOptions) (EngineDriver, error) {
+	l := ctxzap.Extract(ctx)
+	requested := options.engine
+	if requested == "" {
+		requested = EngineSQLite
 	}
 
 	stat, err := os.Stat(outputFilePath)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return requireEngineDriver(engine)
+		return requireEngineDriver(requested)
 	case err != nil:
 		return nil, err
 	case stat.Size() == 0:
-		return requireEngineDriver(engine)
+		return requireEngineDriver(requested)
 	}
 
-	// Existing files dispatch by file header/manifest, independent of
-	// WithEngine. That preserves the existing read-any-format semantics.
 	f, err := os.Open(outputFilePath)
 	if err != nil {
 		return nil, err
@@ -179,9 +199,11 @@ func selectStoreDriver(outputFilePath string, options *c1zOptions) (EngineDriver
 	if err != nil {
 		return nil, err
 	}
+
+	var fileEngine Engine
 	switch format {
 	case C1ZFormatV1:
-		return requireEngineDriver(EngineSQLite)
+		fileEngine = EngineSQLite
 	case C1ZFormatV3:
 		if _, err := f.Seek(0, 0); err != nil {
 			return nil, err
@@ -191,10 +213,20 @@ func selectStoreDriver(outputFilePath string, options *c1zOptions) (EngineDriver
 			return nil, err
 		}
 		defer env.Close()
-		return requireEngineDriver(Engine(env.Manifest.GetEngine()))
+		fileEngine = Engine(env.Manifest.GetEngine())
 	default:
 		return nil, ErrInvalidFile
 	}
+
+	if options.engine != "" && options.engine != fileEngine {
+		l.Warn("dotc1z: WithEngine overridden by on-disk file format; using engine recorded in the file",
+			zap.String("path", outputFilePath),
+			zap.String("requested_engine", string(options.engine)),
+			zap.String("file_engine", string(fileEngine)),
+			zap.String("file_format", format.String()),
+		)
+	}
+	return requireEngineDriver(fileEngine)
 }
 
 func requireEngineDriver(engine Engine) (EngineDriver, error) {

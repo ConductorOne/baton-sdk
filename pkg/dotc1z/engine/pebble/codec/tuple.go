@@ -64,6 +64,31 @@ func AppendTupleSeparator(dst []byte) []byte {
 	return append(dst, tupleSeparator)
 }
 
+// AppendTupleStrings tuple-encodes each string in s and interleaves
+// the tuple separator between successive elements. Equivalent to
+// calling AppendTupleString in a loop with AppendTupleSeparator
+// between calls — but in one place, so key-encoding sites can't
+// silently drift on "did I emit one too many / one too few
+// separators?".
+//
+// No leading or trailing separator is emitted. Callers that need a
+// leading separator (e.g. to delimit the raw sync_id bytes that
+// precede the tuple tail in every Pebble v3 key) or a trailing
+// separator (e.g. to make a by-value range-scan prefix unambiguous
+// — see keys.go's convention doc) must add it themselves.
+//
+// For a single string, AppendTupleStrings(dst, s) is exactly
+// equivalent to AppendTupleString(dst, s).
+func AppendTupleStrings(dst []byte, s ...string) []byte {
+	for i, x := range s {
+		if i > 0 {
+			dst = append(dst, tupleSeparator)
+		}
+		dst = appendEscaped(dst, []byte(x))
+	}
+	return dst
+}
+
 // AppendTupleInt32 writes a sign-flipped big-endian 4-byte int32.
 // Sign-flipping puts negative numbers before non-negative in
 // bytewise comparison, matching natural int order.

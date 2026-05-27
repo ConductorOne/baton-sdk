@@ -741,27 +741,29 @@ func (a *Adapter) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServi
 
 // LatestFinishedSyncID returns the most-recently-finished sync ID of
 // the given type. Implements connectorstore.LatestFinishedSyncIDFetcher.
+// Delegates to Engine.LatestFinishedSyncRecord; see that method for
+// the predicate + tiebreaker contract.
 func (a *Adapter) LatestFinishedSyncID(ctx context.Context, syncType connectorstore.SyncType) (string, error) {
-	var latest *v3.SyncRunRecord
-	if err := a.engine.IterateAllSyncRuns(ctx, func(rec *v3.SyncRunRecord) bool {
-		if rec.GetEndedAt() == nil {
-			return true
-		}
-		if syncType != connectorstore.SyncTypeAny &&
-			v2SyncTypeToV3(syncType) != rec.GetType() {
-			return true
-		}
-		if latest == nil || rec.GetEndedAt().AsTime().After(latest.GetEndedAt().AsTime()) {
-			latest = rec
-		}
-		return true
-	}); err != nil {
+	latest, err := a.engine.LatestFinishedSyncRecord(ctx, syncTypeFilterFromConnectorstore(syncType))
+	if err != nil {
 		return "", err
 	}
 	if latest == nil {
 		return "", nil
 	}
 	return latest.GetSyncId(), nil
+}
+
+// syncTypeFilterFromConnectorstore returns a predicate that matches
+// sync_runs whose v3 type corresponds to the given connectorstore
+// SyncType. SyncTypeAny returns nil (no filter), matching the
+// Engine.LatestFinishedSyncRecord contract.
+func syncTypeFilterFromConnectorstore(t connectorstore.SyncType) func(v3.SyncType) bool {
+	if t == connectorstore.SyncTypeAny {
+		return nil
+	}
+	want := v2SyncTypeToV3(t)
+	return func(got v3.SyncType) bool { return got == want }
 }
 
 // CurrentDBSizeBytes returns the current uncompressed Pebble working-set size

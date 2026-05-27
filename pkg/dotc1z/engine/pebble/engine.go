@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/proto"
@@ -62,19 +63,9 @@ type Engine struct {
 	// for writeWG to drain.
 	writeWG sync.WaitGroup
 	writeMu sync.Mutex
-	closing atomicBool // strict write-barrier flag
+	closing atomic.Bool // strict write-barrier flag, read on every Writer call
 	closeMu sync.Mutex
 }
-
-// atomicBool is a minimal one-flag atomic without importing
-// sync/atomic.Bool (compat with older Go in vendored deps).
-type atomicBool struct {
-	mu sync.RWMutex
-	v  bool
-}
-
-func (a *atomicBool) Load() bool   { a.mu.RLock(); defer a.mu.RUnlock(); return a.v }
-func (a *atomicBool) Store(v bool) { a.mu.Lock(); a.v = v; a.mu.Unlock() }
 
 // Open creates or opens a Pebble engine rooted at dir. If dir does
 // not exist, Pebble creates it. The caller is responsible for

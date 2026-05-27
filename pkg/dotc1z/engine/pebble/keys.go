@@ -4,6 +4,49 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
+// Key layout convention.
+//
+// Every v3 Pebble key has the same three-region shape:
+//
+//	[ fixed header ][ raw sync_id_bytes (20) ][ 0x00 ][ tuple-encoded tail ]
+//
+// where "fixed header" is one of:
+//
+//   - primary key:  versionV3 | typeXxx                         (2 bytes)
+//   - index key:    versionV3 | typeIndex | idxXxx              (3 bytes)
+//
+// The sync_id is appended raw (not tuple-encoded) because KSUIDs are
+// always exactly 20 bytes — the boundary is implicit by position, not
+// by scanning for a separator. The 0x00 byte immediately after the
+// sync_id starts the variable tuple-encoded tail; no decoder ever
+// scans into the sync_id bytes.
+//
+// Each primary/index key shape is paired with TWO prefix shapes used
+// for range scans:
+//
+//   - by-sync prefix:    header | sync_id
+//     ← matches every key in this bucket under one sync. No trailing
+//     separator; the iterator runs to upperBoundOf(prefix).
+//
+//   - by-value prefix:   header | sync_id | 0x00 | elem(s) | 0x00
+//     ← matches every key whose leading tail elements equal the given
+//     values. The trailing separator is LOAD-BEARING: without it the
+//     prefix "ent" would falsely match "entitlement-1" entries. With
+//     it, the prefix is "ent\x00" and matches only keys where the
+//     element ended exactly at "ent".
+//
+// When adding a new index, write encodeXxxIndexKey + encodeXxxPrefix
+// as a pair. Build the tuple-encoded tail with codec.AppendTupleStrings
+// so the inter-element separators stay consistent — manually
+// interleaving AppendTupleString and AppendTupleSeparator works but is
+// the failure mode this helper exists to prevent.
+//
+// On-disk wire format. The codec's escape rules and integer encodings
+// are an ABI: every existing v3 c1z file depends on them. Changing
+// them requires a schema migration. See
+// pkg/dotc1z/engine/pebble/index_migrations.go for the upgrade
+// framework.
+
 // Type-discriminator bytes for the v3 keyspace. Each top-level
 // keyspace occupies one byte.
 const (
@@ -38,75 +81,73 @@ const (
 
 // encodeGrantKey returns the primary key for a grant.
 //
-//	v3 | typeGrant | sync_id_bytes | external_id
+//	v3 | typeGrant | sync_id_bytes | 0x00 | external_id
 //
-// sync_id is the 20-byte canonical KSUID binary form (see codec.EncodeSyncID).
+// Paired with encodeGrantPrefix (by-sync prefix, no trailing sep).
+// sync_id is the 20-byte canonical KSUID binary form (see
+// codec.EncodeSyncID).
 func encodeGrantKey(syncIDBytes []byte, externalID string) []byte {
 	buf := make([]byte, 0, 5+len(syncIDBytes)+len(externalID))
 	buf = append(buf, versionV3, typeGrant)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, externalID)
-	return buf
+	return codec.AppendTupleStrings(buf, externalID)
 }
 
-// encodeGrantPrefix returns the prefix key for iterating all grants
-// in a sync. Used for full-sync range scans.
+// encodeGrantPrefix returns the by-sync prefix for iterating all
+// grants in a sync. Paired with encodeGrantKey.
 func encodeGrantPrefix(syncIDBytes []byte) []byte {
 	buf := make([]byte, 0, 2+len(syncIDBytes))
 	buf = append(buf, versionV3, typeGrant)
-	buf = append(buf, syncIDBytes...)
-	return buf
+	return append(buf, syncIDBytes...)
 }
 
-// encodeGrantByEntitlementIndexKey returns the index key for the
-// by_entitlement secondary index on GrantRecord:
+// encodeGrantByEntitlementIndexKey is the by_entitlement secondary
+// index on GrantRecord:
 //
-//	v3 | typeIndex | idxGrantByEntitlement | sync_id_bytes |
-//	    entitlement_id | principal_resource_type | principal_resource_id |
-//	    external_id  (tail for uniqueness)
+//	v3 | typeIndex | idxGrantByEntitlement | sync_id_bytes | 0x00 |
+//	    entitlement_id | 0x00 |
+//	    principal_resource_type | 0x00 |
+//	    principal_resource_id | 0x00 |
+//	    external_id   (tail element for index-row uniqueness)
+//
+// Paired with encodeGrantByEntitlementPrefix (by-value prefix, with
+// trailing sep).
 func encodeGrantByEntitlementIndexKey(syncIDBytes []byte, entitlementID, principalRT, principalID, externalID string) []byte {
 	buf := make([]byte, 0, 64)
 	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlement)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, entitlementID)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, principalRT)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, principalID)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, externalID)
-	return buf
+	return codec.AppendTupleStrings(buf, entitlementID, principalRT, principalID, externalID)
 }
 
 // encodeGrantByPrincipalIndexKey:
 //
-//	v3 | typeIndex | idxGrantByPrincipal | sync_id_bytes |
-//	    principal_resource_type | principal_resource_id | external_id
+//	v3 | typeIndex | idxGrantByPrincipal | sync_id_bytes | 0x00 |
+//	    principal_resource_type | 0x00 |
+//	    principal_resource_id | 0x00 |
+//	    external_id
+//
+// Paired with encodeGrantByPrincipalPrefix (by-value prefix, with
+// trailing sep).
 func encodeGrantByPrincipalIndexKey(syncIDBytes []byte, principalRT, principalID, externalID string) []byte {
 	buf := make([]byte, 0, 64)
 	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipal)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, principalRT)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, principalID)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, externalID)
-	return buf
+	return codec.AppendTupleStrings(buf, principalRT, principalID, externalID)
 }
 
-// encodeGrantByEntitlementPrefix returns the prefix for "all grants
-// with this entitlement_id" range scan.
+// encodeGrantByEntitlementPrefix is the by-value prefix for "all
+// grants in this sync with this entitlement_id". Trailing separator
+// is load-bearing — see the keys.go convention doc.
 func encodeGrantByEntitlementPrefix(syncIDBytes []byte, entitlementID string) []byte {
 	buf := make([]byte, 0, 32+len(entitlementID))
 	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlement)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, entitlementID)
-	buf = codec.AppendTupleSeparator(buf)
-	return buf
+	buf = codec.AppendTupleStrings(buf, entitlementID)
+	return codec.AppendTupleSeparator(buf)
 }
 
 // encodeGrantByNeedsExpansionIndexKey: index of grants whose
@@ -115,14 +156,17 @@ func encodeGrantByEntitlementPrefix(syncIDBytes []byte, entitlementID string) []
 // this keyspace on Put when NeedsExpansion=true and removed when
 // NeedsExpansion=false (or when the grant is deleted).
 //
-//	v3 | typeIndex | idxGrantByNeedsExpansion | sync_id_bytes | external_id
+//	v3 | typeIndex | idxGrantByNeedsExpansion | sync_id_bytes | 0x00 | external_id
+//
+// Paired with encodeGrantByNeedsExpansionPrefix (by-sync prefix —
+// no by-value scan is needed because the only filter is "is this
+// flag set?", which is captured by the index's existence).
 func encodeGrantByNeedsExpansionIndexKey(syncIDBytes []byte, externalID string) []byte {
 	buf := make([]byte, 0, 5+len(syncIDBytes)+len(externalID))
 	buf = append(buf, versionV3, typeIndex, idxGrantByNeedsExpansion)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, externalID)
-	return buf
+	return codec.AppendTupleStrings(buf, externalID)
 }
 
 // encodeGrantByPrincipalResourceTypeIndexKey: by-principal-RT
@@ -130,195 +174,211 @@ func encodeGrantByNeedsExpansionIndexKey(syncIDBytes []byte, externalID string) 
 // (ListGrantsForResourceType, which previously walked the entire
 // grant primary range and post-filtered).
 //
-//	v3 | typeIndex | idxGrantByPrincipalResourceType | sync_id_bytes |
-//	    principal_resource_type | external_id
+//	v3 | typeIndex | idxGrantByPrincipalResourceType | sync_id_bytes | 0x00 |
+//	    principal_resource_type | 0x00 |
+//	    external_id
+//
+// Paired with encodeGrantByPrincipalResourceTypePrefix (by-value
+// prefix, with trailing sep).
 func encodeGrantByPrincipalResourceTypeIndexKey(syncIDBytes []byte, principalRT, externalID string) []byte {
 	buf := make([]byte, 0, 64)
 	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipalResourceType)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, principalRT)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, externalID)
-	return buf
+	return codec.AppendTupleStrings(buf, principalRT, externalID)
 }
 
-// encodeGrantByPrincipalResourceTypePrefix returns the prefix
-// scanning all grants in this sync whose principal has the given
-// resource_type.
+// encodeGrantByPrincipalResourceTypePrefix is the by-value prefix
+// for "all grants in this sync whose principal has the given
+// resource_type". Trailing sep is load-bearing — see keys.go convention.
 func encodeGrantByPrincipalResourceTypePrefix(syncIDBytes []byte, principalRT string) []byte {
 	buf := make([]byte, 0, 32+len(principalRT))
 	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipalResourceType)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, principalRT)
-	buf = codec.AppendTupleSeparator(buf)
-	return buf
+	buf = codec.AppendTupleStrings(buf, principalRT)
+	return codec.AppendTupleSeparator(buf)
 }
 
-// encodeGrantByNeedsExpansionPrefix returns the prefix for all
+// encodeGrantByNeedsExpansionPrefix is the by-sync prefix for all
 // grants in this sync that still need expansion processing.
 func encodeGrantByNeedsExpansionPrefix(syncIDBytes []byte) []byte {
 	buf := make([]byte, 0, 3+len(syncIDBytes))
 	buf = append(buf, versionV3, typeIndex, idxGrantByNeedsExpansion)
-	buf = append(buf, syncIDBytes...)
-	return buf
+	return append(buf, syncIDBytes...)
 }
 
-// encodeGrantByPrincipalPrefix returns the prefix for "all grants for
-// this principal" range scan.
+// encodeGrantByPrincipalPrefix is the by-value prefix for "all
+// grants in this sync for this principal". Trailing sep is
+// load-bearing — see keys.go convention.
 func encodeGrantByPrincipalPrefix(syncIDBytes []byte, principalRT, principalID string) []byte {
 	buf := make([]byte, 0, 32+len(principalRT)+len(principalID))
 	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipal)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, principalRT)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, principalID)
-	buf = codec.AppendTupleSeparator(buf)
-	return buf
+	buf = codec.AppendTupleStrings(buf, principalRT, principalID)
+	return codec.AppendTupleSeparator(buf)
 }
 
 // --- ResourceType ---
 
 // encodeResourceTypeKey returns the primary key for a resource_type:
 //
-//	v3 | typeResourceType | sync_id_bytes | external_id
+//	v3 | typeResourceType | sync_id_bytes | 0x00 | external_id
+//
+// Paired with encodeResourceTypePrefix (by-sync prefix).
 func encodeResourceTypeKey(syncIDBytes []byte, externalID string) []byte {
 	buf := make([]byte, 0, 5+len(syncIDBytes)+len(externalID))
 	buf = append(buf, versionV3, typeResourceType)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, externalID)
-	return buf
+	return codec.AppendTupleStrings(buf, externalID)
 }
 
+// encodeResourceTypePrefix is the by-sync prefix for resource_types.
 func encodeResourceTypePrefix(syncIDBytes []byte) []byte {
 	buf := make([]byte, 0, 2+len(syncIDBytes))
 	buf = append(buf, versionV3, typeResourceType)
-	buf = append(buf, syncIDBytes...)
-	return buf
+	return append(buf, syncIDBytes...)
 }
 
 // --- Resource ---
 
 // encodeResourceKey returns the primary key for a resource:
 //
-//	v3 | typeResource | sync_id_bytes | resource_type_id | resource_id
+//	v3 | typeResource | sync_id_bytes | 0x00 | resource_type_id | 0x00 | resource_id
+//
+// Paired with encodeResourcePrefix (by-sync prefix).
 func encodeResourceKey(syncIDBytes []byte, resourceTypeID, resourceID string) []byte {
 	buf := make([]byte, 0, 32)
 	buf = append(buf, versionV3, typeResource)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, resourceTypeID)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, resourceID)
-	return buf
+	return codec.AppendTupleStrings(buf, resourceTypeID, resourceID)
 }
 
+// encodeResourcePrefix is the by-sync prefix for resources.
 func encodeResourcePrefix(syncIDBytes []byte) []byte {
 	buf := make([]byte, 0, 2+len(syncIDBytes))
 	buf = append(buf, versionV3, typeResource)
-	buf = append(buf, syncIDBytes...)
-	return buf
+	return append(buf, syncIDBytes...)
 }
 
-// encodeResourceByParentIndexKey: index of children-by-parent.
+// encodeResourceByParentIndexKey: index of children-by-parent:
+//
+//	v3 | typeIndex | idxResourceByParent | sync_id_bytes | 0x00 |
+//	    parent_rt | 0x00 | parent_id | 0x00 | child_rt | 0x00 | child_id
+//
+// Paired with encodeResourceByParentPrefix (by-value prefix, with
+// trailing sep).
 func encodeResourceByParentIndexKey(syncIDBytes []byte, parentRT, parentID, childRT, childID string) []byte {
 	buf := make([]byte, 0, 64)
 	buf = append(buf, versionV3, typeIndex, idxResourceByParent)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, parentRT)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, parentID)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, childRT)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, childID)
-	return buf
+	return codec.AppendTupleStrings(buf, parentRT, parentID, childRT, childID)
 }
 
+// encodeResourceByParentPrefix is the by-value prefix for "all
+// children of (parent_rt, parent_id) in this sync". Trailing sep
+// is load-bearing.
 func encodeResourceByParentPrefix(syncIDBytes []byte, parentRT, parentID string) []byte {
 	buf := make([]byte, 0, 32+len(parentRT)+len(parentID))
 	buf = append(buf, versionV3, typeIndex, idxResourceByParent)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, parentRT)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, parentID)
-	buf = codec.AppendTupleSeparator(buf)
-	return buf
+	buf = codec.AppendTupleStrings(buf, parentRT, parentID)
+	return codec.AppendTupleSeparator(buf)
 }
 
 // --- Entitlement ---
 
+// encodeEntitlementKey returns the primary key for an entitlement:
+//
+//	v3 | typeEntitlement | sync_id_bytes | 0x00 | external_id
+//
+// Paired with encodeEntitlementPrefix (by-sync prefix).
 func encodeEntitlementKey(syncIDBytes []byte, externalID string) []byte {
 	buf := make([]byte, 0, 5+len(syncIDBytes)+len(externalID))
 	buf = append(buf, versionV3, typeEntitlement)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, externalID)
-	return buf
+	return codec.AppendTupleStrings(buf, externalID)
 }
 
+// encodeEntitlementPrefix is the by-sync prefix for entitlements.
 func encodeEntitlementPrefix(syncIDBytes []byte) []byte {
 	buf := make([]byte, 0, 2+len(syncIDBytes))
 	buf = append(buf, versionV3, typeEntitlement)
-	buf = append(buf, syncIDBytes...)
-	return buf
+	return append(buf, syncIDBytes...)
 }
 
+// encodeEntitlementByResourceIndexKey:
+//
+//	v3 | typeIndex | idxEntitlementByResource | sync_id_bytes | 0x00 |
+//	    resource_type_id | 0x00 | resource_id | 0x00 | external_id
+//
+// Paired with encodeEntitlementByResourcePrefix (by-value prefix,
+// with trailing sep).
 func encodeEntitlementByResourceIndexKey(syncIDBytes []byte, resourceTypeID, resourceID, externalID string) []byte {
 	buf := make([]byte, 0, 64)
 	buf = append(buf, versionV3, typeIndex, idxEntitlementByResource)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, resourceTypeID)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, resourceID)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, externalID)
-	return buf
+	return codec.AppendTupleStrings(buf, resourceTypeID, resourceID, externalID)
 }
 
+// encodeEntitlementByResourcePrefix is the by-value prefix for "all
+// entitlements on (resource_type_id, resource_id) in this sync".
+// Trailing sep is load-bearing.
 func encodeEntitlementByResourcePrefix(syncIDBytes []byte, resourceTypeID, resourceID string) []byte {
 	buf := make([]byte, 0, 32+len(resourceTypeID)+len(resourceID))
 	buf = append(buf, versionV3, typeIndex, idxEntitlementByResource)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, resourceTypeID)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, resourceID)
-	buf = codec.AppendTupleSeparator(buf)
-	return buf
+	buf = codec.AppendTupleStrings(buf, resourceTypeID, resourceID)
+	return codec.AppendTupleSeparator(buf)
 }
 
 // --- Asset ---
 
+// encodeAssetKey returns the primary key for an asset:
+//
+//	v3 | typeAsset | sync_id_bytes | 0x00 | external_id
+//
+// Paired with encodeAssetPrefix (by-sync prefix).
 func encodeAssetKey(syncIDBytes []byte, externalID string) []byte {
 	buf := make([]byte, 0, 5+len(syncIDBytes)+len(externalID))
 	buf = append(buf, versionV3, typeAsset)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleString(buf, externalID)
-	return buf
+	return codec.AppendTupleStrings(buf, externalID)
 }
 
+// encodeAssetPrefix is the by-sync prefix for assets.
 func encodeAssetPrefix(syncIDBytes []byte) []byte {
 	buf := make([]byte, 0, 2+len(syncIDBytes))
 	buf = append(buf, versionV3, typeAsset)
-	buf = append(buf, syncIDBytes...)
-	return buf
+	return append(buf, syncIDBytes...)
 }
 
 // --- SyncRun ---
+//
+// SyncRun is the one shape that breaks the standard layout:
+//
+//	v3 | typeSyncRun | sync_id_bytes        (no separator, no tail)
+//
+// The sync_id is the entire primary key — there's nothing variable
+// to delimit. Two iteration patterns are paired:
+//
+//   - encodeSyncRunKey:        the full primary key for one sync.
+//   - encodeSyncRunFullPrefix: covers ALL sync_runs across every
+//     sync_id (used by IterateAllSyncRuns).
 
 func encodeSyncRunKey(syncIDBytes []byte) []byte {
 	buf := make([]byte, 0, 2+len(syncIDBytes))
 	buf = append(buf, versionV3, typeSyncRun)
-	buf = append(buf, syncIDBytes...)
-	return buf
+	return append(buf, syncIDBytes...)
 }
 
 func encodeSyncRunFullPrefix() []byte {

@@ -28,10 +28,11 @@ type pebbleSyncMeta struct {
 // construction to signal that the sync has SQL-layer grant metadata
 // populated and diff consumers may rely on it.
 //
-// Pebble's diff machinery isn't wired yet (FileOps.GenerateSyncDiff
-// returns ErrUnsupported), but storing the bit is harmless and
-// keeps the sync_runs row schema aligned with SQLite — once the
-// diff plumbing lands the bit is already correct.
+// FileOps().GenerateSyncDiff and FileOps().CloneSync are implemented
+// on the Pebble adapter (see adapter_diff.go and
+// adapter_clone_sync.go); the bit stored here gates downstream
+// consumers' willingness to call them, in parity with the SQLite
+// sync_runs.supports_diff column.
 func (s pebbleSyncMeta) MarkSyncSupportsDiff(ctx context.Context, syncID string) error {
 	if syncID == "" {
 		return errors.New("MarkSyncSupportsDiff: empty syncID")
@@ -62,25 +63,11 @@ func (s pebbleSyncMeta) LatestFinishedSyncOfAnyType(ctx context.Context) (*dotc1
 	return s.latestFinishedSync(ctx, func(v3.SyncType) bool { return true })
 }
 
-// latestFinishedSync walks IterateAllSyncRuns once and returns the
-// finished-sync (ended_at != nil) with the latest ended_at that
-// matches the type predicate. O(N) in sync-run count, which is
-// fine — the workload's sync_runs table is small (a few hundred
-// rows at most over a c1z's lifetime).
+// latestFinishedSync delegates to Engine.LatestFinishedSyncRecord and
+// translates the result into the exported dotc1z.SyncRun shape.
+// typeOK is passed through verbatim; nil matches any sync type.
 func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.SyncType) bool) (*dotc1z.SyncRun, error) {
-	var best *v3.SyncRunRecord
-	err := s.a.engine.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
-		if r == nil || r.GetEndedAt() == nil {
-			return true
-		}
-		if !typeOK(r.GetType()) {
-			return true
-		}
-		if best == nil || r.GetEndedAt().AsTime().After(best.GetEndedAt().AsTime()) {
-			best = r
-		}
-		return true
-	})
+	best, err := s.a.engine.LatestFinishedSyncRecord(ctx, typeOK)
 	if err != nil {
 		return nil, err
 	}

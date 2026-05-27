@@ -18,7 +18,17 @@ import (
 //   - Sync-run metadata operations, accessed via SyncMeta().
 //   - File-level operations (clone, diff), accessed via FileOps().
 //
-// *C1File is the sole implementation.
+// Implementations:
+//
+//   - *C1File — the original SQLite-backed implementation
+//     (pkg/dotc1z/c1file.go).
+//   - *pebble.registeredStore — the Pebble v3 engine implementation
+//     opened via NewStore(WithEngine(EnginePebble))
+//     (pkg/dotc1z/engine/pebble/register.go). The compile-time guard
+//     there asserts the interface is satisfied.
+//
+// New implementations are expected; treat the interface methods as
+// load-bearing and the implementation list above as informational.
 //
 // The Close override replaces connectorstore.Reader.Close with an
 // explicit context parameter (*C1File.Close already takes context on main,

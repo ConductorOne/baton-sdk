@@ -8,6 +8,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // PutGrantRecord writes a grant record + its by_entitlement and
@@ -545,111 +546,62 @@ func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, syncID strin
 	return iter.Error()
 }
 
-// decodeTwoTupleComponents decodes the last two tuple-encoded string
-// components from an index key relative to its prefix. The components
-// are separated by a single 0x00 byte; embedded NULs in the components
-// are escape-encoded per the tuple encoder. Returns (a, b, true) on
-// success.
+// Tuple-component decoders for index-key tails. Thin wrappers over
+// codec.DecodeTupleStringTo so the engine and the canonical codec
+// share one implementation of the escape rules. The previous
+// hand-rolled versions silently swallowed malformed escape sequences
+// (returning truncated strings); these report decode failure by
+// returning the zero value, which iter callers treat as "skip this
+// entry" — same observable behavior on well-formed keys, fail-safe
+// on corruption.
+
+// decodeTwoTupleComponents decodes the first two tuple-encoded string
+// components from an index key relative to its prefix. Components are
+// separated by a single 0x00 byte; intra-component NUL/0x01 bytes are
+// escape-encoded per codec.AppendTupleString. Returns (a, b, true) on
+// success or ("", "", false) if the tail is empty, malformed, or has
+// fewer than two components.
 func decodeTwoTupleComponents(key, prefix []byte) (string, string, bool) {
 	if len(key) <= len(prefix) {
 		return "", "", false
 	}
 	tail := key[len(prefix):]
-	// Find the separator between the two components. We can't just
-	// scan for 0x00 because intra-component NULs are escaped — but in
-	// the escape sequence 0x01 0x01 the 0x01 comes first, so a bare
-	// 0x00 is always a separator.
-	first := make([]byte, 0, len(tail)/2)
-	i := 0
-	for i < len(tail) {
-		b := tail[i]
-		if b == 0x00 {
-			// Found separator.
-			second := decodeOneTupleComponent(tail[i+1:])
-			return string(first), second, true
-		}
-		if b == 0x01 && i+1 < len(tail) {
-			switch tail[i+1] {
-			case 0x01:
-				first = append(first, 0x00)
-			case 0x02:
-				first = append(first, 0x01)
-			default:
-				return "", "", false
-			}
-			i += 2
-			continue
-		}
-		first = append(first, b)
-		i++
+	first, next, err := codec.DecodeTupleStringTo(nil, tail, 0)
+	if err != nil || next >= len(tail) {
+		return "", "", false
 	}
-	return "", "", false
+	// next points at the separator byte; skip it.
+	second, _, err := codec.DecodeTupleStringTo(nil, tail, next+1)
+	if err != nil {
+		return "", "", false
+	}
+	return string(first), string(second), true
 }
 
-func decodeOneTupleComponent(b []byte) string {
-	out := make([]byte, 0, len(b))
-	i := 0
-	for i < len(b) {
-		c := b[i]
-		if c == 0x01 && i+1 < len(b) {
-			switch b[i+1] {
-			case 0x01:
-				out = append(out, 0x00)
-			case 0x02:
-				out = append(out, 0x01)
-			default:
-				return string(out)
-			}
-			i += 2
-			continue
-		}
-		if c == 0x00 {
-			// Should not happen in a single component — return what we have.
-			return string(out)
-		}
-		out = append(out, c)
-		i++
-	}
-	return string(out)
-}
-
-// lastTupleComponent returns the decoded string of the last component
-// in an index key relative to its prefix. Returns empty string if the
-// key doesn't extend past the prefix.
+// lastTupleComponent returns the decoded string of the LAST tuple
+// component in an index key relative to its prefix. Walks separator-
+// delimited components and returns whichever one trails. Returns the
+// empty string if the key doesn't extend past the prefix or the tail
+// is malformed.
 func lastTupleComponent(key, prefix []byte) string {
 	if len(key) <= len(prefix) {
 		return ""
 	}
 	tail := key[len(prefix):]
-	// The tail may have intermediate components; for our two indexes
-	// the tail is exactly one tuple-encoded string (the external_id),
-	// terminated by EOF (no trailing separator).
-	out := make([]byte, 0, len(tail))
-	i := 0
-	for i < len(tail) {
-		b := tail[i]
-		if b == 0x00 {
-			// Separator — shouldn't appear inside the last component;
-			// indicates intermediate components remain. Skip past it
-			// and continue with the next component.
-			out = out[:0]
-			i++
-			continue
+	var last []byte
+	off := 0
+	for off <= len(tail) {
+		decoded, next, err := codec.DecodeTupleStringTo(nil, tail, off)
+		if err != nil {
+			return ""
 		}
-		if b == 0x01 && i+1 < len(tail) {
-			switch tail[i+1] {
-			case 0x01:
-				out = append(out, 0x00)
-			case 0x02:
-				out = append(out, 0x01)
-			default:
-				return string(out)
-			}
-			i += 2
-			continue
+		last = decoded
+		if next >= len(tail) {
+			break
 		}
-		out = append(out, b)
-		i++
+		// next is the separator byte position; advance past it to
+		// the next component.
+		off = next + 1
 	}
-	return string(out)
+	return string(last)
 }
