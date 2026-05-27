@@ -422,28 +422,15 @@ func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	return c.upsertGrants(ctx, grantUpsertOptions{Mode: grantUpsertModeReplace}, bulkGrants...)
 }
 
-// PutGrantsIfNewer writes grants only when the provided discovered_at is
-// newer than the stored row's discovered_at. Retained on *C1File because
-// it has targeted test coverage in grants_test.go documenting its semantics.
-// Not on any interface.
-func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) error {
-	ctx, span := tracer.Start(ctx, "C1File.PutGrantsIfNewer")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
-	return c.upsertGrants(ctx, grantUpsertOptions{Mode: grantUpsertModeIfNewer}, bulkGrants...)
-}
-
 // upsertGrants is the internal implementation of grant writes with mode
-// dispatch. Exported-surface callers go through PutGrants (Replace),
-// PutGrantsIfNewer (IfNewer), or StoreExpandedGrants (PreserveExpansion).
+// dispatch. Exported-surface callers go through PutGrants (Replace) or
+// StoreExpandedGrants (PreserveExpansion).
 func (c *C1File) upsertGrants(ctx context.Context, opts grantUpsertOptions, bulkGrants ...*v2.Grant) error {
 	if c.readOnly {
 		return ErrReadOnly
 	}
 	switch opts.Mode {
 	case grantUpsertModeReplace,
-		grantUpsertModeIfNewer,
 		grantUpsertModePreserveExpansion:
 	default:
 		return fmt.Errorf("unknown grant upsert mode: %d", opts.Mode)
@@ -886,16 +873,6 @@ func executeGrantChunkedUpsert(
 			"expansion":       expansionExpr,
 			"needs_expansion": needsExpansionExpr,
 		}
-		if mode == grantUpsertModeIfNewer {
-			update["discovered_at"] = goqu.I("EXCLUDED.discovered_at")
-			return insertDs.
-				OnConflict(goqu.DoUpdate("external_id, sync_id", update).Where(
-					goqu.L("EXCLUDED.discovered_at > ?.discovered_at", goqu.I(tableName)),
-				)).
-				Rows(chunkedRows).
-				Prepared(true), nil
-		}
-
 		return insertDs.
 			OnConflict(goqu.DoUpdate("external_id, sync_id", update)).
 			Rows(chunkedRows).

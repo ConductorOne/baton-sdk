@@ -17,8 +17,6 @@ type grantUpsertMode int
 const (
 	// grantUpsertModeReplace updates conflicting grants unconditionally.
 	grantUpsertModeReplace grantUpsertMode = iota
-	// grantUpsertModeIfNewer updates conflicting grants only when EXCLUDED.discovered_at is newer.
-	grantUpsertModeIfNewer
 	// grantUpsertModePreserveExpansion updates grant data while preserving existing
 	// expansion and needs_expansion columns.
 	grantUpsertModePreserveExpansion
