@@ -29,6 +29,11 @@ message GrantImmutable {
 // Grant was not created because the entitlement already existed.
 message GrantAlreadyExists {}
 
+// Grant was not created because connector policy rejected it.
+message GrantRejected {
+  string reason = 1;
+}
+
 // Grant was not revoked because the entitlement does not exist.
 message GrantAlreadyRevoked {}
 
