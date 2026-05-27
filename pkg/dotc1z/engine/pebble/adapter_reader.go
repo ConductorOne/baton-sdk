@@ -434,6 +434,11 @@ func (a *Adapter) ListSyncs(ctx context.Context, req *reader_v2.SyncsReaderServi
 // millions). If this becomes hot, a "latest by type" sidecar key
 // keyed on (typeFinishedSyncByType | type) → sync_id would make it
 // O(1) — straightforward future work.
+//
+// Ties on ended_at are broken by sync_id (KSUIDs sort by time) to
+// match the SQLite-side `ORDER BY ended_at DESC, sync_id DESC`
+// (commit 1627b047) on Windows hosts whose time resolution can
+// produce identical timestamps for adjacent EndSync calls.
 func (a *Adapter) GetLatestFinishedSync(ctx context.Context, req *reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest) (*reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse, error) {
 	syncTypeFilter := req.GetSyncType()
 	var latest *v3.SyncRunRecord
@@ -444,7 +449,17 @@ func (a *Adapter) GetLatestFinishedSync(ctx context.Context, req *reader_v2.Sync
 		if syncTypeFilter != "" && v3SyncTypeToString(rec.GetType()) != syncTypeFilter {
 			return true
 		}
-		if latest == nil || rec.GetEndedAt().AsTime().After(latest.GetEndedAt().AsTime()) {
+		if latest == nil {
+			latest = rec
+			return true
+		}
+		curEnd := rec.GetEndedAt().AsTime()
+		bestEnd := latest.GetEndedAt().AsTime()
+		if curEnd.After(bestEnd) {
+			latest = rec
+			return true
+		}
+		if curEnd.Equal(bestEnd) && rec.GetSyncId() > latest.GetSyncId() {
 			latest = rec
 		}
 		return true

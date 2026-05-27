@@ -28,10 +28,11 @@ type pebbleSyncMeta struct {
 // construction to signal that the sync has SQL-layer grant metadata
 // populated and diff consumers may rely on it.
 //
-// Pebble's diff machinery isn't wired yet (FileOps.GenerateSyncDiff
-// returns ErrUnsupported), but storing the bit is harmless and
-// keeps the sync_runs row schema aligned with SQLite — once the
-// diff plumbing lands the bit is already correct.
+// FileOps().GenerateSyncDiff and FileOps().CloneSync are implemented
+// on the Pebble adapter (see adapter_diff.go and
+// adapter_clone_sync.go); the bit stored here gates downstream
+// consumers' willingness to call them, in parity with the SQLite
+// sync_runs.supports_diff column.
 func (s pebbleSyncMeta) MarkSyncSupportsDiff(ctx context.Context, syncID string) error {
 	if syncID == "" {
 		return errors.New("MarkSyncSupportsDiff: empty syncID")
@@ -67,6 +68,12 @@ func (s pebbleSyncMeta) LatestFinishedSyncOfAnyType(ctx context.Context) (*dotc1
 // matches the type predicate. O(N) in sync-run count, which is
 // fine — the workload's sync_runs table is small (a few hundred
 // rows at most over a c1z's lifetime).
+//
+// Ties on ended_at are broken by sync_id (KSUIDs sort by time, so
+// the lexicographically greater id is the later sync). Matches the
+// SQLite-side `ORDER BY ended_at DESC, sync_id DESC` fix in
+// pkg/dotc1z/sync_runs.go:getFinishedSync (commit 1627b047) which
+// closes a Windows coarse-time-resolution race.
 func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.SyncType) bool) (*dotc1z.SyncRun, error) {
 	var best *v3.SyncRunRecord
 	err := s.a.engine.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
@@ -76,7 +83,17 @@ func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.S
 		if !typeOK(r.GetType()) {
 			return true
 		}
-		if best == nil || r.GetEndedAt().AsTime().After(best.GetEndedAt().AsTime()) {
+		if best == nil {
+			best = r
+			return true
+		}
+		curEnd := r.GetEndedAt().AsTime()
+		bestEnd := best.GetEndedAt().AsTime()
+		if curEnd.After(bestEnd) {
+			best = r
+			return true
+		}
+		if curEnd.Equal(bestEnd) && r.GetSyncId() > best.GetSyncId() {
 			best = r
 		}
 		return true

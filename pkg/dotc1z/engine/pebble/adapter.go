@@ -741,6 +741,13 @@ func (a *Adapter) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServi
 
 // LatestFinishedSyncID returns the most-recently-finished sync ID of
 // the given type. Implements connectorstore.LatestFinishedSyncIDFetcher.
+//
+// Tiebreak on sync_id when ended_at ties — Windows can have
+// coarser-than-nanosecond time resolution, so two adjacent EndSync
+// calls can produce identical ended_at timestamps. sync_ids are
+// KSUIDs (timestamp-sortable) so picking the lexicographically
+// greater id picks the later sync. Mirrors the SQLite-side fix in
+// pkg/dotc1z/sync_runs.go:getFinishedSync (commit 1627b047).
 func (a *Adapter) LatestFinishedSyncID(ctx context.Context, syncType connectorstore.SyncType) (string, error) {
 	var latest *v3.SyncRunRecord
 	if err := a.engine.IterateAllSyncRuns(ctx, func(rec *v3.SyncRunRecord) bool {
@@ -751,7 +758,18 @@ func (a *Adapter) LatestFinishedSyncID(ctx context.Context, syncType connectorst
 			v2SyncTypeToV3(syncType) != rec.GetType() {
 			return true
 		}
-		if latest == nil || rec.GetEndedAt().AsTime().After(latest.GetEndedAt().AsTime()) {
+		if latest == nil {
+			latest = rec
+			return true
+		}
+		curEnd := rec.GetEndedAt().AsTime()
+		bestEnd := latest.GetEndedAt().AsTime()
+		if curEnd.After(bestEnd) {
+			latest = rec
+			return true
+		}
+		// Equal ended_at: tiebreak on sync_id (KSUID > sort = later).
+		if curEnd.Equal(bestEnd) && rec.GetSyncId() > latest.GetSyncId() {
 			latest = rec
 		}
 		return true
