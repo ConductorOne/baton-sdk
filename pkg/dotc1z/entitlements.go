@@ -108,14 +108,6 @@ func (c *C1File) PutEntitlements(ctx context.Context, entitlementObjs ...*v2.Ent
 	return c.putEntitlementsInternal(ctx, bulkPutConnectorObject, entitlementObjs...)
 }
 
-func (c *C1File) PutEntitlementsIfNewer(ctx context.Context, entitlementObjs ...*v2.Entitlement) error {
-	ctx, span := tracer.Start(ctx, "C1File.PutEntitlementsIfNewer")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
-	return c.putEntitlementsInternal(ctx, bulkPutConnectorObjectIfNewer, entitlementObjs...)
-}
-
 type entitlementPutFunc func(context.Context, *C1File, string, func(m *v2.Entitlement) (goqu.Record, error), ...*v2.Entitlement) error
 
 func (c *C1File) putEntitlementsInternal(ctx context.Context, f entitlementPutFunc, entitlementObjs ...*v2.Entitlement) error {
