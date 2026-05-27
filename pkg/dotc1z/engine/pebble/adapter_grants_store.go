@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iter"
 
+	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -32,16 +33,67 @@ type pebbleGrantStore struct {
 	a *Adapter
 }
 
-// StoreExpandedGrants writes a batch of grants that have already had
-// their expansion annotations consumed by the expander. Matches the
-// SQLite C1File.Grants().StoreExpandedGrants contract.
+// StoreExpandedGrants writes a batch of grants that have already
+// had their expansion annotations consumed by the expander. Matches
+// the SQLite C1File.Grants().StoreExpandedGrants contract: the
+// payload (display name, sources, etc.) is updated but the
+// expansion side-state (Expansion proto + NeedsExpansion flag) is
+// PRESERVED from the existing record.
 //
-// Today this delegates to PutGrants — Pebble doesn't re-extract
-// expansion metadata at write time, so there's nothing to strip.
-// Once Stack 6 wires expansion-metadata extraction into PutGrants,
-// this method will diverge to skip that extraction.
+// The SQLite path uses `grantUpsertModePreserveExpansion` which
+// strips GrantExpandable from annotations but leaves the
+// `expansion` and `needs_expansion` columns alone. Pebble has no
+// equivalent mode on the upsert path, so we do the read-merge
+// here: read the existing v3 record, translate the new v2 payload,
+// copy the existing Expansion/NeedsExpansion onto the new record,
+// then write. Idempotent on a non-existent grant (Expansion stays
+// nil, NeedsExpansion stays false).
+//
+// Without this preservation, an expander rewrite would clobber
+// the side-state and a subsequent PendingExpansion walk would
+// silently miss the grant — breaking the expansion pipeline.
+// Caught by TestStoreExpandedGrantsPreservesExpansion and the
+// SQLite conformance test of the same name.
 func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
-	return g.a.PutGrants(ctx, grants...)
+	syncID := g.a.currentSyncID()
+	if syncID == "" {
+		return ErrNoCurrentSync
+	}
+	if len(grants) == 0 {
+		return nil
+	}
+	merged := make([]*v3.GrantRecord, 0, len(grants))
+	now := timestamppb.Now()
+	for _, gr := range grants {
+		if gr == nil {
+			continue
+		}
+		newRec := V2GrantToV3(syncID, gr)
+		if newRec == nil {
+			continue
+		}
+		// Read the prior v3 record (if any) and preserve its
+		// Expansion + NeedsExpansion onto the new record. The
+		// payload (Annotations, Sources, identity refs) stays
+		// from the new translation; only the expansion side-state
+		// is carried forward.
+		prior, err := g.a.engine.GetGrantRecord(ctx, syncID, gr.GetId())
+		if err != nil {
+			if !errors.Is(err, pebble.ErrNotFound) {
+				return fmt.Errorf("StoreExpandedGrants: read prior %q: %w", gr.GetId(), err)
+			}
+			// No prior record: leave whatever V2GrantToV3 set
+			// (Expansion is whatever extractV2Expansion produced
+			// from the incoming annotations, which the expander
+			// has already stripped).
+		} else {
+			newRec.SetExpansion(prior.GetExpansion())
+			newRec.SetNeedsExpansion(prior.GetNeedsExpansion())
+		}
+		newRec.SetDiscoveredAt(now)
+		merged = append(merged, newRec)
+	}
+	return g.a.engine.PutGrantRecords(ctx, merged...)
 }
 
 // PendingExpansionPage returns the next page of grants whose

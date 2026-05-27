@@ -282,15 +282,17 @@ func (b0 GrantSourceRecord_builder) Build() *GrantSourceRecord {
 }
 
 type ResourceTypeRecord struct {
-	state                   protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_SyncId       string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
-	xxx_hidden_ExternalId   string                 `protobuf:"bytes,2,opt,name=external_id,json=externalId,proto3"`
-	xxx_hidden_DisplayName  string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3"`
-	xxx_hidden_Traits       []string               `protobuf:"bytes,4,rep,name=traits,proto3"`
-	xxx_hidden_Annotations  *[]*anypb.Any          `protobuf:"bytes,5,rep,name=annotations,proto3"`
-	xxx_hidden_DiscoveredAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=discovered_at,json=discoveredAt,proto3"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state                        protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_SyncId            string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
+	xxx_hidden_ExternalId        string                 `protobuf:"bytes,2,opt,name=external_id,json=externalId,proto3"`
+	xxx_hidden_DisplayName       string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3"`
+	xxx_hidden_Traits            []string               `protobuf:"bytes,4,rep,name=traits,proto3"`
+	xxx_hidden_Annotations       *[]*anypb.Any          `protobuf:"bytes,5,rep,name=annotations,proto3"`
+	xxx_hidden_DiscoveredAt      *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=discovered_at,json=discoveredAt,proto3"`
+	xxx_hidden_Description       string                 `protobuf:"bytes,7,opt,name=description,proto3"`
+	xxx_hidden_SourcedExternally bool                   `protobuf:"varint,8,opt,name=sourced_externally,json=sourcedExternally,proto3"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *ResourceTypeRecord) Reset() {
@@ -362,6 +364,20 @@ func (x *ResourceTypeRecord) GetDiscoveredAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ResourceTypeRecord) GetDescription() string {
+	if x != nil {
+		return x.xxx_hidden_Description
+	}
+	return ""
+}
+
+func (x *ResourceTypeRecord) GetSourcedExternally() bool {
+	if x != nil {
+		return x.xxx_hidden_SourcedExternally
+	}
+	return false
+}
+
 func (x *ResourceTypeRecord) SetSyncId(v string) {
 	x.xxx_hidden_SyncId = v
 }
@@ -386,6 +402,14 @@ func (x *ResourceTypeRecord) SetDiscoveredAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_DiscoveredAt = v
 }
 
+func (x *ResourceTypeRecord) SetDescription(v string) {
+	x.xxx_hidden_Description = v
+}
+
+func (x *ResourceTypeRecord) SetSourcedExternally(v bool) {
+	x.xxx_hidden_SourcedExternally = v
+}
+
 func (x *ResourceTypeRecord) HasDiscoveredAt() bool {
 	if x == nil {
 		return false
@@ -406,6 +430,13 @@ type ResourceTypeRecord_builder struct {
 	Traits       []string
 	Annotations  []*anypb.Any
 	DiscoveredAt *timestamppb.Timestamp
+	// v2.ResourceType.description — informational, but on the v2
+	// wire contract. SQLite preserved it via the data blob.
+	Description string
+	// v2.ResourceType.sourced_externally — boolean flag indicating
+	// the resource type lives outside the connector's primary
+	// catalog. Used by C1's source attribution.
+	SourcedExternally bool
 }
 
 func (b0 ResourceTypeRecord_builder) Build() *ResourceTypeRecord {
@@ -418,6 +449,8 @@ func (b0 ResourceTypeRecord_builder) Build() *ResourceTypeRecord {
 	x.xxx_hidden_Traits = b.Traits
 	x.xxx_hidden_Annotations = &b.Annotations
 	x.xxx_hidden_DiscoveredAt = b.DiscoveredAt
+	x.xxx_hidden_Description = b.Description
+	x.xxx_hidden_SourcedExternally = b.SourcedExternally
 	return m0
 }
 
@@ -601,17 +634,19 @@ func (b0 ResourceRecord_builder) Build() *ResourceRecord {
 }
 
 type EntitlementRecord struct {
-	state                   protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_SyncId       string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
-	xxx_hidden_ExternalId   string                 `protobuf:"bytes,2,opt,name=external_id,json=externalId,proto3"`
-	xxx_hidden_Resource     *ResourceRef           `protobuf:"bytes,3,opt,name=resource,proto3"`
-	xxx_hidden_DisplayName  string                 `protobuf:"bytes,4,opt,name=display_name,json=displayName,proto3"`
-	xxx_hidden_Description  string                 `protobuf:"bytes,5,opt,name=description,proto3"`
-	xxx_hidden_Purpose      string                 `protobuf:"bytes,6,opt,name=purpose,proto3"`
-	xxx_hidden_Annotations  *[]*anypb.Any          `protobuf:"bytes,7,rep,name=annotations,proto3"`
-	xxx_hidden_DiscoveredAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=discovered_at,json=discoveredAt,proto3"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state                                 protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_SyncId                     string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
+	xxx_hidden_ExternalId                 string                 `protobuf:"bytes,2,opt,name=external_id,json=externalId,proto3"`
+	xxx_hidden_Resource                   *ResourceRef           `protobuf:"bytes,3,opt,name=resource,proto3"`
+	xxx_hidden_DisplayName                string                 `protobuf:"bytes,4,opt,name=display_name,json=displayName,proto3"`
+	xxx_hidden_Description                string                 `protobuf:"bytes,5,opt,name=description,proto3"`
+	xxx_hidden_Purpose                    string                 `protobuf:"bytes,6,opt,name=purpose,proto3"`
+	xxx_hidden_Annotations                *[]*anypb.Any          `protobuf:"bytes,7,rep,name=annotations,proto3"`
+	xxx_hidden_DiscoveredAt               *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=discovered_at,json=discoveredAt,proto3"`
+	xxx_hidden_Slug                       string                 `protobuf:"bytes,9,opt,name=slug,proto3"`
+	xxx_hidden_GrantableToResourceTypeIds []string               `protobuf:"bytes,10,rep,name=grantable_to_resource_type_ids,json=grantableToResourceTypeIds,proto3"`
+	unknownFields                         protoimpl.UnknownFields
+	sizeCache                             protoimpl.SizeCache
 }
 
 func (x *EntitlementRecord) Reset() {
@@ -697,6 +732,20 @@ func (x *EntitlementRecord) GetDiscoveredAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *EntitlementRecord) GetSlug() string {
+	if x != nil {
+		return x.xxx_hidden_Slug
+	}
+	return ""
+}
+
+func (x *EntitlementRecord) GetGrantableToResourceTypeIds() []string {
+	if x != nil {
+		return x.xxx_hidden_GrantableToResourceTypeIds
+	}
+	return nil
+}
+
 func (x *EntitlementRecord) SetSyncId(v string) {
 	x.xxx_hidden_SyncId = v
 }
@@ -727,6 +776,14 @@ func (x *EntitlementRecord) SetAnnotations(v []*anypb.Any) {
 
 func (x *EntitlementRecord) SetDiscoveredAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_DiscoveredAt = v
+}
+
+func (x *EntitlementRecord) SetSlug(v string) {
+	x.xxx_hidden_Slug = v
+}
+
+func (x *EntitlementRecord) SetGrantableToResourceTypeIds(v []string) {
+	x.xxx_hidden_GrantableToResourceTypeIds = v
 }
 
 func (x *EntitlementRecord) HasResource() bool {
@@ -762,6 +819,20 @@ type EntitlementRecord_builder struct {
 	Purpose      string
 	Annotations  []*anypb.Any
 	DiscoveredAt *timestamppb.Timestamp
+	// Slug carried through from v2.Entitlement.slug. Consumed by
+	// pkg/sync/syncer.go when building entitlement IDs and by
+	// downstream C1 reports (entitlements report, access-review
+	// grants). SQLite preserved this implicitly via the data blob;
+	// v3 needs a dedicated field since EntitlementRef is identity-
+	// only.
+	Slug string
+	// GrantableTo carries the v2.Entitlement.grantable_to set
+	// (resource types this entitlement can be granted to). v2 stores
+	// it as a list of full ResourceType messages; v3 stores only the
+	// ids — read-side hydration fetches the full ResourceType via the
+	// resource_types table when needed. Consumed by
+	// pkg/sync/syncer.go's principal-type narrowing.
+	GrantableToResourceTypeIds []string
 }
 
 func (b0 EntitlementRecord_builder) Build() *EntitlementRecord {
@@ -776,6 +847,8 @@ func (b0 EntitlementRecord_builder) Build() *EntitlementRecord {
 	x.xxx_hidden_Purpose = b.Purpose
 	x.xxx_hidden_Annotations = &b.Annotations
 	x.xxx_hidden_DiscoveredAt = b.DiscoveredAt
+	x.xxx_hidden_Slug = b.Slug
+	x.xxx_hidden_GrantableToResourceTypeIds = b.GrantableToResourceTypeIds
 	return m0
 }
 
@@ -1491,7 +1564,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\vresource_id\x18\x02 \x01(\tR\n" +
 	"resourceId\x12%\n" +
 	"\x0eentitlement_id\x18\x03 \x01(\tR\rentitlementId\x12\x1b\n" +
-	"\tis_direct\x18\x04 \x01(\bR\bisDirect\"\xae\x02\n" +
+	"\tis_direct\x18\x04 \x01(\bR\bisDirect\"\xff\x02\n" +
 	"\x12ResourceTypeRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +
@@ -1499,7 +1572,9 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x16\n" +
 	"\x06traits\x18\x04 \x03(\tR\x06traits\x126\n" +
 	"\vannotations\x18\x05 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12?\n" +
-	"\rdiscovered_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:*\x82\xf9+&\n" +
+	"\rdiscovered_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12 \n" +
+	"\vdescription\x18\a \x01(\tR\vdescription\x12-\n" +
+	"\x12sourced_externally\x18\b \x01(\bR\x11sourcedExternally:*\x82\xf9+&\n" +
 	"\x0eresource_types\x12\async_id\x12\vexternal_id\"\xcf\x03\n" +
 	"\x0eResourceRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12(\n" +
@@ -1512,7 +1587,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\tby_parent\x1a\x10resource_type_id\x1a\vresource_idR\x06parent\x126\n" +
 	"\vannotations\x18\a \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12?\n" +
 	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:7\x82\xf9+3\n" +
-	"\tresources\x12\async_id\x12\x10resource_type_id\x12\vresource_id\"\xb9\x03\n" +
+	"\tresources\x12\async_id\x12\x10resource_type_id\x12\vresource_id\"\x91\x04\n" +
 	"\x11EntitlementRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +
@@ -1523,7 +1598,10 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x18\n" +
 	"\apurpose\x18\x06 \x01(\tR\apurpose\x126\n" +
 	"\vannotations\x18\a \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12?\n" +
-	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:(\x82\xf9+$\n" +
+	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12\x12\n" +
+	"\x04slug\x18\t \x01(\tR\x04slug\x12B\n" +
+	"\x1egrantable_to_resource_type_ids\x18\n" +
+	" \x03(\tR\x1agrantableToResourceTypeIds:(\x82\xf9+$\n" +
 	"\fentitlements\x12\async_id\x12\vexternal_id\"\xad\x06\n" +
 	"\vGrantRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x1f\n" +

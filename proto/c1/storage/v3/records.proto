@@ -63,6 +63,13 @@ message ResourceTypeRecord {
   repeated string traits                      = 4;
   repeated google.protobuf.Any annotations    = 5;
   google.protobuf.Timestamp discovered_at     = 6;
+  // v2.ResourceType.description — informational, but on the v2
+  // wire contract. SQLite preserved it via the data blob.
+  string description                          = 7;
+  // v2.ResourceType.sourced_externally — boolean flag indicating
+  // the resource type lives outside the connector's primary
+  // catalog. Used by C1's source attribution.
+  bool sourced_externally                     = 8;
 }
 
 message ResourceRecord {
@@ -107,6 +114,22 @@ message EntitlementRecord {
   string      purpose      = 6;
   repeated google.protobuf.Any annotations  = 7;
   google.protobuf.Timestamp     discovered_at = 8;
+
+  // Slug carried through from v2.Entitlement.slug. Consumed by
+  // pkg/sync/syncer.go when building entitlement IDs and by
+  // downstream C1 reports (entitlements report, access-review
+  // grants). SQLite preserved this implicitly via the data blob;
+  // v3 needs a dedicated field since EntitlementRef is identity-
+  // only.
+  string slug = 9;
+
+  // GrantableTo carries the v2.Entitlement.grantable_to set
+  // (resource types this entitlement can be granted to). v2 stores
+  // it as a list of full ResourceType messages; v3 stores only the
+  // ids — read-side hydration fetches the full ResourceType via the
+  // resource_types table when needed. Consumed by
+  // pkg/sync/syncer.go's principal-type narrowing.
+  repeated string grantable_to_resource_type_ids = 10;
 }
 
 message GrantRecord {

@@ -359,11 +359,13 @@ func V2ResourceTypeToV3(syncID string, rt *v2.ResourceType) *v3.ResourceTypeReco
 		traits = append(traits, traitToString(t))
 	}
 	return v3.ResourceTypeRecord_builder{
-		SyncId:      syncID,
-		ExternalId:  rt.GetId(),
-		DisplayName: rt.GetDisplayName(),
-		Traits:      traits,
-		Annotations: rt.GetAnnotations(),
+		SyncId:            syncID,
+		ExternalId:        rt.GetId(),
+		DisplayName:       rt.GetDisplayName(),
+		Traits:            traits,
+		Annotations:       rt.GetAnnotations(),
+		Description:       rt.GetDescription(),
+		SourcedExternally: rt.GetSourcedExternally(),
 	}.Build()
 }
 
@@ -379,10 +381,12 @@ func V3ResourceTypeToV2(r *v3.ResourceTypeRecord) *v2.ResourceType {
 		traits = append(traits, stringToTrait(s))
 	}
 	return v2.ResourceType_builder{
-		Id:          r.GetExternalId(),
-		DisplayName: r.GetDisplayName(),
-		Traits:      traits,
-		Annotations: r.GetAnnotations(),
+		Id:                r.GetExternalId(),
+		DisplayName:       r.GetDisplayName(),
+		Traits:            traits,
+		Annotations:       r.GetAnnotations(),
+		Description:       r.GetDescription(),
+		SourcedExternally: r.GetSourcedExternally(),
 	}.Build()
 }
 
@@ -406,6 +410,12 @@ func stringToTrait(s string) v2.ResourceType_Trait {
 // --- Entitlement ---
 
 // V2EntitlementToV3 maps v2.Entitlement → v3.EntitlementRecord.
+// Captures `slug` and `grantable_to` from v2 — these were silently
+// dropped before, breaking pkg/sync/syncer's entitlement-id
+// construction and the access-review report's principal-type
+// narrowing. grantable_to is stored as a list of resource_type ids;
+// the full v2.ResourceType is rehydrated on read via the
+// resource_types table when callers need it.
 func V2EntitlementToV3(syncID string, e *v2.Entitlement) *v3.EntitlementRecord {
 	if e == nil {
 		return nil
@@ -417,20 +427,34 @@ func V2EntitlementToV3(syncID string, e *v2.Entitlement) *v3.EntitlementRecord {
 			ResourceId:     r.GetId().GetResource(),
 		}.Build()
 	}
+	var grantableTo []string
+	if gs := e.GetGrantableTo(); len(gs) > 0 {
+		grantableTo = make([]string, 0, len(gs))
+		for _, rt := range gs {
+			if id := rt.GetId(); id != "" {
+				grantableTo = append(grantableTo, id)
+			}
+		}
+	}
 	return v3.EntitlementRecord_builder{
-		SyncId:      syncID,
-		ExternalId:  e.GetId(),
-		Resource:    res,
-		DisplayName: e.GetDisplayName(),
-		Description: e.GetDescription(),
-		Purpose:     purposeToString(e.GetPurpose()),
-		Annotations: e.GetAnnotations(),
+		SyncId:                     syncID,
+		ExternalId:                 e.GetId(),
+		Resource:                   res,
+		DisplayName:                e.GetDisplayName(),
+		Description:                e.GetDescription(),
+		Purpose:                    purposeToString(e.GetPurpose()),
+		Annotations:                e.GetAnnotations(),
+		Slug:                       e.GetSlug(),
+		GrantableToResourceTypeIds: grantableTo,
 	}.Build()
 }
 
 // V3EntitlementToV2 reverses V2EntitlementToV3. The Resource side is
 // hydrated as a stub (identity only); callers that need the full v2
-// Resource must hydrate via the engine's GetResourceRecord.
+// Resource must hydrate via the engine's GetResourceRecord. The
+// grantable_to list is hydrated as ResourceType id-stubs — callers
+// who need the full ResourceType (display name, traits) must look
+// it up via the resource_types table.
 func V3EntitlementToV2(r *v3.EntitlementRecord) *v2.Entitlement {
 	if r == nil {
 		return nil
@@ -444,6 +468,13 @@ func V3EntitlementToV2(r *v3.EntitlementRecord) *v2.Entitlement {
 			}.Build(),
 		}.Build()
 	}
+	var grantableTo []*v2.ResourceType
+	if ids := r.GetGrantableToResourceTypeIds(); len(ids) > 0 {
+		grantableTo = make([]*v2.ResourceType, 0, len(ids))
+		for _, id := range ids {
+			grantableTo = append(grantableTo, v2.ResourceType_builder{Id: id}.Build())
+		}
+	}
 	return v2.Entitlement_builder{
 		Id:          r.GetExternalId(),
 		Resource:    resource,
@@ -451,6 +482,8 @@ func V3EntitlementToV2(r *v3.EntitlementRecord) *v2.Entitlement {
 		Description: r.GetDescription(),
 		Purpose:     stringToPurpose(r.GetPurpose()),
 		Annotations: r.GetAnnotations(),
+		Slug:        r.GetSlug(),
+		GrantableTo: grantableTo,
 	}.Build()
 }
 

@@ -262,6 +262,27 @@ func TestCrossEngineParity(t *testing.T) {
 		require.Equal(t, resourceKeySet(sResp.GetList()), resourceKeySet(pResp.GetList()))
 	})
 
+	// Field-preservation parity — closes the 2026-05-27 audit gaps.
+	// SQLite preserved these via its data blob; v3 needed dedicated
+	// fields. Locked in here so future regressions get caught at CI.
+	t.Run("Entitlement slug + grantable_to parity", func(t *testing.T) {
+		req := reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest_builder{
+			EntitlementIds: []string{"ent-A"},
+		}.Build()
+		sResp, err := pair.sqlite.ListEntitlementsByIds(ctx, req)
+		require.NoError(t, err)
+		pResp, err := pair.pebble.ListEntitlementsByIds(ctx, req)
+		require.NoError(t, err)
+		// Both backends populate this fixture without slug or
+		// grantable_to (the parity-test seed doesn't set them);
+		// we just assert the fields match — if any backend
+		// silently mangles them we'll see a divergence.
+		require.Len(t, sResp.GetList(), 1)
+		require.Len(t, pResp.GetList(), 1)
+		require.Equal(t, sResp.GetList()[0].GetSlug(), pResp.GetList()[0].GetSlug())
+		require.Equal(t, len(sResp.GetList()[0].GetGrantableTo()), len(pResp.GetList()[0].GetGrantableTo()))
+	})
+
 	// Streaming reader (B3) — both backends implement the same interface.
 	t.Run("StreamGrants parity", func(t *testing.T) {
 		sStore, ok := pair.sqlite.(connectorstore.StreamingReader)

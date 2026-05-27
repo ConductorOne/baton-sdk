@@ -177,6 +177,23 @@ func (m *ResourceTypeRecord) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.SourcedExternally {
+		i--
+		if m.SourcedExternally {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x40
+	}
+	if len(m.Description) > 0 {
+		i -= len(m.Description)
+		copy(dAtA[i:], m.Description)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Description)))
+		i--
+		dAtA[i] = 0x3a
+	}
 	if m.DiscoveredAt != nil {
 		size, err := (*timestamppb.Timestamp)(m.DiscoveredAt).MarshalToSizedBufferVT(dAtA[:i])
 		if err != nil {
@@ -361,6 +378,22 @@ func (m *EntitlementRecord) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.GrantableToResourceTypeIds) > 0 {
+		for iNdEx := len(m.GrantableToResourceTypeIds) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.GrantableToResourceTypeIds[iNdEx])
+			copy(dAtA[i:], m.GrantableToResourceTypeIds[iNdEx])
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.GrantableToResourceTypeIds[iNdEx])))
+			i--
+			dAtA[i] = 0x52
+		}
+	}
+	if len(m.Slug) > 0 {
+		i -= len(m.Slug)
+		copy(dAtA[i:], m.Slug)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Slug)))
+		i--
+		dAtA[i] = 0x4a
 	}
 	if m.DiscoveredAt != nil {
 		size, err := (*timestamppb.Timestamp)(m.DiscoveredAt).MarshalToSizedBufferVT(dAtA[:i])
@@ -918,6 +951,13 @@ func (m *ResourceTypeRecord) SizeVT() (n int) {
 		l = (*timestamppb.Timestamp)(m.DiscoveredAt).SizeVT()
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
+	l = len(m.Description)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.SourcedExternally {
+		n += 2
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -1005,6 +1045,16 @@ func (m *EntitlementRecord) SizeVT() (n int) {
 	if m.DiscoveredAt != nil {
 		l = (*timestamppb.Timestamp)(m.DiscoveredAt).SizeVT()
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.Slug)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if len(m.GrantableToResourceTypeIds) > 0 {
+		for _, s := range m.GrantableToResourceTypeIds {
+			l = len(s)
+			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+		}
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1710,6 +1760,58 @@ func (m *ResourceTypeRecord) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Description", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Description = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SourcedExternally", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.SourcedExternally = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -2343,6 +2445,70 @@ func (m *EntitlementRecord) UnmarshalVT(dAtA []byte) error {
 			if err := (*timestamppb.Timestamp)(m.DiscoveredAt).UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
+			iNdEx = postIndex
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Slug", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Slug = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GrantableToResourceTypeIds", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.GrantableToResourceTypeIds = append(m.GrantableToResourceTypeIds, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

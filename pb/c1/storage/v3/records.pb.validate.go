@@ -340,6 +340,10 @@ func (m *ResourceTypeRecord) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for Description
+
+	// no validation rules for SourcedExternally
+
 	if len(errors) > 0 {
 		return ResourceTypeRecordMultiError(errors)
 	}
@@ -745,6 +749,8 @@ func (m *EntitlementRecord) validate(all bool) error {
 			}
 		}
 	}
+
+	// no validation rules for Slug
 
 	if len(errors) > 0 {
 		return EntitlementRecordMultiError(errors)
