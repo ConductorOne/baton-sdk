@@ -183,7 +183,10 @@ func TestEnvelopePayloadAtEnd(t *testing.T) {
 	if err := WriteEnvelope(f, m, srcDir); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	err = f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	st, _ := os.Stat(envFile)
 	if st.Size() < int64(len(C1Z3Magic)+4) {
