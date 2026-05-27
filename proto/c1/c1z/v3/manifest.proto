@@ -85,10 +85,10 @@ message RecordTypeInfo {
 }
 
 message SyncRunSummary {
-  string                    sync_id    = 1;
-  c1.storage.v3.SyncType    type       = 2;
+  string sync_id = 1;
+  c1.storage.v3.SyncType type = 2;
   google.protobuf.Timestamp started_at = 3;
-  google.protobuf.Timestamp ended_at   = 4;
+  google.protobuf.Timestamp ended_at = 4;
 }
 
 // PebbleEngineConfig is the value placed inside C1ZManifestV3.engine_config

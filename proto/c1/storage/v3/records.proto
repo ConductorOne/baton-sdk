@@ -22,19 +22,19 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/storage/v3";
 // numbers match v2 to keep translation cheap. Changes to v2 require
 // an explicit mirror update here (no automatic propagation).
 enum SyncType {
-  SYNC_TYPE_UNSPECIFIED       = 0;
-  SYNC_TYPE_FULL              = 1;
-  SYNC_TYPE_PARTIAL           = 2;
-  SYNC_TYPE_RESOURCES_ONLY    = 3;
-  SYNC_TYPE_PARTIAL_UPSERTS   = 4;
+  SYNC_TYPE_UNSPECIFIED = 0;
+  SYNC_TYPE_FULL = 1;
+  SYNC_TYPE_PARTIAL = 2;
+  SYNC_TYPE_RESOURCES_ONLY = 3;
+  SYNC_TYPE_PARTIAL_UPSERTS = 4;
   SYNC_TYPE_PARTIAL_DELETIONS = 5;
 }
 
 // GrantExpandableRecord mirrors c1.connector.v2.GrantExpandable.
 // Field numbers must match v2; drift detection via CI lint.
 message GrantExpandableRecord {
-  repeated string entitlement_ids   = 1;
-  bool            shallow           = 2;
+  repeated string entitlement_ids = 1;
+  bool shallow = 2;
   repeated string resource_type_ids = 3;
 }
 
@@ -46,49 +46,59 @@ message GrantSourceRecord {
   // entitlement belongs to. Useful for audit chains without a second
   // lookup.
   string resource_type_id = 1;
-  string resource_id      = 2;
-  string entitlement_id   = 3;
-  bool   is_direct        = 4;
+  string resource_id = 2;
+  string entitlement_id = 3;
+  bool is_direct = 4;
 }
 
 message ResourceTypeRecord {
   option (table) = {
     name: "resource_types"
-    primary_key: ["sync_id", "external_id"]
+    primary_key: [
+      "sync_id",
+      "external_id"
+    ]
   };
 
-  string sync_id                              = 1;
-  string external_id                          = 2;
-  string display_name                         = 3;
-  repeated string traits                      = 4;
-  repeated google.protobuf.Any annotations    = 5;
-  google.protobuf.Timestamp discovered_at     = 6;
+  string sync_id = 1;
+  string external_id = 2;
+  string display_name = 3;
+  repeated string traits = 4;
+  repeated google.protobuf.Any annotations = 5;
+  google.protobuf.Timestamp discovered_at = 6;
   // v2.ResourceType.description — informational, but on the v2
   // wire contract. SQLite preserved it via the data blob.
-  string description                          = 7;
+  string description = 7;
   // v2.ResourceType.sourced_externally — boolean flag indicating
   // the resource type lives outside the connector's primary
   // catalog. Used by C1's source attribution.
-  bool sourced_externally                     = 8;
+  bool sourced_externally = 8;
 }
 
 message ResourceRecord {
   option (table) = {
     name: "resources"
-    primary_key: ["sync_id", "resource_type_id", "resource_id"]
+    primary_key: [
+      "sync_id",
+      "resource_type_id",
+      "resource_id"
+    ]
   };
 
-  string      sync_id          = 1;
-  string      resource_type_id = 2;
-  string      resource_id      = 3;
-  string      display_name     = 4;
-  string      description      = 5;
-  ResourceRef parent           = 6 [(index) = {
+  string sync_id = 1;
+  string resource_type_id = 2;
+  string resource_id = 3;
+  string display_name = 4;
+  string description = 5;
+  ResourceRef parent = 6 [(index) = {
     name: "by_parent"
-    composite: ["resource_type_id", "resource_id"]
+    composite: [
+      "resource_type_id",
+      "resource_id"
+    ]
   }];
   repeated google.protobuf.Any annotations = 7;
-  google.protobuf.Timestamp     discovered_at = 8;
+  google.protobuf.Timestamp discovered_at = 8;
 
   // NOTE on v2.Resource traits: connector-level traits (UserTrait,
   // GroupTrait, AppTrait, RoleTrait, SecretTrait, etc.) are packed
@@ -100,20 +110,26 @@ message ResourceRecord {
 message EntitlementRecord {
   option (table) = {
     name: "entitlements"
-    primary_key: ["sync_id", "external_id"]
+    primary_key: [
+      "sync_id",
+      "external_id"
+    ]
   };
 
-  string      sync_id      = 1;
-  string      external_id  = 2;
-  ResourceRef resource     = 3 [(index) = {
+  string sync_id = 1;
+  string external_id = 2;
+  ResourceRef resource = 3 [(index) = {
     name: "by_resource"
-    composite: ["resource_type_id", "resource_id"]
+    composite: [
+      "resource_type_id",
+      "resource_id"
+    ]
   }];
-  string      display_name = 4;
-  string      description  = 5;
-  string      purpose      = 6;
-  repeated google.protobuf.Any annotations  = 7;
-  google.protobuf.Timestamp     discovered_at = 8;
+  string display_name = 4;
+  string description = 5;
+  string purpose = 6;
+  repeated google.protobuf.Any annotations = 7;
+  google.protobuf.Timestamp discovered_at = 8;
 
   // Slug carried through from v2.Entitlement.slug. Consumed by
   // pkg/sync/syncer.go when building entitlement IDs and by
@@ -135,23 +151,33 @@ message EntitlementRecord {
 message GrantRecord {
   option (table) = {
     name: "grants"
-    primary_key: ["sync_id", "external_id"]
+    primary_key: [
+      "sync_id",
+      "external_id"
+    ]
   };
 
-  string         sync_id     = 1;
-  string         external_id = 2;
+  string sync_id = 1;
+  string external_id = 2;
   EntitlementRef entitlement = 3 [(index) = {
     name: "by_entitlement"
-    composite: ["entitlement_id", "principal.resource_type_id", "principal.resource_id"]
+    composite: [
+      "entitlement_id",
+      "principal.resource_type_id",
+      "principal.resource_id"
+    ]
   }];
-  PrincipalRef   principal   = 4 [(index) = {
+  PrincipalRef principal = 4 [(index) = {
     name: "by_principal"
-    composite: ["resource_type_id", "resource_id"]
+    composite: [
+      "resource_type_id",
+      "resource_id"
+    ]
   }];
 
   google.protobuf.Timestamp discovered_at = 5;
-  GrantExpandableRecord     expansion       = 6;
-  bool                      needs_expansion = 7 [(index) = {
+  GrantExpandableRecord expansion = 6;
+  bool needs_expansion = 7 [(index) = {
     name: "by_needs_expansion"
     partial: "needs_expansion = true"
   }];
@@ -164,13 +190,16 @@ message GrantRecord {
 message AssetRecord {
   option (table) = {
     name: "assets"
-    primary_key: ["sync_id", "external_id"]
+    primary_key: [
+      "sync_id",
+      "external_id"
+    ]
   };
 
-  string sync_id      = 1;
-  string external_id  = 2;
+  string sync_id = 1;
+  string external_id = 2;
   string content_type = 3;
-  bytes  data         = 4;
+  bytes data = 4;
   google.protobuf.Timestamp discovered_at = 5;
 }
 
@@ -180,13 +209,13 @@ message SyncRunRecord {
     primary_key: ["sync_id"]
   };
 
-  string                    sync_id         = 1;
-  SyncType                  type            = 2;
-  string                    parent_sync_id  = 3;
-  google.protobuf.Timestamp started_at      = 4;
-  google.protobuf.Timestamp ended_at        = 5;
-  string                    sync_token      = 6;
-  bool                      supports_diff   = 7;
+  string sync_id = 1;
+  SyncType type = 2;
+  string parent_sync_id = 3;
+  google.protobuf.Timestamp started_at = 4;
+  google.protobuf.Timestamp ended_at = 5;
+  string sync_token = 6;
+  bool supports_diff = 7;
 }
 
 // SyncStatsRecord is the engine-internal sidecar populated at
@@ -196,18 +225,18 @@ message SyncRunRecord {
 // namespace — readers consume it via the SDK's Stats() RPC and
 // never see the proto directly.
 message SyncStatsRecord {
-  string                    sync_id                              = 1;
-  int64                     resource_types                       = 2;
-  int64                     resources                            = 3;
-  int64                     entitlements                         = 4;
-  int64                     grants                               = 5;
-  int64                     assets                               = 6;
+  string sync_id = 1;
+  int64 resource_types = 2;
+  int64 resources = 3;
+  int64 entitlements = 4;
+  int64 grants = 5;
+  int64 assets = 6;
   // Per-resource-type counts: keyed by resource_type_id.
-  map<string, int64>        resources_by_resource_type           = 7;
+  map<string, int64> resources_by_resource_type = 7;
   // Per-entitlement-resource-type grant counts (drives GrantStats).
   // The "resource_type" here is the entitlement's resource-type
   // (matching the SQLite grants table's resource_type_id column
   // semantic, NOT the principal's resource type).
-  map<string, int64>        grants_by_entitlement_resource_type  = 8;
-  google.protobuf.Timestamp written_at                           = 100;
+  map<string, int64> grants_by_entitlement_resource_type = 8;
+  google.protobuf.Timestamp written_at = 100;
 }

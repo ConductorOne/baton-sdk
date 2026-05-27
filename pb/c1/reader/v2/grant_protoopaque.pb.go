@@ -210,6 +210,7 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetEntitlement() *v
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetPrincipalId() *v2.ResourceId {
 	if x != nil {
 		return x.xxx_hidden_PrincipalId
@@ -217,6 +218,7 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetPrincipalId() *v
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetPrincipalResourceTypeIds() []string {
 	if x != nil {
 		return x.xxx_hidden_PrincipalResourceTypeIds
@@ -251,10 +253,12 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetEntitlement(v *v
 	x.xxx_hidden_Entitlement = v
 }
 
+// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetPrincipalId(v *v2.ResourceId) {
 	x.xxx_hidden_PrincipalId = v
 }
 
+// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetPrincipalResourceTypeIds(v []string) {
 	x.xxx_hidden_PrincipalResourceTypeIds = v
 }
@@ -278,6 +282,7 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) HasEntitlement() bo
 	return x.xxx_hidden_Entitlement != nil
 }
 
+// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) HasPrincipalId() bool {
 	if x == nil {
 		return false
@@ -289,6 +294,7 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) ClearEntitlement() 
 	x.xxx_hidden_Entitlement = nil
 }
 
+// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) ClearPrincipalId() {
 	x.xxx_hidden_PrincipalId = nil
 }
@@ -296,8 +302,10 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) ClearPrincipalId() 
 type GrantsReaderServiceListGrantsForEntitlementRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Entitlement              *v2.Entitlement
-	PrincipalId              *v2.ResourceId
+	Entitlement *v2.Entitlement
+	// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
+	PrincipalId *v2.ResourceId
+	// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 	PrincipalResourceTypeIds []string
 	PageSize                 uint32
 	PageToken                string
@@ -565,15 +573,13 @@ func (b0 GrantsReaderServiceListGrantsForResourceTypeResponse_builder) Build() *
 }
 
 type GrantsReaderServiceListGrantsForEntitlementsRequest struct {
-	state                               protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Entitlements             *[]*v2.Entitlement     `protobuf:"bytes,1,rep,name=entitlements,proto3"`
-	xxx_hidden_PrincipalId              *v2.ResourceId         `protobuf:"bytes,2,opt,name=principal_id,json=principalId,proto3"`
-	xxx_hidden_PrincipalResourceTypeIds []string               `protobuf:"bytes,3,rep,name=principal_resource_type_ids,json=principalResourceTypeIds,proto3"`
-	xxx_hidden_PageSize                 uint32                 `protobuf:"varint,10,opt,name=page_size,json=pageSize,proto3"`
-	xxx_hidden_PageToken                string                 `protobuf:"bytes,11,opt,name=page_token,json=pageToken,proto3"`
-	xxx_hidden_Annotations              *[]*anypb.Any          `protobuf:"bytes,100,rep,name=annotations,proto3"`
-	unknownFields                       protoimpl.UnknownFields
-	sizeCache                           protoimpl.SizeCache
+	state                   protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Entitlements *[]*v2.Entitlement     `protobuf:"bytes,1,rep,name=entitlements,proto3"`
+	xxx_hidden_PageSize     uint32                 `protobuf:"varint,10,opt,name=page_size,json=pageSize,proto3"`
+	xxx_hidden_PageToken    string                 `protobuf:"bytes,11,opt,name=page_token,json=pageToken,proto3"`
+	xxx_hidden_Annotations  *[]*anypb.Any          `protobuf:"bytes,100,rep,name=annotations,proto3"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) Reset() {
@@ -610,20 +616,6 @@ func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) GetEntitlements() 
 	return nil
 }
 
-func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) GetPrincipalId() *v2.ResourceId {
-	if x != nil {
-		return x.xxx_hidden_PrincipalId
-	}
-	return nil
-}
-
-func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) GetPrincipalResourceTypeIds() []string {
-	if x != nil {
-		return x.xxx_hidden_PrincipalResourceTypeIds
-	}
-	return nil
-}
-
 func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) GetPageSize() uint32 {
 	if x != nil {
 		return x.xxx_hidden_PageSize
@@ -651,14 +643,6 @@ func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) SetEntitlements(v 
 	x.xxx_hidden_Entitlements = &v
 }
 
-func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) SetPrincipalId(v *v2.ResourceId) {
-	x.xxx_hidden_PrincipalId = v
-}
-
-func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) SetPrincipalResourceTypeIds(v []string) {
-	x.xxx_hidden_PrincipalResourceTypeIds = v
-}
-
 func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) SetPageSize(v uint32) {
 	x.xxx_hidden_PageSize = v
 }
@@ -671,28 +655,13 @@ func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) SetAnnotations(v [
 	x.xxx_hidden_Annotations = &v
 }
 
-func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) HasPrincipalId() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_PrincipalId != nil
-}
-
-func (x *GrantsReaderServiceListGrantsForEntitlementsRequest) ClearPrincipalId() {
-	x.xxx_hidden_PrincipalId = nil
-}
-
 type GrantsReaderServiceListGrantsForEntitlementsRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	// The entitlements (by id) to fetch grants for. Server caps at
 	// 128 to bound per-RPC work; clients should chunk above that.
 	Entitlements []*v2.Entitlement
-	// Optional filters apply uniformly to every entitlement in the
-	// batch. Same semantics as ListGrantsForEntitlement.
-	PrincipalId              *v2.ResourceId
-	PrincipalResourceTypeIds []string
-	PageSize                 uint32
+	PageSize     uint32
 	// Cursor encoding: base64(varint entitlement_index, varint
 	// intra_cursor_len, intra_cursor_bytes, list_checksum_bytes).
 	// The list_checksum stamps the entitlement list shape; mismatch
@@ -707,8 +676,6 @@ func (b0 GrantsReaderServiceListGrantsForEntitlementsRequest_builder) Build() *G
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Entitlements = &b.Entitlements
-	x.xxx_hidden_PrincipalId = b.PrincipalId
-	x.xxx_hidden_PrincipalResourceTypeIds = b.PrincipalResourceTypeIds
 	x.xxx_hidden_PageSize = b.PageSize
 	x.xxx_hidden_PageToken = b.PageToken
 	x.xxx_hidden_Annotations = &b.Annotations
@@ -800,11 +767,12 @@ const file_c1_reader_v2_grant_proto_rawDesc = "" +
 	"\xfaB\ar\x05 \x01(\x80\bR\agrantId\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"S\n" +
 	"#GrantsReaderServiceGetGrantResponse\x12,\n" +
-	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\x96\x03\n" +
+	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\x9c\x03\n" +
 	"2GrantsReaderServiceListGrantsForEntitlementRequest\x12H\n" +
-	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12H\n" +
-	"\fprincipal_id\x18\x05 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x00R\vprincipalId\x12=\n" +
-	"\x1bprincipal_resource_type_ids\x18\x06 \x03(\tR\x18principalResourceTypeIds\x12'\n" +
+	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12J\n" +
+	"\fprincipal_id\x18\x05 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\n" +
+	"\xfaB\x05\x8a\x01\x02\x10\x00\x18\x01R\vprincipalId\x12A\n" +
+	"\x1bprincipal_resource_type_ids\x18\x06 \x03(\tB\x02\x18\x01R\x18principalResourceTypeIds\x12'\n" +
 	"\tpage_size\x18\x02 \x01(\rB\n" +
 	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12,\n" +
 	"\n" +
@@ -827,11 +795,9 @@ const file_c1_reader_v2_grant_proto_rawDesc = "" +
 	"4GrantsReaderServiceListGrantsForResourceTypeResponse\x12*\n" +
 	"\x04list\x18\x01 \x03(\v2\x16.c1.connector.v2.GrantR\x04list\x125\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\x10\xd0\x01\x01R\rnextPageToken\"\x9a\x03\n" +
+	"r\b \x01(\x80\x10\xd0\x01\x01R\rnextPageToken\"\x91\x02\n" +
 	"3GrantsReaderServiceListGrantsForEntitlementsRequest\x12K\n" +
-	"\fentitlements\x18\x01 \x03(\v2\x1c.c1.connector.v2.EntitlementB\t\xfaB\x06\x92\x01\x03\x10\x80\x01R\fentitlements\x12H\n" +
-	"\fprincipal_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x00R\vprincipalId\x12=\n" +
-	"\x1bprincipal_resource_type_ids\x18\x03 \x03(\tR\x18principalResourceTypeIds\x12'\n" +
+	"\fentitlements\x18\x01 \x03(\v2\x1c.c1.connector.v2.EntitlementB\t\xfaB\x06\x92\x01\x03\x10\x80\x01R\fentitlements\x12'\n" +
 	"\tpage_size\x18\n" +
 	" \x01(\rB\n" +
 	"\xfaB\a*\x05\x18\x80\b@\x01R\bpageSize\x12,\n" +
@@ -874,22 +840,21 @@ var file_c1_reader_v2_grant_proto_depIdxs = []int32{
 	8,  // 6: c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeRequest.annotations:type_name -> google.protobuf.Any
 	9,  // 7: c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeResponse.list:type_name -> c1.connector.v2.Grant
 	10, // 8: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsRequest.entitlements:type_name -> c1.connector.v2.Entitlement
-	11, // 9: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsRequest.principal_id:type_name -> c1.connector.v2.ResourceId
-	8,  // 10: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsRequest.annotations:type_name -> google.protobuf.Any
-	9,  // 11: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsResponse.list:type_name -> c1.connector.v2.Grant
-	0,  // 12: c1.reader.v2.GrantsReaderService.GetGrant:input_type -> c1.reader.v2.GrantsReaderServiceGetGrantRequest
-	2,  // 13: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlement:input_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementRequest
-	4,  // 14: c1.reader.v2.GrantsReaderService.ListGrantsForResourceType:input_type -> c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeRequest
-	6,  // 15: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlements:input_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsRequest
-	1,  // 16: c1.reader.v2.GrantsReaderService.GetGrant:output_type -> c1.reader.v2.GrantsReaderServiceGetGrantResponse
-	3,  // 17: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlement:output_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementResponse
-	5,  // 18: c1.reader.v2.GrantsReaderService.ListGrantsForResourceType:output_type -> c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeResponse
-	7,  // 19: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlements:output_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsResponse
-	16, // [16:20] is the sub-list for method output_type
-	12, // [12:16] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	8,  // 9: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsRequest.annotations:type_name -> google.protobuf.Any
+	9,  // 10: c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsResponse.list:type_name -> c1.connector.v2.Grant
+	0,  // 11: c1.reader.v2.GrantsReaderService.GetGrant:input_type -> c1.reader.v2.GrantsReaderServiceGetGrantRequest
+	2,  // 12: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlement:input_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementRequest
+	4,  // 13: c1.reader.v2.GrantsReaderService.ListGrantsForResourceType:input_type -> c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeRequest
+	6,  // 14: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlements:input_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsRequest
+	1,  // 15: c1.reader.v2.GrantsReaderService.GetGrant:output_type -> c1.reader.v2.GrantsReaderServiceGetGrantResponse
+	3,  // 16: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlement:output_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementResponse
+	5,  // 17: c1.reader.v2.GrantsReaderService.ListGrantsForResourceType:output_type -> c1.reader.v2.GrantsReaderServiceListGrantsForResourceTypeResponse
+	7,  // 18: c1.reader.v2.GrantsReaderService.ListGrantsForEntitlements:output_type -> c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementsResponse
+	15, // [15:19] is the sub-list for method output_type
+	11, // [11:15] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_c1_reader_v2_grant_proto_init() }

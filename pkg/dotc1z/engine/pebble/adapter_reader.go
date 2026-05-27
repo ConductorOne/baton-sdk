@@ -150,39 +150,6 @@ func (a *Adapter) ListEntitlementsByIds(
 	}.Build(), nil
 }
 
-// GetResourceTypes returns resource_types for the requested ids.
-// Missing rows are silently omitted.
-func (a *Adapter) GetResourceTypes(
-	ctx context.Context,
-	req *reader_v2.ResourceTypesReaderServiceGetResourceTypesRequest,
-) (*reader_v2.ResourceTypesReaderServiceGetResourceTypesResponse, error) {
-	syncID := a.resolveActiveSyncForReader(req.GetAnnotations())
-	if syncID == "" {
-		return nil, ErrNoCurrentSync
-	}
-	ids := req.GetResourceTypeIds()
-	out := make([]*v2.ResourceType, 0, len(ids))
-	for _, id := range ids {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if id == "" {
-			continue
-		}
-		rec, err := a.engine.GetResourceTypeRecord(ctx, syncID, id)
-		if err != nil {
-			if errors.Is(err, pebble.ErrNotFound) {
-				continue
-			}
-			return nil, err
-		}
-		out = append(out, V3ResourceTypeToV2(rec))
-	}
-	return reader_v2.ResourceTypesReaderServiceGetResourceTypesResponse_builder{
-		List: out,
-	}.Build(), nil
-}
-
 // ListGrantsForEntitlement paginates grants on a specific
 // entitlement, optionally narrowed by principal_id or
 // principal_resource_type_ids. Implements
@@ -208,8 +175,8 @@ func (a *Adapter) ListGrantsForEntitlement(
 
 	// Filters: principal_id (single principal) or
 	// principal_resource_type_ids (filter by RT membership).
-	principalID := req.GetPrincipalId()
-	rtFilter := req.GetPrincipalResourceTypeIds()
+	principalID := req.GetPrincipalId()           //nolint:staticcheck // ignore deprecated field
+	rtFilter := req.GetPrincipalResourceTypeIds() //nolint:staticcheck // ignore deprecated field
 	rtSet := make(map[string]struct{}, len(rtFilter))
 	for _, rt := range rtFilter {
 		rtSet[rt] = struct{}{}
@@ -298,7 +265,7 @@ func (a *Adapter) ListGrantsForPrincipal(
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
-	principal := req.GetPrincipalId()
+	principal := req.GetPrincipalId() //nolint:staticcheck // ignore deprecated field
 	if principal == nil || principal.GetResource() == "" {
 		return nil, errors.New("ListGrantsForPrincipal: missing principal_id")
 	}

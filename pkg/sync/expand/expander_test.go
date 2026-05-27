@@ -62,7 +62,7 @@ func (m *MockExpanderStore) ListGrantsForEntitlement(
 	grants := m.grants[entID]
 
 	// Filter by principal if specified
-	principalID := req.GetPrincipalId()
+	principalID := req.GetPrincipalId() //nolint:staticcheck // ignore deprecated field
 	if principalID != nil {
 		filtered := make([]*v2.Grant, 0)
 		for _, g := range grants {
@@ -75,7 +75,7 @@ func (m *MockExpanderStore) ListGrantsForEntitlement(
 	}
 
 	// Filter by resource type IDs if specified
-	resourceTypeIDs := req.GetPrincipalResourceTypeIds()
+	resourceTypeIDs := req.GetPrincipalResourceTypeIds() //nolint:staticcheck // ignore deprecated field
 	if len(resourceTypeIDs) > 0 {
 		filtered := make([]*v2.Grant, 0)
 		for _, g := range grants {

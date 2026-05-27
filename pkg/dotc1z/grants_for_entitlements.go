@@ -100,13 +100,6 @@ func (c *C1File) ListGrantsForEntitlements(
 	if syncID != "" {
 		q = q.Where(goqu.C("sync_id").Eq(syncID))
 	}
-	if principalID := req.GetPrincipalId(); principalID != nil && principalID.GetResource() != "" {
-		q = q.Where(goqu.C("principal_resource_id").Eq(principalID.GetResource()))
-		q = q.Where(goqu.C("principal_resource_type_id").Eq(principalID.GetResourceType()))
-	}
-	if rtIDs := req.GetPrincipalResourceTypeIds(); len(rtIDs) > 0 {
-		q = q.Where(goqu.C("principal_resource_type_id").In(rtIDs))
-	}
 
 	// Cursor filter: skip rows already returned in earlier pages.
 	// Sorted by (entitlement_id, id) so the cursor is "for ent_id

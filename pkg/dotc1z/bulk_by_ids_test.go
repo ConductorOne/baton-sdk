@@ -51,18 +51,6 @@ func TestBulkByIdsRoundtrip(t *testing.T) {
 
 	require.NoError(t, c1z.EndSync(ctx))
 
-	t.Run("GetResourceTypes returns hits and skips misses", func(t *testing.T) {
-		resp, err := c1z.GetResourceTypes(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypesRequest_builder{
-			ResourceTypeIds: []string{"user", "missing", "group"},
-		}.Build())
-		require.NoError(t, err)
-		got := map[string]bool{}
-		for _, rt := range resp.GetList() {
-			got[rt.GetId()] = true
-		}
-		require.Equal(t, map[string]bool{"user": true, "group": true}, got)
-	})
-
 	t.Run("ListEntitlementsByIds", func(t *testing.T) {
 		resp, err := c1z.ListEntitlementsByIds(ctx, reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest_builder{
 			EntitlementIds: []string{"ent-A", "ent-C", "ent-zzz"},
@@ -105,10 +93,6 @@ func TestBulkByIdsRoundtrip(t *testing.T) {
 		respR, err := c1z.ListResourcesByIds(ctx, reader_v2.ResourcesReaderServiceListResourcesByIdsRequest_builder{}.Build())
 		require.NoError(t, err)
 		require.Empty(t, respR.GetList())
-
-		respRT, err := c1z.GetResourceTypes(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypesRequest_builder{}.Build())
-		require.NoError(t, err)
-		require.Empty(t, respRT.GetList())
 	})
 }
 

@@ -28,9 +28,7 @@ message EntitlementsReaderServiceGetEntitlementResponse {
 }
 
 message EntitlementsReaderServiceListEntitlementsByIdsRequest {
-  repeated string entitlement_ids = 1 [(validate.rules).repeated = {
-    max_items: 1024
-  }];
+  repeated string entitlement_ids = 1 [(validate.rules).repeated = {max_items: 1024}];
   repeated google.protobuf.Any annotations = 100;
 }
 

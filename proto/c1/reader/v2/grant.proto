@@ -34,8 +34,11 @@ message GrantsReaderServiceGetGrantResponse {
 
 message GrantsReaderServiceListGrantsForEntitlementRequest {
   c1.connector.v2.Entitlement entitlement = 1 [(validate.rules).message = {required: true}];
-  c1.connector.v2.ResourceId principal_id = 5 [(validate.rules).message = {required: false}];
-  repeated string principal_resource_type_ids = 6;
+  c1.connector.v2.ResourceId principal_id = 5 [
+    (validate.rules).message = {required: false},
+    deprecated = true
+  ];
+  repeated string principal_resource_type_ids = 6 [deprecated = true];
 
   uint32 page_size = 2 [(validate.rules).uint32 = {
     ignore_empty: true
@@ -88,13 +91,7 @@ message GrantsReaderServiceListGrantsForResourceTypeResponse {
 message GrantsReaderServiceListGrantsForEntitlementsRequest {
   // The entitlements (by id) to fetch grants for. Server caps at
   // 128 to bound per-RPC work; clients should chunk above that.
-  repeated c1.connector.v2.Entitlement entitlements = 1 [(validate.rules).repeated = {
-    max_items: 128
-  }];
-  // Optional filters apply uniformly to every entitlement in the
-  // batch. Same semantics as ListGrantsForEntitlement.
-  c1.connector.v2.ResourceId principal_id = 2 [(validate.rules).message = {required: false}];
-  repeated string principal_resource_type_ids = 3;
+  repeated c1.connector.v2.Entitlement entitlements = 1 [(validate.rules).repeated = {max_items: 128}];
 
   uint32 page_size = 10 [(validate.rules).uint32 = {
     ignore_empty: true
