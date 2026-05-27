@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/cockroachdb/pebble/v2"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -141,8 +140,6 @@ func cloneSync(
 		EngineSchemaVersion: uint32(SDKPebbleFormat),
 		PayloadEncoding:     payloadEncodingToProto(encoding),
 		Descriptors:         descriptors,
-		CreatedAt:           timestamppb.Now(),
-		CreatedByTool:       "baton-sdk clone-sync",
 	}.Build()
 	if err := formatv3.WriteEnvelope(out, manifest, checkpointDir); err != nil {
 		return err

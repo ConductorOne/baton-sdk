@@ -14,7 +14,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Register installs the Pebble engine into dotc1z's process-global engine
@@ -335,8 +334,6 @@ func (s *registeredStore) manifest() (*c1zv3.C1ZManifestV3, error) {
 		EngineSchemaVersion: uint32(SDKPebbleFormat),
 		PayloadEncoding:     payloadEncodingToProto(s.payloadEncoding),
 		Descriptors:         descriptors,
-		CreatedAt:           timestamppb.Now(),
-		CreatedByTool:       "baton-sdk",
 	}.Build(), nil
 }
 
@@ -350,10 +347,10 @@ func payloadEncodingToProto(enc dotc1z.PayloadEncoding) c1zv3.PayloadEncoding {
 	case dotc1z.PayloadEncodingTarZstd, dotc1z.PayloadEncodingUnspecified:
 		return c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD
 	default:
-		// Any non-enumerated value (including the reserved 1 and 2)
-		// falls back to the default. WriteEnvelope will reject any
-		// non-TAR/non-TAR_ZSTD value before writing bytes, so a
-		// caller setting a bogus encoding gets an error at save time.
+		// Any non-enumerated value falls back to the default.
+		// WriteEnvelope will reject any non-TAR/non-TAR_ZSTD value
+		// before writing bytes, so a caller setting a bogus
+		// encoding gets an error at save time.
 		return c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD
 	}
 }

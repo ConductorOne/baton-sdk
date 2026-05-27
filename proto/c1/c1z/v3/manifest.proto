@@ -54,12 +54,6 @@ message C1ZManifestV3 {
   // that adds new record types this binary doesn't know).
   repeated RecordTypeInfo record_types = 11;
 
-  // Informational only.
-  string                    tenant_hint            = 20;
-  google.protobuf.Timestamp created_at             = 30;
-  string                    created_by_sdk_version = 31;
-  string                    created_by_tool        = 32;
-
   // Cheap projection of sync runs inside the payload — lets tooling
   // enumerate without opening the engine.
   repeated SyncRunSummary sync_runs = 40;
@@ -68,18 +62,15 @@ message C1ZManifestV3 {
 enum PayloadEncoding {
   PAYLOAD_ENCODING_UNSPECIFIED = 0;
 
-  // Tar of a Pebble directory, compressed with zstd. The production
-  // default. Wire number 3 is retained from the prior ZSTD_TAR name
-  // so existing dev c1z3 files keep reading identically; 1 and 2
-  // (briefly held by speculative RAW / ZSTD shapes that were never
-  // wired) are free for future use.
-  PAYLOAD_ENCODING_TAR_ZSTD = 3;
+  // Tar of a Pebble directory, compressed with zstd. The
+  // production default.
+  PAYLOAD_ENCODING_TAR_ZSTD = 1;
 
   // Tar of a Pebble directory, uncompressed. For tenants whose
   // Pebble L5/L6 SSTs are already zstd-compressed at the engine
   // layer and want to avoid double-compression CPU at envelope
   // time, or for object-storage targets that compress in-transit.
-  PAYLOAD_ENCODING_TAR = 4;
+  PAYLOAD_ENCODING_TAR = 2;
 }
 
 message RecordTypeInfo {

@@ -41,30 +41,27 @@ type PayloadEncoding int32
 
 const (
 	PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED PayloadEncoding = 0
-	// Tar of a Pebble directory, compressed with zstd. The production
-	// default. Wire number 3 is retained from the prior ZSTD_TAR name
-	// so existing dev c1z3 files keep reading identically; 1 and 2
-	// (briefly held by speculative RAW / ZSTD shapes that were never
-	// wired) are free for future use.
-	PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD PayloadEncoding = 3
+	// Tar of a Pebble directory, compressed with zstd. The
+	// production default.
+	PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD PayloadEncoding = 1
 	// Tar of a Pebble directory, uncompressed. For tenants whose
 	// Pebble L5/L6 SSTs are already zstd-compressed at the engine
 	// layer and want to avoid double-compression CPU at envelope
 	// time, or for object-storage targets that compress in-transit.
-	PayloadEncoding_PAYLOAD_ENCODING_TAR PayloadEncoding = 4
+	PayloadEncoding_PAYLOAD_ENCODING_TAR PayloadEncoding = 2
 )
 
 // Enum value maps for PayloadEncoding.
 var (
 	PayloadEncoding_name = map[int32]string{
 		0: "PAYLOAD_ENCODING_UNSPECIFIED",
-		3: "PAYLOAD_ENCODING_TAR_ZSTD",
-		4: "PAYLOAD_ENCODING_TAR",
+		1: "PAYLOAD_ENCODING_TAR_ZSTD",
+		2: "PAYLOAD_ENCODING_TAR",
 	}
 	PayloadEncoding_value = map[string]int32{
 		"PAYLOAD_ENCODING_UNSPECIFIED": 0,
-		"PAYLOAD_ENCODING_TAR_ZSTD":    3,
-		"PAYLOAD_ENCODING_TAR":         4,
+		"PAYLOAD_ENCODING_TAR_ZSTD":    1,
+		"PAYLOAD_ENCODING_TAR":         2,
 	}
 )
 
@@ -119,11 +116,6 @@ type C1ZManifestV3 struct {
 	// detect unknown record types (forward-compat with a future SDK
 	// that adds new record types this binary doesn't know).
 	RecordTypes []*RecordTypeInfo `protobuf:"bytes,11,rep,name=record_types,json=recordTypes,proto3" json:"record_types,omitempty"`
-	// Informational only.
-	TenantHint          string                 `protobuf:"bytes,20,opt,name=tenant_hint,json=tenantHint,proto3" json:"tenant_hint,omitempty"`
-	CreatedAt           *timestamppb.Timestamp `protobuf:"bytes,30,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	CreatedBySdkVersion string                 `protobuf:"bytes,31,opt,name=created_by_sdk_version,json=createdBySdkVersion,proto3" json:"created_by_sdk_version,omitempty"`
-	CreatedByTool       string                 `protobuf:"bytes,32,opt,name=created_by_tool,json=createdByTool,proto3" json:"created_by_tool,omitempty"`
 	// Cheap projection of sync runs inside the payload — lets tooling
 	// enumerate without opening the engine.
 	SyncRuns      []*SyncRunSummary `protobuf:"bytes,40,rep,name=sync_runs,json=syncRuns,proto3" json:"sync_runs,omitempty"`
@@ -198,34 +190,6 @@ func (x *C1ZManifestV3) GetRecordTypes() []*RecordTypeInfo {
 	return nil
 }
 
-func (x *C1ZManifestV3) GetTenantHint() string {
-	if x != nil {
-		return x.TenantHint
-	}
-	return ""
-}
-
-func (x *C1ZManifestV3) GetCreatedAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.CreatedAt
-	}
-	return nil
-}
-
-func (x *C1ZManifestV3) GetCreatedBySdkVersion() string {
-	if x != nil {
-		return x.CreatedBySdkVersion
-	}
-	return ""
-}
-
-func (x *C1ZManifestV3) GetCreatedByTool() string {
-	if x != nil {
-		return x.CreatedByTool
-	}
-	return ""
-}
-
 func (x *C1ZManifestV3) GetSyncRuns() []*SyncRunSummary {
 	if x != nil {
 		return x.SyncRuns
@@ -257,22 +221,6 @@ func (x *C1ZManifestV3) SetRecordTypes(v []*RecordTypeInfo) {
 	x.RecordTypes = v
 }
 
-func (x *C1ZManifestV3) SetTenantHint(v string) {
-	x.TenantHint = v
-}
-
-func (x *C1ZManifestV3) SetCreatedAt(v *timestamppb.Timestamp) {
-	x.CreatedAt = v
-}
-
-func (x *C1ZManifestV3) SetCreatedBySdkVersion(v string) {
-	x.CreatedBySdkVersion = v
-}
-
-func (x *C1ZManifestV3) SetCreatedByTool(v string) {
-	x.CreatedByTool = v
-}
-
 func (x *C1ZManifestV3) SetSyncRuns(v []*SyncRunSummary) {
 	x.SyncRuns = v
 }
@@ -291,23 +239,12 @@ func (x *C1ZManifestV3) HasDescriptors() bool {
 	return x.Descriptors != nil
 }
 
-func (x *C1ZManifestV3) HasCreatedAt() bool {
-	if x == nil {
-		return false
-	}
-	return x.CreatedAt != nil
-}
-
 func (x *C1ZManifestV3) ClearEngineConfig() {
 	x.EngineConfig = nil
 }
 
 func (x *C1ZManifestV3) ClearDescriptors() {
 	x.Descriptors = nil
-}
-
-func (x *C1ZManifestV3) ClearCreatedAt() {
-	x.CreatedAt = nil
 }
 
 type C1ZManifestV3_builder struct {
@@ -340,11 +277,6 @@ type C1ZManifestV3_builder struct {
 	// detect unknown record types (forward-compat with a future SDK
 	// that adds new record types this binary doesn't know).
 	RecordTypes []*RecordTypeInfo
-	// Informational only.
-	TenantHint          string
-	CreatedAt           *timestamppb.Timestamp
-	CreatedBySdkVersion string
-	CreatedByTool       string
 	// Cheap projection of sync runs inside the payload — lets tooling
 	// enumerate without opening the engine.
 	SyncRuns []*SyncRunSummary
@@ -360,10 +292,6 @@ func (b0 C1ZManifestV3_builder) Build() *C1ZManifestV3 {
 	x.PayloadEncoding = b.PayloadEncoding
 	x.Descriptors = b.Descriptors
 	x.RecordTypes = b.RecordTypes
-	x.TenantHint = b.TenantHint
-	x.CreatedAt = b.CreatedAt
-	x.CreatedBySdkVersion = b.CreatedBySdkVersion
-	x.CreatedByTool = b.CreatedByTool
 	x.SyncRuns = b.SyncRuns
 	return m0
 }
@@ -667,7 +595,7 @@ var File_c1_c1z_v3_manifest_proto protoreflect.FileDescriptor
 
 const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\n" +
-	"\x18c1/c1z/v3/manifest.proto\x12\tc1.c1z.v3\x1a\x1bc1/storage/v3/records.proto\x1a\x19google/protobuf/any.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd2\x04\n" +
+	"\x18c1/c1z/v3/manifest.proto\x12\tc1.c1z.v3\x1a\x1bc1/storage/v3/records.proto\x1a\x19google/protobuf/any.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x99\x03\n" +
 	"\rC1ZManifestV3\x12\x16\n" +
 	"\x06engine\x18\x01 \x01(\tR\x06engine\x122\n" +
 	"\x15engine_schema_version\x18\x02 \x01(\rR\x13engineSchemaVersion\x129\n" +
@@ -675,13 +603,7 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\x10payload_encoding\x18\x04 \x01(\x0e2\x1a.c1.c1z.v3.PayloadEncodingR\x0fpayloadEncoding\x12D\n" +
 	"\vdescriptors\x18\n" +
 	" \x01(\v2\".google.protobuf.FileDescriptorSetR\vdescriptors\x12<\n" +
-	"\frecord_types\x18\v \x03(\v2\x19.c1.c1z.v3.RecordTypeInfoR\vrecordTypes\x12\x1f\n" +
-	"\vtenant_hint\x18\x14 \x01(\tR\n" +
-	"tenantHint\x129\n" +
-	"\n" +
-	"created_at\x18\x1e \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x123\n" +
-	"\x16created_by_sdk_version\x18\x1f \x01(\tR\x13createdBySdkVersion\x12&\n" +
-	"\x0fcreated_by_tool\x18  \x01(\tR\rcreatedByTool\x126\n" +
+	"\frecord_types\x18\v \x03(\v2\x19.c1.c1z.v3.RecordTypeInfoR\vrecordTypes\x126\n" +
 	"\tsync_runs\x18( \x03(\v2\x19.c1.c1z.v3.SyncRunSummaryR\bsyncRuns\"\x8c\x01\n" +
 	"\x0eRecordTypeInfo\x12*\n" +
 	"\x11message_full_name\x18\x01 \x01(\tR\x0fmessageFullName\x12%\n" +
@@ -698,8 +620,8 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*l\n" +
 	"\x0fPayloadEncoding\x12 \n" +
 	"\x1cPAYLOAD_ENCODING_UNSPECIFIED\x10\x00\x12\x1d\n" +
-	"\x19PAYLOAD_ENCODING_TAR_ZSTD\x10\x03\x12\x18\n" +
-	"\x14PAYLOAD_ENCODING_TAR\x10\x04B0Z.github.com/conductorone/baton-sdk/pb/c1/c1z/v3b\x06proto3"
+	"\x19PAYLOAD_ENCODING_TAR_ZSTD\x10\x01\x12\x18\n" +
+	"\x14PAYLOAD_ENCODING_TAR\x10\x02B0Z.github.com/conductorone/baton-sdk/pb/c1/c1z/v3b\x06proto3"
 
 var file_c1_c1z_v3_manifest_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_c1_c1z_v3_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
@@ -711,24 +633,23 @@ var file_c1_c1z_v3_manifest_proto_goTypes = []any{
 	(*PebbleEngineConfig)(nil),             // 4: c1.c1z.v3.PebbleEngineConfig
 	(*anypb.Any)(nil),                      // 5: google.protobuf.Any
 	(*descriptorpb.FileDescriptorSet)(nil), // 6: google.protobuf.FileDescriptorSet
-	(*timestamppb.Timestamp)(nil),          // 7: google.protobuf.Timestamp
-	(v3.SyncType)(0),                       // 8: c1.storage.v3.SyncType
+	(v3.SyncType)(0),                       // 7: c1.storage.v3.SyncType
+	(*timestamppb.Timestamp)(nil),          // 8: google.protobuf.Timestamp
 }
 var file_c1_c1z_v3_manifest_proto_depIdxs = []int32{
 	5, // 0: c1.c1z.v3.C1ZManifestV3.engine_config:type_name -> google.protobuf.Any
 	0, // 1: c1.c1z.v3.C1ZManifestV3.payload_encoding:type_name -> c1.c1z.v3.PayloadEncoding
 	6, // 2: c1.c1z.v3.C1ZManifestV3.descriptors:type_name -> google.protobuf.FileDescriptorSet
 	2, // 3: c1.c1z.v3.C1ZManifestV3.record_types:type_name -> c1.c1z.v3.RecordTypeInfo
-	7, // 4: c1.c1z.v3.C1ZManifestV3.created_at:type_name -> google.protobuf.Timestamp
-	3, // 5: c1.c1z.v3.C1ZManifestV3.sync_runs:type_name -> c1.c1z.v3.SyncRunSummary
-	8, // 6: c1.c1z.v3.SyncRunSummary.type:type_name -> c1.storage.v3.SyncType
-	7, // 7: c1.c1z.v3.SyncRunSummary.started_at:type_name -> google.protobuf.Timestamp
-	7, // 8: c1.c1z.v3.SyncRunSummary.ended_at:type_name -> google.protobuf.Timestamp
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	3, // 4: c1.c1z.v3.C1ZManifestV3.sync_runs:type_name -> c1.c1z.v3.SyncRunSummary
+	7, // 5: c1.c1z.v3.SyncRunSummary.type:type_name -> c1.storage.v3.SyncType
+	8, // 6: c1.c1z.v3.SyncRunSummary.started_at:type_name -> google.protobuf.Timestamp
+	8, // 7: c1.c1z.v3.SyncRunSummary.ended_at:type_name -> google.protobuf.Timestamp
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_c1_c1z_v3_manifest_proto_init() }

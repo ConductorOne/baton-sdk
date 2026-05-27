@@ -69,45 +69,6 @@ func (m *C1ZManifestV3) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 			dAtA[i] = 0xc2
 		}
 	}
-	if len(m.CreatedByTool) > 0 {
-		i -= len(m.CreatedByTool)
-		copy(dAtA[i:], m.CreatedByTool)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CreatedByTool)))
-		i--
-		dAtA[i] = 0x2
-		i--
-		dAtA[i] = 0x82
-	}
-	if len(m.CreatedBySdkVersion) > 0 {
-		i -= len(m.CreatedBySdkVersion)
-		copy(dAtA[i:], m.CreatedBySdkVersion)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CreatedBySdkVersion)))
-		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xfa
-	}
-	if m.CreatedAt != nil {
-		size, err := (*timestamppb.Timestamp)(m.CreatedAt).MarshalToSizedBufferVT(dAtA[:i])
-		if err != nil {
-			return 0, err
-		}
-		i -= size
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
-		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xf2
-	}
-	if len(m.TenantHint) > 0 {
-		i -= len(m.TenantHint)
-		copy(dAtA[i:], m.TenantHint)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.TenantHint)))
-		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0xa2
-	}
 	if len(m.RecordTypes) > 0 {
 		for iNdEx := len(m.RecordTypes) - 1; iNdEx >= 0; iNdEx-- {
 			size, err := m.RecordTypes[iNdEx].MarshalToSizedBufferVT(dAtA[:i])
@@ -365,22 +326,6 @@ func (m *C1ZManifestV3) SizeVT() (n int) {
 			l = e.SizeVT()
 			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 		}
-	}
-	l = len(m.TenantHint)
-	if l > 0 {
-		n += 2 + l + protohelpers.SizeOfVarint(uint64(l))
-	}
-	if m.CreatedAt != nil {
-		l = (*timestamppb.Timestamp)(m.CreatedAt).SizeVT()
-		n += 2 + l + protohelpers.SizeOfVarint(uint64(l))
-	}
-	l = len(m.CreatedBySdkVersion)
-	if l > 0 {
-		n += 2 + l + protohelpers.SizeOfVarint(uint64(l))
-	}
-	l = len(m.CreatedByTool)
-	if l > 0 {
-		n += 2 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	if len(m.SyncRuns) > 0 {
 		for _, e := range m.SyncRuns {
@@ -665,138 +610,6 @@ func (m *C1ZManifestV3) UnmarshalVT(dAtA []byte) error {
 			if err := m.RecordTypes[len(m.RecordTypes)-1].UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
-			iNdEx = postIndex
-		case 20:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field TenantHint", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.TenantHint = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 30:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field CreatedAt", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.CreatedAt == nil {
-				m.CreatedAt = &timestamppb1.Timestamp{}
-			}
-			if err := (*timestamppb.Timestamp)(m.CreatedAt).UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 31:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field CreatedBySdkVersion", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.CreatedBySdkVersion = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 32:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field CreatedByTool", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.CreatedByTool = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 40:
 			if wireType != 2 {

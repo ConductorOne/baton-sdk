@@ -3,7 +3,6 @@ package v3
 import (
 	"archive/tar"
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"io"
 	"os"
@@ -12,7 +11,6 @@ import (
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	v3pb "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestEnvelopeRoundtrip(t *testing.T) {
@@ -37,9 +35,6 @@ func TestEnvelopeRoundtrip(t *testing.T) {
 		Engine:              "pebble",
 		EngineSchemaVersion: 17,
 		PayloadEncoding:     c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD,
-		CreatedAt:           timestamppb.Now(),
-		CreatedBySdkVersion: "test-sdk/0.0.1",
-		CreatedByTool:       "envelope_test",
 	}
 
 	envFile := filepath.Join(tmp, "out.c1z3")
@@ -306,8 +301,6 @@ func roundTripEnvelope(t *testing.T, enc c1zv3.PayloadEncoding) (c1zv3.PayloadEn
 		Engine:              "pebble",
 		EngineSchemaVersion: 1,
 		PayloadEncoding:     enc,
-		CreatedAt:           timestamppb.Now(),
-		CreatedByTool:       "envelope_test",
 	}
 
 	envPath := filepath.Join(tmp, "out.c1z3")
@@ -381,73 +374,5 @@ func TestEnvelopeUnspecifiedDefaultsToTarZstd(t *testing.T) {
 	}
 	if content != "MANIFEST-000001\n" {
 		t.Errorf("CURRENT roundtrip: got %q", content)
-	}
-}
-
-// TestWriteEnvelopeRejectsReservedEncoding pins the contract that
-// the now-reserved wire numbers 1 (formerly RAW) and 2 (formerly
-// single-stream ZSTD) are rejected at write time, before any bytes
-// go to disk. The proto generator does not synthesize Go constants
-// for reserved values, so we feed the raw wire number via the
-// underlying enum's integer type.
-func TestWriteEnvelopeRejectsReservedEncoding(t *testing.T) {
-	tmp := t.TempDir()
-	srcDir := filepath.Join(tmp, "src")
-	if err := os.MkdirAll(srcDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, reservedValue := range []c1zv3.PayloadEncoding{1, 2} {
-		m := &c1zv3.C1ZManifestV3{
-			Engine:              "pebble",
-			EngineSchemaVersion: 1,
-			PayloadEncoding:     reservedValue,
-			CreatedAt:           timestamppb.Now(),
-		}
-		envPath := filepath.Join(tmp, "out.c1z3")
-		f, err := os.Create(envPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = WriteEnvelope(f, m, srcDir)
-		_ = f.Close()
-		if err == nil {
-			t.Errorf("PayloadEncoding=%d: expected error from WriteEnvelope, got nil", reservedValue)
-		}
-		// Should not have produced a usable file.
-		st, statErr := os.Stat(envPath)
-		if statErr == nil && st.Size() > 0 {
-			t.Errorf("PayloadEncoding=%d: WriteEnvelope wrote %d bytes before erroring", reservedValue, st.Size())
-		}
-		_ = os.Remove(envPath)
-	}
-}
-
-// TestReadEnvelopeRejectsReservedEncoding constructs an envelope
-// with a reserved wire encoding by hand and confirms ReadEnvelope
-// refuses it.
-func TestReadEnvelopeRejectsReservedEncoding(t *testing.T) {
-	for _, reservedValue := range []c1zv3.PayloadEncoding{1, 2} {
-		manifest := &c1zv3.C1ZManifestV3{
-			Engine:              "pebble",
-			EngineSchemaVersion: 1,
-			PayloadEncoding:     reservedValue,
-			CreatedAt:           timestamppb.Now(),
-		}
-		mb, err := MarshalManifest(manifest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		buf := &bytes.Buffer{}
-		buf.Write(C1Z3Magic)
-		var lenBuf [4]byte
-		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(mb))) //nolint:gosec // test fixture; mb has a known small size.
-		buf.Write(lenBuf[:])
-		buf.Write(mb)
-		buf.WriteString("trailing bytes — ReadEnvelope should never look at these")
-
-		_, err = ReadEnvelope(buf)
-		if err == nil {
-			t.Errorf("PayloadEncoding=%d: expected ReadEnvelope error, got nil", reservedValue)
-		}
 	}
 }
