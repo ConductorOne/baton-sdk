@@ -148,29 +148,39 @@ func (e *Expander) IsDone(ctx context.Context) bool {
 	return e.graph.IsExpanded()
 }
 
-const maxPrefetchPages = 10000
-
-// ErrPrefetchPageCapExceeded means the prefetch hit maxPrefetchPages without
-// reaching the last page. Returning a partial map is unsafe — runAction would
-// see the missing principals as "no existing descendant grant" and emit a
-// fresh grant instead of merging sources, producing duplicate grants with
-// wrong source attribution. Caller should surface this rather than continue.
-var ErrPrefetchPageCapExceeded = errors.New("descendant-grant prefetch exceeded maxPrefetchPages cap")
+// maxPrefetchPages bounds the streaming scan that builds the principal-key
+// set for the descendant entitlement. Keys are ~80 bytes each, so 100 pages
+// of 10000 rows is a ~80MB ceiling per action. Exceeding the cap is not an
+// error — the caller drops the partial set and falls back to per-principal
+// queries (slower, but bounded and correct).
+const maxPrefetchPages = 100
 
 func descendantGrantKey(resourceTypeID, resourceID string) string {
 	return resourceTypeID + "\x00" + resourceID
 }
 
-func prefetchDescendantGrants(
+// prefetchDescendantPrincipals streams the descendant entitlement's grants
+// and returns the set of principal keys that have at least one grant. We
+// keep only keys (not full grants) so memory scales with the number of
+// distinct principals on the descendant, not the total grant payload size.
+//
+// The bool return reports whether the scan completed:
+//   - true: the set is exhaustive; absence from the set means the descendant
+//     definitely has no grant for that principal, so runAction can skip the
+//     per-principal query and create a new grant directly.
+//   - false: the page cap was exceeded. The partial set is unsafe as a
+//     negative oracle — a missing key could be a true absence or just past
+//     the cap — so runAction must fall back to per-principal queries.
+func prefetchDescendantPrincipals(
 	ctx context.Context,
 	store ExpanderStore,
 	entitlement *v2.Entitlement,
-) (map[string][]*v2.Grant, error) {
-	result := make(map[string][]*v2.Grant)
+) (map[string]struct{}, bool, error) {
+	set := make(map[string]struct{})
 	pageToken := ""
 	for page := 0; page < maxPrefetchPages; page++ {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		resp, err := store.ListGrantsForEntitlement(ctx,
 			reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
@@ -178,20 +188,51 @@ func prefetchDescendantGrants(
 				PageToken:   pageToken,
 			}.Build())
 		if err != nil {
-			return nil, fmt.Errorf("prefetchDescendantGrants: %w", err)
+			return nil, false, fmt.Errorf("prefetchDescendantPrincipals: %w", err)
 		}
 		for _, g := range resp.GetList() {
-			principal := g.GetPrincipal().GetId()
-			key := descendantGrantKey(principal.GetResourceType(), principal.GetResource())
-			result[key] = append(result[key], g)
+			pid := g.GetPrincipal().GetId()
+			set[descendantGrantKey(pid.GetResourceType(), pid.GetResource())] = struct{}{}
 		}
 		pageToken = resp.GetNextPageToken()
 		if pageToken == "" {
-			return result, nil
+			return set, true, nil
 		}
 	}
-	return nil, fmt.Errorf("prefetchDescendantGrants: %w (entitlement=%s, pages=%d)",
-		ErrPrefetchPageCapExceeded, entitlement.GetId(), maxPrefetchPages)
+	return set, false, nil
+}
+
+// listDescendantGrantsForPrincipal pages through ListGrantsForEntitlement
+// scoped to a single principal. Used by runAction when the key set says
+// (or doesn't know whether) the descendant has grants for this principal,
+// so we need the full grants to merge sources.
+func listDescendantGrantsForPrincipal(
+	ctx context.Context,
+	store ExpanderStore,
+	entitlement *v2.Entitlement,
+	principalID *v2.ResourceId,
+) ([]*v2.Grant, error) {
+	var out []*v2.Grant
+	pageToken := ""
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		resp, err := store.ListGrantsForEntitlement(ctx,
+			reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+				Entitlement: entitlement,
+				PrincipalId: principalID,
+				PageToken:   pageToken,
+			}.Build())
+		if err != nil {
+			return nil, fmt.Errorf("listDescendantGrantsForPrincipal: %w", err)
+		}
+		out = append(out, resp.GetList()...)
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			return out, nil
+		}
+	}
 }
 
 // runAction processes a single action and returns the next page token.
@@ -254,12 +295,31 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 		return "", fmt.Errorf("runAction: error fetching source grants: %w", err)
 	}
 
-	descendantByPrincipal, err := prefetchDescendantGrants(ctx, e.store, descendantEntitlement.GetEntitlement())
+	existingPrincipals, complete, err := prefetchDescendantPrincipals(ctx, e.store, descendantEntitlement.GetEntitlement())
 	if err != nil {
-		l.Error("runAction: error prefetching descendant grants", zap.Error(err))
-		return "", fmt.Errorf("runAction: error prefetching descendant grants: %w", err)
+		l.Error("runAction: error prefetching descendant principals", zap.Error(err))
+		return "", fmt.Errorf("runAction: error prefetching descendant principals: %w", err)
 	}
-	span.SetAttributes(attribute.Int("descendant_prefetch_count", len(descendantByPrincipal)))
+	if !complete {
+		// Partial set is unsafe as a negative oracle; drop it and pay the
+		// per-principal cost for every source grant. Slow but bounded.
+		l.Warn("runAction: descendant-grant prefetch cap exceeded; falling back to per-principal queries",
+			zap.String("descendant_entitlement_id", action.DescendantEntitlementID),
+			zap.Int("prefetch_page_cap", maxPrefetchPages))
+		existingPrincipals = nil
+	}
+	span.SetAttributes(
+		attribute.Int("descendant_prefetch_set_size", len(existingPrincipals)),
+		attribute.Bool("descendant_prefetch_complete", complete),
+	)
+
+	// Per-page cache of descendant grants by principal key. Populated lazily
+	// from the store on the first hit for a key, and seeded with newly
+	// created grants so a second source grant for the same principal in the
+	// same page merges into the in-memory grant instead of producing a
+	// duplicate (same deterministic grant ID would otherwise upsert and lose
+	// the first iteration's source attribution).
+	descendantsByKey := make(map[string][]*v2.Grant)
 
 	var newGrants = make([]*v2.Grant, 0)
 	for _, sourceGrant := range sourceGrants.GetList() {
@@ -282,7 +342,27 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 
 		principal := sourceGrant.GetPrincipal().GetId()
 		key := descendantGrantKey(principal.GetResourceType(), principal.GetResource())
-		descendantGrants := descendantByPrincipal[key]
+
+		descendantGrants, cached := descendantsByKey[key]
+		if !cached {
+			// Fast path: if the key-set is complete and this principal is
+			// not in it, we know there is no existing descendant grant
+			// without issuing a SQL query.
+			needQuery := true
+			if existingPrincipals != nil {
+				if _, ok := existingPrincipals[key]; !ok {
+					needQuery = false
+				}
+			}
+			if needQuery {
+				descendantGrants, err = listDescendantGrantsForPrincipal(ctx, e.store, descendantEntitlement.GetEntitlement(), principal)
+				if err != nil {
+					l.Error("runAction: error fetching descendant grants", zap.Error(err))
+					return "", fmt.Errorf("runAction: error fetching descendant grants: %w", err)
+				}
+			}
+			descendantsByKey[key] = descendantGrants
+		}
 
 		if len(descendantGrants) == 0 {
 			descendantGrant, err := newExpandedGrant(descendantEntitlement.GetEntitlement(), sourceGrant.GetPrincipal(), action.SourceEntitlementID, isSourceDirect)
@@ -291,6 +371,9 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 				return "", fmt.Errorf("runAction: error creating new grant: %w", err)
 			}
 			newGrants = append(newGrants, descendantGrant)
+			// Seed the cache so a later source grant for the same principal
+			// in this page merges into this grant rather than re-creating it.
+			descendantsByKey[key] = []*v2.Grant{descendantGrant}
 		} else {
 			for _, descendantGrant := range descendantGrants {
 				sourcesMap := descendantGrant.GetSources().GetSources()

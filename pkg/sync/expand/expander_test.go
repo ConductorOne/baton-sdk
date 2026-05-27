@@ -473,18 +473,72 @@ func (s *pageCapStubStore) ListGrantsForEntitlement(
 	}.Build(), nil
 }
 
-// TestPrefetchDescendantGrants_PageCapExceeded locks in that the prefetch
-// errors instead of returning a partial map when maxPrefetchPages is hit.
-// A silently truncated map would cause runAction to emit duplicate grants
-// with wrong source attribution for any principal whose grants landed on a
-// dropped page (see comment on ErrPrefetchPageCapExceeded).
-func TestPrefetchDescendantGrants_PageCapExceeded(t *testing.T) {
+// TestPrefetchDescendantPrincipals_PageCapExceeded locks in graceful
+// degradation when the cap is hit: the helper must return complete=false
+// (and no error) so runAction can drop the partial set and fall back to
+// per-principal queries. Returning an error here would make the expander
+// fail on very large descendant entitlements instead of just running slowly.
+func TestPrefetchDescendantPrincipals_PageCapExceeded(t *testing.T) {
 	store := &pageCapStubStore{MockExpanderStore: *NewMockExpanderStore()}
 	ent := v2.Entitlement_builder{Id: "entitlement:1"}.Build()
 
-	result, err := prefetchDescendantGrants(context.Background(), store, ent)
-	require.Nil(t, result)
-	require.Error(t, err)
-	require.ErrorIs(t, err, ErrPrefetchPageCapExceeded)
-	require.Equal(t, maxPrefetchPages, store.calls, "loop must iterate exactly the cap before erroring")
+	set, complete, err := prefetchDescendantPrincipals(context.Background(), store, ent)
+	require.NoError(t, err)
+	require.False(t, complete, "cap exceeded must report incomplete so caller falls back")
+	require.NotNil(t, set)
+	require.Equal(t, maxPrefetchPages, store.calls, "loop must iterate exactly the cap before giving up")
+}
+
+// TestExpanderInPageDuplicatePrincipal covers the case where multiple source
+// grants in the same source-grants page share the same principal and the
+// descendant entitlement has no pre-existing grant. The expander must emit
+// exactly one expanded grant per (descendant, principal) — not one per
+// source grant — because the deterministic grant ID would otherwise cause
+// upsert collisions and lose source attribution.
+func TestExpanderInPageDuplicatePrincipal(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+
+	groupResource := makeResource("group", "team")
+	userResource := makeResource("user", "alice")
+
+	entA := makeEntitlement("ent:a", groupResource)
+	entB := makeEntitlement("ent:b", groupResource)
+
+	store.AddEntitlement(entA)
+	store.AddEntitlement(entB)
+
+	// Two source grants on entA for the same principal (same ResourceId).
+	// This can happen when a connector emits multiple membership grants for
+	// the same user (e.g. nested-group membership traversal).
+	store.AddGrant(makeGrant("grant:alice:a:1", entA, userResource))
+	store.AddGrant(makeGrant("grant:alice:a:2", entA, userResource))
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(entA.GetId())
+	graph.AddEntitlementID(entB.GetId())
+	require.NoError(t, graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"}))
+
+	expander := NewExpander(store, graph)
+	require.NoError(t, expander.Run(ctx))
+
+	// Count distinct expanded grants on entB for alice.
+	distinct := make(map[string]*v2.Grant)
+	for _, g := range store.GetPutGrants() {
+		if g.GetEntitlement().GetId() != entB.GetId() {
+			continue
+		}
+		if g.GetPrincipal().GetId().GetResource() != "alice" {
+			continue
+		}
+		distinct[g.GetId()] = g
+	}
+	require.Len(t, distinct, 1, "two same-principal source grants must produce exactly one expanded grant")
+
+	var only *v2.Grant
+	for _, g := range distinct {
+		only = g
+	}
+	sources := only.GetSources().GetSources()
+	require.Contains(t, sources, entA.GetId(), "source attribution must be preserved")
 }
