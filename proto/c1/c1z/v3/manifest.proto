@@ -1,0 +1,102 @@
+// V3 envelope manifest. Embedded inside the C1Z3 file format after
+// the 5-byte magic and a uint32 BE length prefix.
+//
+// The manifest pins a transitively-closed FileDescriptorSet of every
+// c1.storage.v3 record type stored in the payload. This is what makes
+// v3 c1z files self-describing — any reader, including one without the
+// originating SDK's compiled-in protos, can resolve every field via
+// dynamicpb against the sidecar descriptor set.
+//
+// See RFC v4 §3.2 and Appendix B for the full envelope spec.
+
+syntax = "proto3";
+
+package c1.c1z.v3;
+
+import "c1/storage/v3/records.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/descriptor.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/c1z/v3";
+
+message C1ZManifestV3 {
+  // Engine identifier. "pebble" is the only value Stack 3 supports.
+  // Future engines (e.g. "sled") can dispatch on this string without
+  // an envelope change.
+  string engine = 1;
+
+  // Engine-specific schema version. Pebble interprets this as the
+  // pinned format-major-version it was written under; mismatches at
+  // open surface as ErrPebbleFormatNewer (refuse, page on-call) or
+  // ErrPebbleFormatOlder (refuse, treat as corruption).
+  uint32 engine_schema_version = 2;
+
+  // Engine-specific configuration. For Pebble, this carries
+  // PebbleEngineConfig. The reader looks up the Any type-URL against
+  // its compiled-in registry; unknown type-URLs are treated as
+  // "no hint" (advisory only — the dispatch key is `engine`).
+  google.protobuf.Any engine_config = 3;
+
+  // Payload encoding. PAYLOAD_ENCODING_TAR_ZSTD is the production
+  // default for Pebble engines.
+  PayloadEncoding payload_encoding = 4;
+
+  // Transitively-closed FileDescriptorSet of every record type stored
+  // in the payload. Built at write time by walking
+  // protoregistry.GlobalFiles. The reader verifies closure at open
+  // and returns ErrManifestIncompleteDescriptors if any record-type
+  // descriptor cannot resolve from this set alone.
+  google.protobuf.FileDescriptorSet descriptors = 10;
+
+  // Record types produced by this writer. Used by the reader to
+  // detect unknown record types (forward-compat with a future SDK
+  // that adds new record types this binary doesn't know).
+  repeated RecordTypeInfo record_types = 11;
+
+  // Cheap projection of sync runs inside the payload — lets tooling
+  // enumerate without opening the engine.
+  repeated SyncRunSummary sync_runs = 40;
+}
+
+enum PayloadEncoding {
+  PAYLOAD_ENCODING_UNSPECIFIED = 0;
+
+  // Tar of a Pebble directory, compressed with zstd. The
+  // production default.
+  PAYLOAD_ENCODING_TAR_ZSTD = 1;
+
+  // Tar of a Pebble directory, uncompressed. For tenants whose
+  // Pebble L5/L6 SSTs are already zstd-compressed at the engine
+  // layer and want to avoid double-compression CPU at envelope
+  // time, or for object-storage targets that compress in-transit.
+  PAYLOAD_ENCODING_TAR = 2;
+}
+
+message RecordTypeInfo {
+  // Proto FullName — e.g. "c1.storage.v3.GrantRecord".
+  string message_full_name = 1;
+  // Record-type-specific schema version. Bumped on any incompatible
+  // change to the record's stored encoding; reader refuses files
+  // claiming a version > what it supports.
+  uint32 schema_version = 2;
+  // Optional row-count hint for sizing readers.
+  int64 estimated_count = 3;
+}
+
+message SyncRunSummary {
+  string                    sync_id    = 1;
+  c1.storage.v3.SyncType    type       = 2;
+  google.protobuf.Timestamp started_at = 3;
+  google.protobuf.Timestamp ended_at   = 4;
+}
+
+// PebbleEngineConfig is the value placed inside C1ZManifestV3.engine_config
+// when engine == "pebble". Type-URL: type.googleapis.com/c1.c1z.v3.PebbleEngineConfig.
+message PebbleEngineConfig {
+  // Pinned Pebble format-major-version this file was written under.
+  // The reader compares against pebble.FormatNewest and pebble.FormatMinSupported.
+  uint32 format_major_version = 1;
+  // Hint to readers; advisory only.
+  uint64 cache_size_bytes = 2;
+}

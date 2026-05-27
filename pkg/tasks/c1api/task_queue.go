@@ -143,9 +143,13 @@ func (q *taskQueue) isQueuedLocked(id string) bool {
 
 func knownTaskLowWater(parallelism int) uint32 {
 	if parallelism <= 0 {
-		parallelism = 1
+		return 1
 	}
-	return uint32(parallelism)
+	p := int64(parallelism)
+	if p > int64(^uint32(0)) {
+		return ^uint32(0)
+	}
+	return uint32(p)
 }
 
 func knownTaskHighWater(parallelism int) uint32 {

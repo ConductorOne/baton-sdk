@@ -684,3 +684,34 @@ func TestC1ZCachedViewSyncRunInvalidation(t *testing.T) {
 	err = f.Close(ctx)
 	require.NoError(t, err)
 }
+
+// TestWithEngineThreadsToC1File proves that WithEngine on NewC1ZFile
+// actually reaches C1File.engine. Regression coverage for PR #867
+// review (btipling): the option was previously dropped during
+// c1zOptions → c1fopts translation.
+func TestWithEngineThreadsToC1File(t *testing.T) {
+	dir := t.TempDir()
+	f, err := NewC1ZFile(context.Background(), filepath.Join(dir, "test.c1z"),
+		WithEngine(EnginePebble))
+	if err != nil {
+		t.Fatalf("NewC1ZFile: %v", err)
+	}
+	defer f.Close(context.Background())
+	if f.engine != EnginePebble {
+		t.Errorf("engine = %q, want %q (option lost in c1zOptions→c1fopts translation)", f.engine, EnginePebble)
+	}
+}
+
+// TestEngineDefaultsToSQLite proves that omitting WithEngine yields
+// EngineSQLite (the documented default), not the empty zero value.
+func TestEngineDefaultsToSQLite(t *testing.T) {
+	dir := t.TempDir()
+	f, err := NewC1ZFile(context.Background(), filepath.Join(dir, "default.c1z"))
+	if err != nil {
+		t.Fatalf("NewC1ZFile: %v", err)
+	}
+	defer f.Close(context.Background())
+	if f.engine != EngineSQLite {
+		t.Errorf("engine = %q, want %q", f.engine, EngineSQLite)
+	}
+}

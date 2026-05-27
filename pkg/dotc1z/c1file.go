@@ -73,6 +73,16 @@ type C1File struct {
 
 	// See WithC1FV2GrantsWriter.
 	v2GrantsWriter bool
+
+	// engine is the storage engine to use for newly created files.
+	// Reads dispatch on magic byte regardless of this value. Default
+	// is EngineSQLite (v1 .c1z format).
+	engine Engine
+
+	// payloadEncoding selects the v3 envelope payload framing for
+	// Pebble-written files. Zero value = PayloadEncodingTarZstd
+	// (default). Ignored by the SQLite engine.
+	payloadEncoding PayloadEncoding
 }
 
 // *C1File satisfies connectorstore.Writer (the connector-facing contract),
@@ -134,6 +144,28 @@ func WithC1FSyncCountLimit(limit int) C1FOption {
 	}
 }
 
+// WithC1FEngine selects the storage engine for new .c1z files. The
+// default is EngineSQLite, which keeps the legacy v1 file format and
+// behavior. EnginePebble selects the v3 engine introduced by the
+// storage-engine-v4 RFC.
+//
+// Engine selection only affects newly created files. Existing files
+// dispatch on their magic byte; readers handle both v1 and v3
+// regardless of this option.
+func WithC1FEngine(engine Engine) C1FOption {
+	return func(o *C1File) {
+		o.engine = engine
+	}
+}
+
+// WithC1FPayloadEncoding selects the v3 envelope payload encoding
+// (TAR_ZSTD default, TAR uncompressed). No-op for SQLite engines.
+func WithC1FPayloadEncoding(enc PayloadEncoding) C1FOption {
+	return func(o *C1File) {
+		o.payloadEncoding = enc
+	}
+}
+
 // WithC1FV2GrantsWriter strips Grant.Entitlement and Grant.Principal
 // from the serialized data blob at write time. Readers rebuild them
 // as identity-only stubs (Id + nested Resource.Id) from the grants
@@ -190,6 +222,12 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		opt(c1File)
 	}
 
+	// Normalize the engine zero value so downstream switch/if-eq
+	// checks treat an unset engine as EngineSQLite.
+	if c1File.engine == "" {
+		c1File.engine = EngineSQLite
+	}
+
 	err = c1File.validateDb(ctx)
 	if err != nil {
 		return nil, err
@@ -212,6 +250,16 @@ type c1zOptions struct {
 	syncLimit          int
 	skipCleanup        bool
 	v2GrantsWriter     bool
+
+	// engine is the storage engine to use for newly created files.
+	// Reads dispatch on magic byte regardless. Default EngineSQLite.
+	engine Engine
+
+	// payloadEncoding controls the v3 envelope payload framing. Only
+	// honored when engine == EnginePebble (the v3 path). Allowed
+	// values: PayloadEncodingTarZstd (default), PayloadEncodingTar.
+	// Zero value means PayloadEncodingTarZstd.
+	payloadEncoding PayloadEncoding
 }
 
 type C1ZOption func(*c1zOptions)
@@ -268,11 +316,38 @@ func WithSyncLimit(limit int) C1ZOption {
 	}
 }
 
+// WithEngine selects the storage engine for newly created .c1z files.
+// Default is EngineSQLite (v1 format). EnginePebble enables the v3
+// engine.
+//
+// Reading existing files dispatches on the file's magic byte and is
+// independent of this option.
+func WithEngine(engine Engine) C1ZOption {
+	return func(o *c1zOptions) {
+		o.engine = engine
+	}
+}
+
 // WithV2GrantsWriter toggles the slim-blob writer path for grants.
 // See WithC1FV2GrantsWriter for details.
 func WithV2GrantsWriter(enabled bool) C1ZOption {
 	return func(o *c1zOptions) {
 		o.v2GrantsWriter = enabled
+	}
+}
+
+// WithPayloadEncoding selects the c1z v3 envelope payload encoding
+// for newly created files written by the Pebble engine. Default is
+// PayloadEncodingTarZstd. PayloadEncodingTar skips the outer zstd
+// compression — useful when Pebble's L5/L6 SSTs are already
+// zstd-compressed at the engine layer, or when the storage target
+// (S3 with Content-Encoding negotiation, etc.) compresses in transit.
+//
+// No-op for SQLite engines; the encoding selector applies only to
+// the v3 envelope written by Pebble.
+func WithPayloadEncoding(enc PayloadEncoding) C1ZOption {
+	return func(o *c1zOptions) {
+		o.payloadEncoding = enc
 	}
 }
 
@@ -282,14 +357,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	options := &c1zOptions{
-		encoderConcurrency: 1,
-	}
-	for _, opt := range opts {
-		opt(options)
-	}
-	if options.encoderConcurrency < 0 {
-		return nil, fmt.Errorf("encoder concurrency must not be negative: %d", options.encoderConcurrency)
+	options, err := buildC1ZOptions(opts...)
+	if err != nil {
+		return nil, err
 	}
 
 	dbFilePath, _, err := decompressC1z(outputFilePath, options.tmpDir, options.decoderOptions...)
@@ -321,6 +391,12 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	}
 	if options.v2GrantsWriter {
 		c1fopts = append(c1fopts, WithC1FV2GrantsWriter(true))
+	}
+	if options.engine != "" {
+		c1fopts = append(c1fopts, WithC1FEngine(options.engine))
+	}
+	if options.payloadEncoding != PayloadEncodingUnspecified {
+		c1fopts = append(c1fopts, WithC1FPayloadEncoding(options.payloadEncoding))
 	}
 
 	c1File, err := NewC1File(ctx, dbFilePath, c1fopts...)
@@ -734,6 +810,27 @@ func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, sy
 	}
 	syncType = connectorstore.SyncType(sync.GetSyncType())
 
+	// Fast path: read the sidecar populated at endSyncRun. Sidecar
+	// is one indexed Get vs the legacy fallback's COUNT(*) +
+	// GROUP BY scans. Missing-row → fall through to legacy aggregate.
+	if cached, cerr := c.readCachedSyncStats(ctx, syncId); cerr == nil && cached != nil {
+		out := map[string]int64{
+			"resource_types": cached.resourceTypes,
+			"entitlements":   cached.entitlements,
+			"grants":         cached.grants,
+		}
+		for rt, n := range cached.resourcesByResourceType {
+			out[rt] = n
+		}
+		// The legacy Stats path omits "entitlements"/"grants" on
+		// ResourcesOnly syncs; mirror that.
+		if syncType == connectorstore.SyncTypeResourcesOnly {
+			delete(out, "entitlements")
+			delete(out, "grants")
+		}
+		return out, nil
+	}
+
 	counts["resource_types"] = 0
 
 	var rtStats []*v2.ResourceType
@@ -986,6 +1083,16 @@ func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncTyp
 	// grants exist for it in this sync.
 	for _, rt := range allResourceTypes {
 		stats[rt.GetId()] = 0
+	}
+
+	// Fast path: cached sync_stats row.
+	if cached, cerr := c.readCachedSyncStats(ctx, syncId); cerr == nil && cached != nil {
+		for rt, n := range cached.grantsByEntitlementResourceType {
+			if _, known := stats[rt]; known {
+				stats[rt] = n
+			}
+		}
+		return stats, nil
 	}
 
 	grantCounts, err := c.countBySyncAndResourceType(ctx, grants.Name(), syncId)

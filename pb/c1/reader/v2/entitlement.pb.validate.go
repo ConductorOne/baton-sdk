@@ -328,3 +328,318 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = EntitlementsReaderServiceGetEntitlementResponseValidationError{}
+
+// Validate checks the field values on
+// EntitlementsReaderServiceListEntitlementsByIdsRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *EntitlementsReaderServiceListEntitlementsByIdsRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// EntitlementsReaderServiceListEntitlementsByIdsRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// EntitlementsReaderServiceListEntitlementsByIdsRequestMultiError, or nil if
+// none found.
+func (m *EntitlementsReaderServiceListEntitlementsByIdsRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *EntitlementsReaderServiceListEntitlementsByIdsRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(m.GetEntitlementIds()) > 1024 {
+		err := EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError{
+			field:  "EntitlementIds",
+			reason: "value must contain no more than 1024 item(s)",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return EntitlementsReaderServiceListEntitlementsByIdsRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// EntitlementsReaderServiceListEntitlementsByIdsRequestMultiError is an error
+// wrapping multiple validation errors returned by
+// EntitlementsReaderServiceListEntitlementsByIdsRequest.ValidateAll() if the
+// designated constraints aren't met.
+type EntitlementsReaderServiceListEntitlementsByIdsRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m EntitlementsReaderServiceListEntitlementsByIdsRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m EntitlementsReaderServiceListEntitlementsByIdsRequestMultiError) AllErrors() []error {
+	return m
+}
+
+// EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError is the
+// validation error returned by
+// EntitlementsReaderServiceListEntitlementsByIdsRequest.Validate if the
+// designated constraints aren't met.
+type EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError) Field() string {
+	return e.field
+}
+
+// Reason function returns reason value.
+func (e EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError) Reason() string {
+	return e.reason
+}
+
+// Cause function returns cause value.
+func (e EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError) Cause() error {
+	return e.cause
+}
+
+// Key function returns key value.
+func (e EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError) Key() bool {
+	return e.key
+}
+
+// ErrorName returns error name.
+func (e EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError) ErrorName() string {
+	return "EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sEntitlementsReaderServiceListEntitlementsByIdsRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = EntitlementsReaderServiceListEntitlementsByIdsRequestValidationError{}
+
+// Validate checks the field values on
+// EntitlementsReaderServiceListEntitlementsByIdsResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *EntitlementsReaderServiceListEntitlementsByIdsResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// EntitlementsReaderServiceListEntitlementsByIdsResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// EntitlementsReaderServiceListEntitlementsByIdsResponseMultiError, or nil if
+// none found.
+func (m *EntitlementsReaderServiceListEntitlementsByIdsResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *EntitlementsReaderServiceListEntitlementsByIdsResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetList() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError{
+						field:  fmt.Sprintf("List[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError{
+						field:  fmt.Sprintf("List[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError{
+					field:  fmt.Sprintf("List[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return EntitlementsReaderServiceListEntitlementsByIdsResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// EntitlementsReaderServiceListEntitlementsByIdsResponseMultiError is an error
+// wrapping multiple validation errors returned by
+// EntitlementsReaderServiceListEntitlementsByIdsResponse.ValidateAll() if the
+// designated constraints aren't met.
+type EntitlementsReaderServiceListEntitlementsByIdsResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m EntitlementsReaderServiceListEntitlementsByIdsResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m EntitlementsReaderServiceListEntitlementsByIdsResponseMultiError) AllErrors() []error {
+	return m
+}
+
+// EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError is the
+// validation error returned by
+// EntitlementsReaderServiceListEntitlementsByIdsResponse.Validate if the
+// designated constraints aren't met.
+type EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError) Field() string {
+	return e.field
+}
+
+// Reason function returns reason value.
+func (e EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError) Reason() string {
+	return e.reason
+}
+
+// Cause function returns cause value.
+func (e EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError) Cause() error {
+	return e.cause
+}
+
+// Key function returns key value.
+func (e EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError) Key() bool {
+	return e.key
+}
+
+// ErrorName returns error name.
+func (e EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError) ErrorName() string {
+	return "EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sEntitlementsReaderServiceListEntitlementsByIdsResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = EntitlementsReaderServiceListEntitlementsByIdsResponseValidationError{}

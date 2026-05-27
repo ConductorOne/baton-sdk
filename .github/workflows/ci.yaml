@@ -14,7 +14,12 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           skip-cache: true
-          version: latest
+          # Pinned so lint findings don't drift with new golangci-lint
+          # releases. New gosec rules (G702/G118/G122/G703/G704) landed
+          # in v2.10+, breaking PRs that were clean against earlier
+          # versions. Bump deliberately, fixing any new findings in the
+          # same PR.
+          version: v2.12.2
           args: --timeout=3m
   go-test:
     strategy:

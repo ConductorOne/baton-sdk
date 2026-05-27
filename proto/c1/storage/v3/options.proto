@@ -1,0 +1,60 @@
+// Options for the v3 storage layer. Extends descriptor.proto so record
+// messages can declare their table shape and indexes inline.
+//
+// proto2 syntax is required because proto3 forbids extensions of
+// non-descriptor messages.
+
+syntax = "proto2";
+
+package c1.storage.v3;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/storage/v3";
+
+extend google.protobuf.MessageOptions {
+  optional TableOption table = 90000;
+}
+
+extend google.protobuf.FieldOptions {
+  optional IndexOption index = 90001;
+}
+
+// TableOption declares that a message is a v3 storage record type and
+// specifies its primary key. The codegen plugin (`protoc-gen-batonstore`)
+// rejects records whose primary_key paths reference non-existent fields,
+// repeated fields, or types outside the allowed PK set.
+message TableOption {
+  // Logical table name. Used in error messages and stats; not part of
+  // the on-disk key layout.
+  optional string name = 1;
+
+  // Primary key field paths in order. Each path is a dotted sequence
+  // of field names; nested-message traversal is supported only through
+  // singular sub-messages. Repeated fields and maps mid-path are
+  // rejected at codegen.
+  repeated string primary_key = 2;
+}
+
+// IndexOption declares a secondary index on a record field. Composite
+// indexes traverse field paths within the field's enclosing message.
+message IndexOption {
+  // Index name. Used in stats and the on-disk index-discriminator
+  // table; reuse across record types is fine because index keys are
+  // scoped by record type.
+  optional string name = 1;
+
+  // If true, the index enforces uniqueness on insert. Insert of a
+  // duplicate fails with ErrIndexUniqueViolation.
+  optional bool unique = 2 [default = false];
+
+  // Composite paths within the field's enclosing message. Empty means
+  // the index is on this field's scalar value alone.
+  repeated string composite = 3;
+
+  // Partial-index predicate in a tiny DSL: `field_path = literal` or
+  // `field_path != literal`. Empty means the index is full. The
+  // codegen plugin parses this; runtime evaluation is a single
+  // boolean check per record.
+  optional string partial = 4;
+}

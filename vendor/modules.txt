@@ -23,9 +23,19 @@ filippo.io/age/internal/stream
 ## explicit; go 1.20
 filippo.io/edwards25519
 filippo.io/edwards25519/field
+# github.com/DataDog/zstd v1.5.7
+## explicit; go 1.14
+github.com/DataDog/zstd
 # github.com/Masterminds/semver/v3 v3.4.0
 ## explicit; go 1.21
 github.com/Masterminds/semver/v3
+# github.com/RaduBerinde/axisds v0.1.0
+## explicit; go 1.23
+github.com/RaduBerinde/axisds
+github.com/RaduBerinde/axisds/regiontree
+# github.com/RaduBerinde/btreemap v0.0.0-20260105202824-d3184786f603
+## explicit; go 1.23
+github.com/RaduBerinde/btreemap
 # github.com/antlr4-go/antlr/v4 v4.13.1
 ## explicit; go 1.22
 github.com/antlr4-go/antlr/v4
@@ -176,6 +186,9 @@ github.com/aws/smithy-go/waiter
 # github.com/benbjohnson/clock v1.3.5
 ## explicit; go 1.15
 github.com/benbjohnson/clock
+# github.com/beorn7/perks v1.0.1
+## explicit; go 1.11
+github.com/beorn7/perks/quantile
 # github.com/bytedance/gopkg v0.1.3
 ## explicit; go 1.18
 github.com/bytedance/gopkg/lang/dirtmake
@@ -237,6 +250,118 @@ github.com/cloudwego/base64x/internal/native
 github.com/cloudwego/base64x/internal/native/avx2
 github.com/cloudwego/base64x/internal/native/sse
 github.com/cloudwego/base64x/internal/rt
+# github.com/cockroachdb/crlib v0.0.0-20251122031428-fe658a2dbda1
+## explicit; go 1.24
+github.com/cockroachdb/crlib/crbytes
+github.com/cockroachdb/crlib/crstrings
+github.com/cockroachdb/crlib/crsync
+github.com/cockroachdb/crlib/crtime
+github.com/cockroachdb/crlib/fifo
+github.com/cockroachdb/crlib/internal/invariants
+# github.com/cockroachdb/datadriven v1.0.3-0.20251123150250-ddff6747b112
+## explicit; go 1.21
+# github.com/cockroachdb/errors v1.11.3
+## explicit; go 1.19
+github.com/cockroachdb/errors
+github.com/cockroachdb/errors/assert
+github.com/cockroachdb/errors/barriers
+github.com/cockroachdb/errors/contexttags
+github.com/cockroachdb/errors/domains
+github.com/cockroachdb/errors/errbase
+github.com/cockroachdb/errors/errorspb
+github.com/cockroachdb/errors/errutil
+github.com/cockroachdb/errors/hintdetail
+github.com/cockroachdb/errors/issuelink
+github.com/cockroachdb/errors/join
+github.com/cockroachdb/errors/markers
+github.com/cockroachdb/errors/oserror
+github.com/cockroachdb/errors/report
+github.com/cockroachdb/errors/safedetails
+github.com/cockroachdb/errors/secondary
+github.com/cockroachdb/errors/stdstrings
+github.com/cockroachdb/errors/telemetrykeys
+github.com/cockroachdb/errors/withstack
+# github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b
+## explicit; go 1.16
+github.com/cockroachdb/logtags
+# github.com/cockroachdb/pebble/v2 v2.1.5
+## explicit; go 1.23
+github.com/cockroachdb/pebble/v2
+github.com/cockroachdb/pebble/v2/batchrepr
+github.com/cockroachdb/pebble/v2/bloom
+github.com/cockroachdb/pebble/v2/internal/arenaskl
+github.com/cockroachdb/pebble/v2/internal/base
+github.com/cockroachdb/pebble/v2/internal/batchskl
+github.com/cockroachdb/pebble/v2/internal/binfmt
+github.com/cockroachdb/pebble/v2/internal/bitflip
+github.com/cockroachdb/pebble/v2/internal/blobtest
+github.com/cockroachdb/pebble/v2/internal/buildtags
+github.com/cockroachdb/pebble/v2/internal/bytealloc
+github.com/cockroachdb/pebble/v2/internal/cache
+github.com/cockroachdb/pebble/v2/internal/compact
+github.com/cockroachdb/pebble/v2/internal/compression
+github.com/cockroachdb/pebble/v2/internal/constants
+github.com/cockroachdb/pebble/v2/internal/crc
+github.com/cockroachdb/pebble/v2/internal/dsl
+github.com/cockroachdb/pebble/v2/internal/ewma
+github.com/cockroachdb/pebble/v2/internal/genericcache
+github.com/cockroachdb/pebble/v2/internal/humanize
+github.com/cockroachdb/pebble/v2/internal/intern
+github.com/cockroachdb/pebble/v2/internal/invalidating
+github.com/cockroachdb/pebble/v2/internal/invariants
+github.com/cockroachdb/pebble/v2/internal/keyspan
+github.com/cockroachdb/pebble/v2/internal/keyspan/keyspanimpl
+github.com/cockroachdb/pebble/v2/internal/lsmview
+github.com/cockroachdb/pebble/v2/internal/manifest
+github.com/cockroachdb/pebble/v2/internal/manual
+github.com/cockroachdb/pebble/v2/internal/overlap
+github.com/cockroachdb/pebble/v2/internal/private
+github.com/cockroachdb/pebble/v2/internal/problemspans
+github.com/cockroachdb/pebble/v2/internal/rangedel
+github.com/cockroachdb/pebble/v2/internal/rangekey
+github.com/cockroachdb/pebble/v2/internal/rangekeystack
+github.com/cockroachdb/pebble/v2/internal/rawalloc
+github.com/cockroachdb/pebble/v2/internal/sstableinternal
+github.com/cockroachdb/pebble/v2/internal/strparse
+github.com/cockroachdb/pebble/v2/internal/testkeys
+github.com/cockroachdb/pebble/v2/internal/treeprinter
+github.com/cockroachdb/pebble/v2/objstorage
+github.com/cockroachdb/pebble/v2/objstorage/objstorageprovider
+github.com/cockroachdb/pebble/v2/objstorage/objstorageprovider/objiotracing
+github.com/cockroachdb/pebble/v2/objstorage/objstorageprovider/remoteobjcat
+github.com/cockroachdb/pebble/v2/objstorage/objstorageprovider/sharedcache
+github.com/cockroachdb/pebble/v2/objstorage/remote
+github.com/cockroachdb/pebble/v2/rangekey
+github.com/cockroachdb/pebble/v2/record
+github.com/cockroachdb/pebble/v2/sstable
+github.com/cockroachdb/pebble/v2/sstable/blob
+github.com/cockroachdb/pebble/v2/sstable/block
+github.com/cockroachdb/pebble/v2/sstable/block/blockkind
+github.com/cockroachdb/pebble/v2/sstable/colblk
+github.com/cockroachdb/pebble/v2/sstable/rowblk
+github.com/cockroachdb/pebble/v2/sstable/valblk
+github.com/cockroachdb/pebble/v2/sstable/virtual
+github.com/cockroachdb/pebble/v2/vfs
+github.com/cockroachdb/pebble/v2/vfs/atomicfs
+github.com/cockroachdb/pebble/v2/wal
+# github.com/cockroachdb/redact v1.1.5
+## explicit; go 1.14
+github.com/cockroachdb/redact
+github.com/cockroachdb/redact/builder
+github.com/cockroachdb/redact/interfaces
+github.com/cockroachdb/redact/internal/buffer
+github.com/cockroachdb/redact/internal/escape
+github.com/cockroachdb/redact/internal/fmtforward
+github.com/cockroachdb/redact/internal/markers
+github.com/cockroachdb/redact/internal/redact
+github.com/cockroachdb/redact/internal/rfmt
+github.com/cockroachdb/redact/internal/rfmt/fmtsort
+# github.com/cockroachdb/swiss v0.0.0-20251224182025-b0f6560f979b
+## explicit; go 1.21
+github.com/cockroachdb/swiss
+# github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06
+## explicit; go 1.19
+github.com/cockroachdb/tokenbucket
 # github.com/conductorone/dpop v0.2.6
 ## explicit; go 1.23.4
 github.com/conductorone/dpop/pkg/dpop
@@ -292,6 +417,14 @@ github.com/gabriel-vasile/mimetype/internal/json
 github.com/gabriel-vasile/mimetype/internal/magic
 github.com/gabriel-vasile/mimetype/internal/markup
 github.com/gabriel-vasile/mimetype/internal/scan
+# github.com/getsentry/sentry-go v0.27.0
+## explicit; go 1.18
+github.com/getsentry/sentry-go
+github.com/getsentry/sentry-go/internal/debug
+github.com/getsentry/sentry-go/internal/otel/baggage
+github.com/getsentry/sentry-go/internal/otel/baggage/internal/baggage
+github.com/getsentry/sentry-go/internal/ratelimit
+github.com/getsentry/sentry-go/internal/traceparser
 # github.com/gin-contrib/sse v1.1.0
 ## explicit; go 1.23
 github.com/gin-contrib/sse
@@ -355,10 +488,21 @@ github.com/goccy/go-yaml/parser
 github.com/goccy/go-yaml/printer
 github.com/goccy/go-yaml/scanner
 github.com/goccy/go-yaml/token
+# github.com/gogo/protobuf v1.3.2
+## explicit; go 1.15
+github.com/gogo/protobuf/gogoproto
+github.com/gogo/protobuf/proto
+github.com/gogo/protobuf/protoc-gen-gogo/descriptor
+github.com/gogo/protobuf/sortkeys
+github.com/gogo/protobuf/types
 # github.com/golang/protobuf v1.5.4
 ## explicit; go 1.17
 github.com/golang/protobuf/jsonpb
 github.com/golang/protobuf/proto
+github.com/golang/protobuf/ptypes/timestamp
+# github.com/golang/snappy v0.0.5-0.20231225225746-43d5d4cd4e0e
+## explicit
+github.com/golang/snappy
 # github.com/google/cel-go v0.28.0
 ## explicit; go 1.23.0
 github.com/google/cel-go/cel
@@ -439,12 +583,20 @@ github.com/klauspost/compress/fse
 github.com/klauspost/compress/huff0
 github.com/klauspost/compress/internal/cpuinfo
 github.com/klauspost/compress/internal/le
+github.com/klauspost/compress/internal/race
 github.com/klauspost/compress/internal/snapref
+github.com/klauspost/compress/s2
 github.com/klauspost/compress/zstd
 github.com/klauspost/compress/zstd/internal/xxhash
 # github.com/klauspost/cpuid/v2 v2.3.0
 ## explicit; go 1.22
 github.com/klauspost/cpuid/v2
+# github.com/kr/pretty v0.3.1
+## explicit; go 1.12
+github.com/kr/pretty
+# github.com/kr/text v0.2.0
+## explicit
+github.com/kr/text
 # github.com/leodido/go-urn v1.4.0
 ## explicit; go 1.18
 github.com/leodido/go-urn
@@ -466,6 +618,9 @@ github.com/mattn/go-isatty
 github.com/mattn/go-runewidth
 # github.com/mattn/go-sqlite3 v1.14.22
 ## explicit; go 1.19
+# github.com/matttproud/golang_protobuf_extensions v1.0.4
+## explicit; go 1.9
+github.com/matttproud/golang_protobuf_extensions/pbutil
 # github.com/maypok86/otter/v2 v2.3.0
 ## explicit; go 1.24.0
 github.com/maypok86/otter/v2
@@ -480,6 +635,10 @@ github.com/maypok86/otter/v2/internal/xmath
 github.com/maypok86/otter/v2/internal/xruntime
 github.com/maypok86/otter/v2/internal/xsync
 github.com/maypok86/otter/v2/stats
+# github.com/minio/minlz v1.0.2-0.20260119185444-845e64f85661
+## explicit; go 1.21
+github.com/minio/minlz
+github.com/minio/minlz/internal/race
 # github.com/mitchellh/mapstructure v1.5.0
 ## explicit; go 1.14
 github.com/mitchellh/mapstructure
@@ -499,6 +658,17 @@ github.com/pelletier/go-toml/v2/internal/characters
 github.com/pelletier/go-toml/v2/internal/danger
 github.com/pelletier/go-toml/v2/internal/tracker
 github.com/pelletier/go-toml/v2/unstable
+# github.com/pkg/errors v0.9.1
+## explicit
+github.com/pkg/errors
+# github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10
+## explicit; go 1.20
+github.com/planetscale/vtprotobuf/protohelpers
+github.com/planetscale/vtprotobuf/types/known/anypb
+github.com/planetscale/vtprotobuf/types/known/durationpb
+github.com/planetscale/vtprotobuf/types/known/structpb
+github.com/planetscale/vtprotobuf/types/known/timestamppb
+github.com/planetscale/vtprotobuf/types/known/wrapperspb
 # github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 ## explicit
 github.com/pmezard/go-difflib/difflib
@@ -515,6 +685,23 @@ github.com/pquerna/xjwt
 # github.com/pquerna/xjwt/xkeyset v0.0.0-20241217022915-10fc997b2a9f
 ## explicit; go 1.23
 github.com/pquerna/xjwt/xkeyset
+# github.com/prometheus/client_golang v1.16.0
+## explicit; go 1.17
+github.com/prometheus/client_golang/prometheus
+github.com/prometheus/client_golang/prometheus/internal
+# github.com/prometheus/client_model v0.3.0
+## explicit; go 1.9
+github.com/prometheus/client_model/go
+# github.com/prometheus/common v0.42.0
+## explicit; go 1.18
+github.com/prometheus/common/expfmt
+github.com/prometheus/common/internal/bitbucket.org/ww/goautoneg
+github.com/prometheus/common/model
+# github.com/prometheus/procfs v0.10.1
+## explicit; go 1.19
+github.com/prometheus/procfs
+github.com/prometheus/procfs/internal/fs
+github.com/prometheus/procfs/internal/util
 # github.com/pterm/pterm v0.12.83
 ## explicit; go 1.24.0
 github.com/pterm/pterm
@@ -552,6 +739,9 @@ github.com/richardlehane/mscfb
 # github.com/richardlehane/msoleps v1.0.6
 ## explicit
 github.com/richardlehane/msoleps/types
+# github.com/rogpeppe/go-internal v1.14.1
+## explicit; go 1.23
+github.com/rogpeppe/go-internal/fmtsort
 # github.com/sagikazarmark/locafero v0.7.0
 ## explicit; go 1.21
 github.com/sagikazarmark/locafero
@@ -816,6 +1006,7 @@ golang.org/x/crypto/ssh
 golang.org/x/crypto/ssh/internal/bcrypt_pbkdf
 # golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90
 ## explicit; go 1.25.0
+golang.org/x/exp/constraints
 golang.org/x/exp/slices
 golang.org/x/exp/slog
 golang.org/x/exp/slog/internal
@@ -854,6 +1045,7 @@ golang.org/x/sync/singleflight
 # golang.org/x/sys v0.43.0
 ## explicit; go 1.25.0
 golang.org/x/sys/cpu
+golang.org/x/sys/execabs
 golang.org/x/sys/plan9
 golang.org/x/sys/unix
 golang.org/x/sys/windows

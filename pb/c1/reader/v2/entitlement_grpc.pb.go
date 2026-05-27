@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	EntitlementsReaderService_GetEntitlement_FullMethodName = "/c1.reader.v2.EntitlementsReaderService/GetEntitlement"
+	EntitlementsReaderService_GetEntitlement_FullMethodName        = "/c1.reader.v2.EntitlementsReaderService/GetEntitlement"
+	EntitlementsReaderService_ListEntitlementsByIds_FullMethodName = "/c1.reader.v2.EntitlementsReaderService/ListEntitlementsByIds"
 )
 
 // EntitlementsReaderServiceClient is the client API for EntitlementsReaderService service.
@@ -27,6 +28,9 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type EntitlementsReaderServiceClient interface {
 	GetEntitlement(ctx context.Context, in *EntitlementsReaderServiceGetEntitlementRequest, opts ...grpc.CallOption) (*EntitlementsReaderServiceGetEntitlementResponse, error)
+	// ListEntitlementsByIds returns the entitlements for the supplied
+	// id list. Missing ids are omitted from the response.
+	ListEntitlementsByIds(ctx context.Context, in *EntitlementsReaderServiceListEntitlementsByIdsRequest, opts ...grpc.CallOption) (*EntitlementsReaderServiceListEntitlementsByIdsResponse, error)
 }
 
 type entitlementsReaderServiceClient struct {
@@ -47,11 +51,24 @@ func (c *entitlementsReaderServiceClient) GetEntitlement(ctx context.Context, in
 	return out, nil
 }
 
+func (c *entitlementsReaderServiceClient) ListEntitlementsByIds(ctx context.Context, in *EntitlementsReaderServiceListEntitlementsByIdsRequest, opts ...grpc.CallOption) (*EntitlementsReaderServiceListEntitlementsByIdsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EntitlementsReaderServiceListEntitlementsByIdsResponse)
+	err := c.cc.Invoke(ctx, EntitlementsReaderService_ListEntitlementsByIds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EntitlementsReaderServiceServer is the server API for EntitlementsReaderService service.
 // All implementations should embed UnimplementedEntitlementsReaderServiceServer
 // for forward compatibility.
 type EntitlementsReaderServiceServer interface {
 	GetEntitlement(context.Context, *EntitlementsReaderServiceGetEntitlementRequest) (*EntitlementsReaderServiceGetEntitlementResponse, error)
+	// ListEntitlementsByIds returns the entitlements for the supplied
+	// id list. Missing ids are omitted from the response.
+	ListEntitlementsByIds(context.Context, *EntitlementsReaderServiceListEntitlementsByIdsRequest) (*EntitlementsReaderServiceListEntitlementsByIdsResponse, error)
 }
 
 // UnimplementedEntitlementsReaderServiceServer should be embedded to have
@@ -63,6 +80,9 @@ type UnimplementedEntitlementsReaderServiceServer struct{}
 
 func (UnimplementedEntitlementsReaderServiceServer) GetEntitlement(context.Context, *EntitlementsReaderServiceGetEntitlementRequest) (*EntitlementsReaderServiceGetEntitlementResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetEntitlement not implemented")
+}
+func (UnimplementedEntitlementsReaderServiceServer) ListEntitlementsByIds(context.Context, *EntitlementsReaderServiceListEntitlementsByIdsRequest) (*EntitlementsReaderServiceListEntitlementsByIdsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListEntitlementsByIds not implemented")
 }
 func (UnimplementedEntitlementsReaderServiceServer) testEmbeddedByValue() {}
 
@@ -102,6 +122,24 @@ func _EntitlementsReaderService_GetEntitlement_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EntitlementsReaderService_ListEntitlementsByIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EntitlementsReaderServiceListEntitlementsByIdsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EntitlementsReaderServiceServer).ListEntitlementsByIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EntitlementsReaderService_ListEntitlementsByIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EntitlementsReaderServiceServer).ListEntitlementsByIds(ctx, req.(*EntitlementsReaderServiceListEntitlementsByIdsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // EntitlementsReaderService_ServiceDesc is the grpc.ServiceDesc for EntitlementsReaderService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -112,6 +150,10 @@ var EntitlementsReaderService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEntitlement",
 			Handler:    _EntitlementsReaderService_GetEntitlement_Handler,
+		},
+		{
+			MethodName: "ListEntitlementsByIds",
+			Handler:    _EntitlementsReaderService_ListEntitlementsByIds_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

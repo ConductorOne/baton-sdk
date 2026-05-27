@@ -242,7 +242,11 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 	if syncType != connectorstore.SyncTypeAny {
 		q = q.Where(goqu.C("sync_type").Eq(syncType))
 	}
-	q = q.Order(goqu.C("ended_at").Desc())
+	// Tiebreak on sync_id when ended_at ties — Windows can have
+	// coarser-than-nanosecond time resolution, so two adjacent
+	// EndSync calls can produce identical ended_at strings. sync_ids
+	// are KSUIDs (timestamp-sortable) so DESC picks the later one.
+	q = q.Order(goqu.C("ended_at").Desc(), goqu.C("sync_id").Desc())
 	q = q.Limit(1)
 
 	if offset != 0 {
@@ -708,6 +712,19 @@ func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 		return err
 	}
 	c.dbUpdated = true
+
+	// Populate the stats sidecar so future Stats() / GrantStats()
+	// calls are O(1) reads instead of O(N) COUNT/GROUP BY queries.
+	// Failures are non-fatal: Stats() falls back to the legacy
+	// aggregate path when the row is missing. Log the failure so
+	// it's visible in production telemetry but don't propagate it
+	// — the sync itself is durable.
+	if statsErr := c.upsertSyncStats(ctx, syncID); statsErr != nil {
+		ctxzap.Extract(ctx).Warn("c1z: upsert sync_stats sidecar failed; Stats() will fall back to O(N) COUNT/GROUP BY until the row is rebuilt",
+			zap.String("sync_id", syncID),
+			zap.Error(statsErr),
+		)
+	}
 
 	return nil
 }

@@ -10,6 +10,9 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/reader/v2";
 
 service EntitlementsReaderService {
   rpc GetEntitlement(EntitlementsReaderServiceGetEntitlementRequest) returns (EntitlementsReaderServiceGetEntitlementResponse);
+  // ListEntitlementsByIds returns the entitlements for the supplied
+  // id list. Missing ids are omitted from the response.
+  rpc ListEntitlementsByIds(EntitlementsReaderServiceListEntitlementsByIdsRequest) returns (EntitlementsReaderServiceListEntitlementsByIdsResponse);
 }
 
 message EntitlementsReaderServiceGetEntitlementRequest {
@@ -22,4 +25,15 @@ message EntitlementsReaderServiceGetEntitlementRequest {
 
 message EntitlementsReaderServiceGetEntitlementResponse {
   c1.connector.v2.Entitlement entitlement = 1;
+}
+
+message EntitlementsReaderServiceListEntitlementsByIdsRequest {
+  repeated string entitlement_ids = 1 [(validate.rules).repeated = {
+    max_items: 1024
+  }];
+  repeated google.protobuf.Any annotations = 100;
+}
+
+message EntitlementsReaderServiceListEntitlementsByIdsResponse {
+  repeated c1.connector.v2.Entitlement list = 1;
 }

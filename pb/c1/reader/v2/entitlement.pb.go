@@ -164,6 +164,134 @@ func (b0 EntitlementsReaderServiceGetEntitlementResponse_builder) Build() *Entit
 	return m0
 }
 
+type EntitlementsReaderServiceListEntitlementsByIdsRequest struct {
+	state          protoimpl.MessageState `protogen:"hybrid.v1"`
+	EntitlementIds []string               `protobuf:"bytes,1,rep,name=entitlement_ids,json=entitlementIds,proto3" json:"entitlement_ids,omitempty"`
+	Annotations    []*anypb.Any           `protobuf:"bytes,100,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *EntitlementsReaderServiceListEntitlementsByIdsRequest) Reset() {
+	*x = EntitlementsReaderServiceListEntitlementsByIdsRequest{}
+	mi := &file_c1_reader_v2_entitlement_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EntitlementsReaderServiceListEntitlementsByIdsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EntitlementsReaderServiceListEntitlementsByIdsRequest) ProtoMessage() {}
+
+func (x *EntitlementsReaderServiceListEntitlementsByIdsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_reader_v2_entitlement_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *EntitlementsReaderServiceListEntitlementsByIdsRequest) GetEntitlementIds() []string {
+	if x != nil {
+		return x.EntitlementIds
+	}
+	return nil
+}
+
+func (x *EntitlementsReaderServiceListEntitlementsByIdsRequest) GetAnnotations() []*anypb.Any {
+	if x != nil {
+		return x.Annotations
+	}
+	return nil
+}
+
+func (x *EntitlementsReaderServiceListEntitlementsByIdsRequest) SetEntitlementIds(v []string) {
+	x.EntitlementIds = v
+}
+
+func (x *EntitlementsReaderServiceListEntitlementsByIdsRequest) SetAnnotations(v []*anypb.Any) {
+	x.Annotations = v
+}
+
+type EntitlementsReaderServiceListEntitlementsByIdsRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	EntitlementIds []string
+	Annotations    []*anypb.Any
+}
+
+func (b0 EntitlementsReaderServiceListEntitlementsByIdsRequest_builder) Build() *EntitlementsReaderServiceListEntitlementsByIdsRequest {
+	m0 := &EntitlementsReaderServiceListEntitlementsByIdsRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.EntitlementIds = b.EntitlementIds
+	x.Annotations = b.Annotations
+	return m0
+}
+
+type EntitlementsReaderServiceListEntitlementsByIdsResponse struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	List          []*v2.Entitlement      `protobuf:"bytes,1,rep,name=list,proto3" json:"list,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EntitlementsReaderServiceListEntitlementsByIdsResponse) Reset() {
+	*x = EntitlementsReaderServiceListEntitlementsByIdsResponse{}
+	mi := &file_c1_reader_v2_entitlement_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EntitlementsReaderServiceListEntitlementsByIdsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EntitlementsReaderServiceListEntitlementsByIdsResponse) ProtoMessage() {}
+
+func (x *EntitlementsReaderServiceListEntitlementsByIdsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_reader_v2_entitlement_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *EntitlementsReaderServiceListEntitlementsByIdsResponse) GetList() []*v2.Entitlement {
+	if x != nil {
+		return x.List
+	}
+	return nil
+}
+
+func (x *EntitlementsReaderServiceListEntitlementsByIdsResponse) SetList(v []*v2.Entitlement) {
+	x.List = v
+}
+
+type EntitlementsReaderServiceListEntitlementsByIdsResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	List []*v2.Entitlement
+}
+
+func (b0 EntitlementsReaderServiceListEntitlementsByIdsResponse_builder) Build() *EntitlementsReaderServiceListEntitlementsByIdsResponse {
+	m0 := &EntitlementsReaderServiceListEntitlementsByIdsResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.List = b.List
+	return m0
+}
+
 var File_c1_reader_v2_entitlement_proto protoreflect.FileDescriptor
 
 const file_c1_reader_v2_entitlement_proto_rawDesc = "" +
@@ -174,27 +302,39 @@ const file_c1_reader_v2_entitlement_proto_rawDesc = "" +
 	"\xfaB\ar\x05 \x01(\x80\bR\rentitlementId\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"q\n" +
 	"/EntitlementsReaderServiceGetEntitlementResponse\x12>\n" +
-	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementR\ventitlement2\xab\x01\n" +
+	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementR\ventitlement\"\xa3\x01\n" +
+	"5EntitlementsReaderServiceListEntitlementsByIdsRequest\x122\n" +
+	"\x0fentitlement_ids\x18\x01 \x03(\tB\t\xfaB\x06\x92\x01\x03\x10\x80\bR\x0eentitlementIds\x126\n" +
+	"\vannotations\x18d \x03(\v2\x14.google.protobuf.AnyR\vannotations\"j\n" +
+	"6EntitlementsReaderServiceListEntitlementsByIdsResponse\x120\n" +
+	"\x04list\x18\x01 \x03(\v2\x1c.c1.connector.v2.EntitlementR\x04list2\xd0\x02\n" +
 	"\x19EntitlementsReaderService\x12\x8d\x01\n" +
-	"\x0eGetEntitlement\x12<.c1.reader.v2.EntitlementsReaderServiceGetEntitlementRequest\x1a=.c1.reader.v2.EntitlementsReaderServiceGetEntitlementResponseB3Z1github.com/conductorone/baton-sdk/pb/c1/reader/v2b\x06proto3"
+	"\x0eGetEntitlement\x12<.c1.reader.v2.EntitlementsReaderServiceGetEntitlementRequest\x1a=.c1.reader.v2.EntitlementsReaderServiceGetEntitlementResponse\x12\xa2\x01\n" +
+	"\x15ListEntitlementsByIds\x12C.c1.reader.v2.EntitlementsReaderServiceListEntitlementsByIdsRequest\x1aD.c1.reader.v2.EntitlementsReaderServiceListEntitlementsByIdsResponseB3Z1github.com/conductorone/baton-sdk/pb/c1/reader/v2b\x06proto3"
 
-var file_c1_reader_v2_entitlement_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_c1_reader_v2_entitlement_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_c1_reader_v2_entitlement_proto_goTypes = []any{
-	(*EntitlementsReaderServiceGetEntitlementRequest)(nil),  // 0: c1.reader.v2.EntitlementsReaderServiceGetEntitlementRequest
-	(*EntitlementsReaderServiceGetEntitlementResponse)(nil), // 1: c1.reader.v2.EntitlementsReaderServiceGetEntitlementResponse
-	(*anypb.Any)(nil),      // 2: google.protobuf.Any
-	(*v2.Entitlement)(nil), // 3: c1.connector.v2.Entitlement
+	(*EntitlementsReaderServiceGetEntitlementRequest)(nil),         // 0: c1.reader.v2.EntitlementsReaderServiceGetEntitlementRequest
+	(*EntitlementsReaderServiceGetEntitlementResponse)(nil),        // 1: c1.reader.v2.EntitlementsReaderServiceGetEntitlementResponse
+	(*EntitlementsReaderServiceListEntitlementsByIdsRequest)(nil),  // 2: c1.reader.v2.EntitlementsReaderServiceListEntitlementsByIdsRequest
+	(*EntitlementsReaderServiceListEntitlementsByIdsResponse)(nil), // 3: c1.reader.v2.EntitlementsReaderServiceListEntitlementsByIdsResponse
+	(*anypb.Any)(nil),      // 4: google.protobuf.Any
+	(*v2.Entitlement)(nil), // 5: c1.connector.v2.Entitlement
 }
 var file_c1_reader_v2_entitlement_proto_depIdxs = []int32{
-	2, // 0: c1.reader.v2.EntitlementsReaderServiceGetEntitlementRequest.annotations:type_name -> google.protobuf.Any
-	3, // 1: c1.reader.v2.EntitlementsReaderServiceGetEntitlementResponse.entitlement:type_name -> c1.connector.v2.Entitlement
-	0, // 2: c1.reader.v2.EntitlementsReaderService.GetEntitlement:input_type -> c1.reader.v2.EntitlementsReaderServiceGetEntitlementRequest
-	1, // 3: c1.reader.v2.EntitlementsReaderService.GetEntitlement:output_type -> c1.reader.v2.EntitlementsReaderServiceGetEntitlementResponse
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	4, // 0: c1.reader.v2.EntitlementsReaderServiceGetEntitlementRequest.annotations:type_name -> google.protobuf.Any
+	5, // 1: c1.reader.v2.EntitlementsReaderServiceGetEntitlementResponse.entitlement:type_name -> c1.connector.v2.Entitlement
+	4, // 2: c1.reader.v2.EntitlementsReaderServiceListEntitlementsByIdsRequest.annotations:type_name -> google.protobuf.Any
+	5, // 3: c1.reader.v2.EntitlementsReaderServiceListEntitlementsByIdsResponse.list:type_name -> c1.connector.v2.Entitlement
+	0, // 4: c1.reader.v2.EntitlementsReaderService.GetEntitlement:input_type -> c1.reader.v2.EntitlementsReaderServiceGetEntitlementRequest
+	2, // 5: c1.reader.v2.EntitlementsReaderService.ListEntitlementsByIds:input_type -> c1.reader.v2.EntitlementsReaderServiceListEntitlementsByIdsRequest
+	1, // 6: c1.reader.v2.EntitlementsReaderService.GetEntitlement:output_type -> c1.reader.v2.EntitlementsReaderServiceGetEntitlementResponse
+	3, // 7: c1.reader.v2.EntitlementsReaderService.ListEntitlementsByIds:output_type -> c1.reader.v2.EntitlementsReaderServiceListEntitlementsByIdsResponse
+	6, // [6:8] is the sub-list for method output_type
+	4, // [4:6] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_c1_reader_v2_entitlement_proto_init() }
@@ -208,7 +348,7 @@ func file_c1_reader_v2_entitlement_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_reader_v2_entitlement_proto_rawDesc), len(file_c1_reader_v2_entitlement_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
