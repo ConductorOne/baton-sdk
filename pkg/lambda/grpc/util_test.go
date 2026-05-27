@@ -35,6 +35,8 @@ func TestIsTransientNetworkError(t *testing.T) {
 		{name: "grpc status error", err: status.Errorf(codes.Internal, "internal error"), want: false},
 		{name: "context canceled", err: context.Canceled, want: false},
 		{name: "context deadline exceeded", err: context.DeadlineExceeded, want: false},
+		{name: "TLS handshake timeout", err: fmt.Errorf("net/http: TLS handshake timeout"), want: true},
+		{name: "connection timed out", err: fmt.Errorf("read tcp 10.0.0.1:443: connection timed out"), want: true},
 	}
 
 	for _, tt := range tests {
@@ -102,6 +104,17 @@ func TestStatusForApplicationError_URLTimeout(t *testing.T) {
 	st := statusForApplicationError(err)
 	require.Equal(t, codes.DeadlineExceeded, st.Code())
 	require.Contains(t, st.Message(), "request timeout")
+}
+
+func TestStatusForApplicationError_NetErrorTimeout(t *testing.T) {
+	err := &net.OpError{
+		Op:  "read",
+		Net: "tcp",
+		Err: timeoutError{err: fmt.Errorf("net/http: TLS handshake timeout")},
+	}
+	st := statusForApplicationError(err)
+	require.Equal(t, codes.DeadlineExceeded, st.Code())
+	require.Contains(t, st.Message(), "network timeout")
 }
 
 func TestErrorResponse_UnknownError(t *testing.T) {

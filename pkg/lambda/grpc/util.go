@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -146,6 +147,9 @@ func isTransientNetworkError(err error) bool {
 		strings.Contains(msg, "connection refused") ||
 		strings.Contains(msg, "http2: client connection lost") ||
 		strings.Contains(msg, "i/o timeout") ||
+		// Timeout strings: mapped to Unavailable as fallback for serialized errors that lost net.Error.
+		strings.Contains(msg, "connection timed out") ||
+		strings.Contains(msg, "TLS handshake timeout") ||
 		strings.Contains(msg, "no such host") ||
 		(strings.Contains(msg, "unexpected EOF") && !strings.Contains(msg, "unexpected EOF on client connection"))
 }
@@ -199,6 +203,13 @@ func statusForApplicationError(err error) *status.Status {
 		if urlErr.Temporary() {
 			return status.Newf(codes.Unavailable, "temporary error: %s", err)
 		}
+	}
+
+	// Catches net.Error timeout types not wrapped in url.Error
+	// (e.g. tls.handshakeTimeoutError at the RoundTrip level).
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return status.Newf(codes.DeadlineExceeded, "network timeout: %s", err)
 	}
 
 	if isTransientNetworkError(err) {
