@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"strings"
 	"syscall"
@@ -37,6 +38,13 @@ func wrapTransientNetworkError(err error) error {
 		if urlErr.Temporary() {
 			return WrapErrors(codes.Unavailable, fmt.Sprintf("temporary error: %v", urlErr.URL), urlErr)
 		}
+	}
+
+	// Catches net.Error timeout types not wrapped in url.Error
+	// (e.g. tls.handshakeTimeoutError at the RoundTrip level).
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return WrapErrors(codes.DeadlineExceeded, fmt.Sprintf("network timeout: %v", err), err)
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) {
