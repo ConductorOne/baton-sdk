@@ -13,8 +13,3 @@ plugins:
   - remote: buf.build/bufbuild/validate-go:v1.2.1
     out: pb
     opt: paths=source_relative
-  - local: protoc-gen-go-vtproto
-    out: pb
-    opt:
-      - paths=source_relative
-      - features=marshal+unmarshal+size

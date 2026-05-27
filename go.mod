@@ -31,7 +31,6 @@ require (
 	github.com/klauspost/compress v1.18.6
 	github.com/maypok86/otter/v2 v2.3.0
 	github.com/mitchellh/mapstructure v1.5.0
-	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10
 	github.com/pquerna/xjwt v0.4.0
 	github.com/pquerna/xjwt/xkeyset v0.0.0-20241217022915-10fc997b2a9f
 	github.com/pterm/pterm v0.12.83
