@@ -1040,8 +1040,19 @@ func (x *GrantRecord) ClearExpansion() {
 type GrantRecord_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	SyncId         string
-	ExternalId     string
+	SyncId     string
+	ExternalId string
+	// entitlement carries TWO indexes:
+	//
+	//	by_entitlement              — keyed (entitlement_id, principal_rt, principal_id);
+	//	                              drives PaginateGrantsByEntitlement / ListGrantsForEntitlement.
+	//	by_entitlement_resource     — keyed (resource_type_id, resource_id); drives
+	//	                              Adapter.ListGrants and ListWithAnnotationsForResourcePage
+	//	                              when req.Resource is set (the entitlement-side resource
+	//	                              filter that matches SQLite's listGrantsGeneric).
+	//
+	// The codegen plugin emits the keyspace + write/delete hooks; the runtime
+	// wires through pkg/dotc1z/engine/pebble/keys.go + grants.go + paginate.go.
 	Entitlement    *EntitlementRef
 	Principal      *PrincipalRef
 	DiscoveredAt   *timestamppb.Timestamp

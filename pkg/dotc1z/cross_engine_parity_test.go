@@ -148,6 +148,29 @@ func TestCrossEngineParity(t *testing.T) {
 		}
 	})
 
+	// ListGrants with req.Resource set — filters by the entitlement-
+	// side resource. Both backends must return the same set of
+	// grant ids. Locks in the Bug 4 fix: Pebble previously routed
+	// req.Resource through PaginateGrantsByPrincipal (silently
+	// empty for membership-style grants); the fix added the
+	// by_entitlement_resource index + PaginateGrantsByEntitlementResource.
+	t.Run("ListGrants by entitlement-resource parity", func(t *testing.T) {
+		req := v2.GrantsServiceListGrantsRequest_builder{
+			Resource: v2.Resource_builder{
+				Id: v2.ResourceId_builder{ResourceType: "app", Resource: "gh"}.Build(),
+			}.Build(),
+			PageSize: 1000,
+		}.Build()
+		sResp, err := pair.sqlite.ListGrants(ctx, req)
+		require.NoError(t, err)
+		pResp, err := pair.pebble.ListGrants(ctx, req)
+		require.NoError(t, err)
+		require.Equal(t, len(sResp.GetList()), len(pResp.GetList()),
+			"ListGrants(Resource=app/gh) cardinality must match across engines")
+		require.Equal(t, grantIDSet(sResp.GetList()), grantIDSet(pResp.GetList()),
+			"ListGrants(Resource=app/gh) grant-id set must match across engines")
+	})
+
 	// ListGrantsForEntitlement — same count, same set of ids.
 	t.Run("ListGrantsForEntitlement set parity", func(t *testing.T) {
 		req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{

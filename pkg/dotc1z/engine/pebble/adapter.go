@@ -13,9 +13,12 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"google.golang.org/protobuf/types/known/anypb"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	sdkannotations "github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
@@ -505,9 +508,17 @@ func (a *Adapter) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequ
 // Pagination matches the SQLite engine's semantics:
 //   - page_size == 0 || page_size > MaxPageSize → DefaultPageSize (10000)
 //   - page_token is opaque base64; pass nextPageToken back verbatim
-//   - filter by req.Resource (= principal) when set; uses by_principal index
+//   - filter by req.Resource — the entitlement-side resource of each
+//     grant — when set; uses the by_entitlement_resource index. This
+//     matches SQLite's `listGrantsGeneric` which filters on
+//     grants.resource_id / resource_type_id (the entitlement's
+//     resource columns). Callers who want to filter by principal
+//     should use ListGrantsForPrincipal instead.
 func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
-	syncID := a.resolveActiveSync(req.GetActiveSyncId())
+	syncID, err := a.resolveActiveSync(req.GetActiveSyncId(), req.GetAnnotations())
+	if err != nil {
+		return nil, err
+	}
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
@@ -515,9 +526,8 @@ func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrant
 	cursor := req.GetPageToken()
 	var records []*v3.GrantRecord
 	var nextCursor string
-	var err error
 	if r := req.GetResource(); r != nil && r.GetId() != nil {
-		records, nextCursor, err = a.engine.PaginateGrantsByPrincipal(ctx, syncID,
+		records, nextCursor, err = a.engine.PaginateGrantsByEntitlementResource(ctx, syncID,
 			r.GetId().GetResourceType(), r.GetId().GetResource(), cursor, limit)
 	} else {
 		records, nextCursor, err = a.engine.PaginateGrantsBySync(ctx, syncID, cursor, limit)
@@ -546,7 +556,10 @@ func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrant
 // range and post-filter — adding a by_resource_type index is a
 // future-work item if this path becomes hot.
 func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
-	syncID := a.resolveActiveSync(req.GetActiveSyncId())
+	syncID, err := a.resolveActiveSync(req.GetActiveSyncId(), req.GetAnnotations())
+	if err != nil {
+		return nil, err
+	}
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
@@ -665,7 +678,10 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 // ListResourceTypes returns up to page_size resource_types. Pagination
 // matches SQLite (see ListGrants).
 func (a *Adapter) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesServiceListResourceTypesRequest) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
-	syncID := a.resolveActiveSync(req.GetActiveSyncId())
+	syncID, err := a.resolveActiveSync(req.GetActiveSyncId(), req.GetAnnotations())
+	if err != nil {
+		return nil, err
+	}
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
@@ -688,7 +704,10 @@ func (a *Adapter) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesSe
 // filtered by Resource (resource_type_id, resource_id). Pagination
 // matches SQLite (see ListGrants).
 func (a *Adapter) ListEntitlements(ctx context.Context, req *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
-	syncID := a.resolveActiveSync(req.GetActiveSyncId())
+	syncID, err := a.resolveActiveSync(req.GetActiveSyncId(), req.GetAnnotations())
+	if err != nil {
+		return nil, err
+	}
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
@@ -696,7 +715,6 @@ func (a *Adapter) ListEntitlements(ctx context.Context, req *v2.EntitlementsServ
 	cursor := req.GetPageToken()
 	var records []*v3.EntitlementRecord
 	var nextCursor string
-	var err error
 	if r := req.GetResource(); r != nil && r.GetId() != nil {
 		records, nextCursor, err = a.engine.PaginateEntitlementsByResource(ctx, syncID,
 			r.GetId().GetResourceType(), r.GetId().GetResource(), cursor, limit)
@@ -810,22 +828,44 @@ func (a *Adapter) currentSyncID() string {
 	return a.current.syncID
 }
 
-// resolveActiveSync uses the request's ActiveSyncId override if set,
-// else the adapter's current sync, else the most-recent finished
-// sync. The fallback matches the SQLite path so Reader calls
-// against a closed c1z still work — caught by the cross-engine
-// parity test.
-func (a *Adapter) resolveActiveSync(reqSyncID string) string {
+// resolveActiveSync picks the sync_id a List* read should scope to.
+//
+// Precedence:
+//
+//  1. req.ActiveSyncId — explicit top-level override on the proto
+//     request. Pebble-specific (SQLite ignores this field today);
+//     kept first so existing callers that wired it continue to win.
+//  2. c1zpb.SyncDetails annotation on req.Annotations — the contract
+//     pkg/sync/syncer.go's etag-replay path relies on
+//     (`fetchEtaggedGrantsForResource` scopes its read to the
+//     previous sync via this annotation). Matches SQLite's
+//     pkg/dotc1z/sql_helpers.go `resolveSyncID`.
+//  3. The adapter's current sync (set by StartNewSync / SetCurrentSync).
+//  4. The most-recent finished sync of any type. Lets Reader calls
+//     against a closed c1z resolve to its stored data (caught by the
+//     cross-engine parity test).
+//
+// Returns ("", nil) when no sync resolves. A malformed SyncDetails
+// annotation surfaces as a non-nil error so callers don't silently
+// fall through to the wrong sync.
+func (a *Adapter) resolveActiveSync(reqSyncID string, annos []*anypb.Any) (string, error) {
 	if reqSyncID != "" {
-		return reqSyncID
+		return reqSyncID, nil
+	}
+	annoSyncID, err := sdkannotations.GetSyncIdFromAnnotations(annos)
+	if err != nil {
+		return "", fmt.Errorf("pebble: read sync_id from annotations: %w", err)
+	}
+	if annoSyncID != "" {
+		return annoSyncID, nil
 	}
 	if id := a.currentSyncID(); id != "" {
-		return id
+		return id, nil
 	}
 	if id, err := a.LatestFinishedSyncID(context.Background(), connectorstore.SyncTypeAny); err == nil && id != "" {
-		return id
+		return id, nil
 	}
-	return ""
+	return "", nil
 }
 
 // v2SyncTypeToV3 maps the connectorstore.SyncType string to the v3

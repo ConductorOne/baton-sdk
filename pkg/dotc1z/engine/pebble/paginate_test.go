@@ -100,7 +100,19 @@ func TestListGrantsPagination(t *testing.T) {
 	})
 }
 
-func TestListGrantsPaginationByPrincipal(t *testing.T) {
+// TestListGrantsPaginationByEntitlementResource is the
+// ListGrants(req.Resource = entitlement-side resource) pagination
+// test. Matches the SQLite contract: "all grants whose entitlement
+// is on this resource". The pre-fix Pebble path interpreted
+// req.Resource as a principal filter (PaginateGrantsByPrincipal),
+// breaking this semantic; see Bug 4 in the audit. The fix routes
+// req.Resource through the new by_entitlement_resource index.
+//
+// All `total` grants live on the SAME entitlement, whose resource
+// is mkV2Grant's hardcoded (app/github) entitlement resource, so
+// the index covers every record and pagination should yield the
+// full set.
+func TestListGrantsPaginationByEntitlementResource(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
 	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
@@ -108,24 +120,26 @@ func TestListGrantsPaginationByPrincipal(t *testing.T) {
 	}
 	const total = 100
 	for i := 0; i < total; i++ {
-		// All grants for principal "alice" so the by_principal index
-		// covers every record.
+		// All grants share the same entitlement resource (app/github
+		// — see mkV2Grant) so the by_entitlement_resource index
+		// covers every record. Principals vary so the test wouldn't
+		// have worked accidentally via a principal-side filter.
 		if err := a.PutGrants(ctx, mkV2Grant(
 			"grant-"+strconv.Itoa(i),
 			"ent-"+strconv.Itoa(i%5),
 			"user",
-			"alice",
+			"alice-"+strconv.Itoa(i),
 		)); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	// Walk with page_size=15, filtered by principal alice.
+	// Walk with page_size=15, filtered by entitlement-resource.
 	seen := map[string]struct{}{}
 	pages := 0
 	pageToken := ""
-	principal := v2.Resource_builder{
-		Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+	entitlementResource := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build(),
 	}.Build()
 	for {
 		pages++
@@ -133,12 +147,12 @@ func TestListGrantsPaginationByPrincipal(t *testing.T) {
 			t.Fatalf("pagination did not terminate: %d pages", pages)
 		}
 		resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
-			Resource:  principal,
+			Resource:  entitlementResource,
 			PageSize:  15,
 			PageToken: pageToken,
 		}.Build())
 		if err != nil {
-			t.Fatalf("ListGrants by principal page %d: %v", pages, err)
+			t.Fatalf("ListGrants by entitlement-resource page %d: %v", pages, err)
 		}
 		for _, g := range resp.GetList() {
 			seen[g.GetId()] = struct{}{}
@@ -149,7 +163,7 @@ func TestListGrantsPaginationByPrincipal(t *testing.T) {
 		}
 	}
 	if len(seen) != total {
-		t.Errorf("by-principal paginated total = %d, want %d", len(seen), total)
+		t.Errorf("by-entitlement-resource paginated total = %d, want %d", len(seen), total)
 	}
 }
 

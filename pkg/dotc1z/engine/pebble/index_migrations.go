@@ -79,6 +79,11 @@ var indexMigrations = []indexMigration{
 		Version: 1,
 		Apply:   backfillGrantPrincipalResourceTypeIndex,
 	},
+	{
+		Name:    "grant_entitlement_resource_index",
+		Version: 1,
+		Apply:   backfillGrantEntitlementResourceIndex,
+	},
 }
 
 // applyIndexMigrations runs on engine Open (writable opens only —
@@ -222,6 +227,68 @@ const migrationBatchKeys = 10_000
 // older indexes (entitlement/principal/needs_expansion) is a cheap
 // no-op Set.
 func backfillGrantPrincipalResourceTypeIndex(ctx context.Context, e *Engine) error {
+	syncIDs, err := collectSyncIDs(ctx, e)
+	if err != nil {
+		return err
+	}
+	for _, syncID := range syncIDs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		idBytes, err := codec.EncodeSyncID(syncID)
+		if err != nil {
+			return fmt.Errorf("encode sync_id %q: %w", syncID, err)
+		}
+		batch := e.db.NewBatch()
+		count := 0
+		var loopErr error
+		if iterErr := e.IterateGrantsBySync(ctx, syncID, func(r *v3.GrantRecord) bool {
+			if loopErr = ctx.Err(); loopErr != nil {
+				return false
+			}
+			if loopErr = e.writeGrantIndexes(batch, idBytes, r); loopErr != nil {
+				return false
+			}
+			count++
+			if count >= migrationBatchKeys {
+				if loopErr = batch.Commit(pebble.Sync); loopErr != nil {
+					return false
+				}
+				_ = batch.Close()
+				batch = e.db.NewBatch()
+				count = 0
+			}
+			return true
+		}); iterErr != nil {
+			_ = batch.Close()
+			return fmt.Errorf("iterate grants for sync %q: %w", syncID, iterErr)
+		}
+		if loopErr != nil {
+			_ = batch.Close()
+			return loopErr
+		}
+		if !batch.Empty() {
+			if err := batch.Commit(pebble.Sync); err != nil {
+				_ = batch.Close()
+				return err
+			}
+		}
+		_ = batch.Close()
+	}
+	return nil
+}
+
+// backfillGrantEntitlementResourceIndex re-emits all grant index
+// entries (including the new idxGrantByEntitlementResource) for every
+// sync. writeGrantIndexes is idempotent — re-emitting the older
+// indexes (entitlement / principal / principal_resource_type /
+// needs_expansion) is a cheap no-op Set.
+//
+// Required for any c1z written before idxGrantByEntitlementResource
+// existed. Without this backfill, Adapter.ListGrants(Resource=...)
+// and pebbleGrantStore.ListWithAnnotationsForResourcePage would
+// return empty results on existing files until they were re-synced.
+func backfillGrantEntitlementResourceIndex(ctx context.Context, e *Engine) error {
 	syncIDs, err := collectSyncIDs(ctx, e)
 	if err != nil {
 		return err

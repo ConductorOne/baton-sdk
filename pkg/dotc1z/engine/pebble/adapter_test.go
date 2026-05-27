@@ -71,20 +71,37 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 		t.Errorf("ListGrants count: got %d, want 3", len(resp.GetList()))
 	}
 
-	// ListGrants filtered by principal alice → 2 grants.
+	// ListGrants filtered by entitlement-side resource (app/github)
+	// → all 3 grants live on this entitlement's resource. This is
+	// the SQLite-compatible semantic; principal-side filtering is
+	// what ListGrantsForPrincipal is for (see below).
 	resp, err = a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 		Resource: v2.Resource_builder{
 			Id: v2.ResourceId_builder{
-				ResourceType: "user",
-				Resource:     "alice",
+				ResourceType: "app",
+				Resource:     "github",
 			}.Build(),
 		}.Build(),
 	}.Build())
 	if err != nil {
-		t.Fatalf("ListGrants by principal: %v", err)
+		t.Fatalf("ListGrants by entitlement-resource: %v", err)
 	}
-	if len(resp.GetList()) != 2 {
-		t.Errorf("ListGrants alice count: got %d, want 2", len(resp.GetList()))
+	if len(resp.GetList()) != 3 {
+		t.Errorf("ListGrants entitlement-resource count: got %d, want 3", len(resp.GetList()))
+	}
+
+	// ListGrantsForPrincipal filtered by principal alice → 2 grants.
+	gforP, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		PrincipalId: v2.ResourceId_builder{
+			ResourceType: "user",
+			Resource:     "alice",
+		}.Build(),
+	}.Build())
+	if err != nil {
+		t.Fatalf("ListGrantsForPrincipal alice: %v", err)
+	}
+	if len(gforP.GetList()) != 2 {
+		t.Errorf("ListGrantsForPrincipal alice count: got %d, want 2", len(gforP.GetList()))
 	}
 
 	// GetGrant single.

@@ -867,9 +867,20 @@ func (b0 EntitlementRecord_builder) Build() *EntitlementRecord {
 }
 
 type GrantRecord struct {
-	state          protoimpl.MessageState `protogen:"hybrid.v1"`
-	SyncId         string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
-	ExternalId     string                 `protobuf:"bytes,2,opt,name=external_id,json=externalId,proto3" json:"external_id,omitempty"`
+	state      protoimpl.MessageState `protogen:"hybrid.v1"`
+	SyncId     string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
+	ExternalId string                 `protobuf:"bytes,2,opt,name=external_id,json=externalId,proto3" json:"external_id,omitempty"`
+	// entitlement carries TWO indexes:
+	//
+	//	by_entitlement              — keyed (entitlement_id, principal_rt, principal_id);
+	//	                              drives PaginateGrantsByEntitlement / ListGrantsForEntitlement.
+	//	by_entitlement_resource     — keyed (resource_type_id, resource_id); drives
+	//	                              Adapter.ListGrants and ListWithAnnotationsForResourcePage
+	//	                              when req.Resource is set (the entitlement-side resource
+	//	                              filter that matches SQLite's listGrantsGeneric).
+	//
+	// The codegen plugin emits the keyspace + write/delete hooks; the runtime
+	// wires through pkg/dotc1z/engine/pebble/keys.go + grants.go + paginate.go.
 	Entitlement    *EntitlementRef        `protobuf:"bytes,3,opt,name=entitlement,proto3" json:"entitlement,omitempty"`
 	Principal      *PrincipalRef          `protobuf:"bytes,4,opt,name=principal,proto3" json:"principal,omitempty"`
 	DiscoveredAt   *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=discovered_at,json=discoveredAt,proto3" json:"discovered_at,omitempty"`
@@ -1054,8 +1065,19 @@ func (x *GrantRecord) ClearExpansion() {
 type GrantRecord_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	SyncId         string
-	ExternalId     string
+	SyncId     string
+	ExternalId string
+	// entitlement carries TWO indexes:
+	//
+	//	by_entitlement              — keyed (entitlement_id, principal_rt, principal_id);
+	//	                              drives PaginateGrantsByEntitlement / ListGrantsForEntitlement.
+	//	by_entitlement_resource     — keyed (resource_type_id, resource_id); drives
+	//	                              Adapter.ListGrants and ListWithAnnotationsForResourcePage
+	//	                              when req.Resource is set (the entitlement-side resource
+	//	                              filter that matches SQLite's listGrantsGeneric).
+	//
+	// The codegen plugin emits the keyspace + write/delete hooks; the runtime
+	// wires through pkg/dotc1z/engine/pebble/keys.go + grants.go + paginate.go.
 	Entitlement    *EntitlementRef
 	Principal      *PrincipalRef
 	DiscoveredAt   *timestamppb.Timestamp

@@ -193,8 +193,13 @@ func (g pebbleGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken
 	return rows, next, nil
 }
 
-// ListWithAnnotationsForResourcePage filters by principal resource.
-// Uses the by_principal index for efficient lookup.
+// ListWithAnnotationsForResourcePage filters by the entitlement-side
+// resource of each grant — matches the SQLite `c1FileGrantStore`
+// path and the GrantStore interface comment ("grants ON the given
+// resource"). Used by the c1-side fileClientWrapper that emulates a
+// connector from a c1z file and forwards a ListGrants RPC whose
+// request has a Resource filter. Uses the by_entitlement_resource
+// index for efficient lookup.
 func (g pebbleGrantStore) ListWithAnnotationsForResourcePage(
 	ctx context.Context,
 	resource *v2.Resource,
@@ -212,7 +217,7 @@ func (g pebbleGrantStore) ListWithAnnotationsForResourcePage(
 		return nil, "", ErrNoCurrentSync
 	}
 	limit := clampPageSize(pageSize)
-	records, next, err := g.a.engine.PaginateGrantsByPrincipal(ctx, syncID,
+	records, next, err := g.a.engine.PaginateGrantsByEntitlementResource(ctx, syncID,
 		resource.GetId().GetResourceType(), resource.GetId().GetResource(),
 		pageToken, limit)
 	if err != nil {
