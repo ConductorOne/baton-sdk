@@ -276,14 +276,15 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 }
 
 func parseStats(ctx context.Context, statsBytes *[]byte) *reader_v2.SyncStats {
-	ret := &reader_v2.SyncStats{}
 	if statsBytes == nil || len(*statsBytes) == 0 {
-		return ret
+		return nil
 	}
+	ret := &reader_v2.SyncStats{}
 	err := json.Unmarshal(*statsBytes, ret)
 	if err != nil {
 		// Ignore error parsing stats. We will recalculate them if Stats() is called.
 		ctxzap.Extract(ctx).Warn("error parsing stats", zap.Error(err))
+		return nil
 	}
 	return ret
 }
