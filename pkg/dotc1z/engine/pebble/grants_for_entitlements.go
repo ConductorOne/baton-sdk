@@ -31,7 +31,7 @@ func (a *Adapter) ListGrantsForEntitlements(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementsResponse, error) {
-	syncID, err := a.resolveActiveSyncForReader(req.GetAnnotations())
+	syncID, err := a.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}

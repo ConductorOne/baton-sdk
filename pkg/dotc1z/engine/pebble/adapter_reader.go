@@ -28,7 +28,7 @@ import (
 // GetEntitlement fetches a single entitlement by ID. Implements
 // reader_v2.EntitlementsReaderServiceServer.
 func (a *Adapter) GetEntitlement(ctx context.Context, req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
-	syncID, err := a.resolveActiveSyncForReader(req.GetAnnotations())
+	syncID, err := a.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func (a *Adapter) GetEntitlement(ctx context.Context, req *reader_v2.Entitlement
 // GetResource fetches a single resource by (resource_type_id,
 // resource_id). Implements reader_v2.ResourcesReaderServiceServer.
 func (a *Adapter) GetResource(ctx context.Context, req *reader_v2.ResourcesReaderServiceGetResourceRequest) (*reader_v2.ResourcesReaderServiceGetResourceResponse, error) {
-	syncID, err := a.resolveActiveSyncForReader(req.GetAnnotations())
+	syncID, err := a.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (a *Adapter) GetResource(ctx context.Context, req *reader_v2.ResourcesReade
 // GetResourceType fetches a single resource_type by ID. Implements
 // reader_v2.ResourceTypesReaderServiceServer.
 func (a *Adapter) GetResourceType(ctx context.Context, req *reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest) (*reader_v2.ResourceTypesReaderServiceGetResourceTypeResponse, error) {
-	syncID, err := a.resolveActiveSyncForReader(req.GetAnnotations())
+	syncID, err := a.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (a *Adapter) ListResourcesByIds(
 	ctx context.Context,
 	req *reader_v2.ResourcesReaderServiceListResourcesByIdsRequest,
 ) (*reader_v2.ResourcesReaderServiceListResourcesByIdsResponse, error) {
-	syncID, err := a.resolveActiveSyncForReader(req.GetAnnotations())
+	syncID, err := a.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func (a *Adapter) ListEntitlementsByIds(
 	ctx context.Context,
 	req *reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest,
 ) (*reader_v2.EntitlementsReaderServiceListEntitlementsByIdsResponse, error) {
-	syncID, err := a.resolveActiveSyncForReader(req.GetAnnotations())
+	syncID, err := a.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (a *Adapter) ListGrantsForEntitlement(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
-	syncID, err := a.resolveActiveSyncForReader(req.GetAnnotations())
+	syncID, err := a.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +280,7 @@ func (a *Adapter) ListGrantsForPrincipal(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
-	syncID, err := a.resolveActiveSyncForReader(req.GetAnnotations())
+	syncID, err := a.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +324,7 @@ func (a *Adapter) ListGrantsForResourceType(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForResourceTypeResponse, error) {
-	syncID, err := a.resolveActiveSyncForReader(req.GetAnnotations())
+	syncID, err := a.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -486,24 +486,7 @@ func v3SyncTypeToString(t v3.SyncType) string {
 	return ""
 }
 
-// resolveActiveSyncForReader resolves the sync_id for a Reader-side
-// request (Get*/ListXxxByIds). Priority matches the SQLite path's
-// `resolveSyncIDForRead` (pkg/dotc1z/bulk_by_ids.go):
-//
-//  1. c1zpb.SyncDetails annotation on req.Annotations — lets the
-//     syncer's etag-replay path (pkg/sync/syncer.go's
-//     `fetchResourceForPreviousSync`) scope a Get to the previous
-//     sync without having to flip the adapter's currentSyncID.
-//  2. The adapter's current sync (set by StartNewSync / SetCurrentSync).
-//  3. The most recent finished sync (for queries against a closed file).
-//
-// Without (3) a Reader call after EndSync would return ErrNoCurrentSync
-// even though the data is right there on disk; the cross-engine parity
-// test caught that divergence.
-//
-// A malformed SyncDetails annotation surfaces as a non-nil error so
-// callers don't silently fall through to the wrong sync.
-func (a *Adapter) resolveActiveSyncForReader(annos []*anypb.Any) (string, error) {
+func (a *Adapter) resolveActiveSyncForReader(ctx context.Context, annos []*anypb.Any) (string, error) {
 	annoSyncID, err := sdkannotations.GetSyncIdFromAnnotations(annos)
 	if err != nil {
 		return "", fmt.Errorf("pebble: read sync_id from annotations: %w", err)
@@ -514,7 +497,7 @@ func (a *Adapter) resolveActiveSyncForReader(annos []*anypb.Any) (string, error)
 	if id := a.currentSyncID(); id != "" {
 		return id, nil
 	}
-	if id, err := a.LatestFinishedSyncID(context.Background(), connectorstore.SyncTypeAny); err == nil && id != "" {
+	if id, err := a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny); err == nil && id != "" {
 		return id, nil
 	}
 	return "", nil

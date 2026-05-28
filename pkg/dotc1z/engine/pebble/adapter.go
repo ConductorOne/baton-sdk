@@ -18,7 +18,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
-	sdkannotations "github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
@@ -515,7 +514,7 @@ func (a *Adapter) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequ
 //     resource columns). Callers who want to filter by principal
 //     should use ListGrantsForPrincipal instead.
 func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
-	syncID, err := a.resolveActiveSync(req.GetActiveSyncId(), req.GetAnnotations())
+	syncID, err := a.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -556,7 +555,7 @@ func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrant
 // range and post-filter — adding a by_resource_type index is a
 // future-work item if this path becomes hot.
 func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
-	syncID, err := a.resolveActiveSync(req.GetActiveSyncId(), req.GetAnnotations())
+	syncID, err := a.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -678,7 +677,7 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 // ListResourceTypes returns up to page_size resource_types. Pagination
 // matches SQLite (see ListGrants).
 func (a *Adapter) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesServiceListResourceTypesRequest) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
-	syncID, err := a.resolveActiveSync(req.GetActiveSyncId(), req.GetAnnotations())
+	syncID, err := a.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -704,7 +703,7 @@ func (a *Adapter) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesSe
 // filtered by Resource (resource_type_id, resource_id). Pagination
 // matches SQLite (see ListGrants).
 func (a *Adapter) ListEntitlements(ctx context.Context, req *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
-	syncID, err := a.resolveActiveSync(req.GetActiveSyncId(), req.GetAnnotations())
+	syncID, err := a.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -835,37 +834,18 @@ func (a *Adapter) currentSyncID() string {
 //  1. req.ActiveSyncId — explicit top-level override on the proto
 //     request. Pebble-specific (SQLite ignores this field today);
 //     kept first so existing callers that wired it continue to win.
-//  2. c1zpb.SyncDetails annotation on req.Annotations — the contract
-//     pkg/sync/syncer.go's etag-replay path relies on
-//     (`fetchEtaggedGrantsForResource` scopes its read to the
-//     previous sync via this annotation). Matches SQLite's
-//     pkg/dotc1z/sql_helpers.go `resolveSyncID`.
-//  3. The adapter's current sync (set by StartNewSync / SetCurrentSync).
-//  4. The most-recent finished sync of any type. Lets Reader calls
-//     against a closed c1z resolve to its stored data (caught by the
-//     cross-engine parity test).
+//  2. Everything resolveActiveSyncForReader resolves: the
+//     c1zpb.SyncDetails annotation, then the adapter's current sync,
+//     then the most-recent finished sync.
 //
 // Returns ("", nil) when no sync resolves. A malformed SyncDetails
 // annotation surfaces as a non-nil error so callers don't silently
 // fall through to the wrong sync.
-func (a *Adapter) resolveActiveSync(reqSyncID string, annos []*anypb.Any) (string, error) {
+func (a *Adapter) resolveActiveSync(ctx context.Context, reqSyncID string, annos []*anypb.Any) (string, error) {
 	if reqSyncID != "" {
 		return reqSyncID, nil
 	}
-	annoSyncID, err := sdkannotations.GetSyncIdFromAnnotations(annos)
-	if err != nil {
-		return "", fmt.Errorf("pebble: read sync_id from annotations: %w", err)
-	}
-	if annoSyncID != "" {
-		return annoSyncID, nil
-	}
-	if id := a.currentSyncID(); id != "" {
-		return id, nil
-	}
-	if id, err := a.LatestFinishedSyncID(context.Background(), connectorstore.SyncTypeAny); err == nil && id != "" {
-		return id, nil
-	}
-	return "", nil
+	return a.resolveActiveSyncForReader(ctx, annos)
 }
 
 // v2SyncTypeToV3 maps the connectorstore.SyncType string to the v3

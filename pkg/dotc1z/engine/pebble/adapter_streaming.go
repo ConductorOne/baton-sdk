@@ -18,7 +18,7 @@ func (a *Adapter) StreamGrants(
 ) iter.Seq2[*v2.Grant, error] {
 	return func(yield func(*v2.Grant, error) bool) {
 		if syncID == "" {
-			resolved, err := a.resolveActiveSyncForReader(nil)
+			resolved, err := a.resolveActiveSyncForReader(ctx, nil)
 			if err != nil {
 				yield(nil, err)
 				return
@@ -75,7 +75,7 @@ func (a *Adapter) StreamResources(
 ) iter.Seq2[*v2.Resource, error] {
 	return func(yield func(*v2.Resource, error) bool) {
 		if syncID == "" {
-			resolved, err := a.resolveActiveSyncForReader(nil)
+			resolved, err := a.resolveActiveSyncForReader(ctx, nil)
 			if err != nil {
 				yield(nil, err)
 				return
@@ -115,7 +115,7 @@ func (a *Adapter) StreamEntitlements(
 ) iter.Seq2[*v2.Entitlement, error] {
 	return func(yield func(*v2.Entitlement, error) bool) {
 		if syncID == "" {
-			resolved, err := a.resolveActiveSyncForReader(nil)
+			resolved, err := a.resolveActiveSyncForReader(ctx, nil)
 			if err != nil {
 				yield(nil, err)
 				return

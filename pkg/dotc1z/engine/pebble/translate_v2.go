@@ -117,12 +117,7 @@ func V3GrantToV2(r *v3.GrantRecord) *v2.Grant {
 		return nil
 	}
 	anns := r.GetAnnotations()
-	if exp := r.GetExpansion(); exp != nil {
-		annotation := v2.GrantExpandable_builder{
-			EntitlementIds:  exp.GetEntitlementIds(),
-			Shallow:         exp.GetShallow(),
-			ResourceTypeIds: exp.GetResourceTypeIds(),
-		}.Build()
+	if annotation := expansionRecordToV2(r.GetExpansion()); annotation != nil {
 		if a, err := anypb.New(annotation); err == nil {
 			anns = append(anns, a)
 		}
@@ -133,6 +128,24 @@ func V3GrantToV2(r *v3.GrantRecord) *v2.Grant {
 		Principal:   principalRefToStubResource(r.GetPrincipal()),
 		Annotations: anns,
 		Sources:     v3GrantSourcesToV2(r.GetSources()),
+	}.Build()
+}
+
+// expansionRecordToV2 translates a v3 GrantExpandableRecord into the
+// v2 GrantExpandable annotation. Returns nil when the record has no
+// expansion, so callers that gate on `Annotation != nil` (e.g. the
+// syncer's processGrantsWithExternalPrincipals and c1's
+// fileClientWrapper) stay correct. Mirrors the SQLite reader's
+// translation in pkg/dotc1z/c1file_store.go's
+// grantAnnotationRowsFromInternal.
+func expansionRecordToV2(exp *v3.GrantExpandableRecord) *v2.GrantExpandable {
+	if exp == nil {
+		return nil
+	}
+	return v2.GrantExpandable_builder{
+		EntitlementIds:  exp.GetEntitlementIds(),
+		Shallow:         exp.GetShallow(),
+		ResourceTypeIds: exp.GetResourceTypeIds(),
 	}.Build()
 }
 

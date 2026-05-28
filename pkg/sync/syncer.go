@@ -1732,6 +1732,32 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 			if g.GetEntitlement().GetId() != etagMatch.GetEntitlementId() {
 				continue
 			}
+
+			// Replayed grants are read back from the store, which on a
+			// slim engine (Pebble) returns an identity-only stub for
+			// grant.Entitlement.Resource. Downstream handling in
+			// syncGrantsForResource reads rich fields off that resource
+			// (InsertResourceGrants re-writes it to the resources table;
+			// the related-resource fetch reads its parent). That is only
+			// safe because the grant's entitlement-resource equals the
+			// resource we're syncing — which the syncGrantsForResource
+			// etag-update re-writes full afterward, masking any stub.
+			//
+			// That equality is enforced by the ListGrants(Resource=...)
+			// filter above, not by the data model, so assert it. If it
+			// is ever violated, a stub resource for some OTHER resource
+			// would be persisted (no etag-update to mask it) — fail loud
+			// here rather than corrupt the resources table silently.
+			gr := g.GetEntitlement().GetResource().GetId()
+			if gr.GetResourceType() != resource.GetId().GetResourceType() ||
+				gr.GetResource() != resource.GetId().GetResource() {
+				return nil, false, fmt.Errorf(
+					"etag replay: grant %q entitlement-resource %s/%s does not match synced resource %s/%s",
+					g.GetId(),
+					gr.GetResourceType(), gr.GetResource(),
+					resource.GetId().GetResourceType(), resource.GetId().GetResource(),
+				)
+			}
 			ret = append(ret, g)
 		}
 
