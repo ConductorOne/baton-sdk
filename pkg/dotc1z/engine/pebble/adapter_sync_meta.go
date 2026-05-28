@@ -96,6 +96,7 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) *dotc1z.SyncRun {
 		Type:         syncTypeV3ToConnectorstore(r.GetType()),
 		SyncToken:    r.GetSyncToken(),
 		ParentSyncID: r.GetParentSyncId(),
+		LinkedSyncID: r.GetLinkedSyncId(),
 		SupportsDiff: r.GetSupportsDiff(),
 	}
 	if t := r.GetStartedAt(); t != nil {

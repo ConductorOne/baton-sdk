@@ -1359,6 +1359,8 @@ func (m *SyncRunRecord) validate(all bool) error {
 
 	// no validation rules for SupportsDiff
 
+	// no validation rules for LinkedSyncId
+
 	if len(errors) > 0 {
 		return SyncRunRecordMultiError(errors)
 	}

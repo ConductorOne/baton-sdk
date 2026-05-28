@@ -216,6 +216,7 @@ message SyncRunRecord {
   google.protobuf.Timestamp ended_at = 5;
   string sync_token = 6;
   bool supports_diff = 7;
+  string linked_sync_id = 8;
 }
 
 // SyncStatsRecord is the engine-internal sidecar populated at

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
@@ -51,4 +52,5 @@ type SyncRun struct {
 	ParentSyncID string
 	LinkedSyncID string
 	SupportsDiff bool
+	Stats        *reader_v2.SyncStats
 }

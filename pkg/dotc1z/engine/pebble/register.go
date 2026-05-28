@@ -7,10 +7,15 @@ import (
 	"iter"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
+
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
@@ -62,6 +67,8 @@ func (driver) OpenStore(ctx context.Context, outputFilePath string, opts dotc1z.
 		tmpDir:          tmpDir,
 		readOnly:        opts.ReadOnly,
 		payloadEncoding: opts.PayloadEncoding,
+		syncLimit:       opts.SyncLimit,
+		skipCleanup:     opts.SkipCleanup,
 	}, nil
 }
 
@@ -106,6 +113,13 @@ type registeredStore struct {
 	tmpDir          string
 	readOnly        bool
 	payloadEncoding dotc1z.PayloadEncoding
+
+	// syncLimit and skipCleanup mirror StoreOptions and feed into
+	// Cleanup. The Adapter intentionally has no awareness of these
+	// — retention policy is an envelope-writer concern, not an
+	// engine-keyspace concern.
+	syncLimit   int
+	skipCleanup bool
 
 	closeMu sync.Mutex
 	closed  bool
@@ -182,6 +196,199 @@ func (s *registeredStore) CheckpointSync(ctx context.Context, syncToken string) 
 
 func (s *registeredStore) EndSync(ctx context.Context) error {
 	return s.markDirty(s.Adapter.EndSync(ctx))
+}
+
+// Cleanup prunes old sync data per the SDK retention policy. The
+// Adapter-level Cleanup is a no-op (it doesn't have access to the
+// retention options); the registeredStore owns those options and
+// drives the policy here.
+//
+// Mirrors (*dotc1z.C1File).Cleanup: gather sync_runs, apply
+// dotc1z.SelectSyncsToDelete, range-delete every keyspace scoped
+// to each pruned sync, then compact + flush so the next checkpoint
+// sees the reclaimed bytes (the Pebble analogue of SQLite VACUUM).
+//
+// Cancellation model — three passes with different urgency:
+//
+//   - Pass 1 (logical deletions): once we've committed to a
+//     toDelete list, we finish every DeleteSyncData call we can.
+//     Each is microseconds (tombstones-only). Between syncs we
+//     check ctx as a safety valve for pathological "thousands of
+//     deletes + write stall" cases; if we bail mid-pass we return
+//     ctx.Err() so syncer.go:531 marks the sync ErrSyncNotComplete
+//     and reattempts on the next run.
+//
+//   - Pass 2 (compaction): purely opportunistic. Compact rewrites
+//     SSTs (seconds to minutes) and pebble's background compactor
+//     handles eventual disk reclamation regardless of whether we
+//     run it here. We skip the whole pass on ctx cancel and log
+//     per-sync failures as warnings — neither blocks Cleanup from
+//     reporting success.
+//
+//   - Pass 3 (flush): also opportunistic. Skipped on ctx cancel
+//     because the dirty flag we set up-front guarantees Close →
+//     CheckpointTo will flush at the next safe boundary.
+//
+// Net effect: if the syncer's runDuration expires mid-Cleanup,
+// every logical deletion we managed to start completes (so the
+// next Cleanup re-selects against an accurate post-prune view),
+// and we return ctx.Err() to signal the syncer to retry. If the
+// budget expires only during the opportunistic passes, the syncer
+// sees a successful Cleanup and the sync proceeds normally —
+// pebble's background work catches up on the disk reclamation.
+func (s *registeredStore) Cleanup(ctx context.Context) error {
+	l := ctxzap.Extract(ctx)
+
+	if s.skipCleanup {
+		l.Info("skip_cleanup option is set, skipping cleanup of old syncs")
+		return nil
+	}
+	if dotc1z.CleanupSkippedByEnv() {
+		l.Info("BATON_SKIP_CLEANUP is set, skipping cleanup of old syncs")
+		return nil
+	}
+	if s.readOnly {
+		return nil
+	}
+
+	candidates, err := s.collectCleanupCandidates(ctx)
+	if err != nil {
+		return err
+	}
+
+	currentSyncID := s.currentSyncID()
+	syncLimit := dotc1z.ResolveCleanupSyncLimit(s.syncLimit, currentSyncID != "")
+	l.Debug("found syncs",
+		zap.Int("candidate_count", len(candidates)),
+		zap.Int("sync_limit", syncLimit))
+
+	toDelete := dotc1z.SelectSyncsToDelete(candidates, currentSyncID, syncLimit)
+	if len(toDelete) == 0 {
+		return nil
+	}
+	// Mark dirty before any LSM mutation. A Cleanup that successfully
+	// tombstoned one sync and then errored (context cancel, Compact
+	// panic, Flush failure) must still drive Close → save →
+	// CheckpointTo so the on-disk envelope reflects the in-memory
+	// deletions. Otherwise reopening the c1z would resurrect the
+	// pruned syncs.
+	s.closeMu.Lock()
+	s.dirty = true
+	s.closeMu.Unlock()
+
+	l.Info("Cleaning up old sync data...",
+		zap.Int("delete_count", len(toDelete)),
+		zap.Int("sync_limit", syncLimit))
+
+	// === Pass 1: logical deletions (must complete) ===
+	deleted := 0
+	for _, id := range toDelete {
+		if err := ctx.Err(); err != nil {
+			l.Info("pebble Cleanup: interrupted mid-pass; remaining syncs deferred to next run",
+				zap.Int("deleted", deleted),
+				zap.Int("remaining", len(toDelete)-deleted),
+				zap.Error(err))
+			return err
+		}
+		if err := s.engine.DeleteSyncData(ctx, id); err != nil {
+			return fmt.Errorf("pebble Cleanup: DeleteSyncData(%q): %w", id, err)
+		}
+		l.Info("Removed old sync data.", zap.String("sync_id", id))
+		deleted++
+	}
+
+	// === Pass 2: opportunistic compaction ===
+	// Skip on cancellation — pebble's background compactor will
+	// reclaim the deleted bytes asynchronously, and a re-run of
+	// Cleanup won't (and doesn't need to) reattempt compaction
+	// because previously-deleted syncs aren't in the next
+	// toDelete list. This is a soft permanent skip; the bg
+	// compactor is the eventual cleanup path.
+	compacted := 0
+	for _, id := range toDelete {
+		if ctx.Err() != nil {
+			l.Info("pebble Cleanup: compaction pass interrupted; deferring to background compactor",
+				zap.Int("compacted", compacted),
+				zap.Int("remaining", len(toDelete)-compacted))
+			break
+		}
+		if err := s.engine.CompactSyncRanges(ctx, id); err != nil {
+			l.Warn("pebble Cleanup: CompactSyncRanges failed; tombstones will linger until background compaction",
+				zap.String("sync_id", id),
+				zap.Error(err))
+		}
+		compacted++
+	}
+
+	// === Pass 3: opportunistic flush ===
+	// Skip on cancellation. Close → CheckpointTo Flushes anyway,
+	// and the dirty flag we set up-front guarantees Close runs the
+	// save path. The only failure mode skipping Flush opens is
+	// "process crashes between Cleanup return and Close call" —
+	// pebble's WAL recovery handles that, so the tombstones survive
+	// either way.
+	if ctx.Err() == nil {
+		if err := s.engine.Flush(ctx); err != nil {
+			l.Warn("pebble Cleanup: Flush failed; tombstones will flush at Close",
+				zap.Error(err))
+		}
+	}
+	return nil
+}
+
+// collectCleanupCandidates walks every sync_run record and projects
+// it into the engine-neutral SyncCleanupCandidate shape, sorted
+// oldest-first. SelectSyncsToDelete depends on this ordering so
+// "drop the oldest overflow" trims the right end.
+//
+// We sort explicitly rather than trust IterateAllSyncRuns' order:
+// the iterator walks by sync_id (KSUID), and KSUIDs only encode the
+// timestamp to second resolution. Two syncs created in the same
+// second sort by the 16-byte random tail rather than chronologically,
+// which would silently pick the wrong sync to prune. Sorting on
+// started_at (with sync_id tiebreaker) matches the SQLite engine's
+// ListSyncRuns ORDER BY id ASC semantics.
+func (s *registeredStore) collectCleanupCandidates(ctx context.Context) ([]dotc1z.SyncRun, error) {
+	var out []dotc1z.SyncRun
+	err := s.engine.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
+		cand := dotc1z.SyncRun{
+			ID:           r.GetSyncId(),
+			Type:         syncTypeV3ToConnectorstore(r.GetType()),
+			SyncToken:    r.GetSyncToken(),
+			ParentSyncID: r.GetParentSyncId(),
+			SupportsDiff: r.GetSupportsDiff(),
+			LinkedSyncID: r.GetLinkedSyncId(),
+		}
+		if t := r.GetStartedAt(); t != nil {
+			tt := t.AsTime()
+			cand.StartedAt = &tt
+		}
+		if t := r.GetEndedAt(); t != nil {
+			tt := t.AsTime()
+			cand.EndedAt = &tt
+		}
+		out = append(out, cand)
+		return true
+	})
+	if err != nil {
+		return nil, fmt.Errorf("pebble Cleanup: IterateAllSyncRuns: %w", err)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		ti, tj := out[i].StartedAt, out[j].StartedAt
+		switch {
+		case ti == nil && tj == nil:
+			return out[i].ID < out[j].ID
+		case ti == nil:
+			return true
+		case tj == nil:
+			return false
+		case ti.Equal(*tj):
+			return out[i].ID < out[j].ID
+		default:
+			return ti.Before(*tj)
+		}
+	})
+	return out, nil
 }
 
 func (s *registeredStore) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
