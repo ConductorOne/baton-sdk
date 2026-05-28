@@ -19,17 +19,8 @@ import (
 
 var tracer = otel.Tracer("baton-sdk/pkg.dotc1z.manager.s3")
 
-// s3PutClient is the subset of us3.S3Client the manager uses.
-// Production callers continue to pass a concrete *us3.S3Client into
-// NewS3Manager (it satisfies the interface); tests inject a fake that
-// records the call without standing up an S3 fake.
-type s3PutClient interface {
-	PutWithVerify(ctx context.Context, key string, r io.Reader, expectedSize int64, contentType string) error
-	Get(ctx context.Context, key string) (io.Reader, error)
-}
-
 type s3Manager struct {
-	client         s3PutClient
+	client         *us3.S3Client
 	fileName       string
 	tmpFile        string
 	tmpDir         string
@@ -151,15 +142,16 @@ func (s *s3Manager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 }
 
 // SaveC1Z saves a file to the AWS S3 bucket.
-//
-// Stats the local tmp file up-front so the underlying us3 client can
-// verify both that the source read produced the expected byte count
-// (catches truncated local reads) and that the committed S3 object
-// matches that same count (catches truncated multipart uploads).
 func (s *s3Manager) SaveC1Z(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "s3Manager.SaveC1Z")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	f, err := os.Open(s.tmpFile)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 
 	if s.client == nil {
 		return fmt.Errorf("attempting to save to s3 without a valid client")
@@ -169,19 +161,7 @@ func (s *s3Manager) SaveC1Z(ctx context.Context) error {
 		return fmt.Errorf("attempting to save to s3 without a valid file path specified")
 	}
 
-	f, err := os.Open(s.tmpFile)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	stat, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("s3Manager.SaveC1Z: stat tmp file: %w", err)
-	}
-	expectedSize := stat.Size()
-
-	err = s.client.PutWithVerify(ctx, s.fileName, f, expectedSize, "application/c1z")
+	err = s.client.Put(ctx, s.fileName, f, "application/c1z")
 	if err != nil {
 		return err
 	}
