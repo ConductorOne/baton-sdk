@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -442,7 +443,7 @@ func TestWriteEnvelopeCanceledMidWalk(t *testing.T) {
 	// chosen so sort order is deterministic and the cancel fires
 	// after the first few entries.
 	for i := 0; i < 32; i++ {
-		name := filepath.Join(srcDir, "entry-"+string(rune('a'+i)))
+		name := filepath.Join(srcDir, fmt.Sprintf("entry-%02d", i))
 		if err := os.WriteFile(name, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
