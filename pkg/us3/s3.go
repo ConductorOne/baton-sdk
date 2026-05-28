@@ -512,6 +512,11 @@ type Upload struct {
 // HeadObject both report the same short value. Use PutWithVerify with
 // a known size when that case matters (e.g. uploading a *os.File you
 // have Stat'd).
+//
+// IAM permissions: in addition to s3:PutObject, callers now also need
+// s3:HeadObject (post-upload size verify) and s3:DeleteObject
+// (truncation cleanup). Existing downstream consumers of this SDK may
+// need to widen their bucket policy before upgrading.
 func (s *S3Client) Put(ctx context.Context, key string, r io.Reader, contentType string) error {
 	return s.PutWithVerify(ctx, key, r, -1, contentType)
 }
