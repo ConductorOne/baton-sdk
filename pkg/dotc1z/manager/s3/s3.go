@@ -142,16 +142,15 @@ func (s *s3Manager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 }
 
 // SaveC1Z saves a file to the AWS S3 bucket.
+//
+// Stats the local tmp file up-front so the underlying us3 client can
+// verify both that the source read produced the expected byte count
+// (catches truncated local reads) and that the committed S3 object
+// matches that same count (catches truncated multipart uploads).
 func (s *s3Manager) SaveC1Z(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "s3Manager.SaveC1Z")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
-	f, err := os.Open(s.tmpFile)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
 
 	if s.client == nil {
 		return fmt.Errorf("attempting to save to s3 without a valid client")
@@ -161,7 +160,19 @@ func (s *s3Manager) SaveC1Z(ctx context.Context) error {
 		return fmt.Errorf("attempting to save to s3 without a valid file path specified")
 	}
 
-	err = s.client.Put(ctx, s.fileName, f, "application/c1z")
+	f, err := os.Open(s.tmpFile)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	stat, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("s3Manager.SaveC1Z: stat tmp file: %w", err)
+	}
+	expectedSize := stat.Size()
+
+	err = s.client.PutWithVerify(ctx, s.fileName, f, expectedSize, "application/c1z")
 	if err != nil {
 		return err
 	}
