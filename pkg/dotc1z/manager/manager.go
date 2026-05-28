@@ -7,7 +7,8 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager/local"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager/s3"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Manager interface {
@@ -38,8 +39,7 @@ func WithDecoderOptions(opts ...dotc1z.DecoderOption) ManagerOption {
 
 // Given a file path, return a Manager that can read and write files to that path.
 //
-// The first thing we do is check if the file path starts with "s3://". If it does, we return a new
-// S3Manager. If it doesn't, we return a new LocalManager.
+// Previously, this supported S3. This was never used, and has been removed.
 func New(ctx context.Context, filePath string, opts ...ManagerOption) (Manager, error) {
 	options := &managerOptions{}
 
@@ -49,14 +49,7 @@ func New(ctx context.Context, filePath string, opts ...ManagerOption) (Manager, 
 
 	switch {
 	case strings.HasPrefix(filePath, "s3://"):
-		var s3Opts []s3.Option
-		if options.tmpDir != "" {
-			s3Opts = append(s3Opts, s3.WithTmpDir(options.tmpDir))
-		}
-		if len(options.decoderOptions) > 0 {
-			s3Opts = append(s3Opts, s3.WithDecoderOptions(options.decoderOptions...))
-		}
-		return s3.NewS3Manager(ctx, filePath, s3Opts...)
+		return nil, status.Errorf(codes.Unimplemented, "s3 support is not implemented")
 	default:
 		var localOpts []local.Option
 		if options.tmpDir != "" {
