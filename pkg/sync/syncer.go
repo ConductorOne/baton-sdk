@@ -2683,23 +2683,43 @@ func (s *syncer) wireCountsDBSizeProvider() {
 }
 
 // Close closes the datastorage to ensure it is updated on disk.
+//
+// The store close, SaveC1Z (S3 upload), and manager close all run on a
+// context detached from the caller's cancellation. Caller may be a
+// Temporal activity whose deadline has already fired or is about to; we
+// still need to commit the c1z and upload it cleanly. The detached
+// context is bounded by dotc1z.FinalizeTimeout() so a wedged finalize
+// cannot pin a worker indefinitely. A new-root span linked to syncer.Close
+// keeps the upload subtree from inflating very long sync traces.
 func (s *syncer) Close(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.Close")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
+	parentCtxErrLabel := uotel.ClassifyCtxErr(ctx.Err())
+	timeout := dotc1z.FinalizeTimeout()
+	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+	finalizeCtx, finalizeSpan := uotel.StartWithLink(finalizeCtx, tracer, "syncer.finalize")
+	finalizeSpan.SetAttributes(
+		attribute.Bool("c1z.finalize.cancel_observed", parentCtxErrLabel != "nil"),
+		attribute.String("c1z.finalize.parent_ctx_err", parentCtxErrLabel),
+		attribute.Int64("c1z.finalize.timeout_seconds", int64(timeout.Seconds())),
+	)
+	defer func() { uotel.EndSpanWithError(finalizeSpan, err) }()
+
 	var errs []error
 
 	var storeCloseErr error
 	if s.store != nil {
-		storeCloseErr = s.store.Close(ctx)
+		storeCloseErr = s.store.Close(finalizeCtx)
 		if storeCloseErr != nil {
 			errs = append(errs, fmt.Errorf("error closing store: %w", storeCloseErr))
 		}
 	}
 
 	if s.externalResourceReader != nil {
-		if err := s.externalResourceReader.Close(ctx); err != nil {
+		if err := s.externalResourceReader.Close(finalizeCtx); err != nil {
 			errs = append(errs, fmt.Errorf("error closing external resource reader: %w", err))
 		}
 	}
@@ -2709,18 +2729,19 @@ func (s *syncer) Close(ctx context.Context) error {
 		// failed to close (e.g. WAL checkpoint failure), saving would
 		// persist a potentially corrupt state.
 		if storeCloseErr == nil {
-			if err := s.c1zManager.SaveC1Z(ctx); err != nil {
+			if err := s.c1zManager.SaveC1Z(finalizeCtx); err != nil {
 				errs = append(errs, err)
 			}
 		}
 		// Always close the manager to clean up temp files, even if save
 		// was skipped or failed.
-		if err := s.c1zManager.Close(ctx); err != nil {
+		if err := s.c1zManager.Close(finalizeCtx); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	return errors.Join(errs...)
+	err = errors.Join(errs...)
+	return err
 }
 
 type SyncOpt func(s *syncer)

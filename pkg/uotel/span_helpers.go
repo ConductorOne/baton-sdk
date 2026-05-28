@@ -38,6 +38,23 @@ func StartWithLink(
 	return tracer.Start(ctx, name, opts...)
 }
 
+// ClassifyCtxErr maps a context error to a low-cardinality enum label
+// suitable for a span attribute: "nil", "canceled", "deadline_exceeded",
+// or "other" for anything that doesn't unwrap to one of the standard
+// context sentinels.
+func ClassifyCtxErr(err error) string {
+	switch {
+	case err == nil:
+		return "nil"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	default:
+		return "other"
+	}
+}
+
 // IsExpectedError returns true for errors that are expected during normal
 // operation and should not be recorded as span errors.
 func IsExpectedError(err error) bool {
