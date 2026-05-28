@@ -48,7 +48,6 @@ github.com/aws/aws-lambda-go/lambdacontext
 # github.com/aws/aws-sdk-go-v2 v1.41.7
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/aws
-github.com/aws/aws-sdk-go-v2/aws/arn
 github.com/aws/aws-sdk-go-v2/aws/defaults
 github.com/aws/aws-sdk-go-v2/aws/middleware
 github.com/aws/aws-sdk-go-v2/aws/protocol/query
@@ -93,10 +92,6 @@ github.com/aws/aws-sdk-go-v2/credentials/stscreds
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/feature/ec2/imds
 github.com/aws/aws-sdk-go-v2/feature/ec2/imds/internal/config
-# github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.1.21
-## explicit; go 1.24
-github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager
-github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types
 # github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.23
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/internal/configsources
@@ -111,29 +106,14 @@ github.com/aws/aws-sdk-go-v2/internal/v4a/internal/v4
 # github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.9
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding
-# github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.15
-## explicit; go 1.24
-github.com/aws/aws-sdk-go-v2/service/internal/checksum
 # github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.23
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url
-# github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.23
-## explicit; go 1.24
-github.com/aws/aws-sdk-go-v2/service/internal/s3shared
-github.com/aws/aws-sdk-go-v2/service/internal/s3shared/arn
-github.com/aws/aws-sdk-go-v2/service/internal/s3shared/config
 # github.com/aws/aws-sdk-go-v2/service/lambda v1.88.5
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/service/lambda
 github.com/aws/aws-sdk-go-v2/service/lambda/internal/endpoints
 github.com/aws/aws-sdk-go-v2/service/lambda/types
-# github.com/aws/aws-sdk-go-v2/service/s3 v1.101.0
-## explicit; go 1.24
-github.com/aws/aws-sdk-go-v2/service/s3
-github.com/aws/aws-sdk-go-v2/service/s3/internal/arn
-github.com/aws/aws-sdk-go-v2/service/s3/internal/customizations
-github.com/aws/aws-sdk-go-v2/service/s3/internal/endpoints
-github.com/aws/aws-sdk-go-v2/service/s3/types
 # github.com/aws/aws-sdk-go-v2/service/signin v1.0.11
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/service/signin
@@ -159,8 +139,6 @@ github.com/aws/aws-sdk-go-v2/service/sts/types
 github.com/aws/smithy-go
 github.com/aws/smithy-go/auth
 github.com/aws/smithy-go/auth/bearer
-github.com/aws/smithy-go/container/private/cache
-github.com/aws/smithy-go/container/private/cache/lru
 github.com/aws/smithy-go/context
 github.com/aws/smithy-go/document
 github.com/aws/smithy-go/encoding
