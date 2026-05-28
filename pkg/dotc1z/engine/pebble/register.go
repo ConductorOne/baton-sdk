@@ -351,19 +351,6 @@ func (s *registeredStore) Cleanup(ctx context.Context) error {
 func (s *registeredStore) collectCleanupCandidates(ctx context.Context) ([]dotc1z.SyncRun, error) {
 	var out []dotc1z.SyncRun
 	err := s.engine.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
-		// This is dormant today — Pebble doesn't ship end-to-end
-		// diff-sync writes yet (only the if_newer fast path mentions
-		// the type). When diff-sync support lands on Pebble:
-		//   1. Add `string linked_sync_id = 8` to
-		//      v3.SyncRunRecord and regenerate the codec/vt bindings.
-		//   2. Have Adapter.EndSync (and any future StartLinkedSync
-		//      path) persist the link, mirroring SQLite's
-		//      insertSyncRunWithLink.
-		//   3. Set cand.LinkedSyncID = r.GetLinkedSyncId() below.
-		// SelectSyncsToDelete's existing diff-pair branch then
-		// retains paired diffs automatically — no policy change
-		// needed.
-
 		cand := dotc1z.SyncRun{
 			ID:           r.GetSyncId(),
 			Type:         syncTypeV3ToConnectorstore(r.GetType()),
