@@ -503,12 +503,15 @@ type Upload struct {
 
 // Put uploads a file to AWS S3.
 //
-// Equivalent to PutWithVerify(ctx, key, r, -1, contentType): the upload
-// is still followed by a HeadObject that asserts the uploaded byte count
-// matches what the reader produced, and a truncated object is deleted on
-// detection. Pass a non-negative expectedSize via PutWithVerify when the
-// source size is known up-front (Stat, fixed buffer) to also catch
-// short-reads on the source.
+// Equivalent to PutWithVerify(ctx, key, r, -1, contentType). The
+// committed object size is still asserted against the bytes the SDK
+// read from r (via HeadObject), so a truncated multipart commit will
+// still surface as an error and be deleted. The remaining gap with
+// expectedSize=-1 is source-side truncation: a reader that silently
+// returns EOF early passes verification because bytesRead and
+// HeadObject both report the same short value. Use PutWithVerify with
+// a known size when that case matters (e.g. uploading a *os.File you
+// have Stat'd).
 func (s *S3Client) Put(ctx context.Context, key string, r io.Reader, contentType string) error {
 	return s.PutWithVerify(ctx, key, r, -1, contentType)
 }
@@ -523,23 +526,45 @@ func (s *S3Client) Put(ctx context.Context, key string, r io.Reader, contentType
 // Two guards address that:
 //
 //  1. Counting reader wraps r so we always know how many bytes our side
-//     fed into the SDK. If expectedSize >= 0, we additionally assert
+//     fed into the SDK. When expectedSize >= 0, we additionally assert
 //     that the source produced what the caller told us to expect.
+//     The sentinel -1 means "source size unknown" and skips the
+//     bytes-vs-expected check; the HeadObject-vs-bytesRead check still
+//     runs. expectedSize == 0 is a valid known size for an empty body.
 //  2. A HeadObject after Upload asserts S3 stored exactly bytesRead.
-//     On any mismatch we DeleteObject with a detached short-deadline ctx
-//     so a worker drain cannot leave a truncated object live in the
-//     bucket.
+//     On any mismatch we delete the just-uploaded object on a detached
+//     short-deadline context so a worker drain cannot leave a truncated
+//     object live in the bucket.
+//
+// PutWithVerify rejects an empty key and enforces s.cfg.maxFileSize
+// against expectedSize when both are positive — matching the
+// WithMaxDownloadFilesize docstring's "uploaded or downloaded" claim.
 //
 // A non-nil error from this method always means either the upload
 // failed, was incomplete, or the just-uploaded object has been deleted
 // (best-effort) and is not safe for consumers to read.
 func (s *S3Client) PutWithVerify(ctx context.Context, key string, r io.Reader, expectedSize int64, contentType string) error {
-	l := ctxzap.Extract(ctx)
+	if key == "" {
+		return fmt.Errorf("us3: PutWithVerify: key must not be empty")
+	}
+	if expectedSize >= 0 && !s.checkFilesize(expectedSize) {
+		return fmt.Errorf("us3: PutWithVerify: expectedSize %d exceeds configured max %d", expectedSize, s.cfg.maxFileSize)
+	}
 
 	s3svc, err := s.newConfiguredS3Client(ctx)
 	if err != nil {
 		return err
 	}
+	return s.putWithVerifyUsingClient(ctx, s3svc, key, r, expectedSize, contentType)
+}
+
+// putWithVerifyUsingClient is the upload-and-verify body of
+// PutWithVerify, factored out from the s3.Client construction so
+// tests can drive it against an httptest fake. Input validation
+// happens in PutWithVerify; callers of this helper must guarantee a
+// non-empty key and a size-checked expectedSize.
+func (s *S3Client) putWithVerifyUsingClient(ctx context.Context, s3svc *s3.Client, key string, r io.Reader, expectedSize int64, contentType string) error {
+	l := ctxzap.Extract(ctx)
 
 	counted := &countingReader{r: r}
 
@@ -571,14 +596,17 @@ func (s *S3Client) PutWithVerify(ctx context.Context, key string, r io.Reader, e
 		bytesRead,
 		expectedSize,
 		func(ctx context.Context, key string) (int64, error) {
-			info, err := s.ObjectInfo(ctx, key)
+			head, err := s3svc.HeadObject(ctx, &s3.HeadObjectInput{
+				Bucket: awsSdk.String(s.cfg.bucketName),
+				Key:    awsSdk.String(key),
+			})
 			if err != nil {
 				return 0, err
 			}
-			return info.ContentLength, nil
+			return awsSdk.ToInt64(head.ContentLength), nil
 		},
 		func(deleteCtx context.Context, deleteKey, reason string, br, exp int64) {
-			s.deleteAfterTruncation(deleteCtx, deleteKey, reason, br, exp)
+			s.deleteAfterTruncation(deleteCtx, s3svc, deleteKey, reason, br, exp)
 		},
 	)
 	if verifyErr != nil {
@@ -616,8 +644,14 @@ func verifyUpload(
 	deleter func(ctx context.Context, key, reason string, bytesRead, expected int64),
 ) (int64, error) {
 	if expectedSize >= 0 && bytesRead != expectedSize {
-		deleter(ctx, key, "source_short_read", bytesRead, expectedSize)
-		return 0, fmt.Errorf("us3: upload source short read: read %d, expected %d", bytesRead, expectedSize)
+		reason := "source_short_read"
+		direction := "short read"
+		if bytesRead > expectedSize {
+			reason = "source_over_read"
+			direction = "over-read"
+		}
+		deleter(ctx, key, reason, bytesRead, expectedSize)
+		return 0, fmt.Errorf("us3: upload source %s: read %d, expected %d", direction, bytesRead, expectedSize)
 	}
 
 	headLen, headErr := headObject(ctx, key)
@@ -632,35 +666,27 @@ func verifyUpload(
 	return headLen, nil
 }
 
-// DeleteObject removes a single object from the bucket. The caller is
-// responsible for choosing the context; PutWithVerify uses a detached
-// short-deadline context for best-effort cleanup of truncated uploads.
-func (s *S3Client) DeleteObject(ctx context.Context, key string) error {
-	s3svc, err := s.newConfiguredS3Client(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = s3svc.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: awsSdk.String(s.cfg.bucketName),
-		Key:    awsSdk.String(key),
-	})
-	return err
-}
-
-// deleteAfterTruncation issues a best-effort DeleteObject for an
-// upload that failed verification. Uses a detached, short-deadline
-// context so a caller cancel during drain cannot keep the truncated
-// object alive in S3. Failures are logged but not returned — the
-// primary error is the verification failure that brought us here.
-func (s *S3Client) deleteAfterTruncation(ctx context.Context, key, reason string, bytesRead, expected int64) {
+// deleteAfterTruncation issues a best-effort delete for an upload
+// that failed verification. Uses a detached, short-deadline context
+// so a caller cancel during drain cannot keep the truncated object
+// alive in S3. Failures are logged but not returned — the primary
+// error is the verification failure that brought us here.
+func (s *S3Client) deleteAfterTruncation(ctx context.Context, s3svc *s3.Client, key, reason string, bytesRead, expected int64) {
 	l := ctxzap.Extract(ctx)
 	delCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
-	delErr := s.DeleteObject(delCtx, key)
+	_, delErr := s3svc.DeleteObject(delCtx, &s3.DeleteObjectInput{
+		Bucket: awsSdk.String(s.cfg.bucketName),
+		Key:    awsSdk.String(key),
+	})
+	logDeleteAfterTruncation(l, s.cfg.bucketName, key, reason, bytesRead, expected, delErr)
+}
+
+func logDeleteAfterTruncation(l *zap.Logger, bucket, key, reason string, bytesRead, expected int64, delErr error) {
 	if delErr != nil {
 		l.Error("us3: failed to delete truncated upload",
 			zap.String("reason", reason),
-			zap.String("bucket", s.cfg.bucketName),
+			zap.String("bucket", bucket),
 			zap.String("key", key),
 			zap.Int64("bytes_read", bytesRead),
 			zap.Int64("expected", expected),
@@ -670,7 +696,7 @@ func (s *S3Client) deleteAfterTruncation(ctx context.Context, key, reason string
 	}
 	l.Warn("us3: deleted truncated upload",
 		zap.String("reason", reason),
-		zap.String("bucket", s.cfg.bucketName),
+		zap.String("bucket", bucket),
 		zap.String("key", key),
 		zap.Int64("bytes_read", bytesRead),
 		zap.Int64("expected", expected),

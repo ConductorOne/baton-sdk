@@ -57,29 +57,90 @@ type deleterRecorder struct {
 }
 
 type deleterCall struct {
+	ctx       context.Context
 	key       string
 	reason    string
 	bytesRead int64
 	expected  int64
 }
 
-func (r *deleterRecorder) fn(_ context.Context, key, reason string, br, exp int64) {
-	r.calls = append(r.calls, deleterCall{key: key, reason: reason, bytesRead: br, expected: exp})
+func (r *deleterRecorder) fn(ctx context.Context, key, reason string, br, exp int64) {
+	r.calls = append(r.calls, deleterCall{ctx: ctx, key: key, reason: reason, bytesRead: br, expected: exp})
+}
+
+// headRecorder counts and remembers the args of headObject calls so
+// happy-path tests can verify the HeadObject step actually ran (not
+// just the absence of a deleter call).
+type headRecorder struct {
+	calls   int
+	lastKey string
+}
+
+func (h *headRecorder) returning(contentLength int64) func(ctx context.Context, key string) (int64, error) {
+	return func(_ context.Context, key string) (int64, error) {
+		h.calls++
+		h.lastKey = key
+		return contentLength, nil
+	}
 }
 
 func TestVerifyUploadHappy(t *testing.T) {
 	rec := &deleterRecorder{}
+	head := &headRecorder{}
 	headLen, err := verifyUpload(
 		t.Context(),
 		"objects/example.c1z",
 		int64(1024),
 		int64(1024),
-		func(ctx context.Context, key string) (int64, error) { return 1024, nil },
+		head.returning(1024),
 		rec.fn,
 	)
 	require.NoError(t, err)
 	require.Equal(t, int64(1024), headLen)
 	require.Empty(t, rec.calls)
+	require.Equal(t, 1, head.calls, "HeadObject must be called on the happy path")
+	require.Equal(t, "objects/example.c1z", head.lastKey)
+}
+
+func TestVerifyUploadHappyEmptyBody(t *testing.T) {
+	// expectedSize=0 is a real known size for an empty body, distinct
+	// from the -1 sentinel. Must NOT trip the bytes-vs-expected check.
+	rec := &deleterRecorder{}
+	head := &headRecorder{}
+	headLen, err := verifyUpload(
+		t.Context(),
+		"objects/empty.c1z",
+		int64(0),
+		int64(0),
+		head.returning(0),
+		rec.fn,
+	)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), headLen)
+	require.Empty(t, rec.calls)
+	require.Equal(t, 1, head.calls)
+}
+
+func TestVerifyUploadEmptyExpectedButGotBytes(t *testing.T) {
+	// expectedSize=0 but bytesRead>0 — the over-read branch must
+	// fire, NOT a misleading "short read".
+	rec := &deleterRecorder{}
+	_, err := verifyUpload(
+		t.Context(),
+		"objects/empty.c1z",
+		int64(7),
+		int64(0),
+		func(_ context.Context, _ string) (int64, error) {
+			t.Fatalf("HeadObject must not be called when source over-read is detected first")
+			return 0, nil
+		},
+		rec.fn,
+	)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "over-read")
+	require.ErrorContains(t, err, "read 7, expected 0")
+	require.Len(t, rec.calls, 1)
+	require.Equal(t, "source_over_read", rec.calls[0].reason)
 }
 
 func TestVerifyUploadExpectedSizeMissing(t *testing.T) {
@@ -101,8 +162,9 @@ func TestVerifyUploadExpectedSizeMissing(t *testing.T) {
 
 func TestVerifyUploadSourceShortRead(t *testing.T) {
 	rec := &deleterRecorder{}
+	parentCtx := t.Context()
 	_, err := verifyUpload(
-		t.Context(),
+		parentCtx,
 		"objects/example.c1z",
 		int64(900),
 		int64(1024),
@@ -113,13 +175,19 @@ func TestVerifyUploadSourceShortRead(t *testing.T) {
 		rec.fn,
 	)
 	require.Error(t, err)
-	require.ErrorContains(t, err, "source short read")
+	require.ErrorContains(t, err, "short read")
 	require.ErrorContains(t, err, "read 900, expected 1024")
 
 	require.Len(t, rec.calls, 1)
 	require.Equal(t, "source_short_read", rec.calls[0].reason)
 	require.Equal(t, int64(900), rec.calls[0].bytesRead)
 	require.Equal(t, int64(1024), rec.calls[0].expected)
+	// verifyUpload should forward the parent context to the deleter
+	// unchanged. The detach (context.WithoutCancel + timeout) lives
+	// inside deleteAfterTruncation, not verifyUpload — that
+	// separation is load-bearing for the "best-effort cleanup runs
+	// even when the caller has been canceled" contract.
+	require.Same(t, parentCtx, rec.calls[0].ctx)
 }
 
 func TestVerifyUploadHeadObjectError(t *testing.T) {

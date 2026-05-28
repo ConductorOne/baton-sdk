@@ -19,8 +19,17 @@ import (
 
 var tracer = otel.Tracer("baton-sdk/pkg.dotc1z.manager.s3")
 
+// s3PutClient is the subset of us3.S3Client the manager uses.
+// Production callers continue to pass a concrete *us3.S3Client into
+// NewS3Manager (it satisfies the interface); tests inject a fake that
+// records the call without standing up an S3 fake.
+type s3PutClient interface {
+	PutWithVerify(ctx context.Context, key string, r io.Reader, expectedSize int64, contentType string) error
+	Get(ctx context.Context, key string) (io.Reader, error)
+}
+
 type s3Manager struct {
-	client         *us3.S3Client
+	client         s3PutClient
 	fileName       string
 	tmpFile        string
 	tmpDir         string
