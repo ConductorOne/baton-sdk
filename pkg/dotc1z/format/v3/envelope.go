@@ -3,6 +3,7 @@ package v3
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -62,7 +63,12 @@ const maxTarEntryBytes int64 = 4 << 30
 // normalized (the RFC documents tar as not byte-stable). w is typically
 // a *os.File created via os.CreateTemp in the same directory as the
 // final destination so an atomic rename can finalize the write.
-func WriteEnvelope(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string) error {
+//
+// ctx is checked periodically during the payload walk (per file entry
+// and per CtxCopy chunk inside each file). On cancellation the
+// function returns ctx.Err() and the caller's outer success/rename
+// gate keeps the partial file from being promoted to the final path.
+func WriteEnvelope(ctx context.Context, w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string) error {
 	if m == nil {
 		return errors.New("c1z v3: WriteEnvelope: nil manifest")
 	}
@@ -102,11 +108,11 @@ func WriteEnvelope(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string) error
 	}
 	switch enc {
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD:
-		if err := writeZstdTar(w, payloadDir); err != nil {
+		if err := writeZstdTar(ctx, w, payloadDir); err != nil {
 			return fmt.Errorf("c1z v3: write tar_zstd payload: %w", err)
 		}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
-		if err := writeTar(w, payloadDir); err != nil {
+		if err := writeTar(ctx, w, payloadDir); err != nil {
 			return fmt.Errorf("c1z v3: write tar payload: %w", err)
 		}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED:
@@ -190,8 +196,11 @@ func ReadEnvelope(r io.Reader) (*Envelope, error) {
 }
 
 // writeZstdTar walks dir in sorted order, writing each entry into a
-// tar stream that is itself zstd-compressed and written to w.
-func writeZstdTar(w io.Writer, dir string) error {
+// tar stream that is itself zstd-compressed and written to w. ctx is
+// checked per entry and per CtxCopy chunk so a cancel mid-walk
+// surfaces as an error rather than letting partial bytes flow through
+// to a multipart upload.
+func writeZstdTar(ctx context.Context, w io.Writer, dir string) error {
 	zw, err := zstd.NewWriter(w, zstd.WithEncoderLevel(zstd.SpeedDefault))
 	if err != nil {
 		return err
@@ -201,6 +210,9 @@ func writeZstdTar(w io.Writer, dir string) error {
 	walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
 		}
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
@@ -224,7 +236,7 @@ func writeZstdTar(w io.Writer, dir string) error {
 			if err != nil {
 				return err
 			}
-			_, err = io.Copy(tw, f)
+			_, err = CtxCopy(ctx, tw, f)
 			if closeErr := f.Close(); err == nil {
 				err = closeErr
 			}
@@ -259,12 +271,15 @@ func writeZstdTar(w io.Writer, dir string) error {
 // w as a tar stream (no compression). Used when PayloadEncoding is
 // PAYLOAD_ENCODING_TAR. The shape mirrors writeZstdTar so any future
 // refactor can lift the common walk-and-emit body into a helper.
-func writeTar(w io.Writer, dir string) error {
+func writeTar(ctx context.Context, w io.Writer, dir string) error {
 	tw := tar.NewWriter(w)
 
 	walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
 		}
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
@@ -288,7 +303,7 @@ func writeTar(w io.Writer, dir string) error {
 			if err != nil {
 				return err
 			}
-			_, err = io.Copy(tw, f)
+			_, err = CtxCopy(ctx, tw, f)
 			if closeErr := f.Close(); err == nil {
 				err = closeErr
 			}

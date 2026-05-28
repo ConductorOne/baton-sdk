@@ -3,6 +3,7 @@ package v3
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -42,7 +43,7 @@ func TestEnvelopeRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteEnvelope(f, manifest, srcDir); err != nil {
+	if err := WriteEnvelope(t.Context(), f, manifest, srcDir); err != nil {
 		t.Fatalf("WriteEnvelope: %v", err)
 	}
 	if err := f.Close(); err != nil {
@@ -180,7 +181,7 @@ func TestEnvelopePayloadAtEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &c1zv3.C1ZManifestV3{Engine: "pebble", PayloadEncoding: c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD}
-	if err := WriteEnvelope(f, m, srcDir); err != nil {
+	if err := WriteEnvelope(t.Context(), f, m, srcDir); err != nil {
 		t.Fatal(err)
 	}
 	err = f.Close()
@@ -311,7 +312,7 @@ func roundTripEnvelope(t *testing.T, enc c1zv3.PayloadEncoding) (c1zv3.PayloadEn
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteEnvelope(f, manifest, srcDir); err != nil {
+	if err := WriteEnvelope(t.Context(), f, manifest, srcDir); err != nil {
 		t.Fatalf("WriteEnvelope: %v", err)
 	}
 	if err := f.Close(); err != nil {
@@ -377,5 +378,49 @@ func TestEnvelopeUnspecifiedDefaultsToTarZstd(t *testing.T) {
 	}
 	if content != "MANIFEST-000001\n" {
 		t.Errorf("CURRENT roundtrip: got %q", content)
+	}
+}
+
+// TestWriteEnvelopeCanceledCtxAbortsWalk verifies that a context
+// cancelled before WriteEnvelope is called causes the payload-walk to
+// short-circuit with ctx.Err(). The header/manifest bytes may have
+// already been written; the contract is only that the caller learns
+// it must NOT promote the partial output (via os.Rename in the
+// caller's success gate).
+func TestWriteEnvelopeCanceledCtxAbortsWalk(t *testing.T) {
+	tmp := t.TempDir()
+	srcDir := filepath.Join(tmp, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"CURRENT":         "MANIFEST-000001\n",
+		"MANIFEST-000001": "manifest bytes",
+		"000005.sst":      "sst contents",
+	} {
+		if err := os.WriteFile(filepath.Join(srcDir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	manifest := &c1zv3.C1ZManifestV3{
+		Engine:              "pebble",
+		EngineSchemaVersion: 17,
+		PayloadEncoding:     c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD,
+	}
+
+	envPath := filepath.Join(tmp, "out.c1z3")
+	f, err := os.Create(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err = WriteEnvelope(ctx, f, manifest, srcDir)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WriteEnvelope on cancelled ctx: got err=%v, want context.Canceled", err)
 	}
 }

@@ -144,7 +144,7 @@ func cloneSync(
 		PayloadEncoding:     payloadEncodingToProto(encoding),
 		Descriptors:         descriptors,
 	}.Build()
-	if err := formatv3.WriteEnvelope(out, manifest, checkpointDir); err != nil {
+	if err := formatv3.WriteEnvelope(ctx, out, manifest, checkpointDir); err != nil {
 		return err
 	}
 	if err := out.Sync(); err != nil {

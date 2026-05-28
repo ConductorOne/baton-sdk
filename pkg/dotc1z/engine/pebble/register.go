@@ -11,6 +11,8 @@ import (
 	"sync"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
@@ -19,7 +21,10 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
+
+var tracer = otel.Tracer("baton-sdk/pkg.dotc1z.engine.pebble")
 
 // Register installs the Pebble engine into dotc1z's process-global engine
 // registry. Callers opt into Pebble dependencies by importing this package and
@@ -490,12 +495,40 @@ func (s *registeredStore) Close(ctx context.Context) (retErr error) {
 	return retErr
 }
 
-func (s *registeredStore) save(ctx context.Context) error {
+// save runs the Pebble equivalent of C1File.finalize: take a self-
+// contained checkpoint of the live engine, walk the checkpoint into a
+// v3 envelope at a sibling .tmp path, fsync+close, and atomic-rename.
+//
+// The whole sequence runs on a context detached from the caller's
+// cancellation, bounded by dotc1z.FinalizeTimeout(). A worker drain or
+// activity deadline reaching us mid-save must not be able to truncate
+// the envelope before the rename. The span is a new root linked back
+// to the caller's trace so a very long sync activity doesn't grow a
+// many-GB upload subtree under one parent span.
+//
+//nolint:nonamedreturns // named return required so the deferred span captures all early-return error paths
+func (s *registeredStore) save(ctx context.Context) (retErr error) {
 	if s.outputFilePath == "" {
 		return fmt.Errorf("pebble engine: output file path is empty")
 	}
+
+	parentCtxErrLabel := uotel.ClassifyCtxErr(ctx.Err())
+	if propagated, ok := uotel.ParentCtxErrLabel(ctx); ok {
+		parentCtxErrLabel = propagated
+	}
+	timeout := dotc1z.FinalizeTimeout()
+	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+	finalizeCtx, span := uotel.StartWithLink(finalizeCtx, tracer, "pebble.registeredStore.save")
+	defer func() { uotel.EndSpanWithError(span, retErr) }()
+	span.SetAttributes(
+		attribute.Bool("c1z.finalize.cancel_observed", parentCtxErrLabel != "nil"),
+		attribute.String("c1z.finalize.parent_ctx_err", parentCtxErrLabel),
+		attribute.Int64("c1z.finalize.timeout_seconds", int64(timeout.Seconds())),
+	)
+
 	checkpointDir := filepath.Join(s.tmpDir, "checkpoint")
-	if err := s.engine.CheckpointTo(ctx, checkpointDir); err != nil {
+	if err := s.engine.CheckpointTo(finalizeCtx, checkpointDir); err != nil {
 		return err
 	}
 
@@ -518,7 +551,7 @@ func (s *registeredStore) save(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := formatv3.WriteEnvelope(out, manifest, checkpointDir); err != nil {
+	if err := formatv3.WriteEnvelope(finalizeCtx, out, manifest, checkpointDir); err != nil {
 		return err
 	}
 	if err := out.Sync(); err != nil {
@@ -532,6 +565,9 @@ func (s *registeredStore) save(ctx context.Context) error {
 		return err
 	}
 	success = true
+	if stat, statErr := os.Stat(s.outputFilePath); statErr == nil {
+		span.SetAttributes(attribute.Int64("c1z.finalize.bytes_written", stat.Size()))
+	}
 	return nil
 }
 
