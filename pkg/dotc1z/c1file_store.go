@@ -257,6 +257,41 @@ func (g c1FileGrantStore) ListWithAnnotations(ctx context.Context) iter.Seq2[Gra
 	}
 }
 
+// ListWithAnnotationsExternalMatchOnly implements GrantStore. Same shape as
+// ListWithAnnotations but filters at SQL via the has_external_match column,
+// skipping the per-row data-blob unmarshal for grants that processGrants-
+// WithExternalPrincipals would discard. Set BATON_DISABLE_EXTERNAL_MATCH_FILTER=1
+// to fall back to the unfiltered scan.
+func (g c1FileGrantStore) ListWithAnnotationsExternalMatchOnly(ctx context.Context) iter.Seq2[GrantAnnotation, error] {
+	return func(yield func(GrantAnnotation, error) bool) {
+		pageToken := ""
+		for {
+			if err := ctx.Err(); err != nil {
+				_ = yield(GrantAnnotation{}, err)
+				return
+			}
+			resp, err := g.c.listGrantsWithExpansionInternal(ctx, grantListOptions{
+				Mode:              grantListModePayloadWithExpansion,
+				ExternalMatchOnly: true,
+				PageToken:         pageToken,
+			})
+			if err != nil {
+				_ = yield(GrantAnnotation{}, err)
+				return
+			}
+			for _, ga := range grantAnnotationRowsFromInternal(resp.Rows) {
+				if !yield(ga, nil) {
+					return
+				}
+			}
+			if resp.NextPageToken == "" {
+				return
+			}
+			pageToken = resp.NextPageToken
+		}
+	}
+}
+
 // -----------------------------------------------------------------------------
 // SyncMeta
 // -----------------------------------------------------------------------------

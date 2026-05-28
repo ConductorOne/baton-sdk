@@ -2329,7 +2329,12 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	grantsToDelete := make([]string, 0)
 	expandedGrants := make([]*v2.Grant, 0)
 
-	for ga, err := range s.store.Grants().ListWithAnnotations(ctx) {
+	// Filter at SQL via the has_external_match column to skip the per-row
+	// data-blob unmarshal for grants that don't carry an external-match
+	// annotation (~99% for typical tenants). The in-loop annotation check
+	// stays as a correctness fallback for rows written before the backfill
+	// completed or when the kill-switch is engaged.
+	for ga, err := range s.store.Grants().ListWithAnnotationsExternalMatchOnly(ctx) {
 		if err != nil {
 			return err
 		}

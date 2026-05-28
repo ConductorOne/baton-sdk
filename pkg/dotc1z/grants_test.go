@@ -524,7 +524,7 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 3: Run the backfill explicitly (as the migration would on re-open).
-	backfilled, err := backfillGrantExpansionColumn(ctx, c1f.db, grants.Name())
+	backfilled, err := backfillGrantDerivedColumns(ctx, c1f.db, grants.Name())
 	require.True(t, backfilled)
 	require.NoError(t, err)
 

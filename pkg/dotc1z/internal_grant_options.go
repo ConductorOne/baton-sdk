@@ -50,6 +50,11 @@ type grantListOptions struct {
 	// ExpandableOnly filters rows to grants with expansion metadata.
 	ExpandableOnly bool
 
+	// ExternalMatchOnly filters rows to grants carrying an ExternalResourceMatch
+	// annotation. Used by processGrantsWithExternalPrincipals to skip the
+	// per-row unmarshal cost for grants the caller would otherwise discard.
+	ExternalMatchOnly bool
+
 	// SyncID is used for expansion-only modes.
 	SyncID    string
 	PageToken string

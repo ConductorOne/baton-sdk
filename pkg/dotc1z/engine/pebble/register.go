@@ -457,6 +457,10 @@ func (g registeredStoreGrants) ListWithAnnotations(ctx context.Context) iter.Seq
 	return g.inner.ListWithAnnotations(ctx)
 }
 
+func (g registeredStoreGrants) ListWithAnnotationsExternalMatchOnly(ctx context.Context) iter.Seq2[dotc1z.GrantAnnotation, error] {
+	return g.inner.ListWithAnnotationsExternalMatchOnly(ctx)
+}
+
 func (s *registeredStore) Close(ctx context.Context) (retErr error) {
 	s.closeMu.Lock()
 	defer s.closeMu.Unlock()
