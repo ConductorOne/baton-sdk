@@ -284,6 +284,7 @@ func BenchmarkListGrantsExternalMatch_PRRevival(b *testing.B) {
 
 	for _, n := range sizes {
 		for _, pct := range densities {
+			expectedMatches := n * pct / 100
 			b.Run(fmt.Sprintf("n=%d/match=%d%%/filtered", n, pct), func(b *testing.B) {
 				f, cleanup := setupExternalMatchBenchmarkDB(b, n, pct)
 				defer cleanup()
@@ -299,7 +300,9 @@ func BenchmarkListGrantsExternalMatch_PRRevival(b *testing.B) {
 						_ = ga
 						total++
 					}
-					_ = total
+					if total != expectedMatches {
+						b.Fatalf("filtered: got %d matched rows, want %d", total, expectedMatches)
+					}
 				}
 			})
 
@@ -321,7 +324,9 @@ func BenchmarkListGrantsExternalMatch_PRRevival(b *testing.B) {
 						}
 						total++
 					}
-					_ = total
+					if total != expectedMatches {
+						b.Fatalf("unfiltered: got %d matched rows, want %d", total, expectedMatches)
+					}
 				}
 			})
 		}

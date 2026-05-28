@@ -140,9 +140,23 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) (bool, 
 		return false, err
 	}
 
-	// Backfill expansion + has_external_match columns from stored grant bytes.
-	return backfillGrantDerivedColumns(ctx, db, r.Name())
+	// Backfill expansion + has_external_match columns from stored grant bytes
+	// for syncs that pre-date the expansion-column work (grants_backfilled=0).
+	migrated, err := backfillGrantDerivedColumns(ctx, db, r.Name())
+	if err != nil {
+		return false, err
+	}
 
+	// Separately, backfill has_external_match for syncs that DO have
+	// grants_backfilled=1 from the prior PR — that flag is flipped on every
+	// existing sync, so gating the new column on it would skip the entire
+	// installed base. Tracked independently via has_external_match_backfilled.
+	matchMigrated, err := backfillHasExternalMatchColumn(ctx, db, r.Name())
+	if err != nil {
+		return false, err
+	}
+
+	return migrated || matchMigrated, nil
 }
 
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
@@ -897,6 +911,129 @@ func backfillGrantDerivedColumns(ctx context.Context, db *goqu.Database, tableNa
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+// backfillHasExternalMatchColumn populates has_external_match for syncs that
+// pre-date this column. Gated on has_external_match_backfilled (a new
+// sync_runs flag) rather than grants_backfilled — the latter is already 1
+// on every sync after the prior expansion-column backfill PR, so reusing
+// it would silently skip the entire installed base.
+//
+// Unmarshals each grant's data blob, runs hasExternalResourceMatch, and
+// bulk-updates the matching IDs in batches keyed by sync_id. Non-matching
+// rows keep the column at its default 0. Page size matches the expansion
+// backfill above. On completion, marks the processed syncs as backfilled.
+func backfillHasExternalMatchColumn(ctx context.Context, db *goqu.Database, tableName string) (bool, error) {
+	syncRows, err := db.QueryContext(ctx, fmt.Sprintf(
+		`SELECT sync_id FROM %s WHERE has_external_match_backfilled = 0`, syncRuns.Name(),
+	))
+	if err != nil {
+		return false, err
+	}
+	var pendingSyncIDs []any
+	if err := func() error {
+		defer func() { _ = syncRows.Close() }()
+		for syncRows.Next() {
+			var sid string
+			if err := syncRows.Scan(&sid); err != nil {
+				return err
+			}
+			pendingSyncIDs = append(pendingSyncIDs, sid)
+		}
+		return syncRows.Err()
+	}(); err != nil {
+		return false, err
+	}
+	if len(pendingSyncIDs) == 0 {
+		return false, nil
+	}
+
+	placeholders := strings.Repeat("?,", len(pendingSyncIDs))
+	placeholders = placeholders[:len(placeholders)-1]
+
+	const pageSize = 1000
+	var lastID int64
+	for {
+		// Walk grants in the pending syncs that are NOT yet marked. The
+		// has_external_match=0 filter is on the column default, so this
+		// includes every row of every pending sync on the first pass.
+		args := append([]any{}, pendingSyncIDs...)
+		args = append(args, lastID, pageSize)
+		rows, err := db.QueryContext(ctx, fmt.Sprintf(
+			`SELECT id, data FROM %s WHERE sync_id IN (%s) AND id > ? ORDER BY id ASC LIMIT ?`,
+			tableName, placeholders,
+		), args...)
+		if err != nil {
+			return false, err
+		}
+
+		type row struct {
+			id   int64
+			data []byte
+		}
+		var batch []row
+		if err := func() error {
+			defer func() { _ = rows.Close() }()
+			for rows.Next() {
+				var r row
+				if err := rows.Scan(&r.id, &r.data); err != nil {
+					return err
+				}
+				batch = append(batch, r)
+			}
+			return rows.Err()
+		}(); err != nil {
+			return false, err
+		}
+		if len(batch) == 0 {
+			break
+		}
+
+		var matchIDs []any
+		for _, r := range batch {
+			g := &v2.Grant{}
+			if err := proto.Unmarshal(r.data, g); err != nil {
+				return false, fmt.Errorf("unmarshal grant %d during has_external_match backfill: %w", r.id, err)
+			}
+			if hasExternalResourceMatch(g) {
+				matchIDs = append(matchIDs, r.id)
+			}
+		}
+
+		if len(matchIDs) > 0 {
+			tx, err := db.BeginTx(ctx, nil)
+			if err != nil {
+				return false, err
+			}
+			sp := strings.Repeat("?,", len(matchIDs))
+			sp = sp[:len(sp)-1]
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(
+				`UPDATE %s SET has_external_match = 1 WHERE id IN (%s)`, tableName, sp,
+			), matchIDs...); err != nil {
+				_ = tx.Rollback()
+				return false, err
+			}
+			if err := tx.Commit(); err != nil {
+				return false, err
+			}
+		}
+
+		lastID = batch[len(batch)-1].id
+		if len(batch) < pageSize {
+			break
+		}
+	}
+
+	// Mark every pending sync as backfilled.
+	updateArgs := append([]any{}, pendingSyncIDs...)
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+		`UPDATE %s SET has_external_match_backfilled = 1 WHERE sync_id IN (%s)`,
+		syncRuns.Name(), placeholders,
+	), updateArgs...); err != nil {
 		return false, err
 	}
 

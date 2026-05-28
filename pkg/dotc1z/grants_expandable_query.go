@@ -13,11 +13,14 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
-// externalMatchFilterDisabled is an operational kill-switch for the
-// has_external_match predicate in listGrantsWithExpansionInternal. Set
-// BATON_DISABLE_EXTERNAL_MATCH_FILTER=1 to fall back to the pre-filter behavior
-// (scan all rows) without a revert + release.
-var externalMatchFilterDisabled = os.Getenv("BATON_DISABLE_EXTERNAL_MATCH_FILTER") == "1"
+// externalMatchFilterDisabled reports the operational kill-switch state for
+// the has_external_match predicate in listGrantsWithExpansionInternal. Set
+// BATON_DISABLE_EXTERNAL_MATCH_FILTER=1 to fall back to the pre-filter
+// behaviour (scan all rows) without a revert + release. Read per-call (cold
+// path; once per page) so tests can flip it via t.Setenv.
+func externalMatchFilterDisabled() bool {
+	return os.Getenv("BATON_DISABLE_EXTERNAL_MATCH_FILTER") == "1"
+}
 
 func parseGrantPageToken(pageToken string, tokenType string) (int64, error) {
 	id, err := strconv.ParseInt(pageToken, 10, 64)
@@ -184,7 +187,7 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts grant
 	if opts.ExpandableOnly {
 		q = q.Where(goqu.C("expansion").IsNotNull())
 	}
-	if opts.ExternalMatchOnly && !externalMatchFilterDisabled {
+	if opts.ExternalMatchOnly && !externalMatchFilterDisabled() {
 		q = q.Where(goqu.C("has_external_match").Eq(1))
 	}
 	if opts.PageToken != "" {
