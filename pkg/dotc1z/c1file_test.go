@@ -493,13 +493,13 @@ func TestC1ZStatsResourcesOnlySync(t *testing.T) {
 func equalStats(t *testing.T, expectedStats map[string]int64, stats map[string]int64) {
 	for k, v := range expectedStats {
 		val, ok := stats[k]
-		require.True(t, ok)
-		require.Equal(t, v, val)
+		require.True(t, ok, "expected stat %s not found", k)
+		require.Equal(t, v, val, "expected stat %s to be %d, got %d", k, v, val)
 	}
 	for k, v := range stats {
 		val, ok := expectedStats[k]
-		require.True(t, ok)
-		require.Equal(t, v, val)
+		require.True(t, ok, "unexpected stat %s found", k)
+		require.Equal(t, v, val, "unexpected stat %s to be %d, got %d", k, v, val)
 	}
 }
 
@@ -553,7 +553,7 @@ func TestC1ZGrantStatsSync(t *testing.T) {
 		testResourceType: 1,
 	}
 
-	stats, err := f.GrantStats(ctx, connectorstore.SyncTypeAny, syncID)
+	stats, err := f.grantStats(ctx, connectorstore.SyncTypeAny, syncID)
 	require.NoError(t, err)
 	for k, v := range expectedGrantStats {
 		require.Equal(t, v, stats[k])

@@ -150,7 +150,7 @@ func runGrantStatsParityCase(t *testing.T, numResourceTypes, grantsPerSync, numS
 
 	// New behavior: production GrantStats, now using countBySyncAndResourceType.
 	gbStart := time.Now()
-	gbStats, err := f.GrantStats(ctx, connectorstore.SyncTypeAny, measuredSyncID)
+	gbStats, err := f.grantStats(ctx, connectorstore.SyncTypeAny, measuredSyncID)
 	require.NoError(t, err)
 	gbElapsed := time.Since(gbStart)
 
