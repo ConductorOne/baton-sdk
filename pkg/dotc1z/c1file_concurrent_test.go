@@ -89,7 +89,7 @@ func TestC1ZConcurrentClose(t *testing.T) {
 		testResourceType: int64(resourceCount * entitlementsPerResource * grantsPerEntitlement),
 	}
 
-	stats, err := f.GrantStats(ctx, connectorstore.SyncTypeAny, syncID)
+	stats, err := f.grantStats(ctx, connectorstore.SyncTypeAny, syncID)
 	require.NoError(t, err)
 	for k, v := range expectedGrantStats {
 		require.Equal(t, v, stats[k])

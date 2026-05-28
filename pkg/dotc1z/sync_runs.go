@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -39,7 +40,8 @@ create table if not exists %s (
     parent_sync_id text not null default '',
     linked_sync_id text not null default '',
     supports_diff integer not null default 0,
-    grants_backfilled integer not null default 0
+    grants_backfilled integer not null default 0,
+		stats text
 );
 create unique index if not exists %s on %s (sync_id);`
 
@@ -128,6 +130,16 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) (bool
 		migrated = true
 	}
 
+	// Add stats column so we can store the cached stats.
+	_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column stats text", r.Name()))
+	if err != nil {
+		if !isAlreadyExistsError(err) {
+			return false, err
+		}
+	} else {
+		migrated = true
+	}
+
 	return migrated, nil
 }
 
@@ -140,6 +152,7 @@ type syncRun struct {
 	ParentSyncID string
 	LinkedSyncID string
 	SupportsDiff bool
+	Stats        *reader_v2.SyncStats
 }
 
 // getCachedViewSyncRun returns the cached sync run for read operations.
@@ -410,7 +423,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*syncRun, error) {
 	ret := &syncRun{}
 
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff")
+	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff", "stats")
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
 
 	query, args, err := q.ToSQL()
@@ -418,9 +431,19 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*syncRun, error) {
 		return nil, err
 	}
 	row := c.db.QueryRowContext(ctx, query, args...)
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff)
+	var statsBytes *[]byte
+	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff, &statsBytes)
 	if err != nil {
 		return nil, err
+	}
+
+	if statsBytes != nil && len(*statsBytes) > 0 {
+		ret.Stats = &reader_v2.SyncStats{}
+		err = json.Unmarshal(*statsBytes, ret.Stats)
+		if err != nil {
+			// Ignore error parsing stats. We will recalculate them if Stats() is called.
+			ctxzap.Extract(ctx).Warn("error parsing stats", zap.Error(err))
+		}
 	}
 
 	return ret, nil
@@ -713,16 +736,13 @@ func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 	}
 	c.dbUpdated = true
 
-	// Populate the stats sidecar so future Stats() / GrantStats()
-	// calls are O(1) reads instead of O(N) COUNT/GROUP BY queries.
-	// Failures are non-fatal: Stats() falls back to the legacy
-	// aggregate path when the row is missing. Log the failure so
-	// it's visible in production telemetry but don't propagate it
-	// — the sync itself is durable.
-	if statsErr := c.upsertSyncStats(ctx, syncID); statsErr != nil {
-		ctxzap.Extract(ctx).Warn("c1z: upsert sync_stats sidecar failed; Stats() will fall back to O(N) COUNT/GROUP BY until the row is rebuilt",
-			zap.String("sync_id", syncID),
+	// Run stats to generate and save the cached stats.
+	_, _, statsErr := c.stats(ctx, connectorstore.SyncTypeAny, syncID)
+	if statsErr != nil {
+		// Ignore stats error. We will recalculate them if Stats() is called.
+		ctxzap.Extract(ctx).Warn("c1z: error calculating & saving stats",
 			zap.Error(statsErr),
+			zap.String("sync_id", syncID),
 		)
 	}
 
@@ -1038,6 +1058,7 @@ func (c *C1File) GetSync(ctx context.Context, request *reader_v2.SyncsReaderServ
 			SyncToken:    sr.SyncToken,
 			SyncType:     string(sr.Type),
 			ParentSyncId: sr.ParentSyncID,
+			Stats:        sr.Stats,
 		}.Build(),
 	}.Build(), nil
 }

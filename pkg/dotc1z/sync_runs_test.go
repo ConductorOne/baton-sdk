@@ -132,6 +132,13 @@ func TestCleanupSyncLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, syncs, 2)
 
+	for _, sync := range syncs {
+		stats, err := f.Stats(ctx, connectorstore.SyncTypeAny, sync.ID)
+		require.NoError(t, err)
+		require.Equal(t, int64(3), stats["resource_types"])
+		require.Equal(t, int64(10), stats["entitlements"])
+	}
+
 	// Close the file.
 	err = f.Close(ctx)
 	require.NoError(t, err)

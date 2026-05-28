@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -782,63 +783,78 @@ func (c *C1File) InitTables(ctx context.Context) (bool, error) {
 	return shouldOptimize, nil
 }
 
+func statsToMap(stats *reader_v2.SyncStats, syncType connectorstore.SyncType) map[string]int64 {
+	out := map[string]int64{
+		"resource_types": stats.GetResourceTypes(),
+	}
+	if syncType != connectorstore.SyncTypeResourcesOnly {
+		out["entitlements"] = stats.GetEntitlements()
+		out["grants"] = stats.GetGrants()
+	}
+	for rt, n := range stats.GetResourcesByResourceType() {
+		out[rt] = n
+	}
+	return out
+}
+
 // Stats introspects the database and returns the count of objects for the given sync run.
 // If syncId is empty, it will use the latest sync run of the given type.
 func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (map[string]int64, error) {
+	sync, stats, err := c.stats(ctx, syncType, syncId)
+	if err != nil {
+		return nil, err
+	}
+	return statsToMap(stats, connectorstore.SyncType(sync.GetSyncType())), nil
+}
+
+func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (*reader_v2.SyncRun, *reader_v2.SyncStats, error) {
 	ctx, span := tracer.Start(ctx, "C1File.Stats")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	counts := make(map[string]int64)
-
 	if syncId == "" {
 		syncId, err = c.LatestSyncID(ctx, syncType)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	resp, err := c.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{SyncId: syncId}.Build())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if resp == nil || !resp.HasSync() {
-		return nil, status.Errorf(codes.NotFound, "sync '%s' not found", syncId)
+		return nil, nil, status.Errorf(codes.NotFound, "sync '%s' not found", syncId)
 	}
 	sync := resp.GetSync()
 	if syncType != connectorstore.SyncTypeAny && syncType != connectorstore.SyncType(sync.GetSyncType()) {
-		return nil, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncId, syncType)
+		return nil, nil, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncId, syncType)
 	}
 	syncType = connectorstore.SyncType(sync.GetSyncType())
 
-	// Fast path: read the sidecar populated at endSyncRun. Sidecar
-	// is one indexed Get vs the legacy fallback's COUNT(*) +
-	// GROUP BY scans. Missing-row → fall through to legacy aggregate.
-	if cached, cerr := c.readCachedSyncStats(ctx, syncId); cerr == nil && cached != nil {
-		out := map[string]int64{
-			"resource_types": cached.resourceTypes,
-			"entitlements":   cached.entitlements,
-			"grants":         cached.grants,
-		}
-		for rt, n := range cached.resourcesByResourceType {
-			out[rt] = n
-		}
-		// The legacy Stats path omits "entitlements"/"grants" on
-		// ResourcesOnly syncs; mirror that.
-		if syncType == connectorstore.SyncTypeResourcesOnly {
-			delete(out, "entitlements")
-			delete(out, "grants")
-		}
-		return out, nil
+	stats := sync.GetStats()
+	if stats != nil && stats.GetResourceTypes() > 0 {
+		return sync, stats, nil
 	}
 
-	counts["resource_types"] = 0
+	// Slow path: Calculate sync stats and save them to the sync run so subsequent stats calls
+	stats = &reader_v2.SyncStats{
+		ResourceTypes:           0,
+		Resources:               0,
+		Entitlements:            0,
+		Grants:                  0,
+		ResourcesByResourceType: make(map[string]int64),
+		GrantsByResourceType:    make(map[string]int64),
+	}
 
 	var rtStats []*v2.ResourceType
 	pageToken := ""
 	for {
-		resp, err := c.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageToken: pageToken}.Build())
+		resp, err := c.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+			PageToken:    pageToken,
+			ActiveSyncId: syncId,
+		}.Build())
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		rtStats = append(rtStats, resp.GetList()...)
@@ -849,26 +865,27 @@ func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, sy
 
 		pageToken = resp.GetNextPageToken()
 	}
-	counts["resource_types"] = int64(len(rtStats))
+	stats.ResourceTypes = int64(len(rtStats))
 
 	// Pre-populate every known resource type with 0 so the result map
 	// always carries an entry per resource type, even if the sync has no
 	// rows of that type. The GROUP BY below only emits resource_type_ids
 	// that have at least one row.
 	for _, rt := range rtStats {
-		counts[rt.GetId()] = 0
+		stats.ResourcesByResourceType[rt.GetId()] = 0
 	}
 	resourceCounts, err := c.countBySyncAndResourceType(ctx, resources.Name(), syncId)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for rtID, n := range resourceCounts {
 		// Only surface counts for resource types in the catalog —
 		// matches the prior per-type loop, which only wrote keys it
 		// iterated over. Stray resource_type_ids in the table (which
 		// shouldn't normally exist) are intentionally ignored here.
-		if _, known := counts[rtID]; known {
-			counts[rtID] = n
+		if _, known := stats.ResourcesByResourceType[rtID]; known {
+			stats.ResourcesByResourceType[rtID] = n
+			stats.Resources += n
 		}
 	}
 
@@ -877,20 +894,62 @@ func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, sy
 			Where(goqu.C("sync_id").Eq(syncId)).
 			CountContext(ctx)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		counts["entitlements"] = entitlementsCount
+		stats.Entitlements = entitlementsCount
 
-		grantsCount, err := c.db.From(grants.Name()).
-			Where(goqu.C("sync_id").Eq(syncId)).
-			CountContext(ctx)
+		grantCounts, err := c.countBySyncAndResourceType(ctx, grants.Name(), syncId)
 		if err != nil {
-			return nil, err
+			return nil, nil, fmt.Errorf("count grants: %w", err)
 		}
-		counts["grants"] = grantsCount
+		stats.GrantsByResourceType = grantCounts
+
+		for _, grantsCount := range grantCounts {
+			stats.Grants += grantsCount
+		}
 	}
 
-	return counts, nil
+	// If sync is ended and c1z is not read-only, save stats to the database.
+	if sync.GetEndedAt() != nil && !c.readOnly {
+		statsJSON, err := json.Marshal(stats)
+		if err != nil {
+			return nil, nil, fmt.Errorf("c1file-stats: error marshalling stats: %w", err)
+		}
+		q := c.db.Update(syncRuns.Name()).Set(goqu.Record{
+			"stats": string(statsJSON),
+		}).Where(goqu.C("sync_id").Eq(syncId))
+		query, args, err := q.ToSQL()
+		if err != nil {
+			return nil, nil, fmt.Errorf("c1file-stats: error building SQL: %w", err)
+		}
+		_, err = c.db.ExecContext(ctx, query, args...)
+		if err != nil {
+			return nil, nil, fmt.Errorf("c1file-stats: error saving stats: %w", err)
+		}
+		c.dbUpdated = true
+	}
+
+	return sync, stats, nil
+}
+
+// grantStats introspects the database and returns the count of grants for the given sync run.
+// If syncId is empty, it will use the latest sync run of the given type.
+func (c *C1File) grantStats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (map[string]int64, error) {
+	ctx, span := tracer.Start(ctx, "C1File.GrantStats")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	_, stats, err := c.stats(ctx, syncType, syncId)
+	if err != nil {
+		return nil, err
+	}
+
+	statsMap := map[string]int64{}
+	for rt, n := range stats.GetGrantsByResourceType() {
+		statsMap[rt] = n
+	}
+
+	return statsMap, nil
 }
 
 // countBySyncAndResourceType issues a single GROUP BY query that returns
@@ -1048,80 +1107,4 @@ func (c *C1FileAttached) DetachFile(dbName string) (*C1FileAttached, error) {
 		safe: false,
 		file: c.file,
 	}, nil
-}
-
-// GrantStats introspects the database and returns the count of grants for the given sync run.
-// If syncId is empty, it will use the latest sync run of the given type.
-func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (map[string]int64, error) {
-	ctx, span := tracer.Start(ctx, "C1File.GrantStats")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
-	if syncId == "" {
-		syncId, err = c.LatestSyncID(ctx, syncType)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		lastSync, err := c.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{SyncId: syncId}.Build())
-		if err != nil {
-			return nil, err
-		}
-		if lastSync == nil {
-			return nil, status.Errorf(codes.NotFound, "sync '%s' not found", syncId)
-		}
-		if syncType != connectorstore.SyncTypeAny && syncType != connectorstore.SyncType(lastSync.GetSync().GetSyncType()) {
-			return nil, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncId, syncType)
-		}
-	}
-
-	var allResourceTypes []*v2.ResourceType
-	pageToken := ""
-	for {
-		resp, err := c.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageToken: pageToken}.Build())
-		if err != nil {
-			return nil, err
-		}
-
-		allResourceTypes = append(allResourceTypes, resp.GetList()...)
-
-		if resp.GetNextPageToken() == "" {
-			break
-		}
-
-		pageToken = resp.GetNextPageToken()
-	}
-
-	stats := make(map[string]int64, len(allResourceTypes))
-	// Pre-populate zero counts for every known resource type so the
-	// caller always sees one entry per resource type, even when no
-	// grants exist for it in this sync.
-	for _, rt := range allResourceTypes {
-		stats[rt.GetId()] = 0
-	}
-
-	// Fast path: cached sync_stats row.
-	if cached, cerr := c.readCachedSyncStats(ctx, syncId); cerr == nil && cached != nil {
-		for rt, n := range cached.grantsByEntitlementResourceType {
-			if _, known := stats[rt]; known {
-				stats[rt] = n
-			}
-		}
-		return stats, nil
-	}
-
-	grantCounts, err := c.countBySyncAndResourceType(ctx, grants.Name(), syncId)
-	if err != nil {
-		return nil, err
-	}
-	for rtID, n := range grantCounts {
-		// Match prior per-type loop: only surface resource types that
-		// exist in the catalog. Stray resource_type_ids in the grants
-		// table (which shouldn't normally exist) are ignored.
-		if _, known := stats[rtID]; known {
-			stats[rtID] = n
-		}
-	}
-
-	return stats, nil
 }

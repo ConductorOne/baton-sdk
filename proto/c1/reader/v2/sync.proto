@@ -15,6 +15,16 @@ message SyncRun {
   string sync_token = 4;
   string sync_type = 5;
   string parent_sync_id = 6;
+  SyncStats stats = 7;
+}
+
+message SyncStats {
+  int64 resource_types = 1;
+  int64 resources = 2;
+  int64 entitlements = 3;
+  int64 grants = 4;
+  map<string, int64> resources_by_resource_type = 5;
+  map<string, int64> grants_by_resource_type = 6;
 }
 
 service SyncsReaderService {
