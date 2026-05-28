@@ -6,6 +6,7 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 
+	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -53,6 +54,12 @@ func (c *C1File) ListResourceTypes(ctx context.Context, request *v2.ResourceType
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
+	// If sync ID is specified, add it to the annotations so we get resource types for the correct sync.
+	if request.GetActiveSyncId() != "" {
+		annos := annotations.Annotations(request.GetAnnotations())
+		annos.Update(c1zpb.SyncDetails_builder{Id: request.GetActiveSyncId()}.Build())
+		request.SetAnnotations(annos)
+	}
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, resourceTypes.Name(), request, func() *v2.ResourceType { return &v2.ResourceType{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing resource types: %w", err)
