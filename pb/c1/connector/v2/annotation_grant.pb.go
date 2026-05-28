@@ -304,64 +304,6 @@ func (b0 GrantAlreadyExists_builder) Build() *GrantAlreadyExists {
 	return m0
 }
 
-// Grant was not created because connector policy rejected it.
-type GrantRejected struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GrantRejected) Reset() {
-	*x = GrantRejected{}
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GrantRejected) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GrantRejected) ProtoMessage() {}
-
-func (x *GrantRejected) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *GrantRejected) GetReason() string {
-	if x != nil {
-		return x.Reason
-	}
-	return ""
-}
-
-func (x *GrantRejected) SetReason(v string) {
-	x.Reason = v
-}
-
-type GrantRejected_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	Reason string
-}
-
-func (b0 GrantRejected_builder) Build() *GrantRejected {
-	m0 := &GrantRejected{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.Reason = b.Reason
-	return m0
-}
-
 // Grant was not revoked because the entitlement does not exist.
 type GrantAlreadyRevoked struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
@@ -371,7 +313,7 @@ type GrantAlreadyRevoked struct {
 
 func (x *GrantAlreadyRevoked) Reset() {
 	*x = GrantAlreadyRevoked{}
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[5]
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -383,7 +325,7 @@ func (x *GrantAlreadyRevoked) String() string {
 func (*GrantAlreadyRevoked) ProtoMessage() {}
 
 func (x *GrantAlreadyRevoked) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[5]
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -415,7 +357,7 @@ type InsertResourceGrants struct {
 
 func (x *InsertResourceGrants) Reset() {
 	*x = InsertResourceGrants{}
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[6]
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -427,7 +369,7 @@ func (x *InsertResourceGrants) String() string {
 func (*InsertResourceGrants) ProtoMessage() {}
 
 func (x *InsertResourceGrants) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[6]
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -465,26 +407,23 @@ const file_c1_connector_v2_annotation_grant_proto_rawDesc = "" +
 	"\x0eGrantImmutable\x12\x1b\n" +
 	"\tsource_id\x18\x01 \x01(\tR\bsourceId\x123\n" +
 	"\bmetadata\x18\x02 \x01(\v2\x17.google.protobuf.StructR\bmetadata\"\x14\n" +
-	"\x12GrantAlreadyExists\"'\n" +
-	"\rGrantRejected\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x15\n" +
+	"\x12GrantAlreadyExists\"\x15\n" +
 	"\x13GrantAlreadyRevoked\"\x16\n" +
 	"\x14InsertResourceGrantsB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_annotation_grant_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_c1_connector_v2_annotation_grant_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_c1_connector_v2_annotation_grant_proto_goTypes = []any{
 	(*GrantMetadata)(nil),        // 0: c1.connector.v2.GrantMetadata
 	(*GrantExpandable)(nil),      // 1: c1.connector.v2.GrantExpandable
 	(*GrantImmutable)(nil),       // 2: c1.connector.v2.GrantImmutable
 	(*GrantAlreadyExists)(nil),   // 3: c1.connector.v2.GrantAlreadyExists
-	(*GrantRejected)(nil),        // 4: c1.connector.v2.GrantRejected
-	(*GrantAlreadyRevoked)(nil),  // 5: c1.connector.v2.GrantAlreadyRevoked
-	(*InsertResourceGrants)(nil), // 6: c1.connector.v2.InsertResourceGrants
-	(*structpb.Struct)(nil),      // 7: google.protobuf.Struct
+	(*GrantAlreadyRevoked)(nil),  // 4: c1.connector.v2.GrantAlreadyRevoked
+	(*InsertResourceGrants)(nil), // 5: c1.connector.v2.InsertResourceGrants
+	(*structpb.Struct)(nil),      // 6: google.protobuf.Struct
 }
 var file_c1_connector_v2_annotation_grant_proto_depIdxs = []int32{
-	7, // 0: c1.connector.v2.GrantMetadata.metadata:type_name -> google.protobuf.Struct
-	7, // 1: c1.connector.v2.GrantImmutable.metadata:type_name -> google.protobuf.Struct
+	6, // 0: c1.connector.v2.GrantMetadata.metadata:type_name -> google.protobuf.Struct
+	6, // 1: c1.connector.v2.GrantImmutable.metadata:type_name -> google.protobuf.Struct
 	2, // [2:2] is the sub-list for method output_type
 	2, // [2:2] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
@@ -503,7 +442,7 @@ func file_c1_connector_v2_annotation_grant_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_grant_proto_rawDesc), len(file_c1_connector_v2_annotation_grant_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
