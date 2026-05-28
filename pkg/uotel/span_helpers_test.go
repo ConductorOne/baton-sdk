@@ -28,6 +28,14 @@ func TestIsExpectedError(t *testing.T) {
 		{"generic error", errors.New("something broke"), false},
 		{"grpc not found", status.Error(codes.NotFound, "not found"), false},
 		{"grpc internal", status.Error(codes.Internal, "internal"), false},
+		// Joined errors: every child must be expected for the whole
+		// to be expected. The regression we are guarding against is
+		// errors.Join(context.Canceled, ioerr) being silently
+		// downgraded to Unset span status, hiding the real ioerr.
+		{"join of only expected errors", errors.Join(context.Canceled, context.DeadlineExceeded), true},
+		{"join with a real error is not expected", errors.Join(context.Canceled, errors.New("upload failed")), false},
+		{"join with only a real error is not expected", errors.Join(errors.New("upload failed")), false},
+		{"nested join with a real error is not expected", errors.Join(errors.Join(context.Canceled, errors.New("network down"))), false},
 	}
 
 	for _, tt := range tests {
@@ -37,6 +45,24 @@ func TestIsExpectedError(t *testing.T) {
 				t.Errorf("IsExpectedError(%v) = %v, want %v", tt.err, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestParentCtxErrLabelRoundtrip(t *testing.T) {
+	base := context.Background()
+	if v, ok := ParentCtxErrLabel(base); ok || v != "" {
+		t.Fatalf("empty ctx should not carry a label, got (%q, %v)", v, ok)
+	}
+	tagged := WithParentCtxErrLabel(base, "canceled")
+	got, ok := ParentCtxErrLabel(tagged)
+	if !ok || got != "canceled" {
+		t.Fatalf("ParentCtxErrLabel = (%q, %v), want (\"canceled\", true)", got, ok)
+	}
+	// Survives context.WithoutCancel — that's the whole point.
+	detached := context.WithoutCancel(tagged)
+	got, ok = ParentCtxErrLabel(detached)
+	if !ok || got != "canceled" {
+		t.Fatalf("label lost across WithoutCancel: got (%q, %v)", got, ok)
 	}
 }
 

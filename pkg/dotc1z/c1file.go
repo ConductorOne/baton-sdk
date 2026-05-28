@@ -466,15 +466,19 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 	// Cheap paths (no save-to-disk work) keep the caller's context and
 	// span topology. Read-only opens never write the c1z back, even if
 	// the c1z was opened without being read; the same is true when no
-	// mutations occurred.
+	// mutations occurred. Every cheap-path branch closes c.rawDb (when
+	// open) before returning so a misuse like opening read-only and
+	// then dirtying via an attached-db mutation still releases the
+	// SQLite handle and any FDs/goroutines it owns.
 	if !c.dbUpdated || c.readOnly {
-		if c.dbUpdated && c.readOnly {
-			return cleanupDbDir(c.dbFilePath, ErrReadOnly)
-		}
 		if c.rawDb != nil {
 			if err := c.closeRawDB(ctx); err != nil {
 				return cleanupDbDir(c.dbFilePath, err)
 			}
+		}
+		if c.dbUpdated && c.readOnly {
+			c.closed = true
+			return cleanupDbDir(c.dbFilePath, ErrReadOnly)
 		}
 		if err := cleanupDbDir(c.dbFilePath, nil); err != nil {
 			return err
@@ -492,12 +496,24 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 
 // finalize runs the WAL-checkpoint → close-raw-db → saveC1z sequence on a
 // context that is detached from the caller's cancellation. The detached
-// context is bounded by FinalizeTimeout() so a wedged finalize cannot
-// hold the c1file open indefinitely. The finalize span is a new root
-// linked to the caller's trace so very long syncs don't end up with the
-// upload subtree inflating their span counts.
+// context is bounded by FinalizeTimeout() for the steps that observe
+// ctx (truncateWAL, closeRawDB); saveC1z itself does not take ctx, so
+// its encoder phase is not cancellable today and the upper bound on
+// total finalize wall-clock is effectively FinalizeTimeout +
+// saveC1z-encoder-time. The finalize span is a new root linked to the
+// caller's trace so very long syncs don't end up with the upload
+// subtree inflating their span counts.
+//
+// If the caller propagated a parent ctx error label via
+// uotel.WithParentCtxErrLabel (e.g. syncer.Close did so before
+// detaching), that label wins over re-classifying ctx.Err() — useful
+// because by the time we reach here the caller's ctx may already be
+// the syncer's detached finalizeCtx, which always reports "nil".
 func (c *C1File) finalize(ctx context.Context) error {
 	parentCtxErrLabel := uotel.ClassifyCtxErr(ctx.Err())
+	if propagated, ok := uotel.ParentCtxErrLabel(ctx); ok {
+		parentCtxErrLabel = propagated
+	}
 
 	timeout := FinalizeTimeout()
 	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
@@ -566,23 +582,25 @@ func (c *C1File) finalize(ctx context.Context) error {
 		return cleanupDbDir(c.dbFilePath, finalizeErr)
 	}
 
-	_, saveSpan := tracer.Start(finalizeCtx, "C1File.saveC1z")
+	saveCtx, saveSpan := tracer.Start(finalizeCtx, "C1File.saveC1z")
 	saveSpan.SetAttributes(
 		attribute.String("db_path", c.dbFilePath),
 		attribute.String("output_path", c.outputFilePath),
 		attribute.Int("encoder_concurrency", c.encoderConcurrency),
 	)
-	var saveSize int64
 	if dbInfo, statErr := os.Stat(c.dbFilePath); statErr == nil {
-		saveSize = dbInfo.Size()
-		saveSpan.SetAttributes(attribute.Int64("input_size_bytes", saveSize))
-		finalizeSpan.SetAttributes(attribute.Int64("c1z.finalize.bytes_written", saveSize))
+		saveSpan.SetAttributes(attribute.Int64("input_bytes", dbInfo.Size()))
+		finalizeSpan.SetAttributes(attribute.Int64("c1z.finalize.input_bytes", dbInfo.Size()))
 	}
+	_ = saveCtx // saveC1z doesn't currently take ctx; saveCtx is kept so any future span inside saveC1z attaches to saveSpan, not finalizeSpan.
 	saveErr := saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
 	uotel.EndSpanWithError(saveSpan, saveErr)
 	if saveErr != nil {
 		finalizeErr = saveErr
 		return cleanupDbDir(c.dbFilePath, saveErr)
+	}
+	if outInfo, statErr := os.Stat(c.outputFilePath); statErr == nil {
+		finalizeSpan.SetAttributes(attribute.Int64("c1z.finalize.output_bytes", outInfo.Size()))
 	}
 
 	if err := cleanupDbDir(c.dbFilePath, nil); err != nil {

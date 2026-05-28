@@ -2700,6 +2700,12 @@ func (s *syncer) Close(ctx context.Context) error {
 	timeout := dotc1z.FinalizeTimeout()
 	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
+	// Propagate the original caller's ctx-error label across the detach
+	// so downstream finalize spans (e.g. C1File.finalize) can record
+	// what the caller actually saw — without this, the nested span
+	// would re-classify our already-detached ctx and always report
+	// parent_ctx_err="nil".
+	finalizeCtx = uotel.WithParentCtxErrLabel(finalizeCtx, parentCtxErrLabel)
 	finalizeCtx, finalizeSpan := uotel.StartWithLink(finalizeCtx, tracer, "syncer.finalize")
 	finalizeSpan.SetAttributes(
 		attribute.Bool("c1z.finalize.cancel_observed", parentCtxErrLabel != "nil"),
@@ -2718,8 +2724,13 @@ func (s *syncer) Close(ctx context.Context) error {
 		}
 	}
 
+	// The external resource reader is read-only and has no durable
+	// state to commit — closing it on the caller's ctx (not the
+	// detached finalizeCtx) keeps a hung close from holding the
+	// syncer past the caller's deadline for no commit-correctness
+	// benefit.
 	if s.externalResourceReader != nil {
-		if err := s.externalResourceReader.Close(finalizeCtx); err != nil {
+		if err := s.externalResourceReader.Close(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("error closing external resource reader: %w", err))
 		}
 	}

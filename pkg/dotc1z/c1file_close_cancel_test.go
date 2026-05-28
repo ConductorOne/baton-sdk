@@ -72,9 +72,14 @@ func TestC1FileCloseSurvivesCanceledCtx(t *testing.T) {
 			require.Greater(t, info.Size(), int64(0))
 
 			// Reopen and verify the resource type was persisted.
+			// Use context.Background here, not openCtx — t.Context() is
+			// cancelled BEFORE t.Cleanup runs, so a defer/Cleanup-style
+			// close on openCtx would swallow any real cleanup error.
 			f2, err := NewC1ZFile(openCtx, testFilePath)
 			require.NoError(t, err)
-			t.Cleanup(func() { _ = f2.Close(openCtx) })
+			t.Cleanup(func() {
+				require.NoError(t, f2.Close(context.Background()))
+			})
 
 			resp, err := f2.GetResourceType(openCtx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
 				ResourceTypeId: testResourceType,
@@ -85,10 +90,12 @@ func TestC1FileCloseSurvivesCanceledCtx(t *testing.T) {
 	}
 }
 
-// TestC1FileCloseReadOnlyIgnoresCancel ensures the cheap (no-finalize)
-// branch of Close still respects the caller's context — there is no
-// finalize work to protect, so detaching would only add span noise.
-func TestC1FileCloseReadOnlyIgnoresCancel(t *testing.T) {
+// TestC1FileCloseReadOnlyClosesRawDb checks the cheap-path invariant
+// that even a Close called with a cancelled context fully releases
+// the underlying sql.DB handle. The cheap path's only ctx-bearing op
+// (closeRawDB → c.rawDb.Close) ignores cancellation; this test pins
+// the structural promise that c.rawDb ends up nil regardless.
+func TestC1FileCloseReadOnlyClosesRawDb(t *testing.T) {
 	openCtx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "close-readonly.c1z")
 
@@ -102,8 +109,39 @@ func TestC1FileCloseReadOnlyIgnoresCancel(t *testing.T) {
 
 	f2, err := NewC1ZFile(openCtx, testFilePath, WithReadOnly(true))
 	require.NoError(t, err)
+	require.NotNil(t, f2.rawDb, "fixture: rawDb should be open after NewC1ZFile")
 
 	cancelCtx, cancel := context.WithCancel(openCtx)
 	cancel()
 	require.NoError(t, f2.Close(cancelCtx))
+	require.Nil(t, f2.rawDb, "rawDb must be nil-ed out by the cheap-path close even on cancelled ctx")
+	require.True(t, f2.closed, "c.closed must be set after a successful cheap-path close")
+}
+
+// TestC1FileCloseReadOnlyButDirtyClosesRawDb covers the ErrReadOnly
+// short-circuit: a read-only c1z whose dbUpdated flag was somehow
+// set must still have its sql.DB handle closed before Close returns,
+// otherwise the SQLite connection pool leaks against a directory
+// cleanupDbDir just removed.
+func TestC1FileCloseReadOnlyButDirtyClosesRawDb(t *testing.T) {
+	openCtx := t.Context()
+	testFilePath := filepath.Join(c1zTests.workingDir, "close-readonly-dirty.c1z")
+
+	f, err := NewC1ZFile(openCtx, testFilePath)
+	require.NoError(t, err)
+	_, err = f.StartNewSync(openCtx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, f.EndSync(openCtx))
+	require.NoError(t, f.Close(openCtx))
+
+	f2, err := NewC1ZFile(openCtx, testFilePath, WithReadOnly(true))
+	require.NoError(t, err)
+	require.NotNil(t, f2.rawDb)
+	// Force the readonly+dbUpdated cheap-path branch.
+	f2.dbUpdated = true
+
+	err = f2.Close(openCtx)
+	require.ErrorIs(t, err, ErrReadOnly)
+	require.Nil(t, f2.rawDb, "rawDb must be closed before returning ErrReadOnly")
+	require.True(t, f2.closed, "c.closed must be set after returning ErrReadOnly so a retry short-circuits")
 }
