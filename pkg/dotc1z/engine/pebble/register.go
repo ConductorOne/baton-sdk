@@ -351,16 +351,6 @@ func (s *registeredStore) Cleanup(ctx context.Context) error {
 func (s *registeredStore) collectCleanupCandidates(ctx context.Context) ([]dotc1z.SyncRun, error) {
 	var out []dotc1z.SyncRun
 	err := s.engine.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
-		// LinkedSyncID is intentionally left empty here because the
-		// v3 SyncRunRecord proto (proto/c1/storage/v3/records.proto)
-		// has no linked_sync_id field. The SQLite schema gained
-		// linked_sync_id alongside diff-sync support — paired diff
-		// syncs (SyncTypePartialUpserts + SyncTypePartialDeletions)
-		// reference each other so retention can keep matched pairs
-		// together. Without the field, Pebble's diff retention is
-		// pessimistic: SelectSyncsToDelete falls back to "keep only
-		// the latest diff" and prunes the partner.
-		//
 		// This is dormant today — Pebble doesn't ship end-to-end
 		// diff-sync writes yet (only the if_newer fast path mentions
 		// the type). When diff-sync support lands on Pebble:
@@ -380,6 +370,7 @@ func (s *registeredStore) collectCleanupCandidates(ctx context.Context) ([]dotc1
 			SyncToken:    r.GetSyncToken(),
 			ParentSyncID: r.GetParentSyncId(),
 			SupportsDiff: r.GetSupportsDiff(),
+			LinkedSyncID: r.GetLinkedSyncId(),
 		}
 		if t := r.GetStartedAt(); t != nil {
 			tt := t.AsTime()

@@ -1219,6 +1219,7 @@ type SyncRunRecord struct {
 	EndedAt       *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
 	SyncToken     string                 `protobuf:"bytes,6,opt,name=sync_token,json=syncToken,proto3" json:"sync_token,omitempty"`
 	SupportsDiff  bool                   `protobuf:"varint,7,opt,name=supports_diff,json=supportsDiff,proto3" json:"supports_diff,omitempty"`
+	LinkedSyncId  string                 `protobuf:"bytes,8,opt,name=linked_sync_id,json=linkedSyncId,proto3" json:"linked_sync_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1297,6 +1298,13 @@ func (x *SyncRunRecord) GetSupportsDiff() bool {
 	return false
 }
 
+func (x *SyncRunRecord) GetLinkedSyncId() string {
+	if x != nil {
+		return x.LinkedSyncId
+	}
+	return ""
+}
+
 func (x *SyncRunRecord) SetSyncId(v string) {
 	x.SyncId = v
 }
@@ -1323,6 +1331,10 @@ func (x *SyncRunRecord) SetSyncToken(v string) {
 
 func (x *SyncRunRecord) SetSupportsDiff(v bool) {
 	x.SupportsDiff = v
+}
+
+func (x *SyncRunRecord) SetLinkedSyncId(v string) {
+	x.LinkedSyncId = v
 }
 
 func (x *SyncRunRecord) HasStartedAt() bool {
@@ -1357,6 +1369,7 @@ type SyncRunRecord_builder struct {
 	EndedAt      *timestamppb.Timestamp
 	SyncToken    string
 	SupportsDiff bool
+	LinkedSyncId string
 }
 
 func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
@@ -1370,6 +1383,7 @@ func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
 	x.EndedAt = b.EndedAt
 	x.SyncToken = b.SyncToken
 	x.SupportsDiff = b.SupportsDiff
+	x.LinkedSyncId = b.LinkedSyncId
 	return m0
 }
 
@@ -1647,7 +1661,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12\x12\n" +
 	"\x04data\x18\x04 \x01(\fR\x04data\x12?\n" +
 	"\rdiscovered_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:\"\x82\xf9+\x1e\n" +
-	"\x06assets\x12\async_id\x12\vexternal_id\"\xcb\x02\n" +
+	"\x06assets\x12\async_id\x12\vexternal_id\"\xf1\x02\n" +
 	"\rSyncRunRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12+\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x17.c1.storage.v3.SyncTypeR\x04type\x12$\n" +
@@ -1657,7 +1671,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\bended_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\aendedAt\x12\x1d\n" +
 	"\n" +
 	"sync_token\x18\x06 \x01(\tR\tsyncToken\x12#\n" +
-	"\rsupports_diff\x18\a \x01(\bR\fsupportsDiff:\x18\x82\xf9+\x14\n" +
+	"\rsupports_diff\x18\a \x01(\bR\fsupportsDiff\x12$\n" +
+	"\x0elinked_sync_id\x18\b \x01(\tR\flinkedSyncId:\x18\x82\xf9+\x14\n" +
 	"\tsync_runs\x12\async_id\"\xac\x05\n" +
 	"\x0fSyncStatsRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12%\n" +
