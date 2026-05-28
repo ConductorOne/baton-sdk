@@ -40,7 +40,7 @@ func (cw *wrapper) getListener(ctx context.Context, serverCfg *connectorwrapperV
 
 	l.Debug("starting listener", zap.Uint32("port", serverCfg.ListenPort))
 
-	listener, err := net.ListenTCP("tcp", &net.TCPAddr{Port: int(serverCfg.ListenPort)})
+	listener, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(serverCfg.ListenPort)})
 	if err != nil {
 		return nil, err
 	}
