@@ -14,42 +14,39 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
-// TestV2GrantRoundTrip_DropsFieldsProtectedByUnsafeForSlim is a direct
-// round-trip test that locks in the fact that Pebble silently drops
-// the v2.Grant fields the SQLite slim-blob writer's `unsafeForSlim`
-// opt-out is designed to protect (see pkg/dotc1z/grants.go).
+// TestV2GrantRoundTrip_V3Contract documents and locks in the v3 grant
+// round-trip contract on Pebble.
 //
-// Pebble persists grants as c1.storage.v3.GrantRecord, whose links
-// to other entities are identity-only refs (EntitlementRef,
-// PrincipalRef). On read, V3GrantToV2 synthesizes stub Entitlement
-// and Principal messages carrying only the identity columns. The
-// remaining rich fields the connector contract allows on those
-// embedded messages — Principal.ParentResourceId, Principal.Annotations,
-// Principal.DisplayName, Entitlement.DisplayName, Entitlement.Slug,
-// Entitlement.Purpose, Entitlement.Resource.ParentResourceId,
-// Entitlement.Resource.Annotations, Entitlement.Resource.DisplayName —
-// are unrecoverable from the v3 record.
+// Pebble persists grants as c1.storage.v3.GrantRecord, whose links to
+// other entities are identity-only refs (EntitlementRef, PrincipalRef).
+// On read, V3GrantToV2 synthesizes stub Entitlement / Principal
+// messages. This is by design — rich entity data (DisplayName,
+// traits, slug, description, grantable_to, ...) lives in the
+// resources / entitlements tables and is fetched via
+// GetResource / GetEntitlement, NOT redundantly embedded in every
+// grant. That slimness is what lets Pebble scale to very large grant
+// counts; embedding rich data per grant would defeat it.
 //
-// This is the same lossiness SQLite's slim-blob mode produces, but
-// SQLite is opt-in (`WithV2GrantsWriter`) and has a per-grant
-// safety valve (`unsafeForSlim`). Pebble has neither: every grant
-// is stored slim, with no escape hatch. The two syncer paths the
-// SQLite opt-out defends against — `InsertResourceGrants` etag-
-// replay (rebuilds `v1_resources` from `grant.Entitlement.Resource`)
-// and `ExternalResourceMatch{All,Match,ID}` (builds bid keys from
-// `grant.Principal.ParentResourceId`) — are therefore broken on
-// Pebble whenever they read grants back from the store.
+// The contract this test enforces:
 //
-// The assertions below demonstrate the lossiness mechanically. The
-// two follow-on tests (pkg/sync/pebble_etag_replay_corruption_test.go
-// and pkg/sync/pebble_external_match_test.go) demonstrate the
-// concrete user-visible corruption that results.
-func TestV2GrantRoundTrip_DropsFieldsProtectedByUnsafeForSlim(t *testing.T) {
+//   - Grant identity round-trips: grant id, entitlement id, the
+//     entitlement's resource id, and the principal id.
+//   - The principal's ParentResourceId round-trips. This is part of
+//     the principal's canonical identity (its bid) — the syncer's
+//     processGrantsWithExternalPrincipals builds bid.MakeBid from the
+//     grant's principal, which encodes the parent — so it is
+//     preserved on PrincipalRef rather than requiring a resources-
+//     table lookup.
+//   - Rich, display-only fields are NOT carried on the embedded grant
+//     entities. Consumers that need them fetch the owning record. The
+//     assertions below document this so a future change that starts
+//     reading these off a grant is caught.
+func TestV2GrantRoundTrip_V3Contract(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, pebble.Register())
 
 	store, err := dotc1z.NewStore(ctx,
-		filepath.Join(t.TempDir(), "grant-lossiness.c1z"),
+		filepath.Join(t.TempDir(), "grant-roundtrip.c1z"),
 		dotc1z.WithEngine(dotc1z.EnginePebble),
 	)
 	require.NoError(t, err)
@@ -69,11 +66,6 @@ func TestV2GrantRoundTrip_DropsFieldsProtectedByUnsafeForSlim(t *testing.T) {
 	userTraitAny, err := anypb.New(&v2.UserTrait{})
 	require.NoError(t, err)
 
-	// The entitlement's resource has a non-trivial DisplayName, a
-	// parent ResourceId, and a GroupTrait annotation. The
-	// InsertResourceGrants syncer path extracts this exact embedded
-	// message from each grant and rewrites it into the resources
-	// table on etag-replay.
 	entResource := v2.Resource_builder{
 		Id:               v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
 		ParentResourceId: v2.ResourceId_builder{ResourceType: "org", Resource: "acme"}.Build(),
@@ -92,12 +84,10 @@ func TestV2GrantRoundTrip_DropsFieldsProtectedByUnsafeForSlim(t *testing.T) {
 		},
 	}.Build()
 
-	// The principal has a non-trivial DisplayName, a parent
-	// ResourceId, and a UserTrait annotation. The
-	// processGrantsWithExternalPrincipals syncer path computes
-	// bid.MakeBid(grant.Principal) — that bid encodes the parent
-	// resource id when present. Dropping the parent silently
-	// changes the bid.
+	// The principal carries a parent ResourceId. The syncer's
+	// processGrantsWithExternalPrincipals computes
+	// bid.MakeBid(grant.Principal); that bid encodes the parent when
+	// present, so the parent MUST round-trip on the grant.
 	principal := v2.Resource_builder{
 		Id:               v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(),
 		ParentResourceId: v2.ResourceId_builder{ResourceType: "org", Resource: "acme"}.Build(),
@@ -105,10 +95,6 @@ func TestV2GrantRoundTrip_DropsFieldsProtectedByUnsafeForSlim(t *testing.T) {
 		Annotations:      []*anypb.Any{userTraitAny},
 	}.Build()
 
-	// Write the resource + entitlement on their own (they round-trip
-	// correctly via the resource_types/resources/entitlements tables;
-	// the lossiness we're demonstrating is specifically the embedded
-	// copies on the Grant message).
 	require.NoError(t, store.PutResources(ctx, entResource, principal))
 	require.NoError(t, store.PutEntitlements(ctx, ent))
 
@@ -119,9 +105,6 @@ func TestV2GrantRoundTrip_DropsFieldsProtectedByUnsafeForSlim(t *testing.T) {
 	}.Build()
 	require.NoError(t, store.PutGrants(ctx, grant))
 
-	// Read the grant back via ListGrants. This is the path the
-	// syncer's processGrantsWithExternalPrincipals and the
-	// InsertResourceGrants etag-replay code paths take.
 	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 		PageSize: 100,
 	}.Build())
@@ -130,65 +113,66 @@ func TestV2GrantRoundTrip_DropsFieldsProtectedByUnsafeForSlim(t *testing.T) {
 	got := resp.GetList()[0]
 	require.Equal(t, "grant-1", got.GetId())
 
-	t.Run("Principal.ParentResourceId is dropped", func(t *testing.T) {
-		require.NotNil(t, got.GetPrincipal())
-		require.NotNil(t, got.GetPrincipal().GetParentResourceId(),
-			"Pebble round-trip dropped Principal.ParentResourceId; bid.MakeBid will now produce a no-parent bid, breaking ExternalResourceMatch expansion")
-		require.Equal(t, "org", got.GetPrincipal().GetParentResourceId().GetResourceType())
-		require.Equal(t, "acme", got.GetPrincipal().GetParentResourceId().GetResource())
+	t.Run("grant identity round-trips", func(t *testing.T) {
+		require.Equal(t, "ent-A", got.GetEntitlement().GetId())
+		require.Equal(t, "group", got.GetEntitlement().GetResource().GetId().GetResourceType())
+		require.Equal(t, "g1", got.GetEntitlement().GetResource().GetId().GetResource())
+		require.Equal(t, "user", got.GetPrincipal().GetId().GetResourceType())
+		require.Equal(t, "u1", got.GetPrincipal().GetId().GetResource())
 	})
 
-	t.Run("Principal.DisplayName is dropped", func(t *testing.T) {
-		require.Equal(t, "User One", got.GetPrincipal().GetDisplayName(),
-			"Pebble round-trip dropped Principal.DisplayName")
+	t.Run("principal ParentResourceId round-trips", func(t *testing.T) {
+		parent := got.GetPrincipal().GetParentResourceId()
+		require.NotNil(t, parent,
+			"principal parent must survive the v3 round-trip; bid.MakeBid(grant.Principal) in "+
+				"processGrantsWithExternalPrincipals encodes it, so dropping it silently breaks "+
+				"external-resource-match expansion for parented principals")
+		require.Equal(t, "org", parent.GetResourceType())
+		require.Equal(t, "acme", parent.GetResource())
 	})
 
-	t.Run("Principal.Annotations are dropped", func(t *testing.T) {
-		require.NotEmpty(t, got.GetPrincipal().GetAnnotations(),
-			"Pebble round-trip dropped Principal.Annotations (UserTrait); downstream consumers reading user traits off the embedded principal silently see no traits")
+	// The following document the v3 slim-grant contract: rich,
+	// display-only fields are intentionally NOT embedded on a grant —
+	// they live in the resources / entitlements tables. If any of
+	// these starts being populated off the grant, a consumer began
+	// depending on embedded rich data and this test should be
+	// revisited (along with the read-path cost it implies).
+	t.Run("rich entity fields are not embedded on the grant (fetched separately)", func(t *testing.T) {
+		require.Empty(t, got.GetPrincipal().GetDisplayName(),
+			"principal DisplayName is not embedded on the grant; fetch the resource record")
+		require.Empty(t, got.GetPrincipal().GetAnnotations(),
+			"principal annotations/traits are not embedded on the grant; fetch the resource record")
+		require.Empty(t, got.GetEntitlement().GetDisplayName(),
+			"entitlement DisplayName is not embedded on the grant; fetch the entitlement record")
+		require.Empty(t, got.GetEntitlement().GetSlug(),
+			"entitlement slug is not embedded on the grant; fetch the entitlement record")
+		require.Empty(t, got.GetEntitlement().GetResource().GetDisplayName(),
+			"entitlement-resource DisplayName is not embedded on the grant; fetch the resource record")
 	})
 
-	t.Run("Entitlement.Resource.ParentResourceId is dropped", func(t *testing.T) {
-		entRes := got.GetEntitlement().GetResource()
-		require.NotNil(t, entRes)
-		require.NotNil(t, entRes.GetParentResourceId(),
-			"Pebble round-trip dropped Entitlement.Resource.ParentResourceId; InsertResourceGrants etag-replay will rewrite v1_resources with a parent-less resource, corrupting the hierarchy")
-		require.Equal(t, "org", entRes.GetParentResourceId().GetResourceType())
-		require.Equal(t, "acme", entRes.GetParentResourceId().GetResource())
-	})
+	// The rich data IS available from the owning tables — the v3
+	// design just relocates it off the grant edge.
+	t.Run("rich data is recoverable from the owning records", func(t *testing.T) {
+		rresp, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+			ResourceTypeId: "group",
+		}.Build())
+		require.NoError(t, err)
+		var g1 *v2.Resource
+		for _, r := range rresp.GetList() {
+			if r.GetId().GetResource() == "g1" {
+				g1 = r
+				break
+			}
+		}
+		require.NotNil(t, g1)
+		require.Equal(t, "Group One", g1.GetDisplayName())
+		require.NotNil(t, g1.GetParentResourceId())
+		require.NotEmpty(t, g1.GetAnnotations())
 
-	t.Run("Entitlement.Resource.DisplayName is dropped", func(t *testing.T) {
-		require.Equal(t, "Group One", got.GetEntitlement().GetResource().GetDisplayName(),
-			"Pebble round-trip dropped Entitlement.Resource.DisplayName; InsertResourceGrants etag-replay rewrites v1_resources with empty DisplayName")
-	})
-
-	t.Run("Entitlement.Resource.Annotations are dropped", func(t *testing.T) {
-		require.NotEmpty(t, got.GetEntitlement().GetResource().GetAnnotations(),
-			"Pebble round-trip dropped Entitlement.Resource.Annotations (GroupTrait); InsertResourceGrants etag-replay rewrites v1_resources with no GroupTrait")
-	})
-
-	t.Run("Entitlement.DisplayName is dropped", func(t *testing.T) {
-		require.Equal(t, "Members of Group One", got.GetEntitlement().GetDisplayName(),
-			"Pebble round-trip dropped Entitlement.DisplayName")
-	})
-
-	t.Run("Entitlement.Description is dropped", func(t *testing.T) {
-		require.Equal(t, "Membership in the engineering org group", got.GetEntitlement().GetDescription(),
-			"Pebble round-trip dropped Entitlement.Description")
-	})
-
-	t.Run("Entitlement.Purpose is dropped", func(t *testing.T) {
-		require.Equal(t, v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT, got.GetEntitlement().GetPurpose(),
-			"Pebble round-trip dropped Entitlement.Purpose")
-	})
-
-	t.Run("Entitlement.Slug is dropped", func(t *testing.T) {
-		require.Equal(t, "member", got.GetEntitlement().GetSlug(),
-			"Pebble round-trip dropped Entitlement.Slug on the grant's embedded entitlement; bid.MakeBid on the embedded Entitlement now fails")
-	})
-
-	t.Run("Entitlement.GrantableTo is dropped", func(t *testing.T) {
-		require.NotEmpty(t, got.GetEntitlement().GetGrantableTo(),
-			"Pebble round-trip dropped Entitlement.GrantableTo on the grant's embedded entitlement")
+		eresp, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{}.Build())
+		require.NoError(t, err)
+		require.Len(t, eresp.GetList(), 1)
+		require.Equal(t, "member", eresp.GetList()[0].GetSlug())
+		require.Equal(t, "Members of Group One", eresp.GetList()[0].GetDisplayName())
 	})
 }

@@ -165,9 +165,12 @@ func resourceToPrincipalRef(r *v2.Resource) *v3.PrincipalRef {
 	if r == nil {
 		return nil
 	}
+	parent := r.GetParentResourceId()
 	return v3.PrincipalRef_builder{
-		ResourceTypeId: r.GetId().GetResourceType(),
-		ResourceId:     r.GetId().GetResource(),
+		ResourceTypeId:       r.GetId().GetResourceType(),
+		ResourceId:           r.GetId().GetResource(),
+		ParentResourceTypeId: parent.GetResourceType(),
+		ParentResourceId:     parent.GetResource(),
 	}.Build()
 }
 
@@ -231,6 +234,10 @@ func (a *grantTranslateArena) translateV2Grant(syncID string, g *v2.Grant) *v3.G
 		princRef = &a.principalRefs[len(a.principalRefs)-1]
 		princRef.SetResourceTypeId(p.GetId().GetResourceType())
 		princRef.SetResourceId(p.GetId().GetResource())
+		if parent := p.GetParentResourceId(); parent != nil {
+			princRef.SetParentResourceTypeId(parent.GetResourceType())
+			princRef.SetParentResourceId(parent.GetResource())
+		}
 	}
 	a.grantRecords = append(a.grantRecords, v3.GrantRecord{})
 	rec := &a.grantRecords[len(a.grantRecords)-1]
@@ -275,11 +282,19 @@ func principalRefToStubResource(ref *v3.PrincipalRef) *v2.Resource {
 	if ref == nil {
 		return nil
 	}
+	var parent *v2.ResourceId
+	if ref.GetParentResourceId() != "" {
+		parent = v2.ResourceId_builder{
+			ResourceType: ref.GetParentResourceTypeId(),
+			Resource:     ref.GetParentResourceId(),
+		}.Build()
+	}
 	return v2.Resource_builder{
 		Id: v2.ResourceId_builder{
 			ResourceType: ref.GetResourceTypeId(),
 			Resource:     ref.GetResourceId(),
 		}.Build(),
+		ParentResourceId: parent,
 	}.Build()
 }
 

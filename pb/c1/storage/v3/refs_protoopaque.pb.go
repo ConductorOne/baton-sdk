@@ -119,12 +119,23 @@ func (b0 EntitlementRef_builder) Build() *EntitlementRef {
 // PrincipalRef is the identity-only reference to a principal resource.
 // A principal is always a resource; the resource type identifies what
 // kind of principal (user, service-principal, group, ...).
+//
+// parent_resource_type_id / parent_resource_id carry the principal's
+// parent resource identity. These are part of the principal's
+// canonical identity (its bid) — bid.MakeBid encodes the parent when
+// present — so they're preserved here rather than requiring a
+// resources-table lookup. Consumed by pkg/sync/syncer.go's
+// processGrantsWithExternalPrincipals, which builds a bid from the
+// grant's principal to remap external-resource-match expansions.
+// Empty when the principal has no parent (the common case).
 type PrincipalRef struct {
-	state                     protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,1,opt,name=resource_type_id,json=resourceTypeId,proto3"`
-	xxx_hidden_ResourceId     string                 `protobuf:"bytes,2,opt,name=resource_id,json=resourceId,proto3"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state                           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ResourceTypeId       string                 `protobuf:"bytes,1,opt,name=resource_type_id,json=resourceTypeId,proto3"`
+	xxx_hidden_ResourceId           string                 `protobuf:"bytes,2,opt,name=resource_id,json=resourceId,proto3"`
+	xxx_hidden_ParentResourceTypeId string                 `protobuf:"bytes,3,opt,name=parent_resource_type_id,json=parentResourceTypeId,proto3"`
+	xxx_hidden_ParentResourceId     string                 `protobuf:"bytes,4,opt,name=parent_resource_id,json=parentResourceId,proto3"`
+	unknownFields                   protoimpl.UnknownFields
+	sizeCache                       protoimpl.SizeCache
 }
 
 func (x *PrincipalRef) Reset() {
@@ -166,6 +177,20 @@ func (x *PrincipalRef) GetResourceId() string {
 	return ""
 }
 
+func (x *PrincipalRef) GetParentResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_ParentResourceTypeId
+	}
+	return ""
+}
+
+func (x *PrincipalRef) GetParentResourceId() string {
+	if x != nil {
+		return x.xxx_hidden_ParentResourceId
+	}
+	return ""
+}
+
 func (x *PrincipalRef) SetResourceTypeId(v string) {
 	x.xxx_hidden_ResourceTypeId = v
 }
@@ -174,11 +199,21 @@ func (x *PrincipalRef) SetResourceId(v string) {
 	x.xxx_hidden_ResourceId = v
 }
 
+func (x *PrincipalRef) SetParentResourceTypeId(v string) {
+	x.xxx_hidden_ParentResourceTypeId = v
+}
+
+func (x *PrincipalRef) SetParentResourceId(v string) {
+	x.xxx_hidden_ParentResourceId = v
+}
+
 type PrincipalRef_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	ResourceTypeId string
-	ResourceId     string
+	ResourceTypeId       string
+	ResourceId           string
+	ParentResourceTypeId string
+	ParentResourceId     string
 }
 
 func (b0 PrincipalRef_builder) Build() *PrincipalRef {
@@ -187,6 +222,8 @@ func (b0 PrincipalRef_builder) Build() *PrincipalRef {
 	_, _ = b, x
 	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
 	x.xxx_hidden_ResourceId = b.ResourceId
+	x.xxx_hidden_ParentResourceTypeId = b.ParentResourceTypeId
+	x.xxx_hidden_ParentResourceId = b.ParentResourceId
 	return m0
 }
 
@@ -273,11 +310,13 @@ const file_c1_storage_v3_refs_proto_rawDesc = "" +
 	"\x10resource_type_id\x18\x01 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
 	"\vresource_id\x18\x02 \x01(\tR\n" +
 	"resourceId\x12%\n" +
-	"\x0eentitlement_id\x18\x03 \x01(\tR\rentitlementId\"Y\n" +
+	"\x0eentitlement_id\x18\x03 \x01(\tR\rentitlementId\"\xbe\x01\n" +
 	"\fPrincipalRef\x12(\n" +
 	"\x10resource_type_id\x18\x01 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
 	"\vresource_id\x18\x02 \x01(\tR\n" +
-	"resourceId\"X\n" +
+	"resourceId\x125\n" +
+	"\x17parent_resource_type_id\x18\x03 \x01(\tR\x14parentResourceTypeId\x12,\n" +
+	"\x12parent_resource_id\x18\x04 \x01(\tR\x10parentResourceId\"X\n" +
 	"\vResourceRef\x12(\n" +
 	"\x10resource_type_id\x18\x01 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
 	"\vresource_id\x18\x02 \x01(\tR\n" +

@@ -486,6 +486,24 @@ func v3SyncTypeToString(t v3.SyncType) string {
 	return ""
 }
 
+// resolveActiveSyncForReader resolves the sync_id a read should scope
+// to, in priority order, mirroring SQLite's resolveSyncIDForRead /
+// getConnectorObject cascade (pkg/dotc1z):
+//
+//  1. c1zpb.SyncDetails annotation on the request.
+//  2. The adapter's current sync (StartNewSync / SetCurrentSync).
+//     Pebble has no separate "view sync" — SetCurrentSync serves the
+//     read-selection role SQLite's viewSyncID does.
+//  3. The most-recent finished sync of any type (so reads against a
+//     closed c1z resolve to its stored data).
+//  4. The most-recent in-progress sync started within the last week
+//     (so an interrupted-only c1z still resolves).
+//
+// Returns ("", nil) only when no sync resolves cleanly. A malformed
+// SyncDetails annotation, or a store error from the finished/unfinished
+// lookups, surfaces as a non-nil error so callers don't silently fall
+// through to the wrong sync (matching SQLite's resolveSyncIDForRead,
+// which propagates those errors rather than swallowing them).
 func (a *Adapter) resolveActiveSyncForReader(ctx context.Context, annos []*anypb.Any) (string, error) {
 	annoSyncID, err := sdkannotations.GetSyncIdFromAnnotations(annos)
 	if err != nil {
@@ -497,8 +515,23 @@ func (a *Adapter) resolveActiveSyncForReader(ctx context.Context, annos []*anypb
 	if id := a.currentSyncID(); id != "" {
 		return id, nil
 	}
-	if id, err := a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny); err == nil && id != "" {
+	id, err := a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny)
+	if err != nil {
+		return "", fmt.Errorf("pebble: latest finished sync: %w", err)
+	}
+	if id != "" {
 		return id, nil
+	}
+	// Final fallback, matching SQLite's resolveSyncIDForRead: the
+	// latest in-progress sync (started within the last week). Lets
+	// reads against a c1z whose only sync was interrupted before
+	// EndSync resolve to that sync instead of ErrNoCurrentSync.
+	rec, err := a.engine.LatestUnfinishedSyncRecord(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("pebble: latest unfinished sync: %w", err)
+	}
+	if rec != nil {
+		return rec.GetSyncId(), nil
 	}
 	return "", nil
 }
