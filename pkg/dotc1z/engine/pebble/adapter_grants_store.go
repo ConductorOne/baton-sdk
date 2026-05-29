@@ -89,8 +89,18 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 		} else {
 			newRec.SetExpansion(prior.GetExpansion())
 			newRec.SetNeedsExpansion(prior.GetNeedsExpansion())
+			// Preserve the original discovered_at, matching SQLite's
+			// PreserveExpansion upsert which omits discovered_at from
+			// the on-conflict update set (EXCLUDED.discovered_at is
+			// ignored). An expander rewrite of an existing grant must
+			// not re-stamp it to "now".
+			newRec.SetDiscoveredAt(prior.GetDiscoveredAt())
 		}
-		newRec.SetDiscoveredAt(now)
+		// Stamp now only for a genuinely new record (no prior, or a
+		// prior that somehow lacked a timestamp).
+		if newRec.GetDiscoveredAt() == nil {
+			newRec.SetDiscoveredAt(now)
+		}
 		merged = append(merged, newRec)
 	}
 	return g.a.engine.PutGrantRecords(ctx, merged...)
