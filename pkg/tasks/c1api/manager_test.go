@@ -3,6 +3,7 @@ package c1api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -210,6 +211,58 @@ func TestBootstrapHonorsContextCancellationDuringBackoff(t *testing.T) {
 	err := mgr.Bootstrap(ctx, cc)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestBootstrapRetriesOnInternalDialTimeout(t *testing.T) {
+	withFastBackoff(t)
+
+	// The C1 service client dials each RPC with grpc.WithBlock under a 30s
+	// timeout. When C1 is briefly unreachable at startup the dial blocks and
+	// surfaces an error wrapping context.DeadlineExceeded from that *internal*
+	// dial ctx — not the caller's. This must be retried, not treated as a
+	// permanent failure that gives up before the Hello is ever delivered.
+	dialTimeout := fmt.Errorf("rpc error: dialing c1 backend: %w", context.DeadlineExceeded)
+	sc := newFakeBatonServiceClient([]error{dialTimeout, dialTimeout, nil})
+	cc := &fakeConnectorClient{}
+	mgr := newTestManager(sc)
+
+	if err := mgr.Bootstrap(context.Background(), cc); err != nil {
+		t.Fatalf("Bootstrap should retry transient dial timeouts and succeed, got: %v", err)
+	}
+	if sc.helloCalls != 3 {
+		t.Fatalf("expected 3 Hello calls (2 dial timeouts + success), got %d", sc.helloCalls)
+	}
+}
+
+func TestBootstrapStopsWhenCallerContextCancelled(t *testing.T) {
+	withFastBackoff(t)
+
+	// When the *caller's* ctx is cancelled, Bootstrap must bail via its own
+	// ctx.Err() check rather than spinning in the retry loop — even now that
+	// context errors are no longer short-circuited as non-retryable by
+	// isRetryableHelloError. Feed an endless supply of retryable errors so a
+	// regression that ignored ctx.Err() would loop instead of returning.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	transient := status.Error(codes.Unavailable, "server busy")
+	responses := make([]error, 100)
+	for i := range responses {
+		responses[i] = transient
+	}
+	sc := newFakeBatonServiceClient(responses)
+	cc := &fakeConnectorClient{}
+	mgr := newTestManager(sc)
+
+	err := mgr.Bootstrap(ctx, cc)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled from cancelled caller ctx, got %v", err)
+	}
+	// At most one attempt should run before the ctx.Err() guard returns; the
+	// retry loop must never be entered.
+	if sc.helloCalls > 1 {
+		t.Fatalf("expected Bootstrap to bail without retrying on caller cancellation, got %d Hello calls", sc.helloCalls)
 	}
 }
 
@@ -505,8 +558,14 @@ func TestIsRetryableHelloErrorClassification(t *testing.T) {
 		want bool
 	}{
 		{"nil", nil, false},
-		{"ctx-canceled", context.Canceled, false},
-		{"ctx-deadline", context.DeadlineExceeded, false},
+		// A context error that reaches the classifier is an *internal* timeout
+		// (e.g. the C1 client's 30s WithBlock dial timeout), not the caller's
+		// ctx — Bootstrap bails on caller cancellation via its own ctx.Err()
+		// check before consulting this function. Internal timeouts are transient
+		// and must be retried.
+		{"ctx-canceled", context.Canceled, true},
+		{"ctx-deadline", context.DeadlineExceeded, true},
+		{"wrapped-ctx-deadline-dial-timeout", fmt.Errorf("dialing c1: %w", context.DeadlineExceeded), true},
 		{"unauthenticated", status.Error(codes.Unauthenticated, "bad token"), false},
 		{"permission-denied", status.Error(codes.PermissionDenied, "forbidden"), false},
 		{"invalid-argument", status.Error(codes.InvalidArgument, "malformed"), false},

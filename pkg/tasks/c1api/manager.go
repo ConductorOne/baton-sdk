@@ -166,18 +166,19 @@ func (c *c1ApiTaskManager) Bootstrap(ctx context.Context, cc types.ConnectorClie
 // errors are treated as retryable by default; known-permanent gRPC codes
 // (auth, malformed, unimplemented, missing tenant/connector, server-side
 // precondition) short-circuit the retry loop.
+//
+// We deliberately do NOT treat context.Canceled / context.DeadlineExceeded as
+// non-retryable here. Cancellation or expiry of the *caller's* ctx is handled
+// by Bootstrap, which checks ctx.Err() after every attempt and bails before it
+// ever consults this classifier. A context-deadline error that reaches this
+// function while the caller's ctx is still live therefore originates from an
+// *internal* timeout — most importantly the 30s dial timeout the C1 service
+// client applies via grpc.WithBlock when C1 is briefly unreachable at startup.
+// That is a transient condition we must retry: classifying it as permanent
+// makes the startup Hello give up after a single attempt and the connector
+// exits without ever sending the Hello once C1 becomes reachable again.
 func isRetryableHelloError(err error) bool {
 	if err == nil {
-		return false
-	}
-	// If the caller's ctx already expired/cancelled, retrying would just burn
-	// time we no longer have. We check this via errors.Is on the sentinels so
-	// a gRPC-wrapped DeadlineExceeded that originated from our ctx still
-	// counts as non-retryable. A bare codes.DeadlineExceeded from the server
-	// (without a ctx sentinel in the chain) falls through to the default
-	// branch below and is treated as transient — that's the server-side
-	// timeout case, which can succeed on a retry.
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	st, ok := status.FromError(err)

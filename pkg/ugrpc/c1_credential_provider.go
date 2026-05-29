@@ -61,6 +61,27 @@ func parseClientID(input string) (string, string, error) {
 	return clientName, items[0], nil
 }
 
+// tokenStatusError maps a non-200 response from the C1 token endpoint to a
+// gRPC status error. Transient server-side and throttling responses (5xx, 429,
+// 408) are reported as codes.Unavailable so that callers — most importantly the
+// startup Hello Bootstrap and the service-mode task poll loop — retry instead
+// of treating a momentary token-service outage as a permanent auth failure.
+// (A 503 from the token endpoint was previously surfaced as Unauthenticated,
+// which the Hello retry classifier treats as fatal, so a brief token-service
+// blip at startup could permanently skip the Hello / kill the connector.)
+// Genuine credential problems (401/403, malformed requests, etc.) stay
+// Unauthenticated so misconfigured connectors still fail fast.
+func tokenStatusError(statusCode int, statusText string) error {
+	code := codes.Unauthenticated
+	switch {
+	case statusCode == http.StatusRequestTimeout, // 408
+		statusCode == http.StatusTooManyRequests,     // 429
+		statusCode >= http.StatusInternalServerError: // 5xx
+		code = codes.Unavailable
+	}
+	return status.Errorf(code, "failed to get token: %s", statusText)
+}
+
 func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 	jsigner, err := jose.NewSigner(
 		jose.SigningKey{
@@ -134,7 +155,7 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, status.Errorf(codes.Unauthenticated, "failed to get token: %s", resp.Status)
+		return nil, tokenStatusError(resp.StatusCode, resp.Status)
 	}
 
 	c1t := &c1Token{}
