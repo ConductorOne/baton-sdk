@@ -145,10 +145,15 @@ func BenchmarkPebbleAdapterWriteGrant(b *testing.B) {
 			b.Fatalf("PutGrants: %v", err)
 		}
 	}
-	b.StopTimer()
+	// Amortized durable cost without a manual flush: the engine's Close
+	// invariant flushes the memtable to an SST on the write path, so
+	// timing through Close captures the hardening cost. Unlike the
+	// dotc1z store's Close, the bare adapter's Close is engine-only (no
+	// c1z compression/save), so it stays a clean write+flush measurement.
 	if err := a.Close(ctx); err != nil {
 		b.Fatalf("Close: %v", err)
 	}
+	b.StopTimer()
 }
 
 func benchmarkRegisteredWriteGrant(b *testing.B, engine dotc1z.Engine) {
@@ -177,6 +182,12 @@ func benchmarkRegisteredWriteGrant(b *testing.B, engine dotc1z.Engine) {
 		)); err != nil {
 			b.Fatalf("PutGrants: %v", err)
 		}
+	}
+	// Amortized durable cost: one EndSync (Pebble flush + WAL fsync /
+	// SQLite txn commit) folded into the timed region so the bench
+	// reflects making the sync durable, not just buffered writes.
+	if err := store.EndSync(ctx); err != nil {
+		b.Fatalf("EndSync: %v", err)
 	}
 	b.StopTimer()
 	if err := store.Close(ctx); err != nil {
