@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -434,20 +433,21 @@ func cleanupDbDir(dbFilePath string, err error) error {
 
 var ErrReadOnly = errors.New("c1z: read only mode")
 
-const defaultCheckpointTimeout = 120
-
-var checkpointTimeout, _ = strconv.ParseInt(os.Getenv("BATON_WAL_CHECKPOINT_TIMEOUT"), 10, 64)
-
-// Close ensures that the sqlite database is flushed to disk, and if any changes were made we update the original database
-// with our changes. The provided context is used for the WAL checkpoint operation. If the context is already expired,
-// a fresh context with a timeout is used to ensure the checkpoint completes.
+// Close ensures that the sqlite database is flushed to disk, and if any
+// changes were made we update the original database with our changes.
+//
+// When there is real finalize work to do (rawDb open, dbUpdated, not
+// read-only), the WAL checkpoint, raw-db close, and saveC1z all run on a
+// detached context bounded by FinalizeTimeout(). Caller cancellation
+// cannot truncate the c1z mid-finalize; the new-root finalize span links
+// back to the caller's trace for navigability without bloating the
+// parent trace.
 //
 //nolint:nonamedreturns // named return required so the deferred span captures all early-return error paths
 func (c *C1File) Close(ctx context.Context) (retErr error) {
 	ctx, span := tracer.Start(ctx, "C1File.Close")
 	defer func() { uotel.EndSpanWithError(span, retErr) }()
 
-	var err error
 	l := ctxzap.Extract(ctx)
 
 	c.closedMu.Lock()
@@ -463,101 +463,150 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 		attribute.String("db_path", c.dbFilePath),
 	)
 
+	// Cheap paths (no save-to-disk work) keep the caller's context and
+	// span topology. Read-only opens never write the c1z back, even if
+	// the c1z was opened without being read; the same is true when no
+	// mutations occurred. Every cheap-path branch closes c.rawDb (when
+	// open) before returning so a misuse like opening read-only and
+	// then dirtying via an attached-db mutation still releases the
+	// SQLite handle and any FDs/goroutines it owns.
+	if !c.dbUpdated || c.readOnly {
+		if c.rawDb != nil {
+			if err := c.closeRawDB(ctx); err != nil {
+				return cleanupDbDir(c.dbFilePath, err)
+			}
+		}
+		if c.dbUpdated && c.readOnly {
+			c.closed = true
+			return cleanupDbDir(c.dbFilePath, ErrReadOnly)
+		}
+		if err := cleanupDbDir(c.dbFilePath, nil); err != nil {
+			return err
+		}
+		c.closed = true
+		return nil
+	}
+
+	if err := c.finalize(ctx); err != nil {
+		return err
+	}
+	c.closed = true
+	return nil
+}
+
+// finalize runs the WAL-checkpoint → close-raw-db → saveC1z sequence on a
+// context that is detached from the caller's cancellation. The detached
+// context is bounded by FinalizeTimeout() for the steps that observe
+// ctx (truncateWAL, closeRawDB); saveC1z itself does not take ctx, so
+// its encoder phase is not cancellable today and the upper bound on
+// total finalize wall-clock is effectively FinalizeTimeout +
+// saveC1z-encoder-time. The finalize span is a new root linked to the
+// caller's trace so very long syncs don't end up with the upload
+// subtree inflating their span counts.
+//
+// If the caller propagated a parent ctx error label via
+// uotel.WithParentCtxErrLabel (e.g. syncer.Close did so before
+// detaching), that label wins over re-classifying ctx.Err() — useful
+// because by the time we reach here the caller's ctx may already be
+// the syncer's detached finalizeCtx, which always reports "nil".
+func (c *C1File) finalize(ctx context.Context) error {
+	parentCtxErrLabel := uotel.ClassifyCtxErr(ctx.Err())
+	if propagated, ok := uotel.ParentCtxErrLabel(ctx); ok {
+		parentCtxErrLabel = propagated
+	}
+
+	timeout := FinalizeTimeout()
+	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+
+	finalizeCtx, finalizeSpan := uotel.StartWithLink(finalizeCtx, tracer, "C1File.finalize")
+	var finalizeErr error
+	defer func() { uotel.EndSpanWithError(finalizeSpan, finalizeErr) }()
+	finalizeSpan.SetAttributes(
+		attribute.Bool("c1z.finalize.cancel_observed", parentCtxErrLabel != "nil"),
+		attribute.String("c1z.finalize.parent_ctx_err", parentCtxErrLabel),
+		attribute.Int64("c1z.finalize.timeout_seconds", int64(timeout.Seconds())),
+		attribute.String("c1z.finalize.db_path", c.dbFilePath),
+	)
+
+	l := ctxzap.Extract(finalizeCtx)
+
+	// Only WAL-checkpoint and close the raw DB if a handle is open.
+	// Some callers (notably TestC1ZDecoder) manually close c.rawDb to
+	// force a checkpoint before calling Close — that path skips both
+	// operations here and proceeds directly to saveC1z.
 	if c.rawDb != nil {
 		// CRITICAL: Force a full WAL checkpoint before closing the database.
 		// This ensures all WAL data is written back to the main database file
 		// and the writes are synced to disk. Without this, on filesystems with
 		// aggressive caching (like ZFS with large ARC), the subsequent saveC1z()
 		// read could see stale data because the checkpoint writes may still be
-		// in kernel buffers.
-		//
-		// TRUNCATE mode: checkpoint as many frames as possible, then truncate
-		// the WAL file to zero bytes. This guarantees all data is in the main
-		// database file before we read it for compression.
-		if c.dbUpdated && !c.readOnly {
-			// Use a dedicated context for the checkpoint. The caller's context
-			// may already be expired (e.g. Temporal activity deadline), but the
-			// checkpoint is a local SQLite operation that must complete to avoid
-			// saving a stale c1z.
-			checkpointCtx := ctx
-			if ctx.Err() != nil {
-				if checkpointTimeout <= 0 {
-					checkpointTimeout = defaultCheckpointTimeout
-				}
-				var checkpointCancel context.CancelFunc
-				checkpointCtx, checkpointCancel = context.WithTimeout(context.Background(), time.Duration(checkpointTimeout)*time.Second)
-				defer checkpointCancel()
+		// in kernel buffers. TRUNCATE mode checkpoints as many frames as possible
+		// then truncates the WAL file to zero bytes.
+		busy, log, checkpointed, err := c.truncateWAL(finalizeCtx)
+		if err != nil {
+			finalizeErr = fmt.Errorf("c1z: WAL checkpoint failed: %w", err)
+			l.Error("WAL checkpoint failed before close",
+				zap.Error(err),
+				zap.String("db_path", c.dbFilePath))
+			if closeErr := c.closeRawDB(finalizeCtx); closeErr != nil {
+				l.Error("error closing raw db", zap.Error(closeErr))
 			}
-
-			// Use QueryRowContext to read the (busy, log, checkpointed) result.
-			// ExecContext silently discards these values, making partial
-			// checkpoints undetectable — the PRAGMA returns nil error even when
-			// it can't checkpoint all frames due to concurrent readers.
-			busy, log, checkpointed, err := c.truncateWAL(checkpointCtx)
-			if err != nil {
-				l.Error("WAL checkpoint failed before close",
-					zap.Error(err),
-					zap.String("db_path", c.dbFilePath))
-				if closeErr := c.closeRawDB(ctx); closeErr != nil {
-					l.Error("error closing raw db", zap.Error(closeErr))
-				}
-				return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint failed: %w", err))
+			return cleanupDbDir(c.dbFilePath, finalizeErr)
+		}
+		if busy != 0 || (log >= 0 && checkpointed < log) {
+			finalizeErr = fmt.Errorf("c1z: WAL checkpoint incomplete: busy=%d log=%d checkpointed=%d", busy, log, checkpointed)
+			l.Error("WAL checkpoint incomplete before close",
+				zap.Int("busy", busy),
+				zap.Int("log", log),
+				zap.Int("checkpointed", checkpointed),
+				zap.String("db_path", c.dbFilePath))
+			if closeErr := c.closeRawDB(finalizeCtx); closeErr != nil {
+				l.Error("error closing raw db", zap.Error(closeErr))
 			}
-			if busy != 0 || (log >= 0 && checkpointed < log) {
-				l.Error("WAL checkpoint incomplete before close",
-					zap.Int("busy", busy),
-					zap.Int("log", log),
-					zap.Int("checkpointed", checkpointed),
-					zap.String("db_path", c.dbFilePath))
-				if closeErr := c.closeRawDB(ctx); closeErr != nil {
-					l.Error("error closing raw db", zap.Error(closeErr))
-				}
-				return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint incomplete: busy=%d log=%d checkpointed=%d", busy, log, checkpointed))
-			}
+			return cleanupDbDir(c.dbFilePath, finalizeErr)
 		}
 
-		err = c.closeRawDB(ctx)
-		if err != nil {
+		if err := c.closeRawDB(finalizeCtx); err != nil {
+			finalizeErr = err
 			return cleanupDbDir(c.dbFilePath, err)
 		}
 	}
 
-	// We only want to save the file if we've made any changes
-	if c.dbUpdated {
-		if c.readOnly {
-			return cleanupDbDir(c.dbFilePath, ErrReadOnly)
-		}
-
-		// Verify WAL was fully checkpointed. If it still has data,
-		// saveC1z would create a c1z missing the WAL contents since
-		// it only reads the main database file.
-		walPath := c.dbFilePath + "-wal"
-		if walInfo, statErr := os.Stat(walPath); statErr == nil && walInfo.Size() > 0 {
-			return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL file not empty after close (size=%d) - refusing to save incomplete data", walInfo.Size()))
-		}
-
-		_, saveSpan := tracer.Start(ctx, "C1File.saveC1z")
-		saveSpan.SetAttributes(
-			attribute.String("db_path", c.dbFilePath),
-			attribute.String("output_path", c.outputFilePath),
-			attribute.Int("encoder_concurrency", c.encoderConcurrency),
-		)
-		if dbInfo, statErr := os.Stat(c.dbFilePath); statErr == nil {
-			saveSpan.SetAttributes(attribute.Int64("input_size_bytes", dbInfo.Size()))
-		}
-		err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
-		uotel.EndSpanWithError(saveSpan, err)
-		if err != nil {
-			return cleanupDbDir(c.dbFilePath, err)
-		}
+	// Verify WAL was fully checkpointed. If it still has data, saveC1z
+	// would create a c1z missing the WAL contents since it only reads
+	// the main database file.
+	walPath := c.dbFilePath + "-wal"
+	if walInfo, statErr := os.Stat(walPath); statErr == nil && walInfo.Size() > 0 {
+		finalizeErr = fmt.Errorf("c1z: WAL file not empty after close (size=%d) - refusing to save incomplete data", walInfo.Size())
+		return cleanupDbDir(c.dbFilePath, finalizeErr)
 	}
 
-	err = cleanupDbDir(c.dbFilePath, err)
-	if err != nil {
+	saveCtx, saveSpan := tracer.Start(finalizeCtx, "C1File.saveC1z")
+	saveSpan.SetAttributes(
+		attribute.String("db_path", c.dbFilePath),
+		attribute.String("output_path", c.outputFilePath),
+		attribute.Int("encoder_concurrency", c.encoderConcurrency),
+	)
+	if dbInfo, statErr := os.Stat(c.dbFilePath); statErr == nil {
+		saveSpan.SetAttributes(attribute.Int64("input_bytes", dbInfo.Size()))
+		finalizeSpan.SetAttributes(attribute.Int64("c1z.finalize.input_bytes", dbInfo.Size()))
+	}
+	_ = saveCtx // saveC1z doesn't currently take ctx; saveCtx is kept so any future span inside saveC1z attaches to saveSpan, not finalizeSpan.
+	saveErr := saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
+	uotel.EndSpanWithError(saveSpan, saveErr)
+	if saveErr != nil {
+		finalizeErr = saveErr
+		return cleanupDbDir(c.dbFilePath, saveErr)
+	}
+	if outInfo, statErr := os.Stat(c.outputFilePath); statErr == nil {
+		finalizeSpan.SetAttributes(attribute.Int64("c1z.finalize.output_bytes", outInfo.Size()))
+	}
+
+	if err := cleanupDbDir(c.dbFilePath, nil); err != nil {
+		finalizeErr = err
 		return err
 	}
-	c.closed = true
-
 	return nil
 }
 
