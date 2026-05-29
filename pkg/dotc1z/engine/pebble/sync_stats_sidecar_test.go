@@ -103,6 +103,14 @@ func TestSyncStatsSidecarRoundtrip(t *testing.T) {
 // stamp, re-open, and verify that the migration runs and the
 // sidecar reappears.
 func TestSyncStatsSidecarBackfillOnOpen(t *testing.T) {
+	// Skipped: the indexMigrations registry is intentionally empty
+	// (no existing Pebble data to backfill), so the sync_stats_sidecar
+	// backfill is not registered and on-Open migration is a no-op. The
+	// sidecar's normal write path (PersistSyncStats at EndSync) is
+	// still covered by TestSyncStatsSidecarRoundtrip. Re-enable when a
+	// migration is added back to the registry.
+	t.Skip("indexMigrations registry intentionally empty: no existing Pebble data to backfill")
+
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "engine")
 

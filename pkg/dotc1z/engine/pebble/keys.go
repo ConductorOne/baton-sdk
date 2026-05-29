@@ -75,6 +75,7 @@ const (
 	idxGrantByPrincipal             byte = 0x04
 	idxGrantByNeedsExpansion        byte = 0x05
 	idxGrantByPrincipalResourceType byte = 0x06
+	idxGrantByEntitlementResource   byte = 0x07
 )
 
 // --- Grant ---
@@ -217,6 +218,46 @@ func encodeGrantByPrincipalPrefix(syncIDBytes []byte, principalRT, principalID s
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleStrings(buf, principalRT, principalID)
+	return codec.AppendTupleSeparator(buf)
+}
+
+// encodeGrantByEntitlementResourceIndexKey is the by_entitlement_resource
+// secondary index on GrantRecord. Indexes grants by the
+// resource side of their entitlement (i.e. the resource the
+// entitlement is on — the group/role/app/etc., NOT the principal).
+//
+//	v3 | typeIndex | idxGrantByEntitlementResource | sync_id_bytes | 0x00 |
+//	    ent_resource_type | 0x00 |
+//	    ent_resource_id   | 0x00 |
+//	    external_id  (tail element for index-row uniqueness)
+//
+// Drives Adapter.ListGrants / ListWithAnnotationsForResourcePage when
+// req.Resource is set — matches SQLite's `listGrantsGeneric` which
+// filters on grants.resource_id / resource_type_id (the entitlement-
+// side resource columns). The pre-existing by_principal index served
+// the wrong semantic and produced silently-empty reads for callers
+// that wanted "grants on this group" rather than "grants where this
+// group is a principal".
+//
+// Paired with encodeGrantByEntitlementResourcePrefix (by-value prefix,
+// with trailing sep).
+func encodeGrantByEntitlementResourceIndexKey(syncIDBytes []byte, entRT, entRID, externalID string) []byte {
+	buf := make([]byte, 0, 64)
+	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlementResource)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	return codec.AppendTupleStrings(buf, entRT, entRID, externalID)
+}
+
+// encodeGrantByEntitlementResourcePrefix is the by-value prefix for
+// "all grants in this sync whose entitlement is on this resource".
+// Trailing sep is load-bearing — see keys.go convention.
+func encodeGrantByEntitlementResourcePrefix(syncIDBytes []byte, entRT, entRID string) []byte {
+	buf := make([]byte, 0, 32+len(entRT)+len(entRID))
+	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlementResource)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, entRT, entRID)
 	return codec.AppendTupleSeparator(buf)
 }
 
@@ -499,6 +540,20 @@ func GrantByPrincipalResourceTypeSyncLowerBound(syncIDBytes []byte) []byte {
 // GrantByPrincipalResourceTypeSyncUpperBound is the exclusive upper bound.
 func GrantByPrincipalResourceTypeSyncUpperBound(syncIDBytes []byte) []byte {
 	return upperBoundOf(GrantByPrincipalResourceTypeSyncLowerBound(syncIDBytes))
+}
+
+// GrantByEntitlementResourceSyncLowerBound returns the lowest key in
+// the by_entitlement_resource index bucket for a given sync.
+func GrantByEntitlementResourceSyncLowerBound(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 3+len(syncIDBytes))
+	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlementResource)
+	buf = append(buf, syncIDBytes...)
+	return buf
+}
+
+// GrantByEntitlementResourceSyncUpperBound is the exclusive upper bound.
+func GrantByEntitlementResourceSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(GrantByEntitlementResourceSyncLowerBound(syncIDBytes))
 }
 
 func AssetSyncLowerBound(syncIDBytes []byte) []byte {

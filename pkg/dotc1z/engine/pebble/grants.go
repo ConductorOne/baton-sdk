@@ -248,6 +248,23 @@ func (e *Engine) writeGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *v
 			return err
 		}
 	}
+	// by_entitlement_resource index — indexes grants by the resource
+	// side of the entitlement (i.e. the resource the entitlement is
+	// on, NOT the principal). Drives ListGrants with req.Resource
+	// set, matching SQLite's filter on grants.resource_id /
+	// resource_type_id. One entry per grant when the entitlement has
+	// a non-empty resource.
+	if ent != nil && ent.GetResourceId() != "" {
+		k := encodeGrantByEntitlementResourceIndexKey(
+			syncIDBytes,
+			ent.GetResourceTypeId(),
+			ent.GetResourceId(),
+			ext,
+		)
+		if err := batch.Set(k, nil, nil); err != nil {
+			return err
+		}
+	}
 	if princ != nil {
 		k := encodeGrantByPrincipalIndexKey(
 			syncIDBytes,
@@ -298,6 +315,17 @@ func (e *Engine) deleteGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *
 			ent.GetEntitlementId(),
 			princ.GetResourceTypeId(),
 			princ.GetResourceId(),
+			ext,
+		)
+		if err := batch.Delete(k, nil); err != nil {
+			return err
+		}
+	}
+	if ent != nil && ent.GetResourceId() != "" {
+		k := encodeGrantByEntitlementResourceIndexKey(
+			syncIDBytes,
+			ent.GetResourceTypeId(),
+			ent.GetResourceId(),
 			ext,
 		)
 		if err := batch.Delete(k, nil); err != nil {

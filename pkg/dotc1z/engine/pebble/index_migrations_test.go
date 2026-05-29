@@ -21,6 +21,13 @@ import (
 // re-open. The on-Open migration must backfill the index so
 // IterateGrantsByNeedsExpansion now finds the records.
 func TestApplyIndexMigrationsBackfillsNeedsExpansion(t *testing.T) {
+	// Skipped: the indexMigrations registry is intentionally empty
+	// (no existing Pebble c1z data to backfill — nothing uses Pebble
+	// in prod). The grant_needs_expansion backfill it exercises is
+	// not registered, so on-Open migration is a no-op. Re-enable when
+	// a migration is added back to the registry.
+	t.Skip("indexMigrations registry intentionally empty: no existing Pebble data to backfill")
+
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "engine")
 
@@ -124,6 +131,11 @@ func TestApplyIndexMigrationsBackfillsNeedsExpansion(t *testing.T) {
 // TestApplyIndexMigrationsIsIdempotent verifies that re-running
 // migrations after they've already been applied is a no-op.
 func TestApplyIndexMigrationsIsIdempotent(t *testing.T) {
+	// Skipped: the indexMigrations registry is intentionally empty
+	// (no existing Pebble data to backfill), so no applied-version is
+	// ever stamped. Re-enable when a migration is added back.
+	t.Skip("indexMigrations registry intentionally empty: no existing Pebble data to backfill")
+
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "engine")
 	e, err := Open(ctx, dir)

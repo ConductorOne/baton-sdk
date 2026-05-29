@@ -167,6 +167,10 @@ func (m *PrincipalRef) validate(all bool) error {
 
 	// no validation rules for ResourceId
 
+	// no validation rules for ParentResourceTypeId
+
+	// no validation rules for ParentResourceId
+
 	if len(errors) > 0 {
 		return PrincipalRefMultiError(errors)
 	}

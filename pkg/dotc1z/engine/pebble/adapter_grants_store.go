@@ -167,8 +167,12 @@ func (g pebbleGrantStore) PendingExpansion(ctx context.Context) iter.Seq2[dotc1z
 }
 
 // ListWithAnnotationsPage returns the next page of grants with their
-// expansion annotations inline. Currently returns grants with nil
-// annotations because expansion metadata isn't extracted in v3 yet.
+// expansion annotations inline. The typed Annotation pointer is
+// populated from the v3 GrantRecord's Expansion field (nil for
+// non-expandable grants, matching the SQLite reader), so consumers
+// that gate on `Annotation != nil` — the syncer's
+// processGrantsWithExternalPrincipals and c1's fileClientWrapper —
+// behave identically across engines.
 func (g pebbleGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken string) ([]dotc1z.GrantAnnotation, string, error) {
 	syncID := g.a.currentSyncID()
 	if syncID == "" {
@@ -182,19 +186,24 @@ func (g pebbleGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken
 	for _, rec := range records {
 		rows = append(rows, dotc1z.GrantAnnotation{
 			Grant:                   V3GrantToV2(rec),
-			Annotation:              nil, // Stack 6 fills this in
+			Annotation:              expansionRecordToV2(rec.GetExpansion()),
 			GrantExternalID:         rec.GetExternalId(),
 			TargetEntitlementID:     rec.GetEntitlement().GetEntitlementId(),
 			PrincipalResourceTypeID: rec.GetPrincipal().GetResourceTypeId(),
 			PrincipalResourceID:     rec.GetPrincipal().GetResourceId(),
-			NeedsExpansion:          false,
+			NeedsExpansion:          rec.GetNeedsExpansion(),
 		})
 	}
 	return rows, next, nil
 }
 
-// ListWithAnnotationsForResourcePage filters by principal resource.
-// Uses the by_principal index for efficient lookup.
+// ListWithAnnotationsForResourcePage filters by the entitlement-side
+// resource of each grant — matches the SQLite `c1FileGrantStore`
+// path and the GrantStore interface comment ("grants ON the given
+// resource"). Used by the c1-side fileClientWrapper that emulates a
+// connector from a c1z file and forwards a ListGrants RPC whose
+// request has a Resource filter. Uses the by_entitlement_resource
+// index for efficient lookup.
 func (g pebbleGrantStore) ListWithAnnotationsForResourcePage(
 	ctx context.Context,
 	resource *v2.Resource,
@@ -212,7 +221,7 @@ func (g pebbleGrantStore) ListWithAnnotationsForResourcePage(
 		return nil, "", ErrNoCurrentSync
 	}
 	limit := clampPageSize(pageSize)
-	records, next, err := g.a.engine.PaginateGrantsByPrincipal(ctx, syncID,
+	records, next, err := g.a.engine.PaginateGrantsByEntitlementResource(ctx, syncID,
 		resource.GetId().GetResourceType(), resource.GetId().GetResource(),
 		pageToken, limit)
 	if err != nil {
@@ -222,12 +231,12 @@ func (g pebbleGrantStore) ListWithAnnotationsForResourcePage(
 	for _, rec := range records {
 		rows = append(rows, dotc1z.GrantAnnotation{
 			Grant:                   V3GrantToV2(rec),
-			Annotation:              nil,
+			Annotation:              expansionRecordToV2(rec.GetExpansion()),
 			GrantExternalID:         rec.GetExternalId(),
 			TargetEntitlementID:     rec.GetEntitlement().GetEntitlementId(),
 			PrincipalResourceTypeID: rec.GetPrincipal().GetResourceTypeId(),
 			PrincipalResourceID:     rec.GetPrincipal().GetResourceId(),
-			NeedsExpansion:          false,
+			NeedsExpansion:          rec.GetNeedsExpansion(),
 		})
 	}
 	return rows, next, nil

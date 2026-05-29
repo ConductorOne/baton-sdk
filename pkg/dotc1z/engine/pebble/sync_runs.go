@@ -4,11 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
+
+// unfinishedSyncMaxAge bounds how old an in-progress sync may be and
+// still be considered resumable/readable. Mirrors the one-week cutoff
+// in SQLite's getLatestUnfinishedSync (pkg/dotc1z/sync_runs.go): a
+// sync that started but never reached EndSync more than a week ago is
+// treated as abandoned, not a live read target.
+const unfinishedSyncMaxAge = 7 * 24 * time.Hour
 
 // PutSyncRunRecord — one row per sync. sync_id is the only PK
 // component; the record reads/writes use only the sync_id.
@@ -134,6 +142,56 @@ func (e *Engine) LatestFinishedSyncRecord(ctx context.Context, typeOK func(v3.Sy
 		}
 		// Equal ended_at: tiebreak on sync_id (KSUID > sort = later).
 		if curEnd.Equal(bestEnd) && r.GetSyncId() > best.GetSyncId() {
+			best = r
+		}
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	return best, nil
+}
+
+// LatestUnfinishedSyncRecord returns the most-recently-started
+// sync_run that has NOT ended and was started within the last week,
+// matching typeOK (nil = any type), or (nil, nil) when none match.
+//
+// Mirrors SQLite's getLatestUnfinishedSync (pkg/dotc1z/sync_runs.go):
+// it selects ended_at-null records started after the
+// unfinishedSyncMaxAge cutoff, ordered by started_at (sync_id
+// tiebreaker for coarse clock resolution). It is the read-path
+// fallback after LatestFinishedSyncRecord, so a c1z whose only sync
+// was interrupted before EndSync still resolves to that in-progress
+// sync instead of returning no sync at all — matching the SQLite
+// resolveSyncIDForRead cascade.
+//
+// O(N) in the count of sync_runs (one record per sync).
+func (e *Engine) LatestUnfinishedSyncRecord(ctx context.Context, typeOK func(v3.SyncType) bool) (*v3.SyncRunRecord, error) {
+	cutoff := time.Now().Add(-unfinishedSyncMaxAge)
+	var best *v3.SyncRunRecord
+	err := e.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
+		if r == nil || r.GetEndedAt() != nil {
+			return true
+		}
+		started := r.GetStartedAt()
+		if started == nil || started.AsTime().Before(cutoff) {
+			return true
+		}
+		if typeOK != nil && !typeOK(r.GetType()) {
+			return true
+		}
+		if best == nil {
+			best = r
+			return true
+		}
+		curStart := started.AsTime()
+		bestStart := best.GetStartedAt().AsTime()
+		if curStart.After(bestStart) {
+			best = r
+			return true
+		}
+		// Equal started_at: tiebreak on sync_id (KSUID > sort = later).
+		if curStart.Equal(bestStart) && r.GetSyncId() > best.GetSyncId() {
 			best = r
 		}
 		return true

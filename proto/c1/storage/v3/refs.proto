@@ -22,9 +22,20 @@ message EntitlementRef {
 // PrincipalRef is the identity-only reference to a principal resource.
 // A principal is always a resource; the resource type identifies what
 // kind of principal (user, service-principal, group, ...).
+//
+// parent_resource_type_id / parent_resource_id carry the principal's
+// parent resource identity. These are part of the principal's
+// canonical identity (its bid) — bid.MakeBid encodes the parent when
+// present — so they're preserved here rather than requiring a
+// resources-table lookup. Consumed by pkg/sync/syncer.go's
+// processGrantsWithExternalPrincipals, which builds a bid from the
+// grant's principal to remap external-resource-match expansions.
+// Empty when the principal has no parent (the common case).
 message PrincipalRef {
   string resource_type_id = 1;
   string resource_id = 2;
+  string parent_resource_type_id = 3;
+  string parent_resource_id = 4;
 }
 
 // ResourceRef is the identity-only reference to any resource (used
