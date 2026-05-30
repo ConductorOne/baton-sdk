@@ -853,7 +853,9 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 	}
 
 	if c.skipVacuum {
-		l.Info("skip_vacuum option is set, skipping VACUUM in Cleanup")
+		l.Info("skip_vacuum option is set, skipping VACUUM in Cleanup",
+			zap.String("db_file_path", c.dbFilePath),
+		)
 	} else {
 		l.Debug("vacuuming database")
 		err = c.Vacuum(ctx)

@@ -105,10 +105,15 @@ func TestCleanupVacuumWAL(t *testing.T) {
 }
 
 // TestCleanupSkipVacuum verifies that WithSkipVacuum prevents the VACUUM step
-// from running inside Cleanup() while keeping the old-sync delete + WAL truncate
-// behavior intact. With vacuum skipped, freed pages stay on the freelist instead
-// of being reclaimed — the page_count stays the same and freelist_count remains
-// non-zero. Counter-test to TestCleanupVacuum which asserts both go down.
+// from running inside Cleanup() while keeping the old-sync delete behavior
+// intact. With vacuum skipped, freed pages stay on the freelist — page_count
+// stays the same and freelist_count remains non-zero. Counter-test to
+// TestCleanupVacuum which asserts both go down.
+//
+// The test creates 3 finished syncs so DeleteSyncRun actually runs (default
+// syncLimit=2 keeps the latest 2 and deletes the oldest 1). After Cleanup,
+// the file is closed, re-opened, and ListSyncRuns is asserted to return 2
+// entries — proving that the delete happened correctly even with vacuum off.
 func TestCleanupSkipVacuum(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
@@ -118,30 +123,37 @@ func TestCleanupSkipVacuum(t *testing.T) {
 	f, err := dotc1z.NewC1ZFile(ctx, testFilePath, dotc1z.WithSkipVacuum(true))
 	require.NoError(t, err)
 
-	_, err = c1ztest.CreateTestSync(ctx, t, f, c1ztest.C1ZCounts{
+	counts := c1ztest.C1ZCounts{
 		ResourceTypeCount: 3,
 		ResourceCount:     10,
 		UserCount:         10,
 		EntitlementCount:  10,
 		GrantCount:        25,
-	})
-	require.NoError(t, err)
+	}
+	// Three syncs > default syncLimit (2) → DeleteSyncRun will actually run during
+	// Cleanup. This is what we need to verify the "delete still happens with vacuum
+	// skipped" invariant; a single sync would short-circuit the delete loop.
+	for range 3 {
+		_, err = c1ztest.CreateTestSync(ctx, t, f, counts)
+		require.NoError(t, err)
+	}
 
+	// Note: we don't assert freelist_count > 0 here pre-Cleanup. Across multiple
+	// sequential syncs, SQLite reuses freelist pages from earlier syncs to satisfy
+	// new INSERTs, so by the third sync the freelist may have been consumed back
+	// to zero. The signal we care about is post-Cleanup: DeleteSyncRun should free
+	// pages that, with vacuum skipped, stay on the freelist instead of being
+	// reclaimed.
 	var pageCount int
 	row := f.RawDB().QueryRowContext(ctx, "PRAGMA page_count")
 	require.NoError(t, row.Scan(&pageCount))
 	require.Greater(t, pageCount, 0)
 
-	var freelistCount int
-	row = f.RawDB().QueryRowContext(ctx, "PRAGMA freelist_count")
-	require.NoError(t, row.Scan(&freelistCount))
-	require.Greater(t, freelistCount, 0)
-
 	err = f.Cleanup(ctx)
 	require.NoError(t, err)
 
 	// Vacuum was skipped, so page_count should NOT have decreased and freelist_count
-	// should still be non-zero (pages freed by DeleteSyncRun stay on the freelist).
+	// should be non-zero (pages freed by DeleteSyncRun stay on the freelist).
 	var afterPageCount int
 	row = f.RawDB().QueryRowContext(ctx, "PRAGMA page_count")
 	require.NoError(t, row.Scan(&afterPageCount))
@@ -150,10 +162,22 @@ func TestCleanupSkipVacuum(t *testing.T) {
 	var afterFreelistCount int
 	row = f.RawDB().QueryRowContext(ctx, "PRAGMA freelist_count")
 	require.NoError(t, row.Scan(&afterFreelistCount))
-	require.Greater(t, afterFreelistCount, 0, "freelist_count should remain non-zero when vacuum is skipped")
+	require.Greater(t, afterFreelistCount, 0, "freelist_count should be non-zero post-Cleanup when vacuum is skipped (proves DeleteSyncRun freed pages and they stayed)")
 
 	err = f.Close(ctx)
 	require.NoError(t, err)
+
+	// Re-open and verify the c1z is still readable post-Cleanup (file got re-saved
+	// on Close even though vacuum was skipped) and that exactly syncLimit (2) syncs
+	// remain — proving DeleteSyncRun ran.
+	reopened, err := dotc1z.NewC1ZFile(ctx, testFilePath)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = reopened.Close(ctx)
+	})
+	syncRuns, _, err := reopened.ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+	require.Len(t, syncRuns, 2, "Cleanup should have deleted the oldest sync, leaving syncLimit (2) remaining")
 }
 
 func TestCleanupSyncLimit(t *testing.T) {

@@ -138,10 +138,18 @@ func WithC1FSkipCleanup(skip bool) C1FOption {
 }
 
 // WithC1FSkipVacuum skips the VACUUM step at the end of Cleanup() when set to
-// true. The old-sync delete and WAL truncate inside Cleanup still run. Use
-// when the cost of VACUUM (a full page-by-page rewrite of the DB) exceeds the
-// space-reclamation benefit for the caller's workload — typically iterative
-// compaction where the file is consumed immediately and not re-read at rest.
+// true. The old-sync delete and WAL truncate inside Cleanup still run.
+//
+// Low-level option for callers operating on a [C1File] directly. Most callers
+// should use [WithSkipVacuum] on [NewC1ZFile] instead, which propagates this
+// setting through the C1Z constructor.
+//
+// Trade-off: skipping VACUUM leaves freed pages on the SQLite freelist instead
+// of reclaiming them, so the c1z file on disk grows across syncs with no upper
+// bound until a real VACUUM runs. Use when the file is consumed immediately
+// and re-encoded (e.g. iterative compaction); avoid when the c1z is intended
+// to sit at rest or be read repeatedly. See also [WithC1FSkipCleanup] to skip
+// the whole Cleanup step instead.
 func WithC1FSkipVacuum(skip bool) C1FOption {
 	return func(o *C1File) {
 		o.skipVacuum = skip
@@ -322,10 +330,15 @@ func WithSkipCleanup(skip bool) C1ZOption {
 }
 
 // WithSkipVacuum skips the VACUUM step at the end of Cleanup() when set to
-// true. The old-sync delete and WAL truncate inside Cleanup still run. Use
-// when the cost of VACUUM (a full page-by-page rewrite of the DB) exceeds the
-// space-reclamation benefit for the caller's workload — typically iterative
-// compaction where the file is consumed immediately and not re-read at rest.
+// true. The old-sync delete and WAL truncate inside Cleanup still run.
+//
+// Trade-off: skipping VACUUM leaves freed pages on the SQLite freelist instead
+// of reclaiming them, so the c1z file on disk grows across syncs with no upper
+// bound until a real VACUUM runs. Use when the file is consumed immediately
+// and re-encoded (e.g. iterative compaction where the output is supplanted on
+// the next iteration); avoid when the c1z is intended to sit at rest or be
+// read repeatedly. No effect when [WithSkipCleanup] is also set, since
+// Cleanup returns early in that case.
 func WithSkipVacuum(skip bool) C1ZOption {
 	return func(o *c1zOptions) {
 		o.skipVacuum = skip
