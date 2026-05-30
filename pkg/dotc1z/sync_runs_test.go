@@ -104,6 +104,58 @@ func TestCleanupVacuumWAL(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestCleanupSkipVacuum verifies that WithSkipVacuum prevents the VACUUM step
+// from running inside Cleanup() while keeping the old-sync delete + WAL truncate
+// behavior intact. With vacuum skipped, freed pages stay on the freelist instead
+// of being reclaimed — the page_count stays the same and freelist_count remains
+// non-zero. Counter-test to TestCleanupVacuum which asserts both go down.
+func TestCleanupSkipVacuum(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	testFilePath := filepath.Join(tmpDir, "test.c1z")
+
+	f, err := dotc1z.NewC1ZFile(ctx, testFilePath, dotc1z.WithSkipVacuum(true))
+	require.NoError(t, err)
+
+	_, err = c1ztest.CreateTestSync(ctx, t, f, c1ztest.C1ZCounts{
+		ResourceTypeCount: 3,
+		ResourceCount:     10,
+		UserCount:         10,
+		EntitlementCount:  10,
+		GrantCount:        25,
+	})
+	require.NoError(t, err)
+
+	var pageCount int
+	row := f.RawDB().QueryRowContext(ctx, "PRAGMA page_count")
+	require.NoError(t, row.Scan(&pageCount))
+	require.Greater(t, pageCount, 0)
+
+	var freelistCount int
+	row = f.RawDB().QueryRowContext(ctx, "PRAGMA freelist_count")
+	require.NoError(t, row.Scan(&freelistCount))
+	require.Greater(t, freelistCount, 0)
+
+	err = f.Cleanup(ctx)
+	require.NoError(t, err)
+
+	// Vacuum was skipped, so page_count should NOT have decreased and freelist_count
+	// should still be non-zero (pages freed by DeleteSyncRun stay on the freelist).
+	var afterPageCount int
+	row = f.RawDB().QueryRowContext(ctx, "PRAGMA page_count")
+	require.NoError(t, row.Scan(&afterPageCount))
+	require.Equal(t, pageCount, afterPageCount, "page_count should be unchanged when vacuum is skipped")
+
+	var afterFreelistCount int
+	row = f.RawDB().QueryRowContext(ctx, "PRAGMA freelist_count")
+	require.NoError(t, row.Scan(&afterFreelistCount))
+	require.Greater(t, afterFreelistCount, 0, "freelist_count should remain non-zero when vacuum is skipped")
+
+	err = f.Close(ctx)
+	require.NoError(t, err)
+}
+
 func TestCleanupSyncLimit(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
