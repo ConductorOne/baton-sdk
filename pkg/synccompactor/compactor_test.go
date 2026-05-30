@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -970,4 +971,85 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 	require.Equal(t, connectorstore.SyncTypePartial, syncRuns[0].Type)
 	require.Equal(t, compactedSync.SyncID, syncRuns[0].ID)
 	require.NotNil(t, syncRuns[0].EndedAt)
+}
+
+// TestCompactorRunDurationExpired locks in the user-visible contract that when c.runDuration
+// expires (parent ctx still alive), Compact returns the clean "compaction run duration has expired"
+// error wrapping context.DeadlineExceeded. With a 1ns budget, the pre-flight select check fires
+// first; the in-loop branch added by the runCtx-in-loop fix uses the same message so this also
+// guards regression of that branch's error format.
+func TestCompactorRunDurationExpired(t *testing.T) {
+	ctx := t.Context()
+	inputSyncsDir := t.TempDir()
+	outputDir := t.TempDir()
+	tmpDir := t.TempDir()
+
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
+	}
+	syncs := []*CompactableSync{
+		makeEmptySync(t, ctx, inputSyncsDir, opts, connectorstore.SyncTypeFull),
+		makeEmptySync(t, ctx, inputSyncsDir, opts, connectorstore.SyncTypeFull),
+	}
+
+	compactor, cleanup, err := NewCompactor(ctx, outputDir, syncs,
+		WithTmpDir(tmpDir),
+		WithCompactorType(CompactorTypeAttached),
+		WithRunDuration(1*time.Nanosecond),
+	)
+	require.NoError(t, err)
+	defer func() {
+		_ = cleanup()
+	}()
+
+	result, err := compactor.Compact(ctx)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.ErrorContains(t, err, "compaction run duration has expired")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+// TestCompactorParentCtxCancelDoesNotMaskAsRunDuration locks in the disambiguation
+// between "runCtx fired due to c.runDuration" and "parent ctx was cancelled".
+// A parent-cancelled runCtx has cause=context.Canceled (not DeadlineExceeded), so the
+// pre-flight branch falls through to default and returns the raw cause — and the in-loop
+// branch's ctx.Err() == nil guard rejects the clean-exit path if parent ctx is also done.
+// The error must NOT be misreported as runDuration expiry.
+func TestCompactorParentCtxCancelDoesNotMaskAsRunDuration(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	inputSyncsDir := t.TempDir()
+	outputDir := t.TempDir()
+	tmpDir := t.TempDir()
+
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
+	}
+	syncs := []*CompactableSync{
+		makeEmptySync(t, ctx, inputSyncsDir, opts, connectorstore.SyncTypeFull),
+		makeEmptySync(t, ctx, inputSyncsDir, opts, connectorstore.SyncTypeFull),
+	}
+
+	compactor, cleanup, err := NewCompactor(ctx, outputDir, syncs,
+		WithTmpDir(tmpDir),
+		WithCompactorType(CompactorTypeAttached),
+		// runDuration far longer than the test would take, so it never fires.
+		WithRunDuration(10*time.Minute),
+	)
+	require.NoError(t, err)
+	defer func() {
+		_ = cleanup()
+	}()
+
+	// Cancel parent before Compact starts; pre-flight observes ctx.Done() with
+	// cause=context.Canceled and surfaces it as the raw error rather than the
+	// runDuration message.
+	cancel()
+
+	_, err = compactor.Compact(ctx)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "compaction run duration has expired",
+		"parent ctx cancel must not be misreported as runDuration expiry")
+	require.ErrorIs(t, err, context.Canceled)
 }
