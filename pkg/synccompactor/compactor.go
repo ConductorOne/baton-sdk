@@ -216,9 +216,22 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	l.Debug("new empty partial sync created", zap.String("sync_id", newSyncId))
 
 	// Base sync is c.entries[0], so compact in reverse order. That way we compact the biggest sync last.
+	// Pass runCtx (not the outer ctx) so c.runDuration actually bounds the loop. Without this, the
+	// deadline set on runCtx only gates the pre-flight check above and individual doOneCompaction
+	// calls run under the unbounded parent ctx.
 	for i := len(c.entries) - 1; i >= 0; i-- {
-		err = c.doOneCompaction(ctx, c.entries[i])
+		err = c.doOneCompaction(runCtx, c.entries[i])
 		if err != nil {
+			// When runCtx fires due to c.runDuration, surface the same clean message the pre-flight
+			// check uses instead of bubbling a bare context.DeadlineExceeded out of the inner sqlite
+			// operations. The error is still returned so callers can decide whether to retry.
+			if cause := context.Cause(runCtx); errors.Is(cause, context.DeadlineExceeded) && c.runDuration > 0 && ctx.Err() == nil {
+				l.Info("compaction run duration has expired, exiting compaction early",
+					zap.String("sync_id", c.entries[i].SyncID),
+					zap.Int("syncs_remaining", i),
+				)
+				return nil, fmt.Errorf("compaction run duration has expired: %w", cause)
+			}
 			return nil, fmt.Errorf("failed to compact sync %s: %w", c.entries[i].SyncID, err)
 		}
 	}
