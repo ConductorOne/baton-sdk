@@ -79,6 +79,13 @@ func BenchmarkPebbleExpansion_StoreExpandedGrants(b *testing.B) {
 					b.Fatalf("StoreExpandedGrants: %v", err)
 				}
 			}
+			// Amortized durable cost: one EndSync (memtable flush +
+			// WAL fsync) folded into the timed region. The expander's
+			// writes are NoSync-buffered until the sync ends, so
+			// without this the bench omits the hardening cost.
+			if err := store.EndSync(ctx); err != nil {
+				b.Fatalf("EndSync: %v", err)
+			}
 			b.StopTimer()
 			_ = store.Close(ctx)
 		})

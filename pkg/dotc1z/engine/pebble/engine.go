@@ -119,7 +119,19 @@ func (e *Engine) Close() error {
 	}
 	e.closing.Store(true)
 	e.writeWG.Wait()
-	err := e.db.Close()
+	// Invariant: flush before close on any write path. This drives the
+	// memtable out to an SST so a Close is never the step that leaves
+	// un-materialized writes behind — independent of whether EndSync or
+	// CheckpointTo (which flush for their own reasons) ran first. Skipped
+	// in read-only mode, where Flush is illegal and there is nothing to
+	// harden. A no-op when the memtable is already empty.
+	var err error
+	if !e.opts.readOnly {
+		if ferr := e.db.Flush(); ferr != nil {
+			err = fmt.Errorf("flush during close: %w", ferr)
+		}
+	}
+	err = errors.Join(err, e.db.Close())
 	e.db = nil
 	// Release the cache if we minted it (no shared cache).
 	if e.opts.sharedCache == nil && e.pebbleOpts != nil && e.pebbleOpts.Cache != nil {
