@@ -6,7 +6,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/stretchr/testify/require"
 )
@@ -233,11 +233,7 @@ func TestUnmarshalV0ThenPushAction(t *testing.T) {
 func TestSyncTokenV0FromC1Z(t *testing.T) {
 	ctx := t.Context()
 
-	c1zManager, err := manager.New(ctx, "testdata/sync-in-progress.c1z")
-	require.NoError(t, err)
-	defer c1zManager.Close(ctx)
-
-	store, err := c1zManager.LoadC1Z(ctx)
+	store, err := dotc1z.NewC1ZFile(ctx, "testdata/sync-in-progress.c1z")
 	require.NoError(t, err)
 	defer store.Close(ctx)
 

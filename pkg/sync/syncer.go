@@ -42,7 +42,6 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/sync/progresslog"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
@@ -112,7 +111,6 @@ func (sm *syncMap[K, V]) Store(key K, val V) {
 
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
-	c1zManager                          manager.Manager
 	c1zPath                             string
 	externalResourceC1ZPath             string
 	externalResourceEntitlementIdFilter string
@@ -2668,16 +2666,7 @@ func (s *syncer) loadStore(ctx context.Context) error {
 		return nil
 	}
 
-	if s.c1zManager == nil {
-		opts := []manager.ManagerOption{manager.WithTmpDir(s.tmpDir)}
-		m, err := manager.New(ctx, s.c1zPath, opts...)
-		if err != nil {
-			return err
-		}
-		s.c1zManager = m
-	}
-
-	store, err := s.c1zManager.LoadC1Z(ctx)
+	store, err := dotc1z.NewC1ZFile(ctx, s.c1zPath, dotc1z.WithTmpDir(s.tmpDir))
 	if err != nil {
 		return err
 	}
@@ -2708,15 +2697,14 @@ func (s *syncer) wireCountsDBSizeProvider() {
 	}
 }
 
-// Close closes the datastorage to ensure it is updated on disk.
+// Close closes the store so the c1z is flushed to disk.
 //
-// The store close, SaveC1Z (S3 upload), and manager close all run on a
-// context detached from the caller's cancellation. Caller may be a
-// Temporal activity whose deadline has already fired or is about to; we
-// still need to commit the c1z and upload it cleanly. The detached
-// context is bounded by dotc1z.FinalizeTimeout() so a wedged finalize
-// cannot pin a worker indefinitely. A new-root span linked to syncer.Close
-// keeps the upload subtree from inflating very long sync traces.
+// Store close runs on a context detached from the caller's cancellation.
+// The caller may be a Temporal activity whose deadline has already fired;
+// we still need to commit the c1z cleanly. The detached context is bounded
+// by dotc1z.FinalizeTimeout() so a wedged finalize cannot pin a worker
+// indefinitely. A new-root span linked to syncer.Close keeps the finalize
+// subtree from inflating very long sync traces.
 func (s *syncer) Close(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.Close")
 	var err error
@@ -2758,22 +2746,6 @@ func (s *syncer) Close(ctx context.Context) error {
 	if s.externalResourceReader != nil {
 		if err := s.externalResourceReader.Close(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("error closing external resource reader: %w", err))
-		}
-	}
-
-	if s.c1zManager != nil {
-		// Only persist the c1z if the store closed cleanly. If the store
-		// failed to close (e.g. WAL checkpoint failure), saving would
-		// persist a potentially corrupt state.
-		if storeCloseErr == nil {
-			if err := s.c1zManager.SaveC1Z(finalizeCtx); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		// Always close the manager to clean up temp files, even if save
-		// was skipped or failed.
-		if err := s.c1zManager.Close(finalizeCtx); err != nil {
-			errs = append(errs, err)
 		}
 	}
 
