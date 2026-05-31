@@ -312,50 +312,6 @@ func (x AgentTrait_AgentStatus) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-type AgentToolTrait_AgentToolType int32
-
-const (
-	AgentToolTrait_AGENT_TOOL_TYPE_UNSPECIFIED    AgentToolTrait_AgentToolType = 0
-	AgentToolTrait_AGENT_TOOL_TYPE_TOOL           AgentToolTrait_AgentToolType = 1
-	AgentToolTrait_AGENT_TOOL_TYPE_KNOWLEDGE_BASE AgentToolTrait_AgentToolType = 2
-)
-
-// Enum value maps for AgentToolTrait_AgentToolType.
-var (
-	AgentToolTrait_AgentToolType_name = map[int32]string{
-		0: "AGENT_TOOL_TYPE_UNSPECIFIED",
-		1: "AGENT_TOOL_TYPE_TOOL",
-		2: "AGENT_TOOL_TYPE_KNOWLEDGE_BASE",
-	}
-	AgentToolTrait_AgentToolType_value = map[string]int32{
-		"AGENT_TOOL_TYPE_UNSPECIFIED":    0,
-		"AGENT_TOOL_TYPE_TOOL":           1,
-		"AGENT_TOOL_TYPE_KNOWLEDGE_BASE": 2,
-	}
-)
-
-func (x AgentToolTrait_AgentToolType) Enum() *AgentToolTrait_AgentToolType {
-	p := new(AgentToolTrait_AgentToolType)
-	*p = x
-	return p
-}
-
-func (x AgentToolTrait_AgentToolType) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (AgentToolTrait_AgentToolType) Descriptor() protoreflect.EnumDescriptor {
-	return file_c1_connector_v2_annotation_trait_proto_enumTypes[6].Descriptor()
-}
-
-func (AgentToolTrait_AgentToolType) Type() protoreflect.EnumType {
-	return &file_c1_connector_v2_annotation_trait_proto_enumTypes[6]
-}
-
-func (x AgentToolTrait_AgentToolType) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
 type UserTrait struct {
 	state                     protoimpl.MessageState    `protogen:"opaque.v1"`
 	xxx_hidden_Emails         *[]*UserTrait_Email       `protobuf:"bytes,1,rep,name=emails,proto3"`
@@ -1673,200 +1629,20 @@ func (b0 NonHumanIdentityTrait_builder) Build() *NonHumanIdentityTrait {
 	return m0
 }
 
-// ActsOnBehalfOf identifies the principal an agent acts as. Exactly one arm is
-// set. This is an open oneof: additional arms (e.g. end-user passthrough) may
-// be added additively in the future.
-type ActsOnBehalfOf struct {
-	state                 protoimpl.MessageState      `protogen:"opaque.v1"`
-	xxx_hidden_OnBehalfOf isActsOnBehalfOf_OnBehalfOf `protobuf_oneof:"on_behalf_of"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
-}
-
-func (x *ActsOnBehalfOf) Reset() {
-	*x = ActsOnBehalfOf{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ActsOnBehalfOf) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ActsOnBehalfOf) ProtoMessage() {}
-
-func (x *ActsOnBehalfOf) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *ActsOnBehalfOf) GetSystemIdentity() *ResourceId {
-	if x != nil {
-		if x, ok := x.xxx_hidden_OnBehalfOf.(*actsOnBehalfOf_SystemIdentity); ok {
-			return x.SystemIdentity
-		}
-	}
-	return nil
-}
-
-func (x *ActsOnBehalfOf) GetOwnerIdentity() *ResourceId {
-	if x != nil {
-		if x, ok := x.xxx_hidden_OnBehalfOf.(*actsOnBehalfOf_OwnerIdentity); ok {
-			return x.OwnerIdentity
-		}
-	}
-	return nil
-}
-
-func (x *ActsOnBehalfOf) SetSystemIdentity(v *ResourceId) {
-	if v == nil {
-		x.xxx_hidden_OnBehalfOf = nil
-		return
-	}
-	x.xxx_hidden_OnBehalfOf = &actsOnBehalfOf_SystemIdentity{v}
-}
-
-func (x *ActsOnBehalfOf) SetOwnerIdentity(v *ResourceId) {
-	if v == nil {
-		x.xxx_hidden_OnBehalfOf = nil
-		return
-	}
-	x.xxx_hidden_OnBehalfOf = &actsOnBehalfOf_OwnerIdentity{v}
-}
-
-func (x *ActsOnBehalfOf) HasOnBehalfOf() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_OnBehalfOf != nil
-}
-
-func (x *ActsOnBehalfOf) HasSystemIdentity() bool {
-	if x == nil {
-		return false
-	}
-	_, ok := x.xxx_hidden_OnBehalfOf.(*actsOnBehalfOf_SystemIdentity)
-	return ok
-}
-
-func (x *ActsOnBehalfOf) HasOwnerIdentity() bool {
-	if x == nil {
-		return false
-	}
-	_, ok := x.xxx_hidden_OnBehalfOf.(*actsOnBehalfOf_OwnerIdentity)
-	return ok
-}
-
-func (x *ActsOnBehalfOf) ClearOnBehalfOf() {
-	x.xxx_hidden_OnBehalfOf = nil
-}
-
-func (x *ActsOnBehalfOf) ClearSystemIdentity() {
-	if _, ok := x.xxx_hidden_OnBehalfOf.(*actsOnBehalfOf_SystemIdentity); ok {
-		x.xxx_hidden_OnBehalfOf = nil
-	}
-}
-
-func (x *ActsOnBehalfOf) ClearOwnerIdentity() {
-	if _, ok := x.xxx_hidden_OnBehalfOf.(*actsOnBehalfOf_OwnerIdentity); ok {
-		x.xxx_hidden_OnBehalfOf = nil
-	}
-}
-
-const ActsOnBehalfOf_OnBehalfOf_not_set_case case_ActsOnBehalfOf_OnBehalfOf = 0
-const ActsOnBehalfOf_SystemIdentity_case case_ActsOnBehalfOf_OnBehalfOf = 1
-const ActsOnBehalfOf_OwnerIdentity_case case_ActsOnBehalfOf_OnBehalfOf = 2
-
-func (x *ActsOnBehalfOf) WhichOnBehalfOf() case_ActsOnBehalfOf_OnBehalfOf {
-	if x == nil {
-		return ActsOnBehalfOf_OnBehalfOf_not_set_case
-	}
-	switch x.xxx_hidden_OnBehalfOf.(type) {
-	case *actsOnBehalfOf_SystemIdentity:
-		return ActsOnBehalfOf_SystemIdentity_case
-	case *actsOnBehalfOf_OwnerIdentity:
-		return ActsOnBehalfOf_OwnerIdentity_case
-	default:
-		return ActsOnBehalfOf_OnBehalfOf_not_set_case
-	}
-}
-
-type ActsOnBehalfOf_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	// Fields of oneof xxx_hidden_OnBehalfOf:
-	// The system/service identity the agent runs as.
-	SystemIdentity *ResourceId
-	// The owning user identity the agent acts on behalf of.
-	OwnerIdentity *ResourceId
-	// -- end of xxx_hidden_OnBehalfOf
-}
-
-func (b0 ActsOnBehalfOf_builder) Build() *ActsOnBehalfOf {
-	m0 := &ActsOnBehalfOf{}
-	b, x := &b0, m0
-	_, _ = b, x
-	if b.SystemIdentity != nil {
-		x.xxx_hidden_OnBehalfOf = &actsOnBehalfOf_SystemIdentity{b.SystemIdentity}
-	}
-	if b.OwnerIdentity != nil {
-		x.xxx_hidden_OnBehalfOf = &actsOnBehalfOf_OwnerIdentity{b.OwnerIdentity}
-	}
-	return m0
-}
-
-type case_ActsOnBehalfOf_OnBehalfOf protoreflect.FieldNumber
-
-func (x case_ActsOnBehalfOf_OnBehalfOf) String() string {
-	md := file_c1_connector_v2_annotation_trait_proto_msgTypes[10].Descriptor()
-	if x == 0 {
-		return "not set"
-	}
-	return protoimpl.X.MessageFieldStringOf(md, protoreflect.FieldNumber(x))
-}
-
-type isActsOnBehalfOf_OnBehalfOf interface {
-	isActsOnBehalfOf_OnBehalfOf()
-}
-
-type actsOnBehalfOf_SystemIdentity struct {
-	// The system/service identity the agent runs as.
-	SystemIdentity *ResourceId `protobuf:"bytes,1,opt,name=system_identity,json=systemIdentity,proto3,oneof"`
-}
-
-type actsOnBehalfOf_OwnerIdentity struct {
-	// The owning user identity the agent acts on behalf of.
-	OwnerIdentity *ResourceId `protobuf:"bytes,2,opt,name=owner_identity,json=ownerIdentity,proto3,oneof"`
-}
-
-func (*actsOnBehalfOf_SystemIdentity) isActsOnBehalfOf_OnBehalfOf() {}
-
-func (*actsOnBehalfOf_OwnerIdentity) isActsOnBehalfOf_OnBehalfOf() {}
-
 // AgentTrait is the trait annotation for resources with TRAIT_AGENT. An agent
-// is an autonomous non-human actor (e.g. an AI agent) that holds an identity
-// and may act on behalf of a system or user.
+// is an autonomous non-human actor (e.g. an AI agent) that holds an identity.
 type AgentTrait struct {
 	state                         protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Status             AgentTrait_AgentStatus `protobuf:"varint,1,opt,name=status,proto3,enum=c1.connector.v2.AgentTrait_AgentStatus"`
 	xxx_hidden_IdentityResourceId *ResourceId            `protobuf:"bytes,2,opt,name=identity_resource_id,json=identityResourceId,proto3"`
-	xxx_hidden_ActsOnBehalfOf     *ActsOnBehalfOf        `protobuf:"bytes,3,opt,name=acts_on_behalf_of,json=actsOnBehalfOf,proto3"`
-	xxx_hidden_Profile            *structpb.Struct       `protobuf:"bytes,4,opt,name=profile,proto3"`
+	xxx_hidden_Profile            *structpb.Struct       `protobuf:"bytes,3,opt,name=profile,proto3"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *AgentTrait) Reset() {
 	*x = AgentTrait{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[11]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1878,7 +1654,7 @@ func (x *AgentTrait) String() string {
 func (*AgentTrait) ProtoMessage() {}
 
 func (x *AgentTrait) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[11]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1903,13 +1679,6 @@ func (x *AgentTrait) GetIdentityResourceId() *ResourceId {
 	return nil
 }
 
-func (x *AgentTrait) GetActsOnBehalfOf() *ActsOnBehalfOf {
-	if x != nil {
-		return x.xxx_hidden_ActsOnBehalfOf
-	}
-	return nil
-}
-
 func (x *AgentTrait) GetProfile() *structpb.Struct {
 	if x != nil {
 		return x.xxx_hidden_Profile
@@ -1925,10 +1694,6 @@ func (x *AgentTrait) SetIdentityResourceId(v *ResourceId) {
 	x.xxx_hidden_IdentityResourceId = v
 }
 
-func (x *AgentTrait) SetActsOnBehalfOf(v *ActsOnBehalfOf) {
-	x.xxx_hidden_ActsOnBehalfOf = v
-}
-
 func (x *AgentTrait) SetProfile(v *structpb.Struct) {
 	x.xxx_hidden_Profile = v
 }
@@ -1938,13 +1703,6 @@ func (x *AgentTrait) HasIdentityResourceId() bool {
 		return false
 	}
 	return x.xxx_hidden_IdentityResourceId != nil
-}
-
-func (x *AgentTrait) HasActsOnBehalfOf() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_ActsOnBehalfOf != nil
 }
 
 func (x *AgentTrait) HasProfile() bool {
@@ -1958,10 +1716,6 @@ func (x *AgentTrait) ClearIdentityResourceId() {
 	x.xxx_hidden_IdentityResourceId = nil
 }
 
-func (x *AgentTrait) ClearActsOnBehalfOf() {
-	x.xxx_hidden_ActsOnBehalfOf = nil
-}
-
 func (x *AgentTrait) ClearProfile() {
 	x.xxx_hidden_Profile = nil
 }
@@ -1972,9 +1726,7 @@ type AgentTrait_builder struct {
 	Status AgentTrait_AgentStatus
 	// The identity resource this agent authenticates as.
 	IdentityResourceId *ResourceId
-	// The principal this agent acts on behalf of.
-	ActsOnBehalfOf *ActsOnBehalfOf
-	Profile        *structpb.Struct
+	Profile            *structpb.Struct
 }
 
 func (b0 AgentTrait_builder) Build() *AgentTrait {
@@ -1983,160 +1735,6 @@ func (b0 AgentTrait_builder) Build() *AgentTrait {
 	_, _ = b, x
 	x.xxx_hidden_Status = b.Status
 	x.xxx_hidden_IdentityResourceId = b.IdentityResourceId
-	x.xxx_hidden_ActsOnBehalfOf = b.ActsOnBehalfOf
-	x.xxx_hidden_Profile = b.Profile
-	return m0
-}
-
-// AgentToolTrait is the trait annotation for resources with TRAIT_AGENT_TOOL.
-// An agent tool is a capability an agent can invoke (a callable tool or a
-// knowledge base). The platform-specific kind is carried in
-// agent_tool_detail, not in the AgentToolType enum.
-type AgentToolTrait struct {
-	state                            protoimpl.MessageState       `protogen:"opaque.v1"`
-	xxx_hidden_AgentToolType         AgentToolTrait_AgentToolType `protobuf:"varint,1,opt,name=agent_tool_type,json=agentToolType,proto3,enum=c1.connector.v2.AgentToolTrait_AgentToolType"`
-	xxx_hidden_CredentialProviderRef *ResourceId                  `protobuf:"bytes,2,opt,name=credential_provider_ref,json=credentialProviderRef,proto3"`
-	xxx_hidden_OwningResourceRef     *ResourceId                  `protobuf:"bytes,3,opt,name=owning_resource_ref,json=owningResourceRef,proto3"`
-	xxx_hidden_AgentToolDetail       string                       `protobuf:"bytes,4,opt,name=agent_tool_detail,json=agentToolDetail,proto3"`
-	xxx_hidden_Profile               *structpb.Struct             `protobuf:"bytes,5,opt,name=profile,proto3"`
-	unknownFields                    protoimpl.UnknownFields
-	sizeCache                        protoimpl.SizeCache
-}
-
-func (x *AgentToolTrait) Reset() {
-	*x = AgentToolTrait{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[12]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AgentToolTrait) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AgentToolTrait) ProtoMessage() {}
-
-func (x *AgentToolTrait) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[12]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *AgentToolTrait) GetAgentToolType() AgentToolTrait_AgentToolType {
-	if x != nil {
-		return x.xxx_hidden_AgentToolType
-	}
-	return AgentToolTrait_AGENT_TOOL_TYPE_UNSPECIFIED
-}
-
-func (x *AgentToolTrait) GetCredentialProviderRef() *ResourceId {
-	if x != nil {
-		return x.xxx_hidden_CredentialProviderRef
-	}
-	return nil
-}
-
-func (x *AgentToolTrait) GetOwningResourceRef() *ResourceId {
-	if x != nil {
-		return x.xxx_hidden_OwningResourceRef
-	}
-	return nil
-}
-
-func (x *AgentToolTrait) GetAgentToolDetail() string {
-	if x != nil {
-		return x.xxx_hidden_AgentToolDetail
-	}
-	return ""
-}
-
-func (x *AgentToolTrait) GetProfile() *structpb.Struct {
-	if x != nil {
-		return x.xxx_hidden_Profile
-	}
-	return nil
-}
-
-func (x *AgentToolTrait) SetAgentToolType(v AgentToolTrait_AgentToolType) {
-	x.xxx_hidden_AgentToolType = v
-}
-
-func (x *AgentToolTrait) SetCredentialProviderRef(v *ResourceId) {
-	x.xxx_hidden_CredentialProviderRef = v
-}
-
-func (x *AgentToolTrait) SetOwningResourceRef(v *ResourceId) {
-	x.xxx_hidden_OwningResourceRef = v
-}
-
-func (x *AgentToolTrait) SetAgentToolDetail(v string) {
-	x.xxx_hidden_AgentToolDetail = v
-}
-
-func (x *AgentToolTrait) SetProfile(v *structpb.Struct) {
-	x.xxx_hidden_Profile = v
-}
-
-func (x *AgentToolTrait) HasCredentialProviderRef() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_CredentialProviderRef != nil
-}
-
-func (x *AgentToolTrait) HasOwningResourceRef() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_OwningResourceRef != nil
-}
-
-func (x *AgentToolTrait) HasProfile() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_Profile != nil
-}
-
-func (x *AgentToolTrait) ClearCredentialProviderRef() {
-	x.xxx_hidden_CredentialProviderRef = nil
-}
-
-func (x *AgentToolTrait) ClearOwningResourceRef() {
-	x.xxx_hidden_OwningResourceRef = nil
-}
-
-func (x *AgentToolTrait) ClearProfile() {
-	x.xxx_hidden_Profile = nil
-}
-
-type AgentToolTrait_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	AgentToolType AgentToolTrait_AgentToolType
-	// The credential provider this tool authenticates through.
-	CredentialProviderRef *ResourceId
-	// The resource that owns/exposes this tool.
-	OwningResourceRef *ResourceId
-	// Platform-specific tool kind (free-form); refines agent_tool_type.
-	AgentToolDetail string
-	Profile         *structpb.Struct
-}
-
-func (b0 AgentToolTrait_builder) Build() *AgentToolTrait {
-	m0 := &AgentToolTrait{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.xxx_hidden_AgentToolType = b.AgentToolType
-	x.xxx_hidden_CredentialProviderRef = b.CredentialProviderRef
-	x.xxx_hidden_OwningResourceRef = b.OwningResourceRef
-	x.xxx_hidden_AgentToolDetail = b.AgentToolDetail
 	x.xxx_hidden_Profile = b.Profile
 	return m0
 }
@@ -2151,7 +1749,7 @@ type UserTrait_Email struct {
 
 func (x *UserTrait_Email) Reset() {
 	*x = UserTrait_Email{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[13]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2163,7 +1761,7 @@ func (x *UserTrait_Email) String() string {
 func (*UserTrait_Email) ProtoMessage() {}
 
 func (x *UserTrait_Email) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[13]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2223,7 +1821,7 @@ type UserTrait_Status struct {
 
 func (x *UserTrait_Status) Reset() {
 	*x = UserTrait_Status{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[14]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2235,7 +1833,7 @@ func (x *UserTrait_Status) String() string {
 func (*UserTrait_Status) ProtoMessage() {}
 
 func (x *UserTrait_Status) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[14]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2293,7 +1891,7 @@ type UserTrait_MFAStatus struct {
 
 func (x *UserTrait_MFAStatus) Reset() {
 	*x = UserTrait_MFAStatus{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[15]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2305,7 +1903,7 @@ func (x *UserTrait_MFAStatus) String() string {
 func (*UserTrait_MFAStatus) ProtoMessage() {}
 
 func (x *UserTrait_MFAStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[15]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2350,7 +1948,7 @@ type UserTrait_SSOStatus struct {
 
 func (x *UserTrait_SSOStatus) Reset() {
 	*x = UserTrait_SSOStatus{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[16]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2362,7 +1960,7 @@ func (x *UserTrait_SSOStatus) String() string {
 func (*UserTrait_SSOStatus) ProtoMessage() {}
 
 func (x *UserTrait_SSOStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[16]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2411,7 +2009,7 @@ type UserTrait_StructuredName struct {
 
 func (x *UserTrait_StructuredName) Reset() {
 	*x = UserTrait_StructuredName{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[17]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2423,7 +2021,7 @@ func (x *UserTrait_StructuredName) String() string {
 func (*UserTrait_StructuredName) ProtoMessage() {}
 
 func (x *UserTrait_StructuredName) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[17]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2632,35 +2230,20 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\aNhiType\x12\x18\n" +
 	"\x14NHI_TYPE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19NHI_TYPE_APP_REGISTRATION\x10\x01\x12\x1b\n" +
-	"\x17NHI_TYPE_ASSUMABLE_ROLE\x10\x02\"\xae\x01\n" +
-	"\x0eActsOnBehalfOf\x12F\n" +
-	"\x0fsystem_identity\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdH\x00R\x0esystemIdentity\x12D\n" +
-	"\x0eowner_identity\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdH\x00R\rownerIdentityB\x0e\n" +
-	"\fon_behalf_of\"\x9f\x03\n" +
+	"\x17NHI_TYPE_ASSUMABLE_ROLE\x10\x02\"\xd3\x02\n" +
 	"\n" +
 	"AgentTrait\x12I\n" +
 	"\x06status\x18\x01 \x01(\x0e2'.c1.connector.v2.AgentTrait.AgentStatusB\b\xfaB\x05\x82\x01\x02\x10\x01R\x06status\x12M\n" +
-	"\x14identity_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x12identityResourceId\x12J\n" +
-	"\x11acts_on_behalf_of\x18\x03 \x01(\v2\x1f.c1.connector.v2.ActsOnBehalfOfR\x0eactsOnBehalfOf\x121\n" +
-	"\aprofile\x18\x04 \x01(\v2\x17.google.protobuf.StructR\aprofile\"x\n" +
+	"\x14identity_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x12identityResourceId\x121\n" +
+	"\aprofile\x18\x03 \x01(\v2\x17.google.protobuf.StructR\aprofile\"x\n" +
 	"\vAgentStatus\x12\x1c\n" +
 	"\x18AGENT_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12AGENT_STATUS_READY\x10\x01\x12\x19\n" +
 	"\x15AGENT_STATUS_DISABLED\x10\x02\x12\x18\n" +
-	"\x14AGENT_STATUS_DELETED\x10\x03\"\xe2\x03\n" +
-	"\x0eAgentToolTrait\x12_\n" +
-	"\x0fagent_tool_type\x18\x01 \x01(\x0e2-.c1.connector.v2.AgentToolTrait.AgentToolTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\ragentToolType\x12S\n" +
-	"\x17credential_provider_ref\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x15credentialProviderRef\x12K\n" +
-	"\x13owning_resource_ref\x18\x03 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x11owningResourceRef\x12*\n" +
-	"\x11agent_tool_detail\x18\x04 \x01(\tR\x0fagentToolDetail\x121\n" +
-	"\aprofile\x18\x05 \x01(\v2\x17.google.protobuf.StructR\aprofile\"n\n" +
-	"\rAgentToolType\x12\x1f\n" +
-	"\x1bAGENT_TOOL_TYPE_UNSPECIFIED\x10\x00\x12\x18\n" +
-	"\x14AGENT_TOOL_TYPE_TOOL\x10\x01\x12\"\n" +
-	"\x1eAGENT_TOOL_TYPE_KNOWLEDGE_BASE\x10\x02B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"\x14AGENT_STATUS_DELETED\x10\x03B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_annotation_trait_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_c1_connector_v2_annotation_trait_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_c1_connector_v2_annotation_trait_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_c1_connector_v2_annotation_trait_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_c1_connector_v2_annotation_trait_proto_goTypes = []any{
 	(UserTrait_AccountType)(0),         // 0: c1.connector.v2.UserTrait.AccountType
 	(UserTrait_Status_Status)(0),       // 1: c1.connector.v2.UserTrait.Status.Status
@@ -2668,76 +2251,66 @@ var file_c1_connector_v2_annotation_trait_proto_goTypes = []any{
 	(SecretTrait_CredentialType)(0),    // 3: c1.connector.v2.SecretTrait.CredentialType
 	(NonHumanIdentityTrait_NhiType)(0), // 4: c1.connector.v2.NonHumanIdentityTrait.NhiType
 	(AgentTrait_AgentStatus)(0),        // 5: c1.connector.v2.AgentTrait.AgentStatus
-	(AgentToolTrait_AgentToolType)(0),  // 6: c1.connector.v2.AgentToolTrait.AgentToolType
-	(*UserTrait)(nil),                  // 7: c1.connector.v2.UserTrait
-	(*GroupTrait)(nil),                 // 8: c1.connector.v2.GroupTrait
-	(*RoleTrait)(nil),                  // 9: c1.connector.v2.RoleTrait
-	(*RoleScopeConditions)(nil),        // 10: c1.connector.v2.RoleScopeConditions
-	(*RoleScopeCondition)(nil),         // 11: c1.connector.v2.RoleScopeCondition
-	(*ScopeBindingTrait)(nil),          // 12: c1.connector.v2.ScopeBindingTrait
-	(*AppTrait)(nil),                   // 13: c1.connector.v2.AppTrait
-	(*SecretTrait)(nil),                // 14: c1.connector.v2.SecretTrait
-	(*LicenseProfileTrait)(nil),        // 15: c1.connector.v2.LicenseProfileTrait
-	(*NonHumanIdentityTrait)(nil),      // 16: c1.connector.v2.NonHumanIdentityTrait
-	(*ActsOnBehalfOf)(nil),             // 17: c1.connector.v2.ActsOnBehalfOf
-	(*AgentTrait)(nil),                 // 18: c1.connector.v2.AgentTrait
-	(*AgentToolTrait)(nil),             // 19: c1.connector.v2.AgentToolTrait
-	(*UserTrait_Email)(nil),            // 20: c1.connector.v2.UserTrait.Email
-	(*UserTrait_Status)(nil),           // 21: c1.connector.v2.UserTrait.Status
-	(*UserTrait_MFAStatus)(nil),        // 22: c1.connector.v2.UserTrait.MFAStatus
-	(*UserTrait_SSOStatus)(nil),        // 23: c1.connector.v2.UserTrait.SSOStatus
-	(*UserTrait_StructuredName)(nil),   // 24: c1.connector.v2.UserTrait.StructuredName
-	(*structpb.Struct)(nil),            // 25: google.protobuf.Struct
-	(*AssetRef)(nil),                   // 26: c1.connector.v2.AssetRef
-	(*timestamppb.Timestamp)(nil),      // 27: google.protobuf.Timestamp
-	(*ResourceId)(nil),                 // 28: c1.connector.v2.ResourceId
+	(*UserTrait)(nil),                  // 6: c1.connector.v2.UserTrait
+	(*GroupTrait)(nil),                 // 7: c1.connector.v2.GroupTrait
+	(*RoleTrait)(nil),                  // 8: c1.connector.v2.RoleTrait
+	(*RoleScopeConditions)(nil),        // 9: c1.connector.v2.RoleScopeConditions
+	(*RoleScopeCondition)(nil),         // 10: c1.connector.v2.RoleScopeCondition
+	(*ScopeBindingTrait)(nil),          // 11: c1.connector.v2.ScopeBindingTrait
+	(*AppTrait)(nil),                   // 12: c1.connector.v2.AppTrait
+	(*SecretTrait)(nil),                // 13: c1.connector.v2.SecretTrait
+	(*LicenseProfileTrait)(nil),        // 14: c1.connector.v2.LicenseProfileTrait
+	(*NonHumanIdentityTrait)(nil),      // 15: c1.connector.v2.NonHumanIdentityTrait
+	(*AgentTrait)(nil),                 // 16: c1.connector.v2.AgentTrait
+	(*UserTrait_Email)(nil),            // 17: c1.connector.v2.UserTrait.Email
+	(*UserTrait_Status)(nil),           // 18: c1.connector.v2.UserTrait.Status
+	(*UserTrait_MFAStatus)(nil),        // 19: c1.connector.v2.UserTrait.MFAStatus
+	(*UserTrait_SSOStatus)(nil),        // 20: c1.connector.v2.UserTrait.SSOStatus
+	(*UserTrait_StructuredName)(nil),   // 21: c1.connector.v2.UserTrait.StructuredName
+	(*structpb.Struct)(nil),            // 22: google.protobuf.Struct
+	(*AssetRef)(nil),                   // 23: c1.connector.v2.AssetRef
+	(*timestamppb.Timestamp)(nil),      // 24: google.protobuf.Timestamp
+	(*ResourceId)(nil),                 // 25: c1.connector.v2.ResourceId
 }
 var file_c1_connector_v2_annotation_trait_proto_depIdxs = []int32{
-	20, // 0: c1.connector.v2.UserTrait.emails:type_name -> c1.connector.v2.UserTrait.Email
-	21, // 1: c1.connector.v2.UserTrait.status:type_name -> c1.connector.v2.UserTrait.Status
-	25, // 2: c1.connector.v2.UserTrait.profile:type_name -> google.protobuf.Struct
-	26, // 3: c1.connector.v2.UserTrait.icon:type_name -> c1.connector.v2.AssetRef
+	17, // 0: c1.connector.v2.UserTrait.emails:type_name -> c1.connector.v2.UserTrait.Email
+	18, // 1: c1.connector.v2.UserTrait.status:type_name -> c1.connector.v2.UserTrait.Status
+	22, // 2: c1.connector.v2.UserTrait.profile:type_name -> google.protobuf.Struct
+	23, // 3: c1.connector.v2.UserTrait.icon:type_name -> c1.connector.v2.AssetRef
 	0,  // 4: c1.connector.v2.UserTrait.account_type:type_name -> c1.connector.v2.UserTrait.AccountType
-	27, // 5: c1.connector.v2.UserTrait.created_at:type_name -> google.protobuf.Timestamp
-	27, // 6: c1.connector.v2.UserTrait.last_login:type_name -> google.protobuf.Timestamp
-	22, // 7: c1.connector.v2.UserTrait.mfa_status:type_name -> c1.connector.v2.UserTrait.MFAStatus
-	23, // 8: c1.connector.v2.UserTrait.sso_status:type_name -> c1.connector.v2.UserTrait.SSOStatus
-	24, // 9: c1.connector.v2.UserTrait.structured_name:type_name -> c1.connector.v2.UserTrait.StructuredName
-	26, // 10: c1.connector.v2.GroupTrait.icon:type_name -> c1.connector.v2.AssetRef
-	25, // 11: c1.connector.v2.GroupTrait.profile:type_name -> google.protobuf.Struct
-	25, // 12: c1.connector.v2.RoleTrait.profile:type_name -> google.protobuf.Struct
-	10, // 13: c1.connector.v2.RoleTrait.role_scope_conditions:type_name -> c1.connector.v2.RoleScopeConditions
-	11, // 14: c1.connector.v2.RoleScopeConditions.conditions:type_name -> c1.connector.v2.RoleScopeCondition
-	28, // 15: c1.connector.v2.ScopeBindingTrait.role_id:type_name -> c1.connector.v2.ResourceId
-	28, // 16: c1.connector.v2.ScopeBindingTrait.scope_resource_id:type_name -> c1.connector.v2.ResourceId
-	26, // 17: c1.connector.v2.AppTrait.icon:type_name -> c1.connector.v2.AssetRef
-	26, // 18: c1.connector.v2.AppTrait.logo:type_name -> c1.connector.v2.AssetRef
-	25, // 19: c1.connector.v2.AppTrait.profile:type_name -> google.protobuf.Struct
+	24, // 5: c1.connector.v2.UserTrait.created_at:type_name -> google.protobuf.Timestamp
+	24, // 6: c1.connector.v2.UserTrait.last_login:type_name -> google.protobuf.Timestamp
+	19, // 7: c1.connector.v2.UserTrait.mfa_status:type_name -> c1.connector.v2.UserTrait.MFAStatus
+	20, // 8: c1.connector.v2.UserTrait.sso_status:type_name -> c1.connector.v2.UserTrait.SSOStatus
+	21, // 9: c1.connector.v2.UserTrait.structured_name:type_name -> c1.connector.v2.UserTrait.StructuredName
+	23, // 10: c1.connector.v2.GroupTrait.icon:type_name -> c1.connector.v2.AssetRef
+	22, // 11: c1.connector.v2.GroupTrait.profile:type_name -> google.protobuf.Struct
+	22, // 12: c1.connector.v2.RoleTrait.profile:type_name -> google.protobuf.Struct
+	9,  // 13: c1.connector.v2.RoleTrait.role_scope_conditions:type_name -> c1.connector.v2.RoleScopeConditions
+	10, // 14: c1.connector.v2.RoleScopeConditions.conditions:type_name -> c1.connector.v2.RoleScopeCondition
+	25, // 15: c1.connector.v2.ScopeBindingTrait.role_id:type_name -> c1.connector.v2.ResourceId
+	25, // 16: c1.connector.v2.ScopeBindingTrait.scope_resource_id:type_name -> c1.connector.v2.ResourceId
+	23, // 17: c1.connector.v2.AppTrait.icon:type_name -> c1.connector.v2.AssetRef
+	23, // 18: c1.connector.v2.AppTrait.logo:type_name -> c1.connector.v2.AssetRef
+	22, // 19: c1.connector.v2.AppTrait.profile:type_name -> google.protobuf.Struct
 	2,  // 20: c1.connector.v2.AppTrait.flags:type_name -> c1.connector.v2.AppTrait.AppFlag
-	25, // 21: c1.connector.v2.SecretTrait.profile:type_name -> google.protobuf.Struct
-	27, // 22: c1.connector.v2.SecretTrait.created_at:type_name -> google.protobuf.Timestamp
-	27, // 23: c1.connector.v2.SecretTrait.expires_at:type_name -> google.protobuf.Timestamp
-	27, // 24: c1.connector.v2.SecretTrait.last_used_at:type_name -> google.protobuf.Timestamp
-	28, // 25: c1.connector.v2.SecretTrait.created_by_id:type_name -> c1.connector.v2.ResourceId
-	28, // 26: c1.connector.v2.SecretTrait.identity_id:type_name -> c1.connector.v2.ResourceId
+	22, // 21: c1.connector.v2.SecretTrait.profile:type_name -> google.protobuf.Struct
+	24, // 22: c1.connector.v2.SecretTrait.created_at:type_name -> google.protobuf.Timestamp
+	24, // 23: c1.connector.v2.SecretTrait.expires_at:type_name -> google.protobuf.Timestamp
+	24, // 24: c1.connector.v2.SecretTrait.last_used_at:type_name -> google.protobuf.Timestamp
+	25, // 25: c1.connector.v2.SecretTrait.created_by_id:type_name -> c1.connector.v2.ResourceId
+	25, // 26: c1.connector.v2.SecretTrait.identity_id:type_name -> c1.connector.v2.ResourceId
 	3,  // 27: c1.connector.v2.SecretTrait.credential_type:type_name -> c1.connector.v2.SecretTrait.CredentialType
 	4,  // 28: c1.connector.v2.NonHumanIdentityTrait.nhi_type:type_name -> c1.connector.v2.NonHumanIdentityTrait.NhiType
-	28, // 29: c1.connector.v2.ActsOnBehalfOf.system_identity:type_name -> c1.connector.v2.ResourceId
-	28, // 30: c1.connector.v2.ActsOnBehalfOf.owner_identity:type_name -> c1.connector.v2.ResourceId
-	5,  // 31: c1.connector.v2.AgentTrait.status:type_name -> c1.connector.v2.AgentTrait.AgentStatus
-	28, // 32: c1.connector.v2.AgentTrait.identity_resource_id:type_name -> c1.connector.v2.ResourceId
-	17, // 33: c1.connector.v2.AgentTrait.acts_on_behalf_of:type_name -> c1.connector.v2.ActsOnBehalfOf
-	25, // 34: c1.connector.v2.AgentTrait.profile:type_name -> google.protobuf.Struct
-	6,  // 35: c1.connector.v2.AgentToolTrait.agent_tool_type:type_name -> c1.connector.v2.AgentToolTrait.AgentToolType
-	28, // 36: c1.connector.v2.AgentToolTrait.credential_provider_ref:type_name -> c1.connector.v2.ResourceId
-	28, // 37: c1.connector.v2.AgentToolTrait.owning_resource_ref:type_name -> c1.connector.v2.ResourceId
-	25, // 38: c1.connector.v2.AgentToolTrait.profile:type_name -> google.protobuf.Struct
-	1,  // 39: c1.connector.v2.UserTrait.Status.status:type_name -> c1.connector.v2.UserTrait.Status.Status
-	40, // [40:40] is the sub-list for method output_type
-	40, // [40:40] is the sub-list for method input_type
-	40, // [40:40] is the sub-list for extension type_name
-	40, // [40:40] is the sub-list for extension extendee
-	0,  // [0:40] is the sub-list for field type_name
+	5,  // 29: c1.connector.v2.AgentTrait.status:type_name -> c1.connector.v2.AgentTrait.AgentStatus
+	25, // 30: c1.connector.v2.AgentTrait.identity_resource_id:type_name -> c1.connector.v2.ResourceId
+	22, // 31: c1.connector.v2.AgentTrait.profile:type_name -> google.protobuf.Struct
+	1,  // 32: c1.connector.v2.UserTrait.Status.status:type_name -> c1.connector.v2.UserTrait.Status.Status
+	33, // [33:33] is the sub-list for method output_type
+	33, // [33:33] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_trait_proto_init() }
@@ -2747,17 +2320,13 @@ func file_c1_connector_v2_annotation_trait_proto_init() {
 	}
 	file_c1_connector_v2_asset_proto_init()
 	file_c1_connector_v2_resource_proto_init()
-	file_c1_connector_v2_annotation_trait_proto_msgTypes[10].OneofWrappers = []any{
-		(*actsOnBehalfOf_SystemIdentity)(nil),
-		(*actsOnBehalfOf_OwnerIdentity)(nil),
-	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_trait_proto_rawDesc), len(file_c1_connector_v2_annotation_trait_proto_rawDesc)),
-			NumEnums:      7,
-			NumMessages:   18,
+			NumEnums:      6,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

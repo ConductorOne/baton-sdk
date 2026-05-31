@@ -190,21 +190,8 @@ message NonHumanIdentityTrait {
   string nhi_detail = 2;
 }
 
-// ActsOnBehalfOf identifies the principal an agent acts as. Exactly one arm is
-// set. This is an open oneof: additional arms (e.g. end-user passthrough) may
-// be added additively in the future.
-message ActsOnBehalfOf {
-  oneof on_behalf_of {
-    // The system/service identity the agent runs as.
-    connector.v2.ResourceId system_identity = 1;
-    // The owning user identity the agent acts on behalf of.
-    connector.v2.ResourceId owner_identity = 2;
-  }
-}
-
 // AgentTrait is the trait annotation for resources with TRAIT_AGENT. An agent
-// is an autonomous non-human actor (e.g. an AI agent) that holds an identity
-// and may act on behalf of a system or user.
+// is an autonomous non-human actor (e.g. an AI agent) that holds an identity.
 message AgentTrait {
   enum AgentStatus {
     AGENT_STATUS_UNSPECIFIED = 0;
@@ -215,27 +202,5 @@ message AgentTrait {
   AgentStatus status = 1 [(validate.rules).enum = {defined_only: true}];
   // The identity resource this agent authenticates as.
   connector.v2.ResourceId identity_resource_id = 2;
-  // The principal this agent acts on behalf of.
-  ActsOnBehalfOf acts_on_behalf_of = 3;
-  google.protobuf.Struct profile = 4;
-}
-
-// AgentToolTrait is the trait annotation for resources with TRAIT_AGENT_TOOL.
-// An agent tool is a capability an agent can invoke (a callable tool or a
-// knowledge base). The platform-specific kind is carried in
-// agent_tool_detail, not in the AgentToolType enum.
-message AgentToolTrait {
-  enum AgentToolType {
-    AGENT_TOOL_TYPE_UNSPECIFIED = 0;
-    AGENT_TOOL_TYPE_TOOL = 1;
-    AGENT_TOOL_TYPE_KNOWLEDGE_BASE = 2;
-  }
-  AgentToolType agent_tool_type = 1 [(validate.rules).enum = {defined_only: true}];
-  // The credential provider this tool authenticates through.
-  connector.v2.ResourceId credential_provider_ref = 2;
-  // The resource that owns/exposes this tool.
-  connector.v2.ResourceId owning_resource_ref = 3;
-  // Platform-specific tool kind (free-form); refines agent_tool_type.
-  string agent_tool_detail = 4;
-  google.protobuf.Struct profile = 5;
+  google.protobuf.Struct profile = 3;
 }

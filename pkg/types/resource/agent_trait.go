@@ -11,7 +11,7 @@ import (
 // AgentTraitOption is a functional option for configuring an AgentTrait.
 //
 // An agent is an autonomous non-human actor (e.g. an AI agent) that holds an
-// identity and may act on behalf of a system or user.
+// identity.
 type AgentTraitOption func(*v2.AgentTrait) error
 
 // WithAgentStatus sets the agent's lifecycle status.
@@ -27,28 +27,6 @@ func WithAgentStatus(status v2.AgentTrait_AgentStatus) AgentTraitOption {
 func WithAgentIdentityResourceID(identityResourceID *v2.ResourceId) AgentTraitOption {
 	return func(t *v2.AgentTrait) error {
 		t.SetIdentityResourceId(identityResourceID)
-		return nil
-	}
-}
-
-// WithAgentActsOnSystemIdentity sets the agent to act on behalf of a
-// system/service identity.
-func WithAgentActsOnSystemIdentity(systemIdentity *v2.ResourceId) AgentTraitOption {
-	return func(t *v2.AgentTrait) error {
-		aobo := &v2.ActsOnBehalfOf{}
-		aobo.SetSystemIdentity(systemIdentity)
-		t.SetActsOnBehalfOf(aobo)
-		return nil
-	}
-}
-
-// WithAgentActsOnOwnerIdentity sets the agent to act on behalf of an owning
-// user identity.
-func WithAgentActsOnOwnerIdentity(ownerIdentity *v2.ResourceId) AgentTraitOption {
-	return func(t *v2.AgentTrait) error {
-		aobo := &v2.ActsOnBehalfOf{}
-		aobo.SetOwnerIdentity(ownerIdentity)
-		t.SetActsOnBehalfOf(aobo)
 		return nil
 	}
 }
