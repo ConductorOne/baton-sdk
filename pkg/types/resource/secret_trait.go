@@ -45,6 +45,23 @@ func WithSecretIdentityID(identityId *v2.ResourceId) SecretTraitOption {
 	}
 }
 
+// WithSecretType sets the cryptographic class of the secret.
+func WithSecretType(credentialType v2.SecretTrait_CredentialType) SecretTraitOption {
+	return func(t *v2.SecretTrait) error {
+		t.SetCredentialType(credentialType)
+		return nil
+	}
+}
+
+// WithSecretDetail sets the platform-specific credential kind that refines
+// the credential type (e.g. "aws_access_key", "ssh_key", "x509").
+func WithSecretDetail(detail string) SecretTraitOption {
+	return func(t *v2.SecretTrait) error {
+		t.SetCredentialDetail(detail)
+		return nil
+	}
+}
+
 // NewSecretTrait creates a new `SecretTrait` with the given options.
 func NewSecretTrait(opts ...SecretTraitOption) (*v2.SecretTrait, error) {
 	SecretTrait := &v2.SecretTrait{}

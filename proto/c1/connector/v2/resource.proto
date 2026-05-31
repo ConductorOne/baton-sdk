@@ -36,6 +36,7 @@ message ResourceType {
     TRAIT_VENDOR = 8;
     TRAIT_VENDOR_AGREEMENT = 9;
     TRAIT_LICENSE_PROFILE = 10;
+    TRAIT_AGENT = 11;
   }
   repeated Trait traits = 3 [(validate.rules).repeated = {
     unique: true

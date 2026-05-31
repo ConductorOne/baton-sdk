@@ -219,6 +219,44 @@ func WithSecretTrait(opts ...SecretTraitOption) ResourceOption {
 	}
 }
 
+// WithNHIType adds or updates a NonHumanIdentityTrait annotation on a
+// resource, marking it as a non-human identity. It is kind-agnostic and may
+// be combined with any resource trait (e.g. TRAIT_APP or TRAIT_ROLE).
+func WithNHIType(nhiType v2.NonHumanIdentityTrait_NhiType, detail string) ResourceOption {
+	return func(r *v2.Resource) error {
+		nhi := &v2.NonHumanIdentityTrait{}
+
+		annos := annotations.Annotations(r.GetAnnotations())
+		_, err := annos.Pick(nhi)
+		if err != nil {
+			return err
+		}
+
+		nhi.SetNhiType(nhiType)
+		nhi.SetNhiDetail(detail)
+
+		annos.Update(nhi)
+		r.SetAnnotations(annos)
+
+		return nil
+	}
+}
+
+// GetNonHumanIdentityTrait returns the NonHumanIdentityTrait from a resource's
+// annotations.
+func GetNonHumanIdentityTrait(resource *v2.Resource) (*v2.NonHumanIdentityTrait, error) {
+	ret := &v2.NonHumanIdentityTrait{}
+	annos := annotations.Annotations(resource.GetAnnotations())
+	ok, err := annos.Pick(ret)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("non-human identity trait was not found on resource")
+	}
+	return ret, nil
+}
+
 // WithAliases sets the aliases id for a resource.
 func WithAliases(aliases ...string) ResourceOption {
 	return func(r *v2.Resource) error {

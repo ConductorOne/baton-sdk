@@ -125,12 +125,25 @@ message AppTrait {
 }
 
 message SecretTrait {
+  // CredentialType is the cryptographic class of the secret, independent of
+  // the platform-specific kind, which is carried in credential_detail.
+  enum CredentialType {
+    CREDENTIAL_TYPE_UNSPECIFIED = 0;
+    CREDENTIAL_TYPE_STATIC_SECRET = 1;
+    CREDENTIAL_TYPE_ASYMMETRIC_KEY = 2;
+    CREDENTIAL_TYPE_CERTIFICATE = 3;
+  }
+
   google.protobuf.Struct profile = 1;
   google.protobuf.Timestamp created_at = 2;
   google.protobuf.Timestamp expires_at = 3;
   google.protobuf.Timestamp last_used_at = 4;
   connector.v2.ResourceId created_by_id = 5;
   connector.v2.ResourceId identity_id = 6;
+  CredentialType credential_type = 7 [(validate.rules).enum = {defined_only: true}];
+  // Platform-specific credential kind (e.g. "aws_access_key", "ssh_key",
+  // "x509"). Free-form; refines credential_type.
+  string credential_detail = 8;
 }
 
 // LicenseProfileTrait is the trait annotation for resources with
@@ -159,4 +172,35 @@ message LicenseProfileTrait {
   }];
   // Entitlements on this connector that indicate a user holds this seat.
   repeated string entitlement_ids = 6 [(validate.rules).repeated = {unique: true}];
+}
+
+// NonHumanIdentityTrait marks a resource as a non-human identity (NHI). It is
+// kind-agnostic: it rides the resource's annotations bag rather than living on
+// a single trait field, so it can attach to a TRAIT_APP resource (e.g. an app
+// registration) and a TRAIT_ROLE resource (e.g. an assumable role) alike.
+message NonHumanIdentityTrait {
+  enum NhiType {
+    NHI_TYPE_UNSPECIFIED = 0;
+    NHI_TYPE_APP_REGISTRATION = 1;
+    NHI_TYPE_ASSUMABLE_ROLE = 2;
+  }
+  NhiType nhi_type = 1 [(validate.rules).enum = {defined_only: true}];
+  // Platform-specific type detail; refines nhi_type when the source
+  // distinguishes finer classes than the enum captures.
+  string nhi_detail = 2;
+}
+
+// AgentTrait is the trait annotation for resources with TRAIT_AGENT. An agent
+// is an autonomous non-human actor (e.g. an AI agent) that holds an identity.
+message AgentTrait {
+  enum AgentStatus {
+    AGENT_STATUS_UNSPECIFIED = 0;
+    AGENT_STATUS_READY = 1;
+    AGENT_STATUS_DISABLED = 2;
+    AGENT_STATUS_DELETED = 3;
+  }
+  AgentStatus status = 1 [(validate.rules).enum = {defined_only: true}];
+  // The identity resource this agent authenticates as.
+  connector.v2.ResourceId identity_resource_id = 2;
+  google.protobuf.Struct profile = 3;
 }

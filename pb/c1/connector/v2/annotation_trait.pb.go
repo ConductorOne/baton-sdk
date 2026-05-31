@@ -172,6 +172,146 @@ func (x AppTrait_AppFlag) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
+// CredentialType is the cryptographic class of the secret, independent of
+// the platform-specific kind, which is carried in credential_detail.
+type SecretTrait_CredentialType int32
+
+const (
+	SecretTrait_CREDENTIAL_TYPE_UNSPECIFIED    SecretTrait_CredentialType = 0
+	SecretTrait_CREDENTIAL_TYPE_STATIC_SECRET  SecretTrait_CredentialType = 1
+	SecretTrait_CREDENTIAL_TYPE_ASYMMETRIC_KEY SecretTrait_CredentialType = 2
+	SecretTrait_CREDENTIAL_TYPE_CERTIFICATE    SecretTrait_CredentialType = 3
+)
+
+// Enum value maps for SecretTrait_CredentialType.
+var (
+	SecretTrait_CredentialType_name = map[int32]string{
+		0: "CREDENTIAL_TYPE_UNSPECIFIED",
+		1: "CREDENTIAL_TYPE_STATIC_SECRET",
+		2: "CREDENTIAL_TYPE_ASYMMETRIC_KEY",
+		3: "CREDENTIAL_TYPE_CERTIFICATE",
+	}
+	SecretTrait_CredentialType_value = map[string]int32{
+		"CREDENTIAL_TYPE_UNSPECIFIED":    0,
+		"CREDENTIAL_TYPE_STATIC_SECRET":  1,
+		"CREDENTIAL_TYPE_ASYMMETRIC_KEY": 2,
+		"CREDENTIAL_TYPE_CERTIFICATE":    3,
+	}
+)
+
+func (x SecretTrait_CredentialType) Enum() *SecretTrait_CredentialType {
+	p := new(SecretTrait_CredentialType)
+	*p = x
+	return p
+}
+
+func (x SecretTrait_CredentialType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SecretTrait_CredentialType) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_connector_v2_annotation_trait_proto_enumTypes[3].Descriptor()
+}
+
+func (SecretTrait_CredentialType) Type() protoreflect.EnumType {
+	return &file_c1_connector_v2_annotation_trait_proto_enumTypes[3]
+}
+
+func (x SecretTrait_CredentialType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+type NonHumanIdentityTrait_NhiType int32
+
+const (
+	NonHumanIdentityTrait_NHI_TYPE_UNSPECIFIED      NonHumanIdentityTrait_NhiType = 0
+	NonHumanIdentityTrait_NHI_TYPE_APP_REGISTRATION NonHumanIdentityTrait_NhiType = 1
+	NonHumanIdentityTrait_NHI_TYPE_ASSUMABLE_ROLE   NonHumanIdentityTrait_NhiType = 2
+)
+
+// Enum value maps for NonHumanIdentityTrait_NhiType.
+var (
+	NonHumanIdentityTrait_NhiType_name = map[int32]string{
+		0: "NHI_TYPE_UNSPECIFIED",
+		1: "NHI_TYPE_APP_REGISTRATION",
+		2: "NHI_TYPE_ASSUMABLE_ROLE",
+	}
+	NonHumanIdentityTrait_NhiType_value = map[string]int32{
+		"NHI_TYPE_UNSPECIFIED":      0,
+		"NHI_TYPE_APP_REGISTRATION": 1,
+		"NHI_TYPE_ASSUMABLE_ROLE":   2,
+	}
+)
+
+func (x NonHumanIdentityTrait_NhiType) Enum() *NonHumanIdentityTrait_NhiType {
+	p := new(NonHumanIdentityTrait_NhiType)
+	*p = x
+	return p
+}
+
+func (x NonHumanIdentityTrait_NhiType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (NonHumanIdentityTrait_NhiType) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_connector_v2_annotation_trait_proto_enumTypes[4].Descriptor()
+}
+
+func (NonHumanIdentityTrait_NhiType) Type() protoreflect.EnumType {
+	return &file_c1_connector_v2_annotation_trait_proto_enumTypes[4]
+}
+
+func (x NonHumanIdentityTrait_NhiType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+type AgentTrait_AgentStatus int32
+
+const (
+	AgentTrait_AGENT_STATUS_UNSPECIFIED AgentTrait_AgentStatus = 0
+	AgentTrait_AGENT_STATUS_READY       AgentTrait_AgentStatus = 1
+	AgentTrait_AGENT_STATUS_DISABLED    AgentTrait_AgentStatus = 2
+	AgentTrait_AGENT_STATUS_DELETED     AgentTrait_AgentStatus = 3
+)
+
+// Enum value maps for AgentTrait_AgentStatus.
+var (
+	AgentTrait_AgentStatus_name = map[int32]string{
+		0: "AGENT_STATUS_UNSPECIFIED",
+		1: "AGENT_STATUS_READY",
+		2: "AGENT_STATUS_DISABLED",
+		3: "AGENT_STATUS_DELETED",
+	}
+	AgentTrait_AgentStatus_value = map[string]int32{
+		"AGENT_STATUS_UNSPECIFIED": 0,
+		"AGENT_STATUS_READY":       1,
+		"AGENT_STATUS_DISABLED":    2,
+		"AGENT_STATUS_DELETED":     3,
+	}
+)
+
+func (x AgentTrait_AgentStatus) Enum() *AgentTrait_AgentStatus {
+	p := new(AgentTrait_AgentStatus)
+	*p = x
+	return p
+}
+
+func (x AgentTrait_AgentStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AgentTrait_AgentStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_connector_v2_annotation_trait_proto_enumTypes[5].Descriptor()
+}
+
+func (AgentTrait_AgentStatus) Type() protoreflect.EnumType {
+	return &file_c1_connector_v2_annotation_trait_proto_enumTypes[5]
+}
+
+func (x AgentTrait_AgentStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
 type UserTrait struct {
 	state       protoimpl.MessageState `protogen:"hybrid.v1"`
 	Emails      []*UserTrait_Email     `protobuf:"bytes,1,rep,name=emails,proto3" json:"emails,omitempty"`
@@ -1049,15 +1189,19 @@ func (b0 AppTrait_builder) Build() *AppTrait {
 }
 
 type SecretTrait struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Profile       *structpb.Struct       `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	LastUsedAt    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_used_at,json=lastUsedAt,proto3" json:"last_used_at,omitempty"`
-	CreatedById   *ResourceId            `protobuf:"bytes,5,opt,name=created_by_id,json=createdById,proto3" json:"created_by_id,omitempty"`
-	IdentityId    *ResourceId            `protobuf:"bytes,6,opt,name=identity_id,json=identityId,proto3" json:"identity_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState     `protogen:"hybrid.v1"`
+	Profile        *structpb.Struct           `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
+	CreatedAt      *timestamppb.Timestamp     `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	ExpiresAt      *timestamppb.Timestamp     `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	LastUsedAt     *timestamppb.Timestamp     `protobuf:"bytes,4,opt,name=last_used_at,json=lastUsedAt,proto3" json:"last_used_at,omitempty"`
+	CreatedById    *ResourceId                `protobuf:"bytes,5,opt,name=created_by_id,json=createdById,proto3" json:"created_by_id,omitempty"`
+	IdentityId     *ResourceId                `protobuf:"bytes,6,opt,name=identity_id,json=identityId,proto3" json:"identity_id,omitempty"`
+	CredentialType SecretTrait_CredentialType `protobuf:"varint,7,opt,name=credential_type,json=credentialType,proto3,enum=c1.connector.v2.SecretTrait_CredentialType" json:"credential_type,omitempty"`
+	// Platform-specific credential kind (e.g. "aws_access_key", "ssh_key",
+	// "x509"). Free-form; refines credential_type.
+	CredentialDetail string `protobuf:"bytes,8,opt,name=credential_detail,json=credentialDetail,proto3" json:"credential_detail,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SecretTrait) Reset() {
@@ -1127,6 +1271,20 @@ func (x *SecretTrait) GetIdentityId() *ResourceId {
 	return nil
 }
 
+func (x *SecretTrait) GetCredentialType() SecretTrait_CredentialType {
+	if x != nil {
+		return x.CredentialType
+	}
+	return SecretTrait_CREDENTIAL_TYPE_UNSPECIFIED
+}
+
+func (x *SecretTrait) GetCredentialDetail() string {
+	if x != nil {
+		return x.CredentialDetail
+	}
+	return ""
+}
+
 func (x *SecretTrait) SetProfile(v *structpb.Struct) {
 	x.Profile = v
 }
@@ -1149,6 +1307,14 @@ func (x *SecretTrait) SetCreatedById(v *ResourceId) {
 
 func (x *SecretTrait) SetIdentityId(v *ResourceId) {
 	x.IdentityId = v
+}
+
+func (x *SecretTrait) SetCredentialType(v SecretTrait_CredentialType) {
+	x.CredentialType = v
+}
+
+func (x *SecretTrait) SetCredentialDetail(v string) {
+	x.CredentialDetail = v
 }
 
 func (x *SecretTrait) HasProfile() bool {
@@ -1220,12 +1386,16 @@ func (x *SecretTrait) ClearIdentityId() {
 type SecretTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Profile     *structpb.Struct
-	CreatedAt   *timestamppb.Timestamp
-	ExpiresAt   *timestamppb.Timestamp
-	LastUsedAt  *timestamppb.Timestamp
-	CreatedById *ResourceId
-	IdentityId  *ResourceId
+	Profile        *structpb.Struct
+	CreatedAt      *timestamppb.Timestamp
+	ExpiresAt      *timestamppb.Timestamp
+	LastUsedAt     *timestamppb.Timestamp
+	CreatedById    *ResourceId
+	IdentityId     *ResourceId
+	CredentialType SecretTrait_CredentialType
+	// Platform-specific credential kind (e.g. "aws_access_key", "ssh_key",
+	// "x509"). Free-form; refines credential_type.
+	CredentialDetail string
 }
 
 func (b0 SecretTrait_builder) Build() *SecretTrait {
@@ -1238,6 +1408,8 @@ func (b0 SecretTrait_builder) Build() *SecretTrait {
 	x.LastUsedAt = b.LastUsedAt
 	x.CreatedById = b.CreatedById
 	x.IdentityId = b.IdentityId
+	x.CredentialType = b.CredentialType
+	x.CredentialDetail = b.CredentialDetail
 	return m0
 }
 
@@ -1387,6 +1559,196 @@ func (b0 LicenseProfileTrait_builder) Build() *LicenseProfileTrait {
 	return m0
 }
 
+// NonHumanIdentityTrait marks a resource as a non-human identity (NHI). It is
+// kind-agnostic: it rides the resource's annotations bag rather than living on
+// a single trait field, so it can attach to a TRAIT_APP resource (e.g. an app
+// registration) and a TRAIT_ROLE resource (e.g. an assumable role) alike.
+type NonHumanIdentityTrait struct {
+	state   protoimpl.MessageState        `protogen:"hybrid.v1"`
+	NhiType NonHumanIdentityTrait_NhiType `protobuf:"varint,1,opt,name=nhi_type,json=nhiType,proto3,enum=c1.connector.v2.NonHumanIdentityTrait_NhiType" json:"nhi_type,omitempty"`
+	// Platform-specific type detail; refines nhi_type when the source
+	// distinguishes finer classes than the enum captures.
+	NhiDetail     string `protobuf:"bytes,2,opt,name=nhi_detail,json=nhiDetail,proto3" json:"nhi_detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NonHumanIdentityTrait) Reset() {
+	*x = NonHumanIdentityTrait{}
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NonHumanIdentityTrait) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NonHumanIdentityTrait) ProtoMessage() {}
+
+func (x *NonHumanIdentityTrait) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *NonHumanIdentityTrait) GetNhiType() NonHumanIdentityTrait_NhiType {
+	if x != nil {
+		return x.NhiType
+	}
+	return NonHumanIdentityTrait_NHI_TYPE_UNSPECIFIED
+}
+
+func (x *NonHumanIdentityTrait) GetNhiDetail() string {
+	if x != nil {
+		return x.NhiDetail
+	}
+	return ""
+}
+
+func (x *NonHumanIdentityTrait) SetNhiType(v NonHumanIdentityTrait_NhiType) {
+	x.NhiType = v
+}
+
+func (x *NonHumanIdentityTrait) SetNhiDetail(v string) {
+	x.NhiDetail = v
+}
+
+type NonHumanIdentityTrait_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	NhiType NonHumanIdentityTrait_NhiType
+	// Platform-specific type detail; refines nhi_type when the source
+	// distinguishes finer classes than the enum captures.
+	NhiDetail string
+}
+
+func (b0 NonHumanIdentityTrait_builder) Build() *NonHumanIdentityTrait {
+	m0 := &NonHumanIdentityTrait{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.NhiType = b.NhiType
+	x.NhiDetail = b.NhiDetail
+	return m0
+}
+
+// AgentTrait is the trait annotation for resources with TRAIT_AGENT. An agent
+// is an autonomous non-human actor (e.g. an AI agent) that holds an identity.
+type AgentTrait struct {
+	state  protoimpl.MessageState `protogen:"hybrid.v1"`
+	Status AgentTrait_AgentStatus `protobuf:"varint,1,opt,name=status,proto3,enum=c1.connector.v2.AgentTrait_AgentStatus" json:"status,omitempty"`
+	// The identity resource this agent authenticates as.
+	IdentityResourceId *ResourceId      `protobuf:"bytes,2,opt,name=identity_resource_id,json=identityResourceId,proto3" json:"identity_resource_id,omitempty"`
+	Profile            *structpb.Struct `protobuf:"bytes,3,opt,name=profile,proto3" json:"profile,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *AgentTrait) Reset() {
+	*x = AgentTrait{}
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentTrait) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentTrait) ProtoMessage() {}
+
+func (x *AgentTrait) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *AgentTrait) GetStatus() AgentTrait_AgentStatus {
+	if x != nil {
+		return x.Status
+	}
+	return AgentTrait_AGENT_STATUS_UNSPECIFIED
+}
+
+func (x *AgentTrait) GetIdentityResourceId() *ResourceId {
+	if x != nil {
+		return x.IdentityResourceId
+	}
+	return nil
+}
+
+func (x *AgentTrait) GetProfile() *structpb.Struct {
+	if x != nil {
+		return x.Profile
+	}
+	return nil
+}
+
+func (x *AgentTrait) SetStatus(v AgentTrait_AgentStatus) {
+	x.Status = v
+}
+
+func (x *AgentTrait) SetIdentityResourceId(v *ResourceId) {
+	x.IdentityResourceId = v
+}
+
+func (x *AgentTrait) SetProfile(v *structpb.Struct) {
+	x.Profile = v
+}
+
+func (x *AgentTrait) HasIdentityResourceId() bool {
+	if x == nil {
+		return false
+	}
+	return x.IdentityResourceId != nil
+}
+
+func (x *AgentTrait) HasProfile() bool {
+	if x == nil {
+		return false
+	}
+	return x.Profile != nil
+}
+
+func (x *AgentTrait) ClearIdentityResourceId() {
+	x.IdentityResourceId = nil
+}
+
+func (x *AgentTrait) ClearProfile() {
+	x.Profile = nil
+}
+
+type AgentTrait_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Status AgentTrait_AgentStatus
+	// The identity resource this agent authenticates as.
+	IdentityResourceId *ResourceId
+	Profile            *structpb.Struct
+}
+
+func (b0 AgentTrait_builder) Build() *AgentTrait {
+	m0 := &AgentTrait{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Status = b.Status
+	x.IdentityResourceId = b.IdentityResourceId
+	x.Profile = b.Profile
+	return m0
+}
+
 type UserTrait_Email struct {
 	state   protoimpl.MessageState `protogen:"hybrid.v1"`
 	Address string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
@@ -1398,7 +1760,7 @@ type UserTrait_Email struct {
 
 func (x *UserTrait_Email) Reset() {
 	*x = UserTrait_Email{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[9]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1410,7 +1772,7 @@ func (x *UserTrait_Email) String() string {
 func (*UserTrait_Email) ProtoMessage() {}
 
 func (x *UserTrait_Email) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[9]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1470,7 +1832,7 @@ type UserTrait_Status struct {
 
 func (x *UserTrait_Status) Reset() {
 	*x = UserTrait_Status{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[10]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1482,7 +1844,7 @@ func (x *UserTrait_Status) String() string {
 func (*UserTrait_Status) ProtoMessage() {}
 
 func (x *UserTrait_Status) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[10]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1540,7 +1902,7 @@ type UserTrait_MFAStatus struct {
 
 func (x *UserTrait_MFAStatus) Reset() {
 	*x = UserTrait_MFAStatus{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[11]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1552,7 +1914,7 @@ func (x *UserTrait_MFAStatus) String() string {
 func (*UserTrait_MFAStatus) ProtoMessage() {}
 
 func (x *UserTrait_MFAStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[11]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1597,7 +1959,7 @@ type UserTrait_SSOStatus struct {
 
 func (x *UserTrait_SSOStatus) Reset() {
 	*x = UserTrait_SSOStatus{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[12]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1609,7 +1971,7 @@ func (x *UserTrait_SSOStatus) String() string {
 func (*UserTrait_SSOStatus) ProtoMessage() {}
 
 func (x *UserTrait_SSOStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[12]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1658,7 +2020,7 @@ type UserTrait_StructuredName struct {
 
 func (x *UserTrait_StructuredName) Reset() {
 	*x = UserTrait_StructuredName{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[13]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1670,7 +2032,7 @@ func (x *UserTrait_StructuredName) String() string {
 func (*UserTrait_StructuredName) ProtoMessage() {}
 
 func (x *UserTrait_StructuredName) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[13]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1845,7 +2207,7 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x11APP_FLAG_INACTIVE\x10\x02\x12\x11\n" +
 	"\rAPP_FLAG_SAML\x10\x03\x12\x11\n" +
 	"\rAPP_FLAG_OIDC\x10\x04\x12\x15\n" +
-	"\x11APP_FLAG_BOOKMARK\x10\x05\"\xf3\x02\n" +
+	"\x11APP_FLAG_BOOKMARK\x10\x05\"\x9c\x05\n" +
 	"\vSecretTrait\x121\n" +
 	"\aprofile\x18\x01 \x01(\v2\x17.google.protobuf.StructR\aprofile\x129\n" +
 	"\n" +
@@ -1856,7 +2218,14 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"lastUsedAt\x12?\n" +
 	"\rcreated_by_id\x18\x05 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\vcreatedById\x12<\n" +
 	"\videntity_id\x18\x06 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
-	"identityId\"\xa4\x02\n" +
+	"identityId\x12^\n" +
+	"\x0fcredential_type\x18\a \x01(\x0e2+.c1.connector.v2.SecretTrait.CredentialTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\x0ecredentialType\x12+\n" +
+	"\x11credential_detail\x18\b \x01(\tR\x10credentialDetail\"\x99\x01\n" +
+	"\x0eCredentialType\x12\x1f\n" +
+	"\x1bCREDENTIAL_TYPE_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dCREDENTIAL_TYPE_STATIC_SECRET\x10\x01\x12\"\n" +
+	"\x1eCREDENTIAL_TYPE_ASYMMETRIC_KEY\x10\x02\x12\x1f\n" +
+	"\x1bCREDENTIAL_TYPE_CERTIFICATE\x10\x03\"\xa4\x02\n" +
 	"\x13LicenseProfileTrait\x12.\n" +
 	"\flicense_name\x18\x01 \x01(\tB\v\xfaB\br\x06(\x80\b\xd0\x01\x01R\vlicenseName\x12'\n" +
 	"\x0fpurchased_seats\x18\x02 \x01(\x03R\x0epurchasedSeats\x12%\n" +
@@ -1864,67 +2233,95 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x16cost_per_unit_in_cents\x18\x04 \x01(\x03R\x12costPerUnitInCents\x12&\n" +
 	"\bcurrency\x18\x05 \x01(\tB\n" +
 	"\xfaB\ar\x05(\b\xd0\x01\x01R\bcurrency\x121\n" +
-	"\x0fentitlement_ids\x18\x06 \x03(\tB\b\xfaB\x05\x92\x01\x02\x18\x01R\x0eentitlementIdsB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"\x0fentitlement_ids\x18\x06 \x03(\tB\b\xfaB\x05\x92\x01\x02\x18\x01R\x0eentitlementIds\"\xec\x01\n" +
+	"\x15NonHumanIdentityTrait\x12S\n" +
+	"\bnhi_type\x18\x01 \x01(\x0e2..c1.connector.v2.NonHumanIdentityTrait.NhiTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\anhiType\x12\x1d\n" +
+	"\n" +
+	"nhi_detail\x18\x02 \x01(\tR\tnhiDetail\"_\n" +
+	"\aNhiType\x12\x18\n" +
+	"\x14NHI_TYPE_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19NHI_TYPE_APP_REGISTRATION\x10\x01\x12\x1b\n" +
+	"\x17NHI_TYPE_ASSUMABLE_ROLE\x10\x02\"\xd3\x02\n" +
+	"\n" +
+	"AgentTrait\x12I\n" +
+	"\x06status\x18\x01 \x01(\x0e2'.c1.connector.v2.AgentTrait.AgentStatusB\b\xfaB\x05\x82\x01\x02\x10\x01R\x06status\x12M\n" +
+	"\x14identity_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x12identityResourceId\x121\n" +
+	"\aprofile\x18\x03 \x01(\v2\x17.google.protobuf.StructR\aprofile\"x\n" +
+	"\vAgentStatus\x12\x1c\n" +
+	"\x18AGENT_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12AGENT_STATUS_READY\x10\x01\x12\x19\n" +
+	"\x15AGENT_STATUS_DISABLED\x10\x02\x12\x18\n" +
+	"\x14AGENT_STATUS_DELETED\x10\x03B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_annotation_trait_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_c1_connector_v2_annotation_trait_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_c1_connector_v2_annotation_trait_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_c1_connector_v2_annotation_trait_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_c1_connector_v2_annotation_trait_proto_goTypes = []any{
-	(UserTrait_AccountType)(0),       // 0: c1.connector.v2.UserTrait.AccountType
-	(UserTrait_Status_Status)(0),     // 1: c1.connector.v2.UserTrait.Status.Status
-	(AppTrait_AppFlag)(0),            // 2: c1.connector.v2.AppTrait.AppFlag
-	(*UserTrait)(nil),                // 3: c1.connector.v2.UserTrait
-	(*GroupTrait)(nil),               // 4: c1.connector.v2.GroupTrait
-	(*RoleTrait)(nil),                // 5: c1.connector.v2.RoleTrait
-	(*RoleScopeConditions)(nil),      // 6: c1.connector.v2.RoleScopeConditions
-	(*RoleScopeCondition)(nil),       // 7: c1.connector.v2.RoleScopeCondition
-	(*ScopeBindingTrait)(nil),        // 8: c1.connector.v2.ScopeBindingTrait
-	(*AppTrait)(nil),                 // 9: c1.connector.v2.AppTrait
-	(*SecretTrait)(nil),              // 10: c1.connector.v2.SecretTrait
-	(*LicenseProfileTrait)(nil),      // 11: c1.connector.v2.LicenseProfileTrait
-	(*UserTrait_Email)(nil),          // 12: c1.connector.v2.UserTrait.Email
-	(*UserTrait_Status)(nil),         // 13: c1.connector.v2.UserTrait.Status
-	(*UserTrait_MFAStatus)(nil),      // 14: c1.connector.v2.UserTrait.MFAStatus
-	(*UserTrait_SSOStatus)(nil),      // 15: c1.connector.v2.UserTrait.SSOStatus
-	(*UserTrait_StructuredName)(nil), // 16: c1.connector.v2.UserTrait.StructuredName
-	(*structpb.Struct)(nil),          // 17: google.protobuf.Struct
-	(*AssetRef)(nil),                 // 18: c1.connector.v2.AssetRef
-	(*timestamppb.Timestamp)(nil),    // 19: google.protobuf.Timestamp
-	(*ResourceId)(nil),               // 20: c1.connector.v2.ResourceId
+	(UserTrait_AccountType)(0),         // 0: c1.connector.v2.UserTrait.AccountType
+	(UserTrait_Status_Status)(0),       // 1: c1.connector.v2.UserTrait.Status.Status
+	(AppTrait_AppFlag)(0),              // 2: c1.connector.v2.AppTrait.AppFlag
+	(SecretTrait_CredentialType)(0),    // 3: c1.connector.v2.SecretTrait.CredentialType
+	(NonHumanIdentityTrait_NhiType)(0), // 4: c1.connector.v2.NonHumanIdentityTrait.NhiType
+	(AgentTrait_AgentStatus)(0),        // 5: c1.connector.v2.AgentTrait.AgentStatus
+	(*UserTrait)(nil),                  // 6: c1.connector.v2.UserTrait
+	(*GroupTrait)(nil),                 // 7: c1.connector.v2.GroupTrait
+	(*RoleTrait)(nil),                  // 8: c1.connector.v2.RoleTrait
+	(*RoleScopeConditions)(nil),        // 9: c1.connector.v2.RoleScopeConditions
+	(*RoleScopeCondition)(nil),         // 10: c1.connector.v2.RoleScopeCondition
+	(*ScopeBindingTrait)(nil),          // 11: c1.connector.v2.ScopeBindingTrait
+	(*AppTrait)(nil),                   // 12: c1.connector.v2.AppTrait
+	(*SecretTrait)(nil),                // 13: c1.connector.v2.SecretTrait
+	(*LicenseProfileTrait)(nil),        // 14: c1.connector.v2.LicenseProfileTrait
+	(*NonHumanIdentityTrait)(nil),      // 15: c1.connector.v2.NonHumanIdentityTrait
+	(*AgentTrait)(nil),                 // 16: c1.connector.v2.AgentTrait
+	(*UserTrait_Email)(nil),            // 17: c1.connector.v2.UserTrait.Email
+	(*UserTrait_Status)(nil),           // 18: c1.connector.v2.UserTrait.Status
+	(*UserTrait_MFAStatus)(nil),        // 19: c1.connector.v2.UserTrait.MFAStatus
+	(*UserTrait_SSOStatus)(nil),        // 20: c1.connector.v2.UserTrait.SSOStatus
+	(*UserTrait_StructuredName)(nil),   // 21: c1.connector.v2.UserTrait.StructuredName
+	(*structpb.Struct)(nil),            // 22: google.protobuf.Struct
+	(*AssetRef)(nil),                   // 23: c1.connector.v2.AssetRef
+	(*timestamppb.Timestamp)(nil),      // 24: google.protobuf.Timestamp
+	(*ResourceId)(nil),                 // 25: c1.connector.v2.ResourceId
 }
 var file_c1_connector_v2_annotation_trait_proto_depIdxs = []int32{
-	12, // 0: c1.connector.v2.UserTrait.emails:type_name -> c1.connector.v2.UserTrait.Email
-	13, // 1: c1.connector.v2.UserTrait.status:type_name -> c1.connector.v2.UserTrait.Status
-	17, // 2: c1.connector.v2.UserTrait.profile:type_name -> google.protobuf.Struct
-	18, // 3: c1.connector.v2.UserTrait.icon:type_name -> c1.connector.v2.AssetRef
+	17, // 0: c1.connector.v2.UserTrait.emails:type_name -> c1.connector.v2.UserTrait.Email
+	18, // 1: c1.connector.v2.UserTrait.status:type_name -> c1.connector.v2.UserTrait.Status
+	22, // 2: c1.connector.v2.UserTrait.profile:type_name -> google.protobuf.Struct
+	23, // 3: c1.connector.v2.UserTrait.icon:type_name -> c1.connector.v2.AssetRef
 	0,  // 4: c1.connector.v2.UserTrait.account_type:type_name -> c1.connector.v2.UserTrait.AccountType
-	19, // 5: c1.connector.v2.UserTrait.created_at:type_name -> google.protobuf.Timestamp
-	19, // 6: c1.connector.v2.UserTrait.last_login:type_name -> google.protobuf.Timestamp
-	14, // 7: c1.connector.v2.UserTrait.mfa_status:type_name -> c1.connector.v2.UserTrait.MFAStatus
-	15, // 8: c1.connector.v2.UserTrait.sso_status:type_name -> c1.connector.v2.UserTrait.SSOStatus
-	16, // 9: c1.connector.v2.UserTrait.structured_name:type_name -> c1.connector.v2.UserTrait.StructuredName
-	18, // 10: c1.connector.v2.GroupTrait.icon:type_name -> c1.connector.v2.AssetRef
-	17, // 11: c1.connector.v2.GroupTrait.profile:type_name -> google.protobuf.Struct
-	17, // 12: c1.connector.v2.RoleTrait.profile:type_name -> google.protobuf.Struct
-	6,  // 13: c1.connector.v2.RoleTrait.role_scope_conditions:type_name -> c1.connector.v2.RoleScopeConditions
-	7,  // 14: c1.connector.v2.RoleScopeConditions.conditions:type_name -> c1.connector.v2.RoleScopeCondition
-	20, // 15: c1.connector.v2.ScopeBindingTrait.role_id:type_name -> c1.connector.v2.ResourceId
-	20, // 16: c1.connector.v2.ScopeBindingTrait.scope_resource_id:type_name -> c1.connector.v2.ResourceId
-	18, // 17: c1.connector.v2.AppTrait.icon:type_name -> c1.connector.v2.AssetRef
-	18, // 18: c1.connector.v2.AppTrait.logo:type_name -> c1.connector.v2.AssetRef
-	17, // 19: c1.connector.v2.AppTrait.profile:type_name -> google.protobuf.Struct
+	24, // 5: c1.connector.v2.UserTrait.created_at:type_name -> google.protobuf.Timestamp
+	24, // 6: c1.connector.v2.UserTrait.last_login:type_name -> google.protobuf.Timestamp
+	19, // 7: c1.connector.v2.UserTrait.mfa_status:type_name -> c1.connector.v2.UserTrait.MFAStatus
+	20, // 8: c1.connector.v2.UserTrait.sso_status:type_name -> c1.connector.v2.UserTrait.SSOStatus
+	21, // 9: c1.connector.v2.UserTrait.structured_name:type_name -> c1.connector.v2.UserTrait.StructuredName
+	23, // 10: c1.connector.v2.GroupTrait.icon:type_name -> c1.connector.v2.AssetRef
+	22, // 11: c1.connector.v2.GroupTrait.profile:type_name -> google.protobuf.Struct
+	22, // 12: c1.connector.v2.RoleTrait.profile:type_name -> google.protobuf.Struct
+	9,  // 13: c1.connector.v2.RoleTrait.role_scope_conditions:type_name -> c1.connector.v2.RoleScopeConditions
+	10, // 14: c1.connector.v2.RoleScopeConditions.conditions:type_name -> c1.connector.v2.RoleScopeCondition
+	25, // 15: c1.connector.v2.ScopeBindingTrait.role_id:type_name -> c1.connector.v2.ResourceId
+	25, // 16: c1.connector.v2.ScopeBindingTrait.scope_resource_id:type_name -> c1.connector.v2.ResourceId
+	23, // 17: c1.connector.v2.AppTrait.icon:type_name -> c1.connector.v2.AssetRef
+	23, // 18: c1.connector.v2.AppTrait.logo:type_name -> c1.connector.v2.AssetRef
+	22, // 19: c1.connector.v2.AppTrait.profile:type_name -> google.protobuf.Struct
 	2,  // 20: c1.connector.v2.AppTrait.flags:type_name -> c1.connector.v2.AppTrait.AppFlag
-	17, // 21: c1.connector.v2.SecretTrait.profile:type_name -> google.protobuf.Struct
-	19, // 22: c1.connector.v2.SecretTrait.created_at:type_name -> google.protobuf.Timestamp
-	19, // 23: c1.connector.v2.SecretTrait.expires_at:type_name -> google.protobuf.Timestamp
-	19, // 24: c1.connector.v2.SecretTrait.last_used_at:type_name -> google.protobuf.Timestamp
-	20, // 25: c1.connector.v2.SecretTrait.created_by_id:type_name -> c1.connector.v2.ResourceId
-	20, // 26: c1.connector.v2.SecretTrait.identity_id:type_name -> c1.connector.v2.ResourceId
-	1,  // 27: c1.connector.v2.UserTrait.Status.status:type_name -> c1.connector.v2.UserTrait.Status.Status
-	28, // [28:28] is the sub-list for method output_type
-	28, // [28:28] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	22, // 21: c1.connector.v2.SecretTrait.profile:type_name -> google.protobuf.Struct
+	24, // 22: c1.connector.v2.SecretTrait.created_at:type_name -> google.protobuf.Timestamp
+	24, // 23: c1.connector.v2.SecretTrait.expires_at:type_name -> google.protobuf.Timestamp
+	24, // 24: c1.connector.v2.SecretTrait.last_used_at:type_name -> google.protobuf.Timestamp
+	25, // 25: c1.connector.v2.SecretTrait.created_by_id:type_name -> c1.connector.v2.ResourceId
+	25, // 26: c1.connector.v2.SecretTrait.identity_id:type_name -> c1.connector.v2.ResourceId
+	3,  // 27: c1.connector.v2.SecretTrait.credential_type:type_name -> c1.connector.v2.SecretTrait.CredentialType
+	4,  // 28: c1.connector.v2.NonHumanIdentityTrait.nhi_type:type_name -> c1.connector.v2.NonHumanIdentityTrait.NhiType
+	5,  // 29: c1.connector.v2.AgentTrait.status:type_name -> c1.connector.v2.AgentTrait.AgentStatus
+	25, // 30: c1.connector.v2.AgentTrait.identity_resource_id:type_name -> c1.connector.v2.ResourceId
+	22, // 31: c1.connector.v2.AgentTrait.profile:type_name -> google.protobuf.Struct
+	1,  // 32: c1.connector.v2.UserTrait.Status.status:type_name -> c1.connector.v2.UserTrait.Status.Status
+	33, // [33:33] is the sub-list for method output_type
+	33, // [33:33] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_trait_proto_init() }
@@ -1939,8 +2336,8 @@ func file_c1_connector_v2_annotation_trait_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_trait_proto_rawDesc), len(file_c1_connector_v2_annotation_trait_proto_rawDesc)),
-			NumEnums:      3,
-			NumMessages:   14,
+			NumEnums:      6,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -1591,6 +1591,19 @@ func (m *SecretTrait) validate(all bool) error {
 		}
 	}
 
+	if _, ok := SecretTrait_CredentialType_name[int32(m.GetCredentialType())]; !ok {
+		err := SecretTraitValidationError{
+			field:  "CredentialType",
+			reason: "value must be one of the defined enum values",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	// no validation rules for CredentialDetail
+
 	if len(errors) > 0 {
 		return SecretTraitMultiError(errors)
 	}
@@ -1826,6 +1839,289 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = LicenseProfileTraitValidationError{}
+
+// Validate checks the field values on NonHumanIdentityTrait with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *NonHumanIdentityTrait) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on NonHumanIdentityTrait with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// NonHumanIdentityTraitMultiError, or nil if none found.
+func (m *NonHumanIdentityTrait) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *NonHumanIdentityTrait) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if _, ok := NonHumanIdentityTrait_NhiType_name[int32(m.GetNhiType())]; !ok {
+		err := NonHumanIdentityTraitValidationError{
+			field:  "NhiType",
+			reason: "value must be one of the defined enum values",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	// no validation rules for NhiDetail
+
+	if len(errors) > 0 {
+		return NonHumanIdentityTraitMultiError(errors)
+	}
+
+	return nil
+}
+
+// NonHumanIdentityTraitMultiError is an error wrapping multiple validation
+// errors returned by NonHumanIdentityTrait.ValidateAll() if the designated
+// constraints aren't met.
+type NonHumanIdentityTraitMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m NonHumanIdentityTraitMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m NonHumanIdentityTraitMultiError) AllErrors() []error { return m }
+
+// NonHumanIdentityTraitValidationError is the validation error returned by
+// NonHumanIdentityTrait.Validate if the designated constraints aren't met.
+type NonHumanIdentityTraitValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e NonHumanIdentityTraitValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e NonHumanIdentityTraitValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e NonHumanIdentityTraitValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e NonHumanIdentityTraitValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e NonHumanIdentityTraitValidationError) ErrorName() string {
+	return "NonHumanIdentityTraitValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e NonHumanIdentityTraitValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sNonHumanIdentityTrait.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = NonHumanIdentityTraitValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = NonHumanIdentityTraitValidationError{}
+
+// Validate checks the field values on AgentTrait with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *AgentTrait) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on AgentTrait with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in AgentTraitMultiError, or
+// nil if none found.
+func (m *AgentTrait) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *AgentTrait) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if _, ok := AgentTrait_AgentStatus_name[int32(m.GetStatus())]; !ok {
+		err := AgentTraitValidationError{
+			field:  "Status",
+			reason: "value must be one of the defined enum values",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if all {
+		switch v := interface{}(m.GetIdentityResourceId()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, AgentTraitValidationError{
+					field:  "IdentityResourceId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, AgentTraitValidationError{
+					field:  "IdentityResourceId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetIdentityResourceId()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return AgentTraitValidationError{
+				field:  "IdentityResourceId",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetProfile()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, AgentTraitValidationError{
+					field:  "Profile",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, AgentTraitValidationError{
+					field:  "Profile",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetProfile()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return AgentTraitValidationError{
+				field:  "Profile",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return AgentTraitMultiError(errors)
+	}
+
+	return nil
+}
+
+// AgentTraitMultiError is an error wrapping multiple validation errors
+// returned by AgentTrait.ValidateAll() if the designated constraints aren't met.
+type AgentTraitMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m AgentTraitMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m AgentTraitMultiError) AllErrors() []error { return m }
+
+// AgentTraitValidationError is the validation error returned by
+// AgentTrait.Validate if the designated constraints aren't met.
+type AgentTraitValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e AgentTraitValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e AgentTraitValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e AgentTraitValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e AgentTraitValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e AgentTraitValidationError) ErrorName() string { return "AgentTraitValidationError" }
+
+// Error satisfies the builtin error interface
+func (e AgentTraitValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sAgentTrait.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = AgentTraitValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = AgentTraitValidationError{}
 
 // Validate checks the field values on UserTrait_Email with the rules defined
 // in the proto definition for this message. If any rules are violated, the
