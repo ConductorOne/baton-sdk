@@ -125,12 +125,25 @@ message AppTrait {
 }
 
 message SecretTrait {
+  // CredentialType is the cryptographic class of the secret, independent of
+  // the platform-specific kind, which is carried in credential_subtype.
+  enum CredentialType {
+    CREDENTIAL_TYPE_UNSPECIFIED = 0;
+    CREDENTIAL_TYPE_STATIC_SECRET = 1;
+    CREDENTIAL_TYPE_ASYMMETRIC_KEY = 2;
+    CREDENTIAL_TYPE_CERTIFICATE = 3;
+  }
+
   google.protobuf.Struct profile = 1;
   google.protobuf.Timestamp created_at = 2;
   google.protobuf.Timestamp expires_at = 3;
   google.protobuf.Timestamp last_used_at = 4;
   connector.v2.ResourceId created_by_id = 5;
   connector.v2.ResourceId identity_id = 6;
+  CredentialType credential_type = 7 [(validate.rules).enum = {defined_only: true}];
+  // Platform-specific credential kind (e.g. "aws_access_key", "ssh_key",
+  // "x509"). Free-form; refines credential_type.
+  string credential_subtype = 8;
 }
 
 // LicenseProfileTrait is the trait annotation for resources with

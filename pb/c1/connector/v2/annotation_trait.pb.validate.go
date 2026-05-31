@@ -1591,6 +1591,19 @@ func (m *SecretTrait) validate(all bool) error {
 		}
 	}
 
+	if _, ok := SecretTrait_CredentialType_name[int32(m.GetCredentialType())]; !ok {
+		err := SecretTraitValidationError{
+			field:  "CredentialType",
+			reason: "value must be one of the defined enum values",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	// no validation rules for CredentialSubtype
+
 	if len(errors) > 0 {
 		return SecretTraitMultiError(errors)
 	}
