@@ -12,14 +12,23 @@ import (
 // AgentToolTrait.
 //
 // An agent tool is a capability an agent can invoke: a callable tool or a
-// knowledge base. The platform-specific kind is carried in
-// profile.tool_kind_detail, not in the AgentToolKind enum.
+// knowledge base. The platform-specific kind is carried in agent_tool_detail,
+// not in the AgentToolType enum.
 type AgentToolTraitOption func(*v2.AgentToolTrait) error
 
-// WithAgentToolKind sets the kind of the agent tool.
-func WithAgentToolKind(toolKind v2.AgentToolTrait_AgentToolKind) AgentToolTraitOption {
+// WithAgentToolType sets the type of the agent tool.
+func WithAgentToolType(agentToolType v2.AgentToolTrait_AgentToolType) AgentToolTraitOption {
 	return func(t *v2.AgentToolTrait) error {
-		t.SetToolKind(toolKind)
+		t.SetAgentToolType(agentToolType)
+		return nil
+	}
+}
+
+// WithAgentToolDetail sets the platform-specific tool kind that refines the
+// agent tool type (free-form).
+func WithAgentToolDetail(detail string) AgentToolTraitOption {
+	return func(t *v2.AgentToolTrait) error {
+		t.SetAgentToolDetail(detail)
 		return nil
 	}
 }

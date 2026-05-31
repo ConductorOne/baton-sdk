@@ -219,10 +219,10 @@ func WithSecretTrait(opts ...SecretTraitOption) ResourceOption {
 	}
 }
 
-// WithNHISubtype adds or updates a NonHumanIdentityTrait annotation on a
+// WithNHIType adds or updates a NonHumanIdentityTrait annotation on a
 // resource, marking it as a non-human identity. It is kind-agnostic and may
 // be combined with any resource trait (e.g. TRAIT_APP or TRAIT_ROLE).
-func WithNHISubtype(subtype v2.NonHumanIdentityTrait_NhiSubtype, detail string) ResourceOption {
+func WithNHIType(nhiType v2.NonHumanIdentityTrait_NhiType, detail string) ResourceOption {
 	return func(r *v2.Resource) error {
 		nhi := &v2.NonHumanIdentityTrait{}
 
@@ -232,8 +232,8 @@ func WithNHISubtype(subtype v2.NonHumanIdentityTrait_NhiSubtype, detail string) 
 			return err
 		}
 
-		nhi.SetNhiSubtype(subtype)
-		nhi.SetNhiSubtypeDetail(detail)
+		nhi.SetNhiType(nhiType)
+		nhi.SetNhiDetail(detail)
 
 		annos.Update(nhi)
 		r.SetAnnotations(annos)

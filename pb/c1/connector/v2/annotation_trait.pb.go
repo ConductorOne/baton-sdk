@@ -173,7 +173,7 @@ func (x AppTrait_AppFlag) Number() protoreflect.EnumNumber {
 }
 
 // CredentialType is the cryptographic class of the secret, independent of
-// the platform-specific kind, which is carried in credential_subtype.
+// the platform-specific kind, which is carried in credential_detail.
 type SecretTrait_CredentialType int32
 
 const (
@@ -221,47 +221,47 @@ func (x SecretTrait_CredentialType) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-type NonHumanIdentityTrait_NhiSubtype int32
+type NonHumanIdentityTrait_NhiType int32
 
 const (
-	NonHumanIdentityTrait_NHI_SUBTYPE_UNSPECIFIED      NonHumanIdentityTrait_NhiSubtype = 0
-	NonHumanIdentityTrait_NHI_SUBTYPE_APP_REGISTRATION NonHumanIdentityTrait_NhiSubtype = 1
-	NonHumanIdentityTrait_NHI_SUBTYPE_ASSUMABLE_ROLE   NonHumanIdentityTrait_NhiSubtype = 2
+	NonHumanIdentityTrait_NHI_TYPE_UNSPECIFIED      NonHumanIdentityTrait_NhiType = 0
+	NonHumanIdentityTrait_NHI_TYPE_APP_REGISTRATION NonHumanIdentityTrait_NhiType = 1
+	NonHumanIdentityTrait_NHI_TYPE_ASSUMABLE_ROLE   NonHumanIdentityTrait_NhiType = 2
 )
 
-// Enum value maps for NonHumanIdentityTrait_NhiSubtype.
+// Enum value maps for NonHumanIdentityTrait_NhiType.
 var (
-	NonHumanIdentityTrait_NhiSubtype_name = map[int32]string{
-		0: "NHI_SUBTYPE_UNSPECIFIED",
-		1: "NHI_SUBTYPE_APP_REGISTRATION",
-		2: "NHI_SUBTYPE_ASSUMABLE_ROLE",
+	NonHumanIdentityTrait_NhiType_name = map[int32]string{
+		0: "NHI_TYPE_UNSPECIFIED",
+		1: "NHI_TYPE_APP_REGISTRATION",
+		2: "NHI_TYPE_ASSUMABLE_ROLE",
 	}
-	NonHumanIdentityTrait_NhiSubtype_value = map[string]int32{
-		"NHI_SUBTYPE_UNSPECIFIED":      0,
-		"NHI_SUBTYPE_APP_REGISTRATION": 1,
-		"NHI_SUBTYPE_ASSUMABLE_ROLE":   2,
+	NonHumanIdentityTrait_NhiType_value = map[string]int32{
+		"NHI_TYPE_UNSPECIFIED":      0,
+		"NHI_TYPE_APP_REGISTRATION": 1,
+		"NHI_TYPE_ASSUMABLE_ROLE":   2,
 	}
 )
 
-func (x NonHumanIdentityTrait_NhiSubtype) Enum() *NonHumanIdentityTrait_NhiSubtype {
-	p := new(NonHumanIdentityTrait_NhiSubtype)
+func (x NonHumanIdentityTrait_NhiType) Enum() *NonHumanIdentityTrait_NhiType {
+	p := new(NonHumanIdentityTrait_NhiType)
 	*p = x
 	return p
 }
 
-func (x NonHumanIdentityTrait_NhiSubtype) String() string {
+func (x NonHumanIdentityTrait_NhiType) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (NonHumanIdentityTrait_NhiSubtype) Descriptor() protoreflect.EnumDescriptor {
+func (NonHumanIdentityTrait_NhiType) Descriptor() protoreflect.EnumDescriptor {
 	return file_c1_connector_v2_annotation_trait_proto_enumTypes[4].Descriptor()
 }
 
-func (NonHumanIdentityTrait_NhiSubtype) Type() protoreflect.EnumType {
+func (NonHumanIdentityTrait_NhiType) Type() protoreflect.EnumType {
 	return &file_c1_connector_v2_annotation_trait_proto_enumTypes[4]
 }
 
-func (x NonHumanIdentityTrait_NhiSubtype) Number() protoreflect.EnumNumber {
+func (x NonHumanIdentityTrait_NhiType) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
@@ -312,47 +312,47 @@ func (x AgentTrait_AgentStatus) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-type AgentToolTrait_AgentToolKind int32
+type AgentToolTrait_AgentToolType int32
 
 const (
-	AgentToolTrait_AGENT_TOOL_KIND_UNSPECIFIED    AgentToolTrait_AgentToolKind = 0
-	AgentToolTrait_AGENT_TOOL_KIND_TOOL           AgentToolTrait_AgentToolKind = 1
-	AgentToolTrait_AGENT_TOOL_KIND_KNOWLEDGE_BASE AgentToolTrait_AgentToolKind = 2
+	AgentToolTrait_AGENT_TOOL_TYPE_UNSPECIFIED    AgentToolTrait_AgentToolType = 0
+	AgentToolTrait_AGENT_TOOL_TYPE_TOOL           AgentToolTrait_AgentToolType = 1
+	AgentToolTrait_AGENT_TOOL_TYPE_KNOWLEDGE_BASE AgentToolTrait_AgentToolType = 2
 )
 
-// Enum value maps for AgentToolTrait_AgentToolKind.
+// Enum value maps for AgentToolTrait_AgentToolType.
 var (
-	AgentToolTrait_AgentToolKind_name = map[int32]string{
-		0: "AGENT_TOOL_KIND_UNSPECIFIED",
-		1: "AGENT_TOOL_KIND_TOOL",
-		2: "AGENT_TOOL_KIND_KNOWLEDGE_BASE",
+	AgentToolTrait_AgentToolType_name = map[int32]string{
+		0: "AGENT_TOOL_TYPE_UNSPECIFIED",
+		1: "AGENT_TOOL_TYPE_TOOL",
+		2: "AGENT_TOOL_TYPE_KNOWLEDGE_BASE",
 	}
-	AgentToolTrait_AgentToolKind_value = map[string]int32{
-		"AGENT_TOOL_KIND_UNSPECIFIED":    0,
-		"AGENT_TOOL_KIND_TOOL":           1,
-		"AGENT_TOOL_KIND_KNOWLEDGE_BASE": 2,
+	AgentToolTrait_AgentToolType_value = map[string]int32{
+		"AGENT_TOOL_TYPE_UNSPECIFIED":    0,
+		"AGENT_TOOL_TYPE_TOOL":           1,
+		"AGENT_TOOL_TYPE_KNOWLEDGE_BASE": 2,
 	}
 )
 
-func (x AgentToolTrait_AgentToolKind) Enum() *AgentToolTrait_AgentToolKind {
-	p := new(AgentToolTrait_AgentToolKind)
+func (x AgentToolTrait_AgentToolType) Enum() *AgentToolTrait_AgentToolType {
+	p := new(AgentToolTrait_AgentToolType)
 	*p = x
 	return p
 }
 
-func (x AgentToolTrait_AgentToolKind) String() string {
+func (x AgentToolTrait_AgentToolType) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (AgentToolTrait_AgentToolKind) Descriptor() protoreflect.EnumDescriptor {
+func (AgentToolTrait_AgentToolType) Descriptor() protoreflect.EnumDescriptor {
 	return file_c1_connector_v2_annotation_trait_proto_enumTypes[6].Descriptor()
 }
 
-func (AgentToolTrait_AgentToolKind) Type() protoreflect.EnumType {
+func (AgentToolTrait_AgentToolType) Type() protoreflect.EnumType {
 	return &file_c1_connector_v2_annotation_trait_proto_enumTypes[6]
 }
 
-func (x AgentToolTrait_AgentToolKind) Number() protoreflect.EnumNumber {
+func (x AgentToolTrait_AgentToolType) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
@@ -1243,9 +1243,9 @@ type SecretTrait struct {
 	CredentialType SecretTrait_CredentialType `protobuf:"varint,7,opt,name=credential_type,json=credentialType,proto3,enum=c1.connector.v2.SecretTrait_CredentialType" json:"credential_type,omitempty"`
 	// Platform-specific credential kind (e.g. "aws_access_key", "ssh_key",
 	// "x509"). Free-form; refines credential_type.
-	CredentialSubtype string `protobuf:"bytes,8,opt,name=credential_subtype,json=credentialSubtype,proto3" json:"credential_subtype,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	CredentialDetail string `protobuf:"bytes,8,opt,name=credential_detail,json=credentialDetail,proto3" json:"credential_detail,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SecretTrait) Reset() {
@@ -1322,9 +1322,9 @@ func (x *SecretTrait) GetCredentialType() SecretTrait_CredentialType {
 	return SecretTrait_CREDENTIAL_TYPE_UNSPECIFIED
 }
 
-func (x *SecretTrait) GetCredentialSubtype() string {
+func (x *SecretTrait) GetCredentialDetail() string {
 	if x != nil {
-		return x.CredentialSubtype
+		return x.CredentialDetail
 	}
 	return ""
 }
@@ -1357,8 +1357,8 @@ func (x *SecretTrait) SetCredentialType(v SecretTrait_CredentialType) {
 	x.CredentialType = v
 }
 
-func (x *SecretTrait) SetCredentialSubtype(v string) {
-	x.CredentialSubtype = v
+func (x *SecretTrait) SetCredentialDetail(v string) {
+	x.CredentialDetail = v
 }
 
 func (x *SecretTrait) HasProfile() bool {
@@ -1439,7 +1439,7 @@ type SecretTrait_builder struct {
 	CredentialType SecretTrait_CredentialType
 	// Platform-specific credential kind (e.g. "aws_access_key", "ssh_key",
 	// "x509"). Free-form; refines credential_type.
-	CredentialSubtype string
+	CredentialDetail string
 }
 
 func (b0 SecretTrait_builder) Build() *SecretTrait {
@@ -1453,7 +1453,7 @@ func (b0 SecretTrait_builder) Build() *SecretTrait {
 	x.CreatedById = b.CreatedById
 	x.IdentityId = b.IdentityId
 	x.CredentialType = b.CredentialType
-	x.CredentialSubtype = b.CredentialSubtype
+	x.CredentialDetail = b.CredentialDetail
 	return m0
 }
 
@@ -1608,13 +1608,13 @@ func (b0 LicenseProfileTrait_builder) Build() *LicenseProfileTrait {
 // a single trait field, so it can attach to a TRAIT_APP resource (e.g. an app
 // registration) and a TRAIT_ROLE resource (e.g. an assumable role) alike.
 type NonHumanIdentityTrait struct {
-	state      protoimpl.MessageState           `protogen:"hybrid.v1"`
-	NhiSubtype NonHumanIdentityTrait_NhiSubtype `protobuf:"varint,1,opt,name=nhi_subtype,json=nhiSubtype,proto3,enum=c1.connector.v2.NonHumanIdentityTrait_NhiSubtype" json:"nhi_subtype,omitempty"`
-	// Platform-specific subtype detail; refines nhi_subtype when the source
+	state   protoimpl.MessageState        `protogen:"hybrid.v1"`
+	NhiType NonHumanIdentityTrait_NhiType `protobuf:"varint,1,opt,name=nhi_type,json=nhiType,proto3,enum=c1.connector.v2.NonHumanIdentityTrait_NhiType" json:"nhi_type,omitempty"`
+	// Platform-specific type detail; refines nhi_type when the source
 	// distinguishes finer classes than the enum captures.
-	NhiSubtypeDetail string `protobuf:"bytes,2,opt,name=nhi_subtype_detail,json=nhiSubtypeDetail,proto3" json:"nhi_subtype_detail,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	NhiDetail     string `protobuf:"bytes,2,opt,name=nhi_detail,json=nhiDetail,proto3" json:"nhi_detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NonHumanIdentityTrait) Reset() {
@@ -1642,43 +1642,43 @@ func (x *NonHumanIdentityTrait) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *NonHumanIdentityTrait) GetNhiSubtype() NonHumanIdentityTrait_NhiSubtype {
+func (x *NonHumanIdentityTrait) GetNhiType() NonHumanIdentityTrait_NhiType {
 	if x != nil {
-		return x.NhiSubtype
+		return x.NhiType
 	}
-	return NonHumanIdentityTrait_NHI_SUBTYPE_UNSPECIFIED
+	return NonHumanIdentityTrait_NHI_TYPE_UNSPECIFIED
 }
 
-func (x *NonHumanIdentityTrait) GetNhiSubtypeDetail() string {
+func (x *NonHumanIdentityTrait) GetNhiDetail() string {
 	if x != nil {
-		return x.NhiSubtypeDetail
+		return x.NhiDetail
 	}
 	return ""
 }
 
-func (x *NonHumanIdentityTrait) SetNhiSubtype(v NonHumanIdentityTrait_NhiSubtype) {
-	x.NhiSubtype = v
+func (x *NonHumanIdentityTrait) SetNhiType(v NonHumanIdentityTrait_NhiType) {
+	x.NhiType = v
 }
 
-func (x *NonHumanIdentityTrait) SetNhiSubtypeDetail(v string) {
-	x.NhiSubtypeDetail = v
+func (x *NonHumanIdentityTrait) SetNhiDetail(v string) {
+	x.NhiDetail = v
 }
 
 type NonHumanIdentityTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	NhiSubtype NonHumanIdentityTrait_NhiSubtype
-	// Platform-specific subtype detail; refines nhi_subtype when the source
+	NhiType NonHumanIdentityTrait_NhiType
+	// Platform-specific type detail; refines nhi_type when the source
 	// distinguishes finer classes than the enum captures.
-	NhiSubtypeDetail string
+	NhiDetail string
 }
 
 func (b0 NonHumanIdentityTrait_builder) Build() *NonHumanIdentityTrait {
 	m0 := &NonHumanIdentityTrait{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.NhiSubtype = b.NhiSubtype
-	x.NhiSubtypeDetail = b.NhiSubtypeDetail
+	x.NhiType = b.NhiType
+	x.NhiDetail = b.NhiDetail
 	return m0
 }
 
@@ -2013,17 +2013,19 @@ func (b0 AgentTrait_builder) Build() *AgentTrait {
 // AgentToolTrait is the trait annotation for resources with TRAIT_AGENT_TOOL.
 // An agent tool is a capability an agent can invoke (a callable tool or a
 // knowledge base). The platform-specific kind is carried in
-// profile.tool_kind_detail, not in the AgentToolKind enum.
+// agent_tool_detail, not in the AgentToolType enum.
 type AgentToolTrait struct {
-	state    protoimpl.MessageState       `protogen:"hybrid.v1"`
-	ToolKind AgentToolTrait_AgentToolKind `protobuf:"varint,1,opt,name=tool_kind,json=toolKind,proto3,enum=c1.connector.v2.AgentToolTrait_AgentToolKind" json:"tool_kind,omitempty"`
+	state         protoimpl.MessageState       `protogen:"hybrid.v1"`
+	AgentToolType AgentToolTrait_AgentToolType `protobuf:"varint,1,opt,name=agent_tool_type,json=agentToolType,proto3,enum=c1.connector.v2.AgentToolTrait_AgentToolType" json:"agent_tool_type,omitempty"`
 	// The credential provider this tool authenticates through.
 	CredentialProviderRef *ResourceId `protobuf:"bytes,2,opt,name=credential_provider_ref,json=credentialProviderRef,proto3" json:"credential_provider_ref,omitempty"`
 	// The resource that owns/exposes this tool.
-	OwningResourceRef *ResourceId      `protobuf:"bytes,3,opt,name=owning_resource_ref,json=owningResourceRef,proto3" json:"owning_resource_ref,omitempty"`
-	Profile           *structpb.Struct `protobuf:"bytes,4,opt,name=profile,proto3" json:"profile,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	OwningResourceRef *ResourceId `protobuf:"bytes,3,opt,name=owning_resource_ref,json=owningResourceRef,proto3" json:"owning_resource_ref,omitempty"`
+	// Platform-specific tool kind (free-form); refines agent_tool_type.
+	AgentToolDetail string           `protobuf:"bytes,4,opt,name=agent_tool_detail,json=agentToolDetail,proto3" json:"agent_tool_detail,omitempty"`
+	Profile         *structpb.Struct `protobuf:"bytes,5,opt,name=profile,proto3" json:"profile,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AgentToolTrait) Reset() {
@@ -2051,11 +2053,11 @@ func (x *AgentToolTrait) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *AgentToolTrait) GetToolKind() AgentToolTrait_AgentToolKind {
+func (x *AgentToolTrait) GetAgentToolType() AgentToolTrait_AgentToolType {
 	if x != nil {
-		return x.ToolKind
+		return x.AgentToolType
 	}
-	return AgentToolTrait_AGENT_TOOL_KIND_UNSPECIFIED
+	return AgentToolTrait_AGENT_TOOL_TYPE_UNSPECIFIED
 }
 
 func (x *AgentToolTrait) GetCredentialProviderRef() *ResourceId {
@@ -2072,6 +2074,13 @@ func (x *AgentToolTrait) GetOwningResourceRef() *ResourceId {
 	return nil
 }
 
+func (x *AgentToolTrait) GetAgentToolDetail() string {
+	if x != nil {
+		return x.AgentToolDetail
+	}
+	return ""
+}
+
 func (x *AgentToolTrait) GetProfile() *structpb.Struct {
 	if x != nil {
 		return x.Profile
@@ -2079,8 +2088,8 @@ func (x *AgentToolTrait) GetProfile() *structpb.Struct {
 	return nil
 }
 
-func (x *AgentToolTrait) SetToolKind(v AgentToolTrait_AgentToolKind) {
-	x.ToolKind = v
+func (x *AgentToolTrait) SetAgentToolType(v AgentToolTrait_AgentToolType) {
+	x.AgentToolType = v
 }
 
 func (x *AgentToolTrait) SetCredentialProviderRef(v *ResourceId) {
@@ -2089,6 +2098,10 @@ func (x *AgentToolTrait) SetCredentialProviderRef(v *ResourceId) {
 
 func (x *AgentToolTrait) SetOwningResourceRef(v *ResourceId) {
 	x.OwningResourceRef = v
+}
+
+func (x *AgentToolTrait) SetAgentToolDetail(v string) {
+	x.AgentToolDetail = v
 }
 
 func (x *AgentToolTrait) SetProfile(v *structpb.Struct) {
@@ -2131,21 +2144,24 @@ func (x *AgentToolTrait) ClearProfile() {
 type AgentToolTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	ToolKind AgentToolTrait_AgentToolKind
+	AgentToolType AgentToolTrait_AgentToolType
 	// The credential provider this tool authenticates through.
 	CredentialProviderRef *ResourceId
 	// The resource that owns/exposes this tool.
 	OwningResourceRef *ResourceId
-	Profile           *structpb.Struct
+	// Platform-specific tool kind (free-form); refines agent_tool_type.
+	AgentToolDetail string
+	Profile         *structpb.Struct
 }
 
 func (b0 AgentToolTrait_builder) Build() *AgentToolTrait {
 	m0 := &AgentToolTrait{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.ToolKind = b.ToolKind
+	x.AgentToolType = b.AgentToolType
 	x.CredentialProviderRef = b.CredentialProviderRef
 	x.OwningResourceRef = b.OwningResourceRef
+	x.AgentToolDetail = b.AgentToolDetail
 	x.Profile = b.Profile
 	return m0
 }
@@ -2608,7 +2624,7 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x11APP_FLAG_INACTIVE\x10\x02\x12\x11\n" +
 	"\rAPP_FLAG_SAML\x10\x03\x12\x11\n" +
 	"\rAPP_FLAG_OIDC\x10\x04\x12\x15\n" +
-	"\x11APP_FLAG_BOOKMARK\x10\x05\"\x9e\x05\n" +
+	"\x11APP_FLAG_BOOKMARK\x10\x05\"\x9c\x05\n" +
 	"\vSecretTrait\x121\n" +
 	"\aprofile\x18\x01 \x01(\v2\x17.google.protobuf.StructR\aprofile\x129\n" +
 	"\n" +
@@ -2620,8 +2636,8 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\rcreated_by_id\x18\x05 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\vcreatedById\x12<\n" +
 	"\videntity_id\x18\x06 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
 	"identityId\x12^\n" +
-	"\x0fcredential_type\x18\a \x01(\x0e2+.c1.connector.v2.SecretTrait.CredentialTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\x0ecredentialType\x12-\n" +
-	"\x12credential_subtype\x18\b \x01(\tR\x11credentialSubtype\"\x99\x01\n" +
+	"\x0fcredential_type\x18\a \x01(\x0e2+.c1.connector.v2.SecretTrait.CredentialTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\x0ecredentialType\x12+\n" +
+	"\x11credential_detail\x18\b \x01(\tR\x10credentialDetail\"\x99\x01\n" +
 	"\x0eCredentialType\x12\x1f\n" +
 	"\x1bCREDENTIAL_TYPE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dCREDENTIAL_TYPE_STATIC_SECRET\x10\x01\x12\"\n" +
@@ -2634,16 +2650,15 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x16cost_per_unit_in_cents\x18\x04 \x01(\x03R\x12costPerUnitInCents\x12&\n" +
 	"\bcurrency\x18\x05 \x01(\tB\n" +
 	"\xfaB\ar\x05(\b\xd0\x01\x01R\bcurrency\x121\n" +
-	"\x0fentitlement_ids\x18\x06 \x03(\tB\b\xfaB\x05\x92\x01\x02\x18\x01R\x0eentitlementIds\"\x90\x02\n" +
-	"\x15NonHumanIdentityTrait\x12\\\n" +
-	"\vnhi_subtype\x18\x01 \x01(\x0e21.c1.connector.v2.NonHumanIdentityTrait.NhiSubtypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\n" +
-	"nhiSubtype\x12,\n" +
-	"\x12nhi_subtype_detail\x18\x02 \x01(\tR\x10nhiSubtypeDetail\"k\n" +
+	"\x0fentitlement_ids\x18\x06 \x03(\tB\b\xfaB\x05\x92\x01\x02\x18\x01R\x0eentitlementIds\"\xec\x01\n" +
+	"\x15NonHumanIdentityTrait\x12S\n" +
+	"\bnhi_type\x18\x01 \x01(\x0e2..c1.connector.v2.NonHumanIdentityTrait.NhiTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\anhiType\x12\x1d\n" +
 	"\n" +
-	"NhiSubtype\x12\x1b\n" +
-	"\x17NHI_SUBTYPE_UNSPECIFIED\x10\x00\x12 \n" +
-	"\x1cNHI_SUBTYPE_APP_REGISTRATION\x10\x01\x12\x1e\n" +
-	"\x1aNHI_SUBTYPE_ASSUMABLE_ROLE\x10\x02\"\xae\x01\n" +
+	"nhi_detail\x18\x02 \x01(\tR\tnhiDetail\"_\n" +
+	"\aNhiType\x12\x18\n" +
+	"\x14NHI_TYPE_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19NHI_TYPE_APP_REGISTRATION\x10\x01\x12\x1b\n" +
+	"\x17NHI_TYPE_ASSUMABLE_ROLE\x10\x02\"\xae\x01\n" +
 	"\x0eActsOnBehalfOf\x12F\n" +
 	"\x0fsystem_identity\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdH\x00R\x0esystemIdentity\x12D\n" +
 	"\x0eowner_identity\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdH\x00R\rownerIdentityB\x0e\n" +
@@ -2658,49 +2673,50 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x18AGENT_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12AGENT_STATUS_READY\x10\x01\x12\x19\n" +
 	"\x15AGENT_STATUS_DISABLED\x10\x02\x12\x18\n" +
-	"\x14AGENT_STATUS_DELETED\x10\x03\"\xab\x03\n" +
-	"\x0eAgentToolTrait\x12T\n" +
-	"\ttool_kind\x18\x01 \x01(\x0e2-.c1.connector.v2.AgentToolTrait.AgentToolKindB\b\xfaB\x05\x82\x01\x02\x10\x01R\btoolKind\x12S\n" +
+	"\x14AGENT_STATUS_DELETED\x10\x03\"\xe2\x03\n" +
+	"\x0eAgentToolTrait\x12_\n" +
+	"\x0fagent_tool_type\x18\x01 \x01(\x0e2-.c1.connector.v2.AgentToolTrait.AgentToolTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\ragentToolType\x12S\n" +
 	"\x17credential_provider_ref\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x15credentialProviderRef\x12K\n" +
-	"\x13owning_resource_ref\x18\x03 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x11owningResourceRef\x121\n" +
-	"\aprofile\x18\x04 \x01(\v2\x17.google.protobuf.StructR\aprofile\"n\n" +
-	"\rAgentToolKind\x12\x1f\n" +
-	"\x1bAGENT_TOOL_KIND_UNSPECIFIED\x10\x00\x12\x18\n" +
-	"\x14AGENT_TOOL_KIND_TOOL\x10\x01\x12\"\n" +
-	"\x1eAGENT_TOOL_KIND_KNOWLEDGE_BASE\x10\x02B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"\x13owning_resource_ref\x18\x03 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x11owningResourceRef\x12*\n" +
+	"\x11agent_tool_detail\x18\x04 \x01(\tR\x0fagentToolDetail\x121\n" +
+	"\aprofile\x18\x05 \x01(\v2\x17.google.protobuf.StructR\aprofile\"n\n" +
+	"\rAgentToolType\x12\x1f\n" +
+	"\x1bAGENT_TOOL_TYPE_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14AGENT_TOOL_TYPE_TOOL\x10\x01\x12\"\n" +
+	"\x1eAGENT_TOOL_TYPE_KNOWLEDGE_BASE\x10\x02B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_trait_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
 var file_c1_connector_v2_annotation_trait_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_c1_connector_v2_annotation_trait_proto_goTypes = []any{
-	(UserTrait_AccountType)(0),            // 0: c1.connector.v2.UserTrait.AccountType
-	(UserTrait_Status_Status)(0),          // 1: c1.connector.v2.UserTrait.Status.Status
-	(AppTrait_AppFlag)(0),                 // 2: c1.connector.v2.AppTrait.AppFlag
-	(SecretTrait_CredentialType)(0),       // 3: c1.connector.v2.SecretTrait.CredentialType
-	(NonHumanIdentityTrait_NhiSubtype)(0), // 4: c1.connector.v2.NonHumanIdentityTrait.NhiSubtype
-	(AgentTrait_AgentStatus)(0),           // 5: c1.connector.v2.AgentTrait.AgentStatus
-	(AgentToolTrait_AgentToolKind)(0),     // 6: c1.connector.v2.AgentToolTrait.AgentToolKind
-	(*UserTrait)(nil),                     // 7: c1.connector.v2.UserTrait
-	(*GroupTrait)(nil),                    // 8: c1.connector.v2.GroupTrait
-	(*RoleTrait)(nil),                     // 9: c1.connector.v2.RoleTrait
-	(*RoleScopeConditions)(nil),           // 10: c1.connector.v2.RoleScopeConditions
-	(*RoleScopeCondition)(nil),            // 11: c1.connector.v2.RoleScopeCondition
-	(*ScopeBindingTrait)(nil),             // 12: c1.connector.v2.ScopeBindingTrait
-	(*AppTrait)(nil),                      // 13: c1.connector.v2.AppTrait
-	(*SecretTrait)(nil),                   // 14: c1.connector.v2.SecretTrait
-	(*LicenseProfileTrait)(nil),           // 15: c1.connector.v2.LicenseProfileTrait
-	(*NonHumanIdentityTrait)(nil),         // 16: c1.connector.v2.NonHumanIdentityTrait
-	(*ActsOnBehalfOf)(nil),                // 17: c1.connector.v2.ActsOnBehalfOf
-	(*AgentTrait)(nil),                    // 18: c1.connector.v2.AgentTrait
-	(*AgentToolTrait)(nil),                // 19: c1.connector.v2.AgentToolTrait
-	(*UserTrait_Email)(nil),               // 20: c1.connector.v2.UserTrait.Email
-	(*UserTrait_Status)(nil),              // 21: c1.connector.v2.UserTrait.Status
-	(*UserTrait_MFAStatus)(nil),           // 22: c1.connector.v2.UserTrait.MFAStatus
-	(*UserTrait_SSOStatus)(nil),           // 23: c1.connector.v2.UserTrait.SSOStatus
-	(*UserTrait_StructuredName)(nil),      // 24: c1.connector.v2.UserTrait.StructuredName
-	(*structpb.Struct)(nil),               // 25: google.protobuf.Struct
-	(*AssetRef)(nil),                      // 26: c1.connector.v2.AssetRef
-	(*timestamppb.Timestamp)(nil),         // 27: google.protobuf.Timestamp
-	(*ResourceId)(nil),                    // 28: c1.connector.v2.ResourceId
+	(UserTrait_AccountType)(0),         // 0: c1.connector.v2.UserTrait.AccountType
+	(UserTrait_Status_Status)(0),       // 1: c1.connector.v2.UserTrait.Status.Status
+	(AppTrait_AppFlag)(0),              // 2: c1.connector.v2.AppTrait.AppFlag
+	(SecretTrait_CredentialType)(0),    // 3: c1.connector.v2.SecretTrait.CredentialType
+	(NonHumanIdentityTrait_NhiType)(0), // 4: c1.connector.v2.NonHumanIdentityTrait.NhiType
+	(AgentTrait_AgentStatus)(0),        // 5: c1.connector.v2.AgentTrait.AgentStatus
+	(AgentToolTrait_AgentToolType)(0),  // 6: c1.connector.v2.AgentToolTrait.AgentToolType
+	(*UserTrait)(nil),                  // 7: c1.connector.v2.UserTrait
+	(*GroupTrait)(nil),                 // 8: c1.connector.v2.GroupTrait
+	(*RoleTrait)(nil),                  // 9: c1.connector.v2.RoleTrait
+	(*RoleScopeConditions)(nil),        // 10: c1.connector.v2.RoleScopeConditions
+	(*RoleScopeCondition)(nil),         // 11: c1.connector.v2.RoleScopeCondition
+	(*ScopeBindingTrait)(nil),          // 12: c1.connector.v2.ScopeBindingTrait
+	(*AppTrait)(nil),                   // 13: c1.connector.v2.AppTrait
+	(*SecretTrait)(nil),                // 14: c1.connector.v2.SecretTrait
+	(*LicenseProfileTrait)(nil),        // 15: c1.connector.v2.LicenseProfileTrait
+	(*NonHumanIdentityTrait)(nil),      // 16: c1.connector.v2.NonHumanIdentityTrait
+	(*ActsOnBehalfOf)(nil),             // 17: c1.connector.v2.ActsOnBehalfOf
+	(*AgentTrait)(nil),                 // 18: c1.connector.v2.AgentTrait
+	(*AgentToolTrait)(nil),             // 19: c1.connector.v2.AgentToolTrait
+	(*UserTrait_Email)(nil),            // 20: c1.connector.v2.UserTrait.Email
+	(*UserTrait_Status)(nil),           // 21: c1.connector.v2.UserTrait.Status
+	(*UserTrait_MFAStatus)(nil),        // 22: c1.connector.v2.UserTrait.MFAStatus
+	(*UserTrait_SSOStatus)(nil),        // 23: c1.connector.v2.UserTrait.SSOStatus
+	(*UserTrait_StructuredName)(nil),   // 24: c1.connector.v2.UserTrait.StructuredName
+	(*structpb.Struct)(nil),            // 25: google.protobuf.Struct
+	(*AssetRef)(nil),                   // 26: c1.connector.v2.AssetRef
+	(*timestamppb.Timestamp)(nil),      // 27: google.protobuf.Timestamp
+	(*ResourceId)(nil),                 // 28: c1.connector.v2.ResourceId
 }
 var file_c1_connector_v2_annotation_trait_proto_depIdxs = []int32{
 	20, // 0: c1.connector.v2.UserTrait.emails:type_name -> c1.connector.v2.UserTrait.Email
@@ -2731,14 +2747,14 @@ var file_c1_connector_v2_annotation_trait_proto_depIdxs = []int32{
 	28, // 25: c1.connector.v2.SecretTrait.created_by_id:type_name -> c1.connector.v2.ResourceId
 	28, // 26: c1.connector.v2.SecretTrait.identity_id:type_name -> c1.connector.v2.ResourceId
 	3,  // 27: c1.connector.v2.SecretTrait.credential_type:type_name -> c1.connector.v2.SecretTrait.CredentialType
-	4,  // 28: c1.connector.v2.NonHumanIdentityTrait.nhi_subtype:type_name -> c1.connector.v2.NonHumanIdentityTrait.NhiSubtype
+	4,  // 28: c1.connector.v2.NonHumanIdentityTrait.nhi_type:type_name -> c1.connector.v2.NonHumanIdentityTrait.NhiType
 	28, // 29: c1.connector.v2.ActsOnBehalfOf.system_identity:type_name -> c1.connector.v2.ResourceId
 	28, // 30: c1.connector.v2.ActsOnBehalfOf.owner_identity:type_name -> c1.connector.v2.ResourceId
 	5,  // 31: c1.connector.v2.AgentTrait.status:type_name -> c1.connector.v2.AgentTrait.AgentStatus
 	28, // 32: c1.connector.v2.AgentTrait.identity_resource_id:type_name -> c1.connector.v2.ResourceId
 	17, // 33: c1.connector.v2.AgentTrait.acts_on_behalf_of:type_name -> c1.connector.v2.ActsOnBehalfOf
 	25, // 34: c1.connector.v2.AgentTrait.profile:type_name -> google.protobuf.Struct
-	6,  // 35: c1.connector.v2.AgentToolTrait.tool_kind:type_name -> c1.connector.v2.AgentToolTrait.AgentToolKind
+	6,  // 35: c1.connector.v2.AgentToolTrait.agent_tool_type:type_name -> c1.connector.v2.AgentToolTrait.AgentToolType
 	28, // 36: c1.connector.v2.AgentToolTrait.credential_provider_ref:type_name -> c1.connector.v2.ResourceId
 	28, // 37: c1.connector.v2.AgentToolTrait.owning_resource_ref:type_name -> c1.connector.v2.ResourceId
 	25, // 38: c1.connector.v2.AgentToolTrait.profile:type_name -> google.protobuf.Struct

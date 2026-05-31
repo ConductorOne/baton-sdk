@@ -53,11 +53,11 @@ func WithSecretType(credentialType v2.SecretTrait_CredentialType) SecretTraitOpt
 	}
 }
 
-// WithSecretSubtype sets the platform-specific credential kind that refines
+// WithSecretDetail sets the platform-specific credential kind that refines
 // the credential type (e.g. "aws_access_key", "ssh_key", "x509").
-func WithSecretSubtype(subtype string) SecretTraitOption {
+func WithSecretDetail(detail string) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
-		t.SetCredentialSubtype(subtype)
+		t.SetCredentialDetail(detail)
 		return nil
 	}
 }

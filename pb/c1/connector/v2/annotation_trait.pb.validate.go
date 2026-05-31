@@ -1602,7 +1602,7 @@ func (m *SecretTrait) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	// no validation rules for CredentialSubtype
+	// no validation rules for CredentialDetail
 
 	if len(errors) > 0 {
 		return SecretTraitMultiError(errors)
@@ -1862,9 +1862,9 @@ func (m *NonHumanIdentityTrait) validate(all bool) error {
 
 	var errors []error
 
-	if _, ok := NonHumanIdentityTrait_NhiSubtype_name[int32(m.GetNhiSubtype())]; !ok {
+	if _, ok := NonHumanIdentityTrait_NhiType_name[int32(m.GetNhiType())]; !ok {
 		err := NonHumanIdentityTraitValidationError{
-			field:  "NhiSubtype",
+			field:  "NhiType",
 			reason: "value must be one of the defined enum values",
 		}
 		if !all {
@@ -1873,7 +1873,7 @@ func (m *NonHumanIdentityTrait) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	// no validation rules for NhiSubtypeDetail
+	// no validation rules for NhiDetail
 
 	if len(errors) > 0 {
 		return NonHumanIdentityTraitMultiError(errors)
@@ -2361,9 +2361,9 @@ func (m *AgentToolTrait) validate(all bool) error {
 
 	var errors []error
 
-	if _, ok := AgentToolTrait_AgentToolKind_name[int32(m.GetToolKind())]; !ok {
+	if _, ok := AgentToolTrait_AgentToolType_name[int32(m.GetAgentToolType())]; !ok {
 		err := AgentToolTraitValidationError{
-			field:  "ToolKind",
+			field:  "AgentToolType",
 			reason: "value must be one of the defined enum values",
 		}
 		if !all {
@@ -2429,6 +2429,8 @@ func (m *AgentToolTrait) validate(all bool) error {
 			}
 		}
 	}
+
+	// no validation rules for AgentToolDetail
 
 	if all {
 		switch v := interface{}(m.GetProfile()).(type) {

@@ -126,7 +126,7 @@ message AppTrait {
 
 message SecretTrait {
   // CredentialType is the cryptographic class of the secret, independent of
-  // the platform-specific kind, which is carried in credential_subtype.
+  // the platform-specific kind, which is carried in credential_detail.
   enum CredentialType {
     CREDENTIAL_TYPE_UNSPECIFIED = 0;
     CREDENTIAL_TYPE_STATIC_SECRET = 1;
@@ -143,7 +143,7 @@ message SecretTrait {
   CredentialType credential_type = 7 [(validate.rules).enum = {defined_only: true}];
   // Platform-specific credential kind (e.g. "aws_access_key", "ssh_key",
   // "x509"). Free-form; refines credential_type.
-  string credential_subtype = 8;
+  string credential_detail = 8;
 }
 
 // LicenseProfileTrait is the trait annotation for resources with
@@ -179,15 +179,15 @@ message LicenseProfileTrait {
 // a single trait field, so it can attach to a TRAIT_APP resource (e.g. an app
 // registration) and a TRAIT_ROLE resource (e.g. an assumable role) alike.
 message NonHumanIdentityTrait {
-  enum NhiSubtype {
-    NHI_SUBTYPE_UNSPECIFIED = 0;
-    NHI_SUBTYPE_APP_REGISTRATION = 1;
-    NHI_SUBTYPE_ASSUMABLE_ROLE = 2;
+  enum NhiType {
+    NHI_TYPE_UNSPECIFIED = 0;
+    NHI_TYPE_APP_REGISTRATION = 1;
+    NHI_TYPE_ASSUMABLE_ROLE = 2;
   }
-  NhiSubtype nhi_subtype = 1 [(validate.rules).enum = {defined_only: true}];
-  // Platform-specific subtype detail; refines nhi_subtype when the source
+  NhiType nhi_type = 1 [(validate.rules).enum = {defined_only: true}];
+  // Platform-specific type detail; refines nhi_type when the source
   // distinguishes finer classes than the enum captures.
-  string nhi_subtype_detail = 2;
+  string nhi_detail = 2;
 }
 
 // ActsOnBehalfOf identifies the principal an agent acts as. Exactly one arm is
@@ -223,17 +223,19 @@ message AgentTrait {
 // AgentToolTrait is the trait annotation for resources with TRAIT_AGENT_TOOL.
 // An agent tool is a capability an agent can invoke (a callable tool or a
 // knowledge base). The platform-specific kind is carried in
-// profile.tool_kind_detail, not in the AgentToolKind enum.
+// agent_tool_detail, not in the AgentToolType enum.
 message AgentToolTrait {
-  enum AgentToolKind {
-    AGENT_TOOL_KIND_UNSPECIFIED = 0;
-    AGENT_TOOL_KIND_TOOL = 1;
-    AGENT_TOOL_KIND_KNOWLEDGE_BASE = 2;
+  enum AgentToolType {
+    AGENT_TOOL_TYPE_UNSPECIFIED = 0;
+    AGENT_TOOL_TYPE_TOOL = 1;
+    AGENT_TOOL_TYPE_KNOWLEDGE_BASE = 2;
   }
-  AgentToolKind tool_kind = 1 [(validate.rules).enum = {defined_only: true}];
+  AgentToolType agent_tool_type = 1 [(validate.rules).enum = {defined_only: true}];
   // The credential provider this tool authenticates through.
   connector.v2.ResourceId credential_provider_ref = 2;
   // The resource that owns/exposes this tool.
   connector.v2.ResourceId owning_resource_ref = 3;
-  google.protobuf.Struct profile = 4;
+  // Platform-specific tool kind (free-form); refines agent_tool_type.
+  string agent_tool_detail = 4;
+  google.protobuf.Struct profile = 5;
 }
