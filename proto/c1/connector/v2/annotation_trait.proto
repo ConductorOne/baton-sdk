@@ -173,3 +173,19 @@ message LicenseProfileTrait {
   // Entitlements on this connector that indicate a user holds this seat.
   repeated string entitlement_ids = 6 [(validate.rules).repeated = {unique: true}];
 }
+
+// NonHumanIdentityTrait marks a resource as a non-human identity (NHI). It is
+// kind-agnostic: it rides the resource's annotations bag rather than living on
+// a single trait field, so it can attach to a TRAIT_APP resource (e.g. an app
+// registration) and a TRAIT_ROLE resource (e.g. an assumable role) alike.
+message NonHumanIdentityTrait {
+  enum NhiSubtype {
+    NHI_SUBTYPE_UNSPECIFIED = 0;
+    NHI_SUBTYPE_APP_REGISTRATION = 1;
+    NHI_SUBTYPE_ASSUMABLE_ROLE = 2;
+  }
+  NhiSubtype nhi_subtype = 1 [(validate.rules).enum = {defined_only: true}];
+  // Platform-specific subtype detail; refines nhi_subtype when the source
+  // distinguishes finer classes than the enum captures.
+  string nhi_subtype_detail = 2;
+}
