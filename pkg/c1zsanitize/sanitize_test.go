@@ -37,8 +37,7 @@ func TestSanitizeCrossReferenceIntegrity(t *testing.T) {
 	dst := mustOpen(t, ctx, dstPath, false)
 
 	require.NoError(t, Sanitize(ctx, src, dst, Options{
-		Secret:                 secret,
-		DropUnknownAnnotations: true,
+		Secret: secret,
 	}))
 	require.NoError(t, dst.Close(ctx))
 
@@ -81,7 +80,7 @@ func TestSanitizeGraphIntegrity(t *testing.T) {
 	src := mustOpen(t, ctx, srcPath, true)
 	defer src.Close(ctx)
 	dst := mustOpen(t, ctx, dstPath, false)
-	require.NoError(t, Sanitize(ctx, src, dst, Options{Secret: secret, DropUnknownAnnotations: true}))
+	require.NoError(t, Sanitize(ctx, src, dst, Options{Secret: secret}))
 	require.NoError(t, dst.Close(ctx))
 
 	dstRO := mustOpen(t, ctx, dstPath, true)
@@ -163,7 +162,7 @@ func TestSanitizeAnnotationDropsUnknownByDefault(t *testing.T) {
 	srcRO := mustOpen(t, ctx, srcPath, true)
 	defer srcRO.Close(ctx)
 	dst := mustOpen(t, ctx, dstPath, false)
-	require.NoError(t, Sanitize(ctx, srcRO, dst, Options{Secret: secret, DropUnknownAnnotations: true}))
+	require.NoError(t, Sanitize(ctx, srcRO, dst, Options{Secret: secret}))
 	require.NoError(t, dst.Close(ctx))
 
 	dstRO := mustOpen(t, ctx, dstPath, true)

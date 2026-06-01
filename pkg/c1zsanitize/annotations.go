@@ -40,7 +40,7 @@ func typeURL(m proto.Message) string {
 // transformAnnotations walks the slice once, dispatching each entry
 // on its Any type URL. Unknown types are dropped by default (with a
 // log line naming the URL) or passed through unchanged if the
-// operator opted in via Options.DropUnknownAnnotations=false.
+// operator opted in via Options.AllowUnknownAnnotations=true.
 func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*anypb.Any {
 	if len(in) == 0 {
 		return nil

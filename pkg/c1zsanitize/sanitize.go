@@ -46,13 +46,15 @@ type Options struct {
 	// when zero.
 	TimestampAnchor time.Time
 
-	// DropUnknownAnnotations controls behavior when an annotation's
-	// Any type URL is not in the handler registry. When true (the
-	// default), unknown annotations are dropped and a log line names
-	// the type URL. When false, unknown annotations pass through
-	// unchanged — convenient for development against new annotation
-	// types, dangerous on real customer data.
-	DropUnknownAnnotations bool
+	// AllowUnknownAnnotations controls behavior when an annotation's
+	// Any type URL is not in the handler registry. The zero value is
+	// the safe default: unknown annotations are dropped and a log line
+	// names the type URL, so a newly-added annotation type carrying
+	// customer data can never pass through unsanitized. Set true to
+	// pass unknown annotations through unchanged — convenient for
+	// development against new annotation types, dangerous on real
+	// customer data.
+	AllowUnknownAnnotations bool
 }
 
 // Sanitize copies records from src to dst, transforming identifiers,
@@ -86,7 +88,7 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		idHmac:                 hmac.New(sha256.New, opts.Secret),
 		domains:                newDomainMap(),
 		shifter:                newTimestampShifter(anchor, findTMax(srcSyncs)),
-		dropUnknownAnnotations: opts.DropUnknownAnnotations,
+		dropUnknownAnnotations: !opts.AllowUnknownAnnotations,
 		log:                    ctxzap.Extract(ctx),
 		handlers:               defaultAnnotationHandlers(),
 		syncIDMap:              map[string]string{},

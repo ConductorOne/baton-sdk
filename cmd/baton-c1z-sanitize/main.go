@@ -95,15 +95,15 @@ func run() error {
 	}()
 
 	opts := c1zsanitize.Options{
-		Secret:                 secret,
-		TimestampAnchor:        anchor,
-		DropUnknownAnnotations: !*allowUnknown,
+		Secret:                  secret,
+		TimestampAnchor:         anchor,
+		AllowUnknownAnnotations: *allowUnknown,
 	}
 
 	log.Info("c1zsanitize: starting",
 		zap.String("in", *inPath),
 		zap.String("out", *outPath),
-		zap.Bool("drop_unknown_annotations", opts.DropUnknownAnnotations),
+		zap.Bool("drop_unknown_annotations", !opts.AllowUnknownAnnotations),
 	)
 	start := time.Now()
 	if err := c1zsanitize.Sanitize(ctx, src, dst, opts); err != nil {
