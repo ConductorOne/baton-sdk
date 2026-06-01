@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"flag"
 	"fmt"
 	"os"
@@ -53,13 +52,13 @@ func run() error {
 	}
 	log := ctxzap.Extract(ctx)
 
-	secret, generated, err := loadOrGenerateSecret(*secretFile, *outPath)
+	secret, generated, err := c1zsanitize.LoadOrGenerateSecret(*secretFile, *outPath)
 	if err != nil {
 		return err
 	}
 	if generated {
 		log.Warn("c1zsanitize: generated fresh secret; archive it if you want reversibility",
-			zap.String("path", secretPath(*secretFile, *outPath)))
+			zap.String("path", c1zsanitize.SecretPath(*secretFile, *outPath)))
 	}
 
 	var anchor time.Time
@@ -115,36 +114,4 @@ func run() error {
 	}
 	log.Info("c1zsanitize: done", zap.Duration("elapsed", time.Since(start)))
 	return nil
-}
-
-func secretPath(flagPath, outPath string) string {
-	if flagPath != "" {
-		return flagPath
-	}
-	return outPath + ".secret"
-}
-
-func loadOrGenerateSecret(flagPath, outPath string) ([]byte, bool, error) {
-	if flagPath != "" {
-		b, err := os.ReadFile(flagPath)
-		if err != nil {
-			return nil, false, fmt.Errorf("read -secret-file: %w", err)
-		}
-		if len(b) < c1zsanitize.MinSecretBytes {
-			return nil, false, fmt.Errorf("-secret-file %q is too short: got %d bytes, want at least %d", flagPath, len(b), c1zsanitize.MinSecretBytes)
-		}
-		return b, false, nil
-	}
-	path := secretPath(flagPath, outPath)
-	if _, err := os.Stat(path); err == nil {
-		return nil, false, fmt.Errorf("default secret path %q already exists; pass -secret-file to reuse it", path)
-	}
-	b := make([]byte, c1zsanitize.MinSecretBytes)
-	if _, err := rand.Read(b); err != nil {
-		return nil, false, fmt.Errorf("generate secret: %w", err)
-	}
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		return nil, false, fmt.Errorf("write generated secret: %w", err)
-	}
-	return b, true, nil
 }
