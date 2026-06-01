@@ -181,8 +181,20 @@ message LicenseProfileTrait {
 message NonHumanIdentityTrait {
   enum NhiType {
     NHI_TYPE_UNSPECIFIED = 0;
+    // Self-custodied standing credential: the org creates and holds a
+    // long-lived secret (e.g. an OAuth app registration / client
+    // credentials). The org is responsible for storing and rotating it.
     NHI_TYPE_APP_REGISTRATION = 1;
+    // No standing credential: identity is trust-assumed at use time
+    // (e.g. an assumable role) and short-lived credentials are minted on
+    // demand. Nothing long-lived is held by the org.
     NHI_TYPE_ASSUMABLE_ROLE = 2;
+    // Platform-custodied: the provider holds and auto-rotates the
+    // credential and binds it to a platform resource; the org never sees
+    // the secret. Examples: Azure managed identities, AWS service-linked
+    // roles, GCP service agents / default service accounts, and Active
+    // Directory gMSA / sMSA / computer accounts.
+    NHI_TYPE_MANAGED_IDENTITY = 3;
   }
   NhiType nhi_type = 1 [(validate.rules).enum = {defined_only: true}];
   // Platform-specific type detail; refines nhi_type when the source
