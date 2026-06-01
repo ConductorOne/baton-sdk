@@ -4,12 +4,12 @@ jobs:
   go-lint:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 1.25.2
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
       - name: Run linters
         uses: golangci/golangci-lint-action@v9
         with:
@@ -24,17 +24,16 @@ jobs:
   go-test:
     strategy:
       matrix:
-        go-version: [1.25.2]
         platform: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.platform }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
       - name: Install Go
         if: success()
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: ${{ matrix.go-version }}
-      - name: Checkout code
-        uses: actions/checkout@v4
+          go-version-file: "go.mod"
       - name: go tests
         if: ${{ matrix.platform != 'windows-latest' }}
         run: go test -tags=baton_lambda_support -v -covermode=count -json ./... > test.json
@@ -50,11 +49,25 @@ jobs:
         uses: guyarb/golang-test-annotations@v0.8.0
         with:
           test-results: test.json
+  baton-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - name: Build baton
+        run: make build
+      - name: Run baton tests
+        run: ./scripts/baton-test.sh
   buf-lint-and-breaking-change-detection:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Setup
         uses: bufbuild/buf-setup-action@v1
         with:
@@ -75,15 +88,15 @@ jobs:
       BATON_WORKERS: ${{ matrix.worker-count }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: baton-sdk
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: baton-sdk/go.mod
       - name: Checkout baton-demo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: conductorone/baton-demo
           path: baton-demo

@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/conductorone/baton-sdk/pkg/baton/output"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
@@ -32,6 +33,12 @@ func runStats(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	outputFormat, err := cmd.Flags().GetString("output-format")
+	if err != nil {
+		return err
+	}
+	outputManager := output.NewManager(ctx, outputFormat)
+
 	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithReadOnly(true))
 	if err != nil {
 		return err
@@ -41,6 +48,10 @@ func runStats(cmd *cobra.Command, args []string) error {
 	counts, err := store.Stats(ctx, connectorstore.SyncTypeAny, "")
 	if err != nil {
 		return err
+	}
+
+	if outputFormat == "json" {
+		return outputManager.Output(ctx, counts)
 	}
 
 	statsTable := pterm.TableData{
