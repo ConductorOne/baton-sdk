@@ -92,6 +92,7 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		log:                    ctxzap.Extract(ctx),
 		handlers:               defaultAnnotationHandlers(),
 		syncIDMap:              map[string]string{},
+		knownResourceTypes:     map[string]struct{}{},
 	}
 
 	for _, sr := range srcSyncs {
@@ -111,6 +112,7 @@ type sanitizer struct {
 	log                    *zap.Logger
 	handlers               map[string]annotationHandler
 	syncIDMap              map[string]string
+	knownResourceTypes     map[string]struct{}
 }
 
 // id is the per-sanitizer hot path. SanitizeID stays as the

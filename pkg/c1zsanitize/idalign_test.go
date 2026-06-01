@@ -130,6 +130,112 @@ func TestSanitizeCanonicalIDComponentAlignment(t *testing.T) {
 		"grant-sources key must equal the sanitized entitlement row id")
 }
 
+// Connectors emit non-canonical composite IDs. Microsoft Entra grant
+// IDs carry tenant group/user UUIDs in slots the canonical grammar
+// reserves for type tokens, e.g.
+// "group-grant:<groupUUID>:<principalType>:<userUUID>:<...>:<perm>".
+// Positional trust would preserve the second-to-last "type" field
+// verbatim and leak a tenant group UUID. This asserts the fail-closed
+// transform HMACs every component that is not a declared resource
+// type, so no raw source UUID survives anywhere in the sanitized ID
+// strings.
+func TestSanitizeGrantIDNoUUIDLeak(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	srcPath := filepath.Join(tmp, "src.c1z")
+	dstPath := filepath.Join(tmp, "dst.c1z")
+	secret := bytes32("entra-leak")
+
+	const (
+		groupUUID = "11111111-1111-1111-1111-111111111111"
+		userUUID  = "22222222-2222-2222-2222-222222222222"
+		extraUUID = "33333333-3333-3333-3333-333333333333"
+	)
+	srcUUIDs := []string{groupUUID, userUUID, extraUUID}
+
+	groupRes := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: groupUUID}.Build(),
+		DisplayName: "A group",
+	}.Build()
+	userRes := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "user", Resource: userUUID}.Build(),
+		DisplayName: "A user",
+	}.Build()
+
+	// Entitlement id carries the group UUID in a non-type slot; grant id
+	// is the Entra shape with the group UUID sitting where canonical
+	// grammar expects a type, plus an extra opaque UUID field.
+	entID := strings.Join([]string{"group", groupUUID, "member"}, ":")
+	ent := v2.Entitlement_builder{
+		Id:          entID,
+		DisplayName: "Member",
+		Resource:    groupRes,
+		Slug:        "member",
+		Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+	}.Build()
+	leakyGrantID := strings.Join([]string{"group-grant", groupUUID, "user", userUUID, extraUUID, "member"}, ":")
+	g := v2.Grant_builder{
+		Id:          leakyGrantID,
+		Entitlement: ent,
+		Principal:   userRes,
+	}.Build()
+
+	src := mustOpen(t, ctx, srcPath, false)
+	_, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, src.PutResourceTypes(ctx,
+		v2.ResourceType_builder{Id: "group", DisplayName: "Group", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP}}.Build(),
+		v2.ResourceType_builder{Id: "user", DisplayName: "User", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build(),
+	))
+	require.NoError(t, src.PutResources(ctx, groupRes, userRes))
+	require.NoError(t, src.PutEntitlements(ctx, ent))
+	require.NoError(t, src.PutGrants(ctx, g))
+	require.NoError(t, src.EndSync(ctx))
+	require.NoError(t, src.Close(ctx))
+
+	srcRO := mustOpen(t, ctx, srcPath, true)
+	defer srcRO.Close(ctx)
+	dst := mustOpen(t, ctx, dstPath, false)
+	require.NoError(t, Sanitize(ctx, srcRO, dst, Options{Secret: secret}))
+	require.NoError(t, dst.Close(ctx))
+
+	dstRO := mustOpen(t, ctx, dstPath, true)
+	defer dstRO.Close(ctx)
+	rec := collectRecords(t, ctx, dstRO)
+
+	require.Len(t, rec.grants, 1)
+	require.Len(t, rec.entitlements, 1)
+	gotGrant := rec.grants[0]
+	gotEnt := rec.entitlements[0]
+
+	// No raw source UUID may survive in any sanitized id string.
+	scan := []string{
+		gotGrant.GetId(),
+		gotGrant.GetEntitlement().GetId(),
+		gotGrant.GetPrincipal().GetId().GetResource(),
+		gotEnt.GetId(),
+		gotEnt.GetResource().GetId().GetResource(),
+	}
+	for _, field := range scan {
+		for _, u := range srcUUIDs {
+			require.NotContains(t, field, u, "raw source UUID leaked in sanitized id %q", field)
+		}
+	}
+
+	// The non-type leading token is opaque and must be HMAC'd, not kept.
+	require.NotContains(t, gotGrant.GetId(), "group-grant", "non-type leading token must be HMAC'd")
+	// Declared resource-type tokens are structural and stay in cleartext
+	// so the id still lines up with the sanitized principal/resource type
+	// fields.
+	grantParts := strings.Split(gotGrant.GetId(), ":")
+	require.Contains(t, grantParts, "user", "declared principal type must be preserved")
+	require.Equal(t, "user", gotGrant.GetPrincipal().GetId().GetResourceType())
+	require.Equal(t, "group", strings.Split(gotEnt.GetId(), ":")[0], "declared resource type must be preserved")
+
+	// Structured references still resolve after the fail-closed rewrite.
+	require.Equal(t, gotEnt.GetId(), gotGrant.GetEntitlement().GetId())
+}
+
 // grantIDEntitlementPrefix returns the entitlement-ID portion of a
 // grant ID, i.e. everything before the final principalType:principalID
 // pair.

@@ -11,55 +11,45 @@ import (
 
 const listPageSize = 1000
 
-// entitlementID transforms a baton-canonical entitlement ID of the
-// form "resourceType:resourceID:permission" component-wise: the
-// connector-defined resourceType is preserved (the same way resource
-// IDs keep their type), while resourceID and permission are HMAC'd.
-// This makes the resourceID embedded in an entitlement ID equal the
-// separately-sanitized resource row's id, so references stay coherent.
+// transformID rewrites a composite baton identifier one ':'-delimited
+// component at a time. A component is preserved verbatim only when it
+// is a declared resource-type token; connector-defined type names are
+// structural schema, not tenant data, and preserving them keeps a
+// sanitized id's embedded type tokens equal to the separately-
+// sanitized resource/principal type fields. EVERY other component is
+// HMAC'd — including an opaque id that sits in a position the canonical
+// grammar (entitlement "type:id:perm", grant "entId:type:id") reserves
+// for a type.
 //
-// SplitN with a limit of 3 keeps a permission that itself contains ':'
-// intact. Connectors are free to emit non-canonical entitlement IDs;
-// anything without the three expected fields is not decomposable, so
-// it is HMAC'd whole — preserving the invariant that equal source IDs
-// map to equal sanitized IDs everywhere they appear.
-func (s *sanitizer) entitlementID(id string) string {
+// This is deliberately fail-closed: positional grammar is not trusted
+// to decide what is safe to keep, because connectors emit
+// non-canonical ids — e.g. a grant id carrying a tenant group UUID in a
+// type slot — and trusting position would let that UUID survive in
+// cleartext. HMAC is deterministic, so a component that is also a
+// resource or principal id still hashes to the same value as the
+// separately-sanitized structured field, keeping cross-references
+// coherent. A single-component id (no ':') has no structural token to
+// keep and is HMAC'd whole.
+func (s *sanitizer) transformID(id string) string {
 	if id == "" {
 		return ""
 	}
-	parts := strings.SplitN(id, ":", 3)
-	if len(parts) != 3 {
+	if !strings.Contains(id, ":") {
 		return s.id(id)
 	}
-	return parts[0] + ":" + s.id(parts[1]) + ":" + s.id(parts[2])
+	parts := strings.Split(id, ":")
+	for i, p := range parts {
+		if p != "" && s.isKnownResourceType(p) {
+			continue
+		}
+		parts[i] = s.id(p)
+	}
+	return strings.Join(parts, ":")
 }
 
-// grantID transforms a baton-canonical grant ID of the form
-// "entitlementID:principalType:principalID". The principal type and id
-// are the final two ':' fields; everything before them is the
-// entitlement ID, which is itself composite and may contain ':' in its
-// permission tail, so the split walks in from the right. The
-// entitlement portion is transformed with entitlementID, the principal
-// type is preserved, and the principal id is HMAC'd — so a sanitized
-// grant's embedded entitlement and principal references both match the
-// separately-sanitized entitlement and resource rows. A grant ID
-// lacking the two trailing fields is not decomposable and is HMAC'd
-// whole.
-func (s *sanitizer) grantID(id string) string {
-	if id == "" {
-		return ""
-	}
-	lastColon := strings.LastIndex(id, ":")
-	if lastColon < 0 {
-		return s.id(id)
-	}
-	head, principalID := id[:lastColon], id[lastColon+1:]
-	typeColon := strings.LastIndex(head, ":")
-	if typeColon < 0 {
-		return s.id(id)
-	}
-	entID, principalType := head[:typeColon], head[typeColon+1:]
-	return s.entitlementID(entID) + ":" + principalType + ":" + s.id(principalID)
+func (s *sanitizer) isKnownResourceType(token string) bool {
+	_, ok := s.knownResourceTypes[token]
+	return ok
 }
 
 func (s *sanitizer) copyResourceTypes(
@@ -206,6 +196,9 @@ func (s *sanitizer) transformResourceType(in *v2.ResourceType, refs *assetRefSet
 	if in == nil {
 		return nil
 	}
+	if id := in.GetId(); id != "" {
+		s.knownResourceTypes[id] = struct{}{}
+	}
 	annos := s.transformAnnotations(in.GetAnnotations(), refs)
 	return v2.ResourceType_builder{
 		Id:                in.GetId(),
@@ -255,7 +248,7 @@ func (s *sanitizer) transformEntitlement(in *v2.Entitlement, refs *assetRefSet) 
 	}
 	annos := s.transformAnnotations(in.GetAnnotations(), refs)
 	out := v2.Entitlement_builder{
-		Id:          s.entitlementID(in.GetId()),
+		Id:          s.transformID(in.GetId()),
 		Resource:    s.transformResource(in.GetResource(), refs),
 		DisplayName: s.id(in.GetDisplayName()),
 		Description: s.id(in.GetDescription()),
@@ -284,7 +277,7 @@ func (s *sanitizer) transformGrant(in *v2.Grant, refs *assetRefSet) *v2.Grant {
 	}
 	annos := s.transformAnnotations(in.GetAnnotations(), refs)
 	return v2.Grant_builder{
-		Id:          s.grantID(in.GetId()),
+		Id:          s.transformID(in.GetId()),
 		Entitlement: s.transformEntitlement(in.GetEntitlement(), refs),
 		Principal:   s.transformResource(in.GetPrincipal(), refs),
 		Sources:     s.transformGrantSources(in.GetSources()),
@@ -304,7 +297,7 @@ func (s *sanitizer) transformGrantSources(in *v2.GrantSources) *v2.GrantSources 
 	}
 	out := make(map[string]*v2.GrantSources_GrantSource, len(srcMap))
 	for srcEntitlementID, gs := range srcMap {
-		out[s.entitlementID(srcEntitlementID)] = v2.GrantSources_GrantSource_builder{
+		out[s.transformID(srcEntitlementID)] = v2.GrantSources_GrantSource_builder{
 			IsDirect: gs.GetIsDirect(),
 		}.Build()
 	}

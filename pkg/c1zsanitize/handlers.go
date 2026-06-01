@@ -187,7 +187,7 @@ func handleLicenseProfileTrait(s *sanitizer, msg proto.Message, _ *assetRefSet) 
 	in := msg.(*v2.LicenseProfileTrait)
 	entIDs := make([]string, 0, len(in.GetEntitlementIds()))
 	for _, eid := range in.GetEntitlementIds() {
-		entIDs = append(entIDs, s.entitlementID(eid))
+		entIDs = append(entIDs, s.transformID(eid))
 	}
 	return v2.LicenseProfileTrait_builder{
 		LicenseName:        in.GetLicenseName(),
