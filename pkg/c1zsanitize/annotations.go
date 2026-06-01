@@ -52,6 +52,10 @@ func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*
 		}
 		handler, ok := s.handlers[a.GetTypeUrl()]
 		if !ok {
+			// Drop is the default and the safe posture: an annotation type
+			// with no handler has not been inspected, so passing it through
+			// could leak un-sanitized customer data. Pass-through is opt-in
+			// via Options.AllowUnknownAnnotations, for development only.
 			if s.dropUnknownAnnotations {
 				s.log.Debug("c1zsanitize: dropping unknown annotation", zap.String("type_url", a.GetTypeUrl()))
 				continue
