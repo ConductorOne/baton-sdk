@@ -192,6 +192,36 @@ func TestVisitFlags_StringToString_SingleEntry(t *testing.T) {
 	require.Equal(t, map[string]string{"version": "1"}, got)
 }
 
+func TestVisitFlags_StringToString_NestedYAMLMapNotSet(t *testing.T) {
+	dir := t.TempDir()
+	writeYAML(t, dir, `powershell-actions:
+  create-user:
+    script: New-C1User
+    description: Create user
+`)
+	v := viper.New()
+	v.SetConfigName("config")
+	v.SetConfigType("yaml")
+	v.AddConfigPath(dir)
+	require.NoError(t, v.ReadInConfig())
+
+	schema := field.Configuration{
+		Fields: []field.SchemaField{
+			field.StringMapField("powershell-actions"),
+		},
+	}
+	cmd := setupCommand(t, schema, v)
+
+	require.False(t, cmd.Flags().Lookup("powershell-actions").Changed)
+	require.NoError(t, v.BindPFlags(cmd.Flags()))
+
+	got := v.GetStringMap("powershell-actions")
+	action, ok := got["create-user"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "New-C1User", action["script"])
+	require.Equal(t, "Create user", action["description"])
+}
+
 func TestVisitFlags_String_Unchanged(t *testing.T) {
 	dir := t.TempDir()
 	writeYAML(t, dir, `deployment: dev209168
