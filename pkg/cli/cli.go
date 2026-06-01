@@ -149,6 +149,9 @@ func VisitFlags(cmd *cobra.Command, v *viper.Viper) {
 				_ = cmd.Flags().Set(f.Name, v.GetString(f.Name))
 			}
 		case "stringToString":
+			if hasNestedStringMapValue(v.Get(f.Name)) {
+				return
+			}
 			sm := v.GetStringMapString(f.Name)
 			if len(sm) > 0 {
 				// pflag expects "key=value" CSV format.
@@ -162,6 +165,31 @@ func VisitFlags(cmd *cobra.Command, v *viper.Viper) {
 			_ = cmd.Flags().Set(f.Name, v.GetString(f.Name))
 		}
 	})
+}
+
+func hasNestedStringMapValue(value any) bool {
+	rv := reflect.ValueOf(value)
+	if !rv.IsValid() || rv.Kind() != reflect.Map {
+		return false
+	}
+
+	for _, mapKey := range rv.MapKeys() {
+		mapValue := rv.MapIndex(mapKey)
+		for mapValue.IsValid() && mapValue.Kind() == reflect.Interface {
+			if mapValue.IsNil() {
+				break
+			}
+			mapValue = mapValue.Elem()
+		}
+		if !mapValue.IsValid() {
+			continue
+		}
+		kind := mapValue.Kind()
+		if kind == reflect.Map || kind == reflect.Slice || kind == reflect.Array || kind == reflect.Struct {
+			return true
+		}
+	}
+	return false
 }
 
 func AddCommand(mainCMD *cobra.Command, v *viper.Viper, schema *field.Configuration, subCMD *cobra.Command) (*cobra.Command, error) {
