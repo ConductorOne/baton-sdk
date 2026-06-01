@@ -224,9 +224,21 @@ func (x SecretTrait_CredentialType) Number() protoreflect.EnumNumber {
 type NonHumanIdentityTrait_NhiType int32
 
 const (
-	NonHumanIdentityTrait_NHI_TYPE_UNSPECIFIED      NonHumanIdentityTrait_NhiType = 0
+	NonHumanIdentityTrait_NHI_TYPE_UNSPECIFIED NonHumanIdentityTrait_NhiType = 0
+	// Self-custodied standing credential: the org creates and holds a
+	// long-lived secret (e.g. an OAuth app registration / client
+	// credentials). The org is responsible for storing and rotating it.
 	NonHumanIdentityTrait_NHI_TYPE_APP_REGISTRATION NonHumanIdentityTrait_NhiType = 1
-	NonHumanIdentityTrait_NHI_TYPE_ASSUMABLE_ROLE   NonHumanIdentityTrait_NhiType = 2
+	// No standing credential: identity is trust-assumed at use time
+	// (e.g. an assumable role) and short-lived credentials are minted on
+	// demand. Nothing long-lived is held by the org.
+	NonHumanIdentityTrait_NHI_TYPE_ASSUMABLE_ROLE NonHumanIdentityTrait_NhiType = 2
+	// Platform-custodied: the provider holds and auto-rotates the
+	// credential and binds it to a platform resource; the org never sees
+	// the secret. Examples: Azure managed identities, AWS service-linked
+	// roles, GCP service agents / default service accounts, and Active
+	// Directory gMSA / sMSA / computer accounts.
+	NonHumanIdentityTrait_NHI_TYPE_MANAGED_IDENTITY NonHumanIdentityTrait_NhiType = 3
 )
 
 // Enum value maps for NonHumanIdentityTrait_NhiType.
@@ -235,11 +247,13 @@ var (
 		0: "NHI_TYPE_UNSPECIFIED",
 		1: "NHI_TYPE_APP_REGISTRATION",
 		2: "NHI_TYPE_ASSUMABLE_ROLE",
+		3: "NHI_TYPE_MANAGED_IDENTITY",
 	}
 	NonHumanIdentityTrait_NhiType_value = map[string]int32{
 		"NHI_TYPE_UNSPECIFIED":      0,
 		"NHI_TYPE_APP_REGISTRATION": 1,
 		"NHI_TYPE_ASSUMABLE_ROLE":   2,
+		"NHI_TYPE_MANAGED_IDENTITY": 3,
 	}
 )
 
@@ -2233,15 +2247,16 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x16cost_per_unit_in_cents\x18\x04 \x01(\x03R\x12costPerUnitInCents\x12&\n" +
 	"\bcurrency\x18\x05 \x01(\tB\n" +
 	"\xfaB\ar\x05(\b\xd0\x01\x01R\bcurrency\x121\n" +
-	"\x0fentitlement_ids\x18\x06 \x03(\tB\b\xfaB\x05\x92\x01\x02\x18\x01R\x0eentitlementIds\"\xec\x01\n" +
+	"\x0fentitlement_ids\x18\x06 \x03(\tB\b\xfaB\x05\x92\x01\x02\x18\x01R\x0eentitlementIds\"\x8b\x02\n" +
 	"\x15NonHumanIdentityTrait\x12S\n" +
 	"\bnhi_type\x18\x01 \x01(\x0e2..c1.connector.v2.NonHumanIdentityTrait.NhiTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\anhiType\x12\x1d\n" +
 	"\n" +
-	"nhi_detail\x18\x02 \x01(\tR\tnhiDetail\"_\n" +
+	"nhi_detail\x18\x02 \x01(\tR\tnhiDetail\"~\n" +
 	"\aNhiType\x12\x18\n" +
 	"\x14NHI_TYPE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19NHI_TYPE_APP_REGISTRATION\x10\x01\x12\x1b\n" +
-	"\x17NHI_TYPE_ASSUMABLE_ROLE\x10\x02\"\xd3\x02\n" +
+	"\x17NHI_TYPE_ASSUMABLE_ROLE\x10\x02\x12\x1d\n" +
+	"\x19NHI_TYPE_MANAGED_IDENTITY\x10\x03\"\xd3\x02\n" +
 	"\n" +
 	"AgentTrait\x12I\n" +
 	"\x06status\x18\x01 \x01(\x0e2'.c1.connector.v2.AgentTrait.AgentStatusB\b\xfaB\x05\x82\x01\x02\x10\x01R\x06status\x12M\n" +
