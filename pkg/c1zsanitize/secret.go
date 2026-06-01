@@ -22,7 +22,7 @@ func SecretPath(flagPath, outPath string) string {
 // clobber an existing one so a prior run's reversible mapping is never
 // silently replaced. generated reports whether a new secret was minted
 // so the caller can tell the operator to archive it.
-func LoadOrGenerateSecret(flagPath, outPath string) (secret []byte, generated bool, err error) {
+func LoadOrGenerateSecret(flagPath, outPath string) ([]byte, bool, error) {
 	if flagPath != "" {
 		b, err := os.ReadFile(flagPath)
 		if err != nil {

@@ -31,7 +31,7 @@ func SanitizeID(secret []byte, input string) string {
 		return ""
 	}
 	h := hmac.New(sha256.New, secret)
-	h.Write([]byte(input))
+	_, _ = h.Write([]byte(input))
 	sum := h.Sum(nil)
 	return idEncoding.EncodeToString(sum[:idTruncationBytes])
 }

@@ -122,7 +122,7 @@ func (s *sanitizer) id(input string) string {
 		return ""
 	}
 	s.idHmac.Reset()
-	s.idHmac.Write([]byte(input))
+	_, _ = s.idHmac.Write([]byte(input))
 	sum := s.idHmac.Sum(nil)
 	return idEncoding.EncodeToString(sum[:idTruncationBytes])
 }
