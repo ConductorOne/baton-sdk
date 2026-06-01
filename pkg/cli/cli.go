@@ -184,8 +184,8 @@ func hasNestedStringMapValue(value any) bool {
 		if !mapValue.IsValid() {
 			continue
 		}
-		switch mapValue.Kind() {
-		case reflect.Map, reflect.Slice, reflect.Array, reflect.Struct:
+		kind := mapValue.Kind()
+		if kind == reflect.Map || kind == reflect.Slice || kind == reflect.Array || kind == reflect.Struct {
 			return true
 		}
 	}
