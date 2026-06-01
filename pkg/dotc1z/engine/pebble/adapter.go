@@ -261,10 +261,42 @@ func (a *Adapter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
+	records := translateGrants(syncID, grants)
+	if err := a.engine.PutGrantRecords(ctx, records...); err != nil {
+		return fmt.Errorf("PutGrants: %w", err)
+	}
+	return nil
+}
+
+// UnsafePutUniqueGrants writes grants on the trusted-import path: records
+// are encoded in parallel and written unconditionally, with no read-before-write
+// and no dedup pass. Do not use it for live connector output. The destination
+// sync must be fresh, and the caller MUST guarantee each external_id appears at
+// most once across the whole sync (not just within this batch). Live connector
+// writes should use PutGrants.
+func (a *Adapter) UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.Grant) error {
+	syncID := a.currentSyncID()
+	if syncID == "" {
+		return ErrNoCurrentSync
+	}
+	records := translateGrants(syncID, grants)
+	if err := a.engine.UnsafePutUniqueGrantRecords(ctx, records...); err != nil {
+		return fmt.Errorf("UnsafePutUniqueGrants: %w", err)
+	}
+	return nil
+}
+
+// translateGrants converts v2 grants to v3 records, stamping discovered_at
+// where unset. The translation uses per-shard arenas (grantTranslateArena) so
+// the 3 × N proto-struct allocations from V2GrantToV3's builder pattern
+// collapse to 3 slice allocations per shard, and runs in parallel across
+// translateShards workers when the input is large enough — protobuf Get/Set on
+// the underlying v2.Grant and v3 arena structs are thread-safe for
+// read+arena-private-write patterns, and each worker owns a disjoint range of
+// the records slice and its own arena.
+func translateGrants(syncID string, grants []*v2.Grant) []*v3.GrantRecord {
 	now := timestamppb.Now()
 
-	// Parallel translation. Below the threshold, single-goroutine
-	// translation avoids goroutine setup cost on small calls.
 	const translateMinPerShard = 1024
 	const translateShards = 4
 	shards := translateShards
@@ -288,10 +320,7 @@ func (a *Adapter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 			}
 			records = append(records, rec)
 		}
-		if err := a.engine.PutGrantRecords(ctx, records...); err != nil {
-			return fmt.Errorf("PutGrants: %w", err)
-		}
-		return nil
+		return records
 	}
 
 	// Parallel path: shard workers each translate their range into a
@@ -335,10 +364,7 @@ func (a *Adapter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 			compact = append(compact, r)
 		}
 	}
-	if err := a.engine.PutGrantRecords(ctx, compact...); err != nil {
-		return fmt.Errorf("PutGrants: %w", err)
-	}
-	return nil
+	return compact
 }
 
 // PutResourceTypes writes a batch of resource types in a single

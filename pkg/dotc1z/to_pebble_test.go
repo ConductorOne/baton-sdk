@@ -3,6 +3,7 @@ package dotc1z_test
 import (
 	"context"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
@@ -24,10 +26,11 @@ func TestToPebbleRoundTrip(t *testing.T) {
 	require.NoError(t, pebble.Register())
 
 	dir := t.TempDir()
-	srcPath := filepath.Join(dir, "source.db")
+	srcPath := filepath.Join(dir, "source.c1z")
 
-	src, err := dotc1z.NewC1File(ctx, srcPath, dotc1z.WithC1FTmpDir(dir))
+	src, err := dotc1z.NewC1ZFile(ctx, srcPath, dotc1z.WithTmpDir(dir))
 	require.NoError(t, err)
+	defer func() { require.NoError(t, src.Close(ctx)) }()
 
 	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -100,6 +103,28 @@ func TestToPebbleRoundTrip(t *testing.T) {
 	grantCount := countGrants(ctx, t, dst)
 	require.Equal(t, userCount, grantCount)
 
+	// Verify the fast grant copy path populated Pebble's secondary indexes, not
+	// just the primary grant keyspace.
+	resourceFiltered, err := dst.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+		Resource: group,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, resourceFiltered.GetList(), userCount)
+
+	byEntitlement, err := dst.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		Entitlement: v2.Entitlement_builder{Id: "ent1"}.Build(),
+		PageSize:    1000,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, byEntitlement.GetList(), userCount)
+
+	byPrincipalRT, err := dst.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
+		ResourceTypeId: "user",
+		PageSize:       1000,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, byPrincipalRT.GetList(), userCount)
+
 	contentType, r, err := dst.GetAsset(ctx, v2.AssetServiceGetAssetRequest_builder{
 		Asset: v2.AssetRef_builder{Id: "asset-1"}.Build(),
 	}.Build())
@@ -110,7 +135,44 @@ func TestToPebbleRoundTrip(t *testing.T) {
 	require.Equal(t, assetData, gotData)
 }
 
-func countResources(ctx context.Context, t *testing.T, store connectorstore.Writer) int {
+// TestToPebbleErrors exercises ToPebble's guard clauses: output path must not
+// exist, the sync must exist, and the sync must be ended.
+func TestToPebbleErrors(t *testing.T) {
+	ctx := context.Background()
+	require.NoError(t, pebble.Register())
+
+	dir := t.TempDir()
+	src, err := dotc1z.NewC1ZFile(ctx, filepath.Join(dir, "source.c1z"), dotc1z.WithTmpDir(dir))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, src.Close(ctx)) }()
+
+	// A finished full sync to use for the "output exists" case.
+	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
+	require.NoError(t, src.EndSync(ctx))
+
+	t.Run("output path exists", func(t *testing.T) {
+		outPath := filepath.Join(dir, "exists.c1z")
+		require.NoError(t, os.WriteFile(outPath, []byte("x"), 0600))
+		_, err := src.ToPebble(ctx, outPath, syncID)
+		require.Error(t, err)
+	})
+
+	t.Run("sync not found", func(t *testing.T) {
+		_, err := src.ToPebble(ctx, filepath.Join(dir, "not-found.c1z"), "nonexistent-sync-id")
+		require.Error(t, err)
+	})
+
+	t.Run("sync not ended", func(t *testing.T) {
+		unfinished, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		_, err = src.ToPebble(ctx, filepath.Join(dir, "unfinished.c1z"), unfinished)
+		require.Error(t, err)
+	})
+}
+
+func countResources(ctx context.Context, t *testing.T, store connectorstore.Reader) int {
 	t.Helper()
 	total := 0
 	pageToken := ""
@@ -125,7 +187,7 @@ func countResources(ctx context.Context, t *testing.T, store connectorstore.Writ
 	}
 }
 
-func countGrants(ctx context.Context, t *testing.T, store connectorstore.Writer) int {
+func countGrants(ctx context.Context, t *testing.T, store connectorstore.Reader) int {
 	t.Helper()
 	total := 0
 	pageToken := ""

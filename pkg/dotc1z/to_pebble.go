@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"iter"
 	"os"
 	"time"
 
@@ -16,6 +17,18 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
+
+// uniqueGrantWriter is an optional capability a destination store may
+// implement for trusted one-shot imports. It is unsafe for live connector
+// writes: it skips read-before-write and dedup. It is only safe for a fresh
+// destination sync when the import source guarantees each grant external_id
+// appears at most once across the whole sync. ToPebble gets that guarantee from
+// SQLite's UNIQUE(external_id, sync_id) index on the finished source sync. The
+// Pebble engine implements it; SQLite does not, so ToPebble falls back to
+// PutGrants.
+type uniqueGrantWriter interface {
+	UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.Grant) error
+}
 
 // defaultConvertBatchSize is the number of records buffered per Put* call
 // when streaming a sync into the destination engine. Matches the clone/copy
@@ -99,8 +112,10 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 		return nil, err
 	}
 
-	if _, statErr := os.Stat(outPath); statErr == nil || !errors.Is(statErr, fs.ErrNotExist) {
+	if _, statErr := os.Stat(outPath); statErr == nil {
 		return nil, fmt.Errorf("to-pebble: output path (%s) must not exist", outPath)
+	} else if !errors.Is(statErr, fs.ErrNotExist) {
+		return nil, fmt.Errorf("to-pebble: stat output path %s: %w", outPath, statErr)
 	}
 
 	if syncID == "" {
@@ -135,8 +150,9 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	// On any failure after open, close the destination and remove the
 	// partially-written output so the operation is atomic from the caller's
 	// perspective.
+	cleanupDest := true
 	defer func() {
-		if err != nil {
+		if cleanupDest {
 			_ = dest.Close(ctx)
 			_ = os.Remove(outPath)
 		}
@@ -168,8 +184,11 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 		return nil, fmt.Errorf("to-pebble: end destination sync: %w", err)
 	}
 	if err = dest.Close(ctx); err != nil {
+		cleanupDest = false
+		_ = os.Remove(outPath)
 		return nil, fmt.Errorf("to-pebble: close destination: %w", err)
 	}
+	cleanupDest = false
 
 	stats.Total = time.Since(start)
 	l.Info("to-pebble: conversion complete",
@@ -227,84 +246,61 @@ func (c *C1File) copyResourceTypes(ctx context.Context, dest connectorstore.Writ
 }
 
 func (c *C1File) copyResources(ctx context.Context, dest connectorstore.Writer, syncID string, batchSize int, stage *ConvertStageStats) error {
-	start := time.Now()
-	defer func() { stage.Duration = time.Since(start) }()
-
-	batch := make([]*v2.Resource, 0, batchSize)
-	for r, err := range c.StreamResources(ctx, syncID, connectorstore.StreamResourcesOptions{}) {
-		if err != nil {
-			return err
-		}
-		batch = append(batch, r)
-		if len(batch) >= batchSize {
-			if err := dest.PutResources(ctx, batch...); err != nil {
-				return err
-			}
-			stage.Rows += int64(len(batch))
-			batch = batch[:0]
-		}
-	}
-	if len(batch) > 0 {
-		if err := dest.PutResources(ctx, batch...); err != nil {
-			return err
-		}
-		stage.Rows += int64(len(batch))
-	}
-	return nil
+	return copyStream(ctx, c.StreamResources(ctx, syncID, connectorstore.StreamResourcesOptions{}), batchSize, stage, dest.PutResources)
 }
 
 func (c *C1File) copyEntitlements(ctx context.Context, dest connectorstore.Writer, syncID string, batchSize int, stage *ConvertStageStats) error {
-	start := time.Now()
-	defer func() { stage.Duration = time.Since(start) }()
-
-	batch := make([]*v2.Entitlement, 0, batchSize)
-	for e, err := range c.StreamEntitlements(ctx, syncID) {
-		if err != nil {
-			return err
-		}
-		batch = append(batch, e)
-		if len(batch) >= batchSize {
-			if err := dest.PutEntitlements(ctx, batch...); err != nil {
-				return err
-			}
-			stage.Rows += int64(len(batch))
-			batch = batch[:0]
-		}
-	}
-	if len(batch) > 0 {
-		if err := dest.PutEntitlements(ctx, batch...); err != nil {
-			return err
-		}
-		stage.Rows += int64(len(batch))
-	}
-	return nil
+	return copyStream(ctx, c.StreamEntitlements(ctx, syncID), batchSize, stage, dest.PutEntitlements)
 }
 
 func (c *C1File) copyGrants(ctx context.Context, dest connectorstore.Writer, syncID string, batchSize int, stage *ConvertStageStats) error {
+	// Prefer the unsafe trusted-import fast path when the destination supports it. The
+	// source sync is finished and SQLite enforces UNIQUE(external_id, sync_id),
+	// which is exactly the global uniqueness guarantee this path requires.
+	put := dest.PutGrants
+	if fw, ok := dest.(uniqueGrantWriter); ok {
+		put = fw.UnsafePutUniqueGrants
+	}
+	return copyStream(ctx, c.StreamGrants(ctx, syncID, connectorstore.StreamGrantsOptions{}), batchSize, stage, put)
+}
+
+// copyStream drains a streaming reader into the destination in batches of
+// batchSize, recording the row count and wall-clock on stage. put is the
+// destination's bulk writer for T (e.g. dest.PutResources).
+func copyStream[T any](
+	ctx context.Context,
+	seq iter.Seq2[T, error],
+	batchSize int,
+	stage *ConvertStageStats,
+	put func(context.Context, ...T) error,
+) error {
 	start := time.Now()
 	defer func() { stage.Duration = time.Since(start) }()
 
-	batch := make([]*v2.Grant, 0, batchSize)
-	for g, err := range c.StreamGrants(ctx, syncID, connectorstore.StreamGrantsOptions{}) {
-		if err != nil {
-			return err
+	batch := make([]T, 0, batchSize)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
 		}
-		batch = append(batch, g)
-		if len(batch) >= batchSize {
-			if err := dest.PutGrants(ctx, batch...); err != nil {
-				return err
-			}
-			stage.Rows += int64(len(batch))
-			batch = batch[:0]
-		}
-	}
-	if len(batch) > 0 {
-		if err := dest.PutGrants(ctx, batch...); err != nil {
+		if err := put(ctx, batch...); err != nil {
 			return err
 		}
 		stage.Rows += int64(len(batch))
+		batch = batch[:0]
+		return nil
 	}
-	return nil
+	for item, err := range seq {
+		if err != nil {
+			return err
+		}
+		batch = append(batch, item)
+		if len(batch) >= batchSize {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+	}
+	return flush()
 }
 
 // copyAssets enumerates the assets stored under syncID and writes each to the
