@@ -8,7 +8,7 @@ import (
 	"os/exec"
 
 	"github.com/conductorone/baton-sdk/pkg/baton/explorer"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/spf13/cobra"
 )
 
@@ -85,13 +85,7 @@ func startExplorerAPI(cmd *cobra.Command, devMode bool, port int) error {
 		return fmt.Errorf("error fetching resourceType: %w", err)
 	}
 
-	m, err := manager.New(ctx, filePath)
-	if err != nil {
-		return fmt.Errorf("error creating c1z manager: %w", err)
-	}
-	defer m.Close(ctx)
-
-	store, err := m.LoadC1Z(ctx)
+	store, err := dotc1z.NewC1ZFile(ctx, filePath, dotc1z.WithReadOnly(true))
 	if err != nil {
 		return fmt.Errorf("error loading c1z: %w", err)
 	}

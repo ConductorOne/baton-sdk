@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/spf13/cobra"
 )
@@ -31,13 +31,7 @@ func runOptimizeDb(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	m, err := manager.New(ctx, c1zPath)
-	if err != nil {
-		return err
-	}
-	defer m.Close(ctx)
-
-	store, err := m.LoadC1Z(ctx)
+	store, err := dotc1z.NewC1ZFile(ctx, c1zPath)
 	if err != nil {
 		return err
 	}
@@ -48,11 +42,6 @@ func runOptimizeDb(cmd *cobra.Command, args []string) error {
 	}
 
 	err = store.Close(ctx)
-	if err != nil {
-		return err
-	}
-
-	err = m.SaveC1Z(ctx)
 	if err != nil {
 		return err
 	}

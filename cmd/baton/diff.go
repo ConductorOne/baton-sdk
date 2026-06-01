@@ -9,7 +9,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -36,13 +35,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	m, err := manager.New(ctx, c1zPath)
-	if err != nil {
-		return err
-	}
-	defer m.Close(ctx)
-
-	store, err := m.LoadC1Z(ctx)
+	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithReadOnly(true))
 	if err != nil {
 		return err
 	}

@@ -1,0 +1,49 @@
+{
+  "fixtures": [
+    {
+      "name": "small-expanded",
+      "path": "pkg/sync/expand/testdata/sync.36zfOAoWMxQdISbixanQCRBiX7E.expanded",
+      "syncId": "36zfOAoWMxQdISbixanQCRBiX7E",
+      "syncType": "full",
+      "counts": {
+        "resources": 1221,
+        "entitlements": 342,
+        "grants": 14981,
+        "resourceTypes": 4,
+        "group": 21,
+        "user": 1000
+      },
+      "verifyGrantsJson": true
+    },
+    {
+      "name": "medium-expanded",
+      "path": "pkg/sync/expand/testdata/sync.36zGvJw3uxU1QMJKU2yPVQ1hBOC.expanded",
+      "syncId": "36zGvJw3uxU1QMJKU2yPVQ1hBOC",
+      "syncType": "full",
+      "counts": {
+        "resources": 35217,
+        "entitlements": 334,
+        "grants": 418389,
+        "resourceTypes": 4,
+        "group": 17,
+        "user": 35000
+      },
+      "verifyGrantsJson": false
+    },
+    {
+      "name": "medium-large-expanded",
+      "path": "pkg/sync/expand/testdata/sync.36zM46KKuaBq0wjSSvKh5o0350y.expanded",
+      "syncId": "36zM46KKuaBq0wjSSvKh5o0350y",
+      "syncType": "full",
+      "counts": {
+        "resources": 45217,
+        "entitlements": 334,
+        "grants": 537189,
+        "resourceTypes": 4,
+        "group": 17,
+        "user": 45000
+      },
+      "verifyGrantsJson": false
+    }
+  ]
+}

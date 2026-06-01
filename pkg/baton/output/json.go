@@ -2,6 +2,7 @@ package output
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -12,19 +13,22 @@ import (
 type jsonManager struct{}
 
 func (j *jsonManager) Output(ctx context.Context, out interface{}) error {
+	var outBytes []byte
+	var err error
+
 	if m, ok := out.(proto.Message); ok {
-		outBytes, err := protojson.Marshal(m)
-		if err != nil {
-			return err
-		}
-
-		_, err = fmt.Fprint(os.Stdout, string(outBytes))
-		if err != nil {
-			return err
-		}
-
-		return nil
+		outBytes, err = protojson.Marshal(m)
+	} else {
+		outBytes, err = json.Marshal(out)
+	}
+	if err != nil {
+		return err
 	}
 
-	return fmt.Errorf("unexpected output type")
+	_, err = fmt.Fprint(os.Stdout, string(outBytes))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

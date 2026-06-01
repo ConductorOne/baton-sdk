@@ -16,7 +16,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
-	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
@@ -26,8 +26,7 @@ type Provisioner struct {
 	dbPath    string
 	connector types.ConnectorClient
 
-	store      connectorstore.Reader
-	c1zManager c1zmanager.Manager
+	store connectorstore.Reader
 
 	grantEntitlementID string
 	grantPrincipalID   string
@@ -99,15 +98,7 @@ func (p *Provisioner) loadStore(ctx context.Context) (connectorstore.Reader, err
 		return p.store, nil
 	}
 
-	if p.c1zManager == nil {
-		m, err := c1zmanager.New(ctx, p.dbPath)
-		if err != nil {
-			return nil, err
-		}
-		p.c1zManager = m
-	}
-
-	store, err := p.c1zManager.LoadC1Z(ctx)
+	store, err := dotc1z.NewC1ZFile(ctx, p.dbPath)
 	if err != nil {
 		return nil, err
 	}
@@ -126,14 +117,6 @@ func (p *Provisioner) Close(ctx context.Context) error {
 			err = errors.Join(err, storeErr)
 		}
 		p.store = nil
-	}
-
-	if p.c1zManager != nil {
-		managerErr := p.c1zManager.Close(ctx)
-		if managerErr != nil {
-			err = errors.Join(err, managerErr)
-		}
-		p.c1zManager = nil
 	}
 
 	if err != nil {
