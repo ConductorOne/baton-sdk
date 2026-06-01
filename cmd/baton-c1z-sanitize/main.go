@@ -82,7 +82,15 @@ func run() error {
 	}
 	defer src.Close(ctx)
 
-	dst, err := dotc1z.NewC1ZFile(ctx, *outPath)
+	// The dst is a net-new intermediate that is discarded on any
+	// failure, so durability pragmas only cost throughput: skip the
+	// journal and fsync entirely, and give SQLite a 64MB page cache to
+	// cut index-maintenance misses on large (multi-million-grant) syncs.
+	dst, err := dotc1z.NewC1ZFile(ctx, *outPath,
+		dotc1z.WithPragma("journal_mode", "OFF"),
+		dotc1z.WithPragma("synchronous", "OFF"),
+		dotc1z.WithPragma("cache_size", "-65536"),
+	)
 	if err != nil {
 		return fmt.Errorf("open dst c1z: %w", err)
 	}

@@ -9,7 +9,11 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
-const listPageSize = 1000
+// listPageSize is the source read page, which also bounds how many
+// rows each dst Put batches into one transaction. Larger pages mean
+// fewer commits on large syncs; the dst writer still sub-chunks each
+// statement under SQLite's parameter ceiling, so this stays safe.
+const listPageSize = 10000
 
 // transformID rewrites a composite baton identifier one ':'-delimited
 // component at a time. A component is preserved verbatim only when it
