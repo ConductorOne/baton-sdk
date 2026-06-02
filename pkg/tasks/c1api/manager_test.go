@@ -17,6 +17,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 // fakeBatonServiceClient is a BatonServiceClient stub that lets tests drive
@@ -30,6 +31,7 @@ type fakeBatonServiceClient struct {
 	getTasksResp   *v1.BatonServiceGetTasksResponse
 	getTasksErr    error
 	getTaskCalls   int
+	finishReqs     []*v1.BatonServiceFinishTaskRequest
 }
 
 func newFakeBatonServiceClient(helloResponses []error) *fakeBatonServiceClient {
@@ -76,7 +78,10 @@ func (f *fakeBatonServiceClient) Heartbeat(context.Context, *v1.BatonServiceHear
 	return &v1.BatonServiceHeartbeatResponse{}, nil
 }
 
-func (f *fakeBatonServiceClient) FinishTask(context.Context, *v1.BatonServiceFinishTaskRequest) (*v1.BatonServiceFinishTaskResponse, error) {
+func (f *fakeBatonServiceClient) FinishTask(_ context.Context, req *v1.BatonServiceFinishTaskRequest) (*v1.BatonServiceFinishTaskResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.finishReqs = append(f.finishReqs, req)
 	return &v1.BatonServiceFinishTaskResponse{}, nil
 }
 
@@ -471,6 +476,30 @@ func TestProcessRemovesKnownTaskID(t *testing.T) {
 	}
 	if got, _ := mgr.taskQueue.fetchParams(); containsString(got, task.GetId()) {
 		t.Fatalf("known task IDs %v still include completed task %q", got, task.GetId())
+	}
+}
+
+func TestFinishTaskGrantCancelledAddsStatusDetail(t *testing.T) {
+	sc := newFakeBatonServiceClient(nil)
+	mgr := newTestManager(sc)
+	task := v1.Task_builder{
+		Id:    "task-1",
+		Grant: v1.Task_GrantTask_builder{}.Build(),
+	}.Build()
+
+	err := mgr.finishTask(context.Background(), task, nil, nil, errors.Join(grant.NewErrGrantCancelled("reject_if reason"), ErrTaskNonRetryable))
+	if err != nil {
+		t.Fatalf("finishTask: %v", err)
+	}
+	if len(sc.finishReqs) != 1 {
+		t.Fatalf("expected one FinishTask request, got %d", len(sc.finishReqs))
+	}
+	reason, ok := grant.GrantCancelledReasonFromStatus(sc.finishReqs[0].GetStatus())
+	if !ok {
+		t.Fatalf("expected grant cancellation status detail, got %#v", sc.finishReqs[0].GetStatus())
+	}
+	if reason != "reject_if reason" {
+		t.Fatalf("expected reason %q, got %q", "reject_if reason", reason)
 	}
 }
 

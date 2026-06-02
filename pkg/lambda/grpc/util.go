@@ -20,6 +20,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	pbtransport "github.com/conductorone/baton-sdk/pb/c1/transport/v1"
+	"github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 type timeoutUnit uint8
@@ -184,6 +185,14 @@ func ErrorResponse(err error) *Response {
 // statusForApplicationError mirrors the transient network handling in uhttp for
 // connector SDK clients that bypass the Baton HTTP wrapper.
 func statusForApplicationError(err error) *status.Status {
+	if reason, ok := grant.GrantCancelledReasonFromError(err); ok {
+		st, detailErr := grant.StatusWithGrantCancelledErrorInfo(status.New(codes.Unknown, reason), reason)
+		if detailErr != nil {
+			return status.New(codes.Unknown, reason)
+		}
+		return st
+	}
+
 	switch {
 	case errors.Is(err, context.Canceled):
 		return status.Newf(codes.Canceled, "canceled: %s", err)

@@ -27,6 +27,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	taskTypes "github.com/conductorone/baton-sdk/pkg/types/tasks"
 )
 
@@ -350,13 +351,22 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 			statusErr = status.New(codes.Unknown, taskError.Error())
 		}
 	}
+	statusProto := statusErr.Proto()
+	if reason, ok := grant.GrantCancelledReasonFromError(taskError); ok {
+		statusWithDetails, detailErr := grant.StatusWithGrantCancelledErrorInfo(status.FromProto(statusProto), reason)
+		if detailErr != nil {
+			l.Error("c1_api_task_manager.finishTask(): error adding grant cancellation detail", zap.Error(detailErr))
+			return detailErr
+		}
+		statusProto = statusWithDetails.Proto()
+	}
 
 	_, err = c.serviceClient.FinishTask(finishCtx, v1.BatonServiceFinishTaskRequest_builder{
 		TaskId: task.GetId(),
 		Status: &pbstatus.Status{
-			//nolint:gosec // No risk of overflow because `Code` is a small enum.
-			Code:    int32(statusErr.Code()),
-			Message: statusErr.Message(),
+			Code:    statusProto.GetCode(),
+			Message: statusProto.GetMessage(),
+			Details: statusProto.GetDetails(),
 		},
 		Error: v1.BatonServiceFinishTaskRequest_Error_builder{
 			NonRetryable: errors.Is(taskError, ErrTaskNonRetryable),

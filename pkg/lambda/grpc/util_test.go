@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -125,6 +126,18 @@ func TestErrorResponse_UnknownError(t *testing.T) {
 	st, stErr := resp.Status()
 	require.NoError(t, stErr)
 	require.Equal(t, codes.Unknown, st.Code())
+}
+
+func TestErrorResponse_GrantCancelled(t *testing.T) {
+	resp := ErrorResponse(fmt.Errorf("wrapped: %w", grant.NewErrGrantCancelled("reject_if reason")))
+	require.NotNil(t, resp)
+
+	st, stErr := resp.Status()
+	require.NoError(t, stErr)
+	require.Equal(t, codes.Unknown, st.Code())
+	reason, ok := grant.GrantCancelledReasonFromStatus(st.Proto())
+	require.True(t, ok)
+	require.Equal(t, "reject_if reason", reason)
 }
 
 func TestErrorResponse_ContextCanceled(t *testing.T) {
