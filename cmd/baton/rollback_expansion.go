@@ -2,19 +2,16 @@ package main
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/spf13/cobra"
 
-	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/conductorone/baton-sdk/pkg/sync/expand"
+	"github.com/conductorone/baton-sdk/pkg/sdk"
+	"github.com/conductorone/baton-sdk/pkg/sync"
 )
 
 func rollbackExpansionCmd() *cobra.Command {
@@ -27,7 +24,7 @@ func rollbackExpansionCmd() *cobra.Command {
 	cmd.Flags().String("sync-id", "", "Sync to roll back. Defaults to the latest finished sync.")
 	cmd.Flags().String("out", "", "Path to write the rolled-back c1z to (required for a write; the input file is never modified).")
 	cmd.Flags().Bool("dry-run", false, "Report what would change without modifying anything.")
-	cmd.Flags().Bool("replay", false, "Re-run grant expansion over the rolled-back c1z.")
+	cmd.Flags().Bool("replay", false, "Re-run grant expansion over the rolled-back c1z (recommended; without it the output is missing its expanded grants).")
 	return cmd
 }
 
@@ -79,14 +76,22 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(os.Stdout, "dry-run: sync %s — would delete %d derived grant(s) and clear sources on %d grant(s)%s\n",
-			res.SyncID, res.DerivedDeleted, res.SourcesCleared, replaySuffix(replay))
+		_, _ = fmt.Fprintf(os.Stdout, "dry-run: sync %s — would delete %d expansion-derived grant(s)%s\n",
+			res.SyncID, res.DerivedDeleted, replaySuffix(replay))
 		return nil
 	}
 
-	// Writes always go to a fresh copy; the input file is left untouched.
-	if err := copyFile(inPath, outPath); err != nil {
-		return fmt.Errorf("prepare --out: %w", err)
+	// Writes go to a fresh clone of the targeted sync; the input is never
+	// touched. CloneSync refuses an existing --out and copies only the
+	// targeted sync, not every sync in the source.
+	src, err := dotc1z.NewC1ZFile(ctx, inPath, dotc1z.WithReadOnly(true))
+	if err != nil {
+		return fmt.Errorf("open c1z: %w", err)
+	}
+	cloneErr := src.CloneSync(ctx, outPath, syncID)
+	_ = src.Close(ctx)
+	if cloneErr != nil {
+		return fmt.Errorf("clone to --out: %w", cloneErr)
 	}
 
 	store, err := dotc1z.NewC1ZFile(ctx, outPath)
@@ -104,10 +109,14 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+
 	if replay {
 		if err := replayExpansion(ctx, store, syncID); err != nil {
 			return fmt.Errorf("replay expansion: %w", err)
 		}
+	} else {
+		_, _ = fmt.Fprintln(os.Stderr,
+			"warning: --replay not set; the output c1z has its expansion rolled back and is NOT re-expanded — its expanded grants are absent until expansion runs again")
 	}
 
 	finalized = true
@@ -115,8 +124,8 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("finalize %q: %w", outPath, err)
 	}
 
-	_, _ = fmt.Fprintf(os.Stdout, "sync %s rolled back: deleted %d derived grant(s), cleared sources on %d grant(s); wrote %s%s\n",
-		res.SyncID, res.DerivedDeleted, res.SourcesCleared, outPath, replaySuffix(replay))
+	_, _ = fmt.Fprintf(os.Stdout, "sync %s rolled back: deleted %d expansion-derived grant(s); wrote %s%s\n",
+		res.SyncID, res.DerivedDeleted, outPath, replaySuffix(replay))
 	return nil
 }
 
@@ -136,60 +145,34 @@ func resolveLatestFinishedSync(ctx context.Context, inPath string) (string, erro
 	return syncID, nil
 }
 
-// replayExpansion re-runs the full three-phase expansion over an
-// already-loaded c1z: rebuild the entitlement graph from the expandable
-// grants, fix cycles, then expand. It mirrors the syncer's
-// SyncGrantExpansion path (load graph → FixCyclesFromComponents →
-// Expander) so a replay matches what a fresh sync would produce,
-// including on cyclic entitlement graphs. *C1File satisfies
-// expand.ExpanderStore, so no connector is required.
+// replayExpansion re-runs grant expansion over an already-rolled-back
+// c1z through the public syncer path, exactly as the compactor does
+// (an empty connector + the existing store + only-expand-grants). This
+// runs the full production expansion — graph load, cycle fixing
+// (honoring BATON_DONT_FIX_CYCLES), and the expander — so a replay
+// matches a fresh sync rather than a hand-rolled subset of it.
 func replayExpansion(ctx context.Context, store *dotc1z.C1File, syncID string) error {
-	if err := store.SetCurrentSync(ctx, syncID); err != nil {
+	tmpDir, err := os.MkdirTemp("", "baton-rollback-replay")
+	if err != nil {
 		return err
 	}
+	defer os.RemoveAll(tmpDir)
 
-	graph := expand.NewEntitlementGraph(ctx)
-	for def, err := range store.Grants().PendingExpansion(ctx) {
-		if err != nil {
-			return err
-		}
-		dstEntitlementID := def.TargetEntitlementID
-		for _, srcEntitlementID := range def.Annotation.GetEntitlementIds() {
-			// The source entitlement's resource must match the grant's
-			// principal, mirroring the sync-path graph load; skip an edge
-			// whose source entitlement no longer exists.
-			srcEnt, err := store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-				EntitlementId: srcEntitlementID,
-			}.Build())
-			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					continue
-				}
-				return err
-			}
-			rid := srcEnt.GetEntitlement().GetResource().GetId()
-			if rid == nil ||
-				def.PrincipalResourceTypeID != rid.GetResourceType() ||
-				def.PrincipalResourceID != rid.GetResource() {
-				continue
-			}
-			graph.AddEntitlementID(dstEntitlementID)
-			graph.AddEntitlementID(srcEntitlementID)
-			if err := graph.AddEdge(ctx, srcEntitlementID, dstEntitlementID, def.Annotation.GetShallow(), def.Annotation.GetResourceTypeIds()); err != nil {
-				return fmt.Errorf("add edge: %w", err)
-			}
-		}
-	}
-	graph.Loaded = true
-
-	comps, _ := graph.ComputeCyclicComponents(ctx)
-	if len(comps) == 0 {
-		graph.HasNoCycles = true
-	} else if err := graph.FixCyclesFromComponents(ctx, comps); err != nil {
-		return fmt.Errorf("fix cycles: %w", err)
+	emptyConnector, err := sdk.NewEmptyConnector()
+	if err != nil {
+		return fmt.Errorf("create empty connector: %w", err)
 	}
 
-	return expand.NewExpander(store, graph).Run(ctx)
+	syncer, err := sync.NewSyncer(ctx, emptyConnector,
+		sync.WithConnectorStore(store),
+		sync.WithSyncID(syncID),
+		sync.WithOnlyExpandGrants(),
+		sync.WithTmpDir(tmpDir),
+	)
+	if err != nil {
+		return fmt.Errorf("create syncer: %w", err)
+	}
+	return syncer.Sync(ctx)
 }
 
 func replaySuffix(replay bool) string {
@@ -197,24 +180,4 @@ func replaySuffix(replay bool) string {
 		return "; replayed expansion"
 	}
 	return ""
-}
-
-func copyFile(src, dst string) error {
-	if _, err := os.Stat(dst); err == nil {
-		return fmt.Errorf("--out path %q already exists; refusing to overwrite", dst)
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
 }

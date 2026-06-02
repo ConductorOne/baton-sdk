@@ -31,6 +31,7 @@ create table if not exists %s (
     external_id text not null,
     expansion blob,                             -- Serialized GrantExpandable proto; NULL if grant is not expandable.
     needs_expansion integer not null default 0, -- 1 if grant should be processed during expansion.
+    derived_by_expansion integer not null default 0, -- 1 if this row was created by the expander (not synced or expander-mutated in place).
     data blob not null,
     sync_id text not null,
     discovered_at datetime not null
@@ -88,6 +89,26 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) (bool, 
 	if _, err := db.ExecContext(ctx, fmt.Sprintf(
 		"alter table %s add column needs_expansion integer not null default 0", r.Name(),
 	)); err != nil && !isAlreadyExistsError(err) {
+		return false, err
+	}
+
+	// Add derived_by_expansion column if missing (for older files). Rows
+	// expanded before this column existed read as 0, so they cannot be
+	// distinguished from synced grants — rollback intentionally skips them
+	// rather than guess.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+		"alter table %s add column derived_by_expansion integer not null default 0", r.Name(),
+	)); err != nil && !isAlreadyExistsError(err) {
+		return false, err
+	}
+
+	// Partial index over expander-created rows, so rolling back expansion
+	// is a bounded delete rather than a full-table scan.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+		"create index if not exists %s on %s (sync_id) where derived_by_expansion = 1",
+		fmt.Sprintf("idx_grants_sync_derived_v%s", r.Version()),
+		r.Name(),
+	)); err != nil {
 		return false, err
 	}
 
@@ -500,6 +521,13 @@ func grantExtractFields(c *C1File, mode grantUpsertMode) func(grant *v2.Grant) (
 		}
 		preserveExpansion := mode == grantUpsertModePreserveExpansion
 
+		// Only the expander writes via PreserveExpansion, and only it
+		// inserts brand-new rows (its in-place mutations of pre-existing
+		// grants hit ON CONFLICT, which preserves the prior value). So an
+		// inserted PreserveExpansion row is an expander-created grant.
+		// Synced grants go through Replace mode and are marked 0.
+		rec["derived_by_expansion"] = preserveExpansion
+
 		// PreserveExpansion still must slim the data blob — otherwise
 		// expanded grants (the majority for group-heavy tenants) silently
 		// stay full-blob.
@@ -872,6 +900,15 @@ func executeGrantChunkedUpsert(
 			"data":            goqu.I("EXCLUDED.data"),
 			"expansion":       expansionExpr,
 			"needs_expansion": needsExpansionExpr,
+		}
+		// PreserveExpansion (the expander) must keep the existing
+		// derived_by_expansion on conflict: an in-place mutation of a
+		// pre-existing synced grant must not be re-labeled as derived, and
+		// re-storing an already-derived row keeps it derived. Replace mode
+		// (a connector sync) overwrites it, so a re-synced grant is no
+		// longer considered derived.
+		if mode != grantUpsertModePreserveExpansion {
+			update["derived_by_expansion"] = goqu.L("EXCLUDED.derived_by_expansion")
 		}
 		return insertDs.
 			OnConflict(goqu.DoUpdate("external_id, sync_id", update)).
