@@ -70,8 +70,18 @@ func (c *connectorClient) SetSessionStoreSetter(sessionStoreSetter sessions.SetS
 
 func (c *connectorClient) SetSessionStore(ctx context.Context, store sessions.SessionStore) {
 	if c.sessionStoreSetter == nil {
+		// Demoted from Warn to Debug: this path is the normal case for
+		// any connector that didn't opt into session storage (i.e.,
+		// wrapper.run never set cw.SessionServer to non-nil, so
+		// SetSessionStoreSetter received nil at startup). The syncer
+		// still calls SetSessionStore unconditionally on every sync, so
+		// at Warn level this fires once per sync per non-session-store
+		// connector — pure noise that masked real warnings downstream.
+		// Debug keeps the "you forgot to wire this" signal available for
+		// developers running at debug level without polluting prod logs.
+		// See https://github.com/ConductorOne/baton-sdk/issues/907.
 		l := ctxzap.Extract(ctx)
-		l.Warn("connectorClient's session store is nil")
+		l.Debug("connectorClient's session store is nil — connector did not opt into session storage")
 		return
 	}
 	c.sessionStoreSetter.SetSessionStore(ctx, store)
