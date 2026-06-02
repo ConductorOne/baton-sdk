@@ -74,9 +74,6 @@ func TestCloneSyncMigratedColumnOrder(t *testing.T) {
 	_, err = srcFile.db.ExecContext(ctx,
 		fmt.Sprintf("ALTER TABLE %s ADD COLUMN needs_expansion integer not null default 0", grants.Name()))
 	require.NoError(t, err)
-	_, err = srcFile.db.ExecContext(ctx,
-		fmt.Sprintf("ALTER TABLE %s ADD COLUMN derived_by_expansion integer not null default 0", grants.Name()))
-	require.NoError(t, err)
 
 	// Create partial indexes that the migration would add.
 	_, err = srcFile.db.ExecContext(ctx, fmt.Sprintf(

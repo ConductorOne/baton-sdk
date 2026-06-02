@@ -76,8 +76,8 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(os.Stdout, "dry-run: sync %s — would delete %d expansion-derived grant(s)%s\n",
-			res.SyncID, res.DerivedDeleted, replaySuffix(replay))
+		_, _ = fmt.Fprintf(os.Stdout, "dry-run: sync %s — would delete %d expansion-derived grant(s) and clear sources on %d direct grant(s)%s%s\n",
+			res.SyncID, res.GrantsDeleted, res.SourcesCleared, suspectSuffix(res.SuspectConnectorSourced), replaySuffix(replay))
 		return nil
 	}
 
@@ -136,8 +136,8 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	}
 	succeeded = true
 
-	_, _ = fmt.Fprintf(os.Stdout, "sync %s rolled back: deleted %d expansion-derived grant(s); wrote %s%s\n",
-		res.SyncID, res.DerivedDeleted, outPath, replaySuffix(replay))
+	_, _ = fmt.Fprintf(os.Stdout, "sync %s rolled back: deleted %d expansion-derived grant(s), cleared sources on %d direct grant(s)%s; wrote %s%s\n",
+		res.SyncID, res.GrantsDeleted, res.SourcesCleared, suspectSuffix(res.SuspectConnectorSourced), outPath, replaySuffix(replay))
 	return nil
 }
 
@@ -190,6 +190,13 @@ func replayExpansion(ctx context.Context, store *dotc1z.C1File, syncID string) e
 func replaySuffix(replay bool) string {
 	if replay {
 		return "; replayed expansion"
+	}
+	return ""
+}
+
+func suspectSuffix(n int) string {
+	if n > 0 {
+		return fmt.Sprintf(" [%d deleted grant(s) carried an is_direct source but no self-source — verify they are not connector-set]", n)
 	}
 	return ""
 }

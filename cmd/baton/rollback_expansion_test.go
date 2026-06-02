@@ -103,31 +103,31 @@ func expandViaSyncer(t *testing.T, ctx context.Context, path, syncID string) {
 }
 
 // buildExpandedFixture produces a finished, expanded, production-shaped
-// c1z (non-empty completed token) and returns (syncID, derivedCount).
+// c1z (non-empty completed token) and returns (syncID, deletedCount).
 func buildExpandedFixture(t *testing.T, ctx context.Context, path string) (string, int) {
 	t.Helper()
 	syncID := buildPreExpansionC1Z(t, ctx, path)
 	expandViaSyncer(t, ctx, path, syncID)
-	return syncID, derivedCount(t, ctx, path, syncID)
+	return syncID, rollbackDeletes(t, ctx, path, syncID)
 }
 
-// derivedCount returns how many expander-derived rows the sync has, via a
-// dry-run rollback (DerivedDeleted counts derived_by_expansion=1 rows).
-func derivedCount(t *testing.T, ctx context.Context, path, syncID string) int {
+// rollbackDeletes returns how many grants a rollback would delete on the
+// sync, via a dry run (GrantsDeleted counts purely expander-derived rows).
+func rollbackDeletes(t *testing.T, ctx context.Context, path, syncID string) int {
 	t.Helper()
 	ro, err := dotc1z.NewC1ZFile(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer ro.Close(ctx)
 	res, err := ro.RollbackExpansion(ctx, syncID, true)
 	require.NoError(t, err)
-	return res.DerivedDeleted
+	return res.GrantsDeleted
 }
 
 func TestRollbackExpansionDryRun(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "src.c1z")
-	syncID, derived := buildExpandedFixture(t, ctx, path)
-	require.Positive(t, derived, "the real syncer expansion must produce at least one derived grant")
+	syncID, deletes := buildExpandedFixture(t, ctx, path)
+	require.Positive(t, deletes, "the real syncer expansion must produce at least one derived grant")
 
 	ro, err := dotc1z.NewC1ZFile(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
@@ -135,7 +135,7 @@ func TestRollbackExpansionDryRun(t *testing.T) {
 	res, err := ro.RollbackExpansion(ctx, syncID, true)
 	require.NoError(t, err)
 	require.True(t, res.DryRun)
-	require.Equal(t, derived, res.DerivedDeleted)
+	require.Equal(t, deletes, res.GrantsDeleted)
 }
 
 func TestRollbackExpansionUnfinishedRefused(t *testing.T) {
@@ -155,22 +155,26 @@ func TestRollbackExpansionCommand(t *testing.T) {
 	tmp := t.TempDir()
 	inPath := filepath.Join(tmp, "src.c1z")
 	outPath := filepath.Join(tmp, "out.c1z")
-	syncID, derived := buildExpandedFixture(t, ctx, inPath)
-	require.Positive(t, derived)
+	syncID, deletes := buildExpandedFixture(t, ctx, inPath)
+	require.Positive(t, deletes)
 
 	require.NoError(t, runRollback(ctx, inPath, "--out", outPath, "--sync-id", syncID))
 	require.FileExists(t, outPath)
 
 	// Input untouched.
-	require.Equal(t, derived, derivedCount(t, ctx, inPath, syncID))
+	require.Equal(t, deletes, rollbackDeletes(t, ctx, inPath, syncID))
 	// Output (no --replay): derived grants gone, synced grants survive —
-	// including the external GrantImmutable (blocker #1) and external
-	// GrantSources (blocker #2) grants and the expandable original.
-	require.Equal(t, 0, derivedCount(t, ctx, outPath, syncID))
+	// including the external GrantImmutable and external GrantSources
+	// grants and the expandable original. A second rollback finds nothing
+	// to delete and nothing to clear.
+	require.Equal(t, 0, rollbackDeletes(t, ctx, outPath, syncID))
 	requireGrantPresence(t, ctx, outPath, syncID, "group:g1:member:group:g2", true) // expandable original
 	requireGrantPresence(t, ctx, outPath, syncID, "group:g2:member:user:alice", true)
 	requireGrantPresence(t, ctx, outPath, syncID, "group:g2:member:user:bob", true) // external + GrantImmutable
 	requireGrantPresence(t, ctx, outPath, syncID, "group:g2:member:group:g2", true) // external + GrantSources
+	// The surviving direct grant that carried a self-source has had its
+	// sources cleared back to the pre-expansion shape.
+	requireGrantSourcesEmpty(t, ctx, outPath, syncID, "group:g2:member:group:g2")
 }
 
 func TestRollbackExpansionRequiresOut(t *testing.T) {
@@ -190,15 +194,143 @@ func TestRollbackExpansionReplayRederives(t *testing.T) {
 	tmp := t.TempDir()
 	inPath := filepath.Join(tmp, "src.c1z")
 	outPath := filepath.Join(tmp, "out.c1z")
-	syncID, derived := buildExpandedFixture(t, ctx, inPath)
-	require.Positive(t, derived)
+	syncID, deletes := buildExpandedFixture(t, ctx, inPath)
+	require.Positive(t, deletes)
 
 	require.NoError(t, runRollback(ctx, inPath, "--out", outPath, "--sync-id", syncID, "--replay"))
 	require.FileExists(t, outPath)
 
-	require.Equal(t, derived, derivedCount(t, ctx, outPath, syncID),
+	require.Equal(t, deletes, rollbackDeletes(t, ctx, outPath, syncID),
 		"replay must restore exactly the derived grants the rollback deleted")
 	requireGrantPresence(t, ctx, outPath, syncID, "group:g1:member:user:alice", true)
+}
+
+// buildSyntheticExpandedC1Z writes a finished, expansion-marked c1z whose
+// grants carry hand-set Sources maps, so each rollback classification case
+// is exercised in isolation without driving the real expander:
+//   - derived: on g1:member, Sources only foreign (g2:member), GrantImmutable → deleted.
+//   - directExpanded: on g2:member, Sources include self (g2:member) → kept, sources cleared.
+//   - plainDirect: on g2:member, no Sources → untouched.
+//   - suspect: on g1:member, Sources only foreign, NO GrantImmutable → deleted + flagged.
+func buildSyntheticExpandedC1Z(t *testing.T, ctx context.Context, path string) string {
+	t.Helper()
+	f, err := dotc1z.NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	require.NoError(t, f.PutResourceTypes(ctx,
+		v2.ResourceType_builder{Id: "group", DisplayName: "Group", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP}}.Build(),
+		v2.ResourceType_builder{Id: "user", DisplayName: "User", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build(),
+	))
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(), DisplayName: "G2"}.Build()
+	alice := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(), DisplayName: "Alice"}.Build()
+	bob := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "bob"}.Build(), DisplayName: "Bob"}.Build()
+	carol := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "carol"}.Build(), DisplayName: "Carol"}.Build()
+	dave := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "dave"}.Build(), DisplayName: "Dave"}.Build()
+	require.NoError(t, f.PutResources(ctx, g1, g2, alice, bob, carol, dave))
+
+	g1Member := v2.Entitlement_builder{Id: "group:g1:member", DisplayName: "g1 member", Resource: g1, Slug: "member"}.Build()
+	g2Member := v2.Entitlement_builder{Id: "group:g2:member", DisplayName: "g2 member", Resource: g2, Slug: "member"}.Build()
+	require.NoError(t, f.PutEntitlements(ctx, g1Member, g2Member))
+
+	immutableAnno, err := anypb.New(v2.GrantImmutable_builder{}.Build())
+	require.NoError(t, err)
+
+	derived := v2.Grant_builder{
+		Id:          "group:g1:member:user:alice",
+		Entitlement: g1Member,
+		Principal:   alice,
+		Annotations: []*anypb.Any{immutableAnno},
+		Sources: v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{
+			"group:g2:member": v2.GrantSources_GrantSource_builder{IsDirect: false}.Build(),
+		}}.Build(),
+	}.Build()
+	directExpanded := v2.Grant_builder{
+		Id:          "group:g2:member:user:bob",
+		Entitlement: g2Member,
+		Principal:   bob,
+		Sources: v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{
+			"group:g2:member": v2.GrantSources_GrantSource_builder{IsDirect: true}.Build(),
+			"group:g1:member": v2.GrantSources_GrantSource_builder{IsDirect: false}.Build(),
+		}}.Build(),
+	}.Build()
+	plainDirect := v2.Grant_builder{
+		Id:          "group:g2:member:user:carol",
+		Entitlement: g2Member,
+		Principal:   carol,
+	}.Build()
+	suspect := v2.Grant_builder{
+		Id:          "group:g1:member:user:dave",
+		Entitlement: g1Member,
+		Principal:   dave,
+		Sources: v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{
+			"group:g2:member": v2.GrantSources_GrantSource_builder{IsDirect: true}.Build(),
+		}}.Build(),
+	}.Build()
+	require.NoError(t, f.PutGrants(ctx, derived, directExpanded, plainDirect, suspect))
+
+	require.NoError(t, f.SetSupportsDiff(ctx, syncID))
+	require.NoError(t, f.EndSync(ctx))
+	require.NoError(t, f.Close(ctx))
+	return syncID
+}
+
+func TestRollbackExpansionClassification(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "src.c1z")
+	syncID := buildSyntheticExpandedC1Z(t, ctx, path)
+
+	// Dry run: counts without mutating.
+	ro, err := dotc1z.NewC1ZFile(ctx, path, dotc1z.WithReadOnly(true))
+	require.NoError(t, err)
+	res, err := ro.RollbackExpansion(ctx, syncID, true)
+	require.NoError(t, err)
+	require.NoError(t, ro.Close(ctx))
+	require.True(t, res.DryRun)
+	require.Equal(t, 2, res.GrantsDeleted, "derived + suspect deleted")
+	require.Equal(t, 1, res.SourcesCleared, "directExpanded cleared")
+	require.Equal(t, 1, res.SuspectConnectorSourced, "suspect lacks GrantImmutable")
+	// Dry run mutated nothing.
+	requireGrantPresence(t, ctx, path, syncID, "group:g1:member:user:alice", true)
+
+	// Real rollback on a writable copy.
+	store, err := dotc1z.NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	res, err = store.RollbackExpansion(ctx, syncID, false)
+	require.NoError(t, err)
+	require.NoError(t, store.Close(ctx))
+	require.Equal(t, 2, res.GrantsDeleted)
+	require.Equal(t, 1, res.SourcesCleared)
+	require.Equal(t, 1, res.SuspectConnectorSourced)
+
+	requireGrantPresence(t, ctx, path, syncID, "group:g1:member:user:alice", false) // derived → deleted
+	requireGrantPresence(t, ctx, path, syncID, "group:g1:member:user:dave", false)  // suspect → deleted
+	requireGrantPresence(t, ctx, path, syncID, "group:g2:member:user:bob", true)    // directExpanded → kept
+	requireGrantPresence(t, ctx, path, syncID, "group:g2:member:user:carol", true)  // plainDirect → untouched
+	requireGrantSourcesEmpty(t, ctx, path, syncID, "group:g2:member:user:bob")
+}
+
+func TestRollbackExpansionNonExpandedRefused(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "src.c1z")
+
+	f, err := dotc1z.NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, f.PutResourceTypes(ctx,
+		v2.ResourceType_builder{Id: "user", DisplayName: "User", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build(),
+	))
+	require.NoError(t, f.EndSync(ctx)) // finished but supports_diff never set
+	require.NoError(t, f.Close(ctx))
+
+	store, err := dotc1z.NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	defer store.Close(ctx)
+	_, err = store.RollbackExpansion(ctx, syncID, false)
+	require.ErrorIs(t, err, dotc1z.ErrSyncNotExpanded)
 }
 
 func runRollback(ctx context.Context, inPath string, args ...string) error {
@@ -212,24 +344,35 @@ func runRollback(ctx context.Context, inPath string, args ...string) error {
 
 func requireGrantPresence(t *testing.T, ctx context.Context, path, syncID, grantID string, want bool) {
 	t.Helper()
+	_, found := loadGrant(t, ctx, path, syncID, grantID)
+	require.Equalf(t, want, found, "grant %q presence in %s", grantID, filepath.Base(path))
+}
+
+func requireGrantSourcesEmpty(t *testing.T, ctx context.Context, path, syncID, grantID string) {
+	t.Helper()
+	g, found := loadGrant(t, ctx, path, syncID, grantID)
+	require.Truef(t, found, "grant %q expected present in %s", grantID, filepath.Base(path))
+	require.Emptyf(t, g.GetSources().GetSources(), "grant %q sources should be cleared", grantID)
+}
+
+func loadGrant(t *testing.T, ctx context.Context, path, syncID, grantID string) (*v2.Grant, bool) {
+	t.Helper()
 	ro, err := dotc1z.NewC1ZFile(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer ro.Close(ctx)
 	require.NoError(t, ro.SetCurrentSync(ctx, syncID))
-	found := false
 	pageToken := ""
 	for {
 		resp, err := ro.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 1000, PageToken: pageToken}.Build())
 		require.NoError(t, err)
 		for _, g := range resp.GetList() {
 			if g.GetId() == grantID {
-				found = true
+				return g, true
 			}
 		}
 		if resp.GetNextPageToken() == "" {
-			break
+			return nil, false
 		}
 		pageToken = resp.GetNextPageToken()
 	}
-	require.Equalf(t, want, found, "grant %q presence in %s", grantID, filepath.Base(path))
 }
