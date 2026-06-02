@@ -852,12 +852,18 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		l.Info("Removed old sync data.", zap.String("sync_id", id))
 	}
 
-	l.Debug("vacuuming database")
-	err = c.Vacuum(ctx)
-	if err != nil {
-		return wrapSqliteInterruptError(err)
+	if c.skipVacuum {
+		l.Info("skip_vacuum option is set, skipping VACUUM in Cleanup",
+			zap.String("db_file_path", c.dbFilePath),
+		)
+	} else {
+		l.Debug("vacuuming database")
+		err = c.Vacuum(ctx)
+		if err != nil {
+			return wrapSqliteInterruptError(err)
+		}
+		l.Debug("vacuum complete")
 	}
-	l.Debug("vacuum complete")
 
 	c.dbUpdated = true
 

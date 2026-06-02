@@ -70,6 +70,7 @@ type C1File struct {
 	// Sync cleanup settings
 	syncLimit   int
 	skipCleanup bool
+	skipVacuum  bool
 
 	// See WithC1FV2GrantsWriter.
 	v2GrantsWriter bool
@@ -133,6 +134,25 @@ func WithC1FEncoderConcurrency(concurrency int) C1FOption {
 func WithC1FSkipCleanup(skip bool) C1FOption {
 	return func(o *C1File) {
 		o.skipCleanup = skip
+	}
+}
+
+// WithC1FSkipVacuum skips the VACUUM step at the end of Cleanup() when set to
+// true. The old-sync delete and WAL truncate inside Cleanup still run.
+//
+// Low-level option for callers operating on a [C1File] directly. Most callers
+// should use [WithSkipVacuum] on [NewC1ZFile] instead, which propagates this
+// setting through the C1Z constructor.
+//
+// Trade-off: skipping VACUUM leaves freed pages on the SQLite freelist instead
+// of reclaiming them, so the c1z file on disk grows across syncs with no upper
+// bound until a real VACUUM runs. Use when the file is consumed immediately
+// and re-encoded (e.g. iterative compaction); avoid when the c1z is intended
+// to sit at rest or be read repeatedly. See also [WithC1FSkipCleanup] to skip
+// the whole Cleanup step instead.
+func WithC1FSkipVacuum(skip bool) C1FOption {
+	return func(o *C1File) {
+		o.skipVacuum = skip
 	}
 }
 
@@ -249,6 +269,7 @@ type c1zOptions struct {
 	encoderConcurrency int
 	syncLimit          int
 	skipCleanup        bool
+	skipVacuum         bool
 	v2GrantsWriter     bool
 
 	// engine is the storage engine to use for newly created files.
@@ -305,6 +326,22 @@ func WithEncoderConcurrency(concurrency int) C1ZOption {
 func WithSkipCleanup(skip bool) C1ZOption {
 	return func(o *c1zOptions) {
 		o.skipCleanup = skip
+	}
+}
+
+// WithSkipVacuum skips the VACUUM step at the end of Cleanup() when set to
+// true. The old-sync delete and WAL truncate inside Cleanup still run.
+//
+// Trade-off: skipping VACUUM leaves freed pages on the SQLite freelist instead
+// of reclaiming them, so the c1z file on disk grows across syncs with no upper
+// bound until a real VACUUM runs. Use when the file is consumed immediately
+// and re-encoded (e.g. iterative compaction where the output is supplanted on
+// the next iteration); avoid when the c1z is intended to sit at rest or be
+// read repeatedly. No effect when [WithSkipCleanup] is also set, since
+// Cleanup returns early in that case.
+func WithSkipVacuum(skip bool) C1ZOption {
+	return func(o *c1zOptions) {
+		o.skipVacuum = skip
 	}
 }
 
@@ -388,6 +425,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	}
 	if options.skipCleanup {
 		c1fopts = append(c1fopts, WithC1FSkipCleanup(true))
+	}
+	if options.skipVacuum {
+		c1fopts = append(c1fopts, WithC1FSkipVacuum(true))
 	}
 	if options.v2GrantsWriter {
 		c1fopts = append(c1fopts, WithC1FV2GrantsWriter(true))
