@@ -568,6 +568,7 @@ func (c *C1File) finalize(ctx context.Context) error {
 		attribute.Int64("c1z.finalize.timeout_seconds", int64(timeout.Seconds())),
 		attribute.String("c1z.finalize.db_path", c.dbFilePath),
 	)
+	uotel.SetSyncIdentityAttrs(finalizeCtx, finalizeSpan)
 
 	l := ctxzap.Extract(finalizeCtx)
 
@@ -641,6 +642,7 @@ func (c *C1File) finalize(ctx context.Context) error {
 	}
 	if outInfo, statErr := os.Stat(c.outputFilePath); statErr == nil {
 		finalizeSpan.SetAttributes(attribute.Int64("c1z.finalize.output_bytes", outInfo.Size()))
+		recordC1ZSize(finalizeCtx, "finalize", outInfo.Size())
 	}
 
 	if err := cleanupDbDir(c.dbFilePath, nil); err != nil {

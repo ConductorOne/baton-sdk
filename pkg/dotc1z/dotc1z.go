@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
 
@@ -39,7 +40,30 @@ var (
 	// WithAttributeSet on a shared Set is allocation-free.
 	slimWriteAttrTrue  = metric.WithAttributeSet(attribute.NewSet(attribute.Bool("slim", true)))
 	slimWriteAttrFalse = metric.WithAttributeSet(attribute.NewSet(attribute.Bool("slim", false)))
+
+	// On-disk c1z size, recorded after vacuum and finalize. Tagged by
+	// catalog_name only — connector_id is too high-cardinality for a metric
+	// and is available per-connector on the spans instead. The phase attribute
+	// separates the post-VACUUM uncompressed db ("vacuum") from the compressed
+	// output file ("finalize").
+	c1zSizeGauge, _ = meter.Int64Gauge(
+		"c1z_size_bytes",
+		metric.WithDescription("On-disk c1z size in bytes. Attributes: phase (vacuum|finalize), catalog_name."),
+		metric.WithUnit("By"),
+	)
 )
+
+// recordC1ZSize emits the c1z size gauge for phase, tagged by catalog_name when known.
+func recordC1ZSize(ctx context.Context, phase string, sizeBytes int64) {
+	if sizeBytes <= 0 {
+		return
+	}
+	attrs := []attribute.KeyValue{attribute.String("phase", phase)}
+	if id, ok := uotel.SyncIdentityFromContext(ctx); ok && id.CatalogName != "" {
+		attrs = append(attrs, attribute.String("catalog_name", id.CatalogName))
+	}
+	c1zSizeGauge.Record(ctx, sizeBytes, metric.WithAttributes(attrs...))
+}
 
 // NewC1FileReader returns a connectorstore.Reader implementation for the given sqlite db file path.
 func NewC1FileReader(ctx context.Context, dbFilePath string, opts ...C1FOption) (connectorstore.Reader, error) {
