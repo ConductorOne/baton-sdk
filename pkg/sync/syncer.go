@@ -3000,15 +3000,12 @@ func WithWorkerCount(count int) SyncOpt {
 
 // WithSyncIdentity stamps connector identity onto sync and dotc1z spans (and
 // the c1z size metric) so a single connector's work is filterable in APM.
-// Keys match the pprof.Do labels set by the platform sync activity.
-func WithSyncIdentity(tenantID, connectorID, catalogID, catalogName string) SyncOpt {
+// Attribute keys match the pprof.Do labels set by the platform sync activity,
+// so spans and CPU profiles line up. Sync injects this into the run context
+// via uotel.WithSyncIdentity, which is how it reaches dotc1z spans too.
+func WithSyncIdentity(id uotel.SyncIdentity) SyncOpt {
 	return func(s *syncer) {
-		s.syncIdentity = uotel.SyncIdentity{
-			TenantID:    tenantID,
-			ConnectorID: connectorID,
-			CatalogID:   catalogID,
-			CatalogName: catalogName,
-		}
+		s.syncIdentity = id
 	}
 }
 

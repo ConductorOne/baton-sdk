@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func TestSyncIdentityAttrs(t *testing.T) {
@@ -30,8 +31,11 @@ func TestSyncIdentityAttrs(t *testing.T) {
 	t.Run("empty fields omitted", func(t *testing.T) {
 		id := SyncIdentity{ConnectorID: "c1"}
 		got := id.Attrs()
-		if len(got) != 1 || got[0].Key != "connector_id" {
-			t.Fatalf("expected only connector_id, got %v", got)
+		if len(got) != 1 {
+			t.Fatalf("expected 1 attr, got %d: %v", len(got), got)
+		}
+		if got[0].Key != "connector_id" || got[0].Value.AsString() != "c1" {
+			t.Errorf("expected connector_id=c1, got %s=%q", got[0].Key, got[0].Value.AsString())
 		}
 	})
 
@@ -63,4 +67,53 @@ func TestSyncIdentityContextRoundTrip(t *testing.T) {
 	if _, ok := SyncIdentityFromContext(context.Background()); ok {
 		t.Error("bare context should not carry identity")
 	}
+}
+
+// TestSetSyncIdentityAttrs is the regression guard for the span-stamping path
+// that every sync/dotc1z span relies on: break the ctx-propagation chain and
+// spans silently lose all identity attributes with no other test failing.
+func TestSetSyncIdentityAttrs(t *testing.T) {
+	t.Run("stamps span when ctx carries identity", func(t *testing.T) {
+		rec := &recordingProcessor{}
+		tr := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)).Tracer("test")
+
+		id := SyncIdentity{TenantID: "t1", ConnectorID: "c1", CatalogID: "cat1", CatalogName: "okta"}
+		ctx, span := tr.Start(WithSyncIdentity(context.Background(), id), "test.span")
+		SetSyncIdentityAttrs(ctx, span)
+		span.End()
+
+		got := findSpan(rec, "test.span")
+		if got == nil {
+			t.Fatal("span not recorded")
+		}
+		attrs := map[attribute.Key]string{}
+		for _, a := range got.Attributes() {
+			attrs[a.Key] = a.Value.AsString()
+		}
+		for _, want := range id.Attrs() {
+			if attrs[want.Key] != want.Value.AsString() {
+				t.Errorf("attr %s = %q, want %q", want.Key, attrs[want.Key], want.Value.AsString())
+			}
+		}
+	})
+
+	t.Run("no-op when ctx carries no identity", func(t *testing.T) {
+		rec := &recordingProcessor{}
+		tr := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)).Tracer("test")
+
+		_, span := tr.Start(context.Background(), "test.noop")
+		SetSyncIdentityAttrs(context.Background(), span)
+		span.End()
+
+		got := findSpan(rec, "test.noop")
+		if got == nil {
+			t.Fatal("span not recorded")
+		}
+		for _, a := range got.Attributes() {
+			switch a.Key {
+			case "tenant_id", "connector_id", "catalog_id", "catalog_name":
+				t.Errorf("unexpected identity attr %s on span with no identity in ctx", a.Key)
+			}
+		}
+	})
 }

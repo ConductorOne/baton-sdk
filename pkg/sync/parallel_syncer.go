@@ -286,7 +286,8 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 		attribute.Int("sync.worker_count", s.workerCount),
 	)
 	uotel.SetSyncIdentityAttrs(ctx, span)
-	defer span.End()
+	var batchErr error
+	defer func() { uotel.EndSpanWithError(span, batchErr) }()
 
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -328,7 +329,8 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 		}
 	}
 
-	return warnings, errors.Join(errs...)
+	batchErr = errors.Join(errs...)
+	return warnings, batchErr
 }
 
 // syncOneAction processes a single action to completion,

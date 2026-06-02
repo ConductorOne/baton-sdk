@@ -19,6 +19,7 @@ type SyncIdentity struct {
 	CatalogName string
 }
 
+// IsZero reports whether id has no fields set.
 func (id SyncIdentity) IsZero() bool {
 	return id == SyncIdentity{}
 }
@@ -43,7 +44,9 @@ func (id SyncIdentity) Attrs() []attribute.KeyValue {
 
 type syncIdentityKey struct{}
 
-// WithSyncIdentity returns a context carrying id for downstream span stamping.
+// WithSyncIdentity returns a child of ctx carrying id. It only stores the
+// identity; spans are stamped where SetSyncIdentityAttrs(ctx, span) is called,
+// not here.
 func WithSyncIdentity(ctx context.Context, id SyncIdentity) context.Context {
 	return context.WithValue(ctx, syncIdentityKey{}, id)
 }

@@ -1027,7 +1027,7 @@ func (c *C1File) Vacuum(ctx context.Context) error {
 		return err
 	}
 
-	sizeBefore, _ := c.CurrentDBSizeBytes()
+	sizeBefore, sizeBeforeErr := c.CurrentDBSizeBytes()
 
 	_, err = c.rawDb.ExecContext(ctx, "VACUUM")
 	if err != nil {
@@ -1036,12 +1036,16 @@ func (c *C1File) Vacuum(ctx context.Context) error {
 
 	sizeAfter, sizeErr := c.CurrentDBSizeBytes()
 	if sizeErr == nil {
-		span.SetAttributes(
-			attribute.Int64("c1z.vacuum.size_before_bytes", sizeBefore),
-			attribute.Int64("c1z.vacuum.size_after_bytes", sizeAfter),
-			attribute.Int64("c1z.vacuum.reclaimed_bytes", sizeBefore-sizeAfter),
-		)
+		span.SetAttributes(attribute.Int64("c1z.vacuum.size_after_bytes", sizeAfter))
 		recordC1ZSize(ctx, "vacuum", sizeAfter)
+		// reclaimed_bytes is only meaningful with a valid pre-VACUUM size;
+		// a failed sizeBefore returns 0 and would emit negative reclaimed.
+		if sizeBeforeErr == nil {
+			span.SetAttributes(
+				attribute.Int64("c1z.vacuum.size_before_bytes", sizeBefore),
+				attribute.Int64("c1z.vacuum.reclaimed_bytes", sizeBefore-sizeAfter),
+			)
+		}
 	}
 
 	c.dbUpdated = true
