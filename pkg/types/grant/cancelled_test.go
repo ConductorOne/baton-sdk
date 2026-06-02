@@ -62,3 +62,19 @@ func TestGrantCancelledReasonFromStatus_NoMarker(t *testing.T) {
 	require.False(t, ok)
 	require.Empty(t, reason)
 }
+
+func TestStatusForGrantCancelledError(t *testing.T) {
+	st, ok := StatusForGrantCancelledError(errors.Join(errors.New("wrapper"), NewErrGrantCancelled("reject_if reason")))
+	require.True(t, ok)
+	require.Equal(t, codes.Unknown, st.Code())
+
+	reason, ok := GrantCancelledReasonFromStatus(st.Proto())
+	require.True(t, ok)
+	require.Equal(t, "reject_if reason", reason)
+}
+
+func TestStatusForGrantCancelledError_NotCancelled(t *testing.T) {
+	st, ok := StatusForGrantCancelledError(errors.New("ordinary error"))
+	require.False(t, ok)
+	require.Nil(t, st)
+}

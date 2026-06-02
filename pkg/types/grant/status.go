@@ -76,6 +76,27 @@ func StatusWithGrantCancelledErrorInfo(st *status.Status, reason string) (*statu
 	return st.WithDetails(GrantCancelledErrorInfo(reason))
 }
 
+// StatusForGrantCancelledError translates a grant-cancellation Go error into the
+// on-the-wire status that carries the marker, reporting whether err (or anything
+// it wraps) was a grant cancellation. It is the single encoder shared by every
+// connector server boundary (the lambda transport and the subprocess connector
+// transport) so the marker is emitted identically regardless of how a connector
+// is deployed.
+func StatusForGrantCancelledError(err error) (*status.Status, bool) {
+	reason, ok := GrantCancelledReasonFromError(err)
+	if !ok {
+		return nil, false
+	}
+	st, detailErr := StatusWithGrantCancelledErrorInfo(nil, reason)
+	if detailErr != nil {
+		// WithDetails only fails for codes.OK and this status is codes.Unknown,
+		// so this is practically unreachable. Degrade to a detail-less status
+		// rather than dropping the failure entirely.
+		return status.New(codes.Unknown, reason), true
+	}
+	return st, true
+}
+
 func NormalizeGrantCancelledReason(reason string) string {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {

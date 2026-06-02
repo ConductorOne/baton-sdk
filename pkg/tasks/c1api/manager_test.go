@@ -479,7 +479,7 @@ func TestProcessRemovesKnownTaskID(t *testing.T) {
 	}
 }
 
-func TestFinishTaskGrantCancelledAddsStatusDetail(t *testing.T) {
+func TestFinishTaskForwardsGrantCancelledStatusDetail(t *testing.T) {
 	sc := newFakeBatonServiceClient(nil)
 	mgr := newTestManager(sc)
 	task := v1.Task_builder{
@@ -487,8 +487,17 @@ func TestFinishTaskGrantCancelledAddsStatusDetail(t *testing.T) {
 		Grant: v1.Task_GrantTask_builder{}.Build(),
 	}.Build()
 
-	err := mgr.finishTask(context.Background(), task, nil, nil, errors.Join(grant.NewErrGrantCancelled("reject_if reason"), ErrTaskNonRetryable))
+	// Mirror the real call chain: cc.Grant returns a gRPC status that already
+	// carries the grant-cancellation marker (encoded at the connector's gRPC
+	// boundary), and the grant task handler joins it with ErrTaskNonRetryable
+	// before finishing. finishTask must forward those status details to C1.
+	st, err := grant.StatusWithGrantCancelledErrorInfo(status.New(codes.Unknown, "reject_if reason"), "reject_if reason")
 	if err != nil {
+		t.Fatalf("build status: %v", err)
+	}
+	taskError := errors.Join(st.Err(), ErrTaskNonRetryable)
+
+	if err := mgr.finishTask(context.Background(), task, nil, nil, taskError); err != nil {
 		t.Fatalf("finishTask: %v", err)
 	}
 	if len(sc.finishReqs) != 1 {

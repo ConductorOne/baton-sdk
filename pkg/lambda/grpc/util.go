@@ -185,11 +185,7 @@ func ErrorResponse(err error) *Response {
 // statusForApplicationError mirrors the transient network handling in uhttp for
 // connector SDK clients that bypass the Baton HTTP wrapper.
 func statusForApplicationError(err error) *status.Status {
-	if reason, ok := grant.GrantCancelledReasonFromError(err); ok {
-		st, detailErr := grant.StatusWithGrantCancelledErrorInfo(status.New(codes.Unknown, reason), reason)
-		if detailErr != nil {
-			return status.New(codes.Unknown, reason)
-		}
+	if st, ok := grant.StatusForGrantCancelledError(err); ok {
 		return st
 	}
 

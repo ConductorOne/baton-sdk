@@ -215,7 +215,7 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 
 	server := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
-		grpc.ChainUnaryInterceptor(ugrpc.UnaryServerInterceptor(ctx)...),
+		grpc.ChainUnaryInterceptor(ugrpc.UnaryServerInterceptor(ctx, grantCancelledStatusUnaryServerInterceptor())...),
 		grpc.ChainStreamInterceptor(ugrpc.StreamServerInterceptors(ctx)...),
 		grpc.StatsHandler(otelgrpc.NewServerHandler(
 			otelgrpc.WithPropagators(
