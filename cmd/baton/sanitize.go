@@ -125,9 +125,13 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	if err := c1zsanitize.Sanitize(ctx, src, dst, opts); err != nil {
 		return fmt.Errorf("sanitize: %w", err)
 	}
+	// Close on the success path flushes and zstd-compresses the sqlite
+	// output, so a Close failure means the .c1z is incomplete/corrupt —
+	// surface it rather than exit 0 with a broken file. The deferred close
+	// above stays as a safety net for the error-return paths only.
 	dstClosed = true
 	if err := dst.Close(ctx); err != nil {
-		return fmt.Errorf("close dst c1z: %w", err)
+		return fmt.Errorf("failed to finalize output c1z: %w", err)
 	}
 	log.Info("c1zsanitize: done", zap.Duration("elapsed", time.Since(start)))
 	return nil
