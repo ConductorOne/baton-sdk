@@ -901,14 +901,18 @@ func executeGrantChunkedUpsert(
 			"expansion":       expansionExpr,
 			"needs_expansion": needsExpansionExpr,
 		}
-		// PreserveExpansion (the expander) must keep the existing
-		// derived_by_expansion on conflict: an in-place mutation of a
-		// pre-existing synced grant must not be re-labeled as derived, and
-		// re-storing an already-derived row keeps it derived. Replace mode
-		// (a connector sync) overwrites it, so a re-synced grant is no
-		// longer considered derived.
-		if mode != grantUpsertModePreserveExpansion {
+		// On conflict, only an explicit replace overwrites
+		// derived_by_expansion (a connector re-sync makes the row no
+		// longer derived). Every other mode keeps the existing value:
+		// PreserveExpansion must not re-label a pre-existing synced grant
+		// it mutates in place, and an already-derived row must stay
+		// derived. A new mode must opt into overwriting consciously rather
+		// than clobbering the flag by falling through.
+		switch mode {
+		case grantUpsertModeReplace:
 			update["derived_by_expansion"] = goqu.L("EXCLUDED.derived_by_expansion")
+		default:
+			// keep existing derived_by_expansion
 		}
 		return insertDs.
 			OnConflict(goqu.DoUpdate("external_id, sync_id", update)).

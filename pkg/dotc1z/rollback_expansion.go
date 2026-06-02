@@ -87,11 +87,28 @@ func (c *C1File) RollbackExpansion(ctx context.Context, syncID string, dryRun bo
 		return nil, err
 	}
 	deleteQuery := fmt.Sprintf("DELETE FROM %s WHERE derived_by_expansion = 1 AND sync_id = ?", tableName)
-	if _, err := tx.ExecContext(ctx, deleteQuery, syncID); err != nil {
-		if rbErr := tx.Rollback(); rbErr != nil {
-			return nil, errors.Join(rbErr, err)
+	// Clearing the sync token leaves the sync ready to be re-expanded.
+	// A completed sync's token persists a finished state with an empty
+	// action queue; on replay the syncer would resume that token, find
+	// nothing to do, and exit without expanding. An empty token instead
+	// makes the syncer seed a fresh InitOp, which pushes the grant-
+	// expansion step. Done in the same transaction as the delete so the
+	// rollback is all-or-nothing.
+	resetTokenQuery := fmt.Sprintf("UPDATE %s SET sync_token = '' WHERE sync_id = ?", syncRuns.Name())
+	txErr := func() error {
+		if _, err := tx.ExecContext(ctx, deleteQuery, syncID); err != nil {
+			return err
 		}
-		return nil, fmt.Errorf("c1z: rollback delete failed: %w", err)
+		if _, err := tx.ExecContext(ctx, resetTokenQuery, syncID); err != nil {
+			return err
+		}
+		return nil
+	}()
+	if txErr != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return nil, errors.Join(rbErr, txErr)
+		}
+		return nil, fmt.Errorf("c1z: rollback failed: %w", txErr)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err

@@ -94,6 +94,17 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("clone to --out: %w", cloneErr)
 	}
 
+	// CloneSync has already written outPath. If anything downstream
+	// fails, remove the partial output so an identical retry isn't
+	// blocked by CloneSync refusing an existing path. Cleared once the
+	// output is finalized successfully.
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			_ = os.Remove(outPath)
+		}
+	}()
+
 	store, err := dotc1z.NewC1ZFile(ctx, outPath)
 	if err != nil {
 		return fmt.Errorf("open --out c1z: %w", err)
@@ -123,6 +134,7 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	if err := store.Close(ctx); err != nil {
 		return fmt.Errorf("finalize %q: %w", outPath, err)
 	}
+	succeeded = true
 
 	_, _ = fmt.Fprintf(os.Stdout, "sync %s rolled back: deleted %d expansion-derived grant(s); wrote %s%s\n",
 		res.SyncID, res.DerivedDeleted, outPath, replaySuffix(replay))
