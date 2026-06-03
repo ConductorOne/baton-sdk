@@ -36,6 +36,7 @@ func main() {
 	cliCmd.AddCommand(optimizeDb())
 	cliCmd.AddCommand(explorerCmd())
 	cliCmd.AddCommand(sanitizeCmd())
+	cliCmd.AddCommand(rollbackExpansionCmd())
 
 	err := cliCmd.ExecuteContext(ctx)
 	if err != nil {
