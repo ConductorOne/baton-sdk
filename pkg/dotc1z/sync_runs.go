@@ -28,6 +28,10 @@ import (
 
 const syncRunsTableVersion = "1"
 const syncRunsTableName = "sync_runs"
+
+// deleteSyncRunBatchSize bounds each DELETE in DeleteSyncRun so progress
+// commits incrementally and survives an interrupted/retried cleanup.
+const deleteSyncRunBatchSize = 50000
 const syncRunsTableSchema = `
 create table if not exists %s (
     id integer primary key,
@@ -901,20 +905,35 @@ func (c *C1File) DeleteSyncRun(ctx context.Context, syncID string) error {
 		return fmt.Errorf("unable to delete the current active sync run")
 	}
 
+	// Delete in bounded, individually-committed batches instead of one
+	// unbounded DELETE per table. A single DELETE over a multi-million-row
+	// table is one transaction: if the activity deadline fires mid-statement
+	// SQLite rolls it back, so the retry makes zero forward progress and
+	// cleanup loops until the connector's c1z is abandoned. Batching commits
+	// incrementally (each ExecContext autocommits), so a retry resumes where
+	// the previous attempt left off. Batches are also faster than one giant
+	// transaction (smaller per-commit journal and index churn).
+	l := ctxzap.Extract(ctx)
+	var deleted int64
 	for _, t := range allTableDescriptors {
-		q := c.db.Delete(t.Name())
-		q = q.Where(goqu.C("sync_id").Eq(syncID))
-
-		query, args, err := q.ToSQL()
-		if err != nil {
-			return fmt.Errorf("failed to create delete query for sync run: %w", err)
-		}
-
-		_, err = c.db.ExecContext(ctx, query, args...)
-		if err != nil {
-			return fmt.Errorf("failed to execute delete query for sync run: %w", err)
+		stmt := fmt.Sprintf(
+			"delete from %s where id in (select id from %s where sync_id = ? limit %d)",
+			t.Name(), t.Name(), deleteSyncRunBatchSize,
+		)
+		for {
+			res, execErr := c.db.ExecContext(ctx, stmt, syncID)
+			if execErr != nil {
+				err = fmt.Errorf("failed to execute delete query for sync run: %w", execErr)
+				return err
+			}
+			n, _ := res.RowsAffected()
+			deleted += n
+			if n == 0 {
+				break
+			}
 		}
 	}
+	l.Debug("deleted sync run", zap.String("sync_id", syncID), zap.Int64("rows", deleted))
 	c.dbUpdated = true
 
 	return nil
