@@ -1127,8 +1127,10 @@ func (c *C1File) cleanupByRebuild(ctx context.Context) error {
 		return err
 	}
 
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		_ = os.Remove(oldPath + suffix)
+	// Remove the old database and its now-empty temp dir (same as finalize's
+	// cleanupDbDir). Best-effort — the new db is already adopted.
+	if cleanupErr := cleanupDbDir(oldPath, nil); cleanupErr != nil {
+		l.Warn("cleanup-rebuild: error removing old database dir", zap.Error(cleanupErr))
 	}
 
 	l.Info("cleanup-rebuild: rebuilt c1z keeping recent syncs",
