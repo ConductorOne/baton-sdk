@@ -973,8 +973,13 @@ func (c *C1File) deleteFromTable(ctx context.Context, tableName string, syncID s
 // cleanupByRebuild implements the rebuild cleanup strategy: rather than
 // deleting old syncs' rows in place and VACUUMing, it copies the kept syncs
 // into a fresh database and repoints this C1File at it. Cost scales with the
-// kept set (small), not the deleted set, and the result is compact in one
-// step — no VACUUM. The discarded old database file is removed.
+// kept set, not the deleted set, and the result is compact in one step — no
+// VACUUM. The discarded old database file is removed.
+//
+// The per-table copy is one INSERT..SELECT (an unbounded transaction). The
+// kept set is O(syncLimit) syncs (default 2), so this is small in the case
+// this strategy targets; raising syncLimit substantially, or keeping a very
+// large sync, makes the copy a correspondingly large transaction.
 //
 // Keep selection matches the in-place path (SelectSyncsToDelete); only the
 // mechanism differs.
@@ -1047,6 +1052,8 @@ func (c *C1File) cleanupByRebuild(ctx context.Context) error {
 	if err := initFile.rawDb.Close(); err != nil {
 		return err
 	}
+	initFile.rawDb = nil
+	initFile.db = nil
 
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(keepIDs)), ",")
 	args := make([]interface{}, len(keepIDs))
@@ -1086,23 +1093,38 @@ func (c *C1File) cleanupByRebuild(ctx context.Context) error {
 	_ = conn.Close()
 
 	// Repoint this C1File at the compact database. Close the old handle first
-	// so no connection holds the old file, then open the new one with the same
-	// single-connection setup NewC1File uses.
+	// so no connection holds the old file, then open the new one. On any error
+	// before the new handle is wired up, nil out rawDb/db so a later Close()
+	// takes the safe nil path instead of double-closing / removing the original
+	// backing dir.
 	oldPath := c.dbFilePath
 	if err := c.rawDb.Close(); err != nil {
+		c.rawDb = nil
+		c.db = nil
 		return err
 	}
 	newRaw, err := sql.Open("sqlite", newPath)
 	if err != nil {
+		c.rawDb = nil
+		c.db = nil
 		return err
 	}
 	newRaw.SetMaxOpenConns(1)
 	c.rawDb = newRaw
 	c.db = goqu.New("sqlite3", newRaw)
 	c.dbFilePath = newPath
+	// The new db is now the live one: keep its tmpDir (set rebuilt before init
+	// so a pragma failure below doesn't delete the adopted db out from under us).
+	rebuilt = true
 	c.dbUpdated = true
 	c.invalidateCachedViewSyncRun()
-	rebuilt = true
+
+	// Re-run init on the new handle so the session pragmas (locking_mode,
+	// synchronous, journal_mode, caller pragmas) match a normally-opened
+	// C1File. InitTables is idempotent — the schema already exists.
+	if err := c.init(ctx); err != nil {
+		return err
+	}
 
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		_ = os.Remove(oldPath + suffix)
