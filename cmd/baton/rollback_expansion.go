@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -25,6 +27,8 @@ func rollbackExpansionCmd() *cobra.Command {
 	cmd.Flags().String("out", "", "Path to write the rolled-back c1z to (required for a write; the input file is never modified).")
 	cmd.Flags().Bool("dry-run", false, "Report what would change without modifying anything.")
 	cmd.Flags().Bool("replay", false, "Re-run grant expansion over the rolled-back c1z (recommended; without it the output is missing its expanded grants).")
+	cmd.Flags().Bool("preserve-suspect-grants", false, "Keep suspect connector-sourced grants instead of deleting them; avoids dropping real connector data (default: delete).")
+	cmd.Flags().Bool("validate", false, "After --replay, fail if any grant's Sources differ before vs after. Requires --replay; default off (default rollback clears connector-set Sources).")
 	return cmd
 }
 
@@ -54,6 +58,21 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	preserveSuspect, err := cmd.Flags().GetBool("preserve-suspect-grants")
+	if err != nil {
+		return err
+	}
+	validate, err := cmd.Flags().GetBool("validate")
+	if err != nil {
+		return err
+	}
+	if validate && !replay {
+		return fmt.Errorf("--validate requires --replay (without re-deriving, deleted grants cannot be compared)")
+	}
+	var rollbackOpts []dotc1z.RollbackOption
+	if preserveSuspect {
+		rollbackOpts = append(rollbackOpts, dotc1z.WithPreserveSuspectGrants())
+	}
 
 	if !dryRun && outPath == "" {
 		return fmt.Errorf("--out is required to write a rolled-back c1z; the input is never modified — pass --dry-run to preview")
@@ -72,12 +91,12 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("open c1z: %w", err)
 		}
 		defer ro.Close(ctx)
-		res, err := ro.RollbackExpansion(ctx, syncID, true)
+		res, err := ro.RollbackExpansion(ctx, syncID, true, rollbackOpts...)
 		if err != nil {
 			return err
 		}
 		_, _ = fmt.Fprintf(os.Stdout, "dry-run: sync %s — would delete %d expansion-derived grant(s) and clear sources on %d direct grant(s)%s%s\n",
-			res.SyncID, res.GrantsDeleted, res.SourcesCleared, suspectSuffix(res.SuspectConnectorSourced), replaySuffix(replay))
+			res.SyncID, res.GrantsDeleted, res.SourcesCleared, suspectSuffix(res), replaySuffix(replay))
 		return nil
 	}
 
@@ -87,6 +106,19 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	src, err := dotc1z.NewC1ZFile(ctx, inPath, dotc1z.WithReadOnly(true))
 	if err != nil {
 		return fmt.Errorf("open c1z: %w", err)
+	}
+	// Capture each grant's Sources BEFORE rollback so the replay round trip
+	// can be validated: replay re-derives exactly what rollback removed, so
+	// every grant's Sources must be identical before and after. Only
+	// meaningful on the replay path (without replay the grants are deleted,
+	// not re-derived).
+	var preSources map[string]string
+	if validate {
+		preSources, err = src.GrantSourcesForSync(ctx, syncID)
+		if err != nil {
+			_ = src.Close(ctx)
+			return fmt.Errorf("capture pre-rollback grant sources: %w", err)
+		}
 	}
 	cloneErr := src.CloneSync(ctx, outPath, syncID)
 	_ = src.Close(ctx)
@@ -116,7 +148,7 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 		}
 	}()
 
-	res, err := store.RollbackExpansion(ctx, syncID, false)
+	res, err := store.RollbackExpansion(ctx, syncID, false, rollbackOpts...)
 	if err != nil {
 		return err
 	}
@@ -124,6 +156,21 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	if replay {
 		if err := replayExpansion(ctx, store, syncID); err != nil {
 			return fmt.Errorf("replay expansion: %w", err)
+		}
+		// Validate the round trip when asked: every grant's Sources must be
+		// identical before rollback and after replay. A divergence means the
+		// replay did not faithfully reproduce the original expansion — fail
+		// without finalizing so the partial output is removed.
+		if validate {
+			postSources, err := store.GrantSourcesForSync(ctx, syncID)
+			if err != nil {
+				return fmt.Errorf("capture post-replay grant sources: %w", err)
+			}
+			if diffs := compareGrantSources(preSources, postSources); len(diffs) > 0 {
+				return fmt.Errorf("rollback+replay changed grant sources (%d divergence(s)); output not finalized:\n%s",
+					len(diffs), strings.Join(capLines(diffs, 20), "\n"))
+			}
+			_, _ = fmt.Fprintf(os.Stderr, "validation: %d grant source set(s) identical before and after replay\n", len(postSources))
 		}
 	} else {
 		_, _ = fmt.Fprintln(os.Stderr,
@@ -137,8 +184,43 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	succeeded = true
 
 	_, _ = fmt.Fprintf(os.Stdout, "sync %s rolled back: deleted %d expansion-derived grant(s), cleared sources on %d direct grant(s)%s; wrote %s%s\n",
-		res.SyncID, res.GrantsDeleted, res.SourcesCleared, suspectSuffix(res.SuspectConnectorSourced), outPath, replaySuffix(replay))
+		res.SyncID, res.GrantsDeleted, res.SourcesCleared, suspectSuffix(res), outPath, replaySuffix(replay))
 	return nil
+}
+
+// compareGrantSources reports every grant whose Sources differ between the
+// pre-rollback and post-replay snapshots: dropped (present before, gone
+// after), added (present after, not before), or changed. An empty result
+// means the round trip faithfully reproduced every grant's Sources.
+func compareGrantSources(before, after map[string]string) []string {
+	var diffs []string
+	for id, b := range before {
+		a, ok := after[id]
+		if !ok {
+			diffs = append(diffs, fmt.Sprintf("grant %q: present before, absent after replay", id))
+			continue
+		}
+		if a != b {
+			diffs = append(diffs, fmt.Sprintf("grant %q: sources changed before=[%s] after=[%s]", id, b, a))
+		}
+	}
+	for id := range after {
+		if _, ok := before[id]; !ok {
+			diffs = append(diffs, fmt.Sprintf("grant %q: present after replay, absent before", id))
+		}
+	}
+	sort.Strings(diffs)
+	return diffs
+}
+
+// capLines returns at most n lines, appending a "+K more" marker when
+// truncated, so a divergence error stays readable.
+func capLines(lines []string, n int) []string {
+	if len(lines) <= n {
+		return lines
+	}
+	out := append([]string{}, lines[:n]...)
+	return append(out, fmt.Sprintf("  ... +%d more", len(lines)-n))
 }
 
 func resolveLatestFinishedSync(ctx context.Context, inPath string) (string, error) {
@@ -194,9 +276,13 @@ func replaySuffix(replay bool) string {
 	return ""
 }
 
-func suspectSuffix(n int) string {
-	if n > 0 {
-		return fmt.Sprintf(" [%d deleted grant(s) carried an is_direct source but no self-source — verify they are not connector-set]", n)
+func suspectSuffix(res *dotc1z.RollbackResult) string {
+	n := res.SuspectConnectorSourced
+	if n == 0 {
+		return ""
 	}
-	return ""
+	if res.SuspectPreserved > 0 {
+		return fmt.Sprintf(" [%d grant(s) had Sources but no self-source and no expander marker — PRESERVED (not deleted); verify whether they are connector-set]", res.SuspectPreserved)
+	}
+	return fmt.Sprintf(" [%d deleted grant(s) carried Sources but no self-source and no expander marker — verify they are not connector-set; pass --preserve-suspect-grants to keep them]", n)
 }
