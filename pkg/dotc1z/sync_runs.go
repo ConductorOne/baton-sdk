@@ -31,7 +31,10 @@ const syncRunsTableName = "sync_runs"
 
 // deleteSyncRunBatchSize bounds each DELETE in DeleteSyncRun so progress
 // commits incrementally and survives an interrupted/retried cleanup.
-const deleteSyncRunBatchSize = 50000
+// Var (not const) only so tests can shrink it to exercise the multi-batch
+// loop without inserting 50k rows; not tuned at runtime.
+var deleteSyncRunBatchSize = 50000
+
 const syncRunsTableSchema = `
 create table if not exists %s (
     id integer primary key,
@@ -926,7 +929,11 @@ func (c *C1File) DeleteSyncRun(ctx context.Context, syncID string) error {
 				err = fmt.Errorf("failed to execute delete query for sync run: %w", execErr)
 				return err
 			}
-			n, _ := res.RowsAffected()
+			n, raErr := res.RowsAffected()
+			if raErr != nil {
+				err = fmt.Errorf("failed to read rows affected for sync run delete: %w", raErr)
+				return err
+			}
 			deleted += n
 			if n == 0 {
 				break
