@@ -1080,6 +1080,7 @@ func (c *C1File) cleanupByRebuild(ctx context.Context) error {
 			quoted[i] = quoteIdentifier(col)
 		}
 		colList := strings.Join(quoted, ", ")
+		//nolint:gosec // table names are from hardcoded list; column names are validated
 		q := fmt.Sprintf("INSERT INTO rebuild.%s (%s) SELECT %s FROM %s WHERE sync_id IN (%s)",
 			t.Name(), colList, colList, t.Name(), placeholders)
 		if _, err := conn.ExecContext(ctx, q, args...); err != nil {
