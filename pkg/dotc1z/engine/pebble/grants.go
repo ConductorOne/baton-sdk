@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
+	"sync"
+	"sync/atomic"
 
 	"github.com/cockroachdb/pebble/v2"
 
@@ -173,6 +176,137 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 	})
 }
 
+// UnsafePutUniqueGrantRecords is the trusted-import write path: it writes
+// records unconditionally, with NO read-before-write and NO dedup pass. Do not
+// use it for live connector output. The engine must currently be in fresh-sync
+// mode, and the caller must guarantee each external_id appears at most once
+// across the whole sync (not just within this batch). Primary + index key/value
+// encoding — including the proto marshal — runs in parallel across GOMAXPROCS
+// workers; a single goroutine then Sets the pre-encoded bytes into two batches
+// and commits them (NoSync during a fresh sync).
+//
+// Unlike PutGrantRecords this skips the per-record db.Get that PutGrantRecords
+// performs on every batch after the first of a fresh sync. That read-before-
+// write only exists to clean up stale index entries when an external_id is
+// rewritten within a sync — impossible when the caller guarantees global
+// uniqueness for the imported sync.
+func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3.GrantRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	return e.withWrite(func() error {
+		if !e.IsFreshSync() {
+			return errors.New("UnsafePutUniqueGrantRecords: sync is not fresh")
+		}
+		// Resolve sync_id bytes once per distinct sync_id (usually one) on the
+		// calling goroutine so the parallel encoders only read the map.
+		syncBytes := make(map[string][]byte)
+		for _, r := range records {
+			if r == nil {
+				continue
+			}
+			sid := r.GetSyncId()
+			if _, ok := syncBytes[sid]; ok {
+				continue
+			}
+			idBytes, err := e.resolveSyncBytes(sid)
+			if err != nil {
+				return err
+			}
+			syncBytes[sid] = idBytes
+		}
+
+		type encoded struct {
+			priKey  []byte
+			priVal  []byte
+			idxKeys [][]byte
+		}
+		enc := make([]encoded, len(records))
+
+		workers := runtime.GOMAXPROCS(0)
+		if workers < 1 {
+			workers = 1
+		}
+		chunk := (len(records) + workers - 1) / workers
+		var (
+			wg     sync.WaitGroup
+			encErr error
+			errMu  sync.Mutex
+			failed atomic.Bool
+		)
+		for w := 0; w < workers; w++ {
+			lo := w * chunk
+			hi := lo + chunk
+			if hi > len(records) {
+				hi = len(records)
+			}
+			if lo >= hi {
+				break
+			}
+			wg.Add(1)
+			go func(lo, hi int) {
+				defer wg.Done()
+				for i := lo; i < hi; i++ {
+					if failed.Load() {
+						return
+					}
+					r := records[i]
+					if r == nil {
+						continue
+					}
+					idBytes := syncBytes[r.GetSyncId()]
+					val, err := marshalRecord(r)
+					if err != nil {
+						errMu.Lock()
+						if encErr == nil {
+							encErr = err
+						}
+						errMu.Unlock()
+						failed.Store(true)
+						return
+					}
+					enc[i] = encoded{
+						priKey:  encodeGrantKey(idBytes, r.GetExternalId()),
+						priVal:  val,
+						idxKeys: grantIndexKeys(idBytes, r),
+					}
+				}
+			}(lo, hi)
+		}
+		wg.Wait()
+		if encErr != nil {
+			return encErr
+		}
+
+		priBatch := e.db.NewBatch()
+		defer priBatch.Close()
+		idxBatch := e.db.NewBatch()
+		defer idxBatch.Close()
+		for i := range enc {
+			if enc[i].priKey == nil {
+				continue
+			}
+			if err := priBatch.Set(enc[i].priKey, enc[i].priVal, nil); err != nil {
+				return err
+			}
+			for _, k := range enc[i].idxKeys {
+				if err := idxBatch.Set(k, nil, nil); err != nil {
+					return err
+				}
+			}
+		}
+
+		opts := writeOpts(e.opts.durability)
+		if e.IsFreshSync() {
+			opts = pebble.NoSync
+		}
+		if err := priBatch.Commit(opts); err != nil {
+			return err
+		}
+		return idxBatch.Commit(opts)
+	})
+}
+
 // GetGrantRecord fetches a grant record by sync_id + external_id.
 // syncID may be empty to use the engine's currently-set sync.
 func (e *Engine) GetGrantRecord(ctx context.Context, syncID, externalID string) (*v3.GrantRecord, error) {
@@ -230,72 +364,42 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, syncID, externalID strin
 	})
 }
 
-// writeGrantIndexes adds index entries for r to batch.
-func (e *Engine) writeGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *v3.GrantRecord) error {
+// grantIndexKeys returns the secondary-index keys for r. The set mirrors the
+// index keyspaces documented on writeGrantIndexes:
+//   - by_entitlement: (entitlement_id, principal) — needs both ent + principal.
+//   - by_entitlement_resource: the resource side of the entitlement (drives
+//     ListGrants with req.Resource set).
+//   - by_principal and by_principal_resource_type: the principal side.
+//   - needs_expansion: only when the grant currently carries the flag.
+func grantIndexKeys(syncIDBytes []byte, r *v3.GrantRecord) [][]byte {
 	ent := r.GetEntitlement()
 	princ := r.GetPrincipal()
 	ext := r.GetExternalId()
 
+	keys := make([][]byte, 0, 4)
 	if ent != nil && princ != nil {
-		k := encodeGrantByEntitlementIndexKey(
-			syncIDBytes,
-			ent.GetEntitlementId(),
-			princ.GetResourceTypeId(),
-			princ.GetResourceId(),
-			ext,
-		)
-		if err := batch.Set(k, nil, nil); err != nil {
-			return err
-		}
+		keys = append(keys, encodeGrantByEntitlementIndexKey(
+			syncIDBytes, ent.GetEntitlementId(), princ.GetResourceTypeId(), princ.GetResourceId(), ext))
 	}
-	// by_entitlement_resource index — indexes grants by the resource
-	// side of the entitlement (i.e. the resource the entitlement is
-	// on, NOT the principal). Drives ListGrants with req.Resource
-	// set, matching SQLite's filter on grants.resource_id /
-	// resource_type_id. One entry per grant when the entitlement has
-	// a non-empty resource.
 	if ent != nil && ent.GetResourceId() != "" {
-		k := encodeGrantByEntitlementResourceIndexKey(
-			syncIDBytes,
-			ent.GetResourceTypeId(),
-			ent.GetResourceId(),
-			ext,
-		)
-		if err := batch.Set(k, nil, nil); err != nil {
-			return err
-		}
+		keys = append(keys, encodeGrantByEntitlementResourceIndexKey(
+			syncIDBytes, ent.GetResourceTypeId(), ent.GetResourceId(), ext))
 	}
 	if princ != nil {
-		k := encodeGrantByPrincipalIndexKey(
-			syncIDBytes,
-			princ.GetResourceTypeId(),
-			princ.GetResourceId(),
-			ext,
-		)
-		if err := batch.Set(k, nil, nil); err != nil {
-			return err
-		}
-		// by-principal-resource-type index — independent of
-		// principal_id; sized at one entry per grant. Drives
-		// ListGrantsForResourceType (the only previously-O(G)
-		// full-scan Reader method).
-		kRT := encodeGrantByPrincipalResourceTypeIndexKey(
-			syncIDBytes,
-			princ.GetResourceTypeId(),
-			ext,
-		)
-		if err := batch.Set(kRT, nil, nil); err != nil {
-			return err
-		}
+		keys = append(keys, encodeGrantByPrincipalIndexKey(
+			syncIDBytes, princ.GetResourceTypeId(), princ.GetResourceId(), ext))
+		keys = append(keys, encodeGrantByPrincipalResourceTypeIndexKey(
+			syncIDBytes, princ.GetResourceTypeId(), ext))
 	}
-	// needs_expansion index — populated only when the grant
-	// currently carries the flag. Mirrors the SQLite partial
-	// index `WHERE needs_expansion = 1`. PendingExpansion scans
-	// this keyspace; on overwrite (cross-call) the deleteGrantIndexes
-	// pass removes the old key first, so a flag-flip is reflected
-	// correctly.
 	if r.GetNeedsExpansion() {
-		k := encodeGrantByNeedsExpansionIndexKey(syncIDBytes, ext)
+		keys = append(keys, encodeGrantByNeedsExpansionIndexKey(syncIDBytes, ext))
+	}
+	return keys
+}
+
+// writeGrantIndexes adds index entries for r to batch.
+func (e *Engine) writeGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *v3.GrantRecord) error {
+	for _, k := range grantIndexKeys(syncIDBytes, r) {
 		if err := batch.Set(k, nil, nil); err != nil {
 			return err
 		}

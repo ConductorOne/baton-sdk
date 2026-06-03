@@ -3,6 +3,7 @@ package pebble
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,6 +131,31 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 	// EndSync stamps ended_at.
 	if err := a.EndSync(ctx); err != nil {
 		t.Fatalf("EndSync: %v", err)
+	}
+}
+
+func TestAdapterUnsafePutUniqueGrantsRequiresFreshSync(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+
+	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	if err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+
+	// SetCurrentSync intentionally clears the engine's fresh-sync flag. The
+	// fresh path skips read-before-write index cleanup, so using it after a
+	// resume/rebind would risk stale secondary indexes.
+	if err := a.SetCurrentSync(ctx, syncID); err != nil {
+		t.Fatalf("SetCurrentSync: %v", err)
+	}
+
+	err = a.UnsafePutUniqueGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice"))
+	if err == nil {
+		t.Fatal("UnsafePutUniqueGrants unexpectedly succeeded on non-fresh sync")
+	}
+	if !strings.Contains(err.Error(), "sync is not fresh") {
+		t.Fatalf("UnsafePutUniqueGrants error = %v, want non-fresh error", err)
 	}
 }
 

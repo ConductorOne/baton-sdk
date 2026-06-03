@@ -399,6 +399,14 @@ func (s *registeredStore) PutGrants(ctx context.Context, grants ...*v2.Grant) er
 	return s.markDirty(s.Adapter.PutGrants(ctx, grants...))
 }
 
+// UnsafePutUniqueGrants is the trusted-import write path (no
+// read-before-write, no dedup, parallel encode). Do not use it for live
+// connector output. Caller must guarantee unique external_ids across the whole
+// destination sync. See Adapter.UnsafePutUniqueGrants.
+func (s *registeredStore) UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.Grant) error {
+	return s.markDirty(s.Adapter.UnsafePutUniqueGrants(ctx, grants...))
+}
+
 func (s *registeredStore) PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error {
 	return s.markDirty(s.Adapter.PutResourceTypes(ctx, resourceTypes...))
 }
