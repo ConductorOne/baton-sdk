@@ -72,6 +72,13 @@ type C1File struct {
 	skipCleanup bool
 	skipVacuum  bool
 
+	// cleanupRebuild selects the rebuild cleanup strategy: instead of
+	// deleting old syncs' rows in place and VACUUMing, copy the kept syncs
+	// into a fresh database and repoint at it. Far cheaper on large files
+	// (cost scales with the kept set, not the deleted set) and compacts in
+	// one step. See cleanupByRebuild.
+	cleanupRebuild bool
+
 	// See WithC1FV2GrantsWriter.
 	v2GrantsWriter bool
 
@@ -153,6 +160,16 @@ func WithC1FSkipCleanup(skip bool) C1FOption {
 func WithC1FSkipVacuum(skip bool) C1FOption {
 	return func(o *C1File) {
 		o.skipVacuum = skip
+	}
+}
+
+// WithC1FCleanupRebuild selects the rebuild cleanup strategy in Cleanup():
+// copy the kept syncs into a fresh database and repoint at it, instead of
+// per-table DELETE + VACUUM. Cheaper on large c1z files and self-compacting.
+// When enabled, the skip_vacuum option is irrelevant (no VACUUM is run).
+func WithC1FCleanupRebuild(rebuild bool) C1FOption {
+	return func(o *C1File) {
+		o.cleanupRebuild = rebuild
 	}
 }
 
@@ -270,6 +287,7 @@ type c1zOptions struct {
 	syncLimit          int
 	skipCleanup        bool
 	skipVacuum         bool
+	cleanupRebuild     bool
 	v2GrantsWriter     bool
 
 	// engine is the storage engine to use for newly created files.
@@ -342,6 +360,16 @@ func WithSkipCleanup(skip bool) C1ZOption {
 func WithSkipVacuum(skip bool) C1ZOption {
 	return func(o *c1zOptions) {
 		o.skipVacuum = skip
+	}
+}
+
+// WithCleanupRebuild selects the rebuild cleanup strategy in Cleanup(): copy
+// the kept syncs into a fresh database and repoint at it, instead of per-table
+// DELETE + VACUUM. Cheaper on large c1z files and self-compacting. No effect
+// when [WithSkipCleanup] is set.
+func WithCleanupRebuild(rebuild bool) C1ZOption {
+	return func(o *c1zOptions) {
+		o.cleanupRebuild = rebuild
 	}
 }
 
@@ -428,6 +456,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	}
 	if options.skipVacuum {
 		c1fopts = append(c1fopts, WithC1FSkipVacuum(true))
+	}
+	if options.cleanupRebuild {
+		c1fopts = append(c1fopts, WithC1FCleanupRebuild(true))
 	}
 	if options.v2GrantsWriter {
 		c1fopts = append(c1fopts, WithC1FV2GrantsWriter(true))

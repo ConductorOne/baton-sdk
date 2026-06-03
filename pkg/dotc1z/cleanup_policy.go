@@ -135,3 +135,11 @@ func CleanupSkippedByEnv() bool {
 	skip, _ := strconv.ParseBool(os.Getenv("BATON_SKIP_CLEANUP"))
 	return skip
 }
+
+// CleanupRebuildByEnv reports whether BATON_CLEANUP_REBUILD is set to a truthy
+// value, selecting the rebuild cleanup strategy. OR'd with the
+// WithCleanupRebuild option so ops can toggle it without a caller change.
+func CleanupRebuildByEnv() bool {
+	rebuild, _ := strconv.ParseBool(os.Getenv("BATON_CLEANUP_REBUILD"))
+	return rebuild
+}
