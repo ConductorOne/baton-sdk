@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -58,4 +59,63 @@ func TestSanitizeCommand(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 1, "grant count must be preserved")
 	require.NotEqual(t, srcGrantID, resp.GetList()[0].GetId(), "grant id must be sanitized, not passed through verbatim")
+}
+
+// newSanitizeRoot builds the cobra root the same way main.go wires it:
+// the persistent --file flag lives on the root, sanitize is a child.
+func newSanitizeRoot(args ...string) *cobra.Command {
+	root := &cobra.Command{Use: "baton", SilenceUsage: true, SilenceErrors: true}
+	root.PersistentFlags().StringP("file", "f", "sync.c1z", "")
+	root.AddCommand(sanitizeCmd())
+	root.SetArgs(append([]string{"sanitize"}, args...))
+	return root
+}
+
+// Failed invocations must not leave a stray generated secret behind:
+// every input/output validation runs before the secret is created.
+func TestSanitizeCommandFailedInvocationLeavesNoSecret(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("missing input file", func(t *testing.T) {
+		tmp := t.TempDir()
+		outPath := filepath.Join(tmp, "out.c1z")
+		root := newSanitizeRoot("--file", filepath.Join(tmp, "nope.c1z"), "--out", outPath)
+		require.Error(t, root.ExecuteContext(ctx))
+		require.NoFileExists(t, outPath+".secret", "failed run must not leave a generated secret")
+		require.NoFileExists(t, outPath)
+	})
+
+	t.Run("output already exists", func(t *testing.T) {
+		tmp := t.TempDir()
+		srcPath := filepath.Join(tmp, "src.c1z")
+		outPath := filepath.Join(tmp, "out.c1z")
+		require.NoError(t, os.WriteFile(srcPath, []byte("x"), 0o600))
+		require.NoError(t, os.WriteFile(outPath, []byte("y"), 0o600))
+		root := newSanitizeRoot("--file", srcPath, "--out", outPath)
+		require.Error(t, root.ExecuteContext(ctx))
+		require.NoFileExists(t, outPath+".secret", "failed run must not leave a generated secret")
+	})
+
+	t.Run("bad anchor", func(t *testing.T) {
+		tmp := t.TempDir()
+		srcPath := filepath.Join(tmp, "src.c1z")
+		outPath := filepath.Join(tmp, "out.c1z")
+		require.NoError(t, os.WriteFile(srcPath, []byte("x"), 0o600))
+		root := newSanitizeRoot("--file", srcPath, "--out", outPath, "--anchor", "not-a-time")
+		require.Error(t, root.ExecuteContext(ctx))
+		require.NoFileExists(t, outPath+".secret", "failed run must not leave a generated secret")
+	})
+
+	t.Run("missing out flag", func(t *testing.T) {
+		tmp := t.TempDir()
+		srcPath := filepath.Join(tmp, "src.c1z")
+		require.NoError(t, os.WriteFile(srcPath, []byte("x"), 0o600))
+		root := newSanitizeRoot("--file", srcPath)
+		require.Error(t, root.ExecuteContext(ctx))
+		entries, err := os.ReadDir(tmp)
+		require.NoError(t, err)
+		for _, e := range entries {
+			require.NotContains(t, e.Name(), ".secret", "failed run must not leave a generated secret")
+		}
+	})
 }

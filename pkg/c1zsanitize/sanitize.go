@@ -31,7 +31,31 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 )
+
+// syncRunMetadataReader is the optional source capability for reading
+// sync-run rows with the linkage fields the gRPC reader surface does
+// not carry (linked_sync_id, supports_diff). *dotc1z.C1File implements
+// it; sources without it skip graph-metadata preservation with a log
+// line rather than failing the run.
+type syncRunMetadataReader interface {
+	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*dotc1z.SyncRun, string, error)
+}
+
+// syncLinkWriter is the optional destination capability for pairing
+// diff syncs (partial_upserts <-> partial_deletions) after both runs
+// exist.
+type syncLinkWriter interface {
+	SetSyncLink(ctx context.Context, syncID string, linkedSyncID string) error
+}
+
+// supportsDiffWriter is the optional destination capability for
+// carrying the supports_diff marker over, so a sanitized c1z remains
+// usable as a diff input wherever the source was.
+type supportsDiffWriter interface {
+	SetSupportsDiff(ctx context.Context, syncID string) error
+}
 
 // Options configures a sanitization run.
 type Options struct {
@@ -100,6 +124,10 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 			return fmt.Errorf("c1zsanitize: sanitize sync %s: %w", sr.GetId(), err)
 		}
 	}
+
+	if err := s.preserveSyncGraphMetadata(ctx, src, dst); err != nil {
+		return fmt.Errorf("c1zsanitize: preserve sync graph metadata: %w", err)
+	}
 	return nil
 }
 
@@ -139,6 +167,15 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 	parentDst := ""
 	if parentSrc := sr.GetParentSyncId(); parentSrc != "" {
 		parentDst = s.syncIDMap[parentSrc]
+		if parentDst == "" {
+			// The parent is not a sync in this c1z — a diff c1z built
+			// by GenerateSyncDiffFromFile records the OTHER file's
+			// base sync id as the pair's parent. HMAC the external
+			// reference instead of dropping it: provenance structure
+			// survives, the raw id does not, and two files sanitized
+			// under the same secret still cross-reference.
+			parentDst = s.id(parentSrc)
+		}
 	}
 
 	dstSyncID, err := dst.StartNewSync(ctx, syncType, parentDst)
@@ -169,6 +206,56 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 		return fmt.Errorf("end dst sync: %w", err)
 	}
 	return nil
+}
+
+// preserveSyncGraphMetadata carries the sync-run linkage the proto
+// reader surface cannot express — the diff pair's bidirectional
+// linked_sync_id and the supports_diff marker — from src runs to their
+// dst counterparts. Both sides are optional capabilities: when either
+// store lacks them, the copy is skipped with a log line and the output
+// remains valid, just without the extra graph metadata.
+func (s *sanitizer) preserveSyncGraphMetadata(ctx context.Context, src connectorstore.Reader, dst connectorstore.Writer) error {
+	mr, ok := src.(syncRunMetadataReader)
+	if !ok {
+		s.log.Debug("c1zsanitize: source does not expose sync-run metadata; skipping link/supports_diff preservation")
+		return nil
+	}
+	lw, hasLinkWriter := dst.(syncLinkWriter)
+	dw, hasDiffWriter := dst.(supportsDiffWriter)
+	if !hasLinkWriter && !hasDiffWriter {
+		s.log.Debug("c1zsanitize: destination does not expose sync-run metadata writers; skipping link/supports_diff preservation")
+		return nil
+	}
+
+	pageToken := ""
+	for {
+		runs, next, err := mr.ListSyncRuns(ctx, pageToken, 0)
+		if err != nil {
+			return fmt.Errorf("list source sync runs: %w", err)
+		}
+		for _, run := range runs {
+			dstID := s.syncIDMap[run.ID]
+			if dstID == "" {
+				continue
+			}
+			if run.LinkedSyncID != "" && hasLinkWriter {
+				if dstLinked := s.syncIDMap[run.LinkedSyncID]; dstLinked != "" {
+					if err := lw.SetSyncLink(ctx, dstID, dstLinked); err != nil {
+						return fmt.Errorf("set sync link %s: %w", dstID, err)
+					}
+				}
+			}
+			if run.SupportsDiff && hasDiffWriter {
+				if err := dw.SetSupportsDiff(ctx, dstID); err != nil {
+					return fmt.Errorf("set supports_diff %s: %w", dstID, err)
+				}
+			}
+		}
+		if next == "" {
+			return nil
+		}
+		pageToken = next
+	}
 }
 
 // listAllSyncs paginates the source SyncsReaderService and returns

@@ -61,15 +61,9 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--out is required")
 	}
 
-	secret, generated, err := c1zsanitize.LoadOrGenerateSecret(secretFile, outPath)
-	if err != nil {
-		return err
-	}
-	if generated {
-		log.Warn("c1zsanitize: generated fresh secret; archive it if you want reversibility",
-			zap.String("path", c1zsanitize.SecretPath(secretFile, outPath)))
-	}
-
+	// All input validation happens BEFORE the secret is loaded or
+	// generated: generating first would leave a stray .secret file
+	// next to --out on every failed invocation.
 	var anchor time.Time
 	if anchorRaw != "" {
 		anchor, err = time.Parse(time.RFC3339, anchorRaw)
@@ -77,12 +71,20 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("parse --anchor: %w", err)
 		}
 	}
-
 	if _, err := os.Stat(inPath); err != nil {
 		return fmt.Errorf("stat --file: %w", err)
 	}
 	if _, err := os.Stat(outPath); err == nil {
 		return fmt.Errorf("--out path %q already exists; refusing to overwrite", outPath)
+	}
+
+	secret, generated, err := c1zsanitize.LoadOrGenerateSecret(secretFile, outPath)
+	if err != nil {
+		return err
+	}
+	if generated {
+		log.Warn("c1zsanitize: generated fresh secret; archive it if you want reversibility",
+			zap.String("path", c1zsanitize.SecretPath(secretFile, outPath)))
 	}
 
 	src, err := dotc1z.NewC1ZFile(ctx, inPath, dotc1z.WithReadOnly(true))

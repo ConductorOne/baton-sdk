@@ -628,6 +628,10 @@ func (c *C1File) StartNewSync(ctx context.Context, syncType connectorstore.SyncT
 			return "", status.Errorf(codes.InvalidArgument, "parent sync id must be empty for resources only sync")
 		}
 	case connectorstore.SyncTypePartial:
+	case connectorstore.SyncTypePartialUpserts, connectorstore.SyncTypePartialDeletions:
+		// Diff syncs carry the base sync as their parent; the linked
+		// pairing (upserts ↔ deletions) is set separately via
+		// SetSyncLink since the partner's id may not exist yet.
 	case connectorstore.SyncTypeAny:
 		return "", status.Errorf(codes.InvalidArgument, "sync cannot be started with SyncTypeAny")
 	default:
@@ -764,6 +768,43 @@ func (c *C1File) SetSupportsDiff(ctx context.Context, syncID string) error {
 	q := c.db.Update(syncRuns.Name())
 	q = q.Set(goqu.Record{
 		"supports_diff": 1,
+	})
+	q = q.Where(goqu.C("sync_id").Eq(syncID))
+
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return err
+	}
+
+	_, err = c.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	c.dbUpdated = true
+
+	return nil
+}
+
+// SetSyncLink sets the linked_sync_id of an existing sync run. Diff
+// sync pairs (partial_upserts ↔ partial_deletions) reference each
+// other bidirectionally; a writer rebuilding such a pair cannot supply
+// the link at StartNewSync time because the partner's id is minted by
+// the store, so the pairing is applied after both runs exist.
+func (c *C1File) SetSyncLink(ctx context.Context, syncID string, linkedSyncID string) error {
+	ctx, span := tracer.Start(ctx, "C1File.SetSyncLink")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	if c.readOnly {
+		return ErrReadOnly
+	}
+	if syncID == "" {
+		return status.Errorf(codes.InvalidArgument, "sync id is required")
+	}
+
+	q := c.db.Update(syncRuns.Name())
+	q = q.Set(goqu.Record{
+		"linked_sync_id": linkedSyncID,
 	})
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
 
