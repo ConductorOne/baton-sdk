@@ -357,6 +357,9 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 			//nolint:gosec // No risk of overflow because `Code` is a small enum.
 			Code:    int32(statusErr.Code()),
 			Message: statusErr.Message(),
+			// Carry the status details (e.g. a typed ErrorInfo) so structured connector errors survive to C1 instead of being
+			// truncated to code+message.
+			Details: statusErr.Proto().GetDetails(),
 		},
 		Error: v1.BatonServiceFinishTaskRequest_Error_builder{
 			NonRetryable: errors.Is(taskError, ErrTaskNonRetryable),
