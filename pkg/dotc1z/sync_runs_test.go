@@ -256,3 +256,41 @@ func TestCleanupSyncLimitCurrentSync(t *testing.T) {
 	err = f.Close(ctx)
 	require.NoError(t, err)
 }
+
+// TestDeleteSyncRunBatching exercises the multi-batch delete loop (with a tiny
+// sentinel batch size) and verifies it fully removes the target sync while
+// leaving a bystander sync untouched.
+func TestDeleteSyncRunBatching(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	f, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "test.c1z"))
+	require.NoError(t, err)
+	defer f.Close(ctx)
+
+	// Sentinel batch size so a small fixture still spans multiple batches.
+	restore := dotc1z.SetDeleteSyncRunBatchSize(3)
+	defer restore()
+
+	// syncA grants (10) >> batch (3) → forces ~4 iterations on the grants table.
+	syncA, err := c1ztest.CreateTestSync(ctx, t, f, c1ztest.C1ZCounts{
+		ResourceTypeCount: 2, ResourceCount: 10, UserCount: 10, EntitlementCount: 5, GrantCount: 10,
+	})
+	require.NoError(t, err)
+	// syncB must survive the delete of syncA.
+	syncB, err := c1ztest.CreateTestSync(ctx, t, f, c1ztest.C1ZCounts{
+		ResourceTypeCount: 2, ResourceCount: 10, UserCount: 10, EntitlementCount: 5, GrantCount: 7,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, f.DeleteSyncRun(ctx, syncA))
+
+	db := f.RawDB()
+	for _, tbl := range []string{"v1_grants", "v1_resources", "v1_entitlements", "v1_resource_types"} {
+		var a, b int
+		require.NoError(t, db.QueryRowContext(ctx, "select count(*) from "+tbl+" where sync_id = ?", syncA).Scan(&a))
+		require.NoError(t, db.QueryRowContext(ctx, "select count(*) from "+tbl+" where sync_id = ?", syncB).Scan(&b))
+		require.Zerof(t, a, "%s: syncA rows should all be deleted", tbl)
+		require.Positivef(t, b, "%s: syncB rows should survive", tbl)
+	}
+}

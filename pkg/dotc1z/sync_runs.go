@@ -28,6 +28,13 @@ import (
 
 const syncRunsTableVersion = "1"
 const syncRunsTableName = "sync_runs"
+
+// deleteSyncRunBatchSize bounds each DELETE in DeleteSyncRun so progress
+// commits incrementally and survives an interrupted/retried cleanup.
+// Var (not const) only so tests can shrink it to exercise the multi-batch
+// loop without inserting 50k rows; not tuned at runtime.
+var deleteSyncRunBatchSize = 50000
+
 const syncRunsTableSchema = `
 create table if not exists %s (
     id integer primary key,
@@ -885,6 +892,36 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 	return nil
 }
 
+func (c *C1File) deleteFromTable(ctx context.Context, tableName string, syncID string) (int64, error) {
+	stmt := fmt.Sprintf(
+		"delete from %s where id in (select id from %s where sync_id = ? limit %d)",
+		tableName, tableName, deleteSyncRunBatchSize,
+	)
+	var deleted int64
+	for {
+		err := c.validateDb(ctx)
+		if err != nil {
+			return deleted, err
+		}
+
+		res, execErr := c.db.ExecContext(ctx, stmt, syncID)
+		if execErr != nil {
+			err = fmt.Errorf("failed to execute delete query for sync run: %w", execErr)
+			return deleted, err
+		}
+		n, raErr := res.RowsAffected()
+		if raErr != nil {
+			err = fmt.Errorf("failed to read rows affected for sync run delete: %w", raErr)
+			return deleted, err
+		}
+		deleted += n
+		if n == 0 {
+			break
+		}
+	}
+	return deleted, nil
+}
+
 // DeleteSyncRun removes all the objects with a given syncID from the database.
 func (c *C1File) DeleteSyncRun(ctx context.Context, syncID string) error {
 	ctx, span := tracer.Start(ctx, "C1File.DeleteSyncRun")
@@ -901,20 +938,35 @@ func (c *C1File) DeleteSyncRun(ctx context.Context, syncID string) error {
 		return fmt.Errorf("unable to delete the current active sync run")
 	}
 
+	// Delete in bounded, individually-committed batches instead of one
+	// unbounded DELETE per table. A single DELETE over a multi-million-row
+	// table is one transaction: if the activity deadline fires mid-statement
+	// SQLite rolls it back, so the retry makes zero forward progress and
+	// cleanup loops until the connector's c1z is abandoned. Batching commits
+	// incrementally (each ExecContext autocommits), so a retry resumes where
+	// the previous attempt left off. Batches are also faster than one giant
+	// transaction (smaller per-commit journal and index churn).
+	l := ctxzap.Extract(ctx)
+	var deleted int64
+	// Delete from sync_runs table last, since that's the table we use to determine which syncs to delete.
+
 	for _, t := range allTableDescriptors {
-		q := c.db.Delete(t.Name())
-		q = q.Where(goqu.C("sync_id").Eq(syncID))
-
-		query, args, err := q.ToSQL()
-		if err != nil {
-			return fmt.Errorf("failed to create delete query for sync run: %w", err)
+		if t.Name() == syncRuns.Name() {
+			continue
 		}
-
-		_, err = c.db.ExecContext(ctx, query, args...)
+		rowsDeleted, err := c.deleteFromTable(ctx, t.Name(), syncID)
 		if err != nil {
-			return fmt.Errorf("failed to execute delete query for sync run: %w", err)
+			return err
 		}
+		deleted += rowsDeleted
 	}
+	rowsDeleted, err := c.deleteFromTable(ctx, syncRuns.Name(), syncID)
+	if err != nil {
+		return err
+	}
+	deleted += rowsDeleted
+
+	l.Debug("deleted sync run", zap.String("sync_id", syncID), zap.Int64("rows", deleted))
 	c.dbUpdated = true
 
 	return nil
