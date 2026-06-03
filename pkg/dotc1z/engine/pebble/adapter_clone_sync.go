@@ -36,7 +36,9 @@ func cloneSync(
 	a *Adapter,
 	encoding dotc1z.PayloadEncoding,
 	outPath, syncID string,
+	_ ...dotc1z.C1FOption,
 ) error {
+	//TODO: Support options in pebble.
 	if _, err := os.Stat(outPath); err == nil || !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("clone-sync: output path (%s) must not exist for cloning to proceed", outPath)
 	}

@@ -62,6 +62,15 @@ type State interface {
 	ClearExclusionGroupTracking(ctx context.Context)
 }
 
+func NeedsExpansion(stateStr string) (bool, error) {
+	state := newState()
+	err := state.Unmarshal(stateStr)
+	if err != nil {
+		return false, err
+	}
+	return state.NeedsExpansion(), nil
+}
+
 // ActionOp represents a sync operation.
 type ActionOp uint8
 

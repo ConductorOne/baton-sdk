@@ -300,8 +300,8 @@ func (s c1FileSyncMeta) Stats(ctx context.Context, syncType connectorstore.SyncT
 type c1FileFileOps struct{ c *C1File }
 
 // CloneSync implements FileOps. Direct passthrough.
-func (f c1FileFileOps) CloneSync(ctx context.Context, outPath string, syncID string) error {
-	return f.c.CloneSync(ctx, outPath, syncID)
+func (f c1FileFileOps) CloneSync(ctx context.Context, outPath string, syncID string, opts ...C1FOption) error {
+	return f.c.CloneSync(ctx, outPath, syncID, opts...)
 }
 
 // GenerateSyncDiff implements FileOps. Direct passthrough.
