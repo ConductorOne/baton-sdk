@@ -34,8 +34,8 @@ type pebbleFileOps struct {
 // Pebble-backed c1z at outPath. See cloneSync for the strategy:
 // range-copy every sync-scoped keyspace into a fresh engine,
 // checkpoint, and emit a v3 envelope.
-func (f pebbleFileOps) CloneSync(ctx context.Context, outPath string, syncID string) error {
-	return cloneSync(ctx, f.a, f.encoding, outPath, syncID)
+func (f pebbleFileOps) CloneSync(ctx context.Context, outPath string, syncID string, opts ...dotc1z.C1FOption) error {
+	return cloneSync(ctx, f.a, f.encoding, outPath, syncID, opts...)
 }
 
 // GenerateSyncDiff computes the additions-only set difference

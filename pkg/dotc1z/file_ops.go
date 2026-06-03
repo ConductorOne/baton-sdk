@@ -10,7 +10,7 @@ type FileOps interface {
 	// CloneSync materializes the given sync run's data into a freshly
 	// created standalone c1z file at outPath. Used by c1's storeCompletedSyncC1Z
 	// activity to archive a completed sync.
-	CloneSync(ctx context.Context, outPath string, syncID string) error
+	CloneSync(ctx context.Context, outPath string, syncID string, opts ...C1FOption) error
 
 	// GenerateSyncDiff computes the diff between two existing sync runs
 	// in this same file and writes the delta as a new SyncTypePartial
