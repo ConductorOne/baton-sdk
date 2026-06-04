@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -558,6 +560,43 @@ func slimGrantForWrite(grant *v2.Grant) {
 	grant.SetPrincipal(nil)
 }
 
+// dropMalformedGrants returns the grants that are safe to persist, dropping
+// any with a nil principal or entitlement. Dropped grants are logged (with the
+// grant id) and counted via grantMalformedCounter. We drop-and-continue rather
+// than failing the batch so one buggy connector grant can't abort an entire
+// sync's grant write; the metric and log make the bad data visible.
+func dropMalformedGrants(ctx context.Context, msgs []*v2.Grant) []*v2.Grant {
+	// Fast path: scan for the first malformed grant. The overwhelmingly common
+	// case is that every grant is well-formed, so avoid reallocating then.
+	firstBad := -1
+	for i, g := range msgs {
+		if g.GetPrincipal() == nil || g.GetEntitlement() == nil {
+			firstBad = i
+			break
+		}
+	}
+	if firstBad == -1 {
+		return msgs
+	}
+
+	l := ctxzap.Extract(ctx)
+	valid := make([]*v2.Grant, 0, len(msgs))
+	valid = append(valid, msgs[:firstBad]...)
+	for _, g := range msgs[firstBad:] {
+		if g.GetPrincipal() == nil || g.GetEntitlement() == nil {
+			grantMalformedCounter.Add(ctx, 1)
+			l.Error("dropping malformed grant: missing principal or entitlement",
+				zap.String("grant_id", g.GetId()),
+				zap.Bool("has_principal", g.GetPrincipal() != nil),
+				zap.Bool("has_entitlement", g.GetEntitlement() != nil),
+			)
+			continue
+		}
+		valid = append(valid, g)
+	}
+	return valid
+}
+
 func upsertGrantsInternal(
 	ctx context.Context,
 	c *C1File,
@@ -567,6 +606,20 @@ func upsertGrantsInternal(
 	if len(msgs) == 0 {
 		return nil
 	}
+
+	// A grant's principal and entitlement are required by the proto contract
+	// (grant.proto: both are (validate.rules).message{required:true}). The
+	// column extractor (baseGrantRecord) reads identity columns straight off
+	// the live proto via nil-safe opaque getters, so a malformed grant would
+	// be silently persisted with empty principal/entitlement columns —
+	// unqueryable junk rather than a loud failure. Drop such grants here so
+	// bad connector data can't enter the store, and surface it (log + metric)
+	// rather than failing the whole batch.
+	msgs = dropMalformedGrants(ctx, msgs)
+	if len(msgs) == 0 {
+		return nil
+	}
+
 	ctx, span := tracer.Start(ctx, "C1File.bulkUpsertGrants")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()

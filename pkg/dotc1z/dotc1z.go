@@ -34,6 +34,14 @@ var (
 		metric.WithDescription("Grants kept full-blob by the unsafeForSlim escape hatch on slim-enabled writers."),
 	)
 
+	// Increments when a malformed grant (nil principal or entitlement) is
+	// dropped at write time instead of being persisted. A non-zero value
+	// means an upstream connector is emitting out-of-contract grants.
+	grantMalformedCounter, _ = meter.Int64Counter(
+		"c1z_grant_malformed_dropped_total",
+		metric.WithDescription("Grants dropped at write time for missing a principal or entitlement."),
+	)
+
 	// Pre-built so we don't allocate a fresh attribute.Set on every
 	// grant write. WithAttributes sorts and dedups on each call;
 	// WithAttributeSet on a shared Set is allocation-free.
