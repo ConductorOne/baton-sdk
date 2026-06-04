@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -12,6 +14,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 // ErrSyncNotFinished is returned when a rollback targets a sync that has
@@ -381,4 +384,38 @@ func (c *C1File) classifyRollback(
 		}
 	}
 	return nil
+}
+
+// GrantSourcesForSync returns, for every grant in the sync, a canonical
+// string form of its GrantSources keyed by the grant's id.
+//
+// Deprecated: the rollback subcommand now computes this in the command layer.
+// This method is retained for external callers that depended on it and will
+// be removed in a future minor release. It streams the grants one at a time
+// rather than buffering the table.
+func (c *C1File) GrantSourcesForSync(ctx context.Context, syncID string) (map[string]string, error) {
+	out := map[string]string{}
+	for g, err := range c.StreamGrants(ctx, syncID, connectorstore.StreamGrantsOptions{}) {
+		if err != nil {
+			return nil, err
+		}
+		out[g.GetId()] = canonicalGrantSources(g)
+	}
+	return out, nil
+}
+
+// canonicalGrantSources renders a grant's Sources as a sorted, stable string
+// ("<sourceEntitlementID>=<isDirect>" joined) so map iteration order and
+// proto framing never produce a false pre/post divergence.
+func canonicalGrantSources(g *v2.Grant) string {
+	srcMap := g.GetSources().GetSources()
+	if len(srcMap) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(srcMap))
+	for k, v := range srcMap {
+		parts = append(parts, fmt.Sprintf("%s=%t", k, v.GetIsDirect()))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
 }
