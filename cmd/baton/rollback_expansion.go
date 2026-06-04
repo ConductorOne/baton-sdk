@@ -16,6 +16,12 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sync"
 )
 
+type rollbackExpansionStore interface {
+	dotc1z.C1ZStore
+	RollbackExpansion(ctx context.Context, syncID string, dryRun bool, opts ...dotc1z.RollbackOption) (*dotc1z.RollbackResult, error)
+	GrantSourcesForSync(ctx context.Context, syncID string) (map[string]string, error)
+}
+
 func rollbackExpansionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "rollback-expansion",
@@ -86,12 +92,16 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	}
 
 	if dryRun {
-		ro, err := dotc1z.NewC1ZFile(ctx, inPath, dotc1z.WithReadOnly(true))
+		ro, err := openReadOnlyC1ZStore(ctx, inPath)
 		if err != nil {
 			return fmt.Errorf("open c1z: %w", err)
 		}
 		defer ro.Close(ctx)
-		res, err := ro.RollbackExpansion(ctx, syncID, true, rollbackOpts...)
+		rollbackStore, ok := ro.(rollbackExpansionStore)
+		if !ok {
+			return fmt.Errorf("rollback-expansion is not supported by %s-backed c1z files", ro.Metadata().Engine)
+		}
+		res, err := rollbackStore.RollbackExpansion(ctx, syncID, true, rollbackOpts...)
 		if err != nil {
 			return err
 		}
@@ -103,9 +113,14 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	// Writes go to a fresh clone of the targeted sync; the input is never
 	// touched. CloneSync refuses an existing --out and copies only the
 	// targeted sync, not every sync in the source.
-	src, err := dotc1z.NewC1ZFile(ctx, inPath, dotc1z.WithReadOnly(true))
+	src, err := openReadOnlyC1ZStore(ctx, inPath)
 	if err != nil {
 		return fmt.Errorf("open c1z: %w", err)
+	}
+	srcRollbackStore, ok := src.(rollbackExpansionStore)
+	if !ok {
+		_ = src.Close(ctx)
+		return fmt.Errorf("rollback-expansion is not supported by %s-backed c1z files", src.Metadata().Engine)
 	}
 	// Capture each grant's Sources BEFORE rollback so the replay round trip
 	// can be validated: replay re-derives exactly what rollback removed, so
@@ -114,13 +129,13 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	// not re-derived).
 	var preSources map[string]string
 	if validate {
-		preSources, err = src.GrantSourcesForSync(ctx, syncID)
+		preSources, err = srcRollbackStore.GrantSourcesForSync(ctx, syncID)
 		if err != nil {
 			_ = src.Close(ctx)
 			return fmt.Errorf("capture pre-rollback grant sources: %w", err)
 		}
 	}
-	cloneErr := src.CloneSync(ctx, outPath, syncID)
+	cloneErr := src.FileOps().CloneSync(ctx, outPath, syncID)
 	_ = src.Close(ctx)
 	if cloneErr != nil {
 		return fmt.Errorf("clone to --out: %w", cloneErr)
@@ -224,12 +239,12 @@ func capLines(lines []string, n int) []string {
 }
 
 func resolveLatestFinishedSync(ctx context.Context, inPath string) (string, error) {
-	ro, err := dotc1z.NewC1ZFile(ctx, inPath, dotc1z.WithReadOnly(true))
+	ro, err := openReadOnlyC1ZStore(ctx, inPath)
 	if err != nil {
 		return "", fmt.Errorf("open c1z: %w", err)
 	}
 	defer ro.Close(ctx)
-	syncID, err := ro.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny)
+	syncID, err := latestSyncID(ctx, ro, connectorstore.SyncTypeAny)
 	if err != nil {
 		return "", fmt.Errorf("resolve latest finished sync: %w", err)
 	}

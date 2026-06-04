@@ -9,7 +9,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/baton/output"
 	"github.com/conductorone/baton-sdk/pkg/baton/storecache"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/spf13/cobra"
 
@@ -140,14 +139,14 @@ func runGrants(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithReadOnly(true))
+	store, err := openReadOnlyC1ZStore(ctx, c1zPath)
 	if err != nil {
 		return err
 	}
 	defer store.Close(ctx)
 
 	if syncID != "" {
-		err = store.ViewSync(ctx, syncID)
+		err = setCurrentSyncIfRequested(ctx, store, syncID)
 		if err != nil {
 			return err
 		}

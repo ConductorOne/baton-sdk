@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
@@ -179,7 +178,7 @@ func runExportXLSX(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithReadOnly(true))
+	store, err := openReadOnlyC1ZStore(ctx, c1zPath)
 	if err != nil {
 		return err
 	}

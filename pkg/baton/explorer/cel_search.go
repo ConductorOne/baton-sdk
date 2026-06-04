@@ -306,7 +306,7 @@ func (b *BatonService) SearchGrantsForPrincipal(
 			},
 			PageToken: currentToken,
 		}.Build()
-		resp, err := b.store.ListGrantsForPrincipal(ctx, req)
+		resp, err := b.principals.ListGrantsForPrincipal(ctx, req)
 		if err != nil {
 			return nil, "", err
 		}

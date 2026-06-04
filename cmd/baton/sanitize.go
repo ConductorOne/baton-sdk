@@ -87,7 +87,7 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 			zap.String("path", c1zsanitize.SecretPath(secretFile, outPath)))
 	}
 
-	src, err := dotc1z.NewC1ZFile(ctx, inPath, dotc1z.WithReadOnly(true))
+	src, err := openReadOnlyC1ZStore(ctx, inPath)
 	if err != nil {
 		return fmt.Errorf("open source c1z: %w", err)
 	}

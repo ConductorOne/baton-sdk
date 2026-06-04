@@ -35,24 +35,19 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithReadOnly(true))
+	store, err := openReadOnlyC1ZStore(ctx, c1zPath)
 	if err != nil {
 		return err
 	}
 	defer store.Close(ctx)
 
-	newSyncID, err := store.LatestSyncID(ctx, connectorstore.SyncTypeFull)
+	newSyncID, oldSyncID, err := latestAndPreviousSyncIDs(ctx, store, connectorstore.SyncTypeFull)
 	if err != nil {
 		return err
 	}
 
 	if newSyncID == "" {
 		return fmt.Errorf("no syncs found - cannot diff")
-	}
-
-	oldSyncID, err := store.PreviousSyncID(ctx, connectorstore.SyncTypeFull)
-	if err != nil {
-		return err
 	}
 
 	if oldSyncID == "" {
@@ -93,13 +88,13 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func bucketResources(ctx context.Context, store *dotc1z.C1File, oldSyncID string, newSyncID string) (*v1.ResourceDiff, error) {
+func bucketResources(ctx context.Context, store dotc1z.C1ZStore, oldSyncID string, newSyncID string) (*v1.ResourceDiff, error) {
 	ret := &v1.ResourceDiff{}
 
 	oldResources := make(map[string]*v2.Resource)
 	newResources := make(map[string]*v2.Resource)
 
-	err := store.ViewSync(ctx, oldSyncID)
+	err := store.SetCurrentSync(ctx, oldSyncID)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +119,7 @@ func bucketResources(ctx context.Context, store *dotc1z.C1File, oldSyncID string
 		pageToken = resp.NextPageToken
 	}
 
-	err = store.ViewSync(ctx, newSyncID)
+	err = store.SetCurrentSync(ctx, newSyncID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +163,7 @@ func bucketResources(ctx context.Context, store *dotc1z.C1File, oldSyncID string
 		}
 	}
 
-	err = store.ViewSync(ctx, oldSyncID)
+	err = store.SetCurrentSync(ctx, oldSyncID)
 	if err != nil {
 		return nil, err
 	}
@@ -176,13 +171,13 @@ func bucketResources(ctx context.Context, store *dotc1z.C1File, oldSyncID string
 	return ret, nil
 }
 
-func bucketEntitlements(ctx context.Context, store *dotc1z.C1File, oldSyncID string, newSyncID string) (*v1.EntitlementDiff, error) {
+func bucketEntitlements(ctx context.Context, store dotc1z.C1ZStore, oldSyncID string, newSyncID string) (*v1.EntitlementDiff, error) {
 	ret := &v1.EntitlementDiff{}
 
 	oldEntitlements := make(map[string]*v2.Entitlement)
 	newEntitlements := make(map[string]*v2.Entitlement)
 
-	err := store.ViewSync(ctx, oldSyncID)
+	err := store.SetCurrentSync(ctx, oldSyncID)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +202,7 @@ func bucketEntitlements(ctx context.Context, store *dotc1z.C1File, oldSyncID str
 		pageToken = resp.NextPageToken
 	}
 
-	err = store.ViewSync(ctx, newSyncID)
+	err = store.SetCurrentSync(ctx, newSyncID)
 	if err != nil {
 		return nil, err
 	}
@@ -254,13 +249,13 @@ func bucketEntitlements(ctx context.Context, store *dotc1z.C1File, oldSyncID str
 	return ret, nil
 }
 
-func bucketGrants(ctx context.Context, store *dotc1z.C1File, oldSyncID string, newSyncID string) (*v1.GrantDiff, error) {
+func bucketGrants(ctx context.Context, store dotc1z.C1ZStore, oldSyncID string, newSyncID string) (*v1.GrantDiff, error) {
 	ret := &v1.GrantDiff{}
 
 	oldGrants := make(map[string]*v2.Grant)
 	newGrants := make(map[string]*v2.Grant)
 
-	err := store.ViewSync(ctx, oldSyncID)
+	err := store.SetCurrentSync(ctx, oldSyncID)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +280,7 @@ func bucketGrants(ctx context.Context, store *dotc1z.C1File, oldSyncID string, n
 		pageToken = resp.NextPageToken
 	}
 
-	err = store.ViewSync(ctx, newSyncID)
+	err = store.SetCurrentSync(ctx, newSyncID)
 	if err != nil {
 		return nil, err
 	}
