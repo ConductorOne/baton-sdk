@@ -542,3 +542,63 @@ func TestExpanderInPageDuplicatePrincipal(t *testing.T) {
 	sources := only.GetSources().GetSources()
 	require.Contains(t, sources, entA.GetId(), "source attribution must be preserved")
 }
+
+// TestExpanderInPageDirectnessUpgrade covers the case where the same principal
+// appears twice in one source-grants page — first via an indirect grant, then
+// via a direct grant. The expanded descendant grant must record the source as
+// direct: direct wins over indirect.
+//
+// In main this happened to work because every source grant re-queried the
+// descendant grants from the store; the first iteration's write was still
+// buffered (un-flushed), so the second iteration re-created the grant via
+// newExpandedGrant and last-write-wins promoted IsDirect=true. The prefetch
+// rewrite seeds an in-page cache instead, so the second iteration takes the
+// merge path and must explicitly upgrade indirect→direct rather than dropping
+// it.
+func TestExpanderInPageDirectnessUpgrade(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+
+	groupResource := makeResource("group", "team")
+	userResource := makeResource("user", "alice")
+
+	entA := makeEntitlement("ent:a", groupResource)
+	entB := makeEntitlement("ent:b", groupResource)
+	entOther := makeEntitlement("ent:other", groupResource)
+
+	store.AddEntitlement(entA)
+	store.AddEntitlement(entB)
+
+	// First source grant: alice holds A only transitively (sources references
+	// some other entitlement, not A itself) → indirect w.r.t. A.
+	indirect := makeGrant("grant:alice:a:indirect", entA, userResource)
+	indirect.SetSources(v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{
+		entOther.GetId(): {IsDirect: false},
+	}}.Build())
+	store.AddGrant(indirect)
+
+	// Second source grant for the same principal: direct (no sources at all).
+	direct := makeGrant("grant:alice:a:direct", entA, userResource)
+	store.AddGrant(direct)
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(entA.GetId())
+	graph.AddEntitlementID(entB.GetId())
+	require.NoError(t, graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"}))
+
+	expander := NewExpander(store, graph)
+	require.NoError(t, expander.Run(ctx))
+
+	var grantB *v2.Grant
+	for _, g := range store.GetPutGrants() {
+		if g.GetEntitlement().GetId() == entB.GetId() && g.GetPrincipal().GetId().GetResource() == "alice" {
+			grantB = g
+		}
+	}
+	require.NotNil(t, grantB)
+
+	sources := grantB.GetSources().GetSources()
+	require.Contains(t, sources, entA.GetId(), "source attribution must be preserved")
+	require.True(t, sources[entA.GetId()].GetIsDirect(),
+		"a later direct source grant must upgrade the descendant source from indirect to direct")
+}

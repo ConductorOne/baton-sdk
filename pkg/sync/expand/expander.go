@@ -386,8 +386,17 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 					sourcesMap[action.DescendantEntitlementID] = &v2.GrantSources_GrantSource{IsDirect: true}
 					updated = true
 				}
-				if sourcesMap[action.SourceEntitlementID] == nil {
+				if existingSource := sourcesMap[action.SourceEntitlementID]; existingSource == nil {
 					sourcesMap[action.SourceEntitlementID] = &v2.GrantSources_GrantSource{IsDirect: isSourceDirect}
+					updated = true
+				} else if isSourceDirect && !existingSource.GetIsDirect() {
+					// A later source grant for the same principal is direct;
+					// upgrade the recorded source from indirect to direct.
+					// Direct wins over indirect. main got this via re-querying
+					// the store each iteration + last-write-wins on the
+					// re-created grant; the in-page cache merge path must do it
+					// explicitly or the upgrade is silently dropped.
+					existingSource.SetIsDirect(true)
 					updated = true
 				}
 
