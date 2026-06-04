@@ -32,9 +32,13 @@ var ErrSyncNotFinished = errors.New("c1z: refusing to roll back expansion on an 
 // graph was never produced.
 var ErrSyncNotExpanded = errors.New("c1z: sync did not run grant expansion (no supports_diff marker); nothing to roll back")
 
-// rollbackPageSize bounds how many grant rows are read per round so a
-// large sync does not buffer the whole table in memory.
-const rollbackPageSize = 1000
+// rollbackPageSize bounds how many grant rows are read per round, and — since
+// each page's mutations commit in their own transaction — also bounds the
+// per-transaction write-ahead-log footprint. It is a var, not a const, only so
+// the page-size benchmark can measure alternative values; production never
+// reassigns it. See BenchmarkRollbackExpansionPageSize for the measurements
+// behind this value.
+var rollbackPageSize = 1000
 
 // RollbackResult reports what a rollback changed, or — for a dry run —
 // what it would change.
@@ -183,23 +187,18 @@ func (c *C1File) RollbackExpansion(ctx context.Context, syncID string, dryRun bo
 		if err != nil {
 			return err
 		}
-		if err := func() error {
-			for _, id := range deletes {
-				if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE id = ?", tableName), id); err != nil {
-					return err
-				}
+		// Rolls back on every early return; a no-op once Commit succeeds, so it
+		// also covers a Commit that fails and leaves the tx open.
+		defer func() { _ = tx.Rollback() }()
+		for _, id := range deletes {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE id = ?", tableName), id); err != nil {
+				return err
 			}
-			for _, op := range clears {
-				if _, err := tx.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET data = ? WHERE id = ?", tableName), op.data, op.id); err != nil {
-					return err
-				}
+		}
+		for _, op := range clears {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET data = ? WHERE id = ?", tableName), op.data, op.id); err != nil {
+				return err
 			}
-			return nil
-		}(); err != nil {
-			if rbErr := tx.Rollback(); rbErr != nil {
-				return errors.Join(rbErr, err)
-			}
-			return err
 		}
 		return tx.Commit()
 	}
