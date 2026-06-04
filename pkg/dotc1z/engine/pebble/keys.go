@@ -151,6 +151,20 @@ func encodeGrantByEntitlementPrefix(syncIDBytes []byte, entitlementID string) []
 	return codec.AppendTupleSeparator(buf)
 }
 
+// encodeGrantByEntitlementPrincipalPrefix is the by-value prefix for
+// "all grants in this sync with this entitlement_id and principal".
+// It reuses the existing by_entitlement index tail:
+//
+//	entitlement_id | principal_resource_type | principal_resource_id | external_id
+func encodeGrantByEntitlementPrincipalPrefix(syncIDBytes []byte, entitlementID, principalRT, principalID string) []byte {
+	buf := make([]byte, 0, 32+len(entitlementID)+len(principalRT)+len(principalID))
+	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlement)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, entitlementID, principalRT, principalID)
+	return codec.AppendTupleSeparator(buf)
+}
+
 // encodeGrantByNeedsExpansionIndexKey: index of grants whose
 // NeedsExpansion flag is true. Pebble equivalent of the SQLite
 // partial index `WHERE needs_expansion = 1`. The grant is added to

@@ -43,6 +43,18 @@ type ExpanderStore interface {
 	StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
 }
 
+// entitlementGrantPrincipalKeyLister is an optional fast path for stores that
+// can list only descendant principal identities without materializing full
+// grants. Returned keys must use descendantGrantKey(resourceType, resource).
+type entitlementGrantPrincipalKeyLister interface {
+	ListGrantPrincipalKeysForEntitlement(
+		ctx context.Context,
+		entitlement *v2.Entitlement,
+		pageToken string,
+		pageSize uint32,
+	) ([]string, string, error)
+}
+
 // Expander handles the grant expansion algorithm.
 // It can be used standalone for testing or called from the syncer.
 type Expander struct {
@@ -154,6 +166,7 @@ func (e *Expander) IsDone(ctx context.Context) bool {
 // error — the caller drops the partial set and falls back to per-principal
 // queries (slower, but bounded and correct).
 const maxPrefetchPages = 100
+const descendantPrincipalPageSize = 16
 
 func descendantGrantKey(resourceTypeID, resourceID string) string {
 	return resourceTypeID + "\x00" + resourceID
@@ -181,6 +194,20 @@ func prefetchDescendantPrincipals(
 	for page := 0; page < maxPrefetchPages; page++ {
 		if err := ctx.Err(); err != nil {
 			return nil, false, err
+		}
+		if fastStore, ok := store.(entitlementGrantPrincipalKeyLister); ok {
+			keys, nextPageToken, err := fastStore.ListGrantPrincipalKeysForEntitlement(ctx, entitlement, pageToken, 0)
+			if err != nil {
+				return nil, false, fmt.Errorf("prefetchDescendantPrincipals: %w", err)
+			}
+			for _, key := range keys {
+				set[key] = struct{}{}
+			}
+			pageToken = nextPageToken
+			if pageToken == "" {
+				return set, true, nil
+			}
+			continue
 		}
 		resp, err := store.ListGrantsForEntitlement(ctx,
 			reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
@@ -231,6 +258,7 @@ func listDescendantGrantsForPrincipal(
 				Entitlement: entitlement,
 				PrincipalId: principalID,
 				PageToken:   pageToken,
+				PageSize:    descendantPrincipalPageSize,
 			}.Build())
 		if err != nil {
 			return nil, fmt.Errorf("listDescendantGrantsForPrincipal: %w", err)

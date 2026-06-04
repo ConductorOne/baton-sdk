@@ -163,6 +163,38 @@ func (a expanderStoreAdapter) ListGrantsForEntitlement(
 	return a.store.ListGrantsForEntitlement(ctx, req)
 }
 
+func (a expanderStoreAdapter) ListGrantPrincipalKeysForEntitlement(
+	ctx context.Context,
+	entitlement *v2.Entitlement,
+	pageToken string,
+	pageSize uint32,
+) ([]string, string, error) {
+	// Preserve Pebble's compact prefetch path through this wrapper. Non-Pebble
+	// stores fall back to regular grant listing and local key extraction.
+	if store, ok := a.store.(interface {
+		ListGrantPrincipalKeysForEntitlement(context.Context, *v2.Entitlement, string, uint32) ([]string, string, error)
+	}); ok {
+		return store.ListGrantPrincipalKeysForEntitlement(ctx, entitlement, pageToken, pageSize)
+	}
+	resp, err := a.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		Entitlement: entitlement,
+		PageToken:   pageToken,
+		PageSize:    pageSize,
+	}.Build())
+	if err != nil {
+		return nil, "", err
+	}
+	keys := make([]string, 0, len(resp.GetList()))
+	for _, g := range resp.GetList() {
+		if g.GetPrincipal() == nil {
+			continue
+		}
+		id := g.GetPrincipal().GetId()
+		keys = append(keys, id.GetResourceType()+"\x00"+id.GetResource())
+	}
+	return keys, resp.GetNextPageToken(), nil
+}
+
 func (a expanderStoreAdapter) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
 }

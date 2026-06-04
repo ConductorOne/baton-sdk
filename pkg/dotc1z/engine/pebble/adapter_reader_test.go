@@ -141,6 +141,52 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 		t.Errorf("ListGrantsForEntitlement(ent-A, user): got %d, want 5", len(respFiltered.GetList()))
 	}
 
+	// ListGrantsForEntitlement(ent-A) filtered by principal ID=user/u1 → 1
+	respPrincipal, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
+		PrincipalId: v2.ResourceId_builder{
+			ResourceType: "user",
+			Resource:     "u1",
+		}.Build(),
+		PageSize: 100,
+	}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(respPrincipal.GetList()) != 1 {
+		t.Fatalf("ListGrantsForEntitlement(ent-A, user/u1): got %d, want 1", len(respPrincipal.GetList()))
+	}
+	if got := respPrincipal.GetList()[0].GetId(); got != "u-a-1" {
+		t.Errorf("ListGrantsForEntitlement(ent-A, user/u1) id: got %q, want u-a-1", got)
+	}
+
+	var principalPageIDs []string
+	principalPageToken := ""
+	for {
+		respPrincipalPage, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+			Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
+			PrincipalId: v2.ResourceId_builder{
+				ResourceType: "user",
+				Resource:     "u1",
+			}.Build(),
+			PageSize:  1,
+			PageToken: principalPageToken,
+		}.Build())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, g := range respPrincipalPage.GetList() {
+			principalPageIDs = append(principalPageIDs, g.GetId())
+		}
+		principalPageToken = respPrincipalPage.GetNextPageToken()
+		if principalPageToken == "" {
+			break
+		}
+	}
+	if len(principalPageIDs) != 1 || principalPageIDs[0] != "u-a-1" {
+		t.Fatalf("paginated ListGrantsForEntitlement(ent-A, user/u1): got %v, want [u-a-1]", principalPageIDs)
+	}
+
 	// ListGrantsForResourceType(user) → 7 grants (5 ent-A + 2 ent-B)
 	rtResp, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
 		ResourceTypeId: "user",
