@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
@@ -69,7 +70,11 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	if validate && !replay {
 		return fmt.Errorf("--validate requires --replay (without re-deriving, deleted grants cannot be compared)")
 	}
-	var rollbackOpts []dotc1z.RollbackOption
+	rollbackOpts := []dotc1z.RollbackOption{
+		// Re-mark the sync for expansion while keeping the rest of its token,
+		// rather than discarding the token wholesale.
+		dotc1z.WithSyncTokenRewrite(sync.PrepareExpansionReplayToken),
+	}
 	if preserveSuspect {
 		rollbackOpts = append(rollbackOpts, dotc1z.WithPreserveSuspectGrants())
 	}
@@ -114,7 +119,7 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	// not re-derived).
 	var preSources map[string]string
 	if validate {
-		preSources, err = src.GrantSourcesForSync(ctx, syncID)
+		preSources, err = grantSourcesForSync(ctx, src, syncID)
 		if err != nil {
 			_ = src.Close(ctx)
 			return fmt.Errorf("capture pre-rollback grant sources: %w", err)
@@ -162,7 +167,7 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 		// replay did not faithfully reproduce the original expansion — fail
 		// without finalizing so the partial output is removed.
 		if validate {
-			postSources, err := store.GrantSourcesForSync(ctx, syncID)
+			postSources, err := grantSourcesForSync(ctx, store, syncID)
 			if err != nil {
 				return fmt.Errorf("capture post-replay grant sources: %w", err)
 			}
@@ -186,6 +191,39 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	_, _ = fmt.Fprintf(os.Stdout, "sync %s rolled back: deleted %d expansion-derived grant(s), cleared sources on %d direct grant(s)%s; wrote %s%s\n",
 		res.SyncID, res.GrantsDeleted, res.SourcesCleared, suspectSuffix(res), outPath, replaySuffix(replay))
 	return nil
+}
+
+// grantSourcesForSync returns, for every grant in the sync, a canonical
+// string form of its GrantSources keyed by the grant's id. It backs the
+// rollback+replay round-trip check: every grant present before must be
+// present after with identical Sources, since replay re-derives exactly what
+// rollback removed. It streams the grants one at a time rather than buffering
+// the whole table; the returned map is the snapshot the comparison needs.
+func grantSourcesForSync(ctx context.Context, store *dotc1z.C1File, syncID string) (map[string]string, error) {
+	out := map[string]string{}
+	for g, err := range store.StreamGrants(ctx, syncID, connectorstore.StreamGrantsOptions{}) {
+		if err != nil {
+			return nil, fmt.Errorf("read grant sources: %w", err)
+		}
+		out[g.GetId()] = canonicalGrantSources(g)
+	}
+	return out, nil
+}
+
+// canonicalGrantSources renders a grant's Sources as a sorted, stable string
+// ("<sourceEntitlementID>=<isDirect>" joined) so map iteration order and
+// proto framing never produce a false pre/post divergence.
+func canonicalGrantSources(g *v2.Grant) string {
+	srcMap := g.GetSources().GetSources()
+	if len(srcMap) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(srcMap))
+	for k, v := range srcMap {
+		parts = append(parts, fmt.Sprintf("%s=%t", k, v.GetIsDirect()))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
 }
 
 // compareGrantSources reports every grant whose Sources differ between the
