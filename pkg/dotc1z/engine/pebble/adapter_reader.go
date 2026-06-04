@@ -220,14 +220,21 @@ func (a *Adapter) ListGrantsForEntitlement(
 	for len(out) < limit {
 		pageLimit := limit - len(out)
 		fetchLimit := pageLimit
-		if principalID != nil || len(rtFilter) > 0 {
+		if len(rtFilter) > 0 {
 			fetchLimit = pageLimit * 4
 			if fetchLimit > MaxPageSize {
 				fetchLimit = MaxPageSize
 			}
 		}
-		records, next, err := a.engine.PaginateGrantsByEntitlement(ctx, syncID,
-			ent.GetId(), cursor, fetchLimit)
+		var records []*v3.GrantRecord
+		var next string
+		if principalID != nil {
+			records, next, err = a.engine.PaginateGrantsByEntitlementPrincipal(ctx, syncID,
+				ent.GetId(), principalID.GetResourceType(), principalID.GetResource(), cursor, fetchLimit)
+		} else {
+			records, next, err = a.engine.PaginateGrantsByEntitlement(ctx, syncID,
+				ent.GetId(), cursor, fetchLimit)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -265,6 +272,29 @@ func (a *Adapter) ListGrantsForEntitlement(
 		List:          out,
 		NextPageToken: nextCursor,
 	}.Build(), nil
+}
+
+// ListGrantPrincipalKeysForEntitlement returns the compact principal keys used
+// by grant expansion prefetch. It avoids materializing full grant records when
+// the caller only needs to know which principals already have a descendant
+// entitlement grant.
+func (a *Adapter) ListGrantPrincipalKeysForEntitlement(
+	ctx context.Context,
+	entitlement *v2.Entitlement,
+	pageToken string,
+	pageSize uint32,
+) ([]string, string, error) {
+	syncID, err := a.resolveActiveSyncForReader(ctx, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	if syncID == "" {
+		return nil, "", ErrNoCurrentSync
+	}
+	if entitlement == nil || entitlement.GetId() == "" {
+		return nil, "", errors.New("ListGrantPrincipalKeysForEntitlement: missing entitlement id")
+	}
+	return a.engine.PaginateGrantPrincipalKeysByEntitlement(ctx, syncID, entitlement.GetId(), pageToken, clampPageSize(pageSize))
 }
 
 // ListGrantsForPrincipal is the Go-level convenience method that

@@ -12,8 +12,11 @@ import (
 	"slices"
 	"testing"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,9 +25,17 @@ func BenchmarkExpandSmall(b *testing.B) {
 	benchmarkExpand(b, "36zGvJw3uxU1QMJKU2yPVQ1hBOC", false)
 }
 
+func BenchmarkExpandSmallPebble(b *testing.B) {
+	benchmarkExpandPebble(b, "36zGvJw3uxU1QMJKU2yPVQ1hBOC", false)
+}
+
 // ~70s.
 func BenchmarkExpandSmallMedium(b *testing.B) {
 	benchmarkExpand(b, "36zM46KKuaBq0wjSSvKh5o0350y", false)
+}
+
+func BenchmarkExpandSmallMediumPebble(b *testing.B) {
+	benchmarkExpandPebble(b, "36zM46KKuaBq0wjSSvKh5o0350y", false)
 }
 
 // BenchmarkExpandSmallPerStep mirrors syncer.expandGrantsForEntitlements:
@@ -35,13 +46,26 @@ func BenchmarkExpandSmallPerStep(b *testing.B) {
 	benchmarkExpand(b, "36zGvJw3uxU1QMJKU2yPVQ1hBOC", true)
 }
 
+func BenchmarkExpandSmallPebblePerStep(b *testing.B) {
+	benchmarkExpandPebble(b, "36zGvJw3uxU1QMJKU2yPVQ1hBOC", true)
+}
+
 func BenchmarkExpandSmallMediumPerStep(b *testing.B) {
 	benchmarkExpand(b, "36zM46KKuaBq0wjSSvKh5o0350y", true)
+}
+
+func BenchmarkExpandSmallMediumPebblePerStep(b *testing.B) {
+	benchmarkExpandPebble(b, "36zM46KKuaBq0wjSSvKh5o0350y", true)
 }
 
 func getTestdataPath(syncID string) string {
 	_, filename, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(filename), "testdata", fmt.Sprintf("sync.%s.unexpanded", syncID))
+}
+
+func getPebbleTestdataPath(syncID string) string {
+	_, filename, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(filename), "testdata", fmt.Sprintf("sync.%s.unexpanded.pebble.c1z", syncID))
 }
 
 // copyGraph creates a deep copy of an EntitlementGraph.
@@ -104,9 +128,13 @@ func copyGraph(g *EntitlementGraph) *EntitlementGraph {
 // this is the case for both the correctness test and the benchmark.
 func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID string) (*EntitlementGraph, error) {
 	_ = syncID // caller sets scope via SetSyncID before calling.
+	return loadEntitlementGraphFromStore(ctx, c1f)
+}
+
+func loadEntitlementGraphFromStore(ctx context.Context, store dotc1z.C1ZStore) (*EntitlementGraph, error) {
 	graph := NewEntitlementGraph(ctx)
 
-	for def, err := range c1f.Grants().PendingExpansion(ctx) {
+	for def, err := range store.Grants().PendingExpansion(ctx) {
 		if errors.Is(err, sql.ErrNoRows) {
 			graph.Loaded = true
 			return graph, nil
@@ -115,7 +143,7 @@ func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID
 			return nil, err
 		}
 		for _, srcEntitlementID := range def.Annotation.GetEntitlementIds() {
-			srcEntitlement, err := c1f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+			srcEntitlement, err := store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 				EntitlementId: srcEntitlementID,
 			}.Build())
 			if err != nil {
@@ -135,6 +163,58 @@ func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID
 
 	graph.Loaded = true
 	return graph, nil
+}
+
+type benchmarkExpanderStore struct {
+	store dotc1z.C1ZStore
+}
+
+func (s benchmarkExpanderStore) GetEntitlement(
+	ctx context.Context,
+	req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest,
+) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
+	return s.store.GetEntitlement(ctx, req)
+}
+
+func (s benchmarkExpanderStore) ListGrantsForEntitlement(
+	ctx context.Context,
+	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+	return s.store.ListGrantsForEntitlement(ctx, req)
+}
+
+func (s benchmarkExpanderStore) ListGrantPrincipalKeysForEntitlement(
+	ctx context.Context,
+	entitlement *v2.Entitlement,
+	pageToken string,
+	pageSize uint32,
+) ([]string, string, error) {
+	if store, ok := s.store.(interface {
+		ListGrantPrincipalKeysForEntitlement(context.Context, *v2.Entitlement, string, uint32) ([]string, string, error)
+	}); ok {
+		return store.ListGrantPrincipalKeysForEntitlement(ctx, entitlement, pageToken, pageSize)
+	}
+	resp, err := s.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		Entitlement: entitlement,
+		PageToken:   pageToken,
+		PageSize:    pageSize,
+	}.Build())
+	if err != nil {
+		return nil, "", err
+	}
+	keys := make([]string, 0, len(resp.GetList()))
+	for _, g := range resp.GetList() {
+		if g.GetPrincipal() == nil {
+			continue
+		}
+		id := g.GetPrincipal().GetId()
+		keys = append(keys, id.GetResourceType()+"\x00"+id.GetResource())
+	}
+	return keys, resp.GetNextPageToken(), nil
+}
+
+func (s benchmarkExpanderStore) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
 
 func benchmarkExpand(b *testing.B, syncID string, perStep bool) {
@@ -217,6 +297,83 @@ func benchmarkExpand(b *testing.B, syncID string, perStep bool) {
 			b.StopTimer()
 
 			// ---------------------------------------
+			require.NoError(b, err)
+		}(i)
+	}
+}
+
+func benchmarkExpandPebble(b *testing.B, syncID string, perStep bool) {
+	pebblePath := getPebbleTestdataPath(syncID)
+	if _, err := os.Stat(pebblePath); os.IsNotExist(err) {
+		b.Skipf("Pebble testdata file not found: %s", pebblePath)
+	}
+	require.NoError(b, pebble.Register())
+
+	ctx := context.Background()
+	storeWriter, err := dotc1z.NewStore(ctx, pebblePath)
+	require.NoError(b, err)
+	store, ok := storeWriter.(dotc1z.C1ZStore)
+	require.True(b, ok)
+	latest, err := store.SyncMeta().LatestFullSync(ctx)
+	require.NoError(b, err)
+	require.NotNil(b, latest)
+	destSyncID := latest.ID
+	_, started, err := store.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, destSyncID)
+	require.NoError(b, err)
+	require.False(b, started)
+
+	graph, err := loadEntitlementGraphFromStore(ctx, store)
+	require.NoError(b, err)
+	require.NoError(b, store.Close(ctx))
+	require.NotEmpty(b, graph.Edges)
+
+	b.Logf("Graph loaded: %d nodes, %d edges", len(graph.Nodes), len(graph.Edges))
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		func(i int) {
+			graphCopy := copyGraph(graph)
+
+			tmpFile, err := os.CreateTemp("", "bench-expand-pebble-*.c1z")
+			require.NoError(b, err)
+			tmpPath := tmpFile.Name()
+			defer os.Remove(tmpPath)
+			require.NoError(b, tmpFile.Close())
+
+			srcData, err := os.ReadFile(pebblePath)
+			require.NoError(b, err)
+			//nolint:gosec // tmpPath is generated by os.CreateTemp in this benchmark.
+			require.NoError(b, os.WriteFile(tmpPath, srcData, 0600))
+
+			storeWriter, err := dotc1z.NewStore(ctx, tmpPath)
+			require.NoError(b, err)
+			store, ok := storeWriter.(dotc1z.C1ZStore)
+			require.True(b, ok)
+			_, started, err := store.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, destSyncID)
+			require.NoError(b, err)
+			require.False(b, started)
+			defer store.Close(ctx)
+
+			b.StartTimer()
+			step := 0
+			for {
+				expander := NewExpander(benchmarkExpanderStore{store: store}, graphCopy)
+				err = expander.RunSingleStep(ctx)
+				if err != nil {
+					break
+				}
+				if expander.IsDone(ctx) {
+					break
+				}
+				step++
+				if !perStep {
+					// This benchmark still uses the production step loop so
+					// debug output can identify long-running actions.
+					continue
+				}
+			}
+			b.StopTimer()
+
 			require.NoError(b, err)
 		}(i)
 	}
