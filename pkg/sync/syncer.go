@@ -540,6 +540,15 @@ func (s *syncer) Sync(ctx context.Context) error {
 		)
 	}
 
+	if !newSync && s.state.Current() == nil {
+		// Push init action
+		s.state.PushAction(ctx, Action{Op: InitOp})
+		err = s.Checkpoint(ctx, true)
+		if err != nil {
+			return err
+		}
+	}
+
 	warnings, err := s.parallelSync(ctx, runCtx, targetedResources)
 	if err != nil {
 		return err
