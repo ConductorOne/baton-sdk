@@ -541,7 +541,8 @@ func (s *syncer) Sync(ctx context.Context) error {
 	}
 
 	if !newSync && s.state.Current() == nil {
-		// Push init action
+		l.Debug("current action is nil, pushing init action for sync", zap.String("sync_id", syncID))
+		// Push init action if no current action. This is probably a finished sync that we're running grant expansion on.
 		s.state.PushAction(ctx, Action{Op: InitOp})
 		err = s.Checkpoint(ctx, true)
 		if err != nil {
