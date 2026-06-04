@@ -350,7 +350,13 @@ func (st *state) Unmarshal(input string) error {
 		}
 
 		st.actions = token.ActionsMap
+		if st.actions == nil {
+			st.actions = make(map[string]Action)
+		}
 		st.actionOrder = token.ActionOrder
+		if st.actionOrder == nil {
+			st.actionOrder = []string{}
+		}
 		st.currentActionID = token.CurrentActionID
 		st.needsExpansion = token.NeedsExpansion
 		st.entitlementGraph = token.EntitlementGraph

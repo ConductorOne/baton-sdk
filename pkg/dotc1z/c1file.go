@@ -889,14 +889,14 @@ func statsToMap(stats *reader_v2.SyncStats, syncType connectorstore.SyncType) ma
 // Stats introspects the database and returns the count of objects for the given sync run.
 // If syncId is empty, it will use the latest sync run of the given type.
 func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (map[string]int64, error) {
-	sync, stats, err := c.stats(ctx, syncType, syncId)
+	sync, stats, err := c.stats(ctx, syncType, syncId, false)
 	if err != nil {
 		return nil, err
 	}
 	return statsToMap(stats, connectorstore.SyncType(sync.GetSyncType())), nil
 }
 
-func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (*reader_v2.SyncRun, *reader_v2.SyncStats, error) {
+func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, syncId string, forceRefresh bool) (*reader_v2.SyncRun, *reader_v2.SyncStats, error) {
 	ctx, span := tracer.Start(ctx, "C1File.Stats")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -921,7 +921,7 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 	syncType = connectorstore.SyncType(sync.GetSyncType())
 
 	stats := sync.GetStats()
-	if stats != nil && stats.GetResourceTypes() > 0 {
+	if stats != nil && stats.GetResourceTypes() > 0 && !forceRefresh {
 		return sync, stats, nil
 	}
 
@@ -1028,7 +1028,7 @@ func (c *C1File) grantStats(ctx context.Context, syncType connectorstore.SyncTyp
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	_, stats, err := c.stats(ctx, syncType, syncId)
+	_, stats, err := c.stats(ctx, syncType, syncId, false)
 	if err != nil {
 		return nil, err
 	}
