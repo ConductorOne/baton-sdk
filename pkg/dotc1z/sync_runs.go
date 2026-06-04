@@ -749,7 +749,7 @@ func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 	c.dbUpdated = true
 
 	// Run stats to generate and save the cached stats.
-	_, _, statsErr := c.stats(ctx, connectorstore.SyncTypeAny, syncID)
+	_, _, statsErr := c.stats(ctx, connectorstore.SyncTypeAny, syncID, true)
 	if statsErr != nil {
 		// Ignore stats error. We will recalculate them if Stats() is called.
 		ctxzap.Extract(ctx).Warn("c1z: error calculating & saving stats",
