@@ -4,11 +4,10 @@ import (
 	"context"
 
 	v1 "github.com/conductorone/baton-sdk/pb/baton/v1"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/baton/output"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func syncsCmd() *cobra.Command {
@@ -37,7 +36,7 @@ func runSyncList(cmd *cobra.Command, args []string) error {
 	}
 	outputManager := output.NewManager(ctx, outputFormat)
 
-	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithReadOnly(true))
+	store, err := openReadOnlyC1ZStore(ctx, c1zPath)
 	if err != nil {
 		return err
 	}
@@ -46,36 +45,30 @@ func runSyncList(cmd *cobra.Command, args []string) error {
 	var syncRuns []*v1.SyncOutput
 	pageToken := ""
 	for {
-		resp, nextPageToken, err := store.ListSyncRuns(ctx, pageToken, 100)
+		resp, err := store.ListSyncs(ctx, reader_v2.SyncsReaderServiceListSyncsRequest_builder{
+			PageSize:  100,
+			PageToken: pageToken,
+		}.Build())
 		if err != nil {
 			return err
 		}
 
-		for _, sr := range resp {
-			var startTime *timestamppb.Timestamp
-			if sr.StartedAt != nil {
-				startTime = timestamppb.New(*sr.StartedAt)
-			}
-
-			var endTime *timestamppb.Timestamp
-			if sr.EndedAt != nil {
-				endTime = timestamppb.New(*sr.EndedAt)
-			}
+		for _, sr := range resp.GetSyncs() {
 			syncRuns = append(syncRuns, &v1.SyncOutput{
-				Id:           sr.ID,
-				StartedAt:    startTime,
-				EndedAt:      endTime,
-				SyncToken:    sr.SyncToken,
-				SyncType:     string(sr.Type),
-				ParentSyncId: sr.ParentSyncID,
+				Id:           sr.GetId(),
+				StartedAt:    sr.GetStartedAt(),
+				EndedAt:      sr.GetEndedAt(),
+				SyncToken:    sr.GetSyncToken(),
+				SyncType:     sr.GetSyncType(),
+				ParentSyncId: sr.GetParentSyncId(),
 			})
 		}
 
-		if nextPageToken == "" {
+		if resp.GetNextPageToken() == "" {
 			break
 		}
 
-		pageToken = nextPageToken
+		pageToken = resp.GetNextPageToken()
 	}
 
 	err = outputManager.Output(ctx, &v1.SyncListOutput{

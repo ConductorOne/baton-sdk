@@ -8,7 +8,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/baton/output"
 	"github.com/conductorone/baton-sdk/pkg/baton/storecache"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/spf13/cobra"
 )
@@ -44,7 +43,7 @@ func runPrincipalsCompare(cmd *cobra.Command, args []string) error {
 	}
 	outputManager := output.NewManager(ctx, outputFormat)
 
-	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithReadOnly(true))
+	store, err := openReadOnlyC1ZStore(ctx, c1zPath)
 	if err != nil {
 		return err
 	}
@@ -57,7 +56,7 @@ func runPrincipalsCompare(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	storeCompare, err := dotc1z.NewC1ZFile(ctx, compareC1zPath, dotc1z.WithReadOnly(true))
+	storeCompare, err := openReadOnlyC1ZStore(ctx, compareC1zPath)
 	if err != nil {
 		return err
 	}

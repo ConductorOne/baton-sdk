@@ -7,7 +7,6 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/baton/output"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -39,13 +38,13 @@ func runStats(cmd *cobra.Command, args []string) error {
 	}
 	outputManager := output.NewManager(ctx, outputFormat)
 
-	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithReadOnly(true))
+	store, err := openReadOnlyC1ZStore(ctx, c1zPath)
 	if err != nil {
 		return err
 	}
 	defer store.Close(ctx)
 
-	counts, err := store.Stats(ctx, connectorstore.SyncTypeAny, "")
+	counts, err := store.SyncMeta().Stats(ctx, connectorstore.SyncTypeAny, "")
 	if err != nil {
 		return err
 	}
