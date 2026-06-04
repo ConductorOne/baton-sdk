@@ -191,6 +191,14 @@ func prefetchDescendantPrincipals(
 			return nil, false, fmt.Errorf("prefetchDescendantPrincipals: %w", err)
 		}
 		for _, g := range resp.GetList() {
+			// Skip malformed grants with no principal: they would otherwise
+			// add an empty key to the set, polluting the negative oracle the
+			// caller relies on. Consistent with the nil-principal guard in
+			// runAction. (Opaque getters are nil-safe, so this is correctness,
+			// not panic-avoidance.)
+			if g.GetPrincipal() == nil {
+				continue
+			}
 			pid := g.GetPrincipal().GetId()
 			set[descendantGrantKey(pid.GetResourceType(), pid.GetResource())] = struct{}{}
 		}
