@@ -324,6 +324,14 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 	var newGrants = make([]*v2.Grant, 0)
 	for _, sourceGrant := range sourceGrants.GetList() {
 		if sourceGrant.GetPrincipal() == nil {
+			// Malformed grant with no principal. main passed this through to
+			// ListGrantsForEntitlement with a nil PrincipalId, which the store
+			// treats as "no filter" (pkg/dotc1z/grants.go) — fetching every
+			// descendant grant and adding this source to all of them,
+			// corrupting unrelated principals. Skip it, but log so the upstream
+			// connector bug is visible instead of silently dropped.
+			l.Warn("runAction: skipping source grant with nil principal",
+				zap.String("source_grant_id", sourceGrant.GetId()))
 			continue
 		}
 		if action.Shallow {

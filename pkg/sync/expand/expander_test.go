@@ -602,3 +602,65 @@ func TestExpanderInPageDirectnessUpgrade(t *testing.T) {
 	require.True(t, sources[entA.GetId()].GetIsDirect(),
 		"a later direct source grant must upgrade the descendant source from indirect to direct")
 }
+
+// TestExpanderNilPrincipalSourceGrant locks in that a malformed source grant
+// with no principal is a no-op that does NOT corrupt unrelated descendant
+// grants.
+//
+// In main this was a real hazard: the nil principal flowed into
+// ListGrantsForEntitlement as a nil PrincipalId, which the store interprets as
+// "no filter" (pkg/dotc1z/grants.go) — so it would fetch *every* grant on the
+// descendant entitlement and add the source entitlement (and a direct
+// self-source) to all of them. The rewrite avoids this two ways: the explicit
+// nil-principal skip, and structurally — the key-set/per-principal design
+// never issues an unfiltered descendant query. This test guards that property
+// against future regressions; an unrelated principal's pre-existing descendant
+// grant must be left untouched.
+func TestExpanderNilPrincipalSourceGrant(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+
+	groupResource := makeResource("group", "team")
+	bobResource := makeResource("user", "bob")
+
+	entA := makeEntitlement("ent:a", groupResource)
+	entB := makeEntitlement("ent:b", groupResource)
+
+	store.AddEntitlement(entA)
+	store.AddEntitlement(entB)
+
+	// A malformed source grant on entA with no principal.
+	nilPrincipalGrant := v2.Grant_builder{
+		Id:          "grant:nil:a",
+		Entitlement: entA,
+		Principal:   nil,
+	}.Build()
+	store.AddGrant(nilPrincipalGrant)
+
+	// An unrelated, pre-existing descendant grant on entB for bob, with its own
+	// source already recorded. This must survive expansion unchanged — main
+	// would have added entA (and a direct self-source) to it.
+	bobGrantB := makeGrant("grant:bob:b", entB, bobResource)
+	bobGrantB.SetSources(v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{
+		entB.GetId(): {IsDirect: true},
+	}}.Build())
+	store.AddGrant(bobGrantB)
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(entA.GetId())
+	graph.AddEntitlementID(entB.GetId())
+	require.NoError(t, graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"}))
+
+	expander := NewExpander(store, graph)
+	require.NoError(t, expander.Run(ctx))
+
+	// The nil-principal source grant must not have produced any new write that
+	// references entA as a source on the descendant entitlement.
+	for _, g := range store.GetPutGrants() {
+		if g.GetEntitlement().GetId() != entB.GetId() {
+			continue
+		}
+		require.NotContains(t, g.GetSources().GetSources(), entA.GetId(),
+			"a nil-principal source grant must not add entA as a source to any descendant grant")
+	}
+}
