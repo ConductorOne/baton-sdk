@@ -19,12 +19,24 @@ import (
 
 // ~50s.
 func BenchmarkExpandSmall(b *testing.B) {
-	benchmarkExpand(b, "36zGvJw3uxU1QMJKU2yPVQ1hBOC")
+	benchmarkExpand(b, "36zGvJw3uxU1QMJKU2yPVQ1hBOC", false)
 }
 
 // ~70s.
 func BenchmarkExpandSmallMedium(b *testing.B) {
-	benchmarkExpand(b, "36zM46KKuaBq0wjSSvKh5o0350y")
+	benchmarkExpand(b, "36zM46KKuaBq0wjSSvKh5o0350y", false)
+}
+
+// BenchmarkExpandSmallPerStep mirrors syncer.expandGrantsForEntitlements:
+// a fresh Expander is constructed before each RunSingleStep call, looping
+// until the graph reports IsDone. This validates that per-action prefetch
+// wins are not artifacts of the long-lived-Expander harness shape.
+func BenchmarkExpandSmallPerStep(b *testing.B) {
+	benchmarkExpand(b, "36zGvJw3uxU1QMJKU2yPVQ1hBOC", true)
+}
+
+func BenchmarkExpandSmallMediumPerStep(b *testing.B) {
+	benchmarkExpand(b, "36zM46KKuaBq0wjSSvKh5o0350y", true)
 }
 
 func getTestdataPath(syncID string) string {
@@ -125,7 +137,7 @@ func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID
 	return graph, nil
 }
 
-func benchmarkExpand(b *testing.B, syncID string) {
+func benchmarkExpand(b *testing.B, syncID string, perStep bool) {
 	c1zPath := getTestdataPath(syncID)
 	if _, err := os.Stat(c1zPath); os.IsNotExist(err) {
 		b.Skipf("testdata file not found: %s", c1zPath)
@@ -180,12 +192,28 @@ func benchmarkExpand(b *testing.B, syncID string) {
 			err = c1fCopy.SetSyncID(ctx, syncID)
 			require.NoError(b, err)
 
-			expander := NewExpander(c1fCopy, graphCopy)
-
 			// ---------------------------------------
 
 			b.StartTimer()
-			err = expander.Run(ctx)
+			if perStep {
+				// Mirror syncer.expandGrantsForEntitlements: a fresh
+				// Expander wraps the persistent graph + store for each
+				// step, and the loop exits when IsDone reports the graph
+				// is fully expanded. The graph mutates across steps just
+				// as it does in production via state.EntitlementGraph.
+				for {
+					expander := NewExpander(c1fCopy, graphCopy)
+					if err = expander.RunSingleStep(ctx); err != nil {
+						break
+					}
+					if expander.IsDone(ctx) {
+						break
+					}
+				}
+			} else {
+				expander := NewExpander(c1fCopy, graphCopy)
+				err = expander.Run(ctx)
+			}
 			b.StopTimer()
 
 			// ---------------------------------------

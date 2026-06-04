@@ -454,3 +454,213 @@ func TestExpanderMixedDirectness(t *testing.T) {
 	require.Contains(t, sourcesC, entB.GetId())
 	require.False(t, sourcesC[entB.GetId()].GetIsDirect(), "source B should be transitive")
 }
+
+// pageCapStubStore always returns a non-empty NextPageToken so the prefetch
+// loop never terminates naturally. Used to exercise the maxPrefetchPages cap.
+type pageCapStubStore struct {
+	MockExpanderStore
+	calls int
+}
+
+func (s *pageCapStubStore) ListGrantsForEntitlement(
+	_ context.Context,
+	_ *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+	s.calls++
+	return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{
+		List:          []*v2.Grant{},
+		NextPageToken: "more",
+	}.Build(), nil
+}
+
+// TestPrefetchDescendantPrincipals_PageCapExceeded locks in graceful
+// degradation when the cap is hit: the helper must return complete=false
+// (and no error) so runAction can drop the partial set and fall back to
+// per-principal queries. Returning an error here would make the expander
+// fail on very large descendant entitlements instead of just running slowly.
+func TestPrefetchDescendantPrincipals_PageCapExceeded(t *testing.T) {
+	store := &pageCapStubStore{MockExpanderStore: *NewMockExpanderStore()}
+	ent := v2.Entitlement_builder{Id: "entitlement:1"}.Build()
+
+	set, complete, err := prefetchDescendantPrincipals(context.Background(), store, ent)
+	require.NoError(t, err)
+	require.False(t, complete, "cap exceeded must report incomplete so caller falls back")
+	require.NotNil(t, set)
+	require.Equal(t, maxPrefetchPages, store.calls, "loop must iterate exactly the cap before giving up")
+}
+
+// TestExpanderInPageDuplicatePrincipal covers the case where multiple source
+// grants in the same source-grants page share the same principal and the
+// descendant entitlement has no pre-existing grant. The expander must emit
+// exactly one expanded grant per (descendant, principal) — not one per
+// source grant — because the deterministic grant ID would otherwise cause
+// upsert collisions and lose source attribution.
+func TestExpanderInPageDuplicatePrincipal(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+
+	groupResource := makeResource("group", "team")
+	userResource := makeResource("user", "alice")
+
+	entA := makeEntitlement("ent:a", groupResource)
+	entB := makeEntitlement("ent:b", groupResource)
+
+	store.AddEntitlement(entA)
+	store.AddEntitlement(entB)
+
+	// Two source grants on entA for the same principal (same ResourceId).
+	// This can happen when a connector emits multiple membership grants for
+	// the same user (e.g. nested-group membership traversal).
+	store.AddGrant(makeGrant("grant:alice:a:1", entA, userResource))
+	store.AddGrant(makeGrant("grant:alice:a:2", entA, userResource))
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(entA.GetId())
+	graph.AddEntitlementID(entB.GetId())
+	require.NoError(t, graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"}))
+
+	expander := NewExpander(store, graph)
+	require.NoError(t, expander.Run(ctx))
+
+	// Count distinct expanded grants on entB for alice.
+	distinct := make(map[string]*v2.Grant)
+	for _, g := range store.GetPutGrants() {
+		if g.GetEntitlement().GetId() != entB.GetId() {
+			continue
+		}
+		if g.GetPrincipal().GetId().GetResource() != "alice" {
+			continue
+		}
+		distinct[g.GetId()] = g
+	}
+	require.Len(t, distinct, 1, "two same-principal source grants must produce exactly one expanded grant")
+
+	var only *v2.Grant
+	for _, g := range distinct {
+		only = g
+	}
+	sources := only.GetSources().GetSources()
+	require.Contains(t, sources, entA.GetId(), "source attribution must be preserved")
+}
+
+// TestExpanderInPageDirectnessUpgrade covers the case where the same principal
+// appears twice in one source-grants page — first via an indirect grant, then
+// via a direct grant. The expanded descendant grant must record the source as
+// direct: direct wins over indirect.
+//
+// In main this happened to work because every source grant re-queried the
+// descendant grants from the store; the first iteration's write was still
+// buffered (un-flushed), so the second iteration re-created the grant via
+// newExpandedGrant and last-write-wins promoted IsDirect=true. The prefetch
+// rewrite seeds an in-page cache instead, so the second iteration takes the
+// merge path and must explicitly upgrade indirect→direct rather than dropping
+// it.
+func TestExpanderInPageDirectnessUpgrade(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+
+	groupResource := makeResource("group", "team")
+	userResource := makeResource("user", "alice")
+
+	entA := makeEntitlement("ent:a", groupResource)
+	entB := makeEntitlement("ent:b", groupResource)
+	entOther := makeEntitlement("ent:other", groupResource)
+
+	store.AddEntitlement(entA)
+	store.AddEntitlement(entB)
+
+	// First source grant: alice holds A only transitively (sources references
+	// some other entitlement, not A itself) → indirect w.r.t. A.
+	indirect := makeGrant("grant:alice:a:indirect", entA, userResource)
+	indirect.SetSources(v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{
+		entOther.GetId(): {IsDirect: false},
+	}}.Build())
+	store.AddGrant(indirect)
+
+	// Second source grant for the same principal: direct (no sources at all).
+	direct := makeGrant("grant:alice:a:direct", entA, userResource)
+	store.AddGrant(direct)
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(entA.GetId())
+	graph.AddEntitlementID(entB.GetId())
+	require.NoError(t, graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"}))
+
+	expander := NewExpander(store, graph)
+	require.NoError(t, expander.Run(ctx))
+
+	var grantB *v2.Grant
+	for _, g := range store.GetPutGrants() {
+		if g.GetEntitlement().GetId() == entB.GetId() && g.GetPrincipal().GetId().GetResource() == "alice" {
+			grantB = g
+		}
+	}
+	require.NotNil(t, grantB)
+
+	sources := grantB.GetSources().GetSources()
+	require.Contains(t, sources, entA.GetId(), "source attribution must be preserved")
+	require.True(t, sources[entA.GetId()].GetIsDirect(),
+		"a later direct source grant must upgrade the descendant source from indirect to direct")
+}
+
+// TestExpanderNilPrincipalSourceGrant locks in that a malformed source grant
+// with no principal is a no-op that does NOT corrupt unrelated descendant
+// grants.
+//
+// In main this was a real hazard: the nil principal flowed into
+// ListGrantsForEntitlement as a nil PrincipalId, which the store interprets as
+// "no filter" (pkg/dotc1z/grants.go) — so it would fetch *every* grant on the
+// descendant entitlement and add the source entitlement (and a direct
+// self-source) to all of them. The rewrite avoids this two ways: the explicit
+// nil-principal skip, and structurally — the key-set/per-principal design
+// never issues an unfiltered descendant query. This test guards that property
+// against future regressions; an unrelated principal's pre-existing descendant
+// grant must be left untouched.
+func TestExpanderNilPrincipalSourceGrant(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+
+	groupResource := makeResource("group", "team")
+	bobResource := makeResource("user", "bob")
+
+	entA := makeEntitlement("ent:a", groupResource)
+	entB := makeEntitlement("ent:b", groupResource)
+
+	store.AddEntitlement(entA)
+	store.AddEntitlement(entB)
+
+	// A malformed source grant on entA with no principal.
+	nilPrincipalGrant := v2.Grant_builder{
+		Id:          "grant:nil:a",
+		Entitlement: entA,
+		Principal:   nil,
+	}.Build()
+	store.AddGrant(nilPrincipalGrant)
+
+	// An unrelated, pre-existing descendant grant on entB for bob, with its own
+	// source already recorded. This must survive expansion unchanged — main
+	// would have added entA (and a direct self-source) to it.
+	bobGrantB := makeGrant("grant:bob:b", entB, bobResource)
+	bobGrantB.SetSources(v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{
+		entB.GetId(): {IsDirect: true},
+	}}.Build())
+	store.AddGrant(bobGrantB)
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(entA.GetId())
+	graph.AddEntitlementID(entB.GetId())
+	require.NoError(t, graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"}))
+
+	expander := NewExpander(store, graph)
+	require.NoError(t, expander.Run(ctx))
+
+	// The nil-principal source grant must not have produced any new write that
+	// references entA as a source on the descendant entitlement.
+	for _, g := range store.GetPutGrants() {
+		if g.GetEntitlement().GetId() != entB.GetId() {
+			continue
+		}
+		require.NotContains(t, g.GetSources().GetSources(), entA.GetId(),
+			"a nil-principal source grant must not add entA as a source to any descendant grant")
+	}
+}

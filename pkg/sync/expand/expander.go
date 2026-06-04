@@ -148,6 +148,101 @@ func (e *Expander) IsDone(ctx context.Context) bool {
 	return e.graph.IsExpanded()
 }
 
+// maxPrefetchPages bounds the streaming scan that builds the principal-key
+// set for the descendant entitlement. Keys are ~80 bytes each, so 100 pages
+// of 10000 rows is a ~80MB ceiling per action. Exceeding the cap is not an
+// error — the caller drops the partial set and falls back to per-principal
+// queries (slower, but bounded and correct).
+const maxPrefetchPages = 100
+
+func descendantGrantKey(resourceTypeID, resourceID string) string {
+	return resourceTypeID + "\x00" + resourceID
+}
+
+// prefetchDescendantPrincipals streams the descendant entitlement's grants
+// and returns the set of principal keys that have at least one grant. We
+// keep only keys (not full grants) so memory scales with the number of
+// distinct principals on the descendant, not the total grant payload size.
+//
+// The bool return reports whether the scan completed:
+//   - true: the set is exhaustive; absence from the set means the descendant
+//     definitely has no grant for that principal, so runAction can skip the
+//     per-principal query and create a new grant directly.
+//   - false: the page cap was exceeded. The partial set is unsafe as a
+//     negative oracle — a missing key could be a true absence or just past
+//     the cap — so runAction must fall back to per-principal queries.
+func prefetchDescendantPrincipals(
+	ctx context.Context,
+	store ExpanderStore,
+	entitlement *v2.Entitlement,
+) (map[string]struct{}, bool, error) {
+	set := make(map[string]struct{})
+	pageToken := ""
+	for page := 0; page < maxPrefetchPages; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		resp, err := store.ListGrantsForEntitlement(ctx,
+			reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+				Entitlement: entitlement,
+				PageToken:   pageToken,
+			}.Build())
+		if err != nil {
+			return nil, false, fmt.Errorf("prefetchDescendantPrincipals: %w", err)
+		}
+		for _, g := range resp.GetList() {
+			// Skip malformed grants with no principal: they would otherwise
+			// add an empty key to the set, polluting the negative oracle the
+			// caller relies on. Consistent with the nil-principal guard in
+			// runAction. (Opaque getters are nil-safe, so this is correctness,
+			// not panic-avoidance.)
+			if g.GetPrincipal() == nil {
+				continue
+			}
+			pid := g.GetPrincipal().GetId()
+			set[descendantGrantKey(pid.GetResourceType(), pid.GetResource())] = struct{}{}
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			return set, true, nil
+		}
+	}
+	return set, false, nil
+}
+
+// listDescendantGrantsForPrincipal pages through ListGrantsForEntitlement
+// scoped to a single principal. Used by runAction when the key set says
+// (or doesn't know whether) the descendant has grants for this principal,
+// so we need the full grants to merge sources.
+func listDescendantGrantsForPrincipal(
+	ctx context.Context,
+	store ExpanderStore,
+	entitlement *v2.Entitlement,
+	principalID *v2.ResourceId,
+) ([]*v2.Grant, error) {
+	var out []*v2.Grant
+	pageToken := ""
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		resp, err := store.ListGrantsForEntitlement(ctx,
+			reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+				Entitlement: entitlement,
+				PrincipalId: principalID,
+				PageToken:   pageToken,
+			}.Build())
+		if err != nil {
+			return nil, fmt.Errorf("listDescendantGrantsForPrincipal: %w", err)
+		}
+		out = append(out, resp.GetList()...)
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			return out, nil
+		}
+	}
+}
+
 // runAction processes a single action and returns the next page token.
 // If the returned page token is empty, the action is complete.
 //
@@ -208,65 +303,94 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 		return "", fmt.Errorf("runAction: error fetching source grants: %w", err)
 	}
 
+	existingPrincipals, complete, err := prefetchDescendantPrincipals(ctx, e.store, descendantEntitlement.GetEntitlement())
+	if err != nil {
+		l.Error("runAction: error prefetching descendant principals", zap.Error(err))
+		return "", fmt.Errorf("runAction: error prefetching descendant principals: %w", err)
+	}
+	if !complete {
+		// Partial set is unsafe as a negative oracle; drop it and pay the
+		// per-principal cost for every source grant. Slow but bounded.
+		l.Warn("runAction: descendant-grant prefetch cap exceeded; falling back to per-principal queries",
+			zap.String("descendant_entitlement_id", action.DescendantEntitlementID),
+			zap.Int("prefetch_page_cap", maxPrefetchPages))
+		existingPrincipals = nil
+	}
+	span.SetAttributes(
+		attribute.Int("descendant_prefetch_set_size", len(existingPrincipals)),
+		attribute.Bool("descendant_prefetch_complete", complete),
+	)
+
+	// Per-page cache of descendant grants by principal key. Populated lazily
+	// from the store on the first hit for a key, and seeded with newly
+	// created grants so a second source grant for the same principal in the
+	// same page merges into the in-memory grant instead of producing a
+	// duplicate (same deterministic grant ID would otherwise upsert and lose
+	// the first iteration's source attribution).
+	descendantsByKey := make(map[string][]*v2.Grant)
+
 	var newGrants = make([]*v2.Grant, 0)
 	for _, sourceGrant := range sourceGrants.GetList() {
-		// If this is a shallow action, then we only want to expand grants that have no sources
-		// which indicates that it was directly assigned.
+		if sourceGrant.GetPrincipal() == nil {
+			// Malformed grant with no principal. main passed this through to
+			// ListGrantsForEntitlement with a nil PrincipalId, which the store
+			// treats as "no filter" (pkg/dotc1z/grants.go) — fetching every
+			// descendant grant and adding this source to all of them,
+			// corrupting unrelated principals. Skip it, but log so the upstream
+			// connector bug is visible instead of silently dropped.
+			l.Warn("runAction: skipping source grant with nil principal",
+				zap.String("source_grant_id", sourceGrant.GetId()))
+			continue
+		}
 		if action.Shallow {
 			sourcesMap := sourceGrant.GetSources().GetSources()
-			// If we have no sources, this is a direct grant
 			foundDirectGrant := len(sourcesMap) == 0
-			// If the source grant has sources, then we need to see if any of them are the source entitlement itself
 			if sourcesMap[action.SourceEntitlementID] != nil {
 				foundDirectGrant = true
 			}
-
-			// This is not a direct grant, so skip it since we are a shallow action
 			if !foundDirectGrant {
 				continue
 			}
 		}
 
-		// Determine if the source grant is direct: either it has no sources (never expanded),
-		// or it has a self-reference (direct grant that was also expanded).
 		sgSources := sourceGrant.GetSources().GetSources()
 		isSourceDirect := len(sgSources) == 0 || sgSources[action.SourceEntitlementID] != nil
 
-		// Unroll all grants for the principal on the descendant entitlement.
-		pageToken := ""
-		for {
-			req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-				Entitlement: descendantEntitlement.GetEntitlement(),
-				PrincipalId: sourceGrant.GetPrincipal().GetId(),
-				PageToken:   pageToken,
-				Annotations: nil,
-			}.Build()
+		principal := sourceGrant.GetPrincipal().GetId()
+		key := descendantGrantKey(principal.GetResourceType(), principal.GetResource())
 
-			resp, err := e.store.ListGrantsForEntitlement(ctx, req)
+		descendantGrants, cached := descendantsByKey[key]
+		if !cached {
+			// Fast path: if the key-set is complete and this principal is
+			// not in it, we know there is no existing descendant grant
+			// without issuing a SQL query.
+			needQuery := true
+			if existingPrincipals != nil {
+				if _, ok := existingPrincipals[key]; !ok {
+					needQuery = false
+				}
+			}
+			if needQuery {
+				descendantGrants, err = listDescendantGrantsForPrincipal(ctx, e.store, descendantEntitlement.GetEntitlement(), principal)
+				if err != nil {
+					l.Error("runAction: error fetching descendant grants", zap.Error(err))
+					return "", fmt.Errorf("runAction: error fetching descendant grants: %w", err)
+				}
+			}
+			descendantsByKey[key] = descendantGrants
+		}
+
+		if len(descendantGrants) == 0 {
+			descendantGrant, err := newExpandedGrant(descendantEntitlement.GetEntitlement(), sourceGrant.GetPrincipal(), action.SourceEntitlementID, isSourceDirect)
 			if err != nil {
-				l.Error("runAction: error fetching descendant grants", zap.Error(err))
-				return "", fmt.Errorf("runAction: error fetching descendant grants: %w", err)
+				l.Error("runAction: error creating new grant", zap.Error(err))
+				return "", fmt.Errorf("runAction: error creating new grant: %w", err)
 			}
-			descendantGrants := resp.GetList()
-
-			// If we have no grants for the principal in the descendant entitlement, make one.
-			if pageToken == "" && resp.GetNextPageToken() == "" && len(descendantGrants) == 0 {
-				descendantGrant, err := newExpandedGrant(descendantEntitlement.GetEntitlement(), sourceGrant.GetPrincipal(), action.SourceEntitlementID, isSourceDirect)
-				if err != nil {
-					l.Error("runAction: error creating new grant", zap.Error(err))
-					return "", fmt.Errorf("runAction: error creating new grant: %w", err)
-				}
-				newGrants = append(newGrants, descendantGrant)
-				newGrants, err = PutGrantsInChunks(ctx, e.store, newGrants, 10000)
-				if err != nil {
-					l.Error("runAction: error updating descendant grants", zap.Error(err))
-					return "", fmt.Errorf("runAction: error updating descendant grants: %w", err)
-				}
-				break
-			}
-
-			// Add the source entitlement as a source to all descendant grants.
-			grantsToUpdate := make([]*v2.Grant, 0)
+			newGrants = append(newGrants, descendantGrant)
+			// Seed the cache so a later source grant for the same principal
+			// in this page merges into this grant rather than re-creating it.
+			descendantsByKey[key] = []*v2.Grant{descendantGrant}
+		} else {
 			for _, descendantGrant := range descendantGrants {
 				sourcesMap := descendantGrant.GetSources().GetSources()
 				if sourcesMap == nil {
@@ -274,36 +398,36 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 				}
 
 				updated := false
-
 				if len(sourcesMap) == 0 {
-					// If we are already granted this entitlement, make sure to add ourselves as a source.
 					sourcesMap[action.DescendantEntitlementID] = &v2.GrantSources_GrantSource{IsDirect: true}
 					updated = true
 				}
-				// Include the source grant as a source.
-				if sourcesMap[action.SourceEntitlementID] == nil {
+				if existingSource := sourcesMap[action.SourceEntitlementID]; existingSource == nil {
 					sourcesMap[action.SourceEntitlementID] = &v2.GrantSources_GrantSource{IsDirect: isSourceDirect}
+					updated = true
+				} else if isSourceDirect && !existingSource.GetIsDirect() {
+					// A later source grant for the same principal is direct;
+					// upgrade the recorded source from indirect to direct.
+					// Direct wins over indirect. main got this via re-querying
+					// the store each iteration + last-write-wins on the
+					// re-created grant; the in-page cache merge path must do it
+					// explicitly or the upgrade is silently dropped.
+					existingSource.SetIsDirect(true)
 					updated = true
 				}
 
 				if updated {
 					sources := v2.GrantSources_builder{Sources: sourcesMap}.Build()
 					descendantGrant.SetSources(sources)
-					grantsToUpdate = append(grantsToUpdate, descendantGrant)
+					newGrants = append(newGrants, descendantGrant)
 				}
 			}
-			newGrants = append(newGrants, grantsToUpdate...)
+		}
 
-			newGrants, err = PutGrantsInChunks(ctx, e.store, newGrants, 10000)
-			if err != nil {
-				l.Error("runAction: error updating descendant grants", zap.Error(err))
-				return "", fmt.Errorf("runAction: error updating descendant grants: %w", err)
-			}
-
-			pageToken = resp.GetNextPageToken()
-			if pageToken == "" {
-				break
-			}
+		newGrants, err = PutGrantsInChunks(ctx, e.store, newGrants, 10000)
+		if err != nil {
+			l.Error("runAction: error updating descendant grants", zap.Error(err))
+			return "", fmt.Errorf("runAction: error updating descendant grants: %w", err)
 		}
 	}
 
