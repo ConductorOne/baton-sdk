@@ -493,7 +493,7 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 	c.closedMu.Lock()
 	defer c.closedMu.Unlock()
 	if c.closed {
-		l.Warn("close called on already-closed c1file", zap.String("db_path", c.dbFilePath))
+		l.Debug("close called on already-closed c1file", zap.String("db_path", c.dbFilePath))
 		return nil
 	}
 
