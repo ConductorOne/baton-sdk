@@ -34,6 +34,7 @@ func main() {
 	cliCmd.AddCommand(dumpDBCmd())
 	cliCmd.AddCommand(syncsCmd())
 	cliCmd.AddCommand(optimizeDb())
+	cliCmd.AddCommand(toPebbleCmd())
 	cliCmd.AddCommand(explorerCmd())
 	cliCmd.AddCommand(sanitizeCmd())
 	cliCmd.AddCommand(rollbackExpansionCmd())
