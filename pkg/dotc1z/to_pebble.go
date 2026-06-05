@@ -41,6 +41,7 @@ type ConvertOption func(*convertConfig)
 type convertConfig struct {
 	batchSize int
 	tmpDir    string
+	c1zOpts   []C1ZOption
 }
 
 // WithConvertBatchSize sets the per-Put* batch size. Values <= 0 are ignored.
@@ -57,6 +58,14 @@ func WithConvertBatchSize(n int) ConvertOption {
 func WithConvertTmpDir(dir string) ConvertOption {
 	return func(c *convertConfig) {
 		c.tmpDir = dir
+	}
+}
+
+// WithConvertC1ZOptions forwards c1z writer options to the Pebble destination.
+// It is primarily useful for v3 envelope options such as payload encoding.
+func WithConvertC1ZOptions(opts ...C1ZOption) ConvertOption {
+	return func(c *convertConfig) {
+		c.c1zOpts = append(c.c1zOpts, opts...)
 	}
 }
 
@@ -143,7 +152,9 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
 
-	dest, err := NewStore(ctx, outPath, WithEngine(EnginePebble), WithTmpDir(cfg.tmpDir))
+	destOpts := []C1ZOption{WithEngine(EnginePebble), WithTmpDir(cfg.tmpDir)}
+	destOpts = append(destOpts, cfg.c1zOpts...)
+	dest, err := NewStore(ctx, outPath, destOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("to-pebble: open destination: %w", err)
 	}
