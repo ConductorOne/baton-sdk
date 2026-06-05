@@ -9,7 +9,9 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/retry"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 )
 
@@ -270,6 +272,23 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	l := ctxzap.Extract(ctx)
 	l.Info("syncing in parallel", zap.Int("actions", len(actions)), zap.Int("workers", s.workerCount))
 
+	// One bounded summary span per fan-out batch. The per-action work (f) starts
+	// its own linked-root span, so this stays a handful of spans per sync rather
+	// than one per resource/grant.
+	op := ""
+	if len(actions) > 0 {
+		op = actions[0].Op.String()
+	}
+	ctx, span := tracer.Start(ctx, "syncer.syncParallel")
+	span.SetAttributes(
+		attribute.String("sync.op", op),
+		attribute.Int("sync.action_count", len(actions)),
+		attribute.Int("sync.worker_count", s.workerCount),
+	)
+	uotel.SetSyncIdentityAttrs(ctx, span)
+	var batchErr error
+	defer func() { uotel.EndSpanWithError(span, batchErr) }()
+
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
@@ -310,7 +329,8 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 		}
 	}
 
-	return warnings, errors.Join(errs...)
+	batchErr = errors.Join(errs...)
+	return warnings, batchErr
 }
 
 // syncOneAction processes a single action to completion,

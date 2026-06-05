@@ -14,6 +14,7 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -848,6 +849,7 @@ func wrapSqliteInterruptError(err error) error {
 
 func (c *C1File) Cleanup(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.Cleanup")
+	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
@@ -1016,6 +1018,7 @@ func (c *C1File) DeleteSyncRun(ctx context.Context, syncID string) error {
 // Vacuum runs a VACUUM on the database to reclaim space.
 func (c *C1File) Vacuum(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.Vacuum")
+	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
@@ -1024,9 +1027,25 @@ func (c *C1File) Vacuum(ctx context.Context) error {
 		return err
 	}
 
+	sizeBefore, sizeBeforeErr := c.CurrentDBSizeBytes()
+
 	_, err = c.rawDb.ExecContext(ctx, "VACUUM")
 	if err != nil {
 		return err
+	}
+
+	sizeAfter, sizeErr := c.CurrentDBSizeBytes()
+	if sizeErr == nil {
+		span.SetAttributes(attribute.Int64("c1z.vacuum.size_after_bytes", sizeAfter))
+		recordC1ZSize(ctx, "vacuum", sizeAfter)
+		// reclaimed_bytes is only meaningful with a valid pre-VACUUM size;
+		// a failed sizeBefore returns 0 and would emit negative reclaimed.
+		if sizeBeforeErr == nil {
+			span.SetAttributes(
+				attribute.Int64("c1z.vacuum.size_before_bytes", sizeBefore),
+				attribute.Int64("c1z.vacuum.reclaimed_bytes", sizeBefore-sizeAfter),
+			)
+		}
 	}
 
 	c.dbUpdated = true
