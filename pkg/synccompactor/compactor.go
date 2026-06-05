@@ -215,6 +215,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		if err == nil {
 			store, ok := w.(dotc1z.C1ZStore)
 			if !ok {
+				_ = w.Close(ctx)
 				return nil, fmt.Errorf("pebble store does not implement C1ZStore: %T", w)
 			}
 			c.compactedC1z = store
