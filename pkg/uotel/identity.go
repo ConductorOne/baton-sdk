@@ -14,6 +14,7 @@ import (
 // CPU profiles line up on the same dimensions.
 type SyncIdentity struct {
 	TenantID    string
+	AppID       string
 	ConnectorID string
 	CatalogID   string
 	CatalogName string
@@ -26,9 +27,12 @@ func (id SyncIdentity) IsZero() bool {
 
 // Attrs returns the non-empty identity fields as span attributes.
 func (id SyncIdentity) Attrs() []attribute.KeyValue {
-	attrs := make([]attribute.KeyValue, 0, 4)
+	attrs := make([]attribute.KeyValue, 0, 5)
 	if id.TenantID != "" {
 		attrs = append(attrs, attribute.String("tenant_id", id.TenantID))
+	}
+	if id.AppID != "" {
+		attrs = append(attrs, attribute.String("app_id", id.AppID))
 	}
 	if id.ConnectorID != "" {
 		attrs = append(attrs, attribute.String("connector_id", id.ConnectorID))

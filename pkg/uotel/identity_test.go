@@ -10,10 +10,11 @@ import (
 
 func TestSyncIdentityAttrs(t *testing.T) {
 	t.Run("all fields", func(t *testing.T) {
-		id := SyncIdentity{TenantID: "t1", ConnectorID: "c1", CatalogID: "cat1", CatalogName: "okta"}
+		id := SyncIdentity{TenantID: "t1", AppID: "a1", ConnectorID: "c1", CatalogID: "cat1", CatalogName: "okta"}
 		got := id.Attrs()
 		want := map[attribute.Key]string{
 			"tenant_id":    "t1",
+			"app_id":       "a1",
 			"connector_id": "c1",
 			"catalog_id":   "cat1",
 			"catalog_name": "okta",
@@ -77,7 +78,7 @@ func TestSetSyncIdentityAttrs(t *testing.T) {
 		rec := &recordingProcessor{}
 		tr := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)).Tracer("test")
 
-		id := SyncIdentity{TenantID: "t1", ConnectorID: "c1", CatalogID: "cat1", CatalogName: "okta"}
+		id := SyncIdentity{TenantID: "t1", AppID: "a1", ConnectorID: "c1", CatalogID: "cat1", CatalogName: "okta"}
 		ctx, span := tr.Start(WithSyncIdentity(context.Background(), id), "test.span")
 		SetSyncIdentityAttrs(ctx, span)
 		span.End()
@@ -111,7 +112,7 @@ func TestSetSyncIdentityAttrs(t *testing.T) {
 		}
 		for _, a := range got.Attributes() {
 			switch a.Key {
-			case "tenant_id", "connector_id", "catalog_id", "catalog_name":
+			case "tenant_id", "app_id", "connector_id", "catalog_id", "catalog_name":
 				t.Errorf("unexpected identity attr %s on span with no identity in ctx", a.Key)
 			}
 		}
