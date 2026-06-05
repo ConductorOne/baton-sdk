@@ -59,6 +59,18 @@ func TestNewAppResource(t *testing.T) {
 	require.Len(t, aliases.GetIds(), 2)
 }
 
+func TestNewResourceTypeSkipSyncAnomalyDetection(t *testing.T) {
+	rt := NewResourceType("Invitation", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}, &v2.SkipSyncAnomalyDetection{})
+
+	annos := annotations.Annotations(rt.GetAnnotations())
+	require.True(t, annos.Contains(&v2.SkipSyncAnomalyDetection{}))
+
+	// A resource type without the annotation should not report it.
+	other := NewResourceType("Group", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP})
+	otherAnnos := annotations.Annotations(other.GetAnnotations())
+	require.False(t, otherAnnos.Contains(&v2.SkipSyncAnomalyDetection{}))
+}
+
 func TestNewAppResourceAliases(t *testing.T) {
 	rt := NewResourceType("App", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_APP})
 	_, err := NewAppResource(
