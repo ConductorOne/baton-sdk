@@ -47,7 +47,8 @@ create table if not exists %s (
     linked_sync_id text not null default '',
     supports_diff integer not null default 0,
     grants_backfilled integer not null default 0,
-		stats text
+    stats text,
+    has_external_match_backfilled integer not null default 0
 );
 create unique index if not exists %s on %s (sync_id);`
 
@@ -138,6 +139,19 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) (bool
 
 	// Add stats column so we can store the cached stats.
 	_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column stats text", r.Name()))
+	if err != nil {
+		if !isAlreadyExistsError(err) {
+			return false, err
+		}
+	} else {
+		migrated = true
+	}
+
+	// Track whether has_external_match backfill has completed for this sync.
+	// Distinct from grants_backfilled because the existing flag was already
+	// flipped to 1 for every sync at the prior backfill PR — gating the new
+	// backfill on grants_backfilled would skip every existing c1z.
+	_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column has_external_match_backfilled integer not null default 0", r.Name()))
 	if err != nil {
 		if !isAlreadyExistsError(err) {
 			return false, err
@@ -673,13 +687,14 @@ func (c *C1File) insertSyncRunWithLink(ctx context.Context, syncID string, syncT
 
 	q := c.db.Insert(syncRuns.Name())
 	q = q.Rows(goqu.Record{
-		"sync_id":           syncID,
-		"started_at":        time.Now().Format("2006-01-02 15:04:05.999999999"),
-		"sync_token":        "",
-		"sync_type":         syncType,
-		"parent_sync_id":    parentSyncID,
-		"linked_sync_id":    linkedSyncID,
-		"grants_backfilled": 1, // New syncs do not require grants backfill.
+		"sync_id":                       syncID,
+		"started_at":                    time.Now().Format("2006-01-02 15:04:05.999999999"),
+		"sync_token":                    "",
+		"sync_type":                     syncType,
+		"parent_sync_id":                parentSyncID,
+		"linked_sync_id":                linkedSyncID,
+		"grants_backfilled":             1, // New syncs do not require grants backfill.
+		"has_external_match_backfilled": 1, // grantExtractFields populates the column on write.
 	})
 
 	query, args, err := q.ToSQL()

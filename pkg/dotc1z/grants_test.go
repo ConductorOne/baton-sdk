@@ -524,7 +524,7 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 3: Run the backfill explicitly (as the migration would on re-open).
-	backfilled, err := backfillGrantExpansionColumn(ctx, c1f.db, grants.Name())
+	backfilled, err := backfillGrantDerivedColumns(ctx, c1f.db, grants.Name())
 	require.True(t, backfilled)
 	require.NoError(t, err)
 
@@ -559,6 +559,100 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	err = c1f.db.QueryRowContext(ctx, "SELECT grants_backfilled FROM "+syncRuns.Name()+" WHERE sync_id=?", syncID).Scan(&grantsBackfilled)
 	require.NoError(t, err)
 	require.Equal(t, 1, grantsBackfilled, "backfill should mark the sync as grants_backfilled=1")
+}
+
+// TestBackfillHasExternalMatchColumn_OldSyncWithBackfilledFlag covers the
+// critical case where a c1z opened by code AFTER the prior expansion-column
+// PR has every sync at grants_backfilled=1 already. The new
+// has_external_match column defaults to 0 on ALTER, and the legacy
+// backfillGrantDerivedColumns is gated on grants_backfilled=0 so it
+// silently no-ops. Without the dedicated has_external_match_backfilled flag,
+// processGrantsWithExternalPrincipals would filter to zero rows for the
+// entire installed base.
+func TestBackfillHasExternalMatchColumn_OldSyncWithBackfilledFlag(t *testing.T) {
+	ctx := context.Background()
+
+	tmpFile, err := os.CreateTemp("", "test-extmatch-backfill-*.c1z")
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	require.NoError(t, tmpFile.Close())
+
+	c1f, err := NewC1ZFile(ctx, tmpFile.Name())
+	require.NoError(t, err)
+	defer c1f.Close(ctx)
+
+	syncID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	rt := v2.ResourceType_builder{Id: "user"}.Build()
+	require.NoError(t, c1f.PutResourceTypes(ctx, rt))
+	res := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "r1"}.Build()}.Build()
+	require.NoError(t, c1f.PutResources(ctx, res))
+	ent := v2.Entitlement_builder{Id: "ent1", Resource: res}.Build()
+	require.NoError(t, c1f.PutEntitlements(ctx, ent))
+
+	matchGrant := v2.Grant_builder{
+		Id:          "match",
+		Entitlement: ent,
+		Principal:   res,
+		Annotations: annotations.New(v2.ExternalResourceMatchID_builder{Id: "ext-1"}.Build()),
+	}.Build()
+	noMatchGrant := v2.Grant_builder{
+		Id:          "nomatch",
+		Entitlement: ent,
+		Principal:   res,
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, matchGrant, noMatchGrant))
+	require.NoError(t, c1f.EndSync(ctx))
+
+	// Simulate the "old c1z" condition: ALTER ran and added the column with
+	// default 0; the sync is already grants_backfilled=1; the new
+	// has_external_match_backfilled flag is 0 (the default for pre-existing
+	// rows after the new ALTER).
+	_, err = c1f.db.ExecContext(ctx,
+		"UPDATE "+grants.Name()+" SET has_external_match = 0 WHERE sync_id = ?", syncID)
+	require.NoError(t, err)
+	_, err = c1f.db.ExecContext(ctx,
+		"UPDATE "+syncRuns.Name()+" SET has_external_match_backfilled = 0 WHERE sync_id = ?", syncID)
+	require.NoError(t, err)
+	// Confirm grants_backfilled is 1 (the precondition that broke the legacy
+	// backfill).
+	var legacyFlag int
+	require.NoError(t, c1f.db.QueryRowContext(ctx,
+		"SELECT grants_backfilled FROM "+syncRuns.Name()+" WHERE sync_id = ?", syncID,
+	).Scan(&legacyFlag))
+	require.Equal(t, 1, legacyFlag, "precondition: grants_backfilled must already be 1")
+
+	// Run the new backfill explicitly (as InitTables would on re-open).
+	migrated, err := backfillHasExternalMatchColumn(ctx, c1f.db, grants.Name())
+	require.NoError(t, err)
+	require.True(t, migrated, "backfill must report it actually ran")
+
+	// Annotated grant should now have has_external_match=1.
+	var matchCol int
+	require.NoError(t, c1f.db.QueryRowContext(ctx,
+		"SELECT has_external_match FROM "+grants.Name()+" WHERE external_id = 'match' AND sync_id = ?", syncID,
+	).Scan(&matchCol))
+	require.Equal(t, 1, matchCol, "annotated grant must be marked has_external_match=1 by backfill")
+
+	// Non-annotated grant must stay at 0.
+	var noMatchCol int
+	require.NoError(t, c1f.db.QueryRowContext(ctx,
+		"SELECT has_external_match FROM "+grants.Name()+" WHERE external_id = 'nomatch' AND sync_id = ?", syncID,
+	).Scan(&noMatchCol))
+	require.Equal(t, 0, noMatchCol, "non-annotated grant must remain at 0")
+
+	// The sync must now be marked has_external_match_backfilled=1.
+	var newFlag int
+	require.NoError(t, c1f.db.QueryRowContext(ctx,
+		"SELECT has_external_match_backfilled FROM "+syncRuns.Name()+" WHERE sync_id = ?", syncID,
+	).Scan(&newFlag))
+	require.Equal(t, 1, newFlag, "sync must be marked has_external_match_backfilled=1 after backfill")
+
+	// Idempotent: a second run is a no-op.
+	migrated, err = backfillHasExternalMatchColumn(ctx, c1f.db, grants.Name())
+	require.NoError(t, err)
+	require.False(t, migrated, "backfill must report no-op on second run")
 }
 
 // grantRawRow holds the raw SQL column values for a grant row.

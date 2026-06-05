@@ -92,6 +92,17 @@ type GrantStore interface {
 	//
 	// Called by pkg/sync.syncer.listAllGrantsWithExpansion.
 	ListWithAnnotations(ctx context.Context) iter.Seq2[GrantAnnotation, error]
+
+	// ListWithAnnotationsExternalMatchOnly is the same shape as
+	// ListWithAnnotations but only yields grants carrying an
+	// ExternalResourceMatch{,All,ID} annotation, filtered at SQL via the
+	// has_external_match column. Used by processGrantsWithExternalPrincipals
+	// to skip the unmarshal cost for the (usually >99%) rows it would
+	// discard anyway.
+	//
+	// Set BATON_DISABLE_EXTERNAL_MATCH_FILTER=1 to fall back to the
+	// pre-filter behavior (scan all rows) without a re-release.
+	ListWithAnnotationsExternalMatchOnly(ctx context.Context) iter.Seq2[GrantAnnotation, error]
 }
 
 // PendingExpansion is a lightweight row yielded by GrantStore.PendingExpansion.

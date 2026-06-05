@@ -275,3 +275,12 @@ func (g pebbleGrantStore) ListWithAnnotations(ctx context.Context) iter.Seq2[dot
 		}
 	}
 }
+
+// ListWithAnnotationsExternalMatchOnly implements GrantStore. The Pebble
+// engine does not maintain the has_external_match column the SQLite engine
+// uses for SQL-side filtering; fall back to the unfiltered iterator. The
+// caller (processGrantsWithExternalPrincipals) re-checks the annotation
+// in-Go, so correctness is preserved.
+func (g pebbleGrantStore) ListWithAnnotationsExternalMatchOnly(ctx context.Context) iter.Seq2[dotc1z.GrantAnnotation, error] {
+	return g.ListWithAnnotations(ctx)
+}
