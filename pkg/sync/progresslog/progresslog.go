@@ -117,7 +117,7 @@ func WithDBSizeProvider(p connectorstore.DBSizeProvider) Option {
 
 // WithMetricsHandler attaches an optional metrics.Handler. When set,
 // LogExpandProgress emits gauges/counters mirroring the structured log fields
-// (actions_remaining, actions_burned, decompressed_bytes, decompressed_bytes_growth)
+// (actions_remaining, actions_burned, decompressed_bytes, decompressed_bytes_delta)
 // so operators can build dashboards instead of scraping log timestamps.
 //
 // The handler should be pre-tagged by the caller (e.g. via Handler.WithTags
