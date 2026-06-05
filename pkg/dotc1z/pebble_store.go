@@ -40,7 +40,7 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	}
 
 	dbDir := filepath.Join(tmpDir, "db")
-	if err := unpackExistingPebbleC1Z(outputFilePath, dbDir); err != nil {
+	if err := unpackExistingPebbleC1Z(outputFilePath, dbDir, opts.DecoderPool); err != nil {
 		return nil, cleanupOnError(err)
 	}
 
@@ -60,7 +60,7 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	}, nil
 }
 
-func unpackExistingPebbleC1Z(outputFilePath string, dbDir string) error {
+func unpackExistingPebbleC1Z(outputFilePath string, dbDir string, pool *EnvelopeDecoderPool) error {
 	stat, err := os.Stat(outputFilePath)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -77,7 +77,7 @@ func unpackExistingPebbleC1Z(outputFilePath string, dbDir string) error {
 	}
 	defer f.Close()
 
-	env, err := formatv3.ReadEnvelope(f)
+	env, err := formatv3.ReadEnvelopeHeaderWithPool(f, pool)
 	if err != nil {
 		return err
 	}
@@ -157,6 +157,55 @@ func (s *pebbleStore) PebbleEngine() *pebble.Engine {
 		return nil
 	}
 	return s.engine
+}
+
+// CloseEngineOnly closes the Pebble engine without removing the
+// store's unpacked temp directory, refusing to discard a dirty
+// writable store. Consumed by the compactor's chunk lifecycle via
+// pebble.CloseEngineOnly, where a caller owns a parent temp directory
+// and does one bulk cleanup after closing many read-only sources.
+func (s *pebbleStore) CloseEngineOnly() error {
+	if s == nil || s.engine == nil {
+		return nil
+	}
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return nil
+	}
+	if !s.readOnly && s.dirty {
+		s.closeMu.Unlock()
+		return errors.New("pebble CloseEngineOnly: refusing to discard dirty writable store")
+	}
+	s.closed = true
+	s.closeMu.Unlock()
+	return s.engine.Close()
+}
+
+// NormalizeForFixtureSave flushes and compacts one sync, then marks the
+// store dirty so Close writes a fresh c1z envelope. Intentionally
+// narrow (consumed by benchmark fixture generation via
+// pebble.NormalizeForFixtureSave): fixtures should not measure WAL
+// replay or un-compacted LSM shape left over from generation.
+func (s *pebbleStore) NormalizeForFixtureSave(ctx context.Context, syncID string) error {
+	if s == nil || s.engine == nil {
+		return nil
+	}
+	if s.readOnly {
+		return errors.New("pebble NormalizeForFixtureSave: store is read-only")
+	}
+	if err := s.engine.Flush(ctx); err != nil {
+		return err
+	}
+	if err := s.engine.CompactSyncRanges(ctx, syncID); err != nil {
+		return err
+	}
+	s.closeMu.Lock()
+	if !s.closed {
+		s.dirty = true
+	}
+	s.closeMu.Unlock()
+	return nil
 }
 
 func (s *pebbleStore) markDirty(err error) error {
@@ -457,7 +506,7 @@ func (s *pebbleStore) save(ctx context.Context) error {
 		}
 	}()
 
-	manifest, err := pebble.BuildManifest(s.payloadEncoding)
+	manifest, err := pebble.BuildManifestWithSyncRuns(ctx, s.engine, s.payloadEncoding)
 	if err != nil {
 		return err
 	}

@@ -88,7 +88,6 @@ func benchNewEngine(b *testing.B, name string) (*enginepkg.Engine, string) {
 
 func benchGrant(syncID string, i int) *v3.GrantRecord {
 	return v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: "grant-" + strconv.Itoa(i),
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app",

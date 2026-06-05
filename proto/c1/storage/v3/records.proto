@@ -55,12 +55,12 @@ message ResourceTypeRecord {
   option (table) = {
     name: "resource_types"
     primary_key: [
-      "sync_id",
       "external_id"
     ]
   };
 
-  string sync_id = 1;
+  reserved 1;
+  reserved "sync_id";
   string external_id = 2;
   string display_name = 3;
   repeated string traits = 4;
@@ -79,13 +79,13 @@ message ResourceRecord {
   option (table) = {
     name: "resources"
     primary_key: [
-      "sync_id",
       "resource_type_id",
       "resource_id"
     ]
   };
 
-  string sync_id = 1;
+  reserved 1;
+  reserved "sync_id";
   string resource_type_id = 2;
   string resource_id = 3;
   string display_name = 4;
@@ -111,12 +111,12 @@ message EntitlementRecord {
   option (table) = {
     name: "entitlements"
     primary_key: [
-      "sync_id",
       "external_id"
     ]
   };
 
-  string sync_id = 1;
+  reserved 1;
+  reserved "sync_id";
   string external_id = 2;
   ResourceRef resource = 3 [(index) = {
     name: "by_resource"
@@ -152,12 +152,12 @@ message GrantRecord {
   option (table) = {
     name: "grants"
     primary_key: [
-      "sync_id",
       "external_id"
     ]
   };
 
-  string sync_id = 1;
+  reserved 1;
+  reserved "sync_id";
   string external_id = 2;
   // entitlement carries TWO indexes:
   //   by_entitlement              — keyed (entitlement_id, principal_rt, principal_id);

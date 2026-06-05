@@ -1,6 +1,7 @@
 package pebble
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -112,47 +113,100 @@ func (e *Engine) writeSyncStats(ctx context.Context, syncID string, rec *v3.Sync
 // O(N) work the sidecar is designed to avoid on read — only the
 // EndFreshSync write path and the on-Open migration backfill
 // invoke it.
+//
+// This intentionally scans raw Pebble key/value ranges instead of using
+// Iterate*BySync. Counting keys and shallow-scanning only the grant grouping
+// field removed the final stats-sidecar full unmarshal from compaction; in the
+// same-size syncs=50 overlay case allocs dropped from ~3.05M to ~2.41M/op.
 func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncStatsRecord, error) {
 	rec := &v3.SyncStatsRecord{}
 	rec.SetSyncId(syncID)
-	resourcesByRT := map[string]int64{}
-	grantsByEntitlementRT := map[string]int64{}
+	idBytes, err := codec.EncodeSyncID(syncID)
+	if err != nil {
+		return nil, err
+	}
 
-	if err := e.IterateResourceTypesBySync(ctx, syncID, func(*v3.ResourceTypeRecord) bool {
-		rec.SetResourceTypes(rec.GetResourceTypes() + 1)
-		return true
-	}); err != nil {
+	resourceTypes, err := countKeyRange(ctx, e.db, ResourceTypeSyncLowerBound(idBytes), ResourceTypeSyncUpperBound(idBytes), nil)
+	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: resource_types: %w", err)
 	}
-	if err := e.IterateResourcesBySync(ctx, syncID, func(r *v3.ResourceRecord) bool {
-		rec.SetResources(rec.GetResources() + 1)
-		resourcesByRT[r.GetResourceTypeId()]++
-		return true
-	}); err != nil {
+	rec.SetResourceTypes(resourceTypes)
+
+	// Resource primary keys sort by resource_type_id, so per-RT groups
+	// are contiguous: track the current run and materialize one map key
+	// per group instead of one string per row. (A plain
+	// counts[string(rt)]++ would allocate per row — the compiler only
+	// elides the []byte->string conversion for map reads, not writes.)
+	resourcesByRT := map[string]int64{}
+	resLower := ResourceSyncLowerBound(idBytes)
+	var rtScratch, curRT []byte
+	var curCount int64
+	resources, err := countKeyRange(ctx, e.db, resLower, ResourceSyncUpperBound(idBytes), func(key []byte, _ []byte) error {
+		if len(key) <= len(resLower) {
+			return fmt.Errorf("resource key shorter than expected lower bound")
+		}
+		var derr error
+		rtScratch, _, derr = codec.DecodeTupleStringTo(rtScratch[:0], key[len(resLower)+1:], 0)
+		if derr != nil {
+			return derr
+		}
+		if curCount > 0 && bytes.Equal(rtScratch, curRT) {
+			curCount++
+			return nil
+		}
+		if curCount > 0 {
+			resourcesByRT[string(curRT)] += curCount
+		}
+		curRT = append(curRT[:0], rtScratch...)
+		curCount = 1
+		return nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: resources: %w", err)
 	}
-	if err := e.IterateEntitlementsBySync(ctx, syncID, func(*v3.EntitlementRecord) bool {
-		rec.SetEntitlements(rec.GetEntitlements() + 1)
-		return true
-	}); err != nil {
+	if curCount > 0 {
+		resourcesByRT[string(curRT)] += curCount
+	}
+	rec.SetResources(resources)
+
+	entitlements, err := countKeyRange(ctx, e.db, EntitlementSyncLowerBound(idBytes), EntitlementSyncUpperBound(idBytes), nil)
+	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: entitlements: %w", err)
 	}
-	if err := e.IterateGrantsBySync(ctx, syncID, func(g *v3.GrantRecord) bool {
-		rec.SetGrants(rec.GetGrants() + 1)
-		// Entitlement's resource_type — matches the SQLite grants
-		// table's resource_type_id column semantic, which is what
-		// the existing GrantStats() caller expects.
-		grantsByEntitlementRT[g.GetEntitlement().GetResourceTypeId()]++
-		return true
-	}); err != nil {
+	rec.SetEntitlements(entitlements)
+
+	// Grant primary keys sort by external id, so entitlement-RT groups
+	// are NOT contiguous. map[string]*int64 keeps the per-row map read
+	// allocation-free and only materializes a key string the first time
+	// each resource type appears.
+	grantsByEntRTPtr := map[string]*int64{}
+	grants, err := countKeyRange(ctx, e.db, GrantSyncLowerBound(idBytes), GrantSyncUpperBound(idBytes), func(_ []byte, value []byte) error {
+		entRT, err := scanGrantEntitlementResourceTypeRaw(value)
+		if err != nil {
+			return err
+		}
+		if p, ok := grantsByEntRTPtr[string(entRT)]; ok {
+			*p++
+			return nil
+		}
+		n := int64(1)
+		grantsByEntRTPtr[string(entRT)] = &n
+		return nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: grants: %w", err)
 	}
-	if err := e.IterateAssetsBySync(ctx, syncID, func(*v3.AssetRecord) bool {
-		rec.SetAssets(rec.GetAssets() + 1)
-		return true
-	}); err != nil {
+	grantsByEntitlementRT := make(map[string]int64, len(grantsByEntRTPtr))
+	for rt, p := range grantsByEntRTPtr {
+		grantsByEntitlementRT[rt] = *p
+	}
+	rec.SetGrants(grants)
+
+	assets, err := countKeyRange(ctx, e.db, AssetSyncLowerBound(idBytes), AssetSyncUpperBound(idBytes), nil)
+	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: assets: %w", err)
 	}
+	rec.SetAssets(assets)
 	rec.SetResourcesByResourceType(resourcesByRT)
 	rec.SetGrantsByEntitlementResourceType(grantsByEntitlementRT)
 	rec.SetWrittenAt(timestamppb.Now())
@@ -168,4 +222,39 @@ func (e *Engine) PersistSyncStats(ctx context.Context, syncID string) error {
 		return err
 	}
 	return e.writeSyncStats(ctx, syncID, rec)
+}
+
+// PersistComputedSyncStats writes a caller-computed stats record —
+// e.g. one accumulated while the synccompactor wrote merge winners —
+// without re-scanning the keyspaces. SyncId and WrittenAt are set
+// here so callers only fill counts. Durability matches
+// PersistSyncStats (pebble.Sync via writeSyncStats).
+func (e *Engine) PersistComputedSyncStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) error {
+	if rec == nil {
+		return fmt.Errorf("PersistComputedSyncStats: nil record")
+	}
+	rec.SetSyncId(syncID)
+	rec.SetWrittenAt(timestamppb.Now())
+	return e.writeSyncStats(ctx, syncID, rec)
+}
+
+func countKeyRange(ctx context.Context, db *pebble.DB, lower []byte, upper []byte, visit func(key []byte, value []byte) error) (int64, error) {
+	iter, err := db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	if err != nil {
+		return 0, err
+	}
+	defer iter.Close()
+	var count int64
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		count++
+		if visit != nil {
+			if err := visit(iter.Key(), iter.Value()); err != nil {
+				return 0, err
+			}
+		}
+	}
+	return count, iter.Error()
 }

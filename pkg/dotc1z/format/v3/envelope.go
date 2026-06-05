@@ -14,6 +14,8 @@ import (
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	"github.com/klauspost/compress/zstd"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 )
 
 // C1Z3Magic is the 5-byte header that identifies a v3 c1z file. Same
@@ -211,15 +213,109 @@ type Envelope struct {
 	PayloadReader io.Reader
 
 	zstdReader *zstd.Decoder
+	pool       *DecoderPool
 }
 
-// Close releases any pooled decoder resources held by PayloadReader.
+// Close returns the payload decoder to the envelope's DecoderPool (when
+// one was supplied) or destroys it.
 func (e *Envelope) Close() error {
 	if e.zstdReader != nil {
-		e.zstdReader.Close()
+		if e.pool != nil {
+			e.pool.put(e.zstdReader)
+		} else {
+			e.zstdReader.Close()
+		}
 		e.zstdReader = nil
+		e.pool = nil
 	}
 	return nil
+}
+
+// DecoderPool reuses zstd payload decoders across envelope reads. A
+// decoder retains its window/history buffers across Reset, so reuse
+// avoids both the construction cost (worker goroutine spin-up, buffer
+// allocation) and the per-open garbage when many envelopes are read in
+// a loop — the compactor opens one envelope per source per merge.
+//
+// The pool is deliberately NOT process-global: a pooled decoder keeps
+// whatever buffers its largest stream grew, so the owner scopes the
+// pool to the operation that benefits (one pool per compaction) and
+// calls Close when done, releasing everything deterministically
+// instead of waiting out sync.Pool's GC-paced eviction in a long-lived
+// worker process. Callers that open a single envelope pass a nil pool
+// and get a one-shot decoder destroyed at Envelope.Close.
+type DecoderPool struct {
+	mu     sync.Mutex
+	idle   []*zstd.Decoder
+	closed bool
+}
+
+// NewDecoderPool returns an empty pool. The caller owns its lifetime
+// and must call Close to release idle decoders.
+func NewDecoderPool() *DecoderPool {
+	return &DecoderPool{}
+}
+
+// get returns an idle decoder reset onto r, or constructs one (with the
+// standard decoder memory cap). Nil-receiver safe: a nil pool always
+// constructs, and the Envelope destroys the decoder at Close.
+func (p *DecoderPool) get(r io.Reader) (*zstd.Decoder, error) {
+	if p != nil {
+		p.mu.Lock()
+		if n := len(p.idle); n > 0 {
+			dec := p.idle[n-1]
+			p.idle = p.idle[:n-1]
+			p.mu.Unlock()
+			if err := dec.Reset(r); err != nil {
+				dec.Close()
+				return nil, err
+			}
+			return dec, nil
+		}
+		p.mu.Unlock()
+	}
+	return zstd.NewReader(r, zstd.WithDecoderMaxMemory(decoderMaxMemoryBytes()))
+}
+
+// put detaches dec from its reader and parks it for reuse. Decoders
+// returned after Close (an envelope outliving the pool) are destroyed
+// rather than leaked into a closed pool.
+func (p *DecoderPool) put(dec *zstd.Decoder) {
+	if dec == nil {
+		return
+	}
+	if p == nil {
+		dec.Close()
+		return
+	}
+	if err := dec.Reset(nil); err != nil {
+		dec.Close()
+		return
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		dec.Close()
+		return
+	}
+	p.idle = append(p.idle, dec)
+	p.mu.Unlock()
+}
+
+// Close releases every idle decoder and marks the pool closed; later
+// puts destroy their decoders. Safe to call on a nil pool.
+func (p *DecoderPool) Close() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	idle := p.idle
+	p.idle = nil
+	p.closed = true
+	p.mu.Unlock()
+	for _, dec := range idle {
+		dec.Close()
+	}
 }
 
 // ReadEnvelope reads a v3 envelope from r. r must be positioned at the
@@ -236,7 +332,43 @@ func (e *Envelope) Close() error {
 // exceeds the configured budget (BATON_DECODER_MAX_DECODED_SIZE_MB,
 // default 10 GiB) — the same knobs the v1 decoder honors.
 func ReadEnvelope(r io.Reader) (*Envelope, error) {
-	// 1. Magic.
+	return readEnvelope(r, false, nil)
+}
+
+// ReadEnvelopeHeader is the low-allocation open path for engine dispatch.
+// It parses only the cheap manifest fields (engine, engine_schema_version,
+// payload_encoding, sync_runs) and skips the descriptor closure. Call
+// ReadEnvelope when callers need the full self-describing descriptor set.
+func ReadEnvelopeHeader(r io.Reader) (*Envelope, error) {
+	return readEnvelope(r, true, nil)
+}
+
+// ReadEnvelopeHeaderWithPool is ReadEnvelopeHeader with a caller-scoped
+// payload decoder pool: the envelope draws its zstd decoder from pool
+// and returns it on Close instead of destroying it. Used by callers
+// that open many envelopes in a loop (compaction source opens). A nil
+// pool behaves exactly like ReadEnvelopeHeader.
+func ReadEnvelopeHeaderWithPool(r io.Reader, pool *DecoderPool) (*Envelope, error) {
+	return readEnvelope(r, true, pool)
+}
+
+// ReadManifestHeader parses only the cheap manifest fields and stops
+// before the payload: no zstd decoder is constructed and not a single
+// payload byte is read. This is the "shallow unpack" path for callers
+// that want envelope metadata — sync run summaries with their cached
+// stats — without rematerializing the Pebble directory (compaction
+// source selection, overlay bucket planning, tooling).
+func ReadManifestHeader(r io.Reader) (*c1zv3.C1ZManifestV3, error) {
+	mb, err := readManifestBytes(r)
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalManifestHeader(mb)
+}
+
+// readManifestBytes consumes the magic, the manifest length prefix, and
+// the manifest bytes, leaving r positioned at the first payload byte.
+func readManifestBytes(r io.Reader) ([]byte, error) {
 	magic := make([]byte, len(C1Z3Magic))
 	if _, err := io.ReadFull(r, magic); err != nil {
 		return nil, fmt.Errorf("%w: reading magic: %w", ErrEnvelopeTruncated, err)
@@ -244,7 +376,6 @@ func ReadEnvelope(r io.Reader) (*Envelope, error) {
 	if !bytes.Equal(magic, C1Z3Magic) {
 		return nil, ErrInvalidV3Magic
 	}
-	// 2. Manifest length.
 	var lenBuf [4]byte
 	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
 		return nil, fmt.Errorf("%w: reading manifest length: %w", ErrEnvelopeTruncated, err)
@@ -253,12 +384,24 @@ func ReadEnvelope(r io.Reader) (*Envelope, error) {
 	if mlen > maxManifestBytes {
 		return nil, fmt.Errorf("c1z v3: manifest claims %d bytes, exceeds cap %d", mlen, maxManifestBytes)
 	}
-	// 3. Manifest bytes.
 	mb := make([]byte, mlen)
 	if _, err := io.ReadFull(r, mb); err != nil {
 		return nil, fmt.Errorf("%w: reading manifest: %w", ErrEnvelopeTruncated, err)
 	}
-	m, err := UnmarshalManifest(mb)
+	return mb, nil
+}
+
+func readEnvelope(r io.Reader, headerOnly bool, pool *DecoderPool) (*Envelope, error) {
+	mb, err := readManifestBytes(r)
+	if err != nil {
+		return nil, err
+	}
+	var m *c1zv3.C1ZManifestV3
+	if headerOnly {
+		m, err = unmarshalManifestHeader(mb)
+	} else {
+		m, err = UnmarshalManifest(mb)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -266,11 +409,12 @@ func ReadEnvelope(r io.Reader) (*Envelope, error) {
 	env := &Envelope{Manifest: m}
 	switch m.GetPayloadEncoding() {
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD:
-		zr, err := zstd.NewReader(r, zstd.WithDecoderMaxMemory(decoderMaxMemoryBytes()))
+		zr, err := pool.get(r)
 		if err != nil {
 			return nil, fmt.Errorf("c1z v3: zstd reader: %w", err)
 		}
 		env.zstdReader = zr
+		env.pool = pool
 		env.PayloadReader = &limitedPayloadReader{r: zr, limit: maxDecodedPayloadBytes()}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
 		env.PayloadReader = &limitedPayloadReader{r: r, limit: maxDecodedPayloadBytes()}
@@ -278,6 +422,83 @@ func ReadEnvelope(r io.Reader) (*Envelope, error) {
 		return nil, fmt.Errorf("c1z v3: unsupported payload encoding %v", m.GetPayloadEncoding())
 	}
 	return env, nil
+}
+
+// unmarshalManifestHeader decodes the cheap manifest fields by hand:
+// engine (1), engine_schema_version (2), payload_encoding (4), and the
+// sync_runs projection (40). The descriptor closure (field 10) — by far
+// the largest field — is skipped, which is what makes header reads
+// cheap enough for engine dispatch on every open. Sync run summaries
+// are small and few (bounded by the sync retention limit), so decoding
+// them here costs a handful of allocations.
+func unmarshalManifestHeader(b []byte) (*c1zv3.C1ZManifestV3, error) {
+	out := &c1zv3.C1ZManifestV3{}
+	for len(b) > 0 {
+		num, typ, n := protowire.ConsumeTag(b)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		b = b[n:]
+		switch num {
+		case 1:
+			if typ != protowire.BytesType {
+				return nil, fmt.Errorf("c1z v3: manifest engine has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeString(b)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			out.SetEngine(v)
+			b = b[n:]
+		case 2:
+			if typ != protowire.VarintType {
+				return nil, fmt.Errorf("c1z v3: manifest engine_schema_version has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeVarint(b)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			if v > uint64(^uint32(0)) {
+				return nil, fmt.Errorf("c1z v3: manifest engine_schema_version overflow: %d", v)
+			}
+			out.SetEngineSchemaVersion(uint32(v))
+			b = b[n:]
+		case 4:
+			if typ != protowire.VarintType {
+				return nil, fmt.Errorf("c1z v3: manifest payload_encoding has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeVarint(b)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			if v > uint64(1<<31-1) {
+				return nil, fmt.Errorf("c1z v3: manifest payload_encoding overflow: %d", v)
+			}
+			out.SetPayloadEncoding(c1zv3.PayloadEncoding(v))
+			b = b[n:]
+		case 40:
+			if typ != protowire.BytesType {
+				return nil, fmt.Errorf("c1z v3: manifest sync_runs has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeBytes(b)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			summary := &c1zv3.SyncRunSummary{}
+			if err := proto.Unmarshal(v, summary); err != nil {
+				return nil, fmt.Errorf("%w: sync_runs entry: %w", ErrManifestInvalid, err)
+			}
+			out.SetSyncRuns(append(out.GetSyncRuns(), summary))
+			b = b[n:]
+		default:
+			n := protowire.ConsumeFieldValue(num, typ, b)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			b = b[n:]
+		}
+	}
+	return out, nil
 }
 
 // writeZstdTar walks dir in sorted order, writing each entry into a

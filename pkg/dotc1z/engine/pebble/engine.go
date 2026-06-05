@@ -396,12 +396,61 @@ func (e *Engine) DB() *pebble.DB { return e.db }
 // The source engine stays writable after CheckpointTo returns; this
 // is the building block dotc1z's higher-level Save wraps with the v3
 // envelope format.
+//
+// The explicit Flush is what makes the snapshot WAL-independent:
+// every committed write lands in SSTs before the checkpoint is cut.
+// We deliberately do NOT pass pebble.WithFlushedWAL() — it would be
+// redundant after the flush, and it appends a WAL record, guaranteeing
+// the checkpoint carries a WAL file.
+//
+// Callers must not write to the engine concurrently with CheckpointTo;
+// a write committed between the Flush and the Checkpoint would exist
+// only in the WAL, which truncateCheckpointWALs discards below.
+// dotc1z's save path runs at Close with the store already quiesced, so
+// this holds for all current callers.
 func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	if err := e.db.Flush(); err != nil {
 		return fmt.Errorf("checkpoint flush: %w", err)
 	}
-	if err := e.db.Checkpoint(destDir, pebble.WithFlushedWAL()); err != nil {
+	if err := e.db.Checkpoint(destDir); err != nil {
 		return fmt.Errorf("checkpoint: %w", err)
+	}
+	if err := truncateCheckpointWALs(destDir); err != nil {
+		return fmt.Errorf("checkpoint truncate WALs: %w", err)
+	}
+	return nil
+}
+
+// truncateCheckpointWALs truncates every WAL segment in a freshly cut
+// checkpoint directory to zero bytes.
+//
+// Why: pebble copies WAL files into checkpoints wholesale
+// (checkpoint.go: recycling makes hard-links unsafe), and WAL
+// recycling means the copied file's physical content is mostly stale
+// records from the file's previous life. Replaying that on every
+// subsequent open is expensive — stale chunks fail their CRC and
+// trigger pebble's per-bit bit-flip corruption diagnostic
+// (record.Reader.nextChunk → bitflip.CheckSliceForBitFlip). Profiling
+// a 500-source compaction showed WAL replay at ~23% of total CPU.
+//
+// After CheckpointTo's flush there is no unflushed data, so the WAL
+// carries nothing the checkpoint needs. We truncate rather than delete:
+// a zero-length WAL is indistinguishable from a freshly created one
+// (replay reads a clean EOF), whereas deleting the file would change
+// the file set pebble's open sequence discovers and validates against
+// the manifest's minUnflushedLogNum.
+func truncateCheckpointWALs(destDir string) error {
+	entries, err := os.ReadDir(destDir)
+	if err != nil {
+		return err
+	}
+	for _, ent := range entries {
+		if ent.IsDir() || filepath.Ext(ent.Name()) != ".log" {
+			continue
+		}
+		if err := os.Truncate(filepath.Join(destDir, ent.Name()), 0); err != nil {
+			return err
+		}
 	}
 	return nil
 }

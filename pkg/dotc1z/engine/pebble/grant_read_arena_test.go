@@ -26,7 +26,6 @@ func TestGrantReadArenaReconcileAbsent(t *testing.T) {
 	// fields). This is the on-wire shape the reconcile pass exists
 	// to recover.
 	r := v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: "bare",
 	}.Build()
 	if err := e.PutGrantRecord(ctx, r); err != nil {

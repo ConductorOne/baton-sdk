@@ -89,6 +89,13 @@ message SyncRunSummary {
   c1.storage.v3.SyncType type = 2;
   google.protobuf.Timestamp started_at = 3;
   google.protobuf.Timestamp ended_at = 4;
+  string parent_sync_id = 5;
+  // Projection of the engine's stats sidecar for this sync, when one
+  // exists. Lets readers (compaction source selection, overlay bucket
+  // planning, tooling) get row counts from the envelope header without
+  // unpacking the payload. Absent for syncs whose sidecar was never
+  // written (e.g. interrupted syncs).
+  c1.storage.v3.SyncStatsRecord stats = 6;
 }
 
 // PebbleEngineConfig is the value placed inside C1ZManifestV3.engine_config

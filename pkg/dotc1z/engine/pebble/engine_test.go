@@ -57,7 +57,6 @@ func regularFileSizeUnder(t *testing.T, dir string) int64 {
 // makeGrant returns a fully-populated GrantRecord under the given sync.
 func makeGrant(syncID, externalID, entID, principalID string) *v3.GrantRecord {
 	return v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: externalID,
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app",

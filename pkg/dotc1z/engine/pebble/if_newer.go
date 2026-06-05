@@ -37,31 +37,33 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 	return e.withWrite(func() error {
 		batch := e.db.NewBatch()
 		defer batch.Close()
+		idBytes, err := e.resolveSyncBytes("")
+		if err != nil {
+			return err
+		}
 		written := 0
 		for _, r := range records {
 			if r == nil {
 				continue
 			}
-			idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-			if err != nil {
-				return err
-			}
 			key := encodeGrantKey(idBytes, r.GetExternalId())
 			oldVal, closer, getErr := e.db.Get(key)
 			switch {
 			case getErr == nil:
-				old := &v3.GrantRecord{}
-				if err := unmarshalRecord(oldVal, old); err != nil {
+				write, err := discoveredAtIsNewerThanRaw(r.GetDiscoveredAt(), oldVal, grantDiscoveredAtField)
+				if err != nil {
 					closer.Close()
-					return fmt.Errorf("PutGrantRecordsIfNewer: unmarshal old: %w", err)
+					return fmt.Errorf("PutGrantRecordsIfNewer: scan old discovered_at: %w", err)
 				}
-				closer.Close()
-				if !discoveredAtIsNewer(r.GetDiscoveredAt(), old.GetDiscoveredAt()) {
+				if !write {
+					closer.Close()
 					continue
 				}
-				if err := e.deleteGrantIndexes(batch, idBytes, old); err != nil {
+				if err := e.deleteGrantIndexesRaw(batch, idBytes, r.GetExternalId(), oldVal); err != nil {
+					closer.Close()
 					return err
 				}
+				closer.Close()
 			case errors.Is(getErr, pebble.ErrNotFound):
 				// no existing record — write unconditionally
 			default:
@@ -95,31 +97,33 @@ func (e *Engine) PutResourceRecordsIfNewer(ctx context.Context, records ...*v3.R
 	return e.withWrite(func() error {
 		batch := e.db.NewBatch()
 		defer batch.Close()
+		idBytes, err := e.resolveSyncBytes("")
+		if err != nil {
+			return err
+		}
 		written := 0
 		for _, r := range records {
 			if r == nil {
 				continue
 			}
-			idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-			if err != nil {
-				return err
-			}
 			key := encodeResourceKey(idBytes, r.GetResourceTypeId(), r.GetResourceId())
 			oldVal, closer, getErr := e.db.Get(key)
 			switch {
 			case getErr == nil:
-				old := &v3.ResourceRecord{}
-				if err := unmarshalRecord(oldVal, old); err != nil {
+				write, err := discoveredAtIsNewerThanRaw(r.GetDiscoveredAt(), oldVal, resourceDiscoveredAtField)
+				if err != nil {
 					closer.Close()
-					return fmt.Errorf("PutResourceRecordsIfNewer: unmarshal old: %w", err)
+					return fmt.Errorf("PutResourceRecordsIfNewer: scan old discovered_at: %w", err)
 				}
-				closer.Close()
-				if !discoveredAtIsNewer(r.GetDiscoveredAt(), old.GetDiscoveredAt()) {
+				if !write {
+					closer.Close()
 					continue
 				}
-				if err := e.deleteResourceIndexes(batch, idBytes, old); err != nil {
+				if err := e.deleteResourceIndexesRaw(batch, idBytes, r.GetResourceTypeId(), r.GetResourceId(), oldVal); err != nil {
+					closer.Close()
 					return err
 				}
+				closer.Close()
 			case errors.Is(getErr, pebble.ErrNotFound):
 			default:
 				return fmt.Errorf("PutResourceRecordsIfNewer: get: %w", getErr)
@@ -151,31 +155,33 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 	return e.withWrite(func() error {
 		batch := e.db.NewBatch()
 		defer batch.Close()
+		idBytes, err := e.resolveSyncBytes("")
+		if err != nil {
+			return err
+		}
 		written := 0
 		for _, r := range records {
 			if r == nil {
 				continue
 			}
-			idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-			if err != nil {
-				return err
-			}
 			key := encodeEntitlementKey(idBytes, r.GetExternalId())
 			oldVal, closer, getErr := e.db.Get(key)
 			switch {
 			case getErr == nil:
-				old := &v3.EntitlementRecord{}
-				if err := unmarshalRecord(oldVal, old); err != nil {
+				write, err := discoveredAtIsNewerThanRaw(r.GetDiscoveredAt(), oldVal, entitlementDiscoveredAtField)
+				if err != nil {
 					closer.Close()
-					return fmt.Errorf("PutEntitlementRecordsIfNewer: unmarshal old: %w", err)
+					return fmt.Errorf("PutEntitlementRecordsIfNewer: scan old discovered_at: %w", err)
 				}
-				closer.Close()
-				if !discoveredAtIsNewer(r.GetDiscoveredAt(), old.GetDiscoveredAt()) {
+				if !write {
+					closer.Close()
 					continue
 				}
-				if err := e.deleteEntitlementIndexes(batch, idBytes, old); err != nil {
+				if err := e.deleteEntitlementIndexesRaw(batch, idBytes, r.GetExternalId(), oldVal); err != nil {
+					closer.Close()
 					return err
 				}
+				closer.Close()
 			case errors.Is(getErr, pebble.ErrNotFound):
 			default:
 				return fmt.Errorf("PutEntitlementRecordsIfNewer: get: %w", getErr)
@@ -207,26 +213,26 @@ func (e *Engine) PutResourceTypeRecordsIfNewer(ctx context.Context, records ...*
 	return e.withWrite(func() error {
 		batch := e.db.NewBatch()
 		defer batch.Close()
+		idBytes, err := e.resolveSyncBytes("")
+		if err != nil {
+			return err
+		}
 		written := 0
 		for _, r := range records {
 			if r == nil {
 				continue
 			}
-			idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-			if err != nil {
-				return err
-			}
 			key := encodeResourceTypeKey(idBytes, r.GetExternalId())
 			oldVal, closer, getErr := e.db.Get(key)
 			switch {
 			case getErr == nil:
-				old := &v3.ResourceTypeRecord{}
-				if err := unmarshalRecord(oldVal, old); err != nil {
+				write, err := discoveredAtIsNewerThanRaw(r.GetDiscoveredAt(), oldVal, resourceTypeDiscoveredAtField)
+				if err != nil {
 					closer.Close()
-					return fmt.Errorf("PutResourceTypeRecordsIfNewer: unmarshal old: %w", err)
+					return fmt.Errorf("PutResourceTypeRecordsIfNewer: scan old discovered_at: %w", err)
 				}
 				closer.Close()
-				if !discoveredAtIsNewer(r.GetDiscoveredAt(), old.GetDiscoveredAt()) {
+				if !write {
 					continue
 				}
 			case errors.Is(getErr, pebble.ErrNotFound):

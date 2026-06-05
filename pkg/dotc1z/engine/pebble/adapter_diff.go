@@ -81,6 +81,9 @@ func generateSyncDiff(ctx context.Context, a *Adapter, baseSyncID, appliedSyncID
 	if err := a.engine.PutSyncRunRecord(ctx, diffRun); err != nil {
 		return "", fmt.Errorf("generate-diff: put diff sync run: %w", err)
 	}
+	if err := a.engine.SetCurrentSync(diffSyncID); err != nil {
+		return "", fmt.Errorf("generate-diff: set current diff sync: %w", err)
+	}
 
 	// Per-record-type set difference. Each helper iterates the
 	// applied sync's primary keyspace, checks base for the same
@@ -126,8 +129,8 @@ func existsAt(db *pebble.DB, key []byte) (bool, error) {
 }
 
 // diffResourceTypes copies resource_types that exist under
-// appliedBytes but not under baseBytes, rewriting their stored
-// SyncId to the diff sync.
+// appliedBytes but not under baseBytes. The destination sync is
+// supplied by the engine's current-sync key context.
 func diffResourceTypes(ctx context.Context, a *Adapter, baseBytes, appliedBytes []byte, diffSyncID string) error {
 	srcPrefix := encodeResourceTypePrefix(appliedBytes)
 	return iterDiff(ctx, a.engine.DB(), srcPrefix, upperBoundOf(srcPrefix), func(_ []byte, val []byte) error {
@@ -141,7 +144,6 @@ func diffResourceTypes(ctx context.Context, a *Adapter, baseBytes, appliedBytes 
 		} else if exists {
 			return nil
 		}
-		rec.SetSyncId(diffSyncID)
 		return a.engine.PutResourceTypeRecord(ctx, &rec)
 	})
 }
@@ -159,7 +161,6 @@ func diffResources(ctx context.Context, a *Adapter, baseBytes, appliedBytes []by
 		} else if exists {
 			return nil
 		}
-		rec.SetSyncId(diffSyncID)
 		return a.engine.PutResourceRecord(ctx, &rec)
 	})
 }
@@ -177,7 +178,6 @@ func diffEntitlements(ctx context.Context, a *Adapter, baseBytes, appliedBytes [
 		} else if exists {
 			return nil
 		}
-		rec.SetSyncId(diffSyncID)
 		return a.engine.PutEntitlementRecord(ctx, &rec)
 	})
 }
@@ -195,7 +195,6 @@ func diffGrants(ctx context.Context, a *Adapter, baseBytes, appliedBytes []byte,
 		} else if exists {
 			return nil
 		}
-		rec.SetSyncId(diffSyncID)
 		return a.engine.PutGrantRecord(ctx, &rec)
 	})
 }

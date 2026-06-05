@@ -39,9 +39,13 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 
 		fresh := e.IsFreshSync()
 		skipGet := e.takeFreshEntitlementsEmpty()
+		idBytes, err := e.resolveSyncBytes("")
+		if err != nil {
+			return err
+		}
 
 		type dedupKey struct {
-			syncID, extID string
+			extID string
 		}
 		var dedup map[dedupKey]int
 		if len(records) > 1 {
@@ -50,38 +54,18 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 				if r == nil {
 					continue
 				}
-				dedup[dedupKey{r.GetSyncId(), r.GetExternalId()}] = i
+				dedup[dedupKey{r.GetExternalId()}] = i
 			}
 		}
 
-		var (
-			lastSyncIDStr string
-			lastIDBytes   []byte
-			haveLast      bool
-		)
 		for i, r := range records {
 			if r == nil {
 				continue
 			}
 			if dedup != nil {
-				if dedup[dedupKey{r.GetSyncId(), r.GetExternalId()}] != i {
+				if dedup[dedupKey{r.GetExternalId()}] != i {
 					continue
 				}
-			}
-			var (
-				idBytes []byte
-				err     error
-			)
-			if sid := r.GetSyncId(); haveLast && sid == lastSyncIDStr {
-				idBytes = lastIDBytes
-			} else {
-				idBytes, err = e.resolveSyncBytes(sid)
-				if err != nil {
-					return err
-				}
-				lastSyncIDStr = sid
-				lastIDBytes = idBytes
-				haveLast = true
 			}
 			key := encodeEntitlementKey(idBytes, r.GetExternalId())
 			val, err := marshalRecord(r)
@@ -92,12 +76,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 				oldVal, closer, getErr := e.db.Get(key)
 				switch {
 				case getErr == nil:
-					old := &v3.EntitlementRecord{}
-					if err := unmarshalRecord(oldVal, old); err != nil {
-						closer.Close()
-						return fmt.Errorf("PutEntitlementRecords: unmarshal old %q: %w", r.GetExternalId(), err)
-					}
-					if err := e.deleteEntitlementIndexes(idxBatch, idBytes, old); err != nil {
+					if err := e.deleteEntitlementIndexesRaw(idxBatch, idBytes, r.GetExternalId(), oldVal); err != nil {
 						closer.Close()
 						return err
 					}
@@ -159,12 +138,7 @@ func (e *Engine) DeleteEntitlementRecord(ctx context.Context, syncID, externalID
 			}
 			return err
 		}
-		old := &v3.EntitlementRecord{}
-		if err := unmarshalRecord(oldVal, old); err != nil {
-			closer.Close()
-			return fmt.Errorf("DeleteEntitlementRecord: unmarshal old %q: %w", externalID, err)
-		}
-		if err := e.deleteEntitlementIndexes(batch, idBytes, old); err != nil {
+		if err := e.deleteEntitlementIndexesRaw(batch, idBytes, externalID, oldVal); err != nil {
 			closer.Close()
 			return err
 		}
@@ -187,19 +161,6 @@ func (e *Engine) writeEntitlementIndexes(batch *pebble.Batch, syncIDBytes []byte
 		r.GetExternalId(),
 	)
 	return batch.Set(k, nil, nil)
-}
-
-func (e *Engine) deleteEntitlementIndexes(batch *pebble.Batch, syncIDBytes []byte, r *v3.EntitlementRecord) error {
-	res := r.GetResource()
-	if res == nil || res.GetResourceId() == "" {
-		return nil
-	}
-	k := encodeEntitlementByResourceIndexKey(
-		syncIDBytes,
-		res.GetResourceTypeId(), res.GetResourceId(),
-		r.GetExternalId(),
-	)
-	return batch.Delete(k, nil)
 }
 
 func (e *Engine) IterateEntitlementsBySync(ctx context.Context, syncID string, yield func(*v3.EntitlementRecord) bool) error {

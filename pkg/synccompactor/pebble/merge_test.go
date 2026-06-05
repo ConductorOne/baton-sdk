@@ -13,7 +13,6 @@ import (
 
 func grantAt(syncID, externalID string, at time.Time) *v3.GrantRecord {
 	return v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: externalID,
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",
@@ -70,13 +69,10 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 		t.Fatalf("merged grant count = %d, want 3 (union, deduped)", got)
 	}
 
-	// Every survivor is re-keyed to destSync, and g-shared kept the
-	// newer discovered_at.
+	// Iterating under destSync proves every survivor is re-keyed there,
+	// and g-shared kept the newer discovered_at.
 	seen := map[string]*v3.GrantRecord{}
 	if err := dst.IterateGrantsBySync(ctx, destSync, func(r *v3.GrantRecord) bool {
-		if r.GetSyncId() != destSync {
-			t.Errorf("grant %q sync_id = %q, want destSync %q", r.GetExternalId(), r.GetSyncId(), destSync)
-		}
 		seen[r.GetExternalId()] = r
 		return true
 	}); err != nil {

@@ -48,6 +48,20 @@ type Compactor struct {
 	// the output is byte-identical to the pre-engine-option compactor).
 	// EnginePebble produces a v3 Pebble c1z via a native record merge.
 	engine dotc1z.Engine
+	// pebbleMode optionally forces the Pebble merge strategy; the zero
+	// value (Auto) lets the compactor choose. See WithPebbleCompactorMode.
+	pebbleMode PebbleCompactorMode
+	// overlaySeenKeyLimit / overlayRecordChunkSize optionally override
+	// the overlay merge tunables; zero means the merge defaults. See
+	// WithOverlaySeenKeyLimit / WithOverlayRecordChunkSize.
+	overlaySeenKeyLimit    int64
+	overlayRecordChunkSize int
+	// decoderPool scopes v3 payload-decoder reuse to one Compact run:
+	// every source envelope open draws from it instead of constructing
+	// a fresh zstd decoder, and Compact closes it on the way out so no
+	// decoder buffers outlive the compaction (deliberately NOT a
+	// process-global pool — see dotc1z.WithDecoderPool).
+	decoderPool *dotc1z.EnvelopeDecoderPool
 }
 
 // resolvedEngine returns the configured engine, treating the zero value
@@ -203,6 +217,17 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 
 	fileName := fmt.Sprintf("compacted-%s.c1z", c.entries[0].SyncID)
 	destFilePath := path.Join(c.tmpDir, fileName)
+
+	if c.resolvedEngine() == dotc1z.EnginePebble {
+		// One payload-decoder pool for the whole compaction: the merge
+		// opens every source's envelope (selection + per-chunk unpack),
+		// and reusing one decoder across those opens avoids a fresh
+		// window allocation + worker spin-up per source. Closed when
+		// Compact returns so nothing is retained by the process after.
+		c.decoderPool = dotc1z.NewEnvelopeDecoderPool()
+		defer c.decoderPool.Close()
+		opts = append(opts, dotc1z.WithDecoderPool(c.decoderPool))
+	}
 
 	if c.resolvedEngine() == dotc1z.EnginePebble {
 		// Force the resolved engine last so a stray engine passed via

@@ -40,7 +40,6 @@ func TestStoreExpandedGrantsPreservesDiscoveredAt(t *testing.T) {
 	// bypassing the adapter's now() stamp.
 	seeded := timestamppb.New(time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC))
 	seed := v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: "g-1",
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",

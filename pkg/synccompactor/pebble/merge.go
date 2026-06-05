@@ -89,7 +89,6 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 	if err := streamBucket(ctx, srcDB,
 		enginepkg.ResourceTypeSyncLowerBound(srcBytes), enginepkg.ResourceTypeSyncUpperBound(srcBytes),
 		func() *v3.ResourceTypeRecord { return &v3.ResourceTypeRecord{} },
-		func(r *v3.ResourceTypeRecord) { r.SetSyncId(destSyncID) },
 		dest.PutResourceTypeRecordsIfNewer,
 	); err != nil {
 		return fmt.Errorf("merge resource_types: %w", err)
@@ -98,7 +97,6 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 	if err := streamBucket(ctx, srcDB,
 		enginepkg.ResourceSyncLowerBound(srcBytes), enginepkg.ResourceSyncUpperBound(srcBytes),
 		func() *v3.ResourceRecord { return &v3.ResourceRecord{} },
-		func(r *v3.ResourceRecord) { r.SetSyncId(destSyncID) },
 		dest.PutResourceRecordsIfNewer,
 	); err != nil {
 		return fmt.Errorf("merge resources: %w", err)
@@ -107,7 +105,6 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 	if err := streamBucket(ctx, srcDB,
 		enginepkg.EntitlementSyncLowerBound(srcBytes), enginepkg.EntitlementSyncUpperBound(srcBytes),
 		func() *v3.EntitlementRecord { return &v3.EntitlementRecord{} },
-		func(r *v3.EntitlementRecord) { r.SetSyncId(destSyncID) },
 		dest.PutEntitlementRecordsIfNewer,
 	); err != nil {
 		return fmt.Errorf("merge entitlements: %w", err)
@@ -116,7 +113,6 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 	if err := streamBucket(ctx, srcDB,
 		enginepkg.GrantSyncLowerBound(srcBytes), enginepkg.GrantSyncUpperBound(srcBytes),
 		func() *v3.GrantRecord { return &v3.GrantRecord{} },
-		func(r *v3.GrantRecord) { r.SetSyncId(destSyncID) },
 		dest.PutGrantRecordsIfNewer,
 	); err != nil {
 		return fmt.Errorf("merge grants: %w", err)
@@ -127,16 +123,15 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 
 // streamBucket drains a primary bucket's [lower, upper) key range,
 // unmarshalling each value into a fresh T (the stored value is a
-// deterministic proto marshal of the v3 record), applying rekey to
-// stamp the destination sync id, and flushing fixed-size batches into
-// put. Peak memory is bounded by mergeBatchSize rather than the bucket
-// size.
+// deterministic proto marshal of the v3 record) and flushing fixed-size
+// batches into put. The destination sync id is supplied by the engine's
+// current-sync key context; data record values do not carry sync_id.
+// Peak memory is bounded by mergeBatchSize rather than the bucket size.
 func streamBucket[T proto.Message](
 	ctx context.Context,
 	db *pebble.DB,
 	lower, upper []byte,
 	mk func() T,
-	rekey func(T),
 	put func(context.Context, ...T) error,
 ) error {
 	iter, err := db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
@@ -165,7 +160,6 @@ func streamBucket[T proto.Message](
 		if err := proto.Unmarshal(iter.Value(), rec); err != nil {
 			return fmt.Errorf("unmarshal record: %w", err)
 		}
-		rekey(rec)
 		batch = append(batch, rec)
 		if len(batch) >= mergeBatchSize {
 			if err := flush(); err != nil {
