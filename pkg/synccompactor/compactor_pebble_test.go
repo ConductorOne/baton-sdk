@@ -21,7 +21,7 @@ import (
 // buildPebbleInput writes a minimal Pebble (v3) c1z at path with the
 // given sync type and one grant per id (a fixed user→member graph),
 // then ends + closes it. Returns the sync id.
-func buildPebbleInput(t *testing.T, ctx context.Context, path string, st connectorstore.SyncType, grantIDs ...string) string {
+func buildPebbleInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, grantIDs ...string) string {
 	t.Helper()
 	require.NoError(t, ensurePebbleRegistered())
 
@@ -168,7 +168,7 @@ func TestCompactPebbleEndToEnd(t *testing.T) {
 
 // buildSQLiteInput writes a minimal SQLite (v1) c1z with one grant per
 // id, for the default-engine regression.
-func buildSQLiteInput(t *testing.T, ctx context.Context, path string, st connectorstore.SyncType, grantIDs ...string) string {
+func buildSQLiteInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, grantIDs ...string) string {
 	t.Helper()
 	store, err := dotc1z.NewC1ZFile(ctx, path)
 	require.NoError(t, err)
