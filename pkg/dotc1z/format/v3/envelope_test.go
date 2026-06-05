@@ -3,11 +3,15 @@ package v3
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	v3pb "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -42,7 +46,7 @@ func TestEnvelopeRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteEnvelope(f, manifest, srcDir); err != nil {
+	if err := WriteEnvelope(t.Context(), f, manifest, srcDir); err != nil {
 		t.Fatalf("WriteEnvelope: %v", err)
 	}
 	if err := f.Close(); err != nil {
@@ -180,7 +184,7 @@ func TestEnvelopePayloadAtEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &c1zv3.C1ZManifestV3{Engine: "pebble", PayloadEncoding: c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD}
-	if err := WriteEnvelope(f, m, srcDir); err != nil {
+	if err := WriteEnvelope(t.Context(), f, m, srcDir); err != nil {
 		t.Fatal(err)
 	}
 	err = f.Close()
@@ -311,7 +315,7 @@ func roundTripEnvelope(t *testing.T, enc c1zv3.PayloadEncoding) (c1zv3.PayloadEn
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteEnvelope(f, manifest, srcDir); err != nil {
+	if err := WriteEnvelope(t.Context(), f, manifest, srcDir); err != nil {
 		t.Fatalf("WriteEnvelope: %v", err)
 	}
 	if err := f.Close(); err != nil {
@@ -378,4 +382,166 @@ func TestEnvelopeUnspecifiedDefaultsToTarZstd(t *testing.T) {
 	if content != "MANIFEST-000001\n" {
 		t.Errorf("CURRENT roundtrip: got %q", content)
 	}
+}
+
+// TestWriteEnvelopeCanceledCtxAbortsWalk verifies that a context
+// cancelled before WriteEnvelope is called causes the payload-walk to
+// short-circuit with ctx.Err(). The header/manifest bytes may have
+// already been written; the contract is only that the caller learns
+// it must NOT promote the partial output (via os.Rename in the
+// caller's success gate).
+func TestWriteEnvelopeCanceledCtxAbortsWalk(t *testing.T) {
+	tmp := t.TempDir()
+	srcDir := filepath.Join(tmp, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"CURRENT":         "MANIFEST-000001\n",
+		"MANIFEST-000001": "manifest bytes",
+		"000005.sst":      "sst contents",
+	} {
+		if err := os.WriteFile(filepath.Join(srcDir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	manifest := &c1zv3.C1ZManifestV3{
+		Engine:              "pebble",
+		EngineSchemaVersion: 17,
+		PayloadEncoding:     c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD,
+	}
+
+	envPath := filepath.Join(tmp, "out.c1z3")
+	f, err := os.Create(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err = WriteEnvelope(ctx, f, manifest, srcDir)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WriteEnvelope on cancelled ctx: got err=%v, want context.Canceled", err)
+	}
+}
+
+// TestWriteEnvelopeCanceledMidWalk covers the case the prior test
+// can't: a context that is healthy when WriteEnvelope is called and
+// is cancelled by an external observer DURING the walk. The walk
+// must surface the cancel with a wrapped error that names the
+// in-flight tar entry.
+func TestWriteEnvelopeCanceledMidWalk(t *testing.T) {
+	tmp := t.TempDir()
+	srcDir := filepath.Join(tmp, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Many files so the walk has callbacks to traverse. Names are
+	// chosen so sort order is deterministic and the cancel fires
+	// after the first few entries.
+	for i := 0; i < 32; i++ {
+		name := filepath.Join(srcDir, fmt.Sprintf("entry-%02d", i))
+		if err := os.WriteFile(name, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	manifest := &c1zv3.C1ZManifestV3{
+		Engine:              "pebble",
+		EngineSchemaVersion: 17,
+		PayloadEncoding:     c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD,
+	}
+
+	envPath := filepath.Join(tmp, "out.c1z3")
+	f, err := os.Create(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	// Wrap the writer so cancel fires after the very first bytes
+	// hit it (magic/length/manifest writes) — that puts the cancel
+	// in flight before the walk callback's first ctx check runs,
+	// so the wrapped error names the first walked entry.
+	ctx, cancel := context.WithCancel(t.Context())
+	cw := &cancelOnWriteOnce{cancel: cancel, threshold: 1}
+
+	err = WriteEnvelope(ctx, &teeWriter{into: f, also: cw}, manifest, srcDir)
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+	// Wrapped error must name the entry we were on, so the operator
+	// triaging "context canceled" in logs can see which file the
+	// walk was visiting.
+	require.Regexp(t, `walk canceled at "entry-.+":`, err.Error())
+}
+
+// TestWriteEnvelopeEmptyPayloadDir verifies the degenerate case
+// where the payload directory exists but contains no regular files
+// (e.g. a freshly-checkpointed Pebble store with zero SSTs). The
+// walk still emits a directory header for "." but no body bytes;
+// ReadEnvelope must round-trip it cleanly.
+func TestWriteEnvelopeEmptyPayloadDir(t *testing.T) {
+	tmp := t.TempDir()
+	srcDir := filepath.Join(tmp, "empty")
+	require.NoError(t, os.MkdirAll(srcDir, 0o755))
+
+	manifest := &c1zv3.C1ZManifestV3{
+		Engine:              "pebble",
+		EngineSchemaVersion: 17,
+		PayloadEncoding:     c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD,
+	}
+
+	envPath := filepath.Join(tmp, "out.c1z3")
+	f, err := os.Create(envPath)
+	require.NoError(t, err)
+	require.NoError(t, WriteEnvelope(t.Context(), f, manifest, srcDir))
+	require.NoError(t, f.Close())
+
+	rf, err := os.Open(envPath)
+	require.NoError(t, err)
+	defer rf.Close()
+	env, err := ReadEnvelope(rf)
+	require.NoError(t, err)
+	defer env.Close()
+	require.Equal(t, "pebble", env.Manifest.GetEngine())
+	// Payload is a zero-entry tar inside zstd; draining it must
+	// finish with no error and no unexpected bytes.
+	dest := t.TempDir()
+	require.NoError(t, ExtractZstdTar(env.PayloadReader, dest))
+}
+
+// teeWriter mirrors every Write to both targets. Used to observe
+// payload writes from the test without disturbing the real writer.
+type teeWriter struct {
+	into io.Writer
+	also io.Writer
+}
+
+func (t *teeWriter) Write(p []byte) (int, error) {
+	if _, err := t.also.Write(p); err != nil {
+		return 0, err
+	}
+	return t.into.Write(p)
+}
+
+// cancelOnWriteOnce fires the cancel func the first time Write
+// receives at least `threshold` total bytes. Subsequent writes are
+// pass-through.
+type cancelOnWriteOnce struct {
+	cancel    context.CancelFunc
+	threshold int
+	written   int
+	fired     bool
+}
+
+func (c *cancelOnWriteOnce) Write(p []byte) (int, error) {
+	c.written += len(p)
+	if !c.fired && c.written >= c.threshold {
+		c.fired = true
+		c.cancel()
+	}
+	return len(p), nil
 }

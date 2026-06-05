@@ -54,7 +54,7 @@ func writeV3EnvelopeForEngine(t *testing.T, path string, engine Engine) {
 		Engine:          string(engine),
 		PayloadEncoding: c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD,
 	}.Build()
-	if err := formatv3.WriteEnvelope(f, manifest, payloadDir); err != nil {
+	if err := formatv3.WriteEnvelope(t.Context(), f, manifest, payloadDir); err != nil {
 		t.Fatalf("WriteEnvelope: %v", err)
 	}
 }

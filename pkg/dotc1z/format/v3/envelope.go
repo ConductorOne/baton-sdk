@@ -3,6 +3,7 @@ package v3
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"sync"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/iox"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -62,7 +64,20 @@ const maxTarEntryBytes int64 = 4 << 30
 // normalized (the RFC documents tar as not byte-stable). w is typically
 // a *os.File created via os.CreateTemp in the same directory as the
 // final destination so an atomic rename can finalize the write.
-func WriteEnvelope(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string) error {
+//
+// ctx is checked periodically during the payload walk (per file
+// entry and per iox.CtxCopy chunk inside each file). On cancellation
+// the function returns the ctx error (wrapped with the walk entry it
+// was on).
+//
+// IMPORTANT: the magic, length prefix, and manifest bytes are
+// written to w BEFORE the first ctx check inside the walk. Callers
+// must therefore either (a) write to a tmp file and atomic-rename
+// only on a nil return, or (b) wrap w in an io.Pipe whose writer
+// side is closed with CloseWithError(ctxErr) on cancellation, so a
+// downstream consumer (e.g. s3manager) aborts instead of finalizing
+// a truncated upload.
+func WriteEnvelope(ctx context.Context, w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string) error {
 	if m == nil {
 		return errors.New("c1z v3: WriteEnvelope: nil manifest")
 	}
@@ -102,11 +117,11 @@ func WriteEnvelope(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string) error
 	}
 	switch enc {
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD:
-		if err := writeZstdTar(w, payloadDir); err != nil {
+		if err := writeZstdTar(ctx, w, payloadDir); err != nil {
 			return fmt.Errorf("c1z v3: write tar_zstd payload: %w", err)
 		}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
-		if err := writeTar(w, payloadDir); err != nil {
+		if err := writeTar(ctx, w, payloadDir); err != nil {
 			return fmt.Errorf("c1z v3: write tar payload: %w", err)
 		}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED:
@@ -190,8 +205,12 @@ func ReadEnvelope(r io.Reader) (*Envelope, error) {
 }
 
 // writeZstdTar walks dir in sorted order, writing each entry into a
-// tar stream that is itself zstd-compressed and written to w.
-func writeZstdTar(w io.Writer, dir string) error {
+// tar stream that is itself zstd-compressed and written to w. ctx is
+// checked per entry and per iox.CtxCopy chunk so a cancel mid-walk
+// surfaces as an error (wrapped with the in-flight tar entry path)
+// rather than letting partial bytes flow through to a multipart
+// upload.
+func writeZstdTar(ctx context.Context, w io.Writer, dir string) error {
 	zw, err := zstd.NewWriter(w, zstd.WithEncoderLevel(zstd.SpeedDefault))
 	if err != nil {
 		return err
@@ -209,6 +228,9 @@ func writeZstdTar(w io.Writer, dir string) error {
 		if rel == "." {
 			return nil
 		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("c1z v3: tar_zstd walk canceled at %q: %w", rel, ctxErr)
+		}
 		hdr, err := tar.FileInfoHeader(info, "")
 		if err != nil {
 			return err
@@ -218,18 +240,18 @@ func writeZstdTar(w io.Writer, dir string) error {
 			return err
 		}
 		if info.Mode().IsRegular() {
-			//nolint:gosec // path is from filepath.WalkDir over a Pebble checkpoint
+			//nolint:gosec // path is from filepath.Walk over a Pebble checkpoint
 			// directory we own — not user-supplied, no symlink TOCTOU exposure.
 			f, err := os.Open(path)
 			if err != nil {
 				return err
 			}
-			_, err = io.Copy(tw, f)
+			_, err = iox.CtxCopy(ctx, tw, f)
 			if closeErr := f.Close(); err == nil {
 				err = closeErr
 			}
 			if err != nil {
-				return err
+				return fmt.Errorf("c1z v3: tar_zstd copy %q: %w", rel, err)
 			}
 		}
 		return nil
@@ -259,7 +281,7 @@ func writeZstdTar(w io.Writer, dir string) error {
 // w as a tar stream (no compression). Used when PayloadEncoding is
 // PAYLOAD_ENCODING_TAR. The shape mirrors writeZstdTar so any future
 // refactor can lift the common walk-and-emit body into a helper.
-func writeTar(w io.Writer, dir string) error {
+func writeTar(ctx context.Context, w io.Writer, dir string) error {
 	tw := tar.NewWriter(w)
 
 	walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -272,6 +294,9 @@ func writeTar(w io.Writer, dir string) error {
 		}
 		if rel == "." {
 			return nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("c1z v3: tar walk canceled at %q: %w", rel, ctxErr)
 		}
 		hdr, err := tar.FileInfoHeader(info, "")
 		if err != nil {
@@ -288,7 +313,7 @@ func writeTar(w io.Writer, dir string) error {
 			if err != nil {
 				return err
 			}
-			_, err = io.Copy(tw, f)
+			_, err = iox.CtxCopy(ctx, tw, f)
 			if closeErr := f.Close(); err == nil {
 				err = closeErr
 			}
