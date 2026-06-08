@@ -333,6 +333,51 @@ func TestRollbackExpansionNonExpandedRefused(t *testing.T) {
 	require.ErrorIs(t, err, dotc1z.ErrSyncNotExpanded)
 }
 
+// buildEmptyExpandedC1Z writes a finished, expansion-marked sync that holds
+// resources but no grants — the resource-only shape a rollback has nothing
+// to do on.
+func buildEmptyExpandedC1Z(t *testing.T, ctx context.Context, path string) string {
+	t.Helper()
+	f, err := dotc1z.NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, f.PutResourceTypes(ctx,
+		v2.ResourceType_builder{Id: "user", DisplayName: "User", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build(),
+	))
+	require.NoError(t, f.SetSupportsDiff(ctx, syncID))
+	require.NoError(t, f.EndSync(ctx))
+	require.NoError(t, f.Close(ctx))
+	return syncID
+}
+
+func TestRollbackExpansionNoGrantsEarlyReturn(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	inPath := filepath.Join(tmp, "src.c1z")
+	syncID := buildEmptyExpandedC1Z(t, ctx, inPath)
+
+	// Both the dry run and the real rollback short-circuit to a zero-count
+	// result without error: a grant-less sync has nothing to roll back.
+	store, err := dotc1z.NewC1ZFile(ctx, inPath)
+	require.NoError(t, err)
+	dry, err := store.RollbackExpansion(ctx, syncID, true)
+	require.NoError(t, err)
+	require.Equal(t, 0, dry.GrantsDeleted)
+	require.Equal(t, 0, dry.SourcesCleared)
+	got, err := store.RollbackExpansion(ctx, syncID, false)
+	require.NoError(t, err)
+	require.Equal(t, 0, got.GrantsDeleted)
+	require.Equal(t, 0, got.SourcesCleared)
+	require.NoError(t, store.Close(ctx))
+
+	// The command path with --replay --validate no-ops cleanly: nothing to
+	// re-derive, and the before/after source snapshots are both empty.
+	outPath := filepath.Join(tmp, "out.c1z")
+	require.NoError(t, runRollback(ctx, inPath, "--out", outPath, "--sync-id", syncID, "--replay", "--validate"))
+	require.FileExists(t, outPath)
+}
+
 func runRollback(ctx context.Context, inPath string, args ...string) error {
 	root := &cobra.Command{Use: "baton"}
 	root.PersistentFlags().StringP("file", "f", "sync.c1z", "")

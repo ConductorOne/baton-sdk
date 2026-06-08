@@ -71,6 +71,31 @@ func NeedsExpansion(stateStr string) (bool, error) {
 	return state.NeedsExpansion(), nil
 }
 
+// PrepareExpansionReplayToken rewrites a finished sync's state token so the
+// sync can be re-run through grant expansion, preserving the token's other
+// recorded state rather than discarding it. It marks the sync as needing
+// expansion and, when the action stack is empty, pushes an InitOp so the
+// resumed syncer drives its work from the top. A finished sync's token has an
+// empty action stack, so without the InitOp a resume would find nothing to do
+// and exit before expanding; clearing the whole token would also drop the
+// skip flags and exclusion-group bookkeeping the token carries.
+func PrepareExpansionReplayToken(stateStr string) (string, error) {
+	st := newState()
+	if err := st.Unmarshal(stateStr); err != nil {
+		return "", err
+	}
+	st.SetNeedsExpansion()
+	if st.Current() == nil {
+		// A finished sync deserializes with no action map, so seed one before
+		// queuing the InitOp that drives the resumed run.
+		if st.actions == nil {
+			st.actions = make(map[string]Action)
+		}
+		st.PushAction(context.Background(), Action{Op: InitOp})
+	}
+	return st.Marshal()
+}
+
 // ActionOp represents a sync operation.
 type ActionOp uint8
 

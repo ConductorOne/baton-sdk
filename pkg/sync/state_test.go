@@ -132,6 +132,36 @@ func TestSyncerTokenUnmarshalEmptyString(t *testing.T) {
 	compareSyncerState(t, op1, *st.Current())
 }
 
+func TestPrepareExpansionReplayTokenPreservesState(t *testing.T) {
+	st := newState()
+	st.SetShouldSkipGrants()
+	if _, conflict := st.CheckAndSetExclusionGroupResourceType("grp", "user"); conflict {
+		t.Fatal("unexpected conflict seeding exclusion group")
+	}
+	require.False(t, st.NeedsExpansion())
+
+	token, err := st.Marshal()
+	require.NoError(t, err)
+
+	replayToken, err := PrepareExpansionReplayToken(token)
+	require.NoError(t, err)
+
+	got := newState()
+	require.NoError(t, got.Unmarshal(replayToken))
+
+	// The flag the rollback sets.
+	require.True(t, got.NeedsExpansion(), "expansion must be re-flagged")
+	// The rest of the token must survive rather than be cleared.
+	require.True(t, got.ShouldSkipGrants(), "skip-grants flag must be preserved")
+	existing, conflict := got.CheckAndSetExclusionGroupResourceType("grp", "group")
+	require.True(t, conflict, "preserved exclusion-group mapping must still conflict")
+	require.Equal(t, "user", existing)
+	// A finished token has no current action, so an InitOp is queued to drive
+	// the resumed run.
+	require.NotNil(t, got.Current())
+	require.Equal(t, InitOp, got.Current().Op)
+}
+
 func TestSyncerTokenNextPage(t *testing.T) {
 	ctx := t.Context()
 	st := newState()

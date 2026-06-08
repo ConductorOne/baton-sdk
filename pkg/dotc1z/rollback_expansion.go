@@ -14,6 +14,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 // ErrSyncNotFinished is returned when a rollback targets a sync that has
@@ -31,9 +32,13 @@ var ErrSyncNotFinished = errors.New("c1z: refusing to roll back expansion on an 
 // graph was never produced.
 var ErrSyncNotExpanded = errors.New("c1z: sync did not run grant expansion (no supports_diff marker); nothing to roll back")
 
-// rollbackPageSize bounds how many grant rows are read per round so a
-// large sync does not buffer the whole table in memory.
-const rollbackPageSize = 1000
+// rollbackPageSize bounds how many grant rows are read per round, and — since
+// each page's mutations commit in their own transaction — also bounds the
+// per-transaction write-ahead-log footprint. It is a var, not a const, only so
+// the page-size benchmark can measure alternative values; production never
+// reassigns it. See BenchmarkRollbackExpansionPageSize for the measurements
+// behind this value.
+var rollbackPageSize = 1000
 
 // RollbackResult reports what a rollback changed, or — for a dry run —
 // what it would change.
@@ -64,11 +69,22 @@ type RollbackResult struct {
 
 // rollbackConfig holds the tunable behavior of a rollback.
 type rollbackConfig struct {
-	preserveSuspect bool
+	preserveSuspect  bool
+	rewriteSyncToken func(token string) (string, error)
 }
 
 // RollbackOption configures RollbackExpansion.
 type RollbackOption func(*rollbackConfig)
+
+// WithSyncTokenRewrite supplies how the sync's persisted token is rewritten
+// once the grants are rolled back. The function receives the current token
+// and returns the replacement; rollback writes the result verbatim. Without
+// it, rollback clears the token to empty, which makes a resumed syncer seed a
+// fresh run. A caller that wants to preserve the token's other state passes a
+// rewrite that re-marks the sync for expansion instead. Ignored on a dry run.
+func WithSyncTokenRewrite(fn func(token string) (string, error)) RollbackOption {
+	return func(c *rollbackConfig) { c.rewriteSyncToken = fn }
+}
 
 // WithPreserveSuspectGrants makes rollback KEEP suspect connector-sourced
 // grants (Sources present, no self-source, no GrantImmutable) instead of
@@ -82,11 +98,11 @@ func WithPreserveSuspectGrants() RollbackOption {
 	return func(c *rollbackConfig) { c.preserveSuspect = true }
 }
 
-// queryContexter is the read surface shared by *goqu.Database and
-// *goqu.TxDatabase, so the row scan can page over either the live db
-// (dry run) or the open transaction (write).
-type queryContexter interface {
-	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+// clearOp is a pending source-clear: the grant row id and the re-marshaled
+// blob with Sources reset to empty.
+type clearOp struct {
+	id   int64
+	data []byte
 }
 
 // RollbackExpansion restores a finished, expanded sync to its
@@ -113,8 +129,12 @@ type queryContexter interface {
 // populated pre-slim. Sources are not slimmed, so they are read from the
 // blob.
 //
-// The deletes, the source clears, and the sync-token reset run in one
-// transaction, so the rollback is all-or-nothing.
+// The grant mutations run one transaction per page rather than one
+// transaction for the whole sync, so the SQLite rollback journal never has
+// to hold every changed grant at once — on a large sync the expander-derived
+// rows can be most of the table. Writes always go to a fresh clone of the
+// sync (the caller never mutates the input), so a failure partway through
+// leaves a discardable output rather than a half-rolled-back source file.
 func (c *C1File) RollbackExpansion(ctx context.Context, syncID string, dryRun bool, opts ...RollbackOption) (*RollbackResult, error) {
 	l := ctxzap.Extract(ctx)
 
@@ -140,58 +160,77 @@ func (c *C1File) RollbackExpansion(ctx context.Context, syncID string, dryRun bo
 
 	res := &RollbackResult{SyncID: syncID, DryRun: dryRun}
 
+	// A sync that holds no grants — a resource-only sync, say — has nothing
+	// to roll back. Skip the scan and the token rewrite entirely.
+	hasGrants, err := c.syncHasGrants(ctx, syncID)
+	if err != nil {
+		return nil, fmt.Errorf("c1z: rollback could not check sync %q for grants: %w", syncID, err)
+	}
+	if !hasGrants {
+		l.Info("c1z: rollback found no grants in sync; nothing to roll back", zap.String("sync_id", syncID))
+		return res, nil
+	}
+
 	if dryRun {
-		if err := c.classifyRollback(ctx, c.db, syncID, res, cfg.preserveSuspect, nil, nil); err != nil {
+		if err := c.classifyRollback(ctx, syncID, res, cfg.preserveSuspect, nil); err != nil {
 			return nil, err
 		}
 		return res, nil
 	}
 
 	tableName := grants.Name()
-	tx, err := c.db.BeginTx(ctx, nil)
-	if err != nil {
+	flush := func(deletes []int64, clears []clearOp) error {
+		if len(deletes) == 0 && len(clears) == 0 {
+			return nil
+		}
+		tx, err := c.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		// Rolls back on every early return; a no-op once Commit succeeds, so it
+		// also covers a Commit that fails and leaves the tx open.
+		defer func() { _ = tx.Rollback() }()
+		for _, id := range deletes {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE id = ?", tableName), id); err != nil {
+				return err
+			}
+		}
+		for _, op := range clears {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET data = ? WHERE id = ?", tableName), op.data, op.id); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	}
+	if err := c.classifyRollback(ctx, syncID, res, cfg.preserveSuspect, flush); err != nil {
+		return nil, fmt.Errorf("c1z: rollback failed: %w", err)
+	}
+
+	// Leave the sync ready to be re-expanded. A completed sync's token
+	// persists a finished state with an empty action queue; on replay the
+	// syncer would resume that token, find nothing to do, and exit without
+	// expanding. The rewrite (when supplied) re-marks the sync for expansion
+	// while preserving the token's other state; without one the token is
+	// cleared, which makes the syncer seed a fresh run.
+	//
+	// stats is cleared at the same time: rollback mutates grant rows, but
+	// Stats() returns the cached sync_runs.stats verbatim when present, so
+	// without clearing it `baton stats` on a rollback-without-replay output
+	// reports the pre-rollback grant count. NULL stats forces Stats()'s slow
+	// path to recompute from the rolled-back rows (replay recomputes stats at
+	// sync end regardless).
+	newToken := ""
+	if cfg.rewriteSyncToken != nil {
+		newToken, err = cfg.rewriteSyncToken(sr.SyncToken)
+		if err != nil {
+			return nil, fmt.Errorf("c1z: rollback could not rewrite sync token: %w", err)
+		}
+	}
+	resetQuery := fmt.Sprintf("UPDATE %s SET sync_token = ?, stats = NULL WHERE sync_id = ?", syncRuns.Name())
+	if _, err := c.db.ExecContext(ctx, resetQuery, newToken, syncID); err != nil {
 		return nil, err
 	}
-	txErr := func() error {
-		deleteRow := func(id int64) error {
-			_, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE id = ?", tableName), id)
-			return err
-		}
-		clearRow := func(id int64, data []byte) error {
-			_, err := tx.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET data = ? WHERE id = ?", tableName), data, id)
-			return err
-		}
-		if err := c.classifyRollback(ctx, tx, syncID, res, cfg.preserveSuspect, deleteRow, clearRow); err != nil {
-			return err
-		}
-		// Clearing the sync token leaves the sync ready to be re-expanded.
-		// A completed sync's token persists a finished state with an empty
-		// action queue; on replay the syncer would resume that token, find
-		// nothing to do, and exit without expanding. An empty token instead
-		// makes the syncer seed a fresh InitOp, which pushes the grant-
-		// expansion step.
-		//
-		// stats is cleared in the same statement: rollback mutates grant
-		// rows, but Stats() returns the cached sync_runs.stats verbatim when
-		// present, so without clearing it `baton stats` on a
-		// rollback-without-replay output reports the pre-rollback grant
-		// count. NULL stats forces Stats()'s slow path to recompute from the
-		// rolled-back rows (replay recomputes stats at sync end regardless).
-		resetQuery := fmt.Sprintf("UPDATE %s SET sync_token = '', stats = NULL WHERE sync_id = ?", syncRuns.Name())
-		if _, err := tx.ExecContext(ctx, resetQuery, syncID); err != nil {
-			return err
-		}
-		return nil
-	}()
-	if txErr != nil {
-		if rbErr := tx.Rollback(); rbErr != nil {
-			return nil, errors.Join(rbErr, txErr)
-		}
-		return nil, fmt.Errorf("c1z: rollback failed: %w", txErr)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
+
 	c.dbUpdated = true
 	// The cached view sync run carries the now-stale stats; drop it so the
 	// next Stats()/GetSync recomputes against the rolled-back rows.
@@ -207,20 +246,37 @@ func (c *C1File) RollbackExpansion(ctx context.Context, syncID string, dryRun bo
 	return res, nil
 }
 
-// classifyRollback pages over every grant in the sync, tallies the
-// outcome into res, and — when applyDelete/applyClear are non-nil —
-// applies the mutation for each row before advancing. Passing nil
-// callbacks makes it a counting-only pass for dry runs. Each page is read
-// fully and its cursor closed before any mutation runs, so reads and
-// writes never share an open cursor on the same connection.
+// syncHasGrants reports whether the sync has at least one grant row, used to
+// short-circuit a rollback over a sync that cannot have expansion to undo.
+func (c *C1File) syncHasGrants(ctx context.Context, syncID string) (bool, error) {
+	var one int
+	row := c.db.QueryRowContext(ctx,
+		fmt.Sprintf("SELECT 1 FROM %s WHERE sync_id = ? LIMIT 1", grants.Name()), syncID)
+	switch err := row.Scan(&one); {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, err
+	default:
+		return true, nil
+	}
+}
+
+// classifyRollback pages over every grant in the sync, tallies the outcome
+// into res, and — when flush is non-nil — hands each page's deletes and
+// source-clears to flush before reading the next page. A nil flush makes
+// this a counting-only pass for dry runs. Reads always run on the live db,
+// never inside a write transaction, and each page's cursor is fully drained
+// and closed before flush runs, so reads and writes never share an open
+// cursor on the same connection. Because the page cursor only advances
+// (external_id strictly increasing), deleting or rewriting already-read rows
+// between pages does not disturb the remaining scan.
 func (c *C1File) classifyRollback(
 	ctx context.Context,
-	q queryContexter,
 	syncID string,
 	res *RollbackResult,
 	preserveSuspect bool,
-	applyDelete func(id int64) error,
-	applyClear func(id int64, data []byte) error,
+	flush func(deletes []int64, clears []clearOp) error,
 ) error {
 	tableName := grants.Name()
 	unmarshal := proto.UnmarshalOptions{Merge: true, DiscardUnknown: true}
@@ -250,7 +306,7 @@ func (c *C1File) classifyRollback(
 				"SELECT id, entitlement_id, external_id, data FROM %s WHERE sync_id = ? AND external_id > ? ORDER BY external_id LIMIT %d",
 				tableName, rollbackPageSize,
 			)
-			rs, err := q.QueryContext(ctx, query, syncID, lastExternalID)
+			rs, err := c.db.QueryContext(ctx, query, syncID, lastExternalID)
 			if err != nil {
 				return err
 			}
@@ -273,6 +329,8 @@ func (c *C1File) classifyRollback(
 		}
 		lastExternalID = batch[len(batch)-1].externalID
 
+		var deletes []int64
+		var clears []clearOp
 		for _, r := range batch {
 			g := &v2.Grant{}
 			if err := unmarshal.Unmarshal(r.data, g); err != nil {
@@ -302,23 +360,25 @@ func (c *C1File) classifyRollback(
 					continue
 				}
 				res.GrantsDeleted++
-				if applyDelete != nil {
-					if err := applyDelete(r.id); err != nil {
-						return err
-					}
+				if flush != nil {
+					deletes = append(deletes, r.id)
 				}
 				continue
 			}
 			res.SourcesCleared++
-			if applyClear != nil {
+			if flush != nil {
 				g.SetSources(nil)
 				data, err := protoMarshaler.Marshal(g)
 				if err != nil {
 					return fmt.Errorf("c1z: rollback could not re-marshal grant %d: %w", r.id, err)
 				}
-				if err := applyClear(r.id, data); err != nil {
-					return err
-				}
+				clears = append(clears, clearOp{id: r.id, data: data})
+			}
+		}
+
+		if flush != nil {
+			if err := flush(deletes, clears); err != nil {
+				return err
 			}
 		}
 	}
@@ -326,61 +386,26 @@ func (c *C1File) classifyRollback(
 }
 
 // GrantSourcesForSync returns, for every grant in the sync, a canonical
-// string form of its GrantSources keyed by the grant's external id. It is
-// used to validate a rollback+replay round trip: every grant present
-// before must be present after with identical Sources, since replay
-// re-derives exactly what rollback removed. Pages off the same
-// (external_id, sync_id) index the classify scan uses.
+// string form of its GrantSources keyed by the grant's id.
+//
+// Deprecated: the rollback subcommand now computes this in the command layer.
+// This method is retained for external callers that depended on it and will
+// be removed in a future minor release. It streams the grants one at a time
+// rather than buffering the table.
 func (c *C1File) GrantSourcesForSync(ctx context.Context, syncID string) (map[string]string, error) {
-	tableName := grants.Name()
-	unmarshal := proto.UnmarshalOptions{Merge: true, DiscardUnknown: true}
 	out := map[string]string{}
-	var lastExternalID string
-	for {
-		type row struct {
-			externalID string
-			data       []byte
-		}
-		var batch []row
-		if err := func() error {
-			query := fmt.Sprintf(
-				"SELECT external_id, data FROM %s WHERE sync_id = ? AND external_id > ? ORDER BY external_id LIMIT %d",
-				tableName, rollbackPageSize,
-			)
-			rs, err := c.db.QueryContext(ctx, query, syncID, lastExternalID)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = rs.Close() }()
-			for rs.Next() {
-				var r row
-				if err := rs.Scan(&r.externalID, &r.data); err != nil {
-					return err
-				}
-				batch = append(batch, r)
-			}
-			return rs.Err()
-		}(); err != nil {
+	for g, err := range c.StreamGrants(ctx, syncID, connectorstore.StreamGrantsOptions{}) {
+		if err != nil {
 			return nil, err
 		}
-		if len(batch) == 0 {
-			break
-		}
-		lastExternalID = batch[len(batch)-1].externalID
-		for _, r := range batch {
-			g := &v2.Grant{}
-			if err := unmarshal.Unmarshal(r.data, g); err != nil {
-				return nil, fmt.Errorf("c1z: source validation could not deserialize grant %q: %w", r.externalID, err)
-			}
-			out[r.externalID] = canonicalGrantSources(g)
-		}
+		out[g.GetId()] = canonicalGrantSources(g)
 	}
 	return out, nil
 }
 
-// canonicalGrantSources renders a grant's Sources as a sorted, stable
-// string ("<sourceEntitlementID>=<isDirect>" joined) so map iteration
-// order and proto framing never produce a false pre/post divergence.
+// canonicalGrantSources renders a grant's Sources as a sorted, stable string
+// ("<sourceEntitlementID>=<isDirect>" joined) so map iteration order and
+// proto framing never produce a false pre/post divergence.
 func canonicalGrantSources(g *v2.Grant) string {
 	srcMap := g.GetSources().GetSources()
 	if len(srcMap) == 0 {
