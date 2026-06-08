@@ -828,10 +828,8 @@ func closeIfPossible(ctx context.Context, c types.ConnectorServer) {
 			ctxzap.Extract(ctx).Error("failed to close connector", zap.Error(err))
 		}
 	case io.Closer:
-		if cl, ok := c.(io.Closer); ok {
-			if err := cl.Close(); err != nil {
-				ctxzap.Extract(ctx).Error("failed to close connector", zap.Error(err))
-			}
+		if err := cl.Close(); err != nil {
+			ctxzap.Extract(ctx).Error("failed to close connector", zap.Error(err))
 		}
 	}
 }
