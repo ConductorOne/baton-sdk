@@ -6,7 +6,6 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/baton/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/baton/output"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/spf13/cobra"
 )
@@ -44,14 +43,14 @@ func runResourceTypes(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithReadOnly(true))
+	store, err := openReadOnlyC1ZStore(ctx, c1zPath)
 	if err != nil {
 		return err
 	}
 	defer store.Close(ctx)
 
 	if syncID != "" {
-		err = store.ViewSync(ctx, syncID)
+		err = setCurrentSyncIfRequested(ctx, store, syncID)
 		if err != nil {
 			return err
 		}

@@ -38,10 +38,15 @@ func extractProfileFields(r *v2.Resource) map[string]string {
 type BatonService struct {
 	syncID       string
 	resourceType string
-	store        *dotc1z.C1File
+	store        dotc1z.C1ZStore
+	principals   grantPrincipalLister
 	storeCache   *storecache.StoreCache
 	devMode      bool
 	cache        sync.Map
+}
+
+type grantPrincipalLister interface {
+	ListGrantsForPrincipal(ctx context.Context, request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error)
 }
 
 // AccessCounts holds aggregated principal counts by resource type for a given resource.
@@ -51,7 +56,10 @@ type AccessCounts struct {
 }
 
 func (b *BatonService) ensureSync(ctx context.Context) error {
-	return b.store.ViewSync(ctx, b.syncID)
+	if b.syncID == "" {
+		return nil
+	}
+	return b.store.SetCurrentSync(ctx, b.syncID)
 }
 
 func (b *BatonService) getUserTraitTypes(ctx context.Context) (map[string]bool, error) {
@@ -230,7 +238,7 @@ func (b *BatonService) GetAccess(ctx context.Context, resourceType, resourceID s
 			},
 			PageToken: pageToken,
 		}.Build()
-		resp, err := b.store.ListGrantsForPrincipal(ctx, req)
+		resp, err := b.principals.ListGrantsForPrincipal(ctx, req)
 		if err != nil {
 			return nil, err
 		}

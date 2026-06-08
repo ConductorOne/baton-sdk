@@ -13,6 +13,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	sdkgrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -50,7 +51,13 @@ func (g *grantTaskHandler) HandleTask(ctx context.Context) error {
 		Principal:   grant.GetPrincipal(),
 	}.Build())
 	if err != nil {
-		l.Error("failed while granting entitlement", zap.Error(err))
+		// A connector can intentionally decline a grant (e.g. a policy rejection) rather than fail to provision it.
+		// The decline rides the gRPC status (a typed ErrorInfo detail) carried by ErrGrantCancelled.
+		if reason, ok := sdkgrant.IsErrGrantCancelled(err); ok {
+			l.Info("connector declined grant; cancelling request", zap.String("reason", reason))
+		} else {
+			l.Error("failed while granting entitlement", zap.Error(err))
+		}
 		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))
 	}
 

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/spf13/cobra"
 )
@@ -41,13 +40,13 @@ func runExportC1Z(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithReadOnly(true))
+	store, err := openReadOnlyC1ZStore(ctx, c1zPath)
 	if err != nil {
 		return err
 	}
 	defer store.Close(ctx)
 
-	err = store.CloneSync(ctx, outPath, syncID)
+	err = store.FileOps().CloneSync(ctx, outPath, syncID)
 	if err != nil {
 		return err
 	}

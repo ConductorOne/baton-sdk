@@ -42,14 +42,19 @@ type Controller struct {
 	baton *BatonService
 }
 
-func NewController(ctx context.Context, store *dotc1z.C1File, syncID, resourceType string, devMode bool) Controller {
+func NewController(ctx context.Context, store dotc1z.C1ZStore, syncID, resourceType string, devMode bool) (Controller, error) {
+	principals, ok := store.(grantPrincipalLister)
+	if !ok {
+		return Controller{}, fmt.Errorf("store %T does not support ListGrantsForPrincipal", store)
+	}
 	return Controller{&BatonService{
 		storeCache:   storecache.NewStoreCache(ctx, store),
 		store:        store,
+		principals:   principals,
 		syncID:       syncID,
 		resourceType: resourceType,
 		devMode:      devMode,
-	}}
+	}}, nil
 }
 
 func (ctrl *Controller) Run(addr string) error {

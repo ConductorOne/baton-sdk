@@ -249,6 +249,135 @@ func (e *Engine) PaginateGrantsByEntitlement(
 	return out, nextCursor, nil
 }
 
+// PaginateGrantPrincipalKeysByEntitlement scans the existing by_entitlement
+// index and returns only principal identity keys for each matching grant. The
+// key format is principal_resource_type + "\x00" + principal_resource_id,
+// matching pkg/sync/expand's descendantGrantKey.
+func (e *Engine) PaginateGrantPrincipalKeysByEntitlement(
+	ctx context.Context, syncID, entitlementID, cursor string, limit int,
+) ([]string, string, error) {
+	idBytes, err := e.resolveSyncBytes(syncID)
+	if err != nil {
+		return nil, "", err
+	}
+	cursorBytes, err := decodeCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
+	if limit <= 0 {
+		limit = DefaultPageSize
+	}
+	indexPrefix := encodeGrantByEntitlementPrefix(idBytes, entitlementID)
+	lower, upper := rangeAfter(indexPrefix, cursorBytes)
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: lower,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("page iter: %w", err)
+	}
+	defer iter.Close()
+	out := make([]string, 0, limit)
+	var lastReturnedKey []byte
+	hasMore := false
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+		if len(out) == limit {
+			hasMore = true
+			break
+		}
+		principalRT, principalID, ok := decodeTwoTupleComponents(iter.Key(), indexPrefix)
+		if !ok {
+			continue
+		}
+		lastReturnedKey = append(lastReturnedKey[:0], iter.Key()...)
+		out = append(out, principalRT+"\x00"+principalID)
+	}
+	if err := iter.Error(); err != nil {
+		return nil, "", err
+	}
+	var nextCursor string
+	if hasMore {
+		nextCursor = encodeCursor(lastReturnedKey)
+	}
+	return out, nextCursor, nil
+}
+
+// PaginateGrantsByEntitlementPrincipal uses the by_entitlement index narrowed
+// to the entitlement_id + principal tuple. This is the hot path for grant
+// expansion, where callers repeatedly ask whether a single principal already
+// has a grant on a descendant entitlement.
+func (e *Engine) PaginateGrantsByEntitlementPrincipal(
+	ctx context.Context, syncID, entitlementID, principalRT, principalID, cursor string, limit int,
+) ([]*v3.GrantRecord, string, error) {
+	idBytes, err := e.resolveSyncBytes(syncID)
+	if err != nil {
+		return nil, "", err
+	}
+	cursorBytes, err := decodeCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
+	if limit <= 0 {
+		limit = DefaultPageSize
+	}
+	outCap := limit
+	if outCap > 16 {
+		outCap = 16
+	}
+	indexPrefix := encodeGrantByEntitlementPrincipalPrefix(idBytes, entitlementID, principalRT, principalID)
+	lower, upper := rangeAfter(indexPrefix, cursorBytes)
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: lower,
+		UpperBound: upper,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("page iter: %w", err)
+	}
+	defer iter.Close()
+	out := make([]*v3.GrantRecord, 0, outCap)
+	var lastReturnedKey []byte
+	hasMore := false
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+		if len(out) == limit {
+			hasMore = true
+			break
+		}
+		externalID := lastTupleComponent(iter.Key(), indexPrefix)
+		if externalID == "" {
+			continue
+		}
+		val, closer, getErr := e.db.Get(encodeGrantKey(idBytes, externalID))
+		if getErr != nil {
+			if errors.Is(getErr, pebble.ErrNotFound) {
+				continue
+			}
+			return nil, "", fmt.Errorf("paginate: get primary: %w", getErr)
+		}
+		r := &v3.GrantRecord{}
+		err = unmarshalRecord(val, r)
+		closer.Close()
+		if err != nil {
+			return nil, "", err
+		}
+		lastReturnedKey = append(lastReturnedKey[:0], iter.Key()...)
+		out = append(out, r)
+	}
+	if err := iter.Error(); err != nil {
+		return nil, "", err
+	}
+	var nextCursor string
+	if hasMore {
+		nextCursor = encodeCursor(lastReturnedKey)
+	}
+	return out, nextCursor, nil
+}
+
 // PaginateGrantsByPrincipal uses the by_principal index. Same shape
 // as PaginateGrantsByEntitlement.
 func (e *Engine) PaginateGrantsByPrincipal(

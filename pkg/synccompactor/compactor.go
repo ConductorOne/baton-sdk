@@ -43,6 +43,20 @@ type Compactor struct {
 	syncLimit          int
 	c1zOptions         []dotc1z.C1ZOption
 	skipGrantExpansion bool
+	// engine selects the storage engine for the compacted output.
+	// Empty means EngineSQLite (the default; behavior is unchanged and
+	// the output is byte-identical to the pre-engine-option compactor).
+	// EnginePebble produces a v3 Pebble c1z via a native record merge.
+	engine dotc1z.Engine
+}
+
+// resolvedEngine returns the configured engine, treating the zero value
+// as EngineSQLite.
+func (c *Compactor) resolvedEngine() dotc1z.Engine {
+	if c.engine == "" {
+		return dotc1z.EngineSQLite
+	}
+	return c.engine
 }
 
 type CompactableSync struct {
@@ -190,7 +204,25 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	fileName := fmt.Sprintf("compacted-%s.c1z", c.entries[0].SyncID)
 	destFilePath := path.Join(c.tmpDir, fileName)
 
-	c.compactedC1z, err = dotc1z.NewC1ZFile(ctx, destFilePath, opts...)
+	if c.resolvedEngine() == dotc1z.EnginePebble {
+		if err = ensurePebbleRegistered(); err != nil {
+			return nil, fmt.Errorf("register pebble engine: %w", err)
+		}
+		var w connectorstore.Writer
+		// Force the resolved engine last so a stray engine passed via
+		// WithC1ZOptions cannot mislabel the artifact.
+		w, err = dotc1z.NewStore(ctx, destFilePath, append(opts, dotc1z.WithEngine(dotc1z.EnginePebble))...)
+		if err == nil {
+			store, ok := w.(dotc1z.C1ZStore)
+			if !ok {
+				_ = w.Close(ctx)
+				return nil, fmt.Errorf("pebble store does not implement C1ZStore: %T", w)
+			}
+			c.compactedC1z = store
+		}
+	} else {
+		c.compactedC1z, err = dotc1z.NewC1ZFile(ctx, destFilePath, opts...)
+	}
 	if err != nil {
 		l.Error("doOneCompaction failed: could not create c1z file", zap.Error(err))
 		return nil, err
@@ -215,24 +247,37 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	}
 	l.Debug("new empty partial sync created", zap.String("sync_id", newSyncId))
 
-	// Base sync is c.entries[0], so compact in reverse order. That way we compact the biggest sync last.
-	// Pass runCtx (not the outer ctx) so c.runDuration actually bounds the loop. Without this, the
-	// deadline set on runCtx only gates the pre-flight check above and individual doOneCompaction
-	// calls run under the unbounded parent ctx.
-	for i := len(c.entries) - 1; i >= 0; i-- {
-		err = c.doOneCompaction(runCtx, c.entries[i])
-		if err != nil {
-			// When runCtx fires due to c.runDuration, surface the same clean message the pre-flight
-			// check uses instead of bubbling a bare context.DeadlineExceeded out of the inner sqlite
-			// operations. The error is still returned so callers can decide whether to retry.
+	if c.resolvedEngine() == dotc1z.EnginePebble {
+		// Native Pebble path: one multi-source record merge into the
+		// empty newSyncId (the sqlite ATTACH per-input loop does not
+		// apply — Pebble merges all inputs in a single pass).
+		if err = c.compactPebble(runCtx, newSyncId); err != nil {
 			if cause := context.Cause(runCtx); errors.Is(cause, context.DeadlineExceeded) && c.runDuration > 0 && ctx.Err() == nil {
-				l.Info("compaction run duration has expired, exiting compaction early",
-					zap.String("sync_id", c.entries[i].SyncID),
-					zap.Int("syncs_remaining", i),
-				)
+				l.Info("compaction run duration has expired, exiting compaction early")
 				return nil, fmt.Errorf("compaction run duration has expired: %w", cause)
 			}
-			return nil, fmt.Errorf("failed to compact sync %s: %w", c.entries[i].SyncID, err)
+			return nil, fmt.Errorf("failed to compact (pebble): %w", err)
+		}
+	} else {
+		// Base sync is c.entries[0], so compact in reverse order. That way we compact the biggest sync last.
+		// Pass runCtx (not the outer ctx) so c.runDuration actually bounds the loop. Without this, the
+		// deadline set on runCtx only gates the pre-flight check above and individual doOneCompaction
+		// calls run under the unbounded parent ctx.
+		for i := len(c.entries) - 1; i >= 0; i-- {
+			err = c.doOneCompaction(runCtx, c.entries[i])
+			if err != nil {
+				// When runCtx fires due to c.runDuration, surface the same clean message the pre-flight
+				// check uses instead of bubbling a bare context.DeadlineExceeded out of the inner sqlite
+				// operations. The error is still returned so callers can decide whether to retry.
+				if cause := context.Cause(runCtx); errors.Is(cause, context.DeadlineExceeded) && c.runDuration > 0 && ctx.Err() == nil {
+					l.Info("compaction run duration has expired, exiting compaction early",
+						zap.String("sync_id", c.entries[i].SyncID),
+						zap.Int("syncs_remaining", i),
+					)
+					return nil, fmt.Errorf("compaction run duration has expired: %w", cause)
+				}
+				return nil, fmt.Errorf("failed to compact sync %s: %w", c.entries[i].SyncID, err)
+			}
 		}
 	}
 

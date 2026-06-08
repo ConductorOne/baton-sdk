@@ -109,11 +109,18 @@ message CapabilityPermissions {
 
 message OptInRequired {}
 
+// SkipSyncAnomalyDetection marks a resource type whose counts can legitimately
+// decrease between syncs (e.g. invitations that disappear once accepted). When
+// present on a ResourceType, sync anomaly detection ignores data drops for that
+// resource type only; all other resource types are still checked.
+message SkipSyncAnomalyDetection {}
+
 message ResourceTypeCapability {
   c1.connector.v2.ResourceType resource_type = 1;
   repeated Capability capabilities = 2;
   CapabilityPermissions permissions = 3;
   bool opt_in_required = 4;
+  bool skip_sync_anomaly_detection = 5;
 }
 
 message ConnectorServiceGetMetadataRequest {}
