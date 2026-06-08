@@ -48,7 +48,7 @@ func (c excelRow) Row(sheet string, row int, f *excelize.File) error {
 			if err != nil {
 				return err
 			}
-			err = f.SetCellValue(sheet, cell, c.rowType)
+			err = f.SetCellValue(sheet, cell, sanitizeCell(c.rowType))
 			if err != nil {
 				return err
 			}
@@ -58,7 +58,7 @@ func (c excelRow) Row(sheet string, row int, f *excelize.File) error {
 			if err != nil {
 				return err
 			}
-			err = f.SetCellValue(sheet, cell, c.lastName)
+			err = f.SetCellValue(sheet, cell, sanitizeCell(c.lastName))
 			if err != nil {
 				return err
 			}
@@ -67,7 +67,7 @@ func (c excelRow) Row(sheet string, row int, f *excelize.File) error {
 			if err != nil {
 				return err
 			}
-			err = f.SetCellValue(sheet, cell, c.firstName)
+			err = f.SetCellValue(sheet, cell, sanitizeCell(c.firstName))
 			if err != nil {
 				return err
 			}
@@ -76,7 +76,7 @@ func (c excelRow) Row(sheet string, row int, f *excelize.File) error {
 			if err != nil {
 				return err
 			}
-			err = f.SetCellValue(sheet, cell, c.userID)
+			err = f.SetCellValue(sheet, cell, sanitizeCell(c.userID))
 			if err != nil {
 				return err
 			}
@@ -85,7 +85,7 @@ func (c excelRow) Row(sheet string, row int, f *excelize.File) error {
 			if err != nil {
 				return err
 			}
-			err = f.SetCellValue(sheet, cell, c.userStatus)
+			err = f.SetCellValue(sheet, cell, sanitizeCell(c.userStatus))
 			if err != nil {
 				return err
 			}
@@ -94,7 +94,7 @@ func (c excelRow) Row(sheet string, row int, f *excelize.File) error {
 			if err != nil {
 				return err
 			}
-			err = f.SetCellValue(sheet, cell, c.emailAddress)
+			err = f.SetCellValue(sheet, cell, sanitizeCell(c.emailAddress))
 			if err != nil {
 				return err
 			}
@@ -103,7 +103,7 @@ func (c excelRow) Row(sheet string, row int, f *excelize.File) error {
 			if err != nil {
 				return err
 			}
-			err = f.SetCellValue(sheet, cell, c.entitlementDisplayName)
+			err = f.SetCellValue(sheet, cell, sanitizeCell(c.entitlementDisplayName))
 			if err != nil {
 				return err
 			}
@@ -112,7 +112,7 @@ func (c excelRow) Row(sheet string, row int, f *excelize.File) error {
 			if err != nil {
 				return err
 			}
-			err = f.SetCellValue(sheet, cell, c.entitlement)
+			err = f.SetCellValue(sheet, cell, sanitizeCell(c.entitlement))
 			if err != nil {
 				return err
 			}
@@ -121,7 +121,7 @@ func (c excelRow) Row(sheet string, row int, f *excelize.File) error {
 			if err != nil {
 				return err
 			}
-			err = f.SetCellValue(sheet, cell, c.resourceType)
+			err = f.SetCellValue(sheet, cell, sanitizeCell(c.resourceType))
 			if err != nil {
 				return err
 			}
@@ -130,7 +130,7 @@ func (c excelRow) Row(sheet string, row int, f *excelize.File) error {
 			if err != nil {
 				return err
 			}
-			err = f.SetCellValue(sheet, cell, c.resourceName)
+			err = f.SetCellValue(sheet, cell, sanitizeCell(c.resourceName))
 			if err != nil {
 				return err
 			}
@@ -139,7 +139,7 @@ func (c excelRow) Row(sheet string, row int, f *excelize.File) error {
 			if err != nil {
 				return err
 			}
-			err = f.SetCellValue(sheet, cell, c.entitlementDescription)
+			err = f.SetCellValue(sheet, cell, sanitizeCell(c.entitlementDescription))
 			if err != nil {
 				return err
 			}
@@ -150,7 +150,7 @@ func (c excelRow) Row(sheet string, row int, f *excelize.File) error {
 				return err
 			}
 
-			err = f.SetCellValue(sheet, cell, c.entitlementSlug)
+			err = f.SetCellValue(sheet, cell, sanitizeCell(c.entitlementSlug))
 			if err != nil {
 				return err
 			}
