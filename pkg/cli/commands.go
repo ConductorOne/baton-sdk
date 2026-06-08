@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -687,30 +688,45 @@ func MakeCapabilitiesCommand[T field.Configurable](
 
 		var c types.ConnectorServer
 
-		c, err = defaultConnectorBuilder(ctx, opts...)
+		// A factory, when provided, supplies the connector for the capabilities command
+		// directly and takes precedence over the default builder and config-path connector.
+		factory, err := connectorrunner.ExtractDefaultCapabilitiesConnectorFactory(ctx, opts...)
 		if err != nil {
-			return fmt.Errorf("failed to build default connector: %w", err)
+			return fmt.Errorf("failed to extract default capabilities connector factory: %w", err)
 		}
 
-		if c == nil {
-			readFromPath := true
-			decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
-			t, err := MakeGenericConfiguration[T](v, decodeOpts)
+		if factory != nil {
+			c, err = factory(runCtx)
 			if err != nil {
-				return fmt.Errorf("failed to make configuration: %w", err)
+				return fmt.Errorf("failed to build default connector: %w", err)
 			}
-			authMethod := v.GetString("auth-method")
-			// validate required fields and relationship constraints
-			if err := field.Validate(confschema, t, field.WithAuthMethod(authMethod)); err != nil {
-				return err
+			defer closeIfPossible(runCtx, c)
+		} else {
+			c, err = defaultConnectorBuilder(ctx, opts...)
+			if err != nil {
+				return fmt.Errorf("failed to build default connector: %w", err)
 			}
 
-			c, err = getconnector(runCtx, t, RunTimeOpts{
-				SelectedAuthMethod:  authMethod,
-				SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
-			})
-			if err != nil {
-				return err
+			if c == nil {
+				readFromPath := true
+				decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+				t, err := MakeGenericConfiguration[T](v, decodeOpts)
+				if err != nil {
+					return fmt.Errorf("failed to make configuration: %w", err)
+				}
+				authMethod := v.GetString("auth-method")
+				// validate required fields and relationship constraints
+				if err := field.Validate(confschema, t, field.WithAuthMethod(authMethod)); err != nil {
+					return err
+				}
+
+				c, err = getconnector(runCtx, t, RunTimeOpts{
+					SelectedAuthMethod:  authMethod,
+					SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
+				})
+				if err != nil {
+					return err
+				}
 			}
 		}
 
@@ -718,30 +734,9 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return fmt.Errorf("could not create connector %w", err)
 		}
 
-		type getter interface {
-			GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilities, error)
-		}
-
-		var capabilities *v2.ConnectorCapabilities
-
-		if getCap, ok := c.(getter); ok {
-			capabilities, err = getCap.GetCapabilities(runCtx)
-			if err != nil {
-				return err
-			}
-		}
-
-		if capabilities == nil {
-			md, err := c.GetMetadata(runCtx, &v2.ConnectorServiceGetMetadataRequest{})
-			if err != nil {
-				return err
-			}
-
-			if !md.GetMetadata().HasCapabilities() {
-				return fmt.Errorf("connector does not support capabilities")
-			}
-
-			capabilities = md.GetMetadata().GetCapabilities()
+		capabilities, err := capabilitiesFromConnector(runCtx, c)
+		if err != nil {
+			return err
 		}
 
 		protoMarshaller := protojson.MarshalOptions{
@@ -795,6 +790,47 @@ func MakeConfigSchemaCommand[T field.Configurable](
 			return err
 		}
 		return nil
+	}
+}
+
+// capabilitiesFromConnector extracts a connector's capabilities, preferring the optional
+// GetCapabilities getter and falling back to GetMetadata().Capabilities otherwise.
+func capabilitiesFromConnector(ctx context.Context, c types.ConnectorServer) (*v2.ConnectorCapabilities, error) {
+	type getter interface {
+		GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilities, error)
+	}
+
+	if getCap, ok := c.(getter); ok {
+		return getCap.GetCapabilities(ctx)
+	}
+
+	md, err := c.GetMetadata(ctx, &v2.ConnectorServiceGetMetadataRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	if !md.GetMetadata().HasCapabilities() {
+		return nil, fmt.Errorf("connector does not support capabilities")
+	}
+
+	return md.GetMetadata().GetCapabilities(), nil
+}
+
+// closeIfPossible closes the connector if it implements a Close method, logging any error.
+func closeIfPossible(ctx context.Context, c types.ConnectorServer) {
+	type closer interface {
+		Close(ctx context.Context) error
+	}
+
+	switch cl := c.(type) {
+	case closer:
+		if err := cl.Close(ctx); err != nil {
+			ctxzap.Extract(ctx).Error("failed to close connector", zap.Error(err))
+		}
+	case io.Closer:
+		if err := cl.Close(); err != nil {
+			ctxzap.Extract(ctx).Error("failed to close connector", zap.Error(err))
+		}
 	}
 }
 
