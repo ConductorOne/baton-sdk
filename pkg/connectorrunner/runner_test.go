@@ -246,3 +246,28 @@ func (noopClientWrapper) Run(ctx context.Context, cfg *connectorwrapperV1.Server
 func (noopClientWrapper) Close() error {
 	return nil
 }
+
+func TestExtractDefaultCapabilitiesConnectorFactory(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns nil when no factory option is set", func(t *testing.T) {
+		f, err := ExtractDefaultCapabilitiesConnectorFactory(ctx)
+		require.NoError(t, err)
+		require.Nil(t, f)
+	})
+
+	t.Run("returns the registered factory", func(t *testing.T) {
+		sentinel := errors.New("from factory")
+		factory := func(ctx context.Context) (types.ConnectorServer, error) {
+			return nil, sentinel
+		}
+
+		f, err := ExtractDefaultCapabilitiesConnectorFactory(ctx, WithDefaultCapabilitiesConnectorFactory(factory))
+		require.NoError(t, err)
+		require.NotNil(t, f)
+
+		// Confirm it's the factory we registered by observing its behavior.
+		_, gotErr := f(ctx)
+		require.ErrorIs(t, gotErr, sentinel)
+	})
+}

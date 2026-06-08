@@ -431,6 +431,7 @@ type runnerConfig struct {
 	syncResourceTypeIDs                   []string
 	defaultCapabilitiesConnectorBuilder   connectorbuilder.ConnectorBuilder
 	defaultCapabilitiesConnectorBuilderV2 connectorbuilder.ConnectorBuilderV2
+	defaultCapabilitiesConnectorFactory   func(ctx context.Context) (types.ConnectorServer, error)
 	healthCheckEnabled                    bool
 	healthCheckPort                       int
 	healthCheckBindAddress                string
@@ -816,6 +817,22 @@ func WithDefaultCapabilitiesConnectorBuilderV2(t connectorbuilder.ConnectorBuild
 	}
 }
 
+// WithDefaultCapabilitiesConnectorFactory sets a factory that supplies the connector
+// used by the "capabilities" sub-command. Unlike WithDefaultCapabilitiesConnectorBuilder,
+// the factory returns a fully-constructed types.ConnectorServer directly, so the connector
+// is not wrapped by connectorbuilder.NewConnector. This lets callers provide a connector
+// (such as an embedded connector) whose capabilities are reported via GetMetadata rather
+// than via the optional GetCapabilities getter.
+//
+// The factory is only invoked inside the capabilities command, and its returned connector
+// is closed (if it implements Close) once capabilities have been read.
+func WithDefaultCapabilitiesConnectorFactory(f func(ctx context.Context) (types.ConnectorServer, error)) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.defaultCapabilitiesConnectorFactory = f
+		return nil
+	}
+}
+
 // WithHealthCheck enables the HTTP health check server.
 func WithHealthCheck(enabled bool, port int, bindAddress string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
@@ -845,6 +862,21 @@ func ExtractDefaultConnector(ctx context.Context, options ...Option) (any, error
 	}
 
 	return nil, nil
+}
+
+// ExtractDefaultCapabilitiesConnectorFactory returns the factory registered via
+// WithDefaultCapabilitiesConnectorFactory, or nil if none was set.
+func ExtractDefaultCapabilitiesConnectorFactory(ctx context.Context, options ...Option) (func(ctx context.Context) (types.ConnectorServer, error), error) {
+	cfg := &runnerConfig{}
+
+	for _, o := range options {
+		err := o(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return cfg.defaultCapabilitiesConnectorFactory, nil
 }
 
 func IsSessionStoreEnabled(ctx context.Context, options ...Option) (bool, error) {
