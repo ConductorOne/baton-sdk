@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os/exec"
 	"runtime"
@@ -74,7 +75,7 @@ func (ctrl *Controller) router(addr string) *gin.Engine {
 
 	// todo: make this configurable
 	if !ctrl.baton.devMode {
-		err := openBrowser(ctx, "http://localhost"+addr)
+		err := openBrowser(ctx, browserURL(addr))
 		if err != nil {
 			log.Default().Print("error opening browser: ", err)
 		}
@@ -95,6 +96,20 @@ func (ctrl *Controller) router(addr string) *gin.Engine {
 		api.GET("/principals/:resourceType", ctrl.GetResourcesWithPrincipalCountHandler)
 	}
 	return router
+}
+
+// browserURL converts a listen address into a URL the local browser
+// can open, mapping empty/wildcard hosts to localhost.
+func browserURL(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "http://localhost" + addr
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
 
 func openBrowser(ctx context.Context, url string) error {

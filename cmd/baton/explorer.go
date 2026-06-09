@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
+	"strconv"
 
 	"github.com/conductorone/baton-sdk/pkg/baton/explorer"
 	"github.com/spf13/cobra"
@@ -22,6 +24,7 @@ func explorerCmd() *cobra.Command {
 	addSyncIDFlag(cmd)
 
 	cmd.Flags().IntP("port", "p", 8080, "Port to run the explorer server on")
+	cmd.Flags().String("host", "127.0.0.1", "Host/interface for the explorer server to listen on. The server has no authentication; only widen this on trusted networks")
 	cmd.Flags().Bool("dev", false, "Runs the frontend in development mode")
 	err := cmd.Flags().MarkHidden("dev")
 	if err != nil {
@@ -66,7 +69,7 @@ func startFrontendServer() error {
 // return path; the previous log.Fatal-based shape skipped them via
 // os.Exit and left the sqlite WAL un-checkpointed and the meta
 // store un-flushed.
-func startExplorerAPI(cmd *cobra.Command, devMode bool, port int) error {
+func startExplorerAPI(cmd *cobra.Command, devMode bool, host string, port int) error {
 	ctx := cmd.Context()
 
 	filePath, err := cmd.Flags().GetString("file")
@@ -90,7 +93,10 @@ func startExplorerAPI(cmd *cobra.Command, devMode bool, port int) error {
 	}
 	defer store.Close(ctx)
 
-	addr := fmt.Sprintf(":%d", port)
+	// Bind to loopback by default: the explorer serves the full c1z with
+	// no authentication, so it must not listen on all interfaces unless
+	// the operator explicitly asks via --host.
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	ctrl, err := explorer.NewController(ctx, store, syncID, resourceType, devMode)
 	if err != nil {
 		return fmt.Errorf("error creating explorer controller: %w", err)
@@ -112,11 +118,16 @@ func runExplorer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("error getting port flag: %w", err)
 	}
 
+	host, err := cmd.Flags().GetString("host")
+	if err != nil {
+		return fmt.Errorf("error getting host flag: %w", err)
+	}
+
 	if isDevMode {
 		// API goroutine has no return channel; log + continue.
 		// The frontend server's exit is the loop's terminator.
 		go func() {
-			if apiErr := startExplorerAPI(cmd, isDevMode, port); apiErr != nil {
+			if apiErr := startExplorerAPI(cmd, isDevMode, host, port); apiErr != nil {
 				log.Default().Printf("explorer API exited: %v", apiErr)
 			}
 		}()
@@ -125,5 +136,5 @@ func runExplorer(cmd *cobra.Command, args []string) error {
 		}
 		return nil
 	}
-	return startExplorerAPI(cmd, isDevMode, port)
+	return startExplorerAPI(cmd, isDevMode, host, port)
 }

@@ -14,4 +14,4 @@ import (
 // stops compiling. runExplorer also propagates the error
 // (`return startExplorerAPI(...)`), so the type system pins the
 // fix from both sides.
-var _ func(*cobra.Command, bool, int) error = startExplorerAPI
+var _ func(*cobra.Command, bool, string, int) error = startExplorerAPI
