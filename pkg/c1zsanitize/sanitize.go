@@ -132,6 +132,12 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		failedAnnotations:      map[string]uint64{},
 	}
 
+	// One structured summary line per run instead of a log line per dropped
+	// annotation / missing asset (which fired tens of millions of times on
+	// whale-scale files). Deferred so the partial counts are still emitted on
+	// an error or panic exit — an aborted run's telemetry is valid and wanted.
+	defer s.logDropSummary()
+
 	for _, sr := range srcSyncs {
 		if err := s.sanitizeSync(ctx, src, dst, sr); err != nil {
 			return fmt.Errorf("c1zsanitize: sanitize sync %s: %w", sr.GetId(), err)
@@ -142,10 +148,7 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		return fmt.Errorf("c1zsanitize: preserve sync graph metadata: %w", err)
 	}
 
-	// One structured summary line per run instead of a log line per dropped
-	// annotation / missing asset (which fired tens of millions of times on
-	// whale-scale files). Counters are accumulated cheaply during the walk.
-	s.logDropSummary()
+	s.completed = true
 	return nil
 }
 
@@ -180,13 +183,20 @@ type sanitizer struct {
 	passedAnnotations  map[string]uint64
 	failedAnnotations  map[string]uint64
 	missingAssets      uint64
+
+	// completed is set true just before Sanitize's normal return. The summary
+	// is deferred, so it also fires on an error/panic exit; run_completed lets
+	// a reader tell a full run from a partial one (partial counts are valid).
+	completed bool
 }
 
 // logDropSummary emits exactly one structured line per run summarizing the
 // annotations dropped/passed/failed (keyed by type URL) and the missing-asset
-// count, replacing the former per-item log lines.
+// count, replacing the former per-item log lines. Deferred in Sanitize, so it
+// reports on success, error, and panic exits alike.
 func (s *sanitizer) logDropSummary() {
 	s.log.Info("c1zsanitize: run summary",
+		zap.Bool("run_completed", s.completed),
 		zap.Any("dropped_unknown_annotations", s.droppedAnnotations),
 		zap.Any("passed_unknown_annotations", s.passedAnnotations),
 		zap.Any("failed_annotations", s.failedAnnotations),

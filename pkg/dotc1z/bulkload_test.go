@@ -41,7 +41,7 @@ func indexNamesByTable(ctx context.Context, t *testing.T, c *C1File) map[string]
 	t.Helper()
 	out := map[string][]string{}
 	for _, td := range allTableDescriptors {
-		rows, err := c.db.QueryContext(ctx, fmt.Sprintf("PRAGMA index_list(%s)", td.Name()))
+		rows, err := c.db.QueryContext(ctx, fmt.Sprintf(`PRAGMA index_list("%s")`, td.Name()))
 		require.NoError(t, err)
 		var names []string
 		for rows.Next() {

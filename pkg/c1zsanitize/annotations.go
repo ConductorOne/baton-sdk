@@ -1,6 +1,7 @@
 package c1zsanitize
 
 import (
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
@@ -50,9 +51,11 @@ func typeURL(m proto.Message) string {
 // Any type URL. Unknown types are dropped by default (the fail-closed posture)
 // or passed through unchanged if the operator opted in via
 // Options.AllowUnknownAnnotations=true. Per-entry outcomes are accumulated into
-// per-type-URL counters rather than logged — Sanitize emits one summary line at
-// the end of the run (see logDropSummary), since these paths fire once per
-// annotation, i.e. tens of millions of times on a large file.
+// per-type-URL counters (Sanitize emits one summary line at the end of the run
+// via logDropSummary), and a single first-occurrence line is logged per distinct
+// type_url so the signal — and, for failures, the actual error — is visible
+// without the per-item spam these paths once produced (tens of millions of
+// lines on a large file).
 func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*anypb.Any {
 	if len(in) == 0 {
 		return nil
@@ -69,8 +72,16 @@ func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*
 			// could leak un-sanitized customer data. Pass-through is opt-in
 			// via Options.AllowUnknownAnnotations, for development only.
 			if s.dropUnknownAnnotations {
+				if s.droppedAnnotations[a.GetTypeUrl()] == 0 {
+					s.log.Warn("c1zsanitize: dropping unknown annotation type (first occurrence; counted thereafter)",
+						zap.String("type_url", a.GetTypeUrl()))
+				}
 				s.droppedAnnotations[a.GetTypeUrl()]++
 				continue
+			}
+			if s.passedAnnotations[a.GetTypeUrl()] == 0 {
+				s.log.Warn("c1zsanitize: passing unknown annotation through unchanged (first occurrence; counted thereafter)",
+					zap.String("type_url", a.GetTypeUrl()))
 			}
 			s.passedAnnotations[a.GetTypeUrl()]++
 			out = append(out, a)
@@ -78,6 +89,10 @@ func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*
 		}
 		msg, err := a.UnmarshalNew()
 		if err != nil {
+			if s.failedAnnotations[a.GetTypeUrl()] == 0 {
+				s.log.Warn("c1zsanitize: annotation transform failed (first occurrence; counted thereafter)",
+					zap.String("type_url", a.GetTypeUrl()), zap.Error(err))
+			}
 			s.failedAnnotations[a.GetTypeUrl()]++
 			continue
 		}
@@ -87,6 +102,10 @@ func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*
 		}
 		repacked, err := anypb.New(sanitized)
 		if err != nil {
+			if s.failedAnnotations[a.GetTypeUrl()] == 0 {
+				s.log.Warn("c1zsanitize: annotation transform failed (first occurrence; counted thereafter)",
+					zap.String("type_url", a.GetTypeUrl()), zap.Error(err))
+			}
 			s.failedAnnotations[a.GetTypeUrl()]++
 			continue
 		}
