@@ -1,8 +1,6 @@
 package c1zsanitize
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
 	"strconv"
 	"testing"
 	"time"
@@ -30,7 +28,7 @@ func mustAnyB(m proto.Message) *anypb.Any {
 func newTestSanitizer(secret []byte) *sanitizer {
 	return &sanitizer{
 		secret:                 secret,
-		idHmac:                 hmac.New(sha256.New, secret),
+		hmacPool:               newHMACPool(secret),
 		domains:                newDomainMap(),
 		shifter:                newTimestampShifter(time.Time{}, time.Time{}),
 		dropUnknownAnnotations: true,
