@@ -51,7 +51,7 @@ func SelectSyncsToDelete(candidates []SyncRun, currentSyncID string, syncLimit i
 			continue
 		}
 		switch sr.Type {
-		case connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly:
+		case connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeNoGrants:
 			partials = append(partials, sr)
 		case connectorstore.SyncTypePartialUpserts, connectorstore.SyncTypePartialDeletions:
 			diffSyncs = append(diffSyncs, sr)

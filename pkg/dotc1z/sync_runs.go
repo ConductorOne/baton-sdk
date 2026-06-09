@@ -635,6 +635,10 @@ func (c *C1File) StartNewSync(ctx context.Context, syncType connectorstore.SyncT
 		if parentSyncID != "" {
 			return "", status.Errorf(codes.InvalidArgument, "parent sync id must be empty for resources only sync")
 		}
+	case connectorstore.SyncTypeNoGrants:
+		if parentSyncID != "" {
+			return "", status.Errorf(codes.InvalidArgument, "parent sync id must be empty for no grants sync")
+		}
 	case connectorstore.SyncTypePartial:
 	case connectorstore.SyncTypePartialUpserts, connectorstore.SyncTypePartialDeletions:
 		// Diff syncs carry the base sync as their parent; the linked

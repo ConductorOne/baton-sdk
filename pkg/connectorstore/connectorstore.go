@@ -14,6 +14,7 @@ const (
 	SyncTypeFull             SyncType = "full"
 	SyncTypePartial          SyncType = "partial"
 	SyncTypeResourcesOnly    SyncType = "resources_only"
+	SyncTypeNoGrants         SyncType = "no_grants"         // everything but grants
 	SyncTypePartialUpserts   SyncType = "partial_upserts"   // Diff sync: additions and modifications
 	SyncTypePartialDeletions SyncType = "partial_deletions" // Diff sync: deletions
 	SyncTypeAny              SyncType = ""
@@ -24,6 +25,7 @@ var AllSyncTypes = []SyncType{
 	SyncTypeFull,
 	SyncTypePartial,
 	SyncTypeResourcesOnly,
+	SyncTypeNoGrants,
 	SyncTypePartialUpserts,
 	SyncTypePartialDeletions,
 }

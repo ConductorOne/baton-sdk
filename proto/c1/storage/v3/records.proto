@@ -28,6 +28,7 @@ enum SyncType {
   SYNC_TYPE_RESOURCES_ONLY = 3;
   SYNC_TYPE_PARTIAL_UPSERTS = 4;
   SYNC_TYPE_PARTIAL_DELETIONS = 5;
+  SYNC_TYPE_NO_GRANTS = 6;
 }
 
 // GrantExpandableRecord mirrors c1.connector.v2.GrantExpandable.

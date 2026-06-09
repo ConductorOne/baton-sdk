@@ -45,6 +45,7 @@ const (
 	SyncType_SYNC_TYPE_RESOURCES_ONLY    SyncType = 3
 	SyncType_SYNC_TYPE_PARTIAL_UPSERTS   SyncType = 4
 	SyncType_SYNC_TYPE_PARTIAL_DELETIONS SyncType = 5
+	SyncType_SYNC_TYPE_NO_GRANTS         SyncType = 6
 )
 
 // Enum value maps for SyncType.
@@ -56,6 +57,7 @@ var (
 		3: "SYNC_TYPE_RESOURCES_ONLY",
 		4: "SYNC_TYPE_PARTIAL_UPSERTS",
 		5: "SYNC_TYPE_PARTIAL_DELETIONS",
+		6: "SYNC_TYPE_NO_GRANTS",
 	}
 	SyncType_value = map[string]int32{
 		"SYNC_TYPE_UNSPECIFIED":       0,
@@ -64,6 +66,7 @@ var (
 		"SYNC_TYPE_RESOURCES_ONLY":    3,
 		"SYNC_TYPE_PARTIAL_UPSERTS":   4,
 		"SYNC_TYPE_PARTIAL_DELETIONS": 5,
+		"SYNC_TYPE_NO_GRANTS":         6,
 	}
 )
 
@@ -1682,14 +1685,15 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aR\n" +
 	"$GrantsByEntitlementResourceTypeEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01*\xae\x01\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01*\xc7\x01\n" +
 	"\bSyncType\x12\x19\n" +
 	"\x15SYNC_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSYNC_TYPE_FULL\x10\x01\x12\x15\n" +
 	"\x11SYNC_TYPE_PARTIAL\x10\x02\x12\x1c\n" +
 	"\x18SYNC_TYPE_RESOURCES_ONLY\x10\x03\x12\x1d\n" +
 	"\x19SYNC_TYPE_PARTIAL_UPSERTS\x10\x04\x12\x1f\n" +
-	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
+	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05\x12\x17\n" +
+	"\x13SYNC_TYPE_NO_GRANTS\x10\x06B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
 var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
