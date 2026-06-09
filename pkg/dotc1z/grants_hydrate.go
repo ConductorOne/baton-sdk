@@ -64,10 +64,14 @@ func hydrateSingleGrant(ctx context.Context, c *C1File, syncID string, g *v2.Gra
 		return nil
 	}
 
-	row := c.db.QueryRowContext(ctx, fmt.Sprintf(
+	q := fmt.Sprintf(
 		`SELECT entitlement_id, resource_type_id, resource_id, principal_resource_type_id, principal_resource_id
-		 FROM %s WHERE external_id = ? AND sync_id = ?`, grants.Name(),
-	), g.GetId(), syncID)
+		 FROM %s WHERE external_id = ? AND sync_id = ?`, grants.Name())
+	stmt, err := c.getOrPrepare(ctx, q)
+	if err != nil {
+		return err
+	}
+	row := stmt.QueryRowContext(ctx, g.GetId(), syncID)
 	var k grantJoinKeys
 	if err := row.Scan(
 		&k.EntitlementID,
