@@ -10,7 +10,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 )
 
@@ -28,8 +27,6 @@ func TestPebbleFullSyncThroughSyncer(t *testing.T) {
 	ctx, err := logging.Init(ctx)
 	require.NoError(t, err)
 
-	require.NoError(t, pebble.Register())
-
 	tempDir := t.TempDir()
 	c1zPath := filepath.Join(tempDir, "pebble-sync.c1z")
 
@@ -38,8 +35,6 @@ func TestPebbleFullSyncThroughSyncer(t *testing.T) {
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)
-	pebbleStore, ok := store.(dotc1z.C1ZStore)
-	require.True(t, ok, "Pebble registered store must satisfy dotc1z.C1ZStore")
 
 	mc := newMockConnector()
 	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
@@ -56,7 +51,7 @@ func TestPebbleFullSyncThroughSyncer(t *testing.T) {
 	_ = mc.AddGroupMember(ctx, group2, u2)
 
 	syncer, err := NewSyncer(ctx, mc,
-		WithConnectorStore(pebbleStore),
+		WithConnectorStore(store),
 		WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)

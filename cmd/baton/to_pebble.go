@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/spf13/cobra"
 )
@@ -34,10 +33,6 @@ func runToPebble(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := pebble.Register(); err != nil {
-		return err
-	}
-
 	c1zPath, err := cmd.Flags().GetString("file")
 	if err != nil {
 		return err

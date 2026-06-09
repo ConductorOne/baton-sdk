@@ -477,6 +477,11 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 		return nil, err
 	}
 
+	if options.engine == EnginePebble && !options.readOnly {
+		err = fmt.Errorf("new-c1z-file: %s is a v1/sqlite c1z and engine %q was requested; NewC1ZFile cannot return a *C1File for it — open with NewStore to convert", outputFilePath, EnginePebble)
+		return nil, err
+	}
+
 	dbFilePath, _, err := decompressC1z(outputFilePath, options.tmpDir, options.decoderOptions...)
 	if err != nil {
 		return nil, err

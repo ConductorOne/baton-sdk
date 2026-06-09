@@ -14,7 +14,6 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 // TestToPebbleRoundTrip seeds a SQLite .c1z with a finished full sync
@@ -23,7 +22,6 @@ import (
 // the same data.
 func TestToPebbleRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	require.NoError(t, pebble.Register())
 
 	dir := t.TempDir()
 	srcPath := filepath.Join(dir, "source.c1z")
@@ -139,7 +137,6 @@ func TestToPebbleRoundTrip(t *testing.T) {
 // exist, the sync must exist, and the sync must be ended.
 func TestToPebbleErrors(t *testing.T) {
 	ctx := context.Background()
-	require.NoError(t, pebble.Register())
 
 	dir := t.TempDir()
 	src, err := dotc1z.NewC1ZFile(ctx, filepath.Join(dir, "source.c1z"), dotc1z.WithTmpDir(dir))

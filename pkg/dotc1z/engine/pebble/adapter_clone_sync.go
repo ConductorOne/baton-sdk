@@ -10,9 +10,8 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 
-	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 )
@@ -34,9 +33,9 @@ import (
 func cloneSync(
 	ctx context.Context,
 	a *Adapter,
-	encoding dotc1z.PayloadEncoding,
+	encoding c1zstore.PayloadEncoding,
 	outPath, syncID string,
-	_ ...dotc1z.C1FOption,
+	_ ...c1zstore.CloneSyncOption,
 ) error {
 	//TODO: Support options in pebble.
 	if _, err := os.Stat(outPath); err == nil || !errors.Is(err, fs.ErrNotExist) {
@@ -134,16 +133,10 @@ func cloneSync(
 		}
 	}()
 
-	descriptors, err := formatv3.BuildDescriptorClosure()
+	manifest, err := BuildManifest(encoding)
 	if err != nil {
 		return err
 	}
-	manifest := c1zv3.C1ZManifestV3_builder{
-		Engine:              string(dotc1z.EnginePebble),
-		EngineSchemaVersion: uint32(SDKPebbleFormat),
-		PayloadEncoding:     payloadEncodingToProto(encoding),
-		Descriptors:         descriptors,
-	}.Build()
 	if err := formatv3.WriteEnvelope(out, manifest, checkpointDir); err != nil {
 		return err
 	}

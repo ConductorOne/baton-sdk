@@ -21,11 +21,6 @@ import (
 // historical compactor. EnginePebble produces a v3 Pebble c1z via a
 // native record merge.
 //
-// Selecting EnginePebble requires the Pebble engine driver to be
-// registered with dotc1z; the compactor registers it on demand, but a
-// caller may also register it explicitly via
-// pkg/dotc1z/engine/pebble.Register before constructing the compactor.
-//
 // This is the only supported way to choose the engine; an engine
 // passed through WithC1ZOptions does not select the compaction
 // strategy and is overridden.
@@ -33,16 +28,6 @@ func WithEngine(engine dotc1z.Engine) Option {
 	return func(c *Compactor) {
 		c.engine = engine
 	}
-}
-
-// ensurePebbleRegistered registers the Pebble engine driver with
-// dotc1z if it isn't already. Registration is process-global and
-// idempotent here; a double-register is avoided by the lookup.
-func ensurePebbleRegistered() error {
-	if _, ok := dotc1z.EngineDriverFor(dotc1z.EnginePebble); ok {
-		return nil
-	}
-	return enginepkg.Register()
 }
 
 // compactableV3SyncType reports whether a v3 sync type is a compactable

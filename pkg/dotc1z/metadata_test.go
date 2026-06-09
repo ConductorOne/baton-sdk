@@ -9,7 +9,6 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 // TestStoreMetadata locks in the Reader.Metadata() contract on both
@@ -18,7 +17,6 @@ import (
 // Engine + Format when the store actually backs an on-disk c1z.
 func TestStoreMetadata(t *testing.T) {
 	ctx := context.Background()
-	require.NoError(t, pebble.Register())
 
 	t.Run("SQLite C1File returns sqlite/v1", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "sqlite.c1z")

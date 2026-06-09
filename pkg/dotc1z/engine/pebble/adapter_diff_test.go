@@ -1,4 +1,4 @@
-package pebble
+package pebble_test
 
 import (
 	"context"
@@ -16,9 +16,6 @@ import (
 // the new grant.
 func TestGenerateSyncDiffAdditionsOnly(t *testing.T) {
 	ctx := context.Background()
-	if err := Register(); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "diff.c1z")
 
@@ -57,8 +54,7 @@ func TestGenerateSyncDiffAdditionsOnly(t *testing.T) {
 		t.Fatalf("EndSync applied: %v", err)
 	}
 
-	storeC1Z := store.(dotc1z.C1ZStore)
-	diffID, err := storeC1Z.FileOps().GenerateSyncDiff(ctx, baseSync, appliedSync)
+	diffID, err := store.FileOps().GenerateSyncDiff(ctx, baseSync, appliedSync)
 	if err != nil {
 		t.Fatalf("GenerateSyncDiff: %v", err)
 	}
@@ -87,9 +83,6 @@ func TestGenerateSyncDiffAdditionsOnly(t *testing.T) {
 // row with no records, which we'd rather flag.
 func TestGenerateSyncDiffRejectsSameSyncIDs(t *testing.T) {
 	ctx := context.Background()
-	if err := Register(); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "diff.c1z")
 	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
@@ -104,8 +97,7 @@ func TestGenerateSyncDiffRejectsSameSyncIDs(t *testing.T) {
 	if err := store.EndSync(ctx); err != nil {
 		t.Fatal(err)
 	}
-	storeC1Z := store.(dotc1z.C1ZStore)
-	if _, err := storeC1Z.FileOps().GenerateSyncDiff(ctx, syncID, syncID); err == nil {
+	if _, err := store.FileOps().GenerateSyncDiff(ctx, syncID, syncID); err == nil {
 		t.Fatal("expected error for same base/applied syncIDs")
 	}
 }

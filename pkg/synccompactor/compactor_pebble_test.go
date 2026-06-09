@@ -23,19 +23,16 @@ import (
 // then ends + closes it. Returns the sync id.
 func buildPebbleInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, grantIDs ...string) string {
 	t.Helper()
-	require.NoError(t, ensurePebbleRegistered())
 
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
 	require.NoError(t, err)
-	store, ok := w.(dotc1z.C1ZStore)
-	require.True(t, ok)
 
-	syncID, err := store.StartNewSync(ctx, st, "")
+	syncID, err := w.StartNewSync(ctx, st, "")
 	require.NoError(t, err)
 
 	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
 	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
-	require.NoError(t, store.PutResourceTypes(ctx, userRT, groupRT))
+	require.NoError(t, w.PutResourceTypes(ctx, userRT, groupRT))
 
 	group := v2.Resource_builder{
 		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
@@ -45,26 +42,26 @@ func buildPebbleInput(t testing.TB, ctx context.Context, path string, st connect
 		Id:          v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(),
 		DisplayName: "User One",
 	}.Build()
-	require.NoError(t, store.PutResources(ctx, group, user))
+	require.NoError(t, w.PutResources(ctx, group, user))
 
 	member := v2.Entitlement_builder{
 		Id:       "member",
 		Resource: group,
 		Purpose:  v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
 	}.Build()
-	require.NoError(t, store.PutEntitlements(ctx, member))
+	require.NoError(t, w.PutEntitlements(ctx, member))
 
 	for _, id := range grantIDs {
 		g := v2.Grant_builder{Id: id, Principal: user, Entitlement: member}.Build()
-		require.NoError(t, store.PutGrants(ctx, g))
+		require.NoError(t, w.PutGrants(ctx, g))
 	}
 
 	// Every input carries an asset so the asset-drop parity can be
 	// asserted on the compacted output (the merge must not copy it).
-	require.NoError(t, store.PutAsset(ctx, v2.AssetRef_builder{Id: "asset-1"}.Build(), "text/plain", []byte("payload")))
+	require.NoError(t, w.PutAsset(ctx, v2.AssetRef_builder{Id: "asset-1"}.Build(), "text/plain", []byte("payload")))
 
-	require.NoError(t, store.EndSync(ctx))
-	require.NoError(t, store.Close(ctx))
+	require.NoError(t, w.EndSync(ctx))
+	require.NoError(t, w.Close(ctx))
 	return syncID
 }
 
@@ -101,9 +98,7 @@ func latestEndedAt(t *testing.T, ctx context.Context, path string) time.Time {
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer w.Close(ctx)
-	store, ok := w.(dotc1z.C1ZStore)
-	require.True(t, ok)
-	resp, err := store.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{}.Build())
+	resp, err := w.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{}.Build())
 	require.NoError(t, err)
 	return resp.GetSync().GetEndedAt().AsTime()
 }
@@ -112,16 +107,14 @@ func verifyCompacted(t *testing.T, ctx context.Context, path, syncID string) (in
 	t.Helper()
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
-	store, ok := w.(dotc1z.C1ZStore)
-	require.True(t, ok)
-	defer store.Close(ctx)
+	defer w.Close(ctx)
 
-	require.NoError(t, store.SetCurrentSync(ctx, syncID))
+	require.NoError(t, w.SetCurrentSync(ctx, syncID))
 
 	count := 0
 	pageToken := ""
 	for {
-		resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+		resp, err := w.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 			PageSize:  1000,
 			PageToken: pageToken,
 		}.Build())
@@ -133,7 +126,7 @@ func verifyCompacted(t *testing.T, ctx context.Context, path, syncID string) (in
 		}
 	}
 
-	syncResp, err := store.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{}.Build())
+	syncResp, err := w.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{}.Build())
 	require.NoError(t, err)
 	return count, syncResp.GetSync().GetSyncType()
 }

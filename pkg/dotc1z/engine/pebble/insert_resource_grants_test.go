@@ -11,7 +11,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 // TestPebble_InsertResourceGrants_StubRewriteCorrupts simulates the
@@ -65,7 +64,7 @@ func TestPebble_InsertResourceGrants_StubRewriteCorrupts(t *testing.T) {
 	// than a live bug.
 	//
 	//   - Pebble is not used in production today (nothing calls
-	//     pebble.Register() / WithEngine(EnginePebble) outside tests),
+	//     WithEngine(EnginePebble) outside tests),
 	//     and there are no existing Pebble c1z files.
 	//   - Even if it were, the InsertResourceGrants loop reads the
 	//     LIVE connector's grants (full entitlement-resource), not slim
@@ -86,7 +85,6 @@ func TestPebble_InsertResourceGrants_StubRewriteCorrupts(t *testing.T) {
 	t.Skip("non-reachable: Pebble unused in prod; InsertResourceGrants reads full connector grants, not slim store reads")
 
 	ctx := context.Background()
-	require.NoError(t, pebble.Register())
 
 	store, err := dotc1z.NewStore(ctx,
 		filepath.Join(t.TempDir(), "insert-resource-grants.c1z"),

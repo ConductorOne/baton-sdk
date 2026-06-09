@@ -25,7 +25,7 @@ type registryTestDriver struct {
 func (d *registryTestDriver) Engine() Engine    { return d.engine }
 func (d *registryTestDriver) Format() C1ZFormat { return d.format }
 
-func (d *registryTestDriver) OpenStore(ctx context.Context, outputFilePath string, opts StoreOptions) (connectorstore.Writer, error) {
+func (d *registryTestDriver) OpenStore(ctx context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
 	d.called = true
 	d.path = outputFilePath
 	d.opts = opts

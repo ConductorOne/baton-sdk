@@ -205,23 +205,11 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	destFilePath := path.Join(c.tmpDir, fileName)
 
 	if c.resolvedEngine() == dotc1z.EnginePebble {
-		if err = ensurePebbleRegistered(); err != nil {
-			return nil, fmt.Errorf("register pebble engine: %w", err)
-		}
-		var w connectorstore.Writer
 		// Force the resolved engine last so a stray engine passed via
 		// WithC1ZOptions cannot mislabel the artifact.
-		w, err = dotc1z.NewStore(ctx, destFilePath, append(opts, dotc1z.WithEngine(dotc1z.EnginePebble))...)
-		if err == nil {
-			store, ok := w.(dotc1z.C1ZStore)
-			if !ok {
-				_ = w.Close(ctx)
-				return nil, fmt.Errorf("pebble store does not implement C1ZStore: %T", w)
-			}
-			c.compactedC1z = store
-		}
+		c.compactedC1z, err = dotc1z.NewStore(ctx, destFilePath, append(opts, dotc1z.WithEngine(dotc1z.EnginePebble))...)
 	} else {
-		c.compactedC1z, err = dotc1z.NewC1ZFile(ctx, destFilePath, opts...)
+		c.compactedC1z, err = dotc1z.NewStore(ctx, destFilePath, opts...)
 	}
 	if err != nil {
 		l.Error("doOneCompaction failed: could not create c1z file", zap.Error(err))
@@ -395,7 +383,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) er
 		zap.String("tmp_dir", c.tmpDir),
 	)
 
-	applyFile, err := dotc1z.NewC1ZFile(
+	applyFile, err := dotc1z.NewStore(
 		ctx,
 		cs.FilePath,
 		dotc1z.WithTmpDir(c.tmpDir),

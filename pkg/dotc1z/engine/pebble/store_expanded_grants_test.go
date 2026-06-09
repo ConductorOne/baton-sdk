@@ -11,7 +11,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 // TestStoreExpandedGrantsPreservesExpansion mirrors the SQLite
@@ -32,7 +31,6 @@ import (
 // via `grantUpsertModePreserveExpansion`.
 func TestStoreExpandedGrantsPreservesExpansion(t *testing.T) {
 	ctx := context.Background()
-	require.NoError(t, pebble.Register())
 	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "store_expanded.c1z"), dotc1z.WithEngine(dotc1z.EnginePebble))
 	require.NoError(t, err)
 	defer func() { _ = store.Close(ctx) }()
@@ -66,11 +64,8 @@ func TestStoreExpandedGrantsPreservesExpansion(t *testing.T) {
 	}.Build()
 	require.NoError(t, store.PutGrants(ctx, seed))
 
-	c1zStore, ok := store.(dotc1z.C1ZStore)
-	require.True(t, ok)
-
 	beforeCount := 0
-	for _, perr := range c1zStore.Grants().PendingExpansion(ctx) {
+	for _, perr := range store.Grants().PendingExpansion(ctx) {
 		require.NoError(t, perr)
 		beforeCount++
 	}
@@ -84,14 +79,14 @@ func TestStoreExpandedGrantsPreservesExpansion(t *testing.T) {
 		Entitlement: ent,
 		Principal:   user,
 	}.Build()
-	require.NoError(t, c1zStore.Grants().StoreExpandedGrants(ctx, rewrite))
+	require.NoError(t, store.Grants().StoreExpandedGrants(ctx, rewrite))
 
 	// Step 3: the grant must STILL be in PendingExpansion. SQLite
 	// preserves the expansion column and needs_expansion flag here;
 	// Pebble must preserve Expansion + NeedsExpansion + the
 	// idxGrantByNeedsExpansion entry.
 	afterCount := 0
-	for _, perr := range c1zStore.Grants().PendingExpansion(ctx) {
+	for _, perr := range store.Grants().PendingExpansion(ctx) {
 		require.NoError(t, perr)
 		afterCount++
 	}

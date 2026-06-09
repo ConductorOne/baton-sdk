@@ -1,4 +1,4 @@
-package pebble
+package pebble_test
 
 import (
 	"context"
@@ -29,11 +29,6 @@ func benchmarkGrants(n int) []*v2.Grant {
 func prepareRegisteredC1Z(b *testing.B, n int, engine dotc1z.Engine) (string, string) {
 	b.Helper()
 	ctx := context.Background()
-	if engine == dotc1z.EnginePebble {
-		if err := Register(); err != nil {
-			b.Fatalf("Register: %v", err)
-		}
-	}
 	path := fmt.Sprintf("%s/%s-sync.c1z", b.TempDir(), engine)
 	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(engine))
 	if err != nil {
@@ -59,11 +54,6 @@ func benchmarkRegisteredWritePack(b *testing.B, engine dotc1z.Engine, n int) {
 	ctx := context.Background()
 	root := b.TempDir()
 	grants := benchmarkGrants(n)
-	if engine == dotc1z.EnginePebble {
-		if err := Register(); err != nil {
-			b.Fatalf("Register: %v", err)
-		}
-	}
 	b.ReportAllocs()
 	b.ReportMetric(float64(n), "grants/op")
 	b.ResetTimer()
@@ -158,11 +148,6 @@ func BenchmarkPebbleAdapterWriteGrant(b *testing.B) {
 
 func benchmarkRegisteredWriteGrant(b *testing.B, engine dotc1z.Engine) {
 	ctx := context.Background()
-	if engine == dotc1z.EnginePebble {
-		if err := Register(); err != nil {
-			b.Fatalf("Register: %v", err)
-		}
-	}
 	path := fmt.Sprintf("%s/%s-sync.c1z", b.TempDir(), engine)
 	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(engine))
 	if err != nil {
@@ -267,9 +252,6 @@ func BenchmarkExternalC1ZOpenAndList(b *testing.B) {
 		b.Skip("set BATONSDK_BENCH_C1Z to a baton-demo-generated sync.c1z to run this benchmark")
 	}
 	ctx := context.Background()
-	if err := Register(); err != nil {
-		b.Fatalf("Register: %v", err)
-	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

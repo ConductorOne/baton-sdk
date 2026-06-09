@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 func toPebbleBenchTestdataPath(syncID string) string {
@@ -23,8 +22,6 @@ func toPebbleBenchTestdataPath(syncID string) string {
 // .c1z, measuring end-to-end conversion throughput. It reports per-stage row
 // counts and durations as custom metrics so a single run shows where time lands.
 func benchmarkToPebble(b *testing.B, syncID string) {
-	require.NoError(b, pebble.Register())
-
 	c1zPath := toPebbleBenchTestdataPath(syncID)
 	info, err := os.Stat(c1zPath)
 	if os.IsNotExist(err) {

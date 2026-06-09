@@ -19,7 +19,7 @@ type C1ZCounts struct {
 	GrantCount        int
 }
 
-func CreateTestSync(ctx context.Context, t *testing.T, f *dotc1z.C1File, counts C1ZCounts) (string, error) {
+func CreateTestSync(ctx context.Context, t *testing.T, f dotc1z.C1ZStore, counts C1ZCounts) (string, error) {
 	// Add a sync
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)

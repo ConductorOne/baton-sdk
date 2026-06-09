@@ -12,7 +12,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 // TestPebble_ListGrants_HonorsSyncDetailsAnnotation is the regression
@@ -50,7 +49,6 @@ import (
 // Contract: the response must contain sync 1's grant.
 func TestPebble_ListGrants_HonorsSyncDetailsAnnotation(t *testing.T) {
 	ctx := context.Background()
-	require.NoError(t, pebble.Register())
 
 	store, err := dotc1z.NewStore(ctx,
 		filepath.Join(t.TempDir(), "syncdetails.c1z"),

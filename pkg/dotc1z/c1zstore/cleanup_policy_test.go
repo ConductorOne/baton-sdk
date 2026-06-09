@@ -1,4 +1,4 @@
-package dotc1z
+package c1zstore
 
 import (
 	"reflect"

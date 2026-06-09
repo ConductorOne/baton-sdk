@@ -106,7 +106,7 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	//     so per-row random-key B-tree maintenance does not dominate.
 	// These pragmas are scoped to THIS writer instance; normal connector
 	// syncs open their own C1File and are unaffected.
-	dst, err := dotc1z.NewC1ZFile(ctx, outPath,
+	dst, err := dotc1z.NewStore(ctx, outPath,
 		dotc1z.WithPragma("journal_mode", "OFF"),
 		dotc1z.WithPragma("synchronous", "OFF"),
 		dotc1z.WithPragma("cache_size", "-1048576"),

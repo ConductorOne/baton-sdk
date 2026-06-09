@@ -11,7 +11,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 // TestV2GrantRoundTrip_V3Contract documents and locks in the v3 grant
@@ -43,7 +42,6 @@ import (
 //     reading these off a grant is caught.
 func TestV2GrantRoundTrip_V3Contract(t *testing.T) {
 	ctx := context.Background()
-	require.NoError(t, pebble.Register())
 
 	store, err := dotc1z.NewStore(ctx,
 		filepath.Join(t.TempDir(), "grant-roundtrip.c1z"),

@@ -13,7 +13,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -145,7 +144,6 @@ func TestPebble_EtagReplay_SendsPreviousEtagOnSecondSync(t *testing.T) {
 	ctx := t.Context()
 	ctx, err := logging.Init(ctx)
 	require.NoError(t, err)
-	require.NoError(t, pebble.Register())
 
 	tempDir := t.TempDir()
 	c1zPath := filepath.Join(tempDir, "etag-observe-pebble.c1z")
@@ -167,9 +165,7 @@ func TestPebble_EtagReplay_SendsPreviousEtagOnSecondSync(t *testing.T) {
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)
-	c1zStore1, ok := store1.(dotc1z.C1ZStore)
-	require.True(t, ok)
-	syncer1, err := NewSyncer(ctx, mc, WithConnectorStore(c1zStore1), WithTmpDir(tempDir))
+	syncer1, err := NewSyncer(ctx, mc, WithConnectorStore(store1), WithTmpDir(tempDir))
 	require.NoError(t, err)
 	require.NoError(t, syncer1.Sync(ctx))
 	require.NoError(t, syncer1.Close(ctx))
@@ -180,9 +176,7 @@ func TestPebble_EtagReplay_SendsPreviousEtagOnSecondSync(t *testing.T) {
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)
-	c1zStore2, ok := store2.(dotc1z.C1ZStore)
-	require.True(t, ok)
-	syncer2, err := NewSyncer(ctx, mc, WithConnectorStore(c1zStore2), WithTmpDir(tempDir))
+	syncer2, err := NewSyncer(ctx, mc, WithConnectorStore(store2), WithTmpDir(tempDir))
 	require.NoError(t, err)
 	require.NoError(t, syncer2.Sync(ctx))
 	require.NoError(t, syncer2.Close(ctx))
@@ -245,7 +239,6 @@ func TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward(t *testing.T) {
 	ctx := t.Context()
 	ctx, err := logging.Init(ctx)
 	require.NoError(t, err)
-	require.NoError(t, pebble.Register())
 
 	tempDir := t.TempDir()
 	c1zPath := filepath.Join(tempDir, "etag-carryforward-pebble.c1z")
@@ -267,9 +260,7 @@ func TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward(t *testing.T) {
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)
-	c1zStore1, ok := store1.(dotc1z.C1ZStore)
-	require.True(t, ok)
-	syncer1, err := NewSyncer(ctx, mc, WithConnectorStore(c1zStore1), WithTmpDir(tempDir))
+	syncer1, err := NewSyncer(ctx, mc, WithConnectorStore(store1), WithTmpDir(tempDir))
 	require.NoError(t, err)
 	require.NoError(t, syncer1.Sync(ctx))
 	require.NoError(t, syncer1.Close(ctx))
@@ -288,9 +279,7 @@ func TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward(t *testing.T) {
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)
-	c1zStore2, ok := store2.(dotc1z.C1ZStore)
-	require.True(t, ok)
-	syncer2, err := NewSyncer(ctx, mc, WithConnectorStore(c1zStore2), WithTmpDir(tempDir))
+	syncer2, err := NewSyncer(ctx, mc, WithConnectorStore(store2), WithTmpDir(tempDir))
 	require.NoError(t, err)
 	require.NoError(t, syncer2.Sync(ctx))
 	require.NoError(t, syncer2.Close(ctx))

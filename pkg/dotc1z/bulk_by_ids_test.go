@@ -20,7 +20,7 @@ import (
 func TestBulkByIdsRoundtrip(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test.c1z")
-	c1z, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1z, err := NewStore(ctx, tempDir)
 	require.NoError(t, err)
 	defer func() { _ = c1z.Close(ctx) }()
 
@@ -103,7 +103,7 @@ func TestBulkByIdsRoundtrip(t *testing.T) {
 func TestBulkByIdsChunksOverFiveHundred(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "chunk.c1z")
-	c1z, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1z, err := NewStore(ctx, tempDir)
 	require.NoError(t, err)
 	defer func() { _ = c1z.Close(ctx) }()
 

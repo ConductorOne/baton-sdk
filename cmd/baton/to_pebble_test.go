@@ -19,7 +19,7 @@ func TestToPebbleCommandConvertsSQLiteC1Z(t *testing.T) {
 	srcPath := filepath.Join(dir, "source.c1z")
 	outPath := filepath.Join(dir, "out.c1z")
 
-	src, err := dotc1z.NewC1ZFile(ctx, srcPath, dotc1z.WithTmpDir(dir))
+	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithTmpDir(dir), dotc1z.WithEngine(dotc1z.EngineSQLite))
 	require.NoError(t, err)
 
 	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")

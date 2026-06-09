@@ -2,27 +2,17 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"sort"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 func openReadOnlyC1ZStore(ctx context.Context, path string) (dotc1z.C1ZStore, error) {
-	if err := pebble.Register(); err != nil {
-		return nil, err
-	}
-	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
+	c1zStore, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
 	if err != nil {
 		return nil, err
-	}
-	c1zStore, ok := store.(dotc1z.C1ZStore)
-	if !ok {
-		_ = store.Close(ctx)
-		return nil, fmt.Errorf("store %T does not implement C1ZStore", store)
 	}
 	if latest, err := c1zStore.SyncMeta().LatestFinishedSyncOfAnyType(ctx); err != nil {
 		_ = c1zStore.Close(ctx)

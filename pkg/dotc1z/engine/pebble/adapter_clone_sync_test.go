@@ -1,4 +1,4 @@
-package pebble
+package pebble_test
 
 import (
 	"context"
@@ -17,9 +17,6 @@ import (
 // intact. Covers the basic byte-level copy + envelope-write path.
 func TestCloneSyncRoundtrip(t *testing.T) {
 	ctx := context.Background()
-	if err := Register(); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
 	tmp := t.TempDir()
 	srcPath := filepath.Join(tmp, "src.c1z")
 
@@ -39,20 +36,16 @@ func TestCloneSyncRoundtrip(t *testing.T) {
 	if err := src.EndSync(ctx); err != nil {
 		t.Fatalf("EndSync: %v", err)
 	}
-	srcStore, ok := src.(dotc1z.C1ZStore)
-	if !ok {
-		t.Fatalf("src is %T, want dotc1z.C1ZStore", src)
-	}
 
 	clonePath := filepath.Join(tmp, "clone.c1z")
-	if err := srcStore.FileOps().CloneSync(ctx, clonePath, ""); err != nil {
+	if err := src.FileOps().CloneSync(ctx, clonePath, ""); err != nil {
 		t.Fatalf("CloneSync: %v", err)
 	}
 	if _, err := os.Stat(clonePath); err != nil {
 		t.Fatalf("clone file missing: %v", err)
 	}
 
-	if err := srcStore.Close(ctx); err != nil {
+	if err := src.Close(ctx); err != nil {
 		t.Fatalf("close src: %v", err)
 	}
 
@@ -94,9 +87,6 @@ func TestCloneSyncRoundtrip(t *testing.T) {
 // silently is a hazard.
 func TestCloneSyncRefusesExistingOutPath(t *testing.T) {
 	ctx := context.Background()
-	if err := Register(); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
 	tmp := t.TempDir()
 	srcPath := filepath.Join(tmp, "src.c1z")
 
@@ -119,8 +109,7 @@ func TestCloneSyncRefusesExistingOutPath(t *testing.T) {
 	if err := os.WriteFile(existing, []byte("blocker"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	srcStore := src.(dotc1z.C1ZStore)
-	err = srcStore.FileOps().CloneSync(ctx, existing, "")
+	err = src.FileOps().CloneSync(ctx, existing, "")
 	if err == nil {
 		t.Fatal("CloneSync over existing file: want error, got nil")
 	}
@@ -131,9 +120,6 @@ func TestCloneSyncRefusesExistingOutPath(t *testing.T) {
 // because its records may be in flux.
 func TestCloneSyncRefusesUnfinishedSync(t *testing.T) {
 	ctx := context.Background()
-	if err := Register(); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
 	tmp := t.TempDir()
 	srcPath := filepath.Join(tmp, "src.c1z")
 
@@ -148,9 +134,8 @@ func TestCloneSyncRefusesUnfinishedSync(t *testing.T) {
 	defer src.Close(ctx)
 
 	// No EndSync — sync is still running.
-	srcStore := src.(dotc1z.C1ZStore)
 	out := filepath.Join(tmp, "clone.c1z")
-	if err := srcStore.FileOps().CloneSync(ctx, out, syncID); err == nil {
+	if err := src.FileOps().CloneSync(ctx, out, syncID); err == nil {
 		t.Fatal("CloneSync of unfinished sync: want error, got nil")
 	}
 }

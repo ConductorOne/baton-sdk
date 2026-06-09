@@ -16,7 +16,6 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/stretchr/testify/require"
 )
 
@@ -307,24 +306,21 @@ func benchmarkExpandPebble(b *testing.B, syncID string, perStep bool) {
 	if _, err := os.Stat(pebblePath); os.IsNotExist(err) {
 		b.Skipf("Pebble testdata file not found: %s", pebblePath)
 	}
-	require.NoError(b, pebble.Register())
 
 	ctx := context.Background()
 	storeWriter, err := dotc1z.NewStore(ctx, pebblePath)
 	require.NoError(b, err)
-	store, ok := storeWriter.(dotc1z.C1ZStore)
-	require.True(b, ok)
-	latest, err := store.SyncMeta().LatestFullSync(ctx)
+	latest, err := storeWriter.SyncMeta().LatestFullSync(ctx)
 	require.NoError(b, err)
 	require.NotNil(b, latest)
 	destSyncID := latest.ID
-	_, started, err := store.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, destSyncID)
+	_, started, err := storeWriter.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, destSyncID)
 	require.NoError(b, err)
 	require.False(b, started)
 
-	graph, err := loadEntitlementGraphFromStore(ctx, store)
+	graph, err := loadEntitlementGraphFromStore(ctx, storeWriter)
 	require.NoError(b, err)
-	require.NoError(b, store.Close(ctx))
+	require.NoError(b, storeWriter.Close(ctx))
 	require.NotEmpty(b, graph.Edges)
 
 	b.Logf("Graph loaded: %d nodes, %d edges", len(graph.Nodes), len(graph.Edges))
@@ -347,17 +343,15 @@ func benchmarkExpandPebble(b *testing.B, syncID string, perStep bool) {
 
 			storeWriter, err := dotc1z.NewStore(ctx, tmpPath)
 			require.NoError(b, err)
-			store, ok := storeWriter.(dotc1z.C1ZStore)
-			require.True(b, ok)
-			_, started, err := store.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, destSyncID)
+			_, started, err := storeWriter.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, destSyncID)
 			require.NoError(b, err)
 			require.False(b, started)
-			defer store.Close(ctx)
+			defer storeWriter.Close(ctx)
 
 			b.StartTimer()
 			step := 0
 			for {
-				expander := NewExpander(benchmarkExpanderStore{store: store}, graphCopy)
+				expander := NewExpander(benchmarkExpanderStore{store: storeWriter}, graphCopy)
 				err = expander.RunSingleStep(ctx)
 				if err != nil {
 					break
