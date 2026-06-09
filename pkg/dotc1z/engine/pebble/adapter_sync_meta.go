@@ -125,6 +125,8 @@ func syncTypeV3ToConnectorstore(t v3.SyncType) connectorstore.SyncType {
 		return connectorstore.SyncTypePartialUpserts
 	case v3.SyncType_SYNC_TYPE_PARTIAL_DELETIONS:
 		return connectorstore.SyncTypePartialDeletions
+	case v3.SyncType_SYNC_TYPE_NO_GRANTS:
+		return connectorstore.SyncTypeNoGrants
 	default:
 		return ""
 	}

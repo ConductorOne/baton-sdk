@@ -888,6 +888,8 @@ func v2SyncTypeToV3(t connectorstore.SyncType) v3.SyncType {
 		return v3.SyncType_SYNC_TYPE_PARTIAL_UPSERTS
 	case connectorstore.SyncTypePartialDeletions:
 		return v3.SyncType_SYNC_TYPE_PARTIAL_DELETIONS
+	case connectorstore.SyncTypeNoGrants:
+		return v3.SyncType_SYNC_TYPE_NO_GRANTS
 	default:
 		return v3.SyncType_SYNC_TYPE_UNSPECIFIED
 	}

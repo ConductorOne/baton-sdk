@@ -510,6 +510,8 @@ func v3SyncTypeToString(t v3.SyncType) string {
 		return string(connectorstore.SyncTypePartialUpserts)
 	case v3.SyncType_SYNC_TYPE_PARTIAL_DELETIONS:
 		return string(connectorstore.SyncTypePartialDeletions)
+	case v3.SyncType_SYNC_TYPE_NO_GRANTS:
+		return string(connectorstore.SyncTypeNoGrants)
 	case v3.SyncType_SYNC_TYPE_UNSPECIFIED:
 		return ""
 	}
