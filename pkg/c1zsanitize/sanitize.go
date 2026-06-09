@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"math"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -108,16 +109,21 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 	}
 
 	s := &sanitizer{
-		secret:                 opts.Secret,
-		idHmac:                 hmac.New(sha256.New, opts.Secret),
-		domains:                newDomainMap(),
-		shifter:                newTimestampShifter(anchor, findTMax(srcSyncs)),
-		dropUnknownAnnotations: !opts.AllowUnknownAnnotations,
-		log:                    ctxzap.Extract(ctx),
-		handlers:               defaultAnnotationHandlers(),
-		syncIDMap:              map[string]string{},
-		knownResourceTypes:     map[string]struct{}{},
+		secret:                        opts.Secret,
+		idHmac:                        hmac.New(sha256.New, opts.Secret),
+		domains:                       newDomainMap(),
+		shifter:                       newTimestampShifter(anchor, findTMax(srcSyncs)),
+		dropUnknownAnnotations:        !opts.AllowUnknownAnnotations,
+		log:                           ctxzap.Extract(ctx),
+		handlers:                      defaultAnnotationHandlers(),
+		syncIDMap:                     map[string]string{},
+		knownResourceTypes:            map[string]struct{}{},
+		droppedUnknownAnnotationTypes: map[string]uint64{},
+		passedUnknownAnnotationTypes:  map[string]uint64{},
 	}
+
+	s.log.Info("c1zsanitize: starting", zap.Int("source_syncs", len(srcSyncs)))
+	overallStart := time.Now()
 
 	for _, sr := range srcSyncs {
 		if err := s.sanitizeSync(ctx, src, dst, sr); err != nil {
@@ -128,7 +134,72 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 	if err := s.preserveSyncGraphMetadata(ctx, src, dst); err != nil {
 		return fmt.Errorf("c1zsanitize: preserve sync graph metadata: %w", err)
 	}
+
+	s.log.Info("c1zsanitize: complete",
+		zap.Duration("elapsed", time.Since(overallStart)),
+		zap.Uint64("dropped_unknown_annotations_total", s.droppedUnknownAnnotations),
+		zap.Uint64("passed_unknown_annotations_total", s.passedUnknownAnnotations),
+		zap.Any("dropped_unknown_annotation_types", s.droppedUnknownAnnotationTypes),
+		zap.Any("passed_unknown_annotation_types", s.passedUnknownAnnotationTypes),
+	)
 	return nil
+}
+
+// syncStatsReader is the optional source capability the per-sync phase
+// progress uses to resolve true N-of-M totals (resource_types,
+// resources, entitlements, grants) before each phase starts.
+// *dotc1z.C1File implements it — Stats reads the cached sync_runs row
+// for a completed sync, so the call is O(1) and not a table scan.
+// Sources that don't implement it (test fakes) fall through to
+// running-count progress logging.
+type syncStatsReader interface {
+	Stats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (map[string]int64, error)
+}
+
+// phaseTotals holds the up-front per-record-type counts the progress
+// logger uses to emit N-of-M / percent / ETA. Zero values mean "not
+// known" — the progress logger falls back to running-count + rate.
+type phaseTotals struct {
+	resourceTypes int64
+	resources     int64
+	entitlements  int64
+	grants        int64
+}
+
+// resolvePhaseTotals returns the per-record-type totals for a source
+// sync via the optional syncStatsReader capability. A failure or an
+// uncapable reader returns zero totals; the progress logger then
+// reports running-count rather than failing the run.
+func (s *sanitizer) resolvePhaseTotals(ctx context.Context, src connectorstore.Reader, srcSyncID string, syncType connectorstore.SyncType) phaseTotals {
+	sr, ok := src.(syncStatsReader)
+	if !ok {
+		s.log.Debug("c1zsanitize: source does not expose Stats; progress will be running-count only",
+			zap.String("src_sync_id", srcSyncID))
+		return phaseTotals{}
+	}
+	m, err := sr.Stats(ctx, syncType, srcSyncID)
+	if err != nil {
+		s.log.Warn("c1zsanitize: source Stats lookup failed; progress will be running-count only",
+			zap.String("src_sync_id", srcSyncID), zap.Error(err))
+		return phaseTotals{}
+	}
+	// Resources are returned as a per-resource-type breakdown plus the
+	// well-known reserved keys. Sum the non-reserved entries to get the
+	// resource grand total.
+	totals := phaseTotals{
+		resourceTypes: m["resource_types"],
+		entitlements:  m["entitlements"],
+		grants:        m["grants"],
+	}
+	for k, v := range m {
+		switch k {
+		case "resource_types", "entitlements", "grants":
+			// reserved keys, not per-resource-type counts
+		default:
+			totals.resources += v
+		}
+	}
+	return totals
 }
 
 type sanitizer struct {
@@ -141,6 +212,156 @@ type sanitizer struct {
 	handlers               map[string]annotationHandler
 	syncIDMap              map[string]string
 	knownResourceTypes     map[string]struct{}
+
+	// Cumulative across the whole Sanitize() call. The per-phase
+	// progress helper diffs these between phase start and end to
+	// attribute the dropped/passed totals to the phase that incurred
+	// them. Sanitize runs single-threaded, so no synchronization is
+	// needed.
+	droppedUnknownAnnotations     uint64
+	droppedUnknownAnnotationTypes map[string]uint64
+	passedUnknownAnnotations      uint64
+	passedUnknownAnnotationTypes  map[string]uint64
+}
+
+// phaseProgress emits structured log lines for one copy* phase: a
+// start marker, periodic running progress, and a done summary. When
+// the per-record-type total is known up front (via the optional
+// syncStatsReader capability on the source) progress includes
+// percent-complete, items remaining, items/sec rate, and ETA. When
+// the total is not known, progress falls back to a running count plus
+// rate so an operator can still extrapolate "how much longer?"
+//
+// Periodic logs are throttled to one per tick, so a multi-hour
+// sanitize emits dozens of progress lines, not millions — the failure
+// mode the per-annotation log produced.
+type phaseProgress struct {
+	log            *zap.Logger
+	phase          string
+	srcSyncID      string
+	total          int64
+	started        time.Time
+	lastLog        time.Time
+	tick           time.Duration
+	items          uint64
+	pages          uint64
+	droppedAtStart uint64
+	passedAtStart  uint64
+	s              *sanitizer
+}
+
+// phaseProgressTick is the throttle interval for the periodic
+// per-phase progress log. 10 seconds is short enough that an operator
+// watching the log sees regular advancement and long enough that a
+// fast phase doesn't flood the log.
+const phaseProgressTick = 10 * time.Second
+
+func (s *sanitizer) startPhase(phase, srcSyncID string, total int64) *phaseProgress {
+	now := time.Now()
+	if total > 0 {
+		s.log.Info("c1zsanitize: phase start",
+			zap.String("phase", phase),
+			zap.String("src_sync_id", srcSyncID),
+			zap.Int64("total", total),
+		)
+	} else {
+		s.log.Info("c1zsanitize: phase start",
+			zap.String("phase", phase),
+			zap.String("src_sync_id", srcSyncID),
+		)
+	}
+	return &phaseProgress{
+		log:            s.log,
+		phase:          phase,
+		srcSyncID:      srcSyncID,
+		total:          total,
+		started:        now,
+		lastLog:        now,
+		tick:           phaseProgressTick,
+		droppedAtStart: s.droppedUnknownAnnotations,
+		passedAtStart:  s.passedUnknownAnnotations,
+		s:              s,
+	}
+}
+
+// page increments the running count by the size of the page just
+// processed and emits a periodic progress log line if the tick
+// interval has elapsed since the last one. Called once per page
+// boundary inside the copy* loops.
+func (p *phaseProgress) page(n int) {
+	if p == nil {
+		return
+	}
+	p.pages++
+	if n > 0 {
+		p.items += uint64(n)
+	}
+	now := time.Now()
+	if now.Sub(p.lastLog) < p.tick {
+		return
+	}
+	p.emit(now, "c1zsanitize: phase progress")
+	p.lastLog = now
+}
+
+// done emits the per-phase summary log line: total processed, total
+// elapsed, average rate, dropped/passed annotation aggregates scoped
+// to this phase (diff against the sanitizer-level counters).
+func (p *phaseProgress) done() {
+	if p == nil {
+		return
+	}
+	p.emit(time.Now(), "c1zsanitize: phase done")
+}
+
+func (p *phaseProgress) emit(now time.Time, msg string) {
+	elapsed := now.Sub(p.started)
+	rate := 0.0
+	if secs := elapsed.Seconds(); secs > 0 {
+		rate = float64(p.items) / secs
+	}
+	fields := []zap.Field{
+		zap.String("phase", p.phase),
+		zap.String("src_sync_id", p.srcSyncID),
+		zap.Uint64("processed", p.items),
+		zap.Uint64("pages", p.pages),
+		zap.Duration("elapsed", elapsed),
+		zap.Float64("items_per_sec", rate),
+		zap.Uint64("dropped_unknown_annotations", p.s.droppedUnknownAnnotations-p.droppedAtStart),
+		zap.Uint64("passed_unknown_annotations", p.s.passedUnknownAnnotations-p.passedAtStart),
+	}
+	if p.total > 0 {
+		// p.items is a uint64 counter that monotonically increases as
+		// the loop pages; over-clamp to math.MaxInt64 before subtract
+		// so the conversion can never wrap negative.
+		var processed int64
+		if p.items > math.MaxInt64 {
+			processed = math.MaxInt64
+		} else {
+			processed = int64(p.items)
+		}
+		remaining := p.total - processed
+		if remaining < 0 {
+			remaining = 0
+		}
+		percent := 0.0
+		if p.total > 0 {
+			percent = float64(p.items) / float64(p.total) * 100.0
+		}
+		fields = append(fields,
+			zap.Int64("total", p.total),
+			zap.Int64("remaining", remaining),
+			zap.Float64("percent_complete", percent),
+		)
+		// ETA only meaningful when we've seen some throughput AND we
+		// don't already have everything. Truncate to a whole second
+		// so the log value reads cleanly.
+		if rate > 0 && remaining > 0 {
+			etaSec := float64(remaining) / rate
+			fields = append(fields, zap.Duration("eta", time.Duration(etaSec*float64(time.Second)).Round(time.Second)))
+		}
+	}
+	p.log.Info(msg, fields...)
 }
 
 // id is the per-sanitizer hot path. SanitizeID stays as the
@@ -184,23 +405,41 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 	}
 	s.syncIDMap[srcSyncID] = dstSyncID
 
+	totals := s.resolvePhaseTotals(ctx, src, srcSyncID, syncType)
+	s.log.Info("c1zsanitize: sync start",
+		zap.String("src_sync_id", srcSyncID),
+		zap.String("dst_sync_id", dstSyncID),
+		zap.String("sync_type", string(syncType)),
+		zap.Int64("resource_types_total", totals.resourceTypes),
+		zap.Int64("resources_total", totals.resources),
+		zap.Int64("entitlements_total", totals.entitlements),
+		zap.Int64("grants_total", totals.grants),
+	)
+	syncStart := time.Now()
+
 	assetRefs := newAssetRefSet()
 
-	if err := s.copyResourceTypes(ctx, src, dst, srcSyncID, assetRefs); err != nil {
+	if err := s.copyResourceTypes(ctx, src, dst, srcSyncID, assetRefs, totals.resourceTypes); err != nil {
 		return err
 	}
-	if err := s.copyResources(ctx, src, dst, srcSyncID, assetRefs); err != nil {
+	if err := s.copyResources(ctx, src, dst, srcSyncID, assetRefs, totals.resources); err != nil {
 		return err
 	}
-	if err := s.copyEntitlements(ctx, src, dst, srcSyncID, assetRefs); err != nil {
+	if err := s.copyEntitlements(ctx, src, dst, srcSyncID, assetRefs, totals.entitlements); err != nil {
 		return err
 	}
-	if err := s.copyGrants(ctx, src, dst, srcSyncID, assetRefs); err != nil {
+	if err := s.copyGrants(ctx, src, dst, srcSyncID, assetRefs, totals.grants); err != nil {
 		return err
 	}
 	if err := s.copyAssets(ctx, src, dst, assetRefs); err != nil {
 		return err
 	}
+
+	s.log.Info("c1zsanitize: sync done",
+		zap.String("src_sync_id", srcSyncID),
+		zap.String("dst_sync_id", dstSyncID),
+		zap.Duration("elapsed", time.Since(syncStart)),
+	)
 
 	if err := dst.EndSync(ctx); err != nil {
 		return fmt.Errorf("end dst sync: %w", err)

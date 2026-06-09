@@ -103,6 +103,11 @@ func (s *sanitizer) copyAssets(
 	refs *assetRefSet,
 ) error {
 	ids := refs.drain()
+	// copyAssets runs once per source sync over an already-drained
+	// set, so the total IS known up front — pass it through startPhase
+	// for true N-of-M progress on this phase.
+	pp := s.startPhase("assets", "", int64(len(ids)))
+	defer pp.done()
 	for _, srcID := range ids {
 		req := v2.AssetServiceGetAssetRequest_builder{
 			Asset: v2.AssetRef_builder{Id: srcID}.Build(),
@@ -114,6 +119,7 @@ func (s *sanitizer) copyAssets(
 			// rows because the cross-reference invariant treats it
 			// as a known dangling pointer in the source.
 			s.log.Debug("c1zsanitize: asset ref not found in source", zap.String("asset_id", srcID), zap.Error(err))
+			pp.page(1)
 			continue
 		}
 		if err := drainAndClose(r); err != nil && !errors.Is(err, io.EOF) {
@@ -123,6 +129,7 @@ func (s *sanitizer) copyAssets(
 		if err := dst.PutAsset(ctx, v2.AssetRef_builder{Id: dstID}.Build(), contentType, placeholderForContentType(contentType)); err != nil {
 			return fmt.Errorf("put dst asset %s: %w", dstID, err)
 		}
+		pp.page(1)
 	}
 	return nil
 }

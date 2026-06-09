@@ -62,7 +62,10 @@ func (s *sanitizer) copyResourceTypes(
 	dst connectorstore.Writer,
 	srcSyncID string,
 	refs *assetRefSet,
+	total int64,
 ) error {
+	pp := s.startPhase("resource_types", srcSyncID, total)
+	defer pp.done()
 	pageToken := ""
 	for {
 		req := v2.ResourceTypesServiceListResourceTypesRequest_builder{
@@ -83,6 +86,7 @@ func (s *sanitizer) copyResourceTypes(
 				return fmt.Errorf("put resource types: %w", err)
 			}
 		}
+		pp.page(len(out))
 		if resp.GetNextPageToken() == "" {
 			return nil
 		}
@@ -96,7 +100,10 @@ func (s *sanitizer) copyResources(
 	dst connectorstore.Writer,
 	srcSyncID string,
 	refs *assetRefSet,
+	total int64,
 ) error {
+	pp := s.startPhase("resources", srcSyncID, total)
+	defer pp.done()
 	pageToken := ""
 	for {
 		req := v2.ResourcesServiceListResourcesRequest_builder{
@@ -117,6 +124,7 @@ func (s *sanitizer) copyResources(
 				return fmt.Errorf("put resources: %w", err)
 			}
 		}
+		pp.page(len(out))
 		if resp.GetNextPageToken() == "" {
 			return nil
 		}
@@ -130,7 +138,10 @@ func (s *sanitizer) copyEntitlements(
 	dst connectorstore.Writer,
 	srcSyncID string,
 	refs *assetRefSet,
+	total int64,
 ) error {
+	pp := s.startPhase("entitlements", srcSyncID, total)
+	defer pp.done()
 	pageToken := ""
 	for {
 		req := v2.EntitlementsServiceListEntitlementsRequest_builder{
@@ -151,6 +162,7 @@ func (s *sanitizer) copyEntitlements(
 				return fmt.Errorf("put entitlements: %w", err)
 			}
 		}
+		pp.page(len(out))
 		if resp.GetNextPageToken() == "" {
 			return nil
 		}
@@ -164,7 +176,10 @@ func (s *sanitizer) copyGrants(
 	dst connectorstore.Writer,
 	srcSyncID string,
 	refs *assetRefSet,
+	total int64,
 ) error {
+	pp := s.startPhase("grants", srcSyncID, total)
+	defer pp.done()
 	pageToken := ""
 	for {
 		req := v2.GrantsServiceListGrantsRequest_builder{
@@ -185,6 +200,7 @@ func (s *sanitizer) copyGrants(
 				return fmt.Errorf("put grants: %w", err)
 			}
 		}
+		pp.page(len(out))
 		if resp.GetNextPageToken() == "" {
 			return nil
 		}

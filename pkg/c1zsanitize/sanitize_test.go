@@ -6,7 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -515,4 +519,151 @@ func buildFixture(t *testing.T, ctx context.Context, path string) {
 
 	require.NoError(t, f.EndSync(ctx))
 	require.NoError(t, f.Close(ctx))
+}
+
+// TestSanitizeAggregatesDroppedAnnotations is the regression lock for
+// the per-annotation log spam: the sanitizer must NOT emit one log
+// line per dropped annotation. The fix accumulates the dropped count
+// on the sanitizer struct and surfaces it via the per-phase progress
+// + end-of-run summary log lines instead.
+//
+// The fixture writes N resources, each carrying one unknown
+// annotation. After Sanitize, the captured log must contain ZERO
+// lines whose message is the old per-annotation string, and at least
+// one "c1zsanitize: complete" line whose dropped_unknown_annotations_total
+// field equals N.
+func TestSanitizeAggregatesDroppedAnnotations(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	srcPath := filepath.Join(tmp, "src.c1z")
+	dstPath := filepath.Join(tmp, "dst.c1z")
+	secret := bytes32("anno-aggregate")
+
+	const n = 50
+	src := mustOpen(t, ctx, srcPath, false)
+	_, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{
+		Id:          "user",
+		DisplayName: "User",
+		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
+	}.Build()))
+
+	unknownAnno := &anypb.Any{
+		TypeUrl: "type.googleapis.com/c1.connector.v2.NotARealAnnotation",
+		Value:   []byte{0x08, 0x01},
+	}
+	for i := 0; i < n; i++ {
+		require.NoError(t, src.PutResources(ctx, v2.Resource_builder{
+			Id:          v2.ResourceId_builder{ResourceType: "user", Resource: stringID(i)}.Build(),
+			Annotations: []*anypb.Any{unknownAnno},
+		}.Build()))
+	}
+	require.NoError(t, src.EndSync(ctx))
+	require.NoError(t, src.Close(ctx))
+
+	srcRO := mustOpen(t, ctx, srcPath, true)
+	defer srcRO.Close(ctx)
+	dst := mustOpen(t, ctx, dstPath, false)
+
+	// Inject an observed logger so we can inspect every log line the
+	// sanitizer emits. ctxzap.Extract returns the context-attached
+	// logger if one is set, which is exactly what the production code
+	// path uses.
+	core, recorded := observer.New(zapcore.DebugLevel)
+	observedLogger := zap.New(core)
+	loggedCtx := ctxzap.ToContext(ctx, observedLogger)
+
+	require.NoError(t, Sanitize(loggedCtx, srcRO, dst, Options{Secret: secret}))
+	require.NoError(t, dst.Close(ctx))
+
+	// Regression: the per-annotation log MUST be gone.
+	for _, entry := range recorded.All() {
+		require.NotEqual(t, "c1zsanitize: dropping unknown annotation", entry.Message,
+			"per-annotation log fired — regression to spam behavior")
+		require.NotEqual(t, "c1zsanitize: passing unknown annotation through unchanged", entry.Message,
+			"per-annotation pass-through log fired — regression to spam behavior")
+	}
+
+	// The end-of-run summary must carry the aggregate.
+	completeEntries := recorded.FilterMessage("c1zsanitize: complete").All()
+	require.Len(t, completeEntries, 1, "exactly one complete-summary log line per Sanitize call")
+	gotTotal, ok := completeEntries[0].ContextMap()["dropped_unknown_annotations_total"]
+	require.True(t, ok, "complete summary must carry dropped_unknown_annotations_total")
+	require.Equal(t, uint64(n), gotTotal,
+		"aggregate dropped count must equal the number of unknown annotations seen")
+
+	// Per-phase progress / done lines must exist for the loops we
+	// expect: resource_types, resources, entitlements, grants, assets.
+	for _, phase := range []string{"resource_types", "resources", "entitlements", "grants", "assets"} {
+		hits := 0
+		for _, entry := range recorded.All() {
+			if entry.Message == "c1zsanitize: phase start" || entry.Message == "c1zsanitize: phase done" {
+				if v, ok := entry.ContextMap()["phase"]; ok && v == phase {
+					hits++
+				}
+			}
+		}
+		require.GreaterOrEqual(t, hits, 2, "phase %q must emit at least start + done", phase)
+	}
+}
+
+// TestSanitizeProgressIncludesTotalsWhenSourceHasStats locks the N-of-M
+// behavior: when the source implements syncStatsReader (which
+// *dotc1z.C1File does), the phase-start log MUST carry a non-zero
+// "total" field so an operator can answer "how much longer?" When the
+// fixture is empty the totals are zero, so the test seeds a single
+// resource of each kind and asserts each phase-start carries total>0.
+func TestSanitizeProgressIncludesTotalsWhenSourceHasStats(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	srcPath := filepath.Join(tmp, "src.c1z")
+	dstPath := filepath.Join(tmp, "dst.c1z")
+	secret := bytes32("progress-totals")
+
+	buildFixture(t, ctx, srcPath)
+
+	srcRO := mustOpen(t, ctx, srcPath, true)
+	defer srcRO.Close(ctx)
+	dst := mustOpen(t, ctx, dstPath, false)
+
+	core, recorded := observer.New(zapcore.DebugLevel)
+	loggedCtx := ctxzap.ToContext(ctx, zap.New(core))
+
+	require.NoError(t, Sanitize(loggedCtx, srcRO, dst, Options{Secret: secret}))
+	require.NoError(t, dst.Close(ctx))
+
+	// The grants phase is the one operators care about most (~57M
+	// rows in the motivating run). Make sure its start log carries a
+	// "total" field with a positive value.
+	for _, entry := range recorded.FilterMessage("c1zsanitize: phase start").All() {
+		phase, _ := entry.ContextMap()["phase"].(string)
+		if phase != "grants" {
+			continue
+		}
+		total, ok := entry.ContextMap()["total"]
+		require.True(t, ok, "grants phase start must carry total when source exposes Stats")
+		require.Greater(t, total, int64(0), "grants total must be > 0 against the fixture")
+		return
+	}
+	t.Fatal("no phase start log line for grants phase")
+}
+
+// stringID is a tiny helper so the aggregate-dropped test can stamp
+// unique resource ids without dragging in fmt.Sprintf.
+func stringID(i int) string {
+	const digits = "0123456789"
+	if i == 0 {
+		return "u0"
+	}
+	out := []byte{'u'}
+	buf := [16]byte{}
+	bi := len(buf)
+	for i > 0 {
+		bi--
+		buf[bi] = digits[i%10]
+		i /= 10
+	}
+	return string(append(out, buf[bi:]...))
 }

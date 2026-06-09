@@ -38,9 +38,16 @@ func typeURL(m proto.Message) string {
 }
 
 // transformAnnotations walks the slice once, dispatching each entry
-// on its Any type URL. Unknown types are dropped by default (with a
-// log line naming the URL) or passed through unchanged if the
-// operator opted in via Options.AllowUnknownAnnotations=true.
+// on its Any type URL. Unknown types are dropped by default or passed
+// through unchanged if the operator opted in via
+// Options.AllowUnknownAnnotations=true.
+//
+// The dropped / passed counts and a per-type-URL breakdown are
+// accumulated on the sanitizer struct and surfaced in the per-phase
+// progress + end-of-run summary log lines. Per-annotation logging is
+// intentionally absent: a real sanitize run iterates tens of millions
+// of records each carrying multiple annotations, so a one-line-per-
+// annotation log produced millions of entries with no progress signal.
 func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*anypb.Any {
 	if len(in) == 0 {
 		return nil
@@ -57,10 +64,12 @@ func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*
 			// could leak un-sanitized customer data. Pass-through is opt-in
 			// via Options.AllowUnknownAnnotations, for development only.
 			if s.dropUnknownAnnotations {
-				s.log.Debug("c1zsanitize: dropping unknown annotation", zap.String("type_url", a.GetTypeUrl()))
+				s.droppedUnknownAnnotations++
+				s.droppedUnknownAnnotationTypes[a.GetTypeUrl()]++
 				continue
 			}
-			s.log.Warn("c1zsanitize: passing unknown annotation through unchanged", zap.String("type_url", a.GetTypeUrl()))
+			s.passedUnknownAnnotations++
+			s.passedUnknownAnnotationTypes[a.GetTypeUrl()]++
 			out = append(out, a)
 			continue
 		}
