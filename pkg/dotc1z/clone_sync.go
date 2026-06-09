@@ -15,6 +15,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var validColumnNameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -147,11 +149,11 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string, o
 	}
 
 	if sync == nil {
-		return fmt.Errorf("clone-sync: sync not found")
+		return status.Errorf(codes.NotFound, "clone-sync: sync %s not found", syncID)
 	}
 
 	if sync.EndedAt == nil {
-		return fmt.Errorf("clone-sync: sync is not ended")
+		return status.Errorf(codes.FailedPrecondition, "clone-sync: sync %s is not ended", syncID)
 	}
 
 	qCtx, canc := context.WithCancel(ctx)
