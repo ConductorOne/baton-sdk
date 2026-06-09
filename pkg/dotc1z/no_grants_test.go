@@ -6,7 +6,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
-// ranking is full > no_grants > resources_only > partial
+// ranking is full > no_grants > resources_only > partial.
 func TestUnionSyncTypes(t *testing.T) {
 	full := connectorstore.SyncTypeFull
 	ng := connectorstore.SyncTypeNoGrants
@@ -38,7 +38,7 @@ func TestUnionSyncTypes(t *testing.T) {
 	}
 }
 
-// no_grants should prune like a partial, not stick around like a full sync
+// no_grants should prune like a partial, not stick around like a full sync.
 func TestSelectSyncsToDelete_NoGrantsIsPartial(t *testing.T) {
 	cands := []SyncRun{
 		makeCandidate("f1", connectorstore.SyncTypeFull, 0, true),

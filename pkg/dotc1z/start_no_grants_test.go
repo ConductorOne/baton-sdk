@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// no_grants is a top-level snapshot like full: no parent allowed
+// no_grants is a top-level snapshot like full: no parent allowed.
 func TestStartNewSyncNoGrants(t *testing.T) {
 	ctx := t.Context()
 
