@@ -2728,13 +2728,15 @@ func (s *syncer) loadStore(ctx context.Context) error {
 		return nil
 	}
 
-	store, err := dotc1z.NewC1ZFile(ctx, s.c1zPath, dotc1z.WithTmpDir(s.tmpDir))
+	store, err := dotc1z.NewStore(ctx, s.c1zPath, dotc1z.WithTmpDir(s.tmpDir))
 	if err != nil {
 		return err
 	}
 
-	if s.setSessionStore != nil {
-		s.setSessionStore.SetSessionStore(ctx, store)
+	// TODO: Remove when pebble supports session store.
+	sessionStore, ok := store.(sessions.SessionStore)
+	if s.setSessionStore != nil && ok {
+		s.setSessionStore.SetSessionStore(ctx, sessionStore)
 	}
 	s.store = store
 

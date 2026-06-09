@@ -20,7 +20,7 @@ func TestNewStoreConvertsExistingSQLiteToPebble(t *testing.T) {
 	dir := t.TempDir()
 	c1zPath := filepath.Join(dir, "source.c1z")
 
-	src, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithTmpDir(dir))
+	src, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithTmpDir(dir), dotc1z.WithEngine(dotc1z.EngineSQLite))
 	require.NoError(t, err)
 	require.NoError(t, seedFinishedSQLiteSync(ctx, t, src))
 	require.NoError(t, src.Close(ctx))
@@ -48,13 +48,13 @@ func TestNewStoreConvertsExistingSQLiteToPebble(t *testing.T) {
 	require.Len(t, rtResp.GetList(), 2)
 }
 
-func TestNewC1ZFileRejectsPebbleEngineOnExistingSQLite(t *testing.T) {
+func TestNewStoreRejectsPebbleEngineOnExistingSQLite(t *testing.T) {
 	ctx := context.Background()
 
 	dir := t.TempDir()
 	c1zPath := filepath.Join(dir, "source.c1z")
 
-	src, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithTmpDir(dir))
+	src, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithTmpDir(dir), dotc1z.WithEngine(dotc1z.EngineSQLite))
 	require.NoError(t, err)
 	require.NoError(t, seedFinishedSQLiteSync(ctx, t, src))
 	require.NoError(t, src.Close(ctx))
@@ -67,7 +67,7 @@ func TestNewC1ZFileRejectsPebbleEngineOnExistingSQLite(t *testing.T) {
 
 	format, err := dotc1z.ReadHeaderFormat(mustOpenFile(t, c1zPath))
 	require.NoError(t, err)
-	require.Equal(t, dotc1z.C1ZFormatV3, format, "NewC1File conversion should land before NewC1ZFile returns")
+	require.Equal(t, dotc1z.C1ZFormatV1, format, "rejected NewStore must leave the v1 file untouched")
 
 	store, err := dotc1z.NewStore(ctx, c1zPath,
 		dotc1z.WithEngine(dotc1z.EnginePebble),
@@ -87,14 +87,20 @@ func TestNewC1ZFileDoesNotConvertNewSQLiteFile(t *testing.T) {
 	dir := t.TempDir()
 	c1zPath := filepath.Join(dir, "new.c1z")
 
-	f, err := dotc1z.NewC1ZFile(ctx, c1zPath,
+	_, err := dotc1z.NewC1ZFile(ctx, c1zPath,
 		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithTmpDir(dir),
+	)
+	require.Error(t, err)
+
+	f, err := dotc1z.NewC1ZFile(ctx, c1zPath,
+		dotc1z.WithEngine(dotc1z.EngineSQLite),
 		dotc1z.WithTmpDir(dir),
 	)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, f.Close(ctx)) }()
 
-	require.Equal(t, string(dotc1z.EnginePebble), f.Metadata().Engine)
+	require.Equal(t, string(dotc1z.EngineSQLite), f.Metadata().Engine)
 }
 
 func TestNewC1ZFileDoesNotConvertExistingSQLiteWhenEngineSQLite(t *testing.T) {
@@ -103,12 +109,12 @@ func TestNewC1ZFileDoesNotConvertExistingSQLiteWhenEngineSQLite(t *testing.T) {
 	dir := t.TempDir()
 	c1zPath := filepath.Join(dir, "source.c1z")
 
-	src, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithTmpDir(dir))
+	src, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithTmpDir(dir), dotc1z.WithEngine(dotc1z.EngineSQLite))
 	require.NoError(t, err)
 	require.NoError(t, seedFinishedSQLiteSync(ctx, t, src))
 	require.NoError(t, src.Close(ctx))
 
-	f, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithTmpDir(dir))
+	f, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithTmpDir(dir))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, f.Close(ctx)) }()
 
@@ -124,12 +130,12 @@ func TestNewC1ZFileReadOnlyDoesNotConvertExistingSQLite(t *testing.T) {
 	dir := t.TempDir()
 	c1zPath := filepath.Join(dir, "source.c1z")
 
-	src, err := dotc1z.NewC1ZFile(ctx, c1zPath, dotc1z.WithTmpDir(dir))
+	src, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithTmpDir(dir), dotc1z.WithEngine(dotc1z.EngineSQLite))
 	require.NoError(t, err)
 	require.NoError(t, seedFinishedSQLiteSync(ctx, t, src))
 	require.NoError(t, src.Close(ctx))
 
-	f, err := dotc1z.NewC1ZFile(ctx, c1zPath,
+	f, err := dotc1z.NewStore(ctx, c1zPath,
 		dotc1z.WithEngine(dotc1z.EnginePebble),
 		dotc1z.WithReadOnly(true),
 		dotc1z.WithTmpDir(dir),

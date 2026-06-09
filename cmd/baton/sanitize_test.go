@@ -24,7 +24,7 @@ func TestSanitizeCommand(t *testing.T) {
 	srcPath := filepath.Join(tmp, "src.c1z")
 	outPath := filepath.Join(tmp, "out.c1z")
 
-	src, err := dotc1z.NewC1ZFile(ctx, srcPath)
+	src, err := dotc1z.NewStore(ctx, srcPath)
 	require.NoError(t, err)
 	_, err = src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestSanitizeCommand(t *testing.T) {
 	require.FileExists(t, outPath)
 	require.FileExists(t, outPath+".secret", "a fresh secret should be written next to --out")
 
-	out, err := dotc1z.NewC1ZFile(ctx, outPath, dotc1z.WithReadOnly(true))
+	out, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer out.Close(ctx)
 

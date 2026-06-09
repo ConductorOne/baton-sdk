@@ -209,7 +209,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		// WithC1ZOptions cannot mislabel the artifact.
 		c.compactedC1z, err = dotc1z.NewStore(ctx, destFilePath, append(opts, dotc1z.WithEngine(dotc1z.EnginePebble))...)
 	} else {
-		c.compactedC1z, err = dotc1z.NewC1ZFile(ctx, destFilePath, opts...)
+		c.compactedC1z, err = dotc1z.NewStore(ctx, destFilePath, opts...)
 	}
 	if err != nil {
 		l.Error("doOneCompaction failed: could not create c1z file", zap.Error(err))
@@ -383,7 +383,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) er
 		zap.String("tmp_dir", c.tmpDir),
 	)
 
-	applyFile, err := dotc1z.NewC1ZFile(
+	applyFile, err := dotc1z.NewStore(
 		ctx,
 		cs.FilePath,
 		dotc1z.WithTmpDir(c.tmpDir),

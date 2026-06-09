@@ -29,7 +29,7 @@ func TestCleanupContextDeadlineExceeded(t *testing.T) {
 
 	testFilePath := filepath.Join(tmpDir, "test.c1z")
 
-	f, err := dotc1z.NewC1ZFile(ctx, testFilePath)
+	f, err := dotc1z.NewStore(ctx, testFilePath)
 	require.NoError(t, err)
 
 	// Create and end a bunch of syncs. We should delete all but 2 of them in Cleanup().
@@ -65,10 +65,13 @@ func TestCleanupContextDeadlineExceeded(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check that we only have two syncs left.
-	syncs, _, err := f.ListSyncRuns(ctx, "", 100)
+	syncsResp, err := f.ListSyncs(ctx, reader_v2.SyncsReaderServiceListSyncsRequest_builder{
+		PageSize: 100,
+	}.Build())
 	require.NoError(t, err)
+	syncs := syncsResp.GetSyncs()
 	for _, sync := range syncs {
-		t.Logf("sync: %s, ended at: %s\n", sync.ID, sync.EndedAt.Format(time.RFC3339))
+		t.Logf("sync: %s, ended at: %s\n", sync.GetId(), sync.GetEndedAt().AsTime().Format(time.RFC3339))
 	}
 	require.Len(t, syncs, 2, "cleanup should keep 2 syncs")
 
