@@ -44,6 +44,7 @@ func latestFinishedCompactableSync(ctx context.Context, f *dotc1z.C1File) (*read
 	// We want the latest finished "snapshot-like" sync.
 	candidates := []connectorstore.SyncType{
 		connectorstore.SyncTypeFull,
+		connectorstore.SyncTypeNoGrants,
 		connectorstore.SyncTypeResourcesOnly,
 		connectorstore.SyncTypePartial,
 	}

@@ -150,6 +150,8 @@ func unionSyncTypes(a, b connectorstore.SyncType) connectorstore.SyncType {
 	switch {
 	case a == connectorstore.SyncTypeFull || b == connectorstore.SyncTypeFull:
 		return connectorstore.SyncTypeFull
+	case a == connectorstore.SyncTypeNoGrants || b == connectorstore.SyncTypeNoGrants:
+		return connectorstore.SyncTypeNoGrants
 	case a == connectorstore.SyncTypeResourcesOnly || b == connectorstore.SyncTypeResourcesOnly:
 		return connectorstore.SyncTypeResourcesOnly
 	default:
