@@ -45,7 +45,14 @@ func newSSTBuilder(path string) (*sstBuilder, error) {
 	// engine running the same or newer SDK release.
 	w := sstable.NewWriter(writable, sstable.WriterOptions{
 		TableFormat: enginepkg.SDKPebbleFormat.MaxTableFormat(),
-		BlockSize:   4 << 10,
+		// 32 KiB blocks (was 4 KiB) cut per-block index/framing CPU when building
+		// compaction SSTs over millions of grants. BenchmarkCompactionFlow at 2M
+		// grants: -8.7% wall-time for +13% on-disk. 32K is the speed/space knee —
+		// 64K/128K buy a few % more speed for sharply more storage (ZFS lz4
+		// compresses larger Snappy blocks less, so on-disk grows fast). These SSTs
+		// are write-once and read sequentially during IngestAndExcise, so the
+		// larger block costs nothing on the read side. See OPS-1875.
+		BlockSize: 32 << 10,
 	})
 	return &sstBuilder{
 		w:    w,
