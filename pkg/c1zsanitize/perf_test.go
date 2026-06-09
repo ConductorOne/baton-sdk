@@ -39,6 +39,9 @@ func newTestSanitizer(secret []byte) *sanitizer {
 		syncIDMap:              map[string]string{},
 		knownResourceTypes:     map[string]struct{}{},
 		warnedUndeclaredTypes:  map[string]struct{}{},
+		droppedAnnotations:     map[string]uint64{},
+		passedAnnotations:      map[string]uint64{},
+		failedAnnotations:      map[string]uint64{},
 	}
 }
 
@@ -48,7 +51,7 @@ func mustUnpack[T proto.Message](t *testing.T, a *anypb.Any, dst T) T {
 	return dst
 }
 
-// TestGraphAnnotationHandlers is the C-1 acceptance test: the non-trait
+// TestGraphAnnotationHandlers checks that the non-trait
 // graph/topology annotations must be PRESERVED-and-SANITIZED, never dropped.
 func TestGraphAnnotationHandlers(t *testing.T) {
 	s := newTestSanitizer(bytes32("graph-annos"))
@@ -128,7 +131,7 @@ func TestGraphAnnotationDeterminism(t *testing.T) {
 	}
 }
 
-// TestGrantSubCacheEquivalence (P0-1): the memoized embedded-transform path
+// TestGrantSubCacheEquivalence: the memoized embedded-transform path
 // must produce output identical to the uncached path for grants that share
 // embedded entitlements/principals.
 func TestGrantSubCacheEquivalence(t *testing.T) {
@@ -186,7 +189,7 @@ func TestGrantSubCacheEquivalence(t *testing.T) {
 
 // benchGrants builds n grants drawn from e distinct entitlements and p
 // distinct principals, each carrying trait + graph annotations — the shape
-// the memo cache (P0-1) targets. Grants are emitted grouped by entitlement
+// the memo cache targets. Grants are emitted grouped by entitlement
 // (as dotc1z does), so the cache sees long hit runs.
 func benchGrants(n, e, p int) []*v2.Grant {
 	out := make([]*v2.Grant, 0, n)
@@ -253,7 +256,7 @@ func BenchmarkTransformGrant(b *testing.B) {
 	})
 }
 
-// TestTransformResourceTypeDoesNotMutateKnownSet is the C-2/B1 unit guard:
+// TestTransformResourceTypeDoesNotMutateKnownSet is the order-independence guard:
 // transformResourceType must be pure w.r.t. knownResourceTypes. Registration
 // happens only in copyResourceTypes' buffering pre-pass, so an embedded
 // resource type reached during the entitlements phase (GrantableTo ->

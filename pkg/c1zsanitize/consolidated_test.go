@@ -12,7 +12,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
-// T1 — determinism golden test: sanitizing the same source twice with the
+// Determinism golden test: sanitizing the same source twice with the
 // same secret + anchor produces record-identical output (compared via reader).
 func TestSanitizeDeterministicAcrossRuns(t *testing.T) {
 	ctx := context.Background()
@@ -45,7 +45,7 @@ func TestSanitizeDeterministicAcrossRuns(t *testing.T) {
 	require.Len(t, b.grants, len(a.grants))
 }
 
-// T3 — B1 regression: a resource-type row carries a ChildResourceType
+// Forward-reference regression: a resource-type row carries a ChildResourceType
 // referencing a type declared LATER in the listing. With the buffering
 // pre-pass the token resolves against the full known set and is preserved
 // verbatim (matching the referenced type's own id); the row-by-row bug would
@@ -106,7 +106,7 @@ func TestSanitizeChildResourceTypeForwardReference(t *testing.T) {
 		"forward-referenced declared type must be preserved verbatim, not HMAC'd (B1)")
 }
 
-// T4 — B2 regression: two principals with empty resource ids but different
+// Cache-key regression: two principals with empty resource ids but different
 // display names must not conflate through the principal cache.
 func TestCachedPrincipalEmptyIDNoConflation(t *testing.T) {
 	s := newTestSanitizer(bytes32("b2-empty-id"))

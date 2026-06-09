@@ -1,7 +1,6 @@
 package c1zsanitize
 
 import (
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
@@ -47,10 +46,13 @@ func typeURL(m proto.Message) string {
 	return a.GetTypeUrl()
 }
 
-// transformAnnotations walks the slice once, dispatching each entry
-// on its Any type URL. Unknown types are dropped by default (with a
-// log line naming the URL) or passed through unchanged if the
-// operator opted in via Options.AllowUnknownAnnotations=true.
+// transformAnnotations walks the slice once, dispatching each entry on its
+// Any type URL. Unknown types are dropped by default (the fail-closed posture)
+// or passed through unchanged if the operator opted in via
+// Options.AllowUnknownAnnotations=true. Per-entry outcomes are accumulated into
+// per-type-URL counters rather than logged — Sanitize emits one summary line at
+// the end of the run (see logDropSummary), since these paths fire once per
+// annotation, i.e. tens of millions of times on a large file.
 func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*anypb.Any {
 	if len(in) == 0 {
 		return nil
@@ -67,17 +69,16 @@ func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*
 			// could leak un-sanitized customer data. Pass-through is opt-in
 			// via Options.AllowUnknownAnnotations, for development only.
 			if s.dropUnknownAnnotations {
-				s.log.Debug("c1zsanitize: dropping unknown annotation", zap.String("type_url", a.GetTypeUrl()))
+				s.droppedAnnotations[a.GetTypeUrl()]++
 				continue
 			}
-			s.log.Warn("c1zsanitize: passing unknown annotation through unchanged", zap.String("type_url", a.GetTypeUrl()))
+			s.passedAnnotations[a.GetTypeUrl()]++
 			out = append(out, a)
 			continue
 		}
 		msg, err := a.UnmarshalNew()
 		if err != nil {
-			s.log.Warn("c1zsanitize: failed to unmarshal annotation; dropping",
-				zap.String("type_url", a.GetTypeUrl()), zap.Error(err))
+			s.failedAnnotations[a.GetTypeUrl()]++
 			continue
 		}
 		sanitized := handler(s, msg, refs)
@@ -86,8 +87,7 @@ func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*
 		}
 		repacked, err := anypb.New(sanitized)
 		if err != nil {
-			s.log.Warn("c1zsanitize: failed to repack annotation; dropping",
-				zap.String("type_url", a.GetTypeUrl()), zap.Error(err))
+			s.failedAnnotations[a.GetTypeUrl()]++
 			continue
 		}
 		out = append(out, repacked)

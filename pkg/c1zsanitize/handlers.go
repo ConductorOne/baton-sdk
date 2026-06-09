@@ -23,7 +23,7 @@ func (s *sanitizer) sanitizeAssetRef(in *v2.AssetRef, refs *assetRefSet) *v2.Ass
 // never preserved; the annotation/field survives so graph consumers still see
 // "this record had a link". Uses the reserved .example TLD — the single
 // placeholder-domain convention across this package (matching the dom-*.example
-// email sentinels). (M3).
+// email sentinels).
 const redactedURL = "https://redacted.example"
 
 // sanitizeResourceTypeToken rewrites a bare resource-type token the same way
@@ -155,7 +155,7 @@ func (s *sanitizer) sanitizeValue(v *structpb.Value) *structpb.Value {
 
 func handleUserTrait(s *sanitizer, msg proto.Message, refs *assetRefSet) proto.Message {
 	in := msg.(*v2.UserTrait)
-	idFn := s.id // hoist the method value out of the per-email loop (M2)
+	idFn := s.id // hoist the method value out of the per-email loop
 	emails := make([]*v2.UserTrait_Email, 0, len(in.GetEmails()))
 	for _, e := range in.GetEmails() {
 		emails = append(emails, v2.UserTrait_Email_builder{

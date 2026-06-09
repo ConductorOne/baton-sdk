@@ -279,7 +279,25 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		opt(c1File)
 	}
 
-	// Bulk load implies skip-cleanup (H4): Cleanup's old-sync DELETEs would
+	// A read-only open never builds indexes (it discards everything on
+	// close), so bulk load is meaningless there — and would otherwise drop
+	// indexes on a fresh empty open for no reason. Normalize the nonsense
+	// combination to off.
+	if c1File.readOnly {
+		c1File.bulkLoad = false
+	}
+
+	// The deferred-index optimization is a SQLite-engine concern: it drops and
+	// rebuilds the sqlite secondary indexes around the load. The pebble (v3)
+	// engine manages its own storage and does not use those indexes, so bulk
+	// load does not apply there. Make the combination an explicit, logged
+	// no-op rather than leaving it silently unspecified.
+	if c1File.bulkLoad && c1File.engine == EnginePebble {
+		l.Info("new-c1-file: bulk load ignored for the pebble engine; the deferred-index optimization applies only to the sqlite engine")
+		c1File.bulkLoad = false
+	}
+
+	// Bulk load implies skip-cleanup: Cleanup's old-sync DELETEs would
 	// run while the secondary indexes they rely on are dropped, turning each
 	// delete into a full scan. A net-new bulk-load destination has no old
 	// syncs to clean anyway. Callers should also pass WithSkipVacuum(true) —
@@ -603,7 +621,7 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 	// (disk-full during the index sort) is transient. Preserve it and surface
 	// the error so an operator can recover; the path is logged at Error inside
 	// buildDeferredIndexes. We leave c.closed=false and c.rawDb open so the
-	// state stays consistent for a retried Close. (B4)
+	// state stays consistent for a retried Close.
 	if c.bulkLoad {
 		if err := c.buildDeferredIndexes(ctx); err != nil {
 			return err
@@ -962,7 +980,7 @@ func (c *C1File) InitTables(ctx context.Context) (bool, error) {
 		// canonical Schema() DDL so the final index set is byte-identical to
 		// the non-bulk path.
 		//
-		// Safety guard (B3): bulkLoad's contract is a net-new destination, but
+		// Safety guard: bulkLoad's contract is a net-new destination, but
 		// nothing stops a caller setting it on a reopened, populated file (a
 		// resumed sanitize output, or — since this SDK is linked everywhere —
 		// any production sync file). Dropping an index on a table with millions
@@ -972,7 +990,7 @@ func (c *C1File) InitTables(ctx context.Context) (bool, error) {
 		// live and degrade to normal mode for that table, with a warning.
 		if c.bulkLoad && len(deferrable) > 0 {
 			var nonEmpty bool
-			row := c.db.QueryRowContext(ctx, fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s LIMIT 1)", t.Name()))
+			row := c.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM "%s" LIMIT 1)`, t.Name()))
 			if err := row.Scan(&nonEmpty); err != nil {
 				return false, fmt.Errorf("c1file-init-tables: error checking emptiness of %s: %w", t.Name(), err)
 			}
@@ -981,7 +999,7 @@ func (c *C1File) InitTables(ctx context.Context) (bool, error) {
 					zap.String("table_name", t.Name()))
 			} else {
 				for _, idxName := range deferrable {
-					// Identifier comes from our own DDL; quote it for hygiene (M5).
+					// Identifier comes from our own DDL; quote it for hygiene.
 					if _, derr := c.db.ExecContext(ctx, fmt.Sprintf(`DROP INDEX IF EXISTS "%s"`, idxName)); derr != nil {
 						return false, fmt.Errorf("c1file-init-tables: error deferring index %s on %s: %w", idxName, t.Name(), derr)
 					}
@@ -1016,12 +1034,12 @@ func (c *C1File) InitTables(ctx context.Context) (bool, error) {
 // re-run. (The caller snapshots this set BEFORE migrations, so partial
 // indexes a migration adds afterwards are never in it and stay live.)
 //
-// V3: this assumes PRAGMA index_list's 5-column form (seq, name, unique,
-// origin, partial), which the modernc-pinned SQLite emits. All five columns
-// must be scanned even though `partial` is unused; a driver change to a
-// different column set will fail the Scan loudly here and in TestBulkLoad*.
+// This assumes PRAGMA index_list's 5-column form (seq, name, unique, origin,
+// partial), which the modernc-pinned SQLite emits. All five columns must be
+// scanned even though `partial` is unused; a driver change to a different
+// column set will fail the Scan loudly here and in the bulk-load tests.
 func nonUniqueSecondaryIndexNames(ctx context.Context, db *goqu.Database, tableName string) ([]string, error) {
-	rows, err := db.QueryContext(ctx, fmt.Sprintf("PRAGMA index_list(%s)", tableName))
+	rows, err := db.QueryContext(ctx, fmt.Sprintf(`PRAGMA index_list("%s")`, tableName))
 	if err != nil {
 		return nil, err
 	}
@@ -1053,8 +1071,8 @@ func nonUniqueSecondaryIndexNames(ctx context.Context, db *goqu.Database, tableN
 // recreated. Using the same DDL as the non-bulk path guarantees the final
 // index set — names, columns, uniqueness — is byte-identical.
 //
-// The rebuild runs on a context DETACHED from the caller (B4): a CREATE INDEX
-// over a 50M+-row table is tens of minutes and is not safe to abort on caller
+// The rebuild runs on a context DETACHED from the caller: a CREATE INDEX over
+// a 50M+-row table is tens of minutes and is not safe to abort on caller
 // cancellation. It gets its own generous bound (BulkLoadIndexTimeout) sized
 // for index builds, not the much shorter FinalizeTimeout (checkpoint+save).
 //
@@ -1067,7 +1085,7 @@ func nonUniqueSecondaryIndexNames(ctx context.Context, db *goqu.Database, tableN
 // event of Close. CREATE INDEX sorts through SQLite temp storage, so the
 // rebuild needs temp space on the order of the index size (SQLITE_TMPDIR /
 // temp_store) plus, under journal_mode=WAL, WAL growth of roughly the index
-// size before checkpoint; size cache_size accordingly. (H5).
+// size before checkpoint; size cache_size accordingly.
 func (c *C1File) buildDeferredIndexes(ctx context.Context) error {
 	if len(c.deferredIndexTables) == 0 {
 		return nil

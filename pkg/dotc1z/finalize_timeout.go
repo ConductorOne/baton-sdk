@@ -19,14 +19,7 @@ const DefaultFinalizeTimeout = 1 * time.Hour
 var finalizeTimeout = parseFinalizeTimeout(os.Getenv("BATON_C1Z_FINALIZE_TIMEOUT"))
 
 func parseFinalizeTimeout(v string) time.Duration {
-	if v == "" {
-		return DefaultFinalizeTimeout
-	}
-	secs, err := strconv.ParseInt(v, 10, 64)
-	if err != nil || secs <= 0 {
-		return DefaultFinalizeTimeout
-	}
-	return time.Duration(secs) * time.Second
+	return parseTimeoutSeconds(v, DefaultFinalizeTimeout)
 }
 
 // FinalizeTimeout returns the bound for the detached context that wraps
@@ -45,10 +38,13 @@ const DefaultBulkLoadIndexTimeout = 6 * time.Hour
 
 // bulkLoadIndexTimeout is resolved once from BATON_C1Z_BULKLOAD_INDEX_TIMEOUT
 // (seconds), falling back to the default when unset or invalid.
-var bulkLoadIndexTimeout = parseFinalizeTimeoutWithDefault(
+var bulkLoadIndexTimeout = parseTimeoutSeconds(
 	os.Getenv("BATON_C1Z_BULKLOAD_INDEX_TIMEOUT"), DefaultBulkLoadIndexTimeout)
 
-func parseFinalizeTimeoutWithDefault(v string, def time.Duration) time.Duration {
+// parseTimeoutSeconds parses a whole-seconds duration string, returning def
+// when the value is empty, non-numeric, or non-positive. Shared by the
+// finalize and bulk-load-index timeout knobs.
+func parseTimeoutSeconds(v string, def time.Duration) time.Duration {
 	if v == "" {
 		return def
 	}

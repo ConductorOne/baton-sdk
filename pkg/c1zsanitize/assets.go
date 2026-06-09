@@ -7,8 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"go.uber.org/zap"
-
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
@@ -115,8 +113,9 @@ func (s *sanitizer) copyAssets(
 			// Asset referenced from an annotation but missing from
 			// the asset table. Skip — we don't fabricate placeholder
 			// rows because the cross-reference invariant treats it
-			// as a known dangling pointer in the source.
-			s.log.Debug("c1zsanitize: asset ref not found in source", zap.String("asset_id", srcID), zap.Error(err))
+			// as a known dangling pointer in the source. Counted (not
+			// logged per item) and reported once via logDropSummary.
+			s.missingAssets++
 			continue
 		}
 		if err := closeIfCloser(r); err != nil {

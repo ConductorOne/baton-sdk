@@ -75,8 +75,8 @@ func (s *sanitizer) copyResourceTypes(
 	// ever consults it, so a row that references a type declared later in the
 	// listing — or on a later page — resolves against the full set instead of
 	// HMAC-ing a not-yet-seen token. transformResourceType is therefore pure
-	// w.r.t. the set (it never writes it), which is order-independent by
-	// construction. See B1 / C-2.
+	// w.r.t. the set (it never writes it), so its output does not depend on
+	// the order rows arrive in.
 	var rows []*v2.ResourceType
 	readDur := time.Duration(0)
 	pageToken := ""
@@ -110,7 +110,7 @@ func (s *sanitizer) copyResourceTypes(
 		out = append(out, s.transformResourceType(rt, refs))
 	}
 	xformDur := time.Since(xformStart)
-	// Sort by output id for destination unique-index locality (H2).
+	// Sort by output id for destination unique-index locality.
 	sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
 	putStart := time.Now()
 	if len(out) > 0 {
@@ -259,7 +259,7 @@ func (s *sanitizer) copyGrants(
 }
 
 // sortByResourceID orders resources by output (type, resource) id for
-// destination unique-index locality (H2).
+// destination unique-index locality.
 func sortByResourceID(rs []*v2.Resource) {
 	sort.Slice(rs, func(i, j int) bool {
 		a, b := rs[i].GetId(), rs[j].GetId()
@@ -283,7 +283,7 @@ func (s *sanitizer) transformResourceType(in *v2.ResourceType, refs *assetRefSet
 	// complete and read-only by the time any transform consults it. This holds
 	// whether the call is for a declared type or an embedded one (an
 	// entitlement's GrantableTo, a grant's slice), which is what makes
-	// transformID's known-type decision order-independent. See B1 / C-2.
+	// transformID's known-type decision order-independent.
 	annos := s.transformAnnotations(in.GetAnnotations(), refs)
 	return v2.ResourceType_builder{
 		Id:                in.GetId(),
@@ -323,11 +323,10 @@ func (s *sanitizer) transformResourceID(in *v2.ResourceId) *v2.ResourceId {
 	// resource_type is preserved verbatim here (it is connector-defined
 	// schema). transformID, by contrast, HMACs a type token that is NOT a
 	// declared resource type. So an UNDECLARED type token both survives in
-	// cleartext in this field and gets HMAC'd inside composite ids — a
-	// pre-existing divergence the explicit registration makes observable.
-	// Behavior is unchanged; emit a once-per-token tripwire so a connector
-	// that emits undeclared type tokens shows up rather than silently
-	// producing mismatched representations. (M4)
+	// cleartext in this field and gets HMAC'd inside composite ids. Behavior
+	// is unchanged; emit a once-per-token tripwire so a connector that emits
+	// undeclared type tokens shows up rather than silently producing
+	// mismatched representations.
 	s.warnUndeclaredResourceType(in.GetResourceType())
 	return v2.ResourceId_builder{
 		ResourceType:  in.GetResourceType(),
@@ -337,8 +336,9 @@ func (s *sanitizer) transformResourceID(in *v2.ResourceId) *v2.ResourceId {
 }
 
 // warnUndeclaredResourceType logs once per resource-type token that appears in
-// a resource id but was never declared in copyResourceTypes. Single-threaded
-// (the transform stage is sequential today); revisit if P1-3 parallelizes it.
+// a resource id but was never declared in copyResourceTypes. Not safe for
+// concurrent callers — the transform stage is sequential today; revisit the
+// dedup map if it is ever parallelized.
 func (s *sanitizer) warnUndeclaredResourceType(rt string) {
 	if rt == "" || s.isKnownResourceType(rt) {
 		return
@@ -481,7 +481,7 @@ func (s *sanitizer) cachedPrincipal(in *v2.Resource, refs *assetRefSet, cache *g
 	// resource id has nothing that uniquely identifies it, so it must not be
 	// cached — otherwise two distinct empty-resource principals with different
 	// display names would conflate on a non-empty-but-meaningless key like
-	// "user\x00" and the second grant would inherit the first's transform. See B2.
+	// "user\x00" and the second grant would inherit the first's transform.
 	key := ""
 	if id := in.GetId(); id != nil && id.GetResource() != "" {
 		key = id.GetResourceType() + "\x00" + id.GetResource()

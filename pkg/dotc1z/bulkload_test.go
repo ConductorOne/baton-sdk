@@ -63,7 +63,7 @@ func tmpC1ZPath(t *testing.T) string {
 	return filepath.Join(t.TempDir(), "test.c1z")
 }
 
-// T5 + T9: bulk-load output has byte-identical index sets and row counts to a
+// Bulk-load output has byte-identical index sets and row counts to a
 // normal-mode control, and InitTables is idempotent on re-run.
 func TestBulkLoadIndexParity(t *testing.T) {
 	ctx := context.Background()
@@ -103,14 +103,14 @@ func TestBulkLoadIndexParity(t *testing.T) {
 		require.Equal(t, nc, bc, "row count mismatch for %s", td.Name())
 	}
 
-	// V1/T9: InitTables is idempotent — re-running it must not error and must
+	// InitTables is idempotent — re-running it must not error and must
 	// leave the index set unchanged (all DDL is IF NOT EXISTS).
 	_, err = bulk.InitTables(ctx)
 	require.NoError(t, err)
 	require.Equal(t, normalIdx, indexNamesByTable(ctx, t, bulk), "InitTables re-run must be a no-op on indexes")
 }
 
-// T6 (B3): opening a POPULATED db with bulkLoad must NOT drop indexes — the
+// Opening a POPULATED db with bulkLoad must NOT drop indexes — the
 // per-table emptiness guard keeps them live.
 func TestBulkLoadPopulatedTableKeepsIndexes(t *testing.T) {
 	ctx := context.Background()
@@ -139,7 +139,7 @@ func TestBulkLoadPopulatedTableKeepsIndexes(t *testing.T) {
 		"no tables should be marked for deferral when the db is non-empty (B3)")
 }
 
-// T7 (B4): the deferred-index rebuild runs on a detached context, so Close
+// The deferred-index rebuild runs on a detached context, so Close
 // completes even when the caller's context is already canceled.
 func TestBulkLoadRebuildSurvivesCanceledContext(t *testing.T) {
 	ctx := context.Background()
@@ -171,7 +171,7 @@ func TestBulkLoadRebuildSurvivesCanceledContext(t *testing.T) {
 		"rebuilt index set must match the control after a canceled-context Close")
 }
 
-// T8 (B4): if the deferred-index rebuild fails, the working database is
+// If the deferred-index rebuild fails, the working database is
 // PRESERVED (not cleaned up) so the just-loaded data is recoverable.
 func TestBulkLoadRebuildFailurePreservesDB(t *testing.T) {
 	ctx := context.Background()

@@ -127,6 +127,9 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		knownResourceTypes:     map[string]struct{}{},
 		verifyGrantCache:       opts.VerifyGrantCache,
 		warnedUndeclaredTypes:  map[string]struct{}{},
+		droppedAnnotations:     map[string]uint64{},
+		passedAnnotations:      map[string]uint64{},
+		failedAnnotations:      map[string]uint64{},
 	}
 
 	for _, sr := range srcSyncs {
@@ -138,6 +141,11 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 	if err := s.preserveSyncGraphMetadata(ctx, src, dst); err != nil {
 		return fmt.Errorf("c1zsanitize: preserve sync graph metadata: %w", err)
 	}
+
+	// One structured summary line per run instead of a log line per dropped
+	// annotation / missing asset (which fired tens of millions of times on
+	// whale-scale files). Counters are accumulated cheaply during the walk.
+	s.logDropSummary()
 	return nil
 }
 
@@ -158,9 +166,32 @@ type sanitizer struct {
 	// there is no in-flight phase flag — the set is read-only by construction.
 	verifyGrantCache bool
 
-	// warnedUndeclaredTypes dedups the M4 tripwire so each undeclared
-	// resource-type token is logged at most once per run.
+	// warnedUndeclaredTypes dedups the undeclared-resource-type warning so
+	// each such token is logged at most once per run.
 	warnedUndeclaredTypes map[string]struct{}
+
+	// Per-run annotation/asset drop counters. transformAnnotations and
+	// copyAssets increment these instead of logging per item; logDropSummary
+	// emits a single structured line at the end of the run. droppedAnnotations
+	// and passedAnnotations are keyed by Any type URL; failedAnnotations counts
+	// unmarshal/repack failures by type URL; missingAssets counts asset refs
+	// not found in the source.
+	droppedAnnotations map[string]uint64
+	passedAnnotations  map[string]uint64
+	failedAnnotations  map[string]uint64
+	missingAssets      uint64
+}
+
+// logDropSummary emits exactly one structured line per run summarizing the
+// annotations dropped/passed/failed (keyed by type URL) and the missing-asset
+// count, replacing the former per-item log lines.
+func (s *sanitizer) logDropSummary() {
+	s.log.Info("c1zsanitize: run summary",
+		zap.Any("dropped_unknown_annotations", s.droppedAnnotations),
+		zap.Any("passed_unknown_annotations", s.passedAnnotations),
+		zap.Any("failed_annotations", s.failedAnnotations),
+		zap.Uint64("missing_assets", s.missingAssets),
+	)
 }
 
 // id is the per-sanitizer hot path. SanitizeID stays as the
@@ -208,7 +239,7 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 
 	// Per-sync memo cache for the embedded Entitlement/Principal transforms
 	// in the grant loop. Reset each sync so memory is bounded by one sync's
-	// distinct entitlements, not the whole file. See P0-1 in the perf plan.
+	// distinct entitlements, not the whole file.
 	grantCache := newGrantSubCache(s.verifyGrantCache)
 
 	if err := s.copyResourceTypes(ctx, src, dst, srcSyncID, assetRefs); err != nil {
