@@ -242,7 +242,15 @@ func (s *sanitizer) transformResourceType(in *v2.ResourceType, refs *assetRefSet
 	if in == nil {
 		return nil
 	}
-	if id := in.GetId(); id != "" {
+	// Record declared resource types ONLY during the copyResourceTypes phase
+	// (inResourceTypesPhase). transformResourceType is also reached for
+	// embedded types — an entitlement's GrantableTo, a grant's slice — and
+	// those must NOT grow the set: otherwise transformID's known-type
+	// decision (preserve verbatim vs. HMAC) would flip for the same token
+	// depending on whether it was seen before or after its embedding record,
+	// making output order-dependent. Gating here keeps the set read-only
+	// after copyResourceTypes, so the decision is order-independent. See C-2.
+	if id := in.GetId(); id != "" && s.inResourceTypesPhase {
 		s.knownResourceTypes[id] = struct{}{}
 	}
 	annos := s.transformAnnotations(in.GetAnnotations(), refs)
@@ -354,10 +362,16 @@ const maxCachedPrincipals = 1_000_000
 // proto.Equal cross-check against a fresh transform for the first
 // verifySampleLimit hits — cheap insurance, off by default.
 type grantSubCache struct {
+	// SHARED: the cached *v2.Entitlement / *v2.Resource values below are
+	// referenced by multiple output grants. Never mutate one after Build().
+	// Mutation after caching = cross-grant corruption.
 	entitlements map[string]*v2.Entitlement // key: SOURCE entitlement id
 	principals   map[string]*v2.Resource    // key: srcType + "\x00" + srcResource
 	verify       bool
-	verifySeen   int
+	// Independent sample counters so the entitlement guard cannot exhaust
+	// the principal guard's budget (and vice versa).
+	verifySeenEntitlements int
+	verifySeenPrincipals   int
 }
 
 const verifySampleLimit = 1000
@@ -385,11 +399,14 @@ func (s *sanitizer) cachedEntitlement(in *v2.Entitlement, refs *assetRefSet, cac
 	if key != "" {
 		if got, ok := cache.entitlements[key]; ok {
 			s.verifyCachedEntitlement(in, refs, got, cache)
+			// SHARED: returned to many output grants — never mutate after Build().
 			return got
 		}
 	}
 	out := s.transformEntitlement(in, refs)
 	if key != "" {
+		// SHARED once stored: referenced by every later grant with this id.
+		// Never mutate after Build() — mutation = cross-grant corruption.
 		cache.entitlements[key] = out
 	}
 	return out
@@ -410,11 +427,15 @@ func (s *sanitizer) cachedPrincipal(in *v2.Resource, refs *assetRefSet, cache *g
 	}
 	if key != "" {
 		if got, ok := cache.principals[key]; ok {
+			s.verifyCachedPrincipal(in, refs, got, cache)
+			// SHARED: returned to many output grants — never mutate after Build().
 			return got
 		}
 	}
 	out := s.transformResource(in, refs)
 	if key != "" && len(cache.principals) < maxCachedPrincipals {
+		// SHARED once stored: referenced by every later grant with this id.
+		// Never mutate after Build() — mutation = cross-grant corruption.
 		cache.principals[key] = out
 	}
 	return out
@@ -425,14 +446,31 @@ func (s *sanitizer) cachedPrincipal(in *v2.Resource, refs *assetRefSet, cache *g
 // differs from the fresh one, catching any source that violates the
 // one-object-per-id assumption.
 func (s *sanitizer) verifyCachedEntitlement(in *v2.Entitlement, refs *assetRefSet, cached *v2.Entitlement, cache *grantSubCache) {
-	if !cache.verify || cache.verifySeen >= verifySampleLimit {
+	if !cache.verify || cache.verifySeenEntitlements >= verifySampleLimit {
 		return
 	}
-	cache.verifySeen++
+	cache.verifySeenEntitlements++
 	fresh := s.transformEntitlement(in, refs)
 	if !proto.Equal(fresh, cached) {
 		s.log.Warn("c1zsanitize: grant sub-cache mismatch; embedded entitlement differs across grants for the same id",
 			zap.String("entitlement_id", in.GetId()))
+	}
+}
+
+// verifyCachedPrincipal mirrors verifyCachedEntitlement for the principal
+// cache: same off-by-default toggle, same proto.Equal-against-a-fresh-transform
+// contract, catching any source that emits diverging principal objects for the
+// same resource id within a sync.
+func (s *sanitizer) verifyCachedPrincipal(in *v2.Resource, refs *assetRefSet, cached *v2.Resource, cache *grantSubCache) {
+	if !cache.verify || cache.verifySeenPrincipals >= verifySampleLimit {
+		return
+	}
+	cache.verifySeenPrincipals++
+	fresh := s.transformResource(in, refs)
+	if !proto.Equal(fresh, cached) {
+		s.log.Warn("c1zsanitize: grant sub-cache mismatch; embedded principal differs across grants for the same id",
+			zap.String("principal_resource_type", in.GetId().GetResourceType()),
+			zap.String("principal_resource_id", in.GetId().GetResource()))
 	}
 }
 

@@ -252,3 +252,42 @@ func BenchmarkTransformGrant(b *testing.B) {
 		}
 	})
 }
+
+// TestKnownResourceTypesFrozenAfterResourceTypesPhase is the C-2
+// order-independence guard. After copyResourceTypes ends, knownResourceTypes
+// must be read-only: an embedded resource type reached during the
+// entitlements phase (via GrantableTo -> transformResourceTypeSlice ->
+// transformResourceType) must NOT become "known", or transformID's
+// type-token decision would flip depending on stream order.
+//
+// Fails without the inResourceTypesPhase write-site gate (the embedded
+// "etype" would be inserted, so the second transformID would preserve it
+// verbatim instead of HMAC-ing it); passes with the gate.
+func TestKnownResourceTypesFrozenAfterResourceTypesPhase(t *testing.T) {
+	s := newTestSanitizer(bytes32("c2-order"))
+
+	// Resource-types phase declares only "user".
+	s.inResourceTypesPhase = true
+	s.transformResourceType(v2.ResourceType_builder{Id: "user"}.Build(), newAssetRefSet())
+	s.inResourceTypesPhase = false // phase over -> set must be frozen
+
+	// Composite id whose TYPE component "etype" is NOT a declared type.
+	before := s.transformID("etype:res1")
+
+	// Entitlements phase: an entitlement whose GrantableTo references the
+	// undeclared "etype" — the exact embedded path the review bot flagged.
+	ent := v2.Entitlement_builder{
+		Id:          "ent1",
+		GrantableTo: []*v2.ResourceType{v2.ResourceType_builder{Id: "etype"}.Build()},
+	}.Build()
+	_ = s.transformEntitlement(ent, newAssetRefSet())
+
+	after := s.transformID("etype:res1")
+
+	require.Equal(t, before, after,
+		"transformID must be order-independent: an embedded resource type seen after the resource-types phase must not change the known-type decision")
+	require.NotContains(t, s.knownResourceTypes, "etype",
+		"embedded resource type leaked into knownResourceTypes after the phase — C-2 write-site gate not enforced")
+	// "user" WAS declared in-phase, so it remains known.
+	require.Contains(t, s.knownResourceTypes, "user")
+}
