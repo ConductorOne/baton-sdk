@@ -79,6 +79,14 @@ type Options struct {
 	// development against new annotation types, dangerous on real
 	// customer data.
 	AllowUnknownAnnotations bool
+
+	// VerifyGrantCache turns on the off-by-default grant sub-cache
+	// correctness guard: for a bounded sample of cache hits per sync, the
+	// embedded entitlement/principal is re-transformed and compared
+	// (proto.Equal) against the cached value, logging a Warn on any mismatch.
+	// It catches a source that violates the one-object-per-id assumption the
+	// cache relies on. Adds CPU; intended for diagnostics, not production runs.
+	VerifyGrantCache bool
 }
 
 // Sanitize copies records from src to dst, transforming identifiers,
@@ -117,6 +125,8 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		handlers:               defaultAnnotationHandlers(),
 		syncIDMap:              map[string]string{},
 		knownResourceTypes:     map[string]struct{}{},
+		verifyGrantCache:       opts.VerifyGrantCache,
+		warnedUndeclaredTypes:  map[string]struct{}{},
 	}
 
 	for _, sr := range srcSyncs {
@@ -142,15 +152,15 @@ type sanitizer struct {
 	syncIDMap              map[string]string
 	knownResourceTypes     map[string]struct{}
 
-	// inResourceTypesPhase gates writes to knownResourceTypes. The set is
-	// populated ONLY while copyResourceTypes runs (which is first in every
-	// sync); embedded resource types encountered later — in an
-	// entitlement's GrantableTo or a grant's annotations — never mutate it.
-	// This makes transformID's type-token decision order-independent: a
-	// token is either declared (and preserved) or not (and HMAC'd) for the
-	// whole run, instead of flipping representation the first time it
-	// appears embedded. See C-2 in the perf plan — a determinism fix.
-	inResourceTypesPhase bool
+	// verifyGrantCache turns on the grant sub-cache correctness guard; see
+	// Options.VerifyGrantCache. knownResourceTypes is fully populated by
+	// copyResourceTypes' buffering pre-pass before any transform reads it, so
+	// there is no in-flight phase flag — the set is read-only by construction.
+	verifyGrantCache bool
+
+	// warnedUndeclaredTypes dedups the M4 tripwire so each undeclared
+	// resource-type token is logged at most once per run.
+	warnedUndeclaredTypes map[string]struct{}
 }
 
 // id is the per-sanitizer hot path. SanitizeID stays as the
@@ -199,7 +209,7 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 	// Per-sync memo cache for the embedded Entitlement/Principal transforms
 	// in the grant loop. Reset each sync so memory is bounded by one sync's
 	// distinct entitlements, not the whole file. See P0-1 in the perf plan.
-	grantCache := newGrantSubCache()
+	grantCache := newGrantSubCache(s.verifyGrantCache)
 
 	if err := s.copyResourceTypes(ctx, src, dst, srcSyncID, assetRefs); err != nil {
 		return err

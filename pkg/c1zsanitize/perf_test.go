@@ -38,6 +38,7 @@ func newTestSanitizer(secret []byte) *sanitizer {
 		handlers:               defaultAnnotationHandlers(),
 		syncIDMap:              map[string]string{},
 		knownResourceTypes:     map[string]struct{}{},
+		warnedUndeclaredTypes:  map[string]struct{}{},
 	}
 }
 
@@ -98,7 +99,7 @@ func TestGraphAnnotationHandlers(t *testing.T) {
 
 	// ExternalLink: URL redacted to the placeholder.
 	el := mustUnpack(t, byType[typeURL(&v2.ExternalLink{})], &v2.ExternalLink{})
-	require.Equal(t, redactedExternalLinkURL, el.GetUrl())
+	require.Equal(t, redactedURL, el.GetUrl())
 
 	// ETag: entitlement id transformed; value sanitized (not preserved).
 	et := mustUnpack(t, byType[typeURL(&v2.ETag{})], &v2.ETag{})
@@ -159,8 +160,7 @@ func TestGrantSubCacheEquivalence(t *testing.T) {
 
 	// Cached path: one sanitizer + one shared cache across all grants.
 	cachedSan := newTestSanitizer(secret)
-	cache := newGrantSubCache()
-	cache.verify = true // exercise the verify guard too
+	cache := newGrantSubCache(true) // verify guard on
 	var cached []*v2.Grant
 	for _, id := range grantIDs {
 		cached = append(cached, cachedSan.transformGrant(mkGrant(id), newAssetRefSet(), cache))
@@ -235,7 +235,7 @@ func BenchmarkTransformGrant(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			s := newTestSanitizer(secret)
-			cache := newGrantSubCache()
+			cache := newGrantSubCache(false)
 			for _, g := range src {
 				_ = s.transformGrant(g, newAssetRefSet(), cache)
 			}
@@ -253,29 +253,26 @@ func BenchmarkTransformGrant(b *testing.B) {
 	})
 }
 
-// TestKnownResourceTypesFrozenAfterResourceTypesPhase is the C-2
-// order-independence guard. After copyResourceTypes ends, knownResourceTypes
-// must be read-only: an embedded resource type reached during the
-// entitlements phase (via GrantableTo -> transformResourceTypeSlice ->
-// transformResourceType) must NOT become "known", or transformID's
-// type-token decision would flip depending on stream order.
+// TestTransformResourceTypeDoesNotMutateKnownSet is the C-2/B1 unit guard:
+// transformResourceType must be pure w.r.t. knownResourceTypes. Registration
+// happens only in copyResourceTypes' buffering pre-pass, so an embedded
+// resource type reached during the entitlements phase (GrantableTo ->
+// transformResourceTypeSlice -> transformResourceType) must NOT become
+// "known", or transformID's type-token decision would flip with stream order.
 //
-// Fails without the inResourceTypesPhase write-site gate (the embedded
-// "etype" would be inserted, so the second transformID would preserve it
-// verbatim instead of HMAC-ing it); passes with the gate.
-func TestKnownResourceTypesFrozenAfterResourceTypesPhase(t *testing.T) {
+// With the pre-pass model the set is read-only by construction; this locks
+// that transformResourceType never writes it.
+func TestTransformResourceTypeDoesNotMutateKnownSet(t *testing.T) {
 	s := newTestSanitizer(bytes32("c2-order"))
 
-	// Resource-types phase declares only "user".
-	s.inResourceTypesPhase = true
-	s.transformResourceType(v2.ResourceType_builder{Id: "user"}.Build(), newAssetRefSet())
-	s.inResourceTypesPhase = false // phase over -> set must be frozen
+	// Simulate the pre-pass having declared only "user".
+	s.knownResourceTypes["user"] = struct{}{}
 
 	// Composite id whose TYPE component "etype" is NOT a declared type.
 	before := s.transformID("etype:res1")
 
-	// Entitlements phase: an entitlement whose GrantableTo references the
-	// undeclared "etype" — the exact embedded path the review bot flagged.
+	// Process an entitlement whose GrantableTo references the undeclared
+	// "etype" — the exact embedded path that previously mutated the set.
 	ent := v2.Entitlement_builder{
 		Id:          "ent1",
 		GrantableTo: []*v2.ResourceType{v2.ResourceType_builder{Id: "etype"}.Build()},
@@ -285,9 +282,8 @@ func TestKnownResourceTypesFrozenAfterResourceTypesPhase(t *testing.T) {
 	after := s.transformID("etype:res1")
 
 	require.Equal(t, before, after,
-		"transformID must be order-independent: an embedded resource type seen after the resource-types phase must not change the known-type decision")
+		"transformID must be order-independent: an embedded resource type must not change the known-type decision")
 	require.NotContains(t, s.knownResourceTypes, "etype",
-		"embedded resource type leaked into knownResourceTypes after the phase — C-2 write-site gate not enforced")
-	// "user" WAS declared in-phase, so it remains known.
+		"embedded resource type leaked into knownResourceTypes — transformResourceType must be pure w.r.t. the set (B1)")
 	require.Contains(t, s.knownResourceTypes, "user")
 }

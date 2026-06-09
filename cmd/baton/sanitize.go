@@ -113,6 +113,10 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 		dotc1z.WithPragma("mmap_size", "8589934592"),
 		dotc1z.WithPragma("temp_store", "MEMORY"),
 		dotc1z.WithBulkLoad(true),
+		// bulkLoad already implies skip-cleanup; skip VACUUM too — vacuuming
+		// before the deferred indexes are rebuilt at Close is wasted work on a
+		// throwaway artifact.
+		dotc1z.WithSkipVacuum(true),
 	)
 	if err != nil {
 		return fmt.Errorf("open dst c1z: %w", err)

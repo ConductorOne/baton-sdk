@@ -3,6 +3,7 @@ package c1zsanitize
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -67,13 +68,18 @@ func (s *sanitizer) copyResourceTypes(
 	srcSyncID string,
 	refs *assetRefSet,
 ) error {
-	// knownResourceTypes is populated only here; freeze it on return so
-	// later phases treat it as read-only (see inResourceTypesPhase / C-2).
-	s.inResourceTypesPhase = true
-	defer func() { s.inResourceTypesPhase = false }()
-
+	// Two-pass: buffer EVERY resource-type row and register all ids BEFORE
+	// transforming any of them. Resource types number in the tens, so
+	// buffering the whole listing is trivial. This makes knownResourceTypes
+	// complete before transformResourceType (or a ChildResourceType handler)
+	// ever consults it, so a row that references a type declared later in the
+	// listing — or on a later page — resolves against the full set instead of
+	// HMAC-ing a not-yet-seen token. transformResourceType is therefore pure
+	// w.r.t. the set (it never writes it), which is order-independent by
+	// construction. See B1 / C-2.
+	var rows []*v2.ResourceType
+	readDur := time.Duration(0)
 	pageToken := ""
-	page := 0
 	for {
 		req := v2.ResourceTypesServiceListResourceTypesRequest_builder{
 			PageSize:    listPageSize,
@@ -82,29 +88,38 @@ func (s *sanitizer) copyResourceTypes(
 		}.Build()
 		readStart := time.Now()
 		resp, err := src.ListResourceTypes(ctx, req)
-		readDur := time.Since(readStart)
+		readDur += time.Since(readStart)
 		if err != nil {
 			return fmt.Errorf("list resource types: %w", err)
 		}
-		xformStart := time.Now()
-		out := make([]*v2.ResourceType, 0, len(resp.GetList()))
 		for _, rt := range resp.GetList() {
-			out = append(out, s.transformResourceType(rt, refs))
-		}
-		xformDur := time.Since(xformStart)
-		putStart := time.Now()
-		if len(out) > 0 {
-			if err := dst.PutResourceTypes(ctx, out...); err != nil {
-				return fmt.Errorf("put resource types: %w", err)
+			if id := rt.GetId(); id != "" {
+				s.knownResourceTypes[id] = struct{}{}
 			}
+			rows = append(rows, rt)
 		}
-		s.logPage("resource_types", page, len(resp.GetList()), readDur, xformDur, time.Since(putStart))
 		if resp.GetNextPageToken() == "" {
-			return nil
+			break
 		}
 		pageToken = resp.GetNextPageToken()
-		page++
 	}
+
+	xformStart := time.Now()
+	out := make([]*v2.ResourceType, 0, len(rows))
+	for _, rt := range rows {
+		out = append(out, s.transformResourceType(rt, refs))
+	}
+	xformDur := time.Since(xformStart)
+	// Sort by output id for destination unique-index locality (H2).
+	sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
+	putStart := time.Now()
+	if len(out) > 0 {
+		if err := dst.PutResourceTypes(ctx, out...); err != nil {
+			return fmt.Errorf("put resource types: %w", err)
+		}
+	}
+	s.logPage(srcSyncID, "resource_types", 0, len(out), readDur, xformDur, time.Since(putStart))
+	return nil
 }
 
 func (s *sanitizer) copyResources(
@@ -134,13 +149,14 @@ func (s *sanitizer) copyResources(
 			out = append(out, s.transformResource(r, refs))
 		}
 		xformDur := time.Since(xformStart)
+		sortByResourceID(out)
 		putStart := time.Now()
 		if len(out) > 0 {
 			if err := dst.PutResources(ctx, out...); err != nil {
 				return fmt.Errorf("put resources: %w", err)
 			}
 		}
-		s.logPage("resources", page, len(resp.GetList()), readDur, xformDur, time.Since(putStart))
+		s.logPage(srcSyncID, "resources", page, len(resp.GetList()), readDur, xformDur, time.Since(putStart))
 		if resp.GetNextPageToken() == "" {
 			return nil
 		}
@@ -176,13 +192,14 @@ func (s *sanitizer) copyEntitlements(
 			out = append(out, s.transformEntitlement(e, refs))
 		}
 		xformDur := time.Since(xformStart)
+		sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
 		putStart := time.Now()
 		if len(out) > 0 {
 			if err := dst.PutEntitlements(ctx, out...); err != nil {
 				return fmt.Errorf("put entitlements: %w", err)
 			}
 		}
-		s.logPage("entitlements", page, len(resp.GetList()), readDur, xformDur, time.Since(putStart))
+		s.logPage(srcSyncID, "entitlements", page, len(resp.GetList()), readDur, xformDur, time.Since(putStart))
 		if resp.GetNextPageToken() == "" {
 			return nil
 		}
@@ -219,19 +236,38 @@ func (s *sanitizer) copyGrants(
 			out = append(out, s.transformGrant(g, refs, cache))
 		}
 		xformDur := time.Since(xformStart)
+		sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
 		putStart := time.Now()
 		if len(out) > 0 {
 			if err := dst.PutGrants(ctx, out...); err != nil {
 				return fmt.Errorf("put grants: %w", err)
 			}
 		}
-		s.logPage("grants", page, len(resp.GetList()), readDur, xformDur, time.Since(putStart))
+		s.logPage(srcSyncID, "grants", page, len(resp.GetList()), readDur, xformDur, time.Since(putStart))
 		if resp.GetNextPageToken() == "" {
+			if cache != nil {
+				s.log.Info("c1zsanitize: grant sub-cache stats",
+					zap.String("sync_id", srcSyncID),
+					zap.Int("entitlements_cached", len(cache.entitlements)),
+					zap.Int("principals_cached", len(cache.principals)))
+			}
 			return nil
 		}
 		pageToken = resp.GetNextPageToken()
 		page++
 	}
+}
+
+// sortByResourceID orders resources by output (type, resource) id for
+// destination unique-index locality (H2).
+func sortByResourceID(rs []*v2.Resource) {
+	sort.Slice(rs, func(i, j int) bool {
+		a, b := rs[i].GetId(), rs[j].GetId()
+		if a.GetResourceType() != b.GetResourceType() {
+			return a.GetResourceType() < b.GetResourceType()
+		}
+		return a.GetResource() < b.GetResource()
+	})
 }
 
 // transformResourceType preserves the resource type's id and trait
@@ -242,17 +278,12 @@ func (s *sanitizer) transformResourceType(in *v2.ResourceType, refs *assetRefSet
 	if in == nil {
 		return nil
 	}
-	// Record declared resource types ONLY during the copyResourceTypes phase
-	// (inResourceTypesPhase). transformResourceType is also reached for
-	// embedded types — an entitlement's GrantableTo, a grant's slice — and
-	// those must NOT grow the set: otherwise transformID's known-type
-	// decision (preserve verbatim vs. HMAC) would flip for the same token
-	// depending on whether it was seen before or after its embedding record,
-	// making output order-dependent. Gating here keeps the set read-only
-	// after copyResourceTypes, so the decision is order-independent. See C-2.
-	if id := in.GetId(); id != "" && s.inResourceTypesPhase {
-		s.knownResourceTypes[id] = struct{}{}
-	}
+	// transformResourceType is pure w.r.t. knownResourceTypes: registration
+	// happens up front in copyResourceTypes' buffering pre-pass, so the set is
+	// complete and read-only by the time any transform consults it. This holds
+	// whether the call is for a declared type or an embedded one (an
+	// entitlement's GrantableTo, a grant's slice), which is what makes
+	// transformID's known-type decision order-independent. See B1 / C-2.
 	annos := s.transformAnnotations(in.GetAnnotations(), refs)
 	return v2.ResourceType_builder{
 		Id:                in.GetId(),
@@ -289,11 +320,35 @@ func (s *sanitizer) transformResourceID(in *v2.ResourceId) *v2.ResourceId {
 	if in.GetResource() == "" && in.GetResourceType() == "" {
 		return nil
 	}
+	// resource_type is preserved verbatim here (it is connector-defined
+	// schema). transformID, by contrast, HMACs a type token that is NOT a
+	// declared resource type. So an UNDECLARED type token both survives in
+	// cleartext in this field and gets HMAC'd inside composite ids — a
+	// pre-existing divergence the explicit registration makes observable.
+	// Behavior is unchanged; emit a once-per-token tripwire so a connector
+	// that emits undeclared type tokens shows up rather than silently
+	// producing mismatched representations. (M4)
+	s.warnUndeclaredResourceType(in.GetResourceType())
 	return v2.ResourceId_builder{
 		ResourceType:  in.GetResourceType(),
 		Resource:      s.id(in.GetResource()),
 		BatonResource: in.GetBatonResource(),
 	}.Build()
+}
+
+// warnUndeclaredResourceType logs once per resource-type token that appears in
+// a resource id but was never declared in copyResourceTypes. Single-threaded
+// (the transform stage is sequential today); revisit if P1-3 parallelizes it.
+func (s *sanitizer) warnUndeclaredResourceType(rt string) {
+	if rt == "" || s.isKnownResourceType(rt) {
+		return
+	}
+	if _, seen := s.warnedUndeclaredTypes[rt]; seen {
+		return
+	}
+	s.warnedUndeclaredTypes[rt] = struct{}{}
+	s.log.Warn("c1zsanitize: resource id references an undeclared resource type; preserved verbatim here but HMAC'd inside composite ids",
+		zap.String("resource_type", rt))
 }
 
 func (s *sanitizer) transformEntitlement(in *v2.Entitlement, refs *assetRefSet) *v2.Entitlement {
@@ -376,10 +431,11 @@ type grantSubCache struct {
 
 const verifySampleLimit = 1000
 
-func newGrantSubCache() *grantSubCache {
+func newGrantSubCache(verify bool) *grantSubCache {
 	return &grantSubCache{
 		entitlements: map[string]*v2.Entitlement{},
 		principals:   map[string]*v2.Resource{},
+		verify:       verify,
 	}
 }
 
@@ -421,8 +477,13 @@ func (s *sanitizer) cachedPrincipal(in *v2.Resource, refs *assetRefSet, cache *g
 	if cache == nil {
 		return s.transformResource(in, refs)
 	}
+	// Key only on the identifying component. A principal with an empty
+	// resource id has nothing that uniquely identifies it, so it must not be
+	// cached — otherwise two distinct empty-resource principals with different
+	// display names would conflate on a non-empty-but-meaningless key like
+	// "user\x00" and the second grant would inherit the first's transform. See B2.
 	key := ""
-	if id := in.GetId(); id != nil {
+	if id := in.GetId(); id != nil && id.GetResource() != "" {
 		key = id.GetResourceType() + "\x00" + id.GetResource()
 	}
 	if key != "" {
@@ -477,8 +538,9 @@ func (s *sanitizer) verifyCachedPrincipal(in *v2.Resource, refs *assetRefSet, ca
 // logPage emits one Info line per page with read/transform/put timings — the
 // permanent regression canary for the per-record-cost-grows-with-n class of
 // slowdown. One line per 10k rows is cheap.
-func (s *sanitizer) logPage(phase string, page, rows int, read, transform, put time.Duration) {
+func (s *sanitizer) logPage(syncID, phase string, page, rows int, read, transform, put time.Duration) {
 	s.log.Info("c1zsanitize: page",
+		zap.String("sync_id", syncID),
 		zap.String("phase", phase),
 		zap.Int("page", page),
 		zap.Int("rows", rows),

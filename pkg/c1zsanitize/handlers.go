@@ -17,11 +17,14 @@ func (s *sanitizer) sanitizeAssetRef(in *v2.AssetRef, refs *assetRefSet) *v2.Ass
 	return v2.AssetRef_builder{Id: s.id(in.GetId())}.Build()
 }
 
-// redactedExternalLinkURL is the placeholder every ExternalLink.url is
-// replaced with. A real URL can embed a tenant domain, an object id, or a
-// query string carrying identity, so it is never preserved; the annotation
-// itself survives so graph consumers still see "this record had a link".
-const redactedExternalLinkURL = "https://redacted.example.com"
+// redactedURL is the placeholder every preserved-but-sanitized URL is
+// replaced with (ExternalLink.url, AppTrait.help_url). A real URL can embed a
+// tenant domain, an object id, or a query string carrying identity, so it is
+// never preserved; the annotation/field survives so graph consumers still see
+// "this record had a link". Uses the reserved .example TLD — the single
+// placeholder-domain convention across this package (matching the dom-*.example
+// email sentinels). (M3).
+const redactedURL = "https://redacted.example"
 
 // sanitizeResourceTypeToken rewrites a bare resource-type token the same way
 // transformID treats a type component: a declared resource type (populated
@@ -87,7 +90,7 @@ func handleExternalLink(_ *sanitizer, msg proto.Message, _ *assetRefSet) proto.M
 	in := msg.(*v2.ExternalLink)
 	url := ""
 	if in.GetUrl() != "" {
-		url = redactedExternalLinkURL
+		url = redactedURL
 	}
 	return v2.ExternalLink_builder{Url: url}.Build()
 }
@@ -152,10 +155,11 @@ func (s *sanitizer) sanitizeValue(v *structpb.Value) *structpb.Value {
 
 func handleUserTrait(s *sanitizer, msg proto.Message, refs *assetRefSet) proto.Message {
 	in := msg.(*v2.UserTrait)
+	idFn := s.id // hoist the method value out of the per-email loop (M2)
 	emails := make([]*v2.UserTrait_Email, 0, len(in.GetEmails()))
 	for _, e := range in.GetEmails() {
 		emails = append(emails, v2.UserTrait_Email_builder{
-			Address:   sanitizeEmail(s.id, s.domains, e.GetAddress()),
+			Address:   sanitizeEmail(idFn, s.domains, e.GetAddress()),
 			IsPrimary: e.GetIsPrimary(),
 		}.Build())
 	}
@@ -230,7 +234,7 @@ func handleAppTrait(s *sanitizer, msg proto.Message, refs *assetRefSet) proto.Me
 	in := msg.(*v2.AppTrait)
 	helpURL := ""
 	if in.GetHelpUrl() != "" {
-		helpURL = "https://sanitized.example/help"
+		helpURL = redactedURL
 	}
 	return v2.AppTrait_builder{
 		HelpUrl: helpURL,
