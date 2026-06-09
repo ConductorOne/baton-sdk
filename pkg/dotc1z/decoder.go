@@ -59,7 +59,7 @@ func ReadHeader(reader io.Reader) error {
 		return err
 	}
 
-	if !bytes.Equal(headerBytes, C1ZFileHeader) {
+	if !bytes.Equal(headerBytes, C1ZFileHeader) && !bytes.Equal(headerBytes, C1Z3FileHeader) {
 		return ErrInvalidFile
 	}
 
