@@ -1,4 +1,4 @@
-package pebble
+package pebble_test
 
 import (
 	"context"
@@ -51,9 +51,6 @@ func BenchmarkSyncShape_BatonDemo(b *testing.B) {
 	engines := []dotc1z.Engine{dotc1z.EngineSQLite, dotc1z.EnginePebble}
 	if env := os.Getenv("SYNC_BENCH_ENGINE"); env != "" && env != "both" {
 		engines = []dotc1z.Engine{dotc1z.Engine(env)}
-	}
-	if err := Register(); err != nil {
-		b.Fatalf("Register: %v", err)
 	}
 	for _, eng := range engines {
 		b.Run(string(eng), func(b *testing.B) {

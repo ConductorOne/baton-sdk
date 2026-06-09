@@ -1,19 +1,25 @@
 package dotc1z
 
-import "context"
+import "github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 
-// FileOps is the file-level operations sub-store of C1ZStore. It covers
-// operations that span sync runs or produce new sync runs within the same
-// c1z file. Cross-file operations (SQL ATTACH) live in pkg/synccompactor,
-// not here.
-type FileOps interface {
-	// CloneSync materializes the given sync run's data into a freshly
-	// created standalone c1z file at outPath. Used by c1's storeCompletedSyncC1Z
-	// activity to archive a completed sync.
-	CloneSync(ctx context.Context, outPath string, syncID string, opts ...C1FOption) error
+// The file-operations contract lives in pkg/dotc1z/c1zstore so storage
+// engines can implement it without importing this package. These aliases
+// preserve the historical dotc1z names.
 
-	// GenerateSyncDiff computes the diff between two existing sync runs
-	// in this same file and writes the delta as a new SyncTypePartial
-	// sync. Returns the new sync's id. Used by the local differ CLI.
-	GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (diffSyncID string, err error)
+// FileOps is the file-level operations sub-store of C1ZStore. See
+// c1zstore.FileOps for the full contract.
+type FileOps = c1zstore.FileOps
+
+// CloneSyncOption configures a FileOps.CloneSync call. See
+// c1zstore.CloneSyncOption.
+type CloneSyncOption = c1zstore.CloneSyncOption
+
+// CloneSyncOptions carries the engine-neutral knobs for FileOps.CloneSync.
+// See c1zstore.CloneSyncOptions.
+type CloneSyncOptions = c1zstore.CloneSyncOptions
+
+// WithCloneTmpDir sets the temporary directory used while assembling the
+// cloned c1z. Replaces WithC1FTmpDir at FileOps.CloneSync call sites.
+func WithCloneTmpDir(dir string) CloneSyncOption {
+	return c1zstore.WithCloneTmpDir(dir)
 }

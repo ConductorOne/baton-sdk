@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // C1ZFormat identifies the on-disk format of a .c1z file. The format byte
@@ -43,18 +45,19 @@ var C1Z3FileHeader = []byte("C1Z3\x00")
 // Engine identifies a storage engine implementation. The engine is
 // chosen by callers via WithEngine(...) on write; on read, the engine
 // is dictated by the file's magic byte and (for v3) the manifest's
-// engine field.
-type Engine string
+// engine field. The type lives in pkg/dotc1z/c1zstore so engine
+// packages can name it without importing dotc1z.
+type Engine = c1zstore.Engine
 
 const (
 	// EngineSQLite is the default engine: the v1 .c1z format backed by
 	// a zstd-compressed SQLite database. Connectors use this; backend
 	// infra can opt out.
-	EngineSQLite Engine = "sqlite"
+	EngineSQLite = c1zstore.EngineSQLite
 
 	// EnginePebble is the v3 engine: a Pebble LSM wrapped in the v3
 	// envelope.
-	EnginePebble Engine = "pebble"
+	EnginePebble = c1zstore.EnginePebble
 )
 
 // ErrEngineNotAvailable is returned when a caller requests an engine
@@ -62,43 +65,25 @@ const (
 var ErrEngineNotAvailable = fmt.Errorf("dotc1z: engine not available")
 
 // PayloadEncoding selects the v3 envelope payload framing. Only the
-// Pebble engine consults this; SQLite engines ignore it. The wire
-// numbers match the matching proto enum values in
-// c1.c1z.v3.PayloadEncoding.
-type PayloadEncoding int
+// Pebble engine consults this; SQLite engines ignore it. See
+// c1zstore.PayloadEncoding.
+type PayloadEncoding = c1zstore.PayloadEncoding
 
 const (
 	// PayloadEncodingUnspecified is the zero value. Means "use the
 	// engine's default" — TarZstd for Pebble.
-	PayloadEncodingUnspecified PayloadEncoding = 0
-
-	// 1 and 2 are reserved in the proto (formerly RAW + single-stream
-	// ZSTD). Don't reuse.
+	PayloadEncodingUnspecified = c1zstore.PayloadEncodingUnspecified
 
 	// PayloadEncodingTarZstd is the default Pebble v3 envelope
 	// encoding: tar of the Pebble directory, compressed with zstd.
-	PayloadEncodingTarZstd PayloadEncoding = 3
+	PayloadEncodingTarZstd = c1zstore.PayloadEncodingTarZstd
 
 	// PayloadEncodingTar is uncompressed tar. Useful when Pebble's
 	// L5/L6 SSTs are already zstd-compressed at the engine layer
 	// (avoids double-compression CPU), or when the storage target
 	// compresses in transit.
-	PayloadEncodingTar PayloadEncoding = 4
+	PayloadEncodingTar = c1zstore.PayloadEncodingTar
 )
-
-// String returns a stable human-readable name for the encoding.
-func (e PayloadEncoding) String() string {
-	switch e {
-	case PayloadEncodingTarZstd:
-		return "tar_zstd"
-	case PayloadEncodingTar:
-		return "tar"
-	case PayloadEncodingUnspecified:
-		return "unspecified"
-	default:
-		return fmt.Sprintf("PayloadEncoding(%d)", int(e))
-	}
-}
 
 // ReadHeaderFormat reads the first 5 bytes of reader and returns the
 // detected format. On return, the reader is positioned immediately

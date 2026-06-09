@@ -13,7 +13,6 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 // TestCrossEngineParity drives BOTH SQLite and Pebble backends
@@ -38,9 +37,6 @@ import (
 // uses a normalized comparison.
 func TestCrossEngineParity(t *testing.T) {
 	ctx := t.Context()
-	if err := pebble.Register(); err != nil {
-		t.Fatalf("pebble.Register: %v", err)
-	}
 
 	// Seed both backends with the same write sequence.
 	const (

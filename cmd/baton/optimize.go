@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/spf13/cobra"
 )
@@ -32,20 +31,12 @@ func runOptimizeDb(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := pebble.Register(); err != nil {
-		return err
-	}
 	store, err := dotc1z.NewStore(ctx, c1zPath)
 	if err != nil {
 		return err
 	}
-	c1zStore, ok := store.(dotc1z.C1ZStore)
-	if !ok {
-		_ = store.Close(ctx)
-		return fmt.Errorf("store %T does not implement C1ZStore", store)
-	}
 
-	if sqliteStore, ok := dotc1z.AsSQLiteStore(c1zStore); ok {
+	if sqliteStore, ok := dotc1z.AsSQLiteStore(store); ok {
 		err = sqliteStore.Vacuum(ctx)
 		if err != nil {
 			_ = store.Close(ctx)
@@ -58,7 +49,7 @@ func runOptimizeDb(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	engine := c1zStore.Metadata().Engine
+	engine := store.Metadata().Engine
 	err = store.Close(ctx)
 	if err != nil {
 		return err

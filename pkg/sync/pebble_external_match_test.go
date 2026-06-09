@@ -9,7 +9,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
@@ -68,7 +67,6 @@ func TestPebble_ExternalResourceMatchID_RemappingSkipped(t *testing.T) {
 	ctx := t.Context()
 	ctx, err := logging.Init(ctx)
 	require.NoError(t, err)
-	require.NoError(t, pebble.Register())
 
 	tempDir := t.TempDir()
 
@@ -130,10 +128,8 @@ func TestPebble_ExternalResourceMatchID_RemappingSkipped(t *testing.T) {
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)
-	internalC1z, ok := internalStore.(dotc1z.C1ZStore)
-	require.True(t, ok)
 	internalSyncer, err := NewSyncer(ctx, internalMc,
-		WithConnectorStore(internalC1z),
+		WithConnectorStore(internalStore),
 		WithTmpDir(tempDir),
 		WithExternalResourceC1ZPath(externalC1zpath),
 		WithDontExpandGrants(),
@@ -155,15 +151,13 @@ func TestPebble_ExternalResourceMatchID_RemappingSkipped(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = reopen.Close(ctx) }()
 
-	c1zReopen, ok := reopen.(dotc1z.C1ZStore)
-	require.True(t, ok)
-	prevSync, err := c1zReopen.SyncMeta().LatestFullSync(ctx)
+	prevSync, err := reopen.SyncMeta().LatestFullSync(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, prevSync, "expected a finished full sync on the internal Pebble c1z")
 	require.NoError(t, reopen.SetCurrentSync(ctx, prevSync.ID))
 
 	var defs []dotc1z.PendingExpansion
-	for pe, err := range c1zReopen.Grants().PendingExpansion(ctx) {
+	for pe, err := range reopen.Grants().PendingExpansion(ctx) {
 		require.NoError(t, err)
 		defs = append(defs, pe)
 	}

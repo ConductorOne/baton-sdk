@@ -1,4 +1,4 @@
-package pebble
+package pebble_test
 
 import (
 	"context"
@@ -50,9 +50,6 @@ func BenchmarkPebbleExpansion_StoreExpandedGrants(b *testing.B) {
 	for _, n := range []int{1_000, 10_000} {
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
 			ctx := context.Background()
-			if err := Register(); err != nil {
-				b.Fatalf("Register: %v", err)
-			}
 			path := fmt.Sprintf("%s/expansion.c1z", b.TempDir())
 			store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
 			if err != nil {
@@ -70,12 +67,11 @@ func BenchmarkPebbleExpansion_StoreExpandedGrants(b *testing.B) {
 				g := mkV2Grant("g-"+strconv.Itoa(i), "ent-"+strconv.Itoa(i%50), "user", "u-"+strconv.Itoa(i%1000))
 				grants = append(grants, g)
 			}
-			c1z := store.(dotc1z.C1ZStore)
 			b.ReportAllocs()
 			b.ReportMetric(float64(n), "grants/op")
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				if err := c1z.Grants().StoreExpandedGrants(ctx, grants...); err != nil {
+				if err := store.Grants().StoreExpandedGrants(ctx, grants...); err != nil {
 					b.Fatalf("StoreExpandedGrants: %v", err)
 				}
 			}
@@ -104,9 +100,6 @@ func BenchmarkPebbleExpansion_StoreExpandedGrants(b *testing.B) {
 // equal ~(upliftGrantsPerSync / upliftEntitlements) * upliftSyncs.
 func BenchmarkPebbleUpliftRead_CrossSync(b *testing.B) {
 	ctx := context.Background()
-	if err := Register(); err != nil {
-		b.Fatalf("Register: %v", err)
-	}
 	path := fmt.Sprintf("%s/uplift.c1z", b.TempDir())
 
 	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))

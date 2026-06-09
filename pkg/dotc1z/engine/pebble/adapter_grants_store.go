@@ -11,11 +11,11 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // Grants returns the GrantStore implementation backed by the Pebble
-// adapter. Implements dotc1z.C1ZStore.Grants(); used by the
+// adapter. Implements c1zstore.Store.Grants(); used by the
 // expander, the c1-side fileClientWrapper, and the differ.
 //
 // Caveat: the *Page methods that filter on needs_expansion currently
@@ -25,7 +25,7 @@ import (
 // find expandable grants. Once Stack 6 lands, the engine will start
 // flagging needs_expansion at PutGrants and the index walk here will
 // return real rows.
-func (a *Adapter) Grants() dotc1z.GrantStore {
+func (a *Adapter) Grants() c1zstore.GrantStore {
 	return pebbleGrantStore{a: a}
 }
 
@@ -118,7 +118,7 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 // A grant that lost its expansion annotation between Put and the
 // index scan (e.g. partial overwrite) is skipped — same orphan
 // semantic as the by_entitlement / by_principal indexes.
-func (g pebbleGrantStore) PendingExpansionPage(ctx context.Context, pageToken string) ([]dotc1z.PendingExpansion, string, error) {
+func (g pebbleGrantStore) PendingExpansionPage(ctx context.Context, pageToken string) ([]c1zstore.PendingExpansion, string, error) {
 	syncID := g.a.currentSyncID()
 	if syncID == "" {
 		return nil, "", ErrNoCurrentSync
@@ -127,7 +127,7 @@ func (g pebbleGrantStore) PendingExpansionPage(ctx context.Context, pageToken st
 	if err != nil {
 		return nil, "", err
 	}
-	out := make([]dotc1z.PendingExpansion, 0, len(records))
+	out := make([]c1zstore.PendingExpansion, 0, len(records))
 	for _, rec := range records {
 		if rec.GetExpansion() == nil {
 			// Index entry without expansion metadata on the
@@ -135,7 +135,7 @@ func (g pebbleGrantStore) PendingExpansionPage(ctx context.Context, pageToken st
 			continue
 		}
 		exp := rec.GetExpansion()
-		out = append(out, dotc1z.PendingExpansion{
+		out = append(out, c1zstore.PendingExpansion{
 			GrantExternalID:         rec.GetExternalId(),
 			TargetEntitlementID:     rec.GetEntitlement().GetEntitlementId(),
 			PrincipalResourceTypeID: rec.GetPrincipal().GetResourceTypeId(),
@@ -154,13 +154,13 @@ func (g pebbleGrantStore) PendingExpansionPage(ctx context.Context, pageToken st
 // PendingExpansion walks PendingExpansionPage page-by-page.
 // Iteration contract matches the SQLite GrantStore implementation:
 // on error the sequence yields (zero, err) and terminates.
-func (g pebbleGrantStore) PendingExpansion(ctx context.Context) iter.Seq2[dotc1z.PendingExpansion, error] {
-	return func(yield func(dotc1z.PendingExpansion, error) bool) {
+func (g pebbleGrantStore) PendingExpansion(ctx context.Context) iter.Seq2[c1zstore.PendingExpansion, error] {
+	return func(yield func(c1zstore.PendingExpansion, error) bool) {
 		pageToken := ""
 		for {
 			rows, next, err := g.PendingExpansionPage(ctx, pageToken)
 			if err != nil {
-				yield(dotc1z.PendingExpansion{}, err)
+				yield(c1zstore.PendingExpansion{}, err)
 				return
 			}
 			for _, pe := range rows {
@@ -183,7 +183,7 @@ func (g pebbleGrantStore) PendingExpansion(ctx context.Context) iter.Seq2[dotc1z
 // that gate on `Annotation != nil` — the syncer's
 // processGrantsWithExternalPrincipals and c1's fileClientWrapper —
 // behave identically across engines.
-func (g pebbleGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken string) ([]dotc1z.GrantAnnotation, string, error) {
+func (g pebbleGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken string) ([]c1zstore.GrantAnnotation, string, error) {
 	syncID := g.a.currentSyncID()
 	if syncID == "" {
 		return nil, "", ErrNoCurrentSync
@@ -192,9 +192,9 @@ func (g pebbleGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken
 	if err != nil {
 		return nil, "", err
 	}
-	rows := make([]dotc1z.GrantAnnotation, 0, len(records))
+	rows := make([]c1zstore.GrantAnnotation, 0, len(records))
 	for _, rec := range records {
-		rows = append(rows, dotc1z.GrantAnnotation{
+		rows = append(rows, c1zstore.GrantAnnotation{
 			Grant:                   V3GrantToV2(rec),
 			Annotation:              expansionRecordToV2(rec.GetExpansion()),
 			GrantExternalID:         rec.GetExternalId(),
@@ -220,7 +220,7 @@ func (g pebbleGrantStore) ListWithAnnotationsForResourcePage(
 	syncID string,
 	pageToken string,
 	pageSize uint32,
-) ([]dotc1z.GrantAnnotation, string, error) {
+) ([]c1zstore.GrantAnnotation, string, error) {
 	if resource == nil || resource.GetId() == nil {
 		return nil, "", errors.New("ListWithAnnotationsForResourcePage: nil resource")
 	}
@@ -237,9 +237,9 @@ func (g pebbleGrantStore) ListWithAnnotationsForResourcePage(
 	if err != nil {
 		return nil, "", err
 	}
-	rows := make([]dotc1z.GrantAnnotation, 0, len(records))
+	rows := make([]c1zstore.GrantAnnotation, 0, len(records))
 	for _, rec := range records {
-		rows = append(rows, dotc1z.GrantAnnotation{
+		rows = append(rows, c1zstore.GrantAnnotation{
 			Grant:                   V3GrantToV2(rec),
 			Annotation:              expansionRecordToV2(rec.GetExpansion()),
 			GrantExternalID:         rec.GetExternalId(),
@@ -254,13 +254,13 @@ func (g pebbleGrantStore) ListWithAnnotationsForResourcePage(
 
 // ListWithAnnotations walks all pages of ListWithAnnotationsPage.
 // Yields each row; on error, yields (zero, err) and terminates.
-func (g pebbleGrantStore) ListWithAnnotations(ctx context.Context) iter.Seq2[dotc1z.GrantAnnotation, error] {
-	return func(yield func(dotc1z.GrantAnnotation, error) bool) {
+func (g pebbleGrantStore) ListWithAnnotations(ctx context.Context) iter.Seq2[c1zstore.GrantAnnotation, error] {
+	return func(yield func(c1zstore.GrantAnnotation, error) bool) {
 		pageToken := ""
 		for {
 			rows, next, err := g.ListWithAnnotationsPage(ctx, pageToken)
 			if err != nil {
-				yield(dotc1z.GrantAnnotation{}, err)
+				yield(c1zstore.GrantAnnotation{}, err)
 				return
 			}
 			for _, r := range rows {

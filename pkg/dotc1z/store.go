@@ -1,54 +1,25 @@
 package dotc1z
 
 import (
-	"context"
-
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // C1ZStore is the internal contract used by the sync pipeline, compactor, and
-// related infrastructure to read and write a .c1z file. It is NOT the
-// connector-facing contract — connectors write through connectorstore.Writer,
-// which is embedded here but stays the stable API surface for external code.
-//
-// C1ZStore adds three kinds of operations that the sync pipeline needs but
-// connectors don't:
-//
-//   - Grant operations with expansion-aware semantics, accessed via Grants().
-//   - Sync-run metadata operations, accessed via SyncMeta().
-//   - File-level operations (clone, diff), accessed via FileOps().
+// related infrastructure to read and write a .c1z file. The interface lives
+// in pkg/dotc1z/c1zstore (as c1zstore.Store) so storage engines can
+// implement it without importing this package; this alias preserves the
+// historical dotc1z name.
 //
 // Implementations:
 //
 //   - *C1File — the original SQLite-backed implementation
 //     (pkg/dotc1z/c1file.go).
-//   - *pebble.registeredStore — the Pebble v3 engine implementation
-//     opened via NewStore(WithEngine(EnginePebble))
-//     (pkg/dotc1z/engine/pebble/register.go). The compile-time guard
-//     there asserts the interface is satisfied.
+//   - *pebbleStore — the Pebble v3 engine implementation opened via
+//     NewStore(WithEngine(EnginePebble)) (pkg/dotc1z/pebble_store.go).
 //
-// New implementations are expected; treat the interface methods as
-// load-bearing and the implementation list above as informational.
-//
-// The Close override replaces connectorstore.Reader.Close with an
-// explicit context parameter (*C1File.Close already takes context on main,
-// so this is exact match, no behavior change).
-type C1ZStore interface {
-	connectorstore.Writer
-
-	// Grants returns the grant-specific sub-store.
-	Grants() GrantStore
-
-	// SyncMeta returns the sync-run metadata sub-store.
-	SyncMeta() SyncMeta
-
-	// FileOps returns the file-level operations sub-store.
-	FileOps() FileOps
-
-	// Close releases resources, flushing any pending writes.
-	// Overrides the embedded Reader.Close to document this signature.
-	Close(ctx context.Context) error
-}
+// Both engines are registered statically; no extra imports are needed to
+// open either format.
+type C1ZStore = c1zstore.Store
 
 // AsSQLiteStore type-asserts a C1ZStore to the concrete *C1File. It is an
 // escape hatch for callers that legitimately need SQLite-specific primitives

@@ -10,24 +10,16 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 )
 
-// TestSyncStatsSidecarRoundtrip writes a small full sync via the
-// registered store and confirms that Stats() returns the cached
-// sidecar values (one Get) and that the values match what a fresh
-// iteration would produce.
+// TestSyncStatsSidecarRoundtrip writes a small full sync through the
+// Adapter and confirms that Stats() returns the cached sidecar values
+// (one Get) and that the values match what a fresh iteration would
+// produce.
 func TestSyncStatsSidecarRoundtrip(t *testing.T) {
 	ctx := context.Background()
-	if err := Register(); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "stats.c1z")
-	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
+	e, _ := newTestEngine(t)
+	store := NewAdapter(e)
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	if err != nil {
 		t.Fatalf("StartNewSync: %v", err)
@@ -57,11 +49,7 @@ func TestSyncStatsSidecarRoundtrip(t *testing.T) {
 	}
 
 	// Sidecar should now exist. Read it directly.
-	a, ok := store.(*registeredStore)
-	if !ok {
-		t.Fatalf("store is %T, want *registeredStore", store)
-	}
-	stats, err := a.engine.readSyncStats(ctx, syncID)
+	stats, err := e.readSyncStats(ctx, syncID)
 	if err != nil {
 		t.Fatalf("readSyncStats: %v", err)
 	}
@@ -85,7 +73,7 @@ func TestSyncStatsSidecarRoundtrip(t *testing.T) {
 	}
 
 	// Stats() through the adapter must match the sidecar.
-	m, err := store.(dotc1z.C1ZStore).SyncMeta().Stats(ctx, connectorstore.SyncTypeAny, syncID)
+	m, err := store.SyncMeta().Stats(ctx, connectorstore.SyncTypeAny, syncID)
 	if err != nil {
 		t.Fatalf("Stats: %v", err)
 	}

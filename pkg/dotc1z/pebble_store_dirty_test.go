@@ -1,4 +1,4 @@
-package pebble
+package dotc1z
 
 import (
 	"context"
@@ -7,34 +7,29 @@ import (
 	"testing"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 )
 
-// TestRegisteredStoreGrantsStoreExpandedGrantsMarksDirty exercises
+// TestPebbleStoreGrantsStoreExpandedGrantsMarksDirty exercises
 // the dirty-flag escape that the PR review bot flagged: writes that
 // went through Grants().StoreExpandedGrants() were calling
-// Adapter.PutGrants directly (bypassing registeredStore's dirty
+// Adapter.PutGrants directly (bypassing pebbleStore's dirty
 // flag), so Close would skip the c1z save. The fix overrides
-// Grants() on registeredStore to wrap StoreExpandedGrants through
+// Grants() on pebbleStore to wrap StoreExpandedGrants through
 // the dirty-marking path.
-func TestRegisteredStoreGrantsStoreExpandedGrantsMarksDirty(t *testing.T) {
+func TestPebbleStoreGrantsStoreExpandedGrantsMarksDirty(t *testing.T) {
 	ctx := context.Background()
-	if err := Register(); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "dirty.c1z")
 
-	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
+	store, err := NewStore(ctx, path, WithEngine(EnginePebble))
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
 	if _, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
 		t.Fatalf("StartNewSync: %v", err)
 	}
-	c1z := store.(dotc1z.C1ZStore)
 	// The only mutating GrantStore method.
-	if err := c1z.Grants().StoreExpandedGrants(ctx,
+	if err := store.Grants().StoreExpandedGrants(ctx,
 		mkV2Grant("g1", "ent", "user", "alice"),
 	); err != nil {
 		t.Fatalf("StoreExpandedGrants: %v", err)
@@ -52,6 +47,6 @@ func TestRegisteredStoreGrantsStoreExpandedGrantsMarksDirty(t *testing.T) {
 		t.Fatalf("clone stat: %v", err)
 	}
 	if fi.Size() == 0 {
-		t.Fatalf("c1z size = 0; registered store didn't flush after StoreExpandedGrants")
+		t.Fatalf("c1z size = 0; pebble store didn't flush after StoreExpandedGrants")
 	}
 }

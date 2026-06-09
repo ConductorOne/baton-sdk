@@ -485,10 +485,10 @@ func (a *Adapter) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentTy
 }
 
 // Cleanup on the bare Adapter is a no-op. The real Pebble
-// retention policy lives on *registeredStore (see register.go) —
-// it needs access to caller-supplied options (SyncLimit,
-// SkipCleanup) that the engine itself doesn't track, plus the
-// dirty-flag plumbing on the wrapper.
+// retention policy lives on pkg/dotc1z's Pebble store wrapper
+// (pebble_store.go) — it needs access to caller-supplied options
+// (SyncLimit, SkipCleanup) that the engine itself doesn't track,
+// plus the dirty-flag plumbing on the wrapper.
 //
 // Callers that open through dotc1z.NewStore(..., WithEngine(EnginePebble))
 // get the real Cleanup; callers that build a bare Adapter (unit
@@ -827,9 +827,9 @@ func (a *Adapter) CurrentDBSizeBytes() (int64, error) {
 // Metadata describes the storage backing this adapter. The Pebble
 // adapter always reports the v3 format; PayloadEncoding is set by
 // the writer at envelope time and is not directly visible on the
-// Adapter itself — registeredStore (in pkg/dotc1z/engine/pebble/
-// register.go) overrides this method to fill PayloadEncoding from
-// its configured value.
+// Adapter itself — pkg/dotc1z's Pebble store wrapper
+// (pebble_store.go) overrides this method to fill PayloadEncoding
+// from its configured value.
 //
 // Strings are inlined rather than referencing dotc1z constants
 // because this subpackage is imported by dotc1z, so the reverse
@@ -851,6 +851,13 @@ func (a *Adapter) currentSyncID() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.current.syncID
+}
+
+// CurrentSyncID returns the adapter's current sync id, or "" when no
+// sync is active. Used by pkg/dotc1z's Pebble store to drive the
+// retention policy at Cleanup.
+func (a *Adapter) CurrentSyncID() string {
+	return a.currentSyncID()
 }
 
 // resolveActiveSync picks the sync_id a List* read should scope to.

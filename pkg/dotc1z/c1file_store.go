@@ -8,6 +8,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -299,9 +300,16 @@ func (s c1FileSyncMeta) Stats(ctx context.Context, syncType connectorstore.SyncT
 
 type c1FileFileOps struct{ c *C1File }
 
-// CloneSync implements FileOps. Direct passthrough.
-func (f c1FileFileOps) CloneSync(ctx context.Context, outPath string, syncID string, opts ...C1FOption) error {
-	return f.c.CloneSync(ctx, outPath, syncID, opts...)
+// CloneSync implements FileOps. Translates the engine-neutral
+// CloneSyncOptions into the SQLite-specific C1FOptions applied to the
+// destination file.
+func (f c1FileFileOps) CloneSync(ctx context.Context, outPath string, syncID string, opts ...CloneSyncOption) error {
+	cloneOpts := c1zstore.NewCloneSyncOptions(opts...)
+	var c1fOpts []C1FOption
+	if cloneOpts.TmpDir != "" {
+		c1fOpts = append(c1fOpts, WithC1FTmpDir(cloneOpts.TmpDir))
+	}
+	return f.c.CloneSync(ctx, outPath, syncID, c1fOpts...)
 }
 
 // GenerateSyncDiff implements FileOps. Direct passthrough.

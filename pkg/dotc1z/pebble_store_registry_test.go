@@ -1,4 +1,4 @@
-package pebble
+package dotc1z
 
 import (
 	"bytes"
@@ -11,30 +11,24 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 )
 
-func c1zFormat(path string) (dotc1z.C1ZFormat, error) {
+func c1zFormat(path string) (C1ZFormat, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return dotc1z.C1ZFormatUnknown, err
+		return C1ZFormatUnknown, err
 	}
 	defer f.Close()
-	return dotc1z.ReadHeaderFormat(f)
+	return ReadHeaderFormat(f)
 }
 
 func TestRegisteredPebbleNewStoreRoundtrip(t *testing.T) {
 	ctx := context.Background()
-	if err := Register(); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
-	if err := Register(); err != nil {
-		t.Fatalf("Register second call should be idempotent: %v", err)
-	}
 
 	path := t.TempDir() + "/sync.c1z"
-	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
+	store, err := NewStore(ctx, path, WithEngine(EnginePebble))
 	if err != nil {
 		t.Fatalf("NewStore pebble: %v", err)
 	}
@@ -56,7 +50,7 @@ func TestRegisteredPebbleNewStoreRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("c1zFormat: %v", err)
 	}
-	if format != dotc1z.C1ZFormatV3 {
+	if format != C1ZFormatV3 {
 		t.Fatalf("format = %s, want v3", format)
 	}
 	encodedBeforeReadOnly, err := os.ReadFile(path)
@@ -67,11 +61,11 @@ func TestRegisteredPebbleNewStoreRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadEnvelope: %v", err)
 	}
-	if env.Manifest.GetEngine() != string(dotc1z.EnginePebble) {
-		t.Fatalf("manifest engine = %q, want %q", env.Manifest.GetEngine(), dotc1z.EnginePebble)
+	if env.Manifest.GetEngine() != string(EnginePebble) {
+		t.Fatalf("manifest engine = %q, want %q", env.Manifest.GetEngine(), EnginePebble)
 	}
-	if env.Manifest.GetEngineSchemaVersion() != uint32(SDKPebbleFormat) {
-		t.Fatalf("manifest schema = %d, want %d", env.Manifest.GetEngineSchemaVersion(), SDKPebbleFormat)
+	if env.Manifest.GetEngineSchemaVersion() != uint32(pebble.SDKPebbleFormat) {
+		t.Fatalf("manifest schema = %d, want %d", env.Manifest.GetEngineSchemaVersion(), pebble.SDKPebbleFormat)
 	}
 	if env.Manifest.GetPayloadEncoding() != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD {
 		t.Fatalf("payload encoding = %v, want tar_zstd", env.Manifest.GetPayloadEncoding())
@@ -83,7 +77,7 @@ func TestRegisteredPebbleNewStoreRoundtrip(t *testing.T) {
 		t.Fatalf("close envelope: %v", err)
 	}
 
-	reopened, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
+	reopened, err := NewStore(ctx, path, WithReadOnly(true))
 	if err != nil {
 		t.Fatalf("NewStore reopen pebble: %v", err)
 	}
@@ -98,7 +92,7 @@ func TestRegisteredPebbleNewStoreRoundtrip(t *testing.T) {
 		t.Fatal("read-only open/close rewrote the c1z envelope")
 	}
 
-	reopened, err = dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
+	reopened, err = NewStore(ctx, path, WithReadOnly(true))
 	if err != nil {
 		t.Fatalf("NewStore reopen pebble after read-only check: %v", err)
 	}
@@ -135,28 +129,23 @@ func TestRegisteredPebbleNewStoreRoundtrip(t *testing.T) {
 	}
 }
 
-// TestPebbleRegisteredStoreWithPayloadEncodingTar exercises the
-// dotc1z.WithPayloadEncoding option threaded through C1ZOption →
-// StoreOptions → registeredStore → manifest.PayloadEncoding.
-func TestPebbleRegisteredStoreWithPayloadEncodingTar(t *testing.T) {
-	if err := Register(); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
+// TestPebbleStoreWithPayloadEncodingTar exercises the
+// WithPayloadEncoding option threaded through C1ZOption →
+// StoreOptions → pebbleStore → manifest.PayloadEncoding.
+func TestPebbleStoreWithPayloadEncodingTar(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 	out := filepath.Join(tmp, "tar.c1z")
-	store, err := dotc1z.NewStore(ctx, out,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
-		dotc1z.WithPayloadEncoding(dotc1z.PayloadEncodingTar),
+	store, err := NewStore(ctx, out,
+		WithEngine(EnginePebble),
+		WithPayloadEncoding(PayloadEncodingTar),
 	)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
-	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
+	if _, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
 		t.Fatalf("StartNewSync: %v", err)
 	}
-	_ = syncID
 	if err := store.PutGrants(ctx, &v2.Grant{Id: "g1"}); err != nil {
 		t.Fatalf("PutGrants: %v", err)
 	}
@@ -183,17 +172,13 @@ func TestPebbleRegisteredStoreWithPayloadEncodingTar(t *testing.T) {
 	}
 }
 
-// TestPebbleRegisteredStoreDefaultsToTarZstd confirms that omitting
-// dotc1z.WithPayloadEncoding gives TAR_ZSTD (current production
-// default).
-func TestPebbleRegisteredStoreDefaultsToTarZstd(t *testing.T) {
-	if err := Register(); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
+// TestPebbleStoreDefaultsToTarZstd confirms that omitting
+// WithPayloadEncoding gives TAR_ZSTD (current production default).
+func TestPebbleStoreDefaultsToTarZstd(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 	out := filepath.Join(tmp, "default.c1z")
-	store, err := dotc1z.NewStore(ctx, out, dotc1z.WithEngine(dotc1z.EnginePebble))
+	store, err := NewStore(ctx, out, WithEngine(EnginePebble))
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}

@@ -4,18 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // SyncMeta returns the SyncMeta sub-store backed by the Pebble
-// adapter. Implements dotc1z.C1ZStore.SyncMeta(). The sync-run
+// adapter. Implements c1zstore.Store.SyncMeta(). The sync-run
 // records live in Pebble under typeSyncRun; methods here walk
 // IterateAllSyncRuns + GetSyncRunRecord + PutSyncRunRecord on the
 // engine.
-func (a *Adapter) SyncMeta() dotc1z.SyncMeta {
+func (a *Adapter) SyncMeta() c1zstore.SyncMeta {
 	return pebbleSyncMeta{a: a}
 }
 
@@ -50,7 +51,7 @@ func (s pebbleSyncMeta) MarkSyncSupportsDiff(ctx context.Context, syncID string)
 
 // LatestFullSync returns the most recently finished sync whose type
 // is SYNC_TYPE_FULL, or nil if no such sync exists.
-func (s pebbleSyncMeta) LatestFullSync(ctx context.Context) (*dotc1z.SyncRun, error) {
+func (s pebbleSyncMeta) LatestFullSync(ctx context.Context) (*c1zstore.SyncRun, error) {
 	return s.latestFinishedSync(ctx, func(t v3.SyncType) bool {
 		return t == v3.SyncType_SYNC_TYPE_FULL
 	})
@@ -59,14 +60,14 @@ func (s pebbleSyncMeta) LatestFullSync(ctx context.Context) (*dotc1z.SyncRun, er
 // LatestFinishedSyncOfAnyType returns the most recently finished
 // sync of any type, or nil if no sync has finished. Mirrors the
 // SQLite implementation which uses SyncTypeAny.
-func (s pebbleSyncMeta) LatestFinishedSyncOfAnyType(ctx context.Context) (*dotc1z.SyncRun, error) {
+func (s pebbleSyncMeta) LatestFinishedSyncOfAnyType(ctx context.Context) (*c1zstore.SyncRun, error) {
 	return s.latestFinishedSync(ctx, func(v3.SyncType) bool { return true })
 }
 
 // latestFinishedSync delegates to Engine.LatestFinishedSyncRecord and
-// translates the result into the exported dotc1z.SyncRun shape.
+// translates the result into the exported c1zstore.SyncRun shape.
 // typeOK is passed through verbatim; nil matches any sync type.
-func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.SyncType) bool) (*dotc1z.SyncRun, error) {
+func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.SyncType) bool) (*c1zstore.SyncRun, error) {
 	best, err := s.a.engine.LatestFinishedSyncRecord(ctx, typeOK)
 	if err != nil {
 		return nil, err
@@ -85,13 +86,13 @@ func (s pebbleSyncMeta) Stats(ctx context.Context, syncType connectorstore.SyncT
 }
 
 // syncRunRecordToExported translates the Pebble v3.SyncRunRecord
-// proto into the exported dotc1z.SyncRun shape. Mirrors
+// proto into the exported c1zstore.SyncRun shape. Mirrors
 // syncRunToExported in pkg/dotc1z but adapted for the v3 proto.
-func syncRunRecordToExported(r *v3.SyncRunRecord) *dotc1z.SyncRun {
+func syncRunRecordToExported(r *v3.SyncRunRecord) *c1zstore.SyncRun {
 	if r == nil {
 		return nil
 	}
-	out := &dotc1z.SyncRun{
+	out := &c1zstore.SyncRun{
 		ID:           r.GetSyncId(),
 		Type:         syncTypeV3ToConnectorstore(r.GetType()),
 		SyncToken:    r.GetSyncToken(),
@@ -108,6 +109,62 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) *dotc1z.SyncRun {
 		out.EndedAt = &tt
 	}
 	return out
+}
+
+// CleanupCandidates walks every sync_run record and projects it into
+// the engine-neutral c1zstore.SyncRun shape, sorted oldest-first.
+// c1zstore.SelectSyncsToDelete depends on this ordering so "drop the
+// oldest overflow" trims the right end. Used by pkg/dotc1z's Pebble
+// store to drive the retention policy at Cleanup.
+//
+// We sort explicitly rather than trust IterateAllSyncRuns' order:
+// the iterator walks by sync_id (KSUID), and KSUIDs only encode the
+// timestamp to second resolution. Two syncs created in the same
+// second sort by the 16-byte random tail rather than chronologically,
+// which would silently pick the wrong sync to prune. Sorting on
+// started_at (with sync_id tiebreaker) matches the SQLite engine's
+// ListSyncRuns ORDER BY id ASC semantics.
+func (a *Adapter) CleanupCandidates(ctx context.Context) ([]c1zstore.SyncRun, error) {
+	var out []c1zstore.SyncRun
+	err := a.engine.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
+		cand := c1zstore.SyncRun{
+			ID:           r.GetSyncId(),
+			Type:         syncTypeV3ToConnectorstore(r.GetType()),
+			SyncToken:    r.GetSyncToken(),
+			ParentSyncID: r.GetParentSyncId(),
+			SupportsDiff: r.GetSupportsDiff(),
+			LinkedSyncID: r.GetLinkedSyncId(),
+		}
+		if t := r.GetStartedAt(); t != nil {
+			tt := t.AsTime()
+			cand.StartedAt = &tt
+		}
+		if t := r.GetEndedAt(); t != nil {
+			tt := t.AsTime()
+			cand.EndedAt = &tt
+		}
+		out = append(out, cand)
+		return true
+	})
+	if err != nil {
+		return nil, fmt.Errorf("pebble CleanupCandidates: IterateAllSyncRuns: %w", err)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		ti, tj := out[i].StartedAt, out[j].StartedAt
+		switch {
+		case ti == nil && tj == nil:
+			return out[i].ID < out[j].ID
+		case ti == nil:
+			return true
+		case tj == nil:
+			return false
+		case ti.Equal(*tj):
+			return out[i].ID < out[j].ID
+		default:
+			return ti.Before(*tj)
+		}
+	})
+	return out, nil
 }
 
 // syncTypeV3ToConnectorstore maps the v3-owned mirror SyncType enum

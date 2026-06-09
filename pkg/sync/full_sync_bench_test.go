@@ -9,7 +9,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 )
 
@@ -140,9 +139,6 @@ func runOneFullSync(b *testing.B, engine string, nUsers, nGroups, membershipsPer
 	case "sqlite":
 		opts = []SyncOpt{WithC1ZPath(c1zPath), WithTmpDir(tmpDir)}
 	case "pebble":
-		if err := pebble.Register(); err != nil {
-			b.Fatalf("pebble.Register: %v", err)
-		}
 		store, err := dotc1z.NewStore(ctx, c1zPath,
 			dotc1z.WithEngine(dotc1z.EnginePebble),
 			dotc1z.WithTmpDir(tmpDir),
@@ -150,11 +146,7 @@ func runOneFullSync(b *testing.B, engine string, nUsers, nGroups, membershipsPer
 		if err != nil {
 			b.Fatalf("NewStore pebble: %v", err)
 		}
-		c1zStore, ok := store.(dotc1z.C1ZStore)
-		if !ok {
-			b.Fatalf("pebble store does not satisfy dotc1z.C1ZStore")
-		}
-		opts = []SyncOpt{WithConnectorStore(c1zStore), WithTmpDir(tmpDir)}
+		opts = []SyncOpt{WithConnectorStore(store), WithTmpDir(tmpDir)}
 	default:
 		b.Fatalf("unknown engine %q", engine)
 	}

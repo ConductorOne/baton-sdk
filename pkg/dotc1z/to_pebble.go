@@ -92,9 +92,8 @@ type ConvertStats struct {
 // complete snapshot beforehand). It only requires the sync to exist and be
 // ended, mirroring CloneSync.
 //
-// The Pebble engine must be registered with the dotc1z engine registry
-// (pkg/dotc1z/engine/pebble.Register) before calling; otherwise ToPebble
-// returns ErrEngineNotAvailable.
+// The Pebble engine is registered statically with dotc1z; no extra
+// imports are needed before calling.
 func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, opts ...ConvertOption) (*ConvertStats, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ToPebble")
 	var err error
