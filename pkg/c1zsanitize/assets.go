@@ -2,13 +2,10 @@ package c1zsanitize
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
-
-	"go.uber.org/zap"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -84,16 +81,20 @@ func (a *assetRefSet) drain() []string {
 	return out
 }
 
-// drainAndClose consumes the reader and closes it if the underlying
-// type also implements io.Closer. The connectorstore.Reader.GetAsset
-// contract returns an io.Reader, but at least one implementation
-// returns *os.File; not closing it leaks a fd per asset.
-func drainAndClose(r io.Reader) error {
+// closeIfCloser closes the reader when the underlying type implements
+// io.Closer. The connectorstore.Reader.GetAsset contract returns an
+// io.Reader, but at least one implementation returns *os.File; not closing
+// it leaks a fd per asset. The payload itself is never read: the sanitizer
+// discards it and writes a content-type-matched placeholder, so reading the
+// original bytes (avatars can be hundreds of KB each) is pure wasted I/O.
+// content_type is returned separately by GetAsset and does not require
+// reading the body. Closing the GetAsset return without draining to EOF
+// releases resources for the *os.File and in-memory reader implementations.
+func closeIfCloser(r io.Reader) error {
 	if c, ok := r.(io.Closer); ok {
-		defer c.Close()
+		return c.Close()
 	}
-	_, err := io.Copy(io.Discard, r)
-	return err
+	return nil
 }
 
 func (s *sanitizer) copyAssets(
@@ -112,12 +113,13 @@ func (s *sanitizer) copyAssets(
 			// Asset referenced from an annotation but missing from
 			// the asset table. Skip — we don't fabricate placeholder
 			// rows because the cross-reference invariant treats it
-			// as a known dangling pointer in the source.
-			s.log.Debug("c1zsanitize: asset ref not found in source", zap.String("asset_id", srcID), zap.Error(err))
+			// as a known dangling pointer in the source. Counted (not
+			// logged per item) and reported once via logDropSummary.
+			s.missingAssets++
 			continue
 		}
-		if err := drainAndClose(r); err != nil && !errors.Is(err, io.EOF) {
-			return fmt.Errorf("drain source asset %s: %w", srcID, err)
+		if err := closeIfCloser(r); err != nil {
+			return fmt.Errorf("close source asset %s: %w", srcID, err)
 		}
 		dstID := s.id(srcID)
 		if err := dst.PutAsset(ctx, v2.AssetRef_builder{Id: dstID}.Build(), contentType, placeholderForContentType(contentType)); err != nil {

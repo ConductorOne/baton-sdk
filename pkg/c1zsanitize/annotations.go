@@ -23,6 +23,16 @@ func defaultAnnotationHandlers() map[string]annotationHandler {
 		typeURL(&v2.SecretTrait{}):         handleSecretTrait,
 		typeURL(&v2.LicenseProfileTrait{}): handleLicenseProfileTrait,
 		typeURL(&v2.ScopeBindingTrait{}):   handleScopeBindingTrait,
+
+		// Non-trait annotations carrying graph topology / cross-references.
+		// Preserved-and-sanitized rather than dropped so the sanitized c1z
+		// stays a representative dataset for perf and graph testing.
+		typeURL(&v2.GrantExpandable{}):      handleGrantExpandable,
+		typeURL(&v2.GrantImmutable{}):       handleGrantImmutable,
+		typeURL(&v2.EntitlementImmutable{}): handleEntitlementImmutable,
+		typeURL(&v2.ExternalLink{}):         handleExternalLink,
+		typeURL(&v2.ETag{}):                 handleETag,
+		typeURL(&v2.ChildResourceType{}):    handleChildResourceType,
 	}
 }
 
@@ -37,10 +47,15 @@ func typeURL(m proto.Message) string {
 	return a.GetTypeUrl()
 }
 
-// transformAnnotations walks the slice once, dispatching each entry
-// on its Any type URL. Unknown types are dropped by default (with a
-// log line naming the URL) or passed through unchanged if the
-// operator opted in via Options.AllowUnknownAnnotations=true.
+// transformAnnotations walks the slice once, dispatching each entry on its
+// Any type URL. Unknown types are dropped by default (the fail-closed posture)
+// or passed through unchanged if the operator opted in via
+// Options.AllowUnknownAnnotations=true. Per-entry outcomes are accumulated into
+// per-type-URL counters (Sanitize emits one summary line at the end of the run
+// via logDropSummary), and a single first-occurrence line is logged per distinct
+// type_url so the signal — and, for failures, the actual error — is visible
+// without the per-item spam these paths once produced (tens of millions of
+// lines on a large file).
 func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*anypb.Any {
 	if len(in) == 0 {
 		return nil
@@ -57,17 +72,28 @@ func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*
 			// could leak un-sanitized customer data. Pass-through is opt-in
 			// via Options.AllowUnknownAnnotations, for development only.
 			if s.dropUnknownAnnotations {
-				s.log.Debug("c1zsanitize: dropping unknown annotation", zap.String("type_url", a.GetTypeUrl()))
+				if s.droppedAnnotations[a.GetTypeUrl()] == 0 {
+					s.log.Warn("c1zsanitize: dropping unknown annotation type (first occurrence; counted thereafter)",
+						zap.String("type_url", a.GetTypeUrl()))
+				}
+				s.droppedAnnotations[a.GetTypeUrl()]++
 				continue
 			}
-			s.log.Warn("c1zsanitize: passing unknown annotation through unchanged", zap.String("type_url", a.GetTypeUrl()))
+			if s.passedAnnotations[a.GetTypeUrl()] == 0 {
+				s.log.Warn("c1zsanitize: passing unknown annotation through unchanged (first occurrence; counted thereafter)",
+					zap.String("type_url", a.GetTypeUrl()))
+			}
+			s.passedAnnotations[a.GetTypeUrl()]++
 			out = append(out, a)
 			continue
 		}
 		msg, err := a.UnmarshalNew()
 		if err != nil {
-			s.log.Warn("c1zsanitize: failed to unmarshal annotation; dropping",
-				zap.String("type_url", a.GetTypeUrl()), zap.Error(err))
+			if s.failedAnnotations[a.GetTypeUrl()] == 0 {
+				s.log.Warn("c1zsanitize: annotation transform failed (first occurrence; counted thereafter)",
+					zap.String("type_url", a.GetTypeUrl()), zap.Error(err))
+			}
+			s.failedAnnotations[a.GetTypeUrl()]++
 			continue
 		}
 		sanitized := handler(s, msg, refs)
@@ -76,8 +102,11 @@ func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*
 		}
 		repacked, err := anypb.New(sanitized)
 		if err != nil {
-			s.log.Warn("c1zsanitize: failed to repack annotation; dropping",
-				zap.String("type_url", a.GetTypeUrl()), zap.Error(err))
+			if s.failedAnnotations[a.GetTypeUrl()] == 0 {
+				s.log.Warn("c1zsanitize: annotation transform failed (first occurrence; counted thereafter)",
+					zap.String("type_url", a.GetTypeUrl()), zap.Error(err))
+			}
+			s.failedAnnotations[a.GetTypeUrl()]++
 			continue
 		}
 		out = append(out, repacked)

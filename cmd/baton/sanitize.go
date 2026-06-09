@@ -93,14 +93,30 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	}
 	defer src.Close(ctx)
 
-	// The dst is a net-new intermediate that is discarded on any
-	// failure, so durability pragmas only cost throughput: skip the
-	// journal and fsync entirely, and give SQLite a 64MB page cache to
-	// cut index-maintenance misses on large (multi-million-grant) syncs.
+	// The dst is a net-new, single-writer intermediate that is discarded
+	// on any failure, so durability and index-maintenance costs are pure
+	// throughput overhead here:
+	//   - journal_mode=OFF + synchronous=OFF: no rollback journal, no fsync
+	//     (the output is rebuilt from source on any failure, not recovered).
+	//   - cache_size=-1048576 (1 GiB) + mmap_size=8 GiB + temp_store=MEMORY:
+	//     keep index pages resident and run the deferred index build in
+	//     memory, cutting page-cache misses on large (multi-million-grant)
+	//     syncs.
+	//   - WithBulkLoad: defer secondary-index creation until after the load
+	//     so per-row random-key B-tree maintenance does not dominate.
+	// These pragmas are scoped to THIS writer instance; normal connector
+	// syncs open their own C1File and are unaffected.
 	dst, err := dotc1z.NewC1ZFile(ctx, outPath,
 		dotc1z.WithPragma("journal_mode", "OFF"),
 		dotc1z.WithPragma("synchronous", "OFF"),
-		dotc1z.WithPragma("cache_size", "-65536"),
+		dotc1z.WithPragma("cache_size", "-1048576"),
+		dotc1z.WithPragma("mmap_size", "8589934592"),
+		dotc1z.WithPragma("temp_store", "MEMORY"),
+		dotc1z.WithBulkLoad(true),
+		// bulkLoad already implies skip-cleanup; skip VACUUM too — vacuuming
+		// before the deferred indexes are rebuilt at Close is wasted work on a
+		// throwaway artifact.
+		dotc1z.WithSkipVacuum(true),
 	)
 	if err != nil {
 		return fmt.Errorf("open dst c1z: %w", err)
