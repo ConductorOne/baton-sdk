@@ -26,6 +26,11 @@ func (s *timestampShifter) shift(ts *timestamppb.Timestamp) *timestamppb.Timesta
 	if ts == nil {
 		return nil
 	}
+	// No-op anchor (anchor == tMax, or no tMax): the shift is identity, so
+	// skip the AsTime + timestamppb.New allocation pair on every timestamp.
+	if s.delta == 0 {
+		return ts
+	}
 	t := ts.AsTime()
 	if t.IsZero() {
 		return ts

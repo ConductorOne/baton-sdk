@@ -22,14 +22,30 @@ func newDomainMap() *domainMap {
 	return &domainMap{m: map[string]string{}}
 }
 
-func (d *domainMap) lookup(secret []byte, domain string) string {
+// lookup maps a source domain to its deterministic sentinel domain. idFn is
+// the sanitizer's reused hot-path HMAC (s.id), not the package-level
+// SanitizeID, so domains do not pay a fresh HMAC key schedule per call. The
+// HMAC is computed OUTSIDE the lock; the lock only guards the cache map, so a
+// burst of distinct domains no longer serializes the hashing. A rare
+// duplicate computation under contention is harmless — idFn is a pure
+// function of (secret, input).
+func (d *domainMap) lookup(idFn func(string) string, domain string) string {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if v, ok := d.m[domain]; ok {
+		d.mu.Unlock()
 		return v
 	}
-	v := "dom-" + strings.ToLower(SanitizeID(secret, domain)) + ".example"
+	d.mu.Unlock()
+
+	v := "dom-" + strings.ToLower(idFn(domain)) + ".example"
+
+	d.mu.Lock()
+	if existing, ok := d.m[domain]; ok {
+		d.mu.Unlock()
+		return existing
+	}
 	d.m[domain] = v
+	d.mu.Unlock()
 	return v
 }
 
@@ -37,13 +53,15 @@ func (d *domainMap) lookup(secret []byte, domain string) string {
 // sentinel domain through the per-c1z domain map. Cross-tenant
 // "all from @acme.com" shapes are preserved without leaking acme.com.
 // An input lacking a single '@' is HMACed wholesale — the caller may
-// have passed something that looks like an email but isn't.
-func sanitizeEmail(secret []byte, dm *domainMap, addr string) string {
+// have passed something that looks like an email but isn't. idFn is the
+// sanitizer's reused hot-path HMAC (s.id); the package-level SanitizeID
+// reference implementation is no longer on this path.
+func sanitizeEmail(idFn func(string) string, dm *domainMap, addr string) string {
 	at := strings.LastIndexByte(addr, '@')
 	if at < 0 {
-		return SanitizeID(secret, addr)
+		return idFn(addr)
 	}
 	local := addr[:at]
 	domain := addr[at+1:]
-	return SanitizeID(secret, local) + "@" + dm.lookup(secret, domain)
+	return idFn(local) + "@" + dm.lookup(idFn, domain)
 }

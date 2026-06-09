@@ -5,10 +5,16 @@ import (
 	"testing"
 )
 
+// emailIDFn mirrors the hot-path s.id used in production while keeping the
+// test self-contained: a pure function of (secret, input).
+func emailIDFn(secret []byte) func(string) string {
+	return func(in string) string { return SanitizeID(secret, in) }
+}
+
 func TestSanitizeEmailPreservesShape(t *testing.T) {
 	secret := bytes32("s")
 	dm := newDomainMap()
-	got := sanitizeEmail(secret, dm, "john.doe@acme.com")
+	got := sanitizeEmail(emailIDFn(secret), dm, "john.doe@acme.com")
 	if !strings.ContainsRune(got, '@') {
 		t.Fatalf("expected '@' to survive, got %q", got)
 	}
@@ -17,8 +23,9 @@ func TestSanitizeEmailPreservesShape(t *testing.T) {
 func TestSanitizeEmailSameDomainMapsConsistently(t *testing.T) {
 	secret := bytes32("s")
 	dm := newDomainMap()
-	a := sanitizeEmail(secret, dm, "alice@acme.com")
-	b := sanitizeEmail(secret, dm, "bob@acme.com")
+	idFn := emailIDFn(secret)
+	a := sanitizeEmail(idFn, dm, "alice@acme.com")
+	b := sanitizeEmail(idFn, dm, "bob@acme.com")
 	aDom := a[strings.LastIndexByte(a, '@')+1:]
 	bDom := b[strings.LastIndexByte(b, '@')+1:]
 	if aDom != bDom {
@@ -29,8 +36,9 @@ func TestSanitizeEmailSameDomainMapsConsistently(t *testing.T) {
 func TestSanitizeEmailDistinctDomainsDistinctOutputs(t *testing.T) {
 	secret := bytes32("s")
 	dm := newDomainMap()
-	a := sanitizeEmail(secret, dm, "alice@acme.com")
-	b := sanitizeEmail(secret, dm, "alice@example.com")
+	idFn := emailIDFn(secret)
+	a := sanitizeEmail(idFn, dm, "alice@acme.com")
+	b := sanitizeEmail(idFn, dm, "alice@example.com")
 	aDom := a[strings.LastIndexByte(a, '@')+1:]
 	bDom := b[strings.LastIndexByte(b, '@')+1:]
 	if aDom == bDom {
@@ -41,7 +49,7 @@ func TestSanitizeEmailDistinctDomainsDistinctOutputs(t *testing.T) {
 func TestSanitizeEmailNoAtTreatsAsID(t *testing.T) {
 	secret := bytes32("s")
 	dm := newDomainMap()
-	got := sanitizeEmail(secret, dm, "no-at-sign-here")
+	got := sanitizeEmail(emailIDFn(secret), dm, "no-at-sign-here")
 	if strings.ContainsRune(got, '@') {
 		t.Fatalf("expected no '@' in non-email output; got %q", got)
 	}

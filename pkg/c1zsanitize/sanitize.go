@@ -141,6 +141,16 @@ type sanitizer struct {
 	handlers               map[string]annotationHandler
 	syncIDMap              map[string]string
 	knownResourceTypes     map[string]struct{}
+
+	// inResourceTypesPhase gates writes to knownResourceTypes. The set is
+	// populated ONLY while copyResourceTypes runs (which is first in every
+	// sync); embedded resource types encountered later — in an
+	// entitlement's GrantableTo or a grant's annotations — never mutate it.
+	// This makes transformID's type-token decision order-independent: a
+	// token is either declared (and preserved) or not (and HMAC'd) for the
+	// whole run, instead of flipping representation the first time it
+	// appears embedded. See C-2 in the perf plan — a determinism fix.
+	inResourceTypesPhase bool
 }
 
 // id is the per-sanitizer hot path. SanitizeID stays as the
@@ -186,6 +196,11 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 
 	assetRefs := newAssetRefSet()
 
+	// Per-sync memo cache for the embedded Entitlement/Principal transforms
+	// in the grant loop. Reset each sync so memory is bounded by one sync's
+	// distinct entitlements, not the whole file. See P0-1 in the perf plan.
+	grantCache := newGrantSubCache()
+
 	if err := s.copyResourceTypes(ctx, src, dst, srcSyncID, assetRefs); err != nil {
 		return err
 	}
@@ -195,7 +210,7 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 	if err := s.copyEntitlements(ctx, src, dst, srcSyncID, assetRefs); err != nil {
 		return err
 	}
-	if err := s.copyGrants(ctx, src, dst, srcSyncID, assetRefs); err != nil {
+	if err := s.copyGrants(ctx, src, dst, srcSyncID, assetRefs, grantCache); err != nil {
 		return err
 	}
 	if err := s.copyAssets(ctx, src, dst, assetRefs); err != nil {
