@@ -56,6 +56,22 @@ type C1File struct {
 	closed             bool
 	closedMu           sync.Mutex
 
+	// bulkLoad defers secondary-index creation on a freshly-created
+	// destination. When set, the per-table non-unique secondary indexes
+	// are dropped right after table creation (instant on the empty table)
+	// so the bulk write only maintains the rowid primary key and the
+	// (external_id, sync_id) unique index the upsert path needs; the
+	// deferred indexes are rebuilt in one pass at Close, before the c1z is
+	// flushed. This avoids per-row random-key B-tree maintenance across
+	// the whole load — the dominant cost when writing tens of millions of
+	// rows whose indexed columns are high-cardinality. Only safe for a
+	// net-new, single-writer destination (e.g. c1z sanitize output), so it
+	// is opt-in and never the default.
+	bulkLoad bool
+	// deferredIndexTables records the tables whose secondary indexes were
+	// dropped under bulkLoad, so Close knows to rebuild them.
+	deferredIndexTables []tableDescriptor
+
 	// Cached sync run for listConnectorObjects (avoids N+1 queries)
 	cachedViewSyncRun *SyncRun
 	cachedViewSyncMu  sync.Mutex
@@ -118,6 +134,16 @@ func WithC1FPragma(name string, value string) C1FOption {
 func WithC1FReadOnly(readOnly bool) C1FOption {
 	return func(o *C1File) {
 		o.readOnly = readOnly
+	}
+}
+
+// WithC1FBulkLoad enables deferred secondary-index creation for a
+// freshly-created destination. See C1File.bulkLoad. Only safe for a
+// net-new, single-writer output; never use it to reopen a file that
+// other readers/writers touch concurrently.
+func WithC1FBulkLoad(enabled bool) C1FOption {
+	return func(o *C1File) {
+		o.bulkLoad = enabled
 	}
 }
 
@@ -271,6 +297,7 @@ type c1zOptions struct {
 	skipCleanup        bool
 	skipVacuum         bool
 	v2GrantsWriter     bool
+	bulkLoad           bool
 
 	// engine is the storage engine to use for newly created files.
 	// Reads dispatch on magic byte regardless. Default EngineSQLite.
@@ -373,6 +400,17 @@ func WithV2GrantsWriter(enabled bool) C1ZOption {
 	}
 }
 
+// WithBulkLoad enables deferred secondary-index creation for a
+// freshly-created destination c1z. See WithC1FBulkLoad / C1File.bulkLoad.
+// Only safe for a net-new, single-writer output such as the c1z sanitize
+// destination; it is never the default and must not be set on a file that
+// is read or written concurrently.
+func WithBulkLoad(enabled bool) C1ZOption {
+	return func(o *c1zOptions) {
+		o.bulkLoad = enabled
+	}
+}
+
 // WithPayloadEncoding selects the c1z v3 envelope payload encoding
 // for newly created files written by the Pebble engine. Default is
 // PayloadEncodingTarZstd. PayloadEncodingTar skips the outer zstd
@@ -431,6 +469,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	}
 	if options.v2GrantsWriter {
 		c1fopts = append(c1fopts, WithC1FV2GrantsWriter(true))
+	}
+	if options.bulkLoad {
+		c1fopts = append(c1fopts, WithC1FBulkLoad(true))
 	}
 	if options.engine != "" {
 		c1fopts = append(c1fopts, WithC1FEngine(options.engine))
@@ -525,6 +566,15 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 		}
 		c.closed = true
 		return nil
+	}
+
+	// Rebuild any indexes deferred during a bulk load before the c1z is
+	// flushed and compressed. Runs on the caller's context (the DB is
+	// still open here) so it is not bounded by the finalize timeout.
+	if c.bulkLoad {
+		if err := c.buildDeferredIndexes(ctx); err != nil {
+			return cleanupDbDir(c.dbFilePath, err)
+		}
 	}
 
 	if err := c.finalize(ctx); err != nil {
@@ -845,6 +895,18 @@ func (c *C1File) InitTables(ctx context.Context) (bool, error) {
 			zap.Duration("time_taken", time.Since(startTime)),
 		)
 
+		// Snapshot the table's base secondary indexes BEFORE migrations
+		// run, so deferral targets exactly the Schema()-declared non-unique
+		// indexes and never the partial indexes a migration may add (which
+		// are cheap to maintain and stay live during the load).
+		var deferrable []string
+		if c.bulkLoad {
+			deferrable, err = nonUniqueSecondaryIndexNames(ctx, c.db, t.Name())
+			if err != nil {
+				return false, fmt.Errorf("c1file-init-tables: error listing indexes for %s: %w", t.Name(), err)
+			}
+		}
+
 		startTime = time.Now()
 		migrated, err := t.Migrations(ctx, c.db)
 		if err != nil {
@@ -859,6 +921,21 @@ func (c *C1File) InitTables(ctx context.Context) (bool, error) {
 		if migrated {
 			shouldOptimize = true
 		}
+
+		// Under bulk load, drop the base non-unique secondary indexes now
+		// (instant on the empty table) so the load maintains only the rowid
+		// PK and the (external_id, sync_id) unique index. They are rebuilt
+		// in one pass at Close via buildDeferredIndexes, which re-runs the
+		// canonical Schema() DDL so the final index set is byte-identical to
+		// the non-bulk path.
+		if c.bulkLoad && len(deferrable) > 0 {
+			for _, idxName := range deferrable {
+				if _, derr := c.db.ExecContext(ctx, fmt.Sprintf("DROP INDEX IF EXISTS %s", idxName)); derr != nil {
+					return false, fmt.Errorf("c1file-init-tables: error deferring index %s on %s: %w", idxName, t.Name(), derr)
+				}
+			}
+			c.deferredIndexTables = append(c.deferredIndexTables, t)
+		}
 	}
 
 	if !shouldOptimize {
@@ -872,6 +949,65 @@ func (c *C1File) InitTables(ctx context.Context) (bool, error) {
 	}
 
 	return shouldOptimize, nil
+}
+
+// nonUniqueSecondaryIndexNames returns the names of the non-unique
+// secondary indexes on tableName that were created by an explicit CREATE
+// INDEX (origin "c"). The (external_id, sync_id) UNIQUE index is excluded
+// (unique != 0) so it stays in place — the connector-object upsert path
+// relies on it for its ON CONFLICT target. The rowid primary key (origin
+// "pk") and any UNIQUE-constraint indexes (origin "u") are excluded too.
+func nonUniqueSecondaryIndexNames(ctx context.Context, db *goqu.Database, tableName string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, fmt.Sprintf("PRAGMA index_list(%s)", tableName))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var names []string
+	for rows.Next() {
+		var (
+			seq     int
+			name    string
+			unique  int
+			origin  string
+			partial int
+		)
+		if err := rows.Scan(&seq, &name, &unique, &origin, &partial); err != nil {
+			return nil, err
+		}
+		if unique == 0 && origin == "c" {
+			names = append(names, name)
+		}
+	}
+	return names, rows.Err()
+}
+
+// buildDeferredIndexes rebuilds, in one pass, the secondary indexes that
+// were dropped under bulk load. It re-runs each table's canonical Schema()
+// DDL: the CREATE TABLE and CREATE UNIQUE INDEX statements are no-ops
+// (IF NOT EXISTS), and the dropped non-unique CREATE INDEX statements are
+// recreated. Using the same DDL as the non-bulk path guarantees the final
+// index set — names, columns, uniqueness — is byte-identical. Called from
+// Close before the c1z is flushed, while the DB is still open and writable.
+func (c *C1File) buildDeferredIndexes(ctx context.Context) error {
+	if len(c.deferredIndexTables) == 0 {
+		return nil
+	}
+	l := ctxzap.Extract(ctx).With(zap.String("db_file_path", c.dbFilePath))
+	for _, t := range c.deferredIndexTables {
+		query, args := t.Schema()
+		startTime := time.Now()
+		if _, err := c.db.ExecContext(ctx, fmt.Sprintf(query, args...)); err != nil {
+			return fmt.Errorf("c1file: error building deferred indexes for %s: %w", t.Name(), err)
+		}
+		l.Debug("c1file: built deferred indexes",
+			zap.String("table_name", t.Name()),
+			zap.Duration("time_taken", time.Since(startTime)),
+		)
+	}
+	c.deferredIndexTables = nil
+	return nil
 }
 
 func statsToMap(stats *reader_v2.SyncStats, syncType connectorstore.SyncType) map[string]int64 {
