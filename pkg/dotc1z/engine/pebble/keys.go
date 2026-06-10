@@ -383,20 +383,32 @@ func GrantByEntPrincHashSyncUpperBound(syncIDBytes []byte) []byte {
 //
 //	v3 | typeMerkle | sync_id | 0x00 | entitlement_id | 0x00 | level(1 byte) | bucket_prefix(level raw bytes)
 //
-// level 0 is the root (bucket_prefix empty); level == tree depth holds
-// the leaves, one per non-empty principal-hash bucket. bucket_prefix is
-// the first `level` bytes of the principal bucket hash, raw, so it aligns
-// byte-for-byte with the index key's bucket-hash region. See merkle.go
-// for the node value framing.
+// level 0 is the root (bucket_prefix empty); every level from 1 to the
+// tree's depth holds that level's non-empty nodes, one per non-empty
+// principal-hash prefix. bucket_prefix is the first `level` bytes of the
+// principal bucket hash, raw, so it aligns byte-for-byte with the index
+// key's bucket-hash region — and because the level byte precedes the
+// prefix, the children of one node are a contiguous key range one level
+// down. See merkle.go for the node value framing.
 func encodeMerkleNodeKey(syncIDBytes []byte, entitlementID string, level byte, bucketPrefix []byte) []byte {
-	buf := make([]byte, 0, 6+len(syncIDBytes)+len(entitlementID)+len(bucketPrefix))
+	buf := encodeMerkleEntPrefix(syncIDBytes, entitlementID)
+	buf = append(buf, level)
+	return append(buf, bucketPrefix...)
+}
+
+// encodeMerkleEntPrefix is the prefix of every merkle node key for one
+// entitlement — the range a rebuild clears before writing (the build
+// only Sets nodes; without the leading DeleteRange a depth change or an
+// emptied bucket would leave stale nodes for the comparison descent to
+// read) and the range merkleMutator drops on detecting an inconsistent
+// tree.
+func encodeMerkleEntPrefix(syncIDBytes []byte, entitlementID string) []byte {
+	buf := make([]byte, 0, 6+len(syncIDBytes)+len(entitlementID))
 	buf = append(buf, versionV3, typeMerkle)
 	buf = append(buf, syncIDBytes...)
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleStrings(buf, entitlementID)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = append(buf, level)
-	return append(buf, bucketPrefix...)
+	return codec.AppendTupleSeparator(buf)
 }
 
 // MerkleSyncLowerBound / UpperBound bound the entire merkle keyspace for

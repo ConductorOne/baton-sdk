@@ -68,12 +68,20 @@ var indexMigrations = []indexMigration{
 		// Backfill the by_entitlement_principal_hash index and the
 		// per-entitlement merkle trees for files written before either
 		// existed. Idempotent: re-emitting an index entry is a Set over
-		// the same key/value, and the trees are rebuilt wholesale.
+		// the same key/value, and each tree rebuild range-clears the
+		// entitlement's typeMerkle keyspace before writing — which is
+		// also what makes the version bump effective: v1 (sha256-fold,
+		// root+leaves) nodes are byte-length-identical to v2 (XOR,
+		// all-levels) nodes, so only the clear removes them.
 		// New files persist this version at their initial (empty) Open,
 		// so the inline write path maintains both and the backfill never
 		// re-runs for them.
+		//
+		// v2: XOR combiner, all levels stored sparsely, count on every
+		// node (RFC 0003). Pre-GA in-place change; no production v3
+		// data existed at v1.
 		Name:    "grant_by_entitlement_principal_hash",
-		Version: 1,
+		Version: 2,
 		Apply: func(ctx context.Context, e *Engine) error {
 			return e.backfillGrantHashIndexAndMerkle(ctx)
 		},

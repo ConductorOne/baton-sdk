@@ -15,7 +15,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
 
-// Per-entitlement grant merkle tree.
+// Per-entitlement grant merkle tree (XOR combiner).
 //
 // Goal: answer "does this entitlement have exactly the same grants as
 // some other sync/file?" with a single key read, and when the answer is
@@ -32,20 +32,42 @@ import (
 //   - a hash prefix is a clean byte-prefix of the key, so "all grants in
 //     bucket P" is a contiguous range scan.
 //
-// Variable height. The tree depth is chosen from the grant count:
-// depth 0 is a single root node (used for empty and small entitlements —
-// this is why an entitlement with no grants costs exactly one stored
-// node); each additional level consumes one more byte of the bucket
-// hash, multiplying the bucket count by 256. Node hashes are
-// CONTENT-defined — a node's hash is the fold of every grant content
-// hash beneath it, independent of how the subtree is split — so a node
-// at one depth is directly comparable to the equivalent prefix-range in
-// a tree of a different depth.
+// Combiner. A node's digest is the XOR of every grant content hash
+// beneath it (leaves of the fold stay sha256 — only the combiner is
+// XOR). XOR is homomorphic (parent = XOR of children), order-independent,
+// and invertible, which buys three things:
 //
-// On-disk ABI. Both the principal bucket hash and the grant content
-// hash are part of the stored format: changing merkleBucketHashLen, the
-// content-hash field set (grantContentHash), or the node value framing
-// requires an index-migration version bump (see index_migrations.go).
+//   - depth-independence: a node's digest depends only on the grants in
+//     its prefix range, never on how the subtree is split, so nodes from
+//     trees of different heights compare directly;
+//   - O(1) incremental maintenance: post-seal insert/overwrite/delete
+//     XOR the grant's content hash into/out of the O(depth) nodes on its
+//     bucket path (see merkleMutator);
+//   - the empty digest is all-zero (the XOR identity), so an absent node
+//     reads as {count: 0, digest: 0}.
+//
+// Every node also stores its grant COUNT. Comparison always checks the
+// (count, digest) pair, so a non-empty node whose hashes happened to XOR
+// to zero can never be conflated with an empty/absent one. Within one
+// tree that cancellation cannot even occur: every key-distinguishing
+// field (principal rt/id, external_id) is folded into the content hash,
+// so duplicate leaves are impossible by construction. XOR set-hashing is
+// not adversarially collision-resistant (Bellare–Micciancio); this tree
+// is an optimization, not a trust boundary — see RFC 0003 §9.
+//
+// Shape. 256-ary radix, variable height: depth 0 is a single root node
+// (used for empty and small entitlements — this is why an entitlement
+// with no grants costs exactly one stored node); each additional level
+// consumes one more byte of the bucket hash. ALL levels are stored,
+// sparsely: the root is always materialized (it is the "tree was built"
+// marker — absence of the root means "never built", never "empty"), and
+// every non-root node is materialized iff its subtree holds ≥1 grant.
+//
+// On-disk ABI. The principal bucket hash, the grant content hash, the
+// combiner, and the node value framing are all part of the stored
+// format: changing merkleBucketHashLen, the content-hash field set
+// (grantContentHash), the combiner, or the framing requires an
+// index-migration version bump (see index_migrations.go).
 
 const (
 	// merkleBucketHashLen is the width, in bytes, of the principal
@@ -65,8 +87,18 @@ const (
 )
 
 // hashLen is the width of a sha256 digest, used for both the grant
-// content hash (index value) and node hashes.
+// content hash (index value) and node digests.
 const hashLen = sha256.Size
+
+// zeroDigest is the XOR identity — the digest of an empty/absent node.
+var zeroDigest [hashLen]byte
+
+// xorInto XORs src into dst in place, over min(len(dst), len(src)).
+func xorInto(dst, src []byte) {
+	for i := range min(len(dst), len(src)) {
+		dst[i] ^= src[i]
+	}
+}
 
 // writeLenPrefixed writes an 8-byte big-endian length followed by b.
 // Length-prefixing every field makes the canonical encoding injective:
@@ -167,24 +199,28 @@ func chooseMerkleDepth(count int64) int {
 	return depth
 }
 
-// Node value framing.
+// Node value framing. All non-root nodes share one body so interior and
+// leaf nodes are read uniformly; the root prepends the chosen depth so a
+// reader knows the leaf level without scanning.
 //
-//	root  (level 0):  depth(1) | count(8 BE) | hash(hashLen)
-//	leaf  (level d):  count(8 BE) | hash(hashLen)
+//	node body:  count(8 BE) | digest(hashLen)
+//	root body:  depth(1)    | count(8 BE) | digest(hashLen)
 //
-// The root carries the chosen depth so a reader knows the leaf level
-// without scanning. Leaves omit it (their level is in the key).
+// An ABSENT non-root node is {count: 0, digest: 0} by definition —
+// readers substitute that for any missing key. An absent ROOT means
+// "tree never built" (never "empty"); readers must fall back to the
+// on-demand fold, not assume zero.
 
-func packMerkleRoot(depth int, count int64, h []byte) []byte {
-	buf := make([]byte, 0, 1+8+len(h))
+func packMerkleRoot(depth int, count int64, digest []byte) []byte {
+	buf := make([]byte, 0, 1+8+len(digest))
 	buf = append(buf, byte(depth))
 	var n [8]byte
 	binary.BigEndian.PutUint64(n[:], uint64(count)) //nolint:gosec // non-negative row count
 	buf = append(buf, n[:]...)
-	return append(buf, h...)
+	return append(buf, digest...)
 }
 
-// unpackMerkleRoot returns (depth, count, hash, ok). ok is false when
+// unpackMerkleRoot returns (depth, count, digest, ok). ok is false when
 // the value is not a well-formed root blob.
 func unpackMerkleRoot(val []byte) (int, int64, []byte, bool) {
 	if len(val) != 1+8+hashLen {
@@ -195,12 +231,21 @@ func unpackMerkleRoot(val []byte) (int, int64, []byte, bool) {
 	return depth, count, val[9:], true
 }
 
-func packMerkleLeaf(count int64, h []byte) []byte {
-	buf := make([]byte, 0, 8+len(h))
+func packMerkleNode(count int64, digest []byte) []byte {
+	buf := make([]byte, 0, 8+len(digest))
 	var n [8]byte
 	binary.BigEndian.PutUint64(n[:], uint64(count)) //nolint:gosec // non-negative row count
 	buf = append(buf, n[:]...)
-	return append(buf, h...)
+	return append(buf, digest...)
+}
+
+// unpackMerkleNode returns (count, digest, ok) for a non-root node body.
+func unpackMerkleNode(val []byte) (int64, []byte, bool) {
+	if len(val) != 8+hashLen {
+		return 0, nil, false
+	}
+	count := int64(binary.BigEndian.Uint64(val[:8])) //nolint:gosec // non-negative count
+	return count, val[8:], true
 }
 
 // BuildAllMerkleTrees rebuilds the per-entitlement merkle tree for every
@@ -249,20 +294,43 @@ func (e *Engine) buildEntitlementMerkle(ctx context.Context, idBytes []byte, ent
 }
 
 // buildEntitlementMerkleAtDepth folds the hash index for one entitlement
-// into a root (and, when depth > 0, one leaf per non-empty bucket) and
-// writes the nodes in a single streaming pass — O(1) memory regardless
-// of entitlement size. The depth is taken as a parameter rather than
-// derived so the depth-selection seam can be exercised directly: tests
-// force a depth that the natural count→depth mapping would only produce
-// at a very large grant count, which is how the cross-depth comparison
-// path gets covered without seeding tens of thousands of grants.
+// into a root plus every non-empty node at every level, in a single
+// streaming pass — O(depth) memory regardless of entitlement size.
+//
+// The pass starts by range-deleting the entitlement's whole typeMerkle
+// keyspace: the build only ever Sets nodes, so without the clear a
+// rebuild that changes depth or empties a bucket would leave stale nodes
+// that the comparison descent (which enumerates children from the node
+// keyspace) would read — and a stale digest that happens to match the
+// peer prunes a real diff. Old and new framings are byte-length
+// identical, so stale nodes are not detectable by inspection.
+//
+// Sorted index order means each node's grants are contiguous, so a
+// level's "open" node closes exactly when its prefix changes. Only
+// non-empty nodes are ever opened, so sparsity is automatic, not a
+// prune pass.
+//
+// The depth is taken as a parameter rather than derived so the
+// depth-selection seam can be exercised directly: tests force a depth
+// that the natural count→depth mapping would only produce at a very
+// large grant count, which is how the cross-depth comparison path gets
+// covered without seeding tens of thousands of grants.
 func (e *Engine) buildEntitlementMerkleAtDepth(ctx context.Context, idBytes []byte, entitlementID string, depth int) error {
 	entPrefix := encodeGrantByEntPrincHashEntPrefix(idBytes, entitlementID)
 	upper := upperBoundOf(entPrefix)
+	nodeLower := encodeMerkleEntPrefix(idBytes, entitlementID)
+	nodeUpper := upperBoundOf(nodeLower)
 
 	return e.withWrite(func() error {
 		batch := e.db.NewBatch()
 		defer batch.Close()
+
+		// Clear any prior build (see function comment). In-batch
+		// ordering makes this safe: the Sets below land after the
+		// tombstone and survive it.
+		if err := batch.DeleteRange(nodeLower, nodeUpper, nil); err != nil {
+			return err
+		}
 
 		iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: entPrefix, UpperBound: upper})
 		if err != nil {
@@ -270,22 +338,29 @@ func (e *Engine) buildEntitlementMerkleAtDepth(ctx context.Context, idBytes []by
 		}
 		defer iter.Close()
 
-		rootH := sha256.New()
-		var (
-			leafH     hash.Hash
-			leafCount int64
-			curPrefix []byte
-			haveLeaf  bool
-			total     int64
-		)
-		flushLeaf := func() error {
-			if depth == 0 || !haveLeaf {
+		// One running node per level 1..depth; the root accumulates
+		// separately (its prefix is always empty, so it never closes
+		// mid-stream).
+		type openNode struct {
+			active bool
+			prefix []byte
+			digest [hashLen]byte
+			count  int64
+		}
+		open := make([]openNode, depth+1)
+		flush := func(level int) error {
+			n := &open[level]
+			if !n.active {
 				return nil
 			}
-			key := encodeMerkleNodeKey(idBytes, entitlementID, byte(depth), curPrefix)
-			return batch.Set(key, packMerkleLeaf(leafCount, leafH.Sum(nil)), nil)
+			key := encodeMerkleNodeKey(idBytes, entitlementID, byte(level), n.prefix)
+			return batch.Set(key, packMerkleNode(n.count, n.digest[:]), nil)
 		}
 
+		var (
+			rootDigest [hashLen]byte
+			total      int64
+		)
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -297,32 +372,37 @@ func (e *Engine) buildEntitlementMerkleAtDepth(ctx context.Context, idBytes []by
 			bucketHash := key[len(entPrefix) : len(entPrefix)+merkleBucketHashLen]
 			val := iter.Value() // 32-byte content hash
 
-			if depth > 0 {
-				prefix := bucketHash[:depth]
-				if !haveLeaf || !bytes.Equal(prefix, curPrefix) {
-					if err := flushLeaf(); err != nil {
+			for level := 1; level <= depth; level++ {
+				prefix := bucketHash[:level]
+				n := &open[level]
+				if !n.active || !bytes.Equal(n.prefix, prefix) {
+					if err := flush(level); err != nil {
 						return err
 					}
-					curPrefix = append(curPrefix[:0], prefix...)
-					leafH = sha256.New()
-					leafCount = 0
-					haveLeaf = true
+					n.prefix = append(n.prefix[:0], prefix...)
+					n.digest = [hashLen]byte{}
+					n.count = 0
+					n.active = true
 				}
-				_, _ = leafH.Write(val)
-				leafCount++
+				xorInto(n.digest[:], val)
+				n.count++
 			}
-			_, _ = rootH.Write(val)
+			xorInto(rootDigest[:], val)
 			total++
 		}
 		if err := iter.Error(); err != nil {
 			return err
 		}
-		if err := flushLeaf(); err != nil {
-			return err
+		for level := 1; level <= depth; level++ {
+			if err := flush(level); err != nil {
+				return err
+			}
 		}
 
+		// Root is written unconditionally — even at count 0 — as the
+		// "tree was built" marker.
 		rootKey := encodeMerkleNodeKey(idBytes, entitlementID, 0, nil)
-		if err := batch.Set(rootKey, packMerkleRoot(depth, total, rootH.Sum(nil)), nil); err != nil {
+		if err := batch.Set(rootKey, packMerkleRoot(depth, total, rootDigest[:]), nil); err != nil {
 			return err
 		}
 
@@ -358,7 +438,7 @@ type MerkleRoot struct {
 
 // GetEntitlementMerkleRoot returns the stored root for an entitlement.
 // ok is false when no tree has been built for it (the caller can fall
-// back to ComputeEntitlementRoot, which derives the same digest from the
+// back to ComputeBucketHash, which derives the same digest from the
 // index on demand).
 func (e *Engine) GetEntitlementMerkleRoot(ctx context.Context, syncID, entitlementID string) (MerkleRoot, bool, error) {
 	idBytes, err := e.resolveSyncBytes(syncID)
@@ -382,10 +462,60 @@ func (e *Engine) GetEntitlementMerkleRoot(ctx context.Context, syncID, entitleme
 	return MerkleRoot{Hash: out, Depth: depth, Count: count}, true, nil
 }
 
+// getMerkleNode reads one stored non-root node. An absent node returns
+// (0, zero digest, present=false, nil) — the XOR identity.
+func (e *Engine) getMerkleNode(idBytes []byte, entitlementID string, level int, prefix []byte) (int64, []byte, bool, error) {
+	val, closer, err := e.db.Get(encodeMerkleNodeKey(idBytes, entitlementID, byte(level), prefix))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return 0, zeroDigest[:], false, nil
+		}
+		return 0, nil, false, err
+	}
+	defer closer.Close()
+	count, digest, ok := unpackMerkleNode(val)
+	if !ok {
+		return 0, nil, false, fmt.Errorf("getMerkleNode: malformed node for %q level %d", entitlementID, level)
+	}
+	out := make([]byte, hashLen)
+	copy(out, digest)
+	return count, out, true, nil
+}
+
+// merkleChildPrefixes returns the sorted full prefixes (length = level)
+// of the stored nodes at `level` under parentPrefix. Because the node
+// key embeds the level byte before the prefix bytes, the children of one
+// parent are a contiguous key range — cost is O(children present), and
+// only non-empty children are ever stored.
+func (e *Engine) merkleChildPrefixes(ctx context.Context, idBytes []byte, entitlementID string, level int, parentPrefix []byte) ([][]byte, error) {
+	stem := encodeMerkleNodeKey(idBytes, entitlementID, byte(level), nil)
+	lower := append(append([]byte(nil), stem...), parentPrefix...)
+	upper := upperBoundOf(lower)
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+	var out [][]byte
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		key := iter.Key()
+		if len(key) != len(stem)+level {
+			continue // malformed; skip defensively
+		}
+		prefix := make([]byte, level)
+		copy(prefix, key[len(stem):])
+		out = append(out, prefix)
+	}
+	return out, iter.Error()
+}
+
 // ComputeBucketHash folds the hash index over a single principal-hash
 // bucket (identified by a raw hash prefix; empty prefix = whole
-// entitlement = the root) and returns the content-defined digest plus
-// the grant count. This is the authoritative definition of a node hash;
+// entitlement = the root) and returns the content-defined XOR digest
+// plus the grant count. This is the authoritative definition of a node;
 // stored nodes are a cache of it. Depth-independent: the digest depends
 // only on the grants in the prefix range, not on any tree's shape.
 func (e *Engine) ComputeBucketHash(ctx context.Context, syncID, entitlementID string, hashPrefix []byte) ([]byte, int64, error) {
@@ -400,19 +530,19 @@ func (e *Engine) ComputeBucketHash(ctx context.Context, syncID, entitlementID st
 		return nil, 0, err
 	}
 	defer iter.Close()
-	h := sha256.New()
+	digest := make([]byte, hashLen)
 	var count int64
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
 			return nil, 0, err
 		}
-		_, _ = h.Write(iter.Value())
+		xorInto(digest, iter.Value())
 		count++
 	}
 	if err := iter.Error(); err != nil {
 		return nil, 0, err
 	}
-	return h.Sum(nil), count, nil
+	return digest, count, nil
 }
 
 // IterateGrantsByEntitlementBucket yields the grants in one principal-hash
@@ -468,10 +598,18 @@ func (e *Engine) IterateGrantsByEntitlementBucket(ctx context.Context, syncID, e
 // the comparison granularity is the root, e.g. tiny entitlements). A nil
 // (empty) result means the two are identical.
 //
-// The fast path is a root-hash equality check. On mismatch it descends
-// to the shallower of the two trees' depths and compares each bucket at
-// that granularity, preferring stored leaf hashes and falling back to an
-// on-demand index fold when a side's tree is shallower or absent.
+// The fast path is a single root read per side. On mismatch it descends
+// level by level, pruning every subtree whose (count, digest) pair
+// matches and emitting the differing prefixes at compareDepth — the
+// shallower tree's leaf level, where both sides still have directly
+// comparable nodes (XOR digests are depth-independent). Children are
+// enumerated from the stored node keyspace (union of both sides), so
+// descent cost is proportional to the symmetric difference, not the
+// fan-out.
+//
+// A missing root means the tree was never built on that side — NOT that
+// the entitlement is empty — so both sides are compared via the
+// authoritative on-demand fold instead.
 func (e *Engine) DirtyEntitlementBuckets(ctx context.Context, syncID string, other *Engine, otherSyncID, entitlementID string) ([][]byte, error) {
 	rootA, okA, err := e.GetEntitlementMerkleRoot(ctx, syncID, entitlementID)
 	if err != nil {
@@ -482,129 +620,100 @@ func (e *Engine) DirtyEntitlementBuckets(ctx context.Context, syncID string, oth
 		return nil, err
 	}
 
-	// Fast equality via stored roots when both exist.
-	if okA && okB && bytes.Equal(rootA.Hash, rootB.Hash) {
-		return nil, nil
-	}
-
-	// Comparison granularity: the shallower available depth. A missing
-	// tree is treated as depth 0 (compare at the root → whole-entitlement
-	// dirty if the computed roots differ).
-	compareDepth := 0
-	if okA && okB {
-		compareDepth = min(rootA.Depth, rootB.Depth)
-	}
-
-	if compareDepth == 0 {
-		// Confirm via the authoritative fold (covers the missing-tree
-		// case and guards against a stale stored root).
-		ha, _, err := e.ComputeBucketHash(ctx, syncID, entitlementID, nil)
+	if !okA || !okB {
+		ha, ca, err := e.ComputeBucketHash(ctx, syncID, entitlementID, nil)
 		if err != nil {
 			return nil, err
 		}
-		hb, _, err := other.ComputeBucketHash(ctx, otherSyncID, entitlementID, nil)
+		hb, cb, err := other.ComputeBucketHash(ctx, otherSyncID, entitlementID, nil)
 		if err != nil {
 			return nil, err
 		}
-		if bytes.Equal(ha, hb) {
+		if ca == cb && bytes.Equal(ha, hb) {
 			return nil, nil
 		}
 		return [][]byte{{}}, nil
 	}
 
-	// Union of non-empty bucket prefixes at compareDepth from both sides.
-	prefixes, err := e.distinctBucketPrefixes(ctx, syncID, entitlementID, compareDepth)
+	if rootA.Count == rootB.Count && bytes.Equal(rootA.Hash, rootB.Hash) {
+		return nil, nil
+	}
+
+	// Roots differ. The descent granularity is the shallower tree's
+	// leaf level; at depth 0 there is nothing below the root.
+	compareDepth := min(rootA.Depth, rootB.Depth)
+	if compareDepth == 0 {
+		return [][]byte{{}}, nil
+	}
+
+	idBytesA, err := e.resolveSyncBytes(syncID)
 	if err != nil {
 		return nil, err
 	}
-	otherPrefixes, err := other.distinctBucketPrefixes(ctx, otherSyncID, entitlementID, compareDepth)
+	idBytesB, err := other.resolveSyncBytes(otherSyncID)
 	if err != nil {
 		return nil, err
 	}
-	union := mergeSortedPrefixes(prefixes, otherPrefixes)
 
 	var dirty [][]byte
-	for _, p := range union {
-		ha, _, err := e.bucketHashPreferStored(ctx, syncID, entitlementID, p, rootA, okA)
+	var walk func(prefix []byte, level int) error
+	walk = func(prefix []byte, level int) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		ca, da, _, err := e.getMerkleNode(idBytesA, entitlementID, level, prefix)
 		if err != nil {
+			return err
+		}
+		cb, db, _, err := other.getMerkleNode(idBytesB, entitlementID, level, prefix)
+		if err != nil {
+			return err
+		}
+		if ca == cb && bytes.Equal(da, db) {
+			return nil // identical subtree (or absent on both sides) → prune
+		}
+		if level == compareDepth {
+			dirty = append(dirty, prefix)
+			return nil
+		}
+		kidsA, err := e.merkleChildPrefixes(ctx, idBytesA, entitlementID, level+1, prefix)
+		if err != nil {
+			return err
+		}
+		kidsB, err := other.merkleChildPrefixes(ctx, idBytesB, entitlementID, level+1, prefix)
+		if err != nil {
+			return err
+		}
+		for _, k := range mergeSortedPrefixes(kidsA, kidsB) {
+			if err := walk(k, level+1); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	kidsA, err := e.merkleChildPrefixes(ctx, idBytesA, entitlementID, 1, nil)
+	if err != nil {
+		return nil, err
+	}
+	kidsB, err := other.merkleChildPrefixes(ctx, idBytesB, entitlementID, 1, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, k := range mergeSortedPrefixes(kidsA, kidsB) {
+		if err := walk(k, 1); err != nil {
 			return nil, err
 		}
-		hb, _, err := other.bucketHashPreferStored(ctx, otherSyncID, entitlementID, p, rootB, okB)
-		if err != nil {
-			return nil, err
-		}
-		if !bytes.Equal(ha, hb) {
-			dirty = append(dirty, p)
-		}
+	}
+
+	// Roots differed but the descent found nothing: with consistent
+	// trees that's impossible (the root is the XOR of level 1), so a
+	// stored node is stale or corrupt. Fail safe — whole entitlement
+	// dirty; the next rebuild heals the tree.
+	if len(dirty) == 0 {
+		return [][]byte{{}}, nil
 	}
 	return dirty, nil
-}
-
-// bucketHashPreferStored returns a bucket's hash, using the stored leaf
-// node when the tree's depth matches the prefix length (the cheap path),
-// otherwise folding the index. root/ok describe the entitlement's stored
-// tree for this engine.
-func (e *Engine) bucketHashPreferStored(ctx context.Context, syncID, entitlementID string, prefix []byte, root MerkleRoot, ok bool) ([]byte, int64, error) {
-	if ok && root.Depth == len(prefix) {
-		idBytes, err := e.resolveSyncBytes(syncID)
-		if err != nil {
-			return nil, 0, err
-		}
-		val, closer, err := e.db.Get(encodeMerkleNodeKey(idBytes, entitlementID, byte(len(prefix)), prefix))
-		if err == nil {
-			defer closer.Close()
-			if len(val) == 8+hashLen {
-				count := int64(binary.BigEndian.Uint64(val[:8])) //nolint:gosec // non-negative count
-				h := make([]byte, hashLen)
-				copy(h, val[8:])
-				return h, count, nil
-			}
-		} else if !errors.Is(err, pebble.ErrNotFound) {
-			return nil, 0, err
-		}
-		// fall through to compute on miss/malformed
-	}
-	return e.ComputeBucketHash(ctx, syncID, entitlementID, prefix)
-}
-
-// distinctBucketPrefixes returns the sorted, distinct depth-byte hash
-// prefixes present in an entitlement's hash index. It seeks past each
-// bucket once found, so the cost is O(distinct buckets) seeks rather than
-// O(grants).
-func (e *Engine) distinctBucketPrefixes(ctx context.Context, syncID, entitlementID string, depth int) ([][]byte, error) {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return nil, err
-	}
-	entPrefix := encodeGrantByEntPrincHashEntPrefix(idBytes, entitlementID)
-	upper := upperBoundOf(entPrefix)
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: entPrefix, UpperBound: upper})
-	if err != nil {
-		return nil, err
-	}
-	defer iter.Close()
-
-	var out [][]byte
-	for iter.First(); iter.Valid(); {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		key := iter.Key()
-		if len(key) < len(entPrefix)+depth {
-			iter.Next()
-			continue
-		}
-		prefix := make([]byte, depth)
-		copy(prefix, key[len(entPrefix):len(entPrefix)+depth])
-		out = append(out, prefix)
-		// Seek past this whole bucket to the next distinct prefix.
-		seekTo := upperBoundOf(append(append([]byte(nil), entPrefix...), prefix...))
-		if seekTo == nil {
-			break
-		}
-		iter.SeekGE(seekTo)
-	}
-	return out, iter.Error()
 }
 
 // mergeSortedPrefixes returns the sorted union of two sorted, de-duped
@@ -629,4 +738,215 @@ func mergeSortedPrefixes(a, b [][]byte) [][]byte {
 	out = append(out, a[i:]...)
 	out = append(out, b[j:]...)
 	return out
+}
+
+// --- Incremental maintenance (post-seal) ---
+
+// merkleMutator accumulates per-node (XOR, count) deltas for a batch of
+// post-seal grant mutations and applies each touched node exactly once.
+//
+// Why an accumulator instead of read-modify-write per mutation: the
+// updates target a plain pebble.Batch, which does NOT read through its
+// own writes — and every mutation in a batch touches the root node, so
+// naive per-mutation RMW would lose deltas. Accumulating also collapses
+// N writes per node into one. All grant writers run under withWrite's
+// mutex, so reading current node values from the DB inside apply is
+// race-free.
+//
+// Lifecycle: one mutator per write batch. Callers feed remove(old) /
+// add(new) as they process records (an overwrite that moves the grant to
+// a different bucket — principal changed — is exactly remove+add), then
+// call apply(batch) once before commit.
+//
+// Entitlements whose tree was never built (no stored root) are skipped:
+// the seal-time build or the on-Open backfill will construct them from
+// the index. This also makes the mutator free during a fresh sync — but
+// callers on the fresh-sync bulk path should skip constructing one
+// anyway to avoid the per-entitlement root probe.
+type merkleMutator struct {
+	e    *Engine
+	ents map[string]*mutatorEnt // keyed by string(root node key)
+}
+
+type mutatorEnt struct {
+	idBytes    []byte
+	entID      string
+	rootKey    []byte
+	present    bool // stored root exists; if false all deltas are dropped
+	depth      int
+	rootCount  int64         // count read from the stored root
+	rootDigest [hashLen]byte // digest read from the stored root
+	xor        [hashLen]byte // accumulated root delta
+	countDelta int64
+	nodes      map[string]*mutatorNode // levels 1..depth, keyed by string(node key)
+}
+
+type mutatorNode struct {
+	key        []byte
+	xor        [hashLen]byte
+	countDelta int64
+}
+
+func newMerkleMutator(e *Engine) *merkleMutator {
+	return &merkleMutator{e: e, ents: make(map[string]*mutatorEnt)}
+}
+
+// entFor returns the (cached) per-entitlement state, probing the stored
+// root on first touch. The cached root snapshot stays valid for the
+// mutator's lifetime because all writers serialize through withWrite.
+func (m *merkleMutator) entFor(idBytes []byte, entitlementID string) (*mutatorEnt, error) {
+	rootKey := encodeMerkleNodeKey(idBytes, entitlementID, 0, nil)
+	k := string(rootKey)
+	if me, ok := m.ents[k]; ok {
+		return me, nil
+	}
+	me := &mutatorEnt{idBytes: idBytes, entID: entitlementID, rootKey: rootKey, nodes: make(map[string]*mutatorNode)}
+	val, closer, err := m.e.db.Get(rootKey)
+	switch {
+	case err == nil:
+		depth, count, digest, ok := unpackMerkleRoot(val)
+		closer.Close()
+		if ok {
+			me.present = true
+			me.depth = depth
+			me.rootCount = count
+			copy(me.rootDigest[:], digest)
+		}
+		// Malformed root: leave present=false so mutations are dropped;
+		// the stale root heals at the next rebuild.
+	case errors.Is(err, pebble.ErrNotFound):
+		// No tree — deltas for this entitlement are no-ops.
+	default:
+		return nil, err
+	}
+	m.ents[k] = me
+	return me, nil
+}
+
+// add records r's insertion into its entitlement's tree.
+func (m *merkleMutator) add(idBytes []byte, r *v3.GrantRecord) error {
+	return m.delta(idBytes, r, 1)
+}
+
+// remove records r's removal from its entitlement's tree.
+func (m *merkleMutator) remove(idBytes []byte, r *v3.GrantRecord) error {
+	return m.delta(idBytes, r, -1)
+}
+
+func (m *merkleMutator) delta(idBytes []byte, r *v3.GrantRecord, sign int64) error {
+	ent := r.GetEntitlement()
+	princ := r.GetPrincipal()
+	if ent == nil || princ == nil {
+		return nil // not in the hash index → not in the tree
+	}
+	me, err := m.entFor(idBytes, ent.GetEntitlementId())
+	if err != nil {
+		return err
+	}
+	if !me.present {
+		return nil
+	}
+	h := grantContentHash(r)
+	xorInto(me.xor[:], h)
+	me.countDelta += sign
+	if me.depth == 0 {
+		return nil
+	}
+	bh := principalBucketHash(princ.GetResourceTypeId(), princ.GetResourceId())
+	for level := 1; level <= me.depth; level++ {
+		key := encodeMerkleNodeKey(idBytes, ent.GetEntitlementId(), byte(level), bh[:level])
+		nk := string(key)
+		n, ok := me.nodes[nk]
+		if !ok {
+			n = &mutatorNode{key: key}
+			me.nodes[nk] = n
+		}
+		xorInto(n.xor[:], h)
+		n.countDelta += sign
+	}
+	return nil
+}
+
+// apply folds the accumulated deltas into the stored nodes via batch.
+// Nodes whose delta cancelled to zero (e.g. an overwrite that changed
+// only excluded fields) are skipped; a non-root node whose count reaches
+// zero is deleted (restoring sparsity); the root is rewritten in place.
+// A count that would go negative means the stored tree disagrees with
+// the mutation stream — the tree is dropped wholesale (DeleteRange), so
+// readers fall back to the on-demand fold until the next rebuild.
+func (m *merkleMutator) apply(batch *pebble.Batch) error {
+	for _, me := range m.ents {
+		if !me.present {
+			continue
+		}
+		if err := m.applyEnt(batch, me); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *merkleMutator) applyEnt(batch *pebble.Batch, me *mutatorEnt) error {
+	if me.countDelta == 0 && me.xor == zeroDigest && len(me.nodes) == 0 {
+		return nil
+	}
+	dropTree := func() error {
+		// In-batch ordering: this tombstone lands after any node Sets
+		// already staged for this entitlement and removes them too.
+		lo := encodeMerkleEntPrefix(me.idBytes, me.entID)
+		return batch.DeleteRange(lo, upperBoundOf(lo), nil)
+	}
+	if me.rootCount+me.countDelta < 0 {
+		return dropTree()
+	}
+	for _, n := range me.nodes {
+		if n.countDelta == 0 && n.xor == zeroDigest {
+			continue
+		}
+		var (
+			curCount  int64
+			curDigest [hashLen]byte
+		)
+		val, closer, err := m.e.db.Get(n.key)
+		switch {
+		case err == nil:
+			c, d, ok := unpackMerkleNode(val)
+			closer.Close()
+			if !ok {
+				return dropTree()
+			}
+			curCount = c
+			copy(curDigest[:], d)
+		case errors.Is(err, pebble.ErrNotFound):
+			// absent node = {0, zero}
+		default:
+			return err
+		}
+		newCount := curCount + n.countDelta
+		if newCount < 0 {
+			return dropTree()
+		}
+		xorInto(curDigest[:], n.xor[:])
+		if newCount == 0 {
+			// An emptied node's digest must cancel to exactly zero
+			// (count 0 ⇒ digest 0); anything else means the stored
+			// tree disagrees with the mutation stream.
+			if curDigest != zeroDigest {
+				return dropTree()
+			}
+			if err := batch.Delete(n.key, nil); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := batch.Set(n.key, packMerkleNode(newCount, curDigest[:]), nil); err != nil {
+			return err
+		}
+	}
+	if me.countDelta == 0 && me.xor == zeroDigest {
+		return nil
+	}
+	newDigest := me.rootDigest
+	xorInto(newDigest[:], me.xor[:])
+	return batch.Set(me.rootKey, packMerkleRoot(me.depth, me.rootCount+me.countDelta, newDigest[:]), nil)
 }

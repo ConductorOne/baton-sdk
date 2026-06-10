@@ -482,3 +482,413 @@ func TestHashIndexIsHashOrdered(t *testing.T) {
 		t.Fatalf("hash index entry count = %d, want 200", count)
 	}
 }
+
+// dumpMerkleNodes snapshots every merkle node key/value for a sync.
+// Used to byte-compare an incrementally-maintained tree against a
+// from-scratch rebuild.
+func dumpMerkleNodes(t testing.TB, e *Engine, syncID string) map[string][]byte {
+	t.Helper()
+	idBytes, err := e.resolveSyncBytes(syncID)
+	if err != nil {
+		t.Fatalf("resolveSyncBytes: %v", err)
+	}
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: MerkleSyncLowerBound(idBytes),
+		UpperBound: MerkleSyncUpperBound(idBytes),
+	})
+	if err != nil {
+		t.Fatalf("NewIter: %v", err)
+	}
+	defer iter.Close()
+	out := map[string][]byte{}
+	for iter.First(); iter.Valid(); iter.Next() {
+		out[string(iter.Key())] = append([]byte(nil), iter.Value()...)
+	}
+	if err := iter.Error(); err != nil {
+		t.Fatalf("iter: %v", err)
+	}
+	return out
+}
+
+// requireSameMerkleNodes fails with a per-key diff when two node
+// snapshots differ.
+func requireSameMerkleNodes(t *testing.T, got, want map[string][]byte) {
+	t.Helper()
+	for k, wv := range want {
+		gv, ok := got[k]
+		if !ok {
+			t.Errorf("missing node %x (want %x)", k, wv)
+			continue
+		}
+		if !bytes.Equal(gv, wv) {
+			t.Errorf("node %x differs:\n got %x\nwant %x", k, gv, wv)
+		}
+	}
+	for k, gv := range got {
+		if _, ok := want[k]; !ok {
+			t.Errorf("extra node %x = %x", k, gv)
+		}
+	}
+}
+
+// TestMerkleAllLevelsSparseConsistent verifies the all-levels build:
+// every stored node is non-empty, each interior node is exactly the XOR
+// (and count-sum) of its children, the root is the fold of level 1, no
+// nodes exist beyond the chosen depth, and a stored node byte-matches
+// the authoritative on-demand fold of its bucket.
+func TestMerkleAllLevelsSparseConsistent(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	const n = 60
+	grants := make([]*v3.GrantRecord, 0, n)
+	for i := 0; i < n; i++ {
+		grants = append(grants, makeGrant("", fmt.Sprintf("g-%03d", i), "ent-A", fmt.Sprintf("user-%03d", i)))
+	}
+	syncID := seedEntitlementAtDepth(t, e, "ent-A", grants, 2)
+	idBytes, err := e.resolveSyncBytes(syncID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root, ok, err := e.GetEntitlementMerkleRoot(ctx, syncID, "ent-A")
+	if err != nil || !ok {
+		t.Fatalf("root: ok=%v err=%v", ok, err)
+	}
+	if root.Depth != 2 || root.Count != n {
+		t.Fatalf("root depth=%d count=%d, want 2, %d", root.Depth, root.Count, n)
+	}
+
+	level1, err := e.merkleChildPrefixes(ctx, idBytes, "ent-A", 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(level1) == 0 {
+		t.Fatal("no level-1 nodes stored")
+	}
+	var (
+		rootXor   [hashLen]byte
+		rootCount int64
+		level2N   int
+	)
+	for _, p1 := range level1 {
+		c1, d1, present, err := e.getMerkleNode(idBytes, "ent-A", 1, p1)
+		if err != nil || !present {
+			t.Fatalf("level-1 node %x: present=%v err=%v", p1, present, err)
+		}
+		if c1 < 1 {
+			t.Fatalf("level-1 node %x stored with count %d; empty nodes must not be materialized", p1, c1)
+		}
+		children, err := e.merkleChildPrefixes(ctx, idBytes, "ent-A", 2, p1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(children) == 0 {
+			t.Fatalf("level-1 node %x has no stored children", p1)
+		}
+		var (
+			childXor   [hashLen]byte
+			childCount int64
+		)
+		for _, p2 := range children {
+			c2, d2, present2, err := e.getMerkleNode(idBytes, "ent-A", 2, p2)
+			if err != nil || !present2 {
+				t.Fatalf("level-2 node %x: present=%v err=%v", p2, present2, err)
+			}
+			if c2 < 1 {
+				t.Fatalf("level-2 node %x stored with count %d", p2, c2)
+			}
+			xorInto(childXor[:], d2)
+			childCount += c2
+		}
+		if childCount != c1 || !bytes.Equal(childXor[:], d1) {
+			t.Fatalf("interior node %x != fold of children: count %d vs %d", p1, c1, childCount)
+		}
+		level2N += len(children)
+		xorInto(rootXor[:], d1)
+		rootCount += c1
+	}
+	if rootCount != root.Count || !bytes.Equal(rootXor[:], root.Hash) {
+		t.Fatalf("root != fold of level 1: count %d vs %d", root.Count, rootCount)
+	}
+
+	// Exactly root + level1 + level2 nodes — nothing beyond the depth.
+	if got, want := merkleNodeCount(t, e, syncID), 1+len(level1)+level2N; got != want {
+		t.Fatalf("total node count = %d, want %d (root + L1 + L2 only)", got, want)
+	}
+
+	// A stored node is a cache of the authoritative fold.
+	h, c, err := e.ComputeBucketHash(ctx, syncID, "ent-A", level1[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	c1, d1, _, err := e.getMerkleNode(idBytes, "ent-A", 1, level1[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c != c1 || !bytes.Equal(h, d1) {
+		t.Fatalf("stored node disagrees with ComputeBucketHash: count %d vs %d", c1, c)
+	}
+}
+
+// TestMerkleRebuildClearsStaleNodes verifies the leading DeleteRange in
+// the build: a rebuild at a shallower depth must remove the deeper
+// levels of the prior build, or the comparison descent would read them.
+func TestMerkleRebuildClearsStaleNodes(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	grants := make([]*v3.GrantRecord, 0, 40)
+	for i := 0; i < 40; i++ {
+		grants = append(grants, makeGrant("", fmt.Sprintf("g-%03d", i), "ent-A", fmt.Sprintf("user-%03d", i)))
+	}
+	syncID := seedEntitlementAtDepth(t, e, "ent-A", grants, 2)
+	idBytes, err := e.resolveSyncBytes(syncID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	level2, err := e.merkleChildPrefixes(ctx, idBytes, "ent-A", 2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(level2) == 0 {
+		t.Fatal("depth-2 build produced no level-2 nodes")
+	}
+	rootBefore, _, err := e.GetEntitlementMerkleRoot(ctx, syncID, "ent-A")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := e.buildEntitlementMerkleAtDepth(ctx, idBytes, "ent-A", 1); err != nil {
+		t.Fatalf("rebuild at depth 1: %v", err)
+	}
+
+	rootAfter, ok, err := e.GetEntitlementMerkleRoot(ctx, syncID, "ent-A")
+	if err != nil || !ok {
+		t.Fatalf("root after rebuild: ok=%v err=%v", ok, err)
+	}
+	if rootAfter.Depth != 1 {
+		t.Fatalf("root depth after rebuild = %d, want 1", rootAfter.Depth)
+	}
+	// Depth-independence: same content, same root digest.
+	if !bytes.Equal(rootBefore.Hash, rootAfter.Hash) || rootBefore.Count != rootAfter.Count {
+		t.Fatal("rebuild at different depth changed the root digest/count over identical content")
+	}
+	level2After, err := e.merkleChildPrefixes(ctx, idBytes, "ent-A", 2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(level2After) != 0 {
+		t.Fatalf("%d stale level-2 nodes survived the depth-1 rebuild", len(level2After))
+	}
+}
+
+// TestMerkleIncrementalEqualsRebuild is the §7 keystone invariant: after
+// a sequence of post-seal inserts, content overwrites, a bucket-moving
+// (principal-changing) overwrite, an excluded-field no-op overwrite,
+// deletes, and a multi-record batch, the incrementally-maintained tree
+// byte-equals a from-scratch rebuild.
+func TestMerkleIncrementalEqualsRebuild(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	grants := make([]*v3.GrantRecord, 0, 30)
+	for i := 0; i < 30; i++ {
+		grants = append(grants, makeGrant("", fmt.Sprintf("g-%03d", i), "ent-A", fmt.Sprintf("user-%03d", i)))
+	}
+	syncID := seedEntitlementAtDepth(t, e, "ent-A", grants, 2)
+	idBytes, err := e.resolveSyncBytes(syncID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	put := func(g *v3.GrantRecord) {
+		t.Helper()
+		g.SetSyncId(syncID)
+		if err := e.PutGrantRecord(ctx, g); err != nil {
+			t.Fatalf("PutGrantRecord: %v", err)
+		}
+	}
+
+	// Post-seal inserts.
+	put(makeGrant(syncID, "g-100", "ent-A", "new-user-1"))
+	put(makeGrant(syncID, "g-101", "ent-A", "new-user-2"))
+	// Content overwrite: same index key, sources changed.
+	put(makeGrantWithSources(syncID, "g-005", "ent-A", "user-005", "src-ent"))
+	// Bucket-moving overwrite: same external_id, principal changed —
+	// must apply as remove(old path) + add(new path).
+	put(makeGrant(syncID, "g-006", "ent-A", "user-moved"))
+	// Excluded-field overwrite: needs_expansion is not part of the
+	// content hash, so this must leave the tree untouched.
+	noop := makeGrant(syncID, "g-007", "ent-A", "user-007")
+	noop.SetNeedsExpansion(true)
+	put(noop)
+	// Deletes.
+	for _, ext := range []string{"g-008", "g-009"} {
+		if err := e.DeleteGrantRecord(ctx, syncID, ext); err != nil {
+			t.Fatalf("DeleteGrantRecord(%s): %v", ext, err)
+		}
+	}
+	// Multi-record batch: inserts + an overwrite in one PutGrantRecords
+	// call, exercising the per-node delta accumulator (all of them
+	// share the root).
+	batch := []*v3.GrantRecord{
+		makeGrant(syncID, "g-110", "ent-A", "batch-user-1"),
+		makeGrant(syncID, "g-111", "ent-A", "batch-user-2"),
+		makeGrant(syncID, "g-112", "ent-A", "batch-user-3"),
+		makeGrantWithSources(syncID, "g-010", "ent-A", "user-010", "src-2"),
+	}
+	if err := e.PutGrantRecords(ctx, batch...); err != nil {
+		t.Fatalf("PutGrantRecords: %v", err)
+	}
+
+	// Sparsity restored on delete: unless another remaining principal
+	// shares user-008's depth-2 prefix, its leaf must be gone.
+	remaining := []string{"user-moved", "new-user-1", "new-user-2", "batch-user-1", "batch-user-2", "batch-user-3"}
+	for i := 0; i < 30; i++ {
+		if i == 6 || i == 8 || i == 9 {
+			continue // moved or deleted
+		}
+		remaining = append(remaining, fmt.Sprintf("user-%03d", i))
+	}
+	deletedPrefix := principalBucketHash("user", "user-008")[:2]
+	shared := false
+	for _, p := range remaining {
+		if bytes.Equal(principalBucketHash("user", p)[:2], deletedPrefix) {
+			shared = true
+			break
+		}
+	}
+	if !shared {
+		_, _, present, err := e.getMerkleNode(idBytes, "ent-A", 2, deletedPrefix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if present {
+			t.Fatal("emptied leaf node survived an incremental delete; sparsity not restored")
+		}
+	}
+
+	incremental := dumpMerkleNodes(t, e, syncID)
+	if err := e.buildEntitlementMerkleAtDepth(ctx, idBytes, "ent-A", 2); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	rebuilt := dumpMerkleNodes(t, e, syncID)
+	requireSameMerkleNodes(t, incremental, rebuilt)
+}
+
+// TestMerkleSameBatchSameBucketRMW pins the accumulator behavior: one
+// PutGrantRecords batch adds several grants that land in the SAME
+// depth-1 bucket. A naive read-modify-write against the batch would
+// lose all but one delta (a plain pebble.Batch doesn't read through its
+// own writes); the accumulator must fold all of them into one node
+// write.
+func TestMerkleSameBatchSameBucketRMW(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+
+	// Find three principals whose bucket hashes share a first byte.
+	collide := []string{"seed-principal"}
+	target := principalBucketHash("user", collide[0])[0]
+	for i := 0; len(collide) < 3; i++ {
+		p := fmt.Sprintf("cand-%d", i)
+		if principalBucketHash("user", p)[0] == target {
+			collide = append(collide, p)
+		}
+	}
+
+	base := make([]*v3.GrantRecord, 0, 5)
+	for i := 0; i < 5; i++ {
+		base = append(base, makeGrant("", fmt.Sprintf("b-%d", i), "ent-A", fmt.Sprintf("base-%d", i)))
+	}
+	syncID := seedEntitlementAtDepth(t, e, "ent-A", base, 1)
+	idBytes, err := e.resolveSyncBytes(syncID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gs := make([]*v3.GrantRecord, 0, len(collide))
+	for i, p := range collide {
+		gs = append(gs, makeGrant(syncID, fmt.Sprintf("x-%d", i), "ent-A", p))
+	}
+	if err := e.PutGrantRecords(ctx, gs...); err != nil {
+		t.Fatalf("PutGrantRecords: %v", err)
+	}
+
+	want := int64(len(collide))
+	for i := 0; i < 5; i++ {
+		if principalBucketHash("user", fmt.Sprintf("base-%d", i))[0] == target {
+			want++
+		}
+	}
+	count, _, present, err := e.getMerkleNode(idBytes, "ent-A", 1, []byte{target})
+	if err != nil || !present {
+		t.Fatalf("bucket node %x: present=%v err=%v", target, present, err)
+	}
+	if count != want {
+		t.Fatalf("same-batch deltas lost: bucket count = %d, want %d", count, want)
+	}
+
+	incremental := dumpMerkleNodes(t, e, syncID)
+	if err := e.buildEntitlementMerkleAtDepth(ctx, idBytes, "ent-A", 1); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	requireSameMerkleNodes(t, incremental, dumpMerkleNodes(t, e, syncID))
+}
+
+// TestMerkleMissingRootFallback: a missing root means "tree never
+// built", not "no grants". Comparison against a populated-but-unbuilt
+// side must fall back to the authoritative fold — clean when content is
+// identical, whole-entitlement dirty when it differs.
+func TestMerkleMissingRootFallback(t *testing.T) {
+	ctx := context.Background()
+	mk := func() []*v3.GrantRecord {
+		return []*v3.GrantRecord{
+			makeGrant("", "g1", "ent-A", "alice"),
+			makeGrant("", "g2", "ent-A", "bob"),
+			makeGrant("", "g3", "ent-A", "carol"),
+		}
+	}
+	ea, _ := newTestEngine(t)
+	syncA := seedEntitlement(t, ea, "ent-A", mk())
+
+	// B holds the same grants but never builds a tree.
+	eb, _ := newTestEngine(t)
+	syncB := ksuid.New().String()
+	if err := eb.SetCurrentSync(syncB); err != nil {
+		t.Fatal(err)
+	}
+	putEnt(t, eb, ctx, syncB, "ent-A")
+	for _, g := range mk() {
+		g.SetSyncId(syncB)
+		if err := eb.PutGrantRecord(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok, err := eb.GetEntitlementMerkleRoot(ctx, syncB, "ent-A"); err != nil || ok {
+		t.Fatalf("B unexpectedly has a root: ok=%v err=%v", ok, err)
+	}
+
+	for name, dirtyFn := range map[string]func() ([][]byte, error){
+		"A vs B": func() ([][]byte, error) { return ea.DirtyEntitlementBuckets(ctx, syncA, eb, syncB, "ent-A") },
+		"B vs A": func() ([][]byte, error) { return eb.DirtyEntitlementBuckets(ctx, syncB, ea, syncA, "ent-A") },
+	} {
+		dirty, err := dirtyFn()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(dirty) != 0 {
+			t.Fatalf("%s: identical content with one tree unbuilt: dirty=%d, want 0 (fold fallback)", name, len(dirty))
+		}
+	}
+
+	// Diverge B; the fallback must now flag the whole entitlement.
+	if err := eb.PutGrantRecord(ctx, makeGrant(syncB, "g9", "ent-A", "zed")); err != nil {
+		t.Fatal(err)
+	}
+	dirty, err := ea.DirtyEntitlementBuckets(ctx, syncA, eb, syncB, "ent-A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dirty) != 1 || len(dirty[0]) != 0 {
+		t.Fatalf("diverged content with one tree unbuilt: dirty=%v, want one empty prefix", dirty)
+	}
+}
