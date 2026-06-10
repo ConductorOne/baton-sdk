@@ -38,10 +38,19 @@ type StreamingReader interface {
 
 // StreamGrantsOptions narrows the stream to a single entitlement
 // and/or principal. Empty fields mean no filter.
+//
+// IncludeExpansion re-attaches each grant's GrantExpandable annotation when
+// set. The SQLite engine strips GrantExpandable into a side column on write,
+// so without this the SQLite stream yields grants with their expansion
+// topology missing — a faithful round-trip (cross-engine copy, rollback /
+// replay, or an external grant consumer) must set it. Default false preserves
+// the existing data-only stream. The Pebble engine reconstructs the
+// annotation from its record either way, so the option is a no-op there.
 type StreamGrantsOptions struct {
 	EntitlementID         string
 	PrincipalResourceType string
 	PrincipalResourceID   string
+	IncludeExpansion      bool
 }
 
 // StreamResourcesOptions narrows the stream by resource_type.
