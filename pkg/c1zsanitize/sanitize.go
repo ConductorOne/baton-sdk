@@ -364,7 +364,10 @@ type dstSyncLister interface {
 func (s *sanitizer) loadResumeStates(ctx context.Context, dst connectorstore.Writer) (map[string]*resumeState, error) {
 	lister, ok := dst.(dstSyncLister)
 	if !ok {
-		return nil, fmt.Errorf("resumable runs require a destination that can enumerate checkpoints without mutating sync state (sqlite-backed); this destination cannot, so resume would silently restart")
+		return nil, fmt.Errorf(
+			"resumable runs require a destination that can enumerate checkpoints " +
+				"without mutating sync state (sqlite-backed); this destination cannot, " +
+				"so resume would silently restart")
 	}
 
 	out := map[string]*resumeState{}
@@ -424,7 +427,10 @@ func (s *sanitizer) reconcileAnchor(persisted string) error {
 	pa = pa.UTC()
 	if s.anchorExplicit {
 		if !s.anchor.Equal(pa) {
-			return fmt.Errorf("destination was checkpointed with anchor %s but this run was given anchor %s; clear the destination or pass the original anchor", pa.Format(time.RFC3339Nano), s.anchor.Format(time.RFC3339Nano))
+			return fmt.Errorf(
+				"destination was checkpointed with anchor %s but this run was given "+
+					"anchor %s; clear the destination or pass the original anchor",
+				pa.Format(time.RFC3339Nano), s.anchor.Format(time.RFC3339Nano))
 		}
 		return nil
 	}
