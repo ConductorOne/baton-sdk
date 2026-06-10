@@ -109,6 +109,7 @@ type C1File struct {
 var (
 	_ connectorstore.Writer                      = (*C1File)(nil)
 	_ connectorstore.LatestFinishedSyncIDFetcher = (*C1File)(nil)
+	_ C1ZStore                                   = (*C1File)(nil)
 )
 
 type C1FOption func(*C1File)
@@ -766,8 +767,13 @@ func (c *C1File) closeRawDB(ctx context.Context) error {
 	_, span := tracer.Start(ctx, "C1File.closeRawDB")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-	err = c.rawDb.Close()
+	if c.rawDb == nil {
+		return nil
+	}
+	// Copy the rawDb to a local variable to avoid race conditions.
+	rawDb := c.rawDb
 	c.rawDb = nil
+	err = rawDb.Close()
 	c.db = nil
 	return err
 }

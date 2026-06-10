@@ -365,6 +365,8 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 	return ret, nextPageToken, nil
 }
 
+// LatestSyncID returns the ID of the most recently finished sync of the given type.
+// If syncType is connectorstore.SyncTypeAny, it will return the most recently finished sync of any type.
 func (c *C1File) LatestSyncID(ctx context.Context, syncType connectorstore.SyncType) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.LatestSyncID")
 	var err error

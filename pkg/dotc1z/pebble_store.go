@@ -18,10 +18,11 @@ import (
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 )
 
-// pebbleDriver is the EngineDriver for the Pebble v3 engine. It is
-// registered statically alongside sqliteDriver — both file formats are
-// always supported, no side-effect imports required.
+// pebbleDriver is the EngineDriver for the Pebble v3 engine.
 type pebbleDriver struct{}
+
+var _ C1ZStore = (*pebbleStore)(nil)
+var _ connectorstore.Writer = (*pebbleStore)(nil)
 
 func (pebbleDriver) Engine() Engine    { return EnginePebble }
 func (pebbleDriver) Format() C1ZFormat { return C1ZFormatV3 }
