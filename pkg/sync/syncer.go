@@ -654,7 +654,10 @@ func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.Resou
 	return func(yield func([]*v2.ResourceType, error) bool) {
 		pageToken := ""
 		for {
-			resp, err := s.connector.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageToken: pageToken}.Build())
+			resp, err := s.connector.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+				PageToken:    pageToken,
+				ActiveSyncId: s.getActiveSyncID(),
+			}.Build())
 			if err != nil {
 				_ = yield(nil, err)
 				return
@@ -720,7 +723,10 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 		s.counts.LogResourceTypesProgress(ctx)
 
 		if len(s.syncResourceTypes) > 0 {
-			validResourceTypesResp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageToken: action.PageToken}.Build())
+			validResourceTypesResp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+				PageToken:    action.PageToken,
+				ActiveSyncId: s.getActiveSyncID(),
+			}.Build())
 			if err != nil {
 				return err
 			}
@@ -907,7 +913,10 @@ func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
 			s.handleInitialActionForStep(ctx, *action)
 		}
 
-		resp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageToken: action.PageToken}.Build())
+		resp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+			PageToken:    action.PageToken,
+			ActiveSyncId: s.getActiveSyncID(),
+		}.Build())
 		if err != nil {
 			return err
 		}
@@ -1163,7 +1172,10 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 			s.handleInitialActionForStep(ctx, *action)
 		}
 
-		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{PageToken: pageToken}.Build())
+		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+			PageToken:    pageToken,
+			ActiveSyncId: s.getActiveSyncID(),
+		}.Build())
 		if err != nil {
 			return err
 		}
@@ -1479,7 +1491,10 @@ func (s *syncer) SyncAssets(ctx context.Context, action *Action) error {
 			s.handleInitialActionForStep(ctx, *action)
 		}
 
-		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{PageToken: action.PageToken}.Build())
+		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+			PageToken:    action.PageToken,
+			ActiveSyncId: s.getActiveSyncID(),
+		}.Build())
 		if err != nil {
 			return err
 		}
@@ -1657,9 +1672,12 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 			s.handleInitialActionForStep(ctx, *action)
 		}
 
-		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{PageToken: action.PageToken}.Build())
+		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+			PageToken:    action.PageToken,
+			ActiveSyncId: s.getActiveSyncID(),
+		}.Build())
 		if err != nil {
-			return err
+			return fmt.Errorf("sync-grants: error listing resources: %w", err)
 		}
 
 		actions := make([]Action, 0)
@@ -1779,9 +1797,10 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 	}.Build())
 	for {
 		prevGrantsResp, err := s.store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
-			Resource:    resource,
-			Annotations: storeAnnos,
-			PageToken:   npt,
+			Resource:     resource,
+			Annotations:  storeAnnos,
+			PageToken:    npt,
+			ActiveSyncId: prevSyncID,
 		}.Build())
 		if err != nil {
 			return nil, false, err
@@ -1840,7 +1859,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		ResourceId: resourceID,
 	}.Build())
 	if err != nil {
-		return err
+		return fmt.Errorf("sync-grants-for-resource: error getting resource: %w", err)
 	}
 
 	resource := resourceResponse.GetResource()
@@ -1853,7 +1872,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 	resourceAnnos := annotations.Annotations(resource.GetAnnotations())
 	prevSyncID, prevEtag, err = s.fetchResourceForPreviousSync(ctx, resourceID)
 	if err != nil {
-		return err
+		return fmt.Errorf("sync-grants-for-resource: error fetching resource for previous sync: %w", err)
 	}
 	resourceAnnos.Update(prevEtag)
 	resource.SetAnnotations(resourceAnnos)
@@ -1864,14 +1883,14 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		ActiveSyncId: s.getActiveSyncID(),
 	}.Build())
 	if err != nil {
-		return err
+		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", err)
 	}
 
 	// Fetch any etagged grants for this resource
 	var etaggedGrants []*v2.Grant
 	etaggedGrants, etagMatch, err = s.fetchEtaggedGrantsForResource(ctx, resource, prevEtag, prevSyncID, resp)
 	if err != nil {
-		return err
+		return fmt.Errorf("sync-grants-for-resource: error fetching etagged grants: %w", err)
 	}
 	grants = append(grants, etaggedGrants...)
 
@@ -1961,13 +1980,13 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		}
 		err = s.store.PutResources(ctx, resourcesToInsert...)
 		if err != nil {
-			return err
+			return fmt.Errorf("sync-grants-for-resource: error putting resources: %w", err)
 		}
 	}
 
 	err = s.store.PutGrants(ctx, grants...)
 	if err != nil {
-		return err
+		return fmt.Errorf("sync-grants-for-resource: error putting grants: %w", err)
 	}
 
 	s.handleProgress(ctx, action, len(grants))
