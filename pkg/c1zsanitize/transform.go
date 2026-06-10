@@ -37,10 +37,22 @@ func parallelTransform(n int, fn func(i int)) {
 	}
 	var idx int64 = -1
 	var wg sync.WaitGroup
+	// A panic in fn must unwind to the caller, not crash the process from an
+	// unrecovered worker goroutine. Capture the first panic, stop handing out
+	// work, and re-panic on the calling goroutine after the workers drain — the
+	// same failure path a sequential fn would take.
+	var panicOnce sync.Once
+	var panicVal any
 	wg.Add(workers)
 	for w := 0; w < workers; w++ {
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					panicOnce.Do(func() { panicVal = r })
+					atomic.StoreInt64(&idx, int64(n)) // halt remaining pulls
+				}
+			}()
 			for {
 				i := int(atomic.AddInt64(&idx, 1))
 				if i >= n {
@@ -51,6 +63,9 @@ func parallelTransform(n int, fn func(i int)) {
 		}()
 	}
 	wg.Wait()
+	if panicVal != nil {
+		panic(panicVal)
+	}
 }
 
 // listPageSize is the source read page, which also bounds how many
@@ -159,12 +174,19 @@ func (s *sanitizer) copyResourceTypes(
 	return nil
 }
 
+// copyResources walks the source resources for srcSyncID, transforming each
+// (which registers its trait icon/logo asset refs into refs). When write is
+// true the transformed rows are written to dst; when false the walk runs purely
+// to repopulate refs — the resume path where resources were already written in
+// a prior run but their asset refs (lost with the prior process) must be
+// re-collected before copyAssets, mirroring how copyResourceTypes always runs.
 func (s *sanitizer) copyResources(
 	ctx context.Context,
 	src connectorstore.Reader,
 	dst connectorstore.Writer,
 	srcSyncID string,
 	refs *assetRefSet,
+	write bool,
 ) error {
 	pageToken := ""
 	page := 0
@@ -187,7 +209,7 @@ func (s *sanitizer) copyResources(
 		xformDur := time.Since(xformStart)
 		sortByResourceID(out)
 		putStart := time.Now()
-		if len(out) > 0 {
+		if write && len(out) > 0 {
 			if err := dst.PutResources(ctx, out...); err != nil {
 				return fmt.Errorf("put resources: %w", err)
 			}
@@ -201,12 +223,16 @@ func (s *sanitizer) copyResources(
 	}
 }
 
+// copyEntitlements mirrors copyResources: it always walks (registering any
+// entitlement asset refs into refs) and writes only when write is true, so the
+// resume path re-collects asset refs for an already-written entitlement phase.
 func (s *sanitizer) copyEntitlements(
 	ctx context.Context,
 	src connectorstore.Reader,
 	dst connectorstore.Writer,
 	srcSyncID string,
 	refs *assetRefSet,
+	write bool,
 ) error {
 	pageToken := ""
 	page := 0
@@ -229,7 +255,7 @@ func (s *sanitizer) copyEntitlements(
 		xformDur := time.Since(xformStart)
 		sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
 		putStart := time.Now()
-		if len(out) > 0 {
+		if write && len(out) > 0 {
 			if err := dst.PutEntitlements(ctx, out...); err != nil {
 				return fmt.Errorf("put entitlements: %w", err)
 			}
@@ -302,6 +328,13 @@ func (s *sanitizer) copyGrants(
 			return fmt.Errorf("checkpoint: %w", err)
 		}
 		if next == "" {
+			// Grants are fully written. Advance the checkpoint to the terminal
+			// assets phase so a crash before EndSync resumes straight into
+			// copyAssets instead of re-running every grant page (an empty
+			// phaseGrants token is indistinguishable from "grants not started").
+			if err := s.checkpoint(ctx, dst, srcSyncID, phaseAssets, ""); err != nil {
+				return fmt.Errorf("checkpoint: %w", err)
+			}
 			if cache != nil {
 				s.log.Info("c1zsanitize: grant sub-cache stats",
 					zap.String("sync_id", srcSyncID),
