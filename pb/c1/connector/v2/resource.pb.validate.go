@@ -1930,6 +1930,399 @@ var _ interface {
 	ErrorName() string
 } = RotateCredentialResponseValidationError{}
 
+// Validate checks the field values on IssueCredentialRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *IssueCredentialRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on IssueCredentialRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// IssueCredentialRequestMultiError, or nil if none found.
+func (m *IssueCredentialRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *IssueCredentialRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetIdentityId()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, IssueCredentialRequestValidationError{
+					field:  "IdentityId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, IssueCredentialRequestValidationError{
+					field:  "IdentityId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetIdentityId()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return IssueCredentialRequestValidationError{
+				field:  "IdentityId",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetCredentialOptions()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, IssueCredentialRequestValidationError{
+					field:  "CredentialOptions",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, IssueCredentialRequestValidationError{
+					field:  "CredentialOptions",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetCredentialOptions()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return IssueCredentialRequestValidationError{
+				field:  "CredentialOptions",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	for idx, item := range m.GetEncryptionConfigs() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, IssueCredentialRequestValidationError{
+						field:  fmt.Sprintf("EncryptionConfigs[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, IssueCredentialRequestValidationError{
+						field:  fmt.Sprintf("EncryptionConfigs[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return IssueCredentialRequestValidationError{
+					field:  fmt.Sprintf("EncryptionConfigs[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return IssueCredentialRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// IssueCredentialRequestMultiError is an error wrapping multiple validation
+// errors returned by IssueCredentialRequest.ValidateAll() if the designated
+// constraints aren't met.
+type IssueCredentialRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m IssueCredentialRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m IssueCredentialRequestMultiError) AllErrors() []error { return m }
+
+// IssueCredentialRequestValidationError is the validation error returned by
+// IssueCredentialRequest.Validate if the designated constraints aren't met.
+type IssueCredentialRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e IssueCredentialRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e IssueCredentialRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e IssueCredentialRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e IssueCredentialRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e IssueCredentialRequestValidationError) ErrorName() string {
+	return "IssueCredentialRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e IssueCredentialRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sIssueCredentialRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = IssueCredentialRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = IssueCredentialRequestValidationError{}
+
+// Validate checks the field values on IssueCredentialResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *IssueCredentialResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on IssueCredentialResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// IssueCredentialResponseMultiError, or nil if none found.
+func (m *IssueCredentialResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *IssueCredentialResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetSecret()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, IssueCredentialResponseValidationError{
+					field:  "Secret",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, IssueCredentialResponseValidationError{
+					field:  "Secret",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetSecret()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return IssueCredentialResponseValidationError{
+				field:  "Secret",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	for idx, item := range m.GetEncryptedData() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, IssueCredentialResponseValidationError{
+						field:  fmt.Sprintf("EncryptedData[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, IssueCredentialResponseValidationError{
+						field:  fmt.Sprintf("EncryptedData[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return IssueCredentialResponseValidationError{
+					field:  fmt.Sprintf("EncryptedData[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, IssueCredentialResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, IssueCredentialResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return IssueCredentialResponseValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return IssueCredentialResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// IssueCredentialResponseMultiError is an error wrapping multiple validation
+// errors returned by IssueCredentialResponse.ValidateAll() if the designated
+// constraints aren't met.
+type IssueCredentialResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m IssueCredentialResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m IssueCredentialResponseMultiError) AllErrors() []error { return m }
+
+// IssueCredentialResponseValidationError is the validation error returned by
+// IssueCredentialResponse.Validate if the designated constraints aren't met.
+type IssueCredentialResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e IssueCredentialResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e IssueCredentialResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e IssueCredentialResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e IssueCredentialResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e IssueCredentialResponseValidationError) ErrorName() string {
+	return "IssueCredentialResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e IssueCredentialResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sIssueCredentialResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = IssueCredentialResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = IssueCredentialResponseValidationError{}
+
 // Validate checks the field values on AccountInfo with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.
@@ -2283,6 +2676,129 @@ func (m *CredentialOptions) validate(all bool) error {
 			}
 		}
 
+	case *CredentialOptions_ApiKey_:
+		if v == nil {
+			err := CredentialOptionsValidationError{
+				field:  "Options",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetApiKey()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CredentialOptionsValidationError{
+						field:  "ApiKey",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CredentialOptionsValidationError{
+						field:  "ApiKey",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetApiKey()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CredentialOptionsValidationError{
+					field:  "ApiKey",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *CredentialOptions_Keypair_:
+		if v == nil {
+			err := CredentialOptionsValidationError{
+				field:  "Options",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetKeypair()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CredentialOptionsValidationError{
+						field:  "Keypair",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CredentialOptionsValidationError{
+						field:  "Keypair",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetKeypair()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CredentialOptionsValidationError{
+					field:  "Keypair",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *CredentialOptions_Token_:
+		if v == nil {
+			err := CredentialOptionsValidationError{
+				field:  "Options",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetToken()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CredentialOptionsValidationError{
+						field:  "Token",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CredentialOptionsValidationError{
+						field:  "Token",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetToken()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CredentialOptionsValidationError{
+					field:  "Token",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	default:
 		_ = v // ensures v is used
 	}
@@ -2550,6 +3066,129 @@ func (m *LocalCredentialOptions) validate(all bool) error {
 			if err := v.Validate(); err != nil {
 				return LocalCredentialOptionsValidationError{
 					field:  "PlaintextPassword",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *LocalCredentialOptions_ApiKey_:
+		if v == nil {
+			err := LocalCredentialOptionsValidationError{
+				field:  "Options",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetApiKey()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, LocalCredentialOptionsValidationError{
+						field:  "ApiKey",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, LocalCredentialOptionsValidationError{
+						field:  "ApiKey",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetApiKey()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return LocalCredentialOptionsValidationError{
+					field:  "ApiKey",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *LocalCredentialOptions_Keypair_:
+		if v == nil {
+			err := LocalCredentialOptionsValidationError{
+				field:  "Options",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetKeypair()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, LocalCredentialOptionsValidationError{
+						field:  "Keypair",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, LocalCredentialOptionsValidationError{
+						field:  "Keypair",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetKeypair()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return LocalCredentialOptionsValidationError{
+					field:  "Keypair",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *LocalCredentialOptions_Token_:
+		if v == nil {
+			err := LocalCredentialOptionsValidationError{
+				field:  "Options",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetToken()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, LocalCredentialOptionsValidationError{
+						field:  "Token",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, LocalCredentialOptionsValidationError{
+						field:  "Token",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetToken()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return LocalCredentialOptionsValidationError{
+					field:  "Token",
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
@@ -5925,6 +6564,376 @@ var _ interface {
 	ErrorName() string
 } = CredentialOptions_EncryptedPasswordValidationError{}
 
+// Validate checks the field values on CredentialOptions_ApiKey with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *CredentialOptions_ApiKey) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CredentialOptions_ApiKey with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// CredentialOptions_ApiKeyMultiError, or nil if none found.
+func (m *CredentialOptions_ApiKey) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CredentialOptions_ApiKey) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetTtl()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CredentialOptions_ApiKeyValidationError{
+					field:  "Ttl",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CredentialOptions_ApiKeyValidationError{
+					field:  "Ttl",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetTtl()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CredentialOptions_ApiKeyValidationError{
+				field:  "Ttl",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return CredentialOptions_ApiKeyMultiError(errors)
+	}
+
+	return nil
+}
+
+// CredentialOptions_ApiKeyMultiError is an error wrapping multiple validation
+// errors returned by CredentialOptions_ApiKey.ValidateAll() if the designated
+// constraints aren't met.
+type CredentialOptions_ApiKeyMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CredentialOptions_ApiKeyMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CredentialOptions_ApiKeyMultiError) AllErrors() []error { return m }
+
+// CredentialOptions_ApiKeyValidationError is the validation error returned by
+// CredentialOptions_ApiKey.Validate if the designated constraints aren't met.
+type CredentialOptions_ApiKeyValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CredentialOptions_ApiKeyValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CredentialOptions_ApiKeyValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CredentialOptions_ApiKeyValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CredentialOptions_ApiKeyValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CredentialOptions_ApiKeyValidationError) ErrorName() string {
+	return "CredentialOptions_ApiKeyValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CredentialOptions_ApiKeyValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCredentialOptions_ApiKey.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CredentialOptions_ApiKeyValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CredentialOptions_ApiKeyValidationError{}
+
+// Validate checks the field values on CredentialOptions_Keypair with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *CredentialOptions_Keypair) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CredentialOptions_Keypair with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// CredentialOptions_KeypairMultiError, or nil if none found.
+func (m *CredentialOptions_Keypair) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CredentialOptions_Keypair) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Algorithm
+
+	// no validation rules for Bits
+
+	if len(errors) > 0 {
+		return CredentialOptions_KeypairMultiError(errors)
+	}
+
+	return nil
+}
+
+// CredentialOptions_KeypairMultiError is an error wrapping multiple validation
+// errors returned by CredentialOptions_Keypair.ValidateAll() if the
+// designated constraints aren't met.
+type CredentialOptions_KeypairMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CredentialOptions_KeypairMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CredentialOptions_KeypairMultiError) AllErrors() []error { return m }
+
+// CredentialOptions_KeypairValidationError is the validation error returned by
+// CredentialOptions_Keypair.Validate if the designated constraints aren't met.
+type CredentialOptions_KeypairValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CredentialOptions_KeypairValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CredentialOptions_KeypairValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CredentialOptions_KeypairValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CredentialOptions_KeypairValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CredentialOptions_KeypairValidationError) ErrorName() string {
+	return "CredentialOptions_KeypairValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CredentialOptions_KeypairValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCredentialOptions_Keypair.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CredentialOptions_KeypairValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CredentialOptions_KeypairValidationError{}
+
+// Validate checks the field values on CredentialOptions_Token with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *CredentialOptions_Token) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CredentialOptions_Token with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// CredentialOptions_TokenMultiError, or nil if none found.
+func (m *CredentialOptions_Token) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CredentialOptions_Token) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetTtl()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CredentialOptions_TokenValidationError{
+					field:  "Ttl",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CredentialOptions_TokenValidationError{
+					field:  "Ttl",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetTtl()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CredentialOptions_TokenValidationError{
+				field:  "Ttl",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for Audience
+
+	if len(errors) > 0 {
+		return CredentialOptions_TokenMultiError(errors)
+	}
+
+	return nil
+}
+
+// CredentialOptions_TokenMultiError is an error wrapping multiple validation
+// errors returned by CredentialOptions_Token.ValidateAll() if the designated
+// constraints aren't met.
+type CredentialOptions_TokenMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CredentialOptions_TokenMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CredentialOptions_TokenMultiError) AllErrors() []error { return m }
+
+// CredentialOptions_TokenValidationError is the validation error returned by
+// CredentialOptions_Token.Validate if the designated constraints aren't met.
+type CredentialOptions_TokenValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CredentialOptions_TokenValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CredentialOptions_TokenValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CredentialOptions_TokenValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CredentialOptions_TokenValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CredentialOptions_TokenValidationError) ErrorName() string {
+	return "CredentialOptions_TokenValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CredentialOptions_TokenValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCredentialOptions_Token.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CredentialOptions_TokenValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CredentialOptions_TokenValidationError{}
+
 // Validate checks the field values on LocalCredentialOptions_RandomPassword
 // with the rules defined in the proto definition for this message. If any
 // rules are violated, the first error encountered is returned, or nil if
@@ -6391,6 +7400,379 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = LocalCredentialOptions_PlaintextPasswordValidationError{}
+
+// Validate checks the field values on LocalCredentialOptions_ApiKey with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *LocalCredentialOptions_ApiKey) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on LocalCredentialOptions_ApiKey with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// LocalCredentialOptions_ApiKeyMultiError, or nil if none found.
+func (m *LocalCredentialOptions_ApiKey) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *LocalCredentialOptions_ApiKey) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetTtl()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, LocalCredentialOptions_ApiKeyValidationError{
+					field:  "Ttl",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, LocalCredentialOptions_ApiKeyValidationError{
+					field:  "Ttl",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetTtl()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return LocalCredentialOptions_ApiKeyValidationError{
+				field:  "Ttl",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return LocalCredentialOptions_ApiKeyMultiError(errors)
+	}
+
+	return nil
+}
+
+// LocalCredentialOptions_ApiKeyMultiError is an error wrapping multiple
+// validation errors returned by LocalCredentialOptions_ApiKey.ValidateAll()
+// if the designated constraints aren't met.
+type LocalCredentialOptions_ApiKeyMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m LocalCredentialOptions_ApiKeyMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m LocalCredentialOptions_ApiKeyMultiError) AllErrors() []error { return m }
+
+// LocalCredentialOptions_ApiKeyValidationError is the validation error
+// returned by LocalCredentialOptions_ApiKey.Validate if the designated
+// constraints aren't met.
+type LocalCredentialOptions_ApiKeyValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e LocalCredentialOptions_ApiKeyValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e LocalCredentialOptions_ApiKeyValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e LocalCredentialOptions_ApiKeyValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e LocalCredentialOptions_ApiKeyValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e LocalCredentialOptions_ApiKeyValidationError) ErrorName() string {
+	return "LocalCredentialOptions_ApiKeyValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e LocalCredentialOptions_ApiKeyValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sLocalCredentialOptions_ApiKey.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = LocalCredentialOptions_ApiKeyValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = LocalCredentialOptions_ApiKeyValidationError{}
+
+// Validate checks the field values on LocalCredentialOptions_Keypair with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *LocalCredentialOptions_Keypair) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on LocalCredentialOptions_Keypair with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// LocalCredentialOptions_KeypairMultiError, or nil if none found.
+func (m *LocalCredentialOptions_Keypair) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *LocalCredentialOptions_Keypair) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Algorithm
+
+	// no validation rules for Bits
+
+	if len(errors) > 0 {
+		return LocalCredentialOptions_KeypairMultiError(errors)
+	}
+
+	return nil
+}
+
+// LocalCredentialOptions_KeypairMultiError is an error wrapping multiple
+// validation errors returned by LocalCredentialOptions_Keypair.ValidateAll()
+// if the designated constraints aren't met.
+type LocalCredentialOptions_KeypairMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m LocalCredentialOptions_KeypairMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m LocalCredentialOptions_KeypairMultiError) AllErrors() []error { return m }
+
+// LocalCredentialOptions_KeypairValidationError is the validation error
+// returned by LocalCredentialOptions_Keypair.Validate if the designated
+// constraints aren't met.
+type LocalCredentialOptions_KeypairValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e LocalCredentialOptions_KeypairValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e LocalCredentialOptions_KeypairValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e LocalCredentialOptions_KeypairValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e LocalCredentialOptions_KeypairValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e LocalCredentialOptions_KeypairValidationError) ErrorName() string {
+	return "LocalCredentialOptions_KeypairValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e LocalCredentialOptions_KeypairValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sLocalCredentialOptions_Keypair.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = LocalCredentialOptions_KeypairValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = LocalCredentialOptions_KeypairValidationError{}
+
+// Validate checks the field values on LocalCredentialOptions_Token with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *LocalCredentialOptions_Token) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on LocalCredentialOptions_Token with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// LocalCredentialOptions_TokenMultiError, or nil if none found.
+func (m *LocalCredentialOptions_Token) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *LocalCredentialOptions_Token) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetTtl()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, LocalCredentialOptions_TokenValidationError{
+					field:  "Ttl",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, LocalCredentialOptions_TokenValidationError{
+					field:  "Ttl",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetTtl()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return LocalCredentialOptions_TokenValidationError{
+				field:  "Ttl",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for Audience
+
+	if len(errors) > 0 {
+		return LocalCredentialOptions_TokenMultiError(errors)
+	}
+
+	return nil
+}
+
+// LocalCredentialOptions_TokenMultiError is an error wrapping multiple
+// validation errors returned by LocalCredentialOptions_Token.ValidateAll() if
+// the designated constraints aren't met.
+type LocalCredentialOptions_TokenMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m LocalCredentialOptions_TokenMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m LocalCredentialOptions_TokenMultiError) AllErrors() []error { return m }
+
+// LocalCredentialOptions_TokenValidationError is the validation error returned
+// by LocalCredentialOptions_Token.Validate if the designated constraints
+// aren't met.
+type LocalCredentialOptions_TokenValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e LocalCredentialOptions_TokenValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e LocalCredentialOptions_TokenValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e LocalCredentialOptions_TokenValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e LocalCredentialOptions_TokenValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e LocalCredentialOptions_TokenValidationError) ErrorName() string {
+	return "LocalCredentialOptions_TokenValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e LocalCredentialOptions_TokenValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sLocalCredentialOptions_Token.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = LocalCredentialOptions_TokenValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = LocalCredentialOptions_TokenValidationError{}
 
 // Validate checks the field values on CreateAccountResponse_SuccessResult with
 // the rules defined in the proto definition for this message. If any rules

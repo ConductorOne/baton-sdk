@@ -106,6 +106,22 @@ func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey
 		localOpts.SetSso(v2.LocalCredentialOptions_SSO_builder{
 			SsoProvider: opts.GetSso().GetSsoProvider(),
 		}.Build())
+	case v2.CredentialOptions_ApiKey_case:
+		localOpts.SetApiKey(v2.LocalCredentialOptions_ApiKey_builder{
+			Scopes: opts.GetApiKey().GetScopes(),
+			Ttl:    opts.GetApiKey().GetTtl(),
+		}.Build())
+	case v2.CredentialOptions_Keypair_case:
+		localOpts.SetKeypair(v2.LocalCredentialOptions_Keypair_builder{
+			Algorithm: opts.GetKeypair().GetAlgorithm(),
+			Bits:      opts.GetKeypair().GetBits(),
+		}.Build())
+	case v2.CredentialOptions_Token_case:
+		localOpts.SetToken(v2.LocalCredentialOptions_Token_builder{
+			Scopes:   opts.GetToken().GetScopes(),
+			Ttl:      opts.GetToken().GetTtl(),
+			Audience: opts.GetToken().GetAudience(),
+		}.Build())
 	case v2.CredentialOptions_EncryptedPassword_case:
 	default:
 		return nil, status.Error(codes.InvalidArgument, "invalid credential options")
