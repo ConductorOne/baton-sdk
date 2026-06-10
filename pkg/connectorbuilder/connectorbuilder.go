@@ -85,6 +85,7 @@ type builder struct {
 	resourceDeleters        map[string]ResourceDeleterV2Limited
 	resourceTargetedSyncers map[string]ResourceTargetedSyncerLimited
 	credentialManagers      map[string]CredentialManagerLimited
+	credentialIssuers       map[string]CredentialIssuerLimited
 	eventFeeds              map[string]EventFeed
 	accountManagers         map[string]AccountManagerLimited
 	actionManager           ActionManager // Unified action manager for all actions
@@ -124,6 +125,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		resourceDeleters:        make(map[string]ResourceDeleterV2Limited),
 		resourceTargetedSyncers: make(map[string]ResourceTargetedSyncerLimited),
 		credentialManagers:      make(map[string]CredentialManagerLimited),
+		credentialIssuers:       make(map[string]CredentialIssuerLimited),
 		eventFeeds:              make(map[string]EventFeed),
 		accountManagers:         make(map[string]AccountManagerLimited),
 		actionManager:           actionMgr,
@@ -186,6 +188,10 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		}
 
 		if err := b.addCredentialManager(ctx, rType, rs); err != nil {
+			return err
+		}
+
+		if err := b.addCredentialIssuer(ctx, rType, rs); err != nil {
 			return err
 		}
 
@@ -403,6 +409,10 @@ func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 			caps = append(caps, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
 		}
 
+		if _, exists := b.credentialIssuers[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_CREDENTIAL_ISSUE)
+		}
+
 		// Extend the capabilities with the resource type specificcapabilities
 		for _, cap := range caps {
 			connectorCaps[cap] = struct{}{}
@@ -484,6 +494,16 @@ func validateCapabilityDetails(_ context.Context, credDetails *v2.CredentialDeta
 		}
 	}
 
+	if credDetails.HasCapabilityCredentialIssue() {
+		// Ensure that the preferred option is included and is part of the supported options
+		if credDetails.GetCapabilityCredentialIssue().GetPreferredCredentialOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
+			return status.Error(codes.InvalidArgument, "error: preferred credential issue option is not set")
+		}
+		if !slices.Contains(credDetails.GetCapabilityCredentialIssue().GetSupportedCredentialOptions(), credDetails.GetCapabilityCredentialIssue().GetPreferredCredentialOption()) {
+			return status.Error(codes.InvalidArgument, "error: preferred credential issue option is not part of the supported options")
+		}
+	}
+
 	return nil
 }
 
@@ -511,6 +531,17 @@ func getCredentialDetails(ctx context.Context, b *builder) (*v2.CredentialDetail
 		}
 		rv.SetCapabilityCredentialRotation(credentialRotationCapabilityDetails)
 		break // Only need one credential manager's details
+	}
+
+	// Check for credential issuance capability details
+	for _, ci := range b.credentialIssuers {
+		credentialIssueCapabilityDetails, _, err := ci.IssueCapabilityDetails(ctx)
+		if err != nil {
+			l.Error("error: getting credential issuance details", zap.Error(err))
+			return nil, fmt.Errorf("error: getting credential issuance details: %w", err)
+		}
+		rv.SetCapabilityCredentialIssue(credentialIssueCapabilityDetails)
+		break // Only need one credential issuer's details
 	}
 
 	err := validateCapabilityDetails(ctx, rv)
