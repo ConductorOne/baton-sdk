@@ -252,6 +252,19 @@ func (s *sanitizer) copyGrants(
 	cache *grantSubCache,
 	startPageToken string,
 ) error {
+	// Preserve grant-expansion topology end-to-end. Plain ListGrants reads only
+	// the data blob, but the SQLite writer strips GrantExpandable into a side
+	// column — so without the expansion-aware read the sanitizer never sees the
+	// annotation and handleGrantExpandable never fires, silently dropping the
+	// expansion edges. ListGrantsWithExpansion re-attaches it while keeping the
+	// resumable page-cursor semantics this phase's checkpointing relies on
+	// (switching to StreamGrants would change those). Readers without the
+	// capability (already-expanded stores) fall back to plain ListGrants.
+	listGrants := src.ListGrants
+	if exp, ok := src.(connectorstore.ExpansionGrantLister); ok {
+		listGrants = exp.ListGrantsWithExpansion
+	}
+
 	pageToken := startPageToken
 	page := 0
 	for {
@@ -261,7 +274,7 @@ func (s *sanitizer) copyGrants(
 			Annotations: syncIDAnnotations(srcSyncID),
 		}.Build()
 		readStart := time.Now()
-		resp, err := src.ListGrants(ctx, req)
+		resp, err := listGrants(ctx, req)
 		readDur := time.Since(readStart)
 		if err != nil {
 			return fmt.Errorf("list grants: %w", err)
