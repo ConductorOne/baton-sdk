@@ -207,6 +207,142 @@ func TestEnvelopePayloadAtEnd(t *testing.T) {
 	}
 }
 
+// TestReadEnvelopeDecodedSizeBudget verifies the payload reader fails
+// with ErrMaxSizeExceeded once the decoded payload crosses the
+// configured budget — the decompression-bomb guard for untrusted v3
+// files.
+func TestReadEnvelopeDecodedSizeBudget(t *testing.T) {
+	t.Setenv("BATON_DECODER_MAX_DECODED_SIZE_MB", "1")
+
+	tmp := t.TempDir()
+	srcDir := filepath.Join(tmp, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 2 MiB of zeros decodes past the 1 MiB budget but compresses tiny.
+	if err := os.WriteFile(filepath.Join(srcDir, "big.sst"), make([]byte, 2<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	envPath := filepath.Join(tmp, "out.c1z3")
+	f, err := os.Create(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &c1zv3.C1ZManifestV3{Engine: "pebble", PayloadEncoding: c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD}
+	if err := WriteEnvelope(f, m, srcDir); err != nil {
+		t.Fatalf("WriteEnvelope: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	rf, err := os.Open(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rf.Close()
+	env, err := ReadEnvelope(rf)
+	if err != nil {
+		t.Fatalf("ReadEnvelope: %v", err)
+	}
+	defer env.Close()
+
+	err = ExtractZstdTar(env.PayloadReader, filepath.Join(tmp, "extracted"))
+	if !errors.Is(err, ErrMaxSizeExceeded) {
+		t.Fatalf("expected ErrMaxSizeExceeded, got %v", err)
+	}
+}
+
+// TestExtractZstdTarStreamsLargeEntry covers the inline-streaming path
+// for entries larger than inlineCopyThresholdBytes, which bypasses the
+// in-memory worker-pool buffers.
+func TestExtractZstdTarStreamsLargeEntry(t *testing.T) {
+	tmp := t.TempDir()
+	srcDir := filepath.Join(tmp, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	big := make([]byte, inlineCopyThresholdBytes+1)
+	for i := range big {
+		big[i] = byte(i % 251)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "big.sst"), big, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "small.sst"), []byte("small"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	envPath := filepath.Join(tmp, "out.c1z3")
+	f, err := os.Create(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &c1zv3.C1ZManifestV3{Engine: "pebble", PayloadEncoding: c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD}
+	if err := WriteEnvelope(f, m, srcDir); err != nil {
+		t.Fatalf("WriteEnvelope: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	rf, err := os.Open(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rf.Close()
+	env, err := ReadEnvelope(rf)
+	if err != nil {
+		t.Fatalf("ReadEnvelope: %v", err)
+	}
+	defer env.Close()
+
+	dest := filepath.Join(tmp, "extracted")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExtractZstdTar(env.PayloadReader, dest); err != nil {
+		t.Fatalf("ExtractZstdTar: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dest, "big.sst"))
+	if err != nil {
+		t.Fatalf("read extracted big.sst: %v", err)
+	}
+	if !bytes.Equal(got, big) {
+		t.Fatalf("big.sst roundtrip mismatch: got %d bytes", len(got))
+	}
+	small, err := os.ReadFile(filepath.Join(dest, "small.sst"))
+	if err != nil {
+		t.Fatalf("read extracted small.sst: %v", err)
+	}
+	if string(small) != "small" {
+		t.Fatalf("small.sst roundtrip: got %q", small)
+	}
+}
+
+// TestLimitedPayloadReaderExactLimit verifies a payload of exactly the
+// budget succeeds and reaches EOF — only crossing the budget fails.
+func TestLimitedPayloadReaderExactLimit(t *testing.T) {
+	lr := &limitedPayloadReader{r: bytes.NewReader(make([]byte, 64)), limit: 64}
+	got, err := io.ReadAll(lr)
+	if err != nil {
+		t.Fatalf("exact-limit payload should succeed, got %v", err)
+	}
+	if len(got) != 64 {
+		t.Fatalf("expected 64 bytes, got %d", len(got))
+	}
+
+	lr = &limitedPayloadReader{r: bytes.NewReader(make([]byte, 65)), limit: 64}
+	got, err = io.ReadAll(lr)
+	if !errors.Is(err, ErrMaxSizeExceeded) {
+		t.Fatalf("expected ErrMaxSizeExceeded, got %v", err)
+	}
+	if len(got) > 64 {
+		t.Fatalf("reader leaked %d bytes past the budget", len(got)-64)
+	}
+}
+
 func TestExtractZstdTarRejectsOversizedEntry(t *testing.T) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)

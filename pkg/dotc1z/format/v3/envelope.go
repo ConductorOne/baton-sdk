@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
@@ -37,6 +38,90 @@ var ErrEnvelopeTruncated = errors.New("c1z v3: envelope truncated")
 // manifest length.
 const maxManifestBytes = 16 << 20
 const maxTarEntryBytes int64 = 4 << 30
+
+// Tar entries larger than this are streamed straight to disk on the
+// reader goroutine instead of being buffered in memory for the writer
+// worker pool. Pebble's typical 2 MiB FlushSplitBytes keeps the common
+// case well below this, preserving the parallel-write win while
+// bounding peak extraction memory at roughly
+// (extractWorkerCount + channel buffer) × inlineCopyThresholdBytes.
+const inlineCopyThresholdBytes int64 = 8 << 20
+
+// Payload decode limits. Defaults and env var names mirror the v1
+// decoder in pkg/dotc1z/decoder.go so operators tune one knob for both
+// formats. Duplicated here (like C1Z3Magic) because this package is the
+// layer below dotc1z and cannot import it.
+const (
+	defaultMaxDecodedPayloadBytes uint64 = 10 << 30  // 10 GiB
+	defaultDecoderMaxMemoryBytes  uint64 = 128 << 20 // 128 MiB zstd window cap
+	maxDecodedSizeEnvVar                 = "BATON_DECODER_MAX_DECODED_SIZE_MB"
+	maxDecoderMemorySizeEnvVar           = "BATON_DECODER_MAX_MEMORY_MB"
+)
+
+// ErrMaxSizeExceeded is returned (wrapped) when a payload decodes to
+// more bytes than the configured cap. Guards against decompression
+// bombs in untrusted v3 c1z files.
+var ErrMaxSizeExceeded = fmt.Errorf("c1z v3: max decoded payload size exceeded, increase via the %s environment variable", maxDecodedSizeEnvVar)
+
+// envSizeBytes reads an env var holding a size in MiB and converts it
+// to bytes, falling back to def when unset, unparsable, zero, or large
+// enough to overflow the MiB→bytes conversion.
+func envSizeBytes(envVar string, def uint64) uint64 {
+	v := os.Getenv(envVar)
+	if v == "" {
+		return def
+	}
+	mb, err := strconv.ParseUint(v, 10, 64)
+	if err != nil || mb == 0 || mb > (1<<63)>>20 {
+		return def
+	}
+	return mb << 20
+}
+
+func maxDecodedPayloadBytes() uint64 {
+	return envSizeBytes(maxDecodedSizeEnvVar, defaultMaxDecodedPayloadBytes)
+}
+
+func decoderMaxMemoryBytes() uint64 {
+	return envSizeBytes(maxDecoderMemorySizeEnvVar, defaultDecoderMaxMemoryBytes)
+}
+
+// limitedPayloadReader passes through up to limit bytes and then fails
+// with ErrMaxSizeExceeded. Unlike io.LimitReader, exceeding the budget
+// is an error, not a silent EOF — a truncated tar stream must not look
+// like a well-formed short one.
+type limitedPayloadReader struct {
+	r     io.Reader
+	read  uint64
+	limit uint64
+}
+
+func (l *limitedPayloadReader) Read(p []byte) (int, error) {
+	if l.read > l.limit {
+		return 0, l.limitErr()
+	}
+	n, err := l.r.Read(p)
+	//nolint:gosec // n is always >= 0.
+	l.read += uint64(n)
+	// Clip bytes that crossed the cap in this single Read so callers
+	// never see data past the budget; exactly-limit payloads still
+	// succeed and reach EOF normally.
+	if l.read > l.limit {
+		over := l.read - l.limit
+		//nolint:gosec // over <= n by construction (we just added n and went over).
+		if uint64(n) >= over {
+			n -= int(over)
+		} else {
+			n = 0
+		}
+		return n, l.limitErr()
+	}
+	return n, err
+}
+
+func (l *limitedPayloadReader) limitErr() error {
+	return fmt.Errorf("c1z v3: payload exceeds %d bytes: %w", l.limit, ErrMaxSizeExceeded)
+}
 
 // WriteEnvelope writes a complete v3 envelope to w:
 //
@@ -144,6 +229,12 @@ func (e *Envelope) Close() error {
 // PAYLOAD_ENCODING_TAR (passing through unchanged). The reserved
 // values 1 (RAW) and 2 (single-stream ZSTD) return an error — they
 // were never wired and aren't supported.
+//
+// The payload is treated as untrusted: the zstd decoder's window
+// memory is capped (BATON_DECODER_MAX_MEMORY_MB, default 128 MiB) and
+// PayloadReader fails with ErrMaxSizeExceeded once the decoded payload
+// exceeds the configured budget (BATON_DECODER_MAX_DECODED_SIZE_MB,
+// default 10 GiB) — the same knobs the v1 decoder honors.
 func ReadEnvelope(r io.Reader) (*Envelope, error) {
 	// 1. Magic.
 	magic := make([]byte, len(C1Z3Magic))
@@ -175,14 +266,14 @@ func ReadEnvelope(r io.Reader) (*Envelope, error) {
 	env := &Envelope{Manifest: m}
 	switch m.GetPayloadEncoding() {
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD:
-		zr, err := zstd.NewReader(r)
+		zr, err := zstd.NewReader(r, zstd.WithDecoderMaxMemory(decoderMaxMemoryBytes()))
 		if err != nil {
 			return nil, fmt.Errorf("c1z v3: zstd reader: %w", err)
 		}
 		env.zstdReader = zr
-		env.PayloadReader = zr
+		env.PayloadReader = &limitedPayloadReader{r: zr, limit: maxDecodedPayloadBytes()}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
-		env.PayloadReader = r
+		env.PayloadReader = &limitedPayloadReader{r: r, limit: maxDecodedPayloadBytes()}
 	default:
 		return nil, fmt.Errorf("c1z v3: unsupported payload encoding %v", m.GetPayloadEncoding())
 	}
@@ -320,14 +411,22 @@ func writeTar(w io.Writer, dir string) error {
 // reader when the encoding was TAR. Same downstream code path.
 //
 // Parallelism: the tar reader pulls bytes from the underlying stream
-// serially in this goroutine (tar framing is sequential). For each
-// regular-file entry we read the bytes into a freshly-allocated
-// buffer and dispatch (target, mode, buffer) to a writer worker pool.
-// Workers perform the per-file open/write/close syscalls in parallel.
-// Memory peak is bounded by extractWorkerCount × max-entry-size; at
-// Pebble's typical 2 MiB FlushSplitBytes this is a few tens of MiB
-// regardless of total c1z size — the per-entry parallelism win
-// compounds at production-scale c1z files (100s GB).
+// serially in this goroutine (tar framing is sequential). Regular-file
+// entries up to inlineCopyThresholdBytes are read into a
+// freshly-allocated buffer and dispatched (target, mode, buffer) to a
+// writer worker pool; workers perform the per-file open/write/close
+// syscalls in parallel. Larger entries are streamed straight to disk
+// on this goroutine so a hostile archive full of multi-GiB entries
+// can't drive memory to extractWorkerCount × maxTarEntryBytes. Memory
+// peak is bounded by (extractWorkerCount + channel buffer) ×
+// inlineCopyThresholdBytes; at Pebble's typical 2 MiB FlushSplitBytes
+// nearly every entry takes the parallel path — the per-entry
+// parallelism win compounds at production-scale c1z files (100s GB).
+//
+// Aggregate extraction is bounded too: when r is an Envelope's
+// PayloadReader, the decoded-byte budget (file contents AND tar
+// headers, so entry count as well) fails the extraction with
+// ErrMaxSizeExceeded once exceeded.
 //
 // Directory creation stays on the main goroutine because tar entries
 // are emitted in walk order — a TypeDir must finish before a TypeReg
@@ -415,6 +514,13 @@ entryLoop:
 				readErr = err
 				break entryLoop
 			}
+			if hdr.Size > inlineCopyThresholdBytes {
+				if err := streamTarEntry(tr, target, mode); err != nil {
+					readErr = fmt.Errorf("c1z v3: tar stream %q: %w", hdr.Name, err)
+					break entryLoop
+				}
+				continue
+			}
 			buf := make([]byte, hdr.Size)
 			if _, err := io.ReadFull(tr, buf); err != nil {
 				readErr = fmt.Errorf("c1z v3: tar read %q: %w", hdr.Name, err)
@@ -432,6 +538,21 @@ entryLoop:
 		return readErr
 	}
 	return firstErr
+}
+
+// streamTarEntry copies one large tar entry from tr to target without
+// buffering it in memory. The tar reader bounds the copy at the entry's
+// declared size.
+func streamTarEntry(tr *tar.Reader, target string, mode os.FileMode) error {
+	f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(f, tr)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 func tarFileMode(mode int64, mask os.FileMode) (os.FileMode, error) {
