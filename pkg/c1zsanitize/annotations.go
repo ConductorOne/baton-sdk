@@ -72,28 +72,25 @@ func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*
 			// could leak un-sanitized customer data. Pass-through is opt-in
 			// via Options.AllowUnknownAnnotations, for development only.
 			if s.dropUnknownAnnotations {
-				if s.droppedAnnotations[a.GetTypeUrl()] == 0 {
+				if s.recordAnnotation(s.droppedAnnotations, a.GetTypeUrl()) {
 					s.log.Warn("c1zsanitize: dropping unknown annotation type (first occurrence; counted thereafter)",
 						zap.String("type_url", a.GetTypeUrl()))
 				}
-				s.droppedAnnotations[a.GetTypeUrl()]++
 				continue
 			}
-			if s.passedAnnotations[a.GetTypeUrl()] == 0 {
+			if s.recordAnnotation(s.passedAnnotations, a.GetTypeUrl()) {
 				s.log.Warn("c1zsanitize: passing unknown annotation through unchanged (first occurrence; counted thereafter)",
 					zap.String("type_url", a.GetTypeUrl()))
 			}
-			s.passedAnnotations[a.GetTypeUrl()]++
 			out = append(out, a)
 			continue
 		}
 		msg, err := a.UnmarshalNew()
 		if err != nil {
-			if s.failedAnnotations[a.GetTypeUrl()] == 0 {
+			if s.recordAnnotation(s.failedAnnotations, a.GetTypeUrl()) {
 				s.log.Warn("c1zsanitize: annotation transform failed (first occurrence; counted thereafter)",
 					zap.String("type_url", a.GetTypeUrl()), zap.Error(err))
 			}
-			s.failedAnnotations[a.GetTypeUrl()]++
 			continue
 		}
 		sanitized := handler(s, msg, refs)
@@ -102,11 +99,10 @@ func (s *sanitizer) transformAnnotations(in []*anypb.Any, refs *assetRefSet) []*
 		}
 		repacked, err := anypb.New(sanitized)
 		if err != nil {
-			if s.failedAnnotations[a.GetTypeUrl()] == 0 {
+			if s.recordAnnotation(s.failedAnnotations, a.GetTypeUrl()) {
 				s.log.Warn("c1zsanitize: annotation transform failed (first occurrence; counted thereafter)",
 					zap.String("type_url", a.GetTypeUrl()), zap.Error(err))
 			}
-			s.failedAnnotations[a.GetTypeUrl()]++
 			continue
 		}
 		out = append(out, repacked)

@@ -260,7 +260,10 @@ func (c *C1File) copyGrants(ctx context.Context, dest connectorstore.Writer, syn
 	if fw, ok := dest.(uniqueGrantWriter); ok {
 		put = fw.UnsafePutUniqueGrants
 	}
-	return copyStream(ctx, c.StreamGrants(ctx, syncID, connectorstore.StreamGrantsOptions{}), batchSize, stage, put)
+	// Preserve grant-expansion topology across the engine copy: the SQLite
+	// source strips GrantExpandable into a side column, so the stream must
+	// re-attach it or the Pebble copy loses the expansion edges.
+	return copyStream(ctx, c.StreamGrants(ctx, syncID, connectorstore.StreamGrantsOptions{IncludeExpansion: true}), batchSize, stage, put)
 }
 
 // copyStream drains a streaming reader into the destination in batches of
