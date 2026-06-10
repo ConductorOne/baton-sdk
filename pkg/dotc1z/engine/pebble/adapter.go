@@ -105,6 +105,8 @@ func (a *Adapter) StartNewSync(ctx context.Context, syncType connectorstore.Sync
 		StartedAt:    timestamppb.New(a.current.startedAt),
 	}.Build()
 	if err := a.engine.PutSyncRunRecord(ctx, rec); err != nil {
+		a.current = syncRunState{}
+		a.engine.clearCurrentSync()
 		return "", err
 	}
 	return syncID, nil

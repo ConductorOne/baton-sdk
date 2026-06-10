@@ -28,7 +28,11 @@ type SourceSync struct {
 //
 // destSyncID must already exist in dest (created by StartNewSync) and
 // be empty — MergeInto only adds records, it never excises, so no
-// pre-existing data under destSyncID is assumed.
+// pre-existing data under destSyncID is assumed. MergeInto binds the
+// dest engine's current sync to destSyncID before writing: v3 record
+// values do not carry sync_id, so the engine's keep-newer write path
+// keys every record off the current sync. The binding is left in
+// place when MergeInto returns.
 //
 // Only the four primary record buckets are copied: resource_types,
 // resources, entitlements, grants. Assets are intentionally NOT copied
@@ -49,6 +53,9 @@ func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync
 	}
 	if destSyncID == "" {
 		return errors.New("synccompactor/pebble.MergeInto: destSyncID is required")
+	}
+	if err := dest.SetCurrentSync(destSyncID); err != nil {
+		return fmt.Errorf("synccompactor/pebble.MergeInto: bind dest sync: %w", err)
 	}
 	for i := range sources {
 		if err := ctx.Err(); err != nil {

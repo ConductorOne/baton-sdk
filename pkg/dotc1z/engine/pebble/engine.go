@@ -210,6 +210,20 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 	return nil
 }
 
+// clearCurrentSync detaches the engine from its current sync and disables
+// fresh-sync write shortcuts. After this, operations that resolve an empty
+// sync_id fail with ErrNoCurrentSync until StartNewSync, ResumeSync, or
+// SetCurrentSync binds a sync again.
+func (e *Engine) clearCurrentSync() {
+	e.currentSyncMu.Lock()
+	e.currentSync = nil
+	e.freshSync = false
+	e.freshGrantsEmpty = false
+	e.freshResourcesEmpty = false
+	e.freshEntitlementsEmpty = false
+	e.currentSyncMu.Unlock()
+}
+
 // IsFreshSync reports whether the engine is in the fresh-sync write
 // path (set by MarkFreshSync).
 func (e *Engine) IsFreshSync() bool {
@@ -260,14 +274,14 @@ func (e *Engine) takeFreshEntitlementsEmpty() bool {
 // + fsyncs the WAL so the data written during the sync is on disk
 // before the caller returns. Called by Adapter.EndSync.
 func (e *Engine) EndFreshSync(ctx context.Context) error {
-	e.currentSyncMu.Lock()
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+
+	e.currentSyncMu.RLock()
 	wasFresh := e.freshSync
-	e.freshSync = false
-	e.freshGrantsEmpty = false
-	e.freshResourcesEmpty = false
-	e.freshEntitlementsEmpty = false
-	e.currentSyncMu.Unlock()
+	e.currentSyncMu.RUnlock()
 	if !wasFresh {
+		e.clearCurrentSync()
 		return nil
 	}
 	// Flush the memtable (turns NoSync-buffered writes into on-disk
@@ -278,6 +292,7 @@ func (e *Engine) EndFreshSync(ctx context.Context) error {
 	if err := e.db.LogData(nil, pebble.Sync); err != nil {
 		return fmt.Errorf("EndFreshSync: fsync WAL: %w", err)
 	}
+	e.clearCurrentSync()
 	return nil
 }
 
@@ -340,6 +355,27 @@ func (e *Engine) withWrite(fn func() error) error {
 	return fn()
 }
 
+// withWriteBarrier serializes a short critical section against all
+// engine writes without permanently quiescing the engine. It is used by
+// snapshotting code that must observe "all writes before the barrier,
+// no writes during the barrier, writes may resume after".
+func (e *Engine) withWriteBarrier(fn func() error) error {
+	if err := e.checkWritable(); err != nil {
+		return err
+	}
+	e.writeWG.Add(1)
+	defer e.writeWG.Done()
+	if e.closing.Load() {
+		return ErrEngineQuiesced
+	}
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	if err := e.checkWritable(); err != nil {
+		return err
+	}
+	return fn()
+}
+
 func (e *Engine) Save(ctx context.Context, dest string) error {
 	return errors.New("pebble engine: Save requires the dotc1z.Save shim (envelope write); use CheckpointTo for direct directory access")
 }
@@ -393,9 +429,9 @@ func (e *Engine) DB() *pebble.DB { return e.db }
 // destDir. destDir must not exist yet. Pebble creates it and
 // hard-links SSTs where possible.
 //
-// The source engine stays writable after CheckpointTo returns; this
-// is the building block dotc1z's higher-level Save wraps with the v3
-// envelope format.
+// The source engine stays writable after CheckpointTo returns; writes
+// are only blocked while the checkpoint is cut. This is the building
+// block dotc1z's higher-level Save wraps with the v3 envelope format.
 //
 // The explicit Flush is what makes the snapshot WAL-independent:
 // every committed write lands in SSTs before the checkpoint is cut.
@@ -403,22 +439,23 @@ func (e *Engine) DB() *pebble.DB { return e.db }
 // redundant after the flush, and it appends a WAL record, guaranteeing
 // the checkpoint carries a WAL file.
 //
-// Callers must not write to the engine concurrently with CheckpointTo;
-// a write committed between the Flush and the Checkpoint would exist
-// only in the WAL, which truncateCheckpointWALs discards below.
-// dotc1z's save path runs at Close with the store already quiesced, so
-// this holds for all current callers.
+// CheckpointTo takes the engine write barrier for the whole
+// Flush→Checkpoint→truncate window. That prevents a write from
+// committing between the Flush and Checkpoint — such a write would
+// otherwise exist only in the WAL, which truncateCheckpointWALs discards.
 func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
-	if err := e.db.Flush(); err != nil {
-		return fmt.Errorf("checkpoint flush: %w", err)
-	}
-	if err := e.db.Checkpoint(destDir); err != nil {
-		return fmt.Errorf("checkpoint: %w", err)
-	}
-	if err := truncateCheckpointWALs(destDir); err != nil {
-		return fmt.Errorf("checkpoint truncate WALs: %w", err)
-	}
-	return nil
+	return e.withWriteBarrier(func() error {
+		if err := e.db.Flush(); err != nil {
+			return fmt.Errorf("checkpoint flush: %w", err)
+		}
+		if err := e.db.Checkpoint(destDir); err != nil {
+			return fmt.Errorf("checkpoint: %w", err)
+		}
+		if err := truncateCheckpointWALs(destDir); err != nil {
+			return fmt.Errorf("checkpoint truncate WALs: %w", err)
+		}
+		return nil
+	})
 }
 
 // truncateCheckpointWALs truncates every WAL segment in a freshly cut

@@ -122,13 +122,38 @@ type pebbleStore struct {
 // route SQLite *C1File handles today.
 var _ C1ZStore = (*pebbleStore)(nil)
 
-// FileOps overrides the Adapter-level FileOps so CloneSync threads
-// the pebbleStore's configured payload encoding into the destination
-// c1z. Without this, clone output would always use the default
-// TAR_ZSTD even when the source store was opened with
-// WithPayloadEncoding(PayloadEncodingTar).
+// FileOps overrides the Adapter-level FileOps for two reasons:
+//
+//   - CloneSync threads the pebbleStore's configured payload encoding
+//     into the destination c1z (otherwise clone output would always
+//     use the default TAR_ZSTD); and
+//   - GenerateSyncDiff writes a NEW sync into THIS store, so it must
+//     flip the dirty bit — without it, Close would skip the envelope
+//     save and the diff sync would exist only in the discarded temp
+//     directory.
 func (s *pebbleStore) FileOps() FileOps {
-	return s.FileOpsWithEncoding(s.payloadEncoding)
+	return pebbleStoreFileOps{inner: s.FileOpsWithEncoding(s.payloadEncoding), store: s}
+}
+
+// pebbleStoreFileOps wraps the Adapter-level FileOps to route the one
+// mutating-in-place method (GenerateSyncDiff) through the store's
+// dirty-marking path. CloneSync writes a separate file and passes
+// through unchanged.
+type pebbleStoreFileOps struct {
+	inner FileOps
+	store *pebbleStore
+}
+
+func (f pebbleStoreFileOps) CloneSync(ctx context.Context, outPath string, syncID string, opts ...CloneSyncOption) error {
+	return f.inner.CloneSync(ctx, outPath, syncID, opts...)
+}
+
+func (f pebbleStoreFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (string, error) {
+	diffSyncID, err := f.inner.GenerateSyncDiff(ctx, baseSyncID, appliedSyncID)
+	if err != nil {
+		return "", err
+	}
+	return diffSyncID, f.store.markDirty(nil)
 }
 
 // Metadata extends the embedded Adapter's Metadata with this store's

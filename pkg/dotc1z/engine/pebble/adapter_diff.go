@@ -81,7 +81,13 @@ func generateSyncDiff(ctx context.Context, a *Adapter, baseSyncID, appliedSyncID
 	if err := a.engine.PutSyncRunRecord(ctx, diffRun); err != nil {
 		return "", fmt.Errorf("generate-diff: put diff sync run: %w", err)
 	}
-	if err := a.engine.SetCurrentSync(diffSyncID); err != nil {
+	// Bind through the ADAPTER so its tracked sync stays in lockstep
+	// with the engine — the diff records below are written via the
+	// engine's current-sync key context (v3 values carry no sync_id).
+	// The binding is left on the diff sync when we return: the diff is
+	// now the latest finished sync, so this matches where SQLite's
+	// latest-finished read resolution would land anyway.
+	if err := a.SetCurrentSync(ctx, diffSyncID); err != nil {
 		return "", fmt.Errorf("generate-diff: set current diff sync: %w", err)
 	}
 

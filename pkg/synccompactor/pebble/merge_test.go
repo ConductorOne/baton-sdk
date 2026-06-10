@@ -57,9 +57,9 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := dst.SetCurrentSync(destSync); err != nil {
-		t.Fatal(err)
-	}
+	// No SetCurrentSync here: MergeInto must bind the dest engine to
+	// destSyncID itself (record values carry no sync_id, so a stale
+	// binding would silently write into the wrong sync's keyspace).
 	if err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync); err != nil {
 		t.Fatalf("MergeInto: %v", err)
 	}
@@ -120,9 +120,8 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 	if err := src2.PutGrantRecords(ctx, g2); err != nil {
 		t.Fatal(err)
 	}
-	_ = dst.SetCurrentSync(destSync)
-
-	// src1 applied first → incumbent wins the tie.
+	// src1 applied first → incumbent wins the tie. MergeInto binds the
+	// dest sync itself.
 	if err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync); err != nil {
 		t.Fatal(err)
 	}
