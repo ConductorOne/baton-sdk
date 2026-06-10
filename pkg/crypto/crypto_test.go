@@ -9,10 +9,12 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"testing"
+	"time"
 
 	filippoage "filippo.io/age"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
@@ -237,5 +239,55 @@ func TestConvertCredentialOptions(t *testing.T) {
 		localOpts, err := ConvertCredentialOptions(ctx, privateKey, opts, nil)
 		require.NoError(t, err)
 		require.Equal(t, password, localOpts.GetPlaintextPassword().GetPlaintextPassword())
+	})
+}
+
+// The machine-credential arms (api_key/keypair/token) carry no encrypted
+// payload, so ConvertCredentialOptions passes them through into the decrypted
+// LocalCredentialOptions unchanged — mirroring the no_password/sso arms.
+func TestConvertCredentialOptionsMachineCredArms(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("api_key", func(t *testing.T) {
+		ttl := durationpb.New(time.Hour)
+		opts := v2.CredentialOptions_builder{
+			ApiKey: v2.CredentialOptions_ApiKey_builder{
+				Scopes: []string{"read", "write"},
+				Ttl:    ttl,
+			}.Build(),
+		}.Build()
+		localOpts, err := ConvertCredentialOptions(ctx, nil, opts, nil)
+		require.NoError(t, err)
+		require.Equal(t, v2.LocalCredentialOptions_ApiKey_case, localOpts.WhichOptions())
+		require.Equal(t, []string{"read", "write"}, localOpts.GetApiKey().GetScopes())
+		require.Equal(t, ttl.GetSeconds(), localOpts.GetApiKey().GetTtl().GetSeconds())
+	})
+
+	t.Run("keypair", func(t *testing.T) {
+		opts := v2.CredentialOptions_builder{
+			Keypair: v2.CredentialOptions_Keypair_builder{
+				Algorithm: "RSA",
+				Bits:      4096,
+			}.Build(),
+		}.Build()
+		localOpts, err := ConvertCredentialOptions(ctx, nil, opts, nil)
+		require.NoError(t, err)
+		require.Equal(t, v2.LocalCredentialOptions_Keypair_case, localOpts.WhichOptions())
+		require.Equal(t, "RSA", localOpts.GetKeypair().GetAlgorithm())
+		require.Equal(t, int32(4096), localOpts.GetKeypair().GetBits())
+	})
+
+	t.Run("token", func(t *testing.T) {
+		opts := v2.CredentialOptions_builder{
+			Token: v2.CredentialOptions_Token_builder{
+				Scopes:   []string{"api"},
+				Audience: "https://example.test",
+			}.Build(),
+		}.Build()
+		localOpts, err := ConvertCredentialOptions(ctx, nil, opts, nil)
+		require.NoError(t, err)
+		require.Equal(t, v2.LocalCredentialOptions_Token_case, localOpts.WhichOptions())
+		require.Equal(t, []string{"api"}, localOpts.GetToken().GetScopes())
+		require.Equal(t, "https://example.test", localOpts.GetToken().GetAudience())
 	})
 }
