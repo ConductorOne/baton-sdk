@@ -203,6 +203,12 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 	switch format {
 	case C1ZFormatV1:
 		if shouldConvertSQLiteToPebble(requested, options.readOnly, true) {
+			// Close our header-read handle before converting: the conversion
+			// renames a temp file over outputFilePath, which fails on Windows
+			// if any handle to the destination is still open.
+			if err := f.Close(); err != nil {
+				return nil, err
+			}
 			l.Debug("converting existing v1 c1z to pebble", zap.String("output_file_path", outputFilePath))
 			if err := convertExistingV1C1ZFile(ctx, outputFilePath, pebbleOpenOptionsFromC1Z(options)); err != nil {
 				return nil, fmt.Errorf("select-store-driver: convert existing v1 c1z to pebble: %w", err)
