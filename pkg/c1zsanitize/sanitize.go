@@ -92,14 +92,23 @@ type Options struct {
 
 	// Resumable enables checkpointing so an interrupted run continues instead
 	// of restarting. Progress is recorded in each destination sync's
-	// sync_token (a fingerprint of Secret+TimestampAnchor, the source sync id,
-	// the next phase, and the grant page token). On a later run against the
+	// sync_token (a secret fingerprint, the persisted anchor, the source sync
+	// id, the next phase, and the grant page token). On a later run against the
 	// SAME destination file, completed phases are skipped and the grant phase
 	// resumes from its last committed page. A destination carrying checkpoints
-	// from a different Secret/TimestampAnchor is rejected (fail-closed: never
-	// mix transforms from two secrets). The destination's durability between
-	// runs is the caller's responsibility (Sanitize does not own the file
-	// lifecycle); resume only finds progress that a prior run persisted to disk.
+	// from a different Secret is rejected (fail-closed: never mix transforms
+	// from two secrets). The anchor is persisted and adopted on resume when this
+	// run passed a zero TimestampAnchor, so a default-anchor resumable run
+	// resumes cleanly; a resume that passes a DIFFERENT explicit anchor is
+	// rejected. The destination's durability between runs is the caller's
+	// responsibility (Sanitize does not own the file lifecycle); resume only
+	// finds progress that a prior run persisted to disk.
+	//
+	// Resumable requires the sqlite-backed destination (*dotc1z.C1File). A
+	// destination engine that cannot enumerate checkpoints without mutating
+	// sync state — currently the pebble engine, whose SetCurrentSync does not
+	// rehydrate the persisted step — is rejected with a clear error rather than
+	// silently restarting from scratch.
 	Resumable bool
 }
 
@@ -119,8 +128,9 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		return fmt.Errorf("c1zsanitize: secret too short: got %d bytes, want at least %d", len(opts.Secret), MinSecretBytes)
 	}
 
+	anchorExplicit := !opts.TimestampAnchor.IsZero()
 	anchor := opts.TimestampAnchor
-	if anchor.IsZero() {
+	if !anchorExplicit {
 		anchor = time.Now().UTC()
 	}
 
@@ -128,12 +138,13 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 	if err != nil {
 		return fmt.Errorf("c1zsanitize: list source syncs: %w", err)
 	}
+	tMax := findTMax(srcSyncs)
 
 	s := &sanitizer{
 		secret:                 opts.Secret,
 		hmacPool:               newHMACPool(opts.Secret),
 		domains:                newDomainMap(),
-		shifter:                newTimestampShifter(anchor, findTMax(srcSyncs)),
+		shifter:                newTimestampShifter(anchor, tMax),
 		dropUnknownAnnotations: !opts.AllowUnknownAnnotations,
 		log:                    ctxzap.Extract(ctx),
 		handlers:               defaultAnnotationHandlers(),
@@ -145,8 +156,11 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		passedAnnotations:      map[string]uint64{},
 		failedAnnotations:      map[string]uint64{},
 		resumable:              opts.Resumable,
+		anchor:                 anchor,
+		anchorExplicit:         anchorExplicit,
+		tMax:                   tMax,
 	}
-	s.fingerprint = s.checkpointFingerprint(anchor)
+	s.fingerprint = s.checkpointFingerprint()
 
 	// One structured summary line per run instead of a log line per dropped
 	// annotation / missing asset (which fired tens of millions of times on
@@ -231,10 +245,20 @@ type sanitizer struct {
 	completed bool
 
 	// resumable enables checkpointing; fingerprint binds a checkpoint to this
-	// run's (secret, anchor) so a destination written under a different secret
-	// or anchor is never resumed into. See Options.Resumable.
+	// run's secret so a destination written under a different secret is never
+	// resumed into. See Options.Resumable.
 	resumable   bool
 	fingerprint string
+
+	// anchor is the timestamp anchor in force for this run; it is persisted in
+	// every checkpoint token. anchorExplicit records whether the caller passed
+	// it (vs. it defaulting): a resume that did not pass an explicit anchor
+	// adopts the persisted one, while a resume that passed a DIFFERENT explicit
+	// anchor is rejected. tMax is the source's newest timestamp, retained so the
+	// shifter can be rebuilt if the anchor is adopted on resume.
+	anchor         time.Time
+	anchorExplicit bool
+	tMax           time.Time
 }
 
 // Checkpoint phases recorded in a destination sync's token. The value names
@@ -245,6 +269,13 @@ const (
 	phaseResources    = "resources"
 	phaseEntitlements = "entitlements"
 	phaseGrants       = "grants"
+	// phaseAssets is the terminal phase, written once grants complete. It marks
+	// "all records written; only copyAssets + EndSync remain" so a crash after
+	// grants resumes into copyAssets instead of re-running the whole grant phase
+	// (a phaseGrants token with an empty page is indistinguishable from "grants
+	// not started"). On resume at this phase the resource/entitlement walks still
+	// run read-only to repopulate asset refs before copyAssets.
+	phaseAssets = "assets"
 )
 
 // resumeState is the decoded checkpoint for one source sync's destination sync.
@@ -256,22 +287,29 @@ type resumeState struct {
 }
 
 // checkpointToken is the JSON payload stored in a destination sync's
-// sync_token. Fingerprint binds it to (secret, anchor); SrcSyncID correlates
-// the destination sync back to its source.
+// sync_token. Fingerprint binds it to the secret; SrcSyncID correlates the
+// destination sync back to its source. Anchor records the timestamp anchor the
+// run used so a later resume that did not pass an explicit anchor can adopt it
+// (the anchor is not secret — it is the visible newest output timestamp — so
+// persisting it is safe and is what makes a default-anchor run resumable).
 type checkpointToken struct {
 	Fingerprint string `json:"fp"`
 	SrcSyncID   string `json:"src"`
 	Phase       string `json:"phase"`
 	GrantPage   string `json:"gpt,omitempty"`
+	Anchor      string `json:"anchor,omitempty"`
 }
 
-// checkpointFingerprint derives a non-reversible binding of (secret, anchor).
-// It never stores the secret; a different secret or anchor yields a different
-// fingerprint, so loadResumeStates rejects a mismatched destination.
-func (s *sanitizer) checkpointFingerprint(anchor time.Time) string {
+// checkpointFingerprint derives a non-reversible binding of the secret. It
+// never stores the secret; a different secret yields a different fingerprint,
+// so loadResumeStates rejects a destination written under a different secret.
+// The anchor is NOT bound here: it is persisted in the token and validated
+// separately (adopt-if-zero, fail-closed on a different explicit anchor), so a
+// run that let the anchor default can still resume.
+func (s *sanitizer) checkpointFingerprint() string {
 	h := s.hmacPool.Get().(hash.Hash)
 	h.Reset()
-	_, _ = h.Write([]byte("c1zsanitize-ckpt-v1\x00" + anchor.UTC().Format(time.RFC3339Nano)))
+	_, _ = h.Write([]byte("c1zsanitize-ckpt-v2\x00secret-only"))
 	sum := h.Sum(nil)
 	s.hmacPool.Put(h)
 	return idEncoding.EncodeToString(sum)
@@ -284,54 +322,118 @@ func (s *sanitizer) checkpoint(ctx context.Context, dst connectorstore.Writer, s
 	if !s.resumable {
 		return nil
 	}
-	tok, err := json.Marshal(checkpointToken{Fingerprint: s.fingerprint, SrcSyncID: srcSyncID, Phase: phase, GrantPage: gpt})
+	tok, err := json.Marshal(checkpointToken{
+		Fingerprint: s.fingerprint,
+		SrcSyncID:   srcSyncID,
+		Phase:       phase,
+		GrantPage:   gpt,
+		Anchor:      s.anchor.UTC().Format(time.RFC3339Nano),
+	})
 	if err != nil {
 		return err
 	}
 	return dst.CheckpointSync(ctx, string(tok))
 }
 
+// dstSyncLister is the destination capability for enumerating sync runs with
+// their persisted sync_token and ended_at WITHOUT mutating the current-sync
+// pointer. *dotc1z.C1File (the sqlite engine) provides it. Reading checkpoints
+// this way avoids the SetCurrentSync+CurrentSyncStep scan, which would leave
+// the destination's current sync pointing at an already-ended sync — a state
+// that previously caused StartNewSync to hand a fresh sync's records to an
+// ended sync.
+type dstSyncLister interface {
+	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*dotc1z.SyncRun, string, error)
+}
+
 // loadResumeStates scans the destination's existing syncs for checkpoint
-// tokens written by a prior resumable run. A token whose fingerprint matches
-// this run yields a resumeState; a token whose fingerprint does NOT match
-// means the destination holds output from a different secret/anchor, which is
-// rejected (fail-closed). Destinations with no tokens (fresh, or written by a
-// non-resumable run) yield an empty map and a clean full run.
+// tokens written by a prior resumable run, reading them through ListSyncRuns so
+// the destination's current-sync pointer is never mutated. A token whose
+// fingerprint matches this run yields a resumeState; a token whose fingerprint
+// does NOT match means the destination holds output from a different secret,
+// which is rejected (fail-closed). The persisted anchor is adopted when this
+// run did not pass an explicit one, and a different explicit anchor is rejected
+// — so a default-anchor run resumes while a deliberate anchor change cannot
+// silently mix two transforms. Destinations with no tokens yield an empty map
+// and a clean full run.
+//
+// A destination that cannot enumerate sync tokens this way (e.g. the pebble
+// engine, whose SetCurrentSync/CurrentSyncStep do not round-trip the persisted
+// step) is rejected with a clear error rather than silently restarting from
+// scratch; resumable runs require the sqlite-backed destination.
 func (s *sanitizer) loadResumeStates(ctx context.Context, dst connectorstore.Writer) (map[string]*resumeState, error) {
-	dstSyncs, err := listAllSyncs(ctx, dst)
-	if err != nil {
-		return nil, err
+	lister, ok := dst.(dstSyncLister)
+	if !ok {
+		return nil, fmt.Errorf("resumable runs require a destination that can enumerate checkpoints without mutating sync state (sqlite-backed); this destination cannot, so resume would silently restart")
 	}
+
 	out := map[string]*resumeState{}
-	for _, ds := range dstSyncs {
-		if err := dst.SetCurrentSync(ctx, ds.GetId()); err != nil {
-			return nil, err
-		}
-		raw, err := dst.CurrentSyncStep(ctx)
+	pageToken := ""
+	for {
+		runs, next, err := lister.ListSyncRuns(ctx, pageToken, 0)
 		if err != nil {
 			return nil, err
 		}
-		if raw == "" {
-			continue
+		for _, ds := range runs {
+			if ds.SyncToken == "" {
+				continue
+			}
+			var ct checkpointToken
+			if json.Unmarshal([]byte(ds.SyncToken), &ct) != nil {
+				continue // not our token shape; ignore
+			}
+			if ct.Fingerprint == "" {
+				continue
+			}
+			if ct.Fingerprint != s.fingerprint {
+				return nil, fmt.Errorf("destination has a checkpoint for a different secret; clear the destination before resuming")
+			}
+			if err := s.reconcileAnchor(ct.Anchor); err != nil {
+				return nil, err
+			}
+			out[ct.SrcSyncID] = &resumeState{
+				dstSyncID:      ds.ID,
+				ended:          ds.EndedAt != nil,
+				phase:          ct.Phase,
+				grantPageToken: ct.GrantPage,
+			}
 		}
-		var ct checkpointToken
-		if json.Unmarshal([]byte(raw), &ct) != nil {
-			continue // not our token shape; ignore
+		if next == "" {
+			return out, nil
 		}
-		if ct.Fingerprint == "" {
-			continue
-		}
-		if ct.Fingerprint != s.fingerprint {
-			return nil, fmt.Errorf("destination has a checkpoint for a different secret/anchor; clear the destination before resuming")
-		}
-		out[ct.SrcSyncID] = &resumeState{
-			dstSyncID:      ds.GetId(),
-			ended:          ds.HasEndedAt(),
-			phase:          ct.Phase,
-			grantPageToken: ct.GrantPage,
-		}
+		pageToken = next
 	}
-	return out, nil
+}
+
+// reconcileAnchor handles the persisted checkpoint anchor. When the caller did
+// not pass an explicit anchor, the persisted one is adopted and the timestamp
+// shifter rebuilt so resumed output lands on the same anchor as the original
+// run (without this, a default-anchor run could never resume — run 2's
+// time.Now() anchor would not match run 1's). When the caller DID pass an
+// explicit anchor, a mismatch is fail-closed: two different anchors must never
+// be mixed into one destination. An empty persisted anchor (older token) is
+// ignored.
+func (s *sanitizer) reconcileAnchor(persisted string) error {
+	if persisted == "" {
+		return nil
+	}
+	pa, err := time.Parse(time.RFC3339Nano, persisted)
+	if err != nil {
+		return fmt.Errorf("checkpoint has an unparseable anchor %q: %w", persisted, err)
+	}
+	pa = pa.UTC()
+	if s.anchorExplicit {
+		if !s.anchor.Equal(pa) {
+			return fmt.Errorf("destination was checkpointed with anchor %s but this run was given anchor %s; clear the destination or pass the original anchor", pa.Format(time.RFC3339Nano), s.anchor.Format(time.RFC3339Nano))
+		}
+		return nil
+	}
+	if s.anchor.Equal(pa) {
+		return nil
+	}
+	s.anchor = pa
+	s.shifter = newTimestampShifter(pa, s.tMax)
+	return nil
 }
 
 // recordAnnotation increments the per-type-URL counter under statsMu (the
@@ -447,26 +549,43 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 		return err
 	}
 
-	if phaseAtOrBefore(startPhase, phaseResources) {
-		if err := s.copyResources(ctx, src, dst, srcSyncID, assetRefs); err != nil {
-			return err
-		}
+	// Resources and entitlements always walk so their trait icon/logo asset refs
+	// land in assetRefs before copyAssets runs — the in-memory ref set does not
+	// survive a process restart, so on resume the refs collected by a prior run
+	// are gone and must be rebuilt. The WRITE is gated on the phase: a phase a
+	// prior run already completed re-collects refs read-only instead of
+	// re-writing rows that are already durable in the destination. This mirrors
+	// copyResourceTypes, which always runs to rebuild knownResourceTypes.
+	writeResources := phaseAtOrBefore(startPhase, phaseResources)
+	if err := s.copyResources(ctx, src, dst, srcSyncID, assetRefs, writeResources); err != nil {
+		return err
+	}
+	if writeResources {
 		if err := s.checkpoint(ctx, dst, srcSyncID, phaseEntitlements, ""); err != nil {
 			return fmt.Errorf("checkpoint: %w", err)
 		}
 	}
-	if phaseAtOrBefore(startPhase, phaseEntitlements) {
-		if err := s.copyEntitlements(ctx, src, dst, srcSyncID, assetRefs); err != nil {
-			return err
-		}
+
+	writeEntitlements := phaseAtOrBefore(startPhase, phaseEntitlements)
+	if err := s.copyEntitlements(ctx, src, dst, srcSyncID, assetRefs, writeEntitlements); err != nil {
+		return err
+	}
+	if writeEntitlements {
 		if err := s.checkpoint(ctx, dst, srcSyncID, phaseGrants, ""); err != nil {
 			return fmt.Errorf("checkpoint: %w", err)
 		}
 		startGrantPage = "" // entitlements just finished; grants start at the top
 	}
-	if err := s.copyGrants(ctx, src, dst, srcSyncID, assetRefs, grantCache, startGrantPage); err != nil {
-		return err
+
+	// Grants run unless a prior run already finished them (checkpoint advanced
+	// to the terminal assets phase). copyGrants writes the phaseAssets checkpoint
+	// itself once its final page lands.
+	if phaseAtOrBefore(startPhase, phaseGrants) {
+		if err := s.copyGrants(ctx, src, dst, srcSyncID, assetRefs, grantCache, startGrantPage); err != nil {
+			return err
+		}
 	}
+
 	if err := s.copyAssets(ctx, src, dst, assetRefs); err != nil {
 		return err
 	}
@@ -493,6 +612,8 @@ func phaseRank(p string) int {
 		return 1
 	case phaseGrants:
 		return 2
+	case phaseAssets:
+		return 3
 	default:
 		return 0 // unknown/empty → treat as the earliest phase (run everything)
 	}
