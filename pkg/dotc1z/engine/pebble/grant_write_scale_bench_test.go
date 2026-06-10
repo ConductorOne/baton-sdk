@@ -62,7 +62,6 @@ func makeGrantRecordBatch(syncID string, offset, count int) []*v3.GrantRecord {
 		pr.SetResourceId("u" + strconv.Itoa(id))
 
 		r := &v3.GrantRecord{}
-		r.SetSyncId(syncID)
 		r.SetExternalId("grant-" + strconv.Itoa(id))
 		r.SetEntitlement(ent)
 		r.SetPrincipal(pr)

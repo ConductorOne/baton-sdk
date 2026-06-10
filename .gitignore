@@ -28,3 +28,7 @@ dist/
 .claude/settings.local.json
 
 *.map
+
+# Local profiling output and benchmark fixtures (pprof files, prebuilt
+# compaction fixture trees referenced via BATON_COMPACTION_COMPARE_FIXTURES_DIR).
+.profiles/

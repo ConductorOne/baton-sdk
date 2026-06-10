@@ -9,6 +9,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 )
 
 // TestCloneSyncRoundtrip writes a small sync to a Pebble-backed
@@ -43,6 +44,24 @@ func TestCloneSyncRoundtrip(t *testing.T) {
 	}
 	if _, err := os.Stat(clonePath); err != nil {
 		t.Fatalf("clone file missing: %v", err)
+	}
+	f, err := os.Open(clonePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := formatv3.ReadManifestHeader(f)
+	if cerr := f.Close(); cerr != nil {
+		t.Fatal(cerr)
+	}
+	if err != nil {
+		t.Fatalf("ReadManifestHeader clone: %v", err)
+	}
+	runs := manifest.GetSyncRuns()
+	if len(runs) != 1 {
+		t.Fatalf("clone manifest sync_runs = %d, want 1", len(runs))
+	}
+	if runs[0].GetStats() == nil {
+		t.Fatal("clone manifest sync_run stats is nil")
 	}
 
 	if err := src.Close(ctx); err != nil {

@@ -37,6 +37,37 @@ type StoreOptions struct {
 	// engines that produce a v3 envelope (currently Pebble). Zero
 	// value means "engine default" (PayloadEncodingTarZstd for Pebble).
 	PayloadEncoding PayloadEncoding
+
+	// DecoderPool optionally scopes v3 payload-decoder reuse to the
+	// caller's operation (see WithDecoderPool). Nil means a one-shot
+	// decoder per open.
+	DecoderPool *EnvelopeDecoderPool
+}
+
+// EnvelopeDecoderPool re-exports the v3 envelope payload decoder pool
+// so callers (e.g. the sync compactor) can scope decoder reuse to one
+// operation without importing the format package. See
+// formatv3.DecoderPool for semantics.
+type EnvelopeDecoderPool = formatv3.DecoderPool
+
+// NewEnvelopeDecoderPool returns an empty pool; the caller owns its
+// lifetime and must Close it when the operation completes.
+func NewEnvelopeDecoderPool() *EnvelopeDecoderPool {
+	return formatv3.NewDecoderPool()
+}
+
+// WithDecoderPool threads a caller-owned envelope decoder pool through
+// a store open. Useful only for callers that open MANY v3 c1z files in
+// one operation (the compactor opens one envelope per source per
+// merge); each open draws its zstd payload decoder from the pool
+// instead of constructing a fresh one. The caller must Close the pool
+// when the operation finishes — that deterministic release is the
+// point of scoping the pool instead of sharing one process-wide.
+// Ignored by the SQLite (v1) engine and harmless when nil.
+func WithDecoderPool(p *EnvelopeDecoderPool) C1ZOption {
+	return func(o *c1zOptions) {
+		o.decoderPool = p
+	}
 }
 
 // EngineDriver opens a .c1z file for a specific storage engine. The SQLite
@@ -142,6 +173,7 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 		V2GrantsWriter:     options.v2GrantsWriter,
 		Engine:             options.engine,
 		PayloadEncoding:    options.payloadEncoding,
+		DecoderPool:        options.decoderPool,
 	}
 	if out.Engine == "" {
 		out.Engine = EngineSQLite
@@ -228,12 +260,17 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 		if _, err := f.Seek(0, 0); err != nil {
 			return nil, err
 		}
-		env, err := formatv3.ReadEnvelope(f)
+		// Engine dispatch only needs the small manifest header. Avoiding the
+		// descriptor closure unmarshal cut the clean skewed-500 overlay profile
+		// from ~3.64M to ~1.74M allocs/op; ReadManifestHeader (vs
+		// ReadEnvelopeHeader) additionally skips constructing a zstd payload
+		// decoder that dispatch never reads from — one wasted
+		// window-allocation + worker spin-up per open.
+		m, err := formatv3.ReadManifestHeader(f)
 		if err != nil {
 			return nil, err
 		}
-		defer env.Close()
-		fileEngine = Engine(env.Manifest.GetEngine())
+		fileEngine = Engine(m.GetEngine())
 	default:
 		return nil, ErrInvalidFile
 	}

@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cockroachdb/pebble/v2"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -157,6 +159,21 @@ func TestCompactPebbleEndToEnd(t *testing.T) {
 	count, st := verifyCompacted(t, ctx, out.FilePath, out.SyncID)
 	require.Equal(t, 3, count, "union of {g-shared,g-only1} and {g-shared,g-only2} deduped = 3 grants")
 	require.Equal(t, string(connectorstore.SyncTypeFull), st, "union of full + partial = full")
+
+	store, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithReadOnly(true))
+	require.NoError(t, err)
+	defer store.Close(ctx)
+	require.NoError(t, store.SetCurrentSync(ctx, out.SyncID))
+
+	group := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+	}.Build()
+	byResource, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+		Resource: group,
+		PageSize: 1000,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, byResource.GetList(), 3, "compacted pebble output must materialize grant_by_entitlement_resource index")
 }
 
 // buildSQLiteInput writes a minimal SQLite (v1) c1z with one grant per
@@ -264,4 +281,416 @@ func TestCompactSQLiteDefaultUnchanged(t *testing.T) {
 	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 1000}.Build())
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 3, "default sqlite compaction must union grants to 3")
+}
+
+type overlayInputSpec struct {
+	syncType connectorstore.SyncType
+	suffix   string
+	grants   []overlayGrantSpec
+}
+
+type overlayGrantSpec struct {
+	id              string
+	principalID     string
+	entitlementID   string
+	needsExpansion  bool
+	skipEntitlement bool
+}
+
+func buildOverlayInput(t testing.TB, ctx context.Context, path string, spec overlayInputSpec) string {
+	t.Helper()
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	syncID, err := store.StartNewSync(ctx, spec.syncType, "")
+	require.NoError(t, err)
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+	require.NoError(t, store.PutResourceTypes(ctx, groupRT, userRT))
+
+	group := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "engineering"}.Build(),
+		DisplayName: "Engineering",
+	}.Build()
+	alice := v2.Resource_builder{
+		Id:               v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+		DisplayName:      "Alice " + spec.suffix,
+		ParentResourceId: group.GetId(),
+	}.Build()
+	bob := v2.Resource_builder{
+		Id:               v2.ResourceId_builder{ResourceType: "user", Resource: "bob"}.Build(),
+		DisplayName:      "Bob " + spec.suffix,
+		ParentResourceId: group.GetId(),
+	}.Build()
+	require.NoError(t, store.PutResources(ctx, group, alice, bob))
+
+	entitlementsByID := map[string]*v2.Entitlement{}
+	for _, g := range spec.grants {
+		if g.skipEntitlement {
+			continue
+		}
+		if _, ok := entitlementsByID[g.entitlementID]; ok {
+			continue
+		}
+		entitlementsByID[g.entitlementID] = v2.Entitlement_builder{
+			Id:       g.entitlementID,
+			Resource: group,
+			Purpose:  v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+		}.Build()
+	}
+	for _, ent := range entitlementsByID {
+		require.NoError(t, store.PutEntitlements(ctx, ent))
+	}
+
+	for _, g := range spec.grants {
+		principalID := alice
+		if g.principalID == "bob" {
+			principalID = bob
+		}
+		grant := v2.Grant_builder{
+			Id:          g.id,
+			Principal:   principalID,
+			Entitlement: v2.Entitlement_builder{Id: g.entitlementID, Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build(),
+		}.Build()
+		if g.needsExpansion {
+			grant.SetAnnotations([]*anypb.Any{mustAny(t, v2.GrantExpandable_builder{
+				EntitlementIds: []string{"member"},
+				Shallow:        true,
+			}.Build())})
+		}
+		require.NoError(t, store.PutGrants(ctx, grant))
+	}
+	require.NoError(t, store.EndSync(ctx))
+	require.NoError(t, store.Close(ctx))
+	return syncID
+}
+
+func mustAny(t testing.TB, msg proto.Message) *anypb.Any {
+	t.Helper()
+	out, err := anypb.New(msg)
+	require.NoError(t, err)
+	return out
+}
+
+func compactPebbleOverlay(t testing.TB, ctx context.Context, entries []*CompactableSync, extra ...Option) *CompactableSync {
+	t.Helper()
+	opts := append([]Option{
+		WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble), WithSkipGrantExpansion(),
+		WithPebbleCompactorMode(PebbleCompactorModeOverlay),
+	}, extra...)
+	c, cleanup, err := NewCompactor(ctx, t.TempDir(), entries, opts...)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, cleanup()) }()
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	return out
+}
+
+func openCompactedPebble(t testing.TB, ctx context.Context, out *CompactableSync) dotc1z.C1ZStore {
+	t.Helper()
+	store, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	require.NoError(t, store.SetCurrentSync(ctx, out.SyncID))
+	return store
+}
+
+func TestCompactPebbleOverlayMaterializesAllQueryIndexes(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "base.c1z")
+	incPath := filepath.Join(dir, "inc.c1z")
+	baseSync := buildOverlayInput(t, ctx, basePath, overlayInputSpec{
+		syncType: connectorstore.SyncTypeFull,
+		suffix:   "base",
+		grants: []overlayGrantSpec{
+			{id: "g-alice-member", principalID: "alice", entitlementID: "member"},
+			{id: "g-bob-admin", principalID: "bob", entitlementID: "admin", needsExpansion: true},
+		},
+	})
+	incSync := buildOverlayInput(t, ctx, incPath, overlayInputSpec{
+		syncType: connectorstore.SyncTypePartial,
+		suffix:   "incremental",
+		grants: []overlayGrantSpec{
+			{id: "g-inc-bob-member", principalID: "bob", entitlementID: "member"},
+		},
+	})
+	out := compactPebbleOverlay(t, ctx, []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: incPath, SyncID: incSync}})
+	store := openCompactedPebble(t, ctx, out)
+	defer store.Close(ctx)
+
+	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "engineering"}.Build()}.Build()
+	alice := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(), ParentResourceId: group.GetId()}.Build()
+
+	byResource, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{Resource: group, PageSize: 100}.Build())
+	require.NoError(t, err)
+	requireGrantIDs(t, byResource.GetList(), "g-alice-member", "g-bob-admin", "g-inc-bob-member")
+
+	member := v2.Entitlement_builder{Id: "member", Resource: group}.Build()
+	byEntitlement, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		Entitlement: member,
+		PageSize:    100,
+	}.Build())
+	require.NoError(t, err)
+	requireGrantIDs(t, byEntitlement.GetList(), "g-alice-member", "g-inc-bob-member")
+
+	byPrincipalAndEntitlement, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		Entitlement: member,
+		PrincipalId: alice.GetId(),
+		PageSize:    100,
+	}.Build())
+	require.NoError(t, err)
+	requireGrantIDs(t, byPrincipalAndEntitlement.GetList(), "g-alice-member")
+
+	users, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{ParentResourceId: group.GetId(), PageSize: 100}.Build())
+	require.NoError(t, err)
+	requireResourceIDs(t, users.GetList(), "alice", "bob")
+
+	ents, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{Resource: group, PageSize: 100}.Build())
+	require.NoError(t, err)
+	requireEntitlementIDs(t, ents.GetList(), "admin", "member")
+
+	pending, next, err := store.Grants().PendingExpansionPage(ctx, "")
+	require.NoError(t, err)
+	require.Empty(t, next)
+	require.Len(t, pending, 1)
+	require.Equal(t, "g-bob-admin", pending[0].GrantExternalID)
+}
+
+func TestCompactPebbleOverlayFirstSeenWinsForOverlappingGrant(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "base.c1z")
+	incPath := filepath.Join(dir, "inc.c1z")
+	baseSync := buildOverlayInput(t, ctx, basePath, overlayInputSpec{
+		syncType: connectorstore.SyncTypeFull,
+		suffix:   "base",
+		grants:   []overlayGrantSpec{{id: "shared", principalID: "alice", entitlementID: "member"}},
+	})
+	incSync := buildOverlayInput(t, ctx, incPath, overlayInputSpec{
+		syncType: connectorstore.SyncTypePartial,
+		suffix:   "incremental",
+		grants:   []overlayGrantSpec{{id: "shared", principalID: "bob", entitlementID: "member"}},
+	})
+	out := compactPebbleOverlay(t, ctx, []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: incPath, SyncID: incSync}})
+	store := openCompactedPebble(t, ctx, out)
+	defer store.Close(ctx)
+	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "shared"}.Build())
+	require.NoError(t, err)
+	require.Equal(t, "bob", grant.GetGrant().GetPrincipal().GetId().GetResource(), "newest/applied source must win overlay duplicate")
+}
+
+func TestCompactPebbleOverlayFallsBackToKWayAboveSeenLimit(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "base.c1z")
+	incPath := filepath.Join(dir, "inc.c1z")
+	baseSync := buildOverlayInput(t, ctx, basePath, overlayInputSpec{
+		syncType: connectorstore.SyncTypeFull,
+		suffix:   "base",
+		grants:   []overlayGrantSpec{{id: "shared", principalID: "alice", entitlementID: "member"}},
+	})
+	incSync := buildOverlayInput(t, ctx, incPath, overlayInputSpec{
+		syncType: connectorstore.SyncTypePartial,
+		suffix:   "incremental",
+		grants:   []overlayGrantSpec{{id: "shared", principalID: "bob", entitlementID: "member"}},
+	})
+	out := compactPebbleOverlay(t, ctx, []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: incPath, SyncID: incSync}}, WithOverlaySeenKeyLimit(1))
+	store := openCompactedPebble(t, ctx, out)
+	defer store.Close(ctx)
+	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "shared"}.Build())
+	require.NoError(t, err)
+	require.Equal(t, "bob", grant.GetGrant().GetPrincipal().GetId().GetResource(), "fallback must preserve compaction semantics")
+}
+
+func TestCompactPebbleOverlayFallsBackToKWayWhenMissingStatsPreflightExceedsLimit(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "base.c1z")
+	incPath := filepath.Join(dir, "inc.c1z")
+	baseSync := buildOverlayInput(t, ctx, basePath, overlayInputSpec{
+		syncType: connectorstore.SyncTypeFull,
+		suffix:   "base",
+		grants:   []overlayGrantSpec{{id: "shared", principalID: "alice", entitlementID: "member"}},
+	})
+	incSync := buildOverlayInput(t, ctx, incPath, overlayInputSpec{
+		syncType: connectorstore.SyncTypePartial,
+		suffix:   "incremental",
+		grants:   []overlayGrantSpec{{id: "shared", principalID: "bob", entitlementID: "member"}},
+	})
+	deletePebbleStatsSidecar(t, ctx, basePath)
+	deletePebbleStatsSidecar(t, ctx, incPath)
+
+	out := compactPebbleOverlay(t, ctx, []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: incPath, SyncID: incSync}}, WithOverlaySeenKeyLimit(1))
+	store := openCompactedPebble(t, ctx, out)
+	defer store.Close(ctx)
+	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "shared"}.Build())
+	require.NoError(t, err)
+	require.Equal(t, "bob", grant.GetGrant().GetPrincipal().GetId().GetResource(), "missing cached stats preflight fallback must preserve compaction semantics")
+}
+
+func TestCompactPebbleOverlayMissingStatsPreflightAllowsSmallInputs(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "base.c1z")
+	incPath := filepath.Join(dir, "inc.c1z")
+	baseSync := buildOverlayInput(t, ctx, basePath, overlayInputSpec{
+		syncType: connectorstore.SyncTypeFull,
+		suffix:   "base",
+		grants:   []overlayGrantSpec{{id: "base-only", principalID: "alice", entitlementID: "member"}},
+	})
+	incSync := buildOverlayInput(t, ctx, incPath, overlayInputSpec{
+		syncType: connectorstore.SyncTypePartial,
+		suffix:   "incremental",
+		grants:   nil,
+	})
+	deletePebbleStatsSidecar(t, ctx, basePath)
+	deletePebbleStatsSidecar(t, ctx, incPath)
+
+	out := compactPebbleOverlay(t, ctx, []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: incPath, SyncID: incSync}}, WithOverlaySeenKeyLimit(100))
+	store := openCompactedPebble(t, ctx, out)
+	defer store.Close(ctx)
+	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 100}.Build())
+	require.NoError(t, err)
+	requireGrantIDs(t, resp.GetList(), "base-only")
+}
+
+func TestCompactPebbleOverlayWholeBaseBucketFastPathIndexesBaseGrants(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "base.c1z")
+	incPath := filepath.Join(dir, "inc.c1z")
+	baseSync := buildOverlayInput(t, ctx, basePath, overlayInputSpec{
+		syncType: connectorstore.SyncTypeFull,
+		suffix:   "base",
+		grants: []overlayGrantSpec{
+			{id: "base-alice", principalID: "alice", entitlementID: "member"},
+			{id: "base-bob", principalID: "bob", entitlementID: "admin", needsExpansion: true},
+		},
+	})
+	incSync := buildOverlayInput(t, ctx, incPath, overlayInputSpec{
+		syncType: connectorstore.SyncTypePartial,
+		suffix:   "incremental-no-grants",
+		grants:   nil,
+	})
+	out := compactPebbleOverlay(t, ctx, []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: incPath, SyncID: incSync}})
+	store := openCompactedPebble(t, ctx, out)
+	defer store.Close(ctx)
+	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "engineering"}.Build()}.Build()
+	byResource, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{Resource: group, PageSize: 100}.Build())
+	require.NoError(t, err)
+	requireGrantIDs(t, byResource.GetList(), "base-alice", "base-bob")
+	pending, _, err := store.Grants().PendingExpansionPage(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.Equal(t, "base-bob", pending[0].GrantExternalID)
+}
+
+// TestCompactPebbleStatsSidecarMatchesRecompute pins that compaction
+// persists merge-accumulated stats that exactly match a full recompute
+// of the compacted output, for both the K-way path and the overlay
+// path (each forced explicitly via WithPebbleCompactorMode).
+func TestCompactPebbleStatsSidecarMatchesRecompute(t *testing.T) {
+	for _, mode := range []PebbleCompactorMode{PebbleCompactorModeKWay, PebbleCompactorModeOverlay} {
+		t.Run(string(mode), func(t *testing.T) {
+			ctx := context.Background()
+			inDir := t.TempDir()
+			p1 := filepath.Join(inDir, "in1.c1z")
+			p2 := filepath.Join(inDir, "in2.c1z")
+			s1 := buildPebbleInput(t, ctx, p1, connectorstore.SyncTypePartial, "g-shared", "g-only1")
+			s2 := buildPebbleInput(t, ctx, p2, connectorstore.SyncTypePartial, "g-shared", "g-only2")
+
+			c, cleanup, err := NewCompactor(ctx, t.TempDir(),
+				[]*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}},
+				WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble), WithSkipGrantExpansion(),
+				WithPebbleCompactorMode(mode))
+			require.NoError(t, err)
+			defer func() { _ = cleanup() }()
+			out, err := c.Compact(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, out)
+
+			w, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithTmpDir(t.TempDir()))
+			require.NoError(t, err)
+			defer w.Close(ctx)
+			eng, ok := enginepkg.AsEngine(w)
+			require.True(t, ok)
+
+			stored, err := enginepkg.ReadSyncStatsRecord(ctx, eng, out.SyncID)
+			require.NoError(t, err)
+			require.NotNil(t, stored, "compaction must persist a stats sidecar")
+
+			// Sanity-pin the expected fixture counts so a dual-sided
+			// systematic error can't slip through the parity check.
+			require.Equal(t, int64(2), stored.GetResourceTypes())
+			require.Equal(t, int64(2), stored.GetResources())
+			require.Equal(t, int64(1), stored.GetEntitlements())
+			require.Equal(t, int64(3), stored.GetGrants(), "union of {g-shared,g-only1} and {g-shared,g-only2}")
+			require.Equal(t, int64(0), stored.GetAssets(), "compaction drops assets")
+			require.Equal(t, map[string]int64{"group": 1, "user": 1}, stored.GetResourcesByResourceType())
+			require.Equal(t, map[string]int64{"group": 3}, stored.GetGrantsByEntitlementResourceType())
+
+			require.NoError(t, eng.PersistSyncStats(ctx, out.SyncID))
+			recomputed, err := enginepkg.ReadSyncStatsRecord(ctx, eng, out.SyncID)
+			require.NoError(t, err)
+			require.NotNil(t, recomputed)
+			require.Equal(t, recomputed.GetResourceTypes(), stored.GetResourceTypes())
+			require.Equal(t, recomputed.GetResources(), stored.GetResources())
+			require.Equal(t, recomputed.GetEntitlements(), stored.GetEntitlements())
+			require.Equal(t, recomputed.GetGrants(), stored.GetGrants())
+			require.Equal(t, recomputed.GetAssets(), stored.GetAssets())
+			require.Equal(t, recomputed.GetResourcesByResourceType(), stored.GetResourcesByResourceType())
+			require.Equal(t, recomputed.GetGrantsByEntitlementResourceType(), stored.GetGrantsByEntitlementResourceType())
+		})
+	}
+}
+
+func requireGrantIDs(t testing.TB, grants []*v2.Grant, want ...string) {
+	t.Helper()
+	got := make([]string, 0, len(grants))
+	for _, grant := range grants {
+		got = append(got, grant.GetId())
+	}
+	require.ElementsMatch(t, want, got)
+}
+
+func requireResourceIDs(t testing.TB, resources []*v2.Resource, want ...string) {
+	t.Helper()
+	got := make([]string, 0, len(resources))
+	for _, resource := range resources {
+		got = append(got, resource.GetId().GetResource())
+	}
+	require.ElementsMatch(t, want, got)
+}
+
+func requireEntitlementIDs(t testing.TB, entitlements []*v2.Entitlement, want ...string) {
+	t.Helper()
+	got := make([]string, 0, len(entitlements))
+	for _, entitlement := range entitlements {
+		got = append(got, entitlement.GetId())
+	}
+	require.ElementsMatch(t, want, got)
+}
+
+func deletePebbleStatsSidecar(t testing.TB, ctx context.Context, path string) {
+	t.Helper()
+	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	eng, ok := enginepkg.AsEngine(w)
+	require.True(t, ok)
+	iter, err := eng.DB().NewIter(&pebble.IterOptions{
+		LowerBound: enginepkg.SyncStatsSidecarLowerBound(),
+		UpperBound: enginepkg.SyncStatsSidecarUpperBound(),
+	})
+	require.NoError(t, err)
+	var keys [][]byte
+	for iter.First(); iter.Valid(); iter.Next() {
+		keys = append(keys, append([]byte(nil), iter.Key()...))
+	}
+	require.NoError(t, iter.Error())
+	require.NoError(t, iter.Close())
+	for _, key := range keys {
+		require.NoError(t, eng.DB().Delete(key, nil))
+	}
+	require.NoError(t, w.Close(ctx))
 }

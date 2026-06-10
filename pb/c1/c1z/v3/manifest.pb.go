@@ -392,11 +392,18 @@ func (b0 RecordTypeInfo_builder) Build() *RecordTypeInfo {
 }
 
 type SyncRunSummary struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	SyncId        string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
-	Type          v3.SyncType            `protobuf:"varint,2,opt,name=type,proto3,enum=c1.storage.v3.SyncType" json:"type,omitempty"`
-	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	EndedAt       *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	state        protoimpl.MessageState `protogen:"hybrid.v1"`
+	SyncId       string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
+	Type         v3.SyncType            `protobuf:"varint,2,opt,name=type,proto3,enum=c1.storage.v3.SyncType" json:"type,omitempty"`
+	StartedAt    *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	EndedAt      *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	ParentSyncId string                 `protobuf:"bytes,5,opt,name=parent_sync_id,json=parentSyncId,proto3" json:"parent_sync_id,omitempty"`
+	// Projection of the engine's stats sidecar for this sync, when one
+	// exists. Lets readers (compaction source selection, overlay bucket
+	// planning, tooling) get row counts from the envelope header without
+	// unpacking the payload. Absent for syncs whose sidecar was never
+	// written (e.g. interrupted syncs).
+	Stats         *v3.SyncStatsRecord `protobuf:"bytes,6,opt,name=stats,proto3" json:"stats,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -454,6 +461,20 @@ func (x *SyncRunSummary) GetEndedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *SyncRunSummary) GetParentSyncId() string {
+	if x != nil {
+		return x.ParentSyncId
+	}
+	return ""
+}
+
+func (x *SyncRunSummary) GetStats() *v3.SyncStatsRecord {
+	if x != nil {
+		return x.Stats
+	}
+	return nil
+}
+
 func (x *SyncRunSummary) SetSyncId(v string) {
 	x.SyncId = v
 }
@@ -470,6 +491,14 @@ func (x *SyncRunSummary) SetEndedAt(v *timestamppb.Timestamp) {
 	x.EndedAt = v
 }
 
+func (x *SyncRunSummary) SetParentSyncId(v string) {
+	x.ParentSyncId = v
+}
+
+func (x *SyncRunSummary) SetStats(v *v3.SyncStatsRecord) {
+	x.Stats = v
+}
+
 func (x *SyncRunSummary) HasStartedAt() bool {
 	if x == nil {
 		return false
@@ -484,6 +513,13 @@ func (x *SyncRunSummary) HasEndedAt() bool {
 	return x.EndedAt != nil
 }
 
+func (x *SyncRunSummary) HasStats() bool {
+	if x == nil {
+		return false
+	}
+	return x.Stats != nil
+}
+
 func (x *SyncRunSummary) ClearStartedAt() {
 	x.StartedAt = nil
 }
@@ -492,13 +528,24 @@ func (x *SyncRunSummary) ClearEndedAt() {
 	x.EndedAt = nil
 }
 
+func (x *SyncRunSummary) ClearStats() {
+	x.Stats = nil
+}
+
 type SyncRunSummary_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	SyncId    string
-	Type      v3.SyncType
-	StartedAt *timestamppb.Timestamp
-	EndedAt   *timestamppb.Timestamp
+	SyncId       string
+	Type         v3.SyncType
+	StartedAt    *timestamppb.Timestamp
+	EndedAt      *timestamppb.Timestamp
+	ParentSyncId string
+	// Projection of the engine's stats sidecar for this sync, when one
+	// exists. Lets readers (compaction source selection, overlay bucket
+	// planning, tooling) get row counts from the envelope header without
+	// unpacking the payload. Absent for syncs whose sidecar was never
+	// written (e.g. interrupted syncs).
+	Stats *v3.SyncStatsRecord
 }
 
 func (b0 SyncRunSummary_builder) Build() *SyncRunSummary {
@@ -509,6 +556,8 @@ func (b0 SyncRunSummary_builder) Build() *SyncRunSummary {
 	x.Type = b.Type
 	x.StartedAt = b.StartedAt
 	x.EndedAt = b.EndedAt
+	x.ParentSyncId = b.ParentSyncId
+	x.Stats = b.Stats
 	return m0
 }
 
@@ -608,13 +657,15 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\x0eRecordTypeInfo\x12*\n" +
 	"\x11message_full_name\x18\x01 \x01(\tR\x0fmessageFullName\x12%\n" +
 	"\x0eschema_version\x18\x02 \x01(\rR\rschemaVersion\x12'\n" +
-	"\x0festimated_count\x18\x03 \x01(\x03R\x0eestimatedCount\"\xc8\x01\n" +
+	"\x0festimated_count\x18\x03 \x01(\x03R\x0eestimatedCount\"\xa4\x02\n" +
 	"\x0eSyncRunSummary\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12+\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x17.c1.storage.v3.SyncTypeR\x04type\x129\n" +
 	"\n" +
 	"started_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x125\n" +
-	"\bended_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendedAt\"p\n" +
+	"\bended_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendedAt\x12$\n" +
+	"\x0eparent_sync_id\x18\x05 \x01(\tR\fparentSyncId\x124\n" +
+	"\x05stats\x18\x06 \x01(\v2\x1e.c1.storage.v3.SyncStatsRecordR\x05stats\"p\n" +
 	"\x12PebbleEngineConfig\x120\n" +
 	"\x14format_major_version\x18\x01 \x01(\rR\x12formatMajorVersion\x12(\n" +
 	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*l\n" +
@@ -635,6 +686,7 @@ var file_c1_c1z_v3_manifest_proto_goTypes = []any{
 	(*descriptorpb.FileDescriptorSet)(nil), // 6: google.protobuf.FileDescriptorSet
 	(v3.SyncType)(0),                       // 7: c1.storage.v3.SyncType
 	(*timestamppb.Timestamp)(nil),          // 8: google.protobuf.Timestamp
+	(*v3.SyncStatsRecord)(nil),             // 9: c1.storage.v3.SyncStatsRecord
 }
 var file_c1_c1z_v3_manifest_proto_depIdxs = []int32{
 	5, // 0: c1.c1z.v3.C1ZManifestV3.engine_config:type_name -> google.protobuf.Any
@@ -645,11 +697,12 @@ var file_c1_c1z_v3_manifest_proto_depIdxs = []int32{
 	7, // 5: c1.c1z.v3.SyncRunSummary.type:type_name -> c1.storage.v3.SyncType
 	8, // 6: c1.c1z.v3.SyncRunSummary.started_at:type_name -> google.protobuf.Timestamp
 	8, // 7: c1.c1z.v3.SyncRunSummary.ended_at:type_name -> google.protobuf.Timestamp
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	9, // 8: c1.c1z.v3.SyncRunSummary.stats:type_name -> c1.storage.v3.SyncStatsRecord
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_c1_c1z_v3_manifest_proto_init() }

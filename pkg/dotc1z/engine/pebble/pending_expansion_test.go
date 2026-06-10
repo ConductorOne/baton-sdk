@@ -24,7 +24,6 @@ func TestPendingExpansionIndexRoundtrip(t *testing.T) {
 	}
 
 	gPending := v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: "g-pending",
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",
@@ -38,7 +37,6 @@ func TestPendingExpansionIndexRoundtrip(t *testing.T) {
 		NeedsExpansion: true,
 	}.Build()
 	gProcessed := v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: "g-processed",
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-B",
@@ -52,7 +50,6 @@ func TestPendingExpansionIndexRoundtrip(t *testing.T) {
 		NeedsExpansion: false,
 	}.Build()
 	gPlain := v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: "g-plain",
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-C",
@@ -80,7 +77,6 @@ func TestPendingExpansionIndexRoundtrip(t *testing.T) {
 	// Flip g-pending to NeedsExpansion=false. The index entry must
 	// disappear (mirrors the syncer's post-expansion write).
 	gPendingDone := v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: "g-pending",
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",
@@ -115,12 +111,11 @@ func TestPendingExpansionIndexRoundtrip(t *testing.T) {
 func TestPebbleGrantStorePendingExpansionPage(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	if err != nil {
 		t.Fatalf("StartNewSync: %v", err)
 	}
 	rec := v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: "g1",
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",

@@ -26,7 +26,6 @@ func newEngine(t *testing.T, name string) (*enginepkg.Engine, string) {
 
 func grant(syncID, externalID, entID, principalID string) *v3.GrantRecord {
 	return v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: externalID,
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app",
@@ -173,19 +172,19 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	}
 
 	if err := dst.PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
-		SyncId: syncID, ExternalId: "rt-stale", DisplayName: "stale",
+		ExternalId: "rt-stale", DisplayName: "stale",
 	}.Build()); err != nil {
 		t.Fatal(err)
 	}
 	if err := dst.PutResourceRecord(ctx, v3.ResourceRecord_builder{
-		SyncId: syncID, ResourceTypeId: "user", ResourceId: "stale-child",
+		ResourceTypeId: "user", ResourceId: "stale-child",
 		Parent: v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
 	}.Build()); err != nil {
 		t.Fatal(err)
 	}
 	if err := dst.PutEntitlementRecord(ctx, v3.EntitlementRecord_builder{
-		SyncId: syncID, ExternalId: "ent-stale",
-		Resource: v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
+		ExternalId: "ent-stale",
+		Resource:   v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
 	}.Build()); err != nil {
 		t.Fatal(err)
 	}
@@ -201,24 +200,24 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	}
 
 	if err := src.PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
-		SyncId: syncID, ExternalId: "rt-fresh", DisplayName: "fresh",
+		ExternalId: "rt-fresh", DisplayName: "fresh",
 	}.Build()); err != nil {
 		t.Fatal(err)
 	}
 	if err := src.PutResourceRecord(ctx, v3.ResourceRecord_builder{
-		SyncId: syncID, ResourceTypeId: "group", ResourceId: "admins",
+		ResourceTypeId: "group", ResourceId: "admins",
 	}.Build()); err != nil {
 		t.Fatal(err)
 	}
 	if err := src.PutResourceRecord(ctx, v3.ResourceRecord_builder{
-		SyncId: syncID, ResourceTypeId: "user", ResourceId: "fresh-child",
+		ResourceTypeId: "user", ResourceId: "fresh-child",
 		Parent: v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
 	}.Build()); err != nil {
 		t.Fatal(err)
 	}
 	if err := src.PutEntitlementRecord(ctx, v3.EntitlementRecord_builder{
-		SyncId: syncID, ExternalId: "ent-fresh",
-		Resource: v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
+		ExternalId: "ent-fresh",
+		Resource:   v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
 	}.Build()); err != nil {
 		t.Fatal(err)
 	}

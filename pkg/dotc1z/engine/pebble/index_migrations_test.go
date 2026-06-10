@@ -52,7 +52,6 @@ func TestApplyIndexMigrationsBackfillsNeedsExpansion(t *testing.T) {
 	// written by an older engine that didn't know about
 	// idxGrantByNeedsExpansion.
 	rec := v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: "g-pending",
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",

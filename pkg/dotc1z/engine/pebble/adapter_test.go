@@ -2,6 +2,7 @@ package pebble
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
@@ -131,6 +133,43 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 	// EndSync stamps ended_at.
 	if err := a.EndSync(ctx); err != nil {
 		t.Fatalf("EndSync: %v", err)
+	}
+}
+
+func TestAdapterEndSyncClearsEngineCurrentSync(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+
+	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	if err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+	if err := a.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")); err != nil {
+		t.Fatalf("PutGrants: %v", err)
+	}
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
+
+	if err := a.engine.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-B", "bob")); !errors.Is(err, ErrNoCurrentSync) {
+		t.Fatalf("direct engine write after EndSync: got %v, want ErrNoCurrentSync", err)
+	}
+	if err := a.engine.IterateGrantsByEntitlement(ctx, "", "ent-A", func(*v3.GrantRecord) bool {
+		t.Fatal("iterator should not resolve an ended sync via empty sync id")
+		return false
+	}); !errors.Is(err, ErrNoCurrentSync) {
+		t.Fatalf("direct engine index read after EndSync: got %v, want ErrNoCurrentSync", err)
+	}
+
+	count := 0
+	if err := a.engine.IterateGrantsByEntitlement(ctx, syncID, "ent-A", func(*v3.GrantRecord) bool {
+		count++
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("ended sync grant index count = %d, want 1", count)
 	}
 }
 
