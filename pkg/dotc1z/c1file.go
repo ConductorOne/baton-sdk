@@ -767,6 +767,9 @@ func (c *C1File) closeRawDB(ctx context.Context) error {
 	_, span := tracer.Start(ctx, "C1File.closeRawDB")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
+	if c.rawDb == nil {
+		return nil
+	}
 	// Copy the rawDb to a local variable to avoid race conditions.
 	rawDb := c.rawDb
 	c.rawDb = nil
