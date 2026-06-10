@@ -11,7 +11,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
@@ -107,15 +106,12 @@ func (c *C1File) streamGrantsWithExpansion(
 			return
 		}
 		total++
-		if len(expansion) > 0 {
-			expandable := &v2.GrantExpandable{}
-			if err := proto.Unmarshal(expansion, expandable); err != nil {
-				yield(nil, err)
-				return
-			}
-			annos := annotations.Annotations(g.GetAnnotations())
-			annos.Update(expandable)
-			g.SetAnnotations(annos)
+		attached, err := reattachExpansion(g, expansion)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		if attached {
 			reattached++
 		}
 		if !yield(g, nil) {
