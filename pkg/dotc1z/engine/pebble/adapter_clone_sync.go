@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -35,12 +37,13 @@ func cloneSync(
 	a *Adapter,
 	encoding c1zstore.PayloadEncoding,
 	outPath, syncID string,
-	_ ...c1zstore.CloneSyncOption,
+	opts ...c1zstore.CloneSyncOption,
 ) error {
-	//TODO: Support options in pebble.
 	if _, err := os.Stat(outPath); err == nil || !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("clone-sync: output path (%s) must not exist for cloning to proceed", outPath)
 	}
+
+	cloneOpts := c1zstore.NewCloneSyncOptions(opts...)
 
 	resolved := syncID
 	if resolved == "" {
@@ -70,11 +73,16 @@ func cloneSync(
 		return fmt.Errorf("clone-sync: encode sync_id: %w", err)
 	}
 
-	cloneTmp, err := os.MkdirTemp("", "c1z-clone")
+	cloneTmp, err := os.MkdirTemp(cloneOpts.TmpDir, "c1z-clone")
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(cloneTmp)
+	defer func() {
+		cleanupErr := os.RemoveAll(cloneTmp)
+		if cleanupErr != nil {
+			ctxzap.Extract(ctx).Warn("clone-sync: error cleaning up temp dir", zap.Error(cleanupErr))
+		}
+	}()
 	destDBDir := filepath.Join(cloneTmp, "db")
 
 	dest, err := Open(ctx, destDBDir)
