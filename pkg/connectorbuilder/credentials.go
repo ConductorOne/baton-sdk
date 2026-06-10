@@ -136,7 +136,7 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
-	tt := tasks.RotateCredentialsType
+	tt := tasks.IssueCredentialType
 	l := ctxzap.Extract(ctx)
 	rt := request.GetIdentityId().GetResourceType()
 	issuer, ok := b.credentialIssuers[rt]
