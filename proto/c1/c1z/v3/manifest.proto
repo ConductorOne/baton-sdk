@@ -63,7 +63,7 @@ enum PayloadEncoding {
   PAYLOAD_ENCODING_UNSPECIFIED = 0;
 
   // Tar of a Pebble directory, compressed with zstd. The
-  // production default.
+  // production default in older v3 writers.
   PAYLOAD_ENCODING_TAR_ZSTD = 1;
 
   // Tar of a Pebble directory, uncompressed. For tenants whose
@@ -71,6 +71,23 @@ enum PayloadEncoding {
   // layer and want to avoid double-compression CPU at envelope
   // time, or for object-storage targets that compress in-transit.
   PAYLOAD_ENCODING_TAR = 2;
+
+  // 3 and 4 are skipped: pre-release dev builds briefly used them
+  // with conflicting meanings. Don't reuse.
+  reserved 3, 4;
+
+  // Per-file zstd frames, each preceded by a self-describing binary
+  // header (name, raw size, compressed size, xxh64 of raw bytes),
+  // terminated by a zero-length-name sentinel. No tar layer.
+  //
+  // Enables (a) parallel frame decode at open — the single-stream
+  // encodings decode sequentially on one core — and (b) frame
+  // splicing at save: a writer that knows a payload file is
+  // byte-identical to one in the source envelope copies its
+  // compressed frame verbatim instead of re-encoding (Pebble SSTs
+  // are immutable and checkpoints hard-link them, so incremental
+  // folds reuse almost every frame).
+  PAYLOAD_ENCODING_INDEXED_ZSTD = 5;
 }
 
 message RecordTypeInfo {

@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
+	"github.com/klauspost/compress/zstd"
 )
 
 func c1zFormat(path string) (C1ZFormat, error) {
@@ -67,8 +69,8 @@ func TestRegisteredPebbleNewStoreRoundtrip(t *testing.T) {
 	if env.Manifest.GetEngineSchemaVersion() != uint32(pebble.SDKPebbleFormat) {
 		t.Fatalf("manifest schema = %d, want %d", env.Manifest.GetEngineSchemaVersion(), pebble.SDKPebbleFormat)
 	}
-	if env.Manifest.GetPayloadEncoding() != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD {
-		t.Fatalf("payload encoding = %v, want tar_zstd", env.Manifest.GetPayloadEncoding())
+	if env.Manifest.GetPayloadEncoding() != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD {
+		t.Fatalf("payload encoding = %v, want indexed_zstd (engine default)", env.Manifest.GetPayloadEncoding())
 	}
 	if env.Manifest.GetDescriptors() == nil || len(env.Manifest.GetDescriptors().GetFile()) == 0 {
 		t.Fatal("manifest descriptor closure is empty")
@@ -172,9 +174,10 @@ func TestPebbleStoreWithPayloadEncodingTar(t *testing.T) {
 	}
 }
 
-// TestPebbleStoreDefaultsToTarZstd confirms that omitting
-// WithPayloadEncoding gives TAR_ZSTD (current production default).
-func TestPebbleStoreDefaultsToTarZstd(t *testing.T) {
+// TestPebbleRegisteredStoreDefaultsToIndexedZstd confirms that
+// omitting dotc1z.WithPayloadEncoding gives INDEXED_ZSTD (the engine
+// default: parallel decode at open, frame splicing at save).
+func TestPebbleRegisteredStoreDefaultsToIndexedZstd(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 	out := filepath.Join(tmp, "default.c1z")
@@ -205,7 +208,67 @@ func TestPebbleStoreDefaultsToTarZstd(t *testing.T) {
 		t.Fatalf("ReadEnvelope: %v", err)
 	}
 	defer env.Close()
-	if env.Manifest.GetPayloadEncoding() != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD {
-		t.Fatalf("manifest payload_encoding: got %v, want TAR_ZSTD", env.Manifest.GetPayloadEncoding())
+	if env.Manifest.GetPayloadEncoding() != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD {
+		t.Fatalf("manifest payload_encoding: got %v, want INDEXED_ZSTD", env.Manifest.GetPayloadEncoding())
+	}
+}
+
+func TestPebbleStoreOpenHonorsDecoderMaxDecodedSize(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	out := filepath.Join(tmp, "indexed-limit.c1z")
+	store, err := NewStore(ctx, out, WithEngine(EnginePebble))
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if _, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+	if err := store.PutGrants(ctx, &v2.Grant{Id: "g1"}); err != nil {
+		t.Fatalf("PutGrants: %v", err)
+	}
+	if err := store.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
+	if err := store.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	_, err = NewStore(ctx, out,
+		WithReadOnly(true),
+		WithDecoderOptions(WithDecoderMaxDecodedSize(1)),
+	)
+	if !errors.Is(err, formatv3.ErrMaxSizeExceeded) {
+		t.Fatalf("NewStore with tiny max decoded size error = %v, want ErrMaxSizeExceeded", err)
+	}
+}
+
+func TestPebbleStoreOpenHonorsDecoderMaxMemory(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	out := filepath.Join(tmp, "indexed-memory.c1z")
+	store, err := NewStore(ctx, out, WithEngine(EnginePebble))
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if _, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+	if err := store.PutAsset(ctx, v2.AssetRef_builder{Id: "asset-1"}.Build(), "application/octet-stream", bytes.Repeat([]byte("0123456789abcdef"), 256<<10)); err != nil {
+		t.Fatalf("PutAsset: %v", err)
+	}
+	if err := store.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
+	if err := store.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	_, err = NewStore(ctx, out,
+		WithReadOnly(true),
+		WithDecoderOptions(WithDecoderMaxMemory(1)),
+	)
+	if !errors.Is(err, zstd.ErrWindowSizeExceeded) {
+		t.Fatalf("NewStore with tiny decoder memory error = %v, want zstd.ErrWindowSizeExceeded", err)
 	}
 }

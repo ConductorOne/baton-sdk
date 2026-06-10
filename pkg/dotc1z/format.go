@@ -71,7 +71,7 @@ type PayloadEncoding = c1zstore.PayloadEncoding
 
 const (
 	// PayloadEncodingUnspecified is the zero value. Means "use the
-	// engine's default" — TarZstd for Pebble.
+	// engine's default" — IndexedZstd for Pebble.
 	PayloadEncodingUnspecified = c1zstore.PayloadEncodingUnspecified
 
 	// PayloadEncodingTarZstd is the default Pebble v3 envelope
@@ -83,6 +83,14 @@ const (
 	// (avoids double-compression CPU), or when the storage target
 	// compresses in transit.
 	PayloadEncodingTar = c1zstore.PayloadEncodingTar
+
+	// PayloadEncodingIndexedZstd stores each payload file as an
+	// independent zstd frame with a self-describing header. Opens
+	// decode frames in parallel, and rewrites of a store opened from
+	// an indexed file splice unchanged frames verbatim instead of
+	// re-compressing them (incremental fold compaction relies on
+	// this). Readers older than this encoding reject the file.
+	PayloadEncodingIndexedZstd = c1zstore.PayloadEncodingIndexedZstd
 )
 
 // ReadHeaderFormat reads the first 5 bytes of reader and returns the

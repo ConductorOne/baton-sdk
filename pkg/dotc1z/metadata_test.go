@@ -40,8 +40,8 @@ func TestStoreMetadata(t *testing.T) {
 		md := storeMetadata(t, store)
 		require.Equal(t, "pebble", md.Engine)
 		require.Equal(t, "v3", md.Format)
-		require.Equal(t, "tar_zstd", md.PayloadEncoding,
-			"default Pebble payload encoding is tar+zstd")
+		require.Equal(t, "indexed_zstd", md.PayloadEncoding,
+			"default Pebble payload encoding is per-file indexed zstd")
 	})
 
 	t.Run("Pebble with explicit Tar encoding reports tar", func(t *testing.T) {

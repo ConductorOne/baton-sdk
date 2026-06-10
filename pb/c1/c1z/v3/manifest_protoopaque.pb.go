@@ -42,13 +42,25 @@ type PayloadEncoding int32
 const (
 	PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED PayloadEncoding = 0
 	// Tar of a Pebble directory, compressed with zstd. The
-	// production default.
+	// production default in older v3 writers.
 	PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD PayloadEncoding = 1
 	// Tar of a Pebble directory, uncompressed. For tenants whose
 	// Pebble L5/L6 SSTs are already zstd-compressed at the engine
 	// layer and want to avoid double-compression CPU at envelope
 	// time, or for object-storage targets that compress in-transit.
 	PayloadEncoding_PAYLOAD_ENCODING_TAR PayloadEncoding = 2
+	// Per-file zstd frames, each preceded by a self-describing binary
+	// header (name, raw size, compressed size, xxh64 of raw bytes),
+	// terminated by a zero-length-name sentinel. No tar layer.
+	//
+	// Enables (a) parallel frame decode at open — the single-stream
+	// encodings decode sequentially on one core — and (b) frame
+	// splicing at save: a writer that knows a payload file is
+	// byte-identical to one in the source envelope copies its
+	// compressed frame verbatim instead of re-encoding (Pebble SSTs
+	// are immutable and checkpoints hard-link them, so incremental
+	// folds reuse almost every frame).
+	PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD PayloadEncoding = 5
 )
 
 // Enum value maps for PayloadEncoding.
@@ -57,11 +69,13 @@ var (
 		0: "PAYLOAD_ENCODING_UNSPECIFIED",
 		1: "PAYLOAD_ENCODING_TAR_ZSTD",
 		2: "PAYLOAD_ENCODING_TAR",
+		5: "PAYLOAD_ENCODING_INDEXED_ZSTD",
 	}
 	PayloadEncoding_value = map[string]int32{
-		"PAYLOAD_ENCODING_UNSPECIFIED": 0,
-		"PAYLOAD_ENCODING_TAR_ZSTD":    1,
-		"PAYLOAD_ENCODING_TAR":         2,
+		"PAYLOAD_ENCODING_UNSPECIFIED":  0,
+		"PAYLOAD_ENCODING_TAR_ZSTD":     1,
+		"PAYLOAD_ENCODING_TAR":          2,
+		"PAYLOAD_ENCODING_INDEXED_ZSTD": 5,
 	}
 )
 
@@ -636,11 +650,12 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\x05stats\x18\x06 \x01(\v2\x1e.c1.storage.v3.SyncStatsRecordR\x05stats\"p\n" +
 	"\x12PebbleEngineConfig\x120\n" +
 	"\x14format_major_version\x18\x01 \x01(\rR\x12formatMajorVersion\x12(\n" +
-	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*l\n" +
+	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*\x9b\x01\n" +
 	"\x0fPayloadEncoding\x12 \n" +
 	"\x1cPAYLOAD_ENCODING_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19PAYLOAD_ENCODING_TAR_ZSTD\x10\x01\x12\x18\n" +
-	"\x14PAYLOAD_ENCODING_TAR\x10\x02B0Z.github.com/conductorone/baton-sdk/pb/c1/c1z/v3b\x06proto3"
+	"\x14PAYLOAD_ENCODING_TAR\x10\x02\x12!\n" +
+	"\x1dPAYLOAD_ENCODING_INDEXED_ZSTD\x10\x05\"\x04\b\x03\x10\x03\"\x04\b\x04\x10\x04B0Z.github.com/conductorone/baton-sdk/pb/c1/c1z/v3b\x06proto3"
 
 var file_c1_c1z_v3_manifest_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_c1_c1z_v3_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 4)

@@ -1,26 +1,3 @@
-// Package pebble implements the cross-engine compaction primitive for
-// the v3 Pebble-backed storage engine.
-//
-// The compactor takes a `base` engine and one or more `applied`
-// engines (each representing a sync_run worth of records) and atomically
-// merges `applied`'s data into `base` using pebble.DB.IngestAndExcise:
-//
-//  1. For each applied engine, iterate its records in the source
-//     engine's key order and accumulate them into an SST file on disk.
-//  2. Call base.DB.IngestAndExcise(paths, exciseSpan) with the new
-//     SST and the key range covering the applied sync_id. Pebble
-//     atomically:
-//     (a) excises every key in [exciseSpan.Start, exciseSpan.End)
-//     from base — old sync_id rows go away in one shot.
-//     (b) ingests the SST as a new L6 file (or flushable, depending
-//     on Pebble's choice) under that range.
-//
-// The net effect is a byte-level merge: zero proto encode/decode per
-// record, zero LSM compaction churn from a record-by-record Put loop.
-//
-// Bound: each Compact call replaces exactly one sync_id range in the
-// destination. Multi-sync rollup is a higher-level loop that Compact
-// in sequence.
 package pebble
 
 import (
@@ -42,8 +19,25 @@ import (
 var ErrEmptySync = errors.New("synccompactor/pebble: source has no records under the given sync_id")
 
 // Compactor merges sync_run data between two Pebble engines using
-// IngestAndExcise. Reusable across many Compact calls; safe for
-// sequential use only (not concurrent).
+// pebble.DB.IngestAndExcise:
+//
+//  1. For each bucket of the applied sync, iterate its records in the
+//     source engine's key order and accumulate them into an SST file
+//     on disk.
+//  2. Call base.DB.IngestAndExcise with the new SST and the key range
+//     covering the applied sync_id. Pebble atomically (a) excises
+//     every key in the span from base — old sync_id rows go away in
+//     one shot — and (b) ingests the SST as a new L6 file (or
+//     flushable, depending on Pebble's choice) under that range.
+//
+// The net effect is a byte-level merge: zero proto encode/decode per
+// record, zero LSM compaction churn from a record-by-record Put loop.
+// Each Compact call replaces exactly one sync_id range in the
+// destination; multi-sync rollup is a higher-level loop calling
+// Compact in sequence.
+//
+// Reusable across many Compact calls; safe for sequential use only
+// (not concurrent).
 type Compactor struct {
 	base   *enginepkg.Engine
 	tmpDir string

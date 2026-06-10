@@ -83,6 +83,26 @@ func (a *mergeStatsAccumulator) regroupGrant(oldRT, newRT []byte) {
 	incrGroup(a.grantsByEntRT, newRT)
 }
 
+// resetBucket zeroes one bucket's accumulated counts. Used by the
+// overlay merge's restart path: the bucket's dest keyspace is
+// range-deleted and re-materialized through the blind K-way path, so
+// every overlay-era count for it is stale. The per-RT group maps are
+// per-record-type (resourcesByRT only ever holds resources-bucket
+// counts, grantsByEntRT only grants), so clearing the matching map
+// cannot disturb another bucket's grouping.
+func (a *mergeStatsAccumulator) resetBucket(bucketID int) {
+	if a == nil {
+		return
+	}
+	a.totals[bucketID] = 0
+	switch bucketID {
+	case runBucketResources:
+		clear(a.resourcesByRT)
+	case runBucketGrants:
+		clear(a.grantsByEntRT)
+	}
+}
+
 // countWinner is the K-way variant: total plus grouping derived from
 // the winner's key (resources) or value (grants).
 func (a *mergeStatsAccumulator) countWinner(bucket bucketSpec, destKey []byte, destLower []byte, value []byte) error {

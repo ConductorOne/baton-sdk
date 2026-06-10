@@ -12,6 +12,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 
+	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
@@ -40,7 +41,8 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	}
 
 	dbDir := filepath.Join(tmpDir, "db")
-	if err := unpackExistingPebbleC1Z(outputFilePath, dbDir, opts.DecoderPool); err != nil {
+	reuse, fileEncoding, err := unpackExistingPebbleC1Z(outputFilePath, dbDir, opts.MaxDecodedPayloadBytes, opts.MaxDecoderMemoryBytes, opts.DecoderPool)
+	if err != nil {
 		return nil, cleanupOnError(err)
 	}
 
@@ -48,50 +50,80 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	if err != nil {
 		return nil, cleanupOnError(err)
 	}
+	encoding := opts.PayloadEncoding
+	if encoding == PayloadEncodingUnspecified {
+		encoding = fileEncoding
+	}
 	return &pebbleStore{
 		Adapter:         pebble.NewAdapter(e),
 		engine:          e,
 		outputFilePath:  outputFilePath,
 		tmpDir:          tmpDir,
 		readOnly:        opts.ReadOnly,
-		payloadEncoding: opts.PayloadEncoding,
+		payloadEncoding: encoding,
+		payloadReuse:    reuse,
 		syncLimit:       opts.SyncLimit,
 		skipCleanup:     opts.SkipCleanup,
 	}, nil
 }
 
-func unpackExistingPebbleC1Z(outputFilePath string, dbDir string, pool *EnvelopeDecoderPool) error {
+func unpackExistingPebbleC1Z(
+	outputFilePath string,
+	dbDir string,
+	maxDecodedPayloadBytes uint64,
+	maxDecoderMemoryBytes uint64,
+	pool *EnvelopeDecoderPool,
+) (*formatv3.PayloadReuse, PayloadEncoding, error) {
 	stat, err := os.Stat(outputFilePath)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return nil
+		return nil, PayloadEncodingUnspecified, nil
 	case err != nil:
-		return err
+		return nil, PayloadEncodingUnspecified, err
 	case stat.Size() == 0:
-		return nil
+		return nil, PayloadEncodingUnspecified, nil
 	}
 
 	f, err := os.Open(outputFilePath)
 	if err != nil {
-		return err
+		return nil, PayloadEncodingUnspecified, err
 	}
 	defer f.Close()
 
-	env, err := formatv3.ReadEnvelopeHeaderWithPool(f, pool)
+	header, err := formatv3.ReadManifestHeader(f)
 	if err != nil {
-		return err
+		return nil, PayloadEncodingUnspecified, err
 	}
-	defer env.Close()
-	if Engine(env.Manifest.GetEngine()) != EnginePebble {
-		return fmt.Errorf("%w: %s", pebble.ErrUnknownEngine, env.Manifest.GetEngine())
+	if Engine(header.GetEngine()) != EnginePebble {
+		return nil, PayloadEncodingUnspecified, fmt.Errorf("%w: %s", pebble.ErrUnknownEngine, header.GetEngine())
 	}
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
-		return err
+		return nil, PayloadEncodingUnspecified, err
 	}
-	if err := formatv3.ExtractZstdTar(env.PayloadReader, dbDir); err != nil {
-		return err
+	manifest, reuse, err := formatv3.ExtractEnvelopePayload(f, dbDir,
+		formatv3.WithMaxDecodedPayloadBytes(maxDecodedPayloadBytes),
+		formatv3.WithMaxDecoderMemoryBytes(maxDecoderMemoryBytes),
+		formatv3.WithPayloadDecoderPool(pool),
+	)
+	if err != nil {
+		return nil, PayloadEncodingUnspecified, err
 	}
-	return nil
+	return reuse, payloadEncodingFromProto(manifest.GetPayloadEncoding()), nil
+}
+
+func payloadEncodingFromProto(enc c1zv3.PayloadEncoding) PayloadEncoding {
+	switch enc {
+	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
+		return PayloadEncodingTar
+	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD:
+		return PayloadEncodingIndexedZstd
+	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD:
+		return PayloadEncodingTarZstd
+	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED:
+		return PayloadEncodingUnspecified
+	default:
+		return PayloadEncodingUnspecified
+	}
 }
 
 type pebbleStore struct {
@@ -101,6 +133,7 @@ type pebbleStore struct {
 	tmpDir          string
 	readOnly        bool
 	payloadEncoding PayloadEncoding
+	payloadReuse    *formatv3.PayloadReuse
 
 	// syncLimit and skipCleanup mirror StoreOptions and feed into
 	// Cleanup. The Adapter intentionally has no awareness of these
@@ -161,14 +194,14 @@ func (f pebbleStoreFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, ap
 // (not the inner Adapter) because it's a writer-side option threaded
 // through the envelope, not a property of the Pebble engine itself.
 //
-// Unspecified is resolved to the engine's effective default (TarZstd
+// Unspecified is resolved to the engine's effective default (IndexedZstd
 // — see pebble.BuildManifest). Callers see the value the writer
 // will actually use, not the literal option supplied.
 func (s *pebbleStore) Metadata() connectorstore.StoreMetadata {
 	md := s.Adapter.Metadata()
 	enc := s.payloadEncoding
 	if enc == PayloadEncodingUnspecified {
-		enc = PayloadEncodingTarZstd
+		enc = PayloadEncodingIndexedZstd
 	}
 	md.PayloadEncoding = enc.String()
 	return md
@@ -233,11 +266,20 @@ func (s *pebbleStore) NormalizeForFixtureSave(ctx context.Context, syncID string
 	return nil
 }
 
+func (s *pebbleStore) MarkDirty() {
+	if s == nil {
+		return
+	}
+	s.closeMu.Lock()
+	if !s.closed {
+		s.dirty = true
+	}
+	s.closeMu.Unlock()
+}
+
 func (s *pebbleStore) markDirty(err error) error {
 	if err == nil {
-		s.closeMu.Lock()
-		s.dirty = true
-		s.closeMu.Unlock()
+		s.MarkDirty()
 	}
 	return err
 }
@@ -535,7 +577,7 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := formatv3.WriteEnvelope(out, manifest, checkpointDir); err != nil {
+	if _, err := formatv3.WriteEnvelopeWithReuse(out, manifest, checkpointDir, s.payloadReuse); err != nil {
 		return err
 	}
 	if err := out.Sync(); err != nil {

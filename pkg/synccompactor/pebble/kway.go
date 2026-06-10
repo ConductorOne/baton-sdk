@@ -16,6 +16,8 @@ import (
 	"time"
 
 	cpebble "github.com/cockroachdb/pebble/v2"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -57,6 +59,29 @@ type SourceFile struct {
 // resources, entitlements, and grants plus all derived indexes. Assets are not
 // copied, matching SQLite compaction behavior.
 //
+// Algorithm (external merge sort with fan-in cfg.fanIn, default 50):
+//
+//   - ≤ fanIn sources merge DIRECTLY into the dest Pebble — one pass,
+//     no run files (mergeSourceChunkToPebble).
+//   - Otherwise sources are processed in fanIn-sized chunks, each
+//     chunk's buckets streamed into one sorted run file
+//     (buildChunkRunFileFromSources); run files are then merged fanIn
+//     at a time per round (mergeRunFileGroup) until ≤ fanIn remain,
+//     and the final generation is materialized into SSTs and ingested
+//     (materializeRunFilesToPebble). Each extra round re-reads and
+//     re-writes the full dataset, so fan-in should comfortably exceed
+//     the expected source count.
+//   - Winner rule: newest discovered_at per primary key, ties keep the
+//     newer source (runRecordIsNewer) — same rule as the overlay and
+//     sqlite compactors. Sources are unpacked per chunk and their
+//     directories removed asynchronously when the chunk closes, so
+//     peak disk is O(fanIn) unpacked sources, not O(len(sources)).
+//
+// Memory stays bounded regardless of input count or size — there is no
+// in-memory dedup state — at the cost of writing and re-reading every
+// record through run files. The overlay merge routes its oversized
+// buckets here; see the package doc for how the strategies divide up.
+//
 // On success it returns the dest sync's stats record, accumulated at the
 // final winner-dedupe sites (never at run-file build time — run files keep
 // duplicate keys across chunks until the last merge round), so the caller
@@ -83,13 +108,26 @@ func mergeBucketsInto(ctx context.Context, dest *enginepkg.Engine, sources []Sou
 	if err != nil {
 		return nil, err
 	}
+	l := ctxzap.Extract(ctx)
+	mergeStart := time.Now()
+	direct := len(sources) <= cfg.fanIn
+	l.Info("pebble kway merge: start",
+		zap.Int("sources", len(sources)),
+		zap.Int("fan_in", cfg.fanIn),
+		zap.Bool("direct", direct),
+		zap.Strings("buckets", bucketNames(buckets)),
+	)
 	stats := newMergeStatsAccumulator()
 	rm := &asyncRemover{}
 	defer rm.wait()
-	if len(sources) <= cfg.fanIn {
+	if direct {
 		if err := mergeSourceChunkToPebble(ctx, dest, tmpDir, sources, 0, destSyncID, destSyncBytes, buckets, stats, rm); err != nil {
 			return nil, err
 		}
+		l.Info("pebble kway merge: done",
+			zap.Duration("elapsed", time.Since(mergeStart)),
+			zap.Int("merge_rounds", 0),
+		)
 		return stats.record(), nil
 	}
 	roundFiles := make([]runFile, 0, (len(sources)+cfg.fanIn-1)/cfg.fanIn)
@@ -129,6 +167,14 @@ func mergeBucketsInto(ctx context.Context, dest *enginepkg.Engine, sources []Sou
 	if err := materializeRunFilesToPebble(ctx, dest, tmpDir, roundFiles, destSyncBytes, buckets, stats); err != nil {
 		return nil, err
 	}
+	// merge_rounds counts intermediate run-file generations beyond the
+	// initial chunk round — nonzero values mean fan_in is small relative
+	// to the source count and each extra round re-reads + re-writes the
+	// full dataset through run files.
+	l.Info("pebble kway merge: done",
+		zap.Duration("elapsed", time.Since(mergeStart)),
+		zap.Int("merge_rounds", round-1),
+	)
 	return stats.record(), nil
 }
 
@@ -165,6 +211,10 @@ type sourceHandle struct {
 	syncID string
 	engine *enginepkg.Engine
 	close  func() error
+	// stats carries the SourceFile's cached per-bucket counts (from the
+	// envelope manifest / stats sidecar) when available. Consulted by
+	// the overlay's whole-source size gate.
+	stats *reader_v2.SyncStats
 }
 
 // sourceChunk owns one fan-in window of open sources. Path-based
@@ -231,6 +281,7 @@ func openSourceChunk(ctx context.Context, tmpDir string, sources []SourceFile, b
 				rank:   baseRank + i,
 				syncID: source.SyncID,
 				engine: source.Engine,
+				stats:  source.Stats,
 			})
 			continue
 		}
@@ -245,6 +296,7 @@ func openSourceChunk(ctx context.Context, tmpDir string, sources []SourceFile, b
 				syncID: source.SyncID,
 				engine: eng,
 				close:  eng.Close,
+				stats:  source.Stats,
 			})
 			continue
 		}
@@ -272,6 +324,7 @@ func openSourceChunk(ctx context.Context, tmpDir string, sources []SourceFile, b
 			// CloseEngineOnly: the unpacked directory lives under
 			// chunk.dir and is removed wholesale by sourceChunk.close().
 			close: func() error { return enginepkg.CloseEngineOnly(store) },
+			stats: source.Stats,
 		})
 	}
 	return chunk, nil

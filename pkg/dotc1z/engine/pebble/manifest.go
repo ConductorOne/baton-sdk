@@ -84,18 +84,17 @@ func syncRunSummaries(ctx context.Context, e *Engine) ([]*c1zv3.SyncRunSummary, 
 
 // payloadEncodingToProto maps the public c1zstore.PayloadEncoding to
 // the c1zv3 enum. PayloadEncodingUnspecified means "engine default"
-// for our purposes: TAR_ZSTD.
+// for our purposes: INDEXED_ZSTD.
 func payloadEncodingToProto(enc c1zstore.PayloadEncoding) c1zv3.PayloadEncoding {
 	switch enc {
 	case c1zstore.PayloadEncodingTar:
 		return c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR
-	case c1zstore.PayloadEncodingTarZstd, c1zstore.PayloadEncodingUnspecified:
+	case c1zstore.PayloadEncodingTarZstd:
 		return c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD
+	case c1zstore.PayloadEncodingIndexedZstd, c1zstore.PayloadEncodingUnspecified:
+		return c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD
 	default:
 		// Any non-enumerated value falls back to the default.
-		// WriteEnvelope will reject any non-TAR/non-TAR_ZSTD value
-		// before writing bytes, so a caller setting a bogus
-		// encoding gets an error at save time.
-		return c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD
+		return c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD
 	}
 }
