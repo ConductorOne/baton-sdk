@@ -192,7 +192,11 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		if f != nil {
+			_ = f.Close()
+		}
+	}()
 
 	format, err := ReadHeaderFormat(f)
 	if err != nil {
@@ -205,9 +209,12 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 		if shouldConvertSQLiteToPebble(requested, options.readOnly, true) {
 			// Close our header-read handle before converting: the conversion
 			// renames a temp file over outputFilePath, which fails on Windows
-			// if any handle to the destination is still open.
-			if err := f.Close(); err != nil {
-				return nil, err
+			// if any handle to the destination is still open. Nil out f so
+			// the deferred close doesn't double-close.
+			closeErr := f.Close()
+			f = nil
+			if closeErr != nil {
+				return nil, closeErr
 			}
 			l.Debug("converting existing v1 c1z to pebble", zap.String("output_file_path", outputFilePath))
 			if err := convertExistingV1C1ZFile(ctx, outputFilePath, pebbleOpenOptionsFromC1Z(options)); err != nil {
