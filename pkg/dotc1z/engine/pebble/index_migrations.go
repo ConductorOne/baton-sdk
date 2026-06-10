@@ -8,6 +8,7 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
@@ -63,7 +64,72 @@ type indexMigration struct {
 // the corresponding index for any existing c1z that doesn't have
 // it yet.
 var indexMigrations = []indexMigration{
-	// none yet, because we have no existing data.
+	{
+		// Backfill the by_entitlement_principal_hash index and the
+		// per-entitlement merkle trees for files written before either
+		// existed. Idempotent: re-emitting an index entry is a Set over
+		// the same key/value, and the trees are rebuilt wholesale.
+		// New files persist this version at their initial (empty) Open,
+		// so the inline write path maintains both and the backfill never
+		// re-runs for them.
+		Name:    "grant_by_entitlement_principal_hash",
+		Version: 1,
+		Apply: func(ctx context.Context, e *Engine) error {
+			return e.backfillGrantHashIndexAndMerkle(ctx)
+		},
+	},
+}
+
+// backfillGrantHashIndexAndMerkle reconstructs the
+// by_entitlement_principal_hash index for every grant in every sync,
+// then rebuilds the per-entitlement merkle trees. The index must be
+// committed before the trees are built because BuildAllMerkleTrees folds
+// over the committed index.
+func (e *Engine) backfillGrantHashIndexAndMerkle(ctx context.Context) error {
+	var syncIDs []string
+	if err := e.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
+		syncIDs = append(syncIDs, r.GetSyncId())
+		return true
+	}); err != nil {
+		return fmt.Errorf("backfill hash index: list syncs: %w", err)
+	}
+
+	for _, syncID := range syncIDs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		idBytes, err := codec.EncodeSyncID(syncID)
+		if err != nil {
+			return err
+		}
+		// Re-emit the hash index entry for each grant in this sync.
+		batch := e.db.NewBatch()
+		err = e.IterateGrantsBySync(ctx, syncID, func(r *v3.GrantRecord) bool {
+			hk := grantHashIndexKey(idBytes, r)
+			if hk == nil {
+				return true
+			}
+			if setErr := batch.Set(hk, grantContentHash(r), nil); setErr != nil {
+				err = setErr
+				return false
+			}
+			return true
+		})
+		if err != nil {
+			batch.Close()
+			return fmt.Errorf("backfill hash index: sync %q: %w", syncID, err)
+		}
+		if err := batch.Commit(pebble.Sync); err != nil {
+			batch.Close()
+			return fmt.Errorf("backfill hash index: commit %q: %w", syncID, err)
+		}
+		batch.Close()
+
+		if err := e.BuildAllMerkleTrees(ctx, syncID); err != nil {
+			return fmt.Errorf("backfill merkle trees: sync %q: %w", syncID, err)
+		}
+	}
+	return nil
 }
 
 // applyIndexMigrations runs on engine Open (writable opens only —

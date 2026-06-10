@@ -228,6 +228,18 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 			zap.Error(err),
 		)
 	}
+	// Build the per-entitlement grant merkle trees at seal time, after
+	// all grants are written and while still on the fresh-sync NoSync
+	// path (the EndFreshSync flush below hardens the nodes). Non-fatal,
+	// like the stats sidecar: a missing/stale tree only forces a diff
+	// consumer onto the on-demand ComputeBucketHash fold, and the
+	// on-Open migration backfills it next time the file opens writable.
+	if err := a.engine.BuildAllMerkleTrees(ctx, existing.GetSyncId()); err != nil {
+		ctxzap.Extract(ctx).Warn("pebble: build grant merkle trees failed; grant-diff callers will fall back to on-demand index folds until the next Open backfills them",
+			zap.String("sync_id", existing.GetSyncId()),
+			zap.Error(err),
+		)
+	}
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After
 	// this returns, all writes from the sync are on disk.

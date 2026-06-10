@@ -35,6 +35,8 @@ func syncScopedRanges(syncIDBytes []byte) [][2][]byte {
 		{GrantByPrincipalSyncLowerBound(syncIDBytes), GrantByPrincipalSyncUpperBound(syncIDBytes)},
 		{GrantByPrincipalResourceTypeSyncLowerBound(syncIDBytes), GrantByPrincipalResourceTypeSyncUpperBound(syncIDBytes)},
 		{GrantByNeedsExpansionSyncLowerBound(syncIDBytes), GrantByNeedsExpansionSyncUpperBound(syncIDBytes)},
+		{GrantByEntPrincHashSyncLowerBound(syncIDBytes), GrantByEntPrincHashSyncUpperBound(syncIDBytes)},
+		{MerkleSyncLowerBound(syncIDBytes), MerkleSyncUpperBound(syncIDBytes)},
 		{encodeAssetPrefix(syncIDBytes), upperBoundOf(encodeAssetPrefix(syncIDBytes))},
 		// Stats sidecar — single key per sync; the half-open range
 		// shape contains exactly the one key for this sync.

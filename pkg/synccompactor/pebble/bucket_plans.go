@@ -77,6 +77,20 @@ func buildBucketPlans(syncIDBytes []byte) []bucketPlan {
 			upper: enginepkg.GrantByNeedsExpansionSyncUpperBound(syncIDBytes),
 		},
 		{
+			name:  "grant_by_entitlement_principal_hash",
+			lower: enginepkg.GrantByEntPrincHashSyncLowerBound(syncIDBytes),
+			upper: enginepkg.GrantByEntPrincHashSyncUpperBound(syncIDBytes),
+		},
+		{
+			// Per-entitlement grant merkle nodes. Copied byte-for-byte
+			// with the sync_id they belong to; because Compact preserves
+			// the sync_id and the grants move verbatim, the trees stay
+			// valid in the destination without a rebuild.
+			name:  "grant_merkle",
+			lower: enginepkg.MerkleSyncLowerBound(syncIDBytes),
+			upper: enginepkg.MerkleSyncUpperBound(syncIDBytes),
+		},
+		{
 			name:  "asset",
 			lower: enginepkg.AssetSyncLowerBound(syncIDBytes),
 			upper: enginepkg.AssetSyncUpperBound(syncIDBytes),

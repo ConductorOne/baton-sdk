@@ -61,6 +61,7 @@ const (
 	typeIndex        byte = 0x07
 	typeCounter      byte = 0x08
 	typeSession      byte = 0x09
+	typeMerkle       byte = 0x0A
 	typeEngineMeta   byte = 0xFF
 )
 
@@ -76,6 +77,12 @@ const (
 	idxGrantByNeedsExpansion        byte = 0x05
 	idxGrantByPrincipalResourceType byte = 0x06
 	idxGrantByEntitlementResource   byte = 0x07
+	// idxGrantByEntitlementPrincipalHash sorts grants by
+	// (entitlement_id, hash(principal)). Unlike every other grant
+	// index its entries carry a VALUE (the grant content hash). It is
+	// the substrate the per-entitlement merkle tree (typeMerkle) folds
+	// over; see merkle.go.
+	idxGrantByEntitlementPrincipalHash byte = 0x08
 )
 
 // --- Grant ---
@@ -273,6 +280,135 @@ func encodeGrantByEntitlementResourcePrefix(syncIDBytes []byte, entRT, entRID st
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleStrings(buf, entRT, entRID)
 	return codec.AppendTupleSeparator(buf)
+}
+
+// --- Grant by (entitlement, principal-hash) + Merkle ---
+
+// encodeGrantByEntPrincHashIndexKey is the by_entitlement_principal_hash
+// secondary index on GrantRecord. Unlike every other grant index it
+// interposes a RAW, fixed-width principal-bucket hash between the
+// entitlement_id and the principal tuple, so the keyspace sorts by
+// (entitlement_id, hash(principal)). That hash-major order is what the
+// per-entitlement merkle tree folds over, and a hash PREFIX is a clean
+// byte-prefix of the key — which is the property the merkle bucket range
+// scans rely on.
+//
+//	v3 | typeIndex | idxGrantByEntitlementPrincipalHash | sync_id | 0x00 |
+//	    entitlement_id | 0x00 | <raw bucketHash: merkleBucketHashLen bytes> |
+//	    principal_rt | 0x00 | principal_id | 0x00 | external_id
+//	  -> value: grant content hash (sha256, 32 bytes)
+//
+// Because the bucket hash is raw it can contain 0x00, so the generic
+// tuple walkers (lastTupleComponent / decodeTwoTupleComponents) must NOT
+// be pointed at a prefix that stops before the hash — their walk would
+// derail on those bytes. Use decodeEntPrincHashTail, which accounts for
+// the hash's fixed width positionally.
+//
+// Paired with encodeGrantByEntPrincHashEntPrefix (by-value prefix, with
+// trailing sep) and encodeGrantByEntPrincHashBucketPrefix.
+func encodeGrantByEntPrincHashIndexKey(syncIDBytes []byte, entitlementID string, bucketHash []byte, principalRT, principalID, externalID string) []byte {
+	buf := make([]byte, 0, 8+len(syncIDBytes)+len(entitlementID)+len(bucketHash)+len(principalRT)+len(principalID)+len(externalID))
+	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlementPrincipalHash)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, entitlementID)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = append(buf, bucketHash...)
+	return codec.AppendTupleStrings(buf, principalRT, principalID, externalID)
+}
+
+// encodeGrantByEntPrincHashEntPrefix is the by-value prefix for "all
+// grants in this sync under this entitlement", in hash order. The
+// trailing separator is load-bearing (see the keys.go convention doc);
+// the raw bucket hash follows it. Its output length is also the offset
+// the decoder uses to locate the raw hash region.
+func encodeGrantByEntPrincHashEntPrefix(syncIDBytes []byte, entitlementID string) []byte {
+	buf := make([]byte, 0, 8+len(syncIDBytes)+len(entitlementID))
+	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlementPrincipalHash)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, entitlementID)
+	return codec.AppendTupleSeparator(buf)
+}
+
+// encodeGrantByEntPrincHashBucketPrefix narrows the entitlement prefix to
+// a single principal-hash bucket identified by a raw hash prefix. An
+// empty hashPrefix yields the whole-entitlement prefix (the depth-0
+// bucket). Used as the LowerBound for a bucket range scan.
+func encodeGrantByEntPrincHashBucketPrefix(syncIDBytes []byte, entitlementID string, hashPrefix []byte) []byte {
+	return append(encodeGrantByEntPrincHashEntPrefix(syncIDBytes, entitlementID), hashPrefix...)
+}
+
+// decodeEntPrincHashTail decodes one index key relative to entPrefix
+// (which must be encodeGrantByEntPrincHashEntPrefix output — i.e. it
+// ends right before the raw bucket hash). Returns the raw bucket hash
+// (a sub-slice of key, valid only as long as key is), the principal
+// rt/id and the external_id. ok is false if the key is shorter than
+// prefix+hash or the tuple tail is malformed.
+func decodeEntPrincHashTail(key, entPrefix []byte) ([]byte, string, string, string, bool) {
+	if len(key) < len(entPrefix)+merkleBucketHashLen {
+		return nil, "", "", "", false
+	}
+	bucketHash := key[len(entPrefix) : len(entPrefix)+merkleBucketHashLen]
+	tail := key[len(entPrefix)+merkleBucketHashLen:]
+	rt, next, err := codec.DecodeTupleStringTo(nil, tail, 0)
+	if err != nil || next >= len(tail) {
+		return nil, "", "", "", false
+	}
+	id, next2, err := codec.DecodeTupleStringTo(nil, tail, next+1)
+	if err != nil || next2 >= len(tail) {
+		return nil, "", "", "", false
+	}
+	ext, _, err := codec.DecodeTupleStringTo(nil, tail, next2+1)
+	if err != nil {
+		return nil, "", "", "", false
+	}
+	return bucketHash, string(rt), string(id), string(ext), true
+}
+
+// GrantByEntPrincHashSyncLowerBound / UpperBound bound the entire
+// by_entitlement_principal_hash index for a sync. Exported for the
+// cleanup/clone/compaction keyspace plans.
+func GrantByEntPrincHashSyncLowerBound(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 3+len(syncIDBytes))
+	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlementPrincipalHash)
+	return append(buf, syncIDBytes...)
+}
+
+func GrantByEntPrincHashSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(GrantByEntPrincHashSyncLowerBound(syncIDBytes))
+}
+
+// Merkle node keys.
+//
+//	v3 | typeMerkle | sync_id | 0x00 | entitlement_id | 0x00 | level(1 byte) | bucket_prefix(level raw bytes)
+//
+// level 0 is the root (bucket_prefix empty); level == tree depth holds
+// the leaves, one per non-empty principal-hash bucket. bucket_prefix is
+// the first `level` bytes of the principal bucket hash, raw, so it aligns
+// byte-for-byte with the index key's bucket-hash region. See merkle.go
+// for the node value framing.
+func encodeMerkleNodeKey(syncIDBytes []byte, entitlementID string, level byte, bucketPrefix []byte) []byte {
+	buf := make([]byte, 0, 6+len(syncIDBytes)+len(entitlementID)+len(bucketPrefix))
+	buf = append(buf, versionV3, typeMerkle)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, entitlementID)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = append(buf, level)
+	return append(buf, bucketPrefix...)
+}
+
+// MerkleSyncLowerBound / UpperBound bound the entire merkle keyspace for
+// a sync. Exported for the cleanup/clone/compaction keyspace plans.
+func MerkleSyncLowerBound(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 2+len(syncIDBytes))
+	buf = append(buf, versionV3, typeMerkle)
+	return append(buf, syncIDBytes...)
+}
+
+func MerkleSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(MerkleSyncLowerBound(syncIDBytes))
 }
 
 // --- ResourceType ---

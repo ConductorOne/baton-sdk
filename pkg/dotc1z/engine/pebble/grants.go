@@ -220,6 +220,8 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 			priKey  []byte
 			priVal  []byte
 			idxKeys [][]byte
+			hashKey []byte
+			hashVal []byte
 		}
 		enc := make([]encoded, len(records))
 
@@ -269,6 +271,8 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 						priKey:  encodeGrantKey(idBytes, r.GetExternalId()),
 						priVal:  val,
 						idxKeys: grantIndexKeys(idBytes, r),
+						hashKey: grantHashIndexKey(idBytes, r),
+						hashVal: grantContentHash(r),
 					}
 				}
 			}(lo, hi)
@@ -291,6 +295,11 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 			}
 			for _, k := range enc[i].idxKeys {
 				if err := idxBatch.Set(k, nil, nil); err != nil {
+					return err
+				}
+			}
+			if enc[i].hashKey != nil {
+				if err := idxBatch.Set(enc[i].hashKey, enc[i].hashVal, nil); err != nil {
 					return err
 				}
 			}
@@ -397,10 +406,18 @@ func grantIndexKeys(syncIDBytes []byte, r *v3.GrantRecord) [][]byte {
 	return keys
 }
 
-// writeGrantIndexes adds index entries for r to batch.
+// writeGrantIndexes adds index entries for r to batch. The nil-valued
+// indexes go in via grantIndexKeys; the by_entitlement_principal_hash
+// index is the one grant index that carries a VALUE (the grant content
+// hash), so it is written separately.
 func (e *Engine) writeGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *v3.GrantRecord) error {
 	for _, k := range grantIndexKeys(syncIDBytes, r) {
 		if err := batch.Set(k, nil, nil); err != nil {
+			return err
+		}
+	}
+	if hk := grantHashIndexKey(syncIDBytes, r); hk != nil {
+		if err := batch.Set(hk, grantContentHash(r), nil); err != nil {
 			return err
 		}
 	}
@@ -463,6 +480,22 @@ func (e *Engine) deleteGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *
 	// same external_id.
 	if err := batch.Delete(encodeGrantByNeedsExpansionIndexKey(syncIDBytes, ext), nil); err != nil {
 		return err
+	}
+	// by_entitlement_principal_hash: the bucket hash is derived from the
+	// principal identity, so deleteGrantIndexes reconstructs the same key
+	// writeGrantIndexes wrote. Skipped when ent/principal are absent,
+	// matching grantHashIndexKey's nil-guard. NOTE: this invalidates the
+	// entitlement's merkle tree — callers that delete grants must rebuild
+	// it (BuildAllMerkleTrees) before relying on a stored root.
+	if ent != nil && princ != nil {
+		bh := principalBucketHash(princ.GetResourceTypeId(), princ.GetResourceId())
+		hk := encodeGrantByEntPrincHashIndexKey(
+			syncIDBytes, ent.GetEntitlementId(), bh,
+			princ.GetResourceTypeId(), princ.GetResourceId(), ext,
+		)
+		if err := batch.Delete(hk, nil); err != nil {
+			return err
+		}
 	}
 	return nil
 }
