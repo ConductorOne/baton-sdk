@@ -21,8 +21,9 @@ func ResumePhase(syncToken string) (phase, grantPage, srcSyncID string, ok bool)
 	if json.Unmarshal([]byte(syncToken), &ct) != nil {
 		return "", "", "", false
 	}
-	// An empty fingerprint means this is not one of our checkpoints; match the
-	// loadResumeStates tolerance, which skips such tokens rather than failing.
+	// An empty fingerprint marks a token that is not one of our checkpoints, so
+	// skip it — ResumePhase does not otherwise validate the fingerprint; matching
+	// it against the secret is loadResumeStates' concern.
 	if ct.Fingerprint == "" {
 		return "", "", "", false
 	}

@@ -99,6 +99,13 @@ func cloneTableQueryAll(tableName string, columns []string) string {
 	)
 }
 
+// errOutPathExists builds the single canonical error returned when a clone or
+// snapshot output path is already occupied. errPrefix namespaces it to the
+// caller ("clone-sync" / "snapshot-to") while keeping one message shape.
+func errOutPathExists(errPrefix, outPath string) error {
+	return fmt.Errorf("%s: output path (%s) must not exist", errPrefix, outPath)
+}
+
 // CloneSync uses sqlite hackery to directly copy the pertinent rows into a new database.
 // 1. Create a new empty sqlite database in a temp file
 // 2. Open the c1z that we are cloning to get a db handle
@@ -116,11 +123,11 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string, o
 	}
 	opts = append(defaultOpts, opts...)
 
-	// Be sure that the output path is empty else return an error. Checked here,
-	// ahead of the sync preconditions, so an occupied output path is reported
-	// before the target sync is inspected — the order callers have always seen.
+	// Check the output path ahead of the sync preconditions so an occupied
+	// output path is reported before the target sync is inspected — the order
+	// callers have always seen. cloneCopy re-checks it as the shared chokepoint.
 	if _, statErr := os.Stat(outPath); statErr == nil || !errors.Is(statErr, fs.ErrNotExist) {
-		return fmt.Errorf("clone-sync: output path (%s) must not exist for cloning to proceed", outPath)
+		return errOutPathExists("clone-sync", outPath)
 	}
 
 	if syncID == "" {
@@ -224,15 +231,20 @@ func (c *C1File) SnapshotTo(ctx context.Context, outPath string, opts ...C1FOpti
 // The compress runs on the separate temp db and does not hold the live
 // connection. cloneCopy reads c.rawDb to take that one connection but never
 // mutates c.rawDb/c.db/c.currentSyncID/c.closed, so the live handle is left
-// exactly as it was found (plus the row-copy stall). Callers guard a closed
-// handle before reaching here, so c.rawDb is non-nil.
+// exactly as it was found (plus the row-copy stall). Both entry points already
+// reject a closed handle; the nil-rawDb guard below is defensive against a
+// future caller that does not.
 // errPrefix is the caller's error-message namespace ("clone-sync" /
 // "snapshot-to") so each entry point keeps its own observable error strings.
 func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, selectAll bool, errPrefix string, opts ...C1FOption) error {
+	if c.rawDb == nil {
+		return ErrDbNotOpen
+	}
+
 	// Be sure that the output path is empty else return an error
 	_, err := os.Stat(outPath)
 	if err == nil || !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("%s: output path (%s) must not exist", errPrefix, outPath)
+		return errOutPathExists(errPrefix, outPath)
 	}
 
 	tmpDir, err := os.MkdirTemp(c.tempDir, "c1zclone")
@@ -288,7 +300,10 @@ func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, s
 		}
 		defer conn.Close()
 
-		if _, err := conn.ExecContext(qCtx, fmt.Sprintf(`ATTACH '%s' AS clone`, dbPath)); err != nil {
+		// dbPath sits under the operator-controlled temp dir; escape single
+		// quotes so a quote in the path can't break out of the SQL string literal.
+		escapedDBPath := strings.ReplaceAll(dbPath, "'", "''")
+		if _, err := conn.ExecContext(qCtx, fmt.Sprintf(`ATTACH '%s' AS clone`, escapedDBPath)); err != nil {
 			return err
 		}
 		defer func() {
@@ -318,11 +333,26 @@ func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, s
 	}(); copyErr != nil {
 		return copyErr
 	}
-	canc()
 
 	// Open a fresh C1File to compress the populated db into a c1z.
 	// No other connections are open on dbPath at this point.
-	outFile, err := NewC1File(ctx, dbPath, opts...)
+	//
+	// Reopening the populated clone re-runs each table's Schema() in InitTables,
+	// whose CREATE INDEX statements rebuild the secondary indexes that were
+	// deferred (dropped) for the row copy. On a whale-scale snapshot that
+	// rebuild is the dominant cost, so InitTables runs on a context detached
+	// from caller cancellation and bounded by BulkLoadIndexTimeout — the same
+	// protection buildDeferredIndexes gives the normal Close path — so a
+	// deadlined caller ctx cannot abort the half-built indexes. The compress
+	// itself still runs under the caller's ctx and stays cancellable.
+	//
+	// WithC1FBulkLoad is forced off for this open: the clone tables are now
+	// populated, so the per-table bulk-load emptiness check would only log a
+	// spurious "degrading to normal mode" warning while the rebuild happens via
+	// Schema() anyway.
+	idxCtx, cancelIdx := context.WithTimeout(context.WithoutCancel(ctx), BulkLoadIndexTimeout())
+	defer cancelIdx()
+	outFile, err := NewC1File(idxCtx, dbPath, append(opts, WithC1FBulkLoad(false))...)
 	if err != nil {
 		return err
 	}
