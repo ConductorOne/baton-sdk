@@ -13,6 +13,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/proto"
 
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
@@ -65,6 +66,14 @@ type Engine struct {
 	writeMu sync.Mutex
 	closing atomic.Bool // strict write-barrier flag, read on every Writer call
 	closeMu sync.Mutex
+
+	// computedStats holds caller-computed stats records stashed via
+	// StashComputedSyncStats, keyed by sync_id. PersistSyncStats pops
+	// and persists the stashed record instead of re-scanning the
+	// keyspaces — used by bulk imports that already counted every
+	// record they wrote.
+	computedStatsMu sync.Mutex
+	computedStats   map[string]*v3.SyncStatsRecord
 }
 
 // Open creates or opens a Pebble engine rooted at dir. If dir does

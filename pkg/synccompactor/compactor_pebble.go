@@ -395,7 +395,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 				maxEnded = sel.endedAt
 			}
 		}
-		w, err := dotc1z.NewStore(ctx, cs.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir))
+		w, err := dotc1z.NewStore(ctx, cs.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
 		if err != nil {
 			return "", fmt.Errorf("compactPebbleFold: open input %s: %w", cs.FilePath, err)
 		}
@@ -406,9 +406,13 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		}
 		if srcSyncID == "" {
 			rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
-			if err != nil || rec == nil {
+			if err != nil {
 				_ = w.Close(ctx)
-				return "", fmt.Errorf("compactPebbleFold: input %s has no finished compactable sync: %w", cs.FilePath, err)
+				return "", fmt.Errorf("compactPebbleFold: input %s: select compactable sync: %w", cs.FilePath, err)
+			}
+			if rec == nil {
+				_ = w.Close(ctx)
+				return "", fmt.Errorf("compactPebbleFold: input %s has no finished compactable sync", cs.FilePath)
 			}
 			srcSyncID = rec.GetSyncId()
 			unionType = unionV3SyncType(unionType, rec.GetType())
