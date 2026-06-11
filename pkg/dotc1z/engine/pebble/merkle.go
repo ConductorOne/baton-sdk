@@ -13,6 +13,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // Per-entitlement grant merkle tree (XOR combiner).
@@ -286,7 +287,7 @@ func (e *Engine) BuildAllMerkleTrees(ctx context.Context, syncID string) error {
 // buildEntitlementMerkleAtDepth (pass 2).
 func (e *Engine) buildEntitlementMerkle(ctx context.Context, idBytes []byte, entitlementID string) error {
 	entPrefix := encodeGrantByEntPrincHashEntPrefix(idBytes, entitlementID)
-	count, err := e.countHashIndexRange(entPrefix, upperBoundOf(entPrefix))
+	count, err := e.countKeysInRange(entPrefix, upperBoundOf(entPrefix))
 	if err != nil {
 		return err
 	}
@@ -414,9 +415,10 @@ func (e *Engine) buildEntitlementMerkleAtDepth(ctx context.Context, idBytes []by
 	})
 }
 
-// countHashIndexRange counts index entries in [lower, upper) without
-// materializing values.
-func (e *Engine) countHashIndexRange(lower, upper []byte) (int64, error) {
+// countKeysInRange counts keys in [lower, upper) without materializing
+// values. Used by the build's count→depth pass and by the diff driver's
+// primary-vs-index coverage guard.
+func (e *Engine) countKeysInRange(lower, upper []byte) (int64, error) {
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return 0, err
@@ -427,6 +429,52 @@ func (e *Engine) countHashIndexRange(lower, upper []byte) (int64, error) {
 		n++
 	}
 	return n, iter.Error()
+}
+
+// distinctHashIndexEntitlements returns the distinct entitlement_ids
+// present in a sync's by_entitlement_principal_hash index, in index
+// order. It seeks past each entitlement's whole range once its id is
+// captured, so the cost is O(entitlements) seeks, not O(grants). This
+// is the diff driver's work list, and it deliberately comes from the
+// INDEX rather than the entitlement records: a grant whose entitlement
+// has no record still has index entries (and a fold), so it still gets
+// compared — only a tree was never built for it.
+func (e *Engine) distinctHashIndexEntitlements(ctx context.Context, syncIDBytes []byte) ([]string, error) {
+	lower := GrantByEntPrincHashSyncLowerBound(syncIDBytes)
+	upper := GrantByEntPrincHashSyncUpperBound(syncIDBytes)
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	// Keys are lower | 0x00 | tuple(entitlement_id) | 0x00 | bucketHash | …
+	entStart := len(lower) + 1
+	var out []string
+	for iter.First(); iter.Valid(); {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		key := iter.Key()
+		if len(key) <= entStart {
+			iter.Next()
+			continue // malformed; skip defensively
+		}
+		entBytes, _, decErr := codec.DecodeTupleStringTo(nil, key[entStart:], 0)
+		if decErr != nil {
+			iter.Next()
+			continue
+		}
+		ent := string(entBytes)
+		out = append(out, ent)
+		// Seek past this entitlement's whole index range.
+		seekTo := upperBoundOf(encodeGrantByEntPrincHashEntPrefix(syncIDBytes, ent))
+		if seekTo == nil {
+			break
+		}
+		iter.SeekGE(seekTo)
+	}
+	return out, iter.Error()
 }
 
 // MerkleRoot is the result of GetEntitlementMerkleRoot.

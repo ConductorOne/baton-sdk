@@ -21,13 +21,17 @@ import (
 // deletions are NOT captured — that matches the SQLite behavior
 // in pkg/dotc1z/diff.go (additions-only diff).
 //
-// Strategy: for each record-type-bearing keyspace under
-// appliedSyncID, iterate the source keys, recompute the same
-// record's primary key under baseSyncID, Get from base; if base
-// returns ErrNotFound, write the value under diffSyncID's
-// keyspace in the same record type. Index entries are
-// recomputed on write so the diff sync has its own (fresh)
-// indexes that match the records that landed.
+// Strategy: for the small record types (resource_types, resources,
+// entitlements, assets), iterate the source keys under appliedSyncID,
+// recompute the same record's primary key under baseSyncID, Get from
+// base; if base returns ErrNotFound, write the value under
+// diffSyncID's keyspace in the same record type. GRANTS — the type
+// that dominates every real file — are diffed via the per-entitlement
+// hash tries instead (see diffGrants): unchanged entitlements are
+// skipped with a single root comparison, and only the principal-hash
+// buckets that actually differ are scanned. Index entries are
+// recomputed on write so the diff sync has its own (fresh) indexes
+// that match the records that landed.
 //
 // Returns the diff sync's ID.
 func generateSyncDiff(ctx context.Context, a *Adapter, baseSyncID, appliedSyncID string) (string, error) {
@@ -95,7 +99,7 @@ func generateSyncDiff(ctx context.Context, a *Adapter, baseSyncID, appliedSyncID
 	if err := diffEntitlements(ctx, a, baseBytes, appliedBytes, diffSyncID); err != nil {
 		return "", fmt.Errorf("generate-diff: entitlements: %w", err)
 	}
-	if err := diffGrants(ctx, a, baseBytes, appliedBytes, diffSyncID); err != nil {
+	if err := diffGrants(ctx, a, baseBytes, appliedBytes, baseSyncID, appliedSyncID, diffSyncID); err != nil {
 		return "", fmt.Errorf("generate-diff: grants: %w", err)
 	}
 	if err := diffAssets(ctx, a, baseBytes, appliedBytes, diffSyncID); err != nil {
@@ -182,7 +186,84 @@ func diffEntitlements(ctx context.Context, a *Adapter, baseBytes, appliedBytes [
 	})
 }
 
-func diffGrants(ctx context.Context, a *Adapter, baseBytes, appliedBytes []byte, diffSyncID string) error {
+// diffGrants computes the grants set difference using the
+// per-entitlement hash tries instead of scanning every applied grant.
+//
+// Walk: enumerate the distinct entitlement_ids in the applied sync's
+// hash index (one seek each), compare each entitlement's trie between
+// base and applied — one root read per side when nothing changed, the
+// overwhelmingly common case — and materialize only the principal-hash
+// buckets the comparison flags as dirty. Grants in dirty buckets are
+// probed against base's PRIMARY keyspace by external_id, which
+// preserves the additions-only contract exactly: a grant whose
+// external_id exists in base under a different entitlement/principal
+// is still "present in base" (not emitted), which is why the probe
+// targets the primary key rather than comparing index keys.
+//
+// Why pruning is sound: equal (count, digest) node pairs mean the two
+// sides hold identical grant content-hash sets, and the content hash
+// folds external_id — so a clean entitlement/bucket cannot contain an
+// applied external_id that base lacks. Dirtiness over-approximates
+// additions (it also fires for removals and source-set changes, which
+// the base probe then filters out), never under-approximates them.
+//
+// NOTE: grants without an entitlement or principal ref have no
+// hash-index entry and are invisible to the trie. They are silently
+// skipped. A future O(1) coverage check (e.g. a stored grant count in
+// the sync run record) will restore detection of this case.
+func diffGrants(ctx context.Context, a *Adapter, baseBytes, appliedBytes []byte, baseSyncID, appliedSyncID, diffSyncID string) error {
+	eng := a.engine
+
+	ents, err := eng.distinctHashIndexEntitlements(ctx, appliedBytes)
+	if err != nil {
+		return err
+	}
+	for _, ent := range ents {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		// Entitlements only present in base (fully removed) are not in
+		// `ents` and are correctly skipped: they cannot contain
+		// additions. Tries missing on either side (e.g. a ghost
+		// entitlement with grants but no entitlement record) degrade
+		// to an on-demand index fold inside DirtyEntitlementBuckets.
+		dirty, err := eng.DirtyEntitlementBuckets(ctx, baseSyncID, eng, appliedSyncID, ent)
+		if err != nil {
+			return err
+		}
+		for _, prefix := range dirty {
+			var innerErr error
+			err := eng.IterateGrantsByEntitlementBucket(ctx, appliedSyncID, ent, prefix, func(rec *v3.GrantRecord) bool {
+				exists, probeErr := existsAt(eng.DB(), encodeGrantKey(baseBytes, rec.GetExternalId()))
+				if probeErr != nil {
+					innerErr = probeErr
+					return false
+				}
+				if exists {
+					return true
+				}
+				rec.SetSyncId(diffSyncID)
+				if putErr := eng.PutGrantRecord(ctx, rec); putErr != nil {
+					innerErr = putErr
+					return false
+				}
+				return true
+			})
+			if err != nil {
+				return err
+			}
+			if innerErr != nil {
+				return innerErr
+			}
+		}
+	}
+	return nil
+}
+
+// diffGrantsFullScan is the O(applied grants) path: iterate every
+// applied grant, probe base by external_id, emit on miss. Used
+// directly by benchmarks and available as a correctness reference.
+func diffGrantsFullScan(ctx context.Context, a *Adapter, baseBytes, appliedBytes []byte, diffSyncID string) error {
 	srcPrefix := encodeGrantPrefix(appliedBytes)
 	return iterDiff(ctx, a.engine.DB(), srcPrefix, upperBoundOf(srcPrefix), func(_ []byte, val []byte) error {
 		var rec v3.GrantRecord
