@@ -60,7 +60,7 @@ message Task {
     // If true, skip syncing grants. Resources and entitlements will still be synced.
     bool skip_grants = 6;
     // Storage engine to use for the sync. If empty, the default engine will be used (currently SQLite).
-    string c1z_engine = 7 [(validate.rules).string = {
+    string storage_engine = 7 [(validate.rules).string = {
       in: [
         "pebble",
         "sqlite"

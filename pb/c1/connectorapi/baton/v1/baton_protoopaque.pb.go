@@ -2853,7 +2853,7 @@ type Task_SyncFullTask struct {
 	xxx_hidden_TargetedSyncResources     *[]*v2.Resource        `protobuf:"bytes,4,rep,name=targeted_sync_resources,json=targetedSyncResources,proto3"`
 	xxx_hidden_SyncResourceTypeIds       []string               `protobuf:"bytes,5,rep,name=sync_resource_type_ids,json=syncResourceTypeIds,proto3"`
 	xxx_hidden_SkipGrants                bool                   `protobuf:"varint,6,opt,name=skip_grants,json=skipGrants,proto3"`
-	xxx_hidden_C1ZEngine                 string                 `protobuf:"bytes,7,opt,name=c1z_engine,json=c1zEngine,proto3"`
+	xxx_hidden_StorageEngine             string                 `protobuf:"bytes,7,opt,name=storage_engine,json=storageEngine,proto3"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -2929,9 +2929,9 @@ func (x *Task_SyncFullTask) GetSkipGrants() bool {
 	return false
 }
 
-func (x *Task_SyncFullTask) GetC1ZEngine() string {
+func (x *Task_SyncFullTask) GetStorageEngine() string {
 	if x != nil {
-		return x.xxx_hidden_C1ZEngine
+		return x.xxx_hidden_StorageEngine
 	}
 	return ""
 }
@@ -2960,8 +2960,8 @@ func (x *Task_SyncFullTask) SetSkipGrants(v bool) {
 	x.xxx_hidden_SkipGrants = v
 }
 
-func (x *Task_SyncFullTask) SetC1ZEngine(v string) {
-	x.xxx_hidden_C1ZEngine = v
+func (x *Task_SyncFullTask) SetStorageEngine(v string) {
+	x.xxx_hidden_StorageEngine = v
 }
 
 type Task_SyncFullTask_builder struct {
@@ -2979,7 +2979,7 @@ type Task_SyncFullTask_builder struct {
 	// If true, skip syncing grants. Resources and entitlements will still be synced.
 	SkipGrants bool
 	// Storage engine to use for the sync. If empty, the default engine will be used (currently SQLite).
-	C1ZEngine string
+	StorageEngine string
 }
 
 func (b0 Task_SyncFullTask_builder) Build() *Task_SyncFullTask {
@@ -2992,7 +2992,7 @@ func (b0 Task_SyncFullTask_builder) Build() *Task_SyncFullTask {
 	x.xxx_hidden_TargetedSyncResources = &b.TargetedSyncResources
 	x.xxx_hidden_SyncResourceTypeIds = b.SyncResourceTypeIds
 	x.xxx_hidden_SkipGrants = b.SkipGrants
-	x.xxx_hidden_C1ZEngine = b.C1ZEngine
+	x.xxx_hidden_StorageEngine = b.StorageEngine
 	return m0
 }
 
@@ -5468,7 +5468,7 @@ var File_c1_connectorapi_baton_v1_baton_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\n" +
-	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xae.\n" +
+	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xb6.\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
 	"\x06status\x18\x02 \x01(\x0e2%.c1.connectorapi.baton.v1.Task.StatusR\x06status\x12=\n" +
@@ -5502,7 +5502,7 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\bNoneTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1aC\n" +
 	"\tHelloTask\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\x94\x03\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\x9c\x03\n" +
 	"\fSyncFullTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12,\n" +
 	"\x12skip_expand_grants\x18\x02 \x01(\bR\x10skipExpandGrants\x12?\n" +
@@ -5510,9 +5510,8 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\x17targeted_sync_resources\x18\x04 \x03(\v2\x19.c1.connector.v2.ResourceR\x15targetedSyncResources\x123\n" +
 	"\x16sync_resource_type_ids\x18\x05 \x03(\tR\x13syncResourceTypeIds\x12\x1f\n" +
 	"\vskip_grants\x18\x06 \x01(\bR\n" +
-	"skipGrants\x124\n" +
-	"\n" +
-	"c1z_engine\x18\a \x01(\tB\x15\xfaB\x12r\x10R\x06pebbleR\x06sqliteR\tc1zEngine\x1a~\n" +
+	"skipGrants\x12<\n" +
+	"\x0estorage_engine\x18\a \x01(\tB\x15\xfaB\x12r\x10R\x06pebbleR\x06sqliteR\rstorageEngine\x1a~\n" +
 	"\rEventFeedTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x125\n" +
 	"\bstart_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x1a\xe7\x01\n" +

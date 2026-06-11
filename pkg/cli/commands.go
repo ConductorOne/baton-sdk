@@ -408,13 +408,13 @@ func MakeMainCommand[T field.Configurable](
 		}
 		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
 
-		c1zEngine := v.GetString(field.C1ZEngineField.GetName())
-		c1zEngineField := field.C1ZEngineField
-		if _, err := field.ValidateField(&c1zEngineField, c1zEngine); err != nil {
+		storageEngine := v.GetString(field.StorageEngineField.GetName())
+		storageEngineField := field.StorageEngineField
+		if _, err := field.ValidateField(&storageEngineField, storageEngine); err != nil {
 			return err
 		}
-		if c1zEngine != "" {
-			opts = append(opts, connectorrunner.WithC1ZEngine(dotc1z.Engine(c1zEngine)))
+		if storageEngine != "" {
+			opts = append(opts, connectorrunner.WithC1ZEngine(dotc1z.Engine(storageEngine)))
 		}
 
 		taskConcurrency := v.GetInt(field.TaskConcurrencyField.GetName())

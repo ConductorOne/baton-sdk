@@ -58,8 +58,8 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		sdkSync.WithWorkerCount(c.workerCount),
 	}
 	engine := c.c1zEngine
-	if engine == "" && c.task.GetSyncFull().GetC1ZEngine() != "" {
-		engine = dotc1z.Engine(c.task.GetSyncFull().GetC1ZEngine())
+	if engine == "" && c.task.GetSyncFull().GetStorageEngine() != "" {
+		engine = dotc1z.Engine(c.task.GetSyncFull().GetStorageEngine())
 	}
 	if engine != "" {
 		syncOpts = append(syncOpts, sdkSync.WithC1ZEngine(engine))
@@ -77,6 +77,10 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	if c.task.GetSyncFull().GetSkipEntitlementsAndGrants() {
 		// Sync only resources. This is meant to be used for a first sync so initial data gets into the UI faster.
 		syncOpts = append(syncOpts, sdkSync.WithSkipEntitlementsAndGrants(true))
+	}
+
+	if c.task.GetSyncFull().GetSkipGrants() {
+		syncOpts = append(syncOpts, sdkSync.WithSkipGrants(true))
 	}
 
 	if c.externalResourceC1ZPath != "" {

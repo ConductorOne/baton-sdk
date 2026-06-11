@@ -3971,9 +3971,9 @@ func (m *Task_SyncFullTask) validate(all bool) error {
 
 	// no validation rules for SkipGrants
 
-	if _, ok := _Task_SyncFullTask_C1ZEngine_InLookup[m.GetC1ZEngine()]; !ok {
+	if _, ok := _Task_SyncFullTask_StorageEngine_InLookup[m.GetStorageEngine()]; !ok {
 		err := Task_SyncFullTaskValidationError{
-			field:  "C1ZEngine",
+			field:  "StorageEngine",
 			reason: "value must be in list [pebble sqlite]",
 		}
 		if !all {
@@ -4062,7 +4062,7 @@ var _ interface {
 	ErrorName() string
 } = Task_SyncFullTaskValidationError{}
 
-var _Task_SyncFullTask_C1ZEngine_InLookup = map[string]struct{}{
+var _Task_SyncFullTask_StorageEngine_InLookup = map[string]struct{}{
 	"pebble": {},
 	"sqlite": {},
 }
