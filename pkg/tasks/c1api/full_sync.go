@@ -57,8 +57,12 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		sdkSync.WithTmpDir(c.helpers.TempDir()),
 		sdkSync.WithWorkerCount(c.workerCount),
 	}
-	if c.c1zEngine != "" {
-		syncOpts = append(syncOpts, sdkSync.WithC1ZEngine(c.c1zEngine))
+	engine := c.c1zEngine
+	if engine == "" && c.task.GetSyncFull().GetC1ZEngine() != "" {
+		engine = dotc1z.Engine(c.task.GetSyncFull().GetC1ZEngine())
+	}
+	if engine != "" {
+		syncOpts = append(syncOpts, sdkSync.WithC1ZEngine(engine))
 	}
 
 	if c.task.GetSyncFull().GetSkipExpandGrants() {
