@@ -3971,15 +3971,19 @@ func (m *Task_SyncFullTask) validate(all bool) error {
 
 	// no validation rules for SkipGrants
 
-	if _, ok := _Task_SyncFullTask_StorageEngine_InLookup[m.GetStorageEngine()]; !ok {
-		err := Task_SyncFullTaskValidationError{
-			field:  "StorageEngine",
-			reason: "value must be in list [pebble sqlite]",
+	if m.GetStorageEngine() != "" {
+
+		if _, ok := _Task_SyncFullTask_StorageEngine_InLookup[m.GetStorageEngine()]; !ok {
+			err := Task_SyncFullTaskValidationError{
+				field:  "StorageEngine",
+				reason: "value must be in list [pebble sqlite]",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
 		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
+
 	}
 
 	if len(errors) > 0 {

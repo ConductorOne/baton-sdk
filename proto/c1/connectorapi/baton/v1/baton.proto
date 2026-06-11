@@ -65,6 +65,7 @@ message Task {
         "pebble",
         "sqlite"
       ]
+      ignore_empty: true
     }];
   }
 
