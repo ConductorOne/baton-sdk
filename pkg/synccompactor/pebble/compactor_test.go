@@ -305,41 +305,36 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	}
 }
 
-func TestCompactIsolatesOtherSyncs(t *testing.T) {
+// TestCompactReplacesDestData confirms Compact excises the
+// destination's existing data and replaces it with the source's view.
+// A v3 Pebble engine holds exactly one sync (keys carry no sync_id), so
+// there is no "other sync" to isolate — compaction is a full replace of
+// the destination keyspace.
+func TestCompactReplacesDestData(t *testing.T) {
 	ctx := context.Background()
 
 	src, _ := newEngine(t, "src")
 	dst, _ := newEngine(t, "dst")
 
-	syncA := ksuid.New().String()
-	syncB := ksuid.New().String()
+	syncID := ksuid.New().String()
 
-	// dst holds 100 grants under sync_A and 100 under sync_B.
-	if err := dst.SetCurrentSync(syncA); err != nil {
+	// dst starts with 100 grants that the compaction must replace.
+	if err := dst.SetCurrentSync(syncID); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 100; i++ {
-		r := grant(syncA, ksuid.New().String(), "ent-A", ksuid.New().String())
-		if err := dst.PutGrantRecord(ctx, r); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := dst.SetCurrentSync(syncB); err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 100; i++ {
-		r := grant(syncB, ksuid.New().String(), "ent-B", ksuid.New().String())
+		r := grant(syncID, ksuid.New().String(), "ent-old", ksuid.New().String())
 		if err := dst.PutGrantRecord(ctx, r); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	// src has 25 grants under sync_A only.
-	if err := src.SetCurrentSync(syncA); err != nil {
+	// src has 25 (different) grants.
+	if err := src.SetCurrentSync(syncID); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 25; i++ {
-		r := grant(syncA, ksuid.New().String(), "ent-A-new", ksuid.New().String())
+		r := grant(syncID, ksuid.New().String(), "ent-new", ksuid.New().String())
 		if err := src.PutGrantRecord(ctx, r); err != nil {
 			t.Fatal(err)
 		}
@@ -349,16 +344,13 @@ func TestCompactIsolatesOtherSyncs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Compact(ctx, src, syncA); err != nil {
-		t.Fatalf("Compact sync_A: %v", err)
+	if err := c.Compact(ctx, src, syncID); err != nil {
+		t.Fatalf("Compact: %v", err)
 	}
 
-	// sync_A in dst: 25 (src's). sync_B in dst: 100 (untouched).
-	if got := countGrants(t, dst, syncA); got != 25 {
-		t.Errorf("sync_A grants in dst: got %d, want 25", got)
-	}
-	if got := countGrants(t, dst, syncB); got != 100 {
-		t.Errorf("sync_B grants in dst: got %d, want 100 — compaction leaked into another sync", got)
+	// dst now holds exactly src's 25 grants; the original 100 are gone.
+	if got := countGrants(t, dst, syncID); got != 25 {
+		t.Errorf("grants in dst after compact: got %d, want 25", got)
 	}
 }
 

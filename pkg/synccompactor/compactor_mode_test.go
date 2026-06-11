@@ -11,13 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestResolvePebbleModeCutover exercises the auto-selection gate:
-// overlay is always auto-selected — the fold cutover is disabled until
-// C1 handles fold's reused sync id, even for the large-base +
-// small-partial shape where fold wins — and an explicit
-// BATON_EXPERIMENTAL_PEBBLE_COMPACTOR value forces the mode regardless
-// of sizes. The gate reads only file sizes, so plain files stand in
-// for c1z inputs.
+// TestResolvePebbleModeCutover exercises the auto-selection gate: the
+// large-base + small-partial shape auto-selects fold (now that fold
+// mints a fresh sync id), every other shape auto-selects overlay, and
+// an explicit BATON_EXPERIMENTAL_PEBBLE_COMPACTOR value forces the mode
+// regardless of sizes. The gate reads only file sizes, so plain files
+// stand in for c1z inputs.
 func TestResolvePebbleModeCutover(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -43,12 +42,12 @@ func TestResolvePebbleModeCutover(t *testing.T) {
 	tinyBase := mk("tiny.c1z", 100)
 
 	t.Setenv("BATON_EXPERIMENTAL_PEBBLE_COMPACTOR", "")
-	// Large base + partials within the ratio is fold's winning shape,
-	// but auto-fold is disabled (reused sync id) → overlay.
-	require.Equal(t, PebbleCompactorModeOverlay, newC(bigBase, smallPartial).resolvePebbleMode(ctx))
-	require.Equal(t, PebbleCompactorModeOverlay,
+	// Large base + partials within the ratio is fold's winning shape →
+	// auto-selects fold.
+	require.Equal(t, PebbleCompactorModeFold, newC(bigBase, smallPartial).resolvePebbleMode(ctx))
+	require.Equal(t, PebbleCompactorModeFold,
 		newC(bigBase, smallPartial, smallPartial, smallPartial, smallPartial).resolvePebbleMode(ctx))
-	// Shapes outside the gate were always overlay.
+	// Partials past the ratio fall outside the gate → overlay.
 	require.Equal(t, PebbleCompactorModeOverlay,
 		newC(bigBase, smallPartial, smallPartial, smallPartial, smallPartial, smallPartial).resolvePebbleMode(ctx))
 	require.Equal(t, PebbleCompactorModeOverlay, newC(bigBase, bigPartial).resolvePebbleMode(ctx))
@@ -71,9 +70,10 @@ func TestResolvePebbleModeCutover(t *testing.T) {
 	WithPebbleCompactorMode(PebbleCompactorModeFold)(explicit)
 	require.Equal(t, PebbleCompactorModeFold, explicit.resolvePebbleMode(ctx))
 
-	// Unrecognized values fall back to auto selection (overlay).
+	// Unrecognized values fall back to auto selection: a non-fold shape
+	// (partials too large for the gate) auto-selects overlay.
 	t.Setenv("BATON_EXPERIMENTAL_PEBBLE_COMPACTOR", "bogus")
-	require.Equal(t, PebbleCompactorModeOverlay, newC(bigBase, smallPartial).resolvePebbleMode(ctx))
+	require.Equal(t, PebbleCompactorModeOverlay, newC(bigBase, bigPartial).resolvePebbleMode(ctx))
 }
 
 func TestInferEngineFromInputFormats(t *testing.T) {

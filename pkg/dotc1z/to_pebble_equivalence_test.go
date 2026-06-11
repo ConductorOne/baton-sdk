@@ -169,9 +169,10 @@ func readStatsSidecar(ctx context.Context, t *testing.T, path, tmpDir, syncID st
 
 // dumpSyncKeyspace opens a pebble c1z and returns every record/index key
 // (buckets 0x01-0x05 and 0x07 of the v3 keyspace) mapped to its normalized
-// value. Keys are canonicalized by zeroing the 20 embedded sync-id bytes;
-// primary record values are unmarshaled, discovered_at-zeroed, and
-// re-marshaled deterministically so the only differences left are real.
+// value. Under the single-sync contract keys no longer embed a sync id, so
+// they're compared verbatim; primary record values are unmarshaled,
+// discovered_at-zeroed, and re-marshaled deterministically so the only
+// differences left are real.
 func dumpSyncKeyspace(ctx context.Context, t *testing.T, path, tmpDir string) map[string]string {
 	t.Helper()
 	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(tmpDir))
@@ -190,18 +191,10 @@ func dumpSyncKeyspace(ctx context.Context, t *testing.T, path, tmpDir string) ma
 		if len(key) < 2 || key[0] != 0x03 {
 			continue
 		}
-		var syncOff int
 		switch key[1] {
-		case 0x01, 0x02, 0x03, 0x04, 0x05: // primary record buckets
-			syncOff = 2
-		case 0x07: // index buckets: one extra discriminator byte
-			syncOff = 3
+		case 0x01, 0x02, 0x03, 0x04, 0x05, 0x07: // primary record + index buckets
 		default: // sync_runs, counters, sessions, engine meta: not compared
 			continue
-		}
-		require.GreaterOrEqual(t, len(key), syncOff+20, "key too short for sync id: %x", key)
-		for i := syncOff; i < syncOff+20; i++ {
-			key[i] = 0
 		}
 		val := append([]byte(nil), iter.Value()...)
 		if key[1] != 0x07 && len(val) > 0 {

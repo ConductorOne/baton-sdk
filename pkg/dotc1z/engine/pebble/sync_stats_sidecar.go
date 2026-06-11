@@ -18,9 +18,9 @@ import (
 // GrantStats() as a single LSM Get. Eliminates the O(N) iteration
 // the Adapter used to do on every Stats() call.
 //
-// Key shape:
+// Key shape (single fixed key — one sync per file):
 //
-//	v3 | typeEngineMeta | tup_string("stats") | sync_id_bytes
+//	v3 | typeEngineMeta | tup_string("stats") | 0x00
 //
 // Value: marshaled SyncStatsRecord proto.
 //
@@ -29,14 +29,15 @@ import (
 // count path in that case, and the on-Open migration framework
 // backfills the sidecar on writable opens so the next call is fast.
 
-// encodeSyncStatsKey returns the engine-meta key for the
-// SyncStatsRecord of the named sync.
+// encodeSyncStatsKey returns the engine-meta key for the single
+// sync's SyncStatsRecord. The file holds one sync, so this is a fixed
+// key (no sync_id suffix); the syncIDBytes param is retained
+// transitionally and ignored.
 func encodeSyncStatsKey(syncIDBytes []byte) []byte {
 	buf := make([]byte, 0, 6+len("stats")+len(syncIDBytes))
 	buf = append(buf, versionV3, typeEngineMeta)
 	buf = codec.AppendTupleString(buf, "stats")
 	buf = codec.AppendTupleSeparator(buf)
-	buf = append(buf, syncIDBytes...)
 	return buf
 }
 

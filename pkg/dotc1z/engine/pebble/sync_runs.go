@@ -61,6 +61,14 @@ func (e *Engine) GetSyncRunRecord(ctx context.Context, syncID string) (*v3.SyncR
 	if err := unmarshalRecord(val, r); err != nil {
 		return nil, fmt.Errorf("GetSyncRunRecord: unmarshal: %w", err)
 	}
+	// The sync-run record lives at a single fixed key (one sync per
+	// file). A lookup for a sync_id other than the stored one must miss
+	// rather than silently return the wrong sync — ResumeSync,
+	// StartOrResumeSync, and CloneSync all rely on a not-found error to
+	// distinguish "this sync exists" from "some sync exists".
+	if r.GetSyncId() != syncID {
+		return nil, pebble.ErrNotFound
+	}
 	return r, nil
 }
 
@@ -73,8 +81,42 @@ func (e *Engine) DeleteSyncRunRecord(ctx context.Context, syncID string) error {
 		if err != nil {
 			return err
 		}
+		// Single fixed sync-run key: only delete when the stored record
+		// is the requested sync. A mismatch (or absence) is a no-op, so
+		// a stale id can't clobber a different sync's record.
+		val, closer, getErr := e.db.Get(encodeSyncRunKey(idBytes))
+		if getErr != nil {
+			if errors.Is(getErr, pebble.ErrNotFound) {
+				return nil
+			}
+			return getErr
+		}
+		stored := &v3.SyncRunRecord{}
+		uErr := unmarshalRecord(val, stored)
+		closer.Close()
+		if uErr != nil {
+			return fmt.Errorf("DeleteSyncRunRecord: unmarshal: %w", uErr)
+		}
+		if stored.GetSyncId() != syncID {
+			return nil
+		}
 		return e.db.Delete(encodeSyncRunKey(idBytes), writeOpts(e.opts.durability))
 	})
+}
+
+// hasSyncRun reports whether the engine already holds a sync-run
+// record (the file's one sync). StartNewSync uses it to decide whether
+// a prior sync must be wiped before the replacement is bound.
+func (e *Engine) hasSyncRun() (bool, error) {
+	_, closer, err := e.db.Get(encodeSyncRunKey(nil))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	_ = closer.Close()
+	return true, nil
 }
 
 // IterateAllSyncRuns iterates every sync_run record in the engine.

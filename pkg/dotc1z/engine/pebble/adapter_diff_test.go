@@ -2,22 +2,23 @@ package pebble_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
-// TestGenerateSyncDiffAdditionsOnly walks the additions-only diff
-// shape end-to-end: two finished syncs, the second adding one
-// grant beyond the first. The diff sync must materialize exactly
-// the new grant.
-func TestGenerateSyncDiffAdditionsOnly(t *testing.T) {
+// TestGenerateSyncDiffUnsupported pins the single-sync contract: a v3
+// Pebble c1z holds exactly one sync, so GenerateSyncDiff (which needs a
+// base + applied sync co-resident in one file) is unsupported and must
+// return pebble.ErrDiffUnsupported rather than silently producing a
+// bogus or empty diff.
+func TestGenerateSyncDiffUnsupported(t *testing.T) {
 	ctx := context.Background()
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "diff.c1z")
+	path := filepath.Join(t.TempDir(), "diff.c1z")
 
 	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
 	if err != nil {
@@ -25,155 +26,15 @@ func TestGenerateSyncDiffAdditionsOnly(t *testing.T) {
 	}
 	defer store.Close(ctx)
 
-	baseSync, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatalf("StartNewSync base: %v", err)
-	}
-	if err := store.PutGrants(ctx,
-		mkV2Grant("g1", "ent", "user", "alice"),
-		mkV2Grant("g2", "ent", "user", "bob"),
-	); err != nil {
-		t.Fatalf("PutGrants base: %v", err)
-	}
-	if err := store.EndSync(ctx); err != nil {
-		t.Fatalf("EndSync base: %v", err)
-	}
-
-	appliedSync, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatalf("StartNewSync applied: %v", err)
-	}
-	if err := store.PutGrants(ctx,
-		mkV2Grant("g1", "ent", "user", "alice"),
-		mkV2Grant("g2", "ent", "user", "bob"),
-		mkV2Grant("g3", "ent", "user", "carol"),
-	); err != nil {
-		t.Fatalf("PutGrants applied: %v", err)
-	}
-	if err := store.EndSync(ctx); err != nil {
-		t.Fatalf("EndSync applied: %v", err)
-	}
-
-	diffID, err := store.FileOps().GenerateSyncDiff(ctx, baseSync, appliedSync)
-	if err != nil {
-		t.Fatalf("GenerateSyncDiff: %v", err)
-	}
-	if diffID == "" {
-		t.Fatal("GenerateSyncDiff returned empty diffID")
-	}
-
-	// GenerateSyncDiff leaves the store bound to the diff sync (adapter
-	// and engine in lockstep) — reads must resolve to it with no
-	// explicit SetCurrentSync.
-	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	if err != nil {
-		t.Fatalf("ListGrants diff: %v", err)
-	}
-	if got := len(resp.GetList()); got != 1 {
-		t.Fatalf("diff ListGrants = %d, want 1", got)
-	}
-	if got := resp.GetList()[0].GetId(); got != "g3" {
-		t.Fatalf("diff grant id = %q, want g3", got)
-	}
-}
-
-// TestGenerateSyncDiffPersistsAcrossReopen pins the dirty-bit contract:
-// when GenerateSyncDiff is the ONLY mutation on an opened store, Close
-// must still save the envelope, and the diff sync must survive a
-// reopen. Without the pebbleStore FileOps dirty-marking wrapper, the
-// diff would exist only in the discarded temp directory.
-func TestGenerateSyncDiffPersistsAcrossReopen(t *testing.T) {
-	ctx := context.Background()
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "diff-reopen.c1z")
-
-	// Pass 1: write two finished syncs and save.
-	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
-	baseSync, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.EndSync(ctx); err != nil {
-		t.Fatal(err)
-	}
-	appliedSync, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.PutGrants(ctx,
-		mkV2Grant("g1", "ent", "user", "alice"),
-		mkV2Grant("g2", "ent", "user", "bob"),
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.EndSync(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(ctx); err != nil {
-		t.Fatalf("close pass 1: %v", err)
-	}
-
-	// Pass 2: reopen; the diff is the only mutation before Close.
-	store, err = dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
-	if err != nil {
-		t.Fatalf("reopen: %v", err)
-	}
-	diffID, err := store.FileOps().GenerateSyncDiff(ctx, baseSync, appliedSync)
-	if err != nil {
-		t.Fatalf("GenerateSyncDiff: %v", err)
-	}
-	if err := store.Close(ctx); err != nil {
-		t.Fatalf("close pass 2: %v", err)
-	}
-
-	// Pass 3: the diff sync must have been saved into the envelope.
-	reopened, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
-	if err != nil {
-		t.Fatalf("reopen read-only: %v", err)
-	}
-	defer reopened.Close(ctx)
-	if err := reopened.SetCurrentSync(ctx, diffID); err != nil {
-		t.Fatalf("SetCurrentSync diff after reopen: %v", err)
-	}
-	resp, err := reopened.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	if err != nil {
-		t.Fatalf("ListGrants diff after reopen: %v", err)
-	}
-	if got := len(resp.GetList()); got != 1 {
-		t.Fatalf("diff ListGrants after reopen = %d, want 1", got)
-	}
-	if got := resp.GetList()[0].GetId(); got != "g2" {
-		t.Fatalf("diff grant id after reopen = %q, want g2", got)
-	}
-}
-
-// TestGenerateSyncDiffRejectsSameSyncIDs validates that
-// generating a diff between a sync and itself is an error —
-// the empty-result path would silently produce a sync_run
-// row with no records, which we'd rather flag.
-func TestGenerateSyncDiffRejectsSameSyncIDs(t *testing.T) {
-	ctx := context.Background()
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "diff.c1z")
-	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close(ctx)
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("StartNewSync: %v", err)
 	}
 	if err := store.EndSync(ctx); err != nil {
-		t.Fatal(err)
+		t.Fatalf("EndSync: %v", err)
 	}
-	if _, err := store.FileOps().GenerateSyncDiff(ctx, syncID, syncID); err == nil {
-		t.Fatal("expected error for same base/applied syncIDs")
+
+	if _, err := store.FileOps().GenerateSyncDiff(ctx, syncID, "some-other-sync"); !errors.Is(err, pebble.ErrDiffUnsupported) {
+		t.Fatalf("GenerateSyncDiff error = %v, want ErrDiffUnsupported", err)
 	}
 }

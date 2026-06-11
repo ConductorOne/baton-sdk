@@ -48,7 +48,10 @@ func TestSavedC1ZReopensAfterWALTruncation(t *testing.T) {
 	first := runSync("user")
 	second := runSync("group")
 
-	// Reopen read-only and verify both syncs survived their round trips.
+	// Reopen read-only. Single-sync contract: the second runSync did a
+	// fresh StartNewSync on the reopened file, which REPLACES the first
+	// sync. The second must survive the save/reopen round trip; the
+	// first must be gone.
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
@@ -58,9 +61,10 @@ func TestSavedC1ZReopensAfterWALTruncation(t *testing.T) {
 	if !ok {
 		t.Fatalf("not a pebble store: %T", w)
 	}
-	for _, syncID := range []string{first, second} {
-		if _, err := eng.GetSyncRunRecord(ctx, syncID); err != nil {
-			t.Fatalf("sync %s lost across save/reopen: %v", syncID, err)
-		}
+	if _, err := eng.GetSyncRunRecord(ctx, second); err != nil {
+		t.Fatalf("second sync %s lost across save/reopen: %v", second, err)
+	}
+	if _, err := eng.GetSyncRunRecord(ctx, first); err == nil {
+		t.Fatalf("first sync %s should have been replaced by the second (single-sync contract)", first)
 	}
 }

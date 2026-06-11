@@ -17,9 +17,10 @@ import (
 // the full store path: write a sync with
 // WithPayloadEncoding(IndexedZstd), reopen the file WITHOUT specifying
 // an encoding (the store must adopt indexed from the file), run a
-// second sync, save again, and read everything back. The second save
-// goes through the splice path since the first sync's SSTs are
-// unchanged hard-links in the checkpoint.
+// second sync, save again, and read it back. Single-sync contract: the
+// second sync replaces the first; the assertion is that the encoding is
+// preserved across the reopen+rewrite and the surviving sync's data is
+// intact.
 func TestIndexedPayloadStoreLifecycle(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "indexed.c1z")
@@ -79,7 +80,8 @@ func TestIndexedPayloadStoreLifecycle(t *testing.T) {
 	second := runSync("group")
 	requireFileEncoding()
 
-	// Both syncs readable after the spliced rewrite.
+	// Reopen read-only: the surviving (second) sync and its data must be
+	// readable after the indexed rewrite; the replaced first sync is gone.
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
@@ -89,15 +91,16 @@ func TestIndexedPayloadStoreLifecycle(t *testing.T) {
 	if !ok {
 		t.Fatalf("not pebble: %T", w)
 	}
-	for _, syncID := range []string{first, second} {
-		if _, err := eng.GetSyncRunRecord(ctx, syncID); err != nil {
-			t.Fatalf("sync %s missing after indexed round trips: %v", syncID, err)
-		}
+	if _, err := eng.GetSyncRunRecord(ctx, second); err != nil {
+		t.Fatalf("second sync %s missing after indexed round trips: %v", second, err)
 	}
-	if _, err := eng.GetResourceRecord(ctx, first, "user", "user-1"); err != nil {
-		t.Fatalf("first sync's resource missing after spliced rewrite: %v", err)
+	if _, err := eng.GetSyncRunRecord(ctx, first); err == nil {
+		t.Fatalf("first sync %s should have been replaced by the second", first)
 	}
 	if _, err := eng.GetResourceRecord(ctx, second, "group", "group-1"); err != nil {
 		t.Fatalf("second sync's resource missing: %v", err)
+	}
+	if _, err := eng.GetResourceRecord(ctx, first, "user", "user-1"); err == nil {
+		t.Fatalf("first sync's resource should be gone after replacement")
 	}
 }

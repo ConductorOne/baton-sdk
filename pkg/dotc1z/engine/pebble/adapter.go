@@ -88,6 +88,21 @@ func (a *Adapter) StartNewSync(ctx context.Context, syncType connectorstore.Sync
 	syncID := ksuid.New().String()
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	// Single-sync contract: a v3 Pebble c1z holds exactly one sync.
+	// Keys carry no sync_id, so if a prior sync's data is present we
+	// must wipe it before starting — otherwise records the new sync
+	// doesn't overwrite would linger as orphans under identical keys.
+	// This also restores the empty-by-construction invariant that the
+	// MarkFreshSync skip-Get fast path depends on. A fresh engine
+	// (the common ToPebble/compaction case) has no sync-run and skips
+	// the wipe.
+	if existed, err := a.engine.hasSyncRun(); err != nil {
+		return "", err
+	} else if existed {
+		if err := a.engine.ResetForNewSync(ctx); err != nil {
+			return "", err
+		}
+	}
 	// MarkFreshSync flips the engine into the perf-fast write path:
 	// pebble.NoSync per commit, skip read-before-write index cleanup.
 	// EndSync calls EndFreshSync to flush + fsync once at the end.

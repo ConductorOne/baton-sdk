@@ -189,7 +189,6 @@ func ForEachResourceIndexKeyRaw(syncIDBytes []byte, parentRT string, parentID st
 // ~0.8M allocs/op, combined with scratch reuse).
 func AppendResourceIndexKeyRawBytes(dst []byte, syncIDBytes []byte, parentRT []byte, parentID []byte, resourceTypeID []byte, resourceID []byte) []byte {
 	dst = append(dst, versionV3, typeIndex, idxResourceByParent)
-	dst = append(dst, syncIDBytes...)
 	dst = codec.AppendTupleSeparator(dst)
 	dst = codec.AppendTupleBytes(dst, parentRT)
 	dst = codec.AppendTupleSeparator(dst)
@@ -225,7 +224,6 @@ func ForEachEntitlementIndexKeyRaw(syncIDBytes []byte, resourceRT string, resour
 
 func AppendEntitlementIndexKeyRawBytes(dst []byte, syncIDBytes []byte, resourceRT []byte, resourceID []byte, externalID []byte) []byte {
 	dst = append(dst, versionV3, typeIndex, idxEntitlementByResource)
-	dst = append(dst, syncIDBytes...)
 	dst = codec.AppendTupleSeparator(dst)
 	dst = codec.AppendTupleBytes(dst, resourceRT)
 	dst = codec.AppendTupleSeparator(dst)
@@ -307,7 +305,6 @@ func ForEachGrantIndexKeyRaw(
 
 func AppendGrantByEntitlementIndexKeyRawBytes(dst []byte, syncIDBytes []byte, entitlementID []byte, principalRT []byte, principalID []byte, externalID []byte) []byte {
 	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlement)
-	dst = append(dst, syncIDBytes...)
 	dst = codec.AppendTupleSeparator(dst)
 	dst = codec.AppendTupleBytes(dst, entitlementID)
 	dst = codec.AppendTupleSeparator(dst)
@@ -320,7 +317,6 @@ func AppendGrantByEntitlementIndexKeyRawBytes(dst []byte, syncIDBytes []byte, en
 
 func AppendGrantByEntitlementResourceIndexKeyRawBytes(dst []byte, syncIDBytes []byte, entitlementRT []byte, entitlementResourceID []byte, externalID []byte) []byte {
 	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlementResource)
-	dst = append(dst, syncIDBytes...)
 	dst = codec.AppendTupleSeparator(dst)
 	dst = codec.AppendTupleBytes(dst, entitlementRT)
 	dst = codec.AppendTupleSeparator(dst)
@@ -331,7 +327,6 @@ func AppendGrantByEntitlementResourceIndexKeyRawBytes(dst []byte, syncIDBytes []
 
 func AppendGrantByPrincipalIndexKeyRawBytes(dst []byte, syncIDBytes []byte, principalRT []byte, principalID []byte, externalID []byte) []byte {
 	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipal)
-	dst = append(dst, syncIDBytes...)
 	dst = codec.AppendTupleSeparator(dst)
 	dst = codec.AppendTupleBytes(dst, principalRT)
 	dst = codec.AppendTupleSeparator(dst)
@@ -342,7 +337,6 @@ func AppendGrantByPrincipalIndexKeyRawBytes(dst []byte, syncIDBytes []byte, prin
 
 func AppendGrantByPrincipalResourceTypeIndexKeyRawBytes(dst []byte, syncIDBytes []byte, principalRT []byte, externalID []byte) []byte {
 	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipalResourceType)
-	dst = append(dst, syncIDBytes...)
 	dst = codec.AppendTupleSeparator(dst)
 	dst = codec.AppendTupleBytes(dst, principalRT)
 	dst = codec.AppendTupleSeparator(dst)
@@ -351,7 +345,6 @@ func AppendGrantByPrincipalResourceTypeIndexKeyRawBytes(dst []byte, syncIDBytes 
 
 func AppendGrantByNeedsExpansionIndexKeyRawBytes(dst []byte, syncIDBytes []byte, externalID []byte) []byte {
 	dst = append(dst, versionV3, typeIndex, idxGrantByNeedsExpansion)
-	dst = append(dst, syncIDBytes...)
 	dst = codec.AppendTupleSeparator(dst)
 	return codec.AppendTupleBytes(dst, externalID)
 }

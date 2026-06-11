@@ -106,6 +106,15 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		opts:       o,
 		pebbleOpts: pebbleOpts,
 	}
+	// Enforce the single-sync key-layout contract before touching any
+	// keys: reject an old multi-sync-layout file (which the current
+	// encoders would silently mis-decode) and stamp a fresh writable
+	// file. Runs before migrations so we never try to backfill indexes
+	// on a file we can't read.
+	if err := e.verifyOrStampKeyspaceVersion(ctx); err != nil {
+		_ = e.Close()
+		return nil, err
+	}
 	// Run secondary-index migrations before returning. Migrations
 	// are skipped for read-only opens (the on-disk file is
 	// immutable, so we'd error out trying to backfill).

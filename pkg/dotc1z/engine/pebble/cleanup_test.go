@@ -14,19 +14,19 @@ import (
 // the Pebble store wrapper lives. The tests here cover engine-level
 // invariants only.
 
-// TestPebbleCleanupRefusesActiveSync verifies the engine-level
-// guard: DeleteSyncData on the active sync returns an error rather
-// than corrupting the in-flight write path.
-func TestPebbleCleanupRefusesActiveSync(t *testing.T) {
+// TestResetForNewSyncRefusesActiveSync verifies the engine-level
+// guard: ResetForNewSync refuses to wipe the keyspace while a sync is
+// in progress (between MarkFreshSync and EndFreshSync), which would
+// otherwise corrupt the in-flight write path.
+func TestResetForNewSyncRefusesActiveSync(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	a := NewAdapter(e)
-	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
 		t.Fatalf("StartNewSync: %v", err)
 	}
-	if err := e.DeleteSyncData(ctx, syncID); err == nil {
-		t.Fatal("DeleteSyncData on active sync: expected error, got nil")
+	if err := e.ResetForNewSync(ctx); err == nil {
+		t.Fatal("ResetForNewSync while a sync is active: expected error, got nil")
 	}
 }
 
