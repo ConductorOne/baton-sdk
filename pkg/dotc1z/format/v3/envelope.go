@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/cespare/xxhash/v2"
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	"github.com/klauspost/compress/zstd"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -58,7 +59,10 @@ const (
 	defaultDecoderMaxMemoryBytes  uint64 = 128 << 20 // 128 MiB zstd window cap
 	maxDecodedSizeEnvVar                 = "BATON_DECODER_MAX_DECODED_SIZE_MB"
 	maxDecoderMemorySizeEnvVar           = "BATON_DECODER_MAX_MEMORY_MB"
+	fcsFailFastDisableEnvVar             = "BATON_DISABLE_FCS_FAIL_FAST"
 )
+
+var fcsFailFastDisabled = os.Getenv(fcsFailFastDisableEnvVar) == "1"
 
 // ErrMaxSizeExceeded is returned (wrapped) when a payload decodes to
 // more bytes than the configured cap. Guards against decompression
@@ -86,6 +90,67 @@ func maxDecodedPayloadBytes() uint64 {
 
 func decoderMaxMemoryBytes() uint64 {
 	return envSizeBytes(maxDecoderMemorySizeEnvVar, defaultDecoderMaxMemoryBytes)
+}
+
+type payloadOptions struct {
+	maxDecodedPayloadBytes uint64
+	maxDecoderMemoryBytes  uint64
+	disableSizeFailFast    bool
+	pool                   *DecoderPool
+}
+
+type PayloadOption func(*payloadOptions)
+
+// WithMaxDecodedPayloadBytes sets the decoded payload byte cap for v3 payload
+// extraction. A zero value means use BATON_DECODER_MAX_DECODED_SIZE_MB or the
+// built-in default.
+func WithMaxDecodedPayloadBytes(n uint64) PayloadOption {
+	return func(o *payloadOptions) {
+		o.maxDecodedPayloadBytes = n
+	}
+}
+
+// WithMaxDecoderMemoryBytes sets the zstd decoder memory cap for v3 payload
+// extraction. A zero value means use BATON_DECODER_MAX_MEMORY_MB or the
+// built-in default.
+func WithMaxDecoderMemoryBytes(n uint64) PayloadOption {
+	return func(o *payloadOptions) {
+		o.maxDecoderMemoryBytes = n
+	}
+}
+
+// WithPayloadDecoderPool scopes zstd payload-decoder reuse to the caller's
+// pool for the tar_zstd encoding (the single-stream decode that dominates
+// when many envelopes are opened in a loop, e.g. compaction source opens).
+//
+// The pool only engages when the resolved decoder memory cap equals the
+// pool's standard construction cap: a pooled decoder's WithDecoderMaxMemory
+// is baked in at construction, so a caller-specific cap must construct a
+// fresh decoder to be honored. The indexed encoding never draws from the
+// pool — its parallel frame workers use cheap concurrency-1 decoders whose
+// settings don't match the pool's. Nil is valid and means no reuse.
+func WithPayloadDecoderPool(pool *DecoderPool) PayloadOption {
+	return func(o *payloadOptions) {
+		o.pool = pool
+	}
+}
+
+func resolvePayloadOptions(opts ...PayloadOption) payloadOptions {
+	out := payloadOptions{
+		maxDecodedPayloadBytes: maxDecodedPayloadBytes(),
+		maxDecoderMemoryBytes:  decoderMaxMemoryBytes(),
+		disableSizeFailFast:    fcsFailFastDisabled,
+	}
+	for _, opt := range opts {
+		opt(&out)
+	}
+	if out.maxDecodedPayloadBytes == 0 {
+		out.maxDecodedPayloadBytes = maxDecodedPayloadBytes()
+	}
+	if out.maxDecoderMemoryBytes == 0 {
+		out.maxDecoderMemoryBytes = decoderMaxMemoryBytes()
+	}
+	return out
 }
 
 // limitedPayloadReader passes through up to limit bytes and then fails
@@ -130,28 +195,41 @@ func (l *limitedPayloadReader) limitErr() error {
 //  1. The 5-byte C1Z3 magic.
 //  2. A uint32 BE length prefix for the marshaled manifest.
 //  3. The marshaled manifest bytes.
-//  4. The payload (tar, or tar then zstd, per the manifest's
-//     PayloadEncoding).
+//  4. The payload, per the manifest's PayloadEncoding.
 //
 // The manifest's PayloadEncoding field selects the payload format:
 //
-//   - PAYLOAD_ENCODING_TAR_ZSTD (3): default; tar then zstd. The
+//   - PAYLOAD_ENCODING_TAR_ZSTD (1): default; tar then zstd. The
 //     manifest can leave PayloadEncoding as the zero value
 //     (UNSPECIFIED) and WriteEnvelope will write TAR_ZSTD and patch
 //     the manifest in place so the reader sees the same value.
-//   - PAYLOAD_ENCODING_TAR (4): uncompressed tar.
+//   - PAYLOAD_ENCODING_TAR (2): uncompressed tar.
+//   - PAYLOAD_ENCODING_INDEXED_ZSTD (5): per-file zstd frames with a
+//     trailing frame index (see indexed.go for the layout).
 //   - PAYLOAD_ENCODING_UNSPECIFIED (0): treated as TAR_ZSTD.
 //
-// Any other value (including the now-reserved 1 and 2) returns an
-// error before any bytes are written to w.
+// Any other value (including the reserved 3 and 4) returns an error
+// before any bytes are written to w.
 //
 // payloadDir is walked in sorted lexical order; file mtimes are NOT
 // normalized (the RFC documents tar as not byte-stable). w is typically
 // a *os.File created via os.CreateTemp in the same directory as the
 // final destination so an atomic rename can finalize the write.
 func WriteEnvelope(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string) error {
+	_, err := WriteEnvelopeWithReuse(w, m, payloadDir, nil)
+	return err
+}
+
+// WriteEnvelopeWithReuse is WriteEnvelope plus frame splicing for the
+// INDEXED_ZSTD encoding: payload files proven byte-identical to a
+// frame in reuse's source envelope are copied as compressed bytes
+// instead of re-encoded. reuse is ignored (and stats zero) for the tar
+// encodings. Every encoding writes in a single pass, so w may be any
+// io.Writer — including a non-seekable network sink.
+func WriteEnvelopeWithReuse(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string, reuse *PayloadReuse) (SpliceStats, error) {
+	var stats SpliceStats
 	if m == nil {
-		return errors.New("c1z v3: WriteEnvelope: nil manifest")
+		return stats, errors.New("c1z v3: WriteEnvelope: nil manifest")
 	}
 
 	// Resolve the encoding. Validate before we write any bytes so a
@@ -163,45 +241,52 @@ func WriteEnvelope(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string) error
 	}
 	switch enc {
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD,
-		c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
+		c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR,
+		c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD:
 		// ok
 	default:
-		return fmt.Errorf("c1z v3: WriteEnvelope: unsupported payload encoding %v", enc)
+		return stats, fmt.Errorf("c1z v3: WriteEnvelope: unsupported payload encoding %v", enc)
 	}
 
 	if _, err := w.Write(C1Z3Magic); err != nil {
-		return fmt.Errorf("c1z v3: write magic: %w", err)
+		return stats, fmt.Errorf("c1z v3: write magic: %w", err)
 	}
 	mb, err := MarshalManifest(m)
 	if err != nil {
-		return fmt.Errorf("c1z v3: marshal manifest: %w", err)
+		return stats, fmt.Errorf("c1z v3: marshal manifest: %w", err)
 	}
 	if len(mb) > maxManifestBytes {
-		return fmt.Errorf("c1z v3: manifest is %d bytes, exceeds %d", len(mb), maxManifestBytes)
+		return stats, fmt.Errorf("c1z v3: manifest is %d bytes, exceeds %d", len(mb), maxManifestBytes)
 	}
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(mb))) //nolint:gosec // len(mb) is capped at maxManifestBytes above.
 	if _, err := w.Write(lenBuf[:]); err != nil {
-		return fmt.Errorf("c1z v3: write manifest length: %w", err)
+		return stats, fmt.Errorf("c1z v3: write manifest length: %w", err)
 	}
 	if _, err := w.Write(mb); err != nil {
-		return fmt.Errorf("c1z v3: write manifest: %w", err)
+		return stats, fmt.Errorf("c1z v3: write manifest: %w", err)
 	}
 	switch enc {
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD:
 		if err := writeZstdTar(w, payloadDir); err != nil {
-			return fmt.Errorf("c1z v3: write tar_zstd payload: %w", err)
+			return stats, fmt.Errorf("c1z v3: write tar_zstd payload: %w", err)
 		}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
 		if err := writeTar(w, payloadDir); err != nil {
-			return fmt.Errorf("c1z v3: write tar payload: %w", err)
+			return stats, fmt.Errorf("c1z v3: write tar payload: %w", err)
+		}
+	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD:
+		payloadStart := int64(len(C1Z3Magic)) + 4 + int64(len(mb))
+		stats, err = writeIndexedZstd(w, payloadStart, xxhash.Sum64(mb), payloadDir, reuse)
+		if err != nil {
+			return stats, fmt.Errorf("c1z v3: write indexed_zstd payload: %w", err)
 		}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED:
 		// Unreachable: the validation block above normalises
 		// UNSPECIFIED to TAR_ZSTD before this point.
-		return fmt.Errorf("c1z v3: WriteEnvelope: payload encoding was not resolved")
+		return stats, fmt.Errorf("c1z v3: WriteEnvelope: payload encoding was not resolved")
 	}
-	return nil
+	return stats, nil
 }
 
 // Envelope is the parsed result of ReadEnvelope. Manifest holds the
@@ -322,9 +407,11 @@ func (p *DecoderPool) Close() {
 // start of the file (the C1Z3 magic). Returns an Envelope whose
 // PayloadReader streams the uncompressed tar bytes for both
 // PAYLOAD_ENCODING_TAR_ZSTD (transparently decoding zstd first) and
-// PAYLOAD_ENCODING_TAR (passing through unchanged). The reserved
-// values 1 (RAW) and 2 (single-stream ZSTD) return an error — they
-// were never wired and aren't supported.
+// PAYLOAD_ENCODING_TAR (passing through unchanged). For
+// PAYLOAD_ENCODING_INDEXED_ZSTD the payload is not a tar stream and
+// PayloadReader is nil — use ExtractEnvelopePayload (random access
+// over the frame table) or ReadIndexedFrameIndex instead. The
+// reserved values 3 and 4 return an error.
 //
 // The payload is treated as untrusted: the zstd decoder's window
 // memory is capped (BATON_DECODER_MAX_MEMORY_MB, default 128 MiB) and
@@ -418,6 +505,10 @@ func readEnvelope(r io.Reader, headerOnly bool, pool *DecoderPool) (*Envelope, e
 		env.PayloadReader = &limitedPayloadReader{r: zr, limit: maxDecodedPayloadBytes()}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
 		env.PayloadReader = &limitedPayloadReader{r: r, limit: maxDecodedPayloadBytes()}
+	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD:
+		// Indexed payloads are not a tar stream; extraction goes
+		// through ExtractEnvelopePayload (random access over the
+		// frame table). PayloadReader stays nil.
 	default:
 		return nil, fmt.Errorf("c1z v3: unsupported payload encoding %v", m.GetPayloadEncoding())
 	}

@@ -1,26 +1,62 @@
 package pebble
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash/maphash"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
+	"time"
 
 	cpebble "github.com/cockroachdb/pebble/v2"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protowire"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
+// defaultOverlayRecordChunkSize is how many records are buffered per
+// raw write batch while streaming winners into the dest. Tunable via
+// BATON_EXPERIMENTAL_OVERLAY_CHUNK_SIZE.
 const defaultOverlayRecordChunkSize = 32768
+
+// defaultOverlaySeenKeyLimit caps the per-bucket seen-set size (the
+// soft limit) for the overlay path; buckets that would exceed it
+// degrade to the kway run-file path mid-merge (see the bucket state
+// machine in MergeFilesIntoOverlay). Each seen-set entry is a
+// 16-byte hash key + 8-byte timestamp (~40B with map overhead), so
+// this bounds seen-set memory to ~15MB per bucket. Raised from 250k
+// when the hashed set replaced the retained-string set (~3-4x smaller
+// per key). Tunable via BATON_EXPERIMENTAL_OVERLAY_SEEN_LIMIT.
 const defaultOverlaySeenKeyLimit = 375000
+
+// defaultOverlayBufferFactor scales the soft seen-key limit into the
+// hard limit (hard = soft × factor). A source that crosses the soft
+// limit mid-scan is allowed to finish inside this buffer (then the
+// bucket resumes via kway at the source boundary); crossing the HARD
+// limit mid-source restarts the bucket through the blind kway path.
+// Overridable via WithOverlayBufferFactor (synccompactor callers:
+// WithOverlayBufferFactor on the Compactor).
+const defaultOverlayBufferFactor = 1.25
+
+// defaultOverlayGateFraction sets the statless pre-source gate as a
+// fraction of the soft limit: when a source has no cached stats and
+// the seen set is already at gateFraction × soft, the bucket resumes
+// via kway before scanning the source (avoiding a mid-source restart).
+// Sources WITH stats use the exact prediction seen+count > hard
+// instead. Overridable via WithOverlayGateFraction (synccompactor
+// callers: WithOverlayGateFraction on the Compactor).
+const defaultOverlayGateFraction = 0.9
 
 // overlayConfig carries the overlay merge tunables. The defaults are
 // the production values; explicit options exist for benchmarks and
@@ -28,6 +64,41 @@ const defaultOverlaySeenKeyLimit = 375000
 type overlayConfig struct {
 	seenKeyLimit    int64
 	recordChunkSize int
+	bufferFactor    float64
+	gateFraction    float64
+	fanIn           int
+}
+
+func defaultOverlayConfig() overlayConfig {
+	return overlayConfig{
+		seenKeyLimit:    defaultOverlaySeenKeyLimit,
+		recordChunkSize: defaultOverlayRecordChunkSize,
+		bufferFactor:    defaultOverlayBufferFactor,
+		gateFraction:    defaultOverlayGateFraction,
+		fanIn:           defaultKWayFanIn,
+	}
+}
+
+// hardLimit is the seen-set size that triggers a mid-source restart.
+// Clamped to at least the soft limit so a buffer factor below 1 cannot
+// invert the two thresholds.
+func (c overlayConfig) hardLimit() int64 {
+	hl := int64(float64(c.seenKeyLimit) * c.bufferFactor)
+	if hl < c.seenKeyLimit {
+		return c.seenKeyLimit
+	}
+	return hl
+}
+
+// gateThreshold is the statless pre-source gate. Clamped to at least 1
+// so a tiny soft limit cannot make the gate fire on an empty seen set
+// (the first source must always get a chance to scan).
+func (c overlayConfig) gateThreshold() int64 {
+	g := int64(c.gateFraction * float64(c.seenKeyLimit))
+	if g < 1 {
+		return 1
+	}
+	return g
 }
 
 // OverlayOption tunes the overlay merge.
@@ -57,6 +128,38 @@ func WithOverlayRecordChunkSize(n int) OverlayOption {
 	}
 }
 
+// WithOverlayBufferFactor overrides the soft→hard limit multiplier
+// (default 1.25). Non-positive values are ignored.
+func WithOverlayBufferFactor(f float64) OverlayOption {
+	return func(c *overlayConfig) {
+		if f > 0 {
+			c.bufferFactor = f
+		}
+	}
+}
+
+// WithOverlayGateFraction overrides the statless pre-source gate
+// fraction (default 0.9). Non-positive values are ignored.
+func WithOverlayGateFraction(f float64) OverlayOption {
+	return func(c *overlayConfig) {
+		if f > 0 {
+			c.gateFraction = f
+		}
+	}
+}
+
+// WithOverlayFanIn overrides how many sources are opened per chunk
+// (default matches the kway fan-in). Intended for tests that need
+// multi-chunk behavior without dozens of sources. Values below 1 are
+// ignored.
+func WithOverlayFanIn(n int) OverlayOption {
+	return func(c *overlayConfig) {
+		if n >= 1 {
+			c.fanIn = n
+		}
+	}
+}
+
 // seenSuffixSet tracks, per admitted primary-key suffix, the
 // discovered_at (UnixNano) of the record currently admitted for that
 // key. Keys are 128-bit hashes of the suffix instead of the suffix
@@ -69,8 +172,8 @@ func WithOverlayRecordChunkSize(n int) OverlayOption {
 // Trade-off: a hash collision makes a never-seen key look seen, so a
 // record that should have won is dropped (or wrongly compared) in the
 // dest sync. The 128-bit key is built from two independently-seeded
-// 64-bit maphash values; at the 250k-key seen limit the collision
-// probability per merge is ~(n^2/2)/2^128 ≈ 1e-28 — negligible against
+// 64-bit maphash values; at the 375k-key seen limit the collision
+// probability per merge is ~(n^2/2)/2^128 ≈ 2e-28 — negligible against
 // the hardware error floor. Seeds are per-process random, which is
 // fine: the set never persists and never crosses processes.
 type seenSuffixSet struct {
@@ -108,6 +211,117 @@ func (s *seenSuffixSet) put(k [16]byte, ts int64) {
 
 func (s *seenSuffixSet) size() int { return len(s.m) }
 
+// errOverlayHardLimit is the sentinel overlaySinglePassBucket returns
+// when admitting one more key would push the seen set past the hard
+// limit. The caller restarts the bucket through the blind kway path.
+var errOverlayHardLimit = errors.New("overlay merge: seen-set hard limit exceeded")
+
+// overlayBucketMode is the per-bucket degradation state. Transitions
+// are one-way: active → resumed (seen map frozen, remaining sources
+// flow to run files and a map-aware materialization) or active →
+// restarted (dest keyspace range-deleted, ALL sources flow to run
+// files and the blind kway materialization).
+type overlayBucketMode int
+
+const (
+	overlayBucketActive overlayBucketMode = iota
+	overlayBucketResumed
+	overlayBucketRestarted
+)
+
+func (m overlayBucketMode) String() string {
+	switch m {
+	case overlayBucketResumed:
+		return "resumed"
+	case overlayBucketRestarted:
+		return "restarted"
+	default:
+		return "active"
+	}
+}
+
+type overlayBucketState struct {
+	mode overlayBucketMode
+	// cutRank is the global source rank where kway coverage begins for
+	// a resumed bucket: sources[cutRank:] were never overlay-scanned.
+	cutRank int
+	// restartChunk is the chunk index where a restart fired. Chunks
+	// before it closed without building run files for this bucket and
+	// are re-opened by the backfill pass.
+	restartChunk int
+}
+
+// overlayPreGateFires reports whether the bucket should resume via
+// kway BEFORE scanning this source. With per-source stats the gate is
+// the exact overshoot prediction (current seen size plus the source's
+// bucket count exceeding the hard limit); without stats it is the
+// conservative gateThreshold on the current seen size.
+func overlayPreGateFires(seen *seenSuffixSet, srcStats *reader_v2.SyncStats, bucket bucketSpec, hardLimit, gateThreshold int64) bool {
+	if srcStats != nil {
+		if n, ok := syncStatsBucketKeys(srcStats, bucket); ok {
+			return int64(seen.size())+n > hardLimit
+		}
+	}
+	return int64(seen.size()) >= gateThreshold
+}
+
+// bucketIndexRanges enumerates the bucket's sync-scoped secondary
+// index keyspaces under syncBytes — everything the overlay writer's
+// forEachIndexKeyFromRaw can have emitted for this bucket. Paired with
+// bucket.syncRange (the primary range) these are exactly the ranges a
+// restart must delete.
+func bucketIndexRanges(bucket bucketSpec, syncBytes []byte) [][2][]byte {
+	switch bucket.id {
+	case runBucketResources:
+		return [][2][]byte{
+			{enginepkg.ResourceByParentSyncLowerBound(syncBytes), enginepkg.ResourceByParentSyncUpperBound(syncBytes)},
+		}
+	case runBucketEntitlements:
+		return [][2][]byte{
+			{enginepkg.EntitlementByResourceSyncLowerBound(syncBytes), enginepkg.EntitlementByResourceSyncUpperBound(syncBytes)},
+		}
+	case runBucketGrants:
+		return [][2][]byte{
+			{enginepkg.GrantByEntitlementSyncLowerBound(syncBytes), enginepkg.GrantByEntitlementSyncUpperBound(syncBytes)},
+			{enginepkg.GrantByEntitlementResourceSyncLowerBound(syncBytes), enginepkg.GrantByEntitlementResourceSyncUpperBound(syncBytes)},
+			{enginepkg.GrantByPrincipalSyncLowerBound(syncBytes), enginepkg.GrantByPrincipalSyncUpperBound(syncBytes)},
+			{enginepkg.GrantByPrincipalResourceTypeSyncLowerBound(syncBytes), enginepkg.GrantByPrincipalResourceTypeSyncUpperBound(syncBytes)},
+			{enginepkg.GrantByNeedsExpansionSyncLowerBound(syncBytes), enginepkg.GrantByNeedsExpansionSyncUpperBound(syncBytes)},
+		}
+	default:
+		return nil
+	}
+}
+
+// overlayRestartBucket undoes every overlay-era write for one bucket:
+// pending (uncommitted) batch writes are discarded — the writer is
+// bucket-scoped, so nothing else is in them — and the committed
+// primary + index keyspaces are range-deleted, including anything the
+// whole-source SST path ingested. Stats for the bucket are zeroed; the
+// blind kway materialization recounts from scratch.
+func overlayRestartBucket(ctx context.Context, dest *enginepkg.Engine, bucket bucketSpec, destSyncBytes []byte, writer *overlayBucketRawWriter, stats *mergeStatsAccumulator) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	writer.discard()
+	b := dest.DB().NewBatch()
+	defer func() { _ = b.Close() }()
+	lo, hi := bucket.syncRange(destSyncBytes)
+	if err := b.DeleteRange(lo, hi, nil); err != nil {
+		return err
+	}
+	for _, r := range bucketIndexRanges(bucket, destSyncBytes) {
+		if err := b.DeleteRange(r[0], r[1], nil); err != nil {
+			return err
+		}
+	}
+	if err := b.Commit(cpebble.NoSync); err != nil {
+		return err
+	}
+	stats.resetBucket(bucket.id)
+	return nil
+}
+
 // MergeFilesIntoOverlay is a sqlite-shaped compactor:
 //
 //   - keep a bounded in-memory seen map (suffix hash → discovered_at)
@@ -118,9 +332,24 @@ func (s *seenSuffixSet) size() int { return len(s.m) }
 //     sqlite attached compactor (`a.discovered_at > m.discovered_at`),
 //     enforced via a shallow discovered_at scan of each candidate value;
 //   - write winners through raw Pebble batches so secondary indexes are
-//     materialized once; and
-//   - route buckets whose estimated key count exceeds the in-memory
-//     limit through the K-way run-file path instead (overlayPlanBuckets).
+//     materialized once;
+//   - let the last source scanned (the oldest — in the production
+//     skewed shape, the large base) skip the record write path when
+//     its bucket is big enough (overlayWholeSourceWorthIt): the bucket
+//     is materialized as SST files filtered against the seen set and
+//     ingested wholesale, making the base's cost proportional to bytes
+//     copied rather than records decoded; and
+//   - degrade buckets whose seen set would outgrow memory to the K-way
+//     run-file path ADAPTIVELY (per-bucket state machine):
+//     a pre-source gate cuts at a source boundary and RESUMES via kway
+//     with the seen map frozen as the conflict oracle; a source that
+//     crosses the soft limit mid-scan may finish inside the buffer
+//     (hard limit = soft × bufferFactor) and resume at the boundary;
+//     crossing the hard limit mid-source RESTARTS the bucket — its
+//     dest keyspace is range-deleted and the whole bucket flows
+//     through the blind kway path (keeping SST ingest, total work ≤2×).
+//     Planning routes only the provably-safe (stats sum ≤ soft) and
+//     provably-doomed (single-source count > hard) buckets up front.
 //
 // On success it returns the dest sync's stats record, accumulated as
 // winners were written, so the caller can persist the stats sidecar
@@ -132,10 +361,7 @@ func MergeFilesIntoOverlay(ctx context.Context, dest *enginepkg.Engine, sources 
 	if destSyncID == "" {
 		return nil, fmt.Errorf("overlay merge: destSyncID is required")
 	}
-	cfg := overlayConfig{
-		seenKeyLimit:    defaultOverlaySeenKeyLimit,
-		recordChunkSize: defaultOverlayRecordChunkSize,
-	}
+	cfg := defaultOverlayConfig()
 	for _, opt := range opts {
 		opt(&cfg)
 	}
@@ -143,11 +369,21 @@ func MergeFilesIntoOverlay(ctx context.Context, dest *enginepkg.Engine, sources 
 	if err != nil {
 		return nil, err
 	}
+	hardLimit := cfg.hardLimit()
+	gateThreshold := cfg.gateThreshold()
 	buckets := allBuckets()
-	overlayBuckets, kwayBuckets, err := overlayPlanBuckets(ctx, sources, buckets, tmpDir, cfg.seenKeyLimit)
-	if err != nil {
-		return nil, err
-	}
+	overlayBuckets, kwayBuckets := overlayPlanBuckets(ctx, sources, buckets, cfg.seenKeyLimit, hardLimit)
+
+	l := ctxzap.Extract(ctx)
+	mergeStart := time.Now()
+	l.Info("pebble overlay merge: bucket plan",
+		zap.Int("sources", len(sources)),
+		zap.Strings("overlay_buckets", bucketNames(overlayBuckets)),
+		zap.Strings("kway_upfront_buckets", bucketNames(kwayBuckets)),
+		zap.Int64("seen_key_limit", cfg.seenKeyLimit),
+		zap.Int64("seen_key_hard_limit", hardLimit),
+		zap.Int64("pre_gate_threshold", gateThreshold),
+	)
 
 	stats := newMergeStatsAccumulator()
 	rm := &asyncRemover{}
@@ -158,6 +394,7 @@ func MergeFilesIntoOverlay(ctx context.Context, dest *enginepkg.Engine, sources 
 	}()
 	writers := make([]*overlayBucketRawWriter, len(overlayBuckets))
 	seenByBucket := make([]*seenSuffixSet, len(overlayBuckets))
+	states := make([]overlayBucketState, len(overlayBuckets))
 	for i, bucket := range overlayBuckets {
 		writers[i] = newOverlayBucketRawWriter(dest, bucket, stats, cfg.recordChunkSize)
 		seenByBucket[i] = newSeenSuffixSet()
@@ -172,8 +409,9 @@ func MergeFilesIntoOverlay(ctx context.Context, dest *enginepkg.Engine, sources 
 	// closing it. This preserves the K-way FD bound while avoiding the old
 	// bucket-major reopen pattern; same-size syncs=50 overlay dropped from
 	// ~5.4s to ~2.9s when source opens stopped multiplying by bucket count.
-	for start := 0; start < len(sources); start += defaultKWayFanIn {
-		end := min(start+defaultKWayFanIn, len(sources))
+	chunkIdx := 0
+	for start := 0; start < len(sources); start += cfg.fanIn {
+		end := min(start+cfg.fanIn, len(sources))
 		chunk, err := openSourceChunk(ctx, tmpDir, sources[start:end], start)
 		if err != nil {
 			return nil, err
@@ -186,27 +424,151 @@ func MergeFilesIntoOverlay(ctx context.Context, dest *enginepkg.Engine, sources 
 					return err
 				}
 				for bucketIdx, bucket := range overlayBuckets {
-					seen := seenByBucket[bucketIdx]
-					if source.rank == len(sources)-1 && seen.size() == 0 {
-						if err := overlayMaterializeWholeSourceBucketSST(ctx, dest, source.engine, bucket, sourceSyncBytes, destSyncBytes, tmpDir, stats); err != nil {
-							return err
-						}
+					st := &states[bucketIdx]
+					if st.mode != overlayBucketActive {
+						// Degraded buckets are covered by run files
+						// (built per chunk below); nothing to scan.
 						continue
 					}
-					if err := overlaySinglePassBucket(ctx, source.engine, bucket, writers[bucketIdx], seen, sourceSyncBytes, destSyncBytes); err != nil {
+					seen := seenByBucket[bucketIdx]
+					if source.rank == len(sources)-1 {
+						useSST, err := overlayWholeSourceWorthIt(ctx, source, bucket, sourceSyncBytes, seen)
+						if err != nil {
+							return err
+						}
+						// The gate decision is the main prod tunable
+						// (overlayWholeSourceMinKeys): sst_path=false
+						// on a huge base means the threshold is too
+						// high; sst_path=true on small merges means
+						// it's too low.
+						l.Debug("pebble overlay merge: whole-source gate",
+							zap.String("bucket", bucket.name),
+							zap.Bool("sst_path", useSST),
+							zap.Int("seen_keys", seen.size()),
+						)
+						if useSST {
+							// Last source (the base sync in the
+							// skewed/prod shape): filtered SST-ingest.
+							// Unseen keys — the vast majority for a
+							// large base — stream straight into an
+							// ingested SST instead of through the
+							// memtable; seen keys get the same
+							// discovered_at comparison as the
+							// single-pass path. Filtering keeps the
+							// ingested SST key-disjoint from earlier
+							// admissions, so ingest seqnum ordering
+							// can't shadow them. The SST path never
+							// grows the seen set, so no degradation
+							// checks apply here.
+							if err := overlayMaterializeWholeSourceBucketSST(ctx, dest, source.engine, bucket, writers[bucketIdx], seen, sourceSyncBytes, destSyncBytes, tmpDir, stats); err != nil {
+								return err
+							}
+							continue
+						}
+					}
+					if overlayPreGateFires(seen, source.stats, bucket, hardLimit, gateThreshold) {
+						if seen.size() == 0 {
+							// Nothing admitted yet: restarting is free
+							// (discard/range-delete/reset are all
+							// no-ops) and routes the whole bucket
+							// through the blind kway path, keeping
+							// SST ingest instead of paying the
+							// map-aware batch path with an empty map.
+							if err := overlayRestartBucket(ctx, dest, bucket, destSyncBytes, writers[bucketIdx], stats); err != nil {
+								return err
+							}
+							st.mode = overlayBucketRestarted
+							st.restartChunk = chunkIdx
+						} else {
+							st.mode = overlayBucketResumed
+							st.cutRank = source.rank
+						}
+						l.Info("pebble overlay merge: bucket degraded at pre-source gate",
+							zap.String("bucket", bucket.name),
+							zap.String("mode", st.mode.String()),
+							zap.Int("source_rank", source.rank),
+							zap.Int("seen_keys", seen.size()),
+						)
+						continue
+					}
+					err = overlaySinglePassBucket(ctx, source.engine, bucket, writers[bucketIdx], seen, sourceSyncBytes, destSyncBytes, hardLimit)
+					switch {
+					case errors.Is(err, errOverlayHardLimit):
+						if err := overlayRestartBucket(ctx, dest, bucket, destSyncBytes, writers[bucketIdx], stats); err != nil {
+							return err
+						}
+						// Release the (large) seen map; the blind kway
+						// materialization needs no conflict oracle.
+						seenByBucket[bucketIdx] = newSeenSuffixSet()
+						st.mode = overlayBucketRestarted
+						st.restartChunk = chunkIdx
+						l.Info("pebble overlay merge: bucket restarted at hard limit",
+							zap.String("bucket", bucket.name),
+							zap.Int("source_rank", source.rank),
+							zap.Int64("hard_limit", hardLimit),
+						)
+					case err != nil:
 						return err
+					default:
+						if int64(seen.size()) > cfg.seenKeyLimit {
+							// The source finished inside the buffer;
+							// cut at the boundary. The frozen map is
+							// the conflict oracle for the resumed
+							// materialization.
+							st.mode = overlayBucketResumed
+							st.cutRank = source.rank + 1
+							l.Info("pebble overlay merge: bucket resumed at source boundary",
+								zap.String("bucket", bucket.name),
+								zap.Int("source_rank", source.rank),
+								zap.Int("seen_keys", seen.size()),
+								zap.Int64("soft_limit", cfg.seenKeyLimit),
+							)
+						}
 					}
 				}
 			}
+			// Build this chunk's run files. Buckets need different
+			// handle ranges: up-front kway and restarted buckets need
+			// the full chunk; a bucket resumed mid-chunk needs only the
+			// handles from its cut boundary onward. Group by start
+			// index so the common case (everything from 0) stays one
+			// run file per chunk.
+			needs := map[int][]bucketSpec{}
 			if len(kwayBuckets) > 0 {
+				needs[0] = append(needs[0], kwayBuckets...)
+			}
+			for bucketIdx, bucket := range overlayBuckets {
+				switch states[bucketIdx].mode {
+				case overlayBucketResumed:
+					from := states[bucketIdx].cutRank - start
+					if from < 0 {
+						from = 0
+					}
+					if from < len(chunk.handles) {
+						needs[from] = append(needs[from], bucket)
+					}
+				case overlayBucketRestarted:
+					// Chunks before restartChunk are re-opened by the
+					// backfill pass; this chunk and later ones are
+					// covered here in full.
+					needs[0] = append(needs[0], bucket)
+				case overlayBucketActive:
+				}
+			}
+			froms := make([]int, 0, len(needs))
+			for from := range needs {
+				froms = append(froms, from)
+			}
+			sort.Ints(froms)
+			for _, from := range froms {
 				run, err := buildChunkRunFileFromHandles(
 					ctx,
 					tmpDir,
-					chunk.handles,
+					chunk.handles[from:],
 					fmt.Sprintf("overlay-fallback-%04d", len(kwayRunFiles)),
 					destSyncID,
 					destSyncBytes,
-					kwayBuckets,
+					needs[from],
 				)
 				if err != nil {
 					return err
@@ -217,6 +579,16 @@ func MergeFilesIntoOverlay(ctx context.Context, dest *enginepkg.Engine, sources 
 		}(); err != nil {
 			return nil, err
 		}
+		chunkIdx++
+	}
+
+	// Backfill: a restarted bucket needs run files for the chunks that
+	// closed BEFORE its restart point (their overlay writes were
+	// range-deleted). Re-open only those chunks, only for the buckets
+	// that need them. Records carry global source ranks, so backfill
+	// run files merge correctly regardless of build order.
+	if err := overlayBackfillRestartedChunks(ctx, tmpDir, sources, cfg.fanIn, overlayBuckets, states, destSyncID, destSyncBytes, &kwayRunFiles, rm); err != nil {
+		return nil, err
 	}
 
 	for _, writer := range writers {
@@ -227,89 +599,285 @@ func MergeFilesIntoOverlay(ctx context.Context, dest *enginepkg.Engine, sources 
 			return nil, err
 		}
 	}
-	if len(kwayBuckets) > 0 {
+
+	// Materialize the kway-routed data. Up-front kway buckets and
+	// restarted buckets take the blind path (SST ingest, no conflict
+	// checks — their dest keyspace holds nothing from overlay). Resumed
+	// buckets take the map-aware path: the frozen seen map arbitrates
+	// against overlay-admitted winners via addRaw/replaceRaw.
+	blindBuckets := append([]bucketSpec{}, kwayBuckets...)
+	resumedIdx := make([]int, 0, len(overlayBuckets))
+	for i, bucket := range overlayBuckets {
+		switch states[i].mode {
+		case overlayBucketRestarted:
+			blindBuckets = append(blindBuckets, bucket)
+		case overlayBucketResumed:
+			resumedIdx = append(resumedIdx, i)
+		case overlayBucketActive:
+		}
+	}
+	if len(blindBuckets) > 0 && len(kwayRunFiles) > 0 {
 		kwayStats := newMergeStatsAccumulator()
-		if err := materializeRunFilesToPebble(ctx, dest, tmpDir, kwayRunFiles, destSyncBytes, kwayBuckets, kwayStats); err != nil {
+		if err := materializeRunFilesToPebble(ctx, dest, tmpDir, kwayRunFiles, destSyncBytes, blindBuckets, kwayStats); err != nil {
 			return nil, err
 		}
 		stats.addRecord(kwayStats.record())
 	}
+	for _, i := range resumedIdx {
+		if err := materializeResumedRunFilesToPebble(ctx, tmpDir, kwayRunFiles, destSyncBytes, overlayBuckets[i], seenByBucket[i], writers[i]); err != nil {
+			return nil, err
+		}
+	}
+
+	// Per-bucket seen sizes calibrate the seen-key limit (memory);
+	// per-bucket modes report how often degradation fires in prod.
+	doneFields := []zap.Field{
+		zap.Duration("elapsed", time.Since(mergeStart)),
+		zap.Int("kway_fallback_run_files", len(kwayRunFiles)),
+	}
+	for i, bucket := range overlayBuckets {
+		doneFields = append(doneFields,
+			zap.Int("seen_keys_"+bucket.name, seenByBucket[i].size()),
+			zap.String("mode_"+bucket.name, states[i].mode.String()),
+		)
+	}
+	l.Info("pebble overlay merge: done", doneFields...)
 	return stats.record(), nil
 }
 
-func overlayPlanBuckets(ctx context.Context, sources []SourceFile, buckets []bucketSpec, tmpDir string, limit int64) ([]bucketSpec, []bucketSpec, error) {
-	overlayBuckets := make([]bucketSpec, 0, len(buckets))
-	kwayBuckets := make([]bucketSpec, 0, len(buckets))
-	for _, bucket := range buckets {
-		if total, ok := overlayEstimatedBucketKeys(sources, bucket); ok {
-			if total > limit {
-				kwayBuckets = append(kwayBuckets, bucket)
-			} else {
-				overlayBuckets = append(overlayBuckets, bucket)
+// overlayBackfillRestartedChunks re-opens the chunks that closed
+// before each restarted bucket's restart point and builds run files
+// covering those buckets. Chunks at or after a bucket's restartChunk
+// were already covered in the main loop.
+func overlayBackfillRestartedChunks(
+	ctx context.Context,
+	tmpDir string,
+	sources []SourceFile,
+	fanIn int,
+	overlayBuckets []bucketSpec,
+	states []overlayBucketState,
+	destSyncID string,
+	destSyncBytes []byte,
+	kwayRunFiles *[]runFile,
+	rm *asyncRemover,
+) error {
+	chunkIdx := 0
+	for start := 0; start < len(sources); start += fanIn {
+		var needed []bucketSpec
+		for i, bucket := range overlayBuckets {
+			if states[i].mode == overlayBucketRestarted && states[i].restartChunk > chunkIdx {
+				needed = append(needed, bucket)
+			}
+		}
+		if len(needed) == 0 {
+			chunkIdx++
+			continue
+		}
+		end := min(start+fanIn, len(sources))
+		chunk, err := openSourceChunk(ctx, tmpDir, sources[start:end], start)
+		if err != nil {
+			return err
+		}
+		run, err := func() (runFile, error) {
+			defer chunk.closeAsync(rm)
+			return buildChunkRunFileFromHandles(
+				ctx,
+				tmpDir,
+				chunk.handles,
+				fmt.Sprintf("overlay-backfill-%04d", len(*kwayRunFiles)),
+				destSyncID,
+				destSyncBytes,
+				needed,
+			)
+		}()
+		if err != nil {
+			return err
+		}
+		*kwayRunFiles = append(*kwayRunFiles, run)
+		chunkIdx++
+	}
+	return nil
+}
+
+// materializeResumedRunFilesToPebble is the map-aware counterpart to
+// materializeRunFilesToPebble for one resumed bucket. The merged run
+// stream holds the kway winner per key among the remaining (older)
+// sources — duplicates are adjacent and deduped positionally, so the
+// frozen seen map needs no insertions and memory stays exactly capped.
+// Each stream winner is arbitrated against the overlay-admitted record
+// via the map: a miss is a fresh admission (addRaw), a hit replaces
+// only on a strictly newer discovered_at (replaceRaw — ties keep the
+// overlay record, which came from a newer source, matching
+// runRecordIsNewer's ordering), otherwise it is dropped.
+//
+// Writes go through the bucket's overlayBucketRawWriter (batch path)
+// rather than SST ingest: replacements must delete the superseded
+// value's index keys, and fresh admissions must not shadow batch
+// writes via ingest seqnums. addRaw counts winners and replaceRaw
+// regroups; the blind path's countWinner is deliberately not used, so
+// nothing double-counts.
+func materializeResumedRunFilesToPebble(
+	ctx context.Context,
+	tmpDir string,
+	inputs []runFile,
+	destSyncBytes []byte,
+	bucket bucketSpec,
+	seen *seenSuffixSet,
+	writer *overlayBucketRawWriter,
+) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+	merged, err := mergeRunFileGroup(ctx, tmpDir, inputs, "overlay-resumed-"+bucket.name, []bucketSpec{bucket})
+	if err != nil {
+		return err
+	}
+	defer removeRunFiles([]runFile{merged})
+	f, err := os.Open(merged.path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	section := merged.sections[bucket.id]
+	if _, err := f.Seek(section.offset, io.SeekStart); err != nil {
+		return err
+	}
+	br := bufio.NewReaderSize(io.LimitReader(f, section.length), runFileBufferSize)
+	destLower, _ := bucket.syncRange(destSyncBytes)
+	var rec runRecord
+	var hdr [runHeaderSize]byte
+	var lastPrimaryKey []byte
+	for {
+		ok, err := readRunRecordInto(br, &rec, &hdr)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if bytes.Equal(rec.key, lastPrimaryKey) {
+			continue
+		}
+		lastPrimaryKey = append(lastPrimaryKey[:0], rec.key...)
+		if len(rec.key) <= len(destLower) {
+			return fmt.Errorf("overlay resumed merge: run key shorter than dest prefix: key=%d prefix=%d", len(rec.key), len(destLower))
+		}
+		suffix := rec.key[len(destLower):]
+		if prevTs, hit := seen.get(seen.keyOf(suffix)); hit {
+			if rec.tsNanos <= prevTs {
+				continue
+			}
+			if err := writer.replaceRaw(ctx, bucket, destSyncBytes, rec.key, destLower, rec.value); err != nil {
+				return err
 			}
 			continue
 		}
-		total, err := overlayCountBucketKeysUpTo(ctx, sources, bucket, tmpDir, limit)
-		if err != nil {
-			return nil, nil, err
+		if err := writer.addRaw(ctx, bucket, destSyncBytes, rec.key, destLower, rec.value); err != nil {
+			return err
 		}
-		if total > limit {
+	}
+	return writer.flush(ctx)
+}
+
+// overlayPlanBuckets routes each bucket up front using only cached
+// stats — no counting pre-scan. The stats give two bounds on the
+// distinct-key count the seen set will hold:
+//
+//   - sum of per-source counts is an UPPER bound (duplicates counted
+//     once per source) → sum ≤ softLimit guarantees overlay is safe;
+//   - max single-source count is a LOWER bound (one source's keys are
+//     all distinct within it) → max > hardLimit guarantees overlay
+//     would restart, so route straight to kway and keep blind ingest.
+//
+// Everything in between — and every bucket where any source lacks
+// stats — starts in overlay and relies on the adaptive degradation
+// state machine in MergeFilesIntoOverlay. Sources whose keys never
+// feed the seen set (the last source when it will take the
+// whole-source SST path) are excluded from both bounds.
+func overlayPlanBuckets(ctx context.Context, sources []SourceFile, buckets []bucketSpec, softLimit, hardLimit int64) ([]bucketSpec, []bucketSpec) {
+	l := ctxzap.Extract(ctx)
+	overlayBuckets := make([]bucketSpec, 0, len(buckets))
+	kwayBuckets := make([]bucketSpec, 0, len(buckets))
+	for _, bucket := range buckets {
+		sum, maxSingle, ok := overlayEstimatedBucketBounds(sources, bucket)
+		if !ok {
+			// At least one source lacks a stats projection
+			// (pre-projection file or missing sidecar) — a
+			// fleet-health signal that inputs should be regenerated
+			// by a current SDK. Start in overlay; degradation covers
+			// the misprediction.
+			l.Debug("pebble overlay merge: bucket routing",
+				zap.String("bucket", bucket.name),
+				zap.Bool("from_cached_stats", false),
+				zap.Bool("routed_to_kway", false),
+			)
+			overlayBuckets = append(overlayBuckets, bucket)
+			continue
+		}
+		routeToKway := sum > softLimit && maxSingle > hardLimit
+		l.Debug("pebble overlay merge: bucket routing",
+			zap.String("bucket", bucket.name),
+			zap.Int64("estimated_seen_load", sum),
+			zap.Int64("max_single_source", maxSingle),
+			zap.Bool("from_cached_stats", true),
+			zap.Bool("routed_to_kway", routeToKway),
+		)
+		if routeToKway {
 			kwayBuckets = append(kwayBuckets, bucket)
 		} else {
 			overlayBuckets = append(overlayBuckets, bucket)
 		}
 	}
-	return overlayBuckets, kwayBuckets, nil
+	return overlayBuckets, kwayBuckets
 }
 
-func overlayCountBucketKeysUpTo(ctx context.Context, sources []SourceFile, bucket bucketSpec, tmpDir string, limit int64) (int64, error) {
-	var total int64
-	for _, source := range sources {
-		if err := ctx.Err(); err != nil {
-			return 0, err
-		}
-		err := withSourceEngine(ctx, tmpDir, source, func(eng *enginepkg.Engine) error {
-			sourceSyncBytes, err := codec.EncodeSyncID(source.SyncID)
-			if err != nil {
-				return err
-			}
-			sourceLower, sourceUpper := bucket.syncRange(sourceSyncBytes)
-			iter, err := eng.DB().NewIter(&cpebble.IterOptions{LowerBound: sourceLower, UpperBound: sourceUpper})
-			if err != nil {
-				return err
-			}
-			defer iter.Close()
-			for iter.First(); iter.Valid(); iter.Next() {
-				total++
-				if total > limit {
-					return nil
-				}
-			}
-			return iter.Error()
-		})
-		if err != nil {
-			return 0, err
-		}
-		if total > limit {
-			return total, nil
-		}
+// bucketNames renders a bucket list for log fields.
+func bucketNames(buckets []bucketSpec) []string {
+	out := make([]string, 0, len(buckets))
+	for _, b := range buckets {
+		out = append(out, b.name)
 	}
-	return total, nil
+	return out
 }
 
-func overlayEstimatedBucketKeys(sources []SourceFile, bucket bucketSpec) (int64, bool) {
-	var total int64
+// overlayEstimatedBucketBounds returns the sum (upper bound on
+// distinct keys) and max single-source count (lower bound) over the
+// sources whose keys feed the seen set. ok is false when any source
+// lacks cached stats.
+//
+// The last source's keys never enter the seen set when it takes the
+// whole-source SST path (they're filtered against the set, not added
+// to it). Exclude that contribution from both bounds — otherwise a
+// large base sync (the production skewed shape) routes its bucket to
+// the kway fallback and the SST path never runs for exactly the data
+// it exists for.
+func overlayEstimatedBucketBounds(sources []SourceFile, bucket bucketSpec) (int64, int64, bool) {
+	counts := make([]int64, 0, len(sources))
 	for _, source := range sources {
 		if source.Stats == nil {
-			return 0, false
+			return 0, 0, false
 		}
 		n, ok := syncStatsBucketKeys(source.Stats, bucket)
 		if !ok {
-			return 0, false
+			return 0, 0, false
 		}
-		total += n
+		counts = append(counts, n)
 	}
-	return total, true
+	var sum, maxSingle int64
+	for i, n := range counts {
+		if i == len(counts)-1 && n >= overlayWholeSourceMinKeys {
+			// Will take the whole-source SST path; never feeds the map.
+			continue
+		}
+		sum += n
+		if n > maxSingle {
+			maxSingle = n
+		}
+	}
+	return sum, maxSingle, true
 }
 
 func syncStatsBucketKeys(stats *reader_v2.SyncStats, bucket bucketSpec) (int64, bool) {
@@ -335,6 +903,7 @@ func overlaySinglePassBucket(
 	seen *seenSuffixSet,
 	sourceSyncBytes []byte,
 	destSyncBytes []byte,
+	hardLimit int64,
 ) error {
 	destLower, _ := bucket.syncRange(destSyncBytes)
 	sourceLower, sourceUpper := bucket.syncRange(sourceSyncBytes)
@@ -362,7 +931,8 @@ func overlaySinglePassBucket(
 			// Key already admitted by an earlier (newer) source. Replace
 			// only on a strictly newer discovered_at; ties keep the
 			// earlier admission — matching runRecordIsNewer's
-			// (ts, then source rank) ordering.
+			// (ts, then source rank) ordering. Updates never grow the
+			// map, so no hard-limit check applies.
 			if ts <= prevTs {
 				continue
 			}
@@ -373,6 +943,13 @@ func overlaySinglePassBucket(
 			seen.put(k, ts)
 			continue
 		}
+		// New key: admitting it grows the seen set. Crossing the soft
+		// limit mid-source is allowed (the buffer); crossing the HARD
+		// limit aborts the scan and the caller restarts the bucket
+		// through the blind kway path.
+		if int64(seen.size()) >= hardLimit {
+			return errOverlayHardLimit
+		}
 		seen.put(k, ts)
 		destKey = rewritePrimaryKeyForDestInto(destKey[:0], sourceSuffix, destLower)
 		if err := writer.addRaw(ctx, bucket, destSyncBytes, destKey, destLower, iter.Value()); err != nil {
@@ -382,11 +959,71 @@ func overlaySinglePassBucket(
 	return iter.Error()
 }
 
+// overlayWholeSourceMinKeys gates the filtered whole-source SST path
+// by bucket size. The SST route carries fixed overhead — an index
+// writer set (7 run files), chunk sorts, and one ingest per family,
+// each ingest potentially forcing a memtable flush where it overlaps
+// earlier batch writes — which only pays off when the bucket is large
+// enough that memtable insertion would dominate. Benchmarks showed the
+// unconditional SST route doubling small-merge time. Var (not const)
+// so tests can force the path.
+var overlayWholeSourceMinKeys int64 = 100_000
+
+// overlayWholeSourceWorthIt decides whether the last source's bucket
+// takes the filtered SST-ingest path. An empty seen set always
+// qualifies (pure whole-source adoption, the original fast path);
+// otherwise the bucket must be large enough to amortize the SST
+// machinery. Bucket size comes from the source's cached stats (free,
+// via the manifest projection) or a bounded key count capped at the
+// threshold.
+func overlayWholeSourceWorthIt(ctx context.Context, source sourceHandle, bucket bucketSpec, sourceSyncBytes []byte, seen *seenSuffixSet) (bool, error) {
+	if seen.size() == 0 {
+		return true, nil
+	}
+	if source.stats != nil {
+		if n, ok := syncStatsBucketKeys(source.stats, bucket); ok {
+			return n >= overlayWholeSourceMinKeys, nil
+		}
+	}
+	lower, upper := bucket.syncRange(sourceSyncBytes)
+	iter, err := source.engine.DB().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	if err != nil {
+		return false, err
+	}
+	defer iter.Close()
+	var n int64
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		n++
+		if n >= overlayWholeSourceMinKeys {
+			return true, nil
+		}
+	}
+	return false, iter.Error()
+}
+
+// overlayMaterializeWholeSourceBucketSST streams the last source's
+// bucket into a pre-sorted SST and ingests it, bypassing the memtable
+// entirely. Keys already admitted by earlier (newer) sources are
+// filtered out via the seen set — that keeps the ingested file
+// key-disjoint from every batch write, so ingest sequence numbers
+// cannot shadow earlier winners. A filtered-out key whose value is
+// strictly newer (by discovered_at) is replaced through the writer's
+// batch path instead, preserving the merge-wide winner rule.
+//
+// This is the bulk path for the production skewed shape: a large base
+// sync with a small partial-derived seen set streams through here at
+// SST-build speed instead of paying memtable insertion, flush, and
+// background compaction per record.
 func overlayMaterializeWholeSourceBucketSST(
 	ctx context.Context,
 	dest *enginepkg.Engine,
 	source *enginepkg.Engine,
 	bucket bucketSpec,
+	writer *overlayBucketRawWriter,
+	seen *seenSuffixSet,
 	sourceSyncBytes []byte,
 	destSyncBytes []byte,
 	tmpDir string,
@@ -419,6 +1056,7 @@ func overlayMaterializeWholeSourceBucketSST(
 	defer indexWriters.cleanup()
 
 	wrotePrimary := false
+	checkSeen := seen.size() > 0
 	var destKey []byte
 	var scratch rawIndexScratch
 	emitIndexKey := indexWriters.writeKey
@@ -430,13 +1068,33 @@ func overlayMaterializeWholeSourceBucketSST(
 		if len(sourceKey) < len(sourceLower) {
 			return fmt.Errorf("overlay merge: source key shorter than lower bound prefix: key=%d prefix=%d", len(sourceKey), len(sourceLower))
 		}
-		destKey = rewritePrimaryKeyForDestInto(destKey[:0], sourceKey[len(sourceLower):], destLower)
+		sourceSuffix := sourceKey[len(sourceLower):]
+		if checkSeen {
+			if prevTs, ok := seen.get(seen.keyOf(sourceSuffix)); ok {
+				// Admitted by an earlier (newer) source. Same rule as
+				// overlaySinglePassBucket: replace only on a strictly
+				// newer discovered_at, through the batch path (rare).
+				// No seen.put: this is the last source, nothing follows.
+				ts, err := discoveredAtNanosFromRaw(bucket, iter.Value())
+				if err != nil {
+					return err
+				}
+				if ts <= prevTs {
+					continue
+				}
+				destKey = rewritePrimaryKeyForDestInto(destKey[:0], sourceSuffix, destLower)
+				if err := writer.replaceRaw(ctx, bucket, destSyncBytes, destKey, destLower, iter.Value()); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		destKey = rewritePrimaryKeyForDestInto(destKey[:0], sourceSuffix, destLower)
 		if err := primaryWriter.Set(destKey, iter.Value()); err != nil {
 			return err
 		}
 		wrotePrimary = true
-		// Every key in this path is a winner: this fast path only runs
-		// for the last source when nothing was admitted before it.
+		// Every unseen key in this path is a winner.
 		stats.countWinnerTotal(bucket.id)
 		if bucket.forEachIndexKey != nil {
 			if err := forEachIndexKeyFromRaw(bucket, destSyncBytes, destKey, destLower, iter.Value(), &scratch, stats, emitIndexKey); err != nil {
@@ -834,33 +1492,6 @@ func scanPrincipalRefBytes(value []byte) ([]byte, []byte, error) {
 	return rt, id, nil
 }
 
-func withSourceEngine(ctx context.Context, tmpDir string, source SourceFile, fn func(*enginepkg.Engine) error) error {
-	if source.Engine != nil {
-		return fn(source.Engine)
-	}
-	if source.DBDir != "" {
-		eng, err := enginepkg.Open(ctx, source.DBDir, enginepkg.WithReadOnly(true))
-		if err != nil {
-			return err
-		}
-		defer eng.Close()
-		return fn(eng)
-	}
-	w, err := dotc1z.NewStore(ctx, source.Path, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(tmpDir), dotc1z.WithDecoderPool(source.DecoderPool))
-	if err != nil {
-		return err
-	}
-	// Full Close removes the read-only store's unpacked temp directory;
-	// callers iterate sources one at a time, so planning never holds
-	// more than one unpacked source on disk.
-	defer func() { _ = w.Close(ctx) }()
-	eng, ok := enginepkg.AsEngine(w)
-	if !ok {
-		return fmt.Errorf("overlay merge: input is not pebble: %s", source.Path)
-	}
-	return fn(eng)
-}
-
 type overlayBucketRawWriter struct {
 	dest      *enginepkg.Engine
 	bucket    bucketSpec
@@ -870,6 +1501,11 @@ type overlayBucketRawWriter struct {
 	count     int
 	scratch   rawIndexScratch
 	stats     *mergeStatsAccumulator
+	// replacements counts replaceRaw invocations (an older source
+	// carrying a strictly newer discovered_at). Logged at merge end —
+	// the replace slow path assumes this is rare; a high count in prod
+	// invalidates that assumption.
+	replacements int64
 }
 
 // The normal overlay path writes raw primary values and raw secondary index
@@ -926,6 +1562,7 @@ func (w *overlayBucketRawWriter) addRaw(ctx context.Context, bucket bucketSpec, 
 // admission); only the grant per-RT grouping can move, because the
 // entitlement resource type lives in the value.
 func (w *overlayBucketRawWriter) replaceRaw(ctx context.Context, bucket bucketSpec, syncBytes []byte, destKey []byte, destLower []byte, value []byte) error {
+	w.replacements++
 	if err := w.flush(ctx); err != nil {
 		return err
 	}
@@ -1012,4 +1649,24 @@ func (w *overlayBucketRawWriter) cleanup() {
 	if w.index != nil {
 		_ = w.index.Close()
 	}
+}
+
+// discard drops the writer's uncommitted batches and starts fresh
+// ones. Used by the restart path: the writer is bucket-scoped, so the
+// pending writes are exactly the data the restart's range-delete would
+// tombstone — dropping them before they commit is strictly cheaper and
+// prevents a later flush from resurrecting deleted keys.
+func (w *overlayBucketRawWriter) discard() {
+	if w == nil {
+		return
+	}
+	if w.primary != nil {
+		_ = w.primary.Close()
+	}
+	if w.index != nil {
+		_ = w.index.Close()
+	}
+	w.primary = w.dest.DB().NewBatch()
+	w.index = w.dest.DB().NewBatch()
+	w.count = 0
 }

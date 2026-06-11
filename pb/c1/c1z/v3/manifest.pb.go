@@ -42,13 +42,27 @@ type PayloadEncoding int32
 const (
 	PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED PayloadEncoding = 0
 	// Tar of a Pebble directory, compressed with zstd. The
-	// production default.
+	// production default in older v3 writers.
 	PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD PayloadEncoding = 1
 	// Tar of a Pebble directory, uncompressed. For tenants whose
 	// Pebble L5/L6 SSTs are already zstd-compressed at the engine
 	// layer and want to avoid double-compression CPU at envelope
 	// time, or for object-storage targets that compress in-transit.
 	PayloadEncoding_PAYLOAD_ENCODING_TAR PayloadEncoding = 2
+	// Per-file zstd frames written back-to-back, indexed by a trailing
+	// IndexedFrameIndex and fixed-size footer (see that message for
+	// the layout). No tar layer, no per-frame inline headers.
+	//
+	// Enables (a) parallel frame decode at open — the single-stream
+	// encodings decode sequentially on one core; (b) frame splicing at
+	// save: a writer that knows a payload file is byte-identical to one
+	// in the source envelope copies its compressed frame verbatim
+	// instead of re-encoding (Pebble SSTs are immutable and checkpoints
+	// hard-link them, so incremental folds reuse almost every frame);
+	// and (c) chunked object storage: the index carries every frame's
+	// byte range and SHA-256 content identity, so a store can upload
+	// only the frames a parent sync doesn't already hold.
+	PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD PayloadEncoding = 5
 )
 
 // Enum value maps for PayloadEncoding.
@@ -57,11 +71,13 @@ var (
 		0: "PAYLOAD_ENCODING_UNSPECIFIED",
 		1: "PAYLOAD_ENCODING_TAR_ZSTD",
 		2: "PAYLOAD_ENCODING_TAR",
+		5: "PAYLOAD_ENCODING_INDEXED_ZSTD",
 	}
 	PayloadEncoding_value = map[string]int32{
-		"PAYLOAD_ENCODING_UNSPECIFIED": 0,
-		"PAYLOAD_ENCODING_TAR_ZSTD":    1,
-		"PAYLOAD_ENCODING_TAR":         2,
+		"PAYLOAD_ENCODING_UNSPECIFIED":  0,
+		"PAYLOAD_ENCODING_TAR_ZSTD":     1,
+		"PAYLOAD_ENCODING_TAR":          2,
+		"PAYLOAD_ENCODING_INDEXED_ZSTD": 5,
 	}
 )
 
@@ -296,6 +312,315 @@ func (b0 C1ZManifestV3_builder) Build() *C1ZManifestV3 {
 	return m0
 }
 
+// IndexedFrameIndex is the sole frame table for
+// PAYLOAD_ENCODING_INDEXED_ZSTD payloads. It is serialized (binary
+// proto) immediately after the last frame, followed by a fixed-size
+// footer carrying the index's absolute file offset, length, xxh64,
+// and a trailing magic:
+//
+//	payload := frame* | index | footer
+//	footer  := u64 indexOffset | u32 indexLen | u64 xxh64(index) | "C1ZIDX1\0"
+//
+// Frames carry no framing of their own — each is the bare zstd
+// stream of one payload file, with Frame_Content_Size advertised —
+// so the writer is single-pass (streamable to a non-seekable sink)
+// and a frame's byte range is directly usable as a standalone
+// object. The whole table is fetchable in O(1) reads — footer, then
+// index — which is what makes ranged reads over object storage
+// practical: fetch exactly the frames you want, no per-frame round
+// trips. A payload without a valid footer is corruption-class, the
+// same policy as a torn tar payload.
+//
+// Being a proto message, the index is the extension point for future
+// per-frame metadata (compression algorithm, dictionary IDs,
+// encryption) without a layout revision.
+type IndexedFrameIndex struct {
+	state   protoimpl.MessageState `protogen:"hybrid.v1"`
+	Entries []*IndexedFrameEntry   `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	// Sum of raw_size over entries. Lets a reader budget extraction
+	// without summing.
+	TotalRawSize int64 `protobuf:"varint,2,opt,name=total_raw_size,json=totalRawSize,proto3" json:"total_raw_size,omitempty"`
+	// Sum of compressed_size over entries.
+	TotalCompressedSize int64 `protobuf:"varint,3,opt,name=total_compressed_size,json=totalCompressedSize,proto3" json:"total_compressed_size,omitempty"`
+	// xxh64 of the marshaled manifest bytes (the region between the
+	// length prefix and the first frame). The manifest is otherwise
+	// the only unprotected byte region — frames carry zstd CRCs and
+	// raw-byte hashes, the index is covered by the footer's xxh64 —
+	// and the header-only manifest decode skips the descriptor
+	// closure, so a flipped bit there would otherwise go unnoticed.
+	// Also lets a chunked store verify reassembly of the envelope
+	// head. Zero means "not recorded".
+	ManifestXxh64 uint64 `protobuf:"fixed64,4,opt,name=manifest_xxh64,json=manifestXxh64,proto3" json:"manifest_xxh64,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IndexedFrameIndex) Reset() {
+	*x = IndexedFrameIndex{}
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IndexedFrameIndex) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IndexedFrameIndex) ProtoMessage() {}
+
+func (x *IndexedFrameIndex) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *IndexedFrameIndex) GetEntries() []*IndexedFrameEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *IndexedFrameIndex) GetTotalRawSize() int64 {
+	if x != nil {
+		return x.TotalRawSize
+	}
+	return 0
+}
+
+func (x *IndexedFrameIndex) GetTotalCompressedSize() int64 {
+	if x != nil {
+		return x.TotalCompressedSize
+	}
+	return 0
+}
+
+func (x *IndexedFrameIndex) GetManifestXxh64() uint64 {
+	if x != nil {
+		return x.ManifestXxh64
+	}
+	return 0
+}
+
+func (x *IndexedFrameIndex) SetEntries(v []*IndexedFrameEntry) {
+	x.Entries = v
+}
+
+func (x *IndexedFrameIndex) SetTotalRawSize(v int64) {
+	x.TotalRawSize = v
+}
+
+func (x *IndexedFrameIndex) SetTotalCompressedSize(v int64) {
+	x.TotalCompressedSize = v
+}
+
+func (x *IndexedFrameIndex) SetManifestXxh64(v uint64) {
+	x.ManifestXxh64 = v
+}
+
+type IndexedFrameIndex_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Entries []*IndexedFrameEntry
+	// Sum of raw_size over entries. Lets a reader budget extraction
+	// without summing.
+	TotalRawSize int64
+	// Sum of compressed_size over entries.
+	TotalCompressedSize int64
+	// xxh64 of the marshaled manifest bytes (the region between the
+	// length prefix and the first frame). The manifest is otherwise
+	// the only unprotected byte region — frames carry zstd CRCs and
+	// raw-byte hashes, the index is covered by the footer's xxh64 —
+	// and the header-only manifest decode skips the descriptor
+	// closure, so a flipped bit there would otherwise go unnoticed.
+	// Also lets a chunked store verify reassembly of the envelope
+	// head. Zero means "not recorded".
+	ManifestXxh64 uint64
+}
+
+func (b0 IndexedFrameIndex_builder) Build() *IndexedFrameIndex {
+	m0 := &IndexedFrameIndex{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Entries = b.Entries
+	x.TotalRawSize = b.TotalRawSize
+	x.TotalCompressedSize = b.TotalCompressedSize
+	x.ManifestXxh64 = b.ManifestXxh64
+	return m0
+}
+
+type IndexedFrameEntry struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Slash-separated relative path of the payload file, identical to
+	// the name in the frame's inline header.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Absolute offset of the frame's compressed zstd bytes from the
+	// start of the envelope file (NOT from the payload start), so a
+	// ranged read needs no other context.
+	FrameOffset    int64 `protobuf:"varint,2,opt,name=frame_offset,json=frameOffset,proto3" json:"frame_offset,omitempty"`
+	CompressedSize int64 `protobuf:"varint,3,opt,name=compressed_size,json=compressedSize,proto3" json:"compressed_size,omitempty"`
+	RawSize        int64 `protobuf:"varint,4,opt,name=raw_size,json=rawSize,proto3" json:"raw_size,omitempty"`
+	// xxh64 of the raw (decompressed) bytes. Matches the inline
+	// header; used for corruption detection and splice matching.
+	RawXxh64 uint64 `protobuf:"fixed64,5,opt,name=raw_xxh64,json=rawXxh64,proto3" json:"raw_xxh64,omitempty"`
+	// SHA-256 of the raw bytes. Content-address identity for chunked
+	// object storage: compressed bytes are not stable across encoder
+	// versions, and xxh64 is too weak to key a fleet-wide chunk store.
+	//
+	// REQUIRED: readers reject entries whose value is not exactly 32
+	// bytes. Writers must always compute it, even when content
+	// addressing is not in play — a partially-identified index can't
+	// serve chunk dedupe later, and allowing absence would let
+	// truncated identities propagate through frame splicing. A future
+	// writer that genuinely cannot afford SHA-256 should introduce a
+	// new payload encoding (or footer version) rather than omit this.
+	RawSha256     []byte `protobuf:"bytes,6,opt,name=raw_sha256,json=rawSha256,proto3" json:"raw_sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IndexedFrameEntry) Reset() {
+	*x = IndexedFrameEntry{}
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IndexedFrameEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IndexedFrameEntry) ProtoMessage() {}
+
+func (x *IndexedFrameEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *IndexedFrameEntry) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *IndexedFrameEntry) GetFrameOffset() int64 {
+	if x != nil {
+		return x.FrameOffset
+	}
+	return 0
+}
+
+func (x *IndexedFrameEntry) GetCompressedSize() int64 {
+	if x != nil {
+		return x.CompressedSize
+	}
+	return 0
+}
+
+func (x *IndexedFrameEntry) GetRawSize() int64 {
+	if x != nil {
+		return x.RawSize
+	}
+	return 0
+}
+
+func (x *IndexedFrameEntry) GetRawXxh64() uint64 {
+	if x != nil {
+		return x.RawXxh64
+	}
+	return 0
+}
+
+func (x *IndexedFrameEntry) GetRawSha256() []byte {
+	if x != nil {
+		return x.RawSha256
+	}
+	return nil
+}
+
+func (x *IndexedFrameEntry) SetName(v string) {
+	x.Name = v
+}
+
+func (x *IndexedFrameEntry) SetFrameOffset(v int64) {
+	x.FrameOffset = v
+}
+
+func (x *IndexedFrameEntry) SetCompressedSize(v int64) {
+	x.CompressedSize = v
+}
+
+func (x *IndexedFrameEntry) SetRawSize(v int64) {
+	x.RawSize = v
+}
+
+func (x *IndexedFrameEntry) SetRawXxh64(v uint64) {
+	x.RawXxh64 = v
+}
+
+func (x *IndexedFrameEntry) SetRawSha256(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.RawSha256 = v
+}
+
+type IndexedFrameEntry_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Slash-separated relative path of the payload file, identical to
+	// the name in the frame's inline header.
+	Name string
+	// Absolute offset of the frame's compressed zstd bytes from the
+	// start of the envelope file (NOT from the payload start), so a
+	// ranged read needs no other context.
+	FrameOffset    int64
+	CompressedSize int64
+	RawSize        int64
+	// xxh64 of the raw (decompressed) bytes. Matches the inline
+	// header; used for corruption detection and splice matching.
+	RawXxh64 uint64
+	// SHA-256 of the raw bytes. Content-address identity for chunked
+	// object storage: compressed bytes are not stable across encoder
+	// versions, and xxh64 is too weak to key a fleet-wide chunk store.
+	//
+	// REQUIRED: readers reject entries whose value is not exactly 32
+	// bytes. Writers must always compute it, even when content
+	// addressing is not in play — a partially-identified index can't
+	// serve chunk dedupe later, and allowing absence would let
+	// truncated identities propagate through frame splicing. A future
+	// writer that genuinely cannot afford SHA-256 should introduce a
+	// new payload encoding (or footer version) rather than omit this.
+	RawSha256 []byte
+}
+
+func (b0 IndexedFrameEntry_builder) Build() *IndexedFrameEntry {
+	m0 := &IndexedFrameEntry{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Name = b.Name
+	x.FrameOffset = b.FrameOffset
+	x.CompressedSize = b.CompressedSize
+	x.RawSize = b.RawSize
+	x.RawXxh64 = b.RawXxh64
+	x.RawSha256 = b.RawSha256
+	return m0
+}
+
 type RecordTypeInfo struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// Proto FullName — e.g. "c1.storage.v3.GrantRecord".
@@ -312,7 +637,7 @@ type RecordTypeInfo struct {
 
 func (x *RecordTypeInfo) Reset() {
 	*x = RecordTypeInfo{}
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[1]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -324,7 +649,7 @@ func (x *RecordTypeInfo) String() string {
 func (*RecordTypeInfo) ProtoMessage() {}
 
 func (x *RecordTypeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[1]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -410,7 +735,7 @@ type SyncRunSummary struct {
 
 func (x *SyncRunSummary) Reset() {
 	*x = SyncRunSummary{}
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[2]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -422,7 +747,7 @@ func (x *SyncRunSummary) String() string {
 func (*SyncRunSummary) ProtoMessage() {}
 
 func (x *SyncRunSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[2]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -576,7 +901,7 @@ type PebbleEngineConfig struct {
 
 func (x *PebbleEngineConfig) Reset() {
 	*x = PebbleEngineConfig{}
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[3]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -588,7 +913,7 @@ func (x *PebbleEngineConfig) String() string {
 func (*PebbleEngineConfig) ProtoMessage() {}
 
 func (x *PebbleEngineConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[3]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -653,7 +978,20 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\vdescriptors\x18\n" +
 	" \x01(\v2\".google.protobuf.FileDescriptorSetR\vdescriptors\x12<\n" +
 	"\frecord_types\x18\v \x03(\v2\x19.c1.c1z.v3.RecordTypeInfoR\vrecordTypes\x126\n" +
-	"\tsync_runs\x18( \x03(\v2\x19.c1.c1z.v3.SyncRunSummaryR\bsyncRuns\"\x8c\x01\n" +
+	"\tsync_runs\x18( \x03(\v2\x19.c1.c1z.v3.SyncRunSummaryR\bsyncRuns\"\xcc\x01\n" +
+	"\x11IndexedFrameIndex\x126\n" +
+	"\aentries\x18\x01 \x03(\v2\x1c.c1.c1z.v3.IndexedFrameEntryR\aentries\x12$\n" +
+	"\x0etotal_raw_size\x18\x02 \x01(\x03R\ftotalRawSize\x122\n" +
+	"\x15total_compressed_size\x18\x03 \x01(\x03R\x13totalCompressedSize\x12%\n" +
+	"\x0emanifest_xxh64\x18\x04 \x01(\x06R\rmanifestXxh64\"\xca\x01\n" +
+	"\x11IndexedFrameEntry\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
+	"\fframe_offset\x18\x02 \x01(\x03R\vframeOffset\x12'\n" +
+	"\x0fcompressed_size\x18\x03 \x01(\x03R\x0ecompressedSize\x12\x19\n" +
+	"\braw_size\x18\x04 \x01(\x03R\arawSize\x12\x1b\n" +
+	"\traw_xxh64\x18\x05 \x01(\x06R\brawXxh64\x12\x1d\n" +
+	"\n" +
+	"raw_sha256\x18\x06 \x01(\fR\trawSha256\"\x8c\x01\n" +
 	"\x0eRecordTypeInfo\x12*\n" +
 	"\x11message_full_name\x18\x01 \x01(\tR\x0fmessageFullName\x12%\n" +
 	"\x0eschema_version\x18\x02 \x01(\rR\rschemaVersion\x12'\n" +
@@ -668,41 +1006,45 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\x05stats\x18\x06 \x01(\v2\x1e.c1.storage.v3.SyncStatsRecordR\x05stats\"p\n" +
 	"\x12PebbleEngineConfig\x120\n" +
 	"\x14format_major_version\x18\x01 \x01(\rR\x12formatMajorVersion\x12(\n" +
-	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*l\n" +
+	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*\x9b\x01\n" +
 	"\x0fPayloadEncoding\x12 \n" +
 	"\x1cPAYLOAD_ENCODING_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19PAYLOAD_ENCODING_TAR_ZSTD\x10\x01\x12\x18\n" +
-	"\x14PAYLOAD_ENCODING_TAR\x10\x02B0Z.github.com/conductorone/baton-sdk/pb/c1/c1z/v3b\x06proto3"
+	"\x14PAYLOAD_ENCODING_TAR\x10\x02\x12!\n" +
+	"\x1dPAYLOAD_ENCODING_INDEXED_ZSTD\x10\x05\"\x04\b\x03\x10\x03\"\x04\b\x04\x10\x04B0Z.github.com/conductorone/baton-sdk/pb/c1/c1z/v3b\x06proto3"
 
 var file_c1_c1z_v3_manifest_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_c1z_v3_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_c1_c1z_v3_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_c1_c1z_v3_manifest_proto_goTypes = []any{
 	(PayloadEncoding)(0),                   // 0: c1.c1z.v3.PayloadEncoding
 	(*C1ZManifestV3)(nil),                  // 1: c1.c1z.v3.C1ZManifestV3
-	(*RecordTypeInfo)(nil),                 // 2: c1.c1z.v3.RecordTypeInfo
-	(*SyncRunSummary)(nil),                 // 3: c1.c1z.v3.SyncRunSummary
-	(*PebbleEngineConfig)(nil),             // 4: c1.c1z.v3.PebbleEngineConfig
-	(*anypb.Any)(nil),                      // 5: google.protobuf.Any
-	(*descriptorpb.FileDescriptorSet)(nil), // 6: google.protobuf.FileDescriptorSet
-	(v3.SyncType)(0),                       // 7: c1.storage.v3.SyncType
-	(*timestamppb.Timestamp)(nil),          // 8: google.protobuf.Timestamp
-	(*v3.SyncStatsRecord)(nil),             // 9: c1.storage.v3.SyncStatsRecord
+	(*IndexedFrameIndex)(nil),              // 2: c1.c1z.v3.IndexedFrameIndex
+	(*IndexedFrameEntry)(nil),              // 3: c1.c1z.v3.IndexedFrameEntry
+	(*RecordTypeInfo)(nil),                 // 4: c1.c1z.v3.RecordTypeInfo
+	(*SyncRunSummary)(nil),                 // 5: c1.c1z.v3.SyncRunSummary
+	(*PebbleEngineConfig)(nil),             // 6: c1.c1z.v3.PebbleEngineConfig
+	(*anypb.Any)(nil),                      // 7: google.protobuf.Any
+	(*descriptorpb.FileDescriptorSet)(nil), // 8: google.protobuf.FileDescriptorSet
+	(v3.SyncType)(0),                       // 9: c1.storage.v3.SyncType
+	(*timestamppb.Timestamp)(nil),          // 10: google.protobuf.Timestamp
+	(*v3.SyncStatsRecord)(nil),             // 11: c1.storage.v3.SyncStatsRecord
 }
 var file_c1_c1z_v3_manifest_proto_depIdxs = []int32{
-	5, // 0: c1.c1z.v3.C1ZManifestV3.engine_config:type_name -> google.protobuf.Any
-	0, // 1: c1.c1z.v3.C1ZManifestV3.payload_encoding:type_name -> c1.c1z.v3.PayloadEncoding
-	6, // 2: c1.c1z.v3.C1ZManifestV3.descriptors:type_name -> google.protobuf.FileDescriptorSet
-	2, // 3: c1.c1z.v3.C1ZManifestV3.record_types:type_name -> c1.c1z.v3.RecordTypeInfo
-	3, // 4: c1.c1z.v3.C1ZManifestV3.sync_runs:type_name -> c1.c1z.v3.SyncRunSummary
-	7, // 5: c1.c1z.v3.SyncRunSummary.type:type_name -> c1.storage.v3.SyncType
-	8, // 6: c1.c1z.v3.SyncRunSummary.started_at:type_name -> google.protobuf.Timestamp
-	8, // 7: c1.c1z.v3.SyncRunSummary.ended_at:type_name -> google.protobuf.Timestamp
-	9, // 8: c1.c1z.v3.SyncRunSummary.stats:type_name -> c1.storage.v3.SyncStatsRecord
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	7,  // 0: c1.c1z.v3.C1ZManifestV3.engine_config:type_name -> google.protobuf.Any
+	0,  // 1: c1.c1z.v3.C1ZManifestV3.payload_encoding:type_name -> c1.c1z.v3.PayloadEncoding
+	8,  // 2: c1.c1z.v3.C1ZManifestV3.descriptors:type_name -> google.protobuf.FileDescriptorSet
+	4,  // 3: c1.c1z.v3.C1ZManifestV3.record_types:type_name -> c1.c1z.v3.RecordTypeInfo
+	5,  // 4: c1.c1z.v3.C1ZManifestV3.sync_runs:type_name -> c1.c1z.v3.SyncRunSummary
+	3,  // 5: c1.c1z.v3.IndexedFrameIndex.entries:type_name -> c1.c1z.v3.IndexedFrameEntry
+	9,  // 6: c1.c1z.v3.SyncRunSummary.type:type_name -> c1.storage.v3.SyncType
+	10, // 7: c1.c1z.v3.SyncRunSummary.started_at:type_name -> google.protobuf.Timestamp
+	10, // 8: c1.c1z.v3.SyncRunSummary.ended_at:type_name -> google.protobuf.Timestamp
+	11, // 9: c1.c1z.v3.SyncRunSummary.stats:type_name -> c1.storage.v3.SyncStatsRecord
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_c1_c1z_v3_manifest_proto_init() }
@@ -716,7 +1058,7 @@ func file_c1_c1z_v3_manifest_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_c1z_v3_manifest_proto_rawDesc), len(file_c1_c1z_v3_manifest_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

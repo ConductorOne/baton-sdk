@@ -95,7 +95,26 @@ type fixtureNormalizer interface {
 	NormalizeForFixtureSave(ctx context.Context, syncID string) error
 }
 
-// CloseEngineOnly closes the Pebble engine inside a store wrapper without
+type storeDirtyMarker interface {
+	MarkDirty()
+}
+
+// MarkStoreDirty flips a registered store's dirty bit so Close drives
+// the save → checkpoint → envelope path. Engine-level writes (raw
+// batches, SST ingest, direct Put*Records) bypass the registered
+// store's markDirty wrappers; merge tooling that mutates the engine
+// directly calls this once so the mutations are persisted at Close.
+// Returns false when w is not a registered Pebble store.
+func MarkStoreDirty(w connectorstore.Writer) bool {
+	s, ok := w.(storeDirtyMarker)
+	if !ok || s == nil {
+		return false
+	}
+	s.MarkDirty()
+	return true
+}
+
+// CloseEngineOnly closes the Pebble engine inside a registered store without
 // removing that store's unpacked temp directory. This is useful when a caller
 // owns a parent temp directory and wants one bulk cleanup after closing many
 // read-only source stores.

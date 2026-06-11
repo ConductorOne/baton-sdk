@@ -35,13 +35,23 @@ type StoreOptions struct {
 
 	// PayloadEncoding selects the v3 envelope payload framing for
 	// engines that produce a v3 envelope (currently Pebble). Zero
-	// value means "engine default" (PayloadEncodingTarZstd for Pebble).
+	// value means "engine default" (PayloadEncodingIndexedZstd for
+	// Pebble).
 	PayloadEncoding PayloadEncoding
 
 	// DecoderPool optionally scopes v3 payload-decoder reuse to the
 	// caller's operation (see WithDecoderPool). Nil means a one-shot
 	// decoder per open.
 	DecoderPool *EnvelopeDecoderPool
+
+	// MaxDecodedPayloadBytes optionally caps v3 envelope payload extraction.
+	// Zero means use BATON_DECODER_MAX_DECODED_SIZE_MB or the v3 default.
+	MaxDecodedPayloadBytes uint64
+
+	// MaxDecoderMemoryBytes optionally caps zstd decoder memory for v3 envelope
+	// payload extraction. Zero means use BATON_DECODER_MAX_MEMORY_MB or the v3
+	// default.
+	MaxDecoderMemoryBytes uint64
 }
 
 // EnvelopeDecoderPool re-exports the v3 envelope payload decoder pool
@@ -159,21 +169,28 @@ func buildC1ZOptions(opts ...C1ZOption) (*c1zOptions, error) {
 	if options.encoderConcurrency < 0 {
 		return nil, fmt.Errorf("encoder concurrency must not be negative: %d", options.encoderConcurrency)
 	}
+	if _, err := applyDecoderOptions(options.decoderOptions...); err != nil {
+		return nil, err
+	}
 	return options, nil
 }
 
 func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
+	maxDecodedPayloadBytes, _ := explicitMaxDecodedSizeForDecoderOptions(options.decoderOptions...)
+	maxDecoderMemoryBytes, _ := explicitMaxMemorySizeForDecoderOptions(options.decoderOptions...)
 	out := StoreOptions{
-		TmpDir:             options.tmpDir,
-		DecoderOptions:     append([]DecoderOption(nil), options.decoderOptions...),
-		ReadOnly:           options.readOnly,
-		EncoderConcurrency: options.encoderConcurrency,
-		SyncLimit:          options.syncLimit,
-		SkipCleanup:        options.skipCleanup,
-		V2GrantsWriter:     options.v2GrantsWriter,
-		Engine:             options.engine,
-		PayloadEncoding:    options.payloadEncoding,
-		DecoderPool:        options.decoderPool,
+		TmpDir:                 options.tmpDir,
+		DecoderOptions:         append([]DecoderOption(nil), options.decoderOptions...),
+		ReadOnly:               options.readOnly,
+		EncoderConcurrency:     options.encoderConcurrency,
+		SyncLimit:              options.syncLimit,
+		SkipCleanup:            options.skipCleanup,
+		V2GrantsWriter:         options.v2GrantsWriter,
+		Engine:                 options.engine,
+		PayloadEncoding:        options.payloadEncoding,
+		DecoderPool:            options.decoderPool,
+		MaxDecodedPayloadBytes: maxDecodedPayloadBytes,
+		MaxDecoderMemoryBytes:  maxDecoderMemoryBytes,
 	}
 	if out.Engine == "" {
 		out.Engine = EngineSQLite

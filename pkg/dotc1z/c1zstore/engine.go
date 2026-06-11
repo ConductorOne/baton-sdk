@@ -1,6 +1,10 @@
 package c1zstore
 
-import "fmt"
+import (
+	"fmt"
+
+	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
+)
 
 // Engine identifies a storage engine implementation. The engine is
 // chosen by callers via dotc1z.WithEngine(...) on write; on read, the
@@ -20,28 +24,31 @@ const (
 )
 
 // PayloadEncoding selects the v3 envelope payload framing. Only the
-// Pebble engine consults this; SQLite engines ignore it. The wire
-// numbers match the matching proto enum values in
-// c1.c1z.v3.PayloadEncoding.
+// Pebble engine consults this; SQLite engines ignore it. Every value
+// is DERIVED from the matching c1.c1z.v3.PayloadEncoding proto enum
+// value, so the Go constants cannot drift from the wire format.
 type PayloadEncoding int
 
 const (
 	// PayloadEncodingUnspecified is the zero value. Means "use the
-	// engine's default" — TarZstd for Pebble.
-	PayloadEncodingUnspecified PayloadEncoding = 0
+	// engine's default" — IndexedZstd for Pebble.
+	PayloadEncodingUnspecified = PayloadEncoding(c1zv3.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED)
 
-	// 1 and 2 are reserved in the proto (formerly RAW + single-stream
-	// ZSTD). Don't reuse.
-
-	// PayloadEncodingTarZstd is the default Pebble v3 envelope
+	// PayloadEncodingTarZstd is the classic Pebble v3 envelope
 	// encoding: tar of the Pebble directory, compressed with zstd.
-	PayloadEncodingTarZstd PayloadEncoding = 3
+	PayloadEncodingTarZstd = PayloadEncoding(c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD)
 
 	// PayloadEncodingTar is uncompressed tar. Useful when Pebble's
 	// L5/L6 SSTs are already zstd-compressed at the engine layer
 	// (avoids double-compression CPU), or when the storage target
 	// compresses in transit.
-	PayloadEncodingTar PayloadEncoding = 4
+	PayloadEncodingTar = PayloadEncoding(c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR)
+
+	// PayloadEncodingIndexedZstd stores each payload file as an
+	// independent zstd frame, indexed by a trailing frame table
+	// (byte ranges, sizes, SHA-256 identities) for parallel decode,
+	// frame splicing, and ranged/chunked object storage.
+	PayloadEncodingIndexedZstd = PayloadEncoding(c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD)
 )
 
 // String returns a stable human-readable name for the encoding.
@@ -51,6 +58,8 @@ func (e PayloadEncoding) String() string {
 		return "tar_zstd"
 	case PayloadEncodingTar:
 		return "tar"
+	case PayloadEncodingIndexedZstd:
+		return "indexed_zstd"
 	case PayloadEncodingUnspecified:
 		return "unspecified"
 	default:

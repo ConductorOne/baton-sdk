@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -41,6 +42,31 @@ func BenchmarkCompactorSQLiteVsPebbleSkewed(b *testing.B) {
 	}
 }
 
+func BenchmarkCompactorSQLiteVsPebbleLargeBase(b *testing.B) {
+	ctx := context.Background()
+
+	sourceCount := compareEnvInt("BATON_COMPACTION_LARGE_BASE_SYNCS", 50)
+	base := compactorCompareSize{
+		resources:    compareEnvInt("BATON_COMPACTION_LARGE_BASE_RESOURCES", 25000),
+		entitlements: compareEnvInt("BATON_COMPACTION_LARGE_BASE_ENTITLEMENTS", 50000),
+		grants:       compareEnvInt("BATON_COMPACTION_LARGE_BASE_GRANTS", 250000),
+	}
+	incremental := compactorCompareSize{
+		resources:    compareEnvInt("BATON_COMPACTION_LARGE_INCREMENTAL_RESOURCES", 1),
+		entitlements: compareEnvInt("BATON_COMPACTION_LARGE_INCREMENTAL_ENTITLEMENTS", 2),
+		grants:       compareEnvInt("BATON_COMPACTION_LARGE_INCREMENTAL_GRANTS", 5),
+	}
+	if inputs, ok := loadCompareFixtureManifest(b, sourceCount, "large-base"); ok {
+		benchmarkCompactorInputs(b, ctx, sourceCount, base, inputs.SQLite, inputs.Pebble)
+		return
+	}
+	fixtureDir := compareFixtureBuildDir(b, sourceCount, "large-base")
+	sqliteInputs := buildCompareSkewedSQLiteInputsWithSizes(b, ctx, filepath.Join(fixtureDir, "sqlite"), sourceCount, base, incremental)
+	pebbleInputs := convertCompareInputsToPebble(b, ctx, filepath.Join(fixtureDir, "pebble"), sqliteInputs)
+	writeCompareFixtureManifestIfRequested(b, sourceCount, "large-base", sqliteInputs, pebbleInputs)
+	benchmarkCompactorInputs(b, ctx, sourceCount, base, sqliteInputs, pebbleInputs)
+}
+
 type compactorCompareSize struct {
 	resources    int
 	entitlements int
@@ -50,6 +76,18 @@ type compactorCompareSize struct {
 type compactorCompareFixtureManifest struct {
 	SQLite []*CompactableSync `json:"sqlite"`
 	Pebble []*CompactableSync `json:"pebble"`
+}
+
+func compareEnvInt(name string, fallback int) int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
 }
 
 func benchmarkCompactorSQLiteVsPebbleKWayCase(b *testing.B, ctx context.Context, sourceCount int, size compactorCompareSize) {
@@ -147,6 +185,7 @@ func benchmarkCompactorInputs(
 		{name: "sqlite", inputs: sqliteInputs},
 		{name: "pebble_kway", inputs: pebbleInputs, engine: dotc1z.EnginePebble, pebbleMode: PebbleCompactorModeKWay},
 		{name: "pebble_overlay", inputs: pebbleInputs, engine: dotc1z.EnginePebble, pebbleMode: PebbleCompactorModeOverlay},
+		{name: "pebble_fold", inputs: pebbleInputs, engine: dotc1z.EnginePebble, pebbleMode: PebbleCompactorModeFold},
 	} {
 		tc := tc
 		b.Run(tc.name, func(b *testing.B) {
@@ -177,23 +216,34 @@ func benchmarkCompactorInputs(
 }
 
 func buildCompareSkewedSQLiteInputs(b *testing.B, ctx context.Context, dir string, sourceCount int) []*CompactableSync {
+	return buildCompareSkewedSQLiteInputsWithSizes(b, ctx, dir, sourceCount, compactorCompareSize{
+		resources:    250,
+		entitlements: 500,
+		grants:       2500,
+	}, compactorCompareSize{
+		resources:    1,
+		entitlements: 2,
+		grants:       5,
+	})
+}
+
+func buildCompareSkewedSQLiteInputsWithSizes(
+	b *testing.B,
+	ctx context.Context,
+	dir string,
+	sourceCount int,
+	base compactorCompareSize,
+	incremental compactorCompareSize,
+) []*CompactableSync {
 	b.Helper()
 	require.NoError(b, os.MkdirAll(dir, 0o755))
 	out := make([]*CompactableSync, 0, sourceCount)
 	for sourceIdx := 0; sourceIdx < sourceCount; sourceIdx++ {
 		syncType := connectorstore.SyncTypePartial
-		size := compactorCompareSize{
-			resources:    1,
-			entitlements: 2,
-			grants:       5,
-		}
+		size := incremental
 		if sourceIdx == 0 {
 			syncType = connectorstore.SyncTypeFull
-			size = compactorCompareSize{
-				resources:    250,
-				entitlements: 500,
-				grants:       2500,
-			}
+			size = base
 		}
 		path := filepath.Join(dir, fmt.Sprintf("source-%03d.c1z", sourceIdx))
 		syncID := writeCompareSQLiteSource(b, ctx, path, sourceIdx, syncType, size)

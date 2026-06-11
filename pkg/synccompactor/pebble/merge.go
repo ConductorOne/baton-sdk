@@ -21,18 +21,17 @@ type SourceSync struct {
 }
 
 // MergeInto folds every source's primary records into dest under
-// destSyncID, producing a single merged sync. It is the native-Pebble
-// equivalent of the SQLite ATTACH union: across all inputs, the newest
-// record per logical key (by discovered_at, ties keep the incumbent)
-// survives, and dest's derived indexes are rebuilt from the survivors.
+// destSyncID. Across all inputs (and any records already present under
+// destSyncID), the newest record per logical key (by discovered_at,
+// ties keep the incumbent) survives, and dest's derived indexes are
+// maintained by the keep-newer write path.
 //
-// destSyncID must already exist in dest (created by StartNewSync) and
-// be empty — MergeInto only adds records, it never excises, so no
-// pre-existing data under destSyncID is assumed. MergeInto binds the
-// dest engine's current sync to destSyncID before writing: v3 record
-// values do not carry sync_id, so the engine's keep-newer write path
-// keys every record off the current sync. The binding is left in
-// place when MergeInto returns.
+// destSyncID must already exist in dest. It may be non-empty: the
+// in-place fold compaction merges partial syncs directly into the base
+// sync's keyspace, relying on the Put*RecordsIfNewer semantics to
+// resolve conflicts against pre-existing records. MergeInto binds the
+// dest engine's current sync to destSyncID — the engine's write
+// methods key off the current sync, not any per-record field.
 //
 // Only the four primary record buckets are copied: resource_types,
 // resources, entitlements, grants. Assets are intentionally NOT copied
@@ -40,13 +39,13 @@ type SourceSync struct {
 // four tables and drops assets from the compacted sync; copying assets
 // here would give Pebble compacted syncs asset access the SQLite path
 // does not have. Index keyspaces are not copied verbatim either; the
-// per-record write path rebuilds them from the surviving primaries.
+// per-record write path maintains them.
 //
 // Sources are applied in the given order. The dedup keeps the record
 // with the strictly-greater discovered_at; on an equal discovered_at
-// the already-written (earlier source) record is kept. Callers pass
-// sources in the same order the SQLite fold applies them so the tie
-// winner is identical across engines.
+// the already-written (earlier source, or pre-existing dest) record is
+// kept. Callers pass sources newest-first so the tie winner matches the
+// SQLite fold.
 func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync, destSyncID string) error {
 	if dest == nil {
 		return errors.New("synccompactor/pebble.MergeInto: dest engine is nil")
