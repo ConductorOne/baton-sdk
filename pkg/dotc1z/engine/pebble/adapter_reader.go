@@ -565,3 +565,14 @@ func (a *Adapter) resolveActiveSyncForReader(ctx context.Context, annos []*anypb
 	}
 	return "", nil
 }
+
+func (a *Adapter) InitCurrentSync(ctx context.Context) error {
+	id, err := a.resolveActiveSyncForReader(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("pebble: error resolving active sync: %w", err)
+	}
+	if id != "" {
+		return a.SetCurrentSync(ctx, id)
+	}
+	return nil
+}

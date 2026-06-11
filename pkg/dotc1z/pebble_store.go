@@ -54,8 +54,15 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	if encoding == PayloadEncodingUnspecified {
 		encoding = fileEncoding
 	}
+
+	adapter := pebble.NewAdapter(e)
+	err = adapter.InitCurrentSync(ctx)
+	if err != nil {
+		return nil, cleanupOnError(err)
+	}
+
 	return &pebbleStore{
-		Adapter:         pebble.NewAdapter(e),
+		Adapter:         adapter,
 		engine:          e,
 		outputFilePath:  outputFilePath,
 		tmpDir:          tmpDir,
