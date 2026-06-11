@@ -37,7 +37,6 @@ func benchmarkToPebble(b *testing.B, syncID string) {
 	sourcePath := filepath.Join(tempDir, fmt.Sprintf("source.%s.c1z", syncID))
 	srcData, err := os.ReadFile(c1zPath)
 	require.NoError(b, err)
-	//nolint:gosec // sourcePath is created under b.TempDir in this benchmark.
 	require.NoError(b, os.WriteFile(sourcePath, srcData, 0600))
 
 	c1f, err := dotc1z.NewC1ZFile(ctx, sourcePath, dotc1z.WithTmpDir(tempDir))

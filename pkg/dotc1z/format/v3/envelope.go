@@ -621,7 +621,6 @@ func writeZstdTar(w io.Writer, dir string) error {
 			return err
 		}
 		if info.Mode().IsRegular() {
-			//nolint:gosec // path is from filepath.WalkDir over a Pebble checkpoint
 			// directory we own — not user-supplied, no symlink TOCTOU exposure.
 			f, err := os.Open(path)
 			if err != nil {
@@ -685,7 +684,6 @@ func writeTar(w io.Writer, dir string) error {
 			return err
 		}
 		if info.Mode().IsRegular() {
-			//nolint:gosec // path is from filepath.Walk over a Pebble checkpoint
 			// directory we own — not user-supplied, no symlink TOCTOU exposure.
 			f, err := os.Open(path)
 			if err != nil {
