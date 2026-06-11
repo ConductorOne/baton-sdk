@@ -13,6 +13,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/proto"
 
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
@@ -65,6 +66,14 @@ type Engine struct {
 	writeMu sync.Mutex
 	closing atomic.Bool // strict write-barrier flag, read on every Writer call
 	closeMu sync.Mutex
+
+	// computedStats holds caller-computed stats records stashed via
+	// StashComputedSyncStats, keyed by sync_id. PersistSyncStats pops
+	// and persists the stashed record instead of re-scanning the
+	// keyspaces — used by bulk imports that already counted every
+	// record they wrote.
+	computedStatsMu sync.Mutex
+	computedStats   map[string]*v3.SyncStatsRecord
 }
 
 // Open creates or opens a Pebble engine rooted at dir. If dir does
@@ -495,6 +504,13 @@ func truncateCheckpointWALs(destDir string) error {
 // internal: marshal a record value deterministically.
 func marshalRecord(m proto.Message) ([]byte, error) {
 	return proto.MarshalOptions{Deterministic: true}.Marshal(m)
+}
+
+// marshalRecordAppend is marshalRecord into a caller-owned buffer, for
+// hot paths that immediately copy the bytes onward (e.g. the bulk
+// import's SST appends) and can reuse one scratch across records.
+func marshalRecordAppend(dst []byte, m proto.Message) ([]byte, error) {
+	return proto.MarshalOptions{Deterministic: true}.MarshalAppend(dst, m)
 }
 
 // NOTE: formerly used vtprotobuf, but it is unmaintained and doesn't support deterministic serialization.

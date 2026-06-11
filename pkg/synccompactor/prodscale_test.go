@@ -161,10 +161,19 @@ func manifestSyncID(t *testing.T, path string) string {
 // grants spread across users × entitlements.
 func buildProdScaleBase(t *testing.T, ctx context.Context, path string, grants, users, ents int) {
 	t.Helper()
-	w, err := dotc1z.NewStore(ctx, path,
+	buildProdScaleBaseStore(t, ctx, path, grants, users, ents,
 		dotc1z.WithEngine(dotc1z.EnginePebble),
 		dotc1z.WithPayloadEncoding(dotc1z.PayloadEncodingIndexedZstd),
-		dotc1z.WithTmpDir(t.TempDir()))
+	)
+}
+
+// buildProdScaleBaseStore is buildProdScaleBase with caller-chosen store
+// options, so the same generator can produce sqlite (v1) fixtures for the
+// conversion experiments.
+func buildProdScaleBaseStore(t *testing.T, ctx context.Context, path string, grants, users, ents int, storeOpts ...dotc1z.C1ZOption) {
+	t.Helper()
+	w, err := dotc1z.NewStore(ctx, path,
+		append(storeOpts, dotc1z.WithTmpDir(t.TempDir()))...)
 	require.NoError(t, err)
 	_, err = w.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)

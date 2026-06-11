@@ -1,6 +1,7 @@
 package codec
 
 import (
+	"bytes"
 	"encoding/binary"
 )
 
@@ -43,15 +44,26 @@ func AppendTupleBytes(dst []byte, b []byte) []byte {
 }
 
 func appendEscaped(dst []byte, src []byte) []byte {
-	for _, b := range src {
-		switch b {
-		case tupleSeparator:
-			dst = append(dst, tupleEscape, escapedNUL)
-		case tupleEscape:
-			dst = append(dst, tupleEscape, escapedEscape)
-		default:
-			dst = append(dst, b)
+	// Fast path: real-world ids almost never contain 0x00/0x01, and
+	// SIMD IndexByte beats a byte-at-a-time loop by an order of
+	// magnitude. Profiled at ~4% of total sqlite→pebble conversion CPU
+	// before this (every key component of every record and index entry
+	// passes through here).
+	for len(src) > 0 {
+		i := bytes.IndexByte(src, tupleSeparator)
+		if j := bytes.IndexByte(src, tupleEscape); j >= 0 && (i < 0 || j < i) {
+			i = j
 		}
+		if i < 0 {
+			return append(dst, src...)
+		}
+		dst = append(dst, src[:i]...)
+		if src[i] == tupleSeparator {
+			dst = append(dst, tupleEscape, escapedNUL)
+		} else {
+			dst = append(dst, tupleEscape, escapedEscape)
+		}
+		src = src[i+1:]
 	}
 	return dst
 }

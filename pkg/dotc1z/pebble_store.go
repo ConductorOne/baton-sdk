@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -560,10 +561,12 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	if s.outputFilePath == "" {
 		return fmt.Errorf("pebble engine: output file path is empty")
 	}
+	saveStart := time.Now()
 	checkpointDir := filepath.Join(s.tmpDir, "checkpoint")
 	if err := s.engine.CheckpointTo(ctx, checkpointDir); err != nil {
 		return err
 	}
+	checkpointDur := time.Since(saveStart)
 
 	tmpPath := s.outputFilePath + ".tmp"
 	out, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
@@ -584,9 +587,14 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	encodeStart := time.Now()
 	if _, err := formatv3.WriteEnvelopeWithReuse(out, manifest, checkpointDir, s.payloadReuse); err != nil {
 		return err
 	}
+	ctxzap.Extract(ctx).Debug("pebble save: envelope written",
+		zap.Duration("checkpoint", checkpointDur),
+		zap.Duration("envelope_encode", time.Since(encodeStart)),
+	)
 	if err := out.Sync(); err != nil {
 		return err
 	}

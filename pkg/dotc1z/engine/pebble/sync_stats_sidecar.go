@@ -215,13 +215,48 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 
 // PersistSyncStats computes and writes the stats sidecar for
 // syncID. Exposed for the EndFreshSync caller and the on-Open
-// migration backfill.
+// migration backfill. If a caller-computed record was stashed for
+// this sync (StashComputedSyncStats), it is persisted instead of
+// re-scanning the keyspaces.
 func (e *Engine) PersistSyncStats(ctx context.Context, syncID string) error {
+	if rec := e.takeStashedSyncStats(syncID); rec != nil {
+		return e.PersistComputedSyncStats(ctx, syncID, rec)
+	}
 	rec, err := e.computeSyncStats(ctx, syncID)
 	if err != nil {
 		return err
 	}
 	return e.writeSyncStats(ctx, syncID, rec)
+}
+
+// StashComputedSyncStats registers a caller-computed stats record to be
+// persisted by the next PersistSyncStats call for syncID instead of the
+// O(N) keyspace re-scan. Intended for trusted bulk writers (e.g. the
+// BulkSyncImport conversion path) that counted every record they wrote;
+// the caller owns the record's correctness. The stash is consumed by
+// exactly one PersistSyncStats call.
+func (e *Engine) StashComputedSyncStats(syncID string, rec *v3.SyncStatsRecord) {
+	if rec == nil {
+		return
+	}
+	e.computedStatsMu.Lock()
+	if e.computedStats == nil {
+		e.computedStats = map[string]*v3.SyncStatsRecord{}
+	}
+	e.computedStats[syncID] = rec
+	e.computedStatsMu.Unlock()
+}
+
+// takeStashedSyncStats pops the stashed record for syncID, or nil.
+func (e *Engine) takeStashedSyncStats(syncID string) *v3.SyncStatsRecord {
+	e.computedStatsMu.Lock()
+	defer e.computedStatsMu.Unlock()
+	rec, ok := e.computedStats[syncID]
+	if !ok {
+		return nil
+	}
+	delete(e.computedStats, syncID)
+	return rec
 }
 
 // PersistComputedSyncStats writes a caller-computed stats record —
