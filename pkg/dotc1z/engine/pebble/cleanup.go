@@ -50,11 +50,29 @@ func syncScopedRanges(syncIDBytes []byte) [][2][]byte {
 // keys carry no sync_id. StartNewSync calls this before binding a new
 // sync so the replacement sync never inherits orphan records from a
 // prior sync — records the new sync doesn't happen to overwrite would
-// otherwise linger under identical keys. After this returns the keys
-// are tombstoned (physical bytes reclaimed at compaction/checkpoint).
+// otherwise linger under identical keys.
+//
+// The wipe uses pebble.DB.Excise rather than DeleteRange tombstones:
+// excise drops fully-covered SSTs from the manifest outright
+// (O(metadata), immediate disk reclaim) instead of leaving range
+// tombstones whose dead bytes survive until compaction. With
+// tombstones, a replacement sync that finishes before background
+// compaction catches up would hard-link the prior sync's dead SSTs
+// into the CheckpointTo envelope at save — the same bloat the old
+// multi-sync Cleanup path ran CompactSyncRanges to avoid. Excise also
+// keeps the MarkFreshSync "empty by construction" fast path honest
+// physically, not just logically.
+//
+// Two spans cover everything sync-scoped:
+//
+//   - [v3|typeResourceType, v3|typeEngineMeta): every record type,
+//     the sync-run record, all secondary indexes, assets, and the
+//     reserved counter/session bytes — one contiguous span, so
+//     almost every SST is fully covered and dropped whole.
+//   - the stats sidecar range inside engine-meta.
 //
 // Engine-global metadata — the keyspace-version stamp and
-// index-migration markers — lives outside syncScopedRanges and is
+// index-migration markers — lives elsewhere in engine-meta and is
 // intentionally preserved.
 //
 // Refuses while a fresh sync is in progress (between MarkFreshSync and
@@ -63,12 +81,14 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 	if e.IsFreshSync() {
 		return errors.New("ResetForNewSync: refusing to reset while a sync is in progress")
 	}
-	ranges := syncScopedRanges(nil)
+	spans := []pebble.KeyRange{
+		{Start: []byte{versionV3, typeResourceType}, End: []byte{versionV3, typeEngineMeta}},
+		{Start: SyncStatsSidecarLowerBound(), End: SyncStatsSidecarUpperBound()},
+	}
 	return e.withWrite(func() error {
-		opts := writeOpts(e.opts.durability)
-		for _, r := range ranges {
-			if err := e.db.DeleteRange(r[0], r[1], opts); err != nil {
-				return fmt.Errorf("ResetForNewSync: DeleteRange: %w", err)
+		for _, span := range spans {
+			if err := e.db.Excise(ctx, span); err != nil {
+				return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)
 			}
 		}
 		return nil

@@ -3,6 +3,7 @@ package pebble
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -27,6 +28,70 @@ func TestResetForNewSyncRefusesActiveSync(t *testing.T) {
 	}
 	if err := e.ResetForNewSync(ctx); err == nil {
 		t.Fatal("ResetForNewSync while a sync is active: expected error, got nil")
+	}
+}
+
+// TestResetForNewSyncReclaimsDiskImmediately pins the excise-based wipe
+// contract: replacing a sync must physically drop the prior sync's
+// SSTs from the LSM (manifest-level excise), not merely tombstone them.
+// With DeleteRange tombstones the dead bytes would survive until a
+// compaction ran — and a short replacement sync could hard-link them
+// into the CheckpointTo envelope at save, shipping deleted data.
+func TestResetForNewSyncReclaimsDiskImmediately(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	a := NewAdapter(e)
+
+	// Sync 1: enough grant data to materialize real SSTs, then EndSync
+	// (EndFreshSync flushes the memtable to L0).
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+	for i := 0; i < 50; i++ {
+		batch := make([]*v3.GrantRecord, 0, 100)
+		for j := 0; j < 100; j++ {
+			batch = append(batch, v3.GrantRecord_builder{
+				ExternalId: fmt.Sprintf("g-%d-%d", i, j),
+				Entitlement: v3.EntitlementRef_builder{
+					ResourceTypeId: "group", ResourceId: "g1", EntitlementId: "ent-A",
+				}.Build(),
+				Principal: v3.PrincipalRef_builder{
+					ResourceTypeId: "user", ResourceId: fmt.Sprintf("u-%d-%d", i, j),
+				}.Build(),
+			}.Build())
+		}
+		if err := e.PutGrantRecords(ctx, batch...); err != nil {
+			t.Fatalf("PutGrantRecords: %v", err)
+		}
+	}
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
+
+	dataLo := []byte{versionV3, typeResourceType}
+	dataHi := []byte{versionV3, typeEngineMeta}
+	before, err := e.DB().EstimateDiskUsage(dataLo, dataHi)
+	if err != nil {
+		t.Fatalf("EstimateDiskUsage (before): %v", err)
+	}
+	if before == 0 {
+		t.Fatal("sanity: expected non-zero on-disk usage for the finished sync's data span")
+	}
+
+	// Replacement sync: StartNewSync excises the prior sync's data.
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatalf("StartNewSync (replacement): %v", err)
+	}
+	after, err := e.DB().EstimateDiskUsage(dataLo, dataHi)
+	if err != nil {
+		t.Fatalf("EstimateDiskUsage (after): %v", err)
+	}
+	// The excise drops fully-covered SSTs from the manifest, so the
+	// data span's estimated usage collapses to (near) zero immediately
+	// — no compaction required. Allow a small slop for the replacement
+	// sync's own sync-run record landing in the span.
+	if after >= before/10 {
+		t.Fatalf("post-reset disk usage = %d, want < %d (10%% of pre-reset %d); excise did not reclaim the prior sync's SSTs", after, before/10, before)
 	}
 }
 

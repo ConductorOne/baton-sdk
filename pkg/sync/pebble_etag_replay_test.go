@@ -2,6 +2,7 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -319,4 +320,68 @@ func TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward(t *testing.T) {
 
 	got := resp.GetList()[0]
 	require.Equal(t, grant.GetId(), got.GetId(), "the etag-replayed grant must round-trip its identity")
+}
+
+// TestOptionalPreviousSyncC1ZPath_SoftFails pins the best-effort
+// contract of WithOptionalPreviousSyncC1ZPath: a missing or corrupt
+// previous-sync c1z (the service-mode spare is a cache the handler
+// maintains automatically) must degrade to a sync without ETag replay,
+// never fail NewSyncer or the sync. The strict WithPreviousSyncC1ZPath
+// keeps surfacing the open failure.
+func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
+	ctx := t.Context()
+	ctx, err := logging.Init(ctx)
+	require.NoError(t, err)
+
+	tempDir := t.TempDir()
+
+	group, err := rs.NewGroupResource("g1", groupResourceType, "g1", nil)
+	require.NoError(t, err)
+	ent := et.NewAssignmentEntitlement(group, "member", et.WithGrantableTo(groupResourceType, userResourceType))
+	ent.SetSlug("member")
+	user, err := rs.NewUserResource("u1", userResourceType, "u1", nil, rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}))
+	require.NoError(t, err)
+	grant := gt.NewGrant(group, "member", user)
+
+	corruptPath := filepath.Join(tempDir, "corrupt-prev.c1z")
+	require.NoError(t, os.WriteFile(corruptPath, []byte("not a c1z"), 0o600))
+
+	for name, path := range map[string]string{
+		"missing": filepath.Join(tempDir, "does-not-exist.c1z"),
+		"corrupt": corruptPath,
+	} {
+		t.Run(name, func(t *testing.T) {
+			mc := newEtagObservingMockConnector("etag-v1")
+			mc.WithData(group, ent, grant)
+			store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "out.c1z"),
+				dotc1z.WithEngine(dotc1z.EnginePebble),
+				dotc1z.WithTmpDir(tempDir),
+			)
+			require.NoError(t, err)
+			syncer, err := NewSyncer(ctx, mc,
+				WithConnectorStore(store),
+				WithTmpDir(tempDir),
+				WithOptionalPreviousSyncC1ZPath(path),
+			)
+			require.NoError(t, err, "optional previous-sync c1z must not fail NewSyncer")
+			require.NoError(t, syncer.Sync(ctx), "sync must proceed without replay")
+			require.NoError(t, syncer.Close(ctx))
+		})
+	}
+
+	// Strict variant: the same corrupt file must fail loudly.
+	mc := newEtagObservingMockConnector("etag-v1")
+	mc.WithData(group, ent, grant)
+	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "strict.c1z"),
+		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithTmpDir(tempDir),
+	)
+	require.NoError(t, err)
+	_, err = NewSyncer(ctx, mc,
+		WithConnectorStore(store),
+		WithTmpDir(tempDir),
+		WithPreviousSyncC1ZPath(corruptPath),
+	)
+	require.Error(t, err, "explicit previous-sync c1z must surface open failures")
+	require.NoError(t, store.Close(ctx))
 }
