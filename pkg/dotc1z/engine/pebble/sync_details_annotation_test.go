@@ -18,9 +18,8 @@ import (
 // guard for `Adapter.resolveActiveSync` honoring the `c1zpb.SyncDetails`
 // annotation on incoming requests.
 //
-// The syncer's `fetchEtaggedGrantsForResource` (pkg/sync/syncer.go)
-// reads previous-sync grants by passing the previous sync ID in a
-// `c1zpb.SyncDetails` annotation on the ListGrants request:
+// Readers can scope a request to a specific sync by passing the sync ID
+// in a `c1zpb.SyncDetails` annotation on the ListGrants request:
 //
 //	storeAnnos := annotations.Annotations{}
 //	storeAnnos.Update(c1zpb.SyncDetails_builder{Id: prevSyncID}.Build())
@@ -34,10 +33,9 @@ import (
 // honored that annotation via
 // `annotations.GetSyncIdFromAnnotations(req.Annotations)`. Pebble
 // originally only consulted `req.GetActiveSyncId()` and silently
-// returned the in-progress sync's grants instead — breaking the
-// etag-replay contract end-to-end. The fix in
-// `Adapter.resolveActiveSync` adds the annotation lookup between
-// the explicit ActiveSyncId override and the currentSyncID fallback.
+// returned the in-progress sync's grants instead. `Adapter.resolveActiveSync`
+// must check the annotation between the explicit ActiveSyncId override and
+// the currentSyncID fallback.
 //
 // The test exercises the annotation handling directly:
 //
@@ -94,13 +92,9 @@ func TestPebble_ListGrants_HonorsSyncDetailsAnnotation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, sync1ID, sync2ID, "sanity: sync 2 must be a distinct sync")
 
-	// Build the same request the syncer's `fetchEtaggedGrantsForResource`
-	// builds during etag-replay: a SyncDetails annotation carrying the
-	// previous sync ID, NO ActiveSyncId field set. The Resource filter
-	// is intentionally omitted to isolate the SyncDetails annotation
-	// behavior (Pebble's Resource filter has its own
-	// principal-vs-entitlement-resource semantic mismatch worth its
-	// own dedicated test).
+	// Build a request with a SyncDetails annotation carrying sync 1's ID
+	// and NO ActiveSyncId field set. The Resource filter is intentionally
+	// omitted to isolate the SyncDetails annotation behavior.
 	annos := annotations.Annotations{}
 	annos.Update(c1zpb.SyncDetails_builder{Id: sync1ID}.Build())
 	req := v2.GrantsServiceListGrantsRequest_builder{
@@ -112,11 +106,10 @@ func TestPebble_ListGrants_HonorsSyncDetailsAnnotation(t *testing.T) {
 
 	require.Len(t, resp.GetList(), 1,
 		"ListGrants must scope to the sync_id carried in the SyncDetails annotation "+
-			"(this is the contract the syncer's etag-replay path relies on); got %d "+
-			"grants from in-progress sync %q rather than the requested previous sync %q",
+			"got %d grants from in-progress sync %q rather than the requested sync %q",
 		len(resp.GetList()), sync2ID, sync1ID)
 
 	got := resp.GetList()[0]
 	require.Equal(t, "grant-sync1", got.GetId(),
-		"expected sync 1's grant via etag-replay scope; got a different grant")
+		"expected sync 1's grant via SyncDetails scope; got a different grant")
 }
