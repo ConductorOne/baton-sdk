@@ -306,23 +306,7 @@ func translateGrants(syncID string, grants []*v2.Grant) []*v3.GrantRecord {
 		shards = n
 	}
 	if shards < 2 {
-		// Serial path: one arena, one pass.
-		arena := newGrantTranslateArena(len(grants))
-		records := make([]*v3.GrantRecord, 0, len(grants))
-		for _, g := range grants {
-			if g == nil {
-				continue
-			}
-			rec := arena.translateV2Grant(syncID, g)
-			if rec == nil {
-				continue
-			}
-			if rec.GetDiscoveredAt() == nil {
-				rec.SetDiscoveredAt(now)
-			}
-			records = append(records, rec)
-		}
-		return records
+		return translateGrantsSerial(syncID, grants, now)
 	}
 
 	// Parallel path: shard workers each translate their range into a
@@ -367,6 +351,30 @@ func translateGrants(syncID string, grants []*v2.Grant) []*v3.GrantRecord {
 		}
 	}
 	return compact
+}
+
+// translateGrantsSerial is the single-goroutine translate path: one
+// arena, one pass. Used by translateGrants for small batches and by
+// callers that are already running on parallel lanes (the bulk import's
+// grant shards), where nested fan-out would just oversubscribe a shared
+// host.
+func translateGrantsSerial(syncID string, grants []*v2.Grant, now *timestamppb.Timestamp) []*v3.GrantRecord {
+	arena := newGrantTranslateArena(len(grants))
+	records := make([]*v3.GrantRecord, 0, len(grants))
+	for _, g := range grants {
+		if g == nil {
+			continue
+		}
+		rec := arena.translateV2Grant(syncID, g)
+		if rec == nil {
+			continue
+		}
+		if rec.GetDiscoveredAt() == nil {
+			rec.SetDiscoveredAt(now)
+		}
+		records = append(records, rec)
+	}
+	return records
 }
 
 // PutResourceTypes writes a batch of resource types in a single

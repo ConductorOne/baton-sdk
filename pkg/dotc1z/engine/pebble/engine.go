@@ -506,6 +506,13 @@ func marshalRecord(m proto.Message) ([]byte, error) {
 	return proto.MarshalOptions{Deterministic: true}.Marshal(m)
 }
 
+// marshalRecordAppend is marshalRecord into a caller-owned buffer, for
+// hot paths that immediately copy the bytes onward (e.g. the bulk
+// import's SST appends) and can reuse one scratch across records.
+func marshalRecordAppend(dst []byte, m proto.Message) ([]byte, error) {
+	return proto.MarshalOptions{Deterministic: true}.MarshalAppend(dst, m)
+}
+
 // NOTE: formerly used vtprotobuf, but it is unmaintained and doesn't support deterministic serialization.
 func unmarshalRecord(b []byte, m proto.Message) error {
 	return proto.Unmarshal(b, m)

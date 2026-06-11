@@ -96,11 +96,17 @@ func TestToPebbleBulkImportEquivalence(t *testing.T) {
 	require.NoError(t, src.PutGrants(ctx, grants...))
 	require.NoError(t, src.EndSync(ctx))
 
-	// --- path 1: SST bulk-import conversion ---
+	// --- path 1: SST bulk-import conversion (parallel lanes) ---
 	convPath := filepath.Join(dir, "converted.c1z")
 	stats, err := src.ToPebble(ctx, convPath, syncID)
 	require.NoError(t, err)
 	require.Equal(t, int64(len(grants)), stats.Grants.Rows)
+
+	// --- path 1b: same conversion fully serialized (shared-infra dial) ---
+	serialPath := filepath.Join(dir, "converted-serial.c1z")
+	serialStats, err := src.ToPebble(ctx, serialPath, syncID, dotc1z.WithConvertParallelism(1))
+	require.NoError(t, err)
+	require.Equal(t, int64(len(grants)), serialStats.Grants.Rows)
 
 	// --- path 2: canonical Put* reference ---
 	refPath := filepath.Join(dir, "reference.c1z")
@@ -115,14 +121,15 @@ func TestToPebbleBulkImportEquivalence(t *testing.T) {
 	require.NoError(t, ref.EndSync(ctx))
 	require.NoError(t, ref.Close(ctx))
 
-	convDump := dumpSyncKeyspace(ctx, t, convPath, dir)
 	refDump := dumpSyncKeyspace(ctx, t, refPath, dir)
-
-	require.Equal(t, len(refDump), len(convDump), "bulk import and Put path key counts diverge")
-	for k, refVal := range refDump {
-		convVal, ok := convDump[k]
-		require.True(t, ok, "key missing from bulk-import output: %q", k)
-		require.Equal(t, refVal, convVal, "value mismatch for key %q", k)
+	for label, path := range map[string]string{"parallel": convPath, "serial": serialPath} {
+		convDump := dumpSyncKeyspace(ctx, t, path, dir)
+		require.Equal(t, len(refDump), len(convDump), "%s bulk import and Put path key counts diverge", label)
+		for k, refVal := range refDump {
+			convVal, ok := convDump[k]
+			require.True(t, ok, "%s: key missing from bulk-import output: %q", label, k)
+			require.Equal(t, refVal, convVal, "%s: value mismatch for key %q", label, k)
+		}
 	}
 
 	// The conversion stashes import-accumulated stats instead of

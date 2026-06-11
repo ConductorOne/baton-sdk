@@ -34,8 +34,9 @@ const defaultConvertBatchSize = 10000
 type ConvertOption func(*convertConfig)
 
 type convertConfig struct {
-	batchSize int
-	tmpDir    string
+	batchSize   int
+	tmpDir      string
+	parallelism int
 }
 
 // WithConvertBatchSize sets the per-batch size. Values <= 0 are ignored.
@@ -52,6 +53,19 @@ func WithConvertBatchSize(n int) ConvertOption {
 func WithConvertTmpDir(dir string) ConvertOption {
 	return func(c *convertConfig) {
 		c.tmpDir = dir
+	}
+}
+
+// WithConvertParallelism sets the conversion's scan-lane fan-out (each
+// lane holds one sqlite connection plus a reader and a decode/encode
+// goroutine). The default — min(4, GOMAXPROCS/2) — leaves headroom for
+// shared infrastructure; callers that own the machine can raise it, and
+// 1 fully serializes the grant scan. Values <= 0 are ignored.
+func WithConvertParallelism(n int) ConvertOption {
+	return func(c *convertConfig) {
+		if n > 0 {
+			c.parallelism = n
+		}
 	}
 }
 
@@ -192,7 +206,7 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	if err = c.convertEntitlements(ctx, bi, syncID, cfg.batchSize, &stats.Entitlements); err != nil {
 		return nil, fmt.Errorf("to-pebble: entitlements: %w", err)
 	}
-	if err = c.convertGrants(ctx, bi, syncID, cfg.batchSize, &stats.Grants); err != nil {
+	if err = c.convertGrants(ctx, bi, syncID, cfg, &stats.Grants); err != nil {
 		return nil, fmt.Errorf("to-pebble: grants: %w", err)
 	}
 	if err = bi.Finish(ctx); err != nil {
@@ -396,8 +410,11 @@ func (c *C1File) convertEntitlements(ctx context.Context, bi *pebble.BulkSyncImp
 
 // convertGrantScanLanes caps the parallel grant scan fan-out. Each lane
 // holds one sqlite connection and one decode/encode pipeline for one
-// external-id range.
-const convertGrantScanLanes = 8
+// external-id range. The default fan-out is half the available CPUs up
+// to this cap — conversions usually run on shared workers, so leave
+// headroom by default and let callers that own the machine raise it
+// via WithConvertParallelism.
+const convertGrantScanLanes = 4
 
 // rawGrantRow is one grant row's raw column bytes, copied out of the
 // scan into a batch-owned arena so decoding can happen on another
@@ -422,9 +439,10 @@ type rawGrantRow struct {
 // batches, and a worker goroutine decodes the v2 grants, re-attaches
 // the GrantExpandable side column, and feeds the lane's import shard
 // (translate, v3 marshal, key encode — no shared locks).
-func (c *C1File) convertGrants(ctx context.Context, bi *pebble.BulkSyncImport, syncID string, batchSize int, stage *ConvertStageStats) error {
+func (c *C1File) convertGrants(ctx context.Context, bi *pebble.BulkSyncImport, syncID string, cfg *convertConfig, stage *ConvertStageStats) error {
 	start := time.Now()
 	defer func() { stage.Duration = time.Since(start) }()
+	batchSize := cfg.batchSize
 
 	var minID, maxID sql.NullInt64
 	boundsQ, boundsArgs, err := c.db.From(grants.Name()).Prepared(true).
@@ -440,7 +458,10 @@ func (c *C1File) convertGrants(ctx context.Context, bi *pebble.BulkSyncImport, s
 		return nil // no grants in this sync
 	}
 
-	lanes := min(convertGrantScanLanes, runtime.GOMAXPROCS(0))
+	lanes := min(convertGrantScanLanes, max(1, runtime.GOMAXPROCS(0)/2))
+	if cfg.parallelism > 0 {
+		lanes = cfg.parallelism
+	}
 	if lanes < 1 {
 		lanes = 1
 	}

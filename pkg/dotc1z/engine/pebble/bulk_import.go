@@ -189,7 +189,11 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 	if err != nil {
 		return nil, fmt.Errorf("StartBulkSyncImport: mkdir temp: %w", err)
 	}
-	sorters := max(2, runtime.GOMAXPROCS(0)/2)
+	// Background chunk-sort fan-out: enough to keep sorts off the scan
+	// goroutines' critical path, with an absolute cap so a large shared
+	// host doesn't see a conversion grab dozens of cores (each slot also
+	// pins one chunk arena, so this bounds sort memory too).
+	sorters := min(4, max(2, runtime.GOMAXPROCS(0)/2))
 	b := &BulkSyncImport{
 		e:             e,
 		syncID:        syncID,
@@ -238,6 +242,10 @@ type BulkGrantShard struct {
 	entRT  map[string]int64
 	closed bool
 	err    error
+	// valBuf is the reusable marshal scratch for primary record values.
+	// Safe because both the sstable writer and the spill sorters copy
+	// bytes out before add() returns.
+	valBuf []byte
 }
 
 // NewGrantShard registers a new grant import shard. Safe to call
@@ -272,15 +280,19 @@ func (s *BulkGrantShard) AddGrants(ctx context.Context, grants ...*v2.Grant) err
 	if s.closed {
 		return errors.New("bulk sync import: AddGrants on closed shard")
 	}
-	records := translateGrants(s.b.syncID, grants)
+	// Serial translate: the caller's lanes are the parallelism; the
+	// fan-out inside translateGrants would only oversubscribe shared
+	// hosts (lanes × translate shards goroutine bursts).
+	records := translateGrantsSerial(s.b.syncID, grants, timestamppb.Now())
 	for _, r := range records {
 		if r == nil {
 			continue
 		}
-		val, err := marshalRecord(r)
+		val, err := marshalRecordAppend(s.valBuf[:0], r)
 		if err != nil {
 			return s.fail(err)
 		}
+		s.valBuf = val
 		if err := s.grants.add(encodeGrantKey(s.b.syncIDBytes, r.GetExternalId()), val); err != nil {
 			return s.fail(err)
 		}
