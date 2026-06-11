@@ -3,13 +3,12 @@ package pebble
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash"
 	"sort"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -34,8 +33,8 @@ import (
 //     bucket P" is a contiguous range scan.
 //
 // Combiner. A node's digest is the XOR of every grant content hash
-// beneath it (leaves of the fold stay sha256 — only the combiner is
-// XOR). XOR is homomorphic (parent = XOR of children), order-independent,
+// beneath it (leaves are xxHash64 digests — only the combiner is XOR).
+// XOR is homomorphic (parent = XOR of children), order-independent,
 // and invertible, which buys three things:
 //
 //   - depth-independence: a node's digest depends only on the grants in
@@ -87,9 +86,9 @@ const (
 	merkleMaxDepth = merkleBucketHashLen
 )
 
-// hashLen is the width of a sha256 digest, used for both the grant
+// hashLen is the width of an xxHash64 digest, used for both the grant
 // content hash (index value) and node digests.
-const hashLen = sha256.Size
+const hashLen = 8
 
 // zeroDigest is the XOR identity — the digest of an empty/absent node.
 var zeroDigest [hashLen]byte
@@ -101,27 +100,17 @@ func xorInto(dst, src []byte) {
 	}
 }
 
-// writeLenPrefixed writes an 8-byte big-endian length followed by b.
-// Length-prefixing every field makes the canonical encoding injective:
-// no concatenation of fields can be confused with a different split.
-func writeLenPrefixed(h hash.Hash, b []byte) {
-	var n [8]byte
-	binary.BigEndian.PutUint64(n[:], uint64(len(b)))
-	_, _ = h.Write(n[:])
-	_, _ = h.Write(b)
-}
-
-// principalBucketHash is the bucket address for a principal: the first
-// merkleBucketHashLen bytes of sha256(rt, id). Identity only — never the
-// principal's full object — so the address is stable across syncs even
-// when the principal's attributes change. Returns a fresh slice.
+// principalBucketHash is the bucket address for a principal: the 8-byte
+// xxHash64 of (rt + "\x00" + id). Identity only — never the principal's
+// full object — so the address is stable across syncs even when the
+// principal's attributes change. Returns a fresh slice.
 func principalBucketHash(rt, id string) []byte {
-	h := sha256.New()
-	writeLenPrefixed(h, []byte(rt))
-	writeLenPrefixed(h, []byte(id))
-	sum := h.Sum(nil)
+	h := xxhash.New()
+	_, _ = h.WriteString(rt)
+	_, _ = h.Write([]byte{0})
+	_, _ = h.WriteString(id)
 	out := make([]byte, merkleBucketHashLen)
-	copy(out, sum[:merkleBucketHashLen])
+	binary.BigEndian.PutUint64(out, h.Sum64())
 	return out
 }
 
@@ -140,13 +129,17 @@ func principalBucketHash(rt, id string) []byte {
 // files written by different SDK builds hash identical grants
 // differently. Changing this set requires an index-migration bump.
 func grantContentHash(r *v3.GrantRecord) []byte {
-	h := sha256.New()
+	h := xxhash.New()
 	ent := r.GetEntitlement()
 	princ := r.GetPrincipal()
-	writeLenPrefixed(h, []byte(ent.GetEntitlementId()))
-	writeLenPrefixed(h, []byte(princ.GetResourceTypeId()))
-	writeLenPrefixed(h, []byte(princ.GetResourceId()))
-	writeLenPrefixed(h, []byte(r.GetExternalId()))
+	_, _ = h.WriteString(ent.GetEntitlementId())
+	_, _ = h.Write([]byte{0})
+	_, _ = h.WriteString(princ.GetResourceTypeId())
+	_, _ = h.Write([]byte{0})
+	_, _ = h.WriteString(princ.GetResourceId())
+	_, _ = h.Write([]byte{0})
+	_, _ = h.WriteString(r.GetExternalId())
+	_, _ = h.Write([]byte{0})
 
 	// Source-entitlement ids, sorted for order-independence. The map
 	// values (GrantSourceRecord) are not folded in v1 — only the set of
@@ -157,13 +150,13 @@ func grantContentHash(r *v3.GrantRecord) []byte {
 		ids = append(ids, k)
 	}
 	sort.Strings(ids)
-	var nbuf [8]byte
-	binary.BigEndian.PutUint64(nbuf[:], uint64(len(ids)))
-	_, _ = h.Write(nbuf[:])
 	for _, id := range ids {
-		writeLenPrefixed(h, []byte(id))
+		_, _ = h.WriteString(id)
+		_, _ = h.Write([]byte{0})
 	}
-	return h.Sum(nil)
+	out := make([]byte, hashLen)
+	binary.BigEndian.PutUint64(out, h.Sum64())
+	return out
 }
 
 // grantHashIndexKey returns the by_entitlement_principal_hash index key
