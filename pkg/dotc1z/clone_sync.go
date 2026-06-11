@@ -173,8 +173,9 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string, o
 // only the row copy stalls the writer, not the compress.
 //
 // For whale files, callers should also pass WithC1FBulkLoad(true) and
-// WithC1FSkipVacuum(true) so the snapshot-side write defers secondary-index
-// maintenance to a single rebuild pass at Close.
+// WithC1FSkipVacuum(true): the row copy then runs against clone tables whose
+// deferrable secondary indexes have been dropped, and those indexes are
+// rebuilt in a single pass when the snapshot is finalized.
 //
 // SnapshotTo is a SQLite-engine (*C1File) method. It returns an error for the
 // Pebble engine, which manages its own storage, and for a read-only handle.
@@ -182,6 +183,10 @@ func (c *C1File) SnapshotTo(ctx context.Context, outPath string, opts ...C1FOpti
 	ctx, span := tracer.Start(ctx, "C1File.SnapshotTo")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	if err = c.validateDb(ctx); err != nil {
+		return err
+	}
 
 	if c.engine == EnginePebble {
 		err = fmt.Errorf("snapshot-to: unsupported for the %q engine; it manages its own storage", EnginePebble)
@@ -217,8 +222,10 @@ func (c *C1File) SnapshotTo(ctx context.Context, outPath string, opts ...C1FOpti
 // (SetMaxOpenConns(1)), so it serializes against the live writer rather than
 // racing it; the SELECTs read committed rows on the writer's own connection.
 // The compress runs on the separate temp db and does not hold the live
-// connection. cloneCopy never touches c.rawDb/c.db/c.currentSyncID/c.closed, so
-// the live handle is left exactly as it was found (plus the row-copy stall).
+// connection. cloneCopy reads c.rawDb to take that one connection but never
+// mutates c.rawDb/c.db/c.currentSyncID/c.closed, so the live handle is left
+// exactly as it was found (plus the row-copy stall). Callers guard a closed
+// handle before reaching here, so c.rawDb is non-nil.
 // errPrefix is the caller's error-message namespace ("clone-sync" /
 // "snapshot-to") so each entry point keeps its own observable error strings.
 func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, selectAll bool, errPrefix string, opts ...C1FOption) error {
@@ -245,10 +252,15 @@ func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, s
 
 	// Create a temporary C1File to initialize the schema in the new db.
 	// NewC1File calls init() internally, creating all required tables.
+	// opts are forwarded so WithC1FBulkLoad's index deferral fires here, on
+	// the empty clone tables, dropping the deferrable secondary indexes before
+	// the row copy so the inserts maintain only the rowid PK and the unique
+	// index. The compress-side NewC1File below reopens the populated db and its
+	// Schema() re-run rebuilds the dropped indexes in one pass.
 	// We close only the rawDb to release the connection and file locks
 	// without triggering C1File.Close()'s cleanupDbDir which would
 	// remove the tmpDir we still need.
-	initFile, err := NewC1File(ctx, dbPath)
+	initFile, err := NewC1File(ctx, dbPath, opts...)
 	if err != nil {
 		return err
 	}
@@ -262,11 +274,13 @@ func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, s
 	defer canc()
 
 	// Copy the rows over a single connection. DETACH is deferred so it runs on
-	// every path — including a mid-copy ExecContext failure — before the
-	// connection is released and before the deferred temp-dir cleanup. Without
-	// that, an early return leaves the clone db attached, the source pool keeps a
-	// handle on the temp file, and os.RemoveAll fails (Windows), masking the real
-	// error with a cleanup error.
+	// every path — including a mid-copy ExecContext failure or a context cancel —
+	// before the connection is released and before the deferred temp-dir cleanup.
+	// Without that, an early return leaves the clone db attached, the source pool
+	// keeps a handle on the temp file, and os.RemoveAll fails (Windows), masking
+	// the real error with a cleanup error. On a mid-copy cancel the clone would
+	// also stay ATTACHED to the single pooled connection (SetMaxOpenConns(1)),
+	// bricking the live handle — so the DETACH runs on an uncancelled context.
 	if copyErr := func() error {
 		conn, err := c.rawDb.Conn(qCtx)
 		if err != nil {
@@ -278,7 +292,7 @@ func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, s
 			return err
 		}
 		defer func() {
-			if _, derr := conn.ExecContext(qCtx, "DETACH clone"); derr != nil {
+			if _, derr := conn.ExecContext(context.WithoutCancel(ctx), "DETACH clone"); derr != nil {
 				ctxzap.Extract(ctx).Error("error detaching clone database", zap.Error(derr))
 			}
 		}()

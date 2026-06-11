@@ -26,5 +26,12 @@ func ResumePhase(syncToken string) (phase, grantPage, srcSyncID string, ok bool)
 	if ct.Fingerprint == "" {
 		return "", "", "", false
 	}
+	// A foreign token can carry an "fp" field yet name no phase we recognize;
+	// such a token is not a resumable checkpoint, so report ok=false.
+	switch ct.Phase {
+	case phaseResources, phaseEntitlements, phaseGrants, phaseAssets:
+	default:
+		return "", "", "", false
+	}
 	return ct.Phase, ct.GrantPage, ct.SrcSyncID, true
 }
