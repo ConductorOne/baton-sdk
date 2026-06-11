@@ -125,7 +125,7 @@ func (g pebbleGrantStore) PendingExpansionPage(ctx context.Context, pageToken st
 	}
 	records, next, err := g.a.engine.PaginateGrantsByNeedsExpansion(ctx, syncID, pageToken, DefaultPageSize)
 	if err != nil {
-		return nil, "", err
+		return nil, "", adaptNotFound(err)
 	}
 	out := make([]c1zstore.PendingExpansion, 0, len(records))
 	for _, rec := range records {
@@ -190,7 +190,7 @@ func (g pebbleGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken
 	}
 	records, next, err := g.a.engine.PaginateGrantsBySync(ctx, syncID, pageToken, DefaultPageSize)
 	if err != nil {
-		return nil, "", err
+		return nil, "", adaptNotFound(err)
 	}
 	rows := make([]c1zstore.GrantAnnotation, 0, len(records))
 	for _, rec := range records {
@@ -235,7 +235,7 @@ func (g pebbleGrantStore) ListWithAnnotationsForResourcePage(
 		resource.GetId().GetResourceType(), resource.GetId().GetResource(),
 		pageToken, limit)
 	if err != nil {
-		return nil, "", err
+		return nil, "", adaptNotFound(err)
 	}
 	rows := make([]c1zstore.GrantAnnotation, 0, len(records))
 	for _, rec := range records {

@@ -77,7 +77,7 @@ EntitlementLoop:
 			remaining := limit - len(out)
 			records, next, err := a.engine.PaginateGrantsByEntitlement(ctx, syncID, entID, intraCursor, remaining)
 			if err != nil {
-				return nil, err
+				return nil, adaptNotFound(err)
 			}
 			brokeEarly := false
 			var lastIntra string
