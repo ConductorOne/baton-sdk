@@ -192,6 +192,33 @@ func TestCloneSyncRejectsUnendedSync(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr), "no clone file may be written when the precondition fails")
 }
 
+// TestCloneSyncOutPathCheckedBeforeUnendedPrecondition pins the precondition
+// ordering: when CloneSync is given BOTH an already-existing outPath AND an
+// un-ended sync, it must report the output-path error first — not the
+// FailedPrecondition (not-ended) error. The cloneCopy refactor must preserve
+// this original observable order.
+func TestCloneSyncOutPathCheckedBeforeUnendedPrecondition(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "src.db")
+	outPath := filepath.Join(tmp, "clone.c1z")
+	require.NoError(t, os.WriteFile(outPath, []byte("occupied"), 0o600))
+
+	f, err := NewC1File(ctx, dbPath, WithC1FTmpDir(tmp))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, f.rawDb.Close()) }()
+
+	syncID := writeSnapSync(t, ctx, f, "a-", 2, false) // un-ended
+
+	err = f.CloneSync(ctx, outPath, syncID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "output path")
+	require.Contains(t, err.Error(), "must not exist")
+	st, ok := status.FromError(err)
+	require.False(t, ok && st.Code() == codes.FailedPrecondition,
+		"outPath-exists must be reported before the un-ended precondition")
+}
+
 // TestSnapshotGuards covers Test 7: outPath-must-not-exist, the Pebble-engine
 // guard, and the read-only guard each return an error and write no file.
 func TestSnapshotGuards(t *testing.T) {

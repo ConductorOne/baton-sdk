@@ -116,6 +116,13 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string, o
 	}
 	opts = append(defaultOpts, opts...)
 
+	// Be sure that the output path is empty else return an error. Checked here,
+	// ahead of the sync preconditions, so an occupied output path is reported
+	// before the target sync is inspected — the order callers have always seen.
+	if _, statErr := os.Stat(outPath); statErr == nil || !errors.Is(statErr, fs.ErrNotExist) {
+		return fmt.Errorf("clone-sync: output path (%s) must not exist for cloning to proceed", outPath)
+	}
+
 	if syncID == "" {
 		syncID, err = c.LatestSyncID(ctx, connectorstore.SyncTypeFull)
 		if err != nil {
@@ -136,7 +143,7 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string, o
 		return status.Errorf(codes.FailedPrecondition, "clone-sync: sync %s is not ended", syncID)
 	}
 
-	err = c.cloneCopy(ctx, outPath, syncID, false, opts...)
+	err = c.cloneCopy(ctx, outPath, syncID, false, "clone-sync", opts...)
 	return err
 }
 
@@ -193,7 +200,7 @@ func (c *C1File) SnapshotTo(ctx context.Context, outPath string, opts ...C1FOpti
 	}
 	opts = append(defaultOpts, opts...)
 
-	err = c.cloneCopy(ctx, outPath, "", true, opts...)
+	err = c.cloneCopy(ctx, outPath, "", true, "snapshot-to", opts...)
 	return err
 }
 
@@ -212,11 +219,13 @@ func (c *C1File) SnapshotTo(ctx context.Context, outPath string, opts ...C1FOpti
 // The compress runs on the separate temp db and does not hold the live
 // connection. cloneCopy never touches c.rawDb/c.db/c.currentSyncID/c.closed, so
 // the live handle is left exactly as it was found (plus the row-copy stall).
-func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, selectAll bool, opts ...C1FOption) error {
+// errPrefix is the caller's error-message namespace ("clone-sync" /
+// "snapshot-to") so each entry point keeps its own observable error strings.
+func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, selectAll bool, errPrefix string, opts ...C1FOption) error {
 	// Be sure that the output path is empty else return an error
 	_, err := os.Stat(outPath)
 	if err == nil || !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("clone-copy: output path (%s) must not exist", outPath)
+		return fmt.Errorf("%s: output path (%s) must not exist", errPrefix, outPath)
 	}
 
 	tmpDir, err := os.MkdirTemp(c.tempDir, "c1zclone")
@@ -228,7 +237,7 @@ func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, s
 	defer func() {
 		cleanupErr := os.RemoveAll(tmpDir)
 		if cleanupErr != nil {
-			err = errors.Join(err, fmt.Errorf("clone-copy: error cleaning up temp dir: %w", cleanupErr))
+			err = errors.Join(err, fmt.Errorf("%s: error cleaning up temp dir: %w", errPrefix, cleanupErr))
 		}
 	}()
 
@@ -252,45 +261,50 @@ func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, s
 	qCtx, canc := context.WithCancel(ctx)
 	defer canc()
 
-	// Get a single connection to the current db so we can make multiple queries in the same session
-	conn, err := c.rawDb.Conn(qCtx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	_, err = conn.ExecContext(qCtx, fmt.Sprintf(`ATTACH '%s' AS clone`, dbPath))
-	if err != nil {
-		return err
-	}
-
-	for _, t := range allTableDescriptors {
-		columns, err := cloneTableColumns(qCtx, conn, t.Name())
+	// Copy the rows over a single connection. DETACH is deferred so it runs on
+	// every path — including a mid-copy ExecContext failure — before the
+	// connection is released and before the deferred temp-dir cleanup. Without
+	// that, an early return leaves the clone db attached, the source pool keeps a
+	// handle on the temp file, and os.RemoveAll fails (Windows), masking the real
+	// error with a cleanup error.
+	if copyErr := func() error {
+		conn, err := c.rawDb.Conn(qCtx)
 		if err != nil {
-			return fmt.Errorf("clone-copy: error reading columns for %s: %w", t.Name(), err)
-		}
-		var q string
-		var args []any
-		if selectAll {
-			q = cloneTableQueryAll(t.Name(), columns)
-		} else {
-			q = cloneTableQuery(t.Name(), columns)
-			args = append(args, syncID)
-		}
-		if _, err = conn.ExecContext(qCtx, q, args...); err != nil {
 			return err
 		}
-	}
+		defer conn.Close()
 
-	// Detach the clone database before releasing the connection. On Windows,
-	// open file handles prevent deletion; without DETACH the source connection
-	// pool retains a handle on the clone db file, causing os.RemoveAll to fail.
-	_, err = conn.ExecContext(qCtx, "DETACH clone")
-	if err != nil {
-		ctxzap.Extract(ctx).Error("error detaching clone database", zap.Error(err))
+		if _, err := conn.ExecContext(qCtx, fmt.Sprintf(`ATTACH '%s' AS clone`, dbPath)); err != nil {
+			return err
+		}
+		defer func() {
+			if _, derr := conn.ExecContext(qCtx, "DETACH clone"); derr != nil {
+				ctxzap.Extract(ctx).Error("error detaching clone database", zap.Error(derr))
+			}
+		}()
+
+		for _, t := range allTableDescriptors {
+			columns, err := cloneTableColumns(qCtx, conn, t.Name())
+			if err != nil {
+				return fmt.Errorf("%s: error reading columns for %s: %w", errPrefix, t.Name(), err)
+			}
+			var q string
+			var args []any
+			if selectAll {
+				q = cloneTableQueryAll(t.Name(), columns)
+			} else {
+				q = cloneTableQuery(t.Name(), columns)
+				args = append(args, syncID)
+			}
+			if _, err := conn.ExecContext(qCtx, q, args...); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); copyErr != nil {
+		return copyErr
 	}
 	canc()
-	_ = conn.Close()
 
 	// Open a fresh C1File to compress the populated db into a c1z.
 	// No other connections are open on dbPath at this point.
