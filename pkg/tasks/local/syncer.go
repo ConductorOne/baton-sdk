@@ -30,7 +30,7 @@ type localSyncer struct {
 	skipGrants                          bool
 	syncResourceTypeIDs                 []string
 	workerCount                         int
-	c1zEngine                           dotc1z.Engine
+	storageEngine                       dotc1z.Engine
 }
 
 type Option func(*localSyncer)
@@ -83,9 +83,9 @@ func WithWorkerCount(workerCount int) Option {
 	}
 }
 
-func WithC1ZEngine(engine dotc1z.Engine) Option {
+func WithStorageEngine(engine dotc1z.Engine) Option {
 	return func(m *localSyncer) {
-		m.c1zEngine = engine
+		m.storageEngine = engine
 	}
 }
 
@@ -130,8 +130,8 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		sdkSync.WithSyncResourceTypes(m.syncResourceTypeIDs),
 		sdkSync.WithWorkerCount(m.workerCount),
 	}
-	if m.c1zEngine != "" {
-		syncOpts = append(syncOpts, sdkSync.WithC1ZEngine(m.c1zEngine))
+	if m.storageEngine != "" {
+		syncOpts = append(syncOpts, sdkSync.WithStorageEngine(m.storageEngine))
 	}
 
 	syncer, err := sdkSync.NewSyncer(ctx, cc, syncOpts...)

@@ -414,7 +414,7 @@ func MakeMainCommand[T field.Configurable](
 			return err
 		}
 		if storageEngine != "" {
-			opts = append(opts, connectorrunner.WithC1ZEngine(dotc1z.Engine(storageEngine)))
+			opts = append(opts, connectorrunner.WithStorageEngine(dotc1z.Engine(storageEngine)))
 		}
 
 		taskConcurrency := v.GetInt(field.TaskConcurrencyField.GetName())

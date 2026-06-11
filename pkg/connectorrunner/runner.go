@@ -422,7 +422,7 @@ type runnerConfig struct {
 	syncDifferConfig                      *syncDifferConfig
 	syncCompactorConfig                   *syncCompactorConfig
 	skipFullSync                          bool
-	c1zEngine                             dotc1z.Engine
+	storageEngine                         dotc1z.Engine
 	workerCount                           int
 	targetedSyncResourceIDs               []string
 	externalResourceC1Z                   string
@@ -667,9 +667,9 @@ func WithWorkerCount(workerCount int) Option {
 	}
 }
 
-func WithC1ZEngine(engine dotc1z.Engine) Option {
+func WithStorageEngine(engine dotc1z.Engine) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.c1zEngine = engine
+		cfg.storageEngine = engine
 		return nil
 	}
 }
@@ -1050,7 +1050,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				local.WithSkipGrants(cfg.skipGrants),
 				local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
 				local.WithWorkerCount(cfg.workerCount),
-				local.WithC1ZEngine(cfg.c1zEngine),
+				local.WithStorageEngine(cfg.storageEngine),
 			)
 			if err != nil {
 				return nil, err
@@ -1079,7 +1079,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		resources,
 		cfg.syncResourceTypeIDs,
 		cfg.workerCount,
-		cfg.c1zEngine,
+		cfg.storageEngine,
 		runner.taskConcurrency,
 	)
 	if err != nil {

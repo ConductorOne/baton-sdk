@@ -123,7 +123,7 @@ type syncer struct {
 	transitionHandler                   func(s Action)
 	progressHandler                     func(p *Progress)
 	tmpDir                              string
-	c1zEngine                           dotc1z.Engine
+	storageEngine                       dotc1z.Engine
 	skipFullSync                        bool
 	lastCheckPointTime                  time.Time
 	counts                              *progresslog.ProgressLog
@@ -2749,8 +2749,8 @@ func (s *syncer) loadStore(ctx context.Context) error {
 	}
 
 	storeOpts := []dotc1z.C1ZOption{dotc1z.WithTmpDir(s.tmpDir)}
-	if s.c1zEngine != "" {
-		storeOpts = append(storeOpts, dotc1z.WithEngine(s.c1zEngine))
+	if s.storageEngine != "" {
+		storeOpts = append(storeOpts, dotc1z.WithEngine(s.storageEngine))
 	}
 	store, err := dotc1z.NewStore(ctx, s.c1zPath, storeOpts...)
 	if err != nil {
@@ -2896,11 +2896,11 @@ func WithTmpDir(path string) SyncOpt {
 	}
 }
 
-// WithC1ZEngine selects the dotc1z storage engine when opening the c1z
+// WithStorageEngine selects the dotc1z storage engine when opening the c1z
 // file via WithC1ZPath. Empty uses the baton-sdk default.
-func WithC1ZEngine(engine dotc1z.Engine) SyncOpt {
+func WithStorageEngine(engine dotc1z.Engine) SyncOpt {
 	return func(s *syncer) {
-		s.c1zEngine = engine
+		s.storageEngine = engine
 	}
 }
 

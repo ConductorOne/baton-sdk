@@ -39,7 +39,7 @@ type fullSyncTaskHandler struct {
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
 	workerCount                         int
-	c1zEngine                           dotc1z.Engine
+	storageEngine                       dotc1z.Engine
 }
 
 func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
@@ -57,12 +57,12 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		sdkSync.WithTmpDir(c.helpers.TempDir()),
 		sdkSync.WithWorkerCount(c.workerCount),
 	}
-	engine := c.c1zEngine
+	engine := c.storageEngine
 	if engine == "" && c.task.GetSyncFull().GetStorageEngine() != "" {
 		engine = dotc1z.Engine(c.task.GetSyncFull().GetStorageEngine())
 	}
 	if engine != "" {
-		syncOpts = append(syncOpts, sdkSync.WithC1ZEngine(engine))
+		syncOpts = append(syncOpts, sdkSync.WithStorageEngine(engine))
 	}
 
 	if c.task.GetSyncFull().GetSkipExpandGrants() {
@@ -225,7 +225,7 @@ func newFullSyncTaskHandler(
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 	workerCount int,
-	c1zEngine dotc1z.Engine,
+	storageEngine dotc1z.Engine,
 ) tasks.TaskHandler {
 	return &fullSyncTaskHandler{
 		task:                                task,
@@ -236,7 +236,7 @@ func newFullSyncTaskHandler(
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
 		workerCount:                         workerCount,
-		c1zEngine:                           c1zEngine,
+		storageEngine:                       storageEngine,
 	}
 }
 
