@@ -26,6 +26,9 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 		return nil
 	}
 	return e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
 		batch := e.db.NewBatch()
 		defer batch.Close()
 		fresh := e.IsFreshSync()
@@ -33,11 +36,7 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 			if r == nil {
 				continue
 			}
-			idBytes, err := e.resolveSyncBytes("")
-			if err != nil {
-				return err
-			}
-			key := encodeResourceTypeKey(idBytes, r.GetExternalId())
+			key := encodeResourceTypeKey(r.GetExternalId())
 			val, err := marshalRecord(r)
 			if err != nil {
 				return err
@@ -54,12 +53,8 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 	})
 }
 
-func (e *Engine) GetResourceTypeRecord(ctx context.Context, syncID, externalID string) (*v3.ResourceTypeRecord, error) {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return nil, err
-	}
-	key := encodeResourceTypeKey(idBytes, externalID)
+func (e *Engine) GetResourceTypeRecord(ctx context.Context, externalID string) (*v3.ResourceTypeRecord, error) {
+	key := encodeResourceTypeKey(externalID)
 	val, closer, err := e.db.Get(key)
 	if err != nil {
 		return nil, err
@@ -72,22 +67,14 @@ func (e *Engine) GetResourceTypeRecord(ctx context.Context, syncID, externalID s
 	return r, nil
 }
 
-func (e *Engine) DeleteResourceTypeRecord(ctx context.Context, syncID, externalID string) error {
+func (e *Engine) DeleteResourceTypeRecord(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
-		idBytes, err := e.resolveSyncBytes(syncID)
-		if err != nil {
-			return err
-		}
-		return e.db.Delete(encodeResourceTypeKey(idBytes, externalID), writeOpts(e.opts.durability))
+		return e.db.Delete(encodeResourceTypeKey(externalID), writeOpts(e.opts.durability))
 	})
 }
 
-func (e *Engine) IterateResourceTypesBySync(ctx context.Context, syncID string, yield func(*v3.ResourceTypeRecord) bool) error {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return err
-	}
-	prefix := encodeResourceTypePrefix(idBytes)
+func (e *Engine) IterateResourceTypes(ctx context.Context, yield func(*v3.ResourceTypeRecord) bool) error {
+	prefix := encodeResourceTypePrefix()
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),

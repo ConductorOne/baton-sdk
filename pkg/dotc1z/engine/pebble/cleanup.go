@@ -8,37 +8,37 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 )
 
-// syncScopedRanges returns the half-open [lo, hi) ranges covering
-// every record/index/sync-run/stats keyspace. A v3 Pebble c1z holds
-// one sync, so these cover the entire data keyspace — the syncIDBytes
-// param is retained transitionally and ignored by the encoders.
-// Engine-global metadata (keyspace-version stamp, index-migration
-// markers) is deliberately NOT included. Mirrors the bucket plan in
-// adapter_clone_sync.go; kept in lockstep so ResetForNewSync leaves no
-// orphan rows that CloneSync would otherwise have copied.
+// scopedRanges returns the half-open [lo, hi) ranges covering every
+// record/index/sync-run/stats keyspace. A v3 Pebble c1z holds one
+// sync and keys carry no sync_id, so these cover the entire data
+// keyspace. Engine-global metadata (keyspace-version stamp,
+// index-migration markers) is deliberately NOT included. Mirrors the
+// bucket plan in adapter_clone_sync.go; kept in lockstep so
+// ResetForNewSync leaves no orphan rows that CloneSync would
+// otherwise have copied.
 //
 // The returned ranges are NOT ordered for compaction efficiency.
 // Callers that want one Compact() per range should iterate the slice
 // and Compact each independently — Pebble's per-Compact overhead is
 // small relative to the L0/L1 work the range itself triggers.
-func syncScopedRanges(syncIDBytes []byte) [][2][]byte {
+func scopedRanges() [][2][]byte {
 	return [][2][]byte{
-		{encodeSyncRunKey(syncIDBytes), upperBoundOf(encodeSyncRunKey(syncIDBytes))},
-		{encodeResourceTypePrefix(syncIDBytes), upperBoundOf(encodeResourceTypePrefix(syncIDBytes))},
-		{encodeResourcePrefix(syncIDBytes), upperBoundOf(encodeResourcePrefix(syncIDBytes))},
-		{ResourceByParentSyncLowerBound(syncIDBytes), ResourceByParentSyncUpperBound(syncIDBytes)},
-		{encodeEntitlementPrefix(syncIDBytes), upperBoundOf(encodeEntitlementPrefix(syncIDBytes))},
-		{EntitlementByResourceSyncLowerBound(syncIDBytes), EntitlementByResourceSyncUpperBound(syncIDBytes)},
-		{encodeGrantPrefix(syncIDBytes), upperBoundOf(encodeGrantPrefix(syncIDBytes))},
-		{GrantByEntitlementSyncLowerBound(syncIDBytes), GrantByEntitlementSyncUpperBound(syncIDBytes)},
-		{GrantByEntitlementResourceSyncLowerBound(syncIDBytes), GrantByEntitlementResourceSyncUpperBound(syncIDBytes)},
-		{GrantByPrincipalSyncLowerBound(syncIDBytes), GrantByPrincipalSyncUpperBound(syncIDBytes)},
-		{GrantByPrincipalResourceTypeSyncLowerBound(syncIDBytes), GrantByPrincipalResourceTypeSyncUpperBound(syncIDBytes)},
-		{GrantByNeedsExpansionSyncLowerBound(syncIDBytes), GrantByNeedsExpansionSyncUpperBound(syncIDBytes)},
-		{encodeAssetPrefix(syncIDBytes), upperBoundOf(encodeAssetPrefix(syncIDBytes))},
-		// Stats sidecar — single key per sync; the half-open range
-		// shape contains exactly the one key for this sync.
-		{encodeSyncStatsKey(syncIDBytes), upperBoundOf(encodeSyncStatsKey(syncIDBytes))},
+		{encodeSyncRunKey(), upperBoundOf(encodeSyncRunKey())},
+		{encodeResourceTypePrefix(), upperBoundOf(encodeResourceTypePrefix())},
+		{encodeResourcePrefix(), upperBoundOf(encodeResourcePrefix())},
+		{ResourceByParentLowerBound(), ResourceByParentUpperBound()},
+		{encodeEntitlementPrefix(), upperBoundOf(encodeEntitlementPrefix())},
+		{EntitlementByResourceLowerBound(), EntitlementByResourceUpperBound()},
+		{encodeGrantPrefix(), upperBoundOf(encodeGrantPrefix())},
+		{GrantByEntitlementLowerBound(), GrantByEntitlementUpperBound()},
+		{GrantByEntitlementResourceLowerBound(), GrantByEntitlementResourceUpperBound()},
+		{GrantByPrincipalLowerBound(), GrantByPrincipalUpperBound()},
+		{GrantByPrincipalResourceTypeLowerBound(), GrantByPrincipalResourceTypeUpperBound()},
+		{GrantByNeedsExpansionLowerBound(), GrantByNeedsExpansionUpperBound()},
+		{encodeAssetPrefix(), upperBoundOf(encodeAssetPrefix())},
+		// Stats sidecar — single key; the half-open range shape
+		// contains exactly that one key.
+		{encodeSyncStatsKey(), upperBoundOf(encodeSyncStatsKey())},
 	}
 }
 
@@ -127,7 +127,7 @@ func (e *Engine) CompactAllRanges(ctx context.Context) error {
 	}
 
 	var firstErr error
-	for _, r := range syncScopedRanges(nil) {
+	for _, r := range scopedRanges() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

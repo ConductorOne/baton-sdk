@@ -109,7 +109,7 @@ func rawTimestampNanos(value []byte) (int64, error) {
 	return seconds*int64(time.Second) + int64(nanos), nil
 }
 
-func (e *Engine) deleteResourceIndexesRaw(batch *pebble.Batch, syncIDBytes []byte, resourceTypeID string, resourceID string, value []byte) error {
+func (e *Engine) deleteResourceIndexesRaw(batch *pebble.Batch, resourceTypeID string, resourceID string, value []byte) error {
 	parentRT, parentID, err := scanResourceParentRaw(value)
 	if err != nil {
 		return err
@@ -117,10 +117,10 @@ func (e *Engine) deleteResourceIndexesRaw(batch *pebble.Batch, syncIDBytes []byt
 	if parentID == "" {
 		return nil
 	}
-	return batch.Delete(encodeResourceByParentIndexKey(syncIDBytes, parentRT, parentID, resourceTypeID, resourceID), nil)
+	return batch.Delete(encodeResourceByParentIndexKey(parentRT, parentID, resourceTypeID, resourceID), nil)
 }
 
-func (e *Engine) deleteEntitlementIndexesRaw(batch *pebble.Batch, syncIDBytes []byte, externalID string, value []byte) error {
+func (e *Engine) deleteEntitlementIndexesRaw(batch *pebble.Batch, externalID string, value []byte) error {
 	resourceRT, resourceID, err := scanEntitlementResourceRaw(value)
 	if err != nil {
 		return err
@@ -128,33 +128,33 @@ func (e *Engine) deleteEntitlementIndexesRaw(batch *pebble.Batch, syncIDBytes []
 	if resourceID == "" {
 		return nil
 	}
-	return batch.Delete(encodeEntitlementByResourceIndexKey(syncIDBytes, resourceRT, resourceID, externalID), nil)
+	return batch.Delete(encodeEntitlementByResourceIndexKey(resourceRT, resourceID, externalID), nil)
 }
 
-func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, syncIDBytes []byte, externalID string, value []byte) error {
+func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, value []byte) error {
 	entRT, entRID, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(value)
 	if err != nil {
 		return err
 	}
 	if entID != "" && principalRT != "" && principalID != "" {
-		if err := batch.Delete(encodeGrantByEntitlementIndexKey(syncIDBytes, entID, principalRT, principalID, externalID), nil); err != nil {
+		if err := batch.Delete(encodeGrantByEntitlementIndexKey(entID, principalRT, principalID, externalID), nil); err != nil {
 			return err
 		}
 	}
 	if entRID != "" {
-		if err := batch.Delete(encodeGrantByEntitlementResourceIndexKey(syncIDBytes, entRT, entRID, externalID), nil); err != nil {
+		if err := batch.Delete(encodeGrantByEntitlementResourceIndexKey(entRT, entRID, externalID), nil); err != nil {
 			return err
 		}
 	}
 	if principalRT != "" && principalID != "" {
-		if err := batch.Delete(encodeGrantByPrincipalIndexKey(syncIDBytes, principalRT, principalID, externalID), nil); err != nil {
+		if err := batch.Delete(encodeGrantByPrincipalIndexKey(principalRT, principalID, externalID), nil); err != nil {
 			return err
 		}
-		if err := batch.Delete(encodeGrantByPrincipalResourceTypeIndexKey(syncIDBytes, principalRT, externalID), nil); err != nil {
+		if err := batch.Delete(encodeGrantByPrincipalResourceTypeIndexKey(principalRT, externalID), nil); err != nil {
 			return err
 		}
 	}
-	return batch.Delete(encodeGrantByNeedsExpansionIndexKey(syncIDBytes, externalID), nil)
+	return batch.Delete(encodeGrantByNeedsExpansionIndexKey(externalID), nil)
 }
 
 // scanGrantEntitlementResourceTypeRaw extracts only the entitlement's

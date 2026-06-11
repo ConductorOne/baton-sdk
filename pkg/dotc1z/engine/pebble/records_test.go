@@ -29,7 +29,7 @@ func TestPutGetResourceType(t *testing.T) {
 	if err := e.PutResourceTypeRecord(ctx, r); err != nil {
 		t.Fatalf("PutResourceTypeRecord: %v", err)
 	}
-	got, err := e.GetResourceTypeRecord(ctx, syncID, "user")
+	got, err := e.GetResourceTypeRecord(ctx, "user")
 	if err != nil {
 		t.Fatalf("GetResourceTypeRecord: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestIterateResourceTypesBySync(t *testing.T) {
 		}
 	}
 	count := 0
-	if err := e.IterateResourceTypesBySync(ctx, syncID, func(*v3.ResourceTypeRecord) bool {
+	if err := e.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool {
 		count++
 		return true
 	}); err != nil {
@@ -110,7 +110,7 @@ func TestResourceWithParentIndex(t *testing.T) {
 	}
 
 	childCount := 0
-	if err := e.IterateResourcesByParent(ctx, syncID, "group", "admins", func(*v3.ResourceRecord) bool {
+	if err := e.IterateResourcesByParent(ctx, "group", "admins", func(*v3.ResourceRecord) bool {
 		childCount++
 		return true
 	}); err != nil {
@@ -122,7 +122,7 @@ func TestResourceWithParentIndex(t *testing.T) {
 
 	// Total resources: parent + 5 children + 3 others = 9.
 	total := 0
-	if err := e.IterateResourcesBySync(ctx, syncID, func(*v3.ResourceRecord) bool {
+	if err := e.IterateResources(ctx, func(*v3.ResourceRecord) bool {
 		total++
 		return true
 	}); err != nil {
@@ -169,13 +169,13 @@ func TestEntitlementByResourceIndex(t *testing.T) {
 	}
 
 	var a, d int
-	if err := e.IterateEntitlementsByResource(ctx, syncID, "group", "admins", func(*v3.EntitlementRecord) bool {
+	if err := e.IterateEntitlementsByResource(ctx, "group", "admins", func(*v3.EntitlementRecord) bool {
 		a++
 		return true
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.IterateEntitlementsByResource(ctx, syncID, "group", "devs", func(*v3.EntitlementRecord) bool {
+	if err := e.IterateEntitlementsByResource(ctx, "group", "devs", func(*v3.EntitlementRecord) bool {
 		d++
 		return true
 	}); err != nil {
@@ -204,7 +204,7 @@ func TestAssetRoundtrip(t *testing.T) {
 	if err := e.PutAssetRecord(ctx, r); err != nil {
 		t.Fatal(err)
 	}
-	got, err := e.GetAssetRecord(ctx, syncID, "icon-1")
+	got, err := e.GetAssetRecord(ctx, "icon-1")
 	if err != nil {
 		t.Fatalf("GetAssetRecord: %v", err)
 	}

@@ -65,7 +65,6 @@ func TestProdScaleScanVsFoldDebt(t *testing.T) {
 		defer w.Close(ctx)
 		eng, ok := enginepkg.AsEngine(w)
 		require.True(t, ok)
-		syncID := manifestSyncID(t, path)
 		// NOTE: read-only pebble opens report Sublevels=0 even with L0
 		// files present; TablesCount is accurate in both modes. (The
 		// fold's production debt gate reads metrics from a writable
@@ -74,7 +73,7 @@ func TestProdScaleScanVsFoldDebt(t *testing.T) {
 
 		start := time.Now()
 		count := 0
-		require.NoError(t, eng.IterateGrantsBySync(ctx, syncID, func(*v3.GrantRecord) bool {
+		require.NoError(t, eng.IterateGrants(ctx, func(*v3.GrantRecord) bool {
 			count++
 			return true
 		}))
@@ -85,7 +84,7 @@ func TestProdScaleScanVsFoldDebt(t *testing.T) {
 		start = time.Now()
 		for i := 0; i < lookups; i++ {
 			id := scaleID("g", rng.Intn(grants))
-			if _, err := eng.GetGrantRecord(ctx, syncID, id); err != nil {
+			if _, err := eng.GetGrantRecord(ctx, id); err != nil {
 				t.Fatalf("lookup %s: %v", id, err)
 			}
 		}

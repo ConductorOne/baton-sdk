@@ -102,13 +102,7 @@ func TestResetForNewSyncReclaimsDiskImmediately(t *testing.T) {
 // pins every index keyspace, so a new index added to the writers without
 // a matching cleanup range fails here instead of leaking orphan keys.
 func TestSyncScopedRangesCoverEveryWrittenIndex(t *testing.T) {
-	// Fixed 16-byte sync id; the encoders and *SyncLowerBound bounds
-	// only append it, so any consistent value exercises the keyspace.
-	syncIDBytes := []byte{
-		0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-		0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
-	}
-	ranges := syncScopedRanges(syncIDBytes)
+	ranges := scopedRanges()
 
 	// One grant carrying an entitlement (with a resource), a principal,
 	// and the needs-expansion flag emits all five grant indexes:
@@ -131,15 +125,15 @@ func TestSyncScopedRangesCoverEveryWrittenIndex(t *testing.T) {
 		key  []byte
 	}
 	written := make([]writtenKey, 0, 7)
-	for _, k := range grantIndexKeys(syncIDBytes, g) {
+	for _, k := range grantIndexKeys(g) {
 		// Layout for every index key: versionV3, typeIndex, idxByte, ...
 		written = append(written, writtenKey{idx: k[2], name: "grant", key: k})
 	}
 	written = append(written,
 		writtenKey{idxResourceByParent, "resource_by_parent",
-			encodeResourceByParentIndexKey(syncIDBytes, "folder", "root", "doc", "d1")},
+			encodeResourceByParentIndexKey("folder", "root", "doc", "d1")},
 		writtenKey{idxEntitlementByResource, "entitlement_by_resource",
-			encodeEntitlementByResourceIndexKey(syncIDBytes, "app", "github", "ent-A")},
+			encodeEntitlementByResourceIndexKey("app", "github", "ent-A")},
 	)
 
 	covered := func(k []byte) bool {

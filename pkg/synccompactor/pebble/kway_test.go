@@ -144,10 +144,10 @@ func TestMergeFilesIntoKWayNewerWinsTieIndexesAndDropsAssets(t *testing.T) {
 		{id: "only-src2", principalID: "carol", entitlement: "member", discovered: newer},
 	}, true)
 
-	dest, destSyncID := mergeKWayFixtures(t, ctx, []kwaySourceFixture{src1, src2}, 50)
+	dest, _ := mergeKWayFixtures(t, ctx, []kwaySourceFixture{src1, src2}, 50)
 
 	grants := map[string]*v3.GrantRecord{}
-	if err := dest.IterateGrantsBySync(ctx, destSyncID, func(g *v3.GrantRecord) bool {
+	if err := dest.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		grants[g.GetExternalId()] = g
 		return true
 	}); err != nil {
@@ -163,7 +163,7 @@ func TestMergeFilesIntoKWayNewerWinsTieIndexesAndDropsAssets(t *testing.T) {
 		t.Fatalf("tie grant principal = %q, want alice from earlier-applied source", got)
 	}
 	var byEntitlement []string
-	if err := dest.IterateGrantsByEntitlement(ctx, destSyncID, "member", func(g *v3.GrantRecord) bool {
+	if err := dest.IterateGrantsByEntitlement(ctx, "member", func(g *v3.GrantRecord) bool {
 		byEntitlement = append(byEntitlement, g.GetExternalId())
 		return true
 	}); err != nil {
@@ -174,7 +174,7 @@ func TestMergeFilesIntoKWayNewerWinsTieIndexesAndDropsAssets(t *testing.T) {
 		t.Fatalf("by_entitlement index = %v, want %v", got, want)
 	}
 	var byPrincipal []string
-	if err := dest.IterateGrantsByPrincipal(ctx, destSyncID, "user", "alice", func(g *v3.GrantRecord) bool {
+	if err := dest.IterateGrantsByPrincipal(ctx, "user", "alice", func(g *v3.GrantRecord) bool {
 		byPrincipal = append(byPrincipal, g.GetExternalId())
 		return true
 	}); err != nil {
@@ -185,7 +185,7 @@ func TestMergeFilesIntoKWayNewerWinsTieIndexesAndDropsAssets(t *testing.T) {
 		t.Fatalf("by_principal index = %v, want %v", got, want)
 	}
 	var needsExpansion []string
-	if err := dest.IterateGrantsByNeedsExpansion(ctx, destSyncID, func(g *v3.GrantRecord) bool {
+	if err := dest.IterateGrantsByNeedsExpansion(ctx, func(g *v3.GrantRecord) bool {
 		needsExpansion = append(needsExpansion, g.GetExternalId())
 		return true
 	}); err != nil {
@@ -195,7 +195,7 @@ func TestMergeFilesIntoKWayNewerWinsTieIndexesAndDropsAssets(t *testing.T) {
 		t.Fatalf("needs_expansion index = %v, want %v", got, want)
 	}
 	var children []string
-	if err := dest.IterateResourcesByParent(ctx, destSyncID, "group", "engineering", func(r *v3.ResourceRecord) bool {
+	if err := dest.IterateResourcesByParent(ctx, "group", "engineering", func(r *v3.ResourceRecord) bool {
 		children = append(children, r.GetResourceId())
 		return true
 	}); err != nil {
@@ -206,7 +206,7 @@ func TestMergeFilesIntoKWayNewerWinsTieIndexesAndDropsAssets(t *testing.T) {
 		t.Fatalf("resource_by_parent index = %v, want %v", got, want)
 	}
 	assetCount := 0
-	if err := dest.IterateAssetsBySync(ctx, destSyncID, func(*v3.AssetRecord) bool {
+	if err := dest.IterateAssets(ctx, func(*v3.AssetRecord) bool {
 		assetCount++
 		return true
 	}); err != nil {
@@ -266,7 +266,7 @@ func TestReadLengthPrefixedBytesRejectsPartialHeader(t *testing.T) {
 func grantPrincipalMap(t *testing.T, ctx context.Context, e *enginepkg.Engine, syncID string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	if err := e.IterateGrantsBySync(ctx, syncID, func(g *v3.GrantRecord) bool {
+	if err := e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		out[g.GetExternalId()] = g.GetPrincipal().GetResourceId()
 		return true
 	}); err != nil {

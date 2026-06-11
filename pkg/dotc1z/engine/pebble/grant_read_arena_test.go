@@ -32,7 +32,7 @@ func TestGrantReadArenaReconcileAbsent(t *testing.T) {
 		t.Fatalf("PutGrantRecord: %v", err)
 	}
 
-	got, _, err := e.PaginateGrantsBySync(ctx, syncID, "", 0)
+	got, _, err := e.PaginateGrants(ctx, "", 0)
 	if err != nil {
 		t.Fatalf("PaginateGrantsBySync: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestGrantReadArenaPopulatedRoundtrip(t *testing.T) {
 		}
 	}
 
-	got, _, err := e.PaginateGrantsBySync(ctx, syncID, "", n)
+	got, _, err := e.PaginateGrants(ctx, "", n)
 	if err != nil {
 		t.Fatalf("PaginateGrantsBySync: %v", err)
 	}

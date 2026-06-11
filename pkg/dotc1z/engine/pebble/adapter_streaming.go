@@ -52,11 +52,11 @@ func (a *Adapter) StreamGrants(
 		var err error
 		switch {
 		case opts.EntitlementID != "":
-			err = a.engine.IterateGrantsByEntitlement(ctx, syncID, opts.EntitlementID, cb)
+			err = a.engine.IterateGrantsByEntitlement(ctx, opts.EntitlementID, cb)
 		case opts.PrincipalResourceType != "" && opts.PrincipalResourceID == "":
-			err = a.engine.IterateGrantsByPrincipalResourceType(ctx, syncID, opts.PrincipalResourceType, cb)
+			err = a.engine.IterateGrantsByPrincipalResourceType(ctx, opts.PrincipalResourceType, cb)
 		default:
-			err = a.engine.IterateGrantsBySync(ctx, syncID, cb)
+			err = a.engine.IterateGrants(ctx, cb)
 		}
 		if iterErr != nil {
 			yield(nil, iterErr)
@@ -89,7 +89,7 @@ func (a *Adapter) StreamResources(
 			return
 		}
 		var iterErr error
-		err := a.engine.IterateResourcesBySync(ctx, syncID, func(rec *v3.ResourceRecord) bool {
+		err := a.engine.IterateResources(ctx, func(rec *v3.ResourceRecord) bool {
 			if err := ctx.Err(); err != nil {
 				iterErr = err
 				return false
@@ -129,7 +129,7 @@ func (a *Adapter) StreamEntitlements(
 			return
 		}
 		var iterErr error
-		err := a.engine.IterateEntitlementsBySync(ctx, syncID, func(rec *v3.EntitlementRecord) bool {
+		err := a.engine.IterateEntitlements(ctx, func(rec *v3.EntitlementRecord) bool {
 			if err := ctx.Err(); err != nil {
 				iterErr = err
 				return false

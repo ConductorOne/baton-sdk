@@ -29,8 +29,8 @@ func TestEncodersOmitSyncID(t *testing.T) {
 
 	// Primary grant key: v3 | typeGrant | 0x00 | tuple("ext-1"). No
 	// 20-byte sync_id region, and sync-independent.
-	keyA := encodeGrantKey(syncA, "ext-1")
-	keyB := encodeGrantKey(syncB, "ext-1")
+	keyA := encodeGrantKey("ext-1")
+	keyB := encodeGrantKey("ext-1")
 	if !bytes.Equal(keyA, keyB) {
 		t.Errorf("grant key depends on sync_id: %x vs %x", keyA, keyB)
 	}
@@ -43,17 +43,17 @@ func TestEncodersOmitSyncID(t *testing.T) {
 
 	// Index keys are likewise sync-independent.
 	if !bytes.Equal(
-		encodeGrantByEntitlementIndexKey(syncA, "ent", "user", "u1", "ext-1"),
-		encodeGrantByEntitlementIndexKey(syncB, "ent", "user", "u1", "ext-1"),
+		encodeGrantByEntitlementIndexKey("ent", "user", "u1", "ext-1"),
+		encodeGrantByEntitlementIndexKey("ent", "user", "u1", "ext-1"),
 	) {
 		t.Error("by_entitlement index key depends on sync_id")
 	}
 
 	// Sync-run and stats-sidecar keys collapse to fixed keys.
-	if !bytes.Equal(encodeSyncRunKey(syncA), encodeSyncRunKey(syncB)) {
+	if !bytes.Equal(encodeSyncRunKey(), encodeSyncRunKey()) {
 		t.Error("sync-run key depends on sync_id")
 	}
-	if !bytes.Equal(encodeSyncStatsKey(syncA), encodeSyncStatsKey(syncB)) {
+	if !bytes.Equal(encodeSyncStatsKey(), encodeSyncStatsKey()) {
 		t.Error("stats sidecar key depends on sync_id")
 	}
 }

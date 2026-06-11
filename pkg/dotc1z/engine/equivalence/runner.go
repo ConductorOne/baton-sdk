@@ -5,7 +5,7 @@
 // The harness drives the canonical GrantRecord path through both the
 // v3 Pebble engine and a reference implementation (a deterministic
 // in-memory map). For each case we Put N grants, then for each reader
-// method (GetGrantRecord, IterateGrantsBySync, IterateGrantsByEntitlement,
+// method (GetGrantRecord, IterateGrants, IterateGrantsByEntitlement,
 // IterateGrantsByPrincipal) we compare the returned set against the
 // reference.
 //
@@ -28,10 +28,10 @@ import (
 // new adapter.
 type Reference interface {
 	PutGrantRecord(ctx context.Context, r *v3.GrantRecord) error
-	GetGrantRecord(ctx context.Context, syncID, externalID string) (*v3.GrantRecord, error)
-	IterateGrantsBySync(ctx context.Context, syncID string, yield func(*v3.GrantRecord) bool) error
-	IterateGrantsByEntitlement(ctx context.Context, syncID, entitlementID string, yield func(*v3.GrantRecord) bool) error
-	IterateGrantsByPrincipal(ctx context.Context, syncID, principalRT, principalID string, yield func(*v3.GrantRecord) bool) error
+	GetGrantRecord(ctx context.Context, externalID string) (*v3.GrantRecord, error)
+	IterateGrants(ctx context.Context, yield func(*v3.GrantRecord) bool) error
+	IterateGrantsByEntitlement(ctx context.Context, entitlementID string, yield func(*v3.GrantRecord) bool) error
+	IterateGrantsByPrincipal(ctx context.Context, principalRT, principalID string, yield func(*v3.GrantRecord) bool) error
 }
 
 // Workload is a deterministic sequence of operations the runner
@@ -101,7 +101,7 @@ func RunWorkload(ctx context.Context, ref Reference, w Workload) (*Result, error
 			principalsID[op.Record.GetPrincipal().GetResourceId()] = true
 		case OpDelete:
 			if d, ok := ref.(deleter); ok {
-				if err := d.DeleteGrantRecord(ctx, w.SyncID, op.DeleteExternalID); err != nil {
+				if err := d.DeleteGrantRecord(ctx, op.DeleteExternalID); err != nil {
 					return nil, fmt.Errorf("equivalence: op[%d] DeleteGrantRecord: %w", i, err)
 				}
 			}
@@ -117,12 +117,12 @@ func RunWorkload(ctx context.Context, ref Reference, w Workload) (*Result, error
 		GetSpotChecks:      map[string]bool{},
 	}
 
-	// IterateGrantsBySync
-	if err := ref.IterateGrantsBySync(ctx, w.SyncID, func(*v3.GrantRecord) bool {
+	// IterateGrants
+	if err := ref.IterateGrants(ctx, func(*v3.GrantRecord) bool {
 		res.BySyncCount++
 		return true
 	}); err != nil {
-		return nil, fmt.Errorf("equivalence: IterateGrantsBySync: %w", err)
+		return nil, fmt.Errorf("equivalence: IterateGrants: %w", err)
 	}
 
 	// IterateGrantsByEntitlement, deterministic order
@@ -133,7 +133,7 @@ func RunWorkload(ctx context.Context, ref Reference, w Workload) (*Result, error
 	sort.Strings(entSlice)
 	for _, ent := range entSlice {
 		count := 0
-		if err := ref.IterateGrantsByEntitlement(ctx, w.SyncID, ent, func(*v3.GrantRecord) bool {
+		if err := ref.IterateGrantsByEntitlement(ctx, ent, func(*v3.GrantRecord) bool {
 			count++
 			return true
 		}); err != nil {
@@ -148,7 +148,7 @@ func RunWorkload(ctx context.Context, ref Reference, w Workload) (*Result, error
 	for rt := range principalsRT {
 		for id := range principalsID {
 			count := 0
-			if err := ref.IterateGrantsByPrincipal(ctx, w.SyncID, rt, id, func(*v3.GrantRecord) bool {
+			if err := ref.IterateGrantsByPrincipal(ctx, rt, id, func(*v3.GrantRecord) bool {
 				count++
 				return true
 			}); err != nil {
@@ -163,7 +163,7 @@ func RunWorkload(ctx context.Context, ref Reference, w Workload) (*Result, error
 	// Get spot-checks: for each expected external_id, confirm it
 	// returns a non-nil record.
 	for ext := range expectedExternal {
-		r, err := ref.GetGrantRecord(ctx, w.SyncID, ext)
+		r, err := ref.GetGrantRecord(ctx, ext)
 		switch {
 		case err == nil && r != nil:
 			res.GetSpotChecks[ext] = true
@@ -242,7 +242,7 @@ func Compare(ctx context.Context, refA, refB Reference, w Workload) error {
 // it to support OpDelete, otherwise OpDelete is a no-op against the
 // reference.
 type deleter interface {
-	DeleteGrantRecord(ctx context.Context, syncID, externalID string) error
+	DeleteGrantRecord(ctx context.Context, externalID string) error
 }
 
 // currentSyncSetter is an optional capability — references that track

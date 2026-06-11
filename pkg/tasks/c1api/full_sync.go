@@ -100,17 +100,17 @@ func previousSyncSparePath(tempDir, clientID string) string {
 func promoteOrRemoveC1Z(ctx context.Context, currentPath, sparePath string, keep bool) {
 	l := ctxzap.Extract(ctx)
 	if keep {
-		if err := os.Rename(currentPath, sparePath); err == nil {
+		err := os.Rename(currentPath, sparePath)
+		if err == nil {
 			l.Info("retained uploaded c1z as the previous-sync replay spare",
 				zap.String("spare_path", sparePath),
 				zap.String("spare_sync_id", c1zSyncIDBestEffort(sparePath)))
 			return
-		} else { //nolint:revive // keep err scoped to the rename
-			l.Warn("failed to retain uploaded c1z as previous-sync spare; removing it instead (etag replay will be inactive next sync)",
-				zap.String("current_path", currentPath),
-				zap.String("spare_path", sparePath),
-				zap.Error(err))
 		}
+		l.Warn("failed to retain uploaded c1z as previous-sync spare; removing it instead (etag replay will be inactive next sync)",
+			zap.String("current_path", currentPath),
+			zap.String("spare_path", sparePath),
+			zap.Error(err))
 	}
 	if err := os.Remove(currentPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		l.Error("failed to remove temp file", zap.Error(err), zap.String("path", currentPath))

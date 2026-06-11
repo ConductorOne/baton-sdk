@@ -105,9 +105,9 @@ func TestProdScaleSkewedCompaction(t *testing.T) {
 			defer w.Close(ctx)
 			eng, ok := enginepkg.AsEngine(w)
 			require.True(t, ok)
-			_, err = eng.GetGrantRecord(ctx, out.SyncID, scaleID("p000-g", 0))
+			_, err = eng.GetGrantRecord(ctx, scaleID("p000-g", 0))
 			require.NoError(t, err, "partial-only grant missing from output")
-			overridden, err := eng.GetGrantRecord(ctx, out.SyncID, scaleID("g", 0))
+			overridden, err := eng.GetGrantRecord(ctx, scaleID("g", 0))
 			require.NoError(t, err)
 			require.True(t, overridden.GetDiscoveredAt().AsTime().After(baseTs),
 				"overridden grant must carry the partial's newer discovered_at")

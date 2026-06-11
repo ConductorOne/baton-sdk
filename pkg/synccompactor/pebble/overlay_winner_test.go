@@ -61,7 +61,7 @@ func TestMergeFilesIntoOverlayNewerDiscoveredAtWins(t *testing.T) {
 	}
 
 	grants := map[string]*v3.GrantRecord{}
-	if err := dest.IterateGrantsBySync(ctx, destSyncID, func(g *v3.GrantRecord) bool {
+	if err := dest.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		grants[g.GetExternalId()] = g
 		return true
 	}); err != nil {
@@ -88,7 +88,7 @@ func TestMergeFilesIntoOverlayNewerDiscoveredAtWins(t *testing.T) {
 	// SST-ingested index entry must be present.
 	byPrincipal := map[string][]string{}
 	for _, principal := range []string{"alice", "bob", "carol"} {
-		if err := dest.IterateGrantsByPrincipal(ctx, destSyncID, "user", principal, func(g *v3.GrantRecord) bool {
+		if err := dest.IterateGrantsByPrincipal(ctx, "user", principal, func(g *v3.GrantRecord) bool {
 			byPrincipal[principal] = append(byPrincipal[principal], g.GetExternalId())
 			return true
 		}); err != nil {

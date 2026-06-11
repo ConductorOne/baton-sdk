@@ -18,12 +18,10 @@ import (
 // treated as abandoned, not a live read target.
 const unfinishedSyncMaxAge = 7 * 24 * time.Hour
 
-// PutSyncRunRecord — one row per sync. sync_id is the only PK
-// component; the record reads/writes use only the sync_id.
-//
-// Unlike other writer methods this does NOT consult resolveSyncBytes
-// fallback — a SyncRunRecord must always carry its own sync_id (since
-// it's *defining* what's a valid sync, not operating under one).
+// PutSyncRunRecord writes the file's single sync-run record at the
+// fixed sync-run key. The sync_id lives in the record value (the only
+// place a sync_id is stored — never in a key), and must be non-empty
+// since this record is *defining* what counts as a valid sync.
 func (e *Engine) PutSyncRunRecord(ctx context.Context, r *v3.SyncRunRecord) error {
 	if r == nil {
 		return errors.New("PutSyncRunRecord: nil record")
@@ -32,15 +30,11 @@ func (e *Engine) PutSyncRunRecord(ctx context.Context, r *v3.SyncRunRecord) erro
 		return errors.New("PutSyncRunRecord: empty sync_id")
 	}
 	return e.withWrite(func() error {
-		idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-		if err != nil {
-			return err
-		}
 		val, err := marshalRecord(r)
 		if err != nil {
 			return err
 		}
-		return e.db.Set(encodeSyncRunKey(idBytes), val, writeOpts(e.opts.durability))
+		return e.db.Set(encodeSyncRunKey(), val, writeOpts(e.opts.durability))
 	})
 }
 
@@ -48,11 +42,7 @@ func (e *Engine) GetSyncRunRecord(ctx context.Context, syncID string) (*v3.SyncR
 	if syncID == "" {
 		return nil, errors.New("GetSyncRunRecord: empty sync_id")
 	}
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return nil, err
-	}
-	val, closer, err := e.db.Get(encodeSyncRunKey(idBytes))
+	val, closer, err := e.db.Get(encodeSyncRunKey())
 	if err != nil {
 		return nil, err
 	}
@@ -77,14 +67,10 @@ func (e *Engine) DeleteSyncRunRecord(ctx context.Context, syncID string) error {
 		if syncID == "" {
 			return errors.New("DeleteSyncRunRecord: empty sync_id")
 		}
-		idBytes, err := e.resolveSyncBytes(syncID)
-		if err != nil {
-			return err
-		}
 		// Single fixed sync-run key: only delete when the stored record
 		// is the requested sync. A mismatch (or absence) is a no-op, so
 		// a stale id can't clobber a different sync's record.
-		val, closer, getErr := e.db.Get(encodeSyncRunKey(idBytes))
+		val, closer, getErr := e.db.Get(encodeSyncRunKey())
 		if getErr != nil {
 			if errors.Is(getErr, pebble.ErrNotFound) {
 				return nil
@@ -100,7 +86,7 @@ func (e *Engine) DeleteSyncRunRecord(ctx context.Context, syncID string) error {
 		if stored.GetSyncId() != syncID {
 			return nil
 		}
-		return e.db.Delete(encodeSyncRunKey(idBytes), writeOpts(e.opts.durability))
+		return e.db.Delete(encodeSyncRunKey(), writeOpts(e.opts.durability))
 	})
 }
 
@@ -108,7 +94,7 @@ func (e *Engine) DeleteSyncRunRecord(ctx context.Context, syncID string) error {
 // record (the file's one sync). StartNewSync uses it to decide whether
 // a prior sync must be wiped before the replacement is bound.
 func (e *Engine) hasSyncRun() (bool, error) {
-	_, closer, err := e.db.Get(encodeSyncRunKey(nil))
+	_, closer, err := e.db.Get(encodeSyncRunKey())
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return false, nil

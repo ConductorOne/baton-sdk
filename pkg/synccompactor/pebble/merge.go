@@ -10,7 +10,6 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // SourceSync names one input to a merge: its open Pebble engine and the
@@ -83,17 +82,13 @@ const mergeBatchSize = 1000
 // put path (which dedups by discovered_at and rebuilds indexes). Each
 // bucket is drained in fixed-size batches to bound peak memory.
 func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, destSyncID string) error {
-	srcBytes, err := codec.EncodeSyncID(s.SyncID)
-	if err != nil {
-		return err
-	}
 	srcDB := s.Engine.DB()
 	if srcDB == nil {
 		return errors.New("source engine has no DB (closed?)")
 	}
 
 	if err := streamBucket(ctx, srcDB,
-		enginepkg.ResourceTypeSyncLowerBound(srcBytes), enginepkg.ResourceTypeSyncUpperBound(srcBytes),
+		enginepkg.ResourceTypeLowerBound(), enginepkg.ResourceTypeUpperBound(),
 		func() *v3.ResourceTypeRecord { return &v3.ResourceTypeRecord{} },
 		dest.PutResourceTypeRecordsIfNewer,
 	); err != nil {
@@ -101,7 +96,7 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 	}
 
 	if err := streamBucket(ctx, srcDB,
-		enginepkg.ResourceSyncLowerBound(srcBytes), enginepkg.ResourceSyncUpperBound(srcBytes),
+		enginepkg.ResourceLowerBound(), enginepkg.ResourceUpperBound(),
 		func() *v3.ResourceRecord { return &v3.ResourceRecord{} },
 		dest.PutResourceRecordsIfNewer,
 	); err != nil {
@@ -109,7 +104,7 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 	}
 
 	if err := streamBucket(ctx, srcDB,
-		enginepkg.EntitlementSyncLowerBound(srcBytes), enginepkg.EntitlementSyncUpperBound(srcBytes),
+		enginepkg.EntitlementLowerBound(), enginepkg.EntitlementUpperBound(),
 		func() *v3.EntitlementRecord { return &v3.EntitlementRecord{} },
 		dest.PutEntitlementRecordsIfNewer,
 	); err != nil {
@@ -117,7 +112,7 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 	}
 
 	if err := streamBucket(ctx, srcDB,
-		enginepkg.GrantSyncLowerBound(srcBytes), enginepkg.GrantSyncUpperBound(srcBytes),
+		enginepkg.GrantLowerBound(), enginepkg.GrantUpperBound(),
 		func() *v3.GrantRecord { return &v3.GrantRecord{} },
 		dest.PutGrantRecordsIfNewer,
 	); err != nil {

@@ -24,7 +24,7 @@ func grantDiscoveredAt(t *testing.T, ctx context.Context, path, syncID, grantID 
 	defer w.Close(ctx)
 	eng, ok := enginepkg.AsEngine(w)
 	require.True(t, ok, "store at %s is not a pebble engine", path)
-	rec, err := eng.GetGrantRecord(ctx, syncID, grantID)
+	rec, err := eng.GetGrantRecord(ctx, grantID)
 	require.NoError(t, err)
 	return rec.GetDiscoveredAt().AsTime()
 }
@@ -88,7 +88,7 @@ func TestCompactPebbleFoldMintsFreshSync(t *testing.T) {
 	// Fold semantics: the base sync's data is preserved wholesale, so
 	// the base's asset survives (unlike the rebuild strategies, which
 	// drop assets). Partial assets are not copied.
-	require.Equal(t, 1, countPebbleAssets(t, ctx, out.FilePath, out.SyncID))
+	require.Equal(t, 1, countPebbleAssets(t, ctx, out.FilePath))
 
 	// The folded sync-run record stands alone (no dangling parent link —
 	// the base sync's record was overwritten by the rename), and its

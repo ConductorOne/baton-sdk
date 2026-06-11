@@ -64,7 +64,7 @@ func TestPendingExpansionIndexRoundtrip(t *testing.T) {
 	}
 
 	seen := []string{}
-	if err := e.IterateGrantsByNeedsExpansion(ctx, syncID, func(r *v3.GrantRecord) bool {
+	if err := e.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
 		seen = append(seen, r.GetExternalId())
 		return true
 	}); err != nil {
@@ -93,7 +93,7 @@ func TestPendingExpansionIndexRoundtrip(t *testing.T) {
 		t.Fatalf("PutGrantRecord (flip): %v", err)
 	}
 	seen = seen[:0]
-	if err := e.IterateGrantsByNeedsExpansion(ctx, syncID, func(r *v3.GrantRecord) bool {
+	if err := e.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
 		seen = append(seen, r.GetExternalId())
 		return true
 	}); err != nil {

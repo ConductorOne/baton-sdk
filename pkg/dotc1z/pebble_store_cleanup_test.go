@@ -109,7 +109,7 @@ func TestPebbleSecondSyncWipesPriorData(t *testing.T) {
 
 	// Old sync's grants must be gone from the primary keyspace.
 	for _, ext := range []string{"old-g1", "old-g2"} {
-		if _, err := rs.engine.GetGrantRecord(ctx, newSyncID, ext); err == nil {
+		if _, err := rs.engine.GetGrantRecord(ctx, ext); err == nil {
 			t.Errorf("grant %s from the replaced sync still present", ext)
 		}
 	}
@@ -117,7 +117,7 @@ func TestPebbleSecondSyncWipesPriorData(t *testing.T) {
 	// Old sync's by-principal index entries must be gone too — a missing
 	// wipe range would leak index keys the primary delete caught.
 	count := 0
-	if err := rs.engine.IterateGrantsByPrincipal(ctx, newSyncID, "user", "old-alice", func(*v3.GrantRecord) bool {
+	if err := rs.engine.IterateGrantsByPrincipal(ctx, "user", "old-alice", func(*v3.GrantRecord) bool {
 		count++
 		return true
 	}); err != nil {
@@ -128,7 +128,7 @@ func TestPebbleSecondSyncWipesPriorData(t *testing.T) {
 	}
 
 	// New sync's grants must remain readable.
-	if _, err := rs.engine.GetGrantRecord(ctx, newSyncID, "new-g1"); err != nil {
+	if _, err := rs.engine.GetGrantRecord(ctx, "new-g1"); err != nil {
 		t.Errorf("GetGrantRecord on current sync: %v", err)
 	}
 }

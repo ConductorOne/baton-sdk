@@ -21,7 +21,6 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // Adapter wraps an *Engine and implements connectorstore.Writer
@@ -482,7 +481,7 @@ func (a *Adapter) DeleteGrant(ctx context.Context, grantID string) error {
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
-	return a.engine.DeleteGrantRecord(ctx, syncID, grantID)
+	return a.engine.DeleteGrantRecord(ctx, grantID)
 }
 
 // PutAsset writes a single asset row. assetRef carries the
@@ -542,7 +541,7 @@ func (a *Adapter) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequ
 	if req == nil || req.GetAsset() == nil {
 		return "", nil, errors.New("GetAsset: nil request")
 	}
-	rec, err := a.engine.GetAssetRecord(ctx, syncID, req.GetAsset().GetId())
+	rec, err := a.engine.GetAssetRecord(ctx, req.GetAsset().GetId())
 	if err != nil {
 		return "", nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -579,10 +578,10 @@ func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrant
 	var records []*v3.GrantRecord
 	var nextCursor string
 	if r := req.GetResource(); r != nil && r.GetId() != nil {
-		records, nextCursor, err = a.engine.PaginateGrantsByEntitlementResource(ctx, syncID,
+		records, nextCursor, err = a.engine.PaginateGrantsByEntitlementResource(ctx,
 			r.GetId().GetResourceType(), r.GetId().GetResource(), cursor, limit)
 	} else {
-		records, nextCursor, err = a.engine.PaginateGrantsBySync(ctx, syncID, cursor, limit)
+		records, nextCursor, err = a.engine.PaginateGrants(ctx, cursor, limit)
 	}
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -615,10 +614,6 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
-	idBytes, err := codec.EncodeSyncID(syncID)
-	if err != nil {
-		return nil, err
-	}
 	limit := clampPageSize(req.GetPageSize())
 	cursor := req.GetPageToken()
 	rtFilter := req.GetResourceTypeId()
@@ -631,7 +626,7 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 	// scan is negligible compared to the resources scan we save.
 	var traitRTs map[string]struct{}
 	if t := req.GetTrait(); t != v2.ResourceType_TRAIT_UNSPECIFIED {
-		ids, err := a.resourceTypeIDsWithTrait(ctx, syncID, t)
+		ids, err := a.resourceTypeIDsWithTrait(ctx, t)
 		if err != nil {
 			return nil, err
 		}
@@ -660,12 +655,11 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 	cursorFor := func(rec *v3.ResourceRecord) string {
 		if useParent {
 			return encodeCursor(encodeResourceByParentIndexKey(
-				idBytes,
 				parent.GetResourceType(), parent.GetResource(),
 				rec.GetResourceTypeId(), rec.GetResourceId(),
 			))
 		}
-		return encodeCursor(encodeResourceKey(idBytes, rec.GetResourceTypeId(), rec.GetResourceId()))
+		return encodeCursor(encodeResourceKey(rec.GetResourceTypeId(), rec.GetResourceId()))
 	}
 
 	out := make([]*v2.Resource, 0, limit)
@@ -685,10 +679,10 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 		var records []*v3.ResourceRecord
 		var err error
 		if useParent {
-			records, nextCursor, err = a.engine.PaginateResourcesByParent(ctx, syncID,
+			records, nextCursor, err = a.engine.PaginateResourcesByParent(ctx,
 				parent.GetResourceType(), parent.GetResource(), cursor, fetchLimit)
 		} else {
-			records, nextCursor, err = a.engine.PaginateResourcesBySync(ctx, syncID, cursor, fetchLimit)
+			records, nextCursor, err = a.engine.PaginateResources(ctx, cursor, fetchLimit)
 		}
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -738,7 +732,7 @@ func (a *Adapter) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesSe
 		return nil, ErrNoCurrentSync
 	}
 	limit := clampPageSize(req.GetPageSize())
-	records, nextCursor, err := a.engine.PaginateResourceTypesBySync(ctx, syncID, req.GetPageToken(), limit)
+	records, nextCursor, err := a.engine.PaginateResourceTypes(ctx, req.GetPageToken(), limit)
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -768,10 +762,10 @@ func (a *Adapter) ListEntitlements(ctx context.Context, req *v2.EntitlementsServ
 	var records []*v3.EntitlementRecord
 	var nextCursor string
 	if r := req.GetResource(); r != nil && r.GetId() != nil {
-		records, nextCursor, err = a.engine.PaginateEntitlementsByResource(ctx, syncID,
+		records, nextCursor, err = a.engine.PaginateEntitlementsByResource(ctx,
 			r.GetId().GetResourceType(), r.GetId().GetResource(), cursor, limit)
 	} else {
-		records, nextCursor, err = a.engine.PaginateEntitlementsBySync(ctx, syncID, cursor, limit)
+		records, nextCursor, err = a.engine.PaginateEntitlements(ctx, cursor, limit)
 	}
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -808,7 +802,7 @@ func (a *Adapter) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServi
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
-	rec, err := a.engine.GetGrantRecord(ctx, syncID, req.GetGrantId())
+	rec, err := a.engine.GetGrantRecord(ctx, req.GetGrantId())
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}

@@ -94,7 +94,7 @@ func TestCheckpointWALsAreEmpty(t *testing.T) {
 		t.Fatal("reopened sync run lost ended_at")
 	}
 	count := 0
-	if err := reopened.IterateGrantsBySync(ctx, syncID, func(*v3.GrantRecord) bool {
+	if err := reopened.IterateGrants(ctx, func(*v3.GrantRecord) bool {
 		count++
 		return true
 	}); err != nil {

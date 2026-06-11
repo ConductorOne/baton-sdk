@@ -10,7 +10,6 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // ErrEmptySync is returned when Compact is called with a sync_id that
@@ -99,17 +98,11 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 		return errors.New("synccompactor/pebble.Compact: base engine has no DB (closed?)")
 	}
 
-	syncIDBytes, err := codec.EncodeSyncID(syncID)
-	if err != nil {
-		return fmt.Errorf("synccompactor/pebble.Compact: encode syncID: %w", err)
-	}
-
-	// The full key range that belongs to this sync across all record
-	// types and indexes. The v3 key layout puts sync_id inside each
-	// type bucket, so a single range does not cover all sync-owned
-	// keys. Instead we walk each bucket and emit one SST per bucket,
-	// excising each bucket's [sync_lo, sync_hi) range.
-	plans := buildBucketPlans(syncIDBytes)
+	// The full key range belonging to the file's one sync, across all
+	// record types and indexes. v3 keys carry no sync_id, so each
+	// record-type/index bucket is one contiguous range. We walk each
+	// bucket and emit one SST per bucket, excising that bucket's range.
+	plans := buildBucketPlans()
 
 	type pendingIngest struct {
 		sstPath    string
@@ -140,7 +133,7 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 			return fmt.Errorf("compact: source iter for %s: %w", plan.name, err)
 		}
 
-		sstPath := filepath.Join(c.tmpDir, fmt.Sprintf("compact-%s-%x.sst", plan.name, syncIDBytes[:4]))
+		sstPath := filepath.Join(c.tmpDir, fmt.Sprintf("compact-%s-%s.sst", plan.name, syncID))
 		b, err := buildSSTFromIter(ctx, sstPath, iter)
 		_ = iter.Close()
 		if err != nil {

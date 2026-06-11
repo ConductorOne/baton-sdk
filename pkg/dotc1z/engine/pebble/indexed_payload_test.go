@@ -97,10 +97,10 @@ func TestIndexedPayloadStoreLifecycle(t *testing.T) {
 	if _, err := eng.GetSyncRunRecord(ctx, first); err == nil {
 		t.Fatalf("first sync %s should have been replaced by the second", first)
 	}
-	if _, err := eng.GetResourceRecord(ctx, second, "group", "group-1"); err != nil {
+	if _, err := eng.GetResourceRecord(ctx, "group", "group-1"); err != nil {
 		t.Fatalf("second sync's resource missing: %v", err)
 	}
-	if _, err := eng.GetResourceRecord(ctx, first, "user", "user-1"); err == nil {
+	if _, err := eng.GetResourceRecord(ctx, "user", "user-1"); err == nil {
 		t.Fatalf("first sync's resource should be gone after replacement")
 	}
 }

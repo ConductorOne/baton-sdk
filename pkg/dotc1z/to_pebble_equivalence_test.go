@@ -192,7 +192,8 @@ func dumpSyncKeyspace(ctx context.Context, t *testing.T, path, tmpDir string) ma
 			continue
 		}
 		switch key[1] {
-		case 0x01, 0x02, 0x03, 0x04, 0x05, 0x07: // primary record + index buckets
+		case 0x01, 0x02, 0x03, 0x04, 0x05, 0x07:
+			// primary record + index buckets: compared below.
 		default: // sync_runs, counters, sessions, engine meta: not compared
 			continue
 		}

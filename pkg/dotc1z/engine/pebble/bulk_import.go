@@ -142,11 +142,10 @@ func (w *bulkSSTWriter) finish() error {
 // write to the engine between Start and Finish. Used by C1File.ToPebble
 // for sqlite→pebble conversion.
 type BulkSyncImport struct {
-	e           *Engine
-	syncID      string
-	syncIDBytes []byte
-	dir         string
-	done        bool
+	e      *Engine
+	syncID string
+	dir    string
+	done   bool
 
 	resourceTypes *bulkSSTWriter
 	resources     *bulkSSTWriter
@@ -197,7 +196,6 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 	b := &BulkSyncImport{
 		e:             e,
 		syncID:        syncID,
-		syncIDBytes:   idBytes,
 		dir:           dir,
 		sortSem:       make(chan struct{}, sorters),
 		resourcesByRT: map[string]int64{},
@@ -293,11 +291,11 @@ func (s *BulkGrantShard) AddGrants(ctx context.Context, grants ...*v2.Grant) err
 			return s.fail(err)
 		}
 		s.valBuf = val
-		if err := s.grants.add(encodeGrantKey(s.b.syncIDBytes, r.GetExternalId()), val); err != nil {
+		if err := s.grants.add(encodeGrantKey(r.GetExternalId()), val); err != nil {
 			return s.fail(err)
 		}
 		s.entRT[r.GetEntitlement().GetResourceTypeId()]++
-		for _, k := range grantIndexKeys(s.b.syncIDBytes, r) {
+		for _, k := range grantIndexKeys(r) {
 			if len(k) < 3 || k[1] != typeIndex {
 				return s.fail(fmt.Errorf("bulk sync import: malformed index key %x", k))
 			}
@@ -355,7 +353,7 @@ func (b *BulkSyncImport) AddResourceTypes(ctx context.Context, rts ...*v2.Resour
 		if err != nil {
 			return err
 		}
-		if err := b.resourceTypes.add(encodeResourceTypeKey(b.syncIDBytes, rec.GetExternalId()), val); err != nil {
+		if err := b.resourceTypes.add(encodeResourceTypeKey(rec.GetExternalId()), val); err != nil {
 			return err
 		}
 	}
@@ -382,13 +380,12 @@ func (b *BulkSyncImport) AddResources(ctx context.Context, resources ...*v2.Reso
 		if err != nil {
 			return err
 		}
-		if err := b.resources.add(encodeResourceKey(b.syncIDBytes, rec.GetResourceTypeId(), rec.GetResourceId()), val); err != nil {
+		if err := b.resources.add(encodeResourceKey(rec.GetResourceTypeId(), rec.GetResourceId()), val); err != nil {
 			return err
 		}
 		b.resourcesByRT[rec.GetResourceTypeId()]++
 		if parent := rec.GetParent(); parent != nil && parent.GetResourceId() != "" {
 			k := encodeResourceByParentIndexKey(
-				b.syncIDBytes,
 				parent.GetResourceTypeId(), parent.GetResourceId(),
 				rec.GetResourceTypeId(), rec.GetResourceId(),
 			)
@@ -420,12 +417,11 @@ func (b *BulkSyncImport) AddEntitlements(ctx context.Context, ents ...*v2.Entitl
 		if err != nil {
 			return err
 		}
-		if err := b.entitlements.add(encodeEntitlementKey(b.syncIDBytes, rec.GetExternalId()), val); err != nil {
+		if err := b.entitlements.add(encodeEntitlementKey(rec.GetExternalId()), val); err != nil {
 			return err
 		}
 		if res := rec.GetResource(); res != nil && res.GetResourceId() != "" {
 			k := encodeEntitlementByResourceIndexKey(
-				b.syncIDBytes,
 				res.GetResourceTypeId(), res.GetResourceId(),
 				rec.GetExternalId(),
 			)

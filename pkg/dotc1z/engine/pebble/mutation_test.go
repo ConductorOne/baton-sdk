@@ -35,7 +35,7 @@ func TestPutGrantRecordOverwriteCleansIndexes(t *testing.T) {
 	}
 	// Sanity: by_ent(ent-A) returns 1
 	count := 0
-	if err := e.IterateGrantsByEntitlement(ctx, syncID, "ent-A", func(*v3.GrantRecord) bool {
+	if err := e.IterateGrantsByEntitlement(ctx, "ent-A", func(*v3.GrantRecord) bool {
 		count++
 		return true
 	}); err != nil {
@@ -62,16 +62,16 @@ func TestPutGrantRecordOverwriteCleansIndexes(t *testing.T) {
 		expected int
 	}{
 		{"ent-A", func(y func(*v3.GrantRecord) bool) error {
-			return e.IterateGrantsByEntitlement(ctx, syncID, "ent-A", y)
+			return e.IterateGrantsByEntitlement(ctx, "ent-A", y)
 		}, 0},
 		{"ent-B", func(y func(*v3.GrantRecord) bool) error {
-			return e.IterateGrantsByEntitlement(ctx, syncID, "ent-B", y)
+			return e.IterateGrantsByEntitlement(ctx, "ent-B", y)
 		}, 1},
 		{"alice", func(y func(*v3.GrantRecord) bool) error {
-			return e.IterateGrantsByPrincipal(ctx, syncID, "user", "alice", y)
+			return e.IterateGrantsByPrincipal(ctx, "user", "alice", y)
 		}, 0},
 		{"bob", func(y func(*v3.GrantRecord) bool) error {
-			return e.IterateGrantsByPrincipal(ctx, syncID, "user", "bob", y)
+			return e.IterateGrantsByPrincipal(ctx, "user", "bob", y)
 		}, 1},
 	} {
 		n := 0
@@ -122,7 +122,7 @@ func TestPutResourceRecordOverwriteCleansIndexes(t *testing.T) {
 		expected int
 	}{{"admins", 0}, {"users", 1}} {
 		n := 0
-		if err := e.IterateResourcesByParent(ctx, syncID, "group", c.parentID, func(*v3.ResourceRecord) bool {
+		if err := e.IterateResourcesByParent(ctx, "group", c.parentID, func(*v3.ResourceRecord) bool {
 			n++
 			return true
 		}); err != nil {
@@ -164,7 +164,7 @@ func TestPutEntitlementRecordOverwriteCleansIndexes(t *testing.T) {
 		expected int
 	}{{"github", 0}, {"gitlab", 1}} {
 		n := 0
-		if err := e.IterateEntitlementsByResource(ctx, syncID, "app", c.resID, func(*v3.EntitlementRecord) bool {
+		if err := e.IterateEntitlementsByResource(ctx, "app", c.resID, func(*v3.EntitlementRecord) bool {
 			n++
 			return true
 		}); err != nil {
@@ -188,7 +188,7 @@ func TestPutEntitlementRecordOverwriteCleansIndexes(t *testing.T) {
 func TestFreshSyncDuplicateExternalIDCleansIndexes(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	syncID, err := a.StartNewSync(ctx, "full", "")
+	_, err := a.StartNewSync(ctx, "full", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestFreshSyncDuplicateExternalIDCleansIndexes(t *testing.T) {
 		expected int
 	}{{"ent-A", 0}, {"ent-B", 1}} {
 		n := 0
-		if err := a.engine.IterateGrantsByEntitlement(ctx, syncID, c.ent, func(*v3.GrantRecord) bool {
+		if err := a.engine.IterateGrantsByEntitlement(ctx, c.ent, func(*v3.GrantRecord) bool {
 			n++
 			return true
 		}); err != nil {
@@ -226,7 +226,7 @@ func TestFreshSyncDuplicateExternalIDCleansIndexes(t *testing.T) {
 		expected  int
 	}{{"alice", 0}, {"bob", 1}} {
 		n := 0
-		if err := a.engine.IterateGrantsByPrincipal(ctx, syncID, "user", c.principal, func(*v3.GrantRecord) bool {
+		if err := a.engine.IterateGrantsByPrincipal(ctx, "user", c.principal, func(*v3.GrantRecord) bool {
 			n++
 			return true
 		}); err != nil {
@@ -268,7 +268,7 @@ func TestFreshSyncWithinCallDuplicateResourceDedup(t *testing.T) {
 		expected int
 	}{{"admins", 0}, {"users", 1}} {
 		n := 0
-		if err := e.IterateResourcesByParent(ctx, syncID, "group", c.parentID, func(*v3.ResourceRecord) bool {
+		if err := e.IterateResourcesByParent(ctx, "group", c.parentID, func(*v3.ResourceRecord) bool {
 			n++
 			return true
 		}); err != nil {
@@ -306,7 +306,7 @@ func TestFreshSyncWithinCallDuplicateEntitlementDedup(t *testing.T) {
 		expected int
 	}{{"github", 0}, {"gitlab", 1}} {
 		n := 0
-		if err := e.IterateEntitlementsByResource(ctx, syncID, "app", c.resID, func(*v3.EntitlementRecord) bool {
+		if err := e.IterateEntitlementsByResource(ctx, "app", c.resID, func(*v3.EntitlementRecord) bool {
 			n++
 			return true
 		}); err != nil {
@@ -330,7 +330,7 @@ func TestFreshSyncWithinCallDuplicateEntitlementDedup(t *testing.T) {
 func TestFreshSyncWithinCallDuplicateExternalIDDedup(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	syncID, err := a.StartNewSync(ctx, "full", "")
+	_, err := a.StartNewSync(ctx, "full", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +350,7 @@ func TestFreshSyncWithinCallDuplicateExternalIDDedup(t *testing.T) {
 		expected int
 	}{{"ent-A", 0}, {"ent-B", 1}} {
 		n := 0
-		if err := a.engine.IterateGrantsByEntitlement(ctx, syncID, c.ent, func(*v3.GrantRecord) bool {
+		if err := a.engine.IterateGrantsByEntitlement(ctx, c.ent, func(*v3.GrantRecord) bool {
 			n++
 			return true
 		}); err != nil {
@@ -365,7 +365,7 @@ func TestFreshSyncWithinCallDuplicateExternalIDDedup(t *testing.T) {
 		expected  int
 	}{{"alice", 0}, {"bob", 1}} {
 		n := 0
-		if err := a.engine.IterateGrantsByPrincipal(ctx, syncID, "user", c.principal, func(*v3.GrantRecord) bool {
+		if err := a.engine.IterateGrantsByPrincipal(ctx, "user", c.principal, func(*v3.GrantRecord) bool {
 			n++
 			return true
 		}); err != nil {
@@ -404,7 +404,7 @@ func TestNonFreshSyncOverwriteWorksThroughAdapter(t *testing.T) {
 
 	// ent-A should now be empty (old index cleaned up).
 	n := 0
-	if err := a.engine.IterateGrantsByEntitlement(ctx, syncID, "ent-A", func(*v3.GrantRecord) bool {
+	if err := a.engine.IterateGrantsByEntitlement(ctx, "ent-A", func(*v3.GrantRecord) bool {
 		n++
 		return true
 	}); err != nil {
@@ -415,7 +415,7 @@ func TestNonFreshSyncOverwriteWorksThroughAdapter(t *testing.T) {
 	}
 	// ent-B should have 1.
 	n = 0
-	if err := a.engine.IterateGrantsByEntitlement(ctx, syncID, "ent-B", func(*v3.GrantRecord) bool {
+	if err := a.engine.IterateGrantsByEntitlement(ctx, "ent-B", func(*v3.GrantRecord) bool {
 		n++
 		return true
 	}); err != nil {
@@ -440,12 +440,12 @@ func TestDeleteThenPutCleansAndRewrites(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := e.DeleteGrantRecord(ctx, syncID, "g2"); err != nil {
+	if err := e.DeleteGrantRecord(ctx, "g2"); err != nil {
 		t.Fatal(err)
 	}
 	// by_ent(ent-A) should have 4 entries (5 - 1 deleted).
 	n := 0
-	if err := e.IterateGrantsByEntitlement(ctx, syncID, "ent-A", func(*v3.GrantRecord) bool {
+	if err := e.IterateGrantsByEntitlement(ctx, "ent-A", func(*v3.GrantRecord) bool {
 		n++
 		return true
 	}); err != nil {
@@ -460,7 +460,7 @@ func TestDeleteThenPutCleansAndRewrites(t *testing.T) {
 	}
 	// by_ent(ent-A) still 4; by_ent(ent-C) = 1.
 	n = 0
-	if err := e.IterateGrantsByEntitlement(ctx, syncID, "ent-A", func(*v3.GrantRecord) bool {
+	if err := e.IterateGrantsByEntitlement(ctx, "ent-A", func(*v3.GrantRecord) bool {
 		n++
 		return true
 	}); err != nil {
@@ -470,7 +470,7 @@ func TestDeleteThenPutCleansAndRewrites(t *testing.T) {
 		t.Errorf("after delete + repuT: by_ent(A) = %d, want 4", n)
 	}
 	n = 0
-	if err := e.IterateGrantsByEntitlement(ctx, syncID, "ent-C", func(*v3.GrantRecord) bool {
+	if err := e.IterateGrantsByEntitlement(ctx, "ent-C", func(*v3.GrantRecord) bool {
 		n++
 		return true
 	}); err != nil {

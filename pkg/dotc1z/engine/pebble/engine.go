@@ -315,7 +315,9 @@ func (e *Engine) EndFreshSync(ctx context.Context) error {
 }
 
 // currentSyncBytes returns the engine's tracked sync_id (raw bytes)
-// or nil if none is set.
+// or nil if none is set. The sync_id is never part of a key; this is
+// used only to validate that a caller's sync_id matches the engine's
+// one bound sync (see StartBulkSyncImport).
 func (e *Engine) currentSyncBytes() []byte {
 	e.currentSyncMu.RLock()
 	defer e.currentSyncMu.RUnlock()
@@ -324,19 +326,19 @@ func (e *Engine) currentSyncBytes() []byte {
 	return out
 }
 
-// resolveSyncBytes returns the raw sync_id bytes from a string syncID,
-// falling back to the engine's currently-set sync if the string is
-// empty. Returns ErrNoCurrentSync if no sync is set and the string is
-// empty.
-func (e *Engine) resolveSyncBytes(syncID string) ([]byte, error) {
-	if syncID == "" {
-		b := e.currentSyncBytes()
-		if len(b) == 0 {
-			return nil, ErrNoCurrentSync
-		}
-		return b, nil
+// requireCurrentSync returns ErrNoCurrentSync unless a sync is bound
+// (StartNewSync/SetCurrentSync, cleared by EndSync). Record writes
+// gate on this so data never lands without a sync-run record — the
+// sync_id is NOT encoded in keys, but a write still has to happen
+// inside an open sync. Reads do not gate: a finished sync's data
+// persists and stays readable after EndSync clears the binding.
+func (e *Engine) requireCurrentSync() error {
+	e.currentSyncMu.RLock()
+	defer e.currentSyncMu.RUnlock()
+	if len(e.currentSync) == 0 {
+		return ErrNoCurrentSync
 	}
-	return codec.EncodeSyncID(syncID)
+	return nil
 }
 
 // checkWritable returns ErrEngineClosing if the engine has been

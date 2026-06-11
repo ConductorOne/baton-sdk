@@ -150,18 +150,16 @@ func TestAdapterEndSyncClearsEngineCurrentSync(t *testing.T) {
 		t.Fatalf("EndSync: %v", err)
 	}
 
+	// EndSync cleared the engine's bound sync: a direct record write
+	// must now fail rather than land an orphan record with no sync run.
 	if err := a.engine.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-B", "bob")); !errors.Is(err, ErrNoCurrentSync) {
 		t.Fatalf("direct engine write after EndSync: got %v, want ErrNoCurrentSync", err)
 	}
-	if err := a.engine.IterateGrantsByEntitlement(ctx, "", "ent-A", func(*v3.GrantRecord) bool {
-		t.Fatal("iterator should not resolve an ended sync via empty sync id")
-		return false
-	}); !errors.Is(err, ErrNoCurrentSync) {
-		t.Fatalf("direct engine index read after EndSync: got %v, want ErrNoCurrentSync", err)
-	}
 
+	// Reads do NOT gate on the bound sync: the finished sync's data
+	// persists and stays readable through the engine after EndSync.
 	count := 0
-	if err := a.engine.IterateGrantsByEntitlement(ctx, syncID, "ent-A", func(*v3.GrantRecord) bool {
+	if err := a.engine.IterateGrantsByEntitlement(ctx, "ent-A", func(*v3.GrantRecord) bool {
 		count++
 		return true
 	}); err != nil {

@@ -42,11 +42,11 @@ func grant(syncID, externalID, entID, principalID string) *v3.GrantRecord {
 func countGrants(t *testing.T, e *enginepkg.Engine, syncID string) int {
 	t.Helper()
 	count := 0
-	if err := e.IterateGrantsBySync(context.Background(), syncID, func(*v3.GrantRecord) bool {
+	if err := e.IterateGrants(context.Background(), func(*v3.GrantRecord) bool {
 		count++
 		return true
 	}); err != nil {
-		t.Fatalf("IterateGrantsBySync: %v", err)
+		t.Fatalf("IterateGrants: %v", err)
 	}
 	return count
 }
@@ -136,7 +136,7 @@ func TestCompactReplacesExisting(t *testing.T) {
 
 	// Also verify by_entitlement index — stale-ent should have 0 entries.
 	staleCount := 0
-	if err := dst.IterateGrantsByEntitlement(ctx, syncID, "stale-ent", func(*v3.GrantRecord) bool {
+	if err := dst.IterateGrantsByEntitlement(ctx, "stale-ent", func(*v3.GrantRecord) bool {
 		staleCount++
 		return true
 	}); err != nil {
@@ -147,7 +147,7 @@ func TestCompactReplacesExisting(t *testing.T) {
 	}
 
 	freshCount := 0
-	if err := dst.IterateGrantsByEntitlement(ctx, syncID, "fresh-ent", func(*v3.GrantRecord) bool {
+	if err := dst.IterateGrantsByEntitlement(ctx, "fresh-ent", func(*v3.GrantRecord) bool {
 		freshCount++
 		return true
 	}); err != nil {
@@ -241,7 +241,7 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	}
 
 	rtCount := 0
-	if err := dst.IterateResourceTypesBySync(ctx, syncID, func(*v3.ResourceTypeRecord) bool {
+	if err := dst.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool {
 		rtCount++
 		return true
 	}); err != nil {
@@ -250,12 +250,12 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	if rtCount != 1 {
 		t.Fatalf("resource_types: got %d, want 1", rtCount)
 	}
-	if _, err := dst.GetResourceTypeRecord(ctx, syncID, "rt-stale"); err == nil {
+	if _, err := dst.GetResourceTypeRecord(ctx, "rt-stale"); err == nil {
 		t.Fatal("stale resource type survived compaction")
 	}
 
 	childCount := 0
-	if err := dst.IterateResourcesByParent(ctx, syncID, "group", "admins", func(r *v3.ResourceRecord) bool {
+	if err := dst.IterateResourcesByParent(ctx, "group", "admins", func(r *v3.ResourceRecord) bool {
 		if r.GetResourceId() != "fresh-child" {
 			t.Fatalf("unexpected child resource %q", r.GetResourceId())
 		}
@@ -269,7 +269,7 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	}
 
 	entCount := 0
-	if err := dst.IterateEntitlementsByResource(ctx, syncID, "group", "admins", func(r *v3.EntitlementRecord) bool {
+	if err := dst.IterateEntitlementsByResource(ctx, "group", "admins", func(r *v3.EntitlementRecord) bool {
 		if r.GetExternalId() != "ent-fresh" {
 			t.Fatalf("unexpected entitlement %q", r.GetExternalId())
 		}
@@ -283,7 +283,7 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	}
 
 	assetCount := 0
-	if err := dst.IterateAssetsBySync(ctx, syncID, func(r *v3.AssetRecord) bool {
+	if err := dst.IterateAssets(ctx, func(r *v3.AssetRecord) bool {
 		if r.GetExternalId() != "asset-fresh" || string(r.GetData()) != "fresh" {
 			t.Fatalf("unexpected asset %q data=%q", r.GetExternalId(), string(r.GetData()))
 		}

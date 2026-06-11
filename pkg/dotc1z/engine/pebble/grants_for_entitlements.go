@@ -77,7 +77,7 @@ EntitlementLoop:
 				return nil, err
 			}
 			remaining := limit - len(out)
-			records, next, err := a.engine.PaginateGrantsByEntitlement(ctx, syncID, entID, intraCursor, remaining)
+			records, next, err := a.engine.PaginateGrantsByEntitlement(ctx, entID, intraCursor, remaining)
 			if err != nil {
 				return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 			}
@@ -87,12 +87,7 @@ EntitlementLoop:
 				out = append(out, V3GrantToV2(rec))
 				if len(out) == limit {
 					p := rec.GetPrincipal()
-					idBytes, encErr := a.engine.resolveSyncBytes(syncID)
-					if encErr != nil {
-						return nil, encErr
-					}
 					lastIntra = encodeCursor(encodeGrantByEntitlementIndexKey(
-						idBytes,
 						entID,
 						p.GetResourceTypeId(), p.GetResourceId(),
 						rec.GetExternalId(),

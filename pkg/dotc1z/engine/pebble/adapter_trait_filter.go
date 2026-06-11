@@ -16,11 +16,10 @@ import (
 // future trait can be added to the enum without touching this code.
 func (a *Adapter) resourceTypeIDsWithTrait(
 	ctx context.Context,
-	syncID string,
 	trait v2.ResourceType_Trait,
 ) ([]string, error) {
 	out := []string{}
-	if err := a.engine.IterateResourceTypesBySync(ctx, syncID, func(r *v3.ResourceTypeRecord) bool {
+	if err := a.engine.IterateResourceTypes(ctx, func(r *v3.ResourceTypeRecord) bool {
 		for _, s := range r.GetTraits() {
 			if stringToTrait(s) == trait {
 				out = append(out, r.GetExternalId())
