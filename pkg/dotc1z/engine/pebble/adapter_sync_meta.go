@@ -40,7 +40,7 @@ func (s pebbleSyncMeta) MarkSyncSupportsDiff(ctx context.Context, syncID string)
 	}
 	r, err := s.a.engine.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
-		return fmt.Errorf("MarkSyncSupportsDiff: get: %w", err)
+		return adaptNotFound(fmt.Errorf("MarkSyncSupportsDiff: get: %w", err))
 	}
 	r.SetSupportsDiff(true)
 	if err := s.a.engine.PutSyncRunRecord(ctx, r); err != nil {

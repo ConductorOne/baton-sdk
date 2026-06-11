@@ -236,7 +236,7 @@ func (a *Adapter) ListGrantsForEntitlement(
 				ent.GetId(), cursor, fetchLimit)
 		}
 		if err != nil {
-			return nil, err
+			return nil, adaptNotFound(err)
 		}
 		nextCursor = next
 		brokeEarly := false
@@ -294,7 +294,11 @@ func (a *Adapter) ListGrantPrincipalKeysForEntitlement(
 	if entitlement == nil || entitlement.GetId() == "" {
 		return nil, "", errors.New("ListGrantPrincipalKeysForEntitlement: missing entitlement id")
 	}
-	return a.engine.PaginateGrantPrincipalKeysByEntitlement(ctx, syncID, entitlement.GetId(), pageToken, clampPageSize(pageSize))
+	keys, next, err := a.engine.PaginateGrantPrincipalKeysByEntitlement(ctx, syncID, entitlement.GetId(), pageToken, clampPageSize(pageSize))
+	if err != nil {
+		return nil, "", adaptNotFound(err)
+	}
+	return keys, next, nil
 }
 
 // ListGrantsForPrincipal is the Go-level convenience method that
@@ -326,7 +330,7 @@ func (a *Adapter) ListGrantsForPrincipal(
 	records, next, err := a.engine.PaginateGrantsByPrincipal(ctx, syncID,
 		principal.GetResourceType(), principal.GetResource(), cursor, limit)
 	if err != nil {
-		return nil, err
+		return nil, adaptNotFound(err)
 	}
 	out := make([]*v2.Grant, 0, len(records))
 	for _, rec := range records {
@@ -369,7 +373,7 @@ func (a *Adapter) ListGrantsForResourceType(
 	cursor := req.GetPageToken()
 	records, next, err := a.engine.PaginateGrantsByPrincipalResourceType(ctx, syncID, rtFilter, cursor, limit)
 	if err != nil {
-		return nil, err
+		return nil, adaptNotFound(err)
 	}
 	out := make([]*v2.Grant, 0, len(records))
 	for _, rec := range records {

@@ -7,6 +7,8 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/segmentio/ksuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -41,22 +43,22 @@ func generateSyncDiff(ctx context.Context, a *Adapter, baseSyncID, appliedSyncID
 	baseRun, err := a.engine.GetSyncRunRecord(ctx, baseSyncID)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
-			return "", fmt.Errorf("generate-diff: base sync %q not found", baseSyncID)
+			return "", status.Errorf(codes.NotFound, "generate-diff: base sync %q not found", baseSyncID)
 		}
 		return "", err
 	}
 	if baseRun.GetEndedAt() == nil {
-		return "", fmt.Errorf("generate-diff: base sync %q is not ended", baseSyncID)
+		return "", status.Errorf(codes.FailedPrecondition, "generate-diff: base sync %q is not ended", baseSyncID)
 	}
 	appliedRun, err := a.engine.GetSyncRunRecord(ctx, appliedSyncID)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
-			return "", fmt.Errorf("generate-diff: applied sync %q not found", appliedSyncID)
+			return "", status.Errorf(codes.NotFound, "generate-diff: applied sync %q not found", appliedSyncID)
 		}
 		return "", err
 	}
 	if appliedRun.GetEndedAt() == nil {
-		return "", fmt.Errorf("generate-diff: applied sync %q is not ended", appliedSyncID)
+		return "", status.Errorf(codes.FailedPrecondition, "generate-diff: applied sync %q is not ended", appliedSyncID)
 	}
 
 	diffSyncID := ksuid.New().String()

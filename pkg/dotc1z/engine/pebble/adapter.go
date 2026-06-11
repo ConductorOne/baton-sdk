@@ -120,7 +120,7 @@ func (a *Adapter) ResumeSync(ctx context.Context, syncType connectorstore.SyncTy
 	}
 	existing, err := a.engine.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
-		return "", fmt.Errorf("ResumeSync: lookup: %w", err)
+		return "", adaptNotFound(fmt.Errorf("ResumeSync: lookup: %w", err))
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -560,7 +560,7 @@ func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrant
 		records, nextCursor, err = a.engine.PaginateGrantsBySync(ctx, syncID, cursor, limit)
 	}
 	if err != nil {
-		return nil, err
+		return nil, adaptNotFound(err)
 	}
 	out := make([]*v2.Grant, 0, len(records))
 	for _, rec := range records {
@@ -666,7 +666,7 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 			records, nextCursor, err = a.engine.PaginateResourcesBySync(ctx, syncID, cursor, fetchLimit)
 		}
 		if err != nil {
-			return nil, err
+			return nil, adaptNotFound(err)
 		}
 		brokeEarly := false
 		for _, rec := range records {
@@ -715,7 +715,7 @@ func (a *Adapter) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesSe
 	limit := clampPageSize(req.GetPageSize())
 	records, nextCursor, err := a.engine.PaginateResourceTypesBySync(ctx, syncID, req.GetPageToken(), limit)
 	if err != nil {
-		return nil, err
+		return nil, adaptNotFound(err)
 	}
 	out := make([]*v2.ResourceType, 0, len(records))
 	for _, rec := range records {
@@ -749,7 +749,7 @@ func (a *Adapter) ListEntitlements(ctx context.Context, req *v2.EntitlementsServ
 		records, nextCursor, err = a.engine.PaginateEntitlementsBySync(ctx, syncID, cursor, limit)
 	}
 	if err != nil {
-		return nil, err
+		return nil, adaptNotFound(err)
 	}
 	out := make([]*v2.Entitlement, 0, len(records))
 	for _, rec := range records {

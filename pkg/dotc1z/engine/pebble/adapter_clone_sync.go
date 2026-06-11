@@ -11,6 +11,8 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -60,12 +62,12 @@ func cloneSync(
 	srcRun, err := a.engine.GetSyncRunRecord(ctx, resolved)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
-			return fmt.Errorf("clone-sync: sync %q not found", resolved)
+			return status.Errorf(codes.NotFound, "clone-sync: sync %q not found", resolved)
 		}
 		return err
 	}
 	if srcRun.GetEndedAt() == nil {
-		return fmt.Errorf("clone-sync: sync %q is not ended", resolved)
+		return status.Errorf(codes.FailedPrecondition, "clone-sync: sync %q is not ended", resolved)
 	}
 
 	syncIDBytes, err := codec.EncodeSyncID(resolved)
