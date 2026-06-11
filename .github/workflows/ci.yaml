@@ -83,9 +83,11 @@ jobs:
     strategy:
       matrix:
         worker-count: [ 0, 4 ]
+        storage-engine: [ "sqlite", "pebble" ]
     runs-on: ubuntu-latest
     env:
       BATON_WORKERS: ${{ matrix.worker-count }}
+      BATON_STORAGE_ENGINE: ${{ matrix.storage-engine }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
