@@ -3969,6 +3969,23 @@ func (m *Task_SyncFullTask) validate(all bool) error {
 
 	}
 
+	// no validation rules for SkipGrants
+
+	if m.GetStorageEngine() != "" {
+
+		if _, ok := _Task_SyncFullTask_StorageEngine_InLookup[m.GetStorageEngine()]; !ok {
+			err := Task_SyncFullTaskValidationError{
+				field:  "StorageEngine",
+				reason: "value must be in list [pebble sqlite]",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return Task_SyncFullTaskMultiError(errors)
 	}
@@ -4048,6 +4065,11 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = Task_SyncFullTaskValidationError{}
+
+var _Task_SyncFullTask_StorageEngine_InLookup = map[string]struct{}{
+	"pebble": {},
+	"sqlite": {},
+}
 
 // Validate checks the field values on Task_EventFeedTask with the rules
 // defined in the proto definition for this message. If any rules are

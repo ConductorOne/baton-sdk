@@ -46,12 +46,27 @@ message Task {
     repeated google.protobuf.Any annotations = 1;
   }
 
+  // SyncFullTask tells the connector to run a sync and upload the result to C1.
   message SyncFullTask {
     repeated google.protobuf.Any annotations = 1;
+    // If true, skip grant expansion step. C1 will expand grants itself.
     bool skip_expand_grants = 2;
+    // If true, only sync resources. This is useful for initial syncs to get some data sooner.
     bool skip_entitlements_and_grants = 3;
+    // List of resources to sync. If empty, all resources will be synced.
     repeated connector.v2.Resource targeted_sync_resources = 4;
+    // List of resource type IDs to sync. If empty, all resource types will be synced.
     repeated string sync_resource_type_ids = 5;
+    // If true, skip syncing grants. Resources and entitlements will still be synced.
+    bool skip_grants = 6;
+    // Storage engine to use for the sync. If empty, the default engine will be used (currently SQLite).
+    string storage_engine = 7 [(validate.rules).string = {
+      in: [
+        "pebble",
+        "sqlite"
+      ]
+      ignore_empty: true
+    }];
   }
 
   message EventFeedTask {

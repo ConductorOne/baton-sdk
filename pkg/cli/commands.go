@@ -31,6 +31,7 @@ import (
 	baton_v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/session"
@@ -406,6 +407,15 @@ func MakeMainCommand[T field.Configurable](
 			return err
 		}
 		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
+
+		storageEngine := v.GetString(field.StorageEngineField.GetName())
+		storageEngineField := field.StorageEngineField
+		if _, err := field.ValidateField(&storageEngineField, storageEngine); err != nil {
+			return err
+		}
+		if storageEngine != "" {
+			opts = append(opts, connectorrunner.WithStorageEngine(dotc1z.Engine(storageEngine)))
+		}
 
 		taskConcurrency := v.GetInt(field.TaskConcurrencyField.GetName())
 		taskConcurrencyField := field.TaskConcurrencyField

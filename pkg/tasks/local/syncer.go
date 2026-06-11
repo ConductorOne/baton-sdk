@@ -10,6 +10,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
@@ -29,6 +30,7 @@ type localSyncer struct {
 	skipGrants                          bool
 	syncResourceTypeIDs                 []string
 	workerCount                         int
+	storageEngine                       dotc1z.Engine
 }
 
 type Option func(*localSyncer)
@@ -81,6 +83,12 @@ func WithWorkerCount(workerCount int) Option {
 	}
 }
 
+func WithStorageEngine(engine dotc1z.Engine) Option {
+	return func(m *localSyncer) {
+		m.storageEngine = engine
+	}
+}
+
 func (m *localSyncer) GetTempDir() string {
 	return ""
 }
@@ -121,6 +129,9 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		sdkSync.WithSessionStore(setSessionStore),
 		sdkSync.WithSyncResourceTypes(m.syncResourceTypeIDs),
 		sdkSync.WithWorkerCount(m.workerCount),
+	}
+	if m.storageEngine != "" {
+		syncOpts = append(syncOpts, sdkSync.WithStorageEngine(m.storageEngine))
 	}
 
 	syncer, err := sdkSync.NewSyncer(ctx, cc, syncOpts...)

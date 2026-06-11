@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/conductorone/baton-sdk/pkg/uotel/uotelzap"
 
@@ -67,6 +68,7 @@ type c1ApiTaskManager struct {
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
 	workerCount                         int
+	storageEngine                       dotc1z.Engine
 
 	// runnerShouldDebug is flipped by the StartDebugging task handler (which
 	// runs on a task-processing goroutine) and read by the runner loop via
@@ -424,6 +426,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 			c.targetedSyncResources,
 			c.syncResourceTypeIDs,
 			c.workerCount,
+			c.storageEngine,
 		)
 	case taskTypes.HelloType:
 		handler = newHelloTaskHandler(task, tHelpers)
@@ -490,6 +493,7 @@ func NewC1TaskManager(
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 	workerCount int,
+	storageEngine dotc1z.Engine,
 	taskConcurrency int,
 ) (BootstrappingTaskManager, error) {
 	serviceClient, err := newServiceClient(ctx, clientID, clientSecret)
@@ -508,5 +512,6 @@ func NewC1TaskManager(
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
 		workerCount:                         workerCount,
+		storageEngine:                       storageEngine,
 	}, nil
 }

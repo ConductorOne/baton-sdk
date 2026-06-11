@@ -54,9 +54,7 @@ message GrantSourceRecord {
 message ResourceTypeRecord {
   option (table) = {
     name: "resource_types"
-    primary_key: [
-      "external_id"
-    ]
+    primary_key: ["external_id"]
   };
 
   reserved 1;
@@ -110,9 +108,7 @@ message ResourceRecord {
 message EntitlementRecord {
   option (table) = {
     name: "entitlements"
-    primary_key: [
-      "external_id"
-    ]
+    primary_key: ["external_id"]
   };
 
   reserved 1;
@@ -151,9 +147,7 @@ message EntitlementRecord {
 message GrantRecord {
   option (table) = {
     name: "grants"
-    primary_key: [
-      "external_id"
-    ]
+    primary_key: ["external_id"]
   };
 
   reserved 1;
