@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/cespare/xxhash/v2"
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	"github.com/klauspost/compress/zstd"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -194,20 +195,21 @@ func (l *limitedPayloadReader) limitErr() error {
 //  1. The 5-byte C1Z3 magic.
 //  2. A uint32 BE length prefix for the marshaled manifest.
 //  3. The marshaled manifest bytes.
-//  4. The payload (tar, or tar then zstd, per the manifest's
-//     PayloadEncoding).
+//  4. The payload, per the manifest's PayloadEncoding.
 //
 // The manifest's PayloadEncoding field selects the payload format:
 //
-//   - PAYLOAD_ENCODING_TAR_ZSTD (3): default; tar then zstd. The
+//   - PAYLOAD_ENCODING_TAR_ZSTD (1): default; tar then zstd. The
 //     manifest can leave PayloadEncoding as the zero value
 //     (UNSPECIFIED) and WriteEnvelope will write TAR_ZSTD and patch
 //     the manifest in place so the reader sees the same value.
-//   - PAYLOAD_ENCODING_TAR (4): uncompressed tar.
+//   - PAYLOAD_ENCODING_TAR (2): uncompressed tar.
+//   - PAYLOAD_ENCODING_INDEXED_ZSTD (5): per-file zstd frames with a
+//     trailing frame index (see indexed.go for the layout).
 //   - PAYLOAD_ENCODING_UNSPECIFIED (0): treated as TAR_ZSTD.
 //
-// Any other value (including the now-reserved 1 and 2) returns an
-// error before any bytes are written to w.
+// Any other value (including the reserved 3 and 4) returns an error
+// before any bytes are written to w.
 //
 // payloadDir is walked in sorted lexical order; file mtimes are NOT
 // normalized (the RFC documents tar as not byte-stable). w is typically
@@ -222,8 +224,8 @@ func WriteEnvelope(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string) error
 // INDEXED_ZSTD encoding: payload files proven byte-identical to a
 // frame in reuse's source envelope are copied as compressed bytes
 // instead of re-encoded. reuse is ignored (and stats zero) for the tar
-// encodings. The INDEXED_ZSTD encoding requires w to be an
-// io.WriteSeeker (frame headers are backpatched).
+// encodings. Every encoding writes in a single pass, so w may be any
+// io.Writer — including a non-seekable network sink.
 func WriteEnvelopeWithReuse(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir string, reuse *PayloadReuse) (SpliceStats, error) {
 	var stats SpliceStats
 	if m == nil {
@@ -237,17 +239,11 @@ func WriteEnvelopeWithReuse(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir stri
 		enc = c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD
 		m.SetPayloadEncoding(enc)
 	}
-	var ws io.WriteSeeker
 	switch enc {
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD,
-		c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
+		c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR,
+		c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD:
 		// ok
-	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD:
-		var ok bool
-		ws, ok = w.(io.WriteSeeker)
-		if !ok {
-			return stats, errors.New("c1z v3: WriteEnvelope: INDEXED_ZSTD requires a seekable writer")
-		}
 	default:
 		return stats, fmt.Errorf("c1z v3: WriteEnvelope: unsupported payload encoding %v", enc)
 	}
@@ -280,7 +276,8 @@ func WriteEnvelopeWithReuse(w io.Writer, m *c1zv3.C1ZManifestV3, payloadDir stri
 			return stats, fmt.Errorf("c1z v3: write tar payload: %w", err)
 		}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD:
-		stats, err = writeIndexedZstd(ws, payloadDir, reuse)
+		payloadStart := int64(len(C1Z3Magic)) + 4 + int64(len(mb))
+		stats, err = writeIndexedZstd(w, payloadStart, xxhash.Sum64(mb), payloadDir, reuse)
 		if err != nil {
 			return stats, fmt.Errorf("c1z v3: write indexed_zstd payload: %w", err)
 		}
@@ -410,9 +407,11 @@ func (p *DecoderPool) Close() {
 // start of the file (the C1Z3 magic). Returns an Envelope whose
 // PayloadReader streams the uncompressed tar bytes for both
 // PAYLOAD_ENCODING_TAR_ZSTD (transparently decoding zstd first) and
-// PAYLOAD_ENCODING_TAR (passing through unchanged). The reserved
-// values 1 (RAW) and 2 (single-stream ZSTD) return an error — they
-// were never wired and aren't supported.
+// PAYLOAD_ENCODING_TAR (passing through unchanged). For
+// PAYLOAD_ENCODING_INDEXED_ZSTD the payload is not a tar stream and
+// PayloadReader is nil — use ExtractEnvelopePayload (random access
+// over the frame table) or ReadIndexedFrameIndex instead. The
+// reserved values 3 and 4 return an error.
 //
 // The payload is treated as untrusted: the zstd decoder's window
 // memory is capped (BATON_DECODER_MAX_MEMORY_MB, default 128 MiB) and

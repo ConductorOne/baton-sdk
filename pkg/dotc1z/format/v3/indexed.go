@@ -1,6 +1,8 @@
 package v3
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -10,39 +12,72 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/cespare/xxhash/v2"
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	"github.com/klauspost/compress/zstd"
+	"google.golang.org/protobuf/proto"
 )
 
-// PAYLOAD_ENCODING_INDEXED_ZSTD frame stream. Layout, immediately
-// after the manifest:
+// PAYLOAD_ENCODING_INDEXED_ZSTD payload. Layout, immediately after
+// the manifest:
 //
-//	entry    := u32 nameLen | name | u64 rawSize | u64 xxh64 | u64 compSize | <compSize zstd bytes>
-//	stream   := entry* | u32 0 (terminator)
+//	payload := frame* | index | footer
+//	footer  := u64 indexOffset | u32 indexLen | u64 xxh64(index) | "C1ZIDX1\0"
 //
 // All integers big-endian, matching the envelope's length prefix.
-// Names are slash-separated relative paths (filepath.ToSlash on
-// write, FromSlash on extract) so payloads are portable across
-// macOS/Linux/Windows. xxh64 is over the RAW (decompressed) bytes.
+// Each frame is the bare zstd stream of one payload file — no
+// per-frame framing of our own — with Frame_Content_Size advertised,
+// so a frame's byte range is independently meaningful: pread it and
+// you hold a self-describing zstd stream any vanilla consumer can
+// decode. The index is the sole frame table: a binary-proto
+// c1zv3.IndexedFrameIndex carrying, per frame, the slash-separated
+// relative path (filepath.ToSlash on write, FromSlash on extract, so
+// payloads are portable across macOS/Linux/Windows), the absolute
+// byte offset and compressed size, the raw size, an xxh64 of the raw
+// bytes (fast corruption check at extract), and a SHA-256 of the raw
+// bytes (content-address identity for chunked object storage). The
+// proto envelope is the extension point for future per-frame
+// metadata (codec, dictionary, encryption) without a layout rev.
 //
-// Each file is an independent zstd frame, which is what enables:
+// The whole table is fetchable in O(1) reads — fixed-size footer,
+// then index — which is what makes ranged reads over object storage
+// practical. There is deliberately no streaming-scannable framing: a
+// payload without a valid footer is corruption-class
+// (ErrEnvelopeTruncated; invalidate and resync), the same policy as
+// a torn tar payload.
+//
+// This layout is what enables:
 //
 //   - parallel decode at open: workers pread their frame's byte range
 //     (io.ReaderAt is safe for concurrent use on all three supported
 //     platforms) and stream-decompress, instead of the single-stream
-//     encodings' one-core sequential decode; and
+//     encodings' one-core sequential decode;
 //   - frame splicing at save: an unchanged payload file's compressed
 //     frame is copied verbatim from the source envelope. Pebble SSTs
 //     are immutable and checkpoints hard-link them, so incremental
 //     rewrites (the fold compactor) reuse almost every frame and pay
-//     compression only for the handful of new files.
+//     compression only for the handful of new files; and
+//   - single-pass writes: nothing is backpatched, so an envelope can
+//     be encoded straight to a non-seekable sink (a network upload),
+//     and a chunked store can reconstruct the envelope byte range by
+//     byte range from the index alone.
 
 const maxIndexedNameBytes = 4096
 
-// indexedEntryFixedTail is rawSize + xxh64 + compSize.
-const indexedEntryFixedTail = 8 + 8 + 8
+// indexedFooterMagic ends an indexed payload. 8 bytes so the whole
+// footer stays u64-aligned; the trailing "1" is the trailer version.
+var indexedFooterMagic = []byte("C1ZIDX1\x00")
+
+// indexedFooterLen is u64 indexOffset + u32 indexLen + u64 xxh64(index) + magic.
+const indexedFooterLen = 8 + 4 + 8 + 8
+
+// maxIndexedIndexBytes caps the trailer index size we accept on read.
+// ~80 bytes/entry means even a million-frame payload stays an order
+// of magnitude below this; protects against a hostile footer
+// claiming a multi-GiB index.
+const maxIndexedIndexBytes = 64 << 20
 
 // ReuseEntry describes one frame of a source envelope: where its
 // compressed bytes live in the source file, what they decode to, and
@@ -53,6 +88,11 @@ type ReuseEntry struct {
 	CompressedSize int64
 	RawSize        int64
 	XXH64          uint64
+	// SHA256 is the content-address identity of the raw bytes, carried
+	// from the source envelope's trailer index. The splice writer
+	// recomputes it from the local payload file if a caller hands it an
+	// entry without one.
+	SHA256 []byte
 	// ExtractedPath is where extraction wrote the raw bytes. Used for
 	// the zero-read os.SameFile identity check at save time: a
 	// checkpoint hard-link of the extracted file is provably the same
@@ -115,6 +155,19 @@ func xxh64File(path string) (uint64, error) {
 	return h.Sum64(), nil
 }
 
+func sha256File(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return nil, err
+	}
+	return h.Sum(nil), nil
+}
+
 // SpliceStats reports how a WriteEnvelopeWithReuse call split between
 // verbatim frame copies and fresh compression. Exposed so callers can
 // log reuse effectiveness in production.
@@ -125,12 +178,16 @@ type SpliceStats struct {
 	EncodedBytes  int64 // raw bytes freshly compressed
 }
 
-// writeIndexedZstd writes the indexed frame stream for dir to w.
-// w must be seekable: per-frame headers carry the compressed size and
-// raw-bytes hash, which are only known after encoding, so the header
-// is backpatched. The envelope save path always writes to a temp
-// *os.File, satisfying this.
-func writeIndexedZstd(w io.WriteSeeker, dir string, reuse *PayloadReuse) (SpliceStats, error) {
+// writeIndexedZstd writes the indexed payload for dir to w in a
+// single pass: frames back-to-back, then the index, then the footer.
+// Nothing is backpatched, so w can be any io.Writer — including a
+// non-seekable network sink. payloadStart is the absolute file
+// offset of the first payload byte (magic + manifest length prefix +
+// manifest); index offsets are absolute so a ranged reader needs no
+// other context. manifestXXH64 is the hash of the marshaled manifest
+// bytes, recorded in the index so the otherwise-unprotected envelope
+// head is covered too.
+func writeIndexedZstd(w io.Writer, payloadStart int64, manifestXXH64 uint64, dir string, reuse *PayloadReuse) (SpliceStats, error) {
 	var stats SpliceStats
 
 	var paths []string
@@ -158,14 +215,22 @@ func writeIndexedZstd(w io.WriteSeeker, dir string, reuse *PayloadReuse) (Splice
 		defer srcFile.Close()
 	}
 
-	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
+	// WithZeroFrames is pinned (it is the library default today, but
+	// documented as optional): zero-length payload files must still
+	// produce complete zstd frames, or the "every byte range is a
+	// standalone decodable stream" property breaks for empty files.
+	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault), zstd.WithZeroFrames(true))
 	if err != nil {
 		return stats, err
 	}
 	defer enc.Close()
 
-	var lenBuf [4]byte
-	var tail [indexedEntryFixedTail]byte
+	var idxEntries []*c1zv3.IndexedFrameEntry
+	var totalRaw, totalComp int64
+
+	// All payload writes go through cw so frame offsets are known
+	// without seeking.
+	cw := &countingW{w: w}
 	for _, path := range paths {
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
@@ -179,50 +244,50 @@ func writeIndexedZstd(w io.WriteSeeker, dir string, reuse *PayloadReuse) (Splice
 		if err != nil {
 			return stats, err
 		}
-
-		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(name))) //nolint:gosec // capped above.
-		if _, err := w.Write(lenBuf[:]); err != nil {
-			return stats, err
-		}
-		if _, err := io.WriteString(w, name); err != nil {
-			return stats, err
-		}
+		frameOff := payloadStart + cw.n
 
 		if e := reuse.match(name, info, path); e != nil && srcFile != nil {
-			binary.BigEndian.PutUint64(tail[0:8], uint64(e.RawSize)) //nolint:gosec // sizes validated on extract.
-			binary.BigEndian.PutUint64(tail[8:16], e.XXH64)
-			binary.BigEndian.PutUint64(tail[16:24], uint64(e.CompressedSize)) //nolint:gosec // sizes validated on extract.
-			if _, err := w.Write(tail[:]); err != nil {
-				return stats, err
-			}
-			if _, err := io.Copy(w, io.NewSectionReader(srcFile, e.FrameOffset, e.CompressedSize)); err != nil {
+			if _, err := io.Copy(cw, io.NewSectionReader(srcFile, e.FrameOffset, e.CompressedSize)); err != nil {
 				return stats, fmt.Errorf("c1z v3: splice frame %q: %w", name, err)
 			}
+			sha := e.SHA256
+			if len(sha) == 0 {
+				// The local file is proven byte-identical to the spliced
+				// frame's raw bytes (match above), so hash it directly.
+				if sha, err = sha256File(path); err != nil {
+					return stats, err
+				}
+			}
+			idxEntries = append(idxEntries, c1zv3.IndexedFrameEntry_builder{
+				Name:           name,
+				FrameOffset:    frameOff,
+				CompressedSize: e.CompressedSize,
+				RawSize:        e.RawSize,
+				RawXxh64:       e.XXH64,
+				RawSha256:      sha,
+			}.Build())
+			totalRaw += e.RawSize
+			totalComp += e.CompressedSize
 			stats.SplicedFrames++
 			stats.SplicedBytes += e.CompressedSize
 			continue
 		}
 
-		// Fresh encode: header tail is backpatched once the hash and
-		// compressed size are known.
-		tailPos, err := w.Seek(0, io.SeekCurrent)
-		if err != nil {
-			return stats, err
-		}
-		for i := range tail {
-			tail[i] = 0
-		}
-		if _, err := w.Write(tail[:]); err != nil {
-			return stats, err
-		}
 		f, err := os.Open(path)
 		if err != nil {
 			return stats, err
 		}
 		hasher := xxhash.New()
-		counter := &countingW{w: w}
-		enc.Reset(counter)
-		rawN, err := io.Copy(io.MultiWriter(enc, hasher), f)
+		shaHasher := sha256.New()
+		// ResetContentSize advertises Frame_Content_Size in the frame
+		// header, making each frame self-describing to any vanilla zstd
+		// consumer; Close errors if the bytes copied disagree with the
+		// stat size, catching a file mutated mid-encode. (Frames under
+		// 256 bytes omit FCS — the zstd header can't represent sizes
+		// below 256 without the single-segment flag — so the index's
+		// raw_size is the authoritative size everywhere.)
+		enc.ResetContentSize(cw, info.Size())
+		rawN, err := io.Copy(io.MultiWriter(enc, hasher, shaHasher), f)
 		if cerr := f.Close(); err == nil {
 			err = cerr
 		}
@@ -232,29 +297,45 @@ func writeIndexedZstd(w io.WriteSeeker, dir string, reuse *PayloadReuse) (Splice
 		if err := enc.Close(); err != nil {
 			return stats, err
 		}
-		end, err := w.Seek(0, io.SeekCurrent)
-		if err != nil {
-			return stats, err
-		}
-		binary.BigEndian.PutUint64(tail[0:8], uint64(rawN)) //nolint:gosec // io.Copy result is non-negative.
-		binary.BigEndian.PutUint64(tail[8:16], hasher.Sum64())
-		binary.BigEndian.PutUint64(tail[16:24], uint64(counter.n)) //nolint:gosec // byte count is non-negative.
-		if _, err := w.Seek(tailPos, io.SeekStart); err != nil {
-			return stats, err
-		}
-		if _, err := w.Write(tail[:]); err != nil {
-			return stats, err
-		}
-		if _, err := w.Seek(end, io.SeekStart); err != nil {
-			return stats, err
-		}
+		compN := payloadStart + cw.n - frameOff
+		idxEntries = append(idxEntries, c1zv3.IndexedFrameEntry_builder{
+			Name:           name,
+			FrameOffset:    frameOff,
+			CompressedSize: compN,
+			RawSize:        rawN,
+			RawXxh64:       hasher.Sum64(),
+			RawSha256:      shaHasher.Sum(nil),
+		}.Build())
+		totalRaw += rawN
+		totalComp += compN
 		stats.EncodedFrames++
 		stats.EncodedBytes += rawN
 	}
 
-	// Terminator.
-	binary.BigEndian.PutUint32(lenBuf[:], 0)
-	if _, err := w.Write(lenBuf[:]); err != nil {
+	// Index, then footer. See the layout comment at the top of this
+	// file.
+	ib, err := proto.Marshal(c1zv3.IndexedFrameIndex_builder{
+		Entries:             idxEntries,
+		TotalRawSize:        totalRaw,
+		TotalCompressedSize: totalComp,
+		ManifestXxh64:       manifestXXH64,
+	}.Build())
+	if err != nil {
+		return stats, err
+	}
+	if len(ib) > maxIndexedIndexBytes {
+		return stats, fmt.Errorf("c1z v3: trailer index is %d bytes, exceeds %d", len(ib), maxIndexedIndexBytes)
+	}
+	indexOff := payloadStart + cw.n
+	if _, err := cw.Write(ib); err != nil {
+		return stats, err
+	}
+	var footer [indexedFooterLen]byte
+	binary.BigEndian.PutUint64(footer[0:8], uint64(indexOff)) //nolint:gosec // file offsets are non-negative.
+	binary.BigEndian.PutUint32(footer[8:12], uint32(len(ib))) //nolint:gosec // capped at maxIndexedIndexBytes above.
+	binary.BigEndian.PutUint64(footer[12:20], xxhash.Sum64(ib))
+	copy(footer[20:28], indexedFooterMagic)
+	if _, err := cw.Write(footer[:]); err != nil {
 		return stats, err
 	}
 	return stats, nil
@@ -322,68 +403,133 @@ func (w budgetedFrameWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// scanIndexedEntries reads the frame headers without touching frame
-// bytes: one small read per entry plus a relative seek over the
-// compressed data.
-func scanIndexedEntries(f *os.File, payloadStart int64) ([]*ReuseEntry, error) {
-	if _, err := f.Seek(payloadStart, io.SeekStart); err != nil {
-		return nil, err
+// readIndexedTrailer reads the trailer index — the payload's only
+// frame table — without touching any frame bytes: one pread for the
+// fixed-size footer, one for the index. This is the O(1)-round-trip
+// shape that scales to ranged reads over object storage.
+//
+// A missing or mangled footer is corruption-class
+// (ErrEnvelopeTruncated): there is no other framing to fall back to,
+// by design, and the caller's corruption classifier should
+// invalidate the file and trigger a resync.
+func readIndexedTrailer(f *os.File, payloadStart int64) (*c1zv3.IndexedFrameIndex, []*ReuseEntry, error) {
+	st, err := f.Stat()
+	if err != nil {
+		return nil, nil, err
 	}
-	r := f
-	var entries []*ReuseEntry
-	var lenBuf [4]byte
-	var tail [indexedEntryFixedTail]byte
-	nameBuf := make([]byte, 0, 256)
-	for {
-		if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
-			return nil, fmt.Errorf("%w: indexed entry header: %w", ErrEnvelopeTruncated, err)
+	size := st.Size()
+	if size < payloadStart+indexedFooterLen {
+		return nil, nil, fmt.Errorf("%w: indexed payload too small for trailer footer", ErrEnvelopeTruncated)
+	}
+	var footer [indexedFooterLen]byte
+	if _, err := f.ReadAt(footer[:], size-indexedFooterLen); err != nil {
+		return nil, nil, err
+	}
+	if !bytes.Equal(footer[20:28], indexedFooterMagic) {
+		return nil, nil, fmt.Errorf("%w: indexed payload trailer magic missing (truncated file, or not an indexed payload)", ErrEnvelopeTruncated)
+	}
+	indexOff := int64(binary.BigEndian.Uint64(footer[0:8]))  //nolint:gosec // bounds-checked against the file size below.
+	indexLen := int64(binary.BigEndian.Uint32(footer[8:12])) // u32, cannot overflow int64.
+	if indexLen > maxIndexedIndexBytes {
+		return nil, nil, fmt.Errorf("c1z v3: trailer index claims %d bytes, exceeds cap %d", indexLen, maxIndexedIndexBytes)
+	}
+	if indexOff < payloadStart || indexOff+indexLen+indexedFooterLen != size {
+		return nil, nil, fmt.Errorf("c1z v3: trailer index does not fit the file (off=%d len=%d size=%d)", indexOff, indexLen, size)
+	}
+	ib := make([]byte, indexLen)
+	if _, err := f.ReadAt(ib, indexOff); err != nil {
+		return nil, nil, fmt.Errorf("%w: trailer index: %w", ErrEnvelopeTruncated, err)
+	}
+	if got, want := xxhash.Sum64(ib), binary.BigEndian.Uint64(footer[12:20]); got != want {
+		return nil, nil, errors.New("c1z v3: trailer index hash mismatch (corrupt index)")
+	}
+	idx := &c1zv3.IndexedFrameIndex{}
+	if err := proto.Unmarshal(ib, idx); err != nil {
+		return nil, nil, fmt.Errorf("c1z v3: unmarshal trailer index: %w", err)
+	}
+	entries := make([]*ReuseEntry, 0, len(idx.GetEntries()))
+	seen := make(map[string]struct{}, len(idx.GetEntries()))
+	for _, e := range idx.GetEntries() {
+		name := e.GetName()
+		if name == "" || len(name) > maxIndexedNameBytes {
+			return nil, nil, fmt.Errorf("c1z v3: trailer index entry name invalid: %q", name)
 		}
-		nameLen := binary.BigEndian.Uint32(lenBuf[:])
-		if nameLen == 0 {
-			return entries, nil
+		// Duplicate names would have parallel extraction workers
+		// racing writes to the same target file.
+		if _, dup := seen[name]; dup {
+			return nil, nil, fmt.Errorf("c1z v3: trailer index has duplicate entry %q", name)
 		}
-		if nameLen > maxIndexedNameBytes {
-			return nil, fmt.Errorf("c1z v3: indexed entry name length %d exceeds cap", nameLen)
+		seen[name] = struct{}{}
+		// rawSize 0 is legal (empty payload file), but compSize must be
+		// positive: WithZeroFrames guarantees even an empty file encodes
+		// to a complete zstd frame, so a zero-length frame range can
+		// only come from a corrupt or hand-mangled index.
+		rawSize, compSize := e.GetRawSize(), e.GetCompressedSize()
+		if rawSize < 0 || rawSize > maxTarEntryBytes || compSize <= 0 || compSize > maxTarEntryBytes {
+			return nil, nil, fmt.Errorf("c1z v3: trailer index entry %q sizes out of range (raw=%d comp=%d)", name, rawSize, compSize)
 		}
-		if cap(nameBuf) < int(nameLen) {
-			nameBuf = make([]byte, nameLen)
+		off := e.GetFrameOffset()
+		if off < payloadStart || off+compSize > indexOff {
+			return nil, nil, fmt.Errorf("c1z v3: trailer index entry %q frame range out of bounds (off=%d comp=%d)", name, off, compSize)
 		}
-		nameBuf = nameBuf[:nameLen]
-		if _, err := io.ReadFull(r, nameBuf); err != nil {
-			return nil, fmt.Errorf("%w: indexed entry name: %w", ErrEnvelopeTruncated, err)
-		}
-		if _, err := io.ReadFull(r, tail[:]); err != nil {
-			return nil, fmt.Errorf("%w: indexed entry sizes: %w", ErrEnvelopeTruncated, err)
-		}
-		rawSize := int64(binary.BigEndian.Uint64(tail[0:8]))    //nolint:gosec // validated below.
-		compSize := int64(binary.BigEndian.Uint64(tail[16:24])) //nolint:gosec // validated below.
-		if rawSize < 0 || rawSize > maxTarEntryBytes || compSize < 0 || compSize > maxTarEntryBytes {
-			return nil, fmt.Errorf("c1z v3: indexed entry %q sizes out of range (raw=%d comp=%d)", nameBuf, rawSize, compSize)
-		}
-		offset, err := f.Seek(0, io.SeekCurrent)
-		if err != nil {
-			return nil, err
+		if len(e.GetRawSha256()) != sha256.Size {
+			return nil, nil, fmt.Errorf("c1z v3: trailer index entry %q sha256 is %d bytes, want %d", name, len(e.GetRawSha256()), sha256.Size)
 		}
 		entries = append(entries, &ReuseEntry{
-			Name:           string(nameBuf),
-			FrameOffset:    offset,
+			Name:           name,
+			FrameOffset:    off,
 			CompressedSize: compSize,
 			RawSize:        rawSize,
-			XXH64:          binary.BigEndian.Uint64(tail[8:16]),
+			XXH64:          e.GetRawXxh64(),
+			SHA256:         e.GetRawSha256(),
 		})
-		if _, err := f.Seek(compSize, io.SeekCurrent); err != nil {
-			return nil, err
-		}
 	}
+	return idx, entries, nil
+}
+
+// ReadIndexedFrameIndex returns the frame table of an INDEXED_ZSTD
+// envelope using three small preads (head, footer, index) — no frame
+// bytes are read and the manifest body is never parsed. This is the
+// planning primitive for chunked object storage: every frame's name,
+// absolute byte range, sizes, and content identity (SHA-256 of raw
+// bytes), plus payload totals, without rematerializing the store.
+//
+// Frame offsets are absolute file offsets, so entries can drive
+// ranged reads (or object reassembly) directly. Returns
+// ErrEnvelopeTruncated-wrapped errors for missing trailers and
+// explicit errors for corrupt ones; returns an error for non-v3
+// files. The caller retains ownership of f.
+func ReadIndexedFrameIndex(f *os.File) (*c1zv3.IndexedFrameIndex, error) {
+	head := make([]byte, len(C1Z3Magic)+4)
+	if _, err := f.ReadAt(head, 0); err != nil {
+		return nil, fmt.Errorf("%w: reading magic: %w", ErrEnvelopeTruncated, err)
+	}
+	if !bytes.Equal(head[:len(C1Z3Magic)], C1Z3Magic) {
+		return nil, ErrInvalidV3Magic
+	}
+	mlen := binary.BigEndian.Uint32(head[len(C1Z3Magic):])
+	if mlen > maxManifestBytes {
+		return nil, fmt.Errorf("c1z v3: manifest claims %d bytes, exceeds cap %d", mlen, maxManifestBytes)
+	}
+	payloadStart := int64(len(C1Z3Magic)) + 4 + int64(mlen)
+	idx, _, err := readIndexedTrailer(f, payloadStart)
+	return idx, err
 }
 
 // extractIndexedZstd materializes an indexed payload into destDir,
 // decoding frames in parallel. Returns the PayloadReuse map so a later
-// save can splice unchanged frames.
-func extractIndexedZstd(f *os.File, payloadStart int64, destDir string, maxDecodedBytes uint64, maxMemoryBytes uint64, disableSizeFailFast bool) (*PayloadReuse, error) {
-	entries, err := scanIndexedEntries(f, payloadStart)
+// save can splice unchanged frames. manifestXXH64 is the hash of the
+// manifest bytes the caller just read; it is checked against the hash
+// the index recorded at write time, closing the envelope-head
+// integrity gap (header-only manifest decode skips the descriptor
+// closure, so a flipped bit there would otherwise go unnoticed).
+func extractIndexedZstd(f *os.File, payloadStart int64, manifestXXH64 uint64, destDir string, maxDecodedBytes uint64, maxMemoryBytes uint64, disableSizeFailFast bool) (*PayloadReuse, error) {
+	idx, entries, err := readIndexedTrailer(f, payloadStart)
 	if err != nil {
 		return nil, err
+	}
+	if h := idx.GetManifestXxh64(); h != 0 && h != manifestXXH64 {
+		return nil, fmt.Errorf("c1z v3: manifest bytes hash mismatch (index records %016x, head hashes to %016x): corrupt envelope head", h, manifestXXH64)
 	}
 	if !disableSizeFailFast {
 		var totalRaw uint64
@@ -424,12 +570,14 @@ func extractIndexedZstd(f *os.File, payloadStart int64, destDir string, maxDecod
 	var wg sync.WaitGroup
 	var firstErr error
 	var errMu sync.Mutex
+	var failed atomic.Bool
 	setErr := func(err error) {
 		errMu.Lock()
 		if firstErr == nil {
 			firstErr = err
 		}
 		errMu.Unlock()
+		failed.Store(true)
 	}
 	wg.Add(workers)
 	for i := 0; i < workers; i++ {
@@ -445,6 +593,12 @@ func extractIndexedZstd(f *os.File, payloadStart int64, destDir string, maxDecod
 			}
 			defer dec.Close()
 			for e := range jobs {
+				// The whole extraction fails on firstErr, so once any
+				// worker has failed, drain the queue instead of decoding
+				// frames whose output will be discarded.
+				if failed.Load() {
+					continue
+				}
 				if err := extractOneFrame(f, e, dec, budget); err != nil {
 					setErr(fmt.Errorf("c1z v3: extract %q: %w", e.Name, err))
 				}
@@ -525,7 +679,7 @@ func ExtractEnvelopePayload(f *os.File, destDir string, opts ...PayloadOption) (
 	payloadStart := int64(len(C1Z3Magic)) + 4 + int64(len(mb))
 	switch m.GetPayloadEncoding() {
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD:
-		reuse, err := extractIndexedZstd(f, payloadStart, destDir, cfg.maxDecodedPayloadBytes, cfg.maxDecoderMemoryBytes, cfg.disableSizeFailFast)
+		reuse, err := extractIndexedZstd(f, payloadStart, xxhash.Sum64(mb), destDir, cfg.maxDecodedPayloadBytes, cfg.maxDecoderMemoryBytes, cfg.disableSizeFailFast)
 		if err != nil {
 			return nil, nil, err
 		}

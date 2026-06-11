@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"sync"
 	"testing"
@@ -200,6 +201,15 @@ func TestDecoderPool(t *testing.T) {
 // assertions (e.g. "did putEncoder put one in the pool?") flaky under CI
 // memory pressure. Restoring the prior GOGC on teardown keeps the rest of
 // the package suite unaffected.
+//
+// Also pins GOMAXPROCS to 1. sync.Pool.Put parks the item in the current
+// P's private slot, and Get can steal only from other Ps' shared queues —
+// another P's private slot is unreachable. If the goroutine migrates Ps
+// between Put and Get (routine after blocking file syscalls — Sync, Close,
+// Rename — especially on slow Windows CI filesystems), the item is parked
+// where Get cannot see it and exact-membership assertions fail. One P means
+// one slot, making Put→Get deterministic; the stdlib's own sync.Pool tests
+// use the same trick.
 func withIsolatedPools(t *testing.T) {
 	t.Helper()
 	origEnc := encoderPool
@@ -207,7 +217,9 @@ func withIsolatedPools(t *testing.T) {
 	encoderPool = &sync.Pool{}
 	decoderPool = &sync.Pool{}
 	origGCPercent := debug.SetGCPercent(-1)
+	origProcs := runtime.GOMAXPROCS(1)
 	t.Cleanup(func() {
+		runtime.GOMAXPROCS(origProcs)
 		debug.SetGCPercent(origGCPercent)
 		encoderPool = origEnc
 		decoderPool = origDec

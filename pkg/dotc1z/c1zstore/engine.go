@@ -45,7 +45,9 @@ const (
 	PayloadEncodingTar = PayloadEncoding(c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR)
 
 	// PayloadEncodingIndexedZstd stores each payload file as an
-	// independent zstd frame with a self-describing header.
+	// independent zstd frame, indexed by a trailing frame table
+	// (byte ranges, sizes, SHA-256 identities) for parallel decode,
+	// frame splicing, and ranged/chunked object storage.
 	PayloadEncodingIndexedZstd = PayloadEncoding(c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD)
 )
 
