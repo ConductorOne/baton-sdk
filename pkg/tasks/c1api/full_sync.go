@@ -14,6 +14,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
@@ -38,6 +39,7 @@ type fullSyncTaskHandler struct {
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
 	workerCount                         int
+	c1zEngine                           dotc1z.Engine
 }
 
 func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
@@ -54,6 +56,9 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		sdkSync.WithC1ZPath(c1zPath),
 		sdkSync.WithTmpDir(c.helpers.TempDir()),
 		sdkSync.WithWorkerCount(c.workerCount),
+	}
+	if c.c1zEngine != "" {
+		syncOpts = append(syncOpts, sdkSync.WithC1ZEngine(c.c1zEngine))
 	}
 
 	if c.task.GetSyncFull().GetSkipExpandGrants() {
@@ -212,6 +217,7 @@ func newFullSyncTaskHandler(
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 	workerCount int,
+	c1zEngine dotc1z.Engine,
 ) tasks.TaskHandler {
 	return &fullSyncTaskHandler{
 		task:                                task,
@@ -222,6 +228,7 @@ func newFullSyncTaskHandler(
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
 		workerCount:                         workerCount,
+		c1zEngine:                           c1zEngine,
 	}
 }
 

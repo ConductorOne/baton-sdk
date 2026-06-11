@@ -13,6 +13,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/healthcheck"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor"
@@ -421,6 +422,7 @@ type runnerConfig struct {
 	syncDifferConfig                      *syncDifferConfig
 	syncCompactorConfig                   *syncCompactorConfig
 	skipFullSync                          bool
+	c1zEngine                             dotc1z.Engine
 	workerCount                           int
 	targetedSyncResourceIDs               []string
 	externalResourceC1Z                   string
@@ -661,6 +663,13 @@ func WithFullSyncDisabled() Option {
 func WithWorkerCount(workerCount int) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.workerCount = workerCount
+		return nil
+	}
+}
+
+func WithC1ZEngine(engine dotc1z.Engine) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.c1zEngine = engine
 		return nil
 	}
 }
@@ -1041,6 +1050,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				local.WithSkipGrants(cfg.skipGrants),
 				local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
 				local.WithWorkerCount(cfg.workerCount),
+				local.WithC1ZEngine(cfg.c1zEngine),
 			)
 			if err != nil {
 				return nil, err
@@ -1069,6 +1079,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		resources,
 		cfg.syncResourceTypeIDs,
 		cfg.workerCount,
+		cfg.c1zEngine,
 		runner.taskConcurrency,
 	)
 	if err != nil {
