@@ -135,7 +135,7 @@ func (c *C1File) ListGrantsForEntitlements(
 	if limit < 0 {
 		limit = 0
 	}
-	q = q.Order(goqu.C("entitlement_id").Asc(), goqu.C("id").Asc()).Limit(uint(limit + 1))
+	q = q.Order(goqu.C("entitlement_id").Asc(), goqu.C("id").Asc()).Limit(uint(limit + 1)) // #nosec G115 -- limit is clamped to maxPageSize.
 
 	query, args, err := q.ToSQL()
 	if err != nil {
@@ -234,7 +234,7 @@ func encodeBatchCursor(idx int, intra string, checksum uint32) string {
 	}
 	buf := make([]byte, 0, 16+len(intra))
 	var v [binary.MaxVarintLen64]byte
-	n := binary.PutUvarint(v[:], uint64(idx))
+	n := binary.PutUvarint(v[:], uint64(idx)) // #nosec G115 -- idx is normalized non-negative; int values fit in uint64.
 	buf = append(buf, v[:n]...)
 	intraBytes := []byte(intra)
 	n = binary.PutUvarint(v[:], uint64(len(intraBytes)))

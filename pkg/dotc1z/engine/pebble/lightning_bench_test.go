@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
-	"time"
 
 	"google.golang.org/protobuf/types/known/anypb"
 
@@ -175,21 +174,17 @@ func BenchmarkPebbleUpliftRead_CrossSync(b *testing.B) {
 }
 
 // makeGrantWithAnnotations is a small helper used by benchmarks
-// that want to include annotation payloads. Kept simple — the
-// annotation here is intentionally a no-op so the benchmark
-// measures the put path's overhead at realistic record sizes,
-// not the annotation library.
+// that want to include annotation payloads. Kept simple so the
+// benchmark measures the put path's overhead at realistic record
+// sizes, not the annotation library.
 func makeGrantWithAnnotations(id, entID, principalID string) *v2.Grant {
 	g := mkV2Grant(id, entID, "user", principalID)
 	a := annotations.Annotations{}
-	// Add a discovered_at-shaped annotation; uses anypb.Any so
-	// the wire shape mirrors what real connectors emit.
-	tsAny, err := anypb.New(&v2.ETag{Value: "etag-" + id})
+	linkAny, err := anypb.New(v2.ExternalLink_builder{Url: "https://acme.example/grants/" + id}.Build())
 	if err == nil {
-		a = append(a, tsAny)
+		a = append(a, linkAny)
 	}
 	g.SetAnnotations(a)
-	_ = time.Now()
 	return g
 }
 

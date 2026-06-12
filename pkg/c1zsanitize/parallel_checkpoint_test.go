@@ -86,7 +86,7 @@ func buildSyncFixture(t testing.TB, ctx context.Context, path string, nSyncs, gr
 				Id:          fmt.Sprintf("%sgrant-%d", p, i),
 				Entitlement: ent,
 				Principal:   principal,
-				Annotations: []*anypb.Any{anyTB(t, v2.ETag_builder{Value: fmt.Sprintf("etag-%d", i), EntitlementId: p + "ent-admin"}.Build())},
+				Annotations: []*anypb.Any{anyTB(t, v2.ExternalLink_builder{Url: fmt.Sprintf("https://acme.example/grants/%d", i)}.Build())},
 			}.Build())
 		}
 		require.NoError(t, f.PutGrants(ctx, grants...))

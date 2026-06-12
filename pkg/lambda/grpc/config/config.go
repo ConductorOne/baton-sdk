@@ -128,8 +128,7 @@ func lambdaTLSConfig() (*tls.Config, error) {
 		return nil, fmt.Errorf("new-dpop-client: failed to load system cert pool: %w", err)
 	}
 	if certPath := strings.TrimSpace(os.Getenv(lambdaCACertPathEnv)); certPath != "" {
-		//nolint:gosec // Operator-provided CA bundle path for lambda-hosted connector configuration.
-		pemBytes, err := os.ReadFile(certPath)
+		pemBytes, err := os.ReadFile(certPath) // #nosec G703 -- operator-provided CA bundle path for lambda-hosted connector configuration.
 		if err != nil {
 			return nil, fmt.Errorf("new-dpop-client: failed to read %s: %w", lambdaCACertPathEnv, err)
 		}

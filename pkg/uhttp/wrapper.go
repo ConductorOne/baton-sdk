@@ -460,8 +460,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if resp == nil {
-		//nolint:gosec // this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
-		resp, err = c.HttpClient.Do(req)
+		resp, err = c.HttpClient.Do(req) // #nosec G704 -- this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
 		if err != nil {
 			l.Error("base-http-client: HTTP error response", zap.Error(err))
 			return resp, wrapTransientNetworkError(err)
