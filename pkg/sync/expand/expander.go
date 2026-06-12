@@ -118,15 +118,11 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 		action := e.graph.Actions[0]
 		nextPageToken, err := e.runAction(ctx, action)
 		if err != nil {
+			// Mutate nothing on error: leave the action queued and its edges
+			// intact so a retried run re-processes them. Missing source/dest
+			// entitlements are handled inline in runAction, so any error here is
+			// a real failure to propagate.
 			l.Error("expander: error running graph action", zap.Error(err), zap.Any("action", action))
-			for _, d := range action.descendants() {
-				_ = e.graph.DeleteEdge(ctx, action.SourceEntitlementID, d.EntitlementID)
-			}
-			if status.Code(err) == codes.NotFound {
-				// Skip action and delete the edges that caused the error.
-				e.graph.Actions = e.graph.Actions[1:]
-				return nil
-			}
 			return err
 		}
 
@@ -346,6 +342,18 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 		EntitlementId: action.SourceEntitlementID,
 	}.Build())
 	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			// Source entitlement is gone; every edge in the batch shares it, so
+			// drop them all and complete the action. Mirrors the inline handling
+			// of missing destinations below. (MarkEdgeExpanded no-ops on deleted
+			// edges, so returning "" here completes the action cleanly.)
+			l.Warn("runAction: source entitlement not found, dropping batch edges",
+				zap.String("source_entitlement_id", action.SourceEntitlementID))
+			for _, d := range dests {
+				_ = e.graph.DeleteEdge(ctx, action.SourceEntitlementID, d.EntitlementID)
+			}
+			return "", nil
+		}
 		l.Error("runAction: error fetching source entitlement", zap.Error(err))
 		return "", fmt.Errorf("runAction: error fetching source entitlement: %w", err)
 	}

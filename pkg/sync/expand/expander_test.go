@@ -2,12 +2,15 @@ package expand
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // MockExpanderStore implements ExpanderStore for testing purposes.
@@ -15,6 +18,10 @@ type MockExpanderStore struct {
 	entitlements map[string]*v2.Entitlement
 	grants       map[string][]*v2.Grant // keyed by entitlement ID
 	putGrants    []*v2.Grant            // grants that were written
+	// pageSize > 0 paginates ListGrantsForEntitlement: PageToken is an integer
+	// offset into the (filtered) grant slice. 0 (default) returns everything in
+	// one page, leaving existing tests unaffected.
+	pageSize int
 }
 
 // NewMockExpanderStore creates a new mock store for testing.
@@ -90,8 +97,27 @@ func (m *MockExpanderStore) ListGrantsForEntitlement(
 		grants = filtered
 	}
 
+	nextPageToken := ""
+	if m.pageSize > 0 {
+		offset := 0
+		if tok := req.GetPageToken(); tok != "" {
+			offset, _ = strconv.Atoi(tok)
+		}
+		if offset > len(grants) {
+			offset = len(grants)
+		}
+		end := offset + m.pageSize
+		if end >= len(grants) {
+			end = len(grants)
+		} else {
+			nextPageToken = strconv.Itoa(end)
+		}
+		grants = grants[offset:end]
+	}
+
 	return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{
-		List: grants,
+		List:          grants,
+		NextPageToken: nextPageToken,
 	}.Build(), nil
 }
 
@@ -694,6 +720,169 @@ func TestExpanderPerDestinationShallow(t *testing.T) {
 		"shallow edge must drop a transitively-held source grant")
 	require.True(t, granted[destDeep.GetId()],
 		"non-shallow edge must keep the transitively-held source grant")
+}
+
+// errInjectStore wraps MockExpanderStore and returns a chosen error from
+// GetEntitlement for specific entitlement IDs, so tests can drive runAction's
+// error paths (a missing source vs a transient source-read failure).
+type errInjectStore struct {
+	*MockExpanderStore
+	getEntErr map[string]error
+}
+
+func newErrInjectStore() *errInjectStore {
+	return &errInjectStore{
+		MockExpanderStore: NewMockExpanderStore(),
+		getEntErr:         make(map[string]error),
+	}
+}
+
+func (s *errInjectStore) GetEntitlement(
+	ctx context.Context,
+	req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest,
+) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
+	if err := s.getEntErr[req.GetEntitlementId()]; err != nil {
+		return nil, err
+	}
+	return s.MockExpanderStore.GetEntitlement(ctx, req)
+}
+
+// TestExpanderSourceNotFoundCompletes: when the source entitlement is missing
+// (GetEntitlement → codes.NotFound) during the walk, the batch's edges are
+// dropped and expansion completes without error.
+func TestExpanderSourceNotFoundCompletes(t *testing.T) {
+	ctx := context.Background()
+	store := newErrInjectStore()
+
+	group := makeResource("group", "org")
+	source := makeEntitlement("ent:source", group)
+	dest := makeEntitlement("ent:dest", group)
+	store.AddEntitlement(source)
+	store.AddEntitlement(dest)
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(source.GetId())
+	graph.AddEntitlementID(dest.GetId())
+	require.NoError(t, graph.AddEdge(ctx, source.GetId(), dest.GetId(), false, nil))
+
+	store.getEntErr[source.GetId()] = status.Error(codes.NotFound, "entitlement not found")
+
+	expander := NewExpander(store, graph)
+	require.NoError(t, expander.Run(ctx), "missing source must complete, not error")
+	require.True(t, graph.IsExpanded(), "the batch's edge must be dropped")
+	require.Empty(t, graph.Edges, "no edges should remain")
+}
+
+// TestExpanderTransientErrorPreservesEdges: a transient (non-ErrNoRows) failure
+// must propagate AND leave the graph's edges intact, so a retry can re-run the
+// action instead of silently dropping its edges.
+func TestExpanderTransientErrorPreservesEdges(t *testing.T) {
+	ctx := context.Background()
+	store := newErrInjectStore()
+
+	group := makeResource("group", "org")
+	source := makeEntitlement("ent:source", group)
+	dest := makeEntitlement("ent:dest", group)
+	store.AddEntitlement(source)
+	store.AddEntitlement(dest)
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(source.GetId())
+	graph.AddEntitlementID(dest.GetId())
+	require.NoError(t, graph.AddEdge(ctx, source.GetId(), dest.GetId(), false, nil))
+
+	store.getEntErr[source.GetId()] = errors.New("transient boom")
+
+	expander := NewExpander(store, graph)
+	err := expander.Run(ctx)
+	require.Error(t, err, "transient failure must propagate")
+	require.False(t, graph.IsExpanded(), "edges must survive a transient failure")
+	require.Len(t, graph.Edges, 1, "the edge must remain for retry")
+}
+
+// TestExpanderMultiPageSourceCrossPageDedup exercises the multi-page action
+// lifecycle the batching rewrite touches: a source whose grants span several
+// pages, with the SAME principal appearing on two different pages. The per-page
+// destStates/byKey are rebuilt each page, so the second appearance must be
+// rediscovered via the rebuilt oracle and take applyDestGrant's merge path —
+// not create a duplicate grant. Also asserts the action stays queued with a
+// page token mid-source, and that source reads == pages × batches.
+func TestExpanderMultiPageSourceCrossPageDedup(t *testing.T) {
+	t.Setenv("BATON_GRAPH_EXPAND_DEST_BATCH_SIZE", "2")
+
+	ctx := context.Background()
+	store := newCountingMockStore()
+	store.pageSize = 2 // 5 source grants → 3 pages (2,2,1)
+
+	group := makeResource("group", "org")
+	alice := makeResource("user", "alice")
+	bob := makeResource("user", "bob")
+	carol := makeResource("user", "carol")
+	dave := makeResource("user", "dave")
+
+	source := makeEntitlement("ent:source", group)
+	d1 := makeEntitlement("ent:d1", group)
+	d2 := makeEntitlement("ent:d2", group)
+	store.AddEntitlement(source)
+	store.AddEntitlement(d1)
+	store.AddEntitlement(d2)
+
+	// alice holds TWO source grants (distinct records), landing on page 0 and
+	// page 1 once paginated at size 2.
+	store.AddGrant(makeGrant("g:alice:1", source, alice)) // page 0
+	store.AddGrant(makeGrant("g:bob", source, bob))       // page 0
+	store.AddGrant(makeGrant("g:alice:2", source, alice)) // page 1
+	store.AddGrant(makeGrant("g:carol", source, carol))   // page 1
+	store.AddGrant(makeGrant("g:dave", source, dave))     // page 2
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(source.GetId())
+	graph.AddEntitlementID(d1.GetId())
+	graph.AddEntitlementID(d2.GetId())
+	require.NoError(t, graph.AddEdge(ctx, source.GetId(), d1.GetId(), false, nil))
+	require.NoError(t, graph.AddEdge(ctx, source.GetId(), d2.GetId(), false, nil))
+
+	expander := NewExpander(store, graph)
+
+	// Step 1: generate the action (no work yet, no page token).
+	require.NoError(t, expander.RunSingleStep(ctx))
+	require.Len(t, graph.Actions, 1)
+	require.Empty(t, graph.Actions[0].PageToken)
+
+	// Step 2: process page 0 — the action must stay queued with a page token.
+	require.NoError(t, expander.RunSingleStep(ctx))
+	require.Len(t, graph.Actions, 1, "action must remain queued while the source has more pages")
+	require.NotEmpty(t, graph.Actions[0].PageToken, "page token must advance mid-source")
+
+	// Finish.
+	for !expander.IsDone(ctx) {
+		require.NoError(t, expander.RunSingleStep(ctx))
+	}
+
+	// Source read once per page per batch. K=2 ≥ 2 dests → 1 batch; 3 pages → 3.
+	require.Equal(t, 3, store.sourceReads[source.GetId()],
+		"source read == pages × batches")
+
+	// Exactly one expanded grant per (destination, principal) — no duplicate for
+	// alice despite her appearing on two source pages.
+	counts := make(map[string]int)
+	for _, g := range store.GetPutGrants() {
+		counts[g.GetEntitlement().GetId()+"|"+g.GetPrincipal().GetId().GetResource()]++
+	}
+	for _, d := range []*v2.Entitlement{d1, d2} {
+		for _, p := range []string{"alice", "bob", "carol", "dave"} {
+			require.Equal(t, 1, counts[d.GetId()+"|"+p],
+				"exactly one grant for (%s, %s)", d.GetId(), p)
+		}
+	}
+
+	// alice's grant records the source entitlement.
+	for _, g := range store.GetPutGrants() {
+		if g.GetEntitlement().GetId() == d1.GetId() && g.GetPrincipal().GetId().GetResource() == "alice" {
+			require.Contains(t, g.GetSources().GetSources(), source.GetId(),
+				"alice's expanded grant must record the source")
+		}
+	}
 }
 
 // pageCapStubStore always returns a non-empty NextPageToken so the prefetch
