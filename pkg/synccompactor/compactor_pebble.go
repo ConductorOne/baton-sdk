@@ -125,23 +125,32 @@ func WithOverlayGateFraction(f float64) Option {
 // Fold cutover thresholds gate the auto fold/overlay choice in
 // resolvePebbleMode. Fold's win is conditional on the base dominating
 // total input volume: it pays a fixed per-source cost (envelope +
-// pebble open, ~10ms each) plus per-record point writes for every
-// partial record, but does ZERO work for base records and splices the
-// base's unchanged frames at save. Measured at a 1.1GB base + 50 small
-// partials, fold is ~3x faster than overlay (~20s vs ~60s); at fixture
-// scale (MB bases) overlay wins every shape.
+// pebble open, ~10ms each) plus per-record raw keep-newer writes for
+// every partial record, but does ZERO work for base records and
+// splices the base's unchanged frames at save.
 //
-// The ratio comes from the crossover sweep
-// (TestProdScaleFoldOverlayCrossover): overlay's cost is nearly flat
-// in partial volume (it streams the base regardless) while fold's is
-// linear (~0.2s per MB of partials), so they cross where fold's
-// partial-write cost eats its base savings — ~9% partial volume at a
-// 117MB base, extrapolating to ~16% at 1.1GB. 10% keeps fold ahead of
-// overlay across the whole gated range; past it the win shrinks
-// toward a loss, and overlay is never badly wrong.
+// The thresholds were re-derived after the fold merge went raw
+// (byte-level keep-newer, no proto round-trip — mergeBucketRawIfNewer)
+// and the overlay's whole-source path switched to verbatim index
+// copies — both strategies got faster, and the crossover sweep
+// (TestProdScaleFoldOverlayCrossover, 117MB base) puts the crossing
+// at ~7% partial byte volume: fold wins at 4.9% (4.8s vs 6.1s) and
+// loses mildly from 8.9% up (6.2s vs 5.5s), with overlay's lead
+// roughly flat (~15%) through 41%. Fold's output also grows with the
+// override ratio — replaced records leave dead bytes inside the
+// spliced base frames (+18% at 8.9%, +58% at 41%) — so past the
+// crossing overlay is better on both axes.
+//
+// At the production shape the gate exists for (partials ≲ 5% of a
+// large base) fold wins at every measured scale: GB-scale skewed
+// (~1% ratio) 11.3s vs overlay's 20.8s, and fixture-scale bases all
+// the way down to KBs. The old 256MiB min-base requirement is
+// therefore gone — fold's win comes from splicing the base's
+// unchanged compressed frames at save instead of re-encoding the
+// whole output envelope, which holds at any base size.
 const (
-	defaultFoldMinBaseBytes      int64 = 256 << 20 // 256 MiB
-	defaultFoldMaxPartialPercent int64 = 10        // partials ≤ 10% of base size
+	defaultFoldMinBaseBytes      int64 = 0  // no minimum — fold wins at every measured base size
+	defaultFoldMaxPartialPercent int64 = 10 // partials ≤ 10% of base size
 )
 
 // foldMinBaseBytes is the smallest base input (envelope file size) for
@@ -207,7 +216,9 @@ func (c *Compactor) resolvePebbleMode(ctx context.Context) PebbleCompactorMode {
 	minBase := foldMinBaseBytes()
 	maxPct := foldMaxPartialPercent()
 	mode := PebbleCompactorModeOverlay
-	if baseBytes >= minBase && partialBytes*100 <= baseBytes*maxPct {
+	// baseBytes > 0 keeps an unstat-able base (size 0) out of the fold
+	// path so the open fails later with the canonical error.
+	if baseBytes > 0 && baseBytes >= minBase && partialBytes*100 <= baseBytes*maxPct {
 		mode = PebbleCompactorModeFold
 	}
 	l.Info("pebble compactor: auto-selected mode",

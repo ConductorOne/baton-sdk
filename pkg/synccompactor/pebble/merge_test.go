@@ -90,6 +90,11 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 			t.Errorf("%q missing from merged union", id)
 		}
 	}
+
+	// The raw merge derives index keys itself (no engine put path):
+	// every index keyspace must match a recompute from the surviving
+	// primary records, including the replaced incumbent's swapped keys.
+	assertIndexesMatchDerived(t, ctx, dst)
 }
 
 // TestMergeIntoTieKeepsIncumbent pins the equal-discovered_at tie rule
@@ -136,4 +141,5 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 	if winner != "from-src1" {
 		t.Fatalf("tie winner = %q, want from-src1 (earliest-applied incumbent, strict-> parity)", winner)
 	}
+	assertIndexesMatchDerived(t, ctx, dst)
 }

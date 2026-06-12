@@ -23,12 +23,23 @@ import (
 // pebbleFileOps.CloneSync. Materializes the named sync's data into
 // a freshly-created Pebble-backed c1z at outPath.
 //
-// Strategy: open a fresh Pebble engine under a temp dir, range-copy
-// every key prefix that's scoped to (sync_id) — both primary
-// records and index entries — from the source engine into the
-// destination. Then Checkpoint the destination and emit a c1z v3
-// envelope at outPath. The copy is byte-level (proto values aren't
-// re-encoded; the schema_version is preserved).
+// Strategy: the file holds exactly one sync and keys carry no
+// sync_id, so cloning "the sync" is cloning the database. Stage a
+// pebble Checkpoint of the source (hard links on the same
+// filesystem — O(live files), not O(records)), open it, excise the
+// engine-local keyspaces the clone contract excludes (sessions,
+// counters — everything outside scopedRanges except the engine-meta
+// stamp, which the clone keeps), then Checkpoint again and emit a
+// c1z v3 envelope at outPath. No record is ever decoded, copied, or
+// re-encoded. The excised keyspaces are usually empty; when they are
+// not, their bytes may survive physically inside linked SSTs but are
+// excised from the cloned LSM and unreachable.
+//
+// The raw db.Checkpoint (no flush) is used for the staging copy so
+// read-only source engines work: any unflushed source writes ride
+// along in the checkpointed WAL and replay when the stage opens. The
+// stage engine is always writable, so the final CheckpointTo gets
+// the usual flush + WAL-truncate envelope shape.
 //
 // Defaults syncID to the latest finished SyncTypeFull when empty.
 // Errors if the sync isn't ended (mirrors the SQLite contract in
@@ -81,22 +92,38 @@ func cloneSync(
 	}()
 	destDBDir := filepath.Join(cloneTmp, "db")
 
+	// Stage: checkpoint the whole source DB. Raw db.Checkpoint, not
+	// Engine.CheckpointTo — the source may be opened read-only, where
+	// the flush inside CheckpointTo is refused; the checkpoint carries
+	// the live WALs instead, which replay on open below.
+	if err := a.engine.DB().Checkpoint(destDBDir); err != nil {
+		return fmt.Errorf("clone-sync: checkpoint source: %w", err)
+	}
+
 	dest, err := Open(ctx, destDBDir)
 	if err != nil {
-		return fmt.Errorf("clone-sync: open dest engine: %w", err)
+		return fmt.Errorf("clone-sync: open staged clone: %w", err)
 	}
 	defer func() { _ = dest.Close() }()
 
-	// The file holds one sync and keys carry no sync_id, so cloning
-	// is a copy of every record/index/sync-run/stats keyspace —
-	// identical to the ranges ResetForNewSync wipes.
-	for _, r := range scopedRanges() {
-		if err := copyRange(ctx, a.engine.DB(), dest.DB(), r[0], r[1]); err != nil {
-			return fmt.Errorf("clone-sync: copy range: %w", err)
+	// Drop the engine-local keyspaces a clone must not carry: counters
+	// and sessions (adjacent type bytes, one span). Everything else in
+	// the checkpoint is either sync-scoped data (scopedRanges) or the
+	// engine-meta stamp, both of which the clone keeps.
+	if err := dest.withWrite(func() error {
+		span := pebble.KeyRange{
+			Start: []byte{versionV3, typeCounter},
+			End:   upperBoundOf([]byte{versionV3, typeSession}),
 		}
+		if err := dest.db.Excise(ctx, span); err != nil {
+			return fmt.Errorf("excise [%x, %x): %w", span.Start, span.End, err)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("clone-sync: drop engine-local keyspaces: %w", err)
 	}
 
-	// Checkpoint the destination and emit the envelope at outPath.
+	// Checkpoint the staged clone and emit the envelope at outPath.
 	checkpointDir := filepath.Join(cloneTmp, "checkpoint")
 	if err := dest.CheckpointTo(ctx, checkpointDir); err != nil {
 		return fmt.Errorf("clone-sync: checkpoint: %w", err)
@@ -137,50 +164,3 @@ func cloneSync(
 	success = true
 	return nil
 }
-
-// copyRange iterates [lower, upper) on src and Sets each key/value
-// onto dst in fixed-size batches, committing each batch with
-// pebble.Sync. Chunking caps the per-batch memory at
-// copyRangeBatchKeys keys regardless of total range size, so a
-// clone of a 1M-grant sync uses ~80 batches instead of one
-// gigabyte-scale batch.
-func copyRange(ctx context.Context, src, dst *pebble.DB, lower, upper []byte) error {
-	iter, err := src.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
-	if err != nil {
-		return err
-	}
-	defer iter.Close()
-	batch := dst.NewBatch()
-	defer func() { _ = batch.Close() }()
-	count := 0
-	for iter.First(); iter.Valid(); iter.Next() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := batch.Set(iter.Key(), iter.Value(), nil); err != nil {
-			return err
-		}
-		count++
-		if count >= copyRangeBatchKeys {
-			if err := batch.Commit(pebble.Sync); err != nil {
-				return err
-			}
-			_ = batch.Close()
-			batch = dst.NewBatch()
-			count = 0
-		}
-	}
-	if err := iter.Error(); err != nil {
-		return err
-	}
-	if batch.Empty() {
-		return nil
-	}
-	return batch.Commit(pebble.Sync)
-}
-
-// copyRangeBatchKeys caps copyRange's per-batch memory footprint.
-// Chosen at 10k keys to roughly match the engine's DefaultPageSize;
-// larger batches don't improve commit throughput once Pebble's
-// memtable already absorbs the writes.
-const copyRangeBatchKeys = 10_000

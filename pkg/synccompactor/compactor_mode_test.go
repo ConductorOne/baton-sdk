@@ -33,20 +33,20 @@ func TestResolvePebbleModeCutover(t *testing.T) {
 		return &Compactor{entries: entries}
 	}
 
-	// Lower the base-size floor so the test doesn't need a 256MiB file.
-	t.Setenv("BATON_PEBBLE_FOLD_MIN_BASE_BYTES", "1000")
-
 	bigBase := mk("base.c1z", 4000)
 	smallPartial := mk("p-small.c1z", 100)
 	bigPartial := mk("p-big.c1z", 2000)
 	tinyBase := mk("tiny.c1z", 100)
+	tinyPartial := mk("p-tiny.c1z", 10)
 
 	t.Setenv("BATON_EXPERIMENTAL_PEBBLE_COMPACTOR", "")
-	// Large base + partials within the ratio is fold's winning shape →
-	// auto-selects fold.
+	// Base + partials within the 10% ratio is fold's winning shape →
+	// auto-selects fold. No base-size floor by default.
 	require.Equal(t, PebbleCompactorModeFold, newC(bigBase, smallPartial).resolvePebbleMode(ctx))
+	// Exactly at the 10% boundary → still fold.
 	require.Equal(t, PebbleCompactorModeFold,
 		newC(bigBase, smallPartial, smallPartial, smallPartial, smallPartial).resolvePebbleMode(ctx))
+	require.Equal(t, PebbleCompactorModeFold, newC(tinyBase, tinyPartial).resolvePebbleMode(ctx))
 	// Partials past the ratio fall outside the gate → overlay.
 	require.Equal(t, PebbleCompactorModeOverlay,
 		newC(bigBase, smallPartial, smallPartial, smallPartial, smallPartial, smallPartial).resolvePebbleMode(ctx))
@@ -56,6 +56,12 @@ func TestResolvePebbleModeCutover(t *testing.T) {
 	// with the real error.
 	require.Equal(t, PebbleCompactorModeOverlay,
 		newC(filepath.Join(dir, "missing.c1z"), smallPartial).resolvePebbleMode(ctx))
+	// An explicit base-size floor (ops escape hatch) still declines
+	// fold for bases below it.
+	t.Setenv("BATON_PEBBLE_FOLD_MIN_BASE_BYTES", "1000")
+	require.Equal(t, PebbleCompactorModeOverlay, newC(tinyBase, tinyPartial).resolvePebbleMode(ctx))
+	require.Equal(t, PebbleCompactorModeFold, newC(bigBase, smallPartial).resolvePebbleMode(ctx))
+	t.Setenv("BATON_PEBBLE_FOLD_MIN_BASE_BYTES", "")
 
 	// Explicit env values force the mode regardless of sizes — fold
 	// stays reachable when requested manually.
@@ -73,7 +79,7 @@ func TestResolvePebbleModeCutover(t *testing.T) {
 	// Unrecognized values fall back to auto selection: a non-fold shape
 	// (partials too large for the gate) auto-selects overlay.
 	t.Setenv("BATON_EXPERIMENTAL_PEBBLE_COMPACTOR", "bogus")
-	require.Equal(t, PebbleCompactorModeOverlay, newC(bigBase, bigPartial).resolvePebbleMode(ctx))
+	require.Equal(t, PebbleCompactorModeOverlay, newC(bigBase, bigPartial, smallPartial).resolvePebbleMode(ctx))
 }
 
 func TestInferEngineFromInputFormats(t *testing.T) {

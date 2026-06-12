@@ -524,8 +524,6 @@ type directStream struct {
 	sourceRank int
 	iter       *cpebble.Iterator
 	bucket     bucketSpec
-	sourceLo   []byte
-	destLo     []byte
 
 	// keyBuf/valBuf back the runRecord returned by next(). The merge
 	// loops hold at most one live record per stream (in the heap or
@@ -551,15 +549,12 @@ func (s *directStream) next() (runRecord, bool, error) {
 		}
 		return runRecord{}, false, nil
 	}
-	// K-way's source stream is raw by default: copy the stored value, rewrite
-	// the primary key, and shallow-scan only discovered_at. Indexes are
-	// generated once for final winners instead of being carried through every
-	// run-file round; on non-skewed syncs=500, carrying index blobs accounted
-	// for tens of millions of allocations.
-	sourceKey := s.iter.Key()
-	if len(sourceKey) < len(s.sourceLo) {
-		return runRecord{}, false, fmt.Errorf("source key shorter than lower bound prefix: key=%d prefix=%d", len(sourceKey), len(s.sourceLo))
-	}
+	// K-way's source stream is raw: source keys and values are already
+	// in final dest form (v3 keys and values carry no sync_id), so the
+	// stream copies both verbatim and shallow-scans only discovered_at.
+	// Indexes are generated once for final winners instead of being
+	// carried through every run-file round; on non-skewed syncs=500,
+	// carrying index blobs accounted for tens of millions of allocations.
 	rank, err := checkedUint32(s.sourceRank, "source rank")
 	if err != nil {
 		return runRecord{}, false, err
@@ -568,7 +563,7 @@ func (s *directStream) next() (runRecord, bool, error) {
 	if err != nil {
 		return runRecord{}, false, err
 	}
-	s.keyBuf = rewritePrimaryKeyForDestInto(s.keyBuf[:0], sourceKey[len(s.sourceLo):], s.destLo)
+	s.keyBuf = append(s.keyBuf[:0], s.iter.Key()...)
 	s.valBuf = append(s.valBuf[:0], s.iter.Value()...)
 	item := runRecord{
 		key:        s.keyBuf,
@@ -595,7 +590,6 @@ func mergeSourceBucketToRunSection(
 		}
 	}()
 	lower, upper := bucket.syncRange()
-	destLower, _ := bucket.syncRange()
 	h := &directHeap{}
 	for i, source := range sources {
 		iter, err := source.engine.DB().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
@@ -607,8 +601,6 @@ func mergeSourceBucketToRunSection(
 			sourceRank: source.rank,
 			iter:       iter,
 			bucket:     bucket,
-			sourceLo:   lower,
-			destLo:     destLower,
 		}
 		streams = append(streams, stream)
 		rec, ok, err := stream.next()
@@ -684,7 +676,6 @@ func materializeSourceBucketToPebble(
 		}
 	}()
 	lower, upper := bucket.syncRange()
-	destLower, _ := bucket.syncRange()
 	h := &directHeap{}
 	for i, source := range sources {
 		iter, err := source.engine.DB().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
@@ -696,8 +687,6 @@ func materializeSourceBucketToPebble(
 			sourceRank: source.rank,
 			iter:       iter,
 			bucket:     bucket,
-			sourceLo:   lower,
-			destLo:     destLower,
 		}
 		streams = append(streams, stream)
 		rec, ok, err := stream.next()
@@ -733,7 +722,7 @@ func materializeSourceBucketToPebble(
 			if err := primaryWriter.Set(winner.key, winner.value); err != nil {
 				return err
 			}
-			if err := stats.countWinner(bucket, winner.key, destLower, winner.value); err != nil {
+			if err := stats.countWinner(bucket, winner.key, lower, winner.value); err != nil {
 				return err
 			}
 			lastPrimaryKey = append(lastPrimaryKey[:0], winner.key...)
@@ -741,7 +730,7 @@ func materializeSourceBucketToPebble(
 			// above (the winner-only contract on forEachIndexKeyFromRaw's
 			// stats parameter is satisfied either way, but counting twice
 			// would double the totals).
-			if err := forEachIndexKeyFromRaw(bucket, winner.key, destLower, winner.value, &scratch, nil, emitIndexKey); err != nil {
+			if err := forEachIndexKeyFromRaw(bucket, winner.key, lower, winner.value, &scratch, nil, emitIndexKey); err != nil {
 				return err
 			}
 		}
@@ -1018,11 +1007,6 @@ func timestampBytesNanosFromRaw(value []byte) (int64, error) {
 		return 0, fmt.Errorf("timestamp seconds overflow: %d", seconds)
 	}
 	return seconds*int64(time.Second) + int64(nanos), nil
-}
-
-func rewritePrimaryKeyForDestInto(dst []byte, sourceTail []byte, destLower []byte) []byte {
-	dst = append(dst, destLower...)
-	return append(dst, sourceTail...)
 }
 
 func indexID(key []byte) (byte, bool) {

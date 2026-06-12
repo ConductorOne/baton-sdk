@@ -94,7 +94,7 @@ func TestProdScaleSkewedCompaction(t *testing.T) {
 			logFileSize(t, "output", out.FilePath)
 
 			if mode == "fold" {
-				require.Equal(t, baseSyncID, out.SyncID, "fold must adopt the base sync id")
+				require.NotEqual(t, baseSyncID, out.SyncID, "fold must mint a fresh sync id")
 			}
 
 			// Sentinel correctness: a partial-only grant exists, an
