@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/cockroachdb/pebble/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -40,7 +41,7 @@ func (s pebbleSyncMeta) MarkSyncSupportsDiff(ctx context.Context, syncID string)
 	}
 	r, err := s.a.engine.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
-		return adaptNotFound(fmt.Errorf("MarkSyncSupportsDiff: get: %w", err))
+		return c1zstore.AdaptNotFound(fmt.Errorf("MarkSyncSupportsDiff: get: %w", err), pebble.ErrNotFound)
 	}
 	r.SetSupportsDiff(true)
 	if err := s.a.engine.PutSyncRunRecord(ctx, r); err != nil {

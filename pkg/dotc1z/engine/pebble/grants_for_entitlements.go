@@ -9,8 +9,10 @@ import (
 	"hash/crc32"
 	"sort"
 
+	"github.com/cockroachdb/pebble/v2"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // ListGrantsForEntitlements is the batched counterpart to
@@ -77,7 +79,7 @@ EntitlementLoop:
 			remaining := limit - len(out)
 			records, next, err := a.engine.PaginateGrantsByEntitlement(ctx, syncID, entID, intraCursor, remaining)
 			if err != nil {
-				return nil, adaptNotFound(err)
+				return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 			}
 			brokeEarly := false
 			var lastIntra string

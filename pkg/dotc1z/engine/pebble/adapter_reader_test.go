@@ -2,14 +2,14 @@ package pebble
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"strconv"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestGetEntitlementResourceResourceType(t *testing.T) {
@@ -82,14 +82,14 @@ func TestGetEntitlementResourceResourceType(t *testing.T) {
 		t.Errorf("GetEntitlement purpose: got %v want PERMISSION", got)
 	}
 
-	// Missing entity returns sql.ErrNoRows — the Adapter normalizes
+	// Missing entity returns gRPC NotFound — the Adapter normalizes
 	// pebble.ErrNotFound at the boundary so engine-agnostic
 	// consumers (pkg/sync, pkg/sync/expand) can use one sentinel
 	// across both engines. See adapter_errors.go.
 	if _, err := a.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: "does-not-exist",
-	}.Build()); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("missing entitlement: got %v, want sql.ErrNoRows", err)
+	}.Build()); status.Code(err) != codes.NotFound {
+		t.Errorf("missing entitlement: got %v, want NotFound", err)
 	}
 }
 

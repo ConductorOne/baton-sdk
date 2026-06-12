@@ -2,8 +2,6 @@ package expand
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -17,6 +15,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ~50s.
@@ -134,7 +134,7 @@ func loadEntitlementGraphFromStore(ctx context.Context, store dotc1z.C1ZStore) (
 	graph := NewEntitlementGraph(ctx)
 
 	for def, err := range store.Grants().PendingExpansion(ctx) {
-		if errors.Is(err, sql.ErrNoRows) {
+		if status.Code(err) == codes.NotFound {
 			graph.Loaded = true
 			return graph, nil
 		}

@@ -2,8 +2,6 @@ package storecache
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"sync"
 
@@ -12,6 +10,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type StoreCache struct {
@@ -61,7 +61,7 @@ func (f *StoreCache) GetResourceType(ctx context.Context, id string) (*v2.Resour
 	rtResp, err := f.store.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
 		ResourceTypeId: id,
 	})
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err != nil && status.Code(err) != codes.NotFound {
 		return nil, err
 	}
 
@@ -97,7 +97,7 @@ func (f *StoreCache) GetResource(ctx context.Context, id *v2.ResourceId) (*v2.Re
 	resourceResp, err := f.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
 		ResourceId: id,
 	})
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err != nil && status.Code(err) != codes.NotFound {
 		return nil, err
 	}
 
@@ -132,7 +132,7 @@ func (f *StoreCache) GetEntitlement(ctx context.Context, id string) (*v2.Entitle
 	entitlementResp, err := f.store.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{
 		EntitlementId: id,
 	})
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err != nil && status.Code(err) != codes.NotFound {
 		return nil, err
 	}
 

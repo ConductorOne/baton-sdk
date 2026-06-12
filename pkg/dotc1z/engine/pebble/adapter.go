@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
 	"go.uber.org/zap"
@@ -19,6 +20,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
@@ -120,7 +122,7 @@ func (a *Adapter) ResumeSync(ctx context.Context, syncType connectorstore.SyncTy
 	}
 	existing, err := a.engine.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
-		return "", adaptNotFound(fmt.Errorf("ResumeSync: lookup: %w", err))
+		return "", c1zstore.AdaptNotFound(fmt.Errorf("ResumeSync: lookup: %w", err), pebble.ErrNotFound)
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -527,7 +529,7 @@ func (a *Adapter) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequ
 	}
 	rec, err := a.engine.GetAssetRecord(ctx, syncID, req.GetAsset().GetId())
 	if err != nil {
-		return "", nil, adaptNotFound(err)
+		return "", nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
 	return rec.GetContentType(), &bytesReader{b: rec.GetData()}, nil
 }
@@ -568,7 +570,7 @@ func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrant
 		records, nextCursor, err = a.engine.PaginateGrantsBySync(ctx, syncID, cursor, limit)
 	}
 	if err != nil {
-		return nil, adaptNotFound(err)
+		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
 	out := make([]*v2.Grant, 0, len(records))
 	for _, rec := range records {
@@ -674,7 +676,7 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 			records, nextCursor, err = a.engine.PaginateResourcesBySync(ctx, syncID, cursor, fetchLimit)
 		}
 		if err != nil {
-			return nil, adaptNotFound(err)
+			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 		}
 		brokeEarly := false
 		for _, rec := range records {
@@ -723,7 +725,7 @@ func (a *Adapter) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesSe
 	limit := clampPageSize(req.GetPageSize())
 	records, nextCursor, err := a.engine.PaginateResourceTypesBySync(ctx, syncID, req.GetPageToken(), limit)
 	if err != nil {
-		return nil, adaptNotFound(err)
+		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
 	out := make([]*v2.ResourceType, 0, len(records))
 	for _, rec := range records {
@@ -757,7 +759,7 @@ func (a *Adapter) ListEntitlements(ctx context.Context, req *v2.EntitlementsServ
 		records, nextCursor, err = a.engine.PaginateEntitlementsBySync(ctx, syncID, cursor, limit)
 	}
 	if err != nil {
-		return nil, adaptNotFound(err)
+		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
 	out := make([]*v2.Entitlement, 0, len(records))
 	for _, rec := range records {
@@ -793,7 +795,7 @@ func (a *Adapter) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServi
 	}
 	rec, err := a.engine.GetGrantRecord(ctx, syncID, req.GetGrantId())
 	if err != nil {
-		return nil, adaptNotFound(err)
+		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
 	return reader_v2.GrantsReaderServiceGetGrantResponse_builder{
 		Grant: V3GrantToV2(rec),

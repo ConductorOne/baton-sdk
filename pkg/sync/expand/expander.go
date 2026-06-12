@@ -2,7 +2,6 @@ package expand
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -18,6 +17,8 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var tracer = otel.Tracer("baton-sdk/sync.expand")
@@ -104,7 +105,7 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 		if err != nil {
 			l.Error("expander: error running graph action", zap.Error(err), zap.Any("action", action))
 			_ = e.graph.DeleteEdge(ctx, action.SourceEntitlementID, action.DescendantEntitlementID)
-			if errors.Is(err, sql.ErrNoRows) {
+			if status.Code(err) == codes.NotFound {
 				// Skip action and delete the edge that caused the error.
 				e.graph.Actions = e.graph.Actions[1:]
 				return nil

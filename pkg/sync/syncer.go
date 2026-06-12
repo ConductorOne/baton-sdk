@@ -3,7 +3,6 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -987,7 +986,7 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 			}
 		}
 
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err != nil && status.Code(err) != codes.NotFound {
 			return err
 		}
 
@@ -1581,7 +1580,7 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, action *Action, graph
 			if err != nil {
 				// Only skip not-found entitlements; propagate other errors
 				// to avoid silently dropping edges and yielding incorrect expansions.
-				if errors.Is(err, sql.ErrNoRows) {
+				if status.Code(err) == codes.NotFound {
 					l.Debug("source entitlement not found, skipping edge",
 						zap.String("src_entitlement_id", srcEntitlementID),
 						zap.String("dst_entitlement_id", dstEntitlementID),
@@ -1728,7 +1727,7 @@ func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v
 	}.Build())
 	// If we get an error while attempting to look up the previous sync, we should just log it and continue.
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if status.Code(err) == codes.NotFound {
 			l.Debug(
 				"resource was not found in previous sync",
 				zap.String("resource_id", resourceID.GetResource()),
@@ -1954,7 +1953,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 			ResourceId: entitlementResource.GetId(),
 		}.Build())
 		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
+			if status.Code(err) != codes.NotFound {
 				return err
 			}
 
@@ -2109,7 +2108,7 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	for _, resourceId := range resourceIDs {
 		resourceResp, err := s.externalResourceReader.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{ResourceId: resourceId}.Build())
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if status.Code(err) == codes.NotFound {
 				l.Debug(
 					"resource was not found in external sync",
 					zap.String("resource_id", resourceId.GetResource()),
@@ -2519,7 +2518,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						newExpandableEntId := entitlement.NewEntitlementID(principal, slug)
 						_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
 						if err != nil {
-							if errors.Is(err, sql.ErrNoRows) {
+							if status.Code(err) == codes.NotFound {
 								l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
 								continue
 							}
@@ -2598,7 +2597,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 								newExpandableEntId := entitlement.NewEntitlementID(groupPrincipal, slug)
 								_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
 								if err != nil {
-									if errors.Is(err, sql.ErrNoRows) {
+									if status.Code(err) == codes.NotFound {
 										l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
 										continue
 									}

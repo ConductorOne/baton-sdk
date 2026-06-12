@@ -11,6 +11,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -143,7 +144,7 @@ func (c *C1File) GetAsset(ctx context.Context, request *v2.AssetServiceGetAssetR
 	row := c.db.QueryRowContext(ctx, query, args...)
 	err = row.Scan(&contentType, &data)
 	if err != nil {
-		return "", nil, err
+		return "", nil, c1zstore.AdaptNotFound(err)
 	}
 
 	out := bytes.NewBuffer(data)

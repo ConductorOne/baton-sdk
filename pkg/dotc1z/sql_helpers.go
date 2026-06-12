@@ -18,6 +18,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -601,7 +602,7 @@ func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceI
 	row := c.db.QueryRowContext(ctx, query, args...)
 	err = row.Scan(&data)
 	if err != nil {
-		return err
+		return c1zstore.AdaptNotFound(err)
 	}
 
 	err = proto.Unmarshal(data, m)
@@ -661,7 +662,7 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 	row := c.db.QueryRowContext(ctx, query, args...)
 	err = row.Scan(&data)
 	if err != nil {
-		return err
+		return c1zstore.AdaptNotFound(err)
 	}
 
 	err = proto.Unmarshal(data, m)
