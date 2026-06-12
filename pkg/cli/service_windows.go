@@ -291,6 +291,9 @@ func interactiveSetup(ctx context.Context, outputFilePath string, fields []field
 			input = scanner.Text()
 			break
 		}
+		if scanner.Err() != nil {
+			return fmt.Errorf("failed to read stdin: %w", scanner.Err())
+		}
 
 		if input == "" {
 			if vfield.Required {
