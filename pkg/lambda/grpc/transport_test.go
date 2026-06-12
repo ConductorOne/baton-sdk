@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	// Import packages to register protobuf types.
-	_ "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	_ "github.com/conductorone/baton-sdk/pb/c1/transport/v1"
 
 	batonv1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -466,6 +466,212 @@ func TestRequest_UnmarshalJSON_RoundTripComparison(t *testing.T) {
 	assert.Equal(t, "/c1.connectorapi.baton.v1.BatonService/Hello", roundTripData["method"])
 	assert.NotNil(t, roundTripData["req"])
 	assert.NotNil(t, roundTripData["headers"])
+}
+
+// TestRequest_UnmarshalJSON_NestedAnnotations verifies the filter reaches
+// annotations nested inside embedded rows, not just top-level request
+// annotations. A ListGrants request embeds the full resource — including
+// whatever annotations it was stored with.
+func TestRequest_UnmarshalJSON_NestedAnnotations(t *testing.T) {
+	jsonInput := `{
+		"method": "/c1.connector.v2.GrantsService/ListGrants",
+		"req": {
+			"@type": "type.googleapis.com/c1.connector.v2.GrantsServiceListGrantsRequest",
+			"resource": {
+				"id": {
+					"resourceType": "group",
+					"resource": "g1"
+				},
+				"displayName": "Group One",
+				"annotations": [
+					{
+						"@type": "type.googleapis.com/c1.connector.v2.GroupTrait",
+						"profile": {}
+					},
+					{
+						"@type": "type.googleapis.com/c1.connector.v2.UnknownFutureAnnotation",
+						"someField": "someValue"
+					}
+				]
+			}
+		},
+		"headers": {}
+	}`
+
+	req := &Request{}
+	err := req.UnmarshalJSON([]byte(jsonInput))
+	require.NoError(t, err, "nested unknown annotations should be filtered, not fatal")
+
+	var listReq v2.GrantsServiceListGrantsRequest
+	require.NoError(t, anypb.UnmarshalTo(req.msg.GetReq(), &listReq, proto.UnmarshalOptions{}))
+	require.NotNil(t, listReq.GetResource())
+	assert.Equal(t, "Group One", listReq.GetResource().GetDisplayName())
+	assert.Len(t, listReq.GetResource().GetAnnotations(), 1,
+		"unknown nested annotation should be dropped, known one kept")
+}
+
+func TestResponse_UnmarshalJSON_WithUnknownAnnotations(t *testing.T) {
+	// A ListGrants response from a connector built with a different SDK
+	// version: response-level annotations carry an unknown type, and a grant's
+	// embedded principal resource carries another. Both must be filtered
+	// rather than failing the whole RPC.
+	jsonInput := `{
+		"resp": {
+			"@type": "type.googleapis.com/c1.connector.v2.GrantsServiceListGrantsResponse",
+			"list": [
+				{
+					"id": "grant:g1:member:u1",
+					"entitlement": {
+						"id": "ent:g1:member",
+						"resource": {
+							"id": {
+								"resourceType": "group",
+								"resource": "g1"
+							}
+						}
+					},
+					"principal": {
+						"id": {
+							"resourceType": "user",
+							"resource": "u1"
+						},
+						"annotations": [
+							{
+								"@type": "type.googleapis.com/c1.connector.v2.UserTrait",
+								"status": {
+									"status": "STATUS_ENABLED"
+								}
+							},
+							{
+								"@type": "type.googleapis.com/c1.connector.v2.UnknownRowAnnotation",
+								"field": "value"
+							}
+						]
+					}
+				}
+			],
+			"annotations": [
+				{
+					"@type": "type.googleapis.com/c1.connector.v2.UnknownResponseAnnotation",
+					"entitlementId": "ent:g1:member"
+				}
+			]
+		},
+		"headers": {},
+		"trailers": {}
+	}`
+
+	resp := &Response{}
+	err := resp.UnmarshalJSON([]byte(jsonInput))
+	require.NoError(t, err, "unknown annotations in a response should be filtered, not fatal")
+
+	var listResp v2.GrantsServiceListGrantsResponse
+	require.NoError(t, anypb.UnmarshalTo(resp.msg.GetResp(), &listResp, proto.UnmarshalOptions{}))
+
+	assert.Empty(t, listResp.GetAnnotations(), "unknown response-level annotation should be dropped")
+	require.Len(t, listResp.GetList(), 1)
+	grant := listResp.GetList()[0]
+	assert.Equal(t, "grant:g1:member:u1", grant.GetId())
+	assert.Len(t, grant.GetPrincipal().GetAnnotations(), 1,
+		"unknown principal annotation should be dropped, known UserTrait kept")
+}
+
+// TestResponse_UnmarshalJSON_StructAnnotationsKeyUntouched guards the filter
+// against mangling user data. protojson encodes google.protobuf.Struct as
+// plain JSON, so a trait profile may legitimately contain a key named
+// "annotations" whose elements are not google.protobuf.Any. The recursive
+// filter must leave such arrays alone, even when the fallback path runs
+// because of a genuine unknown annotation elsewhere in the payload.
+func TestResponse_UnmarshalJSON_StructAnnotationsKeyUntouched(t *testing.T) {
+	jsonInput := `{
+		"resp": {
+			"@type": "type.googleapis.com/c1.connector.v2.GrantsServiceListGrantsResponse",
+			"list": [
+				{
+					"id": "grant:g1:member:u1",
+					"entitlement": {
+						"id": "ent:g1:member",
+						"resource": {
+							"id": {
+								"resourceType": "group",
+								"resource": "g1"
+							}
+						}
+					},
+					"principal": {
+						"id": {
+							"resourceType": "user",
+							"resource": "u1"
+						},
+						"annotations": [
+							{
+								"@type": "type.googleapis.com/c1.connector.v2.UserTrait",
+								"profile": {
+									"annotations": [
+										{"team": "platform"},
+										{"team": "infra"}
+									]
+								}
+							}
+						]
+					}
+				}
+			],
+			"annotations": [
+				{
+					"@type": "type.googleapis.com/c1.connector.v2.UnknownResponseAnnotation",
+					"x": "y"
+				}
+			]
+		},
+		"headers": {},
+		"trailers": {}
+	}`
+
+	resp := &Response{}
+	require.NoError(t, resp.UnmarshalJSON([]byte(jsonInput)),
+		"the unknown response annotation forces the fallback filter; user data must survive it")
+
+	var listResp v2.GrantsServiceListGrantsResponse
+	require.NoError(t, anypb.UnmarshalTo(resp.msg.GetResp(), &listResp, proto.UnmarshalOptions{}))
+	require.Len(t, listResp.GetList(), 1)
+
+	principalAnnos := listResp.GetList()[0].GetPrincipal().GetAnnotations()
+	require.Len(t, principalAnnos, 1, "the UserTrait annotation itself must be kept")
+
+	var ut v2.UserTrait
+	require.NoError(t, anypb.UnmarshalTo(principalAnnos[0], &ut, proto.UnmarshalOptions{}))
+	profileAnnos := ut.GetProfile().GetFields()["annotations"]
+	require.NotNil(t, profileAnnos, "the profile's user-data 'annotations' key must survive")
+	assert.Len(t, profileAnnos.GetListValue().GetValues(), 2,
+		"user-data array named 'annotations' must not be filtered (its elements have no @type)")
+}
+
+func TestResponse_UnmarshalJSON_KnownAnnotationsFastPath(t *testing.T) {
+	// All-known payloads must take the plain protojson fast path and preserve
+	// every annotation.
+	jsonInput := `{
+		"resp": {
+			"@type": "type.googleapis.com/c1.connector.v2.GrantsServiceListGrantsResponse",
+			"list": [],
+			"annotations": [
+				{
+					"@type": "type.googleapis.com/c1.connector.v2.ETagMatch",
+					"entitlementId": "ent:g1:member"
+				}
+			]
+		},
+		"headers": {},
+		"trailers": {}
+	}`
+
+	resp := &Response{}
+	require.NoError(t, resp.UnmarshalJSON([]byte(jsonInput)))
+
+	var listResp v2.GrantsServiceListGrantsResponse
+	require.NoError(t, anypb.UnmarshalTo(resp.msg.GetResp(), &listResp, proto.UnmarshalOptions{}))
+	assert.Len(t, listResp.GetAnnotations(), 1,
+		"resolvable (tombstoned) annotation types must be preserved, not filtered")
 }
 
 func TestRequest_UnmarshalJSON_EdgeCases(t *testing.T) {
