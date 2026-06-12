@@ -77,6 +77,21 @@ func buildBucketPlans(syncIDBytes []byte) []bucketPlan {
 			upper: enginepkg.GrantByNeedsExpansionSyncUpperBound(syncIDBytes),
 		},
 		{
+			name:  "grant_by_entitlement_principal_hash",
+			lower: enginepkg.GrantByEntPrincHashSyncLowerBound(syncIDBytes),
+			upper: enginepkg.GrantByEntPrincHashSyncUpperBound(syncIDBytes),
+		},
+		{
+			// Digest nodes (all digested indexes, e.g. the per-entitlement
+			// grant digest). Copied byte-for-byte with the sync_id they
+			// belong to; because Compact preserves the sync_id and the
+			// records move verbatim, the digests stay valid in the
+			// destination without a rebuild.
+			name:  "digest",
+			lower: enginepkg.DigestSyncLowerBound(syncIDBytes),
+			upper: enginepkg.DigestSyncUpperBound(syncIDBytes),
+		},
+		{
 			name:  "asset",
 			lower: enginepkg.AssetSyncLowerBound(syncIDBytes),
 			upper: enginepkg.AssetSyncUpperBound(syncIDBytes),

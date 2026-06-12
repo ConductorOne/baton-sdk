@@ -61,6 +61,7 @@ const (
 	typeIndex        byte = 0x07
 	typeCounter      byte = 0x08
 	typeSession      byte = 0x09
+	typeDigest       byte = 0x0A
 	typeEngineMeta   byte = 0xFF
 )
 
@@ -76,6 +77,12 @@ const (
 	idxGrantByNeedsExpansion        byte = 0x05
 	idxGrantByPrincipalResourceType byte = 0x06
 	idxGrantByEntitlementResource   byte = 0x07
+	// idxGrantByEntitlementPrincipalHash sorts grants by
+	// (entitlement_id, hash(principal)). Unlike every other grant
+	// index its entries carry a VALUE (the grant content hash). It is
+	// the substrate the per-entitlement grant digest (typeDigest)
+	// folds over; see digest.go and grant_digest.go.
+	idxGrantByEntitlementPrincipalHash byte = 0x08
 )
 
 // --- Grant ---
@@ -273,6 +280,145 @@ func encodeGrantByEntitlementResourcePrefix(syncIDBytes []byte, entRT, entRID st
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleStrings(buf, entRT, entRID)
 	return codec.AppendTupleSeparator(buf)
+}
+
+// --- Grant by (entitlement, principal-hash) + digest nodes ---
+
+// encodeGrantByEntPrincHashIndexKey is the by_entitlement_principal_hash
+// secondary index on GrantRecord. Unlike every other grant index it
+// interposes a RAW, fixed-width principal-bucket hash between the
+// entitlement_id and the principal tuple, so the keyspace sorts by
+// (entitlement_id, hash(principal)). That hash-major order is what the
+// per-entitlement grant digest folds over, and a bucket — a bit-range
+// of the hash — is a contiguous key range, which is the property the
+// digest bucket range scans rely on (see digestIndexSpec.bucketBounds).
+//
+//	v3 | typeIndex | idxGrantByEntitlementPrincipalHash | sync_id | 0x00 |
+//	    entitlement_id | 0x00 | <raw bucketHash: digestBucketHashLen bytes> |
+//	    principal_rt | 0x00 | principal_id | 0x00 | external_id
+//	  -> value: grant content hash (xxHash64, 8 bytes)
+//
+// Because the bucket hash is raw it can contain 0x00, so the generic
+// tuple walkers (lastTupleComponent / decodeTwoTupleComponents) must NOT
+// be pointed at a prefix that stops before the hash — their walk would
+// derail on those bytes. Use decodeEntPrincHashTail, which accounts for
+// the hash's fixed width positionally.
+//
+// Paired with encodeGrantByEntPrincHashEntPrefix (by-value prefix, with
+// trailing sep) and digestIndexSpec.bucketBounds (digest.go).
+func encodeGrantByEntPrincHashIndexKey(syncIDBytes []byte, entitlementID string, bucketHash []byte, principalRT, principalID, externalID string) []byte {
+	buf := make([]byte, 0, 8+len(syncIDBytes)+len(entitlementID)+len(bucketHash)+len(principalRT)+len(principalID)+len(externalID))
+	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlementPrincipalHash)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, entitlementID)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = append(buf, bucketHash...)
+	return codec.AppendTupleStrings(buf, principalRT, principalID, externalID)
+}
+
+// encodeGrantByEntPrincHashEntPrefix is the by-value prefix for "all
+// grants in this sync under this entitlement", in hash order. The
+// trailing separator is load-bearing (see the keys.go convention doc);
+// the raw bucket hash follows it. Its output length is also the offset
+// the decoder uses to locate the raw hash region.
+func encodeGrantByEntPrincHashEntPrefix(syncIDBytes []byte, entitlementID string) []byte {
+	buf := make([]byte, 0, 8+len(syncIDBytes)+len(entitlementID))
+	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlementPrincipalHash)
+	buf = append(buf, syncIDBytes...)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, entitlementID)
+	return codec.AppendTupleSeparator(buf)
+}
+
+// decodeEntPrincHashTail decodes one index key relative to entPrefix
+// (which must be encodeGrantByEntPrincHashEntPrefix output — i.e. it
+// ends right before the raw bucket hash). Returns the raw bucket hash
+// (a sub-slice of key, valid only as long as key is), the principal
+// rt/id and the external_id. ok is false if the key is shorter than
+// prefix+hash or the tuple tail is malformed.
+func decodeEntPrincHashTail(key, entPrefix []byte) ([]byte, string, string, string, bool) {
+	if len(key) < len(entPrefix)+digestBucketHashLen {
+		return nil, "", "", "", false
+	}
+	bucketHash := key[len(entPrefix) : len(entPrefix)+digestBucketHashLen]
+	tail := key[len(entPrefix)+digestBucketHashLen:]
+	rt, next, err := codec.DecodeTupleStringTo(nil, tail, 0)
+	if err != nil || next >= len(tail) {
+		return nil, "", "", "", false
+	}
+	id, next2, err := codec.DecodeTupleStringTo(nil, tail, next+1)
+	if err != nil || next2 >= len(tail) {
+		return nil, "", "", "", false
+	}
+	ext, _, err := codec.DecodeTupleStringTo(nil, tail, next2+1)
+	if err != nil {
+		return nil, "", "", "", false
+	}
+	return bucketHash, string(rt), string(id), string(ext), true
+}
+
+// GrantByEntPrincHashSyncLowerBound / UpperBound bound the entire
+// by_entitlement_principal_hash index for a sync. Exported for the
+// cleanup/clone/compaction keyspace plans.
+func GrantByEntPrincHashSyncLowerBound(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 3+len(syncIDBytes))
+	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlementPrincipalHash)
+	return append(buf, syncIDBytes...)
+}
+
+func GrantByEntPrincHashSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(GrantByEntPrincHashSyncLowerBound(syncIDBytes))
+}
+
+// Digest node keys.
+//
+//	v3 | typeDigest | sync_id | index_id(1 byte) | 0x00 | partition | 0x00 | level(1 byte) | bucket_prefix
+//
+// index_id discriminates WHICH digested index the node belongs to (the
+// digested index's own idx* byte, see digestIndexSpec) — it sits right
+// after the fixed-width sync_id so one sync's digests for all indexes
+// are still a single contiguous range for the cleanup/clone plans.
+// level 0 is the root (bucket_prefix empty); level 1 is the single leaf
+// level, one node per non-empty bucket, whose bucket_prefix is the
+// bucket index LEFT-ALIGNED in 2 raw bytes (digestLeafPrefixLen). The
+// left alignment makes leaf keys sort in bucket-hash order at every
+// digest width, so the comparison's fold-to-coarser-width merge is a
+// single contiguous scan of this range. See digest.go for the node
+// value framing.
+func encodeDigestNodeKey(syncIDBytes []byte, indexID byte, partition string, level byte, bucketPrefix []byte) []byte {
+	buf := encodeDigestPartitionPrefix(syncIDBytes, indexID, partition)
+	buf = append(buf, level)
+	return append(buf, bucketPrefix...)
+}
+
+// encodeDigestPartitionPrefix is the prefix of every digest node key
+// for one (index, partition) — the range a rebuild clears before
+// writing (the build only Sets nodes; without the leading DeleteRange a
+// width change or an emptied bucket would leave stale nodes for the
+// comparison merge scan to read) and the range digestMutator drops on
+// detecting an inconsistent digest.
+func encodeDigestPartitionPrefix(syncIDBytes []byte, indexID byte, partition string) []byte {
+	buf := make([]byte, 0, 7+len(syncIDBytes)+len(partition))
+	buf = append(buf, versionV3, typeDigest)
+	buf = append(buf, syncIDBytes...)
+	buf = append(buf, indexID)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, partition)
+	return codec.AppendTupleSeparator(buf)
+}
+
+// DigestSyncLowerBound / UpperBound bound the entire digest keyspace
+// (all digested indexes) for a sync. Exported for the
+// cleanup/clone/compaction keyspace plans.
+func DigestSyncLowerBound(syncIDBytes []byte) []byte {
+	buf := make([]byte, 0, 2+len(syncIDBytes))
+	buf = append(buf, versionV3, typeDigest)
+	return append(buf, syncIDBytes...)
+}
+
+func DigestSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(DigestSyncLowerBound(syncIDBytes))
 }
 
 // --- ResourceType ---
