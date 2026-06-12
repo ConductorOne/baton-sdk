@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
@@ -1225,4 +1226,24 @@ func TestPutGrants_ReplaceOverwritesExpansion(t *testing.T) {
 	requireExpansionSQLNullForSync(ctx, t, c1f, "grant-replace", syncID)
 	rawCleared := getRawGrantRowForSync(ctx, t, c1f, "grant-replace", syncID)
 	require.Equal(t, 0, rawCleared.needsExpansion, "needs_expansion should be 0 after clearing expansion via Replace")
+}
+
+// TestListGrantsForPrincipal_RequiresPrincipalID locks the request
+// contract: principal_id is marked required in the proto, but
+// protovalidate only runs behind a gRPC interceptor — in-process
+// callers hit the store directly, and without the guard a nil
+// principal would silently page the entire grants table. The Pebble
+// adapter has the same check (and test), so both engines fail alike.
+func TestListGrantsForPrincipal_RequiresPrincipalID(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := newTestC1z(ctx, t)
+	defer cleanup()
+
+	_, err := c1f.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{}.Build())
+	require.ErrorContains(t, err, "missing principal_id")
+
+	_, err = c1f.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+		PrincipalId: v2.ResourceId_builder{ResourceType: "user"}.Build(),
+	}.Build())
+	require.ErrorContains(t, err, "missing principal_id")
 }

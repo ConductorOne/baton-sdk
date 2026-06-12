@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -436,6 +437,16 @@ func (c *C1File) ListGrantsForPrincipal(
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForPrincipal")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	// The proto marks principal_id required, but protovalidate only runs
+	// behind a gRPC interceptor — in-process callers reach here directly,
+	// and without a principal filter listGrantsGeneric would page the
+	// entire grants table. Mirrors the Pebble adapter's guard.
+	principal := request.GetPrincipalId()
+	if principal == nil || principal.GetResource() == "" {
+		err = errors.New("ListGrantsForPrincipal: missing principal_id")
+		return nil, err
+	}
 
 	ret, nextPageToken, err := listGrantsGeneric(ctx, c, request, false)
 	if err != nil {

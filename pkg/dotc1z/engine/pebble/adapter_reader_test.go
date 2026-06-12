@@ -709,6 +709,14 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 			t.Errorf("got %q, want g1", resp.GetList()[0].GetId())
 		}
 	})
+
+	t.Run("missing principal errors", func(t *testing.T) {
+		if _, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+			PageSize: 100,
+		}.Build()); err == nil {
+			t.Fatal("expected error for missing principal_id")
+		}
+	})
 }
 
 // TestListStaticEntitlementsPebble is a parity smoke test for the
