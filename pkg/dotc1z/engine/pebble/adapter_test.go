@@ -94,7 +94,7 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 	}
 
 	// ListGrantsForPrincipal filtered by principal alice → 2 grants.
-	gforP, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+	gforP, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 		PrincipalId: v2.ResourceId_builder{
 			ResourceType: "user",
 			Resource:     "alice",

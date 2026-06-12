@@ -681,7 +681,7 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 	}
 
 	t.Run("returns all grants for principal", func(t *testing.T) {
-		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 			PageSize:    100,
 		}.Build())
@@ -694,7 +694,7 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 	})
 
 	t.Run("entitlement filter narrows", func(t *testing.T) {
-		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
 			PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 			PageSize:    100,

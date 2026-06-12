@@ -39,14 +39,9 @@ type BatonService struct {
 	syncID       string
 	resourceType string
 	store        dotc1z.C1ZStore
-	principals   grantPrincipalLister
 	storeCache   *storecache.StoreCache
 	devMode      bool
 	cache        sync.Map
-}
-
-type grantPrincipalLister interface {
-	ListGrantsForPrincipal(ctx context.Context, request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error)
 }
 
 // AccessCounts holds aggregated principal counts by resource type for a given resource.
@@ -231,14 +226,14 @@ func (b *BatonService) GetAccess(ctx context.Context, resourceType, resourceID s
 	var entitlements []*v2.Entitlement
 	pageToken := ""
 	for {
-		req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		req := reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			PrincipalId: &v2.ResourceId{
 				ResourceType: resourceType,
 				Resource:     resourceID,
 			},
 			PageToken: pageToken,
 		}.Build()
-		resp, err := b.principals.ListGrantsForPrincipal(ctx, req)
+		resp, err := b.store.ListGrantsForPrincipal(ctx, req)
 		if err != nil {
 			return nil, err
 		}

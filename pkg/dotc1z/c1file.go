@@ -1432,6 +1432,11 @@ func (c *C1File) CurrentDBSizeBytes() (int64, error) {
 // compile time instead of silently turning off the expand-log size fields.
 var _ connectorstore.DBSizeProvider = (*C1File)(nil)
 
+// Compile-time assertion that *C1File satisfies the full
+// GrantsReaderServiceServer contract, which now includes
+// ListGrantsForPrincipal as a first-class required method.
+var _ reader_v2.GrantsReaderServiceServer = (*C1File)(nil)
+
 func (c *C1File) AttachFile(other *C1File, dbName string) (*C1FileAttached, error) {
 	_, err := c.db.Exec(`ATTACH DATABASE ? AS ?`, other.dbFilePath, dbName)
 	if err != nil {

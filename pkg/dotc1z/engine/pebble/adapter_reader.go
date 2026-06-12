@@ -16,6 +16,11 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
+// Compile-time assertion: *Adapter must satisfy the full
+// GrantsReaderServiceServer contract, which now includes
+// ListGrantsForPrincipal as a first-class required method.
+var _ reader_v2.GrantsReaderServiceServer = (*Adapter)(nil)
+
 // Reader gRPC service methods. The syncer (`pkg/sync/syncer.go`) and
 // the grant expander (`pkg/sync/expand/expander.go`) hard-depend on
 // these — without them the syncer can't run against the Pebble
@@ -301,19 +306,13 @@ func (a *Adapter) ListGrantPrincipalKeysForEntitlement(
 	return keys, next, nil
 }
 
-// ListGrantsForPrincipal is the Go-level convenience method that
-// matches C1File.ListGrantsForPrincipal. It is NOT a gRPC RPC —
-// the explorer / cel-search consumers reach C1File directly today.
-// Adapter exposes the same shape for callers that take a typed
-// store (refactor to a shared interface is tracked separately).
-//
-// Semantically equivalent to ListGrantsForEntitlement(req) where
-// the request carries a principal filter — the underlying
-// PaginateGrantsByPrincipal index walk is what makes this O(K).
+// ListGrantsForPrincipal returns all grants where the given principal_id is
+// the principal. The optional Entitlement field narrows results to a single
+// entitlement. Implements reader_v2.GrantsReaderServiceServer.
 func (a *Adapter) ListGrantsForPrincipal(
 	ctx context.Context,
-	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
-) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+	req *reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForPrincipalResponse, error) {
 	syncID, err := a.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
@@ -321,7 +320,7 @@ func (a *Adapter) ListGrantsForPrincipal(
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
-	principal := req.GetPrincipalId() //nolint:staticcheck // ignore deprecated field
+	principal := req.GetPrincipalId()
 	if principal == nil || principal.GetResource() == "" {
 		return nil, errors.New("ListGrantsForPrincipal: missing principal_id")
 	}
@@ -343,7 +342,7 @@ func (a *Adapter) ListGrantsForPrincipal(
 		}
 		out = append(out, V3GrantToV2(rec))
 	}
-	return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{
+	return reader_v2.GrantsReaderServiceListGrantsForPrincipalResponse_builder{
 		List:          out,
 		NextPageToken: next,
 	}.Build(), nil

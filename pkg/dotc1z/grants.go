@@ -431,18 +431,18 @@ func (c *C1File) ListGrantsForEntitlement(
 
 func (c *C1File) ListGrantsForPrincipal(
 	ctx context.Context,
-	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
-) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+	request *reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForPrincipalResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForPrincipal")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret, nextPageToken, err := listGrantsGeneric(ctx, c, request, false)
 	if err != nil {
-		return nil, fmt.Errorf("error listing grants for principal '%s': %w", request.GetPrincipalId(), err) //nolint:staticcheck // ignore deprecated field
+		return nil, fmt.Errorf("error listing grants for principal '%s': %w", request.GetPrincipalId(), err)
 	}
 
-	return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{
+	return reader_v2.GrantsReaderServiceListGrantsForPrincipalResponse_builder{
 		List:          ret,
 		NextPageToken: nextPageToken,
 	}.Build(), nil
