@@ -1731,6 +1731,15 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		}
 	}
 
+	// Filter out grants with nil principals before inserting grants into the store.
+	grants = slices.DeleteFunc(grants, func(g *v2.Grant) bool {
+		if g.GetPrincipal() == nil {
+			l.Warn("grant principal is nil, skipping", zap.String("grant_id", g.GetId()))
+			return true
+		}
+		return false
+	})
+
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
 		if !s.dontExpandGrants && grantAnnos.Contains(&v2.GrantExpandable{}) {
