@@ -47,7 +47,9 @@ func (m *MemoryRef) PutGrantRecord(_ context.Context, r *v3.GrantRecord) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	sid := m.resolveSync(r.GetSyncId())
+	// GrantRecord values do not carry a sync_id in v3; writer paths bind
+	// grants to the current sync's keyspace.
+	sid := m.resolveSync("")
 	if sid == "" {
 		return fmt.Errorf("memoryref: no sync_id")
 	}

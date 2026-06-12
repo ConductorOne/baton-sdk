@@ -150,7 +150,6 @@ func TestGenerateSyncDiffOrphanGrantSkipped(t *testing.T) {
 		t.Fatalf("PutGrants: %v", err)
 	}
 	orphan := v3.GrantRecord_builder{
-		SyncId:     applied,
 		ExternalId: "g-orphan",
 	}.Build()
 	if err := a.engine.PutGrantRecord(ctx, orphan); err != nil {

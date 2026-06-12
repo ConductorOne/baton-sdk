@@ -100,7 +100,6 @@ func TestPutResourceRecordOverwriteCleansIndexes(t *testing.T) {
 
 	mkRes := func(parentRT, parentID string) *v3.ResourceRecord {
 		return v3.ResourceRecord_builder{
-			SyncId:         syncID,
 			ResourceTypeId: "user",
 			ResourceId:     "alice",
 			Parent: v3.ResourceRef_builder{
@@ -146,7 +145,6 @@ func TestPutEntitlementRecordOverwriteCleansIndexes(t *testing.T) {
 	}
 	mkEnt := func(resID string) *v3.EntitlementRecord {
 		return v3.EntitlementRecord_builder{
-			SyncId:     syncID,
 			ExternalId: "read",
 			Resource: v3.ResourceRef_builder{
 				ResourceTypeId: "app",
@@ -254,7 +252,6 @@ func TestFreshSyncWithinCallDuplicateResourceDedup(t *testing.T) {
 	}
 	mkRes := func(parentID string) *v3.ResourceRecord {
 		return v3.ResourceRecord_builder{
-			SyncId:         syncID,
 			ResourceTypeId: "user",
 			ResourceId:     "alice",
 			Parent: v3.ResourceRef_builder{
@@ -294,7 +291,6 @@ func TestFreshSyncWithinCallDuplicateEntitlementDedup(t *testing.T) {
 	}
 	mkEnt := func(resID string) *v3.EntitlementRecord {
 		return v3.EntitlementRecord_builder{
-			SyncId:     syncID,
 			ExternalId: "read",
 			Resource: v3.ResourceRef_builder{
 				ResourceTypeId: "app",

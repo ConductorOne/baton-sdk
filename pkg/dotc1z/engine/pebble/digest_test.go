@@ -13,13 +13,13 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
 
-// putEnt writes an entitlement record whose external_id is entID — the
-// same string grants reference via EntitlementRef.EntitlementId, which
-// is what BuildAllGrantDigests keys each digest on.
-func putEnt(t testing.TB, e *Engine, ctx context.Context, syncID, entID string) {
+// putEnt writes an entitlement record (under the engine's current
+// sync) whose external_id is entID — the same string grants reference
+// via EntitlementRef.EntitlementId, which is what BuildAllGrantDigests
+// keys each digest on.
+func putEnt(t testing.TB, e *Engine, ctx context.Context, entID string) {
 	t.Helper()
 	rec := v3.EntitlementRecord_builder{
-		SyncId:     syncID,
 		ExternalId: entID,
 		Resource: v3.ResourceRef_builder{
 			ResourceTypeId: "app",
@@ -106,10 +106,7 @@ func seedEntitlement(t testing.TB, e *Engine, entID string, grants []*v3.GrantRe
 	if err := e.SetCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
-	putEnt(t, e, ctx, syncID, entID)
-	for _, g := range grants {
-		g.SetSyncId(syncID)
-	}
+	putEnt(t, e, ctx, entID)
 	if err := e.PutGrantRecords(ctx, grants...); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
@@ -130,10 +127,7 @@ func seedEntitlementAtWidth(t testing.TB, e *Engine, entID string, grants []*v3.
 	if err := e.SetCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
-	putEnt(t, e, ctx, syncID, entID)
-	for _, g := range grants {
-		g.SetSyncId(syncID)
-	}
+	putEnt(t, e, ctx, entID)
 	if err := e.PutGrantRecords(ctx, grants...); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
@@ -742,7 +736,6 @@ func TestDigestIncrementalEqualsRebuild(t *testing.T) {
 
 	put := func(g *v3.GrantRecord) {
 		t.Helper()
-		g.SetSyncId(syncID)
 		if err := e.PutGrantRecord(ctx, g); err != nil {
 			t.Fatalf("PutGrantRecord: %v", err)
 		}
@@ -897,9 +890,8 @@ func TestDigestMissingRootFallback(t *testing.T) {
 	if err := eb.SetCurrentSync(syncB); err != nil {
 		t.Fatal(err)
 	}
-	putEnt(t, eb, ctx, syncB, "ent-A")
+	putEnt(t, eb, ctx, "ent-A")
 	for _, g := range mk() {
-		g.SetSyncId(syncB)
 		if err := eb.PutGrantRecord(ctx, g); err != nil {
 			t.Fatal(err)
 		}

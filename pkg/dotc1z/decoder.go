@@ -365,18 +365,41 @@ func NewDecoder(f io.Reader, opts ...DecoderOption) (*decoder, error) {
 		}
 	}
 
-	o := &decoderOptions{
-		decoderConcurrency: 1,
-	}
-	for _, opt := range opts {
-		err := opt(o)
-		if err != nil {
-			return nil, err
-		}
+	o, err := applyDecoderOptions(opts...)
+	if err != nil {
+		return nil, err
 	}
 
 	return &decoder{
 		o: o,
 		f: f,
 	}, nil
+}
+
+func applyDecoderOptions(opts ...DecoderOption) (*decoderOptions, error) {
+	o := &decoderOptions{
+		decoderConcurrency: 1,
+	}
+	for _, opt := range opts {
+		if err := opt(o); err != nil {
+			return nil, err
+		}
+	}
+	return o, nil
+}
+
+func explicitMaxDecodedSizeForDecoderOptions(opts ...DecoderOption) (uint64, error) {
+	o, err := applyDecoderOptions(opts...)
+	if err != nil {
+		return 0, err
+	}
+	return o.maxDecodedSize, nil
+}
+
+func explicitMaxMemorySizeForDecoderOptions(opts ...DecoderOption) (uint64, error) {
+	o, err := applyDecoderOptions(opts...)
+	if err != nil {
+		return 0, err
+	}
+	return o.maxMemorySize, nil
 }

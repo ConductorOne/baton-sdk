@@ -116,6 +116,19 @@ type DBSizeProvider interface {
 	CurrentDBSizeBytes() (int64, error)
 }
 
+// ExpansionGrantLister is an optional capability for stores whose ListGrants
+// strips the GrantExpandable annotation into a side column on write (the SQLite
+// engine does; see dotc1z). ListGrantsWithExpansion is the paginated read that
+// re-attaches it, so a copy/sanitize that keeps ListGrants' resumable
+// page-cursor semantics (rather than switching to StreamGrants) still preserves
+// the grant-expansion topology end-to-end. Mirrors
+// StreamGrantsOptions.IncludeExpansion for the unary paginated read path.
+// Discovered by type assertion; readers that don't strip expansion (e.g. the
+// Pebble adapter, whose ListGrants already carries it) need not implement it.
+type ExpansionGrantLister interface {
+	ListGrantsWithExpansion(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error)
+}
+
 // GrantUpsertMode controls how grant conflicts are resolved during upsert.
 type GrantUpsertMode int
 

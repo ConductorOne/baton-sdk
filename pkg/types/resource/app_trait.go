@@ -8,6 +8,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+type AppSourceType string
+
 type AppTraitOption func(gt *v2.AppTrait) error
 
 func WithAppIcon(assetRef *v2.AssetRef) AppTraitOption {
@@ -49,6 +51,20 @@ func WithAppProfile(profile map[string]interface{}) AppTraitOption {
 func WithAppHelpURL(helpURL string) AppTraitOption {
 	return func(at *v2.AppTrait) error {
 		at.SetHelpUrl(helpURL)
+		return nil
+	}
+}
+
+func WithAppSourceType(sourceType AppSourceType) AppTraitOption {
+	return func(at *v2.AppTrait) error {
+		at.SetAppSourceType(string(sourceType))
+		return nil
+	}
+}
+
+func WithRawAppSourceType(raw string) AppTraitOption {
+	return func(at *v2.AppTrait) error {
+		at.SetRawAppSourceType(raw)
 		return nil
 	}
 }

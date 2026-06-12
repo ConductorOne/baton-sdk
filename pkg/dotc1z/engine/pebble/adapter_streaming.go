@@ -61,7 +61,7 @@ func (a *Adapter) StreamGrants(
 			return
 		}
 		if err != nil {
-			yield(nil, err)
+			yield(nil, adaptNotFound(err))
 		}
 	}
 }
@@ -102,7 +102,7 @@ func (a *Adapter) StreamResources(
 			return
 		}
 		if err != nil {
-			yield(nil, err)
+			yield(nil, adaptNotFound(err))
 		}
 	}
 }
@@ -139,7 +139,7 @@ func (a *Adapter) StreamEntitlements(
 			return
 		}
 		if err != nil {
-			yield(nil, err)
+			yield(nil, adaptNotFound(err))
 		}
 	}
 }

@@ -63,7 +63,7 @@ enum PayloadEncoding {
   PAYLOAD_ENCODING_UNSPECIFIED = 0;
 
   // Tar of a Pebble directory, compressed with zstd. The
-  // production default.
+  // production default in older v3 writers.
   PAYLOAD_ENCODING_TAR_ZSTD = 1;
 
   // Tar of a Pebble directory, uncompressed. For tenants whose
@@ -71,6 +71,92 @@ enum PayloadEncoding {
   // layer and want to avoid double-compression CPU at envelope
   // time, or for object-storage targets that compress in-transit.
   PAYLOAD_ENCODING_TAR = 2;
+
+  // 3 and 4 are skipped: pre-release dev builds briefly used them
+  // with conflicting meanings. Don't reuse.
+  reserved 3, 4;
+
+  // Per-file zstd frames written back-to-back, indexed by a trailing
+  // IndexedFrameIndex and fixed-size footer (see that message for
+  // the layout). No tar layer, no per-frame inline headers.
+  //
+  // Enables (a) parallel frame decode at open — the single-stream
+  // encodings decode sequentially on one core; (b) frame splicing at
+  // save: a writer that knows a payload file is byte-identical to one
+  // in the source envelope copies its compressed frame verbatim
+  // instead of re-encoding (Pebble SSTs are immutable and checkpoints
+  // hard-link them, so incremental folds reuse almost every frame);
+  // and (c) chunked object storage: the index carries every frame's
+  // byte range and SHA-256 content identity, so a store can upload
+  // only the frames a parent sync doesn't already hold.
+  PAYLOAD_ENCODING_INDEXED_ZSTD = 5;
+}
+
+// IndexedFrameIndex is the sole frame table for
+// PAYLOAD_ENCODING_INDEXED_ZSTD payloads. It is serialized (binary
+// proto) immediately after the last frame, followed by a fixed-size
+// footer carrying the index's absolute file offset, length, xxh64,
+// and a trailing magic:
+//
+//	payload := frame* | index | footer
+//	footer  := u64 indexOffset | u32 indexLen | u64 xxh64(index) | "C1ZIDX1\0"
+//
+// Frames carry no framing of their own — each is the bare zstd
+// stream of one payload file, with Frame_Content_Size advertised —
+// so the writer is single-pass (streamable to a non-seekable sink)
+// and a frame's byte range is directly usable as a standalone
+// object. The whole table is fetchable in O(1) reads — footer, then
+// index — which is what makes ranged reads over object storage
+// practical: fetch exactly the frames you want, no per-frame round
+// trips. A payload without a valid footer is corruption-class, the
+// same policy as a torn tar payload.
+//
+// Being a proto message, the index is the extension point for future
+// per-frame metadata (compression algorithm, dictionary IDs,
+// encryption) without a layout revision.
+message IndexedFrameIndex {
+  repeated IndexedFrameEntry entries = 1;
+  // Sum of raw_size over entries. Lets a reader budget extraction
+  // without summing.
+  int64 total_raw_size = 2;
+  // Sum of compressed_size over entries.
+  int64 total_compressed_size = 3;
+  // xxh64 of the marshaled manifest bytes (the region between the
+  // length prefix and the first frame). The manifest is otherwise
+  // the only unprotected byte region — frames carry zstd CRCs and
+  // raw-byte hashes, the index is covered by the footer's xxh64 —
+  // and the header-only manifest decode skips the descriptor
+  // closure, so a flipped bit there would otherwise go unnoticed.
+  // Also lets a chunked store verify reassembly of the envelope
+  // head. Zero means "not recorded".
+  fixed64 manifest_xxh64 = 4;
+}
+
+message IndexedFrameEntry {
+  // Slash-separated relative path of the payload file, identical to
+  // the name in the frame's inline header.
+  string name = 1;
+  // Absolute offset of the frame's compressed zstd bytes from the
+  // start of the envelope file (NOT from the payload start), so a
+  // ranged read needs no other context.
+  int64 frame_offset = 2;
+  int64 compressed_size = 3;
+  int64 raw_size = 4;
+  // xxh64 of the raw (decompressed) bytes. Matches the inline
+  // header; used for corruption detection and splice matching.
+  fixed64 raw_xxh64 = 5;
+  // SHA-256 of the raw bytes. Content-address identity for chunked
+  // object storage: compressed bytes are not stable across encoder
+  // versions, and xxh64 is too weak to key a fleet-wide chunk store.
+  //
+  // REQUIRED: readers reject entries whose value is not exactly 32
+  // bytes. Writers must always compute it, even when content
+  // addressing is not in play — a partially-identified index can't
+  // serve chunk dedupe later, and allowing absence would let
+  // truncated identities propagate through frame splicing. A future
+  // writer that genuinely cannot afford SHA-256 should introduce a
+  // new payload encoding (or footer version) rather than omit this.
+  bytes raw_sha256 = 6;
 }
 
 message RecordTypeInfo {
@@ -89,6 +175,13 @@ message SyncRunSummary {
   c1.storage.v3.SyncType type = 2;
   google.protobuf.Timestamp started_at = 3;
   google.protobuf.Timestamp ended_at = 4;
+  string parent_sync_id = 5;
+  // Projection of the engine's stats sidecar for this sync, when one
+  // exists. Lets readers (compaction source selection, overlay bucket
+  // planning, tooling) get row counts from the envelope header without
+  // unpacking the payload. Absent for syncs whose sidecar was never
+  // written (e.g. interrupted syncs).
+  c1.storage.v3.SyncStatsRecord stats = 6;
 }
 
 // PebbleEngineConfig is the value placed inside C1ZManifestV3.engine_config

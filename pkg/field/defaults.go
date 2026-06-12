@@ -329,6 +329,17 @@ var (
 			r.Gte(1).Lte(1800)
 		}))
 
+	// StorageEngineField selects the dotc1z storage engine for sync tasks.
+	// Empty uses the baton-sdk default (sqlite for new files).
+	StorageEngineField = StringField("storage-engine",
+		WithDescription("The storage engine to use when opening the sync c1z file: sqlite or pebble. "+
+			"Leave unset to use the baton-sdk default."),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+		WithString(func(r *StringRuler) {
+			r.In([]string{"", "sqlite", "pebble"})
+		}))
+
 	// TaskConcurrencyField limits concurrent Baton task execution in the runner
 	// (service mode). Semantics match [WorkerCountField] / sync worker parallelism.
 	TaskConcurrencyField = IntField("task-concurrency",
@@ -432,6 +443,7 @@ var DefaultFields = []SchemaField{
 	healthCheckBindAddressField,
 
 	HttpTimeoutField,
+	StorageEngineField,
 	TaskConcurrencyField,
 }
 

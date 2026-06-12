@@ -3,8 +3,11 @@ package c1zsanitize
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -13,6 +16,57 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
+
+// parallelTransform applies fn to each index [0,n) using up to GOMAXPROCS
+// workers that pull indices off a shared counter. fn must write only to its
+// own index i of a pre-sized output slice, so order is preserved with no
+// channels. The transform is CPU-bound (HMAC + proto marshal/unmarshal) and
+// touches only concurrency-safe shared state (pooled HMAC, mutex-guarded
+// caches), so fanning it out is safe; reads and writes around it stay
+// sequential because SQLite is a single writer.
+func parallelTransform(n int, fn func(i int)) {
+	workers := runtime.GOMAXPROCS(0)
+	if workers > n {
+		workers = n
+	}
+	if workers <= 1 {
+		for i := 0; i < n; i++ {
+			fn(i)
+		}
+		return
+	}
+	var idx int64 = -1
+	var wg sync.WaitGroup
+	// A panic in fn must unwind to the caller, not crash the process from an
+	// unrecovered worker goroutine. Capture the first panic, stop handing out
+	// work, and re-panic on the calling goroutine after the workers drain — the
+	// same failure path a sequential fn would take.
+	var panicOnce sync.Once
+	var panicVal any
+	wg.Add(workers)
+	for w := 0; w < workers; w++ {
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					panicOnce.Do(func() { panicVal = r })
+					atomic.StoreInt64(&idx, int64(n)) // halt remaining pulls
+				}
+			}()
+			for {
+				i := int(atomic.AddInt64(&idx, 1))
+				if i >= n {
+					return
+				}
+				fn(i)
+			}
+		}()
+	}
+	wg.Wait()
+	if panicVal != nil {
+		panic(panicVal)
+	}
+}
 
 // listPageSize is the source read page, which also bounds how many
 // rows each dst Put batches into one transaction. Larger pages mean
@@ -105,10 +159,8 @@ func (s *sanitizer) copyResourceTypes(
 	}
 
 	xformStart := time.Now()
-	out := make([]*v2.ResourceType, 0, len(rows))
-	for _, rt := range rows {
-		out = append(out, s.transformResourceType(rt, refs))
-	}
+	out := make([]*v2.ResourceType, len(rows))
+	parallelTransform(len(rows), func(i int) { out[i] = s.transformResourceType(rows[i], refs) })
 	xformDur := time.Since(xformStart)
 	// Sort by output id for destination unique-index locality.
 	sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
@@ -122,12 +174,19 @@ func (s *sanitizer) copyResourceTypes(
 	return nil
 }
 
+// copyResources walks the source resources for srcSyncID, transforming each
+// (which registers its trait icon/logo asset refs into refs). When write is
+// true the transformed rows are written to dst; when false the walk runs purely
+// to repopulate refs — the resume path where resources were already written in
+// a prior run but their asset refs (lost with the prior process) must be
+// re-collected before copyAssets, mirroring how copyResourceTypes always runs.
 func (s *sanitizer) copyResources(
 	ctx context.Context,
 	src connectorstore.Reader,
 	dst connectorstore.Writer,
 	srcSyncID string,
 	refs *assetRefSet,
+	write bool,
 ) error {
 	pageToken := ""
 	page := 0
@@ -144,14 +203,13 @@ func (s *sanitizer) copyResources(
 			return fmt.Errorf("list resources: %w", err)
 		}
 		xformStart := time.Now()
-		out := make([]*v2.Resource, 0, len(resp.GetList()))
-		for _, r := range resp.GetList() {
-			out = append(out, s.transformResource(r, refs))
-		}
+		list := resp.GetList()
+		out := make([]*v2.Resource, len(list))
+		parallelTransform(len(list), func(i int) { out[i] = s.transformResource(list[i], refs) })
 		xformDur := time.Since(xformStart)
 		sortByResourceID(out)
 		putStart := time.Now()
-		if len(out) > 0 {
+		if write && len(out) > 0 {
 			if err := dst.PutResources(ctx, out...); err != nil {
 				return fmt.Errorf("put resources: %w", err)
 			}
@@ -165,12 +223,16 @@ func (s *sanitizer) copyResources(
 	}
 }
 
+// copyEntitlements mirrors copyResources: it always walks (registering any
+// entitlement asset refs into refs) and writes only when write is true, so the
+// resume path re-collects asset refs for an already-written entitlement phase.
 func (s *sanitizer) copyEntitlements(
 	ctx context.Context,
 	src connectorstore.Reader,
 	dst connectorstore.Writer,
 	srcSyncID string,
 	refs *assetRefSet,
+	write bool,
 ) error {
 	pageToken := ""
 	page := 0
@@ -187,14 +249,13 @@ func (s *sanitizer) copyEntitlements(
 			return fmt.Errorf("list entitlements: %w", err)
 		}
 		xformStart := time.Now()
-		out := make([]*v2.Entitlement, 0, len(resp.GetList()))
-		for _, e := range resp.GetList() {
-			out = append(out, s.transformEntitlement(e, refs))
-		}
+		list := resp.GetList()
+		out := make([]*v2.Entitlement, len(list))
+		parallelTransform(len(list), func(i int) { out[i] = s.transformEntitlement(list[i], refs) })
 		xformDur := time.Since(xformStart)
 		sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
 		putStart := time.Now()
-		if len(out) > 0 {
+		if write && len(out) > 0 {
 			if err := dst.PutEntitlements(ctx, out...); err != nil {
 				return fmt.Errorf("put entitlements: %w", err)
 			}
@@ -215,8 +276,22 @@ func (s *sanitizer) copyGrants(
 	srcSyncID string,
 	refs *assetRefSet,
 	cache *grantSubCache,
+	startPageToken string,
 ) error {
-	pageToken := ""
+	// Preserve grant-expansion topology end-to-end. Plain ListGrants reads only
+	// the data blob, but the SQLite writer strips GrantExpandable into a side
+	// column — so without the expansion-aware read the sanitizer never sees the
+	// annotation and handleGrantExpandable never fires, silently dropping the
+	// expansion edges. ListGrantsWithExpansion re-attaches it while keeping the
+	// resumable page-cursor semantics this phase's checkpointing relies on
+	// (switching to StreamGrants would change those). Readers without the
+	// capability (already-expanded stores) fall back to plain ListGrants.
+	listGrants := src.ListGrants
+	if exp, ok := src.(connectorstore.ExpansionGrantLister); ok {
+		listGrants = exp.ListGrantsWithExpansion
+	}
+
+	pageToken := startPageToken
 	page := 0
 	for {
 		req := v2.GrantsServiceListGrantsRequest_builder{
@@ -225,16 +300,15 @@ func (s *sanitizer) copyGrants(
 			Annotations: syncIDAnnotations(srcSyncID),
 		}.Build()
 		readStart := time.Now()
-		resp, err := src.ListGrants(ctx, req)
+		resp, err := listGrants(ctx, req)
 		readDur := time.Since(readStart)
 		if err != nil {
 			return fmt.Errorf("list grants: %w", err)
 		}
 		xformStart := time.Now()
-		out := make([]*v2.Grant, 0, len(resp.GetList()))
-		for _, g := range resp.GetList() {
-			out = append(out, s.transformGrant(g, refs, cache))
-		}
+		list := resp.GetList()
+		out := make([]*v2.Grant, len(list))
+		parallelTransform(len(list), func(i int) { out[i] = s.transformGrant(list[i], refs, cache) })
 		xformDur := time.Since(xformStart)
 		sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
 		putStart := time.Now()
@@ -244,7 +318,23 @@ func (s *sanitizer) copyGrants(
 			}
 		}
 		s.logPage(srcSyncID, "grants", page, len(resp.GetList()), readDur, xformDur, time.Since(putStart))
-		if resp.GetNextPageToken() == "" {
+		next := resp.GetNextPageToken()
+		// Record the next grant page as the resume point. The grants already
+		// written this page are durable in the dst sync; on resume the loop
+		// restarts at `next` (PutGrants upserts, so even a re-written boundary
+		// page is idempotent). Keyset pagination on the source rowid makes the
+		// token stable across runs.
+		if err := s.checkpoint(ctx, dst, srcSyncID, phaseGrants, next); err != nil {
+			return fmt.Errorf("checkpoint: %w", err)
+		}
+		if next == "" {
+			// Grants are fully written. Advance the checkpoint to the terminal
+			// assets phase so a crash before EndSync resumes straight into
+			// copyAssets instead of re-running every grant page (an empty
+			// phaseGrants token is indistinguishable from "grants not started").
+			if err := s.checkpoint(ctx, dst, srcSyncID, phaseAssets, ""); err != nil {
+				return fmt.Errorf("checkpoint: %w", err)
+			}
 			if cache != nil {
 				s.log.Info("c1zsanitize: grant sub-cache stats",
 					zap.String("sync_id", srcSyncID),
@@ -253,7 +343,7 @@ func (s *sanitizer) copyGrants(
 			}
 			return nil
 		}
-		pageToken = resp.GetNextPageToken()
+		pageToken = next
 		page++
 	}
 }
@@ -336,17 +426,20 @@ func (s *sanitizer) transformResourceID(in *v2.ResourceId) *v2.ResourceId {
 }
 
 // warnUndeclaredResourceType logs once per resource-type token that appears in
-// a resource id but was never declared in copyResourceTypes. Not safe for
-// concurrent callers — the transform stage is sequential today; revisit the
-// dedup map if it is ever parallelized.
+// a resource id but was never declared in copyResourceTypes. Called from the
+// concurrent transform workers, so the dedup set is guarded by statsMu; the
+// log fires outside the lock.
 func (s *sanitizer) warnUndeclaredResourceType(rt string) {
 	if rt == "" || s.isKnownResourceType(rt) {
 		return
 	}
+	s.statsMu.Lock()
 	if _, seen := s.warnedUndeclaredTypes[rt]; seen {
+		s.statsMu.Unlock()
 		return
 	}
 	s.warnedUndeclaredTypes[rt] = struct{}{}
+	s.statsMu.Unlock()
 	s.log.Warn("c1zsanitize: resource id references an undeclared resource type; preserved verbatim here but HMAC'd inside composite ids",
 		zap.String("resource_type", rt))
 }
@@ -417,6 +510,13 @@ const maxCachedPrincipals = 1_000_000
 // proto.Equal cross-check against a fresh transform for the first
 // verifySampleLimit hits — cheap insurance, off by default.
 type grantSubCache struct {
+	// mu guards the maps and the verify counters. The grant transform fans out
+	// across workers, so the cache is shared. The expensive transform on a miss
+	// runs OUTSIDE the lock (double-checked insert), so the critical sections
+	// are only map lookups/inserts — a plain Mutex is enough and avoids the
+	// RWMutex bookkeeping for what is, after warmup, a tiny read-mostly map
+	// (entitlement cardinality is orders of magnitude below grant count).
+	mu sync.Mutex
 	// SHARED: the cached *v2.Entitlement / *v2.Resource values below are
 	// referenced by multiple output grants. Never mutate one after Build().
 	// Mutation after caching = cross-grant corruption.
@@ -452,19 +552,29 @@ func (s *sanitizer) cachedEntitlement(in *v2.Entitlement, refs *assetRefSet, cac
 		return s.transformEntitlement(in, refs)
 	}
 	key := in.GetId()
-	if key != "" {
-		if got, ok := cache.entitlements[key]; ok {
-			s.verifyCachedEntitlement(in, refs, got, cache)
-			// SHARED: returned to many output grants — never mutate after Build().
-			return got
-		}
+	if key == "" {
+		return s.transformEntitlement(in, refs) // nothing to key on
 	}
+	cache.mu.Lock()
+	got, ok := cache.entitlements[key]
+	cache.mu.Unlock()
+	if ok {
+		s.verifyCachedEntitlement(in, refs, got, cache)
+		// SHARED: returned to many output grants — never mutate after Build().
+		return got
+	}
+	// Transform outside the lock. Two workers may race to fill the same key;
+	// both produce proto-equal results (the transform is a pure function of
+	// (secret, input)), so the double-check below just keeps one shared pointer.
 	out := s.transformEntitlement(in, refs)
-	if key != "" {
+	cache.mu.Lock()
+	if existing, ok := cache.entitlements[key]; ok {
+		out = existing
+	} else {
 		// SHARED once stored: referenced by every later grant with this id.
-		// Never mutate after Build() — mutation = cross-grant corruption.
 		cache.entitlements[key] = out
 	}
+	cache.mu.Unlock()
 	return out
 }
 
@@ -486,19 +596,26 @@ func (s *sanitizer) cachedPrincipal(in *v2.Resource, refs *assetRefSet, cache *g
 	if id := in.GetId(); id != nil && id.GetResource() != "" {
 		key = id.GetResourceType() + "\x00" + id.GetResource()
 	}
-	if key != "" {
-		if got, ok := cache.principals[key]; ok {
-			s.verifyCachedPrincipal(in, refs, got, cache)
-			// SHARED: returned to many output grants — never mutate after Build().
-			return got
-		}
+	if key == "" {
+		return s.transformResource(in, refs) // uncacheable empty id
+	}
+	cache.mu.Lock()
+	got, ok := cache.principals[key]
+	cache.mu.Unlock()
+	if ok {
+		s.verifyCachedPrincipal(in, refs, got, cache)
+		// SHARED: returned to many output grants — never mutate after Build().
+		return got
 	}
 	out := s.transformResource(in, refs)
-	if key != "" && len(cache.principals) < maxCachedPrincipals {
+	cache.mu.Lock()
+	if existing, ok := cache.principals[key]; ok {
+		out = existing
+	} else if len(cache.principals) < maxCachedPrincipals {
 		// SHARED once stored: referenced by every later grant with this id.
-		// Never mutate after Build() — mutation = cross-grant corruption.
 		cache.principals[key] = out
 	}
+	cache.mu.Unlock()
 	return out
 }
 
@@ -507,10 +624,16 @@ func (s *sanitizer) cachedPrincipal(in *v2.Resource, refs *assetRefSet, cache *g
 // differs from the fresh one, catching any source that violates the
 // one-object-per-id assumption.
 func (s *sanitizer) verifyCachedEntitlement(in *v2.Entitlement, refs *assetRefSet, cached *v2.Entitlement, cache *grantSubCache) {
-	if !cache.verify || cache.verifySeenEntitlements >= verifySampleLimit {
+	if !cache.verify {
+		return
+	}
+	cache.mu.Lock()
+	if cache.verifySeenEntitlements >= verifySampleLimit {
+		cache.mu.Unlock()
 		return
 	}
 	cache.verifySeenEntitlements++
+	cache.mu.Unlock()
 	fresh := s.transformEntitlement(in, refs)
 	if !proto.Equal(fresh, cached) {
 		s.log.Warn("c1zsanitize: grant sub-cache mismatch; embedded entitlement differs across grants for the same id",
@@ -523,10 +646,16 @@ func (s *sanitizer) verifyCachedEntitlement(in *v2.Entitlement, refs *assetRefSe
 // contract, catching any source that emits diverging principal objects for the
 // same resource id within a sync.
 func (s *sanitizer) verifyCachedPrincipal(in *v2.Resource, refs *assetRefSet, cached *v2.Resource, cache *grantSubCache) {
-	if !cache.verify || cache.verifySeenPrincipals >= verifySampleLimit {
+	if !cache.verify {
+		return
+	}
+	cache.mu.Lock()
+	if cache.verifySeenPrincipals >= verifySampleLimit {
+		cache.mu.Unlock()
 		return
 	}
 	cache.verifySeenPrincipals++
+	cache.mu.Unlock()
 	fresh := s.transformResource(in, refs)
 	if !proto.Equal(fresh, cached) {
 		s.log.Warn("c1zsanitize: grant sub-cache mismatch; embedded principal differs across grants for the same id",

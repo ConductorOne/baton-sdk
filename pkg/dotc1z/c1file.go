@@ -348,6 +348,10 @@ type c1zOptions struct {
 	// values: PayloadEncodingTarZstd (default), PayloadEncodingTar.
 	// Zero value means PayloadEncodingTarZstd.
 	payloadEncoding PayloadEncoding
+
+	// decoderPool optionally scopes v3 payload-decoder reuse to the
+	// caller's operation. See WithDecoderPool.
+	decoderPool *EnvelopeDecoderPool
 }
 
 type C1ZOption func(*c1zOptions)

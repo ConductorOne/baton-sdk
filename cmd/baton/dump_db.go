@@ -51,15 +51,12 @@ func runDumpDB(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if format == dotc1z.C1ZFormatV3 {
-		env, err := formatv3.ReadEnvelope(f)
-		if err != nil {
-			return err
-		}
-		defer env.Close()
 		if err := os.MkdirAll(outPath, 0o755); err != nil {
 			return err
 		}
-		if err := formatv3.ExtractZstdTar(env.PayloadReader, outPath); err != nil {
+		// ExtractEnvelopePayload dispatches on the manifest's payload
+		// encoding (tar, tar_zstd, indexed_zstd).
+		if _, _, err := formatv3.ExtractEnvelopePayload(f, outPath); err != nil {
 			return err
 		}
 		_, _ = fmt.Fprintf(os.Stdout, "Extracted Pebble payload directory to %s\n", outPath)

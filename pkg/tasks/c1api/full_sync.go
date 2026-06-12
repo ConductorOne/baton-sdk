@@ -14,6 +14,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
@@ -38,6 +39,7 @@ type fullSyncTaskHandler struct {
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
 	workerCount                         int
+	storageEngine                       dotc1z.Engine
 }
 
 func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
@@ -55,6 +57,13 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		sdkSync.WithTmpDir(c.helpers.TempDir()),
 		sdkSync.WithWorkerCount(c.workerCount),
 	}
+	engine := c.storageEngine
+	if engine == "" && c.task.GetSyncFull().GetStorageEngine() != "" {
+		engine = dotc1z.Engine(c.task.GetSyncFull().GetStorageEngine())
+	}
+	if engine != "" {
+		syncOpts = append(syncOpts, sdkSync.WithStorageEngine(engine))
+	}
 
 	if c.task.GetSyncFull().GetSkipExpandGrants() {
 		// Have C1 expand grants. This is faster & results in a smaller c1z upload.
@@ -68,6 +77,10 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	if c.task.GetSyncFull().GetSkipEntitlementsAndGrants() {
 		// Sync only resources. This is meant to be used for a first sync so initial data gets into the UI faster.
 		syncOpts = append(syncOpts, sdkSync.WithSkipEntitlementsAndGrants(true))
+	}
+
+	if c.task.GetSyncFull().GetSkipGrants() {
+		syncOpts = append(syncOpts, sdkSync.WithSkipGrants(true))
 	}
 
 	if c.externalResourceC1ZPath != "" {
@@ -212,6 +225,7 @@ func newFullSyncTaskHandler(
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 	workerCount int,
+	storageEngine dotc1z.Engine,
 ) tasks.TaskHandler {
 	return &fullSyncTaskHandler{
 		task:                                task,
@@ -222,6 +236,7 @@ func newFullSyncTaskHandler(
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
 		workerCount:                         workerCount,
+		storageEngine:                       storageEngine,
 	}
 }
 

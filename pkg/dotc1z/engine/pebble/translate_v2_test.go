@@ -27,9 +27,6 @@ func TestV2GrantRoundtrip(t *testing.T) {
 	}.Build()
 
 	v3rec := V2GrantToV3("sync-id-1", original)
-	if v3rec.GetSyncId() != "sync-id-1" {
-		t.Errorf("sync_id: got %q", v3rec.GetSyncId())
-	}
 	if v3rec.GetExternalId() != "grant-1" {
 		t.Errorf("external_id: got %q", v3rec.GetExternalId())
 	}

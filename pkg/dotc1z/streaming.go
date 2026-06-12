@@ -6,6 +6,8 @@ import (
 	"iter"
 
 	"github.com/doug-martin/goqu/v9"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -31,7 +33,13 @@ func (c *C1File) StreamGrants(
 			yield(nil, err)
 			return
 		}
-		q := c.db.From(grants.Name()).Prepared(true).Select("data")
+		cols := []interface{}{"data"}
+		if opts.IncludeExpansion {
+			// The serialized GrantExpandable lives in a side column (stripped
+			// from data on write); pull it so we can re-attach it.
+			cols = append(cols, "expansion")
+		}
+		q := c.db.From(grants.Name()).Prepared(true).Select(cols...)
 		if resolved != "" {
 			q = q.Where(goqu.C("sync_id").Eq(resolved))
 		}
@@ -45,14 +53,79 @@ func (c *C1File) StreamGrants(
 			q = q.Where(goqu.C("principal_resource_id").Eq(opts.PrincipalResourceID))
 		}
 		q = q.Order(goqu.C("id").Asc())
-		streamRows(ctx, c, q, func(data []byte) bool {
-			m := &v2.Grant{}
-			if err := proto.Unmarshal(data, m); err != nil {
-				return yield(nil, err)
-			}
-			return yield(m, nil)
-		}, yield)
+
+		if !opts.IncludeExpansion {
+			streamRows(ctx, c, q, func(data []byte) bool {
+				m := &v2.Grant{}
+				if err := proto.Unmarshal(data, m); err != nil {
+					return yield(nil, err)
+				}
+				return yield(m, nil)
+			}, yield)
+			return
+		}
+		c.streamGrantsWithExpansion(ctx, q, yield)
 	}
+}
+
+// streamGrantsWithExpansion runs the two-column (data, expansion) scan and
+// re-attaches the GrantExpandable annotation that the SQLite writer strips
+// into the expansion column, so the streamed grant carries its full expansion
+// topology. Reattached/total counts are logged once when the scan completes.
+func (c *C1File) streamGrantsWithExpansion(
+	ctx context.Context,
+	q *goqu.SelectDataset,
+	yield func(*v2.Grant, error) bool,
+) {
+	query, args, err := q.ToSQL()
+	if err != nil {
+		yield(nil, err)
+		return
+	}
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		yield(nil, err)
+		return
+	}
+	defer rows.Close()
+
+	var total, reattached int
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			yield(nil, err)
+			return
+		}
+		var data, expansion sql.RawBytes
+		if err := rows.Scan(&data, &expansion); err != nil {
+			yield(nil, err)
+			return
+		}
+		g := &v2.Grant{}
+		if err := proto.Unmarshal(data, g); err != nil {
+			yield(nil, err)
+			return
+		}
+		total++
+		attached, err := reattachExpansion(g, expansion)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		if attached {
+			reattached++
+		}
+		if !yield(g, nil) {
+			return
+		}
+	}
+	if err := rows.Err(); err != nil {
+		yield(nil, err)
+		return
+	}
+	ctxzap.Extract(ctx).Debug("c1z: streamed grants with expansion re-attached",
+		zap.Int("grants", total),
+		zap.Int("expansion_reattached", reattached),
+	)
 }
 
 // StreamResources yields resources optionally filtered by RT.

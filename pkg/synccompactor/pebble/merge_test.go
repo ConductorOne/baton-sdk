@@ -13,7 +13,6 @@ import (
 
 func grantAt(syncID, externalID string, at time.Time) *v3.GrantRecord {
 	return v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: externalID,
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",
@@ -58,9 +57,9 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := dst.SetCurrentSync(destSync); err != nil {
-		t.Fatal(err)
-	}
+	// No SetCurrentSync here: MergeInto must bind the dest engine to
+	// destSyncID itself (record values carry no sync_id, so a stale
+	// binding would silently write into the wrong sync's keyspace).
 	if err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync); err != nil {
 		t.Fatalf("MergeInto: %v", err)
 	}
@@ -70,13 +69,10 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 		t.Fatalf("merged grant count = %d, want 3 (union, deduped)", got)
 	}
 
-	// Every survivor is re-keyed to destSync, and g-shared kept the
-	// newer discovered_at.
+	// Iterating under destSync proves every survivor is re-keyed there,
+	// and g-shared kept the newer discovered_at.
 	seen := map[string]*v3.GrantRecord{}
 	if err := dst.IterateGrantsBySync(ctx, destSync, func(r *v3.GrantRecord) bool {
-		if r.GetSyncId() != destSync {
-			t.Errorf("grant %q sync_id = %q, want destSync %q", r.GetExternalId(), r.GetSyncId(), destSync)
-		}
 		seen[r.GetExternalId()] = r
 		return true
 	}); err != nil {
@@ -124,9 +120,8 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 	if err := src2.PutGrantRecords(ctx, g2); err != nil {
 		t.Fatal(err)
 	}
-	_ = dst.SetCurrentSync(destSync)
-
-	// src1 applied first → incumbent wins the tie.
+	// src1 applied first → incumbent wins the tie. MergeInto binds the
+	// dest sync itself.
 	if err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync); err != nil {
 		t.Fatal(err)
 	}

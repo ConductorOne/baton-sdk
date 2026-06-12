@@ -644,11 +644,13 @@ func (b0 UserTrait_builder) Build() *UserTrait {
 }
 
 type GroupTrait struct {
-	state              protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Icon    *AssetRef              `protobuf:"bytes,1,opt,name=icon,proto3"`
-	xxx_hidden_Profile *structpb.Struct       `protobuf:"bytes,2,opt,name=profile,proto3"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state                         protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Icon               *AssetRef              `protobuf:"bytes,1,opt,name=icon,proto3"`
+	xxx_hidden_Profile            *structpb.Struct       `protobuf:"bytes,2,opt,name=profile,proto3"`
+	xxx_hidden_GroupSourceType    string                 `protobuf:"bytes,3,opt,name=group_source_type,json=groupSourceType,proto3"`
+	xxx_hidden_RawGroupSourceType string                 `protobuf:"bytes,4,opt,name=raw_group_source_type,json=rawGroupSourceType,proto3"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *GroupTrait) Reset() {
@@ -690,12 +692,34 @@ func (x *GroupTrait) GetProfile() *structpb.Struct {
 	return nil
 }
 
+func (x *GroupTrait) GetGroupSourceType() string {
+	if x != nil {
+		return x.xxx_hidden_GroupSourceType
+	}
+	return ""
+}
+
+func (x *GroupTrait) GetRawGroupSourceType() string {
+	if x != nil {
+		return x.xxx_hidden_RawGroupSourceType
+	}
+	return ""
+}
+
 func (x *GroupTrait) SetIcon(v *AssetRef) {
 	x.xxx_hidden_Icon = v
 }
 
 func (x *GroupTrait) SetProfile(v *structpb.Struct) {
 	x.xxx_hidden_Profile = v
+}
+
+func (x *GroupTrait) SetGroupSourceType(v string) {
+	x.xxx_hidden_GroupSourceType = v
+}
+
+func (x *GroupTrait) SetRawGroupSourceType(v string) {
+	x.xxx_hidden_RawGroupSourceType = v
 }
 
 func (x *GroupTrait) HasIcon() bool {
@@ -723,8 +747,10 @@ func (x *GroupTrait) ClearProfile() {
 type GroupTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Icon    *AssetRef
-	Profile *structpb.Struct
+	Icon               *AssetRef
+	Profile            *structpb.Struct
+	GroupSourceType    string
+	RawGroupSourceType string
 }
 
 func (b0 GroupTrait_builder) Build() *GroupTrait {
@@ -733,6 +759,8 @@ func (b0 GroupTrait_builder) Build() *GroupTrait {
 	_, _ = b, x
 	x.xxx_hidden_Icon = b.Icon
 	x.xxx_hidden_Profile = b.Profile
+	x.xxx_hidden_GroupSourceType = b.GroupSourceType
+	x.xxx_hidden_RawGroupSourceType = b.RawGroupSourceType
 	return m0
 }
 
@@ -1058,14 +1086,16 @@ func (b0 ScopeBindingTrait_builder) Build() *ScopeBindingTrait {
 }
 
 type AppTrait struct {
-	state              protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_HelpUrl string                 `protobuf:"bytes,1,opt,name=help_url,json=helpUrl,proto3"`
-	xxx_hidden_Icon    *AssetRef              `protobuf:"bytes,2,opt,name=icon,proto3"`
-	xxx_hidden_Logo    *AssetRef              `protobuf:"bytes,3,opt,name=logo,proto3"`
-	xxx_hidden_Profile *structpb.Struct       `protobuf:"bytes,4,opt,name=profile,proto3"`
-	xxx_hidden_Flags   []AppTrait_AppFlag     `protobuf:"varint,5,rep,packed,name=flags,proto3,enum=c1.connector.v2.AppTrait_AppFlag"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state                       protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_HelpUrl          string                 `protobuf:"bytes,1,opt,name=help_url,json=helpUrl,proto3"`
+	xxx_hidden_Icon             *AssetRef              `protobuf:"bytes,2,opt,name=icon,proto3"`
+	xxx_hidden_Logo             *AssetRef              `protobuf:"bytes,3,opt,name=logo,proto3"`
+	xxx_hidden_Profile          *structpb.Struct       `protobuf:"bytes,4,opt,name=profile,proto3"`
+	xxx_hidden_Flags            []AppTrait_AppFlag     `protobuf:"varint,5,rep,packed,name=flags,proto3,enum=c1.connector.v2.AppTrait_AppFlag"`
+	xxx_hidden_AppSourceType    string                 `protobuf:"bytes,6,opt,name=app_source_type,json=appSourceType,proto3"`
+	xxx_hidden_RawAppSourceType string                 `protobuf:"bytes,7,opt,name=raw_app_source_type,json=rawAppSourceType,proto3"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *AppTrait) Reset() {
@@ -1128,6 +1158,20 @@ func (x *AppTrait) GetFlags() []AppTrait_AppFlag {
 	return nil
 }
 
+func (x *AppTrait) GetAppSourceType() string {
+	if x != nil {
+		return x.xxx_hidden_AppSourceType
+	}
+	return ""
+}
+
+func (x *AppTrait) GetRawAppSourceType() string {
+	if x != nil {
+		return x.xxx_hidden_RawAppSourceType
+	}
+	return ""
+}
+
 func (x *AppTrait) SetHelpUrl(v string) {
 	x.xxx_hidden_HelpUrl = v
 }
@@ -1146,6 +1190,14 @@ func (x *AppTrait) SetProfile(v *structpb.Struct) {
 
 func (x *AppTrait) SetFlags(v []AppTrait_AppFlag) {
 	x.xxx_hidden_Flags = v
+}
+
+func (x *AppTrait) SetAppSourceType(v string) {
+	x.xxx_hidden_AppSourceType = v
+}
+
+func (x *AppTrait) SetRawAppSourceType(v string) {
+	x.xxx_hidden_RawAppSourceType = v
 }
 
 func (x *AppTrait) HasIcon() bool {
@@ -1184,11 +1236,13 @@ func (x *AppTrait) ClearProfile() {
 type AppTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	HelpUrl string
-	Icon    *AssetRef
-	Logo    *AssetRef
-	Profile *structpb.Struct
-	Flags   []AppTrait_AppFlag
+	HelpUrl          string
+	Icon             *AssetRef
+	Logo             *AssetRef
+	Profile          *structpb.Struct
+	Flags            []AppTrait_AppFlag
+	AppSourceType    string
+	RawAppSourceType string
 }
 
 func (b0 AppTrait_builder) Build() *AppTrait {
@@ -1200,6 +1254,8 @@ func (b0 AppTrait_builder) Build() *AppTrait {
 	x.xxx_hidden_Logo = b.Logo
 	x.xxx_hidden_Profile = b.Profile
 	x.xxx_hidden_Flags = b.Flags
+	x.xxx_hidden_AppSourceType = b.AppSourceType
+	x.xxx_hidden_RawAppSourceType = b.RawAppSourceType
 	return m0
 }
 
@@ -2178,11 +2234,14 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x18ACCOUNT_TYPE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12ACCOUNT_TYPE_HUMAN\x10\x01\x12\x18\n" +
 	"\x14ACCOUNT_TYPE_SERVICE\x10\x02\x12\x17\n" +
-	"\x13ACCOUNT_TYPE_SYSTEM\x10\x03\"n\n" +
+	"\x13ACCOUNT_TYPE_SYSTEM\x10\x03\"\xe6\x01\n" +
 	"\n" +
 	"GroupTrait\x12-\n" +
 	"\x04icon\x18\x01 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04icon\x121\n" +
-	"\aprofile\x18\x02 \x01(\v2\x17.google.protobuf.StructR\aprofile\"\x98\x01\n" +
+	"\aprofile\x18\x02 \x01(\v2\x17.google.protobuf.StructR\aprofile\x126\n" +
+	"\x11group_source_type\x18\x03 \x01(\tB\n" +
+	"\xfaB\ar\x05(@\xd0\x01\x01R\x0fgroupSourceType\x12>\n" +
+	"\x15raw_group_source_type\x18\x04 \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x12rawGroupSourceType\"\x98\x01\n" +
 	"\tRoleTrait\x121\n" +
 	"\aprofile\x18\x01 \x01(\v2\x17.google.protobuf.StructR\aprofile\x12X\n" +
 	"\x15role_scope_conditions\x18\x02 \x01(\v2$.c1.connector.v2.RoleScopeConditionsR\x13roleScopeConditions\"n\n" +
@@ -2197,13 +2256,16 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"expression\"\xa6\x01\n" +
 	"\x11ScopeBindingTrait\x12>\n" +
 	"\arole_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x06roleId\x12Q\n" +
-	"\x11scope_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x0fscopeResourceId\"\x9a\x03\n" +
+	"\x11scope_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x0fscopeResourceId\"\x8a\x04\n" +
 	"\bAppTrait\x125\n" +
 	"\bhelp_url\x18\x01 \x01(\tB\x1a\xfaB\x17r\x15 \x01(\x80\b:\bhttps://\xd0\x01\x01\x88\x01\x01R\ahelpUrl\x12-\n" +
 	"\x04icon\x18\x02 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04icon\x12-\n" +
 	"\x04logo\x18\x03 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04logo\x121\n" +
 	"\aprofile\x18\x04 \x01(\v2\x17.google.protobuf.StructR\aprofile\x127\n" +
-	"\x05flags\x18\x05 \x03(\x0e2!.c1.connector.v2.AppTrait.AppFlagR\x05flags\"\x8c\x01\n" +
+	"\x05flags\x18\x05 \x03(\x0e2!.c1.connector.v2.AppTrait.AppFlagR\x05flags\x122\n" +
+	"\x0fapp_source_type\x18\x06 \x01(\tB\n" +
+	"\xfaB\ar\x05(@\xd0\x01\x01R\rappSourceType\x12:\n" +
+	"\x13raw_app_source_type\x18\a \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x10rawAppSourceType\"\x8c\x01\n" +
 	"\aAppFlag\x12\x18\n" +
 	"\x14APP_FLAG_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fAPP_FLAG_HIDDEN\x10\x01\x12\x15\n" +

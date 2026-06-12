@@ -283,7 +283,6 @@ func (b0 GrantSourceRecord_builder) Build() *GrantSourceRecord {
 
 type ResourceTypeRecord struct {
 	state                        protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_SyncId            string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
 	xxx_hidden_ExternalId        string                 `protobuf:"bytes,2,opt,name=external_id,json=externalId,proto3"`
 	xxx_hidden_DisplayName       string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3"`
 	xxx_hidden_Traits            []string               `protobuf:"bytes,4,rep,name=traits,proto3"`
@@ -318,13 +317,6 @@ func (x *ResourceTypeRecord) ProtoReflect() protoreflect.Message {
 		return ms
 	}
 	return mi.MessageOf(x)
-}
-
-func (x *ResourceTypeRecord) GetSyncId() string {
-	if x != nil {
-		return x.xxx_hidden_SyncId
-	}
-	return ""
 }
 
 func (x *ResourceTypeRecord) GetExternalId() string {
@@ -378,10 +370,6 @@ func (x *ResourceTypeRecord) GetSourcedExternally() bool {
 	return false
 }
 
-func (x *ResourceTypeRecord) SetSyncId(v string) {
-	x.xxx_hidden_SyncId = v
-}
-
 func (x *ResourceTypeRecord) SetExternalId(v string) {
 	x.xxx_hidden_ExternalId = v
 }
@@ -424,7 +412,6 @@ func (x *ResourceTypeRecord) ClearDiscoveredAt() {
 type ResourceTypeRecord_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	SyncId       string
 	ExternalId   string
 	DisplayName  string
 	Traits       []string
@@ -443,7 +430,6 @@ func (b0 ResourceTypeRecord_builder) Build() *ResourceTypeRecord {
 	m0 := &ResourceTypeRecord{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.xxx_hidden_SyncId = b.SyncId
 	x.xxx_hidden_ExternalId = b.ExternalId
 	x.xxx_hidden_DisplayName = b.DisplayName
 	x.xxx_hidden_Traits = b.Traits
@@ -456,7 +442,6 @@ func (b0 ResourceTypeRecord_builder) Build() *ResourceTypeRecord {
 
 type ResourceRecord struct {
 	state                     protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_SyncId         string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
 	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3"`
 	xxx_hidden_ResourceId     string                 `protobuf:"bytes,3,opt,name=resource_id,json=resourceId,proto3"`
 	xxx_hidden_DisplayName    string                 `protobuf:"bytes,4,opt,name=display_name,json=displayName,proto3"`
@@ -491,13 +476,6 @@ func (x *ResourceRecord) ProtoReflect() protoreflect.Message {
 		return ms
 	}
 	return mi.MessageOf(x)
-}
-
-func (x *ResourceRecord) GetSyncId() string {
-	if x != nil {
-		return x.xxx_hidden_SyncId
-	}
-	return ""
 }
 
 func (x *ResourceRecord) GetResourceTypeId() string {
@@ -549,10 +527,6 @@ func (x *ResourceRecord) GetDiscoveredAt() *timestamppb.Timestamp {
 		return x.xxx_hidden_DiscoveredAt
 	}
 	return nil
-}
-
-func (x *ResourceRecord) SetSyncId(v string) {
-	x.xxx_hidden_SyncId = v
 }
 
 func (x *ResourceRecord) SetResourceTypeId(v string) {
@@ -608,7 +582,6 @@ func (x *ResourceRecord) ClearDiscoveredAt() {
 type ResourceRecord_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	SyncId         string
 	ResourceTypeId string
 	ResourceId     string
 	DisplayName    string
@@ -622,7 +595,6 @@ func (b0 ResourceRecord_builder) Build() *ResourceRecord {
 	m0 := &ResourceRecord{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.xxx_hidden_SyncId = b.SyncId
 	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
 	x.xxx_hidden_ResourceId = b.ResourceId
 	x.xxx_hidden_DisplayName = b.DisplayName
@@ -635,7 +607,6 @@ func (b0 ResourceRecord_builder) Build() *ResourceRecord {
 
 type EntitlementRecord struct {
 	state                                 protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_SyncId                     string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
 	xxx_hidden_ExternalId                 string                 `protobuf:"bytes,2,opt,name=external_id,json=externalId,proto3"`
 	xxx_hidden_Resource                   *ResourceRef           `protobuf:"bytes,3,opt,name=resource,proto3"`
 	xxx_hidden_DisplayName                string                 `protobuf:"bytes,4,opt,name=display_name,json=displayName,proto3"`
@@ -672,13 +643,6 @@ func (x *EntitlementRecord) ProtoReflect() protoreflect.Message {
 		return ms
 	}
 	return mi.MessageOf(x)
-}
-
-func (x *EntitlementRecord) GetSyncId() string {
-	if x != nil {
-		return x.xxx_hidden_SyncId
-	}
-	return ""
 }
 
 func (x *EntitlementRecord) GetExternalId() string {
@@ -746,10 +710,6 @@ func (x *EntitlementRecord) GetGrantableToResourceTypeIds() []string {
 	return nil
 }
 
-func (x *EntitlementRecord) SetSyncId(v string) {
-	x.xxx_hidden_SyncId = v
-}
-
 func (x *EntitlementRecord) SetExternalId(v string) {
 	x.xxx_hidden_ExternalId = v
 }
@@ -811,7 +771,6 @@ func (x *EntitlementRecord) ClearDiscoveredAt() {
 type EntitlementRecord_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	SyncId       string
 	ExternalId   string
 	Resource     *ResourceRef
 	DisplayName  string
@@ -839,7 +798,6 @@ func (b0 EntitlementRecord_builder) Build() *EntitlementRecord {
 	m0 := &EntitlementRecord{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.xxx_hidden_SyncId = b.SyncId
 	x.xxx_hidden_ExternalId = b.ExternalId
 	x.xxx_hidden_Resource = b.Resource
 	x.xxx_hidden_DisplayName = b.DisplayName
@@ -854,7 +812,6 @@ func (b0 EntitlementRecord_builder) Build() *EntitlementRecord {
 
 type GrantRecord struct {
 	state                     protoimpl.MessageState        `protogen:"opaque.v1"`
-	xxx_hidden_SyncId         string                        `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
 	xxx_hidden_ExternalId     string                        `protobuf:"bytes,2,opt,name=external_id,json=externalId,proto3"`
 	xxx_hidden_Entitlement    *EntitlementRef               `protobuf:"bytes,3,opt,name=entitlement,proto3"`
 	xxx_hidden_Principal      *PrincipalRef                 `protobuf:"bytes,4,opt,name=principal,proto3"`
@@ -890,13 +847,6 @@ func (x *GrantRecord) ProtoReflect() protoreflect.Message {
 		return ms
 	}
 	return mi.MessageOf(x)
-}
-
-func (x *GrantRecord) GetSyncId() string {
-	if x != nil {
-		return x.xxx_hidden_SyncId
-	}
-	return ""
 }
 
 func (x *GrantRecord) GetExternalId() string {
@@ -955,10 +905,6 @@ func (x *GrantRecord) GetSources() map[string]*GrantSourceRecord {
 		return x.xxx_hidden_Sources
 	}
 	return nil
-}
-
-func (x *GrantRecord) SetSyncId(v string) {
-	x.xxx_hidden_SyncId = v
 }
 
 func (x *GrantRecord) SetExternalId(v string) {
@@ -1040,7 +986,6 @@ func (x *GrantRecord) ClearExpansion() {
 type GrantRecord_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	SyncId     string
 	ExternalId string
 	// entitlement carries TWO indexes:
 	//
@@ -1068,7 +1013,6 @@ func (b0 GrantRecord_builder) Build() *GrantRecord {
 	m0 := &GrantRecord{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.xxx_hidden_SyncId = b.SyncId
 	x.xxx_hidden_ExternalId = b.ExternalId
 	x.xxx_hidden_Entitlement = b.Entitlement
 	x.xxx_hidden_Principal = b.Principal
@@ -1589,9 +1533,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\vresource_id\x18\x02 \x01(\tR\n" +
 	"resourceId\x12%\n" +
 	"\x0eentitlement_id\x18\x03 \x01(\tR\rentitlementId\x12\x1b\n" +
-	"\tis_direct\x18\x04 \x01(\bR\bisDirect\"\xff\x02\n" +
-	"\x12ResourceTypeRecord\x12\x17\n" +
-	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x1f\n" +
+	"\tis_direct\x18\x04 \x01(\bR\bisDirect\"\xec\x02\n" +
+	"\x12ResourceTypeRecord\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +
 	"externalId\x12!\n" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x16\n" +
@@ -1599,10 +1542,9 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\vannotations\x18\x05 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12?\n" +
 	"\rdiscovered_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12 \n" +
 	"\vdescription\x18\a \x01(\tR\vdescription\x12-\n" +
-	"\x12sourced_externally\x18\b \x01(\bR\x11sourcedExternally:*\x82\xf9+&\n" +
-	"\x0eresource_types\x12\async_id\x12\vexternal_id\"\xcf\x03\n" +
-	"\x0eResourceRecord\x12\x17\n" +
-	"\async_id\x18\x01 \x01(\tR\x06syncId\x12(\n" +
+	"\x12sourced_externally\x18\b \x01(\bR\x11sourcedExternally:!\x82\xf9+\x1d\n" +
+	"\x0eresource_types\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xbc\x03\n" +
+	"\x0eResourceRecord\x12(\n" +
 	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
 	"resourceId\x12!\n" +
@@ -1611,10 +1553,9 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x06parent\x18\x06 \x01(\v2\x1a.c1.storage.v3.ResourceRefB.\x8a\xf9+*\n" +
 	"\tby_parent\x1a\x10resource_type_id\x1a\vresource_idR\x06parent\x126\n" +
 	"\vannotations\x18\a \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12?\n" +
-	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:7\x82\xf9+3\n" +
-	"\tresources\x12\async_id\x12\x10resource_type_id\x12\vresource_id\"\x91\x04\n" +
-	"\x11EntitlementRecord\x12\x17\n" +
-	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x1f\n" +
+	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:.\x82\xf9+*\n" +
+	"\tresources\x12\x10resource_type_id\x12\vresource_idJ\x04\b\x01\x10\x02R\async_id\"\xfe\x03\n" +
+	"\x11EntitlementRecord\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +
 	"externalId\x12h\n" +
 	"\bresource\x18\x03 \x01(\v2\x1a.c1.storage.v3.ResourceRefB0\x8a\xf9+,\n" +
@@ -1626,10 +1567,9 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12\x12\n" +
 	"\x04slug\x18\t \x01(\tR\x04slug\x12B\n" +
 	"\x1egrantable_to_resource_type_ids\x18\n" +
-	" \x03(\tR\x1agrantableToResourceTypeIds:(\x82\xf9+$\n" +
-	"\fentitlements\x12\async_id\x12\vexternal_id\"\xad\x06\n" +
-	"\vGrantRecord\x12\x17\n" +
-	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x1f\n" +
+	" \x03(\tR\x1agrantableToResourceTypeIds:\x1f\x82\xf9+\x1b\n" +
+	"\fentitlements\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\x9a\x06\n" +
+	"\vGrantRecord\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +
 	"externalId\x12\x98\x01\n" +
 	"\ventitlement\x18\x03 \x01(\v2\x1d.c1.storage.v3.EntitlementRefBW\x8a\xf9+S\n" +
@@ -1644,8 +1584,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\asources\x18\t \x03(\v2'.c1.storage.v3.GrantRecord.SourcesEntryR\asources\x1a\\\n" +
 	"\fSourcesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x126\n" +
-	"\x05value\x18\x02 \x01(\v2 .c1.storage.v3.GrantSourceRecordR\x05value:\x028\x01:\"\x82\xf9+\x1e\n" +
-	"\x06grants\x12\async_id\x12\vexternal_id\"\xe3\x01\n" +
+	"\x05value\x18\x02 \x01(\v2 .c1.storage.v3.GrantSourceRecordR\x05value:\x028\x01:\x19\x82\xf9+\x15\n" +
+	"\x06grants\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xe3\x01\n" +
 	"\vAssetRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +

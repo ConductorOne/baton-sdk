@@ -21,7 +21,6 @@ func TestPutGetResourceType(t *testing.T) {
 	}
 
 	r := v3.ResourceTypeRecord_builder{
-		SyncId:       syncID,
 		ExternalId:   "user",
 		DisplayName:  "User",
 		Traits:       []string{"trait-user"},
@@ -48,7 +47,6 @@ func TestIterateResourceTypesBySync(t *testing.T) {
 	}
 	for i := 0; i < 20; i++ {
 		r := v3.ResourceTypeRecord_builder{
-			SyncId:      syncID,
 			ExternalId:  ksuid.New().String(),
 			DisplayName: "RT",
 		}.Build()
@@ -77,7 +75,6 @@ func TestResourceWithParentIndex(t *testing.T) {
 	}
 
 	parent := v3.ResourceRecord_builder{
-		SyncId:         syncID,
 		ResourceTypeId: "group",
 		ResourceId:     "admins",
 		DisplayName:    "Admins",
@@ -89,7 +86,6 @@ func TestResourceWithParentIndex(t *testing.T) {
 	// 5 user resources with `parent` pointing at the admins group.
 	for i := 0; i < 5; i++ {
 		child := v3.ResourceRecord_builder{
-			SyncId:         syncID,
 			ResourceTypeId: "user",
 			ResourceId:     ksuid.New().String(),
 			DisplayName:    "User",
@@ -105,7 +101,6 @@ func TestResourceWithParentIndex(t *testing.T) {
 	// 3 resources NOT under the admins group.
 	for i := 0; i < 3; i++ {
 		other := v3.ResourceRecord_builder{
-			SyncId:         syncID,
 			ResourceTypeId: "user",
 			ResourceId:     ksuid.New().String(),
 		}.Build()
@@ -149,7 +144,6 @@ func TestEntitlementByResourceIndex(t *testing.T) {
 	// 4 entitlements on group/admins, 2 on group/devs.
 	for i := 0; i < 4; i++ {
 		r := v3.EntitlementRecord_builder{
-			SyncId:     syncID,
 			ExternalId: ksuid.New().String(),
 			Resource: v3.ResourceRef_builder{
 				ResourceTypeId: "group",
@@ -163,7 +157,6 @@ func TestEntitlementByResourceIndex(t *testing.T) {
 	}
 	for i := 0; i < 2; i++ {
 		r := v3.EntitlementRecord_builder{
-			SyncId:     syncID,
 			ExternalId: ksuid.New().String(),
 			Resource: v3.ResourceRef_builder{
 				ResourceTypeId: "group",

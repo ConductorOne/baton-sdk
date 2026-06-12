@@ -105,6 +105,8 @@ func (a *Adapter) StartNewSync(ctx context.Context, syncType connectorstore.Sync
 		StartedAt:    timestamppb.New(a.current.startedAt),
 	}.Build()
 	if err := a.engine.PutSyncRunRecord(ctx, rec); err != nil {
+		a.current = syncRunState{}
+		a.engine.clearCurrentSync()
 		return "", err
 	}
 	return syncID, nil
@@ -118,7 +120,7 @@ func (a *Adapter) ResumeSync(ctx context.Context, syncType connectorstore.SyncTy
 	}
 	existing, err := a.engine.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
-		return "", fmt.Errorf("ResumeSync: lookup: %w", err)
+		return "", adaptNotFound(fmt.Errorf("ResumeSync: lookup: %w", err))
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -316,23 +318,7 @@ func translateGrants(syncID string, grants []*v2.Grant) []*v3.GrantRecord {
 		shards = n
 	}
 	if shards < 2 {
-		// Serial path: one arena, one pass.
-		arena := newGrantTranslateArena(len(grants))
-		records := make([]*v3.GrantRecord, 0, len(grants))
-		for _, g := range grants {
-			if g == nil {
-				continue
-			}
-			rec := arena.translateV2Grant(syncID, g)
-			if rec == nil {
-				continue
-			}
-			if rec.GetDiscoveredAt() == nil {
-				rec.SetDiscoveredAt(now)
-			}
-			records = append(records, rec)
-		}
-		return records
+		return translateGrantsSerial(syncID, grants, now)
 	}
 
 	// Parallel path: shard workers each translate their range into a
@@ -377,6 +363,30 @@ func translateGrants(syncID string, grants []*v2.Grant) []*v3.GrantRecord {
 		}
 	}
 	return compact
+}
+
+// translateGrantsSerial is the single-goroutine translate path: one
+// arena, one pass. Used by translateGrants for small batches and by
+// callers that are already running on parallel lanes (the bulk import's
+// grant shards), where nested fan-out would just oversubscribe a shared
+// host.
+func translateGrantsSerial(syncID string, grants []*v2.Grant, now *timestamppb.Timestamp) []*v3.GrantRecord {
+	arena := newGrantTranslateArena(len(grants))
+	records := make([]*v3.GrantRecord, 0, len(grants))
+	for _, g := range grants {
+		if g == nil {
+			continue
+		}
+		rec := arena.translateV2Grant(syncID, g)
+		if rec == nil {
+			continue
+		}
+		if rec.GetDiscoveredAt() == nil {
+			rec.SetDiscoveredAt(now)
+		}
+		records = append(records, rec)
+	}
+	return records
 }
 
 // PutResourceTypes writes a batch of resource types in a single
@@ -570,7 +580,7 @@ func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrant
 		records, nextCursor, err = a.engine.PaginateGrantsBySync(ctx, syncID, cursor, limit)
 	}
 	if err != nil {
-		return nil, err
+		return nil, adaptNotFound(err)
 	}
 	out := make([]*v2.Grant, 0, len(records))
 	for _, rec := range records {
@@ -676,7 +686,7 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 			records, nextCursor, err = a.engine.PaginateResourcesBySync(ctx, syncID, cursor, fetchLimit)
 		}
 		if err != nil {
-			return nil, err
+			return nil, adaptNotFound(err)
 		}
 		brokeEarly := false
 		for _, rec := range records {
@@ -725,7 +735,7 @@ func (a *Adapter) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesSe
 	limit := clampPageSize(req.GetPageSize())
 	records, nextCursor, err := a.engine.PaginateResourceTypesBySync(ctx, syncID, req.GetPageToken(), limit)
 	if err != nil {
-		return nil, err
+		return nil, adaptNotFound(err)
 	}
 	out := make([]*v2.ResourceType, 0, len(records))
 	for _, rec := range records {
@@ -759,7 +769,7 @@ func (a *Adapter) ListEntitlements(ctx context.Context, req *v2.EntitlementsServ
 		records, nextCursor, err = a.engine.PaginateEntitlementsBySync(ctx, syncID, cursor, limit)
 	}
 	if err != nil {
-		return nil, err
+		return nil, adaptNotFound(err)
 	}
 	out := make([]*v2.Entitlement, 0, len(records))
 	for _, rec := range records {

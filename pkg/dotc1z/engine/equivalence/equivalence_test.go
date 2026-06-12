@@ -24,7 +24,6 @@ func openPebble(t *testing.T) *enginepkg.Engine {
 
 func mkGrant(syncID, externalID, entID, principalRT, principalID string) *v3.GrantRecord {
 	return v3.GrantRecord_builder{
-		SyncId:     syncID,
 		ExternalId: externalID,
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app",
