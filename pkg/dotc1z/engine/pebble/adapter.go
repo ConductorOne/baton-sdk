@@ -39,6 +39,9 @@ type Adapter struct {
 
 	// embedded Unimplemented stubs for the gRPC service surfaces we
 	// implement partially. Each implemented method overrides the stub.
+	// GrantsReaderServiceServer is deliberately NOT stubbed: the Adapter
+	// implements it in full, and adapter_reader.go asserts the complete
+	// contract — re-adding the stub would make that assertion vacuous.
 	v2.UnimplementedResourceTypesServiceServer
 	reader_v2.UnimplementedResourceTypesReaderServiceServer
 	v2.UnimplementedResourcesServiceServer
@@ -46,7 +49,6 @@ type Adapter struct {
 	v2.UnimplementedEntitlementsServiceServer
 	reader_v2.UnimplementedEntitlementsReaderServiceServer
 	v2.UnimplementedGrantsServiceServer
-	reader_v2.UnimplementedGrantsReaderServiceServer
 	reader_v2.UnimplementedSyncsReaderServiceServer
 
 	mu      sync.Mutex
