@@ -92,12 +92,13 @@ func TestRunActionEmitsLinkedRootSpan(t *testing.T) {
 	require.Len(t, links, 1, "runAction span must carry one link to the originating expansion span")
 	require.Equal(t, parentTraceID, links[0].SpanContext.TraceID(), "link must point to the parent trace ID")
 
-	// All four documented attributes are present.
+	// The documented attributes are present. After grouping, one runAction span
+	// covers a batch of destinations, so the span carries descendant_count
+	// instead of a single descendant_entitlement_id.
 	want := map[string]bool{
-		"source_entitlement_id":     true,
-		"descendant_entitlement_id": true,
-		"depth":                     true,
-		"shallow":                   true,
+		"source_entitlement_id": true,
+		"descendant_count":      true,
+		"depth":                 true,
 	}
 	got := map[string]bool{}
 	for _, a := range first.Attributes() {
@@ -105,10 +106,8 @@ func TestRunActionEmitsLinkedRootSpan(t *testing.T) {
 		switch string(a.Key) {
 		case "source_entitlement_id":
 			require.Equal(t, entA.GetId(), a.Value.AsString())
-		case "descendant_entitlement_id":
-			require.Equal(t, entB.GetId(), a.Value.AsString())
-		case "shallow":
-			require.False(t, a.Value.AsBool(), "edge in this fixture is non-shallow")
+		case "descendant_count":
+			require.Equal(t, int64(1), a.Value.AsInt64(), "fixture has one A→B edge")
 		case "depth":
 			// Depth starts at 0 on the first runAction call.
 			require.GreaterOrEqual(t, a.Value.AsInt64(), int64(0))

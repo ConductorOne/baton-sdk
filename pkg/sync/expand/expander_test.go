@@ -2,6 +2,7 @@ package expand
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -223,10 +224,12 @@ func TestExpanderStepByStep(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, expander.IsDone(ctx))
 
-	// Actions should be generated
+	// Actions should be generated: one action per (source, filter, batch),
+	// fanning the single A→B edge out to one destination.
 	require.Len(t, graph.Actions, 1)
 	require.Equal(t, entA.GetId(), graph.Actions[0].SourceEntitlementID)
-	require.Equal(t, entB.GetId(), graph.Actions[0].DescendantEntitlementID)
+	require.Len(t, graph.Actions[0].Descendants, 1)
+	require.Equal(t, entB.GetId(), graph.Actions[0].Descendants[0].EntitlementID)
 
 	// Second step: should process the action and complete (action completes and graph is expanded in same step)
 	err = expander.RunSingleStep(ctx)
@@ -453,6 +456,244 @@ func TestExpanderMixedDirectness(t *testing.T) {
 	// Source B: Alice has B only through expansion from A → IsDirect=false
 	require.Contains(t, sourcesC, entB.GetId())
 	require.False(t, sourcesC[entB.GetId()].GetIsDirect(), "source B should be transitive")
+}
+
+// countingMockStore wraps MockExpanderStore and records, per entitlement ID,
+// how many times its grants were read via an unfiltered (no PrincipalId)
+// ListGrantsForEntitlement call. That is the "source read" the grouping change
+// is meant to deduplicate: one read per (source, filter) instead of one per
+// outgoing edge.
+type countingMockStore struct {
+	*MockExpanderStore
+	sourceReads map[string]int
+}
+
+func newCountingMockStore() *countingMockStore {
+	return &countingMockStore{
+		MockExpanderStore: NewMockExpanderStore(),
+		sourceReads:       make(map[string]int),
+	}
+}
+
+func (s *countingMockStore) ListGrantsForEntitlement(
+	ctx context.Context,
+	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+	// Only count full-entitlement reads (the source read and descendant
+	// prefetch). Per-principal reads carry a PrincipalId filter.
+	if req.GetPrincipalId() == nil { //nolint:staticcheck // ignore deprecated field
+		s.sourceReads[req.GetEntitlement().GetId()]++
+	}
+	return s.MockExpanderStore.ListGrantsForEntitlement(ctx, req)
+}
+
+// TestExpanderHighOutDegreeSourceSingleRead is the core read-amplification
+// guard: one source feeding N destinations (all sharing the empty
+// ResourceTypeIDs filter) must read the source's grants once per destination
+// batch — ceil(N/K) reads — not once per edge. Every destination must still
+// receive the expanded grant.
+func TestExpanderHighOutDegreeSourceSingleRead(t *testing.T) {
+	t.Setenv("BATON_GRAPH_EXPAND_DEST_BATCH_SIZE", "4")
+
+	ctx := context.Background()
+	store := newCountingMockStore()
+
+	groupResource := makeResource("group", "org")
+	userResource := makeResource("user", "alice")
+
+	source := makeEntitlement("ent:source", groupResource)
+	store.AddEntitlement(source)
+	store.AddGrant(makeGrant("grant:alice:source", source, userResource))
+
+	const numDests = 10
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(source.GetId())
+	dests := make([]*v2.Entitlement, 0, numDests)
+	for i := 0; i < numDests; i++ {
+		d := makeEntitlement("ent:dest:"+strconv.Itoa(i), groupResource)
+		store.AddEntitlement(d)
+		dests = append(dests, d)
+		graph.AddEntitlementID(d.GetId())
+		require.NoError(t, graph.AddEdge(ctx, source.GetId(), d.GetId(), false, nil))
+	}
+
+	expander := NewExpander(store, graph)
+	require.NoError(t, expander.Run(ctx))
+
+	// Source read once per batch of 4 destinations: ceil(10/4) = 3.
+	require.Equal(t, 3, store.sourceReads[source.GetId()],
+		"source must be read once per destination batch, not once per edge")
+
+	// Every destination must have received alice's expanded grant.
+	granted := make(map[string]bool)
+	for _, g := range store.GetPutGrants() {
+		if g.GetPrincipal().GetId().GetResource() == "alice" {
+			granted[g.GetEntitlement().GetId()] = true
+		}
+	}
+	for _, d := range dests {
+		require.True(t, granted[d.GetId()], "destination %s must receive the expanded grant", d.GetId())
+	}
+}
+
+// TestExpanderMixedResourceTypeIDsReadPerFilter verifies constraint C2: edges
+// from one source with *different* ResourceTypeIDs filters cannot share a read.
+// Each distinct filter gets its own source read, and the filter is honored
+// (only matching principals are fanned out).
+func TestExpanderMixedResourceTypeIDsReadPerFilter(t *testing.T) {
+	t.Setenv("BATON_GRAPH_EXPAND_DEST_BATCH_SIZE", "16")
+
+	ctx := context.Background()
+	store := newCountingMockStore()
+
+	groupResource := makeResource("group", "org")
+	userPrincipal := makeResource("user", "alice")
+	servicePrincipal := makeResource("service", "robot")
+
+	source := makeEntitlement("ent:source", groupResource)
+	destUser := makeEntitlement("ent:dest:user", groupResource)
+	destService := makeEntitlement("ent:dest:service", groupResource)
+	store.AddEntitlement(source)
+	store.AddEntitlement(destUser)
+	store.AddEntitlement(destService)
+
+	// Source has both a user principal and a service principal.
+	store.AddGrant(makeGrant("grant:alice:source", source, userPrincipal))
+	store.AddGrant(makeGrant("grant:robot:source", source, servicePrincipal))
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(source.GetId())
+	graph.AddEntitlementID(destUser.GetId())
+	graph.AddEntitlementID(destService.GetId())
+	// Two edges, two different filters → two distinct source reads.
+	require.NoError(t, graph.AddEdge(ctx, source.GetId(), destUser.GetId(), false, []string{"user"}))
+	require.NoError(t, graph.AddEdge(ctx, source.GetId(), destService.GetId(), false, []string{"service"}))
+
+	expander := NewExpander(store, graph)
+	require.NoError(t, expander.Run(ctx))
+
+	// One read per distinct filter, even though both edges share the source.
+	require.Equal(t, 2, store.sourceReads[source.GetId()],
+		"distinct ResourceTypeIDs filters must each get their own source read")
+
+	// The user-filtered edge must only grant the user principal; the
+	// service-filtered edge only the service principal.
+	byEnt := make(map[string]map[string]bool)
+	for _, g := range store.GetPutGrants() {
+		ent := g.GetEntitlement().GetId()
+		if byEnt[ent] == nil {
+			byEnt[ent] = make(map[string]bool)
+		}
+		byEnt[ent][g.GetPrincipal().GetId().GetResource()] = true
+	}
+	require.True(t, byEnt[destUser.GetId()]["alice"], "user-filtered dest must grant alice")
+	require.False(t, byEnt[destUser.GetId()]["robot"], "user-filtered dest must not grant the service principal")
+	require.True(t, byEnt[destService.GetId()]["robot"], "service-filtered dest must grant the service principal")
+	require.False(t, byEnt[destService.GetId()]["alice"], "service-filtered dest must not grant the user principal")
+}
+
+// TestExpanderMultiParentDestination verifies constraint C5: a destination fed
+// by two different sources must wait until both parents are expanded and must
+// record both as sources. The grouping change must not let a destination act
+// before all incoming edges are processed.
+func TestExpanderMultiParentDestination(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+
+	groupResource := makeResource("group", "org")
+	alice := makeResource("user", "alice")
+
+	parentA := makeEntitlement("ent:parentA", groupResource)
+	parentB := makeEntitlement("ent:parentB", groupResource)
+	child := makeEntitlement("ent:child", groupResource)
+	store.AddEntitlement(parentA)
+	store.AddEntitlement(parentB)
+	store.AddEntitlement(child)
+
+	// Alice holds both parents directly.
+	store.AddGrant(makeGrant("grant:alice:parentA", parentA, alice))
+	store.AddGrant(makeGrant("grant:alice:parentB", parentB, alice))
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(parentA.GetId())
+	graph.AddEntitlementID(parentB.GetId())
+	graph.AddEntitlementID(child.GetId())
+	require.NoError(t, graph.AddEdge(ctx, parentA.GetId(), child.GetId(), false, nil))
+	require.NoError(t, graph.AddEdge(ctx, parentB.GetId(), child.GetId(), false, nil))
+
+	expander := NewExpander(store, graph)
+	require.NoError(t, expander.Run(ctx))
+	require.True(t, graph.IsExpanded())
+
+	var childGrant *v2.Grant
+	for _, g := range store.GetPutGrants() {
+		if g.GetEntitlement().GetId() == child.GetId() && g.GetPrincipal().GetId().GetResource() == "alice" {
+			childGrant = g
+		}
+	}
+	require.NotNil(t, childGrant)
+	sources := childGrant.GetSources().GetSources()
+	require.Contains(t, sources, parentA.GetId(), "both parents must be recorded as sources")
+	require.Contains(t, sources, parentB.GetId(), "both parents must be recorded as sources")
+}
+
+// TestExpanderPerDestinationShallow verifies constraint C1: a single source
+// read fans out to two destinations with different Shallow settings, and each
+// destination's own Shallow gate is applied independently. The shallow edge
+// must drop the transitively-held source grant while the non-shallow edge keeps
+// it.
+func TestExpanderPerDestinationShallow(t *testing.T) {
+	t.Setenv("BATON_GRAPH_EXPAND_DEST_BATCH_SIZE", "16")
+
+	ctx := context.Background()
+	store := newCountingMockStore()
+
+	groupResource := makeResource("group", "org")
+	alice := makeResource("user", "alice")
+
+	source := makeEntitlement("ent:source", groupResource)
+	other := makeEntitlement("ent:other", groupResource)
+	destShallow := makeEntitlement("ent:dest:shallow", groupResource)
+	destDeep := makeEntitlement("ent:dest:deep", groupResource)
+	store.AddEntitlement(source)
+	store.AddEntitlement(destShallow)
+	store.AddEntitlement(destDeep)
+
+	// Alice's grant on the source is transitive (its only source is some other
+	// entitlement, not the source itself) → it does NOT qualify for a shallow
+	// edge, but does for a non-shallow edge.
+	transitive := makeGrant("grant:alice:source", source, alice)
+	transitive.SetSources(v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{
+		other.GetId(): {IsDirect: false},
+	}}.Build())
+	store.AddGrant(transitive)
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(source.GetId())
+	graph.AddEntitlementID(destShallow.GetId())
+	graph.AddEntitlementID(destDeep.GetId())
+	// Same (empty) filter → one shared source read; different Shallow per edge.
+	require.NoError(t, graph.AddEdge(ctx, source.GetId(), destShallow.GetId(), true, nil))
+	require.NoError(t, graph.AddEdge(ctx, source.GetId(), destDeep.GetId(), false, nil))
+
+	expander := NewExpander(store, graph)
+	require.NoError(t, expander.Run(ctx))
+
+	// Both shallow and deep edges share the same empty filter and the same
+	// batch, so the source is read once.
+	require.Equal(t, 1, store.sourceReads[source.GetId()],
+		"two edges sharing a filter must share one source read despite differing Shallow")
+
+	granted := make(map[string]bool)
+	for _, g := range store.GetPutGrants() {
+		if g.GetPrincipal().GetId().GetResource() == "alice" {
+			granted[g.GetEntitlement().GetId()] = true
+		}
+	}
+	require.False(t, granted[destShallow.GetId()],
+		"shallow edge must drop a transitively-held source grant")
+	require.True(t, granted[destDeep.GetId()],
+		"non-shallow edge must keep the transitively-held source grant")
 }
 
 // pageCapStubStore always returns a non-empty NextPageToken so the prefetch
