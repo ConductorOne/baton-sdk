@@ -192,8 +192,8 @@ func TestGenerateSyncDiffTrieWithoutTrees(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := a.engine.db.DeleteRange(MerkleSyncLowerBound(idBytes), MerkleSyncUpperBound(idBytes), pebble.Sync); err != nil {
-			t.Fatalf("DeleteRange(merkle %s): %v", sid, err)
+		if err := a.engine.db.DeleteRange(DigestSyncLowerBound(idBytes), DigestSyncUpperBound(idBytes), pebble.Sync); err != nil {
+			t.Fatalf("DeleteRange(digest %s): %v", sid, err)
 		}
 	}
 

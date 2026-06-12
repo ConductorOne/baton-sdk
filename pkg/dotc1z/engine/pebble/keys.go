@@ -61,7 +61,7 @@ const (
 	typeIndex        byte = 0x07
 	typeCounter      byte = 0x08
 	typeSession      byte = 0x09
-	typeMerkle       byte = 0x0A
+	typeDigest       byte = 0x0A
 	typeEngineMeta   byte = 0xFF
 )
 
@@ -80,8 +80,8 @@ const (
 	// idxGrantByEntitlementPrincipalHash sorts grants by
 	// (entitlement_id, hash(principal)). Unlike every other grant
 	// index its entries carry a VALUE (the grant content hash). It is
-	// the substrate the per-entitlement merkle tree (typeMerkle) folds
-	// over; see merkle.go.
+	// the substrate the per-entitlement grant digest (typeDigest)
+	// folds over; see digest.go and grant_digest.go.
 	idxGrantByEntitlementPrincipalHash byte = 0x08
 )
 
@@ -282,21 +282,21 @@ func encodeGrantByEntitlementResourcePrefix(syncIDBytes []byte, entRT, entRID st
 	return codec.AppendTupleSeparator(buf)
 }
 
-// --- Grant by (entitlement, principal-hash) + Merkle ---
+// --- Grant by (entitlement, principal-hash) + digest nodes ---
 
 // encodeGrantByEntPrincHashIndexKey is the by_entitlement_principal_hash
 // secondary index on GrantRecord. Unlike every other grant index it
 // interposes a RAW, fixed-width principal-bucket hash between the
 // entitlement_id and the principal tuple, so the keyspace sorts by
 // (entitlement_id, hash(principal)). That hash-major order is what the
-// per-entitlement merkle tree folds over, and a hash PREFIX is a clean
-// byte-prefix of the key — which is the property the merkle bucket range
-// scans rely on.
+// per-entitlement grant digest folds over, and a bucket — a bit-range
+// of the hash — is a contiguous key range, which is the property the
+// digest bucket range scans rely on (see digestIndexSpec.bucketBounds).
 //
 //	v3 | typeIndex | idxGrantByEntitlementPrincipalHash | sync_id | 0x00 |
-//	    entitlement_id | 0x00 | <raw bucketHash: merkleBucketHashLen bytes> |
+//	    entitlement_id | 0x00 | <raw bucketHash: digestBucketHashLen bytes> |
 //	    principal_rt | 0x00 | principal_id | 0x00 | external_id
-//	  -> value: grant content hash (sha256, 32 bytes)
+//	  -> value: grant content hash (xxHash64, 8 bytes)
 //
 // Because the bucket hash is raw it can contain 0x00, so the generic
 // tuple walkers (lastTupleComponent / decodeTwoTupleComponents) must NOT
@@ -305,7 +305,7 @@ func encodeGrantByEntitlementResourcePrefix(syncIDBytes []byte, entRT, entRID st
 // the hash's fixed width positionally.
 //
 // Paired with encodeGrantByEntPrincHashEntPrefix (by-value prefix, with
-// trailing sep) and encodeGrantByEntPrincHashBucketPrefix.
+// trailing sep) and digestIndexSpec.bucketBounds (digest.go).
 func encodeGrantByEntPrincHashIndexKey(syncIDBytes []byte, entitlementID string, bucketHash []byte, principalRT, principalID, externalID string) []byte {
 	buf := make([]byte, 0, 8+len(syncIDBytes)+len(entitlementID)+len(bucketHash)+len(principalRT)+len(principalID)+len(externalID))
 	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlementPrincipalHash)
@@ -331,14 +331,6 @@ func encodeGrantByEntPrincHashEntPrefix(syncIDBytes []byte, entitlementID string
 	return codec.AppendTupleSeparator(buf)
 }
 
-// encodeGrantByEntPrincHashBucketPrefix narrows the entitlement prefix to
-// a single principal-hash bucket identified by a raw hash prefix. An
-// empty hashPrefix yields the whole-entitlement prefix (the depth-0
-// bucket). Used as the LowerBound for a bucket range scan.
-func encodeGrantByEntPrincHashBucketPrefix(syncIDBytes []byte, entitlementID string, hashPrefix []byte) []byte {
-	return append(encodeGrantByEntPrincHashEntPrefix(syncIDBytes, entitlementID), hashPrefix...)
-}
-
 // decodeEntPrincHashTail decodes one index key relative to entPrefix
 // (which must be encodeGrantByEntPrincHashEntPrefix output — i.e. it
 // ends right before the raw bucket hash). Returns the raw bucket hash
@@ -346,11 +338,11 @@ func encodeGrantByEntPrincHashBucketPrefix(syncIDBytes []byte, entitlementID str
 // rt/id and the external_id. ok is false if the key is shorter than
 // prefix+hash or the tuple tail is malformed.
 func decodeEntPrincHashTail(key, entPrefix []byte) ([]byte, string, string, string, bool) {
-	if len(key) < len(entPrefix)+merkleBucketHashLen {
+	if len(key) < len(entPrefix)+digestBucketHashLen {
 		return nil, "", "", "", false
 	}
-	bucketHash := key[len(entPrefix) : len(entPrefix)+merkleBucketHashLen]
-	tail := key[len(entPrefix)+merkleBucketHashLen:]
+	bucketHash := key[len(entPrefix) : len(entPrefix)+digestBucketHashLen]
+	tail := key[len(entPrefix)+digestBucketHashLen:]
 	rt, next, err := codec.DecodeTupleStringTo(nil, tail, 0)
 	if err != nil || next >= len(tail) {
 		return nil, "", "", "", false
@@ -379,48 +371,54 @@ func GrantByEntPrincHashSyncUpperBound(syncIDBytes []byte) []byte {
 	return upperBoundOf(GrantByEntPrincHashSyncLowerBound(syncIDBytes))
 }
 
-// Merkle node keys.
+// Digest node keys.
 //
-//	v3 | typeMerkle | sync_id | 0x00 | entitlement_id | 0x00 | level(1 byte) | bucket_prefix(level raw bytes)
+//	v3 | typeDigest | sync_id | index_id(1 byte) | 0x00 | partition | 0x00 | level(1 byte) | bucket_prefix
 //
-// level 0 is the root (bucket_prefix empty); every level from 1 to the
-// tree's depth holds that level's non-empty nodes, one per non-empty
-// principal-hash prefix. bucket_prefix is the first `level` bytes of the
-// principal bucket hash, raw, so it aligns byte-for-byte with the index
-// key's bucket-hash region — and because the level byte precedes the
-// prefix, the children of one node are a contiguous key range one level
-// down. See merkle.go for the node value framing.
-func encodeMerkleNodeKey(syncIDBytes []byte, entitlementID string, level byte, bucketPrefix []byte) []byte {
-	buf := encodeMerkleEntPrefix(syncIDBytes, entitlementID)
+// index_id discriminates WHICH digested index the node belongs to (the
+// digested index's own idx* byte, see digestIndexSpec) — it sits right
+// after the fixed-width sync_id so one sync's digests for all indexes
+// are still a single contiguous range for the cleanup/clone plans.
+// level 0 is the root (bucket_prefix empty); level 1 is the single leaf
+// level, one node per non-empty bucket, whose bucket_prefix is the
+// bucket index LEFT-ALIGNED in 2 raw bytes (digestLeafPrefixLen). The
+// left alignment makes leaf keys sort in bucket-hash order at every
+// digest width, so the comparison's fold-to-coarser-width merge is a
+// single contiguous scan of this range. See digest.go for the node
+// value framing.
+func encodeDigestNodeKey(syncIDBytes []byte, indexID byte, partition string, level byte, bucketPrefix []byte) []byte {
+	buf := encodeDigestPartitionPrefix(syncIDBytes, indexID, partition)
 	buf = append(buf, level)
 	return append(buf, bucketPrefix...)
 }
 
-// encodeMerkleEntPrefix is the prefix of every merkle node key for one
-// entitlement — the range a rebuild clears before writing (the build
-// only Sets nodes; without the leading DeleteRange a depth change or an
-// emptied bucket would leave stale nodes for the comparison descent to
-// read) and the range merkleMutator drops on detecting an inconsistent
-// tree.
-func encodeMerkleEntPrefix(syncIDBytes []byte, entitlementID string) []byte {
-	buf := make([]byte, 0, 6+len(syncIDBytes)+len(entitlementID))
-	buf = append(buf, versionV3, typeMerkle)
+// encodeDigestPartitionPrefix is the prefix of every digest node key
+// for one (index, partition) — the range a rebuild clears before
+// writing (the build only Sets nodes; without the leading DeleteRange a
+// width change or an emptied bucket would leave stale nodes for the
+// comparison merge scan to read) and the range digestMutator drops on
+// detecting an inconsistent digest.
+func encodeDigestPartitionPrefix(syncIDBytes []byte, indexID byte, partition string) []byte {
+	buf := make([]byte, 0, 7+len(syncIDBytes)+len(partition))
+	buf = append(buf, versionV3, typeDigest)
 	buf = append(buf, syncIDBytes...)
+	buf = append(buf, indexID)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleStrings(buf, entitlementID)
+	buf = codec.AppendTupleStrings(buf, partition)
 	return codec.AppendTupleSeparator(buf)
 }
 
-// MerkleSyncLowerBound / UpperBound bound the entire merkle keyspace for
-// a sync. Exported for the cleanup/clone/compaction keyspace plans.
-func MerkleSyncLowerBound(syncIDBytes []byte) []byte {
+// DigestSyncLowerBound / UpperBound bound the entire digest keyspace
+// (all digested indexes) for a sync. Exported for the
+// cleanup/clone/compaction keyspace plans.
+func DigestSyncLowerBound(syncIDBytes []byte) []byte {
 	buf := make([]byte, 0, 2+len(syncIDBytes))
-	buf = append(buf, versionV3, typeMerkle)
+	buf = append(buf, versionV3, typeDigest)
 	return append(buf, syncIDBytes...)
 }
 
-func MerkleSyncUpperBound(syncIDBytes []byte) []byte {
-	return upperBoundOf(MerkleSyncLowerBound(syncIDBytes))
+func DigestSyncUpperBound(syncIDBytes []byte) []byte {
+	return upperBoundOf(DigestSyncLowerBound(syncIDBytes))
 }
 
 // --- ResourceType ---

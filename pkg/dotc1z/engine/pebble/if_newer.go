@@ -38,9 +38,9 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 		batch := e.db.NewBatch()
 		defer batch.Close()
 		// IfNewer is by definition a post-seal mutation path, so the
-		// merkle trees (cloned along with the sync's keyspace) are kept
-		// in step incrementally.
-		mm := newMerkleMutator(e)
+		// grant digests (cloned along with the sync's keyspace) are
+		// kept in step incrementally.
+		mm := newGrantDigestMutator(e)
 		written := 0
 		for _, r := range records {
 			if r == nil {
@@ -66,7 +66,7 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 				if err := e.deleteGrantIndexes(batch, idBytes, old); err != nil {
 					return err
 				}
-				if err := mm.remove(idBytes, old); err != nil {
+				if err := mm.removeGrant(idBytes, old); err != nil {
 					return err
 				}
 			case errors.Is(getErr, pebble.ErrNotFound):
@@ -84,7 +84,7 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 			if err := e.writeGrantIndexes(batch, idBytes, r); err != nil {
 				return err
 			}
-			if err := mm.add(idBytes, r); err != nil {
+			if err := mm.addGrant(idBytes, r); err != nil {
 				return err
 			}
 			written++

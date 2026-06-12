@@ -81,12 +81,12 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		// emitting an external_id on two pages).
 		skipGet := e.takeFreshGrantsEmpty()
 
-		// Incremental merkle maintenance applies only on the non-fresh
-		// path: during a fresh sync the trees don't exist yet (built
+		// Incremental digest maintenance applies only on the non-fresh
+		// path: during a fresh sync the digests don't exist yet (built
 		// once at seal), so skip even the per-entitlement root probe.
-		var mm *merkleMutator
+		var mm *digestMutator
 		if !fresh {
-			mm = newMerkleMutator(e)
+			mm = newGrantDigestMutator(e)
 		}
 
 		// Dedup pre-pass: keep only the LAST occurrence of each
@@ -161,7 +161,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 					}
 					closer.Close()
 					if mm != nil {
-						if err := mm.remove(idBytes, old); err != nil {
+						if err := mm.removeGrant(idBytes, old); err != nil {
 							return err
 						}
 					}
@@ -178,7 +178,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 				return err
 			}
 			if mm != nil {
-				if err := mm.add(idBytes, r); err != nil {
+				if err := mm.addGrant(idBytes, r); err != nil {
 					return err
 				}
 			}
@@ -389,8 +389,8 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, syncID, externalID strin
 		}
 		closer.Close()
 
-		mm := newMerkleMutator(e)
-		if err := mm.remove(idBytes, old); err != nil {
+		mm := newGrantDigestMutator(e)
+		if err := mm.removeGrant(idBytes, old); err != nil {
 			return err
 		}
 		if err := mm.apply(batch); err != nil {
@@ -515,10 +515,10 @@ func (e *Engine) deleteGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *
 	// by_entitlement_principal_hash: the bucket hash is derived from the
 	// principal identity, so deleteGrantIndexes reconstructs the same key
 	// writeGrantIndexes wrote. Skipped when ent/principal are absent,
-	// matching grantHashIndexKey's nil-guard. The entitlement's merkle
-	// tree is kept in step separately: callers on the post-seal mutation
-	// paths feed the same old record to merkleMutator.remove (and the
-	// new one to .add), which folds the change into the stored nodes in
+	// matching grantHashIndexKey's nil-guard. The entitlement's digest is
+	// kept in step separately: callers on the post-seal mutation paths
+	// feed the same old record to digestMutator.removeGrant (and the new
+	// one to .addGrant), which folds the change into the stored nodes in
 	// the same batch.
 	if ent != nil && princ != nil {
 		bh := principalBucketHash(princ.GetResourceTypeId(), princ.GetResourceId())

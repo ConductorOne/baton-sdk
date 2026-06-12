@@ -27,7 +27,7 @@ import (
 // base; if base returns ErrNotFound, write the value under
 // diffSyncID's keyspace in the same record type. GRANTS — the type
 // that dominates every real file — are diffed via the per-entitlement
-// hash tries instead (see diffGrants): unchanged entitlements are
+// grant digests instead (see diffGrants): unchanged entitlements are
 // skipped with a single root comparison, and only the principal-hash
 // buckets that actually differ are scanned. Index entries are
 // recomputed on write so the diff sync has its own (fresh) indexes
@@ -187,10 +187,11 @@ func diffEntitlements(ctx context.Context, a *Adapter, baseBytes, appliedBytes [
 }
 
 // diffGrants computes the grants set difference using the
-// per-entitlement hash tries instead of scanning every applied grant.
+// per-entitlement grant digests instead of scanning every applied
+// grant.
 //
 // Walk: enumerate the distinct entitlement_ids in the applied sync's
-// hash index (one seek each), compare each entitlement's trie between
+// hash index (one seek each), compare each entitlement's digest between
 // base and applied — one root read per side when nothing changed, the
 // overwhelmingly common case — and materialize only the principal-hash
 // buckets the comparison flags as dirty. Grants in dirty buckets are
@@ -208,13 +209,13 @@ func diffEntitlements(ctx context.Context, a *Adapter, baseBytes, appliedBytes [
 // the base probe then filters out), never under-approximates them.
 //
 // NOTE: grants without an entitlement or principal ref have no
-// hash-index entry and are invisible to the trie. They are silently
+// hash-index entry and are invisible to the digest. They are silently
 // skipped. A future O(1) coverage check (e.g. a stored grant count in
 // the sync run record) will restore detection of this case.
 func diffGrants(ctx context.Context, a *Adapter, baseBytes, appliedBytes []byte, baseSyncID, appliedSyncID, diffSyncID string) error {
 	eng := a.engine
 
-	ents, err := eng.distinctHashIndexEntitlements(ctx, appliedBytes)
+	ents, err := eng.distinctDigestPartitions(ctx, grantDigestSpec, appliedBytes)
 	if err != nil {
 		return err
 	}
@@ -224,16 +225,16 @@ func diffGrants(ctx context.Context, a *Adapter, baseBytes, appliedBytes []byte,
 		}
 		// Entitlements only present in base (fully removed) are not in
 		// `ents` and are correctly skipped: they cannot contain
-		// additions. Tries missing on either side (e.g. a ghost
+		// additions. Digests missing on either side (e.g. a ghost
 		// entitlement with grants but no entitlement record) degrade
 		// to an on-demand index fold inside DirtyEntitlementBuckets.
 		dirty, err := eng.DirtyEntitlementBuckets(ctx, baseSyncID, eng, appliedSyncID, ent)
 		if err != nil {
 			return err
 		}
-		for _, prefix := range dirty {
+		for _, bucket := range dirty {
 			var innerErr error
-			err := eng.IterateGrantsByEntitlementBucket(ctx, appliedSyncID, ent, prefix, func(rec *v3.GrantRecord) bool {
+			err := eng.IterateGrantsByEntitlementBucket(ctx, appliedSyncID, ent, bucket, func(rec *v3.GrantRecord) bool {
 				exists, probeErr := existsAt(eng.DB(), encodeGrantKey(baseBytes, rec.GetExternalId()))
 				if probeErr != nil {
 					innerErr = probeErr

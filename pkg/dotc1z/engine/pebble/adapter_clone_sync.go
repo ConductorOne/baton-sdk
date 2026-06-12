@@ -109,7 +109,7 @@ func cloneSync(
 		{GrantByPrincipalResourceTypeSyncLowerBound(syncIDBytes), GrantByPrincipalResourceTypeSyncUpperBound(syncIDBytes)},
 		{GrantByNeedsExpansionSyncLowerBound(syncIDBytes), GrantByNeedsExpansionSyncUpperBound(syncIDBytes)},
 		{GrantByEntPrincHashSyncLowerBound(syncIDBytes), GrantByEntPrincHashSyncUpperBound(syncIDBytes)},
-		{MerkleSyncLowerBound(syncIDBytes), MerkleSyncUpperBound(syncIDBytes)},
+		{DigestSyncLowerBound(syncIDBytes), DigestSyncUpperBound(syncIDBytes)},
 		{encodeAssetPrefix(syncIDBytes), upperBoundOf(encodeAssetPrefix(syncIDBytes))},
 		// Stats sidecar — single key per sync; copyRange's [lo, hi)
 		// shape requires a half-open range, so we synthesize one

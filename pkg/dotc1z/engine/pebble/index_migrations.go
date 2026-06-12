@@ -66,31 +66,39 @@ type indexMigration struct {
 var indexMigrations = []indexMigration{
 	{
 		// Backfill the by_entitlement_principal_hash index and the
-		// per-entitlement merkle trees for files written before either
+		// per-entitlement grant digests for files written before either
 		// existed. Idempotent: re-emitting an index entry is a Set over
-		// the same key/value, and each tree rebuild range-clears the
-		// entitlement's typeMerkle keyspace before writing.
+		// the same key/value, and each digest rebuild range-clears the
+		// partition's typeDigest keyspace before writing.
 		// New files persist this version at their initial (empty) Open,
 		// so the inline write path maintains both and the backfill never
 		// re-runs for them.
 		//
-		// v1: XOR combiner, all levels stored sparsely, count on every
-		// node (RFC 0003). Uses xxHash64 (8-byte digests) for both
-		// principalBucketHash and grantContentHash.
+		// v1: XOR combiner, 256-ary radix with all levels stored
+		// sparsely, count on every node (RFC 0003). Uses xxHash64
+		// (8-byte digests) for both principalBucketHash and
+		// grantContentHash.
+		// v2: flat shape — root + a single leaf level of 2^width
+		// buckets (width in bits, chosen per entitlement), leaf keys
+		// carrying a 2-byte left-aligned bucket index; node keys carry
+		// the digested index's id after the sync_id (see
+		// encodeDigestNodeKey). Index entries are unchanged; the bump
+		// forces a digest rebuild, whose per-partition range-clear
+		// removes the v1 nodes.
 		Name:    "grant_by_entitlement_principal_hash",
-		Version: 1,
+		Version: 2,
 		Apply: func(ctx context.Context, e *Engine) error {
-			return e.backfillGrantHashIndexAndMerkle(ctx)
+			return e.backfillGrantHashIndexAndDigests(ctx)
 		},
 	},
 }
 
-// backfillGrantHashIndexAndMerkle reconstructs the
+// backfillGrantHashIndexAndDigests reconstructs the
 // by_entitlement_principal_hash index for every grant in every sync,
-// then rebuilds the per-entitlement merkle trees. The index must be
-// committed before the trees are built because BuildAllMerkleTrees folds
-// over the committed index.
-func (e *Engine) backfillGrantHashIndexAndMerkle(ctx context.Context) error {
+// then rebuilds the per-entitlement grant digests. The index must be
+// committed before the digests are built because BuildAllGrantDigests
+// folds over the committed index.
+func (e *Engine) backfillGrantHashIndexAndDigests(ctx context.Context) error {
 	var syncIDs []string
 	if err := e.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
 		syncIDs = append(syncIDs, r.GetSyncId())
@@ -130,8 +138,8 @@ func (e *Engine) backfillGrantHashIndexAndMerkle(ctx context.Context) error {
 		}
 		batch.Close()
 
-		if err := e.BuildAllMerkleTrees(ctx, syncID); err != nil {
-			return fmt.Errorf("backfill merkle trees: sync %q: %w", syncID, err)
+		if err := e.BuildAllGrantDigests(ctx, syncID); err != nil {
+			return fmt.Errorf("backfill grant digests: sync %q: %w", syncID, err)
 		}
 	}
 	return nil
