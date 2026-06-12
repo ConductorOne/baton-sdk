@@ -23,6 +23,10 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Deprecated: not honored by the SDK. Retained only so existing artifacts
+// remain decodable. Do not emit.
+//
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_etag.proto.
 type ETag struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	Value         string                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
@@ -78,6 +82,7 @@ func (x *ETag) SetEntitlementId(v string) {
 	x.EntitlementId = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_etag.proto.
 type ETag_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -94,6 +99,10 @@ func (b0 ETag_builder) Build() *ETag {
 	return m0
 }
 
+// Deprecated: not honored by the SDK. Retained only so existing artifacts
+// remain decodable. Do not emit.
+//
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_etag.proto.
 type ETagMetadata struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	Metadata      *structpb.Struct       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
@@ -148,6 +157,7 @@ func (x *ETagMetadata) ClearMetadata() {
 	x.Metadata = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_etag.proto.
 type ETagMetadata_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -162,6 +172,10 @@ func (b0 ETagMetadata_builder) Build() *ETagMetadata {
 	return m0
 }
 
+// Deprecated: not honored by the SDK. Retained only so existing artifacts
+// remain decodable. Do not emit.
+//
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_etag.proto.
 type ETagMatch struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	EntitlementId string                 `protobuf:"bytes,1,opt,name=entitlement_id,json=entitlementId,proto3" json:"entitlement_id,omitempty"`
@@ -205,6 +219,7 @@ func (x *ETagMatch) SetEntitlementId(v string) {
 	x.EntitlementId = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_etag.proto.
 type ETagMatch_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -223,14 +238,14 @@ var File_c1_connector_v2_annotation_etag_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_etag_proto_rawDesc = "" +
 	"\n" +
-	"%c1/connector/v2/annotation_etag.proto\x12\x0fc1.connector.v2\x1a\x1cgoogle/protobuf/struct.proto\"C\n" +
+	"%c1/connector/v2/annotation_etag.proto\x12\x0fc1.connector.v2\x1a\x1cgoogle/protobuf/struct.proto\"G\n" +
 	"\x04ETag\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\tR\x05value\x12%\n" +
-	"\x0eentitlement_id\x18\x02 \x01(\tR\rentitlementId\"C\n" +
+	"\x0eentitlement_id\x18\x02 \x01(\tR\rentitlementId:\x02\x18\x01\"G\n" +
 	"\fETagMetadata\x123\n" +
-	"\bmetadata\x18\x01 \x01(\v2\x17.google.protobuf.StructR\bmetadata\"2\n" +
+	"\bmetadata\x18\x01 \x01(\v2\x17.google.protobuf.StructR\bmetadata:\x02\x18\x01\"6\n" +
 	"\tETagMatch\x12%\n" +
-	"\x0eentitlement_id\x18\x01 \x01(\tR\rentitlementIdB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"\x0eentitlement_id\x18\x01 \x01(\tR\rentitlementId:\x02\x18\x01B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_etag_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_c1_connector_v2_annotation_etag_proto_goTypes = []any{

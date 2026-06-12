@@ -6,15 +6,38 @@ import "google/protobuf/struct.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
+// The ETag annotation messages below are tombstones. The SDK stopped honoring
+// them when etag-based grant replay was removed (PR #951), and connectors must
+// not emit them. They are retained, deprecated, solely so that previously
+// written c1z artifacts and responses from older connectors that still carry
+// these annotations remain decodable: protojson encoding/decoding requires
+// type-registry resolution of every google.protobuf.Any it encounters, and
+// deleting the types would turn old-but-valid data into hard errors on JSON
+// surfaces (CLI -o json, diff output, the lambda transport).
+//
+// Do not add new references to these types.
+
+// Deprecated: not honored by the SDK. Retained only so existing artifacts
+// remain decodable. Do not emit.
 message ETag {
+  option deprecated = true;
+
   string value = 1;
   string entitlement_id = 2;
 }
 
+// Deprecated: not honored by the SDK. Retained only so existing artifacts
+// remain decodable. Do not emit.
 message ETagMetadata {
+  option deprecated = true;
+
   google.protobuf.Struct metadata = 1;
 }
 
+// Deprecated: not honored by the SDK. Retained only so existing artifacts
+// remain decodable. Do not emit.
 message ETagMatch {
+  option deprecated = true;
+
   string entitlement_id = 1;
 }

@@ -31,7 +31,6 @@ func defaultAnnotationHandlers() map[string]annotationHandler {
 		typeURL(&v2.GrantImmutable{}):       handleGrantImmutable,
 		typeURL(&v2.EntitlementImmutable{}): handleEntitlementImmutable,
 		typeURL(&v2.ExternalLink{}):         handleExternalLink,
-		typeURL(&v2.ETag{}):                 handleETag,
 		typeURL(&v2.ChildResourceType{}):    handleChildResourceType,
 	}
 }

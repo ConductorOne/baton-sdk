@@ -100,16 +100,14 @@ func TestSimulateWALRace(t *testing.T) {
 
 	// Write the "before" data to a file and compress it
 	beforeDB := filepath.Join(tmpDir, "before.db")
-	//nolint:gosec // beforeDB is under tmpDir created by t.TempDir.
-	err = os.WriteFile(beforeDB, dbDataBeforeClose, 0600)
+	err = os.WriteFile(beforeDB, dbDataBeforeClose, 0600) // #nosec G703 -- beforeDB is under tmpDir created by t.TempDir.
 	require.NoError(t, err)
 	err = saveC1z(beforeDB, beforeC1z, 1)
 	require.NoError(t, err)
 
 	// Write the "after" data to a file and compress it
 	afterDB := filepath.Join(tmpDir, "after.db")
-	//nolint:gosec // afterDB is under tmpDir created by t.TempDir.
-	err = os.WriteFile(afterDB, dbDataAfterClose, 0600)
+	err = os.WriteFile(afterDB, dbDataAfterClose, 0600) // #nosec G703 -- afterDB is under tmpDir created by t.TempDir.
 	require.NoError(t, err)
 	err = saveC1z(afterDB, afterC1z, 1)
 	require.NoError(t, err)

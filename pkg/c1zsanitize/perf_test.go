@@ -69,7 +69,6 @@ func TestGraphAnnotationHandlers(t *testing.T) {
 		}.Build()),
 		mustAny(t, v2.EntitlementImmutable_builder{SourceId: "src-ent-1"}.Build()),
 		mustAny(t, v2.ExternalLink_builder{Url: "https://acme.example/private/path?token=abc"}.Build()),
-		mustAny(t, v2.ETag_builder{Value: "etag-xyz", EntitlementId: "ent-a"}.Build()),
 		mustAny(t, v2.ChildResourceType_builder{ResourceTypeId: "group"}.Build()),
 	}
 
@@ -102,12 +101,6 @@ func TestGraphAnnotationHandlers(t *testing.T) {
 	el := mustUnpack(t, byType[typeURL(&v2.ExternalLink{})], &v2.ExternalLink{})
 	require.Equal(t, redactedURL, el.GetUrl())
 
-	// ETag: entitlement id transformed; value sanitized (not preserved).
-	et := mustUnpack(t, byType[typeURL(&v2.ETag{})], &v2.ETag{})
-	require.Equal(t, s.transformID("ent-a"), et.GetEntitlementId())
-	require.NotEqual(t, "etag-xyz", et.GetValue())
-	require.Equal(t, s.id("etag-xyz"), et.GetValue())
-
 	// ChildResourceType: token HMAC'd (not a declared type here).
 	crt := mustUnpack(t, byType[typeURL(&v2.ChildResourceType{})], &v2.ChildResourceType{})
 	require.Equal(t, s.id("group"), crt.GetResourceTypeId())
@@ -118,7 +111,7 @@ func TestGraphAnnotationHandlers(t *testing.T) {
 func TestGraphAnnotationDeterminism(t *testing.T) {
 	in := []*anypb.Any{
 		mustAny(t, v2.GrantExpandable_builder{EntitlementIds: []string{"e1", "e2"}}.Build()),
-		mustAny(t, v2.ETag_builder{Value: "v", EntitlementId: "e1"}.Build()),
+		mustAny(t, v2.ExternalLink_builder{Url: "https://acme.example/private"}.Build()),
 	}
 	a := newTestSanitizer(bytes32("det")).transformAnnotations(in, newAssetRefSet())
 	b := newTestSanitizer(bytes32("det")).transformAnnotations(in, newAssetRefSet())
@@ -153,7 +146,7 @@ func TestGrantSubCacheEquivalence(t *testing.T) {
 			Id:          grantID,
 			Entitlement: ent,
 			Principal:   principal,
-			Annotations: []*anypb.Any{mustAny(t, v2.ETag_builder{Value: "e", EntitlementId: "ent-shared"}.Build())},
+			Annotations: []*anypb.Any{mustAny(t, v2.ExternalLink_builder{Url: "https://acme.example/grant"}.Build())},
 		}.Build()
 	}
 
@@ -213,7 +206,7 @@ func benchGrants(n, e, p int) []*v2.Grant {
 			Entitlement: ent,
 			Principal:   principal,
 			Annotations: []*anypb.Any{
-				mustAnyB(v2.ETag_builder{Value: "etag-" + itoa(i), EntitlementId: "ent-" + itoa(ei)}.Build()),
+				mustAnyB(v2.GrantImmutable_builder{SourceId: "grant-source-" + itoa(i)}.Build()),
 				mustAnyB(v2.ExternalLink_builder{Url: "https://acme.example/g/" + itoa(i)}.Build()),
 			},
 		}.Build())

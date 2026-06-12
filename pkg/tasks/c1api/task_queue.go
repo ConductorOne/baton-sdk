@@ -149,7 +149,7 @@ func knownTaskLowWater(parallelism int) uint32 {
 	if p > int64(^uint32(0)) {
 		return ^uint32(0)
 	}
-	return uint32(p)
+	return uint32(p) // #nosec G115 -- p is bounded above by MaxUint32 and below by the parallelism <= 0 guard.
 }
 
 func knownTaskHighWater(parallelism int) uint32 {

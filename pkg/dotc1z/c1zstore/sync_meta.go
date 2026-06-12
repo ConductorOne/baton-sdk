@@ -21,8 +21,7 @@ type SyncMeta interface {
 	MarkSyncSupportsDiff(ctx context.Context, syncID string) error
 
 	// LatestFullSync returns the most-recently-finished SyncTypeFull sync
-	// run, or nil if none exists. Used by pkg/sync.syncer to compute the
-	// "previous sync" reference for etag-based grant reuse.
+	// run, or nil if none exists.
 	LatestFullSync(ctx context.Context) (*SyncRun, error)
 
 	// LatestFinishedSyncOfAnyType returns the most-recently-finished sync

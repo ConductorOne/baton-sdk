@@ -527,7 +527,7 @@ var (
 //
 // InsertResourceGrants — the syncer extracts grant.Entitlement.Resource
 // and writes it to v1_resources via PutResources. Stubs would overwrite
-// the resources table with stripped data on etag-replay.
+// the resources table with stripped data.
 //
 // ExternalResourceMatch{All,Match,ID} — processGrantsWithExternalPrincipals
 // builds a bid key from grant.GetPrincipal() that encodes ParentResourceId.
