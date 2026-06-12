@@ -1470,3 +1470,411 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = GrantsReaderServiceListGrantsForEntitlementsResponseValidationError{}
+
+// Validate checks the field values on
+// GrantsReaderServiceListGrantsForPrincipalRequest with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *GrantsReaderServiceListGrantsForPrincipalRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// GrantsReaderServiceListGrantsForPrincipalRequest with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in
+// GrantsReaderServiceListGrantsForPrincipalRequestMultiError, or nil if none found.
+func (m *GrantsReaderServiceListGrantsForPrincipalRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GrantsReaderServiceListGrantsForPrincipalRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if m.GetPrincipalId() == nil {
+		err := GrantsReaderServiceListGrantsForPrincipalRequestValidationError{
+			field:  "PrincipalId",
+			reason: "value is required",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if all {
+		switch v := interface{}(m.GetPrincipalId()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, GrantsReaderServiceListGrantsForPrincipalRequestValidationError{
+					field:  "PrincipalId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, GrantsReaderServiceListGrantsForPrincipalRequestValidationError{
+					field:  "PrincipalId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetPrincipalId()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return GrantsReaderServiceListGrantsForPrincipalRequestValidationError{
+				field:  "PrincipalId",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetEntitlement()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, GrantsReaderServiceListGrantsForPrincipalRequestValidationError{
+					field:  "Entitlement",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, GrantsReaderServiceListGrantsForPrincipalRequestValidationError{
+					field:  "Entitlement",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetEntitlement()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return GrantsReaderServiceListGrantsForPrincipalRequestValidationError{
+				field:  "Entitlement",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if m.GetPageSize() != 0 {
+
+		if m.GetPageSize() > 250 {
+			err := GrantsReaderServiceListGrantsForPrincipalRequestValidationError{
+				field:  "PageSize",
+				reason: "value must be less than or equal to 250",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if m.GetPageToken() != "" {
+
+		if l := len(m.GetPageToken()); l < 1 || l > 2048 {
+			err := GrantsReaderServiceListGrantsForPrincipalRequestValidationError{
+				field:  "PageToken",
+				reason: "value length must be between 1 and 2048 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, GrantsReaderServiceListGrantsForPrincipalRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, GrantsReaderServiceListGrantsForPrincipalRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return GrantsReaderServiceListGrantsForPrincipalRequestValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return GrantsReaderServiceListGrantsForPrincipalRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// GrantsReaderServiceListGrantsForPrincipalRequestMultiError is an error
+// wrapping multiple validation errors returned by
+// GrantsReaderServiceListGrantsForPrincipalRequest.ValidateAll() if the
+// designated constraints aren't met.
+type GrantsReaderServiceListGrantsForPrincipalRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GrantsReaderServiceListGrantsForPrincipalRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GrantsReaderServiceListGrantsForPrincipalRequestMultiError) AllErrors() []error { return m }
+
+// GrantsReaderServiceListGrantsForPrincipalRequestValidationError is the
+// validation error returned by
+// GrantsReaderServiceListGrantsForPrincipalRequest.Validate if the designated
+// constraints aren't met.
+type GrantsReaderServiceListGrantsForPrincipalRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GrantsReaderServiceListGrantsForPrincipalRequestValidationError) Field() string {
+	return e.field
+}
+
+// Reason function returns reason value.
+func (e GrantsReaderServiceListGrantsForPrincipalRequestValidationError) Reason() string {
+	return e.reason
+}
+
+// Cause function returns cause value.
+func (e GrantsReaderServiceListGrantsForPrincipalRequestValidationError) Cause() error {
+	return e.cause
+}
+
+// Key function returns key value.
+func (e GrantsReaderServiceListGrantsForPrincipalRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GrantsReaderServiceListGrantsForPrincipalRequestValidationError) ErrorName() string {
+	return "GrantsReaderServiceListGrantsForPrincipalRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GrantsReaderServiceListGrantsForPrincipalRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGrantsReaderServiceListGrantsForPrincipalRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GrantsReaderServiceListGrantsForPrincipalRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GrantsReaderServiceListGrantsForPrincipalRequestValidationError{}
+
+// Validate checks the field values on
+// GrantsReaderServiceListGrantsForPrincipalResponse with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *GrantsReaderServiceListGrantsForPrincipalResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// GrantsReaderServiceListGrantsForPrincipalResponse with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in
+// GrantsReaderServiceListGrantsForPrincipalResponseMultiError, or nil if none found.
+func (m *GrantsReaderServiceListGrantsForPrincipalResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GrantsReaderServiceListGrantsForPrincipalResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetList() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, GrantsReaderServiceListGrantsForPrincipalResponseValidationError{
+						field:  fmt.Sprintf("List[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, GrantsReaderServiceListGrantsForPrincipalResponseValidationError{
+						field:  fmt.Sprintf("List[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return GrantsReaderServiceListGrantsForPrincipalResponseValidationError{
+					field:  fmt.Sprintf("List[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if m.GetNextPageToken() != "" {
+
+		if l := len(m.GetNextPageToken()); l < 1 || l > 2048 {
+			err := GrantsReaderServiceListGrantsForPrincipalResponseValidationError{
+				field:  "NextPageToken",
+				reason: "value length must be between 1 and 2048 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return GrantsReaderServiceListGrantsForPrincipalResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// GrantsReaderServiceListGrantsForPrincipalResponseMultiError is an error
+// wrapping multiple validation errors returned by
+// GrantsReaderServiceListGrantsForPrincipalResponse.ValidateAll() if the
+// designated constraints aren't met.
+type GrantsReaderServiceListGrantsForPrincipalResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GrantsReaderServiceListGrantsForPrincipalResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GrantsReaderServiceListGrantsForPrincipalResponseMultiError) AllErrors() []error { return m }
+
+// GrantsReaderServiceListGrantsForPrincipalResponseValidationError is the
+// validation error returned by
+// GrantsReaderServiceListGrantsForPrincipalResponse.Validate if the
+// designated constraints aren't met.
+type GrantsReaderServiceListGrantsForPrincipalResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GrantsReaderServiceListGrantsForPrincipalResponseValidationError) Field() string {
+	return e.field
+}
+
+// Reason function returns reason value.
+func (e GrantsReaderServiceListGrantsForPrincipalResponseValidationError) Reason() string {
+	return e.reason
+}
+
+// Cause function returns cause value.
+func (e GrantsReaderServiceListGrantsForPrincipalResponseValidationError) Cause() error {
+	return e.cause
+}
+
+// Key function returns key value.
+func (e GrantsReaderServiceListGrantsForPrincipalResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GrantsReaderServiceListGrantsForPrincipalResponseValidationError) ErrorName() string {
+	return "GrantsReaderServiceListGrantsForPrincipalResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GrantsReaderServiceListGrantsForPrincipalResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGrantsReaderServiceListGrantsForPrincipalResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GrantsReaderServiceListGrantsForPrincipalResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GrantsReaderServiceListGrantsForPrincipalResponseValidationError{}
