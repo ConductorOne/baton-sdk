@@ -60,6 +60,11 @@ type Compactor struct {
 	overlayRecordChunkSize int
 	overlayBufferFactor    float64
 	overlayGateFraction    float64
+	// foldMaxWastePct optionally overrides the fold waste cutover
+	// (accumulated fold dead bytes as a percent of the base's live
+	// payload bytes, above which auto mode forces an overlay rebuild).
+	// Zero means the default; see WithFoldMaxWastePercent.
+	foldMaxWastePct int64
 	// decoderPool scopes v3 payload-decoder reuse to one Compact run:
 	// every source envelope open draws from it instead of constructing
 	// a fresh zstd decoder, and Compact closes it on the way out so no

@@ -122,6 +122,27 @@ func WithOverlayGateFraction(f float64) Option {
 	}
 }
 
+// WithFoldMaxWastePercent overrides the fold waste cutover: when the
+// base input's accumulated fold dead bytes (the envelope manifest's
+// fold_dead_bytes counter) exceed this percent of its live payload
+// bytes, auto mode forces an overlay rebuild instead of another fold,
+// reclaiming the waste. Zero (the default) uses
+// defaultFoldMaxWastePercent; negative disables the waste cutover.
+func WithFoldMaxWastePercent(pct int64) Option {
+	return func(c *Compactor) {
+		c.foldMaxWastePct = pct
+	}
+}
+
+// foldMaxWastePercent resolves the configured waste cutover, treating
+// zero as the default.
+func (c *Compactor) foldMaxWastePercent() int64 {
+	if c.foldMaxWastePct != 0 {
+		return c.foldMaxWastePct
+	}
+	return defaultFoldMaxWastePercent
+}
+
 // Fold cutover thresholds gate the auto fold/overlay choice in
 // resolvePebbleMode. Fold's win is conditional on the base dominating
 // total input volume: it pays a fixed per-source cost (envelope +
@@ -148,9 +169,24 @@ func WithOverlayGateFraction(f float64) Option {
 // therefore gone — fold's win comes from splicing the base's
 // unchanged compressed frames at save instead of re-encoding the
 // whole output envelope, which holds at any base size.
+//
+// The waste cutover bounds how much dead weight consecutive folds may
+// accumulate before auto mode forces a rebuild. Every record a fold
+// overrides leaves its raw bytes shadowed inside the spliced base
+// frames (the crossover sweep measured +18% output at an 8.9%
+// override ratio, +58% at 41%), and that waste taxes every subsequent
+// download, open, and save until a rebuild reclaims it. The fold
+// merge counts the shadowed bytes exactly (FoldStats.DeadBytes — the
+// incumbent is already in hand at override time), the counter is
+// carried in the envelope manifest (fold_dead_bytes) across
+// consecutive folds, and a rebuild resets it to zero. 15% sits below
+// the band where the sweep showed overlay winning on both axes
+// (~18% bloat) while still amortizing one rebuild over several folds
+// at production override ratios. Override via WithFoldMaxWastePercent.
 const (
 	defaultFoldMinBaseBytes      int64 = 0  // no minimum — fold wins at every measured base size
 	defaultFoldMaxPartialPercent int64 = 10 // partials ≤ 10% of base size
+	defaultFoldMaxWastePercent   int64 = 15 // accumulated dead bytes ≤ 15% of live payload bytes
 )
 
 // foldMinBaseBytes is the smallest base input (envelope file size) for
@@ -221,15 +257,71 @@ func (c *Compactor) resolvePebbleMode(ctx context.Context) PebbleCompactorMode {
 	if baseBytes > 0 && baseBytes >= minBase && partialBytes*100 <= baseBytes*maxPct {
 		mode = PebbleCompactorModeFold
 	}
+	var deadBytes, liveBytes int64
+	wastePct := c.foldMaxWastePercent()
+	if mode == PebbleCompactorModeFold && wastePct > 0 {
+		var exceeded bool
+		deadBytes, liveBytes, exceeded = foldWaste(c.entries[0].FilePath)
+		// Division form of deadBytes*100 > liveBytes*wastePct: the
+		// cross-multiplied version overflows int64 around 92 PB
+		// (deadBytes*100) / 615 PB (liveBytes*wastePct), so divide
+		// instead. wastePct > 0 is guaranteed by the enclosing
+		// condition; integer truncation is immaterial at byte scale.
+		if exceeded || (liveBytes > 0 && deadBytes/wastePct > liveBytes/100) {
+			// Accumulated fold waste has crossed the cutover: rebuild
+			// to reclaim it instead of folding more dead weight in.
+			mode = PebbleCompactorModeOverlay
+		}
+	}
 	l.Info("pebble compactor: auto-selected mode",
 		zap.String("mode", string(mode)),
 		zap.Int64("base_bytes", baseBytes),
 		zap.Int64("partial_bytes", partialBytes),
 		zap.Int64("fold_min_base_bytes", minBase),
 		zap.Int64("fold_max_partial_pct", maxPct),
+		zap.Int64("fold_dead_bytes", deadBytes),
+		zap.Int64("fold_live_bytes", liveBytes),
+		zap.Int64("fold_max_waste_pct", wastePct),
 		zap.Int("partials", len(c.entries)-1),
 	)
 	return mode
+}
+
+// foldWaste reads the base envelope's accumulated fold waste. The
+// first return is the manifest's fold_dead_bytes counter; the second
+// is the live payload bytes — the indexed trailer's total_raw_size
+// minus the dead bytes (three small preads, no payload unpack). The
+// bool short-circuits the degenerate cases: when dead bytes are
+// recorded but live bytes can't be computed (non-indexed payload — no
+// cheap raw-size source — or a corrupt trailer) it returns true,
+// erring toward the rebuild, which is the safe direction (a rebuild
+// is always correct, just slower). A base with no recorded waste, or
+// one that isn't a readable v3 envelope, returns all zeros — the gate
+// stays on fold and a genuinely bad file fails later with the
+// canonical open error.
+func foldWaste(path string) (int64, int64, bool) {
+	f, err := os.Open(path) // #nosec G703 - path is a caller-provided compaction input, not untrusted user input.
+	if err != nil {
+		return 0, 0, false
+	}
+	defer f.Close()
+	m, err := formatv3.ReadManifestHeader(f)
+	if err != nil {
+		return 0, 0, false
+	}
+	dead := m.GetFoldDeadBytes()
+	if dead <= 0 {
+		return dead, 0, false
+	}
+	idx, err := formatv3.ReadIndexedFrameIndex(f)
+	if err != nil {
+		return dead, 0, true
+	}
+	live := idx.GetTotalRawSize() - dead
+	if live <= 0 {
+		return dead, live, true
+	}
+	return dead, live, false
 }
 
 // fileSizeOrZero returns the file's size, or 0 when it can't be
@@ -390,6 +482,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// Apply partials newest-first (reverse entry order, excluding the
 	// base at entries[0]); strictly-newer-wins makes earlier
 	// applications take precedence on ties.
+	var foldStats mergepkg.FoldStats
 	for i := len(c.entries) - 1; i >= 1; i-- {
 		if err := ctx.Err(); err != nil {
 			return "", err
@@ -428,13 +521,46 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 				maxEnded = ts.AsTime()
 			}
 		}
-		mergeErr := mergepkg.MergeInto(ctx, destEng, []mergepkg.SourceSync{{Engine: srcEng, SyncID: srcSyncID}}, baseSyncID)
+		mergeStats, mergeErr := mergepkg.MergeInto(ctx, destEng, []mergepkg.SourceSync{{Engine: srcEng, SyncID: srcSyncID}}, baseSyncID)
+		foldStats.Add(mergeStats)
 		if cerr := w.Close(ctx); cerr != nil {
 			l.Error("compactPebbleFold: error closing source store", zap.Error(cerr), zap.String("file", cs.FilePath))
 		}
 		if mergeErr != nil {
 			return "", fmt.Errorf("compactPebbleFold: merge %s: %w", cs.FilePath, mergeErr)
 		}
+	}
+
+	// Record the bytes this fold shadowed in the base keyspace. The
+	// store inherited the base manifest's running fold_dead_bytes at
+	// open (the dest is a byte copy of the base), so adding the delta
+	// keeps the manifest counter cumulative across consecutive folds;
+	// resolvePebbleMode's waste cutover reads it to force the eventual
+	// rebuild that reclaims the dead weight.
+	if foldStats.DeadBytes > 0 {
+		if !enginepkg.AddFoldDeadBytes(c.compactedC1z, foldStats.DeadBytes) {
+			return "", errors.New("compactPebbleFold: could not record fold dead bytes")
+		}
+	}
+
+	// Optionally compact the folded LSM before save. Off by default:
+	// a compaction rewrites the SSTs that overlap the partials' writes
+	// — for scattered overrides that is most of the base — which both
+	// costs O(base) on the critical path and makes those files no
+	// longer byte-identical to the source envelope's frames, so the
+	// splice-at-save degrades to a full re-encode. The payoff is an
+	// output with zero shadowed records (overrides otherwise leave
+	// dead bytes inside the spliced base frames). Experimental knob
+	// for measuring that trade-off; the long-term plan for reclaiming
+	// accumulated fold bloat is routing the occasional compaction to
+	// the rebuild path instead.
+	if os.Getenv("BATON_EXPERIMENTAL_FOLD_COMPACT") == "1" {
+		compactStart := time.Now()
+		if err := destEng.CompactAllRanges(ctx); err != nil {
+			return "", fmt.Errorf("compactPebbleFold: compact ranges: %w", err)
+		}
+		l.Info("compactPebbleFold: compacted LSM before save",
+			zap.Duration("elapsed", time.Since(compactStart)))
 	}
 
 	// Mint a fresh sync id for the folded output. Renaming a v3 c1z's
@@ -475,6 +601,8 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	l.Info("compactPebbleFold: done",
 		zap.String("base_sync_id", baseSyncID),
 		zap.String("folded_sync_id", newSyncID),
+		zap.Int64("overridden_records", foldStats.OverriddenRecords),
+		zap.Int64("dead_bytes", foldStats.DeadBytes),
 		zap.Duration("elapsed", time.Since(foldStart)),
 	)
 	return newSyncID, nil

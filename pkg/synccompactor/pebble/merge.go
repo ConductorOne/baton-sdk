@@ -18,6 +18,28 @@ type SourceSync struct {
 	SyncID string
 }
 
+// FoldStats reports what a MergeInto call overrode in the destination
+// keyspace. DeadBytes is the exact raw size (keys + values) of the
+// incumbent records — and their derived index keys — that the fold
+// shadowed: because the envelope save splices the base's compressed
+// frames verbatim, those bytes stay in the output as dead weight.
+// Callers accumulate this into the manifest's fold_dead_bytes so the
+// auto cutover can force a rebuild once waste crosses its threshold.
+type FoldStats struct {
+	// OverriddenRecords counts incumbents replaced by a strictly-newer
+	// source record. Byte-identical resubmissions are no-ops and do
+	// not count.
+	OverriddenRecords int64
+	// DeadBytes sums len(key)+len(value) of each overridden incumbent
+	// plus len(key) of each of its stale derived index keys.
+	DeadBytes int64
+}
+
+func (s *FoldStats) Add(o FoldStats) {
+	s.OverriddenRecords += o.OverriddenRecords
+	s.DeadBytes += o.DeadBytes
+}
+
 // MergeInto folds every source's primary records into dest under
 // destSyncID. Across all inputs (and any records already present under
 // destSyncID), the newest record per logical key (by discovered_at,
@@ -48,29 +70,32 @@ type SourceSync struct {
 // the already-written (earlier source, or pre-existing dest) record is
 // kept. Callers pass sources newest-first so the tie winner matches the
 // SQLite fold.
-func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync, destSyncID string) error {
+func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync, destSyncID string) (FoldStats, error) {
+	var stats FoldStats
 	if dest == nil {
-		return errors.New("synccompactor/pebble.MergeInto: dest engine is nil")
+		return stats, errors.New("synccompactor/pebble.MergeInto: dest engine is nil")
 	}
 	if destSyncID == "" {
-		return errors.New("synccompactor/pebble.MergeInto: destSyncID is required")
+		return stats, errors.New("synccompactor/pebble.MergeInto: destSyncID is required")
 	}
 	if err := dest.SetCurrentSync(destSyncID); err != nil {
-		return fmt.Errorf("synccompactor/pebble.MergeInto: bind dest sync: %w", err)
+		return stats, fmt.Errorf("synccompactor/pebble.MergeInto: bind dest sync: %w", err)
 	}
 	for i := range sources {
 		if err := ctx.Err(); err != nil {
-			return err
+			return stats, err
 		}
 		s := sources[i]
 		if s.Engine == nil || s.SyncID == "" {
 			continue
 		}
-		if err := mergeOneSource(ctx, dest, s, destSyncID); err != nil {
-			return fmt.Errorf("merge source %s: %w", s.SyncID, err)
+		srcStats, err := mergeOneSource(ctx, dest, s, destSyncID)
+		stats.Add(srcStats)
+		if err != nil {
+			return stats, fmt.Errorf("merge source %s: %w", s.SyncID, err)
 		}
 	}
-	return nil
+	return stats, nil
 }
 
 // mergeRawFlushRecords bounds how many records accumulate in one raw
@@ -95,24 +120,28 @@ const mergeRawFlushRecords = 32768
 //     incumbent, mirroring the engine's Put*RecordsIfNewer rule —
 //     missing discovered_at scans as 0, reproducing its nil-timestamp
 //     ordering ("never overwrite an incumbent, always fill a hole").
-func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, destSyncID string) error {
+func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, destSyncID string) (FoldStats, error) {
+	var stats FoldStats
 	srcDB := s.Engine.DB()
 	if srcDB == nil {
-		return errors.New("source engine has no DB (closed?)")
+		return stats, errors.New("source engine has no DB (closed?)")
 	}
 	for _, bucket := range allBuckets() {
-		if err := mergeBucketRawIfNewer(ctx, dest, srcDB, bucket); err != nil {
-			return fmt.Errorf("merge %s: %w", bucket.name, err)
+		bucketStats, err := mergeBucketRawIfNewer(ctx, dest, srcDB, bucket)
+		stats.Add(bucketStats)
+		if err != nil {
+			return stats, fmt.Errorf("merge %s: %w", bucket.name, err)
 		}
 	}
-	return nil
+	return stats, nil
 }
 
-func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *pebble.DB, bucket bucketSpec) error {
+func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *pebble.DB, bucket bucketSpec) (FoldStats, error) {
+	var stats FoldStats
 	lower, upper := bucket.syncRange()
 	iter, err := src.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
-		return err
+		return stats, err
 	}
 	defer func() { _ = iter.Close() }()
 
@@ -124,7 +153,12 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *peb
 	// The closures see batch by reference, so flush's reassignment
 	// routes subsequent index writes to the fresh batch.
 	setIndexKey := func(key []byte) error { return batch.Set(key, nil, nil) }
-	delIndexKey := func(key []byte) error { return batch.Delete(key, nil) }
+	// Each deleted index key is an incumbent's stale index entry: dead
+	// weight in the spliced base frames, counted toward FoldStats.
+	delIndexKey := func(key []byte) error {
+		stats.DeadBytes += int64(len(key))
+		return batch.Delete(key, nil)
+	}
 	flush := func() error {
 		if batch.Empty() {
 			return nil
@@ -142,7 +176,7 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *peb
 
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
-			return err
+			return stats, err
 		}
 		key, value := iter.Key(), iter.Value()
 		// Point-read the committed incumbent. Safe against the pending
@@ -158,41 +192,46 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *peb
 			newTs, err := discoveredAtNanosFromRaw(bucket, value)
 			if err != nil {
 				closer.Close()
-				return err
+				return stats, err
 			}
 			oldTs, err := discoveredAtNanosFromRaw(bucket, oldVal)
 			if err != nil {
 				closer.Close()
-				return err
+				return stats, err
 			}
 			if newTs <= oldTs {
 				closer.Close()
 				continue
 			}
+			// The incumbent loses: its key and value go dead inside the
+			// spliced base frames. Its stale index keys are counted by
+			// delIndexKey as forEachIndexKeyFromRaw enumerates them.
+			stats.OverriddenRecords++
+			stats.DeadBytes += int64(len(key)) + int64(len(oldVal))
 			if err := forEachIndexKeyFromRaw(bucket, key, lower, oldVal, &scratch, nil, delIndexKey); err != nil {
 				closer.Close()
-				return err
+				return stats, err
 			}
 			closer.Close()
 		case errors.Is(getErr, pebble.ErrNotFound):
 		default:
-			return fmt.Errorf("get incumbent: %w", getErr)
+			return stats, fmt.Errorf("get incumbent: %w", getErr)
 		}
 		if err := batch.Set(key, value, nil); err != nil {
-			return err
+			return stats, err
 		}
 		if err := forEachIndexKeyFromRaw(bucket, key, lower, value, &scratch, nil, setIndexKey); err != nil {
-			return err
+			return stats, err
 		}
 		pending++
 		if pending >= mergeRawFlushRecords {
 			if err := flush(); err != nil {
-				return err
+				return stats, err
 			}
 		}
 	}
 	if err := iter.Error(); err != nil {
-		return err
+		return stats, err
 	}
-	return flush()
+	return stats, flush()
 }

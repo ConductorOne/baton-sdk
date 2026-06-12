@@ -99,6 +99,26 @@ type storeDirtyMarker interface {
 	MarkDirty()
 }
 
+type foldDeadBytesAdder interface {
+	AddFoldDeadBytes(n int64)
+}
+
+// AddFoldDeadBytes bumps a registered store's cumulative fold-waste
+// counter (persisted as the envelope manifest's fold_dead_bytes at
+// save). Called by the fold compactor with the exact raw bytes its
+// merge shadowed in the base keyspace; the compactor's auto cutover
+// later reads the counter from the envelope header to force a rebuild
+// once waste crosses its threshold. Returns false when w is not a
+// registered Pebble store.
+func AddFoldDeadBytes(w connectorstore.Writer, n int64) bool {
+	s, ok := w.(foldDeadBytesAdder)
+	if !ok || s == nil {
+		return false
+	}
+	s.AddFoldDeadBytes(n)
+	return true
+}
+
 // MarkStoreDirty flips a registered store's dirty bit so Close drives
 // the save → checkpoint → envelope path. Engine-level writes (raw
 // batches, SST ingest, direct Put*Records) bypass the registered

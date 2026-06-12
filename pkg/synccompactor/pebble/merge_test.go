@@ -5,10 +5,13 @@ import (
 	"testing"
 	"time"
 
+	cpebble "github.com/cockroachdb/pebble/v2"
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 func grantAt(syncID, externalID string, at time.Time) *v3.GrantRecord {
@@ -60,8 +63,18 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 	// No SetCurrentSync here: MergeInto must bind the dest engine to
 	// destSyncID itself (record values carry no sync_id, so a stale
 	// binding would silently write into the wrong sync's keyspace).
-	if err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync); err != nil {
+	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync)
+	if err != nil {
 		t.Fatalf("MergeInto: %v", err)
+	}
+	// src2's g-shared@newer overrode src1's incumbent — exactly one
+	// override, and its dead bytes must cover at least the incumbent's
+	// key+value.
+	if stats.OverriddenRecords != 1 {
+		t.Fatalf("FoldStats.OverriddenRecords = %d, want 1", stats.OverriddenRecords)
+	}
+	if stats.DeadBytes <= 0 {
+		t.Fatalf("FoldStats.DeadBytes = %d, want > 0 (overridden incumbent's key+value+index keys)", stats.DeadBytes)
 	}
 
 	// Union of distinct external_ids: g-shared, g-only1, g-only2 = 3.
@@ -127,8 +140,13 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 	}
 	// src1 applied first → incumbent wins the tie. MergeInto binds the
 	// dest sync itself.
-	if err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync); err != nil {
+	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync)
+	if err != nil {
 		t.Fatal(err)
+	}
+	// A tie keeps the incumbent — nothing is overridden, no dead bytes.
+	if stats.OverriddenRecords != 0 || stats.DeadBytes != 0 {
+		t.Fatalf("FoldStats = %+v, want zero (tie keeps incumbent)", stats)
 	}
 
 	var winner string
@@ -142,4 +160,167 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 		t.Fatalf("tie winner = %q, want from-src1 (earliest-applied incumbent, strict-> parity)", winner)
 	}
 	assertIndexesMatchDerived(t, ctx, dst)
+}
+
+// baseNewerSets returns a base record set (one record per primary type)
+// stamped at `base` and an overriding source set with the SAME keys but
+// distinct display/principal tags stamped at `other`. The two stamps
+// let a test fold an older source into a newer base, or vice versa, and
+// assert per-type winner + FoldStats without rebuilding fixtures.
+func baseNewerSets(base, other time.Time) (recordSet, recordSet) {
+	baseSet := recordSet{
+		rts: []*v3.ResourceTypeRecord{winRT("rt-1", "rt-base", base)},
+		rs:  []*v3.ResourceRecord{winRes("user", "u1", "res-base", base)},
+		es:  []*v3.EntitlementRecord{winEnt("e-1", "ent-base", base)},
+		gs:  []*v3.GrantRecord{winGrant("g-1", "base", base)},
+	}
+	otherSet := recordSet{
+		rts: []*v3.ResourceTypeRecord{winRT("rt-1", "rt-other", other)},
+		rs:  []*v3.ResourceRecord{winRes("user", "u1", "res-other", other)},
+		es:  []*v3.EntitlementRecord{winEnt("e-1", "ent-other", other)},
+		gs:  []*v3.GrantRecord{winGrant("g-1", "other", other)},
+	}
+	return baseSet, otherSet
+}
+
+func seedBase(t *testing.T, ctx context.Context, name string, rs recordSet) (*enginepkg.Engine, string) {
+	t.Helper()
+	dest, _ := newEngine(t, name)
+	destSync := ksuid.New().String()
+	require.NoError(t, dest.SetCurrentSync(destSync))
+	populateEngine(t, ctx, dest, rs)
+	return dest, destSync
+}
+
+func assertFoldWinners(t *testing.T, ctx context.Context, eng *enginepkg.Engine, rtDN, resDN, entDN, grantPrincipal string) {
+	t.Helper()
+	rt, err := eng.GetResourceTypeRecord(ctx, "rt-1")
+	require.NoError(t, err)
+	require.Equal(t, rtDN, rt.GetDisplayName(), "resource_type winner")
+	res, err := eng.GetResourceRecord(ctx, "user", "u1")
+	require.NoError(t, err)
+	require.Equal(t, resDN, res.GetDisplayName(), "resource winner")
+	ent, err := eng.GetEntitlementRecord(ctx, "e-1")
+	require.NoError(t, err)
+	require.Equal(t, entDN, ent.GetDisplayName(), "entitlement winner")
+	g, err := eng.GetGrantRecord(ctx, "g-1")
+	require.NoError(t, err)
+	require.Equal(t, grantPrincipal, g.GetPrincipal().GetResourceId(), "grant winner")
+}
+
+// TestMergeIntoBaseNewerKeepsBaseAllTypes is the symmetric counterpart
+// to TestMergeIntoUnionNewerWins for the real fold shape: an OLDER
+// partial folded into a newer pre-seeded base must NOT regress any of
+// the four primary record types. This is the "newer data already lives
+// in the base sync" case — the fold must keep every incumbent, record
+// nothing as overridden, and leave the derived indexes untouched. It
+// guards the strict-newer comparison (`newTs <= oldTs` keeps the
+// incumbent) for every per-type discovered_at field, not just grants.
+func TestMergeIntoBaseNewerKeepsBaseAllTypes(t *testing.T) {
+	ctx := context.Background()
+	older := time.Unix(1000, 0).UTC()
+	newer := time.Unix(2000, 0).UTC()
+
+	baseSet, olderSet := baseNewerSets(newer, older)
+	dest, destSync := seedBase(t, ctx, "base-newer-dest", baseSet)
+	src := buildEngineSource(t, ctx, "older-src", olderSet)
+
+	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync)
+	require.NoError(t, err)
+
+	// Nothing regressed: the base (newer) version survives for every type.
+	assertFoldWinners(t, ctx, dest, "rt-base", "res-base", "ent-base", "base")
+	// An older source overrides nothing, so no dead weight accrues.
+	require.Zero(t, stats.OverriddenRecords, "older partial must override nothing")
+	require.Zero(t, stats.DeadBytes, "no overrides means no dead bytes")
+	assertIndexesMatchDerived(t, ctx, dest)
+}
+
+// TestMergeIntoNewerPartialOverridesBaseAllTypes is the override
+// direction into a pre-seeded base: a NEWER partial replaces the base's
+// record for every primary type, FoldStats counts one override per type
+// with positive dead bytes, and the stale index keys are swapped for
+// the winners'. Together with the base-newer test this pins newest-wins
+// in BOTH directions across all four discovered_at fields.
+func TestMergeIntoNewerPartialOverridesBaseAllTypes(t *testing.T) {
+	ctx := context.Background()
+	older := time.Unix(1000, 0).UTC()
+	newer := time.Unix(2000, 0).UTC()
+
+	baseSet, newerSet := baseNewerSets(older, newer)
+	dest, destSync := seedBase(t, ctx, "base-older-dest", baseSet)
+	src := buildEngineSource(t, ctx, "newer-src", newerSet)
+
+	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync)
+	require.NoError(t, err)
+
+	// The newer partial wins for every type.
+	assertFoldWinners(t, ctx, dest, "rt-other", "res-other", "ent-other", "other")
+	// One override per primary record type (rt, resource, entitlement, grant).
+	require.Equal(t, int64(4), stats.OverriddenRecords, "one override per primary type")
+	require.Positive(t, stats.DeadBytes, "overrides must record the shadowed incumbents' bytes")
+	assertIndexesMatchDerived(t, ctx, dest)
+}
+
+// sumBucketRawBytes sums len(key)+len(value) over a bucket's primary
+// range and every one of its derived index ranges — the exact byte
+// total the fold merge must charge as dead when every record in the
+// bucket is overridden (index values are empty, so an index entry
+// contributes only its key length, matching the merge's accounting).
+func sumBucketRawBytes(t *testing.T, eng *enginepkg.Engine, bucket bucketSpec) int64 {
+	t.Helper()
+	lo, hi := bucket.syncRange()
+	ranges := append([][2][]byte{{lo, hi}}, bucketIndexRanges(bucket)...)
+	var total int64
+	for _, r := range ranges {
+		iter, err := eng.DB().NewIter(&cpebble.IterOptions{LowerBound: r[0], UpperBound: r[1]})
+		require.NoError(t, err)
+		for iter.First(); iter.Valid(); iter.Next() {
+			total += int64(len(iter.Key())) + int64(len(iter.Value()))
+		}
+		require.NoError(t, iter.Error())
+		require.NoError(t, iter.Close())
+	}
+	return total
+}
+
+// TestMergeIntoDeadBytesExactCount pins FoldStats.DeadBytes to the exact
+// footprint of the shadowed incumbent — primary key+value plus every
+// derived index key — instead of just "> 0". It seeds one grant,
+// measures its on-disk byte total straight from the dest LSM, then folds
+// a strictly-newer override and asserts the reported dead bytes equal
+// that measured footprint. The override is a deliberately different size
+// (longer principal) and carries an extra index key (needs_expansion),
+// so a wrong-record miscount — charging the winner's bytes, or dropping
+// the index-key bytes — can't coincidentally match. This is the guard
+// the qualitative >0 / grows / resets assertions can't provide.
+func TestMergeIntoDeadBytesExactCount(t *testing.T) {
+	ctx := context.Background()
+	older := time.Unix(1000, 0).UTC()
+	newer := time.Unix(2000, 0).UTC()
+
+	dest, destSync := seedBase(t, ctx, "deadbytes-dest", recordSet{
+		gs: []*v3.GrantRecord{winGrant("g-1", "p", older)},
+	})
+	// Exact footprint of the incumbent the override will shadow,
+	// measured before the merge touches it.
+	wantDead := sumBucketRawBytes(t, dest, grantBucket())
+
+	override := v3.GrantRecord_builder{
+		ExternalId: "g-1",
+		Entitlement: v3.EntitlementRef_builder{
+			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",
+		}.Build(),
+		Principal:      v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "a-deliberately-longer-principal-id"}.Build(),
+		NeedsExpansion: true,
+		DiscoveredAt:   timestamppb.New(newer),
+	}.Build()
+	src := buildEngineSource(t, ctx, "deadbytes-src", recordSet{gs: []*v3.GrantRecord{override}})
+
+	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), stats.OverriddenRecords)
+	require.Equal(t, wantDead, stats.DeadBytes,
+		"dead bytes must equal the incumbent's primary key+value plus its index keys")
+	assertIndexesMatchDerived(t, ctx, dest)
 }

@@ -42,7 +42,7 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	}
 
 	dbDir := filepath.Join(tmpDir, "db")
-	reuse, fileEncoding, err := unpackExistingPebbleC1Z(outputFilePath, dbDir, opts.MaxDecodedPayloadBytes, opts.MaxDecoderMemoryBytes, opts.DecoderPool)
+	reuse, fileEncoding, foldDeadBytes, err := unpackExistingPebbleC1Z(outputFilePath, dbDir, opts.MaxDecodedPayloadBytes, opts.MaxDecoderMemoryBytes, opts.DecoderPool)
 	if err != nil {
 		return nil, cleanupOnError(err)
 	}
@@ -70,6 +70,7 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 		readOnly:        opts.ReadOnly,
 		payloadEncoding: encoding,
 		payloadReuse:    reuse,
+		foldDeadBytes:   foldDeadBytes,
 		syncLimit:       opts.SyncLimit,
 		skipCleanup:     opts.SkipCleanup,
 	}, nil
@@ -81,32 +82,32 @@ func unpackExistingPebbleC1Z(
 	maxDecodedPayloadBytes uint64,
 	maxDecoderMemoryBytes uint64,
 	pool *EnvelopeDecoderPool,
-) (*formatv3.PayloadReuse, PayloadEncoding, error) {
+) (*formatv3.PayloadReuse, PayloadEncoding, int64, error) {
 	stat, err := os.Stat(outputFilePath)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return nil, PayloadEncodingUnspecified, nil
+		return nil, PayloadEncodingUnspecified, 0, nil
 	case err != nil:
-		return nil, PayloadEncodingUnspecified, err
+		return nil, PayloadEncodingUnspecified, 0, err
 	case stat.Size() == 0:
-		return nil, PayloadEncodingUnspecified, nil
+		return nil, PayloadEncodingUnspecified, 0, nil
 	}
 
 	f, err := os.Open(outputFilePath)
 	if err != nil {
-		return nil, PayloadEncodingUnspecified, err
+		return nil, PayloadEncodingUnspecified, 0, err
 	}
 	defer f.Close()
 
 	header, err := formatv3.ReadManifestHeader(f)
 	if err != nil {
-		return nil, PayloadEncodingUnspecified, err
+		return nil, PayloadEncodingUnspecified, 0, err
 	}
 	if e := Engine(header.GetEngine()); e != EnginePebble && e != PebbleManifestEngine {
-		return nil, PayloadEncodingUnspecified, fmt.Errorf("%w: %s", pebble.ErrUnknownEngine, header.GetEngine())
+		return nil, PayloadEncodingUnspecified, 0, fmt.Errorf("%w: %s", pebble.ErrUnknownEngine, header.GetEngine())
 	}
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
-		return nil, PayloadEncodingUnspecified, err
+		return nil, PayloadEncodingUnspecified, 0, err
 	}
 	manifest, reuse, err := formatv3.ExtractEnvelopePayload(f, dbDir,
 		formatv3.WithMaxDecodedPayloadBytes(maxDecodedPayloadBytes),
@@ -114,9 +115,12 @@ func unpackExistingPebbleC1Z(
 		formatv3.WithPayloadDecoderPool(pool),
 	)
 	if err != nil {
-		return nil, PayloadEncodingUnspecified, err
+		return nil, PayloadEncodingUnspecified, 0, err
 	}
-	return reuse, payloadEncodingFromProto(manifest.GetPayloadEncoding()), nil
+	// fold_dead_bytes is inherited from the source file so the waste
+	// accounting survives arbitrary open/save cycles, not just fold
+	// compactions; a fresh file starts at zero.
+	return reuse, payloadEncodingFromProto(manifest.GetPayloadEncoding()), header.GetFoldDeadBytes(), nil
 }
 
 func payloadEncodingFromProto(enc c1zv3.PayloadEncoding) PayloadEncoding {
@@ -142,6 +146,13 @@ type pebbleStore struct {
 	readOnly        bool
 	payloadEncoding PayloadEncoding
 	payloadReuse    *formatv3.PayloadReuse
+	// foldDeadBytes is the cumulative fold-waste counter carried in
+	// the envelope manifest (C1ZManifestV3.fold_dead_bytes): seeded
+	// from the file this store was opened from, optionally bumped by
+	// AddFoldDeadBytes during a fold compaction, and written back at
+	// save. Guarded by closeMu (writes happen on the compactor's
+	// single merge goroutine; the lock just pairs it with save/Close).
+	foldDeadBytes int64
 
 	// syncLimit and skipCleanup mirror StoreOptions and feed into
 	// Cleanup. The Adapter intentionally has no awareness of these
@@ -287,6 +298,21 @@ func (s *pebbleStore) MarkDirty() {
 	s.closeMu.Lock()
 	if !s.closed {
 		s.dirty = true
+	}
+	s.closeMu.Unlock()
+}
+
+// AddFoldDeadBytes bumps the cumulative fold-waste counter persisted
+// in the envelope manifest at save. Called by the fold compactor with
+// the raw bytes its merge shadowed in the base keyspace (see
+// pebble.AddFoldDeadBytes for the Writer-level accessor).
+func (s *pebbleStore) AddFoldDeadBytes(n int64) {
+	if s == nil || n <= 0 {
+		return
+	}
+	s.closeMu.Lock()
+	if !s.closed {
+		s.foldDeadBytes += n
 	}
 	s.closeMu.Unlock()
 }
@@ -465,6 +491,9 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	manifest, err := pebble.BuildManifestWithSyncRuns(ctx, s.engine, s.payloadEncoding)
 	if err != nil {
 		return err
+	}
+	if s.foldDeadBytes > 0 {
+		manifest.SetFoldDeadBytes(s.foldDeadBytes)
 	}
 	encodeStart := time.Now()
 	if _, err := formatv3.WriteEnvelopeWithReuse(out, manifest, checkpointDir, s.payloadReuse); err != nil {

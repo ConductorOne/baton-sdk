@@ -2,14 +2,21 @@
 // (Pebble-engine) c1z compaction.
 //
 // Three strategies live here. Which one runs is decided per compaction
-// by synccompactor.resolvePebbleMode: overlay is the default (and
-// currently the only auto-selected mode), fold runs only when
-// requested explicitly — its sync-id adoption is not yet handled by
-// downstream compaction bookkeeping — and kway is never auto-selected
-// on its own: it is overlay's internal fallback and an operational
-// escape hatch (BATON_EXPERIMENTAL_PEBBLE_COMPACTOR=kway). The
-// dormant fold cutover thresholds and the measured crossover data
-// live next to that gate.
+// by synccompactor.resolvePebbleMode. Fold is auto-selected for the
+// large-base/small-partials shape (summed partials ≤ 10% of the base
+// file, no minimum base size) now that a folded c1z gets a fresh sync
+// id — compactPebbleFold renames the single sync-run record, a
+// metadata-only write since keys carry no sync_id, so C1's compaction
+// bookkeeping sees a new LatestCompactedSyncId instead of mistaking the
+// fold for "no new compaction". Overlay is the default for every other
+// shape, and it also reclaims accumulated fold bloat: once a base's
+// recorded fold_dead_bytes crosses the waste cutover
+// (synccompactor.WithFoldMaxWastePercent, default 15% of live payload),
+// the gate flips a fold-shaped input back to overlay to rebuild it.
+// Kway is never auto-selected on its own: it is overlay's internal
+// fallback and an operational escape hatch
+// (BATON_EXPERIMENTAL_PEBBLE_COMPACTOR=kway). The fold cutover
+// thresholds and the measured crossover data live next to that gate.
 //
 // # Overlay merge (MergeFilesIntoOverlay) — the default rebuild
 //
@@ -59,7 +66,12 @@
 // base with small partials). It loses when partial volume grows:
 // every partial record pays a point read-modify-write (~0.2s/MB), so
 // the (dormant) auto gate caps partials at a small fraction of the
-// base.
+// base. Overridden incumbents leave their bytes shadowed inside the
+// spliced base frames; the merge counts them exactly (FoldStats) and
+// the compactor accumulates the total in the envelope manifest's
+// fold_dead_bytes, forcing an overlay rebuild once waste crosses the
+// cutover (synccompactor.WithFoldMaxWastePercent, default 15% of
+// live payload bytes).
 //
 // The package also hosts an IngestAndExcise-based Compactor, a
 // byte-level primitive that atomically replaces one sync_id range in a
