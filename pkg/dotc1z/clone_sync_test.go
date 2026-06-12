@@ -177,3 +177,20 @@ func TestCloneSyncMigratedColumnOrder(t *testing.T) {
 	require.NoError(t, srcFile.rawDb.Close())
 	require.NoError(t, cloneFile.Close(ctx))
 }
+
+// TestSnapshotToAfterCloseReturnsErrDbNotOpen verifies that calling SnapshotTo
+// on a closed handle returns ErrDbNotOpen rather than panicking on the now-nil
+// rawDb, matching the guard every other C1File method applies.
+func TestSnapshotToAfterCloseReturnsErrDbNotOpen(t *testing.T) {
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "source.db")
+
+	f, err := NewC1File(ctx, dbPath, WithC1FTmpDir(dir))
+	require.NoError(t, err)
+	require.NoError(t, f.Close(ctx))
+
+	err = f.SnapshotTo(ctx, filepath.Join(dir, "snapshot.c1z"))
+	require.ErrorIs(t, err, ErrDbNotOpen)
+}
