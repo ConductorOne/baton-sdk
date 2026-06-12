@@ -442,7 +442,7 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 	// If handler exits within a second, return result.
 	// If handler takes longer than 1 second, return status pending.
 	// If handler takes longer than an hour, return status failed.
-	go func() { // #nosec G118 -- action handlers intentionally outlive the request context and keep only trace/log metadata.
+	go func() { //nolint:gosec // intentional background goroutine; outlives the request context.
 		defer close(done)
 		defer func() {
 			if r := recover(); r != nil {
@@ -530,7 +530,7 @@ func (a *ActionManager) invokeResourceAction(
 	done := make(chan struct{})
 
 	// Invoke handler in goroutine
-	go func() { // #nosec G118 -- action handlers intentionally outlive the request context and keep only trace/log metadata.
+	go func() { //nolint:gosec // intentional background goroutine; outlives the request context.
 		defer close(done)
 		defer func() {
 			if r := recover(); r != nil {

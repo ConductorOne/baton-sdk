@@ -95,6 +95,19 @@ func handleExternalLink(_ *sanitizer, msg proto.Message, _ *assetRefSet) proto.M
 	return v2.ExternalLink_builder{Url: url}.Build()
 }
 
+// handleETag preserves the change-detection annotation. The embedded
+// entitlement id is a cross-reference and goes through transformID; the etag
+// value is an opaque token that may encode customer data, so it is HMAC'd
+// rather than preserved (fail-closed) while staying a stable deterministic
+// string so etag-equality shapes survive.
+func handleETag(s *sanitizer, msg proto.Message, _ *assetRefSet) proto.Message {
+	in := msg.(*v2.ETag)
+	return v2.ETag_builder{
+		Value:         s.id(in.GetValue()),
+		EntitlementId: s.transformID(in.GetEntitlementId()),
+	}.Build()
+}
+
 // handleChildResourceType preserves the resource-tree topology, sanitizing
 // the embedded resource-type token under the known-type rule.
 func handleChildResourceType(s *sanitizer, msg proto.Message, _ *assetRefSet) proto.Message {

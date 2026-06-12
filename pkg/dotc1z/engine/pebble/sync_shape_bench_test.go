@@ -187,7 +187,7 @@ func runBatonDemoSyncShape(b *testing.B, engine dotc1z.Engine) {
 	}
 	elapsed := time.Since(start)
 
-	fi, statErr := os.Stat(path) // #nosec G703 -- path is from b.TempDir in this benchmark.
+	fi, statErr := os.Stat(path) //nolint:gosec // path is from b.TempDir() — bench-controlled, no taint.
 	var size int64
 	if statErr == nil {
 		size = fi.Size()

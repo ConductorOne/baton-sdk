@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+message ETag {
+  string value = 1;
+  string entitlement_id = 2;
+}
+
+message ETagMetadata {
+  google.protobuf.Struct metadata = 1;
+}
+
+message ETagMatch {
+  string entitlement_id = 1;
+}

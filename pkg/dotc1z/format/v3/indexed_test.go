@@ -683,7 +683,8 @@ func TestIndexedTrailerCorruption(t *testing.T) {
 		binary.BigEndian.PutUint32(footer[8:12], uint32(len(ib))) //nolint:gosec // small test index.
 		binary.BigEndian.PutUint64(footer[12:20], xxhash.Sum64(ib))
 		out = append(out, footer[:]...)
-		if err := os.WriteFile(p, out, 0o600); err != nil { // #nosec G703 -- p is a t.TempDir path created by this test.
+		//nolint:gosec // p is a t.TempDir path created by this test.
+		if err := os.WriteFile(p, out, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

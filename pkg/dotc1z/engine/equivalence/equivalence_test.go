@@ -49,26 +49,21 @@ func TestPebbleMatchesMemoryRef(t *testing.T) {
 	ops := make([]Op, 0, 250)
 	externalIDs := make([]string, 0, 200)
 	entPool := []string{"ent-A", "ent-B", "ent-C", "ent-D", "ent-E"}
-	for len(externalIDs) < 200 {
-		for _, ent := range entPool {
-			if len(externalIDs) == 200 {
-				break
-			}
-			i := len(externalIDs)
-			ext := ksuid.New().String()
-			externalIDs = append(externalIDs, ext)
-			principalRT := "user"
-			principalID := ksuid.New().String()
-			// Reuse 10 principals' IDs to make the per-principal index
-			// non-empty; pick from a fixed pool.
-			switch i % 4 {
-			case 0:
-				principalID = "shared-principal-1"
-			case 1:
-				principalID = "shared-principal-2"
-			}
-			ops = append(ops, Op{Kind: OpPut, Record: mkGrant(syncID, ext, ent, principalRT, principalID)})
+	for i := 0; i < 200; i++ {
+		ext := ksuid.New().String()
+		externalIDs = append(externalIDs, ext)
+		ent := entPool[i%len(entPool)]
+		principalRT := "user"
+		principalID := ksuid.New().String()
+		// Reuse 10 principals' IDs to make the per-principal index
+		// non-empty; pick from a fixed pool.
+		switch i % 4 {
+		case 0:
+			principalID = "shared-principal-1"
+		case 1:
+			principalID = "shared-principal-2"
 		}
+		ops = append(ops, Op{Kind: OpPut, Record: mkGrant(syncID, ext, ent, principalRT, principalID)})
 	}
 	// Delete every 8th grant.
 	for i := 0; i < len(externalIDs); i += 8 {

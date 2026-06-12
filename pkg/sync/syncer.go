@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	native_sync "sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
@@ -35,6 +36,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
+	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -137,6 +139,8 @@ type syncer struct {
 	injectSyncIDAnnotation              bool
 	setSessionStore                     sessions.SetSessionStore
 	syncResourceTypes                   []string
+	previousSyncMu                      native_sync.Mutex
+	previousSyncIDPtr                   atomic.Pointer[string]
 	workerCount                         int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
 	metricsHandler                      metrics.Handler
 	syncIdentity                        uotel.SyncIdentity
@@ -220,6 +224,30 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	}
 
 	return nil
+}
+
+func (s *syncer) getPreviousFullSyncID(ctx context.Context) (string, error) {
+	if ptr := s.previousSyncIDPtr.Load(); ptr != nil {
+		return *ptr, nil
+	}
+
+	s.previousSyncMu.Lock()
+	defer s.previousSyncMu.Unlock()
+
+	if ptr := s.previousSyncIDPtr.Load(); ptr != nil {
+		return *ptr, nil
+	}
+
+	run, err := s.store.SyncMeta().LatestFullSync(ctx)
+	if err != nil {
+		return "", err
+	}
+	previousSyncID := ""
+	if run != nil {
+		previousSyncID = run.ID
+	}
+	s.previousSyncIDPtr.Store(&previousSyncID)
+	return previousSyncID, nil
 }
 
 func (s *syncer) handleInitialActionForStep(ctx context.Context, a Action) {
@@ -1675,6 +1703,151 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	return nil
 }
 
+func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v2.ResourceId) (string, *v2.ETag, error) {
+	ctx, span := tracer.Start(ctx, "syncer.fetchResourceForPreviousSync")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	l := ctxzap.Extract(ctx)
+
+	previousSyncID, err := s.getPreviousFullSyncID(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if previousSyncID == "" {
+		return "", nil, nil
+	}
+
+	var lastSyncResourceReqAnnos annotations.Annotations
+	lastSyncResourceReqAnnos.Update(c1zpb.SyncDetails_builder{Id: previousSyncID}.Build())
+	prevResource, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+		ResourceId:  resourceID,
+		Annotations: lastSyncResourceReqAnnos,
+	}.Build())
+	// If we get an error while attempting to look up the previous sync, we should just log it and continue.
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			l.Debug(
+				"resource was not found in previous sync",
+				zap.String("resource_id", resourceID.GetResource()),
+				zap.String("resource_type_id", resourceID.GetResourceType()),
+			)
+			return "", nil, nil
+		}
+
+		l.Error("error fetching resource for previous sync", zap.Error(err))
+		return "", nil, err
+	}
+
+	pETag := &v2.ETag{}
+	prevAnnos := annotations.Annotations(prevResource.GetResource().GetAnnotations())
+	ok, err := prevAnnos.Pick(pETag)
+	if err != nil {
+		return "", nil, err
+	}
+	if ok {
+		return previousSyncID, pETag, nil
+	}
+
+	return previousSyncID, nil, nil
+}
+
+func (s *syncer) fetchEtaggedGrantsForResource(
+	ctx context.Context,
+	resource *v2.Resource,
+	prevEtag *v2.ETag,
+	prevSyncID string,
+	grantResponse *v2.GrantsServiceListGrantsResponse,
+) ([]*v2.Grant, bool, error) {
+	ctx, span := tracer.Start(ctx, "syncer.fetchEtaggedGrantsForResource")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	respAnnos := annotations.Annotations(grantResponse.GetAnnotations())
+	etagMatch := &v2.ETagMatch{}
+	hasMatch, err := respAnnos.Pick(etagMatch)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !hasMatch {
+		return nil, false, nil
+	}
+
+	var ret []*v2.Grant
+
+	// No previous etag, so an etag match is not possible
+	// TODO(kans): do the request again to get the grants, but this time don't use the etag match!
+	if prevEtag == nil {
+		return nil, false, errors.New("connector returned an etag match but there is no previous sync generation to use")
+	}
+
+	// The previous etag is for a different entitlement
+	if prevEtag.GetEntitlementId() != etagMatch.GetEntitlementId() {
+		return nil, false, errors.New("connector returned an etag match but the entitlement id does not match the previous sync")
+	}
+
+	// We have a previous sync, and the connector would like to use the previous sync results
+	var npt string
+	// Fetch the grants for this resource from the previous sync, and store them in the current sync.
+	storeAnnos := annotations.Annotations{}
+	storeAnnos.Update(c1zpb.SyncDetails_builder{
+		Id: prevSyncID,
+	}.Build())
+	for {
+		prevGrantsResp, err := s.store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+			Resource:     resource,
+			Annotations:  storeAnnos,
+			PageToken:    npt,
+			ActiveSyncId: prevSyncID,
+		}.Build())
+		if err != nil {
+			return nil, false, err
+		}
+
+		for _, g := range prevGrantsResp.GetList() {
+			if g.GetEntitlement().GetId() != etagMatch.GetEntitlementId() {
+				continue
+			}
+
+			// Replayed grants are read back from the store, which on a
+			// slim engine (Pebble) returns an identity-only stub for
+			// grant.Entitlement.Resource. Downstream handling in
+			// syncGrantsForResource reads rich fields off that resource
+			// (InsertResourceGrants re-writes it to the resources table;
+			// the related-resource fetch reads its parent). That is only
+			// safe because the grant's entitlement-resource equals the
+			// resource we're syncing — which the syncGrantsForResource
+			// etag-update re-writes full afterward, masking any stub.
+			//
+			// That equality is enforced by the ListGrants(Resource=...)
+			// filter above, not by the data model, so assert it. If it
+			// is ever violated, a stub resource for some OTHER resource
+			// would be persisted (no etag-update to mask it) — fail loud
+			// here rather than corrupt the resources table silently.
+			gr := g.GetEntitlement().GetResource().GetId()
+			if gr.GetResourceType() != resource.GetId().GetResourceType() ||
+				gr.GetResource() != resource.GetId().GetResource() {
+				return nil, false, fmt.Errorf(
+					"etag replay: grant %q entitlement-resource %s/%s does not match synced resource %s/%s",
+					g.GetId(),
+					gr.GetResourceType(), gr.GetResource(),
+					resource.GetId().GetResourceType(), resource.GetId().GetResource(),
+				)
+			}
+			ret = append(ret, g)
+		}
+
+		if prevGrantsResp.GetNextPageToken() == "" {
+			break
+		}
+		npt = prevGrantsResp.GetNextPageToken()
+	}
+
+	return ret, true, nil
+}
+
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
 // No span here: only call site is SyncGrants, which already owns a span.
 func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) error {
@@ -1691,6 +1864,19 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 
 	resource := resourceResponse.GetResource()
 
+	var prevSyncID string
+	var prevEtag *v2.ETag
+	var etagMatch bool
+	var grants []*v2.Grant
+
+	resourceAnnos := annotations.Annotations(resource.GetAnnotations())
+	prevSyncID, prevEtag, err = s.fetchResourceForPreviousSync(ctx, resourceID)
+	if err != nil {
+		return fmt.Errorf("sync-grants-for-resource: error fetching resource for previous sync: %w", err)
+	}
+	resourceAnnos.Update(prevEtag)
+	resource.SetAnnotations(resourceAnnos)
+
 	resp, err := s.connector.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 		Resource:     resource,
 		PageToken:    action.PageToken,
@@ -1700,7 +1886,16 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", err)
 	}
 
-	grants := resp.GetList()
+	// Fetch any etagged grants for this resource
+	var etaggedGrants []*v2.Grant
+	etaggedGrants, etagMatch, err = s.fetchEtaggedGrantsForResource(ctx, resource, prevEtag, prevSyncID, resp)
+	if err != nil {
+		return fmt.Errorf("sync-grants-for-resource: error fetching etagged grants: %w", err)
+	}
+	grants = append(grants, etaggedGrants...)
+
+	// We want to process any grants from the previous sync first so that if there is a conflict, the newer data takes precedence
+	grants = append(grants, resp.GetList()...)
 
 	l := ctxzap.Extract(ctx)
 	resourcesToInsertMap := make(map[string]*v2.Resource, 0)
@@ -1795,6 +1990,33 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 	}
 
 	s.handleProgress(ctx, action, len(grants))
+
+	// We may want to update the etag on the resource. If we matched a previous etag, then we should use that.
+	// Otherwise, we should use the etag from the response if provided.
+	var updatedETag *v2.ETag
+
+	if etagMatch {
+		updatedETag = prevEtag
+	} else {
+		newETag := &v2.ETag{}
+		respAnnos := annotations.Annotations(resp.GetAnnotations())
+		ok, err := respAnnos.Pick(newETag)
+		if err != nil {
+			return err
+		}
+		if ok {
+			updatedETag = newETag
+		}
+	}
+
+	if updatedETag != nil {
+		resourceAnnos.Update(updatedETag)
+		resource.SetAnnotations(resourceAnnos)
+		err = s.store.PutResources(ctx, resource)
+		if err != nil {
+			return err
+		}
+	}
 
 	if resp.GetNextPageToken() == "" {
 		s.counts.AddGrantsProgress(resourceID.GetResourceType(), 1)
