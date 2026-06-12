@@ -7,6 +7,8 @@ import (
 	"strconv"
 
 	"github.com/doug-martin/goqu/v9"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -335,7 +337,7 @@ func (c *C1File) resolveSyncIDForInternalQuery(ctx context.Context, forced strin
 			return "", err
 		}
 		if latest == nil {
-			return "", sql.ErrNoRows
+			return "", status.Error(codes.NotFound, "no sync run found")
 		}
 		return latest.ID, nil
 	}

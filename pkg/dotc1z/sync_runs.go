@@ -24,6 +24,7 @@ import (
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -452,7 +453,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*SyncRun, error) {
 	var statsBytes *[]byte
 	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff, &statsBytes)
 	if err != nil {
-		return nil, err
+		return nil, c1zstore.AdaptNotFound(err)
 	}
 
 	ret.Stats = parseStats(ctx, statsBytes)
@@ -585,7 +586,7 @@ func (c *C1File) StartOrResumeSync(ctx context.Context, syncType connectorstore.
 
 	resumedSyncID, err := c.ResumeSync(ctx, syncType, syncID)
 	if err != nil {
-		if status.Code(err) != codes.NotFound && !errors.Is(err, sql.ErrNoRows) {
+		if status.Code(err) != codes.NotFound {
 			return "", false, err
 		}
 	} else {

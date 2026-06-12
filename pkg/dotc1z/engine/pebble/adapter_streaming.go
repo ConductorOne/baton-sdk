@@ -4,9 +4,11 @@ import (
 	"context"
 	"iter"
 
+	"github.com/cockroachdb/pebble/v2"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // StreamGrants yields grants for syncID, optionally narrowed by
@@ -61,7 +63,7 @@ func (a *Adapter) StreamGrants(
 			return
 		}
 		if err != nil {
-			yield(nil, adaptNotFound(err))
+			yield(nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound))
 		}
 	}
 }
@@ -102,7 +104,7 @@ func (a *Adapter) StreamResources(
 			return
 		}
 		if err != nil {
-			yield(nil, adaptNotFound(err))
+			yield(nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound))
 		}
 	}
 }
@@ -139,7 +141,7 @@ func (a *Adapter) StreamEntitlements(
 			return
 		}
 		if err != nil {
-			yield(nil, adaptNotFound(err))
+			yield(nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound))
 		}
 	}
 }
