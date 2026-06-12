@@ -22,3 +22,6 @@ breaking:
     - EXTENSION_NO_DELETE
     - FIELD_NO_DELETE
     - FIELD_SAME_DEFAULT
+  ignore:
+    # Deleted intentionally: etag support was removed from the SDK.
+    - proto/c1/connector/v2/annotation_etag.proto
