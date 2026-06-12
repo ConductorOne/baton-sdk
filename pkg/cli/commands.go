@@ -547,6 +547,9 @@ func MakeGRPCServerCommand[T field.Configurable](
 			cfgStr = scn.Text()
 			break
 		}
+		if scn.Err() != nil {
+			return fmt.Errorf("failed to read stdin: %w", scn.Err())
+		}
 
 		cfgBytes, err := base64.StdEncoding.DecodeString(cfgStr)
 		if err != nil {
