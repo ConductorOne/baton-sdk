@@ -111,6 +111,7 @@ func copyGraph(g *EntitlementGraph) *EntitlementGraph {
 	for i, action := range g.Actions {
 		newGraph.Actions[i] = &EntitlementGraphAction{
 			SourceEntitlementID:     action.SourceEntitlementID,
+			Descendants:             slices.Clone(action.Descendants),
 			DescendantEntitlementID: action.DescendantEntitlementID,
 			Shallow:                 action.Shallow,
 			ResourceTypeIDs:         slices.Clone(action.ResourceTypeIDs),

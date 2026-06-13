@@ -27,6 +27,21 @@ const defaultMaxDepth int64 = 20
 
 var maxDepth, _ = strconv.ParseInt(os.Getenv("BATON_GRAPH_EXPAND_MAX_DEPTH"), 10, 64)
 
+// defaultDestBatchSize bounds how many destination entitlements a single action
+// fans one source read out to. Larger batches read the source fewer times but
+// hold more oracles. K=1 reproduces the pre-grouping per-edge behavior.
+const defaultDestBatchSize = 4
+
+// destBatchSize returns the configured destination fan-out width, or the
+// default when unset/invalid. Read at call time (not package init) so the env
+// can be overridden per test.
+func destBatchSize() int {
+	if v, err := strconv.Atoi(os.Getenv("BATON_GRAPH_EXPAND_DEST_BATCH_SIZE")); err == nil && v > 0 {
+		return v
+	}
+	return defaultDestBatchSize
+}
+
 // ErrMaxDepthExceeded is returned when the expansion graph exceeds the maximum allowed depth.
 var ErrMaxDepthExceeded = errors.New("max depth exceeded")
 
@@ -103,13 +118,11 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 		action := e.graph.Actions[0]
 		nextPageToken, err := e.runAction(ctx, action)
 		if err != nil {
+			// Mutate nothing on error: leave the action queued and its edges
+			// intact so a retried run re-processes them. Missing source/dest
+			// entitlements are handled inline in runAction, so any error here is
+			// a real failure to propagate.
 			l.Error("expander: error running graph action", zap.Error(err), zap.Any("action", action))
-			_ = e.graph.DeleteEdge(ctx, action.SourceEntitlementID, action.DescendantEntitlementID)
-			if status.Code(err) == codes.NotFound {
-				// Skip action and delete the edge that caused the error.
-				e.graph.Actions = e.graph.Actions[1:]
-				return nil
-			}
 			return err
 		}
 
@@ -117,8 +130,10 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 			// More pages to process
 			action.PageToken = nextPageToken
 		} else {
-			// Action is complete - mark edge expanded and remove from queue
-			e.graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
+			// Action is complete - mark every edge in the batch expanded and remove from queue.
+			for _, d := range action.descendants() {
+				e.graph.MarkEdgeExpanded(action.SourceEntitlementID, d.EntitlementID)
+			}
 			e.graph.Actions = e.graph.Actions[1:]
 		}
 	}
@@ -139,16 +154,28 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 		return fmt.Errorf("expander: %w (%d)", ErrMaxDepthExceeded, depth)
 	}
 
-	// Generate new actions from expandable entitlements
+	// Generate new actions from expandable entitlements. One action per
+	// (source, filter, destination-batch): the source's grants are read once
+	// per filter group and fanned out to every destination in the batch,
+	// instead of re-read once per outgoing edge.
+	batchSize := destBatchSize()
 	for sourceEntitlementID := range e.graph.GetExpandableEntitlements(ctx) {
-		for descendantEntitlementID, grantInfo := range e.graph.GetExpandableDescendantEntitlements(ctx, sourceEntitlementID) {
-			e.graph.Actions = append(e.graph.Actions, &EntitlementGraphAction{
-				SourceEntitlementID:     sourceEntitlementID,
-				DescendantEntitlementID: descendantEntitlementID,
-				PageToken:               "",
-				Shallow:                 grantInfo.IsShallow,
-				ResourceTypeIDs:         grantInfo.ResourceTypeIDs,
-			})
+		for _, group := range groupExpandableDescendants(ctx, e.graph, sourceEntitlementID) {
+			for start := 0; start < len(group.dests); start += batchSize {
+				end := start + batchSize
+				if end > len(group.dests) {
+					end = len(group.dests)
+				}
+				// Copy the batch slice so it does not alias the group's backing
+				// array once serialized into graph state.
+				batch := append([]ActionDescendant(nil), group.dests[start:end]...)
+				e.graph.Actions = append(e.graph.Actions, &EntitlementGraphAction{
+					SourceEntitlementID: sourceEntitlementID,
+					Descendants:         batch,
+					ResourceTypeIDs:     group.resourceTypeIDs,
+					PageToken:           "",
+				})
+			}
 		}
 	}
 
@@ -287,12 +314,13 @@ func listDescendantGrantsForPrincipal(
 //
 //nolint:nonamedreturns // see doc comment above.
 func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction) (nextPage string, err error) {
+	dests := action.descendants()
+
 	ctx, span := uotel.StartWithLink(ctx, tracer, "expand.runAction",
 		trace.WithAttributes(
 			attribute.String("source_entitlement_id", action.SourceEntitlementID),
-			attribute.String("descendant_entitlement_id", action.DescendantEntitlementID),
+			attribute.Int("descendant_count", len(dests)),
 			attribute.Int("depth", e.graph.Depth),
-			attribute.Bool("shallow", action.Shallow),
 		),
 	)
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -301,27 +329,34 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 	l = l.With(
 		zap.Int("depth", e.graph.Depth),
 		zap.String("source_entitlement_id", action.SourceEntitlementID),
-		zap.String("descendant_entitlement_id", action.DescendantEntitlementID),
+		zap.Int("descendant_count", len(dests)),
 	)
 
-	// Fetch source and descendant entitlement
+	if len(dests) == 0 {
+		// Defensive: an action with no destinations has nothing to expand.
+		return "", nil
+	}
+
+	// Fetch the source entitlement once for the whole batch.
 	sourceEntitlement, err := e.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: action.SourceEntitlementID,
 	}.Build())
 	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			// Source entitlement is gone; every edge in the batch shares it, so
+			// drop them all and complete the action. Mirrors the inline handling
+			// of missing destinations below. (MarkEdgeExpanded no-ops on deleted
+			// edges, so returning "" here completes the action cleanly.)
+			l.Warn("runAction: source entitlement not found, dropping batch edges",
+				zap.String("source_entitlement_id", action.SourceEntitlementID))
+			for _, d := range dests {
+				_ = e.graph.DeleteEdge(ctx, action.SourceEntitlementID, d.EntitlementID)
+			}
+			return "", nil
+		}
 		l.Error("runAction: error fetching source entitlement", zap.Error(err))
 		return "", fmt.Errorf("runAction: error fetching source entitlement: %w", err)
 	}
-
-	descendantEntitlement, err := e.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-		EntitlementId: action.DescendantEntitlementID,
-	}.Build())
-	if err != nil {
-		l.Error("runAction: error fetching descendant entitlement", zap.Error(err))
-		return "", fmt.Errorf("runAction: error fetching descendant entitlement: %w", err)
-	}
-
-	// Fetch a page of source grants
 	sourceGrants, err := e.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement:              sourceEntitlement.GetEntitlement(),
 		PageToken:                action.PageToken,
@@ -332,33 +367,77 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 		return "", fmt.Errorf("runAction: error fetching source grants: %w", err)
 	}
 
-	existingPrincipals, complete, err := prefetchDescendantPrincipals(ctx, e.store, descendantEntitlement.GetEntitlement())
-	if err != nil {
-		l.Error("runAction: error prefetching descendant principals", zap.Error(err))
-		return "", fmt.Errorf("runAction: error prefetching descendant principals: %w", err)
+	// Build per-destination state (entitlement + "who already has it" oracle +
+	// per-page cache). One oracle per destination is held at once, so peak
+	// memory grows with batch size K. Span carries batch totals
+	// (oracle overflows, max oracle size) since one span now covers many dests.
+	destStates := make([]*destExpandState, 0, len(dests))
+	prefetchIncompleteCount := 0
+	prefetchSetSizeMax := 0
+	for _, d := range dests {
+		descendantEntitlement, err := e.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+			EntitlementId: d.EntitlementID,
+		}.Build())
+		if err != nil {
+			if status.Code(err) == codes.NotFound {
+				// A single missing descendant drops only its own edge; the rest
+				// of the batch still expands.
+				l.Warn("runAction: descendant entitlement not found, dropping edge",
+					zap.String("descendant_entitlement_id", d.EntitlementID))
+				_ = e.graph.DeleteEdge(ctx, action.SourceEntitlementID, d.EntitlementID)
+				continue
+			}
+			l.Error("runAction: error fetching descendant entitlement", zap.Error(err))
+			return "", fmt.Errorf("runAction: error fetching descendant entitlement: %w", err)
+		}
+
+		existingPrincipals, complete, err := prefetchDescendantPrincipals(ctx, e.store, descendantEntitlement.GetEntitlement())
+		if err != nil {
+			l.Error("runAction: error prefetching descendant principals", zap.Error(err))
+			return "", fmt.Errorf("runAction: error prefetching descendant principals: %w", err)
+		}
+		if !complete {
+			// Partial set is unsafe as a negative oracle; drop it and pay the
+			// per-principal cost for every source grant. Slow but bounded.
+			prefetchIncompleteCount++
+			l.Warn("runAction: descendant-grant prefetch cap exceeded; falling back to per-principal queries",
+				zap.String("descendant_entitlement_id", d.EntitlementID),
+				zap.Int("prefetch_page_cap", maxPrefetchPages))
+			existingPrincipals = nil
+		} else if n := len(existingPrincipals); n > prefetchSetSizeMax {
+			prefetchSetSizeMax = n
+		}
+		destStates = append(destStates, &destExpandState{
+			entitlementID: d.EntitlementID,
+			shallow:       d.Shallow,
+			// Per-destination cache of descendant grants by principal key.
+			// Populated lazily from the store on the first hit for a key, and
+			// seeded with newly created grants so a second source grant for the
+			// same principal in the same page merges into the in-memory grant
+			// instead of producing a duplicate (same deterministic grant ID
+			// would otherwise upsert and lose the first iteration's source
+			// attribution).
+			entitlement: descendantEntitlement.GetEntitlement(),
+			existing:    existingPrincipals,
+			byKey:       make(map[string][]*v2.Grant),
+		})
 	}
-	if !complete {
-		// Partial set is unsafe as a negative oracle; drop it and pay the
-		// per-principal cost for every source grant. Slow but bounded.
-		l.Warn("runAction: descendant-grant prefetch cap exceeded; falling back to per-principal queries",
-			zap.String("descendant_entitlement_id", action.DescendantEntitlementID),
-			zap.Int("prefetch_page_cap", maxPrefetchPages))
-		existingPrincipals = nil
-	}
+
 	span.SetAttributes(
-		attribute.Int("descendant_prefetch_set_size", len(existingPrincipals)),
-		attribute.Bool("descendant_prefetch_complete", complete),
+		attribute.Int("active_descendant_count", len(destStates)),
+		attribute.Int("descendant_prefetch_incomplete_count", prefetchIncompleteCount),
+		attribute.Bool("descendant_prefetch_any_incomplete", prefetchIncompleteCount > 0),
+		attribute.Int("descendant_prefetch_set_size_max", prefetchSetSizeMax),
 	)
 
-	// Per-page cache of descendant grants by principal key. Populated lazily
-	// from the store on the first hit for a key, and seeded with newly
-	// created grants so a second source grant for the same principal in the
-	// same page merges into the in-memory grant instead of producing a
-	// duplicate (same deterministic grant ID would otherwise upsert and lose
-	// the first iteration's source attribution).
-	descendantsByKey := make(map[string][]*v2.Grant)
+	if len(destStates) == 0 {
+		// Every destination in the batch was missing (edges already deleted),
+		// so there is nothing to write for any source page. Return "" to finish
+		// the action now instead of paginating the source pointlessly.
+		return "", nil
+	}
 
-	var newGrants = make([]*v2.Grant, 0)
+	newGrants := make([]*v2.Grant, 0)
 	for _, sourceGrant := range sourceGrants.GetList() {
 		if sourceGrant.GetPrincipal() == nil {
 			// Malformed grant with no principal. main passed this through to
@@ -371,16 +450,6 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 				zap.String("source_grant_id", sourceGrant.GetId()))
 			continue
 		}
-		if action.Shallow {
-			sourcesMap := sourceGrant.GetSources().GetSources()
-			foundDirectGrant := len(sourcesMap) == 0
-			if sourcesMap[action.SourceEntitlementID] != nil {
-				foundDirectGrant = true
-			}
-			if !foundDirectGrant {
-				continue
-			}
-		}
 
 		sgSources := sourceGrant.GetSources().GetSources()
 		isSourceDirect := len(sgSources) == 0 || sgSources[action.SourceEntitlementID] != nil
@@ -388,75 +457,32 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 		principal := sourceGrant.GetPrincipal().GetId()
 		key := descendantGrantKey(principal.GetResourceType(), principal.GetResource())
 
-		descendantGrants, cached := descendantsByKey[key]
-		if !cached {
-			// Fast path: if the key-set is complete and this principal is
-			// not in it, we know there is no existing descendant grant
-			// without issuing a SQL query.
-			needQuery := true
-			if existingPrincipals != nil {
-				if _, ok := existingPrincipals[key]; !ok {
-					needQuery = false
+		for _, ds := range destStates {
+			// Shallow is per-edge and only gates which source grants qualify
+			// for this destination; the shared source read is unaffected.
+			if ds.shallow {
+				foundDirectGrant := len(sgSources) == 0
+				if sgSources[action.SourceEntitlementID] != nil {
+					foundDirectGrant = true
+				}
+				if !foundDirectGrant {
+					continue
 				}
 			}
-			if needQuery {
-				descendantGrants, err = listDescendantGrantsForPrincipal(ctx, e.store, descendantEntitlement.GetEntitlement(), principal)
-				if err != nil {
-					l.Error("runAction: error fetching descendant grants", zap.Error(err))
-					return "", fmt.Errorf("runAction: error fetching descendant grants: %w", err)
-				}
-			}
-			descendantsByKey[key] = descendantGrants
-		}
 
-		if len(descendantGrants) == 0 {
-			descendantGrant, err := newExpandedGrant(descendantEntitlement.GetEntitlement(), sourceGrant.GetPrincipal(), action.SourceEntitlementID, isSourceDirect)
+			newGrants, err = e.applyDestGrant(ctx, action.SourceEntitlementID, ds, sourceGrant, principal, key, isSourceDirect, newGrants)
 			if err != nil {
-				l.Error("runAction: error creating new grant", zap.Error(err))
-				return "", fmt.Errorf("runAction: error creating new grant: %w", err)
+				return "", err
 			}
-			newGrants = append(newGrants, descendantGrant)
-			// Seed the cache so a later source grant for the same principal
-			// in this page merges into this grant rather than re-creating it.
-			descendantsByKey[key] = []*v2.Grant{descendantGrant}
-		} else {
-			for _, descendantGrant := range descendantGrants {
-				sourcesMap := descendantGrant.GetSources().GetSources()
-				if sourcesMap == nil {
-					sourcesMap = make(map[string]*v2.GrantSources_GrantSource)
-				}
 
-				updated := false
-				if len(sourcesMap) == 0 {
-					sourcesMap[action.DescendantEntitlementID] = &v2.GrantSources_GrantSource{IsDirect: true}
-					updated = true
-				}
-				if existingSource := sourcesMap[action.SourceEntitlementID]; existingSource == nil {
-					sourcesMap[action.SourceEntitlementID] = &v2.GrantSources_GrantSource{IsDirect: isSourceDirect}
-					updated = true
-				} else if isSourceDirect && !existingSource.GetIsDirect() {
-					// A later source grant for the same principal is direct;
-					// upgrade the recorded source from indirect to direct.
-					// Direct wins over indirect. main got this via re-querying
-					// the store each iteration + last-write-wins on the
-					// re-created grant; the in-page cache merge path must do it
-					// explicitly or the upgrade is silently dropped.
-					existingSource.SetIsDirect(true)
-					updated = true
-				}
-
-				if updated {
-					sources := v2.GrantSources_builder{Sources: sourcesMap}.Build()
-					descendantGrant.SetSources(sources)
-					newGrants = append(newGrants, descendantGrant)
-				}
+			// check the flush threshold inside the per-destination loop so
+			// the write buffer can't balloon to pageSize × batchSize before a
+			// single flush. The write path itself is unchanged.
+			newGrants, err = PutGrantsInChunks(ctx, e.store, newGrants, 10000)
+			if err != nil {
+				l.Error("runAction: error updating descendant grants", zap.Error(err))
+				return "", fmt.Errorf("runAction: error updating descendant grants: %w", err)
 			}
-		}
-
-		newGrants, err = PutGrantsInChunks(ctx, e.store, newGrants, 10000)
-		if err != nil {
-			l.Error("runAction: error updating descendant grants", zap.Error(err))
-			return "", fmt.Errorf("runAction: error updating descendant grants: %w", err)
 		}
 	}
 
@@ -467,6 +493,102 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 	}
 
 	return sourceGrants.GetNextPageToken(), nil
+}
+
+// destExpandState is the per-destination working set held while fanning one
+// source read out across a batch of destinations.
+type destExpandState struct {
+	entitlementID string
+	shallow       bool
+	entitlement   *v2.Entitlement
+	// existing is the descendant's "already has a grant" key set, or nil when
+	// the prefetch cap was exceeded (forcing per-principal fallback queries).
+	existing map[string]struct{}
+	byKey    map[string][]*v2.Grant
+}
+
+// applyDestGrant resolves a single source grant against one destination,
+// appending any created/updated grant to newGrants and returning the new
+// buffer. It is the per-(source grant, destination) body of the original
+// runAction loop, lifted out so one source read can drive many destinations.
+func (e *Expander) applyDestGrant(
+	ctx context.Context,
+	sourceEntitlementID string,
+	ds *destExpandState,
+	sourceGrant *v2.Grant,
+	principal *v2.ResourceId,
+	key string,
+	isSourceDirect bool,
+	newGrants []*v2.Grant,
+) ([]*v2.Grant, error) {
+	l := ctxzap.Extract(ctx)
+
+	descendantGrants, cached := ds.byKey[key]
+	if !cached {
+		// Fast path: if the key-set is complete and this principal is not in
+		// it, we know there is no existing descendant grant without issuing a
+		// SQL query.
+		needQuery := true
+		if ds.existing != nil {
+			if _, ok := ds.existing[key]; !ok {
+				needQuery = false
+			}
+		}
+		if needQuery {
+			var err error
+			descendantGrants, err = listDescendantGrantsForPrincipal(ctx, e.store, ds.entitlement, principal)
+			if err != nil {
+				l.Error("runAction: error fetching descendant grants", zap.Error(err))
+				return nil, fmt.Errorf("runAction: error fetching descendant grants: %w", err)
+			}
+		}
+		ds.byKey[key] = descendantGrants
+	}
+
+	if len(descendantGrants) == 0 {
+		descendantGrant, err := newExpandedGrant(ds.entitlement, sourceGrant.GetPrincipal(), sourceEntitlementID, isSourceDirect)
+		if err != nil {
+			l.Error("runAction: error creating new grant", zap.Error(err))
+			return nil, fmt.Errorf("runAction: error creating new grant: %w", err)
+		}
+		newGrants = append(newGrants, descendantGrant)
+		// Seed the cache so a later source grant for the same principal in this
+		// page merges into this grant rather than re-creating it.
+		ds.byKey[key] = []*v2.Grant{descendantGrant}
+		return newGrants, nil
+	}
+
+	for _, descendantGrant := range descendantGrants {
+		sourcesMap := descendantGrant.GetSources().GetSources()
+		if sourcesMap == nil {
+			sourcesMap = make(map[string]*v2.GrantSources_GrantSource)
+		}
+
+		updated := false
+		if len(sourcesMap) == 0 {
+			sourcesMap[ds.entitlementID] = &v2.GrantSources_GrantSource{IsDirect: true}
+			updated = true
+		}
+		if existingSource := sourcesMap[sourceEntitlementID]; existingSource == nil {
+			sourcesMap[sourceEntitlementID] = &v2.GrantSources_GrantSource{IsDirect: isSourceDirect}
+			updated = true
+		} else if isSourceDirect && !existingSource.GetIsDirect() {
+			// A later source grant for the same principal is direct; upgrade the
+			// recorded source from indirect to direct. Direct wins over indirect.
+			// main got this via re-querying the store each iteration +
+			// last-write-wins on the re-created grant; the in-page cache merge
+			// path must do it explicitly or the upgrade is silently dropped.
+			existingSource.SetIsDirect(true)
+			updated = true
+		}
+
+		if updated {
+			sources := v2.GrantSources_builder{Sources: sourcesMap}.Build()
+			descendantGrant.SetSources(sources)
+			newGrants = append(newGrants, descendantGrant)
+		}
+	}
+	return newGrants, nil
 }
 
 // PutGrantsInChunks accumulates grants until the buffer exceeds minChunkSize,
