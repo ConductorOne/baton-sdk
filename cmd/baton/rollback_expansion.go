@@ -115,9 +115,11 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	// Writes go to a fresh clone of the targeted sync; the input is never
-	// touched. CloneSync refuses an existing --out and copies only the
-	// targeted sync, not every sync in the source.
+	// Writes go to a fresh isolated copy of the targeted sync; the input is
+	// never touched. CopyIsolateSync refuses an existing --out and produces an
+	// output containing only the targeted sync — by copying the working DB and
+	// deleting the other syncs rather than rebuilding the target row-by-row,
+	// which is the dominant cost on whale-scale files.
 	src, err := openReadOnlyC1ZStore(ctx, inPath)
 	if err != nil {
 		return fmt.Errorf("open c1z: %w", err)
@@ -140,15 +142,15 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("capture pre-rollback grant sources: %w", err)
 		}
 	}
-	cloneErr := src.FileOps().CloneSync(ctx, outPath, syncID)
+	cloneErr := src.FileOps().CopyIsolateSync(ctx, outPath, syncID)
 	_ = src.Close(ctx)
 	if cloneErr != nil {
-		return fmt.Errorf("clone to --out: %w", cloneErr)
+		return fmt.Errorf("isolate to --out: %w", cloneErr)
 	}
 
-	// CloneSync has already written outPath. If anything downstream
+	// CopyIsolateSync has already written outPath. If anything downstream
 	// fails, remove the partial output so an identical retry isn't
-	// blocked by CloneSync refusing an existing path. Cleared once the
+	// blocked by the isolation step refusing an existing path. Cleared once the
 	// output is finalized successfully.
 	succeeded := false
 	defer func() {

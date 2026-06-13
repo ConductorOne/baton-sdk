@@ -12,6 +12,13 @@ type FileOps interface {
 	// activity to archive a completed sync.
 	CloneSync(ctx context.Context, outPath string, syncID string, opts ...CloneSyncOption) error
 
+	// CopyIsolateSync materializes the given sync run into a freshly created
+	// standalone c1z at outPath like CloneSync, but copies the source working
+	// database and deletes the other syncs from the copy instead of rebuilding
+	// the target sync row-by-row. It is the optimized isolation step for large
+	// files; the output contains only the target sync and is schema-normalized.
+	CopyIsolateSync(ctx context.Context, outPath string, syncID string, opts ...CloneSyncOption) error
+
 	// GenerateSyncDiff computes the diff between two existing sync runs
 	// in this same file and writes the delta as a new SyncTypePartial
 	// sync. Returns the new sync's id. Used by the local differ CLI.

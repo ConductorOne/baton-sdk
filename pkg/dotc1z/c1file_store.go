@@ -312,6 +312,18 @@ func (f c1FileFileOps) CloneSync(ctx context.Context, outPath string, syncID str
 	return f.c.CloneSync(ctx, outPath, syncID, c1fOpts...)
 }
 
+// CopyIsolateSync implements FileOps. Translates the engine-neutral
+// CloneSyncOptions into the SQLite-specific C1FOptions applied to the
+// destination file.
+func (f c1FileFileOps) CopyIsolateSync(ctx context.Context, outPath string, syncID string, opts ...CloneSyncOption) error {
+	cloneOpts := c1zstore.NewCloneSyncOptions(opts...)
+	var c1fOpts []C1FOption
+	if cloneOpts.TmpDir != "" {
+		c1fOpts = append(c1fOpts, WithC1FTmpDir(cloneOpts.TmpDir))
+	}
+	return f.c.CopyIsolateSync(ctx, outPath, syncID, c1fOpts...)
+}
+
 // GenerateSyncDiff implements FileOps. Direct passthrough.
 func (f c1FileFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (string, error) {
 	return f.c.GenerateSyncDiff(ctx, baseSyncID, appliedSyncID)
