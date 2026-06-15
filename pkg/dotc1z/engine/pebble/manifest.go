@@ -22,7 +22,10 @@ func BuildManifest(encoding c1zstore.PayloadEncoding) (*c1zv3.C1ZManifestV3, err
 		return nil, err
 	}
 	return c1zv3.C1ZManifestV3_builder{
-		Engine:              string(c1zstore.EnginePebble),
+		// PebbleManifestEngine ("pebble2"), not EnginePebble: pre-single-sync
+		// readers dispatch on this name and must reject the file instead of
+		// reading the sync_id-less keyspace as empty. See its doc comment.
+		Engine:              c1zstore.PebbleManifestEngine,
 		EngineSchemaVersion: uint32(SDKPebbleFormat),
 		PayloadEncoding:     payloadEncodingToProto(encoding),
 		Descriptors:         descriptors,

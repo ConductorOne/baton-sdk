@@ -63,8 +63,8 @@ func TestRegisteredPebbleNewStoreRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadEnvelope: %v", err)
 	}
-	if env.Manifest.GetEngine() != string(EnginePebble) {
-		t.Fatalf("manifest engine = %q, want %q", env.Manifest.GetEngine(), EnginePebble)
+	if env.Manifest.GetEngine() != PebbleManifestEngine {
+		t.Fatalf("manifest engine = %q, want %q", env.Manifest.GetEngine(), PebbleManifestEngine)
 	}
 	if env.Manifest.GetEngineSchemaVersion() != uint32(pebble.SDKPebbleFormat) {
 		t.Fatalf("manifest schema = %d, want %d", env.Manifest.GetEngineSchemaVersion(), pebble.SDKPebbleFormat)

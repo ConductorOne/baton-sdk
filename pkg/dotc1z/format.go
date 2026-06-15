@@ -58,6 +58,12 @@ const (
 	// EnginePebble is the v3 engine: a Pebble LSM wrapped in the v3
 	// envelope.
 	EnginePebble = c1zstore.EnginePebble
+
+	// PebbleManifestEngine is the engine name recorded in a single-sync
+	// Pebble v3 manifest. It deliberately differs from EnginePebble so
+	// pre-single-sync readers reject the file at dispatch instead of
+	// reading its keys as empty. See c1zstore.PebbleManifestEngine.
+	PebbleManifestEngine = c1zstore.PebbleManifestEngine
 )
 
 // ErrEngineNotAvailable is returned when a caller requests an engine

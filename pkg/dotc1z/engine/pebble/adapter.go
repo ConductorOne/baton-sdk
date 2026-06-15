@@ -82,9 +82,31 @@ var (
 
 // === sync lifecycle ===
 
-// StartNewSync creates a new sync_run record. Returns the new sync_id.
+// StartNewSync creates a new sync_run record under a freshly-minted
+// sync_id. Returns the new sync_id.
 func (a *Adapter) StartNewSync(ctx context.Context, syncType connectorstore.SyncType, parentSyncID string) (string, error) {
-	syncID := ksuid.New().String()
+	return a.startNewSync(ctx, syncType, "", parentSyncID)
+}
+
+// StartNewSyncWithID is StartNewSync but adopts the caller-supplied
+// syncID instead of minting one. It exists for conversion/compaction
+// (e.g. ToPebble) that must preserve the source sync's identity so the
+// produced file's sync_id matches the snapshot it was derived from.
+// syncID must be non-empty.
+func (a *Adapter) StartNewSyncWithID(ctx context.Context, syncType connectorstore.SyncType, syncID, parentSyncID string) (string, error) {
+	if syncID == "" {
+		return "", errors.New("StartNewSyncWithID: empty syncID")
+	}
+	return a.startNewSync(ctx, syncType, syncID, parentSyncID)
+}
+
+// startNewSync opens a new sync. An empty syncID mints a fresh ksuid;
+// a non-empty syncID is adopted verbatim (the single-sync file holds
+// exactly one sync, so any prior data is wiped first regardless).
+func (a *Adapter) startNewSync(ctx context.Context, syncType connectorstore.SyncType, syncID, parentSyncID string) (string, error) {
+	if syncID == "" {
+		syncID = ksuid.New().String()
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	// Single-sync contract: a v3 Pebble c1z holds exactly one sync.

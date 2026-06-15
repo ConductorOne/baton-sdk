@@ -19,8 +19,22 @@ const (
 	EngineSQLite Engine = "sqlite"
 
 	// EnginePebble is the v3 engine: a Pebble LSM wrapped in the v3
-	// envelope.
+	// envelope. This is the in-process identity AND the value callers
+	// select with (the --storage-engine flag and the gRPC sync-task
+	// field both pass "pebble"); it must stay "pebble" for those
+	// contracts. The on-disk manifest name is PebbleManifestEngine,
+	// which deliberately differs.
 	EnginePebble Engine = "pebble"
+
+	// PebbleManifestEngine is the engine name written into the v3
+	// envelope manifest for the single-sync (sync_id-less) keyspace.
+	// It is deliberately NOT "pebble": the manifest engine name is the
+	// one field readers validate at dispatch, so a name pre-single-sync
+	// SDKs don't recognize makes them fail loudly ("engine not
+	// available: pebble2") instead of opening the file and reading its
+	// keys as empty. Readers that understand the single-sync layout map
+	// this name back to EnginePebble.
+	PebbleManifestEngine = "pebble2"
 )
 
 // PayloadEncoding selects the v3 envelope payload framing. Only the

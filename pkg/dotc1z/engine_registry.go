@@ -288,6 +288,9 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 			return nil, err
 		}
 		fileEngine = Engine(m.GetEngine())
+		if fileEngine == PebbleManifestEngine { // single-sync manifest name; same driver
+			fileEngine = EnginePebble
+		}
 	default:
 		return nil, ErrInvalidFile
 	}

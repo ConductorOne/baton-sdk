@@ -89,6 +89,13 @@ type ConvertStats struct {
 	Total         time.Duration
 }
 
+// syncIDPreservingStarter is the optional destination capability ToPebble
+// needs to write the converted sync under the source's sync_id rather than a
+// freshly-minted one. The Pebble adapter implements it.
+type syncIDPreservingStarter interface {
+	StartNewSyncWithID(ctx context.Context, syncType connectorstore.SyncType, syncID, parentSyncID string) (string, error)
+}
+
 // ToPebble converts a single finished sync from this SQLite store into a new
 // v3/Pebble .c1z written to outPath, which must not already exist.
 //
@@ -105,11 +112,13 @@ type ConvertStats struct {
 // SQLite's UNIQUE(external_id, sync_id) indexes provide the no-duplicates
 // guarantee the importer requires.
 //
-// syncID selects the source sync to convert; "" uses the latest finished full
-// sync. ToPebble does NOT validate that the sync is a complete snapshot — the
-// caller owns that decision (e.g. compacting targeted-partial/diff syncs into a
-// complete snapshot beforehand). It only requires the sync to exist and be
-// ended, mirroring CloneSync.
+// syncID selects the source sync to convert; "" prefers the latest finished
+// full sync and otherwise falls back to the latest full sync of any state.
+// ToPebble does NOT validate that the sync is a complete snapshot, nor that it
+// is ended — the caller owns that decision (e.g. compacting
+// targeted-partial/diff syncs into a complete snapshot beforehand, or
+// converting an in-progress/unexpanded sync to seed a fixture). It only
+// requires the sync to exist. The destination sync is always written ended.
 //
 // The Pebble engine is registered statically with dotc1z; no extra
 // imports are needed before calling.
@@ -137,12 +146,12 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	}
 
 	if syncID == "" {
-		syncID, err = c.LatestSyncID(ctx, connectorstore.SyncTypeFull)
+		syncID, err = c.resolveConvertSyncID(ctx)
 		if err != nil {
 			return nil, err
 		}
 		if syncID == "" {
-			return nil, fmt.Errorf("to-pebble: no finished full sync found to convert")
+			return nil, fmt.Errorf("to-pebble: no full sync found to convert")
 		}
 	}
 
@@ -152,9 +161,6 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	}
 	if sync == nil {
 		return nil, fmt.Errorf("to-pebble: sync %q not found", syncID)
-	}
-	if sync.EndedAt == nil {
-		return nil, fmt.Errorf("to-pebble: sync %q is not ended", syncID)
 	}
 
 	stats := &ConvertStats{SourceSyncID: syncID}
@@ -176,7 +182,16 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 		}
 	}()
 
-	destSyncID, err := dest.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	// Preserve the source sync's identity: the converted file describes
+	// the same snapshot, so its sync_id must match. Without this the dest
+	// would get a freshly-minted id and callers could no longer correlate
+	// the two (or address the pebble file by the id they used for the
+	// sqlite source).
+	starter, ok := dest.(syncIDPreservingStarter)
+	if !ok {
+		return nil, errors.New("to-pebble: destination does not support preserving the source sync id")
+	}
+	destSyncID, err := starter.StartNewSyncWithID(ctx, sync.Type, syncID, "")
 	if err != nil {
 		return nil, fmt.Errorf("to-pebble: start destination sync: %w", err)
 	}
@@ -257,6 +272,40 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	)
 
 	return stats, nil
+}
+
+// resolveConvertSyncID picks the source sync for a default ("") conversion.
+// It prefers the latest finished full sync (the normal case), and otherwise
+// falls back to the latest full sync of any state so an in-progress or
+// unexpanded sync can still be converted (e.g. to seed a benchmark fixture).
+// Unlike getLatestUnfinishedSync this has no recency cutoff, so old checked-in
+// fixtures resolve too.
+func (c *C1File) resolveConvertSyncID(ctx context.Context) (string, error) {
+	syncID, err := c.LatestSyncID(ctx, connectorstore.SyncTypeFull)
+	if err != nil {
+		return "", err
+	}
+	if syncID != "" {
+		return syncID, nil
+	}
+
+	q := c.db.From(syncRuns.Name()).Prepared(true).
+		Select("sync_id").
+		Where(goqu.C("sync_type").Eq(connectorstore.SyncTypeFull)).
+		Order(goqu.C("started_at").Desc()).
+		Limit(1)
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return "", err
+	}
+	var id string
+	if err := c.db.QueryRowContext(ctx, query, args...).Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return id, nil
 }
 
 // scanRows executes q and invokes fn for each row with the raw *sql.Rows
