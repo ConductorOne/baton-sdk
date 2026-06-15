@@ -45,6 +45,7 @@ func TestProdScaleFoldOverlayCrossover(t *testing.T) {
 	baseGrants := envInt("BATON_CROSSOVER_GRANTS", 1_200_000)
 	baseUsers := envInt("BATON_CROSSOVER_USERS", 50_000)
 	baseEnts := envInt("BATON_CROSSOVER_ENTS", 10_000)
+	ratios := envInts("BATON_CROSSOVER_RATIOS", []int{5, 10, 25, 50})
 	const partialCount = 10
 
 	basePath := filepath.Join(fixDir, "base.c1z")
@@ -59,7 +60,7 @@ func TestProdScaleFoldOverlayCrossover(t *testing.T) {
 	baseBytes := fileSizeOrZero(basePath)
 	baseSyncID := manifestSyncID(t, basePath)
 
-	for _, ratioPct := range []int{5, 10, 25, 50} {
+	for _, ratioPct := range ratios {
 		ratioPct := ratioPct
 		t.Run(fmt.Sprintf("ratio=%d", ratioPct), func(t *testing.T) {
 			perPartial := baseGrants * ratioPct / 100 / partialCount

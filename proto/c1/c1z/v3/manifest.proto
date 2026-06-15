@@ -57,6 +57,18 @@ message C1ZManifestV3 {
   // Cheap projection of sync runs inside the payload — lets tooling
   // enumerate without opening the engine.
   repeated SyncRunSummary sync_runs = 40;
+
+  // Cumulative raw bytes of records (and their derived index keys)
+  // shadowed by in-place fold compactions since the last rebuild.
+  // Fold splices the base's compressed frames verbatim at save, so an
+  // overridden record's bytes stay inside the output as dead weight;
+  // this counter is the exact accounting of that waste, carried
+  // forward across consecutive folds (the dest store inherits it from
+  // the file it was opened from, and each fold adds its own delta).
+  // A rebuild (overlay / kway) writes a fresh store and resets it to
+  // zero. The compactor's auto mode reads this from the envelope
+  // header to force a rebuild once waste crosses its threshold.
+  int64 fold_dead_bytes = 41;
 }
 
 enum PayloadEncoding {

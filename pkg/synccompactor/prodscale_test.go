@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,7 +95,7 @@ func TestProdScaleSkewedCompaction(t *testing.T) {
 			logFileSize(t, "output", out.FilePath)
 
 			if mode == "fold" {
-				require.Equal(t, baseSyncID, out.SyncID, "fold must adopt the base sync id")
+				require.NotEqual(t, baseSyncID, out.SyncID, "fold must mint a fresh sync id")
 			}
 
 			// Sentinel correctness: a partial-only grant exists, an
@@ -138,6 +139,26 @@ func envInt(name string, def int) int {
 		}
 	}
 	return def
+}
+
+// envInts parses a comma-separated list of positive ints from an env
+// var (e.g. BATON_CROSSOVER_RATIOS=5,6,7,8). Any malformed element
+// falls back to def wholesale.
+func envInts(name string, def []int) []int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return def
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(p))
+		if err != nil || n <= 0 {
+			return def
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 func logFileSize(t *testing.T, label, path string) {

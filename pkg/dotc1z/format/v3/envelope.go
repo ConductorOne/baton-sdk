@@ -516,8 +516,9 @@ func readEnvelope(r io.Reader, headerOnly bool, pool *DecoderPool) (*Envelope, e
 }
 
 // unmarshalManifestHeader decodes the cheap manifest fields by hand:
-// engine (1), engine_schema_version (2), payload_encoding (4), and the
-// sync_runs projection (40). The descriptor closure (field 10) — by far
+// engine (1), engine_schema_version (2), payload_encoding (4), the
+// sync_runs projection (40), and fold_dead_bytes (41). The descriptor
+// closure (field 10) — by far
 // the largest field — is skipped, which is what makes header reads
 // cheap enough for engine dispatch on every open. Sync run summaries
 // are small and few (bounded by the sync retention limit), so decoding
@@ -580,6 +581,16 @@ func unmarshalManifestHeader(b []byte) (*c1zv3.C1ZManifestV3, error) {
 				return nil, fmt.Errorf("%w: sync_runs entry: %w", ErrManifestInvalid, err)
 			}
 			out.SetSyncRuns(append(out.GetSyncRuns(), summary))
+			b = b[n:]
+		case 41:
+			if typ != protowire.VarintType {
+				return nil, fmt.Errorf("c1z v3: manifest fold_dead_bytes has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeVarint(b)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			out.SetFoldDeadBytes(int64(v)) //nolint:gosec // proto int64 varint round-trips through uint64 by definition.
 			b = b[n:]
 		default:
 			n := protowire.ConsumeFieldValue(num, typ, b)

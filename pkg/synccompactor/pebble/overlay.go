@@ -889,24 +889,24 @@ func overlaySinglePassBucket(
 	seen *seenSuffixSet,
 	hardLimit int64,
 ) error {
-	destLower, _ := bucket.syncRange()
-	sourceLower, sourceUpper := bucket.syncRange()
-	iter, err := source.DB().NewIter(&cpebble.IterOptions{LowerBound: sourceLower, UpperBound: sourceUpper})
+	lower, upper := bucket.syncRange()
+	iter, err := source.DB().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return err
 	}
 	defer iter.Close()
-	var destKey []byte
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		// Dedupe on the primary-key suffix before constructing the
-		// destination key. Admission is hash-based and allocation-free
-		// (see seenSuffixSet); the shallow discovered_at scan keeps the
-		// winner rule identical to K-way / sqlite.
-		sourceSuffix := iter.Key()[len(sourceLower):]
-		k := seen.keyOf(sourceSuffix)
+		// Dedupe on the primary-key suffix. Source keys are already in
+		// final dest form (no sync_id), so admitted records are written
+		// under iter.Key() verbatim. Admission is hash-based and
+		// allocation-free (see seenSuffixSet); the shallow
+		// discovered_at scan keeps the winner rule identical to
+		// K-way / sqlite.
+		suffix := iter.Key()[len(lower):]
+		k := seen.keyOf(suffix)
 		ts, err := discoveredAtNanosFromRaw(bucket, iter.Value())
 		if err != nil {
 			return err
@@ -920,8 +920,7 @@ func overlaySinglePassBucket(
 			if ts <= prevTs {
 				continue
 			}
-			destKey = rewritePrimaryKeyForDestInto(destKey[:0], sourceSuffix, destLower)
-			if err := writer.replaceRaw(ctx, bucket, destKey, destLower, iter.Value()); err != nil {
+			if err := writer.replaceRaw(ctx, bucket, iter.Key(), lower, iter.Value()); err != nil {
 				return err
 			}
 			seen.put(k, ts)
@@ -935,8 +934,7 @@ func overlaySinglePassBucket(
 			return errOverlayHardLimit
 		}
 		seen.put(k, ts)
-		destKey = rewritePrimaryKeyForDestInto(destKey[:0], sourceSuffix, destLower)
-		if err := writer.addRaw(ctx, bucket, destKey, destLower, iter.Value()); err != nil {
+		if err := writer.addRaw(ctx, bucket, iter.Key(), lower, iter.Value()); err != nil {
 			return err
 		}
 	}
@@ -997,6 +995,12 @@ func overlayWholeSourceWorthIt(ctx context.Context, source sourceHandle, bucket 
 // strictly newer (by discovered_at) is replaced through the writer's
 // batch path instead, preserving the merge-wide winner rule.
 //
+// Secondary indexes are NOT derived here: the source's index
+// keyspaces are copied verbatim by overlayCopySourceIndexesSST, which
+// applies the same seen-set filter at byte level. Re-deriving and
+// re-sorting index keys per record was the whole-source path's
+// dominant allocation and CPU cost.
+//
 // This is the bulk path for the production skewed shape: a large base
 // sync with a small partial-derived seen set streams through here at
 // SST-build speed instead of paying memtable insertion, flush, and
@@ -1011,9 +1015,8 @@ func overlayMaterializeWholeSourceBucketSST(
 	tmpDir string,
 	stats *mergeStatsAccumulator,
 ) error {
-	sourceLower, sourceUpper := bucket.syncRange()
-	destLower, _ := bucket.syncRange()
-	iter, err := source.DB().NewIter(&cpebble.IterOptions{LowerBound: sourceLower, UpperBound: sourceUpper})
+	lower, upper := bucket.syncRange()
+	iter, err := source.DB().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return err
 	}
@@ -1031,28 +1034,22 @@ func overlayMaterializeWholeSourceBucketSST(
 			_ = os.Remove(primaryPath)
 		}
 	}()
-	indexWriters, err := newIndexWriterSet(tmpDir, bucket.name+"-overlay-whole-index")
-	if err != nil {
-		return err
-	}
-	defer indexWriters.cleanup()
 
 	wrotePrimary := false
 	checkSeen := seen.size() > 0
-	var destKey []byte
-	var scratch rawIndexScratch
-	emitIndexKey := indexWriters.writeKey
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		// Source keys are already in final dest form (no sync_id):
+		// winners are written under iter.Key() verbatim.
 		sourceKey := iter.Key()
-		if len(sourceKey) < len(sourceLower) {
-			return fmt.Errorf("overlay merge: source key shorter than lower bound prefix: key=%d prefix=%d", len(sourceKey), len(sourceLower))
+		if len(sourceKey) < len(lower) {
+			return fmt.Errorf("overlay merge: source key shorter than lower bound prefix: key=%d prefix=%d", len(sourceKey), len(lower))
 		}
-		sourceSuffix := sourceKey[len(sourceLower):]
+		suffix := sourceKey[len(lower):]
 		if checkSeen {
-			if prevTs, ok := seen.get(seen.keyOf(sourceSuffix)); ok {
+			if prevTs, ok := seen.get(seen.keyOf(suffix)); ok {
 				// Admitted by an earlier (newer) source. Same rule as
 				// overlaySinglePassBucket: replace only on a strictly
 				// newer discovered_at, through the batch path (rare).
@@ -1064,24 +1061,22 @@ func overlayMaterializeWholeSourceBucketSST(
 				if ts <= prevTs {
 					continue
 				}
-				destKey = rewritePrimaryKeyForDestInto(destKey[:0], sourceSuffix, destLower)
-				if err := writer.replaceRaw(ctx, bucket, destKey, destLower, iter.Value()); err != nil {
+				if err := writer.replaceRaw(ctx, bucket, sourceKey, lower, iter.Value()); err != nil {
 					return err
 				}
 				continue
 			}
 		}
-		destKey = rewritePrimaryKeyForDestInto(destKey[:0], sourceSuffix, destLower)
-		if err := primaryWriter.Set(destKey, iter.Value()); err != nil {
+		if err := primaryWriter.Set(sourceKey, iter.Value()); err != nil {
 			return err
 		}
 		wrotePrimary = true
-		// Every unseen key in this path is a winner.
-		stats.countWinnerTotal(bucket.id)
-		if bucket.forEachIndexKey != nil {
-			if err := forEachIndexKeyFromRaw(bucket, destKey, destLower, iter.Value(), &scratch, stats, emitIndexKey); err != nil {
-				return err
-			}
+		// Every unseen key in this path is a winner. countWinner does
+		// total + grouping (resources: from the key tail; grants: a
+		// shallow value scan) — the grouping the removed index-key
+		// derivation used to piggyback.
+		if err := stats.countWinner(bucket, sourceKey, lower, iter.Value()); err != nil {
+			return err
 		}
 	}
 	if err := iter.Error(); err != nil {
@@ -1097,7 +1092,139 @@ func overlayMaterializeWholeSourceBucketSST(
 			return fmt.Errorf("overlay merge: ingest whole primary %s: %w", bucket.name, err)
 		}
 	}
-	return indexWriters.closeSortAndIngest(ctx, dest)
+	return overlayCopySourceIndexesSST(ctx, dest, source, bucket, seen, tmpDir)
+}
+
+// indexKeyPrimarySuffix extracts the trailing tuple elements of an
+// index key that form the corresponding record's primary-key suffix —
+// the exact bytes the seen set hashed when the record was admitted:
+//
+//   - grants / entitlements: every index family's last element is the
+//     record's external_id, and the grant/entitlement primary suffix
+//     is sep | esc(external_id) → elems = 1;
+//   - resources (by_parent): the tail is (parent_rt, parent_id,
+//     child_rt, child_id) and the resource primary suffix is
+//     sep | esc(rt) | sep | esc(id) → elems = 2.
+//
+// The returned slice INCLUDES the leading separator, matching
+// key[len(lower):] of the primary key byte-for-byte: tuple escaping
+// guarantees element bytes never contain a bare separator (0x00), so
+// the separators found by LastIndexByte are exactly the element
+// boundaries, and the escaped element bytes are identical in primary
+// and index keys.
+func indexKeyPrimarySuffix(key []byte, elems int) ([]byte, error) {
+	i := len(key)
+	for n := 0; n < elems; n++ {
+		i = bytes.LastIndexByte(key[:i], 0x00)
+		if i < 3 {
+			// Position 3 is the first separator (after the 3-byte
+			// v3|typeIndex|idx header); anything earlier means the key
+			// has fewer tuple elements than the family guarantees.
+			return nil, fmt.Errorf("overlay merge: index key too short for %d-element suffix: %x", elems, key)
+		}
+	}
+	return key[i:], nil
+}
+
+// overlayCopySourceIndexesSST streams one bucket's secondary-index
+// keyspaces from the source verbatim into a single SST and ingests it.
+// Source index keys are already in final dest byte form (v3 keys carry
+// no sync_id) and each family range is already sorted, so no per-record
+// derivation, run files, or external sort are needed.
+//
+// Index entries belonging to records the primary copy filtered out
+// (admitted earlier by a newer source) are dropped by probing the seen
+// set with the index key's primary suffix (indexKeyPrimarySuffix).
+// Replacements that went through the batch path re-emit their own
+// index keys there, so dropping every seen entry here is exact.
+func overlayCopySourceIndexesSST(
+	ctx context.Context,
+	dest *enginepkg.Engine,
+	source *enginepkg.Engine,
+	bucket bucketSpec,
+	seen *seenSuffixSet,
+	tmpDir string,
+) error {
+	ranges := bucketIndexRanges(bucket)
+	if len(ranges) == 0 {
+		return nil
+	}
+	// SST keys must be appended in ascending order; the family ranges
+	// are disjoint, so ordering them by lower bound suffices.
+	sort.Slice(ranges, func(i, j int) bool {
+		return bytes.Compare(ranges[i][0], ranges[j][0]) < 0
+	})
+	suffixElems := 1
+	if bucket.id == runBucketResources {
+		suffixElems = 2
+	}
+	sstPath := filepath.Join(tmpDir, fmt.Sprintf("overlay-whole-%s-index.sst", bucket.name))
+	w, err := newSSTBuilder(sstPath)
+	if err != nil {
+		return err
+	}
+	success := false
+	defer func() {
+		if !success {
+			_ = w.Close()
+		}
+		_ = os.Remove(sstPath)
+	}()
+	checkSeen := seen.size() > 0
+	wrote := false
+	for _, r := range ranges {
+		if err := copyIndexRangeFiltered(ctx, source, r[0], r[1], checkSeen, seen, suffixElems, w, &wrote); err != nil {
+			return err
+		}
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	success = true
+	if !wrote {
+		return nil
+	}
+	if err := dest.DB().Ingest(ctx, []string{sstPath}); err != nil {
+		return fmt.Errorf("overlay merge: ingest whole index %s: %w", bucket.name, err)
+	}
+	return nil
+}
+
+func copyIndexRangeFiltered(
+	ctx context.Context,
+	source *enginepkg.Engine,
+	lower, upper []byte,
+	checkSeen bool,
+	seen *seenSuffixSet,
+	suffixElems int,
+	w *sstBuilder,
+	wrote *bool,
+) error {
+	iter, err := source.DB().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		key := iter.Key()
+		if checkSeen {
+			suffix, err := indexKeyPrimarySuffix(key, suffixElems)
+			if err != nil {
+				return err
+			}
+			if _, ok := seen.get(seen.keyOf(suffix)); ok {
+				continue
+			}
+		}
+		if err := w.Set(key, nil); err != nil {
+			return err
+		}
+		*wrote = true
+	}
+	return iter.Error()
 }
 
 type rawIndexScratch struct {

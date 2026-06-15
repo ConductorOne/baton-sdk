@@ -134,7 +134,18 @@ type C1ZManifestV3 struct {
 	RecordTypes []*RecordTypeInfo `protobuf:"bytes,11,rep,name=record_types,json=recordTypes,proto3" json:"record_types,omitempty"`
 	// Cheap projection of sync runs inside the payload — lets tooling
 	// enumerate without opening the engine.
-	SyncRuns      []*SyncRunSummary `protobuf:"bytes,40,rep,name=sync_runs,json=syncRuns,proto3" json:"sync_runs,omitempty"`
+	SyncRuns []*SyncRunSummary `protobuf:"bytes,40,rep,name=sync_runs,json=syncRuns,proto3" json:"sync_runs,omitempty"`
+	// Cumulative raw bytes of records (and their derived index keys)
+	// shadowed by in-place fold compactions since the last rebuild.
+	// Fold splices the base's compressed frames verbatim at save, so an
+	// overridden record's bytes stay inside the output as dead weight;
+	// this counter is the exact accounting of that waste, carried
+	// forward across consecutive folds (the dest store inherits it from
+	// the file it was opened from, and each fold adds its own delta).
+	// A rebuild (overlay / kway) writes a fresh store and resets it to
+	// zero. The compactor's auto mode reads this from the envelope
+	// header to force a rebuild once waste crosses its threshold.
+	FoldDeadBytes int64 `protobuf:"varint,41,opt,name=fold_dead_bytes,json=foldDeadBytes,proto3" json:"fold_dead_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -213,6 +224,13 @@ func (x *C1ZManifestV3) GetSyncRuns() []*SyncRunSummary {
 	return nil
 }
 
+func (x *C1ZManifestV3) GetFoldDeadBytes() int64 {
+	if x != nil {
+		return x.FoldDeadBytes
+	}
+	return 0
+}
+
 func (x *C1ZManifestV3) SetEngine(v string) {
 	x.Engine = v
 }
@@ -239,6 +257,10 @@ func (x *C1ZManifestV3) SetRecordTypes(v []*RecordTypeInfo) {
 
 func (x *C1ZManifestV3) SetSyncRuns(v []*SyncRunSummary) {
 	x.SyncRuns = v
+}
+
+func (x *C1ZManifestV3) SetFoldDeadBytes(v int64) {
+	x.FoldDeadBytes = v
 }
 
 func (x *C1ZManifestV3) HasEngineConfig() bool {
@@ -296,6 +318,17 @@ type C1ZManifestV3_builder struct {
 	// Cheap projection of sync runs inside the payload — lets tooling
 	// enumerate without opening the engine.
 	SyncRuns []*SyncRunSummary
+	// Cumulative raw bytes of records (and their derived index keys)
+	// shadowed by in-place fold compactions since the last rebuild.
+	// Fold splices the base's compressed frames verbatim at save, so an
+	// overridden record's bytes stay inside the output as dead weight;
+	// this counter is the exact accounting of that waste, carried
+	// forward across consecutive folds (the dest store inherits it from
+	// the file it was opened from, and each fold adds its own delta).
+	// A rebuild (overlay / kway) writes a fresh store and resets it to
+	// zero. The compactor's auto mode reads this from the envelope
+	// header to force a rebuild once waste crosses its threshold.
+	FoldDeadBytes int64
 }
 
 func (b0 C1ZManifestV3_builder) Build() *C1ZManifestV3 {
@@ -309,6 +342,7 @@ func (b0 C1ZManifestV3_builder) Build() *C1ZManifestV3 {
 	x.Descriptors = b.Descriptors
 	x.RecordTypes = b.RecordTypes
 	x.SyncRuns = b.SyncRuns
+	x.FoldDeadBytes = b.FoldDeadBytes
 	return m0
 }
 
@@ -969,7 +1003,7 @@ var File_c1_c1z_v3_manifest_proto protoreflect.FileDescriptor
 
 const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\n" +
-	"\x18c1/c1z/v3/manifest.proto\x12\tc1.c1z.v3\x1a\x1bc1/storage/v3/records.proto\x1a\x19google/protobuf/any.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x99\x03\n" +
+	"\x18c1/c1z/v3/manifest.proto\x12\tc1.c1z.v3\x1a\x1bc1/storage/v3/records.proto\x1a\x19google/protobuf/any.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc1\x03\n" +
 	"\rC1ZManifestV3\x12\x16\n" +
 	"\x06engine\x18\x01 \x01(\tR\x06engine\x122\n" +
 	"\x15engine_schema_version\x18\x02 \x01(\rR\x13engineSchemaVersion\x129\n" +
@@ -978,7 +1012,8 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\vdescriptors\x18\n" +
 	" \x01(\v2\".google.protobuf.FileDescriptorSetR\vdescriptors\x12<\n" +
 	"\frecord_types\x18\v \x03(\v2\x19.c1.c1z.v3.RecordTypeInfoR\vrecordTypes\x126\n" +
-	"\tsync_runs\x18( \x03(\v2\x19.c1.c1z.v3.SyncRunSummaryR\bsyncRuns\"\xcc\x01\n" +
+	"\tsync_runs\x18( \x03(\v2\x19.c1.c1z.v3.SyncRunSummaryR\bsyncRuns\x12&\n" +
+	"\x0ffold_dead_bytes\x18) \x01(\x03R\rfoldDeadBytes\"\xcc\x01\n" +
 	"\x11IndexedFrameIndex\x126\n" +
 	"\aentries\x18\x01 \x03(\v2\x1c.c1.c1z.v3.IndexedFrameEntryR\aentries\x12$\n" +
 	"\x0etotal_raw_size\x18\x02 \x01(\x03R\ftotalRawSize\x122\n" +

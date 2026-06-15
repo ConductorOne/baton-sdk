@@ -1,14 +1,13 @@
 package pebble
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
-	"google.golang.org/protobuf/proto"
 
-	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
@@ -19,157 +18,220 @@ type SourceSync struct {
 	SyncID string
 }
 
+// FoldStats reports what a MergeInto call overrode in the destination
+// keyspace. DeadBytes is the exact raw size (keys + values) of the
+// incumbent records — and their derived index keys — that the fold
+// shadowed: because the envelope save splices the base's compressed
+// frames verbatim, those bytes stay in the output as dead weight.
+// Callers accumulate this into the manifest's fold_dead_bytes so the
+// auto cutover can force a rebuild once waste crosses its threshold.
+type FoldStats struct {
+	// OverriddenRecords counts incumbents replaced by a strictly-newer
+	// source record. Byte-identical resubmissions are no-ops and do
+	// not count.
+	OverriddenRecords int64
+	// DeadBytes sums len(key)+len(value) of each overridden incumbent
+	// plus len(key) of each of its stale derived index keys.
+	DeadBytes int64
+}
+
+func (s *FoldStats) Add(o FoldStats) {
+	s.OverriddenRecords += o.OverriddenRecords
+	s.DeadBytes += o.DeadBytes
+}
+
 // MergeInto folds every source's primary records into dest under
 // destSyncID. Across all inputs (and any records already present under
 // destSyncID), the newest record per logical key (by discovered_at,
 // ties keep the incumbent) survives, and dest's derived indexes are
-// maintained by the keep-newer write path.
+// maintained by the raw keep-newer merge (mergeBucketRawIfNewer).
+//
+// The merge is byte-level end to end: v3 keys and values carry no
+// sync_id, so a source record is copied into dest verbatim — no proto
+// decode/re-encode — and a source record byte-identical to the
+// incumbent is a pure no-op.
 //
 // destSyncID must already exist in dest. It may be non-empty: the
 // in-place fold compaction merges partial syncs directly into the base
-// sync's keyspace, relying on the Put*RecordsIfNewer semantics to
-// resolve conflicts against pre-existing records. MergeInto binds the
-// dest engine's current sync to destSyncID — the engine's write
-// methods key off the current sync, not any per-record field.
+// sync's keyspace, resolving conflicts against pre-existing records
+// via the keep-newer rule. MergeInto binds the dest engine's current
+// sync to destSyncID for engine bookkeeping.
 //
 // Only the four primary record buckets are copied: resource_types,
 // resources, entitlements, grants. Assets are intentionally NOT copied
 // — this matches the SQLite compaction path, which folds only those
 // four tables and drops assets from the compacted sync; copying assets
 // here would give Pebble compacted syncs asset access the SQLite path
-// does not have. Index keyspaces are not copied verbatim either; the
-// per-record write path maintains them.
+// does not have. Index keyspaces are maintained per record (replaced
+// records get point deletes for their stale index keys).
 //
 // Sources are applied in the given order. The dedup keeps the record
 // with the strictly-greater discovered_at; on an equal discovered_at
 // the already-written (earlier source, or pre-existing dest) record is
 // kept. Callers pass sources newest-first so the tie winner matches the
 // SQLite fold.
-func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync, destSyncID string) error {
+func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync, destSyncID string) (FoldStats, error) {
+	var stats FoldStats
 	if dest == nil {
-		return errors.New("synccompactor/pebble.MergeInto: dest engine is nil")
+		return stats, errors.New("synccompactor/pebble.MergeInto: dest engine is nil")
 	}
 	if destSyncID == "" {
-		return errors.New("synccompactor/pebble.MergeInto: destSyncID is required")
+		return stats, errors.New("synccompactor/pebble.MergeInto: destSyncID is required")
 	}
 	if err := dest.SetCurrentSync(destSyncID); err != nil {
-		return fmt.Errorf("synccompactor/pebble.MergeInto: bind dest sync: %w", err)
+		return stats, fmt.Errorf("synccompactor/pebble.MergeInto: bind dest sync: %w", err)
 	}
 	for i := range sources {
 		if err := ctx.Err(); err != nil {
-			return err
+			return stats, err
 		}
 		s := sources[i]
 		if s.Engine == nil || s.SyncID == "" {
 			continue
 		}
-		if err := mergeOneSource(ctx, dest, s, destSyncID); err != nil {
-			return fmt.Errorf("merge source %s: %w", s.SyncID, err)
+		srcStats, err := mergeOneSource(ctx, dest, s, destSyncID)
+		stats.Add(srcStats)
+		if err != nil {
+			return stats, fmt.Errorf("merge source %s: %w", s.SyncID, err)
 		}
 	}
-	return nil
+	return stats, nil
 }
 
-// mergeBatchSize bounds how many decoded records are held in memory
-// before a flush into the keep-newer put path. A whole bucket can hold
-// millions of records at the large-connector scale compaction targets,
-// so the merge streams in fixed-size batches rather than materializing
-// the bucket — peak heap stays O(mergeBatchSize), not O(bucket).
-const mergeBatchSize = 1000
+// mergeRawFlushRecords bounds how many records accumulate in one raw
+// write batch before it commits. Matches the overlay writer's chunk
+// size; peak batch memory stays O(chunk), not O(bucket).
+const mergeRawFlushRecords = 32768
 
-// mergeOneSource streams every primary record under s.SyncID, re-keys
-// it to destSyncID, and writes it into dest via the engine's keep-newer
-// put path (which dedups by discovered_at and rebuilds indexes). Each
-// bucket is drained in fixed-size batches to bound peak memory.
-func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, destSyncID string) error {
+// mergeOneSource streams every primary record of the source and folds
+// it into dest with keep-newer semantics, entirely at the byte level:
+// source keys and values are already in final dest form (v3 keys and
+// values carry no sync_id), so nothing is proto-decoded or re-encoded.
+// Per record:
+//
+//   - no incumbent at the key → raw copy + derived index keys;
+//   - incumbent byte-identical → pure no-op (no tombstones, no index
+//     churn — the common case when overlapping partials resubmit
+//     unchanged records);
+//   - otherwise a shallow discovered_at comparison decides: strictly
+//     newer wins, replacing the value and swapping the incumbent's
+//     derived index keys for the new value's (point deletes
+//     proportional to overridden records only). Ties keep the
+//     incumbent, mirroring the engine's Put*RecordsIfNewer rule —
+//     missing discovered_at scans as 0, reproducing its nil-timestamp
+//     ordering ("never overwrite an incumbent, always fill a hole").
+func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, destSyncID string) (FoldStats, error) {
+	var stats FoldStats
 	srcDB := s.Engine.DB()
 	if srcDB == nil {
-		return errors.New("source engine has no DB (closed?)")
+		return stats, errors.New("source engine has no DB (closed?)")
 	}
-
-	if err := streamBucket(ctx, srcDB,
-		enginepkg.ResourceTypeLowerBound(), enginepkg.ResourceTypeUpperBound(),
-		func() *v3.ResourceTypeRecord { return &v3.ResourceTypeRecord{} },
-		dest.PutResourceTypeRecordsIfNewer,
-	); err != nil {
-		return fmt.Errorf("merge resource_types: %w", err)
+	for _, bucket := range allBuckets() {
+		bucketStats, err := mergeBucketRawIfNewer(ctx, dest, srcDB, bucket)
+		stats.Add(bucketStats)
+		if err != nil {
+			return stats, fmt.Errorf("merge %s: %w", bucket.name, err)
+		}
 	}
-
-	if err := streamBucket(ctx, srcDB,
-		enginepkg.ResourceLowerBound(), enginepkg.ResourceUpperBound(),
-		func() *v3.ResourceRecord { return &v3.ResourceRecord{} },
-		dest.PutResourceRecordsIfNewer,
-	); err != nil {
-		return fmt.Errorf("merge resources: %w", err)
-	}
-
-	if err := streamBucket(ctx, srcDB,
-		enginepkg.EntitlementLowerBound(), enginepkg.EntitlementUpperBound(),
-		func() *v3.EntitlementRecord { return &v3.EntitlementRecord{} },
-		dest.PutEntitlementRecordsIfNewer,
-	); err != nil {
-		return fmt.Errorf("merge entitlements: %w", err)
-	}
-
-	if err := streamBucket(ctx, srcDB,
-		enginepkg.GrantLowerBound(), enginepkg.GrantUpperBound(),
-		func() *v3.GrantRecord { return &v3.GrantRecord{} },
-		dest.PutGrantRecordsIfNewer,
-	); err != nil {
-		return fmt.Errorf("merge grants: %w", err)
-	}
-
-	return nil
+	return stats, nil
 }
 
-// streamBucket drains a primary bucket's [lower, upper) key range,
-// unmarshalling each value into a fresh T (the stored value is a
-// deterministic proto marshal of the v3 record) and flushing fixed-size
-// batches into put. The destination sync id is supplied by the engine's
-// current-sync key context; data record values do not carry sync_id.
-// Peak memory is bounded by mergeBatchSize rather than the bucket size.
-func streamBucket[T proto.Message](
-	ctx context.Context,
-	db *pebble.DB,
-	lower, upper []byte,
-	mk func() T,
-	put func(context.Context, ...T) error,
-) error {
-	iter, err := db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
+func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *pebble.DB, bucket bucketSpec) (FoldStats, error) {
+	var stats FoldStats
+	lower, upper := bucket.syncRange()
+	iter, err := src.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
-		return err
+		return stats, err
 	}
 	defer func() { _ = iter.Close() }()
 
-	batch := make([]T, 0, mergeBatchSize)
+	destDB := dest.DB()
+	batch := destDB.NewBatch()
+	defer func() { _ = batch.Close() }()
+	pending := 0
+	var scratch rawIndexScratch
+	// The closures see batch by reference, so flush's reassignment
+	// routes subsequent index writes to the fresh batch.
+	setIndexKey := func(key []byte) error { return batch.Set(key, nil, nil) }
+	// Each deleted index key is an incumbent's stale index entry: dead
+	// weight in the spliced base frames, counted toward FoldStats.
+	delIndexKey := func(key []byte) error {
+		stats.DeadBytes += int64(len(key))
+		return batch.Delete(key, nil)
+	}
 	flush := func() error {
-		if len(batch) == 0 {
+		if batch.Empty() {
 			return nil
 		}
-		if err := put(ctx, batch...); err != nil {
+		// NoSync: the fold's envelope save checkpoints (which flushes
+		// and fsyncs) before anything depends on these writes.
+		if err := batch.Commit(pebble.NoSync); err != nil {
 			return err
 		}
-		batch = batch[:0]
+		_ = batch.Close()
+		batch = destDB.NewBatch()
+		pending = 0
 		return nil
 	}
 
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
-			return err
+			return stats, err
 		}
-		rec := mk()
-		if err := proto.Unmarshal(iter.Value(), rec); err != nil {
-			return fmt.Errorf("unmarshal record: %w", err)
+		key, value := iter.Key(), iter.Value()
+		// Point-read the committed incumbent. Safe against the pending
+		// batch: a sync holds one record per key, so no key repeats
+		// within this loop, and earlier sources were fully flushed.
+		oldVal, closer, getErr := destDB.Get(key)
+		switch {
+		case getErr == nil:
+			if bytes.Equal(oldVal, value) {
+				closer.Close()
+				continue
+			}
+			newTs, err := discoveredAtNanosFromRaw(bucket, value)
+			if err != nil {
+				closer.Close()
+				return stats, err
+			}
+			oldTs, err := discoveredAtNanosFromRaw(bucket, oldVal)
+			if err != nil {
+				closer.Close()
+				return stats, err
+			}
+			if newTs <= oldTs {
+				closer.Close()
+				continue
+			}
+			// The incumbent loses: its key and value go dead inside the
+			// spliced base frames. Its stale index keys are counted by
+			// delIndexKey as forEachIndexKeyFromRaw enumerates them.
+			stats.OverriddenRecords++
+			stats.DeadBytes += int64(len(key)) + int64(len(oldVal))
+			if err := forEachIndexKeyFromRaw(bucket, key, lower, oldVal, &scratch, nil, delIndexKey); err != nil {
+				closer.Close()
+				return stats, err
+			}
+			closer.Close()
+		case errors.Is(getErr, pebble.ErrNotFound):
+		default:
+			return stats, fmt.Errorf("get incumbent: %w", getErr)
 		}
-		batch = append(batch, rec)
-		if len(batch) >= mergeBatchSize {
+		if err := batch.Set(key, value, nil); err != nil {
+			return stats, err
+		}
+		if err := forEachIndexKeyFromRaw(bucket, key, lower, value, &scratch, nil, setIndexKey); err != nil {
+			return stats, err
+		}
+		pending++
+		if pending >= mergeRawFlushRecords {
 			if err := flush(); err != nil {
-				return err
+				return stats, err
 			}
 		}
 	}
 	if err := iter.Error(); err != nil {
-		return err
+		return stats, err
 	}
-	return flush()
+	return stats, flush()
 }
