@@ -25,10 +25,9 @@ type rollbackExpansionStore interface {
 
 func rollbackExpansionCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:    "rollback-expansion",
-		Short:  "Roll back grant expansion in a c1z so it can be replayed",
-		Hidden: true,
-		RunE:   runRollbackExpansion,
+		Use:   "rollback-expansion",
+		Short: "Roll back grant expansion in a c1z so it can be replayed",
+		RunE:  runRollbackExpansion,
 	}
 	cmd.Flags().String("sync-id", "", "Sync to roll back. Defaults to the latest finished sync.")
 	cmd.Flags().String("out", "", "Path to write the rolled-back c1z to (required for a write; the input file is never modified).")
