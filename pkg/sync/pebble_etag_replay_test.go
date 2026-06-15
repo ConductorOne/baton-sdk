@@ -72,7 +72,7 @@ func (mc *etagObservingMockConnector) ListGrants(
 	var incomingETag string
 	if res := in.GetResource(); res != nil {
 		annos := annotations.Annotations(res.GetAnnotations())
-		et := &v2.ETag{}
+		et := &v2.ETag{} //nolint:staticcheck // intentionally exercising the retained ETag replay path
 		if ok, _ := annos.Pick(et); ok {
 			incomingETag = et.GetValue()
 		}
@@ -89,7 +89,7 @@ func (mc *etagObservingMockConnector) ListGrants(
 	if matchMode && incomingETag == mc.etagValue {
 		return v2.GrantsServiceListGrantsResponse_builder{
 			List: []*v2.Grant{},
-			Annotations: annotations.New(&v2.ETagMatch{
+			Annotations: annotations.New(&v2.ETagMatch{ //nolint:staticcheck // intentionally exercising the retained ETag replay path
 				EntitlementId: mc.entitlementID,
 			}),
 		}.Build(), nil
@@ -101,7 +101,7 @@ func (mc *etagObservingMockConnector) ListGrants(
 	}
 	return v2.GrantsServiceListGrantsResponse_builder{
 		List: mc.grantDB[key],
-		Annotations: annotations.New(&v2.ETag{
+		Annotations: annotations.New(&v2.ETag{ //nolint:staticcheck // intentionally exercising the retained ETag replay path
 			Value:         mc.etagValue,
 			EntitlementId: mc.entitlementID,
 		}),

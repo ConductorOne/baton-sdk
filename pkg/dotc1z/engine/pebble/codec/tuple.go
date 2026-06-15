@@ -3,6 +3,7 @@ package codec
 import (
 	"bytes"
 	"encoding/binary"
+	"strings"
 )
 
 // Tuple encoding for v3 storage keys. Mirrors FoundationDB's tuple
@@ -33,7 +34,7 @@ const (
 // trailing separator). The caller is responsible for emitting the
 // separator between successive components.
 func AppendTupleString(dst []byte, s string) []byte {
-	return appendEscaped(dst, []byte(s))
+	return appendEscapedString(dst, s)
 }
 
 // AppendTupleBytes writes a tuple-encoded raw-bytes component. Same
@@ -52,6 +53,33 @@ func appendEscaped(dst []byte, src []byte) []byte {
 	for len(src) > 0 {
 		i := bytes.IndexByte(src, tupleSeparator)
 		if j := bytes.IndexByte(src, tupleEscape); j >= 0 && (i < 0 || j < i) {
+			i = j
+		}
+		if i < 0 {
+			return append(dst, src...)
+		}
+		dst = append(dst, src[:i]...)
+		if src[i] == tupleSeparator {
+			dst = append(dst, tupleEscape, escapedNUL)
+		} else {
+			dst = append(dst, tupleEscape, escapedEscape)
+		}
+		src = src[i+1:]
+	}
+	return dst
+}
+
+// appendEscapedString is appendEscaped for a string source. It is
+// byte-for-byte identical to appendEscaped([]byte(src)) but avoids
+// allocating a []byte copy of the string — append and strings.IndexByte
+// both operate on the string directly. Key encoding is the hottest
+// allocator in the engine (every component of every record and index
+// key flows through here), so the string callers route through this to
+// skip the per-component copy.
+func appendEscapedString(dst []byte, src string) []byte {
+	for len(src) > 0 {
+		i := strings.IndexByte(src, tupleSeparator)
+		if j := strings.IndexByte(src, tupleEscape); j >= 0 && (i < 0 || j < i) {
 			i = j
 		}
 		if i < 0 {
@@ -96,7 +124,7 @@ func AppendTupleStrings(dst []byte, s ...string) []byte {
 		if i > 0 {
 			dst = append(dst, tupleSeparator)
 		}
-		dst = appendEscaped(dst, []byte(x))
+		dst = appendEscapedString(dst, x)
 	}
 	return dst
 }
