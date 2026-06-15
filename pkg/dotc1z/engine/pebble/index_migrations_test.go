@@ -10,7 +10,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // TestApplyIndexMigrationsBackfillsNeedsExpansion simulates the
@@ -71,11 +70,7 @@ func TestApplyIndexMigrationsBackfillsNeedsExpansion(t *testing.T) {
 	// Surgically delete the index key + bump back the applied
 	// version so the next Open sees an old c1z that needs
 	// migration.
-	syncIDBytes, err := codec.EncodeSyncID(syncID)
-	if err != nil {
-		t.Fatalf("EncodeSyncID: %v", err)
-	}
-	idxKey := encodeGrantByNeedsExpansionIndexKey(syncIDBytes, "g-pending")
+	idxKey := encodeGrantByNeedsExpansionIndexKey("g-pending")
 	if err := e.db.Delete(idxKey, pebble.Sync); err != nil {
 		t.Fatalf("delete idx key: %v", err)
 	}
@@ -84,7 +79,7 @@ func TestApplyIndexMigrationsBackfillsNeedsExpansion(t *testing.T) {
 	}
 	// Sanity: pre-migration walk finds nothing.
 	pre := 0
-	if err := e.IterateGrantsByNeedsExpansion(ctx, syncID, func(*v3.GrantRecord) bool {
+	if err := e.IterateGrantsByNeedsExpansion(ctx, func(*v3.GrantRecord) bool {
 		pre++
 		return true
 	}); err != nil {
@@ -106,7 +101,7 @@ func TestApplyIndexMigrationsBackfillsNeedsExpansion(t *testing.T) {
 	defer e2.Close()
 	post := 0
 	seen := []string{}
-	if err := e2.IterateGrantsByNeedsExpansion(ctx, syncID, func(r *v3.GrantRecord) bool {
+	if err := e2.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
 		post++
 		seen = append(seen, r.GetExternalId())
 		return true

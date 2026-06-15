@@ -21,8 +21,8 @@ func (e *Engine) PutEntitlementRecord(ctx context.Context, r *v3.EntitlementReco
 // PutEntitlementRecords writes N entitlements in two pebble.Batches
 // — primary keys in one, by_resource index keys in the other.
 // Mirrors the PutGrantRecords pattern (RFC §3a Tier-B/C):
-//   - within-call dedup pre-pass keyed by (sync, external_id) drops
-//     earlier occurrences;
+//   - within-call dedup pre-pass keyed by external_id drops earlier
+//     occurrences;
 //   - the first PutEntitlementRecords call of a fresh sync skips
 //     the read-before-write Get (keyspace provably empty);
 //   - subsequent calls fall back to read-before-write so cross-call
@@ -32,6 +32,9 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		return nil
 	}
 	return e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
 		priBatch := e.db.NewBatch()
 		defer priBatch.Close()
 		idxBatch := e.db.NewBatch()
@@ -39,10 +42,6 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 
 		fresh := e.IsFreshSync()
 		skipGet := e.takeFreshEntitlementsEmpty()
-		idBytes, err := e.resolveSyncBytes("")
-		if err != nil {
-			return err
-		}
 
 		type dedupKey struct {
 			extID string
@@ -67,7 +66,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 					continue
 				}
 			}
-			key := encodeEntitlementKey(idBytes, r.GetExternalId())
+			key := encodeEntitlementKey(r.GetExternalId())
 			val, err := marshalRecord(r)
 			if err != nil {
 				return err
@@ -76,7 +75,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 				oldVal, closer, getErr := e.db.Get(key)
 				switch {
 				case getErr == nil:
-					if err := e.deleteEntitlementIndexesRaw(idxBatch, idBytes, r.GetExternalId(), oldVal); err != nil {
+					if err := e.deleteEntitlementIndexesRaw(idxBatch, r.GetExternalId(), oldVal); err != nil {
 						closer.Close()
 						return err
 					}
@@ -90,7 +89,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 			if err := priBatch.Set(key, val, nil); err != nil {
 				return err
 			}
-			if err := e.writeEntitlementIndexes(idxBatch, idBytes, r); err != nil {
+			if err := e.writeEntitlementIndexes(idxBatch, r); err != nil {
 				return err
 			}
 		}
@@ -105,12 +104,8 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 	})
 }
 
-func (e *Engine) GetEntitlementRecord(ctx context.Context, syncID, externalID string) (*v3.EntitlementRecord, error) {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return nil, err
-	}
-	val, closer, err := e.db.Get(encodeEntitlementKey(idBytes, externalID))
+func (e *Engine) GetEntitlementRecord(ctx context.Context, externalID string) (*v3.EntitlementRecord, error) {
+	val, closer, err := e.db.Get(encodeEntitlementKey(externalID))
 	if err != nil {
 		return nil, err
 	}
@@ -122,13 +117,9 @@ func (e *Engine) GetEntitlementRecord(ctx context.Context, syncID, externalID st
 	return r, nil
 }
 
-func (e *Engine) DeleteEntitlementRecord(ctx context.Context, syncID, externalID string) error {
+func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
-		idBytes, err := e.resolveSyncBytes(syncID)
-		if err != nil {
-			return err
-		}
-		key := encodeEntitlementKey(idBytes, externalID)
+		key := encodeEntitlementKey(externalID)
 		batch := e.db.NewBatch()
 		defer batch.Close()
 		oldVal, closer, err := e.db.Get(key)
@@ -138,7 +129,7 @@ func (e *Engine) DeleteEntitlementRecord(ctx context.Context, syncID, externalID
 			}
 			return err
 		}
-		if err := e.deleteEntitlementIndexesRaw(batch, idBytes, externalID, oldVal); err != nil {
+		if err := e.deleteEntitlementIndexesRaw(batch, externalID, oldVal); err != nil {
 			closer.Close()
 			return err
 		}
@@ -150,25 +141,20 @@ func (e *Engine) DeleteEntitlementRecord(ctx context.Context, syncID, externalID
 	})
 }
 
-func (e *Engine) writeEntitlementIndexes(batch *pebble.Batch, syncIDBytes []byte, r *v3.EntitlementRecord) error {
+func (e *Engine) writeEntitlementIndexes(batch *pebble.Batch, r *v3.EntitlementRecord) error {
 	res := r.GetResource()
 	if res == nil || res.GetResourceId() == "" {
 		return nil
 	}
 	k := encodeEntitlementByResourceIndexKey(
-		syncIDBytes,
 		res.GetResourceTypeId(), res.GetResourceId(),
 		r.GetExternalId(),
 	)
 	return batch.Set(k, nil, nil)
 }
 
-func (e *Engine) IterateEntitlementsBySync(ctx context.Context, syncID string, yield func(*v3.EntitlementRecord) bool) error {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return err
-	}
-	prefix := encodeEntitlementPrefix(idBytes)
+func (e *Engine) IterateEntitlements(ctx context.Context, yield func(*v3.EntitlementRecord) bool) error {
+	prefix := encodeEntitlementPrefix()
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
@@ -189,12 +175,8 @@ func (e *Engine) IterateEntitlementsBySync(ctx context.Context, syncID string, y
 	return iter.Error()
 }
 
-func (e *Engine) IterateEntitlementsByResource(ctx context.Context, syncID, resourceTypeID, resourceID string, yield func(*v3.EntitlementRecord) bool) error {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return err
-	}
-	indexPrefix := encodeEntitlementByResourcePrefix(idBytes, resourceTypeID, resourceID)
+func (e *Engine) IterateEntitlementsByResource(ctx context.Context, resourceTypeID, resourceID string, yield func(*v3.EntitlementRecord) bool) error {
+	indexPrefix := encodeEntitlementByResourcePrefix(resourceTypeID, resourceID)
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
@@ -208,7 +190,7 @@ func (e *Engine) IterateEntitlementsByResource(ctx context.Context, syncID, reso
 		if externalID == "" {
 			continue
 		}
-		val, closer, err := e.db.Get(encodeEntitlementKey(idBytes, externalID))
+		val, closer, err := e.db.Get(encodeEntitlementKey(externalID))
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				continue

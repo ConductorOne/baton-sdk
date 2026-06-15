@@ -44,13 +44,13 @@ func (a *Adapter) Stats(ctx context.Context, syncType connectorstore.SyncType, s
 		return statsRecordToMap(stats), nil
 	}
 
-	return a.statsFromIteration(ctx, syncID)
+	return a.statsFromIteration(ctx)
 }
 
 // statsFromIteration is the legacy O(N) path retained as the
 // sidecar fallback. Used by older c1z files that predate the
 // sidecar and by sync types that don't go through EndFreshSync.
-func (a *Adapter) statsFromIteration(ctx context.Context, syncID string) (map[string]int64, error) {
+func (a *Adapter) statsFromIteration(ctx context.Context) (map[string]int64, error) {
 	counts := map[string]int64{
 		"resource_types": 0,
 		"resources":      0,
@@ -59,32 +59,32 @@ func (a *Adapter) statsFromIteration(ctx context.Context, syncID string) (map[st
 		"assets":         0,
 	}
 
-	if err := a.engine.IterateResourceTypesBySync(ctx, syncID, func(*v3.ResourceTypeRecord) bool {
+	if err := a.engine.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool {
 		counts["resource_types"]++
 		return true
 	}); err != nil {
 		return nil, err
 	}
-	if err := a.engine.IterateResourcesBySync(ctx, syncID, func(r *v3.ResourceRecord) bool {
+	if err := a.engine.IterateResources(ctx, func(r *v3.ResourceRecord) bool {
 		counts["resources"]++
 		counts[r.GetResourceTypeId()]++
 		return true
 	}); err != nil {
 		return nil, err
 	}
-	if err := a.engine.IterateEntitlementsBySync(ctx, syncID, func(*v3.EntitlementRecord) bool {
+	if err := a.engine.IterateEntitlements(ctx, func(*v3.EntitlementRecord) bool {
 		counts["entitlements"]++
 		return true
 	}); err != nil {
 		return nil, err
 	}
-	if err := a.engine.IterateGrantsBySync(ctx, syncID, func(*v3.GrantRecord) bool {
+	if err := a.engine.IterateGrants(ctx, func(*v3.GrantRecord) bool {
 		counts["grants"]++
 		return true
 	}); err != nil {
 		return nil, err
 	}
-	if err := a.engine.IterateAssetsBySync(ctx, syncID, func(*v3.AssetRecord) bool {
+	if err := a.engine.IterateAssets(ctx, func(*v3.AssetRecord) bool {
 		counts["assets"]++
 		return true
 	}); err != nil {
@@ -145,7 +145,7 @@ func (a *Adapter) GrantStats(ctx context.Context, syncType connectorstore.SyncTy
 	}
 	// Fallback: iterate.
 	counts := map[string]int64{}
-	if err := a.engine.IterateGrantsBySync(ctx, syncID, func(rec *v3.GrantRecord) bool {
+	if err := a.engine.IterateGrants(ctx, func(rec *v3.GrantRecord) bool {
 		// Match SQLite's `resource_type_id` column semantic on
 		// the grants table — that's the *entitlement's*
 		// resource type, not the principal's.

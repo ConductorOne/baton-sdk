@@ -36,20 +36,19 @@ func (e *Engine) PutGrantRecord(ctx context.Context, r *v3.GrantRecord) error {
 // external_id twice within a single sync (paginated sources,
 // deduplication bugs in upstream APIs, etc.). To prevent orphan
 // index entries from earlier duplicates, we pre-scan records to find
-// the latest occurrence of each (sync_id, external_id) tuple and
-// process only those — earlier duplicates are dropped before any
-// batch byte is written. db.Get doesn't see in-batch writes either
-// way, so this dedup pass is the load-bearing safety net that
-// neither the old read-before-write path nor a pure skip-Get path
-// provides.
+// the latest occurrence of each external_id and process only those —
+// earlier duplicates are dropped before any batch byte is written.
+// db.Get doesn't see in-batch writes either way, so this dedup pass is
+// the load-bearing safety net that neither the old read-before-write
+// path nor a pure skip-Get path provides.
 //
 // Read-before-write index cleanup. On a NON-fresh sync the engine
 // must Get the prior primary value so it can delete the index keys
 // the previous sync wrote (entitlement/principal can change between
-// syncs). On a FRESH sync the keyspace under this sync is empty by
-// construction (MarkFreshSync ranges-delete it) so the Get is
-// guaranteed to return ErrNotFound and we skip it — saves an LSM
-// lookup per record on the bulk path.
+// syncs). On a FRESH sync the keyspace is empty by construction
+// (StartNewSync excises it) so the Get is guaranteed to return
+// ErrNotFound and we skip it — saves an LSM lookup per record on the
+// bulk path.
 //
 // Two batches. The primary keys arrive in roughly sorted order from
 // the adapter (V2→V3 translator preserves the connector's record
@@ -67,6 +66,9 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		return nil
 	}
 	return e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
 		priBatch := e.db.NewBatch()
 		defer priBatch.Close()
 		idxBatch := e.db.NewBatch()
@@ -80,12 +82,6 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		// in-sync calls already committed (e.g. paginated sources
 		// emitting an external_id on two pages).
 		skipGet := e.takeFreshGrantsEmpty()
-		// GrantRecord values do not carry sync_id in v3; records are
-		// written under the engine's currently bound sync.
-		idBytes, err := e.resolveSyncBytes("")
-		if err != nil {
-			return err
-		}
 
 		// Dedup pre-pass: keep only the LAST occurrence of each
 		// external_id. The map value is the records[]
@@ -114,7 +110,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 					continue
 				}
 			}
-			key := encodeGrantKey(idBytes, r.GetExternalId())
+			key := encodeGrantKey(r.GetExternalId())
 			val, err := marshalRecord(r)
 			if err != nil {
 				return err
@@ -123,7 +119,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 				oldVal, closer, getErr := e.db.Get(key)
 				switch {
 				case getErr == nil:
-					if err := e.deleteGrantIndexesRaw(idxBatch, idBytes, r.GetExternalId(), oldVal); err != nil {
+					if err := e.deleteGrantIndexesRaw(idxBatch, r.GetExternalId(), oldVal); err != nil {
 						closer.Close()
 						return err
 					}
@@ -137,7 +133,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			if err := priBatch.Set(key, val, nil); err != nil {
 				return err
 			}
-			if err := e.writeGrantIndexes(idxBatch, idBytes, r); err != nil {
+			if err := e.writeGrantIndexes(idxBatch, r); err != nil {
 				return err
 			}
 		}
@@ -173,10 +169,6 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 	return e.withWrite(func() error {
 		if !e.IsFreshSync() {
 			return errors.New("UnsafePutUniqueGrantRecords: sync is not fresh")
-		}
-		idBytes, err := e.resolveSyncBytes("")
-		if err != nil {
-			return err
 		}
 
 		type encoded struct {
@@ -228,9 +220,9 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 						return
 					}
 					enc[i] = encoded{
-						priKey:  encodeGrantKey(idBytes, r.GetExternalId()),
+						priKey:  encodeGrantKey(r.GetExternalId()),
 						priVal:  val,
-						idxKeys: grantIndexKeys(idBytes, r),
+						idxKeys: grantIndexKeys(r),
 					}
 				}
 			}(lo, hi)
@@ -269,14 +261,9 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 	})
 }
 
-// GetGrantRecord fetches a grant record by sync_id + external_id.
-// syncID may be empty to use the engine's currently-set sync.
-func (e *Engine) GetGrantRecord(ctx context.Context, syncID, externalID string) (*v3.GrantRecord, error) {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return nil, err
-	}
-	key := encodeGrantKey(idBytes, externalID)
+// GetGrantRecord fetches a grant record by external_id.
+func (e *Engine) GetGrantRecord(ctx context.Context, externalID string) (*v3.GrantRecord, error) {
+	key := encodeGrantKey(externalID)
 	val, closer, err := e.db.Get(key)
 	if err != nil {
 		return nil, err
@@ -290,13 +277,9 @@ func (e *Engine) GetGrantRecord(ctx context.Context, syncID, externalID string) 
 }
 
 // DeleteGrantRecord removes a grant and its index entries.
-func (e *Engine) DeleteGrantRecord(ctx context.Context, syncID, externalID string) error {
+func (e *Engine) DeleteGrantRecord(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
-		idBytes, err := e.resolveSyncBytes(syncID)
-		if err != nil {
-			return err
-		}
-		key := encodeGrantKey(idBytes, externalID)
+		key := encodeGrantKey(externalID)
 
 		batch := e.db.NewBatch()
 		defer batch.Close()
@@ -308,7 +291,7 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, syncID, externalID strin
 			}
 			return err
 		}
-		if err := e.deleteGrantIndexesRaw(batch, idBytes, externalID, oldVal); err != nil {
+		if err := e.deleteGrantIndexesRaw(batch, externalID, oldVal); err != nil {
 			closer.Close()
 			return err
 		}
@@ -328,7 +311,7 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, syncID, externalID strin
 //     ListGrants with req.Resource set).
 //   - by_principal and by_principal_resource_type: the principal side.
 //   - needs_expansion: only when the grant currently carries the flag.
-func grantIndexKeys(syncIDBytes []byte, r *v3.GrantRecord) [][]byte {
+func grantIndexKeys(r *v3.GrantRecord) [][]byte {
 	ent := r.GetEntitlement()
 	princ := r.GetPrincipal()
 	ext := r.GetExternalId()
@@ -336,27 +319,27 @@ func grantIndexKeys(syncIDBytes []byte, r *v3.GrantRecord) [][]byte {
 	keys := make([][]byte, 0, 4)
 	if ent != nil && princ != nil {
 		keys = append(keys, encodeGrantByEntitlementIndexKey(
-			syncIDBytes, ent.GetEntitlementId(), princ.GetResourceTypeId(), princ.GetResourceId(), ext))
+			ent.GetEntitlementId(), princ.GetResourceTypeId(), princ.GetResourceId(), ext))
 	}
 	if ent != nil && ent.GetResourceId() != "" {
 		keys = append(keys, encodeGrantByEntitlementResourceIndexKey(
-			syncIDBytes, ent.GetResourceTypeId(), ent.GetResourceId(), ext))
+			ent.GetResourceTypeId(), ent.GetResourceId(), ext))
 	}
 	if princ != nil {
 		keys = append(keys, encodeGrantByPrincipalIndexKey(
-			syncIDBytes, princ.GetResourceTypeId(), princ.GetResourceId(), ext))
+			princ.GetResourceTypeId(), princ.GetResourceId(), ext))
 		keys = append(keys, encodeGrantByPrincipalResourceTypeIndexKey(
-			syncIDBytes, princ.GetResourceTypeId(), ext))
+			princ.GetResourceTypeId(), ext))
 	}
 	if r.GetNeedsExpansion() {
-		keys = append(keys, encodeGrantByNeedsExpansionIndexKey(syncIDBytes, ext))
+		keys = append(keys, encodeGrantByNeedsExpansionIndexKey(ext))
 	}
 	return keys
 }
 
 // writeGrantIndexes adds index entries for r to batch.
-func (e *Engine) writeGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *v3.GrantRecord) error {
-	for _, k := range grantIndexKeys(syncIDBytes, r) {
+func (e *Engine) writeGrantIndexes(batch *pebble.Batch, r *v3.GrantRecord) error {
+	for _, k := range grantIndexKeys(r) {
 		if err := batch.Set(k, nil, nil); err != nil {
 			return err
 		}
@@ -364,14 +347,10 @@ func (e *Engine) writeGrantIndexes(batch *pebble.Batch, syncIDBytes []byte, r *v
 	return nil
 }
 
-// IterateGrantsBySync iterates all grants in a sync in primary-key
-// order. yield returns false to stop iteration.
-func (e *Engine) IterateGrantsBySync(ctx context.Context, syncID string, yield func(*v3.GrantRecord) bool) error {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return err
-	}
-	prefix := encodeGrantPrefix(idBytes)
+// IterateGrants iterates all grants in primary-key order. yield returns
+// false to stop iteration.
+func (e *Engine) IterateGrants(ctx context.Context, yield func(*v3.GrantRecord) bool) error {
+	prefix := encodeGrantPrefix()
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
@@ -395,12 +374,8 @@ func (e *Engine) IterateGrantsBySync(ctx context.Context, syncID string, yield f
 // IterateGrantsByEntitlement iterates the by_entitlement index for
 // the given entitlement_id, yielding each grant in encoded principal-
 // key order. yield returns false to stop.
-func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, syncID, entitlementID string, yield func(*v3.GrantRecord) bool) error {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return err
-	}
-	indexPrefix := encodeGrantByEntitlementPrefix(idBytes, entitlementID)
+func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, entitlementID string, yield func(*v3.GrantRecord) bool) error {
+	indexPrefix := encodeGrantByEntitlementPrefix(entitlementID)
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
@@ -417,7 +392,7 @@ func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, syncID, entitle
 		if externalID == "" {
 			continue
 		}
-		key := encodeGrantKey(idBytes, externalID)
+		key := encodeGrantKey(externalID)
 		val, closer, err := e.db.Get(key)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
@@ -442,12 +417,8 @@ func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, syncID, entitle
 }
 
 // IterateGrantsByPrincipal iterates the by_principal index.
-func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, syncID, principalRT, principalID string, yield func(*v3.GrantRecord) bool) error {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return err
-	}
-	indexPrefix := encodeGrantByPrincipalPrefix(idBytes, principalRT, principalID)
+func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, principalRT, principalID string, yield func(*v3.GrantRecord) bool) error {
+	indexPrefix := encodeGrantByPrincipalPrefix(principalRT, principalID)
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
@@ -461,7 +432,7 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, syncID, principal
 		if externalID == "" {
 			continue
 		}
-		key := encodeGrantKey(idBytes, externalID)
+		key := encodeGrantKey(externalID)
 		val, closer, err := e.db.Get(key)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
@@ -483,15 +454,11 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, syncID, principal
 }
 
 // IterateGrantsByPrincipalResourceType iterates the by-principal-RT
-// index for a sync. Yields each grant whose principal carries the
-// given resource_type, in encoded external_id order. Stops when
-// yield returns false.
-func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, syncID, principalRT string, yield func(*v3.GrantRecord) bool) error {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return err
-	}
-	indexPrefix := encodeGrantByPrincipalResourceTypePrefix(idBytes, principalRT)
+// index. Yields each grant whose principal carries the given
+// resource_type, in encoded external_id order. Stops when yield
+// returns false.
+func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, principalRT string, yield func(*v3.GrantRecord) bool) error {
+	indexPrefix := encodeGrantByPrincipalResourceTypePrefix(principalRT)
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
@@ -505,7 +472,7 @@ func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, syncI
 		if externalID == "" {
 			continue
 		}
-		key := encodeGrantKey(idBytes, externalID)
+		key := encodeGrantKey(externalID)
 		val, closer, err := e.db.Get(key)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
@@ -526,19 +493,15 @@ func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, syncI
 	return iter.Error()
 }
 
-// IterateGrantsByNeedsExpansion iterates the needs_expansion index
-// for a sync, yielding each grant whose NeedsExpansion flag is
-// currently set. yield returns false to stop.
+// IterateGrantsByNeedsExpansion iterates the needs_expansion index,
+// yielding each grant whose NeedsExpansion flag is currently set.
+// yield returns false to stop.
 //
 // Pebble-equivalent of the SQLite partial index
 // `WHERE needs_expansion = 1`. Backs PendingExpansionPage on the
 // grant store.
-func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, syncID string, yield func(*v3.GrantRecord) bool) error {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return err
-	}
-	indexPrefix := encodeGrantByNeedsExpansionPrefix(idBytes)
+func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, yield func(*v3.GrantRecord) bool) error {
+	indexPrefix := encodeGrantByNeedsExpansionPrefix()
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
@@ -552,7 +515,7 @@ func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, syncID strin
 		if externalID == "" {
 			continue
 		}
-		key := encodeGrantKey(idBytes, externalID)
+		key := encodeGrantKey(externalID)
 		val, closer, err := e.db.Get(key)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {

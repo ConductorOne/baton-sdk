@@ -77,7 +77,7 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 		// payload (Annotations, Sources, identity refs) stays
 		// from the new translation; only the expansion side-state
 		// is carried forward.
-		prior, err := g.a.engine.GetGrantRecord(ctx, syncID, gr.GetId())
+		prior, err := g.a.engine.GetGrantRecord(ctx, gr.GetId())
 		if err != nil {
 			if !errors.Is(err, pebble.ErrNotFound) {
 				return fmt.Errorf("StoreExpandedGrants: read prior %q: %w", gr.GetId(), err)
@@ -123,7 +123,7 @@ func (g pebbleGrantStore) PendingExpansionPage(ctx context.Context, pageToken st
 	if syncID == "" {
 		return nil, "", ErrNoCurrentSync
 	}
-	records, next, err := g.a.engine.PaginateGrantsByNeedsExpansion(ctx, syncID, pageToken, DefaultPageSize)
+	records, next, err := g.a.engine.PaginateGrantsByNeedsExpansion(ctx, pageToken, DefaultPageSize)
 	if err != nil {
 		return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -188,7 +188,7 @@ func (g pebbleGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken
 	if syncID == "" {
 		return nil, "", ErrNoCurrentSync
 	}
-	records, next, err := g.a.engine.PaginateGrantsBySync(ctx, syncID, pageToken, DefaultPageSize)
+	records, next, err := g.a.engine.PaginateGrants(ctx, pageToken, DefaultPageSize)
 	if err != nil {
 		return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -231,7 +231,7 @@ func (g pebbleGrantStore) ListWithAnnotationsForResourcePage(
 		return nil, "", ErrNoCurrentSync
 	}
 	limit := clampPageSize(pageSize)
-	records, next, err := g.a.engine.PaginateGrantsByEntitlementResource(ctx, syncID,
+	records, next, err := g.a.engine.PaginateGrantsByEntitlementResource(ctx,
 		resource.GetId().GetResourceType(), resource.GetId().GetResource(),
 		pageToken, limit)
 	if err != nil {

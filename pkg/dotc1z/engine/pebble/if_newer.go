@@ -35,18 +35,17 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 		return nil
 	}
 	return e.withWrite(func() error {
-		batch := e.db.NewBatch()
-		defer batch.Close()
-		idBytes, err := e.resolveSyncBytes("")
-		if err != nil {
+		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
+		batch := e.db.NewBatch()
+		defer batch.Close()
 		written := 0
 		for _, r := range records {
 			if r == nil {
 				continue
 			}
-			key := encodeGrantKey(idBytes, r.GetExternalId())
+			key := encodeGrantKey(r.GetExternalId())
 			oldVal, closer, getErr := e.db.Get(key)
 			switch {
 			case getErr == nil:
@@ -59,7 +58,7 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 					closer.Close()
 					continue
 				}
-				if err := e.deleteGrantIndexesRaw(batch, idBytes, r.GetExternalId(), oldVal); err != nil {
+				if err := e.deleteGrantIndexesRaw(batch, r.GetExternalId(), oldVal); err != nil {
 					closer.Close()
 					return err
 				}
@@ -76,7 +75,7 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 			if err := batch.Set(key, val, nil); err != nil {
 				return err
 			}
-			if err := e.writeGrantIndexes(batch, idBytes, r); err != nil {
+			if err := e.writeGrantIndexes(batch, r); err != nil {
 				return err
 			}
 			written++
@@ -95,18 +94,17 @@ func (e *Engine) PutResourceRecordsIfNewer(ctx context.Context, records ...*v3.R
 		return nil
 	}
 	return e.withWrite(func() error {
-		batch := e.db.NewBatch()
-		defer batch.Close()
-		idBytes, err := e.resolveSyncBytes("")
-		if err != nil {
+		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
+		batch := e.db.NewBatch()
+		defer batch.Close()
 		written := 0
 		for _, r := range records {
 			if r == nil {
 				continue
 			}
-			key := encodeResourceKey(idBytes, r.GetResourceTypeId(), r.GetResourceId())
+			key := encodeResourceKey(r.GetResourceTypeId(), r.GetResourceId())
 			oldVal, closer, getErr := e.db.Get(key)
 			switch {
 			case getErr == nil:
@@ -119,7 +117,7 @@ func (e *Engine) PutResourceRecordsIfNewer(ctx context.Context, records ...*v3.R
 					closer.Close()
 					continue
 				}
-				if err := e.deleteResourceIndexesRaw(batch, idBytes, r.GetResourceTypeId(), r.GetResourceId(), oldVal); err != nil {
+				if err := e.deleteResourceIndexesRaw(batch, r.GetResourceTypeId(), r.GetResourceId(), oldVal); err != nil {
 					closer.Close()
 					return err
 				}
@@ -135,7 +133,7 @@ func (e *Engine) PutResourceRecordsIfNewer(ctx context.Context, records ...*v3.R
 			if err := batch.Set(key, val, nil); err != nil {
 				return err
 			}
-			if err := e.writeResourceIndexes(batch, idBytes, r); err != nil {
+			if err := e.writeResourceIndexes(batch, r); err != nil {
 				return err
 			}
 			written++
@@ -153,18 +151,17 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 		return nil
 	}
 	return e.withWrite(func() error {
-		batch := e.db.NewBatch()
-		defer batch.Close()
-		idBytes, err := e.resolveSyncBytes("")
-		if err != nil {
+		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
+		batch := e.db.NewBatch()
+		defer batch.Close()
 		written := 0
 		for _, r := range records {
 			if r == nil {
 				continue
 			}
-			key := encodeEntitlementKey(idBytes, r.GetExternalId())
+			key := encodeEntitlementKey(r.GetExternalId())
 			oldVal, closer, getErr := e.db.Get(key)
 			switch {
 			case getErr == nil:
@@ -177,7 +174,7 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 					closer.Close()
 					continue
 				}
-				if err := e.deleteEntitlementIndexesRaw(batch, idBytes, r.GetExternalId(), oldVal); err != nil {
+				if err := e.deleteEntitlementIndexesRaw(batch, r.GetExternalId(), oldVal); err != nil {
 					closer.Close()
 					return err
 				}
@@ -193,7 +190,7 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 			if err := batch.Set(key, val, nil); err != nil {
 				return err
 			}
-			if err := e.writeEntitlementIndexes(batch, idBytes, r); err != nil {
+			if err := e.writeEntitlementIndexes(batch, r); err != nil {
 				return err
 			}
 			written++
@@ -211,18 +208,17 @@ func (e *Engine) PutResourceTypeRecordsIfNewer(ctx context.Context, records ...*
 		return nil
 	}
 	return e.withWrite(func() error {
-		batch := e.db.NewBatch()
-		defer batch.Close()
-		idBytes, err := e.resolveSyncBytes("")
-		if err != nil {
+		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
+		batch := e.db.NewBatch()
+		defer batch.Close()
 		written := 0
 		for _, r := range records {
 			if r == nil {
 				continue
 			}
-			key := encodeResourceTypeKey(idBytes, r.GetExternalId())
+			key := encodeResourceTypeKey(r.GetExternalId())
 			oldVal, closer, getErr := e.db.Get(key)
 			switch {
 			case getErr == nil:

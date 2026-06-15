@@ -3,6 +3,7 @@ package pebble
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -14,19 +15,83 @@ import (
 // the Pebble store wrapper lives. The tests here cover engine-level
 // invariants only.
 
-// TestPebbleCleanupRefusesActiveSync verifies the engine-level
-// guard: DeleteSyncData on the active sync returns an error rather
-// than corrupting the in-flight write path.
-func TestPebbleCleanupRefusesActiveSync(t *testing.T) {
+// TestResetForNewSyncRefusesActiveSync verifies the engine-level
+// guard: ResetForNewSync refuses to wipe the keyspace while a sync is
+// in progress (between MarkFreshSync and EndFreshSync), which would
+// otherwise corrupt the in-flight write path.
+func TestResetForNewSyncRefusesActiveSync(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	a := NewAdapter(e)
-	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
 		t.Fatalf("StartNewSync: %v", err)
 	}
-	if err := e.DeleteSyncData(ctx, syncID); err == nil {
-		t.Fatal("DeleteSyncData on active sync: expected error, got nil")
+	if err := e.ResetForNewSync(ctx); err == nil {
+		t.Fatal("ResetForNewSync while a sync is active: expected error, got nil")
+	}
+}
+
+// TestResetForNewSyncReclaimsDiskImmediately pins the excise-based wipe
+// contract: replacing a sync must physically drop the prior sync's
+// SSTs from the LSM (manifest-level excise), not merely tombstone them.
+// With DeleteRange tombstones the dead bytes would survive until a
+// compaction ran — and a short replacement sync could hard-link them
+// into the CheckpointTo envelope at save, shipping deleted data.
+func TestResetForNewSyncReclaimsDiskImmediately(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	a := NewAdapter(e)
+
+	// Sync 1: enough grant data to materialize real SSTs, then EndSync
+	// (EndFreshSync flushes the memtable to L0).
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+	for i := 0; i < 50; i++ {
+		batch := make([]*v3.GrantRecord, 0, 100)
+		for j := 0; j < 100; j++ {
+			batch = append(batch, v3.GrantRecord_builder{
+				ExternalId: fmt.Sprintf("g-%d-%d", i, j),
+				Entitlement: v3.EntitlementRef_builder{
+					ResourceTypeId: "group", ResourceId: "g1", EntitlementId: "ent-A",
+				}.Build(),
+				Principal: v3.PrincipalRef_builder{
+					ResourceTypeId: "user", ResourceId: fmt.Sprintf("u-%d-%d", i, j),
+				}.Build(),
+			}.Build())
+		}
+		if err := e.PutGrantRecords(ctx, batch...); err != nil {
+			t.Fatalf("PutGrantRecords: %v", err)
+		}
+	}
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
+
+	dataLo := []byte{versionV3, typeResourceType}
+	dataHi := []byte{versionV3, typeEngineMeta}
+	before, err := e.DB().EstimateDiskUsage(dataLo, dataHi)
+	if err != nil {
+		t.Fatalf("EstimateDiskUsage (before): %v", err)
+	}
+	if before == 0 {
+		t.Fatal("sanity: expected non-zero on-disk usage for the finished sync's data span")
+	}
+
+	// Replacement sync: StartNewSync excises the prior sync's data.
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatalf("StartNewSync (replacement): %v", err)
+	}
+	after, err := e.DB().EstimateDiskUsage(dataLo, dataHi)
+	if err != nil {
+		t.Fatalf("EstimateDiskUsage (after): %v", err)
+	}
+	// The excise drops fully-covered SSTs from the manifest, so the
+	// data span's estimated usage collapses to (near) zero immediately
+	// — no compaction required. Allow a small slop for the replacement
+	// sync's own sync-run record landing in the span.
+	if after >= before/10 {
+		t.Fatalf("post-reset disk usage = %d, want < %d (10%% of pre-reset %d); excise did not reclaim the prior sync's SSTs", after, before/10, before)
 	}
 }
 
@@ -37,13 +102,7 @@ func TestPebbleCleanupRefusesActiveSync(t *testing.T) {
 // pins every index keyspace, so a new index added to the writers without
 // a matching cleanup range fails here instead of leaking orphan keys.
 func TestSyncScopedRangesCoverEveryWrittenIndex(t *testing.T) {
-	// Fixed 16-byte sync id; the encoders and *SyncLowerBound bounds
-	// only append it, so any consistent value exercises the keyspace.
-	syncIDBytes := []byte{
-		0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-		0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
-	}
-	ranges := syncScopedRanges(syncIDBytes)
+	ranges := scopedRanges()
 
 	// One grant carrying an entitlement (with a resource), a principal,
 	// and the needs-expansion flag emits all five grant indexes:
@@ -66,15 +125,15 @@ func TestSyncScopedRangesCoverEveryWrittenIndex(t *testing.T) {
 		key  []byte
 	}
 	written := make([]writtenKey, 0, 7)
-	for _, k := range grantIndexKeys(syncIDBytes, g) {
+	for _, k := range grantIndexKeys(g) {
 		// Layout for every index key: versionV3, typeIndex, idxByte, ...
 		written = append(written, writtenKey{idx: k[2], name: "grant", key: k})
 	}
 	written = append(written,
 		writtenKey{idxResourceByParent, "resource_by_parent",
-			encodeResourceByParentIndexKey(syncIDBytes, "folder", "root", "doc", "d1")},
+			encodeResourceByParentIndexKey("folder", "root", "doc", "d1")},
 		writtenKey{idxEntitlementByResource, "entitlement_by_resource",
-			encodeEntitlementByResourceIndexKey(syncIDBytes, "app", "github", "ent-A")},
+			encodeEntitlementByResourceIndexKey("app", "github", "ent-A")},
 	)
 
 	covered := func(k []byte) bool {

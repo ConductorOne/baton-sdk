@@ -16,35 +16,16 @@ import (
 
 // TestPebble_ListGrants_HonorsSyncDetailsAnnotation is the regression
 // guard for `Adapter.resolveActiveSync` honoring the `c1zpb.SyncDetails`
-// annotation on incoming requests.
+// annotation on incoming requests: a ListGrants request carrying
+// SyncDetails{Id: ...} and NO ActiveSyncId must resolve (without error)
+// and return the file's sync grants.
 //
-// Readers can scope a request to a specific sync by passing the sync ID
-// in a `c1zpb.SyncDetails` annotation on the ListGrants request:
-//
-//	storeAnnos := annotations.Annotations{}
-//	storeAnnos.Update(c1zpb.SyncDetails_builder{Id: prevSyncID}.Build())
-//	prevGrantsResp, err := s.store.ListGrants(ctx, ...{
-//	    Resource:    resource,
-//	    Annotations: storeAnnos,
-//	    ...
-//	})
-//
-// SQLite's `resolveSyncID` (pkg/dotc1z/sql_helpers.go) has always
-// honored that annotation via
-// `annotations.GetSyncIdFromAnnotations(req.Annotations)`. Pebble
-// originally only consulted `req.GetActiveSyncId()` and silently
-// returned the in-progress sync's grants instead. `Adapter.resolveActiveSync`
-// must check the annotation between the explicit ActiveSyncId override and
-// the currentSyncID fallback.
-//
-// The test exercises the annotation handling directly:
-//
-//  1. Sync 1 against a Pebble c1z, write one grant, end sync.
-//  2. Start sync 2 (no grants written).
-//  3. Call ListGrants with `Annotations: [SyncDetails{Id: sync1_id}]`
-//     and NO `ActiveSyncId` field set.
-//
-// Contract: the response must contain sync 1's grant.
+// A v3 Pebble c1z holds exactly one sync by contract, so the annotation
+// can only point at that sync — the cross-sync etag-replay use case the
+// SQLite engine supports (reading a PREVIOUS sync distinct from the
+// in-progress one) does not apply, because a new sync replaces the prior
+// one in place. The annotation must still be parsed and honored rather
+// than rejected (a malformed SyncDetails surfaces an error instead).
 func TestPebble_ListGrants_HonorsSyncDetailsAnnotation(t *testing.T) {
 	ctx := context.Background()
 
@@ -55,10 +36,9 @@ func TestPebble_ListGrants_HonorsSyncDetailsAnnotation(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = store.Close(ctx) }()
 
-	// --- Sync 1: write one grant, end the sync ---
-	sync1ID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NotEmpty(t, sync1ID)
+	require.NotEmpty(t, syncID)
 
 	require.NoError(t, store.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "group"}.Build(),
@@ -87,29 +67,17 @@ func TestPebble_ListGrants_HonorsSyncDetailsAnnotation(t *testing.T) {
 	require.NoError(t, store.PutGrants(ctx, grant))
 	require.NoError(t, store.EndSync(ctx))
 
-	// --- Sync 2: start a new sync, write nothing ---
-	sync2ID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-	require.NotEqual(t, sync1ID, sync2ID, "sanity: sync 2 must be a distinct sync")
-
-	// Build a request with a SyncDetails annotation carrying sync 1's ID
-	// and NO ActiveSyncId field set. The Resource filter is intentionally
+	// SyncDetails annotation carrying the sync ID, NO ActiveSyncId set —
+	// the shape the syncer builds. The Resource filter is intentionally
 	// omitted to isolate the SyncDetails annotation behavior.
 	annos := annotations.Annotations{}
-	annos.Update(c1zpb.SyncDetails_builder{Id: sync1ID}.Build())
+	annos.Update(c1zpb.SyncDetails_builder{Id: syncID}.Build())
 	req := v2.GrantsServiceListGrantsRequest_builder{
 		Annotations: annos,
 	}.Build()
 
 	resp, err := store.ListGrants(ctx, req)
-	require.NoError(t, err, "ListGrants should not error when given a SyncDetails annotation pointing at a finished sync")
-
-	require.Len(t, resp.GetList(), 1,
-		"ListGrants must scope to the sync_id carried in the SyncDetails annotation "+
-			"got %d grants from in-progress sync %q rather than the requested sync %q",
-		len(resp.GetList()), sync2ID, sync1ID)
-
-	got := resp.GetList()[0]
-	require.Equal(t, "grant-sync1", got.GetId(),
-		"expected sync 1's grant via SyncDetails scope; got a different grant")
+	require.NoError(t, err, "ListGrants should honor a SyncDetails annotation pointing at the file's sync")
+	require.Len(t, resp.GetList(), 1)
+	require.Equal(t, "grant-sync1", resp.GetList()[0].GetId())
 }

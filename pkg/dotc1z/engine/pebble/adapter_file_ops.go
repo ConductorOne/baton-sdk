@@ -7,11 +7,10 @@ import (
 )
 
 // FileOps returns the FileOps sub-store backed by the Pebble
-// adapter. Implements c1zstore.Store.FileOps(). Both methods are
-// fully implemented: CloneSync materializes one sync's data into a
-// fresh c1z (used by `baton clone`), and GenerateSyncDiff computes
-// the additions-only set difference between two ended syncs and
-// emits a new SyncTypePartial sync (used by the local differ CLI).
+// adapter. Implements c1zstore.Store.FileOps(). CloneSync materializes
+// the single sync's data into a fresh c1z (used by `baton clone`);
+// GenerateSyncDiff is unsupported (single-sync contract — see
+// ErrDiffUnsupported).
 func (a *Adapter) FileOps() c1zstore.FileOps {
 	return pebbleFileOps{a: a, encoding: c1zstore.PayloadEncodingTarZstd}
 }
@@ -47,11 +46,9 @@ func (f pebbleFileOps) CopyIsolateSync(ctx context.Context, outPath string, sync
 	return cloneSync(ctx, f.a, f.encoding, outPath, syncID, opts...)
 }
 
-// GenerateSyncDiff computes the additions-only set difference
-// between two ended syncs and emits a new SyncTypePartial sync
-// containing them. Matches the SQLite contract in
-// pkg/dotc1z/diff.go (no modifications or deletions captured).
-// Returns the diff sync's ID.
+// GenerateSyncDiff is unsupported on the Pebble v3 engine — a c1z
+// holds exactly one sync by contract, so base + applied syncs can't be
+// co-resident in one file. Always returns ErrDiffUnsupported.
 func (f pebbleFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (string, error) {
 	return generateSyncDiff(ctx, f.a, baseSyncID, appliedSyncID)
 }

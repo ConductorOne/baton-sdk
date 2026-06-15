@@ -26,7 +26,6 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 const (
@@ -104,10 +103,6 @@ func mergeBucketsInto(ctx context.Context, dest *enginepkg.Engine, sources []Sou
 	if cfg.fanIn < 2 {
 		cfg.fanIn = defaultKWayFanIn
 	}
-	destSyncBytes, err := codec.EncodeSyncID(destSyncID)
-	if err != nil {
-		return nil, err
-	}
 	l := ctxzap.Extract(ctx)
 	mergeStart := time.Now()
 	direct := len(sources) <= cfg.fanIn
@@ -121,7 +116,7 @@ func mergeBucketsInto(ctx context.Context, dest *enginepkg.Engine, sources []Sou
 	rm := &asyncRemover{}
 	defer rm.wait()
 	if direct {
-		if err := mergeSourceChunkToPebble(ctx, dest, tmpDir, sources, 0, destSyncID, destSyncBytes, buckets, stats, rm); err != nil {
+		if err := mergeSourceChunkToPebble(ctx, dest, tmpDir, sources, 0, buckets, stats, rm); err != nil {
 			return nil, err
 		}
 		l.Info("pebble kway merge: done",
@@ -133,7 +128,7 @@ func mergeBucketsInto(ctx context.Context, dest *enginepkg.Engine, sources []Sou
 	roundFiles := make([]runFile, 0, (len(sources)+cfg.fanIn-1)/cfg.fanIn)
 	for start := 0; start < len(sources); start += cfg.fanIn {
 		end := min(start+cfg.fanIn, len(sources))
-		run, err := buildChunkRunFileFromSources(ctx, tmpDir, sources[start:end], start, fmt.Sprintf("initial-%04d", len(roundFiles)), destSyncID, destSyncBytes, buckets, rm)
+		run, err := buildChunkRunFileFromSources(ctx, tmpDir, sources[start:end], start, fmt.Sprintf("initial-%04d", len(roundFiles)), buckets, rm)
 		if err != nil {
 			removeRunFiles(roundFiles)
 			return nil, err
@@ -164,7 +159,7 @@ func mergeBucketsInto(ctx context.Context, dest *enginepkg.Engine, sources []Sou
 		roundFiles = next
 		round++
 	}
-	if err := materializeRunFilesToPebble(ctx, dest, tmpDir, roundFiles, destSyncBytes, buckets, stats); err != nil {
+	if err := materializeRunFilesToPebble(ctx, dest, tmpDir, roundFiles, buckets, stats); err != nil {
 		return nil, err
 	}
 	// merge_rounds counts intermediate run-file generations beyond the
@@ -344,8 +339,6 @@ func buildChunkRunFileFromSources(
 	sources []SourceFile,
 	baseRank int,
 	name string,
-	destSyncID string,
-	destSyncBytes []byte,
 	buckets []bucketSpec,
 	rm *asyncRemover,
 ) (runFile, error) {
@@ -354,7 +347,7 @@ func buildChunkRunFileFromSources(
 		return runFile{}, err
 	}
 	defer chunk.closeAsync(rm)
-	return buildChunkRunFileFromHandles(ctx, tmpDir, chunk.handles, name, destSyncID, destSyncBytes, buckets)
+	return buildChunkRunFileFromHandles(ctx, tmpDir, chunk.handles, name, buckets)
 }
 
 func buildChunkRunFileFromHandles(
@@ -362,8 +355,6 @@ func buildChunkRunFileFromHandles(
 	tmpDir string,
 	handles []sourceHandle,
 	name string,
-	destSyncID string,
-	destSyncBytes []byte,
 	buckets []bucketSpec,
 ) (runFile, error) {
 	path := filepath.Join(tmpDir, "kway-run-"+name+".bin")
@@ -381,7 +372,7 @@ func buildChunkRunFileFromHandles(
 	}()
 	run := runFile{path: path}
 	for _, bucket := range buckets {
-		if err := mergeSourceBucketToRunSection(ctx, cw, handles, bucket, destSyncID, destSyncBytes, &run); err != nil {
+		if err := mergeSourceBucketToRunSection(ctx, cw, handles, bucket, &run); err != nil {
 			return runFile{}, err
 		}
 	}
@@ -401,8 +392,6 @@ func mergeSourceChunkToPebble(
 	tmpDir string,
 	sources []SourceFile,
 	baseRank int,
-	destSyncID string,
-	destSyncBytes []byte,
 	buckets []bucketSpec,
 	stats *mergeStatsAccumulator,
 	rm *asyncRemover,
@@ -413,7 +402,7 @@ func mergeSourceChunkToPebble(
 	}
 	defer chunk.closeAsync(rm)
 	for _, bucket := range buckets {
-		if err := materializeSourceBucketToPebble(ctx, dest, tmpDir, chunk.handles, bucket, destSyncID, destSyncBytes, stats); err != nil {
+		if err := materializeSourceBucketToPebble(ctx, dest, tmpDir, chunk.handles, bucket, stats); err != nil {
 			return err
 		}
 	}
@@ -445,12 +434,13 @@ type bucketSpec struct {
 	name      string
 	newRecord func() proto.Message
 	// syncRange returns the half-open Pebble key range containing every
-	// primary record for this bucket under one sync id.
-	syncRange       func([]byte) ([]byte, []byte)
+	// primary record for this bucket. The file holds one sync and keys
+	// carry no sync_id, so this is the bucket's whole range.
+	syncRange       func() ([]byte, []byte)
 	key             func(proto.Message) string
 	ts              func(proto.Message) *timestamppb.Timestamp
-	indexKeys       func([]byte, proto.Message) [][]byte
-	forEachIndexKey func([]byte, proto.Message, func([]byte) error) error
+	indexKeys       func(proto.Message) [][]byte
+	forEachIndexKey func(proto.Message, func([]byte) error) error
 }
 
 func allBuckets() []bucketSpec {
@@ -462,8 +452,8 @@ func resourceTypeBucket() bucketSpec {
 		id:        runBucketResourceTypes,
 		name:      "resource_types",
 		newRecord: func() proto.Message { return &v3.ResourceTypeRecord{} },
-		syncRange: func(syncBytes []byte) ([]byte, []byte) {
-			return enginepkg.ResourceTypeSyncLowerBound(syncBytes), enginepkg.ResourceTypeSyncUpperBound(syncBytes)
+		syncRange: func() ([]byte, []byte) {
+			return enginepkg.ResourceTypeLowerBound(), enginepkg.ResourceTypeUpperBound()
 		},
 		key: func(m proto.Message) string { return m.(*v3.ResourceTypeRecord).GetExternalId() },
 		ts:  func(m proto.Message) *timestamppb.Timestamp { return m.(*v3.ResourceTypeRecord).GetDiscoveredAt() },
@@ -475,19 +465,19 @@ func resourceBucket() bucketSpec {
 		id:        runBucketResources,
 		name:      "resources",
 		newRecord: func() proto.Message { return &v3.ResourceRecord{} },
-		syncRange: func(syncBytes []byte) ([]byte, []byte) {
-			return enginepkg.ResourceSyncLowerBound(syncBytes), enginepkg.ResourceSyncUpperBound(syncBytes)
+		syncRange: func() ([]byte, []byte) {
+			return enginepkg.ResourceLowerBound(), enginepkg.ResourceUpperBound()
 		},
 		key: func(m proto.Message) string {
 			r := m.(*v3.ResourceRecord)
 			return r.GetResourceTypeId() + "\x00" + r.GetResourceId()
 		},
 		ts: func(m proto.Message) *timestamppb.Timestamp { return m.(*v3.ResourceRecord).GetDiscoveredAt() },
-		indexKeys: func(syncBytes []byte, m proto.Message) [][]byte {
-			return enginepkg.ResourceIndexKeys(syncBytes, m.(*v3.ResourceRecord))
+		indexKeys: func(m proto.Message) [][]byte {
+			return enginepkg.ResourceIndexKeys(m.(*v3.ResourceRecord))
 		},
-		forEachIndexKey: func(syncBytes []byte, m proto.Message, yield func([]byte) error) error {
-			return enginepkg.ForEachResourceIndexKey(syncBytes, m.(*v3.ResourceRecord), yield)
+		forEachIndexKey: func(m proto.Message, yield func([]byte) error) error {
+			return enginepkg.ForEachResourceIndexKey(m.(*v3.ResourceRecord), yield)
 		},
 	}
 }
@@ -497,16 +487,16 @@ func entitlementBucket() bucketSpec {
 		id:        runBucketEntitlements,
 		name:      "entitlements",
 		newRecord: func() proto.Message { return &v3.EntitlementRecord{} },
-		syncRange: func(syncBytes []byte) ([]byte, []byte) {
-			return enginepkg.EntitlementSyncLowerBound(syncBytes), enginepkg.EntitlementSyncUpperBound(syncBytes)
+		syncRange: func() ([]byte, []byte) {
+			return enginepkg.EntitlementLowerBound(), enginepkg.EntitlementUpperBound()
 		},
 		key: func(m proto.Message) string { return m.(*v3.EntitlementRecord).GetExternalId() },
 		ts:  func(m proto.Message) *timestamppb.Timestamp { return m.(*v3.EntitlementRecord).GetDiscoveredAt() },
-		indexKeys: func(syncBytes []byte, m proto.Message) [][]byte {
-			return enginepkg.EntitlementIndexKeys(syncBytes, m.(*v3.EntitlementRecord))
+		indexKeys: func(m proto.Message) [][]byte {
+			return enginepkg.EntitlementIndexKeys(m.(*v3.EntitlementRecord))
 		},
-		forEachIndexKey: func(syncBytes []byte, m proto.Message, yield func([]byte) error) error {
-			return enginepkg.ForEachEntitlementIndexKey(syncBytes, m.(*v3.EntitlementRecord), yield)
+		forEachIndexKey: func(m proto.Message, yield func([]byte) error) error {
+			return enginepkg.ForEachEntitlementIndexKey(m.(*v3.EntitlementRecord), yield)
 		},
 	}
 }
@@ -516,16 +506,16 @@ func grantBucket() bucketSpec {
 		id:        runBucketGrants,
 		name:      "grants",
 		newRecord: func() proto.Message { return &v3.GrantRecord{} },
-		syncRange: func(syncBytes []byte) ([]byte, []byte) {
-			return enginepkg.GrantSyncLowerBound(syncBytes), enginepkg.GrantSyncUpperBound(syncBytes)
+		syncRange: func() ([]byte, []byte) {
+			return enginepkg.GrantLowerBound(), enginepkg.GrantUpperBound()
 		},
 		key: func(m proto.Message) string { return m.(*v3.GrantRecord).GetExternalId() },
 		ts:  func(m proto.Message) *timestamppb.Timestamp { return m.(*v3.GrantRecord).GetDiscoveredAt() },
-		indexKeys: func(syncBytes []byte, m proto.Message) [][]byte {
-			return enginepkg.GrantIndexKeys(syncBytes, m.(*v3.GrantRecord))
+		indexKeys: func(m proto.Message) [][]byte {
+			return enginepkg.GrantIndexKeys(m.(*v3.GrantRecord))
 		},
-		forEachIndexKey: func(syncBytes []byte, m proto.Message, yield func([]byte) error) error {
-			return enginepkg.ForEachGrantIndexKey(syncBytes, m.(*v3.GrantRecord), yield)
+		forEachIndexKey: func(m proto.Message, yield func([]byte) error) error {
+			return enginepkg.ForEachGrantIndexKey(m.(*v3.GrantRecord), yield)
 		},
 	}
 }
@@ -536,8 +526,6 @@ type directStream struct {
 	bucket     bucketSpec
 	sourceLo   []byte
 	destLo     []byte
-	destSyncID string
-	destBytes  []byte
 
 	// keyBuf/valBuf back the runRecord returned by next(). The merge
 	// loops hold at most one live record per stream (in the heap or
@@ -597,8 +585,6 @@ func mergeSourceBucketToRunSection(
 	w *countingWriter,
 	sources []sourceHandle,
 	bucket bucketSpec,
-	destSyncID string,
-	destBytes []byte,
 	run *runFile,
 ) error {
 	start := w.n
@@ -608,14 +594,10 @@ func mergeSourceBucketToRunSection(
 			stream.close()
 		}
 	}()
+	lower, upper := bucket.syncRange()
+	destLower, _ := bucket.syncRange()
 	h := &directHeap{}
 	for i, source := range sources {
-		syncBytes, err := codec.EncodeSyncID(source.syncID)
-		if err != nil {
-			return err
-		}
-		lower, upper := bucket.syncRange(syncBytes)
-		destLower, _ := bucket.syncRange(destBytes)
 		iter, err := source.engine.DB().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
 		if err != nil {
 			return err
@@ -627,8 +609,6 @@ func mergeSourceBucketToRunSection(
 			bucket:     bucket,
 			sourceLo:   lower,
 			destLo:     destLower,
-			destSyncID: destSyncID,
-			destBytes:  destBytes,
 		}
 		streams = append(streams, stream)
 		rec, ok, err := stream.next()
@@ -677,8 +657,6 @@ func materializeSourceBucketToPebble(
 	tmpDir string,
 	sources []sourceHandle,
 	bucket bucketSpec,
-	destSyncID string,
-	destBytes []byte,
 	stats *mergeStatsAccumulator,
 ) error {
 	primaryPath := filepath.Join(tmpDir, fmt.Sprintf("kway-direct-%s-primary.sst", bucket.name))
@@ -705,14 +683,10 @@ func materializeSourceBucketToPebble(
 			stream.close()
 		}
 	}()
-	destLower, _ := bucket.syncRange(destBytes)
+	lower, upper := bucket.syncRange()
+	destLower, _ := bucket.syncRange()
 	h := &directHeap{}
 	for i, source := range sources {
-		syncBytes, err := codec.EncodeSyncID(source.syncID)
-		if err != nil {
-			return err
-		}
-		lower, upper := bucket.syncRange(syncBytes)
 		iter, err := source.engine.DB().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
 		if err != nil {
 			return err
@@ -724,8 +698,6 @@ func materializeSourceBucketToPebble(
 			bucket:     bucket,
 			sourceLo:   lower,
 			destLo:     destLower,
-			destSyncID: destSyncID,
-			destBytes:  destBytes,
 		}
 		streams = append(streams, stream)
 		rec, ok, err := stream.next()
@@ -769,7 +741,7 @@ func materializeSourceBucketToPebble(
 			// above (the winner-only contract on forEachIndexKeyFromRaw's
 			// stats parameter is satisfied either way, but counting twice
 			// would double the totals).
-			if err := forEachIndexKeyFromRaw(bucket, destBytes, winner.key, destLower, winner.value, &scratch, nil, emitIndexKey); err != nil {
+			if err := forEachIndexKeyFromRaw(bucket, winner.key, destLower, winner.value, &scratch, nil, emitIndexKey); err != nil {
 				return err
 			}
 		}
@@ -1219,7 +1191,6 @@ func materializeRunFilesToPebble(
 	dest *enginepkg.Engine,
 	tmpDir string,
 	inputs []runFile,
-	destBytes []byte,
 	buckets []bucketSpec,
 	stats *mergeStatsAccumulator,
 ) error {
@@ -1229,14 +1200,14 @@ func materializeRunFilesToPebble(
 	}
 	defer removeRunFiles([]runFile{merged})
 	for _, bucket := range buckets {
-		if err := materializeRunFileBucket(ctx, dest, tmpDir, merged, bucket, destBytes, stats); err != nil {
+		if err := materializeRunFileBucket(ctx, dest, tmpDir, merged, bucket, stats); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func materializeRunFileBucket(ctx context.Context, dest *enginepkg.Engine, tmpDir string, input runFile, bucket bucketSpec, destBytes []byte, stats *mergeStatsAccumulator) error {
+func materializeRunFileBucket(ctx context.Context, dest *enginepkg.Engine, tmpDir string, input runFile, bucket bucketSpec, stats *mergeStatsAccumulator) error {
 	f, err := os.Open(input.path)
 	if err != nil {
 		return err
@@ -1265,7 +1236,7 @@ func materializeRunFileBucket(ctx context.Context, dest *enginepkg.Engine, tmpDi
 			_ = os.Remove(primaryPath)
 		}
 	}()
-	destLower, _ := bucket.syncRange(destBytes)
+	destLower, _ := bucket.syncRange()
 	var lastPrimaryKey []byte
 	var rec runRecord
 	var hdr [runHeaderSize]byte
@@ -1291,7 +1262,7 @@ func materializeRunFileBucket(ctx context.Context, dest *enginepkg.Engine, tmpDi
 			}
 			lastPrimaryKey = append(lastPrimaryKey[:0], rec.key...)
 			// stats is nil: counted via countWinner above.
-			if err := forEachIndexKeyFromRaw(bucket, destBytes, rec.key, destLower, rec.value, &scratch, nil, emitIndexKey); err != nil {
+			if err := forEachIndexKeyFromRaw(bucket, rec.key, destLower, rec.value, &scratch, nil, emitIndexKey); err != nil {
 				return err
 			}
 		}

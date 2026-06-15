@@ -18,9 +18,9 @@ import (
 // GrantStats() as a single LSM Get. Eliminates the O(N) iteration
 // the Adapter used to do on every Stats() call.
 //
-// Key shape:
+// Key shape (single fixed key — one sync per file):
 //
-//	v3 | typeEngineMeta | tup_string("stats") | sync_id_bytes
+//	v3 | typeEngineMeta | tup_string("stats") | 0x00
 //
 // Value: marshaled SyncStatsRecord proto.
 //
@@ -29,56 +29,35 @@ import (
 // count path in that case, and the on-Open migration framework
 // backfills the sidecar on writable opens so the next call is fast.
 
-// encodeSyncStatsKey returns the engine-meta key for the
-// SyncStatsRecord of the named sync.
-func encodeSyncStatsKey(syncIDBytes []byte) []byte {
-	buf := make([]byte, 0, 6+len("stats")+len(syncIDBytes))
+// encodeSyncStatsKey returns the engine-meta key for the single
+// sync's SyncStatsRecord. The file holds one sync, so this is a fixed
+// key with no sync_id.
+func encodeSyncStatsKey() []byte {
+	buf := make([]byte, 0, 6+len("stats"))
 	buf = append(buf, versionV3, typeEngineMeta)
 	buf = codec.AppendTupleString(buf, "stats")
 	buf = codec.AppendTupleSeparator(buf)
-	buf = append(buf, syncIDBytes...)
 	return buf
 }
 
 // SyncStatsSidecarLowerBound / UpperBound expose the bounds of the
-// stats sidecar keyspace for synccompactor and CloneSync. The
-// sidecar keys themselves are sync-prefixed (after the "stats"
-// tuple prefix), so this is a single contiguous range.
+// stats sidecar keyspace for synccompactor and CloneSync. The file
+// holds one stats record, so this is a single-key range.
 func SyncStatsSidecarLowerBound() []byte {
-	buf := make([]byte, 0, 2+len("stats")+2)
-	buf = append(buf, versionV3, typeEngineMeta)
-	buf = codec.AppendTupleString(buf, "stats")
-	buf = codec.AppendTupleSeparator(buf)
-	return buf
+	return encodeSyncStatsKey()
 }
 
 func SyncStatsSidecarUpperBound() []byte {
 	return upperBoundOf(SyncStatsSidecarLowerBound())
 }
 
-// SyncStatsSidecarSyncLowerBound returns the lowest key in the
-// sidecar keyspace for a specific sync. The sidecar stores exactly
-// one record per sync_id; this single-key range is used by
-// CloneSync and the synccompactor bucket plan.
-func SyncStatsSidecarSyncLowerBound(syncIDBytes []byte) []byte {
-	return encodeSyncStatsKey(syncIDBytes)
-}
-
-// SyncStatsSidecarSyncUpperBound is the exclusive upper bound for
-// SyncStatsSidecarSyncLowerBound.
-func SyncStatsSidecarSyncUpperBound(syncIDBytes []byte) []byte {
-	return upperBoundOf(SyncStatsSidecarSyncLowerBound(syncIDBytes))
-}
-
-// readSyncStats returns the persisted SyncStatsRecord for the named
-// sync, or (nil, nil) if no sidecar exists yet. Errors surface for
-// real read failures only.
+// readSyncStats returns the persisted SyncStatsRecord, or (nil, nil)
+// if no sidecar exists yet. syncID guards against returning a
+// different sync's stats (the file holds one sync, so a lookup for a
+// mismatched id misses); pass "" to read whatever is stored. Errors
+// surface for real read failures only.
 func (e *Engine) readSyncStats(ctx context.Context, syncID string) (*v3.SyncStatsRecord, error) {
-	idBytes, err := codec.EncodeSyncID(syncID)
-	if err != nil {
-		return nil, err
-	}
-	val, closer, err := e.db.Get(encodeSyncStatsKey(idBytes))
+	val, closer, err := e.db.Get(encodeSyncStatsKey())
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return nil, nil
@@ -90,22 +69,22 @@ func (e *Engine) readSyncStats(ctx context.Context, syncID string) (*v3.SyncStat
 	if err := unmarshalRecord(val, rec); err != nil {
 		return nil, fmt.Errorf("readSyncStats: unmarshal: %w", err)
 	}
+	if syncID != "" && rec.GetSyncId() != syncID {
+		return nil, nil
+	}
 	return rec, nil
 }
 
-// writeSyncStats persists the SyncStatsRecord. Uses pebble.Sync
-// because Stats() correctness depends on the sidecar surviving a
-// crash that occurred mid-sync-end.
-func (e *Engine) writeSyncStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) error {
-	idBytes, err := codec.EncodeSyncID(syncID)
-	if err != nil {
-		return err
-	}
+// writeSyncStats persists the SyncStatsRecord at the fixed sidecar
+// key. Uses pebble.Sync because Stats() correctness depends on the
+// sidecar surviving a crash that occurred mid-sync-end. The sync_id
+// is carried in the record value, not the key.
+func (e *Engine) writeSyncStats(ctx context.Context, rec *v3.SyncStatsRecord) error {
 	val, err := marshalRecord(rec)
 	if err != nil {
 		return err
 	}
-	return e.db.Set(encodeSyncStatsKey(idBytes), val, pebble.Sync)
+	return e.db.Set(encodeSyncStatsKey(), val, pebble.Sync)
 }
 
 // computeSyncStats does one full pass over the per-record-type
@@ -121,12 +100,8 @@ func (e *Engine) writeSyncStats(ctx context.Context, syncID string, rec *v3.Sync
 func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncStatsRecord, error) {
 	rec := &v3.SyncStatsRecord{}
 	rec.SetSyncId(syncID)
-	idBytes, err := codec.EncodeSyncID(syncID)
-	if err != nil {
-		return nil, err
-	}
 
-	resourceTypes, err := countKeyRange(ctx, e.db, ResourceTypeSyncLowerBound(idBytes), ResourceTypeSyncUpperBound(idBytes), nil)
+	resourceTypes, err := countKeyRange(ctx, e.db, ResourceTypeLowerBound(), ResourceTypeUpperBound(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: resource_types: %w", err)
 	}
@@ -138,10 +113,10 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	// counts[string(rt)]++ would allocate per row — the compiler only
 	// elides the []byte->string conversion for map reads, not writes.)
 	resourcesByRT := map[string]int64{}
-	resLower := ResourceSyncLowerBound(idBytes)
+	resLower := ResourceLowerBound()
 	var rtScratch, curRT []byte
 	var curCount int64
-	resources, err := countKeyRange(ctx, e.db, resLower, ResourceSyncUpperBound(idBytes), func(key []byte, _ []byte) error {
+	resources, err := countKeyRange(ctx, e.db, resLower, ResourceUpperBound(), func(key []byte, _ []byte) error {
 		if len(key) <= len(resLower) {
 			return fmt.Errorf("resource key shorter than expected lower bound")
 		}
@@ -169,7 +144,7 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	}
 	rec.SetResources(resources)
 
-	entitlements, err := countKeyRange(ctx, e.db, EntitlementSyncLowerBound(idBytes), EntitlementSyncUpperBound(idBytes), nil)
+	entitlements, err := countKeyRange(ctx, e.db, EntitlementLowerBound(), EntitlementUpperBound(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: entitlements: %w", err)
 	}
@@ -180,7 +155,7 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	// allocation-free and only materializes a key string the first time
 	// each resource type appears.
 	grantsByEntRTPtr := map[string]*int64{}
-	grants, err := countKeyRange(ctx, e.db, GrantSyncLowerBound(idBytes), GrantSyncUpperBound(idBytes), func(_ []byte, value []byte) error {
+	grants, err := countKeyRange(ctx, e.db, GrantLowerBound(), GrantUpperBound(), func(_ []byte, value []byte) error {
 		entRT, err := scanGrantEntitlementResourceTypeRaw(value)
 		if err != nil {
 			return err
@@ -202,7 +177,7 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	}
 	rec.SetGrants(grants)
 
-	assets, err := countKeyRange(ctx, e.db, AssetSyncLowerBound(idBytes), AssetSyncUpperBound(idBytes), nil)
+	assets, err := countKeyRange(ctx, e.db, AssetLowerBound(), AssetUpperBound(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: assets: %w", err)
 	}
@@ -226,7 +201,7 @@ func (e *Engine) PersistSyncStats(ctx context.Context, syncID string) error {
 	if err != nil {
 		return err
 	}
-	return e.writeSyncStats(ctx, syncID, rec)
+	return e.writeSyncStats(ctx, rec)
 }
 
 // StashComputedSyncStats registers a caller-computed stats record to be
@@ -270,7 +245,7 @@ func (e *Engine) PersistComputedSyncStats(ctx context.Context, syncID string, re
 	}
 	rec.SetSyncId(syncID)
 	rec.SetWrittenAt(timestamppb.Now())
-	return e.writeSyncStats(ctx, syncID, rec)
+	return e.writeSyncStats(ctx, rec)
 }
 
 func countKeyRange(ctx context.Context, db *pebble.DB, lower []byte, upper []byte, visit func(key []byte, value []byte) error) (int64, error) {

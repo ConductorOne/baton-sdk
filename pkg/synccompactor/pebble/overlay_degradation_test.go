@@ -18,7 +18,6 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // capturingCore is a minimal zapcore.Core that records log messages so
@@ -85,16 +84,12 @@ func degGrants(prefix string, n int, ts time.Time) []kwayGrantSpec {
 // under the dest sync across all buckets. Both engines under
 // comparison use the SAME dest sync id, so byte-equal maps mean
 // byte-equal merge output (records and derived indexes).
-func dumpDestSyncContents(t *testing.T, e *enginepkg.Engine, syncID string) map[string]string {
+func dumpDestSyncContents(t *testing.T, e *enginepkg.Engine) map[string]string {
 	t.Helper()
-	syncBytes, err := codec.EncodeSyncID(syncID)
-	if err != nil {
-		t.Fatal(err)
-	}
 	out := map[string]string{}
 	for _, bucket := range allBuckets() {
-		lo, hi := bucket.syncRange(syncBytes)
-		ranges := append([][2][]byte{{lo, hi}}, bucketIndexRanges(bucket, syncBytes)...)
+		lo, hi := bucket.syncRange()
+		ranges := append([][2][]byte{{lo, hi}}, bucketIndexRanges(bucket)...)
 		for _, r := range ranges {
 			iter, err := e.DB().NewIter(&cpebble.IterOptions{LowerBound: r[0], UpperBound: r[1]})
 			if err != nil {
@@ -136,8 +131,8 @@ func assertOverlayMatchesKWay(t *testing.T, ctx context.Context, sources []Sourc
 		t.Fatalf("MergeFilesInto: %v", err)
 	}
 
-	got := dumpDestSyncContents(t, overlayDest, destSyncID)
-	want := dumpDestSyncContents(t, kwayDest, destSyncID)
+	got := dumpDestSyncContents(t, overlayDest)
+	want := dumpDestSyncContents(t, kwayDest)
 	if len(got) != len(want) {
 		t.Fatalf("overlay dest has %d keys, kway dest has %d", len(got), len(want))
 	}
@@ -362,7 +357,7 @@ func TestOverlayResumedReplaceRawEdge(t *testing.T) {
 	}
 	// The replaced record's index entries must follow the new value.
 	var bobGrants []string
-	if err := dest.IterateGrantsByPrincipal(ctx, destSyncID, "user", "bob", func(g *v3.GrantRecord) bool {
+	if err := dest.IterateGrantsByPrincipal(ctx, "user", "bob", func(g *v3.GrantRecord) bool {
 		bobGrants = append(bobGrants, g.GetExternalId())
 		return true
 	}); err != nil {
@@ -372,7 +367,7 @@ func TestOverlayResumedReplaceRawEdge(t *testing.T) {
 		t.Fatalf("by_principal(bob) = %v, want [g-0]", bobGrants)
 	}
 	var aliceForG0 bool
-	if err := dest.IterateGrantsByPrincipal(ctx, destSyncID, "user", "alice", func(g *v3.GrantRecord) bool {
+	if err := dest.IterateGrantsByPrincipal(ctx, "user", "alice", func(g *v3.GrantRecord) bool {
 		if g.GetExternalId() == "g-0" {
 			aliceForG0 = true
 		}

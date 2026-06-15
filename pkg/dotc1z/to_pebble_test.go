@@ -73,7 +73,9 @@ func TestToPebbleRoundTrip(t *testing.T) {
 	stats, err := src.ToPebble(ctx, outPath, syncID)
 	require.NoError(t, err)
 	require.Equal(t, syncID, stats.SourceSyncID)
-	require.NotEmpty(t, stats.DestSyncID)
+	// The converted file describes the same snapshot, so it preserves the
+	// source sync's id rather than minting a new one.
+	require.Equal(t, syncID, stats.DestSyncID)
 	require.Equal(t, int64(2), stats.ResourceTypes.Rows)
 	require.Equal(t, int64(userCount+1), stats.Resources.Rows)
 	require.Equal(t, int64(1), stats.Entitlements.Rows)
@@ -134,7 +136,8 @@ func TestToPebbleRoundTrip(t *testing.T) {
 }
 
 // TestToPebbleErrors exercises ToPebble's guard clauses: output path must not
-// exist, the sync must exist, and the sync must be ended.
+// exist and the sync must exist. An unfinished source sync is NOT an error —
+// ToPebble converts it and writes an ended destination snapshot.
 func TestToPebbleErrors(t *testing.T) {
 	ctx := context.Background()
 
@@ -161,11 +164,27 @@ func TestToPebbleErrors(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("sync not ended", func(t *testing.T) {
+	t.Run("unfinished sync converts and preserves id", func(t *testing.T) {
 		unfinished, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		_, err = src.ToPebble(ctx, filepath.Join(dir, "unfinished.c1z"), unfinished)
-		require.Error(t, err)
+		require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
+		// Deliberately do NOT EndSync: the source sync is in-progress.
+
+		outPath := filepath.Join(dir, "unfinished.c1z")
+		stats, err := src.ToPebble(ctx, outPath, unfinished)
+		require.NoError(t, err)
+		require.Equal(t, unfinished, stats.SourceSyncID)
+		require.Equal(t, unfinished, stats.DestSyncID)
+
+		// The destination sync is written ended, so LatestFullSync (which
+		// only returns finished syncs) finds it under the preserved id.
+		dst, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(dir))
+		require.NoError(t, err)
+		defer func() { require.NoError(t, dst.Close(ctx)) }()
+		latest, err := dst.SyncMeta().LatestFullSync(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, latest)
+		require.Equal(t, unfinished, latest.ID)
 	})
 }
 

@@ -16,7 +16,6 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 )
 
@@ -70,11 +69,6 @@ func cloneSync(
 		return status.Errorf(codes.FailedPrecondition, "clone-sync: sync %q is not ended", resolved)
 	}
 
-	syncIDBytes, err := codec.EncodeSyncID(resolved)
-	if err != nil {
-		return fmt.Errorf("clone-sync: encode sync_id: %w", err)
-	}
-
 	cloneTmp, err := os.MkdirTemp(cloneOpts.TmpDir, "c1z-clone")
 	if err != nil {
 		return err
@@ -93,30 +87,10 @@ func cloneSync(
 	}
 	defer func() { _ = dest.Close() }()
 
-	// Every keyspace that's scoped by sync_id — primary keys plus
-	// the four secondary indexes. Listed in adjacent pairs so the
-	// destination always lands a record's primary alongside its
-	// index entries.
-	ranges := [][2][]byte{
-		{encodeSyncRunKey(syncIDBytes), upperBoundOf(encodeSyncRunKey(syncIDBytes))},
-		{encodeResourceTypePrefix(syncIDBytes), upperBoundOf(encodeResourceTypePrefix(syncIDBytes))},
-		{encodeResourcePrefix(syncIDBytes), upperBoundOf(encodeResourcePrefix(syncIDBytes))},
-		{ResourceByParentSyncLowerBound(syncIDBytes), ResourceByParentSyncUpperBound(syncIDBytes)},
-		{encodeEntitlementPrefix(syncIDBytes), upperBoundOf(encodeEntitlementPrefix(syncIDBytes))},
-		{EntitlementByResourceSyncLowerBound(syncIDBytes), EntitlementByResourceSyncUpperBound(syncIDBytes)},
-		{encodeGrantPrefix(syncIDBytes), upperBoundOf(encodeGrantPrefix(syncIDBytes))},
-		{GrantByEntitlementSyncLowerBound(syncIDBytes), GrantByEntitlementSyncUpperBound(syncIDBytes)},
-		{GrantByEntitlementResourceSyncLowerBound(syncIDBytes), GrantByEntitlementResourceSyncUpperBound(syncIDBytes)},
-		{GrantByPrincipalSyncLowerBound(syncIDBytes), GrantByPrincipalSyncUpperBound(syncIDBytes)},
-		{GrantByPrincipalResourceTypeSyncLowerBound(syncIDBytes), GrantByPrincipalResourceTypeSyncUpperBound(syncIDBytes)},
-		{GrantByNeedsExpansionSyncLowerBound(syncIDBytes), GrantByNeedsExpansionSyncUpperBound(syncIDBytes)},
-		{encodeAssetPrefix(syncIDBytes), upperBoundOf(encodeAssetPrefix(syncIDBytes))},
-		// Stats sidecar — single key per sync; copyRange's [lo, hi)
-		// shape requires a half-open range, so we synthesize one
-		// that contains exactly this sync's stats key.
-		{encodeSyncStatsKey(syncIDBytes), upperBoundOf(encodeSyncStatsKey(syncIDBytes))},
-	}
-	for _, r := range ranges {
+	// The file holds one sync and keys carry no sync_id, so cloning
+	// is a copy of every record/index/sync-run/stats keyspace —
+	// identical to the ranges ResetForNewSync wipes.
+	for _, r := range scopedRanges() {
 		if err := copyRange(ctx, a.engine.DB(), dest.DB(), r[0], r[1]); err != nil {
 			return fmt.Errorf("clone-sync: copy range: %w", err)
 		}

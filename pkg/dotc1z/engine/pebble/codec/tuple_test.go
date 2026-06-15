@@ -90,6 +90,55 @@ func TestDecodeTupleString_Roundtrip(t *testing.T) {
 	}
 }
 
+// TestAppendTupleString_MatchesBytes pins the string-input encoder to
+// the []byte-input encoder: AppendTupleString(s) must be byte-for-byte
+// identical to AppendTupleBytes([]byte(s)) for every input, including
+// the escape-triggering bytes. This guards the no-copy string fast path
+// against drifting from the byte path.
+func TestAppendTupleString_MatchesBytes(t *testing.T) {
+	inputs := []string{
+		"",
+		"alice",
+		"user\x00bob",
+		"\x01escape",
+		"trailing\x00",
+		"\x00leading",
+		"\x00\x00\x00",
+		"\x01\x01\x01",
+		"mix\x00ed\x01bytes\x00",
+		string([]byte{0xff, 0xfe, 0x00, 0x01, 0x02}),
+	}
+	for _, s := range inputs {
+		gotString := AppendTupleString(nil, s)
+		gotBytes := AppendTupleBytes(nil, []byte(s))
+		if !bytes.Equal(gotString, gotBytes) {
+			t.Errorf("input %q: AppendTupleString=%v, AppendTupleBytes=%v", s, gotString, gotBytes)
+		}
+		// And it must decode back to the original.
+		decoded, _, err := DecodeTupleStringTo(nil, gotString, 0)
+		if err != nil {
+			t.Errorf("input %q: decode error %v", s, err)
+		}
+		if string(decoded) != s {
+			t.Errorf("input %q: roundtrip got %q", s, decoded)
+		}
+	}
+}
+
+// TestAppendTupleStrings_NoAlloc verifies the string encoder doesn't
+// allocate a []byte copy per component when the destination buffer has
+// capacity: the whole point of the string fast path. One amortized
+// alloc for dst growth is fine; per-component string copies are not.
+func TestAppendTupleStrings_NoAlloc(t *testing.T) {
+	dst := make([]byte, 0, 256)
+	allocs := testing.AllocsPerRun(100, func() {
+		_ = AppendTupleStrings(dst[:0], "entitlement-id", "user", "alice", "grant-external-id")
+	})
+	if allocs != 0 {
+		t.Errorf("AppendTupleStrings allocated %v times, want 0", allocs)
+	}
+}
+
 func TestTupleInt32Sort(t *testing.T) {
 	values := []int32{-1 << 30, -1, 0, 1, 1 << 30}
 	encoded := make([][]byte, len(values))

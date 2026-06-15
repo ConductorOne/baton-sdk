@@ -392,6 +392,15 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithExternalResourceEntitlementFilter(externalResourceEntitlementIdFilter))
 		}
 
+		// The customer's runtime half of the ETag-replay opt-in
+		// (--keep-previous-sync-c1z / BATON_KEEP_PREVIOUS_SYNC_C1Z).
+		// Only takes effect on connectors whose author also declared the
+		// capability at build time via
+		// connectorrunner.WithKeepPreviousSyncC1Z(); both are required.
+		if v.GetBool(field.KeepPreviousSyncC1ZField.GetName()) {
+			opts = append(opts, connectorrunner.WithKeepPreviousSyncC1ZRuntimeOptIn())
+		}
+
 		opts = append(opts, connectorrunner.WithSkipEntitlementsAndGrants(v.GetBool("skip-entitlements-and-grants")))
 
 		if v.GetBool("skip-grants") {

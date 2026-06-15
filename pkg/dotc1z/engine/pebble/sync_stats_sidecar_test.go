@@ -126,8 +126,7 @@ func TestSyncStatsSidecarBackfillOnOpen(t *testing.T) {
 	}
 	// Surgically delete the sidecar and the migration's applied-version
 	// stamp so the next Open's migrator re-runs.
-	idBytes, _ := codecEncodeSyncIDForTest(syncID)
-	if err := e.db.Delete(encodeSyncStatsKey(idBytes), nil); err != nil {
+	if err := e.db.Delete(encodeSyncStatsKey(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.db.Delete(encodeIndexAppliedKey("sync_stats_sidecar"), nil); err != nil {
@@ -180,44 +179,13 @@ func TestSyncStatsSidecarFallback(t *testing.T) {
 	// The Adapter.statsFromIteration helper still produces correct
 	// counts. We exercise it directly to avoid the Stats() fast-path.
 	a := &Adapter{engine: e}
-	got, err := a.statsFromIteration(ctx, syncID)
+	got, err := a.statsFromIteration(ctx)
 	if err != nil {
 		t.Fatalf("statsFromIteration: %v", err)
 	}
 	if got["grants"] != 1 {
 		t.Errorf("fallback grants = %v, want 1", got["grants"])
 	}
-}
-
-// codecEncodeSyncIDForTest is a tiny shim around the engine's
-// internal codec.EncodeSyncID used in test files that don't want
-// to import the codec package directly.
-func codecEncodeSyncIDForTest(syncID string) ([]byte, error) {
-	rec, err := makeGrantTrying(syncID)
-	if err != nil {
-		return nil, err
-	}
-	return rec, nil
-}
-
-func makeGrantTrying(syncID string) ([]byte, error) {
-	id, err := ksuidParse(syncID)
-	if err != nil {
-		return nil, err
-	}
-	return id, nil
-}
-
-// ksuidParse parses a KSUID string into its 20-byte form.
-func ksuidParse(s string) ([]byte, error) {
-	k, err := ksuid.Parse(s)
-	if err != nil {
-		return nil, err
-	}
-	b := k.Bytes()
-	out := make([]byte, len(b))
-	copy(out, b)
-	return out, nil
 }
 
 var _ = v3.SyncStatsRecord{} // keep import used in test

@@ -17,7 +17,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // buildPebbleInput writes a minimal Pebble (v3) c1z at path with the
@@ -70,18 +69,16 @@ func buildPebbleInput(t testing.TB, ctx context.Context, path string, st connect
 // countPebbleAssets returns the number of asset records stored under
 // syncID in the Pebble c1z at path (read directly off the engine's
 // asset keyspace).
-func countPebbleAssets(t *testing.T, ctx context.Context, path, syncID string) int {
+func countPebbleAssets(t *testing.T, ctx context.Context, path string) int {
 	t.Helper()
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer w.Close(ctx)
 	eng, ok := enginepkg.AsEngine(w)
 	require.True(t, ok, "store at %s is not a pebble engine", path)
-	sb, err := codec.EncodeSyncID(syncID)
-	require.NoError(t, err)
 	it, err := eng.DB().NewIter(&pebble.IterOptions{
-		LowerBound: enginepkg.AssetSyncLowerBound(sb),
-		UpperBound: enginepkg.AssetSyncUpperBound(sb),
+		LowerBound: enginepkg.AssetLowerBound(),
+		UpperBound: enginepkg.AssetUpperBound(),
 	})
 	require.NoError(t, err)
 	defer it.Close()
@@ -214,7 +211,7 @@ func TestCompactPebbleDropsAssets(t *testing.T) {
 
 	// Sanity: the inputs actually carry assets, so a zero on the output
 	// proves a drop, not an empty fixture.
-	require.Positive(t, countPebbleAssets(t, ctx, p1, s1), "input must carry an asset")
+	require.Positive(t, countPebbleAssets(t, ctx, p1), "input must carry an asset")
 
 	c, cleanup, err := NewCompactor(ctx, t.TempDir(), []*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}}, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble))
 	require.NoError(t, err)
@@ -222,7 +219,7 @@ func TestCompactPebbleDropsAssets(t *testing.T) {
 	out, err := c.Compact(ctx)
 	require.NoError(t, err)
 
-	require.Equal(t, 0, countPebbleAssets(t, ctx, out.FilePath, out.SyncID), "compacted pebble sync must contain zero assets (parity with sqlite)")
+	require.Equal(t, 0, countPebbleAssets(t, ctx, out.FilePath), "compacted pebble sync must contain zero assets (parity with sqlite)")
 }
 
 // TestCompactPebbleEndedAtIsMaxOfInputs pins the sync_run ended_at

@@ -6,126 +6,105 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
-
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
-// syncScopedRanges returns the half-open [lo, hi) ranges covering
-// every keyspace scoped by the given sync_id. Mirrors the bucket
-// plan in adapter_clone_sync.go; kept in lockstep so a sync deleted
-// by Cleanup leaves no orphan rows behind that CloneSync would
+// scopedRanges returns the half-open [lo, hi) ranges covering every
+// record/index/sync-run/stats keyspace. A v3 Pebble c1z holds one
+// sync and keys carry no sync_id, so these cover the entire data
+// keyspace. Engine-global metadata (keyspace-version stamp,
+// index-migration markers) is deliberately NOT included. Mirrors the
+// bucket plan in adapter_clone_sync.go; kept in lockstep so
+// ResetForNewSync leaves no orphan rows that CloneSync would
 // otherwise have copied.
 //
 // The returned ranges are NOT ordered for compaction efficiency.
-// Callers that want one Compact() per sync should still iterate
-// the slice and Compact each range independently — Pebble's
-// per-Compact overhead is small relative to the L0/L1 work the
-// range itself triggers.
-func syncScopedRanges(syncIDBytes []byte) [][2][]byte {
+// Callers that want one Compact() per range should iterate the slice
+// and Compact each independently — Pebble's per-Compact overhead is
+// small relative to the L0/L1 work the range itself triggers.
+func scopedRanges() [][2][]byte {
 	return [][2][]byte{
-		{encodeSyncRunKey(syncIDBytes), upperBoundOf(encodeSyncRunKey(syncIDBytes))},
-		{encodeResourceTypePrefix(syncIDBytes), upperBoundOf(encodeResourceTypePrefix(syncIDBytes))},
-		{encodeResourcePrefix(syncIDBytes), upperBoundOf(encodeResourcePrefix(syncIDBytes))},
-		{ResourceByParentSyncLowerBound(syncIDBytes), ResourceByParentSyncUpperBound(syncIDBytes)},
-		{encodeEntitlementPrefix(syncIDBytes), upperBoundOf(encodeEntitlementPrefix(syncIDBytes))},
-		{EntitlementByResourceSyncLowerBound(syncIDBytes), EntitlementByResourceSyncUpperBound(syncIDBytes)},
-		{encodeGrantPrefix(syncIDBytes), upperBoundOf(encodeGrantPrefix(syncIDBytes))},
-		{GrantByEntitlementSyncLowerBound(syncIDBytes), GrantByEntitlementSyncUpperBound(syncIDBytes)},
-		{GrantByEntitlementResourceSyncLowerBound(syncIDBytes), GrantByEntitlementResourceSyncUpperBound(syncIDBytes)},
-		{GrantByPrincipalSyncLowerBound(syncIDBytes), GrantByPrincipalSyncUpperBound(syncIDBytes)},
-		{GrantByPrincipalResourceTypeSyncLowerBound(syncIDBytes), GrantByPrincipalResourceTypeSyncUpperBound(syncIDBytes)},
-		{GrantByNeedsExpansionSyncLowerBound(syncIDBytes), GrantByNeedsExpansionSyncUpperBound(syncIDBytes)},
-		{encodeAssetPrefix(syncIDBytes), upperBoundOf(encodeAssetPrefix(syncIDBytes))},
-		// Stats sidecar — single key per sync; the half-open range
-		// shape contains exactly the one key for this sync.
-		{encodeSyncStatsKey(syncIDBytes), upperBoundOf(encodeSyncStatsKey(syncIDBytes))},
+		{encodeSyncRunKey(), upperBoundOf(encodeSyncRunKey())},
+		{encodeResourceTypePrefix(), upperBoundOf(encodeResourceTypePrefix())},
+		{encodeResourcePrefix(), upperBoundOf(encodeResourcePrefix())},
+		{ResourceByParentLowerBound(), ResourceByParentUpperBound()},
+		{encodeEntitlementPrefix(), upperBoundOf(encodeEntitlementPrefix())},
+		{EntitlementByResourceLowerBound(), EntitlementByResourceUpperBound()},
+		{encodeGrantPrefix(), upperBoundOf(encodeGrantPrefix())},
+		{GrantByEntitlementLowerBound(), GrantByEntitlementUpperBound()},
+		{GrantByEntitlementResourceLowerBound(), GrantByEntitlementResourceUpperBound()},
+		{GrantByPrincipalLowerBound(), GrantByPrincipalUpperBound()},
+		{GrantByPrincipalResourceTypeLowerBound(), GrantByPrincipalResourceTypeUpperBound()},
+		{GrantByNeedsExpansionLowerBound(), GrantByNeedsExpansionUpperBound()},
+		{encodeAssetPrefix(), upperBoundOf(encodeAssetPrefix())},
+		// Stats sidecar — single key; the half-open range shape
+		// contains exactly that one key.
+		{encodeSyncStatsKey(), upperBoundOf(encodeSyncStatsKey())},
 	}
 }
 
-// DeleteSyncData removes every key scoped to syncID from the engine.
-// This is the Pebble counterpart to the SQLite Cleanup path's
-// per-table DELETE WHERE sync_id = ? loop.
+// ResetForNewSync wipes every sync-scoped keyspace (records, indexes,
+// the sync-run record, and the stats sidecar) so a freshly started
+// sync begins on an empty keyspace.
 //
-// Refuses to operate on a sync that is currently being written.
-// "Currently being written" means the engine is in the fresh-sync
-// fast path (between MarkFreshSync and EndFreshSync) for this
-// sync_id. The mere fact that e.currentSync still points at a
-// previously-ended sync is not enough to lock it out — EndFreshSync
-// intentionally leaves currentSync set so Reader-side empty-syncID
-// reads keep working until SetCurrentSync rebinds.
+// Why this exists: a v3 Pebble c1z holds exactly one sync, and the
+// keys carry no sync_id. StartNewSync calls this before binding a new
+// sync so the replacement sync never inherits orphan records from a
+// prior sync — records the new sync doesn't happen to overwrite would
+// otherwise linger under identical keys.
 //
-// Each DeleteRange call writes a single tombstone to the memtable
-// (~µs), so we deliberately do NOT check ctx between ranges. A
-// partial DeleteSyncData would leave some keyspaces tombstoned and
-// others not — a "half-deleted sync" the next Cleanup pass would
-// have to re-tombstone. Callers that need ctx-aware cancellation
-// should check ctx around the DeleteSyncData call, not inside it.
+// The wipe uses pebble.DB.Excise rather than DeleteRange tombstones:
+// excise drops fully-covered SSTs from the manifest outright
+// (O(metadata), immediate disk reclaim) instead of leaving range
+// tombstones whose dead bytes survive until compaction. With
+// tombstones, a replacement sync that finishes before background
+// compaction catches up would hard-link the prior sync's dead SSTs
+// into the CheckpointTo envelope at save — the same bloat the old
+// multi-sync Cleanup path ran CompactSyncRanges to avoid. Excise also
+// keeps the MarkFreshSync "empty by construction" fast path honest
+// physically, not just logically.
 //
-// After this returns the keys are tombstoned but the physical bytes
-// remain in the LSM until compaction. Pair with CompactSyncRanges
-// (or one broader Compact call) to actually reclaim disk before
-// CheckpointTo.
-func (e *Engine) DeleteSyncData(ctx context.Context, syncID string) error {
-	if syncID == "" {
-		return errors.New("DeleteSyncData: empty sync_id")
+// Two spans cover everything sync-scoped:
+//
+//   - [v3|typeResourceType, v3|typeEngineMeta): every record type,
+//     the sync-run record, all secondary indexes, assets, and the
+//     reserved counter/session bytes — one contiguous span, so
+//     almost every SST is fully covered and dropped whole.
+//   - the stats sidecar range inside engine-meta.
+//
+// Engine-global metadata — the keyspace-version stamp and
+// index-migration markers — lives elsewhere in engine-meta and is
+// intentionally preserved.
+//
+// Refuses while a fresh sync is in progress (between MarkFreshSync and
+// EndFreshSync): wiping mid-sync would corrupt the in-flight sync.
+func (e *Engine) ResetForNewSync(ctx context.Context) error {
+	if e.IsFreshSync() {
+		return errors.New("ResetForNewSync: refusing to reset while a sync is in progress")
 	}
-	idBytes, err := codec.EncodeSyncID(syncID)
-	if err != nil {
-		return fmt.Errorf("DeleteSyncData: encode sync_id: %w", err)
+	spans := []pebble.KeyRange{
+		{Start: []byte{versionV3, typeResourceType}, End: []byte{versionV3, typeEngineMeta}},
+		{Start: SyncStatsSidecarLowerBound(), End: SyncStatsSidecarUpperBound()},
 	}
-	if e.isFreshSyncFor(idBytes) {
-		return fmt.Errorf("DeleteSyncData: refusing to delete the active sync %q", syncID)
-	}
-
-	ranges := syncScopedRanges(idBytes)
 	return e.withWrite(func() error {
-		opts := writeOpts(e.opts.durability)
-		for _, r := range ranges {
-			if err := e.db.DeleteRange(r[0], r[1], opts); err != nil {
-				return fmt.Errorf("DeleteSyncData: DeleteRange: %w", err)
+		for _, span := range spans {
+			if err := e.db.Excise(ctx, span); err != nil {
+				return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)
 			}
 		}
 		return nil
 	})
 }
 
-// isFreshSyncFor reports whether the engine is in the fresh-sync
-// fast path AND currentSync equals idBytes. Used by DeleteSyncData
-// to refuse pruning a sync the engine is actively writing to.
-func (e *Engine) isFreshSyncFor(idBytes []byte) bool {
-	e.currentSyncMu.RLock()
-	defer e.currentSyncMu.RUnlock()
-	if !e.freshSync {
-		return false
-	}
-	if len(e.currentSync) != len(idBytes) {
-		return false
-	}
-	return string(e.currentSync) == string(idBytes)
-}
-
-// CompactSyncRanges runs pebble.Compact over each sync-scoped range
-// for syncID. Called after DeleteSyncData to reclaim disk space
-// from the tombstones DeleteRange leaves behind. Without this, the
-// next checkpoint would still include the deleted bytes.
+// CompactAllRanges runs pebble.Compact over every sync-scoped range to
+// reclaim disk from the tombstones ResetForNewSync (or any bulk
+// delete) leaves behind. The file holds one sync, so "all ranges" is
+// the whole data keyspace. Without this, the next checkpoint would
+// still include the deleted bytes.
 //
-// Compaction is bounded per-range, not engine-wide, so the cost
-// scales with the data being pruned rather than the engine's total
-// size. Errors are best-effort: a Compact failure on one range
-// doesn't block the others — pebble retries compaction in the
-// background and the next Cleanup call will re-attempt.
-//
-// ctx is honored between ranges; if the caller cancels mid-pass we
-// surface ctx.Err() verbatim so the orchestrator (registeredStore
-// .Cleanup) can flip the sync to ErrSyncNotComplete.
-func (e *Engine) CompactSyncRanges(ctx context.Context, syncID string) error {
-	if syncID == "" {
-		return errors.New("CompactSyncRanges: empty sync_id")
-	}
-	idBytes, err := codec.EncodeSyncID(syncID)
-	if err != nil {
-		return fmt.Errorf("CompactSyncRanges: encode sync_id: %w", err)
-	}
+// Errors are best-effort: a Compact failure on one range doesn't block
+// the others — pebble retries compaction in the background. ctx is
+// honored between ranges and surfaced verbatim on cancellation.
+func (e *Engine) CompactAllRanges(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -148,11 +127,11 @@ func (e *Engine) CompactSyncRanges(ctx context.Context, syncID string) error {
 	}
 
 	var firstErr error
-	for _, r := range syncScopedRanges(idBytes) {
+	for _, r := range scopedRanges() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		// Compact requires start < end. Empty ranges (when a sync
+		// Compact requires start < end. Empty ranges (when the sync
 		// had no records of a given type) are silently skipped.
 		if len(r[0]) == 0 || len(r[1]) == 0 {
 			continue
@@ -167,7 +146,7 @@ func (e *Engine) CompactSyncRanges(ctx context.Context, syncID string) error {
 		}
 	}
 	if firstErr != nil {
-		return fmt.Errorf("CompactSyncRanges: %w", firstErr)
+		return fmt.Errorf("CompactAllRanges: %w", firstErr)
 	}
 	return nil
 }

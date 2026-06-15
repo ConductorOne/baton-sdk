@@ -3,12 +3,10 @@ package pebble
 import (
 	"testing"
 
-	"github.com/segmentio/ksuid"
 	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // rawIndexAllocFixture builds the inputs forEachIndexKeyFromRaw sees
@@ -16,7 +14,6 @@ import (
 // and the bucket's dest lower bound.
 type rawIndexAllocFixture struct {
 	bucket    bucketSpec
-	syncBytes []byte
 	destKey   []byte
 	destLower []byte
 	value     []byte
@@ -24,11 +21,6 @@ type rawIndexAllocFixture struct {
 
 func newGrantRawIndexAllocFixture(tb testing.TB) rawIndexAllocFixture {
 	tb.Helper()
-	syncID := ksuid.New().String()
-	syncBytes, err := codec.EncodeSyncID(syncID)
-	if err != nil {
-		tb.Fatal(err)
-	}
 	const externalID = "grant-ext-1"
 	rec := v3.GrantRecord_builder{
 		ExternalId: externalID,
@@ -49,9 +41,8 @@ func newGrantRawIndexAllocFixture(tb testing.TB) rawIndexAllocFixture {
 	}
 	return rawIndexAllocFixture{
 		bucket:    grantBucket(),
-		syncBytes: syncBytes,
-		destKey:   enginepkg.GrantRecordKey(syncBytes, externalID),
-		destLower: enginepkg.GrantSyncLowerBound(syncBytes),
+		destKey:   enginepkg.GrantRecordKey(externalID),
+		destLower: enginepkg.GrantLowerBound(),
 		value:     value,
 	}
 }
@@ -77,7 +68,7 @@ func TestForEachIndexKeyFromRawAllocs(t *testing.T) {
 		return nil
 	}
 	run := func() {
-		if err := forEachIndexKeyFromRaw(fx.bucket, fx.syncBytes, fx.destKey, fx.destLower, fx.value, &scratch, stats, emit); err != nil {
+		if err := forEachIndexKeyFromRaw(fx.bucket, fx.destKey, fx.destLower, fx.value, &scratch, stats, emit); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -132,7 +123,7 @@ func BenchmarkForEachIndexKeyFromRaw(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := forEachIndexKeyFromRaw(fx.bucket, fx.syncBytes, fx.destKey, fx.destLower, fx.value, &scratch, stats, emit); err != nil {
+		if err := forEachIndexKeyFromRaw(fx.bucket, fx.destKey, fx.destLower, fx.value, &scratch, stats, emit); err != nil {
 			b.Fatal(err)
 		}
 	}

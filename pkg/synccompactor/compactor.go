@@ -274,15 +274,13 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 
 	// Resolve the Pebble strategy up front: an explicit
 	// BATON_EXPERIMENTAL_PEBBLE_COMPACTOR value forces a mode;
-	// otherwise overlay is selected (the in-place fold cutover is
-	// disabled until C1 handles a reused sync id; see
-	// resolvePebbleMode).
+	// otherwise the size gate picks fold (large base, small partials)
+	// or overlay (everything else); see resolvePebbleMode.
 	//
-	// In-place fold (explicit only): the dest store starts as a copy
-	// of the base input and the output adopts the base sync's id;
-	// partials are merged into the base keyspace via keep-newer
-	// writes. The original base file is never mutated. See
-	// compactPebbleFold.
+	// In-place fold: the dest store starts as a copy of the base input
+	// and partials are merged into the base keyspace via keep-newer
+	// writes; the folded output is then re-keyed to a fresh sync id.
+	// The original base file is never mutated. See compactPebbleFold.
 	if c.resolvedEngine() == dotc1z.EnginePebble {
 		c.pebbleMode = c.resolvePebbleMode(ctx)
 	}

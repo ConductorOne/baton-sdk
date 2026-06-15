@@ -72,11 +72,11 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 	// Iterating under destSync proves every survivor is re-keyed there,
 	// and g-shared kept the newer discovered_at.
 	seen := map[string]*v3.GrantRecord{}
-	if err := dst.IterateGrantsBySync(ctx, destSync, func(r *v3.GrantRecord) bool {
+	if err := dst.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		seen[r.GetExternalId()] = r
 		return true
 	}); err != nil {
-		t.Fatalf("IterateGrantsBySync: %v", err)
+		t.Fatalf("IterateGrants: %v", err)
 	}
 	shared, ok := seen["g-shared"]
 	if !ok {
@@ -127,7 +127,7 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 	}
 
 	var winner string
-	if err := dst.IterateGrantsBySync(ctx, destSync, func(r *v3.GrantRecord) bool {
+	if err := dst.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		winner = r.GetPrincipal().GetResourceId()
 		return true
 	}); err != nil {

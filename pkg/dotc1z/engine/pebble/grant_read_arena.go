@@ -5,7 +5,7 @@ import (
 )
 
 // grantReadArena pre-allocates GrantRecord + nested EntitlementRef
-// + PrincipalRef slots for a single PaginateGrantsBySync call.
+// + PrincipalRef slots for a single PaginateGrants call.
 // nextSlot returns the i-th GrantRecord with its nested pointers
 // already pointing into the arena's per-row EntitlementRef /
 // PrincipalRef slices.
@@ -22,7 +22,7 @@ import (
 // into 3 slice allocations sized to the page limit.
 //
 // Lifetime. The arena lives for the duration of one
-// PaginateGrantsBySync call. The returned []*v3.GrantRecord
+// PaginateGrants call. The returned []*v3.GrantRecord
 // elements all point into the arena's backing arrays; the caller
 // retains those pointers (the engine returns them up through the
 // adapter). Go's GC keeps the backing arrays alive as long as any

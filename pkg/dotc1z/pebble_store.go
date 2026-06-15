@@ -102,7 +102,7 @@ func unpackExistingPebbleC1Z(
 	if err != nil {
 		return nil, PayloadEncodingUnspecified, err
 	}
-	if Engine(header.GetEngine()) != EnginePebble {
+	if e := Engine(header.GetEngine()); e != EnginePebble && e != PebbleManifestEngine {
 		return nil, PayloadEncodingUnspecified, fmt.Errorf("%w: %s", pebble.ErrUnknownEngine, header.GetEngine())
 	}
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
@@ -252,11 +252,13 @@ func (s *pebbleStore) CloseEngineOnly() error {
 	return s.engine.Close()
 }
 
-// NormalizeForFixtureSave flushes and compacts one sync, then marks the
-// store dirty so Close writes a fresh c1z envelope. Intentionally
-// narrow (consumed by benchmark fixture generation via
+// NormalizeForFixtureSave flushes and compacts the single sync, then
+// marks the store dirty so Close writes a fresh c1z envelope.
+// Intentionally narrow (consumed by benchmark fixture generation via
 // pebble.NormalizeForFixtureSave): fixtures should not measure WAL
-// replay or un-compacted LSM shape left over from generation.
+// replay or un-compacted LSM shape left over from generation. The
+// syncID arg is accepted for signature parity but ignored — the file
+// holds one sync and CompactAllRanges covers the whole keyspace.
 func (s *pebbleStore) NormalizeForFixtureSave(ctx context.Context, syncID string) error {
 	if s == nil || s.engine == nil {
 		return nil
@@ -267,7 +269,7 @@ func (s *pebbleStore) NormalizeForFixtureSave(ctx context.Context, syncID string
 	if err := s.engine.Flush(ctx); err != nil {
 		return err
 	}
-	if err := s.engine.CompactSyncRanges(ctx, syncID); err != nil {
+	if err := s.engine.CompactAllRanges(ctx); err != nil {
 		return err
 	}
 	s.closeMu.Lock()
@@ -324,141 +326,14 @@ func (s *pebbleStore) EndSync(ctx context.Context) error {
 	return s.markDirty(s.Adapter.EndSync(ctx))
 }
 
-// Cleanup prunes old sync data per the SDK retention policy. The
-// Adapter-level Cleanup is a no-op (it doesn't have access to the
-// retention options); the pebbleStore owns those options and
-// drives the policy here.
-//
-// Mirrors (*C1File).Cleanup: gather sync_runs, apply
-// SelectSyncsToDelete, range-delete every keyspace scoped to each
-// pruned sync, then compact + flush so the next checkpoint sees the
-// reclaimed bytes (the Pebble analogue of SQLite VACUUM).
-//
-// Cancellation model — three passes with different urgency:
-//
-//   - Pass 1 (logical deletions): once we've committed to a
-//     toDelete list, we finish every DeleteSyncData call we can.
-//     Each is microseconds (tombstones-only). Between syncs we
-//     check ctx as a safety valve for pathological "thousands of
-//     deletes + write stall" cases; if we bail mid-pass we return
-//     ctx.Err() so syncer.go:531 marks the sync ErrSyncNotComplete
-//     and reattempts on the next run.
-//
-//   - Pass 2 (compaction): purely opportunistic. Compact rewrites
-//     SSTs (seconds to minutes) and pebble's background compactor
-//     handles eventual disk reclamation regardless of whether we
-//     run it here. We skip the whole pass on ctx cancel and log
-//     per-sync failures as warnings — neither blocks Cleanup from
-//     reporting success.
-//
-//   - Pass 3 (flush): also opportunistic. Skipped on ctx cancel
-//     because the dirty flag we set up-front guarantees Close →
-//     CheckpointTo will flush at the next safe boundary.
-//
-// Net effect: if the syncer's runDuration expires mid-Cleanup,
-// every logical deletion we managed to start completes (so the
-// next Cleanup re-selects against an accurate post-prune view),
-// and we return ctx.Err() to signal the syncer to retry. If the
-// budget expires only during the opportunistic passes, the syncer
-// sees a successful Cleanup and the sync proceeds normally —
-// pebble's background work catches up on the disk reclamation.
+// Cleanup is a no-op for the Pebble v3 engine. A c1z holds exactly one
+// sync by contract — StartNewSync replaces any prior sync in place (see
+// Engine.ResetForNewSync) — so there is never stale sync data to prune.
+// The SDK retention policy (SelectSyncsToDelete, WithSyncLimit,
+// BATON_KEEP_SYNC_COUNT) applies only to the multi-sync SQLite engine;
+// those options are accepted on the Pebble store but inert. The method
+// stays to satisfy connectorstore.Writer.
 func (s *pebbleStore) Cleanup(ctx context.Context) error {
-	l := ctxzap.Extract(ctx)
-
-	if s.skipCleanup {
-		l.Info("skip_cleanup option is set, skipping cleanup of old syncs")
-		return nil
-	}
-	if CleanupSkippedByEnv() {
-		l.Info("BATON_SKIP_CLEANUP is set, skipping cleanup of old syncs")
-		return nil
-	}
-	if s.readOnly {
-		return nil
-	}
-
-	candidates, err := s.CleanupCandidates(ctx)
-	if err != nil {
-		return err
-	}
-
-	currentSyncID := s.CurrentSyncID()
-	syncLimit := ResolveCleanupSyncLimit(s.syncLimit, currentSyncID != "")
-	l.Debug("found syncs",
-		zap.Int("candidate_count", len(candidates)),
-		zap.Int("sync_limit", syncLimit))
-
-	toDelete := SelectSyncsToDelete(candidates, currentSyncID, syncLimit)
-	if len(toDelete) == 0 {
-		return nil
-	}
-	// Mark dirty before any LSM mutation. A Cleanup that successfully
-	// tombstoned one sync and then errored (context cancel, Compact
-	// panic, Flush failure) must still drive Close → save →
-	// CheckpointTo so the on-disk envelope reflects the in-memory
-	// deletions. Otherwise reopening the c1z would resurrect the
-	// pruned syncs.
-	s.closeMu.Lock()
-	s.dirty = true
-	s.closeMu.Unlock()
-
-	l.Info("Cleaning up old sync data...",
-		zap.Int("delete_count", len(toDelete)),
-		zap.Int("sync_limit", syncLimit))
-
-	// === Pass 1: logical deletions (must complete) ===
-	deleted := 0
-	for _, id := range toDelete {
-		if err := ctx.Err(); err != nil {
-			l.Info("pebble Cleanup: interrupted mid-pass; remaining syncs deferred to next run",
-				zap.Int("deleted", deleted),
-				zap.Int("remaining", len(toDelete)-deleted),
-				zap.Error(err))
-			return err
-		}
-		if err := s.engine.DeleteSyncData(ctx, id); err != nil {
-			return fmt.Errorf("pebble Cleanup: DeleteSyncData(%q): %w", id, err)
-		}
-		l.Info("Removed old sync data.", zap.String("sync_id", id))
-		deleted++
-	}
-
-	// === Pass 2: opportunistic compaction ===
-	// Skip on cancellation — pebble's background compactor will
-	// reclaim the deleted bytes asynchronously, and a re-run of
-	// Cleanup won't (and doesn't need to) reattempt compaction
-	// because previously-deleted syncs aren't in the next
-	// toDelete list. This is a soft permanent skip; the bg
-	// compactor is the eventual cleanup path.
-	compacted := 0
-	for _, id := range toDelete {
-		if ctx.Err() != nil {
-			l.Info("pebble Cleanup: compaction pass interrupted; deferring to background compactor",
-				zap.Int("compacted", compacted),
-				zap.Int("remaining", len(toDelete)-compacted))
-			break
-		}
-		if err := s.engine.CompactSyncRanges(ctx, id); err != nil {
-			l.Warn("pebble Cleanup: CompactSyncRanges failed; tombstones will linger until background compaction",
-				zap.String("sync_id", id),
-				zap.Error(err))
-		}
-		compacted++
-	}
-
-	// === Pass 3: opportunistic flush ===
-	// Skip on cancellation. Close → CheckpointTo Flushes anyway,
-	// and the dirty flag we set up-front guarantees Close runs the
-	// save path. The only failure mode skipping Flush opens is
-	// "process crashes between Cleanup return and Close call" —
-	// pebble's WAL recovery handles that, so the tombstones survive
-	// either way.
-	if ctx.Err() == nil {
-		if err := s.engine.Flush(ctx); err != nil {
-			l.Warn("pebble Cleanup: Flush failed; tombstones will flush at Close",
-				zap.Error(err))
-		}
-	}
 	return nil
 }
 

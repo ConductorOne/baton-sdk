@@ -29,7 +29,7 @@ func TestPutGetResourceType(t *testing.T) {
 	if err := e.PutResourceTypeRecord(ctx, r); err != nil {
 		t.Fatalf("PutResourceTypeRecord: %v", err)
 	}
-	got, err := e.GetResourceTypeRecord(ctx, syncID, "user")
+	got, err := e.GetResourceTypeRecord(ctx, "user")
 	if err != nil {
 		t.Fatalf("GetResourceTypeRecord: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestIterateResourceTypesBySync(t *testing.T) {
 		}
 	}
 	count := 0
-	if err := e.IterateResourceTypesBySync(ctx, syncID, func(*v3.ResourceTypeRecord) bool {
+	if err := e.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool {
 		count++
 		return true
 	}); err != nil {
@@ -110,7 +110,7 @@ func TestResourceWithParentIndex(t *testing.T) {
 	}
 
 	childCount := 0
-	if err := e.IterateResourcesByParent(ctx, syncID, "group", "admins", func(*v3.ResourceRecord) bool {
+	if err := e.IterateResourcesByParent(ctx, "group", "admins", func(*v3.ResourceRecord) bool {
 		childCount++
 		return true
 	}); err != nil {
@@ -122,7 +122,7 @@ func TestResourceWithParentIndex(t *testing.T) {
 
 	// Total resources: parent + 5 children + 3 others = 9.
 	total := 0
-	if err := e.IterateResourcesBySync(ctx, syncID, func(*v3.ResourceRecord) bool {
+	if err := e.IterateResources(ctx, func(*v3.ResourceRecord) bool {
 		total++
 		return true
 	}); err != nil {
@@ -169,13 +169,13 @@ func TestEntitlementByResourceIndex(t *testing.T) {
 	}
 
 	var a, d int
-	if err := e.IterateEntitlementsByResource(ctx, syncID, "group", "admins", func(*v3.EntitlementRecord) bool {
+	if err := e.IterateEntitlementsByResource(ctx, "group", "admins", func(*v3.EntitlementRecord) bool {
 		a++
 		return true
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.IterateEntitlementsByResource(ctx, syncID, "group", "devs", func(*v3.EntitlementRecord) bool {
+	if err := e.IterateEntitlementsByResource(ctx, "group", "devs", func(*v3.EntitlementRecord) bool {
 		d++
 		return true
 	}); err != nil {
@@ -204,7 +204,7 @@ func TestAssetRoundtrip(t *testing.T) {
 	if err := e.PutAssetRecord(ctx, r); err != nil {
 		t.Fatal(err)
 	}
-	got, err := e.GetAssetRecord(ctx, syncID, "icon-1")
+	got, err := e.GetAssetRecord(ctx, "icon-1")
 	if err != nil {
 		t.Fatalf("GetAssetRecord: %v", err)
 	}
@@ -222,22 +222,35 @@ func TestSyncRunRecord(t *testing.T) {
 
 	id1 := ksuid.New().String()
 	id2 := ksuid.New().String()
-	for _, sid := range []string{id1, id2} {
+	put := func(sid string) {
 		r := v3.SyncRunRecord_builder{
 			SyncId:    sid,
 			Type:      v3.SyncType_SYNC_TYPE_FULL,
 			StartedAt: timestamppb.Now(),
 		}.Build()
 		if err := e.PutSyncRunRecord(ctx, r); err != nil {
-			t.Fatalf("PutSyncRunRecord: %v", err)
+			t.Fatalf("PutSyncRunRecord(%s): %v", sid, err)
 		}
 	}
+
+	// One sync-run record per file: the key is fixed, so writing id2
+	// replaces id1.
+	put(id1)
 	got, err := e.GetSyncRunRecord(ctx, id1)
 	if err != nil {
-		t.Fatalf("GetSyncRunRecord: %v", err)
+		t.Fatalf("GetSyncRunRecord(id1): %v", err)
 	}
 	if got.GetSyncId() != id1 {
 		t.Errorf("sync_id: got %q want %q", got.GetSyncId(), id1)
+	}
+
+	put(id2)
+	// id1 is gone (replaced); the id-match guard makes its lookup miss.
+	if _, err := e.GetSyncRunRecord(ctx, id1); !errors.Is(err, pebble.ErrNotFound) {
+		t.Errorf("GetSyncRunRecord(id1) after replacement: got %v, want ErrNotFound", err)
+	}
+	if _, err := e.GetSyncRunRecord(ctx, id2); err != nil {
+		t.Errorf("GetSyncRunRecord(id2): %v", err)
 	}
 
 	count := 0
@@ -247,14 +260,14 @@ func TestSyncRunRecord(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if count != 2 {
-		t.Errorf("iterated %d sync_runs, want 2", count)
+	if count != 1 {
+		t.Errorf("iterated %d sync_runs, want 1", count)
 	}
 
-	if err := e.DeleteSyncRunRecord(ctx, id1); err != nil {
+	if err := e.DeleteSyncRunRecord(ctx, id2); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.GetSyncRunRecord(ctx, id1); !errors.Is(err, pebble.ErrNotFound) {
+	if _, err := e.GetSyncRunRecord(ctx, id2); !errors.Is(err, pebble.ErrNotFound) {
 		t.Errorf("expected ErrNotFound after delete, got %v", err)
 	}
 }

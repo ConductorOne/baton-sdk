@@ -112,8 +112,11 @@ type syncer struct {
 	c1zPath                             string
 	externalResourceC1ZPath             string
 	externalResourceEntitlementIdFilter string
+	previousSyncC1ZPath                 string
+	previousSyncC1ZPathOptional         bool
 	store                               dotc1z.C1ZStore
 	externalResourceReader              connectorstore.Reader
+	previousSyncReader                  connectorstore.Reader
 	connector                           types.ConnectorClient
 	state                               State
 	runDuration                         time.Duration
@@ -2615,6 +2618,14 @@ func (s *syncer) Close(ctx context.Context) error {
 		}
 	}
 
+	// Read-only previous-sync replay source; same close rationale as the
+	// external resource reader above.
+	if s.previousSyncReader != nil {
+		if err := s.previousSyncReader.Close(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("error closing previous-sync reader: %w", err))
+		}
+	}
+
 	err = errors.Join(errs...)
 	return err
 }
@@ -2691,6 +2702,43 @@ func WithSkipFullSync() SyncOpt {
 func WithExternalResourceC1ZPath(path string) SyncOpt {
 	return func(s *syncer) {
 		s.externalResourceC1ZPath = path
+	}
+}
+
+// WithPreviousSyncC1ZPath points ETag-replay at a separate c1z holding
+// the previous sync, instead of reading a previous sync from inside the
+// live store.
+//
+// This is required for the single-sync v3 (Pebble) engine: a Pebble c1z
+// holds exactly one sync by contract, so there is no in-file "previous
+// sync" to replay from (StartNewSync replaces the prior sync). Supplying
+// the prior run's c1z here lets the syncer recover unchanged resources'
+// ETags and carry their grants forward across runs. When unset, replay
+// falls back to reading a previous sync from the live store (the SQLite
+// multi-sync behavior), so existing callers are unaffected.
+//
+// The file is opened read-only and engine-agnostically (the magic byte
+// selects SQLite or Pebble), so the previous-sync c1z may use either
+// engine.
+func WithPreviousSyncC1ZPath(path string) SyncOpt {
+	return func(s *syncer) {
+		s.previousSyncC1ZPath = path
+		s.previousSyncC1ZPathOptional = false
+	}
+}
+
+// WithOptionalPreviousSyncC1ZPath is WithPreviousSyncC1ZPath with
+// best-effort semantics: if the file is missing, corrupt, or written by
+// an incompatible SDK, NewSyncer logs and proceeds WITHOUT replay
+// instead of failing. Intended for cache-style replay sources the
+// caller maintains automatically (the service-mode previous-sync spare)
+// — a bad cache file must never fail a sync. Callers that name a
+// specific file deliberately should use WithPreviousSyncC1ZPath, which
+// surfaces open failures.
+func WithOptionalPreviousSyncC1ZPath(path string) SyncOpt {
+	return func(s *syncer) {
+		s.previousSyncC1ZPath = path
+		s.previousSyncC1ZPathOptional = true
 	}
 }
 
@@ -2853,6 +2901,32 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 			return nil, err
 		}
 		s.externalResourceReader = externalC1ZReader
+	}
+
+	if s.previousSyncC1ZPath != "" {
+		// Open the previous-sync c1z read-only and engine-agnostically
+		// (NewStore selects the engine from the file's magic byte), so a
+		// Pebble or SQLite prior run both work as a replay source.
+		previousSyncStore, err := dotc1z.NewStore(ctx, s.previousSyncC1ZPath,
+			dotc1z.WithReadOnly(true),
+			dotc1z.WithTmpDir(s.tmpDir),
+		)
+		switch {
+		case err == nil:
+			s.previousSyncReader = previousSyncStore
+		case s.previousSyncC1ZPathOptional:
+			// Best-effort replay source (see WithOptionalPreviousSyncC1ZPath):
+			// a missing/corrupt/incompatible cache file degrades to a sync
+			// without ETag replay, never a failed sync. The caller that
+			// maintains the cache replaces it after its next successful
+			// upload, so a bad file self-heals.
+			ctxzap.Extract(ctx).Warn("previous-sync c1z unusable; syncing without etag replay",
+				zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+				zap.Error(err),
+			)
+		default:
+			return nil, fmt.Errorf("error opening previous-sync c1z %q: %w", s.previousSyncC1ZPath, err)
+		}
 	}
 
 	return s, nil

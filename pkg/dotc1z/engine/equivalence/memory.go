@@ -62,10 +62,10 @@ func (m *MemoryRef) PutGrantRecord(_ context.Context, r *v3.GrantRecord) error {
 	return nil
 }
 
-func (m *MemoryRef) GetGrantRecord(_ context.Context, syncID, externalID string) (*v3.GrantRecord, error) {
+func (m *MemoryRef) GetGrantRecord(_ context.Context, externalID string) (*v3.GrantRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	sid := m.resolveSync(syncID)
+	sid := m.resolveSync("")
 	if sid == "" {
 		return nil, fmt.Errorf("memoryref: no sync_id")
 	}
@@ -80,10 +80,10 @@ func (m *MemoryRef) GetGrantRecord(_ context.Context, syncID, externalID string)
 	return r, nil
 }
 
-func (m *MemoryRef) DeleteGrantRecord(_ context.Context, syncID, externalID string) error {
+func (m *MemoryRef) DeleteGrantRecord(_ context.Context, externalID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	sid := m.resolveSync(syncID)
+	sid := m.resolveSync("")
 	bucket := m.bySync[sid]
 	if bucket == nil {
 		return nil
@@ -92,8 +92,8 @@ func (m *MemoryRef) DeleteGrantRecord(_ context.Context, syncID, externalID stri
 	return nil
 }
 
-func (m *MemoryRef) snapshot(syncID string) []*v3.GrantRecord {
-	bucket := m.bySync[m.resolveSync(syncID)]
+func (m *MemoryRef) snapshot() []*v3.GrantRecord {
+	bucket := m.bySync[m.resolveSync("")]
 	out := make([]*v3.GrantRecord, 0, len(bucket))
 	for _, r := range bucket {
 		out = append(out, r)
@@ -104,9 +104,9 @@ func (m *MemoryRef) snapshot(syncID string) []*v3.GrantRecord {
 	return out
 }
 
-func (m *MemoryRef) IterateGrantsBySync(_ context.Context, syncID string, yield func(*v3.GrantRecord) bool) error {
+func (m *MemoryRef) IterateGrants(_ context.Context, yield func(*v3.GrantRecord) bool) error {
 	m.mu.Lock()
-	snap := m.snapshot(syncID)
+	snap := m.snapshot()
 	m.mu.Unlock()
 	for _, r := range snap {
 		if !yield(r) {
@@ -116,9 +116,9 @@ func (m *MemoryRef) IterateGrantsBySync(_ context.Context, syncID string, yield 
 	return nil
 }
 
-func (m *MemoryRef) IterateGrantsByEntitlement(_ context.Context, syncID, entitlementID string, yield func(*v3.GrantRecord) bool) error {
+func (m *MemoryRef) IterateGrantsByEntitlement(_ context.Context, entitlementID string, yield func(*v3.GrantRecord) bool) error {
 	m.mu.Lock()
-	snap := m.snapshot(syncID)
+	snap := m.snapshot()
 	m.mu.Unlock()
 	for _, r := range snap {
 		if r.GetEntitlement().GetEntitlementId() != entitlementID {
@@ -131,9 +131,9 @@ func (m *MemoryRef) IterateGrantsByEntitlement(_ context.Context, syncID, entitl
 	return nil
 }
 
-func (m *MemoryRef) IterateGrantsByPrincipal(_ context.Context, syncID, principalRT, principalID string, yield func(*v3.GrantRecord) bool) error {
+func (m *MemoryRef) IterateGrantsByPrincipal(_ context.Context, principalRT, principalID string, yield func(*v3.GrantRecord) bool) error {
 	m.mu.Lock()
-	snap := m.snapshot(syncID)
+	snap := m.snapshot()
 	m.mu.Unlock()
 	for _, r := range snap {
 		p := r.GetPrincipal()

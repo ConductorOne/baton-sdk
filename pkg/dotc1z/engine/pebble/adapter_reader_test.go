@@ -736,75 +736,56 @@ func TestSyncsReaderMethods(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
 
-	// Create 3 syncs; finish 2.
-	id1, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	// Single-sync contract: a file holds exactly one sync, so these
+	// reader methods operate on at most one record.
+	finishedID, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	if err := a.EndSync(ctx); err != nil {
 		t.Fatal(err)
 	}
-	id2, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err := a.EndSync(ctx); err != nil {
-		t.Fatal(err)
-	}
-	id3, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	// Don't end id3.
 
-	// GetSync(id2) → has ended_at
+	// GetSync(finished) → has ended_at.
 	resp, err := a.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{
-		SyncId: id2,
+		SyncId: finishedID,
 	}.Build())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.GetSync().GetId() != id2 {
-		t.Errorf("GetSync id: got %q want %q", resp.GetSync().GetId(), id2)
+	if resp.GetSync().GetId() != finishedID {
+		t.Errorf("GetSync id: got %q want %q", resp.GetSync().GetId(), finishedID)
 	}
 	if resp.GetSync().GetEndedAt() == nil {
 		t.Errorf("GetSync ended_at: want non-nil")
 	}
 
-	// GetSync(id3) → no ended_at
-	resp3, err := a.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{
-		SyncId: id3,
-	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp3.GetSync().GetEndedAt() != nil {
-		t.Errorf("GetSync(id3) ended_at: want nil, got %v", resp3.GetSync().GetEndedAt().AsTime())
-	}
-
-	// ListSyncs → all 3
+	// ListSyncs → exactly the one sync.
 	listResp, err := a.ListSyncs(ctx, reader_v2.SyncsReaderServiceListSyncsRequest_builder{
 		PageSize: 100,
 	}.Build())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listResp.GetSyncs()) != 3 {
-		t.Errorf("ListSyncs: got %d, want 3", len(listResp.GetSyncs()))
+	if len(listResp.GetSyncs()) != 1 {
+		t.Errorf("ListSyncs: got %d, want 1", len(listResp.GetSyncs()))
 	}
 
-	// GetLatestFinishedSync → id2 (most recent ended)
+	// GetLatestFinishedSync → the finished sync, by Any and by its type;
+	// a non-matching type filter resolves nil.
 	latest, err := a.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{}.Build())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if latest.GetSync().GetId() != id2 {
-		t.Errorf("GetLatestFinishedSync: got %q, want %q (id1=%q)", latest.GetSync().GetId(), id2, id1)
+	if latest.GetSync().GetId() != finishedID {
+		t.Errorf("GetLatestFinishedSync: got %q, want %q", latest.GetSync().GetId(), finishedID)
 	}
-
-	// GetLatestFinishedSync filtered by sync_type=full → id2
 	latestFull, err := a.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
 		SyncType: string(connectorstore.SyncTypeFull),
 	}.Build())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if latestFull.GetSync().GetId() != id2 {
-		t.Errorf("GetLatestFinishedSync(full): got %q want %q", latestFull.GetSync().GetId(), id2)
+	if latestFull.GetSync().GetId() != finishedID {
+		t.Errorf("GetLatestFinishedSync(full): got %q want %q", latestFull.GetSync().GetId(), finishedID)
 	}
-
-	// GetLatestFinishedSync filtered by a sync_type that doesn't exist
 	latestNone, err := a.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
 		SyncType: string(connectorstore.SyncTypePartial),
 	}.Build())
@@ -813,6 +794,31 @@ func TestSyncsReaderMethods(t *testing.T) {
 	}
 	if latestNone.GetSync() != nil {
 		t.Errorf("GetLatestFinishedSync(partial): expected nil sync, got %v", latestNone.GetSync())
+	}
+
+	// Starting a new sync REPLACES the finished one: the replacement is
+	// in-progress and the prior sync is gone.
+	inProgressID, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	resp3, err := a.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{
+		SyncId: inProgressID,
+	}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp3.GetSync().GetEndedAt() != nil {
+		t.Errorf("GetSync(in-progress) ended_at: want nil, got %v", resp3.GetSync().GetEndedAt().AsTime())
+	}
+	if _, err := a.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{
+		SyncId: finishedID,
+	}.Build()); err == nil {
+		t.Errorf("GetSync(replaced %q): expected error, got nil", finishedID)
+	}
+	latestAfter, err := a.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latestAfter.GetSync() != nil {
+		t.Errorf("GetLatestFinishedSync after replacement: expected nil, got %v", latestAfter.GetSync())
 	}
 }
 

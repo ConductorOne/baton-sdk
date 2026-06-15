@@ -328,7 +328,7 @@ func TestPaginationClampedPageSize(t *testing.T) {
 		_ = r
 	}
 	// Passing 0 should clamp to DefaultPageSize and return all 50.
-	recs, next, err := e.PaginateGrantsBySync(ctx, syncID, "", 0)
+	recs, next, err := e.PaginateGrants(ctx, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestPaginationClampedPageSize(t *testing.T) {
 		t.Errorf("clamp(0): expected empty next cursor, got %q", next)
 	}
 	// Passing MaxPageSize+1 should clamp identically.
-	recs2, _, err := e.PaginateGrantsBySync(ctx, syncID, "", MaxPageSize+1)
+	recs2, _, err := e.PaginateGrants(ctx, "", MaxPageSize+1)
 	if err != nil {
 		t.Fatal(err)
 	}

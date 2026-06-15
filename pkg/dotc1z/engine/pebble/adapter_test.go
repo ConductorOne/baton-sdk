@@ -6,7 +6,6 @@ import (
 	"io"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/segmentio/ksuid"
 
@@ -151,18 +150,16 @@ func TestAdapterEndSyncClearsEngineCurrentSync(t *testing.T) {
 		t.Fatalf("EndSync: %v", err)
 	}
 
+	// EndSync cleared the engine's bound sync: a direct record write
+	// must now fail rather than land an orphan record with no sync run.
 	if err := a.engine.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-B", "bob")); !errors.Is(err, ErrNoCurrentSync) {
 		t.Fatalf("direct engine write after EndSync: got %v, want ErrNoCurrentSync", err)
 	}
-	if err := a.engine.IterateGrantsByEntitlement(ctx, "", "ent-A", func(*v3.GrantRecord) bool {
-		t.Fatal("iterator should not resolve an ended sync via empty sync id")
-		return false
-	}); !errors.Is(err, ErrNoCurrentSync) {
-		t.Fatalf("direct engine index read after EndSync: got %v, want ErrNoCurrentSync", err)
-	}
 
+	// Reads do NOT gate on the bound sync: the finished sync's data
+	// persists and stays readable through the engine after EndSync.
 	count := 0
-	if err := a.engine.IterateGrantsByEntitlement(ctx, syncID, "ent-A", func(*v3.GrantRecord) bool {
+	if err := a.engine.IterateGrantsByEntitlement(ctx, "ent-A", func(*v3.GrantRecord) bool {
 		count++
 		return true
 	}); err != nil {
@@ -374,56 +371,44 @@ func TestAdapterLatestFinishedSyncID(t *testing.T) {
 	if got != "" {
 		t.Fatalf("LatestFinishedSyncID with only open sync %q = %q, want empty", openID, got)
 	}
+
+	// Ending it makes it the single finished sync, resolvable by its
+	// type and by Any.
 	if err := a.EndSync(ctx); err != nil {
 		t.Fatal(err)
 	}
-
-	time.Sleep(time.Millisecond)
-	fullID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := a.EndSync(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	time.Sleep(time.Millisecond)
-	partialID, err := a.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := a.EndSync(ctx); err != nil {
-		t.Fatal(err)
+	for _, st := range []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeAny} {
+		got, err = a.LatestFinishedSyncID(ctx, st)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != openID {
+			t.Errorf("LatestFinishedSyncID(%s): got %q, want %q", st, got, openID)
+		}
 	}
 
-	unfinishedID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Don't end this one.
-
-	got, err = a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != fullID {
-		t.Errorf("LatestFinishedSyncID full: got %q, want %q (unfinished=%q)", got, fullID, unfinishedID)
-	}
-
+	// A type filter that doesn't match the one sync resolves nothing.
 	got, err = a.LatestFinishedSyncID(ctx, connectorstore.SyncTypePartial)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != partialID {
-		t.Errorf("LatestFinishedSyncID partial: got %q, want %q", got, partialID)
+	if got != "" {
+		t.Errorf("LatestFinishedSyncID(partial) with only a full sync = %q, want empty", got)
 	}
 
+	// Single-sync contract: StartNewSync REPLACES the prior sync. The
+	// finished full sync is wiped and the replacement is in-progress, so
+	// there is no finished sync of any type.
+	replacementID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, err = a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != partialID {
-		t.Errorf("LatestFinishedSyncID any: got %q, want latest finished %q", got, partialID)
+	if got != "" {
+		t.Errorf("LatestFinishedSyncID after replacement (in-progress %q) = %q, want empty", replacementID, got)
 	}
 }
 

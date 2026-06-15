@@ -16,24 +16,19 @@ func (e *Engine) PutAssetRecord(ctx context.Context, r *v3.AssetRecord) error {
 		return errors.New("PutAssetRecord: nil record")
 	}
 	return e.withWrite(func() error {
-		idBytes, err := e.resolveSyncBytes(r.GetSyncId())
-		if err != nil {
+		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
 		val, err := marshalRecord(r)
 		if err != nil {
 			return err
 		}
-		return e.db.Set(encodeAssetKey(idBytes, r.GetExternalId()), val, writeOpts(e.opts.durability))
+		return e.db.Set(encodeAssetKey(r.GetExternalId()), val, writeOpts(e.opts.durability))
 	})
 }
 
-func (e *Engine) GetAssetRecord(ctx context.Context, syncID, externalID string) (*v3.AssetRecord, error) {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return nil, err
-	}
-	val, closer, err := e.db.Get(encodeAssetKey(idBytes, externalID))
+func (e *Engine) GetAssetRecord(ctx context.Context, externalID string) (*v3.AssetRecord, error) {
+	val, closer, err := e.db.Get(encodeAssetKey(externalID))
 	if err != nil {
 		return nil, err
 	}
@@ -45,22 +40,14 @@ func (e *Engine) GetAssetRecord(ctx context.Context, syncID, externalID string) 
 	return r, nil
 }
 
-func (e *Engine) DeleteAssetRecord(ctx context.Context, syncID, externalID string) error {
+func (e *Engine) DeleteAssetRecord(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
-		idBytes, err := e.resolveSyncBytes(syncID)
-		if err != nil {
-			return err
-		}
-		return e.db.Delete(encodeAssetKey(idBytes, externalID), writeOpts(e.opts.durability))
+		return e.db.Delete(encodeAssetKey(externalID), writeOpts(e.opts.durability))
 	})
 }
 
-func (e *Engine) IterateAssetsBySync(ctx context.Context, syncID string, yield func(*v3.AssetRecord) bool) error {
-	idBytes, err := e.resolveSyncBytes(syncID)
-	if err != nil {
-		return err
-	}
-	prefix := encodeAssetPrefix(idBytes)
+func (e *Engine) IterateAssets(ctx context.Context, yield func(*v3.AssetRecord) bool) error {
+	prefix := encodeAssetPrefix()
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),

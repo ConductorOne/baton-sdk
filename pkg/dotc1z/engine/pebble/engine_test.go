@@ -129,7 +129,7 @@ func TestPutGetGrantRecord(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
-	got, err := e.GetGrantRecord(ctx, syncID, "grant-1")
+	got, err := e.GetGrantRecord(ctx, "grant-1")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestIterateGrantsBySync(t *testing.T) {
 	}
 
 	count := 0
-	err := e.IterateGrantsBySync(ctx, syncID, func(r *v3.GrantRecord) bool {
+	err := e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		count++
 		return true
 	})
@@ -200,13 +200,13 @@ func TestIterateByEntitlement(t *testing.T) {
 	}
 
 	var a, b int
-	if err := e.IterateGrantsByEntitlement(ctx, syncID, "ent-A", func(r *v3.GrantRecord) bool {
+	if err := e.IterateGrantsByEntitlement(ctx, "ent-A", func(r *v3.GrantRecord) bool {
 		a++
 		return true
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.IterateGrantsByEntitlement(ctx, syncID, "ent-B", func(r *v3.GrantRecord) bool {
+	if err := e.IterateGrantsByEntitlement(ctx, "ent-B", func(r *v3.GrantRecord) bool {
 		b++
 		return true
 	}); err != nil {
@@ -243,13 +243,13 @@ func TestIterateByPrincipal(t *testing.T) {
 	}
 
 	var a, b int
-	if err := e.IterateGrantsByPrincipal(ctx, syncID, "user", alicePrincipal, func(r *v3.GrantRecord) bool {
+	if err := e.IterateGrantsByPrincipal(ctx, "user", alicePrincipal, func(r *v3.GrantRecord) bool {
 		a++
 		return true
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.IterateGrantsByPrincipal(ctx, syncID, "user", bobPrincipal, func(r *v3.GrantRecord) bool {
+	if err := e.IterateGrantsByPrincipal(ctx, "user", bobPrincipal, func(r *v3.GrantRecord) bool {
 		b++
 		return true
 	}); err != nil {
@@ -274,16 +274,16 @@ func TestDeleteGrantRecord(t *testing.T) {
 	}
 
 	// Delete it. Both the primary and the index entries should go.
-	if err := e.DeleteGrantRecord(ctx, syncID, "to-delete"); err != nil {
+	if err := e.DeleteGrantRecord(ctx, "to-delete"); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := e.GetGrantRecord(ctx, syncID, "to-delete"); !errors.Is(err, pebble.ErrNotFound) {
+	if _, err := e.GetGrantRecord(ctx, "to-delete"); !errors.Is(err, pebble.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 
 	count := 0
-	if err := e.IterateGrantsByEntitlement(ctx, syncID, "ent-X", func(*v3.GrantRecord) bool {
+	if err := e.IterateGrantsByEntitlement(ctx, "ent-X", func(*v3.GrantRecord) bool {
 		count++
 		return true
 	}); err != nil {
@@ -341,7 +341,7 @@ func TestCheckpointTo(t *testing.T) {
 		t.Fatalf("reopen checkpoint: %v", err)
 	}
 	defer e2.Close()
-	got, err := e2.GetGrantRecord(ctx, syncID, "g1")
+	got, err := e2.GetGrantRecord(ctx, "g1")
 	if err != nil {
 		t.Fatalf("checkpoint Get: %v", err)
 	}
@@ -406,14 +406,14 @@ func TestConcurrentGrantOverwriteIndexes(t *testing.T) {
 		}
 	}
 
-	got, err := e.GetGrantRecord(ctx, syncID, "same-grant")
+	got, err := e.GetGrantRecord(ctx, "same-grant")
 	if err != nil {
 		t.Fatal(err)
 	}
 	counts := map[string]int{"old": 0, "final": 0}
 	for entID := range counts {
 		entID := entID
-		if err := e.IterateGrantsByEntitlement(ctx, syncID, entID, func(*v3.GrantRecord) bool {
+		if err := e.IterateGrantsByEntitlement(ctx, entID, func(*v3.GrantRecord) bool {
 			counts[entID]++
 			return true
 		}); err != nil {
@@ -444,7 +444,7 @@ func TestEmptySyncIDFallsBackToCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	// ...and Get with empty sync id (should use the engine's current).
-	got, err := e.GetGrantRecord(ctx, "", "g1")
+	got, err := e.GetGrantRecord(ctx, "g1")
 	if err != nil {
 		t.Fatalf("Get with empty syncID: %v", err)
 	}
@@ -453,11 +453,14 @@ func TestEmptySyncIDFallsBackToCurrent(t *testing.T) {
 	}
 }
 
-func TestEmptySyncIDWithNoCurrentFails(t *testing.T) {
+func TestWriteWithNoCurrentSyncFails(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
-	// No SetCurrentSync call.
-	_, err := e.GetGrantRecord(ctx, "", "anything")
+	// No StartNewSync/SetCurrentSync: nothing is bound, so a record
+	// write must be refused rather than landing without a sync run.
+	// (Reads do not gate on the binding — an empty store simply
+	// returns not-found.)
+	err := e.PutGrantRecord(ctx, makeGrant("", "anything", "e1", "p1"))
 	if !errors.Is(err, ErrNoCurrentSync) {
 		t.Errorf("expected ErrNoCurrentSync, got %v", err)
 	}

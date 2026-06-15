@@ -32,7 +32,7 @@ func TestStoreExpandedGrantsPreservesDiscoveredAt(t *testing.T) {
 	defer func() { _ = e.Close() }()
 
 	a := NewAdapter(e)
-	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	_, err = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
 	// Seed a primary GrantRecord with a deterministic, clearly-past
@@ -69,7 +69,7 @@ func TestStoreExpandedGrantsPreservesDiscoveredAt(t *testing.T) {
 	}.Build()
 	require.NoError(t, a.Grants().StoreExpandedGrants(ctx, rewrite))
 
-	got, err := e.GetGrantRecord(ctx, syncID, "g-1")
+	got, err := e.GetGrantRecord(ctx, "g-1")
 	require.NoError(t, err)
 	require.NotNil(t, got.GetDiscoveredAt(), "discovered_at must survive the rewrite")
 	require.Equal(t, seeded.AsTime(), got.GetDiscoveredAt().AsTime(),

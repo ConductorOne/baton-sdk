@@ -42,11 +42,11 @@ func grant(syncID, externalID, entID, principalID string) *v3.GrantRecord {
 func countGrants(t *testing.T, e *enginepkg.Engine, syncID string) int {
 	t.Helper()
 	count := 0
-	if err := e.IterateGrantsBySync(context.Background(), syncID, func(*v3.GrantRecord) bool {
+	if err := e.IterateGrants(context.Background(), func(*v3.GrantRecord) bool {
 		count++
 		return true
 	}); err != nil {
-		t.Fatalf("IterateGrantsBySync: %v", err)
+		t.Fatalf("IterateGrants: %v", err)
 	}
 	return count
 }
@@ -136,7 +136,7 @@ func TestCompactReplacesExisting(t *testing.T) {
 
 	// Also verify by_entitlement index — stale-ent should have 0 entries.
 	staleCount := 0
-	if err := dst.IterateGrantsByEntitlement(ctx, syncID, "stale-ent", func(*v3.GrantRecord) bool {
+	if err := dst.IterateGrantsByEntitlement(ctx, "stale-ent", func(*v3.GrantRecord) bool {
 		staleCount++
 		return true
 	}); err != nil {
@@ -147,7 +147,7 @@ func TestCompactReplacesExisting(t *testing.T) {
 	}
 
 	freshCount := 0
-	if err := dst.IterateGrantsByEntitlement(ctx, syncID, "fresh-ent", func(*v3.GrantRecord) bool {
+	if err := dst.IterateGrantsByEntitlement(ctx, "fresh-ent", func(*v3.GrantRecord) bool {
 		freshCount++
 		return true
 	}); err != nil {
@@ -241,7 +241,7 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	}
 
 	rtCount := 0
-	if err := dst.IterateResourceTypesBySync(ctx, syncID, func(*v3.ResourceTypeRecord) bool {
+	if err := dst.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool {
 		rtCount++
 		return true
 	}); err != nil {
@@ -250,12 +250,12 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	if rtCount != 1 {
 		t.Fatalf("resource_types: got %d, want 1", rtCount)
 	}
-	if _, err := dst.GetResourceTypeRecord(ctx, syncID, "rt-stale"); err == nil {
+	if _, err := dst.GetResourceTypeRecord(ctx, "rt-stale"); err == nil {
 		t.Fatal("stale resource type survived compaction")
 	}
 
 	childCount := 0
-	if err := dst.IterateResourcesByParent(ctx, syncID, "group", "admins", func(r *v3.ResourceRecord) bool {
+	if err := dst.IterateResourcesByParent(ctx, "group", "admins", func(r *v3.ResourceRecord) bool {
 		if r.GetResourceId() != "fresh-child" {
 			t.Fatalf("unexpected child resource %q", r.GetResourceId())
 		}
@@ -269,7 +269,7 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	}
 
 	entCount := 0
-	if err := dst.IterateEntitlementsByResource(ctx, syncID, "group", "admins", func(r *v3.EntitlementRecord) bool {
+	if err := dst.IterateEntitlementsByResource(ctx, "group", "admins", func(r *v3.EntitlementRecord) bool {
 		if r.GetExternalId() != "ent-fresh" {
 			t.Fatalf("unexpected entitlement %q", r.GetExternalId())
 		}
@@ -283,7 +283,7 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	}
 
 	assetCount := 0
-	if err := dst.IterateAssetsBySync(ctx, syncID, func(r *v3.AssetRecord) bool {
+	if err := dst.IterateAssets(ctx, func(r *v3.AssetRecord) bool {
 		if r.GetExternalId() != "asset-fresh" || string(r.GetData()) != "fresh" {
 			t.Fatalf("unexpected asset %q data=%q", r.GetExternalId(), string(r.GetData()))
 		}
@@ -305,41 +305,36 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	}
 }
 
-func TestCompactIsolatesOtherSyncs(t *testing.T) {
+// TestCompactReplacesDestData confirms Compact excises the
+// destination's existing data and replaces it with the source's view.
+// A v3 Pebble engine holds exactly one sync (keys carry no sync_id), so
+// there is no "other sync" to isolate — compaction is a full replace of
+// the destination keyspace.
+func TestCompactReplacesDestData(t *testing.T) {
 	ctx := context.Background()
 
 	src, _ := newEngine(t, "src")
 	dst, _ := newEngine(t, "dst")
 
-	syncA := ksuid.New().String()
-	syncB := ksuid.New().String()
+	syncID := ksuid.New().String()
 
-	// dst holds 100 grants under sync_A and 100 under sync_B.
-	if err := dst.SetCurrentSync(syncA); err != nil {
+	// dst starts with 100 grants that the compaction must replace.
+	if err := dst.SetCurrentSync(syncID); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 100; i++ {
-		r := grant(syncA, ksuid.New().String(), "ent-A", ksuid.New().String())
-		if err := dst.PutGrantRecord(ctx, r); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := dst.SetCurrentSync(syncB); err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 100; i++ {
-		r := grant(syncB, ksuid.New().String(), "ent-B", ksuid.New().String())
+		r := grant(syncID, ksuid.New().String(), "ent-old", ksuid.New().String())
 		if err := dst.PutGrantRecord(ctx, r); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	// src has 25 grants under sync_A only.
-	if err := src.SetCurrentSync(syncA); err != nil {
+	// src has 25 (different) grants.
+	if err := src.SetCurrentSync(syncID); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 25; i++ {
-		r := grant(syncA, ksuid.New().String(), "ent-A-new", ksuid.New().String())
+		r := grant(syncID, ksuid.New().String(), "ent-new", ksuid.New().String())
 		if err := src.PutGrantRecord(ctx, r); err != nil {
 			t.Fatal(err)
 		}
@@ -349,16 +344,13 @@ func TestCompactIsolatesOtherSyncs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Compact(ctx, src, syncA); err != nil {
-		t.Fatalf("Compact sync_A: %v", err)
+	if err := c.Compact(ctx, src, syncID); err != nil {
+		t.Fatalf("Compact: %v", err)
 	}
 
-	// sync_A in dst: 25 (src's). sync_B in dst: 100 (untouched).
-	if got := countGrants(t, dst, syncA); got != 25 {
-		t.Errorf("sync_A grants in dst: got %d, want 25", got)
-	}
-	if got := countGrants(t, dst, syncB); got != 100 {
-		t.Errorf("sync_B grants in dst: got %d, want 100 — compaction leaked into another sync", got)
+	// dst now holds exactly src's 25 grants; the original 100 are gone.
+	if got := countGrants(t, dst, syncID); got != 25 {
+		t.Errorf("grants in dst after compact: got %d, want 25", got)
 	}
 }
 
