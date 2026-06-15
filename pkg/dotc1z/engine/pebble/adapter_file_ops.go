@@ -38,6 +38,15 @@ func (f pebbleFileOps) CloneSync(ctx context.Context, outPath string, syncID str
 	return cloneSync(ctx, f.a, f.encoding, outPath, syncID, opts...)
 }
 
+// CopyIsolateSync falls back to cloneSync for the Pebble engine. The
+// copy-isolation optimization is SQLite-specific (it copies the SQLite working
+// file and deletes other syncs); the Pebble engine already materializes only
+// the target sync's keyspace into a fresh engine, so it has no whale-rebuild
+// cost to avoid.
+func (f pebbleFileOps) CopyIsolateSync(ctx context.Context, outPath string, syncID string, opts ...c1zstore.CloneSyncOption) error {
+	return cloneSync(ctx, f.a, f.encoding, outPath, syncID, opts...)
+}
+
 // GenerateSyncDiff computes the additions-only set difference
 // between two ended syncs and emits a new SyncTypePartial sync
 // containing them. Matches the SQLite contract in

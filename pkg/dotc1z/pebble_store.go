@@ -189,6 +189,10 @@ func (f pebbleStoreFileOps) CloneSync(ctx context.Context, outPath string, syncI
 	return f.inner.CloneSync(ctx, outPath, syncID, opts...)
 }
 
+func (f pebbleStoreFileOps) CopyIsolateSync(ctx context.Context, outPath string, syncID string, opts ...CloneSyncOption) error {
+	return f.inner.CopyIsolateSync(ctx, outPath, syncID, opts...)
+}
+
 func (f pebbleStoreFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (string, error) {
 	diffSyncID, err := f.inner.GenerateSyncDiff(ctx, baseSyncID, appliedSyncID)
 	if err != nil {
