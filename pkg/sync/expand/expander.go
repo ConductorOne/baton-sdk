@@ -19,7 +19,30 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/anypb"
 )
+
+// immutableAnnotationAny is the GrantImmutable annotation every expanded
+// grant carries. The payload is a constant empty GrantImmutable, so it is
+// marshaled once here instead of per grant — anypb.New per call was ~1.5GB
+// of allocations on a large expansion. Every expanded grant's annotation
+// slice references this one shared pointer.
+//
+// Single-writer marshal assumption: although the payload is logically
+// read-only, proto marshaling writes the message's internal sizeCache, so
+// marshaling two grants that share this Any concurrently is a data race on
+// that cache. The only writer of expanded grants is StoreExpandedGrants ->
+// PutExpandedGrantRecords, which marshals records sequentially, so sharing
+// the singleton is safe today. If a parallel marshal path for expanded
+// grants is ever added (e.g. an UnsafePutUniqueGrantRecords-style worker
+// pool), give each grant its own marshaled Any instead of this singleton.
+var immutableAnnotationAny = func() *anypb.Any {
+	a, err := anypb.New(&v2.GrantImmutable{})
+	if err != nil {
+		panic(fmt.Errorf("expand: marshal GrantImmutable annotation: %w", err))
+	}
+	return a
+}()
 
 var tracer = otel.Tracer("baton-sdk/sync.expand")
 
@@ -617,9 +640,10 @@ func newExpandedGrant(descEntitlement *v2.Entitlement, principal *v2.Resource, s
 		return nil, fmt.Errorf("newExpandedGrant: principal is nil")
 	}
 
-	// Add immutable annotation since this function is only called if no direct grant exists
-	var annos annotations.Annotations
-	annos.Update(&v2.GrantImmutable{})
+	// Add immutable annotation since this function is only called if no
+	// direct grant exists. The payload is constant, so reuse the shared
+	// pre-marshaled Any instead of re-marshaling per grant.
+	annos := annotations.Annotations{immutableAnnotationAny}
 
 	var sources *v2.GrantSources
 	if sourceEntitlementID != "" {
@@ -630,8 +654,14 @@ func newExpandedGrant(descEntitlement *v2.Entitlement, principal *v2.Resource, s
 		}
 	}
 
+	// Deterministic grant id: entitlement:principal_resource_type:principal_resource.
+	// Plain concatenation (not fmt.Sprintf) — this is on the per-expanded-grant
+	// hot path and fmt.Sprintf's reflection was ~1.2GB of allocations.
+	pid := principal.GetId()
+	grantID := descEntitlement.GetId() + ":" + pid.GetResourceType() + ":" + pid.GetResource()
+
 	grant := v2.Grant_builder{
-		Id:          fmt.Sprintf("%s:%s:%s", descEntitlement.GetId(), principal.GetId().GetResourceType(), principal.GetId().GetResource()),
+		Id:          grantID,
 		Entitlement: descEntitlement,
 		Principal:   principal,
 		Sources:     sources,
