@@ -10,95 +10,83 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
+	"github.com/stretchr/testify/require"
 )
 
-// TestCloneSyncRoundtrip writes a small sync to a Pebble-backed
+// testCloneSyncRoundtrip writes a small sync to a Pebble-backed
 // c1z, calls FileOps().CloneSync to materialize it at a new path,
 // then re-opens the cloned file and verifies the grants land
 // intact. Covers the basic byte-level copy + envelope-write path.
+
+func TestCloneSyncRoundtripReadOnly(t *testing.T) {
+	testCloneSyncRoundtrip(t, true)
+}
+
 func TestCloneSyncRoundtrip(t *testing.T) {
+	testCloneSyncRoundtrip(t, false)
+}
+
+func testCloneSyncRoundtrip(t *testing.T, readOnlyClone bool) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 	srcPath := filepath.Join(tmp, "src.c1z")
 
 	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithEngine(dotc1z.EnginePebble))
-	if err != nil {
-		t.Fatalf("NewStore src: %v", err)
-	}
-	if _, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
-	if err := src.PutGrants(ctx,
+	require.NoError(t, err, "NewStore src")
+	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = src.PutGrants(ctx,
 		mkV2Grant("g1", "ent-A", "user", "alice"),
 		mkV2Grant("g2", "ent-B", "user", "bob"),
-	); err != nil {
-		t.Fatalf("PutGrants: %v", err)
-	}
-	if err := src.EndSync(ctx); err != nil {
-		t.Fatalf("EndSync: %v", err)
-	}
+	)
+	require.NoError(t, err, "PutGrants")
+	err = src.EndSync(ctx)
+	require.NoError(t, err, "EndSync")
+	err = src.Close(ctx)
+	require.NoError(t, err, "close src")
 
-	clonePath := filepath.Join(tmp, "clone.c1z")
-	if err := src.FileOps().CloneSync(ctx, clonePath, ""); err != nil {
-		t.Fatalf("CloneSync: %v", err)
+	openOpts := []dotc1z.C1ZOption{dotc1z.WithEngine(dotc1z.EnginePebble)}
+	if readOnlyClone {
+		openOpts = append(openOpts, dotc1z.WithReadOnly(true))
 	}
-	if _, err := os.Stat(clonePath); err != nil {
-		t.Fatalf("clone file missing: %v", err)
-	}
+	src, err = dotc1z.NewStore(ctx, srcPath, openOpts...)
+	require.NoError(t, err, "NewStore src for clone")
+
+	tmp2 := t.TempDir()
+	clonePath := filepath.Join(tmp2, "clone.c1z")
+	err = src.FileOps().CloneSync(ctx, clonePath, syncID)
+	require.NoError(t, err, "CloneSync")
+	err = src.Close(ctx)
+	require.NoError(t, err, "close src")
+	_, err = os.Stat(clonePath)
+	require.NoError(t, err, "clone file missing")
 	f, err := os.Open(clonePath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err, "open clone file")
 	manifest, err := formatv3.ReadManifestHeader(f)
-	if cerr := f.Close(); cerr != nil {
-		t.Fatal(cerr)
-	}
-	if err != nil {
-		t.Fatalf("ReadManifestHeader clone: %v", err)
-	}
+	require.NoError(t, err, "ReadManifestHeader clone")
 	runs := manifest.GetSyncRuns()
-	if len(runs) != 1 {
-		t.Fatalf("clone manifest sync_runs = %d, want 1", len(runs))
-	}
-	if runs[0].GetStats() == nil {
-		t.Fatal("clone manifest sync_run stats is nil")
-	}
-
-	if err := src.Close(ctx); err != nil {
-		t.Fatalf("close src: %v", err)
-	}
+	require.Equal(t, 1, len(runs), "clone manifest sync_runs = %d, want 1", len(runs))
+	require.NotNil(t, runs[0].GetStats(), "clone manifest sync_run stats is nil")
 
 	// Re-open the clone and confirm the grants are present.
 	cloneStore, err := dotc1z.NewStore(ctx, clonePath,
 		dotc1z.WithEngine(dotc1z.EnginePebble),
 		dotc1z.WithReadOnly(true),
 	)
-	if err != nil {
-		t.Fatalf("NewStore clone: %v", err)
-	}
+	require.NoError(t, err, "NewStore clone")
 	defer cloneStore.Close(ctx)
 
 	latest, ok := cloneStore.(connectorstore.LatestFinishedSyncIDFetcher)
-	if !ok {
-		t.Fatalf("clone is %T, want LatestFinishedSyncIDFetcher", cloneStore)
-	}
-	syncID, err := latest.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
-	if err != nil {
-		t.Fatalf("LatestFinishedSyncID: %v", err)
-	}
-	if syncID == "" {
-		t.Fatal("clone has no finished sync")
-	}
-	if err := cloneStore.SetCurrentSync(ctx, syncID); err != nil {
-		t.Fatalf("SetCurrentSync: %v", err)
-	}
+	require.True(t, ok, "clone is %T, want LatestFinishedSyncIDFetcher", cloneStore)
+	latestSyncID, err := latest.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
+	require.NoError(t, err, "LatestFinishedSyncID")
+	require.NotEmpty(t, latestSyncID, "clone has no finished sync")
+	err = cloneStore.SetCurrentSync(ctx, latestSyncID)
+	require.NoError(t, err, "SetCurrentSync")
 	resp, err := cloneStore.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	if err != nil {
-		t.Fatalf("ListGrants: %v", err)
-	}
-	if got := len(resp.GetList()); got != 2 {
-		t.Fatalf("clone ListGrants = %d, want 2", got)
-	}
+	require.NoError(t, err, "ListGrants")
+	require.Equal(t, 2, len(resp.GetList()), "clone ListGrants = %d, want 2", len(resp.GetList()))
 }
 
 // TestCloneSyncRefusesExistingOutPath validates the "must not
