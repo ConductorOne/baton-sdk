@@ -23,6 +23,7 @@ func sanitizeCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("out", "", "Path to the sanitized .c1z output file (required)")
+	cmd.Flags().String("out-engine", "", "Storage engine for the output: sqlite or pebble. Defaults to the source c1z's engine.")
 	cmd.Flags().String("secret-file", "", "Path to a per-c1z HMAC secret (>=32 random bytes). If unset, a fresh secret is generated and written next to --out.")
 	cmd.Flags().String("anchor", "", "RFC3339 timestamp the newest source timestamp lands on. Defaults to now.")
 	cmd.Flags().Bool("allow-unknown-annotations", false, "Pass annotations of unknown type through unchanged instead of dropping. Dangerous on real customer data.")
@@ -57,8 +58,22 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	outEngineRaw, err := cmd.Flags().GetString("out-engine")
+	if err != nil {
+		return err
+	}
 	if outPath == "" {
 		return fmt.Errorf("--out is required")
+	}
+	// An omitted --out-engine (default "") means "follow the source engine".
+	// An explicitly-supplied empty value is a mistake, not a request to default,
+	// so reject it rather than silently following the source.
+	if cmd.Flags().Changed("out-engine") {
+		switch outEngineRaw {
+		case string(dotc1z.EngineSQLite), string(dotc1z.EnginePebble):
+		default:
+			return fmt.Errorf("--out-engine must be %q or %q, got %q", dotc1z.EngineSQLite, dotc1z.EnginePebble, outEngineRaw)
+		}
 	}
 
 	// All input validation happens BEFORE the secret is loaded or
@@ -93,9 +108,20 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	}
 	defer src.Close(ctx)
 
+	// Default the output engine to the source's so `sanitize` round-trips
+	// the engine unless the operator asks otherwise. An empty source engine
+	// (virtual/unknown store) falls back to the SQLite default.
+	dstEngine := dotc1z.Engine(outEngineRaw)
+	if outEngineRaw == "" {
+		dstEngine = dotc1z.Engine(src.Metadata().Engine)
+		if dstEngine == "" {
+			dstEngine = dotc1z.EngineSQLite
+		}
+	}
+
 	// The dst is a net-new, single-writer intermediate that is discarded
-	// on any failure, so durability and index-maintenance costs are pure
-	// throughput overhead here:
+	// on any failure. The throughput pragmas below are SQLite-only — Pebble
+	// ignores them — so they are applied only for a SQLite destination:
 	//   - journal_mode=OFF + synchronous=OFF: no rollback journal, no fsync
 	//     (the output is rebuilt from source on any failure, not recovered).
 	//   - cache_size=-1048576 (1 GiB) + mmap_size=8 GiB + temp_store=MEMORY:
@@ -105,19 +131,23 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	//   - WithBulkLoad: defer secondary-index creation until after the load
 	//     so per-row random-key B-tree maintenance does not dominate.
 	// These pragmas are scoped to THIS writer instance; normal connector
-	// syncs open their own C1File and are unaffected.
-	dst, err := dotc1z.NewStore(ctx, outPath,
-		dotc1z.WithPragma("journal_mode", "OFF"),
-		dotc1z.WithPragma("synchronous", "OFF"),
-		dotc1z.WithPragma("cache_size", "-1048576"),
-		dotc1z.WithPragma("mmap_size", "8589934592"),
-		dotc1z.WithPragma("temp_store", "MEMORY"),
-		dotc1z.WithBulkLoad(true),
-		// bulkLoad already implies skip-cleanup; skip VACUUM too — vacuuming
-		// before the deferred indexes are rebuilt at Close is wasted work on a
-		// throwaway artifact.
-		dotc1z.WithSkipVacuum(true),
-	)
+	// syncs open their own store and are unaffected.
+	dstOpts := []dotc1z.C1ZOption{dotc1z.WithEngine(dstEngine)}
+	if dstEngine == dotc1z.EngineSQLite {
+		dstOpts = append(dstOpts,
+			dotc1z.WithPragma("journal_mode", "OFF"),
+			dotc1z.WithPragma("synchronous", "OFF"),
+			dotc1z.WithPragma("cache_size", "-1048576"),
+			dotc1z.WithPragma("mmap_size", "8589934592"),
+			dotc1z.WithPragma("temp_store", "MEMORY"),
+			dotc1z.WithBulkLoad(true),
+			// bulkLoad already implies skip-cleanup; skip VACUUM too — vacuuming
+			// before the deferred indexes are rebuilt at Close is wasted work on
+			// a throwaway artifact.
+			dotc1z.WithSkipVacuum(true),
+		)
+	}
+	dst, err := dotc1z.NewStore(ctx, outPath, dstOpts...)
 	if err != nil {
 		return fmt.Errorf("open dst c1z: %w", err)
 	}

@@ -112,11 +112,10 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) *c1zstore.SyncRun {
 	return out
 }
 
-// CleanupCandidates walks every sync_run record and projects it into
-// the engine-neutral c1zstore.SyncRun shape, sorted oldest-first.
-// c1zstore.SelectSyncsToDelete depends on this ordering so "drop the
-// oldest overflow" trims the right end. Used by pkg/dotc1z's Pebble
-// store to drive the retention policy at Cleanup.
+// sortedSyncRuns reads every sync_run record into the engine-neutral
+// c1zstore.SyncRun shape, sorted oldest-first (started_at, sync_id
+// tiebreaker). Shared by CleanupCandidates and ListSyncRuns so the
+// projection and ordering live in one place.
 //
 // We sort explicitly rather than trust IterateAllSyncRuns' order:
 // the iterator walks by sync_id (KSUID), and KSUIDs only encode the
@@ -125,7 +124,7 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) *c1zstore.SyncRun {
 // which would silently pick the wrong sync to prune. Sorting on
 // started_at (with sync_id tiebreaker) matches the SQLite engine's
 // ListSyncRuns ORDER BY id ASC semantics.
-func (a *Adapter) CleanupCandidates(ctx context.Context) ([]c1zstore.SyncRun, error) {
+func (a *Adapter) sortedSyncRuns(ctx context.Context) ([]c1zstore.SyncRun, error) {
 	var out []c1zstore.SyncRun
 	err := a.engine.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
 		cand := c1zstore.SyncRun{
@@ -148,7 +147,7 @@ func (a *Adapter) CleanupCandidates(ctx context.Context) ([]c1zstore.SyncRun, er
 		return true
 	})
 	if err != nil {
-		return nil, fmt.Errorf("pebble CleanupCandidates: IterateAllSyncRuns: %w", err)
+		return nil, err
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		ti, tj := out[i].StartedAt, out[j].StartedAt
@@ -166,6 +165,42 @@ func (a *Adapter) CleanupCandidates(ctx context.Context) ([]c1zstore.SyncRun, er
 		}
 	})
 	return out, nil
+}
+
+// CleanupCandidates walks every sync_run record and projects it into
+// the engine-neutral c1zstore.SyncRun shape, sorted oldest-first.
+// c1zstore.SelectSyncsToDelete depends on this ordering so "drop the
+// oldest overflow" trims the right end. Used by pkg/dotc1z's Pebble
+// store to drive the retention policy at Cleanup.
+func (a *Adapter) CleanupCandidates(ctx context.Context) ([]c1zstore.SyncRun, error) {
+	out, err := a.sortedSyncRuns(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pebble CleanupCandidates: IterateAllSyncRuns: %w", err)
+	}
+	return out, nil
+}
+
+// ListSyncRuns returns every sync-run record projected into the
+// engine-neutral c1zstore.SyncRun shape, oldest-first (parent before
+// child for a well-formed chain), in a single page. A v3 Pebble c1z
+// holds exactly one sync, so pagination is trivial: the whole set is
+// returned on the first call and the next-page token is always empty.
+// pageToken and pageSize are accepted for parity with the SQLite
+// ListSyncRuns and are not used. It backs the c1z sanitizer's
+// source-side sync-graph-metadata read (linked_sync_id, supports_diff),
+// which the gRPC reader surface does not carry.
+func (a *Adapter) ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error) {
+	runs, err := a.sortedSyncRuns(ctx)
+	if err != nil {
+		return nil, "", fmt.Errorf("pebble ListSyncRuns: %w", err)
+	}
+	// The returned pointers index into runs' backing array, which escapes via
+	// the return value; runs must outlive this call and must not be reused.
+	out := make([]*c1zstore.SyncRun, len(runs))
+	for i := range runs {
+		out[i] = &runs[i]
+	}
+	return out, "", nil
 }
 
 // syncTypeV3ToConnectorstore maps the v3-owned mirror SyncType enum

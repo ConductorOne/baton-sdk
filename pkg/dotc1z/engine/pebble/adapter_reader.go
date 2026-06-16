@@ -496,23 +496,12 @@ func v3SyncRunToV2(rec *v3.SyncRunRecord) *reader_v2.SyncRun {
 }
 
 // v3SyncTypeToString maps the v3.SyncType enum to the
-// connectorstore.SyncType string form used in the gRPC reader API.
+// connectorstore.SyncType string form used in the gRPC reader API. It is the
+// string view of the same enum dispatch syncTypeV3ToConnectorstore performs for
+// the SyncMeta projection; both share one switch so a new SyncType is handled
+// in one place.
 func v3SyncTypeToString(t v3.SyncType) string {
-	switch t {
-	case v3.SyncType_SYNC_TYPE_FULL:
-		return string(connectorstore.SyncTypeFull)
-	case v3.SyncType_SYNC_TYPE_PARTIAL:
-		return string(connectorstore.SyncTypePartial)
-	case v3.SyncType_SYNC_TYPE_RESOURCES_ONLY:
-		return string(connectorstore.SyncTypeResourcesOnly)
-	case v3.SyncType_SYNC_TYPE_PARTIAL_UPSERTS:
-		return string(connectorstore.SyncTypePartialUpserts)
-	case v3.SyncType_SYNC_TYPE_PARTIAL_DELETIONS:
-		return string(connectorstore.SyncTypePartialDeletions)
-	case v3.SyncType_SYNC_TYPE_UNSPECIFIED:
-		return ""
-	}
-	return ""
+	return string(syncTypeV3ToConnectorstore(t))
 }
 
 // resolveActiveSyncForReader resolves the sync_id a read should scope

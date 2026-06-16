@@ -18,13 +18,11 @@ import (
 // adapter. Implements c1zstore.Store.Grants(); used by the
 // expander, the c1-side fileClientWrapper, and the differ.
 //
-// Caveat: the *Page methods that filter on needs_expansion currently
-// return no candidates because grant expansion (Stack 6 per RFC v4)
-// is deferred. The methods are CORRECT (they don't break the syncer's
-// expansion phase — they make it a no-op) but they don't actually
-// find expandable grants. Once Stack 6 lands, the engine will start
-// flagging needs_expansion at PutGrants and the index walk here will
-// return real rows.
+// needs_expansion is populated at PutGrants time: V2GrantToV3 extracts
+// the GrantExpandable annotation and sets NeedsExpansion, which keys the
+// idxGrantByNeedsExpansion index. The *Page methods walk that index and
+// return real expandable rows (see TestExpansionAnnotationRoundtrip and
+// the live PendingExpansion path).
 func (a *Adapter) Grants() c1zstore.GrantStore {
 	return pebbleGrantStore{a: a}
 }

@@ -9,9 +9,12 @@
 // stay coherent; different across c1zs whose secrets differ so an
 // attacker holding multiple sanitized outputs cannot correlate them.
 //
-// v0.1 reads and writes the v1/v2 sqlite-zstd .c1z format via
-// connectorstore.Reader / Writer. v3 c1z3 output will land in v0.2
-// once the storage-engine-v4 PR stack merges.
+// Sanitize is engine-agnostic: it reads and writes through
+// connectorstore.Reader / Writer, so a source or destination may be
+// either the v1/v2 sqlite-zstd engine or the v3 Pebble engine. A
+// Pebble c1z holds exactly one sync by contract, so a multi-sync
+// source cannot be sanitized into a Pebble destination; that
+// combination is rejected up front (see Sanitize).
 package c1zsanitize
 
 import (
@@ -105,10 +108,11 @@ type Options struct {
 	// finds progress that a prior run persisted to disk.
 	//
 	// Resumable requires the sqlite-backed destination (*dotc1z.C1File). A
-	// destination engine that cannot enumerate checkpoints without mutating
-	// sync state — currently the pebble engine, whose SetCurrentSync does not
-	// rehydrate the persisted step — is rejected with a clear error rather than
-	// silently restarting from scratch.
+	// pebble destination is rejected with a clear error rather than silently
+	// restarting: its single-sync, replace-in-place storage and its
+	// SetCurrentSync (which does not rehydrate the persisted step) cannot
+	// resume a checkpoint. The rejection is an explicit destination-engine
+	// check, so it holds even though pebble implements ListSyncRuns.
 	Resumable bool
 }
 
@@ -138,6 +142,21 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 	if err != nil {
 		return fmt.Errorf("c1zsanitize: list source syncs: %w", err)
 	}
+
+	// A v3 Pebble c1z holds exactly one sync; StartNewSync replaces any
+	// prior sync in place. Sanitizing a multi-sync source into a Pebble
+	// destination would silently keep only the last sync's records, which
+	// is data corruption. Reject it up front. The engine is read from the
+	// live destination store, not a caller-supplied option, so the guard
+	// cannot be silenced by omitting a field.
+	if dst.Metadata().Engine == string(dotc1z.EnginePebble) && len(srcSyncs) > 1 {
+		return fmt.Errorf(
+			"c1zsanitize: destination engine pebble holds exactly one sync, but the source has %d "+
+				"syncs; sanitize to a sqlite destination or pre-select a single source sync",
+			len(srcSyncs),
+		)
+	}
+
 	tMax := findTMax(srcSyncs)
 
 	s := &sanitizer{
@@ -346,6 +365,36 @@ type dstSyncLister interface {
 	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*dotc1z.SyncRun, string, error)
 }
 
+// isResumableDestination reports whether dst can safely back a resumable run,
+// returning a descriptive error when it cannot.
+//
+// The pebble engine is rejected by an EXPLICIT engine check
+// (dst.Metadata().Engine == EnginePebble), deliberately NOT by the dstSyncLister
+// capability assertion. That distinction is load-bearing: pebble now implements
+// ListSyncRuns (for source-side sync-graph-metadata reads), so a capability
+// assertion would SUCCEED for a pebble destination and silently re-admit it.
+// Resume on pebble is unsafe — its single-sync, replace-in-place StartNewSync
+// and its SetCurrentSync/CurrentSyncStep (which do not round-trip the persisted
+// step) cannot rehydrate a checkpoint, so a "resume" would silently restart and
+// corrupt. Keying on the reported engine cannot be defeated by a future engine
+// adding capability methods. The capability assertion is kept below it as a
+// backstop for any engine that cannot enumerate checkpoints at all.
+func isResumableDestination(dst connectorstore.Writer) error {
+	if dst.Metadata().Engine == string(dotc1z.EnginePebble) {
+		return fmt.Errorf(
+			"resumable runs are not supported with a pebble destination: its " +
+				"single-sync, replace-in-place storage cannot rehydrate a persisted " +
+				"checkpoint, so resume would silently restart; use a sqlite destination")
+	}
+	if _, ok := dst.(dstSyncLister); !ok {
+		return fmt.Errorf(
+			"resumable runs require a destination that can enumerate checkpoints " +
+				"without mutating sync state (sqlite-backed); this destination cannot, " +
+				"so resume would silently restart")
+	}
+	return nil
+}
+
 // loadResumeStates scans the destination's existing syncs for checkpoint
 // tokens written by a prior resumable run, reading them through ListSyncRuns so
 // the destination's current-sync pointer is never mutated. A token whose
@@ -357,18 +406,15 @@ type dstSyncLister interface {
 // silently mix two transforms. Destinations with no tokens yield an empty map
 // and a clean full run.
 //
-// A destination that cannot enumerate sync tokens this way (e.g. the pebble
-// engine, whose SetCurrentSync/CurrentSyncStep do not round-trip the persisted
-// step) is rejected with a clear error rather than silently restarting from
-// scratch; resumable runs require the sqlite-backed destination.
+// Destinations that cannot safely resume are rejected up front by
+// isResumableDestination.
 func (s *sanitizer) loadResumeStates(ctx context.Context, dst connectorstore.Writer) (map[string]*resumeState, error) {
-	lister, ok := dst.(dstSyncLister)
-	if !ok {
-		return nil, fmt.Errorf(
-			"resumable runs require a destination that can enumerate checkpoints " +
-				"without mutating sync state (sqlite-backed); this destination cannot, " +
-				"so resume would silently restart")
+	if err := isResumableDestination(dst); err != nil {
+		return nil, err
 	}
+	// Guaranteed by isResumableDestination: a non-pebble destination that
+	// reached here implements dstSyncLister.
+	lister := dst.(dstSyncLister)
 
 	out := map[string]*resumeState{}
 	pageToken := ""
@@ -676,9 +722,14 @@ func (s *sanitizer) preserveSyncGraphMetadata(ctx context.Context, src connector
 }
 
 // listAllSyncs paginates the source SyncsReaderService and returns
-// every sync run the source can see. The SQLite-backed C1File emits
-// in id-asc order which matches insertion order, which is parent-
-// before-child for any well-formed sync chain.
+// every sync run the source can see, ordered parent-before-child.
+//
+// The sanitize loop resolves each child's parent through the
+// srcSyncID -> dstSyncID map, so a parent must be processed before its
+// children or the child gets a dangling HMAC'd parent ref. We sort
+// explicitly rather than trust the reader's order: it walks by sync id
+// (KSUID), and KSUIDs only encode time to second resolution, so two
+// syncs created in the same second can come back child-before-parent.
 func listAllSyncs(ctx context.Context, src connectorstore.Reader) ([]*reader_v2.SyncRun, error) {
 	var out []*reader_v2.SyncRun
 	pageToken := ""
@@ -692,10 +743,60 @@ func listAllSyncs(ctx context.Context, src connectorstore.Reader) ([]*reader_v2.
 		}
 		out = append(out, resp.GetSyncs()...)
 		if resp.GetNextPageToken() == "" {
-			return out, nil
+			return sortSyncsParentFirst(out), nil
 		}
 		pageToken = resp.GetNextPageToken()
 	}
+}
+
+// sortSyncsParentFirst stably reorders syncs so every sync follows its
+// parent_sync_id, preserving the reader's order wherever it is already
+// valid. It is a stable topological refinement, not a re-sort: a child
+// that already trails its in-set parent (the well-formed case, and any
+// external-parent sync) keeps its position; only a child that precedes
+// its in-set parent is moved to just after that parent. A cycle or
+// otherwise unresolvable remainder is flushed in input order rather than
+// dropped. Keeping the reader's order as the base means a multi-sync
+// SQLite source whose runs are already id-asc is unchanged, while a
+// same-second KSUID inversion that put a child before its parent is
+// corrected.
+func sortSyncsParentFirst(syncs []*reader_v2.SyncRun) []*reader_v2.SyncRun {
+	if len(syncs) < 2 {
+		return syncs
+	}
+	present := make(map[string]struct{}, len(syncs))
+	for _, s := range syncs {
+		present[s.GetId()] = struct{}{}
+	}
+
+	emitted := make(map[string]struct{}, len(syncs))
+	out := make([]*reader_v2.SyncRun, 0, len(syncs))
+	for len(out) < len(syncs) {
+		progressed := false
+		for _, s := range syncs {
+			id := s.GetId()
+			if _, done := emitted[id]; done {
+				continue
+			}
+			parent := s.GetParentSyncId()
+			_, parentPresent := present[parent]
+			_, parentEmitted := emitted[parent]
+			if parent == "" || !parentPresent || parentEmitted {
+				out = append(out, s)
+				emitted[id] = struct{}{}
+				progressed = true
+			}
+		}
+		if !progressed {
+			for _, s := range syncs {
+				if _, done := emitted[s.GetId()]; !done {
+					out = append(out, s)
+					emitted[s.GetId()] = struct{}{}
+				}
+			}
+		}
+	}
+	return out
 }
 
 func findTMax(syncs []*reader_v2.SyncRun) time.Time {
