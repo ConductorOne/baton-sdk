@@ -122,16 +122,30 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 		return fmt.Errorf("no current connector generation is registered")
 	}
 
+	currentLog := r.current.logging
+	revertLogLevel := func() {
+		if err := applyLambdaLogLevel(currentLog, time.Now()); err != nil {
+			zap.L().Warn("failed to restore log level after connector build error", zap.Error(err))
+		}
+	}
+
 	next, err := r.build(ctx, requestedVersion)
 	if err != nil {
+		// r.build may have applied next's log level before failing; restore the
+		// still-active generation's level since next never activated.
+		revertLogLevel()
 		return err
 	}
 	previous := r.current
 	replaced, drained, err := r.server.ReplaceServiceImplementation(previous.connector, next.connector)
 	if err != nil {
+		// next's log level was applied during build but it never activated; restore previous.
+		revertLogLevel()
 		return err
 	}
 	if replaced == 0 {
+		// next's log level was applied during build but it never activated; restore previous.
+		revertLogLevel()
 		return fmt.Errorf("no registered services matched the current connector generation")
 	}
 
@@ -388,6 +402,16 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 					client: configClient,
 				}
 			}
+			// Apply the connector's configured log level before constructing it so
+			// construction-time logs honor the requested level. Only do this for
+			// reloads; the initial build relies on the startup log level and the
+			// post-build apply below.
+			if requestedVersion != "" {
+				if err := applyLambdaLogLevel(logLevelConfig, time.Now()); err != nil {
+					return nil, err
+				}
+			}
+
 			c, err := getconnector(runCtx, t, ops)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get connector: %w", err)
