@@ -112,6 +112,41 @@ func TestSanitizeMultiSyncIntoPebbleIsRejected(t *testing.T) {
 	require.NoError(t, src2.Close(ctx))
 }
 
+// TestSanitizeResumableIntoPebbleIsRejected proves the resumable guard is an
+// explicit destination-engine check, not a type assertion. Pebble now
+// implements ListSyncRuns (added for source-side metadata reads), so the prior
+// dst.(dstSyncLister) assertion no longer rejects it; resume into a pebble
+// destination must still fail closed because pebble cannot rehydrate a
+// checkpoint.
+func TestSanitizeResumableIntoPebbleIsRejected(t *testing.T) {
+	ctx := context.Background()
+	secret := bytes32("resumable-pebble-guard")
+	tmp := t.TempDir()
+	srcPath := filepath.Join(tmp, "src.c1z")
+	dstPath := filepath.Join(tmp, "dst.c1z")
+
+	func() {
+		src := newEngineStore(t, ctx, srcPath, dotc1z.EnginePebble)
+		buildParityFixture(t, ctx, src)
+		require.NoError(t, src.Close(ctx))
+	}()
+
+	src := openEngineStoreRO(t, ctx, srcPath)
+	dst := newEngineStore(t, ctx, dstPath, dotc1z.EnginePebble)
+	err := Sanitize(ctx, src, dst, Options{Secret: secret, TimestampAnchor: fixedAnchor, Resumable: true})
+	require.Error(t, err, "resumable sanitize into a pebble destination must be rejected")
+	require.Contains(t, err.Error(), "pebble destination")
+	_ = dst.Close(ctx)
+	require.NoError(t, src.Close(ctx))
+
+	// Control: the same source is accepted into a sqlite destination.
+	src2 := openEngineStoreRO(t, ctx, srcPath)
+	dstSQLite := newEngineStore(t, ctx, filepath.Join(tmp, "dst-sqlite.c1z"), dotc1z.EngineSQLite)
+	require.NoError(t, Sanitize(ctx, src2, dstSQLite, Options{Secret: secret, TimestampAnchor: fixedAnchor, Resumable: true}))
+	require.NoError(t, dstSQLite.Close(ctx))
+	require.NoError(t, src2.Close(ctx))
+}
+
 // TestSanitizeRealExpanderEngineParity hardens the first-write precondition
 // against being subtly incomplete: it sanitizes a c1z whose grants were
 // produced by the REAL expander (not hand-built) into both a SQLite and a
