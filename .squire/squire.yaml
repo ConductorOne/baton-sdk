@@ -1,0 +1,15 @@
+# Squire env manifest for baton-sdk.
+# Public Go SDK: Go toolchain + vendored deps + a frontend/ built via npm.
+# No databases, no docker, no dev secrets — so no services are declared.
+# Gates `make build` / `make test` / `make lint` run on the shared
+# squire-base image (Go 1.26.x + Node 24 + golangci-lint). `make protogen`
+# needs `buf` (not in base) and is CI-only; see PR body for the follow-up.
+version: "1"
+
+repo:
+  url: "https://github.com/ConductorOne/baton-sdk"
+  branch: "main"
+
+env:
+  name: "baton-sdk"
+  description: "ConductorOne baton-sdk development environment"
