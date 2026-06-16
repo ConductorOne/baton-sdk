@@ -66,15 +66,28 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 	// reads the old path issued (this preservation Get plus the
 	// index-cleanup Get in PutGrantRecords) into one. See its doc for
 	// why expansion writes also commit NoSync.
+	// Arena-allocate the v3 record/entitlement/principal structs in three
+	// contiguous backing arrays instead of 3 heap allocs per grant — the same
+	// batching the bulk PutGrants path uses. translateV2Grant is behaviorally
+	// equivalent to V2GrantToV3 and (like it) leaves discovered_at unset:
+	// PutExpandedGrantRecords stamps/preserves it. The returned pointers alias
+	// the arena, which outlives this call's use of `merged`.
 	merged := make([]*v3.GrantRecord, 0, len(grants))
+	arena := newGrantTranslateArena(len(grants))
 	for _, gr := range grants {
 		if gr == nil {
 			continue
 		}
-		newRec := V2GrantToV3(syncID, gr)
+		newRec := arena.translateV2Grant(syncID, gr)
 		if newRec == nil {
 			continue
 		}
+		// StoreExpandedGrants consumes expansion metadata before persisting.
+		// Existing records get their prior Expansion/NeedsExpansion restored in
+		// PutExpandedGrantRecords; new records must not become expandable just
+		// because the caller left a residual GrantExpandable annotation.
+		newRec.SetExpansion(nil)
+		newRec.SetNeedsExpansion(false)
 		merged = append(merged, newRec)
 	}
 	return g.a.engine.PutExpandedGrantRecords(ctx, merged)

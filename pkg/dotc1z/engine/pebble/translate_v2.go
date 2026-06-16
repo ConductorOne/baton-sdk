@@ -215,7 +215,7 @@ func newGrantTranslateArena(n int) *grantTranslateArena {
 // Returns a pointer into the arena's grantRecords slice; the caller
 // must not retain it past the arena's lifetime. Behaviorally
 // equivalent to V2GrantToV3 for all valid inputs.
-func (a *grantTranslateArena) translateV2Grant(syncID string, g *v2.Grant) *v3.GrantRecord {
+func (a *grantTranslateArena) translateV2Grant(_ string, g *v2.Grant) *v3.GrantRecord {
 	if g == nil {
 		return nil
 	}

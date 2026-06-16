@@ -495,17 +495,8 @@ func SyncRunUpperBound() []byte { return upperBoundOf(encodeSyncRunKey()) }
 
 // upperBoundOf returns the smallest key strictly greater than every
 // key with the given prefix. Used as the UpperBound in pebble.IterOptions
-// for range scans. Increments the last byte; if the prefix is all
-// 0xff, no finite exclusive upper bound exists and nil leaves the
-// iterator unbounded above.
+// for range scans. Delegates to codec.KeyUpperBound so the increment/
+// all-0xff semantics live in one place shared with the tuple codec.
 func upperBoundOf(prefix []byte) []byte {
-	end := make([]byte, len(prefix))
-	copy(end, prefix)
-	for i := len(end) - 1; i >= 0; i-- {
-		if end[i] < 0xff {
-			end[i]++
-			return end[:i+1]
-		}
-	}
-	return nil
+	return codec.KeyUpperBound(prefix)
 }

@@ -135,6 +135,11 @@ func (m *MockExpanderStore) StoreExpandedGrants(_ context.Context, grants ...*v2
 	return m.PutGrants(context.Background(), grants...)
 }
 
+// GrantsForEntitlementPrincipalSorted is false: the in-memory mock returns
+// grants in insertion order, not principal order, so the topological evaluators
+// must use the buffering/sorting fallback rather than streaming.
+func (m *MockExpanderStore) GrantsForEntitlementPrincipalSorted() bool { return false }
+
 // Helper functions for creating test data
 
 func makeResourceID(resourceType, resource string) *v2.ResourceId {

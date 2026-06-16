@@ -162,3 +162,89 @@ func TestTupleBoolEncoding(t *testing.T) {
 		t.Errorf("true: got %v", b)
 	}
 }
+
+// TestDecodeTupleStringAlias_MatchesDecodeTupleStringTo verifies the aliasing
+// decoder returns the same bytes and next-offset as DecodeTupleStringTo across
+// single- and multi-component keys, including escape-triggering inputs.
+func TestDecodeTupleStringAlias_MatchesDecodeTupleStringTo(t *testing.T) {
+	components := [][]string{
+		{"alice"},
+		{"user", "alice"},
+		{"entitlement-id", "user", "alice", "grant-external-id"},
+		{"", "alice"},
+		{"user", ""},
+		{"has\x00nul", "has\x01esc"},
+		{"\x00\x00", "\x01\x01", "tail"},
+		{string([]byte{0xff, 0xfe, 0x00, 0x01}), "x"},
+	}
+	for _, parts := range components {
+		key := AppendTupleStrings(nil, parts...)
+		off := 0
+		for idx, want := range parts {
+			wantDecoded, wantNext, err := DecodeTupleStringTo(nil, key, off)
+			if err != nil {
+				t.Fatalf("%q[%d]: DecodeTupleStringTo error %v", parts, idx, err)
+			}
+			gotDecoded, gotNext, ok := DecodeTupleStringAlias(key, off)
+			if !ok {
+				t.Fatalf("%q[%d]: DecodeTupleStringAlias not ok", parts, idx)
+			}
+			if !bytes.Equal(gotDecoded, wantDecoded) {
+				t.Errorf("%q[%d]: alias=%q want %q", parts, idx, gotDecoded, wantDecoded)
+			}
+			if gotNext != wantNext {
+				t.Errorf("%q[%d]: alias next=%d want %d", parts, idx, gotNext, wantNext)
+			}
+			if string(gotDecoded) != want {
+				t.Errorf("%q[%d]: alias roundtrip got %q", parts, idx, gotDecoded)
+			}
+			off = gotNext + 1
+		}
+	}
+}
+
+// TestDecodeTupleStringAlias_NoAllocOnEscapeFree verifies the common no-escape
+// path aliases src without allocating; the escaped path is allowed to copy.
+func TestDecodeTupleStringAlias_NoAllocOnEscapeFree(t *testing.T) {
+	key := AppendTupleStrings(nil, "user", "alice")
+	allocs := testing.AllocsPerRun(100, func() {
+		if _, _, ok := DecodeTupleStringAlias(key, 0); !ok {
+			t.Fatal("not ok")
+		}
+	})
+	if allocs != 0 {
+		t.Errorf("DecodeTupleStringAlias allocated %v times on escape-free input, want 0", allocs)
+	}
+}
+
+// TestDecodeTupleStringAlias_Malformed verifies a key ending inside an escape
+// sequence is rejected.
+func TestDecodeTupleStringAlias_Malformed(t *testing.T) {
+	if _, _, ok := DecodeTupleStringAlias([]byte{tupleEscape}, 0); ok {
+		t.Error("dangling escape: got ok, want false")
+	}
+}
+
+func TestKeyUpperBound(t *testing.T) {
+	cases := []struct {
+		in   []byte
+		want []byte
+	}{
+		{[]byte{0x03, 0x07, 0x01, 0x00}, []byte{0x03, 0x07, 0x01, 0x01}},
+		{[]byte{0x01, 0xff}, []byte{0x02}},
+		{[]byte{0xff, 0xff}, nil},
+		{[]byte{}, nil},
+	}
+	for _, tc := range cases {
+		got := KeyUpperBound(tc.in)
+		if !bytes.Equal(got, tc.want) {
+			t.Errorf("KeyUpperBound(%v) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+	// Must not mutate the input.
+	in := []byte{0x01, 0x02}
+	_ = KeyUpperBound(in)
+	if !bytes.Equal(in, []byte{0x01, 0x02}) {
+		t.Errorf("KeyUpperBound mutated input to %v", in)
+	}
+}

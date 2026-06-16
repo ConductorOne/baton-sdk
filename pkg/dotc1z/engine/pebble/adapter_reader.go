@@ -166,6 +166,14 @@ func (a *Adapter) ListEntitlementsByIds(
 	}.Build(), nil
 }
 
+// GrantsForEntitlementPrincipalSorted reports that ListGrantsForEntitlement
+// yields grants in non-decreasing principal (resource_type, resource) order.
+// The by_entitlement index is keyed
+// entitlement_id|principal_rt|principal_id|external_id, and pagination walks it
+// in key order, so consumers can group by principal without buffering and
+// sorting the whole entitlement.
+func (a *Adapter) GrantsForEntitlementPrincipalSorted() bool { return true }
+
 // ListGrantsForEntitlement paginates grants on a specific
 // entitlement, optionally narrowed by principal_id or
 // principal_resource_type_ids. Implements

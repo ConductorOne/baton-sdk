@@ -411,6 +411,12 @@ func (c *C1File) resolveSyncIDForGrantGet(ctx context.Context, explicit string) 
 	return latestSyncRun.ID, nil
 }
 
+// GrantsForEntitlementPrincipalSorted reports false: the SQLite engine orders
+// ListGrantsForEntitlement results by grant id, not by principal. The grant
+// expander uses this to fall back to its buffering/sorting path; only the
+// Pebble engine (whose by_entitlement index is principal-keyed) reports true.
+func (c *C1File) GrantsForEntitlementPrincipalSorted() bool { return false }
+
 func (c *C1File) ListGrantsForEntitlement(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,

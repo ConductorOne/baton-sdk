@@ -71,6 +71,13 @@ type ExpanderStore interface {
 	GetEntitlement(ctx context.Context, req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error)
 	ListGrantsForEntitlement(ctx context.Context, req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error)
 	StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
+
+	// GrantsForEntitlementPrincipalSorted reports whether ListGrantsForEntitlement
+	// yields grants in non-decreasing principal (resource_type, resource) order
+	// for a given entitlement. The topological evaluators require it. Pebble's
+	// by_entitlement index satisfies it; SQLite (orders by grant id) and the
+	// in-memory test doubles do not and report false.
+	GrantsForEntitlementPrincipalSorted() bool
 }
 
 // entitlementGrantPrincipalKeyLister is an optional fast path for stores that
@@ -123,6 +130,17 @@ func (e *Expander) Run(ctx context.Context) error {
 // Returns true when the graph is fully expanded, false if more work is needed.
 // This matches the syncer's step-by-step execution model.
 func (e *Expander) RunSingleStep(ctx context.Context) error {
+	// The topological projection evaluator is the default whenever the store
+	// yields grants in principal order (Pebble's by_entitlement index). Stores
+	// that can't guarantee that ordering (SQLite, in-memory test doubles) fall
+	// through to the source-batched expander below.
+	if e.store.GrantsForEntitlementPrincipalSorted() {
+		if e.IsDone(ctx) {
+			return nil
+		}
+		return e.RunTopologicalMergeProjection(ctx)
+	}
+
 	l := ctxzap.Extract(ctx)
 	l = l.With(zap.Int("depth", e.graph.Depth))
 	l.Debug("expander: starting step")

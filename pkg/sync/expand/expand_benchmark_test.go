@@ -2,6 +2,7 @@ package expand
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -82,6 +83,8 @@ func copyGraph(g *EntitlementGraph) *EntitlementGraph {
 		Depth:                 g.Depth,
 		Actions:               make([]*EntitlementGraphAction, len(g.Actions)),
 		HasNoCycles:           g.HasNoCycles,
+		ExpansionPlan:         copyExpansionPlan(g.ExpansionPlan),
+		ExpansionMetrics:      copyExpansionMetrics(g.ExpansionMetrics),
 	}
 
 	for k, v := range g.Nodes {
@@ -216,6 +219,13 @@ func (s benchmarkExpanderStore) ListGrantPrincipalKeysForEntitlement(
 
 func (s benchmarkExpanderStore) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+func (s benchmarkExpanderStore) GrantsForEntitlementPrincipalSorted() bool {
+	store, ok := s.store.(interface {
+		GrantsForEntitlementPrincipalSorted() bool
+	})
+	return ok && store.GrantsForEntitlementPrincipalSorted()
 }
 
 func benchmarkExpand(b *testing.B, syncID string, perStep bool) {
@@ -398,13 +408,27 @@ func benchmarkExpandPebbleAtPath(b *testing.B, pebblePath string, perStep bool) 
 			step := 0
 			start := time.Now()
 			budgetHit := false
+			// The budget is enforced via a context deadline (so a monolithic
+			// topological pass self-interrupts mid-call) plus the per-step
+			// wall-clock check below (so multi-step algorithms stop cleanly at a
+			// step boundary). Either way we stop for a bounded profile slice.
+			stepCtx := ctx
+			if budget > 0 {
+				var cancel context.CancelFunc
+				stepCtx, cancel = context.WithTimeout(ctx, budget)
+				defer cancel()
+			}
 			for {
 				expander := NewExpander(benchmarkExpanderStore{store: storeWriter}, graphCopy)
-				err = expander.RunSingleStep(ctx)
+				err = expander.RunSingleStep(stepCtx)
 				if err != nil {
+					if budget > 0 && errors.Is(err, context.DeadlineExceeded) {
+						budgetHit = true
+						err = nil
+					}
 					break
 				}
-				if expander.IsDone(ctx) {
+				if expander.IsDone(stepCtx) {
 					break
 				}
 				step++
@@ -419,6 +443,13 @@ func benchmarkExpandPebbleAtPath(b *testing.B, pebblePath string, perStep bool) 
 				}
 			}
 			b.StopTimer()
+
+			if m := graphCopy.ExpansionMetrics; m != nil {
+				b.ReportMetric(float64(m.ProjectionRowsBuilt), "projection_rows/op")
+				b.ReportMetric(float64(m.NodesReduced), "nodes_reduced/op")
+				b.ReportMetric(float64(m.DestinationEntitlements), "dest_ents_reduced/op")
+				b.ReportMetric(float64(m.DirtyGrantsWritten), "dirty_grants/op")
+			}
 
 			if budgetHit {
 				b.Logf("Budget reached after %d steps in %s; stopping cleanly for profile slice", step, time.Since(start))

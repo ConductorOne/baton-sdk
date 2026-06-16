@@ -78,3 +78,42 @@ func TestStoreExpandedGrantsPreservesDiscoveredAt(t *testing.T) {
 	require.True(t, got.GetNeedsExpansion())
 	require.NotNil(t, got.GetExpansion())
 }
+
+func TestStoreExpandedGrantsBackfillsNilDiscoveredAt(t *testing.T) {
+	ctx := context.Background()
+	e, err := Open(ctx, filepath.Join(t.TempDir(), "engine"))
+	require.NoError(t, err)
+	defer func() { _ = e.Close() }()
+
+	a := NewAdapter(e)
+	_, err = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	seed := v3.GrantRecord_builder{
+		ExternalId: "g-nil-discovered-at",
+		Entitlement: v3.EntitlementRef_builder{
+			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",
+		}.Build(),
+		Principal: v3.PrincipalRef_builder{
+			ResourceTypeId: "user", ResourceId: "alice",
+		}.Build(),
+	}.Build()
+	require.Nil(t, seed.GetDiscoveredAt())
+	require.NoError(t, e.PutGrantRecord(ctx, seed))
+
+	app := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build(),
+	}.Build()
+	rewrite := v2.Grant_builder{
+		Id:          "g-nil-discovered-at",
+		Entitlement: v2.Entitlement_builder{Id: "ent-A", Resource: app}.Build(),
+		Principal: v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+		}.Build(),
+	}.Build()
+	require.NoError(t, a.Grants().StoreExpandedGrants(ctx, rewrite))
+
+	got, err := e.GetGrantRecord(ctx, "g-nil-discovered-at")
+	require.NoError(t, err)
+	require.NotNil(t, got.GetDiscoveredAt(), "StoreExpandedGrants should backfill nil discovered_at on existing grants")
+}

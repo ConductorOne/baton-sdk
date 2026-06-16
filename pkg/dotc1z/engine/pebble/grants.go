@@ -245,13 +245,13 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 				}
 				closer.Close()
 			case errors.Is(getErr, pebble.ErrNotFound):
-				// No prior record: stamp discovered_at unless the
+				// No prior record: discovered_at is stamped below unless the
 				// translation already carried one.
-				if r.GetDiscoveredAt() == nil {
-					r.SetDiscoveredAt(now)
-				}
 			default:
 				return fmt.Errorf("PutExpandedGrantRecords: get old %q: %w", ext, getErr)
+			}
+			if r.GetDiscoveredAt() == nil {
+				r.SetDiscoveredAt(now)
 			}
 
 			val, err := marshalRecordAppend(valScratch[:0], r)
@@ -748,13 +748,14 @@ func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, yield func(*
 }
 
 // Tuple-component decoders for index-key tails. Thin wrappers over
-// codec.DecodeTupleStringTo so the engine and the canonical codec
-// share one implementation of the escape rules. The previous
-// hand-rolled versions silently swallowed malformed escape sequences
-// (returning truncated strings); these report decode failure by
-// returning the zero value, which iter callers treat as "skip this
-// entry" — same observable behavior on well-formed keys, fail-safe
-// on corruption.
+// codec.DecodeTupleStringAlias so the engine and the canonical codec
+// share one implementation of the escape rules, and the no-escape
+// common path avoids the intermediate []byte allocation before the
+// string conversion. The previous hand-rolled versions silently
+// swallowed malformed escape sequences (returning truncated strings);
+// these report decode failure by returning the zero value, which iter
+// callers treat as "skip this entry" — same observable behavior on
+// well-formed keys, fail-safe on corruption.
 
 // decodeTwoTupleComponents decodes the first two tuple-encoded string
 // components from an index key relative to its prefix. Components are
@@ -767,13 +768,13 @@ func decodeTwoTupleComponents(key, prefix []byte) (string, string, bool) {
 		return "", "", false
 	}
 	tail := key[len(prefix):]
-	first, next, err := codec.DecodeTupleStringTo(nil, tail, 0)
-	if err != nil || next >= len(tail) {
+	first, next, ok := codec.DecodeTupleStringAlias(tail, 0)
+	if !ok || next >= len(tail) {
 		return "", "", false
 	}
 	// next points at the separator byte; skip it.
-	second, _, err := codec.DecodeTupleStringTo(nil, tail, next+1)
-	if err != nil {
+	second, _, ok := codec.DecodeTupleStringAlias(tail, next+1)
+	if !ok {
 		return "", "", false
 	}
 	return string(first), string(second), true
@@ -792,8 +793,8 @@ func lastTupleComponent(key, prefix []byte) string {
 	var last []byte
 	off := 0
 	for off <= len(tail) {
-		decoded, next, err := codec.DecodeTupleStringTo(nil, tail, off)
-		if err != nil {
+		decoded, next, ok := codec.DecodeTupleStringAlias(tail, off)
+		if !ok {
 			return ""
 		}
 		last = decoded
