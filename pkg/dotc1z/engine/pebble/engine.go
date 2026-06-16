@@ -460,7 +460,15 @@ func copyReadOnlyDBDir(srcDir, destDir string) error {
 		return err
 	}
 	pfs := vfs.Default
-	ok, err := vfs.Clone(pfs, pfs, srcDir, destDir, vfs.CloneSync)
+	// Skip LOCK: the source engine holds an exclusive lock on it (on
+	// Windows the same process cannot reopen it for read). The clone
+	// gets a fresh LOCK when Pebble opens destDir.
+	ok, err := vfs.Clone(pfs, pfs, srcDir, destDir,
+		vfs.CloneSync,
+		vfs.CloneSkip(func(path string) bool {
+			return filepath.Base(path) == "LOCK"
+		}),
+	)
 	if err != nil {
 		return fmt.Errorf("checkpoint copy: %w", err)
 	}
