@@ -2,12 +2,53 @@ package expand
 
 import (
 	"context"
+	"errors"
 	"sort"
+	"strconv"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/stretchr/testify/require"
 )
+
+type cancelingBaseGroupStream struct {
+	cancel    context.CancelFunc
+	remaining int
+	nextIndex int
+}
+
+func (s *cancelingBaseGroupStream) next(context.Context) (contributionGroup, bool, error) {
+	if s.remaining == 0 {
+		return contributionGroup{}, false, nil
+	}
+	if s.nextIndex == 0 {
+		s.cancel()
+	}
+	group := contributionGroup{
+		key:    topoPrincipalKey{resourceType: "user", resource: "p" + strconv.Itoa(s.nextIndex)},
+		isBase: true,
+	}
+	s.nextIndex++
+	s.remaining--
+	return group, true, nil
+}
+
+func (s *cancelingBaseGroupStream) close() error { return nil }
+
+func TestMergeContributionGroupStreamsChecksContextDuringMergeLoop(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	stream := &cancelingBaseGroupStream{cancel: cancel, remaining: 3}
+	sinkCalled := false
+
+	err := mergeContributionGroupStreams(ctx, makeEntitlement("ent:dest", makeResource("group", "dest")), []contributionGroupStream{stream}, func(context.Context, []*v2.Grant) error {
+		sinkCalled = true
+		return nil
+	})
+
+	require.Error(t, err)
+	require.True(t, errors.Is(err, context.Canceled))
+	require.False(t, sinkCalled)
+}
 
 type grantSnapshot struct {
 	id           string

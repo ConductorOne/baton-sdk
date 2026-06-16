@@ -324,6 +324,9 @@ func mergeContributionGroupStreams(
 
 	flusher := newDirtyFlusher(sink)
 	for h.Len() > 0 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		item := heap.Pop(&h).(mergeHeapItem)
 		key := item.group.key
 		var base []*v2.Grant
