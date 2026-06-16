@@ -150,7 +150,11 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 	// live destination store, not a caller-supplied option, so the guard
 	// cannot be silenced by omitting a field.
 	if dst.Metadata().Engine == string(dotc1z.EnginePebble) && len(srcSyncs) > 1 {
-		return fmt.Errorf("c1zsanitize: destination engine pebble holds exactly one sync, but the source has %d syncs; sanitize to a sqlite destination or pre-select a single source sync", len(srcSyncs))
+		return fmt.Errorf(
+			"c1zsanitize: destination engine pebble holds exactly one sync, but the source has %d "+
+				"syncs; sanitize to a sqlite destination or pre-select a single source sync",
+			len(srcSyncs),
+		)
 	}
 
 	tMax := findTMax(srcSyncs)
