@@ -86,6 +86,16 @@ type EntitlementGraph struct {
 	Depth                 int                       `json:"depth"`
 	Actions               []*EntitlementGraphAction `json:"actions"`
 	HasNoCycles           bool                      `json:"has_no_cycles"`
+	ExpansionPlan         *EntitlementGraphPlan     `json:"plan,omitempty"`
+	ExpansionMetrics      *EntitlementGraphMetrics  `json:"metrics,omitempty"`
+}
+
+type EntitlementGraphMetrics struct {
+	Algorithm               string `json:"algorithm"`
+	ProjectionRowsBuilt     int64  `json:"projection_rows_built"`
+	NodesReduced            int64  `json:"nodes_reduced"`
+	DestinationEntitlements int64  `json:"destination_entitlements"`
+	DirtyGrantsWritten      int64  `json:"dirty_grants_written"`
 }
 
 func NewEntitlementGraph(_ context.Context) *EntitlementGraph {

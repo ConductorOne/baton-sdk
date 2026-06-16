@@ -92,3 +92,40 @@ func TestStoreExpandedGrantsPreservesExpansion(t *testing.T) {
 	}
 	require.Equal(t, 1, afterCount, "StoreExpandedGrants must NOT clobber Expansion/NeedsExpansion — PendingExpansion should still see the grant")
 }
+
+func TestStoreExpandedGrantsStripsResidualExpandableForNewGrant(t *testing.T) {
+	ctx := context.Background()
+	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "store_expanded_new.c1z"), dotc1z.WithEngine(dotc1z.EnginePebble))
+	require.NoError(t, err)
+	defer func() { _ = store.Close(ctx) }()
+
+	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	user := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+	}.Build()
+	app := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build(),
+	}.Build()
+	ent := v2.Entitlement_builder{Id: "ent-A", Resource: app}.Build()
+
+	annAny, err := anypb.New(v2.GrantExpandable_builder{
+		EntitlementIds: []string{"src-ent-1"},
+	}.Build())
+	require.NoError(t, err)
+	grant := v2.Grant_builder{
+		Id:          "g-new-residual-expandable",
+		Entitlement: ent,
+		Principal:   user,
+		Annotations: []*anypb.Any{annAny},
+	}.Build()
+	require.NoError(t, store.Grants().StoreExpandedGrants(ctx, grant))
+
+	count := 0
+	for _, perr := range store.Grants().PendingExpansion(ctx) {
+		require.NoError(t, perr)
+		count++
+	}
+	require.Zero(t, count, "StoreExpandedGrants must strip residual GrantExpandable from new expanded grants")
+}

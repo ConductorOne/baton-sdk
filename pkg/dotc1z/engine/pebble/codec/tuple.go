@@ -171,6 +171,59 @@ func AppendTupleBool(dst []byte, b bool) []byte {
 	return append(dst, 0x26)
 }
 
+// DecodeTupleStringAlias decodes a single tuple-encoded string component from
+// src starting at offset off. It is the zero-alloc counterpart to
+// DecodeTupleStringTo for read-only callers on the hot path:
+//
+//   - When the component contains no escape byte (the overwhelmingly common
+//     case for ids), the returned slice ALIASES src — no allocation. It is only
+//     valid until src is mutated or its backing iterator advances.
+//   - When the component contains an escape sequence, a decoded copy is
+//     allocated, identical to DecodeTupleStringTo(nil, ...).
+//
+// The second return is the offset of the terminating separator byte, or
+// len(src) if the component runs to end-of-input — same convention as
+// DecodeTupleStringTo. The bool is false only when the input ends inside an
+// escape sequence (malformed).
+//
+// Finding the component end by scanning for the next 0x00 is correct because
+// the escape rules guarantee no component's encoded bytes contain a bare 0x00.
+func DecodeTupleStringAlias(src []byte, off int) ([]byte, int, bool) {
+	if off > len(src) {
+		return nil, 0, false
+	}
+	end := len(src)
+	if rel := bytes.IndexByte(src[off:], tupleSeparator); rel >= 0 {
+		end = off + rel
+	}
+	comp := src[off:end]
+	if bytes.IndexByte(comp, tupleEscape) < 0 {
+		return comp, end, true
+	}
+	decoded, _, err := DecodeTupleStringTo(nil, src, off)
+	if err != nil {
+		return nil, 0, false
+	}
+	return decoded, end, true
+}
+
+// KeyUpperBound returns the lexicographically smallest key strictly greater
+// than every key carrying prefix: the prefix with its last non-0xff byte
+// incremented and any trailing 0xff bytes dropped. It returns nil when prefix
+// is empty or all 0xff — there is no finite upper bound, so a range scan should
+// run to the end of the keyspace. The input is not modified.
+func KeyUpperBound(prefix []byte) []byte {
+	end := make([]byte, len(prefix))
+	copy(end, prefix)
+	for i := len(end) - 1; i >= 0; i-- {
+		if end[i] < 0xff {
+			end[i]++
+			return end[:i+1]
+		}
+	}
+	return nil
+}
+
 // DecodeTupleStringTo decodes a single tuple-encoded string from src
 // starting at offset off. Returns the decoded string, the offset
 // immediately after the consumed bytes (pointing at the separator or

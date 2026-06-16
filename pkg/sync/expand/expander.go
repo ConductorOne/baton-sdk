@@ -19,7 +19,21 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/anypb"
 )
+
+// immutableAnnotationAny is the GrantImmutable annotation every expanded
+// grant carries. The payload is a constant empty GrantImmutable, so it is
+// marshaled once here instead of per grant — anypb.New per call was ~1.5GB
+// of allocations on a large expansion. The *anypb.Any is treated as
+// read-only; each grant's annotation slice references the shared pointer.
+var immutableAnnotationAny = func() *anypb.Any {
+	a, err := anypb.New(&v2.GrantImmutable{})
+	if err != nil {
+		panic(fmt.Errorf("expand: marshal GrantImmutable annotation: %w", err))
+	}
+	return a
+}()
 
 var tracer = otel.Tracer("baton-sdk/sync.expand")
 
@@ -57,6 +71,13 @@ type ExpanderStore interface {
 	GetEntitlement(ctx context.Context, req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error)
 	ListGrantsForEntitlement(ctx context.Context, req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error)
 	StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
+
+	// GrantsForEntitlementPrincipalSorted reports whether ListGrantsForEntitlement
+	// yields grants in non-decreasing principal (resource_type, resource) order
+	// for a given entitlement. The topological evaluators require it. Pebble's
+	// by_entitlement index satisfies it; SQLite (orders by grant id) and the
+	// in-memory test doubles do not and report false.
+	GrantsForEntitlementPrincipalSorted() bool
 }
 
 // entitlementGrantPrincipalKeyLister is an optional fast path for stores that
@@ -109,6 +130,17 @@ func (e *Expander) Run(ctx context.Context) error {
 // Returns true when the graph is fully expanded, false if more work is needed.
 // This matches the syncer's step-by-step execution model.
 func (e *Expander) RunSingleStep(ctx context.Context) error {
+	// The topological projection evaluator is the default whenever the store
+	// yields grants in principal order (Pebble's by_entitlement index). Stores
+	// that can't guarantee that ordering (SQLite, in-memory test doubles) fall
+	// through to the source-batched expander below.
+	if e.store.GrantsForEntitlementPrincipalSorted() {
+		if e.IsDone(ctx) {
+			return nil
+		}
+		return e.RunTopologicalMergeProjection(ctx)
+	}
+
 	l := ctxzap.Extract(ctx)
 	l = l.With(zap.Int("depth", e.graph.Depth))
 	l.Debug("expander: starting step")
@@ -617,9 +649,10 @@ func newExpandedGrant(descEntitlement *v2.Entitlement, principal *v2.Resource, s
 		return nil, fmt.Errorf("newExpandedGrant: principal is nil")
 	}
 
-	// Add immutable annotation since this function is only called if no direct grant exists
-	var annos annotations.Annotations
-	annos.Update(&v2.GrantImmutable{})
+	// Add immutable annotation since this function is only called if no
+	// direct grant exists. The payload is constant, so reuse the shared
+	// pre-marshaled Any instead of re-marshaling per grant.
+	annos := annotations.Annotations{immutableAnnotationAny}
 
 	var sources *v2.GrantSources
 	if sourceEntitlementID != "" {
@@ -630,8 +663,14 @@ func newExpandedGrant(descEntitlement *v2.Entitlement, principal *v2.Resource, s
 		}
 	}
 
+	// Deterministic grant id: entitlement:principal_resource_type:principal_resource.
+	// Plain concatenation (not fmt.Sprintf) — this is on the per-expanded-grant
+	// hot path and fmt.Sprintf's reflection was ~1.2GB of allocations.
+	pid := principal.GetId()
+	grantID := descEntitlement.GetId() + ":" + pid.GetResourceType() + ":" + pid.GetResource()
+
 	grant := v2.Grant_builder{
-		Id:          fmt.Sprintf("%s:%s:%s", descEntitlement.GetId(), principal.GetId().GetResourceType(), principal.GetId().GetResource()),
+		Id:          grantID,
 		Entitlement: descEntitlement,
 		Principal:   principal,
 		Sources:     sources,

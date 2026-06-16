@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/cockroachdb/pebble/v2"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
@@ -145,6 +146,132 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			return err
 		}
 		return idxBatch.Commit(opts)
+	})
+}
+
+// PutExpandedGrantRecords is the grant-expander write path — the
+// engine side of GrantStore.StoreExpandedGrants, and its only caller.
+//
+// Two properties distinguish it from PutGrantRecords:
+//
+//   - Single read-before-write. The expander must preserve each
+//     grant's existing Expansion / NeedsExpansion / DiscoveredAt
+//     side-state, which requires reading the prior primary value. That
+//     same read also yields the bytes needed to delete the prior
+//     value's stale index entries. The old path did BOTH a
+//     GetGrantRecord in the adapter (to preserve side-state) AND a
+//     db.Get here (to clean indexes) — two point lookups per grant.
+//     This path issues one and uses it for both.
+//
+//   - NoSync commit. Expanded grants are fully regenerable from the
+//     sync (the expander recomputes them from the entitlement graph),
+//     so a per-batch fsync buys nothing. Writes commit with
+//     pebble.NoSync and are hardened by the single Flush at sync end
+//     (EndFreshSync) or Close (Quiesce) — the same bargain the
+//     fresh-sync fast path strikes, extended to resumed syncs where
+//     IsFreshSync() is false.
+//
+// records arrive as freshly translated v3 GrantRecords with NO
+// preservation or discovered_at stamping applied; this method performs
+// the merge so the read it already issues does double duty.
+func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.GrantRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	return e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
+		priBatch := e.db.NewBatch()
+		defer priBatch.Close()
+		idxBatch := e.db.NewBatch()
+		defer idxBatch.Close()
+
+		now := timestamppb.Now()
+
+		// Dedup pre-pass: keep only the LAST occurrence of each
+		// external_id. The expander appends the same deterministic
+		// grant id more than once when it merges sources for a
+		// principal across a source page, so without this the earlier
+		// occurrences would leak orphan index entries (db.Get can't see
+		// in-batch writes). Same safety net as PutGrantRecords.
+		var dedup map[string]int
+		if len(records) > 1 {
+			dedup = make(map[string]int, len(records))
+			for i, r := range records {
+				if r == nil {
+					continue
+				}
+				dedup[r.GetExternalId()] = i
+			}
+		}
+
+		// Scratch buffers reused across every record. pebble.Batch.Set
+		// and Delete copy their key/value arguments, so one buffer can
+		// back the primary key, the marshaled value, and each index key
+		// in turn — the per-record key/marshal allocations were the
+		// engine's hottest allocator on the expansion write path.
+		var keyScratch, valScratch, idxScratch []byte
+		var prior v3.GrantRecord
+		for i, r := range records {
+			if r == nil {
+				continue
+			}
+			if dedup != nil && dedup[r.GetExternalId()] != i {
+				continue
+			}
+			ext := r.GetExternalId()
+			keyScratch = appendGrantKey(keyScratch[:0], ext)
+
+			oldVal, closer, getErr := e.db.Get(keyScratch)
+			switch {
+			case getErr == nil:
+				// Preserve the prior record's expansion side-state +
+				// discovered_at (StoreExpandedGrants contract), then
+				// delete the index entries the prior value created.
+				prior.Reset()
+				if err := unmarshalRecord(oldVal, &prior); err != nil {
+					closer.Close()
+					return fmt.Errorf("PutExpandedGrantRecords: unmarshal prior %q: %w", ext, err)
+				}
+				r.SetExpansion(prior.GetExpansion())
+				r.SetNeedsExpansion(prior.GetNeedsExpansion())
+				r.SetDiscoveredAt(prior.GetDiscoveredAt())
+				var err error
+				idxScratch, err = e.deleteGrantIndexesScratch(idxBatch, ext, oldVal, idxScratch)
+				if err != nil {
+					closer.Close()
+					return err
+				}
+				closer.Close()
+			case errors.Is(getErr, pebble.ErrNotFound):
+				// No prior record: discovered_at is stamped below unless the
+				// translation already carried one.
+			default:
+				return fmt.Errorf("PutExpandedGrantRecords: get old %q: %w", ext, getErr)
+			}
+			if r.GetDiscoveredAt() == nil {
+				r.SetDiscoveredAt(now)
+			}
+
+			val, err := marshalRecordAppend(valScratch[:0], r)
+			if err != nil {
+				return err
+			}
+			valScratch = val
+			if err := priBatch.Set(keyScratch, val, nil); err != nil {
+				return err
+			}
+			idxScratch, err = e.writeGrantIndexesScratch(idxBatch, r, idxScratch)
+			if err != nil {
+				return err
+			}
+		}
+
+		if err := priBatch.Commit(pebble.NoSync); err != nil {
+			return err
+		}
+		return idxBatch.Commit(pebble.NoSync)
 	})
 }
 
@@ -347,6 +474,88 @@ func (e *Engine) writeGrantIndexes(batch *pebble.Batch, r *v3.GrantRecord) error
 	return nil
 }
 
+// writeGrantIndexesScratch is writeGrantIndexes that encodes each index
+// key into a single reused scratch buffer instead of allocating one
+// slice per key (grantIndexKeys allocates up to five). pebble.Batch.Set
+// copies the key, so the buffer is safe to overwrite between keys. The
+// index set and conditions MUST stay in lockstep with grantIndexKeys.
+// Returns the (possibly grown) scratch buffer for the next record.
+func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord, scratch []byte) ([]byte, error) {
+	ent := r.GetEntitlement()
+	princ := r.GetPrincipal()
+	ext := r.GetExternalId()
+
+	if ent != nil && princ != nil {
+		scratch = appendGrantByEntitlementIndexKey(scratch[:0], ent.GetEntitlementId(), princ.GetResourceTypeId(), princ.GetResourceId(), ext)
+		if err := batch.Set(scratch, nil, nil); err != nil {
+			return scratch, err
+		}
+	}
+	if ent != nil && ent.GetResourceId() != "" {
+		scratch = appendGrantByEntitlementResourceIndexKey(scratch[:0], ent.GetResourceTypeId(), ent.GetResourceId(), ext)
+		if err := batch.Set(scratch, nil, nil); err != nil {
+			return scratch, err
+		}
+	}
+	if princ != nil {
+		scratch = appendGrantByPrincipalIndexKey(scratch[:0], princ.GetResourceTypeId(), princ.GetResourceId(), ext)
+		if err := batch.Set(scratch, nil, nil); err != nil {
+			return scratch, err
+		}
+		scratch = appendGrantByPrincipalResourceTypeIndexKey(scratch[:0], princ.GetResourceTypeId(), ext)
+		if err := batch.Set(scratch, nil, nil); err != nil {
+			return scratch, err
+		}
+	}
+	if r.GetNeedsExpansion() {
+		scratch = appendGrantByNeedsExpansionIndexKey(scratch[:0], ext)
+		if err := batch.Set(scratch, nil, nil); err != nil {
+			return scratch, err
+		}
+	}
+	return scratch, nil
+}
+
+// deleteGrantIndexesScratch is deleteGrantIndexesRaw that encodes the
+// delete keys into a single reused scratch buffer. value is the prior
+// record's marshaled bytes (borrowed from the caller's pebble Get
+// closer, which must outlive this call). The delete set MUST stay in
+// lockstep with deleteGrantIndexesRaw. Returns the (possibly grown)
+// scratch buffer.
+func (e *Engine) deleteGrantIndexesScratch(batch *pebble.Batch, externalID string, value, scratch []byte) ([]byte, error) {
+	entRT, entRID, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(value)
+	if err != nil {
+		return scratch, err
+	}
+	if entID != "" && principalRT != "" && principalID != "" {
+		scratch = appendGrantByEntitlementIndexKey(scratch[:0], entID, principalRT, principalID, externalID)
+		if err := batch.Delete(scratch, nil); err != nil {
+			return scratch, err
+		}
+	}
+	if entRID != "" {
+		scratch = appendGrantByEntitlementResourceIndexKey(scratch[:0], entRT, entRID, externalID)
+		if err := batch.Delete(scratch, nil); err != nil {
+			return scratch, err
+		}
+	}
+	if principalRT != "" && principalID != "" {
+		scratch = appendGrantByPrincipalIndexKey(scratch[:0], principalRT, principalID, externalID)
+		if err := batch.Delete(scratch, nil); err != nil {
+			return scratch, err
+		}
+		scratch = appendGrantByPrincipalResourceTypeIndexKey(scratch[:0], principalRT, externalID)
+		if err := batch.Delete(scratch, nil); err != nil {
+			return scratch, err
+		}
+	}
+	scratch = appendGrantByNeedsExpansionIndexKey(scratch[:0], externalID)
+	if err := batch.Delete(scratch, nil); err != nil {
+		return scratch, err
+	}
+	return scratch, nil
+}
+
 // IterateGrants iterates all grants in primary-key order. yield returns
 // false to stop iteration.
 func (e *Engine) IterateGrants(ctx context.Context, yield func(*v3.GrantRecord) bool) error {
@@ -539,13 +748,14 @@ func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, yield func(*
 }
 
 // Tuple-component decoders for index-key tails. Thin wrappers over
-// codec.DecodeTupleStringTo so the engine and the canonical codec
-// share one implementation of the escape rules. The previous
-// hand-rolled versions silently swallowed malformed escape sequences
-// (returning truncated strings); these report decode failure by
-// returning the zero value, which iter callers treat as "skip this
-// entry" — same observable behavior on well-formed keys, fail-safe
-// on corruption.
+// codec.DecodeTupleStringAlias so the engine and the canonical codec
+// share one implementation of the escape rules, and the no-escape
+// common path avoids the intermediate []byte allocation before the
+// string conversion. The previous hand-rolled versions silently
+// swallowed malformed escape sequences (returning truncated strings);
+// these report decode failure by returning the zero value, which iter
+// callers treat as "skip this entry" — same observable behavior on
+// well-formed keys, fail-safe on corruption.
 
 // decodeTwoTupleComponents decodes the first two tuple-encoded string
 // components from an index key relative to its prefix. Components are
@@ -558,13 +768,13 @@ func decodeTwoTupleComponents(key, prefix []byte) (string, string, bool) {
 		return "", "", false
 	}
 	tail := key[len(prefix):]
-	first, next, err := codec.DecodeTupleStringTo(nil, tail, 0)
-	if err != nil || next >= len(tail) {
+	first, next, ok := codec.DecodeTupleStringAlias(tail, 0)
+	if !ok || next >= len(tail) {
 		return "", "", false
 	}
 	// next points at the separator byte; skip it.
-	second, _, err := codec.DecodeTupleStringTo(nil, tail, next+1)
-	if err != nil {
+	second, _, ok := codec.DecodeTupleStringAlias(tail, next+1)
+	if !ok {
 		return "", "", false
 	}
 	return string(first), string(second), true
@@ -583,8 +793,8 @@ func lastTupleComponent(key, prefix []byte) string {
 	var last []byte
 	off := 0
 	for off <= len(tail) {
-		decoded, next, err := codec.DecodeTupleStringTo(nil, tail, off)
-		if err != nil {
+		decoded, next, ok := codec.DecodeTupleStringAlias(tail, off)
+		if !ok {
 			return ""
 		}
 		last = decoded

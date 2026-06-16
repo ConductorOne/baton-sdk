@@ -201,6 +201,17 @@ func (a expanderStoreAdapter) StoreExpandedGrants(ctx context.Context, grants ..
 	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
 
+// GrantsForEntitlementPrincipalSorted forwards the underlying engine's
+// principal-sort guarantee (Pebble) so the topological merge can stream grant
+// groups instead of buffering and sorting each entitlement. Engines that do not
+// implement it (SQLite) report false and get the buffering fallback.
+func (a expanderStoreAdapter) GrantsForEntitlementPrincipalSorted() bool {
+	store, ok := a.store.(interface {
+		GrantsForEntitlementPrincipalSorted() bool
+	})
+	return ok && store.GrantsForEntitlementPrincipalSorted()
+}
+
 const minCheckpointInterval = 10 * time.Second
 
 // Checkpoint marshals the current state and stores it.

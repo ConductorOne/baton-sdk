@@ -88,10 +88,18 @@ const (
 //
 // Paired with encodeGrantPrefix (by-type prefix, no trailing sep).
 func encodeGrantKey(externalID string) []byte {
-	buf := make([]byte, 0, 3+len(externalID))
-	buf = append(buf, versionV3, typeGrant)
-	buf = codec.AppendTupleSeparator(buf)
-	return codec.AppendTupleStrings(buf, externalID)
+	return appendGrantKey(make([]byte, 0, 3+len(externalID)), externalID)
+}
+
+// appendGrantKey encodes the grant primary key into dst (truncated to
+// dst[:0] is the caller's responsibility) and returns the extended
+// slice. Lets hot write paths reuse one scratch buffer across records
+// instead of allocating a fresh key per Set — pebble.Batch.Set copies
+// the key, so the scratch is safe to overwrite on the next record.
+func appendGrantKey(dst []byte, externalID string) []byte {
+	dst = append(dst, versionV3, typeGrant)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(dst, externalID)
 }
 
 // encodeGrantPrefix returns the by-type prefix for iterating all
@@ -112,10 +120,13 @@ func encodeGrantPrefix() []byte {
 // Paired with encodeGrantByEntitlementPrefix (by-value prefix, with
 // trailing sep).
 func encodeGrantByEntitlementIndexKey(entitlementID, principalRT, principalID, externalID string) []byte {
-	buf := make([]byte, 0, 64)
-	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlement)
-	buf = codec.AppendTupleSeparator(buf)
-	return codec.AppendTupleStrings(buf, entitlementID, principalRT, principalID, externalID)
+	return appendGrantByEntitlementIndexKey(make([]byte, 0, 64), entitlementID, principalRT, principalID, externalID)
+}
+
+func appendGrantByEntitlementIndexKey(dst []byte, entitlementID, principalRT, principalID, externalID string) []byte {
+	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlement)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(dst, entitlementID, principalRT, principalID, externalID)
 }
 
 // encodeGrantByPrincipalIndexKey:
@@ -128,10 +139,13 @@ func encodeGrantByEntitlementIndexKey(entitlementID, principalRT, principalID, e
 // Paired with encodeGrantByPrincipalPrefix (by-value prefix, with
 // trailing sep).
 func encodeGrantByPrincipalIndexKey(principalRT, principalID, externalID string) []byte {
-	buf := make([]byte, 0, 64)
-	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipal)
-	buf = codec.AppendTupleSeparator(buf)
-	return codec.AppendTupleStrings(buf, principalRT, principalID, externalID)
+	return appendGrantByPrincipalIndexKey(make([]byte, 0, 64), principalRT, principalID, externalID)
+}
+
+func appendGrantByPrincipalIndexKey(dst []byte, principalRT, principalID, externalID string) []byte {
+	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipal)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(dst, principalRT, principalID, externalID)
 }
 
 // encodeGrantByEntitlementPrefix is the by-value prefix for "all
@@ -170,10 +184,13 @@ func encodeGrantByEntitlementPrincipalPrefix(entitlementID, principalRT, princip
 // no by-value scan is needed because the only filter is "is this
 // flag set?", which is captured by the index's existence).
 func encodeGrantByNeedsExpansionIndexKey(externalID string) []byte {
-	buf := make([]byte, 0, 5+len(externalID))
-	buf = append(buf, versionV3, typeIndex, idxGrantByNeedsExpansion)
-	buf = codec.AppendTupleSeparator(buf)
-	return codec.AppendTupleStrings(buf, externalID)
+	return appendGrantByNeedsExpansionIndexKey(make([]byte, 0, 5+len(externalID)), externalID)
+}
+
+func appendGrantByNeedsExpansionIndexKey(dst []byte, externalID string) []byte {
+	dst = append(dst, versionV3, typeIndex, idxGrantByNeedsExpansion)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(dst, externalID)
 }
 
 // encodeGrantByPrincipalResourceTypeIndexKey: by-principal-RT
@@ -188,10 +205,13 @@ func encodeGrantByNeedsExpansionIndexKey(externalID string) []byte {
 // Paired with encodeGrantByPrincipalResourceTypePrefix (by-value
 // prefix, with trailing sep).
 func encodeGrantByPrincipalResourceTypeIndexKey(principalRT, externalID string) []byte {
-	buf := make([]byte, 0, 64)
-	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipalResourceType)
-	buf = codec.AppendTupleSeparator(buf)
-	return codec.AppendTupleStrings(buf, principalRT, externalID)
+	return appendGrantByPrincipalResourceTypeIndexKey(make([]byte, 0, 64), principalRT, externalID)
+}
+
+func appendGrantByPrincipalResourceTypeIndexKey(dst []byte, principalRT, externalID string) []byte {
+	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipalResourceType)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(dst, principalRT, externalID)
 }
 
 // encodeGrantByPrincipalResourceTypePrefix is the by-value prefix
@@ -243,10 +263,13 @@ func encodeGrantByPrincipalPrefix(principalRT, principalID string) []byte {
 // Paired with encodeGrantByEntitlementResourcePrefix (by-value prefix,
 // with trailing sep).
 func encodeGrantByEntitlementResourceIndexKey(entRT, entRID, externalID string) []byte {
-	buf := make([]byte, 0, 64)
-	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlementResource)
-	buf = codec.AppendTupleSeparator(buf)
-	return codec.AppendTupleStrings(buf, entRT, entRID, externalID)
+	return appendGrantByEntitlementResourceIndexKey(make([]byte, 0, 64), entRT, entRID, externalID)
+}
+
+func appendGrantByEntitlementResourceIndexKey(dst []byte, entRT, entRID, externalID string) []byte {
+	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlementResource)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(dst, entRT, entRID, externalID)
 }
 
 // encodeGrantByEntitlementResourcePrefix is the by-value prefix for
@@ -472,17 +495,8 @@ func SyncRunUpperBound() []byte { return upperBoundOf(encodeSyncRunKey()) }
 
 // upperBoundOf returns the smallest key strictly greater than every
 // key with the given prefix. Used as the UpperBound in pebble.IterOptions
-// for range scans. Increments the last byte; if the prefix is all
-// 0xff, no finite exclusive upper bound exists and nil leaves the
-// iterator unbounded above.
+// for range scans. Delegates to codec.KeyUpperBound so the increment/
+// all-0xff semantics live in one place shared with the tuple codec.
 func upperBoundOf(prefix []byte) []byte {
-	end := make([]byte, len(prefix))
-	copy(end, prefix)
-	for i := len(end) - 1; i >= 0; i-- {
-		if end[i] < 0xff {
-			end[i]++
-			return end[:i+1]
-		}
-	}
-	return nil
+	return codec.KeyUpperBound(prefix)
 }
