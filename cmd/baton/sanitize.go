@@ -65,10 +65,15 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	if outPath == "" {
 		return fmt.Errorf("--out is required")
 	}
-	switch outEngineRaw {
-	case "", string(dotc1z.EngineSQLite), string(dotc1z.EnginePebble):
-	default:
-		return fmt.Errorf("--out-engine must be %q or %q, got %q", dotc1z.EngineSQLite, dotc1z.EnginePebble, outEngineRaw)
+	// An omitted --out-engine (default "") means "follow the source engine".
+	// An explicitly-supplied empty value is a mistake, not a request to default,
+	// so reject it rather than silently following the source.
+	if cmd.Flags().Changed("out-engine") {
+		switch outEngineRaw {
+		case string(dotc1z.EngineSQLite), string(dotc1z.EnginePebble):
+		default:
+			return fmt.Errorf("--out-engine must be %q or %q, got %q", dotc1z.EngineSQLite, dotc1z.EnginePebble, outEngineRaw)
+		}
 	}
 
 	// All input validation happens BEFORE the secret is loaded or

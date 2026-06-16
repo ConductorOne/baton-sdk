@@ -365,6 +365,36 @@ type dstSyncLister interface {
 	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*dotc1z.SyncRun, string, error)
 }
 
+// isResumableDestination reports whether dst can safely back a resumable run,
+// returning a descriptive error when it cannot.
+//
+// The pebble engine is rejected by an EXPLICIT engine check
+// (dst.Metadata().Engine == EnginePebble), deliberately NOT by the dstSyncLister
+// capability assertion. That distinction is load-bearing: pebble now implements
+// ListSyncRuns (for source-side sync-graph-metadata reads), so a capability
+// assertion would SUCCEED for a pebble destination and silently re-admit it.
+// Resume on pebble is unsafe — its single-sync, replace-in-place StartNewSync
+// and its SetCurrentSync/CurrentSyncStep (which do not round-trip the persisted
+// step) cannot rehydrate a checkpoint, so a "resume" would silently restart and
+// corrupt. Keying on the reported engine cannot be defeated by a future engine
+// adding capability methods. The capability assertion is kept below it as a
+// backstop for any engine that cannot enumerate checkpoints at all.
+func isResumableDestination(dst connectorstore.Writer) error {
+	if dst.Metadata().Engine == string(dotc1z.EnginePebble) {
+		return fmt.Errorf(
+			"resumable runs are not supported with a pebble destination: its " +
+				"single-sync, replace-in-place storage cannot rehydrate a persisted " +
+				"checkpoint, so resume would silently restart; use a sqlite destination")
+	}
+	if _, ok := dst.(dstSyncLister); !ok {
+		return fmt.Errorf(
+			"resumable runs require a destination that can enumerate checkpoints " +
+				"without mutating sync state (sqlite-backed); this destination cannot, " +
+				"so resume would silently restart")
+	}
+	return nil
+}
+
 // loadResumeStates scans the destination's existing syncs for checkpoint
 // tokens written by a prior resumable run, reading them through ListSyncRuns so
 // the destination's current-sync pointer is never mutated. A token whose
@@ -376,29 +406,15 @@ type dstSyncLister interface {
 // silently mix two transforms. Destinations with no tokens yield an empty map
 // and a clean full run.
 //
-// The pebble engine is rejected up front: its single-sync replace-in-place
-// StartNewSync and its SetCurrentSync/CurrentSyncStep (which do not round-trip
-// the persisted step) make resume unsafe — it would silently restart and
-// corrupt rather than continue. The rejection is an explicit engine check on
-// the live destination, NOT the dstSyncLister type assertion: pebble now
-// implements ListSyncRuns (for source-side metadata reads), so the assertion no
-// longer distinguishes it. The type assertion is kept below as a backstop for
-// any future engine that cannot enumerate checkpoints at all.
+// Destinations that cannot safely resume are rejected up front by
+// isResumableDestination.
 func (s *sanitizer) loadResumeStates(ctx context.Context, dst connectorstore.Writer) (map[string]*resumeState, error) {
-	if dst.Metadata().Engine == string(dotc1z.EnginePebble) {
-		return nil, fmt.Errorf(
-			"resumable runs are not supported with a pebble destination: its " +
-				"single-sync, replace-in-place storage cannot rehydrate a persisted " +
-				"checkpoint, so resume would silently restart; use a sqlite destination")
+	if err := isResumableDestination(dst); err != nil {
+		return nil, err
 	}
-
-	lister, ok := dst.(dstSyncLister)
-	if !ok {
-		return nil, fmt.Errorf(
-			"resumable runs require a destination that can enumerate checkpoints " +
-				"without mutating sync state (sqlite-backed); this destination cannot, " +
-				"so resume would silently restart")
-	}
+	// Guaranteed by isResumableDestination: a non-pebble destination that
+	// reached here implements dstSyncLister.
+	lister := dst.(dstSyncLister)
 
 	out := map[string]*resumeState{}
 	pageToken := ""

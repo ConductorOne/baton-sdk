@@ -348,6 +348,13 @@ func (s *pebbleStore) markDirty(err error) error {
 	return err
 }
 
+// StartNewSync begins a sync on the Pebble v3 store. INVARIANT: a v3 Pebble
+// c1z holds exactly ONE sync — StartNewSync replaces any prior sync in place
+// (the engine's ResetForNewSync wipes every sync-scoped keyspace). There is no
+// multi-sync Pebble file. Callers that copy N source syncs into a Pebble
+// destination (e.g. the c1z sanitizer) must reject N>1 up front, since each
+// StartNewSync after the first would discard the previous sync's records.
+// Future engine authors relying on this contract should preserve it here.
 func (s *pebbleStore) StartNewSync(ctx context.Context, syncType connectorstore.SyncType, parentSyncID string) (string, error) {
 	syncID, err := s.Adapter.StartNewSync(ctx, syncType, parentSyncID)
 	if err == nil {
@@ -410,7 +417,7 @@ func (s *pebbleStore) SetSupportsDiff(ctx context.Context, syncID string) error 
 // sanitize mints fresh destination sync ids.
 func (s *pebbleStore) SetSyncLink(ctx context.Context, syncID string, linkedSyncID string) error {
 	if syncID == "" {
-		return errors.New("SetSyncLink: empty syncID")
+		return fmt.Errorf("SetSyncLink: empty syncID")
 	}
 	r, err := s.engine.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
