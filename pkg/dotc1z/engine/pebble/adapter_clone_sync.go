@@ -90,17 +90,13 @@ func cloneSync(
 			ctxzap.Extract(ctx).Warn("clone-sync: error cleaning up temp dir", zap.Error(cleanupErr))
 		}
 	}()
-	destDBDir := filepath.Join(cloneTmp, "db")
+	checkpointDir := filepath.Join(cloneTmp, "checkpoint")
 
-	// Stage: checkpoint the whole source DB. Raw db.Checkpoint, not
-	// Engine.CheckpointTo — the source may be opened read-only, where
-	// the flush inside CheckpointTo is refused; the checkpoint carries
-	// the live WALs instead, which replay on open below.
-	if err := a.engine.DB().Checkpoint(destDBDir); err != nil {
+	if err := a.engine.CheckpointTo(ctx, checkpointDir); err != nil {
 		return fmt.Errorf("clone-sync: checkpoint source: %w", err)
 	}
 
-	dest, err := Open(ctx, destDBDir)
+	dest, err := Open(ctx, checkpointDir)
 	if err != nil {
 		return fmt.Errorf("clone-sync: open staged clone: %w", err)
 	}
@@ -123,12 +119,6 @@ func cloneSync(
 		return fmt.Errorf("clone-sync: drop engine-local keyspaces: %w", err)
 	}
 
-	// Checkpoint the staged clone and emit the envelope at outPath.
-	checkpointDir := filepath.Join(cloneTmp, "checkpoint")
-	if err := dest.CheckpointTo(ctx, checkpointDir); err != nil {
-		return fmt.Errorf("clone-sync: checkpoint: %w", err)
-	}
-
 	tmpPath := outPath + ".tmp"
 	out, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -146,6 +136,9 @@ func cloneSync(
 
 	manifest, err := BuildManifestWithSyncRuns(ctx, dest, encoding)
 	if err != nil {
+		return err
+	}
+	if err := dest.Close(); err != nil {
 		return err
 	}
 	if err := formatv3.WriteEnvelope(out, manifest, checkpointDir); err != nil {

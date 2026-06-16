@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/vfs"
 	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -156,31 +157,6 @@ func (e *Engine) Close() error {
 		e.pebbleOpts.Cache.Unref()
 	}
 	return err
-}
-
-// Quiesce is the strict write-barrier from RFC v4 §3.7. After Quiesce
-// returns, all subsequent Writer method calls return ErrEngineQuiesced.
-// In-flight writes drain via the engine's WaitGroup. Concurrent
-// callers serialize on closeMu; the second caller observes a
-// fully-quiesced engine.
-//
-// Idempotent: calling Quiesce twice is a no-op the second time.
-//
-// There is no Unquiesce. Callers that want to keep writing open a
-// new engine instance via Open.
-func (e *Engine) Quiesce(ctx context.Context) error {
-	e.closeMu.Lock()
-	defer e.closeMu.Unlock()
-	if e.closing.Load() {
-		return nil
-	}
-	e.closing.Store(true)
-	e.writeWG.Wait()
-	// Force memtable to L0 so a subsequent Save sees a clean state.
-	if err := e.db.Flush(); err != nil {
-		return fmt.Errorf("flush during quiesce: %w", err)
-	}
-	return nil
 }
 
 // SetCurrentSync sets the engine's tracked current sync_id from a
@@ -375,27 +351,6 @@ func (e *Engine) withWrite(fn func() error) error {
 	return fn()
 }
 
-// withWriteBarrier serializes a short critical section against all
-// engine writes without permanently quiescing the engine. It is used by
-// snapshotting code that must observe "all writes before the barrier,
-// no writes during the barrier, writes may resume after".
-func (e *Engine) withWriteBarrier(fn func() error) error {
-	if err := e.checkWritable(); err != nil {
-		return err
-	}
-	e.writeWG.Add(1)
-	defer e.writeWG.Done()
-	if e.closing.Load() {
-		return ErrEngineQuiesced
-	}
-	e.writeMu.Lock()
-	defer e.writeMu.Unlock()
-	if err := e.checkWritable(); err != nil {
-		return err
-	}
-	return fn()
-}
-
 func (e *Engine) Save(ctx context.Context, dest string) error {
 	return errors.New("pebble engine: Save requires the dotc1z.Save shim (envelope write); use CheckpointTo for direct directory access")
 }
@@ -453,6 +408,11 @@ func (e *Engine) DB() *pebble.DB { return e.db }
 // are only blocked while the checkpoint is cut. This is the building
 // block dotc1z's higher-level Save wraps with the v3 envelope format.
 //
+// Read-only engines cannot call pebble.DB.Checkpoint (it copies
+// OPTIONS via d.optionsFileNum, which Pebble never populates on
+// read-only open). Those engines clone the on-disk tree with
+// vfs.Clone instead.
+//
 // The explicit Flush is what makes the snapshot WAL-independent:
 // every committed write lands in SSTs before the checkpoint is cut.
 // We deliberately do NOT pass pebble.WithFlushedWAL() — it would be
@@ -464,18 +424,50 @@ func (e *Engine) DB() *pebble.DB { return e.db }
 // committing between the Flush and Checkpoint — such a write would
 // otherwise exist only in the WAL, which truncateCheckpointWALs discards.
 func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
-	return e.withWriteBarrier(func() error {
-		if err := e.db.Flush(); err != nil {
-			return fmt.Errorf("checkpoint flush: %w", err)
-		}
-		if err := e.db.Checkpoint(destDir); err != nil {
-			return fmt.Errorf("checkpoint: %w", err)
-		}
-		if err := truncateCheckpointWALs(destDir); err != nil {
-			return fmt.Errorf("checkpoint truncate WALs: %w", err)
-		}
-		return nil
-	})
+	// Wait for all in-flight writes to complete.
+	e.writeWG.Wait()
+
+	if e.closing.Load() {
+		return ErrEngineQuiesced
+	}
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+
+	if e.opts.readOnly {
+		return copyReadOnlyDBDir(e.dbDir, destDir)
+	}
+
+	if err := e.db.Flush(); err != nil {
+		return fmt.Errorf("checkpoint flush: %w", err)
+	}
+	if err := e.db.Checkpoint(destDir); err != nil {
+		return fmt.Errorf("checkpoint db %s: %w", destDir, err)
+	}
+	if err := truncateCheckpointWALs(destDir); err != nil {
+		return fmt.Errorf("checkpoint truncate WALs: %w", err)
+	}
+
+	return nil
+}
+
+// copyReadOnlyDBDir clones a read-only Pebble directory tree into
+// destDir. destDir must not exist yet, matching db.Checkpoint's
+// contract.
+func copyReadOnlyDBDir(srcDir, destDir string) error {
+	if _, err := os.Stat(destDir); err == nil {
+		return &os.PathError{Op: "checkpoint", Path: destDir, Err: fs.ErrExist}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	pfs := vfs.Default
+	ok, err := vfs.Clone(pfs, pfs, srcDir, destDir, vfs.CloneSync)
+	if err != nil {
+		return fmt.Errorf("checkpoint copy: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("checkpoint copy: source dir %q missing", srcDir)
+	}
+	return nil
 }
 
 // truncateCheckpointWALs truncates every WAL segment in a freshly cut

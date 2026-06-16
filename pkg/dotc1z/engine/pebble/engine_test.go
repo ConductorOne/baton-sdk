@@ -294,26 +294,44 @@ func TestDeleteGrantRecord(t *testing.T) {
 	}
 }
 
-func TestQuiesceBlocksWrites(t *testing.T) {
+func TestCheckpointToReadOnly(t *testing.T) {
 	ctx := context.Background()
-	e, _ := newTestEngine(t)
+	e, dir := newTestEngine(t)
 	syncID := ksuid.New().String()
 	if err := e.SetCurrentSync(syncID); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := e.Quiesce(ctx); err != nil {
+	r := makeGrant(syncID, "g1", "e1", "p1")
+	if err := e.PutGrantRecord(ctx, r); err != nil {
 		t.Fatal(err)
 	}
-	// Subsequent writes refused.
-	r := makeGrant(syncID, "g", "e", "p")
-	err := e.PutGrantRecord(ctx, r)
-	if !errors.Is(err, ErrEngineQuiesced) {
-		t.Errorf("expected ErrEngineQuiesced, got %v", err)
+	if err := e.Close(); err != nil {
+		t.Fatal(err)
 	}
-	// Idempotent.
-	if err := e.Quiesce(ctx); err != nil {
-		t.Errorf("Quiesce should be idempotent, got %v", err)
+
+	dbDir := filepath.Join(dir, "db")
+	e, err := Open(ctx, dbDir, WithReadOnly(true))
+	if err != nil {
+		t.Fatalf("Open read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = e.Close() })
+
+	ckDir := filepath.Join(dir, "checkpoint")
+	if err := e.CheckpointTo(ctx, ckDir); err != nil {
+		t.Fatalf("CheckpointTo read-only: %v", err)
+	}
+
+	e2, err := Open(ctx, ckDir, WithReadOnly(true))
+	if err != nil {
+		t.Fatalf("reopen checkpoint: %v", err)
+	}
+	defer e2.Close()
+	got, err := e2.GetGrantRecord(ctx, "g1")
+	if err != nil {
+		t.Fatalf("checkpoint Get: %v", err)
+	}
+	if got.GetEntitlement().GetEntitlementId() != "e1" {
+		t.Errorf("checkpoint Get returned wrong entitlement: %v", got)
 	}
 }
 
