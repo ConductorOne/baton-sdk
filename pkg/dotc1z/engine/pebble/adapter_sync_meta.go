@@ -168,6 +168,28 @@ func (a *Adapter) CleanupCandidates(ctx context.Context) ([]c1zstore.SyncRun, er
 	return out, nil
 }
 
+// ListSyncRuns returns every sync-run record projected into the
+// engine-neutral c1zstore.SyncRun shape, oldest-first (parent before
+// child for a well-formed chain), in a single page. A v3 Pebble c1z
+// holds exactly one sync, so pagination is trivial: the whole set is
+// returned on the first call and the next-page token is always empty.
+// pageToken and pageSize are accepted for parity with the SQLite
+// ListSyncRuns and are not used. It backs the c1z sanitizer's
+// source-side sync-graph-metadata read (linked_sync_id, supports_diff),
+// which the gRPC reader surface does not carry.
+func (a *Adapter) ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error) {
+	cands, err := a.CleanupCandidates(ctx)
+	if err != nil {
+		return nil, "", fmt.Errorf("pebble ListSyncRuns: %w", err)
+	}
+	out := make([]*c1zstore.SyncRun, 0, len(cands))
+	for i := range cands {
+		sr := cands[i]
+		out = append(out, &sr)
+	}
+	return out, "", nil
+}
+
 // syncTypeV3ToConnectorstore maps the v3-owned mirror SyncType enum
 // back to the connectorstore.SyncType string-typed enum. Unknown
 // values yield the empty (unspecified) string.

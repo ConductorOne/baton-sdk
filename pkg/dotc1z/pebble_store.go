@@ -26,6 +26,30 @@ type pebbleDriver struct{}
 var _ C1ZStore = (*pebbleStore)(nil)
 var _ connectorstore.Writer = (*pebbleStore)(nil)
 
+// Local mirrors of the optional capabilities the c1z sanitizer probes on
+// the source/destination store (pkg/c1zsanitize keeps those interfaces
+// unexported). The assertions below make a refactor that drops one of these
+// methods from either engine break the build here, rather than silently
+// disarming the sanitizer's sync-graph-metadata preservation.
+type sanitizeSyncLinkWriter interface {
+	SetSyncLink(ctx context.Context, syncID string, linkedSyncID string) error
+}
+type sanitizeSupportsDiffWriter interface {
+	SetSupportsDiff(ctx context.Context, syncID string) error
+}
+type sanitizeSyncRunMetadataReader interface {
+	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*SyncRun, string, error)
+}
+
+var (
+	_ sanitizeSyncLinkWriter        = (*pebbleStore)(nil)
+	_ sanitizeSupportsDiffWriter    = (*pebbleStore)(nil)
+	_ sanitizeSyncRunMetadataReader = (*pebbleStore)(nil)
+	_ sanitizeSyncLinkWriter        = (*C1File)(nil)
+	_ sanitizeSupportsDiffWriter    = (*C1File)(nil)
+	_ sanitizeSyncRunMetadataReader = (*C1File)(nil)
+)
+
 func (pebbleDriver) Engine() Engine    { return EnginePebble }
 func (pebbleDriver) Format() C1ZFormat { return C1ZFormatV3 }
 
@@ -365,6 +389,38 @@ func (s *pebbleStore) Cleanup(ctx context.Context) error {
 
 func (s *pebbleStore) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
 	return s.markDirty(s.Adapter.PutAsset(ctx, assetRef, contentType, data))
+}
+
+// SetSupportsDiff marks the given sync as diff-capable, matching the
+// SQLite engine's sync_runs.supports_diff column. The c1z sanitizer
+// carries this marker from a source sync to its sanitized copy so the
+// output remains usable wherever the source was. Delegates to the
+// SyncMeta sub-store's MarkSyncSupportsDiff.
+func (s *pebbleStore) SetSupportsDiff(ctx context.Context, syncID string) error {
+	return s.markDirty(s.SyncMeta().MarkSyncSupportsDiff(ctx, syncID))
+}
+
+// SetSyncLink records linkedSyncID as the diff partner of syncID on the
+// sync-run record (v3 linked_sync_id), matching the SQLite engine.
+//
+// This is implemented for connectorstore.Writer parity but is NOT
+// reached by the c1z sanitizer's Pebble path: a v3 Pebble c1z holds
+// exactly one sync, so there is never a second sync to link to. Cross-
+// file linkage is unpreservable on either engine regardless, because
+// sanitize mints fresh destination sync ids.
+func (s *pebbleStore) SetSyncLink(ctx context.Context, syncID string, linkedSyncID string) error {
+	if syncID == "" {
+		return errors.New("SetSyncLink: empty syncID")
+	}
+	r, err := s.engine.GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		return fmt.Errorf("SetSyncLink: get: %w", err)
+	}
+	r.SetLinkedSyncId(linkedSyncID)
+	if err := s.engine.PutSyncRunRecord(ctx, r); err != nil {
+		return fmt.Errorf("SetSyncLink: put: %w", err)
+	}
+	return s.markDirty(nil)
 }
 
 func (s *pebbleStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
