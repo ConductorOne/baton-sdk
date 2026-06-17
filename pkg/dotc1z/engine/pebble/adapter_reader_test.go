@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -15,22 +17,17 @@ import (
 func TestGetEntitlementResourceResourceType(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 
 	rt := v2.ResourceType_builder{Id: "user", DisplayName: "User",
 		Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build()
-	if err := a.PutResourceTypes(ctx, rt); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutResourceTypes(ctx, rt))
 	r := v2.Resource_builder{
 		Id:          v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 		DisplayName: "Alice",
 	}.Build()
-	if err := a.PutResources(ctx, r); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutResources(ctx, r))
 	ent := v2.Entitlement_builder{
 		Id: "github-read",
 		Resource: v2.Resource_builder{
@@ -39,66 +36,46 @@ func TestGetEntitlementResourceResourceType(t *testing.T) {
 		DisplayName: "Read",
 		Purpose:     v2.Entitlement_PURPOSE_VALUE_PERMISSION,
 	}.Build()
-	if err := a.PutEntitlements(ctx, ent); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutEntitlements(ctx, ent))
 
 	// GetResourceType
 	rtResp, err := a.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
 		ResourceTypeId: "user",
 	}.Build())
-	if err != nil {
-		t.Fatalf("GetResourceType: %v", err)
-	}
-	if got := rtResp.GetResourceType().GetDisplayName(); got != "User" {
-		t.Errorf("GetResourceType display: got %q want User", got)
-	}
-	if len(rtResp.GetResourceType().GetTraits()) != 1 {
-		t.Errorf("GetResourceType traits: got %d want 1", len(rtResp.GetResourceType().GetTraits()))
-	}
+	require.NoError(t, err, "GetResourceType")
+	require.Equal(t, "User", rtResp.GetResourceType().GetDisplayName(), "GetResourceType display")
+	require.Len(t, rtResp.GetResourceType().GetTraits(), 1, "GetResourceType traits")
 
 	// GetResource
 	rResp, err := a.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 		ResourceId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 	}.Build())
-	if err != nil {
-		t.Fatalf("GetResource: %v", err)
-	}
-	if got := rResp.GetResource().GetDisplayName(); got != "Alice" {
-		t.Errorf("GetResource display: got %q want Alice", got)
-	}
+	require.NoError(t, err, "GetResource")
+	require.Equal(t, "Alice", rResp.GetResource().GetDisplayName(), "GetResource display")
 
 	// GetEntitlement
 	eResp, err := a.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: "github-read",
 	}.Build())
-	if err != nil {
-		t.Fatalf("GetEntitlement: %v", err)
-	}
-	if got := eResp.GetEntitlement().GetId(); got != "github-read" {
-		t.Errorf("GetEntitlement id: got %q", got)
-	}
-	if got := eResp.GetEntitlement().GetPurpose(); got != v2.Entitlement_PURPOSE_VALUE_PERMISSION {
-		t.Errorf("GetEntitlement purpose: got %v want PERMISSION", got)
-	}
+	require.NoError(t, err, "GetEntitlement")
+	require.Equal(t, "github-read", eResp.GetEntitlement().GetId(), "GetEntitlement id")
+	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_PERMISSION, eResp.GetEntitlement().GetPurpose(), "GetEntitlement purpose")
 
 	// Missing entity returns gRPC NotFound — the Adapter normalizes
 	// pebble.ErrNotFound at the boundary so engine-agnostic
 	// consumers (pkg/sync, pkg/sync/expand) can use one sentinel
 	// across both engines. See adapter_errors.go.
-	if _, err := a.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+	_, err = a.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: "does-not-exist",
-	}.Build()); status.Code(err) != codes.NotFound {
-		t.Errorf("missing entitlement: got %v, want NotFound", err)
-	}
+	}.Build())
+	require.Equal(t, codes.NotFound, status.Code(err), "missing entitlement")
 }
 
 func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 
 	// 5 grants on ent-A with user principals, 3 on ent-A with group
 	// principals, 2 on ent-B with user principals.
@@ -112,21 +89,15 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		grants = append(grants, mkV2Grant("u-b-"+strconv.Itoa(i), "ent-B", "user", "u"+strconv.Itoa(i)))
 	}
-	if err := a.PutGrants(ctx, grants...); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutGrants(ctx, grants...))
 
 	// ListGrantsForEntitlement(ent-A) → 8 grants total
 	resp, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
 		PageSize:    100,
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(resp.GetList()) != 8 {
-		t.Errorf("ListGrantsForEntitlement(ent-A): got %d, want 8", len(resp.GetList()))
-	}
+	require.NoError(t, err)
+	require.Len(t, resp.GetList(), 8, "ListGrantsForEntitlement(ent-A)")
 
 	// ListGrantsForEntitlement(ent-A) filtered by principal RT=user → 5
 	respFiltered, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
@@ -134,12 +105,8 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 		PrincipalResourceTypeIds: []string{"user"},
 		PageSize:                 100,
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(respFiltered.GetList()) != 5 {
-		t.Errorf("ListGrantsForEntitlement(ent-A, user): got %d, want 5", len(respFiltered.GetList()))
-	}
+	require.NoError(t, err)
+	require.Len(t, respFiltered.GetList(), 5, "ListGrantsForEntitlement(ent-A, user)")
 
 	// ListGrantsForEntitlement(ent-A) filtered by principal ID=user/u1 → 1
 	respPrincipal, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
@@ -150,15 +117,9 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 		}.Build(),
 		PageSize: 100,
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(respPrincipal.GetList()) != 1 {
-		t.Fatalf("ListGrantsForEntitlement(ent-A, user/u1): got %d, want 1", len(respPrincipal.GetList()))
-	}
-	if got := respPrincipal.GetList()[0].GetId(); got != "u-a-1" {
-		t.Errorf("ListGrantsForEntitlement(ent-A, user/u1) id: got %q, want u-a-1", got)
-	}
+	require.NoError(t, err)
+	require.Len(t, respPrincipal.GetList(), 1, "ListGrantsForEntitlement(ent-A, user/u1)")
+	require.Equal(t, "u-a-1", respPrincipal.GetList()[0].GetId(), "ListGrantsForEntitlement(ent-A, user/u1) id")
 
 	var principalPageIDs []string
 	principalPageToken := ""
@@ -172,9 +133,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 			PageSize:  1,
 			PageToken: principalPageToken,
 		}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		for _, g := range respPrincipalPage.GetList() {
 			principalPageIDs = append(principalPageIDs, g.GetId())
 		}
@@ -183,21 +142,16 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 			break
 		}
 	}
-	if len(principalPageIDs) != 1 || principalPageIDs[0] != "u-a-1" {
-		t.Fatalf("paginated ListGrantsForEntitlement(ent-A, user/u1): got %v, want [u-a-1]", principalPageIDs)
-	}
+	require.Len(t, principalPageIDs, 1, "paginated ListGrantsForEntitlement(ent-A, user/u1)")
+	require.Equal(t, "u-a-1", principalPageIDs[0], "paginated ListGrantsForEntitlement(ent-A, user/u1)")
 
 	// ListGrantsForResourceType(user) → 7 grants (5 ent-A + 2 ent-B)
 	rtResp, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
 		ResourceTypeId: "user",
 		PageSize:       100,
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rtResp.GetList()) != 7 {
-		t.Errorf("ListGrantsForResourceType(user): got %d, want 7", len(rtResp.GetList()))
-	}
+	require.NoError(t, err)
+	require.Len(t, rtResp.GetList(), 7, "ListGrantsForResourceType(user)")
 }
 
 // TestListGrantsForResourceTypePagination drives the new
@@ -206,9 +160,8 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 func TestListGrantsForResourceTypePagination(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 
 	const userCount = 50
 	const groupCount = 20
@@ -219,9 +172,7 @@ func TestListGrantsForResourceTypePagination(t *testing.T) {
 	for i := 0; i < groupCount; i++ {
 		grants = append(grants, mkV2Grant("g-"+strconv.Itoa(i), "ent-A", "group", "g"+strconv.Itoa(i)))
 	}
-	if err := a.PutGrants(ctx, grants...); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutGrants(ctx, grants...))
 
 	// Walk all user grants across multiple pages.
 	collected := map[string]bool{}
@@ -232,16 +183,10 @@ func TestListGrantsForResourceTypePagination(t *testing.T) {
 			PageSize:       7,
 			PageToken:      cursor,
 		}.Build())
-		if err != nil {
-			t.Fatalf("page %d: %v", i, err)
-		}
+		require.NoError(t, err, "page %d", i)
 		for _, g := range resp.GetList() {
-			if g.GetPrincipal().GetId().GetResourceType() != "user" {
-				t.Errorf("non-user grant returned: %v", g)
-			}
-			if collected[g.GetId()] {
-				t.Errorf("duplicate grant id %q", g.GetId())
-			}
+			require.Equal(t, "user", g.GetPrincipal().GetId().GetResourceType(), "non-user grant returned")
+			require.False(t, collected[g.GetId()], "duplicate grant id %q", g.GetId())
 			collected[g.GetId()] = true
 		}
 		cursor = resp.GetNextPageToken()
@@ -249,9 +194,7 @@ func TestListGrantsForResourceTypePagination(t *testing.T) {
 			break
 		}
 	}
-	if len(collected) != userCount {
-		t.Errorf("paginated user grants: got %d, want %d", len(collected), userCount)
-	}
+	require.Equal(t, userCount, len(collected), "paginated user grants")
 
 	// Re-put a subset with a different principal RT to verify index
 	// flip on overwrite. The first 10 "user" grants become "group"
@@ -261,28 +204,19 @@ func TestListGrantsForResourceTypePagination(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		updated = append(updated, mkV2Grant("u-"+strconv.Itoa(i), "ent-A", "group", "moved-"+strconv.Itoa(i)))
 	}
-	if err := a.PutGrants(ctx, updated...); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutGrants(ctx, updated...))
 
 	respUser, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
 		ResourceTypeId: "user", PageSize: 1000,
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := len(respUser.GetList()); got != userCount-10 {
-		t.Errorf("after move, user grants = %d, want %d", got, userCount-10)
-	}
+	require.NoError(t, err)
+	require.Equal(t, userCount-10, len(respUser.GetList()), "after move, user grants")
+
 	respGroup, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
 		ResourceTypeId: "group", PageSize: 1000,
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := len(respGroup.GetList()); got != groupCount+10 {
-		t.Errorf("after move, group grants = %d, want %d", got, groupCount+10)
-	}
+	require.NoError(t, err)
+	require.Equal(t, groupCount+10, len(respGroup.GetList()), "after move, group grants")
 }
 
 // TestBulkByIdsRoundtripPebble exercises the Adapter's
@@ -291,44 +225,33 @@ func TestListGrantsForResourceTypePagination(t *testing.T) {
 func TestBulkByIdsRoundtripPebble(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 
 	rtUser := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
 	rtGroup := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
 	rtApp := v2.ResourceType_builder{Id: "app", DisplayName: "App"}.Build()
-	if err := a.PutResourceTypes(ctx, rtUser, rtGroup, rtApp); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutResourceTypes(ctx, rtUser, rtGroup, rtApp))
 	mkRes := func(rt, id string) *v2.Resource {
 		return v2.Resource_builder{
 			Id: v2.ResourceId_builder{ResourceType: rt, Resource: id}.Build(),
 		}.Build()
 	}
-	if err := a.PutResources(ctx,
+	require.NoError(t, a.PutResources(ctx,
 		mkRes("user", "u1"), mkRes("user", "u2"),
 		mkRes("group", "g1"),
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.PutEntitlements(ctx,
+	))
+	require.NoError(t, a.PutEntitlements(ctx,
 		v2.Entitlement_builder{Id: "ent-A", Resource: mkRes("app", "github")}.Build(),
 		v2.Entitlement_builder{Id: "ent-B", Resource: mkRes("app", "github")}.Build(),
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 
 	t.Run("ListEntitlementsByIds", func(t *testing.T) {
 		resp, err := a.ListEntitlementsByIds(ctx, reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest_builder{
 			EntitlementIds: []string{"ent-A", "ent-zzz", "ent-B"},
 		}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(resp.GetList()) != 2 {
-			t.Errorf("len=%d, want 2", len(resp.GetList()))
-		}
+		require.NoError(t, err)
+		require.Len(t, resp.GetList(), 2)
 	})
 	t.Run("ListResourcesByIds", func(t *testing.T) {
 		ids := []*v2.ResourceId{
@@ -339,12 +262,8 @@ func TestBulkByIdsRoundtripPebble(t *testing.T) {
 		resp, err := a.ListResourcesByIds(ctx, reader_v2.ResourcesReaderServiceListResourcesByIdsRequest_builder{
 			ResourceIds: ids,
 		}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(resp.GetList()) != 2 {
-			t.Errorf("len=%d, want 2", len(resp.GetList()))
-		}
+		require.NoError(t, err)
+		require.Len(t, resp.GetList(), 2)
 	})
 }
 
@@ -353,24 +272,19 @@ func TestBulkByIdsRoundtripPebble(t *testing.T) {
 func TestListGrantsForEntitlementsPebble(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 	mkRes := func(rt, id string) *v2.Resource {
 		return v2.Resource_builder{
 			Id: v2.ResourceId_builder{ResourceType: rt, Resource: id}.Build(),
 		}.Build()
 	}
 	appRes := mkRes("app", "gh")
-	if err := a.PutResources(ctx, appRes); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutResources(ctx, appRes))
 	entA := v2.Entitlement_builder{Id: "ent-A", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "A"}.Build()
 	entB := v2.Entitlement_builder{Id: "ent-B", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "B"}.Build()
 	entC := v2.Entitlement_builder{Id: "ent-C", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "C"}.Build()
-	if err := a.PutEntitlements(ctx, entA, entB, entC); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutEntitlements(ctx, entA, entB, entC))
 	mkGrant := func(id, entID, princRT, princID string) *v2.Grant {
 		return v2.Grant_builder{
 			Id:          id,
@@ -388,21 +302,15 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 	for i := 0; i < 7; i++ {
 		grants = append(grants, mkGrant("c-u-"+strconv.Itoa(i), "ent-C", "user", "uc"+strconv.Itoa(i)))
 	}
-	if err := a.PutGrants(ctx, grants...); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutGrants(ctx, grants...))
 
 	t.Run("aggregate all", func(t *testing.T) {
 		resp, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
 			Entitlements: []*v2.Entitlement{entA, entB, entC},
 			PageSize:     100,
 		}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(resp.GetList()) != 15 {
-			t.Errorf("len=%d, want 15", len(resp.GetList()))
-		}
+		require.NoError(t, err)
+		require.Len(t, resp.GetList(), 15)
 	})
 	t.Run("pagination crosses entitlement boundary", func(t *testing.T) {
 		seen := map[string]bool{}
@@ -413,13 +321,9 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 				PageSize:     4,
 				PageToken:    token,
 			}.Build())
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			for _, g := range resp.GetList() {
-				if seen[g.GetId()] {
-					t.Errorf("dup grant %s", g.GetId())
-				}
+				require.False(t, seen[g.GetId()], "dup grant %s", g.GetId())
 				seen[g.GetId()] = true
 			}
 			token = resp.GetNextPageToken()
@@ -427,35 +331,23 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 				break
 			}
 		}
-		if len(seen) != 15 {
-			t.Errorf("seen=%d, want 15", len(seen))
-		}
+		require.Len(t, seen, 15)
 	})
 	t.Run("checksum mismatch resets", func(t *testing.T) {
 		resp1, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
 			Entitlements: []*v2.Entitlement{entA, entB, entC},
 			PageSize:     2,
 		}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if resp1.GetNextPageToken() == "" {
-			t.Fatal("first page should overflow")
-		}
+		require.NoError(t, err)
+		require.NotEmpty(t, resp1.GetNextPageToken(), "first page should overflow")
 		resp2, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
 			Entitlements: []*v2.Entitlement{entA, entB},
 			PageSize:     2,
 			PageToken:    resp1.GetNextPageToken(),
 		}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(resp2.GetList()) != 2 {
-			t.Errorf("after checksum mismatch len=%d, want 2", len(resp2.GetList()))
-		}
-		if resp2.GetList()[0].GetEntitlement().GetId() != "ent-A" {
-			t.Errorf("after reset first ent=%q, want ent-A", resp2.GetList()[0].GetEntitlement().GetId())
-		}
+		require.NoError(t, err)
+		require.Len(t, resp2.GetList(), 2, "after checksum mismatch")
+		require.Equal(t, "ent-A", resp2.GetList()[0].GetEntitlement().GetId(), "after reset first ent")
 	})
 }
 
@@ -465,30 +357,22 @@ func TestStreamingReaderPebble(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	mkRes := func(rt, id string) *v2.Resource {
 		return v2.Resource_builder{
 			Id: v2.ResourceId_builder{ResourceType: rt, Resource: id}.Build(),
 		}.Build()
 	}
 	appRes := mkRes("app", "gh")
-	if err := a.PutResources(ctx, appRes); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutResources(ctx, appRes))
 	entA := v2.Entitlement_builder{Id: "ent-A", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "A"}.Build()
-	if err := a.PutEntitlements(ctx, entA); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutEntitlements(ctx, entA))
 	const userCount = 25
 	users := make([]*v2.Resource, userCount)
 	for i := 0; i < userCount; i++ {
 		users[i] = mkRes("user", "u"+strconv.Itoa(i))
 	}
-	if err := a.PutResources(ctx, users...); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutResources(ctx, users...))
 	grants := make([]*v2.Grant, userCount)
 	for i := 0; i < userCount; i++ {
 		grants[i] = v2.Grant_builder{
@@ -497,69 +381,45 @@ func TestStreamingReaderPebble(t *testing.T) {
 			Principal:   mkRes("user", "u"+strconv.Itoa(i)),
 		}.Build()
 	}
-	if err := a.PutGrants(ctx, grants...); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutGrants(ctx, grants...))
 
 	t.Run("StreamGrants yields all", func(t *testing.T) {
 		seen := 0
 		for g, err := range a.StreamGrants(ctx, syncID, connectorstore.StreamGrantsOptions{}) {
-			if err != nil {
-				t.Fatal(err)
-			}
-			if g == nil {
-				t.Fatal("nil grant")
-			}
+			require.NoError(t, err)
+			require.NotNil(t, g)
 			seen++
 		}
-		if seen != userCount {
-			t.Errorf("seen=%d, want %d", seen, userCount)
-		}
+		require.Equal(t, userCount, seen)
 	})
 	t.Run("StreamResources RT filter", func(t *testing.T) {
 		seen := 0
 		for r, err := range a.StreamResources(ctx, syncID, connectorstore.StreamResourcesOptions{ResourceTypeID: "user"}) {
-			if err != nil {
-				t.Fatal(err)
-			}
-			if r.GetId().GetResourceType() != "user" {
-				t.Errorf("unexpected rt %q", r.GetId().GetResourceType())
-			}
+			require.NoError(t, err)
+			require.Equal(t, "user", r.GetId().GetResourceType())
 			seen++
 		}
-		if seen != userCount {
-			t.Errorf("seen=%d, want %d", seen, userCount)
-		}
+		require.Equal(t, userCount, seen)
 	})
 	t.Run("StreamEntitlements", func(t *testing.T) {
 		seen := 0
 		for e, err := range a.StreamEntitlements(ctx, syncID) {
-			if err != nil {
-				t.Fatal(err)
-			}
-			if e.GetId() != "ent-A" {
-				t.Errorf("got %q", e.GetId())
-			}
+			require.NoError(t, err)
+			require.Equal(t, "ent-A", e.GetId())
 			seen++
 		}
-		if seen != 1 {
-			t.Errorf("seen=%d, want 1", seen)
-		}
+		require.Equal(t, 1, seen)
 	})
 	t.Run("early stop honored", func(t *testing.T) {
 		count := 0
 		for _, err := range a.StreamGrants(ctx, syncID, connectorstore.StreamGrantsOptions{}) {
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			count++
 			if count == 3 {
 				break
 			}
 		}
-		if count != 3 {
-			t.Errorf("count=%d, want 3", count)
-		}
+		require.Equal(t, 3, count)
 	})
 	// Compile-time check.
 	var _ connectorstore.StreamingReader = (*Adapter)(nil)
@@ -572,23 +432,18 @@ func TestStreamingReaderPebble(t *testing.T) {
 func TestListGrantsForPrincipalPebble(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 	mkRes := func(rt, id string) *v2.Resource {
 		return v2.Resource_builder{
 			Id: v2.ResourceId_builder{ResourceType: rt, Resource: id}.Build(),
 		}.Build()
 	}
 	appRes := mkRes("app", "gh")
-	if err := a.PutResources(ctx, appRes); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutResources(ctx, appRes))
 	entA := v2.Entitlement_builder{Id: "ent-A", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "A"}.Build()
 	entB := v2.Entitlement_builder{Id: "ent-B", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "B"}.Build()
-	if err := a.PutEntitlements(ctx, entA, entB); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutEntitlements(ctx, entA, entB))
 	mkGrant := func(id, entID, princRT, princID string) *v2.Grant {
 		return v2.Grant_builder{
 			Id:          id,
@@ -596,25 +451,19 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 			Principal:   mkRes(princRT, princID),
 		}.Build()
 	}
-	if err := a.PutGrants(ctx,
+	require.NoError(t, a.PutGrants(ctx,
 		mkGrant("g1", "ent-A", "user", "alice"),
 		mkGrant("g2", "ent-B", "user", "alice"),
 		mkGrant("g3", "ent-A", "user", "bob"),
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 
 	t.Run("returns all grants for principal", func(t *testing.T) {
 		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 			PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 			PageSize:    100,
 		}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := len(resp.GetList()); got != 2 {
-			t.Errorf("len=%d, want 2", got)
-		}
+		require.NoError(t, err)
+		require.Len(t, resp.GetList(), 2)
 	})
 
 	t.Run("entitlement filter narrows", func(t *testing.T) {
@@ -623,15 +472,9 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 			PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 			PageSize:    100,
 		}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := len(resp.GetList()); got != 1 {
-			t.Errorf("filter len=%d, want 1", got)
-		}
-		if resp.GetList()[0].GetId() != "g1" {
-			t.Errorf("got %q, want g1", resp.GetList()[0].GetId())
-		}
+		require.NoError(t, err)
+		require.Len(t, resp.GetList(), 1, "filter")
+		require.Equal(t, "g1", resp.GetList()[0].GetId())
 	})
 }
 
@@ -641,19 +484,12 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 func TestListStaticEntitlementsPebble(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 	resp, err := a.ListStaticEntitlements(ctx, v2.EntitlementsServiceListStaticEntitlementsRequest_builder{}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := len(resp.GetList()); got != 0 {
-		t.Errorf("expected empty list, got %d", got)
-	}
-	if resp.GetNextPageToken() != "" {
-		t.Errorf("expected empty cursor, got %q", resp.GetNextPageToken())
-	}
+	require.NoError(t, err)
+	require.Empty(t, resp.GetList())
+	require.Empty(t, resp.GetNextPageToken())
 }
 
 func TestSyncsReaderMethods(t *testing.T) {
@@ -662,135 +498,87 @@ func TestSyncsReaderMethods(t *testing.T) {
 
 	// Single-sync contract: a file holds exactly one sync, so these
 	// reader methods operate on at most one record.
-	finishedID, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err := a.EndSync(ctx); err != nil {
-		t.Fatal(err)
-	}
+	finishedID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, a.EndSync(ctx))
 
 	// GetSync(finished) → has ended_at.
 	resp, err := a.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{
 		SyncId: finishedID,
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.GetSync().GetId() != finishedID {
-		t.Errorf("GetSync id: got %q want %q", resp.GetSync().GetId(), finishedID)
-	}
-	if resp.GetSync().GetEndedAt() == nil {
-		t.Errorf("GetSync ended_at: want non-nil")
-	}
+	require.NoError(t, err)
+	require.Equal(t, finishedID, resp.GetSync().GetId(), "GetSync id")
+	require.NotNil(t, resp.GetSync().GetEndedAt(), "GetSync ended_at")
 
 	// ListSyncs → exactly the one sync.
 	listResp, err := a.ListSyncs(ctx, reader_v2.SyncsReaderServiceListSyncsRequest_builder{
 		PageSize: 100,
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(listResp.GetSyncs()) != 1 {
-		t.Errorf("ListSyncs: got %d, want 1", len(listResp.GetSyncs()))
-	}
+	require.NoError(t, err)
+	require.Len(t, listResp.GetSyncs(), 1, "ListSyncs")
 
 	// GetLatestFinishedSync → the finished sync, by Any and by its type;
 	// a non-matching type filter resolves nil.
 	latest, err := a.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if latest.GetSync().GetId() != finishedID {
-		t.Errorf("GetLatestFinishedSync: got %q, want %q", latest.GetSync().GetId(), finishedID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, finishedID, latest.GetSync().GetId(), "GetLatestFinishedSync")
 	latestFull, err := a.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
 		SyncType: string(connectorstore.SyncTypeFull),
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if latestFull.GetSync().GetId() != finishedID {
-		t.Errorf("GetLatestFinishedSync(full): got %q want %q", latestFull.GetSync().GetId(), finishedID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, finishedID, latestFull.GetSync().GetId(), "GetLatestFinishedSync(full)")
 	latestNone, err := a.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
 		SyncType: string(connectorstore.SyncTypePartial),
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if latestNone.GetSync() != nil {
-		t.Errorf("GetLatestFinishedSync(partial): expected nil sync, got %v", latestNone.GetSync())
-	}
+	require.NoError(t, err)
+	require.Nil(t, latestNone.GetSync(), "GetLatestFinishedSync(partial)")
 
 	// Starting a new sync REPLACES the finished one: the replacement is
 	// in-progress and the prior sync is gone.
-	inProgressID, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	inProgressID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 	resp3, err := a.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{
 		SyncId: inProgressID,
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp3.GetSync().GetEndedAt() != nil {
-		t.Errorf("GetSync(in-progress) ended_at: want nil, got %v", resp3.GetSync().GetEndedAt().AsTime())
-	}
-	if _, err := a.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{
+	require.NoError(t, err)
+	require.Nil(t, resp3.GetSync().GetEndedAt(), "GetSync(in-progress) ended_at")
+	_, err = a.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{
 		SyncId: finishedID,
-	}.Build()); err == nil {
-		t.Errorf("GetSync(replaced %q): expected error, got nil", finishedID)
-	}
+	}.Build())
+	require.Error(t, err, "GetSync(replaced %q)", finishedID)
 	latestAfter, err := a.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if latestAfter.GetSync() != nil {
-		t.Errorf("GetLatestFinishedSync after replacement: expected nil, got %v", latestAfter.GetSync())
-	}
+	require.NoError(t, err)
+	require.Nil(t, latestAfter.GetSync(), "GetLatestFinishedSync after replacement")
 }
 
 func TestStatsAndGrantStats(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	syncID, _ := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 
-	if err := a.PutResourceTypes(ctx,
+	require.NoError(t, a.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "user"}.Build(),
-		v2.ResourceType_builder{Id: "group"}.Build()); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.PutResources(ctx,
+		v2.ResourceType_builder{Id: "group"}.Build()))
+	require.NoError(t, a.PutResources(ctx,
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "a"}.Build()}.Build(),
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "b"}.Build()}.Build(),
-		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "c"}.Build()}.Build()); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.PutGrants(ctx,
+		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "c"}.Build()}.Build()))
+	require.NoError(t, a.PutGrants(ctx,
 		mkV2Grant("g1", "e1", "user", "a"),
 		mkV2Grant("g2", "e1", "user", "b"),
-		mkV2Grant("g3", "e2", "group", "c")); err != nil {
-		t.Fatal(err)
-	}
+		mkV2Grant("g3", "e2", "group", "c")))
 
 	stats, err := a.Stats(ctx, connectorstore.SyncTypeAny, syncID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stats["resource_types"] != 2 {
-		t.Errorf("stats[resource_types] = %d, want 2", stats["resource_types"])
-	}
-	if stats["resources"] != 3 {
-		t.Errorf("stats[resources] = %d, want 3", stats["resources"])
-	}
-	if stats["grants"] != 3 {
-		t.Errorf("stats[grants] = %d, want 3", stats["grants"])
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(2), stats["resource_types"], "stats[resource_types]")
+	require.Equal(t, int64(3), stats["resources"], "stats[resources]")
+	require.Equal(t, int64(3), stats["grants"], "stats[grants]")
 
 	// GrantStats partitions by entitlement resource type. Our
 	// mkV2Grant always sets the entitlement's resource to (app, github),
 	// so all 3 grants count under "app".
 	gs, err := a.GrantStats(ctx, connectorstore.SyncTypeAny, syncID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if gs["app"] != 3 {
-		t.Errorf("GrantStats[app] = %d, want 3", gs["app"])
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(3), gs["app"], "GrantStats[app]")
 }

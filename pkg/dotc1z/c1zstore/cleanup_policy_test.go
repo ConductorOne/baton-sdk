@@ -1,13 +1,13 @@
 package c1zstore
 
 import (
-	"reflect"
 	"sort"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/stretchr/testify/require"
 )
 
 // makeCandidate builds a SyncRun at a given relative
@@ -49,9 +49,7 @@ func assertDeletes(t *testing.T, got, want []string) {
 	wantSorted := append([]string(nil), want...)
 	sort.Strings(gotSorted)
 	sort.Strings(wantSorted)
-	if !reflect.DeepEqual(gotSorted, wantSorted) {
-		t.Errorf("SelectSyncsToDelete:\n  got  = %v\n  want = %v", got, want)
-	}
+	require.Equal(t, wantSorted, gotSorted, "SelectSyncsToDelete:\n  got  = %v\n  want = %v", got, want)
 }
 
 // -----------------------------------------------------------------------------
@@ -60,9 +58,7 @@ func assertDeletes(t *testing.T, got, want []string) {
 
 func TestSelectSyncsToDelete_EmptyCandidates(t *testing.T) {
 	got := SelectSyncsToDelete(nil, "", 2)
-	if len(got) != 0 {
-		t.Errorf("empty candidates: got %v, want []", got)
-	}
+	require.Empty(t, got)
 }
 
 func TestSelectSyncsToDelete_AllUnfinished(t *testing.T) {
@@ -74,9 +70,7 @@ func TestSelectSyncsToDelete_AllUnfinished(t *testing.T) {
 		makeCandidate("s3", connectorstore.SyncTypePartialUpserts, 20, false),
 	}
 	got := SelectSyncsToDelete(cands, "", 1)
-	if len(got) != 0 {
-		t.Errorf("all unfinished: got %v, want []", got)
-	}
+	require.Empty(t, got)
 }
 
 func TestSelectSyncsToDelete_SkipsCurrentSync(t *testing.T) {
@@ -105,9 +99,7 @@ func TestSelectSyncsToDelete_FullSyncsBelowLimit_NoOp(t *testing.T) {
 	}
 	// 2 full syncs, limit 2 ⇒ none over budget.
 	got := SelectSyncsToDelete(cands, "", 2)
-	if len(got) != 0 {
-		t.Errorf("at limit: got %v, want []", got)
-	}
+	require.Empty(t, got)
 }
 
 func TestSelectSyncsToDelete_FullSyncsAtExactLimit_NoOp(t *testing.T) {
@@ -119,9 +111,7 @@ func TestSelectSyncsToDelete_FullSyncsAtExactLimit_NoOp(t *testing.T) {
 		makeCandidate("f3", connectorstore.SyncTypeFull, 20, true),
 	}
 	got := SelectSyncsToDelete(cands, "", 3)
-	if len(got) != 0 {
-		t.Errorf("at exact limit: got %v, want []", got)
-	}
+	require.Empty(t, got)
 }
 
 func TestSelectSyncsToDelete_FullSyncsOverflow_DropsOldest(t *testing.T) {
@@ -193,9 +183,7 @@ func TestSelectSyncsToDelete_PartialsNotPrunedWhenFullSyncsAtLimit(t *testing.T)
 		makeCandidate("f2", connectorstore.SyncTypeFull, 200, true),
 	}
 	got := SelectSyncsToDelete(cands, "", 2)
-	if len(got) != 0 {
-		t.Errorf("no full-sync overflow: got %v, want []", got)
-	}
+	require.Empty(t, got)
 }
 
 func TestSelectSyncsToDelete_PartialCutoffSkippedWhenCutoffStartedAtNil(t *testing.T) {
@@ -283,9 +271,7 @@ func TestSelectSyncsToDelete_TwoDiffSyncs_NoOp(t *testing.T) {
 		makeCandidate("d2", connectorstore.SyncTypePartialDeletions, 10, true),
 	}
 	got := SelectSyncsToDelete(cands, "", 2)
-	if len(got) != 0 {
-		t.Errorf("two diff syncs: got %v, want []", got)
-	}
+	require.Empty(t, got)
 }
 
 func TestSelectSyncsToDelete_ManyDiffSyncs_KeepsLatestOnly(t *testing.T) {
@@ -348,39 +334,29 @@ func TestSelectSyncsToDelete_DiffSyncsIndependentOfFullSyncs(t *testing.T) {
 
 func TestResolveCleanupSyncLimit_Default(t *testing.T) {
 	t.Setenv("BATON_KEEP_SYNC_COUNT", "")
-	if got := ResolveCleanupSyncLimit(0, false); got != defaultCleanupSyncLimit {
-		t.Errorf("default: got %d, want %d", got, defaultCleanupSyncLimit)
-	}
+	require.Equal(t, defaultCleanupSyncLimit, ResolveCleanupSyncLimit(0, false))
 }
 
 func TestResolveCleanupSyncLimit_DefaultWithCurrentSync(t *testing.T) {
 	t.Setenv("BATON_KEEP_SYNC_COUNT", "")
 	// Default 2, current sync ⇒ 1 effective.
-	if got := ResolveCleanupSyncLimit(0, true); got != 1 {
-		t.Errorf("default + current: got %d, want 1", got)
-	}
+	require.Equal(t, 1, ResolveCleanupSyncLimit(0, true))
 }
 
 func TestResolveCleanupSyncLimit_CallerLimitWins(t *testing.T) {
 	t.Setenv("BATON_KEEP_SYNC_COUNT", "99")
 	// Caller-supplied limit precedes the env var.
-	if got := ResolveCleanupSyncLimit(5, false); got != 5 {
-		t.Errorf("caller wins over env: got %d, want 5", got)
-	}
+	require.Equal(t, 5, ResolveCleanupSyncLimit(5, false))
 }
 
 func TestResolveCleanupSyncLimit_EnvFallback(t *testing.T) {
 	t.Setenv("BATON_KEEP_SYNC_COUNT", "7")
-	if got := ResolveCleanupSyncLimit(0, false); got != 7 {
-		t.Errorf("env fallback: got %d, want 7", got)
-	}
+	require.Equal(t, 7, ResolveCleanupSyncLimit(0, false))
 }
 
 func TestResolveCleanupSyncLimit_EnvMalformedFallsBackToDefault(t *testing.T) {
 	t.Setenv("BATON_KEEP_SYNC_COUNT", "garbage")
-	if got := ResolveCleanupSyncLimit(0, false); got != defaultCleanupSyncLimit {
-		t.Errorf("malformed env: got %d, want %d", got, defaultCleanupSyncLimit)
-	}
+	require.Equal(t, defaultCleanupSyncLimit, ResolveCleanupSyncLimit(0, false))
 }
 
 func TestResolveCleanupSyncLimit_EnvZeroIgnored(t *testing.T) {
@@ -388,18 +364,14 @@ func TestResolveCleanupSyncLimit_EnvZeroIgnored(t *testing.T) {
 	// through to the default. Matches the > 0 check in
 	// (*C1File).Cleanup.
 	t.Setenv("BATON_KEEP_SYNC_COUNT", "0")
-	if got := ResolveCleanupSyncLimit(0, false); got != defaultCleanupSyncLimit {
-		t.Errorf("env 0: got %d, want %d", got, defaultCleanupSyncLimit)
-	}
+	require.Equal(t, defaultCleanupSyncLimit, ResolveCleanupSyncLimit(0, false))
 }
 
 func TestResolveCleanupSyncLimit_DecrementFloorAtZero(t *testing.T) {
 	t.Setenv("BATON_KEEP_SYNC_COUNT", "")
 	// Caller passes 1, current sync ⇒ 0 (would underflow without
 	// the floor in the decrement branch).
-	if got := ResolveCleanupSyncLimit(1, true); got != 0 {
-		t.Errorf("decrement to floor: got %d, want 0", got)
-	}
+	require.Equal(t, 0, ResolveCleanupSyncLimit(1, true))
 }
 
 // -----------------------------------------------------------------------------
@@ -421,9 +393,7 @@ func TestCleanupSkippedByEnv(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("BATON_SKIP_CLEANUP", tc.val)
-			if got := CleanupSkippedByEnv(); got != tc.want {
-				t.Errorf("env=%q: got %v, want %v", tc.val, got, tc.want)
-			}
+			require.Equal(t, tc.want, CleanupSkippedByEnv())
 		})
 	}
 }

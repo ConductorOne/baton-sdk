@@ -1,47 +1,38 @@
 package c1zsanitize
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSanitizeIDDeterministic(t *testing.T) {
 	secret := bytes32("test-secret")
 	a := SanitizeID(secret, "user-123")
 	b := SanitizeID(secret, "user-123")
-	if a != b {
-		t.Fatalf("expected same input to yield same output; got %q vs %q", a, b)
-	}
+	require.Equal(t, a, b, "expected same input to yield same output")
 }
 
 func TestSanitizeIDDistinctInputsDistinctOutputs(t *testing.T) {
 	secret := bytes32("test-secret")
 	a := SanitizeID(secret, "user-123")
 	b := SanitizeID(secret, "user-456")
-	if a == b {
-		t.Fatalf("expected distinct inputs to yield distinct outputs; both %q", a)
-	}
+	require.NotEqual(t, a, b, "expected distinct inputs to yield distinct outputs")
 }
 
 func TestSanitizeIDDifferentSecrets(t *testing.T) {
 	a := SanitizeID(bytes32("secret-a"), "user-123")
 	b := SanitizeID(bytes32("secret-b"), "user-123")
-	if a == b {
-		t.Fatalf("expected different secrets to yield different outputs; both %q", a)
-	}
+	require.NotEqual(t, a, b, "expected different secrets to yield different outputs")
 }
 
 func TestSanitizeIDEmptyInputEmptyOutput(t *testing.T) {
-	if got := SanitizeID(bytes32("s"), ""); got != "" {
-		t.Fatalf("expected empty output for empty input, got %q", got)
-	}
+	require.Empty(t, SanitizeID(bytes32("s"), ""), "expected empty output for empty input")
 }
 
 func TestSanitizeIDNoPadding(t *testing.T) {
 	got := SanitizeID(bytes32("s"), "anything")
-	if strings.ContainsRune(got, '=') {
-		t.Fatalf("expected unpadded base32, got %q", got)
-	}
+	require.NotContains(t, got, "=", "expected unpadded base32")
 }
 
 func bytes32(seed string) []byte {

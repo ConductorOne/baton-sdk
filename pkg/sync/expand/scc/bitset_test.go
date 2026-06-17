@@ -3,25 +3,21 @@ package scc
 import (
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestBitsetBasicSetTest(t *testing.T) {
 	b := newBitset(130) // spans 3 words
-	if b.isEmpty() == false {
-		t.Fatalf("new bitset should be empty")
-	}
+	require.True(t, b.isEmpty(), "new bitset should be empty")
 
 	// Set and test a few indices across word boundaries
 	indices := []int{0, 1, 63, 64, 65, 129}
 	for _, i := range indices {
 		b.set(i)
-		if !b.test(i) {
-			t.Fatalf("expected bit %d to be set", i)
-		}
+		require.True(t, b.test(i), "expected bit %d to be set", i)
 	}
-	if b.isEmpty() {
-		t.Fatalf("bitset should not be empty after sets")
-	}
+	require.False(t, b.isEmpty(), "bitset should not be empty after sets")
 }
 
 func TestBitsetCloneAndOps(t *testing.T) {
@@ -36,33 +32,23 @@ func TestBitsetCloneAndOps(t *testing.T) {
 
 	c := b1.clone().and(b2)
 	for _, i := range []int{2, 64} {
-		if !c.test(i) {
-			t.Fatalf("AND missing expected bit %d", i)
-		}
+		require.True(t, c.test(i), "AND missing expected bit %d", i)
 	}
 	for _, i := range []int{0, 3, 100, 127} {
-		if c.test(i) {
-			t.Fatalf("AND has unexpected bit %d", i)
-		}
+		require.False(t, c.test(i), "AND has unexpected bit %d", i)
 	}
 
 	u := b1.clone().or(b2)
 	for _, i := range []int{0, 2, 3, 64, 100, 127} {
-		if !u.test(i) {
-			t.Fatalf("OR missing expected bit %d", i)
-		}
+		require.True(t, u.test(i), "OR missing expected bit %d", i)
 	}
 
 	d := b1.clone().andNot(c)
 	for _, i := range []int{0, 127} {
-		if !d.test(i) {
-			t.Fatalf("ANDNOT missing expected bit %d", i)
-		}
+		require.True(t, d.test(i), "ANDNOT missing expected bit %d", i)
 	}
 	for _, i := range []int{2, 64} {
-		if d.test(i) {
-			t.Fatalf("ANDNOT has unexpected bit %d", i)
-		}
+		require.False(t, d.test(i), "ANDNOT has unexpected bit %d", i)
 	}
 }
 
@@ -75,14 +61,8 @@ func TestBitsetForEachSetOrder(t *testing.T) {
 	var seen []int
 	b.forEachSet(func(i int) { seen = append(seen, i) })
 	expected := []int{0, 1, 63, 64, 69}
-	if len(seen) != len(expected) {
-		t.Fatalf("unexpected count: got %d, want %d", len(seen), len(expected))
-	}
-	for i := range expected {
-		if seen[i] != expected[i] {
-			t.Fatalf("order mismatch at %d: got %d, want %d", i, seen[i], expected[i])
-		}
-	}
+	require.Len(t, seen, len(expected), "unexpected count")
+	require.Equal(t, expected, seen, "order mismatch")
 }
 
 func TestBitsetAtomicOps(t *testing.T) {
@@ -105,20 +85,12 @@ func TestBitsetAtomicOps(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if setCount != 1 {
-		t.Fatalf("expected exactly one set, got %d", setCount)
-	}
-	if !b.test(idx) {
-		t.Fatalf("bit should be set after atomic operations")
-	}
+	require.Equal(t, 1, setCount, "expected exactly one set")
+	require.True(t, b.test(idx), "bit should be set after atomic operations")
 
 	// clearAtomic should clear once and be idempotent
 	b.clearAtomic(idx)
-	if b.test(idx) {
-		t.Fatalf("bit should be cleared")
-	}
+	require.False(t, b.test(idx), "bit should be cleared")
 	b.clearAtomic(idx)
-	if b.test(idx) {
-		t.Fatalf("bit should remain cleared after second clear")
-	}
+	require.False(t, b.test(idx), "bit should remain cleared after second clear")
 }

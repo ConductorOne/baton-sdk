@@ -60,5 +60,5 @@ func waitForTransportStreamMutexWait(t *testing.T, method string) {
 		runtime.Gosched()
 	}
 
-	t.Fatalf("timed out waiting for %s to block on TransportStream mutex", method)
+	require.FailNowf(t, "timed out waiting to block on TransportStream mutex", "method %s", method)
 }

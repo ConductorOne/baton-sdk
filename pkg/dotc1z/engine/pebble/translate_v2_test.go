@@ -3,6 +3,8 @@ package pebble
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
@@ -27,29 +29,15 @@ func TestV2GrantRoundtrip(t *testing.T) {
 	}.Build()
 
 	v3rec := V2GrantToV3("sync-id-1", original)
-	if v3rec.GetExternalId() != "grant-1" {
-		t.Errorf("external_id: got %q", v3rec.GetExternalId())
-	}
-	if v3rec.GetEntitlement().GetEntitlementId() != "github-read" {
-		t.Errorf("entitlement_id: got %q", v3rec.GetEntitlement().GetEntitlementId())
-	}
-	if v3rec.GetPrincipal().GetResourceTypeId() != "user" {
-		t.Errorf("principal rt: got %q", v3rec.GetPrincipal().GetResourceTypeId())
-	}
+	require.Equal(t, "grant-1", v3rec.GetExternalId(), "external_id")
+	require.Equal(t, "github-read", v3rec.GetEntitlement().GetEntitlementId(), "entitlement_id")
+	require.Equal(t, "user", v3rec.GetPrincipal().GetResourceTypeId(), "principal rt")
 
 	back := V3GrantToV2(v3rec)
-	if back.GetId() != "grant-1" {
-		t.Errorf("roundtrip id: got %q", back.GetId())
-	}
-	if back.GetEntitlement().GetId() != "github-read" {
-		t.Errorf("roundtrip entitlement id: got %q", back.GetEntitlement().GetId())
-	}
-	if back.GetEntitlement().GetResource().GetId().GetResourceType() != "app" {
-		t.Errorf("roundtrip ent.resource.rt: got %q", back.GetEntitlement().GetResource().GetId().GetResourceType())
-	}
-	if back.GetPrincipal().GetId().GetResource() != "alice" {
-		t.Errorf("roundtrip principal: got %q", back.GetPrincipal().GetId().GetResource())
-	}
+	require.Equal(t, "grant-1", back.GetId(), "roundtrip id")
+	require.Equal(t, "github-read", back.GetEntitlement().GetId(), "roundtrip entitlement id")
+	require.Equal(t, "app", back.GetEntitlement().GetResource().GetId().GetResourceType(), "roundtrip ent.resource.rt")
+	require.Equal(t, "alice", back.GetPrincipal().GetId().GetResource(), "roundtrip principal")
 }
 
 func TestV2ResourceRoundtrip(t *testing.T) {
@@ -67,23 +55,13 @@ func TestV2ResourceRoundtrip(t *testing.T) {
 	}.Build()
 
 	v3rec := V2ResourceToV3("sync-1", original)
-	if v3rec.GetResourceId() != "alice" {
-		t.Errorf("resource_id: got %q", v3rec.GetResourceId())
-	}
-	if v3rec.GetParent().GetResourceTypeId() != "group" {
-		t.Errorf("parent rt: got %q", v3rec.GetParent().GetResourceTypeId())
-	}
+	require.Equal(t, "alice", v3rec.GetResourceId(), "resource_id")
+	require.Equal(t, "group", v3rec.GetParent().GetResourceTypeId(), "parent rt")
 
 	back := V3ResourceToV2(v3rec)
-	if back.GetId().GetResource() != "alice" {
-		t.Errorf("roundtrip resource: got %q", back.GetId().GetResource())
-	}
-	if back.GetParentResourceId().GetResource() != "engineers" {
-		t.Errorf("roundtrip parent: got %q", back.GetParentResourceId().GetResource())
-	}
-	if back.GetDisplayName() != "Alice" {
-		t.Errorf("roundtrip display_name: got %q", back.GetDisplayName())
-	}
+	require.Equal(t, "alice", back.GetId().GetResource(), "roundtrip resource")
+	require.Equal(t, "engineers", back.GetParentResourceId().GetResource(), "roundtrip parent")
+	require.Equal(t, "Alice", back.GetDisplayName(), "roundtrip display_name")
 }
 
 func TestV2ResourceTypeRoundtrip(t *testing.T) {
@@ -94,26 +72,14 @@ func TestV2ResourceTypeRoundtrip(t *testing.T) {
 	}.Build()
 
 	v3rec := V2ResourceTypeToV3("sync-1", original)
-	if v3rec.GetExternalId() != "user" {
-		t.Errorf("external_id: got %q", v3rec.GetExternalId())
-	}
-	if len(v3rec.GetTraits()) != 2 {
-		t.Errorf("traits count: got %d", len(v3rec.GetTraits()))
-	}
+	require.Equal(t, "user", v3rec.GetExternalId(), "external_id")
+	require.Len(t, v3rec.GetTraits(), 2, "traits count")
 
 	back := V3ResourceTypeToV2(v3rec)
-	if back.GetId() != "user" {
-		t.Errorf("roundtrip id: got %q", back.GetId())
-	}
-	if len(back.GetTraits()) != 2 {
-		t.Fatalf("roundtrip trait count: got %d", len(back.GetTraits()))
-	}
-	if back.GetTraits()[0] != v2.ResourceType_TRAIT_USER {
-		t.Errorf("roundtrip trait[0]: got %v", back.GetTraits()[0])
-	}
-	if back.GetTraits()[1] != v2.ResourceType_TRAIT_APP {
-		t.Errorf("roundtrip trait[1]: got %v", back.GetTraits()[1])
-	}
+	require.Equal(t, "user", back.GetId(), "roundtrip id")
+	require.Len(t, back.GetTraits(), 2, "roundtrip trait count")
+	require.Equal(t, v2.ResourceType_TRAIT_USER, back.GetTraits()[0], "roundtrip trait[0]")
+	require.Equal(t, v2.ResourceType_TRAIT_APP, back.GetTraits()[1], "roundtrip trait[1]")
 }
 
 func TestV2EntitlementRoundtrip(t *testing.T) {
@@ -131,54 +97,28 @@ func TestV2EntitlementRoundtrip(t *testing.T) {
 	}.Build()
 
 	v3rec := V2EntitlementToV3("sync-1", original)
-	if v3rec.GetExternalId() != "github-read" {
-		t.Errorf("external_id: got %q", v3rec.GetExternalId())
-	}
-	if v3rec.GetResource().GetResourceId() != "github" {
-		t.Errorf("resource.resource_id: got %q", v3rec.GetResource().GetResourceId())
-	}
-	if v3rec.GetPurpose() != "PERMISSION" {
-		t.Errorf("purpose: got %q want PERMISSION", v3rec.GetPurpose())
-	}
+	require.Equal(t, "github-read", v3rec.GetExternalId(), "external_id")
+	require.Equal(t, "github", v3rec.GetResource().GetResourceId(), "resource.resource_id")
+	require.Equal(t, "PERMISSION", v3rec.GetPurpose(), "purpose")
 
 	back := V3EntitlementToV2(v3rec)
-	if back.GetId() != "github-read" {
-		t.Errorf("roundtrip id: got %q", back.GetId())
-	}
-	if back.GetResource().GetId().GetResource() != "github" {
-		t.Errorf("roundtrip resource: got %q", back.GetResource().GetId().GetResource())
-	}
-	if back.GetPurpose() != v2.Entitlement_PURPOSE_VALUE_PERMISSION {
-		t.Errorf("roundtrip purpose: got %v", back.GetPurpose())
-	}
+	require.Equal(t, "github-read", back.GetId(), "roundtrip id")
+	require.Equal(t, "github", back.GetResource().GetId().GetResource(), "roundtrip resource")
+	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_PERMISSION, back.GetPurpose(), "roundtrip purpose")
 }
 
 func TestNilTranslations(t *testing.T) {
-	if V2GrantToV3("sync", nil) != nil {
-		t.Error("V2GrantToV3(nil) should be nil")
-	}
-	if V3GrantToV2(nil) != nil {
-		t.Error("V3GrantToV2(nil) should be nil")
-	}
-	if V2ResourceToV3("sync", nil) != nil {
-		t.Error("V2ResourceToV3(nil) should be nil")
-	}
-	if V3ResourceToV2(nil) != nil {
-		t.Error("V3ResourceToV2(nil) should be nil")
-	}
-	if V2ResourceTypeToV3("sync", nil) != nil {
-		t.Error("V2ResourceTypeToV3(nil) should be nil")
-	}
-	if V2EntitlementToV3("sync", nil) != nil {
-		t.Error("V2EntitlementToV3(nil) should be nil")
-	}
+	require.Nil(t, V2GrantToV3("sync", nil), "V2GrantToV3(nil) should be nil")
+	require.Nil(t, V3GrantToV2(nil), "V3GrantToV2(nil) should be nil")
+	require.Nil(t, V2ResourceToV3("sync", nil), "V2ResourceToV3(nil) should be nil")
+	require.Nil(t, V3ResourceToV2(nil), "V3ResourceToV2(nil) should be nil")
+	require.Nil(t, V2ResourceTypeToV3("sync", nil), "V2ResourceTypeToV3(nil) should be nil")
+	require.Nil(t, V2EntitlementToV3("sync", nil), "V2EntitlementToV3(nil) should be nil")
 }
 
 func TestUnknownTraitRoundtrip(t *testing.T) {
 	// Unknown trait string maps to TRAIT_UNSPECIFIED, not a panic.
-	if got := stringToTrait("DOES_NOT_EXIST"); got != v2.ResourceType_TRAIT_UNSPECIFIED {
-		t.Errorf("unknown trait: got %v want UNSPECIFIED", got)
-	}
+	require.Equal(t, v2.ResourceType_TRAIT_UNSPECIFIED, stringToTrait("DOES_NOT_EXIST"), "unknown trait")
 }
 
 func TestGrantSourcesRoundtrip(t *testing.T) {
@@ -202,21 +142,11 @@ func TestGrantSourcesRoundtrip(t *testing.T) {
 	}.Build()
 
 	v3rec := V2GrantToV3("sync-1", original)
-	if len(v3rec.GetSources()) != 2 {
-		t.Fatalf("source count v3: got %d", len(v3rec.GetSources()))
-	}
-	if !v3rec.GetSources()["direct-source"].GetIsDirect() {
-		t.Error("direct-source.is_direct should be true")
-	}
-	if v3rec.GetSources()["indirect-source"].GetIsDirect() {
-		t.Error("indirect-source.is_direct should be false")
-	}
+	require.Len(t, v3rec.GetSources(), 2, "source count v3")
+	require.True(t, v3rec.GetSources()["direct-source"].GetIsDirect(), "direct-source.is_direct should be true")
+	require.False(t, v3rec.GetSources()["indirect-source"].GetIsDirect(), "indirect-source.is_direct should be false")
 
 	back := V3GrantToV2(v3rec)
-	if len(back.GetSources().GetSources()) != 2 {
-		t.Fatalf("source count v2 roundtrip: got %d", len(back.GetSources().GetSources()))
-	}
-	if !back.GetSources().GetSources()["direct-source"].GetIsDirect() {
-		t.Error("roundtrip direct-source.is_direct should be true")
-	}
+	require.Len(t, back.GetSources().GetSources(), 2, "source count v2 roundtrip")
+	require.True(t, back.GetSources().GetSources()["direct-source"].GetIsDirect(), "roundtrip direct-source.is_direct should be true")
 }

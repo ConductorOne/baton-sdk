@@ -690,9 +690,7 @@ func TestC1ZCachedViewSyncRunInvalidation(t *testing.T) {
 func TestEngineDefaultsToSQLite(t *testing.T) {
 	dir := t.TempDir()
 	f, err := NewStore(context.Background(), filepath.Join(dir, "default.c1z"))
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
+	require.NoError(t, err, "NewStore")
 	defer f.Close(context.Background())
 	engine := f.Metadata().Engine
 	require.Equal(t, string(EngineSQLite), engine)

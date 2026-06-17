@@ -35,12 +35,12 @@ func TestRun_DoesNotPollAllFreeSlotsWhenNoTasksAvailable(t *testing.T) {
 	select {
 	case <-tm.firstNext:
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for first Next call")
+		require.Fail(t, "timed out waiting for first Next call")
 	}
 
 	select {
 	case <-tm.secondNext:
-		t.Fatalf("expected one Next call before next poll interval, got %d", tm.nextCalls.Load())
+		require.Fail(t, fmt.Sprintf("expected one Next call before next poll interval, got %d", tm.nextCalls.Load()))
 	case <-time.After(50 * time.Millisecond):
 	}
 
@@ -51,7 +51,7 @@ func TestRun_DoesNotPollAllFreeSlotsWhenNoTasksAvailable(t *testing.T) {
 	case err := <-errCh:
 		require.NoError(t, err)
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for runner to stop")
+		require.Fail(t, "timed out waiting for runner to stop")
 	}
 }
 
@@ -77,7 +77,7 @@ func TestRun_TaskConcurrencyCapsProcessing(t *testing.T) {
 
 	select {
 	case <-tm.started:
-		t.Fatalf("started more than %d tasks without a free slot", runner.taskConcurrency)
+		require.Fail(t, fmt.Sprintf("started more than %d tasks without a free slot", runner.taskConcurrency))
 	case <-time.After(50 * time.Millisecond):
 	}
 
@@ -97,7 +97,7 @@ func TestRun_TaskConcurrencyCapsProcessing(t *testing.T) {
 	case err := <-errCh:
 		require.NoError(t, err)
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for runner to stop")
+		require.Fail(t, "timed out waiting for runner to stop")
 	}
 }
 
@@ -107,7 +107,7 @@ func waitForStartedTasks(t *testing.T, started <-chan struct{}, count int) {
 		select {
 		case <-started:
 		case <-time.After(time.Second):
-			t.Fatalf("timed out waiting for %d started task(s)", count)
+			require.Fail(t, fmt.Sprintf("timed out waiting for %d started task(s)", count))
 		}
 	}
 }

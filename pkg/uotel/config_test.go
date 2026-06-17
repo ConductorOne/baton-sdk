@@ -34,9 +34,7 @@ hFE=
 	t.Logf("Base64 Encoded Certificate:\n%s", encodedCert)
 
 	decodedCert, err := base64.RawURLEncoding.DecodeString(encodedCert)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Logf("Decoded Certificate:\n%s", decodedCert)
 
 	require.Equal(t, cert, string(decodedCert))

@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // makeAdj creates an adjacency map ensuring every node appears as a key.
@@ -60,15 +62,9 @@ func TestRingSingleComponent(t *testing.T) {
 	adj := makeAdj(nodes, edges)
 
 	groups, m := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
-	if len(groups) != 1 {
-		t.Fatalf("expected 1 component, got %d: %+v", len(groups), groups)
-	}
-	if len(groups[0]) != n {
-		t.Fatalf("expected ring size %d, got %d", n, len(groups[0]))
-	}
-	if m == nil || m.Components != 1 || m.Nodes != n || m.Edges != n || m.Peeled != 0 {
-		t.Fatalf("metrics unexpected: %+v", m)
-	}
+	require.Lenf(t, groups, 1, "expected 1 component, got %d: %+v", len(groups), groups)
+	require.Lenf(t, groups[0], n, "expected ring size %d, got %d", n, len(groups[0]))
+	require.Truef(t, m != nil && m.Components == 1 && m.Nodes == n && m.Edges == n && m.Peeled == 0, "metrics unexpected: %+v", m)
 }
 
 func TestChainAllSingletons(t *testing.T) {
@@ -84,17 +80,11 @@ func TestChainAllSingletons(t *testing.T) {
 	adj := makeAdj(nodes, edges)
 
 	groups, m := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
-	if len(groups) != n {
-		t.Fatalf("expected %d singleton components, got %d", n, len(groups))
-	}
+	require.Lenf(t, groups, n, "expected %d singleton components, got %d", n, len(groups))
 	for idx, g := range groups {
-		if len(g) != 1 {
-			t.Fatalf("expected singleton at comp %d, got size %d", idx, len(g))
-		}
+		require.Lenf(t, g, 1, "expected singleton at comp %d, got size %d", idx, len(g))
 	}
-	if m == nil || m.Components != n || m.Nodes != n || m.Edges != n-1 || m.Peeled != n || m.BFScalls != 0 {
-		t.Fatalf("metrics unexpected: %+v", m)
-	}
+	require.Truef(t, m != nil && m.Components == n && m.Nodes == n && m.Edges == n-1 && m.Peeled == n && m.BFScalls == 0, "metrics unexpected: %+v", m)
 }
 
 func TestSelfLoopIsolatedCyclicSingleton(t *testing.T) {
@@ -104,9 +94,7 @@ func TestSelfLoopIsolatedCyclicSingleton(t *testing.T) {
 
 	groups, m := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	// Expect two components: {1} and {2}
-	if len(groups) != 2 {
-		t.Fatalf("expected 2 components, got %d: %+v", len(groups), groups)
-	}
+	require.Lenf(t, groups, 2, "expected 2 components, got %d: %+v", len(groups), groups)
 	// Determine which comp has node 1
 	var comp1 []int
 	for _, g := range groups {
@@ -117,16 +105,10 @@ func TestSelfLoopIsolatedCyclicSingleton(t *testing.T) {
 			}
 		}
 	}
-	if len(comp1) != 1 {
-		t.Fatalf("node 1 should be singleton SCC, got %v", comp1)
-	}
+	require.Lenf(t, comp1, 1, "node 1 should be singleton SCC, got %v", comp1)
 	// Verify self-loop classification logic: len==1 but adj[1][1] exists
-	if adj[1][1] == 0 {
-		t.Fatalf("expected self-loop for node 1 in adjacency")
-	}
-	if m == nil || m.Components != 2 || m.Nodes != 2 || m.Peeled < 1 { // at least node 2 is peeled
-		t.Fatalf("metrics unexpected: %+v", m)
-	}
+	require.NotZerof(t, adj[1][1], "expected self-loop for node 1 in adjacency")
+	require.Truef(t, m != nil && m.Components == 2 && m.Nodes == 2 && m.Peeled >= 1, "metrics unexpected: %+v", m) // at least node 2 is peeled
 }
 
 func TestCliqueSingleComponent(t *testing.T) {
@@ -146,12 +128,8 @@ func TestCliqueSingleComponent(t *testing.T) {
 	}
 	adj := makeAdj(nodes, edges)
 	groups, m := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
-	if len(groups) != 1 || len(groups[0]) != n {
-		t.Fatalf("expected one SCC of size %d, got %+v", n, groups)
-	}
-	if m == nil || m.Components != 1 || m.Nodes != n || m.Peeled != 0 || m.Edges != n*(n-1) {
-		t.Fatalf("metrics unexpected: %+v", m)
-	}
+	require.Truef(t, len(groups) == 1 && len(groups[0]) == n, "expected one SCC of size %d, got %+v", n, groups)
+	require.Truef(t, m != nil && m.Components == 1 && m.Nodes == n && m.Peeled == 0 && m.Edges == n*(n-1), "metrics unexpected: %+v", m)
 }
 
 func TestTailIntoRing(t *testing.T) {
@@ -176,9 +154,7 @@ func TestTailIntoRing(t *testing.T) {
 
 	groups, m := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	// Expect: 1 SCC of size ringN, plus len(tail) singletons
-	if len(groups) != 1+len(tail) {
-		t.Fatalf("expected %d components, got %d: %+v", 1+len(tail), len(groups), groups)
-	}
+	require.Lenf(t, groups, 1+len(tail), "expected %d components, got %d: %+v", 1+len(tail), len(groups), groups)
 	sizes := make([]int, 0, len(groups))
 	for _, g := range groups {
 		sizes = append(sizes, len(g))
@@ -190,12 +166,8 @@ func TestTailIntoRing(t *testing.T) {
 	}
 	want[len(want)-1] = ringN
 	sort.Ints(want)
-	if !reflect.DeepEqual(sizes, want) {
-		t.Fatalf("component sizes mismatch: got %v want %v", sizes, want)
-	}
-	if m == nil || m.Components != 1+len(tail) || m.Nodes != ringN+len(tail) || m.Peeled != len(tail) {
-		t.Fatalf("metrics unexpected: %+v", m)
-	}
+	require.Truef(t, reflect.DeepEqual(sizes, want), "component sizes mismatch: got %v want %v", sizes, want)
+	require.Truef(t, m != nil && m.Components == 1+len(tail) && m.Nodes == ringN+len(tail) && m.Peeled == len(tail), "metrics unexpected: %+v", m)
 }
 
 func TestMultipleDisjointSCCs(t *testing.T) {
@@ -218,9 +190,7 @@ func TestMultipleDisjointSCCs(t *testing.T) {
 	}
 	sort.Ints(sizes)
 	want := []int{1, 1, 3, 4}
-	if !reflect.DeepEqual(sizes, want) {
-		t.Fatalf("component sizes mismatch: got %v want %v", sizes, want)
-	}
+	require.Truef(t, reflect.DeepEqual(sizes, want), "component sizes mismatch: got %v want %v", sizes, want)
 	// Ensure partition covers all nodes
 	seen := make(map[int]bool, len(nodes))
 	for _, g := range groups {
@@ -229,13 +199,9 @@ func TestMultipleDisjointSCCs(t *testing.T) {
 		}
 	}
 	for _, id := range nodes {
-		if !seen[id] {
-			t.Fatalf("node %d missing from partition", id)
-		}
+		require.Truef(t, seen[id], "node %d missing from partition", id)
 	}
-	if m == nil || m.Components != 4 || m.Peeled != 2 {
-		t.Fatalf("metrics unexpected: %+v", m)
-	}
+	require.Truef(t, m != nil && m.Components == 4 && m.Peeled == 2, "metrics unexpected: %+v", m)
 }
 
 func TestDeterminismWithSingleWorker(t *testing.T) {
@@ -253,8 +219,6 @@ func TestDeterminismWithSingleWorker(t *testing.T) {
 			ref = ng
 			continue
 		}
-		if !reflect.DeepEqual(ng, ref) {
-			t.Fatalf("non-deterministic groups across runs: got %v want %v", ng, ref)
-		}
+		require.Truef(t, reflect.DeepEqual(ng, ref), "non-deterministic groups across runs: got %v want %v", ng, ref)
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/stretchr/testify/require"
 )
 
 // tupleEncodeBytes encodes a sequence of byte slices via the
@@ -74,10 +75,9 @@ func TestTupleEncodingPrefixFree(t *testing.T) {
 	for _, c := range cases {
 		enc := tupleEncodeBytes(c...)
 		separatorCount := bytes.Count(enc, []byte{0x00})
-		if separatorCount != len(c)-1 {
-			t.Errorf("tuple %v: %d separators, want %d (enc=%x)",
-				c, separatorCount, len(c)-1, enc)
-		}
+		require.Equal(t, len(c)-1, separatorCount,
+			"tuple %v: %d separators, want %d (enc=%x)",
+			c, separatorCount, len(c)-1, enc)
 	}
 
 	for i, a := range cases {
@@ -89,10 +89,9 @@ func TestTupleEncodingPrefixFree(t *testing.T) {
 			} else if bc > 0 {
 				bc = 1
 			}
-			if tc != bc {
-				t.Errorf("compare mismatch case[%d]=%v case[%d]=%v: tuple=%d bytewise=%d",
-					i, a, j, b, tc, bc)
-			}
+			require.Equal(t, tc, bc,
+				"compare mismatch case[%d]=%v case[%d]=%v: tuple=%d bytewise=%d",
+				i, a, j, b, tc, bc)
 		}
 	}
 
@@ -121,12 +120,10 @@ func TestTupleEncodingPrefixFree(t *testing.T) {
 			} else if bc > 0 {
 				bc = 1
 			}
-			if tc != bc {
-				t.Errorf("random[%d]=%v vs random[%d]=%v: tuple=%d bytewise=%d  enc_a=%x enc_b=%x",
-					i, a, j, b, tc, bc,
-					tupleEncodeBytes(a...), tupleEncodeBytes(b...))
-				return
-			}
+			require.Equal(t, tc, bc,
+				"random[%d]=%v vs random[%d]=%v: tuple=%d bytewise=%d  enc_a=%x enc_b=%x",
+				i, a, j, b, tc, bc,
+				tupleEncodeBytes(a...), tupleEncodeBytes(b...))
 		}
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
@@ -23,12 +25,10 @@ func TestResetForNewSyncRefusesActiveSync(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	a := NewAdapter(e)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
-	if err := e.ResetForNewSync(ctx); err == nil {
-		t.Fatal("ResetForNewSync while a sync is active: expected error, got nil")
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoErrorf(t, err, "StartNewSync")
+	err = e.ResetForNewSync(ctx)
+	require.Error(t, err, "ResetForNewSync while a sync is active: expected error, got nil")
 }
 
 // TestResetForNewSyncReclaimsDiskImmediately pins the excise-based wipe
@@ -44,9 +44,8 @@ func TestResetForNewSyncReclaimsDiskImmediately(t *testing.T) {
 
 	// Sync 1: enough grant data to materialize real SSTs, then EndSync
 	// (EndFreshSync flushes the memtable to L0).
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoErrorf(t, err, "StartNewSync")
 	for i := 0; i < 50; i++ {
 		batch := make([]*v3.GrantRecord, 0, 100)
 		for j := 0; j < 100; j++ {
@@ -60,39 +59,26 @@ func TestResetForNewSyncReclaimsDiskImmediately(t *testing.T) {
 				}.Build(),
 			}.Build())
 		}
-		if err := e.PutGrantRecords(ctx, batch...); err != nil {
-			t.Fatalf("PutGrantRecords: %v", err)
-		}
+		require.NoErrorf(t, e.PutGrantRecords(ctx, batch...), "PutGrantRecords")
 	}
-	if err := a.EndSync(ctx); err != nil {
-		t.Fatalf("EndSync: %v", err)
-	}
+	require.NoErrorf(t, a.EndSync(ctx), "EndSync")
 
 	dataLo := []byte{versionV3, typeResourceType}
 	dataHi := []byte{versionV3, typeEngineMeta}
 	before, err := e.DB().EstimateDiskUsage(dataLo, dataHi)
-	if err != nil {
-		t.Fatalf("EstimateDiskUsage (before): %v", err)
-	}
-	if before == 0 {
-		t.Fatal("sanity: expected non-zero on-disk usage for the finished sync's data span")
-	}
+	require.NoErrorf(t, err, "EstimateDiskUsage (before)")
+	require.NotZero(t, before, "sanity: expected non-zero on-disk usage for the finished sync's data span")
 
 	// Replacement sync: StartNewSync excises the prior sync's data.
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatalf("StartNewSync (replacement): %v", err)
-	}
+	_, err = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoErrorf(t, err, "StartNewSync (replacement)")
 	after, err := e.DB().EstimateDiskUsage(dataLo, dataHi)
-	if err != nil {
-		t.Fatalf("EstimateDiskUsage (after): %v", err)
-	}
+	require.NoErrorf(t, err, "EstimateDiskUsage (after)")
 	// The excise drops fully-covered SSTs from the manifest, so the
 	// data span's estimated usage collapses to (near) zero immediately
 	// — no compaction required. Allow a small slop for the replacement
 	// sync's own sync-run record landing in the span.
-	if after >= before/10 {
-		t.Fatalf("post-reset disk usage = %d, want < %d (10%% of pre-reset %d); excise did not reclaim the prior sync's SSTs", after, before/10, before)
-	}
+	require.Less(t, after, before/10, "post-reset disk usage = %d, want < %d (10%% of pre-reset %d); excise did not reclaim the prior sync's SSTs", after, before/10, before)
 }
 
 // TestSyncScopedRangesCoverEveryWrittenIndex asserts the cleanup range
@@ -148,9 +134,7 @@ func TestSyncScopedRangesCoverEveryWrittenIndex(t *testing.T) {
 	seen := map[byte]bool{}
 	for _, w := range written {
 		seen[w.idx] = true
-		if !covered(w.key) {
-			t.Errorf("written index key (idx=0x%02x, %s) not covered by any syncScopedRanges entry: %x", w.idx, w.name, w.key)
-		}
+		require.Truef(t, covered(w.key), "written index key (idx=0x%02x, %s) not covered by any syncScopedRanges entry: %x", w.idx, w.name, w.key)
 	}
 
 	// Every secondary index (0x01..0x07) must be exercised above so the
@@ -165,8 +149,6 @@ func TestSyncScopedRangesCoverEveryWrittenIndex(t *testing.T) {
 		idxGrantByPrincipalResourceType,
 		idxGrantByEntitlementResource,
 	} {
-		if !seen[idx] {
-			t.Errorf("index 0x%02x not exercised by this test; add a representative record so the coverage check stays complete", idx)
-		}
+		require.Truef(t, seen[idx], "index 0x%02x not exercised by this test; add a representative record so the coverage check stays complete", idx)
 	}
 }

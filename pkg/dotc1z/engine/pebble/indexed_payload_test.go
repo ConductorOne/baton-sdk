@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -29,28 +31,16 @@ func TestIndexedPayloadStoreLifecycle(t *testing.T) {
 		t.Helper()
 		opts = append(opts, dotc1z.WithTmpDir(t.TempDir()))
 		w, err := dotc1z.NewStore(ctx, path, opts...)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		syncID, err := w.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := w.PutResourceTypes(ctx, v2.ResourceType_builder{Id: rtID}.Build()); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
+		require.NoError(t, w.PutResourceTypes(ctx, v2.ResourceType_builder{Id: rtID}.Build()))
 		res := v2.Resource_builder{
 			Id: v2.ResourceId_builder{ResourceType: rtID, Resource: rtID + "-1"}.Build(),
 		}.Build()
-		if err := w.PutResources(ctx, res); err != nil {
-			t.Fatal(err)
-		}
-		if err := w.EndSync(ctx); err != nil {
-			t.Fatal(err)
-		}
-		if err := w.Close(ctx); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, w.PutResources(ctx, res))
+		require.NoError(t, w.EndSync(ctx))
+		require.NoError(t, w.Close(ctx))
 		return syncID
 	}
 
@@ -60,17 +50,11 @@ func TestIndexedPayloadStoreLifecycle(t *testing.T) {
 	requireFileEncoding := func() {
 		t.Helper()
 		f, err := os.Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		defer f.Close()
 		m, err := formatv3.ReadManifestHeader(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := m.GetPayloadEncoding().String(); got != "PAYLOAD_ENCODING_INDEXED_ZSTD" {
-			t.Fatalf("file payload encoding = %s, want PAYLOAD_ENCODING_INDEXED_ZSTD", got)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "PAYLOAD_ENCODING_INDEXED_ZSTD", m.GetPayloadEncoding().String(), "file payload encoding")
 	}
 	requireFileEncoding()
 
@@ -83,24 +67,16 @@ func TestIndexedPayloadStoreLifecycle(t *testing.T) {
 	// Reopen read-only: the surviving (second) sync and its data must be
 	// readable after the indexed rewrite; the replaced first sync is gone.
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer w.Close(ctx)
 	eng, ok := pebble.AsEngine(w)
-	if !ok {
-		t.Fatalf("not pebble: %T", w)
-	}
-	if _, err := eng.GetSyncRunRecord(ctx, second); err != nil {
-		t.Fatalf("second sync %s missing after indexed round trips: %v", second, err)
-	}
-	if _, err := eng.GetSyncRunRecord(ctx, first); err == nil {
-		t.Fatalf("first sync %s should have been replaced by the second", first)
-	}
-	if _, err := eng.GetResourceRecord(ctx, "group", "group-1"); err != nil {
-		t.Fatalf("second sync's resource missing: %v", err)
-	}
-	if _, err := eng.GetResourceRecord(ctx, "user", "user-1"); err == nil {
-		t.Fatalf("first sync's resource should be gone after replacement")
-	}
+	require.Truef(t, ok, "not pebble: %T", w)
+	_, err = eng.GetSyncRunRecord(ctx, second)
+	require.NoErrorf(t, err, "second sync %s missing after indexed round trips", second)
+	_, err = eng.GetSyncRunRecord(ctx, first)
+	require.Errorf(t, err, "first sync %s should have been replaced by the second", first)
+	_, err = eng.GetResourceRecord(ctx, "group", "group-1")
+	require.NoErrorf(t, err, "second sync's resource missing")
+	_, err = eng.GetResourceRecord(ctx, "user", "user-1")
+	require.Errorf(t, err, "first sync's resource should be gone after replacement")
 }

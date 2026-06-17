@@ -7,7 +7,6 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -338,12 +337,8 @@ func TestNewGRPCSessionCache(t *testing.T) {
 	mockClient := &SimpleMockBatonSessionServiceClient{}
 
 	cache, err := NewGRPCSessionStore(context.Background(), mockClient)
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-	if cache == nil {
-		t.Fatal("Expected non-nil cache")
-	}
+	require.NoError(t, err, "Expected no error")
+	require.NotNil(t, cache, "Expected non-nil cache")
 	// Note: We can't access the client field directly since it's private
 	// This test just verifies the constructor works
 }
@@ -351,9 +346,7 @@ func TestNewGRPCSessionCache(t *testing.T) {
 func TestNewGRPCSessionClient(t *testing.T) {
 	// Create a test DPoP key
 	_, priv, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatalf("Failed to generate test key: %v", err)
-	}
+	require.NoError(t, err, "Failed to generate test key")
 
 	dpopKey := &jose.JSONWebKey{
 		Key:       priv,
@@ -366,12 +359,8 @@ func TestNewGRPCSessionClient(t *testing.T) {
 	// The client creation should succeed even when no session service is running
 	// because gRPC connections are created lazily
 	client, err := NewGRPCSessionClient(context.Background(), "test-access-token", dpopKey)
-	if err != nil {
-		t.Fatalf("Expected no error during client creation, got %v", err)
-	}
-	if client == nil {
-		t.Fatal("Expected non-nil client")
-	}
+	require.NoError(t, err, "Expected no error during client creation")
+	require.NotNil(t, client, "Expected non-nil client")
 }
 
 func TestNewGRPCSessionClient_WithInvalidAddress(t *testing.T) {
@@ -381,9 +370,7 @@ func TestNewGRPCSessionClient_WithInvalidAddress(t *testing.T) {
 
 	// Create a test DPoP key
 	_, priv, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatalf("Failed to generate test key: %v", err)
-	}
+	require.NoError(t, err, "Failed to generate test key")
 
 	dpopKey := &jose.JSONWebKey{
 		Key:       priv,
@@ -393,15 +380,9 @@ func TestNewGRPCSessionClient_WithInvalidAddress(t *testing.T) {
 	}
 
 	client, err := NewGRPCSessionClient(context.Background(), "test-access-token", dpopKey)
-	if err == nil {
-		t.Fatal("Expected error for invalid address format")
-	}
-	if client != nil {
-		t.Fatal("Expected nil client for invalid address")
-	}
-	if !strings.Contains(err.Error(), "invalid session service address") {
-		t.Fatalf("Expected error about invalid address, got: %v", err)
-	}
+	require.Error(t, err, "Expected error for invalid address format")
+	require.Nil(t, client, "Expected nil client for invalid address")
+	require.Contains(t, err.Error(), "invalid session service address", "Expected error about invalid address")
 }
 
 func TestNewGRPCSessionClient_WithInvalidDPoPKey(t *testing.T) {
@@ -414,15 +395,9 @@ func TestNewGRPCSessionClient_WithInvalidDPoPKey(t *testing.T) {
 	}
 
 	client, err := NewGRPCSessionClient(context.Background(), "test-access-token", invalidKey)
-	if err == nil {
-		t.Fatal("Expected error for invalid DPoP key")
-	}
-	if client != nil {
-		t.Fatal("Expected nil client for invalid DPoP key")
-	}
-	if !strings.Contains(err.Error(), "failed to create dpop proofer") {
-		t.Fatalf("Expected error about invalid DPoP key, got: %v", err)
-	}
+	require.Error(t, err, "Expected error for invalid DPoP key")
+	require.Nil(t, client, "Expected nil client for invalid DPoP key")
+	require.Contains(t, err.Error(), "failed to create dpop proofer", "Expected error about invalid DPoP key")
 }
 
 func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {

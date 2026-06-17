@@ -2,11 +2,11 @@ package pebble
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"testing"
 
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -26,25 +26,23 @@ func pageThroughGrants(t *testing.T, a *Adapter, pageSize uint32, expectedTotal 
 	pages := 0
 	for {
 		pages++
-		if pages > expectedTotal+1 {
-			t.Fatalf("pagination did not terminate after %d pages (expected ~%d)", pages, (expectedTotal/int(pageSize))+1)
-		}
+		require.LessOrEqual(t, pages, expectedTotal+1, "pagination did not terminate after %d pages (expected ~%d)", pages, (expectedTotal/int(pageSize))+1)
 		resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 			PageSize:  pageSize,
 			PageToken: pageToken,
 		}.Build())
-		if err != nil {
-			t.Fatalf("ListGrants page %d: %v", pages, err)
-		}
+		require.NoErrorf(t, err, "ListGrants page %d", pages)
 		got := resp.GetList()
 		if pageSize > 0 && uint32(len(got)) > pageSize { //nolint:gosec // page count is bounded
-			t.Errorf("page %d returned %d records, want <= %d", pages, len(got), pageSize)
+			require.LessOrEqualf(
+				t, uint32(len(got)), pageSize, //nolint:gosec // page count is bounded
+				"page %d returned %d records, want <= %d", pages, len(got), pageSize,
+			)
 		}
 		for _, g := range got {
 			id := g.GetId()
-			if _, dup := seen[id]; dup {
-				t.Errorf("pagination duplicate: grant %q appeared twice", id)
-			}
+			_, dup := seen[id]
+			require.Falsef(t, dup, "pagination duplicate: grant %q appeared twice", id)
 			seen[id] = struct{}{}
 		}
 		pageToken = resp.GetNextPageToken()
@@ -52,18 +50,14 @@ func pageThroughGrants(t *testing.T, a *Adapter, pageSize uint32, expectedTotal 
 			break
 		}
 	}
-	if len(seen) != expectedTotal {
-		t.Errorf("paginated total = %d, want %d (pages=%d, last token=%q)",
-			len(seen), expectedTotal, pages, pageToken)
-	}
+	require.Equal(t, expectedTotal, len(seen), "paginated total (pages=%d, last token=%q)", pages, pageToken)
 }
 
 func TestListGrantsPagination(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 	// 250 grants — enough to exercise multiple pages at any reasonable
 	// page_size we test below.
 	const total = 250
@@ -76,9 +70,7 @@ func TestListGrantsPagination(t *testing.T) {
 			"user-"+strconv.Itoa(i%20),
 		)
 	}
-	if err := a.PutGrants(ctx, grants...); err != nil {
-		t.Fatalf("PutGrants: %v", err)
-	}
+	require.NoErrorf(t, a.PutGrants(ctx, grants...), "PutGrants")
 
 	t.Run("page=10", func(t *testing.T) { pageThroughGrants(t, a, 10, total) })
 	t.Run("page=50", func(t *testing.T) { pageThroughGrants(t, a, 50, total) })
@@ -88,15 +80,9 @@ func TestListGrantsPagination(t *testing.T) {
 	t.Run("page=default_zero", func(t *testing.T) {
 		// page_size=0 clamps to DefaultPageSize (10000); single page expected.
 		resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(resp.GetList()) != total {
-			t.Errorf("default page: got %d records, want %d", len(resp.GetList()), total)
-		}
-		if resp.GetNextPageToken() != "" {
-			t.Errorf("default page should not have next token, got %q", resp.GetNextPageToken())
-		}
+		require.NoError(t, err)
+		require.Equal(t, total, len(resp.GetList()), "default page: got %d records, want %d", len(resp.GetList()), total)
+		require.Empty(t, resp.GetNextPageToken(), "default page should not have next token, got %q", resp.GetNextPageToken())
 	})
 }
 
@@ -115,23 +101,20 @@ func TestListGrantsPagination(t *testing.T) {
 func TestListGrantsPaginationByEntitlementResource(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 	const total = 100
 	for i := 0; i < total; i++ {
 		// All grants share the same entitlement resource (app/github
 		// — see mkV2Grant) so the by_entitlement_resource index
 		// covers every record. Principals vary so the test wouldn't
 		// have worked accidentally via a principal-side filter.
-		if err := a.PutGrants(ctx, mkV2Grant(
+		require.NoError(t, a.PutGrants(ctx, mkV2Grant(
 			"grant-"+strconv.Itoa(i),
 			"ent-"+strconv.Itoa(i%5),
 			"user",
 			"alice-"+strconv.Itoa(i),
-		)); err != nil {
-			t.Fatal(err)
-		}
+		)))
 	}
 
 	// Walk with page_size=15, filtered by entitlement-resource.
@@ -143,17 +126,13 @@ func TestListGrantsPaginationByEntitlementResource(t *testing.T) {
 	}.Build()
 	for {
 		pages++
-		if pages > 50 {
-			t.Fatalf("pagination did not terminate: %d pages", pages)
-		}
+		require.LessOrEqual(t, pages, 50, "pagination did not terminate: %d pages", pages)
 		resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 			Resource:  entitlementResource,
 			PageSize:  15,
 			PageToken: pageToken,
 		}.Build())
-		if err != nil {
-			t.Fatalf("ListGrants by entitlement-resource page %d: %v", pages, err)
-		}
+		require.NoErrorf(t, err, "ListGrants by entitlement-resource page %d", pages)
 		for _, g := range resp.GetList() {
 			seen[g.GetId()] = struct{}{}
 		}
@@ -162,17 +141,14 @@ func TestListGrantsPaginationByEntitlementResource(t *testing.T) {
 			break
 		}
 	}
-	if len(seen) != total {
-		t.Errorf("by-entitlement-resource paginated total = %d, want %d", len(seen), total)
-	}
+	require.Equal(t, total, len(seen), "by-entitlement-resource paginated total")
 }
 
 func TestListResourcesPagination(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 	const total = 75
 	resources := make([]*v2.Resource, total)
 	for i := 0; i < total; i++ {
@@ -184,9 +160,7 @@ func TestListResourcesPagination(t *testing.T) {
 			DisplayName: "User " + strconv.Itoa(i),
 		}.Build()
 	}
-	if err := a.PutResources(ctx, resources...); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutResources(ctx, resources...))
 
 	seen := map[string]struct{}{}
 	pageToken := ""
@@ -195,9 +169,7 @@ func TestListResourcesPagination(t *testing.T) {
 			PageSize:  20,
 			PageToken: pageToken,
 		}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		for _, r := range resp.GetList() {
 			seen[r.GetId().GetResource()] = struct{}{}
 		}
@@ -206,17 +178,14 @@ func TestListResourcesPagination(t *testing.T) {
 			break
 		}
 	}
-	if len(seen) != total {
-		t.Errorf("paginated resources = %d, want %d", len(seen), total)
-	}
+	require.Equal(t, total, len(seen), "paginated resources")
 }
 
 func TestListEntitlementsPagination(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 	const total = 50
 	entitlements := make([]*v2.Entitlement, total)
 	for i := 0; i < total; i++ {
@@ -227,9 +196,7 @@ func TestListEntitlementsPagination(t *testing.T) {
 			}.Build(),
 		}.Build()
 	}
-	if err := a.PutEntitlements(ctx, entitlements...); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutEntitlements(ctx, entitlements...))
 
 	seen := map[string]struct{}{}
 	pageToken := ""
@@ -238,9 +205,7 @@ func TestListEntitlementsPagination(t *testing.T) {
 			PageSize:  7,
 			PageToken: pageToken,
 		}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		for _, e := range resp.GetList() {
 			seen[e.GetId()] = struct{}{}
 		}
@@ -249,17 +214,14 @@ func TestListEntitlementsPagination(t *testing.T) {
 			break
 		}
 	}
-	if len(seen) != total {
-		t.Errorf("paginated entitlements = %d, want %d", len(seen), total)
-	}
+	require.Equal(t, total, len(seen), "paginated entitlements")
 }
 
 func TestListResourceTypesPagination(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 	rts := make([]*v2.ResourceType, 30)
 	for i := 0; i < 30; i++ {
 		rts[i] = v2.ResourceType_builder{
@@ -267,9 +229,7 @@ func TestListResourceTypesPagination(t *testing.T) {
 			DisplayName: "RT " + strconv.Itoa(i),
 		}.Build()
 	}
-	if err := a.PutResourceTypes(ctx, rts...); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutResourceTypes(ctx, rts...))
 	seen := map[string]struct{}{}
 	pageToken := ""
 	for {
@@ -277,9 +237,7 @@ func TestListResourceTypesPagination(t *testing.T) {
 			PageSize:  8,
 			PageToken: pageToken,
 		}.Build())
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		for _, rt := range resp.GetList() {
 			seen[rt.GetId()] = struct{}{}
 		}
@@ -288,26 +246,21 @@ func TestListResourceTypesPagination(t *testing.T) {
 			break
 		}
 	}
-	if len(seen) != 30 {
-		t.Errorf("paginated resource_types = %d, want 30", len(seen))
-	}
+	require.Equal(t, 30, len(seen), "paginated resource_types")
 }
 
 func TestPageTokenMalformed(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 	// not-base64 — must surface ErrInvalidPageToken so a buggy caller
 	// who corrupts the token gets a clear error rather than silently
 	// returning the first page again.
-	_, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+	_, err = a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 		PageToken: "not!base64!!!",
 	}.Build())
-	if !errors.Is(err, ErrInvalidPageToken) {
-		t.Errorf("malformed token: got err=%v, want ErrInvalidPageToken", err)
-	}
+	require.ErrorIs(t, err, ErrInvalidPageToken, "malformed token: got err=%v, want ErrInvalidPageToken", err)
 }
 
 func TestPaginationClampedPageSize(t *testing.T) {
@@ -316,34 +269,20 @@ func TestPaginationClampedPageSize(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, e.SetCurrentSync(syncID))
 	const total = 50
 	for i := 0; i < total; i++ {
 		r := &v3.GrantRecord{}
-		if err := e.PutGrantRecord(ctx, makeGrant(syncID, "g"+strconv.Itoa(i), "ent", "user-"+strconv.Itoa(i))); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g"+strconv.Itoa(i), "ent", "user-"+strconv.Itoa(i))))
 		_ = r
 	}
 	// Passing 0 should clamp to DefaultPageSize and return all 50.
 	recs, next, err := e.PaginateGrants(ctx, "", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) != total {
-		t.Errorf("clamp(0): got %d, want %d", len(recs), total)
-	}
-	if next != "" {
-		t.Errorf("clamp(0): expected empty next cursor, got %q", next)
-	}
+	require.NoError(t, err)
+	require.Equal(t, total, len(recs), "clamp(0): got %d, want %d", len(recs), total)
+	require.Empty(t, next, "clamp(0): expected empty next cursor, got %q", next)
 	// Passing MaxPageSize+1 should clamp identically.
 	recs2, _, err := e.PaginateGrants(ctx, "", MaxPageSize+1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs2) != total {
-		t.Errorf("clamp(max+1): got %d, want %d", len(recs2), total)
-	}
+	require.NoError(t, err)
+	require.Equal(t, total, len(recs2), "clamp(max+1): got %d, want %d", len(recs2), total)
 }

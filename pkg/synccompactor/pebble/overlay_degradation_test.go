@@ -10,6 +10,7 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/protobuf/proto"
@@ -92,15 +93,13 @@ func dumpDestSyncContents(t *testing.T, e *enginepkg.Engine) map[string]string {
 		ranges := append([][2][]byte{{lo, hi}}, bucketIndexRanges(bucket)...)
 		for _, r := range ranges {
 			iter, err := e.DB().NewIter(&cpebble.IterOptions{LowerBound: r[0], UpperBound: r[1]})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			for iter.First(); iter.Valid(); iter.Next() {
 				out[string(iter.Key())] = string(iter.Value())
 			}
 			if err := iter.Error(); err != nil {
 				_ = iter.Close()
-				t.Fatal(err)
+				require.NoError(t, err)
 			}
 			_ = iter.Close()
 		}
@@ -121,33 +120,22 @@ func assertOverlayMatchesKWay(t *testing.T, ctx context.Context, sources []Sourc
 	overlayCtx := ctxzap.ToContext(ctx, logger)
 	overlayDest, _ := newEngine(t, "deg-overlay-dest")
 	overlayStats, err := MergeFilesIntoOverlay(overlayCtx, overlayDest, sources, destSyncID, t.TempDir(), opts...)
-	if err != nil {
-		t.Fatalf("MergeFilesIntoOverlay: %v", err)
-	}
+	require.NoError(t, err, "MergeFilesIntoOverlay")
 
 	kwayDest, _ := newEngine(t, "deg-kway-dest")
 	kwayStats, err := MergeFilesInto(ctx, kwayDest, sources, destSyncID, t.TempDir())
-	if err != nil {
-		t.Fatalf("MergeFilesInto: %v", err)
-	}
+	require.NoError(t, err, "MergeFilesInto")
 
 	got := dumpDestSyncContents(t, overlayDest)
 	want := dumpDestSyncContents(t, kwayDest)
-	if len(got) != len(want) {
-		t.Fatalf("overlay dest has %d keys, kway dest has %d", len(got), len(want))
-	}
+	require.Equal(t, len(want), len(got), "overlay dest has %d keys, kway dest has %d", len(got), len(want))
 	for k, v := range want {
 		gv, ok := got[k]
-		if !ok {
-			t.Fatalf("overlay dest missing key %q", k)
-		}
-		if gv != v {
-			t.Fatalf("overlay dest value mismatch for key %q", k)
-		}
+		require.True(t, ok, "overlay dest missing key %q", k)
+		require.Equal(t, v, gv, "overlay dest value mismatch for key %q", k)
 	}
-	if !proto.Equal(overlayStats, kwayStats) {
-		t.Fatalf("stats mismatch:\noverlay: %v\nkway:    %v", overlayStats, kwayStats)
-	}
+	require.True(t, proto.Equal(overlayStats, kwayStats),
+		"stats mismatch:\noverlay: %v\nkway:    %v", overlayStats, kwayStats)
 	return capture()
 }
 
@@ -181,9 +169,8 @@ func TestOverlayDegradationParity(t *testing.T) {
 			{Path: src2.path, SyncID: src2.syncID},
 		}
 		messages := assertOverlayMatchesKWay(t, ctx, sources, WithOverlaySeenKeyLimit(10))
-		if !containsMessage(messages, "pebble overlay merge: bucket resumed at source boundary") {
-			t.Fatalf("expected boundary resume, got logs: %v", messages)
-		}
+		require.True(t, containsMessage(messages, "pebble overlay merge: bucket resumed at source boundary"),
+			"expected boundary resume, got logs: %v", messages)
 	})
 
 	t.Run("statless pre-gate resume", func(t *testing.T) {
@@ -204,9 +191,8 @@ func TestOverlayDegradationParity(t *testing.T) {
 			{Path: src2.path, SyncID: src2.syncID},
 		}
 		messages := assertOverlayMatchesKWay(t, ctx, sources, WithOverlaySeenKeyLimit(10))
-		if !containsMessage(messages, "pebble overlay merge: bucket degraded at pre-source gate") {
-			t.Fatalf("expected pre-gate resume, got logs: %v", messages)
-		}
+		require.True(t, containsMessage(messages, "pebble overlay merge: bucket degraded at pre-source gate"),
+			"expected pre-gate resume, got logs: %v", messages)
 	})
 
 	t.Run("hard limit restart", func(t *testing.T) {
@@ -224,9 +210,8 @@ func TestOverlayDegradationParity(t *testing.T) {
 			{Path: src1.path, SyncID: src1.syncID},
 		}
 		messages := assertOverlayMatchesKWay(t, ctx, sources, WithOverlaySeenKeyLimit(10))
-		if !containsMessage(messages, "pebble overlay merge: bucket restarted at hard limit") {
-			t.Fatalf("expected hard-limit restart, got logs: %v", messages)
-		}
+		require.True(t, containsMessage(messages, "pebble overlay merge: bucket restarted at hard limit"),
+			"expected hard-limit restart, got logs: %v", messages)
 	})
 
 	t.Run("stats pre-gate predicts overshoot", func(t *testing.T) {
@@ -255,9 +240,8 @@ func TestOverlayDegradationParity(t *testing.T) {
 			{Path: src2.path, SyncID: src2.syncID, Stats: statsFor(3)},
 		}
 		messages := assertOverlayMatchesKWay(t, ctx, sources, WithOverlaySeenKeyLimit(10))
-		if !containsMessage(messages, "pebble overlay merge: bucket degraded at pre-source gate") {
-			t.Fatalf("expected stats pre-gate resume, got logs: %v", messages)
-		}
+		require.True(t, containsMessage(messages, "pebble overlay merge: bucket degraded at pre-source gate"),
+			"expected stats pre-gate resume, got logs: %v", messages)
 	})
 
 	t.Run("stats lower bound routes to kway up front", func(t *testing.T) {
@@ -285,7 +269,7 @@ func TestOverlayDegradationParity(t *testing.T) {
 			case "pebble overlay merge: bucket resumed at source boundary",
 				"pebble overlay merge: bucket degraded at pre-source gate",
 				"pebble overlay merge: bucket restarted at hard limit":
-				t.Fatalf("unexpected degradation event %q for up-front kway routing", m)
+				require.Fail(t, "unexpected degradation event for up-front kway routing", "event %q", m)
 			}
 		}
 	})
@@ -309,9 +293,8 @@ func TestOverlayDegradationParity(t *testing.T) {
 
 		messages := assertOverlayMatchesKWay(t, ctx, sources,
 			WithOverlaySeenKeyLimit(10), WithOverlayFanIn(2))
-		if !containsMessage(messages, "pebble overlay merge: bucket restarted at hard limit") {
-			t.Fatalf("expected hard-limit restart, got logs: %v", messages)
-		}
+		require.True(t, containsMessage(messages, "pebble overlay merge: bucket restarted at hard limit"),
+			"expected hard-limit restart, got logs: %v", messages)
 	})
 }
 
@@ -341,43 +324,29 @@ func TestOverlayResumedReplaceRawEdge(t *testing.T) {
 	dest, _ := newEngine(t, "resumed-replace-dest")
 	destSyncID := ksuid.New().String()
 	logger, capture := newCapturingLogger()
-	if _, err := MergeFilesIntoOverlay(ctxzap.ToContext(ctx, logger), dest, sources, destSyncID, t.TempDir(), WithOverlaySeenKeyLimit(10)); err != nil {
-		t.Fatalf("MergeFilesIntoOverlay: %v", err)
-	}
-	if !containsMessage(capture(), "pebble overlay merge: bucket resumed at source boundary") {
-		t.Fatalf("expected boundary resume, got logs: %v", capture())
-	}
+	_, err := MergeFilesIntoOverlay(ctxzap.ToContext(ctx, logger), dest, sources, destSyncID, t.TempDir(), WithOverlaySeenKeyLimit(10))
+	require.NoError(t, err, "MergeFilesIntoOverlay")
+	require.True(t, containsMessage(capture(), "pebble overlay merge: bucket resumed at source boundary"),
+		"expected boundary resume, got logs: %v", capture())
 
 	grants := grantPrincipalMap(t, ctx, dest, destSyncID)
-	if got := grants["g-0"]; got != "bob" {
-		t.Fatalf("g-0 principal = %q, want bob (strictly newer discovered_at must replace)", got)
-	}
-	if got := grants["g-1"]; got != "alice" {
-		t.Fatalf("g-1 principal = %q, want alice (discovered_at tie keeps the newer source's record)", got)
-	}
+	require.Equal(t, "bob", grants["g-0"], "g-0 principal (strictly newer discovered_at must replace)")
+	require.Equal(t, "alice", grants["g-1"], "g-1 principal (discovered_at tie keeps the newer source's record)")
 	// The replaced record's index entries must follow the new value.
 	var bobGrants []string
-	if err := dest.IterateGrantsByPrincipal(ctx, "user", "bob", func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", "bob", func(g *v3.GrantRecord) bool {
 		bobGrants = append(bobGrants, g.GetExternalId())
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if len(bobGrants) != 1 || bobGrants[0] != "g-0" {
-		t.Fatalf("by_principal(bob) = %v, want [g-0]", bobGrants)
-	}
+	}))
+	require.Equal(t, []string{"g-0"}, bobGrants, "by_principal(bob)")
 	var aliceForG0 bool
-	if err := dest.IterateGrantsByPrincipal(ctx, "user", "alice", func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", "alice", func(g *v3.GrantRecord) bool {
 		if g.GetExternalId() == "g-0" {
 			aliceForG0 = true
 		}
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if aliceForG0 {
-		t.Fatal("stale by_principal(alice) index entry for replaced grant g-0")
-	}
+	}))
+	require.False(t, aliceForG0, "stale by_principal(alice) index entry for replaced grant g-0")
 }
 
 // TestMergeStatsResetBucket pins the restart path's stats contract:
@@ -395,16 +364,9 @@ func TestMergeStatsResetBucket(t *testing.T) {
 
 	a.resetBucket(runBucketGrants)
 	rec := a.record()
-	if rec.GetGrants() != 0 {
-		t.Fatalf("grants total after reset = %d, want 0", rec.GetGrants())
-	}
-	if len(rec.GetGrantsByEntitlementResourceType()) != 0 {
-		t.Fatalf("grants grouping after reset = %v, want empty", rec.GetGrantsByEntitlementResourceType())
-	}
-	if rec.GetResources() != 1 || rec.GetResourcesByResourceType()["user"] != 1 {
-		t.Fatalf("resources counts disturbed by grants reset: %v", rec)
-	}
-	if rec.GetEntitlements() != 1 {
-		t.Fatalf("entitlements total disturbed by grants reset: %d", rec.GetEntitlements())
-	}
+	require.Equal(t, int64(0), rec.GetGrants(), "grants total after reset")
+	require.Empty(t, rec.GetGrantsByEntitlementResourceType(), "grants grouping after reset")
+	require.Equal(t, int64(1), rec.GetResources(), "resources total after grants reset")
+	require.Equal(t, int64(1), rec.GetResourcesByResourceType()["user"], "resources by type after grants reset")
+	require.Equal(t, int64(1), rec.GetEntitlements(), "entitlements total after grants reset")
 }

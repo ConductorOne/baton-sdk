@@ -2,12 +2,11 @@ package pebble
 
 import (
 	"context"
-	"errors"
 	"io"
-	"strings"
 	"testing"
 
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -47,12 +46,8 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 	a := newAdapter(t)
 
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
-	if syncID == "" {
-		t.Fatal("StartNewSync returned empty id")
-	}
+	require.NoError(t, err, "StartNewSync")
+	require.NotEmpty(t, syncID, "StartNewSync returned empty id")
 
 	// PutGrants
 	grants := []*v2.Grant{
@@ -60,18 +55,12 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 		mkV2Grant("g2", "ent-A", "user", "bob"),
 		mkV2Grant("g3", "ent-B", "user", "alice"),
 	}
-	if err := a.PutGrants(ctx, grants...); err != nil {
-		t.Fatalf("PutGrants: %v", err)
-	}
+	require.NoError(t, a.PutGrants(ctx, grants...), "PutGrants")
 
 	// ListGrants (no filter) → 3 grants.
 	resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	if err != nil {
-		t.Fatalf("ListGrants: %v", err)
-	}
-	if len(resp.GetList()) != 3 {
-		t.Errorf("ListGrants count: got %d, want 3", len(resp.GetList()))
-	}
+	require.NoError(t, err, "ListGrants")
+	require.Equal(t, 3, len(resp.GetList()), "ListGrants count")
 
 	// ListGrants filtered by entitlement-side resource (app/github)
 	// → all 3 grants live on this entitlement's resource. This is
@@ -85,12 +74,8 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 			}.Build(),
 		}.Build(),
 	}.Build())
-	if err != nil {
-		t.Fatalf("ListGrants by entitlement-resource: %v", err)
-	}
-	if len(resp.GetList()) != 3 {
-		t.Errorf("ListGrants entitlement-resource count: got %d, want 3", len(resp.GetList()))
-	}
+	require.NoError(t, err, "ListGrants by entitlement-resource")
+	require.Equal(t, 3, len(resp.GetList()), "ListGrants entitlement-resource count")
 
 	// ListGrantsForPrincipal filtered by principal alice → 2 grants.
 	gforP, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
@@ -99,40 +84,24 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 			Resource:     "alice",
 		}.Build(),
 	}.Build())
-	if err != nil {
-		t.Fatalf("ListGrantsForPrincipal alice: %v", err)
-	}
-	if len(gforP.GetList()) != 2 {
-		t.Errorf("ListGrantsForPrincipal alice count: got %d, want 2", len(gforP.GetList()))
-	}
+	require.NoError(t, err, "ListGrantsForPrincipal alice")
+	require.Equal(t, 2, len(gforP.GetList()), "ListGrantsForPrincipal alice count")
 
 	// GetGrant single.
 	g, err := a.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 		GrantId: "g1",
 	}.Build())
-	if err != nil {
-		t.Fatalf("GetGrant: %v", err)
-	}
-	if g.GetGrant().GetId() != "g1" {
-		t.Errorf("GetGrant id: got %q", g.GetGrant().GetId())
-	}
+	require.NoError(t, err, "GetGrant")
+	require.Equal(t, "g1", g.GetGrant().GetId(), "GetGrant id")
 
 	// DeleteGrant
-	if err := a.DeleteGrant(ctx, "g1"); err != nil {
-		t.Fatalf("DeleteGrant: %v", err)
-	}
+	require.NoError(t, a.DeleteGrant(ctx, "g1"), "DeleteGrant")
 	resp, err = a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(resp.GetList()) != 2 {
-		t.Errorf("post-delete count: got %d, want 2", len(resp.GetList()))
-	}
+	require.NoError(t, err)
+	require.Equal(t, 2, len(resp.GetList()), "post-delete count")
 
 	// EndSync stamps ended_at.
-	if err := a.EndSync(ctx); err != nil {
-		t.Fatalf("EndSync: %v", err)
-	}
+	require.NoError(t, a.EndSync(ctx), "EndSync")
 }
 
 func TestAdapterEndSyncClearsEngineCurrentSync(t *testing.T) {
@@ -140,34 +109,24 @@ func TestAdapterEndSyncClearsEngineCurrentSync(t *testing.T) {
 	a := newAdapter(t)
 
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
-	if err := a.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")); err != nil {
-		t.Fatalf("PutGrants: %v", err)
-	}
-	if err := a.EndSync(ctx); err != nil {
-		t.Fatalf("EndSync: %v", err)
-	}
+	require.NoError(t, err, "StartNewSync")
+	require.NoError(t, a.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")), "PutGrants")
+	require.NoError(t, a.EndSync(ctx), "EndSync")
 
 	// EndSync cleared the engine's bound sync: a direct record write
 	// must now fail rather than land an orphan record with no sync run.
-	if err := a.engine.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-B", "bob")); !errors.Is(err, ErrNoCurrentSync) {
-		t.Fatalf("direct engine write after EndSync: got %v, want ErrNoCurrentSync", err)
-	}
+	err = a.engine.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-B", "bob"))
+	require.ErrorIs(t, err, ErrNoCurrentSync, "direct engine write after EndSync: got %v, want ErrNoCurrentSync", err)
 
 	// Reads do NOT gate on the bound sync: the finished sync's data
 	// persists and stays readable through the engine after EndSync.
 	count := 0
-	if err := a.engine.IterateGrantsByEntitlement(ctx, "ent-A", func(*v3.GrantRecord) bool {
+	err = a.engine.IterateGrantsByEntitlement(ctx, "ent-A", func(*v3.GrantRecord) bool {
 		count++
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Fatalf("ended sync grant index count = %d, want 1", count)
-	}
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, count, "ended sync grant index count")
 }
 
 func TestAdapterUnsafePutUniqueGrantsRequiresFreshSync(t *testing.T) {
@@ -175,48 +134,33 @@ func TestAdapterUnsafePutUniqueGrantsRequiresFreshSync(t *testing.T) {
 	a := newAdapter(t)
 
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
+	require.NoError(t, err, "StartNewSync")
 
 	// SetCurrentSync intentionally clears the engine's fresh-sync flag. The
 	// fresh path skips read-before-write index cleanup, so using it after a
 	// resume/rebind would risk stale secondary indexes.
-	if err := a.SetCurrentSync(ctx, syncID); err != nil {
-		t.Fatalf("SetCurrentSync: %v", err)
-	}
+	require.NoError(t, a.SetCurrentSync(ctx, syncID), "SetCurrentSync")
 
 	err = a.UnsafePutUniqueGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice"))
-	if err == nil {
-		t.Fatal("UnsafePutUniqueGrants unexpectedly succeeded on non-fresh sync")
-	}
-	if !strings.Contains(err.Error(), "sync is not fresh") {
-		t.Fatalf("UnsafePutUniqueGrants error = %v, want non-fresh error", err)
-	}
+	require.Error(t, err, "UnsafePutUniqueGrants unexpectedly succeeded on non-fresh sync")
+	require.ErrorContains(t, err, "sync is not fresh", "UnsafePutUniqueGrants error = %v, want non-fresh error", err)
 }
 
 func TestAdapterResourcesAndEntitlements(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 
 	// 2 ResourceTypes.
 	rts := []*v2.ResourceType{
 		v2.ResourceType_builder{Id: "user", DisplayName: "User", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build(),
 		v2.ResourceType_builder{Id: "group", DisplayName: "Group", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP}}.Build(),
 	}
-	if err := a.PutResourceTypes(ctx, rts...); err != nil {
-		t.Fatalf("PutResourceTypes: %v", err)
-	}
+	require.NoError(t, a.PutResourceTypes(ctx, rts...), "PutResourceTypes")
 	rtResp, err := a.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rtResp.GetList()) != 2 {
-		t.Errorf("ListResourceTypes: got %d, want 2", len(rtResp.GetList()))
-	}
+	require.NoError(t, err)
+	require.Equal(t, 2, len(rtResp.GetList()), "ListResourceTypes")
 
 	// 3 Resources.
 	resources := []*v2.Resource{
@@ -230,27 +174,17 @@ func TestAdapterResourcesAndEntitlements(t *testing.T) {
 			Id: v2.ResourceId_builder{ResourceType: "group", Resource: "admins"}.Build(),
 		}.Build(),
 	}
-	if err := a.PutResources(ctx, resources...); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutResources(ctx, resources...))
 	all, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(all.GetList()) != 3 {
-		t.Errorf("ListResources all: got %d, want 3", len(all.GetList()))
-	}
+	require.NoError(t, err)
+	require.Equal(t, 3, len(all.GetList()), "ListResources all")
 
 	// Filter by resource type.
 	users, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 		ResourceTypeId: "user",
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(users.GetList()) != 2 {
-		t.Errorf("ListResources users: got %d, want 2", len(users.GetList()))
-	}
+	require.NoError(t, err)
+	require.Equal(t, 2, len(users.GetList()), "ListResources users")
 
 	// Entitlements.
 	ents := []*v2.Entitlement{
@@ -261,91 +195,56 @@ func TestAdapterResourcesAndEntitlements(t *testing.T) {
 			Id: "admin", Resource: resources[2],
 		}.Build(),
 	}
-	if err := a.PutEntitlements(ctx, ents...); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.PutEntitlements(ctx, ents...))
 	allEnt, err := a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(allEnt.GetList()) != 2 {
-		t.Errorf("ListEntitlements: got %d, want 2", len(allEnt.GetList()))
-	}
+	require.NoError(t, err)
+	require.Equal(t, 2, len(allEnt.GetList()), "ListEntitlements")
 
 	// Filter entitlements by resource.
 	adminEnts, err := a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 		Resource: resources[2],
 	}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(adminEnts.GetList()) != 1 {
-		t.Errorf("ListEntitlements by resource: got %d, want 1", len(adminEnts.GetList()))
-	}
+	require.NoError(t, err)
+	require.Equal(t, 1, len(adminEnts.GetList()), "ListEntitlements by resource")
 }
 
 func TestAdapterAssetRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 
 	ref := v2.AssetRef_builder{Id: "icon-github"}.Build()
-	if err := a.PutAsset(ctx, ref, "image/png", []byte("PNG\x00\x01")); err != nil {
-		t.Fatalf("PutAsset: %v", err)
-	}
+	require.NoError(t, a.PutAsset(ctx, ref, "image/png", []byte("PNG\x00\x01")), "PutAsset")
 
 	ct, r, err := a.GetAsset(ctx, v2.AssetServiceGetAssetRequest_builder{
 		Asset: ref,
 	}.Build())
-	if err != nil {
-		t.Fatalf("GetAsset: %v", err)
-	}
-	if ct != "image/png" {
-		t.Errorf("content_type: got %q", ct)
-	}
+	require.NoError(t, err, "GetAsset")
+	require.Equal(t, "image/png", ct, "content_type")
 	data, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "PNG\x00\x01" {
-		t.Errorf("data: got %q", data)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "PNG\x00\x01", string(data), "data")
 }
 
 func TestAdapterResumeSync(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
 	id1, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := a.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.CheckpointSync(ctx, "step-7"); err != nil {
-		t.Fatalf("CheckpointSync: %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, a.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")))
+	require.NoError(t, a.CheckpointSync(ctx, "step-7"), "CheckpointSync")
 	// Simulate restart by zeroing in-memory state.
 	a.current = syncRunState{}
 
 	// Resume.
 	id2, err := a.ResumeSync(ctx, connectorstore.SyncTypeFull, id1)
-	if err != nil {
-		t.Fatalf("ResumeSync: %v", err)
-	}
-	if id2 != id1 {
-		t.Errorf("ResumeSync id mismatch: %q vs %q", id2, id1)
-	}
+	require.NoError(t, err, "ResumeSync")
+	require.Equal(t, id1, id2, "ResumeSync id mismatch")
 	// Existing grants should be visible.
 	resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(resp.GetList()) != 1 {
-		t.Errorf("post-resume grants: got %d, want 1", len(resp.GetList()))
-	}
+	require.NoError(t, err)
+	require.Equal(t, 1, len(resp.GetList()), "post-resume grants")
 }
 
 func TestAdapterLatestFinishedSyncID(t *testing.T) {
@@ -353,63 +252,37 @@ func TestAdapterLatestFinishedSyncID(t *testing.T) {
 	a := newAdapter(t)
 
 	got, err := a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "" {
-		t.Fatalf("LatestFinishedSyncID with no syncs = %q, want empty", got)
-	}
+	require.NoError(t, err)
+	require.Empty(t, got, "LatestFinishedSyncID with no syncs")
 
 	openID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	got, err = a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "" {
-		t.Fatalf("LatestFinishedSyncID with only open sync %q = %q, want empty", openID, got)
-	}
+	require.NoError(t, err)
+	require.Empty(t, got, "LatestFinishedSyncID with only open sync %q", openID)
 
 	// Ending it makes it the single finished sync, resolvable by its
 	// type and by Any.
-	if err := a.EndSync(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.EndSync(ctx))
 	for _, st := range []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeAny} {
 		got, err = a.LatestFinishedSyncID(ctx, st)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != openID {
-			t.Errorf("LatestFinishedSyncID(%s): got %q, want %q", st, got, openID)
-		}
+		require.NoError(t, err)
+		require.Equal(t, openID, got, "LatestFinishedSyncID(%s)", st)
 	}
 
 	// A type filter that doesn't match the one sync resolves nothing.
 	got, err = a.LatestFinishedSyncID(ctx, connectorstore.SyncTypePartial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "" {
-		t.Errorf("LatestFinishedSyncID(partial) with only a full sync = %q, want empty", got)
-	}
+	require.NoError(t, err)
+	require.Empty(t, got, "LatestFinishedSyncID(partial) with only a full sync")
 
 	// Single-sync contract: StartNewSync REPLACES the prior sync. The
 	// finished full sync is wiped and the replacement is in-progress, so
 	// there is no finished sync of any type.
 	replacementID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	got, err = a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "" {
-		t.Errorf("LatestFinishedSyncID after replacement (in-progress %q) = %q, want empty", replacementID, got)
-	}
+	require.NoError(t, err)
+	require.Empty(t, got, "LatestFinishedSyncID after replacement (in-progress %q)", replacementID)
 }
 
 func TestAdapterCurrentDBSizeBytes(t *testing.T) {
@@ -418,35 +291,22 @@ func TestAdapterCurrentDBSizeBytes(t *testing.T) {
 	a := NewAdapter(e)
 
 	initial, err := a.CurrentDBSizeBytes()
-	if err != nil {
-		t.Fatalf("CurrentDBSizeBytes initial: %v", err)
-	}
-	if initial <= 0 {
-		t.Fatalf("CurrentDBSizeBytes initial = %d, want > 0", initial)
-	}
-	if want := regularFileSizeUnder(t, e.dbDir); initial != want {
-		t.Fatalf("CurrentDBSizeBytes initial = %d, want regular file sum %d", initial, want)
-	}
+	require.NoError(t, err, "CurrentDBSizeBytes initial")
+	require.Greater(t, initial, int64(0), "CurrentDBSizeBytes initial")
+	want := regularFileSizeUnder(t, e.dbDir)
+	require.Equal(t, want, initial, "CurrentDBSizeBytes initial")
 
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 	for i := 0; i < 25; i++ {
-		if err := a.PutGrants(ctx, mkV2Grant(ksuid.New().String(), "ent", "user", ksuid.New().String())); err != nil {
-			t.Fatalf("PutGrants: %v", err)
-		}
+		require.NoError(t, a.PutGrants(ctx, mkV2Grant(ksuid.New().String(), "ent", "user", ksuid.New().String())), "PutGrants")
 	}
 
 	after, err := a.CurrentDBSizeBytes()
-	if err != nil {
-		t.Fatalf("CurrentDBSizeBytes after writes: %v", err)
-	}
-	if want := regularFileSizeUnder(t, e.dbDir); after != want {
-		t.Fatalf("CurrentDBSizeBytes after writes = %d, want regular file sum %d", after, want)
-	}
-	if after < initial {
-		t.Fatalf("CurrentDBSizeBytes after writes = %d, want >= initial %d", after, initial)
-	}
+	require.NoError(t, err, "CurrentDBSizeBytes after writes")
+	want = regularFileSizeUnder(t, e.dbDir)
+	require.Equal(t, want, after, "CurrentDBSizeBytes after writes")
+	require.GreaterOrEqual(t, after, initial, "CurrentDBSizeBytes after writes")
 }
 
 func TestAdapterNoCurrentSyncErrors(t *testing.T) {
@@ -455,7 +315,5 @@ func TestAdapterNoCurrentSyncErrors(t *testing.T) {
 
 	// Without StartNewSync, writes refuse.
 	err := a.PutGrants(ctx, mkV2Grant("g1", "e", "user", "a"))
-	if err == nil {
-		t.Error("PutGrants without sync should error")
-	}
+	require.Error(t, err, "PutGrants without sync should error")
 }

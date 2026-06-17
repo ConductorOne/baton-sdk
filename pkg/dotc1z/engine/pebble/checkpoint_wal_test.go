@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -25,17 +26,13 @@ func TestCheckpointWALsAreEmpty(t *testing.T) {
 	ctx := context.Background()
 	eng, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := eng.MarkFreshSync(syncID); err != nil {
-		t.Fatal(err)
-	}
-	if err := eng.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+	require.NoError(t, eng.MarkFreshSync(syncID))
+	require.NoError(t, eng.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId:    syncID,
 		Type:      v3.SyncType_SYNC_TYPE_FULL,
 		StartedAt: timestamppb.Now(),
 		EndedAt:   timestamppb.Now(),
-	}.Build()); err != nil {
-		t.Fatal(err)
-	}
+	}.Build()))
 	grants := make([]*v3.GrantRecord, 0, 100)
 	for i := 0; i < 100; i++ {
 		grants = append(grants, v3.GrantRecord_builder{
@@ -49,58 +46,37 @@ func TestCheckpointWALsAreEmpty(t *testing.T) {
 			DiscoveredAt: timestamppb.Now(),
 		}.Build())
 	}
-	if err := eng.PutGrantRecords(ctx, grants...); err != nil {
-		t.Fatal(err)
-	}
-	if err := eng.EndFreshSync(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, eng.PutGrantRecords(ctx, grants...))
+	require.NoError(t, eng.EndFreshSync(ctx))
 
 	ckDir := filepath.Join(t.TempDir(), "checkpoint")
-	if err := eng.CheckpointTo(ctx, ckDir); err != nil {
-		t.Fatalf("CheckpointTo: %v", err)
-	}
+	require.NoError(t, eng.CheckpointTo(ctx, ckDir), "CheckpointTo")
 
 	// Every WAL segment in the checkpoint must be zero bytes.
 	entries, err := os.ReadDir(ckDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	for _, ent := range entries {
 		if ent.IsDir() || filepath.Ext(ent.Name()) != ".log" {
 			continue
 		}
 		info, err := ent.Info()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if info.Size() != 0 {
-			t.Fatalf("checkpoint WAL %s has %d bytes, want 0 (stale recycled content leaks into every open)", ent.Name(), info.Size())
-		}
+		require.NoError(t, err)
+		require.Equal(t, int64(0), info.Size(), "checkpoint WAL %s has %d bytes, want 0 (stale recycled content leaks into every open)", ent.Name(), info.Size())
 	}
 
 	// The checkpoint must reopen cleanly (read-only — the compaction
 	// source path) with every record intact.
 	reopened, err := Open(ctx, ckDir, WithReadOnly(true))
-	if err != nil {
-		t.Fatalf("Open checkpoint: %v", err)
-	}
+	require.NoError(t, err, "Open checkpoint")
 	defer func() { _ = reopened.Close() }()
 	rec, err := reopened.GetSyncRunRecord(ctx, syncID)
-	if err != nil {
-		t.Fatalf("GetSyncRunRecord: %v", err)
-	}
-	if rec.GetEndedAt() == nil {
-		t.Fatal("reopened sync run lost ended_at")
-	}
+	require.NoError(t, err, "GetSyncRunRecord")
+	require.NotNil(t, rec.GetEndedAt(), "reopened sync run lost ended_at")
 	count := 0
-	if err := reopened.IterateGrants(ctx, func(*v3.GrantRecord) bool {
+	err = reopened.IterateGrants(ctx, func(*v3.GrantRecord) bool {
 		count++
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if count != 100 {
-		t.Fatalf("reopened grant count = %d, want 100", count)
-	}
+	})
+	require.NoError(t, err)
+	require.Equal(t, 100, count, "reopened grant count")
 }

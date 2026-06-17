@@ -2,11 +2,11 @@ package pebble
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -16,9 +16,7 @@ func TestPutGetResourceType(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, e.SetCurrentSync(syncID))
 
 	r := v3.ResourceTypeRecord_builder{
 		ExternalId:   "user",
@@ -26,62 +24,44 @@ func TestPutGetResourceType(t *testing.T) {
 		Traits:       []string{"trait-user"},
 		DiscoveredAt: timestamppb.Now(),
 	}.Build()
-	if err := e.PutResourceTypeRecord(ctx, r); err != nil {
-		t.Fatalf("PutResourceTypeRecord: %v", err)
-	}
+	require.NoErrorf(t, e.PutResourceTypeRecord(ctx, r), "PutResourceTypeRecord")
 	got, err := e.GetResourceTypeRecord(ctx, "user")
-	if err != nil {
-		t.Fatalf("GetResourceTypeRecord: %v", err)
-	}
-	if got.GetDisplayName() != "User" {
-		t.Errorf("display_name: got %q", got.GetDisplayName())
-	}
+	require.NoErrorf(t, err, "GetResourceTypeRecord")
+	require.Equal(t, "User", got.GetDisplayName(), "display_name")
 }
 
 func TestIterateResourceTypesBySync(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, e.SetCurrentSync(syncID))
 	for i := 0; i < 20; i++ {
 		r := v3.ResourceTypeRecord_builder{
 			ExternalId:  ksuid.New().String(),
 			DisplayName: "RT",
 		}.Build()
-		if err := e.PutResourceTypeRecord(ctx, r); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, e.PutResourceTypeRecord(ctx, r))
 	}
 	count := 0
-	if err := e.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool {
+	require.NoError(t, e.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool {
 		count++
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if count != 20 {
-		t.Errorf("got %d resource_types, want 20", count)
-	}
+	}))
+	require.Equal(t, 20, count, "resource_types count")
 }
 
 func TestResourceWithParentIndex(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, e.SetCurrentSync(syncID))
 
 	parent := v3.ResourceRecord_builder{
 		ResourceTypeId: "group",
 		ResourceId:     "admins",
 		DisplayName:    "Admins",
 	}.Build()
-	if err := e.PutResourceRecord(ctx, parent); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, e.PutResourceRecord(ctx, parent))
 
 	// 5 user resources with `parent` pointing at the admins group.
 	for i := 0; i < 5; i++ {
@@ -94,9 +74,7 @@ func TestResourceWithParentIndex(t *testing.T) {
 				ResourceId:     "admins",
 			}.Build(),
 		}.Build()
-		if err := e.PutResourceRecord(ctx, child); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, e.PutResourceRecord(ctx, child))
 	}
 	// 3 resources NOT under the admins group.
 	for i := 0; i < 3; i++ {
@@ -104,42 +82,30 @@ func TestResourceWithParentIndex(t *testing.T) {
 			ResourceTypeId: "user",
 			ResourceId:     ksuid.New().String(),
 		}.Build()
-		if err := e.PutResourceRecord(ctx, other); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, e.PutResourceRecord(ctx, other))
 	}
 
 	childCount := 0
-	if err := e.IterateResourcesByParent(ctx, "group", "admins", func(*v3.ResourceRecord) bool {
+	require.NoError(t, e.IterateResourcesByParent(ctx, "group", "admins", func(*v3.ResourceRecord) bool {
 		childCount++
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if childCount != 5 {
-		t.Errorf("IterateResourcesByParent: got %d, want 5", childCount)
-	}
+	}))
+	require.Equal(t, 5, childCount, "IterateResourcesByParent")
 
 	// Total resources: parent + 5 children + 3 others = 9.
 	total := 0
-	if err := e.IterateResources(ctx, func(*v3.ResourceRecord) bool {
+	require.NoError(t, e.IterateResources(ctx, func(*v3.ResourceRecord) bool {
 		total++
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if total != 9 {
-		t.Errorf("IterateResourcesBySync: got %d, want 9", total)
-	}
+	}))
+	require.Equal(t, 9, total, "IterateResourcesBySync")
 }
 
 func TestEntitlementByResourceIndex(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, e.SetCurrentSync(syncID))
 
 	// 4 entitlements on group/admins, 2 on group/devs.
 	for i := 0; i < 4; i++ {
@@ -151,9 +117,7 @@ func TestEntitlementByResourceIndex(t *testing.T) {
 			}.Build(),
 			DisplayName: "ent",
 		}.Build()
-		if err := e.PutEntitlementRecord(ctx, r); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, e.PutEntitlementRecord(ctx, r))
 	}
 	for i := 0; i < 2; i++ {
 		r := v3.EntitlementRecord_builder{
@@ -163,36 +127,27 @@ func TestEntitlementByResourceIndex(t *testing.T) {
 				ResourceId:     "devs",
 			}.Build(),
 		}.Build()
-		if err := e.PutEntitlementRecord(ctx, r); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, e.PutEntitlementRecord(ctx, r))
 	}
 
 	var a, d int
-	if err := e.IterateEntitlementsByResource(ctx, "group", "admins", func(*v3.EntitlementRecord) bool {
+	require.NoError(t, e.IterateEntitlementsByResource(ctx, "group", "admins", func(*v3.EntitlementRecord) bool {
 		a++
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.IterateEntitlementsByResource(ctx, "group", "devs", func(*v3.EntitlementRecord) bool {
+	}))
+	require.NoError(t, e.IterateEntitlementsByResource(ctx, "group", "devs", func(*v3.EntitlementRecord) bool {
 		d++
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if a != 4 || d != 2 {
-		t.Errorf("admins=%d (want 4), devs=%d (want 2)", a, d)
-	}
+	}))
+	require.Equal(t, 4, a, "admins count")
+	require.Equal(t, 2, d, "devs count")
 }
 
 func TestAssetRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, e.SetCurrentSync(syncID))
 
 	payload := []byte("PNGfakebytes\x00\x01\x02")
 	r := v3.AssetRecord_builder{
@@ -201,19 +156,11 @@ func TestAssetRoundtrip(t *testing.T) {
 		ContentType: "image/png",
 		Data:        payload,
 	}.Build()
-	if err := e.PutAssetRecord(ctx, r); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, e.PutAssetRecord(ctx, r))
 	got, err := e.GetAssetRecord(ctx, "icon-1")
-	if err != nil {
-		t.Fatalf("GetAssetRecord: %v", err)
-	}
-	if got.GetContentType() != "image/png" {
-		t.Errorf("content_type: got %q", got.GetContentType())
-	}
-	if string(got.GetData()) != string(payload) {
-		t.Errorf("data roundtrip lost bytes")
-	}
+	require.NoErrorf(t, err, "GetAssetRecord")
+	require.Equal(t, "image/png", got.GetContentType(), "content_type")
+	require.Equal(t, string(payload), string(got.GetData()), "data roundtrip lost bytes")
 }
 
 func TestSyncRunRecord(t *testing.T) {
@@ -228,46 +175,30 @@ func TestSyncRunRecord(t *testing.T) {
 			Type:      v3.SyncType_SYNC_TYPE_FULL,
 			StartedAt: timestamppb.Now(),
 		}.Build()
-		if err := e.PutSyncRunRecord(ctx, r); err != nil {
-			t.Fatalf("PutSyncRunRecord(%s): %v", sid, err)
-		}
+		require.NoErrorf(t, e.PutSyncRunRecord(ctx, r), "PutSyncRunRecord(%s)", sid)
 	}
 
 	// One sync-run record per file: the key is fixed, so writing id2
 	// replaces id1.
 	put(id1)
 	got, err := e.GetSyncRunRecord(ctx, id1)
-	if err != nil {
-		t.Fatalf("GetSyncRunRecord(id1): %v", err)
-	}
-	if got.GetSyncId() != id1 {
-		t.Errorf("sync_id: got %q want %q", got.GetSyncId(), id1)
-	}
+	require.NoErrorf(t, err, "GetSyncRunRecord(id1)")
+	require.Equal(t, id1, got.GetSyncId(), "sync_id")
 
 	put(id2)
 	// id1 is gone (replaced); the id-match guard makes its lookup miss.
-	if _, err := e.GetSyncRunRecord(ctx, id1); !errors.Is(err, pebble.ErrNotFound) {
-		t.Errorf("GetSyncRunRecord(id1) after replacement: got %v, want ErrNotFound", err)
-	}
-	if _, err := e.GetSyncRunRecord(ctx, id2); err != nil {
-		t.Errorf("GetSyncRunRecord(id2): %v", err)
-	}
-
+	_, err = e.GetSyncRunRecord(ctx, id1)
+	require.ErrorIs(t, err, pebble.ErrNotFound, "GetSyncRunRecord(id1) after replacement")
+	_, err = e.GetSyncRunRecord(ctx, id2)
+	require.NoError(t, err, "GetSyncRunRecord(id2)")
 	count := 0
-	if err := e.IterateAllSyncRuns(ctx, func(*v3.SyncRunRecord) bool {
+	require.NoError(t, e.IterateAllSyncRuns(ctx, func(*v3.SyncRunRecord) bool {
 		count++
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Errorf("iterated %d sync_runs, want 1", count)
-	}
+	}))
+	require.Equal(t, 1, count, "sync_runs count")
 
-	if err := e.DeleteSyncRunRecord(ctx, id2); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := e.GetSyncRunRecord(ctx, id2); !errors.Is(err, pebble.ErrNotFound) {
-		t.Errorf("expected ErrNotFound after delete, got %v", err)
-	}
+	require.NoError(t, e.DeleteSyncRunRecord(ctx, id2))
+	_, err = e.GetSyncRunRecord(ctx, id2)
+	require.ErrorIs(t, err, pebble.ErrNotFound, "expected ErrNotFound after delete")
 }

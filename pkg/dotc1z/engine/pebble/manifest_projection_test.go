@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -21,85 +23,44 @@ func TestManifestSyncRunProjection(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "projection.c1z")
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	syncID, err := w.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
 	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
-	if err := w.PutResourceTypes(ctx, userRT, groupRT); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, w.PutResourceTypes(ctx, userRT, groupRT))
 	user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
 	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
-	if err := w.PutResources(ctx, user, group); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, w.PutResources(ctx, user, group))
 	ent := v2.Entitlement_builder{Id: "ent-1", Resource: group}.Build()
-	if err := w.PutEntitlements(ctx, ent); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, w.PutEntitlements(ctx, ent))
 	grant := v2.Grant_builder{Id: "grant-1", Entitlement: ent, Principal: user}.Build()
-	if err := w.PutGrants(ctx, grant); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.EndSync(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.Close(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, w.PutGrants(ctx, grant))
+	require.NoError(t, w.EndSync(ctx))
+	require.NoError(t, w.Close(ctx))
 
 	f, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer f.Close()
 	m, err := formatv3.ReadManifestHeader(f)
-	if err != nil {
-		t.Fatalf("ReadManifestHeader: %v", err)
-	}
+	require.NoErrorf(t, err, "ReadManifestHeader")
 	runs := m.GetSyncRuns()
-	if len(runs) != 1 {
-		t.Fatalf("manifest sync_runs = %d, want 1", len(runs))
-	}
+	require.Len(t, runs, 1, "manifest sync_runs")
 	run := runs[0]
-	if run.GetSyncId() != syncID {
-		t.Fatalf("summary sync_id = %q, want %q", run.GetSyncId(), syncID)
-	}
-	if run.GetEndedAt() == nil {
-		t.Fatal("summary ended_at is nil for a finished sync")
-	}
+	require.Equal(t, syncID, run.GetSyncId(), "summary sync_id")
+	require.NotNil(t, run.GetEndedAt(), "summary ended_at is nil for a finished sync")
 	stats := run.GetStats()
-	if stats == nil {
-		t.Fatal("summary stats is nil; expected stats sidecar projection")
-	}
-	if got, want := stats.GetResourceTypes(), int64(2); got != want {
-		t.Fatalf("stats resource_types = %d, want %d", got, want)
-	}
-	if got, want := stats.GetResources(), int64(2); got != want {
-		t.Fatalf("stats resources = %d, want %d", got, want)
-	}
-	if got, want := stats.GetEntitlements(), int64(1); got != want {
-		t.Fatalf("stats entitlements = %d, want %d", got, want)
-	}
-	if got, want := stats.GetGrants(), int64(1); got != want {
-		t.Fatalf("stats grants = %d, want %d", got, want)
-	}
+	require.NotNil(t, stats, "summary stats is nil; expected stats sidecar projection")
+	require.Equal(t, int64(2), stats.GetResourceTypes(), "stats resource_types")
+	require.Equal(t, int64(2), stats.GetResources(), "stats resources")
+	require.Equal(t, int64(1), stats.GetEntitlements(), "stats entitlements")
+	require.Equal(t, int64(1), stats.GetGrants(), "stats grants")
 
 	// The engine-dispatch header path must surface the same projection.
-	if _, err := f.Seek(0, 0); err != nil {
-		t.Fatal(err)
-	}
+	_, err = f.Seek(0, 0)
+	require.NoError(t, err)
 	env, err := formatv3.ReadEnvelopeHeader(f)
-	if err != nil {
-		t.Fatalf("ReadEnvelopeHeader: %v", err)
-	}
+	require.NoErrorf(t, err, "ReadEnvelopeHeader")
 	defer env.Close()
-	if got := len(env.Manifest.GetSyncRuns()); got != 1 {
-		t.Fatalf("ReadEnvelopeHeader sync_runs = %d, want 1", got)
-	}
+	require.Len(t, env.Manifest.GetSyncRuns(), 1, "ReadEnvelopeHeader sync_runs")
 }

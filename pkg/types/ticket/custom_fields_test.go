@@ -3,9 +3,10 @@ package ticket
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -867,13 +868,12 @@ func TestValidateTicket(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := ValidateTicket(tt.args.ctx, tt.args.schema, tt.args.ticket)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateTicket() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if got != tt.want {
-				t.Errorf("ValidateTicket() got = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -906,9 +906,8 @@ func TestStringFieldSchema(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := StringFieldSchema(tt.args.id, tt.args.displayName, tt.args.required); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("StringFieldSchema() = %v, want %v", got, tt.want)
-			}
+			got := StringFieldSchema(tt.args.id, tt.args.displayName, tt.args.required)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -939,9 +938,8 @@ func TestStringField(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := StringField(tt.args.id, tt.args.value); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("StringField() = %v, want %v", got, tt.want)
-			}
+			got := StringField(tt.args.id, tt.args.value)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -974,9 +972,8 @@ func TestStringsFieldSchema(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := StringsFieldSchema(tt.args.id, tt.args.displayName, tt.args.required); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("StringsFieldSchema() = %v, want %v", got, tt.want)
-			}
+			got := StringsFieldSchema(tt.args.id, tt.args.displayName, tt.args.required)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1007,9 +1004,8 @@ func TestStringsField(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := StringsField(tt.args.id, tt.args.values); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("StringsField() = %v, want %v", got, tt.want)
-			}
+			got := StringsField(tt.args.id, tt.args.values)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1042,9 +1038,8 @@ func TestBoolFieldSchema(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := BoolFieldSchema(tt.args.id, tt.args.displayName, tt.args.required); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("BoolFieldSchema() = %v, want %v", got, tt.want)
-			}
+			got := BoolFieldSchema(tt.args.id, tt.args.displayName, tt.args.required)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1088,9 +1083,8 @@ func TestBoolField(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := BoolField(tt.args.id, tt.args.value); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("BoolField() = %v, want %v", got, tt.want)
-			}
+			got := BoolField(tt.args.id, tt.args.value)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1123,9 +1117,8 @@ func TestTimestampFieldSchema(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := TimestampFieldSchema(tt.args.id, tt.args.displayName, tt.args.required); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("TimestampFieldSchema() = %v, want %v", got, tt.want)
-			}
+			got := TimestampFieldSchema(tt.args.id, tt.args.displayName, tt.args.required)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1157,9 +1150,8 @@ func TestTimestampField(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := TimestampField(tt.args.id, tt.args.value); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("TimestampField() = %v, want %v", got, tt.want)
-			}
+			got := TimestampField(tt.args.id, tt.args.value)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1196,9 +1188,8 @@ func TestPickStringFieldSchema(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := PickStringFieldSchema(tt.args.id, tt.args.displayName, tt.args.required, tt.args.allowedValues); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("PickStringFieldSchema() = %v, want %v", got, tt.want)
-			}
+			got := PickStringFieldSchema(tt.args.id, tt.args.displayName, tt.args.required, tt.args.allowedValues)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1229,9 +1220,8 @@ func TestPickStringField(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := PickStringField(tt.args.id, tt.args.value); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("PickStringField() = %v, want %v", got, tt.want)
-			}
+			got := PickStringField(tt.args.id, tt.args.value)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1268,9 +1258,8 @@ func TestPickMultipleStringsFieldSchema(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := PickMultipleStringsFieldSchema(tt.args.id, tt.args.displayName, tt.args.required, tt.args.allowedValues); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("PickMultipleStringsFieldSchema() = %v, want %v", got, tt.want)
-			}
+			got := PickMultipleStringsFieldSchema(tt.args.id, tt.args.displayName, tt.args.required, tt.args.allowedValues)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1301,9 +1290,8 @@ func TestPickMultipleStringsField(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := PickMultipleStringsField(tt.args.id, tt.args.values); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("PickMultipleStringsField() = %v, want %v", got, tt.want)
-			}
+			got := PickMultipleStringsField(tt.args.id, tt.args.values)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1358,9 +1346,8 @@ func TestPickObjectValueFieldSchema(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := PickObjectValueFieldSchema(tt.args.id, tt.args.displayName, tt.args.required, tt.args.allowedValues); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("PickObjectValueFieldSchema() = %v, want %v", got, tt.want)
-			}
+			got := PickObjectValueFieldSchema(tt.args.id, tt.args.displayName, tt.args.required, tt.args.allowedValues)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1395,9 +1382,8 @@ func TestPickObjectValueField(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := PickObjectValueField(tt.args.id, tt.args.value); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("PickObjectValueField() = %v, want %v", got, tt.want)
-			}
+			got := PickObjectValueField(tt.args.id, tt.args.value)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1452,9 +1438,8 @@ func TestPickMultipleObjectValuesFieldSchema(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := PickMultipleObjectValuesFieldSchema(tt.args.id, tt.args.displayName, tt.args.required, tt.args.allowedValues); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("PickMultipleObjectValuesFieldSchema() = %v, want %v", got, tt.want)
-			}
+			got := PickMultipleObjectValuesFieldSchema(tt.args.id, tt.args.displayName, tt.args.required, tt.args.allowedValues)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1499,9 +1484,8 @@ func TestPickMultipleObjectValuesField(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := PickMultipleObjectValuesField(tt.args.id, tt.args.values); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("PickMultipleObjectValuesField() = %v, want %v", got, tt.want)
-			}
+			got := PickMultipleObjectValuesField(tt.args.id, tt.args.values)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1618,13 +1602,12 @@ func TestGetCustomFieldValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := GetCustomFieldValue(tt.args.field)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetCustomFieldValue() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetCustomFieldValue() got = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1822,13 +1805,12 @@ func TestCustomFieldForSchemaField(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := CustomFieldForSchemaField(tt.args.id, tt.args.schema, tt.args.value)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("CustomFieldForSchemaField() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if !proto.Equal(got, tt.want) {
-				t.Errorf("CustomFieldForSchemaField() got = %v, want %v", got, tt.want)
-			}
+			require.True(t, proto.Equal(got, tt.want))
 		})
 	}
 }
@@ -1930,13 +1912,12 @@ func TestGetStringValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := GetStringValue(tt.args.field)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetStringValue() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if got != tt.want {
-				t.Errorf("GetStringValue() got = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1976,13 +1957,12 @@ func TestGetStringsValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := GetStringsValue(tt.args.field)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetStringsValue() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetStringsValue() got = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -2029,13 +2009,12 @@ func TestGetBoolValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := GetBoolValue(tt.args.field)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetBoolValue() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if got != tt.want {
-				t.Errorf("GetBoolValue() got = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -2076,13 +2055,12 @@ func TestGetTimestampValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := GetTimestampValue(tt.args.field)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetTimestampValue() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetTimestampValue() got = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -2122,13 +2100,12 @@ func TestGetPickStringValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := GetPickStringValue(tt.args.field)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetPickStringValue() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if got != tt.want {
-				t.Errorf("GetPickStringValue() got = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -2168,13 +2145,12 @@ func TestGetPickMultipleStringValues(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := GetPickMultipleStringValues(tt.args.field)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetPickMultipleStringValues() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetPickMultipleStringValues() got = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -2218,13 +2194,12 @@ func TestGetPickObjectValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := GetPickObjectValue(tt.args.field)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetPickObjectValue() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetPickObjectValue() got = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -2278,13 +2253,12 @@ func TestGetPickMultipleObjectValues(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := GetPickMultipleObjectValues(tt.args.field)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetPickMultipleObjectValues() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetPickMultipleObjectValues() got = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

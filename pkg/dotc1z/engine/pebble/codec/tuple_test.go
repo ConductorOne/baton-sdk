@@ -3,6 +3,8 @@ package codec
 import (
 	"bytes"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestTupleEncoding_PrefixFree verifies the prefix-free property of
@@ -59,10 +61,8 @@ func TestTupleEncoding_PrefixFree(t *testing.T) {
 			} else if bc > 0 {
 				bc = 1
 			}
-			if tc != bc {
-				t.Errorf("case[%d]=%v vs case[%d]=%v: tuple=%d bytewise=%d",
-					i, a, j, b, tc, bc)
-			}
+			require.Equal(t, tc, bc, "case[%d]=%v vs case[%d]=%v: tuple=%d bytewise=%d",
+				i, a, j, b, tc, bc)
 		}
 	}
 }
@@ -78,15 +78,9 @@ func TestDecodeTupleString_Roundtrip(t *testing.T) {
 	for _, in := range inputs {
 		encoded := AppendTupleBytes(nil, in)
 		decoded, n, err := DecodeTupleStringTo(nil, encoded, 0)
-		if err != nil {
-			t.Fatalf("%q: %v", in, err)
-		}
-		if n != len(encoded) {
-			t.Fatalf("%q: consumed %d, want %d", in, n, len(encoded))
-		}
-		if !bytes.Equal(decoded, in) {
-			t.Fatalf("%q: roundtrip failed; got %q", in, decoded)
-		}
+		require.NoError(t, err, "%q: %v", in, err)
+		require.Equal(t, len(encoded), n, "%q: consumed %d, want %d", in, n, len(encoded))
+		require.True(t, bytes.Equal(decoded, in), "%q: roundtrip failed; got %q", in, decoded)
 	}
 }
 
@@ -111,17 +105,12 @@ func TestAppendTupleString_MatchesBytes(t *testing.T) {
 	for _, s := range inputs {
 		gotString := AppendTupleString(nil, s)
 		gotBytes := AppendTupleBytes(nil, []byte(s))
-		if !bytes.Equal(gotString, gotBytes) {
-			t.Errorf("input %q: AppendTupleString=%v, AppendTupleBytes=%v", s, gotString, gotBytes)
-		}
+		require.True(t, bytes.Equal(gotString, gotBytes),
+			"input %q: AppendTupleString=%v, AppendTupleBytes=%v", s, gotString, gotBytes)
 		// And it must decode back to the original.
 		decoded, _, err := DecodeTupleStringTo(nil, gotString, 0)
-		if err != nil {
-			t.Errorf("input %q: decode error %v", s, err)
-		}
-		if string(decoded) != s {
-			t.Errorf("input %q: roundtrip got %q", s, decoded)
-		}
+		require.NoError(t, err, "input %q: decode error %v", s, err)
+		require.Equal(t, s, string(decoded), "input %q: roundtrip got %q", s, decoded)
 	}
 }
 
@@ -134,9 +123,7 @@ func TestAppendTupleStrings_NoAlloc(t *testing.T) {
 	allocs := testing.AllocsPerRun(100, func() {
 		_ = AppendTupleStrings(dst[:0], "entitlement-id", "user", "alice", "grant-external-id")
 	})
-	if allocs != 0 {
-		t.Errorf("AppendTupleStrings allocated %v times, want 0", allocs)
-	}
+	require.Equal(t, float64(0), allocs, "AppendTupleStrings allocated %v times, want 0", allocs)
 }
 
 func TestTupleInt32Sort(t *testing.T) {
@@ -147,20 +134,20 @@ func TestTupleInt32Sort(t *testing.T) {
 	}
 	// Verify bytewise comparison matches int order.
 	for i := 1; i < len(values); i++ {
-		if bytes.Compare(encoded[i-1], encoded[i]) >= 0 {
-			t.Errorf("encoded[%d]=%v >= encoded[%d]=%v but %d < %d",
-				i-1, encoded[i-1], i, encoded[i], values[i-1], values[i])
-		}
+		require.Less(t, bytes.Compare(encoded[i-1], encoded[i]), 0,
+			"encoded[%d]=%v >= encoded[%d]=%v but %d < %d",
+			i-1, encoded[i-1], i, encoded[i], values[i-1], values[i])
 	}
 }
 
 func TestTupleBoolEncoding(t *testing.T) {
-	if b := AppendTupleBool(nil, false); len(b) != 1 || b[0] != 0x26 {
-		t.Errorf("false: got %v", b)
-	}
-	if b := AppendTupleBool(nil, true); len(b) != 1 || b[0] != 0x27 {
-		t.Errorf("true: got %v", b)
-	}
+	b := AppendTupleBool(nil, false)
+	require.Len(t, b, 1, "false: got %v", b)
+	require.Equal(t, byte(0x26), b[0], "false: got %v", b)
+
+	b = AppendTupleBool(nil, true)
+	require.Len(t, b, 1, "true: got %v", b)
+	require.Equal(t, byte(0x27), b[0], "true: got %v", b)
 }
 
 // TestDecodeTupleStringAlias_MatchesDecodeTupleStringTo verifies the aliasing
@@ -182,22 +169,13 @@ func TestDecodeTupleStringAlias_MatchesDecodeTupleStringTo(t *testing.T) {
 		off := 0
 		for idx, want := range parts {
 			wantDecoded, wantNext, err := DecodeTupleStringTo(nil, key, off)
-			if err != nil {
-				t.Fatalf("%q[%d]: DecodeTupleStringTo error %v", parts, idx, err)
-			}
+			require.NoError(t, err, "%q[%d]: DecodeTupleStringTo error %v", parts, idx, err)
 			gotDecoded, gotNext, ok := DecodeTupleStringAlias(key, off)
-			if !ok {
-				t.Fatalf("%q[%d]: DecodeTupleStringAlias not ok", parts, idx)
-			}
-			if !bytes.Equal(gotDecoded, wantDecoded) {
-				t.Errorf("%q[%d]: alias=%q want %q", parts, idx, gotDecoded, wantDecoded)
-			}
-			if gotNext != wantNext {
-				t.Errorf("%q[%d]: alias next=%d want %d", parts, idx, gotNext, wantNext)
-			}
-			if string(gotDecoded) != want {
-				t.Errorf("%q[%d]: alias roundtrip got %q", parts, idx, gotDecoded)
-			}
+			require.True(t, ok, "%q[%d]: DecodeTupleStringAlias not ok", parts, idx)
+			require.True(t, bytes.Equal(gotDecoded, wantDecoded),
+				"%q[%d]: alias=%q want %q", parts, idx, gotDecoded, wantDecoded)
+			require.Equal(t, wantNext, gotNext, "%q[%d]: alias next=%d want %d", parts, idx, gotNext, wantNext)
+			require.Equal(t, want, string(gotDecoded), "%q[%d]: alias roundtrip got %q", parts, idx, gotDecoded)
 			off = gotNext + 1
 		}
 	}
@@ -208,21 +186,17 @@ func TestDecodeTupleStringAlias_MatchesDecodeTupleStringTo(t *testing.T) {
 func TestDecodeTupleStringAlias_NoAllocOnEscapeFree(t *testing.T) {
 	key := AppendTupleStrings(nil, "user", "alice")
 	allocs := testing.AllocsPerRun(100, func() {
-		if _, _, ok := DecodeTupleStringAlias(key, 0); !ok {
-			t.Fatal("not ok")
-		}
+		_, _, ok := DecodeTupleStringAlias(key, 0)
+		require.True(t, ok, "not ok")
 	})
-	if allocs != 0 {
-		t.Errorf("DecodeTupleStringAlias allocated %v times on escape-free input, want 0", allocs)
-	}
+	require.Equal(t, float64(0), allocs, "DecodeTupleStringAlias allocated %v times on escape-free input, want 0", allocs)
 }
 
 // TestDecodeTupleStringAlias_Malformed verifies a key ending inside an escape
 // sequence is rejected.
 func TestDecodeTupleStringAlias_Malformed(t *testing.T) {
-	if _, _, ok := DecodeTupleStringAlias([]byte{tupleEscape}, 0); ok {
-		t.Error("dangling escape: got ok, want false")
-	}
+	_, _, ok := DecodeTupleStringAlias([]byte{tupleEscape}, 0)
+	require.False(t, ok, "dangling escape: got ok, want false")
 }
 
 func TestKeyUpperBound(t *testing.T) {
@@ -237,14 +211,10 @@ func TestKeyUpperBound(t *testing.T) {
 	}
 	for _, tc := range cases {
 		got := KeyUpperBound(tc.in)
-		if !bytes.Equal(got, tc.want) {
-			t.Errorf("KeyUpperBound(%v) = %v, want %v", tc.in, got, tc.want)
-		}
+		require.True(t, bytes.Equal(got, tc.want), "KeyUpperBound(%v) = %v, want %v", tc.in, got, tc.want)
 	}
 	// Must not mutate the input.
 	in := []byte{0x01, 0x02}
 	_ = KeyUpperBound(in)
-	if !bytes.Equal(in, []byte{0x01, 0x02}) {
-		t.Errorf("KeyUpperBound mutated input to %v", in)
-	}
+	require.True(t, bytes.Equal(in, []byte{0x01, 0x02}), "KeyUpperBound mutated input to %v", in)
 }

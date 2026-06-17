@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
@@ -15,9 +16,7 @@ func openPebble(t *testing.T) *enginepkg.Engine {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "engine")
 	e, err := enginepkg.Open(context.Background(), dir)
-	if err != nil {
-		t.Fatalf("Open pebble: %v", err)
-	}
+	require.NoError(t, err, "Open pebble")
 	t.Cleanup(func() { _ = e.Close() })
 	return e
 }
@@ -84,9 +83,7 @@ func TestPebbleMatchesMemoryRef(t *testing.T) {
 	mem := NewMemoryRef()
 	peb := openPebble(t)
 
-	if err := Compare(context.Background(), mem, peb, w); err != nil {
-		t.Fatalf("equivalence mismatch: %v", err)
-	}
+	require.NoError(t, Compare(context.Background(), mem, peb, w), "equivalence mismatch")
 }
 
 // TestEmptyWorkload — two empty Results are equal.
@@ -96,9 +93,7 @@ func TestEmptyWorkload(t *testing.T) {
 
 	mem := NewMemoryRef()
 	peb := openPebble(t)
-	if err := Compare(context.Background(), mem, peb, w); err != nil {
-		t.Fatalf("empty workload mismatch: %v", err)
-	}
+	require.NoError(t, Compare(context.Background(), mem, peb, w), "empty workload mismatch")
 }
 
 // TestSingleGrant — minimal non-trivial workload.
@@ -113,9 +108,7 @@ func TestSingleGrant(t *testing.T) {
 
 	mem := NewMemoryRef()
 	peb := openPebble(t)
-	if err := Compare(context.Background(), mem, peb, w); err != nil {
-		t.Fatalf("single-grant mismatch: %v", err)
-	}
+	require.NoError(t, Compare(context.Background(), mem, peb, w), "single-grant mismatch")
 }
 
 // TestPutOverwrite — putting the same external_id twice updates the
@@ -135,7 +128,5 @@ func TestPutOverwrite(t *testing.T) {
 
 	mem := NewMemoryRef()
 	peb := openPebble(t)
-	if err := Compare(context.Background(), mem, peb, w); err != nil {
-		t.Fatalf("overwrite mismatch: %v", err)
-	}
+	require.NoError(t, Compare(context.Background(), mem, peb, w), "overwrite mismatch")
 }

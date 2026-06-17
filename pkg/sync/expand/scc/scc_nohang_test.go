@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // withTimeout runs f and fails the test if it doesn't complete within d.
@@ -19,7 +21,7 @@ func withTimeout(t *testing.T, d time.Duration, f func(t *testing.T)) {
 	case <-done:
 		return
 	case <-time.After(d):
-		t.Fatalf("function did not complete within %v (possible hang)", d)
+		require.FailNowf(t, "function did not complete (possible hang)", "timeout %v", d)
 	}
 }
 
@@ -331,9 +333,7 @@ func TestCancel_HeavyGraphs(t *testing.T) {
 			o := DefaultOptions()
 			o.MaxWorkers = 8
 			_, _ = CondenseFWBW(ctx, adjSource{adj: tc.adj}, o)
-			if time.Since(start) > 200*time.Millisecond {
-				t.Fatalf("cancellation not honored promptly")
-			}
+			require.LessOrEqual(t, time.Since(start), 200*time.Millisecond, "cancellation not honored promptly")
 		})
 	}
 }

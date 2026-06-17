@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func clamp(x, lo, hi int) int {
@@ -38,16 +40,14 @@ func assertPartition(t *testing.T, adj map[int]map[int]int, groups [][]int) {
 	seen := make(map[int]int, len(adj))
 	for gid, g := range groups {
 		for _, id := range g {
-			if _, ok := seen[id]; ok {
-				t.Fatalf("node %d appears in multiple groups", id)
-			}
+			_, ok := seen[id]
+			require.Falsef(t, ok, "node %d appears in multiple groups", id)
 			seen[id] = gid
 		}
 	}
 	for u := range adj {
-		if _, ok := seen[u]; !ok {
-			t.Fatalf("node %d missing from partition", u)
-		}
+		_, ok := seen[u]
+		require.Truef(t, ok, "node %d missing from partition", u)
 	}
 }
 
@@ -98,9 +98,7 @@ func assertDAGCondensation(t *testing.T, adj map[int]map[int]int, groups [][]int
 			}
 		}
 	}
-	if visited != len(groups) {
-		t.Fatalf("component condensation has a cycle: visited=%d total=%d", visited, len(groups))
-	}
+	require.Equalf(t, len(groups), visited, "component condensation has a cycle: visited=%d total=%d", visited, len(groups))
 }
 
 // generateAdjacency creates a bounded graph according to mode; returns map[int]map[int]int with all nodes as keys.
@@ -433,8 +431,6 @@ func FuzzCondenseFWBW_FromBytes(f *testing.F) {
 		assertDAGCondensation(t, adj, groups)
 		// idempotence in deterministic mode
 		groups2, _ := CondenseFWBW(context.Background(), adjSource{adj: adj}, opts)
-		if !equalGroups(normalizeGroups(groups), normalizeGroups(groups2)) {
-			t.Fatalf("non-deterministic result with Deterministic=true")
-		}
+		require.Truef(t, equalGroups(normalizeGroups(groups), normalizeGroups(groups2)), "non-deterministic result with Deterministic=true")
 	})
 }

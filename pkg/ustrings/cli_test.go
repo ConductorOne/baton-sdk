@@ -3,6 +3,8 @@ package ustrings
 import (
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseFlags(t *testing.T) {
@@ -60,10 +62,9 @@ func TestParseFlags(t *testing.T) {
 		t.Run(testCase.message, func(t *testing.T) {
 			values, err := ParseFlags(testCase.expression)
 			if err != nil && testCase.expected != nil {
-				t.Fatal("could not parse flags:", err.Error())
-			} else if !reflect.DeepEqual(values, testCase.expected) {
-				t.Fatal("parsing did not match expected value:", err.Error())
+				require.NoError(t, err, "could not parse flags")
 			}
+			require.True(t, reflect.DeepEqual(values, testCase.expected), "parsing did not match expected value")
 		})
 	}
 }

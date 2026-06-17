@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
@@ -22,31 +24,18 @@ func TestPebbleStoreGrantsStoreExpandedGrantsMarksDirty(t *testing.T) {
 	path := filepath.Join(tmp, "dirty.c1z")
 
 	store, err := NewStore(ctx, path, WithEngine(EnginePebble))
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
-	if _, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
+	require.NoError(t, err)
+	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 	// The only mutating GrantStore method.
-	if err := store.Grants().StoreExpandedGrants(ctx,
+	require.NoError(t, store.Grants().StoreExpandedGrants(ctx,
 		mkV2Grant("g1", "ent", "user", "alice"),
-	); err != nil {
-		t.Fatalf("StoreExpandedGrants: %v", err)
-	}
-	if err := store.EndSync(ctx); err != nil {
-		t.Fatalf("EndSync: %v", err)
-	}
-	if err := store.Close(ctx); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	))
+	require.NoError(t, store.EndSync(ctx))
+	require.NoError(t, store.Close(ctx))
 	// Close should have saved a c1z to outPath; if the dirty flag
 	// stayed false the save would skip and outPath would be empty/missing.
 	fi, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("clone stat: %v", err)
-	}
-	if fi.Size() == 0 {
-		t.Fatalf("c1z size = 0; pebble store didn't flush after StoreExpandedGrants")
-	}
+	require.NoError(t, err, "clone stat: %v", err)
+	require.NotZero(t, fi.Size(), "c1z size = 0; pebble store didn't flush after StoreExpandedGrants")
 }

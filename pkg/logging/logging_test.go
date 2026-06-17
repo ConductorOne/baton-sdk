@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -12,26 +13,17 @@ func TestSetLogLevelUpdatesActiveLogger(t *testing.T) {
 	t.Parallel()
 
 	ctx, err := Init(context.Background(), WithLogLevel("info"))
-	if err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	require.NoError(t, err, "Init")
 	logger := ctxzap.Extract(ctx)
-	if checked := logger.Check(zap.DebugLevel, "debug"); checked != nil {
-		t.Fatal("debug should be disabled at info level")
-	}
+	require.Nil(t, logger.Check(zap.DebugLevel, "debug"), "debug should be disabled at info level")
 
-	if err := SetLogLevel("debug"); err != nil {
-		t.Fatalf("SetLogLevel: %v", err)
-	}
-	if checked := logger.Check(zap.DebugLevel, "debug"); checked == nil {
-		t.Fatal("debug should be enabled after SetLogLevel")
-	}
+	require.NoError(t, SetLogLevel("debug"), "SetLogLevel")
+	require.NotNil(t, logger.Check(zap.DebugLevel, "debug"), "debug should be enabled after SetLogLevel")
 }
 
 func TestSetLogLevelRejectsInvalidLevel(t *testing.T) {
 	t.Parallel()
 
-	if err := SetLogLevel("verbose"); err == nil {
-		t.Fatal("expected invalid log level to fail")
-	}
+	err := SetLogLevel("verbose")
+	require.Error(t, err, "expected invalid log level to fail")
 }

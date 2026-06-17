@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -19,9 +20,7 @@ func TestPendingExpansionIndexRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.MarkFreshSync(syncID); err != nil {
-		t.Fatalf("MarkFreshSync: %v", err)
-	}
+	require.NoErrorf(t, e.MarkFreshSync(syncID), "MarkFreshSync")
 
 	gPending := v3.GrantRecord_builder{
 		ExternalId: "g-pending",
@@ -59,20 +58,14 @@ func TestPendingExpansionIndexRoundtrip(t *testing.T) {
 		}.Build(),
 	}.Build()
 
-	if err := e.PutGrantRecords(ctx, gPending, gProcessed, gPlain); err != nil {
-		t.Fatalf("PutGrantRecords: %v", err)
-	}
+	require.NoErrorf(t, e.PutGrantRecords(ctx, gPending, gProcessed, gPlain), "PutGrantRecords")
 
 	seen := []string{}
-	if err := e.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
+	require.NoErrorf(t, e.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
 		seen = append(seen, r.GetExternalId())
 		return true
-	}); err != nil {
-		t.Fatalf("IterateGrantsByNeedsExpansion: %v", err)
-	}
-	if len(seen) != 1 || seen[0] != "g-pending" {
-		t.Errorf("IterateGrantsByNeedsExpansion: got %v, want [g-pending]", seen)
-	}
+	}), "IterateGrantsByNeedsExpansion")
+	require.Equal(t, []string{"g-pending"}, seen, "IterateGrantsByNeedsExpansion")
 
 	// Flip g-pending to NeedsExpansion=false. The index entry must
 	// disappear (mirrors the syncer's post-expansion write).
@@ -89,19 +82,13 @@ func TestPendingExpansionIndexRoundtrip(t *testing.T) {
 		}.Build(),
 		NeedsExpansion: false,
 	}.Build()
-	if err := e.PutGrantRecord(ctx, gPendingDone); err != nil {
-		t.Fatalf("PutGrantRecord (flip): %v", err)
-	}
+	require.NoErrorf(t, e.PutGrantRecord(ctx, gPendingDone), "PutGrantRecord (flip)")
 	seen = seen[:0]
-	if err := e.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
+	require.NoErrorf(t, e.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
 		seen = append(seen, r.GetExternalId())
 		return true
-	}); err != nil {
-		t.Fatalf("IterateGrantsByNeedsExpansion (post-flip): %v", err)
-	}
-	if len(seen) != 0 {
-		t.Errorf("after flip to NeedsExpansion=false, IterateGrantsByNeedsExpansion: got %v, want []", seen)
-	}
+	}), "IterateGrantsByNeedsExpansion (post-flip)")
+	require.Empty(t, seen, "after flip to NeedsExpansion=false, IterateGrantsByNeedsExpansion")
 }
 
 // TestPebbleGrantStorePendingExpansionPage exercises the adapter
@@ -112,9 +99,7 @@ func TestPebbleGrantStorePendingExpansionPage(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
+	require.NoErrorf(t, err, "StartNewSync")
 	rec := v3.GrantRecord_builder{
 		ExternalId: "g1",
 		Entitlement: v3.EntitlementRef_builder{
@@ -128,27 +113,14 @@ func TestPebbleGrantStorePendingExpansionPage(t *testing.T) {
 		}.Build(),
 		NeedsExpansion: true,
 	}.Build()
-	if err := a.engine.PutGrantRecord(ctx, rec); err != nil {
-		t.Fatalf("PutGrantRecord: %v", err)
-	}
+	require.NoErrorf(t, a.engine.PutGrantRecord(ctx, rec), "PutGrantRecord")
 
 	rows, _, err := a.Grants().PendingExpansionPage(ctx, "")
-	if err != nil {
-		t.Fatalf("PendingExpansionPage: %v", err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("PendingExpansionPage: got %d rows, want 1", len(rows))
-	}
-	if rows[0].GrantExternalID != "g1" {
-		t.Errorf("PendingExpansion[0].GrantExternalID = %q, want g1", rows[0].GrantExternalID)
-	}
-	if rows[0].TargetEntitlementID != "ent-A" {
-		t.Errorf("PendingExpansion[0].TargetEntitlementID = %q, want ent-A", rows[0].TargetEntitlementID)
-	}
-	if !rows[0].NeedsExpansion {
-		t.Error("PendingExpansion[0].NeedsExpansion = false, want true")
-	}
-	if rows[0].Annotation == nil || len(rows[0].Annotation.GetEntitlementIds()) != 1 {
-		t.Errorf("PendingExpansion[0].Annotation = %v, want non-nil with 1 entitlement id", rows[0].Annotation)
-	}
+	require.NoErrorf(t, err, "PendingExpansionPage")
+	require.Len(t, rows, 1, "PendingExpansionPage rows")
+	require.Equal(t, "g1", rows[0].GrantExternalID, "PendingExpansion[0].GrantExternalID")
+	require.Equal(t, "ent-A", rows[0].TargetEntitlementID, "PendingExpansion[0].TargetEntitlementID")
+	require.True(t, rows[0].NeedsExpansion, "PendingExpansion[0].NeedsExpansion")
+	require.NotNil(t, rows[0].Annotation, "PendingExpansion[0].Annotation")
+	require.Len(t, rows[0].Annotation.GetEntitlementIds(), 1, "PendingExpansion[0].Annotation entitlement ids")
 }

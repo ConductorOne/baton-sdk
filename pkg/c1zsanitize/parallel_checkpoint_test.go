@@ -22,9 +22,7 @@ var fixedAnchor = time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
 // anyTB packs a proto into an Any, failing the test/benchmark on error.
 func anyTB(tb testing.TB, m proto.Message) *anypb.Any {
 	a, err := anypb.New(m)
-	if err != nil {
-		tb.Fatal(err)
-	}
+	require.NoError(tb, err)
 	return a
 }
 

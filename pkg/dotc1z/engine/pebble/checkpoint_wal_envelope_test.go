@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -26,22 +28,12 @@ func TestSavedC1ZReopensAfterWALTruncation(t *testing.T) {
 	runSync := func(rtID string) string {
 		t.Helper()
 		w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		syncID, err := w.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := w.PutResourceTypes(ctx, v2.ResourceType_builder{Id: rtID}.Build()); err != nil {
-			t.Fatal(err)
-		}
-		if err := w.EndSync(ctx); err != nil {
-			t.Fatal(err)
-		}
-		if err := w.Close(ctx); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
+		require.NoError(t, w.PutResourceTypes(ctx, v2.ResourceType_builder{Id: rtID}.Build()))
+		require.NoError(t, w.EndSync(ctx))
+		require.NoError(t, w.Close(ctx))
 		return syncID
 	}
 
@@ -53,18 +45,12 @@ func TestSavedC1ZReopensAfterWALTruncation(t *testing.T) {
 	// sync. The second must survive the save/reopen round trip; the
 	// first must be gone.
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = w.Close(ctx) }()
 	eng, ok := pebble.AsEngine(w)
-	if !ok {
-		t.Fatalf("not a pebble store: %T", w)
-	}
-	if _, err := eng.GetSyncRunRecord(ctx, second); err != nil {
-		t.Fatalf("second sync %s lost across save/reopen: %v", second, err)
-	}
-	if _, err := eng.GetSyncRunRecord(ctx, first); err == nil {
-		t.Fatalf("first sync %s should have been replaced by the second (single-sync contract)", first)
-	}
+	require.True(t, ok, "not a pebble store: %T", w)
+	_, err = eng.GetSyncRunRecord(ctx, second)
+	require.NoError(t, err, "second sync %s lost across save/reopen", second)
+	_, err = eng.GetSyncRunRecord(ctx, first)
+	require.Error(t, err, "first sync %s should have been replaced by the second (single-sync contract)", first)
 }

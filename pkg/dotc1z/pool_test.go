@@ -104,19 +104,11 @@ func TestDecoderPool(t *testing.T) {
 		t.Helper()
 		var buf bytes.Buffer
 		enc, err := zstd.NewWriter(&buf)
-		if err != nil {
-			t.Fatalf("failed to create zstd writer: %v", err)
-		}
+		require.NoError(t, err, "failed to create zstd writer")
 		n, err := enc.Write(data)
-		if err != nil {
-			t.Fatalf("failed to write data: %v", err)
-		}
-		if n != len(data) {
-			t.Fatalf("short write: wrote %d of %d bytes", n, len(data))
-		}
-		if err := enc.Close(); err != nil {
-			t.Fatalf("failed to close encoder: %v", err)
-		}
+		require.NoError(t, err, "failed to write data")
+		require.Equal(t, len(data), n, "short write")
+		require.NoError(t, enc.Close(), "failed to close encoder")
 		return buf.Bytes()
 	}
 

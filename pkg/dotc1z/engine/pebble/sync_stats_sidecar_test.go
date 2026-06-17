@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -21,68 +22,41 @@ func TestSyncStatsSidecarRoundtrip(t *testing.T) {
 	e, _ := newTestEngine(t)
 	store := NewAdapter(e)
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
-	if err := store.PutResourceTypes(ctx,
+	require.NoErrorf(t, err, "StartNewSync")
+	require.NoErrorf(t, store.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "user"}.Build(),
 		v2.ResourceType_builder{Id: "group"}.Build(),
-	); err != nil {
-		t.Fatalf("PutResourceTypes: %v", err)
-	}
-	if err := store.PutResources(ctx,
+	), "PutResourceTypes")
+	require.NoErrorf(t, store.PutResources(ctx,
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build(),
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build()}.Build(),
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build(),
-	); err != nil {
-		t.Fatalf("PutResources: %v", err)
-	}
-	if err := store.PutGrants(ctx,
+	), "PutResources")
+	require.NoErrorf(t, store.PutGrants(ctx,
 		mkV2Grant("gr1", "ent-A", "user", "u1"),
 		mkV2Grant("gr2", "ent-A", "user", "u2"),
 		mkV2Grant("gr3", "ent-B", "group", "g1"),
-	); err != nil {
-		t.Fatalf("PutGrants: %v", err)
-	}
-	if err := store.EndSync(ctx); err != nil {
-		t.Fatalf("EndSync: %v", err)
-	}
+	), "PutGrants")
+	require.NoErrorf(t, store.EndSync(ctx), "EndSync")
 
 	// Sidecar should now exist. Read it directly.
 	stats, err := e.readSyncStats(ctx, syncID)
-	if err != nil {
-		t.Fatalf("readSyncStats: %v", err)
-	}
-	if stats == nil {
-		t.Fatal("sidecar missing after EndSync")
-	}
-	if stats.GetResources() != 3 {
-		t.Errorf("resources=%d, want 3", stats.GetResources())
-	}
-	if stats.GetGrants() != 3 {
-		t.Errorf("grants=%d, want 3", stats.GetGrants())
-	}
-	if stats.GetResourceTypes() != 2 {
-		t.Errorf("resource_types=%d, want 2", stats.GetResourceTypes())
-	}
-	if got := stats.GetResourcesByResourceType()["user"]; got != 2 {
-		t.Errorf("resources[user]=%d, want 2", got)
-	}
-	if got := stats.GetResourcesByResourceType()["group"]; got != 1 {
-		t.Errorf("resources[group]=%d, want 1", got)
-	}
+	require.NoErrorf(t, err, "readSyncStats")
+	require.NotNil(t, stats, "sidecar missing after EndSync")
+	require.Equal(t, int64(3), stats.GetResources(), "resources")
+	require.Equal(t, int64(3), stats.GetGrants(), "grants")
+	require.Equal(t, int64(2), stats.GetResourceTypes(), "resource_types")
+	require.Equal(t, int64(2), stats.GetResourcesByResourceType()["user"], "resources[user]")
+	require.Equal(t, int64(1), stats.GetResourcesByResourceType()["group"], "resources[group]")
 
 	// Stats() through the adapter must match the sidecar.
 	m, err := store.SyncMeta().Stats(ctx, connectorstore.SyncTypeAny, syncID)
-	if err != nil {
-		t.Fatalf("Stats: %v", err)
-	}
-	if m["resources"] != 3 || m["grants"] != 3 || m["resource_types"] != 2 {
-		t.Errorf("Stats result %v missing expected totals", m)
-	}
-	if m["user"] != 2 || m["group"] != 1 {
-		t.Errorf("Stats per-RT counts wrong: %v", m)
-	}
+	require.NoErrorf(t, err, "Stats")
+	require.Equal(t, int64(3), m["resources"], "Stats resources")
+	require.Equal(t, int64(3), m["grants"], "Stats grants")
+	require.Equal(t, int64(2), m["resource_types"], "Stats resource_types")
+	require.Equal(t, int64(2), m["user"], "Stats user count")
+	require.Equal(t, int64(1), m["group"], "Stats group count")
 	_ = store.Close(ctx)
 }
 
@@ -103,62 +77,34 @@ func TestSyncStatsSidecarBackfillOnOpen(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "engine")
 
 	e, err := Open(ctx, dir)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
+	require.NoErrorf(t, err, "Open")
 	syncID := ksuid.New().String()
-	if err := e.MarkFreshSync(syncID); err != nil {
-		t.Fatalf("MarkFreshSync: %v", err)
-	}
+	require.NoErrorf(t, e.MarkFreshSync(syncID), "MarkFreshSync")
 	// Need a SyncRunRecord so collectSyncIDs (used by the migration)
 	// can find this sync during backfill.
-	if err := e.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+	require.NoErrorf(t, e.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId: syncID,
 		Type:   v3.SyncType_SYNC_TYPE_FULL,
-	}.Build()); err != nil {
-		t.Fatalf("PutSyncRunRecord: %v", err)
-	}
-	if err := e.PutGrantRecord(ctx, makeGrant(syncID, "g1", "ent-A", "alice")); err != nil {
-		t.Fatalf("PutGrantRecord: %v", err)
-	}
-	if err := e.PersistSyncStats(ctx, syncID); err != nil {
-		t.Fatalf("PersistSyncStats: %v", err)
-	}
+	}.Build()), "PutSyncRunRecord")
+	require.NoErrorf(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g1", "ent-A", "alice")), "PutGrantRecord")
+	require.NoErrorf(t, e.PersistSyncStats(ctx, syncID), "PersistSyncStats")
 	// Surgically delete the sidecar and the migration's applied-version
 	// stamp so the next Open's migrator re-runs.
-	if err := e.db.Delete(encodeSyncStatsKey(), nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.db.Delete(encodeIndexAppliedKey("sync_stats_sidecar"), nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	require.NoError(t, e.db.Delete(encodeSyncStatsKey(), nil))
+	require.NoError(t, e.db.Delete(encodeIndexAppliedKey("sync_stats_sidecar"), nil))
+	require.NoErrorf(t, e.Close(), "Close")
 
 	// Re-open. The migration framework should backfill the sidecar.
 	e2, err := Open(ctx, dir)
-	if err != nil {
-		t.Fatalf("Open 2: %v", err)
-	}
+	require.NoErrorf(t, err, "Open 2")
 	defer e2.Close()
 	stats, err := e2.readSyncStats(ctx, syncID)
-	if err != nil {
-		t.Fatalf("readSyncStats: %v", err)
-	}
-	if stats == nil {
-		t.Fatal("sidecar not backfilled by on-Open migration")
-	}
-	if stats.GetGrants() != 1 {
-		t.Errorf("backfilled grants = %d, want 1", stats.GetGrants())
-	}
+	require.NoErrorf(t, err, "readSyncStats")
+	require.NotNil(t, stats, "sidecar not backfilled by on-Open migration")
+	require.Equal(t, int64(1), stats.GetGrants(), "backfilled grants")
 	v, err := e2.readAppliedIndexVersion("sync_stats_sidecar")
-	if err != nil {
-		t.Fatalf("readAppliedIndexVersion: %v", err)
-	}
-	if v != 1 {
-		t.Fatalf("applied-version after migration = %d, want 1", v)
-	}
+	require.NoErrorf(t, err, "readAppliedIndexVersion")
+	require.Equal(t, 1, v, "applied-version after migration")
 }
 
 // TestSyncStatsSidecarFallback verifies that a sync without a
@@ -168,24 +114,16 @@ func TestSyncStatsSidecarFallback(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.MarkFreshSync(syncID); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.PutGrantRecord(ctx, makeGrant(syncID, "g1", "ent", "u1")); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, e.MarkFreshSync(syncID))
+	require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g1", "ent", "u1")))
 	// Don't call PersistSyncStats — leaves the sidecar missing.
 
 	// The Adapter.statsFromIteration helper still produces correct
 	// counts. We exercise it directly to avoid the Stats() fast-path.
 	a := &Adapter{engine: e}
 	got, err := a.statsFromIteration(ctx)
-	if err != nil {
-		t.Fatalf("statsFromIteration: %v", err)
-	}
-	if got["grants"] != 1 {
-		t.Errorf("fallback grants = %v, want 1", got["grants"])
-	}
+	require.NoErrorf(t, err, "statsFromIteration")
+	require.Equal(t, int64(1), got["grants"], "fallback grants")
 }
 
 var _ = v3.SyncStatsRecord{} // keep import used in test

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -30,33 +31,23 @@ type statsGrantSpec struct {
 func writeStatsSource(t *testing.T, ctx context.Context, path string, grants []statsGrantSpec) kwaySourceFixture {
 	t.Helper()
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	store := w
 	eng, ok := enginepkg.AsEngine(w)
-	if !ok {
-		t.Fatalf("store is not pebble: %T", w)
-	}
+	require.True(t, ok, "store is not pebble: %T", w)
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	now := timestamppb.New(time.Unix(1, 0).UTC())
-	if err := eng.PutResourceTypeRecords(ctx,
+	require.NoError(t, eng.PutResourceTypeRecords(ctx,
 		v3.ResourceTypeRecord_builder{ExternalId: "user", DisplayName: "User", DiscoveredAt: now}.Build(),
 		v3.ResourceTypeRecord_builder{ExternalId: "group", DisplayName: "Group", DiscoveredAt: now}.Build(),
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := eng.PutResourceRecords(ctx,
+	))
+	require.NoError(t, eng.PutResourceRecords(ctx,
 		v3.ResourceRecord_builder{ResourceTypeId: "group", ResourceId: "engineering", DiscoveredAt: now}.Build(),
 		v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "alice", DiscoveredAt: now}.Build(),
 		v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "bob", DiscoveredAt: now}.Build(),
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := eng.PutEntitlementRecords(ctx,
+	))
+	require.NoError(t, eng.PutEntitlementRecords(ctx,
 		v3.EntitlementRecord_builder{
 			ExternalId:   "member",
 			Resource:     v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "engineering"}.Build(),
@@ -67,9 +58,7 @@ func writeStatsSource(t *testing.T, ctx context.Context, path string, grants []s
 			Resource:     v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "engineering"}.Build(),
 			DiscoveredAt: now,
 		}.Build(),
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	for _, g := range grants {
 		rec := v3.GrantRecord_builder{
 			ExternalId: g.id,
@@ -81,36 +70,20 @@ func writeStatsSource(t *testing.T, ctx context.Context, path string, grants []s
 			Principal:    v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: g.principalID}.Build(),
 			DiscoveredAt: now,
 		}.Build()
-		if err := eng.PutGrantRecords(ctx, rec); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, eng.PutGrantRecords(ctx, rec))
 	}
-	if err := store.EndSync(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, store.EndSync(ctx))
+	require.NoError(t, store.Close(ctx))
 	return kwaySourceFixture{path: path, syncID: syncID}
 }
 
 func requireSyncStatsEqual(t *testing.T, want, got *v3.SyncStatsRecord, label string) {
 	t.Helper()
-	if got.GetResourceTypes() != want.GetResourceTypes() {
-		t.Errorf("%s: resource_types=%d, want %d", label, got.GetResourceTypes(), want.GetResourceTypes())
-	}
-	if got.GetResources() != want.GetResources() {
-		t.Errorf("%s: resources=%d, want %d", label, got.GetResources(), want.GetResources())
-	}
-	if got.GetEntitlements() != want.GetEntitlements() {
-		t.Errorf("%s: entitlements=%d, want %d", label, got.GetEntitlements(), want.GetEntitlements())
-	}
-	if got.GetGrants() != want.GetGrants() {
-		t.Errorf("%s: grants=%d, want %d", label, got.GetGrants(), want.GetGrants())
-	}
-	if got.GetAssets() != want.GetAssets() {
-		t.Errorf("%s: assets=%d, want %d", label, got.GetAssets(), want.GetAssets())
-	}
+	require.Equal(t, want.GetResourceTypes(), got.GetResourceTypes(), "%s: resource_types", label)
+	require.Equal(t, want.GetResources(), got.GetResources(), "%s: resources", label)
+	require.Equal(t, want.GetEntitlements(), got.GetEntitlements(), "%s: entitlements", label)
+	require.Equal(t, want.GetGrants(), got.GetGrants(), "%s: grants", label)
+	require.Equal(t, want.GetAssets(), got.GetAssets(), "%s: assets", label)
 	requireCountMapEqual(t, want.GetResourcesByResourceType(), got.GetResourcesByResourceType(), label+": resources_by_resource_type")
 	requireCountMapEqual(t, want.GetGrantsByEntitlementResourceType(), got.GetGrantsByEntitlementResourceType(), label+": grants_by_entitlement_resource_type")
 }
@@ -119,14 +92,9 @@ func requireSyncStatsEqual(t *testing.T, want, got *v3.SyncStatsRecord, label st
 // proto maps round-trip through marshal/unmarshal as nil.
 func requireCountMapEqual(t *testing.T, want, got map[string]int64, label string) {
 	t.Helper()
-	if len(want) != len(got) {
-		t.Errorf("%s: got %v, want %v", label, got, want)
-		return
-	}
+	require.Equal(t, len(want), len(got), "%s: got %v, want %v", label, got, want)
 	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("%s[%q]=%d, want %d", label, k, got[k], v)
-		}
+		require.Equal(t, v, got[k], "%s[%q]", label, k)
 	}
 }
 
@@ -228,12 +196,8 @@ func TestMergeStatsSidecarMatchesRecompute(t *testing.T) {
 			dest, _ := newEngine(t, "stats-dest")
 			destSyncID := ksuid.New().String()
 			got, err := tc.merge(ctx, dest, tc.sources(t), destSyncID, t.TempDir())
-			if err != nil {
-				t.Fatalf("merge: %v", err)
-			}
-			if got == nil {
-				t.Fatal("merge returned nil stats")
-			}
+			require.NoError(t, err, "merge")
+			require.NotNil(t, got, "merge returned nil stats")
 			if tc.want != nil {
 				requireSyncStatsEqual(t, tc.want, got, "accumulated vs expected")
 			}
@@ -241,23 +205,13 @@ func TestMergeStatsSidecarMatchesRecompute(t *testing.T) {
 			// Persist the accumulated record, read it back, then
 			// overwrite with a full recompute and compare: the
 			// merge-time accumulation must match the scan exactly.
-			if err := dest.PersistComputedSyncStats(ctx, destSyncID, got); err != nil {
-				t.Fatalf("PersistComputedSyncStats: %v", err)
-			}
+			require.NoError(t, dest.PersistComputedSyncStats(ctx, destSyncID, got), "PersistComputedSyncStats")
 			stored, err := enginepkg.ReadSyncStatsRecord(ctx, dest, destSyncID)
-			if err != nil {
-				t.Fatalf("ReadSyncStatsRecord (accumulated): %v", err)
-			}
-			if stored == nil {
-				t.Fatal("accumulated sidecar missing after persist")
-			}
-			if err := dest.PersistSyncStats(ctx, destSyncID); err != nil {
-				t.Fatalf("PersistSyncStats: %v", err)
-			}
+			require.NoError(t, err, "ReadSyncStatsRecord (accumulated)")
+			require.NotNil(t, stored, "accumulated sidecar missing after persist")
+			require.NoError(t, dest.PersistSyncStats(ctx, destSyncID), "PersistSyncStats")
 			recomputed, err := enginepkg.ReadSyncStatsRecord(ctx, dest, destSyncID)
-			if err != nil {
-				t.Fatalf("ReadSyncStatsRecord (recomputed): %v", err)
-			}
+			require.NoError(t, err, "ReadSyncStatsRecord (recomputed)")
 			requireSyncStatsEqual(t, recomputed, stored, "accumulated vs recompute")
 		})
 	}

@@ -39,9 +39,7 @@ func TestWrapper_WithJSONBody(t *testing.T) {
 	}
 	exampleBodyBuffer := new(bytes.Buffer)
 	err := json.NewEncoder(exampleBodyBuffer).Encode(exampleBody)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	option := WithJSONBody(exampleBody)
 	buffer, _, err := option()
@@ -87,9 +85,7 @@ func TestWrapper_WithXMLBody(t *testing.T) {
 	}
 	exampleBodyBuffer := new(bytes.Buffer)
 	err := xml.NewEncoder(exampleBodyBuffer).Encode(exampleBody)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	option := WithXMLBody(exampleBody)
 	buffer, headers, err := option()
@@ -117,9 +113,7 @@ func TestWrapper_WithJSONResponse(t *testing.T) {
 	}
 	exampleResponseBuffer := new(bytes.Buffer)
 	err := json.NewEncoder(exampleResponseBuffer).Encode(exampleResponse)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	responseBody := example{}
 	option := WithJSONResponse(&responseBody)
@@ -201,9 +195,7 @@ func TestWrapper_WithXMLResponse(t *testing.T) {
 	}
 	exampleResponseBuffer := new(bytes.Buffer)
 	err := xml.NewEncoder(exampleResponseBuffer).Encode(exampleResponse)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	resp := http.Response{
 		Header: map[string][]string{
@@ -264,9 +256,7 @@ func TestWrapper_WithResponse(t *testing.T) {
 	}
 	exampleResponseBuffer := new(bytes.Buffer)
 	err := xml.NewEncoder(exampleResponseBuffer).Encode(exampleResponse)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	resp := http.Response{
 		Header: map[string][]string{
@@ -289,9 +279,7 @@ func TestWrapper_WithResponse(t *testing.T) {
 
 	exampleResponseBuffer = new(bytes.Buffer)
 	err = json.NewEncoder(exampleResponseBuffer).Encode(exampleResponse)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	resp.Header = map[string][]string{
 		"Content-Type": {"application/json"},
@@ -580,9 +568,7 @@ func TestWrapper_NewRequest(t *testing.T) {
 	exampleBody := example{Name: "John", Age: 30}
 	exampleBodyBuffer := new(bytes.Buffer)
 	err := json.NewEncoder(exampleBodyBuffer).Encode(exampleBody)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	test := []struct {
 		name     string
@@ -622,9 +608,7 @@ func TestWrapper_NewRequest(t *testing.T) {
 	for _, tc := range test {
 		t.Run(tc.name, func(t *testing.T) {
 			u, err := url.Parse(tc.url)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			client, err := NewBaseHttpClientWithContext(ctx, http.DefaultClient)
 			require.NoError(t, err)
@@ -651,9 +635,7 @@ func TestWrapperConfig(t *testing.T) {
 	exampleBody := example{Name: "John", Age: 30}
 	exampleBodyBuffer := new(bytes.Buffer)
 	err := json.NewEncoder(exampleBodyBuffer).Encode(exampleBody)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	test := []struct {
 		name     string
@@ -704,9 +686,7 @@ func TestWrapperConfig(t *testing.T) {
 	for _, tc := range test {
 		t.Run(tc.name, func(t *testing.T) {
 			u, err := url.Parse(tc.url)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			ctx = context.WithValue(ctx, ContextKey{}, tc.cc)
 			client, err := NewBaseHttpClientWithContext(ctx, http.DefaultClient)

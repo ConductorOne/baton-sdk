@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLambdaTLSConfigTrustsConfiguredCA(t *testing.T) {
@@ -21,35 +23,23 @@ func TestLambdaTLSConfigTrustsConfiguredCA(t *testing.T) {
 		Bytes: server.Certificate().Raw,
 	})
 	certPath := filepath.Join(t.TempDir(), "ca.pem")
-	if err := os.WriteFile(certPath, certPEM, 0o600); err != nil {
-		t.Fatalf("write CA cert: %v", err)
-	}
+	require.NoError(t, os.WriteFile(certPath, certPEM, 0o600), "write CA cert")
 	t.Setenv(lambdaCACertPathEnv, certPath)
 
 	tlsConfig, err := lambdaTLSConfig()
-	if err != nil {
-		t.Fatalf("lambdaTLSConfig: %v", err)
-	}
+	require.NoError(t, err, "lambdaTLSConfig")
 	client := lambdaHTTPClient(tlsConfig)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
-	if err != nil {
-		t.Fatalf("NewRequestWithContext: %v", err)
-	}
+	require.NoError(t, err, "NewRequestWithContext")
 	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("GET with configured CA: %v", err)
-	}
+	require.NoError(t, err, "GET with configured CA")
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusNoContent)
-	}
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, "status")
 }
 
 func TestLambdaTLSConfigRejectsInvalidCAPath(t *testing.T) {
 	t.Setenv(lambdaCACertPathEnv, filepath.Join(t.TempDir(), "missing.pem"))
 
 	_, err := lambdaTLSConfig()
-	if err == nil {
-		t.Fatal("expected error for missing CA path")
-	}
+	require.Error(t, err, "expected error for missing CA path")
 }
