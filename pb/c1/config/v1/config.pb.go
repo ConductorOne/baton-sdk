@@ -555,6 +555,7 @@ type Field struct {
 	IsRequired  bool                   `protobuf:"varint,5,opt,name=is_required,json=isRequired,proto3" json:"is_required,omitempty"`
 	IsOps       bool                   `protobuf:"varint,6,opt,name=is_ops,json=isOps,proto3" json:"is_ops,omitempty"`
 	IsSecret    bool                   `protobuf:"varint,7,opt,name=is_secret,json=isSecret,proto3" json:"is_secret,omitempty"`
+	IsHidden    bool                   `protobuf:"varint,8,opt,name=is_hidden,json=isHidden,proto3" json:"is_hidden,omitempty"`
 	// Types that are valid to be assigned to Field:
 	//
 	//	*Field_StringField
@@ -643,6 +644,13 @@ func (x *Field) GetIsOps() bool {
 func (x *Field) GetIsSecret() bool {
 	if x != nil {
 		return x.IsSecret
+	}
+	return false
+}
+
+func (x *Field) GetIsHidden() bool {
+	if x != nil {
+		return x.IsHidden
 	}
 	return false
 }
@@ -779,6 +787,10 @@ func (x *Field) SetIsOps(v bool) {
 
 func (x *Field) SetIsSecret(v bool) {
 	x.IsSecret = v
+}
+
+func (x *Field) SetIsHidden(v bool) {
+	x.IsHidden = v
 }
 
 func (x *Field) SetStringField(v *StringField) {
@@ -1089,6 +1101,7 @@ type Field_builder struct {
 	IsRequired  bool
 	IsOps       bool
 	IsSecret    bool
+	IsHidden    bool
 	// Fields of oneof Field:
 	StringField          *StringField
 	IntField             *IntField
@@ -1116,6 +1129,7 @@ func (b0 Field_builder) Build() *Field {
 	x.IsRequired = b.IsRequired
 	x.IsOps = b.IsOps
 	x.IsSecret = b.IsSecret
+	x.IsHidden = b.IsHidden
 	if b.StringField != nil {
 		x.Field = &Field_StringField{b.StringField}
 	}
@@ -2751,7 +2765,7 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x1b\n" +
 	"\thelp_text\x18\x03 \x01(\tR\bhelpText\x12\x16\n" +
 	"\x06fields\x18\x04 \x03(\tR\x06fields\x12\x18\n" +
-	"\adefault\x18\x05 \x01(\bR\adefault\"\x9d\b\n" +
+	"\adefault\x18\x05 \x01(\bR\adefault\"\xba\b\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12 \n" +
@@ -2760,7 +2774,8 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\vis_required\x18\x05 \x01(\bR\n" +
 	"isRequired\x12\x15\n" +
 	"\x06is_ops\x18\x06 \x01(\bR\x05isOps\x12\x1b\n" +
-	"\tis_secret\x18\a \x01(\bR\bisSecret\x12>\n" +
+	"\tis_secret\x18\a \x01(\bR\bisSecret\x12\x1b\n" +
+	"\tis_hidden\x18\b \x01(\bR\bisHidden\x12>\n" +
 	"\fstring_field\x18d \x01(\v2\x19.c1.config.v1.StringFieldH\x00R\vstringField\x125\n" +
 	"\tint_field\x18e \x01(\v2\x16.c1.config.v1.IntFieldH\x00R\bintField\x128\n" +
 	"\n" +

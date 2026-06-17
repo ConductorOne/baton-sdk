@@ -164,6 +164,7 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 		IsRequired:  f.Required,
 		IsOps:       f.ExportTarget == ExportTargetOps,
 		IsSecret:    f.Secret,
+		IsHidden:    f.IsHidden(),
 	}.Build()
 
 	switch f.Variant {
