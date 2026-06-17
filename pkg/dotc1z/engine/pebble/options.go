@@ -16,29 +16,6 @@ import (
 // newer than what the binary supports.
 const SDKPebbleFormat = pebble.FormatNewest
 
-// Preset selects per-deployment defaults for engine tuning. Set once
-// at engine-open via WithPreset; never changes for the engine's
-// lifetime.
-type Preset int
-
-const (
-	// PresetBackendInfra is the production default: 256 MiB block cache,
-	// per-level compression presets tuned for write-once-read-many sync
-	// payloads, MaxConcurrentCompactions ≤ 4.
-	PresetBackendInfra Preset = iota
-
-	// PresetBackendInfraHot is for hosts that run many engines in the
-	// same process (e.g. C1's per-app ReaderCache). 4 GiB block cache;
-	// otherwise identical to PresetBackendInfra. Use WithSharedCache to
-	// share one cache across engines.
-	PresetBackendInfraHot
-
-	// PresetCLI is for one-shot tooling. 32 MiB cache, low compaction
-	// concurrency. Optimized for fast open/close rather than steady-
-	// state throughput.
-	PresetCLI
-)
-
 // Durability controls how aggressively the engine fsyncs writes. The
 // default for production is DurabilitySync; the fresh-sync fast path
 // (which uses pebble.NoSync for in-flight grant batches) falls under
@@ -55,7 +32,6 @@ const (
 // Options configures an Engine. Construct via the WithXxx functional
 // options passed to Open.
 type Options struct {
-	preset      Preset
 	sharedCache *pebble.Cache
 	durability  Durability
 
@@ -70,10 +46,6 @@ type Options struct {
 
 // Option is a functional option passed to Open.
 type Option func(*Options)
-
-// WithPreset picks one of PresetBackendInfra (default),
-// PresetBackendInfraHot, or PresetCLI.
-func WithPreset(p Preset) Option { return func(o *Options) { o.preset = p } }
 
 // WithSharedCache reuses a single *pebble.Cache across multiple
 // engine instances. Mandatory for any caller that opens >1 engine in
@@ -141,18 +113,10 @@ func newPebbleOptions(o *Options) *pebble.Options {
 	// be added after benchmark data justifies it.
 	opts.Levels[0].BlockSize = 32 << 10
 
-	// Cache: shared or minted per preset.
-	if o.sharedCache != nil {
-		opts.Cache = o.sharedCache
+	if o.sharedCache == nil {
+		opts.Cache = pebble.NewCache(256 << 20)
 	} else {
-		switch o.preset {
-		case PresetBackendInfraHot:
-			opts.Cache = pebble.NewCache(4 << 30)
-		case PresetCLI:
-			opts.Cache = pebble.NewCache(32 << 20)
-		default:
-			opts.Cache = pebble.NewCache(256 << 20)
-		}
+		opts.Cache = o.sharedCache
 	}
 
 	return opts
@@ -169,7 +133,6 @@ func writeOpts(d Durability) *pebble.WriteOptions {
 
 func defaultOptions() *Options {
 	return &Options{
-		preset:             PresetBackendInfra,
 		durability:         DurabilitySync,
 		slowQueryThreshold: 5 * time.Second,
 	}
