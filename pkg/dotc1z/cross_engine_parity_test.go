@@ -255,20 +255,6 @@ func TestCrossEngineParity(t *testing.T) {
 		require.Equal(t, entitlementIDSet(sResp.GetList()), entitlementIDSet(pResp.GetList()))
 	})
 
-	// ListResources with trait filter — closes B2 parity question.
-	t.Run("ListResources trait=USER parity", func(t *testing.T) {
-		req := v2.ResourcesServiceListResourcesRequest_builder{
-			Trait:    v2.ResourceType_TRAIT_USER,
-			PageSize: 1000,
-		}.Build()
-		sResp, err := pair.sqlite.ListResources(ctx, req)
-		require.NoError(t, err)
-		pResp, err := pair.pebble.ListResources(ctx, req)
-		require.NoError(t, err)
-		require.Equal(t, len(sResp.GetList()), len(pResp.GetList()))
-		require.Equal(t, resourceKeySet(sResp.GetList()), resourceKeySet(pResp.GetList()))
-	})
-
 	// Field-preservation parity — closes the 2026-05-27 audit gaps.
 	// SQLite preserved these via its data blob; v3 needed dedicated
 	// fields. Locked in here so future regressions get caught at CI.

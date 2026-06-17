@@ -123,7 +123,7 @@ func (e *Engine) CompactAllRanges(ctx context.Context) error {
 	e.writeWG.Add(1)
 	defer e.writeWG.Done()
 	if e.closing.Load() {
-		return ErrEngineQuiesced
+		return ErrEngineClosing
 	}
 
 	var firstErr error
@@ -173,7 +173,7 @@ func (e *Engine) Flush(ctx context.Context) error {
 	e.writeWG.Add(1)
 	defer e.writeWG.Done()
 	if e.closing.Load() {
-		return ErrEngineQuiesced
+		return ErrEngineClosing
 	}
 	if err := e.db.Flush(); err != nil {
 		return fmt.Errorf("engine: flush: %w", err)

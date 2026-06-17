@@ -27,12 +27,8 @@ func (e *sentinelError) GRPCStatus() *status.Status { return status.New(e.code, 
 
 func sentinel(code codes.Code, msg string) error { return &sentinelError{code: code, msg: msg} }
 
-// Sentinel errors from Appendix E. Centralized here so the codec
-// package + engine package + envelope package all reference one
-// source of truth.
 var (
 	ErrEngineClosing                 = sentinel(codes.Unavailable, "pebble engine: closing")
-	ErrEngineQuiesced                = sentinel(codes.Unavailable, "pebble engine: quiesced; writes refused")
 	ErrEngineNotAvailable            = sentinel(codes.Unavailable, "pebble engine: not available")
 	ErrEngineMismatch                = sentinel(codes.InvalidArgument, "pebble engine: source/dest engine mismatch")
 	ErrManifestInvalid               = sentinel(codes.DataLoss, "pebble engine: manifest unmarshal failed")

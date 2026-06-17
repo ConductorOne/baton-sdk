@@ -355,12 +355,8 @@ message ResourcesServiceListResourcesRequest {
     min_bytes: 1
     max_bytes: 1024
   }];
-  // Optional trait filter. When non-zero, only resources whose
-  // ResourceType carries the named trait are returned. Implemented
-  // as a server-side post-filter via the resource_types table —
-  // collapses C1's two-pass "fetchResourcesWithTraitV2" into a
-  // single Reader call.
-  ResourceType.Trait trait = 7;
+  // Deprecated. Do not set this field.
+  ResourceType.Trait trait = 7 [deprecated = true];
 }
 
 message ResourcesServiceListResourcesResponse {

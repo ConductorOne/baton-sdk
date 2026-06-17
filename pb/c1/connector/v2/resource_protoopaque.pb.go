@@ -3094,6 +3094,7 @@ func (x *ResourcesServiceListResourcesRequest) GetActiveSyncId() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 func (x *ResourcesServiceListResourcesRequest) GetTrait() ResourceType_Trait {
 	if x != nil {
 		return x.xxx_hidden_Trait
@@ -3125,6 +3126,7 @@ func (x *ResourcesServiceListResourcesRequest) SetActiveSyncId(v string) {
 	x.xxx_hidden_ActiveSyncId = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 func (x *ResourcesServiceListResourcesRequest) SetTrait(v ResourceType_Trait) {
 	x.xxx_hidden_Trait = v
 }
@@ -3149,11 +3151,9 @@ type ResourcesServiceListResourcesRequest_builder struct {
 	PageToken        string
 	Annotations      []*anypb.Any
 	ActiveSyncId     string
-	// Optional trait filter. When non-zero, only resources whose
-	// ResourceType carries the named trait are returned. Implemented
-	// as a server-side post-filter via the resource_types table —
-	// collapses C1's two-pass "fetchResourcesWithTraitV2" into a
-	// single Reader call.
+	// Deprecated. Do not set this field.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 	Trait ResourceType_Trait
 }
 
@@ -4711,7 +4711,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x0eCreationSource\x12\x1f\n" +
 	"\x1bCREATION_SOURCE_UNSPECIFIED\x10\x00\x12,\n" +
 	"(CREATION_SOURCE_CONNECTOR_LIST_RESOURCES\x10\x01\x127\n" +
-	"3CREATION_SOURCE_CONNECTOR_LIST_GRANTS_PRINCIPAL_JIT\x10\x02\"\xb1\x03\n" +
+	"3CREATION_SOURCE_CONNECTOR_LIST_GRANTS_PRINCIPAL_JIT\x10\x02\"\xb5\x03\n" +
 	"$ResourcesServiceListResourcesRequest\x124\n" +
 	"\x10resource_type_id\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x0eresourceTypeId\x12S\n" +
@@ -4722,8 +4722,8 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"page_token\x18\x04 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\tpageToken\x126\n" +
 	"\vannotations\x18\x05 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x123\n" +
 	"\x0eactive_sync_id\x18\x06 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\factiveSyncId\x129\n" +
-	"\x05trait\x18\a \x01(\x0e2#.c1.connector.v2.ResourceType.TraitR\x05trait\"\xc6\x01\n" +
+	"r\b \x01(\x80\b\xd0\x01\x01R\factiveSyncId\x12=\n" +
+	"\x05trait\x18\a \x01(\x0e2#.c1.connector.v2.ResourceType.TraitB\x02\x18\x01R\x05trait\"\xc6\x01\n" +
 	"%ResourcesServiceListResourcesResponse\x12-\n" +
 	"\x04list\x18\x01 \x03(\v2\x19.c1.connector.v2.ResourceR\x04list\x126\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\rnextPageToken\x126\n" +
