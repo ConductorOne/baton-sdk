@@ -23,8 +23,6 @@ import (
 //
 //   - Open the engine once with Open(...).
 //   - Concurrent Reader/Writer calls are safe.
-//   - Quiesce() flips the engine into a terminal state; subsequent
-//     Writer calls return ErrEngineQuiesced.
 //   - Close() releases all resources. After Close, all methods return
 //     ErrEngineClosing.
 type Engine struct {
@@ -59,10 +57,8 @@ type Engine struct {
 	freshResourcesEmpty    bool
 	freshEntitlementsEmpty bool
 
-	// writeWG tracks in-flight writes for the strict quiesce
-	// protocol. Incremented at the start of every Writer method,
-	// decremented in defer. Quiesce flips closing=true then waits
-	// for writeWG to drain.
+	// writeWG tracks in-flight writes. Incremented at the start of
+	// every Writer method, decremented in defer.
 	writeWG sync.WaitGroup
 	writeMu sync.Mutex
 	closing atomic.Bool // strict write-barrier flag, read on every Writer call
@@ -127,9 +123,7 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 }
 
 // Close shuts down the engine. After Close, all methods return
-// ErrEngineClosing. If the engine was Quiesce'd first, the
-// in-flight writes have already drained; otherwise Close blocks
-// until they complete.
+// ErrEngineClosing. Close blocks until all in-flight writes complete.
 func (e *Engine) Close() error {
 	e.closeMu.Lock()
 	defer e.closeMu.Unlock()
@@ -318,10 +312,10 @@ func (e *Engine) requireCurrentSync() error {
 }
 
 // checkWritable returns ErrEngineClosing if the engine has been
-// Quiesce'd or closed. Called at the start of every Writer method.
+// closed. Called at the start of every Writer method.
 func (e *Engine) checkWritable() error {
 	if e.closing.Load() {
-		return ErrEngineQuiesced
+		return ErrEngineClosing
 	}
 	if e.db == nil {
 		return ErrEngineClosing
@@ -333,18 +327,17 @@ func (e *Engine) checkWritable() error {
 }
 
 // withWrite wraps a writer function with WaitGroup tracking + the
-// closing check. The closure runs only if the engine is open and
-// not quiesced.
+// closing check. The closure runs only if the engine is open.
 func (e *Engine) withWrite(fn func() error) error {
 	if err := e.checkWritable(); err != nil {
 		return err
 	}
 	e.writeWG.Add(1)
 	defer e.writeWG.Done()
-	// Re-check after Add because Quiesce could have flipped between
+	// Re-check after Add because closing could have flipped between
 	// our first check and our Add.
 	if e.closing.Load() {
-		return ErrEngineQuiesced
+		return ErrEngineClosing
 	}
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
@@ -428,7 +421,7 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	e.writeWG.Wait()
 
 	if e.closing.Load() {
-		return ErrEngineQuiesced
+		return ErrEngineClosing
 	}
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()

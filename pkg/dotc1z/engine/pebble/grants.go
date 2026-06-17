@@ -167,7 +167,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 //     sync (the expander recomputes them from the entitlement graph),
 //     so a per-batch fsync buys nothing. Writes commit with
 //     pebble.NoSync and are hardened by the single Flush at sync end
-//     (EndFreshSync) or Close (Quiesce) — the same bargain the
+//     (EndFreshSync) or Close — the same bargain the
 //     fresh-sync fast path strikes, extended to resumed syncs where
 //     IsFreshSync() is false.
 //

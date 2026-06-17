@@ -10,6 +10,7 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
@@ -373,22 +374,19 @@ func TestCheckpointTo(t *testing.T) {
 	}
 }
 
-func TestSaveDoesNotQuiesceOnError(t *testing.T) {
+func TestSaveDoesNotCloseOnError(t *testing.T) {
 	ctx := context.Background()
 	e, dir := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
-		t.Fatal(err)
-	}
+	err := e.SetCurrentSync(syncID)
+	require.NoError(t, err)
 
-	if err := e.Save(ctx, filepath.Join(dir, "out.c1z3")); err == nil {
-		t.Fatal("expected Save error")
-	}
+	err = e.Save(ctx, filepath.Join(dir, "out.c1z3"))
+	require.Error(t, err, "expected Save error")
 
 	r := makeGrant(syncID, "after-save", "e1", "p1")
-	if err := e.PutGrantRecord(ctx, r); err != nil {
-		t.Fatalf("Put after failed Save: %v", err)
-	}
+	err = e.PutGrantRecord(ctx, r)
+	require.NoError(t, err, "expected Put after failed Save to succeed")
 }
 
 func TestConcurrentGrantOverwriteIndexes(t *testing.T) {
