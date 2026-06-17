@@ -78,7 +78,7 @@ func NewCompactor(base *enginepkg.Engine, tmpDir string) (*Compactor, error) {
 // step is idempotent (excise + ingest the same SSTs again converges
 // to the source's view).
 //
-// Caller is responsible for quiescing writes to `source` for the
+// Caller is responsible for not writing to `source` for the
 // duration of the call (an active syncer would invalidate the SST as
 // it's being built).
 func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncID string) error {
