@@ -339,6 +339,12 @@ type c1zOptions struct {
 	v2GrantsWriter     bool
 	bulkLoad           bool
 
+	// disableGrantDigestIndex turns off the Pebble engine's
+	// by_entitlement_principal_hash index + grant digests. Inverted so
+	// the zero value keeps the index on (current behavior). See
+	// WithGrantDigestIndex.
+	disableGrantDigestIndex bool
+
 	// engine is the storage engine to use for newly created files.
 	// Reads dispatch on magic byte regardless. Default EngineSQLite.
 	engine Engine
@@ -441,6 +447,19 @@ func WithEngine(engine Engine) C1ZOption {
 func WithV2GrantsWriter(enabled bool) C1ZOption {
 	return func(o *c1zOptions) {
 		o.v2GrantsWriter = enabled
+	}
+}
+
+// WithGrantDigestIndex toggles the Pebble engine's
+// by_entitlement_principal_hash index and per-entitlement grant digests
+// (the substrate for cross-file grant diffing). Default true.
+//
+// Pass false for files that will never be grant-diffed (local CLI syncs,
+// connector development) to skip the per-grant index row + value and the
+// seal-time digest build. No effect on the SQLite engine.
+func WithGrantDigestIndex(enabled bool) C1ZOption {
+	return func(o *c1zOptions) {
+		o.disableGrantDigestIndex = !enabled
 	}
 }
 

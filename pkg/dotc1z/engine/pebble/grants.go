@@ -88,7 +88,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		// path: during a fresh sync the digests don't exist yet (built
 		// once at seal), so skip even the per-entitlement root probe.
 		var mm *digestMutator
-		if !fresh {
+		if !fresh && e.opts.grantDigestIndex {
 			mm = newGrantDigestMutator(e)
 		}
 
@@ -385,8 +385,10 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 						priKey:  encodeGrantKey(r.GetExternalId()),
 						priVal:  val,
 						idxKeys: grantIndexKeys(r),
-						hashKey: grantHashIndexKey(r),
-						hashVal: grantContentHash(r),
+					}
+					if e.opts.grantDigestIndex {
+						enc[i].hashKey = grantHashIndexKey(r)
+						enc[i].hashVal = grantContentHash(r)
 					}
 				}
 			}(lo, hi)
@@ -531,9 +533,11 @@ func (e *Engine) writeGrantIndexes(batch *pebble.Batch, r *v3.GrantRecord) error
 			return err
 		}
 	}
-	if hk := grantHashIndexKey(r); hk != nil {
-		if err := batch.Set(hk, grantContentHash(r), nil); err != nil {
-			return err
+	if e.opts.grantDigestIndex {
+		if hk := grantHashIndexKey(r); hk != nil {
+			if err := batch.Set(hk, grantContentHash(r), nil); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -578,6 +582,18 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 			return scratch, err
 		}
 	}
+	// by_entitlement_principal_hash carries a VALUE (the content hash),
+	// so it rides its own allocated key rather than the nil-value
+	// scratch buffer — mirrors writeGrantIndexes. Without this the
+	// expansion write path (the sole caller) would leave expanded grants
+	// out of the hash index and thus out of the seal-time digest.
+	if e.opts.grantDigestIndex {
+		if hk := grantHashIndexKey(r); hk != nil {
+			if err := batch.Set(hk, grantContentHash(r), nil); err != nil {
+				return scratch, err
+			}
+		}
+	}
 	return scratch, nil
 }
 
@@ -617,6 +633,17 @@ func (e *Engine) deleteGrantIndexesScratch(batch *pebble.Batch, externalID strin
 	scratch = appendGrantByNeedsExpansionIndexKey(scratch[:0], externalID)
 	if err := batch.Delete(scratch, nil); err != nil {
 		return scratch, err
+	}
+	// by_entitlement_principal_hash: reconstruct the key from the
+	// principal identity (mirrors deleteGrantIndexesRaw) so a re-expanded
+	// grant's stale hash entry is removed. Unconditional — delete of an
+	// absent key is a no-op, so this stays correct if the digest index
+	// was toggled between writes.
+	if entID != "" && principalRT != "" && principalID != "" {
+		bh := principalBucketHash(principalRT, principalID)
+		if err := batch.Delete(encodeGrantByEntPrincHashIndexKey(entID, bh, principalRT, principalID, externalID), nil); err != nil {
+			return scratch, err
+		}
 	}
 	return scratch, nil
 }

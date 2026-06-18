@@ -98,7 +98,16 @@ var indexMigrations = []indexMigration{
 // then rebuilds the per-entitlement grant digests. The index must be
 // committed before the digests are built because BuildAllGrantDigests
 // folds over the committed index.
+//
+// No-op when the digest index is disabled (WithGrantDigestIndex(false)):
+// the caller opted out of the index, so we neither write it nor build
+// digests. The migration is still marked applied — re-enabling the
+// index on an existing file requires a fresh sync or explicit rebuild,
+// not an Open-time backfill.
 func (e *Engine) backfillGrantHashIndexAndDigests(ctx context.Context) error {
+	if !e.opts.grantDigestIndex {
+		return nil
+	}
 	var syncIDs []string
 	if err := e.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
 		syncIDs = append(syncIDs, r.GetSyncId())

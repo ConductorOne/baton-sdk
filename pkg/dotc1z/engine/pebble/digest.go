@@ -93,10 +93,13 @@ import (
 
 const (
 	// digestBucketHashLen is the width, in bytes, of the raw bucket
-	// hash embedded in a digested index's key. Collisions in the bucket
+	// hash embedded in a digested index's key. It is exactly the bytes
+	// digestMaxWidthBits can address (16 bits = 2 bytes); storing more
+	// would be dead weight on every index row, since only the top
+	// digestMaxWidthBits ever select a bucket. Collisions in the bucket
 	// address are harmless (they only co-locate records — the index
-	// key's tail still distinguishes rows).
-	digestBucketHashLen = 8
+	// key's tail still distinguishes rows). ABI.
+	digestBucketHashLen = 2
 
 	// digestTargetBucketSize is the record count a single leaf bucket
 	// aims to hold. The width is grown until 2^width buckets bring the
@@ -193,9 +196,14 @@ func (s digestIndexSpec) bucketBounds(partition string, b DigestBucket) ([]byte,
 		return prefix, upperBoundOf(prefix)
 	}
 	boundAt := func(hash uint64) []byte {
-		out := append(append(make([]byte, 0, len(prefix)+digestBucketHashLen), prefix...), 0, 0, 0, 0, 0, 0, 0, 0)
-		binary.BigEndian.PutUint64(out[len(prefix):], hash)
-		return out
+		// hash carries its bucket bits in the top digestMaxWidthBits, so
+		// the bound is the top digestBucketHashLen bytes of the big-endian
+		// uint64 appended to the partition prefix.
+		var full [8]byte
+		binary.BigEndian.PutUint64(full[:], hash)
+		out := make([]byte, 0, len(prefix)+digestBucketHashLen)
+		out = append(out, prefix...)
+		return append(out, full[:digestBucketHashLen]...)
 	}
 	shift := uint(64 - b.Bits) //nolint:gosec // Bits in [1, digestMaxWidthBits]
 	lower := boundAt(uint64(b.Index) << shift)
