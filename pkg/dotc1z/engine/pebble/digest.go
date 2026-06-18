@@ -373,6 +373,15 @@ func (e *Engine) buildPartitionDigestAtWidth(ctx context.Context, spec digestInd
 				continue // malformed; skip defensively
 			}
 			val := iter.Value() // per-record content hash
+			if len(val) != hashLen {
+				// Index writers always emit exactly hashLen bytes
+				// (grantContentHash); a wrong length is a corrupt or
+				// mis-encoded entry. xorInto would fold only a prefix and
+				// quietly corrupt the digest, so reject it. At seal the
+				// caller downgrades a build error to "no digest" (readers
+				// fall back to the on-demand fold), so this fails safe.
+				return fmt.Errorf("buildPartitionDigestAtWidth: content hash for %q is %d bytes, want %d", partition, len(val), hashLen)
+			}
 			if widthBits > 0 {
 				lv := binary.BigEndian.Uint16(key[len(prefix):]) &^ lowMask
 				if !leafOpen || lv != leafLV {
@@ -591,7 +600,13 @@ func (e *Engine) computeBucketDigest(ctx context.Context, spec digestIndexSpec, 
 		if err := ctx.Err(); err != nil {
 			return nil, 0, err
 		}
-		xorInto(digest, iter.Value())
+		val := iter.Value()
+		if len(val) != hashLen {
+			// See buildPartitionDigestAtWidth: a mis-length index value is
+			// corruption; reject it rather than silently fold a prefix.
+			return nil, 0, fmt.Errorf("computeBucketDigest: content hash for %q is %d bytes, want %d", partition, len(val), hashLen)
+		}
+		xorInto(digest, val)
 		count++
 	}
 	if err := iter.Error(); err != nil {
