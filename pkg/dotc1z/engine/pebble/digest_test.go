@@ -93,6 +93,105 @@ func rawLeafPrefixes(t testing.TB, e *Engine, entID string) [][]byte {
 	return out
 }
 
+// countKeyRangeTest counts stored keys in [lo, hi).
+func countKeyRangeTest(t testing.TB, e *Engine, lo, hi []byte) int {
+	t.Helper()
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	if err != nil {
+		t.Fatalf("NewIter: %v", err)
+	}
+	defer iter.Close()
+	n := 0
+	for iter.First(); iter.Valid(); iter.Next() {
+		n++
+	}
+	if err := iter.Error(); err != nil {
+		t.Fatalf("iter: %v", err)
+	}
+	return n
+}
+
+// TestGrantDigestIndexDisabled verifies WithGrantDigestIndex(false)
+// suppresses the by_entitlement_principal_hash index (and thus the
+// digests that fold over it) on the grant write path, while the default
+// keeps it on.
+func TestGrantDigestIndexDisabled(t *testing.T) {
+	ctx := context.Background()
+	grants := []*v3.GrantRecord{
+		makeGrant("", "g1", "ent-A", "alice"),
+		makeGrant("", "g2", "ent-A", "bob"),
+	}
+	write := func(e *Engine) {
+		t.Helper()
+		if err := e.SetCurrentSync(ksuid.New().String()); err != nil {
+			t.Fatalf("SetCurrentSync: %v", err)
+		}
+		putEnt(t, e, ctx, "ent-A")
+		if err := e.PutGrantRecords(ctx, grants...); err != nil {
+			t.Fatalf("PutGrantRecords: %v", err)
+		}
+	}
+
+	// Default: index on — one hash-index row per grant.
+	on, _ := newTestEngine(t)
+	write(on)
+	if got := countKeyRangeTest(t, on, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()); got != len(grants) {
+		t.Fatalf("digest index on: hash index rows = %d, want %d", got, len(grants))
+	}
+
+	// Disabled: no hash-index rows and no digest nodes from the write path.
+	off, _ := newTestEngine(t, WithGrantDigestIndex(false))
+	write(off)
+	if got := countKeyRangeTest(t, off, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()); got != 0 {
+		t.Fatalf("digest index off: hash index rows = %d, want 0", got)
+	}
+	if got := countKeyRangeTest(t, off, DigestLowerBound(), DigestUpperBound()); got != 0 {
+		t.Fatalf("digest index off: digest nodes = %d, want 0", got)
+	}
+	// The other grant indexes are still written — only the hash index is gated.
+	if got := countKeyRangeTest(t, off, GrantByEntitlementLowerBound(), GrantByEntitlementUpperBound()); got != len(grants) {
+		t.Fatalf("digest index off: by_entitlement rows = %d, want %d", got, len(grants))
+	}
+}
+
+// TestGrantDigestIncludesExpandedGrants guards the expansion write path:
+// grants written via PutExpandedGrantRecords (the scratch index helpers)
+// must land in the by_entitlement_principal_hash index and therefore in
+// the seal-time digest, exactly like directly-synced grants.
+func TestGrantDigestIncludesExpandedGrants(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID := ksuid.New().String()
+	if err := e.SetCurrentSync(syncID); err != nil {
+		t.Fatalf("SetCurrentSync: %v", err)
+	}
+	putEnt(t, e, ctx, "ent-A")
+
+	// One directly-synced grant.
+	if err := e.PutGrantRecords(ctx, makeGrant("", "g-direct", "ent-A", "alice")); err != nil {
+		t.Fatalf("PutGrantRecords: %v", err)
+	}
+	// One expanded grant (with a source), via the expansion write path.
+	exp := makeGrantWithSources("", "g-expanded", "ent-A", "bob", "src-ent")
+	if err := e.PutExpandedGrantRecords(ctx, []*v3.GrantRecord{exp}); err != nil {
+		t.Fatalf("PutExpandedGrantRecords: %v", err)
+	}
+
+	if got := countKeyRangeTest(t, e, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()); got != 2 {
+		t.Fatalf("hash index rows = %d, want 2 (direct + expanded)", got)
+	}
+	if err := e.BuildAllGrantDigests(ctx, syncID); err != nil {
+		t.Fatalf("BuildAllGrantDigests: %v", err)
+	}
+	root, ok, err := e.GetEntitlementDigestRoot(ctx, syncID, "ent-A")
+	if err != nil || !ok {
+		t.Fatalf("root: ok=%v err=%v", ok, err)
+	}
+	if root.Count != 2 {
+		t.Fatalf("digest root count = %d, want 2 (expanded grant must be in the digest)", root.Count)
+	}
+}
+
 // seedEntitlement writes the entitlement record + grants and builds the
 // digest, returning the syncID.
 func seedEntitlement(t testing.TB, e *Engine, entID string, grants []*v3.GrantRecord) string {
