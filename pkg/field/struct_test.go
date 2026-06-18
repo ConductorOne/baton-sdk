@@ -3,6 +3,8 @@ package field
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func normalizeJSON(jsonStr string) (string, error) {
@@ -52,9 +54,7 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 	)
 
 	data, err := json.Marshal(&config)
-	if err != nil {
-		t.Fatalf("Failed to marshal Configuration: %v", err)
-	}
+	require.NoError(t, err, "Failed to marshal Configuration")
 
 	expected := `{
     "catalogId": "ABC123",
@@ -135,14 +135,8 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 }`
 
 	n1, err := normalizeJSON(expected)
-	if err != nil {
-		t.Fatalf("Failed to normalize json: %v", err)
-	}
+	require.NoError(t, err, "Failed to normalize json")
 	n2, err := normalizeJSON(string(data))
-	if err != nil {
-		t.Fatalf("Failed to normalize json: %v", err)
-	}
-	if n1 != n2 {
-		t.Errorf("Expected JSON: \n%s\n\n but got: \n%s\n", n1, n2)
-	}
+	require.NoError(t, err, "Failed to normalize json")
+	require.Equal(t, n1, n2, "Expected JSON: \n%s\n\n but got: \n%s\n", n1, n2)
 }

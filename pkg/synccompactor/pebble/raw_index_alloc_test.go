@@ -3,6 +3,7 @@ package pebble
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -36,9 +37,7 @@ func newGrantRawIndexAllocFixture(tb testing.TB) rawIndexAllocFixture {
 		NeedsExpansion: true,
 	}.Build()
 	value, err := proto.Marshal(rec)
-	if err != nil {
-		tb.Fatal(err)
-	}
+	require.NoError(tb, err)
 	return rawIndexAllocFixture{
 		bucket:    grantBucket(),
 		destKey:   enginepkg.GrantRecordKey(externalID),
@@ -60,26 +59,18 @@ func TestForEachIndexKeyFromRawAllocs(t *testing.T) {
 	stats := newMergeStatsAccumulator()
 	var scratch rawIndexScratch
 	var emitted int
-	emit := func(key []byte) error {
+	emitCheck := func(key []byte) error {
 		emitted++
-		if len(key) == 0 {
-			t.Error("emitted empty index key")
-		}
+		require.NotEmpty(t, key, "emitted empty index key")
 		return nil
 	}
+	require.NoError(t, forEachIndexKeyFromRaw(fx.bucket, fx.destKey, fx.destLower, fx.value, &scratch, stats, emitCheck))
+	require.Equal(t, 5, emitted, "emitted grant index keys")
 	run := func() {
-		if err := forEachIndexKeyFromRaw(fx.bucket, fx.destKey, fx.destLower, fx.value, &scratch, stats, emit); err != nil {
-			t.Fatal(err)
-		}
-	}
-	run()
-	if emitted != 5 {
-		t.Fatalf("emitted %d grant index keys, want 5", emitted)
+		require.NoError(t, forEachIndexKeyFromRaw(fx.bucket, fx.destKey, fx.destLower, fx.value, &scratch, stats, func([]byte) error { return nil }))
 	}
 	allocs := testing.AllocsPerRun(100, run)
-	if allocs != 0 {
-		t.Fatalf("forEachIndexKeyFromRaw allocs/op = %v, want 0 (scratch reuse regressed)", allocs)
-	}
+	require.Equal(t, float64(0), allocs, "forEachIndexKeyFromRaw allocs/op (scratch reuse regressed)")
 }
 
 // TestSeenSuffixSetLookupAllocs locks in the allocation-free lookup
@@ -91,24 +82,19 @@ func TestSeenSuffixSetLookupAllocs(t *testing.T) {
 	seen := newSeenSuffixSet()
 	suffix := []byte("group\x00g1\x00grant-ext-1")
 	k := seen.keyOf(suffix)
-	if _, ok := seen.get(k); ok {
-		t.Fatal("fresh key reported as seen")
-	}
+	_, ok := seen.get(k)
+	require.False(t, ok, "fresh key reported as seen")
 	seen.put(k, 42)
 	allocs := testing.AllocsPerRun(100, func() {
 		k := seen.keyOf(suffix)
 		ts, ok := seen.get(k)
 		if !ok || ts != 42 {
-			t.Errorf("lookup = (%d, %v), want (42, true)", ts, ok)
+			require.FailNowf(t, "seenSuffixSet lookup mismatch", "lookup = (%d, %v), want (42, true)", ts, ok)
 		}
 		seen.put(k, 42)
 	})
-	if allocs != 0 {
-		t.Fatalf("seenSuffixSet lookup allocs/op = %v, want 0", allocs)
-	}
-	if seen.size() != 1 {
-		t.Fatalf("seen.size() = %d, want 1", seen.size())
-	}
+	require.Equal(t, float64(0), allocs, "seenSuffixSet lookup allocs/op")
+	require.Equal(t, 1, seen.size(), "seen.size()")
 }
 
 func BenchmarkForEachIndexKeyFromRaw(b *testing.B) {

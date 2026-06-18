@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -28,13 +29,9 @@ func newCaptureLogger(buf *bytes.Buffer) *zap.Logger {
 
 func TestNewLoggerForCall_AttachesTraceFieldsWhenSpanPresent(t *testing.T) {
 	traceID, err := trace.TraceIDFromHex("0123456789abcdef0123456789abcdef")
-	if err != nil {
-		t.Fatalf("TraceIDFromHex: %v", err)
-	}
+	require.NoError(t, err)
 	spanID, err := trace.SpanIDFromHex("fedcba9876543210")
-	if err != nil {
-		t.Fatalf("SpanIDFromHex: %v", err)
-	}
+	require.NoError(t, err)
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
 		SpanID:     spanID,
@@ -48,21 +45,12 @@ func TestNewLoggerForCall_AttachesTraceFieldsWhenSpanPresent(t *testing.T) {
 	ctxzap.Extract(newCtx).Info("hello")
 
 	var entry map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
-		t.Fatalf("unmarshal log entry: %v\nentry: %s", err, buf.String())
-	}
-	if got, want := entry["dd.trace_id"], "81985529216486895"; got != want {
-		t.Errorf("dd.trace_id = %v, want %v", got, want)
-	}
-	if got, want := entry["dd.span_id"], "18364758544493064720"; got != want {
-		t.Errorf("dd.span_id = %v, want %v", got, want)
-	}
-	if got, want := entry["grpc.service"], "svc.v1.Svc"; got != want {
-		t.Errorf("grpc.service = %v, want %v", got, want)
-	}
-	if got, want := entry["grpc.method"], "Method"; got != want {
-		t.Errorf("grpc.method = %v, want %v", got, want)
-	}
+	err = json.Unmarshal(buf.Bytes(), &entry)
+	require.NoError(t, err, "unmarshal log entry: %s", buf.String())
+	require.Equal(t, "81985529216486895", entry["dd.trace_id"])
+	require.Equal(t, "18364758544493064720", entry["dd.span_id"])
+	require.Equal(t, "svc.v1.Svc", entry["grpc.service"])
+	require.Equal(t, "Method", entry["grpc.method"])
 }
 
 func TestNewLoggerForCall_NoTraceFieldsWhenSpanAbsent(t *testing.T) {
@@ -72,13 +60,10 @@ func TestNewLoggerForCall_NoTraceFieldsWhenSpanAbsent(t *testing.T) {
 	ctxzap.Extract(newCtx).Info("hello")
 
 	var entry map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
-		t.Fatalf("unmarshal log entry: %v\nentry: %s", err, buf.String())
-	}
-	if _, ok := entry["dd.trace_id"]; ok {
-		t.Errorf("dd.trace_id should not be set when no span on ctx; entry=%v", entry)
-	}
-	if _, ok := entry["dd.span_id"]; ok {
-		t.Errorf("dd.span_id should not be set when no span on ctx; entry=%v", entry)
-	}
+	err := json.Unmarshal(buf.Bytes(), &entry)
+	require.NoError(t, err, "unmarshal log entry: %s", buf.String())
+	_, ok := entry["dd.trace_id"]
+	require.False(t, ok, "dd.trace_id should not be set when no span on ctx; entry=%v", entry)
+	_, ok = entry["dd.span_id"]
+	require.False(t, ok, "dd.span_id should not be set when no span on ctx; entry=%v", entry)
 }

@@ -98,28 +98,20 @@ func TestCloneSyncRefusesExistingOutPath(t *testing.T) {
 	srcPath := filepath.Join(tmp, "src.c1z")
 
 	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithEngine(dotc1z.EnginePebble))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := src.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")); err != nil {
-		t.Fatal(err)
-	}
-	if err := src.EndSync(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	_, err = src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	err = src.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice"))
+	require.NoError(t, err)
+	err = src.EndSync(ctx)
+	require.NoError(t, err)
 	defer src.Close(ctx)
 
 	existing := filepath.Join(tmp, "exists.c1z")
-	if err := os.WriteFile(existing, []byte("blocker"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	err = os.WriteFile(existing, []byte("blocker"), 0o600)
+	require.NoError(t, err)
 	err = src.FileOps().CloneSync(ctx, existing, "")
-	if err == nil {
-		t.Fatal("CloneSync over existing file: want error, got nil")
-	}
+	require.Error(t, err, "CloneSync over existing file: want error, got nil")
 }
 
 // TestCloneSyncRefusesUnfinishedSync validates the "sync must be
@@ -131,18 +123,13 @@ func TestCloneSyncRefusesUnfinishedSync(t *testing.T) {
 	srcPath := filepath.Join(tmp, "src.c1z")
 
 	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithEngine(dotc1z.EnginePebble))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer src.Close(ctx)
 
 	// No EndSync — sync is still running.
 	out := filepath.Join(tmp, "clone.c1z")
-	if err := src.FileOps().CloneSync(ctx, out, syncID); err == nil {
-		t.Fatal("CloneSync of unfinished sync: want error, got nil")
-	}
+	err = src.FileOps().CloneSync(ctx, out, syncID)
+	require.Error(t, err, "CloneSync of unfinished sync: want error, got nil")
 }

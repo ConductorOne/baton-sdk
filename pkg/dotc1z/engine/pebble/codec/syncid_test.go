@@ -2,26 +2,20 @@ package codec
 
 import (
 	"bytes"
-	"errors"
 	"testing"
 
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeSyncID_Roundtrip(t *testing.T) {
 	for i := 0; i < 16; i++ {
 		original := ksuid.New().String()
 		encoded, err := EncodeSyncID(original)
-		if err != nil {
-			t.Fatalf("encode %q: %v", original, err)
-		}
-		if len(encoded) != 20 {
-			t.Fatalf("encode %q: got %d bytes, want %d", original, len(encoded), 20)
-		}
+		require.NoError(t, err, "encode %q: %v", original, err)
+		require.Len(t, encoded, 20, "encode %q: got %d bytes, want %d", original, len(encoded), 20)
 		decoded := DecodeSyncID(encoded)
-		if decoded != original {
-			t.Errorf("roundtrip: got %q, want %q", decoded, original)
-		}
+		require.Equal(t, original, decoded, "roundtrip: got %q, want %q", decoded, original)
 	}
 }
 
@@ -33,9 +27,7 @@ func TestEncodeSyncID_InvalidInput(t *testing.T) {
 	}
 	for _, c := range cases {
 		_, err := EncodeSyncID(c)
-		if !errors.Is(err, ErrInvalidSyncID) {
-			t.Errorf("%q: expected ErrInvalidSyncID, got %v", c, err)
-		}
+		require.ErrorIs(t, err, ErrInvalidSyncID, "%q: expected ErrInvalidSyncID, got %v", c, err)
 	}
 }
 
@@ -51,26 +43,21 @@ func TestEncodeSyncID_OrderPreserving(t *testing.T) {
 		strings[i] = k.String()
 		var err error
 		bytesEnc[i], err = EncodeSyncID(strings[i])
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	}
 	for i := 1; i < n; i++ {
 		if strings[i-1] >= strings[i] {
 			continue // KSUID gen is monotonic but not strict on the millisecond tick
 		}
-		if bytes.Compare(bytesEnc[i-1], bytesEnc[i]) >= 0 {
-			t.Errorf("string[%d]=%q < string[%d]=%q but encoded bytes don't compare the same",
-				i-1, strings[i-1], i, strings[i])
-		}
+		require.Less(t, bytes.Compare(bytesEnc[i-1], bytesEnc[i]), 0,
+			"string[%d]=%q < string[%d]=%q but encoded bytes don't compare the same",
+			i-1, strings[i-1], i, strings[i])
 	}
 }
 
 func TestDecodeSyncID_InvalidLength(t *testing.T) {
 	for _, n := range []int{0, 1, 19, 21, 100} {
 		got := DecodeSyncID(make([]byte, n))
-		if got != "" {
-			t.Errorf("decode %d bytes: got %q, want empty", n, got)
-		}
+		require.Empty(t, got, "decode %d bytes: got %q, want empty", n, got)
 	}
 }

@@ -54,9 +54,7 @@ func openTestDB(t *testing.T, extraColumnName string) *sql.DB {
 	db, err := sql.Open("sqlite", dbPath)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Fatalf("failed to close test database: %v", err)
-		}
+		require.NoError(t, db.Close(), "failed to close test database")
 	})
 
 	// Create a table with normal columns plus one attacker-controlled column.

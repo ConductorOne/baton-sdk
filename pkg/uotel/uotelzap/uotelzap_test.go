@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -28,33 +29,23 @@ func TestConvertTraceID(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := ConvertTraceID(tc.in)
-			if got != tc.want {
-				t.Fatalf("ConvertTraceID(%q) = %q, want %q", tc.in, got, tc.want)
-			}
+			require.Equal(t, tc.want, got, "ConvertTraceID(%q)", tc.in)
 		})
 	}
 }
 
 func TestSpanToLogFields_InvalidSpanReturnsNil(t *testing.T) {
-	if got := SpanToLogFields(trace.SpanContext{}); got != nil {
-		t.Fatalf("expected nil for zero SpanContext, got %v", got)
-	}
-	if got := LogFieldsFromContext(context.Background()); got != nil {
-		t.Fatalf("expected nil for context without span, got %v", got)
-	}
+	require.Nil(t, SpanToLogFields(trace.SpanContext{}), "expected nil for zero SpanContext")
+	require.Nil(t, LogFieldsFromContext(context.Background()), "expected nil for context without span")
 }
 
 func TestSpanToLogFields_ValidSpanProducesDDFields(t *testing.T) {
 	traceID, err := trace.TraceIDFromHex("0123456789abcdef0123456789abcdef")
-	if err != nil {
-		t.Fatalf("TraceIDFromHex: %v", err)
-	}
+	require.NoError(t, err)
 	// Pick a span ID with a distinct decimal form so a future regression that
 	// swaps the trace/span fields can't pass silently.
 	spanID, err := trace.SpanIDFromHex("fedcba9876543210")
-	if err != nil {
-		t.Fatalf("SpanIDFromHex: %v", err)
-	}
+	require.NoError(t, err)
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
 		SpanID:     spanID,
@@ -62,33 +53,23 @@ func TestSpanToLogFields_ValidSpanProducesDDFields(t *testing.T) {
 	})
 
 	fields := SpanToLogFields(sc)
-	if len(fields) != 2 {
-		t.Fatalf("expected 2 fields, got %d", len(fields))
-	}
+	require.Len(t, fields, 2)
 	wantTrace := "81985529216486895"
 	wantSpan := "18364758544493064720"
-	if fields[0].Key != TraceIDLogKey || fields[0].String != wantTrace {
-		t.Fatalf("trace field = %q=%q, want %q=%q", fields[0].Key, fields[0].String, TraceIDLogKey, wantTrace)
-	}
-	if fields[1].Key != SpanIDLogKey || fields[1].String != wantSpan {
-		t.Fatalf("span field = %q=%q, want %q=%q", fields[1].Key, fields[1].String, SpanIDLogKey, wantSpan)
-	}
+	require.Equal(t, TraceIDLogKey, fields[0].Key)
+	require.Equal(t, wantTrace, fields[0].String)
+	require.Equal(t, SpanIDLogKey, fields[1].Key)
+	require.Equal(t, wantSpan, fields[1].String)
 
 	ctx := trace.ContextWithSpanContext(context.Background(), sc)
-	if got := LogFieldsFromContext(ctx); len(got) != 2 {
-		t.Fatalf("LogFieldsFromContext returned %d fields, want 2", len(got))
-	}
+	require.Len(t, LogFieldsFromContext(ctx), 2)
 }
 
 func TestWithSpanLogFields(t *testing.T) {
 	traceID, err := trace.TraceIDFromHex("0123456789abcdef0123456789abcdef")
-	if err != nil {
-		t.Fatalf("TraceIDFromHex: %v", err)
-	}
+	require.NoError(t, err)
 	spanID, err := trace.SpanIDFromHex("fedcba9876543210")
-	if err != nil {
-		t.Fatalf("SpanIDFromHex: %v", err)
-	}
+	require.NoError(t, err)
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
 		SpanID:     spanID,
@@ -106,21 +87,14 @@ func TestWithSpanLogFields(t *testing.T) {
 		ctxzap.Extract(ctx).Info("hello")
 
 		var entry map[string]any
-		if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
-			t.Fatalf("unmarshal: %v\n%s", err, buf.String())
-		}
-		if entry[TraceIDLogKey] != "81985529216486895" {
-			t.Errorf("trace = %v, want 81985529216486895", entry[TraceIDLogKey])
-		}
-		if entry[SpanIDLogKey] != "18364758544493064720" {
-			t.Errorf("span = %v, want 18364758544493064720", entry[SpanIDLogKey])
-		}
+		err := json.Unmarshal(buf.Bytes(), &entry)
+		require.NoError(t, err, "unmarshal: %s", buf.String())
+		require.Equal(t, "81985529216486895", entry[TraceIDLogKey], "trace")
+		require.Equal(t, "18364758544493064720", entry[SpanIDLogKey], "span")
 	})
 
 	t.Run("no_op_without_span", func(t *testing.T) {
 		ctx := context.Background()
-		if WithSpanLogFields(ctx) != ctx {
-			t.Errorf("expected ctx to be returned unchanged when no span")
-		}
+		require.True(t, WithSpanLogFields(ctx) == ctx, "expected ctx to be returned unchanged when no span")
 	})
 }

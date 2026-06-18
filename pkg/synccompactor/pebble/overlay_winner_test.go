@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
@@ -56,53 +57,31 @@ func TestMergeFilesIntoOverlayNewerDiscoveredAtWins(t *testing.T) {
 		{Path: src1.path, SyncID: src1.syncID},
 		{Path: src2.path, SyncID: src2.syncID},
 	}, destSyncID, t.TempDir())
-	if err != nil {
-		t.Fatalf("MergeFilesIntoOverlay: %v", err)
-	}
+	require.NoError(t, err, "MergeFilesIntoOverlay")
 
 	grants := map[string]*v3.GrantRecord{}
-	if err := dest.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		grants[g.GetExternalId()] = g
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if len(grants) != 3 {
-		t.Fatalf("merged grant count = %d, want 3", len(grants))
-	}
-	if got := grants["shared"].GetPrincipal().GetResourceId(); got != "bob" {
-		t.Fatalf("shared grant principal = %q, want bob (older source, newer discovered_at)", got)
-	}
-	if got := grants["tie"].GetPrincipal().GetResourceId(); got != "alice" {
-		t.Fatalf("tie grant principal = %q, want alice (first admission keeps ties)", got)
-	}
-	if got := grants["only-src2"].GetPrincipal().GetResourceId(); got != "carol" {
-		t.Fatalf("only-src2 grant principal = %q, want carol (unseen key via ingested SST)", got)
-	}
-	if got := stats.GetGrants(); got != 3 {
-		t.Fatalf("stats grants = %d, want 3 (replacement must not double count)", got)
-	}
+	}))
+	require.Equal(t, 3, len(grants), "merged grant count")
+	require.Equal(t, "bob", grants["shared"].GetPrincipal().GetResourceId(), "shared grant principal (older source, newer discovered_at)")
+	require.Equal(t, "alice", grants["tie"].GetPrincipal().GetResourceId(), "tie grant principal (first admission keeps ties)")
+	require.Equal(t, "carol", grants["only-src2"].GetPrincipal().GetResourceId(), "only-src2 grant principal (unseen key via ingested SST)")
+	require.Equal(t, int64(3), stats.GetGrants(), "stats grants (replacement must not double count)")
 
 	// Index correctness after replacement: the stale by_principal entry
 	// for alice/"shared" must be gone, and bob's must exist; carol's
 	// SST-ingested index entry must be present.
 	byPrincipal := map[string][]string{}
 	for _, principal := range []string{"alice", "bob", "carol"} {
-		if err := dest.IterateGrantsByPrincipal(ctx, "user", principal, func(g *v3.GrantRecord) bool {
+		require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", principal, func(g *v3.GrantRecord) bool {
 			byPrincipal[principal] = append(byPrincipal[principal], g.GetExternalId())
 			return true
-		}); err != nil {
-			t.Fatal(err)
-		}
+		}))
 		sort.Strings(byPrincipal[principal])
 	}
-	if got, want := byPrincipal["alice"], []string{"tie"}; fmtSprint(got) != fmtSprint(want) {
-		t.Fatalf("by_principal[alice] = %v, want %v (stale index entry after replacement)", got, want)
-	}
-	if got, want := byPrincipal["bob"], []string{"shared"}; fmtSprint(got) != fmtSprint(want) {
-		t.Fatalf("by_principal[bob] = %v, want %v", got, want)
-	}
-	if got, want := byPrincipal["carol"], []string{"only-src2"}; fmtSprint(got) != fmtSprint(want) {
-		t.Fatalf("by_principal[carol] = %v, want %v", got, want)
-	}
+	require.Equal(t, fmtSprint([]string{"tie"}), fmtSprint(byPrincipal["alice"]), "by_principal[alice] (stale index entry after replacement)")
+	require.Equal(t, fmtSprint([]string{"shared"}), fmtSprint(byPrincipal["bob"]), "by_principal[bob]")
+	require.Equal(t, fmtSprint([]string{"only-src2"}), fmtSprint(byPrincipal["carol"]), "by_principal[carol]")
 }

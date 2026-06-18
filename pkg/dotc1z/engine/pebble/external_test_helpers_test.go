@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
@@ -16,9 +18,7 @@ func newAdapter(t testing.TB) *pebble.Adapter {
 	t.Helper()
 	dbDir := filepath.Join(t.TempDir(), "db")
 	e, err := pebble.Open(context.Background(), dbDir)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
+	require.NoError(t, err, "Open")
 	t.Cleanup(func() {
 		_ = e.Close()
 	})

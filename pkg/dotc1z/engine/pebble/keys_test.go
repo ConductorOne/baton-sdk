@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
@@ -16,46 +17,28 @@ import (
 // + tuple tail.
 func TestEncodersOmitSyncID(t *testing.T) {
 	syncA, err := codec.EncodeSyncID(ksuid.New().String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	syncB, err := codec.EncodeSyncID(ksuid.New().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Equal(syncA, syncB) {
-		t.Fatal("sanity: two fresh KSUIDs encoded equal")
-	}
+	require.NoError(t, err)
+	require.False(t, bytes.Equal(syncA, syncB), "sanity: two fresh KSUIDs encoded equal")
 
 	// Primary grant key: v3 | typeGrant | 0x00 | tuple("ext-1"). No
 	// 20-byte sync_id region, and sync-independent.
 	keyA := encodeGrantKey("ext-1")
 	keyB := encodeGrantKey("ext-1")
-	if !bytes.Equal(keyA, keyB) {
-		t.Errorf("grant key depends on sync_id: %x vs %x", keyA, keyB)
-	}
-	if got, want := len(keyA), 2+1+len("ext-1"); got != want {
-		t.Errorf("grant key length = %d, want %d (header|0x00|tail, no sync_id)", got, want)
-	}
-	if keyA[0] != versionV3 || keyA[1] != typeGrant || keyA[2] != 0x00 {
-		t.Errorf("grant key prefix = %x, want %x", keyA[:3], []byte{versionV3, typeGrant, 0x00})
-	}
+	require.True(t, bytes.Equal(keyA, keyB), "grant key depends on sync_id: %x vs %x", keyA, keyB)
+	require.Equal(t, 2+1+len("ext-1"), len(keyA), "grant key length (header|0x00|tail, no sync_id)")
+	require.Equal(t, []byte{versionV3, typeGrant, 0x00}, keyA[:3], "grant key prefix")
 
 	// Index keys are likewise sync-independent.
-	if !bytes.Equal(
+	require.True(t, bytes.Equal(
 		encodeGrantByEntitlementIndexKey("ent", "user", "u1", "ext-1"),
 		encodeGrantByEntitlementIndexKey("ent", "user", "u1", "ext-1"),
-	) {
-		t.Error("by_entitlement index key depends on sync_id")
-	}
+	), "by_entitlement index key depends on sync_id")
 
 	// Sync-run and stats-sidecar keys collapse to fixed keys.
-	if !bytes.Equal(encodeSyncRunKey(), encodeSyncRunKey()) {
-		t.Error("sync-run key depends on sync_id")
-	}
-	if !bytes.Equal(encodeSyncStatsKey(), encodeSyncStatsKey()) {
-		t.Error("stats sidecar key depends on sync_id")
-	}
+	require.True(t, bytes.Equal(encodeSyncRunKey(), encodeSyncRunKey()), "sync-run key depends on sync_id")
+	require.True(t, bytes.Equal(encodeSyncStatsKey(), encodeSyncStatsKey()), "stats sidecar key depends on sync_id")
 }
 
 func TestUpperBoundOf(t *testing.T) {
@@ -84,9 +67,7 @@ func TestUpperBoundOf(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := upperBoundOf(tt.prefix)
-			if !bytes.Equal(got, tt.want) {
-				t.Fatalf("upperBoundOf(%x) = %x, want %x", tt.prefix, got, tt.want)
-			}
+			require.Equal(t, tt.want, got, "upperBoundOf(%x)", tt.prefix)
 		})
 	}
 }

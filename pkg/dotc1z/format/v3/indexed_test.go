@@ -5,16 +5,15 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/cespare/xxhash/v2"
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	"github.com/klauspost/compress/zstd"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
@@ -24,12 +23,8 @@ func writeTestPayloadDir(t *testing.T, files map[string][]byte) string {
 	dir := t.TempDir()
 	for name, content := range files {
 		target := filepath.Join(dir, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(target, content, 0o600); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o755))
+		require.NoError(t, os.WriteFile(target, content, 0o600))
 	}
 	return dir
 }
@@ -44,9 +39,8 @@ func indexedManifest() *c1zv3.C1ZManifestV3 {
 func randomBytes(t *testing.T, n int) []byte {
 	t.Helper()
 	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		t.Fatal(err)
-	}
+	_, err := rand.Read(b)
+	require.NoError(t, err)
 	return b
 }
 
@@ -56,15 +50,10 @@ func writeIndexedEnvelope(t *testing.T, dir string) string {
 	t.Helper()
 	envPath := filepath.Join(t.TempDir(), "indexed.c1z")
 	out, err := os.Create(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil); err != nil {
-		t.Fatalf("WriteEnvelopeWithReuse: %v", err)
-	}
-	if err := out.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	_, err = WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil)
+	require.NoError(t, err, "WriteEnvelopeWithReuse")
+	require.NoError(t, out.Close())
 	return envPath
 }
 
@@ -83,44 +72,26 @@ func TestIndexedRoundTrip(t *testing.T) {
 
 	envPath := filepath.Join(t.TempDir(), "indexed.c1z")
 	out, err := os.Create(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	stats, err := WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil)
-	if err != nil {
-		t.Fatalf("WriteEnvelopeWithReuse: %v", err)
-	}
-	if err := out.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if stats.EncodedFrames != len(files) || stats.SplicedFrames != 0 {
-		t.Fatalf("stats = %+v, want %d encoded / 0 spliced", stats, len(files))
-	}
+	require.NoError(t, err, "WriteEnvelopeWithReuse")
+	require.NoError(t, out.Close())
+	require.Equal(t, len(files), stats.EncodedFrames, "encoded frames")
+	require.Equal(t, 0, stats.SplicedFrames, "spliced frames")
 
 	f, err := os.Open(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer f.Close()
 	dest := t.TempDir()
 	m, reuse, err := ExtractEnvelopePayload(f, dest)
-	if err != nil {
-		t.Fatalf("ExtractEnvelopePayload: %v", err)
-	}
-	if m.GetPayloadEncoding() != c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD {
-		t.Fatalf("encoding = %v", m.GetPayloadEncoding())
-	}
-	if reuse == nil || len(reuse.byName) != len(files) {
-		t.Fatalf("reuse table missing or wrong size: %v", reuse)
-	}
+	require.NoError(t, err, "ExtractEnvelopePayload")
+	require.Equal(t, c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD, m.GetPayloadEncoding())
+	require.NotNil(t, reuse)
+	require.Len(t, reuse.byName, len(files))
 	for name, want := range files {
 		got, err := os.ReadFile(filepath.Join(dest, filepath.FromSlash(name)))
-		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
-		}
-		if !bytes.Equal(got, want) {
-			t.Fatalf("%s: content mismatch (%d vs %d bytes)", name, len(got), len(want))
-		}
+		require.NoError(t, err, "read %s", name)
+		require.True(t, bytes.Equal(got, want), "%s: content mismatch (%d vs %d bytes)", name, len(got), len(want))
 	}
 }
 
@@ -132,24 +103,15 @@ func TestIndexedRespectsMaxDecodedPayloadLimit(t *testing.T) {
 	dir := writeTestPayloadDir(t, files)
 	envPath := filepath.Join(t.TempDir(), "indexed.c1z")
 	out, err := os.Create(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := out.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	_, err = WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil)
+	require.NoError(t, err)
+	require.NoError(t, out.Close())
 	f, err := os.Open(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer f.Close()
 	_, _, err = ExtractEnvelopePayload(f, t.TempDir(), WithMaxDecodedPayloadBytes(255))
-	if !errors.Is(err, ErrMaxSizeExceeded) {
-		t.Fatalf("ExtractEnvelopePayload error = %v, want ErrMaxSizeExceeded", err)
-	}
+	require.ErrorIs(t, err, ErrMaxSizeExceeded)
 }
 
 func TestIndexedDecodedPayloadFailFastKillSwitch(t *testing.T) {
@@ -160,32 +122,22 @@ func TestIndexedDecodedPayloadFailFastKillSwitch(t *testing.T) {
 	dir := writeTestPayloadDir(t, files)
 	envPath := filepath.Join(t.TempDir(), "indexed.c1z")
 	out, err := os.Create(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := out.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	_, err = WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil)
+	require.NoError(t, err)
+	require.NoError(t, out.Close())
 
 	orig := fcsFailFastDisabled
 	fcsFailFastDisabled = true
 	defer func() { fcsFailFastDisabled = orig }()
 
 	f, err := os.Open(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer f.Close()
 	_, _, err = ExtractEnvelopePayload(f, t.TempDir(), WithMaxDecodedPayloadBytes(255))
-	if !errors.Is(err, ErrMaxSizeExceeded) {
-		t.Fatalf("ExtractEnvelopePayload error = %v, want ErrMaxSizeExceeded", err)
-	}
-	if err != nil && bytes.Contains([]byte(err.Error()), []byte("indexed payload exceeds")) {
-		t.Fatalf("kill switch should avoid header-size fail-fast error, got %v", err)
-	}
+	require.ErrorIs(t, err, ErrMaxSizeExceeded)
+	require.False(t, err != nil && bytes.Contains([]byte(err.Error()), []byte("indexed payload exceeds")),
+		"kill switch should avoid header-size fail-fast error, got %v", err)
 }
 
 func TestIndexedRespectsMaxDecodedPayloadEnv(t *testing.T) {
@@ -196,24 +148,15 @@ func TestIndexedRespectsMaxDecodedPayloadEnv(t *testing.T) {
 	dir := writeTestPayloadDir(t, files)
 	envPath := filepath.Join(t.TempDir(), "indexed.c1z")
 	out, err := os.Create(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := out.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	_, err = WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil)
+	require.NoError(t, err)
+	require.NoError(t, out.Close())
 	f, err := os.Open(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer f.Close()
 	_, _, err = ExtractEnvelopePayload(f, t.TempDir())
-	if !errors.Is(err, ErrMaxSizeExceeded) {
-		t.Fatalf("ExtractEnvelopePayload error = %v, want ErrMaxSizeExceeded", err)
-	}
+	require.ErrorIs(t, err, ErrMaxSizeExceeded)
 }
 
 func TestIndexedRespectsMaxDecoderMemory(t *testing.T) {
@@ -223,24 +166,15 @@ func TestIndexedRespectsMaxDecoderMemory(t *testing.T) {
 	dir := writeTestPayloadDir(t, files)
 	envPath := filepath.Join(t.TempDir(), "indexed.c1z")
 	out, err := os.Create(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := out.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	_, err = WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil)
+	require.NoError(t, err)
+	require.NoError(t, out.Close())
 	f, err := os.Open(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer f.Close()
 	_, _, err = ExtractEnvelopePayload(f, t.TempDir(), WithMaxDecoderMemoryBytes(1))
-	if !errors.Is(err, zstd.ErrWindowSizeExceeded) {
-		t.Fatalf("ExtractEnvelopePayload error = %v, want zstd.ErrWindowSizeExceeded", err)
-	}
+	require.ErrorIs(t, err, zstd.ErrWindowSizeExceeded)
 }
 
 // TestIndexedSpliceReuse models the fold save: extract an envelope,
@@ -258,26 +192,17 @@ func TestIndexedSpliceReuse(t *testing.T) {
 	dir := writeTestPayloadDir(t, files)
 	srcPath := filepath.Join(t.TempDir(), "src.c1z")
 	out, err := os.Create(srcPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := out.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	_, err = WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil)
+	require.NoError(t, err)
+	require.NoError(t, out.Close())
 
 	f, err := os.Open(srcPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer f.Close()
 	extracted := t.TempDir()
 	_, reuse, err := ExtractEnvelopePayload(f, extracted)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// Build the "checkpoint": hard links for the three SSTs, a
 	// rewritten MANIFEST, and a brand-new SST.
@@ -288,42 +213,25 @@ func TestIndexedSpliceReuse(t *testing.T) {
 		}
 	}
 	newManifest := []byte("NEW manifest, longer than before")
-	if err := os.WriteFile(filepath.Join(checkpoint, "MANIFEST-000001"), newManifest, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(checkpoint, "MANIFEST-000001"), newManifest, 0o600))
 	newSST := randomBytes(t, 16<<10)
-	if err := os.WriteFile(filepath.Join(checkpoint, "000004.sst"), newSST, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(checkpoint, "000004.sst"), newSST, 0o600))
 
 	dstPath := filepath.Join(t.TempDir(), "dst.c1z")
 	dst, err := os.Create(dstPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	stats, err := WriteEnvelopeWithReuse(dst, indexedManifest(), checkpoint, reuse)
-	if err != nil {
-		t.Fatalf("WriteEnvelopeWithReuse: %v", err)
-	}
-	if err := dst.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if stats.SplicedFrames != 3 {
-		t.Fatalf("spliced frames = %d, want 3 (the hard-linked SSTs)", stats.SplicedFrames)
-	}
-	if stats.EncodedFrames != 2 {
-		t.Fatalf("encoded frames = %d, want 2 (new manifest + new sst)", stats.EncodedFrames)
-	}
+	require.NoError(t, err, "WriteEnvelopeWithReuse")
+	require.NoError(t, dst.Close())
+	require.Equal(t, 3, stats.SplicedFrames, "spliced frames")
+	require.Equal(t, 2, stats.EncodedFrames, "encoded frames")
 
 	df, err := os.Open(dstPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer df.Close()
 	dest := t.TempDir()
-	if _, _, err := ExtractEnvelopePayload(df, dest); err != nil {
-		t.Fatalf("extract spliced envelope: %v", err)
-	}
+	_, _, err = ExtractEnvelopePayload(df, dest)
+	require.NoError(t, err, "extract spliced envelope")
 	expect := map[string][]byte{
 		"000001.sst":      files["000001.sst"],
 		"000002.sst":      files["000002.sst"],
@@ -333,12 +241,8 @@ func TestIndexedSpliceReuse(t *testing.T) {
 	}
 	for name, want := range expect {
 		got, err := os.ReadFile(filepath.Join(dest, name))
-		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
-		}
-		if !bytes.Equal(got, want) {
-			t.Fatalf("%s: content mismatch after splice", name)
-		}
+		require.NoError(t, err, "read %s", name)
+		require.True(t, bytes.Equal(got, want), "%s: content mismatch after splice", name)
 	}
 }
 
@@ -350,48 +254,30 @@ func TestIndexedSpliceHashFallback(t *testing.T) {
 	dir := writeTestPayloadDir(t, map[string][]byte{"000001.sst": content})
 	srcPath := filepath.Join(t.TempDir(), "src.c1z")
 	out, err := os.Create(srcPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := out.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	_, err = WriteEnvelopeWithReuse(out, indexedManifest(), dir, nil)
+	require.NoError(t, err)
+	require.NoError(t, out.Close())
 	f, err := os.Open(srcPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer f.Close()
-	if _, _, err := ExtractEnvelopePayload(f, t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
+	_, _, err = ExtractEnvelopePayload(f, t.TempDir())
+	require.NoError(t, err)
 	// Re-extract for the reuse table, then copy (not link) into the
 	// checkpoint dir so inodes differ.
-	if _, err := f.Seek(0, 0); err != nil {
-		t.Fatal(err)
-	}
+	_, err = f.Seek(0, 0)
+	require.NoError(t, err)
 	_, reuse, err := ExtractEnvelopePayload(f, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	checkpoint := t.TempDir()
-	if err := os.WriteFile(filepath.Join(checkpoint, "000001.sst"), content, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(checkpoint, "000001.sst"), content, 0o600))
 	dst, err := os.Create(filepath.Join(t.TempDir(), "dst.c1z"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer dst.Close()
 	stats, err := WriteEnvelopeWithReuse(dst, indexedManifest(), checkpoint, reuse)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stats.SplicedFrames != 1 || stats.EncodedFrames != 0 {
-		t.Fatalf("stats = %+v, want 1 spliced / 0 encoded via hash fallback", stats)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.SplicedFrames, "spliced frames")
+	require.Equal(t, 0, stats.EncodedFrames, "encoded frames")
 }
 
 // writerOnly hides every method except Write, modeling a non-seekable
@@ -411,33 +297,21 @@ func TestIndexedStreamingWrite(t *testing.T) {
 
 	envPath := filepath.Join(t.TempDir(), "streamed.c1z")
 	out, err := os.Create(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := WriteEnvelopeWithReuse(writerOnly{out}, indexedManifest(), dir, nil); err != nil {
-		t.Fatalf("WriteEnvelopeWithReuse via non-seekable writer: %v", err)
-	}
-	if err := out.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	_, err = WriteEnvelopeWithReuse(writerOnly{out}, indexedManifest(), dir, nil)
+	require.NoError(t, err, "WriteEnvelopeWithReuse via non-seekable writer")
+	require.NoError(t, out.Close())
 
 	f, err := os.Open(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer f.Close()
 	dest := t.TempDir()
-	if _, _, err := ExtractEnvelopePayload(f, dest); err != nil {
-		t.Fatalf("ExtractEnvelopePayload: %v", err)
-	}
+	_, _, err = ExtractEnvelopePayload(f, dest)
+	require.NoError(t, err, "ExtractEnvelopePayload")
 	for name, want := range files {
 		got, err := os.ReadFile(filepath.Join(dest, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(got, want) {
-			t.Fatalf("%s: content mismatch", name)
-		}
+		require.NoError(t, err)
+		require.True(t, bytes.Equal(got, want), "%s: content mismatch", name)
 	}
 }
 
@@ -457,49 +331,32 @@ func TestIndexedFrameIndex(t *testing.T) {
 	envPath := writeIndexedEnvelope(t, dir)
 
 	f, err := os.Open(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer f.Close()
 	idx, err := ReadIndexedFrameIndex(f)
-	if err != nil {
-		t.Fatalf("ReadIndexedFrameIndex: %v", err)
-	}
-	if len(idx.GetEntries()) != len(files) {
-		t.Fatalf("index has %d entries, want %d", len(idx.GetEntries()), len(files))
-	}
+	require.NoError(t, err, "ReadIndexedFrameIndex")
+	require.Len(t, idx.GetEntries(), len(files))
 
 	dec, err := zstd.NewReader(nil, zstd.WithDecoderConcurrency(1))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer dec.Close()
 
 	var totalRaw, totalComp int64
 	for _, e := range idx.GetEntries() {
 		want, ok := files[e.GetName()]
-		if !ok {
-			t.Fatalf("index names unknown frame %q", e.GetName())
-		}
-		if e.GetRawSize() != int64(len(want)) {
-			t.Fatalf("%s: raw size %d, want %d", e.GetName(), e.GetRawSize(), len(want))
-		}
+		require.True(t, ok, "index names unknown frame %q", e.GetName())
+		require.Equal(t, int64(len(want)), e.GetRawSize(), "%s: raw size", e.GetName())
 		wantSha := sha256.Sum256(want)
-		if !bytes.Equal(e.GetRawSha256(), wantSha[:]) {
-			t.Fatalf("%s: sha256 mismatch", e.GetName())
-		}
+		require.Equal(t, wantSha[:], e.GetRawSha256(), "%s: sha256 mismatch", e.GetName())
 
 		// The byte range alone must be a complete, standalone zstd
 		// stream — exactly what a chunk store preads or PUTs. Even
 		// zero-length files must produce a real frame (WithZeroFrames),
 		// or their chunk objects would be undecodable.
-		if e.GetCompressedSize() <= 0 {
-			t.Fatalf("%s: frame is empty (compressed size %d)", e.GetName(), e.GetCompressedSize())
-		}
+		require.Greater(t, e.GetCompressedSize(), int64(0), "%s: frame is empty", e.GetName())
 		frame := make([]byte, e.GetCompressedSize())
-		if _, err := f.ReadAt(frame, e.GetFrameOffset()); err != nil {
-			t.Fatalf("%s: pread frame: %v", e.GetName(), err)
-		}
+		_, err := f.ReadAt(frame, e.GetFrameOffset())
+		require.NoError(t, err, "%s: pread frame", e.GetName())
 		// FCS is advertised for frames >= 256 bytes; the zstd frame
 		// header cannot represent smaller sizes without the
 		// single-segment flag, which the encoder only sets for
@@ -507,32 +364,20 @@ func TestIndexedFrameIndex(t *testing.T) {
 		// either way.
 		if len(want) >= 256 {
 			var hdr zstd.Header
-			if err := hdr.Decode(frame); err != nil {
-				t.Fatalf("%s: decode frame header: %v", e.GetName(), err)
-			}
-			if !hdr.HasFCS || hdr.FrameContentSize != uint64(len(want)) {
-				t.Fatalf("%s: FCS missing or wrong (has=%v fcs=%d want=%d)", e.GetName(), hdr.HasFCS, hdr.FrameContentSize, len(want))
-			}
+			err := hdr.Decode(frame)
+			require.NoError(t, err, "%s: decode frame header", e.GetName())
+			require.True(t, hdr.HasFCS && hdr.FrameContentSize == uint64(len(want)),
+				"%s: FCS missing or wrong (has=%v fcs=%d want=%d)", e.GetName(), hdr.HasFCS, hdr.FrameContentSize, len(want))
 		}
-		if err := dec.Reset(bytes.NewReader(frame)); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, dec.Reset(bytes.NewReader(frame)))
 		got, err := io.ReadAll(dec)
-		if err != nil {
-			t.Fatalf("%s: standalone decode: %v", e.GetName(), err)
-		}
-		if !bytes.Equal(got, want) {
-			t.Fatalf("%s: standalone decode mismatch (%d vs %d bytes)", e.GetName(), len(got), len(want))
-		}
+		require.NoError(t, err, "%s: standalone decode", e.GetName())
+		require.True(t, bytes.Equal(got, want), "%s: standalone decode mismatch (%d vs %d bytes)", e.GetName(), len(got), len(want))
 		totalRaw += e.GetRawSize()
 		totalComp += e.GetCompressedSize()
 	}
-	if idx.GetTotalRawSize() != totalRaw {
-		t.Fatalf("total raw = %d, entries sum to %d", idx.GetTotalRawSize(), totalRaw)
-	}
-	if idx.GetTotalCompressedSize() != totalComp {
-		t.Fatalf("total compressed = %d, entries sum to %d", idx.GetTotalCompressedSize(), totalComp)
-	}
+	require.Equal(t, totalRaw, idx.GetTotalRawSize())
+	require.Equal(t, totalComp, idx.GetTotalCompressedSize())
 }
 
 // TestIndexedTrailerCorruption covers the corruption-class failure
@@ -548,25 +393,19 @@ func TestIndexedTrailerCorruption(t *testing.T) {
 	flipByteAt := func(t *testing.T, path string, off int64) {
 		t.Helper()
 		f, err := os.OpenFile(path, os.O_RDWR, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		defer f.Close()
 		var b [1]byte
-		if _, err := f.ReadAt(b[:], off); err != nil {
-			t.Fatal(err)
-		}
+		_, err = f.ReadAt(b[:], off)
+		require.NoError(t, err)
 		b[0] ^= 0xFF
-		if _, err := f.WriteAt(b[:], off); err != nil {
-			t.Fatal(err)
-		}
+		_, err = f.WriteAt(b[:], off)
+		require.NoError(t, err)
 	}
 	extract := func(t *testing.T, path string) error {
 		t.Helper()
 		f, err := os.Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		defer f.Close()
 		_, _, err = ExtractEnvelopePayload(f, t.TempDir())
 		return err
@@ -575,38 +414,27 @@ func TestIndexedTrailerCorruption(t *testing.T) {
 	t.Run("truncated footer", func(t *testing.T) {
 		p := newEnv(t)
 		st, err := os.Stat(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Truncate(p, st.Size()-1); err != nil {
-			t.Fatal(err)
-		}
-		if err := extract(t, p); !errors.Is(err, ErrEnvelopeTruncated) {
-			t.Fatalf("error = %v, want ErrEnvelopeTruncated", err)
-		}
+		require.NoError(t, err)
+		require.NoError(t, os.Truncate(p, st.Size()-1))
+		err = extract(t, p)
+		require.ErrorIs(t, err, ErrEnvelopeTruncated)
 	})
 
 	t.Run("corrupt index byte", func(t *testing.T) {
 		p := newEnv(t)
 		st, err := os.Stat(p)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		f, err := os.Open(p)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		var footer [indexedFooterLen]byte
-		if _, err := f.ReadAt(footer[:], st.Size()-indexedFooterLen); err != nil {
-			t.Fatal(err)
-		}
+		_, err = f.ReadAt(footer[:], st.Size()-indexedFooterLen)
+		require.NoError(t, err)
 		f.Close()
 		indexOff := int64(binary.BigEndian.Uint64(footer[0:8])) //nolint:gosec // test reads back the offset our writer wrote.
 		flipByteAt(t, p, indexOff)
 		err = extract(t, p)
-		if err == nil || !strings.Contains(err.Error(), "hash mismatch") {
-			t.Fatalf("error = %v, want index hash mismatch", err)
-		}
+		require.Error(t, err, "want index hash mismatch")
+		require.Contains(t, err.Error(), "hash mismatch")
 	})
 
 	// A flipped bit inside the manifest's descriptor closure is
@@ -624,30 +452,20 @@ func TestIndexedTrailerCorruption(t *testing.T) {
 		}.Build()
 		p := filepath.Join(t.TempDir(), "m.c1z")
 		out, err := os.Create(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := WriteEnvelopeWithReuse(out, m, dir, nil); err != nil {
-			t.Fatal(err)
-		}
-		if err := out.Close(); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
+		_, err = WriteEnvelopeWithReuse(out, m, dir, nil)
+		require.NoError(t, err)
+		require.NoError(t, out.Close())
 		raw, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		i := bytes.Index(raw, []byte(sentinel))
-		if i < 0 {
-			t.Fatal("sentinel not found in manifest bytes")
-		}
+		require.GreaterOrEqual(t, i, 0, "sentinel not found in manifest bytes")
 		// Flip a content byte inside the sentinel string: the wire
 		// structure stays valid, only the bytes change.
 		flipByteAt(t, p, int64(i)+2)
 		err = extract(t, p)
-		if err == nil || !strings.Contains(err.Error(), "manifest bytes hash mismatch") {
-			t.Fatalf("error = %v, want manifest hash mismatch", err)
-		}
+		require.Error(t, err, "want manifest hash mismatch")
+		require.Contains(t, err.Error(), "manifest bytes hash mismatch")
 	})
 
 	// rewriteTrailer rebuilds the envelope's trailer — mutated index,
@@ -656,36 +474,26 @@ func TestIndexedTrailerCorruption(t *testing.T) {
 	rewriteTrailer := func(t *testing.T, p string, mutate func(idx *c1zv3.IndexedFrameIndex)) {
 		t.Helper()
 		f, err := os.Open(p)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		idx, err := ReadIndexedFrameIndex(f)
 		_ = f.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		raw, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		var footer [indexedFooterLen]byte
 		copy(footer[:], raw[len(raw)-indexedFooterLen:])
 		indexOff := int64(binary.BigEndian.Uint64(footer[0:8])) //nolint:gosec // offset our writer wrote.
 
 		mutate(idx)
 		ib, err := proto.Marshal(idx)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		out := append([]byte{}, raw[:indexOff]...)
 		out = append(out, ib...)
 		binary.BigEndian.PutUint64(footer[0:8], uint64(indexOff)) //nolint:gosec // non-negative offset.
 		binary.BigEndian.PutUint32(footer[8:12], uint32(len(ib))) //nolint:gosec // small test index.
 		binary.BigEndian.PutUint64(footer[12:20], xxhash.Sum64(ib))
 		out = append(out, footer[:]...)
-		if err := os.WriteFile(p, out, 0o600); err != nil { // #nosec G703 -- p is a t.TempDir path created by this test.
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(p, out, 0o600)) // #nosec G703 -- p is a t.TempDir path created by this test.
 	}
 
 	// A well-formed footer over a hostile index with duplicate names
@@ -697,9 +505,8 @@ func TestIndexedTrailerCorruption(t *testing.T) {
 			idx.SetEntries(append(idx.GetEntries(), idx.GetEntries()[0]))
 		})
 		err := extract(t, p)
-		if err == nil || !strings.Contains(err.Error(), "duplicate") {
-			t.Fatalf("error = %v, want duplicate entry rejection", err)
-		}
+		require.Error(t, err, "want duplicate entry rejection")
+		require.Contains(t, err.Error(), "duplicate")
 	})
 
 	// compSize == 0 can't come from our writer (WithZeroFrames makes
@@ -711,27 +518,21 @@ func TestIndexedTrailerCorruption(t *testing.T) {
 			idx.GetEntries()[0].SetCompressedSize(0)
 		})
 		err := extract(t, p)
-		if err == nil || !strings.Contains(err.Error(), "sizes out of range") {
-			t.Fatalf("error = %v, want size-range rejection", err)
-		}
+		require.Error(t, err, "want size-range rejection")
+		require.Contains(t, err.Error(), "sizes out of range")
 	})
 
 	t.Run("corrupt frame byte", func(t *testing.T) {
 		p := newEnv(t)
 		f, err := os.Open(p)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		idx, err := ReadIndexedFrameIndex(f)
 		f.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		e := idx.GetEntries()[0]
 		flipByteAt(t, p, e.GetFrameOffset()+e.GetCompressedSize()/2)
-		if err := extract(t, p); err == nil {
-			t.Fatal("extraction of corrupt frame succeeded")
-		}
+		err = extract(t, p)
+		require.Error(t, err, "extraction of corrupt frame succeeded")
 	})
 }
 
@@ -749,19 +550,13 @@ func TestIndexedSpliceCarriesSHA256(t *testing.T) {
 	srcPath := writeIndexedEnvelope(t, dir)
 
 	f, err := os.Open(srcPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer f.Close()
 	extracted := t.TempDir()
 	_, reuse, err := ExtractEnvelopePayload(f, extracted)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	for _, e := range reuse.byName {
-		if len(e.SHA256) != sha256.Size {
-			t.Fatalf("%s: reuse entry missing sha256 from trailer", e.Name)
-		}
+		require.Len(t, e.SHA256, sha256.Size, "%s: reuse entry missing sha256 from trailer", e.Name)
 	}
 	// Wipe the identities to model a caller-constructed reuse table:
 	// the writer must recompute, not emit empty hashes.
@@ -776,25 +571,16 @@ func TestIndexedSpliceCarriesSHA256(t *testing.T) {
 		}
 	}
 	newSST := randomBytes(t, 16<<10)
-	if err := os.WriteFile(filepath.Join(checkpoint, "000003.sst"), newSST, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(checkpoint, "000003.sst"), newSST, 0o600))
 
 	dstPath := filepath.Join(t.TempDir(), "dst.c1z")
 	dst, err := os.Create(dstPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	stats, err := WriteEnvelopeWithReuse(dst, indexedManifest(), checkpoint, reuse)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := dst.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if stats.SplicedFrames != 2 || stats.EncodedFrames != 1 {
-		t.Fatalf("stats = %+v, want 2 spliced / 1 encoded", stats)
-	}
+	require.NoError(t, err)
+	require.NoError(t, dst.Close())
+	require.Equal(t, 2, stats.SplicedFrames, "spliced frames")
+	require.Equal(t, 1, stats.EncodedFrames, "encoded frames")
 
 	expect := map[string][]byte{
 		"000001.sst": files["000001.sst"],
@@ -802,22 +588,14 @@ func TestIndexedSpliceCarriesSHA256(t *testing.T) {
 		"000003.sst": newSST,
 	}
 	df, err := os.Open(dstPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer df.Close()
 	idx, err := ReadIndexedFrameIndex(df)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(idx.GetEntries()) != len(expect) {
-		t.Fatalf("index has %d entries, want %d", len(idx.GetEntries()), len(expect))
-	}
+	require.NoError(t, err)
+	require.Len(t, idx.GetEntries(), len(expect))
 	for _, e := range idx.GetEntries() {
 		want := sha256.Sum256(expect[e.GetName()])
-		if !bytes.Equal(e.GetRawSha256(), want[:]) {
-			t.Fatalf("%s: sha256 mismatch in spliced envelope's index", e.GetName())
-		}
+		require.Equal(t, want[:], e.GetRawSha256(), "%s: sha256 mismatch in spliced envelope's index", e.GetName())
 	}
 }
 
@@ -827,18 +605,13 @@ func TestIndexedSpliceCarriesSHA256(t *testing.T) {
 func TestIndexedEmptyPayload(t *testing.T) {
 	envPath := writeIndexedEnvelope(t, t.TempDir())
 	f, err := os.Open(envPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer f.Close()
 	idx, err := ReadIndexedFrameIndex(f)
-	if err != nil {
-		t.Fatalf("ReadIndexedFrameIndex: %v", err)
-	}
-	if len(idx.GetEntries()) != 0 || idx.GetTotalRawSize() != 0 || idx.GetTotalCompressedSize() != 0 {
-		t.Fatalf("empty payload index not empty: %v", idx)
-	}
-	if _, _, err := ExtractEnvelopePayload(f, t.TempDir()); err != nil {
-		t.Fatalf("ExtractEnvelopePayload: %v", err)
-	}
+	require.NoError(t, err, "ReadIndexedFrameIndex")
+	require.Empty(t, idx.GetEntries())
+	require.Equal(t, int64(0), idx.GetTotalRawSize())
+	require.Equal(t, int64(0), idx.GetTotalCompressedSize())
+	_, _, err = ExtractEnvelopePayload(f, t.TempDir())
+	require.NoError(t, err, "ExtractEnvelopePayload")
 }

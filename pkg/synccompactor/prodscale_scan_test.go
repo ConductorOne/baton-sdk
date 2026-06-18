@@ -84,9 +84,7 @@ func TestProdScaleScanVsFoldDebt(t *testing.T) {
 		start = time.Now()
 		for i := 0; i < lookups; i++ {
 			id := scaleID("g", rng.Intn(grants))
-			if _, err := eng.GetGrantRecord(ctx, id); err != nil {
-				t.Fatalf("lookup %s: %v", id, err)
-			}
+			require.NoError(t, err, "lookup %s", id)
 		}
 		lookupDur := time.Since(start)
 

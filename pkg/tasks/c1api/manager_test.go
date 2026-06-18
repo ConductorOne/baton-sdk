@@ -17,6 +17,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeBatonServiceClient is a BatonServiceClient stub that lets tests drive
@@ -138,12 +139,8 @@ func TestBootstrapSucceedsOnFirstAttempt(t *testing.T) {
 	cc := &fakeConnectorClient{}
 	mgr := newTestManager(sc)
 
-	if err := mgr.Bootstrap(context.Background(), cc); err != nil {
-		t.Fatalf("Bootstrap: %v", err)
-	}
-	if sc.helloCalls != 1 {
-		t.Fatalf("expected 1 Hello call, got %d", sc.helloCalls)
-	}
+	require.NoError(t, mgr.Bootstrap(context.Background(), cc))
+	require.Equal(t, 1, sc.helloCalls)
 }
 
 func TestBootstrapRetriesOnTransientFailure(t *testing.T) {
@@ -154,12 +151,8 @@ func TestBootstrapRetriesOnTransientFailure(t *testing.T) {
 	cc := &fakeConnectorClient{}
 	mgr := newTestManager(sc)
 
-	if err := mgr.Bootstrap(context.Background(), cc); err != nil {
-		t.Fatalf("Bootstrap: %v", err)
-	}
-	if sc.helloCalls != 3 {
-		t.Fatalf("expected 3 Hello calls (2 transient failures + success), got %d", sc.helloCalls)
-	}
+	require.NoError(t, mgr.Bootstrap(context.Background(), cc))
+	require.Equal(t, 3, sc.helloCalls, "expected 3 Hello calls (2 transient failures + success)")
 }
 
 func TestBootstrapStopsOnNonRetryableError(t *testing.T) {
@@ -171,15 +164,9 @@ func TestBootstrapStopsOnNonRetryableError(t *testing.T) {
 	mgr := newTestManager(sc)
 
 	err := mgr.Bootstrap(context.Background(), cc)
-	if err == nil {
-		t.Fatal("expected Bootstrap to return an error for non-retryable Hello failure")
-	}
-	if got := status.Code(err); got != codes.Unauthenticated {
-		t.Fatalf("error code = %s, want Unauthenticated", got)
-	}
-	if sc.helloCalls != 1 {
-		t.Fatalf("expected exactly 1 Hello call (no retries on non-retryable), got %d", sc.helloCalls)
-	}
+	require.Error(t, err, "expected Bootstrap to return an error for non-retryable Hello failure")
+	require.Equal(t, codes.Unauthenticated, status.Code(err))
+	require.Equal(t, 1, sc.helloCalls, "expected exactly 1 Hello call (no retries on non-retryable)")
 }
 
 func TestBootstrapHonorsContextCancellationDuringBackoff(t *testing.T) {
@@ -208,9 +195,7 @@ func TestBootstrapHonorsContextCancellationDuringBackoff(t *testing.T) {
 	}()
 
 	err := mgr.Bootstrap(ctx, cc)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected context.Canceled, got %v", err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestBootstrapPropagatesGetMetadataError(t *testing.T) {
@@ -222,15 +207,9 @@ func TestBootstrapPropagatesGetMetadataError(t *testing.T) {
 	mgr := newTestManager(sc)
 
 	err := mgr.Bootstrap(context.Background(), cc)
-	if err == nil {
-		t.Fatal("expected Bootstrap to return an error when GetMetadata fails")
-	}
-	if got := status.Code(err); got != codes.PermissionDenied {
-		t.Fatalf("error code = %s, want PermissionDenied", got)
-	}
-	if sc.helloCalls != 0 {
-		t.Fatalf("Hello should not be invoked when GetMetadata fails, got %d calls", sc.helloCalls)
-	}
+	require.Error(t, err, "expected Bootstrap to return an error when GetMetadata fails")
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	require.Equal(t, 0, sc.helloCalls, "Hello should not be invoked when GetMetadata fails")
 }
 
 func TestNextDoesNotSelfQueueHello(t *testing.T) {
@@ -240,18 +219,10 @@ func TestNextDoesNotSelfQueueHello(t *testing.T) {
 	mgr := newTestManager(sc)
 
 	task, _, err := mgr.Next(context.Background())
-	if err != nil {
-		t.Fatalf("Next: %v", err)
-	}
-	if task != nil && task.GetHello() != nil {
-		t.Fatalf("Next must not self-queue a Hello task, got %+v", task)
-	}
-	if sc.getTaskCalls != 1 {
-		t.Fatalf("expected default path to use GetTask once, got %d calls", sc.getTaskCalls)
-	}
-	if len(sc.getTasksReqs) != 0 {
-		t.Fatalf("expected default path not to use GetTasks, got %d calls", len(sc.getTasksReqs))
-	}
+	require.NoError(t, err)
+	require.True(t, task == nil || task.GetHello() == nil, "Next must not self-queue a Hello task, got %+v", task)
+	require.Equal(t, 1, sc.getTaskCalls, "expected default path to use GetTask once")
+	require.Empty(t, sc.getTasksReqs, "expected default path not to use GetTasks")
 }
 
 func TestNextUsesGetTasksAndQueuesBatch(t *testing.T) {
@@ -266,23 +237,13 @@ func TestNextUsesGetTasksAndQueuesBatch(t *testing.T) {
 	mgr := newTestManager(sc)
 
 	got1, _, err := mgr.Next(context.Background())
-	if err != nil {
-		t.Fatalf("Next: %v", err)
-	}
-	if got1.GetId() != task1.GetId() {
-		t.Fatalf("first task id = %q, want %q", got1.GetId(), task1.GetId())
-	}
+	require.NoError(t, err)
+	require.Equal(t, task1.GetId(), got1.GetId())
 
 	got2, _, err := mgr.Next(context.Background())
-	if err != nil {
-		t.Fatalf("Next: %v", err)
-	}
-	if got2.GetId() != task2.GetId() {
-		t.Fatalf("second task id = %q, want %q", got2.GetId(), task2.GetId())
-	}
-	if len(sc.getTasksReqs) != 1 {
-		t.Fatalf("expected one GetTasks call, got %d", len(sc.getTasksReqs))
-	}
+	require.NoError(t, err)
+	require.Equal(t, task2.GetId(), got2.GetId())
+	require.Len(t, sc.getTasksReqs, 1, "expected one GetTasks call")
 }
 
 func TestNextSendsKnownTaskIDs(t *testing.T) {
@@ -296,23 +257,15 @@ func TestNextSendsKnownTaskIDs(t *testing.T) {
 	mgr := newTestManager(sc)
 
 	got1, _, err := mgr.Next(context.Background())
-	if err != nil {
-		t.Fatalf("Next: %v", err)
-	}
+	require.NoError(t, err)
 	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{}.Build()
 
 	_, _, err = mgr.Next(context.Background())
-	if err != nil {
-		t.Fatalf("Next queued: %v", err)
-	}
+	require.NoError(t, err)
 
-	if len(sc.getTasksReqs) != 2 {
-		t.Fatalf("expected two GetTasks calls, got %d", len(sc.getTasksReqs))
-	}
+	require.Len(t, sc.getTasksReqs, 2, "expected two GetTasks calls")
 	known := sc.getTasksReqs[1].GetKnownTaskIds()
-	if !containsString(known, got1.GetId()) {
-		t.Fatalf("known task IDs %v did not include in-flight task %q", known, got1.GetId())
-	}
+	require.True(t, containsString(known, got1.GetId()), "known task IDs %v did not include in-flight task %q", known, got1.GetId())
 }
 
 func TestNextRequestsOnlyEnoughTasksToReachKnownTarget(t *testing.T) {
@@ -325,23 +278,15 @@ func TestNextRequestsOnlyEnoughTasksToReachKnownTarget(t *testing.T) {
 	}.Build()
 	mgr := newTestManager(sc)
 
-	if _, _, err := mgr.Next(context.Background()); err != nil {
-		t.Fatalf("Next first fetch: %v", err)
-	}
+	_, _, err := mgr.Next(context.Background())
+	require.NoError(t, err, "Next first fetch")
 	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{}.Build()
-	if _, _, err := mgr.Next(context.Background()); err != nil {
-		t.Fatalf("Next queued: %v", err)
-	}
+	_, _, err = mgr.Next(context.Background())
+	require.NoError(t, err, "Next queued")
 
-	if len(sc.getTasksReqs) != 2 {
-		t.Fatalf("expected two GetTasks calls, got %d", len(sc.getTasksReqs))
-	}
-	if got := sc.getTasksReqs[0].GetPageSize(); got != 6 {
-		t.Fatalf("first page size = %d, want 6", got)
-	}
-	if got := sc.getTasksReqs[1].GetPageSize(); got != 4 {
-		t.Fatalf("second page size = %d, want 4", got)
-	}
+	require.Len(t, sc.getTasksReqs, 2, "expected two GetTasks calls")
+	require.Equal(t, uint32(6), sc.getTasksReqs[0].GetPageSize(), "first page size")
+	require.Equal(t, uint32(4), sc.getTasksReqs[1].GetPageSize(), "second page size")
 }
 
 func TestNextDoesNotTopUpQueuedTasksBeforeNextPoll(t *testing.T) {
@@ -355,15 +300,11 @@ func TestNextDoesNotTopUpQueuedTasksBeforeNextPoll(t *testing.T) {
 	}.Build()
 	mgr := newTestManager(sc)
 
-	if _, _, err := mgr.Next(context.Background()); err != nil {
-		t.Fatalf("Next first fetch: %v", err)
-	}
-	if _, _, err := mgr.Next(context.Background()); err != nil {
-		t.Fatalf("Next queued: %v", err)
-	}
-	if len(sc.getTasksReqs) != 1 {
-		t.Fatalf("expected no top-up before next_poll, got %d GetTasks calls", len(sc.getTasksReqs))
-	}
+	_, _, err := mgr.Next(context.Background())
+	require.NoError(t, err, "Next first fetch")
+	_, _, err = mgr.Next(context.Background())
+	require.NoError(t, err, "Next queued")
+	require.Len(t, sc.getTasksReqs, 1, "expected no top-up before next_poll")
 }
 
 func TestNextReturnsWaitWhenBatchIsEmpty(t *testing.T) {
@@ -375,15 +316,9 @@ func TestNextReturnsWaitWhenBatchIsEmpty(t *testing.T) {
 	mgr := newTestManager(sc)
 
 	task, wait, err := mgr.Next(context.Background())
-	if err != nil {
-		t.Fatalf("Next: %v", err)
-	}
-	if task != nil {
-		t.Fatalf("expected no task, got %+v", task)
-	}
-	if wait <= 0 {
-		t.Fatalf("expected positive wait for empty batch, got %s", wait)
-	}
+	require.NoError(t, err)
+	require.Nil(t, task, "expected no task, got %+v", task)
+	require.Positive(t, wait, "expected positive wait for empty batch, got %s", wait)
 }
 
 func TestNextWaitsWhenEnoughKnownTasksAreInFlight(t *testing.T) {
@@ -399,18 +334,10 @@ func TestNextWaitsWhenEnoughKnownTasksAreInFlight(t *testing.T) {
 	}
 
 	task, wait, err := mgr.Next(context.Background())
-	if err != nil {
-		t.Fatalf("Next: %v", err)
-	}
-	if task != nil {
-		t.Fatalf("expected no queued task, got %+v", task)
-	}
-	if wait <= 0 {
-		t.Fatalf("expected positive wait when enough tasks are already in flight, got %s", wait)
-	}
-	if len(sc.getTasksReqs) != 0 {
-		t.Fatalf("expected no GetTasks call while enough tasks are in flight, got %d", len(sc.getTasksReqs))
-	}
+	require.NoError(t, err)
+	require.Nil(t, task, "expected no queued task, got %+v", task)
+	require.Positive(t, wait, "expected positive wait when enough tasks are already in flight, got %s", wait)
+	require.Empty(t, sc.getTasksReqs, "expected no GetTasks call while enough tasks are in flight")
 }
 
 func TestNextDoesNotTopUpWhenKnownTasksAtLowWater(t *testing.T) {
@@ -424,15 +351,11 @@ func TestNextDoesNotTopUpWhenKnownTasksAtLowWater(t *testing.T) {
 	}.Build()
 	mgr := newTestManager(sc)
 
-	if _, _, err := mgr.Next(context.Background()); err != nil {
-		t.Fatalf("Next first fetch: %v", err)
-	}
-	if _, _, err := mgr.Next(context.Background()); err != nil {
-		t.Fatalf("Next queued: %v", err)
-	}
-	if len(sc.getTasksReqs) != 1 {
-		t.Fatalf("expected no top-up at low-water, got %d GetTasks calls", len(sc.getTasksReqs))
-	}
+	_, _, err := mgr.Next(context.Background())
+	require.NoError(t, err, "Next first fetch")
+	_, _, err = mgr.Next(context.Background())
+	require.NoError(t, err, "Next queued")
+	require.Len(t, sc.getTasksReqs, 1, "expected no top-up at low-water")
 }
 
 func TestNextTopsUpQueuedTasksAfterNextPoll(t *testing.T) {
@@ -446,18 +369,14 @@ func TestNextTopsUpQueuedTasksAfterNextPoll(t *testing.T) {
 	}.Build()
 	mgr := newTestManager(sc)
 
-	if _, _, err := mgr.Next(context.Background()); err != nil {
-		t.Fatalf("Next first fetch: %v", err)
-	}
+	_, _, err := mgr.Next(context.Background())
+	require.NoError(t, err, "Next first fetch")
 	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
 		Tasks: []*v1.Task{task3},
 	}.Build()
-	if _, _, err := mgr.Next(context.Background()); err != nil {
-		t.Fatalf("Next queued/top-up: %v", err)
-	}
-	if len(sc.getTasksReqs) != 2 {
-		t.Fatalf("expected top-up after elapsed next_poll, got %d GetTasks calls", len(sc.getTasksReqs))
-	}
+	_, _, err = mgr.Next(context.Background())
+	require.NoError(t, err, "Next queued/top-up")
+	require.Len(t, sc.getTasksReqs, 2, "expected top-up after elapsed next_poll")
 }
 
 func TestProcessRemovesKnownTaskID(t *testing.T) {
@@ -466,12 +385,9 @@ func TestProcessRemovesKnownTaskID(t *testing.T) {
 	mgr := newTestManager(sc)
 	mgr.taskQueue.inFlight[task.GetId()] = struct{}{}
 
-	if err := mgr.Process(context.Background(), task, &fakeConnectorClient{}); err != nil {
-		t.Fatalf("Process: %v", err)
-	}
-	if got, _ := mgr.taskQueue.fetchParams(); containsString(got, task.GetId()) {
-		t.Fatalf("known task IDs %v still include completed task %q", got, task.GetId())
-	}
+	require.NoError(t, mgr.Process(context.Background(), task, &fakeConnectorClient{}))
+	got, _ := mgr.taskQueue.fetchParams()
+	require.False(t, containsString(got, task.GetId()), "known task IDs %v still include completed task %q", got, task.GetId())
 }
 
 func TestNextReturnsGetTasksErrorWhenEnabled(t *testing.T) {
@@ -481,12 +397,8 @@ func TestNextReturnsGetTasksErrorWhenEnabled(t *testing.T) {
 	mgr := newTestManager(sc)
 
 	_, _, err := mgr.Next(context.Background())
-	if status.Code(err) != codes.Unimplemented {
-		t.Fatalf("expected Unimplemented error, got %v", err)
-	}
-	if sc.getTaskCalls != 0 {
-		t.Fatalf("expected no GetTask fallback calls, got %d", sc.getTaskCalls)
-	}
+	require.Equal(t, codes.Unimplemented, status.Code(err), "expected Unimplemented error, got %v", err)
+	require.Equal(t, 0, sc.getTaskCalls, "expected no GetTask fallback calls")
 }
 
 func containsString(values []string, target string) bool {
@@ -522,9 +434,7 @@ func TestIsRetryableHelloErrorClassification(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := isRetryableHelloError(tc.err); got != tc.want {
-				t.Fatalf("isRetryableHelloError(%v) = %v, want %v", tc.err, got, tc.want)
-			}
+			require.Equal(t, tc.want, isRetryableHelloError(tc.err))
 		})
 	}
 }

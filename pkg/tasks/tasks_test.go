@@ -5,6 +5,7 @@ import (
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	taskTypes "github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIs(t *testing.T) {
@@ -86,9 +87,7 @@ func TestIs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Is(tt.args.task, tt.args.target); got != tt.want {
-				t.Errorf("Is() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, Is(tt.args.task, tt.args.target))
 		})
 	}
 }
@@ -164,9 +163,7 @@ func TestGetType(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := GetType(tt.args.task); got != tt.want {
-				t.Errorf("GetType() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, GetType(tt.args.task))
 		})
 	}
 }

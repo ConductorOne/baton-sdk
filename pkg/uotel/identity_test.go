@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
@@ -19,37 +20,24 @@ func TestSyncIdentityAttrs(t *testing.T) {
 			"catalog_id":   "cat1",
 			"catalog_name": "okta",
 		}
-		if len(got) != len(want) {
-			t.Fatalf("got %d attrs, want %d", len(got), len(want))
-		}
+		require.Len(t, got, len(want))
 		for _, kv := range got {
-			if want[kv.Key] != kv.Value.AsString() {
-				t.Errorf("attr %s = %q, want %q", kv.Key, kv.Value.AsString(), want[kv.Key])
-			}
+			require.Equal(t, want[kv.Key], kv.Value.AsString(), "attr %s", kv.Key)
 		}
 	})
 
 	t.Run("empty fields omitted", func(t *testing.T) {
 		id := SyncIdentity{ConnectorID: "c1"}
 		got := id.Attrs()
-		if len(got) != 1 {
-			t.Fatalf("expected 1 attr, got %d: %v", len(got), got)
-		}
-		if got[0].Key != "connector_id" || got[0].Value.AsString() != "c1" {
-			t.Errorf("expected connector_id=c1, got %s=%q", got[0].Key, got[0].Value.AsString())
-		}
+		require.Len(t, got, 1, "expected 1 attr, got %v", got)
+		require.Equal(t, attribute.Key("connector_id"), got[0].Key)
+		require.Equal(t, "c1", got[0].Value.AsString())
 	})
 
 	t.Run("zero", func(t *testing.T) {
-		if !(SyncIdentity{}).IsZero() {
-			t.Error("empty SyncIdentity should be zero")
-		}
-		if (SyncIdentity{TenantID: "t"}).IsZero() {
-			t.Error("populated SyncIdentity should not be zero")
-		}
-		if len((SyncIdentity{}).Attrs()) != 0 {
-			t.Error("zero identity should produce no attrs")
-		}
+		require.True(t, (SyncIdentity{}).IsZero(), "empty SyncIdentity should be zero")
+		require.False(t, (SyncIdentity{TenantID: "t"}).IsZero(), "populated SyncIdentity should not be zero")
+		require.Empty(t, (SyncIdentity{}).Attrs(), "zero identity should produce no attrs")
 	})
 }
 
@@ -58,16 +46,11 @@ func TestSyncIdentityContextRoundTrip(t *testing.T) {
 	ctx := WithSyncIdentity(context.Background(), id)
 
 	got, ok := SyncIdentityFromContext(ctx)
-	if !ok {
-		t.Fatal("expected identity in context")
-	}
-	if got != id {
-		t.Errorf("round-trip mismatch: got %+v, want %+v", got, id)
-	}
+	require.True(t, ok, "expected identity in context")
+	require.Equal(t, id, got)
 
-	if _, ok := SyncIdentityFromContext(context.Background()); ok {
-		t.Error("bare context should not carry identity")
-	}
+	_, ok = SyncIdentityFromContext(context.Background())
+	require.False(t, ok, "bare context should not carry identity")
 }
 
 // TestSetSyncIdentityAttrs is the regression guard for the span-stamping path
@@ -84,17 +67,13 @@ func TestSetSyncIdentityAttrs(t *testing.T) {
 		span.End()
 
 		got := findSpan(rec, "test.span")
-		if got == nil {
-			t.Fatal("span not recorded")
-		}
+		require.NotNil(t, got, "span not recorded")
 		attrs := map[attribute.Key]string{}
 		for _, a := range got.Attributes() {
 			attrs[a.Key] = a.Value.AsString()
 		}
 		for _, want := range id.Attrs() {
-			if attrs[want.Key] != want.Value.AsString() {
-				t.Errorf("attr %s = %q, want %q", want.Key, attrs[want.Key], want.Value.AsString())
-			}
+			require.Equal(t, want.Value.AsString(), attrs[want.Key], "attr %s", want.Key)
 		}
 	})
 
@@ -107,13 +86,11 @@ func TestSetSyncIdentityAttrs(t *testing.T) {
 		span.End()
 
 		got := findSpan(rec, "test.noop")
-		if got == nil {
-			t.Fatal("span not recorded")
-		}
+		require.NotNil(t, got, "span not recorded")
 		for _, a := range got.Attributes() {
 			switch a.Key {
 			case "tenant_id", "app_id", "connector_id", "catalog_id", "catalog_name":
-				t.Errorf("unexpected identity attr %s on span with no identity in ctx", a.Key)
+				require.Failf(t, "unexpected identity attr on span with no identity in ctx", "attr %s", string(a.Key))
 			}
 		}
 	})

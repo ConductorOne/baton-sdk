@@ -4,8 +4,9 @@ package cli
 
 import (
 	"context"
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/field"
@@ -80,23 +81,15 @@ func (c *testLambdaStringMapConfig) GetStringMap(fieldName string) map[string]an
 func TestCloseLambdaConnectorGenerationSupportsCloseWithoutContext(t *testing.T) {
 	connector := &testLambdaConnectorCloseWithoutContext{}
 
-	if err := closeLambdaConnectorGeneration(context.Background(), connector); err != nil {
-		t.Fatalf("closeLambdaConnectorGeneration: %v", err)
-	}
-	if !connector.closed {
-		t.Fatal("expected Close() to be called")
-	}
+	require.NoError(t, closeLambdaConnectorGeneration(context.Background(), connector))
+	require.True(t, connector.closed, "expected Close() to be called")
 }
 
 func TestCloseLambdaConnectorGenerationSupportsCloseWithContext(t *testing.T) {
 	connector := &testLambdaConnectorCloseWithContext{}
 
-	if err := closeLambdaConnectorGeneration(context.Background(), connector); err != nil {
-		t.Fatalf("closeLambdaConnectorGeneration: %v", err)
-	}
-	if !connector.closed {
-		t.Fatal("expected Close(context.Context) to be called")
-	}
+	require.NoError(t, closeLambdaConnectorGeneration(context.Background(), connector))
+	require.True(t, connector.closed, "expected Close(context.Context) to be called")
 }
 
 func TestEffectiveLambdaConfigSyncResourceTypeIDs(t *testing.T) {
@@ -112,9 +105,7 @@ func TestEffectiveLambdaConfigSyncResourceTypeIDs(t *testing.T) {
 
 	got := effectiveConfig.GetStringSlice("sync-resource-types")
 	want := []string{"user", "group"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("sync-resource-types = %#v, want %#v", got, want)
-	}
+	require.Equal(t, want, got, "sync-resource-types")
 }
 
 func TestEffectiveLambdaConfigPreservesStringMapKeyCaseForViper(t *testing.T) {
@@ -140,9 +131,7 @@ func TestEffectiveLambdaConfigPreservesStringMapKeyCaseForViper(t *testing.T) {
 		"customString10":     "Custom String 10",
 		"isActive":           "true",
 	}
-	if !reflect.DeepEqual(gotStringMap, wantStringMap) {
-		t.Fatalf("GetStringMap(user-custom-fields) = %#v, want %#v", gotStringMap, wantStringMap)
-	}
+	require.Equal(t, wantStringMap, gotStringMap, "GetStringMap(user-custom-fields)")
 
 	gotStringMapString := effectiveConfig.GetStringMapString("user-custom-fields")
 	wantStringMapString := map[string]string{
@@ -150,9 +139,7 @@ func TestEffectiveLambdaConfigPreservesStringMapKeyCaseForViper(t *testing.T) {
 		"customString10":     "Custom String 10",
 		"isActive":           "true",
 	}
-	if !reflect.DeepEqual(gotStringMapString, wantStringMapString) {
-		t.Fatalf("GetStringMapString(user-custom-fields) = %#v, want %#v", gotStringMapString, wantStringMapString)
-	}
+	require.Equal(t, wantStringMapString, gotStringMapString, "GetStringMapString(user-custom-fields)")
 }
 
 func TestMakeLambdaConnectorConfigurationPreservesStringMapKeyCase(t *testing.T) {
@@ -170,16 +157,12 @@ func TestMakeLambdaConnectorConfigurationPreservesStringMapKeyCase(t *testing.T)
 		field.StringMapField("user-custom-fields"),
 	})
 	config, err := makeLambdaConnectorConfiguration[*testLambdaStringMapConfig](base, effectiveLambdaConfig(base, connectorConfig, schema), connectorConfig)
-	if err != nil {
-		t.Fatalf("makeLambdaConnectorConfiguration: %v", err)
-	}
+	require.NoError(t, err, "makeLambdaConnectorConfiguration")
 
 	got := config.GetStringMap("user-custom-fields")
 	want := map[string]any{
 		"departmentNav/name": "Department",
 		"customString10":     "Custom String 10",
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("user-custom-fields = %#v, want %#v", got, want)
-	}
+	require.Equal(t, want, got, "user-custom-fields")
 }

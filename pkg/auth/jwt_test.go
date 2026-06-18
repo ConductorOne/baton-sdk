@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -88,11 +87,11 @@ func TestNewValidator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			validator, err := NewValidator(context.Background(), tt.config)
 			if tt.wantErr {
-				assert.Error(t, err)
-				assert.Nil(t, validator)
+				require.Error(t, err)
+				require.Nil(t, validator)
 			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, validator)
+				require.NoError(t, err)
+				require.NotNil(t, validator)
 			}
 		})
 	}
@@ -234,20 +233,20 @@ func TestValidator_ValidateToken(t *testing.T) {
 			token := createTestToken(t, tt.claims)
 			claims, err := validator.ValidateToken(context.Background(), token)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				if tt.errString != "" {
-					assert.True(t, strings.HasPrefix(err.Error(), tt.errString), "Expected error to start with %q, got %q", tt.errString, err.Error())
+					require.True(t, strings.HasPrefix(err.Error(), tt.errString), "Expected error to start with %q, got %q", tt.errString, err.Error())
 				}
-				assert.Nil(t, claims)
+				require.Nil(t, claims)
 			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, claims)
-				assert.Equal(t, tt.claims["iss"], claims["iss"])
-				assert.Equal(t, tt.claims["sub"], claims["sub"])
+				require.NoError(t, err)
+				require.NotNil(t, claims)
+				require.Equal(t, tt.claims["iss"], claims["iss"])
+				require.Equal(t, tt.claims["sub"], claims["sub"])
 				// Convert expected int64 to float64 for comparison since JSON unmarshaling converts numbers to float64
-				assert.Equal(t, float64(tt.claims["exp"].(int64)), claims["exp"])
-				assert.Equal(t, float64(tt.claims["nbf"].(int64)), claims["nbf"])
-				assert.Equal(t, float64(tt.claims["iat"].(int64)), claims["iat"])
+				require.Equal(t, float64(tt.claims["exp"].(int64)), claims["exp"])
+				require.Equal(t, float64(tt.claims["nbf"].(int64)), claims["nbf"])
+				require.Equal(t, float64(tt.claims["iat"].(int64)), claims["iat"])
 			}
 		})
 	}
@@ -291,14 +290,14 @@ func TestExtractBearerToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := ExtractBearerToken(tt.authHeader)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				if tt.errString != "" {
-					assert.Equal(t, tt.errString, err.Error())
+					require.Equal(t, tt.errString, err.Error())
 				}
-				assert.Empty(t, got)
+				require.Empty(t, got)
 			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.want, got)
+				require.NoError(t, err)
+				require.Equal(t, tt.want, got)
 			}
 		})
 	}

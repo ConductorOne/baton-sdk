@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -26,9 +28,8 @@ import (
 func TestPostFilterPaginationDoesNotSkip(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoErrorf(t, err, "StartNewSync")
 
 	const total = 8
 	all := make([]*v2.Resource, 0, 2*total)
@@ -42,30 +43,22 @@ func TestPostFilterPaginationDoesNotSkip(t *testing.T) {
 			}.Build(),
 		)
 	}
-	if err := a.PutResources(ctx, all...); err != nil {
-		t.Fatalf("PutResources: %v", err)
-	}
+	require.NoErrorf(t, a.PutResources(ctx, all...), "PutResources")
 
 	seen := make(map[string]bool, total)
 	pageToken := ""
 	pages := 0
 	for {
 		pages++
-		if pages > 10 {
-			t.Fatalf("ListResources did not terminate after %d pages", pages)
-		}
+		require.LessOrEqual(t, pages, 10, "ListResources did not terminate after %d pages", pages)
 		resp, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 			ResourceTypeId: "user",
 			PageSize:       3,
 			PageToken:      pageToken,
 		}.Build())
-		if err != nil {
-			t.Fatalf("ListResources: %v", err)
-		}
+		require.NoErrorf(t, err, "ListResources")
 		for _, r := range resp.GetList() {
-			if r.GetId().GetResourceType() != "user" {
-				t.Errorf("got non-user resource in page: %v", r)
-			}
+			require.Equal(t, "user", r.GetId().GetResourceType(), "got non-user resource in page: %v", r)
 			seen[r.GetId().GetResource()] = true
 		}
 		pageToken = resp.GetNextPageToken()
@@ -74,9 +67,7 @@ func TestPostFilterPaginationDoesNotSkip(t *testing.T) {
 		}
 	}
 
-	if len(seen) != total {
-		t.Errorf("post-filter ListResources missed records: got %d users (%v), want %d", len(seen), seen, total)
-	}
+	require.Equal(t, total, len(seen), "post-filter ListResources missed records: got %d users (%v), want %d", len(seen), seen, total)
 }
 
 // TestListGrantsForEntitlementPostFilterDoesNotSkip is the same
@@ -87,9 +78,8 @@ func TestPostFilterPaginationDoesNotSkip(t *testing.T) {
 func TestListGrantsForEntitlementPostFilterDoesNotSkip(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoErrorf(t, err, "StartNewSync")
 	const total = 8
 	grants := make([]*v2.Grant, 0, 2*total)
 	for i := 0; i < total; i++ {
@@ -98,18 +88,14 @@ func TestListGrantsForEntitlementPostFilterDoesNotSkip(t *testing.T) {
 			mkV2Grant("g-grant-"+strconv.Itoa(i), "ent-A", "group", "g"+strconv.Itoa(i)),
 		)
 	}
-	if err := a.PutGrants(ctx, grants...); err != nil {
-		t.Fatalf("PutGrants: %v", err)
-	}
+	require.NoErrorf(t, a.PutGrants(ctx, grants...), "PutGrants")
 
 	seen := make(map[string]bool, total)
 	pageToken := ""
 	pages := 0
 	for {
 		pages++
-		if pages > 10 {
-			t.Fatalf("ListGrantsForEntitlement did not terminate after %d pages", pages)
-		}
+		require.LessOrEqual(t, pages, 10, "ListGrantsForEntitlement did not terminate after %d pages", pages)
 		resp, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 			Entitlement: v2.Entitlement_builder{
 				Id: "ent-A",
@@ -121,13 +107,9 @@ func TestListGrantsForEntitlementPostFilterDoesNotSkip(t *testing.T) {
 			PageSize:                 3,
 			PageToken:                pageToken,
 		}.Build())
-		if err != nil {
-			t.Fatalf("ListGrantsForEntitlement: %v", err)
-		}
+		require.NoErrorf(t, err, "ListGrantsForEntitlement")
 		for _, g := range resp.GetList() {
-			if rt := g.GetPrincipal().GetId().GetResourceType(); rt != "user" {
-				t.Errorf("got non-user principal: %s", rt)
-			}
+			require.Equal(t, "user", g.GetPrincipal().GetId().GetResourceType(), "got non-user principal: %s", g.GetPrincipal().GetId().GetResourceType())
 			seen[g.GetId()] = true
 		}
 		pageToken = resp.GetNextPageToken()
@@ -135,9 +117,7 @@ func TestListGrantsForEntitlementPostFilterDoesNotSkip(t *testing.T) {
 			break
 		}
 	}
-	if len(seen) != total {
-		t.Errorf("post-filter ListGrantsForEntitlement missed records: got %d (%v), want %d", len(seen), seen, total)
-	}
+	require.Equal(t, total, len(seen), "post-filter ListGrantsForEntitlement missed records: got %d (%v), want %d", len(seen), seen, total)
 }
 
 // TestListGrantsForResourceTypePostFilterDoesNotSkip walks the
@@ -145,9 +125,8 @@ func TestListGrantsForEntitlementPostFilterDoesNotSkip(t *testing.T) {
 func TestListGrantsForResourceTypePostFilterDoesNotSkip(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoErrorf(t, err, "StartNewSync")
 	const total = 8
 	grants := make([]*v2.Grant, 0, 2*total)
 	for i := 0; i < total; i++ {
@@ -156,30 +135,22 @@ func TestListGrantsForResourceTypePostFilterDoesNotSkip(t *testing.T) {
 			mkV2Grant("g-grant-"+strconv.Itoa(i), "ent-A", "group", "g"+strconv.Itoa(i)),
 		)
 	}
-	if err := a.PutGrants(ctx, grants...); err != nil {
-		t.Fatalf("PutGrants: %v", err)
-	}
+	require.NoErrorf(t, a.PutGrants(ctx, grants...), "PutGrants")
 
 	seen := make(map[string]bool, total)
 	pageToken := ""
 	pages := 0
 	for {
 		pages++
-		if pages > 10 {
-			t.Fatalf("ListGrantsForResourceType did not terminate after %d pages", pages)
-		}
+		require.LessOrEqual(t, pages, 10, "ListGrantsForResourceType did not terminate after %d pages", pages)
 		resp, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
 			ResourceTypeId: "user",
 			PageSize:       3,
 			PageToken:      pageToken,
 		}.Build())
-		if err != nil {
-			t.Fatalf("ListGrantsForResourceType: %v", err)
-		}
+		require.NoErrorf(t, err, "ListGrantsForResourceType")
 		for _, g := range resp.GetList() {
-			if rt := g.GetPrincipal().GetId().GetResourceType(); rt != "user" {
-				t.Errorf("got non-user principal: %s", rt)
-			}
+			require.Equal(t, "user", g.GetPrincipal().GetId().GetResourceType(), "got non-user principal: %s", g.GetPrincipal().GetId().GetResourceType())
 			seen[g.GetId()] = true
 		}
 		pageToken = resp.GetNextPageToken()
@@ -187,7 +158,5 @@ func TestListGrantsForResourceTypePostFilterDoesNotSkip(t *testing.T) {
 			break
 		}
 	}
-	if len(seen) != total {
-		t.Errorf("post-filter ListGrantsForResourceType missed records: got %d (%v), want %d", len(seen), seen, total)
-	}
+	require.Equal(t, total, len(seen), "post-filter ListGrantsForResourceType missed records: got %d (%v), want %d", len(seen), seen, total)
 }

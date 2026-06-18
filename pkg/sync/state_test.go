@@ -135,9 +135,8 @@ func TestSyncerTokenUnmarshalEmptyString(t *testing.T) {
 func TestPrepareExpansionReplayTokenPreservesState(t *testing.T) {
 	st := newState()
 	st.SetShouldSkipGrants()
-	if _, conflict := st.CheckAndSetExclusionGroupResourceType("grp", "user"); conflict {
-		t.Fatal("unexpected conflict seeding exclusion group")
-	}
+	_, conflict := st.CheckAndSetExclusionGroupResourceType("grp", "user")
+	require.False(t, conflict, "unexpected conflict seeding exclusion group")
 	require.False(t, st.NeedsExpansion())
 
 	token, err := st.Marshal()

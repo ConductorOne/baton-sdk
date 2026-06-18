@@ -51,9 +51,8 @@ func TestNewEntitlementID(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewEntitlementID(tt.args.resource, tt.args.permission); got != tt.want {
-				t.Errorf("NewEntitlementID() = %v, want %v", got, tt.want)
-			}
+			got := NewEntitlementID(tt.args.resource, tt.args.permission)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

@@ -2,10 +2,10 @@ package pebble
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -26,12 +26,8 @@ func TestSentinelErrorStatusCodes(t *testing.T) {
 		{ErrEngineClosing, codes.Unavailable},
 		{ErrSaveDestExists, codes.AlreadyExists},
 	} {
-		if got := status.Code(tc.err); got != tc.code {
-			t.Errorf("%v: status code got %v, want %v", tc.err, got, tc.code)
-		}
-		if !errors.Is(fmt.Errorf("wrap: %w", tc.err), tc.err) {
-			t.Errorf("%v: errors.Is identity through wrapping broken", tc.err)
-		}
+		require.Equal(t, tc.code, status.Code(tc.err), "%v: status code", tc.err)
+		require.ErrorIs(t, fmt.Errorf("wrap: %w", tc.err), tc.err, "%v: errors.Is identity through wrapping broken", tc.err)
 	}
 }
 
@@ -40,14 +36,11 @@ func TestSentinelErrorStatusCodes(t *testing.T) {
 func TestReaderNotFoundStatus(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
-	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatal(err)
-	}
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
 
-	_, err := a.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+	_, err = a.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 		GrantId: "does-not-exist",
 	}.Build())
-	if got := status.Code(err); got != codes.NotFound {
-		t.Errorf("GetGrant missing: status code got %v, want NotFound", got)
-	}
+	require.Equal(t, codes.NotFound, status.Code(err), "GetGrant missing: status code")
 }

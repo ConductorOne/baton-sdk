@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLambdaLogLevelConfigExpiresDebug(t *testing.T) {
@@ -18,12 +19,8 @@ func TestLambdaLogLevelConfigExpiresDebug(t *testing.T) {
 	v.Set("log-level-debug-expires-at", now.Add(-time.Minute).Format(time.RFC3339))
 
 	config, err := lambdaLogLevelConfigFromViper(v)
-	if err != nil {
-		t.Fatalf("lambdaLogLevelConfigFromViper: %v", err)
-	}
-	if got := config.effective(now); got != "info" {
-		t.Fatalf("effective log level = %q, want info", got)
-	}
+	require.NoError(t, err, "lambdaLogLevelConfigFromViper")
+	require.Equal(t, "info", config.effective(now), "effective log level")
 }
 
 func TestLambdaLogLevelConfigKeepsUnexpiredDebug(t *testing.T) {
@@ -35,12 +32,8 @@ func TestLambdaLogLevelConfigKeepsUnexpiredDebug(t *testing.T) {
 	v.Set("log-level-debug-expires-at", now.Add(time.Minute).Format(time.RFC3339))
 
 	config, err := lambdaLogLevelConfigFromViper(v)
-	if err != nil {
-		t.Fatalf("lambdaLogLevelConfigFromViper: %v", err)
-	}
-	if got := config.effective(now); got != "debug" {
-		t.Fatalf("effective log level = %q, want debug", got)
-	}
+	require.NoError(t, err, "lambdaLogLevelConfigFromViper")
+	require.Equal(t, "debug", config.effective(now), "effective log level")
 }
 
 func TestLambdaLogLevelConfigRejectsInvalidLevel(t *testing.T) {
@@ -49,7 +42,6 @@ func TestLambdaLogLevelConfigRejectsInvalidLevel(t *testing.T) {
 	v := viper.New()
 	v.Set("log-level", "verbose")
 
-	if _, err := lambdaLogLevelConfigFromViper(v); err == nil {
-		t.Fatal("expected invalid log level to fail")
-	}
+	_, err := lambdaLogLevelConfigFromViper(v)
+	require.Error(t, err, "expected invalid log level to fail")
 }

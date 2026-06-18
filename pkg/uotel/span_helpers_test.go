@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
@@ -41,29 +42,27 @@ func TestIsExpectedError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := IsExpectedError(tt.err)
-			if got != tt.expected {
-				t.Errorf("IsExpectedError(%v) = %v, want %v", tt.err, got, tt.expected)
-			}
+			require.Equal(t, tt.expected, got, "IsExpectedError(%v)", tt.err)
 		})
 	}
 }
 
 func TestParentCtxErrLabelRoundtrip(t *testing.T) {
 	base := context.Background()
-	if v, ok := ParentCtxErrLabel(base); ok || v != "" {
-		t.Fatalf("empty ctx should not carry a label, got (%q, %v)", v, ok)
-	}
+	v, ok := ParentCtxErrLabel(base)
+	require.False(t, ok, "empty ctx should not carry a label")
+	require.Empty(t, v)
+
 	tagged := WithParentCtxErrLabel(base, "canceled")
 	got, ok := ParentCtxErrLabel(tagged)
-	if !ok || got != "canceled" {
-		t.Fatalf("ParentCtxErrLabel = (%q, %v), want (\"canceled\", true)", got, ok)
-	}
+	require.True(t, ok)
+	require.Equal(t, "canceled", got)
+
 	// Survives context.WithoutCancel — that's the whole point.
 	detached := context.WithoutCancel(tagged)
 	got, ok = ParentCtxErrLabel(detached)
-	if !ok || got != "canceled" {
-		t.Fatalf("label lost across WithoutCancel: got (%q, %v)", got, ok)
-	}
+	require.True(t, ok, "label lost across WithoutCancel")
+	require.Equal(t, "canceled", got)
 }
 
 // recordingProcessor is a minimal SpanProcessor that captures ReadOnlySpans
@@ -102,22 +101,12 @@ func TestStartWithLink(t *testing.T) {
 		parent.End()
 
 		childSpan := findSpan(rec, "child")
-		if childSpan == nil {
-			t.Fatal("child span not recorded")
-		}
-		if childSpan.SpanContext().TraceID() == parentTraceID {
-			t.Errorf("expected new trace ID, got same as parent: %s", parentTraceID)
-		}
-		if childSpan.Parent().IsValid() {
-			t.Errorf("expected no parent span ID, got %s", childSpan.Parent().SpanID())
-		}
+		require.NotNil(t, childSpan, "child span not recorded")
+		require.NotEqual(t, parentTraceID, childSpan.SpanContext().TraceID(), "expected new trace ID, got same as parent: %s", parentTraceID)
+		require.False(t, childSpan.Parent().IsValid(), "expected no parent span ID, got %s", childSpan.Parent().SpanID())
 		links := childSpan.Links()
-		if len(links) != 1 {
-			t.Fatalf("expected 1 link to parent, got %d", len(links))
-		}
-		if links[0].SpanContext.TraceID() != parentTraceID {
-			t.Errorf("expected link to parent trace %s, got %s", parentTraceID, links[0].SpanContext.TraceID())
-		}
+		require.Len(t, links, 1, "expected 1 link to parent")
+		require.Equal(t, parentTraceID, links[0].SpanContext.TraceID(), "expected link to parent trace %s, got %s", parentTraceID, links[0].SpanContext.TraceID())
 	})
 
 	t.Run("without parent span behaves like normal Start", func(t *testing.T) {
@@ -126,22 +115,14 @@ func TestStartWithLink(t *testing.T) {
 		tracer := tp.Tracer("test")
 
 		ctx := context.Background()
-		if trace.SpanContextFromContext(ctx).IsValid() {
-			t.Fatal("background context should not carry a valid span context")
-		}
+		require.False(t, trace.SpanContextFromContext(ctx).IsValid(), "background context should not carry a valid span context")
 
 		_, span := StartWithLink(ctx, tracer, "orphan")
 		span.End()
 
-		if len(rec.ended) != 1 {
-			t.Fatalf("expected 1 span, got %d", len(rec.ended))
-		}
-		if len(rec.ended[0].Links()) != 0 {
-			t.Errorf("expected no links for orphan span, got %d", len(rec.ended[0].Links()))
-		}
-		if !rec.ended[0].SpanContext().IsValid() {
-			t.Errorf("expected valid span context")
-		}
+		require.Len(t, rec.ended, 1, "expected 1 span")
+		require.Empty(t, rec.ended[0].Links(), "expected no links for orphan span")
+		require.True(t, rec.ended[0].SpanContext().IsValid(), "expected valid span context")
 	})
 
 	t.Run("caller-supplied SpanStartOptions are preserved", func(t *testing.T) {
@@ -158,9 +139,7 @@ func TestStartWithLink(t *testing.T) {
 		parent.End()
 
 		childSpan := findSpan(rec, "child")
-		if childSpan == nil {
-			t.Fatal("child span not recorded")
-		}
+		require.NotNil(t, childSpan, "child span not recorded")
 
 		var gotCustom string
 		for _, attr := range childSpan.Attributes() {
@@ -168,15 +147,9 @@ func TestStartWithLink(t *testing.T) {
 				gotCustom = attr.Value.AsString()
 			}
 		}
-		if gotCustom != "val" {
-			t.Errorf("expected attribute custom=val to pass through, got %q", gotCustom)
-		}
-		if childSpan.SpanKind() != trace.SpanKindClient {
-			t.Errorf("expected SpanKindClient, got %v", childSpan.SpanKind())
-		}
-		if len(childSpan.Links()) != 1 {
-			t.Errorf("expected 1 link (parent), got %d", len(childSpan.Links()))
-		}
+		require.Equal(t, "val", gotCustom, "expected attribute custom=val to pass through")
+		require.Equal(t, trace.SpanKindClient, childSpan.SpanKind())
+		require.Len(t, childSpan.Links(), 1, "expected 1 link (parent)")
 	})
 
 	t.Run("caller-supplied links are additive with the parent link", func(t *testing.T) {
@@ -199,13 +172,9 @@ func TestStartWithLink(t *testing.T) {
 		parent.End()
 
 		childSpan := findSpan(rec, "child")
-		if childSpan == nil {
-			t.Fatal("child span not recorded")
-		}
+		require.NotNil(t, childSpan, "child span not recorded")
 		links := childSpan.Links()
-		if len(links) != 2 {
-			t.Fatalf("expected 2 links (caller-supplied + parent), got %d", len(links))
-		}
+		require.Len(t, links, 2, "expected 2 links (caller-supplied + parent)")
 		var sawOther, sawParent bool
 		for _, l := range links {
 			switch l.SpanContext.TraceID() {
@@ -215,11 +184,7 @@ func TestStartWithLink(t *testing.T) {
 				sawParent = true
 			}
 		}
-		if !sawOther {
-			t.Errorf("expected caller-supplied link to be preserved")
-		}
-		if !sawParent {
-			t.Errorf("expected parent link to be added")
-		}
+		require.True(t, sawOther, "expected caller-supplied link to be preserved")
+		require.True(t, sawParent, "expected parent link to be added")
 	})
 }

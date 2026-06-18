@@ -104,7 +104,7 @@ func TestSanitizeDiffSyncGraph(t *testing.T) {
 		case connectorstore.SyncTypeFull:
 			require.True(t, dr.SupportsDiff, "full sync's supports_diff marker must carry over")
 		default:
-			t.Fatalf("unexpected sync type in sanitized output: %s", dr.Type)
+			require.Failf(t, "unexpected sync type in sanitized output", "%s", dr.Type)
 		}
 	}
 	require.NotNil(t, dstUpserts)

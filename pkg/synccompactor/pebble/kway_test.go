@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/segmentio/ksuid"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -34,34 +35,24 @@ type kwaySourceFixture struct {
 func writeKWaySource(t *testing.T, ctx context.Context, path string, grants []kwayGrantSpec, withAsset bool) kwaySourceFixture {
 	t.Helper()
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	store := w
 	eng, ok := enginepkg.AsEngine(w)
-	if !ok {
-		t.Fatalf("store is not pebble: %T", w)
-	}
+	require.True(t, ok, "store is not pebble: %T", w)
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	now := timestamppb.New(time.Unix(1, 0).UTC())
-	if err := eng.PutResourceTypeRecords(ctx,
+	require.NoError(t, eng.PutResourceTypeRecords(ctx,
 		v3.ResourceTypeRecord_builder{ExternalId: "user", DisplayName: "User", DiscoveredAt: now}.Build(),
 		v3.ResourceTypeRecord_builder{ExternalId: "group", DisplayName: "Group", DiscoveredAt: now}.Build(),
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	parent := v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "engineering"}.Build()
-	if err := eng.PutResourceRecords(ctx,
+	require.NoError(t, eng.PutResourceRecords(ctx,
 		v3.ResourceRecord_builder{ResourceTypeId: "group", ResourceId: "engineering", DiscoveredAt: now}.Build(),
 		v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "alice", Parent: parent, DiscoveredAt: now}.Build(),
 		v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "bob", Parent: parent, DiscoveredAt: now}.Build(),
 		v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "carol", Parent: parent, DiscoveredAt: now}.Build(),
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	entRecords := make([]*v3.EntitlementRecord, 0, len(grants))
 	seenEntitlements := map[string]bool{}
 	for _, g := range grants {
@@ -76,9 +67,7 @@ func writeKWaySource(t *testing.T, ctx context.Context, path string, grants []kw
 		}.Build())
 	}
 	if len(entRecords) > 0 {
-		if err := eng.PutEntitlementRecords(ctx, entRecords...); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, eng.PutEntitlementRecords(ctx, entRecords...))
 	}
 	grantRecords := make([]*v3.GrantRecord, 0, len(grants))
 	for _, g := range grants {
@@ -95,21 +84,13 @@ func writeKWaySource(t *testing.T, ctx context.Context, path string, grants []kw
 		}.Build())
 	}
 	if len(grantRecords) > 0 {
-		if err := eng.PutGrantRecords(ctx, grantRecords...); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, eng.PutGrantRecords(ctx, grantRecords...))
 	}
 	if withAsset {
-		if err := eng.PutAssetRecord(ctx, v3.AssetRecord_builder{SyncId: syncID, ExternalId: "asset-1", ContentType: "text/plain", Data: []byte("asset")}.Build()); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, eng.PutAssetRecord(ctx, v3.AssetRecord_builder{SyncId: syncID, ExternalId: "asset-1", ContentType: "text/plain", Data: []byte("asset")}.Build()))
 	}
-	if err := store.EndSync(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, store.EndSync(ctx))
+	require.NoError(t, store.Close(ctx))
 	return kwaySourceFixture{path: path, syncID: syncID}
 }
 
@@ -121,9 +102,8 @@ func mergeKWayFixtures(t *testing.T, ctx context.Context, fixtures []kwaySourceF
 	for _, f := range fixtures {
 		sources = append(sources, SourceFile{Path: f.path, SyncID: f.syncID})
 	}
-	if _, err := MergeFilesInto(ctx, dest, sources, destSyncID, t.TempDir(), WithFanIn(fanIn)); err != nil {
-		t.Fatalf("MergeFilesInto: %v", err)
-	}
+	_, err := MergeFilesInto(ctx, dest, sources, destSyncID, t.TempDir(), WithFanIn(fanIn))
+	require.NoError(t, err, "MergeFilesInto")
 	return dest, destSyncID
 }
 
@@ -147,74 +127,46 @@ func TestMergeFilesIntoKWayNewerWinsTieIndexesAndDropsAssets(t *testing.T) {
 	dest, _ := mergeKWayFixtures(t, ctx, []kwaySourceFixture{src1, src2}, 50)
 
 	grants := map[string]*v3.GrantRecord{}
-	if err := dest.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		grants[g.GetExternalId()] = g
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if len(grants) != 4 {
-		t.Fatalf("merged grant count = %d, want 4", len(grants))
-	}
-	if got := grants["shared"].GetPrincipal().GetResourceId(); got != "bob" {
-		t.Fatalf("newer shared grant principal = %q, want bob", got)
-	}
-	if got := grants["tie"].GetPrincipal().GetResourceId(); got != "alice" {
-		t.Fatalf("tie grant principal = %q, want alice from earlier-applied source", got)
-	}
+	}))
+	require.Equal(t, 4, len(grants), "merged grant count")
+	require.Equal(t, "bob", grants["shared"].GetPrincipal().GetResourceId(), "newer shared grant principal")
+	require.Equal(t, "alice", grants["tie"].GetPrincipal().GetResourceId(), "tie grant principal from earlier-applied source")
 	var byEntitlement []string
-	if err := dest.IterateGrantsByEntitlement(ctx, "member", func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.IterateGrantsByEntitlement(ctx, "member", func(g *v3.GrantRecord) bool {
 		byEntitlement = append(byEntitlement, g.GetExternalId())
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	sort.Strings(byEntitlement)
-	if got, want := byEntitlement, []string{"only-src2", "shared", "tie"}; fmtSprint(got) != fmtSprint(want) {
-		t.Fatalf("by_entitlement index = %v, want %v", got, want)
-	}
+	require.Equal(t, fmtSprint([]string{"only-src2", "shared", "tie"}), fmtSprint(byEntitlement), "by_entitlement index")
 	var byPrincipal []string
-	if err := dest.IterateGrantsByPrincipal(ctx, "user", "alice", func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", "alice", func(g *v3.GrantRecord) bool {
 		byPrincipal = append(byPrincipal, g.GetExternalId())
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	sort.Strings(byPrincipal)
-	if got, want := byPrincipal, []string{"only-src1", "tie"}; fmtSprint(got) != fmtSprint(want) {
-		t.Fatalf("by_principal index = %v, want %v", got, want)
-	}
+	require.Equal(t, fmtSprint([]string{"only-src1", "tie"}), fmtSprint(byPrincipal), "by_principal index")
 	var needsExpansion []string
-	if err := dest.IterateGrantsByNeedsExpansion(ctx, func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.IterateGrantsByNeedsExpansion(ctx, func(g *v3.GrantRecord) bool {
 		needsExpansion = append(needsExpansion, g.GetExternalId())
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := needsExpansion, []string{"only-src1"}; fmtSprint(got) != fmtSprint(want) {
-		t.Fatalf("needs_expansion index = %v, want %v", got, want)
-	}
+	}))
+	require.Equal(t, fmtSprint([]string{"only-src1"}), fmtSprint(needsExpansion), "needs_expansion index")
 	var children []string
-	if err := dest.IterateResourcesByParent(ctx, "group", "engineering", func(r *v3.ResourceRecord) bool {
+	require.NoError(t, dest.IterateResourcesByParent(ctx, "group", "engineering", func(r *v3.ResourceRecord) bool {
 		children = append(children, r.GetResourceId())
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	sort.Strings(children)
-	if got, want := children, []string{"alice", "bob", "carol"}; fmtSprint(got) != fmtSprint(want) {
-		t.Fatalf("resource_by_parent index = %v, want %v", got, want)
-	}
+	require.Equal(t, fmtSprint([]string{"alice", "bob", "carol"}), fmtSprint(children), "resource_by_parent index")
 	assetCount := 0
-	if err := dest.IterateAssets(ctx, func(*v3.AssetRecord) bool {
+	require.NoError(t, dest.IterateAssets(ctx, func(*v3.AssetRecord) bool {
 		assetCount++
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if assetCount != 0 {
-		t.Fatalf("asset count = %d, want 0", assetCount)
-	}
+	}))
+	require.Equal(t, 0, assetCount, "asset count")
 }
 
 func TestMergeFilesIntoKWayRecursiveFanInMatchesSingleRound(t *testing.T) {
@@ -232,46 +184,32 @@ func TestMergeFilesIntoKWayRecursiveFanInMatchesSingleRound(t *testing.T) {
 
 	single := grantPrincipalMap(t, ctx, singleDest, singleSync)
 	recursive := grantPrincipalMap(t, ctx, recursiveDest, recursiveSync)
-	if fmtSprint(single) != fmtSprint(recursive) {
-		t.Fatalf("recursive fan-in result = %v, want %v", recursive, single)
-	}
-	if got := recursive["shared"]; got != "user-6" {
-		t.Fatalf("recursive shared winner = %q, want user-6", got)
-	}
+	require.Equal(t, fmtSprint(single), fmtSprint(recursive), "recursive fan-in result")
+	require.Equal(t, "user-6", recursive["shared"], "recursive shared winner")
 }
 
 func TestReadRunRecordIntoRejectsPartialHeader(t *testing.T) {
 	var hdr [runHeaderSize]byte
 	ok, err := readRunRecordInto(bytes.NewReader([]byte{1, 2, 3}), &runRecord{}, &hdr)
-	if err == nil {
-		t.Fatal("readRunRecordInto partial header error = nil")
-	}
-	if ok {
-		t.Fatal("readRunRecordInto partial header ok = true")
-	}
+	require.Error(t, err, "readRunRecordInto partial header error = nil")
+	require.False(t, ok, "readRunRecordInto partial header ok = true")
 }
 
 func TestReadLengthPrefixedBytesRejectsPartialHeader(t *testing.T) {
 	var dst []byte
 	var lenBuf [4]byte
 	ok, err := readLengthPrefixedBytes(bytes.NewReader([]byte{1, 2}), &dst, &lenBuf)
-	if err == nil {
-		t.Fatal("readLengthPrefixedBytes partial header error = nil")
-	}
-	if ok {
-		t.Fatal("readLengthPrefixedBytes partial header ok = true")
-	}
+	require.Error(t, err, "readLengthPrefixedBytes partial header error = nil")
+	require.False(t, ok, "readLengthPrefixedBytes partial header ok = true")
 }
 
 func grantPrincipalMap(t *testing.T, ctx context.Context, e *enginepkg.Engine, syncID string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	if err := e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+	require.NoError(t, e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		out[g.GetExternalId()] = g.GetPrincipal().GetResourceId()
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	return out
 }
 

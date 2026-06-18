@@ -181,26 +181,6 @@ func TestExpandCorrectness(t *testing.T) {
 			sort.Strings(missingGrants)
 			sort.Strings(extraGrants)
 
-			if len(missingGrants) > 0 {
-				t.Errorf("Missing %d grants (first 10):", len(missingGrants))
-				for i, key := range missingGrants {
-					if i >= 10 {
-						break
-					}
-					t.Errorf("  - %s", key)
-				}
-			}
-
-			if len(extraGrants) > 0 {
-				t.Errorf("Extra %d grants (first 10):", len(extraGrants))
-				for i, key := range extraGrants {
-					if i >= 10 {
-						break
-					}
-					t.Errorf("  - %s", key)
-				}
-			}
-
 			// Compare sources for matching grants
 			var sourceMismatches []string
 			for key, expected := range expectedGrants {
@@ -232,16 +212,6 @@ func TestExpandCorrectness(t *testing.T) {
 			}
 
 			sort.Strings(sourceMismatches)
-
-			if len(sourceMismatches) > 0 {
-				t.Errorf("Source mismatches (%d total, first 20):", len(sourceMismatches))
-				for i, mismatch := range sourceMismatches {
-					if i >= 20 {
-						break
-					}
-					t.Errorf("  - %s", mismatch)
-				}
-			}
 
 			require.Empty(t, missingGrants, "should have no missing grants")
 			require.Empty(t, extraGrants, "should have no extra grants")

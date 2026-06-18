@@ -46,62 +46,40 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 	newer := time.Unix(2000, 0).UTC()
 
 	// src1 (applied first): shared key @older + a unique key.
-	if err := src1.SetCurrentSync(syncA); err != nil {
-		t.Fatal(err)
-	}
-	if err := src1.PutGrantRecords(ctx, grantAt(syncA, "g-shared", older), grantAt(syncA, "g-only1", older)); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, src1.SetCurrentSync(syncA))
+	require.NoError(t, src1.PutGrantRecords(ctx, grantAt(syncA, "g-shared", older), grantAt(syncA, "g-only1", older)))
 	// src2 (applied second): shared key @newer (must win) + a unique key.
-	if err := src2.SetCurrentSync(syncB); err != nil {
-		t.Fatal(err)
-	}
-	if err := src2.PutGrantRecords(ctx, grantAt(syncB, "g-shared", newer), grantAt(syncB, "g-only2", newer)); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, src2.SetCurrentSync(syncB))
+	require.NoError(t, src2.PutGrantRecords(ctx, grantAt(syncB, "g-shared", newer), grantAt(syncB, "g-only2", newer)))
 
 	// No SetCurrentSync here: MergeInto must bind the dest engine to
 	// destSyncID itself (record values carry no sync_id, so a stale
 	// binding would silently write into the wrong sync's keyspace).
 	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync)
-	if err != nil {
-		t.Fatalf("MergeInto: %v", err)
-	}
+	require.NoError(t, err, "MergeInto")
 	// src2's g-shared@newer overrode src1's incumbent — exactly one
 	// override, and its dead bytes must cover at least the incumbent's
 	// key+value.
-	if stats.OverriddenRecords != 1 {
-		t.Fatalf("FoldStats.OverriddenRecords = %d, want 1", stats.OverriddenRecords)
-	}
-	if stats.DeadBytes <= 0 {
-		t.Fatalf("FoldStats.DeadBytes = %d, want > 0 (overridden incumbent's key+value+index keys)", stats.DeadBytes)
-	}
+	require.Equal(t, int64(1), stats.OverriddenRecords, "FoldStats.OverriddenRecords")
+	require.Positive(t, stats.DeadBytes, "FoldStats.DeadBytes (overridden incumbent's key+value+index keys)")
 
 	// Union of distinct external_ids: g-shared, g-only1, g-only2 = 3.
-	if got := countGrants(t, dst, destSync); got != 3 {
-		t.Fatalf("merged grant count = %d, want 3 (union, deduped)", got)
-	}
+	require.Equal(t, 3, countGrants(t, dst, destSync), "merged grant count (union, deduped)")
 
 	// Iterating under destSync proves every survivor is re-keyed there,
 	// and g-shared kept the newer discovered_at.
 	seen := map[string]*v3.GrantRecord{}
-	if err := dst.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+	require.NoError(t, dst.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		seen[r.GetExternalId()] = r
 		return true
-	}); err != nil {
-		t.Fatalf("IterateGrants: %v", err)
-	}
+	}), "IterateGrants")
 	shared, ok := seen["g-shared"]
-	if !ok {
-		t.Fatal("g-shared missing from merged output")
-	}
-	if !shared.GetDiscoveredAt().AsTime().Equal(newer) {
-		t.Fatalf("g-shared discovered_at = %s, want newer %s (newer-wins)", shared.GetDiscoveredAt().AsTime(), newer)
-	}
+	require.True(t, ok, "g-shared missing from merged output")
+	require.True(t, shared.GetDiscoveredAt().AsTime().Equal(newer),
+		"g-shared discovered_at = %s, want newer %s (newer-wins)", shared.GetDiscoveredAt().AsTime(), newer)
 	for _, id := range []string{"g-only1", "g-only2"} {
-		if _, ok := seen[id]; !ok {
-			t.Errorf("%q missing from merged union", id)
-		}
+		_, ok := seen[id]
+		require.True(t, ok, "%q missing from merged union", id)
 	}
 
 	// The raw merge derives index keys itself (no engine put path):
@@ -131,34 +109,23 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 	g2.SetPrincipal(v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "from-src2"}.Build())
 
 	_ = src1.SetCurrentSync(syncA)
-	if err := src1.PutGrantRecords(ctx, g1); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, src1.PutGrantRecords(ctx, g1))
 	_ = src2.SetCurrentSync(syncB)
-	if err := src2.PutGrantRecords(ctx, g2); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, src2.PutGrantRecords(ctx, g2))
 	// src1 applied first → incumbent wins the tie. MergeInto binds the
 	// dest sync itself.
 	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	// A tie keeps the incumbent — nothing is overridden, no dead bytes.
-	if stats.OverriddenRecords != 0 || stats.DeadBytes != 0 {
-		t.Fatalf("FoldStats = %+v, want zero (tie keeps incumbent)", stats)
-	}
+	require.Zero(t, stats.OverriddenRecords, "FoldStats.OverriddenRecords (tie keeps incumbent)")
+	require.Zero(t, stats.DeadBytes, "FoldStats.DeadBytes (tie keeps incumbent)")
 
 	var winner string
-	if err := dst.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+	require.NoError(t, dst.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		winner = r.GetPrincipal().GetResourceId()
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if winner != "from-src1" {
-		t.Fatalf("tie winner = %q, want from-src1 (earliest-applied incumbent, strict-> parity)", winner)
-	}
+	}))
+	require.Equal(t, "from-src1", winner, "tie winner (earliest-applied incumbent, strict-> parity)")
 	assertIndexesMatchDerived(t, ctx, dst)
 }
 

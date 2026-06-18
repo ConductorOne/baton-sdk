@@ -2,9 +2,10 @@ package pebble_test
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -21,20 +22,13 @@ func TestGenerateSyncDiffUnsupported(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "diff.c1z")
 
 	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
+	require.NoError(t, err, "NewStore")
 	defer store.Close(ctx)
 
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
-	if err := store.EndSync(ctx); err != nil {
-		t.Fatalf("EndSync: %v", err)
-	}
+	require.NoError(t, err, "StartNewSync")
+	require.NoError(t, store.EndSync(ctx), "EndSync")
 
-	if _, err := store.FileOps().GenerateSyncDiff(ctx, syncID, "some-other-sync"); !errors.Is(err, pebble.ErrDiffUnsupported) {
-		t.Fatalf("GenerateSyncDiff error = %v, want ErrDiffUnsupported", err)
-	}
+	_, err = store.FileOps().GenerateSyncDiff(ctx, syncID, "some-other-sync")
+	require.ErrorIs(t, err, pebble.ErrDiffUnsupported, "GenerateSyncDiff error = %v, want ErrDiffUnsupported", err)
 }
