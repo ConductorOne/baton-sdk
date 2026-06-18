@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
@@ -16,35 +17,50 @@ var _ v1.BatonSessionServiceServer = (*GRPCSessionServer)(nil)
 
 type GRPCSessionServer struct {
 	// v1.UnimplementedBatonSessionServiceServer
-	store sessions.SessionStore
+	mu     sync.RWMutex
+	stores map[string]sessions.SessionStore
 }
 
 func NewGRPCSessionServer() *GRPCSessionServer {
-	return &GRPCSessionServer{}
+	return &GRPCSessionServer{
+		stores: make(map[string]sessions.SessionStore),
+	}
 }
 
 type SetSessionStore interface {
-	SetSessionStore(ctx context.Context, store sessions.SessionStore)
+	SetSessionStore(ctx context.Context, syncID string, store sessions.SessionStore)
+	RemoveSessionStore(ctx context.Context, syncID string)
 }
 
-func (s *GRPCSessionServer) SetSessionStore(ctx context.Context, store sessions.SessionStore) {
-	s.store = store
+func (s *GRPCSessionServer) SetSessionStore(ctx context.Context, syncID string, store sessions.SessionStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stores[syncID] = store
 }
 
-func (s *GRPCSessionServer) Validate() error {
-	if s.store == nil {
-		return fmt.Errorf("session store is not set")
+func (s *GRPCSessionServer) RemoveSessionStore(ctx context.Context, syncID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.stores, syncID)
+}
+
+func (s *GRPCSessionServer) getStore(syncID string) (sessions.SessionStore, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	store, ok := s.stores[syncID]
+	if !ok {
+		return nil, fmt.Errorf("session store not found for sync_id %q", syncID)
 	}
-
-	return nil
+	return store, nil
 }
 
 func (s *GRPCSessionServer) Get(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, error) {
-	if err := s.Validate(); err != nil {
+	store, err := s.getStore(req.GetSyncId())
+	if err != nil {
 		return nil, err
 	}
 
-	value, found, err := s.store.Get(ctx, req.GetKey(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
+	value, found, err := store.Get(ctx, req.GetKey(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get value from cache: %w", err)
 	}
@@ -56,11 +72,12 @@ func (s *GRPCSessionServer) Get(ctx context.Context, req *v1.GetRequest) (*v1.Ge
 }
 
 func (s *GRPCSessionServer) GetMany(ctx context.Context, req *v1.GetManyRequest) (*v1.GetManyResponse, error) {
-	if err := s.Validate(); err != nil {
+	store, err := s.getStore(req.GetSyncId())
+	if err != nil {
 		return nil, err
 	}
 
-	values, unprocessedKeys, err := s.store.GetMany(
+	values, unprocessedKeys, err := store.GetMany(
 		ctx,
 		req.GetKeys(),
 		sessions.WithSyncID(req.GetSyncId()),
@@ -86,11 +103,12 @@ func (s *GRPCSessionServer) GetMany(ctx context.Context, req *v1.GetManyRequest)
 }
 
 func (s *GRPCSessionServer) Set(ctx context.Context, req *v1.SetRequest) (*v1.SetResponse, error) {
-	if err := s.Validate(); err != nil {
+	store, err := s.getStore(req.GetSyncId())
+	if err != nil {
 		return nil, err
 	}
 
-	err := s.store.Set(ctx, req.GetKey(), req.GetValue(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
+	err = store.Set(ctx, req.GetKey(), req.GetValue(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to set value in cache: %w", err)
 	}
@@ -99,11 +117,12 @@ func (s *GRPCSessionServer) Set(ctx context.Context, req *v1.SetRequest) (*v1.Se
 }
 
 func (s *GRPCSessionServer) SetMany(ctx context.Context, req *v1.SetManyRequest) (*v1.SetManyResponse, error) {
-	if err := s.Validate(); err != nil {
+	store, err := s.getStore(req.GetSyncId())
+	if err != nil {
 		return nil, err
 	}
 
-	err := s.store.SetMany(ctx, req.GetValues(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
+	err = store.SetMany(ctx, req.GetValues(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to set many values in cache: %w", err)
 	}
@@ -112,11 +131,12 @@ func (s *GRPCSessionServer) SetMany(ctx context.Context, req *v1.SetManyRequest)
 }
 
 func (s *GRPCSessionServer) Delete(ctx context.Context, req *v1.DeleteRequest) (*v1.DeleteResponse, error) {
-	if err := s.Validate(); err != nil {
+	store, err := s.getStore(req.GetSyncId())
+	if err != nil {
 		return nil, err
 	}
 
-	err := s.store.Delete(ctx, req.GetKey(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
+	err = store.Delete(ctx, req.GetKey(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete value from cache: %w", err)
 	}
@@ -125,12 +145,13 @@ func (s *GRPCSessionServer) Delete(ctx context.Context, req *v1.DeleteRequest) (
 }
 
 func (s *GRPCSessionServer) DeleteMany(ctx context.Context, req *v1.DeleteManyRequest) (*v1.DeleteManyResponse, error) {
-	if err := s.Validate(); err != nil {
+	store, err := s.getStore(req.GetSyncId())
+	if err != nil {
 		return nil, err
 	}
 
 	for _, key := range req.GetKeys() {
-		err := s.store.Delete(
+		err := store.Delete(
 			ctx,
 			key,
 			sessions.WithSyncID(req.GetSyncId()),
@@ -145,13 +166,13 @@ func (s *GRPCSessionServer) DeleteMany(ctx context.Context, req *v1.DeleteManyRe
 }
 
 func (s *GRPCSessionServer) Clear(ctx context.Context, req *v1.ClearRequest) (*v1.ClearResponse, error) {
-	if s.store == nil {
-		// we sometimes clean up the session store after the connector is done
+	store, err := s.getStore(req.GetSyncId())
+	if err != nil {
 		ctxzap.Extract(ctx).Warn("session store is not set")
 		return &v1.ClearResponse{}, nil
 	}
 
-	err := s.store.Clear(ctx, sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
+	err = store.Clear(ctx, sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to clear cache: %w", err)
 	}
@@ -160,11 +181,12 @@ func (s *GRPCSessionServer) Clear(ctx context.Context, req *v1.ClearRequest) (*v
 }
 
 func (s *GRPCSessionServer) GetAll(ctx context.Context, req *v1.GetAllRequest) (*v1.GetAllResponse, error) {
-	if err := s.Validate(); err != nil {
+	store, err := s.getStore(req.GetSyncId())
+	if err != nil {
 		return nil, err
 	}
 
-	values, nextPageToken, err := s.store.GetAll(
+	values, nextPageToken, err := store.GetAll(
 		ctx,
 		req.PageToken,
 		sessions.WithSyncID(req.GetSyncId()),

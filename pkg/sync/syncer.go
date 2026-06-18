@@ -475,6 +475,14 @@ func (s *syncer) Sync(ctx context.Context) error {
 	}
 	s.syncID = syncID
 
+	// Register the session store keyed by syncID so concurrent syncs each
+	// resolve to their own backing c1z instead of clobbering a shared pointer.
+	if s.setSessionStore != nil {
+		if sessionStore, ok := s.store.(sessions.SessionStore); ok {
+			s.setSessionStore.SetSessionStore(ctx, syncID, sessionStore)
+		}
+	}
+
 	// Set the syncID on the wrapper after we have it
 	if syncID == "" {
 		err = ErrNoSyncIDFound
@@ -2548,11 +2556,6 @@ func (s *syncer) loadStore(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: Remove when pebble supports session store.
-	sessionStore, ok := store.(sessions.SessionStore)
-	if s.setSessionStore != nil && ok {
-		s.setSessionStore.SetSessionStore(ctx, sessionStore)
-	}
 	s.store = store
 
 	// Now that s.store is populated, wire the expand progress log's size
@@ -2609,6 +2612,10 @@ func (s *syncer) Close(ctx context.Context) error {
 	defer func() { uotel.EndSpanWithError(finalizeSpan, err) }()
 
 	var errs []error
+
+	if s.setSessionStore != nil && s.syncID != "" {
+		s.setSessionStore.RemoveSessionStore(finalizeCtx, s.syncID)
+	}
 
 	var storeCloseErr error
 	if s.store != nil {
