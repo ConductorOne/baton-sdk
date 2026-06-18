@@ -49,13 +49,15 @@ const bulkSpillKeyChunkBytes = 8 << 20
 const bulkSpillBufferSize = 1 << 20
 
 // grantIndexFamilies are the index-discriminator bytes AddGrants can
-// emit (see grantIndexKeys).
+// emit (see grantIndexKeys, plus the by_entitlement_principal_hash
+// index written with its content-hash value).
 var grantIndexFamilies = []byte{
 	idxGrantByEntitlement,
 	idxGrantByPrincipal,
 	idxGrantByNeedsExpansion,
 	idxGrantByPrincipalResourceType,
 	idxGrantByEntitlementResource,
+	idxGrantByEntitlementPrincipalHash,
 }
 
 // bulkSSTWriter builds one SST file for a single disjoint key bucket.
@@ -316,6 +318,22 @@ func (s *BulkGrantShard) AddGrantsWithDiscoveredAt(ctx context.Context, grants [
 				return s.fail(fmt.Errorf("bulk sync import: unknown index family %#02x", k[2]))
 			}
 			if err := w.add(k, nil); err != nil {
+				return s.fail(err)
+			}
+		}
+		// by_entitlement_principal_hash is the one grant index that
+		// carries a VALUE (the grant content hash), so it's written
+		// separately from the nil-valued grantIndexKeys above. The grant
+		// digests that fold over it are not built here — a reader falls
+		// back to an on-demand index fold, and the on-Open migration
+		// backfills the stored digests when the file is next opened
+		// writable.
+		if hk := grantHashIndexKey(r); hk != nil {
+			w := s.idx[idxGrantByEntitlementPrincipalHash]
+			if w == nil {
+				return s.fail(fmt.Errorf("bulk sync import: unknown index family %#02x", idxGrantByEntitlementPrincipalHash))
+			}
+			if err := w.add(hk, grantContentHash(r)); err != nil {
 				return s.fail(err)
 			}
 		}

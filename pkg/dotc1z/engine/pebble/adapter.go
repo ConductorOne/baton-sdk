@@ -322,6 +322,18 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 			zap.Error(err),
 		)
 	}
+	// Build the per-entitlement grant digests at seal time, after all
+	// grants are written and while still on the fresh-sync NoSync path
+	// (the EndFreshSync flush below hardens the nodes). Non-fatal, like
+	// the stats sidecar: a missing/stale digest only forces a diff
+	// consumer onto the on-demand index fold, and the on-Open migration
+	// backfills it next time the file opens writable.
+	if err := a.engine.BuildAllGrantDigests(ctx, existing.GetSyncId()); err != nil {
+		ctxzap.Extract(ctx).Warn("pebble: build grant digests failed; grant-diff callers will fall back to on-demand index folds until the next Open backfills them",
+			zap.String("sync_id", existing.GetSyncId()),
+			zap.Error(err),
+		)
+	}
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After
 	// this returns, all writes from the sync are on disk.

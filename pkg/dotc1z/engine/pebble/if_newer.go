@@ -40,6 +40,10 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 		}
 		batch := e.db.NewBatch()
 		defer batch.Close()
+		// IfNewer is by definition a post-seal mutation path, so the
+		// grant digests (cloned along with the sync's keyspace) are
+		// kept in step incrementally.
+		mm := newGrantDigestMutator(e)
 		written := 0
 		for _, r := range records {
 			if r == nil {
@@ -62,6 +66,18 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 					closer.Close()
 					return err
 				}
+				// The digest removal needs the old record's content hash,
+				// which folds fields the raw index scan does not extract
+				// (sources).
+				old := &v3.GrantRecord{}
+				if err := unmarshalRecord(oldVal, old); err != nil {
+					closer.Close()
+					return fmt.Errorf("PutGrantRecordsIfNewer: unmarshal old: %w", err)
+				}
+				if err := mm.removeGrant(old); err != nil {
+					closer.Close()
+					return err
+				}
 				closer.Close()
 			case errors.Is(getErr, pebble.ErrNotFound):
 				// no existing record — write unconditionally
@@ -78,10 +94,16 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 			if err := e.writeGrantIndexes(batch, r); err != nil {
 				return err
 			}
+			if err := mm.addGrant(r); err != nil {
+				return err
+			}
 			written++
 		}
 		if written == 0 {
 			return nil
+		}
+		if err := mm.apply(batch); err != nil {
+			return err
 		}
 		return batch.Commit(writeOpts(e.opts.durability))
 	})
