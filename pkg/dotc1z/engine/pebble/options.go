@@ -42,6 +42,14 @@ type Options struct {
 	// readOnly opens the engine without write permission. Save is
 	// disallowed in this mode.
 	readOnly bool
+
+	// grantDigestIndex controls whether grant writes maintain the
+	// by_entitlement_principal_hash index and the per-entitlement grant
+	// digests (the substrate for cross-file grant diffing). Default on.
+	// Disabling drops the per-grant index row (+8-byte value) on every
+	// write path and the seal-time digest build — pure overhead for
+	// files that are never diffed. See WithGrantDigestIndex.
+	grantDigestIndex bool
 }
 
 // Option is a functional option passed to Open.
@@ -64,6 +72,20 @@ func WithDurability(d Durability) Option { return func(o *Options) { o.durabilit
 
 // WithReadOnly opens the engine in read-only mode. Save is disallowed.
 func WithReadOnly(readOnly bool) Option { return func(o *Options) { o.readOnly = readOnly } }
+
+// WithGrantDigestIndex toggles maintenance of the
+// by_entitlement_principal_hash index and the per-entitlement grant
+// digests. Default true (preserves existing behavior).
+//
+// Set false on files that will never be grant-diffed (e.g. local CLI
+// syncs, connector development) to skip the per-grant index write and
+// the seal-time digest fold. NOTE: a file written with this off has no
+// hash index, so a future cross-file diff MUST detect its absence
+// (via the manifest) and rebuild-or-error rather than fold the empty
+// index and conclude "no grants" — do not silently diff such a file.
+func WithGrantDigestIndex(enabled bool) Option {
+	return func(o *Options) { o.grantDigestIndex = enabled }
+}
 
 // WithSlowQueryThreshold overrides the default 5 s threshold for
 // slow-iterator logging.
@@ -135,6 +157,7 @@ func defaultOptions() *Options {
 	return &Options{
 		durability:         DurabilitySync,
 		slowQueryThreshold: 5 * time.Second,
+		grantDigestIndex:   true,
 	}
 }
 

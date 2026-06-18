@@ -11,6 +11,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // Grant instantiation of the digest core (digest.go): the per-
@@ -36,17 +37,23 @@ var grantDigestSpec = digestIndexSpec{
 	partitionPrefix: encodeGrantByEntPrincHashEntPrefix,
 }
 
-// principalBucketHash is the bucket address for a principal: the 8-byte
-// xxHash64 of (rt + "\x00" + id). Identity only — never the principal's
-// full object — so the address is stable across syncs even when the
-// principal's attributes change. Returns a fresh slice.
+// principalBucketHash is the bucket address for a principal: the top
+// digestBucketHashLen bytes of the xxHash64 of (rt + "\x00" + id).
+// Identity only — never the principal's full object — so the address is
+// stable across syncs even when the principal's attributes change.
+// Returns a fresh slice.
 func principalBucketHash(rt, id string) []byte {
 	h := xxhash.New()
 	_, _ = h.WriteString(rt)
 	_, _ = h.Write([]byte{0})
 	_, _ = h.WriteString(id)
+	// Keep the top digestBucketHashLen bytes of the big-endian hash —
+	// the most significant bytes, which is where the bucket-selecting
+	// bits live.
+	var full [8]byte
+	binary.BigEndian.PutUint64(full[:], h.Sum64())
 	out := make([]byte, digestBucketHashLen)
-	binary.BigEndian.PutUint64(out, h.Sum64())
+	copy(out, full[:])
 	return out
 }
 
@@ -64,34 +71,38 @@ func principalBucketHash(rt, id string) []byte {
 // canonical across protobuf library versions, which would make two
 // files written by different SDK builds hash identical grants
 // differently. Changing this set requires an index-migration bump.
+//
+// The fields are serialized with the tuple codec (the same injective
+// encoding the index keys use): every field is escaped and
+// separator-delimited, so no field value — even one containing the raw
+// separator or NUL bytes — can alias a different field split. A naive
+// 0x00-joined concatenation is NOT injective (e.g. sources ["a","b"] vs
+// ["a\x00b"]), which would deterministically collide distinct grants.
 func grantContentHash(r *v3.GrantRecord) []byte {
-	h := xxhash.New()
 	ent := r.GetEntitlement()
 	princ := r.GetPrincipal()
-	_, _ = h.WriteString(ent.GetEntitlementId())
-	_, _ = h.Write([]byte{0})
-	_, _ = h.WriteString(princ.GetResourceTypeId())
-	_, _ = h.Write([]byte{0})
-	_, _ = h.WriteString(princ.GetResourceId())
-	_, _ = h.Write([]byte{0})
-	_, _ = h.WriteString(r.GetExternalId())
-	_, _ = h.Write([]byte{0})
 
 	// Source-entitlement ids, sorted for order-independence. The map
 	// values (GrantSourceRecord) are not folded in v1 — only the set of
 	// source ids, which is the membership-composition signal.
 	sources := r.GetSources()
+	fields := make([]string, 0, 4+len(sources))
+	fields = append(fields,
+		ent.GetEntitlementId(),
+		princ.GetResourceTypeId(),
+		princ.GetResourceId(),
+		r.GetExternalId(),
+	)
 	ids := make([]string, 0, len(sources))
 	for k := range sources {
 		ids = append(ids, k)
 	}
 	sort.Strings(ids)
-	for _, id := range ids {
-		_, _ = h.WriteString(id)
-		_, _ = h.Write([]byte{0})
-	}
+	fields = append(fields, ids...)
+
+	buf := codec.AppendTupleStrings(nil, fields...)
 	out := make([]byte, hashLen)
-	binary.BigEndian.PutUint64(out, h.Sum64())
+	binary.BigEndian.PutUint64(out, xxhash.Sum64(buf))
 	return out
 }
 

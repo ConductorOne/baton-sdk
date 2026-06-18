@@ -317,14 +317,16 @@ func (s *BulkGrantShard) AddGrants(ctx context.Context, grants ...*v2.Grant) err
 		// digests that fold over it are not built here — a reader falls
 		// back to an on-demand index fold, and the on-Open migration
 		// backfills the stored digests when the file is next opened
-		// writable.
-		if hk := grantHashIndexKey(r); hk != nil {
-			w := s.idx[idxGrantByEntitlementPrincipalHash]
-			if w == nil {
-				return s.fail(fmt.Errorf("bulk sync import: unknown index family %#02x", idxGrantByEntitlementPrincipalHash))
-			}
-			if err := w.add(hk, grantContentHash(r)); err != nil {
-				return s.fail(err)
+		// writable. Skipped entirely when the digest index is disabled.
+		if s.b.e.opts.grantDigestIndex {
+			if hk := grantHashIndexKey(r); hk != nil {
+				w := s.idx[idxGrantByEntitlementPrincipalHash]
+				if w == nil {
+					return s.fail(fmt.Errorf("bulk sync import: unknown index family %#02x", idxGrantByEntitlementPrincipalHash))
+				}
+				if err := w.add(hk, grantContentHash(r)); err != nil {
+					return s.fail(err)
+				}
 			}
 		}
 	}

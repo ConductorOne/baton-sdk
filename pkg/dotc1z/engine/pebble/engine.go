@@ -220,6 +220,11 @@ func (e *Engine) IsFreshSync() bool {
 	return e.freshSync
 }
 
+// GrantDigestIndexEnabled reports whether this engine maintains the
+// by_entitlement_principal_hash index and grant digests. See
+// WithGrantDigestIndex.
+func (e *Engine) GrantDigestIndexEnabled() bool { return e.opts.grantDigestIndex }
+
 // takeFreshGrantsEmpty / takeFreshResourcesEmpty /
 // takeFreshEntitlementsEmpty return true exactly once per fresh
 // sync, for the first PutXxxRecords call of that type after
