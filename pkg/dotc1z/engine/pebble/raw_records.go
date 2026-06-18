@@ -154,6 +154,20 @@ func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, v
 			return err
 		}
 	}
+	// by_entitlement_principal_hash: the bucket hash is derived from the
+	// principal identity, so the raw path reconstructs the same key
+	// writeGrantIndexes wrote, mirroring grantHashIndexKey's nil-guard.
+	// The entitlement's grant digest is kept in step separately: callers
+	// on the post-seal mutation paths feed the old record to
+	// digestMutator.removeGrant (and the new one to .addGrant), which
+	// folds the change into the stored nodes in the same batch.
+	if entID != "" && principalRT != "" && principalID != "" {
+		bh := principalBucketHash(principalRT, principalID)
+		hk := encodeGrantByEntPrincHashIndexKey(entID, bh, principalRT, principalID, externalID)
+		if err := batch.Delete(hk, nil); err != nil {
+			return err
+		}
+	}
 	return batch.Delete(encodeGrantByNeedsExpansionIndexKey(externalID), nil)
 }
 

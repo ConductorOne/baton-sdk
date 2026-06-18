@@ -84,6 +84,14 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		// emitting an external_id on two pages).
 		skipGet := e.takeFreshGrantsEmpty()
 
+		// Incremental digest maintenance applies only on the non-fresh
+		// path: during a fresh sync the digests don't exist yet (built
+		// once at seal), so skip even the per-entitlement root probe.
+		var mm *digestMutator
+		if !fresh {
+			mm = newGrantDigestMutator(e)
+		}
+
 		// Dedup pre-pass: keep only the LAST occurrence of each
 		// external_id. The map value is the records[]
 		// index — when we re-iterate, we process record i only if
@@ -124,6 +132,21 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 						closer.Close()
 						return err
 					}
+					if mm != nil {
+						// The digest removal needs the old record's content
+						// hash, which folds fields the raw index scan does
+						// not extract (sources) — unmarshal only on this
+						// non-fresh path.
+						old := &v3.GrantRecord{}
+						if err := unmarshalRecord(oldVal, old); err != nil {
+							closer.Close()
+							return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
+						}
+						if err := mm.removeGrant(old); err != nil {
+							closer.Close()
+							return err
+						}
+					}
 					closer.Close()
 				case errors.Is(getErr, pebble.ErrNotFound):
 					// no prior record — write unconditionally
@@ -135,6 +158,16 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 				return err
 			}
 			if err := e.writeGrantIndexes(idxBatch, r); err != nil {
+				return err
+			}
+			if mm != nil {
+				if err := mm.addGrant(r); err != nil {
+					return err
+				}
+			}
+		}
+		if mm != nil {
+			if err := mm.apply(idxBatch); err != nil {
 				return err
 			}
 		}
@@ -302,6 +335,8 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 			priKey  []byte
 			priVal  []byte
 			idxKeys [][]byte
+			hashKey []byte
+			hashVal []byte
 		}
 		enc := make([]encoded, len(records))
 
@@ -350,6 +385,8 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 						priKey:  encodeGrantKey(r.GetExternalId()),
 						priVal:  val,
 						idxKeys: grantIndexKeys(r),
+						hashKey: grantHashIndexKey(r),
+						hashVal: grantContentHash(r),
 					}
 				}
 			}(lo, hi)
@@ -372,6 +409,11 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 			}
 			for _, k := range enc[i].idxKeys {
 				if err := idxBatch.Set(k, nil, nil); err != nil {
+					return err
+				}
+			}
+			if enc[i].hashKey != nil {
+				if err := idxBatch.Set(enc[i].hashKey, enc[i].hashVal, nil); err != nil {
 					return err
 				}
 			}
@@ -422,7 +464,22 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, externalID string) error
 			closer.Close()
 			return err
 		}
+		// The digest removal needs the old record's content hash, which
+		// folds fields the raw index scan does not extract (sources).
+		old := &v3.GrantRecord{}
+		if uErr := unmarshalRecord(oldVal, old); uErr != nil {
+			closer.Close()
+			return fmt.Errorf("DeleteGrantRecord: unmarshal old %q: %w", externalID, uErr)
+		}
 		closer.Close()
+
+		mm := newGrantDigestMutator(e)
+		if err := mm.removeGrant(old); err != nil {
+			return err
+		}
+		if err := mm.apply(batch); err != nil {
+			return err
+		}
 
 		if err := batch.Delete(key, nil); err != nil {
 			return err
@@ -464,10 +521,18 @@ func grantIndexKeys(r *v3.GrantRecord) [][]byte {
 	return keys
 }
 
-// writeGrantIndexes adds index entries for r to batch.
+// writeGrantIndexes adds index entries for r to batch. The nil-valued
+// indexes go in via grantIndexKeys; the by_entitlement_principal_hash
+// index is the one grant index that carries a VALUE (the grant content
+// hash), so it is written separately.
 func (e *Engine) writeGrantIndexes(batch *pebble.Batch, r *v3.GrantRecord) error {
 	for _, k := range grantIndexKeys(r) {
 		if err := batch.Set(k, nil, nil); err != nil {
+			return err
+		}
+	}
+	if hk := grantHashIndexKey(r); hk != nil {
+		if err := batch.Set(hk, grantContentHash(r), nil); err != nil {
 			return err
 		}
 	}
