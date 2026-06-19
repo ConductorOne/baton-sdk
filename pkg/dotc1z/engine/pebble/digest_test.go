@@ -11,6 +11,7 @@ import (
 	"github.com/segmentio/ksuid"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 // putEnt writes an entitlement record (under the engine's current
@@ -189,6 +190,64 @@ func TestGrantDigestIncludesExpandedGrants(t *testing.T) {
 	}
 	if root.Count != 2 {
 		t.Fatalf("digest root count = %d, want 2 (expanded grant must be in the digest)", root.Count)
+	}
+}
+
+// TestAdapterGetEntitlementGrantDigest exercises the reader capability
+// (connectorstore.EntitlementGrantDigestReader) end-to-end through the
+// Adapter: a sealed sync resolves and returns the root hash + count, an
+// unknown entitlement reports not-found, and an engine with the digest
+// index disabled reports not-found even for a real entitlement.
+func TestAdapterGetEntitlementGrantDigest(t *testing.T) {
+	ctx := context.Background()
+
+	seal := func(e *Engine) *Adapter {
+		t.Helper()
+		a := NewAdapter(e)
+		if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+			t.Fatalf("StartNewSync: %v", err)
+		}
+		putEnt(t, e, ctx, "ent-A")
+		if err := e.PutGrantRecords(ctx,
+			makeGrant("", "g1", "ent-A", "alice"),
+			makeGrant("", "g2", "ent-A", "bob"),
+		); err != nil {
+			t.Fatalf("PutGrantRecords: %v", err)
+		}
+		if err := a.EndSync(ctx); err != nil {
+			t.Fatalf("EndSync: %v", err)
+		}
+		return a
+	}
+
+	// Digest index on: the entitlement resolves with its grant count.
+	on, _ := newTestEngine(t)
+	a := seal(on)
+	d, found, err := a.GetEntitlementGrantDigest(ctx, "ent-A")
+	if err != nil {
+		t.Fatalf("GetEntitlementGrantDigest: %v", err)
+	}
+	if !found {
+		t.Fatal("expected found for ent-A")
+	}
+	if d.Count != 2 {
+		t.Fatalf("count = %d, want 2", d.Count)
+	}
+	if len(d.Hash) == 0 {
+		t.Fatal("expected non-empty hash")
+	}
+
+	// Unknown entitlement: not found, no error.
+	if _, found, err := a.GetEntitlementGrantDigest(ctx, "ent-missing"); err != nil || found {
+		t.Fatalf("unknown entitlement: found=%v err=%v, want found=false err=nil", found, err)
+	}
+
+	// Digest index disabled: a real entitlement reports not-found
+	// (no digest was built).
+	off, _ := newTestEngine(t, WithGrantDigestIndex(false))
+	aOff := seal(off)
+	if _, found, err := aOff.GetEntitlementGrantDigest(ctx, "ent-A"); err != nil || found {
+		t.Fatalf("digest off: found=%v err=%v, want found=false err=nil", found, err)
 	}
 }
 

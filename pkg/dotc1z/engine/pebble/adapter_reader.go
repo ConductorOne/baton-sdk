@@ -609,3 +609,24 @@ func (a *Adapter) InitCurrentSync(ctx context.Context) error {
 	}
 	return nil
 }
+
+// GetEntitlementGrantDigest implements connectorstore.EntitlementGrantDigestReader.
+// It returns the stored grant-digest root (content hash + grant count)
+// for entitlementID under the reader's active sync. found is false when
+// no digest exists — either no active sync, or no digest was built for
+// the entitlement (e.g. WithGrantDigestIndex(false), or a file that
+// predates the digest). A nil error with found=false means "no digest".
+func (a *Adapter) GetEntitlementGrantDigest(ctx context.Context, entitlementID string) (connectorstore.GrantDigest, bool, error) {
+	syncID, err := a.resolveActiveSyncForReader(ctx, nil)
+	if err != nil {
+		return connectorstore.GrantDigest{}, false, err
+	}
+	if syncID == "" {
+		return connectorstore.GrantDigest{}, false, nil
+	}
+	root, ok, err := a.engine.GetEntitlementDigestRoot(ctx, syncID, entitlementID)
+	if err != nil || !ok {
+		return connectorstore.GrantDigest{}, false, err
+	}
+	return connectorstore.GrantDigest{Hash: root.Hash, Count: root.Count}, true, nil
+}

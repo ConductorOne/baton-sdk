@@ -75,9 +75,10 @@ func NewAdapter(e *Engine) *Adapter {
 // Compile-time checks for the full Writer interface and the optional
 // connectorstore capabilities that SQLite's *C1File also exposes.
 var (
-	_ connectorstore.Writer                      = (*Adapter)(nil)
-	_ connectorstore.LatestFinishedSyncIDFetcher = (*Adapter)(nil)
-	_ connectorstore.DBSizeProvider              = (*Adapter)(nil)
+	_ connectorstore.Writer                       = (*Adapter)(nil)
+	_ connectorstore.LatestFinishedSyncIDFetcher  = (*Adapter)(nil)
+	_ connectorstore.DBSizeProvider               = (*Adapter)(nil)
+	_ connectorstore.EntitlementGrantDigestReader = (*Adapter)(nil)
 )
 
 // === sync lifecycle ===
