@@ -105,6 +105,33 @@ type LatestFinishedSyncIDFetcher interface {
 	LatestFinishedSyncID(ctx context.Context, syncType SyncType) (string, error)
 }
 
+// GrantDigest is the root of an entitlement's grant digest: a
+// content-defined hash over all of the entitlement's grants plus the
+// grant count. Two entitlements (in the same or different c1z files)
+// with the same Count and Hash hold the same set of grants.
+type GrantDigest struct {
+	// Hash is the digest of every grant under the entitlement. Opaque
+	// bytes — compare for equality, don't interpret. Empty when Count
+	// is 0.
+	Hash []byte
+	// Count is the number of grants under the entitlement.
+	Count int64
+}
+
+// EntitlementGrantDigestReader is an optional Reader capability that
+// returns the precomputed grant digest for an entitlement. It is
+// engine-specific: only the Pebble engine maintains the digest, so
+// callers must type-assert and fall back when the assertion fails or
+// found is false.
+//
+// found is false when the reader has no digest built for the
+// entitlement (it was never synced, or the file predates / opted out of
+// the digest index — see WithGrantDigestIndex). A nil error with
+// found=false means "no digest", not "error".
+type EntitlementGrantDigestReader interface {
+	GetEntitlementGrantDigest(ctx context.Context, entitlementID string) (digest GrantDigest, found bool, err error)
+}
+
 // DBSizeProvider is an optional capability for a store that can report its
 // current uncompressed working-set size (e.g. dotc1z.C1File stat'ing its
 // sqlite file). Consumed by the syncer's ProgressLog to include
