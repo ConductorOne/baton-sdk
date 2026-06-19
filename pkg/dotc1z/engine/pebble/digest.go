@@ -205,7 +205,10 @@ func (s digestIndexSpec) bucketBounds(partition string, b DigestBucket) ([]byte,
 		out = append(out, prefix...)
 		return append(out, full[:digestBucketHashLen]...)
 	}
-	shift := uint(64 - b.Bits) //nolint:gosec // Bits in [1, digestMaxWidthBits]
+	// Signed shift count (Go >= 1.13): b.Bits is in [1, digestMaxWidthBits]
+	// here (the Bits==0 case returned above), so shift is in [48, 63] —
+	// no uint conversion, so no overflow-checker warning to suppress.
+	shift := 64 - b.Bits
 	lower := boundAt(uint64(b.Index) << shift)
 	if uint64(b.Index)+1 == uint64(1)<<b.Bits {
 		// Last bucket: the range runs to the end of the hash space.
@@ -242,7 +245,10 @@ func chooseDigestWidth(count int64) int {
 
 func packDigestRoot(widthBits int, count int64, digest []byte) []byte {
 	buf := make([]byte, 0, 1+8+len(digest))
-	buf = append(buf, byte(widthBits))
+	// Mask to a byte: widthBits is in [0, digestMaxWidthBits], and the
+	// mask makes that provable to the overflow checker (no nolint, which
+	// would be flagged unused by gosec versions that don't warn here).
+	buf = append(buf, byte(widthBits&0xFF))
 	var n [8]byte
 	binary.BigEndian.PutUint64(n[:], uint64(count)) //nolint:gosec // non-negative row count
 	buf = append(buf, n[:]...)
