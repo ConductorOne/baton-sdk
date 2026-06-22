@@ -1501,7 +1501,7 @@ const file_c1_connector_v2_event_feed_proto_rawDesc = "" +
 	"r\b \x01(\x80 \xd0\x01\x01R\x06cursor\x125\n" +
 	"\bstart_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x12'\n" +
 	"\tpage_size\x18\x03 \x01(\rB\n" +
-	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x126\n" +
+	"\xfaB\a*\x05\x18\xe8\a@\x01R\bpageSize\x126\n" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x121\n" +
 	"\revent_feed_id\x18\x05 \x01(\tB\r\xfaB\n" +
 	"r\b \x01(\x80\b\xd0\x01\x01R\veventFeedId\"\xbe\x01\n" +
