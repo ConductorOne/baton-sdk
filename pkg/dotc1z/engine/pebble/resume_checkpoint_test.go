@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/segmentio/ksuid"
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -87,4 +88,46 @@ func TestStartOrResumeSyncRestoresCheckpointStep(t *testing.T) {
 	step, err := a2.CurrentSyncStep(ctx)
 	require.NoError(t, err)
 	require.Equal(t, fsmCursor, step, "resumed sync must retain its checkpointed step")
+}
+
+// TestSetCurrentSyncRehydratesStep verifies the SetCurrentSync rebind
+// path (used by compaction/rollback/explorer) reloads the persisted
+// step from disk after a process restart, so CurrentSyncStep doesn't
+// report "" against a sync that actually has a checkpoint.
+func TestSetCurrentSyncRehydratesStep(t *testing.T) {
+	ctx := context.Background()
+	e, dir := newTestEngine(t)
+	a := NewAdapter(e)
+
+	const fsmCursor = "page-cursor-rebind"
+
+	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, a.CheckpointSync(ctx, fsmCursor))
+
+	// New activity window / process: fresh adapter, rebind by id.
+	e2 := reopenEngine(t, e, dir)
+	a2 := NewAdapter(e2)
+
+	require.NoError(t, a2.SetCurrentSync(ctx, syncID))
+	step, err := a2.CurrentSyncStep(ctx)
+	require.NoError(t, err)
+	require.Equal(t, fsmCursor, step, "SetCurrentSync must rehydrate the persisted step")
+}
+
+// TestSetCurrentSyncMissingRecordBindsEmptyStep verifies that binding a
+// sync_id with no persisted record is the legitimate "no checkpoint
+// yet" case: it binds the id with an empty step and does NOT error
+// (matching the historical bind-unconditionally behavior). Only a real
+// (non-not-found) read failure should propagate — the not-found branch
+// must not be conflated with it.
+func TestSetCurrentSyncMissingRecordBindsEmptyStep(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	a := NewAdapter(e)
+
+	require.NoError(t, a.SetCurrentSync(ctx, ksuid.New().String()))
+	step, err := a.CurrentSyncStep(ctx)
+	require.NoError(t, err)
+	require.Empty(t, step, "binding a sync_id with no record yields an empty step, not an error")
 }

@@ -229,18 +229,27 @@ func (a *Adapter) SetCurrentSync(ctx context.Context, syncID string) error {
 	// the same reason ResumeSync loads step. SQLite's CurrentSyncStep
 	// re-reads the sync_runs row on every call and so is immune; Pebble
 	// caches a.current.step, so a rebind that doesn't refresh it would
-	// report a stale (or empty) step and reset the FSM. Best-effort: a
-	// missing/unreadable record clears the cached step rather than
-	// leaving a value from a previously-bound sync.
-	a.current = syncRunState{syncID: syncID}
-	if rec, err := a.engine.GetSyncRunRecord(ctx, syncID); err == nil && rec != nil {
-		a.current = syncRunState{
-			syncID:    syncID,
-			syncType:  rec.GetType(),
-			parentID:  rec.GetParentSyncId(),
-			step:      rec.GetSyncToken(),
-			startedAt: rec.GetStartedAt().AsTime(),
+	// report a stale (or empty) step and reset the FSM.
+	rec, err := a.engine.GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		// A genuine miss (no record under this id) is the legitimate
+		// "no checkpoint yet" case: bind the id with an empty step.
+		// Any OTHER error is a real read failure — propagate it rather
+		// than silently leaving step "" and resetting the FSM to a full
+		// re-sync (the failure class this whole path exists to avoid).
+		// SQLite's SetCurrentSync likewise returns its getSync error.
+		if errors.Is(err, pebble.ErrNotFound) {
+			a.current = syncRunState{syncID: syncID}
+			return nil
 		}
+		return err
+	}
+	a.current = syncRunState{
+		syncID:    syncID,
+		syncType:  rec.GetType(),
+		parentID:  rec.GetParentSyncId(),
+		step:      rec.GetSyncToken(),
+		startedAt: rec.GetStartedAt().AsTime(),
 	}
 	return nil
 }
