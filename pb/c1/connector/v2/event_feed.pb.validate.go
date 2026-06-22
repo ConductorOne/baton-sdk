@@ -103,10 +103,10 @@ func (m *ListEventsRequest) validate(all bool) error {
 
 	if m.GetPageSize() != 0 {
 
-		if m.GetPageSize() > 250 {
+		if m.GetPageSize() > 1000 {
 			err := ListEventsRequestValidationError{
 				field:  "PageSize",
-				reason: "value must be less than or equal to 250",
+				reason: "value must be less than or equal to 1000",
 			}
 			if !all {
 				return err

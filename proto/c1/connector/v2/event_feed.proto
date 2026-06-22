@@ -26,7 +26,7 @@ message ListEventsRequest {
   google.protobuf.Timestamp start_at = 2;
   uint32 page_size = 3 [(validate.rules).uint32 = {
     ignore_empty: true
-    lte: 250
+    lte: 1000
   }];
   repeated google.protobuf.Any annotations = 4;
   // Used to specify a specific event feed to list events from.
