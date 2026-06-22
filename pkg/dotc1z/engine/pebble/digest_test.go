@@ -10,6 +10,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/segmentio/ksuid"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
@@ -248,6 +249,183 @@ func TestAdapterGetEntitlementGrantDigest(t *testing.T) {
 	aOff := seal(off)
 	if _, found, err := aOff.GetEntitlementGrantDigest(ctx, "ent-A"); err != nil || found {
 		t.Fatalf("digest off: found=%v err=%v, want found=false err=nil", found, err)
+	}
+}
+
+// TestAdapterGrantDigestNodes exercises the rollup-node reader: the
+// native level is exposed, level 0 returns the root, level == native
+// returns the stored leaves (whose counts sum to the total and whose
+// hashes XOR to the root), and a finer level returns the sentinel.
+func TestAdapterGrantDigestNodes(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	a := NewAdapter(e)
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+	putEnt(t, e, ctx, "ent-A")
+	const n = 600 // > digestTargetBucketSize, so the native level is >= 1
+	grants := make([]*v3.GrantRecord, 0, n)
+	for i := 0; i < n; i++ {
+		grants = append(grants, makeGrant("", ksuid.New().String(), "ent-A", ksuid.New().String()))
+	}
+	if err := e.PutGrantRecords(ctx, grants...); err != nil {
+		t.Fatalf("PutGrantRecords: %v", err)
+	}
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
+
+	d, found, err := a.GetEntitlementGrantDigest(ctx, "ent-A")
+	if err != nil || !found {
+		t.Fatalf("digest: found=%v err=%v", found, err)
+	}
+	if d.Count != n {
+		t.Fatalf("count = %d, want %d", d.Count, n)
+	}
+	if d.Level < 1 {
+		t.Fatalf("native level = %d, want >= 1 for %d grants", d.Level, n)
+	}
+
+	// Level 0 → a single root node matching the digest root.
+	roots, found, err := a.GetEntitlementGrantDigestNodes(ctx, "ent-A", 0)
+	if err != nil || !found {
+		t.Fatalf("nodes(0): found=%v err=%v", found, err)
+	}
+	if len(roots) != 1 || roots[0].Count != n || !bytes.Equal(roots[0].Hash, d.Hash) {
+		t.Fatalf("level 0 = %+v, want one root node with count %d and the root hash", roots, n)
+	}
+
+	// Level == native → the stored leaves: sparse (no zero-count nodes),
+	// counts sum to the total, hashes XOR to the root.
+	leaves, found, err := a.GetEntitlementGrantDigestNodes(ctx, "ent-A", d.Level)
+	if err != nil || !found {
+		t.Fatalf("nodes(native): found=%v err=%v", found, err)
+	}
+	var sum int64
+	xor := make([]byte, len(d.Hash))
+	for _, nd := range leaves {
+		if nd.Count == 0 {
+			t.Fatal("leaf node with count 0 returned; leaves must be sparse")
+		}
+		sum += nd.Count
+		for j := range xor {
+			xor[j] ^= nd.Hash[j]
+		}
+	}
+	if sum != n {
+		t.Fatalf("leaf counts sum = %d, want %d", sum, n)
+	}
+	if !bytes.Equal(xor, d.Hash) {
+		t.Fatal("XOR of leaf hashes != root hash")
+	}
+
+	// Finer than native → index-scan fallback (no error). Same totals:
+	// counts sum to n and hashes XOR to the root.
+	finer, found, err := a.GetEntitlementGrantDigestNodes(ctx, "ent-A", d.Level+1)
+	if err != nil || !found {
+		t.Fatalf("nodes(native+1): found=%v err=%v, want a scanned result", found, err)
+	}
+	sum, xor = 0, make([]byte, len(d.Hash))
+	for _, nd := range finer {
+		sum += nd.Count
+		for j := range xor {
+			xor[j] ^= nd.Hash[j]
+		}
+	}
+	if sum != n || !bytes.Equal(xor, d.Hash) {
+		t.Fatalf("finer-level scan: sum=%d xor-matches-root=%v, want sum %d and matching root", sum, bytes.Equal(xor, d.Hash), n)
+	}
+
+	// Absurdly fine level → clamped to the hash resolution, still no error.
+	if _, found, err := a.GetEntitlementGrantDigestNodes(ctx, "ent-A", 999); err != nil || !found {
+		t.Fatalf("nodes(999): found=%v err=%v, want clamped scan with no error", found, err)
+	}
+}
+
+// TestAdapterScanGrantBucket exercises the bucket grant scan: level 0
+// scans the whole entitlement, per-bucket scans at the native level
+// agree with the rollup node counts and partition the grants, yield can
+// stop early, and an unknown entitlement scans nothing without error.
+func TestAdapterScanGrantBucket(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	a := NewAdapter(e)
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+	putEnt(t, e, ctx, "ent-A")
+	const n = 600 // > digestTargetBucketSize so the native level is >= 1
+	grants := make([]*v3.GrantRecord, 0, n)
+	for i := 0; i < n; i++ {
+		grants = append(grants, makeGrant("", ksuid.New().String(), "ent-A", ksuid.New().String()))
+	}
+	if err := e.PutGrantRecords(ctx, grants...); err != nil {
+		t.Fatalf("PutGrantRecords: %v", err)
+	}
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
+
+	// Level 0 = whole entitlement → every grant.
+	total := 0
+	if err := a.ScanEntitlementGrantBucket(ctx, "ent-A", connectorstore.GrantDigestBucket{Level: 0}, func(*v2.Grant) bool {
+		total++
+		return true
+	}); err != nil {
+		t.Fatalf("scan level 0: %v", err)
+	}
+	if total != n {
+		t.Fatalf("level-0 scan yielded %d grants, want %d", total, n)
+	}
+
+	// Per native-level bucket: each scan's count matches the rollup node,
+	// and the buckets partition all the grants.
+	d, _, err := a.GetEntitlementGrantDigest(ctx, "ent-A")
+	if err != nil {
+		t.Fatalf("digest: %v", err)
+	}
+	nodes, _, err := a.GetEntitlementGrantDigestNodes(ctx, "ent-A", d.Level)
+	if err != nil {
+		t.Fatalf("nodes: %v", err)
+	}
+	sum := 0
+	for _, nd := range nodes {
+		c := int64(0)
+		if err := a.ScanEntitlementGrantBucket(ctx, "ent-A", connectorstore.GrantDigestBucket{Level: d.Level, Index: nd.Index}, func(*v2.Grant) bool {
+			c++
+			return true
+		}); err != nil {
+			t.Fatalf("scan bucket %d: %v", nd.Index, err)
+		}
+		if c != nd.Count {
+			t.Fatalf("bucket %d: scanned %d grants, node count says %d", nd.Index, c, nd.Count)
+		}
+		sum += int(c)
+	}
+	if sum != n {
+		t.Fatalf("per-bucket scans covered %d grants, want %d", sum, n)
+	}
+
+	// yield can stop early.
+	calls := 0
+	if err := a.ScanEntitlementGrantBucket(ctx, "ent-A", connectorstore.GrantDigestBucket{Level: 0}, func(*v2.Grant) bool {
+		calls++
+		return false
+	}); err != nil {
+		t.Fatalf("scan early-stop: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("early stop: yield called %d times, want 1", calls)
+	}
+
+	// Unknown entitlement → nothing, no error.
+	missing := 0
+	if err := a.ScanEntitlementGrantBucket(ctx, "ent-missing", connectorstore.GrantDigestBucket{Level: 0}, func(*v2.Grant) bool {
+		missing++
+		return true
+	}); err != nil || missing != 0 {
+		t.Fatalf("scan unknown entitlement: count=%d err=%v, want 0/nil", missing, err)
 	}
 }
 

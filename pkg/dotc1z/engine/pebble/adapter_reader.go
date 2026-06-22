@@ -628,5 +628,87 @@ func (a *Adapter) GetEntitlementGrantDigest(ctx context.Context, entitlementID s
 	if err != nil || !ok {
 		return connectorstore.GrantDigest{}, false, err
 	}
-	return connectorstore.GrantDigest{Hash: root.Hash, Count: root.Count}, true, nil
+	return connectorstore.GrantDigest{Hash: root.Hash, Count: root.Count, Level: root.Bits}, true, nil
+}
+
+// GetEntitlementGrantDigestNodes implements
+// connectorstore.EntitlementGrantDigestReader. It lists the entitlement's
+// grant-digest rollup nodes at the requested level (2^level buckets;
+// level 0 = the root). For 0 <= level <= the digest's native level it
+// folds the stored leaves — one scan of the digest keyspace. For a finer
+// level it scans the grant index directly (O(grants)) instead of
+// erroring; the level is clamped to the bucket-hash resolution
+// (digestMaxWidthBits).
+func (a *Adapter) GetEntitlementGrantDigestNodes(ctx context.Context, entitlementID string, level int) ([]connectorstore.GrantDigestNode, bool, error) {
+	if level < 0 {
+		return nil, false, fmt.Errorf("pebble: negative grant-digest level %d", level)
+	}
+	syncID, err := a.resolveActiveSyncForReader(ctx, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	if syncID == "" {
+		return nil, false, nil
+	}
+	root, ok, err := a.engine.GetEntitlementDigestRoot(ctx, syncID, entitlementID)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	// Level 0 is the whole-entitlement root — return it directly (covers
+	// the root-only digest, which has no stored leaves to fold).
+	if level == 0 {
+		return []connectorstore.GrantDigestNode{{Index: 0, Hash: root.Hash, Count: root.Count}}, true, nil
+	}
+	// The bucket hash carries at most digestMaxWidthBits of resolution;
+	// a finer level can't address more buckets, so clamp.
+	bits := level
+	if bits > digestMaxWidthBits {
+		bits = digestMaxWidthBits
+	}
+	// At or below the stored width, fold the digest leaves (cheap). Finer
+	// than what we stored, scan the grant index to compute the rollup.
+	var folded []foldedBucket
+	if bits <= root.Bits {
+		folded, err = a.engine.foldedLeafBuckets(ctx, grantDigestSpec, entitlementID, bits)
+	} else {
+		folded, err = a.engine.computeBucketsAtWidth(ctx, grantDigestSpec, entitlementID, bits)
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	nodes := make([]connectorstore.GrantDigestNode, len(folded))
+	for i := range folded {
+		nodes[i] = connectorstore.GrantDigestNode{
+			Index: folded[i].idx,
+			Hash:  append([]byte(nil), folded[i].digest[:]...),
+			Count: folded[i].count,
+		}
+	}
+	return nodes, true, nil
+}
+
+// ScanEntitlementGrantBucket implements
+// connectorstore.EntitlementGrantDigestReader. It yields every grant in
+// the given digest bucket of entitlementID, translated to v2.Grant.
+// Bucket Level 0 scans the whole entitlement; a finer Level is clamped
+// to the bucket-hash resolution. Yields nothing when there is no active
+// sync.
+func (a *Adapter) ScanEntitlementGrantBucket(ctx context.Context, entitlementID string, bucket connectorstore.GrantDigestBucket, yield func(*v2.Grant) bool) error {
+	if bucket.Level < 0 {
+		return fmt.Errorf("pebble: negative grant-digest level %d", bucket.Level)
+	}
+	syncID, err := a.resolveActiveSyncForReader(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if syncID == "" {
+		return nil
+	}
+	bits := bucket.Level
+	if bits > digestMaxWidthBits {
+		bits = digestMaxWidthBits
+	}
+	return a.engine.IterateGrantsByEntitlementBucket(ctx, syncID, entitlementID, DigestBucket{Index: bucket.Index, Bits: bits}, func(r *v3.GrantRecord) bool {
+		return yield(V3GrantToV2(r))
+	})
 }
