@@ -571,6 +571,50 @@ func (e *Engine) computeBucketDigest(ctx context.Context, spec digestIndexSpec, 
 	return digest, count, nil
 }
 
+// computeBucketsAtWidth scans the index for one partition and rolls it
+// up into width-`bits` buckets directly — O(records), one contiguous
+// index scan, O(1) memory. It is the fallback for
+// GetEntitlementGrantDigestNodes when the requested level is finer than
+// the stored digest's width (foldedLeafBuckets only goes as fine as what
+// was built). bits must be in [1, digestMaxWidthBits]; the caller clamps
+// to the bucket-hash resolution. Returns the non-empty buckets in index
+// order — index entries are bucket-hash-major, so each bucket's records
+// are contiguous and close when the top-`bits` prefix changes.
+func (e *Engine) computeBucketsAtWidth(ctx context.Context, spec digestIndexSpec, partition string, bits int) ([]foldedBucket, error) {
+	prefix := spec.partitionPrefix(partition)
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBoundOf(prefix)})
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+	var out []foldedBucket
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		key := iter.Key()
+		if len(key) < len(prefix)+digestBucketHashLen {
+			continue // malformed; skip defensively
+		}
+		// The bucket hash is the digestBucketHashLen raw bytes right after
+		// the partition prefix; its top `bits` bits select the bucket.
+		idx := uint32(binary.BigEndian.Uint16(key[len(prefix):]) >> (16 - bits))
+		val := iter.Value()
+		if len(val) != hashLen {
+			// See buildPartitionDigestAtWidth: a mis-length index value is
+			// corruption; reject it rather than fold a prefix.
+			return nil, fmt.Errorf("computeBucketsAtWidth: content hash for %q is %d bytes, want %d", partition, len(val), hashLen)
+		}
+		if len(out) == 0 || out[len(out)-1].idx != idx {
+			out = append(out, foldedBucket{idx: idx})
+		}
+		i := len(out) - 1
+		xorInto(out[i].digest[:], val)
+		out[i].count++
+	}
+	return out, iter.Error()
+}
+
 // dirtyPartitionBuckets compares this engine's partition against
 // other's and returns the buckets whose records differ. A single zero
 // bucket (Bits 0) means "the whole partition differs" (used when the
