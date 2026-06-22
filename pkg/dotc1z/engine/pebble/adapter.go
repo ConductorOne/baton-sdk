@@ -166,22 +166,50 @@ func (a *Adapter) ResumeSync(ctx context.Context, syncType connectorstore.SyncTy
 		return "", err
 	}
 	a.current = syncRunState{
-		syncID:    syncID,
-		syncType:  existing.GetType(),
-		parentID:  existing.GetParentSyncId(),
+		syncID:   syncID,
+		syncType: existing.GetType(),
+		parentID: existing.GetParentSyncId(),
+		// Load the persisted checkpoint token back into the in-memory
+		// cache. CurrentSyncStep reads a.current.step directly, so
+		// omitting this makes a resumed sync report step "" and the
+		// syncer's state.Unmarshal("") restarts the FSM from InitOp —
+		// i.e. a full sync every activity window. CheckpointSync/EndSync
+		// round-trip SyncToken via the SyncRunRecord; resume must too.
+		step:      existing.GetSyncToken(),
 		startedAt: existing.GetStartedAt().AsTime(),
 	}
 	return syncID, nil
 }
 
-// StartOrResumeSync resumes if syncID-like state exists for the given
-// type, else starts a new sync. Returns (id, started_new, err).
+// StartOrResumeSync resumes an existing sync if one is resumable, else
+// starts a new sync. Returns (id, started_new, err).
+//
+// Resume precedence mirrors SQLite's StartOrResumeSync→ResumeSync
+// cascade (pkg/dotc1z/sync_runs.go):
+//
+//  1. A caller-supplied syncID that names an existing sync_run.
+//  2. With an empty syncID, the latest in-progress (not-yet-ended)
+//     sync of the requested type started within the last week — the
+//     same predicate as Engine.LatestUnfinishedSyncRecord. This is the
+//     path the syncer drives across activity windows: it calls
+//     StartOrResumeSync(ctx, syncType, "") with no id, expecting an
+//     interrupted sync to resume where it checkpointed. Without this,
+//     every window started a brand-new sync (wiping prior data via
+//     ResetForNewSync and resetting the FSM to InitOp), so any sync
+//     exceeding one window never finished.
+//
+// Only when nothing is resumable do we start a new sync.
 func (a *Adapter) StartOrResumeSync(ctx context.Context, syncType connectorstore.SyncType, syncID string) (string, bool, error) {
 	if syncID != "" {
 		if _, err := a.engine.GetSyncRunRecord(ctx, syncID); err == nil {
 			id, err := a.ResumeSync(ctx, syncType, syncID)
 			return id, false, err
 		}
+	} else if rec, err := a.engine.LatestUnfinishedSyncRecord(ctx, syncTypeFilterFromConnectorstore(syncType)); err != nil {
+		return "", false, err
+	} else if rec != nil {
+		id, err := a.ResumeSync(ctx, syncType, rec.GetSyncId())
+		return id, false, err
 	}
 	id, err := a.StartNewSync(ctx, syncType, "")
 	return id, true, err
@@ -196,7 +224,24 @@ func (a *Adapter) SetCurrentSync(ctx context.Context, syncID string) error {
 	if err := a.engine.SetCurrentSync(syncID); err != nil {
 		return err
 	}
-	a.current.syncID = syncID
+	// Rehydrate the in-memory cache from the persisted record so
+	// CurrentSyncStep reflects the on-disk SyncToken after a rebind —
+	// the same reason ResumeSync loads step. SQLite's CurrentSyncStep
+	// re-reads the sync_runs row on every call and so is immune; Pebble
+	// caches a.current.step, so a rebind that doesn't refresh it would
+	// report a stale (or empty) step and reset the FSM. Best-effort: a
+	// missing/unreadable record clears the cached step rather than
+	// leaving a value from a previously-bound sync.
+	a.current = syncRunState{syncID: syncID}
+	if rec, err := a.engine.GetSyncRunRecord(ctx, syncID); err == nil && rec != nil {
+		a.current = syncRunState{
+			syncID:    syncID,
+			syncType:  rec.GetType(),
+			parentID:  rec.GetParentSyncId(),
+			step:      rec.GetSyncToken(),
+			startedAt: rec.GetStartedAt().AsTime(),
+		}
+	}
 	return nil
 }
 

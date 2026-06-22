@@ -109,10 +109,10 @@ type Options struct {
 	//
 	// Resumable requires the sqlite-backed destination (*dotc1z.C1File). A
 	// pebble destination is rejected with a clear error rather than silently
-	// restarting: its single-sync, replace-in-place storage and its
-	// SetCurrentSync (which does not rehydrate the persisted step) cannot
-	// resume a checkpoint. The rejection is an explicit destination-engine
-	// check, so it holds even though pebble implements ListSyncRuns.
+	// restarting: its single-sync, replace-in-place storage cannot resume a
+	// checkpoint — StartNewSync wipes any prior sync's data before writing.
+	// The rejection is an explicit destination-engine check, so it holds even
+	// though pebble implements ListSyncRuns.
 	Resumable bool
 }
 
@@ -374,9 +374,9 @@ type dstSyncLister interface {
 // ListSyncRuns (for source-side sync-graph-metadata reads), so a capability
 // assertion would SUCCEED for a pebble destination and silently re-admit it.
 // Resume on pebble is unsafe — its single-sync, replace-in-place StartNewSync
-// and its SetCurrentSync/CurrentSyncStep (which do not round-trip the persisted
-// step) cannot rehydrate a checkpoint, so a "resume" would silently restart and
-// corrupt. Keying on the reported engine cannot be defeated by a future engine
+// wipes any prior sync's data before writing, so a "resume" through the
+// sanitize copy path would silently restart and corrupt the destination.
+// Keying on the reported engine cannot be defeated by a future engine
 // adding capability methods. The capability assertion is kept below it as a
 // backstop for any engine that cannot enumerate checkpoints at all.
 func isResumableDestination(dst connectorstore.Writer) error {
