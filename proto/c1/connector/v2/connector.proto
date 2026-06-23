@@ -68,6 +68,9 @@ enum Capability {
   CAPABILITY_TARGETED_SYNC = 11;
   CAPABILITY_EVENT_FEED_V2 = 12;
   CAPABILITY_SERVICE_MODE_TARGETED_SYNC = 13;
+  // The connector can mint new credentials for an existing identity via
+  // CredentialManagerService.IssueCredential.
+  CAPABILITY_CREDENTIAL_ISSUE = 14;
 }
 
 enum CapabilityDetailCredentialOption {
@@ -76,11 +79,18 @@ enum CapabilityDetailCredentialOption {
   CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD = 2;
   CAPABILITY_DETAIL_CREDENTIAL_OPTION_SSO = 3;
   CAPABILITY_DETAIL_CREDENTIAL_OPTION_ENCRYPTED_PASSWORD = 4;
+  // Mirrors CredentialOptions.ApiKey.
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY = 5;
+  // Mirrors CredentialOptions.Keypair (client-side key generation).
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR = 6;
+  // Mirrors CredentialOptions.Token.
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN = 7;
 }
 
 message CredentialDetails {
   CredentialDetailsAccountProvisioning capability_account_provisioning = 1;
   CredentialDetailsCredentialRotation capability_credential_rotation = 2;
+  CredentialDetailsCredentialIssue capability_credential_issue = 3;
 }
 
 message CredentialDetailsAccountProvisioning {
@@ -89,6 +99,13 @@ message CredentialDetailsAccountProvisioning {
 }
 
 message CredentialDetailsCredentialRotation {
+  repeated CapabilityDetailCredentialOption supported_credential_options = 1;
+  CapabilityDetailCredentialOption preferred_credential_option = 2;
+}
+
+// Advertises which credential options CredentialManagerService.IssueCredential
+// supports for this identity type.
+message CredentialDetailsCredentialIssue {
   repeated CapabilityDetailCredentialOption supported_credential_options = 1;
   CapabilityDetailCredentialOption preferred_credential_option = 2;
 }
