@@ -90,6 +90,7 @@ func NewDPoPClient(ctx context.Context, clientID string, clientSecret string) (g
 	opts := []dpop_oauth.TokenSourceOption{
 		dpop_oauth.WithRequestOption(dpop_oauth.WithCustomMarshaler(idAttMarshaller.Marshal)),
 		dpop_oauth.WithHTTPClient(lambdaHTTPClient(tlsConfig)),
+		dpop_oauth.WithNonceStore(dpop_oauth.NewNonceStore()), // satisfy use_dpop_nonce
 	}
 	tokenSource, err := dpop_oauth.NewTokenSource(proofer, tokenURL, clientID, clientSecretJWK, opts...)
 	if err != nil {
