@@ -24,3 +24,11 @@ func ResolveCleanupSyncLimit(callerLimit int, currentSyncOpen bool) int {
 func CleanupSkippedByEnv() bool {
 	return c1zstore.CleanupSkippedByEnv()
 }
+
+// CleanupRebuildByEnv reports whether BATON_CLEANUP_REBUILD is set to a truthy
+// value, selecting the rebuild cleanup strategy. OR'd with the
+// WithCleanupRebuild option so ops can toggle it without a caller change.
+func CleanupRebuildByEnv() bool {
+	rebuild, _ := strconv.ParseBool(os.Getenv("BATON_CLEANUP_REBUILD"))
+	return rebuild
+}
