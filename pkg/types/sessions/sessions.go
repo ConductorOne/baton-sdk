@@ -73,5 +73,6 @@ func SetSyncIDInContext(ctx context.Context, syncID string) context.Context {
 }
 
 type SetSessionStore interface {
-	SetSessionStore(ctx context.Context, store SessionStore)
+	SetSessionStore(ctx context.Context, syncID string, store SessionStore)
+	RemoveSessionStore(ctx context.Context, syncID string)
 }
