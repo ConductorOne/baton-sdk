@@ -1139,8 +1139,6 @@ func statsToMap(stats *reader_v2.SyncStats, syncType connectorstore.SyncType) ma
 		out["grants"] = stats.GetGrants()
 	}
 	for rt, n := range stats.GetResourcesByResourceType() {
-		out[fmt.Sprintf("%s_grant_count", rt)] = stats.GetGrantsByResourceType()[rt]
-		out[fmt.Sprintf("%s_entitlement_count", rt)] = stats.GetEntitlementsByResourceType()[rt]
 		out[rt] = n
 	}
 

@@ -85,6 +85,7 @@ func requireSyncStatsEqual(t *testing.T, want, got *v3.SyncStatsRecord, label st
 	require.Equal(t, want.GetGrants(), got.GetGrants(), "%s: grants", label)
 	require.Equal(t, want.GetAssets(), got.GetAssets(), "%s: assets", label)
 	requireCountMapEqual(t, want.GetResourcesByResourceType(), got.GetResourcesByResourceType(), label+": resources_by_resource_type")
+	requireCountMapEqual(t, want.GetEntitlementsByResourceType(), got.GetEntitlementsByResourceType(), label+": entitlements_by_resource_type")
 	requireCountMapEqual(t, want.GetGrantsByEntitlementResourceType(), got.GetGrantsByEntitlementResourceType(), label+": grants_by_entitlement_resource_type")
 }
 
@@ -150,6 +151,7 @@ func TestMergeStatsSidecarMatchesRecompute(t *testing.T) {
 		Entitlements:                    2,
 		Grants:                          5,
 		ResourcesByResourceType:         map[string]int64{"group": 1, "user": 2},
+		EntitlementsByResourceType:      map[string]int64{"group": 2},
 		GrantsByEntitlementResourceType: map[string]int64{"group": 4, "": 1},
 	}.Build()
 

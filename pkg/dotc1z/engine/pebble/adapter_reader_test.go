@@ -509,6 +509,7 @@ func TestSyncsReaderMethods(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, finishedID, resp.GetSync().GetId(), "GetSync id")
 	require.NotNil(t, resp.GetSync().GetEndedAt(), "GetSync ended_at")
+	require.NotNil(t, resp.GetSync().GetStats(), "GetSync stats")
 
 	// ListSyncs → exactly the one sync.
 	listResp, err := a.ListSyncs(ctx, reader_v2.SyncsReaderServiceListSyncsRequest_builder{
@@ -569,6 +570,9 @@ func TestStatsAndGrantStats(t *testing.T) {
 		mkV2Grant("g2", "e1", "user", "b"),
 		mkV2Grant("g3", "e2", "group", "c")))
 
+	err = a.EndSync(ctx)
+	require.NoError(t, err)
+
 	stats, err := a.Stats(ctx, connectorstore.SyncTypeAny, syncID)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), stats["resource_types"], "stats[resource_types]")
@@ -581,4 +585,22 @@ func TestStatsAndGrantStats(t *testing.T) {
 	gs, err := a.GrantStats(ctx, connectorstore.SyncTypeAny, syncID)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), gs["app"], "GrantStats[app]")
+
+	sync, err := a.GetSync(ctx, &reader_v2.SyncsReaderServiceGetSyncRequest{SyncId: syncID})
+	require.NoError(t, err)
+
+	syncStats := sync.GetSync().GetStats()
+	require.NotNil(t, syncStats, "GetSync stats")
+
+	// Validate all fields for syncStats.
+	require.Equal(t, int64(2), syncStats.GetResourceTypes(), "syncStats.ResourceTypes")
+	require.Equal(t, int64(3), syncStats.GetResources(), "syncStats.Resources")
+	// No entitlements were written, only grants that reference them.
+	require.Equal(t, int64(0), syncStats.GetEntitlements(), "syncStats.Entitlements")
+	require.Equal(t, int64(3), syncStats.GetGrants(), "syncStats.Grants")
+	require.Equal(t, map[string]int64{"user": 2, "group": 1}, syncStats.GetResourcesByResourceType(), "syncStats.ResourcesByResourceType")
+	require.Empty(t, syncStats.GetEntitlementsByResourceType(), "syncStats.EntitlementsByResourceType")
+	// GrantsByResourceType partitions by the entitlement's resource type,
+	// which mkV2Grant always sets to "app".
+	require.Equal(t, map[string]int64{"app": 3}, syncStats.GetGrantsByResourceType(), "syncStats.GrantsByResourceType")
 }
