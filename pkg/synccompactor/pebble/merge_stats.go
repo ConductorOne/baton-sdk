@@ -23,16 +23,18 @@ import (
 // conversion for reads); a key string is materialized only on the
 // first occurrence of each resource type.
 type mergeStatsAccumulator struct {
-	totals        [runBucketCount]int64
-	resourcesByRT map[string]*int64
-	grantsByEntRT map[string]*int64
-	scratch       rawIndexScratch
+	totals           [runBucketCount]int64
+	resourcesByRT    map[string]*int64
+	entitlementsByRT map[string]*int64
+	grantsByEntRT    map[string]*int64
+	scratch          rawIndexScratch
 }
 
 func newMergeStatsAccumulator() *mergeStatsAccumulator {
 	return &mergeStatsAccumulator{
-		resourcesByRT: map[string]*int64{},
-		grantsByEntRT: map[string]*int64{},
+		resourcesByRT:    map[string]*int64{},
+		entitlementsByRT: map[string]*int64{},
+		grantsByEntRT:    map[string]*int64{},
 	}
 }
 
@@ -62,6 +64,13 @@ func (a *mergeStatsAccumulator) groupResource(rt []byte) {
 	incrGroup(a.resourcesByRT, rt)
 }
 
+func (a *mergeStatsAccumulator) groupEntitlement(rt []byte) {
+	if a == nil {
+		return
+	}
+	incrGroup(a.entitlementsByRT, rt)
+}
+
 func (a *mergeStatsAccumulator) groupGrant(entRT []byte) {
 	if a == nil {
 		return
@@ -83,13 +92,28 @@ func (a *mergeStatsAccumulator) regroupGrant(oldRT, newRT []byte) {
 	incrGroup(a.grantsByEntRT, newRT)
 }
 
+// regroupEntitlement moves one entitlement from oldRT's group to
+// newRT's when an overlay replacement swaps in a value whose resource
+// has a different resource type. Totals are untouched — the replacement
+// targets the same logical key, which was counted at first admission.
+func (a *mergeStatsAccumulator) regroupEntitlement(oldRT, newRT []byte) {
+	if a == nil || bytes.Equal(oldRT, newRT) {
+		return
+	}
+	if p, ok := a.entitlementsByRT[string(oldRT)]; ok {
+		*p--
+	}
+	incrGroup(a.entitlementsByRT, newRT)
+}
+
 // resetBucket zeroes one bucket's accumulated counts. Used by the
 // overlay merge's restart path: the bucket's dest keyspace is
 // range-deleted and re-materialized through the blind K-way path, so
 // every overlay-era count for it is stale. The per-RT group maps are
 // per-record-type (resourcesByRT only ever holds resources-bucket
-// counts, grantsByEntRT only grants), so clearing the matching map
-// cannot disturb another bucket's grouping.
+// counts, entitlementsByRT only entitlements, grantsByEntRT only
+// grants), so clearing the matching map cannot disturb another bucket's
+// grouping.
 func (a *mergeStatsAccumulator) resetBucket(bucketID int) {
 	if a == nil {
 		return
@@ -98,13 +122,15 @@ func (a *mergeStatsAccumulator) resetBucket(bucketID int) {
 	switch bucketID {
 	case runBucketResources:
 		clear(a.resourcesByRT)
+	case runBucketEntitlements:
+		clear(a.entitlementsByRT)
 	case runBucketGrants:
 		clear(a.grantsByEntRT)
 	}
 }
 
 // countWinner is the K-way variant: total plus grouping derived from
-// the winner's key (resources) or value (grants).
+// the winner's key (resources) or value (entitlements, grants).
 func (a *mergeStatsAccumulator) countWinner(bucket bucketSpec, destKey []byte, destLower []byte, value []byte) error {
 	if a == nil {
 		return nil
@@ -117,6 +143,12 @@ func (a *mergeStatsAccumulator) countWinner(bucket bucketSpec, destKey []byte, d
 			return err
 		}
 		incrGroup(a.resourcesByRT, rt)
+	case runBucketEntitlements:
+		rt, _, err := scanEntitlementResourceBytes(value)
+		if err != nil {
+			return err
+		}
+		incrGroup(a.entitlementsByRT, rt)
 	case runBucketGrants:
 		entRT, _, _, _, _, _, err := scanGrantIndexFieldsBytes(value)
 		if err != nil {
@@ -143,11 +175,16 @@ func (a *mergeStatsAccumulator) record() *v3.SyncStatsRecord {
 	for rt, p := range a.resourcesByRT {
 		resourcesByRT[rt] = *p
 	}
+	entitlementsByRT := make(map[string]int64, len(a.entitlementsByRT))
+	for rt, p := range a.entitlementsByRT {
+		entitlementsByRT[rt] = *p
+	}
 	grantsByEntRT := make(map[string]int64, len(a.grantsByEntRT))
 	for rt, p := range a.grantsByEntRT {
 		grantsByEntRT[rt] = *p
 	}
 	rec.SetResourcesByResourceType(resourcesByRT)
+	rec.SetEntitlementsByResourceType(entitlementsByRT)
 	rec.SetGrantsByEntitlementResourceType(grantsByEntRT)
 	return rec
 }
@@ -167,6 +204,14 @@ func (a *mergeStatsAccumulator) addRecord(rec *v3.SyncStatsRecord) {
 		}
 		n := count
 		a.resourcesByRT[rt] = &n
+	}
+	for rt, count := range rec.GetEntitlementsByResourceType() {
+		if p, ok := a.entitlementsByRT[rt]; ok {
+			*p += count
+			continue
+		}
+		n := count
+		a.entitlementsByRT[rt] = &n
 	}
 	for rt, count := range rec.GetGrantsByEntitlementResourceType() {
 		if p, ok := a.grantsByEntRT[rt]; ok {

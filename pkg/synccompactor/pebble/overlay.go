@@ -1280,6 +1280,7 @@ func forEachIndexKeyFromRaw(
 		if err != nil {
 			return err
 		}
+		stats.groupEntitlement(resourceRT)
 		if len(resourceID) == 0 {
 			return nil
 		}
@@ -1667,8 +1668,9 @@ func (w *overlayBucketRawWriter) addRaw(ctx context.Context, bucket bucketSpec, 
 // uncommitted batch, so we flush first and read it back from the DB.
 //
 // Totals are unchanged (same logical key, already counted at first
-// admission); only the grant per-RT grouping can move, because the
-// entitlement resource type lives in the value.
+// admission); only the per-RT grouping can move, because the grant's
+// entitlement resource type and the entitlement's resource type both
+// live in the value.
 func (w *overlayBucketRawWriter) replaceRaw(ctx context.Context, bucket bucketSpec, destKey []byte, destLower []byte, value []byte) error {
 	w.replacements++
 	if err := w.flush(ctx); err != nil {
@@ -1696,7 +1698,8 @@ func (w *overlayBucketRawWriter) replaceRaw(ctx context.Context, bucket bucketSp
 			return err
 		}
 	}
-	if bucket.id == runBucketGrants {
+	switch bucket.id {
+	case runBucketGrants:
 		oldEntRT, _, _, _, _, _, err := scanGrantIndexFieldsBytes(oldVal)
 		if err != nil {
 			closer.Close()
@@ -1708,6 +1711,18 @@ func (w *overlayBucketRawWriter) replaceRaw(ctx context.Context, bucket bucketSp
 			return err
 		}
 		w.stats.regroupGrant(oldEntRT, newEntRT)
+	case runBucketEntitlements:
+		oldRT, _, err := scanEntitlementResourceBytes(oldVal)
+		if err != nil {
+			closer.Close()
+			return err
+		}
+		newRT, _, err := scanEntitlementResourceBytes(value)
+		if err != nil {
+			closer.Close()
+			return err
+		}
+		w.stats.regroupEntitlement(oldRT, newRT)
 	}
 	closer.Close()
 	if err := w.primary.Set(destKey, value, nil); err != nil {

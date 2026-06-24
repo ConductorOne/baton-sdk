@@ -2,6 +2,7 @@ package pebble
 
 import (
 	"context"
+	"fmt"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -107,8 +108,12 @@ func statsRecordToMap(s *v3.SyncStatsRecord) map[string]int64 {
 		"assets":         s.GetAssets(),
 	}
 	for rt, n := range s.GetResourcesByResourceType() {
+		out[fmt.Sprintf("%s_grant_count", rt)] = s.GetGrantsByEntitlementResourceType()[rt]
+		out[fmt.Sprintf("%s_entitlement_count", rt)] = s.GetEntitlementsByResourceType()[rt]
+		
 		out[rt] = n
 	}
+
 	return out
 }
 

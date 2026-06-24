@@ -144,9 +144,31 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	}
 	rec.SetResources(resources)
 
-	entitlements, err := countKeyRange(ctx, e.db, EntitlementLowerBound(), EntitlementUpperBound(), nil)
+	// Entitlement primary keys sort by external id, so resource-type
+	// groups are NOT contiguous. map[string]*int64 keeps the per-row map
+	// read allocation-free and only materializes a key string the first
+	// time each resource type appears (same shape as the grant grouping
+	// below).
+	entitlementsByRTPtr := map[string]*int64{}
+	entitlements, err := countKeyRange(ctx, e.db, EntitlementLowerBound(), EntitlementUpperBound(), func(_ []byte, value []byte) error {
+		rt, err := scanEntitlementResourceTypeRaw(value)
+		if err != nil {
+			return err
+		}
+		if p, ok := entitlementsByRTPtr[string(rt)]; ok {
+			*p++
+			return nil
+		}
+		n := int64(1)
+		entitlementsByRTPtr[string(rt)] = &n
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: entitlements: %w", err)
+	}
+	entitlementsByRT := make(map[string]int64, len(entitlementsByRTPtr))
+	for rt, p := range entitlementsByRTPtr {
+		entitlementsByRT[rt] = *p
 	}
 	rec.SetEntitlements(entitlements)
 
@@ -183,6 +205,7 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	}
 	rec.SetAssets(assets)
 	rec.SetResourcesByResourceType(resourcesByRT)
+	rec.SetEntitlementsByResourceType(entitlementsByRT)
 	rec.SetGrantsByEntitlementResourceType(grantsByEntitlementRT)
 	rec.SetWrittenAt(timestamppb.Now())
 	return rec, nil

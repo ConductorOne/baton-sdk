@@ -197,6 +197,47 @@ func scanGrantEntitlementResourceTypeRaw(value []byte) ([]byte, error) {
 	return entRT, nil
 }
 
+// scanEntitlementResourceTypeRaw extracts only the entitlement's
+// resource_type_id (its own resource's type) from a marshaled
+// EntitlementRecord, borrowing the bytes from value. The stats grouping
+// path needs just this one field; scanEntitlementResourceRaw
+// materializes two strings per entitlement. Like the full scanner, the
+// last occurrence of the resource field wins.
+func scanEntitlementResourceTypeRaw(value []byte) ([]byte, error) {
+	var rt []byte
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != 3 {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			value = value[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return nil, fmt.Errorf("raw record: entitlement resource has wire type %v", typ)
+		}
+		msg, n := protowire.ConsumeBytes(value)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		if err := scanResourceRefRawBytes(msg, func(fnum protowire.Number, val []byte) {
+			if fnum == 1 {
+				rt = val
+			}
+		}); err != nil {
+			return nil, err
+		}
+		value = value[n:]
+	}
+	return rt, nil
+}
+
 // scanResourceParentRaw and scanEntitlementResourceRaw keep the LAST
 // occurrence of the target field, matching scanGrantIndexFieldsRaw and
 // approximating proto merge semantics. Values written by this SDK carry

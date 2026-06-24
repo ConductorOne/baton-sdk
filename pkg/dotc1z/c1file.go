@@ -1139,8 +1139,11 @@ func statsToMap(stats *reader_v2.SyncStats, syncType connectorstore.SyncType) ma
 		out["grants"] = stats.GetGrants()
 	}
 	for rt, n := range stats.GetResourcesByResourceType() {
+		out[fmt.Sprintf("%s_grant_count", rt)] = stats.GetGrantsByResourceType()[rt]
+		out[fmt.Sprintf("%s_entitlement_count", rt)] = stats.GetEntitlementsByResourceType()[rt]
 		out[rt] = n
 	}
+
 	return out
 }
 
@@ -1185,12 +1188,13 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 
 	// Slow path: Calculate sync stats and save them to the sync run so subsequent stats calls
 	stats = &reader_v2.SyncStats{
-		ResourceTypes:           0,
-		Resources:               0,
-		Entitlements:            0,
-		Grants:                  0,
-		ResourcesByResourceType: make(map[string]int64),
-		GrantsByResourceType:    make(map[string]int64),
+		ResourceTypes:              0,
+		Resources:                  0,
+		Entitlements:               0,
+		Grants:                     0,
+		ResourcesByResourceType:    make(map[string]int64),
+		GrantsByResourceType:       make(map[string]int64),
+		EntitlementsByResourceType: make(map[string]int64),
 	}
 
 	var rtStats []*v2.ResourceType
@@ -1237,13 +1241,15 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 	}
 
 	if syncType != connectorstore.SyncTypeResourcesOnly {
-		entitlementsCount, err := c.db.From(entitlements.Name()).
-			Where(goqu.C("sync_id").Eq(syncId)).
-			CountContext(ctx)
+		entitlementCounts, err := c.countBySyncAndResourceType(ctx, entitlements.Name(), syncId)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("count entitlements: %w", err)
 		}
-		stats.Entitlements = entitlementsCount
+		stats.EntitlementsByResourceType = entitlementCounts
+
+		for _, entitlementsCount := range entitlementCounts {
+			stats.Entitlements += entitlementsCount
+		}
 
 		grantCounts, err := c.countBySyncAndResourceType(ctx, grants.Name(), syncId)
 		if err != nil {

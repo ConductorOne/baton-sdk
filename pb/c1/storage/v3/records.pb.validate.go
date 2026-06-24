@@ -1469,6 +1469,8 @@ func (m *SyncStatsRecord) validate(all bool) error {
 
 	// no validation rules for GrantsByEntitlementResourceType
 
+	// no validation rules for EntitlementsByResourceType
+
 	if all {
 		switch v := interface{}(m.GetWrittenAt()).(type) {
 		case interface{ ValidateAll() error }:

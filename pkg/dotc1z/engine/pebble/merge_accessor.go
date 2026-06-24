@@ -60,12 +60,13 @@ func SyncStatsFromRecord(stats *v3.SyncStatsRecord) *reader_v2.SyncStats {
 		return nil
 	}
 	return reader_v2.SyncStats_builder{
-		ResourceTypes:           stats.GetResourceTypes(),
-		Resources:               stats.GetResources(),
-		Entitlements:            stats.GetEntitlements(),
-		Grants:                  stats.GetGrants(),
-		ResourcesByResourceType: stats.GetResourcesByResourceType(),
-		GrantsByResourceType:    stats.GetGrantsByEntitlementResourceType(),
+		ResourceTypes:              stats.GetResourceTypes(),
+		Resources:                  stats.GetResources(),
+		Entitlements:               stats.GetEntitlements(),
+		Grants:                     stats.GetGrants(),
+		ResourcesByResourceType:    stats.GetResourcesByResourceType(),
+		EntitlementsByResourceType: stats.GetEntitlementsByResourceType(),
+		GrantsByResourceType:       stats.GetGrantsByEntitlementResourceType(),
 	}.Build()
 }
 

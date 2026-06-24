@@ -1344,6 +1344,7 @@ type SyncStatsRecord struct {
 	xxx_hidden_Assets                          int64                  `protobuf:"varint,6,opt,name=assets,proto3"`
 	xxx_hidden_ResourcesByResourceType         map[string]int64       `protobuf:"bytes,7,rep,name=resources_by_resource_type,json=resourcesByResourceType,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	xxx_hidden_GrantsByEntitlementResourceType map[string]int64       `protobuf:"bytes,8,rep,name=grants_by_entitlement_resource_type,json=grantsByEntitlementResourceType,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	xxx_hidden_EntitlementsByResourceType      map[string]int64       `protobuf:"bytes,9,rep,name=entitlements_by_resource_type,json=entitlementsByResourceType,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	xxx_hidden_WrittenAt                       *timestamppb.Timestamp `protobuf:"bytes,100,opt,name=written_at,json=writtenAt,proto3"`
 	unknownFields                              protoimpl.UnknownFields
 	sizeCache                                  protoimpl.SizeCache
@@ -1430,6 +1431,13 @@ func (x *SyncStatsRecord) GetGrantsByEntitlementResourceType() map[string]int64 
 	return nil
 }
 
+func (x *SyncStatsRecord) GetEntitlementsByResourceType() map[string]int64 {
+	if x != nil {
+		return x.xxx_hidden_EntitlementsByResourceType
+	}
+	return nil
+}
+
 func (x *SyncStatsRecord) GetWrittenAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.xxx_hidden_WrittenAt
@@ -1469,6 +1477,10 @@ func (x *SyncStatsRecord) SetGrantsByEntitlementResourceType(v map[string]int64)
 	x.xxx_hidden_GrantsByEntitlementResourceType = v
 }
 
+func (x *SyncStatsRecord) SetEntitlementsByResourceType(v map[string]int64) {
+	x.xxx_hidden_EntitlementsByResourceType = v
+}
+
 func (x *SyncStatsRecord) SetWrittenAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_WrittenAt = v
 }
@@ -1500,7 +1512,9 @@ type SyncStatsRecord_builder struct {
 	// (matching the SQLite grants table's resource_type_id column
 	// semantic, NOT the principal's resource type).
 	GrantsByEntitlementResourceType map[string]int64
-	WrittenAt                       *timestamppb.Timestamp
+	// Per-resource-type entitlements counts: keyed by resource_type_id.
+	EntitlementsByResourceType map[string]int64
+	WrittenAt                  *timestamppb.Timestamp
 }
 
 func (b0 SyncStatsRecord_builder) Build() *SyncStatsRecord {
@@ -1515,6 +1529,7 @@ func (b0 SyncStatsRecord_builder) Build() *SyncStatsRecord {
 	x.xxx_hidden_Assets = b.Assets
 	x.xxx_hidden_ResourcesByResourceType = b.ResourcesByResourceType
 	x.xxx_hidden_GrantsByEntitlementResourceType = b.GrantsByEntitlementResourceType
+	x.xxx_hidden_EntitlementsByResourceType = b.EntitlementsByResourceType
 	x.xxx_hidden_WrittenAt = b.WrittenAt
 	return m0
 }
@@ -1605,7 +1620,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"sync_token\x18\x06 \x01(\tR\tsyncToken\x12#\n" +
 	"\rsupports_diff\x18\a \x01(\bR\fsupportsDiff\x12$\n" +
 	"\x0elinked_sync_id\x18\b \x01(\tR\flinkedSyncId:\x18\x82\xf9+\x14\n" +
-	"\tsync_runs\x12\async_id\"\xac\x05\n" +
+	"\tsync_runs\x12\async_id\"\xff\x06\n" +
 	"\x0fSyncStatsRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12%\n" +
 	"\x0eresource_types\x18\x02 \x01(\x03R\rresourceTypes\x12\x1c\n" +
@@ -1614,13 +1629,17 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x06grants\x18\x05 \x01(\x03R\x06grants\x12\x16\n" +
 	"\x06assets\x18\x06 \x01(\x03R\x06assets\x12x\n" +
 	"\x1aresources_by_resource_type\x18\a \x03(\v2;.c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntryR\x17resourcesByResourceType\x12\x91\x01\n" +
-	"#grants_by_entitlement_resource_type\x18\b \x03(\v2C.c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntryR\x1fgrantsByEntitlementResourceType\x129\n" +
+	"#grants_by_entitlement_resource_type\x18\b \x03(\v2C.c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntryR\x1fgrantsByEntitlementResourceType\x12\x81\x01\n" +
+	"\x1dentitlements_by_resource_type\x18\t \x03(\v2>.c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntryR\x1aentitlementsByResourceType\x129\n" +
 	"\n" +
 	"written_at\x18d \x01(\v2\x1a.google.protobuf.TimestampR\twrittenAt\x1aJ\n" +
 	"\x1cResourcesByResourceTypeEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aR\n" +
 	"$GrantsByEntitlementResourceTypeEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aM\n" +
+	"\x1fEntitlementsByResourceTypeEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01*\xae\x01\n" +
 	"\bSyncType\x12\x19\n" +
@@ -1632,7 +1651,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
 var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_c1_storage_v3_records_proto_goTypes = []any{
 	(SyncType)(0),                 // 0: c1.storage.v3.SyncType
 	(*GrantExpandableRecord)(nil), // 1: c1.storage.v3.GrantExpandableRecord
@@ -1647,40 +1666,42 @@ var file_c1_storage_v3_records_proto_goTypes = []any{
 	nil,                           // 10: c1.storage.v3.GrantRecord.SourcesEntry
 	nil,                           // 11: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
 	nil,                           // 12: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	(*anypb.Any)(nil),             // 13: google.protobuf.Any
-	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
-	(*ResourceRef)(nil),           // 15: c1.storage.v3.ResourceRef
-	(*EntitlementRef)(nil),        // 16: c1.storage.v3.EntitlementRef
-	(*PrincipalRef)(nil),          // 17: c1.storage.v3.PrincipalRef
+	nil,                           // 13: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	(*anypb.Any)(nil),             // 14: google.protobuf.Any
+	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
+	(*ResourceRef)(nil),           // 16: c1.storage.v3.ResourceRef
+	(*EntitlementRef)(nil),        // 17: c1.storage.v3.EntitlementRef
+	(*PrincipalRef)(nil),          // 18: c1.storage.v3.PrincipalRef
 }
 var file_c1_storage_v3_records_proto_depIdxs = []int32{
-	13, // 0: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
-	14, // 1: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	15, // 2: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
-	13, // 3: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
-	14, // 4: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	15, // 5: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
-	13, // 6: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
-	14, // 7: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	16, // 8: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
-	17, // 9: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
-	14, // 10: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	14, // 0: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
+	15, // 1: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	16, // 2: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
+	14, // 3: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
+	15, // 4: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	16, // 5: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
+	14, // 6: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
+	15, // 7: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	17, // 8: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
+	18, // 9: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
+	15, // 10: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	1,  // 11: c1.storage.v3.GrantRecord.expansion:type_name -> c1.storage.v3.GrantExpandableRecord
-	13, // 12: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
+	14, // 12: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
 	10, // 13: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
-	14, // 14: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	15, // 14: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	0,  // 15: c1.storage.v3.SyncRunRecord.type:type_name -> c1.storage.v3.SyncType
-	14, // 16: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
-	14, // 17: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
+	15, // 16: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
+	15, // 17: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
 	11, // 18: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
 	12, // 19: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	14, // 20: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
-	2,  // 21: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
-	22, // [22:22] is the sub-list for method output_type
-	22, // [22:22] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	13, // 20: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	15, // 21: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
+	2,  // 22: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
+	23, // [23:23] is the sub-list for method output_type
+	23, // [23:23] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_c1_storage_v3_records_proto_init() }
@@ -1696,7 +1717,7 @@ func file_c1_storage_v3_records_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_storage_v3_records_proto_rawDesc), len(file_c1_storage_v3_records_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
