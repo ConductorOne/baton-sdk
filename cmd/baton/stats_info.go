@@ -52,13 +52,13 @@ func runSyncRunInfo(cmd *cobra.Command, args []string) error {
 
 	sync := syncResp.GetSync()
 
-	if outputFormat == "json" {
-		return outputManager.Output(ctx, sync)
-	}
-
 	if sync == nil {
 		pterm.Info.Println("No finished sync found in the c1z")
 		return nil
+	}
+
+	if outputFormat == "json" {
+		return outputManager.Output(ctx, sync)
 	}
 
 	if err := renderSyncRunInfo(sync); err != nil {
