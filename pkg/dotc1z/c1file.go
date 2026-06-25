@@ -1295,7 +1295,7 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 		SyncToken:    sync.SyncToken,
 		SyncType:     string(sync.Type),
 		ParentSyncId: sync.ParentSyncID,
-		Stats:        sync.Stats,
+		Stats:        stats,
 	}, stats, nil
 }
 
