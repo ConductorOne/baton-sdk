@@ -27,7 +27,6 @@ func main() {
 	cliCmd.AddCommand(entitlementsCmd())
 	cliCmd.AddCommand(grantsCmd())
 	cliCmd.AddCommand(statsCmd())
-	cliCmd.AddCommand(syncRunInfoCmd())
 	cliCmd.AddCommand(diffCmd())
 	cliCmd.AddCommand(export())
 	cliCmd.AddCommand(principalsCmd())
