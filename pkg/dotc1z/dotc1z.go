@@ -3,17 +3,13 @@ package dotc1z
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"go.uber.org/zap"
 
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
 
 var (
@@ -65,11 +61,6 @@ func recordC1ZSize(ctx context.Context, phase string, sizeBytes int64) {
 	c1zSizeGauge.Record(ctx, sizeBytes, metric.WithAttributes(attrs...))
 }
 
-// NewC1FileReader returns a connectorstore.Reader implementation for the given sqlite db file path.
-func NewC1FileReader(ctx context.Context, dbFilePath string, opts ...C1FOption) (connectorstore.Reader, error) {
-	return NewC1File(ctx, dbFilePath, opts...)
-}
-
 // NewC1ZFileDecoder wraps a given .c1z io.Reader that validates the .c1z and decompresses/decodes the underlying file.
 // Defaults: 128MiB max memory and 3GiB max decoded size
 // You must close the resulting io.ReadCloser when you are done, do not forget to close the given io.Reader if necessary.
@@ -99,23 +90,4 @@ func C1ZFileCheckHeader(f io.ReadSeeker) (bool, error) {
 	}
 
 	return true, nil
-}
-
-func NewExternalC1FileReader(ctx context.Context, tmpDir string, externalResourceC1ZPath string) (connectorstore.Reader, error) {
-	dbFilePath, _, err := decompressC1z(externalResourceC1ZPath, tmpDir)
-	if err != nil {
-		return nil, fmt.Errorf("error loading external resource c1z file: %w", err)
-	}
-	l := ctxzap.Extract(ctx)
-	l.Debug("new-external-c1z-file: decompressed c1z",
-		zap.String("db_file_path", dbFilePath),
-		zap.String("external_resource_c1z_path", externalResourceC1ZPath),
-	)
-
-	c1File, err := NewC1File(ctx, dbFilePath, WithC1FReadOnly(true))
-	if err != nil {
-		return nil, cleanupDbDir(dbFilePath, err)
-	}
-
-	return c1File, nil
 }
