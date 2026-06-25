@@ -255,7 +255,8 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 	var fileEngine Engine
 	switch format {
 	case C1ZFormatV1:
-		if shouldConvertSQLiteToPebble(requested, options.readOnly, true) {
+		// Maybe error if the file is read-only?
+		if requested == EnginePebble && !options.readOnly {
 			// Close our header-read handle before converting: the conversion
 			// renames a temp file over outputFilePath, which fails on Windows
 			// if any handle to the destination is still open. Nil out f so

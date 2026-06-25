@@ -12,10 +12,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
-func shouldConvertSQLiteToPebble(engine Engine, readOnly bool, existingSQLite bool) bool {
-	return engine == EnginePebble && !readOnly && existingSQLite
-}
-
 type pebbleOpenOptions struct {
 	tmpDir             string
 	pragmas            []pragma
