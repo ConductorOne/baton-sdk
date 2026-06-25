@@ -157,7 +157,7 @@ func TestGrantExpandableSurvivesCloseReopen(t *testing.T) {
 
 	// Phase 1: Create store, write expandable grant, close.
 	func() {
-		c1f, err := NewC1ZFile(ctx, tmpPath)
+		c1f, err := newC1ZFile(ctx, tmpPath)
 		require.NoError(t, err)
 
 		_, err = c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -195,7 +195,7 @@ func TestGrantExpandableSurvivesCloseReopen(t *testing.T) {
 	}()
 
 	// Phase 2: Reopen and verify expansion survived.
-	c1f2, err := NewC1ZFile(ctx, tmpPath)
+	c1f2, err := newC1ZFile(ctx, tmpPath)
 	require.NoError(t, err)
 	defer c1f2.Close(ctx)
 
@@ -276,7 +276,7 @@ func TestDiffDetectsExpansionAnnotationChange(t *testing.T) {
 	// OLD: grant with expansion annotation pointing to ent1.
 	// Use normal locking mode so the file can be attached later.
 	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
-	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	oldFile, err := newC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -299,7 +299,7 @@ func TestDiffDetectsExpansionAnnotationChange(t *testing.T) {
 	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
 
 	// NEW: same grant but expansion annotation now has Shallow=true (different expansion).
-	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	newFile, err := newC1ZFile(ctx, newPath, opts...)
 	require.NoError(t, err)
 
 	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -374,7 +374,7 @@ func TestDiffDetectsDataOnlyChange(t *testing.T) {
 	// OLD: grant with sources={}.
 	// Use normal locking mode so the file can be attached later.
 	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
-	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	oldFile, err := newC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -394,7 +394,7 @@ func TestDiffDetectsDataOnlyChange(t *testing.T) {
 	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
 
 	// NEW: same expansion, but grant now has sources (data blob changes).
-	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	newFile, err := newC1ZFile(ctx, newPath, opts...)
 	require.NoError(t, err)
 
 	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -460,7 +460,7 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 1: Create a c1z and write grants the "new" way (expansion column populated).
-	c1f, err := NewC1ZFile(ctx, tmpFile.Name())
+	c1f, err := newC1ZFile(ctx, tmpFile.Name())
 	require.NoError(t, err)
 
 	defer c1f.Close(ctx)
@@ -669,7 +669,7 @@ func setupTestC1Z(ctx context.Context, t *testing.T) (*C1File, string, func()) {
 	err = tmpFile.Close()
 	require.NoError(t, err)
 
-	c1f, err := NewC1ZFile(ctx, tmpFile.Name())
+	c1f, err := newC1ZFile(ctx, tmpFile.Name())
 	require.NoError(t, err)
 
 	syncID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")

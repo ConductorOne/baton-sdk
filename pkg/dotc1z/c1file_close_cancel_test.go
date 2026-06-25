@@ -48,7 +48,7 @@ func TestC1FileCloseSurvivesCanceledCtx(t *testing.T) {
 			testFilePath := filepath.Join(c1zTests.workingDir, "close-cancel-"+tc.slug+".c1z")
 
 			openCtx := t.Context()
-			f, err := NewC1ZFile(openCtx, testFilePath)
+			f, err := newC1ZFile(openCtx, testFilePath)
 			require.NoError(t, err)
 
 			_, err = f.StartNewSync(openCtx, connectorstore.SyncTypeFull, "")
@@ -75,7 +75,7 @@ func TestC1FileCloseSurvivesCanceledCtx(t *testing.T) {
 			// Use context.Background here, not openCtx — t.Context() is
 			// cancelled BEFORE t.Cleanup runs, so a defer/Cleanup-style
 			// close on openCtx would swallow any real cleanup error.
-			f2, err := NewC1ZFile(openCtx, testFilePath)
+			f2, err := newC1ZFile(openCtx, testFilePath)
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				require.NoError(t, f2.Close(context.Background()))
@@ -100,14 +100,14 @@ func TestC1FileCloseReadOnlyClosesRawDb(t *testing.T) {
 	testFilePath := filepath.Join(c1zTests.workingDir, "close-readonly.c1z")
 
 	// Seed a c1z so we can reopen it read-only.
-	f, err := NewC1ZFile(openCtx, testFilePath)
+	f, err := newC1ZFile(openCtx, testFilePath)
 	require.NoError(t, err)
 	_, err = f.StartNewSync(openCtx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, f.EndSync(openCtx))
 	require.NoError(t, f.Close(openCtx))
 
-	f2, err := NewC1ZFile(openCtx, testFilePath, WithReadOnly(true))
+	f2, err := newC1ZFile(openCtx, testFilePath, WithReadOnly(true))
 	require.NoError(t, err)
 	require.NotNil(t, f2.rawDb, "fixture: rawDb should be open after NewC1ZFile")
 
@@ -127,14 +127,14 @@ func TestC1FileCloseReadOnlyButDirtyClosesRawDb(t *testing.T) {
 	openCtx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "close-readonly-dirty.c1z")
 
-	f, err := NewC1ZFile(openCtx, testFilePath)
+	f, err := newC1ZFile(openCtx, testFilePath)
 	require.NoError(t, err)
 	_, err = f.StartNewSync(openCtx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, f.EndSync(openCtx))
 	require.NoError(t, f.Close(openCtx))
 
-	f2, err := NewC1ZFile(openCtx, testFilePath, WithReadOnly(true))
+	f2, err := newC1ZFile(openCtx, testFilePath, WithReadOnly(true))
 	require.NoError(t, err)
 	require.NotNil(t, f2.rawDb)
 	// Force the readonly+dbUpdated cheap-path branch.

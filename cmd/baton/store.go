@@ -10,7 +10,7 @@ import (
 )
 
 func openReadOnlyC1ZStore(ctx context.Context, path string) (dotc1z.C1ZStore, error) {
-	c1zStore, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
+	c1zStore, err := dotc1z.OpenStore(ctx, path, dotc1z.WithReadOnly(true))
 	if err != nil {
 		return nil, err
 	}

@@ -36,7 +36,7 @@ func setupBenchmarkDB(b *testing.B, numGrants int, slim bool) (*C1File, string, 
 		opts = append(opts, WithV2GrantsWriter(true))
 	}
 
-	f, err := NewC1ZFile(ctx, testFilePath, opts...)
+	f, err := newC1ZFile(ctx, testFilePath, opts...)
 	require.NoError(b, err)
 
 	// Start a sync

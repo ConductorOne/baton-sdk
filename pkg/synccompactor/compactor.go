@@ -347,12 +347,18 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		opts = append(opts, dotc1z.WithDecoderPool(c.decoderPool))
 	}
 
-	if c.resolvedEngine() == dotc1z.EnginePebble {
+	switch {
+	case foldMode:
+		// Fold copied the base input to destFilePath above; the store is
+		// opened (not created) so partials can be folded into the existing
+		// base keyspace. CreateStore would reject the pre-copied path.
+		c.compactedC1z, err = dotc1z.OpenStore(ctx, destFilePath, append(opts, dotc1z.WithEngine(dotc1z.EnginePebble))...)
+	case c.resolvedEngine() == dotc1z.EnginePebble:
 		// Force the resolved engine last so a stray engine passed via
 		// WithC1ZOptions cannot mislabel the artifact.
-		c.compactedC1z, err = dotc1z.NewStore(ctx, destFilePath, append(opts, dotc1z.WithEngine(dotc1z.EnginePebble))...)
-	} else {
-		c.compactedC1z, err = dotc1z.NewStore(ctx, destFilePath, opts...)
+		c.compactedC1z, err = dotc1z.CreateStore(ctx, destFilePath, append(opts, dotc1z.WithEngine(dotc1z.EnginePebble))...)
+	default:
+		c.compactedC1z, err = dotc1z.CreateStore(ctx, destFilePath, opts...)
 	}
 	if err != nil {
 		l.Error("doOneCompaction failed: could not create c1z file", zap.Error(err))
@@ -535,7 +541,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) er
 		zap.String("tmp_dir", c.tmpDir),
 	)
 
-	applyFile, err := dotc1z.NewStore(
+	applyFile, err := dotc1z.OpenStore(
 		ctx,
 		cs.FilePath,
 		dotc1z.WithTmpDir(c.tmpDir),

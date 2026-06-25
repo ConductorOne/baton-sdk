@@ -25,7 +25,7 @@ func TestSimulateWALRace(t *testing.T) {
 	testFilePath := filepath.Join(tmpDir, "simulate_race.c1z")
 
 	// Create a c1z file with WAL mode
-	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	f, err := newC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
 
 	_, err = f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -113,7 +113,7 @@ func TestSimulateWALRace(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now try to open each as a c1z and count resource types
-	beforeFile, err := NewC1ZFile(ctx, beforeC1z, WithPragma("journal_mode", "WAL"), WithReadOnly(true))
+	beforeFile, err := newC1ZFile(ctx, beforeC1z, WithPragma("journal_mode", "WAL"), WithReadOnly(true))
 	require.NoError(t, err)
 	beforeStats, err := beforeFile.Stats(ctx, connectorstore.SyncTypeFull, "")
 	if err != nil {
@@ -123,7 +123,7 @@ func TestSimulateWALRace(t *testing.T) {
 	}
 	require.NoError(t, beforeFile.Close(ctx))
 
-	afterFile, err := NewC1ZFile(ctx, afterC1z, WithPragma("journal_mode", "WAL"), WithReadOnly(true))
+	afterFile, err := newC1ZFile(ctx, afterC1z, WithPragma("journal_mode", "WAL"), WithReadOnly(true))
 	require.NoError(t, err)
 	afterStats, err := afterFile.Stats(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)

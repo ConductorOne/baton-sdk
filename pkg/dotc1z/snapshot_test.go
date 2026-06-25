@@ -81,7 +81,7 @@ func TestSnapshotIncludesUnendedSyncs(t *testing.T) {
 	dstPath := filepath.Join(tmp, "dst.c1z")
 	snapPath := filepath.Join(tmp, "snap.c1z")
 
-	f, err := NewC1ZFile(ctx, dstPath)
+	f, err := newC1ZFile(ctx, dstPath)
 	require.NoError(t, err)
 	endedID := writeSnapSync(t, ctx, f, "a-", 3, true)    // ended
 	unendedID := writeSnapSync(t, ctx, f, "b-", 2, false) // in-progress
@@ -89,7 +89,7 @@ func TestSnapshotIncludesUnendedSyncs(t *testing.T) {
 	require.NoError(t, f.SnapshotTo(ctx, snapPath))
 	require.NoError(t, f.Close(ctx))
 
-	snap, err := NewC1ZFile(ctx, snapPath, WithReadOnly(true))
+	snap, err := newC1ZFile(ctx, snapPath, WithReadOnly(true))
 	require.NoError(t, err)
 	defer snap.Close(ctx)
 
@@ -114,7 +114,7 @@ func TestSnapshotAtomicityOnFailure(t *testing.T) {
 	dstPath := filepath.Join(tmp, "dst.c1z")
 	badOut := filepath.Join(tmp, "missing-dir", "snap.c1z") // parent dir does not exist
 
-	f, err := NewC1ZFile(ctx, dstPath)
+	f, err := newC1ZFile(ctx, dstPath)
 	require.NoError(t, err)
 	writeSnapSync(t, ctx, f, "a-", 2, true)
 
@@ -128,7 +128,7 @@ func TestSnapshotAtomicityOnFailure(t *testing.T) {
 	writeSnapSync(t, ctx, f, "b-", 1, true)
 	require.NoError(t, f.Close(ctx))
 
-	reopened, err := NewC1ZFile(ctx, dstPath, WithReadOnly(true))
+	reopened, err := newC1ZFile(ctx, dstPath, WithReadOnly(true))
 	require.NoError(t, err)
 	defer reopened.Close(ctx)
 	require.Len(t, listAllSyncRuns(t, ctx, reopened), 2, "both syncs written around the failed snapshot must be present")
@@ -143,7 +143,7 @@ func TestSnapshotLiveHandleStillWritable(t *testing.T) {
 	dstPath := filepath.Join(tmp, "dst.c1z")
 	snapPath := filepath.Join(tmp, "snap.c1z")
 
-	f, err := NewC1ZFile(ctx, dstPath)
+	f, err := newC1ZFile(ctx, dstPath)
 	require.NoError(t, err)
 	writeSnapSync(t, ctx, f, "a-", 2, true)
 
@@ -154,14 +154,14 @@ func TestSnapshotLiveHandleStillWritable(t *testing.T) {
 	require.NoError(t, f.Close(ctx))
 
 	// Live file has both syncs.
-	live, err := NewC1ZFile(ctx, dstPath, WithReadOnly(true))
+	live, err := newC1ZFile(ctx, dstPath, WithReadOnly(true))
 	require.NoError(t, err)
 	require.Len(t, listAllSyncRuns(t, ctx, live), 2)
 	require.NoError(t, live.Close(ctx))
 
 	// Snapshot is a valid point-in-time view: only the first sync existed when
 	// it was taken.
-	snap, err := NewC1ZFile(ctx, snapPath, WithReadOnly(true))
+	snap, err := newC1ZFile(ctx, snapPath, WithReadOnly(true))
 	require.NoError(t, err)
 	require.Len(t, listAllSyncRuns(t, ctx, snap), 1)
 	require.NoError(t, snap.Close(ctx))
@@ -230,7 +230,7 @@ func TestSnapshotGuards(t *testing.T) {
 		snapPath := filepath.Join(tmp, "snap.c1z")
 		require.NoError(t, os.WriteFile(snapPath, []byte("occupied"), 0o600))
 
-		f, err := NewC1ZFile(ctx, dstPath)
+		f, err := newC1ZFile(ctx, dstPath)
 		require.NoError(t, err)
 		defer f.Close(ctx)
 		writeSnapSync(t, ctx, f, "a-", 1, true)

@@ -35,7 +35,7 @@ func benchmarkCloneSync(b *testing.B, syncID string) {
 	err = os.WriteFile(sourcePath, srcData, 0600) // #nosec G703 -- sourcePath is created under b.TempDir in this benchmark.
 	require.NoError(b, err)
 
-	c1f, err := NewC1ZFile(ctx, sourcePath, WithTmpDir(tempDir))
+	c1f, err := newC1ZFile(ctx, sourcePath, WithTmpDir(tempDir))
 	require.NoError(b, err)
 	defer c1f.Close(ctx)
 

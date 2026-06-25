@@ -203,7 +203,7 @@ func testMarkSyncSupportsDiffPersists(t *testing.T) {
 	path := tmp.Name()
 	defer func() { _ = os.Remove(path) }()
 
-	c1f, err := NewC1ZFile(ctx, path)
+	c1f, err := newC1ZFile(ctx, path)
 	require.NoError(t, err)
 
 	syncID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -213,7 +213,7 @@ func testMarkSyncSupportsDiffPersists(t *testing.T) {
 	require.NoError(t, c1f.Close(ctx))
 
 	// Reopen and verify persistence.
-	reopened, err := NewC1ZFile(ctx, path)
+	reopened, err := newC1ZFile(ctx, path)
 	require.NoError(t, err)
 	defer func() { _ = reopened.Close(ctx) }()
 
@@ -230,7 +230,7 @@ func testLatestFullSyncEmptyReturnsNil(t *testing.T) {
 	require.NoError(t, tmp.Close())
 	defer func() { _ = os.Remove(tmp.Name()) }()
 
-	c1f, err := NewC1ZFile(ctx, tmp.Name())
+	c1f, err := newC1ZFile(ctx, tmp.Name())
 	require.NoError(t, err)
 	defer func() { _ = c1f.Close(ctx) }()
 
@@ -357,7 +357,7 @@ func testCloneSyncProducesReadableC1Z(t *testing.T) {
 	clonePath := t.TempDir() + "/cloned.c1z"
 	require.NoError(t, c1f.FileOps().CloneSync(ctx, clonePath, syncID))
 
-	cloned, err := NewC1ZFile(ctx, clonePath)
+	cloned, err := newC1ZFile(ctx, clonePath)
 	require.NoError(t, err)
 	defer func() { _ = cloned.Close(ctx) }()
 

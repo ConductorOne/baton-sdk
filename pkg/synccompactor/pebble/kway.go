@@ -302,7 +302,7 @@ func openSourceChunk(ctx context.Context, tmpDir string, sources []SourceFile, b
 			}
 			chunk.dir = dir
 		}
-		w, err := dotc1z.NewStore(ctx, source.Path, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(chunk.dir), dotc1z.WithDecoderPool(source.DecoderPool))
+		w, err := dotc1z.OpenStore(ctx, source.Path, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(chunk.dir), dotc1z.WithDecoderPool(source.DecoderPool))
 		if err != nil {
 			return nil, cleanupOnError(err)
 		}

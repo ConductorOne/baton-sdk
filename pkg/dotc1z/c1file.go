@@ -41,6 +41,14 @@ type pragma struct {
 	value string
 }
 
+// C1File is the SQLite-backed implementation of C1ZStore. It is the concrete
+// type returned by NewC1ZFile and by NewC1File (raw decoded-DB constructor).
+//
+// Deprecated: C1File is not the intended public abstraction for c1z lifecycle.
+// Use OpenStore or CreateStore (which return the engine-neutral C1ZStore
+// interface) instead of constructors that return *C1File. C1File will be
+// removed once all concrete call sites have migrated to the interface-based
+// lifecycle APIs.
 type C1File struct {
 	rawDb              *sql.DB
 	db                 *goqu.Database
@@ -471,8 +479,18 @@ func WithPayloadEncoding(enc PayloadEncoding) C1ZOption {
 	}
 }
 
-// Returns a new C1File instance with its state stored at the provided filename.
+// NewC1ZFile returns a *C1File for the given .c1z path. If the file does not
+// exist or is empty a new store is created; otherwise the existing file is
+// decompressed and opened.
+//
+// Deprecated: Use OpenStore to open an existing c1z or CreateStore to create a
+// new one. Both return the engine-neutral C1ZStore interface. NewC1ZFile is
+// retained for compatibility with callers that require a concrete *C1File.
 func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
+	return newC1ZFile(ctx, outputFilePath, opts...)
+}
+
+func newC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()

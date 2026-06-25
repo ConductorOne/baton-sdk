@@ -64,11 +64,15 @@ func runToPebble(cmd *cobra.Command, args []string) error {
 	if tmpDir != "" {
 		openOpts = append(openOpts, dotc1z.WithTmpDir(tmpDir))
 	}
-	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, openOpts...)
+	opened, err := dotc1z.OpenStore(ctx, c1zPath, openOpts...)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = store.Close(ctx) }()
+	defer func() { _ = opened.Close(ctx) }()
+	store, ok := dotc1z.AsSQLiteStore(opened)
+	if !ok {
+		return fmt.Errorf("to-pebble: source c1z is not SQLite-backed (engine=%s); only v1/SQLite c1z files can be converted to Pebble", opened.Metadata().Engine)
+	}
 
 	convertOpts := []dotc1z.ConvertOption{dotc1z.WithConvertBatchSize(batchSize)}
 	if tmpDir != "" {

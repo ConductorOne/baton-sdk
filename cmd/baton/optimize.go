@@ -31,7 +31,7 @@ func runOptimizeDb(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	store, err := dotc1z.NewStore(ctx, c1zPath)
+	store, err := dotc1z.OpenStore(ctx, c1zPath)
 	if err != nil {
 		return err
 	}

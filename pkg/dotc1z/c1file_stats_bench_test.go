@@ -21,7 +21,7 @@ func benchmarkStats(b *testing.B, syncID string, expectedStats map[string]int64)
 	// The SQL library's interruptOnDone() is called if ctx.Done() is not nil.
 	ctx := context.Background()
 
-	c1f, err := NewC1ZFile(ctx, c1zPath)
+	c1f, err := newC1ZFile(ctx, c1zPath)
 	require.NoError(b, err)
 	defer c1f.Close(ctx)
 

@@ -28,7 +28,7 @@ func newTestC1z(ctx context.Context, t *testing.T, opts ...C1ZOption) (*C1File, 
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.c1z")
 
-	c1f, err := NewC1ZFile(ctx, path, opts...)
+	c1f, err := newC1ZFile(ctx, path, opts...)
 	require.NoError(t, err)
 
 	syncID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -677,7 +677,7 @@ func TestV2GetGrant_HydratesAfterCloseReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "reopen.c1z")
 
 	// Phase 1: write slim grants and finalize the sync.
-	c1f, err := NewC1ZFile(ctx, path, WithV2GrantsWriter(true))
+	c1f, err := newC1ZFile(ctx, path, WithV2GrantsWriter(true))
 	require.NoError(t, err)
 
 	_, err = c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -706,7 +706,7 @@ func TestV2GetGrant_HydratesAfterCloseReopen(t *testing.T) {
 	// Phase 2: reopen the c1z. Neither currentSyncID nor viewSyncID
 	// is set on the freshly reopened file — resolveSyncIDForGrantGet
 	// must fall through to getFinishedSync.
-	c1f2, err := NewC1ZFile(ctx, path)
+	c1f2, err := newC1ZFile(ctx, path)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, c1f2.Close(ctx)) }()
 
