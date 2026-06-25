@@ -2548,10 +2548,8 @@ func (s *syncer) loadStore(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: Remove when pebble supports session store.
-	sessionStore, ok := store.(sessions.SessionStore)
-	if s.setSessionStore != nil && ok {
-		s.setSessionStore.SetSessionStore(ctx, sessionStore)
+	if s.setSessionStore != nil {
+		s.setSessionStore.SetSessionStore(ctx, store.SessionStore())
 	}
 	s.store = store
 

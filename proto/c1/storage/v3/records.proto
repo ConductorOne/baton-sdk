@@ -246,3 +246,14 @@ message SyncStatsRecord {
   map<string, int64> entitlements_by_resource_type = 9;
   google.protobuf.Timestamp written_at = 100;
 }
+
+message SessionRecord {
+  option (table) = {
+    name: "sessions"
+    primary_key: ["sync_id", "key"]
+  };
+
+  string sync_id = 1;
+  string key = 2;
+  bytes value = 3;
+}

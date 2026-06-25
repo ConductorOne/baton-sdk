@@ -9,6 +9,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -16,10 +17,11 @@ import (
 // wrapper structs satisfy each sub-interface. These assertions catch
 // signature drift at build time rather than at the first runtime call.
 var (
-	_ C1ZStore   = (*C1File)(nil)
-	_ GrantStore = c1FileGrantStore{}
-	_ SyncMeta   = c1FileSyncMeta{}
-	_ FileOps    = c1FileFileOps{}
+	_ C1ZStore     = (*C1File)(nil)
+	_ GrantStore   = c1FileGrantStore{}
+	_ SyncMeta     = c1FileSyncMeta{}
+	_ FileOps      = c1FileFileOps{}
+	_ SessionStore = c1FileSessionStore{}
 )
 
 // Grants returns the grant-store slice of this c1z.
@@ -30,6 +32,9 @@ func (c *C1File) SyncMeta() SyncMeta { return c1FileSyncMeta{c} }
 
 // FileOps returns the file-operations slice of this c1z.
 func (c *C1File) FileOps() FileOps { return c1FileFileOps{c} }
+
+// SessionStore returns the session-store slice of this c1z.
+func (c *C1File) SessionStore() sessions.SessionStore { return c1FileSessionStore{c} }
 
 // -----------------------------------------------------------------------------
 // GrantStore
@@ -327,4 +332,34 @@ func (f c1FileFileOps) CopyIsolateSync(ctx context.Context, outPath string, sync
 // GenerateSyncDiff implements FileOps. Direct passthrough.
 func (f c1FileFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (string, error) {
 	return f.c.GenerateSyncDiff(ctx, baseSyncID, appliedSyncID)
+}
+
+type c1FileSessionStore struct{ c *C1File }
+
+func (s c1FileSessionStore) Get(ctx context.Context, key string, opt ...sessions.SessionStoreOption) ([]byte, bool, error) {
+	return s.c.SessionGet(ctx, key, opt...)
+}
+
+func (s c1FileSessionStore) Set(ctx context.Context, key string, value []byte, opt ...sessions.SessionStoreOption) error {
+	return s.c.SessionSet(ctx, key, value, opt...)
+}
+
+func (s c1FileSessionStore) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
+	return s.c.SessionGetMany(ctx, keys, opt...)
+}
+
+func (s c1FileSessionStore) GetAll(ctx context.Context, pageToken string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error) {
+	return s.c.SessionGetAll(ctx, pageToken, opt...)
+}
+
+func (s c1FileSessionStore) SetMany(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error {
+	return s.c.SessionSetMany(ctx, values, opt...)
+}
+
+func (s c1FileSessionStore) Delete(ctx context.Context, key string, opt ...sessions.SessionStoreOption) error {
+	return s.c.SessionDelete(ctx, key, opt...)
+}
+
+func (s c1FileSessionStore) Clear(ctx context.Context, opt ...sessions.SessionStoreOption) error {
+	return s.c.SessionClear(ctx, opt...)
 }

@@ -1534,6 +1534,94 @@ func (b0 SyncStatsRecord_builder) Build() *SyncStatsRecord {
 	return m0
 }
 
+type SessionRecord struct {
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_SyncId string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
+	xxx_hidden_Key    string                 `protobuf:"bytes,2,opt,name=key,proto3"`
+	xxx_hidden_Value  []byte                 `protobuf:"bytes,3,opt,name=value,proto3"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *SessionRecord) Reset() {
+	*x = SessionRecord{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionRecord) ProtoMessage() {}
+
+func (x *SessionRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *SessionRecord) GetSyncId() string {
+	if x != nil {
+		return x.xxx_hidden_SyncId
+	}
+	return ""
+}
+
+func (x *SessionRecord) GetKey() string {
+	if x != nil {
+		return x.xxx_hidden_Key
+	}
+	return ""
+}
+
+func (x *SessionRecord) GetValue() []byte {
+	if x != nil {
+		return x.xxx_hidden_Value
+	}
+	return nil
+}
+
+func (x *SessionRecord) SetSyncId(v string) {
+	x.xxx_hidden_SyncId = v
+}
+
+func (x *SessionRecord) SetKey(v string) {
+	x.xxx_hidden_Key = v
+}
+
+func (x *SessionRecord) SetValue(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_Value = v
+}
+
+type SessionRecord_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	SyncId string
+	Key    string
+	Value  []byte
+}
+
+func (b0 SessionRecord_builder) Build() *SessionRecord {
+	m0 := &SessionRecord{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_SyncId = b.SyncId
+	x.xxx_hidden_Key = b.Key
+	x.xxx_hidden_Value = b.Value
+	return m0
+}
+
 var File_c1_storage_v3_records_proto protoreflect.FileDescriptor
 
 const file_c1_storage_v3_records_proto_rawDesc = "" +
@@ -1641,7 +1729,12 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aM\n" +
 	"\x1fEntitlementsByResourceTypeEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01*\xae\x01\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"n\n" +
+	"\rSessionRecord\x12\x17\n" +
+	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x03 \x01(\fR\x05value:\x1c\x82\xf9+\x18\n" +
+	"\bsessions\x12\async_id\x12\x03key*\xae\x01\n" +
 	"\bSyncType\x12\x19\n" +
 	"\x15SYNC_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSYNC_TYPE_FULL\x10\x01\x12\x15\n" +
@@ -1651,7 +1744,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
 var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_c1_storage_v3_records_proto_goTypes = []any{
 	(SyncType)(0),                 // 0: c1.storage.v3.SyncType
 	(*GrantExpandableRecord)(nil), // 1: c1.storage.v3.GrantExpandableRecord
@@ -1663,39 +1756,40 @@ var file_c1_storage_v3_records_proto_goTypes = []any{
 	(*AssetRecord)(nil),           // 7: c1.storage.v3.AssetRecord
 	(*SyncRunRecord)(nil),         // 8: c1.storage.v3.SyncRunRecord
 	(*SyncStatsRecord)(nil),       // 9: c1.storage.v3.SyncStatsRecord
-	nil,                           // 10: c1.storage.v3.GrantRecord.SourcesEntry
-	nil,                           // 11: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	nil,                           // 12: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	nil,                           // 13: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	(*anypb.Any)(nil),             // 14: google.protobuf.Any
-	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
-	(*ResourceRef)(nil),           // 16: c1.storage.v3.ResourceRef
-	(*EntitlementRef)(nil),        // 17: c1.storage.v3.EntitlementRef
-	(*PrincipalRef)(nil),          // 18: c1.storage.v3.PrincipalRef
+	(*SessionRecord)(nil),         // 10: c1.storage.v3.SessionRecord
+	nil,                           // 11: c1.storage.v3.GrantRecord.SourcesEntry
+	nil,                           // 12: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	nil,                           // 13: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	nil,                           // 14: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	(*anypb.Any)(nil),             // 15: google.protobuf.Any
+	(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
+	(*ResourceRef)(nil),           // 17: c1.storage.v3.ResourceRef
+	(*EntitlementRef)(nil),        // 18: c1.storage.v3.EntitlementRef
+	(*PrincipalRef)(nil),          // 19: c1.storage.v3.PrincipalRef
 }
 var file_c1_storage_v3_records_proto_depIdxs = []int32{
-	14, // 0: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
-	15, // 1: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	16, // 2: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
-	14, // 3: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
-	15, // 4: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	16, // 5: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
-	14, // 6: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
-	15, // 7: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	17, // 8: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
-	18, // 9: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
-	15, // 10: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	15, // 0: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
+	16, // 1: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	17, // 2: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
+	15, // 3: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
+	16, // 4: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	17, // 5: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
+	15, // 6: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
+	16, // 7: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	18, // 8: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
+	19, // 9: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
+	16, // 10: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	1,  // 11: c1.storage.v3.GrantRecord.expansion:type_name -> c1.storage.v3.GrantExpandableRecord
-	14, // 12: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
-	10, // 13: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
-	15, // 14: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	15, // 12: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
+	11, // 13: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
+	16, // 14: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	0,  // 15: c1.storage.v3.SyncRunRecord.type:type_name -> c1.storage.v3.SyncType
-	15, // 16: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
-	15, // 17: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
-	11, // 18: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	12, // 19: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	13, // 20: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	15, // 21: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
+	16, // 16: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
+	16, // 17: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
+	12, // 18: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	13, // 19: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	14, // 20: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	16, // 21: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
 	2,  // 22: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
 	23, // [23:23] is the sub-list for method output_type
 	23, // [23:23] is the sub-list for method input_type
@@ -1717,7 +1811,7 @@ func file_c1_storage_v3_records_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_storage_v3_records_proto_rawDesc), len(file_c1_storage_v3_records_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

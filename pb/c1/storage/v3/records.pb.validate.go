@@ -1577,3 +1577,109 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = SyncStatsRecordValidationError{}
+
+// Validate checks the field values on SessionRecord with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *SessionRecord) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on SessionRecord with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in SessionRecordMultiError, or
+// nil if none found.
+func (m *SessionRecord) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *SessionRecord) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for SyncId
+
+	// no validation rules for Key
+
+	// no validation rules for Value
+
+	if len(errors) > 0 {
+		return SessionRecordMultiError(errors)
+	}
+
+	return nil
+}
+
+// SessionRecordMultiError is an error wrapping multiple validation errors
+// returned by SessionRecord.ValidateAll() if the designated constraints
+// aren't met.
+type SessionRecordMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m SessionRecordMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m SessionRecordMultiError) AllErrors() []error { return m }
+
+// SessionRecordValidationError is the validation error returned by
+// SessionRecord.Validate if the designated constraints aren't met.
+type SessionRecordValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e SessionRecordValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e SessionRecordValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e SessionRecordValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e SessionRecordValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e SessionRecordValidationError) ErrorName() string { return "SessionRecordValidationError" }
+
+// Error satisfies the builtin error interface
+func (e SessionRecordValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sSessionRecord.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = SessionRecordValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = SessionRecordValidationError{}
