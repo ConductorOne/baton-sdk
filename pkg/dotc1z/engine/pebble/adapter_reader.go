@@ -404,6 +404,15 @@ func (a *Adapter) GetSync(ctx context.Context, req *reader_v2.SyncsReaderService
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
 
+	if stats == nil {
+		computedStats, err := a.engine.computeSyncStats(ctx, req.GetSyncId())
+		if err != nil {
+			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+		}
+
+		stats = SyncStatsFromRecord(computedStats)
+	}
+
 	return reader_v2.SyncsReaderServiceGetSyncResponse_builder{
 		Sync: v3SyncRunToV2(rec, stats),
 	}.Build(), nil
@@ -486,6 +495,15 @@ func (a *Adapter) GetLatestFinishedSync(ctx context.Context, req *reader_v2.Sync
 	stats, _, err := CachedSyncStats(ctx, a.engine, latest.GetSyncId())
 	if err != nil {
 		return reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse_builder{}.Build(), err
+	}
+
+	if stats == nil {
+		computedStats, err := a.engine.computeSyncStats(ctx, latest.GetSyncId())
+		if err != nil {
+			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+		}
+
+		stats = SyncStatsFromRecord(computedStats)
 	}
 
 	return reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse_builder{

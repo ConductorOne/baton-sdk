@@ -1166,22 +1166,30 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 			return nil, nil, err
 		}
 	}
-	resp, err := c.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{SyncId: syncId}.Build())
+
+	sync, err := c.getSync(ctx, syncId)
 	if err != nil {
 		return nil, nil, err
 	}
-	if resp == nil || !resp.HasSync() {
+	if sync == nil {
 		return nil, nil, status.Errorf(codes.NotFound, "sync '%s' not found", syncId)
 	}
-	sync := resp.GetSync()
-	if syncType != connectorstore.SyncTypeAny && syncType != connectorstore.SyncType(sync.GetSyncType()) {
+	if syncType != connectorstore.SyncTypeAny && syncType != sync.Type {
 		return nil, nil, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncId, syncType)
 	}
-	syncType = connectorstore.SyncType(sync.GetSyncType())
+	syncType = sync.Type
 
-	stats := sync.GetStats()
+	stats := sync.Stats
 	if stats != nil && stats.GetResourceTypes() > 0 && !forceRefresh {
-		return sync, stats, nil
+		return &reader_v2.SyncRun{
+			Id:           sync.ID,
+			StartedAt:    toTimeStamp(sync.StartedAt),
+			EndedAt:      toTimeStamp(sync.EndedAt),
+			SyncToken:    sync.SyncToken,
+			SyncType:     string(sync.Type),
+			ParentSyncId: sync.ParentSyncID,
+			Stats:        sync.Stats,
+		}, stats, nil
 	}
 
 	// Slow path: Calculate sync stats and save them to the sync run so subsequent stats calls
@@ -1261,7 +1269,7 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 	}
 
 	// If sync is ended and c1z is not read-only, save stats to the database.
-	if sync.GetEndedAt() != nil && !c.readOnly {
+	if sync.EndedAt != nil && !c.readOnly {
 		statsJSON, err := json.Marshal(stats)
 		if err != nil {
 			return nil, nil, fmt.Errorf("c1file-stats: error marshalling stats: %w", err)
@@ -1280,7 +1288,15 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 		c.dbUpdated = true
 	}
 
-	return sync, stats, nil
+	return &reader_v2.SyncRun{
+		Id:           sync.ID,
+		StartedAt:    toTimeStamp(sync.StartedAt),
+		EndedAt:      toTimeStamp(sync.EndedAt),
+		SyncToken:    sync.SyncToken,
+		SyncType:     string(sync.Type),
+		ParentSyncId: sync.ParentSyncID,
+		Stats:        sync.Stats,
+	}, stats, nil
 }
 
 // grantStats introspects the database and returns the count of grants for the given sync run.
