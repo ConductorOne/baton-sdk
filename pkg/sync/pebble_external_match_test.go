@@ -194,3 +194,85 @@ func TestPebble_ExternalResourceMatchID_RemappingSkipped(t *testing.T) {
 			"processGrantsWithExternalPrincipals never ran, so this entitlement id was never written",
 		expectedRemappedEntID)
 }
+
+// TestPebbleExternalC1Z verifies that a Pebble-format external resource c1z
+// can be opened and read by the syncer. Before the fix, NewExternalC1FileReader
+// always called decompressC1z which expects a v1 (SQLite/zstd) magic byte and
+// returned "magic number mismatch" on v3 (Pebble) files.
+func TestPebbleExternalC1Z(t *testing.T) {
+	ctx := t.Context()
+	ctx, err := logging.Init(ctx)
+	require.NoError(t, err)
+
+	tempDir := t.TempDir()
+
+	externalMc := newMockConnector()
+	externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType)
+
+	externalUser, err := externalMc.AddUser(ctx, "ext_user")
+	require.NoError(t, err)
+
+	externalGroup, _, err := externalMc.AddGroup(ctx, "ext_group")
+	require.NoError(t, err)
+	externalMc.grantDB[externalGroup.GetId().GetResource()] = []*v2.Grant{
+		gt.NewGrant(externalGroup, "member", externalUser.GetId()),
+	}
+
+	// Produce the external c1z using the Pebble engine.
+	externalC1ZPath := filepath.Join(tempDir, "external-pebble.c1z")
+	externalStore, err := dotc1z.NewStore(ctx, externalC1ZPath,
+		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithTmpDir(tempDir),
+	)
+	require.NoError(t, err)
+	externalSyncer, err := NewSyncer(ctx, externalMc,
+		WithConnectorStore(externalStore),
+		WithTmpDir(tempDir),
+	)
+	require.NoError(t, err)
+	require.NoError(t, externalSyncer.Sync(ctx))
+	require.NoError(t, externalSyncer.Close(ctx))
+
+	// Internal connector grants member to an internal user via ExternalResourceMatch.
+	internalMc := newMockConnector()
+	internalMc.rtDB = append(internalMc.rtDB, userResourceType, groupResourceType)
+
+	internalUser, err := internalMc.AddUser(ctx, "int_user")
+	require.NoError(t, err)
+
+	internalGroup, _, err := internalMc.AddGroup(ctx, "int_group")
+	require.NoError(t, err)
+	internalMc.grantDB[internalGroup.GetId().GetResource()] = []*v2.Grant{
+		gt.NewGrant(
+			internalGroup,
+			"member",
+			internalUser.GetId(),
+			gt.WithAnnotation(v2.ExternalResourceMatch_builder{
+				Key:          "profile_key",
+				Value:        "ext_user",
+				ResourceType: v2.ResourceType_TRAIT_USER,
+			}.Build()),
+		),
+	}
+
+	// Internal sync uses the Pebble external c1z — this is the path that
+	// previously failed with "magic number mismatch".
+	internalC1ZPath := filepath.Join(tempDir, "internal.c1z")
+	internalSyncer, err := NewSyncer(ctx, internalMc,
+		WithC1ZPath(internalC1ZPath),
+		WithTmpDir(tempDir),
+		WithExternalResourceC1ZPath(externalC1ZPath),
+	)
+	require.NoError(t, err)
+	require.NoError(t, internalSyncer.Sync(ctx))
+	require.NoError(t, internalSyncer.Close(ctx))
+
+	// Verify grants were written to the internal store.
+	internalStore, err := dotc1z.NewC1ZFile(ctx, internalC1ZPath)
+	require.NoError(t, err)
+	defer func() { _ = internalStore.Close(ctx) }()
+
+	allGrants, err := internalStore.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{})
+	require.NoError(t, err)
+	require.NotEmpty(t, allGrants.GetList(), "expected grants written to the internal store after syncing against a Pebble external c1z")
+}
