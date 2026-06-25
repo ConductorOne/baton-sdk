@@ -1158,7 +1158,7 @@ func (c *C1File) GetLatestFinishedSync(
 	}
 
 	if sync.Stats == nil {
-		_, stats, err := c.stats(ctx, sync.Type, sync.ID, false)
+		_, stats, err := c.stats(ctx, sync.Type, sync.ID, true)
 		if err != nil {
 			return nil, err
 		}
