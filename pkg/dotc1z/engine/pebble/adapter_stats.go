@@ -109,6 +109,7 @@ func statsRecordToMap(s *v3.SyncStatsRecord) map[string]int64 {
 	for rt, n := range s.GetResourcesByResourceType() {
 		out[rt] = n
 	}
+
 	return out
 }
 

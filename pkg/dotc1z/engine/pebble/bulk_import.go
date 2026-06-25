@@ -166,7 +166,8 @@ type BulkSyncImport struct {
 	shards   []*BulkGrantShard
 	shardSeq int
 
-	resourcesByRT map[string]int64
+	resourcesByRT    map[string]int64
+	entitlementsByRT map[string]int64
 }
 
 // StartBulkSyncImport opens a bulk import targeting syncID, which must be
@@ -194,11 +195,12 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 	// pins one chunk arena, so this bounds sort memory too).
 	sorters := min(4, max(2, runtime.GOMAXPROCS(0)/2))
 	b := &BulkSyncImport{
-		e:             e,
-		syncID:        syncID,
-		dir:           dir,
-		sortSem:       make(chan struct{}, sorters),
-		resourcesByRT: map[string]int64{},
+		e:                e,
+		syncID:           syncID,
+		dir:              dir,
+		sortSem:          make(chan struct{}, sorters),
+		resourcesByRT:    map[string]int64{},
+		entitlementsByRT: map[string]int64{},
 	}
 	for _, w := range []struct {
 		slot **bulkSSTWriter
@@ -420,6 +422,7 @@ func (b *BulkSyncImport) AddEntitlements(ctx context.Context, ents ...*v2.Entitl
 		if err := b.entitlements.add(encodeEntitlementKey(rec.GetExternalId()), val); err != nil {
 			return err
 		}
+		b.entitlementsByRT[rec.GetResource().GetResourceTypeId()]++
 		if res := rec.GetResource(); res != nil && res.GetResourceId() != "" {
 			k := encodeEntitlementByResourceIndexKey(
 				res.GetResourceTypeId(), res.GetResourceId(),
@@ -435,7 +438,8 @@ func (b *BulkSyncImport) AddEntitlements(ctx context.Context, ents ...*v2.Entitl
 
 // ComputedStats returns a SyncStatsRecord built from the counts the
 // import accumulated while streaming (primary record counts, resources
-// by resource type, grants by entitlement resource type). Valid after
+// by resource type, entitlements by resource type, grants by entitlement
+// resource type). Valid after
 // all grant shards are Closed. Assets do not flow through the importer
 // — the caller sets that count itself before stashing the record via
 // Engine.StashComputedSyncStats.
@@ -450,14 +454,16 @@ func (b *BulkSyncImport) ComputedStats() *v3.SyncStatsRecord {
 			grantsByEntRT[rt] += n
 		}
 	}
-	rec := &v3.SyncStatsRecord{}
-	rec.SetSyncId(b.syncID)
-	rec.SetResourceTypes(int64(b.resourceTypes.count))
-	rec.SetResources(int64(b.resources.count))
-	rec.SetEntitlements(int64(b.entitlements.count))
-	rec.SetGrants(grants)
-	rec.SetResourcesByResourceType(b.resourcesByRT)
-	rec.SetGrantsByEntitlementResourceType(grantsByEntRT)
+	rec := &v3.SyncStatsRecord{
+		SyncId:                          b.syncID,
+		ResourceTypes:                   int64(b.resourceTypes.count),
+		Resources:                       int64(b.resources.count),
+		Entitlements:                    int64(b.entitlements.count),
+		Grants:                          grants,
+		ResourcesByResourceType:         b.resourcesByRT,
+		EntitlementsByResourceType:      b.entitlementsByRT,
+		GrantsByEntitlementResourceType: grantsByEntRT,
+	}
 	return rec
 }
 

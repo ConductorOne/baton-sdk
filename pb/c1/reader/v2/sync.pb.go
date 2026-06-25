@@ -200,15 +200,16 @@ func (b0 SyncRun_builder) Build() *SyncRun {
 }
 
 type SyncStats struct {
-	state                   protoimpl.MessageState `protogen:"hybrid.v1"`
-	ResourceTypes           int64                  `protobuf:"varint,1,opt,name=resource_types,json=resourceTypes,proto3" json:"resource_types,omitempty"`
-	Resources               int64                  `protobuf:"varint,2,opt,name=resources,proto3" json:"resources,omitempty"`
-	Entitlements            int64                  `protobuf:"varint,3,opt,name=entitlements,proto3" json:"entitlements,omitempty"`
-	Grants                  int64                  `protobuf:"varint,4,opt,name=grants,proto3" json:"grants,omitempty"`
-	ResourcesByResourceType map[string]int64       `protobuf:"bytes,5,rep,name=resources_by_resource_type,json=resourcesByResourceType,proto3" json:"resources_by_resource_type,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
-	GrantsByResourceType    map[string]int64       `protobuf:"bytes,6,rep,name=grants_by_resource_type,json=grantsByResourceType,proto3" json:"grants_by_resource_type,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state                      protoimpl.MessageState `protogen:"hybrid.v1"`
+	ResourceTypes              int64                  `protobuf:"varint,1,opt,name=resource_types,json=resourceTypes,proto3" json:"resource_types,omitempty"`
+	Resources                  int64                  `protobuf:"varint,2,opt,name=resources,proto3" json:"resources,omitempty"`
+	Entitlements               int64                  `protobuf:"varint,3,opt,name=entitlements,proto3" json:"entitlements,omitempty"`
+	Grants                     int64                  `protobuf:"varint,4,opt,name=grants,proto3" json:"grants,omitempty"`
+	ResourcesByResourceType    map[string]int64       `protobuf:"bytes,5,rep,name=resources_by_resource_type,json=resourcesByResourceType,proto3" json:"resources_by_resource_type,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	GrantsByResourceType       map[string]int64       `protobuf:"bytes,6,rep,name=grants_by_resource_type,json=grantsByResourceType,proto3" json:"grants_by_resource_type,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	EntitlementsByResourceType map[string]int64       `protobuf:"bytes,7,rep,name=entitlements_by_resource_type,json=entitlementsByResourceType,proto3" json:"entitlements_by_resource_type,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *SyncStats) Reset() {
@@ -278,6 +279,13 @@ func (x *SyncStats) GetGrantsByResourceType() map[string]int64 {
 	return nil
 }
 
+func (x *SyncStats) GetEntitlementsByResourceType() map[string]int64 {
+	if x != nil {
+		return x.EntitlementsByResourceType
+	}
+	return nil
+}
+
 func (x *SyncStats) SetResourceTypes(v int64) {
 	x.ResourceTypes = v
 }
@@ -302,15 +310,20 @@ func (x *SyncStats) SetGrantsByResourceType(v map[string]int64) {
 	x.GrantsByResourceType = v
 }
 
+func (x *SyncStats) SetEntitlementsByResourceType(v map[string]int64) {
+	x.EntitlementsByResourceType = v
+}
+
 type SyncStats_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	ResourceTypes           int64
-	Resources               int64
-	Entitlements            int64
-	Grants                  int64
-	ResourcesByResourceType map[string]int64
-	GrantsByResourceType    map[string]int64
+	ResourceTypes              int64
+	Resources                  int64
+	Entitlements               int64
+	Grants                     int64
+	ResourcesByResourceType    map[string]int64
+	GrantsByResourceType       map[string]int64
+	EntitlementsByResourceType map[string]int64
 }
 
 func (b0 SyncStats_builder) Build() *SyncStats {
@@ -323,6 +336,7 @@ func (b0 SyncStats_builder) Build() *SyncStats {
 	x.Grants = b.Grants
 	x.ResourcesByResourceType = b.ResourcesByResourceType
 	x.GrantsByResourceType = b.GrantsByResourceType
+	x.EntitlementsByResourceType = b.EntitlementsByResourceType
 	return m0
 }
 
@@ -816,18 +830,22 @@ const file_c1_reader_v2_sync_proto_rawDesc = "" +
 	"sync_token\x18\x04 \x01(\tR\tsyncToken\x12\x1b\n" +
 	"\tsync_type\x18\x05 \x01(\tR\bsyncType\x12$\n" +
 	"\x0eparent_sync_id\x18\x06 \x01(\tR\fparentSyncId\x12-\n" +
-	"\x05stats\x18\a \x01(\v2\x17.c1.reader.v2.SyncStatsR\x05stats\"\xfe\x03\n" +
+	"\x05stats\x18\a \x01(\v2\x17.c1.reader.v2.SyncStatsR\x05stats\"\xc9\x05\n" +
 	"\tSyncStats\x12%\n" +
 	"\x0eresource_types\x18\x01 \x01(\x03R\rresourceTypes\x12\x1c\n" +
 	"\tresources\x18\x02 \x01(\x03R\tresources\x12\"\n" +
 	"\fentitlements\x18\x03 \x01(\x03R\fentitlements\x12\x16\n" +
 	"\x06grants\x18\x04 \x01(\x03R\x06grants\x12q\n" +
 	"\x1aresources_by_resource_type\x18\x05 \x03(\v24.c1.reader.v2.SyncStats.ResourcesByResourceTypeEntryR\x17resourcesByResourceType\x12h\n" +
-	"\x17grants_by_resource_type\x18\x06 \x03(\v21.c1.reader.v2.SyncStats.GrantsByResourceTypeEntryR\x14grantsByResourceType\x1aJ\n" +
+	"\x17grants_by_resource_type\x18\x06 \x03(\v21.c1.reader.v2.SyncStats.GrantsByResourceTypeEntryR\x14grantsByResourceType\x12z\n" +
+	"\x1dentitlements_by_resource_type\x18\a \x03(\v27.c1.reader.v2.SyncStats.EntitlementsByResourceTypeEntryR\x1aentitlementsByResourceType\x1aJ\n" +
 	"\x1cResourcesByResourceTypeEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aG\n" +
 	"\x19GrantsByResourceTypeEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aM\n" +
+	"\x1fEntitlementsByResourceTypeEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"s\n" +
 	" SyncsReaderServiceGetSyncRequest\x12\x17\n" +
@@ -859,7 +877,7 @@ const file_c1_reader_v2_sync_proto_rawDesc = "" +
 	"\tListSyncs\x120.c1.reader.v2.SyncsReaderServiceListSyncsRequest\x1a1.c1.reader.v2.SyncsReaderServiceListSyncsResponse\x12\x94\x01\n" +
 	"\x15GetLatestFinishedSync\x12<.c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncRequest\x1a=.c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponseB3Z1github.com/conductorone/baton-sdk/pb/c1/reader/v2b\x06proto3"
 
-var file_c1_reader_v2_sync_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_c1_reader_v2_sync_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_c1_reader_v2_sync_proto_goTypes = []any{
 	(*SyncRun)(nil),                                         // 0: c1.reader.v2.SyncRun
 	(*SyncStats)(nil),                                       // 1: c1.reader.v2.SyncStats
@@ -871,35 +889,37 @@ var file_c1_reader_v2_sync_proto_goTypes = []any{
 	(*SyncsReaderServiceGetLatestFinishedSyncResponse)(nil), // 7: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse
 	nil,                           // 8: c1.reader.v2.SyncStats.ResourcesByResourceTypeEntry
 	nil,                           // 9: c1.reader.v2.SyncStats.GrantsByResourceTypeEntry
-	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
-	(*anypb.Any)(nil),             // 11: google.protobuf.Any
+	nil,                           // 10: c1.reader.v2.SyncStats.EntitlementsByResourceTypeEntry
+	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
+	(*anypb.Any)(nil),             // 12: google.protobuf.Any
 }
 var file_c1_reader_v2_sync_proto_depIdxs = []int32{
-	10, // 0: c1.reader.v2.SyncRun.started_at:type_name -> google.protobuf.Timestamp
-	10, // 1: c1.reader.v2.SyncRun.ended_at:type_name -> google.protobuf.Timestamp
+	11, // 0: c1.reader.v2.SyncRun.started_at:type_name -> google.protobuf.Timestamp
+	11, // 1: c1.reader.v2.SyncRun.ended_at:type_name -> google.protobuf.Timestamp
 	1,  // 2: c1.reader.v2.SyncRun.stats:type_name -> c1.reader.v2.SyncStats
 	8,  // 3: c1.reader.v2.SyncStats.resources_by_resource_type:type_name -> c1.reader.v2.SyncStats.ResourcesByResourceTypeEntry
 	9,  // 4: c1.reader.v2.SyncStats.grants_by_resource_type:type_name -> c1.reader.v2.SyncStats.GrantsByResourceTypeEntry
-	11, // 5: c1.reader.v2.SyncsReaderServiceGetSyncRequest.annotations:type_name -> google.protobuf.Any
-	0,  // 6: c1.reader.v2.SyncsReaderServiceGetSyncResponse.sync:type_name -> c1.reader.v2.SyncRun
-	11, // 7: c1.reader.v2.SyncsReaderServiceGetSyncResponse.annotations:type_name -> google.protobuf.Any
-	11, // 8: c1.reader.v2.SyncsReaderServiceListSyncsRequest.annotations:type_name -> google.protobuf.Any
-	0,  // 9: c1.reader.v2.SyncsReaderServiceListSyncsResponse.syncs:type_name -> c1.reader.v2.SyncRun
-	11, // 10: c1.reader.v2.SyncsReaderServiceListSyncsResponse.annotations:type_name -> google.protobuf.Any
-	11, // 11: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncRequest.annotations:type_name -> google.protobuf.Any
-	0,  // 12: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse.sync:type_name -> c1.reader.v2.SyncRun
-	11, // 13: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse.annotations:type_name -> google.protobuf.Any
-	2,  // 14: c1.reader.v2.SyncsReaderService.GetSync:input_type -> c1.reader.v2.SyncsReaderServiceGetSyncRequest
-	4,  // 15: c1.reader.v2.SyncsReaderService.ListSyncs:input_type -> c1.reader.v2.SyncsReaderServiceListSyncsRequest
-	6,  // 16: c1.reader.v2.SyncsReaderService.GetLatestFinishedSync:input_type -> c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncRequest
-	3,  // 17: c1.reader.v2.SyncsReaderService.GetSync:output_type -> c1.reader.v2.SyncsReaderServiceGetSyncResponse
-	5,  // 18: c1.reader.v2.SyncsReaderService.ListSyncs:output_type -> c1.reader.v2.SyncsReaderServiceListSyncsResponse
-	7,  // 19: c1.reader.v2.SyncsReaderService.GetLatestFinishedSync:output_type -> c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse
-	17, // [17:20] is the sub-list for method output_type
-	14, // [14:17] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	10, // 5: c1.reader.v2.SyncStats.entitlements_by_resource_type:type_name -> c1.reader.v2.SyncStats.EntitlementsByResourceTypeEntry
+	12, // 6: c1.reader.v2.SyncsReaderServiceGetSyncRequest.annotations:type_name -> google.protobuf.Any
+	0,  // 7: c1.reader.v2.SyncsReaderServiceGetSyncResponse.sync:type_name -> c1.reader.v2.SyncRun
+	12, // 8: c1.reader.v2.SyncsReaderServiceGetSyncResponse.annotations:type_name -> google.protobuf.Any
+	12, // 9: c1.reader.v2.SyncsReaderServiceListSyncsRequest.annotations:type_name -> google.protobuf.Any
+	0,  // 10: c1.reader.v2.SyncsReaderServiceListSyncsResponse.syncs:type_name -> c1.reader.v2.SyncRun
+	12, // 11: c1.reader.v2.SyncsReaderServiceListSyncsResponse.annotations:type_name -> google.protobuf.Any
+	12, // 12: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncRequest.annotations:type_name -> google.protobuf.Any
+	0,  // 13: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse.sync:type_name -> c1.reader.v2.SyncRun
+	12, // 14: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse.annotations:type_name -> google.protobuf.Any
+	2,  // 15: c1.reader.v2.SyncsReaderService.GetSync:input_type -> c1.reader.v2.SyncsReaderServiceGetSyncRequest
+	4,  // 16: c1.reader.v2.SyncsReaderService.ListSyncs:input_type -> c1.reader.v2.SyncsReaderServiceListSyncsRequest
+	6,  // 17: c1.reader.v2.SyncsReaderService.GetLatestFinishedSync:input_type -> c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncRequest
+	3,  // 18: c1.reader.v2.SyncsReaderService.GetSync:output_type -> c1.reader.v2.SyncsReaderServiceGetSyncResponse
+	5,  // 19: c1.reader.v2.SyncsReaderService.ListSyncs:output_type -> c1.reader.v2.SyncsReaderServiceListSyncsResponse
+	7,  // 20: c1.reader.v2.SyncsReaderService.GetLatestFinishedSync:output_type -> c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse
+	18, // [18:21] is the sub-list for method output_type
+	15, // [15:18] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_c1_reader_v2_sync_proto_init() }
@@ -913,7 +933,7 @@ func file_c1_reader_v2_sync_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_reader_v2_sync_proto_rawDesc), len(file_c1_reader_v2_sync_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

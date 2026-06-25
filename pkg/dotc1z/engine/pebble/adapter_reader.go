@@ -398,8 +398,23 @@ func (a *Adapter) GetSync(ctx context.Context, req *reader_v2.SyncsReaderService
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
+
+	stats, _, err := CachedSyncStats(ctx, a.engine, req.GetSyncId())
+	if err != nil {
+		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+	}
+
+	if stats == nil {
+		computedStats, err := a.engine.computeSyncStats(ctx, req.GetSyncId())
+		if err != nil {
+			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+		}
+
+		stats = SyncStatsFromRecord(computedStats)
+	}
+
 	return reader_v2.SyncsReaderServiceGetSyncResponse_builder{
-		Sync: v3SyncRunToV2(rec),
+		Sync: v3SyncRunToV2(rec, stats),
 	}.Build(), nil
 }
 
@@ -439,7 +454,13 @@ func (a *Adapter) ListSyncs(ctx context.Context, req *reader_v2.SyncsReaderServi
 			return nil, err
 		}
 		lastKey = append(lastKey[:0], iter.Key()...)
-		out = append(out, v3SyncRunToV2(r))
+
+		stats, _, err := CachedSyncStats(ctx, a.engine, r.GetSyncId())
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, v3SyncRunToV2(r, stats))
 	}
 	if err := iter.Error(); err != nil {
 		return nil, err
@@ -470,8 +491,23 @@ func (a *Adapter) GetLatestFinishedSync(ctx context.Context, req *reader_v2.Sync
 	if latest == nil {
 		return reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse_builder{}.Build(), nil
 	}
+
+	stats, _, err := CachedSyncStats(ctx, a.engine, latest.GetSyncId())
+	if err != nil {
+		return reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse_builder{}.Build(), err
+	}
+
+	if stats == nil {
+		computedStats, err := a.engine.computeSyncStats(ctx, latest.GetSyncId())
+		if err != nil {
+			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+		}
+
+		stats = SyncStatsFromRecord(computedStats)
+	}
+
 	return reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse_builder{
-		Sync: v3SyncRunToV2(latest),
+		Sync: v3SyncRunToV2(latest, stats),
 	}.Build(), nil
 }
 
@@ -489,7 +525,7 @@ func syncTypeFilterFromString(s string) func(v3.SyncType) bool {
 // v3SyncRunToV2 maps a v3.SyncRunRecord to the reader_v2.SyncRun
 // gRPC shape (Id, StartedAt, EndedAt, SyncToken, SyncType,
 // ParentSyncId).
-func v3SyncRunToV2(rec *v3.SyncRunRecord) *reader_v2.SyncRun {
+func v3SyncRunToV2(rec *v3.SyncRunRecord, stats *reader_v2.SyncStats) *reader_v2.SyncRun {
 	if rec == nil {
 		return nil
 	}
@@ -500,6 +536,7 @@ func v3SyncRunToV2(rec *v3.SyncRunRecord) *reader_v2.SyncRun {
 		SyncToken:    rec.GetSyncToken(),
 		SyncType:     v3SyncTypeToString(rec.GetType()),
 		ParentSyncId: rec.GetParentSyncId(),
+		Stats:        stats,
 	}.Build()
 }
 

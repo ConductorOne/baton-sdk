@@ -242,5 +242,7 @@ message SyncStatsRecord {
   // (matching the SQLite grants table's resource_type_id column
   // semantic, NOT the principal's resource type).
   map<string, int64> grants_by_entitlement_resource_type = 8;
+  // Per-resource-type entitlements counts: keyed by resource_type_id.
+  map<string, int64> entitlements_by_resource_type = 9;
   google.protobuf.Timestamp written_at = 100;
 }

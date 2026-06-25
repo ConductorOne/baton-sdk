@@ -262,6 +262,8 @@ func (m *SyncStats) validate(all bool) error {
 
 	// no validation rules for GrantsByResourceType
 
+	// no validation rules for EntitlementsByResourceType
+
 	if len(errors) > 0 {
 		return SyncStatsMultiError(errors)
 	}

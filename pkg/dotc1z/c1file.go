@@ -1141,6 +1141,7 @@ func statsToMap(stats *reader_v2.SyncStats, syncType connectorstore.SyncType) ma
 	for rt, n := range stats.GetResourcesByResourceType() {
 		out[rt] = n
 	}
+
 	return out
 }
 
@@ -1165,32 +1166,41 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 			return nil, nil, err
 		}
 	}
-	resp, err := c.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{SyncId: syncId}.Build())
+
+	sync, err := c.getSync(ctx, syncId)
 	if err != nil {
 		return nil, nil, err
 	}
-	if resp == nil || !resp.HasSync() {
+	if sync == nil {
 		return nil, nil, status.Errorf(codes.NotFound, "sync '%s' not found", syncId)
 	}
-	sync := resp.GetSync()
-	if syncType != connectorstore.SyncTypeAny && syncType != connectorstore.SyncType(sync.GetSyncType()) {
+	if syncType != connectorstore.SyncTypeAny && syncType != sync.Type {
 		return nil, nil, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncId, syncType)
 	}
-	syncType = connectorstore.SyncType(sync.GetSyncType())
+	syncType = sync.Type
 
-	stats := sync.GetStats()
+	stats := sync.Stats
 	if stats != nil && stats.GetResourceTypes() > 0 && !forceRefresh {
-		return sync, stats, nil
+		return &reader_v2.SyncRun{
+			Id:           sync.ID,
+			StartedAt:    toTimeStamp(sync.StartedAt),
+			EndedAt:      toTimeStamp(sync.EndedAt),
+			SyncToken:    sync.SyncToken,
+			SyncType:     string(sync.Type),
+			ParentSyncId: sync.ParentSyncID,
+			Stats:        sync.Stats,
+		}, stats, nil
 	}
 
 	// Slow path: Calculate sync stats and save them to the sync run so subsequent stats calls
 	stats = &reader_v2.SyncStats{
-		ResourceTypes:           0,
-		Resources:               0,
-		Entitlements:            0,
-		Grants:                  0,
-		ResourcesByResourceType: make(map[string]int64),
-		GrantsByResourceType:    make(map[string]int64),
+		ResourceTypes:              0,
+		Resources:                  0,
+		Entitlements:               0,
+		Grants:                     0,
+		ResourcesByResourceType:    make(map[string]int64),
+		GrantsByResourceType:       make(map[string]int64),
+		EntitlementsByResourceType: make(map[string]int64),
 	}
 
 	var rtStats []*v2.ResourceType
@@ -1237,13 +1247,15 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 	}
 
 	if syncType != connectorstore.SyncTypeResourcesOnly {
-		entitlementsCount, err := c.db.From(entitlements.Name()).
-			Where(goqu.C("sync_id").Eq(syncId)).
-			CountContext(ctx)
+		entitlementCounts, err := c.countBySyncAndResourceType(ctx, entitlements.Name(), syncId)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("count entitlements: %w", err)
 		}
-		stats.Entitlements = entitlementsCount
+		stats.EntitlementsByResourceType = entitlementCounts
+
+		for _, entitlementsCount := range entitlementCounts {
+			stats.Entitlements += entitlementsCount
+		}
 
 		grantCounts, err := c.countBySyncAndResourceType(ctx, grants.Name(), syncId)
 		if err != nil {
@@ -1257,7 +1269,7 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 	}
 
 	// If sync is ended and c1z is not read-only, save stats to the database.
-	if sync.GetEndedAt() != nil && !c.readOnly {
+	if sync.EndedAt != nil && !c.readOnly {
 		statsJSON, err := json.Marshal(stats)
 		if err != nil {
 			return nil, nil, fmt.Errorf("c1file-stats: error marshalling stats: %w", err)
@@ -1276,7 +1288,15 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 		c.dbUpdated = true
 	}
 
-	return sync, stats, nil
+	return &reader_v2.SyncRun{
+		Id:           sync.ID,
+		StartedAt:    toTimeStamp(sync.StartedAt),
+		EndedAt:      toTimeStamp(sync.EndedAt),
+		SyncToken:    sync.SyncToken,
+		SyncType:     string(sync.Type),
+		ParentSyncId: sync.ParentSyncID,
+		Stats:        stats,
+	}, stats, nil
 }
 
 // grantStats introspects the database and returns the count of grants for the given sync run.

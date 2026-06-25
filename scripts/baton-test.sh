@@ -72,7 +72,7 @@ verify_fixture() {
 
   local expected actual json_key
   for json_key in resources entitlements resourceTypes; do
-    expected=$(jq -r ".counts.$json_key" <<<"$1")
+    expected=$(jq -r ".stats.$json_key" <<<"$1")
     case "$json_key" in
       resources) actual=$(json_count "$file" resources '.resources') ;;
       entitlements) actual=$(json_count "$file" entitlements '.entitlements') ;;
@@ -91,15 +91,15 @@ verify_fixture() {
   echo "  stats: $(jq -c . <<<"$stats_json")"
 
   local stat_key
-  for stat_key in grants entitlements group user; do
-    expected=$(jq -r ".counts.$stat_key" <<<"$1")
-    actual=$(jq -r --arg k "$stat_key" '.[$k] // empty' <<<"$stats_json")
-    assert_eq "$name:stats:$stat_key" "$expected" "$actual"
+  for stat_key in group user; do
+    expected=$(jq -r ".stats.$stat_key" <<<"$1")
+    actual=$(jq -r --arg k "$stat_key" '.stats.resourcesByResourceType.[$k] // empty' <<<"$stats_json")
+    assert_eq "$name:stats.resourcesByResourceType:$stat_key" "$expected" "$actual"
     echo "  ok stats $stat_key count=$actual"
   done
 
   if [[ "$verify_grants_json" == "true" ]]; then
-    expected=$(jq -r '.counts.grants' <<<"$1")
+    expected=$(jq -r '.stats.grants' <<<"$1")
     actual=$(json_count "$file" grants '.grants')
     assert_eq "$name:grants-json" "$expected" "$actual"
     echo "  ok grants json count=$actual"

@@ -62,16 +62,19 @@ func pruneUnresolvableAny(m protoreflect.Message) bool {
 	}
 
 	m.Range(func(fd protoreflect.FieldDescriptor, value protoreflect.Value) bool {
-		if fd.IsList() && messageField(fd) {
-			pruneUnresolvableAnyList(value.List())
-			return true
-		}
-		if fd.IsMap() && messageField(fd.MapValue()) {
-			pruneUnresolvableAnyMap(value.Map())
-			return true
-		}
-		if messageField(fd) && !pruneUnresolvableAny(value.Message()) {
-			m.Clear(fd)
+		switch {
+		case fd.IsList():
+			if messageField(fd) {
+				pruneUnresolvableAnyList(value.List())
+			}
+		case fd.IsMap():
+			if messageField(fd.MapValue()) {
+				pruneUnresolvableAnyMap(value.Map())
+			}
+		case messageField(fd):
+			if !pruneUnresolvableAny(value.Message()) {
+				m.Clear(fd)
+			}
 		}
 		return true
 	})

@@ -285,14 +285,17 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 }
 
 func parseStats(ctx context.Context, statsBytes *[]byte) *reader_v2.SyncStats {
+	l := ctxzap.Extract(ctx)
+
 	if statsBytes == nil || len(*statsBytes) == 0 {
+		l.Debug("no stats found")
 		return nil
 	}
 	ret := &reader_v2.SyncStats{}
 	err := json.Unmarshal(*statsBytes, ret)
 	if err != nil {
 		// Ignore error parsing stats. We will recalculate them if Stats() is called.
-		ctxzap.Extract(ctx).Warn("error parsing stats", zap.Error(err))
+		l.Warn("error parsing stats", zap.Error(err))
 		return nil
 	}
 	return ret
@@ -1082,6 +1085,19 @@ func (c *C1File) GetSync(ctx context.Context, request *reader_v2.SyncsReaderServ
 		return nil, fmt.Errorf("error getting sync '%s': %w", request.GetSyncId(), err)
 	}
 
+	if sr == nil {
+		return nil, fmt.Errorf("sync '%s' not found", request.GetSyncId())
+	}
+
+	if sr.Stats == nil {
+		_, stats, err := c.stats(ctx, sr.Type, sr.ID, true)
+		if err != nil {
+			return nil, err
+		}
+
+		sr.Stats = stats
+	}
+
 	return reader_v2.SyncsReaderServiceGetSyncResponse_builder{
 		Sync: reader_v2.SyncRun_builder{
 			Id:           sr.ID,
@@ -1141,6 +1157,15 @@ func (c *C1File) GetLatestFinishedSync(
 		}.Build(), nil
 	}
 
+	if sync.Stats == nil {
+		_, stats, err := c.stats(ctx, sync.Type, sync.ID, true)
+		if err != nil {
+			return nil, err
+		}
+
+		sync.Stats = stats
+	}
+
 	return reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse_builder{
 		Sync: reader_v2.SyncRun_builder{
 			Id:           sync.ID,
@@ -1149,6 +1174,7 @@ func (c *C1File) GetLatestFinishedSync(
 			SyncToken:    sync.SyncToken,
 			SyncType:     string(sync.Type),
 			ParentSyncId: sync.ParentSyncID,
+			Stats:        sync.Stats,
 		}.Build(),
 	}.Build(), nil
 }
