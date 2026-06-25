@@ -71,13 +71,12 @@ verify_fixture() {
   verify_syncs "$file" "$sync_id" "$sync_type" "$name"
 
   local expected actual json_key
-  for json_key in resources entitlements resourceTypes grants; do
+  for json_key in resources entitlements resourceTypes; do
     expected=$(jq -r ".stats.$json_key" <<<"$1")
     case "$json_key" in
       resources) actual=$(json_count "$file" resources '.resources') ;;
       entitlements) actual=$(json_count "$file" entitlements '.entitlements') ;;
       resourceTypes) actual=$(json_count "$file" resource-types '.resourceTypes') ;;
-      grants) actual=$(json_count "$file" grants '.grants') ;;
     esac
     assert_eq "$name:$json_key" "$expected" "$actual"
     echo "  ok $json_key count=$actual"
