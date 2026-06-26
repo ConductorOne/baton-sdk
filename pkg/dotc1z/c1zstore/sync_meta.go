@@ -34,6 +34,12 @@ type SyncMeta interface {
 	// If syncID is empty, the latest sync of the given type is used.
 	// Mirrors the existing *C1File.Stats signature exactly.
 	Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error)
+
+	// RecalculateStats recomputes the cached stats for the given sync from
+	// the underlying records and persists them, discarding any previously
+	// cached value. The store must be writable. Used by tooling (e.g. the
+	// `baton recalculate-stats` command) to refresh stale or missing stats.
+	RecalculateStats(ctx context.Context, syncID string) error
 }
 
 // SyncRun is the exported shape of a sync run. The fields match the

@@ -1155,6 +1155,18 @@ func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, sy
 	return statsToMap(stats, connectorstore.SyncType(sync.GetSyncType())), nil
 }
 
+// RecalculateStats recomputes the cached stats for the given sync from the
+// underlying tables and persists them, discarding any previously cached
+// value. The store must be writable (stats are only persisted for ended
+// syncs on a non-read-only c1z).
+func (c *C1File) RecalculateStats(ctx context.Context, syncId string) error {
+	if c.readOnly {
+		return ErrReadOnly
+	}
+	_, _, err := c.stats(ctx, connectorstore.SyncTypeAny, syncId, true)
+	return err
+}
+
 func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, syncId string, forceRefresh bool) (*reader_v2.SyncRun, *reader_v2.SyncStats, error) {
 	ctx, span := tracer.Start(ctx, "C1File.Stats")
 	var err error
