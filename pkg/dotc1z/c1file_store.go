@@ -16,10 +16,12 @@ import (
 // wrapper structs satisfy each sub-interface. These assertions catch
 // signature drift at build time rather than at the first runtime call.
 var (
-	_ C1ZStore   = (*C1File)(nil)
-	_ GrantStore = c1FileGrantStore{}
-	_ SyncMeta   = c1FileSyncMeta{}
-	_ FileOps    = c1FileFileOps{}
+	_ C1ZStore                   = (*C1File)(nil)
+	_ GrantStore                 = c1FileGrantStore{}
+	_ SyncMeta                   = c1FileSyncMeta{}
+	_ FileOps                    = c1FileFileOps{}
+	_ c1zstore.ExchangesProvider = (*C1File)(nil)
+	_ c1zstore.ExchangeStore     = c1FileExchangeStore{}
 )
 
 // Grants returns the grant-store slice of this c1z.
