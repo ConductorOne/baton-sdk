@@ -61,14 +61,14 @@ func runStats(cmd *cobra.Command, args []string) error {
 		return outputManager.Output(ctx, sync)
 	}
 
-	if err := renderSyncRunInfo(sync); err != nil {
+	if err := renderSyncRunInfo(sync, store.Metadata().Engine); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func renderSyncRunInfo(sync *v2.SyncRun) error {
+func renderSyncRunInfo(sync *v2.SyncRun, engine string) error {
 	startedAt := sync.GetStartedAt().AsTime()
 	endedAt := sync.GetEndedAt().AsTime()
 
@@ -86,8 +86,13 @@ func renderSyncRunInfo(sync *v2.SyncRun) error {
 		endedStr = endedAt.Format(time.RFC3339)
 	}
 
+	if engine == "" {
+		engine = "unknown"
+	}
+
 	infoTable := pterm.TableData{
 		{"Field", "Value"},
+		{"Engine", engine},
 		{"Sync ID", sync.GetId()},
 		{"Sync Type", sync.GetSyncType()},
 		{"Parent Sync ID", sync.GetParentSyncId()},

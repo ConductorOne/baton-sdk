@@ -299,6 +299,12 @@ func (s c1FileSyncMeta) Stats(ctx context.Context, syncType connectorstore.SyncT
 	return s.c.Stats(ctx, syncType, syncID)
 }
 
+// RecalculateStats implements SyncMeta. Thin passthrough to
+// *C1File.RecalculateStats.
+func (s c1FileSyncMeta) RecalculateStats(ctx context.Context, syncID string) error {
+	return s.c.RecalculateStats(ctx, syncID)
+}
+
 // -----------------------------------------------------------------------------
 // FileOps
 // -----------------------------------------------------------------------------
