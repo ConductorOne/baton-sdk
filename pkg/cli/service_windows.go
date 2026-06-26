@@ -96,7 +96,8 @@ func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option)
 		defaultLoggingOpts := []logging.Option{
 			logging.WithLogFormat(logging.LogFormatJSON),
 			logging.WithLogLevel("info"),
-			logging.WithOutputPaths([]string{filepath.Join(getConfigDir(name), "baton.log")}),
+			logging.WithLogRotation(getConfigDir(name), "baton", logging.DefaultLogRotationDays),
+			logging.WithFileOnly(true),
 		}
 		loggingOpts = append(defaultLoggingOpts, loggingOpts...)
 	}

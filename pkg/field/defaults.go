@@ -84,6 +84,18 @@ var (
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	logFormatField = StringField("log-format", WithDefaultValueFunc(defaultLogFormat), WithDescription("The output format for logs: json, console"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
+	logRotationDirField = StringField("log-rotation-dir",
+		WithDescription("Directory for rotated log files. When set, enables daily log rotation with gzip compression"),
+		WithPersistent(true), WithExportTarget(ExportTargetOps))
+	logRotationPrefixField = StringField("log-rotation-prefix", WithDefaultValue("baton"),
+		WithDescription("Filename prefix for rotated log files; the active file is {prefix}-{YYYY-MM-DD}.log (requires --log-rotation-dir)"),
+		WithPersistent(true), WithExportTarget(ExportTargetOps))
+	logRotationDaysField = IntField("log-rotation-days", WithDefaultValue(logging.DefaultLogRotationDays),
+		WithDescription("Number of days to keep rotated log files (requires --log-rotation-dir)"),
+		WithPersistent(true), WithExportTarget(ExportTargetOps),
+		WithInt(func(r *IntRuler) {
+			r.Gte(1).Lte(365)
+		}))
 	revokeGrantField       = StringField("revoke-grant", WithHidden(true), WithDescription("The grant to revoke"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	rotateCredentialsField = StringField("rotate-credentials", WithHidden(true), WithDescription("The id of the resource to rotate credentials on"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
@@ -409,6 +421,9 @@ var DefaultFields = []SchemaField{
 	grantPrincipalField,
 	grantPrincipalTypeField,
 	logFormatField,
+	logRotationDirField,
+	logRotationPrefixField,
+	logRotationDaysField,
 	revokeGrantField,
 	rotateCredentialsField,
 	rotateCredentialsTypeField,

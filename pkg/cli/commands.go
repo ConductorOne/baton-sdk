@@ -122,6 +122,7 @@ func MakeMainCommand[T field.Configurable](
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(v.GetString("log-level")),
+			logging.WithLogRotation(v.GetString("log-rotation-dir"), v.GetString("log-rotation-prefix"), v.GetInt("log-rotation-days")),
 		)
 		if err != nil {
 			return err
@@ -515,6 +516,7 @@ func MakeGRPCServerCommand[T field.Configurable](
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(v.GetString("log-level")),
+			logging.WithLogRotation(v.GetString("log-rotation-dir"), v.GetString("log-rotation-prefix"), v.GetInt("log-rotation-days")),
 		)
 		if err != nil {
 			return err
@@ -703,6 +705,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(v.GetString("log-level")),
+			logging.WithLogRotation(v.GetString("log-rotation-dir"), v.GetString("log-rotation-prefix"), v.GetInt("log-rotation-days")),
 		)
 		if err != nil {
 			return err
