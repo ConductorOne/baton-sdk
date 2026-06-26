@@ -63,7 +63,7 @@ func runRecalculateStats(cmd *cobra.Command, args []string) error {
 		if err := store.SyncMeta().RecalculateStats(ctx, id); err != nil {
 			return err
 		}
-		pterm.Success.Printfln("Recalculated stats for sync %s durarion: %s", id, time.Since(start))
+		pterm.Success.Printfln("Recalculated stats for sync %s duration: %s", id, time.Since(start))
 	}
 
 	pterm.Info.Printfln("Recalculated stats for %d sync(s)", len(syncIDs))
