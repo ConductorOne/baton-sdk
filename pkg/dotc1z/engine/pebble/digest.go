@@ -733,9 +733,10 @@ func (e *Engine) dirtyPartitionBuckets(ctx context.Context, spec digestIndexSpec
 // callers on the fresh-sync bulk path should skip constructing one
 // anyway to avoid the per-partition root probe.
 type digestMutator struct {
-	e     *Engine
-	spec  digestIndexSpec
-	parts map[string]*mutatorPartition // keyed by string(root node key)
+	e               *Engine
+	spec            digestIndexSpec
+	parts           map[string]*mutatorPartition // keyed by string(root node key)
+	createIfAbsent  bool                         // treat missing root as zero instead of dropping
 }
 
 type mutatorPartition struct {
@@ -784,7 +785,10 @@ func (m *digestMutator) partFor(partition string) (*mutatorPartition, error) {
 		// Malformed root: leave present=false so mutations are dropped;
 		// the stale root heals at the next rebuild.
 	case errors.Is(err, pebble.ErrNotFound):
-		// No digest — deltas for this partition are no-ops.
+		// No digest — treat as zero identity if createIfAbsent, else no-ops.
+		if m.createIfAbsent {
+			mp.present = true
+		}
 	default:
 		return nil, err
 	}
