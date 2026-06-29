@@ -133,16 +133,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 						return err
 					}
 					if mm != nil {
-						// The digest removal needs the old record's content
-						// hash, which folds fields the raw index scan does
-						// not extract (sources) — unmarshal only on this
-						// non-fresh path.
-						old := &v3.GrantRecord{}
-						if err := unmarshalRecord(oldVal, old); err != nil {
-							closer.Close()
-							return fmt.Errorf("PutGrantRecords: unmarshal old %q: %w", r.GetExternalId(), err)
-						}
-						if err := mm.removeGrant(old); err != nil {
+						if err := mm.removeGrantRaw(r.GetExternalId(), oldVal); err != nil {
 							closer.Close()
 							return err
 						}
@@ -466,17 +457,10 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, externalID string) error
 			closer.Close()
 			return err
 		}
-		// The digest removal needs the old record's content hash, which
-		// folds fields the raw index scan does not extract (sources).
-		old := &v3.GrantRecord{}
-		if uErr := unmarshalRecord(oldVal, old); uErr != nil {
-			closer.Close()
-			return fmt.Errorf("DeleteGrantRecord: unmarshal old %q: %w", externalID, uErr)
-		}
 		closer.Close()
 
 		mm := newGrantDigestMutator(e)
-		if err := mm.removeGrant(old); err != nil {
+		if err := mm.removeGrantRaw(externalID, oldVal); err != nil {
 			return err
 		}
 		if err := mm.apply(batch); err != nil {

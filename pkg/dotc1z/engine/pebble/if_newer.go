@@ -66,15 +66,7 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 					closer.Close()
 					return err
 				}
-				// The digest removal needs the old record's content hash,
-				// which folds fields the raw index scan does not extract
-				// (sources).
-				old := &v3.GrantRecord{}
-				if err := unmarshalRecord(oldVal, old); err != nil {
-					closer.Close()
-					return fmt.Errorf("PutGrantRecordsIfNewer: unmarshal old: %w", err)
-				}
-				if err := mm.removeGrant(old); err != nil {
+				if err := mm.removeGrantRaw(r.GetExternalId(), oldVal); err != nil {
 					closer.Close()
 					return err
 				}
