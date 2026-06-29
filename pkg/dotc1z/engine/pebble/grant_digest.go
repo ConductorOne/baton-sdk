@@ -85,21 +85,20 @@ func grantContentHash(r *v3.GrantRecord) []byte {
 	// Source-entitlement ids, sorted for order-independence. The map
 	// values (GrantSourceRecord) are not folded in v1 — only the set of
 	// source ids, which is the membership-composition signal.
-	sources := r.GetSources()
-	fields := make([]string, 0, 4+len(sources))
-	fields = append(fields,
-		ent.GetEntitlementId(),
-		princ.GetResourceTypeId(),
-		princ.GetResourceId(),
-		r.GetExternalId(),
-	)
-	ids := make([]string, 0, len(sources))
-	for k := range sources {
+	ids := make([]string, 0, len(r.GetSources()))
+	for k := range r.GetSources() {
 		ids = append(ids, k)
 	}
 	sort.Strings(ids)
-	fields = append(fields, ids...)
+	return grantContentHashFromParts(ent.GetEntitlementId(), princ.GetResourceTypeId(), princ.GetResourceId(), r.GetExternalId(), ids)
+}
 
+// grantContentHashFromParts computes the content hash from pre-extracted
+// fields. sortedSourceKeys must already be sorted for order-independence.
+func grantContentHashFromParts(entID, principalRT, principalID, externalID string, sortedSourceKeys []string) []byte {
+	fields := make([]string, 0, 4+len(sortedSourceKeys))
+	fields = append(fields, entID, principalRT, principalID, externalID)
+	fields = append(fields, sortedSourceKeys...)
 	buf := codec.AppendTupleStrings(nil, fields...)
 	out := make([]byte, hashLen)
 	binary.BigEndian.PutUint64(out, xxhash.Sum64(buf))
@@ -231,6 +230,28 @@ func (m *digestMutator) addGrant(r *v3.GrantRecord) error {
 // removeGrant records r's removal from its entitlement's grant digest.
 func (m *digestMutator) removeGrant(r *v3.GrantRecord) error {
 	return m.grantDelta(r, m.removeHash)
+}
+
+// removeGrantRaw is removeGrant without a full proto unmarshal. It extracts
+// only the fields needed for the digest (entitlement, principal, sources keys)
+// directly from the raw wire bytes, avoiding heap allocation of the GrantRecord
+// and all its nested messages on the hot path.
+func (m *digestMutator) removeGrantRaw(externalID string, value []byte) error {
+	_, _, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(value)
+	if err != nil {
+		return err
+	}
+	if entID == "" || principalRT == "" || principalID == "" {
+		return nil // not in the hash index → not in the digest
+	}
+	sourceKeys, err := scanGrantSourceKeysRaw(value)
+	if err != nil {
+		return err
+	}
+	sort.Strings(sourceKeys)
+	bh := principalBucketHash(principalRT, principalID)
+	ch := grantContentHashFromParts(entID, principalRT, principalID, externalID, sourceKeys)
+	return m.removeHash(entID, bh, ch)
 }
 
 func (m *digestMutator) grantDelta(r *v3.GrantRecord, apply func(partition string, bucketHash, contentHash []byte) error) error {
