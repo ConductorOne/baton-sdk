@@ -222,6 +222,15 @@ func newGrantDigestMutator(e *Engine) *digestMutator {
 	return newDigestMutator(e, grantDigestSpec)
 }
 
+// newGrantDigestMutatorFresh is newGrantDigestMutator for the fresh-sync
+// path: absent roots are initialized as zero rather than dropped, so the
+// root node is written live as grants arrive.
+func newGrantDigestMutatorFresh(e *Engine) *digestMutator {
+	m := newDigestMutator(e, grantDigestSpec)
+	m.createIfAbsent = true
+	return m
+}
+
 // addGrant records r's insertion into its entitlement's grant digest.
 func (m *digestMutator) addGrant(r *v3.GrantRecord) error {
 	return m.grantDelta(r, m.addHash)

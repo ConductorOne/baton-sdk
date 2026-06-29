@@ -84,12 +84,13 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		// emitting an external_id on two pages).
 		skipGet := e.takeFreshGrantsEmpty()
 
-		// Incremental digest maintenance applies only on the non-fresh
-		// path: during a fresh sync the digests don't exist yet (built
-		// once at seal), so skip even the per-entitlement root probe.
 		var mm *digestMutator
-		if !fresh && e.opts.grantDigestIndex {
-			mm = newGrantDigestMutator(e)
+		if e.opts.grantDigestIndex {
+			if fresh {
+				mm = newGrantDigestMutatorFresh(e)
+			} else {
+				mm = newGrantDigestMutator(e)
+			}
 		}
 
 		// Dedup pre-pass: keep only the LAST occurrence of each
@@ -230,6 +231,15 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 			}
 		}
 
+		var mm *digestMutator
+		if e.opts.grantDigestIndex {
+			if e.IsFreshSync() {
+				mm = newGrantDigestMutatorFresh(e)
+			} else {
+				mm = newGrantDigestMutator(e)
+			}
+		}
+
 		// Scratch buffers reused across every record. pebble.Batch.Set
 		// and Delete copy their key/value arguments, so one buffer can
 		// back the primary key, the marshaled value, and each index key
@@ -267,6 +277,12 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 					closer.Close()
 					return err
 				}
+				if mm != nil {
+					if err := mm.removeGrantRaw(ext, oldVal); err != nil {
+						closer.Close()
+						return err
+					}
+				}
 				closer.Close()
 			case errors.Is(getErr, pebble.ErrNotFound):
 				// No prior record: discovered_at is stamped below unless the
@@ -288,6 +304,16 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 			}
 			idxScratch, err = e.writeGrantIndexesScratch(idxBatch, r, idxScratch)
 			if err != nil {
+				return err
+			}
+			if mm != nil {
+				if err := mm.addGrant(r); err != nil {
+					return err
+				}
+			}
+		}
+		if mm != nil {
+			if err := mm.apply(idxBatch); err != nil {
 				return err
 			}
 		}
