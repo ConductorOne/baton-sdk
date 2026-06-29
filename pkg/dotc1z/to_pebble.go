@@ -18,6 +18,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -243,6 +244,16 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	endSyncStart := time.Now()
 	if err = dest.EndSync(ctx); err != nil {
 		return nil, fmt.Errorf("to-pebble: end destination sync: %w", err)
+	}
+	if sync.EndedAt != nil {
+		rec, err := destEng.GetSyncRunRecord(ctx, destSyncID)
+		if err != nil {
+			return nil, fmt.Errorf("to-pebble: load destination sync metadata: %w", err)
+		}
+		rec.SetEndedAt(timestamppb.New(*sync.EndedAt))
+		if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
+			return nil, fmt.Errorf("to-pebble: preserve source ended_at: %w", err)
+		}
 	}
 	endSyncDur := time.Since(endSyncStart)
 	closeStart := time.Now()
