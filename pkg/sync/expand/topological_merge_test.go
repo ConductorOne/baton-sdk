@@ -43,7 +43,7 @@ func TestMergeContributionGroupStreamsChecksContextDuringMergeLoop(t *testing.T)
 	err := mergeContributionGroupStreams(ctx, makeEntitlement("ent:dest", makeResource("group", "dest")), []contributionGroupStream{stream}, func(context.Context, []*v2.Grant) error {
 		sinkCalled = true
 		return nil
-	})
+	}, nil)
 
 	require.Error(t, err)
 	require.True(t, errors.Is(err, context.Canceled))

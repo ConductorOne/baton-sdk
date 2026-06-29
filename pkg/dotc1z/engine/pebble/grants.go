@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -189,6 +190,16 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 
 		now := timestamppb.Now()
 
+		// stats is nil unless EnableExpandWriteStats was called (diagnostic
+		// runs only). When set, the per-record Get/marshal/delete and the two
+		// commits below are wall-timed into it; writeGrantIndexesScratch tallies
+		// per-index-family key/byte volume.
+		stats := e.expandStats
+		if stats != nil {
+			stats.calls.Add(1)
+		}
+		var tStat time.Time
+
 		// Dedup pre-pass: keep only the LAST occurrence of each
 		// external_id. The expander appends the same deterministic
 		// grant id more than once when it merges sources for a
@@ -223,7 +234,17 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 			ext := r.GetExternalId()
 			keyScratch = appendGrantKey(keyScratch[:0], ext)
 
+			if stats != nil {
+				tStat = time.Now()
+			}
 			oldVal, closer, getErr := e.db.Get(keyScratch)
+			if stats != nil {
+				stats.getNs.Add(int64(time.Since(tStat)))
+				stats.getCount.Add(1)
+				if errors.Is(getErr, pebble.ErrNotFound) {
+					stats.getNotFound.Add(1)
+				}
+			}
 			switch {
 			case getErr == nil:
 				// Preserve the prior record's expansion side-state +
@@ -238,7 +259,13 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 				r.SetNeedsExpansion(prior.GetNeedsExpansion())
 				r.SetDiscoveredAt(prior.GetDiscoveredAt())
 				var err error
+				if stats != nil {
+					tStat = time.Now()
+				}
 				idxScratch, err = e.deleteGrantIndexesScratch(idxBatch, ext, oldVal, idxScratch)
+				if stats != nil {
+					stats.deleteNs.Add(int64(time.Since(tStat)))
+				}
 				if err != nil {
 					closer.Close()
 					return err
@@ -254,7 +281,13 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 				r.SetDiscoveredAt(now)
 			}
 
+			if stats != nil {
+				tStat = time.Now()
+			}
 			val, err := marshalRecordAppend(valScratch[:0], r)
+			if stats != nil {
+				stats.marshalNs.Add(int64(time.Since(tStat)))
+			}
 			if err != nil {
 				return err
 			}
@@ -262,16 +295,34 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 			if err := priBatch.Set(keyScratch, val, nil); err != nil {
 				return err
 			}
+			if stats != nil {
+				stats.records.Add(1)
+				stats.priKeyBytes.Add(int64(len(keyScratch)))
+				stats.priValBytes.Add(int64(len(val)))
+			}
 			idxScratch, err = e.writeGrantIndexesScratch(idxBatch, r, idxScratch)
 			if err != nil {
 				return err
 			}
 		}
 
+		if stats != nil {
+			tStat = time.Now()
+		}
 		if err := priBatch.Commit(pebble.NoSync); err != nil {
 			return err
 		}
-		return idxBatch.Commit(pebble.NoSync)
+		if stats != nil {
+			stats.priCommitNs.Add(int64(time.Since(tStat)))
+			tStat = time.Now()
+		}
+		if err := idxBatch.Commit(pebble.NoSync); err != nil {
+			return err
+		}
+		if stats != nil {
+			stats.idxCommitNs.Add(int64(time.Since(tStat)))
+		}
+		return nil
 	})
 }
 
@@ -484,11 +535,16 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 	ent := r.GetEntitlement()
 	princ := r.GetPrincipal()
 	ext := r.GetExternalId()
+	stats := e.expandStats
 
 	if ent != nil && princ != nil {
 		scratch = appendGrantByEntitlementIndexKey(scratch[:0], ent.GetEntitlementId(), princ.GetResourceTypeId(), princ.GetResourceId(), ext)
 		if err := batch.Set(scratch, nil, nil); err != nil {
 			return scratch, err
+		}
+		if stats != nil {
+			stats.entKeys.Add(1)
+			stats.entBytes.Add(int64(len(scratch)))
 		}
 	}
 	if ent != nil && ent.GetResourceId() != "" {
@@ -496,21 +552,37 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 		if err := batch.Set(scratch, nil, nil); err != nil {
 			return scratch, err
 		}
+		if stats != nil {
+			stats.entResKeys.Add(1)
+			stats.entResBytes.Add(int64(len(scratch)))
+		}
 	}
 	if princ != nil {
 		scratch = appendGrantByPrincipalIndexKey(scratch[:0], princ.GetResourceTypeId(), princ.GetResourceId(), ext)
 		if err := batch.Set(scratch, nil, nil); err != nil {
 			return scratch, err
 		}
+		if stats != nil {
+			stats.prinKeys.Add(1)
+			stats.prinBytes.Add(int64(len(scratch)))
+		}
 		scratch = appendGrantByPrincipalResourceTypeIndexKey(scratch[:0], princ.GetResourceTypeId(), ext)
 		if err := batch.Set(scratch, nil, nil); err != nil {
 			return scratch, err
+		}
+		if stats != nil {
+			stats.prinRTKeys.Add(1)
+			stats.prinRTBytes.Add(int64(len(scratch)))
 		}
 	}
 	if r.GetNeedsExpansion() {
 		scratch = appendGrantByNeedsExpansionIndexKey(scratch[:0], ext)
 		if err := batch.Set(scratch, nil, nil); err != nil {
 			return scratch, err
+		}
+		if stats != nil {
+			stats.needsExpKeys.Add(1)
+			stats.needsExpBytes.Add(int64(len(scratch)))
 		}
 	}
 	return scratch, nil

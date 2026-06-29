@@ -71,6 +71,14 @@ type Engine struct {
 	// record they wrote.
 	computedStatsMu sync.Mutex
 	computedStats   map[string]*v3.SyncStatsRecord
+
+	// expandStats, when non-nil, accumulates a timing/volume breakdown of
+	// the PutExpandedGrantRecords write path (read-before-write Gets, marshal,
+	// index-delete, primary/index commit time, and per-index-family key/byte
+	// counts). Diagnostic only: enabled via EnableExpandWriteStats before an
+	// expansion run and read back via ExpandWriteStats. nil in production, so
+	// the hot path pays one nil check per record.
+	expandStats *expandWriteStats
 }
 
 // Open creates or opens a Pebble engine rooted at dir. If dir does

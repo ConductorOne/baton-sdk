@@ -96,6 +96,15 @@ type EntitlementGraphMetrics struct {
 	NodesReduced            int64  `json:"nodes_reduced"`
 	DestinationEntitlements int64  `json:"destination_entitlements"`
 	DirtyGrantsWritten      int64  `json:"dirty_grants_written"`
+	// SynthesizedGrants and BaseUpdateGrants partition DirtyGrantsWritten by
+	// the merge's two output arms: a synthesized grant is a brand-new expanded
+	// grant (deterministic external_id D:rt:res, index keys derivable), while a
+	// base-update grant is an existing connector grant whose Sources gained a
+	// contribution (arbitrary external_id, requires a proto rewrite). Their
+	// ratio sizes the irreducible proto-rewrite floor for any deferred/sorted
+	// index-build fast path. They must sum to DirtyGrantsWritten.
+	SynthesizedGrants int64 `json:"synthesized_grants"`
+	BaseUpdateGrants  int64 `json:"base_update_grants"`
 }
 
 func NewEntitlementGraph(_ context.Context) *EntitlementGraph {

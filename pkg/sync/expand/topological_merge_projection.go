@@ -74,7 +74,7 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	lastLog := expandStart
 	err = e.driveTopological(ctx, entitlements, order, topologicalRun{
 		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink destinationSink) error {
-			return e.mergeDestinationStreams(ctx, dest, incoming, ents, projDB, projectionSources, sink)
+			return e.mergeDestinationStreams(ctx, dest, incoming, ents, projDB, projectionSources, sink, metrics)
 		},
 		onStored: func(_ context.Context, dirty []*v2.Grant) error {
 			addedRows, err := addProjectionRows(projDB, dirty, projectionSources)
@@ -112,6 +112,8 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	l.Info("topological projection: expansion complete",
 		zap.Int("nodes_total", len(order)),
 		zap.Int64("dirty_grants_written", metrics.DirtyGrantsWritten),
+		zap.Int64("synthesized_grants", metrics.SynthesizedGrants),
+		zap.Int64("base_update_grants", metrics.BaseUpdateGrants),
 		zap.Int64("projection_rows", metrics.ProjectionRowsBuilt),
 		zap.Int64("nodes_reduced", metrics.NodesReduced),
 		zap.Duration("elapsed", time.Since(expandStart)),
@@ -134,6 +136,7 @@ func (e *Expander) mergeDestinationStreams(
 	projDB *pebble.DB,
 	projectionSources map[string]struct{},
 	sink destinationSink,
+	metrics *EntitlementGraphMetrics,
 ) error {
 	streams := make([]contributionGroupStream, 0, 1+len(incoming))
 	streams = append(streams, &baseContributionStream{
@@ -162,7 +165,7 @@ func (e *Expander) mergeDestinationStreams(
 			})
 		}
 	}
-	return mergeContributionGroupStreams(ctx, destEntitlement, streams, sink)
+	return mergeContributionGroupStreams(ctx, destEntitlement, streams, sink, metrics)
 }
 
 // buildProjectionDB scans the projection-source entitlements once and ingests a

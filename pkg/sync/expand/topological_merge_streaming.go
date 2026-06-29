@@ -20,7 +20,7 @@ func (e *Expander) RunTopologicalMergeStreaming(ctx context.Context) error {
 	}
 	if err := e.driveTopological(ctx, entitlements, order, topologicalRun{
 		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink destinationSink) error {
-			return e.mergeDestinationStreams(ctx, dest, incoming, ents, nil, nil, sink)
+			return e.mergeDestinationStreams(ctx, dest, incoming, ents, nil, nil, sink, nil)
 		},
 	}); err != nil {
 		return err
@@ -306,6 +306,7 @@ func mergeContributionGroupStreams(
 	destEntitlement *v2.Entitlement,
 	streams []contributionGroupStream,
 	sink destinationSink,
+	metrics *EntitlementGraphMetrics,
 ) error {
 	for _, stream := range streams {
 		defer stream.close()
@@ -375,6 +376,9 @@ func mergeContributionGroupStreams(
 			if err := flusher.add(ctx, grant); err != nil {
 				return err
 			}
+			if metrics != nil {
+				metrics.SynthesizedGrants++
+			}
 			continue
 		}
 		for _, baseGrant := range base {
@@ -382,6 +386,9 @@ func mergeContributionGroupStreams(
 			if updated != nil {
 				if err := flusher.add(ctx, updated); err != nil {
 					return err
+				}
+				if metrics != nil {
+					metrics.BaseUpdateGrants++
 				}
 			}
 		}
