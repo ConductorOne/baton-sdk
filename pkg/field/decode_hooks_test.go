@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mitchellh/mapstructure"
@@ -174,6 +175,147 @@ func TestFileUploadDecodeHook(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestDecodeFileUploadValue(t *testing.T) {
+	tempDir := t.TempDir()
+	tempFilePath := filepath.Join(tempDir, "test.txt")
+	tempFileContent := []byte("test file content")
+
+	err := os.WriteFile(tempFilePath, tempFileContent, 0600)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		value       string
+		mode        FileUploadDecodeMode
+		opts        []FileUploadDecodeOption
+		expected    []byte
+		expectError bool
+	}{
+		{
+			name:     "path-only reads file",
+			value:    tempFilePath,
+			mode:     FileUploadDecodeModePathOnly,
+			expected: tempFileContent,
+		},
+		{
+			name:        "path-only rejects missing file",
+			value:       filepath.Join(tempDir, "missing.txt"),
+			mode:        FileUploadDecodeModePathOnly,
+			expectError: true,
+		},
+		{
+			name:     "content-only keeps path string as content",
+			value:    tempFilePath,
+			mode:     FileUploadDecodeModeContentOnly,
+			expected: []byte(tempFilePath),
+		},
+		{
+			name:     "content-only decodes base64",
+			value:    base64.StdEncoding.EncodeToString([]byte("encoded content")),
+			mode:     FileUploadDecodeModeContentOnly,
+			expected: []byte("encoded content"),
+		},
+		{
+			name:     "content-only decodes JSON data URL",
+			value:    "data:application/json;base64," + base64.StdEncoding.EncodeToString([]byte(`{"key": "value"}`)),
+			mode:     FileUploadDecodeModeContentOnly,
+			expected: []byte(`{"key": "value"}`),
+		},
+		{
+			name:     "content-only accepts empty string",
+			value:    "",
+			mode:     FileUploadDecodeModeContentOnly,
+			expected: []byte{},
+		},
+		{
+			name:        "content-only rejects non-JSON data URL",
+			value:       "data:text/plain;base64," + base64.StdEncoding.EncodeToString([]byte("encoded content")),
+			mode:        FileUploadDecodeModeContentOnly,
+			expectError: true,
+		},
+		{
+			name:        "content-only enforces decoded size option",
+			value:       base64.StdEncoding.EncodeToString([]byte("12345")),
+			mode:        FileUploadDecodeModeContentOnly,
+			opts:        []FileUploadDecodeOption{WithFileUploadMaxDecodedSize(4)},
+			expectError: true,
+		},
+		{
+			name:     "content-only ignores nil options",
+			value:    "content",
+			mode:     FileUploadDecodeModeContentOnly,
+			opts:     []FileUploadDecodeOption{nil},
+			expected: []byte("content"),
+		},
+		{
+			name:        "unspecified mode returns error",
+			value:       "content",
+			mode:        fileUploadDecodeModeUnspecified,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := DecodeFileUploadValue(tt.value, tt.mode, tt.opts...)
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDecodeFileUploadValueSizeLimits(t *testing.T) {
+	largeContent := strings.Repeat("!", int(defaultFileUploadMaxDecodedSize)+1)
+
+	_, err := DecodeFileUploadValue(largeContent, FileUploadDecodeModeContentOnly)
+	require.Error(t, err)
+
+	result, err := DecodeFileUploadValue(largeContent, FileUploadDecodeModeContentOnly, WithFileUploadMaxDecodedSize(0))
+	require.NoError(t, err)
+	require.Len(t, result, len(largeContent))
+
+	result, err = DecodeFileUploadValue(largeContent, FileUploadDecodeModeContentOnly, WithFileUploadMaxDecodedSize(-1))
+	require.NoError(t, err)
+	require.Len(t, result, len(largeContent))
+
+	encoded := base64.StdEncoding.EncodeToString([]byte(largeContent))
+	_, err = DecodeFileUploadValue(encoded, FileUploadDecodeModeContentOnly)
+	require.Error(t, err)
+
+	dataURL := "data:application/json;base64," + encoded
+	_, err = DecodeFileUploadValue(dataURL, FileUploadDecodeModeContentOnly)
+	require.Error(t, err)
+}
+
+func TestFileUploadDecodeHookContentModePreservesLegacySizeBehavior(t *testing.T) {
+	largeContent := strings.Repeat("!", int(defaultFileUploadMaxDecodedSize)+1)
+
+	result, err := mapstructure.DecodeHookExec(
+		FileUploadDecodeHook(false),
+		reflect.ValueOf(largeContent),
+		reflect.ValueOf([]byte{}),
+	)
+
+	require.NoError(t, err)
+	require.Len(t, result, len(largeContent))
+}
+
+func TestDecodeFileUploadValuePathSizeLimit(t *testing.T) {
+	tempDir := t.TempDir()
+	largeFilePath := filepath.Join(tempDir, "large.txt")
+	largeFileContent := []byte(strings.Repeat("!", int(defaultFileUploadMaxFileSize)+1))
+
+	err := os.WriteFile(largeFilePath, largeFileContent, 0600)
+	require.NoError(t, err)
+
+	_, err = DecodeFileUploadValue(largeFilePath, FileUploadDecodeModePathOnly)
+	require.Error(t, err)
 }
 
 func TestStringToSliceHookFunc(t *testing.T) {
