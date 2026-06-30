@@ -1,10 +1,65 @@
 package grpc
 
 import (
+	"context"
+	"encoding/base64"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+type fakeInvoker struct {
+	resp *lambda.InvokeOutput
+	err  error
+}
+
+func (f *fakeInvoker) Invoke(_ context.Context, _ *lambda.InvokeInput, _ ...func(*lambda.Options)) (*lambda.InvokeOutput, error) {
+	return f.resp, f.err
+}
+
+// A function that runs but returns an error (FunctionError set) is a
+// caller/function-state fault, not a server fault — RoundTrip must surface it
+// as FailedPrecondition so it never shows up as a gRPC Unknown (counted 5xx).
+func TestRoundTrip_FunctionErrorIsFailedPrecondition(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		logs    string
+	}{
+		{
+			name:    "no meaningful logs",
+			payload: "{}",
+			logs:    "START RequestId: abc\nEND RequestId: abc\n",
+		},
+		{
+			name:    "meaningful logs present",
+			payload: "{}",
+			logs:    "Unhandled: connector failed to initialize\n",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tr := &lambdaTransport{
+				functionName: "fn",
+				lambdaClient: &fakeInvoker{resp: &lambda.InvokeOutput{
+					FunctionError: aws.String("Unhandled"),
+					StatusCode:    200,
+					Payload:       []byte(c.payload),
+					LogResult:     aws.String(base64.StdEncoding.EncodeToString([]byte(c.logs))),
+				}},
+			}
+
+			_, err := tr.RoundTrip(context.Background(), &Request{})
+			require.Error(t, err)
+			require.Equal(t, codes.FailedPrecondition, status.Code(err), "function-returned error must be FailedPrecondition, got: %v", err)
+		})
+	}
+}
 
 func TestExtractMeaningfulLogLines(t *testing.T) {
 	cases := []struct {
