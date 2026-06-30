@@ -117,11 +117,18 @@ func MakeMainCommand[T field.Configurable](
 			return err
 		}
 
+		logOpts := []logging.Option{
+			logging.WithLogFormat(v.GetString("log-format")),
+			logging.WithLogLevel(v.GetString("log-level")),
+		}
+		logPaths := v.GetStringSlice("log-path")
+		if len(logPaths) > 0 {
+			logOpts = append(logOpts, logging.WithOutputPaths(logPaths))
+		}
 		runCtx, err := initLogger(
 			ctx,
 			name,
-			logging.WithLogFormat(v.GetString("log-format")),
-			logging.WithLogLevel(v.GetString("log-level")),
+			logOpts...,
 		)
 		if err != nil {
 			return err

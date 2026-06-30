@@ -53,6 +53,8 @@ func NormalizeLogLevel(level string) (string, error) {
 	return parsed.String(), nil
 }
 
+// SetLogLevel sets the log level for the active logger.
+// Currently only used by lambda connectors.
 func SetLogLevel(level string) error {
 	parsed, err := ParseLogLevel(level)
 	if err != nil {
@@ -97,8 +99,8 @@ func WithInitialFields(fields map[string]interface{}) Option {
 	}
 }
 
-// Init creates a new zap logger and attaches it to the provided context.
-func Init(ctx context.Context, opts ...Option) (context.Context, error) {
+// buildConfig returns the zap configuration used by Init and InitWithCore.
+func buildConfig(opts ...Option) zap.Config {
 	zc := zap.NewProductionConfig()
 	zc.Sampling = nil
 	zc.DisableStacktrace = true
@@ -107,9 +109,13 @@ func Init(ctx context.Context, opts ...Option) (context.Context, error) {
 		opt(&zc)
 	}
 
+	return zc
+}
+
+func initFromConfig(ctx context.Context, zc zap.Config) (context.Context, *zap.Logger, error) {
 	l, err := zc.Build()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	activeLevelMu.Lock()
 	activeLevel = &zc.Level
@@ -117,6 +123,32 @@ func Init(ctx context.Context, opts ...Option) (context.Context, error) {
 	zap.ReplaceGlobals(l)
 
 	l.Debug("Logger created!", zap.String("log_level", zc.Level.String()))
+
+	return ctxzap.ToContext(ctx, l), l, nil
+}
+
+// Init creates a new zap logger and attaches it to the provided context.
+func Init(ctx context.Context, opts ...Option) (context.Context, error) {
+	ctx, _, err := initFromConfig(ctx, buildConfig(opts...))
+	return ctx, err
+}
+
+// InitWithCore creates a new zap logger and tees an additional core onto it.
+// buildCore receives the logger config so the extra core uses the same level
+// filtering and encoder settings as Init.
+func InitWithCore(ctx context.Context, buildCore func(zap.Config) zapcore.Core, opts ...Option) (context.Context, error) {
+	zc := buildConfig(opts...)
+
+	ctx, l, err := initFromConfig(ctx, zc)
+	if err != nil {
+		return nil, err
+	}
+
+	extraCore := buildCore(zc)
+	l = l.WithOptions(zap.WrapCore(func(core zapcore.Core) zapcore.Core {
+		return zapcore.NewTee(core, extraCore)
+	}))
+	zap.ReplaceGlobals(l)
 
 	return ctxzap.ToContext(ctx, l), nil
 }

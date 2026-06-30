@@ -84,6 +84,7 @@ var (
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	logFormatField = StringField("log-format", WithDefaultValueFunc(defaultLogFormat), WithDescription("The output format for logs: json, console"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
+	logOutputPathField     = StringSliceField("log-path", WithDescription("The file path to write logs to"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	revokeGrantField       = StringField("revoke-grant", WithHidden(true), WithDescription("The grant to revoke"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	rotateCredentialsField = StringField("rotate-credentials", WithHidden(true), WithDescription("The id of the resource to rotate credentials on"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
@@ -409,6 +410,7 @@ var DefaultFields = []SchemaField{
 	grantPrincipalField,
 	grantPrincipalTypeField,
 	logFormatField,
+	logOutputPathField,
 	revokeGrantField,
 	rotateCredentialsField,
 	rotateCredentialsTypeField,
