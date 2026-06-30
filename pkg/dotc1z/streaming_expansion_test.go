@@ -53,7 +53,7 @@ func TestStreamGrantsIncludeExpansionRoundTrip(t *testing.T) {
 	wantEntitlementIDs := []string{"ent:a", "ent:b"}
 
 	func() {
-		c1f, err := NewC1ZFile(ctx, tmpPath)
+		c1f, err := newC1ZFile(ctx, tmpPath)
 		require.NoError(t, err)
 		_, err = c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestStreamGrantsIncludeExpansionRoundTrip(t *testing.T) {
 		require.NoError(t, c1f.Close(ctx))
 	}()
 
-	c1f, err := NewC1ZFile(ctx, tmpPath)
+	c1f, err := newC1ZFile(ctx, tmpPath)
 	require.NoError(t, err)
 	defer c1f.Close(ctx)
 

@@ -96,6 +96,22 @@ linters:
       - linters:
           - godot
         source: (TODO)
+      - linters:
+          - staticcheck
+        path: _test\.go
+        text: 'SA1019: .*NewC1ZFile is deprecated'
+      - linters:
+          - staticcheck
+        path: _test\.go
+        text: 'SA1019: .*NewStore is deprecated'
+      - linters:
+          - staticcheck
+        path: _test\.go
+        text: 'SA1019: .*C1File is deprecated'
+      - linters:
+          - staticcheck
+        path: pkg/synccompactor/attached/.*\.go
+        text: 'SA1019: .*C1File is deprecated'
     paths:
       - third_party$
       - builtin$

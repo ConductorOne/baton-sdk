@@ -20,7 +20,7 @@ import (
 //   - checksum mismatch → cursor reset to start
 func TestListGrantsForEntitlementsRoundtrip(t *testing.T) {
 	ctx := t.Context()
-	c1z, err := NewC1ZFile(ctx, filepath.Join(t.TempDir(), "lgfe.c1z"))
+	c1z, err := newC1ZFile(ctx, filepath.Join(t.TempDir(), "lgfe.c1z"))
 	require.NoError(t, err)
 	defer func() { _ = c1z.Close(ctx) }()
 

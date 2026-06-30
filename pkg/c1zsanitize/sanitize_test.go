@@ -2,6 +2,7 @@ package c1zsanitize
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -180,13 +181,23 @@ func TestSanitizeAnnotationDropsUnknownByDefault(t *testing.T) {
 
 func mustOpen(t *testing.T, ctx context.Context, path string, readOnly bool) *dotc1z.C1File {
 	t.Helper()
-	opts := []dotc1z.C1ZOption{}
+	var store dotc1z.C1ZStore
+	var err error
 	if readOnly {
-		opts = append(opts, dotc1z.WithReadOnly(true))
+		store, err = dotc1z.OpenStore(ctx, path, dotc1z.WithReadOnly(true))
+	} else {
+		// Non-read-only: create if absent, open if already exists.
+		fi, statErr := os.Stat(path)
+		if statErr == nil && fi.Size() > 0 {
+			store, err = dotc1z.OpenStore(ctx, path)
+		} else {
+			store, err = dotc1z.CreateStore(ctx, path)
+		}
 	}
-	f, err := dotc1z.NewC1ZFile(ctx, path, opts...)
 	require.NoError(t, err)
-	return f
+	cf, ok := dotc1z.AsSQLiteStore(store)
+	require.True(t, ok, "mustOpen: expected *C1File, got %T", store)
+	return cf
 }
 
 func mustAny(t *testing.T, m proto.Message) *anypb.Any {

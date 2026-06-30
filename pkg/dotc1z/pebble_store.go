@@ -53,7 +53,32 @@ var (
 func (pebbleDriver) Engine() Engine    { return EnginePebble }
 func (pebbleDriver) Format() C1ZFormat { return C1ZFormatV3 }
 
-func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
+func (d pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
+	return d.open(ctx, outputFilePath, opts)
+}
+
+// OpenExistingStore opens a pre-existing Pebble v3 c1z by unpacking its
+// envelope into a temp directory and opening the embedded Pebble store.
+func (d pebbleDriver) OpenExistingStore(ctx context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
+	store, err := d.open(ctx, outputFilePath, opts)
+	if err != nil {
+		return nil, wrapOpenExistingStoreError(err)
+	}
+	return store, nil
+}
+
+// CreateNewStore creates a fresh Pebble v3 c1z at outputFilePath. Because
+// unpackExistingPebbleC1Z returns nil payloadReuse when the file is absent
+// or empty, this path produces an initialised-but-empty Pebble store.
+func (d pebbleDriver) CreateNewStore(ctx context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
+	return d.open(ctx, outputFilePath, opts)
+}
+
+// open is the shared implementation for both lifecycle methods. Pebble's
+// unpackExistingPebbleC1Z already handles missing/empty files by returning
+// (nil, unspecified, 0, nil), so a single code path covers both open and
+// create semantics.
+func (pebbleDriver) open(ctx context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
 	tmpDir, err := os.MkdirTemp(opts.TmpDir, "c1z-pebble")
 	if err != nil {
 		return nil, err

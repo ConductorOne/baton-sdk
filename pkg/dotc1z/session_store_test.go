@@ -18,7 +18,7 @@ func openSessionTestStore(t *testing.T, ctx context.Context, engine Engine, extr
 	t.Helper()
 	storePath := filepath.Join(t.TempDir(), string(engine)+"-session.c1z")
 	opts := append([]C1ZOption{WithEngine(engine)}, extraOpts...)
-	store, err := NewStore(ctx, storePath, opts...)
+	store, err := CreateStore(ctx, storePath, opts...)
 	require.NoError(t, err)
 	syncID, err := store.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)

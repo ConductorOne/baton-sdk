@@ -74,7 +74,7 @@ func TestBulkLoadIndexParity(t *testing.T) {
 		if bulk {
 			opts = append(opts, WithBulkLoad(true), WithSkipVacuum(true))
 		}
-		c, err := NewC1ZFile(ctx, path, opts...)
+		c, err := newC1ZFile(ctx, path, opts...)
 		require.NoError(t, err)
 		writeAllTables(ctx, t, c)
 		require.NoError(t, c.Close(ctx))
@@ -84,10 +84,10 @@ func TestBulkLoadIndexParity(t *testing.T) {
 	normalPath := build(false)
 	bulkPath := build(true)
 
-	normal, err := NewC1ZFile(ctx, normalPath)
+	normal, err := newC1ZFile(ctx, normalPath)
 	require.NoError(t, err)
 	defer normal.Close(ctx)
-	bulk, err := NewC1ZFile(ctx, bulkPath)
+	bulk, err := newC1ZFile(ctx, bulkPath)
 	require.NoError(t, err)
 	defer bulk.Close(ctx)
 
@@ -117,19 +117,19 @@ func TestBulkLoadPopulatedTableKeepsIndexes(t *testing.T) {
 	path := tmpC1ZPath(t)
 
 	// Populate normally first.
-	c, err := NewC1ZFile(ctx, path)
+	c, err := newC1ZFile(ctx, path)
 	require.NoError(t, err)
 	writeAllTables(ctx, t, c)
 	require.NoError(t, c.Close(ctx))
 
 	// Capture the control index set.
-	ctl, err := NewC1ZFile(ctx, path)
+	ctl, err := newC1ZFile(ctx, path)
 	require.NoError(t, err)
 	want := indexNamesByTable(ctx, t, ctl)
 	require.NoError(t, ctl.Close(ctx))
 
 	// Reopen the populated db WITH bulkLoad: indexes must be retained.
-	reopened, err := NewC1ZFile(ctx, path, WithBulkLoad(true), WithSkipVacuum(true))
+	reopened, err := newC1ZFile(ctx, path, WithBulkLoad(true), WithSkipVacuum(true))
 	require.NoError(t, err)
 	defer reopened.Close(ctx)
 
@@ -145,7 +145,7 @@ func TestBulkLoadRebuildSurvivesCanceledContext(t *testing.T) {
 	ctx := context.Background()
 	path := tmpC1ZPath(t)
 
-	c, err := NewC1ZFile(ctx, path, WithBulkLoad(true), WithSkipVacuum(true))
+	c, err := newC1ZFile(ctx, path, WithBulkLoad(true), WithSkipVacuum(true))
 	require.NoError(t, err)
 	writeAllTables(ctx, t, c)
 
@@ -154,16 +154,16 @@ func TestBulkLoadRebuildSurvivesCanceledContext(t *testing.T) {
 	require.NoError(t, c.Close(canceled), "Close must complete despite a canceled caller context (B4)")
 
 	// The output must be a fully-indexed, valid c1z.
-	reopened, err := NewC1ZFile(ctx, path)
+	reopened, err := newC1ZFile(ctx, path)
 	require.NoError(t, err)
 	defer reopened.Close(ctx)
 
 	control := tmpC1ZPath(t)
-	cc, err := NewC1ZFile(ctx, control)
+	cc, err := newC1ZFile(ctx, control)
 	require.NoError(t, err)
 	writeAllTables(ctx, t, cc)
 	require.NoError(t, cc.Close(ctx))
-	ccRO, err := NewC1ZFile(ctx, control)
+	ccRO, err := newC1ZFile(ctx, control)
 	require.NoError(t, err)
 	defer ccRO.Close(ctx)
 
@@ -177,7 +177,7 @@ func TestBulkLoadRebuildFailurePreservesDB(t *testing.T) {
 	ctx := context.Background()
 	path := tmpC1ZPath(t)
 
-	c, err := NewC1ZFile(ctx, path, WithBulkLoad(true), WithSkipVacuum(true))
+	c, err := newC1ZFile(ctx, path, WithBulkLoad(true), WithSkipVacuum(true))
 	require.NoError(t, err)
 	writeAllTables(ctx, t, c)
 	require.NotEmpty(t, c.deferredIndexTables, "precondition: tables were deferred")

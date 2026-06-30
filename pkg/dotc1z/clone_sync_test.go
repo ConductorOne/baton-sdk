@@ -139,7 +139,7 @@ func TestCloneSyncMigratedColumnOrder(t *testing.T) {
 	require.NoError(t, err, "CloneSync should succeed")
 
 	// Step 5: Open the clone and verify grants survived intact.
-	cloneFile, err := NewC1ZFile(ctx, clonePath)
+	cloneFile, err := newC1ZFile(ctx, clonePath)
 	require.NoError(t, err)
 
 	cloneSyncID, err := cloneFile.LatestSyncID(ctx, connectorstore.SyncTypeFull)

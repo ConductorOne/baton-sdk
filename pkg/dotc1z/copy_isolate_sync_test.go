@@ -62,7 +62,7 @@ func TestCopyIsolateSyncSingleSync(t *testing.T) {
 	require.NoError(t, src.CopyIsolateSync(ctx, outPath, syncID))
 	require.NoError(t, src.rawDb.Close())
 
-	out, err := NewC1ZFile(ctx, outPath)
+	out, err := newC1ZFile(ctx, outPath)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, out.Close(ctx)) }()
 
@@ -98,7 +98,7 @@ func TestCopyIsolateSyncMultiSync(t *testing.T) {
 	require.Equal(t, 2, countRows(ctx, t, src, fmt.Sprintf("SELECT COUNT(DISTINCT sync_id) FROM %s", syncRuns.Name())))
 	require.NoError(t, src.rawDb.Close())
 
-	out, err := NewC1ZFile(ctx, outPath)
+	out, err := newC1ZFile(ctx, outPath)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, out.Close(ctx)) }()
 
@@ -150,7 +150,7 @@ func TestCopyIsolateSyncMigratesOlderSchema(t *testing.T) {
 	require.NoError(t, src.CopyIsolateSync(ctx, outPath, syncID))
 	require.NoError(t, src.rawDb.Close())
 
-	out, err := NewC1ZFile(ctx, outPath)
+	out, err := newC1ZFile(ctx, outPath)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, out.Close(ctx)) }()
 

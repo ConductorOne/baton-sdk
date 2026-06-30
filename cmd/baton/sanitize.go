@@ -147,9 +147,9 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 			dotc1z.WithSkipVacuum(true),
 		)
 	}
-	dst, err := dotc1z.NewStore(ctx, outPath, dstOpts...)
+	dst, err := dotc1z.CreateStore(ctx, outPath, dstOpts...)
 	if err != nil {
-		return fmt.Errorf("open dst c1z: %w", err)
+		return fmt.Errorf("create dst c1z: %w", err)
 	}
 	dstClosed := false
 	defer func() {

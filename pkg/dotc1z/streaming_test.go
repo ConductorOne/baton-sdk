@@ -17,7 +17,7 @@ import (
 // reader methods (RFC §B3) on the SQLite backend.
 func TestStreamingReader(t *testing.T) {
 	ctx := t.Context()
-	c1z, err := NewC1ZFile(ctx, filepath.Join(t.TempDir(), "stream.c1z"))
+	c1z, err := newC1ZFile(ctx, filepath.Join(t.TempDir(), "stream.c1z"))
 	require.NoError(t, err)
 	defer func() { _ = c1z.Close(ctx) }()
 

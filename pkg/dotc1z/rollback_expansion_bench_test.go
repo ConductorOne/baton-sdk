@@ -22,7 +22,7 @@ import (
 func buildLargeExpandedC1Z(tb testing.TB, ctx context.Context, dir string, grantCount int) (string, string) {
 	tb.Helper()
 	path := filepath.Join(dir, "large.c1z")
-	f, err := NewC1ZFile(ctx, path)
+	f, err := newC1ZFile(ctx, path)
 	require.NoError(tb, err)
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(tb, err)
@@ -94,7 +94,7 @@ func rollbackJournalBytes(tb testing.TB, ctx context.Context, srcPath, dir strin
 	tb.Helper()
 	work := filepath.Join(dir, fmt.Sprintf("journal-%d.c1z", pageSize))
 	copyFileBench(tb, srcPath, work)
-	store, err := NewC1ZFile(ctx, work)
+	store, err := newC1ZFile(ctx, work)
 	require.NoError(tb, err)
 	defer func() { _ = store.Close(ctx) }()
 
@@ -136,7 +136,7 @@ func BenchmarkRollbackExpansionPageSize(b *testing.B) {
 				b.StopTimer()
 				workPath := filepath.Join(b.TempDir(), fmt.Sprintf("work-%d.c1z", i))
 				copyFileBench(b, srcPath, workPath)
-				store, err := NewC1ZFile(ctx, workPath)
+				store, err := newC1ZFile(ctx, workPath)
 				require.NoError(b, err)
 				b.StartTimer()
 

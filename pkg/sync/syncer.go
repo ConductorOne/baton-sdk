@@ -2543,7 +2543,15 @@ func (s *syncer) loadStore(ctx context.Context) error {
 	if s.storageEngine != "" {
 		storeOpts = append(storeOpts, dotc1z.WithEngine(s.storageEngine))
 	}
-	store, err := dotc1z.NewStore(ctx, s.c1zPath, storeOpts...)
+	var store dotc1z.C1ZStore
+	// OpenStore is strict about existing files and requires a valid c1z.
+	// CreateStore accepts missing paths and zero-byte placeholders so callers
+	// can touch a target path before the first sync.
+	if stat, statErr := os.Stat(s.c1zPath); statErr == nil && stat.Size() > 0 {
+		store, err = dotc1z.OpenStore(ctx, s.c1zPath, storeOpts...)
+	} else {
+		store, err = dotc1z.CreateStore(ctx, s.c1zPath, storeOpts...)
+	}
 	if err != nil {
 		return err
 	}
@@ -2905,7 +2913,7 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 	s.wireCountsDBSizeProvider()
 
 	if s.externalResourceC1ZPath != "" {
-		externalC1ZReader, err := dotc1z.NewStore(ctx, s.externalResourceC1ZPath, dotc1z.WithTmpDir(s.tmpDir), dotc1z.WithReadOnly(true))
+		externalC1ZReader, err := dotc1z.OpenStore(ctx, s.externalResourceC1ZPath, dotc1z.WithTmpDir(s.tmpDir), dotc1z.WithReadOnly(true))
 		if err != nil {
 			return nil, err
 		}
@@ -2914,9 +2922,9 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 
 	if s.previousSyncC1ZPath != "" {
 		// Open the previous-sync c1z read-only and engine-agnostically
-		// (NewStore selects the engine from the file's magic byte), so a
+		// (OpenStore selects the engine from the file's magic byte), so a
 		// Pebble or SQLite prior run both work as a replay source.
-		previousSyncStore, err := dotc1z.NewStore(ctx, s.previousSyncC1ZPath,
+		previousSyncStore, err := dotc1z.OpenStore(ctx, s.previousSyncC1ZPath,
 			dotc1z.WithReadOnly(true),
 			dotc1z.WithTmpDir(s.tmpDir),
 		)

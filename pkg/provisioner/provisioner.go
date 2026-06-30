@@ -98,7 +98,7 @@ func (p *Provisioner) loadStore(ctx context.Context) (connectorstore.Reader, err
 		return p.store, nil
 	}
 
-	store, err := dotc1z.NewStore(ctx, p.dbPath)
+	store, err := dotc1z.OpenStore(ctx, p.dbPath)
 	if err != nil {
 		return nil, err
 	}

@@ -49,7 +49,7 @@ func setupListGrantsBench(b *testing.B, numGrants int, extraOpts ...C1ZOption) (
 	}
 	opts = append(opts, extraOpts...)
 
-	f, err := NewC1ZFile(ctx, testFilePath, opts...)
+	f, err := newC1ZFile(ctx, testFilePath, opts...)
 	require.NoError(b, err)
 
 	syncID, _, err := f.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, "")

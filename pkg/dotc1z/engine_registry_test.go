@@ -27,7 +27,40 @@ type registryTestDriver struct {
 func (d *registryTestDriver) Engine() Engine    { return d.engine }
 func (d *registryTestDriver) Format() C1ZFormat { return d.format }
 
-func (d *registryTestDriver) OpenStore(ctx context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
+func (d *registryTestDriver) OpenStore(_ context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
+	d.called = true
+	d.path = outputFilePath
+	d.opts = opts
+	return nil, d.err
+}
+
+func (d *registryTestDriver) OpenExistingStore(_ context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
+	d.called = true
+	d.path = outputFilePath
+	d.opts = opts
+	return nil, d.err
+}
+
+func (d *registryTestDriver) CreateNewStore(_ context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
+	d.called = true
+	d.path = outputFilePath
+	d.opts = opts
+	return nil, d.err
+}
+
+type legacyRegistryTestDriver struct {
+	engine Engine
+	format C1ZFormat
+	err    error
+	called bool
+	path   string
+	opts   StoreOptions
+}
+
+func (d *legacyRegistryTestDriver) Engine() Engine    { return d.engine }
+func (d *legacyRegistryTestDriver) Format() C1ZFormat { return d.format }
+
+func (d *legacyRegistryTestDriver) OpenStore(_ context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
 	d.called = true
 	d.path = outputFilePath
 	d.opts = opts
@@ -108,6 +141,21 @@ func TestNewStoreDispatchesExistingV3ByManifestEngine(t *testing.T) {
 	require.True(t, driver.called, "registered v3 driver was not called")
 }
 
+func TestNewStoreSupportsLegacyRegisteredEngineDriver(t *testing.T) {
+	ctx := context.Background()
+	engine := uniqueEngineName(t, "legacy-v3")
+	wantErr := errors.New("legacy v3 driver called")
+	driver := &legacyRegistryTestDriver{engine: engine, format: C1ZFormatV3, err: wantErr}
+	require.NoError(t, RegisterEngine(driver))
+	path := filepath.Join(t.TempDir(), "legacy-existing.c1z")
+	writeV3EnvelopeForEngine(t, path, engine)
+
+	_, err := NewStore(ctx, path)
+	require.ErrorIs(t, err, wantErr, "NewStore error = %v, want %v", err, wantErr)
+	require.True(t, driver.called, "legacy registered v3 driver was not called")
+	require.Equal(t, path, driver.path, "driver path = %q, want %q", driver.path, path)
+}
+
 func TestNewStoreExistingV3MissingDriver(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "missing-v3.c1z")
@@ -120,7 +168,7 @@ func TestNewStoreExistingV3MissingDriver(t *testing.T) {
 func TestNewStoreExistingV1IgnoresRequestedEngine(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "existing-v1.c1z")
-	f, err := NewC1ZFile(ctx, path)
+	f, err := newC1ZFile(ctx, path)
 	require.NoError(t, err)
 	_, err = f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)

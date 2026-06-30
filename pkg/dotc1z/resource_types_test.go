@@ -15,7 +15,7 @@ func TestListResourceTypes(t *testing.T) {
 	ctx := t.Context()
 	testFilePath := filepath.Join(t.TempDir(), "resource_types_test.c1z")
 
-	f, err := NewC1ZFile(ctx, testFilePath)
+	f, err := newC1ZFile(ctx, testFilePath)
 	require.NoError(t, err)
 
 	sync1ID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -35,7 +35,7 @@ func TestListResourceTypes(t *testing.T) {
 
 	require.NoError(t, f.Close(ctx))
 
-	f, err = NewC1ZFile(ctx, testFilePath)
+	f, err = newC1ZFile(ctx, testFilePath)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, f.Close(ctx))

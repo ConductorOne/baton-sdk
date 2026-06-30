@@ -64,7 +64,7 @@ func runGrantStatsParityCase(t *testing.T, numResourceTypes, grantsPerSync, numS
 	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 
 	testFilePath := filepath.Join(tempDir, "parity.c1z")
-	f, err := NewC1ZFile(ctx, testFilePath,
+	f, err := newC1ZFile(ctx, testFilePath,
 		WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)

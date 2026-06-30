@@ -40,7 +40,7 @@ func TestWALCheckpointRace(t *testing.T) {
 			testFilePath := filepath.Join(tmpDir, fmt.Sprintf("wal_race_%d.c1z", i))
 
 			// Create a c1z file with WAL mode and write significant data
-			f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+			f, err := newC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
 			require.NoError(t, err)
 
 			syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -81,7 +81,7 @@ func TestWALCheckpointRace(t *testing.T) {
 			// CRITICAL: Immediately reopen and verify ALL data is present
 			// This is where the race manifests - if WAL wasn't fully checkpointed,
 			// some data will be missing
-			f2, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"), WithReadOnly(true))
+			f2, err := newC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"), WithReadOnly(true))
 			require.NoError(t, err)
 
 			// Verify sync exists
@@ -125,7 +125,7 @@ func TestC1ZIntegrity(t *testing.T) {
 			testFilePath := filepath.Join(tmpDir, fmt.Sprintf("integrity_%d.c1z", i))
 
 			// Create file with data
-			f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+			f, err := newC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
 			require.NoError(t, err)
 
 			_, err = f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")

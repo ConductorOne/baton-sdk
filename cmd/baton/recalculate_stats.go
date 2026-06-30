@@ -42,7 +42,7 @@ func runRecalculateStats(cmd *cobra.Command, args []string) error {
 	}
 
 	// Stats are persisted on the underlying store, so we need a writable c1z.
-	store, err := dotc1z.NewStore(ctx, c1zPath)
+	store, err := dotc1z.OpenStore(ctx, c1zPath)
 	if err != nil {
 		return err
 	}

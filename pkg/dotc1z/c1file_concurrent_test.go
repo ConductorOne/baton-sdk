@@ -19,7 +19,7 @@ func TestC1ZConcurrentClose(t *testing.T) {
 
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-concurrent-close.c1z")
 
-	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	f, err := newC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
 
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")

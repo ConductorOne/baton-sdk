@@ -54,7 +54,7 @@ func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		return errors.New("missing base sync ID or applied sync ID")
 	}
 
-	file, err := dotc1z.NewStore(ctx, m.dbPath)
+	file, err := dotc1z.OpenStore(ctx, m.dbPath)
 	if err != nil {
 		return err
 	}

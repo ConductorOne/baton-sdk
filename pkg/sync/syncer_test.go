@@ -46,6 +46,28 @@ var syncModes = []struct {
 	{"parallel", []SyncOpt{WithWorkerCount(-1)}},
 }
 
+func TestSyncWithEmptyC1ZPlaceholder(t *testing.T) {
+	ctx := t.Context()
+	tempDir := t.TempDir()
+	c1zPath := filepath.Join(tempDir, "empty-placeholder.c1z")
+	f, err := os.Create(c1zPath)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	syncer, err := NewSyncer(ctx, newMockConnector(), WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	require.NoError(t, syncer.Sync(ctx))
+	require.NoError(t, syncer.Close(ctx))
+
+	store, err := dotc1z.OpenStore(ctx, c1zPath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(tempDir))
+	require.NoError(t, err)
+	defer func() { _ = store.Close(ctx) }()
+
+	latest, err := store.SyncMeta().LatestFullSync(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, latest, "sync should initialize and write the placeholder c1z")
+}
+
 // runWithSyncModes runs the given test function in both sequential and parallel modes.
 func runWithSyncModes(t *testing.T, testFunc func(t *testing.T, extraOpts []SyncOpt)) {
 	for _, mode := range syncModes {

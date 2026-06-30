@@ -517,7 +517,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 				maxEnded = sel.endedAt
 			}
 		}
-		w, err := dotc1z.NewStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
+		w, err := dotc1z.OpenStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
 		if err != nil {
 			return "", fmt.Errorf("compactPebbleFold: open input %s: %w", sourcePath, err)
 		}
@@ -686,7 +686,11 @@ func readCompactionInputFormat(path string) (dotc1z.C1ZFormat, error) {
 	}
 }
 
-func resolveSQLiteCompactionSyncID(ctx context.Context, store *dotc1z.C1File, explicitSyncID string) (string, error) {
+type latestFinishedSyncGetter interface {
+	GetLatestFinishedSync(ctx context.Context, req *reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest) (*reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse, error)
+}
+
+func resolveSQLiteCompactionSyncID(ctx context.Context, store latestFinishedSyncGetter, explicitSyncID string) (string, error) {
 	if explicitSyncID != "" {
 		return explicitSyncID, nil
 	}
@@ -749,7 +753,7 @@ func (c *Compactor) convertSQLiteInputToPebble(ctx context.Context, cs *Compacta
 		return "", fmt.Errorf("compactPebble: remove conversion temp placeholder: %w", err)
 	}
 
-	store, err := dotc1z.NewStore(ctx, cs.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir))
+	store, err := dotc1z.OpenStore(ctx, cs.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir))
 	if err != nil {
 		return "", fmt.Errorf("compactPebble: open sqlite input for conversion %s: %w", cs.FilePath, err)
 	}
@@ -845,7 +849,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 
 		source, syncType, endedAt, err := func() (mergepkg.SourceFile, v3.SyncType, time.Time, error) {
 			var zeroSource mergepkg.SourceFile
-			w, err := dotc1z.NewStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
+			w, err := dotc1z.OpenStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
 			if err != nil {
 				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: open input %s: %w", sourcePath, err)
 			}
