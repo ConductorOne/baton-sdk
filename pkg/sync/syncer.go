@@ -201,6 +201,21 @@ func (a expanderStoreAdapter) StoreExpandedGrants(ctx context.Context, grants ..
 	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
 
+// StoreNewExpandedGrants forwards the expander's brand-new (synthesized) grant
+// batches to the engine's Get-skipping fast path when the grant store supports
+// it (Pebble), and falls back to the normal read-merge path otherwise (SQLite),
+// so behavior is identical across engines — only the redundant read-before-write
+// Get is elided. Detected by the expander via interface assertion.
+func (a expanderStoreAdapter) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	gs := a.store.Grants()
+	if fast, ok := gs.(interface {
+		StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
+	}); ok {
+		return fast.StoreNewExpandedGrants(ctx, grants...)
+	}
+	return gs.StoreExpandedGrants(ctx, grants...)
+}
+
 // GrantsForEntitlementPrincipalSorted forwards the underlying engine's
 // principal-sort guarantee (Pebble) so the topological merge can stream grant
 // groups instead of buffering and sorting each entitlement. Engines that do not

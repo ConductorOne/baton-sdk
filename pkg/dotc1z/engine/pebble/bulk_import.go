@@ -656,6 +656,40 @@ func newSpillSorter(dir, name string, sem chan struct{}, chunkBytes int) *spillS
 	return &spillSorter{name: name, dir: dir, sem: sem, chunkBytes: chunkBytes}
 }
 
+// spillArenaPool / spillViewsPool recycle the per-chunk key/value arena and its
+// kvView slice across chunks. Without recycling, every cut allocates a fresh
+// arena that grows from zero by append-doubling (≈2× the chunk's bytes) and is
+// then GC'd — on the deferred index build (≈162M key-only entries) the arena
+// was the single largest allocator (~131GB churn). A background sort goroutine
+// owns a detached arena until its chunk is written, then returns it here.
+var spillArenaPool = sync.Pool{New: func() any { b := make([]byte, 0, bulkSpillKeyChunkBytes); return &b }}
+var spillViewsPool = sync.Pool{New: func() any { v := make([]kvView, 0, 1<<16); return &v }}
+
+func getSpillArena() []byte {
+	bp := spillArenaPool.Get().(*[]byte)
+	return (*bp)[:0]
+}
+
+func putSpillArena(b []byte) {
+	// Only recycle full-size arenas; a short tail chunk's buffer would shrink
+	// the pool's effective capacity, forcing later chunks to re-grow.
+	if cap(b) < bulkSpillKeyChunkBytes {
+		return
+	}
+	b = b[:0]
+	spillArenaPool.Put(&b)
+}
+
+func getSpillViews() []kvView {
+	vp := spillViewsPool.Get().(*[]kvView)
+	return (*vp)[:0]
+}
+
+func putSpillViews(v []kvView) {
+	v = v[:0]
+	spillViewsPool.Put(&v)
+}
+
 // add appends one entry. val may be nil (key-only spills). NOT
 // goroutine-safe — each sorter has exactly one producer. May block on
 // the sort semaphore when the arena fills (backpressure on this
@@ -666,6 +700,12 @@ func (s *spillSorter) add(key, val []byte) error {
 	}
 	if err := s.takeErr(); err != nil {
 		return err
+	}
+	if s.arena == nil {
+		// Start of a new chunk: take a recycled arena/views from the pool
+		// instead of growing fresh ones from zero.
+		s.arena = getSpillArena()
+		s.views = getSpillViews()
 	}
 	keyOff := len(s.arena)
 	s.arena = append(s.arena, key...)
@@ -708,6 +748,9 @@ func (s *spillSorter) sortAndWriteChunk(arena []byte, views []kvView) {
 	if err := writeSortedSpillChunk(chunkPath, arena, views); err != nil {
 		s.setErr(err)
 	}
+	// The chunk is on disk; recycle the buffers for the next chunk.
+	putSpillArena(arena)
+	putSpillViews(views)
 }
 
 func (s *spillSorter) setErr(err error) {

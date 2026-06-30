@@ -322,6 +322,15 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 			zap.Error(err),
 		)
 	}
+	// If the expansion write path deferred the principal/resource index
+	// families (BATON_PEBBLE_DEFER_EXPANSION_INDEXES), rebuild them now in one
+	// sorted ingest, before the durability flush so EndFreshSync hardens them.
+	if a.engine.deferGrantIndexes && a.engine.deferredIdxPending.Load() {
+		if err := a.engine.BuildDeferredGrantIndexes(ctx); err != nil {
+			return fmt.Errorf("EndSync: build deferred grant indexes: %w", err)
+		}
+		a.engine.deferredIdxPending.Store(false)
+	}
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After
 	// this returns, all writes from the sync are on disk.

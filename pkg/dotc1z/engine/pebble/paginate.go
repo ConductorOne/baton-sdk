@@ -213,7 +213,7 @@ func (e *Engine) PaginateGrantsByEntitlement(
 		if externalID == "" {
 			continue
 		}
-		val, closer, getErr := e.db.Get(encodeGrantKey(externalID))
+		val, closer, getErr := e.getGrantPrimaryTimed(encodeGrantKey(externalID))
 		if getErr != nil {
 			if errors.Is(getErr, pebble.ErrNotFound) {
 				// Orphan index entry — primary deleted before the
@@ -336,7 +336,7 @@ func (e *Engine) PaginateGrantsByEntitlementPrincipal(
 		if externalID == "" {
 			continue
 		}
-		val, closer, getErr := e.db.Get(encodeGrantKey(externalID))
+		val, closer, getErr := e.getGrantPrimaryTimed(encodeGrantKey(externalID))
 		if getErr != nil {
 			if errors.Is(getErr, pebble.ErrNotFound) {
 				continue
@@ -399,7 +399,7 @@ func (e *Engine) PaginateGrantsByPrincipal(
 		if externalID == "" {
 			continue
 		}
-		val, closer, getErr := e.db.Get(encodeGrantKey(externalID))
+		val, closer, getErr := e.getGrantPrimaryTimed(encodeGrantKey(externalID))
 		if getErr != nil {
 			if errors.Is(getErr, pebble.ErrNotFound) {
 				// Orphan index entry — primary deleted before the
@@ -472,7 +472,7 @@ func (e *Engine) PaginateGrantsByEntitlementResource(
 		if externalID == "" {
 			continue
 		}
-		val, closer, getErr := e.db.Get(encodeGrantKey(externalID))
+		val, closer, getErr := e.getGrantPrimaryTimed(encodeGrantKey(externalID))
 		if getErr != nil {
 			if errors.Is(getErr, pebble.ErrNotFound) {
 				continue
@@ -536,7 +536,7 @@ func (e *Engine) PaginateGrantsByPrincipalResourceType(
 		if externalID == "" {
 			continue
 		}
-		val, closer, getErr := e.db.Get(encodeGrantKey(externalID))
+		val, closer, getErr := e.getGrantPrimaryTimed(encodeGrantKey(externalID))
 		if getErr != nil {
 			if errors.Is(getErr, pebble.ErrNotFound) {
 				continue
@@ -603,7 +603,7 @@ func (e *Engine) PaginateGrantsByNeedsExpansion(
 		if externalID == "" {
 			continue
 		}
-		val, closer, getErr := e.db.Get(encodeGrantKey(externalID))
+		val, closer, getErr := e.getGrantPrimaryTimed(encodeGrantKey(externalID))
 		if getErr != nil {
 			if errors.Is(getErr, pebble.ErrNotFound) {
 				// Orphan index entry; skip.

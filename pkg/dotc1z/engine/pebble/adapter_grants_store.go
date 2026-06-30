@@ -72,6 +72,41 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 	// equivalent to V2GrantToV3 and (like it) leaves discovered_at unset:
 	// PutExpandedGrantRecords stamps/preserves it. The returned pointers alias
 	// the arena, which outlives this call's use of `merged`.
+	merged := g.translateExpanded(syncID, grants)
+	return g.a.engine.PutExpandedGrantRecords(ctx, merged)
+}
+
+// StoreNewExpandedGrants is the fast path for expanded grants the caller
+// guarantees are brand-new (no existing record shares their external_id in this
+// sync) — the expander's SYNTHESIZED grants. It performs the same v2→v3
+// translation as StoreExpandedGrants but routes to PutSynthesizedGrantRecords,
+// which skips the per-record read-before-write Get (and stale-index cleanup)
+// that only exists to handle a prior record. See PutSynthesizedGrantRecords for
+// the contract and the fail-safe if the uniqueness guarantee is violated.
+//
+// Optional ExpanderStore fast path: the expander detects this method by
+// interface assertion and falls back to StoreExpandedGrants when it is absent
+// (SQLite, in-memory doubles), so behavior is identical everywhere — only the
+// redundant Get is elided on Pebble.
+func (g pebbleGrantStore) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	syncID := g.a.currentSyncID()
+	if syncID == "" {
+		return ErrNoCurrentSync
+	}
+	if len(grants) == 0 {
+		return nil
+	}
+	merged := g.translateExpanded(syncID, grants)
+	return g.a.engine.PutSynthesizedGrantRecords(ctx, merged)
+}
+
+// translateExpanded translates expander output v2 grants into v3 records,
+// stripping any residual expansion side-state: StoreExpandedGrants restores the
+// prior record's Expansion/NeedsExpansion in PutExpandedGrantRecords, and new
+// (synthesized) records must not become expandable just because the caller left
+// a residual GrantExpandable annotation. The returned pointers alias the arena,
+// which outlives the caller's use of the slice.
+func (g pebbleGrantStore) translateExpanded(syncID string, grants []*v2.Grant) []*v3.GrantRecord {
 	merged := make([]*v3.GrantRecord, 0, len(grants))
 	arena := newGrantTranslateArena(len(grants))
 	for _, gr := range grants {
@@ -82,15 +117,11 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 		if newRec == nil {
 			continue
 		}
-		// StoreExpandedGrants consumes expansion metadata before persisting.
-		// Existing records get their prior Expansion/NeedsExpansion restored in
-		// PutExpandedGrantRecords; new records must not become expandable just
-		// because the caller left a residual GrantExpandable annotation.
 		newRec.SetExpansion(nil)
 		newRec.SetNeedsExpansion(false)
 		merged = append(merged, newRec)
 	}
-	return g.a.engine.PutExpandedGrantRecords(ctx, merged)
+	return merged
 }
 
 // PendingExpansionPage returns the next page of grants whose

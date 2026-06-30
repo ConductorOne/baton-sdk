@@ -8,6 +8,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -59,14 +60,64 @@ func TestRunWhalePebbleProjectionExpansion(t *testing.T) {
 	require.NoError(t, graph.FixCycles(ctx))
 	t.Logf("graph: %d nodes, %d edges (cycles fixed, has_no_cycles=%t)", len(graph.Nodes), len(graph.Edges), graph.HasNoCycles)
 
+	// Engine-level write-path instrumentation (diagnostic): attributes the
+	// expansion write cost to Get / marshal / index-delete / primary-commit /
+	// index-commit and breaks index volume out per family. Reachable because
+	// the Pebble store satisfies connectorstore.Writer.
+	var eng *enginepkg.Engine
+	var metricsBefore string
+	if w, ok := store.(connectorstore.Writer); ok {
+		if e, ok := enginepkg.AsEngine(w); ok {
+			eng = e
+			eng.EnableExpandWriteStats()
+			metricsBefore = eng.DB().Metrics().String()
+		}
+	}
+
 	expandStart := time.Now()
 	expander := NewExpander(benchmarkExpanderStore{store: store}, graph)
 	require.NoError(t, expander.RunTopologicalMergeProjection(ctx))
-	t.Logf("projection expansion finished in %s", time.Since(expandStart))
+	elapsed := time.Since(expandStart)
+	t.Logf("projection expansion finished in %s", elapsed)
+
+	if eng != nil {
+		if s, ok := eng.ExpandWriteStats(); ok {
+			writeDur := s.GetDur + s.MarshalDur + s.DeleteIdxDur + s.PriCommitDur + s.IdxCommitDur
+			t.Logf("write-path time split (sum across %d calls, %d records):", s.Calls, s.Records)
+			t.Logf("  rbw-get      = %-12s (read-before-write; count=%d notfound=%d)", s.GetDur, s.GetCount, s.GetNotFound)
+			t.Logf("  marshal      = %s", s.MarshalDur)
+			t.Logf("  delete-index = %s", s.DeleteIdxDur)
+			t.Logf("  pri-commit   = %-12s (main blob: %d keys, %d val bytes)", s.PriCommitDur, s.Records, s.PriValBytes)
+			t.Logf("  idx-commit   = %s", s.IdxCommitDur)
+			t.Logf("  write total  = %-12s (%.1f%% of %s expansion)",
+				writeDur, 100*float64(writeDur)/float64(elapsed), elapsed)
+			t.Logf("read-path materialization get (by_entitlement primary Get per index row):")
+			t.Logf("  read-get     = %-12s (count=%d notfound=%d, %.1f%% of %s expansion)",
+				s.ReadGetDur, s.ReadGetCount, s.ReadGetNotFound, 100*float64(s.ReadGetDur)/float64(elapsed), elapsed)
+			t.Logf("  write+read get accounted = %.1f%% of expansion (remainder is merge compute, iteration, projection build/ingest)",
+				100*float64(writeDur+s.ReadGetDur)/float64(elapsed))
+			t.Logf("index family volume (keys / bytes):")
+			t.Logf("  by_entitlement          = %d / %d", s.ByEntitlementKeys, s.ByEntitlementBytes)
+			t.Logf("  by_entitlement_resource = %d / %d", s.ByEntitlementResourceKeys, s.ByEntitlementResourceBytes)
+			t.Logf("  by_principal            = %d / %d", s.ByPrincipalKeys, s.ByPrincipalBytes)
+			t.Logf("  by_principal_rtype      = %d / %d", s.ByPrincipalResourceTypeKeys, s.ByPrincipalResourceTypeBytes)
+			t.Logf("  needs_expansion         = %d / %d", s.NeedsExpansionKeys, s.NeedsExpansionBytes)
+			totalIdxKeys := s.ByEntitlementKeys + s.ByEntitlementResourceKeys + s.ByPrincipalKeys + s.ByPrincipalResourceTypeKeys + s.NeedsExpansionKeys
+			totalIdxBytes := s.ByEntitlementBytes + s.ByEntitlementResourceBytes + s.ByPrincipalBytes + s.ByPrincipalResourceTypeBytes + s.NeedsExpansionBytes
+			t.Logf("  TOTAL index             = %d keys / %d bytes (vs %d primary keys / %d primary bytes)",
+				totalIdxKeys, totalIdxBytes, s.Records, s.PriValBytes)
+		}
+		t.Logf("pebble metrics BEFORE expansion:\n%s", metricsBefore)
+		t.Logf("pebble metrics AFTER expansion (compaction/flush/WAL cumulative since open):\n%s", eng.DB().Metrics().String())
+	}
 
 	if m := graph.ExpansionMetrics; m != nil {
-		t.Logf("metrics: algorithm=%s dirty_grants_written=%d projection_rows=%d nodes_reduced=%d dest_entitlements=%d",
-			m.Algorithm, m.DirtyGrantsWritten, m.ProjectionRowsBuilt, m.NodesReduced, m.DestinationEntitlements)
+		t.Logf("metrics: algorithm=%s dirty_grants_written=%d synthesized=%d base_update=%d projection_rows=%d nodes_reduced=%d dest_entitlements=%d",
+			m.Algorithm, m.DirtyGrantsWritten, m.SynthesizedGrants, m.BaseUpdateGrants, m.ProjectionRowsBuilt, m.NodesReduced, m.DestinationEntitlements)
+		if total := m.SynthesizedGrants + m.BaseUpdateGrants; total > 0 {
+			t.Logf("base-update fraction: %.4f (%d / %d) — sizes the proto-rewrite floor for a sorted index-build fast path",
+				float64(m.BaseUpdateGrants)/float64(total), m.BaseUpdateGrants, total)
+		}
 	}
 
 	require.NoError(t, store.EndSync(ctx))

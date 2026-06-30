@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -45,7 +46,22 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	}
 	defer os.RemoveAll(tempDir)
 
-	projDB, err := pebble.Open(filepath.Join(tempDir, "db"), &pebble.Options{})
+	// The projection DB is the merge's read path (each destination pulls its
+	// projected source streams from here). Pebble's default cache is only 8MB,
+	// which is too small for a hot read DB; give it a modest 64MB (env-tunable).
+	// Note: a larger cache did NOT speed up the whale measurably — projection
+	// fan-out is mostly 1, so sources are scanned once and there is little to
+	// re-cache — but 8MB is still poor hygiene for higher-fan-out tenants. The
+	// cache is owned here and Unref'd after the DB closes.
+	projCacheMB := 64
+	if v := os.Getenv("BATON_EXPAND_PROJECTION_CACHE_MB"); v != "" {
+		if n, perr := strconv.Atoi(v); perr == nil && n > 0 {
+			projCacheMB = n
+		}
+	}
+	projCache := pebble.NewCache(int64(projCacheMB) << 20)
+	defer projCache.Unref()
+	projDB, err := pebble.Open(filepath.Join(tempDir, "db"), &pebble.Options{Cache: projCache})
 	if err != nil {
 		return fmt.Errorf("topological projection: open temp db: %w", err)
 	}
@@ -74,7 +90,7 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	lastLog := expandStart
 	err = e.driveTopological(ctx, entitlements, order, topologicalRun{
 		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink destinationSink) error {
-			return e.mergeDestinationStreams(ctx, dest, incoming, ents, projDB, projectionSources, sink)
+			return e.mergeDestinationStreams(ctx, dest, incoming, ents, projDB, projectionSources, sink, metrics)
 		},
 		onStored: func(_ context.Context, dirty []*v2.Grant) error {
 			addedRows, err := addProjectionRows(projDB, dirty, projectionSources)
@@ -112,6 +128,8 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	l.Info("topological projection: expansion complete",
 		zap.Int("nodes_total", len(order)),
 		zap.Int64("dirty_grants_written", metrics.DirtyGrantsWritten),
+		zap.Int64("synthesized_grants", metrics.SynthesizedGrants),
+		zap.Int64("base_update_grants", metrics.BaseUpdateGrants),
 		zap.Int64("projection_rows", metrics.ProjectionRowsBuilt),
 		zap.Int64("nodes_reduced", metrics.NodesReduced),
 		zap.Duration("elapsed", time.Since(expandStart)),
@@ -134,6 +152,7 @@ func (e *Expander) mergeDestinationStreams(
 	projDB *pebble.DB,
 	projectionSources map[string]struct{},
 	sink destinationSink,
+	metrics *EntitlementGraphMetrics,
 ) error {
 	streams := make([]contributionGroupStream, 0, 1+len(incoming))
 	streams = append(streams, &baseContributionStream{
@@ -162,7 +181,7 @@ func (e *Expander) mergeDestinationStreams(
 			})
 		}
 	}
-	return mergeContributionGroupStreams(ctx, destEntitlement, streams, sink)
+	return mergeContributionGroupStreams(ctx, destEntitlement, streams, sink, metrics)
 }
 
 // buildProjectionDB scans the projection-source entitlements once and ingests a

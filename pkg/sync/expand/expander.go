@@ -80,6 +80,17 @@ type ExpanderStore interface {
 	GrantsForEntitlementPrincipalSorted() bool
 }
 
+// newExpandedGrantStorer is an optional ExpanderStore fast path for grants the
+// merge knows are brand-new (synthesized): no prior record exists for their
+// external_id, so the store can skip the read-before-write Get and stale-index
+// cleanup that StoreExpandedGrants performs. Stores that do not implement it
+// fall back to StoreExpandedGrants, which is always correct. The topological
+// merge proves the "no prior" precondition via its base-stream-empty decision;
+// see PutSynthesizedGrantRecords for the engine-side contract.
+type newExpandedGrantStorer interface {
+	StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
+}
+
 // entitlementGrantPrincipalKeyLister is an optional fast path for stores that
 // can list only descendant principal identities without materializing full
 // grants. Returned keys must use descendantGrantKey(resourceType, resource).

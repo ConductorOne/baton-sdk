@@ -71,6 +71,28 @@ type Engine struct {
 	// record they wrote.
 	computedStatsMu sync.Mutex
 	computedStats   map[string]*v3.SyncStatsRecord
+
+	// expandStats, when non-nil, accumulates a timing/volume breakdown of
+	// the PutExpandedGrantRecords write path (read-before-write Gets, marshal,
+	// index-delete, primary/index commit time, and per-index-family key/byte
+	// counts). Diagnostic only: enabled via EnableExpandWriteStats before an
+	// expansion run and read back via ExpandWriteStats. nil in production, so
+	// the hot path pays one nil check per record.
+	expandStats *expandWriteStats
+
+	// deferGrantIndexes, when true (env BATON_PEBBLE_DEFER_EXPANSION_INDEXES),
+	// makes the expansion write path (writeGrantIndexesScratch) skip the three
+	// index families that are NOT read during expansion — by_entitlement_resource,
+	// by_principal, by_principal_resource_type — writing only by_entitlement
+	// inline. The skipped families are rebuilt in one sorted-SST ingest at
+	// EndSync (BuildDeferredGrantIndexes), trading out-of-order LSM churn for a
+	// single external sort. Experimental perf knob; off by default.
+	deferGrantIndexes bool
+	// deferredIdxPending is set the first time the expansion path skips a
+	// deferred family, so EndSync knows to run the rebuild. Connector-sync
+	// writes (writeGrantIndexes) never set it, so a non-expansion sync skips
+	// the rebuild entirely.
+	deferredIdxPending atomic.Bool
 }
 
 // Open creates or opens a Pebble engine rooted at dir. If dir does
@@ -98,10 +120,11 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	}
 
 	e := &Engine{
-		db:         db,
-		dbDir:      dir,
-		opts:       o,
-		pebbleOpts: pebbleOpts,
+		db:                db,
+		dbDir:             dir,
+		opts:              o,
+		pebbleOpts:        pebbleOpts,
+		deferGrantIndexes: os.Getenv("BATON_PEBBLE_DEFER_EXPANSION_INDEXES") != "",
 	}
 	// Enforce the single-sync key-layout contract before touching any
 	// keys: reject an old multi-sync-layout file (which the current

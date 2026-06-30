@@ -20,7 +20,7 @@ func (e *Expander) RunTopologicalMergeStreaming(ctx context.Context) error {
 	}
 	if err := e.driveTopological(ctx, entitlements, order, topologicalRun{
 		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink destinationSink) error {
-			return e.mergeDestinationStreams(ctx, dest, incoming, ents, nil, nil, sink)
+			return e.mergeDestinationStreams(ctx, dest, incoming, ents, nil, nil, sink, nil)
 		},
 	}); err != nil {
 		return err
@@ -306,6 +306,7 @@ func mergeContributionGroupStreams(
 	destEntitlement *v2.Entitlement,
 	streams []contributionGroupStream,
 	sink destinationSink,
+	metrics *EntitlementGraphMetrics,
 ) error {
 	for _, stream := range streams {
 		defer stream.close()
@@ -323,22 +324,36 @@ func mergeContributionGroupStreams(
 	}
 
 	flusher := newDirtyFlusher(sink)
+
+	// Reuse the per-principal accumulator (struct + sources map) and the base
+	// slice across iterations rather than allocating fresh ones per output
+	// group — there are tens of millions of groups on a large expansion, and
+	// that churn was a measurable share of GC time. Safe because
+	// newExpandedGrantWithSources and mergeContributionIntoExistingGrant copy
+	// out of contrib.sources, and the output grant holds its own reference to
+	// the principal, so clearing contrib after each group keeps nothing alive.
+	contrib := &topoContribution{}
+	var base []*v2.Grant
+	consume := func(group contributionGroup) {
+		if group.isBase {
+			base = append(base, group.base...)
+			return
+		}
+		contrib.merge(group.contrib)
+	}
 	for h.Len() > 0 {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		item := heap.Pop(&h).(mergeHeapItem)
 		key := item.group.key
-		var base []*v2.Grant
-		contrib := &topoContribution{}
-
-		consume := func(group contributionGroup) {
-			if group.isBase {
-				base = append(base, group.base...)
-				return
-			}
-			contrib.merge(group.contrib)
+		base = base[:0]
+		if contrib.sources != nil {
+			clear(contrib.sources)
 		}
+		contrib.principal = nil
+		contrib.principalBytes = nil
+
 		consume(item.group)
 
 		if next, ok, err := streams[item.streamID].next(ctx); err != nil {
@@ -372,16 +387,27 @@ func mergeContributionGroupStreams(
 			if err != nil {
 				return err
 			}
-			if err := flusher.add(ctx, grant); err != nil {
+			// Synthesized: base stream reported no grant for this principal on
+			// the destination, so the deterministic external_id is brand-new and
+			// the store can skip its read-before-write Get.
+			if err := flusher.add(ctx, grant, true); err != nil {
 				return err
+			}
+			if metrics != nil {
+				metrics.SynthesizedGrants++
 			}
 			continue
 		}
 		for _, baseGrant := range base {
 			updated := mergeContributionIntoExistingGrant(baseGrant, destEntitlement.GetId(), contrib.sources)
 			if updated != nil {
-				if err := flusher.add(ctx, updated); err != nil {
+				// Base update: rewrites an existing grant's Sources, so a prior
+				// record exists and the store must take the read-merge path.
+				if err := flusher.add(ctx, updated, false); err != nil {
 					return err
+				}
+				if metrics != nil {
+					metrics.BaseUpdateGrants++
 				}
 			}
 		}
