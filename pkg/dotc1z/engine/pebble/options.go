@@ -50,6 +50,14 @@ type Options struct {
 	// write path and the seal-time digest build — pure overhead for
 	// files that are never diffed. See WithGrantDigestIndex.
 	grantDigestIndex bool
+
+	// liveGrantDigestRoot controls whether the per-entitlement digest root
+	// node is kept up to date on every grant write during a fresh sync
+	// (count + XOR hash accumulated live rather than computed at seal
+	// time). Default on when grantDigestIndex is on. Set false to measure
+	// the overhead of live root maintenance or to fall back to the
+	// seal-time-only build. No-op when grantDigestIndex is false.
+	liveGrantDigestRoot bool
 }
 
 // Option is a functional option passed to Open.
@@ -85,6 +93,15 @@ func WithReadOnly(readOnly bool) Option { return func(o *Options) { o.readOnly =
 // index and conclude "no grants" — do not silently diff such a file.
 func WithGrantDigestIndex(enabled bool) Option {
 	return func(o *Options) { o.grantDigestIndex = enabled }
+}
+
+// WithLiveGrantDigestRoot controls whether the per-entitlement digest root
+// is maintained live on every grant write during a fresh sync. Default true.
+// Set false to isolate the cost of live root maintenance in benchmarks, or
+// to fall back to the seal-time-only build. No-op when WithGrantDigestIndex
+// is false.
+func WithLiveGrantDigestRoot(enabled bool) Option {
+	return func(o *Options) { o.liveGrantDigestRoot = enabled }
 }
 
 // WithSlowQueryThreshold overrides the default 5 s threshold for
@@ -155,9 +172,10 @@ func writeOpts(d Durability) *pebble.WriteOptions {
 
 func defaultOptions() *Options {
 	return &Options{
-		durability:         DurabilitySync,
-		slowQueryThreshold: 5 * time.Second,
-		grantDigestIndex:   true,
+		durability:          DurabilitySync,
+		slowQueryThreshold:  5 * time.Second,
+		grantDigestIndex:    true,
+		liveGrantDigestRoot: true,
 	}
 }
 

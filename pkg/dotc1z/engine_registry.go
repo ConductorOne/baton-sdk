@@ -37,6 +37,10 @@ type StoreOptions struct {
 	// the zero value keeps the index on (current behavior).
 	DisableGrantDigestIndex bool
 
+	// DisableLiveGrantDigestRoot turns off live root-node maintenance
+	// during fresh syncs. Inverted so zero value keeps it on.
+	DisableLiveGrantDigestRoot bool
+
 	Engine Engine
 
 	// PayloadEncoding selects the v3 envelope payload framing for
@@ -192,7 +196,8 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 		SyncLimit:               options.syncLimit,
 		SkipCleanup:             options.skipCleanup,
 		V2GrantsWriter:          options.v2GrantsWriter,
-		DisableGrantDigestIndex: options.disableGrantDigestIndex,
+		DisableGrantDigestIndex:    options.disableGrantDigestIndex,
+		DisableLiveGrantDigestRoot: options.disableLiveGrantDigestRoot,
 		Engine:                  options.engine,
 		PayloadEncoding:         options.payloadEncoding,
 		DecoderPool:             options.decoderPool,

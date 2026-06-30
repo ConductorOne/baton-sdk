@@ -270,6 +270,9 @@ func (a *Adapter) CheckpointSync(ctx context.Context, syncToken string) error {
 		return errors.New("CheckpointSync: no open sync")
 	}
 	a.current.step = syncToken
+	if err := a.engine.PersistFreshRoots(); err != nil {
+		return err
+	}
 	existing, err := a.engine.GetSyncRunRecord(ctx, a.current.syncID)
 	if err != nil {
 		return err
@@ -319,6 +322,16 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	// don't fail the sync end on stats-sidecar trouble.
 	if err := a.engine.PersistSyncStats(ctx, existing.GetSyncId()); err != nil {
 		ctxzap.Extract(ctx).Warn("pebble: persist sync stats sidecar failed; Stats() will fall back to O(N) iteration until the next Open backfills it",
+			zap.String("sync_id", existing.GetSyncId()),
+			zap.Error(err),
+		)
+	}
+	// Flush in-memory root accumulators before building digests so that
+	// buildPartitionDigest can read the count from the stored root and
+	// skip its countKeysInRange pass. Non-fatal for the same reason as
+	// the digest build itself.
+	if err := a.engine.FlushFreshRoots(); err != nil {
+		ctxzap.Extract(ctx).Warn("pebble: flush fresh roots failed; digest build will fall back to countKeysInRange",
 			zap.String("sync_id", existing.GetSyncId()),
 			zap.Error(err),
 		)

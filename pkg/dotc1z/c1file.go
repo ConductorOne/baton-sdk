@@ -345,6 +345,11 @@ type c1zOptions struct {
 	// WithGrantDigestIndex.
 	disableGrantDigestIndex bool
 
+	// disableLiveGrantDigestRoot turns off live root-node maintenance
+	// during fresh syncs. Inverted so zero value keeps it on. See
+	// WithLiveGrantDigestRoot.
+	disableLiveGrantDigestRoot bool
+
 	// engine is the storage engine to use for newly created files.
 	// Reads dispatch on magic byte regardless. Default EngineSQLite.
 	engine Engine
@@ -460,6 +465,15 @@ func WithV2GrantsWriter(enabled bool) C1ZOption {
 func WithGrantDigestIndex(enabled bool) C1ZOption {
 	return func(o *c1zOptions) {
 		o.disableGrantDigestIndex = !enabled
+	}
+}
+
+// WithLiveGrantDigestRoot controls whether the per-entitlement digest root
+// node is maintained live on every grant write during a fresh sync. Default
+// true. No effect on the SQLite engine or when WithGrantDigestIndex is false.
+func WithLiveGrantDigestRoot(enabled bool) C1ZOption {
+	return func(o *c1zOptions) {
+		o.disableLiveGrantDigestRoot = !enabled
 	}
 }
 

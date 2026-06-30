@@ -73,8 +73,10 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 
 	engineOpts := []pebble.Option{pebble.WithReadOnly(opts.ReadOnly)}
 	if opts.DisableGrantDigestIndex {
-		// Engine default is on; only pass the override when disabling.
 		engineOpts = append(engineOpts, pebble.WithGrantDigestIndex(false))
+	}
+	if opts.DisableLiveGrantDigestRoot {
+		engineOpts = append(engineOpts, pebble.WithLiveGrantDigestRoot(false))
 	}
 	e, err := pebble.Open(ctx, dbDir, engineOpts...)
 	if err != nil {

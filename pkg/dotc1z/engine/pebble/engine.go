@@ -57,6 +57,11 @@ type Engine struct {
 	freshResourcesEmpty    bool
 	freshEntitlementsEmpty bool
 
+	// freshRoots accumulates per-entitlement root digests in memory
+	// during a fresh sync (liveGrantDigestRoot on). Nil otherwise.
+	// Accessed only within writeMu — no separate lock needed.
+	freshRoots map[string]*freshRootAcc
+
 	// writeWG tracks in-flight writes. Incremented at the start of
 	// every Writer method, decremented in defer.
 	writeWG sync.WaitGroup
@@ -140,8 +145,13 @@ func (e *Engine) Close() error {
 	// harden. A no-op when the memtable is already empty.
 	var err error
 	if !e.opts.readOnly {
+		if e.freshRoots != nil {
+			if ferr := e.flushFreshRoots(); ferr != nil {
+				err = fmt.Errorf("flush fresh roots during close: %w", ferr)
+			}
+		}
 		if ferr := e.db.Flush(); ferr != nil {
-			err = fmt.Errorf("flush during close: %w", ferr)
+			err = errors.Join(err, fmt.Errorf("flush during close: %w", ferr))
 		}
 	}
 	err = errors.Join(err, e.db.Close())
@@ -195,6 +205,9 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 	e.freshResourcesEmpty = true
 	e.freshEntitlementsEmpty = true
 	e.currentSyncMu.Unlock()
+	if e.opts.liveGrantDigestRoot {
+		e.freshRoots = make(map[string]*freshRootAcc)
+	}
 	return nil
 }
 
@@ -435,6 +448,9 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 		return copyReadOnlyDBDir(e.dbDir, destDir)
 	}
 
+	if err := e.persistFreshRoots(); err != nil {
+		return fmt.Errorf("checkpoint flush fresh roots: %w", err)
+	}
 	if err := e.db.Flush(); err != nil {
 		return fmt.Errorf("checkpoint flush: %w", err)
 	}

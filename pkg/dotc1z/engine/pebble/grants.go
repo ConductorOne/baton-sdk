@@ -85,12 +85,8 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		skipGet := e.takeFreshGrantsEmpty()
 
 		var mm *digestMutator
-		if e.opts.grantDigestIndex {
-			if fresh {
-				mm = newGrantDigestMutatorFresh(e)
-			} else {
-				mm = newGrantDigestMutator(e)
-			}
+		if !fresh && e.opts.grantDigestIndex {
+			mm = newGrantDigestMutator(e)
 		}
 
 		// Dedup pre-pass: keep only the LAST occurrence of each
@@ -139,6 +135,10 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 							return err
 						}
 					}
+					if err := e.removeGrantFromFreshRootRaw(r.GetExternalId(), oldVal); err != nil {
+						closer.Close()
+						return err
+					}
 					closer.Close()
 				case errors.Is(getErr, pebble.ErrNotFound):
 					// no prior record — write unconditionally
@@ -157,6 +157,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 					return err
 				}
 			}
+			e.addGrantToFreshRoot(r)
 		}
 		if mm != nil {
 			if err := mm.apply(idxBatch); err != nil {
@@ -232,12 +233,8 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 		}
 
 		var mm *digestMutator
-		if e.opts.grantDigestIndex {
-			if e.IsFreshSync() {
-				mm = newGrantDigestMutatorFresh(e)
-			} else {
-				mm = newGrantDigestMutator(e)
-			}
+		if !e.IsFreshSync() && e.opts.grantDigestIndex {
+			mm = newGrantDigestMutator(e)
 		}
 
 		// Scratch buffers reused across every record. pebble.Batch.Set
@@ -283,6 +280,10 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 						return err
 					}
 				}
+				if err := e.removeGrantFromFreshRootRaw(ext, oldVal); err != nil {
+					closer.Close()
+					return err
+				}
 				closer.Close()
 			case errors.Is(getErr, pebble.ErrNotFound):
 				// No prior record: discovered_at is stamped below unless the
@@ -311,6 +312,7 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 					return err
 				}
 			}
+			e.addGrantToFreshRoot(r)
 		}
 		if mm != nil {
 			if err := mm.apply(idxBatch); err != nil {
