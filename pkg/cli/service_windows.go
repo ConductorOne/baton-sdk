@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 	"golang.org/x/sys/windows/svc/eventlog"
@@ -91,14 +92,116 @@ func getExePath() (string, error) {
 	return p, err
 }
 
+const defaultEventLogID uint32 = 1
+const windowsEventIDKey = "event_id"
+
+// eventLogCore writes zap log entries to the Windows Event Log with level-appropriate event types.
+type eventLogCore struct {
+	zapcore.LevelEnabler
+	enc  zapcore.Encoder
+	elog *eventlog.Log
+}
+
+var _ zapcore.Core = (*eventLogCore)(nil)
+
+func newEventLogCore(elog *eventlog.Log, cfg zap.Config) zapcore.Core {
+	return &eventLogCore{
+		LevelEnabler: cfg.Level,
+		enc:          zapcore.NewConsoleEncoder(cfg.EncoderConfig),
+		elog:         elog,
+	}
+}
+
+func (c *eventLogCore) With(fields []zapcore.Field) zapcore.Core {
+	clone := c.clone()
+	for i := range fields {
+		fields[i].AddTo(clone.enc)
+	}
+	return clone
+}
+
+func (c *eventLogCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	if c.Enabled(ent.Level) {
+		return ce.AddCore(ent, c)
+	}
+	return ce
+}
+
+func (c *eventLogCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
+	buf, err := c.enc.EncodeEntry(ent, fields)
+	if err != nil {
+		return err
+	}
+	msg := buf.String()
+	buf.Free()
+
+	// If a log message has an event ID, use it. Otherwise, use the default.
+	eventID := defaultEventLogID
+	for _, field := range fields {
+		if field.Key == windowsEventIDKey && field.Integer != 0 {
+			eventID = uint32(field.Integer)
+			break
+		}
+	}
+
+	switch {
+	case ent.Level >= zapcore.ErrorLevel:
+		err = c.elog.Error(eventID, msg)
+	case ent.Level >= zapcore.WarnLevel:
+		err = c.elog.Warning(eventID, msg)
+	default:
+		err = c.elog.Info(eventID, msg)
+	}
+	if err != nil {
+		return err
+	}
+	if ent.Level > zapcore.ErrorLevel {
+		// Sync the event log to ensure the message is written.
+		err = c.Sync()
+	}
+	return err
+}
+
+func (c *eventLogCore) Sync() error {
+	return nil
+}
+
+func (c *eventLogCore) clone() *eventLogCore {
+	return &eventLogCore{
+		LevelEnabler: c.LevelEnabler,
+		enc:          c.enc.Clone(),
+		elog:         c.elog,
+	}
+}
+
+type eventLogKey struct{}
+
 func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option) (context.Context, error) {
+	logToEventLog, _ := ctx.Value(eventLogEnabledKey{}).(bool)
+
 	if isService() {
 		defaultLoggingOpts := []logging.Option{
 			logging.WithLogFormat(logging.LogFormatJSON),
 			logging.WithLogLevel("info"),
-			logging.WithOutputPaths([]string{filepath.Join(getConfigDir(name), "baton.log")}),
+		}
+		if !logToEventLog {
+			// On Windows, stdout/stderr on services goes nowhere. Log to a file by default.
+			defaultLoggingOpts = append(defaultLoggingOpts, logging.WithOutputPaths([]string{filepath.Join(getConfigDir(name), "baton.log")}))
 		}
 		loggingOpts = append(defaultLoggingOpts, loggingOpts...)
+	}
+
+	if logToEventLog {
+		elog, err := eventlog.Open(name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open event log: %w", err)
+		}
+
+		// Put the event log on the context so we can reuse it in runService.
+		ctx = context.WithValue(ctx, eventLogKey{}, elog)
+		return logging.InitWithCore(ctx, func(cfg zap.Config) zapcore.Core {
+			return newEventLogCore(elog, cfg)
+		}, loggingOpts...)
 	}
 
 	return logging.Init(ctx, loggingOpts...)
@@ -528,19 +631,23 @@ func runService(ctx context.Context, name string) (context.Context, error) {
 	l := ctxzap.Extract(ctx)
 	l.Info("Running service.")
 
-	ctx, cancel := context.WithCancelCause(ctx)
-	var elog debug.Log
-	go func() {
-		defer cancel(nil)
-
+	// The event log is only on the context when logging to it was requested
+	// via --log-event-log. Otherwise open it here for service state messages.
+	elog, ok := ctx.Value(eventLogKey{}).(debug.Log)
+	if !ok {
 		var err error
 		elog, err = eventlog.Open(name)
 		if err != nil {
 			l.Error("Failed to open event log.", zap.Error(err))
+			return ctx, err
 		}
-		defer elog.Close()
+	}
 
-		err = svc.Run(name, &batonService{
+	ctx, cancel := context.WithCancelCause(ctx)
+	go func() {
+		defer cancel(nil)
+
+		err := svc.Run(name, &batonService{
 			name: name,
 			ctx:  ctx,
 			elog: elog,
