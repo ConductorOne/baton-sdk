@@ -243,9 +243,8 @@ func TestAdapterGetEntitlementGrantDigest(t *testing.T) {
 		t.Fatalf("unknown entitlement: found=%v err=%v, want found=false err=nil", found, err)
 	}
 
-	// Digest index disabled: a real entitlement reports not-found
-	// (no digest was built).
-	off, _ := newTestEngine(t, WithGrantDigestIndex(false))
+	// Both disabled: a real entitlement reports not-found (no digest built).
+	off, _ := newTestEngine(t, WithGrantDigestIndex(false), WithLiveGrantDigestRoot(false))
 	aOff := seal(off)
 	if _, found, err := aOff.GetEntitlementGrantDigest(ctx, "ent-A"); err != nil || found {
 		t.Fatalf("digest off: found=%v err=%v, want found=false err=nil", found, err)

@@ -283,14 +283,23 @@ func unpackDigestLeaf(val []byte) (int64, []byte, bool) {
 	return count, val[8:], true
 }
 
-// buildPartitionDigest counts a partition's index entries (pass 1),
-// picks the width from that count, and delegates the fold to
-// buildPartitionDigestAtWidth (pass 2).
+// buildPartitionDigest picks the leaf width for a partition and delegates
+// the fold to buildPartitionDigestAtWidth. When a live root node is already
+// stored (written during the fresh sync), its count is used directly and the
+// full countKeysInRange sweep is skipped. Falls back to countKeysInRange when
+// no root exists (e.g. liveGrantDigestRoot was disabled).
 func (e *Engine) buildPartitionDigest(ctx context.Context, spec digestIndexSpec, partition string) error {
-	prefix := spec.partitionPrefix(partition)
-	count, err := e.countKeysInRange(prefix, upperBoundOf(prefix))
-	if err != nil {
+	var count int64
+	if root, ok, err := e.getPartitionDigestRoot(spec, partition); err != nil {
 		return err
+	} else if ok {
+		count = root.Count
+	} else {
+		prefix := spec.partitionPrefix(partition)
+		count, err = e.countKeysInRange(prefix, upperBoundOf(prefix))
+		if err != nil {
+			return err
+		}
 	}
 	return e.buildPartitionDigestAtWidth(ctx, spec, partition, chooseDigestWidth(count))
 }

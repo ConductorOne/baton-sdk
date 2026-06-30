@@ -222,6 +222,105 @@ func newGrantDigestMutator(e *Engine) *digestMutator {
 	return newDigestMutator(e, grantDigestSpec)
 }
 
+// freshRootAcc accumulates the per-entitlement root digest in memory
+// during a fresh sync. Flushed to Pebble at EndFreshSync (or Close).
+type freshRootAcc struct {
+	count     int64
+	xorDigest [hashLen]byte
+}
+
+// updateFreshRoot applies a signed delta (±1) to the in-memory root
+// accumulator for entID. No-op when freshRoots is nil.
+func (e *Engine) updateFreshRoot(entID string, contentHash []byte, sign int64) {
+	if e.freshRoots == nil {
+		return
+	}
+	acc := e.freshRoots[entID]
+	if acc == nil {
+		acc = &freshRootAcc{}
+		e.freshRoots[entID] = acc
+	}
+	acc.count += sign
+	xorInto(acc.xorDigest[:], contentHash)
+}
+
+// addGrantToFreshRoot records a grant insertion into its entitlement's
+// in-memory root accumulator. No-op when freshRoots is nil.
+func (e *Engine) addGrantToFreshRoot(r *v3.GrantRecord) {
+	entID := r.GetEntitlement().GetEntitlementId()
+	if entID == "" {
+		return
+	}
+	e.updateFreshRoot(entID, grantContentHash(r), +1)
+}
+
+// removeGrantFromFreshRootRaw records a grant removal from its
+// entitlement's in-memory root accumulator, reading fields from the
+// raw wire bytes without a full proto unmarshal. No-op when freshRoots
+// is nil.
+func (e *Engine) removeGrantFromFreshRootRaw(externalID string, value []byte) error {
+	if e.freshRoots == nil {
+		return nil
+	}
+	_, _, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(value)
+	if err != nil {
+		return err
+	}
+	if entID == "" {
+		return nil
+	}
+	sourceKeys, err := scanGrantSourceKeysRaw(value)
+	if err != nil {
+		return err
+	}
+	sort.Strings(sourceKeys)
+	ch := grantContentHashFromParts(entID, principalRT, principalID, externalID, sourceKeys)
+	e.updateFreshRoot(entID, ch, -1)
+	return nil
+}
+
+// FlushFreshRoots writes all in-memory root accumulators to Pebble and
+// clears the map. Must be called before BuildAllGrantDigests so the stored
+// roots are available for the count-skip optimisation, and before the
+// EndFreshSync flush so the nodes are hardened. Also called from Close as
+// a safety net for early-exit paths. Must be called within writeMu.
+func (e *Engine) FlushFreshRoots() error {
+	return e.flushFreshRoots()
+}
+
+// PersistFreshRoots writes the current in-memory root accumulators to
+// Pebble without clearing the map, so accumulation continues. Safe to
+// call at any point during a fresh sync (e.g. CheckpointSync) to make
+// the current root state durable without interrupting the sync.
+func (e *Engine) PersistFreshRoots() error {
+	return e.withWrite(func() error {
+		return e.persistFreshRoots()
+	})
+}
+
+func (e *Engine) persistFreshRoots() error {
+	if len(e.freshRoots) == 0 {
+		return nil
+	}
+	batch := e.db.NewBatch()
+	defer batch.Close()
+	for entID, acc := range e.freshRoots {
+		key := encodeDigestNodeKey(idxGrantByEntitlementPrincipalHash, entID, digestLevelRoot, nil)
+		if err := batch.Set(key, packDigestRoot(0, acc.count, acc.xorDigest[:]), nil); err != nil {
+			return err
+		}
+	}
+	return batch.Commit(pebble.NoSync)
+}
+
+func (e *Engine) flushFreshRoots() error {
+	if err := e.persistFreshRoots(); err != nil {
+		return err
+	}
+	e.freshRoots = nil
+	return nil
+}
+
 // newGrantDigestMutatorFresh is newGrantDigestMutator for the fresh-sync
 // path: absent roots are initialized as zero rather than dropped, so the
 // root node is written live as grants arrive.
