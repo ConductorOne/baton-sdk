@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -45,7 +46,22 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	}
 	defer os.RemoveAll(tempDir)
 
-	projDB, err := pebble.Open(filepath.Join(tempDir, "db"), &pebble.Options{})
+	// The projection DB is the merge's read path (each destination pulls its
+	// projected source streams from here). Pebble's default cache is only 8MB,
+	// which is too small for a hot read DB; give it a modest 64MB (env-tunable).
+	// Note: a larger cache did NOT speed up the whale measurably — projection
+	// fan-out is mostly 1, so sources are scanned once and there is little to
+	// re-cache — but 8MB is still poor hygiene for higher-fan-out tenants. The
+	// cache is owned here and Unref'd after the DB closes.
+	projCacheMB := 64
+	if v := os.Getenv("BATON_EXPAND_PROJECTION_CACHE_MB"); v != "" {
+		if n, perr := strconv.Atoi(v); perr == nil && n > 0 {
+			projCacheMB = n
+		}
+	}
+	projCache := pebble.NewCache(int64(projCacheMB) << 20)
+	defer projCache.Unref()
+	projDB, err := pebble.Open(filepath.Join(tempDir, "db"), &pebble.Options{Cache: projCache})
 	if err != nil {
 		return fmt.Errorf("topological projection: open temp db: %w", err)
 	}

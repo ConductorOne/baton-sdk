@@ -324,22 +324,36 @@ func mergeContributionGroupStreams(
 	}
 
 	flusher := newDirtyFlusher(sink)
+
+	// Reuse the per-principal accumulator (struct + sources map) and the base
+	// slice across iterations rather than allocating fresh ones per output
+	// group — there are tens of millions of groups on a large expansion, and
+	// that churn was a measurable share of GC time. Safe because
+	// newExpandedGrantWithSources and mergeContributionIntoExistingGrant copy
+	// out of contrib.sources, and the output grant holds its own reference to
+	// the principal, so clearing contrib after each group keeps nothing alive.
+	contrib := &topoContribution{}
+	var base []*v2.Grant
+	consume := func(group contributionGroup) {
+		if group.isBase {
+			base = append(base, group.base...)
+			return
+		}
+		contrib.merge(group.contrib)
+	}
 	for h.Len() > 0 {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		item := heap.Pop(&h).(mergeHeapItem)
 		key := item.group.key
-		var base []*v2.Grant
-		contrib := &topoContribution{}
-
-		consume := func(group contributionGroup) {
-			if group.isBase {
-				base = append(base, group.base...)
-				return
-			}
-			contrib.merge(group.contrib)
+		base = base[:0]
+		if contrib.sources != nil {
+			clear(contrib.sources)
 		}
+		contrib.principal = nil
+		contrib.principalBytes = nil
+
 		consume(item.group)
 
 		if next, ok, err := streams[item.streamID].next(ctx); err != nil {
