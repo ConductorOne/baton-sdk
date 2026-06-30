@@ -2,14 +2,19 @@ package attached
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
+	"time"
+	"unsafe"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/segmentio/ksuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -237,6 +242,62 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	// Verify that compaction completed without errors
 	// This test verifies that the latest sync (incremental) was used from applied
 	// even though there was an earlier full sync
+}
+
+func TestLatestFinishedCompactableSyncTiebreaksBySyncID(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	db, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "tied.c1z"), dotc1z.WithTmpDir(tmpDir))
+	require.NoError(t, err)
+	defer db.Close(ctx)
+
+	fullOriginalID, err := db.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, db.EndSync(ctx))
+
+	partialOriginalID, err := db.StartNewSync(ctx, connectorstore.SyncTypePartial, fullOriginalID)
+	require.NoError(t, err)
+	require.NoError(t, db.EndSync(ctx))
+
+	fullSyncID, partialSyncID := orderedAttachedTestSyncIDs()
+	rawDB := rawAttachedSQLiteDBForTest(t, db)
+	retargetAttachedSyncRunID(t, ctx, rawDB, fullOriginalID, fullSyncID)
+	retargetAttachedSyncRunID(t, ctx, rawDB, partialOriginalID, partialSyncID)
+	_, err = rawDB.ExecContext(ctx, "UPDATE v1_sync_runs SET parent_sync_id = ? WHERE sync_id = ?", fullSyncID, partialSyncID)
+	require.NoError(t, err)
+	tiedEndedAt := time.Date(2026, time.June, 29, 12, 0, 0, 0, time.UTC).Format("2006-01-02 15:04:05.999999999")
+	_, err = rawDB.ExecContext(ctx, "UPDATE v1_sync_runs SET ended_at = ? WHERE sync_id IN (?, ?)", tiedEndedAt, fullSyncID, partialSyncID)
+	require.NoError(t, err)
+
+	sync, err := latestFinishedCompactableSync(ctx, db)
+	require.NoError(t, err)
+	require.NotNil(t, sync)
+	require.Equal(t, partialSyncID, sync.GetId(), "greater sync_id must win when compactable sync types tie on ended_at")
+}
+
+func orderedAttachedTestSyncIDs() (string, string) {
+	a := ksuid.New().String()
+	b := ksuid.New().String()
+	if a > b {
+		return b, a
+	}
+	return a, b
+}
+
+func rawAttachedSQLiteDBForTest(t testing.TB, store *dotc1z.C1File) *sql.DB {
+	t.Helper()
+	field := reflect.ValueOf(store).Elem().FieldByName("rawDb")
+	require.True(t, field.IsValid())
+	require.False(t, field.IsNil())
+	return (*sql.DB)(unsafe.Pointer(field.Pointer()))
+}
+
+func retargetAttachedSyncRunID(t testing.TB, ctx context.Context, db *sql.DB, oldID, newID string) {
+	t.Helper()
+	_, err := db.ExecContext(ctx, "UPDATE v1_sync_runs SET sync_id = ? WHERE sync_id = ?", newID, oldID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, "UPDATE v1_sync_runs SET parent_sync_id = ? WHERE parent_sync_id = ?", newID, oldID)
+	require.NoError(t, err)
 }
 
 func TestAttachedCompactorDoesNotOperateOnDiffSyncTypes(t *testing.T) {
