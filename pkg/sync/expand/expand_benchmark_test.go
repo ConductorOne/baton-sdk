@@ -221,6 +221,16 @@ func (s benchmarkExpanderStore) StoreExpandedGrants(ctx context.Context, grants 
 	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
 
+func (s benchmarkExpanderStore) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	gs := s.store.Grants()
+	if fast, ok := gs.(interface {
+		StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
+	}); ok {
+		return fast.StoreNewExpandedGrants(ctx, grants...)
+	}
+	return gs.StoreExpandedGrants(ctx, grants...)
+}
+
 func (s benchmarkExpanderStore) GrantsForEntitlementPrincipalSorted() bool {
 	store, ok := s.store.(interface {
 		GrantsForEntitlementPrincipalSorted() bool

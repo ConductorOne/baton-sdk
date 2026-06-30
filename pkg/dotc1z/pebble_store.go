@@ -478,6 +478,23 @@ func (g pebbleStoreGrants) StoreExpandedGrants(ctx context.Context, grants ...*v
 	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
 }
 
+// StoreNewExpandedGrants forwards the expander's synthesized-grant fast path
+// (no read-before-write Get) to the engine-level grant store when it supports
+// it, flipping the dirty bit like StoreExpandedGrants. Falls back to the
+// read-merge path otherwise. This wrapper must expose the method explicitly:
+// the optional fast-path interface is satisfied by the engine's grant store
+// (g.inner), but callers see this wrapper, so without this passthrough the
+// expander's interface assertion fails and every synthesized grant takes the
+// redundant Get path.
+func (g pebbleStoreGrants) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	if fast, ok := g.inner.(interface {
+		StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
+	}); ok {
+		return g.store.markDirty(fast.StoreNewExpandedGrants(ctx, grants...))
+	}
+	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
+}
+
 func (g pebbleStoreGrants) PendingExpansionPage(ctx context.Context, pageToken string) ([]PendingExpansion, string, error) {
 	return g.inner.PendingExpansionPage(ctx, pageToken)
 }

@@ -373,7 +373,10 @@ func mergeContributionGroupStreams(
 			if err != nil {
 				return err
 			}
-			if err := flusher.add(ctx, grant); err != nil {
+			// Synthesized: base stream reported no grant for this principal on
+			// the destination, so the deterministic external_id is brand-new and
+			// the store can skip its read-before-write Get.
+			if err := flusher.add(ctx, grant, true); err != nil {
 				return err
 			}
 			if metrics != nil {
@@ -384,7 +387,9 @@ func mergeContributionGroupStreams(
 		for _, baseGrant := range base {
 			updated := mergeContributionIntoExistingGrant(baseGrant, destEntitlement.GetId(), contrib.sources)
 			if updated != nil {
-				if err := flusher.add(ctx, updated); err != nil {
+				// Base update: rewrites an existing grant's Sources, so a prior
+				// record exists and the store must take the read-merge path.
+				if err := flusher.add(ctx, updated, false); err != nil {
 					return err
 				}
 				if metrics != nil {

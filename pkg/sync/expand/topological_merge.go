@@ -3,6 +3,7 @@ package expand
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -30,41 +31,87 @@ import (
 // multi-flush path on small fixtures; production never mutates it.
 var expansionDirtyFlushChunk = 10000
 
+// synthesizedSkipGetEnabled gates the synthesized-grant write fast path that
+// skips the per-record read-before-write Get. Enabled via env
+// BATON_EXPAND_SKIP_GET so it can be measured in combination with the deferred
+// index build (BATON_PEBBLE_DEFER_EXPANSION_INDEXES).
+//
+// UNSOUND in production until grant keys are injective: the lossy ":"-joined
+// deterministic id lets two distinct (entitlement, principal) pairs fold to one
+// primary key, and the Get is what keeps that case from orphaning index entries
+// (and silently dropping a grant). Use only for perf measurement until the
+// escaped-tuple identity change lands.
+var synthesizedSkipGetEnabled = os.Getenv("BATON_EXPAND_SKIP_GET") != ""
+
 // destinationSink persists a batch of dirty grants for the destination currently
 // being reduced. Reduce implementations call it repeatedly (via dirtyFlusher) so
 // the write buffer stays bounded regardless of how many grants a destination
-// produces.
-type destinationSink func(ctx context.Context, dirty []*v2.Grant) error
+// produces. allNew is true when every grant in the batch is freshly SYNTHESIZED
+// (no prior record exists for its external_id), which lets the sink route to a
+// store fast path that skips the read-before-write Get; false for base-update
+// batches, which mutate an existing grant and must take the read-merge path.
+type destinationSink func(ctx context.Context, dirty []*v2.Grant, allNew bool) error
 
 // dirtyFlusher buffers dirty grants and flushes them through a destinationSink
-// once the buffer reaches its limit. The buffer is reused across flushes; the
-// sink consumes each batch synchronously before the buffer is truncated.
+// once a buffer reaches its limit. Synthesized and base-update grants are
+// buffered separately so each flushes as a homogeneous batch (all-new vs
+// update), letting the all-new batches take the Get-skipping store path. Buffers
+// are reused across flushes; the sink consumes each batch synchronously before
+// the buffer is truncated.
 type dirtyFlusher struct {
-	sink  destinationSink
-	limit int
-	buf   []*v2.Grant
+	sink   destinationSink
+	limit  int
+	synth  []*v2.Grant
+	update []*v2.Grant
 }
 
 func newDirtyFlusher(sink destinationSink) *dirtyFlusher {
 	return &dirtyFlusher{sink: sink, limit: expansionDirtyFlushChunk}
 }
 
-func (f *dirtyFlusher) add(ctx context.Context, grant *v2.Grant) error {
-	f.buf = append(f.buf, grant)
-	if len(f.buf) >= f.limit {
-		return f.flush(ctx)
+// add buffers one dirty grant. isNew marks a freshly synthesized grant (no
+// prior record); false marks a base-update of an existing grant.
+func (f *dirtyFlusher) add(ctx context.Context, grant *v2.Grant, isNew bool) error {
+	if isNew {
+		f.synth = append(f.synth, grant)
+		if len(f.synth) >= f.limit {
+			return f.flushSynth(ctx)
+		}
+		return nil
+	}
+	f.update = append(f.update, grant)
+	if len(f.update) >= f.limit {
+		return f.flushUpdate(ctx)
 	}
 	return nil
 }
 
 func (f *dirtyFlusher) flush(ctx context.Context) error {
-	if len(f.buf) == 0 {
-		return nil
-	}
-	if err := f.sink(ctx, f.buf); err != nil {
+	if err := f.flushSynth(ctx); err != nil {
 		return err
 	}
-	f.buf = f.buf[:0]
+	return f.flushUpdate(ctx)
+}
+
+func (f *dirtyFlusher) flushSynth(ctx context.Context) error {
+	if len(f.synth) == 0 {
+		return nil
+	}
+	if err := f.sink(ctx, f.synth, true); err != nil {
+		return err
+	}
+	f.synth = f.synth[:0]
+	return nil
+}
+
+func (f *dirtyFlusher) flushUpdate(ctx context.Context) error {
+	if len(f.update) == 0 {
+		return nil
+	}
+	if err := f.sink(ctx, f.update, false); err != nil {
+		return err
+	}
+	f.update = f.update[:0]
 	return nil
 }
 
@@ -135,11 +182,29 @@ func (e *Expander) driveTopological(
 ) error {
 	logFanInWidth(ctx, e.graph, order)
 
-	sink := func(ctx context.Context, dirty []*v2.Grant) error {
+	sink := func(ctx context.Context, dirty []*v2.Grant, allNew bool) error {
 		if len(dirty) == 0 {
 			return nil
 		}
-		if err := e.store.StoreExpandedGrants(ctx, dirty...); err != nil {
+		// All-new (synthesized) batches have no prior record on the same
+		// (entitlement, principal), so in principle they can skip the
+		// read-before-write Get via the store's fast path. That is GATED OFF
+		// for now (synthesizedSkipGetEnabled): the deterministic grant id is a
+		// lossy ":"-join, so two distinct (entitlement, principal) tuples can
+		// fold to the same primary key. The Get is what keeps that case sound
+		// (it cleans the shadowed record's index entries); skipping it orphans
+		// them. Re-enable only once grant keys are injective (escaped-tuple
+		// identity) so the fold cannot occur — then we want to measure the
+		// combination. Until then every batch takes the read-merge path.
+		if allNew && synthesizedSkipGetEnabled {
+			if fast, ok := e.store.(newExpandedGrantStorer); ok {
+				if err := fast.StoreNewExpandedGrants(ctx, dirty...); err != nil {
+					return fmt.Errorf("topological merge: store new expanded grants: %w", err)
+				}
+			} else if err := e.store.StoreExpandedGrants(ctx, dirty...); err != nil {
+				return fmt.Errorf("topological merge: store expanded grants: %w", err)
+			}
+		} else if err := e.store.StoreExpandedGrants(ctx, dirty...); err != nil {
 			return fmt.Errorf("topological merge: store expanded grants: %w", err)
 		}
 		if run.onStored != nil {

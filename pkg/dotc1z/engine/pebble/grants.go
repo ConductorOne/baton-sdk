@@ -326,6 +326,105 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 	})
 }
 
+// PutSynthesizedGrantRecords is the expander fast path for grants the caller
+// guarantees are brand-new for this sync: no record with the same external_id
+// exists yet. The topological merge knows this for every SYNTHESIZED grant — it
+// only synthesizes when the destination's base stream reported no existing
+// grant for the principal, so the deterministic external_id (D:rt:res) is
+// absent. That guarantee lets this path skip the per-record read-before-write
+// Get that PutExpandedGrantRecords issues to preserve side-state and clean
+// stale index entries. On the whale that Get was ~30% of expansion wall time
+// and >99.99% NotFound (synthesized keys never had a prior), so dropping it for
+// the synthesized majority is the single cheapest expansion win.
+//
+// Contract (mirrors UnsafePutUniqueGrantRecords minus the fresh-sync
+// requirement, since expansion runs on a resumed sync):
+//   - Each record's external_id must be absent in the current sync. The merge's
+//     "base stream empty ⇒ synthesize" decision is that guarantee.
+//   - Records carry no expansion side-state to preserve (Expansion nil,
+//     NeedsExpansion false); StoreExpandedGrants strips it before calling here.
+//   - discovered_at is stamped if unset.
+//
+// If the guarantee is ever violated the result is an overwritten primary whose
+// prior index entries may be orphaned — the same fail-safe every index path
+// already tolerates (iterators skip orphans; fsck reconciles). Commits NoSync
+// like PutExpandedGrantRecords; the sync-end flush hardens the data.
+func (e *Engine) PutSynthesizedGrantRecords(ctx context.Context, records []*v3.GrantRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	return e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
+		priBatch := e.db.NewBatch()
+		defer priBatch.Close()
+		idxBatch := e.db.NewBatch()
+		defer idxBatch.Close()
+
+		now := timestamppb.Now()
+		stats := e.expandStats
+		if stats != nil {
+			stats.calls.Add(1)
+		}
+		var tStat time.Time
+
+		// Scratch buffers reused across records, same as
+		// PutExpandedGrantRecords — pebble.Batch copies key/value on Set.
+		var keyScratch, valScratch, idxScratch []byte
+		for _, r := range records {
+			if r == nil {
+				continue
+			}
+			keyScratch = appendGrantKey(keyScratch[:0], r.GetExternalId())
+			if r.GetDiscoveredAt() == nil {
+				r.SetDiscoveredAt(now)
+			}
+			if stats != nil {
+				tStat = time.Now()
+			}
+			val, err := marshalRecordAppend(valScratch[:0], r)
+			if stats != nil {
+				stats.marshalNs.Add(int64(time.Since(tStat)))
+			}
+			if err != nil {
+				return err
+			}
+			valScratch = val
+			if err := priBatch.Set(keyScratch, val, nil); err != nil {
+				return err
+			}
+			if stats != nil {
+				stats.records.Add(1)
+				stats.priKeyBytes.Add(int64(len(keyScratch)))
+				stats.priValBytes.Add(int64(len(val)))
+			}
+			idxScratch, err = e.writeGrantIndexesScratch(idxBatch, r, idxScratch)
+			if err != nil {
+				return err
+			}
+		}
+
+		if stats != nil {
+			tStat = time.Now()
+		}
+		if err := priBatch.Commit(pebble.NoSync); err != nil {
+			return err
+		}
+		if stats != nil {
+			stats.priCommitNs.Add(int64(time.Since(tStat)))
+			tStat = time.Now()
+		}
+		if err := idxBatch.Commit(pebble.NoSync); err != nil {
+			return err
+		}
+		if stats != nil {
+			stats.idxCommitNs.Add(int64(time.Since(tStat)))
+		}
+		return nil
+	})
+}
+
 // UnsafePutUniqueGrantRecords is the trusted-import write path: it writes
 // records unconditionally, with NO read-before-write and NO dedup pass. Do not
 // use it for live connector output. The engine must currently be in fresh-sync
@@ -536,6 +635,15 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 	princ := r.GetPrincipal()
 	ext := r.GetExternalId()
 	stats := e.expandStats
+	// deferIdx: in defer mode, the three families that are NOT read during
+	// expansion (by_entitlement_resource, by_principal, by_principal_resource_type)
+	// are skipped inline and rebuilt in one sorted ingest at EndSync
+	// (BuildDeferredGrantIndexes). They're the scattered families that cause the
+	// worst out-of-order compaction churn. by_entitlement stays inline (the merge
+	// reads it) along with needs_expansion. The rebuild derives the principal
+	// families from by_entitlement keys and by_entitlement_resource from the
+	// entitlement->resource map.
+	deferIdx := e.deferGrantIndexes
 
 	if ent != nil && princ != nil {
 		scratch = appendGrantByEntitlementIndexKey(scratch[:0], ent.GetEntitlementId(), princ.GetResourceTypeId(), princ.GetResourceId(), ext)
@@ -547,7 +655,7 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 			stats.entBytes.Add(int64(len(scratch)))
 		}
 	}
-	if ent != nil && ent.GetResourceId() != "" {
+	if !deferIdx && ent != nil && ent.GetResourceId() != "" {
 		scratch = appendGrantByEntitlementResourceIndexKey(scratch[:0], ent.GetResourceTypeId(), ent.GetResourceId(), ext)
 		if err := batch.Set(scratch, nil, nil); err != nil {
 			return scratch, err
@@ -557,7 +665,7 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 			stats.entResBytes.Add(int64(len(scratch)))
 		}
 	}
-	if princ != nil {
+	if !deferIdx && princ != nil {
 		scratch = appendGrantByPrincipalIndexKey(scratch[:0], princ.GetResourceTypeId(), princ.GetResourceId(), ext)
 		if err := batch.Set(scratch, nil, nil); err != nil {
 			return scratch, err
@@ -574,6 +682,10 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 			stats.prinRTKeys.Add(1)
 			stats.prinRTBytes.Add(int64(len(scratch)))
 		}
+	}
+	if deferIdx {
+		// A deferred family was skipped; EndSync owes a rebuild.
+		e.deferredIdxPending.Store(true)
 	}
 	if r.GetNeedsExpansion() {
 		scratch = appendGrantByNeedsExpansionIndexKey(scratch[:0], ext)
@@ -599,19 +711,24 @@ func (e *Engine) deleteGrantIndexesScratch(batch *pebble.Batch, externalID strin
 	if err != nil {
 		return scratch, err
 	}
+	// In defer mode the three deferred families are rebuilt wholesale at EndSync,
+	// so deleting their prior entries here would just create tombstones the
+	// rebuild has to shadow. Skip them; by_entitlement (written inline) and
+	// needs_expansion are cleaned here as usual.
+	deferIdx := e.deferGrantIndexes
 	if entID != "" && principalRT != "" && principalID != "" {
 		scratch = appendGrantByEntitlementIndexKey(scratch[:0], entID, principalRT, principalID, externalID)
 		if err := batch.Delete(scratch, nil); err != nil {
 			return scratch, err
 		}
 	}
-	if entRID != "" {
+	if !deferIdx && entRID != "" {
 		scratch = appendGrantByEntitlementResourceIndexKey(scratch[:0], entRT, entRID, externalID)
 		if err := batch.Delete(scratch, nil); err != nil {
 			return scratch, err
 		}
 	}
-	if principalRT != "" && principalID != "" {
+	if !deferIdx && principalRT != "" && principalID != "" {
 		scratch = appendGrantByPrincipalIndexKey(scratch[:0], principalRT, principalID, externalID)
 		if err := batch.Delete(scratch, nil); err != nil {
 			return scratch, err
