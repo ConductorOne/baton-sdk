@@ -159,6 +159,7 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 		}
 	}()
 
+	//nolint:staticcheck // RollbackExpansion is a SQLite-only *C1File method not on C1ZStore; NewC1ZFile is required here.
 	store, err := dotc1z.NewC1ZFile(ctx, outPath)
 	if err != nil {
 		return fmt.Errorf("open --out c1z: %w", err)
