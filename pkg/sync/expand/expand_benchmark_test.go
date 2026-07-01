@@ -17,6 +17,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -231,9 +232,9 @@ func (s benchmarkExpanderStore) StoreNewExpandedGrants(ctx context.Context, gran
 	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
 
-func (s benchmarkExpanderStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error {
+func (s benchmarkExpanderStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
 	if fast, ok := s.store.Grants().(interface {
-		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*v3.PrincipalRef, []map[string]bool) error
+		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*v3.PrincipalRef, []batonGrant.Sources) error
 	}); ok {
 		return fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
 	}
@@ -247,6 +248,20 @@ func (s benchmarkExpanderStore) StoreNewExpandedGrantContributions(ctx context.C
 		grants = append(grants, grant)
 	}
 	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+func (s benchmarkExpanderStore) StoreNewExpandedGrantContributionLayer(ctx context.Context, dests []*v2.Entitlement, principals [][]*v3.PrincipalRef, sources [][]batonGrant.Sources) error {
+	if fast, ok := s.store.Grants().(interface {
+		StoreNewExpandedGrantContributionLayer(context.Context, []*v2.Entitlement, [][]*v3.PrincipalRef, [][]batonGrant.Sources) error
+	}); ok {
+		return fast.StoreNewExpandedGrantContributionLayer(ctx, dests, principals, sources)
+	}
+	for i, dest := range dests {
+		if err := s.StoreNewExpandedGrantContributions(ctx, dest, principals[i], sources[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s benchmarkExpanderStore) GrantsForEntitlementPrincipalSorted() bool {
