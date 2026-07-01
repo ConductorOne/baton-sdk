@@ -17,8 +17,8 @@ import (
 
 // putEnt writes an entitlement record (under the engine's current
 // sync) whose external_id is entID — the same string grants reference
-// via EntitlementRef.EntitlementId, which is what BuildAllGrantDigests
-// keys each digest on.
+// via EntitlementRef.EntitlementId, which is what the seal-time digest
+// build keys each digest on.
 func putEnt(t testing.TB, e *Engine, ctx context.Context, entID string) {
 	t.Helper()
 	rec := v3.EntitlementRecord_builder{
@@ -113,53 +113,71 @@ func countKeyRangeTest(t testing.TB, e *Engine, lo, hi []byte) int {
 	return n
 }
 
-// TestGrantDigestIndexDisabled verifies WithGrantDigestIndex(false)
-// suppresses the by_entitlement_principal_hash index (and thus the
-// digests that fold over it) on the grant write path, while the default
-// keeps it on.
-func TestGrantDigestIndexDisabled(t *testing.T) {
+// TestGrantDigestIndexSealOnly verifies the seal-only lifecycle: grant
+// writes never produce hash-index rows or digest nodes inline; the
+// adapter's EndSync produces both when the digest index is enabled and
+// neither when it is disabled.
+func TestGrantDigestIndexSealOnly(t *testing.T) {
 	ctx := context.Background()
 	grants := []*v3.GrantRecord{
 		makeGrant("", "g1", "ent-A", "alice"),
 		makeGrant("", "g2", "ent-A", "bob"),
 	}
-	write := func(e *Engine) {
+	write := func(e *Engine) *Adapter {
 		t.Helper()
-		if err := e.SetCurrentSync(ksuid.New().String()); err != nil {
-			t.Fatalf("SetCurrentSync: %v", err)
+		a := NewAdapter(e)
+		if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+			t.Fatalf("StartNewSync: %v", err)
 		}
 		putEnt(t, e, ctx, "ent-A")
 		if err := e.PutGrantRecords(ctx, grants...); err != nil {
 			t.Fatalf("PutGrantRecords: %v", err)
 		}
+		return a
 	}
 
-	// Default: index on — one hash-index row per grant.
+	// Default (index on): nothing inline; seal derives rows + digests.
 	on, _ := newTestEngine(t)
-	write(on)
+	a := write(on)
+	if got := countKeyRangeTest(t, on, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()); got != 0 {
+		t.Fatalf("pre-seal: hash index rows = %d, want 0 (never written inline)", got)
+	}
+	if got := countKeyRangeTest(t, on, DigestLowerBound(), DigestUpperBound()); got != 0 {
+		t.Fatalf("pre-seal: digest nodes = %d, want 0 (never written inline)", got)
+	}
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
 	if got := countKeyRangeTest(t, on, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()); got != len(grants) {
-		t.Fatalf("digest index on: hash index rows = %d, want %d", got, len(grants))
+		t.Fatalf("sealed: hash index rows = %d, want %d", got, len(grants))
+	}
+	if got := countKeyRangeTest(t, on, DigestLowerBound(), DigestUpperBound()); got == 0 {
+		t.Fatal("sealed: no digest nodes built")
 	}
 
-	// Disabled: no hash-index rows and no digest nodes from the write path.
+	// Disabled: seal skips the derivation entirely.
 	off, _ := newTestEngine(t, WithGrantDigestIndex(false))
-	write(off)
+	aOff := write(off)
+	if err := aOff.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
 	if got := countKeyRangeTest(t, off, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()); got != 0 {
 		t.Fatalf("digest index off: hash index rows = %d, want 0", got)
 	}
 	if got := countKeyRangeTest(t, off, DigestLowerBound(), DigestUpperBound()); got != 0 {
 		t.Fatalf("digest index off: digest nodes = %d, want 0", got)
 	}
-	// The other grant indexes are still written — only the hash index is gated.
+	// The other grant indexes are still written inline.
 	if got := countKeyRangeTest(t, off, GrantByEntitlementLowerBound(), GrantByEntitlementUpperBound()); got != len(grants) {
 		t.Fatalf("digest index off: by_entitlement rows = %d, want %d", got, len(grants))
 	}
 }
 
-// TestGrantDigestIncludesExpandedGrants guards the expansion write path:
-// grants written via PutExpandedGrantRecords (the scratch index helpers)
-// must land in the by_entitlement_principal_hash index and therefore in
-// the seal-time digest, exactly like directly-synced grants.
+// TestGrantDigestIncludesExpandedGrants guards the seal-time
+// derivation: grants written via PutExpandedGrantRecords (like
+// directly-synced grants) land in the by_entitlement_principal_hash
+// index and the digest when the seal build runs, because the build
+// derives both from the grant primaries.
 func TestGrantDigestIncludesExpandedGrants(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
@@ -179,11 +197,11 @@ func TestGrantDigestIncludesExpandedGrants(t *testing.T) {
 		t.Fatalf("PutExpandedGrantRecords: %v", err)
 	}
 
+	if err := e.SealGrantHashIndexAndDigests(ctx); err != nil {
+		t.Fatalf("SealGrantHashIndexAndDigests: %v", err)
+	}
 	if got := countKeyRangeTest(t, e, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()); got != 2 {
 		t.Fatalf("hash index rows = %d, want 2 (direct + expanded)", got)
-	}
-	if err := e.BuildAllGrantDigests(ctx, syncID); err != nil {
-		t.Fatalf("BuildAllGrantDigests: %v", err)
 	}
 	root, ok, err := e.GetEntitlementDigestRoot(ctx, syncID, "ent-A")
 	if err != nil || !ok {
@@ -243,8 +261,8 @@ func TestAdapterGetEntitlementGrantDigest(t *testing.T) {
 		t.Fatalf("unknown entitlement: found=%v err=%v, want found=false err=nil", found, err)
 	}
 
-	// Both disabled: a real entitlement reports not-found (no digest built).
-	off, _ := newTestEngine(t, WithGrantDigestIndex(false), WithLiveGrantDigestRoot(false))
+	// Disabled: a real entitlement reports not-found (no digest built).
+	off, _ := newTestEngine(t, WithGrantDigestIndex(false))
 	aOff := seal(off)
 	if _, found, err := aOff.GetEntitlementGrantDigest(ctx, "ent-A"); err != nil || found {
 		t.Fatalf("digest off: found=%v err=%v, want found=false err=nil", found, err)
@@ -428,8 +446,8 @@ func TestAdapterScanGrantBucket(t *testing.T) {
 	}
 }
 
-// seedEntitlement writes the entitlement record + grants and builds the
-// digest, returning the syncID.
+// seedEntitlement writes the entitlement record + grants and runs the
+// seal-time build (hash index + digests), returning the syncID.
 func seedEntitlement(t testing.TB, e *Engine, entID string, grants []*v3.GrantRecord) string {
 	t.Helper()
 	ctx := context.Background()
@@ -441,16 +459,29 @@ func seedEntitlement(t testing.TB, e *Engine, entID string, grants []*v3.GrantRe
 	if err := e.PutGrantRecords(ctx, grants...); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
-	if err := e.BuildAllGrantDigests(ctx, syncID); err != nil {
-		t.Fatalf("BuildAllGrantDigests: %v", err)
+	if err := e.SealGrantHashIndexAndDigests(ctx); err != nil {
+		t.Fatalf("SealGrantHashIndexAndDigests: %v", err)
 	}
 	return syncID
 }
 
+// rebuildDigestAtWidth re-derives the hash index from the primaries and
+// builds one entitlement's digest at a forced leaf-level width (instead
+// of the count-derived one), so a test can build two digests of
+// different widths over a small grant set.
+func rebuildDigestAtWidth(t testing.TB, e *Engine, entID string, widthBits int) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := e.rebuildGrantHashIndex(ctx); err != nil {
+		t.Fatalf("rebuildGrantHashIndex: %v", err)
+	}
+	if err := e.buildPartitionDigestAtWidth(ctx, grantDigestSpec, entID, widthBits); err != nil {
+		t.Fatalf("buildPartitionDigestAtWidth: %v", err)
+	}
+}
+
 // seedEntitlementAtWidth is seedEntitlement but forces a specific
-// leaf-level width instead of deriving it from the grant count, so a
-// test can build two digests of different widths over a small grant
-// set.
+// leaf-level width instead of deriving it from the grant count.
 func seedEntitlementAtWidth(t testing.TB, e *Engine, entID string, grants []*v3.GrantRecord, widthBits int) string {
 	t.Helper()
 	ctx := context.Background()
@@ -462,9 +493,7 @@ func seedEntitlementAtWidth(t testing.TB, e *Engine, entID string, grants []*v3.
 	if err := e.PutGrantRecords(ctx, grants...); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
-	if err := e.buildPartitionDigestAtWidth(ctx, grantDigestSpec, entID, widthBits); err != nil {
-		t.Fatalf("buildPartitionDigestAtWidth: %v", err)
-	}
+	rebuildDigestAtWidth(t, e, entID, widthBits)
 	return syncID
 }
 
@@ -548,15 +577,14 @@ func TestDigestDifferentWidthsComparison(t *testing.T) {
 	}
 
 	// Mutate the changed principal's grant in B (same external_id ->
-	// same index key, new content hash via an added source) and rebuild
-	// B's digest at width 8.
+	// same index key, new content hash via an added source), then
+	// re-derive B's index + digest at width 8 — the seal-style rebuild,
+	// since mutations never maintain either inline.
 	g := makeGrantWithSources(syncB, "g-000", "ent-A", changed, "src-ent")
 	if err := eb.PutGrantRecord(ctx, g); err != nil {
 		t.Fatalf("PutGrantRecord (mutate): %v", err)
 	}
-	if err := eb.buildPartitionDigestAtWidth(ctx, grantDigestSpec, "ent-A", 8); err != nil {
-		t.Fatalf("rebuild B: %v", err)
-	}
+	rebuildDigestAtWidth(t, eb, "ent-A", 8)
 
 	rb2, _, _ := eb.GetEntitlementDigestRoot(ctx, syncB, "ent-A")
 	if bytes.Equal(ra.Hash, rb2.Hash) {
@@ -1023,155 +1051,218 @@ func TestDigestRebuildClearsStaleNodes(t *testing.T) {
 	}
 }
 
-// TestDigestIncrementalEqualsRebuild is the §7 keystone invariant: after
-// a sequence of post-seal inserts, content overwrites, a bucket-moving
-// (principal-changing) overwrite, an excluded-field no-op overwrite,
-// deletes, and a multi-record batch, the incrementally-maintained
-// digest byte-equals a from-scratch rebuild.
-func TestDigestIncrementalEqualsRebuild(t *testing.T) {
+// TestDigestDeleteInvalidatesAndResealRecalculates pins the
+// present-means-exact lifecycle around the one mutation path that can
+// run against built digests: DeleteGrantRecord drops the touched
+// entitlement's digest (and its hash-index row), so the digest reads as
+// "missing — recalculate"; a seal-style rebuild then byte-matches a
+// from-scratch build over the surviving grants.
+func TestDigestDeleteInvalidatesAndResealRecalculates(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	grants := make([]*v3.GrantRecord, 0, 30)
 	for i := 0; i < 30; i++ {
 		grants = append(grants, makeGrant("", fmt.Sprintf("g-%03d", i), "ent-A", fmt.Sprintf("user-%03d", i)))
 	}
-	syncID := seedEntitlementAtWidth(t, e, "ent-A", grants, 8)
+	syncID := seedEntitlement(t, e, "ent-A", grants)
 
-	put := func(g *v3.GrantRecord) {
-		t.Helper()
-		if err := e.PutGrantRecord(ctx, g); err != nil {
-			t.Fatalf("PutGrantRecord: %v", err)
-		}
+	if _, ok, err := e.GetEntitlementDigestRoot(ctx, syncID, "ent-A"); err != nil || !ok {
+		t.Fatalf("sealed root: ok=%v err=%v", ok, err)
+	}
+	rows := countKeyRangeTest(t, e, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound())
+	if rows != 30 {
+		t.Fatalf("sealed hash index rows = %d, want 30", rows)
 	}
 
-	// Post-seal inserts.
-	put(makeGrant(syncID, "g-100", "ent-A", "new-user-1"))
-	put(makeGrant(syncID, "g-101", "ent-A", "new-user-2"))
-	// Content overwrite: same index key, sources changed.
-	put(makeGrantWithSources(syncID, "g-005", "ent-A", "user-005", "src-ent"))
-	// Bucket-moving overwrite: same external_id, principal changed —
-	// must apply as remove(old path) + add(new path).
-	put(makeGrant(syncID, "g-006", "ent-A", "user-moved"))
-	// Excluded-field overwrite: needs_expansion is not part of the
-	// content hash, so this must leave the digest untouched.
-	noop := makeGrant(syncID, "g-007", "ent-A", "user-007")
-	noop.SetNeedsExpansion(true)
-	put(noop)
-	// Deletes.
-	for _, ext := range []string{"g-008", "g-009"} {
-		if err := e.DeleteGrantRecord(ctx, ext); err != nil {
-			t.Fatalf("DeleteGrantRecord(%s): %v", ext, err)
+	// Post-seal delete: the digest must be dropped, not silently stale.
+	if err := e.DeleteGrantRecord(ctx, "g-008"); err != nil {
+		t.Fatalf("DeleteGrantRecord: %v", err)
+	}
+	if _, ok, err := e.GetEntitlementDigestRoot(ctx, syncID, "ent-A"); err != nil || ok {
+		t.Fatalf("root after delete: ok=%v err=%v, want missing (invalidated)", ok, err)
+	}
+	if got := digestNodeCount(t, e, syncID); got != 0 {
+		t.Fatalf("digest nodes after delete = %d, want 0 (partition dropped)", got)
+	}
+	// The stale hash-index row is removed too.
+	if got := countKeyRangeTest(t, e, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()); got != rows-1 {
+		t.Fatalf("hash index rows after delete = %d, want %d", got, rows-1)
+	}
+
+	// Reseal: the digest is recalculated from the surviving primaries
+	// and byte-matches an independent from-scratch build.
+	if err := e.SealGrantHashIndexAndDigests(ctx); err != nil {
+		t.Fatalf("reseal: %v", err)
+	}
+	root, ok, err := e.GetEntitlementDigestRoot(ctx, syncID, "ent-A")
+	if err != nil || !ok {
+		t.Fatalf("root after reseal: ok=%v err=%v", ok, err)
+	}
+	if root.Count != 29 {
+		t.Fatalf("resealed root count = %d, want 29", root.Count)
+	}
+	resealed := dumpDigestNodes(t, e, syncID)
+
+	fresh, _ := newTestEngine(t)
+	survivors := make([]*v3.GrantRecord, 0, 29)
+	for i := 0; i < 30; i++ {
+		if i == 8 {
+			continue
 		}
+		survivors = append(survivors, makeGrant("", fmt.Sprintf("g-%03d", i), "ent-A", fmt.Sprintf("user-%03d", i)))
 	}
-	// Multi-record batch: inserts + an overwrite in one PutGrantRecords
-	// call, exercising the per-node delta accumulator (all of them
-	// share the root).
-	batch := []*v3.GrantRecord{
-		makeGrant(syncID, "g-110", "ent-A", "batch-user-1"),
-		makeGrant(syncID, "g-111", "ent-A", "batch-user-2"),
-		makeGrant(syncID, "g-112", "ent-A", "batch-user-3"),
-		makeGrantWithSources(syncID, "g-010", "ent-A", "user-010", "src-2"),
+	seedEntitlement(t, fresh, "ent-A", survivors)
+	requireSameDigestNodes(t, resealed, dumpDigestNodes(t, fresh, syncID))
+}
+
+// TestSealRebuildDropsStaleIndexRows verifies the seal-time index
+// derivation is a full re-derivation, not an append: rows for grants
+// that changed principal (or were removed) since the last seal do not
+// survive a reseal, because the build range-clears the index first.
+func TestSealRebuildDropsStaleIndexRows(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID := seedEntitlement(t, e, "ent-A", []*v3.GrantRecord{
+		makeGrant("", "g1", "ent-A", "alice"),
+		makeGrant("", "g2", "ent-A", "bob"),
+	})
+
+	// Move g2 to a different principal and reseal. The old (bob) row
+	// must be gone and the digest must reflect the new content.
+	if err := e.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-A", "carol")); err != nil {
+		t.Fatalf("PutGrantRecord: %v", err)
 	}
-	if err := e.PutGrantRecords(ctx, batch...); err != nil {
+	if err := e.SealGrantHashIndexAndDigests(ctx); err != nil {
+		t.Fatalf("reseal: %v", err)
+	}
+
+	entPrefix := encodeGrantByEntPrincHashEntPrefix("ent-A")
+	principals := map[string]bool{}
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: entPrefix, UpperBound: upperBoundOf(entPrefix)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer iter.Close()
+	for iter.First(); iter.Valid(); iter.Next() {
+		_, _, pid, _, ok := decodeEntPrincHashTail(iter.Key(), entPrefix)
+		if !ok {
+			t.Fatal("failed to decode index tail")
+		}
+		principals[pid] = true
+	}
+	if principals["bob"] || !principals["carol"] || !principals["alice"] || len(principals) != 2 {
+		t.Fatalf("index principals after reseal = %v, want {alice, carol}", principals)
+	}
+	root, ok, err := e.GetEntitlementDigestRoot(ctx, syncID, "ent-A")
+	if err != nil || !ok {
+		t.Fatalf("root: ok=%v err=%v", ok, err)
+	}
+	if root.Count != 2 {
+		t.Fatalf("root count = %d, want 2", root.Count)
+	}
+}
+
+// TestSealIndexSpillMerge forces the seal-time index rebuild through
+// the multi-run spill path: a tiny arena makes every few rows cut a
+// sorted run file, so the final index comes out of the k-way merge
+// rather than a single in-memory sort. The merged result must
+// byte-equal a large-arena (single-chunk) rebuild — same rows, same
+// hash-major order (bulkSSTWriter would reject any ordering violation
+// outright) — and the digests folded over it must match too.
+func TestSealIndexSpillMerge(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID := ksuid.New().String()
+	if err := e.SetCurrentSync(syncID); err != nil {
+		t.Fatalf("SetCurrentSync: %v", err)
+	}
+	// One big entitlement that will span many tiny runs, plus small
+	// ones that each fit inside a single run.
+	putEnt(t, e, ctx, "ent-big")
+	putEnt(t, e, ctx, "ent-small-1")
+	putEnt(t, e, ctx, "ent-small-2")
+	var grants []*v3.GrantRecord
+	for i := 0; i < 300; i++ {
+		grants = append(grants, makeGrant("", fmt.Sprintf("g-big-%03d", i), "ent-big", fmt.Sprintf("user-%03d", i)))
+	}
+	grants = append(grants,
+		makeGrant("", "g-s1", "ent-small-1", "alice"),
+		makeGrant("", "g-s2", "ent-small-2", "bob"),
+	)
+	if err := e.PutGrantRecords(ctx, grants...); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 
-	// Sparsity restored on delete: unless another remaining principal
-	// shares user-008's width-8 bucket, its leaf must be gone.
-	remaining := []string{"user-moved", "new-user-1", "new-user-2", "batch-user-1", "batch-user-2", "batch-user-3"}
-	for i := 0; i < 30; i++ {
-		if i == 6 || i == 8 || i == 9 {
-			continue // moved or deleted
-		}
-		remaining = append(remaining, fmt.Sprintf("user-%03d", i))
-	}
-	deletedLeaf := bucketOfHash(principalBucketHash("user", "user-008"), 8).leafKeyPrefix()
-	shared := false
-	for _, p := range remaining {
-		if bytes.Equal(bucketOfHash(principalBucketHash("user", p), 8).leafKeyPrefix(), deletedLeaf) {
-			shared = true
-			break
-		}
-	}
-	if !shared {
-		_, _, present, err := e.getDigestLeaf(grantDigestSpec, "ent-A", deletedLeaf)
+	dumpIndex := func() map[string][]byte {
+		t.Helper()
+		out := map[string][]byte{}
+		iter, err := e.db.NewIter(&pebble.IterOptions{
+			LowerBound: GrantByEntPrincHashLowerBound(),
+			UpperBound: GrantByEntPrincHashUpperBound(),
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if present {
-			t.Fatal("emptied leaf node survived an incremental delete; sparsity not restored")
+		defer iter.Close()
+		for iter.First(); iter.Valid(); iter.Next() {
+			out[string(iter.Key())] = append([]byte(nil), iter.Value()...)
 		}
+		if err := iter.Error(); err != nil {
+			t.Fatal(err)
+		}
+		return out
 	}
 
-	incremental := dumpDigestNodes(t, e, syncID)
-	if err := e.buildPartitionDigestAtWidth(ctx, grantDigestSpec, "ent-A", 8); err != nil {
-		t.Fatalf("rebuild: %v", err)
+	// Tiny 512-byte arena: ~5 rows per run, so ent-big spans dozens of
+	// runs and reassembles during the merge.
+	countsSpill, err := e.rebuildGrantHashIndexChunked(ctx, 512)
+	if err != nil {
+		t.Fatalf("chunked rebuild: %v", err)
 	}
-	rebuilt := dumpDigestNodes(t, e, syncID)
-	requireSameDigestNodes(t, incremental, rebuilt)
+	spilled := dumpIndex()
+
+	countsMem, err := e.rebuildGrantHashIndexChunked(ctx, sealIndexSpillChunkBytes)
+	if err != nil {
+		t.Fatalf("single-chunk rebuild: %v", err)
+	}
+	inMemory := dumpIndex()
+
+	if len(spilled) != len(grants) {
+		t.Fatalf("spilled index rows = %d, want %d", len(spilled), len(grants))
+	}
+	for k, v := range inMemory {
+		sv, ok := spilled[k]
+		if !ok {
+			t.Fatalf("row missing from spilled index: %x", k)
+		}
+		if !bytes.Equal(sv, v) {
+			t.Fatalf("row %x differs: spilled %x, in-memory %x", k, sv, v)
+		}
+	}
+	if len(countsSpill) != len(countsMem) || countsSpill["ent-big"] != 300 || countsSpill["ent-small-1"] != 1 {
+		t.Fatalf("counts differ: spill=%v mem=%v", countsSpill, countsMem)
+	}
+
+	// Digests folded over the spill-merged index behave normally.
+	if err := e.buildAllGrantDigests(ctx, countsSpill); err != nil {
+		t.Fatalf("buildAllGrantDigests: %v", err)
+	}
+	root, ok, err := e.GetEntitlementDigestRoot(ctx, syncID, "ent-big")
+	if err != nil || !ok {
+		t.Fatalf("root: ok=%v err=%v", ok, err)
+	}
+	if root.Count != 300 {
+		t.Fatalf("ent-big root count = %d, want 300", root.Count)
+	}
 }
 
-// TestDigestSameBatchSameBucketRMW pins the accumulator behavior: one
-// PutGrantRecords batch adds several grants that land in the SAME
-// width-8 bucket. A naive read-modify-write against the batch would
-// lose all but one delta (a plain pebble.Batch doesn't read through its
-// own writes); the accumulator must fold all of them into one node
-// write.
-func TestDigestSameBatchSameBucketRMW(t *testing.T) {
-	ctx := context.Background()
-	e, _ := newTestEngine(t)
-
-	// Find three principals whose bucket hashes share a first byte —
-	// the top 8 bits, i.e. the same width-8 bucket.
-	collide := []string{"seed-principal"}
-	target := principalBucketHash("user", collide[0])[0]
-	for i := 0; len(collide) < 3; i++ {
-		p := fmt.Sprintf("cand-%d", i)
-		if principalBucketHash("user", p)[0] == target {
-			collide = append(collide, p)
-		}
-	}
-
-	base := make([]*v3.GrantRecord, 0, 5)
-	for i := 0; i < 5; i++ {
-		base = append(base, makeGrant("", fmt.Sprintf("b-%d", i), "ent-A", fmt.Sprintf("base-%d", i)))
-	}
-	syncID := seedEntitlementAtWidth(t, e, "ent-A", base, 8)
-
-	gs := make([]*v3.GrantRecord, 0, len(collide))
-	for i, p := range collide {
-		gs = append(gs, makeGrant(syncID, fmt.Sprintf("x-%d", i), "ent-A", p))
-	}
-	if err := e.PutGrantRecords(ctx, gs...); err != nil {
-		t.Fatalf("PutGrantRecords: %v", err)
-	}
-
-	want := int64(len(collide))
-	for i := 0; i < 5; i++ {
-		if principalBucketHash("user", fmt.Sprintf("base-%d", i))[0] == target {
-			want++
-		}
-	}
-	count, _, present, err := e.getDigestLeaf(grantDigestSpec, "ent-A", []byte{target, 0})
-	if err != nil || !present {
-		t.Fatalf("bucket leaf %x: present=%v err=%v", target, present, err)
-	}
-	if count != want {
-		t.Fatalf("same-batch deltas lost: bucket count = %d, want %d", count, want)
-	}
-
-	incremental := dumpDigestNodes(t, e, syncID)
-	if err := e.buildPartitionDigestAtWidth(ctx, grantDigestSpec, "ent-A", 8); err != nil {
-		t.Fatalf("rebuild: %v", err)
-	}
-	requireSameDigestNodes(t, incremental, dumpDigestNodes(t, e, syncID))
-}
-
-// TestDigestMissingRootFallback: a missing root means "digest never
-// built", not "no grants". Comparison against a populated-but-unbuilt
-// side must fall back to the authoritative fold — clean when content is
-// identical, whole-entitlement dirty when it differs.
-func TestDigestMissingRootFallback(t *testing.T) {
+// TestDigestMissingRootWholeDirty: a missing root means "digest never
+// built (or invalidated)" — never "no grants", and never something to
+// silently derive from an index whose presence can't be verified. The
+// comparison must report the whole entitlement dirty, even when the
+// underlying content is identical: correctness comes from re-reading,
+// not from trusting an unverifiable shortcut.
+func TestDigestMissingRootWholeDirty(t *testing.T) {
 	ctx := context.Background()
 	mk := func() []*v3.GrantRecord {
 		return []*v3.GrantRecord{
@@ -1207,20 +1298,8 @@ func TestDigestMissingRootFallback(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if len(dirty) != 0 {
-			t.Fatalf("%s: identical content with one digest unbuilt: dirty=%d, want 0 (fold fallback)", name, len(dirty))
+		if len(dirty) != 1 || dirty[0].Bits != 0 {
+			t.Fatalf("%s: unbuilt digest on one side: dirty=%v, want one whole-entitlement bucket", name, dirty)
 		}
-	}
-
-	// Diverge B; the fallback must now flag the whole entitlement.
-	if err := eb.PutGrantRecord(ctx, makeGrant(syncB, "g9", "ent-A", "zed")); err != nil {
-		t.Fatal(err)
-	}
-	dirty, err := ea.DirtyEntitlementBuckets(ctx, syncA, eb, syncB, "ent-A")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(dirty) != 1 || dirty[0].Bits != 0 {
-		t.Fatalf("diverged content with one digest unbuilt: dirty=%v, want one whole-entitlement bucket", dirty)
 	}
 }

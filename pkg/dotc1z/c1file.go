@@ -339,16 +339,11 @@ type c1zOptions struct {
 	v2GrantsWriter     bool
 	bulkLoad           bool
 
-	// disableGrantDigestIndex turns off the Pebble engine's
-	// by_entitlement_principal_hash index + grant digests. Inverted so
-	// the zero value keeps the index on (current behavior). See
-	// WithGrantDigestIndex.
+	// disableGrantDigestIndex turns off the Pebble engine's seal-time
+	// build of the by_entitlement_principal_hash index + grant digests.
+	// Inverted so the zero value keeps the build on (current behavior).
+	// See WithGrantDigestIndex.
 	disableGrantDigestIndex bool
-
-	// disableLiveGrantDigestRoot turns off live root-node maintenance
-	// during fresh syncs. Inverted so zero value keeps it on. See
-	// WithLiveGrantDigestRoot.
-	disableLiveGrantDigestRoot bool
 
 	// engine is the storage engine to use for newly created files.
 	// Reads dispatch on magic byte regardless. Default EngineSQLite.
@@ -455,25 +450,18 @@ func WithV2GrantsWriter(enabled bool) C1ZOption {
 	}
 }
 
-// WithGrantDigestIndex toggles the Pebble engine's
-// by_entitlement_principal_hash index and per-entitlement grant digests
-// (the substrate for cross-file grant diffing). Default true.
+// WithGrantDigestIndex toggles the Pebble engine's seal-time build of
+// the by_entitlement_principal_hash index and per-entitlement grant
+// digests (the substrate for cross-file grant diffing). Default true.
 //
 // Pass false for files that will never be grant-diffed (local CLI syncs,
-// connector development) to skip the per-grant index row + value and the
-// seal-time digest build. No effect on the SQLite engine.
+// connector development) to skip the seal-time derivation pass. Safe to
+// toggle: a file sealed with this off stores no digest roots, which
+// readers treat as "missing — recalculate", never as "no grants". No
+// effect on the SQLite engine.
 func WithGrantDigestIndex(enabled bool) C1ZOption {
 	return func(o *c1zOptions) {
 		o.disableGrantDigestIndex = !enabled
-	}
-}
-
-// WithLiveGrantDigestRoot controls whether the per-entitlement digest root
-// node is maintained live on every grant write during a fresh sync. Default
-// true. No effect on the SQLite engine or when WithGrantDigestIndex is false.
-func WithLiveGrantDigestRoot(enabled bool) C1ZOption {
-	return func(o *c1zOptions) {
-		o.disableLiveGrantDigestRoot = !enabled
 	}
 }
 

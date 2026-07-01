@@ -192,9 +192,11 @@ type EntitlementGrantDigestReader interface {
 	// early if yield returns false. Bucket Level 0 scans the whole
 	// entitlement; a Level finer than the bucket-hash resolution is
 	// clamped (matching GetEntitlementGrantDigestNodes). It reads the
-	// grant index, so it works whenever the digest index is present and
-	// simply yields nothing when there is no active sync or no matching
-	// grants.
+	// grant hash index, which exists only on files whose digest was
+	// built (they are derived together at seal): callers must check
+	// GetEntitlementGrantDigest first and treat found=false as "scan
+	// unavailable — read the grants directly", not as "no grants". It
+	// yields nothing when there is no active sync or no matching grants.
 	ScanEntitlementGrantBucket(ctx context.Context, entitlementID string, bucket GrantDigestBucket, yield func(grant *v2.Grant) bool) error
 }
 

@@ -399,8 +399,8 @@ func encodeDigestNodeKey(indexID byte, partition string, level byte, bucketPrefi
 // for one (index, partition) — the range a rebuild clears before
 // writing (the build only Sets nodes; without the leading DeleteRange a
 // width change or an emptied bucket would leave stale nodes for the
-// comparison merge scan to read) and the range digestMutator drops on
-// detecting an inconsistent digest.
+// comparison merge scan to read) and the range dropPartitionDigest
+// removes when a record mutation invalidates the partition.
 func encodeDigestPartitionPrefix(indexID byte, partition string) []byte {
 	buf := make([]byte, 0, 7+len(partition))
 	buf = append(buf, versionV3, typeDigest)

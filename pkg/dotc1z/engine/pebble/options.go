@@ -43,21 +43,13 @@ type Options struct {
 	// disallowed in this mode.
 	readOnly bool
 
-	// grantDigestIndex controls whether grant writes maintain the
+	// grantDigestIndex controls whether the seal-time build
+	// (SealGrantHashIndexAndDigests) constructs the
 	// by_entitlement_principal_hash index and the per-entitlement grant
-	// digests (the substrate for cross-file grant diffing). Default on.
-	// Disabling drops the per-grant index row (+8-byte value) on every
-	// write path and the seal-time digest build — pure overhead for
-	// files that are never diffed. See WithGrantDigestIndex.
+	// digests — the substrate for cross-file grant diffing. Default on.
+	// The write paths never maintain either inline, so this gates only
+	// the one derivation pass at EndSync. See WithGrantDigestIndex.
 	grantDigestIndex bool
-
-	// liveGrantDigestRoot controls whether the per-entitlement digest root
-	// node is kept up to date on every grant write during a fresh sync
-	// (count + XOR hash accumulated live rather than computed at seal
-	// time). Default on when grantDigestIndex is on. Set false to measure
-	// the overhead of live root maintenance or to fall back to the
-	// seal-time-only build. No-op when grantDigestIndex is false.
-	liveGrantDigestRoot bool
 }
 
 // Option is a functional option passed to Open.
@@ -81,27 +73,18 @@ func WithDurability(d Durability) Option { return func(o *Options) { o.durabilit
 // WithReadOnly opens the engine in read-only mode. Save is disallowed.
 func WithReadOnly(readOnly bool) Option { return func(o *Options) { o.readOnly = readOnly } }
 
-// WithGrantDigestIndex toggles maintenance of the
+// WithGrantDigestIndex toggles the seal-time construction of the
 // by_entitlement_principal_hash index and the per-entitlement grant
-// digests. Default true (preserves existing behavior).
+// digests. Default true.
 //
 // Set false on files that will never be grant-diffed (e.g. local CLI
-// syncs, connector development) to skip the per-grant index write and
-// the seal-time digest fold. NOTE: a file written with this off has no
-// hash index, so a future cross-file diff MUST detect its absence
-// (via the manifest) and rebuild-or-error rather than fold the empty
-// index and conclude "no grants" — do not silently diff such a file.
+// syncs, connector development) to skip the seal-time derivation pass.
+// Safe to toggle per Open: a file sealed with this off simply stores
+// no digest roots, which readers and the cross-file comparison treat
+// as "missing — recalculate / whole-entitlement dirty", never as
+// "no grants".
 func WithGrantDigestIndex(enabled bool) Option {
 	return func(o *Options) { o.grantDigestIndex = enabled }
-}
-
-// WithLiveGrantDigestRoot controls whether the per-entitlement digest root
-// is maintained live on every grant write during a fresh sync. Default true.
-// Set false to isolate the cost of live root maintenance in benchmarks, or
-// to fall back to the seal-time-only build. No-op when WithGrantDigestIndex
-// is false.
-func WithLiveGrantDigestRoot(enabled bool) Option {
-	return func(o *Options) { o.liveGrantDigestRoot = enabled }
 }
 
 // WithSlowQueryThreshold overrides the default 5 s threshold for
@@ -172,10 +155,9 @@ func writeOpts(d Durability) *pebble.WriteOptions {
 
 func defaultOptions() *Options {
 	return &Options{
-		durability:          DurabilitySync,
-		slowQueryThreshold:  5 * time.Second,
-		grantDigestIndex:    true,
-		liveGrantDigestRoot: true,
+		durability:         DurabilitySync,
+		slowQueryThreshold: 5 * time.Second,
+		grantDigestIndex:   true,
 	}
 }
 

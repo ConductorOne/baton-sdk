@@ -81,6 +81,24 @@ func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync
 	if err := dest.SetCurrentSync(destSyncID); err != nil {
 		return stats, fmt.Errorf("synccompactor/pebble.MergeInto: bind dest sync: %w", err)
 	}
+	// The fold dest starts as a byte copy of a SEALED base, which
+	// carries the grant hash index and digests. This merge mutates
+	// grants without maintaining either (nothing does, outside the
+	// seal-time build), so under the present-means-exact contract both
+	// must be dropped up front — a folded output's digests read as
+	// "missing, recalculate", never as stale-but-present. Two range
+	// tombstones; the rebuild strategies' fresh dests are in the same
+	// state by construction.
+	destDB := dest.DB()
+	if destDB == nil {
+		return stats, errors.New("synccompactor/pebble.MergeInto: dest engine has no DB (closed?)")
+	}
+	if err := destDB.DeleteRange(enginepkg.DigestLowerBound(), enginepkg.DigestUpperBound(), pebble.NoSync); err != nil {
+		return stats, fmt.Errorf("synccompactor/pebble.MergeInto: drop digests: %w", err)
+	}
+	if err := destDB.DeleteRange(enginepkg.GrantByEntPrincHashLowerBound(), enginepkg.GrantByEntPrincHashUpperBound(), pebble.NoSync); err != nil {
+		return stats, fmt.Errorf("synccompactor/pebble.MergeInto: drop grant hash index: %w", err)
+	}
 	for i := range sources {
 		if err := ctx.Err(); err != nil {
 			return stats, err

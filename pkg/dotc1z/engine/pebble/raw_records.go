@@ -155,12 +155,14 @@ func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, v
 		}
 	}
 	// by_entitlement_principal_hash: the bucket hash is derived from the
-	// principal identity, so the raw path reconstructs the same key
-	// writeGrantIndexes wrote, mirroring grantHashIndexKey's nil-guard.
-	// The entitlement's grant digest is kept in step separately: callers
-	// on the post-seal mutation paths feed the old record to
-	// digestMutator.removeGrant (and the new one to .addGrant), which
-	// folds the change into the stored nodes in the same batch.
+	// principal identity, so the raw path reconstructs the same key the
+	// seal-time index build wrote (same nil-guard: no entitlement or
+	// principal → no index entry). The write paths never CREATE
+	// hash-index entries, but a record mutated on a sealed file — where
+	// the index is built — must remove its stale entry. The
+	// entitlement's grant digest is not touched here: mutation paths
+	// that can run against built digests drop the partition's nodes
+	// instead (see DeleteGrantRecord).
 	if entID != "" && principalRT != "" && principalID != "" {
 		bh := principalBucketHash(principalRT, principalID)
 		hk := encodeGrantByEntPrincHashIndexKey(entID, bh, principalRT, principalID, externalID)

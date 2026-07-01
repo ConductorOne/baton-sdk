@@ -84,11 +84,6 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		// emitting an external_id on two pages).
 		skipGet := e.takeFreshGrantsEmpty()
 
-		var mm *digestMutator
-		if !fresh && e.opts.grantDigestIndex {
-			mm = newGrantDigestMutator(e)
-		}
-
 		// Dedup pre-pass: keep only the LAST occurrence of each
 		// external_id. The map value is the records[]
 		// index — when we re-iterate, we process record i only if
@@ -129,16 +124,6 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 						closer.Close()
 						return err
 					}
-					if mm != nil {
-						if err := mm.removeGrantRaw(r.GetExternalId(), oldVal); err != nil {
-							closer.Close()
-							return err
-						}
-					}
-					if err := e.removeGrantFromFreshRootRaw(r.GetExternalId(), oldVal); err != nil {
-						closer.Close()
-						return err
-					}
 					closer.Close()
 				case errors.Is(getErr, pebble.ErrNotFound):
 					// no prior record — write unconditionally
@@ -150,17 +135,6 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 				return err
 			}
 			if err := e.writeGrantIndexes(idxBatch, r); err != nil {
-				return err
-			}
-			if mm != nil {
-				if err := mm.addGrant(r); err != nil {
-					return err
-				}
-			}
-			e.addGrantToFreshRoot(r)
-		}
-		if mm != nil {
-			if err := mm.apply(idxBatch); err != nil {
 				return err
 			}
 		}
@@ -232,11 +206,6 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 			}
 		}
 
-		var mm *digestMutator
-		if !e.IsFreshSync() && e.opts.grantDigestIndex {
-			mm = newGrantDigestMutator(e)
-		}
-
 		// Scratch buffers reused across every record. pebble.Batch.Set
 		// and Delete copy their key/value arguments, so one buffer can
 		// back the primary key, the marshaled value, and each index key
@@ -274,16 +243,6 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 					closer.Close()
 					return err
 				}
-				if mm != nil {
-					if err := mm.removeGrantRaw(ext, oldVal); err != nil {
-						closer.Close()
-						return err
-					}
-				}
-				if err := e.removeGrantFromFreshRootRaw(ext, oldVal); err != nil {
-					closer.Close()
-					return err
-				}
 				closer.Close()
 			case errors.Is(getErr, pebble.ErrNotFound):
 				// No prior record: discovered_at is stamped below unless the
@@ -305,17 +264,6 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 			}
 			idxScratch, err = e.writeGrantIndexesScratch(idxBatch, r, idxScratch)
 			if err != nil {
-				return err
-			}
-			if mm != nil {
-				if err := mm.addGrant(r); err != nil {
-					return err
-				}
-			}
-			e.addGrantToFreshRoot(r)
-		}
-		if mm != nil {
-			if err := mm.apply(idxBatch); err != nil {
 				return err
 			}
 		}
@@ -354,8 +302,6 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 			priKey  []byte
 			priVal  []byte
 			idxKeys [][]byte
-			hashKey []byte
-			hashVal []byte
 		}
 		enc := make([]encoded, len(records))
 
@@ -405,10 +351,6 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 						priVal:  val,
 						idxKeys: grantIndexKeys(r),
 					}
-					if e.opts.grantDigestIndex {
-						enc[i].hashKey = grantHashIndexKey(r)
-						enc[i].hashVal = grantContentHash(r)
-					}
 				}
 			}(lo, hi)
 		}
@@ -430,11 +372,6 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 			}
 			for _, k := range enc[i].idxKeys {
 				if err := idxBatch.Set(k, nil, nil); err != nil {
-					return err
-				}
-			}
-			if enc[i].hashKey != nil {
-				if err := idxBatch.Set(enc[i].hashKey, enc[i].hashVal, nil); err != nil {
 					return err
 				}
 			}
@@ -485,15 +422,21 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, externalID string) error
 			closer.Close()
 			return err
 		}
+		// DeleteGrantRecord is callable outside a sync, i.e. against a
+		// sealed file whose digests are built. Digests are never updated
+		// in place (present means exact — see digest.go): drop the
+		// touched entitlement's nodes so its digest reads as "missing,
+		// recalculate" until the next seal-time build.
+		if _, _, entID, _, _, _, scanErr := scanGrantIndexFieldsRaw(oldVal); scanErr != nil {
+			closer.Close()
+			return scanErr
+		} else if entID != "" {
+			if err := dropGrantDigestForEntitlement(batch, entID); err != nil {
+				closer.Close()
+				return err
+			}
+		}
 		closer.Close()
-
-		mm := newGrantDigestMutator(e)
-		if err := mm.removeGrantRaw(externalID, oldVal); err != nil {
-			return err
-		}
-		if err := mm.apply(batch); err != nil {
-			return err
-		}
 
 		if err := batch.Delete(key, nil); err != nil {
 			return err
@@ -535,21 +478,15 @@ func grantIndexKeys(r *v3.GrantRecord) [][]byte {
 	return keys
 }
 
-// writeGrantIndexes adds index entries for r to batch. The nil-valued
-// indexes go in via grantIndexKeys; the by_entitlement_principal_hash
-// index is the one grant index that carries a VALUE (the grant content
-// hash), so it is written separately.
+// writeGrantIndexes adds index entries for r to batch. The
+// by_entitlement_principal_hash index is deliberately NOT written here:
+// it (and the digests over it) is derived from the primaries in one
+// pass at seal time (SealGrantHashIndexAndDigests), never maintained
+// inline.
 func (e *Engine) writeGrantIndexes(batch *pebble.Batch, r *v3.GrantRecord) error {
 	for _, k := range grantIndexKeys(r) {
 		if err := batch.Set(k, nil, nil); err != nil {
 			return err
-		}
-	}
-	if e.opts.grantDigestIndex {
-		if hk := grantHashIndexKey(r); hk != nil {
-			if err := batch.Set(hk, grantContentHash(r), nil); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
@@ -594,18 +531,6 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 			return scratch, err
 		}
 	}
-	// by_entitlement_principal_hash carries a VALUE (the content hash),
-	// so it rides its own allocated key rather than the nil-value
-	// scratch buffer — mirrors writeGrantIndexes. Without this the
-	// expansion write path (the sole caller) would leave expanded grants
-	// out of the hash index and thus out of the seal-time digest.
-	if e.opts.grantDigestIndex {
-		if hk := grantHashIndexKey(r); hk != nil {
-			if err := batch.Set(hk, grantContentHash(r), nil); err != nil {
-				return scratch, err
-			}
-		}
-	}
 	return scratch, nil
 }
 
@@ -647,10 +572,11 @@ func (e *Engine) deleteGrantIndexesScratch(batch *pebble.Batch, externalID strin
 		return scratch, err
 	}
 	// by_entitlement_principal_hash: reconstruct the key from the
-	// principal identity (mirrors deleteGrantIndexesRaw) so a re-expanded
-	// grant's stale hash entry is removed. Unconditional — delete of an
-	// absent key is a no-op, so this stays correct if the digest index
-	// was toggled between writes.
+	// principal identity (mirrors deleteGrantIndexesRaw). The write
+	// paths never CREATE hash-index entries (the index is rebuilt at
+	// seal), but a record mutated on a sealed file — where the index is
+	// built — must remove its stale entry. Unconditional; delete of an
+	// absent key is a no-op.
 	if entID != "" && principalRT != "" && principalID != "" {
 		bh := principalBucketHash(principalRT, principalID)
 		if err := batch.Delete(encodeGrantByEntPrincHashIndexKey(entID, bh, principalRT, principalID, externalID), nil); err != nil {

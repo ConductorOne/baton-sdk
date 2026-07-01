@@ -235,45 +235,11 @@ func BenchmarkRegisteredPebbleWritePack(b *testing.B) {
 	}
 }
 
-func BenchmarkRegisteredPebbleWritePack_NoIndexNoRoot(b *testing.B) {
+func BenchmarkRegisteredPebbleWritePack_NoDigestIndex(b *testing.B) {
 	for _, n := range grantsScales() {
 		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
 			benchmarkRegisteredWritePack(b, dotc1z.EnginePebble, n,
 				dotc1z.WithGrantDigestIndex(false),
-				dotc1z.WithLiveGrantDigestRoot(false),
-			)
-		})
-	}
-}
-
-func BenchmarkRegisteredPebbleWritePack_RootOnly(b *testing.B) {
-	for _, n := range grantsScales() {
-		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
-			benchmarkRegisteredWritePack(b, dotc1z.EnginePebble, n,
-				dotc1z.WithGrantDigestIndex(false),
-				dotc1z.WithLiveGrantDigestRoot(true),
-			)
-		})
-	}
-}
-
-func BenchmarkRegisteredPebbleWritePack_IndexOnly(b *testing.B) {
-	for _, n := range grantsScales() {
-		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
-			benchmarkRegisteredWritePack(b, dotc1z.EnginePebble, n,
-				dotc1z.WithGrantDigestIndex(true),
-				dotc1z.WithLiveGrantDigestRoot(false),
-			)
-		})
-	}
-}
-
-func BenchmarkRegisteredPebbleWritePack_IndexAndRoot(b *testing.B) {
-	for _, n := range grantsScales() {
-		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
-			benchmarkRegisteredWritePack(b, dotc1z.EnginePebble, n,
-				dotc1z.WithGrantDigestIndex(true),
-				dotc1z.WithLiveGrantDigestRoot(true),
 			)
 		})
 	}

@@ -75,9 +75,6 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	if opts.DisableGrantDigestIndex {
 		engineOpts = append(engineOpts, pebble.WithGrantDigestIndex(false))
 	}
-	if opts.DisableLiveGrantDigestRoot {
-		engineOpts = append(engineOpts, pebble.WithLiveGrantDigestRoot(false))
-	}
 	e, err := pebble.Open(ctx, dbDir, engineOpts...)
 	if err != nil {
 		return nil, cleanupOnError(err)

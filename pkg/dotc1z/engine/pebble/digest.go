@@ -34,18 +34,25 @@ import (
 // Combiner. A node's digest is the XOR of every content hash beneath
 // it (the content hashes themselves are whatever the index writer
 // chose — only the combiner is XOR). XOR is homomorphic (parent = XOR
-// of children), order-independent, and invertible, which buys three
-// things:
+// of children) and order-independent, which buys two things:
 //
 //   - split-independence: a bucket's digest depends only on the records
 //     in its hash range, never on how the range is subdivided, so
 //     buckets from digests of different widths compare directly (a
 //     width-w bucket is the XOR of its two width-(w+1) halves);
-//   - O(1) incremental maintenance: post-seal insert/overwrite/delete
-//     XOR the record's content hash into/out of the root and the one
-//     leaf on its bucket path (see digestMutator);
 //   - the empty digest is all-zero (the XOR identity), so an absent
 //     leaf reads as {count: 0, digest: 0}.
+//
+// Lifecycle: PRESENT means EXACT. Digest nodes (and the index they
+// fold over) are written only by the seal-time build — never
+// maintained incrementally on the record write paths. Starting a new
+// sync excises the digest keyspace along with the rest of the data
+// keyspace, and the one write path callable outside a sync
+// (DeleteGrantRecord) drops the touched partition's nodes. A reader
+// that finds a root may therefore trust it unconditionally; a missing
+// root means "not built (or invalidated) — recalculate", and
+// comparison treats the whole partition as dirty rather than deriving
+// a digest from an index whose presence it cannot verify.
 //
 // Every node also stores its record COUNT. Comparison always checks the
 // (count, digest) pair, so a non-empty node whose hashes happened to XOR
@@ -283,32 +290,112 @@ func unpackDigestLeaf(val []byte) (int64, []byte, bool) {
 	return count, val[8:], true
 }
 
-// buildPartitionDigest picks the leaf width for a partition and delegates
-// the fold to buildPartitionDigestAtWidth. When a live root node is already
-// stored (written during the fresh sync), its count is used directly and the
-// full countKeysInRange sweep is skipped. Falls back to countKeysInRange when
-// no root exists (e.g. liveGrantDigestRoot was disabled).
-func (e *Engine) buildPartitionDigest(ctx context.Context, spec digestIndexSpec, partition string) error {
-	var count int64
-	if root, ok, err := e.getPartitionDigestRoot(spec, partition); err != nil {
-		return err
-	} else if ok {
-		count = root.Count
-	} else {
-		prefix := spec.partitionPrefix(partition)
-		count, err = e.countKeysInRange(prefix, upperBoundOf(prefix))
-		if err != nil {
-			return err
-		}
-	}
-	return e.buildPartitionDigestAtWidth(ctx, spec, partition, chooseDigestWidth(count))
+// digestLeafNode is one materialized leaf produced by a partition
+// fold: the stored left-aligned bucket prefix and the packed
+// count||digest value.
+type digestLeafNode struct {
+	prefix [digestLeafPrefixLen]byte
+	val    []byte
 }
 
-// buildPartitionDigestAtWidth folds the index for one partition into a
-// root plus every non-empty leaf, in a single streaming pass — O(1)
-// memory regardless of partition size.
+// foldPartitionNodes folds one partition's index range into its digest
+// nodes: the packed root value plus every non-empty leaf, in ascending
+// bucket order (the order the sorted index scan produces them).
+// Read-only — callers decide persistence: a batch for the standalone
+// single-partition rebuild (buildPartitionDigestAtWidth), the seal-time
+// SST writer for the bulk build. Memory is O(stored leaves), bounded by
+// 2^digestMaxWidthBits nodes.
 //
-// The pass starts by range-deleting the partition's whole node
+// Sorted index order means each bucket's entries are contiguous, so the
+// single "open" leaf closes exactly when its prefix changes. Only
+// non-empty leaves are ever opened, so sparsity is automatic, not a
+// prune pass.
+//
+// Callers must hold writeMu (all do): folding outside the writer mutex
+// could interleave with a record write and persist a digest that
+// matches neither the before nor the after state.
+func (e *Engine) foldPartitionNodes(ctx context.Context, spec digestIndexSpec, partition string, widthBits int) ([]byte, []digestLeafNode, error) {
+	prefix := spec.partitionPrefix(partition)
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBoundOf(prefix)})
+	if err != nil {
+		return nil, nil, err
+	}
+	defer iter.Close()
+
+	// lowMask clears the sub-bucket bits of a left-aligned 16-bit
+	// prefix, leaving the leaf's stored key prefix value.
+	var lowMask uint16
+	if widthBits > 0 {
+		lowMask = ^uint16(0) >> widthBits
+	}
+
+	var (
+		leaves     []digestLeafNode
+		leafOpen   bool
+		leafLV     uint16 // left-aligned stored prefix of the open leaf
+		leafDigest [hashLen]byte
+		leafCount  int64
+		rootDigest [hashLen]byte
+		total      int64
+	)
+	flushLeaf := func() {
+		if !leafOpen {
+			return
+		}
+		var n digestLeafNode
+		binary.BigEndian.PutUint16(n.prefix[:], leafLV)
+		n.val = packDigestLeaf(leafCount, leafDigest[:])
+		leaves = append(leaves, n)
+	}
+
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		key := iter.Key()
+		if len(key) < len(prefix)+digestBucketHashLen {
+			continue // malformed; skip defensively
+		}
+		val := iter.Value() // per-record content hash
+		if len(val) != hashLen {
+			// Index writers always emit exactly hashLen bytes; a wrong
+			// length is a corrupt or mis-encoded entry. xorInto would
+			// fold only a prefix and quietly corrupt the digest, so
+			// reject it. At seal the caller downgrades a build error to
+			// "no digest" (drop + re-read), so this fails safe.
+			return nil, nil, fmt.Errorf("foldPartitionNodes: content hash for %q is %d bytes, want %d", partition, len(val), hashLen)
+		}
+		if widthBits > 0 {
+			lv := binary.BigEndian.Uint16(key[len(prefix):]) &^ lowMask
+			if !leafOpen || lv != leafLV {
+				flushLeaf()
+				leafLV = lv
+				leafDigest = [hashLen]byte{}
+				leafCount = 0
+				leafOpen = true
+			}
+			xorInto(leafDigest[:], val)
+			leafCount++
+		}
+		xorInto(rootDigest[:], val)
+		total++
+	}
+	if err := iter.Error(); err != nil {
+		return nil, nil, err
+	}
+	flushLeaf()
+
+	// The root is produced unconditionally — even at count 0 — as the
+	// "digest was built" marker.
+	return packDigestRoot(widthBits, total, rootDigest[:]), leaves, nil
+}
+
+// buildPartitionDigestAtWidth rebuilds ONE partition's digest in place
+// through a write batch. This is the standalone/repair path (tests,
+// explicit rebuilds); the seal-time bulk build streams every
+// partition's nodes into an SST instead (buildAllGrantDigests).
+//
+// The batch starts by range-deleting the partition's whole node
 // keyspace: the build only ever Sets nodes, so without the clear a
 // rebuild that changes width or empties a bucket would leave stale
 // leaves that the comparison merge scan (which enumerates leaves from
@@ -317,23 +404,21 @@ func (e *Engine) buildPartitionDigest(ctx context.Context, spec digestIndexSpec,
 // byte-length identical, so stale nodes are not detectable by
 // inspection.
 //
-// Sorted index order means each bucket's entries are contiguous, so the
-// single "open" leaf closes exactly when its prefix changes. Only
-// non-empty leaves are ever opened, so sparsity is automatic, not a
-// prune pass.
-//
 // The width is taken as a parameter rather than derived so the
 // width-selection seam can be exercised directly: tests force a width
 // that the natural count→width mapping would only produce at a very
 // large record count, which is how the cross-width comparison path gets
 // covered without seeding hundreds of thousands of records.
 func (e *Engine) buildPartitionDigestAtWidth(ctx context.Context, spec digestIndexSpec, partition string, widthBits int) error {
-	prefix := spec.partitionPrefix(partition)
-	upper := upperBoundOf(prefix)
 	nodeLower := encodeDigestPartitionPrefix(spec.indexID, partition)
 	nodeUpper := upperBoundOf(nodeLower)
 
 	return e.withWrite(func() error {
+		rootVal, leaves, err := e.foldPartitionNodes(ctx, spec, partition, widthBits)
+		if err != nil {
+			return err
+		}
+
 		batch := e.db.NewBatch()
 		defer batch.Close()
 
@@ -343,85 +428,15 @@ func (e *Engine) buildPartitionDigestAtWidth(ctx context.Context, spec digestInd
 		if err := batch.DeleteRange(nodeLower, nodeUpper, nil); err != nil {
 			return err
 		}
-
-		iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upper})
-		if err != nil {
+		rootKey := encodeDigestNodeKey(spec.indexID, partition, digestLevelRoot, nil)
+		if err := batch.Set(rootKey, rootVal, nil); err != nil {
 			return err
 		}
-		defer iter.Close()
-
-		// lowMask clears the sub-bucket bits of a left-aligned 16-bit
-		// prefix, leaving the leaf's stored key prefix value.
-		var lowMask uint16
-		if widthBits > 0 {
-			lowMask = ^uint16(0) >> widthBits
-		}
-
-		var (
-			leafOpen   bool
-			leafLV     uint16 // left-aligned stored prefix of the open leaf
-			leafDigest [hashLen]byte
-			leafCount  int64
-			rootDigest [hashLen]byte
-			total      int64
-		)
-		flushLeaf := func() error {
-			if !leafOpen {
-				return nil
-			}
-			var lp [digestLeafPrefixLen]byte
-			binary.BigEndian.PutUint16(lp[:], leafLV)
-			key := encodeDigestNodeKey(spec.indexID, partition, digestLevelLeaf, lp[:])
-			return batch.Set(key, packDigestLeaf(leafCount, leafDigest[:]), nil)
-		}
-
-		for iter.First(); iter.Valid(); iter.Next() {
-			if err := ctx.Err(); err != nil {
+		for i := range leaves {
+			key := encodeDigestNodeKey(spec.indexID, partition, digestLevelLeaf, leaves[i].prefix[:])
+			if err := batch.Set(key, leaves[i].val, nil); err != nil {
 				return err
 			}
-			key := iter.Key()
-			if len(key) < len(prefix)+digestBucketHashLen {
-				continue // malformed; skip defensively
-			}
-			val := iter.Value() // per-record content hash
-			if len(val) != hashLen {
-				// Index writers always emit exactly hashLen bytes
-				// (grantContentHash); a wrong length is a corrupt or
-				// mis-encoded entry. xorInto would fold only a prefix and
-				// quietly corrupt the digest, so reject it. At seal the
-				// caller downgrades a build error to "no digest" (readers
-				// fall back to the on-demand fold), so this fails safe.
-				return fmt.Errorf("buildPartitionDigestAtWidth: content hash for %q is %d bytes, want %d", partition, len(val), hashLen)
-			}
-			if widthBits > 0 {
-				lv := binary.BigEndian.Uint16(key[len(prefix):]) &^ lowMask
-				if !leafOpen || lv != leafLV {
-					if err := flushLeaf(); err != nil {
-						return err
-					}
-					leafLV = lv
-					leafDigest = [hashLen]byte{}
-					leafCount = 0
-					leafOpen = true
-				}
-				xorInto(leafDigest[:], val)
-				leafCount++
-			}
-			xorInto(rootDigest[:], val)
-			total++
-		}
-		if err := iter.Error(); err != nil {
-			return err
-		}
-		if err := flushLeaf(); err != nil {
-			return err
-		}
-
-		// Root is written unconditionally — even at count 0 — as the
-		// "digest was built" marker.
-		rootKey := encodeDigestNodeKey(spec.indexID, partition, digestLevelRoot, nil)
-		if err := batch.Set(rootKey, packDigestRoot(widthBits, total, rootDigest[:]), nil); err != nil {
-			return err
 		}
 
 		opts := writeOpts(e.opts.durability)
@@ -430,22 +445,6 @@ func (e *Engine) buildPartitionDigestAtWidth(ctx context.Context, spec digestInd
 		}
 		return batch.Commit(opts)
 	})
-}
-
-// countKeysInRange counts keys in [lower, upper) without materializing
-// values. Used by the build's count→width pass and by the diff driver's
-// primary-vs-index coverage guard.
-func (e *Engine) countKeysInRange(lower, upper []byte) (int64, error) {
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
-	if err != nil {
-		return 0, err
-	}
-	defer iter.Close()
-	var n int64
-	for iter.First(); iter.Valid(); iter.Next() {
-		n++
-	}
-	return n, iter.Error()
 }
 
 // DigestRoot is a partition's stored root digest.
@@ -637,9 +636,13 @@ func (e *Engine) computeBucketsAtWidth(ctx context.Context, spec digestIndexSpec
 // is a single contiguous range scan of its stored leaves, so cost is
 // O(leaves), bounded by count/digestTargetBucketSize per side.
 //
-// A missing root means the digest was never built on that side — NOT
-// that the partition is empty — so both sides are compared via the
-// authoritative on-demand fold instead.
+// A missing root means the digest was never built (or was invalidated)
+// on that side — NOT that the partition is empty. There is no safe
+// cheaper answer in that state: deriving a digest from the index would
+// trust an index whose presence this side can't verify (a file written
+// with the index disabled folds to "zero records" and two such files
+// would compare falsely clean). So the whole partition is reported
+// dirty; the caller re-reads it, or rebuilds the digest first.
 func (e *Engine) dirtyPartitionBuckets(ctx context.Context, spec digestIndexSpec, other *Engine, partition string) ([]DigestBucket, error) {
 	rootA, okA, err := e.getPartitionDigestRoot(spec, partition)
 	if err != nil {
@@ -651,17 +654,6 @@ func (e *Engine) dirtyPartitionBuckets(ctx context.Context, spec digestIndexSpec
 	}
 
 	if !okA || !okB {
-		ha, ca, err := e.computeBucketDigest(ctx, spec, partition, DigestBucket{})
-		if err != nil {
-			return nil, err
-		}
-		hb, cb, err := other.computeBucketDigest(ctx, spec, partition, DigestBucket{})
-		if err != nil {
-			return nil, err
-		}
-		if ca == cb && bytes.Equal(ha, hb) {
-			return nil, nil
-		}
 		return []DigestBucket{{}}, nil
 	}
 
@@ -717,211 +709,14 @@ func (e *Engine) dirtyPartitionBuckets(ctx context.Context, spec digestIndexSpec
 	return dirty, nil
 }
 
-// --- Incremental maintenance (post-seal) ---
+// --- Invalidation ---
 
-// digestMutator accumulates per-node (XOR, count) deltas for a batch of
-// post-seal record mutations against one digested index, and applies
-// each touched node exactly once.
-//
-// Why an accumulator instead of read-modify-write per mutation: the
-// updates target a plain pebble.Batch, which does NOT read through its
-// own writes — and every mutation in a batch touches the root node, so
-// naive per-mutation RMW would lose deltas. Accumulating also collapses
-// N writes per node into one. All record writers run under withWrite's
-// mutex, so reading current node values from the DB inside apply is
-// race-free.
-//
-// Lifecycle: one mutator per write batch. Callers feed removeHash(old)
-// / addHash(new) as they process records (an overwrite that moves a
-// record to a different bucket is exactly remove+add), then call
-// apply(batch) once before commit.
-//
-// Partitions whose digest was never built (no stored root) are skipped:
-// the seal-time build or the on-Open backfill will construct them from
-// the index. This also makes the mutator free during a fresh sync — but
-// callers on the fresh-sync bulk path should skip constructing one
-// anyway to avoid the per-partition root probe.
-type digestMutator struct {
-	e               *Engine
-	spec            digestIndexSpec
-	parts           map[string]*mutatorPartition // keyed by string(root node key)
-	createIfAbsent  bool                         // treat missing root as zero instead of dropping
-}
-
-type mutatorPartition struct {
-	partition  string
-	rootKey    []byte
-	present    bool          // stored root exists; if false all deltas are dropped
-	bits       int           // leaf-level width read from the stored root
-	rootCount  int64         // count read from the stored root
-	rootDigest [hashLen]byte // digest read from the stored root
-	xor        [hashLen]byte // accumulated root delta
-	countDelta int64
-	nodes      map[string]*mutatorNode // leaves, keyed by string(node key)
-}
-
-type mutatorNode struct {
-	key        []byte
-	xor        [hashLen]byte
-	countDelta int64
-}
-
-func newDigestMutator(e *Engine, spec digestIndexSpec) *digestMutator {
-	return &digestMutator{e: e, spec: spec, parts: make(map[string]*mutatorPartition)}
-}
-
-// partFor returns the (cached) per-partition state, probing the stored
-// root on first touch. The cached root snapshot stays valid for the
-// mutator's lifetime because all writers serialize through withWrite.
-func (m *digestMutator) partFor(partition string) (*mutatorPartition, error) {
-	rootKey := encodeDigestNodeKey(m.spec.indexID, partition, digestLevelRoot, nil)
-	k := string(rootKey)
-	if mp, ok := m.parts[k]; ok {
-		return mp, nil
-	}
-	mp := &mutatorPartition{partition: partition, rootKey: rootKey, nodes: make(map[string]*mutatorNode)}
-	val, closer, err := m.e.db.Get(rootKey)
-	switch {
-	case err == nil:
-		widthBits, count, digest, ok := unpackDigestRoot(val)
-		closer.Close()
-		if ok {
-			mp.present = true
-			mp.bits = widthBits
-			mp.rootCount = count
-			copy(mp.rootDigest[:], digest)
-		}
-		// Malformed root: leave present=false so mutations are dropped;
-		// the stale root heals at the next rebuild.
-	case errors.Is(err, pebble.ErrNotFound):
-		// No digest — treat as zero identity if createIfAbsent, else no-ops.
-		if m.createIfAbsent {
-			mp.present = true
-		}
-	default:
-		return nil, err
-	}
-	m.parts[k] = mp
-	return mp, nil
-}
-
-// addHash records the insertion of a record with the given bucket and
-// content hashes into its partition's digest.
-func (m *digestMutator) addHash(partition string, bucketHash, contentHash []byte) error {
-	return m.delta(partition, bucketHash, contentHash, 1)
-}
-
-// removeHash records the removal of a record from its partition's
-// digest.
-func (m *digestMutator) removeHash(partition string, bucketHash, contentHash []byte) error {
-	return m.delta(partition, bucketHash, contentHash, -1)
-}
-
-func (m *digestMutator) delta(partition string, bucketHash, contentHash []byte, sign int64) error {
-	mp, err := m.partFor(partition)
-	if err != nil {
-		return err
-	}
-	if !mp.present {
-		return nil
-	}
-	xorInto(mp.xor[:], contentHash)
-	mp.countDelta += sign
-	if mp.bits == 0 {
-		return nil
-	}
-	key := encodeDigestNodeKey(m.spec.indexID, partition, digestLevelLeaf, bucketOfHash(bucketHash, mp.bits).leafKeyPrefix())
-	nk := string(key)
-	n, ok := mp.nodes[nk]
-	if !ok {
-		n = &mutatorNode{key: key}
-		mp.nodes[nk] = n
-	}
-	xorInto(n.xor[:], contentHash)
-	n.countDelta += sign
-	return nil
-}
-
-// apply folds the accumulated deltas into the stored nodes via batch.
-// Nodes whose delta cancelled to zero (e.g. an overwrite that changed
-// only excluded fields) are skipped; a leaf whose count reaches zero is
-// deleted (restoring sparsity); the root is rewritten in place. A count
-// that would go negative means the stored digest disagrees with the
-// mutation stream — the digest is dropped wholesale (DeleteRange), so
-// readers fall back to the on-demand fold until the next rebuild.
-func (m *digestMutator) apply(batch *pebble.Batch) error {
-	for _, mp := range m.parts {
-		if !mp.present {
-			continue
-		}
-		if err := m.applyPartition(batch, mp); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (m *digestMutator) applyPartition(batch *pebble.Batch, mp *mutatorPartition) error {
-	if mp.countDelta == 0 && mp.xor == zeroDigest && len(mp.nodes) == 0 {
-		return nil
-	}
-	dropDigest := func() error {
-		// In-batch ordering: this tombstone lands after any node Sets
-		// already staged for this partition and removes them too.
-		lo := encodeDigestPartitionPrefix(m.spec.indexID, mp.partition)
-		return batch.DeleteRange(lo, upperBoundOf(lo), nil)
-	}
-	if mp.rootCount+mp.countDelta < 0 {
-		return dropDigest()
-	}
-	for _, n := range mp.nodes {
-		if n.countDelta == 0 && n.xor == zeroDigest {
-			continue
-		}
-		var (
-			curCount  int64
-			curDigest [hashLen]byte
-		)
-		val, closer, err := m.e.db.Get(n.key)
-		switch {
-		case err == nil:
-			c, d, ok := unpackDigestLeaf(val)
-			closer.Close()
-			if !ok {
-				return dropDigest()
-			}
-			curCount = c
-			copy(curDigest[:], d)
-		case errors.Is(err, pebble.ErrNotFound):
-			// absent leaf = {0, zero}
-		default:
-			return err
-		}
-		newCount := curCount + n.countDelta
-		if newCount < 0 {
-			return dropDigest()
-		}
-		xorInto(curDigest[:], n.xor[:])
-		if newCount == 0 {
-			// An emptied leaf's digest must cancel to exactly zero
-			// (count 0 ⇒ digest 0); anything else means the stored
-			// digest disagrees with the mutation stream.
-			if curDigest != zeroDigest {
-				return dropDigest()
-			}
-			if err := batch.Delete(n.key, nil); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := batch.Set(n.key, packDigestLeaf(newCount, curDigest[:]), nil); err != nil {
-			return err
-		}
-	}
-	if mp.countDelta == 0 && mp.xor == zeroDigest {
-		return nil
-	}
-	newDigest := mp.rootDigest
-	xorInto(newDigest[:], mp.xor[:])
-	return batch.Set(mp.rootKey, packDigestRoot(mp.bits, mp.rootCount+mp.countDelta, newDigest[:]), nil)
+// dropPartitionDigest stages a DeleteRange over one partition's digest
+// nodes (root included). Record mutations that can run against a file
+// holding a built digest use this instead of updating nodes in place:
+// under the present-means-exact contract, a mutated partition's digest
+// is simply MISSING until the next seal-time build recalculates it.
+func dropPartitionDigest(batch *pebble.Batch, spec digestIndexSpec, partition string) error {
+	lo := encodeDigestPartitionPrefix(spec.indexID, partition)
+	return batch.DeleteRange(lo, upperBoundOf(lo), nil)
 }

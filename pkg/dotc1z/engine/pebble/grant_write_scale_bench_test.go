@@ -71,7 +71,7 @@ func makeGrantRecordBatch(syncID string, offset, count int) []*v3.GrantRecord {
 	return out
 }
 
-func benchmarkGrantWriteScale(b *testing.B, putUnique, grantIndex, liveRoot bool) {
+func benchmarkGrantWriteScale(b *testing.B, putUnique, grantIndex bool) {
 	n := benchGrantCount(b)
 	ctx := context.Background()
 	const batchSize = 10000
@@ -79,7 +79,7 @@ func benchmarkGrantWriteScale(b *testing.B, putUnique, grantIndex, liveRoot bool
 	b.ReportMetric(float64(n), "grants")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		e, err := Open(ctx, b.TempDir(), WithGrantDigestIndex(grantIndex), WithLiveGrantDigestRoot(liveRoot))
+		e, err := Open(ctx, b.TempDir(), WithGrantDigestIndex(grantIndex))
 		require.NoError(b, err)
 		require.NoError(b, e.MarkFreshSync(benchGrantSyncID))
 
@@ -103,9 +103,9 @@ func benchmarkGrantWriteScale(b *testing.B, putUnique, grantIndex, liveRoot bool
 	}
 }
 
-// Four combinations of grantDigestIndex × liveGrantDigestRoot:
-func BenchmarkGrantWriteScale_NoIndexNoRoot(b *testing.B)  { benchmarkGrantWriteScale(b, false, false, false) }
-func BenchmarkGrantWriteScale_RootOnly(b *testing.B)       { benchmarkGrantWriteScale(b, false, false, true) }
-func BenchmarkGrantWriteScale_IndexOnly(b *testing.B)      { benchmarkGrantWriteScale(b, false, true, false) }
-func BenchmarkGrantWriteScale_IndexAndRoot(b *testing.B)   { benchmarkGrantWriteScale(b, false, true, true) }
-func BenchmarkGrantWriteScaleUnsafePutUnique(b *testing.B) { benchmarkGrantWriteScale(b, true, true, true) }
+// The digest index is built at seal time, never inline, so the write
+// path has no per-grant digest cost to isolate; the flag is kept in the
+// matrix only to confirm that.
+func BenchmarkGrantWriteScale_NoDigestIndex(b *testing.B)  { benchmarkGrantWriteScale(b, false, false) }
+func BenchmarkGrantWriteScale(b *testing.B)                { benchmarkGrantWriteScale(b, false, true) }
+func BenchmarkGrantWriteScaleUnsafePutUnique(b *testing.B) { benchmarkGrantWriteScale(b, true, true) }

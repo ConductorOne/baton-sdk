@@ -32,14 +32,10 @@ type StoreOptions struct {
 	SkipCleanup        bool
 	V2GrantsWriter     bool
 
-	// DisableGrantDigestIndex turns off the Pebble engine's
-	// by_entitlement_principal_hash index + grant digests. Inverted so
-	// the zero value keeps the index on (current behavior).
+	// DisableGrantDigestIndex turns off the Pebble engine's seal-time
+	// build of the by_entitlement_principal_hash index + grant digests.
+	// Inverted so the zero value keeps the build on (current behavior).
 	DisableGrantDigestIndex bool
-
-	// DisableLiveGrantDigestRoot turns off live root-node maintenance
-	// during fresh syncs. Inverted so zero value keeps it on.
-	DisableLiveGrantDigestRoot bool
 
 	Engine Engine
 
@@ -196,8 +192,7 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 		SyncLimit:               options.syncLimit,
 		SkipCleanup:             options.skipCleanup,
 		V2GrantsWriter:          options.v2GrantsWriter,
-		DisableGrantDigestIndex:    options.disableGrantDigestIndex,
-		DisableLiveGrantDigestRoot: options.disableLiveGrantDigestRoot,
+		DisableGrantDigestIndex: options.disableGrantDigestIndex,
 		Engine:                  options.engine,
 		PayloadEncoding:         options.payloadEncoding,
 		DecoderPool:             options.decoderPool,

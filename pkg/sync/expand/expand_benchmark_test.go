@@ -331,47 +331,13 @@ func BenchmarkExpandWhalePebble(b *testing.B) {
 	benchmarkExpandPebbleAtPath(b, pebblePath, false)
 }
 
-func BenchmarkExpandWhalePebble_NoIndexNoRoot(b *testing.B) {
+func BenchmarkExpandWhalePebble_NoDigestIndex(b *testing.B) {
 	pebblePath := os.Getenv("BATON_BENCH_PEBBLE_PATH")
 	if pebblePath == "" {
 		b.Skip("BATON_BENCH_PEBBLE_PATH not set")
 	}
 	benchmarkExpandPebbleAtPath(b, pebblePath, false,
 		dotc1z.WithGrantDigestIndex(false),
-		dotc1z.WithLiveGrantDigestRoot(false),
-	)
-}
-
-func BenchmarkExpandWhalePebble_RootOnly(b *testing.B) {
-	pebblePath := os.Getenv("BATON_BENCH_PEBBLE_PATH")
-	if pebblePath == "" {
-		b.Skip("BATON_BENCH_PEBBLE_PATH not set")
-	}
-	benchmarkExpandPebbleAtPath(b, pebblePath, false,
-		dotc1z.WithGrantDigestIndex(false),
-		dotc1z.WithLiveGrantDigestRoot(true),
-	)
-}
-
-func BenchmarkExpandWhalePebble_IndexOnly(b *testing.B) {
-	pebblePath := os.Getenv("BATON_BENCH_PEBBLE_PATH")
-	if pebblePath == "" {
-		b.Skip("BATON_BENCH_PEBBLE_PATH not set")
-	}
-	benchmarkExpandPebbleAtPath(b, pebblePath, false,
-		dotc1z.WithGrantDigestIndex(true),
-		dotc1z.WithLiveGrantDigestRoot(false),
-	)
-}
-
-func BenchmarkExpandWhalePebble_IndexAndRoot(b *testing.B) {
-	pebblePath := os.Getenv("BATON_BENCH_PEBBLE_PATH")
-	if pebblePath == "" {
-		b.Skip("BATON_BENCH_PEBBLE_PATH not set")
-	}
-	benchmarkExpandPebbleAtPath(b, pebblePath, false,
-		dotc1z.WithGrantDigestIndex(true),
-		dotc1z.WithLiveGrantDigestRoot(true),
 	)
 }
 

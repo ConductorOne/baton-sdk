@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/cespare/xxhash/v2"
@@ -57,8 +59,12 @@ func principalBucketHash(rt, id string) []byte {
 	return out
 }
 
-// grantContentHash is the canonical content hash of a grant — the value
-// stored in the hash index and the unit the grant digest folds.
+// grantContentHashFromParts is the canonical content hash of a grant —
+// the value stored in the hash index and the unit the grant digest
+// folds. sortedSourceKeys (the grant's source-entitlement ids) must
+// already be sorted for order-independence; the source map VALUES
+// (GrantSourceRecord) are not folded in v1 — only the set of source
+// ids, which is the membership-composition signal.
 //
 // ABI: the field set below defines what "the same grant" means for the
 // diff. It deliberately covers the membership EDGE (entitlement id,
@@ -78,23 +84,6 @@ func principalBucketHash(rt, id string) []byte {
 // separator or NUL bytes — can alias a different field split. A naive
 // 0x00-joined concatenation is NOT injective (e.g. sources ["a","b"] vs
 // ["a\x00b"]), which would deterministically collide distinct grants.
-func grantContentHash(r *v3.GrantRecord) []byte {
-	ent := r.GetEntitlement()
-	princ := r.GetPrincipal()
-
-	// Source-entitlement ids, sorted for order-independence. The map
-	// values (GrantSourceRecord) are not folded in v1 — only the set of
-	// source ids, which is the membership-composition signal.
-	ids := make([]string, 0, len(r.GetSources()))
-	for k := range r.GetSources() {
-		ids = append(ids, k)
-	}
-	sort.Strings(ids)
-	return grantContentHashFromParts(ent.GetEntitlementId(), princ.GetResourceTypeId(), princ.GetResourceId(), r.GetExternalId(), ids)
-}
-
-// grantContentHashFromParts computes the content hash from pre-extracted
-// fields. sortedSourceKeys must already be sorted for order-independence.
 func grantContentHashFromParts(entID, principalRT, principalID, externalID string, sortedSourceKeys []string) []byte {
 	fields := make([]string, 0, 4+len(sortedSourceKeys))
 	fields = append(fields, entID, principalRT, principalID, externalID)
@@ -105,49 +94,248 @@ func grantContentHashFromParts(entID, principalRT, principalID, externalID strin
 	return out
 }
 
-// grantHashIndexKey returns the by_entitlement_principal_hash index key
-// for r, or nil when the grant lacks the entitlement/principal needed to
-// place it (mirrors the by_entitlement index's nil-guard).
-func grantHashIndexKey(r *v3.GrantRecord) []byte {
-	ent := r.GetEntitlement()
-	princ := r.GetPrincipal()
-	if ent == nil || princ == nil {
-		return nil
+// sealIndexSpillChunkBytes is the in-memory arena size of the seal-time
+// index spill sorter: entries accumulate unsorted until the arena
+// reaches this size, then the chunk sorts in the background and spills
+// to a run file. Most connectors' whole index fits in one or two
+// chunks; only very large syncs produce enough runs for a real
+// multi-way merge. Bounds memory to O(chunk) regardless of grant count.
+const sealIndexSpillChunkBytes = 32 << 20
+
+// SealGrantHashIndexAndDigests builds the by_entitlement_principal_hash
+// index and the per-entitlement grant digests, in that order. This is
+// the ONLY writer of either keyspace: the grant write paths never
+// maintain them inline (see the digest.go lifecycle contract). Called
+// at seal time (Adapter.EndSync) after all grants — including expanded
+// grants — are written.
+//
+// Phase 1 re-derives every index entry from the grant primaries (raw
+// field scans, no proto unmarshal), tallying per-entitlement grant
+// counts as it goes, and materializes the index as ONE ingested SST
+// (see rebuildGrantHashIndex). Phase 2 folds the fresh index into
+// digest nodes — also SST-ingested — with the tallied counts picking
+// each partition's width without a second counting scan. Every
+// entitlement gets a digest, including those with zero grants (a
+// single count-0 root), so a reader can always distinguish "empty"
+// from "never built". Entitlement ids seen only on grants (no
+// entitlement record) get digests too.
+//
+// On error the caller must ensure no partial digest survives (drop the
+// digest keyspace): a half-built digest that LOOKS present violates the
+// present-means-exact contract.
+func (e *Engine) SealGrantHashIndexAndDigests(ctx context.Context) error {
+	counts, err := e.rebuildGrantHashIndex(ctx)
+	if err != nil {
+		return fmt.Errorf("seal grant hash index: %w", err)
 	}
-	bh := principalBucketHash(princ.GetResourceTypeId(), princ.GetResourceId())
-	return encodeGrantByEntPrincHashIndexKey(
-		ent.GetEntitlementId(), bh,
-		princ.GetResourceTypeId(), princ.GetResourceId(), r.GetExternalId(),
-	)
+	return e.buildAllGrantDigests(ctx, counts)
 }
 
-// BuildAllGrantDigests rebuilds the grant digest for every entitlement
-// in syncID. Called at seal time (Adapter.EndSync) after all grants are
-// written, and by the on-Open migration backfill. Every entitlement
-// gets a digest — including those with zero grants, which store a
-// single root node — so a reader can always distinguish "empty" from
-// "never built".
-func (e *Engine) BuildAllGrantDigests(ctx context.Context, syncID string) error {
-	// Collect entitlement ids first: the build writes into the
-	// typeDigest keyspace while we'd otherwise be mid-iteration over
-	// typeEntitlement. Different keyspaces, but snapshotting the ids
-	// keeps the iterator and the writes cleanly separated.
-	var ents []string
-	if err := e.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
-		ents = append(ents, r.GetExternalId())
-		return true
-	}); err != nil {
-		return fmt.Errorf("BuildAllGrantDigests: list entitlements: %w", err)
+// rebuildGrantHashIndex derives the by_entitlement_principal_hash index
+// from the grant primary keyspace and returns the number of index
+// entries written per entitlement id.
+//
+// The index never passes through the memtable/WAL: entries are
+// spill-sorted and ingested as ONE SST over the excised index keyspace,
+// so the swap is atomic and exactly replaces any prior index contents.
+//
+// The primaries iterate in external_id order, which is unordered with
+// respect to the index's (entitlement, principal-hash) key order, so
+// the rows need a sort before they can enter an SST. The bulk
+// importer's spillSorter provides it: rows accumulate in an in-memory
+// arena; each full arena sorts in the background (overlapping the
+// scan) and spills to a sorted run file; the runs then k-way merge
+// into the SST. Because the entitlement id LEADS the index key,
+// per-entitlement grouping falls out of the global sort — an
+// entitlement small enough to sit inside one arena chunk is sorted
+// entirely in memory, and a 100k-grant entitlement simply spans
+// several runs and reassembles, contiguously, during the merge.
+func (e *Engine) rebuildGrantHashIndex(ctx context.Context) (map[string]int64, error) {
+	return e.rebuildGrantHashIndexChunked(ctx, sealIndexSpillChunkBytes)
+}
+
+// rebuildGrantHashIndexChunked is rebuildGrantHashIndex with the spill
+// arena size as a parameter, so tests can force the multi-run k-way
+// merge path with a small data set.
+func (e *Engine) rebuildGrantHashIndexChunked(ctx context.Context, chunkBytes int) (map[string]int64, error) {
+	counts := make(map[string]int64)
+
+	dir, err := os.MkdirTemp("", "pebble-hash-index-seal-")
+	if err != nil {
+		return nil, fmt.Errorf("temp dir: %w", err)
 	}
-	for _, ent := range ents {
-		if err := ctx.Err(); err != nil {
+	// On success pebble links the SST into its own store, so removing
+	// the staging dir (runs + SST) is safe either way.
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	// Two background sort slots: enough to overlap chunk sorting with
+	// the scan without competing with it for cores.
+	sorter := newSpillSorter(dir, "grant_hash_index", make(chan struct{}, 2), chunkBytes)
+	// abort() waits out in-flight chunk sorts so RemoveAll can't race
+	// them; harmless after a successful finalize.
+	defer sorter.abort()
+
+	err = e.withWrite(func() error {
+		prefix := encodeGrantPrefix()
+		iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBoundOf(prefix)})
+		if err != nil {
 			return err
 		}
-		if err := e.buildPartitionDigest(ctx, grantDigestSpec, ent); err != nil {
-			return fmt.Errorf("BuildAllGrantDigests: entitlement %q: %w", ent, err)
+		defer iter.Close()
+
+		for iter.First(); iter.Valid(); iter.Next() {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			ext, _, err := codec.DecodeTupleStringTo(nil, iter.Key(), len(prefix)+1)
+			if err != nil {
+				return fmt.Errorf("decode grant key %x: %w", iter.Key(), err)
+			}
+			val := iter.Value()
+			_, _, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(val)
+			if err != nil {
+				return err
+			}
+			if entID == "" || principalRT == "" || principalID == "" {
+				continue // no entitlement/principal → no place in the index
+			}
+			sourceKeys, err := scanGrantSourceKeysRaw(val)
+			if err != nil {
+				return err
+			}
+			sort.Strings(sourceKeys)
+			externalID := string(ext)
+			bh := principalBucketHash(principalRT, principalID)
+			ch := grantContentHashFromParts(entID, principalRT, principalID, externalID, sourceKeys)
+			hk := encodeGrantByEntPrincHashIndexKey(entID, bh, principalRT, principalID, externalID)
+			if err := sorter.add(hk, ch); err != nil {
+				return err
+			}
+			counts[entID]++
+		}
+		if err := iter.Error(); err != nil {
+			return err
+		}
+
+		chunks, err := sorter.finalize()
+		if err != nil {
+			return err
+		}
+		if len(chunks) == 0 {
+			// No grants at all — pebble rejects an empty SST, so just
+			// clear any stale index rows directly.
+			return e.db.DeleteRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), writeOpts(e.opts.durability))
+		}
+		const sstName = "grant_hash_index"
+		sstPath := filepath.Join(dir, sstName+".sst")
+		if err := mergeSortedSpillChunksToSST(ctx, sstPath, sstName, chunks); err != nil {
+			return err
+		}
+		if _, err := e.db.IngestAndExcise(ctx, []string{sstPath}, nil, nil, pebble.KeyRange{
+			Start: GrantByEntPrincHashLowerBound(),
+			End:   GrantByEntPrincHashUpperBound(),
+		}); err != nil {
+			return fmt.Errorf("ingest: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return counts, nil
+}
+
+// buildAllGrantDigests builds the digest for every entitlement record
+// plus every entitlement id that appears only on grants, using the
+// per-entitlement counts tallied by rebuildGrantHashIndex to pick each
+// partition's width.
+//
+// The nodes never pass through the memtable/WAL: every partition's
+// root + leaves stream, in ascending key order, into ONE SST on disk,
+// which is then IngestAndExcise'd over the whole digest keyspace.
+// That makes the digest swap atomic (readers see the old digests or
+// the new, never a mixture), replaces the per-partition DeleteRange
+// tombstones with a single excise, and guarantees no stale node — even
+// for a partition that no longer exists — survives a reseal.
+//
+// SST keys must be strictly increasing, which the key layout gives us
+// for free: node keys order by the tuple-encoded partition (the tuple
+// codec is order-preserving, so plain string sort of the entitlement
+// ids matches encoded order), then by level — the root (level 0)
+// precedes its leaves (level 1), and foldPartitionNodes yields leaves
+// in ascending bucket order.
+func (e *Engine) buildAllGrantDigests(ctx context.Context, counts map[string]int64) error {
+	// Collect the digest partitions: every entitlement record, plus
+	// grant-bearing entitlement ids with no record (orphans — rare,
+	// but skipping them would leave grants no digest ever covers).
+	seen := make(map[string]struct{}, len(counts))
+	var ents []string
+	collect := func(id string) {
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			ents = append(ents, id)
 		}
 	}
-	return nil
+	if err := e.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
+		collect(r.GetExternalId())
+		return true
+	}); err != nil {
+		return fmt.Errorf("build grant digests: list entitlements: %w", err)
+	}
+	for id := range counts {
+		collect(id)
+	}
+	sort.Strings(ents)
+
+	dir, err := os.MkdirTemp("", "pebble-digest-seal-")
+	if err != nil {
+		return fmt.Errorf("build grant digests: temp dir: %w", err)
+	}
+	// On success pebble links the SST into its own store, so removing
+	// the staging dir is safe either way.
+	defer func() { _ = os.RemoveAll(dir) }()
+	w, err := newBulkSSTWriter(dir, "grant-digests")
+	if err != nil {
+		return fmt.Errorf("build grant digests: %w", err)
+	}
+	defer func() { _ = w.finish() }()
+
+	return e.withWrite(func() error {
+		for _, ent := range ents {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			rootVal, leaves, err := e.foldPartitionNodes(ctx, grantDigestSpec, ent, chooseDigestWidth(counts[ent]))
+			if err != nil {
+				return fmt.Errorf("build grant digests: entitlement %q: %w", ent, err)
+			}
+			rootKey := encodeDigestNodeKey(grantDigestSpec.indexID, ent, digestLevelRoot, nil)
+			if err := w.add(rootKey, rootVal); err != nil {
+				return fmt.Errorf("build grant digests: entitlement %q: %w", ent, err)
+			}
+			for i := range leaves {
+				key := encodeDigestNodeKey(grantDigestSpec.indexID, ent, digestLevelLeaf, leaves[i].prefix[:])
+				if err := w.add(key, leaves[i].val); err != nil {
+					return fmt.Errorf("build grant digests: entitlement %q: %w", ent, err)
+				}
+			}
+		}
+		if err := w.finish(); err != nil {
+			return fmt.Errorf("build grant digests: %w", err)
+		}
+		if w.count == 0 {
+			// No partitions at all — pebble rejects an empty SST, so
+			// just clear any stale nodes directly.
+			return e.db.DeleteRange(DigestLowerBound(), DigestUpperBound(), writeOpts(e.opts.durability))
+		}
+		if _, err := e.db.IngestAndExcise(ctx, []string{w.path}, nil, nil, pebble.KeyRange{
+			Start: DigestLowerBound(),
+			End:   DigestUpperBound(),
+		}); err != nil {
+			return fmt.Errorf("build grant digests: ingest: %w", err)
+		}
+		return nil
+	})
 }
 
 // GetEntitlementDigestRoot returns the stored grant-digest root for an
@@ -216,158 +404,22 @@ func (e *Engine) IterateGrantsByEntitlementBucket(ctx context.Context, syncID, e
 	return iter.Error()
 }
 
-// newGrantDigestMutator returns a digestMutator bound to the grant
-// digest; feed it with addGrant/removeGrant.
-func newGrantDigestMutator(e *Engine) *digestMutator {
-	return newDigestMutator(e, grantDigestSpec)
-}
-
-// freshRootAcc accumulates the per-entitlement root digest in memory
-// during a fresh sync. Flushed to Pebble at EndFreshSync (or Close).
-type freshRootAcc struct {
-	count     int64
-	xorDigest [hashLen]byte
-}
-
-// updateFreshRoot applies a signed delta (±1) to the in-memory root
-// accumulator for entID. No-op when freshRoots is nil.
-func (e *Engine) updateFreshRoot(entID string, contentHash []byte, sign int64) {
-	if e.freshRoots == nil {
-		return
-	}
-	acc := e.freshRoots[entID]
-	if acc == nil {
-		acc = &freshRootAcc{}
-		e.freshRoots[entID] = acc
-	}
-	acc.count += sign
-	xorInto(acc.xorDigest[:], contentHash)
-}
-
-// addGrantToFreshRoot records a grant insertion into its entitlement's
-// in-memory root accumulator. No-op when freshRoots is nil.
-func (e *Engine) addGrantToFreshRoot(r *v3.GrantRecord) {
-	entID := r.GetEntitlement().GetEntitlementId()
-	if entID == "" {
-		return
-	}
-	e.updateFreshRoot(entID, grantContentHash(r), +1)
-}
-
-// removeGrantFromFreshRootRaw records a grant removal from its
-// entitlement's in-memory root accumulator, reading fields from the
-// raw wire bytes without a full proto unmarshal. No-op when freshRoots
-// is nil.
-func (e *Engine) removeGrantFromFreshRootRaw(externalID string, value []byte) error {
-	if e.freshRoots == nil {
-		return nil
-	}
-	_, _, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(value)
-	if err != nil {
-		return err
-	}
-	if entID == "" {
-		return nil
-	}
-	sourceKeys, err := scanGrantSourceKeysRaw(value)
-	if err != nil {
-		return err
-	}
-	sort.Strings(sourceKeys)
-	ch := grantContentHashFromParts(entID, principalRT, principalID, externalID, sourceKeys)
-	e.updateFreshRoot(entID, ch, -1)
-	return nil
-}
-
-// FlushFreshRoots writes all in-memory root accumulators to Pebble and
-// clears the map. Must be called before BuildAllGrantDigests so the stored
-// roots are available for the count-skip optimisation, and before the
-// EndFreshSync flush so the nodes are hardened. Also called from Close as
-// a safety net for early-exit paths. Must be called within writeMu.
-func (e *Engine) FlushFreshRoots() error {
-	return e.flushFreshRoots()
-}
-
-// PersistFreshRoots writes the current in-memory root accumulators to
-// Pebble without clearing the map, so accumulation continues. Safe to
-// call at any point during a fresh sync (e.g. CheckpointSync) to make
-// the current root state durable without interrupting the sync.
-func (e *Engine) PersistFreshRoots() error {
+// DropAllGrantDigests removes every stored digest node. Called when a
+// seal-time build fails partway: a partially built digest that LOOKS
+// present would violate the present-means-exact contract, whereas
+// absent digests just make readers re-read the grants until the next
+// successful seal recalculates them.
+func (e *Engine) DropAllGrantDigests(ctx context.Context) error {
 	return e.withWrite(func() error {
-		return e.persistFreshRoots()
+		return e.db.DeleteRange(DigestLowerBound(), DigestUpperBound(), writeOpts(e.opts.durability))
 	})
 }
 
-func (e *Engine) persistFreshRoots() error {
-	if len(e.freshRoots) == 0 {
-		return nil
-	}
-	batch := e.db.NewBatch()
-	defer batch.Close()
-	for entID, acc := range e.freshRoots {
-		key := encodeDigestNodeKey(idxGrantByEntitlementPrincipalHash, entID, digestLevelRoot, nil)
-		if err := batch.Set(key, packDigestRoot(0, acc.count, acc.xorDigest[:]), nil); err != nil {
-			return err
-		}
-	}
-	return batch.Commit(pebble.NoSync)
-}
-
-func (e *Engine) flushFreshRoots() error {
-	if err := e.persistFreshRoots(); err != nil {
-		return err
-	}
-	e.freshRoots = nil
-	return nil
-}
-
-// newGrantDigestMutatorFresh is newGrantDigestMutator for the fresh-sync
-// path: absent roots are initialized as zero rather than dropped, so the
-// root node is written live as grants arrive.
-func newGrantDigestMutatorFresh(e *Engine) *digestMutator {
-	m := newDigestMutator(e, grantDigestSpec)
-	m.createIfAbsent = true
-	return m
-}
-
-// addGrant records r's insertion into its entitlement's grant digest.
-func (m *digestMutator) addGrant(r *v3.GrantRecord) error {
-	return m.grantDelta(r, m.addHash)
-}
-
-// removeGrant records r's removal from its entitlement's grant digest.
-func (m *digestMutator) removeGrant(r *v3.GrantRecord) error {
-	return m.grantDelta(r, m.removeHash)
-}
-
-// removeGrantRaw is removeGrant without a full proto unmarshal. It extracts
-// only the fields needed for the digest (entitlement, principal, sources keys)
-// directly from the raw wire bytes, avoiding heap allocation of the GrantRecord
-// and all its nested messages on the hot path.
-func (m *digestMutator) removeGrantRaw(externalID string, value []byte) error {
-	_, _, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(value)
-	if err != nil {
-		return err
-	}
-	if entID == "" || principalRT == "" || principalID == "" {
-		return nil // not in the hash index → not in the digest
-	}
-	sourceKeys, err := scanGrantSourceKeysRaw(value)
-	if err != nil {
-		return err
-	}
-	sort.Strings(sourceKeys)
-	bh := principalBucketHash(principalRT, principalID)
-	ch := grantContentHashFromParts(entID, principalRT, principalID, externalID, sourceKeys)
-	return m.removeHash(entID, bh, ch)
-}
-
-func (m *digestMutator) grantDelta(r *v3.GrantRecord, apply func(partition string, bucketHash, contentHash []byte) error) error {
-	ent := r.GetEntitlement()
-	princ := r.GetPrincipal()
-	if ent == nil || princ == nil {
-		return nil // not in the hash index → not in the digest
-	}
-	bh := principalBucketHash(princ.GetResourceTypeId(), princ.GetResourceId())
-	return apply(ent.GetEntitlementId(), bh, grantContentHash(r))
+// dropGrantDigestForEntitlement stages the removal of one entitlement's
+// digest nodes (root included) into batch. Used by the record mutation
+// paths that can run against a file holding built digests (today:
+// DeleteGrantRecord, which is callable outside a sync): the partition's
+// digest becomes "missing — recalculate" instead of silently stale.
+func dropGrantDigestForEntitlement(batch *pebble.Batch, entitlementID string) error {
+	return dropPartitionDigest(batch, grantDigestSpec, entitlementID)
 }
