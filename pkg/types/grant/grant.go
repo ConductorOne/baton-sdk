@@ -28,6 +28,33 @@ type GrantIDParts struct {
 	PrincipalID     string
 }
 
+type Source struct {
+	EntitlementID string
+	IsDirect      bool
+}
+
+type Sources []Source
+
+func (s Sources) ToBoolMap() map[string]bool {
+	if len(s) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(s))
+	for _, src := range s {
+		out[src.EntitlementID] = src.IsDirect
+	}
+	return out
+}
+
+func (s Sources) DirectFor(entitlementID string) bool {
+	for _, src := range s {
+		if src.EntitlementID == entitlementID {
+			return src.IsDirect
+		}
+	}
+	return false
+}
+
 func WithGrantMetadata(metadata map[string]interface{}) GrantOption {
 	return func(g *v2.Grant) error {
 		md, err := structpb.NewStruct(metadata)

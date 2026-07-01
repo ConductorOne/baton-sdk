@@ -1,7 +1,6 @@
 package expand
 
 import (
-	"container/heap"
 	"context"
 	"fmt"
 	"sort"
@@ -235,6 +234,10 @@ type contributionStream struct {
 	sourceEntitlementID string
 	edge                Edge
 	stream              principalGroupStream
+	// contrib is reused across groups: the k-way merge fully consumes a
+	// stream's current group before pulling the next one from that stream, so
+	// at most one group per stream is live at a time.
+	contrib topoContribution
 }
 
 func (s *contributionStream) next(ctx context.Context) (contributionGroup, bool, error) {
@@ -243,17 +246,17 @@ func (s *contributionStream) next(ctx context.Context) (contributionGroup, bool,
 		if err != nil || !ok {
 			return contributionGroup{}, ok, err
 		}
-		contrib := &topoContribution{}
+		s.contrib.resetForReuse()
 		for _, grant := range group.grants {
 			if !grantContributesOverEdge(grant, s.sourceEntitlementID, s.edge) {
 				continue
 			}
-			contrib.add(s.sourceEntitlementID, isGrantDirectOnEntitlement(grant, s.sourceEntitlementID), grant.GetPrincipal())
+			s.contrib.add(s.sourceEntitlementID, isGrantDirectOnEntitlement(grant, s.sourceEntitlementID), grant.GetPrincipal())
 		}
-		if len(contrib.sources) == 0 {
+		if len(s.contrib.sources) == 0 {
 			continue
 		}
-		return contributionGroup{key: group.key, contrib: contrib}, true, nil
+		return contributionGroup{key: group.key, contrib: &s.contrib}, true, nil
 	}
 }
 
@@ -278,22 +281,57 @@ type mergeHeapItem struct {
 	streamID int
 }
 
+// mergeHeap is a hand-rolled binary min-heap of concrete mergeHeapItem values.
+// container/heap boxes every Push/Pop through interface{}, which allocated per
+// heap operation on the expansion hot path; the concrete implementation is
+// allocation-free.
 type mergeHeap []mergeHeapItem
 
-func (h mergeHeap) Len() int { return len(h) }
-func (h mergeHeap) Less(i, j int) bool {
+func (h mergeHeap) less(i, j int) bool {
 	if h[i].group.key != h[j].group.key {
 		return principalKeyLess(h[i].group.key, h[j].group.key)
 	}
 	return h[i].streamID < h[j].streamID
 }
-func (h mergeHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
-func (h *mergeHeap) Push(x any)   { *h = append(*h, x.(mergeHeapItem)) }
-func (h *mergeHeap) Pop() any {
-	old := *h
-	n := len(old)
-	item := old[n-1]
-	*h = old[:n-1]
+
+func (h *mergeHeap) push(item mergeHeapItem) {
+	*h = append(*h, item)
+	s := *h
+	i := len(s) - 1
+	for i > 0 {
+		parent := (i - 1) / 2
+		if !s.less(i, parent) {
+			break
+		}
+		s[i], s[parent] = s[parent], s[i]
+		i = parent
+	}
+}
+
+func (h *mergeHeap) pop() mergeHeapItem {
+	s := *h
+	n := len(s) - 1
+	s[0], s[n] = s[n], s[0]
+	item := s[n]
+	s[n] = mergeHeapItem{} // release contribution references
+	s = s[:n]
+	*h = s
+	i := 0
+	for {
+		l := 2*i + 1
+		if l >= n {
+			break
+		}
+		m := l
+		if r := l + 1; r < n && s.less(r, l) {
+			m = r
+		}
+		if !s.less(m, i) {
+			break
+		}
+		s[i], s[m] = s[m], s[i]
+		i = m
+	}
 	return item
 }
 
@@ -319,7 +357,7 @@ func mergeContributionGroupStreams(
 		if !ok {
 			continue
 		}
-		heap.Push(&h, mergeHeapItem{group: group, streamID: i})
+		h.push(mergeHeapItem{group: group, streamID: i})
 	}
 
 	flusher := newDirtyFlusher(destEntitlement, sink)
@@ -332,32 +370,29 @@ func mergeContributionGroupStreams(
 		}
 		contrib.merge(group.contrib)
 	}
-	for h.Len() > 0 {
+	for len(h) > 0 {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		item := heap.Pop(&h).(mergeHeapItem)
+		item := h.pop()
 		key := item.group.key
 		base = base[:0]
-		if contrib.sources != nil {
-			clear(contrib.sources)
-		}
-		contrib.principal.reset()
+		contrib.resetForReuse()
 		consume(item.group)
 
 		if next, ok, err := streams[item.streamID].next(ctx); err != nil {
 			return err
 		} else if ok {
-			heap.Push(&h, mergeHeapItem{group: next, streamID: item.streamID})
+			h.push(mergeHeapItem{group: next, streamID: item.streamID})
 		}
 
-		for h.Len() > 0 && h[0].group.key == key {
-			same := heap.Pop(&h).(mergeHeapItem)
+		for len(h) > 0 && h[0].group.key == key {
+			same := h.pop()
 			consume(same.group)
 			if next, ok, err := streams[same.streamID].next(ctx); err != nil {
 				return err
 			} else if ok {
-				heap.Push(&h, mergeHeapItem{group: next, streamID: same.streamID})
+				h.push(mergeHeapItem{group: next, streamID: same.streamID})
 			}
 		}
 

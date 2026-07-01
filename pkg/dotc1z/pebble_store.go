@@ -512,9 +512,9 @@ func (g pebbleStoreGrants) StoreNewExpandedGrants(ctx context.Context, grants ..
 	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
 }
 
-func (g pebbleStoreGrants) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error {
+func (g pebbleStoreGrants) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
 	if fast, ok := g.inner.(interface {
-		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*v3.PrincipalRef, []map[string]bool) error
+		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*v3.PrincipalRef, []batonGrant.Sources) error
 	}); ok {
 		return g.store.markDirty(fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources))
 	}
@@ -528,6 +528,20 @@ func (g pebbleStoreGrants) StoreNewExpandedGrantContributions(ctx context.Contex
 		grants = append(grants, grant)
 	}
 	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
+}
+
+func (g pebbleStoreGrants) StoreNewExpandedGrantContributionLayer(ctx context.Context, dests []*v2.Entitlement, principals [][]*v3.PrincipalRef, sources [][]batonGrant.Sources) error {
+	if fast, ok := g.inner.(interface {
+		StoreNewExpandedGrantContributionLayer(context.Context, []*v2.Entitlement, [][]*v3.PrincipalRef, [][]batonGrant.Sources) error
+	}); ok {
+		return g.store.markDirty(fast.StoreNewExpandedGrantContributionLayer(ctx, dests, principals, sources))
+	}
+	for i, dest := range dests {
+		if err := g.StoreNewExpandedGrantContributions(ctx, dest, principals[i], sources[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func newPebbleStorePrincipalResource(ref *v3.PrincipalRef) *v2.Resource {
@@ -550,7 +564,7 @@ func newPebbleStorePrincipalResource(ref *v3.PrincipalRef) *v2.Resource {
 	}.Build()
 }
 
-func newPebbleStoreExpandedGrant(dest *v2.Entitlement, principal *v2.Resource, sources map[string]bool) (*v2.Grant, error) {
+func newPebbleStoreExpandedGrant(dest *v2.Entitlement, principal *v2.Resource, sources batonGrant.Sources) (*v2.Grant, error) {
 	if len(sources) == 0 {
 		return nil, fmt.Errorf("new expanded grant: empty sources")
 	}
@@ -561,8 +575,8 @@ func newPebbleStoreExpandedGrant(dest *v2.Entitlement, principal *v2.Resource, s
 		return nil, fmt.Errorf("new expanded grant: principal is nil")
 	}
 	sourceMap := make(map[string]*v2.GrantSources_GrantSource, len(sources))
-	for sourceID, isDirect := range sources {
-		sourceMap[sourceID] = &v2.GrantSources_GrantSource{IsDirect: isDirect}
+	for _, src := range sources {
+		sourceMap[src.EntitlementID] = &v2.GrantSources_GrantSource{IsDirect: src.IsDirect}
 	}
 	return v2.Grant_builder{
 		Id:          batonGrant.NewGrantID(principal, dest),

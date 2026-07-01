@@ -1,9 +1,14 @@
 package expand
 
 import (
+	"bufio"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
+	"os"
 	"sort"
+	"strconv"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -37,19 +42,298 @@ var expansionDirtyFlushChunk = 10000
 // synthesized-contribution path for Pebble.
 type destinationSink struct {
 	store      func(ctx context.Context, dirty []*v2.Grant, allNew bool) error
-	storeSynth func(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error
+	storeSynth func(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error
+}
+
+type synthLayerBuffer struct {
+	store       synthesizedContributionLayerStorer
+	limit       int
+	tempDir     string
+	chunks      []string
+	dests       []*v2.Entitlement
+	principals  [][]*v3.PrincipalRef
+	sources     [][]batonGrant.Sources
+	sourceArena []batonGrant.Source
+	count       int
+}
+
+func newSynthLayerBuffer(store synthesizedContributionLayerStorer) *synthLayerBuffer {
+	limit := 250000
+	if raw := os.Getenv("BATON_PEBBLE_SYNTH_LAYER_BUFFER_ROWS"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	return &synthLayerBuffer{store: store, limit: limit}
+}
+
+func (b *synthLayerBuffer) add(dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) {
+	if len(principals) == 0 {
+		return
+	}
+	principalCopy := make([]*v3.PrincipalRef, 0, len(principals))
+	sourceCopy := make([]batonGrant.Sources, 0, len(sources))
+	for i, principal := range principals {
+		if principal == nil {
+			continue
+		}
+		principalCopy = append(principalCopy, principal)
+		start := len(b.sourceArena)
+		b.sourceArena = append(b.sourceArena, sources[i]...)
+		sourceCopy = append(sourceCopy, b.sourceArena[start:])
+		b.count++
+	}
+	if len(principalCopy) == 0 {
+		return
+	}
+	b.dests = append(b.dests, dest)
+	b.principals = append(b.principals, principalCopy)
+	b.sources = append(b.sources, sourceCopy)
+}
+
+func (b *synthLayerBuffer) shouldFlush() bool {
+	return b != nil && b.limit > 0 && b.count >= b.limit
+}
+
+func (b *synthLayerBuffer) spill(ctx context.Context) error {
+	if b == nil || b.count == 0 {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if b.tempDir == "" {
+		dir, err := os.MkdirTemp("", "expand-synth-layer-")
+		if err != nil {
+			return fmt.Errorf("topological merge: create synth layer temp dir: %w", err)
+		}
+		b.tempDir = dir
+	}
+	f, err := os.CreateTemp(b.tempDir, "chunk-*.bin")
+	if err != nil {
+		return fmt.Errorf("topological merge: create synth layer chunk: %w", err)
+	}
+	path := f.Name()
+	success := false
+	defer func() {
+		_ = f.Close()
+		if !success {
+			_ = os.Remove(path)
+		}
+	}()
+	w := bufio.NewWriterSize(f, 1<<20)
+	for i, dest := range b.dests {
+		destID, destRT, destRID := "", "", ""
+		if dest != nil {
+			destID = dest.GetId()
+			if res := dest.GetResource(); res != nil && res.GetId() != nil {
+				destRT = res.GetId().GetResourceType()
+				destRID = res.GetId().GetResource()
+			}
+		}
+		for j, principal := range b.principals[i] {
+			if err := writeSynthLayerString(w, destID); err != nil {
+				return err
+			}
+			if err := writeSynthLayerString(w, destRT); err != nil {
+				return err
+			}
+			if err := writeSynthLayerString(w, destRID); err != nil {
+				return err
+			}
+			if err := writeSynthLayerString(w, principal.GetResourceTypeId()); err != nil {
+				return err
+			}
+			if err := writeSynthLayerString(w, principal.GetResourceId()); err != nil {
+				return err
+			}
+			if err := writeSynthLayerString(w, principal.GetParentResourceTypeId()); err != nil {
+				return err
+			}
+			if err := writeSynthLayerString(w, principal.GetParentResourceId()); err != nil {
+				return err
+			}
+			srcs := b.sources[i][j]
+			if err := binary.Write(w, binary.LittleEndian, uint32(len(srcs))); err != nil {
+				return err
+			}
+			for _, src := range srcs {
+				if err := writeSynthLayerString(w, src.EntitlementID); err != nil {
+					return err
+				}
+				if src.IsDirect {
+					if err := w.WriteByte(1); err != nil {
+						return err
+					}
+				} else if err := w.WriteByte(0); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	success = true
+	b.chunks = append(b.chunks, path)
+	b.clearMemory()
+	return nil
+}
+
+func (b *synthLayerBuffer) flush(ctx context.Context) error {
+	if b == nil || (b.count == 0 && len(b.chunks) == 0) {
+		return nil
+	}
+	for _, chunk := range b.chunks {
+		if err := b.flushChunk(ctx, chunk); err != nil {
+			return err
+		}
+	}
+	if err := b.store.StoreNewExpandedGrantContributionLayer(ctx, b.dests, b.principals, b.sources); err != nil {
+		return err
+	}
+	b.clearMemory()
+	if b.tempDir != "" {
+		if err := os.RemoveAll(b.tempDir); err != nil {
+			return err
+		}
+		b.tempDir = ""
+	}
+	b.chunks = b.chunks[:0]
+	return nil
+}
+
+func (b *synthLayerBuffer) flushChunk(ctx context.Context, path string) error {
+	f, err := os.Open(path) // #nosec G304 -- path is created under synth layer temp dir.
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	r := bufio.NewReaderSize(f, 1<<20)
+	var (
+		dests      []*v2.Entitlement
+		principals [][]*v3.PrincipalRef
+		sources    [][]batonGrant.Sources
+	)
+	for {
+		destID, err := readSynthLayerString(r)
+		if errorsIsEOF(err) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		destRT, err := readSynthLayerString(r)
+		if err != nil {
+			return err
+		}
+		destRID, err := readSynthLayerString(r)
+		if err != nil {
+			return err
+		}
+		principalRT, err := readSynthLayerString(r)
+		if err != nil {
+			return err
+		}
+		principalID, err := readSynthLayerString(r)
+		if err != nil {
+			return err
+		}
+		parentRT, err := readSynthLayerString(r)
+		if err != nil {
+			return err
+		}
+		parentID, err := readSynthLayerString(r)
+		if err != nil {
+			return err
+		}
+		var sourceCount uint32
+		if err := binary.Read(r, binary.LittleEndian, &sourceCount); err != nil {
+			return err
+		}
+		srcs := make(batonGrant.Sources, 0, sourceCount)
+		for i := uint32(0); i < sourceCount; i++ {
+			entitlementID, err := readSynthLayerString(r)
+			if err != nil {
+				return err
+			}
+			isDirectByte, err := r.ReadByte()
+			if err != nil {
+				return err
+			}
+			srcs = append(srcs, batonGrant.Source{EntitlementID: entitlementID, IsDirect: isDirectByte == 1})
+		}
+		dests = append(dests, v2.Entitlement_builder{
+			Id: destID,
+			Resource: v2.Resource_builder{
+				Id: v2.ResourceId_builder{ResourceType: destRT, Resource: destRID}.Build(),
+			}.Build(),
+		}.Build())
+		principals = append(principals, []*v3.PrincipalRef{v3.PrincipalRef_builder{
+			ResourceTypeId:       principalRT,
+			ResourceId:           principalID,
+			ParentResourceTypeId: parentRT,
+			ParentResourceId:     parentID,
+		}.Build()})
+		sources = append(sources, []batonGrant.Sources{srcs})
+		if len(dests) >= expansionDirtyFlushChunk {
+			if err := b.store.StoreNewExpandedGrantContributionLayer(ctx, dests, principals, sources); err != nil {
+				return err
+			}
+			dests = dests[:0]
+			principals = principals[:0]
+			sources = sources[:0]
+		}
+	}
+	if len(dests) > 0 {
+		return b.store.StoreNewExpandedGrantContributionLayer(ctx, dests, principals, sources)
+	}
+	return nil
+}
+
+func (b *synthLayerBuffer) clearMemory() {
+	b.dests = b.dests[:0]
+	b.principals = b.principals[:0]
+	b.sources = b.sources[:0]
+	b.sourceArena = b.sourceArena[:0]
+	b.count = 0
+}
+
+func writeSynthLayerString(w io.Writer, s string) error {
+	if err := binary.Write(w, binary.LittleEndian, uint32(len(s))); err != nil {
+		return err
+	}
+	_, err := io.WriteString(w, s)
+	return err
+}
+
+func readSynthLayerString(r io.Reader) (string, error) {
+	var n uint32
+	if err := binary.Read(r, binary.LittleEndian, &n); err != nil {
+		return "", err
+	}
+	buf := make([]byte, n)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return "", err
+	}
+	return string(buf), nil
+}
+
+func errorsIsEOF(err error) bool {
+	return err == io.EOF
 }
 
 // dirtyFlusher buffers synthesized and base-update grants separately so each
 // flush is homogeneous for the optional all-new fast path.
 type dirtyFlusher struct {
-	sink            *destinationSink
-	dest            *v2.Entitlement
-	limit           int
-	synth           []*v2.Grant
-	synthPrincipals []*v3.PrincipalRef
-	synthSources    []map[string]bool
-	update          []*v2.Grant
+	sink             *destinationSink
+	dest             *v2.Entitlement
+	limit            int
+	synth            []*v2.Grant
+	synthPrincipals  []*v3.PrincipalRef
+	synthSources     []batonGrant.Sources
+	synthSourceArena []batonGrant.Source
+	update           []*v2.Grant
 }
 
 func newDirtyFlusher(dest *v2.Entitlement, sink *destinationSink) *dirtyFlusher {
@@ -71,7 +355,7 @@ func (f *dirtyFlusher) add(ctx context.Context, grant *v2.Grant, isNew bool) err
 	return nil
 }
 
-func (f *dirtyFlusher) addSynthesizedContribution(ctx context.Context, contrib *topoContribution, sources map[string]bool) error {
+func (f *dirtyFlusher) addSynthesizedContribution(ctx context.Context, contrib *topoContribution, sources batonGrant.Sources) error {
 	if f.sink.storeSynth == nil {
 		principal, err := contrib.principalResource()
 		if err != nil {
@@ -86,16 +370,14 @@ func (f *dirtyFlusher) addSynthesizedContribution(ctx context.Context, contrib *
 		}
 		return f.add(ctx, grant, true)
 	}
-	sourceCopy := make(map[string]bool, len(sources))
-	for id, isDirect := range sources {
-		sourceCopy[id] = isDirect
-	}
+	sourceStart := len(f.synthSourceArena)
+	f.synthSourceArena = append(f.synthSourceArena, sources...)
 	principalRef, ok := contrib.principalRefForStore()
 	if !ok {
 		return nil
 	}
 	f.synthPrincipals = append(f.synthPrincipals, principalRef)
-	f.synthSources = append(f.synthSources, sourceCopy)
+	f.synthSources = append(f.synthSources, f.synthSourceArena[sourceStart:])
 	if len(f.synthPrincipals) >= f.limit {
 		return f.flushSynth(ctx)
 	}
@@ -116,6 +398,7 @@ func (f *dirtyFlusher) flushSynth(ctx context.Context) error {
 		}
 		f.synthPrincipals = f.synthPrincipals[:0]
 		f.synthSources = f.synthSources[:0]
+		f.synthSourceArena = f.synthSourceArena[:0]
 	}
 	if len(f.synth) == 0 {
 		return nil
@@ -150,7 +433,7 @@ type topologicalRun struct {
 	// onStored, when set, runs after each batch of dirty grants is persisted
 	// (projection appends matching projection rows so deeper nodes can read them).
 	onStored      func(ctx context.Context, dirty []*v2.Grant) error
-	onStoredSynth func(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error
+	onStoredSynth func(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error
 	// checkBudget, when set, is polled before each node and each destination so a
 	// cancelled context aborts promptly.
 	checkBudget func() error
@@ -206,6 +489,7 @@ func (e *Expander) driveTopological(
 ) error {
 	logFanInWidth(ctx, e.graph, order)
 
+	var activeLayer *synthLayerBuffer
 	sink := &destinationSink{
 		store: func(ctx context.Context, dirty []*v2.Grant, allNew bool) error {
 			if len(dirty) == 0 {
@@ -236,12 +520,21 @@ func (e *Expander) driveTopological(
 		},
 	}
 	if fast, ok := e.store.(synthesizedContributionStorer); ok {
-		sink.storeSynth = func(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error {
+		sink.storeSynth = func(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
 			if len(principals) == 0 {
 				return nil
 			}
-			if err := fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources); err != nil {
-				return fmt.Errorf("topological merge: store new expanded grant contributions: %w", err)
+			if activeLayer != nil {
+				activeLayer.add(dest, principals, sources)
+				if activeLayer.shouldFlush() {
+					if err := activeLayer.spill(ctx); err != nil {
+						return fmt.Errorf("topological merge: spill synthesized layer chunk: %w", err)
+					}
+				}
+			} else {
+				if err := fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources); err != nil {
+					return fmt.Errorf("topological merge: store new expanded grant contributions: %w", err)
+				}
 			}
 			if run.onStoredSynth != nil {
 				if err := run.onStoredSynth(ctx, dest, principals, sources); err != nil {
@@ -271,6 +564,11 @@ func (e *Expander) driveTopological(
 		if len(incoming) == 0 {
 			continue
 		}
+		if os.Getenv("BATON_PEBBLE_SYNTH_LAYER_SST") != "" {
+			if layerStore, ok := e.store.(synthesizedContributionLayerStorer); ok {
+				activeLayer = newSynthLayerBuffer(layerStore)
+			}
+		}
 		reducedAny := false
 		for _, destID := range sortedCopy(node.EntitlementIDs) {
 			if run.checkBudget != nil {
@@ -289,6 +587,13 @@ func (e *Expander) driveTopological(
 			if run.metrics != nil {
 				run.metrics.DestinationEntitlements++
 			}
+		}
+		if activeLayer != nil {
+			if err := activeLayer.flush(ctx); err != nil {
+				activeLayer = nil
+				return fmt.Errorf("topological merge: flush synthesized layer: %w", err)
+			}
+			activeLayer = nil
 		}
 		if reducedAny && run.metrics != nil {
 			run.metrics.NodesReduced++
@@ -523,8 +828,13 @@ func principalKeyLess(a, b topoPrincipalKey) bool {
 	return a.resource < b.resource
 }
 
+// topoContribution accumulates the source entitlements contributing to one
+// principal on one destination. sources is a small slice, not a map: fan-in is
+// tiny in practice (p50 ≈ 4, p99 ≈ 14 source entitlements per principal), so a
+// linear-scan slice avoids the per-group map allocation that dominated the
+// expansion allocation profile. addSource keeps entries unique.
 type topoContribution struct {
-	sources   map[string]bool
+	sources   batonGrant.Sources
 	principal topoPrincipal
 }
 
@@ -539,24 +849,35 @@ func (c *topoContribution) add(sourceEntitlementID string, isDirect bool, princi
 // upgrading an existing indirect entry to direct. It never touches the
 // principal.
 func (c *topoContribution) addSource(sourceEntitlementID string, isDirect bool) {
-	if c.sources == nil {
-		c.sources = make(map[string]bool)
+	for i := range c.sources {
+		if c.sources[i].EntitlementID == sourceEntitlementID {
+			if isDirect && !c.sources[i].IsDirect {
+				c.sources[i].IsDirect = true
+			}
+			return
+		}
 	}
-	if existing, ok := c.sources[sourceEntitlementID]; !ok || (isDirect && !existing) {
-		c.sources[sourceEntitlementID] = isDirect
-	}
+	c.sources = append(c.sources, batonGrant.Source{EntitlementID: sourceEntitlementID, IsDirect: isDirect})
 }
 
 func (c *topoContribution) merge(other *topoContribution) {
 	if other == nil {
 		return
 	}
-	for sourceID, isDirect := range other.sources {
-		c.addSource(sourceID, isDirect)
+	for _, src := range other.sources {
+		c.addSource(src.EntitlementID, src.IsDirect)
 	}
 	if c.principal.empty() {
 		c.principal.take(other.principal)
 	}
+}
+
+// resetForReuse clears the accumulated sources and principal while keeping
+// backing storage, so stream-owned contributions can be recycled across
+// principal groups without reallocating.
+func (c *topoContribution) resetForReuse() {
+	c.sources = c.sources[:0]
+	c.principal.reset()
 }
 
 func (c *topoContribution) principalRefForStore() (*v3.PrincipalRef, bool) {
@@ -590,7 +911,8 @@ func (p *topoPrincipal) empty() bool {
 func (p *topoPrincipal) reset() {
 	p.full = nil
 	p.ref = nil
-	p.resourceBytes = nil
+	// Keep capacity: setRef appends into this buffer on the next group.
+	p.resourceBytes = p.resourceBytes[:0]
 }
 
 func (p *topoPrincipal) setResource(resource *v2.Resource) {
@@ -702,7 +1024,7 @@ func isGrantDirectOnEntitlement(grant *v2.Grant, entitlementID string) bool {
 	return len(sources) == 0 || sources[entitlementID] != nil
 }
 
-func mergeContributionIntoExistingGrant(baseGrant *v2.Grant, destEntitlementID string, contrib map[string]bool) *v2.Grant {
+func mergeContributionIntoExistingGrant(baseGrant *v2.Grant, destEntitlementID string, contrib batonGrant.Sources) *v2.Grant {
 	if baseGrant == nil || len(contrib) == 0 {
 		return nil
 	}
@@ -717,14 +1039,14 @@ func mergeContributionIntoExistingGrant(baseGrant *v2.Grant, destEntitlementID s
 		sourcesMap[destEntitlementID] = &v2.GrantSources_GrantSource{IsDirect: true}
 		updated = true
 	}
-	for sourceID, isDirect := range contrib {
-		existingSource := sourcesMap[sourceID]
+	for _, src := range contrib {
+		existingSource := sourcesMap[src.EntitlementID]
 		if existingSource == nil {
-			sourcesMap[sourceID] = &v2.GrantSources_GrantSource{IsDirect: isDirect}
+			sourcesMap[src.EntitlementID] = &v2.GrantSources_GrantSource{IsDirect: src.IsDirect}
 			updated = true
 			continue
 		}
-		if isDirect && !existingSource.GetIsDirect() {
+		if src.IsDirect && !existingSource.GetIsDirect() {
 			existingSource.SetIsDirect(true)
 			updated = true
 		}
@@ -736,19 +1058,13 @@ func mergeContributionIntoExistingGrant(baseGrant *v2.Grant, destEntitlementID s
 	return grant
 }
 
-func newExpandedGrantWithSources(descEntitlement *v2.Entitlement, principal *v2.Resource, sources map[string]bool) (*v2.Grant, error) {
+func newExpandedGrantWithSources(descEntitlement *v2.Entitlement, principal *v2.Resource, sources batonGrant.Sources) (*v2.Grant, error) {
 	if len(sources) == 0 {
 		return nil, fmt.Errorf("newExpandedGrantWithSources: empty sources")
 	}
 	sourceMap := make(map[string]*v2.GrantSources_GrantSource, len(sources))
-	sourceIDs := make([]string, 0, len(sources))
-	for sourceID := range sources {
-		sourceIDs = append(sourceIDs, sourceID)
-	}
-	sort.Strings(sourceIDs)
-	for _, sourceID := range sourceIDs {
-		isDirect := sources[sourceID]
-		sourceMap[sourceID] = &v2.GrantSources_GrantSource{IsDirect: isDirect}
+	for _, src := range sources {
+		sourceMap[src.EntitlementID] = &v2.GrantSources_GrantSource{IsDirect: src.IsDirect}
 	}
 	enResource := descEntitlement.GetResource()
 	if enResource == nil {
@@ -769,6 +1085,6 @@ func newExpandedGrantWithSources(descEntitlement *v2.Entitlement, principal *v2.
 
 // NewExpandedGrantForStore builds the generic v2 expanded grant used by store
 // adapters that do not implement the direct synthesized-contribution fast path.
-func NewExpandedGrantForStore(descEntitlement *v2.Entitlement, principal *v2.Resource, sources map[string]bool) (*v2.Grant, error) {
+func NewExpandedGrantForStore(descEntitlement *v2.Entitlement, principal *v2.Resource, sources batonGrant.Sources) (*v2.Grant, error) {
 	return newExpandedGrantWithSources(descEntitlement, principal, sources)
 }

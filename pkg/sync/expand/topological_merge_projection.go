@@ -87,7 +87,7 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 			metrics.ProjectionRowsBuilt += int64(addedRows)
 			return nil
 		},
-		onStoredSynth: func(_ context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error {
+		onStoredSynth: func(_ context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
 			addedRows, err := addProjectionRowsFromSynthesized(projDB, dest, principals, sources, projectionSources)
 			if err != nil {
 				return err
@@ -326,7 +326,7 @@ func addProjectionRows(projDB *pebble.DB, grants []*v2.Grant, projectionSources 
 	return count, batch.Commit(pebble.NoSync)
 }
 
-func addProjectionRowsFromSynthesized(projDB *pebble.DB, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool, projectionSources map[string]struct{}) (int, error) {
+func addProjectionRowsFromSynthesized(projDB *pebble.DB, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources, projectionSources map[string]struct{}) (int, error) {
 	if dest == nil {
 		return 0, nil
 	}
@@ -344,13 +344,12 @@ func addProjectionRowsFromSynthesized(projDB *pebble.DB, dest *v2.Entitlement, p
 		if principal.GetResourceTypeId() == "" || principal.GetResourceId() == "" {
 			continue
 		}
-		sourceMap := sources[i]
 		grantID := grantIDForPrincipalRef(dest, principal)
 		key := projectionKey(entID, topoPrincipalKey{
 			resourceType: principal.GetResourceTypeId(),
 			resource:     principal.GetResourceId(),
 		}, grantID)
-		val := encodeProjectionValueFromPrincipalRef(principal, sourceMap[entID])
+		val := encodeProjectionValueFromPrincipalRef(principal, sources[i].DirectFor(entID))
 		if err := batch.Set(key, val, nil); err != nil {
 			return 0, err
 		}
@@ -537,6 +536,11 @@ type projectionContributionStream struct {
 	iter     *pebble.Iterator
 	started  bool
 	valid    bool
+	// contrib is reused across groups: the k-way merge fully consumes a
+	// stream's current group before pulling the next one from that stream, so
+	// at most one group per stream is live at a time. The PrincipalRef handed
+	// to it is still allocated per group because downstream sinks retain it.
+	contrib topoContribution
 }
 
 func newProjectionContributionStream(db *pebble.DB, sourceID string, edge Edge) *projectionContributionStream {
@@ -589,9 +593,9 @@ func (s *projectionContributionStream) next(_ context.Context) (contributionGrou
 		if !ok {
 			return contributionGroup{}, false, fmt.Errorf("topological projection: decode principal ref for source %q", s.sourceID)
 		}
-		contrib := &topoContribution{}
-		contrib.principal.setRef(principalRef, principalBytes)
-		contrib.addSource(s.sourceID, isDirect)
+		s.contrib.resetForReuse()
+		s.contrib.principal.setRef(principalRef, principalBytes)
+		s.contrib.addSource(s.sourceID, isDirect)
 		for s.valid = s.iter.Next(); s.valid; s.valid = s.iter.Next() {
 			nextRT, nextResource, ok := decodeProjectionPrincipal(s.iter.Key(), s.prefix)
 			if !ok {
@@ -605,9 +609,9 @@ func (s *projectionContributionStream) next(_ context.Context) (contributionGrou
 			if s.edge.IsShallow && !nextDirect {
 				continue
 			}
-			contrib.addSource(s.sourceID, nextDirect)
+			s.contrib.addSource(s.sourceID, nextDirect)
 		}
-		return contributionGroup{key: key, contrib: contrib}, true, nil
+		return contributionGroup{key: key, contrib: &s.contrib}, true, nil
 	}
 	if s.iter == nil {
 		return contributionGroup{}, false, nil

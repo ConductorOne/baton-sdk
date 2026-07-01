@@ -308,6 +308,16 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	if err := a.engine.PutSyncRunRecord(ctx, updated); err != nil {
 		return err
 	}
+	// Build the deferred by_principal index BEFORE the stats sidecar:
+	// its full grant scan also accumulates the grant portion of the
+	// stats (stashDeferredGrantStats), letting PersistSyncStats skip a
+	// second O(grants) pass over the keyspace.
+	if a.engine.deferGrantPrincipalIndex && a.engine.deferredIdxPending.Load() {
+		if err := a.engine.BuildDeferredGrantIndexes(ctx); err != nil {
+			return fmt.Errorf("EndSync: build deferred grant indexes: %w", err)
+		}
+		a.engine.deferredIdxPending.Store(false)
+	}
 	// Populate the stats sidecar BEFORE the durability flush. Stats
 	// is engine-meta keyspace; the EndFreshSync flush below covers
 	// the WAL fsync for both the sync_run record and the stats key.
@@ -321,12 +331,6 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 			zap.String("sync_id", existing.GetSyncId()),
 			zap.Error(err),
 		)
-	}
-	if a.engine.deferGrantPrincipalIndex && a.engine.deferredIdxPending.Load() {
-		if err := a.engine.BuildDeferredGrantIndexes(ctx); err != nil {
-			return fmt.Errorf("EndSync: build deferred grant indexes: %w", err)
-		}
-		a.engine.deferredIdxPending.Store(false)
 	}
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After

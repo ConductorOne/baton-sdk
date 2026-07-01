@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -89,7 +90,11 @@ type newExpandedGrantStorer interface {
 }
 
 type synthesizedContributionStorer interface {
-	StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error
+	StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error
+}
+
+type synthesizedContributionLayerStorer interface {
+	StoreNewExpandedGrantContributionLayer(ctx context.Context, dests []*v2.Entitlement, principals [][]*v3.PrincipalRef, sources [][]batonGrant.Sources) error
 }
 
 // entitlementGrantPrincipalKeyLister is an optional fast path for stores that

@@ -211,9 +211,9 @@ func (a expanderStoreAdapter) StoreNewExpandedGrants(ctx context.Context, grants
 	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
 
-func (a expanderStoreAdapter) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []map[string]bool) error {
+func (a expanderStoreAdapter) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []batonGrant.Sources) error {
 	if fast, ok := a.store.Grants().(interface {
-		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*storage_v3.PrincipalRef, []map[string]bool) error
+		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*storage_v3.PrincipalRef, []batonGrant.Sources) error
 	}); ok {
 		return fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
 	}
@@ -227,6 +227,20 @@ func (a expanderStoreAdapter) StoreNewExpandedGrantContributions(ctx context.Con
 		grants = append(grants, grant)
 	}
 	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+func (a expanderStoreAdapter) StoreNewExpandedGrantContributionLayer(ctx context.Context, dests []*v2.Entitlement, principals [][]*storage_v3.PrincipalRef, sources [][]batonGrant.Sources) error {
+	if fast, ok := a.store.Grants().(interface {
+		StoreNewExpandedGrantContributionLayer(context.Context, []*v2.Entitlement, [][]*storage_v3.PrincipalRef, [][]batonGrant.Sources) error
+	}); ok {
+		return fast.StoreNewExpandedGrantContributionLayer(ctx, dests, principals, sources)
+	}
+	for i, dest := range dests {
+		if err := a.StoreNewExpandedGrantContributions(ctx, dest, principals[i], sources[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func resourceFromPrincipalRef(ref *storage_v3.PrincipalRef) *v2.Resource {

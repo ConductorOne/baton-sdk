@@ -1,10 +1,15 @@
 package pebble
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -13,10 +18,11 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
-// PutGrantRecord writes a grant record + its by_entitlement and
-// by_principal index entries, atomically in a single pebble.Batch.
+// PutGrantRecord writes a grant record + its remaining secondary index entries,
+// atomically in a single pebble.Batch.
 //
 // This is the engine's canonical write path; other record types
 // follow the same shape (read the previous primary if any → delete
@@ -347,6 +353,255 @@ func (e *Engine) PutSynthesizedGrantRecords(ctx context.Context, records []*v3.G
 	})
 }
 
+type synthesizedGrantRecord struct {
+	id          grantIdentity
+	externalID  string
+	entitlement *v3.EntitlementRef
+	principal   *v3.PrincipalRef
+	sources     batonGrant.Sources
+}
+
+func (e *Engine) PutSynthesizedGrantContributions(ctx context.Context, records []synthesizedGrantRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	e.synthesizedWriteCalls.Add(1)
+	e.synthesizedWriteRows.Add(int64(len(records)))
+	if e.shouldIngestSynthesizedGrantContributions(len(records)) {
+		return e.ingestSynthesizedGrantContributions(ctx, records)
+	}
+	return e.putSynthesizedGrantContributionsBatch(ctx, records)
+}
+
+func (e *Engine) PutSynthesizedGrantContributionLayer(ctx context.Context, records []synthesizedGrantRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	e.synthesizedWriteCalls.Add(1)
+	e.synthesizedWriteRows.Add(int64(len(records)))
+	if e.shouldIngestSynthesizedGrantContributionLayer(len(records)) {
+		return e.ingestSynthesizedGrantContributions(ctx, records)
+	}
+	return e.putSynthesizedGrantContributionsBatch(ctx, records)
+}
+
+func (e *Engine) putSynthesizedGrantContributionsBatch(ctx context.Context, records []synthesizedGrantRecord) error {
+	return e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
+		priBatch := e.db.NewBatch()
+		defer priBatch.Close()
+		idxBatch := e.db.NewBatch()
+		defer idxBatch.Close()
+
+		now := timestamppb.Now()
+		var keyScratch, valScratch, idxScratch []byte
+		var srcScratch batonGrant.Sources
+		r := &v3.GrantRecord{} // reused across rows; see fillSynthGrantRecord
+		for i := range records {
+			rec := &records[i]
+			if rec.entitlement == nil || rec.principal == nil || len(rec.sources) == 0 {
+				continue
+			}
+			keyScratch = appendGrantIdentityKey(keyScratch[:0], rec.id)
+			fillSynthGrantRecord(r, rec, now)
+			val, err := marshalRecordAppend(valScratch[:0], r)
+			if err != nil {
+				return err
+			}
+			// sources (field 9) is the record's highest field, so appending
+			// it after the base marshal matches the deterministic byte order.
+			val, srcScratch = appendGrantSourcesWire(val, srcScratch, rec.sources)
+			valScratch = val
+			if err := priBatch.Set(keyScratch, val, nil); err != nil {
+				return err
+			}
+			idxScratch, err = e.writeGrantIndexesForIdentityScratch(idxBatch, rec.id, false, idxScratch)
+			if err != nil {
+				return err
+			}
+		}
+		if err := priBatch.Commit(pebble.NoSync); err != nil {
+			return err
+		}
+		return idxBatch.Commit(pebble.NoSync)
+	})
+}
+
+func (e *Engine) shouldIngestSynthesizedGrantContributions(rows int) bool {
+	if os.Getenv("BATON_PEBBLE_SYNTH_SST") == "" {
+		return false
+	}
+	if !e.deferGrantPrincipalIndex {
+		return false
+	}
+	threshold := 10000
+	if raw := os.Getenv("BATON_PEBBLE_SYNTH_SST_MIN_ROWS"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			threshold = parsed
+		}
+	}
+	return rows >= threshold
+}
+
+func (e *Engine) shouldIngestSynthesizedGrantContributionLayer(rows int) bool {
+	if !e.deferGrantPrincipalIndex {
+		return false
+	}
+	threshold := 10000
+	if raw := os.Getenv("BATON_PEBBLE_SYNTH_LAYER_SST_MIN_ROWS"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			threshold = parsed
+		}
+	}
+	return rows >= threshold
+}
+
+func (e *Engine) ingestSynthesizedGrantContributions(ctx context.Context, records []synthesizedGrantRecord) error {
+	return e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
+		dir, err := os.MkdirTemp("", "pebble-synth-grant-sst-")
+		if err != nil {
+			return fmt.Errorf("synth grant ingest: mkdir temp: %w", err)
+		}
+		defer os.RemoveAll(dir)
+
+		if len(records) <= synthesizedGrantInMemorySortRows() {
+			return e.ingestSynthesizedGrantContributionsInMemory(ctx, dir, records)
+		}
+		return e.ingestSynthesizedGrantContributionsSpill(ctx, dir, records)
+	})
+}
+
+func synthesizedGrantInMemorySortRows() int {
+	limit := 250000
+	if raw := os.Getenv("BATON_PEBBLE_SYNTH_LAYER_BUFFER_ROWS"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	return limit
+}
+
+type synthesizedGrantKV struct {
+	key []byte
+	val []byte
+}
+
+func (e *Engine) ingestSynthesizedGrantContributionsInMemory(ctx context.Context, dir string, records []synthesizedGrantRecord) error {
+	now := timestamppb.Now()
+	entriesPtr := synthEntriesPool.Get().(*[]synthesizedGrantKV)
+	entries := (*entriesPtr)[:0]
+	var arena synthKVArena
+	defer func() {
+		// Drop the arena-backed slices before recycling the chunks.
+		clear(entries)
+		*entriesPtr = entries[:0]
+		synthEntriesPool.Put(entriesPtr)
+		arena.release()
+	}()
+	var keyScratch, valScratch []byte
+	var srcScratch batonGrant.Sources
+	r := &v3.GrantRecord{} // reused across rows; see fillSynthGrantRecord
+	for i := range records {
+		rec := &records[i]
+		if rec.entitlement == nil || rec.principal == nil || len(rec.sources) == 0 {
+			continue
+		}
+		keyScratch = appendGrantIdentityKey(keyScratch[:0], rec.id)
+		fillSynthGrantRecord(r, rec, now)
+		val, err := marshalRecordAppend(valScratch[:0], r)
+		if err != nil {
+			return err
+		}
+		// sources (field 9) is the record's highest field, so appending it
+		// after the base marshal matches the deterministic byte order.
+		val, srcScratch = appendGrantSourcesWire(val, srcScratch, rec.sources)
+		valScratch = val
+		entryKey, entryVal := arena.copyKV(keyScratch, val)
+		entries = append(entries, synthesizedGrantKV{key: entryKey, val: entryVal})
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return bytes.Compare(entries[i].key, entries[j].key) < 0
+	})
+	w, err := newBulkSSTWriter(dir, "synth-grant-primary")
+	if err != nil {
+		return err
+	}
+	success := false
+	defer func() {
+		_ = w.finish()
+		if !success {
+			_ = os.Remove(w.path)
+		}
+	}()
+	for _, entry := range entries {
+		if err := w.add(entry.key, entry.val); err != nil {
+			return err
+		}
+	}
+	if err := w.finish(); err != nil {
+		return err
+	}
+	success = true
+	if err := e.db.Ingest(ctx, []string{w.path}); err != nil {
+		return fmt.Errorf("synth grant ingest: ingest in-memory sst: %w", err)
+	}
+	return nil
+}
+
+func (e *Engine) ingestSynthesizedGrantContributionsSpill(ctx context.Context, dir string, records []synthesizedGrantRecord) error {
+	sorters := min(4, max(2, runtime.GOMAXPROCS(0)/2))
+	sem := make(chan struct{}, sorters)
+	primary := newSpillSorter(dir, "synth-grant-primary", sem, bulkSpillKeyChunkBytes)
+	defer primary.abort()
+
+	now := timestamppb.Now()
+	var keyScratch, valScratch []byte
+	var srcScratch batonGrant.Sources
+	r := &v3.GrantRecord{} // reused across rows; see fillSynthGrantRecord
+	for i := range records {
+		rec := &records[i]
+		if rec.entitlement == nil || rec.principal == nil || len(rec.sources) == 0 {
+			continue
+		}
+		keyScratch = appendGrantIdentityKey(keyScratch[:0], rec.id)
+		fillSynthGrantRecord(r, rec, now)
+		val, err := marshalRecordAppend(valScratch[:0], r)
+		if err != nil {
+			return err
+		}
+		// sources (field 9) is the record's highest field, so appending it
+		// after the base marshal matches the deterministic byte order.
+		val, srcScratch = appendGrantSourcesWire(val, srcScratch, rec.sources)
+		valScratch = val
+		if err := primary.add(keyScratch, val); err != nil {
+			return err
+		}
+	}
+	chunks, err := primary.finalize()
+	if err != nil {
+		return err
+	}
+	if len(chunks) == 0 {
+		return nil
+	}
+	sstPath := filepath.Join(dir, "synth-grant-primary.sst")
+	if err := mergeSortedSpillChunksToSST(ctx, sstPath, "synth-grant-primary", chunks); err != nil {
+		return err
+	}
+	if err := e.db.Ingest(ctx, []string{sstPath}); err != nil {
+		return fmt.Errorf("synth grant ingest: ingest: %w", err)
+	}
+	return nil
+}
+
 // UnsafePutUniqueGrantRecords is the trusted-import write path: it writes
 // records unconditionally, with NO read-before-write and NO dedup pass. Do not
 // use it for live connector output. The engine must currently be in fresh-sync
@@ -559,6 +814,10 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 	if err != nil {
 		return scratch, err
 	}
+	return e.writeGrantIndexesForIdentityScratch(batch, id, r.GetNeedsExpansion(), scratch)
+}
+
+func (e *Engine) writeGrantIndexesForIdentityScratch(batch *pebble.Batch, id grantIdentity, needsExpansion bool, scratch []byte) ([]byte, error) {
 	if e.deferGrantPrincipalIndex {
 		e.deferredIdxPending.Store(true)
 	} else {
@@ -567,7 +826,7 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 			return scratch, err
 		}
 	}
-	if r.GetNeedsExpansion() {
+	if needsExpansion {
 		scratch = appendGrantByNeedsExpansionIdentityIndexKey(scratch[:0], id)
 		if err := batch.Set(scratch, nil, nil); err != nil {
 			return scratch, err

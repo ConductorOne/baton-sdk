@@ -12,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 
@@ -684,6 +684,14 @@ func (s *spillSorter) add(key, val []byte) error {
 	}
 	if s.arena == nil {
 		s.arena = getSpillArena()
+		if cap(s.arena) < s.chunkBytes {
+			// Pooled arenas are sized for bulkSpillKeyChunkBytes; a sorter
+			// with a larger chunk size (deferredIndexSpillChunkBytes)
+			// allocates its full arena up front instead of append-doubling
+			// through it, and returns the small one to the pool.
+			putSpillArena(s.arena)
+			s.arena = make([]byte, 0, s.chunkBytes)
+		}
 		s.views = getSpillViews()
 	}
 	keyOff := len(s.arena)
@@ -717,8 +725,11 @@ func (s *spillSorter) cutAndDispatch() {
 }
 
 func (s *spillSorter) sortAndWriteChunk(arena []byte, views []kvView) {
-	sort.Slice(views, func(i, j int) bool {
-		return bytes.Compare(arena[views[i].keyOff:views[i].keyEnd], arena[views[j].keyOff:views[j].keyEnd]) < 0
+	// slices.SortFunc, not sort.Slice: typed swaps instead of the
+	// reflection-based Swapper. Chunk sorts run hot (57M+ keys per whale
+	// deferred index build) and the reflective swap was ~half the sort cost.
+	slices.SortFunc(views, func(a, b kvView) int {
+		return bytes.Compare(arena[a.keyOff:a.keyEnd], arena[b.keyOff:b.keyEnd])
 	})
 	s.chunkMu.Lock()
 	chunkPath := filepath.Join(s.dir, fmt.Sprintf("%s-chunk-%04d.bin", s.name, len(s.chunks)))
@@ -891,6 +902,8 @@ func readSpillEntry(r io.Reader, key, val *[]byte, lenBuf *[4]byte) (bool, error
 // single SST. Duplicate keys are corruption (the importer requires
 // globally unique tuples) and fail the merge.
 func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chunks []string) error {
+	start := time.Now()
+	l := ctxzap.Extract(ctx)
 	readers := make([]*os.File, 0, len(chunks))
 	defer func() {
 		for _, r := range readers {
@@ -930,10 +943,9 @@ func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chun
 		}
 	}()
 	var last []byte
+	var written int64
+	lastLog := start
 	for len(*h) > 0 {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		item := h.pop()
 		if bytes.Equal(item.key, last) {
 			return fmt.Errorf("%w: bucket %s key %x", errBulkImportDuplicateKey, name, item.key)
@@ -944,6 +956,24 @@ func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chun
 		}
 		if err := writer.add(item.key, v); err != nil {
 			return err
+		}
+		written++
+		// Throttle the per-entry bookkeeping: ctx.Err and time.Now on every
+		// one of 57M+ merged entries were measurable in profiles.
+		if written&0xFFFF == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if now := time.Now(); now.Sub(lastLog) >= 15*time.Second {
+				l.Info("spill sorter: merging chunks",
+					zap.String("name", name),
+					zap.Int("chunks", len(chunks)),
+					zap.Int("active_chunks", len(*h)+1),
+					zap.Int64("entries_written", written),
+					zap.Duration("elapsed", now.Sub(start)),
+				)
+				lastLog = now
+			}
 		}
 		last = append(last[:0], item.key...)
 		ok, err := readSpillEntry(bufReaders[item.chunkIdx], &keyBufs[item.chunkIdx], &valBufs[item.chunkIdx], &lenBuf)
@@ -957,6 +987,12 @@ func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chun
 	if err := writer.finish(); err != nil {
 		return err
 	}
+	l.Info("spill sorter: merge complete",
+		zap.String("name", name),
+		zap.Int("chunks", len(chunks)),
+		zap.Int64("entries_written", written),
+		zap.Duration("elapsed", time.Since(start)),
+	)
 	success = true
 	return nil
 }

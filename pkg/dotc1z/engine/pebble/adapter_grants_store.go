@@ -12,7 +12,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	batonEntitlement "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
@@ -104,7 +103,7 @@ func (g pebbleGrantStore) StoreNewExpandedGrants(ctx context.Context, grants ...
 	return g.a.engine.PutSynthesizedGrantRecords(ctx, merged)
 }
 
-func (g pebbleGrantStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error {
+func (g pebbleGrantStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
 	if g.a.currentSyncID() == "" {
 		return ErrNoCurrentSync
 	}
@@ -114,49 +113,90 @@ func (g pebbleGrantStore) StoreNewExpandedGrantContributions(ctx context.Context
 	if len(principals) != len(sources) {
 		return fmt.Errorf("store new expanded grant contributions: principals/sources length mismatch")
 	}
-	merged := make([]*v3.GrantRecord, 0, len(principals))
 	entRef := entitlementToRef(dest)
 	if entRef == nil {
 		return fmt.Errorf("store new expanded grant contributions: entitlement is nil")
 	}
+	entID := entitlementIdentityFromParts(entRef.GetResourceTypeId(), entRef.GetResourceId(), entRef.GetEntitlementId())
+	entParts := entID.toPublicParts()
+	// Pooled: the engine's Put/ingest paths copy everything they need out of
+	// records before returning, so the backing array is safe to recycle.
+	recordsPtr := getSynthRecords()
+	records := *recordsPtr
+	defer func() {
+		*recordsPtr = records
+		putSynthRecords(recordsPtr)
+	}()
 	for i, principal := range principals {
 		if principal == nil || principal.GetResourceTypeId() == "" || principal.GetResourceId() == "" {
 			continue
 		}
-		sourceRecords := sourceBoolMapToV3(sources[i])
-		if len(sourceRecords) == 0 {
+		if len(sources[i]) == 0 {
 			return fmt.Errorf("store new expanded grant contributions: empty sources")
 		}
-		merged = append(merged, v3.GrantRecord_builder{
-			ExternalId:  grantIDForPrincipalRef(dest, principal),
-			Entitlement: entRef,
-			Principal:   principal,
-			Annotations: []*anypb.Any{expandedGrantImmutableAnnotationAny},
-			Sources:     sourceRecords,
-		}.Build())
+		id := grantIdentity{
+			entitlement:     entID,
+			principalTypeID: principal.GetResourceTypeId(),
+			principalID:     principal.GetResourceId(),
+		}
+		records = append(records, synthesizedGrantRecord{
+			id:          id,
+			externalID:  batonGrant.EncodeGrantID(entParts, id.principalTypeID, id.principalID),
+			entitlement: entRef,
+			principal:   principal,
+			sources:     sources[i],
+		})
 	}
-	return g.a.engine.PutSynthesizedGrantRecords(ctx, merged)
+	return g.a.engine.PutSynthesizedGrantContributions(ctx, records)
 }
 
-func grantIDForPrincipalRef(dest *v2.Entitlement, principal *v3.PrincipalRef) string {
-	if principal == nil {
-		return ""
+func (g pebbleGrantStore) StoreNewExpandedGrantContributionLayer(ctx context.Context, dests []*v2.Entitlement, principals [][]*v3.PrincipalRef, sources [][]batonGrant.Sources) error {
+	if g.a.currentSyncID() == "" {
+		return ErrNoCurrentSync
 	}
-	if dest == nil {
-		return batonEntitlement.JoinEscapedID("", principal.GetResourceTypeId(), principal.GetResourceId())
+	// Pooled: the engine's Put/ingest paths copy everything they need out of
+	// records before returning, so the backing array is safe to recycle.
+	recordsPtr := getSynthRecords()
+	records := *recordsPtr
+	defer func() {
+		*recordsPtr = records
+		putSynthRecords(recordsPtr)
+	}()
+	for i, dest := range dests {
+		if i >= len(principals) || i >= len(sources) {
+			return fmt.Errorf("store new expanded grant contribution layer: length mismatch")
+		}
+		entRef := entitlementToRef(dest)
+		if entRef == nil {
+			return fmt.Errorf("store new expanded grant contribution layer: entitlement is nil")
+		}
+		entID := entitlementIdentityFromParts(entRef.GetResourceTypeId(), entRef.GetResourceId(), entRef.GetEntitlementId())
+		entParts := entID.toPublicParts()
+		for j, principal := range principals[i] {
+			if principal == nil || principal.GetResourceTypeId() == "" || principal.GetResourceId() == "" {
+				continue
+			}
+			if j >= len(sources[i]) {
+				return fmt.Errorf("store new expanded grant contribution layer: principals/sources length mismatch")
+			}
+			if len(sources[i][j]) == 0 {
+				return fmt.Errorf("store new expanded grant contribution layer: empty sources")
+			}
+			id := grantIdentity{
+				entitlement:     entID,
+				principalTypeID: principal.GetResourceTypeId(),
+				principalID:     principal.GetResourceId(),
+			}
+			records = append(records, synthesizedGrantRecord{
+				id:          id,
+				externalID:  batonGrant.EncodeGrantID(entParts, id.principalTypeID, id.principalID),
+				entitlement: entRef,
+				principal:   principal,
+				sources:     sources[i][j],
+			})
+		}
 	}
-	if res := dest.GetResource(); res != nil && res.GetId() != nil {
-		parts := batonEntitlement.DeriveEntitlementIDParts(
-			res.GetId().GetResourceType(),
-			res.GetId().GetResource(),
-			dest.GetId(),
-		)
-		return batonGrant.EncodeGrantID(parts, principal.GetResourceTypeId(), principal.GetResourceId())
-	}
-	if parts, err := batonEntitlement.DecodeEntitlementID(dest.GetId()); err == nil {
-		return batonGrant.EncodeGrantID(parts, principal.GetResourceTypeId(), principal.GetResourceId())
-	}
-	return batonEntitlement.JoinEscapedID(dest.GetId(), principal.GetResourceTypeId(), principal.GetResourceId())
+	return g.a.engine.PutSynthesizedGrantContributionLayer(ctx, records)
 }
 
 func (g pebbleGrantStore) translateExpanded(syncID string, grants []*v2.Grant) []*v3.GrantRecord {
@@ -179,17 +219,6 @@ func (g pebbleGrantStore) translateExpanded(syncID string, grants []*v2.Grant) [
 		merged = append(merged, newRec)
 	}
 	return merged
-}
-
-func sourceBoolMapToV3(sources map[string]bool) map[string]*v3.GrantSourceRecord {
-	if len(sources) == 0 {
-		return nil
-	}
-	out := make(map[string]*v3.GrantSourceRecord, len(sources))
-	for id, isDirect := range sources {
-		out[id] = v3.GrantSourceRecord_builder{IsDirect: isDirect}.Build()
-	}
-	return out
 }
 
 // PendingExpansionPage returns the next page of grants whose

@@ -72,6 +72,13 @@ type Engine struct {
 	computedStatsMu sync.Mutex
 	computedStats   map[string]*v3.SyncStatsRecord
 
+	// deferredGrantStats holds the grant counts BuildDeferredGrantIndexes
+	// accumulated while scanning the whole grant primary keyspace, so
+	// computeSyncStats can skip its own O(grants) scan at EndSync. Consumed
+	// once, guarded by sync_id.
+	deferredGrantStatsMu sync.Mutex
+	deferredGrantStats   *deferredGrantStats
+
 	deferGrantPrincipalIndex bool
 	deferredIdxPending       atomic.Bool
 
