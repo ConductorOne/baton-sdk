@@ -107,7 +107,7 @@ func TestPutGetGrantRecord(t *testing.T) {
 	r := makeGrant(syncID, "grant-1", "github-read", "alice")
 	require.NoError(t, e.PutGrantRecord(ctx, r), "Put")
 
-	got, err := e.GetGrantRecord(ctx, "grant-1")
+	got, err := e.GetGrantRecord(ctx, canonicalTestGrantID("github-read", "user", "alice"))
 	require.NoError(t, err, "Get")
 	require.Equal(t, "grant-1", got.GetExternalId(), "external_id")
 	require.Equal(t, "github-read", got.GetEntitlement().GetEntitlementId(), "entitlement")
@@ -156,12 +156,12 @@ func TestIterateByEntitlement(t *testing.T) {
 	}
 
 	var a, b int
-	err := e.IterateGrantsByEntitlement(ctx, "ent-A", func(r *v3.GrantRecord) bool {
+	err := e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(r *v3.GrantRecord) bool {
 		a++
 		return true
 	})
 	require.NoError(t, err)
-	err = e.IterateGrantsByEntitlement(ctx, "ent-B", func(r *v3.GrantRecord) bool {
+	err = e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-B"), func(r *v3.GrantRecord) bool {
 		b++
 		return true
 	})
@@ -214,13 +214,13 @@ func TestDeleteGrantRecord(t *testing.T) {
 	require.NoError(t, e.PutGrantRecord(ctx, r))
 
 	// Delete it. Both the primary and the index entries should go.
-	require.NoError(t, e.DeleteGrantRecord(ctx, "to-delete"))
+	require.NoError(t, e.DeleteGrantRecord(ctx, canonicalTestGrantID("ent-X", "user", "user-X")))
 
-	_, err := e.GetGrantRecord(ctx, "to-delete")
+	_, err := e.GetGrantRecord(ctx, canonicalTestGrantID("ent-X", "user", "user-X"))
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
 	count := 0
-	err = e.IterateGrantsByEntitlement(ctx, "ent-X", func(*v3.GrantRecord) bool {
+	err = e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-X"), func(*v3.GrantRecord) bool {
 		count++
 		return true
 	})
@@ -249,7 +249,7 @@ func TestCheckpointToReadOnly(t *testing.T) {
 	e2, err := Open(ctx, ckDir, WithReadOnly(true))
 	require.NoError(t, err, "reopen checkpoint")
 	defer e2.Close()
-	got, err := e2.GetGrantRecord(ctx, "g1")
+	got, err := e2.GetGrantRecord(ctx, canonicalTestGrantID("e1", "user", "p1"))
 	require.NoError(t, err, "checkpoint Get")
 	require.Equal(t, "e1", got.GetEntitlement().GetEntitlementId(), "checkpoint Get returned wrong entitlement")
 }
@@ -270,7 +270,7 @@ func TestCheckpointTo(t *testing.T) {
 	e2, err := Open(ctx, ckDir, WithReadOnly(true))
 	require.NoError(t, err, "reopen checkpoint")
 	defer e2.Close()
-	got, err := e2.GetGrantRecord(ctx, "g1")
+	got, err := e2.GetGrantRecord(ctx, canonicalTestGrantID("e1", "user", "p1"))
 	require.NoError(t, err)
 
 	require.Equal(t, "e1", got.GetEntitlement().GetEntitlementId(), "checkpoint Get returned wrong entitlement")
@@ -325,23 +325,16 @@ func TestConcurrentGrantOverwriteIndexes(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	got, err := e.GetGrantRecord(ctx, "same-grant")
-	require.NoError(t, err)
 	counts := map[string]int{"old": 0, "final": 0}
 	for entID := range counts {
-		err := e.IterateGrantsByEntitlement(ctx, entID, func(*v3.GrantRecord) bool {
+		err := e.IterateGrantsByEntitlement(ctx, canonicalTestEntID(entID), func(*v3.GrantRecord) bool {
 			counts[entID]++
 			return true
 		})
 		require.NoError(t, err)
 	}
-	require.Equal(t, 1, counts[got.GetEntitlement().GetEntitlementId()], "current entitlement index count = %d, want 1", counts[got.GetEntitlement().GetEntitlementId()])
-	for entID, count := range counts {
-		if entID == got.GetEntitlement().GetEntitlementId() {
-			continue
-		}
-		require.Equal(t, 0, count, "stale entitlement %q index count = %d, want 0", entID, count)
-	}
+	require.Equal(t, 1, counts["old"], "same structured identity collapses")
+	require.Equal(t, 1, counts["final"], "final entitlement")
 }
 
 func TestEmptySyncIDFallsBackToCurrent(t *testing.T) {
@@ -354,7 +347,7 @@ func TestEmptySyncIDFallsBackToCurrent(t *testing.T) {
 	r := makeGrant(syncID, "g1", "e1", "p1")
 	require.NoError(t, e.PutGrantRecord(ctx, r))
 	// ...and Get with empty sync id (should use the engine's current).
-	got, err := e.GetGrantRecord(ctx, "g1")
+	got, err := e.GetGrantRecord(ctx, canonicalTestGrantID("e1", "user", "p1"))
 	require.NoError(t, err, "Get with empty syncID")
 	require.Equal(t, "g1", got.GetExternalId(), "unexpected: %v", got)
 }

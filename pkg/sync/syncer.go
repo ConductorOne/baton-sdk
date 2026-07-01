@@ -2267,8 +2267,27 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			for _, entId := range expandableAnno.GetEntitlementIds() {
 				parsedEnt, err := bid.ParseEntitlementBid(entId)
 				if err != nil {
-					l.Error("error parsing expandable entitlement bid", zap.Any("entitlementId", entId))
-					continue
+					parts, decodeErr := entitlement.DecodeEntitlementID(entId)
+					if decodeErr != nil {
+						l.Error("error parsing expandable entitlement id", zap.Any("entitlementId", entId), zap.Error(err))
+						continue
+					}
+					if parts.Kind == entitlement.EntitlementKindCustom {
+						if bidEnt, bidErr := bid.ParseEntitlementBid(parts.Name); bidErr == nil {
+							parsedEnt = bidEnt
+						}
+					}
+					if parsedEnt == nil {
+						parsedEnt = v2.Entitlement_builder{
+							Resource: v2.Resource_builder{
+								Id: v2.ResourceId_builder{
+									ResourceType: parts.ResourceTypeID,
+									Resource:     parts.ResourceID,
+								}.Build(),
+							}.Build(),
+							Slug: parts.Name,
+						}.Build()
+					}
 				}
 				resourceBID, err := bid.MakeBid(parsedEnt.GetResource())
 				if err != nil {

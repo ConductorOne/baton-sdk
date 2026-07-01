@@ -490,7 +490,7 @@ func entitlementBucket() bucketSpec {
 		syncRange: func() ([]byte, []byte) {
 			return enginepkg.EntitlementLowerBound(), enginepkg.EntitlementUpperBound()
 		},
-		key: func(m proto.Message) string { return m.(*v3.EntitlementRecord).GetExternalId() },
+		key: func(m proto.Message) string { return enginepkg.EntitlementRecordIdentityKey(m.(*v3.EntitlementRecord)) },
 		ts:  func(m proto.Message) *timestamppb.Timestamp { return m.(*v3.EntitlementRecord).GetDiscoveredAt() },
 		indexKeys: func(m proto.Message) [][]byte {
 			return enginepkg.EntitlementIndexKeys(m.(*v3.EntitlementRecord))
@@ -509,7 +509,7 @@ func grantBucket() bucketSpec {
 		syncRange: func() ([]byte, []byte) {
 			return enginepkg.GrantLowerBound(), enginepkg.GrantUpperBound()
 		},
-		key: func(m proto.Message) string { return m.(*v3.GrantRecord).GetExternalId() },
+		key: func(m proto.Message) string { return enginepkg.GrantRecordIdentityKey(m.(*v3.GrantRecord)) },
 		ts:  func(m proto.Message) *timestamppb.Timestamp { return m.(*v3.GrantRecord).GetDiscoveredAt() },
 		indexKeys: func(m proto.Message) [][]byte {
 			return enginepkg.GrantIndexKeys(m.(*v3.GrantRecord))

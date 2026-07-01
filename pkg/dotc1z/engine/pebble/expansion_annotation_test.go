@@ -72,10 +72,10 @@ func TestExpansionAnnotationRoundtrip(t *testing.T) {
 		}
 		require.Equal(t, 1, count)
 		require.Equal(t, "g1", seen.GrantExternalID)
-		require.Equal(t, "ent-A", seen.TargetEntitlementID)
+		require.Equal(t, "app:github:custom:ent-A", seen.TargetEntitlementID)
 		require.True(t, seen.NeedsExpansion)
 		require.NotNil(t, seen.Annotation)
-		require.Equal(t, []string{"src-ent-1", "src-ent-2"}, seen.Annotation.GetEntitlementIds())
+		require.Equal(t, []string{"user:alice:custom:src-ent-1", "user:alice:custom:src-ent-2"}, seen.Annotation.GetEntitlementIds())
 		require.True(t, seen.Annotation.GetShallow())
 		require.Equal(t, []string{"role"}, seen.Annotation.GetResourceTypeIds())
 	})

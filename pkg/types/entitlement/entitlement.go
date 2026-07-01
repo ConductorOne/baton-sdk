@@ -1,12 +1,32 @@
 package entitlement
 
 import (
-	"fmt"
+	"errors"
+	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"google.golang.org/protobuf/proto"
 )
+
+const (
+	EntitlementKindSDK    = "sdk"
+	EntitlementKindCustom = "custom"
+
+	customEntitlementIDMarker = "custom"
+)
+
+var (
+	ErrInvalidEntitlementID = errors.New("invalid entitlement id")
+	ErrInvalidEscapedID     = errors.New("invalid escaped id")
+)
+
+type EntitlementIDParts struct {
+	ResourceTypeID string
+	ResourceID     string
+	Kind           string
+	Name           string
+}
 
 type EntitlementOption func(*v2.Entitlement)
 
@@ -77,7 +97,120 @@ func WithExclusionGroupDefault(exclusionGroupID string, order uint32) Entitlemen
 }
 
 func NewEntitlementID(resource *v2.Resource, permission string) string {
-	return fmt.Sprintf("%s:%s:%s", resource.GetId().GetResourceType(), resource.GetId().GetResource(), permission)
+	return EncodeEntitlementID(resource.GetId().GetResourceType(), resource.GetId().GetResource(), EntitlementKindSDK, permission)
+}
+
+func EncodeEntitlementID(resourceTypeID, resourceID, kind, name string) string {
+	if kind == EntitlementKindCustom {
+		return JoinEscapedID(resourceTypeID, resourceID, customEntitlementIDMarker, name)
+	}
+	return JoinEscapedID(resourceTypeID, resourceID, name)
+}
+
+func DecodeEntitlementID(id string) (EntitlementIDParts, error) {
+	parts, err := SplitEscapedID(id)
+	if err != nil {
+		return EntitlementIDParts{}, err
+	}
+	switch {
+	case len(parts) == 3:
+		return EntitlementIDParts{
+			ResourceTypeID: parts[0],
+			ResourceID:     parts[1],
+			Kind:           EntitlementKindSDK,
+			Name:           parts[2],
+		}, nil
+	case len(parts) == 4 && parts[2] == customEntitlementIDMarker:
+		return EntitlementIDParts{
+			ResourceTypeID: parts[0],
+			ResourceID:     parts[1],
+			Kind:           EntitlementKindCustom,
+			Name:           parts[3],
+		}, nil
+	default:
+		return EntitlementIDParts{}, ErrInvalidEntitlementID
+	}
+}
+
+func DeriveEntitlementIDParts(resourceTypeID, resourceID, entitlementID string) EntitlementIDParts {
+	if parts, err := DecodeEntitlementID(entitlementID); err == nil &&
+		parts.ResourceTypeID == resourceTypeID &&
+		parts.ResourceID == resourceID {
+		return parts
+	}
+
+	return DeriveLegacyEntitlementIDParts(resourceTypeID, resourceID, entitlementID)
+}
+
+func DeriveLegacyEntitlementIDParts(resourceTypeID, resourceID, entitlementID string) EntitlementIDParts {
+	prefix := resourceTypeID + ":" + resourceID + ":"
+	if strings.HasPrefix(entitlementID, prefix) {
+		return EntitlementIDParts{
+			ResourceTypeID: resourceTypeID,
+			ResourceID:     resourceID,
+			Kind:           EntitlementKindSDK,
+			Name:           strings.TrimPrefix(entitlementID, prefix),
+		}
+	}
+
+	return EntitlementIDParts{
+		ResourceTypeID: resourceTypeID,
+		ResourceID:     resourceID,
+		Kind:           EntitlementKindCustom,
+		Name:           entitlementID,
+	}
+}
+
+func (p EntitlementIDParts) Encode() string {
+	return EncodeEntitlementID(p.ResourceTypeID, p.ResourceID, p.Kind, p.Name)
+}
+
+func JoinEscapedID(parts ...string) string {
+	var b strings.Builder
+	for i, part := range parts {
+		if i > 0 {
+			b.WriteByte(':')
+		}
+		writeEscapedIDPart(&b, part)
+	}
+	return b.String()
+}
+
+func SplitEscapedID(id string) ([]string, error) {
+	parts := make([]string, 0, 6)
+	var b strings.Builder
+	escaped := false
+	for _, r := range id {
+		switch {
+		case escaped:
+			if r != '\\' && r != ':' {
+				return nil, ErrInvalidEscapedID
+			}
+			b.WriteRune(r)
+			escaped = false
+		case r == '\\':
+			escaped = true
+		case r == ':':
+			parts = append(parts, b.String())
+			b.Reset()
+		default:
+			b.WriteRune(r)
+		}
+	}
+	if escaped {
+		return nil, ErrInvalidEscapedID
+	}
+	parts = append(parts, b.String())
+	return parts, nil
+}
+
+func writeEscapedIDPart(b *strings.Builder, part string) {
+	for _, r := range part {
+		if r == '\\' || r == ':' {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
 }
 
 func NewPermissionEntitlement(resource *v2.Resource, name string, entitlementOptions ...EntitlementOption) *v2.Entitlement {

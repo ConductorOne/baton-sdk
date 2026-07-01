@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"runtime"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,6 +14,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	entitlementtype "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 )
 
 // parallelTransform applies fn to each index [0,n) using up to GOMAXPROCS
@@ -97,17 +97,17 @@ func (s *sanitizer) transformID(id string) string {
 	if id == "" {
 		return ""
 	}
-	if !strings.Contains(id, ":") {
+	parts, err := entitlementtype.SplitEscapedID(id)
+	if err != nil || len(parts) == 1 {
 		return s.id(id)
 	}
-	parts := strings.Split(id, ":")
 	for i, p := range parts {
-		if p != "" && s.isKnownResourceType(p) {
+		if p == "custom" || (p != "" && s.isKnownResourceType(p)) {
 			continue
 		}
 		parts[i] = s.id(p)
 	}
-	return strings.Join(parts, ":")
+	return entitlementtype.JoinEscapedID(parts...)
 }
 
 func (s *sanitizer) isKnownResourceType(token string) bool {

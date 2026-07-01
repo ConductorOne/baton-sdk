@@ -122,13 +122,28 @@ func (g pebbleGrantStore) PendingExpansionPage(ctx context.Context, pageToken st
 			continue
 		}
 		exp := rec.GetExpansion()
+		ent := rec.GetEntitlement()
+		princ := rec.GetPrincipal()
+		targetEntitlementID := entitlementIdentityFromParts(
+			ent.GetResourceTypeId(),
+			ent.GetResourceId(),
+			ent.GetEntitlementId(),
+		).toPublicID()
+		sourceEntitlementIDs := make([]string, 0, len(exp.GetEntitlementIds()))
+		for _, id := range exp.GetEntitlementIds() {
+			sourceEntitlementIDs = append(sourceEntitlementIDs, entitlementIdentityFromParts(
+				princ.GetResourceTypeId(),
+				princ.GetResourceId(),
+				id,
+			).toPublicID())
+		}
 		out = append(out, c1zstore.PendingExpansion{
 			GrantExternalID:         rec.GetExternalId(),
-			TargetEntitlementID:     rec.GetEntitlement().GetEntitlementId(),
-			PrincipalResourceTypeID: rec.GetPrincipal().GetResourceTypeId(),
-			PrincipalResourceID:     rec.GetPrincipal().GetResourceId(),
+			TargetEntitlementID:     targetEntitlementID,
+			PrincipalResourceTypeID: princ.GetResourceTypeId(),
+			PrincipalResourceID:     princ.GetResourceId(),
 			Annotation: v2.GrantExpandable_builder{
-				EntitlementIds:  exp.GetEntitlementIds(),
+				EntitlementIds:  sourceEntitlementIDs,
 				Shallow:         exp.GetShallow(),
 				ResourceTypeIds: exp.GetResourceTypeIds(),
 			}.Build(),
@@ -181,13 +196,32 @@ func (g pebbleGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken
 	}
 	rows := make([]c1zstore.GrantAnnotation, 0, len(records))
 	for _, rec := range records {
+		ent := rec.GetEntitlement()
+		princ := rec.GetPrincipal()
+		targetEntitlementID := entitlementIdentityFromParts(
+			ent.GetResourceTypeId(),
+			ent.GetResourceId(),
+			ent.GetEntitlementId(),
+		).toPublicID()
+		expansion := expansionRecordToV2(rec.GetExpansion())
+		if expansion != nil {
+			sourceEntitlementIDs := make([]string, 0, len(expansion.GetEntitlementIds()))
+			for _, id := range expansion.GetEntitlementIds() {
+				sourceEntitlementIDs = append(sourceEntitlementIDs, entitlementIdentityFromParts(
+					princ.GetResourceTypeId(),
+					princ.GetResourceId(),
+					id,
+				).toPublicID())
+			}
+			expansion.SetEntitlementIds(sourceEntitlementIDs)
+		}
 		rows = append(rows, c1zstore.GrantAnnotation{
 			Grant:                   V3GrantToV2(rec),
-			Annotation:              expansionRecordToV2(rec.GetExpansion()),
+			Annotation:              expansion,
 			GrantExternalID:         rec.GetExternalId(),
-			TargetEntitlementID:     rec.GetEntitlement().GetEntitlementId(),
-			PrincipalResourceTypeID: rec.GetPrincipal().GetResourceTypeId(),
-			PrincipalResourceID:     rec.GetPrincipal().GetResourceId(),
+			TargetEntitlementID:     targetEntitlementID,
+			PrincipalResourceTypeID: princ.GetResourceTypeId(),
+			PrincipalResourceID:     princ.GetResourceId(),
 			NeedsExpansion:          rec.GetNeedsExpansion(),
 		})
 	}

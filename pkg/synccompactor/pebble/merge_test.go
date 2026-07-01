@@ -102,11 +102,11 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 	destSync := ksuid.New().String()
 	tie := time.Unix(1500, 0).UTC()
 
-	// Same key + same discovered_at in both, distinguished by principal id.
+	// Same structured key + same discovered_at in both, distinguished by retained external_id.
 	g1 := grantAt(syncA, "g-tie", tie)
-	g1.SetPrincipal(v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "from-src1"}.Build())
+	g1.SetExternalId("from-src1")
 	g2 := grantAt(syncB, "g-tie", tie)
-	g2.SetPrincipal(v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "from-src2"}.Build())
+	g2.SetExternalId("from-src2")
 
 	_ = src1.SetCurrentSync(syncA)
 	require.NoError(t, src1.PutGrantRecords(ctx, g1))
@@ -122,7 +122,7 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 
 	var winner string
 	require.NoError(t, dst.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
-		winner = r.GetPrincipal().GetResourceId()
+		winner = r.GetExternalId()
 		return true
 	}))
 	require.Equal(t, "from-src1", winner, "tie winner (earliest-applied incumbent, strict-> parity)")
@@ -167,10 +167,10 @@ func assertFoldWinners(t *testing.T, ctx context.Context, eng *enginepkg.Engine,
 	res, err := eng.GetResourceRecord(ctx, "user", "u1")
 	require.NoError(t, err)
 	require.Equal(t, resDN, res.GetDisplayName(), "resource winner")
-	ent, err := eng.GetEntitlementRecord(ctx, "e-1")
+	ent, err := eng.GetEntitlementRecord(ctx, "user:u1:custom:e-1")
 	require.NoError(t, err)
 	require.Equal(t, entDN, ent.GetDisplayName(), "entitlement winner")
-	g, err := eng.GetGrantRecord(ctx, "g-1")
+	g, err := eng.GetGrantRecord(ctx, "app:github:custom:g-1:user:"+grantPrincipal)
 	require.NoError(t, err)
 	require.Equal(t, grantPrincipal, g.GetPrincipal().GetResourceId(), "grant winner")
 }
@@ -223,8 +223,9 @@ func TestMergeIntoNewerPartialOverridesBaseAllTypes(t *testing.T) {
 
 	// The newer partial wins for every type.
 	assertFoldWinners(t, ctx, dest, "rt-other", "res-other", "ent-other", "other")
-	// One override per primary record type (rt, resource, entitlement, grant).
-	require.Equal(t, int64(4), stats.OverriddenRecords, "one override per primary type")
+	// The resource_type, resource, and entitlement override. The grant fixture
+	// changes principal, which is now part of grant identity, so it coexists.
+	require.Equal(t, int64(3), stats.OverriddenRecords, "one override per non-grant primary type")
 	require.Positive(t, stats.DeadBytes, "overrides must record the shadowed incumbents' bytes")
 	assertIndexesMatchDerived(t, ctx, dest)
 }
@@ -274,11 +275,11 @@ func TestMergeIntoDeadBytesExactCount(t *testing.T) {
 	wantDead := sumBucketRawBytes(t, dest, grantBucket())
 
 	override := v3.GrantRecord_builder{
-		ExternalId: "g-1",
+		ExternalId: "g-1-newer",
 		Entitlement: v3.EntitlementRef_builder{
-			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",
+			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "g-1",
 		}.Build(),
-		Principal:      v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "a-deliberately-longer-principal-id"}.Build(),
+		Principal:      v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "p"}.Build(),
 		NeedsExpansion: true,
 		DiscoveredAt:   timestamppb.New(newer),
 	}.Build()

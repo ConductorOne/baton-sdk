@@ -195,6 +195,8 @@ func (m *C1ZManifestV3) validate(all bool) error {
 
 	// no validation rules for FoldDeadBytes
 
+	// no validation rules for PebbleIdIndexFormat
+
 	if len(errors) > 0 {
 		return C1ZManifestV3MultiError(errors)
 	}

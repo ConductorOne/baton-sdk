@@ -592,6 +592,19 @@ func unmarshalManifestHeader(b []byte) (*c1zv3.C1ZManifestV3, error) {
 			}
 			out.SetFoldDeadBytes(int64(v)) //nolint:gosec // proto int64 varint round-trips through uint64 by definition.
 			b = b[n:]
+		case 42:
+			if typ != protowire.VarintType {
+				return nil, fmt.Errorf("c1z v3: manifest pebble_id_index_format has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeVarint(b)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			if v > uint64(1<<31-1) {
+				return nil, fmt.Errorf("c1z v3: manifest pebble_id_index_format overflow: %d", v)
+			}
+			out.SetPebbleIdIndexFormat(c1zv3.PebbleIdIndexFormat(v))
+			b = b[n:]
 		default:
 			n := protowire.ConsumeFieldValue(num, typ, b)
 			if n < 0 {

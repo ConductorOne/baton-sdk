@@ -47,7 +47,7 @@ func TestSanitizePebbleEndToEnd(t *testing.T) {
 
 	// Cardinality preserved.
 	require.Equal(t, 2, resourceTypeCount(t, ctx, ro))
-	require.Equal(t, 2, resourceCount(t, ctx, ro))
+	require.Equal(t, 6, resourceCount(t, ctx, ro))
 	require.Equal(t, 2, entitlementCount(t, ctx, ro))
 	require.Equal(t, 5, grantCount(t, ctx, ro))
 

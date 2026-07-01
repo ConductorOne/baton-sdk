@@ -8,6 +8,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -569,8 +570,7 @@ func newExpandedGrantWithSources(descEntitlement *v2.Entitlement, principal *v2.
 	if principal == nil {
 		return nil, fmt.Errorf("newExpandedGrantWithSources: principal is nil")
 	}
-	pid := principal.GetId()
-	grantID := descEntitlement.GetId() + ":" + pid.GetResourceType() + ":" + pid.GetResource()
+	grantID := batonGrant.NewGrantID(principal, descEntitlement)
 	return v2.Grant_builder{
 		Id:          grantID,
 		Entitlement: descEntitlement,

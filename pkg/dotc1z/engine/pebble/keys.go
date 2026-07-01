@@ -102,6 +102,24 @@ func appendGrantKey(dst []byte, externalID string) []byte {
 	return codec.AppendTupleStrings(dst, externalID)
 }
 
+func encodeGrantIdentityKey(id grantIdentity) []byte {
+	return appendGrantIdentityKey(make([]byte, 0, 128), id)
+}
+
+func appendGrantIdentityKey(dst []byte, id grantIdentity) []byte {
+	dst = append(dst, versionV3, typeGrant)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(
+		dst,
+		id.entitlement.resourceTypeID,
+		id.entitlement.resourceID,
+		id.entitlement.kind,
+		id.entitlement.name,
+		id.principalTypeID,
+		id.principalID,
+	)
+}
+
 // encodeGrantPrefix returns the by-type prefix for iterating all
 // grants. Paired with encodeGrantKey.
 func encodeGrantPrefix() []byte {
@@ -129,6 +147,24 @@ func appendGrantByEntitlementIndexKey(dst []byte, entitlementID, principalRT, pr
 	return codec.AppendTupleStrings(dst, entitlementID, principalRT, principalID, externalID)
 }
 
+func encodeGrantByEntitlementIdentityIndexKey(id grantIdentity) []byte {
+	return appendGrantByEntitlementIdentityIndexKey(make([]byte, 0, 128), id)
+}
+
+func appendGrantByEntitlementIdentityIndexKey(dst []byte, id grantIdentity) []byte {
+	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlement)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(
+		dst,
+		id.entitlement.resourceTypeID,
+		id.entitlement.resourceID,
+		id.entitlement.kind,
+		id.entitlement.name,
+		id.principalTypeID,
+		id.principalID,
+	)
+}
+
 // encodeGrantByPrincipalIndexKey:
 //
 //	v3 | typeIndex | idxGrantByPrincipal | 0x00 |
@@ -148,6 +184,24 @@ func appendGrantByPrincipalIndexKey(dst []byte, principalRT, principalID, extern
 	return codec.AppendTupleStrings(dst, principalRT, principalID, externalID)
 }
 
+func encodeGrantByPrincipalIdentityIndexKey(id grantIdentity) []byte {
+	return appendGrantByPrincipalIdentityIndexKey(make([]byte, 0, 128), id)
+}
+
+func appendGrantByPrincipalIdentityIndexKey(dst []byte, id grantIdentity) []byte {
+	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipal)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(
+		dst,
+		id.principalTypeID,
+		id.principalID,
+		id.entitlement.resourceTypeID,
+		id.entitlement.resourceID,
+		id.entitlement.kind,
+		id.entitlement.name,
+	)
+}
+
 // encodeGrantByEntitlementPrefix is the by-value prefix for "all
 // grants with this entitlement_id". Trailing separator is
 // load-bearing — see the keys.go convention doc.
@@ -156,6 +210,38 @@ func encodeGrantByEntitlementPrefix(entitlementID string) []byte {
 	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlement)
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleStrings(buf, entitlementID)
+	return codec.AppendTupleSeparator(buf)
+}
+
+func encodeGrantPrimaryEntitlementPrefix(id entitlementIdentity) []byte {
+	buf := make([]byte, 0, 128)
+	buf = append(buf, versionV3, typeGrant)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, id.resourceTypeID, id.resourceID, id.kind, id.name)
+	return codec.AppendTupleSeparator(buf)
+}
+
+func encodeGrantPrimaryEntitlementResourcePrefix(resourceTypeID, resourceID string) []byte {
+	buf := make([]byte, 0, 64)
+	buf = append(buf, versionV3, typeGrant)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, resourceTypeID, resourceID)
+	return codec.AppendTupleSeparator(buf)
+}
+
+func encodeGrantByEntitlementIdentityPrefix(id entitlementIdentity) []byte {
+	buf := make([]byte, 0, 128)
+	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlement)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, id.resourceTypeID, id.resourceID, id.kind, id.name)
+	return codec.AppendTupleSeparator(buf)
+}
+
+func encodeGrantByEntitlementPrincipalIdentityPrefix(ent entitlementIdentity, principalRT, principalID string) []byte {
+	buf := make([]byte, 0, 128)
+	buf = append(buf, versionV3, typeGrant)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, ent.resourceTypeID, ent.resourceID, ent.kind, ent.name, principalRT, principalID)
 	return codec.AppendTupleSeparator(buf)
 }
 
@@ -193,6 +279,24 @@ func appendGrantByNeedsExpansionIndexKey(dst []byte, externalID string) []byte {
 	return codec.AppendTupleStrings(dst, externalID)
 }
 
+func encodeGrantByNeedsExpansionIdentityIndexKey(id grantIdentity) []byte {
+	return appendGrantByNeedsExpansionIdentityIndexKey(make([]byte, 0, 128), id)
+}
+
+func appendGrantByNeedsExpansionIdentityIndexKey(dst []byte, id grantIdentity) []byte {
+	dst = append(dst, versionV3, typeIndex, idxGrantByNeedsExpansion)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(
+		dst,
+		id.entitlement.resourceTypeID,
+		id.entitlement.resourceID,
+		id.entitlement.kind,
+		id.entitlement.name,
+		id.principalTypeID,
+		id.principalID,
+	)
+}
+
 // encodeGrantByPrincipalResourceTypeIndexKey: by-principal-RT
 // index. Closes the only O(G) full-scan path in the Reader
 // (ListGrantsForResourceType, which previously walked the entire
@@ -228,7 +332,8 @@ func encodeGrantByPrincipalResourceTypePrefix(principalRT string) []byte {
 // encodeGrantByNeedsExpansionPrefix is the by-type prefix for all
 // grants that still need expansion processing.
 func encodeGrantByNeedsExpansionPrefix() []byte {
-	return []byte{versionV3, typeIndex, idxGrantByNeedsExpansion}
+	buf := []byte{versionV3, typeIndex, idxGrantByNeedsExpansion}
+	return codec.AppendTupleSeparator(buf)
 }
 
 // encodeGrantByPrincipalPrefix is the by-value prefix for "all
@@ -239,6 +344,14 @@ func encodeGrantByPrincipalPrefix(principalRT, principalID string) []byte {
 	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipal)
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleStrings(buf, principalRT, principalID)
+	return codec.AppendTupleSeparator(buf)
+}
+
+func encodeGrantByPrincipalResourceTypeIdentityPrefix(principalRT string) []byte {
+	buf := make([]byte, 0, 32+len(principalRT))
+	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipal)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, principalRT)
 	return codec.AppendTupleSeparator(buf)
 }
 
@@ -359,6 +472,16 @@ func encodeEntitlementKey(externalID string) []byte {
 	return codec.AppendTupleStrings(buf, externalID)
 }
 
+func encodeEntitlementIdentityKey(id entitlementIdentity) []byte {
+	return appendEntitlementIdentityKey(make([]byte, 0, 96), id)
+}
+
+func appendEntitlementIdentityKey(dst []byte, id entitlementIdentity) []byte {
+	dst = append(dst, versionV3, typeEntitlement)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(dst, id.resourceTypeID, id.resourceID, id.kind, id.name)
+}
+
 // encodeEntitlementPrefix is the by-type prefix for entitlements.
 func encodeEntitlementPrefix() []byte {
 	return []byte{versionV3, typeEntitlement}
@@ -384,6 +507,14 @@ func encodeEntitlementByResourceIndexKey(resourceTypeID, resourceID, externalID 
 func encodeEntitlementByResourcePrefix(resourceTypeID, resourceID string) []byte {
 	buf := make([]byte, 0, 32+len(resourceTypeID)+len(resourceID))
 	buf = append(buf, versionV3, typeIndex, idxEntitlementByResource)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, resourceTypeID, resourceID)
+	return codec.AppendTupleSeparator(buf)
+}
+
+func encodeEntitlementPrimaryResourcePrefix(resourceTypeID, resourceID string) []byte {
+	buf := make([]byte, 0, 64)
+	buf = append(buf, versionV3, typeEntitlement)
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleStrings(buf, resourceTypeID, resourceID)
 	return codec.AppendTupleSeparator(buf)

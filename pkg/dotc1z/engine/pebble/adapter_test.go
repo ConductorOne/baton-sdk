@@ -41,6 +41,24 @@ func mkV2Grant(id, entID, principalRT, principalID string) *v2.Grant {
 	}.Build()
 }
 
+func canonicalTestEntID(entID string) string {
+	return entitlementIdentityFromParts("app", "github", entID).toPublicID()
+}
+
+func canonicalTestGrantID(entID, principalRT, principalID string) string {
+	return canonicalGrantRecordID(v3.GrantRecord_builder{
+		Entitlement: v3.EntitlementRef_builder{
+			ResourceTypeId: "app",
+			ResourceId:     "github",
+			EntitlementId:  entID,
+		}.Build(),
+		Principal: v3.PrincipalRef_builder{
+			ResourceTypeId: principalRT,
+			ResourceId:     principalID,
+		}.Build(),
+	}.Build())
+}
+
 func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
@@ -88,14 +106,15 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 	require.Equal(t, 2, len(gforP.GetList()), "ListGrantsForPrincipal alice count")
 
 	// GetGrant single.
+	g1ID := canonicalTestGrantID("ent-A", "user", "alice")
 	g, err := a.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
-		GrantId: "g1",
+		GrantId: g1ID,
 	}.Build())
 	require.NoError(t, err, "GetGrant")
-	require.Equal(t, "g1", g.GetGrant().GetId(), "GetGrant id")
+	require.Equal(t, g1ID, g.GetGrant().GetId(), "GetGrant id")
 
 	// DeleteGrant
-	require.NoError(t, a.DeleteGrant(ctx, "g1"), "DeleteGrant")
+	require.NoError(t, a.DeleteGrant(ctx, g1ID), "DeleteGrant")
 	resp, err = a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Equal(t, 2, len(resp.GetList()), "post-delete count")
@@ -121,7 +140,7 @@ func TestAdapterEndSyncClearsEngineCurrentSync(t *testing.T) {
 	// Reads do NOT gate on the bound sync: the finished sync's data
 	// persists and stays readable through the engine after EndSync.
 	count := 0
-	err = a.engine.IterateGrantsByEntitlement(ctx, "ent-A", func(*v3.GrantRecord) bool {
+	err = a.engine.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
 		count++
 		return true
 	})

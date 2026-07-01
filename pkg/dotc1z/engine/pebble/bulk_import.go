@@ -54,8 +54,6 @@ var grantIndexFamilies = []byte{
 	idxGrantByEntitlement,
 	idxGrantByPrincipal,
 	idxGrantByNeedsExpansion,
-	idxGrantByPrincipalResourceType,
-	idxGrantByEntitlementResource,
 }
 
 // bulkSSTWriter builds one SST file for a single disjoint key bucket.
@@ -155,10 +153,8 @@ type BulkSyncImport struct {
 	// across all sorters and shards.
 	sortSem chan struct{}
 
-	// Parent-level sorters for the (single-threaded) resource and
-	// entitlement index keys.
-	idxResourceByParent      *spillSorter
-	idxEntitlementByResource *spillSorter
+	// Parent-level sorter for the (single-threaded) resource index keys.
+	idxResourceByParent *spillSorter
 
 	// mu guards shard registration/aggregation. The grant hot path
 	// never takes it.
@@ -218,7 +214,6 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 		*w.slot = sw
 	}
 	b.idxResourceByParent = newSpillSorter(dir, fmt.Sprintf("index-%02x-p", idxResourceByParent), b.sortSem, bulkSpillKeyChunkBytes)
-	b.idxEntitlementByResource = newSpillSorter(dir, fmt.Sprintf("index-%02x-p", idxEntitlementByResource), b.sortSem, bulkSpillKeyChunkBytes)
 	return b, nil
 }
 
@@ -293,7 +288,11 @@ func (s *BulkGrantShard) AddGrants(ctx context.Context, grants ...*v2.Grant) err
 			return s.fail(err)
 		}
 		s.valBuf = val
-		if err := s.grants.add(encodeGrantKey(r.GetExternalId()), val); err != nil {
+		id, err := grantIdentityFromRecord(r)
+		if err != nil {
+			return s.fail(err)
+		}
+		if err := s.grants.add(encodeGrantIdentityKey(id), val); err != nil {
 			return s.fail(err)
 		}
 		s.entRT[r.GetEntitlement().GetResourceTypeId()]++
@@ -419,19 +418,14 @@ func (b *BulkSyncImport) AddEntitlements(ctx context.Context, ents ...*v2.Entitl
 		if err != nil {
 			return err
 		}
-		if err := b.entitlements.add(encodeEntitlementKey(rec.GetExternalId()), val); err != nil {
+		id, err := entitlementIdentityFromRecord(rec)
+		if err != nil {
+			return err
+		}
+		if err := b.entitlements.add(encodeEntitlementIdentityKey(id), val); err != nil {
 			return err
 		}
 		b.entitlementsByRT[rec.GetResource().GetResourceTypeId()]++
-		if res := rec.GetResource(); res != nil && res.GetResourceId() != "" {
-			k := encodeEntitlementByResourceIndexKey(
-				res.GetResourceTypeId(), res.GetResourceId(),
-				rec.GetExternalId(),
-			)
-			if err := b.idxEntitlementByResource.add(k, nil); err != nil {
-				return err
-			}
-		}
 	}
 	return nil
 }
@@ -517,7 +511,6 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 	}
 	units := []mergeUnit{
 		{name: fmt.Sprintf("index-%02x", idxResourceByParent), sorters: []*spillSorter{b.idxResourceByParent}},
-		{name: fmt.Sprintf("index-%02x", idxEntitlementByResource), sorters: []*spillSorter{b.idxEntitlementByResource}},
 	}
 	for _, idx := range grantIndexFamilies {
 		u := mergeUnit{name: fmt.Sprintf("index-%02x", idx)}
@@ -609,7 +602,7 @@ func (b *BulkSyncImport) Abort() {
 			w.abort()
 		}
 	}
-	for _, w := range []*spillSorter{b.idxResourceByParent, b.idxEntitlementByResource} {
+	for _, w := range []*spillSorter{b.idxResourceByParent} {
 		if w != nil {
 			w.abort()
 		}

@@ -69,6 +69,18 @@ message C1ZManifestV3 {
   // zero. The compactor's auto mode reads this from the envelope
   // header to force a rebuild once waste crosses its threshold.
   int64 fold_dead_bytes = 41;
+
+  // Advisory mirror of the Pebble in-payload grant/entitlement ID/index format.
+  // The Pebble engine-meta stamp remains authoritative; this header field lets
+  // tooling inspect legacy-vs-structured index state without extracting the
+  // Pebble payload.
+  PebbleIdIndexFormat pebble_id_index_format = 42;
+}
+
+enum PebbleIdIndexFormat {
+  PEBBLE_ID_INDEX_FORMAT_UNSPECIFIED = 0;
+  PEBBLE_ID_INDEX_FORMAT_LEGACY_EXTERNAL_ID = 1;
+  PEBBLE_ID_INDEX_FORMAT_STRUCTURED_V1 = 2;
 }
 
 enum PayloadEncoding {

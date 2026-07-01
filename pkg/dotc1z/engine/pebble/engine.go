@@ -112,6 +112,10 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		_ = e.Close()
 		return nil, err
 	}
+	if err := e.verifyOrStampIDIndexFormat(ctx); err != nil {
+		_ = e.Close()
+		return nil, err
+	}
 	// Run secondary-index migrations before returning. Migrations
 	// are skipped for read-only opens (the on-disk file is
 	// immutable, so we'd error out trying to backfill).

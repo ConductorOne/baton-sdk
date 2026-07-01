@@ -181,6 +181,22 @@ func GrantRecordKey(externalID string) []byte {
 	return encodeGrantKey(externalID)
 }
 
+func EntitlementRecordIdentityKey(r *v3.EntitlementRecord) string {
+	id, err := entitlementIdentityFromRecord(r)
+	if err != nil {
+		return r.GetExternalId()
+	}
+	return string(encodeEntitlementIdentityKey(id))
+}
+
+func GrantRecordIdentityKey(r *v3.GrantRecord) string {
+	id, err := grantIdentityFromRecord(r)
+	if err != nil {
+		return r.GetExternalId()
+	}
+	return string(encodeGrantIdentityKey(id))
+}
+
 func ResourceIndexKeys(r *v3.ResourceRecord) [][]byte {
 	parent := r.GetParent()
 	if parent == nil || parent.GetResourceId() == "" {
@@ -221,26 +237,15 @@ func AppendResourceIndexKeyRawBytes(dst []byte, parentRT []byte, parentID []byte
 }
 
 func EntitlementIndexKeys(r *v3.EntitlementRecord) [][]byte {
-	res := r.GetResource()
-	if res == nil || res.GetResourceId() == "" {
-		return nil
-	}
-	return [][]byte{encodeEntitlementByResourceIndexKey(res.GetResourceTypeId(), res.GetResourceId(), r.GetExternalId())}
+	return nil
 }
 
 func ForEachEntitlementIndexKey(r *v3.EntitlementRecord, yield func([]byte) error) error {
-	res := r.GetResource()
-	if res == nil || res.GetResourceId() == "" {
-		return nil
-	}
-	return yield(encodeEntitlementByResourceIndexKey(res.GetResourceTypeId(), res.GetResourceId(), r.GetExternalId()))
+	return nil
 }
 
 func ForEachEntitlementIndexKeyRaw(resourceRT string, resourceID string, externalID string, yield func([]byte) error) error {
-	if resourceID == "" {
-		return nil
-	}
-	return yield(encodeEntitlementByResourceIndexKey(resourceRT, resourceID, externalID))
+	return nil
 }
 
 func AppendEntitlementIndexKeyRawBytes(dst []byte, resourceRT []byte, resourceID []byte, externalID []byte) []byte {
@@ -258,29 +263,8 @@ func GrantIndexKeys(r *v3.GrantRecord) [][]byte {
 }
 
 func ForEachGrantIndexKey(r *v3.GrantRecord, yield func([]byte) error) error {
-	ent := r.GetEntitlement()
-	princ := r.GetPrincipal()
-	ext := r.GetExternalId()
-	if ent != nil && princ != nil {
-		if err := yield(encodeGrantByEntitlementIndexKey(ent.GetEntitlementId(), princ.GetResourceTypeId(), princ.GetResourceId(), ext)); err != nil {
-			return err
-		}
-	}
-	if ent != nil && ent.GetResourceId() != "" {
-		if err := yield(encodeGrantByEntitlementResourceIndexKey(ent.GetResourceTypeId(), ent.GetResourceId(), ext)); err != nil {
-			return err
-		}
-	}
-	if princ != nil {
-		if err := yield(encodeGrantByPrincipalIndexKey(princ.GetResourceTypeId(), princ.GetResourceId(), ext)); err != nil {
-			return err
-		}
-		if err := yield(encodeGrantByPrincipalResourceTypeIndexKey(princ.GetResourceTypeId(), ext)); err != nil {
-			return err
-		}
-	}
-	if r.GetNeedsExpansion() {
-		if err := yield(encodeGrantByNeedsExpansionIndexKey(ext)); err != nil {
+	for _, key := range grantIndexKeys(r) {
+		if err := yield(key); err != nil {
 			return err
 		}
 	}
@@ -297,26 +281,22 @@ func ForEachGrantIndexKeyRaw(
 	needsExpansion bool,
 	yield func([]byte) error,
 ) error {
-	if entitlementID != "" && principalRT != "" && principalID != "" {
-		if err := yield(encodeGrantByEntitlementIndexKey(entitlementID, principalRT, principalID, externalID)); err != nil {
-			return err
-		}
+	if entitlementRT == "" || entitlementResourceID == "" || entitlementID == "" || principalRT == "" || principalID == "" {
+		return nil
 	}
-	if entitlementResourceID != "" {
-		if err := yield(encodeGrantByEntitlementResourceIndexKey(entitlementRT, entitlementResourceID, externalID)); err != nil {
-			return err
-		}
+	id := grantIdentity{
+		entitlement:     entitlementIdentityFromParts(entitlementRT, entitlementResourceID, entitlementID),
+		principalTypeID: principalRT,
+		principalID:     principalID,
 	}
-	if principalRT != "" && principalID != "" {
-		if err := yield(encodeGrantByPrincipalIndexKey(principalRT, principalID, externalID)); err != nil {
-			return err
-		}
-		if err := yield(encodeGrantByPrincipalResourceTypeIndexKey(principalRT, externalID)); err != nil {
-			return err
-		}
+	if err := yield(encodeGrantByEntitlementIdentityIndexKey(id)); err != nil {
+		return err
+	}
+	if err := yield(encodeGrantByPrincipalIdentityIndexKey(id)); err != nil {
+		return err
 	}
 	if needsExpansion {
-		if err := yield(encodeGrantByNeedsExpansionIndexKey(externalID)); err != nil {
+		if err := yield(encodeGrantByNeedsExpansionIdentityIndexKey(id)); err != nil {
 			return err
 		}
 	}

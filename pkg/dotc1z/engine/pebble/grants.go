@@ -85,11 +85,11 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		skipGet := e.takeFreshGrantsEmpty()
 
 		// Dedup pre-pass: keep only the LAST occurrence of each
-		// external_id. The map value is the records[]
+		// structured grant identity. The map value is the records[]
 		// index — when we re-iterate, we process record i only if
 		// dedup[ext] == i.
 		type dedupKey struct {
-			extID string
+			id grantIdentity
 		}
 		var dedup map[dedupKey]int
 		if len(records) > 1 {
@@ -98,7 +98,11 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 				if r == nil {
 					continue
 				}
-				dedup[dedupKey{r.GetExternalId()}] = i
+				id, err := grantIdentityFromRecord(r)
+				if err != nil {
+					return err
+				}
+				dedup[dedupKey{id}] = i
 			}
 		}
 
@@ -106,12 +110,16 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			if r == nil {
 				continue
 			}
+			id, err := grantIdentityFromRecord(r)
+			if err != nil {
+				return err
+			}
 			if dedup != nil {
-				if dedup[dedupKey{r.GetExternalId()}] != i {
+				if dedup[dedupKey{id}] != i {
 					continue
 				}
 			}
-			key := encodeGrantKey(r.GetExternalId())
+			key := encodeGrantIdentityKey(id)
 			val, err := marshalRecord(r)
 			if err != nil {
 				return err
@@ -190,19 +198,23 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 		now := timestamppb.Now()
 
 		// Dedup pre-pass: keep only the LAST occurrence of each
-		// external_id. The expander appends the same deterministic
+		// structured grant identity. The expander appends the same deterministic
 		// grant id more than once when it merges sources for a
 		// principal across a source page, so without this the earlier
 		// occurrences would leak orphan index entries (db.Get can't see
 		// in-batch writes). Same safety net as PutGrantRecords.
-		var dedup map[string]int
+		var dedup map[grantIdentity]int
 		if len(records) > 1 {
-			dedup = make(map[string]int, len(records))
+			dedup = make(map[grantIdentity]int, len(records))
 			for i, r := range records {
 				if r == nil {
 					continue
 				}
-				dedup[r.GetExternalId()] = i
+				id, err := grantIdentityFromRecord(r)
+				if err != nil {
+					return err
+				}
+				dedup[id] = i
 			}
 		}
 
@@ -217,11 +229,15 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 			if r == nil {
 				continue
 			}
-			if dedup != nil && dedup[r.GetExternalId()] != i {
+			id, err := grantIdentityFromRecord(r)
+			if err != nil {
+				return err
+			}
+			if dedup != nil && dedup[id] != i {
 				continue
 			}
 			ext := r.GetExternalId()
-			keyScratch = appendGrantKey(keyScratch[:0], ext)
+			keyScratch = appendGrantIdentityKey(keyScratch[:0], id)
 
 			oldVal, closer, getErr := e.db.Get(keyScratch)
 			switch {
@@ -346,8 +362,18 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 						failed.Store(true)
 						return
 					}
+					id, err := grantIdentityFromRecord(r)
+					if err != nil {
+						errMu.Lock()
+						if encErr == nil {
+							encErr = err
+						}
+						errMu.Unlock()
+						failed.Store(true)
+						return
+					}
 					enc[i] = encoded{
-						priKey:  encodeGrantKey(r.GetExternalId()),
+						priKey:  encodeGrantIdentityKey(id),
 						priVal:  val,
 						idxKeys: grantIndexKeys(r),
 					}
@@ -388,9 +414,13 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 	})
 }
 
-// GetGrantRecord fetches a grant record by external_id.
+// GetGrantRecord fetches a grant record by canonical grant id.
 func (e *Engine) GetGrantRecord(ctx context.Context, externalID string) (*v3.GrantRecord, error) {
-	key := encodeGrantKey(externalID)
+	id, err := grantIdentityFromID(externalID)
+	if err != nil {
+		return nil, pebble.ErrNotFound
+	}
+	key := encodeGrantIdentityKey(id)
 	val, closer, err := e.db.Get(key)
 	if err != nil {
 		return nil, err
@@ -406,7 +436,11 @@ func (e *Engine) GetGrantRecord(ctx context.Context, externalID string) (*v3.Gra
 // DeleteGrantRecord removes a grant and its index entries.
 func (e *Engine) DeleteGrantRecord(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
-		key := encodeGrantKey(externalID)
+		id, err := grantIdentityFromID(externalID)
+		if err != nil {
+			return nil
+		}
+		key := encodeGrantIdentityKey(id)
 
 		batch := e.db.NewBatch()
 		defer batch.Close()
@@ -431,35 +465,19 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, externalID string) error
 	})
 }
 
-// grantIndexKeys returns the secondary-index keys for r. The set mirrors the
-// index keyspaces documented on writeGrantIndexes:
-//   - by_entitlement: (entitlement_id, principal) — needs both ent + principal.
-//   - by_entitlement_resource: the resource side of the entitlement (drives
-//     ListGrants with req.Resource set).
-//   - by_principal and by_principal_resource_type: the principal side.
-//   - needs_expansion: only when the grant currently carries the flag.
+// grantIndexKeys returns the secondary-index keys for r. Folded families
+// (by_entitlement_resource and by_principal_resource_type) are served by primary
+// or by_principal prefix scans and are deliberately not written.
 func grantIndexKeys(r *v3.GrantRecord) [][]byte {
-	ent := r.GetEntitlement()
-	princ := r.GetPrincipal()
-	ext := r.GetExternalId()
-
-	keys := make([][]byte, 0, 4)
-	if ent != nil && princ != nil {
-		keys = append(keys, encodeGrantByEntitlementIndexKey(
-			ent.GetEntitlementId(), princ.GetResourceTypeId(), princ.GetResourceId(), ext))
+	id, err := grantIdentityFromRecord(r)
+	if err != nil {
+		return nil
 	}
-	if ent != nil && ent.GetResourceId() != "" {
-		keys = append(keys, encodeGrantByEntitlementResourceIndexKey(
-			ent.GetResourceTypeId(), ent.GetResourceId(), ext))
-	}
-	if princ != nil {
-		keys = append(keys, encodeGrantByPrincipalIndexKey(
-			princ.GetResourceTypeId(), princ.GetResourceId(), ext))
-		keys = append(keys, encodeGrantByPrincipalResourceTypeIndexKey(
-			princ.GetResourceTypeId(), ext))
-	}
+	keys := make([][]byte, 0, 3)
+	keys = append(keys, encodeGrantByEntitlementIdentityIndexKey(id))
+	keys = append(keys, encodeGrantByPrincipalIdentityIndexKey(id))
 	if r.GetNeedsExpansion() {
-		keys = append(keys, encodeGrantByNeedsExpansionIndexKey(ext))
+		keys = append(keys, encodeGrantByNeedsExpansionIdentityIndexKey(id))
 	}
 	return keys
 }
@@ -481,34 +499,20 @@ func (e *Engine) writeGrantIndexes(batch *pebble.Batch, r *v3.GrantRecord) error
 // index set and conditions MUST stay in lockstep with grantIndexKeys.
 // Returns the (possibly grown) scratch buffer for the next record.
 func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord, scratch []byte) ([]byte, error) {
-	ent := r.GetEntitlement()
-	princ := r.GetPrincipal()
-	ext := r.GetExternalId()
-
-	if ent != nil && princ != nil {
-		scratch = appendGrantByEntitlementIndexKey(scratch[:0], ent.GetEntitlementId(), princ.GetResourceTypeId(), princ.GetResourceId(), ext)
-		if err := batch.Set(scratch, nil, nil); err != nil {
-			return scratch, err
-		}
+	id, err := grantIdentityFromRecord(r)
+	if err != nil {
+		return scratch, err
 	}
-	if ent != nil && ent.GetResourceId() != "" {
-		scratch = appendGrantByEntitlementResourceIndexKey(scratch[:0], ent.GetResourceTypeId(), ent.GetResourceId(), ext)
-		if err := batch.Set(scratch, nil, nil); err != nil {
-			return scratch, err
-		}
+	scratch = appendGrantByEntitlementIdentityIndexKey(scratch[:0], id)
+	if err := batch.Set(scratch, nil, nil); err != nil {
+		return scratch, err
 	}
-	if princ != nil {
-		scratch = appendGrantByPrincipalIndexKey(scratch[:0], princ.GetResourceTypeId(), princ.GetResourceId(), ext)
-		if err := batch.Set(scratch, nil, nil); err != nil {
-			return scratch, err
-		}
-		scratch = appendGrantByPrincipalResourceTypeIndexKey(scratch[:0], princ.GetResourceTypeId(), ext)
-		if err := batch.Set(scratch, nil, nil); err != nil {
-			return scratch, err
-		}
+	scratch = appendGrantByPrincipalIdentityIndexKey(scratch[:0], id)
+	if err := batch.Set(scratch, nil, nil); err != nil {
+		return scratch, err
 	}
 	if r.GetNeedsExpansion() {
-		scratch = appendGrantByNeedsExpansionIndexKey(scratch[:0], ext)
+		scratch = appendGrantByNeedsExpansionIdentityIndexKey(scratch[:0], id)
 		if err := batch.Set(scratch, nil, nil); err != nil {
 			return scratch, err
 		}
@@ -527,29 +531,23 @@ func (e *Engine) deleteGrantIndexesScratch(batch *pebble.Batch, externalID strin
 	if err != nil {
 		return scratch, err
 	}
-	if entID != "" && principalRT != "" && principalID != "" {
-		scratch = appendGrantByEntitlementIndexKey(scratch[:0], entID, principalRT, principalID, externalID)
-		if err := batch.Delete(scratch, nil); err != nil {
-			return scratch, err
-		}
+	if entID == "" || entRT == "" || entRID == "" || principalRT == "" || principalID == "" {
+		return scratch, nil
 	}
-	if entRID != "" {
-		scratch = appendGrantByEntitlementResourceIndexKey(scratch[:0], entRT, entRID, externalID)
-		if err := batch.Delete(scratch, nil); err != nil {
-			return scratch, err
-		}
+	id := grantIdentity{
+		entitlement:     entitlementIdentityFromParts(entRT, entRID, entID),
+		principalTypeID: principalRT,
+		principalID:     principalID,
 	}
-	if principalRT != "" && principalID != "" {
-		scratch = appendGrantByPrincipalIndexKey(scratch[:0], principalRT, principalID, externalID)
-		if err := batch.Delete(scratch, nil); err != nil {
-			return scratch, err
-		}
-		scratch = appendGrantByPrincipalResourceTypeIndexKey(scratch[:0], principalRT, externalID)
-		if err := batch.Delete(scratch, nil); err != nil {
-			return scratch, err
-		}
+	scratch = appendGrantByEntitlementIdentityIndexKey(scratch[:0], id)
+	if err := batch.Delete(scratch, nil); err != nil {
+		return scratch, err
 	}
-	scratch = appendGrantByNeedsExpansionIndexKey(scratch[:0], externalID)
+	scratch = appendGrantByPrincipalIdentityIndexKey(scratch[:0], id)
+	if err := batch.Delete(scratch, nil); err != nil {
+		return scratch, err
+	}
+	scratch = appendGrantByNeedsExpansionIdentityIndexKey(scratch[:0], id)
 	if err := batch.Delete(scratch, nil); err != nil {
 		return scratch, err
 	}
@@ -584,7 +582,11 @@ func (e *Engine) IterateGrants(ctx context.Context, yield func(*v3.GrantRecord) 
 // the given entitlement_id, yielding each grant in encoded principal-
 // key order. yield returns false to stop.
 func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, entitlementID string, yield func(*v3.GrantRecord) bool) error {
-	indexPrefix := encodeGrantByEntitlementPrefix(entitlementID)
+	entID, err := entitlementIdentityFromID(entitlementID)
+	if err != nil {
+		return err
+	}
+	indexPrefix := encodeGrantPrimaryEntitlementPrefix(entID)
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
@@ -594,28 +596,8 @@ func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, entitlementID s
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
-		// Index key tail is the grant's external_id. Need to decode it
-		// to look up the primary record. The tail is the last
-		// tuple-encoded component in the index key.
-		externalID := lastTupleComponent(iter.Key(), indexPrefix)
-		if externalID == "" {
-			continue
-		}
-		key := encodeGrantKey(externalID)
-		val, closer, err := e.db.Get(key)
-		if err != nil {
-			if errors.Is(err, pebble.ErrNotFound) {
-				// Index entry references a primary that's gone — a
-				// transient orphan during overwrite, or a real
-				// consistency issue. Skip; fsck reconciles.
-				continue
-			}
-			return err
-		}
 		r := &v3.GrantRecord{}
-		err = unmarshalRecord(val, r)
-		closer.Close()
-		if err != nil {
+		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate by entitlement: %w", err)
 		}
 		if !yield(r) {
@@ -637,22 +619,24 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, principalRT, prin
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
-		externalID := lastTupleComponent(iter.Key(), indexPrefix)
-		if externalID == "" {
+		components, ok := decodeTupleComponents(iter.Key(), indexPrefix, 4)
+		if !ok {
 			continue
 		}
-		key := encodeGrantKey(externalID)
-		val, closer, err := e.db.Get(key)
+		r, err := getGrantByIdentity(ctx, e.db, grantIdentity{
+			entitlement: entitlementIdentity{
+				resourceTypeID: components[0],
+				resourceID:     components[1],
+				kind:           components[2],
+				name:           components[3],
+			},
+			principalTypeID: principalRT,
+			principalID:     principalID,
+		})
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				continue
 			}
-			return err
-		}
-		r := &v3.GrantRecord{}
-		err = unmarshalRecord(val, r)
-		closer.Close()
-		if err != nil {
 			return err
 		}
 		if !yield(r) {
@@ -667,7 +651,7 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, principalRT, prin
 // resource_type, in encoded external_id order. Stops when yield
 // returns false.
 func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, principalRT string, yield func(*v3.GrantRecord) bool) error {
-	indexPrefix := encodeGrantByPrincipalResourceTypePrefix(principalRT)
+	indexPrefix := encodeGrantByPrincipalResourceTypeIdentityPrefix(principalRT)
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
@@ -677,22 +661,24 @@ func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, princ
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
-		externalID := lastTupleComponent(iter.Key(), indexPrefix)
-		if externalID == "" {
+		components, ok := decodeTupleComponents(iter.Key(), indexPrefix, 5)
+		if !ok {
 			continue
 		}
-		key := encodeGrantKey(externalID)
-		val, closer, err := e.db.Get(key)
+		r, err := getGrantByIdentity(ctx, e.db, grantIdentity{
+			entitlement: entitlementIdentity{
+				resourceTypeID: components[1],
+				resourceID:     components[2],
+				kind:           components[3],
+				name:           components[4],
+			},
+			principalTypeID: principalRT,
+			principalID:     components[0],
+		})
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				continue
 			}
-			return err
-		}
-		r := &v3.GrantRecord{}
-		err = unmarshalRecord(val, r)
-		closer.Close()
-		if err != nil {
 			return fmt.Errorf("iterate by principal_rt: %w", err)
 		}
 		if !yield(r) {
@@ -720,24 +706,24 @@ func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, yield func(*
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
-		externalID := lastTupleComponent(iter.Key(), indexPrefix)
-		if externalID == "" {
+		components, ok := decodeTupleComponents(iter.Key(), indexPrefix, 6)
+		if !ok {
 			continue
 		}
-		key := encodeGrantKey(externalID)
-		val, closer, err := e.db.Get(key)
+		r, err := getGrantByIdentity(ctx, e.db, grantIdentity{
+			entitlement: entitlementIdentity{
+				resourceTypeID: components[0],
+				resourceID:     components[1],
+				kind:           components[2],
+				name:           components[3],
+			},
+			principalTypeID: components[4],
+			principalID:     components[5],
+		})
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
-				// Orphan: index entry without a primary. Skip;
-				// fsck reconciles.
 				continue
 			}
-			return err
-		}
-		r := &v3.GrantRecord{}
-		err = unmarshalRecord(val, r)
-		closer.Close()
-		if err != nil {
 			return fmt.Errorf("iterate needs_expansion: %w", err)
 		}
 		if !yield(r) {
@@ -764,20 +750,35 @@ func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, yield func(*
 // success or ("", "", false) if the tail is empty, malformed, or has
 // fewer than two components.
 func decodeTwoTupleComponents(key, prefix []byte) (string, string, bool) {
-	if len(key) <= len(prefix) {
-		return "", "", false
-	}
-	tail := key[len(prefix):]
-	first, next, ok := codec.DecodeTupleStringAlias(tail, 0)
-	if !ok || next >= len(tail) {
-		return "", "", false
-	}
-	// next points at the separator byte; skip it.
-	second, _, ok := codec.DecodeTupleStringAlias(tail, next+1)
+	components, ok := decodeTupleComponents(key, prefix, 2)
 	if !ok {
 		return "", "", false
 	}
-	return string(first), string(second), true
+	return components[0], components[1], true
+}
+
+func decodeTupleComponents(key, prefix []byte, want int) ([]string, bool) {
+	if want <= 0 || len(key) <= len(prefix) {
+		return nil, false
+	}
+	tail := key[len(prefix):]
+	out := make([]string, 0, want)
+	off := 0
+	for off <= len(tail) && len(out) < want {
+		decoded, next, ok := codec.DecodeTupleStringAlias(tail, off)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, string(decoded))
+		if next >= len(tail) {
+			break
+		}
+		off = next + 1
+	}
+	if len(out) != want {
+		return nil, false
+	}
+	return out, true
 }
 
 // lastTupleComponent returns the decoded string of the LAST tuple

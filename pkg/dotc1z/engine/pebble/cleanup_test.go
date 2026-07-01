@@ -90,10 +90,9 @@ func TestResetForNewSyncReclaimsDiskImmediately(t *testing.T) {
 func TestSyncScopedRangesCoverEveryWrittenIndex(t *testing.T) {
 	ranges := scopedRanges()
 
-	// One grant carrying an entitlement (with a resource), a principal,
-	// and the needs-expansion flag emits all five grant indexes:
-	// by_entitlement, by_entitlement_resource, by_principal,
-	// by_principal_resource_type, needs_expansion.
+	// One grant carrying an entitlement, a principal, and the needs-expansion flag
+	// emits all written grant indexes: skinny by_entitlement, by_principal, and
+	// needs_expansion. Folded families are intentionally not written.
 	g := v3.GrantRecord_builder{
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",
@@ -118,8 +117,6 @@ func TestSyncScopedRangesCoverEveryWrittenIndex(t *testing.T) {
 	written = append(written,
 		writtenKey{idxResourceByParent, "resource_by_parent",
 			encodeResourceByParentIndexKey("folder", "root", "doc", "d1")},
-		writtenKey{idxEntitlementByResource, "entitlement_by_resource",
-			encodeEntitlementByResourceIndexKey("app", "github", "ent-A")},
 	)
 
 	covered := func(k []byte) bool {
@@ -137,17 +134,13 @@ func TestSyncScopedRangesCoverEveryWrittenIndex(t *testing.T) {
 		require.Truef(t, covered(w.key), "written index key (idx=0x%02x, %s) not covered by any syncScopedRanges entry: %x", w.idx, w.name, w.key)
 	}
 
-	// Every secondary index (0x01..0x07) must be exercised above so the
-	// coverage assertion is actually complete; a new idx constant that no
-	// representative record produces trips this guard.
+	// Every written secondary index must be exercised above so the coverage
+	// assertion is complete; folded/dropped discriminators are intentionally absent.
 	for _, idx := range []byte{
 		idxResourceByParent,
-		idxEntitlementByResource,
 		idxGrantByEntitlement,
 		idxGrantByPrincipal,
 		idxGrantByNeedsExpansion,
-		idxGrantByPrincipalResourceType,
-		idxGrantByEntitlementResource,
 	} {
 		require.Truef(t, seen[idx], "index 0x%02x not exercised by this test; add a representative record so the coverage check stays complete", idx)
 	}

@@ -30,3 +30,60 @@ func TestNewGrant(t *testing.T) {
 	require.Equal(t, "567", grant.GetPrincipal().GetId().GetResource())
 	require.Equal(t, "group:1234:admin:user:567", grant.GetId())
 }
+
+func TestGrantIDCodec(t *testing.T) {
+	entParts := entitlement.EntitlementIDParts{
+		ResourceTypeID: "group",
+		ResourceID:     "1234",
+		Kind:           entitlement.EntitlementKindSDK,
+		Name:           "admin",
+	}
+	id := EncodeGrantID(entParts, "user", "567")
+	require.Equal(t, "group:1234:admin:user:567", id)
+
+	parts, err := DecodeGrantID(id)
+	require.NoError(t, err)
+	require.Equal(t, GrantIDParts{
+		Entitlement:     entParts,
+		PrincipalTypeID: "user",
+		PrincipalID:     "567",
+	}, parts)
+}
+
+func TestGrantIDCodecEscapesAndTagsCustomEntitlement(t *testing.T) {
+	entParts := entitlement.EntitlementIDParts{
+		ResourceTypeID: `group:type`,
+		ResourceID:     `12\34`,
+		Kind:           entitlement.EntitlementKindCustom,
+		Name:           `external:id`,
+	}
+	id := EncodeGrantID(entParts, `user:type`, `56\7`)
+	require.Equal(t, `group\:type:12\\34:custom:external\:id:user\:type:56\\7`, id)
+
+	parts, err := DecodeGrantID(id)
+	require.NoError(t, err)
+	require.Equal(t, GrantIDParts{
+		Entitlement:     entParts,
+		PrincipalTypeID: `user:type`,
+		PrincipalID:     `56\7`,
+	}, parts)
+}
+
+func TestGrantIDCodecFoldedLegacyTuplesAreDistinct(t *testing.T) {
+	a := EncodeGrantID(entitlement.EntitlementIDParts{
+		ResourceTypeID: "rt",
+		ResourceID:     "rid:name",
+		Kind:           entitlement.EntitlementKindSDK,
+		Name:           "pRT",
+	}, "pID", "x")
+	b := EncodeGrantID(entitlement.EntitlementIDParts{
+		ResourceTypeID: "rt",
+		ResourceID:     "rid",
+		Kind:           entitlement.EntitlementKindSDK,
+		Name:           "name:pRT",
+	}, "pID", "x")
+
+	require.Equal(t, `rt:rid\:name:pRT:pID:x`, a)
+	require.Equal(t, `rt:rid:name\:pRT:pID:x`, b)
+	require.NotEqual(t, a, b)
+}

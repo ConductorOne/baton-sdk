@@ -64,7 +64,7 @@ func (a *Adapter) ListGrantsForEntitlements(
 
 EntitlementLoop:
 	for i := startIdx; i < len(ents); i++ {
-		entID := ents[i].GetId()
+		entID := canonicalEntitlementRequestID(ents[i])
 		if entID == "" {
 			continue
 		}
@@ -86,12 +86,11 @@ EntitlementLoop:
 			for _, rec := range records {
 				out = append(out, V3GrantToV2(rec))
 				if len(out) == limit {
-					p := rec.GetPrincipal()
-					lastIntra = encodeCursor(encodeGrantByEntitlementIndexKey(
-						entID,
-						p.GetResourceTypeId(), p.GetResourceId(),
-						rec.GetExternalId(),
-					))
+					id, err := grantIdentityFromRecord(rec)
+					if err != nil {
+						return nil, err
+					}
+					lastIntra = encodeCursor(encodeGrantIdentityKey(id))
 					brokeEarly = true
 					break
 				}

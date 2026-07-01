@@ -418,7 +418,7 @@ func TestTopologicalMergeUntouchedBaseGrantNotRewritten(t *testing.T) {
 				require.NoError(t, err)
 				seedSQLiteBaseData(t, ctx, store, tc)
 
-				graph := buildGraphFromCase(t, ctx, tc)
+				graph := buildGraphFromCase(t, ctx, tc, dotc1z.EngineSQLite)
 				rec := &recordingExpanderStore{inner: benchmarkExpanderStore{store: store}}
 				require.NoError(t, algo.run(ctx, NewExpander(rec, graph)))
 

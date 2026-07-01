@@ -29,8 +29,8 @@ func TestMergeFilesIntoOverlayNewerDiscoveredAtWins(t *testing.T) {
 	tie := time.Unix(3000, 0).UTC()
 	// sources[0]: scanned first (overlay goes newest-to-oldest).
 	src1 := writeKWaySource(t, ctx, filepath.Join(dir, "src1.c1z"), []kwayGrantSpec{
-		{id: "shared", principalID: "alice", entitlement: "member", discovered: older},
-		{id: "tie", principalID: "alice", entitlement: "member", discovered: tie},
+		{id: "shared-old", principalID: "alice", entitlement: "shared", discovered: older},
+		{id: "tie-old", principalID: "alice", entitlement: "tie", discovered: tie},
 	}, false)
 	// sources[1]: older source (the LAST source, so it takes the
 	// filtered whole-source SST path) with all three branches:
@@ -38,8 +38,8 @@ func TestMergeFilesIntoOverlayNewerDiscoveredAtWins(t *testing.T) {
 	// "tie" is seen with an equal one (filtered out), and "only-src2"
 	// is unseen (streams into the ingested SST).
 	src2 := writeKWaySource(t, ctx, filepath.Join(dir, "src2.c1z"), []kwayGrantSpec{
-		{id: "shared", principalID: "bob", entitlement: "member", discovered: newer},
-		{id: "tie", principalID: "bob", entitlement: "member", discovered: tie},
+		{id: "shared-new", principalID: "alice", entitlement: "shared", discovered: newer},
+		{id: "tie-new", principalID: "alice", entitlement: "tie", discovered: tie},
 		{id: "only-src2", principalID: "carol", entitlement: "member", discovered: older},
 	}, false)
 
@@ -65,8 +65,10 @@ func TestMergeFilesIntoOverlayNewerDiscoveredAtWins(t *testing.T) {
 		return true
 	}))
 	require.Equal(t, 3, len(grants), "merged grant count")
-	require.Equal(t, "bob", grants["shared"].GetPrincipal().GetResourceId(), "shared grant principal (older source, newer discovered_at)")
-	require.Equal(t, "alice", grants["tie"].GetPrincipal().GetResourceId(), "tie grant principal (first admission keeps ties)")
+	require.Contains(t, grants, "shared-new", "shared grant from older source with newer discovered_at")
+	require.NotContains(t, grants, "shared-old", "stale shared grant should be replaced")
+	require.Contains(t, grants, "tie-old", "tie keeps first admission")
+	require.NotContains(t, grants, "tie-new", "tie-new should be filtered")
 	require.Equal(t, "carol", grants["only-src2"].GetPrincipal().GetResourceId(), "only-src2 grant principal (unseen key via ingested SST)")
 	require.Equal(t, int64(3), stats.GetGrants(), "stats grants (replacement must not double count)")
 
@@ -81,7 +83,7 @@ func TestMergeFilesIntoOverlayNewerDiscoveredAtWins(t *testing.T) {
 		}))
 		sort.Strings(byPrincipal[principal])
 	}
-	require.Equal(t, fmtSprint([]string{"tie"}), fmtSprint(byPrincipal["alice"]), "by_principal[alice] (stale index entry after replacement)")
-	require.Equal(t, fmtSprint([]string{"shared"}), fmtSprint(byPrincipal["bob"]), "by_principal[bob]")
+	require.Equal(t, fmtSprint([]string{"shared-new", "tie-old"}), fmtSprint(byPrincipal["alice"]), "by_principal[alice]")
+	require.Empty(t, byPrincipal["bob"], "by_principal[bob]")
 	require.Equal(t, fmtSprint([]string{"only-src2"}), fmtSprint(byPrincipal["carol"]), "by_principal[carol]")
 }
