@@ -379,6 +379,7 @@ func (x *UserTrait) GetEmails() []*UserTrait_Email {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) GetStatus() *UserTrait_Status {
 	if x != nil {
 		return x.xxx_hidden_Status
@@ -386,6 +387,7 @@ func (x *UserTrait) GetStatus() *UserTrait_Status {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) GetProfile() *structpb.Struct {
 	if x != nil {
 		return x.xxx_hidden_Profile
@@ -393,6 +395,7 @@ func (x *UserTrait) GetProfile() *structpb.Struct {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) GetIcon() *AssetRef {
 	if x != nil {
 		return x.xxx_hidden_Icon
@@ -428,6 +431,7 @@ func (x *UserTrait) GetEmployeeIds() []string {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) GetCreatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.xxx_hidden_CreatedAt
@@ -467,14 +471,17 @@ func (x *UserTrait) SetEmails(v []*UserTrait_Email) {
 	x.xxx_hidden_Emails = &v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) SetStatus(v *UserTrait_Status) {
 	x.xxx_hidden_Status = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) SetProfile(v *structpb.Struct) {
 	x.xxx_hidden_Profile = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) SetIcon(v *AssetRef) {
 	x.xxx_hidden_Icon = v
 }
@@ -495,6 +502,7 @@ func (x *UserTrait) SetEmployeeIds(v []string) {
 	x.xxx_hidden_EmployeeIds = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) SetCreatedAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_CreatedAt = v
 }
@@ -515,6 +523,7 @@ func (x *UserTrait) SetStructuredName(v *UserTrait_StructuredName) {
 	x.xxx_hidden_StructuredName = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) HasStatus() bool {
 	if x == nil {
 		return false
@@ -522,6 +531,7 @@ func (x *UserTrait) HasStatus() bool {
 	return x.xxx_hidden_Status != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) HasProfile() bool {
 	if x == nil {
 		return false
@@ -529,6 +539,7 @@ func (x *UserTrait) HasProfile() bool {
 	return x.xxx_hidden_Profile != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) HasIcon() bool {
 	if x == nil {
 		return false
@@ -536,6 +547,7 @@ func (x *UserTrait) HasIcon() bool {
 	return x.xxx_hidden_Icon != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) HasCreatedAt() bool {
 	if x == nil {
 		return false
@@ -571,18 +583,22 @@ func (x *UserTrait) HasStructuredName() bool {
 	return x.xxx_hidden_StructuredName != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) ClearStatus() {
 	x.xxx_hidden_Status = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) ClearProfile() {
 	x.xxx_hidden_Profile = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) ClearIcon() {
 	x.xxx_hidden_Icon = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *UserTrait) ClearCreatedAt() {
 	x.xxx_hidden_CreatedAt = nil
 }
@@ -606,16 +622,28 @@ func (x *UserTrait) ClearStructuredName() {
 type UserTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Emails      []*UserTrait_Email
-	Status      *UserTrait_Status
-	Profile     *structpb.Struct
+	Emails []*UserTrait_Email
+	// Deprecated. Use the resource status instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
+	Status *UserTrait_Status
+	// Deprecated. Use the resource profile instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
+	Profile *structpb.Struct
+	// Deprecated. Use the resource icon instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 	Icon        *AssetRef
 	AccountType UserTrait_AccountType
 	// The user's login
 	Login string
 	// Any additional login aliases for the user
-	LoginAliases   []string
-	EmployeeIds    []string
+	LoginAliases []string
+	EmployeeIds  []string
+	// Deprecated. Use the resource created_at instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 	CreatedAt      *timestamppb.Timestamp
 	LastLogin      *timestamppb.Timestamp
 	MfaStatus      *UserTrait_MFAStatus
@@ -678,6 +706,7 @@ func (x *GroupTrait) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *GroupTrait) GetIcon() *AssetRef {
 	if x != nil {
 		return x.xxx_hidden_Icon
@@ -685,6 +714,7 @@ func (x *GroupTrait) GetIcon() *AssetRef {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *GroupTrait) GetProfile() *structpb.Struct {
 	if x != nil {
 		return x.xxx_hidden_Profile
@@ -706,10 +736,12 @@ func (x *GroupTrait) GetRawGroupSourceType() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *GroupTrait) SetIcon(v *AssetRef) {
 	x.xxx_hidden_Icon = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *GroupTrait) SetProfile(v *structpb.Struct) {
 	x.xxx_hidden_Profile = v
 }
@@ -722,6 +754,7 @@ func (x *GroupTrait) SetRawGroupSourceType(v string) {
 	x.xxx_hidden_RawGroupSourceType = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *GroupTrait) HasIcon() bool {
 	if x == nil {
 		return false
@@ -729,6 +762,7 @@ func (x *GroupTrait) HasIcon() bool {
 	return x.xxx_hidden_Icon != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *GroupTrait) HasProfile() bool {
 	if x == nil {
 		return false
@@ -736,10 +770,12 @@ func (x *GroupTrait) HasProfile() bool {
 	return x.xxx_hidden_Profile != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *GroupTrait) ClearIcon() {
 	x.xxx_hidden_Icon = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *GroupTrait) ClearProfile() {
 	x.xxx_hidden_Profile = nil
 }
@@ -747,7 +783,13 @@ func (x *GroupTrait) ClearProfile() {
 type GroupTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Icon               *AssetRef
+	// Deprecated. Use the resource icon instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
+	Icon *AssetRef
+	// Deprecated. Use the resource profile instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 	Profile            *structpb.Struct
 	GroupSourceType    string
 	RawGroupSourceType string
@@ -797,6 +839,7 @@ func (x *RoleTrait) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *RoleTrait) GetProfile() *structpb.Struct {
 	if x != nil {
 		return x.xxx_hidden_Profile
@@ -811,6 +854,7 @@ func (x *RoleTrait) GetRoleScopeConditions() *RoleScopeConditions {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *RoleTrait) SetProfile(v *structpb.Struct) {
 	x.xxx_hidden_Profile = v
 }
@@ -819,6 +863,7 @@ func (x *RoleTrait) SetRoleScopeConditions(v *RoleScopeConditions) {
 	x.xxx_hidden_RoleScopeConditions = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *RoleTrait) HasProfile() bool {
 	if x == nil {
 		return false
@@ -833,6 +878,7 @@ func (x *RoleTrait) HasRoleScopeConditions() bool {
 	return x.xxx_hidden_RoleScopeConditions != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *RoleTrait) ClearProfile() {
 	x.xxx_hidden_Profile = nil
 }
@@ -844,6 +890,9 @@ func (x *RoleTrait) ClearRoleScopeConditions() {
 type RoleTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
+	// Deprecated. Use the resource profile instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 	Profile             *structpb.Struct
 	RoleScopeConditions *RoleScopeConditions
 }
@@ -1130,6 +1179,7 @@ func (x *AppTrait) GetHelpUrl() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AppTrait) GetIcon() *AssetRef {
 	if x != nil {
 		return x.xxx_hidden_Icon
@@ -1144,6 +1194,7 @@ func (x *AppTrait) GetLogo() *AssetRef {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AppTrait) GetProfile() *structpb.Struct {
 	if x != nil {
 		return x.xxx_hidden_Profile
@@ -1176,6 +1227,7 @@ func (x *AppTrait) SetHelpUrl(v string) {
 	x.xxx_hidden_HelpUrl = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AppTrait) SetIcon(v *AssetRef) {
 	x.xxx_hidden_Icon = v
 }
@@ -1184,6 +1236,7 @@ func (x *AppTrait) SetLogo(v *AssetRef) {
 	x.xxx_hidden_Logo = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AppTrait) SetProfile(v *structpb.Struct) {
 	x.xxx_hidden_Profile = v
 }
@@ -1200,6 +1253,7 @@ func (x *AppTrait) SetRawAppSourceType(v string) {
 	x.xxx_hidden_RawAppSourceType = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AppTrait) HasIcon() bool {
 	if x == nil {
 		return false
@@ -1214,6 +1268,7 @@ func (x *AppTrait) HasLogo() bool {
 	return x.xxx_hidden_Logo != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AppTrait) HasProfile() bool {
 	if x == nil {
 		return false
@@ -1221,6 +1276,7 @@ func (x *AppTrait) HasProfile() bool {
 	return x.xxx_hidden_Profile != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AppTrait) ClearIcon() {
 	x.xxx_hidden_Icon = nil
 }
@@ -1229,6 +1285,7 @@ func (x *AppTrait) ClearLogo() {
 	x.xxx_hidden_Logo = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AppTrait) ClearProfile() {
 	x.xxx_hidden_Profile = nil
 }
@@ -1236,9 +1293,15 @@ func (x *AppTrait) ClearProfile() {
 type AppTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	HelpUrl          string
-	Icon             *AssetRef
-	Logo             *AssetRef
+	HelpUrl string
+	// Deprecated. Use the resource icon instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
+	Icon *AssetRef
+	Logo *AssetRef
+	// Deprecated. Use the resource profile instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 	Profile          *structpb.Struct
 	Flags            []AppTrait_AppFlag
 	AppSourceType    string
@@ -1298,6 +1361,7 @@ func (x *SecretTrait) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *SecretTrait) GetProfile() *structpb.Struct {
 	if x != nil {
 		return x.xxx_hidden_Profile
@@ -1305,6 +1369,7 @@ func (x *SecretTrait) GetProfile() *structpb.Struct {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *SecretTrait) GetCreatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.xxx_hidden_CreatedAt
@@ -1354,10 +1419,12 @@ func (x *SecretTrait) GetCredentialDetail() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *SecretTrait) SetProfile(v *structpb.Struct) {
 	x.xxx_hidden_Profile = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *SecretTrait) SetCreatedAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_CreatedAt = v
 }
@@ -1386,6 +1453,7 @@ func (x *SecretTrait) SetCredentialDetail(v string) {
 	x.xxx_hidden_CredentialDetail = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *SecretTrait) HasProfile() bool {
 	if x == nil {
 		return false
@@ -1393,6 +1461,7 @@ func (x *SecretTrait) HasProfile() bool {
 	return x.xxx_hidden_Profile != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *SecretTrait) HasCreatedAt() bool {
 	if x == nil {
 		return false
@@ -1428,10 +1497,12 @@ func (x *SecretTrait) HasIdentityId() bool {
 	return x.xxx_hidden_IdentityId != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *SecretTrait) ClearProfile() {
 	x.xxx_hidden_Profile = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *SecretTrait) ClearCreatedAt() {
 	x.xxx_hidden_CreatedAt = nil
 }
@@ -1455,7 +1526,13 @@ func (x *SecretTrait) ClearIdentityId() {
 type SecretTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Profile        *structpb.Struct
+	// Deprecated. Use the resource profile instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
+	Profile *structpb.Struct
+	// Deprecated. Use the resource created_at instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 	CreatedAt      *timestamppb.Timestamp
 	ExpiresAt      *timestamppb.Timestamp
 	LastUsedAt     *timestamppb.Timestamp
@@ -1735,6 +1812,7 @@ func (x *AgentTrait) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AgentTrait) GetStatus() AgentTrait_AgentStatus {
 	if x != nil {
 		return x.xxx_hidden_Status
@@ -1749,6 +1827,7 @@ func (x *AgentTrait) GetIdentityResourceId() *ResourceId {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AgentTrait) GetProfile() *structpb.Struct {
 	if x != nil {
 		return x.xxx_hidden_Profile
@@ -1756,6 +1835,7 @@ func (x *AgentTrait) GetProfile() *structpb.Struct {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AgentTrait) SetStatus(v AgentTrait_AgentStatus) {
 	x.xxx_hidden_Status = v
 }
@@ -1764,6 +1844,7 @@ func (x *AgentTrait) SetIdentityResourceId(v *ResourceId) {
 	x.xxx_hidden_IdentityResourceId = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AgentTrait) SetProfile(v *structpb.Struct) {
 	x.xxx_hidden_Profile = v
 }
@@ -1775,6 +1856,7 @@ func (x *AgentTrait) HasIdentityResourceId() bool {
 	return x.xxx_hidden_IdentityResourceId != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AgentTrait) HasProfile() bool {
 	if x == nil {
 		return false
@@ -1786,6 +1868,7 @@ func (x *AgentTrait) ClearIdentityResourceId() {
 	x.xxx_hidden_IdentityResourceId = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 func (x *AgentTrait) ClearProfile() {
 	x.xxx_hidden_Profile = nil
 }
@@ -1793,10 +1876,16 @@ func (x *AgentTrait) ClearProfile() {
 type AgentTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
+	// Deprecated. Use the resource status instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
 	Status AgentTrait_AgentStatus
 	// The identity resource this agent authenticates as.
 	IdentityResourceId *ResourceId
-	Profile            *structpb.Struct
+	// Deprecated. Use the resource profile instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_trait.proto.
+	Profile *structpb.Struct
 }
 
 func (b0 AgentTrait_builder) Build() *AgentTrait {
@@ -2183,18 +2272,18 @@ var File_c1_connector_v2_annotation_trait_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\n" +
-	"&c1/connector/v2/annotation_trait.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\x97\v\n" +
+	"&c1/connector/v2/annotation_trait.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\x9d\v\n" +
 	"\tUserTrait\x128\n" +
-	"\x06emails\x18\x01 \x03(\v2 .c1.connector.v2.UserTrait.EmailR\x06emails\x12C\n" +
-	"\x06status\x18\x02 \x01(\v2!.c1.connector.v2.UserTrait.StatusB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x06status\x121\n" +
-	"\aprofile\x18\x03 \x01(\v2\x17.google.protobuf.StructR\aprofile\x12-\n" +
-	"\x04icon\x18\x04 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04icon\x12S\n" +
+	"\x06emails\x18\x01 \x03(\v2 .c1.connector.v2.UserTrait.EmailR\x06emails\x12=\n" +
+	"\x06status\x18\x02 \x01(\v2!.c1.connector.v2.UserTrait.StatusB\x02\x18\x01R\x06status\x125\n" +
+	"\aprofile\x18\x03 \x01(\v2\x17.google.protobuf.StructB\x02\x18\x01R\aprofile\x121\n" +
+	"\x04icon\x18\x04 \x01(\v2\x19.c1.connector.v2.AssetRefB\x02\x18\x01R\x04icon\x12S\n" +
 	"\faccount_type\x18\x05 \x01(\x0e2&.c1.connector.v2.UserTrait.AccountTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\vaccountType\x12\x14\n" +
 	"\x05login\x18\x06 \x01(\tR\x05login\x12#\n" +
 	"\rlogin_aliases\x18\a \x03(\tR\floginAliases\x12!\n" +
-	"\femployee_ids\x18\r \x03(\tR\vemployeeIds\x129\n" +
+	"\femployee_ids\x18\r \x03(\tR\vemployeeIds\x12=\n" +
 	"\n" +
-	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampB\x02\x18\x01R\tcreatedAt\x129\n" +
 	"\n" +
 	"last_login\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tlastLogin\x12C\n" +
 	"\n" +
@@ -2234,16 +2323,16 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x18ACCOUNT_TYPE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12ACCOUNT_TYPE_HUMAN\x10\x01\x12\x18\n" +
 	"\x14ACCOUNT_TYPE_SERVICE\x10\x02\x12\x17\n" +
-	"\x13ACCOUNT_TYPE_SYSTEM\x10\x03\"\xe6\x01\n" +
+	"\x13ACCOUNT_TYPE_SYSTEM\x10\x03\"\xee\x01\n" +
 	"\n" +
-	"GroupTrait\x12-\n" +
-	"\x04icon\x18\x01 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04icon\x121\n" +
-	"\aprofile\x18\x02 \x01(\v2\x17.google.protobuf.StructR\aprofile\x126\n" +
+	"GroupTrait\x121\n" +
+	"\x04icon\x18\x01 \x01(\v2\x19.c1.connector.v2.AssetRefB\x02\x18\x01R\x04icon\x125\n" +
+	"\aprofile\x18\x02 \x01(\v2\x17.google.protobuf.StructB\x02\x18\x01R\aprofile\x126\n" +
 	"\x11group_source_type\x18\x03 \x01(\tB\n" +
 	"\xfaB\ar\x05(@\xd0\x01\x01R\x0fgroupSourceType\x12>\n" +
-	"\x15raw_group_source_type\x18\x04 \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x12rawGroupSourceType\"\x98\x01\n" +
-	"\tRoleTrait\x121\n" +
-	"\aprofile\x18\x01 \x01(\v2\x17.google.protobuf.StructR\aprofile\x12X\n" +
+	"\x15raw_group_source_type\x18\x04 \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x12rawGroupSourceType\"\x9c\x01\n" +
+	"\tRoleTrait\x125\n" +
+	"\aprofile\x18\x01 \x01(\v2\x17.google.protobuf.StructB\x02\x18\x01R\aprofile\x12X\n" +
 	"\x15role_scope_conditions\x18\x02 \x01(\v2$.c1.connector.v2.RoleScopeConditionsR\x13roleScopeConditions\"n\n" +
 	"\x13RoleScopeConditions\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12C\n" +
@@ -2256,12 +2345,12 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"expression\"\xa6\x01\n" +
 	"\x11ScopeBindingTrait\x12>\n" +
 	"\arole_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x06roleId\x12Q\n" +
-	"\x11scope_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x0fscopeResourceId\"\x8a\x04\n" +
+	"\x11scope_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x0fscopeResourceId\"\x92\x04\n" +
 	"\bAppTrait\x125\n" +
-	"\bhelp_url\x18\x01 \x01(\tB\x1a\xfaB\x17r\x15 \x01(\x80\b:\bhttps://\xd0\x01\x01\x88\x01\x01R\ahelpUrl\x12-\n" +
-	"\x04icon\x18\x02 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04icon\x12-\n" +
-	"\x04logo\x18\x03 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04logo\x121\n" +
-	"\aprofile\x18\x04 \x01(\v2\x17.google.protobuf.StructR\aprofile\x127\n" +
+	"\bhelp_url\x18\x01 \x01(\tB\x1a\xfaB\x17r\x15 \x01(\x80\b:\bhttps://\xd0\x01\x01\x88\x01\x01R\ahelpUrl\x121\n" +
+	"\x04icon\x18\x02 \x01(\v2\x19.c1.connector.v2.AssetRefB\x02\x18\x01R\x04icon\x12-\n" +
+	"\x04logo\x18\x03 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04logo\x125\n" +
+	"\aprofile\x18\x04 \x01(\v2\x17.google.protobuf.StructB\x02\x18\x01R\aprofile\x127\n" +
 	"\x05flags\x18\x05 \x03(\x0e2!.c1.connector.v2.AppTrait.AppFlagR\x05flags\x122\n" +
 	"\x0fapp_source_type\x18\x06 \x01(\tB\n" +
 	"\xfaB\ar\x05(@\xd0\x01\x01R\rappSourceType\x12:\n" +
@@ -2272,11 +2361,11 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x11APP_FLAG_INACTIVE\x10\x02\x12\x11\n" +
 	"\rAPP_FLAG_SAML\x10\x03\x12\x11\n" +
 	"\rAPP_FLAG_OIDC\x10\x04\x12\x15\n" +
-	"\x11APP_FLAG_BOOKMARK\x10\x05\"\x9c\x05\n" +
-	"\vSecretTrait\x121\n" +
-	"\aprofile\x18\x01 \x01(\v2\x17.google.protobuf.StructR\aprofile\x129\n" +
+	"\x11APP_FLAG_BOOKMARK\x10\x05\"\xa4\x05\n" +
+	"\vSecretTrait\x125\n" +
+	"\aprofile\x18\x01 \x01(\v2\x17.google.protobuf.StructB\x02\x18\x01R\aprofile\x12=\n" +
 	"\n" +
-	"created_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"created_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampB\x02\x18\x01R\tcreatedAt\x129\n" +
 	"\n" +
 	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12<\n" +
 	"\flast_used_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
@@ -2298,21 +2387,22 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x16cost_per_unit_in_cents\x18\x04 \x01(\x03R\x12costPerUnitInCents\x12&\n" +
 	"\bcurrency\x18\x05 \x01(\tB\n" +
 	"\xfaB\ar\x05(\b\xd0\x01\x01R\bcurrency\x121\n" +
-	"\x0fentitlement_ids\x18\x06 \x03(\tB\b\xfaB\x05\x92\x01\x02\x18\x01R\x0eentitlementIds\"\x8b\x02\n" +
+	"\x0fentitlement_ids\x18\x06 \x03(\tB\b\xfaB\x05\x92\x01\x02\x18\x01R\x0eentitlementIds\"\x9a\x02\n" +
 	"\x15NonHumanIdentityTrait\x12S\n" +
-	"\bnhi_type\x18\x01 \x01(\x0e2..c1.connector.v2.NonHumanIdentityTrait.NhiTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\anhiType\x12\x1d\n" +
+	"\bnhi_type\x18\x01 \x01(\x0e2..c1.connector.v2.NonHumanIdentityTrait.NhiTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\anhiType\x12,\n" +
 	"\n" +
-	"nhi_detail\x18\x02 \x01(\tR\tnhiDetail\"~\n" +
+	"nhi_detail\x18\x02 \x01(\tB\r\xfaB\n" +
+	"r\b \x01(\x80\b\xd0\x01\x01R\tnhiDetail\"~\n" +
 	"\aNhiType\x12\x18\n" +
 	"\x14NHI_TYPE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19NHI_TYPE_APP_REGISTRATION\x10\x01\x12\x1b\n" +
 	"\x17NHI_TYPE_ASSUMABLE_ROLE\x10\x02\x12\x1d\n" +
-	"\x19NHI_TYPE_MANAGED_IDENTITY\x10\x03\"\xd3\x02\n" +
+	"\x19NHI_TYPE_MANAGED_IDENTITY\x10\x03\"\xd1\x02\n" +
 	"\n" +
-	"AgentTrait\x12I\n" +
-	"\x06status\x18\x01 \x01(\x0e2'.c1.connector.v2.AgentTrait.AgentStatusB\b\xfaB\x05\x82\x01\x02\x10\x01R\x06status\x12M\n" +
-	"\x14identity_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x12identityResourceId\x121\n" +
-	"\aprofile\x18\x03 \x01(\v2\x17.google.protobuf.StructR\aprofile\"x\n" +
+	"AgentTrait\x12C\n" +
+	"\x06status\x18\x01 \x01(\x0e2'.c1.connector.v2.AgentTrait.AgentStatusB\x02\x18\x01R\x06status\x12M\n" +
+	"\x14identity_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x12identityResourceId\x125\n" +
+	"\aprofile\x18\x03 \x01(\v2\x17.google.protobuf.StructB\x02\x18\x01R\aprofile\"x\n" +
 	"\vAgentStatus\x12\x1c\n" +
 	"\x18AGENT_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12AGENT_STATUS_READY\x10\x01\x12\x19\n" +

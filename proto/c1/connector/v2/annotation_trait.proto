@@ -32,9 +32,12 @@ message UserTrait {
       max_bytes: 1024
     }];
   }
-  Status status = 2 [(validate.rules).message = {required: true}];
-  google.protobuf.Struct profile = 3;
-  c1.connector.v2.AssetRef icon = 4;
+  // Deprecated. Use the resource status instead.
+  Status status = 2 [deprecated = true];
+  // Deprecated. Use the resource profile instead.
+  google.protobuf.Struct profile = 3 [deprecated = true];
+  // Deprecated. Use the resource icon instead.
+  c1.connector.v2.AssetRef icon = 4 [deprecated = true];
 
   enum AccountType {
     ACCOUNT_TYPE_UNSPECIFIED = 0;
@@ -51,7 +54,8 @@ message UserTrait {
 
   repeated string employee_ids = 13;
 
-  google.protobuf.Timestamp created_at = 8;
+  // Deprecated. Use the resource created_at instead.
+  google.protobuf.Timestamp created_at = 8 [deprecated = true];
   google.protobuf.Timestamp last_login = 9;
 
   message MFAStatus {
@@ -74,8 +78,10 @@ message UserTrait {
 }
 
 message GroupTrait {
-  c1.connector.v2.AssetRef icon = 1;
-  google.protobuf.Struct profile = 2;
+  // Deprecated. Use the resource icon instead.
+  c1.connector.v2.AssetRef icon = 1 [deprecated = true];
+  // Deprecated. Use the resource profile instead.
+  google.protobuf.Struct profile = 2 [deprecated = true];
   string group_source_type = 3 [(validate.rules).string = {
     max_bytes: 64
     ignore_empty: true
@@ -87,7 +93,8 @@ message GroupTrait {
 }
 
 message RoleTrait {
-  google.protobuf.Struct profile = 1;
+  // Deprecated. Use the resource profile instead.
+  google.protobuf.Struct profile = 1 [deprecated = true];
   RoleScopeConditions role_scope_conditions = 2;
 }
 
@@ -118,9 +125,11 @@ message AppTrait {
     prefix: "https://"
     ignore_empty: true
   }];
-  c1.connector.v2.AssetRef icon = 2;
+  // Deprecated. Use the resource icon instead.
+  c1.connector.v2.AssetRef icon = 2 [deprecated = true];
   c1.connector.v2.AssetRef logo = 3;
-  google.protobuf.Struct profile = 4;
+  // Deprecated. Use the resource profile instead.
+  google.protobuf.Struct profile = 4 [deprecated = true];
   enum AppFlag {
     APP_FLAG_UNSPECIFIED = 0;
     APP_FLAG_HIDDEN = 1;
@@ -150,8 +159,10 @@ message SecretTrait {
     CREDENTIAL_TYPE_CERTIFICATE = 3;
   }
 
-  google.protobuf.Struct profile = 1;
-  google.protobuf.Timestamp created_at = 2;
+  // Deprecated. Use the resource profile instead.
+  google.protobuf.Struct profile = 1 [deprecated = true];
+  // Deprecated. Use the resource created_at instead.
+  google.protobuf.Timestamp created_at = 2 [deprecated = true];
   google.protobuf.Timestamp expires_at = 3;
   google.protobuf.Timestamp last_used_at = 4;
   connector.v2.ResourceId created_by_id = 5;
@@ -215,7 +226,11 @@ message NonHumanIdentityTrait {
   NhiType nhi_type = 1 [(validate.rules).enum = {defined_only: true}];
   // Platform-specific type detail; refines nhi_type when the source
   // distinguishes finer classes than the enum captures.
-  string nhi_detail = 2;
+  string nhi_detail = 2 [(validate.rules).string = {
+    ignore_empty: true
+    max_bytes: 1024
+    min_bytes: 1
+  }];
 }
 
 // AgentTrait is the trait annotation for resources with TRAIT_AGENT. An agent
@@ -227,8 +242,10 @@ message AgentTrait {
     AGENT_STATUS_DISABLED = 2;
     AGENT_STATUS_DELETED = 3;
   }
-  AgentStatus status = 1 [(validate.rules).enum = {defined_only: true}];
+  // Deprecated. Use the resource status instead.
+  AgentStatus status = 1 [deprecated = true];
   // The identity resource this agent authenticates as.
   connector.v2.ResourceId identity_resource_id = 2;
-  google.protobuf.Struct profile = 3;
+  // Deprecated. Use the resource profile instead.
+  google.protobuf.Struct profile = 3 [deprecated = true];
 }

@@ -2,6 +2,7 @@ package resource
 
 import (
 	"testing"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -289,6 +290,108 @@ func TestNewUserResource(t *testing.T) {
 	mName, foundProfileData := GetProfileStringValue(ut.GetProfile(), "middle_name")
 	require.False(t, foundProfileData)
 	require.Equal(t, "", mName)
+}
+
+// TestDeprecatedTraitOptionsSyncToResource verifies that the deprecated trait
+// options (profile, icon, status, created_at) also populate the corresponding
+// resource-level attributes.
+func TestDeprecatedTraitOptionsSyncToResource(t *testing.T) {
+	profile := map[string]interface{}{"first_name": "Test"}
+	icon := v2.AssetRef_builder{Id: "iconID"}.Build()
+	createdAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	t.Run("user trait", func(t *testing.T) {
+		rt := NewResourceType("User", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER})
+		ur, err := NewUserResource("test user", rt, 1234, []UserTraitOption{
+			WithUserProfile(profile),
+			WithUserIcon(icon),
+			WithDetailedStatus(v2.UserTrait_Status_STATUS_DISABLED, "locked by admin"),
+			WithCreatedAt(createdAt),
+		})
+		require.NoError(t, err)
+		fName, ok := GetProfileStringValue(ur.GetProfile(), "first_name")
+		require.True(t, ok)
+		require.Equal(t, "Test", fName)
+		require.Equal(t, "iconID", ur.GetIcon().GetId())
+		require.Equal(t, v2.Status_RESOURCE_STATUS_DISABLED, ur.GetStatus().GetStatus())
+		require.Equal(t, "locked by admin", ur.GetStatus().GetDetails())
+		require.Equal(t, createdAt, ur.GetCreatedAt().AsTime())
+	})
+
+	t.Run("user trait default status", func(t *testing.T) {
+		rt := NewResourceType("User", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER})
+		ur, err := NewUserResource("test user", rt, 1234, nil)
+		require.NoError(t, err)
+		require.Equal(t, v2.Status_RESOURCE_STATUS_ENABLED, ur.GetStatus().GetStatus())
+	})
+
+	t.Run("group trait", func(t *testing.T) {
+		rt := NewResourceType("Group", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP})
+		gr, err := NewGroupResource("test group", rt, 1234, []GroupTraitOption{
+			WithGroupProfile(profile),
+			WithGroupIcon(icon),
+		})
+		require.NoError(t, err)
+		require.NotNil(t, gr.GetProfile())
+		require.Equal(t, "iconID", gr.GetIcon().GetId())
+	})
+
+	t.Run("role trait", func(t *testing.T) {
+		rt := NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
+		rr, err := NewRoleResource("test role", rt, 1234, []RoleTraitOption{
+			WithRoleProfile(profile),
+		})
+		require.NoError(t, err)
+		require.NotNil(t, rr.GetProfile())
+	})
+
+	t.Run("app trait", func(t *testing.T) {
+		rt := NewResourceType("App", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_APP})
+		ar, err := NewAppResource("test app", rt, 1234, []AppTraitOption{
+			WithAppProfile(profile),
+			WithAppIcon(icon),
+		})
+		require.NoError(t, err)
+		require.NotNil(t, ar.GetProfile())
+		require.Equal(t, "iconID", ar.GetIcon().GetId())
+	})
+
+	t.Run("secret trait", func(t *testing.T) {
+		rt := NewResourceType("Secret", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_SECRET})
+		sr, err := NewSecretResource("test secret", rt, 1234, []SecretTraitOption{
+			WithSecretCreatedAt(createdAt),
+		})
+		require.NoError(t, err)
+		require.Equal(t, createdAt, sr.GetCreatedAt().AsTime())
+	})
+
+	t.Run("agent trait", func(t *testing.T) {
+		rt := NewResourceType("Agent", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_AGENT})
+		ar, err := NewResource("test agent", rt, 1234, WithAgentTrait(
+			WithAgentProfile(profile),
+			WithAgentStatus(v2.AgentTrait_AGENT_STATUS_DISABLED),
+		))
+		require.NoError(t, err)
+		require.NotNil(t, ar.GetProfile())
+		require.Equal(t, v2.Status_RESOURCE_STATUS_DISABLED, ar.GetStatus().GetStatus())
+	})
+
+	t.Run("resource-level options are not overwritten", func(t *testing.T) {
+		rt := NewResourceType("User", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER})
+		ur, err := NewUserResource("test user", rt, 1234,
+			[]UserTraitOption{
+				WithUserProfile(profile),
+				WithStatus(v2.UserTrait_Status_STATUS_DELETED),
+			},
+			WithResourceProfile(map[string]interface{}{"first_name": "Resource"}),
+			WithResourceStatus(v2.Status_RESOURCE_STATUS_DISABLED, ""),
+		)
+		require.NoError(t, err)
+		fName, ok := GetProfileStringValue(ur.GetProfile(), "first_name")
+		require.True(t, ok)
+		require.Equal(t, "Resource", fName)
+		require.Equal(t, v2.Status_RESOURCE_STATUS_DISABLED, ur.GetStatus().GetStatus())
+	})
 }
 
 func Test_convertIDToString(t *testing.T) {

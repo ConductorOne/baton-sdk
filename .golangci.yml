@@ -102,6 +102,13 @@ linters:
           - staticcheck
         path: _test\.go
         text: 'SA1019: dotc1z.NewC1ZFile is deprecated'
+      # Tests intentionally exercise deprecated fields (e.g. trait-level
+      # profile/icon/status/created_at) to cover backwards compatibility with
+      # data written by older connectors.
+      - linters:
+          - staticcheck
+        path: _test\.go
+        text: "SA1019"
     paths:
       - third_party$
       - builtin$

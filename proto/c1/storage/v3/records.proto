@@ -250,7 +250,10 @@ message SyncStatsRecord {
 message SessionRecord {
   option (table) = {
     name: "sessions"
-    primary_key: ["sync_id", "key"]
+    primary_key: [
+      "sync_id",
+      "key"
+    ]
   };
 
   string sync_id = 1;
