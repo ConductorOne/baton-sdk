@@ -1721,31 +1721,17 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, action *Action) erro
 
 	rAnnos := annotations.Annotations(resourceResponse.GetResource().GetAnnotations())
 
-	userTrait := &v2.UserTrait{}
-	ok, err := rAnnos.Pick(userTrait)
-	if err != nil {
-		return err
-	}
-	if ok {
-		assetRefs = append(assetRefs, userTrait.GetIcon())
-	}
-
-	grpTrait := &v2.GroupTrait{}
-	ok, err = rAnnos.Pick(grpTrait)
-	if err != nil {
-		return err
-	}
-	if ok {
-		assetRefs = append(assetRefs, grpTrait.GetIcon())
-	}
+	// Icons live on the resource; resource.GetIcon falls back to the
+	// deprecated trait-level icons for resources emitted by older connectors.
+	assetRefs = append(assetRefs, resource.GetIcon(resourceResponse.GetResource()))
 
 	appTrait := &v2.AppTrait{}
-	ok, err = rAnnos.Pick(appTrait)
+	ok, err := rAnnos.Pick(appTrait)
 	if err != nil {
 		return err
 	}
 	if ok {
-		assetRefs = append(assetRefs, appTrait.GetIcon(), appTrait.GetLogo())
+		assetRefs = append(assetRefs, appTrait.GetLogo())
 	}
 
 	for _, assetRef := range assetRefs {
@@ -2714,7 +2700,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 							continue
 						}
 					}
-					profileVal, ok := resource.GetProfileStringValue(userTrait.GetProfile(), matchExternalResource.GetKey())
+					profileVal, ok := resource.GetProfileStringValue(resource.GetProfile(userPrincipal), matchExternalResource.GetKey())
 					if ok && strings.EqualFold(profileVal, matchExternalResource.GetValue()) {
 						newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
 						expandedGrants = append(expandedGrants, newGrant)
@@ -2722,12 +2708,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				}
 			case v2.ResourceType_TRAIT_GROUP:
 				for _, groupPrincipal := range groupPrincipals {
-					groupTrait, err := resource.GetGroupTrait(groupPrincipal)
-					if err != nil {
-						l.Error("error getting group trait", zap.Any("groupPrincipal", groupPrincipal))
-						continue
-					}
-					profileVal, ok := resource.GetProfileStringValue(groupTrait.GetProfile(), matchExternalResource.GetKey())
+					profileVal, ok := resource.GetProfileStringValue(resource.GetProfile(groupPrincipal), matchExternalResource.GetKey())
 					if ok && strings.EqualFold(profileVal, matchExternalResource.GetValue()) {
 						newGrant := newGrantForExternalPrincipal(grant, groupPrincipal)
 						newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())

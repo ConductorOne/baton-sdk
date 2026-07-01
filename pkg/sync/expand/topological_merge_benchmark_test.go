@@ -79,14 +79,14 @@ func (s *benchmarkMergeStore) ListGrantsForEntitlement(
 			grants = append(grants, grant)
 			continue
 		}
-		principalID := req.GetPrincipalId() //nolint:staticcheck // benchmark uses production reader shape
+		principalID := req.GetPrincipalId()
 		if principalID != nil {
 			pid := grant.GetPrincipal().GetId()
 			if pid.GetResourceType() != principalID.GetResourceType() || pid.GetResource() != principalID.GetResource() {
 				continue
 			}
 		}
-		rtFilter := req.GetPrincipalResourceTypeIds() //nolint:staticcheck // benchmark uses production reader shape
+		rtFilter := req.GetPrincipalResourceTypeIds()
 		if len(rtFilter) > 0 {
 			pid := grant.GetPrincipal().GetId()
 			found := false

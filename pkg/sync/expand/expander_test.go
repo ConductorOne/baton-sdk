@@ -70,7 +70,7 @@ func (m *MockExpanderStore) ListGrantsForEntitlement(
 	grants := m.grants[entID]
 
 	// Filter by principal if specified
-	principalID := req.GetPrincipalId() //nolint:staticcheck // ignore deprecated field
+	principalID := req.GetPrincipalId()
 	if principalID != nil {
 		filtered := make([]*v2.Grant, 0)
 		for _, g := range grants {
@@ -83,7 +83,7 @@ func (m *MockExpanderStore) ListGrantsForEntitlement(
 	}
 
 	// Filter by resource type IDs if specified
-	resourceTypeIDs := req.GetPrincipalResourceTypeIds() //nolint:staticcheck // ignore deprecated field
+	resourceTypeIDs := req.GetPrincipalResourceTypeIds()
 	if len(resourceTypeIDs) > 0 {
 		filtered := make([]*v2.Grant, 0)
 		for _, g := range grants {
@@ -512,7 +512,7 @@ func (s *countingMockStore) ListGrantsForEntitlement(
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
 	// Only count full-entitlement reads (the source read and descendant
 	// prefetch). Per-principal reads carry a PrincipalId filter.
-	if req.GetPrincipalId() == nil { //nolint:staticcheck // ignore deprecated field
+	if req.GetPrincipalId() == nil {
 		s.sourceReads[req.GetEntitlement().GetId()]++
 	}
 	return s.MockExpanderStore.ListGrantsForEntitlement(ctx, req)

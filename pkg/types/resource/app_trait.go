@@ -12,6 +12,12 @@ type AppSourceType string
 
 type AppTraitOption func(gt *v2.AppTrait) error
 
+// WithAppIcon sets the app's icon.
+//
+// Deprecated: icon has moved from AppTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level icon when
+// used with WithAppTrait or NewAppResource — but new code should use
+// WithResourceIcon instead.
 func WithAppIcon(assetRef *v2.AssetRef) AppTraitOption {
 	return func(at *v2.AppTrait) error {
 		at.SetIcon(assetRef)
@@ -35,6 +41,12 @@ func WithAppFlags(flags ...v2.AppTrait_AppFlag) AppTraitOption {
 	}
 }
 
+// WithAppProfile sets the app's profile.
+//
+// Deprecated: profile has moved from AppTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level profile when
+// used with WithAppTrait or NewAppResource — but new code should use
+// WithResourceProfile instead.
 func WithAppProfile(profile map[string]interface{}) AppTraitOption {
 	return func(at *v2.AppTrait) error {
 		p, err := structpb.NewStruct(profile)

@@ -273,11 +273,7 @@ message BatonServiceGetTasksRequest {
     gt: 0
     lte: 100
   }];
-  repeated string known_task_ids = 3 [(validate.rules).repeated = {
-    items: {
-      string: {pattern: "^[a-zA-Z0-9]{27}$"}
-    }
-  }];
+  repeated string known_task_ids = 3 [(validate.rules).repeated = {items: {string: {pattern: "^[a-zA-Z0-9]{27}$"}}}];
   repeated google.protobuf.Any annotations = 4 [(validate.rules).repeated = {max_items: 16}];
 }
 
@@ -306,9 +302,7 @@ message BatonServiceHeartbeatRequest {
   // New batch heartbeat path.
   repeated string task_ids = 4 [(validate.rules).repeated = {
     max_items: 100
-    items: {
-      string: {pattern: "^[a-zA-Z0-9]{27}$"}
-    }
+    items: {string: {pattern: "^[a-zA-Z0-9]{27}$"}}
   }];
 }
 
