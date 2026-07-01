@@ -154,6 +154,20 @@ func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, v
 			return err
 		}
 	}
+	// by_entitlement_principal_hash: the bucket hash is derived from the
+	// principal identity, so the raw path reconstructs the same key
+	// writeGrantIndexes wrote, mirroring grantHashIndexKey's nil-guard.
+	// The entitlement's grant digest is kept in step separately: callers
+	// on the post-seal mutation paths feed the old record to
+	// digestMutator.removeGrant (and the new one to .addGrant), which
+	// folds the change into the stored nodes in the same batch.
+	if entID != "" && principalRT != "" && principalID != "" {
+		bh := principalBucketHash(principalRT, principalID)
+		hk := encodeGrantByEntPrincHashIndexKey(entID, bh, principalRT, principalID, externalID)
+		if err := batch.Delete(hk, nil); err != nil {
+			return err
+		}
+	}
 	return batch.Delete(encodeGrantByNeedsExpansionIndexKey(externalID), nil)
 }
 
@@ -365,6 +379,59 @@ func scanGrantIndexFieldsRaw(value []byte) (string, string, string, string, stri
 		}
 	}
 	return entRT, entRID, entID, principalRT, principalID, needsExpansion, nil
+}
+
+// scanGrantSourceKeysRaw extracts the source-entitlement ID keys from a
+// marshaled GrantRecord without a full unmarshal. Sources are field 9
+// (map<string, GrantSourceRecord>), encoded as repeated embedded messages
+// each with sub-field 1 = key string.
+func scanGrantSourceKeysRaw(value []byte) ([]string, error) {
+	var keys []string
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != 9 {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			value = value[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return nil, fmt.Errorf("raw record: grant sources entry has wire type %v", typ)
+		}
+		entry, n := protowire.ConsumeBytes(value)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		value = value[n:]
+		for len(entry) > 0 {
+			eNum, eTyp, en := protowire.ConsumeTag(entry)
+			if en < 0 {
+				return nil, protowire.ParseError(en)
+			}
+			entry = entry[en:]
+			if eNum == 1 && eTyp == protowire.BytesType {
+				k, kn := protowire.ConsumeBytes(entry)
+				if kn < 0 {
+					return nil, protowire.ParseError(kn)
+				}
+				keys = append(keys, string(k))
+				entry = entry[kn:]
+			} else {
+				en = protowire.ConsumeFieldValue(eNum, eTyp, entry)
+				if en < 0 {
+					return nil, protowire.ParseError(en)
+				}
+				entry = entry[en:]
+			}
+		}
+	}
+	return keys, nil
 }
 
 func scanResourceRefRaw(value []byte) (string, string, error) {

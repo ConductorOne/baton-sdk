@@ -75,9 +75,10 @@ func NewAdapter(e *Engine) *Adapter {
 // Compile-time checks for the full Writer interface and the optional
 // connectorstore capabilities that SQLite's *C1File also exposes.
 var (
-	_ connectorstore.Writer                      = (*Adapter)(nil)
-	_ connectorstore.LatestFinishedSyncIDFetcher = (*Adapter)(nil)
-	_ connectorstore.DBSizeProvider              = (*Adapter)(nil)
+	_ connectorstore.Writer                       = (*Adapter)(nil)
+	_ connectorstore.LatestFinishedSyncIDFetcher  = (*Adapter)(nil)
+	_ connectorstore.DBSizeProvider               = (*Adapter)(nil)
+	_ connectorstore.EntitlementGrantDigestReader = (*Adapter)(nil)
 )
 
 // === sync lifecycle ===
@@ -269,6 +270,9 @@ func (a *Adapter) CheckpointSync(ctx context.Context, syncToken string) error {
 		return errors.New("CheckpointSync: no open sync")
 	}
 	a.current.step = syncToken
+	if err := a.engine.PersistFreshRoots(); err != nil {
+		return err
+	}
 	existing, err := a.engine.GetSyncRunRecord(ctx, a.current.syncID)
 	if err != nil {
 		return err
@@ -321,6 +325,31 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 			zap.String("sync_id", existing.GetSyncId()),
 			zap.Error(err),
 		)
+	}
+	// Flush in-memory root accumulators before building digests so that
+	// buildPartitionDigest can read the count from the stored root and
+	// skip its countKeysInRange pass. Non-fatal for the same reason as
+	// the digest build itself.
+	if err := a.engine.FlushFreshRoots(); err != nil {
+		ctxzap.Extract(ctx).Warn("pebble: flush fresh roots failed; digest build will fall back to countKeysInRange",
+			zap.String("sync_id", existing.GetSyncId()),
+			zap.Error(err),
+		)
+	}
+	// Build the per-entitlement grant digests at seal time, after all
+	// grants are written and while still on the fresh-sync NoSync path
+	// (the EndFreshSync flush below hardens the nodes). Non-fatal, like
+	// the stats sidecar: a missing/stale digest only forces a diff
+	// consumer onto the on-demand index fold, and the on-Open migration
+	// backfills it next time the file opens writable. Skipped when the
+	// digest index is disabled — there is no hash index to fold over.
+	if a.engine.GrantDigestIndexEnabled() {
+		if err := a.engine.BuildAllGrantDigests(ctx, existing.GetSyncId()); err != nil {
+			ctxzap.Extract(ctx).Warn("pebble: build grant digests failed; grant-diff callers will fall back to on-demand index folds until the next Open backfills them",
+				zap.String("sync_id", existing.GetSyncId()),
+				zap.Error(err),
+			)
+		}
 	}
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After

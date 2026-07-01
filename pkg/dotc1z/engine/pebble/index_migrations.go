@@ -8,6 +8,7 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
@@ -63,7 +64,92 @@ type indexMigration struct {
 // the corresponding index for any existing c1z that doesn't have
 // it yet.
 var indexMigrations = []indexMigration{
-	// none yet, because we have no existing data.
+	{
+		// Backfill the by_entitlement_principal_hash index and the
+		// per-entitlement grant digests for files written before either
+		// existed. Idempotent: re-emitting an index entry is a Set over
+		// the same key/value, and each digest rebuild range-clears the
+		// partition's typeDigest keyspace before writing.
+		// New files persist this version at their initial (empty) Open,
+		// so the inline write path maintains both and the backfill never
+		// re-runs for them.
+		//
+		// v1: XOR combiner, 256-ary radix with all levels stored
+		// sparsely, count on every node (RFC 0003). Uses xxHash64
+		// (8-byte digests) for both principalBucketHash and
+		// grantContentHash.
+		// v2: flat shape — root + a single leaf level of 2^width
+		// buckets (width in bits, chosen per entitlement), leaf keys
+		// carrying a 2-byte left-aligned bucket index; node keys carry
+		// the digested index's id after the sync_id (see
+		// encodeDigestNodeKey). Index entries are unchanged; the bump
+		// forces a digest rebuild, whose per-partition range-clear
+		// removes the v1 nodes.
+		Name:    "grant_by_entitlement_principal_hash",
+		Version: 2,
+		Apply: func(ctx context.Context, e *Engine) error {
+			return e.backfillGrantHashIndexAndDigests(ctx)
+		},
+	},
+}
+
+// backfillGrantHashIndexAndDigests reconstructs the
+// by_entitlement_principal_hash index for every grant in every sync,
+// then rebuilds the per-entitlement grant digests. The index must be
+// committed before the digests are built because BuildAllGrantDigests
+// folds over the committed index.
+//
+// No-op when the digest index is disabled (WithGrantDigestIndex(false)):
+// the caller opted out of the index, so we neither write it nor build
+// digests. The migration is still marked applied — re-enabling the
+// index on an existing file requires a fresh sync or explicit rebuild,
+// not an Open-time backfill.
+func (e *Engine) backfillGrantHashIndexAndDigests(ctx context.Context) error {
+	if !e.opts.grantDigestIndex {
+		return nil
+	}
+	var syncIDs []string
+	if err := e.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
+		syncIDs = append(syncIDs, r.GetSyncId())
+		return true
+	}); err != nil {
+		return fmt.Errorf("backfill hash index: list syncs: %w", err)
+	}
+
+	for _, syncID := range syncIDs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		// Re-emit the hash index entry for each grant. A v3 c1z holds
+		// exactly one sync, so this iterates the whole grant keyspace.
+		batch := e.db.NewBatch()
+		var setErr error
+		iterErr := e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+			hk := grantHashIndexKey(r)
+			if hk == nil {
+				return true
+			}
+			if err := batch.Set(hk, grantContentHash(r), nil); err != nil {
+				setErr = err
+				return false
+			}
+			return true
+		})
+		if err := errors.Join(iterErr, setErr); err != nil {
+			batch.Close()
+			return fmt.Errorf("backfill hash index: sync %q: %w", syncID, err)
+		}
+		if err := batch.Commit(pebble.Sync); err != nil {
+			batch.Close()
+			return fmt.Errorf("backfill hash index: commit %q: %w", syncID, err)
+		}
+		batch.Close()
+
+		if err := e.BuildAllGrantDigests(ctx, syncID); err != nil {
+			return fmt.Errorf("backfill grant digests: sync %q: %w", syncID, err)
+		}
+	}
+	return nil
 }
 
 // applyIndexMigrations runs on engine Open (writable opens only —
