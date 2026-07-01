@@ -965,15 +965,14 @@ func readPebbleShuffleContributions(tempDB *pebble.DB, destID string) (map[topoP
 		key := topoPrincipalKey{resourceType: rt, resource: resource}
 		contrib := out[key]
 		if contrib == nil {
-			contrib = &topoContribution{
-				principal: v2.Resource_builder{
-					Id: v2.ResourceId_builder{ResourceType: rt, Resource: resource}.Build(),
-				}.Build(),
-			}
+			contrib = &topoContribution{}
+			contrib.principal.setResource(v2.Resource_builder{
+				Id: v2.ResourceId_builder{ResourceType: rt, Resource: resource}.Build(),
+			}.Build())
 			out[key] = contrib
 		}
 		isDirect := len(iter.Value()) > 0 && iter.Value()[0] == 1
-		contrib.add(sourceID, isDirect, contrib.principal)
+		contrib.addSource(sourceID, isDirect)
 	}
 	if err := iter.Error(); err != nil {
 		return nil, err

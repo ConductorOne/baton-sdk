@@ -34,7 +34,7 @@ func TestEmitWhaleGrantIdentityHashes(t *testing.T) {
 		return
 	}
 
-	out, err := os.Create(outPath)
+	out, err := os.Create(outPath) // #nosec G304,G703 -- test-controlled env path.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,12 +111,12 @@ func TestDiffSortedWhaleGrantIdentityHashBin(t *testing.T) {
 	if oldPath == "" || newPath == "" {
 		t.Skip("BATON_OLD_HASH_BIN and BATON_NEW_HASH_BIN required")
 	}
-	oldFile, err := os.Open(oldPath)
+	oldFile, err := os.Open(oldPath) // #nosec G304,G703 -- test-controlled env path.
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer oldFile.Close()
-	newFile, err := os.Open(newPath)
+	newFile, err := os.Open(newPath) // #nosec G304,G703 -- test-controlled env path.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestPrintWhaleGrantIdentityHash(t *testing.T) {
 func openInspectDB(t *testing.T, path string) (*cpebble.DB, func()) {
 	t.Helper()
 	tmp := t.TempDir()
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304,G703 -- test-controlled env path.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func openInspectDB(t *testing.T, path string) (*cpebble.DB, func()) {
 
 func emitLegacyGrantIdentityHashesText(t *testing.T, db *cpebble.DB, layout, outPath string) {
 	t.Helper()
-	out, err := os.Create(outPath)
+	out, err := os.Create(outPath) // #nosec G304,G703 -- test-controlled env path.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func emitSortedGrantIdentityHashBin(t *testing.T, path, layout, outPath string) 
 		return hashes[i].less(hashes[j])
 	})
 	fmt.Fprintf(os.Stderr, "emit %s: sort complete; writing unique hashes to %s...\n", layout, outPath)
-	out, err := os.Create(outPath)
+	out, err := os.Create(outPath) // #nosec G304,G703 -- test-controlled env path.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +440,7 @@ func sortAndWriteIdentityHashes(t *testing.T, layout, outPath string, hashes []i
 		return hashes[i].less(hashes[j])
 	})
 	fmt.Fprintf(os.Stderr, "emit %s: sort complete; writing unique hashes to %s...\n", layout, outPath)
-	out, err := os.Create(outPath)
+	out, err := os.Create(outPath) // #nosec G304,G703 -- test-controlled env path.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,12 +469,12 @@ func sortAndWriteIdentityHashes(t *testing.T, layout, outPath string, hashes []i
 
 func diffSortedGrantIdentityHashBin(t *testing.T, oldPath, newPath string) {
 	t.Helper()
-	oldFile, err := os.Open(oldPath)
+	oldFile, err := os.Open(oldPath) // #nosec G304,G703 -- test-controlled env path.
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer oldFile.Close()
-	newFile, err := os.Open(newPath)
+	newFile, err := os.Open(newPath) // #nosec G304,G703 -- test-controlled env path.
 	if err != nil {
 		t.Fatal(err)
 	}

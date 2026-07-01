@@ -140,10 +140,6 @@ func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string)
 	})
 }
 
-func (e *Engine) writeEntitlementIndexes(_ *pebble.Batch, _ *v3.EntitlementRecord) error {
-	return nil
-}
-
 func (e *Engine) IterateEntitlements(ctx context.Context, yield func(*v3.EntitlementRecord) bool) error {
 	prefix := encodeEntitlementPrefix()
 	iter, err := e.db.NewIter(&pebble.IterOptions{

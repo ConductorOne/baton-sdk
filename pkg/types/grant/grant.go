@@ -107,7 +107,7 @@ func NewGrant(resource *v2.Resource, entitlementName string, principal GrantPrin
 	return grant
 }
 
-// deprecated: use MustMakeBid instead (but you can't change ids for an existing connector).
+// NewGrantID preserves the legacy public grant ID shape for existing connector-facing APIs.
 func NewGrantID(principal GrantPrincipal, entitlement *v2.Entitlement) string {
 	var resourceID *v2.ResourceId
 	switch p := principal.(type) {

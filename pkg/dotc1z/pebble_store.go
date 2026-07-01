@@ -12,12 +12,15 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 // pebbleDriver is the EngineDriver for the Pebble v3 engine.
@@ -69,6 +72,20 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	reuse, fileEncoding, foldDeadBytes, err := unpackExistingPebbleC1Z(outputFilePath, dbDir, opts.MaxDecodedPayloadBytes, opts.MaxDecoderMemoryBytes, opts.DecoderPool)
 	if err != nil {
 		return nil, cleanupOnError(err)
+	}
+
+	if opts.ReadOnly {
+		// Match SQLite read-only semantics: the source c1z is immutable, but the
+		// unpacked temp DB may be migrated so current read paths see the latest
+		// layout. Reopen read-only afterwards so callers that reach the engine
+		// directly still get read-only write barriers.
+		migratingEngine, err := pebble.Open(ctx, dbDir)
+		if err != nil {
+			return nil, cleanupOnError(err)
+		}
+		if err := migratingEngine.Close(); err != nil {
+			return nil, cleanupOnError(err)
+		}
 	}
 
 	e, err := pebble.Open(ctx, dbDir, pebble.WithReadOnly(opts.ReadOnly))
@@ -474,8 +491,86 @@ type pebbleStoreGrants struct {
 	store *pebbleStore
 }
 
+var pebbleStoreExpandedGrantImmutableAnnotationAny = func() *anypb.Any {
+	a, err := anypb.New(&v2.GrantImmutable{})
+	if err != nil {
+		panic(fmt.Errorf("dotc1z: marshal GrantImmutable annotation: %w", err))
+	}
+	return a
+}()
+
 func (g pebbleStoreGrants) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
+}
+
+func (g pebbleStoreGrants) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	if fast, ok := g.inner.(interface {
+		StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
+	}); ok {
+		return g.store.markDirty(fast.StoreNewExpandedGrants(ctx, grants...))
+	}
+	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
+}
+
+func (g pebbleStoreGrants) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error {
+	if fast, ok := g.inner.(interface {
+		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*v3.PrincipalRef, []map[string]bool) error
+	}); ok {
+		return g.store.markDirty(fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources))
+	}
+	grants := make([]*v2.Grant, 0, len(principals))
+	for i, principalRef := range principals {
+		principal := newPebbleStorePrincipalResource(principalRef)
+		grant, err := newPebbleStoreExpandedGrant(dest, principal, sources[i])
+		if err != nil {
+			return err
+		}
+		grants = append(grants, grant)
+	}
+	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
+}
+
+func newPebbleStorePrincipalResource(ref *v3.PrincipalRef) *v2.Resource {
+	if ref == nil {
+		return nil
+	}
+	var parent *v2.ResourceId
+	if ref.GetParentResourceId() != "" {
+		parent = v2.ResourceId_builder{
+			ResourceType: ref.GetParentResourceTypeId(),
+			Resource:     ref.GetParentResourceId(),
+		}.Build()
+	}
+	return v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: ref.GetResourceTypeId(),
+			Resource:     ref.GetResourceId(),
+		}.Build(),
+		ParentResourceId: parent,
+	}.Build()
+}
+
+func newPebbleStoreExpandedGrant(dest *v2.Entitlement, principal *v2.Resource, sources map[string]bool) (*v2.Grant, error) {
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("new expanded grant: empty sources")
+	}
+	if dest == nil || dest.GetResource() == nil {
+		return nil, fmt.Errorf("new expanded grant: entitlement has no resource")
+	}
+	if principal == nil {
+		return nil, fmt.Errorf("new expanded grant: principal is nil")
+	}
+	sourceMap := make(map[string]*v2.GrantSources_GrantSource, len(sources))
+	for sourceID, isDirect := range sources {
+		sourceMap[sourceID] = &v2.GrantSources_GrantSource{IsDirect: isDirect}
+	}
+	return v2.Grant_builder{
+		Id:          batonGrant.NewGrantID(principal, dest),
+		Entitlement: dest,
+		Principal:   principal,
+		Sources:     v2.GrantSources_builder{Sources: sourceMap}.Build(),
+		Annotations: []*anypb.Any{pebbleStoreExpandedGrantImmutableAnnotationAny},
+	}.Build(), nil
 }
 
 func (g pebbleStoreGrants) PendingExpansionPage(ctx context.Context, pageToken string) ([]PendingExpansion, string, error) {

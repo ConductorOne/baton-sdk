@@ -25,10 +25,9 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 	sortSem := make(chan struct{}, 4)
 	grantPrimary := newSpillSorter(dir, "grant-primary", sortSem, bulkSpillKeyChunkBytes)
 	entitlementPrimary := newSpillSorter(dir, "entitlement-primary", sortSem, bulkSpillKeyChunkBytes)
-	byEntitlement := newSpillSorter(dir, "idx-grant-by-entitlement", sortSem, bulkSpillKeyChunkBytes)
 	byPrincipal := newSpillSorter(dir, "idx-grant-by-principal", sortSem, bulkSpillKeyChunkBytes)
 	byNeedsExpansion := newSpillSorter(dir, "idx-grant-by-needs-expansion", sortSem, bulkSpillKeyChunkBytes)
-	sorters := []*spillSorter{grantPrimary, entitlementPrimary, byEntitlement, byPrincipal, byNeedsExpansion}
+	sorters := []*spillSorter{grantPrimary, entitlementPrimary, byPrincipal, byNeedsExpansion}
 	defer func() {
 		for _, s := range sorters {
 			s.abort()
@@ -50,7 +49,6 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 	replacements := []replacement{
 		{name: "entitlement-primary", sorter: entitlementPrimary, lower: EntitlementLowerBound(), upper: EntitlementUpperBound()},
 		{name: "grant-primary", sorter: grantPrimary, lower: GrantLowerBound(), upper: GrantUpperBound()},
-		{name: "idx-grant-by-entitlement", sorter: byEntitlement, lower: GrantByEntitlementLowerBound(), upper: GrantByEntitlementUpperBound()},
 		{name: "idx-grant-by-principal", sorter: byPrincipal, lower: GrantByPrincipalLowerBound(), upper: GrantByPrincipalUpperBound()},
 		{name: "idx-grant-by-needs-expansion", sorter: byNeedsExpansion, lower: GrantByNeedsExpansionLowerBound(), upper: GrantByNeedsExpansionUpperBound()},
 	}
@@ -59,7 +57,7 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 		var path string
 		var err error
 		if r.name == "grant-primary" {
-			path, err = finalizeGrantPrimaryMigrationSorter(ctx, dir, r.name, r.sorter, byEntitlement, byPrincipal, byNeedsExpansion)
+			path, err = finalizeGrantPrimaryMigrationSorter(ctx, dir, r.name, r.sorter, byPrincipal, byNeedsExpansion)
 		} else {
 			path, err = finalizeMigrationSorter(ctx, dir, r.name, r.sorter)
 		}
@@ -73,6 +71,7 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 
 	for _, r := range [][2][]byte{
 		{EntitlementByResourceLowerBound(), EntitlementByResourceUpperBound()},
+		{GrantByEntitlementLowerBound(), GrantByEntitlementUpperBound()},
 		{GrantByPrincipalResourceTypeLowerBound(), GrantByPrincipalResourceTypeUpperBound()},
 		{GrantByEntitlementResourceLowerBound(), GrantByEntitlementResourceUpperBound()},
 	} {
@@ -182,7 +181,7 @@ func (e *Engine) replaceRangeWithSST(ctx context.Context, lower, upper []byte, p
 	return err
 }
 
-func finalizeGrantPrimaryMigrationSorter(ctx context.Context, dir, name string, sorter, byEntitlement, byPrincipal, byNeedsExpansion *spillSorter) (string, error) {
+func finalizeGrantPrimaryMigrationSorter(ctx context.Context, dir, name string, sorter, byPrincipal, byNeedsExpansion *spillSorter) (string, error) {
 	chunks, err := sorter.finalize()
 	if err != nil {
 		return "", err
@@ -191,13 +190,13 @@ func finalizeGrantPrimaryMigrationSorter(ctx context.Context, dir, name string, 
 		return "", nil
 	}
 	path := filepath.Join(dir, name+".sst")
-	if err := mergeGrantPrimaryMigrationChunksToSST(ctx, path, name, chunks, byEntitlement, byPrincipal, byNeedsExpansion); err != nil {
+	if err := mergeGrantPrimaryMigrationChunksToSST(ctx, path, name, chunks, byPrincipal, byNeedsExpansion); err != nil {
 		return "", err
 	}
 	return path, nil
 }
 
-func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, sstPath, name string, chunks []string, byEntitlement, byPrincipal, byNeedsExpansion *spillSorter) error {
+func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, sstPath, name string, chunks []string, byPrincipal, byNeedsExpansion *spillSorter) error {
 	readers := make([]*os.File, 0, len(chunks))
 	defer func() {
 		for _, r := range readers {
@@ -267,9 +266,6 @@ func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, sstPath, name st
 		}
 		id, err := grantIdentityFromRecord(&rec)
 		if err != nil {
-			return err
-		}
-		if err := byEntitlement.add(encodeGrantByEntitlementIdentityIndexKey(id), nil); err != nil {
 			return err
 		}
 		if err := byPrincipal.add(encodeGrantByPrincipalIdentityIndexKey(id), nil); err != nil {

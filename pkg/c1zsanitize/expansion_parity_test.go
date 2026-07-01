@@ -320,9 +320,6 @@ func parityEntitlementID(id string) string {
 	if splitErr == nil && len(raw) == 2 && raw[0] == "custom" {
 		return raw[1]
 	}
-	if err != nil {
-		return id
-	}
 	return id
 }
 

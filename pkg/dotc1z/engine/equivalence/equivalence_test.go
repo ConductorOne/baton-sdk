@@ -10,6 +10,8 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	batonEntitlement "github.com/conductorone/baton-sdk/pkg/types/entitlement"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 func openPebble(t *testing.T) *enginepkg.Engine {
@@ -22,12 +24,19 @@ func openPebble(t *testing.T) *enginepkg.Engine {
 }
 
 func mkGrant(syncID, externalID, entID, principalRT, principalID string) *v3.GrantRecord {
+	entParts := batonEntitlement.EntitlementIDParts{
+		ResourceTypeID: "app",
+		ResourceID:     "github",
+		Kind:           batonEntitlement.EntitlementKindCustom,
+		Name:           entID,
+	}
+	canonicalEntID := entParts.Encode()
 	return v3.GrantRecord_builder{
-		ExternalId: externalID,
+		ExternalId: batonGrant.EncodeGrantID(entParts, principalRT, principalID),
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app",
 			ResourceId:     "github",
-			EntitlementId:  entID,
+			EntitlementId:  canonicalEntID,
 		}.Build(),
 		Principal: v3.PrincipalRef_builder{
 			ResourceTypeId: principalRT,
@@ -55,7 +64,6 @@ func TestPebbleMatchesMemoryRef(t *testing.T) {
 			}
 			i := len(externalIDs)
 			ext := ksuid.New().String()
-			externalIDs = append(externalIDs, ext)
 			principalRT := "user"
 			principalID := ksuid.New().String()
 			// Reuse 10 principals' IDs to make the per-principal index
@@ -66,7 +74,9 @@ func TestPebbleMatchesMemoryRef(t *testing.T) {
 			case 1:
 				principalID = "shared-principal-2"
 			}
-			ops = append(ops, Op{Kind: OpPut, Record: mkGrant(syncID, ext, ent, principalRT, principalID)})
+			rec := mkGrant(syncID, ext, ent, principalRT, principalID)
+			externalIDs = append(externalIDs, rec.GetExternalId())
+			ops = append(ops, Op{Kind: OpPut, Record: rec})
 		}
 	}
 	// Delete every 8th grant.

@@ -114,7 +114,7 @@ func TestPebbleSecondSyncWipesPriorData(t *testing.T) {
 	require.Zero(t, count, "by-principal index still has %d entries from the replaced sync", count)
 
 	// New sync's grants must remain readable.
-	_, err = rs.engine.GetGrantRecord(ctx, "new-g1")
+	_, err = rs.engine.GetGrantRecord(ctx, mkV2GrantID("ent", "user", "new-alice"))
 	require.NoError(t, err, "GetGrantRecord on current sync: %v", err)
 }
 

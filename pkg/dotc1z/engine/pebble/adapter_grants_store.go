@@ -3,13 +3,17 @@ package pebble
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 
 	"github.com/cockroachdb/pebble/v2"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	batonEntitlement "github.com/conductorone/baton-sdk/pkg/types/entitlement"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 // Grants returns the GrantStore implementation backed by the Pebble
@@ -28,6 +32,14 @@ func (a *Adapter) Grants() c1zstore.GrantStore {
 type pebbleGrantStore struct {
 	a *Adapter
 }
+
+var expandedGrantImmutableAnnotationAny = func() *anypb.Any {
+	a, err := anypb.New(&v2.GrantImmutable{})
+	if err != nil {
+		panic(fmt.Errorf("pebble: marshal GrantImmutable annotation: %w", err))
+	}
+	return a
+}()
 
 // StoreExpandedGrants writes a batch of grants that have already
 // had their expansion annotations consumed by the expander. Matches
@@ -72,6 +84,82 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 	// equivalent to V2GrantToV3 and (like it) leaves discovered_at unset:
 	// PutExpandedGrantRecords stamps/preserves it. The returned pointers alias
 	// the arena, which outlives this call's use of `merged`.
+	merged := g.translateExpanded(syncID, grants)
+	return g.a.engine.PutExpandedGrantRecords(ctx, merged)
+}
+
+// StoreNewExpandedGrants is the fast path for synthesized expanded grants. The
+// caller guarantees no existing grant has the same structured identity, so Pebble
+// can skip the read-before-write Get used to preserve side-state and clean stale
+// indexes for updates.
+func (g pebbleGrantStore) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	syncID := g.a.currentSyncID()
+	if syncID == "" {
+		return ErrNoCurrentSync
+	}
+	if len(grants) == 0 {
+		return nil
+	}
+	merged := g.translateExpanded(syncID, grants)
+	return g.a.engine.PutSynthesizedGrantRecords(ctx, merged)
+}
+
+func (g pebbleGrantStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error {
+	if g.a.currentSyncID() == "" {
+		return ErrNoCurrentSync
+	}
+	if len(principals) == 0 {
+		return nil
+	}
+	if len(principals) != len(sources) {
+		return fmt.Errorf("store new expanded grant contributions: principals/sources length mismatch")
+	}
+	merged := make([]*v3.GrantRecord, 0, len(principals))
+	entRef := entitlementToRef(dest)
+	if entRef == nil {
+		return fmt.Errorf("store new expanded grant contributions: entitlement is nil")
+	}
+	for i, principal := range principals {
+		if principal == nil || principal.GetResourceTypeId() == "" || principal.GetResourceId() == "" {
+			continue
+		}
+		sourceRecords := sourceBoolMapToV3(sources[i])
+		if len(sourceRecords) == 0 {
+			return fmt.Errorf("store new expanded grant contributions: empty sources")
+		}
+		merged = append(merged, v3.GrantRecord_builder{
+			ExternalId:  grantIDForPrincipalRef(dest, principal),
+			Entitlement: entRef,
+			Principal:   principal,
+			Annotations: []*anypb.Any{expandedGrantImmutableAnnotationAny},
+			Sources:     sourceRecords,
+		}.Build())
+	}
+	return g.a.engine.PutSynthesizedGrantRecords(ctx, merged)
+}
+
+func grantIDForPrincipalRef(dest *v2.Entitlement, principal *v3.PrincipalRef) string {
+	if principal == nil {
+		return ""
+	}
+	if dest == nil {
+		return batonEntitlement.JoinEscapedID("", principal.GetResourceTypeId(), principal.GetResourceId())
+	}
+	if res := dest.GetResource(); res != nil && res.GetId() != nil {
+		parts := batonEntitlement.DeriveEntitlementIDParts(
+			res.GetId().GetResourceType(),
+			res.GetId().GetResource(),
+			dest.GetId(),
+		)
+		return batonGrant.EncodeGrantID(parts, principal.GetResourceTypeId(), principal.GetResourceId())
+	}
+	if parts, err := batonEntitlement.DecodeEntitlementID(dest.GetId()); err == nil {
+		return batonGrant.EncodeGrantID(parts, principal.GetResourceTypeId(), principal.GetResourceId())
+	}
+	return batonEntitlement.JoinEscapedID(dest.GetId(), principal.GetResourceTypeId(), principal.GetResourceId())
+}
+
+func (g pebbleGrantStore) translateExpanded(syncID string, grants []*v2.Grant) []*v3.GrantRecord {
 	merged := make([]*v3.GrantRecord, 0, len(grants))
 	arena := newGrantTranslateArena(len(grants))
 	for _, gr := range grants {
@@ -90,7 +178,18 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 		newRec.SetNeedsExpansion(false)
 		merged = append(merged, newRec)
 	}
-	return g.a.engine.PutExpandedGrantRecords(ctx, merged)
+	return merged
+}
+
+func sourceBoolMapToV3(sources map[string]bool) map[string]*v3.GrantSourceRecord {
+	if len(sources) == 0 {
+		return nil
+	}
+	out := make(map[string]*v3.GrantSourceRecord, len(sources))
+	for id, isDirect := range sources {
+		out[id] = v3.GrantSourceRecord_builder{IsDirect: isDirect}.Build()
+	}
+	return out
 }
 
 // PendingExpansionPage returns the next page of grants whose

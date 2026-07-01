@@ -12,8 +12,6 @@ import (
 const (
 	EntitlementKindSDK    = "sdk"
 	EntitlementKindCustom = "custom"
-
-	customEntitlementIDMarker = "custom"
 )
 
 var (
@@ -102,7 +100,7 @@ func NewEntitlementID(resource *v2.Resource, permission string) string {
 
 func EncodeEntitlementID(resourceTypeID, resourceID, kind, name string) string {
 	if kind == EntitlementKindCustom {
-		return JoinEscapedID(resourceTypeID, resourceID, customEntitlementIDMarker, name)
+		return JoinEscapedID(resourceTypeID, resourceID, EntitlementKindCustom, name)
 	}
 	return JoinEscapedID(resourceTypeID, resourceID, name)
 }
@@ -120,7 +118,7 @@ func DecodeEntitlementID(id string) (EntitlementIDParts, error) {
 			Kind:           EntitlementKindSDK,
 			Name:           parts[2],
 		}, nil
-	case len(parts) == 4 && parts[2] == customEntitlementIDMarker:
+	case len(parts) == 4 && parts[2] == EntitlementKindCustom:
 		return EntitlementIDParts{
 			ResourceTypeID: parts[0],
 			ResourceID:     parts[1],
@@ -133,6 +131,35 @@ func DecodeEntitlementID(id string) (EntitlementIDParts, error) {
 }
 
 func DeriveEntitlementIDParts(resourceTypeID, resourceID, entitlementID string) EntitlementIDParts {
+	// Hot path for expansion: entitlement ids are commonly canonical strings for
+	// resource ids without escaped delimiters. Avoid the generic split/decode path
+	// for every synthesized grant.
+	prefix := resourceTypeID + ":" + resourceID + ":"
+	if strings.HasPrefix(entitlementID, prefix) {
+		tail := entitlementID[len(prefix):]
+		if strings.HasPrefix(tail, EntitlementKindCustom+":") {
+			name, ok := unescapeIDPart(tail[len(EntitlementKindCustom)+1:])
+			if ok {
+				return EntitlementIDParts{
+					ResourceTypeID: resourceTypeID,
+					ResourceID:     resourceID,
+					Kind:           EntitlementKindCustom,
+					Name:           name,
+				}
+			}
+		} else {
+			name, ok := unescapeIDPart(tail)
+			if ok {
+				return EntitlementIDParts{
+					ResourceTypeID: resourceTypeID,
+					ResourceID:     resourceID,
+					Kind:           EntitlementKindSDK,
+					Name:           name,
+				}
+			}
+		}
+	}
+
 	if parts, err := DecodeEntitlementID(entitlementID); err == nil &&
 		parts.ResourceTypeID == resourceTypeID &&
 		parts.ResourceID == resourceID {
@@ -166,10 +193,22 @@ func (p EntitlementIDParts) Encode() string {
 }
 
 func JoinEscapedID(parts ...string) string {
+	needsEscape := false
+	totalLen := max(0, len(parts)-1)
+	for _, part := range parts {
+		totalLen += len(part)
+		if strings.ContainsAny(part, `:\`) {
+			needsEscape = true
+		}
+	}
+	if !needsEscape {
+		return strings.Join(parts, ":")
+	}
 	var b strings.Builder
+	b.Grow(totalLen)
 	for i, part := range parts {
 		if i > 0 {
-			b.WriteByte(':')
+			writeBuilderByte(&b, ':')
 		}
 		writeEscapedIDPart(&b, part)
 	}
@@ -177,24 +216,29 @@ func JoinEscapedID(parts ...string) string {
 }
 
 func SplitEscapedID(id string) ([]string, error) {
-	parts := make([]string, 0, 6)
+	if !strings.Contains(id, `\`) {
+		return splitUnescapedID(id), nil
+	}
+	parts := make([]string, 0, strings.Count(id, ":")+1)
 	var b strings.Builder
+	b.Grow(len(id))
 	escaped := false
-	for _, r := range id {
+	for i := 0; i < len(id); i++ {
+		c := id[i]
 		switch {
 		case escaped:
-			if r != '\\' && r != ':' {
+			if c != '\\' && c != ':' {
 				return nil, ErrInvalidEscapedID
 			}
-			b.WriteRune(r)
+			writeBuilderByte(&b, c)
 			escaped = false
-		case r == '\\':
+		case c == '\\':
 			escaped = true
-		case r == ':':
+		case c == ':':
 			parts = append(parts, b.String())
 			b.Reset()
 		default:
-			b.WriteRune(r)
+			writeBuilderByte(&b, c)
 		}
 	}
 	if escaped {
@@ -205,12 +249,68 @@ func SplitEscapedID(id string) ([]string, error) {
 }
 
 func writeEscapedIDPart(b *strings.Builder, part string) {
-	for _, r := range part {
-		if r == '\\' || r == ':' {
-			b.WriteByte('\\')
+	start := 0
+	for i := 0; i < len(part); i++ {
+		if part[i] != '\\' && part[i] != ':' {
+			continue
 		}
-		b.WriteRune(r)
+		writeBuilderString(b, part[start:i])
+		writeBuilderByte(b, '\\')
+		writeBuilderByte(b, part[i])
+		start = i + 1
 	}
+	writeBuilderString(b, part[start:])
+}
+
+func splitUnescapedID(id string) []string {
+	parts := make([]string, 0, strings.Count(id, ":")+1)
+	start := 0
+	for {
+		i := strings.IndexByte(id[start:], ':')
+		if i < 0 {
+			parts = append(parts, id[start:])
+			return parts
+		}
+		i += start
+		parts = append(parts, id[start:i])
+		start = i + 1
+	}
+}
+
+func unescapeIDPart(part string) (string, bool) {
+	if !strings.Contains(part, `\`) {
+		return part, true
+	}
+	var b strings.Builder
+	b.Grow(len(part))
+	escaped := false
+	for i := 0; i < len(part); i++ {
+		c := part[i]
+		switch {
+		case escaped:
+			if c != '\\' && c != ':' {
+				return "", false
+			}
+			writeBuilderByte(&b, c)
+			escaped = false
+		case c == '\\':
+			escaped = true
+		default:
+			writeBuilderByte(&b, c)
+		}
+	}
+	if escaped {
+		return "", false
+	}
+	return b.String(), true
+}
+
+func writeBuilderByte(b *strings.Builder, c byte) {
+	_ = b.WriteByte(c)
+}
+
+func writeBuilderString(b *strings.Builder, s string) {
+	_, _ = b.WriteString(s)
 }
 
 func NewPermissionEntitlement(resource *v2.Resource, name string, entitlementOptions ...EntitlementOption) *v2.Entitlement {

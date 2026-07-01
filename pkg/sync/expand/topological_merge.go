@@ -7,6 +7,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -31,41 +32,109 @@ import (
 // multi-flush path on small fixtures; production never mutates it.
 var expansionDirtyFlushChunk = 10000
 
-// destinationSink persists a batch of dirty grants for the destination currently
-// being reduced. Reduce implementations call it repeatedly (via dirtyFlusher) so
-// the write buffer stays bounded regardless of how many grants a destination
-// produces.
-type destinationSink func(ctx context.Context, dirty []*v2.Grant) error
+// destinationSink persists dirty grants for the destination currently being
+// reduced. It carries both the generic v2-grant path and an optional direct
+// synthesized-contribution path for Pebble.
+type destinationSink struct {
+	store      func(ctx context.Context, dirty []*v2.Grant, allNew bool) error
+	storeSynth func(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error
+}
 
-// dirtyFlusher buffers dirty grants and flushes them through a destinationSink
-// once the buffer reaches its limit. The buffer is reused across flushes; the
-// sink consumes each batch synchronously before the buffer is truncated.
+// dirtyFlusher buffers synthesized and base-update grants separately so each
+// flush is homogeneous for the optional all-new fast path.
 type dirtyFlusher struct {
-	sink  destinationSink
-	limit int
-	buf   []*v2.Grant
+	sink            *destinationSink
+	dest            *v2.Entitlement
+	limit           int
+	synth           []*v2.Grant
+	synthPrincipals []*v3.PrincipalRef
+	synthSources    []map[string]bool
+	update          []*v2.Grant
 }
 
-func newDirtyFlusher(sink destinationSink) *dirtyFlusher {
-	return &dirtyFlusher{sink: sink, limit: expansionDirtyFlushChunk}
+func newDirtyFlusher(dest *v2.Entitlement, sink *destinationSink) *dirtyFlusher {
+	return &dirtyFlusher{dest: dest, sink: sink, limit: expansionDirtyFlushChunk}
 }
 
-func (f *dirtyFlusher) add(ctx context.Context, grant *v2.Grant) error {
-	f.buf = append(f.buf, grant)
-	if len(f.buf) >= f.limit {
-		return f.flush(ctx)
+func (f *dirtyFlusher) add(ctx context.Context, grant *v2.Grant, isNew bool) error {
+	if isNew {
+		f.synth = append(f.synth, grant)
+		if len(f.synth) >= f.limit {
+			return f.flushSynth(ctx)
+		}
+		return nil
+	}
+	f.update = append(f.update, grant)
+	if len(f.update) >= f.limit {
+		return f.flushUpdate(ctx)
+	}
+	return nil
+}
+
+func (f *dirtyFlusher) addSynthesizedContribution(ctx context.Context, contrib *topoContribution, sources map[string]bool) error {
+	if f.sink.storeSynth == nil {
+		principal, err := contrib.principalResource()
+		if err != nil {
+			return err
+		}
+		if principal == nil {
+			return nil
+		}
+		grant, err := newExpandedGrantWithSources(f.dest, principal, sources)
+		if err != nil {
+			return err
+		}
+		return f.add(ctx, grant, true)
+	}
+	sourceCopy := make(map[string]bool, len(sources))
+	for id, isDirect := range sources {
+		sourceCopy[id] = isDirect
+	}
+	principalRef, ok := contrib.principalRefForStore()
+	if !ok {
+		return nil
+	}
+	f.synthPrincipals = append(f.synthPrincipals, principalRef)
+	f.synthSources = append(f.synthSources, sourceCopy)
+	if len(f.synthPrincipals) >= f.limit {
+		return f.flushSynth(ctx)
 	}
 	return nil
 }
 
 func (f *dirtyFlusher) flush(ctx context.Context) error {
-	if len(f.buf) == 0 {
-		return nil
-	}
-	if err := f.sink(ctx, f.buf); err != nil {
+	if err := f.flushSynth(ctx); err != nil {
 		return err
 	}
-	f.buf = f.buf[:0]
+	return f.flushUpdate(ctx)
+}
+
+func (f *dirtyFlusher) flushSynth(ctx context.Context) error {
+	if len(f.synthPrincipals) > 0 {
+		if err := f.sink.storeSynth(ctx, f.dest, f.synthPrincipals, f.synthSources); err != nil {
+			return err
+		}
+		f.synthPrincipals = f.synthPrincipals[:0]
+		f.synthSources = f.synthSources[:0]
+	}
+	if len(f.synth) == 0 {
+		return nil
+	}
+	if err := f.sink.store(ctx, f.synth, true); err != nil {
+		return err
+	}
+	f.synth = f.synth[:0]
+	return nil
+}
+
+func (f *dirtyFlusher) flushUpdate(ctx context.Context) error {
+	if len(f.update) == 0 {
+		return nil
+	}
+	if err := f.sink.store(ctx, f.update, false); err != nil {
+		return err
+	}
+	f.update = f.update[:0]
 	return nil
 }
 
@@ -77,10 +146,11 @@ type topologicalRun struct {
 	// reduce evaluates one destination entitlement and streams its dirty grants
 	// to sink in bounded chunks (rather than returning the whole set), given the
 	// destination's finalized incoming edges and the resolved entitlement set.
-	reduce func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, entitlements map[string]*v2.Entitlement, sink destinationSink) error
+	reduce func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, entitlements map[string]*v2.Entitlement, sink *destinationSink) error
 	// onStored, when set, runs after each batch of dirty grants is persisted
 	// (projection appends matching projection rows so deeper nodes can read them).
-	onStored func(ctx context.Context, dirty []*v2.Grant) error
+	onStored      func(ctx context.Context, dirty []*v2.Grant) error
+	onStoredSynth func(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error
 	// checkBudget, when set, is polled before each node and each destination so a
 	// cancelled context aborts promptly.
 	checkBudget func() error
@@ -136,22 +206,53 @@ func (e *Expander) driveTopological(
 ) error {
 	logFanInWidth(ctx, e.graph, order)
 
-	sink := func(ctx context.Context, dirty []*v2.Grant) error {
-		if len(dirty) == 0 {
+	sink := &destinationSink{
+		store: func(ctx context.Context, dirty []*v2.Grant, allNew bool) error {
+			if len(dirty) == 0 {
+				return nil
+			}
+			if allNew {
+				if fast, ok := e.store.(newExpandedGrantStorer); ok {
+					if err := fast.StoreNewExpandedGrants(ctx, dirty...); err != nil {
+						return fmt.Errorf("topological merge: store new expanded grants: %w", err)
+					}
+				} else if err := e.store.StoreExpandedGrants(ctx, dirty...); err != nil {
+					return fmt.Errorf("topological merge: store expanded grants: %w", err)
+				}
+			} else {
+				if err := e.store.StoreExpandedGrants(ctx, dirty...); err != nil {
+					return fmt.Errorf("topological merge: store expanded grants: %w", err)
+				}
+			}
+			if run.onStored != nil {
+				if err := run.onStored(ctx, dirty); err != nil {
+					return err
+				}
+			}
+			if run.metrics != nil {
+				run.metrics.DirtyGrantsWritten += int64(len(dirty))
+			}
+			return nil
+		},
+	}
+	if fast, ok := e.store.(synthesizedContributionStorer); ok {
+		sink.storeSynth = func(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error {
+			if len(principals) == 0 {
+				return nil
+			}
+			if err := fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources); err != nil {
+				return fmt.Errorf("topological merge: store new expanded grant contributions: %w", err)
+			}
+			if run.onStoredSynth != nil {
+				if err := run.onStoredSynth(ctx, dest, principals, sources); err != nil {
+					return err
+				}
+			}
+			if run.metrics != nil {
+				run.metrics.DirtyGrantsWritten += int64(len(principals))
+			}
 			return nil
 		}
-		if err := e.store.StoreExpandedGrants(ctx, dirty...); err != nil {
-			return fmt.Errorf("topological merge: store expanded grants: %w", err)
-		}
-		if run.onStored != nil {
-			if err := run.onStored(ctx, dirty); err != nil {
-				return err
-			}
-		}
-		if run.metrics != nil {
-			run.metrics.DirtyGrantsWritten += int64(len(dirty))
-		}
-		return nil
 	}
 	for nodeIdx, nodeID := range order {
 		if run.checkBudget != nil {
@@ -423,15 +524,14 @@ func principalKeyLess(a, b topoPrincipalKey) bool {
 }
 
 type topoContribution struct {
-	sources        map[string]bool
-	principal      *v2.Resource
-	principalBytes []byte
+	sources   map[string]bool
+	principal topoPrincipal
 }
 
 func (c *topoContribution) add(sourceEntitlementID string, isDirect bool, principal *v2.Resource) {
 	c.addSource(sourceEntitlementID, isDirect)
-	if c.principal == nil && principal != nil {
-		c.principal = proto.Clone(principal).(*v2.Resource)
+	if c.principal.empty() && principal != nil {
+		c.principal.setResource(principal)
 	}
 }
 
@@ -454,37 +554,124 @@ func (c *topoContribution) merge(other *topoContribution) {
 	for sourceID, isDirect := range other.sources {
 		c.addSource(sourceID, isDirect)
 	}
-	// Take ownership of the principal exactly once, from the first contributor
-	// that carries one. other.principalBytes may alias a stream-owned reusable
-	// buffer (see projectionContributionStream), which is overwritten on the
-	// next stream advance. merge runs during consume, before that advance, so
-	// copy the bytes into a slice this contribution owns rather than aliasing.
-	if c.principal == nil && c.principalBytes == nil {
-		if other.principal != nil {
-			c.principal = other.principal
-		} else if len(other.principalBytes) > 0 {
-			c.principalBytes = append([]byte(nil), other.principalBytes...)
-		}
+	if c.principal.empty() {
+		c.principal.take(other.principal)
 	}
+}
+
+func (c *topoContribution) principalRefForStore() (*v3.PrincipalRef, bool) {
+	if c == nil {
+		return nil, false
+	}
+	return c.principal.refForStore()
 }
 
 func (c *topoContribution) principalResource() (*v2.Resource, error) {
 	if c == nil {
 		return nil, nil
 	}
-	if c.principal != nil {
-		return c.principal, nil
+	return c.principal.resource()
+}
+
+type topoPrincipal struct {
+	// full is the full principal payload used by generic fallback stores.
+	full *v2.Resource
+	// ref is the identity-only form Pebble can persist without unmarshalling the
+	// full Resource. resourceBytes is kept only so fallback stores preserve rich
+	// principal payload when projection rows are the source.
+	ref           *v3.PrincipalRef
+	resourceBytes []byte
+}
+
+func (p *topoPrincipal) empty() bool {
+	return p.full == nil && p.ref == nil && len(p.resourceBytes) == 0
+}
+
+func (p *topoPrincipal) reset() {
+	p.full = nil
+	p.ref = nil
+	p.resourceBytes = nil
+}
+
+func (p *topoPrincipal) setResource(resource *v2.Resource) {
+	p.full = proto.Clone(resource).(*v2.Resource)
+	p.ref = nil
+	p.resourceBytes = nil
+}
+
+func (p *topoPrincipal) setRef(ref *v3.PrincipalRef, resourceBytes []byte) {
+	p.full = nil
+	p.ref = ref
+	p.resourceBytes = append(p.resourceBytes[:0], resourceBytes...)
+}
+
+func (p *topoPrincipal) take(other topoPrincipal) {
+	if other.full != nil {
+		p.full = other.full
+		p.ref = nil
+		p.resourceBytes = nil
+		return
 	}
-	if len(c.principalBytes) == 0 {
+	p.full = nil
+	p.ref = other.ref
+	p.resourceBytes = append(p.resourceBytes[:0], other.resourceBytes...)
+}
+
+func (p *topoPrincipal) refForStore() (*v3.PrincipalRef, bool) {
+	if p.ref != nil {
+		return p.ref, true
+	}
+	if p.full == nil || p.full.GetId() == nil {
+		return nil, false
+	}
+	parent := p.full.GetParentResourceId()
+	return v3.PrincipalRef_builder{
+		ResourceTypeId:       p.full.GetId().GetResourceType(),
+		ResourceId:           p.full.GetId().GetResource(),
+		ParentResourceTypeId: parent.GetResourceType(),
+		ParentResourceId:     parent.GetResource(),
+	}.Build(), true
+}
+
+func (p *topoPrincipal) resource() (*v2.Resource, error) {
+	if p.full != nil {
+		return p.full, nil
+	}
+	if len(p.resourceBytes) > 0 {
+		resource := &v2.Resource{}
+		if err := proto.Unmarshal(p.resourceBytes, resource); err != nil {
+			return nil, err
+		}
+		p.full = resource
+		p.resourceBytes = nil
+		return resource, nil
+	}
+	if p.ref == nil {
 		return nil, nil
 	}
-	p := &v2.Resource{}
-	if err := proto.Unmarshal(c.principalBytes, p); err != nil {
-		return nil, err
+	resource := principalResourceFromRef(p.ref)
+	p.full = resource
+	return resource, nil
+}
+
+func principalResourceFromRef(ref *v3.PrincipalRef) *v2.Resource {
+	if ref == nil {
+		return nil
 	}
-	c.principal = p
-	c.principalBytes = nil
-	return p, nil
+	var parent *v2.ResourceId
+	if ref.GetParentResourceId() != "" {
+		parent = v2.ResourceId_builder{
+			ResourceType: ref.GetParentResourceTypeId(),
+			Resource:     ref.GetParentResourceId(),
+		}.Build()
+	}
+	return v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: ref.GetResourceTypeId(),
+			Resource:     ref.GetResourceId(),
+		}.Build(),
+		ParentResourceId: parent,
+	}.Build()
 }
 
 func grantContributesOverEdge(grant *v2.Grant, sourceEntitlementID string, edge Edge) bool {
@@ -578,4 +765,10 @@ func newExpandedGrantWithSources(descEntitlement *v2.Entitlement, principal *v2.
 		Sources:     v2.GrantSources_builder{Sources: sourceMap}.Build(),
 		Annotations: annotations.Annotations{immutableAnnotationAny},
 	}.Build(), nil
+}
+
+// NewExpandedGrantForStore builds the generic v2 expanded grant used by store
+// adapters that do not implement the direct synthesized-contribution fast path.
+func NewExpandedGrantForStore(descEntitlement *v2.Entitlement, principal *v2.Resource, sources map[string]bool) (*v2.Grant, error) {
+	return newExpandedGrantWithSources(descEntitlement, principal, sources)
 }

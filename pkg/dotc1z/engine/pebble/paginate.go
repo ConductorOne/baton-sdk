@@ -236,10 +236,8 @@ func (e *Engine) PaginateGrants(
 	return records, next, nil
 }
 
-// PaginateGrantsByEntitlement uses the by_entitlement index. The
-// index keys carry the principal-rt/principal-id/external-id tail;
-// each match triggers a secondary primary-key Get to materialize the
-// full grant. Cursor is the index key, not the primary key.
+// PaginateGrantsByEntitlement scans the primary grant keyspace under the
+// entitlement identity prefix. Cursor is the primary key.
 func (e *Engine) PaginateGrantsByEntitlement(
 	ctx context.Context, entitlementID, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
@@ -254,10 +252,10 @@ func (e *Engine) PaginateGrantsByEntitlement(
 	return iterateGrantPrimaryPage(ctx, e.db, encodeGrantPrimaryEntitlementPrefix(entID), cursorBytes, limit)
 }
 
-// PaginateGrantPrincipalKeysByEntitlement scans the existing by_entitlement
-// index and returns only principal identity keys for each matching grant. The
-// key format is principal_resource_type + "\x00" + principal_resource_id,
-// matching pkg/sync/expand's descendantGrantKey.
+// PaginateGrantPrincipalKeysByEntitlement scans the primary grant keyspace under
+// the entitlement identity prefix and returns only principal identity keys for
+// each matching grant. The key format is principal_resource_type + "\x00" +
+// principal_resource_id, matching pkg/sync/expand's descendantGrantKey.
 func (e *Engine) PaginateGrantPrincipalKeysByEntitlement(
 	ctx context.Context, entitlementID, cursor string, limit int,
 ) ([]string, string, error) {
@@ -272,8 +270,8 @@ func (e *Engine) PaginateGrantPrincipalKeysByEntitlement(
 	if err != nil {
 		return nil, "", err
 	}
-	indexPrefix := encodeGrantByEntitlementIdentityPrefix(entID)
-	lower, upper := rangeAfter(indexPrefix, cursorBytes)
+	primaryPrefix := encodeGrantPrimaryEntitlementPrefix(entID)
+	lower, upper := rangeAfter(primaryPrefix, cursorBytes)
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,
@@ -293,7 +291,7 @@ func (e *Engine) PaginateGrantPrincipalKeysByEntitlement(
 			hasMore = true
 			break
 		}
-		principalRT, principalID, ok := decodeTwoTupleComponents(iter.Key(), indexPrefix)
+		principalRT, principalID, ok := decodeTwoTupleComponents(iter.Key(), primaryPrefix)
 		if !ok {
 			continue
 		}
@@ -310,8 +308,8 @@ func (e *Engine) PaginateGrantPrincipalKeysByEntitlement(
 	return out, nextCursor, nil
 }
 
-// PaginateGrantsByEntitlementPrincipal uses the by_entitlement index narrowed
-// to the entitlement_id + principal tuple. This is the hot path for grant
+// PaginateGrantsByEntitlementPrincipal uses the structured primary key for a
+// point lookup by entitlement + principal. This is the hot path for grant
 // expansion, where callers repeatedly ask whether a single principal already
 // has a grant on a descendant entitlement.
 func (e *Engine) PaginateGrantsByEntitlementPrincipal(
@@ -410,16 +408,15 @@ func (e *Engine) PaginateGrantsByPrincipal(
 	return out, nextCursor, nil
 }
 
-// PaginateGrantsByEntitlementResource walks the by_entitlement_resource
-// index — all grants in `syncID` whose entitlement's resource is
-// (entRT, entRID). Cursor is the index key.
+// PaginateGrantsByEntitlementResource walks the primary grant keyspace for all
+// grants whose entitlement's resource is (entRT, entRID). Cursor is the primary
+// key.
 //
-// Drives Adapter.ListGrants and ListWithAnnotationsForResourcePage
-// when req.Resource is set, matching SQLite's `listGrantsGeneric`
-// filter on grants.resource_id / resource_type_id (the entitlement-
-// side resource columns). The pre-existing Pebble path used
-// PaginateGrantsByPrincipal here, which returned empty for the
-// common "grants on this group" semantic.
+// Drives Adapter.ListGrants and ListWithAnnotationsForResourcePage when
+// req.Resource is set, matching SQLite's `listGrantsGeneric` filter on
+// grants.resource_id / resource_type_id (the entitlement-side resource columns).
+// The pre-existing Pebble path used PaginateGrantsByPrincipal here, which
+// returned empty for the common "grants on this group" semantic.
 func (e *Engine) PaginateGrantsByEntitlementResource(
 	ctx context.Context, entRT, entRID, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {

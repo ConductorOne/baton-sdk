@@ -322,6 +322,12 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 			zap.Error(err),
 		)
 	}
+	if a.engine.deferGrantPrincipalIndex && a.engine.deferredIdxPending.Load() {
+		if err := a.engine.BuildDeferredGrantIndexes(ctx); err != nil {
+			return fmt.Errorf("EndSync: build deferred grant indexes: %w", err)
+		}
+		a.engine.deferredIdxPending.Store(false)
+	}
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After
 	// this returns, all writes from the sync are on disk.
@@ -636,7 +642,7 @@ func (a *Adapter) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequ
 //   - page_size == 0 || page_size > MaxPageSize → DefaultPageSize (10000)
 //   - page_token is opaque base64; pass nextPageToken back verbatim
 //   - filter by req.Resource — the entitlement-side resource of each
-//     grant — when set; uses the by_entitlement_resource index. This
+//     grant — when set; uses primary grant entitlement-resource prefixes. This
 //     matches SQLite's `listGrantsGeneric` which filters on
 //     grants.resource_id / resource_type_id (the entitlement's
 //     resource columns). Callers who want to filter by principal

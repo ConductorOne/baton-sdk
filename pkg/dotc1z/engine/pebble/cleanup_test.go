@@ -138,7 +138,6 @@ func TestSyncScopedRangesCoverEveryWrittenIndex(t *testing.T) {
 	// assertion is complete; folded/dropped discriminators are intentionally absent.
 	for _, idx := range []byte{
 		idxResourceByParent,
-		idxGrantByEntitlement,
 		idxGrantByPrincipal,
 		idxGrantByNeedsExpansion,
 	} {

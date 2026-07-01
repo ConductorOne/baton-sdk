@@ -25,6 +25,9 @@ func grantDiscoveredAt(t *testing.T, ctx context.Context, path, syncID, grantID 
 	eng, ok := enginepkg.AsEngine(w)
 	require.True(t, ok, "store at %s is not a pebble engine", path)
 	rec, err := eng.GetGrantRecord(ctx, grantID)
+	if err != nil {
+		rec, err = eng.GetGrantRecord(ctx, compactInputGrantID(grantID))
+	}
 	require.NoError(t, err)
 	return rec.GetDiscoveredAt().AsTime()
 }

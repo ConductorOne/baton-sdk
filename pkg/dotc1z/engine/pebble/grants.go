@@ -186,6 +186,8 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 	if len(records) == 0 {
 		return nil
 	}
+	e.expandedWriteCalls.Add(1)
+	e.expandedWriteRows.Add(int64(len(records)))
 	return e.withWrite(func() error {
 		if err := e.requireCurrentSync(); err != nil {
 			return err
@@ -284,6 +286,60 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 			}
 		}
 
+		if err := priBatch.Commit(pebble.NoSync); err != nil {
+			return err
+		}
+		return idxBatch.Commit(pebble.NoSync)
+	})
+}
+
+// PutSynthesizedGrantRecords writes expander-synthesized grants that the caller
+// guarantees are brand-new by structured grant identity. It skips the
+// read-before-write Get in PutExpandedGrantRecords because there is no prior
+// value whose Expansion/NeedsExpansion/DiscoveredAt or index entries must be
+// preserved/cleaned.
+func (e *Engine) PutSynthesizedGrantRecords(ctx context.Context, records []*v3.GrantRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	e.synthesizedWriteCalls.Add(1)
+	e.synthesizedWriteRows.Add(int64(len(records)))
+	return e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
+		priBatch := e.db.NewBatch()
+		defer priBatch.Close()
+		idxBatch := e.db.NewBatch()
+		defer idxBatch.Close()
+
+		now := timestamppb.Now()
+		var keyScratch, valScratch, idxScratch []byte
+		for _, r := range records {
+			if r == nil {
+				continue
+			}
+			id, err := grantIdentityFromRecord(r)
+			if err != nil {
+				return err
+			}
+			keyScratch = appendGrantIdentityKey(keyScratch[:0], id)
+			if r.GetDiscoveredAt() == nil {
+				r.SetDiscoveredAt(now)
+			}
+			val, err := marshalRecordAppend(valScratch[:0], r)
+			if err != nil {
+				return err
+			}
+			valScratch = val
+			if err := priBatch.Set(keyScratch, val, nil); err != nil {
+				return err
+			}
+			idxScratch, err = e.writeGrantIndexesScratch(idxBatch, r, idxScratch)
+			if err != nil {
+				return err
+			}
+		}
 		if err := priBatch.Commit(pebble.NoSync); err != nil {
 			return err
 		}
@@ -466,15 +522,15 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, externalID string) error
 }
 
 // grantIndexKeys returns the secondary-index keys for r. Folded families
-// (by_entitlement_resource and by_principal_resource_type) are served by primary
-// or by_principal prefix scans and are deliberately not written.
+// (by_entitlement, by_entitlement_resource, and by_principal_resource_type) are
+// served by primary or by_principal prefix scans and are deliberately not
+// written.
 func grantIndexKeys(r *v3.GrantRecord) [][]byte {
 	id, err := grantIdentityFromRecord(r)
 	if err != nil {
 		return nil
 	}
-	keys := make([][]byte, 0, 3)
-	keys = append(keys, encodeGrantByEntitlementIdentityIndexKey(id))
+	keys := make([][]byte, 0, 2)
 	keys = append(keys, encodeGrantByPrincipalIdentityIndexKey(id))
 	if r.GetNeedsExpansion() {
 		keys = append(keys, encodeGrantByNeedsExpansionIdentityIndexKey(id))
@@ -503,13 +559,13 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 	if err != nil {
 		return scratch, err
 	}
-	scratch = appendGrantByEntitlementIdentityIndexKey(scratch[:0], id)
-	if err := batch.Set(scratch, nil, nil); err != nil {
-		return scratch, err
-	}
-	scratch = appendGrantByPrincipalIdentityIndexKey(scratch[:0], id)
-	if err := batch.Set(scratch, nil, nil); err != nil {
-		return scratch, err
+	if e.deferGrantPrincipalIndex {
+		e.deferredIdxPending.Store(true)
+	} else {
+		scratch = appendGrantByPrincipalIdentityIndexKey(scratch[:0], id)
+		if err := batch.Set(scratch, nil, nil); err != nil {
+			return scratch, err
+		}
 	}
 	if r.GetNeedsExpansion() {
 		scratch = appendGrantByNeedsExpansionIdentityIndexKey(scratch[:0], id)
@@ -539,13 +595,11 @@ func (e *Engine) deleteGrantIndexesScratch(batch *pebble.Batch, externalID strin
 		principalTypeID: principalRT,
 		principalID:     principalID,
 	}
-	scratch = appendGrantByEntitlementIdentityIndexKey(scratch[:0], id)
-	if err := batch.Delete(scratch, nil); err != nil {
-		return scratch, err
-	}
-	scratch = appendGrantByPrincipalIdentityIndexKey(scratch[:0], id)
-	if err := batch.Delete(scratch, nil); err != nil {
-		return scratch, err
+	if !e.deferGrantPrincipalIndex {
+		scratch = appendGrantByPrincipalIdentityIndexKey(scratch[:0], id)
+		if err := batch.Delete(scratch, nil); err != nil {
+			return scratch, err
+		}
 	}
 	scratch = appendGrantByNeedsExpansionIdentityIndexKey(scratch[:0], id)
 	if err := batch.Delete(scratch, nil); err != nil {
@@ -578,9 +632,9 @@ func (e *Engine) IterateGrants(ctx context.Context, yield func(*v3.GrantRecord) 
 	return iter.Error()
 }
 
-// IterateGrantsByEntitlement iterates the by_entitlement index for
-// the given entitlement_id, yielding each grant in encoded principal-
-// key order. yield returns false to stop.
+// IterateGrantsByEntitlement iterates the primary grant keyspace for the given
+// entitlement_id, yielding each grant in encoded principal-key order. yield
+// returns false to stop.
 func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, entitlementID string, yield func(*v3.GrantRecord) bool) error {
 	entID, err := entitlementIdentityFromID(entitlementID)
 	if err != nil {
@@ -646,10 +700,9 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, principalRT, prin
 	return iter.Error()
 }
 
-// IterateGrantsByPrincipalResourceType iterates the by-principal-RT
-// index. Yields each grant whose principal carries the given
-// resource_type, in encoded external_id order. Stops when yield
-// returns false.
+// IterateGrantsByPrincipalResourceType iterates the by_principal index narrowed
+// to a principal resource type. Yields each grant whose principal carries the
+// given resource_type. Stops when yield returns false.
 func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, principalRT string, yield func(*v3.GrantRecord) bool) error {
 	indexPrefix := encodeGrantByPrincipalResourceTypeIdentityPrefix(principalRT)
 	iter, err := e.db.NewIter(&pebble.IterOptions{
@@ -757,6 +810,11 @@ func decodeTwoTupleComponents(key, prefix []byte) (string, string, bool) {
 	return components[0], components[1], true
 }
 
+func decodeGrantIdentityKey(key []byte) (grantIdentity, bool) {
+	prefix := []byte{versionV3, typeGrant, 0x00}
+	return decodeGrantIdentityTail(key, prefix)
+}
+
 func decodeTupleComponents(key, prefix []byte, want int) ([]string, bool) {
 	if want <= 0 || len(key) <= len(prefix) {
 		return nil, false
@@ -781,30 +839,57 @@ func decodeTupleComponents(key, prefix []byte, want int) ([]string, bool) {
 	return out, true
 }
 
-// lastTupleComponent returns the decoded string of the LAST tuple
-// component in an index key relative to its prefix. Walks separator-
-// delimited components and returns whichever one trails. Returns the
-// empty string if the key doesn't extend past the prefix or the tail
-// is malformed.
-func lastTupleComponent(key, prefix []byte) string {
+func decodeGrantByEntitlementIdentityIndexKey(key []byte) (grantIdentity, bool) {
+	prefix := []byte{versionV3, typeIndex, idxGrantByEntitlement, 0x00}
+	return decodeGrantIdentityTail(key, prefix)
+}
+
+func decodeGrantIdentityTail(key, prefix []byte) (grantIdentity, bool) {
 	if len(key) <= len(prefix) {
-		return ""
+		return grantIdentity{}, false
 	}
 	tail := key[len(prefix):]
-	var last []byte
 	off := 0
-	for off <= len(tail) {
+	nextString := func() (string, bool) {
 		decoded, next, ok := codec.DecodeTupleStringAlias(tail, off)
 		if !ok {
-			return ""
+			return "", false
 		}
-		last = decoded
-		if next >= len(tail) {
-			break
-		}
-		// next is the separator byte position; advance past it to
-		// the next component.
 		off = next + 1
+		return string(decoded), true
 	}
-	return string(last)
+	entRT, ok := nextString()
+	if !ok {
+		return grantIdentity{}, false
+	}
+	entRID, ok := nextString()
+	if !ok {
+		return grantIdentity{}, false
+	}
+	entKind, ok := nextString()
+	if !ok {
+		return grantIdentity{}, false
+	}
+	entName, ok := nextString()
+	if !ok {
+		return grantIdentity{}, false
+	}
+	principalRT, ok := nextString()
+	if !ok {
+		return grantIdentity{}, false
+	}
+	principalID, ok := nextString()
+	if !ok {
+		return grantIdentity{}, false
+	}
+	return grantIdentity{
+		entitlement: entitlementIdentity{
+			resourceTypeID: entRT,
+			resourceID:     entRID,
+			kind:           entKind,
+			name:           entName,
+		},
+		principalTypeID: principalRT,
+		principalID:     principalID,
+	}, true
 }

@@ -71,6 +71,14 @@ type Engine struct {
 	// record they wrote.
 	computedStatsMu sync.Mutex
 	computedStats   map[string]*v3.SyncStatsRecord
+
+	deferGrantPrincipalIndex bool
+	deferredIdxPending       atomic.Bool
+
+	expandedWriteCalls    atomic.Int64
+	expandedWriteRows     atomic.Int64
+	synthesizedWriteCalls atomic.Int64
+	synthesizedWriteRows  atomic.Int64
 }
 
 // Open creates or opens a Pebble engine rooted at dir. If dir does
@@ -98,10 +106,11 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	}
 
 	e := &Engine{
-		db:         db,
-		dbDir:      dir,
-		opts:       o,
-		pebbleOpts: pebbleOpts,
+		db:                       db,
+		dbDir:                    dir,
+		opts:                     o,
+		pebbleOpts:               pebbleOpts,
+		deferGrantPrincipalIndex: os.Getenv("BATON_PEBBLE_DEFER_EXPANSION_INDEXES") != "",
 	}
 	// Enforce the single-sync key-layout contract before touching any
 	// keys: reject an old multi-sync-layout file (which the current

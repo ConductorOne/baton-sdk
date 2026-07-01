@@ -51,24 +51,9 @@ func buildBucketPlans() []bucketPlan {
 			upper: enginepkg.GrantUpperBound(),
 		},
 		{
-			name:  "grant_by_entitlement",
-			lower: enginepkg.GrantByEntitlementLowerBound(),
-			upper: enginepkg.GrantByEntitlementUpperBound(),
-		},
-		{
-			name:  "grant_by_entitlement_resource",
-			lower: enginepkg.GrantByEntitlementResourceLowerBound(),
-			upper: enginepkg.GrantByEntitlementResourceUpperBound(),
-		},
-		{
 			name:  "grant_by_principal",
 			lower: enginepkg.GrantByPrincipalLowerBound(),
 			upper: enginepkg.GrantByPrincipalUpperBound(),
-		},
-		{
-			name:  "grant_by_principal_resource_type",
-			lower: enginepkg.GrantByPrincipalResourceTypeLowerBound(),
-			upper: enginepkg.GrantByPrincipalResourceTypeUpperBound(),
 		},
 		{
 			name:  "grant_by_needs_expansion",

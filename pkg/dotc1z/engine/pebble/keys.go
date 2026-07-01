@@ -72,12 +72,12 @@ const (
 // preceded it.
 const (
 	idxResourceByParent             byte = 0x01
-	idxEntitlementByResource        byte = 0x02
-	idxGrantByEntitlement           byte = 0x03
+	idxEntitlementByResource        byte = 0x02 // retired: served by entitlement primary key prefixes.
+	idxGrantByEntitlement           byte = 0x03 // retired: grant primary keys are entitlement-first.
 	idxGrantByPrincipal             byte = 0x04
 	idxGrantByNeedsExpansion        byte = 0x05
-	idxGrantByPrincipalResourceType byte = 0x06
-	idxGrantByEntitlementResource   byte = 0x07
+	idxGrantByPrincipalResourceType byte = 0x06 // retired: served by idxGrantByPrincipal prefix scans.
+	idxGrantByEntitlementResource   byte = 0x07 // retired: served by grant primary entitlement-resource prefix scans.
 )
 
 // --- Grant ---
@@ -126,8 +126,9 @@ func encodeGrantPrefix() []byte {
 	return []byte{versionV3, typeGrant}
 }
 
-// encodeGrantByEntitlementIndexKey is the by_entitlement secondary
-// index on GrantRecord:
+// encodeGrantByEntitlementIndexKey is the retired by_entitlement secondary
+// index on GrantRecord. New writes use entitlement-first primary grant keys
+// instead; this helper remains for old debug/test tooling.
 //
 //	v3 | typeIndex | idxGrantByEntitlement | 0x00 |
 //	    entitlement_id | 0x00 |
@@ -147,42 +148,28 @@ func appendGrantByEntitlementIndexKey(dst []byte, entitlementID, principalRT, pr
 	return codec.AppendTupleStrings(dst, entitlementID, principalRT, principalID, externalID)
 }
 
-func encodeGrantByEntitlementIdentityIndexKey(id grantIdentity) []byte {
-	return appendGrantByEntitlementIdentityIndexKey(make([]byte, 0, 128), id)
-}
+// retired: served by entitlement primary key prefixes.
+// func encodeGrantByEntitlementIdentityIndexKey(id grantIdentity) []byte {
+// 	return appendGrantByEntitlementIdentityIndexKey(make([]byte, 0, 128), id)
+// }
 
-func appendGrantByEntitlementIdentityIndexKey(dst []byte, id grantIdentity) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlement)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleStrings(
-		dst,
-		id.entitlement.resourceTypeID,
-		id.entitlement.resourceID,
-		id.entitlement.kind,
-		id.entitlement.name,
-		id.principalTypeID,
-		id.principalID,
-	)
-}
-
-// encodeGrantByPrincipalIndexKey:
-//
-//	v3 | typeIndex | idxGrantByPrincipal | 0x00 |
-//	    principal_resource_type | 0x00 |
-//	    principal_resource_id | 0x00 |
-//	    external_id
-//
-// Paired with encodeGrantByPrincipalPrefix (by-value prefix, with
-// trailing sep).
-func encodeGrantByPrincipalIndexKey(principalRT, principalID, externalID string) []byte {
-	return appendGrantByPrincipalIndexKey(make([]byte, 0, 64), principalRT, principalID, externalID)
-}
-
-func appendGrantByPrincipalIndexKey(dst []byte, principalRT, principalID, externalID string) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipal)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleStrings(dst, principalRT, principalID, externalID)
-}
+// retired
+// appendGrantByEntitlementIdentityIndexKey encodes the retired by_entitlement
+// identity index. Do not use for new writes; primary grant keys are already
+// entitlement-first.
+// func appendGrantByEntitlementIdentityIndexKey(dst []byte, id grantIdentity) []byte {
+// 	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlement)
+// 	dst = codec.AppendTupleSeparator(dst)
+// 	return codec.AppendTupleStrings(
+// 		dst,
+// 		id.entitlement.resourceTypeID,
+// 		id.entitlement.resourceID,
+// 		id.entitlement.kind,
+// 		id.entitlement.name,
+// 		id.principalTypeID,
+// 		id.principalID,
+// 	)
+// }
 
 func encodeGrantByPrincipalIdentityIndexKey(id grantIdentity) []byte {
 	return appendGrantByPrincipalIdentityIndexKey(make([]byte, 0, 128), id)
@@ -200,17 +187,6 @@ func appendGrantByPrincipalIdentityIndexKey(dst []byte, id grantIdentity) []byte
 		id.entitlement.kind,
 		id.entitlement.name,
 	)
-}
-
-// encodeGrantByEntitlementPrefix is the by-value prefix for "all
-// grants with this entitlement_id". Trailing separator is
-// load-bearing — see the keys.go convention doc.
-func encodeGrantByEntitlementPrefix(entitlementID string) []byte {
-	buf := make([]byte, 0, 32+len(entitlementID))
-	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlement)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleStrings(buf, entitlementID)
-	return codec.AppendTupleSeparator(buf)
 }
 
 func encodeGrantPrimaryEntitlementPrefix(id entitlementIdentity) []byte {
@@ -234,27 +210,6 @@ func encodeGrantByEntitlementIdentityPrefix(id entitlementIdentity) []byte {
 	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlement)
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleStrings(buf, id.resourceTypeID, id.resourceID, id.kind, id.name)
-	return codec.AppendTupleSeparator(buf)
-}
-
-func encodeGrantByEntitlementPrincipalIdentityPrefix(ent entitlementIdentity, principalRT, principalID string) []byte {
-	buf := make([]byte, 0, 128)
-	buf = append(buf, versionV3, typeGrant)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleStrings(buf, ent.resourceTypeID, ent.resourceID, ent.kind, ent.name, principalRT, principalID)
-	return codec.AppendTupleSeparator(buf)
-}
-
-// encodeGrantByEntitlementPrincipalPrefix is the by-value prefix for
-// "all grants with this entitlement_id and principal". It reuses the
-// existing by_entitlement index tail:
-//
-//	entitlement_id | principal_resource_type | principal_resource_id | external_id
-func encodeGrantByEntitlementPrincipalPrefix(entitlementID, principalRT, principalID string) []byte {
-	buf := make([]byte, 0, 32+len(entitlementID)+len(principalRT)+len(principalID))
-	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlement)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleStrings(buf, entitlementID, principalRT, principalID)
 	return codec.AppendTupleSeparator(buf)
 }
 
@@ -297,38 +252,6 @@ func appendGrantByNeedsExpansionIdentityIndexKey(dst []byte, id grantIdentity) [
 	)
 }
 
-// encodeGrantByPrincipalResourceTypeIndexKey: by-principal-RT
-// index. Closes the only O(G) full-scan path in the Reader
-// (ListGrantsForResourceType, which previously walked the entire
-// grant primary range and post-filtered).
-//
-//	v3 | typeIndex | idxGrantByPrincipalResourceType | 0x00 |
-//	    principal_resource_type | 0x00 |
-//	    external_id
-//
-// Paired with encodeGrantByPrincipalResourceTypePrefix (by-value
-// prefix, with trailing sep).
-func encodeGrantByPrincipalResourceTypeIndexKey(principalRT, externalID string) []byte {
-	return appendGrantByPrincipalResourceTypeIndexKey(make([]byte, 0, 64), principalRT, externalID)
-}
-
-func appendGrantByPrincipalResourceTypeIndexKey(dst []byte, principalRT, externalID string) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipalResourceType)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleStrings(dst, principalRT, externalID)
-}
-
-// encodeGrantByPrincipalResourceTypePrefix is the by-value prefix
-// for "all grants whose principal has the given resource_type".
-// Trailing sep is load-bearing — see keys.go convention.
-func encodeGrantByPrincipalResourceTypePrefix(principalRT string) []byte {
-	buf := make([]byte, 0, 32+len(principalRT))
-	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipalResourceType)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleStrings(buf, principalRT)
-	return codec.AppendTupleSeparator(buf)
-}
-
 // encodeGrantByNeedsExpansionPrefix is the by-type prefix for all
 // grants that still need expansion processing.
 func encodeGrantByNeedsExpansionPrefix() []byte {
@@ -352,47 +275,6 @@ func encodeGrantByPrincipalResourceTypeIdentityPrefix(principalRT string) []byte
 	buf = append(buf, versionV3, typeIndex, idxGrantByPrincipal)
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleStrings(buf, principalRT)
-	return codec.AppendTupleSeparator(buf)
-}
-
-// encodeGrantByEntitlementResourceIndexKey is the by_entitlement_resource
-// secondary index on GrantRecord. Indexes grants by the
-// resource side of their entitlement (i.e. the resource the
-// entitlement is on — the group/role/app/etc., NOT the principal).
-//
-//	v3 | typeIndex | idxGrantByEntitlementResource | 0x00 |
-//	    ent_resource_type | 0x00 |
-//	    ent_resource_id   | 0x00 |
-//	    external_id  (tail element for index-row uniqueness)
-//
-// Drives Adapter.ListGrants / ListWithAnnotationsForResourcePage when
-// req.Resource is set — matches SQLite's `listGrantsGeneric` which
-// filters on grants.resource_id / resource_type_id (the entitlement-
-// side resource columns). The pre-existing by_principal index served
-// the wrong semantic and produced silently-empty reads for callers
-// that wanted "grants on this group" rather than "grants where this
-// group is a principal".
-//
-// Paired with encodeGrantByEntitlementResourcePrefix (by-value prefix,
-// with trailing sep).
-func encodeGrantByEntitlementResourceIndexKey(entRT, entRID, externalID string) []byte {
-	return appendGrantByEntitlementResourceIndexKey(make([]byte, 0, 64), entRT, entRID, externalID)
-}
-
-func appendGrantByEntitlementResourceIndexKey(dst []byte, entRT, entRID, externalID string) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlementResource)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleStrings(dst, entRT, entRID, externalID)
-}
-
-// encodeGrantByEntitlementResourcePrefix is the by-value prefix for
-// "all grants whose entitlement is on this resource". Trailing sep is
-// load-bearing — see keys.go convention.
-func encodeGrantByEntitlementResourcePrefix(entRT, entRID string) []byte {
-	buf := make([]byte, 0, 32+len(entRT)+len(entRID))
-	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlementResource)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleStrings(buf, entRT, entRID)
 	return codec.AppendTupleSeparator(buf)
 }
 
@@ -494,23 +376,23 @@ func encodeEntitlementPrefix() []byte {
 //
 // Paired with encodeEntitlementByResourcePrefix (by-value prefix,
 // with trailing sep).
-func encodeEntitlementByResourceIndexKey(resourceTypeID, resourceID, externalID string) []byte {
-	buf := make([]byte, 0, 64)
-	buf = append(buf, versionV3, typeIndex, idxEntitlementByResource)
-	buf = codec.AppendTupleSeparator(buf)
-	return codec.AppendTupleStrings(buf, resourceTypeID, resourceID, externalID)
-}
+// func encodeEntitlementByResourceIndexKey(resourceTypeID, resourceID, externalID string) []byte {
+// 	buf := make([]byte, 0, 64)
+// 	buf = append(buf, versionV3, typeIndex, idxEntitlementByResource)
+// 	buf = codec.AppendTupleSeparator(buf)
+// 	return codec.AppendTupleStrings(buf, resourceTypeID, resourceID, externalID)
+// }
 
 // encodeEntitlementByResourcePrefix is the by-value prefix for "all
 // entitlements on (resource_type_id, resource_id)". Trailing sep is
 // load-bearing.
-func encodeEntitlementByResourcePrefix(resourceTypeID, resourceID string) []byte {
-	buf := make([]byte, 0, 32+len(resourceTypeID)+len(resourceID))
-	buf = append(buf, versionV3, typeIndex, idxEntitlementByResource)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleStrings(buf, resourceTypeID, resourceID)
-	return codec.AppendTupleSeparator(buf)
-}
+// func encodeEntitlementByResourcePrefix(resourceTypeID, resourceID string) []byte {
+// 	buf := make([]byte, 0, 32+len(resourceTypeID)+len(resourceID))
+// 	buf = append(buf, versionV3, typeIndex, idxEntitlementByResource)
+// 	buf = codec.AppendTupleSeparator(buf)
+// 	buf = codec.AppendTupleStrings(buf, resourceTypeID, resourceID)
+// 	return codec.AppendTupleSeparator(buf)
+// }
 
 func encodeEntitlementPrimaryResourcePrefix(resourceTypeID, resourceID string) []byte {
 	buf := make([]byte, 0, 64)
@@ -589,6 +471,8 @@ func EntitlementByResourceUpperBound() []byte { return upperBoundOf(EntitlementB
 func GrantLowerBound() []byte { return encodeGrantPrefix() }
 func GrantUpperBound() []byte { return upperBoundOf(encodeGrantPrefix()) }
 
+// GrantByEntitlementLowerBound returns the retired by_entitlement index range.
+// Kept so cleanup/migration can delete old files' index entries.
 func GrantByEntitlementLowerBound() []byte {
 	return []byte{versionV3, typeIndex, idxGrantByEntitlement}
 }
@@ -604,6 +488,8 @@ func GrantByNeedsExpansionUpperBound() []byte {
 	return upperBoundOf(GrantByNeedsExpansionLowerBound())
 }
 
+// GrantByPrincipalResourceTypeLowerBound returns a retired folded index range.
+// Principal-resource-type scans are served by idxGrantByPrincipal prefixes.
 func GrantByPrincipalResourceTypeLowerBound() []byte {
 	return []byte{versionV3, typeIndex, idxGrantByPrincipalResourceType}
 }
@@ -611,6 +497,8 @@ func GrantByPrincipalResourceTypeUpperBound() []byte {
 	return upperBoundOf(GrantByPrincipalResourceTypeLowerBound())
 }
 
+// GrantByEntitlementResourceLowerBound returns a retired folded index range.
+// Entitlement-resource scans are served by primary grant key prefixes.
 func GrantByEntitlementResourceLowerBound() []byte {
 	return []byte{versionV3, typeIndex, idxGrantByEntitlementResource}
 }

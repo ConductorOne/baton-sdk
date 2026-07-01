@@ -14,6 +14,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
@@ -218,6 +219,33 @@ func (s benchmarkExpanderStore) ListGrantPrincipalKeysForEntitlement(
 }
 
 func (s benchmarkExpanderStore) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+func (s benchmarkExpanderStore) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	if fast, ok := s.store.Grants().(interface {
+		StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
+	}); ok {
+		return fast.StoreNewExpandedGrants(ctx, grants...)
+	}
+	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+func (s benchmarkExpanderStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error {
+	if fast, ok := s.store.Grants().(interface {
+		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*v3.PrincipalRef, []map[string]bool) error
+	}); ok {
+		return fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
+	}
+	grants := make([]*v2.Grant, 0, len(principals))
+	for i, principalRef := range principals {
+		principal := principalResourceFromRef(principalRef)
+		grant, err := NewExpandedGrantForStore(dest, principal, sources[i])
+		if err != nil {
+			return err
+		}
+		grants = append(grants, grant)
+	}
 	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
 

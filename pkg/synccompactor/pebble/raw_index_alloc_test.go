@@ -48,7 +48,7 @@ func newGrantRawIndexAllocFixture(tb testing.TB) rawIndexAllocFixture {
 
 // TestForEachIndexKeyFromRawAllocs locks in the zero-allocation
 // contract of the raw index-key scan: with warm scratch buffers and
-// warm stats maps, generating the three written grant index keys for a winner
+// warm stats maps, generating the written grant index keys for a winner
 // must not allocate. The raw field scanners (scanGrantIndexFieldsBytes
 // et al.) return borrowed sub-slices of the value; the tuple decode
 // and key construction write into caller-owned scratch. A regression
@@ -65,12 +65,12 @@ func TestForEachIndexKeyFromRawAllocs(t *testing.T) {
 		return nil
 	}
 	require.NoError(t, forEachIndexKeyFromRaw(fx.bucket, fx.destKey, fx.destLower, fx.value, &scratch, stats, emitCheck))
-	require.Equal(t, 3, emitted, "emitted grant index keys")
+	require.Equal(t, 2, emitted, "emitted grant index keys")
 	run := func() {
 		require.NoError(t, forEachIndexKeyFromRaw(fx.bucket, fx.destKey, fx.destLower, fx.value, &scratch, stats, func([]byte) error { return nil }))
 	}
 	allocs := testing.AllocsPerRun(100, run)
-	require.Equal(t, float64(7), allocs, "forEachIndexKeyFromRaw allocs/op")
+	require.Equal(t, float64(3), allocs, "forEachIndexKeyFromRaw allocs/op")
 }
 
 // TestSeenSuffixSetLookupAllocs locks in the allocation-free lookup

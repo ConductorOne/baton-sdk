@@ -21,10 +21,11 @@ func newAdapter(t testing.TB) *Adapter {
 }
 
 func mkV2Grant(id, entID, principalRT, principalID string) *v2.Grant {
+	canonicalEntID := canonicalTestEntID(entID)
 	return v2.Grant_builder{
-		Id: id,
+		Id: canonicalTestGrantID(entID, principalRT, principalID),
 		Entitlement: v2.Entitlement_builder{
-			Id: entID,
+			Id: canonicalEntID,
 			Resource: v2.Resource_builder{
 				Id: v2.ResourceId_builder{
 					ResourceType: "app",
