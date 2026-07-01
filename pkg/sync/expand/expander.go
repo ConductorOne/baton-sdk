@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -75,9 +76,20 @@ type ExpanderStore interface {
 	// GrantsForEntitlementPrincipalSorted reports whether ListGrantsForEntitlement
 	// yields grants in non-decreasing principal (resource_type, resource) order
 	// for a given entitlement. The topological evaluators require it. Pebble's
-	// by_entitlement index satisfies it; SQLite (orders by grant id) and the
-	// in-memory test doubles do not and report false.
+	// entitlement-first primary grant key satisfies it; SQLite (orders by grant
+	// id) and the in-memory test doubles do not and report false.
 	GrantsForEntitlementPrincipalSorted() bool
+}
+
+// newExpandedGrantStorer is an optional fast path for stores that can persist
+// caller-proven-new expanded grants without read-before-write. Pebble implements
+// it; SQLite and tests can omit it and fall back to StoreExpandedGrants.
+type newExpandedGrantStorer interface {
+	StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
+}
+
+type synthesizedContributionStorer interface {
+	StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []map[string]bool) error
 }
 
 // entitlementGrantPrincipalKeyLister is an optional fast path for stores that
@@ -131,9 +143,9 @@ func (e *Expander) Run(ctx context.Context) error {
 // This matches the syncer's step-by-step execution model.
 func (e *Expander) RunSingleStep(ctx context.Context) error {
 	// The topological projection evaluator is the default whenever the store
-	// yields grants in principal order (Pebble's by_entitlement index). Stores
-	// that can't guarantee that ordering (SQLite, in-memory test doubles) fall
-	// through to the source-batched expander below.
+	// yields grants in principal order (Pebble's entitlement-first primary grant
+	// key). Stores that can't guarantee that ordering (SQLite, in-memory test
+	// doubles) fall through to the source-batched expander below.
 	if e.store.GrantsForEntitlementPrincipalSorted() {
 		if e.IsDone(ctx) {
 			return nil

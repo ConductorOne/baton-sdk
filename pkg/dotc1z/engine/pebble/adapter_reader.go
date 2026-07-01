@@ -205,7 +205,7 @@ func (a *Adapter) ListGrantsForEntitlement(
 		rtSet[rt] = struct{}{}
 	}
 
-	// cursorFor returns the by_entitlement index key for rec —
+	// cursorFor returns the primary grant key for rec —
 	// needed because a post-filter break at len(out) == limit may
 	// leave matching records unconsumed in the engine page, and
 	// the engine's end-of-page cursor would skip them.
@@ -352,8 +352,8 @@ func (a *Adapter) ListGrantsForPrincipal(
 }
 
 // ListGrantsForResourceType paginates grants whose principal is of
-// the given resource_type_id, via idxGrantByPrincipalResourceType.
-// The cursor is the index key.
+// the given resource_type_id, via the by_principal index prefix.
+// The cursor is the by_principal index key.
 //
 // Implements reader_v2.GrantsReaderServiceServer.
 func (a *Adapter) ListGrantsForResourceType(

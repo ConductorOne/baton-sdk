@@ -1,0 +1,2625 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pebble Compaction Lifecycle</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      /* C1 brand: near-black canvas, pastel mint + sky accents,
+         iridescent pink/cyan for emphasis. */
+      --bg: #08090c;
+      --slide: #0b0c10;
+      --panel: #14161e;
+      --panel-strong: #1c1f2b;
+      --line: #2b313f;
+      --line-strong: #454c61;
+      --text: #f6f8fc;
+      --muted: #a6b0c3;
+      --faint: #6b7589;
+      --blue: #9ccdf6;
+      --green: #8fe6a6;
+      --orange: #f3c08a;
+      --purple: #d7a9ff;
+      --pink: #f4a8e0;
+      --cyan: #a9eaf0;
+      --yellow: #f2dd72;
+      --red: #f29b9b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      overflow: hidden;
+    }
+
+    .deck {
+      height: 100vh;
+      overflow-y: auto;
+      scroll-snap-type: y mandatory;
+      scroll-behavior: smooth;
+    }
+
+    .slide {
+      position: relative;
+      isolation: isolate;
+      counter-increment: slide;
+      min-height: 100vh;
+      scroll-snap-align: start;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 28px;
+      padding: 48px 64px 34px;
+      background:
+        radial-gradient(circle at 82% 2%, rgba(143, 230, 166, 0.10), transparent 40%),
+        radial-gradient(circle at 2% 100%, rgba(156, 205, 246, 0.07), transparent 44%),
+        var(--slide);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    /* Halftone dot texture echoing the C1 brand backdrop. Sits above
+       the slide fill but behind all content (negative z-index). */
+    .slide::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1.6px);
+      background-size: 23px 23px;
+      opacity: 0.5;
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .deck {
+      counter-reset: slide;
+    }
+
+    .slide::before {
+      content: counter(slide, decimal-leading-zero);
+      position: absolute;
+      right: 64px;
+      top: 42px;
+      color: rgba(246, 248, 252, 0.14);
+      font-size: 72px;
+      line-height: 1;
+      font-weight: 850;
+      letter-spacing: -0.08em;
+      pointer-events: none;
+    }
+
+    .slide:nth-child(even) {
+      background:
+        radial-gradient(circle at 84% 6%, rgba(156, 205, 246, 0.09), transparent 40%),
+        radial-gradient(circle at 4% 100%, rgba(143, 230, 166, 0.06), transparent 44%),
+        var(--slide);
+    }
+
+    .slide.sqlite,
+    .slide.sqlite:nth-child(even) {
+      background:
+        radial-gradient(circle at 82% 2%, rgba(156, 205, 246, 0.13), transparent 38%),
+        radial-gradient(circle at 2% 100%, rgba(244, 168, 224, 0.05), transparent 44%),
+        var(--slide);
+    }
+
+    .slide.pebble,
+    .slide.pebble:nth-child(even) {
+      background:
+        radial-gradient(circle at 82% 2%, rgba(143, 230, 166, 0.13), transparent 38%),
+        radial-gradient(circle at 2% 100%, rgba(169, 234, 240, 0.05), transparent 44%),
+        var(--slide);
+    }
+
+    .header {
+      max-width: 1040px;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      color: var(--blue);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    /* Bracketed label treatment, matching the C1 deck's [eyebrow] style. */
+    .eyebrow::before { content: "[ "; opacity: 0.6; }
+    .eyebrow::after { content: " ]"; opacity: 0.6; }
+
+    /* Engine-specific header treatment: SQLite is sky-blue,
+       Pebble is mint; neutral slides stay sky-blue. */
+    .slide.sqlite .eyebrow {
+      color: var(--blue);
+    }
+
+    .slide.sqlite h1 {
+      color: var(--blue);
+    }
+
+    .slide.pebble .eyebrow {
+      color: var(--green);
+    }
+
+    .slide.pebble h1 {
+      color: var(--green);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(44px, 5vw, 74px);
+      line-height: 0.98;
+      letter-spacing: -0.055em;
+      max-width: 1100px;
+    }
+
+    h2 {
+      font-size: 40px;
+      line-height: 1.05;
+      letter-spacing: -0.035em;
+      margin-bottom: 14px;
+    }
+
+    h3 {
+      font-size: 22px;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      margin-top: 18px;
+      max-width: 920px;
+      color: var(--muted);
+      font-size: 22px;
+      line-height: 1.38;
+    }
+
+    .content {
+      align-self: start;
+      width: 100%;
+      min-height: 0;
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--faint);
+      font-size: 13px;
+    }
+
+    .kbd {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 2px 6px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .grid {
+      display: grid;
+      gap: 18px;
+    }
+
+    .cols-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .cols-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(27, 32, 43, 0.92);
+      padding: 22px;
+    }
+
+    .card.strong {
+      background: var(--panel-strong);
+      border-color: var(--line-strong);
+    }
+
+    .card p,
+    .step p {
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.42;
+    }
+
+    .note {
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.45;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
+      align-items: stretch;
+      gap: 14px;
+    }
+
+    .node {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      background: var(--panel);
+      min-height: 126px;
+    }
+
+    .node:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -15px;
+      width: 15px;
+      border-top: 2px solid var(--line-strong);
+    }
+
+    .node h3 {
+      color: var(--text);
+      font-size: 21px;
+    }
+
+    .node p {
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.35;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      padding: 4px 10px;
+      margin-bottom: 12px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .tag.green { color: var(--green); }
+    .tag.orange { color: var(--orange); }
+    .tag.purple { color: var(--purple); }
+    .tag.red { color: var(--red); }
+    .tag.yellow { color: var(--yellow); }
+    .tag.pink { color: var(--pink); }
+
+    .decision {
+      display: grid;
+      grid-template-columns: 1fr 1.1fr 1fr;
+      gap: 18px;
+      align-items: center;
+    }
+
+    .diamond {
+      min-height: 240px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 34px;
+      border: 1px solid var(--line-strong);
+      background: var(--panel-strong);
+      clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+    }
+
+    .diamond h3 {
+      max-width: 260px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--panel);
+      padding: 16px;
+      min-height: 160px;
+    }
+
+    .num {
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      display: inline-grid;
+      place-items: center;
+      margin-bottom: 12px;
+      background: var(--panel-strong);
+      border: 1px solid var(--line-strong);
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .layout {
+      display: grid;
+      gap: 14px;
+    }
+
+    .file-row {
+      display: grid;
+      grid-template-columns: 170px minmax(0, 1fr);
+      gap: 14px;
+      align-items: center;
+    }
+
+    .file-label {
+      color: var(--muted);
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .bytes {
+      display: grid;
+      grid-template-columns: var(--parts);
+      gap: 8px;
+      min-height: 84px;
+    }
+
+    .byte {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      padding: 16px;
+      display: grid;
+      align-content: center;
+      min-width: 0;
+    }
+
+    .byte.active {
+      border-color: var(--blue);
+      background: rgba(122, 167, 255, 0.10);
+    }
+
+    .byte.green {
+      border-color: var(--green);
+      background: rgba(114, 211, 145, 0.10);
+    }
+
+    .byte.yellow {
+      border-color: var(--yellow);
+      background: rgba(242, 221, 114, 0.10);
+    }
+
+    .byte h3 {
+      font-size: 18px;
+      margin-bottom: 6px;
+    }
+
+    .byte p {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.3;
+    }
+
+    .rule-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .rule {
+      position: relative;
+      padding-left: 24px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.45;
+    }
+
+    .rule::before {
+      content: "";
+      position: absolute;
+      left: 6px;
+      top: 0.62em;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+
+    .rule strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .x-list {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 10px;
+      margin-top: 16px;
+      margin-bottom: 22px;
+      max-width: none;
+    }
+
+    .x-item {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(27, 32, 43, 0.74);
+      padding: 10px 14px;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .x-item .x {
+      color: var(--red);
+      margin-right: 8px;
+      font-weight: 900;
+    }
+
+    .x-item .x.green { color: var(--green); }
+
+    .x-item.pos {
+      border-color: rgba(143, 230, 166, 0.45);
+      background: rgba(143, 230, 166, 0.06);
+    }
+
+    .x-sep {
+      align-self: center;
+      color: var(--faint);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      padding: 0 4px;
+    }
+
+    .x-glabel {
+      align-self: center;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .usage {
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--pink);
+      border-radius: 10px;
+      background: rgba(244, 168, 224, 0.07);
+      padding: 12px 16px;
+      margin-bottom: 18px;
+      font-size: 17px;
+      line-height: 1.4;
+      color: var(--muted);
+    }
+
+    .usage strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .usage .label {
+      display: inline-block;
+      margin-right: 8px;
+      color: var(--pink);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .dtable {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+
+    .dtable th,
+    .dtable td {
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+      font-size: 16px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .dtable th {
+      color: var(--faint);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .dtable td.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .dtable .eng-sqlite { color: var(--blue); font-weight: 800; }
+    .dtable .eng-pebble { color: var(--green); font-weight: 800; }
+
+    .gtable {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .gtable .grow {
+      display: grid;
+      grid-template-columns: var(--cols, 1fr 1fr);
+      gap: 16px;
+      align-items: baseline;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .gtable .grow:last-child {
+      border-bottom: none;
+    }
+
+    .gtable .l,
+    .gtable .r {
+      white-space: nowrap;
+      color: var(--muted);
+      font-size: 16px;
+      min-width: 0;
+    }
+
+    .gtable .r {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .gtable .grow.head .l,
+    .gtable .grow.head .r {
+      color: var(--faint);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 800;
+    }
+
+    .bigstat {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      padding: 18px 20px;
+    }
+
+    .bigstat .v {
+      font-size: 38px;
+      font-weight: 850;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+
+    .bigstat .l {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .problem-stat {
+      border: 1px solid var(--line-strong);
+      border-radius: 18px;
+      background: var(--panel-strong);
+      padding: 24px;
+    }
+
+    .problem-stat h3 {
+      margin: 0;
+      color: var(--text);
+      font-size: 28px;
+      line-height: 1.12;
+      letter-spacing: -0.02em;
+    }
+
+    .problem-stat .v {
+      margin-top: 14px;
+      color: var(--orange);
+      font-size: 58px;
+      font-weight: 900;
+      letter-spacing: -0.045em;
+      line-height: 0.95;
+    }
+
+    .problem-stat .l {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.35;
+    }
+
+    .olist {
+      display: grid;
+      gap: 12px;
+      counter-reset: ostep;
+      max-width: 1000px;
+    }
+
+    .olist .item {
+      position: relative;
+      padding: 16px 18px 16px 64px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+    }
+
+    .olist .item::before {
+      counter-increment: ostep;
+      content: counter(ostep);
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: var(--panel-strong);
+      border: 1px solid var(--line-strong);
+      color: var(--green);
+      font-weight: 800;
+      font-size: 15px;
+    }
+
+    .olist .item h3 {
+      margin-bottom: 4px;
+      font-size: 19px;
+    }
+
+    .olist .item p {
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.4;
+    }
+
+    code {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      padding: 1px 5px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.9em;
+    }
+
+    .term {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--bg);
+      padding: 16px 20px;
+      margin-top: 18px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 15px;
+      line-height: 1.7;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .term .prompt { color: var(--green); }
+    .term .file { color: var(--text); }
+    .term .sst { color: var(--blue); }
+    .term .wal { color: var(--orange); }
+    .term .cmt { color: var(--faint); }
+
+    /* ---- Branded title slide (mirrors the C1 "Monthly Goals" layout) ---- */
+    .slide.title {
+      grid-template-rows: auto 1fr auto;
+      align-items: stretch;
+    }
+
+    .slide.title::before { content: none; }
+
+    .brandbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 1;
+    }
+
+    .brandbar .mark {
+      width: 34px;
+      height: 34px;
+      display: block;
+    }
+
+    .brandbar .wordmark {
+      font-size: 26px;
+      font-weight: 850;
+      letter-spacing: 0.02em;
+      color: var(--text);
+    }
+
+    .title-body {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      align-items: center;
+      gap: 40px;
+      z-index: 1;
+    }
+
+    .title-eyebrow {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 22px;
+    }
+
+    .title-h1 {
+      font-size: clamp(58px, 7vw, 104px);
+      line-height: 0.94;
+      letter-spacing: -0.055em;
+      font-weight: 850;
+      color: var(--text);
+    }
+
+    .title-sub {
+      margin-top: 30px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .title-sub .br { color: var(--blue); }
+    .title-sub .gr { color: var(--green); }
+    .title-sub .sep { color: var(--faint); margin: 0 10px; }
+
+    .title-art {
+      display: grid;
+      place-items: center;
+    }
+
+    .title-art svg {
+      width: min(100%, 420px);
+      height: auto;
+      filter: drop-shadow(0 0 38px rgba(244, 168, 224, 0.35))
+              drop-shadow(0 0 60px rgba(169, 234, 240, 0.22));
+    }
+
+    .title-copy {
+      align-self: end;
+      justify-self: end;
+      color: var(--faint);
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      z-index: 1;
+    }
+
+    @media (max-width: 900px) {
+      .title-body { grid-template-columns: 1fr; }
+      .title-art { display: none; }
+    }
+
+    @media (max-width: 900px) {
+      body {
+        overflow: auto;
+      }
+
+      .slide {
+        min-height: auto;
+        padding: 32px 22px;
+      }
+
+      .cols-2,
+      .cols-3,
+      .flow,
+      .decision,
+      .steps,
+      .compare {
+        grid-template-columns: 1fr;
+      }
+
+      .node::after {
+        display: none;
+      }
+
+      .diamond {
+        clip-path: none;
+        border-radius: 18px;
+      }
+    }
+
+    @media print {
+      body {
+        overflow: visible;
+      }
+
+      .deck {
+        height: auto;
+        overflow: visible;
+      }
+
+      .slide {
+        page-break-after: always;
+        min-height: 100vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck" id="deck">
+    <section class="slide title">
+      <div class="brandbar">
+        <svg class="mark" viewBox="0 0 320 320" role="img" aria-label="C1">
+          <defs>
+            <linearGradient id="c1mark" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#f4a8e0"/>
+              <stop offset="0.5" stop-color="#a9eaf0"/>
+              <stop offset="1" stop-color="#8fe6a6"/>
+            </linearGradient>
+          </defs>
+          <path d="M160 24 L286 97 L286 223 L160 296 L34 223 L34 97 Z" fill="none" stroke="url(#c1mark)" stroke-width="30" stroke-linejoin="round"/>
+        </svg>
+        <span class="wordmark">C1</span>
+      </div>
+
+      <div class="title-body">
+        <div>
+          <div class="title-eyebrow">[ baton-sdk ]</div>
+          <h1 class="title-h1">Faster<br/>Compaction<br/>&amp; Expansion</h1>
+          <div class="title-sub">
+            <span class="br">[Track 1]</span> <span class="gr">Compaction</span>
+            <span class="sep">·</span>
+            <span class="br">[Track 2]</span> <span class="gr">Grant Expansion</span>
+          </div>
+        </div>
+        <div class="title-art">
+          <svg viewBox="0 0 360 360" role="img" aria-label="Iridescent C1 emblem">
+            <defs>
+              <linearGradient id="c1art" x1="0.1" y1="0" x2="0.9" y2="1">
+                <stop offset="0" stop-color="#f4a8e0"/>
+                <stop offset="0.45" stop-color="#a9eaf0"/>
+                <stop offset="1" stop-color="#8fe6a6"/>
+              </linearGradient>
+              <linearGradient id="c1gloss" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="rgba(255,255,255,0.55)"/>
+                <stop offset="0.4" stop-color="rgba(255,255,255,0.05)"/>
+                <stop offset="1" stop-color="rgba(255,255,255,0)"/>
+              </linearGradient>
+            </defs>
+            <path d="M180 30 L308 104 L308 256 L180 330 L52 256 L52 104 Z" fill="none" stroke="url(#c1art)" stroke-width="46" stroke-linejoin="round"/>
+            <path d="M120 150 L228 110 L228 222 L120 192 Z" fill="url(#c1art)" opacity="0.92"/>
+            <path d="M180 30 L308 104 L308 256 L180 330 L52 256 L52 104 Z" fill="none" stroke="url(#c1gloss)" stroke-width="46" stroke-linejoin="round" opacity="0.6"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="title-copy">Copyright &copy; 2026 C1, Inc. All rights reserved.</div>
+    </section>
+
+    <section class="slide">
+      <header class="header">
+        <div class="eyebrow">baton-sdk · go faster</div>
+        <h1 style="padding-bottom: 120px;">The problem is slow</h1>
+      </header>
+      <div class="content" style="margin-top: -18px;">
+        <div class="grid cols-2">
+          <div class="card strong">
+            <span class="tag blue"><i>track 1: Grant Expansion</i></span>
+            <div style="margin-top: 18px; color: var(--orange); font-size: 58px; font-weight: 900; letter-spacing: -0.045em; line-height: 0.95;">~61 hours</div>
+            <p style="margin-top: 12px; color: var(--muted); font-size: 18px; line-height: 1.35;">Garmin Entra full sync peak; expansion takes ~9 hours locally.</p>
+            <p style="margin-top: 18px; color: var(--text); font-size: 20px; line-height: 1.35;"><strong>Target:</strong> <strong>1 day</strong>, not <strong>4-5 days</strong>.</p>
+          </div>
+          <div class="card strong">
+            <span class="tag">track 2: Compaction</span>
+            <div style="margin-top: 18px; color: var(--orange); font-size: 58px; font-weight: 900; letter-spacing: -0.045em; line-height: 0.95;">~1.5 hours, but lots of it</div>
+            <p style="margin-top: 12px; color: var(--muted); font-size: 18px; line-height: 1.35;">Partial-sync compaction peak, with many runs still spending tens of minutes rewriting c1z output.</p>
+            <p style="margin-top: 18px; color: var(--text); font-size: 20px; line-height: 1.35;"><strong>Target:</strong> T-new hires needs to be on the scale of <strong>~1 hour</strong>, not <strong>days</strong>.</p>
+          </div>
+        </div>
+      </div>
+      <footer class="footer"><span>Problem statement</span><span>grant expansion &middot; compaction</span></footer>
+    </section>
+
+    <section class="slide">
+      <header class="header">
+        <div class="eyebrow">Start here</div>
+        <h1><i>Partial Syncs and You</i></h1>
+        <p class="subtitle">A full sync is necessarily slow and expensive. We record millions of rows, and rate limits are a universal constraint, but customer data churn is mostly < 1% per sync.</p>
+      </header>
+      <div class="content">
+        <svg viewBox="0 0 1200 470" role="img" aria-label="A base full sync plus later partial syncs are merged by compaction into one full c1z artifact." style="width: 100%; height: auto; display: block;">
+          <defs>
+            <marker id="ov-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--line-strong)"></path>
+            </marker>
+          </defs>
+
+          <!-- time axis -->
+          <line x1="70" y1="60" x2="70" y2="430" stroke="var(--line)" stroke-width="2" marker-end="url(#ov-arrow)"></line>
+          <text x="58" y="250" fill="var(--faint)" font-size="14" font-weight="700" text-anchor="middle" transform="rotate(-90 58 250)">captured over time</text>
+
+          <!-- base full sync -->
+          <rect x="110" y="64" width="250" height="150" rx="14" fill="var(--panel)" stroke="var(--blue)" stroke-width="2"></rect>
+          <text x="130" y="92" fill="var(--text)" font-size="19" font-weight="800">Full sync (base)</text>
+          <text x="130" y="113" fill="var(--muted)" font-size="13" font-weight="600">complete snapshot · very slow</text>
+          <rect x="130" y="126" width="210" height="9" rx="4" fill="var(--line-strong)"></rect>
+          <rect x="130" y="142" width="210" height="9" rx="4" fill="var(--line-strong)"></rect>
+          <rect x="130" y="158" width="210" height="9" rx="4" fill="var(--line-strong)"></rect>
+          <rect x="130" y="174" width="210" height="9" rx="4" fill="var(--line-strong)"></rect>
+          <rect x="130" y="190" width="210" height="9" rx="4" fill="var(--line-strong)"></rect>
+
+          <!-- partials -->
+          <rect x="110" y="240" width="250" height="56" rx="12" fill="var(--panel)" stroke="var(--orange)" stroke-width="2"></rect>
+          <text x="130" y="265" fill="var(--text)" font-size="16" font-weight="800">Partial sync 1</text>
+          <text x="130" y="283" fill="var(--muted)" font-size="12" font-weight="600">changed subset N1</text>
+          <rect x="300" y="258" width="44" height="9" rx="4" fill="var(--orange)"></rect>
+
+          <rect x="110" y="312" width="250" height="56" rx="12" fill="var(--panel)" stroke="var(--orange)" stroke-width="2"></rect>
+          <text x="130" y="337" fill="var(--text)" font-size="16" font-weight="800">Partial sync 2</text>
+          <text x="130" y="355" fill="var(--muted)" font-size="12" font-weight="600">changed subset N2</text>
+          <rect x="300" y="330" width="44" height="9" rx="4" fill="var(--orange)"></rect>
+
+          <rect x="110" y="384" width="250" height="56" rx="12" fill="var(--panel)" stroke="var(--orange)" stroke-width="2"></rect>
+          <text x="130" y="409" fill="var(--text)" font-size="16" font-weight="800">Partial sync 3</text>
+          <text x="130" y="427" fill="var(--muted)" font-size="12" font-weight="600">changed subset N3</text>
+          <rect x="300" y="402" width="44" height="9" rx="4" fill="var(--orange)"></rect>
+
+          <!-- converging arrows -->
+          <path d="M360,139 C470,160 500,235 600,250" fill="none" stroke="var(--line-strong)" stroke-width="2.5" marker-end="url(#ov-arrow)"></path>
+          <path d="M360,268 C480,270 500,255 600,256" fill="none" stroke="var(--line-strong)" stroke-width="2.5" marker-end="url(#ov-arrow)"></path>
+          <path d="M360,340 C480,330 500,275 600,266" fill="none" stroke="var(--line-strong)" stroke-width="2.5" marker-end="url(#ov-arrow)"></path>
+          <path d="M360,412 C490,395 500,290 600,278" fill="none" stroke="var(--line-strong)" stroke-width="2.5" marker-end="url(#ov-arrow)"></path>
+
+          <!-- compaction -->
+          <rect x="600" y="186" width="250" height="150" rx="16" fill="var(--panel-strong)" stroke="var(--purple)" stroke-width="2"></rect>
+          <text x="725" y="232" fill="var(--text)" font-size="22" font-weight="800" text-anchor="middle">Compaction</text>
+          <text x="725" y="260" fill="var(--muted)" font-size="14" font-weight="600" text-anchor="middle">replay base + partials</text>
+          <text x="725" y="282" fill="var(--muted)" font-size="14" font-weight="600" text-anchor="middle">newest record wins</text>
+          <text x="725" y="304" fill="var(--muted)" font-size="14" font-weight="600" text-anchor="middle">per object type</text>
+
+          <!-- output arrow -->
+          <line x1="850" y1="261" x2="935" y2="261" stroke="var(--line-strong)" stroke-width="2.5" marker-end="url(#ov-arrow)"></line>
+
+          <!-- output -->
+          <rect x="940" y="190" width="230" height="142" rx="16" fill="var(--panel)" stroke="var(--green)" stroke-width="2"></rect>
+          <text x="1055" y="240" fill="var(--text)" font-size="19" font-weight="800" text-anchor="middle">Compacted c1z</text>
+          <text x="1055" y="264" fill="var(--muted)" font-size="13" font-weight="600" text-anchor="middle">one full artifact</text>
+          <text x="1055" y="284" fill="var(--muted)" font-size="13" font-weight="600" text-anchor="middle">no partial chain to replay</text>
+          <text x="1055" y="308" fill="var(--green)" font-size="13" font-weight="800" text-anchor="middle">ready for C1 to ingest</text>
+        </svg>
+      </div>
+      <footer class="footer"><span>Overview</span><span>Use <span class="kbd">←</span> <span class="kbd">→</span> or scroll</span></footer>
+    </section>
+
+    <section class="slide sqlite">
+      <header class="header">
+        <div class="eyebrow">How to SQLite</div>
+        <h1>One file of in-place B-trees</h1>
+        <p class="subtitle">SQLite keeps every table and every index as a B-tree inside a single file, updated in place.</p>
+      </header>
+      <div class="content">
+        <svg viewBox="0 0 1200 270" role="img" aria-label="A B-tree: a root page of separator keys points to sorted leaf pages; lookups descend root to leaf and range scans walk leaves in order." style="width: 82%; height: auto; display: block; margin: -14px auto 0;">
+          <defs>
+            <marker id="bt-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--line-strong)"></path>
+            </marker>
+            <marker id="bt-sib" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--faint)"></path>
+            </marker>
+          </defs>
+
+          <!-- root -->
+          <text x="600" y="30" text-anchor="middle" fill="var(--muted)" font-size="12" font-weight="700">root page — separator keys</text>
+          <rect x="500" y="38" width="200" height="46" rx="10" fill="var(--panel-strong)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+          <text x="600" y="67" text-anchor="middle" fill="var(--text)" font-size="18" font-weight="800">17 &nbsp;|&nbsp; 35</text>
+
+          <!-- pointers to leaves -->
+          <line x1="520" y1="84" x2="230" y2="142" stroke="var(--line)" stroke-width="2" marker-end="url(#bt-arrow)"></line>
+          <line x1="600" y1="84" x2="600" y2="142" stroke="var(--line)" stroke-width="2" marker-end="url(#bt-arrow)"></line>
+          <line x1="680" y1="84" x2="970" y2="142" stroke="var(--line)" stroke-width="2" marker-end="url(#bt-arrow)"></line>
+          <text x="375" y="114" text-anchor="middle" fill="var(--faint)" font-size="11">&lt; 17</text>
+          <text x="636" y="114" text-anchor="middle" fill="var(--faint)" font-size="11">17 – 34</text>
+          <text x="825" y="114" text-anchor="middle" fill="var(--faint)" font-size="11">&ge; 35</text>
+
+          <!-- leaves -->
+          <rect x="140" y="144" width="180" height="46" rx="10" fill="var(--panel)" stroke="var(--line)"></rect>
+          <text x="230" y="172" text-anchor="middle" fill="var(--text)" font-size="16" font-weight="700">5 &nbsp;|&nbsp; 11</text>
+          <rect x="510" y="144" width="180" height="46" rx="10" fill="var(--panel)" stroke="var(--line)"></rect>
+          <text x="600" y="172" text-anchor="middle" fill="var(--text)" font-size="16" font-weight="700">17 | 23 | 29</text>
+          <rect x="880" y="144" width="180" height="46" rx="10" fill="var(--panel)" stroke="var(--line)"></rect>
+          <text x="970" y="172" text-anchor="middle" fill="var(--text)" font-size="16" font-weight="700">35 | 41 | 50</text>
+
+          <!-- sibling links (ordered leaf scan) -->
+          <line x1="320" y1="167" x2="510" y2="167" stroke="var(--faint)" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#bt-sib)"></line>
+          <line x1="690" y1="167" x2="880" y2="167" stroke="var(--faint)" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#bt-sib)"></line>
+          <text x="415" y="158" text-anchor="middle" fill="var(--faint)" font-size="10">next</text>
+          <text x="785" y="158" text-anchor="middle" fill="var(--faint)" font-size="10">next</text>
+
+          <text x="600" y="228" text-anchor="middle" fill="var(--muted)" font-size="13">Lookup: root &rarr; leaf. Range scan: walk leaves in order.</text>
+        </svg>
+        <div class="grid cols-2" style="margin-top: 8px;">
+          <div class="card">
+            <span class="tag">the v1_grants table</span>
+            <h3>Grant rows</h3>
+            <div class="term" style="margin-top: 8px; font-size: 11.5px; line-height: 1.35;">CREATE TABLE v1_grants (
+  id INTEGER PRIMARY KEY,
+  resource_type_id TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  entitlement_id TEXT NOT NULL,
+  principal_resource_type_id TEXT NOT NULL,
+  principal_resource_id TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  data BLOB NOT NULL,
+  sync_id TEXT NOT NULL,
+  discovered_at DATETIME NOT NULL
+);</div>
+          </div>
+          <div class="card">
+            <span class="tag">five secondary indexes</span>
+            <h3>Every insert updates more B-trees</h3>
+            <div class="term" style="margin-top: 8px; font-size: 11.5px; line-height: 1.35;">CREATE INDEX ... (resource_type_id, resource_id);
+CREATE INDEX ... (principal_resource_type_id, principal_resource_id);
+CREATE INDEX ... (entitlement_id, principal_resource_type_id, principal_resource_id);
+<span class="sst">CREATE UNIQUE INDEX ... (external_id, sync_id);</span>
+CREATE INDEX ... (entitlement_id, sync_id, id);</div>
+          </div>
+        </div>
+      </div>
+      <footer class="footer"><span>SQLite high level</span><span>single file · in-place B-trees · random index writes</span></footer>
+    </section>
+
+    <section class="slide sqlite">
+      <header class="header">
+        <div class="eyebrow">C1Z (V1) SQLite layout</div>
+        <h1>One sqlite wrapped in one zstd</h1>
+        <p class="subtitle">SQLite already stores everything in a single database file, so the v1 c1z layout just compresses that whole file as one zstd stream.</p>
+      </header>
+      <div class="content">
+        <svg viewBox="0 0 1200 340" role="img" aria-label="A c1z v1 file is a magic header plus one opaque zstd frame; that single frame contains one whole SQLite database file, which itself holds the tables, sync_runs, indexes, and rollback journal." style="width: 100%; height: auto; display: block; margin-top: 6px;">
+          <defs>
+            <marker id="z5-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="var(--line-strong)"></path></marker>
+          </defs>
+
+          <!-- Ring 1: the .c1z (v1) file -->
+          <text x="40" y="32" fill="var(--faint)" font-size="13" font-weight="800" letter-spacing="0.06em">.C1Z FILE &middot; V1</text>
+          <rect x="40" y="44" width="720" height="256" rx="20" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+
+          <!-- magic header chip -->
+          <rect x="58" y="66" width="62" height="212" rx="9" fill="var(--panel-strong)" stroke="var(--line)" stroke-width="1.5"></rect>
+          <text x="89" y="172" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800" font-family="SFMono-Regular, Consolas, monospace" transform="rotate(-90 89 172)">C1ZF\0</text>
+          <text x="89" y="296" text-anchor="middle" fill="var(--faint)" font-size="11">magic</text>
+
+          <!-- Ring 2: one zstd frame (the compression boundary) -->
+          <rect x="132" y="66" width="608" height="212" rx="15" fill="rgba(156,205,246,0.06)" stroke="var(--blue)" stroke-width="1.75"></rect>
+          <text x="150" y="90" fill="var(--blue)" font-size="14" font-weight="800">one zstd frame &mdash; opaque</text>
+
+          <!-- Ring 3: one SQLite database file -->
+          <rect x="152" y="104" width="568" height="158" rx="12" fill="rgba(255,255,255,0.02)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+          <text x="170" y="128" fill="var(--text)" font-size="14" font-weight="800">one SQLite database file</text>
+
+          <!-- inner chips -->
+          <g font-family="inherit">
+            <rect x="170" y="142" width="128" height="106" rx="9" fill="var(--panel)" stroke="var(--line)" stroke-width="1"></rect>
+            <text x="186" y="170" fill="var(--text)" font-size="13" font-weight="800">tables</text>
+            <text x="186" y="190" fill="var(--muted)" font-size="11">resources</text>
+            <text x="186" y="206" fill="var(--muted)" font-size="11">entitlements</text>
+            <text x="186" y="222" fill="var(--muted)" font-size="11">grants</text>
+
+            <rect x="310" y="142" width="128" height="106" rx="9" fill="var(--panel)" stroke="var(--line)" stroke-width="1"></rect>
+            <text x="326" y="170" fill="var(--text)" font-size="13" font-weight="800">sync_runs</text>
+            <text x="326" y="190" fill="var(--muted)" font-size="11">many syncs</text>
+            <text x="326" y="206" fill="var(--muted)" font-size="11">per DB</text>
+
+            <rect x="450" y="142" width="128" height="106" rx="9" fill="var(--panel)" stroke="var(--line)" stroke-width="1"></rect>
+            <text x="466" y="170" fill="var(--text)" font-size="13" font-weight="800">indexes</text>
+            <text x="466" y="190" fill="var(--muted)" font-size="11">secondary</text>
+            <text x="466" y="206" fill="var(--muted)" font-size="11">+ rowids</text>
+
+            <rect x="590" y="142" width="114" height="106" rx="9" fill="var(--panel)" stroke="var(--line)" stroke-width="1"></rect>
+            <text x="606" y="170" fill="var(--text)" font-size="13" font-weight="800">journal</text>
+            <text x="606" y="190" fill="var(--muted)" font-size="11">TRUNCATE</text>
+            <text x="606" y="206" fill="var(--muted)" font-size="11">rollback</text>
+          </g>
+
+          <!-- right-side annotations -->
+          <g>
+            <circle cx="812" cy="92" r="4" fill="var(--blue)"></circle>
+            <text x="828" y="97" fill="var(--text)" font-size="15" font-weight="700">One file in, one file out</text>
+            <text x="828" y="119" fill="var(--muted)" font-size="13">SQLite already packages everything as a single on-disk file.</text>
+
+            <circle cx="812" cy="160" r="4" fill="var(--blue)"></circle>
+            <text x="828" y="165" fill="var(--text)" font-size="15" font-weight="700">One compression boundary</text>
+            <text x="828" y="187" fill="var(--muted)" font-size="13">A single zstd stream wraps the whole DB &mdash; magic + 1 frame.</text>
+
+            <circle cx="812" cy="228" r="4" fill="var(--orange)"></circle>
+            <text x="828" y="233" fill="var(--orange)" font-size="15" font-weight="700">Opaque &amp; all-or-nothing</text>
+            <text x="828" y="255" fill="var(--muted)" font-size="13">Any change re-compresses the entire file &mdash; no frame reuse.</text>
+          </g>
+
+          <text x="40" y="328" fill="var(--faint)" font-size="13">Cleanup happens inside SQLite first (delete old syncs, optional VACUUM), then the whole DB is re-compressed and saved.</text>
+        </svg>
+      </div>
+      <footer class="footer"><span>SQLite layout</span><span><code>C1ZF\0</code> + one zstd frame</span></footer>
+    </section>
+
+    <section class="slide sqlite">
+      <header class="header">
+        <div class="eyebrow">Why SQLite degrades</div>
+        <h1>One grant insert becomes many scattered page writes</h1>
+        <p class="subtitle">One logical row into insert six B-tree inserts, and each must find the leaf page its key belongs on. Our grant index keys are opaque IDs, so those leaves are scattered across the file.</p>
+      </header>
+      <div class="content">
+        <svg viewBox="0 0 1200 430" role="img" aria-label="One grant insert updates the table B-tree plus five index B-trees; the table appends by rowid but each index write lands on a scattered page across the single database file." style="width: 100%; height: auto; display: block;">
+          <defs>
+            <marker id="deg-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--line-strong)"></path>
+            </marker>
+          </defs>
+
+          <!-- insert -->
+          <rect x="500" y="12" width="200" height="44" rx="12" fill="var(--panel-strong)" stroke="var(--text)" stroke-width="1.5"></rect>
+          <text x="600" y="40" text-anchor="middle" fill="var(--text)" font-size="17" font-weight="800">INSERT grant ...</text>
+
+          <!-- fan to b-trees -->
+          <line x1="600" y1="56" x2="120" y2="104" stroke="var(--line)" stroke-width="1.5"></line>
+          <line x1="600" y1="56" x2="311" y2="104" stroke="var(--line)" stroke-width="1.5"></line>
+          <line x1="600" y1="56" x2="502" y2="104" stroke="var(--line)" stroke-width="1.5"></line>
+          <line x1="600" y1="56" x2="693" y2="104" stroke="var(--line)" stroke-width="1.5"></line>
+          <line x1="600" y1="56" x2="884" y2="104" stroke="var(--line)" stroke-width="1.5"></line>
+          <line x1="600" y1="56" x2="1075" y2="104" stroke="var(--line)" stroke-width="1.5"></line>
+
+          <!-- b-tree chips -->
+          <g font-size="12.5">
+            <rect x="38" y="104" width="164" height="58" rx="10" fill="var(--panel)" stroke="var(--line)"></rect>
+            <text x="120" y="128" text-anchor="middle" fill="var(--text)" font-weight="800">index</text>
+            <text x="120" y="147" text-anchor="middle" fill="var(--red)">(resource_type, resource)</text>
+
+            <rect x="229" y="104" width="164" height="58" rx="10" fill="var(--panel)" stroke="var(--line)"></rect>
+            <text x="311" y="128" text-anchor="middle" fill="var(--text)" font-weight="800">index</text>
+            <text x="311" y="147" text-anchor="middle" fill="var(--red)">(principal_type, principal)</text>
+
+            <rect x="420" y="104" width="164" height="58" rx="10" fill="var(--panel)" stroke="var(--line)"></rect>
+            <text x="502" y="128" text-anchor="middle" fill="var(--text)" font-weight="800">index</text>
+            <text x="502" y="147" text-anchor="middle" fill="var(--red)">(entitlement, principal)</text>
+
+            <rect x="611" y="104" width="164" height="58" rx="10" fill="var(--panel)" stroke="var(--line)"></rect>
+            <text x="693" y="128" text-anchor="middle" fill="var(--text)" font-weight="800">index</text>
+            <text x="693" y="147" text-anchor="middle" fill="var(--red)">(external_id, sync_id)</text>
+
+            <rect x="802" y="104" width="164" height="58" rx="10" fill="var(--panel)" stroke="var(--line)"></rect>
+            <text x="884" y="128" text-anchor="middle" fill="var(--text)" font-weight="800">index</text>
+            <text x="884" y="147" text-anchor="middle" fill="var(--red)">(entitlement, sync, id)</text>
+
+            <rect x="993" y="104" width="164" height="58" rx="10" fill="var(--panel)" stroke="var(--green)" stroke-width="2"></rect>
+            <text x="1075" y="128" text-anchor="middle" fill="var(--text)" font-weight="800">table</text>
+            <text x="1075" y="147" text-anchor="middle" fill="var(--green)">rowid &rarr; append</text>
+          </g>
+
+          <!-- chip -> page arrows (scattered for indexes, straight for table) -->
+          <line x1="120" y1="162" x2="829" y2="318" stroke="var(--red)" stroke-width="2" marker-end="url(#deg-arrow)"></line>
+          <line x1="311" y1="162" x2="189" y2="318" stroke="var(--red)" stroke-width="2" marker-end="url(#deg-arrow)"></line>
+          <line x1="502" y1="162" x2="989" y2="318" stroke="var(--red)" stroke-width="2" marker-end="url(#deg-arrow)"></line>
+          <line x1="693" y1="162" x2="369" y2="318" stroke="var(--red)" stroke-width="2" marker-end="url(#deg-arrow)"></line>
+          <line x1="884" y1="162" x2="609" y2="318" stroke="var(--red)" stroke-width="2" marker-end="url(#deg-arrow)"></line>
+          <line x1="1075" y1="162" x2="1084" y2="318" stroke="var(--green)" stroke-width="2" marker-end="url(#deg-arrow)"></line>
+
+          <!-- the single db file -->
+          <text x="60" y="312" fill="var(--muted)" font-size="13" font-weight="700">one .db file — fixed-size pages</text>
+          <rect x="60" y="320" width="1080" height="66" rx="10" fill="var(--panel)" stroke="var(--line-strong)"></rect>
+          <g stroke="var(--line)" stroke-width="1">
+            <line x1="105" y1="320" x2="105" y2="386"></line>
+            <line x1="150" y1="320" x2="150" y2="386"></line>
+            <line x1="195" y1="320" x2="195" y2="386"></line>
+            <line x1="240" y1="320" x2="240" y2="386"></line>
+            <line x1="285" y1="320" x2="285" y2="386"></line>
+            <line x1="330" y1="320" x2="330" y2="386"></line>
+            <line x1="375" y1="320" x2="375" y2="386"></line>
+            <line x1="420" y1="320" x2="420" y2="386"></line>
+            <line x1="465" y1="320" x2="465" y2="386"></line>
+            <line x1="510" y1="320" x2="510" y2="386"></line>
+            <line x1="555" y1="320" x2="555" y2="386"></line>
+            <line x1="600" y1="320" x2="600" y2="386"></line>
+            <line x1="645" y1="320" x2="645" y2="386"></line>
+            <line x1="690" y1="320" x2="690" y2="386"></line>
+            <line x1="735" y1="320" x2="735" y2="386"></line>
+            <line x1="780" y1="320" x2="780" y2="386"></line>
+            <line x1="825" y1="320" x2="825" y2="386"></line>
+            <line x1="870" y1="320" x2="870" y2="386"></line>
+            <line x1="915" y1="320" x2="915" y2="386"></line>
+            <line x1="960" y1="320" x2="960" y2="386"></line>
+            <line x1="1005" y1="320" x2="1005" y2="386"></line>
+            <line x1="1050" y1="320" x2="1050" y2="386"></line>
+            <line x1="1095" y1="320" x2="1095" y2="386"></line>
+          </g>
+          <!-- touched pages -->
+          <rect x="820" y="321" width="18" height="64" fill="rgba(239,143,143,0.45)" stroke="var(--red)"></rect>
+          <rect x="180" y="321" width="18" height="64" fill="rgba(239,143,143,0.45)" stroke="var(--red)"></rect>
+          <rect x="980" y="321" width="18" height="64" fill="rgba(239,143,143,0.45)" stroke="var(--red)"></rect>
+          <rect x="360" y="321" width="18" height="64" fill="rgba(239,143,143,0.45)" stroke="var(--red)"></rect>
+          <rect x="600" y="321" width="18" height="64" fill="rgba(239,143,143,0.45)" stroke="var(--red)"></rect>
+          <rect x="1075" y="321" width="18" height="64" fill="rgba(114,211,145,0.40)" stroke="var(--green)"></rect>
+
+          <text x="600" y="416" text-anchor="middle" fill="var(--muted)" font-size="15">Six B-tree writes per grant: the table appends, but all five index keys land on different pages. As the file grows, those pages spread apart &mdash; more random I/O and cache misses.</text>
+        </svg>
+      </div>
+      <footer class="footer"><span>SQLite write cost</span><span>1 row &rarr; 6 B-tree inserts &rarr; scattered pages</span></footer>
+    </section>
+
+    <section class="slide sqlite">
+      <header class="header">
+        <div class="eyebrow">Why SQLite updates hurt</div>
+        <h1>Most updates rewrite a marshaled protobuf blob</h1>
+        <p class="subtitle">SQLite cannot update one field in place because our common path stores the rich object in <code>data BLOB</code>. </p>
+      </header>
+      <div class="content">
+        <svg viewBox="0 0 1200 520" role="img" aria-label="A Grant protobuf stored as one SQLite data blob. An arrow points at the sources and GrantExpandable annotation fields, labeled the one thing you changed." style="width: 100%; height: auto; display: block;">
+          <defs>
+            <marker id="proto-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+              <path d="M0,0 L10,5 L0,10 Z" fill="var(--red)"></path>
+            </marker>
+            <marker id="proto-boundary-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+              <path d="M0,0 L10,5 L0,10 Z" fill="var(--line-strong)"></path>
+            </marker>
+          </defs>
+
+          <rect x="60" y="38" width="710" height="424" rx="18" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+          <text x="96" y="78" fill="var(--muted)" font-size="16" font-weight="800">SQLite <tspan fill="var(--text)">v1_grants.data</tspan> BLOB</text>
+
+          <g font-family="SFMono-Regular, Consolas, Liberation Mono, monospace" font-size="20" fill="var(--text)">
+            <text x="96" y="124">message Grant {</text>
+            <text x="126" y="162" fill="var(--muted)">string id = 1;</text>
+            <text x="126" y="200" fill="var(--muted)">Entitlement entitlement = 2;</text>
+            <text x="126" y="238" fill="var(--muted)">Resource principal = 3;</text>
+            <rect x="116" y="266" width="500" height="42" rx="10" fill="rgba(239,143,143,0.12)" stroke="var(--red)" stroke-width="1.5"></rect>
+            <text x="126" y="294" fill="var(--text)">GrantSources sources = 4;</text>
+            <text x="126" y="332" fill="var(--text)">repeated Any annotations = 5;</text>
+            <text x="156" y="370" fill="var(--muted)">// includes GrantExpandable</text>
+            <text x="96" y="422">}</text>
+          </g>
+
+          <rect x="820" y="130" width="320" height="132" rx="18" fill="rgba(239,143,143,0.14)" stroke="var(--red)" stroke-width="2"></rect>
+          <line x1="820" y1="196" x2="620" y2="286" stroke="var(--red)" stroke-width="3" marker-end="url(#proto-arrow)"></line>
+          <text x="980" y="178" text-anchor="middle" fill="var(--text)" font-size="28" font-weight="900">the one thing</text>
+          <text x="980" y="212" text-anchor="middle" fill="var(--text)" font-size="28" font-weight="900">you changed</text>
+
+          <rect x="820" y="310" width="320" height="114" rx="16" fill="var(--panel-strong)" stroke="var(--line)" stroke-width="1.5"></rect>
+          <line x1="820" y1="367" x2="770" y2="400" stroke="var(--line-strong)" stroke-width="2.5" marker-end="url(#proto-boundary-arrow)"></line>
+          <text x="980" y="350" text-anchor="middle" fill="var(--text)" font-size="18" font-weight="900">SQLite update boundary</text>
+          <text x="980" y="380" text-anchor="middle" fill="var(--muted)" font-size="15">the whole thing</text>
+        </svg>
+      </div>
+      <footer class="footer"><span>SQLite update cost</span><span>row read &rarr; protobuf decode &rarr; protobuf encode &rarr; row rewrite</span></footer>
+    </section>
+
+    <section class="slide sqlite">
+      <header class="header">
+        <div class="eyebrow">SQLite compaction</div>
+        <h1>SQLite compaction is an attached-database merge</h1>
+        <p class="subtitle">The compacted output is a new SQLite DB. Each input c1z is attached, merged with SQL, then the output DB is saved as a v1 c1z.</p>
+      </header>
+      <div class="content">
+        <svg viewBox="0 0 1200 360" role="img" aria-label="SQLite compaction creates an output SQLite database, attaches input c1z databases, merges rows with INSERT OR REPLACE using the discovered_at winner rule, updates sync metadata, runs cleanup and VACUUM, then saves the whole database as a v1 c1z." style="width: 100%; height: auto; display: block;">
+          <defs>
+            <marker id="sqlc-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--line-strong)"></path>
+            </marker>
+            <marker id="sqlc-red" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--red)"></path>
+            </marker>
+          </defs>
+
+          <g>
+            <rect x="30" y="118" width="180" height="84" rx="16" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+            <text x="120" y="150" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="900">output SQLite DB</text>
+            <text x="120" y="174" text-anchor="middle" fill="var(--muted)" font-size="12">starts empty</text>
+            <text x="120" y="192" text-anchor="middle" fill="var(--muted)" font-size="12">new compacted sync</text>
+          </g>
+
+          <line x1="210" y1="160" x2="290" y2="160" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#sqlc-arrow)"></line>
+
+          <g>
+            <rect x="292" y="48" width="210" height="224" rx="16" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+            <text x="397" y="82" text-anchor="middle" fill="var(--text)" font-size="16" font-weight="900">ATTACH inputs</text>
+            <rect x="326" y="112" width="142" height="34" rx="8" fill="rgba(255,255,255,0.04)" stroke="var(--line)"></rect>
+            <rect x="326" y="158" width="142" height="34" rx="8" fill="rgba(255,255,255,0.04)" stroke="var(--line)"></rect>
+            <rect x="326" y="204" width="142" height="34" rx="8" fill="rgba(255,255,255,0.04)" stroke="var(--line)"></rect>
+            <text x="397" y="134" text-anchor="middle" fill="var(--muted)" font-size="12" font-weight="800">base c1z DB</text>
+            <text x="397" y="180" text-anchor="middle" fill="var(--muted)" font-size="12" font-weight="800">partial N1</text>
+            <text x="397" y="226" text-anchor="middle" fill="var(--muted)" font-size="12" font-weight="800">partial N2...</text>
+          </g>
+
+          <line x1="502" y1="160" x2="586" y2="160" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#sqlc-arrow)"></line>
+
+          <g>
+            <rect x="588" y="58" width="250" height="204" rx="18" fill="rgba(114,211,145,0.10)" stroke="var(--green)" stroke-width="2"></rect>
+            <text x="713" y="92" text-anchor="middle" fill="var(--text)" font-size="17" font-weight="900">Merge rows with SQL</text>
+            <text x="713" y="124" text-anchor="middle" fill="var(--green)" font-size="13" font-weight="900">INSERT OR REPLACE</text>
+            <text x="713" y="148" text-anchor="middle" fill="var(--muted)" font-size="12">conflict: (external_id, sync_id)</text>
+            <line x1="626" y1="172" x2="800" y2="172" stroke="var(--line)" stroke-width="1"></line>
+            <text x="713" y="198" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800">winner rule</text>
+            <text x="713" y="220" text-anchor="middle" fill="var(--muted)" font-size="12">replace only if</text>
+            <text x="713" y="238" text-anchor="middle" fill="var(--orange)" font-size="12" font-weight="900">applied.discovered_at &gt; existing</text>
+          </g>
+
+          <line x1="838" y1="160" x2="914" y2="160" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#sqlc-arrow)"></line>
+
+          <g>
+            <rect x="916" y="76" width="160" height="76" rx="14" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+            <text x="996" y="106" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="900">sync metadata</text>
+            <text x="996" y="130" text-anchor="middle" fill="var(--muted)" font-size="12">union type + max ended_at</text>
+
+            <rect x="916" y="190" width="160" height="76" rx="14" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+            <text x="996" y="220" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="900">cleanup / VACUUM</text>
+            <text x="996" y="244" text-anchor="middle" fill="var(--muted)" font-size="12">remove old sync rows</text>
+          </g>
+
+          <line x1="1076" y1="160" x2="1130" y2="160" stroke="var(--red)" stroke-width="2.5" marker-end="url(#sqlc-red)"></line>
+          <g>
+            <rect x="1132" y="110" width="56" height="100" rx="12" fill="rgba(239,143,143,0.14)" stroke="var(--red)" stroke-width="2"></rect>
+            <text x="1160" y="144" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="900">save</text>
+            <text x="1160" y="166" text-anchor="middle" fill="var(--red)" font-size="11" font-weight="900">v1</text>
+            <text x="1160" y="184" text-anchor="middle" fill="var(--red)" font-size="11" font-weight="900">c1z</text>
+          </g>
+        </svg>
+        <div class="rule-list" style="margin-top: 12px;">
+          <div class="rule">SQLite compaction sends the working dataset through SQLite: rows merge into a new SQLite DB, and SQLite maintains the table and index B-trees.</div>
+          <div class="rule">The newer check is row metadata: <code>external_id</code>, <code>sync_id</code>, and <code>discovered_at</code>; no proto unmarshal is needed for the winner rule.</div>
+          <div class="rule">The final save still compresses the entire output SQLite DB, even when the partial was tiny.</div>
+        </div>
+      </div>
+      <footer class="footer"><span>SQLite compaction</span><span><code>C1FileAttached.CompactTable</code></span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">How to Pebble:</div>
+        <h1>An ordered key/value store, persisted as SSTables</h1>
+        <p class="subtitle">Pebble was introduced as an alternative storage engine to RocksDB in CockroachDB May 2020.</p>
+      </header>
+      <div class="content">
+        <div class="x-list" aria-label="Pebble is not a database; it is just ordered key-value bytes">
+          <span class="x-glabel">not a DB</span>
+          <div class="x-item"><span class="x">&#10005;</span>schema</div>
+          <div class="x-item"><span class="x">&#10005;</span>relationships</div>
+          <div class="x-item"><span class="x">&#10005;</span>built-in indexes</div>
+          <div class="x-item"><span class="x">&#10005;</span>in-place mutations</div>
+          <span class="x-sep">&rarr; it&rsquo;s just</span>
+          <div class="x-item pos"><span class="x green">&#10003;</span>key &rarr; value bytes</div>
+          <div class="x-item pos"><span class="x green">&#10003;</span>fast-path ingestion</div>
+        </div>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>Ordered key → byte value</h3>
+            <div class="term" style="margin-top: 14px; font-size: 12.5px; line-height: 1.6;"><span class="cmt"># primary record  (value = GrantRecord proto)</span>
+<span class="sst">grant | &lt;ext_id&gt;</span>
+<span class="cmt"># index keys the app writes for the same grant</span>
+<span class="wal">grant_by_entitlement | &lt;ent_id&gt; | &lt;prin_rt&gt; | &lt;prin_id&gt; | &lt;ext_id&gt;</span>
+<span class="wal">grant_by_principal   | &lt;prin_rt&gt; | &lt;prin_id&gt; | &lt;ext_id&gt;</span>
+<span class="wal">grant_by_ent_resource| &lt;ent_rt&gt; | &lt;ent_id&gt; | &lt;ext_id&gt;</span></div>
+          </div>
+          <div class="card">
+            <h3>A directory of <i>mostly</i> immutable files</h3>
+            <div class="term" style="margin-top: 14px;"><span class="prompt">$</span> ls pebble-db/
+<span class="file">CURRENT</span>             <span class="cmt"># pointer to live MANIFEST</span>
+<span class="file">MANIFEST-000005</span>     <span class="cmt"># which SSTables form the LSM</span>
+<span class="file">OPTIONS-000007</span>      <span class="cmt"># engine options</span>
+<span class="wal">000004.log</span>          <span class="cmt"># WAL (write-ahead log)</span>
+<span class="sst">000008.sst</span>          <span class="cmt"># SSTable (sorted, immutable)</span>
+<span class="sst">000010.sst</span>          <span class="cmt"># SSTable</span>
+<span class="sst">000012.sst</span>          <span class="cmt"># SSTable</span></div>
+          </div>
+        </div>
+        <div class="file-label" style="margin-top: 22px; margin-bottom: 10px;">how those files are produced &mdash; the LSM lifecycle</div>
+        <div class="flow" style="--cols: 5;">
+          <div class="node">
+            <span class="tag">write</span>
+            <h3>WAL</h3>
+            <p>Append-only log. Every write is recorded here first so a crash can be replayed.</p>
+          </div>
+          <div class="node">
+            <span class="tag green">buffer</span>
+            <h3>Memtable</h3>
+            <p>In-memory sorted buffer of recent writes. When full, it is written out as a file.</p>
+          </div>
+          <div class="node" style="border-color: var(--green); background: rgba(114, 211, 145, 0.08);">
+            <span class="tag green">core unit</span>
+            <h3>SSTable</h3>
+            <p>Immutable, key-sorted file on disk. New writes create new SSTables; old ones never change. Everything else exists to produce and manage these.</p>
+          </div>
+          <div class="node">
+            <span class="tag orange">tidy</span>
+            <h3>Compaction</h3>
+            <p>Rewrites overlapping SSTables into fewer ones, dropping superseded and deleted keys.</p>
+          </div>
+          <div class="node">
+            <span class="tag">snapshot</span>
+            <h3>Checkpoint</h3>
+            <p>Consistent snapshot of the whole directory. c1z v3 wraps it in the envelope.</p>
+          </div>
+        </div>
+      </div>
+      <footer class="footer"><span>Pebble high level</span><span>ordered byte KV → LSM directory → checkpoint</span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Pebble c1z layout - v3 (v2)</div>
+        <h1>Slim protos,<br/> one sync per C1Z, <br/>and independent SST frames</h1>
+      </header>
+      <div class="content">
+        <div class="card" style="margin-top: 14px;">
+          <span class="tag purple">one sync per c1z</span>
+          <p>The manifest stores a single sync ID and its stats, so rows and indexes copy between Pebble DBs without swapping embedded sync IDs.</p>
+        </div>
+
+        <div class="card" style="margin-top: 18px;">
+          <span class="tag orange">frame reuse</span>
+          <div class="rule-list">
+            <div class=""><strong>One frame per checkpoint file.</strong> Each checkpoint file becomes exactly one independently decodable zstd frame &mdash; unchanged files keep identical frame bytes, so compaction copies them through untouched.</div>
+          </div>
+          <div class="file-row" style="margin-top: 16px;">
+            <div class="file-label">full envelope</div>
+            <div class="bytes" style="--parts: 110px 190px 0.9fr 0.9fr 0.9fr 0.9fr 130px 120px;">
+              <div class="byte"><h3><code>C1Z3\0</code></h3><p>v3 magic</p></div>
+              <div class="byte"><h3>manifest</h3><p>sync ID + stats</p></div>
+              <div class="byte orange"><h3>frame</h3><p>MANIFEST-000005</p></div>
+              <div class="byte orange"><h3>frame</h3><p>000008.sst</p></div>
+              <div class="byte orange"><h3>frame</h3><p>000010.sst</p></div>
+              <div class="byte orange"><h3>frame</h3><p>000004.log</p></div>
+              <div class="byte"><h3>index</h3><p>frame table</p></div>
+              <div class="byte"><h3>footer</h3><p>index ptr</p></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 18px;">
+          <span class="tag green">slim protos</span>
+          <p>The connector emits the full nested <code>Grant</code> &rarr; <code>Entitlement</code> &rarr; <code>Resource</code> messages. v3 strips all of it down to identity keys (<code>id</code> + <code>ResourceId</code>); display names, descriptions, annotations, traits, purpose, and slugs are dropped.</p>
+          <div class="grid cols-2" style="gap: 12px; margin-top: 14px;">
+            <div class="term" style="font-size: 13px; line-height: 1.5; padding: 12px 14px;"><span class="cmt">// c1.connector.v2</span>
+message Grant {
+  Entitlement entitlement = 1; <span class="cmt">// nested</span>
+  Resource    principal   = 2; <span class="cmt">// nested</span>
+  string id = 3;
+  GrantSources sources = 5;
+  repeated Any annotations = 4;
+}
+
+message Entitlement {
+  Resource resource = 1; <span class="cmt">// nested</span>
+  string id = 2;
+  string display_name = 3;
+  string description  = 4;
+  repeated ResourceType grantable_to = 5;
+  repeated Any annotations = 6;
+  PurposeValue purpose = 7;
+  string slug = 8;
+}</div>
+            <div class="term" style="font-size: 13px; line-height: 1.5; padding: 12px 14px;"><span class="cmt">// c1.connector.v2</span>
+message Resource {
+  ResourceId id = 1;
+  ResourceId parent_resource_id = 2;
+  string display_name = 3;
+  string description  = 5;
+  repeated Any annotations = 4;
+  bool baton_resource = 6;
+}
+
+message ResourceId {
+  string resource_type = 1;
+  string resource = 2;
+  bool baton_resource = 3;
+}</div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="footer"><span>Pebble layout</span><span><code>C1Z3\0</code> + manifest + indexed payload</span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Pebble strategy 1 · <b>K-way</b></div>
+        <h1><i>K-Way Merge</i>: bucketed, streaming, recursive merge sort</h1>
+      </header>
+      <div class="content">
+        <div class="usage"><span class="label">Chosen when</span> we can't do anything else.</div>
+        <svg viewBox="0 0 1200 330" role="img" aria-label="K-way compaction is a streaming merge sort: sorted source streams are merged in bounded fan-in groups into run files; run files merge again until one sorted stream remains, then primary and index SSTs are ingested." style="width: 100%; height: auto; display: block; margin-top: 14px;">
+          <defs>
+            <marker id="kw-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--line-strong)"></path>
+            </marker>
+            <marker id="kw-green" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--green)"></path>
+            </marker>
+          </defs>
+
+          <text x="112" y="30" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="800">sorted input streams</text>
+          <g fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5">
+            <rect x="36" y="54" width="152" height="28" rx="8"></rect>
+            <rect x="36" y="94" width="152" height="28" rx="8"></rect>
+            <rect x="36" y="134" width="152" height="28" rx="8"></rect>
+            <rect x="36" y="174" width="152" height="28" rx="8"></rect>
+            <rect x="36" y="214" width="152" height="28" rx="8"></rect>
+            <rect x="36" y="254" width="152" height="28" rx="8"></rect>
+          </g>
+          <g fill="var(--muted)" font-size="12" font-weight="700" text-anchor="middle">
+            <text x="112" y="73">source 1 bucket</text>
+            <text x="112" y="113">source 2 bucket</text>
+            <text x="112" y="153">source 3 bucket</text>
+            <text x="112" y="193">source 4 bucket</text>
+            <text x="112" y="233">source 5 bucket</text>
+            <text x="112" y="273">source N bucket</text>
+          </g>
+
+          <g stroke="var(--line-strong)" stroke-width="2" marker-end="url(#kw-arrow)">
+            <line x1="188" y1="68" x2="304" y2="112"></line>
+            <line x1="188" y1="108" x2="304" y2="124"></line>
+            <line x1="188" y1="148" x2="304" y2="136"></line>
+            <line x1="188" y1="188" x2="304" y2="208"></line>
+            <line x1="188" y1="228" x2="304" y2="220"></line>
+            <line x1="188" y1="268" x2="304" y2="232"></line>
+          </g>
+
+          <text x="400" y="30" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="800">bounded fan-in merge</text>
+          <g>
+            <rect x="306" y="86" width="188" height="70" rx="14" fill="rgba(114,211,145,0.12)" stroke="var(--green)" stroke-width="2"></rect>
+            <text x="400" y="116" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="800">merge group A</text>
+            <text x="400" y="138" text-anchor="middle" fill="var(--green)" font-size="12" font-weight="700">O(fan-in) memory</text>
+            <rect x="306" y="184" width="188" height="70" rx="14" fill="rgba(114,211,145,0.12)" stroke="var(--green)" stroke-width="2"></rect>
+            <text x="400" y="214" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="800">merge group B</text>
+            <text x="400" y="236" text-anchor="middle" fill="var(--green)" font-size="12" font-weight="700">stream winners</text>
+          </g>
+
+          <g stroke="var(--line-strong)" stroke-width="2" marker-end="url(#kw-arrow)">
+            <line x1="494" y1="121" x2="590" y2="121"></line>
+            <line x1="494" y1="219" x2="590" y2="219"></line>
+          </g>
+
+          <text x="662" y="30" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="800">temporary run files</text>
+          <g fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5">
+            <rect x="592" y="92" width="140" height="58" rx="10"></rect>
+            <rect x="592" y="190" width="140" height="58" rx="10"></rect>
+          </g>
+          <g fill="var(--muted)" font-size="12" font-weight="700" text-anchor="middle">
+            <text x="662" y="116">run-0001</text>
+            <text x="662" y="136">sorted records</text>
+            <text x="662" y="214">run-0002</text>
+            <text x="662" y="234">sorted records</text>
+          </g>
+
+          <g stroke="var(--line-strong)" stroke-width="2" marker-end="url(#kw-arrow)">
+            <line x1="732" y1="121" x2="826" y2="160"></line>
+            <line x1="732" y1="219" x2="826" y2="174"></line>
+          </g>
+
+          <rect x="828" y="124" width="174" height="84" rx="14" fill="rgba(114,211,145,0.12)" stroke="var(--green)" stroke-width="2"></rect>
+          <text x="915" y="154" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="800">final k-way merge</text>
+          <text x="915" y="176" text-anchor="middle" fill="var(--green)" font-size="12" font-weight="700">dedupe newest</text>
+          <text x="915" y="194" text-anchor="middle" fill="var(--green)" font-size="12" font-weight="700">discovered_at wins</text>
+
+          <line x1="1002" y1="166" x2="1082" y2="166" stroke="var(--green)" stroke-width="2.5" marker-end="url(#kw-green)"></line>
+          <g>
+            <rect x="1084" y="106" width="88" height="48" rx="10" fill="rgba(114,211,145,0.18)" stroke="var(--green)" stroke-width="1.5"></rect>
+            <rect x="1084" y="178" width="88" height="48" rx="10" fill="rgba(114,211,145,0.18)" stroke="var(--green)" stroke-width="1.5"></rect>
+            <text x="1128" y="135" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800">primary SST</text>
+            <text x="1128" y="207" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800">index SSTs</text>
+          </g>
+          <text x="1128" y="255" text-anchor="middle" fill="var(--green)" font-size="14" font-weight="800">Ingest into Pebble</text>
+          <text x="600" y="312" text-anchor="middle" fill="var(--muted)" font-size="14">K-way is external merge sort: bounded memory, extra run-file I/O, sorted SST output.</text>
+        </svg>
+        <div class="card strong" style="margin-top: 14px; border-color: var(--green);">
+          <span class="tag green">secondary indexes</span>
+          <h3>Primary winners also produce index SSTs</h3>
+          <div class="rule-list">
+            <div class="rule">For each winning primary record, K-way shallow-scans the raw protobuf bytes to derive secondary index keys.</div>
+            <div class="rule">Index keys sort differently from primary keys, so each index family is written to its own run file via <code>indexWriterSet</code>.</div>
+            <div class="rule">Those run files are externally sorted in bounded chunks, k-way merged into per-index SSTs, and ingested with the primary SST.</div>
+          </div>
+        </div>
+      </div>
+      <footer class="footer"><span>K-way strategy</span><span><code>MergeFilesInto</code> · <code>indexWriterSet</code></span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Pebble strategy 2 · <b>Overlay</b></div>
+        <h1><i>Overlay</i>: a compactionless rebuilding scan</h1>
+      </header>
+      <div class="content">
+        <div class="usage"><span class="label">Chosen when</span> we can't fold or must compact.</div>
+
+        <svg viewBox="0 0 1200 320" role="img" aria-label="Overlay scans sources newest first, uses a bounded per-bucket seen set to drop older duplicates, writes winners and index keys into the final output Pebble DB, and spills oversized buckets to K-way." style="width: 100%; height: auto; display: block; margin-top: 10px;">
+          <defs>
+            <marker id="ov-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--line-strong)"></path>
+            </marker>
+            <marker id="ov-green" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--green)"></path>
+            </marker>
+            <marker id="ov-orange" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--orange)"></path>
+            </marker>
+          </defs>
+
+          <text x="128" y="28" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="800">sources, newest first</text>
+          <g fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5">
+            <rect x="38" y="54" width="180" height="34" rx="8"></rect>
+            <rect x="38" y="106" width="180" height="34" rx="8"></rect>
+            <rect x="38" y="158" width="180" height="34" rx="8"></rect>
+            <rect x="38" y="210" width="180" height="34" rx="8"></rect>
+          </g>
+          <g fill="var(--muted)" font-size="13" font-weight="700" text-anchor="middle">
+            <text x="128" y="76">partial N</text>
+            <text x="128" y="128">partial N-1</text>
+            <text x="128" y="180">partial N-2</text>
+            <text x="128" y="232">base</text>
+          </g>
+          <text x="128" y="284" text-anchor="middle" fill="var(--muted)" font-size="12">per bucket: grants / entitlements / resources / resource_types</text>
+
+          <g stroke="var(--line-strong)" stroke-width="2" marker-end="url(#ov-arrow)">
+            <line x1="218" y1="71" x2="330" y2="136"></line>
+            <line x1="218" y1="123" x2="330" y2="148"></line>
+            <line x1="218" y1="175" x2="330" y2="160"></line>
+            <line x1="218" y1="227" x2="330" y2="172"></line>
+          </g>
+
+          <rect x="332" y="104" width="220" height="96" rx="16" fill="rgba(114,211,145,0.12)" stroke="var(--green)" stroke-width="2"></rect>
+          <text x="442" y="136" text-anchor="middle" fill="var(--text)" font-size="16" font-weight="900">bounded seen set</text>
+          <text x="442" y="160" text-anchor="middle" fill="var(--green)" font-size="13" font-weight="800">have we seen key?</text>
+          <text x="442" y="182" text-anchor="middle" fill="var(--muted)" font-size="12">first accepted record wins</text>
+
+          <line x1="552" y1="134" x2="694" y2="96" stroke="var(--green)" stroke-width="2.5" marker-end="url(#ov-green)"></line>
+          <text x="620" y="94" text-anchor="middle" fill="var(--green)" font-size="13" font-weight="800">no</text>
+          <line x1="552" y1="170" x2="694" y2="214" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#ov-arrow)"></line>
+          <text x="620" y="204" text-anchor="middle" fill="var(--muted)" font-size="13" font-weight="800">yes</text>
+
+          <rect x="696" y="54" width="210" height="76" rx="14" fill="rgba(114,211,145,0.14)" stroke="var(--green)" stroke-width="2"></rect>
+          <text x="801" y="84" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="900">write winner once</text>
+          <text x="801" y="106" text-anchor="middle" fill="var(--green)" font-size="12" font-weight="800">primary + index keys</text>
+
+          <rect x="696" y="184" width="210" height="62" rx="14" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+          <text x="801" y="220" text-anchor="middle" fill="var(--muted)" font-size="15" font-weight="800">drop older duplicate</text>
+
+          <line x1="906" y1="92" x2="1014" y2="92" stroke="var(--green)" stroke-width="2.5" marker-end="url(#ov-green)"></line>
+          <rect x="1016" y="50" width="148" height="84" rx="14" fill="var(--panel-strong)" stroke="var(--green)" stroke-width="2"></rect>
+          <text x="1090" y="82" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="900">output</text>
+          <text x="1090" y="104" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="900">Pebble DB</text>
+
+          <path d="M442,200 C442,270 705,285 894,252" fill="none" stroke="var(--orange)" stroke-width="2.5" stroke-dasharray="7 5" marker-end="url(#ov-orange)"></path>
+          <rect x="900" y="232" width="180" height="54" rx="12" fill="rgba(240,179,94,0.12)" stroke="var(--orange)" stroke-width="1.5"></rect>
+          <text x="990" y="255" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="900">seen set over cap?</text>
+          <text x="990" y="276" text-anchor="middle" fill="var(--orange)" font-size="12" font-weight="800">spill bucket to K-way</text>
+        </svg>
+        <div class="card strong" style="margin-top: 12px; border-color: var(--green); padding: 16px 18px;">
+          <span class="tag green">secondary indexes</span>
+          <h3>Winner records also produce the output indexes</h3>
+          <div class="rule-list">
+            <div class="rule">Normal Overlay writes derived index keys inline with the primary winner batches.</div>
+            <div class="rule">For a huge base bucket, avoid re-deriving every base index key. Copy the base's existing index keyspace, filtered by the seen set, and ingest the remaining keys as an index SST.</div>
+            <div class="rule">A bucket spills into to K-way if it grows too large; K-way rebuilds the index SSTs from the primary winners.</div>
+          </div>
+        </div>
+      </div>
+      <footer class="footer"><span>Overlay strategy</span><span><code>MergeFilesIntoOverlay</code></span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Pebble strategy 3 · <b>Fold</b></div>
+        <h1><i>Fold</i>: replay changes only</h1>
+        <p class="subtitle">Fold saves big on compression by reusing unchanged SSTable frames. Overwritten records become <strong>fold_dead_bytes</strong>. Repeated folds grow output until a rebuild reclaims them.</p>
+      </header>
+      <div class="content">
+        <div class="usage"><span class="label">Chosen when</span> there is a base and the partials are small — summed partial file sizes are at most ~10% of the base, and the base's accumulated fold waste is still under the cutover.</div>
+        <svg viewBox="0 0 1200 300" role="img" aria-label="Fold copies the base c1z, opens it with compaction disabled, replays small partials with if-newer writes, then saves by splicing unchanged SST frames." style="width: 100%; height: auto; display: block;">
+          <defs>
+            <marker id="fold-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--line-strong)"></path>
+            </marker>
+            <marker id="fold-green" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--green)"></path>
+            </marker>
+          </defs>
+          <g>
+            <rect x="0" y="48" width="270" height="142" rx="20" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+            <text x="135" y="90" text-anchor="middle" fill="var(--text)" font-size="20" font-weight="900">Copy base c1z</text>
+            <text x="135" y="122" text-anchor="middle" fill="var(--muted)" font-size="14">output starts as</text>
+            <text x="135" y="146" text-anchor="middle" fill="var(--muted)" font-size="14">base c1z bytes</text>
+          </g>
+
+          <line x1="270" y1="119" x2="306" y2="119" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#fold-arrow)"></line>
+
+          <g>
+            <rect x="310" y="48" width="270" height="142" rx="20" fill="rgba(239,143,143,0.10)" stroke="var(--red)" stroke-width="2"></rect>
+            <text x="445" y="82" text-anchor="middle" fill="var(--red)" font-size="17" font-weight="900">X · no compaction</text>
+            <text x="445" y="116" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="800">open copied Pebble DB</text>
+            <text x="445" y="146" text-anchor="middle" fill="var(--muted)" font-size="13">base SSTs stay</text>
+            <text x="445" y="166" text-anchor="middle" fill="var(--muted)" font-size="13">byte-identical</text>
+          </g>
+
+          <line x1="580" y1="119" x2="616" y2="119" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#fold-arrow)"></line>
+
+          <g>
+            <rect x="620" y="48" width="270" height="142" rx="20" fill="rgba(114,211,145,0.12)" stroke="var(--green)" stroke-width="2"></rect>
+            <text x="755" y="86" text-anchor="middle" fill="var(--text)" font-size="20" font-weight="900">Replay partials</text>
+            <text x="755" y="118" text-anchor="middle" fill="var(--green)" font-size="13" font-weight="800">normal sync write paths</text>
+            <text x="755" y="148" text-anchor="middle" fill="var(--muted)" font-size="13">if-newer + indexes</text>
+            <text x="755" y="168" text-anchor="middle" fill="var(--muted)" font-size="13">maintained</text>
+          </g>
+
+          <line x1="890" y1="119" x2="926" y2="119" stroke="var(--green)" stroke-width="2.5" marker-end="url(#fold-green)"></line>
+
+          <g>
+            <rect x="930" y="48" width="270" height="142" rx="20" fill="rgba(114,211,145,0.16)" stroke="var(--green)" stroke-width="2.2"></rect>
+            <text x="1065" y="82" text-anchor="middle" fill="var(--text)" font-size="20" font-weight="900">Save c1z</text>
+            <text x="1065" y="112" text-anchor="middle" fill="var(--green)" font-size="13" font-weight="800">splice unchanged SST frames</text>
+            <text x="1065" y="140" text-anchor="middle" fill="var(--muted)" font-size="12.5">no base record re-serialize</text>
+            <text x="1065" y="162" text-anchor="middle" fill="var(--muted)" font-size="12.5">no unchanged frame re-compress</text>
+          </g>
+        </svg>
+      </div>
+      <footer class="footer"><span>Fold strategy</span><span><code>compactPebbleFold</code> / <code>MergeInto</code></span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Fold save behavior</div>
+        <h1>Fold splices unchanged SSTable frames</h1>
+        <p class="subtitle">Fold keeps base SSTables byte-identical, so saving the compacted c1z can copy unchanged payload frames and only re-encode changed SSTables.</p>
+      </header>
+      <div class="content">
+        <svg viewBox="0 0 1200 320" role="img" aria-label="A rebuild re-encodes every base frame; fold copies the unchanged frames verbatim and re-encodes only the few changed ones, shown by arrows from the base frames to the fold output." style="width: 100%; height: auto; display: block;">
+          <defs>
+            <marker id="sv-green" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--green)"></path>
+            </marker>
+            <marker id="sv-orange" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="var(--orange)"></path>
+            </marker>
+          </defs>
+
+          <!-- legend -->
+          <line x1="300" y1="20" x2="332" y2="20" stroke="var(--green)" stroke-width="2.5" marker-end="url(#sv-green)"></line>
+          <text x="342" y="24" fill="var(--muted)" font-size="13">copied verbatim (no re-compress)</text>
+          <line x1="680" y1="20" x2="712" y2="20" stroke="var(--orange)" stroke-width="2.5" stroke-dasharray="5 4" marker-end="url(#sv-orange)"></line>
+          <text x="722" y="24" fill="var(--muted)" font-size="13">re-encoded (changed SSTable)</text>
+
+          <!-- base frames (old) = SSTables -->
+          <text x="40" y="84" fill="var(--text)" font-size="18" font-weight="800">Base frames</text>
+          <text x="40" y="102" fill="var(--muted)" font-size="13">one per SSTable</text>
+          <g stroke="var(--line-strong)" fill="var(--panel)">
+            <rect x="230" y="62" width="150" height="50" rx="8"></rect>
+            <rect x="414" y="62" width="150" height="50" rx="8"></rect>
+            <rect x="598" y="62" width="150" height="50" rx="8"></rect>
+            <rect x="782" y="62" width="150" height="50" rx="8"></rect>
+            <rect x="966" y="62" width="150" height="50" rx="8"></rect>
+          </g>
+          <g fill="var(--muted)" font-size="13" font-weight="700" text-anchor="middle">
+            <text x="305" y="92">000008.sst</text>
+            <text x="489" y="92">000010.sst</text>
+            <text x="673" y="92">000012.sst</text>
+            <text x="857" y="92">000014.sst</text>
+            <text x="1041" y="92">000016.sst</text>
+          </g>
+
+          <!-- old -> new arrows -->
+          <g stroke="var(--green)" stroke-width="2.5">
+            <line x1="305" y1="116" x2="305" y2="172" marker-end="url(#sv-green)"></line>
+            <line x1="489" y1="116" x2="489" y2="172" marker-end="url(#sv-green)"></line>
+            <line x1="857" y1="116" x2="857" y2="172" marker-end="url(#sv-green)"></line>
+          </g>
+          <g stroke="var(--orange)" stroke-width="2.5" stroke-dasharray="5 4">
+            <line x1="673" y1="116" x2="673" y2="172" marker-end="url(#sv-orange)"></line>
+            <line x1="1041" y1="116" x2="1041" y2="172" marker-end="url(#sv-orange)"></line>
+          </g>
+
+          <!-- fold output (new) -->
+          <text x="40" y="206" fill="var(--text)" font-size="18" font-weight="800">Fold output</text>
+          <text x="40" y="224" fill="var(--muted)" font-size="13">new envelope</text>
+          <g stroke="var(--green)" fill="rgba(114,211,145,0.45)">
+            <rect x="230" y="178" width="150" height="50" rx="8"></rect>
+            <rect x="414" y="178" width="150" height="50" rx="8"></rect>
+            <rect x="782" y="178" width="150" height="50" rx="8"></rect>
+          </g>
+          <g stroke="var(--orange)" fill="rgba(240,179,94,0.5)">
+            <rect x="598" y="178" width="150" height="50" rx="8"></rect>
+            <rect x="966" y="178" width="150" height="50" rx="8"></rect>
+          </g>
+          <g fill="var(--text)" font-size="13" font-weight="700" text-anchor="middle">
+            <text x="305" y="208">000008.sst</text>
+            <text x="489" y="208">000010.sst</text>
+            <text x="673" y="208">000012.sst</text>
+            <text x="857" y="208">000014.sst</text>
+            <text x="1041" y="208">000016.sst</text>
+          </g>
+          <text x="673" y="266" text-anchor="middle" fill="var(--muted)" font-size="14">Each frame is one SSTable. Fold copies the unchanged ones straight through and re-encodes only the changed SSTables; a full rebuild would re-encode <tspan fill="var(--orange)" font-weight="700">all</tspan> of them.</text>
+        </svg>
+        <div class="rule-list" style="margin-top: 18px;">
+          <div class="rule"><strong>Why this matters:</strong> current c1z files can be <strong>100+ GB</strong>, and compressing that much data is expensive even before any merge work.</div>
+          <div class="rule"><strong>Trade-off:</strong> overridden records leave dead bytes inside the spliced frames until a rebuild reclaims them.</div>
+        </div>
+      </div>
+      <footer class="footer"><span>Fold save behavior</span><span><code>WriteEnvelopeWithReuse</code></span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Pebble strategy selection</div>
+        <h1>Pick the cheapest strategy for the input shape</h1>
+        <p class="subtitle">Strategy selection uses cheap file metadata: partials vs. base size, plus accumulated fold dead bytes. No payloads are unpacked just to choose a plan.</p>
+      </header>
+      <div class="content">
+        <div class="flow" style="--cols: 3">
+          <div class="node">
+            <span class="tag green">1 · try first</span>
+            <h3>Fold if possible</h3>
+            <p>Use fold when there is a base, partials are tiny next to it, and accumulated fold dead bytes are still under the cutover.</p>
+          </div>
+          <div class="node">
+            <span class="tag orange">2 · fallback</span>
+            <h3>Overlay if not fold</h3>
+            <p>If partials are too large, inputs are evenly sized, or fold dead bytes exceed the cutover, build a fresh output with Overlay.</p>
+          </div>
+          <div class="node">
+            <span class="tag purple">3 · last resort</span>
+            <h3>K-way if not overlay</h3>
+            <p>If any record bucket is too large for Overlay's seen set, that bucket spills to bounded-memory K-way.</p>
+          </div>
+        </div>
+        <div class="rule-list">
+          <div class="rule">Selection is a fallback chain: <strong>Fold</strong> for the common big-base/tiny-partial shape; <strong>Overlay</strong> when fold does not fit or got too wasteful; then <strong>K-way</strong> only for buckets Overlay cannot bound in memory.</div>
+        </div>
+      </div>
+      <footer class="footer"><span>Strategy selection</span><span><code>resolvePebbleMode</code></span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Local benchmark</div>
+        <h1>Per-mode speedup on a big c1z</h1>
+        <p class="subtitle">A production-shaped input: 5M-grant base, 200k resources, 40k entitlements, plus 49 tiny partials. Same merge through each engine; lower elapsed is better. Fold is auto-selected for this shape.</p>
+      </header>
+      <div class="content">
+        <div class="grid cols-3">
+          <div class="bigstat">
+            <div class="v" style="color: var(--green);">~670&times;</div>
+            <div class="l">fold — 1.54 s</div>
+          </div>
+          <div class="bigstat">
+            <div class="v" style="color: var(--orange);">142&times;</div>
+            <div class="l">overlay — 7.3 s</div>
+          </div>
+          <div class="bigstat">
+            <div class="v" style="color: var(--purple);">76&times;</div>
+            <div class="l">k-way — 13.7 s</div>
+          </div>
+        </div>
+        <div class="gtable" style="--cols: 1.6fr 1fr 1fr; margin-top: 18px;">
+          <div class="grow head"><div class="l">Mode</div><div class="r">Elapsed</div><div class="r">vs SQLite</div></div>
+          <div class="grow"><div class="l"><span class="eng-sqlite">SQLite</span></div><div class="r">17.2 min (1,034 s)</div><div class="r">&mdash;</div></div>
+          <div class="grow"><div class="l"><span style="color: var(--purple); font-weight: 800;">Pebble k-way</span></div><div class="r">13.7 s</div><div class="r">76&times;</div></div>
+          <div class="grow"><div class="l"><span style="color: var(--orange); font-weight: 800;">Pebble overlay</span></div><div class="r">7.3 s</div><div class="r">142&times;</div></div>
+          <div class="grow"><div class="l"><span class="eng-pebble">Pebble fold</span></div><div class="r">1.54 s</div><div class="r">~670&times;</div></div>
+        </div>
+        <div class="rule-list">
+          <div class="rule">The shape matters: fold wins outright because the partials are tiny next to the base; overlay and k-way still rebuild more of the dataset.</div>
+        </div>
+      </div>
+      <footer class="footer"><span>Local benchmark</span><span>5M-grant base · 49 tiny partials</span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Production results</div>
+        <h1>~60&times; faster compaction in production</h1>
+        <p class="subtitle">Garmin, already running incremental syncs — same workload before and after switching the compaction engine to Pebble. Compaction stopped being the bottleneck; uplift is now the limiting factor.</p>
+      </header>
+      <div class="content">
+        <div class="grid cols-3">
+          <div class="bigstat">
+            <div class="v" style="color: var(--green);">~60&times;</div>
+            <div class="l">faster on average (28.8 min &rarr; 31 s)</div>
+          </div>
+          <div class="bigstat">
+            <div class="v">28.8 min &rarr; 31 s</div>
+            <div class="l">average compaction time, SQLite &rarr; Pebble</div>
+          </div>
+          <div class="bigstat">
+            <div class="v">89.5 min &rarr; 89.6 s</div>
+            <div class="l">worst case, SQLite &rarr; Pebble</div>
+          </div>
+        </div>
+        <div class="gtable" style="--cols: 1fr 1fr 1.1fr 1fr 1fr 1fr; margin-top: 18px;">
+          <div class="grow head"><div class="l">Period</div><div class="l">Engine</div><div class="r">Compactions</div><div class="r">Min</div><div class="r">Avg</div><div class="r">Max</div></div>
+          <div class="grow"><div class="l">Before</div><div class="l"><span class="eng-sqlite">SQLite</span></div><div class="r">253</div><div class="r">483 s</div><div class="r">1,726 s</div><div class="r">5,372 s</div></div>
+          <div class="grow"><div class="l">After</div><div class="l"><span class="eng-pebble">Pebble</span></div><div class="r">63</div><div class="r">1.2 s</div><div class="r">31.0 s</div><div class="r">89.6 s</div></div>
+        </div>
+        <div class="rule-list">
+          <div class="rule"><strong>Impact:</strong> incremental-sync changes can land in minutes instead of days (not a guarantee — uplift and other stages still apply).</div>
+          <div class="rule">That solves the partial-sync compaction bottleneck; the next section is separate work for a different bottleneck: grant expansion.</div>
+        </div>
+      </div>
+      <footer class="footer"><span>Production results</span><span>before / after 6/24 engine switch</span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Separate effort · Grant expansion</div>
+        <h1><i>Grant Expansion and you</i></h1>
+        <p class="subtitle">The C1 data model ordinarily requires we fully materialize implicit grants - ie, a member of a group in Okta is granted access to some App. Expansion often takes much longer than syncing the upstream data (10+ hours).  In these cases, we may explode ~7 million grants into over 100 million easily dwarfing all other records in a sync.</p>
+      </header>
+      <div class="content">
+        <div class="usage" style="border-left-color: var(--red); background: rgba(239,143,143,0.08); font-size: 18px;">
+          <span class="label" style="color: var(--red);">X · not compaction</span>
+          This is a separate sync-phase problem: grant expansion computes access implied by membership; compaction merges c1z sync history.
+        </div>
+        <svg viewBox="0 0 1200 250" role="img" aria-label="One expandable group-to-app grant expands across every transitive member of nested groups A, B, C, multiplying about 7 million synced grants into over 100 million explicit grants." style="width: 100%; height: auto; display: block;">
+          <defs>
+            <marker id="ge-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="var(--line-strong)"></path></marker>
+            <marker id="ge-arrow-g" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="var(--green)"></path></marker>
+            <pattern id="grantgrid" width="34" height="30" patternUnits="userSpaceOnUse">
+              <rect x="2" y="3" width="27" height="21" rx="5" fill="rgba(114,211,145,0.14)" stroke="var(--green)" stroke-width="1"></rect>
+            </pattern>
+            <linearGradient id="gridfade" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0.5" stop-color="rgba(11,12,16,0)"></stop>
+              <stop offset="1" stop-color="var(--slide)"></stop>
+            </linearGradient>
+          </defs>
+
+          <!-- LEFT: one expandable grant over nested groups -->
+          <text x="40" y="28" fill="var(--faint)" font-size="13" font-weight="800" letter-spacing="0.06em">1 EXPANDABLE GRANT</text>
+          <rect x="40" y="40" width="300" height="170" rx="16" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+          <text x="56" y="64" fill="var(--muted)" font-size="13" font-weight="800">Group C</text>
+          <rect x="64" y="76" width="252" height="122" rx="13" fill="rgba(255,255,255,0.02)" stroke="var(--line)" stroke-width="1.5"></rect>
+          <text x="80" y="98" fill="var(--muted)" font-size="13" font-weight="800">Group B</text>
+          <rect x="88" y="110" width="204" height="76" rx="10" fill="rgba(255,255,255,0.03)" stroke="var(--line)" stroke-width="1.5"></rect>
+          <text x="104" y="132" fill="var(--muted)" font-size="13" font-weight="800">Group A</text>
+          <g fill="var(--blue)">
+            <circle cx="112" cy="160" r="6"></circle><circle cx="132" cy="160" r="6"></circle><circle cx="152" cy="160" r="6"></circle><circle cx="172" cy="160" r="6"></circle><circle cx="192" cy="160" r="6"></circle><circle cx="212" cy="160" r="6"></circle>
+          </g>
+          <text x="232" y="165" fill="var(--faint)" font-size="12">&times; millions</text>
+
+          <!-- the expandable grant edge: Group C -> App -->
+          <text x="378" y="44" text-anchor="middle" fill="var(--green)" font-size="11" font-weight="800">grants</text>
+          <line x1="340" y1="64" x2="404" y2="64" stroke="var(--green)" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#ge-arrow-g)"></line>
+          <rect x="404" y="44" width="92" height="40" rx="10" fill="rgba(114,211,145,0.10)" stroke="var(--green)" stroke-width="1.5"></rect>
+          <text x="450" y="69" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="800">App</text>
+
+          <!-- expansion -->
+          <line x1="502" y1="125" x2="648" y2="125" stroke="var(--line-strong)" stroke-width="2.5" marker-end="url(#ge-arrow)"></line>
+          <text x="575" y="113" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="800">Expansion</text>
+          <text x="575" y="147" text-anchor="middle" fill="var(--muted)" font-size="12">transitive closure</text>
+
+          <!-- RIGHT: one explicit grant per transitive member -->
+          <text x="668" y="28" fill="var(--faint)" font-size="13" font-weight="800" letter-spacing="0.06em">ONE REAL GRANT PER MEMBER</text>
+          <rect x="668" y="40" width="492" height="170" rx="12" fill="url(#grantgrid)"></rect>
+          <rect x="668" y="40" width="492" height="170" rx="12" fill="url(#gridfade)"></rect>
+          <rect x="668" y="40" width="492" height="170" rx="12" fill="none" stroke="var(--line)" stroke-width="1"></rect>
+
+          <text x="40" y="240" fill="var(--muted)" font-size="14">Every transitive member of A &sub; B &sub; C gets a real grant to App &mdash; nesting &times; membership multiplies the rows.</text>
+          <text x="1160" y="240" text-anchor="end" fill="var(--green)" font-size="15" font-weight="800">~7M synced &rarr; 100M+ explicit</text>
+        </svg>
+        <div class="rule-list">
+          <div class="rule">Expandability is stored next to the grant: the <code>expansion</code> blob + <code>needs_expansion</code> flag (Pebble: <code>GrantExpandableRecord</code> + a <code>by_needs_expansion</code> index).</div>
+          <div class="rule">Expansion runs as a sync phase after grants are synced, and writes new <code>GrantImmutable</code> grants that record their provenance.</div>
+        </div>
+      </div>
+      <footer class="footer"><span>Grant expansion</span><span>expandable grants &rarr; transitive closure</span></footer>
+    </section>
+
+    <section class="slide">
+      <header class="header">
+        <div class="eyebrow">Expansion graph</div>
+        <h1>Entitlements form a DAG; cycles collapse to one node</h1>
+        <p class="subtitle">The graph is relatively small: no more than tens of thousands of entitlement nodes. The grant rows attached to that graph are the large part: millions of principals and memberships flowing through those edges.</p>
+      </header>
+      <div class="content">
+        <svg viewBox="0 0 1200 300" role="img" aria-label="Before: a graph where B and C form a cycle. After Forward-Backward SCC condensation: B and C are collapsed into one super-node and the graph is acyclic." style="width: 100%; height: auto; display: block;">
+          <defs>
+            <marker id="gg-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="var(--line-strong)"></path></marker>
+            <marker id="gg-cyc" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="var(--orange)"></path></marker>
+          </defs>
+
+          <!-- BEFORE: B <-> C cycle -->
+          <text x="280" y="34" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="700">Before &mdash; B and C form a cycle</text>
+          <line x1="110" y1="104" x2="110" y2="180" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#gg-arrow)"></line>
+          <line x1="314" y1="206" x2="430" y2="206" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#gg-arrow)"></line>
+          <path d="M134,196 C180,172 222,172 268,196" fill="none" stroke="var(--orange)" stroke-width="2.5" marker-end="url(#gg-cyc)"></path>
+          <path d="M268,218 C222,242 180,242 134,218" fill="none" stroke="var(--orange)" stroke-width="2.5" marker-end="url(#gg-cyc)"></path>
+          <text x="200" y="166" text-anchor="middle" fill="var(--orange)" font-size="12" font-weight="800">cycle</text>
+          <circle cx="110" cy="82" r="22" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></circle>
+          <circle cx="110" cy="206" r="22" fill="rgba(240,179,94,0.14)" stroke="var(--orange)" stroke-width="2"></circle>
+          <circle cx="292" cy="206" r="22" fill="rgba(240,179,94,0.14)" stroke="var(--orange)" stroke-width="2"></circle>
+          <circle cx="452" cy="206" r="22" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></circle>
+          <g fill="var(--text)" font-size="15" font-weight="800" text-anchor="middle">
+            <text x="110" y="87">A</text><text x="110" y="211">B</text><text x="292" y="211">C</text><text x="452" y="211">D</text>
+          </g>
+
+          <!-- transform -->
+          <line x1="556" y1="150" x2="700" y2="150" stroke="var(--green)" stroke-width="2.5" marker-end="url(#gg-arrow)"></line>
+          <text x="628" y="132" text-anchor="middle" fill="var(--green)" font-size="13" font-weight="800">FW&ndash;BW</text>
+          <text x="628" y="172" text-anchor="middle" fill="var(--green)" font-size="13" font-weight="800">condensation</text>
+
+          <!-- AFTER: {B,C} super-node, acyclic -->
+          <text x="940" y="34" text-anchor="middle" fill="var(--text)" font-size="15" font-weight="700">After &mdash; decycled DAG</text>
+          <line x1="786" y1="104" x2="884" y2="182" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#gg-arrow)"></line>
+          <line x1="1028" y1="206" x2="1090" y2="206" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#gg-arrow)"></line>
+          <circle cx="772" cy="82" r="22" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></circle>
+          <rect x="884" y="182" width="140" height="48" rx="12" fill="rgba(240,179,94,0.14)" stroke="var(--orange)" stroke-width="2"></rect>
+          <circle cx="1112" cy="206" r="22" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></circle>
+          <g fill="var(--text)" font-size="15" font-weight="800" text-anchor="middle">
+            <text x="772" y="87">A</text><text x="954" y="211">{B, C}</text><text x="1112" y="211">D</text>
+          </g>
+        </svg>
+        <div class="rule-list">
+          <div class="rule">A node is a <strong>set</strong> of entitlement IDs. Most start as a single entitlement and only grow when a cycle merges several into one node.</div>
+          <div class="rule">The algorithmic trick is to plan over the smaller entitlement DAG, then stream/merge the much larger grant sets behind each node.</div>
+          <div class="rule">Strongly-connected components are collapsed (FW&ndash;BW condensation): the super-node holds the union of its entitlements, and members of a cycle do <strong>not</strong> propagate to each other.</div>
+          <div class="rule">After collapse the graph is acyclic, so destinations can be reduced once every parent is finalized.</div>
+        </div>
+      </div>
+      <footer class="footer"><span>Expansion graph</span><span><code>graph.go</code> · <code>cycle.go</code> · <code>scc/</code></span></footer>
+    </section>
+
+    <section class="slide sqlite">
+      <header class="header">
+        <div class="eyebrow">Classic expander · SQLite</div>
+        <h1>Source-batched, layer by layer</h1>
+        <p class="subtitle">The original evaluator walks expandable sources in depth layers, reads each source's grants, and fans them out to a batch of destinations. It is correct, but it re-does work on busy graphs.</p>
+      </header>
+      <div class="content">
+        <div class="rule-list" style="margin-bottom: 12px;">
+          <div class="rule"><strong>Types:</strong> <code>sourceEntitlement</code> and <code>destEntitlement</code> are graph nodes/edges; <code>sourceGrant</code>, <code>descendantGrant</code>, and <code>derivedGrant</code> are grant rows.</div>
+        </div>
+        <div class="term" style="font-size: 12.6px; line-height: 1.45;"><span class="cmt"># entitlement graph loop, then grant-row loop</span>
+<span class="wal">for</span> sourceEntitlement <span class="wal">in</span> sources_whose_ancestors_are_expanded(graph):
+    sourceGrants = ListGrantsForEntitlement(sourceEntitlement)  <span class="cmt"># []Grant rows, paged</span>
+    destEntitlements = destinations(sourceEntitlement)          <span class="cmt"># []Entitlement edges, small batch</span>
+
+    <span class="wal">for</span> destEntitlement <span class="wal">in</span> destEntitlements:
+        existing[destEntitlement] = prefetch_principals(destEntitlement)
+
+    <span class="wal">for</span> sourceGrant <span class="wal">in</span> sourceGrants:                         <span class="cmt"># one principal's grant on sourceEntitlement</span>
+        <span class="wal">for</span> destEntitlement <span class="wal">in</span> destEntitlements:             <span class="cmt"># &larr; |sourceGrants| &times; |destEntitlements|</span>
+            <span class="wal">if</span> destEntitlement.shallow <span class="wal">and</span> <span class="wal">not</span> sourceGrant.is_direct: <span class="wal">continue</span>
+            descendantGrant = existing[destEntitlement].get(sourceGrant.principal)
+            <span class="wal">if</span> descendantGrant <span class="wal">is</span> UNKNOWN:                    <span class="cmt"># oracle incomplete (page cap) &rarr;</span>
+                descendantGrant = <span class="sst">GET</span> existing grant for (destEntitlement, sourceGrant.principal)  <span class="cmt"># RANDOM GET</span>
+            <span class="wal">if</span> descendantGrant: merge sourceEntitlement into descendantGrant.sources
+            <span class="wal">else</span>: emit derivedGrant(destEntitlement, sourceGrant.principal)
+    flush(newGrantRows)</div>
+        <svg viewBox="0 0 1200 165" role="img" aria-label="Classic expander loops from a source entitlement to its grant rows, then crosses each grant row with destination entitlements and either gets an existing descendant grant or emits a derived grant." style="width: 100%; height: auto; display: block; margin-top: 10px;">
+          <defs>
+            <marker id="ce-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="var(--line-strong)"></path></marker>
+          </defs>
+          <g>
+            <rect x="40" y="42" width="190" height="54" rx="12" fill="rgba(240,179,94,0.13)" stroke="var(--orange)" stroke-width="1.5"></rect>
+            <text x="135" y="65" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="800">sourceEntitlement S1</text>
+            <text x="135" y="84" text-anchor="middle" fill="var(--orange)" font-size="12" font-weight="700">graph node</text>
+          </g>
+          <line x1="230" y1="69" x2="320" y2="69" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#ce-arrow)"></line>
+          <g>
+            <rect x="322" y="20" width="230" height="32" rx="8" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+            <rect x="322" y="62" width="230" height="32" rx="8" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+            <rect x="322" y="104" width="230" height="32" rx="8" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+            <text x="437" y="41" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800">sourceGrant G1</text>
+            <text x="437" y="83" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800">sourceGrant G2</text>
+            <text x="437" y="125" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800">sourceGrant GN</text>
+          </g>
+          <line x1="552" y1="78" x2="640" y2="78" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#ce-arrow)"></line>
+          <text x="596" y="60" text-anchor="middle" fill="var(--faint)" font-size="12" font-weight="700">cross product</text>
+          <g>
+            <rect x="642" y="20" width="190" height="32" rx="8" fill="rgba(240,179,94,0.13)" stroke="var(--orange)" stroke-width="1.5"></rect>
+            <rect x="642" y="62" width="190" height="32" rx="8" fill="rgba(240,179,94,0.13)" stroke="var(--orange)" stroke-width="1.5"></rect>
+            <rect x="642" y="104" width="190" height="32" rx="8" fill="rgba(240,179,94,0.13)" stroke="var(--orange)" stroke-width="1.5"></rect>
+            <text x="737" y="41" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800">destEntitlement D1</text>
+            <text x="737" y="83" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800">destEntitlement D2</text>
+            <text x="737" y="125" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800">destEntitlement DN</text>
+          </g>
+          <line x1="832" y1="78" x2="918" y2="78" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#ce-arrow)"></line>
+          <g>
+            <rect x="920" y="42" width="110" height="54" rx="12" fill="rgba(239,143,143,0.14)" stroke="var(--red)" stroke-width="1.5"></rect>
+            <text x="975" y="60" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="800">GET grant</text>
+            <text x="975" y="76" text-anchor="middle" fill="var(--text)" font-size="11" font-weight="800">(Gi.princ, Dj)</text>
+            <text x="975" y="94" text-anchor="middle" fill="var(--red)" font-size="11" font-weight="700">if oracle misses</text>
+          </g>
+          <line x1="1030" y1="69" x2="1114" y2="69" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#ce-arrow)"></line>
+          <g>
+            <rect x="1116" y="42" width="62" height="54" rx="12" fill="rgba(114,211,145,0.14)" stroke="var(--green)" stroke-width="1.5"></rect>
+            <text x="1147" y="65" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800">Grant</text>
+            <text x="1147" y="84" text-anchor="middle" fill="var(--green)" font-size="11" font-weight="700">row</text>
+          </g>
+        </svg>
+      </div>
+      <footer class="footer"><span>Classic expander</span><span><code>expander.go</code> · <code>runAction</code></span></footer>
+    </section>
+
+    <section class="slide sqlite">
+      <header class="header">
+        <div class="eyebrow">Classic expander · cost</div>
+        <h1>Fan-in plus random GETs dominated</h1>
+        <p class="subtitle">Classic batching reduced repeated source reads, but perf is dominated by other access patterns. Sources repeatedly update the same destination grants (read-modify-writes) and point lookups in the innermost loop tank performance.</p>
+      </header>
+      <div class="content">
+        <svg viewBox="0 0 1200 300" role="img" aria-label="Fan-in causes a destination to be read and rewritten once per incoming source. Fan-out is batched, so the source is read once per batch." style="width: 100%; height: auto; display: block;">
+          <defs>
+            <marker id="cc-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="var(--line-strong)"></path></marker>
+          </defs>
+
+          <text x="290" y="34" text-anchor="middle" fill="var(--green)" font-size="15" font-weight="800">Fan-out &mdash; already batched: 1 read</text>
+          <g stroke="var(--green)" stroke-width="2">
+            <line x1="142" y1="142" x2="378" y2="80" marker-end="url(#cc-arrow)"></line>
+            <line x1="142" y1="150" x2="378" y2="150" marker-end="url(#cc-arrow)"></line>
+            <line x1="142" y1="158" x2="378" y2="220" marker-end="url(#cc-arrow)"></line>
+          </g>
+          <circle cx="120" cy="150" r="26" fill="rgba(114,211,145,0.16)" stroke="var(--green)" stroke-width="2"></circle>
+          <g fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5">
+            <circle cx="400" cy="80" r="20"></circle><circle cx="400" cy="150" r="20"></circle><circle cx="400" cy="220" r="20"></circle>
+          </g>
+          <g fill="var(--text)" font-size="14" font-weight="800" text-anchor="middle">
+            <text x="120" y="155">S</text><text x="400" y="85">D1</text><text x="400" y="155">D2</text><text x="400" y="225">D3</text>
+          </g>
+          <text x="120" y="210" text-anchor="middle" fill="var(--green)" font-size="13" font-weight="800">S read once</text>
+
+          <line x1="600" y1="50" x2="600" y2="250" stroke="var(--line)" stroke-width="1"></line>
+
+          <text x="910" y="34" text-anchor="middle" fill="var(--red)" font-size="15" font-weight="800">Fan-in &mdash; len(S) rereads, de/encodes, and updates per source!</text>
+          <g stroke="var(--line-strong)" stroke-width="2">
+            <line x1="762" y1="80" x2="998" y2="142" marker-end="url(#cc-arrow)"></line>
+            <line x1="762" y1="150" x2="998" y2="150" marker-end="url(#cc-arrow)"></line>
+            <line x1="762" y1="220" x2="998" y2="158" marker-end="url(#cc-arrow)"></line>
+          </g>
+          <g fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5">
+            <circle cx="740" cy="80" r="20"></circle><circle cx="740" cy="150" r="20"></circle><circle cx="740" cy="220" r="20"></circle>
+          </g>
+          <circle cx="1020" cy="150" r="26" fill="rgba(239,143,143,0.16)" stroke="var(--red)" stroke-width="2"></circle>
+          <g fill="var(--text)" font-size="14" font-weight="800" text-anchor="middle">
+            <text x="740" y="85">S1</text><text x="740" y="155">S2</text><text x="740" y="225">S3</text><text x="1020" y="155">D</text>
+          </g>
+          <text x="1020" y="210" text-anchor="middle" fill="var(--red)" font-size="13" font-weight="800">D reread + updated 3&times;</text>
+        </svg>
+        <div class="rule-list">
+          <div class="rule"><strong>Massive Proto churn:</strong> rewriting a destination once per source means its grant is unmarshaled and re-marshaled every time &mdash; repeated protobuf encode/decode that the single-pass merge avoids entirely.</div>
+          <div class="rule"><strong>A random GET in the innermost loop:</strong> in the <code>grant &times; dest</code> body, a per-principal point lookup (<code>listDescendantGrantsForPrincipal</code>) checks for an existing grant. Random reads thrash the cache.</div>
+          <div class="rule"><strong>How many:</strong> when the prefetch oracle misses (page cap exceeded), it's one GET per <code>(source grant &times; destination)</code> &mdash; up to <code>|grants| &times; |dests|</code> per source, and <code>O(&Sigma; grants &times; fan-out)</code> across the graph. The prefetch oracle hides it only when it fits in memory.</div>
+          <div class="rule"><strong>The fix:</strong> the topological evaluator merges principal-ordered streams &mdash; the principal's grants are already in hand, so there is <em>no</em> per-principal GET at all.</div>
+        </div>
+      </div>
+      <footer class="footer"><span>Classic expander · cost</span><span>fan-in rewrites dominate; fan-out is batched</span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Topological projection · Pebble</div>
+        <h1>Remove the hot paths</h1>
+      </header>
+      <div class="content">
+        <div class="grid cols-2" style="margin-bottom: 16px;">
+          <div class="card strong" style="">
+            <span class="tag green">repeated source reads</span>
+            <h3 style="color: var(--green);">Temporary secondary index</h3>
+            <p>High-reuse source entitlements are scanned <strong>once</strong> into a scratch Pebble index keyed as <code>(source, principal, grant)</code> (value = <code>direct?</code> + principal proto), so their parent grants aren&rsquo;t re-materialized through <code>by_entitlement</code> for every destination that shares them.</p>
+          </div>
+          <div class="card strong" style="">
+            <span class="tag green">inner-loop GET + rewrites</span>
+            <h3 style="color: var(--green);">K-way streaming merge</h3>
+            <p>Parent streams <em>and the destination&rsquo;s own grants</em> arrive in principal order and merge once per destination. The base grants are just another stream &mdash; so there is <strong>no per-principal GET</strong>, and no per-source rewrites or protobuf churn.</p>
+          </div>
+        </div>
+        <svg viewBox="0 0 1200 250" role="img" aria-label="A temporary secondary index avoids random Gets in nested loops; a k-way streaming merge reduces parent streams once by principal." style="width: 100%; height: auto; display: block; margin-bottom: 12px;">
+          <defs>
+            <marker id="tp-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="var(--line-strong)"></path></marker>
+            <marker id="tp-arrow-g" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="var(--green)"></path></marker>
+          </defs>
+
+          <text x="290" y="28" text-anchor="middle" fill="var(--green)" font-size="15" font-weight="800">Temporary index: read each hot source once</text>
+          <rect x="42" y="62" width="150" height="48" rx="10" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+          <text x="117" y="82" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800">high-reuse</text>
+          <text x="117" y="100" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="800">entitlements</text>
+          <line x1="192" y1="86" x2="276" y2="86" stroke="var(--green)" stroke-width="2" marker-end="url(#tp-arrow-g)"></line>
+          <rect x="278" y="54" width="160" height="64" rx="12" fill="rgba(114,211,145,0.14)" stroke="var(--green)" stroke-width="2"></rect>
+          <text x="358" y="82" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="800">sorted SST</text>
+          <text x="358" y="102" text-anchor="middle" fill="var(--green)" font-size="12" font-weight="700">bulk ingest</text>
+          <line x1="358" y1="118" x2="358" y2="154" stroke="var(--green)" stroke-width="2" marker-end="url(#tp-arrow-g)"></line>
+          <rect x="206" y="154" width="304" height="52" rx="12" fill="var(--panel-strong)" stroke="var(--green)" stroke-width="2"></rect>
+          <text x="358" y="174" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="800">scratch Pebble index</text>
+          <text x="358" y="194" text-anchor="middle" fill="var(--green)" font-size="12" font-weight="700">key: source | principal | grant</text>
+          <text x="164" y="140" text-anchor="middle" fill="var(--red)" font-size="12" font-weight="800">old: re-scan source</text>
+          <text x="164" y="156" text-anchor="middle" fill="var(--red)" font-size="12" font-weight="800">per destination</text>
+
+          <line x1="600" y1="44" x2="600" y2="204" stroke="var(--line)" stroke-width="1"></line>
+
+          <text x="900" y="28" text-anchor="middle" fill="var(--green)" font-size="15" font-weight="800">K-way streaming merge: reduce once</text>
+          <text x="722" y="52" text-anchor="middle" fill="var(--faint)" font-size="12" font-weight="700">parent streams</text>
+          <g fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5">
+            <rect x="644" y="66" width="156" height="28" rx="8"></rect>
+            <rect x="644" y="102" width="156" height="28" rx="8"></rect>
+            <rect x="644" y="138" width="156" height="28" rx="8"></rect>
+            <rect x="644" y="174" width="156" height="28" rx="8"></rect>
+          </g>
+          <g fill="var(--text)" font-size="12" font-weight="700" text-anchor="middle">
+            <text x="722" y="85">S1 grants</text><text x="722" y="121">S2 grants</text>
+            <text x="722" y="157">S3 grants</text><text x="722" y="193">base on D</text>
+          </g>
+          <g stroke="var(--green)" stroke-width="2">
+            <line x1="800" y1="80" x2="914" y2="112" marker-end="url(#tp-arrow-g)"></line>
+            <line x1="800" y1="116" x2="914" y2="124" marker-end="url(#tp-arrow-g)"></line>
+            <line x1="800" y1="152" x2="914" y2="136" marker-end="url(#tp-arrow-g)"></line>
+            <line x1="800" y1="188" x2="914" y2="148" marker-end="url(#tp-arrow-g)"></line>
+          </g>
+          <rect x="916" y="84" width="148" height="84" rx="14" fill="rgba(114,211,145,0.14)" stroke="var(--green)" stroke-width="2"></rect>
+          <text x="990" y="116" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="800">k-way merge</text>
+          <text x="990" y="138" text-anchor="middle" fill="var(--green)" font-size="12" font-weight="700">by principal</text>
+          <text x="900" y="226" text-anchor="middle" fill="var(--green)" font-size="12" font-weight="800">base grants are a stream &rarr; no per-principal GET</text>
+          <line x1="1064" y1="126" x2="1106" y2="126" stroke="var(--line-strong)" stroke-width="2" marker-end="url(#tp-arrow)"></line>
+          <rect x="1106" y="102" width="74" height="48" rx="10" fill="var(--panel)" stroke="var(--line-strong)" stroke-width="1.5"></rect>
+          <text x="1143" y="131" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="800">D</text>
+        </svg>
+        <div class="grid cols-2" style="margin-top: 12px; align-items: start;">
+          <div class="term" style="margin-top: 0; font-size: 12.5px; line-height: 1.5;"><span class="cmt"># reduce each destination once; merge parent streams by principal</span>
+plan = build_expansion_plan(graph)          <span class="cmt"># pick high-reuse sources by fan-out and grant volume</span>
+project(plan.hot_sources)                   <span class="cmt"># scan once &rarr; sorted SST ingest &rarr; temp secondary index</span>
+
+<span class="wal">for</span> node <span class="wal">in</span> topological_order(graph):       <span class="cmt"># parents finalized before children</span>
+    <span class="wal">for</span> dest <span class="wal">in</span> node.entitlements:
+        streams = [ grants_on(dest) ]                <span class="cmt"># base, in principal order</span>
+        <span class="wal">for</span> source <span class="wal">in</span> parents(dest):              <span class="cmt"># projected index or live store</span>
+            streams += parent_grants(source)
+        <span class="cmt"># k-way merge by principal — no per-principal GET</span>
+        <span class="wal">for</span> principal, heads <span class="wal">in</span> kway_merge(streams):
+            contrib = {}                             <span class="cmt"># map[source]&rarr;direct</span>
+            <span class="wal">for</span> h <span class="wal">in</span> heads: contrib = combine(contrib, h)  <span class="cmt"># union; direct wins</span>
+            upsert derived_grant(dest, principal, contrib)
+        flush_dirty()</div>
+          <div class="rule-list" style="margin-top: 0;">
+            <div class="rule"><strong>K-way merge sort:</strong> the parents' streams <em>and the destination's base grants</em> arrive in principal order (the <code>by_entitlement</code> index), so a heap merges them in one pass &mdash; the base stream replaces the old per-principal <code>listDescendantGrantsForPrincipal</code> GET.</div>
+            <div class="rule"><strong>Temporary secondary index:</strong> high-reuse source entitlements are chosen by graph shape, scanned once, and bulk-ingested into a scratch Pebble DB. Key = <code>(source_entitlement, principal_rt, principal_id, grant_id)</code>; value = <code>direct?</code> + principal proto.</div>
+            <div class="rule"><strong>Writes:</strong> winners go through <code>PutExpandedGrantRecords</code> (batched keep-newer, unsynced), which maintains the canonical secondary indexes.</div>
+          </div>
+        </div>
+      </div>
+      <footer class="footer"><span>Topological projection</span><span><code>topological_merge*.go</code> · <code>expansion_plan.go</code></span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Confidence</div>
+        <h1>Why we trust the new evaluators</h1>
+        <p class="subtitle">A different engine runs a different algorithm, so the real question is: does it produce the same access? We have't formally proven it, but layered testing gives high confidence the Pebble evaluators match the classic SQLite result.</p>
+      </header>
+      <div class="content">
+        <div class="grid cols-2">
+          <div class="card">
+            <span class="tag green">ground truth</span>
+            <h3>Byte-level parity vs classic SQLite</h3>
+            <div class="rule-list">
+              <div class="rule">The classic SQLite expander is the reference. Every new evaluator (streaming &amp; projection, on both engines) must match it grant-for-grant: id, principal, and sources with their direct flags.</div>
+            </div>
+          </div>
+          <div class="card">
+            <span class="tag">randomized</span>
+            <h3>Differential testing on random graphs</h3>
+            <div class="rule-list">
+              <div class="rule">Random graphs and random stores are expanded both ways and diffed across many seeds &mdash; the cases nobody thought to write by hand.</div>
+            </div>
+          </div>
+          <div class="card">
+            <span class="tag">fuzz</span>
+            <h3>Two SCC fuzzers</h3>
+            <div class="rule-list">
+              <div class="rule"><code>FuzzCondenseFWBW_FromBytes</code> throws arbitrary graphs at cycle condensation; <code>FuzzCondenseFWBW_Cancellation</code> cancels mid-run &mdash; correctness and crash-safety under hostile input.</div>
+            </div>
+          </div>
+          <div class="card">
+            <span class="tag">stress &amp; resume</span>
+            <h3>Cycles, resume, and whale-scale</h3>
+            <div class="rule-list">
+              <div class="rule">Interrupt-then-resume must reproduce the same output; cycles have a dedicated suite; and whale-scale graphs exercise the real shapes at size.</div>
+            </div>
+          </div>
+          <div class="card">
+            <span class="tag purple">provenance semiring</span>
+            <h3>Order-independent contribution merge</h3>
+            <div class="rule-list">
+              <div class="rule"><code>map[source_entitlement]&rarr;isDirect</code> combines by union; direct membership wins over indirect.</div>
+              <div class="rule">This is the same shape as Green, Karvounarakis, and Tannen's 2006 <a href="https://web.cs.ucdavis.edu/~green/papers/pods07.pdf">provenance semiring</a> work for Datalog.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="footer"><span>Confidence</span><span>parity · differential · fuzz · provenance · resume · whale</span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Expansion benchmarks</div>
+        <h1>An order of magnitude fewer allocations</h1>
+        <p class="subtitle">Same datasets, <code>-benchmem</code>, SQLite source-batch vs Pebble projection. This is the end-to-end old-vs-new (engine <em>and</em> algorithm change), not an isolated algorithm delta.</p>
+      </header>
+      <div class="content">
+        <div class="grid cols-3">
+          <div class="bigstat"><div class="v" style="color: var(--green);">~11.7&times;</div><div class="l">fewer allocations (&asymp;91.5% reduction): 221M&rarr;19M, 282M&rarr;24M</div></div>
+          <div class="bigstat"><div class="v" style="color: var(--green);">~6.5&times;</div><div class="l">less memory (11.45&rarr;1.79 GB; 14.70&rarr;2.23 GB)</div></div>
+          <div class="bigstat"><div class="v" style="color: var(--green);">~12&times;</div><div class="l">faster wall-clock (43.0&rarr;3.5 s; 57.7&rarr;5.0 s)</div></div>
+        </div>
+        <div class="gtable" style="--cols: 1fr 1.5fr 0.8fr 0.9fr 0.9fr; margin-top: 16px;">
+          <div class="grow head"><div class="l">Dataset</div><div class="l">Engine</div><div class="r">Time</div><div class="r">B/op</div><div class="r">Allocs/op</div></div>
+          <div class="grow"><div class="l">Small</div><div class="l"><span class="eng-sqlite">SQLite</span> (source-batch)</div><div class="r">43.0 s</div><div class="r">11.45 GB</div><div class="r">220.9 M</div></div>
+          <div class="grow"><div class="l">Small</div><div class="l"><span class="eng-pebble">Pebble</span> (projection)</div><div class="r">3.5 s</div><div class="r">1.79 GB</div><div class="r">18.8 M</div></div>
+          <div class="grow"><div class="l">SmallMedium</div><div class="l"><span class="eng-sqlite">SQLite</span> (source-batch)</div><div class="r">57.7 s</div><div class="r">14.70 GB</div><div class="r">282.2 M</div></div>
+          <div class="grow"><div class="l">SmallMedium</div><div class="l"><span class="eng-pebble">Pebble</span> (projection)</div><div class="r">5.0 s</div><div class="r">2.23 GB</div><div class="r">24.1 M</div></div>
+        </div>
+        <div class="rule-list">
+          <div class="rule"><strong>At whale scale</strong> (full runs, ~54M grants): SQLite source-batch <strong>~9 hours</strong> vs Pebble projection <strong>~11 minutes</strong>.</div>
+          <div class="rule"><strong>Caveats:</strong> single <code>-benchtime=1x</code> runs &mdash; allocs are near-deterministic (the ~12&times; ratio is solid), but absolute times carry ±10&ndash;15% machine noise.</div>
+        </div>
+      </div>
+      <footer class="footer"><span>Expansion benchmarks</span><span>-benchmem · 1x · end-to-end</span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Production results · expansion</div>
+        <h1>Faster expansion, shorter full syncs</h1>
+        <p class="subtitle">Grant expansion is a big slice of end-to-end sync time. Switching to the topological projection evaluator cut full-sync duration for large tenants.</p>
+      </header>
+      <div class="content">
+        <div class="grid cols-2">
+          <div class="bigstat">
+            <div class="v" style="color: var(--green);">~12&times;</div>
+            <div class="l">Garmin (Entra): 61 h peak &rarr; 5 h</div>
+          </div>
+          <div class="bigstat">
+            <div class="v" style="color: var(--green);">2&ndash;3&times;</div>
+            <div class="l">Lilly: ~35&ndash;48 h peak &rarr; 15 h</div>
+          </div>
+        </div>
+        <div class="gtable" style="--cols: 1.4fr 1fr 1fr 1fr;">
+          <div class="grow head"><div class="l">Tenant</div><div class="r">Peak before</div><div class="r">After</div><div class="r">Speedup</div></div>
+          <div class="grow"><div class="l">Garmin (Entra)</div><div class="r">61 h</div><div class="r">5 h</div><div class="r">~12&times;</div></div>
+          <div class="grow"><div class="l">Lilly</div><div class="r">~35&ndash;48 h</div><div class="r">15 h</div><div class="r">~2&ndash;3&times;</div></div>
+        </div>
+        <div class="rule-list">
+          <div class="rule">This is the <strong>expansion</strong> win alone &mdash; the compaction gains from the earlier slides stack on top of it.</div>
+          <div class="rule">With expansion no longer the bottleneck, incremental sync should compound the improvement further.</div>
+        </div>
+      </div>
+      <footer class="footer"><span>Production results · expansion</span><span>full-sync durations</span></footer>
+    </section>
+
+    <section class="slide pebble">
+      <header class="header">
+        <div class="eyebrow">Beyond the algorithms</div>
+        <h1>The other half: allocations, pools, and cheaper writes</h1>
+        <p class="subtitle">The new algorithms set the ceiling; a lot of the realized speedup came from mechanical engineering that cut allocations and reused work &mdash; without changing what's computed.</p>
+      </header>
+      <div class="content">
+        <div class="grid cols-2">
+          <div class="card">
+            <span class="tag green">fewer allocations</span>
+            <h3>~90% fewer allocs in the k-way merge</h3>
+            <div class="rule-list">
+              <div class="rule">Reuse scratch buffers per record instead of allocating fresh key/blob slices every time.</div>
+              <div class="rule">Stop run-record header arrays from escaping to the heap through <code>io.Reader</code>/<code>io.Writer</code>.</div>
+              <div class="rule">Drop the per-index-key heap slice; sort views into one arena.</div>
+              <div class="rule">Borrow values from the iterator instead of copying key + value per record.</div>
+            </div>
+          </div>
+          <div class="card">
+            <span class="tag">pooling &amp; reuse</span>
+            <h3>Don't rebuild expensive objects</h3>
+            <div class="rule-list">
+              <div class="rule">Pool zstd encoders and decoders so each compress/decompress doesn't mint a new one.</div>
+              <div class="rule">A per-compaction envelope decoder pool, so opening each source reuses one decoder.</div>
+              <div class="rule">Hoist bound-method closures out of the record loops.</div>
+            </div>
+          </div>
+          <div class="card">
+            <span class="tag">cheaper writes</span>
+            <h3>Less work per grant written</h3>
+            <div class="rule-list">
+              <div class="rule">Don't unmarshal protos unless the code actually needs object fields; keep hot paths on raw records / indexed side columns.</div>
+              <div class="rule">Deterministic grant IDs built without <code>fmt.Sprintf</code>; one shared <code>GrantImmutable</code> annotation.</div>
+              <div class="rule"><code>PutExpandedGrantRecords</code>: single read-before-write, in-batch dedup, arena-backed keys.</div>
+              <div class="rule">Unsynced (<code>NoSync</code>) batch commits &mdash; durability is restored once at sync end.</div>
+            </div>
+          </div>
+          <div class="card">
+            <span class="tag purple">slim data models</span>
+            <h3>Store IDs, not nested protos</h3>
+            <div class="rule-list">
+              <div class="rule">Grant rows carry entitlement/principal IDs in indexed columns or v3 key fields, so hot paths do not need full nested protos.</div>
+              <div class="rule">Slim grant blobs strip embedded entitlement/principal objects and hydrate stubs only when the reader API needs them.</div>
+              <div class="rule">Expansion metadata is stored in side columns / records, shrinking what must be read, copied, and re-written.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="footer"><span>Beyond the algorithms</span><span><code>kway-alloc-reduction.md</code> · <code>pool.go</code></span></footer>
+    </section>
+
+    <section class="slide">
+      <header class="header">
+        <div class="eyebrow">What's next</div>
+        <h1>The future</h1>
+        <p class="subtitle">Where the storage-engine and expansion work goes from here.</p>
+      </header>
+      <div class="content">
+        <div class="grid cols-2">
+          <div class="card">
+            <span class="tag">1 · c1z replay</span>
+            <h3>General c1z partial replays</h3>
+            <div class="rule-list">
+              <div class="rule">Generalize replay beyond expansion: carry forward any <code>.c1z</code> records (resources, entitlements, grants) whose inputs are unchanged.</div>
+              <div class="rule">Skip re-syncing and re-storing untouched subsets &mdash; replay them from the prior sync and only do work for what actually moved.</div>
+              <div class="rule">Rewrite Entra, GitHub, GCP, and others.</div>
+            </div>
+          </div>
+          <div class="card">
+            <span class="tag green">2 · tuning</span>
+            <h3>Tune fan-out vs fan-in</h3>
+            <div class="rule-list">
+              <div class="rule">Optimize the fan-out (projection) path further &mdash; it is the less-exercised case.</div>
+              <div class="rule">Plot the projection-vs-streaming cost curve so the thresholds come from data, not a hardcoded fan-out &ge; 16.</div>
+            </div>
+          </div>
+          <div class="card">
+            <span class="tag">3 · scale</span>
+            <h3>Cross-layer fan-in &amp; parallelism</h3>
+            <div class="rule-list">
+              <div class="rule">Investigate reducing fan-in across layers instead of strictly level by level.</div>
+              <div class="rule">Expand independent destinations / buckets in parallel where the graph allows it.</div>
+            </div>
+          </div>
+          <div class="card strong">
+            <span class="tag purple">4 · incremental</span>
+            <h3>Partial grant expansion</h3>
+            <div class="rule-list">
+              <div class="rule">Drive expansion from the event feed (and/or partial sync).</div>
+              <div class="rule">Re-expand only the <strong>changed subgraph</strong>, not the whole graph &mdash; the natural next multiplier on top of incremental sync.</div>
+            </div>
+          </div>
+          <div class="card">
+            <span class="tag purple">5 · expansion replay</span>
+            <h3>Grant replays on graph invalidation</h3>
+            <div class="rule-list">
+              <div class="rule">Reuse a previous sync's expanded grants instead of recomputing them.</div>
+              <div class="rule">Invalidate only the parts of the entitlement graph that changed and <strong>replay</strong> the rest from the prior expansion output.</div>
+            </div>
+          </div>
+          <div class="card">
+            <span class="tag">6 · remote diffs</span>
+            <h3>Split c1z frames in S3</h3>
+            <div class="rule-list">
+              <div class="rule">Store c1z payload frames as separately addressable S3 objects, keyed by their stable frame identity.</div>
+              <div class="rule">Upload and download only changed frames instead of paying the full c1z transfer cost for every diff.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="footer"><span>The future</span><span>tuning · parallelism · incremental · replay · remote diffs</span></footer>
+    </section>
+
+  </main>
+
+  <script>
+    const deck = document.getElementById("deck");
+    const slides = Array.from(document.querySelectorAll(".slide"));
+
+    function clampIndex(n) {
+      return Math.max(0, Math.min(slides.length - 1, n));
+    }
+
+    function indexFromHash() {
+      const raw = parseInt(window.location.hash.replace(/[^0-9]/g, ""), 10);
+      if (Number.isNaN(raw)) return 0;
+      // Hash is 1-based for humans; internal index is 0-based.
+      return clampIndex(raw - 1);
+    }
+
+    function currentIndex() {
+      const top = deck.scrollTop;
+      let best = 0;
+      let bestDistance = Infinity;
+      slides.forEach((slide, index) => {
+        const distance = Math.abs(slide.offsetTop - top);
+        if (distance < bestDistance) {
+          best = index;
+          bestDistance = distance;
+        }
+      });
+      return best;
+    }
+
+    function setHash(index) {
+      const next = `#${index + 1}`;
+      if (window.location.hash !== next) {
+        history.replaceState(null, "", next);
+      }
+    }
+
+    function scrollToIndex(index, behavior = "smooth") {
+      slides[clampIndex(index)].scrollIntoView({ behavior, block: "start" });
+    }
+
+    function go(delta) {
+      const next = clampIndex(currentIndex() + delta);
+      setHash(next);
+      scrollToIndex(next);
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowLeft" || event.key === "PageUp") {
+        event.preventDefault();
+        go(-1);
+      }
+      if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
+        event.preventDefault();
+        go(1);
+      }
+    });
+
+    // Keep the URL hash in sync as the deck is scrolled so a reload
+    // restores the same slide.
+    let scrollTimer = null;
+    deck.addEventListener("scroll", () => {
+      if (scrollTimer) clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => setHash(currentIndex()), 120);
+    });
+
+    // Respond to manual hash edits / back-forward navigation.
+    window.addEventListener("hashchange", () => scrollToIndex(indexFromHash()));
+
+    // Restore the slide named in the URL on load. The instant jump
+    // avoids a smooth-scroll animation from slide 1 on every reload.
+    window.addEventListener("load", () => {
+      if (window.location.hash) {
+        scrollToIndex(indexFromHash(), "auto");
+      } else {
+        setHash(0);
+      }
+    });
+  </script>
+</body>
+</html>

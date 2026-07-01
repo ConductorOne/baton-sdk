@@ -19,7 +19,7 @@ func (e *Expander) RunTopologicalMergeStreaming(ctx context.Context) error {
 		return err
 	}
 	if err := e.driveTopological(ctx, entitlements, order, topologicalRun{
-		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink destinationSink) error {
+		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink *destinationSink) error {
 			return e.mergeDestinationStreams(ctx, dest, incoming, ents, nil, nil, sink)
 		},
 	}); err != nil {
@@ -305,7 +305,7 @@ func mergeContributionGroupStreams(
 	ctx context.Context,
 	destEntitlement *v2.Entitlement,
 	streams []contributionGroupStream,
-	sink destinationSink,
+	sink *destinationSink,
 ) error {
 	for _, stream := range streams {
 		defer stream.close()
@@ -322,23 +322,27 @@ func mergeContributionGroupStreams(
 		heap.Push(&h, mergeHeapItem{group: group, streamID: i})
 	}
 
-	flusher := newDirtyFlusher(sink)
+	flusher := newDirtyFlusher(destEntitlement, sink)
+	contrib := &topoContribution{}
+	var base []*v2.Grant
+	consume := func(group contributionGroup) {
+		if group.isBase {
+			base = append(base, group.base...)
+			return
+		}
+		contrib.merge(group.contrib)
+	}
 	for h.Len() > 0 {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		item := heap.Pop(&h).(mergeHeapItem)
 		key := item.group.key
-		var base []*v2.Grant
-		contrib := &topoContribution{}
-
-		consume := func(group contributionGroup) {
-			if group.isBase {
-				base = append(base, group.base...)
-				return
-			}
-			contrib.merge(group.contrib)
+		base = base[:0]
+		if contrib.sources != nil {
+			clear(contrib.sources)
 		}
+		contrib.principal.reset()
 		consume(item.group)
 
 		if next, ok, err := streams[item.streamID].next(ctx); err != nil {
@@ -361,18 +365,7 @@ func mergeContributionGroupStreams(
 			continue
 		}
 		if len(base) == 0 {
-			principal, err := contrib.principalResource()
-			if err != nil {
-				return err
-			}
-			if principal == nil {
-				continue
-			}
-			grant, err := newExpandedGrantWithSources(destEntitlement, principal, contrib.sources)
-			if err != nil {
-				return err
-			}
-			if err := flusher.add(ctx, grant); err != nil {
+			if err := flusher.addSynthesizedContribution(ctx, contrib, contrib.sources); err != nil {
 				return err
 			}
 			continue
@@ -380,7 +373,7 @@ func mergeContributionGroupStreams(
 		for _, baseGrant := range base {
 			updated := mergeContributionIntoExistingGrant(baseGrant, destEntitlement.GetId(), contrib.sources)
 			if updated != nil {
-				if err := flusher.add(ctx, updated); err != nil {
+				if err := flusher.add(ctx, updated, false); err != nil {
 					return err
 				}
 			}

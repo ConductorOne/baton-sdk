@@ -51,7 +51,6 @@ const bulkSpillBufferSize = 1 << 20
 // grantIndexFamilies are the index-discriminator bytes AddGrants can
 // emit (see grantIndexKeys).
 var grantIndexFamilies = []byte{
-	idxGrantByEntitlement,
 	idxGrantByPrincipal,
 	idxGrantByNeedsExpansion,
 }
@@ -232,7 +231,7 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 // fields and go through the shard's spill sorters.
 type BulkGrantShard struct {
 	b      *BulkSyncImport
-	grants *bulkSSTWriter
+	grants *spillSorter
 	idx    map[byte]*spillSorter
 	entRT  map[string]int64
 	closed bool
@@ -250,13 +249,9 @@ func (b *BulkSyncImport) NewGrantShard() (*BulkGrantShard, error) {
 	defer b.mu.Unlock()
 	id := b.shardSeq
 	b.shardSeq++
-	w, err := newBulkSSTWriter(b.dir, fmt.Sprintf("grants-s%03d", id))
-	if err != nil {
-		return nil, err
-	}
 	s := &BulkGrantShard{
 		b:      b,
-		grants: w,
+		grants: newSpillSorter(b.dir, fmt.Sprintf("grants-s%03d", id), b.sortSem, bulkSpillKeyChunkBytes),
 		idx:    map[byte]*spillSorter{},
 		entRT:  map[string]int64{},
 	}
@@ -327,9 +322,7 @@ func (s *BulkGrantShard) Close() {
 		return
 	}
 	s.closed = true
-	if err := s.grants.finish(); err != nil {
-		_ = s.fail(err)
-	}
+	s.grants.cutAndDispatch()
 	for _, w := range s.idx {
 		w.cutAndDispatch()
 	}
@@ -443,7 +436,7 @@ func (b *BulkSyncImport) ComputedStats() *v3.SyncStatsRecord {
 	var grants int64
 	grantsByEntRT := map[string]int64{}
 	for _, s := range b.shards {
-		grants += int64(s.grants.count)
+		grants += s.grants.count
 		for rt, n := range s.entRT {
 			grantsByEntRT[rt] += n
 		}
@@ -486,8 +479,6 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		}
 	}
 
-	// Per-shard grant primary SSTs: already final, already sorted, and
-	// pairwise disjoint by the shard range contract (Ingest verifies).
 	b.mu.Lock()
 	shards := b.shards
 	b.mu.Unlock()
@@ -498,9 +489,6 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		if s.err != nil {
 			return s.err
 		}
-		if s.grants.count > 0 {
-			paths = append(paths, s.grants.path)
-		}
 	}
 
 	// Build the merge units: each combines the sorted runs of one key
@@ -510,7 +498,11 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		sorters []*spillSorter
 	}
 	units := []mergeUnit{
+		{name: "grants"},
 		{name: fmt.Sprintf("index-%02x", idxResourceByParent), sorters: []*spillSorter{b.idxResourceByParent}},
+	}
+	for _, s := range shards {
+		units[0].sorters = append(units[0].sorters, s.grants)
 	}
 	for _, idx := range grantIndexFamilies {
 		u := mergeUnit{name: fmt.Sprintf("index-%02x", idx)}
@@ -597,7 +589,7 @@ func (b *BulkSyncImport) Abort() {
 	b.mu.Unlock()
 	for _, s := range shards {
 		s.closed = true
-		_ = s.grants.finish()
+		s.grants.abort()
 		for _, w := range s.idx {
 			w.abort()
 		}
@@ -649,6 +641,36 @@ func newSpillSorter(dir, name string, sem chan struct{}, chunkBytes int) *spillS
 	return &spillSorter{name: name, dir: dir, sem: sem, chunkBytes: chunkBytes}
 }
 
+// spillArenaPool / spillViewsPool recycle the per-chunk key/value arena and its
+// kvView slice across chunks. Without recycling, every cut allocates a fresh
+// arena that grows from zero by append-doubling and is then GC'd; deferred index
+// builds can otherwise churn hundreds of GB in short-lived buffers.
+var spillArenaPool = sync.Pool{New: func() any { b := make([]byte, 0, bulkSpillKeyChunkBytes); return &b }}
+var spillViewsPool = sync.Pool{New: func() any { v := make([]kvView, 0, 1<<16); return &v }}
+
+func getSpillArena() []byte {
+	bp := spillArenaPool.Get().(*[]byte)
+	return (*bp)[:0]
+}
+
+func putSpillArena(b []byte) {
+	if cap(b) < bulkSpillKeyChunkBytes {
+		return
+	}
+	b = b[:0]
+	spillArenaPool.Put(&b)
+}
+
+func getSpillViews() []kvView {
+	vp := spillViewsPool.Get().(*[]kvView)
+	return (*vp)[:0]
+}
+
+func putSpillViews(v []kvView) {
+	v = v[:0]
+	spillViewsPool.Put(&v)
+}
+
 // add appends one entry. val may be nil (key-only spills). NOT
 // goroutine-safe — each sorter has exactly one producer. May block on
 // the sort semaphore when the arena fills (backpressure on this
@@ -659,6 +681,10 @@ func (s *spillSorter) add(key, val []byte) error {
 	}
 	if err := s.takeErr(); err != nil {
 		return err
+	}
+	if s.arena == nil {
+		s.arena = getSpillArena()
+		s.views = getSpillViews()
 	}
 	keyOff := len(s.arena)
 	s.arena = append(s.arena, key...)
@@ -701,6 +727,8 @@ func (s *spillSorter) sortAndWriteChunk(arena []byte, views []kvView) {
 	if err := writeSortedSpillChunk(chunkPath, arena, views); err != nil {
 		s.setErr(err)
 	}
+	putSpillArena(arena)
+	putSpillViews(views)
 }
 
 func (s *spillSorter) setErr(err error) {

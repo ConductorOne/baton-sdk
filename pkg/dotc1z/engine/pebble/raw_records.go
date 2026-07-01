@@ -120,10 +120,6 @@ func (e *Engine) deleteResourceIndexesRaw(batch *pebble.Batch, resourceTypeID st
 	return batch.Delete(encodeResourceByParentIndexKey(parentRT, parentID, resourceTypeID, resourceID), nil)
 }
 
-func (e *Engine) deleteEntitlementIndexesRaw(batch *pebble.Batch, externalID string, value []byte) error {
-	return nil
-}
-
 func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, value []byte) error {
 	entRT, entRID, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(value)
 	if err != nil {
@@ -136,9 +132,6 @@ func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, v
 		entitlement:     entitlementIdentityFromParts(entRT, entRID, entID),
 		principalTypeID: principalRT,
 		principalID:     principalID,
-	}
-	if err := batch.Delete(encodeGrantByEntitlementIdentityIndexKey(id), nil); err != nil {
-		return err
 	}
 	if err := batch.Delete(encodeGrantByPrincipalIdentityIndexKey(id), nil); err != nil {
 		return err

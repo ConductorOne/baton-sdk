@@ -1,6 +1,7 @@
 .idea
 
 # Binaries for programs and plugins
+/baton
 *.exe
 *.exe~
 *.dll

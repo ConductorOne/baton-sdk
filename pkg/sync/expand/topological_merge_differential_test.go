@@ -418,7 +418,7 @@ func TestTopologicalMergeUntouchedBaseGrantNotRewritten(t *testing.T) {
 				require.NoError(t, err)
 				seedSQLiteBaseData(t, ctx, store, tc)
 
-				graph := buildGraphFromCase(t, ctx, tc, dotc1z.EngineSQLite)
+				graph := buildGraphFromCase(t, ctx, tc, engine)
 				rec := &recordingExpanderStore{inner: benchmarkExpanderStore{store: store}}
 				require.NoError(t, algo.run(ctx, NewExpander(rec, graph)))
 
@@ -428,7 +428,7 @@ func TestTopologicalMergeUntouchedBaseGrantNotRewritten(t *testing.T) {
 					"%s: untouched base grant was rewritten through the expansion sink", label)
 				// alice did get a contribution; the synthesized grant proves
 				// expansion actually ran (so the assertion above is meaningful).
-				require.Contains(t, rec.storedIDs(), "ent:dest:user:alice",
+				require.Contains(t, rec.storedIDs(), "group:org:custom:ent\\:dest:user:alice",
 					"%s: expected alice to be synthesized on ent:dest", label)
 
 				require.NoError(t, store.EndSync(ctx))
@@ -440,7 +440,7 @@ func TestTopologicalMergeUntouchedBaseGrantNotRewritten(t *testing.T) {
 				require.NoError(t, ro.SetCurrentSync(ctx, syncID))
 				snap := readBackGrantSnapshot(t, ctx, ro)
 
-				bob, ok := snap["grant:bob:dest"]
+				bob, ok := snap["ent:dest\x00user\x00bob"]
 				require.Truef(t, ok, "%s: bob's base grant disappeared", label)
 				require.Emptyf(t, bob.sourceDirect, "%s: untouched base grant gained sources", label)
 				require.NotContainsf(t, bob.annotationTypes, immutableAnnotationAny.GetTypeUrl(),

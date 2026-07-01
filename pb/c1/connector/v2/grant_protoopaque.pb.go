@@ -131,7 +131,6 @@ func (x *Grant) GetPrincipal() *Resource {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in c1/connector/v2/grant.proto.
 func (x *Grant) GetId() string {
 	if x != nil {
 		return x.xxx_hidden_Id
@@ -163,7 +162,6 @@ func (x *Grant) SetPrincipal(v *Resource) {
 	x.xxx_hidden_Principal = v
 }
 
-// Deprecated: Marked as deprecated in c1/connector/v2/grant.proto.
 func (x *Grant) SetId(v string) {
 	x.xxx_hidden_Id = v
 }
@@ -214,9 +212,7 @@ type Grant_builder struct {
 
 	Entitlement *Entitlement
 	Principal   *Resource
-	// deprecated: these ids may not map one to one with the grant itself!
-	//
-	// Deprecated: Marked as deprecated in c1/connector/v2/grant.proto.
+	// These ids may not map one to one with the grant itself.
 	Id          string
 	Sources     *GrantSources
 	Annotations []*anypb.Any
@@ -844,11 +840,12 @@ const file_c1_connector_v2_grant_proto_rawDesc = "" +
 	"\tis_direct\x18\x01 \x01(\bR\bisDirect\x1ae\n" +
 	"\fSourcesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12?\n" +
-	"\x05value\x18\x02 \x01(\v2).c1.connector.v2.GrantSources.GrantSourceR\x05value:\x028\x01\"\xad\x02\n" +
+	"\x05value\x18\x02 \x01(\v2).c1.connector.v2.GrantSources.GrantSourceR\x05value:\x028\x01\"\xab\x02\n" +
 	"\x05Grant\x12H\n" +
 	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12A\n" +
-	"\tprincipal\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\tprincipal\x12\x1c\n" +
-	"\x02id\x18\x03 \x01(\tB\f\xfaB\ar\x05 \x01(\x80\b\x18\x01R\x02id\x12A\n" +
+	"\tprincipal\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\tprincipal\x12\x1a\n" +
+	"\x02id\x18\x03 \x01(\tB\n" +
+	"\xfaB\ar\x05 \x01(\x80\bR\x02id\x12A\n" +
 	"\asources\x18\x05 \x01(\v2\x1d.c1.connector.v2.GrantSourcesB\b\xfaB\x05\x8a\x01\x02\x10\x00R\asources\x126\n" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xa6\x02\n" +
 	"\x1eGrantsServiceListGrantsRequest\x12?\n" +

@@ -283,10 +283,7 @@ func bucketIndexRanges(bucket bucketSpec) [][2][]byte {
 		}
 	case runBucketGrants:
 		return [][2][]byte{
-			{enginepkg.GrantByEntitlementLowerBound(), enginepkg.GrantByEntitlementUpperBound()},
-			{enginepkg.GrantByEntitlementResourceLowerBound(), enginepkg.GrantByEntitlementResourceUpperBound()},
 			{enginepkg.GrantByPrincipalLowerBound(), enginepkg.GrantByPrincipalUpperBound()},
-			{enginepkg.GrantByPrincipalResourceTypeLowerBound(), enginepkg.GrantByPrincipalResourceTypeUpperBound()},
 			{enginepkg.GrantByNeedsExpansionLowerBound(), enginepkg.GrantByNeedsExpansionUpperBound()},
 		}
 	default:
@@ -1297,18 +1294,6 @@ func forEachIndexKeyFromRaw(
 	default:
 		return nil
 	}
-}
-
-func decodePrimaryTailBytes1(key []byte, lower []byte, scratch *rawIndexScratch) ([]byte, error) {
-	tail, err := primaryTail(key, lower)
-	if err != nil {
-		return nil, err
-	}
-	scratch.tail1, _, err = codec.DecodeTupleStringTo(scratch.tail1[:0], tail, 0)
-	if err != nil {
-		return nil, err
-	}
-	return scratch.tail1, nil
 }
 
 func decodePrimaryTailBytes2(key []byte, lower []byte, scratch *rawIndexScratch) ([]byte, []byte, error) {

@@ -227,7 +227,7 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 		requested = EngineSQLite
 	}
 
-	stat, err := os.Stat(outputFilePath)
+	stat, err := os.Stat(outputFilePath) // #nosec G703 -- c1z path is caller-controlled by API design.
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		return requireEngineDriver(requested)
@@ -237,7 +237,7 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 		return requireEngineDriver(requested)
 	}
 
-	f, err := os.Open(outputFilePath)
+	f, err := os.Open(outputFilePath) // #nosec G703 -- c1z path is caller-controlled by API design.
 	if err != nil {
 		return nil, err
 	}

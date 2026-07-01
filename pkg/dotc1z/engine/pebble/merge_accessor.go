@@ -289,9 +289,6 @@ func ForEachGrantIndexKeyRaw(
 		principalTypeID: principalRT,
 		principalID:     principalID,
 	}
-	if err := yield(encodeGrantByEntitlementIdentityIndexKey(id)); err != nil {
-		return err
-	}
 	if err := yield(encodeGrantByPrincipalIdentityIndexKey(id)); err != nil {
 		return err
 	}
