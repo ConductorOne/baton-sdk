@@ -41,6 +41,7 @@ const (
 	ResourceType_TRAIT_VENDOR_AGREEMENT ResourceType_Trait = 9
 	ResourceType_TRAIT_LICENSE_PROFILE  ResourceType_Trait = 10
 	ResourceType_TRAIT_AGENT            ResourceType_Trait = 11
+	ResourceType_TRAIT_MANAGED_DEVICE   ResourceType_Trait = 12
 )
 
 // Enum value maps for ResourceType_Trait.
@@ -58,6 +59,7 @@ var (
 		9:  "TRAIT_VENDOR_AGREEMENT",
 		10: "TRAIT_LICENSE_PROFILE",
 		11: "TRAIT_AGENT",
+		12: "TRAIT_MANAGED_DEVICE",
 	}
 	ResourceType_Trait_value = map[string]int32{
 		"TRAIT_UNSPECIFIED":      0,
@@ -72,6 +74,7 @@ var (
 		"TRAIT_VENDOR_AGREEMENT": 9,
 		"TRAIT_LICENSE_PROFILE":  10,
 		"TRAIT_AGENT":            11,
+		"TRAIT_MANAGED_DEVICE":   12,
 	}
 )
 
@@ -4526,7 +4529,7 @@ var File_c1_connector_v2_resource_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\n" +
-	"\x1ec1/connector/v2/resource.proto\x12\x0fc1.connector.v2\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\xc4\x04\n" +
+	"\x1ec1/connector/v2/resource.proto\x12\x0fc1.connector.v2\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\xde\x04\n" +
 	"\fResourceType\x12\x1a\n" +
 	"\x02id\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x02id\x120\n" +
@@ -4536,7 +4539,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12/\n" +
 	"\vdescription\x18\x05 \x01(\tB\r\xfaB\n" +
 	"r\b \x01(\x80 \xd0\x01\x01R\vdescription\x12-\n" +
-	"\x12sourced_externally\x18\x06 \x01(\bR\x11sourcedExternally\"\xff\x01\n" +
+	"\x12sourced_externally\x18\x06 \x01(\bR\x11sourcedExternally\"\x99\x02\n" +
 	"\x05Trait\x12\x15\n" +
 	"\x11TRAIT_UNSPECIFIED\x10\x00\x12\x0e\n" +
 	"\n" +
@@ -4552,7 +4555,8 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x16TRAIT_VENDOR_AGREEMENT\x10\t\x12\x19\n" +
 	"\x15TRAIT_LICENSE_PROFILE\x10\n" +
 	"\x12\x0f\n" +
-	"\vTRAIT_AGENT\x10\v\"\xa6\x02\n" +
+	"\vTRAIT_AGENT\x10\v\x12\x18\n" +
+	"\x14TRAIT_MANAGED_DEVICE\x10\f\"\xa6\x02\n" +
 	",ResourceTypesServiceListResourceTypesRequest\x121\n" +
 	"\x06parent\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\x06parent\x12'\n" +
 	"\tpage_size\x18\x02 \x01(\rB\n" +
