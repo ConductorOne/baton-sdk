@@ -398,7 +398,7 @@ func translateGrants(syncID string, grants []*v2.Grant) []*v3.GrantRecord {
 		shards = n
 	}
 	if shards < 2 {
-		return translateGrantsSerial(syncID, grants, now)
+		return translateGrantsSerial(syncID, grants, nil, now)
 	}
 
 	// Parallel path: shard workers each translate their range into a
@@ -449,11 +449,12 @@ func translateGrants(syncID string, grants []*v2.Grant) []*v3.GrantRecord {
 // arena, one pass. Used by translateGrants for small batches and by
 // callers that are already running on parallel lanes (the bulk import's
 // grant shards), where nested fan-out would just oversubscribe a shared
-// host.
-func translateGrantsSerial(syncID string, grants []*v2.Grant, now *timestamppb.Timestamp) []*v3.GrantRecord {
+// host. discoveredAt optionally supplies a per-record discovery time
+// aligned by index with grants; nil (or short) falls back to now.
+func translateGrantsSerial(syncID string, grants []*v2.Grant, discoveredAt []*timestamppb.Timestamp, now *timestamppb.Timestamp) []*v3.GrantRecord {
 	arena := newGrantTranslateArena(len(grants))
 	records := make([]*v3.GrantRecord, 0, len(grants))
-	for _, g := range grants {
+	for i, g := range grants {
 		if g == nil {
 			continue
 		}
@@ -462,7 +463,7 @@ func translateGrantsSerial(syncID string, grants []*v2.Grant, now *timestamppb.T
 			continue
 		}
 		if rec.GetDiscoveredAt() == nil {
-			rec.SetDiscoveredAt(now)
+			rec.SetDiscoveredAt(discoveredAtOrNow(discoveredAt, i, now))
 		}
 		records = append(records, rec)
 	}
