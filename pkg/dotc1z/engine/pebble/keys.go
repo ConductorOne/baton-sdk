@@ -205,14 +205,6 @@ func encodeGrantPrimaryEntitlementResourcePrefix(resourceTypeID, resourceID stri
 	return codec.AppendTupleSeparator(buf)
 }
 
-func encodeGrantByEntitlementIdentityPrefix(id entitlementIdentity) []byte {
-	buf := make([]byte, 0, 128)
-	buf = append(buf, versionV3, typeIndex, idxGrantByEntitlement)
-	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleStrings(buf, id.resourceTypeID, id.resourceID, id.kind, id.name)
-	return codec.AppendTupleSeparator(buf)
-}
-
 // encodeGrantByNeedsExpansionIndexKey: index of grants whose
 // NeedsExpansion flag is true. Pebble equivalent of the SQLite
 // partial index `WHERE needs_expansion = 1`. The grant is added to

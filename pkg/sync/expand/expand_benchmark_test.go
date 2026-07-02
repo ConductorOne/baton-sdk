@@ -250,16 +250,41 @@ func (s benchmarkExpanderStore) StoreNewExpandedGrantContributions(ctx context.C
 	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
 
-func (s benchmarkExpanderStore) StoreNewExpandedGrantContributionLayer(ctx context.Context, dests []*v2.Entitlement, principals [][]*v3.PrincipalRef, sources [][]batonGrant.Sources) error {
-	if fast, ok := s.store.Grants().(interface {
-		StoreNewExpandedGrantContributionLayer(context.Context, []*v2.Entitlement, [][]*v3.PrincipalRef, [][]batonGrant.Sources) error
-	}); ok {
-		return fast.StoreNewExpandedGrantContributionLayer(ctx, dests, principals, sources)
+// benchmarkExpandedGrantLayerStorer mirrors the expander's wave-scoped layer
+// session interface for pass-through to Pebble-backed stores.
+type benchmarkExpandedGrantLayerStorer interface {
+	BeginExpandedGrantLayer(ctx context.Context) (bool, error)
+	AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error
+	FinishExpandedGrantLayer(ctx context.Context) error
+	AbortExpandedGrantLayer(ctx context.Context) error
+}
+
+func (s benchmarkExpanderStore) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
+	if fast, ok := s.store.Grants().(benchmarkExpandedGrantLayerStorer); ok {
+		return fast.BeginExpandedGrantLayer(ctx)
 	}
-	for i, dest := range dests {
-		if err := s.StoreNewExpandedGrantContributions(ctx, dest, principals[i], sources[i]); err != nil {
-			return err
-		}
+	return false, nil
+}
+
+func (s benchmarkExpanderStore) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	fast, ok := s.store.Grants().(benchmarkExpandedGrantLayerStorer)
+	if !ok {
+		return errors.New("expanded grant layer: store does not support layer sessions")
+	}
+	return fast.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+}
+
+func (s benchmarkExpanderStore) FinishExpandedGrantLayer(ctx context.Context) error {
+	fast, ok := s.store.Grants().(benchmarkExpandedGrantLayerStorer)
+	if !ok {
+		return errors.New("expanded grant layer: store does not support layer sessions")
+	}
+	return fast.FinishExpandedGrantLayer(ctx)
+}
+
+func (s benchmarkExpanderStore) AbortExpandedGrantLayer(ctx context.Context) error {
+	if fast, ok := s.store.Grants().(benchmarkExpandedGrantLayerStorer); ok {
+		return fast.AbortExpandedGrantLayer(ctx)
 	}
 	return nil
 }

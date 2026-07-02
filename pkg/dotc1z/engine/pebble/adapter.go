@@ -308,6 +308,14 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	if err := a.engine.PutSyncRunRecord(ctx, updated); err != nil {
 		return err
 	}
+	// The sync's writes are done. From here to save/close the store only
+	// runs the deferred index build, the stats sidecar, and the durability
+	// flush — automatic compaction output can't survive to the saved
+	// artifact (the checkpoint captures whatever file set exists when save
+	// runs) but competes with those phases for CPU and IO, so stop granting
+	// new compactions. StartNewSync/SetCurrentSync resume the scheduler if
+	// the store is written to again.
+	a.engine.PauseCompactions()
 	// Build the deferred by_principal index BEFORE the stats sidecar:
 	// its full grant scan also accumulates the grant portion of the
 	// stats (stashDeferredGrantStats), letting PersistSyncStats skip a

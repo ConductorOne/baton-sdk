@@ -13,11 +13,11 @@ import (
 // only one principal group per active input stream, instead of materializing all
 // source entitlement grant groups into maps for each destination.
 func (e *Expander) RunTopologicalMergeStreaming(ctx context.Context) error {
-	entitlements, order, err := e.prepareTopological(ctx)
+	entitlements, waves, err := e.prepareTopological(ctx)
 	if err != nil {
 		return err
 	}
-	if err := e.driveTopological(ctx, entitlements, order, topologicalRun{
+	if err := e.driveTopological(ctx, entitlements, waves, topologicalRun{
 		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink *destinationSink) error {
 			return e.mergeDestinationStreams(ctx, dest, incoming, ents, nil, nil, sink)
 		},

@@ -373,16 +373,288 @@ func (e *Engine) PutSynthesizedGrantContributions(ctx context.Context, records [
 	return e.putSynthesizedGrantContributionsBatch(ctx, records)
 }
 
-func (e *Engine) PutSynthesizedGrantContributionLayer(ctx context.Context, records []synthesizedGrantRecord) error {
+// synthLayerSegmentRows is the default row count at which an open layer
+// session cuts its current segment and hands it to the background worker for
+// merge + SST ingest. Cutting mid-wave is safe: nothing reads a wave's rows
+// until the next wave begins, and keys are globally unique, so segments may
+// cover overlapping key ranges without conflict. Segments keep the merge
+// fan-in small, bound temp-disk usage, and overlap merge/ingest work with the
+// producer's compute instead of serializing it at the wave boundary.
+const synthLayerSegmentRows = 8_000_000
+
+func synthLayerSegmentLimit() int64 {
+	if raw := os.Getenv("BATON_PEBBLE_SYNTH_LAYER_SEGMENT_ROWS"); raw != "" {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return synthLayerSegmentRows
+}
+
+// synthLayerSegment is one finalized batch of sorted spill chunks awaiting
+// merge + ingest on the session's background worker.
+type synthLayerSegment struct {
+	name   string
+	chunks []string
+}
+
+// synthGrantLayerSession accumulates one topological wave's synthesized grant
+// rows as encoded (key, value) pairs in a background-sorted spill sorter.
+// Every segLimit rows the current sorter is finalized into a segment and
+// queued for the background worker, which k-way merges the segment's chunks
+// into one SST and ingests it while the producer keeps encoding. Finish
+// flushes the tail segment and waits the worker out. Encoding happens at Add
+// time, so the session never retains references into the caller's reused
+// buffers. One session at a time; the expansion driver is the single
+// producer.
+type synthGrantLayerSession struct {
+	dir      string
+	sorter   *spillSorter
+	sortSem  chan struct{}
+	segIdx   int
+	segRows  int64
+	segLimit int64
+
+	// segCh carries finalized segments to the worker; its capacity bounds
+	// how many merged-but-uningested segments can stack up before Add blocks
+	// (backpressure). segErr holds the worker's first failure, surfaced on
+	// the next Add/Finish.
+	segCh  chan synthLayerSegment
+	segWG  sync.WaitGroup
+	segMu  sync.Mutex
+	segErr error
+
+	now        *timestamppb.Timestamp
+	keyScratch []byte
+	valScratch []byte
+	srcScratch batonGrant.Sources
+	rec        *v3.GrantRecord // reused across rows; see fillSynthGrantRecord
+	rows       int64
+}
+
+func (s *synthGrantLayerSession) setErr(err error) {
+	s.segMu.Lock()
+	if s.segErr == nil {
+		s.segErr = err
+	}
+	s.segMu.Unlock()
+}
+
+func (s *synthGrantLayerSession) takeErr() error {
+	s.segMu.Lock()
+	defer s.segMu.Unlock()
+	return s.segErr
+}
+
+func (s *synthGrantLayerSession) segName() string {
+	return fmt.Sprintf("synth-grant-layer-seg%03d", s.segIdx)
+}
+
+// cutSegment finalizes the current sorter into a segment for the worker and
+// starts a fresh sorter for the next segment. Blocks when the worker is more
+// than one segment behind.
+func (s *synthGrantLayerSession) cutSegment() error {
+	chunks, err := s.sorter.finalize()
+	if err != nil {
+		return err
+	}
+	name := s.segName()
+	s.segIdx++
+	s.segRows = 0
+	s.sorter = newSpillSorter(s.dir, s.segName(), s.sortSem, deferredIndexSpillChunkBytes)
+	if len(chunks) == 0 {
+		return nil
+	}
+	s.segCh <- synthLayerSegment{name: name, chunks: chunks}
+	return nil
+}
+
+// BeginSynthesizedGrantLayer opens a wave-scoped layer session. Returns false
+// (without error) when the engine cannot serve one — the by_principal index
+// must be deferred to EndSync, because the ingested SSTs carry primary rows
+// only. Callers fall back to PutSynthesizedGrantContributions on false.
+func (e *Engine) BeginSynthesizedGrantLayer(ctx context.Context) (bool, error) {
+	if err := e.checkWritable(); err != nil {
+		return false, err
+	}
+	if !e.deferGrantPrincipalIndex {
+		return false, nil
+	}
+	if err := e.requireCurrentSync(); err != nil {
+		return false, err
+	}
+	if e.synthLayer != nil {
+		return false, errors.New("pebble: synthesized grant layer session already open")
+	}
+	e.synthLayer = &synthGrantLayerSession{
+		now:      timestamppb.Now(),
+		rec:      &v3.GrantRecord{},
+		segLimit: synthLayerSegmentLimit(),
+	}
+	return true, nil
+}
+
+// initSynthLayerSession lazily allocates the session's temp dir, first
+// sorter, and background merge+ingest worker on the first Add.
+func (e *Engine) initSynthLayerSession(ctx context.Context, s *synthGrantLayerSession) error {
+	dir, err := os.MkdirTemp("", "pebble-synth-grant-layer-")
+	if err != nil {
+		return fmt.Errorf("synth grant layer: mkdir temp: %w", err)
+	}
+	s.dir = dir
+	sorters := min(4, max(2, runtime.GOMAXPROCS(0)/2))
+	s.sortSem = make(chan struct{}, sorters)
+	// deferredIndexSpillChunkBytes, not bulkSpillKeyChunkBytes: like the
+	// deferred index build, the layer session is one producer with one live
+	// sorter carrying full grant records. 8MiB chunks turned one whale wave
+	// into a 3,400-way merge with ~3.4GB of read buffers; 128MiB chunks keep
+	// each segment's merge fan-in small.
+	s.sorter = newSpillSorter(dir, s.segName(), s.sortSem, deferredIndexSpillChunkBytes)
+	s.segCh = make(chan synthLayerSegment, 1)
+	s.segWG.Add(1)
+	go func() {
+		defer s.segWG.Done()
+		for seg := range s.segCh {
+			// After a failure (or abort), drain remaining segments without
+			// touching the DB; Finish surfaces the stored error.
+			if s.takeErr() != nil {
+				continue
+			}
+			if err := e.ingestSynthLayerSegment(ctx, s.dir, seg); err != nil {
+				s.setErr(err)
+			}
+		}
+	}()
+	return nil
+}
+
+// ingestSynthLayerSegment merges one segment's sorted chunks into an SST and
+// ingests it. Chunk files are deleted once merged; the SST path is left for
+// the session's final dir cleanup (Pebble links/copies it on ingest).
+func (e *Engine) ingestSynthLayerSegment(ctx context.Context, dir string, seg synthLayerSegment) error {
+	sstPath := filepath.Join(dir, seg.name+".sst")
+	if err := mergeSortedSpillChunksToSST(ctx, sstPath, seg.name, seg.chunks); err != nil {
+		return err
+	}
+	for _, chunk := range seg.chunks {
+		_ = os.Remove(chunk)
+	}
+	if err := e.db.Ingest(ctx, []string{sstPath}); err != nil {
+		return fmt.Errorf("synth grant layer: ingest segment %s: %w", seg.name, err)
+	}
+	return nil
+}
+
+// AddSynthesizedGrantLayerContributions encodes records into the open layer
+// session. Rows become readable as their segment is ingested; callers must
+// not rely on visibility before FinishSynthesizedGrantLayer returns.
+func (e *Engine) AddSynthesizedGrantLayerContributions(ctx context.Context, records []synthesizedGrantRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
-	e.synthesizedWriteCalls.Add(1)
-	e.synthesizedWriteRows.Add(int64(len(records)))
-	if e.shouldIngestSynthesizedGrantContributionLayer(len(records)) {
-		return e.ingestSynthesizedGrantContributions(ctx, records)
+	return e.withWrite(func() error {
+		s := e.synthLayer
+		if s == nil {
+			return errors.New("pebble: no open synthesized grant layer session")
+		}
+		if err := s.takeErr(); err != nil {
+			return err
+		}
+		if s.sorter == nil {
+			if err := e.initSynthLayerSession(ctx, s); err != nil {
+				return err
+			}
+			// Segment SSTs carry primary rows only; make sure EndSync builds
+			// the deferred by_principal index even if no batch write set the
+			// flag.
+			e.deferredIdxPending.Store(true)
+		}
+		e.synthesizedWriteCalls.Add(1)
+		e.synthesizedWriteRows.Add(int64(len(records)))
+		for i := range records {
+			rec := &records[i]
+			if rec.entitlement == nil || rec.principal == nil || len(rec.sources) == 0 {
+				continue
+			}
+			s.keyScratch = appendGrantIdentityKey(s.keyScratch[:0], rec.id)
+			fillSynthGrantRecord(s.rec, rec, s.now)
+			val, err := marshalRecordAppend(s.valScratch[:0], s.rec)
+			if err != nil {
+				return err
+			}
+			// sources (field 9) is the record's highest field, so appending
+			// it after the base marshal matches the deterministic byte order.
+			val, s.srcScratch = appendGrantSourcesWire(val, s.srcScratch, rec.sources)
+			s.valScratch = val
+			if err := s.sorter.add(s.keyScratch, val); err != nil {
+				return err
+			}
+			s.rows++
+			s.segRows++
+		}
+		if s.segLimit > 0 && s.segRows >= s.segLimit {
+			if err := s.cutSegment(); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// FinishSynthesizedGrantLayer flushes the session's tail segment, waits for
+// the background worker to merge and ingest every queued segment, and closes
+// the session. No-op if no session is open or the session saw no rows.
+func (e *Engine) FinishSynthesizedGrantLayer(ctx context.Context) error {
+	return e.withWrite(func() error {
+		s := e.synthLayer
+		if s == nil {
+			return nil
+		}
+		e.synthLayer = nil
+		if s.dir != "" {
+			defer os.RemoveAll(s.dir)
+		}
+		if s.sorter == nil {
+			return nil
+		}
+		var finishErr error
+		chunks, err := s.sorter.finalize()
+		if err != nil {
+			finishErr = err
+		} else if len(chunks) > 0 {
+			s.segCh <- synthLayerSegment{name: s.segName(), chunks: chunks}
+		}
+		close(s.segCh)
+		s.segWG.Wait()
+		if err := s.takeErr(); err != nil && finishErr == nil {
+			finishErr = err
+		}
+		return finishErr
+	})
+}
+
+// AbortSynthesizedGrantLayer discards an in-flight layer session: already
+// ingested segments remain in the DB (their rows are idempotent overwrites on
+// retry), staged chunks are dropped. Safe to call with no open session.
+func (e *Engine) AbortSynthesizedGrantLayer(ctx context.Context) error {
+	s := e.synthLayer
+	if s == nil {
+		return nil
 	}
-	return e.putSynthesizedGrantContributionsBatch(ctx, records)
+	e.synthLayer = nil
+	if s.sorter != nil {
+		s.sorter.abort()
+	}
+	if s.segCh != nil {
+		// Make the worker drain queued segments without ingesting them.
+		s.setErr(errors.New("pebble: synthesized grant layer session aborted"))
+		close(s.segCh)
+		s.segWG.Wait()
+	}
+	if s.dir != "" {
+		_ = os.RemoveAll(s.dir)
+	}
+	return nil
 }
 
 func (e *Engine) putSynthesizedGrantContributionsBatch(ctx context.Context, records []synthesizedGrantRecord) error {
@@ -438,19 +710,6 @@ func (e *Engine) shouldIngestSynthesizedGrantContributions(rows int) bool {
 	}
 	threshold := 10000
 	if raw := os.Getenv("BATON_PEBBLE_SYNTH_SST_MIN_ROWS"); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			threshold = parsed
-		}
-	}
-	return rows >= threshold
-}
-
-func (e *Engine) shouldIngestSynthesizedGrantContributionLayer(rows int) bool {
-	if !e.deferGrantPrincipalIndex {
-		return false
-	}
-	threshold := 10000
-	if raw := os.Getenv("BATON_PEBBLE_SYNTH_LAYER_SST_MIN_ROWS"); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
 			threshold = parsed
 		}
@@ -1096,11 +1355,6 @@ func decodeTupleComponents(key, prefix []byte, want int) ([]string, bool) {
 		return nil, false
 	}
 	return out, true
-}
-
-func decodeGrantByEntitlementIdentityIndexKey(key []byte) (grantIdentity, bool) {
-	prefix := []byte{versionV3, typeIndex, idxGrantByEntitlement, 0x00}
-	return decodeGrantIdentityTail(key, prefix)
 }
 
 func decodeGrantIdentityTail(key, prefix []byte) (grantIdentity, bool) {

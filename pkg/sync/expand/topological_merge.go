@@ -1,14 +1,10 @@
 package expand
 
 import (
-	"bufio"
 	"context"
-	"encoding/binary"
 	"fmt"
-	"io"
 	"os"
 	"sort"
-	"strconv"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -43,284 +39,6 @@ var expansionDirtyFlushChunk = 10000
 type destinationSink struct {
 	store      func(ctx context.Context, dirty []*v2.Grant, allNew bool) error
 	storeSynth func(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error
-}
-
-type synthLayerBuffer struct {
-	store       synthesizedContributionLayerStorer
-	limit       int
-	tempDir     string
-	chunks      []string
-	dests       []*v2.Entitlement
-	principals  [][]*v3.PrincipalRef
-	sources     [][]batonGrant.Sources
-	sourceArena []batonGrant.Source
-	count       int
-}
-
-func newSynthLayerBuffer(store synthesizedContributionLayerStorer) *synthLayerBuffer {
-	limit := 250000
-	if raw := os.Getenv("BATON_PEBBLE_SYNTH_LAYER_BUFFER_ROWS"); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			limit = parsed
-		}
-	}
-	return &synthLayerBuffer{store: store, limit: limit}
-}
-
-func (b *synthLayerBuffer) add(dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) {
-	if len(principals) == 0 {
-		return
-	}
-	principalCopy := make([]*v3.PrincipalRef, 0, len(principals))
-	sourceCopy := make([]batonGrant.Sources, 0, len(sources))
-	for i, principal := range principals {
-		if principal == nil {
-			continue
-		}
-		principalCopy = append(principalCopy, principal)
-		start := len(b.sourceArena)
-		b.sourceArena = append(b.sourceArena, sources[i]...)
-		sourceCopy = append(sourceCopy, b.sourceArena[start:])
-		b.count++
-	}
-	if len(principalCopy) == 0 {
-		return
-	}
-	b.dests = append(b.dests, dest)
-	b.principals = append(b.principals, principalCopy)
-	b.sources = append(b.sources, sourceCopy)
-}
-
-func (b *synthLayerBuffer) shouldFlush() bool {
-	return b != nil && b.limit > 0 && b.count >= b.limit
-}
-
-func (b *synthLayerBuffer) spill(ctx context.Context) error {
-	if b == nil || b.count == 0 {
-		return nil
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if b.tempDir == "" {
-		dir, err := os.MkdirTemp("", "expand-synth-layer-")
-		if err != nil {
-			return fmt.Errorf("topological merge: create synth layer temp dir: %w", err)
-		}
-		b.tempDir = dir
-	}
-	f, err := os.CreateTemp(b.tempDir, "chunk-*.bin")
-	if err != nil {
-		return fmt.Errorf("topological merge: create synth layer chunk: %w", err)
-	}
-	path := f.Name()
-	success := false
-	defer func() {
-		_ = f.Close()
-		if !success {
-			_ = os.Remove(path)
-		}
-	}()
-	w := bufio.NewWriterSize(f, 1<<20)
-	for i, dest := range b.dests {
-		destID, destRT, destRID := "", "", ""
-		if dest != nil {
-			destID = dest.GetId()
-			if res := dest.GetResource(); res != nil && res.GetId() != nil {
-				destRT = res.GetId().GetResourceType()
-				destRID = res.GetId().GetResource()
-			}
-		}
-		for j, principal := range b.principals[i] {
-			if err := writeSynthLayerString(w, destID); err != nil {
-				return err
-			}
-			if err := writeSynthLayerString(w, destRT); err != nil {
-				return err
-			}
-			if err := writeSynthLayerString(w, destRID); err != nil {
-				return err
-			}
-			if err := writeSynthLayerString(w, principal.GetResourceTypeId()); err != nil {
-				return err
-			}
-			if err := writeSynthLayerString(w, principal.GetResourceId()); err != nil {
-				return err
-			}
-			if err := writeSynthLayerString(w, principal.GetParentResourceTypeId()); err != nil {
-				return err
-			}
-			if err := writeSynthLayerString(w, principal.GetParentResourceId()); err != nil {
-				return err
-			}
-			srcs := b.sources[i][j]
-			if err := binary.Write(w, binary.LittleEndian, uint32(len(srcs))); err != nil {
-				return err
-			}
-			for _, src := range srcs {
-				if err := writeSynthLayerString(w, src.EntitlementID); err != nil {
-					return err
-				}
-				if src.IsDirect {
-					if err := w.WriteByte(1); err != nil {
-						return err
-					}
-				} else if err := w.WriteByte(0); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	if err := w.Flush(); err != nil {
-		return err
-	}
-	success = true
-	b.chunks = append(b.chunks, path)
-	b.clearMemory()
-	return nil
-}
-
-func (b *synthLayerBuffer) flush(ctx context.Context) error {
-	if b == nil || (b.count == 0 && len(b.chunks) == 0) {
-		return nil
-	}
-	for _, chunk := range b.chunks {
-		if err := b.flushChunk(ctx, chunk); err != nil {
-			return err
-		}
-	}
-	if err := b.store.StoreNewExpandedGrantContributionLayer(ctx, b.dests, b.principals, b.sources); err != nil {
-		return err
-	}
-	b.clearMemory()
-	if b.tempDir != "" {
-		if err := os.RemoveAll(b.tempDir); err != nil {
-			return err
-		}
-		b.tempDir = ""
-	}
-	b.chunks = b.chunks[:0]
-	return nil
-}
-
-func (b *synthLayerBuffer) flushChunk(ctx context.Context, path string) error {
-	f, err := os.Open(path) // #nosec G304 -- path is created under synth layer temp dir.
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	r := bufio.NewReaderSize(f, 1<<20)
-	var (
-		dests      []*v2.Entitlement
-		principals [][]*v3.PrincipalRef
-		sources    [][]batonGrant.Sources
-	)
-	for {
-		destID, err := readSynthLayerString(r)
-		if errorsIsEOF(err) {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		destRT, err := readSynthLayerString(r)
-		if err != nil {
-			return err
-		}
-		destRID, err := readSynthLayerString(r)
-		if err != nil {
-			return err
-		}
-		principalRT, err := readSynthLayerString(r)
-		if err != nil {
-			return err
-		}
-		principalID, err := readSynthLayerString(r)
-		if err != nil {
-			return err
-		}
-		parentRT, err := readSynthLayerString(r)
-		if err != nil {
-			return err
-		}
-		parentID, err := readSynthLayerString(r)
-		if err != nil {
-			return err
-		}
-		var sourceCount uint32
-		if err := binary.Read(r, binary.LittleEndian, &sourceCount); err != nil {
-			return err
-		}
-		srcs := make(batonGrant.Sources, 0, sourceCount)
-		for i := uint32(0); i < sourceCount; i++ {
-			entitlementID, err := readSynthLayerString(r)
-			if err != nil {
-				return err
-			}
-			isDirectByte, err := r.ReadByte()
-			if err != nil {
-				return err
-			}
-			srcs = append(srcs, batonGrant.Source{EntitlementID: entitlementID, IsDirect: isDirectByte == 1})
-		}
-		dests = append(dests, v2.Entitlement_builder{
-			Id: destID,
-			Resource: v2.Resource_builder{
-				Id: v2.ResourceId_builder{ResourceType: destRT, Resource: destRID}.Build(),
-			}.Build(),
-		}.Build())
-		principals = append(principals, []*v3.PrincipalRef{v3.PrincipalRef_builder{
-			ResourceTypeId:       principalRT,
-			ResourceId:           principalID,
-			ParentResourceTypeId: parentRT,
-			ParentResourceId:     parentID,
-		}.Build()})
-		sources = append(sources, []batonGrant.Sources{srcs})
-		if len(dests) >= expansionDirtyFlushChunk {
-			if err := b.store.StoreNewExpandedGrantContributionLayer(ctx, dests, principals, sources); err != nil {
-				return err
-			}
-			dests = dests[:0]
-			principals = principals[:0]
-			sources = sources[:0]
-		}
-	}
-	if len(dests) > 0 {
-		return b.store.StoreNewExpandedGrantContributionLayer(ctx, dests, principals, sources)
-	}
-	return nil
-}
-
-func (b *synthLayerBuffer) clearMemory() {
-	b.dests = b.dests[:0]
-	b.principals = b.principals[:0]
-	b.sources = b.sources[:0]
-	b.sourceArena = b.sourceArena[:0]
-	b.count = 0
-}
-
-func writeSynthLayerString(w io.Writer, s string) error {
-	if err := binary.Write(w, binary.LittleEndian, uint32(len(s))); err != nil {
-		return err
-	}
-	_, err := io.WriteString(w, s)
-	return err
-}
-
-func readSynthLayerString(r io.Reader) (string, error) {
-	var n uint32
-	if err := binary.Read(r, binary.LittleEndian, &n); err != nil {
-		return "", err
-	}
-	buf := make([]byte, n)
-	if _, err := io.ReadFull(r, buf); err != nil {
-		return "", err
-	}
-	return string(buf), nil
-}
-
-func errorsIsEOF(err error) bool {
-	return err == io.EOF
 }
 
 // dirtyFlusher buffers synthesized and base-update grants separately so each
@@ -443,15 +161,15 @@ type topologicalRun struct {
 	progress func(nodeIdx, nodeTotal int)
 }
 
-// prepareTopological builds the expansion plan, computes the node topological
-// order, and resolves every graph entitlement once. All three evaluators share
-// it so ordering and the (possibly missing) entitlement set are derived
+// prepareTopological builds the expansion plan, computes the topological wave
+// decomposition, and resolves every graph entitlement once. All evaluators
+// share it so ordering and the (possibly missing) entitlement set are derived
 // identically.
-func (e *Expander) prepareTopological(ctx context.Context) (map[string]*v2.Entitlement, []int, error) {
+func (e *Expander) prepareTopological(ctx context.Context) (map[string]*v2.Entitlement, [][]int, error) {
 	if _, err := e.graph.ensureExpansionPlan(ctx); err != nil {
 		return nil, nil, err
 	}
-	order, err := topologicalNodeOrder(e.graph)
+	waves, err := topologicalNodeWaves(e.graph)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -459,7 +177,7 @@ func (e *Expander) prepareTopological(ctx context.Context) (map[string]*v2.Entit
 	if err != nil {
 		return nil, nil, err
 	}
-	return entitlements, order, nil
+	return entitlements, waves, nil
 }
 
 func (e *Expander) loadExpansionEntitlements(ctx context.Context) (map[string]*v2.Entitlement, error) {
@@ -476,20 +194,34 @@ func (e *Expander) loadExpansionEntitlements(ctx context.Context) (map[string]*v
 	return entitlements, nil
 }
 
-// driveTopological walks the collapsed DAG in topological order and reduces each
-// destination entitlement of every node whose parents are finalized. It is the
-// single scheduling loop behind RunTopologicalMergeStreaming and
-// RunTopologicalMergeProjection; only the per-destination reduce strategy and
-// the optional projection hooks differ between them.
+// driveTopological walks the collapsed DAG wave by wave (Kahn levels) and
+// reduces each destination entitlement of every node whose parents are
+// finalized. It is the single scheduling loop behind
+// RunTopologicalMergeStreaming and RunTopologicalMergeProjection; only the
+// per-destination reduce strategy and the optional projection hooks differ
+// between them.
+//
+// When the store supports layer sessions (and BATON_PEBBLE_SYNTH_LAYER_SST is
+// set), each wave's synthesized grants are streamed into one session and
+// published in a single sorted bulk write at the wave boundary. That is safe
+// because every parent of a wave-k node sits in a wave < k, so no reduce in
+// the current wave reads rows the session is still holding.
 func (e *Expander) driveTopological(
 	ctx context.Context,
 	entitlements map[string]*v2.Entitlement,
-	order []int,
+	waves [][]int,
 	run topologicalRun,
 ) error {
-	logFanInWidth(ctx, e.graph, order)
+	logFanInWidth(ctx, e.graph, waves)
 
-	var activeLayer *synthLayerBuffer
+	totalNodes := 0
+	for _, wave := range waves {
+		totalNodes += len(wave)
+	}
+
+	// activeLayer is non-nil only while a wave's layer session is open; the
+	// storeSynth closure below routes synthesized rows into it.
+	var activeLayer synthesizedContributionLayerStorer
 	sink := &destinationSink{
 		store: func(ctx context.Context, dirty []*v2.Grant, allNew bool) error {
 			if len(dirty) == 0 {
@@ -525,11 +257,8 @@ func (e *Expander) driveTopological(
 				return nil
 			}
 			if activeLayer != nil {
-				activeLayer.add(dest, principals, sources)
-				if activeLayer.shouldFlush() {
-					if err := activeLayer.spill(ctx); err != nil {
-						return fmt.Errorf("topological merge: spill synthesized layer chunk: %w", err)
-					}
+				if err := activeLayer.AddExpandedGrantLayerContributions(ctx, dest, principals, sources); err != nil {
+					return fmt.Errorf("topological merge: add synthesized layer contributions: %w", err)
 				}
 			} else {
 				if err := fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources); err != nil {
@@ -547,15 +276,63 @@ func (e *Expander) driveTopological(
 			return nil
 		}
 	}
-	for nodeIdx, nodeID := range order {
+
+	var layerCandidate synthesizedContributionLayerStorer
+	if sink.storeSynth != nil && os.Getenv("BATON_PEBBLE_SYNTH_LAYER_SST") != "" {
+		layerCandidate, _ = e.store.(synthesizedContributionLayerStorer)
+	}
+
+	nodeIdx := 0
+	for _, wave := range waves {
+		if layerCandidate != nil {
+			ok, err := layerCandidate.BeginExpandedGrantLayer(ctx)
+			if err != nil {
+				return fmt.Errorf("topological merge: begin synthesized layer: %w", err)
+			}
+			if ok {
+				activeLayer = layerCandidate
+			}
+		}
+		if err := e.driveTopologicalWave(ctx, entitlements, wave, run, sink, &nodeIdx, totalNodes); err != nil {
+			if activeLayer != nil {
+				_ = activeLayer.AbortExpandedGrantLayer(ctx)
+				activeLayer = nil
+			}
+			return err
+		}
+		if activeLayer != nil {
+			if err := activeLayer.FinishExpandedGrantLayer(ctx); err != nil {
+				activeLayer = nil
+				return fmt.Errorf("topological merge: finish synthesized layer: %w", err)
+			}
+			activeLayer = nil
+		}
+	}
+	return nil
+}
+
+// driveTopologicalWave reduces every node of one topological wave against the
+// shared sink. Split out of driveTopological so a wave's error unwinds through
+// one place where the caller can abort the wave's open layer session.
+func (e *Expander) driveTopologicalWave(
+	ctx context.Context,
+	entitlements map[string]*v2.Entitlement,
+	wave []int,
+	run topologicalRun,
+	sink *destinationSink,
+	nodeIdx *int,
+	totalNodes int,
+) error {
+	for _, nodeID := range wave {
 		if run.checkBudget != nil {
 			if err := run.checkBudget(); err != nil {
 				return err
 			}
 		}
 		if run.progress != nil {
-			run.progress(nodeIdx, len(order))
+			run.progress(*nodeIdx, totalNodes)
 		}
+		*nodeIdx++
 		node, ok := e.graph.Nodes[nodeID]
 		if !ok {
 			continue
@@ -563,11 +340,6 @@ func (e *Expander) driveTopological(
 		incoming := incomingEdgesSorted(e.graph, nodeID)
 		if len(incoming) == 0 {
 			continue
-		}
-		if os.Getenv("BATON_PEBBLE_SYNTH_LAYER_SST") != "" {
-			if layerStore, ok := e.store.(synthesizedContributionLayerStorer); ok {
-				activeLayer = newSynthLayerBuffer(layerStore)
-			}
 		}
 		reducedAny := false
 		for _, destID := range sortedCopy(node.EntitlementIDs) {
@@ -587,13 +359,6 @@ func (e *Expander) driveTopological(
 			if run.metrics != nil {
 				run.metrics.DestinationEntitlements++
 			}
-		}
-		if activeLayer != nil {
-			if err := activeLayer.flush(ctx); err != nil {
-				activeLayer = nil
-				return fmt.Errorf("topological merge: flush synthesized layer: %w", err)
-			}
-			activeLayer = nil
 		}
 		if reducedAny && run.metrics != nil {
 			run.metrics.NodesReduced++
@@ -631,28 +396,30 @@ func sortedCopy(in []string) []string {
 // evaluator re-reads each unprojected source once per destination it feeds, so a
 // high-fan-out "broadcast" source is a read-amplification hotspot. This answers
 // whether projection-source selection should cover fan-out, not just fan-in.
-func logFanInWidth(ctx context.Context, g *EntitlementGraph, order []int) {
-	widths := make([]int, 0, len(order))
-	outDegrees := make([]int, 0, len(order))
+func logFanInWidth(ctx context.Context, g *EntitlementGraph, waves [][]int) {
+	widths := make([]int, 0, len(g.Nodes))
+	outDegrees := make([]int, 0, len(g.Nodes))
 	maxParentEntitlements := 0
-	for _, nodeID := range order {
-		incoming := incomingEdgesSorted(g, nodeID)
-		if len(incoming) > 0 {
-			width := 1 // base(D) stream
-			for _, in := range incoming {
-				parent, ok := g.Nodes[in.sourceNodeID]
-				if !ok {
-					continue
+	for _, wave := range waves {
+		for _, nodeID := range wave {
+			incoming := incomingEdgesSorted(g, nodeID)
+			if len(incoming) > 0 {
+				width := 1 // base(D) stream
+				for _, in := range incoming {
+					parent, ok := g.Nodes[in.sourceNodeID]
+					if !ok {
+						continue
+					}
+					width += len(parent.EntitlementIDs)
+					if len(parent.EntitlementIDs) > maxParentEntitlements {
+						maxParentEntitlements = len(parent.EntitlementIDs)
+					}
 				}
-				width += len(parent.EntitlementIDs)
-				if len(parent.EntitlementIDs) > maxParentEntitlements {
-					maxParentEntitlements = len(parent.EntitlementIDs)
-				}
+				widths = append(widths, width)
 			}
-			widths = append(widths, width)
-		}
-		if outDegree := len(g.SourcesToDestinations[nodeID]); outDegree > 0 {
-			outDegrees = append(outDegrees, outDegree)
+			if outDegree := len(g.SourcesToDestinations[nodeID]); outDegree > 0 {
+				outDegrees = append(outDegrees, outDegree)
+			}
 		}
 	}
 
@@ -757,11 +524,15 @@ func incomingEdgesSorted(g *EntitlementGraph, nodeID int) []topoIncomingEdge {
 	return out
 }
 
-func topologicalNodeOrder(g *EntitlementGraph) ([]int, error) {
-	ids := make([]int, 0, len(g.Nodes))
+// topologicalNodeWaves returns the graph's Kahn level decomposition: wave k
+// holds every node whose parents all sit in waves < k, so nodes within one
+// wave never depend on each other. The wave boundary is where synthesized
+// grant writes can be published (and, later, checkpointed) — a node's reduce
+// only ever reads parent output from strictly earlier waves. Each wave is
+// sorted by node id for deterministic iteration.
+func topologicalNodeWaves(g *EntitlementGraph) ([][]int, error) {
 	inDegree := make(map[int]int, len(g.Nodes))
 	for id := range g.Nodes {
-		ids = append(ids, id)
 		inDegree[id] = 0
 	}
 	for _, edge := range g.Edges {
@@ -774,34 +545,48 @@ func topologicalNodeOrder(g *EntitlementGraph) ([]int, error) {
 		inDegree[edge.DestinationID]++
 	}
 
-	sort.Ints(ids)
-	queue := make([]int, 0, len(ids))
-	for _, id := range ids {
-		if inDegree[id] == 0 {
-			queue = append(queue, id)
+	frontier := make([]int, 0, len(g.Nodes))
+	for id, deg := range inDegree {
+		if deg == 0 {
+			frontier = append(frontier, id)
 		}
 	}
+	sort.Ints(frontier)
 
-	order := make([]int, 0, len(ids))
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-		order = append(order, id)
-
-		children := make([]int, 0, len(g.SourcesToDestinations[id]))
-		for child := range g.SourcesToDestinations[id] {
-			children = append(children, child)
-		}
-		sort.Ints(children)
-		for _, child := range children {
-			inDegree[child]--
-			if inDegree[child] == 0 {
-				queue = append(queue, child)
+	var waves [][]int
+	seen := 0
+	for len(frontier) > 0 {
+		waves = append(waves, frontier)
+		seen += len(frontier)
+		var next []int
+		for _, id := range frontier {
+			for child := range g.SourcesToDestinations[id] {
+				inDegree[child]--
+				if inDegree[child] == 0 {
+					next = append(next, child)
+				}
 			}
 		}
+		sort.Ints(next)
+		frontier = next
 	}
-	if len(order) != len(ids) {
+	if seen != len(g.Nodes) {
 		return nil, fmt.Errorf("topological merge: graph contains a cycle or dangling edge")
+	}
+	return waves, nil
+}
+
+// topologicalNodeOrder flattens topologicalNodeWaves into a single valid
+// topological order. Kept for callers that only need a linear order (the
+// expansion plan builder and benchmarks).
+func topologicalNodeOrder(g *EntitlementGraph) ([]int, error) {
+	waves, err := topologicalNodeWaves(g)
+	if err != nil {
+		return nil, err
+	}
+	order := make([]int, 0, len(g.Nodes))
+	for _, wave := range waves {
+		order = append(order, wave...)
 	}
 	return order, nil
 }

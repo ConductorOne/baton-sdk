@@ -530,18 +530,45 @@ func (g pebbleStoreGrants) StoreNewExpandedGrantContributions(ctx context.Contex
 	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
 }
 
-func (g pebbleStoreGrants) StoreNewExpandedGrantContributionLayer(ctx context.Context, dests []*v2.Entitlement, principals [][]*v3.PrincipalRef, sources [][]batonGrant.Sources) error {
-	if fast, ok := g.inner.(interface {
-		StoreNewExpandedGrantContributionLayer(context.Context, []*v2.Entitlement, [][]*v3.PrincipalRef, [][]batonGrant.Sources) error
-	}); ok {
-		return g.store.markDirty(fast.StoreNewExpandedGrantContributionLayer(ctx, dests, principals, sources))
+// pebbleStoreGrantLayerStorer is the wave-scoped layer session surface the
+// engine-level grant store may implement (see the pebble adapter). Kept as a
+// local interface so the wrapper can pass sessions through with the dirty bit.
+type pebbleStoreGrantLayerStorer interface {
+	BeginExpandedGrantLayer(ctx context.Context) (bool, error)
+	AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error
+	FinishExpandedGrantLayer(ctx context.Context) error
+	AbortExpandedGrantLayer(ctx context.Context) error
+}
+
+func (g pebbleStoreGrants) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
+	if fast, ok := g.inner.(pebbleStoreGrantLayerStorer); ok {
+		return fast.BeginExpandedGrantLayer(ctx)
 	}
-	for i, dest := range dests {
-		if err := g.StoreNewExpandedGrantContributions(ctx, dest, principals[i], sources[i]); err != nil {
-			return err
-		}
+	return false, nil
+}
+
+func (g pebbleStoreGrants) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	fast, ok := g.inner.(pebbleStoreGrantLayerStorer)
+	if !ok {
+		return fmt.Errorf("expanded grant layer: store does not support layer sessions")
 	}
-	return nil
+	return fast.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+}
+
+func (g pebbleStoreGrants) FinishExpandedGrantLayer(ctx context.Context) error {
+	fast, ok := g.inner.(pebbleStoreGrantLayerStorer)
+	if !ok {
+		return fmt.Errorf("expanded grant layer: store does not support layer sessions")
+	}
+	return g.store.markDirty(fast.FinishExpandedGrantLayer(ctx))
+}
+
+func (g pebbleStoreGrants) AbortExpandedGrantLayer(ctx context.Context) error {
+	fast, ok := g.inner.(pebbleStoreGrantLayerStorer)
+	if !ok {
+		return nil
+	}
+	return fast.AbortExpandedGrantLayer(ctx)
 }
 
 func newPebbleStorePrincipalResource(ref *v3.PrincipalRef) *v2.Resource {
