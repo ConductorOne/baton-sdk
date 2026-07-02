@@ -427,6 +427,163 @@ func TestCompactPebbleBaseMixedPartialsAutoMode(t *testing.T) {
 	require.Equal(t, string(connectorstore.SyncTypeFull), st, "union of full + partial + partial = full")
 }
 
+// recencyStore is the Put* surface shared by the SQLite C1File and the
+// engine-agnostic C1ZStore, so one data builder can seed either input.
+type recencyStore interface {
+	PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error
+	PutResources(ctx context.Context, resources ...*v2.Resource) error
+	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
+	PutGrants(ctx context.Context, grants ...*v2.Grant) error
+}
+
+// putRecencyData writes the fixed group/member graph with one grant per
+// id, all held by the given principal — the principal is the marker that
+// identifies which input's version of an overlapping grant won.
+func putRecencyData(t testing.TB, ctx context.Context, store recencyStore, principal string, grantIDs ...string) {
+	t.Helper()
+	require.NoError(t, store.PutResourceTypes(ctx,
+		v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build(),
+		v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()))
+	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "Group One"}.Build()
+	user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: principal}.Build(), DisplayName: principal}.Build()
+	require.NoError(t, store.PutResources(ctx, group, user))
+	member := v2.Entitlement_builder{Id: "member", Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build()
+	require.NoError(t, store.PutEntitlements(ctx, member))
+	for _, id := range grantIDs {
+		require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: id, Principal: user, Entitlement: member}.Build()))
+	}
+}
+
+// buildPebbleRecencyInput writes a Pebble (v3) c1z whose records carry
+// real sync-time discovered_at stamps.
+func buildPebbleRecencyInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, principal string, grantIDs ...string) string {
+	t.Helper()
+	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
+	require.NoError(t, err)
+	syncID, err := w.StartNewSync(ctx, st, "")
+	require.NoError(t, err)
+	putRecencyData(t, ctx, w, principal, grantIDs...)
+	require.NoError(t, w.EndSync(ctx))
+	require.NoError(t, w.Close(ctx))
+	return syncID
+}
+
+// buildSQLiteRecencyInput writes a SQLite (v1) c1z and backdates every
+// record's discovered_at column to the given instant, so the input's
+// true record recency is unambiguous relative to the other inputs.
+func buildSQLiteRecencyInput(
+	t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, principal string, discoveredAt time.Time, grantIDs ...string,
+) string {
+	t.Helper()
+	store, err := dotc1z.NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	syncID, err := store.StartNewSync(ctx, st, "")
+	require.NoError(t, err)
+	putRecencyData(t, ctx, store, principal, grantIDs...)
+	db := rawSQLiteDBForTest(t, store)
+	stamp := discoveredAt.Format("2006-01-02 15:04:05.999999999")
+	for _, table := range []string{"v1_resource_types", "v1_resources", "v1_entitlements", "v1_grants"} {
+		_, err := db.ExecContext(ctx, "UPDATE "+table+" SET discovered_at = ?", stamp) //nolint:gosec // Table names are fixed test fixtures.
+		require.NoError(t, err)
+	}
+	require.NoError(t, store.EndSync(ctx))
+	require.NoError(t, store.Close(ctx))
+	return syncID
+}
+
+// winningPrincipal returns the principal resource id of grantID in the
+// compacted output — i.e. which input's version of the grant won.
+func winningPrincipal(t *testing.T, ctx context.Context, out *CompactableSync, grantID string) string {
+	t.Helper()
+	store := openCompactedPebble(t, ctx, out)
+	defer store.Close(ctx)
+	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: grantID}.Build())
+	require.NoError(t, err)
+	return grant.GetGrant().GetPrincipal().GetId().GetResource()
+}
+
+// TestCompactMixedInputsPreservesRecordRecency pins that converting a
+// SQLite input during multi-engine compaction preserves each record's
+// original discovered_at: the merge picks winners by newest
+// discovered_at, so a conversion that re-stamped records with the
+// conversion wall clock would make the OLD SQLite base override the
+// newer Pebble partial on overlapping keys.
+//
+// Chain: an old SQLite full (records discovered in 2020, principal
+// alice) + a fresh Pebble partial (principal bob), both carrying grant
+// g-shared. The partial is newer, so bob must win.
+func TestCompactMixedInputsPreservesRecordRecency(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	sqlitePath := filepath.Join(inDir, "base-sqlite.c1z")
+	pebblePath := filepath.Join(inDir, "partial-pebble.c1z")
+	oldDiscovery := time.Date(2020, time.January, 2, 3, 4, 5, 0, time.UTC)
+	s1 := buildSQLiteRecencyInput(t, ctx, sqlitePath, connectorstore.SyncTypeFull, "alice", oldDiscovery, "g-shared", "g-base")
+	s2 := buildPebbleRecencyInput(t, ctx, pebblePath, connectorstore.SyncTypePartial, "bob", "g-shared")
+
+	entries := []*CompactableSync{
+		{FilePath: sqlitePath, SyncID: s1},
+		{FilePath: pebblePath, SyncID: s2},
+	}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithSkipGrantExpansion())
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	requirePebbleOutput(t, ctx, out.FilePath)
+
+	require.Equal(t, "bob", winningPrincipal(t, ctx, out, "g-shared"),
+		"the newer pebble partial must win the overlapping grant; the converted sqlite base's 2020 records must not be re-stamped to conversion time")
+}
+
+// TestCompactFoldMixedPartialsPreservesRecordRecency is the fold-path
+// variant: a Pebble base plus an OLD SQLite partial (2020 records) and
+// a fresh Pebble partial, all carrying grant g-shared. Fold applies
+// partials newest-first with strictly-newer-wins, so the fresh Pebble
+// partial (bob) must win; a conversion that re-stamped the SQLite
+// partial's records to conversion time would let carol override bob.
+func TestCompactFoldMixedPartialsPreservesRecordRecency(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	basePath := filepath.Join(inDir, "base-pebble.c1z")
+	sqlitePartialPath := filepath.Join(inDir, "partial-sqlite.c1z")
+	pebblePartialPath := filepath.Join(inDir, "partial-pebble.c1z")
+
+	oldDiscovery := time.Date(2020, time.January, 2, 3, 4, 5, 0, time.UTC)
+	sBase := buildPebbleRecencyInput(t, ctx, basePath, connectorstore.SyncTypeFull, "alice", "g-shared", "g-base")
+	sSQLite := buildSQLiteRecencyInput(t, ctx, sqlitePartialPath, connectorstore.SyncTypePartial, "carol", oldDiscovery, "g-shared")
+	sPebble := buildPebbleRecencyInput(t, ctx, pebblePartialPath, connectorstore.SyncTypePartial, "bob", "g-shared")
+
+	// Chain order: base, then partials oldest-first.
+	entries := []*CompactableSync{
+		{FilePath: basePath, SyncID: sBase},
+		{FilePath: sqlitePartialPath, SyncID: sSQLite},
+		{FilePath: pebblePartialPath, SyncID: sPebble},
+	}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(dotc1z.EnginePebble),
+		WithPebbleCompactorMode(PebbleCompactorModeFold),
+		WithSkipGrantExpansion(),
+	)
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	requirePebbleOutput(t, ctx, out.FilePath)
+
+	require.Equal(t, "bob", winningPrincipal(t, ctx, out, "g-shared"),
+		"the fresh pebble partial must win; the converted 2020 sqlite partial must not be re-stamped to conversion time and override it")
+}
+
 // TestCompactExplicitSQLiteRejectsPebbleInput pins the policy conflict: an
 // explicit SQLite request with a Pebble input is rejected rather than
 // silently downgrading the Pebble data.
