@@ -131,16 +131,16 @@ func TestMergeFilesIntoKWayNewerWinsTieIndexesAndDropsAssets(t *testing.T) {
 		grants[g.GetExternalId()] = g
 		return true
 	}))
-	require.Equal(t, 4, len(grants), "merged grant count")
-	require.Equal(t, "bob", grants["shared"].GetPrincipal().GetResourceId(), "newer shared grant principal")
-	require.Equal(t, "alice", grants["tie"].GetPrincipal().GetResourceId(), "tie grant principal from earlier-applied source")
+	require.Equal(t, 3, len(grants), "merged grant count")
+	require.NotContains(t, grants, "shared", "same structured identity is superseded by tie")
+	require.Equal(t, "bob", grants["tie"].GetPrincipal().GetResourceId(), "retained external_id map observes later structured identity")
 	var byEntitlement []string
-	require.NoError(t, dest.IterateGrantsByEntitlement(ctx, "member", func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.IterateGrantsByEntitlement(ctx, "group:engineering:custom:member", func(g *v3.GrantRecord) bool {
 		byEntitlement = append(byEntitlement, g.GetExternalId())
 		return true
 	}))
 	sort.Strings(byEntitlement)
-	require.Equal(t, fmtSprint([]string{"only-src2", "shared", "tie"}), fmtSprint(byEntitlement), "by_entitlement index")
+	require.Equal(t, fmtSprint([]string{"only-src2", "tie", "tie"}), fmtSprint(byEntitlement), "by_entitlement index")
 	var byPrincipal []string
 	require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", "alice", func(g *v3.GrantRecord) bool {
 		byPrincipal = append(byPrincipal, g.GetExternalId())

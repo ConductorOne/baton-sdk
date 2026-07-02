@@ -8,6 +8,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	enginepebble "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -68,8 +69,17 @@ func TestRunWhalePebbleProjectionExpansion(t *testing.T) {
 		t.Logf("metrics: algorithm=%s dirty_grants_written=%d projection_rows=%d nodes_reduced=%d dest_entitlements=%d",
 			m.Algorithm, m.DirtyGrantsWritten, m.ProjectionRowsBuilt, m.NodesReduced, m.DestinationEntitlements)
 	}
+	if eng, ok := enginepebble.AsEngine(store); ok {
+		stats := eng.ExpandWritePathStats()
+		t.Logf("expand write paths: expanded_calls=%d expanded_rows=%d synthesized_calls=%d synthesized_rows=%d",
+			stats.ExpandedCalls, stats.ExpandedRows, stats.SynthesizedCalls, stats.SynthesizedRows)
+		eng.LogCompactionMetrics(ctx, "expansion complete")
+	}
 
 	require.NoError(t, store.EndSync(ctx))
+	if eng, ok := enginepebble.AsEngine(store); ok {
+		eng.LogCompactionMetrics(ctx, "end sync complete")
+	}
 	require.NoError(t, store.Close(ctx))
 
 	ro, err := dotc1z.NewStore(ctx, out, dotc1z.WithReadOnly(true))

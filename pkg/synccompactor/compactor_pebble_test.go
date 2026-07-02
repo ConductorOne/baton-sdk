@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -21,6 +22,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	batonEntitlement "github.com/conductorone/baton-sdk/pkg/types/entitlement"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 // buildPebbleInput writes a minimal Pebble (v3) c1z at path with the
@@ -43,11 +46,21 @@ func buildPebbleInput(t testing.TB, ctx context.Context, path string, st connect
 		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
 		DisplayName: "Group One",
 	}.Build()
-	user := v2.Resource_builder{
-		Id:          v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(),
-		DisplayName: "User One",
-	}.Build()
-	require.NoError(t, w.PutResources(ctx, group, user))
+	users := make([]*v2.Resource, 0, len(grantIDs))
+	usersByGrantID := make(map[string]*v2.Resource, len(grantIDs))
+	for _, id := range grantIDs {
+		principalID := compactFixturePrincipalID(id)
+		if _, ok := usersByGrantID[id]; ok {
+			continue
+		}
+		user := v2.Resource_builder{
+			Id:          v2.ResourceId_builder{ResourceType: "user", Resource: principalID}.Build(),
+			DisplayName: "User " + principalID,
+		}.Build()
+		users = append(users, user)
+		usersByGrantID[id] = user
+	}
+	require.NoError(t, w.PutResources(ctx, append([]*v2.Resource{group}, users...)...))
 
 	member := v2.Entitlement_builder{
 		Id:       "member",
@@ -57,7 +70,8 @@ func buildPebbleInput(t testing.TB, ctx context.Context, path string, st connect
 	require.NoError(t, w.PutEntitlements(ctx, member))
 
 	for _, id := range grantIDs {
-		g := v2.Grant_builder{Id: id, Principal: user, Entitlement: member}.Build()
+		user := usersByGrantID[id]
+		g := v2.Grant_builder{Id: batonGrant.NewGrantID(user, member), Principal: user, Entitlement: member}.Build()
 		require.NoError(t, w.PutGrants(ctx, g))
 	}
 
@@ -311,8 +325,8 @@ func TestCompactExplicitPebbleConvertsSQLiteEmptySyncIDTiebreaksBySyncID(t *test
 	for _, grant := range resp.GetList() {
 		grantIDs[grant.GetId()] = true
 	}
-	require.True(t, grantIDs["g-partial"], "empty SyncID must select tied sync with greater sync_id %s", partialSyncID)
-	require.False(t, grantIDs["g-full"], "lower sync_id full sync must not be selected just because full is checked first")
+	require.True(t, grantIDs[compactInputGrantID("g-partial")], "empty SyncID must select tied sync with greater sync_id %s", partialSyncID)
+	require.False(t, grantIDs[compactInputGrantID("g-full")], "lower sync_id full sync must not be selected just because full is checked first")
 }
 
 // TestCompactFoldConvertsSQLitePartial pins that the in-place fold strategy
@@ -499,13 +513,48 @@ func putSQLiteInputData(t testing.TB, ctx context.Context, store *dotc1z.C1File,
 		v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build(),
 		v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()))
 	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "Group One"}.Build()
-	user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "User One"}.Build()
-	require.NoError(t, store.PutResources(ctx, group, user))
+	users := make([]*v2.Resource, 0, len(grantIDs))
+	usersByGrantID := make(map[string]*v2.Resource, len(grantIDs))
+	for _, id := range grantIDs {
+		principalID := compactFixturePrincipalID(id)
+		if _, ok := usersByGrantID[id]; ok {
+			continue
+		}
+		user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: principalID}.Build(), DisplayName: "User " + principalID}.Build()
+		users = append(users, user)
+		usersByGrantID[id] = user
+	}
+	require.NoError(t, store.PutResources(ctx, append([]*v2.Resource{group}, users...)...))
 	member := v2.Entitlement_builder{Id: "member", Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build()
 	require.NoError(t, store.PutEntitlements(ctx, member))
 	for _, id := range grantIDs {
-		require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: id, Principal: user, Entitlement: member}.Build()))
+		require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: id, Principal: usersByGrantID[id], Entitlement: member}.Build()))
 	}
+}
+
+func compactFixturePrincipalID(grantID string) string {
+	if strings.Contains(grantID, "shared") {
+		return "shared"
+	}
+	return grantID
+}
+
+func compactInputGrantID(grantID string) string {
+	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: compactFixturePrincipalID(grantID)}.Build()}.Build()
+	member := v2.Entitlement_builder{Id: "member", Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build()
+	return batonGrant.NewGrantID(user, member)
+}
+
+func overlayGrantID(entitlementID, principalID string) string {
+	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "engineering"}.Build()}.Build()
+	user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: principalID}.Build(), ParentResourceId: group.GetId()}.Build()
+	ent := v2.Entitlement_builder{Id: entitlementID, Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build()
+	return batonGrant.NewGrantID(user, ent)
+}
+
+func overlayEntitlementID(entitlementID string) string {
+	return batonEntitlement.EncodeEntitlementID("group", "engineering", batonEntitlement.EntitlementKindCustom, entitlementID)
 }
 
 func orderedTestSyncIDs() (string, string) {
@@ -759,7 +808,7 @@ func TestCompactPebbleOverlayMaterializesAllQueryIndexes(t *testing.T) {
 
 	byResource, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{Resource: group, PageSize: 100}.Build())
 	require.NoError(t, err)
-	requireGrantIDs(t, byResource.GetList(), "g-alice-member", "g-bob-admin", "g-inc-bob-member")
+	requireGrantIDs(t, byResource.GetList(), overlayGrantID("member", "alice"), overlayGrantID("admin", "bob"), overlayGrantID("member", "bob"))
 
 	member := v2.Entitlement_builder{Id: "member", Resource: group}.Build()
 	byEntitlement, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
@@ -767,7 +816,7 @@ func TestCompactPebbleOverlayMaterializesAllQueryIndexes(t *testing.T) {
 		PageSize:    100,
 	}.Build())
 	require.NoError(t, err)
-	requireGrantIDs(t, byEntitlement.GetList(), "g-alice-member", "g-inc-bob-member")
+	requireGrantIDs(t, byEntitlement.GetList(), overlayGrantID("member", "alice"), overlayGrantID("member", "bob"))
 
 	byPrincipalAndEntitlement, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: member,
@@ -775,7 +824,7 @@ func TestCompactPebbleOverlayMaterializesAllQueryIndexes(t *testing.T) {
 		PageSize:    100,
 	}.Build())
 	require.NoError(t, err)
-	requireGrantIDs(t, byPrincipalAndEntitlement.GetList(), "g-alice-member")
+	requireGrantIDs(t, byPrincipalAndEntitlement.GetList(), overlayGrantID("member", "alice"))
 
 	users, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{ParentResourceId: group.GetId(), PageSize: 100}.Build())
 	require.NoError(t, err)
@@ -783,7 +832,7 @@ func TestCompactPebbleOverlayMaterializesAllQueryIndexes(t *testing.T) {
 
 	ents, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{Resource: group, PageSize: 100}.Build())
 	require.NoError(t, err)
-	requireEntitlementIDs(t, ents.GetList(), "admin", "member")
+	requireEntitlementIDs(t, ents.GetList(), overlayEntitlementID("admin"), overlayEntitlementID("member"))
 
 	pending, next, err := store.Grants().PendingExpansionPage(ctx, "")
 	require.NoError(t, err)
@@ -810,7 +859,7 @@ func TestCompactPebbleOverlayFirstSeenWinsForOverlappingGrant(t *testing.T) {
 	out := compactPebbleOverlay(t, ctx, []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: incPath, SyncID: incSync}})
 	store := openCompactedPebble(t, ctx, out)
 	defer store.Close(ctx)
-	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "shared"}.Build())
+	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: overlayGrantID("member", "bob")}.Build())
 	require.NoError(t, err)
 	require.Equal(t, "bob", grant.GetGrant().GetPrincipal().GetId().GetResource(), "newest/applied source must win overlay duplicate")
 }
@@ -833,7 +882,7 @@ func TestCompactPebbleOverlayFallsBackToKWayAboveSeenLimit(t *testing.T) {
 	out := compactPebbleOverlay(t, ctx, []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: incPath, SyncID: incSync}}, WithOverlaySeenKeyLimit(1))
 	store := openCompactedPebble(t, ctx, out)
 	defer store.Close(ctx)
-	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "shared"}.Build())
+	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: overlayGrantID("member", "bob")}.Build())
 	require.NoError(t, err)
 	require.Equal(t, "bob", grant.GetGrant().GetPrincipal().GetId().GetResource(), "fallback must preserve compaction semantics")
 }
@@ -859,7 +908,7 @@ func TestCompactPebbleOverlayFallsBackToKWayWhenMissingStatsPreflightExceedsLimi
 	out := compactPebbleOverlay(t, ctx, []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: incPath, SyncID: incSync}}, WithOverlaySeenKeyLimit(1))
 	store := openCompactedPebble(t, ctx, out)
 	defer store.Close(ctx)
-	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "shared"}.Build())
+	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: overlayGrantID("member", "bob")}.Build())
 	require.NoError(t, err)
 	require.Equal(t, "bob", grant.GetGrant().GetPrincipal().GetId().GetResource(), "missing cached stats preflight fallback must preserve compaction semantics")
 }
@@ -887,7 +936,7 @@ func TestCompactPebbleOverlayMissingStatsPreflightAllowsSmallInputs(t *testing.T
 	defer store.Close(ctx)
 	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 100}.Build())
 	require.NoError(t, err)
-	requireGrantIDs(t, resp.GetList(), "base-only")
+	requireGrantIDs(t, resp.GetList(), overlayGrantID("member", "alice"))
 }
 
 func TestCompactPebbleOverlayWholeBaseBucketFastPathIndexesBaseGrants(t *testing.T) {
@@ -914,7 +963,7 @@ func TestCompactPebbleOverlayWholeBaseBucketFastPathIndexesBaseGrants(t *testing
 	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "engineering"}.Build()}.Build()
 	byResource, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{Resource: group, PageSize: 100}.Build())
 	require.NoError(t, err)
-	requireGrantIDs(t, byResource.GetList(), "base-alice", "base-bob")
+	requireGrantIDs(t, byResource.GetList(), overlayGrantID("member", "alice"), overlayGrantID("admin", "bob"))
 	pending, _, err := store.Grants().PendingExpansionPage(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, pending, 1)
@@ -958,11 +1007,11 @@ func TestCompactPebbleStatsSidecarMatchesRecompute(t *testing.T) {
 			// Sanity-pin the expected fixture counts so a dual-sided
 			// systematic error can't slip through the parity check.
 			require.Equal(t, int64(2), stored.GetResourceTypes())
-			require.Equal(t, int64(2), stored.GetResources())
+			require.Equal(t, int64(4), stored.GetResources())
 			require.Equal(t, int64(1), stored.GetEntitlements())
 			require.Equal(t, int64(3), stored.GetGrants(), "union of {g-shared,g-only1} and {g-shared,g-only2}")
 			require.Equal(t, int64(0), stored.GetAssets(), "compaction drops assets")
-			require.Equal(t, map[string]int64{"group": 1, "user": 1}, stored.GetResourcesByResourceType())
+			require.Equal(t, map[string]int64{"group": 1, "user": 3}, stored.GetResourcesByResourceType())
 			require.Equal(t, map[string]int64{"group": 3}, stored.GetGrantsByEntitlementResourceType())
 
 			require.NoError(t, eng.PersistSyncStats(ctx, out.SyncID))

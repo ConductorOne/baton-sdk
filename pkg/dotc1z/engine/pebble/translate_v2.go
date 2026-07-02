@@ -7,6 +7,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 // Translation layer: v2 connector wire types ↔ v3 storage record
@@ -123,7 +124,7 @@ func V3GrantToV2(r *v3.GrantRecord) *v2.Grant {
 		}
 	}
 	return v2.Grant_builder{
-		Id:          r.GetExternalId(),
+		Id:          canonicalGrantRecordID(r),
 		Entitlement: entitlementRefToStub(r.GetEntitlement()),
 		Principal:   principalRefToStubResource(r.GetPrincipal()),
 		Annotations: anns,
@@ -267,7 +268,7 @@ func entitlementRefToStub(ref *v3.EntitlementRef) *v2.Entitlement {
 		return nil
 	}
 	return v2.Entitlement_builder{
-		Id: ref.GetEntitlementId(),
+		Id: entitlementIdentityFromParts(ref.GetResourceTypeId(), ref.GetResourceId(), ref.GetEntitlementId()).toPublicID(),
 		Resource: v2.Resource_builder{
 			Id: v2.ResourceId_builder{
 				ResourceType: ref.GetResourceTypeId(),
@@ -275,6 +276,14 @@ func entitlementRefToStub(ref *v3.EntitlementRef) *v2.Entitlement {
 			}.Build(),
 		}.Build(),
 	}.Build()
+}
+
+func canonicalGrantRecordID(r *v3.GrantRecord) string {
+	id, err := grantIdentityFromRecord(r)
+	if err != nil {
+		return r.GetExternalId()
+	}
+	return batonGrant.EncodeGrantID(id.entitlement.toPublicParts(), id.principalTypeID, id.principalID)
 }
 
 func principalRefToStubResource(ref *v3.PrincipalRef) *v2.Resource {
@@ -501,7 +510,7 @@ func V3EntitlementToV2(r *v3.EntitlementRecord) *v2.Entitlement {
 		}
 	}
 	return v2.Entitlement_builder{
-		Id:          r.GetExternalId(),
+		Id:          canonicalEntitlementRecordID(r),
 		Resource:    resource,
 		DisplayName: r.GetDisplayName(),
 		Description: r.GetDescription(),
@@ -510,6 +519,28 @@ func V3EntitlementToV2(r *v3.EntitlementRecord) *v2.Entitlement {
 		Slug:        r.GetSlug(),
 		GrantableTo: grantableTo,
 	}.Build()
+}
+
+func canonicalEntitlementRecordID(r *v3.EntitlementRecord) string {
+	id, err := entitlementIdentityFromRecord(r)
+	if err != nil {
+		return r.GetExternalId()
+	}
+	return id.toPublicID()
+}
+
+func canonicalEntitlementRequestID(e *v2.Entitlement) string {
+	if e == nil {
+		return ""
+	}
+	if res := e.GetResource(); res != nil && res.GetId() != nil {
+		return entitlementIdentityFromParts(
+			res.GetId().GetResourceType(),
+			res.GetId().GetResource(),
+			e.GetId(),
+		).toPublicID()
+	}
+	return e.GetId()
 }
 
 func purposeToString(p v2.Entitlement_PurposeValue) string {

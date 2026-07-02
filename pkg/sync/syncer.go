@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	storage_v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
@@ -199,6 +200,93 @@ func (a expanderStoreAdapter) ListGrantPrincipalKeysForEntitlement(
 
 func (a expanderStoreAdapter) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+func (a expanderStoreAdapter) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	if fast, ok := a.store.Grants().(interface {
+		StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
+	}); ok {
+		return fast.StoreNewExpandedGrants(ctx, grants...)
+	}
+	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+func (a expanderStoreAdapter) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []batonGrant.Sources) error {
+	if fast, ok := a.store.Grants().(interface {
+		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*storage_v3.PrincipalRef, []batonGrant.Sources) error
+	}); ok {
+		return fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
+	}
+	grants := make([]*v2.Grant, 0, len(principals))
+	for i, principalRef := range principals {
+		principal := resourceFromPrincipalRef(principalRef)
+		grant, err := expand.NewExpandedGrantForStore(dest, principal, sources[i])
+		if err != nil {
+			return err
+		}
+		grants = append(grants, grant)
+	}
+	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+// expandedGrantLayerStorer is the wave-scoped synthesized-grant layer session
+// surface the store's GrantStore may implement (Pebble). Local interface so
+// the adapter can pass sessions through without importing engine internals.
+type expandedGrantLayerStorer interface {
+	BeginExpandedGrantLayer(ctx context.Context) (bool, error)
+	AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []batonGrant.Sources) error
+	FinishExpandedGrantLayer(ctx context.Context) error
+	AbortExpandedGrantLayer(ctx context.Context) error
+}
+
+func (a expanderStoreAdapter) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
+	if fast, ok := a.store.Grants().(expandedGrantLayerStorer); ok {
+		return fast.BeginExpandedGrantLayer(ctx)
+	}
+	return false, nil
+}
+
+func (a expanderStoreAdapter) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []batonGrant.Sources) error {
+	fast, ok := a.store.Grants().(expandedGrantLayerStorer)
+	if !ok {
+		return errors.New("expanded grant layer: store does not support layer sessions")
+	}
+	return fast.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+}
+
+func (a expanderStoreAdapter) FinishExpandedGrantLayer(ctx context.Context) error {
+	fast, ok := a.store.Grants().(expandedGrantLayerStorer)
+	if !ok {
+		return errors.New("expanded grant layer: store does not support layer sessions")
+	}
+	return fast.FinishExpandedGrantLayer(ctx)
+}
+
+func (a expanderStoreAdapter) AbortExpandedGrantLayer(ctx context.Context) error {
+	if fast, ok := a.store.Grants().(expandedGrantLayerStorer); ok {
+		return fast.AbortExpandedGrantLayer(ctx)
+	}
+	return nil
+}
+
+func resourceFromPrincipalRef(ref *storage_v3.PrincipalRef) *v2.Resource {
+	if ref == nil {
+		return nil
+	}
+	var parent *v2.ResourceId
+	if ref.GetParentResourceId() != "" {
+		parent = v2.ResourceId_builder{
+			ResourceType: ref.GetParentResourceTypeId(),
+			Resource:     ref.GetParentResourceId(),
+		}.Build()
+	}
+	return v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: ref.GetResourceTypeId(),
+			Resource:     ref.GetResourceId(),
+		}.Build(),
+		ParentResourceId: parent,
+	}.Build()
 }
 
 // GrantsForEntitlementPrincipalSorted forwards the underlying engine's
@@ -2267,8 +2355,27 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			for _, entId := range expandableAnno.GetEntitlementIds() {
 				parsedEnt, err := bid.ParseEntitlementBid(entId)
 				if err != nil {
-					l.Error("error parsing expandable entitlement bid", zap.Any("entitlementId", entId))
-					continue
+					parts, decodeErr := entitlement.DecodeEntitlementID(entId)
+					if decodeErr != nil {
+						l.Error("error parsing expandable entitlement id", zap.Any("entitlementId", entId), zap.Error(err))
+						continue
+					}
+					if parts.Kind == entitlement.EntitlementKindCustom {
+						if bidEnt, bidErr := bid.ParseEntitlementBid(parts.Name); bidErr == nil {
+							parsedEnt = bidEnt
+						}
+					}
+					if parsedEnt == nil {
+						parsedEnt = v2.Entitlement_builder{
+							Resource: v2.Resource_builder{
+								Id: v2.ResourceId_builder{
+									ResourceType: parts.ResourceTypeID,
+									Resource:     parts.ResourceID,
+								}.Build(),
+							}.Build(),
+							Slug: parts.Name,
+						}.Build()
+					}
 				}
 				resourceBID, err := bid.MakeBid(parsedEnt.GetResource())
 				if err != nil {

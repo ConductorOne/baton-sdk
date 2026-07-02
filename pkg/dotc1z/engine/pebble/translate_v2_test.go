@@ -34,8 +34,8 @@ func TestV2GrantRoundtrip(t *testing.T) {
 	require.Equal(t, "user", v3rec.GetPrincipal().GetResourceTypeId(), "principal rt")
 
 	back := V3GrantToV2(v3rec)
-	require.Equal(t, "grant-1", back.GetId(), "roundtrip id")
-	require.Equal(t, "github-read", back.GetEntitlement().GetId(), "roundtrip entitlement id")
+	require.Equal(t, "app:github:custom:github-read:user:alice", back.GetId(), "roundtrip id")
+	require.Equal(t, "app:github:custom:github-read", back.GetEntitlement().GetId(), "roundtrip entitlement id")
 	require.Equal(t, "app", back.GetEntitlement().GetResource().GetId().GetResourceType(), "roundtrip ent.resource.rt")
 	require.Equal(t, "alice", back.GetPrincipal().GetId().GetResource(), "roundtrip principal")
 }
@@ -102,7 +102,7 @@ func TestV2EntitlementRoundtrip(t *testing.T) {
 	require.Equal(t, "PERMISSION", v3rec.GetPurpose(), "purpose")
 
 	back := V3EntitlementToV2(v3rec)
-	require.Equal(t, "github-read", back.GetId(), "roundtrip id")
+	require.Equal(t, "app:github:custom:github-read", back.GetId(), "roundtrip id")
 	require.Equal(t, "github", back.GetResource().GetId().GetResource(), "roundtrip resource")
 	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_PERMISSION, back.GetPurpose(), "roundtrip purpose")
 }

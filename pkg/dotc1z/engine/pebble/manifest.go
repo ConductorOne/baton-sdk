@@ -48,6 +48,7 @@ func BuildManifestWithSyncRuns(ctx context.Context, e *Engine, encoding c1zstore
 		return nil, err
 	}
 	m.SetSyncRuns(syncRuns)
+	m.SetPebbleIdIndexFormat(e.manifestIDIndexFormat())
 	return m, nil
 }
 

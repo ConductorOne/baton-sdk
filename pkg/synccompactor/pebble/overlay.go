@@ -283,10 +283,7 @@ func bucketIndexRanges(bucket bucketSpec) [][2][]byte {
 		}
 	case runBucketGrants:
 		return [][2][]byte{
-			{enginepkg.GrantByEntitlementLowerBound(), enginepkg.GrantByEntitlementUpperBound()},
-			{enginepkg.GrantByEntitlementResourceLowerBound(), enginepkg.GrantByEntitlementResourceUpperBound()},
 			{enginepkg.GrantByPrincipalLowerBound(), enginepkg.GrantByPrincipalUpperBound()},
-			{enginepkg.GrantByPrincipalResourceTypeLowerBound(), enginepkg.GrantByPrincipalResourceTypeUpperBound()},
 			{enginepkg.GrantByNeedsExpansionLowerBound(), enginepkg.GrantByNeedsExpansionUpperBound()},
 		}
 	default:
@@ -1272,74 +1269,31 @@ func forEachIndexKeyFromRaw(
 		scratch.key = enginepkg.AppendResourceIndexKeyRawBytes(scratch.key[:0], parentRT, parentID, rt, id)
 		return emit(scratch.key)
 	case runBucketEntitlements:
-		ext, err := decodePrimaryTailBytes1(destKey, destLower, scratch)
-		if err != nil {
-			return err
-		}
-		resourceRT, resourceID, err := scanEntitlementResourceBytes(value)
+		resourceRT, _, err := scanEntitlementResourceBytes(value)
 		if err != nil {
 			return err
 		}
 		stats.groupEntitlement(resourceRT)
-		if len(resourceID) == 0 {
-			return nil
-		}
-		scratch.key = enginepkg.AppendEntitlementIndexKeyRawBytes(scratch.key[:0], resourceRT, resourceID, ext)
-		return emit(scratch.key)
+		return nil
 	case runBucketGrants:
-		ext, err := decodePrimaryTailBytes1(destKey, destLower, scratch)
-		if err != nil {
-			return err
-		}
 		entRT, entRID, entID, principalRT, principalID, needsExpansion, err := scanGrantIndexFieldsBytes(value)
 		if err != nil {
 			return err
 		}
 		stats.groupGrant(entRT)
-		if len(entID) != 0 && len(principalRT) != 0 && len(principalID) != 0 {
-			scratch.key = enginepkg.AppendGrantByEntitlementIndexKeyRawBytes(scratch.key[:0], entID, principalRT, principalID, ext)
-			if err := emit(scratch.key); err != nil {
-				return err
-			}
-		}
-		if len(entRID) != 0 {
-			scratch.key = enginepkg.AppendGrantByEntitlementResourceIndexKeyRawBytes(scratch.key[:0], entRT, entRID, ext)
-			if err := emit(scratch.key); err != nil {
-				return err
-			}
-		}
-		if len(principalRT) != 0 && len(principalID) != 0 {
-			scratch.key = enginepkg.AppendGrantByPrincipalIndexKeyRawBytes(scratch.key[:0], principalRT, principalID, ext)
-			if err := emit(scratch.key); err != nil {
-				return err
-			}
-			scratch.key = enginepkg.AppendGrantByPrincipalResourceTypeIndexKeyRawBytes(scratch.key[:0], principalRT, ext)
-			if err := emit(scratch.key); err != nil {
-				return err
-			}
-		}
-		if needsExpansion {
-			scratch.key = enginepkg.AppendGrantByNeedsExpansionIndexKeyRawBytes(scratch.key[:0], ext)
-			if err := emit(scratch.key); err != nil {
-				return err
-			}
-		}
-		return nil
+		return enginepkg.ForEachGrantIndexKeyRaw(
+			string(entRT),
+			string(entRID),
+			string(entID),
+			string(principalRT),
+			string(principalID),
+			"",
+			needsExpansion,
+			emit,
+		)
 	default:
 		return nil
 	}
-}
-
-func decodePrimaryTailBytes1(key []byte, lower []byte, scratch *rawIndexScratch) ([]byte, error) {
-	tail, err := primaryTail(key, lower)
-	if err != nil {
-		return nil, err
-	}
-	scratch.tail1, _, err = codec.DecodeTupleStringTo(scratch.tail1[:0], tail, 0)
-	if err != nil {
-		return nil, err
-	}
-	return scratch.tail1, nil
 }
 
 func decodePrimaryTailBytes2(key []byte, lower []byte, scratch *rawIndexScratch) ([]byte, []byte, error) {

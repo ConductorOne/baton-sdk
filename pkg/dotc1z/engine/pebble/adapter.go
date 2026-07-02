@@ -308,6 +308,27 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	if err := a.engine.PutSyncRunRecord(ctx, updated); err != nil {
 		return err
 	}
+	// The sync's writes are done. From here to save/close the store only
+	// runs the deferred index build, the stats sidecar, and the durability
+	// flush — automatic compactions in that window are incremental
+	// level-by-level rewrites that compete with those phases for CPU and IO,
+	// so stop granting new ones. The deferred index build below consolidates
+	// the grant keyspace itself (its scan is teed into a flat rebuild that
+	// replaces the range via IngestAndExcise), so the saved artifact ships
+	// with near-zero compaction debt without running the compactor.
+	// StartNewSync/SetCurrentSync resume the scheduler if the store is
+	// written to again.
+	a.engine.PauseCompactions()
+	// Build the deferred by_principal index BEFORE the stats sidecar:
+	// its full grant scan also accumulates the grant portion of the
+	// stats (stashDeferredGrantStats), letting PersistSyncStats skip a
+	// second O(grants) pass over the keyspace.
+	if a.engine.deferredIdxPending.Load() {
+		if err := a.engine.BuildDeferredGrantIndexes(ctx); err != nil {
+			return fmt.Errorf("EndSync: build deferred grant indexes: %w", err)
+		}
+		a.engine.deferredIdxPending.Store(false)
+	}
 	// Populate the stats sidecar BEFORE the durability flush. Stats
 	// is engine-meta keyspace; the EndFreshSync flush below covers
 	// the WAL fsync for both the sync_run record and the stats key.
@@ -636,7 +657,7 @@ func (a *Adapter) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequ
 //   - page_size == 0 || page_size > MaxPageSize → DefaultPageSize (10000)
 //   - page_token is opaque base64; pass nextPageToken back verbatim
 //   - filter by req.Resource — the entitlement-side resource of each
-//     grant — when set; uses the by_entitlement_resource index. This
+//     grant — when set; uses primary grant entitlement-resource prefixes. This
 //     matches SQLite's `listGrantsGeneric` which filters on
 //     grants.resource_id / resource_type_id (the entitlement's
 //     resource columns). Callers who want to filter by principal

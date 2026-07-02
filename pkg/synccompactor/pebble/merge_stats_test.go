@@ -102,10 +102,7 @@ func requireCountMapEqual(t *testing.T, want, got map[string]int64, label string
 // TestMergeStatsSidecarMatchesRecompute pins that the stats record
 // accumulated at merge time equals what a full post-merge recompute
 // (PersistSyncStats) produces, for every merge strategy. The fixtures
-// include overlapping keys across sources (dedupe must not double
-// count) and a grant whose entitlement ref has no resource — that
-// grant must still count, grouped under the empty resource type, to
-// stay in parity with the SQLite GROUP BY semantics.
+// include overlapping keys across sources (dedupe must not double count).
 func TestMergeStatsSidecarMatchesRecompute(t *testing.T) {
 	ctx := context.Background()
 
@@ -114,7 +111,6 @@ func TestMergeStatsSidecarMatchesRecompute(t *testing.T) {
 		newest := writeStatsSource(t, ctx, filepath.Join(dir, "src0.c1z"), []statsGrantSpec{
 			{id: "shared", entRT: "group", entRID: "engineering", entID: "member", principalID: "alice"},
 			{id: "only0", entRT: "group", entRID: "engineering", entID: "admin", principalID: "bob"},
-			{id: "noent", entID: "ghost", principalID: "alice"},
 		})
 		mid := writeStatsSource(t, ctx, filepath.Join(dir, "src1.c1z"), []statsGrantSpec{
 			{id: "shared", entRT: "group", entRID: "engineering", entID: "member", principalID: "bob"},
@@ -149,10 +145,10 @@ func TestMergeStatsSidecarMatchesRecompute(t *testing.T) {
 		ResourceTypes:                   2,
 		Resources:                       3,
 		Entitlements:                    2,
-		Grants:                          5,
+		Grants:                          3,
 		ResourcesByResourceType:         map[string]int64{"group": 1, "user": 2},
 		EntitlementsByResourceType:      map[string]int64{"group": 2},
-		GrantsByEntitlementResourceType: map[string]int64{"group": 4, "": 1},
+		GrantsByEntitlementResourceType: map[string]int64{"group": 3},
 	}.Build()
 
 	cases := []struct {

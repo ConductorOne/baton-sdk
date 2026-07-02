@@ -176,26 +176,38 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	// are NOT contiguous. map[string]*int64 keeps the per-row map read
 	// allocation-free and only materializes a key string the first time
 	// each resource type appears.
-	grantsByEntRTPtr := map[string]*int64{}
-	grants, err := countKeyRange(ctx, e.db, GrantLowerBound(), GrantUpperBound(), func(_ []byte, value []byte) error {
-		entRT, err := scanGrantEntitlementResourceTypeRaw(value)
-		if err != nil {
-			return err
-		}
-		if p, ok := grantsByEntRTPtr[string(entRT)]; ok {
-			*p++
+	//
+	// When BuildDeferredGrantIndexes already accumulated these numbers
+	// during its own full grant scan (EndSync with a deferred principal
+	// index), consume the stash instead of scanning tens of millions of
+	// grant rows a second time.
+	var grants int64
+	var grantsByEntitlementRT map[string]int64
+	if ds := e.takeDeferredGrantStats(syncID); ds != nil {
+		grants = ds.grants
+		grantsByEntitlementRT = ds.grantsByEntitlementRT
+	} else {
+		grantsByEntRTPtr := map[string]*int64{}
+		grants, err = countKeyRange(ctx, e.db, GrantLowerBound(), GrantUpperBound(), func(_ []byte, value []byte) error {
+			entRT, err := scanGrantEntitlementResourceTypeRaw(value)
+			if err != nil {
+				return err
+			}
+			if p, ok := grantsByEntRTPtr[string(entRT)]; ok {
+				*p++
+				return nil
+			}
+			n := int64(1)
+			grantsByEntRTPtr[string(entRT)] = &n
 			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("computeSyncStats: grants: %w", err)
 		}
-		n := int64(1)
-		grantsByEntRTPtr[string(entRT)] = &n
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("computeSyncStats: grants: %w", err)
-	}
-	grantsByEntitlementRT := make(map[string]int64, len(grantsByEntRTPtr))
-	for rt, p := range grantsByEntRTPtr {
-		grantsByEntitlementRT[rt] = *p
+		grantsByEntitlementRT = make(map[string]int64, len(grantsByEntRTPtr))
+		for rt, p := range grantsByEntRTPtr {
+			grantsByEntitlementRT[rt] = *p
+		}
 	}
 	rec.SetGrants(grants)
 
@@ -209,6 +221,29 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	rec.SetGrantsByEntitlementResourceType(grantsByEntitlementRT)
 	rec.SetWrittenAt(timestamppb.Now())
 	return rec, nil
+}
+
+// stashDeferredGrantStats records the grant counts BuildDeferredGrantIndexes
+// accumulated so the next computeSyncStats call for the same sync can skip
+// its own grant scan. Overwrites any prior stash.
+func (e *Engine) stashDeferredGrantStats(ds *deferredGrantStats) {
+	e.deferredGrantStatsMu.Lock()
+	e.deferredGrantStats = ds
+	e.deferredGrantStatsMu.Unlock()
+}
+
+// takeDeferredGrantStats pops the stashed grant stats if they belong to
+// syncID, or returns nil. Consume-once: a later RecalculateStats falls back
+// to the full scan.
+func (e *Engine) takeDeferredGrantStats(syncID string) *deferredGrantStats {
+	e.deferredGrantStatsMu.Lock()
+	defer e.deferredGrantStatsMu.Unlock()
+	ds := e.deferredGrantStats
+	if ds == nil || ds.syncID != syncID {
+		return nil
+	}
+	e.deferredGrantStats = nil
+	return ds
 }
 
 // PersistSyncStats computes and writes the stats sidecar for

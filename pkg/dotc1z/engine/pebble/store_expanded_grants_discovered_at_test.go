@@ -69,7 +69,7 @@ func TestStoreExpandedGrantsPreservesDiscoveredAt(t *testing.T) {
 	}.Build()
 	require.NoError(t, a.Grants().StoreExpandedGrants(ctx, rewrite))
 
-	got, err := e.GetGrantRecord(ctx, "g-1")
+	got, err := e.GetGrantRecord(ctx, canonicalTestGrantID("ent-A", "user", "alice"))
 	require.NoError(t, err)
 	require.NotNil(t, got.GetDiscoveredAt(), "discovered_at must survive the rewrite")
 	require.Equal(t, seeded.AsTime(), got.GetDiscoveredAt().AsTime(),
@@ -113,7 +113,7 @@ func TestStoreExpandedGrantsBackfillsNilDiscoveredAt(t *testing.T) {
 	}.Build()
 	require.NoError(t, a.Grants().StoreExpandedGrants(ctx, rewrite))
 
-	got, err := e.GetGrantRecord(ctx, "g-nil-discovered-at")
+	got, err := e.GetGrantRecord(ctx, canonicalTestGrantID("ent-A", "user", "alice"))
 	require.NoError(t, err)
 	require.NotNil(t, got.GetDiscoveredAt(), "StoreExpandedGrants should backfill nil discovered_at on existing grants")
 }

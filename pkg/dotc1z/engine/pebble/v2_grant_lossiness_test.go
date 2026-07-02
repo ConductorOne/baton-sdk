@@ -109,10 +109,10 @@ func TestV2GrantRoundTrip_V3Contract(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 1)
 	got := resp.GetList()[0]
-	require.Equal(t, "grant-1", got.GetId())
+	require.Equal(t, "group:g1:custom:ent-A:user:u1", got.GetId())
 
 	t.Run("grant identity round-trips", func(t *testing.T) {
-		require.Equal(t, "ent-A", got.GetEntitlement().GetId())
+		require.Equal(t, "group:g1:custom:ent-A", got.GetEntitlement().GetId())
 		require.Equal(t, "group", got.GetEntitlement().GetResource().GetId().GetResourceType())
 		require.Equal(t, "g1", got.GetEntitlement().GetResource().GetId().GetResource())
 		require.Equal(t, "user", got.GetPrincipal().GetId().GetResourceType())

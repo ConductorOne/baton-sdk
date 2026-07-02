@@ -120,41 +120,23 @@ func (e *Engine) deleteResourceIndexesRaw(batch *pebble.Batch, resourceTypeID st
 	return batch.Delete(encodeResourceByParentIndexKey(parentRT, parentID, resourceTypeID, resourceID), nil)
 }
 
-func (e *Engine) deleteEntitlementIndexesRaw(batch *pebble.Batch, externalID string, value []byte) error {
-	resourceRT, resourceID, err := scanEntitlementResourceRaw(value)
-	if err != nil {
-		return err
-	}
-	if resourceID == "" {
-		return nil
-	}
-	return batch.Delete(encodeEntitlementByResourceIndexKey(resourceRT, resourceID, externalID), nil)
-}
-
 func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, value []byte) error {
 	entRT, entRID, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(value)
 	if err != nil {
 		return err
 	}
-	if entID != "" && principalRT != "" && principalID != "" {
-		if err := batch.Delete(encodeGrantByEntitlementIndexKey(entID, principalRT, principalID, externalID), nil); err != nil {
-			return err
-		}
+	if entID == "" || entRT == "" || entRID == "" || principalRT == "" || principalID == "" {
+		return nil
 	}
-	if entRID != "" {
-		if err := batch.Delete(encodeGrantByEntitlementResourceIndexKey(entRT, entRID, externalID), nil); err != nil {
-			return err
-		}
+	id := grantIdentity{
+		entitlement:     entitlementIdentityFromParts(entRT, entRID, entID),
+		principalTypeID: principalRT,
+		principalID:     principalID,
 	}
-	if principalRT != "" && principalID != "" {
-		if err := batch.Delete(encodeGrantByPrincipalIndexKey(principalRT, principalID, externalID), nil); err != nil {
-			return err
-		}
-		if err := batch.Delete(encodeGrantByPrincipalResourceTypeIndexKey(principalRT, externalID), nil); err != nil {
-			return err
-		}
+	if err := batch.Delete(encodeGrantByPrincipalIdentityIndexKey(id), nil); err != nil {
+		return err
 	}
-	return batch.Delete(encodeGrantByNeedsExpansionIndexKey(externalID), nil)
+	return batch.Delete(encodeGrantByNeedsExpansionIdentityIndexKey(id), nil)
 }
 
 // scanGrantEntitlementResourceTypeRaw extracts only the entitlement's
@@ -306,6 +288,50 @@ func scanEntitlementResourceRaw(value []byte) (string, string, error) {
 		value = value[n:]
 	}
 	return rt, id, nil
+}
+
+func scanEntitlementIdentityFieldsRaw(value []byte) (string, string, string, error) {
+	var externalID, rt, id string
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return "", "", "", protowire.ParseError(n)
+		}
+		value = value[n:]
+		switch num {
+		case 2:
+			if typ != protowire.BytesType {
+				return "", "", "", fmt.Errorf("raw record: entitlement external_id has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeString(value)
+			if n < 0 {
+				return "", "", "", protowire.ParseError(n)
+			}
+			externalID = v
+			value = value[n:]
+		case 3:
+			if typ != protowire.BytesType {
+				return "", "", "", fmt.Errorf("raw record: entitlement resource has wire type %v", typ)
+			}
+			msg, n := protowire.ConsumeBytes(value)
+			if n < 0 {
+				return "", "", "", protowire.ParseError(n)
+			}
+			var err error
+			rt, id, err = scanResourceRefRaw(msg)
+			if err != nil {
+				return "", "", "", err
+			}
+			value = value[n:]
+		default:
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return "", "", "", protowire.ParseError(n)
+			}
+			value = value[n:]
+		}
+	}
+	return rt, id, externalID, nil
 }
 
 func scanGrantIndexFieldsRaw(value []byte) (string, string, string, string, string, bool, error) {

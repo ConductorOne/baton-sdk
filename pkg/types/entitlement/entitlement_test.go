@@ -57,6 +57,70 @@ func TestNewEntitlementID(t *testing.T) {
 	}
 }
 
+func TestEntitlementIDCodec(t *testing.T) {
+	id := EncodeEntitlementID("foo", "1234", EntitlementKindSDK, "member")
+	require.Equal(t, "foo:1234:member", id)
+
+	parts, err := DecodeEntitlementID(id)
+	require.NoError(t, err)
+	require.Equal(t, EntitlementIDParts{
+		ResourceTypeID: "foo",
+		ResourceID:     "1234",
+		Kind:           EntitlementKindSDK,
+		Name:           "member",
+	}, parts)
+}
+
+func TestEntitlementIDCodecEscapesColonsAndBackslashes(t *testing.T) {
+	id := EncodeEntitlementID(`foo:type`, `12\34`, EntitlementKindSDK, `mem:ber\name`)
+	require.Equal(t, `foo\:type:12\\34:mem\:ber\\name`, id)
+
+	parts, err := DecodeEntitlementID(id)
+	require.NoError(t, err)
+	require.Equal(t, EntitlementIDParts{
+		ResourceTypeID: `foo:type`,
+		ResourceID:     `12\34`,
+		Kind:           EntitlementKindSDK,
+		Name:           `mem:ber\name`,
+	}, parts)
+}
+
+func TestEntitlementIDCodecCustomDoesNotCollideWithSDK(t *testing.T) {
+	sdk := EncodeEntitlementID("rt", "rid", EntitlementKindSDK, "admin")
+	custom := EncodeEntitlementID("rt", "rid", EntitlementKindCustom, "admin")
+	require.Equal(t, "rt:rid:admin", sdk)
+	require.Equal(t, "rt:rid:custom:admin", custom)
+	require.NotEqual(t, sdk, custom)
+
+	sdkParts, err := DecodeEntitlementID(sdk)
+	require.NoError(t, err)
+	require.Equal(t, EntitlementKindSDK, sdkParts.Kind)
+
+	customParts, err := DecodeEntitlementID(custom)
+	require.NoError(t, err)
+	require.Equal(t, EntitlementKindCustom, customParts.Kind)
+}
+
+func TestDeriveEntitlementIDPartsPreservesLegacySDKColonName(t *testing.T) {
+	parts := DeriveEntitlementIDParts("rt", "rid", "rt:rid:custom:admin")
+	require.Equal(t, EntitlementIDParts{
+		ResourceTypeID: "rt",
+		ResourceID:     "rid",
+		Kind:           EntitlementKindCustom,
+		Name:           "admin",
+	}, parts)
+}
+
+func TestDeriveLegacyEntitlementIDPartsPreservesLegacySDKColonName(t *testing.T) {
+	parts := DeriveLegacyEntitlementIDParts("rt", "rid", "rt:rid:custom:admin")
+	require.Equal(t, EntitlementIDParts{
+		ResourceTypeID: "rt",
+		ResourceID:     "rid",
+		Kind:           EntitlementKindSDK,
+		Name:           "custom:admin",
+	}, parts)
+}
+
 func TestNewPermissionEntitlement(t *testing.T) {
 	rt := resource.NewResourceType("Group", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP})
 	ur, err := resource.NewResource("test-group", rt, 1234)

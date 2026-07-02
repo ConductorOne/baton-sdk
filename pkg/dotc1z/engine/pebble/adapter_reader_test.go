@@ -54,11 +54,12 @@ func TestGetEntitlementResourceResourceType(t *testing.T) {
 	require.Equal(t, "Alice", rResp.GetResource().GetDisplayName(), "GetResource display")
 
 	// GetEntitlement
+	readEntID := canonicalTestEntID("github-read")
 	eResp, err := a.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-		EntitlementId: "github-read",
+		EntitlementId: readEntID,
 	}.Build())
 	require.NoError(t, err, "GetEntitlement")
-	require.Equal(t, "github-read", eResp.GetEntitlement().GetId(), "GetEntitlement id")
+	require.Equal(t, readEntID, eResp.GetEntitlement().GetId(), "GetEntitlement id")
 	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_PERMISSION, eResp.GetEntitlement().GetPurpose(), "GetEntitlement purpose")
 
 	// Missing entity returns gRPC NotFound — the Adapter normalizes
@@ -93,7 +94,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 
 	// ListGrantsForEntitlement(ent-A) → 8 grants total
 	resp, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
+		Entitlement: v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build(),
 		PageSize:    100,
 	}.Build())
 	require.NoError(t, err)
@@ -101,7 +102,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 
 	// ListGrantsForEntitlement(ent-A) filtered by principal RT=user → 5
 	respFiltered, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement:              v2.Entitlement_builder{Id: "ent-A"}.Build(),
+		Entitlement:              v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build(),
 		PrincipalResourceTypeIds: []string{"user"},
 		PageSize:                 100,
 	}.Build())
@@ -110,7 +111,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 
 	// ListGrantsForEntitlement(ent-A) filtered by principal ID=user/u1 → 1
 	respPrincipal, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
+		Entitlement: v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build(),
 		PrincipalId: v2.ResourceId_builder{
 			ResourceType: "user",
 			Resource:     "u1",
@@ -119,13 +120,13 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 	require.Len(t, respPrincipal.GetList(), 1, "ListGrantsForEntitlement(ent-A, user/u1)")
-	require.Equal(t, "u-a-1", respPrincipal.GetList()[0].GetId(), "ListGrantsForEntitlement(ent-A, user/u1) id")
+	require.Equal(t, canonicalTestGrantID("ent-A", "user", "u1"), respPrincipal.GetList()[0].GetId(), "ListGrantsForEntitlement(ent-A, user/u1) id")
 
 	var principalPageIDs []string
 	principalPageToken := ""
 	for {
 		respPrincipalPage, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-			Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
+			Entitlement: v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build(),
 			PrincipalId: v2.ResourceId_builder{
 				ResourceType: "user",
 				Resource:     "u1",
@@ -143,7 +144,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 		}
 	}
 	require.Len(t, principalPageIDs, 1, "paginated ListGrantsForEntitlement(ent-A, user/u1)")
-	require.Equal(t, "u-a-1", principalPageIDs[0], "paginated ListGrantsForEntitlement(ent-A, user/u1)")
+	require.Equal(t, canonicalTestGrantID("ent-A", "user", "u1"), principalPageIDs[0], "paginated ListGrantsForEntitlement(ent-A, user/u1)")
 
 	// ListGrantsForResourceType(user) → 7 grants (5 ent-A + 2 ent-B)
 	rtResp, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
@@ -196,10 +197,10 @@ func TestListGrantsForResourceTypePagination(t *testing.T) {
 	}
 	require.Equal(t, userCount, len(collected), "paginated user grants")
 
-	// Re-put a subset with a different principal RT to verify index
-	// flip on overwrite. The first 10 "user" grants become "group"
-	// principals; ListGrantsForResourceType(user) should drop to 40
-	// and ListGrantsForResourceType(group) should rise to 30.
+	// Re-put a subset with a different principal RT. With structured
+	// identity, principal is part of the grant key, so these are new
+	// grants rather than external-id overwrites: user stays 50 and group
+	// rises to 30.
 	updated := make([]*v2.Grant, 0, 10)
 	for i := 0; i < 10; i++ {
 		updated = append(updated, mkV2Grant("u-"+strconv.Itoa(i), "ent-A", "group", "moved-"+strconv.Itoa(i)))
@@ -210,13 +211,13 @@ func TestListGrantsForResourceTypePagination(t *testing.T) {
 		ResourceTypeId: "user", PageSize: 1000,
 	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, userCount-10, len(respUser.GetList()), "after move, user grants")
+	require.Equal(t, userCount, len(respUser.GetList()), "after structured-identity add, user grants")
 
 	respGroup, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
 		ResourceTypeId: "group", PageSize: 1000,
 	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, groupCount+10, len(respGroup.GetList()), "after move, group grants")
+	require.Equal(t, groupCount+10, len(respGroup.GetList()), "after structured-identity add, group grants")
 }
 
 // TestBulkByIdsRoundtripPebble exercises the Adapter's
@@ -248,7 +249,7 @@ func TestBulkByIdsRoundtripPebble(t *testing.T) {
 
 	t.Run("ListEntitlementsByIds", func(t *testing.T) {
 		resp, err := a.ListEntitlementsByIds(ctx, reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest_builder{
-			EntitlementIds: []string{"ent-A", "ent-zzz", "ent-B"},
+			EntitlementIds: []string{canonicalTestEntID("ent-A"), "ent-zzz", canonicalTestEntID("ent-B")},
 		}.Build())
 		require.NoError(t, err)
 		require.Len(t, resp.GetList(), 2)
@@ -347,7 +348,7 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 		}.Build())
 		require.NoError(t, err)
 		require.Len(t, resp2.GetList(), 2, "after checksum mismatch")
-		require.Equal(t, "ent-A", resp2.GetList()[0].GetEntitlement().GetId(), "after reset first ent")
+		require.Equal(t, "app:gh:custom:ent-A", resp2.GetList()[0].GetEntitlement().GetId(), "after reset first ent")
 	})
 }
 
@@ -405,7 +406,7 @@ func TestStreamingReaderPebble(t *testing.T) {
 		seen := 0
 		for e, err := range a.StreamEntitlements(ctx, syncID) {
 			require.NoError(t, err)
-			require.Equal(t, "ent-A", e.GetId())
+			require.Equal(t, "app:gh:custom:ent-A", e.GetId())
 			seen++
 		}
 		require.Equal(t, 1, seen)
@@ -468,13 +469,13 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 
 	t.Run("entitlement filter narrows", func(t *testing.T) {
 		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-			Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
+			Entitlement: v2.Entitlement_builder{Id: "app:gh:custom:ent-A"}.Build(),
 			PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 			PageSize:    100,
 		}.Build())
 		require.NoError(t, err)
 		require.Len(t, resp.GetList(), 1, "filter")
-		require.Equal(t, "g1", resp.GetList()[0].GetId())
+		require.Equal(t, "app:gh:custom:ent-A:user:alice", resp.GetList()[0].GetId())
 	})
 }
 

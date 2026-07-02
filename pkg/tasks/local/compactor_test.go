@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -61,11 +62,21 @@ func buildLocalCompactorSQLiteInput(t *testing.T, ctx context.Context, path stri
 		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
 		DisplayName: "Group One",
 	}.Build()
-	user := v2.Resource_builder{
-		Id:          v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(),
-		DisplayName: "User One",
-	}.Build()
-	require.NoError(t, store.PutResources(ctx, group, user))
+	usersByGrantID := make(map[string]*v2.Resource, len(grantIDs))
+	users := make([]*v2.Resource, 0, len(grantIDs))
+	for _, id := range grantIDs {
+		principalID := id
+		if strings.Contains(id, "shared") {
+			principalID = "shared"
+		}
+		user := v2.Resource_builder{
+			Id:          v2.ResourceId_builder{ResourceType: "user", Resource: principalID}.Build(),
+			DisplayName: "User " + principalID,
+		}.Build()
+		usersByGrantID[id] = user
+		users = append(users, user)
+	}
+	require.NoError(t, store.PutResources(ctx, append([]*v2.Resource{group}, users...)...))
 
 	member := v2.Entitlement_builder{
 		Id:       "member",
@@ -77,7 +88,7 @@ func buildLocalCompactorSQLiteInput(t *testing.T, ctx context.Context, path stri
 	for _, id := range grantIDs {
 		grant := v2.Grant_builder{
 			Id:          id,
-			Principal:   user,
+			Principal:   usersByGrantID[id],
 			Entitlement: member,
 		}.Build()
 		require.NoError(t, store.PutGrants(ctx, grant))

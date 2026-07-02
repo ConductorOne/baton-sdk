@@ -166,13 +166,12 @@ func (a *Adapter) ListEntitlementsByIds(
 	}.Build(), nil
 }
 
-// GrantsForEntitlementPrincipalSorted reports that ListGrantsForEntitlement
+// GrantsForEntitlementPrincipalSorted reports whether ListGrantsForEntitlement
 // yields grants in non-decreasing principal (resource_type, resource) order.
-// The by_entitlement index is keyed
-// entitlement_id|principal_rt|principal_id|external_id, and pagination walks it
-// in key order, so consumers can group by principal without buffering and
-// sorting the whole entitlement.
-func (a *Adapter) GrantsForEntitlementPrincipalSorted() bool { return true }
+// The structured-key rewrite moved full-record reads to primary prefix scans; keep
+// this false until the streaming expander's principal-group assumptions are
+// revalidated against that cursor/order shape.
+func (a *Adapter) GrantsForEntitlementPrincipalSorted() bool { return false }
 
 // ListGrantsForEntitlement paginates grants on a specific
 // entitlement, optionally narrowed by principal_id or
@@ -193,6 +192,7 @@ func (a *Adapter) ListGrantsForEntitlement(
 	if ent == nil || ent.GetId() == "" {
 		return nil, errors.New("ListGrantsForEntitlement: missing entitlement id")
 	}
+	entitlementID := canonicalEntitlementRequestID(ent)
 	limit := clampPageSize(req.GetPageSize())
 	cursor := req.GetPageToken()
 
@@ -205,17 +205,16 @@ func (a *Adapter) ListGrantsForEntitlement(
 		rtSet[rt] = struct{}{}
 	}
 
-	// cursorFor returns the by_entitlement index key for rec —
+	// cursorFor returns the primary grant key for rec —
 	// needed because a post-filter break at len(out) == limit may
 	// leave matching records unconsumed in the engine page, and
 	// the engine's end-of-page cursor would skip them.
 	cursorFor := func(rec *v3.GrantRecord) string {
-		p := rec.GetPrincipal()
-		return encodeCursor(encodeGrantByEntitlementIndexKey(
-			ent.GetId(),
-			p.GetResourceTypeId(), p.GetResourceId(),
-			rec.GetExternalId(),
-		))
+		id, err := grantIdentityFromRecord(rec)
+		if err != nil {
+			return ""
+		}
+		return encodeCursor(encodeGrantIdentityKey(id))
 	}
 
 	out := make([]*v2.Grant, 0, limit)
@@ -233,10 +232,10 @@ func (a *Adapter) ListGrantsForEntitlement(
 		var next string
 		if principalID != nil {
 			records, next, err = a.engine.PaginateGrantsByEntitlementPrincipal(ctx,
-				ent.GetId(), principalID.GetResourceType(), principalID.GetResource(), cursor, fetchLimit)
+				entitlementID, principalID.GetResourceType(), principalID.GetResource(), cursor, fetchLimit)
 		} else {
 			records, next, err = a.engine.PaginateGrantsByEntitlement(ctx,
-				ent.GetId(), cursor, fetchLimit)
+				entitlementID, cursor, fetchLimit)
 		}
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -297,7 +296,7 @@ func (a *Adapter) ListGrantPrincipalKeysForEntitlement(
 	if entitlement == nil || entitlement.GetId() == "" {
 		return nil, "", errors.New("ListGrantPrincipalKeysForEntitlement: missing entitlement id")
 	}
-	keys, next, err := a.engine.PaginateGrantPrincipalKeysByEntitlement(ctx, entitlement.GetId(), pageToken, clampPageSize(pageSize))
+	keys, next, err := a.engine.PaginateGrantPrincipalKeysByEntitlement(ctx, canonicalEntitlementRequestID(entitlement), pageToken, clampPageSize(pageSize))
 	if err != nil {
 		return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -340,7 +339,7 @@ func (a *Adapter) ListGrantsForPrincipal(
 		// Optional entitlement filter — narrows the principal scan
 		// to a single entitlement when the caller passes one.
 		if ent := req.GetEntitlement(); ent != nil && ent.GetId() != "" {
-			if rec.GetEntitlement().GetEntitlementId() != ent.GetId() {
+			if entitlementRefToStub(rec.GetEntitlement()).GetId() != canonicalEntitlementRequestID(ent) {
 				continue
 			}
 		}
@@ -353,8 +352,8 @@ func (a *Adapter) ListGrantsForPrincipal(
 }
 
 // ListGrantsForResourceType paginates grants whose principal is of
-// the given resource_type_id, via idxGrantByPrincipalResourceType.
-// The cursor is the index key.
+// the given resource_type_id, via the by_principal index prefix.
+// The cursor is the by_principal index key.
 //
 // Implements reader_v2.GrantsReaderServiceServer.
 func (a *Adapter) ListGrantsForResourceType(

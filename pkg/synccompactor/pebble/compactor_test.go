@@ -106,14 +106,14 @@ func TestCompactReplacesExisting(t *testing.T) {
 
 	// Also verify by_entitlement index — stale-ent should have 0 entries.
 	staleCount := 0
-	require.NoError(t, dst.IterateGrantsByEntitlement(ctx, "stale-ent", func(*v3.GrantRecord) bool {
+	require.NoError(t, dst.IterateGrantsByEntitlement(ctx, "app:github:custom:stale-ent", func(*v3.GrantRecord) bool {
 		staleCount++
 		return true
 	}))
 	require.Equal(t, 0, staleCount, "stale-ent index (compact should have excised them)")
 
 	freshCount := 0
-	require.NoError(t, dst.IterateGrantsByEntitlement(ctx, "fresh-ent", func(*v3.GrantRecord) bool {
+	require.NoError(t, dst.IterateGrantsByEntitlement(ctx, "app:github:custom:fresh-ent", func(*v3.GrantRecord) bool {
 		freshCount++
 		return true
 	}))

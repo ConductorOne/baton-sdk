@@ -67,10 +67,9 @@ func NewCompactor(base *enginepkg.Engine, tmpDir string) (*Compactor, error) {
 // source's view of that sync.
 //
 // Atomicity: per-bucket atomic, NOT whole-Compact atomic. Each
-// IngestAndExcise call (one per record-type bucket: grants,
-// by_entitlement index, by_principal index) is atomic from base's
-// perspective — a concurrent reader sees the old-or-new state of that
-// bucket, never a mixture. However, the multi-bucket loop is NOT
+// IngestAndExcise call (one per record-type bucket: grants, by_principal index,
+// etc.) is atomic from base's perspective — a concurrent reader sees the
+// old-or-new state of that bucket, never a mixture. However, the multi-bucket loop is NOT
 // transactional as a whole: a crash or hard cancellation mid-loop
 // leaves base with new data in some buckets and old data in others
 // (and the same for the DeleteRange-only path used for empty

@@ -73,7 +73,7 @@ func degGrants(prefix string, n int, ts time.Time) []kwayGrantSpec {
 	for i := 0; i < n; i++ {
 		out = append(out, kwayGrantSpec{
 			id:          fmt.Sprintf("%s-%d", prefix, i),
-			principalID: "alice",
+			principalID: fmt.Sprintf("%s-principal-%d", prefix, i),
 			entitlement: "member",
 			discovered:  ts,
 		})
@@ -309,12 +309,12 @@ func TestOverlayResumedReplaceRawEdge(t *testing.T) {
 	// Source 0 (newest) admits 11 grants at ts=2000 and crosses
 	// soft=10 → boundary resume. Source 1 (older) is materialized
 	// through the frozen map: g-0 has ts=3000 (strictly newer →
-	// replace, with a different principal so the index swap is
+	// replace, with a different retained external id so the replacement is
 	// observable) and g-1 has ts=2000 (tie → overlay record kept).
 	src0 := writeKWaySource(t, ctx, filepath.Join(dir, "src0.c1z"), degGrants("g", 11, time.Unix(2000, 0).UTC()), false)
 	src1 := writeKWaySource(t, ctx, filepath.Join(dir, "src1.c1z"), []kwayGrantSpec{
-		{id: "g-0", principalID: "bob", entitlement: "member", discovered: time.Unix(3000, 0).UTC()},
-		{id: "g-1", principalID: "bob", entitlement: "member", discovered: time.Unix(2000, 0).UTC()},
+		{id: "g-0-repl", principalID: "g-principal-0", entitlement: "member", discovered: time.Unix(3000, 0).UTC()},
+		{id: "g-1-repl", principalID: "g-principal-1", entitlement: "member", discovered: time.Unix(2000, 0).UTC()},
 	}, false)
 	sources := []SourceFile{
 		{Path: src0.path, SyncID: src0.syncID},
@@ -330,23 +330,25 @@ func TestOverlayResumedReplaceRawEdge(t *testing.T) {
 		"expected boundary resume, got logs: %v", capture())
 
 	grants := grantPrincipalMap(t, ctx, dest, destSyncID)
-	require.Equal(t, "bob", grants["g-0"], "g-0 principal (strictly newer discovered_at must replace)")
-	require.Equal(t, "alice", grants["g-1"], "g-1 principal (discovered_at tie keeps the newer source's record)")
+	require.NotContains(t, grants, "g-0", "g-0 should be replaced by newer retained external id")
+	require.Equal(t, "g-principal-0", grants["g-0-repl"], "g-0 replacement")
+	require.Equal(t, "g-principal-1", grants["g-1"], "g-1 tie keeps first record")
+	require.NotContains(t, grants, "g-1-repl", "tie replacement should be filtered")
 	// The replaced record's index entries must follow the new value.
-	var bobGrants []string
-	require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", "bob", func(g *v3.GrantRecord) bool {
-		bobGrants = append(bobGrants, g.GetExternalId())
+	var p0Grants []string
+	require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", "g-principal-0", func(g *v3.GrantRecord) bool {
+		p0Grants = append(p0Grants, g.GetExternalId())
 		return true
 	}))
-	require.Equal(t, []string{"g-0"}, bobGrants, "by_principal(bob)")
-	var aliceForG0 bool
-	require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", "alice", func(g *v3.GrantRecord) bool {
+	require.Equal(t, []string{"g-0-repl"}, p0Grants, "by_principal(g-principal-0)")
+	var staleG0 bool
+	require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", "g-principal-0", func(g *v3.GrantRecord) bool {
 		if g.GetExternalId() == "g-0" {
-			aliceForG0 = true
+			staleG0 = true
 		}
 		return true
 	}))
-	require.False(t, aliceForG0, "stale by_principal(alice) index entry for replaced grant g-0")
+	require.False(t, staleG0, "stale by_principal index entry for replaced grant g-0")
 }
 
 // TestMergeStatsResetBucket pins the restart path's stats contract:

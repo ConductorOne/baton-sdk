@@ -1,7 +1,7 @@
 package grant
 
 import (
-	"fmt"
+	"errors"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -19,6 +19,41 @@ type GrantPrincipal interface {
 
 // Sometimes C1 doesn't have the grant ID, but does have the principal and entitlement.
 const UnknownGrantId string = "🧸_UNKNOWN_GRANT_ID"
+
+var ErrInvalidGrantID = errors.New("invalid grant id")
+
+type GrantIDParts struct {
+	Entitlement     eopt.EntitlementIDParts
+	PrincipalTypeID string
+	PrincipalID     string
+}
+
+type Source struct {
+	EntitlementID string
+	IsDirect      bool
+}
+
+type Sources []Source
+
+func (s Sources) ToBoolMap() map[string]bool {
+	if len(s) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(s))
+	for _, src := range s {
+		out[src.EntitlementID] = src.IsDirect
+	}
+	return out
+}
+
+func (s Sources) DirectFor(entitlementID string) bool {
+	for _, src := range s {
+		if src.EntitlementID == entitlementID {
+			return src.IsDirect
+		}
+	}
+	return false
+}
 
 func WithGrantMetadata(metadata map[string]interface{}) GrantOption {
 	return func(g *v2.Grant) error {
@@ -82,7 +117,12 @@ func NewGrant(resource *v2.Resource, entitlementName string, principal GrantPrin
 	if resourceID == nil {
 		panic("principal resource must have a valid resource ID")
 	}
-	grant.SetId(fmt.Sprintf("%s:%s:%s", entitlement.GetId(), resourceID.GetResourceType(), resourceID.GetResource()))
+	entParts := eopt.DeriveEntitlementIDParts(
+		resource.GetId().GetResourceType(),
+		resource.GetId().GetResource(),
+		entitlement.GetId(),
+	)
+	grant.SetId(EncodeGrantID(entParts, resourceID.GetResourceType(), resourceID.GetResource()))
 
 	for _, grantOption := range grantOptions {
 		err := grantOption(grant)
@@ -94,6 +134,7 @@ func NewGrant(resource *v2.Resource, entitlementName string, principal GrantPrin
 	return grant
 }
 
+// NewGrantID preserves the legacy public grant ID shape for existing connector-facing APIs.
 func NewGrantID(principal GrantPrincipal, entitlement *v2.Entitlement) string {
 	var resourceID *v2.ResourceId
 	switch p := principal.(type) {
@@ -108,5 +149,80 @@ func NewGrantID(principal GrantPrincipal, entitlement *v2.Entitlement) string {
 	if resourceID == nil {
 		panic("principal resource must have a valid resource ID")
 	}
-	return fmt.Sprintf("%s:%s:%s", entitlement.GetId(), resourceID.GetResourceType(), resourceID.GetResource())
+	entParts, ok := entitlementIDParts(entitlement)
+	if !ok {
+		return eopt.JoinEscapedID(entitlement.GetId(), resourceID.GetResourceType(), resourceID.GetResource())
+	}
+	return EncodeGrantID(entParts, resourceID.GetResourceType(), resourceID.GetResource())
+}
+
+func entitlementIDParts(entitlement *v2.Entitlement) (eopt.EntitlementIDParts, bool) {
+	if entitlement == nil {
+		return eopt.EntitlementIDParts{}, false
+	}
+	if res := entitlement.GetResource(); res != nil && res.GetId() != nil {
+		return eopt.DeriveEntitlementIDParts(
+			res.GetId().GetResourceType(),
+			res.GetId().GetResource(),
+			entitlement.GetId(),
+		), true
+	}
+	parts, err := eopt.DecodeEntitlementID(entitlement.GetId())
+	if err != nil {
+		return eopt.EntitlementIDParts{}, false
+	}
+	return parts, true
+}
+
+func EncodeGrantID(entitlement eopt.EntitlementIDParts, principalTypeID, principalID string) string {
+	if entitlement.Kind == eopt.EntitlementKindCustom {
+		return eopt.JoinEscapedID(
+			entitlement.ResourceTypeID,
+			entitlement.ResourceID,
+			"custom",
+			entitlement.Name,
+			principalTypeID,
+			principalID,
+		)
+	}
+	return eopt.JoinEscapedID(
+		entitlement.ResourceTypeID,
+		entitlement.ResourceID,
+		entitlement.Name,
+		principalTypeID,
+		principalID,
+	)
+}
+
+func DecodeGrantID(id string) (GrantIDParts, error) {
+	parts, err := eopt.SplitEscapedID(id)
+	if err != nil {
+		return GrantIDParts{}, err
+	}
+	switch {
+	case len(parts) == 5:
+		return GrantIDParts{
+			Entitlement: eopt.EntitlementIDParts{
+				ResourceTypeID: parts[0],
+				ResourceID:     parts[1],
+				Kind:           eopt.EntitlementKindSDK,
+				Name:           parts[2],
+			},
+			PrincipalTypeID: parts[3],
+			PrincipalID:     parts[4],
+		}, nil
+	case len(parts) == 6 && parts[2] == "custom":
+		return GrantIDParts{
+			Entitlement: eopt.EntitlementIDParts{
+				ResourceTypeID: parts[0],
+				ResourceID:     parts[1],
+				Kind:           eopt.EntitlementKindCustom,
+				Name:           parts[3],
+			},
+			PrincipalTypeID: parts[4],
+			PrincipalID:     parts[5],
+		}, nil
+	default:
+		return GrantIDParts{}, ErrInvalidGrantID
+	}
 }

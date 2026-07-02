@@ -37,6 +37,50 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type PebbleIdIndexFormat int32
+
+const (
+	PebbleIdIndexFormat_PEBBLE_ID_INDEX_FORMAT_UNSPECIFIED        PebbleIdIndexFormat = 0
+	PebbleIdIndexFormat_PEBBLE_ID_INDEX_FORMAT_LEGACY_EXTERNAL_ID PebbleIdIndexFormat = 1
+	PebbleIdIndexFormat_PEBBLE_ID_INDEX_FORMAT_STRUCTURED_V1      PebbleIdIndexFormat = 2
+)
+
+// Enum value maps for PebbleIdIndexFormat.
+var (
+	PebbleIdIndexFormat_name = map[int32]string{
+		0: "PEBBLE_ID_INDEX_FORMAT_UNSPECIFIED",
+		1: "PEBBLE_ID_INDEX_FORMAT_LEGACY_EXTERNAL_ID",
+		2: "PEBBLE_ID_INDEX_FORMAT_STRUCTURED_V1",
+	}
+	PebbleIdIndexFormat_value = map[string]int32{
+		"PEBBLE_ID_INDEX_FORMAT_UNSPECIFIED":        0,
+		"PEBBLE_ID_INDEX_FORMAT_LEGACY_EXTERNAL_ID": 1,
+		"PEBBLE_ID_INDEX_FORMAT_STRUCTURED_V1":      2,
+	}
+)
+
+func (x PebbleIdIndexFormat) Enum() *PebbleIdIndexFormat {
+	p := new(PebbleIdIndexFormat)
+	*p = x
+	return p
+}
+
+func (x PebbleIdIndexFormat) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PebbleIdIndexFormat) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_c1z_v3_manifest_proto_enumTypes[0].Descriptor()
+}
+
+func (PebbleIdIndexFormat) Type() protoreflect.EnumType {
+	return &file_c1_c1z_v3_manifest_proto_enumTypes[0]
+}
+
+func (x PebbleIdIndexFormat) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
 type PayloadEncoding int32
 
 const (
@@ -92,11 +136,11 @@ func (x PayloadEncoding) String() string {
 }
 
 func (PayloadEncoding) Descriptor() protoreflect.EnumDescriptor {
-	return file_c1_c1z_v3_manifest_proto_enumTypes[0].Descriptor()
+	return file_c1_c1z_v3_manifest_proto_enumTypes[1].Descriptor()
 }
 
 func (PayloadEncoding) Type() protoreflect.EnumType {
-	return &file_c1_c1z_v3_manifest_proto_enumTypes[0]
+	return &file_c1_c1z_v3_manifest_proto_enumTypes[1]
 }
 
 func (x PayloadEncoding) Number() protoreflect.EnumNumber {
@@ -113,6 +157,7 @@ type C1ZManifestV3 struct {
 	xxx_hidden_RecordTypes         *[]*RecordTypeInfo              `protobuf:"bytes,11,rep,name=record_types,json=recordTypes,proto3"`
 	xxx_hidden_SyncRuns            *[]*SyncRunSummary              `protobuf:"bytes,40,rep,name=sync_runs,json=syncRuns,proto3"`
 	xxx_hidden_FoldDeadBytes       int64                           `protobuf:"varint,41,opt,name=fold_dead_bytes,json=foldDeadBytes,proto3"`
+	xxx_hidden_PebbleIdIndexFormat PebbleIdIndexFormat             `protobuf:"varint,42,opt,name=pebble_id_index_format,json=pebbleIdIndexFormat,proto3,enum=c1.c1z.v3.PebbleIdIndexFormat"`
 	unknownFields                  protoimpl.UnknownFields
 	sizeCache                      protoimpl.SizeCache
 }
@@ -202,6 +247,13 @@ func (x *C1ZManifestV3) GetFoldDeadBytes() int64 {
 	return 0
 }
 
+func (x *C1ZManifestV3) GetPebbleIdIndexFormat() PebbleIdIndexFormat {
+	if x != nil {
+		return x.xxx_hidden_PebbleIdIndexFormat
+	}
+	return PebbleIdIndexFormat_PEBBLE_ID_INDEX_FORMAT_UNSPECIFIED
+}
+
 func (x *C1ZManifestV3) SetEngine(v string) {
 	x.xxx_hidden_Engine = v
 }
@@ -232,6 +284,10 @@ func (x *C1ZManifestV3) SetSyncRuns(v []*SyncRunSummary) {
 
 func (x *C1ZManifestV3) SetFoldDeadBytes(v int64) {
 	x.xxx_hidden_FoldDeadBytes = v
+}
+
+func (x *C1ZManifestV3) SetPebbleIdIndexFormat(v PebbleIdIndexFormat) {
+	x.xxx_hidden_PebbleIdIndexFormat = v
 }
 
 func (x *C1ZManifestV3) HasEngineConfig() bool {
@@ -300,6 +356,11 @@ type C1ZManifestV3_builder struct {
 	// zero. The compactor's auto mode reads this from the envelope
 	// header to force a rebuild once waste crosses its threshold.
 	FoldDeadBytes int64
+	// Advisory mirror of the Pebble in-payload grant/entitlement ID/index format.
+	// The Pebble engine-meta stamp remains authoritative; this header field lets
+	// tooling inspect legacy-vs-structured index state without extracting the
+	// Pebble payload.
+	PebbleIdIndexFormat PebbleIdIndexFormat
 }
 
 func (b0 C1ZManifestV3_builder) Build() *C1ZManifestV3 {
@@ -314,6 +375,7 @@ func (b0 C1ZManifestV3_builder) Build() *C1ZManifestV3 {
 	x.xxx_hidden_RecordTypes = &b.RecordTypes
 	x.xxx_hidden_SyncRuns = &b.SyncRuns
 	x.xxx_hidden_FoldDeadBytes = b.FoldDeadBytes
+	x.xxx_hidden_PebbleIdIndexFormat = b.PebbleIdIndexFormat
 	return m0
 }
 
@@ -934,7 +996,7 @@ var File_c1_c1z_v3_manifest_proto protoreflect.FileDescriptor
 
 const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\n" +
-	"\x18c1/c1z/v3/manifest.proto\x12\tc1.c1z.v3\x1a\x1bc1/storage/v3/records.proto\x1a\x19google/protobuf/any.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc1\x03\n" +
+	"\x18c1/c1z/v3/manifest.proto\x12\tc1.c1z.v3\x1a\x1bc1/storage/v3/records.proto\x1a\x19google/protobuf/any.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x96\x04\n" +
 	"\rC1ZManifestV3\x12\x16\n" +
 	"\x06engine\x18\x01 \x01(\tR\x06engine\x122\n" +
 	"\x15engine_schema_version\x18\x02 \x01(\rR\x13engineSchemaVersion\x129\n" +
@@ -944,7 +1006,8 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	" \x01(\v2\".google.protobuf.FileDescriptorSetR\vdescriptors\x12<\n" +
 	"\frecord_types\x18\v \x03(\v2\x19.c1.c1z.v3.RecordTypeInfoR\vrecordTypes\x126\n" +
 	"\tsync_runs\x18( \x03(\v2\x19.c1.c1z.v3.SyncRunSummaryR\bsyncRuns\x12&\n" +
-	"\x0ffold_dead_bytes\x18) \x01(\x03R\rfoldDeadBytes\"\xcc\x01\n" +
+	"\x0ffold_dead_bytes\x18) \x01(\x03R\rfoldDeadBytes\x12S\n" +
+	"\x16pebble_id_index_format\x18* \x01(\x0e2\x1e.c1.c1z.v3.PebbleIdIndexFormatR\x13pebbleIdIndexFormat\"\xcc\x01\n" +
 	"\x11IndexedFrameIndex\x126\n" +
 	"\aentries\x18\x01 \x03(\v2\x1c.c1.c1z.v3.IndexedFrameEntryR\aentries\x12$\n" +
 	"\x0etotal_raw_size\x18\x02 \x01(\x03R\ftotalRawSize\x122\n" +
@@ -972,45 +1035,51 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\x05stats\x18\x06 \x01(\v2\x1e.c1.storage.v3.SyncStatsRecordR\x05stats\"p\n" +
 	"\x12PebbleEngineConfig\x120\n" +
 	"\x14format_major_version\x18\x01 \x01(\rR\x12formatMajorVersion\x12(\n" +
-	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*\x9b\x01\n" +
+	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*\x96\x01\n" +
+	"\x13PebbleIdIndexFormat\x12&\n" +
+	"\"PEBBLE_ID_INDEX_FORMAT_UNSPECIFIED\x10\x00\x12-\n" +
+	")PEBBLE_ID_INDEX_FORMAT_LEGACY_EXTERNAL_ID\x10\x01\x12(\n" +
+	"$PEBBLE_ID_INDEX_FORMAT_STRUCTURED_V1\x10\x02*\x9b\x01\n" +
 	"\x0fPayloadEncoding\x12 \n" +
 	"\x1cPAYLOAD_ENCODING_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19PAYLOAD_ENCODING_TAR_ZSTD\x10\x01\x12\x18\n" +
 	"\x14PAYLOAD_ENCODING_TAR\x10\x02\x12!\n" +
 	"\x1dPAYLOAD_ENCODING_INDEXED_ZSTD\x10\x05\"\x04\b\x03\x10\x03\"\x04\b\x04\x10\x04B0Z.github.com/conductorone/baton-sdk/pb/c1/c1z/v3b\x06proto3"
 
-var file_c1_c1z_v3_manifest_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_c1_c1z_v3_manifest_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_c1_c1z_v3_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_c1_c1z_v3_manifest_proto_goTypes = []any{
-	(PayloadEncoding)(0),                   // 0: c1.c1z.v3.PayloadEncoding
-	(*C1ZManifestV3)(nil),                  // 1: c1.c1z.v3.C1ZManifestV3
-	(*IndexedFrameIndex)(nil),              // 2: c1.c1z.v3.IndexedFrameIndex
-	(*IndexedFrameEntry)(nil),              // 3: c1.c1z.v3.IndexedFrameEntry
-	(*RecordTypeInfo)(nil),                 // 4: c1.c1z.v3.RecordTypeInfo
-	(*SyncRunSummary)(nil),                 // 5: c1.c1z.v3.SyncRunSummary
-	(*PebbleEngineConfig)(nil),             // 6: c1.c1z.v3.PebbleEngineConfig
-	(*anypb.Any)(nil),                      // 7: google.protobuf.Any
-	(*descriptorpb.FileDescriptorSet)(nil), // 8: google.protobuf.FileDescriptorSet
-	(v3.SyncType)(0),                       // 9: c1.storage.v3.SyncType
-	(*timestamppb.Timestamp)(nil),          // 10: google.protobuf.Timestamp
-	(*v3.SyncStatsRecord)(nil),             // 11: c1.storage.v3.SyncStatsRecord
+	(PebbleIdIndexFormat)(0),               // 0: c1.c1z.v3.PebbleIdIndexFormat
+	(PayloadEncoding)(0),                   // 1: c1.c1z.v3.PayloadEncoding
+	(*C1ZManifestV3)(nil),                  // 2: c1.c1z.v3.C1ZManifestV3
+	(*IndexedFrameIndex)(nil),              // 3: c1.c1z.v3.IndexedFrameIndex
+	(*IndexedFrameEntry)(nil),              // 4: c1.c1z.v3.IndexedFrameEntry
+	(*RecordTypeInfo)(nil),                 // 5: c1.c1z.v3.RecordTypeInfo
+	(*SyncRunSummary)(nil),                 // 6: c1.c1z.v3.SyncRunSummary
+	(*PebbleEngineConfig)(nil),             // 7: c1.c1z.v3.PebbleEngineConfig
+	(*anypb.Any)(nil),                      // 8: google.protobuf.Any
+	(*descriptorpb.FileDescriptorSet)(nil), // 9: google.protobuf.FileDescriptorSet
+	(v3.SyncType)(0),                       // 10: c1.storage.v3.SyncType
+	(*timestamppb.Timestamp)(nil),          // 11: google.protobuf.Timestamp
+	(*v3.SyncStatsRecord)(nil),             // 12: c1.storage.v3.SyncStatsRecord
 }
 var file_c1_c1z_v3_manifest_proto_depIdxs = []int32{
-	7,  // 0: c1.c1z.v3.C1ZManifestV3.engine_config:type_name -> google.protobuf.Any
-	0,  // 1: c1.c1z.v3.C1ZManifestV3.payload_encoding:type_name -> c1.c1z.v3.PayloadEncoding
-	8,  // 2: c1.c1z.v3.C1ZManifestV3.descriptors:type_name -> google.protobuf.FileDescriptorSet
-	4,  // 3: c1.c1z.v3.C1ZManifestV3.record_types:type_name -> c1.c1z.v3.RecordTypeInfo
-	5,  // 4: c1.c1z.v3.C1ZManifestV3.sync_runs:type_name -> c1.c1z.v3.SyncRunSummary
-	3,  // 5: c1.c1z.v3.IndexedFrameIndex.entries:type_name -> c1.c1z.v3.IndexedFrameEntry
-	9,  // 6: c1.c1z.v3.SyncRunSummary.type:type_name -> c1.storage.v3.SyncType
-	10, // 7: c1.c1z.v3.SyncRunSummary.started_at:type_name -> google.protobuf.Timestamp
-	10, // 8: c1.c1z.v3.SyncRunSummary.ended_at:type_name -> google.protobuf.Timestamp
-	11, // 9: c1.c1z.v3.SyncRunSummary.stats:type_name -> c1.storage.v3.SyncStatsRecord
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	8,  // 0: c1.c1z.v3.C1ZManifestV3.engine_config:type_name -> google.protobuf.Any
+	1,  // 1: c1.c1z.v3.C1ZManifestV3.payload_encoding:type_name -> c1.c1z.v3.PayloadEncoding
+	9,  // 2: c1.c1z.v3.C1ZManifestV3.descriptors:type_name -> google.protobuf.FileDescriptorSet
+	5,  // 3: c1.c1z.v3.C1ZManifestV3.record_types:type_name -> c1.c1z.v3.RecordTypeInfo
+	6,  // 4: c1.c1z.v3.C1ZManifestV3.sync_runs:type_name -> c1.c1z.v3.SyncRunSummary
+	0,  // 5: c1.c1z.v3.C1ZManifestV3.pebble_id_index_format:type_name -> c1.c1z.v3.PebbleIdIndexFormat
+	4,  // 6: c1.c1z.v3.IndexedFrameIndex.entries:type_name -> c1.c1z.v3.IndexedFrameEntry
+	10, // 7: c1.c1z.v3.SyncRunSummary.type:type_name -> c1.storage.v3.SyncType
+	11, // 8: c1.c1z.v3.SyncRunSummary.started_at:type_name -> google.protobuf.Timestamp
+	11, // 9: c1.c1z.v3.SyncRunSummary.ended_at:type_name -> google.protobuf.Timestamp
+	12, // 10: c1.c1z.v3.SyncRunSummary.stats:type_name -> c1.storage.v3.SyncStatsRecord
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_c1_c1z_v3_manifest_proto_init() }
@@ -1023,7 +1092,7 @@ func file_c1_c1z_v3_manifest_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_c1z_v3_manifest_proto_rawDesc), len(file_c1_c1z_v3_manifest_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,

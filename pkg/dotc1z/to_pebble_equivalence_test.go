@@ -68,7 +68,7 @@ func TestToPebbleBulkImportEquivalence(t *testing.T) {
 	ents := []*v2.Entitlement{
 		v2.Entitlement_builder{Id: "ent-a", Resource: groupRes, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build(),
 		v2.Entitlement_builder{Id: "ent-ab", Resource: mkRes("group", "g2", nil)}.Build(), // prefix pair
-		v2.Entitlement_builder{Id: "ent-bare"}.Build(),                                    // no resource -> no by_resource index
+		v2.Entitlement_builder{Id: "ent-bare", Resource: mkRes("group", "g3", nil)}.Build(),
 	}
 
 	expandable, err := anypb.New(v2.GrantExpandable_builder{
@@ -84,9 +84,9 @@ func TestToPebbleBulkImportEquivalence(t *testing.T) {
 		mkGrant("grant-1", ents[0], resources[0]),
 		mkGrant("grant-10", ents[0], resources[1]),            // "grant-1" prefix pair
 		mkGrant("grant-2", ents[1], resources[2], expandable), // expansion -> needs_expansion index
-		mkGrant("grant-3", ents[2], resources[3]),             // ent without resource
-		mkGrant("grant-4", ents[0], nil),                      // no principal -> primary only + by_ent skipped
-		mkGrant("grant-5", nil, resources[4]),                 // no entitlement -> by_principal only
+		mkGrant("grant-3", ents[2], resources[3]),
+		mkGrant("grant-4", ents[0], resources[4]),
+		mkGrant("grant-5", ents[1], resources[4]),
 		mkGrant("grant-Ω", ents[1], resources[3], expandable), // unicode id with expansion
 	}
 

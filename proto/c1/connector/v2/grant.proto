@@ -23,6 +23,7 @@ message GrantSources {
 message Grant {
   c1.connector.v2.Entitlement entitlement = 1 [(validate.rules).message = {required: true}];
   c1.connector.v2.Resource principal = 2 [(validate.rules).message = {required: true}];
+  // These ids may not map one to one with the grant itself.
   string id = 3 [(validate.rules).string = {
     min_bytes: 1
     max_bytes: 1024

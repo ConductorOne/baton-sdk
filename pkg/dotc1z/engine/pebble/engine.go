@@ -71,6 +71,34 @@ type Engine struct {
 	// record they wrote.
 	computedStatsMu sync.Mutex
 	computedStats   map[string]*v3.SyncStatsRecord
+
+	// deferredGrantStats holds the grant counts BuildDeferredGrantIndexes
+	// accumulated while scanning the whole grant primary keyspace, so
+	// computeSyncStats can skip its own O(grants) scan at EndSync. Consumed
+	// once, guarded by sync_id.
+	deferredGrantStatsMu sync.Mutex
+	deferredGrantStats   *deferredGrantStats
+
+	// deferredIdxPending is set by grant writes that skipped the inline
+	// by_principal index write (all of them: the index family is scattered
+	// relative to the entitlement-first write order, so it is always built
+	// as one sorted SST at EndSync — see BuildDeferredGrantIndexes).
+	deferredIdxPending atomic.Bool
+
+	// synthLayer is the open wave-scoped synthesized-grant layer session, if
+	// any (see BeginSynthesizedGrantLayer). Single producer: the expansion
+	// driver opens/adds/finishes sessions strictly sequentially.
+	synthLayer *synthGrantLayerSession
+
+	// compactionScheduler is the engine's pausable compaction scheduler,
+	// installed by newPebbleOptions. Pause/resume via PauseCompactions /
+	// ResumeCompactions.
+	compactionScheduler *pausableCompactionScheduler
+
+	expandedWriteCalls    atomic.Int64
+	expandedWriteRows     atomic.Int64
+	synthesizedWriteCalls atomic.Int64
+	synthesizedWriteRows  atomic.Int64
 }
 
 // Open creates or opens a Pebble engine rooted at dir. If dir does
@@ -103,12 +131,19 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		opts:       o,
 		pebbleOpts: pebbleOpts,
 	}
+	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
+		e.compactionScheduler = s
+	}
 	// Enforce the single-sync key-layout contract before touching any
 	// keys: reject an old multi-sync-layout file (which the current
 	// encoders would silently mis-decode) and stamp a fresh writable
 	// file. Runs before migrations so we never try to backfill indexes
 	// on a file we can't read.
 	if err := e.verifyOrStampKeyspaceVersion(ctx); err != nil {
+		_ = e.Close()
+		return nil, err
+	}
+	if err := e.verifyOrStampIDIndexFormat(ctx); err != nil {
 		_ = e.Close()
 		return nil, err
 	}
@@ -170,7 +205,29 @@ func (e *Engine) SetCurrentSync(syncID string) error {
 	e.freshResourcesEmpty = false
 	e.freshEntitlementsEmpty = false
 	e.currentSyncMu.Unlock()
+	// Binding a sync means more writes are coming; compactions must run so
+	// L0 keeps draining (see PauseCompactions).
+	e.ResumeCompactions()
 	return nil
+}
+
+// PauseCompactions stops the engine from granting new automatic compactions.
+// In-flight compactions finish; flushes are unaffected. Intended for the
+// EndSync-to-close window, where compaction output never survives to the
+// saved artifact but competes with the deferred index build and envelope
+// encode. Callers that keep writing afterwards must ResumeCompactions (or
+// bind a new sync, which resumes implicitly) so L0 keeps draining.
+func (e *Engine) PauseCompactions() {
+	if e.compactionScheduler != nil {
+		e.compactionScheduler.pause()
+	}
+}
+
+// ResumeCompactions re-enables automatic compaction granting.
+func (e *Engine) ResumeCompactions() {
+	if e.compactionScheduler != nil {
+		e.compactionScheduler.resume()
+	}
 }
 
 // MarkFreshSync sets currentSync AND flags the sync as freshly
@@ -195,6 +252,9 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 	e.freshResourcesEmpty = true
 	e.freshEntitlementsEmpty = true
 	e.currentSyncMu.Unlock()
+	// A fresh sync writes heavily; compactions must run so L0 keeps
+	// draining (see PauseCompactions).
+	e.ResumeCompactions()
 	return nil
 }
 

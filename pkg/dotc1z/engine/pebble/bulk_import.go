@@ -12,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 
@@ -51,11 +51,8 @@ const bulkSpillBufferSize = 1 << 20
 // grantIndexFamilies are the index-discriminator bytes AddGrants can
 // emit (see grantIndexKeys).
 var grantIndexFamilies = []byte{
-	idxGrantByEntitlement,
 	idxGrantByPrincipal,
 	idxGrantByNeedsExpansion,
-	idxGrantByPrincipalResourceType,
-	idxGrantByEntitlementResource,
 }
 
 // bulkSSTWriter builds one SST file for a single disjoint key bucket.
@@ -155,10 +152,8 @@ type BulkSyncImport struct {
 	// across all sorters and shards.
 	sortSem chan struct{}
 
-	// Parent-level sorters for the (single-threaded) resource and
-	// entitlement index keys.
-	idxResourceByParent      *spillSorter
-	idxEntitlementByResource *spillSorter
+	// Parent-level sorter for the (single-threaded) resource index keys.
+	idxResourceByParent *spillSorter
 
 	// mu guards shard registration/aggregation. The grant hot path
 	// never takes it.
@@ -218,7 +213,6 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 		*w.slot = sw
 	}
 	b.idxResourceByParent = newSpillSorter(dir, fmt.Sprintf("index-%02x-p", idxResourceByParent), b.sortSem, bulkSpillKeyChunkBytes)
-	b.idxEntitlementByResource = newSpillSorter(dir, fmt.Sprintf("index-%02x-p", idxEntitlementByResource), b.sortSem, bulkSpillKeyChunkBytes)
 	return b, nil
 }
 
@@ -237,7 +231,7 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 // fields and go through the shard's spill sorters.
 type BulkGrantShard struct {
 	b      *BulkSyncImport
-	grants *bulkSSTWriter
+	grants *spillSorter
 	idx    map[byte]*spillSorter
 	entRT  map[string]int64
 	closed bool
@@ -255,13 +249,9 @@ func (b *BulkSyncImport) NewGrantShard() (*BulkGrantShard, error) {
 	defer b.mu.Unlock()
 	id := b.shardSeq
 	b.shardSeq++
-	w, err := newBulkSSTWriter(b.dir, fmt.Sprintf("grants-s%03d", id))
-	if err != nil {
-		return nil, err
-	}
 	s := &BulkGrantShard{
 		b:      b,
-		grants: w,
+		grants: newSpillSorter(b.dir, fmt.Sprintf("grants-s%03d", id), b.sortSem, bulkSpillKeyChunkBytes),
 		idx:    map[byte]*spillSorter{},
 		entRT:  map[string]int64{},
 	}
@@ -293,7 +283,11 @@ func (s *BulkGrantShard) AddGrants(ctx context.Context, grants ...*v2.Grant) err
 			return s.fail(err)
 		}
 		s.valBuf = val
-		if err := s.grants.add(encodeGrantKey(r.GetExternalId()), val); err != nil {
+		id, err := grantIdentityFromRecord(r)
+		if err != nil {
+			return s.fail(err)
+		}
+		if err := s.grants.add(encodeGrantIdentityKey(id), val); err != nil {
 			return s.fail(err)
 		}
 		s.entRT[r.GetEntitlement().GetResourceTypeId()]++
@@ -328,9 +322,7 @@ func (s *BulkGrantShard) Close() {
 		return
 	}
 	s.closed = true
-	if err := s.grants.finish(); err != nil {
-		_ = s.fail(err)
-	}
+	s.grants.cutAndDispatch()
 	for _, w := range s.idx {
 		w.cutAndDispatch()
 	}
@@ -419,19 +411,14 @@ func (b *BulkSyncImport) AddEntitlements(ctx context.Context, ents ...*v2.Entitl
 		if err != nil {
 			return err
 		}
-		if err := b.entitlements.add(encodeEntitlementKey(rec.GetExternalId()), val); err != nil {
+		id, err := entitlementIdentityFromRecord(rec)
+		if err != nil {
+			return err
+		}
+		if err := b.entitlements.add(encodeEntitlementIdentityKey(id), val); err != nil {
 			return err
 		}
 		b.entitlementsByRT[rec.GetResource().GetResourceTypeId()]++
-		if res := rec.GetResource(); res != nil && res.GetResourceId() != "" {
-			k := encodeEntitlementByResourceIndexKey(
-				res.GetResourceTypeId(), res.GetResourceId(),
-				rec.GetExternalId(),
-			)
-			if err := b.idxEntitlementByResource.add(k, nil); err != nil {
-				return err
-			}
-		}
 	}
 	return nil
 }
@@ -449,7 +436,7 @@ func (b *BulkSyncImport) ComputedStats() *v3.SyncStatsRecord {
 	var grants int64
 	grantsByEntRT := map[string]int64{}
 	for _, s := range b.shards {
-		grants += int64(s.grants.count)
+		grants += s.grants.count
 		for rt, n := range s.entRT {
 			grantsByEntRT[rt] += n
 		}
@@ -492,8 +479,6 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		}
 	}
 
-	// Per-shard grant primary SSTs: already final, already sorted, and
-	// pairwise disjoint by the shard range contract (Ingest verifies).
 	b.mu.Lock()
 	shards := b.shards
 	b.mu.Unlock()
@@ -504,9 +489,6 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		if s.err != nil {
 			return s.err
 		}
-		if s.grants.count > 0 {
-			paths = append(paths, s.grants.path)
-		}
 	}
 
 	// Build the merge units: each combines the sorted runs of one key
@@ -516,8 +498,11 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		sorters []*spillSorter
 	}
 	units := []mergeUnit{
+		{name: "grants"},
 		{name: fmt.Sprintf("index-%02x", idxResourceByParent), sorters: []*spillSorter{b.idxResourceByParent}},
-		{name: fmt.Sprintf("index-%02x", idxEntitlementByResource), sorters: []*spillSorter{b.idxEntitlementByResource}},
+	}
+	for _, s := range shards {
+		units[0].sorters = append(units[0].sorters, s.grants)
 	}
 	for _, idx := range grantIndexFamilies {
 		u := mergeUnit{name: fmt.Sprintf("index-%02x", idx)}
@@ -604,12 +589,12 @@ func (b *BulkSyncImport) Abort() {
 	b.mu.Unlock()
 	for _, s := range shards {
 		s.closed = true
-		_ = s.grants.finish()
+		s.grants.abort()
 		for _, w := range s.idx {
 			w.abort()
 		}
 	}
-	for _, w := range []*spillSorter{b.idxResourceByParent, b.idxEntitlementByResource} {
+	for _, w := range []*spillSorter{b.idxResourceByParent} {
 		if w != nil {
 			w.abort()
 		}
@@ -656,6 +641,36 @@ func newSpillSorter(dir, name string, sem chan struct{}, chunkBytes int) *spillS
 	return &spillSorter{name: name, dir: dir, sem: sem, chunkBytes: chunkBytes}
 }
 
+// spillArenaPool / spillViewsPool recycle the per-chunk key/value arena and its
+// kvView slice across chunks. Without recycling, every cut allocates a fresh
+// arena that grows from zero by append-doubling and is then GC'd; deferred index
+// builds can otherwise churn hundreds of GB in short-lived buffers.
+var spillArenaPool = sync.Pool{New: func() any { b := make([]byte, 0, bulkSpillKeyChunkBytes); return &b }}
+var spillViewsPool = sync.Pool{New: func() any { v := make([]kvView, 0, 1<<16); return &v }}
+
+func getSpillArena() []byte {
+	bp := spillArenaPool.Get().(*[]byte)
+	return (*bp)[:0]
+}
+
+func putSpillArena(b []byte) {
+	if cap(b) < bulkSpillKeyChunkBytes {
+		return
+	}
+	b = b[:0]
+	spillArenaPool.Put(&b)
+}
+
+func getSpillViews() []kvView {
+	vp := spillViewsPool.Get().(*[]kvView)
+	return (*vp)[:0]
+}
+
+func putSpillViews(v []kvView) {
+	v = v[:0]
+	spillViewsPool.Put(&v)
+}
+
 // add appends one entry. val may be nil (key-only spills). NOT
 // goroutine-safe — each sorter has exactly one producer. May block on
 // the sort semaphore when the arena fills (backpressure on this
@@ -666,6 +681,18 @@ func (s *spillSorter) add(key, val []byte) error {
 	}
 	if err := s.takeErr(); err != nil {
 		return err
+	}
+	if s.arena == nil {
+		s.arena = getSpillArena()
+		if cap(s.arena) < s.chunkBytes {
+			// Pooled arenas are sized for bulkSpillKeyChunkBytes; a sorter
+			// with a larger chunk size (deferredIndexSpillChunkBytes)
+			// allocates its full arena up front instead of append-doubling
+			// through it, and returns the small one to the pool.
+			putSpillArena(s.arena)
+			s.arena = make([]byte, 0, s.chunkBytes)
+		}
+		s.views = getSpillViews()
 	}
 	keyOff := len(s.arena)
 	s.arena = append(s.arena, key...)
@@ -698,8 +725,11 @@ func (s *spillSorter) cutAndDispatch() {
 }
 
 func (s *spillSorter) sortAndWriteChunk(arena []byte, views []kvView) {
-	sort.Slice(views, func(i, j int) bool {
-		return bytes.Compare(arena[views[i].keyOff:views[i].keyEnd], arena[views[j].keyOff:views[j].keyEnd]) < 0
+	// slices.SortFunc, not sort.Slice: typed swaps instead of the
+	// reflection-based Swapper. Chunk sorts run hot (57M+ keys per whale
+	// deferred index build) and the reflective swap was ~half the sort cost.
+	slices.SortFunc(views, func(a, b kvView) int {
+		return bytes.Compare(arena[a.keyOff:a.keyEnd], arena[b.keyOff:b.keyEnd])
 	})
 	s.chunkMu.Lock()
 	chunkPath := filepath.Join(s.dir, fmt.Sprintf("%s-chunk-%04d.bin", s.name, len(s.chunks)))
@@ -708,6 +738,8 @@ func (s *spillSorter) sortAndWriteChunk(arena []byte, views []kvView) {
 	if err := writeSortedSpillChunk(chunkPath, arena, views); err != nil {
 		s.setErr(err)
 	}
+	putSpillArena(arena)
+	putSpillViews(views)
 }
 
 func (s *spillSorter) setErr(err error) {
@@ -870,6 +902,8 @@ func readSpillEntry(r io.Reader, key, val *[]byte, lenBuf *[4]byte) (bool, error
 // single SST. Duplicate keys are corruption (the importer requires
 // globally unique tuples) and fail the merge.
 func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chunks []string) error {
+	start := time.Now()
+	l := ctxzap.Extract(ctx)
 	readers := make([]*os.File, 0, len(chunks))
 	defer func() {
 		for _, r := range readers {
@@ -909,10 +943,9 @@ func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chun
 		}
 	}()
 	var last []byte
+	var written int64
+	lastLog := start
 	for len(*h) > 0 {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		item := h.pop()
 		if bytes.Equal(item.key, last) {
 			return fmt.Errorf("%w: bucket %s key %x", errBulkImportDuplicateKey, name, item.key)
@@ -923,6 +956,24 @@ func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chun
 		}
 		if err := writer.add(item.key, v); err != nil {
 			return err
+		}
+		written++
+		// Throttle the per-entry bookkeeping: ctx.Err and time.Now on every
+		// one of 57M+ merged entries were measurable in profiles.
+		if written&0xFFFF == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if now := time.Now(); now.Sub(lastLog) >= 15*time.Second {
+				l.Info("spill sorter: merging chunks",
+					zap.String("name", name),
+					zap.Int("chunks", len(chunks)),
+					zap.Int("active_chunks", len(*h)+1),
+					zap.Int64("entries_written", written),
+					zap.Duration("elapsed", now.Sub(start)),
+				)
+				lastLog = now
+			}
 		}
 		last = append(last[:0], item.key...)
 		ok, err := readSpillEntry(bufReaders[item.chunkIdx], &keyBufs[item.chunkIdx], &valBufs[item.chunkIdx], &lenBuf)
@@ -936,6 +987,12 @@ func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chun
 	if err := writer.finish(); err != nil {
 		return err
 	}
+	l.Info("spill sorter: merge complete",
+		zap.String("name", name),
+		zap.Int("chunks", len(chunks)),
+		zap.Int64("entries_written", written),
+		zap.Duration("elapsed", time.Since(start)),
+	)
 	success = true
 	return nil
 }

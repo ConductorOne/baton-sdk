@@ -5,6 +5,7 @@ import (
 	"io"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,6 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	entitlementtype "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 )
 
 // Fixture identifiers. The cross-engine matrix sanitizes the same logical
@@ -67,17 +69,28 @@ func buildParityFixture(t *testing.T, ctx context.Context, store dotc1z.C1ZStore
 		Id:          v2.ResourceId_builder{ResourceType: pfRTRole, Resource: "admins"}.Build(),
 		DisplayName: "Admins",
 	}.Build()
-	// child's parent_resource_id points at parent -> structural-linkage check.
-	child := v2.Resource_builder{
-		Id:               v2.ResourceId_builder{ResourceType: pfRTUser, Resource: "alice"}.Build(),
-		ParentResourceId: v2.ResourceId_builder{ResourceType: pfRTRole, Resource: "admins"}.Build(),
-		DisplayName:      "Alice",
-		Annotations: []*anypb.Any{anyTB(t, v2.UserTrait_builder{
-			Login: "alice@acme.com",
-			Icon:  v2.AssetRef_builder{Id: pfAssetID}.Build(),
-		}.Build())},
-	}.Build()
-	require.NoError(t, store.PutResources(ctx, parent, child))
+	// children parent_resource_id points at parent -> structural-linkage check.
+	children := make([]*v2.Resource, 0, 5)
+	for i, id := range []string{"alice", "bob", "carol", "dave", "erin"} {
+		display := "User " + id
+		if i == 0 {
+			display = "Alice"
+		}
+		var annos []*anypb.Any
+		if i == 0 {
+			annos = []*anypb.Any{anyTB(t, v2.UserTrait_builder{
+				Login: "alice@acme.com",
+				Icon:  v2.AssetRef_builder{Id: pfAssetID}.Build(),
+			}.Build())}
+		}
+		children = append(children, v2.Resource_builder{
+			Id:               v2.ResourceId_builder{ResourceType: pfRTUser, Resource: id}.Build(),
+			ParentResourceId: v2.ResourceId_builder{ResourceType: pfRTRole, Resource: "admins"}.Build(),
+			DisplayName:      display,
+			Annotations:      annos,
+		}.Build())
+	}
+	require.NoError(t, store.PutResources(ctx, append([]*v2.Resource{parent}, children...)...))
 
 	entAdmin := v2.Entitlement_builder{Id: pfEntAdmin, Resource: parent, DisplayName: "admin", Slug: "admin"}.Build()
 	entReader := v2.Entitlement_builder{Id: pfEntReader, Resource: parent, DisplayName: "reader", Slug: "reader"}.Build()
@@ -92,7 +105,7 @@ func buildParityFixture(t *testing.T, ctx context.Context, store dotc1z.C1ZStore
 		// multi-EntitlementId + multi-ResourceTypeId, with pfRTGroup duplicated
 		// so the resource_type_ids multiset (multiplicity 2) is exercised.
 		v2.Grant_builder{
-			Id: pfGrantMultiExpand, Entitlement: entAdmin, Principal: child,
+			Id: pfGrantMultiExpand, Entitlement: entAdmin, Principal: children[0],
 			Annotations: annotations.New(v2.GrantExpandable_builder{
 				EntitlementIds:  []string{pfEntAdmin, pfEntReader},
 				Shallow:         true,
@@ -103,7 +116,7 @@ func buildParityFixture(t *testing.T, ctx context.Context, store dotc1z.C1ZStore
 		// Sources (expanded-but-still-annotated). Proves the first-write
 		// needs_expansion projection is identical across engines for this shape.
 		v2.Grant_builder{
-			Id: pfGrantDivergence, Entitlement: entAdmin, Principal: child,
+			Id: pfGrantDivergence, Entitlement: entAdmin, Principal: children[1],
 			Sources: sources,
 			Annotations: annotations.New(v2.GrantExpandable_builder{
 				EntitlementIds: []string{pfEntReader},
@@ -113,15 +126,15 @@ func buildParityFixture(t *testing.T, ctx context.Context, store dotc1z.C1ZStore
 		// Blank entitlement ids only -> annotation stripped, needs_expansion=false
 		// on both engines.
 		v2.Grant_builder{
-			Id: pfGrantWhitespace, Entitlement: entReader, Principal: child,
+			Id: pfGrantWhitespace, Entitlement: entReader, Principal: children[2],
 			Annotations: annotations.New(v2.GrantExpandable_builder{
 				EntitlementIds: []string{"  ", ""},
 			}.Build()),
 		}.Build(),
 		// Multi-edge Sources, no expansion.
-		v2.Grant_builder{Id: pfGrantSourced, Entitlement: entReader, Principal: child, Sources: sources}.Build(),
+		v2.Grant_builder{Id: pfGrantSourced, Entitlement: entReader, Principal: children[3], Sources: sources}.Build(),
 		// Neither.
-		v2.Grant_builder{Id: pfGrantPlain, Entitlement: entAdmin, Principal: child}.Build(),
+		v2.Grant_builder{Id: pfGrantPlain, Entitlement: entAdmin, Principal: children[4]}.Build(),
 	}
 	require.NoError(t, store.PutGrants(ctx, grants...))
 	require.NoError(t, store.EndSync(ctx))
@@ -164,10 +177,14 @@ func pendingExpansionBlobs(t *testing.T, ctx context.Context, store dotc1z.C1ZSt
 		require.NoError(t, err)
 		require.NotNil(t, pe.Annotation, "PendingExpansion row must carry its annotation")
 		ents := append([]string(nil), pe.Annotation.GetEntitlementIds()...)
+		for i, ent := range ents {
+			ents[i] = parityEntitlementID(ent)
+		}
 		sort.Strings(ents)
 		rts := append([]string(nil), pe.Annotation.GetResourceTypeIds()...)
 		sort.Strings(rts) // sorted but NOT deduped -> multiset
-		out[pe.GrantExternalID] = expandBlob{ents: ents, shallow: pe.Annotation.GetShallow(), rts: rts}
+		key := parityEntitlementID(pe.TargetEntitlementID) + "|" + pe.PrincipalResourceTypeID + "/" + pe.PrincipalResourceID
+		out[key] = expandBlob{ents: ents, shallow: pe.Annotation.GetShallow(), rts: rts}
 	}
 	return out
 }
@@ -189,7 +206,7 @@ func grantSourcesCanonical(t *testing.T, ctx context.Context, store dotc1z.C1ZSt
 				edges = append(edges, k+"="+boolStr(v.GetIsDirect()))
 			}
 			sort.Strings(edges)
-			out[g.GetId()] = edges
+			out[parityGrantRef(g)] = edges
 		}
 		if resp.GetNextPageToken() == "" {
 			break
@@ -261,7 +278,7 @@ func entitlementOwnership(t *testing.T, ctx context.Context, store dotc1z.C1ZSto
 	require.NoError(t, err)
 	out := map[string]string{}
 	for _, e := range resp.GetList() {
-		out[e.GetId()] = e.GetResource().GetId().GetResource()
+		out[parityEntitlementID(e.GetId())] = e.GetResource().GetId().GetResource()
 	}
 	return out
 }
@@ -275,8 +292,8 @@ func grantRefs(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) map[str
 		resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 1000, PageToken: pageToken}.Build())
 		require.NoError(t, err)
 		for _, g := range resp.GetList() {
-			pid := g.GetPrincipal().GetId()
-			out[g.GetId()] = g.GetEntitlement().GetId() + "|" + pid.GetResourceType() + "/" + pid.GetResource()
+			ref := parityGrantRef(g)
+			out[ref] = ref
 		}
 		if resp.GetNextPageToken() == "" {
 			break
@@ -284,6 +301,26 @@ func grantRefs(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) map[str
 		pageToken = resp.GetNextPageToken()
 	}
 	return out
+}
+
+func parityGrantRef(g *v2.Grant) string {
+	pid := g.GetPrincipal().GetId()
+	return parityEntitlementID(g.GetEntitlement().GetId()) + "|" + pid.GetResourceType() + "/" + pid.GetResource()
+}
+
+func parityEntitlementID(id string) string {
+	parts, err := entitlementtype.DecodeEntitlementID(id)
+	if err == nil {
+		if strings.HasPrefix(parts.Name, "custom:") {
+			return strings.TrimPrefix(parts.Name, "custom:")
+		}
+		return parts.Name
+	}
+	raw, splitErr := entitlementtype.SplitEscapedID(id)
+	if splitErr == nil && len(raw) == 2 && raw[0] == "custom" {
+		return raw[1]
+	}
+	return id
 }
 
 func readAsset(t *testing.T, ctx context.Context, store dotc1z.C1ZStore, assetID string) (string, []byte) {
@@ -385,11 +422,11 @@ func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
 	}
 
 	// (1) Cardinality parity: equal to the known source cardinality and equal
-	// across all four arms. The fixture has 2 resource types, 2 resources, 2
+	// across all four arms. The fixture has 2 resource types, 6 resources, 2
 	// entitlements, 5 grants.
 	for i, a := range arms {
 		require.Equalf(t, 2, snaps[i].rtCount, "%s resource-type count", a.name)
-		require.Equalf(t, 2, snaps[i].resCount, "%s resource count", a.name)
+		require.Equalf(t, 6, snaps[i].resCount, "%s resource count", a.name)
 		require.Equalf(t, 2, snaps[i].entCount, "%s entitlement count", a.name)
 		require.Equalf(t, 5, snaps[i].grantCount, "%s grant count", a.name)
 	}
@@ -406,10 +443,10 @@ func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
 
 	// (3) needs_expansion membership: the multi-expand and divergence-trigger
 	// grants are present on EVERY arm; the whitespace-only grant is absent on
-	// every arm. Keyed by transformed grant id.
-	wantMulti := ref.transformID(pfGrantMultiExpand)
-	wantDiverge := ref.transformID(pfGrantDivergence)
-	wantWhitespace := ref.transformID(pfGrantWhitespace)
+	// every arm. Keyed by transformed semantic grant ref.
+	wantMulti := ref.transformID(pfEntAdmin) + "|user/" + ref.transformID("alice")
+	wantDiverge := ref.transformID(pfEntAdmin) + "|user/" + ref.transformID("bob")
+	wantWhitespace := ref.transformID(pfEntReader) + "|user/" + ref.transformID("carol")
 	for i := range snaps {
 		_, hasMulti := snaps[i].blobs[wantMulti]
 		_, hasDiverge := snaps[i].blobs[wantDiverge]
