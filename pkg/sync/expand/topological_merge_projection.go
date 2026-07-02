@@ -54,9 +54,13 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	}
 	defer projDB.Close()
 
-	entitlements, order, err := e.prepareTopological(ctx)
+	entitlements, waves, err := e.prepareTopological(ctx)
 	if err != nil {
 		return err
+	}
+	totalNodes := 0
+	for _, wave := range waves {
+		totalNodes += len(wave)
 	}
 
 	l := ctxzap.Extract(ctx)
@@ -69,13 +73,14 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	l.Info("topological projection: built source projection",
 		zap.Int("projection_rows", rows),
 		zap.Int("projection_sources", len(projectionSources)),
-		zap.Int("nodes", len(order)),
+		zap.Int("nodes", totalNodes),
+		zap.Int("waves", len(waves)),
 		zap.Duration("elapsed", time.Since(buildStart)),
 	)
 
 	expandStart := time.Now()
 	lastLog := expandStart
-	err = e.driveTopological(ctx, entitlements, order, topologicalRun{
+	err = e.driveTopological(ctx, entitlements, waves, topologicalRun{
 		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink *destinationSink) error {
 			return e.mergeDestinationStreams(ctx, dest, incoming, ents, projDB, projectionSources, sink)
 		},
@@ -121,7 +126,7 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	}
 
 	l.Info("topological projection: expansion complete",
-		zap.Int("nodes_total", len(order)),
+		zap.Int("nodes_total", totalNodes),
 		zap.Int64("dirty_grants_written", metrics.DirtyGrantsWritten),
 		zap.Int64("projection_rows", metrics.ProjectionRowsBuilt),
 		zap.Int64("nodes_reduced", metrics.NodesReduced),

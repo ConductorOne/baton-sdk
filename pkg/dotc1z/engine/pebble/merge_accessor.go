@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -39,6 +42,28 @@ func AsEngine(w connectorstore.Writer) (*Engine, bool) {
 		}
 	}
 	return nil, false
+}
+
+// LogCompactionMetrics logs a snapshot of the LSM's compaction and ingest
+// counters, labeled with the caller's phase name. Diagnostic only: used to
+// attribute wall time lost to background compactions triggered by large
+// ingests (e.g. the synthesized-grant layer segments) during benchmark runs.
+func (e *Engine) LogCompactionMetrics(ctx context.Context, phase string) {
+	if e == nil || e.db == nil {
+		return
+	}
+	m := e.db.Metrics()
+	ctxzap.Extract(ctx).Info("pebble compaction metrics",
+		zap.String("phase", phase),
+		zap.Int64("compact_count", m.Compact.Count),
+		zap.Duration("compact_duration_total", m.Compact.Duration),
+		zap.Uint64("compact_estimated_debt_bytes", m.Compact.EstimatedDebt),
+		zap.Int64("compact_in_progress", m.Compact.NumInProgress),
+		zap.Int64("compact_in_progress_bytes", m.Compact.InProgressBytes),
+		zap.Uint64("ingest_count", m.Ingest.Count),
+		zap.Int64("flush_count", m.Flush.Count),
+		zap.Int("read_amp", m.ReadAmp()),
+	)
 }
 
 // ReadSyncStatsRecord returns the raw stats sidecar record for a sync,

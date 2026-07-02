@@ -40,9 +40,9 @@ func fillSynthGrantRecord(r *v3.GrantRecord, rec *synthesizedGrantRecord, now *t
 // map field is encoded as a repeated entry message: key is entry field 1,
 // value is entry field 2.
 var (
-	grantSourcesFieldTag = protowire.EncodeTag(9, protowire.BytesType) // GrantRecord.sources
-	grantSourceKeyTag    = protowire.EncodeTag(1, protowire.BytesType) // entry key (string)
-	grantSourceValTag    = protowire.EncodeTag(2, protowire.BytesType) // entry value (GrantSourceRecord)
+	grantSourcesFieldTag = protowire.EncodeTag(9, protowire.BytesType)  // GrantRecord.sources
+	grantSourceKeyTag    = protowire.EncodeTag(1, protowire.BytesType)  // entry key (string)
+	grantSourceValTag    = protowire.EncodeTag(2, protowire.BytesType)  // entry value (GrantSourceRecord)
 	grantSourceDirectTag = protowire.EncodeTag(4, protowire.VarintType) // GrantSourceRecord.is_direct
 )
 
@@ -88,7 +88,7 @@ func appendGrantSourcesWire(dst []byte, scratch batonGrant.Sources, sources bato
 		entryLen := 1 + protowire.SizeVarint(uint64(keyLen)) + keyLen +
 			1 + protowire.SizeVarint(uint64(valLen)) + valLen
 		dst = protowire.AppendVarint(dst, grantSourcesFieldTag)
-		dst = protowire.AppendVarint(dst, uint64(entryLen))
+		dst = protowire.AppendVarint(dst, uint64(entryLen)) // #nosec G115 -- entryLen is a small positive length.
 		dst = protowire.AppendVarint(dst, grantSourceKeyTag)
 		dst = protowire.AppendVarint(dst, uint64(keyLen))
 		dst = append(dst, src.EntitlementID...)

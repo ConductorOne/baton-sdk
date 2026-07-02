@@ -103,36 +103,25 @@ func (g pebbleGrantStore) StoreNewExpandedGrants(ctx context.Context, grants ...
 	return g.a.engine.PutSynthesizedGrantRecords(ctx, merged)
 }
 
-func (g pebbleGrantStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
-	if g.a.currentSyncID() == "" {
-		return ErrNoCurrentSync
-	}
-	if len(principals) == 0 {
-		return nil
-	}
+// appendSynthesizedGrantRecords translates one destination's synthesized
+// contributions into engine records, appending to records. Shared by the
+// per-destination write path and the wave-scoped layer session.
+func appendSynthesizedGrantRecords(records []synthesizedGrantRecord, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) ([]synthesizedGrantRecord, error) {
 	if len(principals) != len(sources) {
-		return fmt.Errorf("store new expanded grant contributions: principals/sources length mismatch")
+		return records, fmt.Errorf("store new expanded grant contributions: principals/sources length mismatch")
 	}
 	entRef := entitlementToRef(dest)
 	if entRef == nil {
-		return fmt.Errorf("store new expanded grant contributions: entitlement is nil")
+		return records, fmt.Errorf("store new expanded grant contributions: entitlement is nil")
 	}
 	entID := entitlementIdentityFromParts(entRef.GetResourceTypeId(), entRef.GetResourceId(), entRef.GetEntitlementId())
 	entParts := entID.toPublicParts()
-	// Pooled: the engine's Put/ingest paths copy everything they need out of
-	// records before returning, so the backing array is safe to recycle.
-	recordsPtr := getSynthRecords()
-	records := *recordsPtr
-	defer func() {
-		*recordsPtr = records
-		putSynthRecords(recordsPtr)
-	}()
 	for i, principal := range principals {
 		if principal == nil || principal.GetResourceTypeId() == "" || principal.GetResourceId() == "" {
 			continue
 		}
 		if len(sources[i]) == 0 {
-			return fmt.Errorf("store new expanded grant contributions: empty sources")
+			return records, fmt.Errorf("store new expanded grant contributions: empty sources")
 		}
 		id := grantIdentity{
 			entitlement:     entID,
@@ -147,12 +136,15 @@ func (g pebbleGrantStore) StoreNewExpandedGrantContributions(ctx context.Context
 			sources:     sources[i],
 		})
 	}
-	return g.a.engine.PutSynthesizedGrantContributions(ctx, records)
+	return records, nil
 }
 
-func (g pebbleGrantStore) StoreNewExpandedGrantContributionLayer(ctx context.Context, dests []*v2.Entitlement, principals [][]*v3.PrincipalRef, sources [][]batonGrant.Sources) error {
+func (g pebbleGrantStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
 	if g.a.currentSyncID() == "" {
 		return ErrNoCurrentSync
+	}
+	if len(principals) == 0 {
+		return nil
 	}
 	// Pooled: the engine's Put/ingest paths copy everything they need out of
 	// records before returning, so the backing array is safe to recycle.
@@ -162,41 +154,52 @@ func (g pebbleGrantStore) StoreNewExpandedGrantContributionLayer(ctx context.Con
 		*recordsPtr = records
 		putSynthRecords(recordsPtr)
 	}()
-	for i, dest := range dests {
-		if i >= len(principals) || i >= len(sources) {
-			return fmt.Errorf("store new expanded grant contribution layer: length mismatch")
-		}
-		entRef := entitlementToRef(dest)
-		if entRef == nil {
-			return fmt.Errorf("store new expanded grant contribution layer: entitlement is nil")
-		}
-		entID := entitlementIdentityFromParts(entRef.GetResourceTypeId(), entRef.GetResourceId(), entRef.GetEntitlementId())
-		entParts := entID.toPublicParts()
-		for j, principal := range principals[i] {
-			if principal == nil || principal.GetResourceTypeId() == "" || principal.GetResourceId() == "" {
-				continue
-			}
-			if j >= len(sources[i]) {
-				return fmt.Errorf("store new expanded grant contribution layer: principals/sources length mismatch")
-			}
-			if len(sources[i][j]) == 0 {
-				return fmt.Errorf("store new expanded grant contribution layer: empty sources")
-			}
-			id := grantIdentity{
-				entitlement:     entID,
-				principalTypeID: principal.GetResourceTypeId(),
-				principalID:     principal.GetResourceId(),
-			}
-			records = append(records, synthesizedGrantRecord{
-				id:          id,
-				externalID:  batonGrant.EncodeGrantID(entParts, id.principalTypeID, id.principalID),
-				entitlement: entRef,
-				principal:   principal,
-				sources:     sources[i][j],
-			})
-		}
+	records, err := appendSynthesizedGrantRecords(records, dest, principals, sources)
+	if err != nil {
+		return err
 	}
-	return g.a.engine.PutSynthesizedGrantContributionLayer(ctx, records)
+	return g.a.engine.PutSynthesizedGrantContributions(ctx, records)
+}
+
+// BeginExpandedGrantLayer opens a wave-scoped synthesized-grant layer session
+// on the engine. Returns false when the engine cannot serve one (e.g. the
+// by_principal index is not deferred); callers fall back to
+// StoreNewExpandedGrantContributions.
+func (g pebbleGrantStore) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
+	if g.a.currentSyncID() == "" {
+		return false, ErrNoCurrentSync
+	}
+	return g.a.engine.BeginSynthesizedGrantLayer(ctx)
+}
+
+// AddExpandedGrantLayerContributions streams one destination's synthesized
+// contributions into the open layer session. Rows become readable when
+// FinishExpandedGrantLayer ingests the wave.
+func (g pebbleGrantStore) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	if len(principals) == 0 {
+		return nil
+	}
+	// Pooled: the engine encodes everything it needs out of records before
+	// returning, so the backing array is safe to recycle.
+	recordsPtr := getSynthRecords()
+	records := *recordsPtr
+	defer func() {
+		*recordsPtr = records
+		putSynthRecords(recordsPtr)
+	}()
+	records, err := appendSynthesizedGrantRecords(records, dest, principals, sources)
+	if err != nil {
+		return err
+	}
+	return g.a.engine.AddSynthesizedGrantLayerContributions(ctx, records)
+}
+
+func (g pebbleGrantStore) FinishExpandedGrantLayer(ctx context.Context) error {
+	return g.a.engine.FinishSynthesizedGrantLayer(ctx)
+}
+
+func (g pebbleGrantStore) AbortExpandedGrantLayer(ctx context.Context) error {
+	return g.a.engine.AbortSynthesizedGrantLayer(ctx)
 }
 
 func (g pebbleGrantStore) translateExpanded(syncID string, grants []*v2.Grant) []*v3.GrantRecord {

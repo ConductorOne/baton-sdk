@@ -109,6 +109,11 @@ func newPebbleOptions(o *Options) *pebble.Options {
 		ReadOnly:   o.readOnly,
 		Logger:     discardPebbleLogger{},
 	}
+	// Pausable variant of pebble's default ConcurrencyLimitScheduler so the
+	// engine can suppress automatic compactions during the EndSync-to-close
+	// window, where their output never survives to the saved artifact (see
+	// pausableCompactionScheduler).
+	opts.Experimental.CompactionScheduler = newPausableCompactionScheduler()
 	// L0 BlockSize tuning lands per-level below; bloom-filter wiring can
 	// be added after benchmark data justifies it.
 	opts.Levels[0].BlockSize = 32 << 10

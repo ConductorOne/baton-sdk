@@ -82,6 +82,16 @@ type Engine struct {
 	deferGrantPrincipalIndex bool
 	deferredIdxPending       atomic.Bool
 
+	// synthLayer is the open wave-scoped synthesized-grant layer session, if
+	// any (see BeginSynthesizedGrantLayer). Single producer: the expansion
+	// driver opens/adds/finishes sessions strictly sequentially.
+	synthLayer *synthGrantLayerSession
+
+	// compactionScheduler is the engine's pausable compaction scheduler,
+	// installed by newPebbleOptions. Pause/resume via PauseCompactions /
+	// ResumeCompactions.
+	compactionScheduler *pausableCompactionScheduler
+
 	expandedWriteCalls    atomic.Int64
 	expandedWriteRows     atomic.Int64
 	synthesizedWriteCalls atomic.Int64
@@ -118,6 +128,9 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		opts:                     o,
 		pebbleOpts:               pebbleOpts,
 		deferGrantPrincipalIndex: os.Getenv("BATON_PEBBLE_DEFER_EXPANSION_INDEXES") != "",
+	}
+	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
+		e.compactionScheduler = s
 	}
 	// Enforce the single-sync key-layout contract before touching any
 	// keys: reject an old multi-sync-layout file (which the current
@@ -190,7 +203,29 @@ func (e *Engine) SetCurrentSync(syncID string) error {
 	e.freshResourcesEmpty = false
 	e.freshEntitlementsEmpty = false
 	e.currentSyncMu.Unlock()
+	// Binding a sync means more writes are coming; compactions must run so
+	// L0 keeps draining (see PauseCompactions).
+	e.ResumeCompactions()
 	return nil
+}
+
+// PauseCompactions stops the engine from granting new automatic compactions.
+// In-flight compactions finish; flushes are unaffected. Intended for the
+// EndSync-to-close window, where compaction output never survives to the
+// saved artifact but competes with the deferred index build and envelope
+// encode. Callers that keep writing afterwards must ResumeCompactions (or
+// bind a new sync, which resumes implicitly) so L0 keeps draining.
+func (e *Engine) PauseCompactions() {
+	if e.compactionScheduler != nil {
+		e.compactionScheduler.pause()
+	}
+}
+
+// ResumeCompactions re-enables automatic compaction granting.
+func (e *Engine) ResumeCompactions() {
+	if e.compactionScheduler != nil {
+		e.compactionScheduler.resume()
+	}
 }
 
 // MarkFreshSync sets currentSync AND flags the sync as freshly
@@ -215,6 +250,9 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 	e.freshResourcesEmpty = true
 	e.freshEntitlementsEmpty = true
 	e.currentSyncMu.Unlock()
+	// A fresh sync writes heavily; compactions must run so L0 keeps
+	// draining (see PauseCompactions).
+	e.ResumeCompactions()
 	return nil
 }
 
