@@ -442,11 +442,15 @@ func (x ManagedDeviceTrait_ManagementState) Number() protoreflect.EnumNumber {
 type ManagedDeviceTrait_Compliance int32
 
 const (
-	ManagedDeviceTrait_COMPLIANCE_UNSPECIFIED     ManagedDeviceTrait_Compliance = 0
-	ManagedDeviceTrait_COMPLIANCE_COMPLIANT       ManagedDeviceTrait_Compliance = 1
+	ManagedDeviceTrait_COMPLIANCE_UNSPECIFIED ManagedDeviceTrait_Compliance = 0
+	ManagedDeviceTrait_COMPLIANCE_COMPLIANT   ManagedDeviceTrait_Compliance = 1
+	// Evaluated, but the device fails policy (e.g. not on the latest policy,
+	// disk not encrypted).
 	ManagedDeviceTrait_COMPLIANCE_NONCOMPLIANT    ManagedDeviceTrait_Compliance = 2
 	ManagedDeviceTrait_COMPLIANCE_IN_GRACE_PERIOD ManagedDeviceTrait_Compliance = 3
-	ManagedDeviceTrait_COMPLIANCE_ERROR           ManagedDeviceTrait_Compliance = 4
+	// The compliance check itself failed/errored, so posture could not be
+	// evaluated (as opposed to a clean non-compliant result).
+	ManagedDeviceTrait_COMPLIANCE_ERROR ManagedDeviceTrait_Compliance = 4
 )
 
 // Enum value maps for ManagedDeviceTrait_Compliance.
@@ -2049,8 +2053,11 @@ func (b0 AgentTrait_builder) Build() *AgentTrait {
 // ManagedDeviceTrait is the trait annotation for resources with
 // TRAIT_MANAGED_DEVICE. It is a device asset trait for MDM/UEM inventory: a
 // managed endpoint (laptop, desktop, mobile, etc.) enrolled in a device
-// management platform. Like other asset traits it carries no grants or
-// entitlements; it rides the resource's annotations bag.
+// management platform. The trait itself is pure data and rides the resource's
+// annotations bag, describing the device's hardware, OS, management state, and
+// compliance posture. A device's assigned user is not carried on the trait;
+// assignment is expressed as a grant — an `assigned` entitlement on the device
+// resource, granted to the user principal.
 type ManagedDeviceTrait struct {
 	state                      protoimpl.MessageState             `protogen:"opaque.v1"`
 	xxx_hidden_Serial          string                             `protobuf:"bytes,1,opt,name=serial,proto3"`

@@ -237,8 +237,11 @@ message AgentTrait {
 // ManagedDeviceTrait is the trait annotation for resources with
 // TRAIT_MANAGED_DEVICE. It is a device asset trait for MDM/UEM inventory: a
 // managed endpoint (laptop, desktop, mobile, etc.) enrolled in a device
-// management platform. Like other asset traits it carries no grants or
-// entitlements; it rides the resource's annotations bag.
+// management platform. The trait itself is pure data and rides the resource's
+// annotations bag, describing the device's hardware, OS, management state, and
+// compliance posture. A device's assigned user is not carried on the trait;
+// assignment is expressed as a grant — an `assigned` entitlement on the device
+// resource, granted to the user principal.
 message ManagedDeviceTrait {
   enum DeviceType {
     DEVICE_TYPE_UNSPECIFIED = 0;
@@ -261,8 +264,12 @@ message ManagedDeviceTrait {
   enum Compliance {
     COMPLIANCE_UNSPECIFIED = 0;
     COMPLIANCE_COMPLIANT = 1;
+    // Evaluated, but the device fails policy (e.g. not on the latest policy,
+    // disk not encrypted).
     COMPLIANCE_NONCOMPLIANT = 2;
     COMPLIANCE_IN_GRACE_PERIOD = 3;
+    // The compliance check itself failed/errored, so posture could not be
+    // evaluated (as opposed to a clean non-compliant result).
     COMPLIANCE_ERROR = 4;
   }
 
