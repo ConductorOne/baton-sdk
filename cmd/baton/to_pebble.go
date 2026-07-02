@@ -64,6 +64,7 @@ func runToPebble(cmd *cobra.Command, args []string) error {
 	if tmpDir != "" {
 		openOpts = append(openOpts, dotc1z.WithTmpDir(tmpDir))
 	}
+	//nolint:staticcheck // ToPebble is a SQLite-only *C1File method not on C1ZStore; NewC1ZFile is required here.
 	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, openOpts...)
 	if err != nil {
 		return err
