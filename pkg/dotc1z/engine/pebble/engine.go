@@ -79,8 +79,11 @@ type Engine struct {
 	deferredGrantStatsMu sync.Mutex
 	deferredGrantStats   *deferredGrantStats
 
-	deferGrantPrincipalIndex bool
-	deferredIdxPending       atomic.Bool
+	// deferredIdxPending is set by grant writes that skipped the inline
+	// by_principal index write (all of them: the index family is scattered
+	// relative to the entitlement-first write order, so it is always built
+	// as one sorted SST at EndSync — see BuildDeferredGrantIndexes).
+	deferredIdxPending atomic.Bool
 
 	// synthLayer is the open wave-scoped synthesized-grant layer session, if
 	// any (see BeginSynthesizedGrantLayer). Single producer: the expansion
@@ -123,11 +126,10 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	}
 
 	e := &Engine{
-		db:                       db,
-		dbDir:                    dir,
-		opts:                     o,
-		pebbleOpts:               pebbleOpts,
-		deferGrantPrincipalIndex: os.Getenv("BATON_PEBBLE_DEFER_EXPANSION_INDEXES") != "",
+		db:         db,
+		dbDir:      dir,
+		opts:       o,
+		pebbleOpts: pebbleOpts,
 	}
 	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
 		e.compactionScheduler = s
