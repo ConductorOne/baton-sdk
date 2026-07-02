@@ -305,6 +305,12 @@ func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
 	sem := make(chan struct{}, sorters)
 	principal := newSpillSorter(dir, fmt.Sprintf("index-%02x", idxGrantByPrincipal), sem, deferredIndexSpillChunkBytes)
 	principal.free = newSpillArenaFreeList(deferredIndexSpillChunkBytes, sorters+2)
+	// Every early return must wait out principal's background chunk sorts
+	// before the deferred RemoveAll(dir) deletes the directory they write
+	// into (mirrors the rebuild tee's guard below). Declared AFTER the
+	// RemoveAll defer so LIFO ordering runs the wait first; abort is a
+	// no-op once finalize has drained the sorter.
+	defer principal.abort()
 
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: GrantLowerBound(),
@@ -332,7 +338,7 @@ func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
 		}
 	}()
 
-	var scanned int64
+	var scanned, droppedMalformedKeys int64
 	var idxKeyScratch []byte
 	lastLog := start
 	for iter.First(); iter.Valid(); iter.Next() {
@@ -358,6 +364,12 @@ func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
 		idxKey, ok := appendGrantByPrincipalKeyFromPrimary(idxKeyScratch[:0], iter.Key())
 		idxKeyScratch = idxKey
 		if !ok {
+			// Only possible on key-layout drift or corruption: every grant
+			// write path derives its key from the same 6-segment encoder.
+			// The row still rides the primary rebuild (totalKeys counts it),
+			// but it cannot be represented in by_principal — count and warn
+			// below so a principal silently losing grants is observable.
+			droppedMalformedKeys++
 			continue
 		}
 		if err := principal.add(idxKey, nil); err != nil {
@@ -381,6 +393,11 @@ func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
 	}
 	if err := iter.Error(); err != nil {
 		return fmt.Errorf("BuildDeferredGrantIndexes: iter error: %w", err)
+	}
+	if droppedMalformedKeys > 0 {
+		l.Error("deferred grant index build: grant primary keys did not decode as 6-segment identities; their rows are NOT represented in by_principal",
+			zap.Int64("dropped", droppedMalformedKeys),
+		)
 	}
 	rebuildFinished = true
 	// The rebuild is an optimization: any failure below skips the excise and

@@ -930,8 +930,12 @@ func newExpandedGrantWithSources(descEntitlement *v2.Entitlement, principal *v2.
 	if enResource == nil {
 		return nil, fmt.Errorf("newExpandedGrantWithSources: entitlement has no resource")
 	}
-	if principal == nil {
-		return nil, fmt.Errorf("newExpandedGrantWithSources: principal is nil")
+	// Guard the id too: batonGrant.NewGrantID panics on a nil resource id
+	// (its callers are connector code where that is a programming error);
+	// here the principal came out of a store and malformed data must be an
+	// error, not a panic.
+	if principal == nil || principal.GetId() == nil {
+		return nil, fmt.Errorf("newExpandedGrantWithSources: principal has no resource id")
 	}
 	grantID := batonGrant.NewGrantID(principal, descEntitlement)
 	return v2.Grant_builder{

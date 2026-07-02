@@ -352,6 +352,19 @@ func advanceMigrationChunk(h *spillChunkHeap, readers []*bufio.Reader, keyBufs, 
 	return nil
 }
 
+// mergeDuplicateGrantValues folds N marshaled grant rows that share one
+// structural identity into a single record. Callers hand values over in
+// FOLD ORDER, which is not stable: the in-place migration and the bulk
+// import both pop duplicate groups off a k-way heap whose tie-break is
+// chunk index — spill-chunk creation order, which varies run to run.
+//
+// INVARIANT: the merge of every field must therefore be fold-order
+// independent, so the merged record's bytes are reproducible regardless of
+// which duplicate arrives first. external_id/discovered_at use the
+// commutative winner rule (recordIdentityInfoWins), needs_expansion is an
+// OR, sources merge by map key, expansion ids union-sort, and annotations
+// sort the merged union by (TypeUrl, Value). A new field added here must
+// come with an order-independent merge rule.
 func mergeDuplicateGrantValues(values [][]byte) ([]byte, error) {
 	if len(values) == 1 {
 		return values[0], nil
@@ -431,6 +444,19 @@ func mergeGrantAnnotations(a, b []*anypb.Any) []*anypb.Any {
 	}
 	add(a)
 	add(b)
+	// Sort the UNION (single-side inputs above return as-is, preserving the
+	// winner's stored order): every other merged field is fold-order
+	// independent (recordIdentityInfoWins, map merges, unionSortedStrings),
+	// but duplicate-identity values arrive in heap order — the bulk import's
+	// chunkIdx tie-break reflects spill-chunk creation order, which is not
+	// stable run to run. Without this, the merged artifact bytes would not
+	// be reproducible.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].GetTypeUrl() != out[j].GetTypeUrl() {
+			return out[i].GetTypeUrl() < out[j].GetTypeUrl()
+		}
+		return string(out[i].GetValue()) < string(out[j].GetValue())
+	})
 	return out
 }
 

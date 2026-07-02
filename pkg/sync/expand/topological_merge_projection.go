@@ -299,7 +299,10 @@ func encodeProjectionKV(grant *v2.Grant, entitlementID string) ([]byte, []byte, 
 		resourceType: pid.GetResourceType(),
 		resource:     pid.GetResource(),
 	}, grant.GetId())
-	val := encodeProjectionValueFromResource(grant.GetPrincipal(), isGrantDirectOnEntitlement(grant, entitlementID))
+	val, err := encodeProjectionValueFromResource(grant.GetPrincipal(), isGrantDirectOnEntitlement(grant, entitlementID))
+	if err != nil {
+		return nil, nil, false, err
+	}
 	return key, val, true, nil
 }
 
@@ -365,7 +368,7 @@ func addProjectionRowsFromSynthesized(projDB *pebble.DB, dest *v2.Entitlement, p
 	return count, batch.Commit(pebble.NoSync)
 }
 
-func encodeProjectionValueFromResource(principal *v2.Resource, direct bool) []byte {
+func encodeProjectionValueFromResource(principal *v2.Resource, direct bool) ([]byte, error) {
 	var parent *v2.ResourceId
 	if principal != nil {
 		parent = principal.GetParentResourceId()
@@ -377,12 +380,15 @@ func encodeProjectionValueFromResource(principal *v2.Resource, direct bool) []by
 	val = codec.AppendTupleStrings(val, parent.GetResourceType(), parent.GetResource())
 	if principal != nil {
 		principalBytes, err := proto.Marshal(principal)
-		if err == nil {
-			val = codec.AppendTupleSeparator(val)
-			val = append(val, principalBytes...)
+		if err != nil {
+			// A dropped payload would silently degrade fallback stores to a
+			// refs-only principal reconstruction; surface the failure instead.
+			return nil, fmt.Errorf("topological projection: marshal principal payload: %w", err)
 		}
+		val = codec.AppendTupleSeparator(val)
+		val = append(val, principalBytes...)
 	}
-	return val
+	return val, nil
 }
 
 func encodeProjectionValueFromPrincipalRef(principal *v3.PrincipalRef, direct bool) []byte {
