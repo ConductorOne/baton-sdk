@@ -3,10 +3,12 @@ package pebble
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -84,11 +86,201 @@ type deferredGrantStats struct {
 	grantsByEntitlementRT map[string]int64
 }
 
+// deferredRebuildCutBytes bounds the raw (key+value) bytes per rebuilt
+// primary-grant SST. Cuts are strictly increasing in key order, so the files
+// are disjoint and one IngestAndExcise call accepts them all.
+const deferredRebuildCutBytes = 256 << 20
+
+// rebuildBatch is one arena of raw rows handed from the scan thread to the
+// rebuild writer goroutine. views index into arena (see kvView).
+type rebuildBatch struct {
+	arena []byte
+	views []kvView
+}
+
+// grantRebuildTee streams raw primary-grant rows from the deferred index scan
+// to a background goroutine that builds the rolling rebuild SSTs, so SST
+// block compression and file IO overlap the scan instead of adding to it (an
+// inline tee inflated the whale scan from ~28s to ~63s). Rows are copied into
+// pooled arenas (the iterator's key/value bytes are only valid until Next)
+// and flushed in ~8MiB batches over a small bounded channel: the scan blocks
+// when the writer falls more than a few batches behind. Single producer.
+type grantRebuildTee struct {
+	dir string
+
+	// Scan-thread state: the arena being filled.
+	arena []byte
+	views []kvView
+	raw   int64
+
+	ch   chan rebuildBatch
+	done chan struct{}
+
+	// Writer-goroutine state; read by finish()/abort() only after done.
+	writer      *bulkSSTWriter
+	chunkBytes  int64
+	seq         int
+	files       []string
+	rowsWritten int64
+
+	mu  sync.Mutex
+	err error
+}
+
+func newGrantRebuildTee(dir string) *grantRebuildTee {
+	t := &grantRebuildTee{
+		dir:  dir,
+		ch:   make(chan rebuildBatch, 4),
+		done: make(chan struct{}),
+	}
+	go t.run()
+	return t
+}
+
+func (t *grantRebuildTee) setErr(err error) {
+	t.mu.Lock()
+	if t.err == nil {
+		t.err = err
+	}
+	t.mu.Unlock()
+}
+
+func (t *grantRebuildTee) takeErr() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.err
+}
+
+func (t *grantRebuildTee) run() {
+	defer close(t.done)
+	for batch := range t.ch {
+		// After a failure, keep draining (recycling arenas) so the producer
+		// never blocks; the stored error surfaces at the next add/finish.
+		if t.takeErr() == nil {
+			if err := t.writeBatch(batch); err != nil {
+				t.setErr(err)
+			}
+		}
+		putSpillArena(batch.arena)
+		putSpillViews(batch.views)
+	}
+	if t.writer != nil {
+		if err := t.writer.finish(); err != nil {
+			t.setErr(err)
+		} else if t.takeErr() == nil && t.writer.count > 0 {
+			t.files = append(t.files, t.writer.path)
+		}
+		t.writer = nil
+	}
+}
+
+func (t *grantRebuildTee) writeBatch(b rebuildBatch) error {
+	for _, v := range b.views {
+		if t.writer == nil {
+			w, err := newBulkSSTWriter(t.dir, fmt.Sprintf("grant-rebuild-%03d", t.seq))
+			if err != nil {
+				return err
+			}
+			t.seq++
+			t.writer = w
+			t.chunkBytes = 0
+		}
+		if err := t.writer.add(b.arena[v.keyOff:v.keyEnd], b.arena[v.keyEnd:v.valEnd]); err != nil {
+			return err
+		}
+		t.rowsWritten++
+		t.chunkBytes += int64(v.valEnd - v.keyOff)
+		if t.chunkBytes >= deferredRebuildCutBytes {
+			if err := t.writer.finish(); err != nil {
+				return err
+			}
+			t.files = append(t.files, t.writer.path)
+			t.writer = nil
+		}
+	}
+	return nil
+}
+
+// add copies one raw row into the current arena, flushing a batch to the
+// writer when the arena fills.
+func (t *grantRebuildTee) add(key, val []byte) error {
+	if t.arena == nil {
+		t.arena = getSpillArena()
+		t.views = getSpillViews()
+	}
+	off := len(t.arena)
+	t.arena = append(t.arena, key...)
+	t.arena = append(t.arena, val...)
+	t.views = append(t.views, kvView{keyOff: off, keyEnd: off + len(key), valEnd: off + len(key) + len(val)})
+	t.raw += int64(len(key) + len(val))
+	if len(t.arena) >= bulkSpillKeyChunkBytes {
+		return t.flushBatch()
+	}
+	return nil
+}
+
+func (t *grantRebuildTee) flushBatch() error {
+	if err := t.takeErr(); err != nil {
+		return err
+	}
+	if len(t.views) == 0 {
+		return nil
+	}
+	t.ch <- rebuildBatch{arena: t.arena, views: t.views}
+	t.arena, t.views = nil, nil
+	return nil
+}
+
+// finish flushes the tail batch, waits the writer goroutine out, and returns
+// (files, rowsWritten, rawBytes, err): the finished SST paths, the number of
+// rows written into them, and the total raw bytes teed. Call exactly once
+// (use abort on early-error paths).
+func (t *grantRebuildTee) finish() ([]string, int64, int64, error) {
+	flushErr := t.flushBatch()
+	t.closeAndWait()
+	if err := t.takeErr(); err != nil {
+		return nil, 0, 0, err
+	}
+	if flushErr != nil {
+		return nil, 0, 0, flushErr
+	}
+	return t.files, t.rowsWritten, t.raw, nil
+}
+
+// abort discards the tee: the writer goroutine drains and exits, partial SSTs
+// are left for the caller's temp-dir cleanup. Safe after a failed flush; must
+// not be called after finish.
+func (t *grantRebuildTee) abort() {
+	t.setErr(errors.New("pebble: grant rebuild tee aborted"))
+	t.closeAndWait()
+}
+
+func (t *grantRebuildTee) closeAndWait() {
+	close(t.ch)
+	<-t.done
+	if t.arena != nil {
+		putSpillArena(t.arena)
+		putSpillViews(t.views)
+		t.arena, t.views = nil, nil
+	}
+}
+
 // BuildDeferredGrantIndexes rebuilds the remaining scattered expansion index
 // family, by_principal, from entitlement-first primary grant keys. The expansion
 // write path can skip by_principal inline because expansion reads by entitlement
 // only; this method rewrites the whole by_principal range as one sorted SST at
 // EndSync.
+//
+// The same scan also rebuilds the primary grant keyspace itself: every raw
+// (key, value) is teed into rolling SSTs which replace the whole grant range
+// via IngestAndExcise. Expansion's layer ingests are SSTs whose spans
+// interleave, so they stack in the LSM's upper levels; consolidating them via
+// compaction rewrites the data once per level hop (a whale measured ~60s /
+// 431 compactions), while this tee rewrites each byte exactly once on top of
+// a scan that is already being paid for the index build. After the excise the
+// grant range is one flat sorted run in the bottom level: compaction debt ~0
+// without running the compactor at all. Requires no concurrent grant writers,
+// which EndSync guarantees.
 //
 // The scan also accumulates the grant portion of the sync-stats sidecar
 // (total count + per-entitlement-resource-type grouping) and stashes it so
@@ -115,11 +307,24 @@ func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("BuildDeferredGrantIndexes: iter: %w", err)
 	}
-	defer iter.Close()
+	iterClosed := false
+	defer func() {
+		if !iterClosed {
+			_ = iter.Close()
+		}
+	}()
 
 	statsOK := true
 	var totalKeys int64
 	grantsByEntRTPtr := map[string]*int64{}
+
+	rebuild := newGrantRebuildTee(dir)
+	rebuildFinished := false
+	defer func() {
+		if !rebuildFinished {
+			rebuild.abort()
+		}
+	}()
 
 	var scanned int64
 	var idxKeyScratch []byte
@@ -137,6 +342,12 @@ func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
 				n := int64(1)
 				grantsByEntRTPtr[string(entRT)] = &n
 			}
+		}
+		// Tee the raw row into the primary-keyspace rebuild pipeline. The
+		// iterator yields globally sorted keys, so each SST is sorted and
+		// the cut files are mutually disjoint.
+		if err := rebuild.add(iter.Key(), iter.Value()); err != nil {
+			return err
 		}
 		idxKey, ok := appendGrantByPrincipalKeyFromPrimary(idxKeyScratch[:0], iter.Key())
 		idxKeyScratch = idxKey
@@ -165,6 +376,11 @@ func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
 	if err := iter.Error(); err != nil {
 		return fmt.Errorf("BuildDeferredGrantIndexes: iter error: %w", err)
 	}
+	rebuildFinished = true
+	// The rebuild is an optimization: any failure below skips the excise and
+	// leaves the (correct, just unconsolidated) LSM alone rather than failing
+	// the sync.
+	rebuildFiles, rebuildRows, rebuildBytes, rebuildErr := rebuild.finish()
 	if statsOK {
 		if syncID := codec.DecodeSyncID(e.currentSyncBytes()); syncID != "" {
 			grantsByEntitlementRT := make(map[string]int64, len(grantsByEntRTPtr))
@@ -183,6 +399,50 @@ func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
 		zap.Int64("index_keys_added", scanned),
 		zap.Duration("elapsed", scanDone.Sub(start)),
 	)
+
+	// Release the scan's pinned version before excising the range it read.
+	iterClosed = true
+	if err := iter.Close(); err != nil {
+		return fmt.Errorf("BuildDeferredGrantIndexes: close iter: %w", err)
+	}
+
+	// Atomically replace the whole grant primary range with the rebuilt flat
+	// run. The excised span drops the stacked expansion-layer SSTs (and any
+	// batch-written grant rows in L0) in one version edit; the replacement
+	// files are disjoint and land in the bottom level.
+	//
+	// GUARD: the excise destroys everything in the range, so it only runs
+	// when the rebuilt SSTs verifiably contain every scanned row. A tee
+	// failure or a row-count mismatch downgrades to a loud no-op — the LSM
+	// stays correct, just unconsolidated.
+	switch {
+	case rebuildErr != nil:
+		l.Error("deferred grant index build: primary keyspace rebuild failed; skipping consolidation",
+			zap.Error(rebuildErr),
+		)
+	case rebuildRows != totalKeys:
+		l.Error("deferred grant index build: rebuild row count mismatch; skipping consolidation",
+			zap.Int64("rows_scanned", totalKeys),
+			zap.Int64("rows_rebuilt", rebuildRows),
+		)
+	case len(rebuildFiles) > 0:
+		if _, err := e.db.IngestAndExcise(ctx, rebuildFiles, nil, nil, pebble.KeyRange{
+			Start: GrantLowerBound(),
+			End:   GrantUpperBound(),
+		}); err != nil {
+			// Ingest is atomic: a failure applies nothing. Keep the sync alive.
+			l.Error("deferred grant index build: rebuild ingest/excise failed; skipping consolidation",
+				zap.Error(err),
+			)
+			break
+		}
+		l.Info("deferred grant index build: primary grant keyspace rebuilt",
+			zap.Int("ssts", len(rebuildFiles)),
+			zap.Int64("rows", rebuildRows),
+			zap.Int64("raw_bytes", rebuildBytes),
+			zap.Duration("elapsed", time.Since(scanDone)),
+		)
+	}
 
 	chunks, err := principal.finalize()
 	if err != nil {

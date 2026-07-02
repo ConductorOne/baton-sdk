@@ -3,7 +3,6 @@ package expand
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -201,11 +200,11 @@ func (e *Expander) loadExpansionEntitlements(ctx context.Context) (map[string]*v
 // per-destination reduce strategy and the optional projection hooks differ
 // between them.
 //
-// When the store supports layer sessions (and BATON_PEBBLE_SYNTH_LAYER_SST is
-// set), each wave's synthesized grants are streamed into one session and
-// published in a single sorted bulk write at the wave boundary. That is safe
-// because every parent of a wave-k node sits in a wave < k, so no reduce in
-// the current wave reads rows the session is still holding.
+// When the store supports layer sessions (Pebble), each wave's synthesized
+// grants are streamed into one session and published as sorted bulk writes at
+// segment/wave boundaries. That is safe because every parent of a wave-k node
+// sits in a wave < k, so no reduce in the current wave reads rows the session
+// is still holding.
 func (e *Expander) driveTopological(
 	ctx context.Context,
 	entitlements map[string]*v2.Entitlement,
@@ -278,7 +277,7 @@ func (e *Expander) driveTopological(
 	}
 
 	var layerCandidate synthesizedContributionLayerStorer
-	if sink.storeSynth != nil && os.Getenv("BATON_PEBBLE_SYNTH_LAYER_SST") != "" {
+	if sink.storeSynth != nil {
 		layerCandidate, _ = e.store.(synthesizedContributionLayerStorer)
 	}
 
