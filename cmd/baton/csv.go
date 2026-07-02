@@ -9,6 +9,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	restypes "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
 
@@ -235,17 +236,18 @@ func (c csvRow) Row() []string {
 	}
 }
 
-func getUserStatus(ctx context.Context, ut *v2.UserTrait) string {
-	if ut.Status == nil {
+func getUserStatus(r *v2.Resource) string {
+	st := restypes.GetStatus(r)
+	if st == nil {
 		return "Enabled"
 	}
 
-	switch ut.Status.Status {
-	case v2.UserTrait_Status_STATUS_ENABLED:
+	switch st.GetStatus() {
+	case v2.Status_RESOURCE_STATUS_ENABLED:
 		return "Enabled"
-	case v2.UserTrait_Status_STATUS_DISABLED:
+	case v2.Status_RESOURCE_STATUS_DISABLED:
 		return "Disabled"
-	case v2.UserTrait_Status_STATUS_DELETED:
+	case v2.Status_RESOURCE_STATUS_DELETED:
 		return "Deleted"
 	default:
 		return "Unknown"
@@ -309,13 +311,14 @@ func buildCSV(ctx context.Context, d dataBag, outPath string) error {
 				}
 			}
 
-			profile := ut.Profile.Fields
+			profile := restypes.GetProfile(r).GetFields()
+			userStatus := getUserStatus(r)
 			r := csvRow{
 				rowType:      "Identity",
 				lastName:     profile["last_name"].GetStringValue(),
 				firstName:    profile["first_name"].GetStringValue(),
 				userID:       profile["user_id"].GetStringValue(),
-				userStatus:   getUserStatus(ctx, ut),
+				userStatus:   userStatus,
 				emailAddress: emailAddress,
 			}
 
@@ -363,7 +366,7 @@ func buildCSV(ctx context.Context, d dataBag, outPath string) error {
 					break
 				}
 			}
-			profile := ut.Profile.Fields
+			profile := restypes.GetProfile(p).GetFields()
 
 			var e *v2.Entitlement
 			if en, ok := d.entitlementsByID[g.Entitlement.Id]; ok {

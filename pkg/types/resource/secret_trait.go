@@ -10,6 +10,12 @@ import (
 
 type SecretTraitOption func(t *v2.SecretTrait) error
 
+// WithSecretCreatedAt sets the secret's creation time.
+//
+// Deprecated: created_at has moved from SecretTrait to an attribute on
+// Resource. This option still works — it also populates the resource-level
+// created_at when used with WithSecretTrait or NewSecretResource — but new
+// code should use WithResourceCreatedAt instead.
 func WithSecretCreatedAt(createdAt time.Time) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
 		t.SetCreatedAt(timestamppb.New(createdAt))

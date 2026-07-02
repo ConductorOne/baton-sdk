@@ -15,6 +15,11 @@ import (
 type AgentTraitOption func(*v2.AgentTrait) error
 
 // WithAgentStatus sets the agent's lifecycle status.
+//
+// Deprecated: status has moved from AgentTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level status when
+// used with WithAgentTrait — but new code should use WithResourceStatus
+// instead.
 func WithAgentStatus(status v2.AgentTrait_AgentStatus) AgentTraitOption {
 	return func(t *v2.AgentTrait) error {
 		t.SetStatus(status)
@@ -32,6 +37,11 @@ func WithAgentIdentityResourceID(identityResourceID *v2.ResourceId) AgentTraitOp
 }
 
 // WithAgentProfile sets the agent's profile struct.
+//
+// Deprecated: profile has moved from AgentTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level profile when
+// used with WithAgentTrait — but new code should use WithResourceProfile
+// instead.
 func WithAgentProfile(profile map[string]interface{}) AgentTraitOption {
 	return func(t *v2.AgentTrait) error {
 		p, err := structpb.NewStruct(profile)
@@ -89,6 +99,7 @@ func WithAgentTrait(opts ...AgentTraitOption) ResourceOption {
 
 		annos.Update(t)
 		r.SetAnnotations(annos)
+		syncAgentTraitToResource(r, t)
 		return nil
 	}
 }

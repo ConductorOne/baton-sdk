@@ -140,6 +140,13 @@ func (s *sanitizer) sanitizeValue(v *structpb.Value) *structpb.Value {
 	}
 }
 
+// The trait handlers below intentionally read and write the deprecated
+// trait-level profile/icon/status/created_at fields: c1z files written by
+// older connectors carry this data only on the traits, and the sanitizer must
+// sanitize it wherever it lives. Resource-level attributes are sanitized in
+// transformResource.
+
+//nolint:staticcheck // sanitizes deprecated trait fields present in c1z files written by older connectors
 func handleUserTrait(s *sanitizer, msg proto.Message, refs *assetRefSet) proto.Message {
 	in := msg.(*v2.UserTrait)
 	idFn := s.id // hoist the method value out of the per-email loop
@@ -209,6 +216,7 @@ func handleUserTrait(s *sanitizer, msg proto.Message, refs *assetRefSet) proto.M
 	return out
 }
 
+//nolint:staticcheck // sanitizes deprecated trait fields present in c1z files written by older connectors
 func handleGroupTrait(s *sanitizer, msg proto.Message, refs *assetRefSet) proto.Message {
 	in := msg.(*v2.GroupTrait)
 	return v2.GroupTrait_builder{
@@ -217,6 +225,7 @@ func handleGroupTrait(s *sanitizer, msg proto.Message, refs *assetRefSet) proto.
 	}.Build()
 }
 
+//nolint:staticcheck // sanitizes deprecated trait fields present in c1z files written by older connectors
 func handleAppTrait(s *sanitizer, msg proto.Message, refs *assetRefSet) proto.Message {
 	in := msg.(*v2.AppTrait)
 	helpURL := ""
@@ -232,6 +241,7 @@ func handleAppTrait(s *sanitizer, msg proto.Message, refs *assetRefSet) proto.Me
 	}.Build()
 }
 
+//nolint:staticcheck // sanitizes deprecated trait fields present in c1z files written by older connectors
 func handleRoleTrait(s *sanitizer, msg proto.Message, _ *assetRefSet) proto.Message {
 	in := msg.(*v2.RoleTrait)
 	out := v2.RoleTrait_builder{
@@ -252,6 +262,7 @@ func handleRoleTrait(s *sanitizer, msg proto.Message, _ *assetRefSet) proto.Mess
 	return out
 }
 
+//nolint:staticcheck // sanitizes deprecated trait fields present in c1z files written by older connectors
 func handleSecretTrait(s *sanitizer, msg proto.Message, _ *assetRefSet) proto.Message {
 	in := msg.(*v2.SecretTrait)
 	out := v2.SecretTrait_builder{
