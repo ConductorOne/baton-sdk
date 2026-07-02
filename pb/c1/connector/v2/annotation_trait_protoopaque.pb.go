@@ -2060,7 +2060,6 @@ type ManagedDeviceTrait struct {
 	xxx_hidden_Model           string                             `protobuf:"bytes,5,opt,name=model,proto3"`
 	xxx_hidden_Vendor          string                             `protobuf:"bytes,6,opt,name=vendor,proto3"`
 	xxx_hidden_Os              *DeviceOS                          `protobuf:"bytes,7,opt,name=os,proto3"`
-	xxx_hidden_AssignedUser    *ResourceId                        `protobuf:"bytes,8,opt,name=assigned_user,json=assignedUser,proto3"`
 	xxx_hidden_Compliance      ManagedDeviceTrait_Compliance      `protobuf:"varint,9,opt,name=compliance,proto3,enum=c1.connector.v2.ManagedDeviceTrait_Compliance"`
 	xxx_hidden_IsEncrypted     *wrapperspb.BoolValue              `protobuf:"bytes,10,opt,name=is_encrypted,json=isEncrypted,proto3"`
 	xxx_hidden_IsSupervised    *wrapperspb.BoolValue              `protobuf:"bytes,11,opt,name=is_supervised,json=isSupervised,proto3"`
@@ -2146,13 +2145,6 @@ func (x *ManagedDeviceTrait) GetOs() *DeviceOS {
 	return nil
 }
 
-func (x *ManagedDeviceTrait) GetAssignedUser() *ResourceId {
-	if x != nil {
-		return x.xxx_hidden_AssignedUser
-	}
-	return nil
-}
-
 func (x *ManagedDeviceTrait) GetCompliance() ManagedDeviceTrait_Compliance {
 	if x != nil {
 		return x.xxx_hidden_Compliance
@@ -2230,10 +2222,6 @@ func (x *ManagedDeviceTrait) SetOs(v *DeviceOS) {
 	x.xxx_hidden_Os = v
 }
 
-func (x *ManagedDeviceTrait) SetAssignedUser(v *ResourceId) {
-	x.xxx_hidden_AssignedUser = v
-}
-
 func (x *ManagedDeviceTrait) SetCompliance(v ManagedDeviceTrait_Compliance) {
 	x.xxx_hidden_Compliance = v
 }
@@ -2267,13 +2255,6 @@ func (x *ManagedDeviceTrait) HasOs() bool {
 		return false
 	}
 	return x.xxx_hidden_Os != nil
-}
-
-func (x *ManagedDeviceTrait) HasAssignedUser() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_AssignedUser != nil
 }
 
 func (x *ManagedDeviceTrait) HasIsEncrypted() bool {
@@ -2315,10 +2296,6 @@ func (x *ManagedDeviceTrait) ClearOs() {
 	x.xxx_hidden_Os = nil
 }
 
-func (x *ManagedDeviceTrait) ClearAssignedUser() {
-	x.xxx_hidden_AssignedUser = nil
-}
-
 func (x *ManagedDeviceTrait) ClearIsEncrypted() {
 	x.xxx_hidden_IsEncrypted = nil
 }
@@ -2349,7 +2326,6 @@ type ManagedDeviceTrait_builder struct {
 	Model           string
 	Vendor          string
 	Os              *DeviceOS
-	AssignedUser    *ResourceId
 	Compliance      ManagedDeviceTrait_Compliance
 	IsEncrypted     *wrapperspb.BoolValue
 	IsSupervised    *wrapperspb.BoolValue
@@ -2370,7 +2346,6 @@ func (b0 ManagedDeviceTrait_builder) Build() *ManagedDeviceTrait {
 	x.xxx_hidden_Model = b.Model
 	x.xxx_hidden_Vendor = b.Vendor
 	x.xxx_hidden_Os = b.Os
-	x.xxx_hidden_AssignedUser = b.AssignedUser
 	x.xxx_hidden_Compliance = b.Compliance
 	x.xxx_hidden_IsEncrypted = b.IsEncrypted
 	x.xxx_hidden_IsSupervised = b.IsSupervised
@@ -2990,7 +2965,8 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x18AGENT_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12AGENT_STATUS_READY\x10\x01\x12\x19\n" +
 	"\x15AGENT_STATUS_DISABLED\x10\x02\x12\x18\n" +
-	"\x14AGENT_STATUS_DELETED\x10\x03\"\x85\v\n" +
+	"\x14AGENT_STATUS_DELETED\x10\x03\"\xc3\n" +
+	"\n" +
 	"\x12ManagedDeviceTrait\x12\x16\n" +
 	"\x06serial\x18\x01 \x01(\tR\x06serial\x12\x12\n" +
 	"\x04udid\x18\x02 \x01(\tR\x04udid\x12#\n" +
@@ -2999,8 +2975,7 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"deviceType\x12\x14\n" +
 	"\x05model\x18\x05 \x01(\tR\x05model\x12\x16\n" +
 	"\x06vendor\x18\x06 \x01(\tR\x06vendor\x12)\n" +
-	"\x02os\x18\a \x01(\v2\x19.c1.connector.v2.DeviceOSR\x02os\x12@\n" +
-	"\rassigned_user\x18\b \x01(\v2\x1b.c1.connector.v2.ResourceIdR\fassignedUser\x12X\n" +
+	"\x02os\x18\a \x01(\v2\x19.c1.connector.v2.DeviceOSR\x02os\x12X\n" +
 	"\n" +
 	"compliance\x18\t \x01(\x0e2..c1.connector.v2.ManagedDeviceTrait.ComplianceB\b\xfaB\x05\x82\x01\x02\x10\x01R\n" +
 	"compliance\x12=\n" +
@@ -3130,21 +3105,20 @@ var file_c1_connector_v2_annotation_trait_proto_depIdxs = []int32{
 	28, // 31: c1.connector.v2.AgentTrait.profile:type_name -> google.protobuf.Struct
 	6,  // 32: c1.connector.v2.ManagedDeviceTrait.device_type:type_name -> c1.connector.v2.ManagedDeviceTrait.DeviceType
 	22, // 33: c1.connector.v2.ManagedDeviceTrait.os:type_name -> c1.connector.v2.DeviceOS
-	31, // 34: c1.connector.v2.ManagedDeviceTrait.assigned_user:type_name -> c1.connector.v2.ResourceId
-	8,  // 35: c1.connector.v2.ManagedDeviceTrait.compliance:type_name -> c1.connector.v2.ManagedDeviceTrait.Compliance
-	32, // 36: c1.connector.v2.ManagedDeviceTrait.is_encrypted:type_name -> google.protobuf.BoolValue
-	32, // 37: c1.connector.v2.ManagedDeviceTrait.is_supervised:type_name -> google.protobuf.BoolValue
-	32, // 38: c1.connector.v2.ManagedDeviceTrait.is_personal:type_name -> google.protobuf.BoolValue
-	7,  // 39: c1.connector.v2.ManagedDeviceTrait.management_state:type_name -> c1.connector.v2.ManagedDeviceTrait.ManagementState
-	30, // 40: c1.connector.v2.ManagedDeviceTrait.enrolled_at:type_name -> google.protobuf.Timestamp
-	28, // 41: c1.connector.v2.ManagedDeviceTrait.profile:type_name -> google.protobuf.Struct
-	9,  // 42: c1.connector.v2.DeviceOS.type:type_name -> c1.connector.v2.DeviceOS.OsType
-	1,  // 43: c1.connector.v2.UserTrait.Status.status:type_name -> c1.connector.v2.UserTrait.Status.Status
-	44, // [44:44] is the sub-list for method output_type
-	44, // [44:44] is the sub-list for method input_type
-	44, // [44:44] is the sub-list for extension type_name
-	44, // [44:44] is the sub-list for extension extendee
-	0,  // [0:44] is the sub-list for field type_name
+	8,  // 34: c1.connector.v2.ManagedDeviceTrait.compliance:type_name -> c1.connector.v2.ManagedDeviceTrait.Compliance
+	32, // 35: c1.connector.v2.ManagedDeviceTrait.is_encrypted:type_name -> google.protobuf.BoolValue
+	32, // 36: c1.connector.v2.ManagedDeviceTrait.is_supervised:type_name -> google.protobuf.BoolValue
+	32, // 37: c1.connector.v2.ManagedDeviceTrait.is_personal:type_name -> google.protobuf.BoolValue
+	7,  // 38: c1.connector.v2.ManagedDeviceTrait.management_state:type_name -> c1.connector.v2.ManagedDeviceTrait.ManagementState
+	30, // 39: c1.connector.v2.ManagedDeviceTrait.enrolled_at:type_name -> google.protobuf.Timestamp
+	28, // 40: c1.connector.v2.ManagedDeviceTrait.profile:type_name -> google.protobuf.Struct
+	9,  // 41: c1.connector.v2.DeviceOS.type:type_name -> c1.connector.v2.DeviceOS.OsType
+	1,  // 42: c1.connector.v2.UserTrait.Status.status:type_name -> c1.connector.v2.UserTrait.Status.Status
+	43, // [43:43] is the sub-list for method output_type
+	43, // [43:43] is the sub-list for method input_type
+	43, // [43:43] is the sub-list for extension type_name
+	43, // [43:43] is the sub-list for extension extendee
+	0,  // [0:43] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_trait_proto_init() }

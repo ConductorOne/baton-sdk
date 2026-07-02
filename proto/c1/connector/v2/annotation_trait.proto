@@ -273,7 +273,6 @@ message ManagedDeviceTrait {
   string model = 5; // OCSF device.model
   string vendor = 6; // OCSF device.vendor_name
   DeviceOS os = 7; // OCSF device.os
-  connector.v2.ResourceId assigned_user = 8; // cross-link to the synced user
   Compliance compliance = 9 [(validate.rules).enum = {defined_only: true}];
   google.protobuf.BoolValue is_encrypted = 10;
   google.protobuf.BoolValue is_supervised = 11;

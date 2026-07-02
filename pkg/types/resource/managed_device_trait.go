@@ -68,14 +68,6 @@ func WithManagedDeviceOS(os *v2.DeviceOS) ManagedDeviceTraitOption {
 	}
 }
 
-// WithManagedDeviceAssignedUser cross-links the device to the synced user resource.
-func WithManagedDeviceAssignedUser(assignedUser *v2.ResourceId) ManagedDeviceTraitOption {
-	return func(t *v2.ManagedDeviceTrait) error {
-		t.SetAssignedUser(assignedUser)
-		return nil
-	}
-}
-
 // WithManagedDeviceCompliance sets the device compliance state.
 func WithManagedDeviceCompliance(compliance v2.ManagedDeviceTrait_Compliance) ManagedDeviceTraitOption {
 	return func(t *v2.ManagedDeviceTrait) error {

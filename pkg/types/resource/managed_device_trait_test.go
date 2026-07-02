@@ -14,9 +14,6 @@ import (
 // confirm fields round-trip through the proto correctly.
 func TestNewManagedDeviceTrait_FullPopulation(t *testing.T) {
 	enrolledAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	assignedUser := &v2.ResourceId{}
-	assignedUser.SetResourceType("user")
-	assignedUser.SetResource("alice-id")
 
 	os := &v2.DeviceOS{}
 	os.SetType(v2.DeviceOS_OS_TYPE_MACOS)
@@ -32,7 +29,6 @@ func TestNewManagedDeviceTrait_FullPopulation(t *testing.T) {
 		WithManagedDeviceModel("MacBookPro18,3"),
 		WithManagedDeviceVendor("Apple"),
 		WithManagedDeviceOS(os),
-		WithManagedDeviceAssignedUser(assignedUser),
 		WithManagedDeviceCompliance(v2.ManagedDeviceTrait_COMPLIANCE_COMPLIANT),
 		WithManagedDeviceEncrypted(true),
 		WithManagedDeviceSupervised(false),
@@ -52,8 +48,6 @@ func TestNewManagedDeviceTrait_FullPopulation(t *testing.T) {
 	require.Equal(t, "macOS", trait.GetOs().GetName())
 	require.Equal(t, "14.5", trait.GetOs().GetVersion())
 	require.Equal(t, "23F79", trait.GetOs().GetBuild_())
-	require.Equal(t, "user", trait.GetAssignedUser().GetResourceType())
-	require.Equal(t, "alice-id", trait.GetAssignedUser().GetResource())
 	require.Equal(t, v2.ManagedDeviceTrait_COMPLIANCE_COMPLIANT, trait.GetCompliance())
 	require.Equal(t, v2.ManagedDeviceTrait_MANAGEMENT_STATE_MANAGED, trait.GetManagementState())
 	require.True(t, enrolledAt.Equal(trait.GetEnrolledAt().AsTime()))
@@ -97,9 +91,6 @@ func TestNewManagedDeviceResource_RoundTrip(t *testing.T) {
 	rt.SetTraits([]v2.ResourceType_Trait{v2.ResourceType_TRAIT_MANAGED_DEVICE})
 
 	enrolledAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	assignedUser := &v2.ResourceId{}
-	assignedUser.SetResourceType("user")
-	assignedUser.SetResource("bob-id")
 
 	os := &v2.DeviceOS{}
 	os.SetType(v2.DeviceOS_OS_TYPE_WINDOWS)
@@ -113,7 +104,6 @@ func TestNewManagedDeviceResource_RoundTrip(t *testing.T) {
 			WithManagedDeviceSerial("SN-12345"),
 			WithManagedDeviceType(v2.ManagedDeviceTrait_DEVICE_TYPE_LAPTOP),
 			WithManagedDeviceOS(os),
-			WithManagedDeviceAssignedUser(assignedUser),
 			WithManagedDeviceEncrypted(true),
 			WithManagedDeviceEnrolledAt(enrolledAt),
 		},
@@ -131,8 +121,6 @@ func TestNewManagedDeviceResource_RoundTrip(t *testing.T) {
 	require.Equal(t, v2.ManagedDeviceTrait_DEVICE_TYPE_LAPTOP, got.GetDeviceType())
 	require.Equal(t, v2.DeviceOS_OS_TYPE_WINDOWS, got.GetOs().GetType())
 	require.Equal(t, "Windows 11 Pro", got.GetOs().GetName())
-	require.Equal(t, "user", got.GetAssignedUser().GetResourceType())
-	require.Equal(t, "bob-id", got.GetAssignedUser().GetResource())
 	require.NotNil(t, got.GetIsEncrypted())
 	require.True(t, got.GetIsEncrypted().GetValue())
 	require.True(t, enrolledAt.Equal(got.GetEnrolledAt().AsTime()))
