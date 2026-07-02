@@ -135,7 +135,7 @@ func TestMergeFilesIntoKWayNewerWinsTieIndexesAndDropsAssets(t *testing.T) {
 	require.NotContains(t, grants, "shared", "same structured identity is superseded by tie")
 	require.Equal(t, "bob", grants["tie"].GetPrincipal().GetResourceId(), "retained external_id map observes later structured identity")
 	var byEntitlement []string
-	require.NoError(t, dest.IterateGrantsByEntitlement(ctx, "group:engineering:custom:member", func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.IterateGrantsByEntitlement(ctx, "member", func(g *v3.GrantRecord) bool {
 		byEntitlement = append(byEntitlement, g.GetExternalId())
 		return true
 	}))

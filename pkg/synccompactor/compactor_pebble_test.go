@@ -22,7 +22,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
-	batonEntitlement "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
@@ -539,11 +538,10 @@ func compactFixturePrincipalID(grantID string) string {
 	return grantID
 }
 
+// compactInputGrantID: stored external ids now round-trip verbatim, so the
+// converted output emits the fixture's own grant id.
 func compactInputGrantID(grantID string) string {
-	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
-	user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: compactFixturePrincipalID(grantID)}.Build()}.Build()
-	member := v2.Entitlement_builder{Id: "member", Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build()
-	return batonGrant.NewGrantID(user, member)
+	return grantID
 }
 
 func overlayGrantID(entitlementID, principalID string) string {
@@ -554,7 +552,7 @@ func overlayGrantID(entitlementID, principalID string) string {
 }
 
 func overlayEntitlementID(entitlementID string) string {
-	return batonEntitlement.EncodeEntitlementID("group", "engineering", batonEntitlement.EntitlementKindCustom, entitlementID)
+	return entitlementID
 }
 
 func orderedTestSyncIDs() (string, string) {
@@ -731,8 +729,10 @@ func buildOverlayInput(t testing.TB, ctx context.Context, path string, spec over
 		if g.principalID == "bob" {
 			principalID = bob
 		}
+		// SDK-shaped grant id (the concat) so bare-id GetGrant queries in
+		// these tests resolve; spec ids only label expansion assertions.
 		grant := v2.Grant_builder{
-			Id:          g.id,
+			Id:          overlayGrantID(g.entitlementID, g.principalID),
 			Principal:   principalID,
 			Entitlement: v2.Entitlement_builder{Id: g.entitlementID, Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build(),
 		}.Build()
@@ -838,7 +838,7 @@ func TestCompactPebbleOverlayMaterializesAllQueryIndexes(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, next)
 	require.Len(t, pending, 1)
-	require.Equal(t, "g-bob-admin", pending[0].GrantExternalID)
+	require.Equal(t, overlayGrantID("admin", "bob"), pending[0].GrantExternalID)
 }
 
 func TestCompactPebbleOverlayFirstSeenWinsForOverlappingGrant(t *testing.T) {
@@ -967,7 +967,7 @@ func TestCompactPebbleOverlayWholeBaseBucketFastPathIndexesBaseGrants(t *testing
 	pending, _, err := store.Grants().PendingExpansionPage(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, pending, 1)
-	require.Equal(t, "base-bob", pending[0].GrantExternalID)
+	require.Equal(t, overlayGrantID("admin", "bob"), pending[0].GrantExternalID)
 }
 
 // TestCompactPebbleStatsSidecarMatchesRecompute pins that compaction

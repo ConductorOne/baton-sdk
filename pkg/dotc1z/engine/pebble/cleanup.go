@@ -91,6 +91,7 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 				return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)
 			}
 		}
+		e.noteEntitlementKeyspaceWrite()
 		return nil
 	})
 }

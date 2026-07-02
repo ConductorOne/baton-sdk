@@ -167,11 +167,17 @@ func assertFoldWinners(t *testing.T, ctx context.Context, eng *enginepkg.Engine,
 	res, err := eng.GetResourceRecord(ctx, "user", "u1")
 	require.NoError(t, err)
 	require.Equal(t, resDN, res.GetDisplayName(), "resource winner")
-	ent, err := eng.GetEntitlementRecord(ctx, "user:u1:custom:e-1")
+	ent, err := eng.GetEntitlementRecord(ctx, "e-1")
 	require.NoError(t, err)
 	require.Equal(t, entDN, ent.GetDisplayName(), "entitlement winner")
-	g, err := eng.GetGrantRecord(ctx, "app:github:custom:g-1:user:"+grantPrincipal)
-	require.NoError(t, err)
+	// Grants carry connector-custom external ids in these fixtures, so
+	// address the row by refs via the by_principal index.
+	var g *v3.GrantRecord
+	require.NoError(t, eng.IterateGrantsByPrincipal(ctx, "user", grantPrincipal, func(r *v3.GrantRecord) bool {
+		g = r
+		return false
+	}))
+	require.NotNil(t, g, "grant winner present")
 	require.Equal(t, grantPrincipal, g.GetPrincipal().GetResourceId(), "grant winner")
 }
 

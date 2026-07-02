@@ -65,7 +65,7 @@ func TestGrantReadArenaPopulatedRoundtrip(t *testing.T) {
 	for _, g := range got {
 		e := g.GetEntitlement()
 		require.NotNil(t, e, "GetEntitlement()")
-		require.Equal(t, "ent-A", e.GetEntitlementId(), "GetEntitlement()")
+		require.Equal(t, canonicalTestEntID("ent-A"), e.GetEntitlementId(), "GetEntitlement()")
 		p := g.GetPrincipal()
 		require.NotNil(t, p, "GetPrincipal()")
 	}

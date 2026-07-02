@@ -10,7 +10,6 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	entitlementtype "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/stretchr/testify/require"
 )
 
@@ -362,12 +361,8 @@ func seedSQLiteBaseData(t *testing.T, ctx context.Context, store dotc1z.C1ZStore
 func buildGraphFromCase(t *testing.T, ctx context.Context, tc sqliteParityCase, engine dotc1z.Engine) *EntitlementGraph {
 	t.Helper()
 	graph := NewEntitlementGraph(ctx)
-	entID := func(id string) string {
-		if engine == dotc1z.EnginePebble {
-			return entitlementtype.EncodeEntitlementID("group", "org", entitlementtype.EntitlementKindCustom, id)
-		}
-		return id
-	}
+	// Raw ids are pass-through on both engines; no per-engine encoding.
+	entID := func(id string) string { return id }
 	for _, id := range tc.entitlementIDs {
 		graph.AddEntitlementID(entID(id))
 	}
@@ -397,17 +392,17 @@ func readBackGrantSnapshot(t *testing.T, ctx context.Context, store dotc1z.C1ZSt
 			sources := g.GetSources().GetSources()
 			sourceDirect := make(map[string]bool, len(sources))
 			for sourceID, src := range sources {
-				sourceDirect[normalizeSnapshotEntitlementID(sourceID)] = src.GetIsDirect()
+				sourceDirect[sourceID] = src.GetIsDirect()
 			}
 			annTypes := make([]string, 0, len(g.GetAnnotations()))
 			for _, a := range g.GetAnnotations() {
 				annTypes = append(annTypes, a.GetTypeUrl())
 			}
 			sort.Strings(annTypes)
-			key := normalizeSnapshotEntitlementID(g.GetEntitlement().GetId()) + "\x00" + g.GetPrincipal().GetId().GetResourceType() + "\x00" + g.GetPrincipal().GetId().GetResource()
+			key := g.GetEntitlement().GetId() + "\x00" + g.GetPrincipal().GetId().GetResourceType() + "\x00" + g.GetPrincipal().GetId().GetResource()
 			out[key] = storeGrantSnapshot{
 				id:              g.GetId(),
-				entitlement:     normalizeSnapshotEntitlementID(g.GetEntitlement().GetId()),
+				entitlement:     g.GetEntitlement().GetId(),
 				principalRT:     g.GetPrincipal().GetId().GetResourceType(),
 				principalID:     g.GetPrincipal().GetId().GetResource(),
 				sourceDirect:    sourceDirect,

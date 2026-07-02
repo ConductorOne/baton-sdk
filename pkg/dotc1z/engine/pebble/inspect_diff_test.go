@@ -550,8 +550,8 @@ func grantIdentityFromLegacyGrantValue(value []byte) (string, bool, error) {
 	if entRT == "" || entRID == "" || entID == "" || principalRT == "" || principalID == "" {
 		return "", false, nil
 	}
-	ent := entitlementIdentityFromLegacyParts(entRT, entRID, entID)
-	return strings.Join([]string{ent.resourceTypeID, ent.resourceID, ent.kind, ent.name, principalRT, principalID}, "\x1f"), true, nil
+	ent := entitlementIdentityFromParts(entRT, entRID, entID)
+	return strings.Join([]string{ent.resourceTypeID, ent.resourceID, ent.flagComponent(), ent.tail, principalRT, principalID}, "\x1f"), true, nil
 }
 
 func identityHash(identity string) string {
@@ -628,8 +628,8 @@ func fetchGrantForByEntitlementKey(db *cpebble.DB, key []byte, layout string) (*
 			entitlement: entitlementIdentity{
 				resourceTypeID: parts[0],
 				resourceID:     parts[1],
-				kind:           parts[2],
-				name:           parts[3],
+				stripped:       parts[2] == idFlagStripped,
+				tail:           parts[3],
 			},
 			principalTypeID: parts[4],
 			principalID:     parts[5],

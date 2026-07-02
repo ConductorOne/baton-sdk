@@ -98,7 +98,7 @@ func TestListGrantsForEntitlementPostFilterDoesNotSkip(t *testing.T) {
 		require.LessOrEqual(t, pages, 10, "ListGrantsForEntitlement did not terminate after %d pages", pages)
 		resp, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 			Entitlement: v2.Entitlement_builder{
-				Id: "ent-A",
+				Id: canonicalTestEntID("ent-A"),
 				Resource: v2.Resource_builder{
 					Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build(),
 				}.Build(),

@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
@@ -16,7 +17,8 @@ import (
 )
 
 // grantDiscoveredAt reads one grant's discovered_at from the Pebble c1z
-// at path, under syncID.
+// at path, under syncID. Fixture grant ids are connector-custom (no concat
+// shape), so the row is addressed by refs via the by_principal index.
 func grantDiscoveredAt(t *testing.T, ctx context.Context, path, syncID, grantID string) time.Time {
 	t.Helper()
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
@@ -24,11 +26,14 @@ func grantDiscoveredAt(t *testing.T, ctx context.Context, path, syncID, grantID 
 	defer w.Close(ctx)
 	eng, ok := enginepkg.AsEngine(w)
 	require.True(t, ok, "store at %s is not a pebble engine", path)
-	rec, err := eng.GetGrantRecord(ctx, grantID)
-	if err != nil {
-		rec, err = eng.GetGrantRecord(ctx, compactInputGrantID(grantID))
-	}
-	require.NoError(t, err)
+	// One grant per principal in these fixtures (entitlement is always
+	// "member"), so the principal scan identifies the row exactly.
+	var rec *v3.GrantRecord
+	require.NoError(t, eng.IterateGrantsByPrincipal(ctx, "user", compactFixturePrincipalID(grantID), func(r *v3.GrantRecord) bool {
+		rec = r
+		return false
+	}))
+	require.NotNil(t, rec, "grant %s not found in %s", grantID, path)
 	return rec.GetDiscoveredAt().AsTime()
 }
 

@@ -43,21 +43,11 @@ func mkV2Grant(id, entID, principalRT, principalID string) *v2.Grant {
 }
 
 func canonicalTestEntID(entID string) string {
-	return entitlementIdentityFromParts("app", "github", entID).toPublicID()
+	return "app:github:" + entID
 }
 
 func canonicalTestGrantID(entID, principalRT, principalID string) string {
-	return canonicalGrantRecordID(v3.GrantRecord_builder{
-		Entitlement: v3.EntitlementRef_builder{
-			ResourceTypeId: "app",
-			ResourceId:     "github",
-			EntitlementId:  entID,
-		}.Build(),
-		Principal: v3.PrincipalRef_builder{
-			ResourceTypeId: principalRT,
-			ResourceId:     principalID,
-		}.Build(),
-	}.Build())
+	return canonicalTestEntID(entID) + ":" + principalRT + ":" + principalID
 }
 
 func TestAdapterStartSyncAndPutGrants(t *testing.T) {

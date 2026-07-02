@@ -345,7 +345,8 @@ func TestDeleteThenPutCleansAndRewrites(t *testing.T) {
 	syncID := ksuid.New().String()
 	require.NoError(t, e.SetCurrentSync(syncID))
 	for i := 0; i < 5; i++ {
-		require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g"+strconv.Itoa(i), "ent-A", "alice-"+strconv.Itoa(i))))
+		p := "alice-" + strconv.Itoa(i)
+		require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, canonicalTestGrantID("ent-A", "user", p), "ent-A", p)))
 	}
 	require.NoError(t, e.DeleteGrantRecord(ctx, canonicalTestGrantID("ent-A", "user", "alice-2")))
 	// by_ent(ent-A) should have 4 entries (5 - 1 deleted).
@@ -356,8 +357,8 @@ func TestDeleteThenPutCleansAndRewrites(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, 4, n, "after delete: by_ent count")
-	// Re-Put g2 with different indexed fields.
-	require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-C", "carol")))
+	// Re-Put the deleted principal's grant with different indexed fields.
+	require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, canonicalTestGrantID("ent-C", "user", "carol"), "ent-C", "carol")))
 	// by_ent(ent-A) still 4; by_ent(ent-C) = 1.
 	n = 0
 	err = e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {

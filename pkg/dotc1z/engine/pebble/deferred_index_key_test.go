@@ -13,26 +13,26 @@ import (
 func TestAppendGrantByPrincipalKeyFromPrimary(t *testing.T) {
 	ids := []grantIdentity{
 		{
-			entitlement:     entitlementIdentity{resourceTypeID: "group", resourceID: "g1", kind: "entitlement", name: "member"},
+			entitlement:     entitlementIdentity{resourceTypeID: "group", resourceID: "g1", stripped: true, tail: "member"},
 			principalTypeID: "user",
 			principalID:     "u1",
 		},
 		// Empty components.
 		{
-			entitlement:     entitlementIdentity{resourceTypeID: "", resourceID: "g1", kind: "", name: "member"},
+			entitlement:     entitlementIdentity{resourceTypeID: "", resourceID: "g1", tail: "member"},
 			principalTypeID: "user",
 			principalID:     "",
 		},
 		// Escape-triggering bytes (0x00 and 0x01) in components: the splice
 		// must carry the escaped forms through untouched.
 		{
-			entitlement:     entitlementIdentity{resourceTypeID: "gr\x00oup", resourceID: "g\x011", kind: "k\x00\x01", name: "\x00"},
+			entitlement:     entitlementIdentity{resourceTypeID: "gr\x00oup", resourceID: "g\x011", tail: "\x00k\x00\x01"},
 			principalTypeID: "us\x01er",
 			principalID:     "u\x00\x001",
 		},
 		// High bytes / unicode.
 		{
-			entitlement:     entitlementIdentity{resourceTypeID: "grüppe", resourceID: string([]byte{0xff, 0xfe}), kind: "ent", name: "членство"},
+			entitlement:     entitlementIdentity{resourceTypeID: "grüppe", resourceID: string([]byte{0xff, 0xfe}), stripped: true, tail: "членство"},
 			principalTypeID: "user",
 			principalID:     "u-é",
 		},

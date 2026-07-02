@@ -50,7 +50,41 @@ type dirtyFlusher struct {
 	synthPrincipals  []*v3.PrincipalRef
 	synthSources     []batonGrant.Sources
 	synthSourceArena []batonGrant.Source
-	update           []*v2.Grant
+	// refSlab hands out the PrincipalRef protos synthPrincipals point into.
+	// Reset after each flush: the storeSynth implementations encode
+	// everything during the call and retain nothing.
+	refSlab principalRefSlab
+	update  []*v2.Grant
+}
+
+// principalRefSlab hands out reusable *v3.PrincipalRef values from
+// fixed-size chunks. Chunks are value slices allocated once and never
+// resliced or copied (generated protos must not be moved), so growth only
+// appends chunk headers. reset() recycles every handed-out ref; consumers
+// re-set all fields on reuse (principalRefData.fillRef).
+type principalRefSlab struct {
+	chunks [][]v3.PrincipalRef
+	chunk  int
+	used   int
+}
+
+const principalRefSlabChunk = 4096
+
+func (s *principalRefSlab) next() *v3.PrincipalRef {
+	if s.chunk == len(s.chunks) {
+		s.chunks = append(s.chunks, make([]v3.PrincipalRef, principalRefSlabChunk))
+	}
+	ref := &s.chunks[s.chunk][s.used]
+	s.used++
+	if s.used == principalRefSlabChunk {
+		s.chunk++
+		s.used = 0
+	}
+	return ref
+}
+
+func (s *principalRefSlab) reset() {
+	s.chunk, s.used = 0, 0
 }
 
 func newDirtyFlusher(dest *v2.Entitlement, sink *destinationSink) *dirtyFlusher {
@@ -87,13 +121,15 @@ func (f *dirtyFlusher) addSynthesizedContribution(ctx context.Context, contrib *
 		}
 		return f.add(ctx, grant, true)
 	}
-	sourceStart := len(f.synthSourceArena)
-	f.synthSourceArena = append(f.synthSourceArena, sources...)
-	principalRef, ok := contrib.principalRefForStore()
+	data, ok := contrib.principalRefForStore()
 	if !ok {
 		return nil
 	}
-	f.synthPrincipals = append(f.synthPrincipals, principalRef)
+	sourceStart := len(f.synthSourceArena)
+	f.synthSourceArena = append(f.synthSourceArena, sources...)
+	ref := f.refSlab.next()
+	data.fillRef(ref)
+	f.synthPrincipals = append(f.synthPrincipals, ref)
 	f.synthSources = append(f.synthSources, f.synthSourceArena[sourceStart:])
 	if len(f.synthPrincipals) >= f.limit {
 		return f.flushSynth(ctx)
@@ -116,6 +152,9 @@ func (f *dirtyFlusher) flushSynth(ctx context.Context) error {
 		f.synthPrincipals = f.synthPrincipals[:0]
 		f.synthSources = f.synthSources[:0]
 		f.synthSourceArena = f.synthSourceArena[:0]
+		// storeSynth encoded everything during the call; the slab's refs are
+		// free to reuse for the next batch.
+		f.refSlab.reset()
 	}
 	if len(f.synth) == 0 {
 		return nil
@@ -664,9 +703,9 @@ func (c *topoContribution) resetForReuse() {
 	c.principal.reset()
 }
 
-func (c *topoContribution) principalRefForStore() (*v3.PrincipalRef, bool) {
+func (c *topoContribution) principalRefForStore() (principalRefData, bool) {
 	if c == nil {
-		return nil, false
+		return principalRefData{}, false
 	}
 	return c.principal.refForStore()
 }
@@ -678,65 +717,90 @@ func (c *topoContribution) principalResource() (*v2.Resource, error) {
 	return c.principal.resource()
 }
 
+// principalRefData is the identity-only principal form as plain strings —
+// the value-type equivalent of v3.PrincipalRef. Contributions carry this
+// instead of a proto so per-row proto allocation happens exactly once, in
+// the flusher's reusable slab, rather than at every projection-row decode
+// (54M+ rows per whale expansion made PrincipalRef_builder.Build a top
+// allocation site).
+type principalRefData struct {
+	resourceTypeID       string
+	resourceID           string
+	parentResourceTypeID string
+	parentResourceID     string
+	ok                   bool
+}
+
+func (d principalRefData) fillRef(ref *v3.PrincipalRef) {
+	// Every field is assigned unconditionally: refs come from a reused slab
+	// and a conditionally-set field would leak the previous occupant's value.
+	ref.SetResourceTypeId(d.resourceTypeID)
+	ref.SetResourceId(d.resourceID)
+	ref.SetParentResourceTypeId(d.parentResourceTypeID)
+	ref.SetParentResourceId(d.parentResourceID)
+}
+
 type topoPrincipal struct {
 	// full is the full principal payload used by generic fallback stores.
 	full *v2.Resource
-	// ref is the identity-only form Pebble can persist without unmarshalling the
-	// full Resource. resourceBytes is kept only so fallback stores preserve rich
-	// principal payload when projection rows are the source.
-	ref           *v3.PrincipalRef
+	// refData is the identity-only form Pebble can persist without
+	// unmarshalling the full Resource. resourceBytes is kept only so fallback
+	// stores preserve rich principal payload when projection rows are the
+	// source.
+	refData       principalRefData
 	resourceBytes []byte
 }
 
 func (p *topoPrincipal) empty() bool {
-	return p.full == nil && p.ref == nil && len(p.resourceBytes) == 0
+	return p.full == nil && !p.refData.ok && len(p.resourceBytes) == 0
 }
 
 func (p *topoPrincipal) reset() {
 	p.full = nil
-	p.ref = nil
+	p.refData = principalRefData{}
 	// Keep capacity: setRef appends into this buffer on the next group.
 	p.resourceBytes = p.resourceBytes[:0]
 }
 
 func (p *topoPrincipal) setResource(resource *v2.Resource) {
 	p.full = proto.Clone(resource).(*v2.Resource)
-	p.ref = nil
+	p.refData = principalRefData{}
 	p.resourceBytes = nil
 }
 
-func (p *topoPrincipal) setRef(ref *v3.PrincipalRef, resourceBytes []byte) {
+func (p *topoPrincipal) setRef(data principalRefData, resourceBytes []byte) {
 	p.full = nil
-	p.ref = ref
+	p.refData = data
 	p.resourceBytes = append(p.resourceBytes[:0], resourceBytes...)
 }
 
 func (p *topoPrincipal) take(other topoPrincipal) {
 	if other.full != nil {
 		p.full = other.full
-		p.ref = nil
+		p.refData = principalRefData{}
 		p.resourceBytes = nil
 		return
 	}
 	p.full = nil
-	p.ref = other.ref
+	p.refData = other.refData
 	p.resourceBytes = append(p.resourceBytes[:0], other.resourceBytes...)
 }
 
-func (p *topoPrincipal) refForStore() (*v3.PrincipalRef, bool) {
-	if p.ref != nil {
-		return p.ref, true
+func (p *topoPrincipal) refForStore() (principalRefData, bool) {
+	if p.refData.ok {
+		return p.refData, true
 	}
 	if p.full == nil || p.full.GetId() == nil {
-		return nil, false
+		return principalRefData{}, false
 	}
 	parent := p.full.GetParentResourceId()
-	return v3.PrincipalRef_builder{
-		ResourceTypeId:       p.full.GetId().GetResourceType(),
-		ResourceId:           p.full.GetId().GetResource(),
-		ParentResourceTypeId: parent.GetResourceType(),
-		ParentResourceId:     parent.GetResource(),
-	}.Build(), true
+	return principalRefData{
+		resourceTypeID:       p.full.GetId().GetResourceType(),
+		resourceID:           p.full.GetId().GetResource(),
+		parentResourceTypeID: parent.GetResourceType(),
+		parentResourceID:     parent.GetResource(),
+		ok:                   true,
+	}, true
 }
 
 func (p *topoPrincipal) resource() (*v2.Resource, error) {
@@ -752,29 +816,41 @@ func (p *topoPrincipal) resource() (*v2.Resource, error) {
 		p.resourceBytes = nil
 		return resource, nil
 	}
-	if p.ref == nil {
+	if !p.refData.ok {
 		return nil, nil
 	}
-	resource := principalResourceFromRef(p.ref)
+	resource := principalResourceFromRefData(p.refData)
 	p.full = resource
 	return resource, nil
 }
 
+// principalResourceFromRef adapts a proto ref for consumers that hold one
+// (fallback stores handed []*v3.PrincipalRef).
 func principalResourceFromRef(ref *v3.PrincipalRef) *v2.Resource {
 	if ref == nil {
 		return nil
 	}
+	return principalResourceFromRefData(principalRefData{
+		resourceTypeID:       ref.GetResourceTypeId(),
+		resourceID:           ref.GetResourceId(),
+		parentResourceTypeID: ref.GetParentResourceTypeId(),
+		parentResourceID:     ref.GetParentResourceId(),
+		ok:                   true,
+	})
+}
+
+func principalResourceFromRefData(data principalRefData) *v2.Resource {
 	var parent *v2.ResourceId
-	if ref.GetParentResourceId() != "" {
+	if data.parentResourceID != "" {
 		parent = v2.ResourceId_builder{
-			ResourceType: ref.GetParentResourceTypeId(),
-			Resource:     ref.GetParentResourceId(),
+			ResourceType: data.parentResourceTypeID,
+			Resource:     data.parentResourceID,
 		}.Build()
 	}
 	return v2.Resource_builder{
 		Id: v2.ResourceId_builder{
-			ResourceType: ref.GetResourceTypeId(),
-			Resource:     ref.GetResourceId(),
+			ResourceType: data.resourceTypeID,
+			Resource:     data.resourceID,
 		}.Build(),
 		ParentResourceId: parent,
 	}.Build()

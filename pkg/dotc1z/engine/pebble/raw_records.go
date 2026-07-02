@@ -139,6 +139,39 @@ func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, v
 	return batch.Delete(encodeGrantByNeedsExpansionIdentityIndexKey(id), nil)
 }
 
+// scanGrantExternalIDRaw extracts only the stored external_id (field 2)
+// from a marshaled GrantRecord. Used by the bare-id grant lookup to check
+// a probe hit's public id without a full unmarshal. Last occurrence wins,
+// matching the full scanners.
+func scanGrantExternalIDRaw(value []byte) (string, error) {
+	var externalID string
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return "", protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != 2 {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return "", protowire.ParseError(n)
+			}
+			value = value[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return "", fmt.Errorf("raw record: grant external_id has wire type %v", typ)
+		}
+		v, n := protowire.ConsumeString(value)
+		if n < 0 {
+			return "", protowire.ParseError(n)
+		}
+		externalID = v
+		value = value[n:]
+	}
+	return externalID, nil
+}
+
 // scanGrantEntitlementResourceTypeRaw extracts only the entitlement's
 // resource_type_id from a marshaled GrantRecord, borrowing the bytes
 // from value. The stats grouping path needs just this one field;

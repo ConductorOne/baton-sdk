@@ -43,4 +43,10 @@ var (
 	ErrSaveDestExists                = sentinel(codes.AlreadyExists, "pebble engine: save destination already exists")
 	ErrCrossFilesystem               = sentinel(codes.InvalidArgument, "pebble engine: save tmpDir and dest must be on the same filesystem")
 	ErrInvalidPageToken              = sentinel(codes.InvalidArgument, "pebble engine: invalid page token")
+	// ErrAmbiguousExternalID is returned by the bare-id lookup edge when a
+	// lossy public id string matches more than one record (or has too many
+	// candidate parses to certify uniqueness). Callers that hold structured
+	// refs never hit this; it exists so a lossy string can never silently
+	// address the wrong record.
+	ErrAmbiguousExternalID = sentinel(codes.FailedPrecondition, "pebble engine: external id is ambiguous")
 )

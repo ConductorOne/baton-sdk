@@ -113,8 +113,8 @@ func appendGrantIdentityKey(dst []byte, id grantIdentity) []byte {
 		dst,
 		id.entitlement.resourceTypeID,
 		id.entitlement.resourceID,
-		id.entitlement.kind,
-		id.entitlement.name,
+		id.entitlement.flagComponent(),
+		id.entitlement.tail,
 		id.principalTypeID,
 		id.principalID,
 	)
@@ -184,8 +184,8 @@ func appendGrantByPrincipalIdentityIndexKey(dst []byte, id grantIdentity) []byte
 		id.principalID,
 		id.entitlement.resourceTypeID,
 		id.entitlement.resourceID,
-		id.entitlement.kind,
-		id.entitlement.name,
+		id.entitlement.flagComponent(),
+		id.entitlement.tail,
 	)
 }
 
@@ -193,7 +193,7 @@ func encodeGrantPrimaryEntitlementPrefix(id entitlementIdentity) []byte {
 	buf := make([]byte, 0, 128)
 	buf = append(buf, versionV3, typeGrant)
 	buf = codec.AppendTupleSeparator(buf)
-	buf = codec.AppendTupleStrings(buf, id.resourceTypeID, id.resourceID, id.kind, id.name)
+	buf = codec.AppendTupleStrings(buf, id.resourceTypeID, id.resourceID, id.flagComponent(), id.tail)
 	return codec.AppendTupleSeparator(buf)
 }
 
@@ -237,8 +237,8 @@ func appendGrantByNeedsExpansionIdentityIndexKey(dst []byte, id grantIdentity) [
 		dst,
 		id.entitlement.resourceTypeID,
 		id.entitlement.resourceID,
-		id.entitlement.kind,
-		id.entitlement.name,
+		id.entitlement.flagComponent(),
+		id.entitlement.tail,
 		id.principalTypeID,
 		id.principalID,
 	)
@@ -353,7 +353,7 @@ func encodeEntitlementIdentityKey(id entitlementIdentity) []byte {
 func appendEntitlementIdentityKey(dst []byte, id entitlementIdentity) []byte {
 	dst = append(dst, versionV3, typeEntitlement)
 	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleStrings(dst, id.resourceTypeID, id.resourceID, id.kind, id.name)
+	return codec.AppendTupleStrings(dst, id.resourceTypeID, id.resourceID, id.flagComponent(), id.tail)
 }
 
 // encodeEntitlementPrefix is the by-type prefix for entitlements.

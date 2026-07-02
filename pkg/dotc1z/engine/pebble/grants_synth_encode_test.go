@@ -248,7 +248,6 @@ func TestFillSynthGrantRecordSchemaPin(t *testing.T) {
 	}
 	require.Equal(t, []string{
 		"id:pebble.grantIdentity",
-		"externalID:string",
 		"entitlement:*v3.EntitlementRef",
 		"principal:*v3.PrincipalRef",
 		"sources:grant.Sources",
@@ -265,7 +264,11 @@ func TestFillSynthGrantRecordReuse(t *testing.T) {
 	now := timestamppb.Now()
 	rows := []synthesizedGrantRecord{
 		{
-			externalID:  "grant-1",
+			id: grantIdentity{
+				entitlement:     entitlementIdentityFromParts("group", "g1", "e1"),
+				principalTypeID: "user",
+				principalID:     "u1",
+			},
 			entitlement: v3.EntitlementRef_builder{ResourceTypeId: "group", ResourceId: "g1", EntitlementId: "e1"}.Build(),
 			principal:   v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "u1", ParentResourceTypeId: "org", ParentResourceId: "o1"}.Build(),
 			sources:     batonGrant.Sources{{EntitlementID: "src-a", IsDirect: true}},
@@ -273,7 +276,11 @@ func TestFillSynthGrantRecordReuse(t *testing.T) {
 		// Second row is "smaller" than the first (no parent refs): stale
 		// values from row one would show up here if anything leaked.
 		{
-			externalID:  "grant-2",
+			id: grantIdentity{
+				entitlement:     entitlementIdentityFromParts("role", "r1", "e2"),
+				principalTypeID: "user",
+				principalID:     "u2",
+			},
 			entitlement: v3.EntitlementRef_builder{ResourceTypeId: "role", ResourceId: "r1", EntitlementId: "e2"}.Build(),
 			principal:   v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "u2"}.Build(),
 			sources:     batonGrant.Sources{{EntitlementID: "src-b", IsDirect: false}},
@@ -284,13 +291,16 @@ func TestFillSynthGrantRecordReuse(t *testing.T) {
 	var srcScratch batonGrant.Sources
 	for i := range rows {
 		rec := &rows[i]
+		// The writers' exact byte layout: external_id (field 2) prepended,
+		// base marshal of the reused record, sources (field 9) appended.
+		got := appendSynthGrantExternalIDWire(nil, rec)
 		fillSynthGrantRecord(reused, rec, now)
-		got, err := marshalRecordAppend(nil, reused)
+		got, err := marshalRecordAppend(got, reused)
 		require.NoError(t, err)
 		got, srcScratch = appendGrantSourcesWire(got, srcScratch, rec.sources)
 
 		fresh := v3.GrantRecord_builder{
-			ExternalId:   rec.externalID,
+			ExternalId:   rec.entitlement.GetEntitlementId() + ":" + rec.id.principalTypeID + ":" + rec.id.principalID,
 			Entitlement:  rec.entitlement,
 			Principal:    rec.principal,
 			Annotations:  []*anypb.Any{expandedGrantImmutableAnnotationAny},

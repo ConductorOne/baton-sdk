@@ -115,7 +115,6 @@ func appendSynthesizedGrantRecords(records []synthesizedGrantRecord, dest *v2.En
 		return records, fmt.Errorf("store new expanded grant contributions: entitlement is nil")
 	}
 	entID := entitlementIdentityFromParts(entRef.GetResourceTypeId(), entRef.GetResourceId(), entRef.GetEntitlementId())
-	entParts := entID.toPublicParts()
 	for i, principal := range principals {
 		if principal == nil || principal.GetResourceTypeId() == "" || principal.GetResourceId() == "" {
 			continue
@@ -128,9 +127,11 @@ func appendSynthesizedGrantRecords(records []synthesizedGrantRecord, dest *v2.En
 			principalTypeID: principal.GetResourceTypeId(),
 			principalID:     principal.GetResourceId(),
 		}
+		// The public external id (the legacy concat) is not materialized
+		// here: the engine encoders build it directly on the wire from the
+		// refs (appendSynthGrantExternalIDWire).
 		records = append(records, synthesizedGrantRecord{
 			id:          id,
-			externalID:  batonGrant.EncodeGrantID(entParts, id.principalTypeID, id.principalID),
 			entitlement: entRef,
 			principal:   principal,
 			sources:     sources[i],
@@ -255,26 +256,15 @@ func (g pebbleGrantStore) PendingExpansionPage(ctx context.Context, pageToken st
 		exp := rec.GetExpansion()
 		ent := rec.GetEntitlement()
 		princ := rec.GetPrincipal()
-		targetEntitlementID := entitlementIdentityFromParts(
-			ent.GetResourceTypeId(),
-			ent.GetResourceId(),
-			ent.GetEntitlementId(),
-		).toPublicID()
-		sourceEntitlementIDs := make([]string, 0, len(exp.GetEntitlementIds()))
-		for _, id := range exp.GetEntitlementIds() {
-			sourceEntitlementIDs = append(sourceEntitlementIDs, entitlementIdentityFromParts(
-				princ.GetResourceTypeId(),
-				princ.GetResourceId(),
-				id,
-			).toPublicID())
-		}
+		// Raw pass-through: refs and expandable ids are the connector's own
+		// strings; the graph, sources maps, and stored refs all share them.
 		out = append(out, c1zstore.PendingExpansion{
 			GrantExternalID:         rec.GetExternalId(),
-			TargetEntitlementID:     targetEntitlementID,
+			TargetEntitlementID:     ent.GetEntitlementId(),
 			PrincipalResourceTypeID: princ.GetResourceTypeId(),
 			PrincipalResourceID:     princ.GetResourceId(),
 			Annotation: v2.GrantExpandable_builder{
-				EntitlementIds:  sourceEntitlementIDs,
+				EntitlementIds:  exp.GetEntitlementIds(),
 				Shallow:         exp.GetShallow(),
 				ResourceTypeIds: exp.GetResourceTypeIds(),
 			}.Build(),
@@ -329,28 +319,11 @@ func (g pebbleGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken
 	for _, rec := range records {
 		ent := rec.GetEntitlement()
 		princ := rec.GetPrincipal()
-		targetEntitlementID := entitlementIdentityFromParts(
-			ent.GetResourceTypeId(),
-			ent.GetResourceId(),
-			ent.GetEntitlementId(),
-		).toPublicID()
-		expansion := expansionRecordToV2(rec.GetExpansion())
-		if expansion != nil {
-			sourceEntitlementIDs := make([]string, 0, len(expansion.GetEntitlementIds()))
-			for _, id := range expansion.GetEntitlementIds() {
-				sourceEntitlementIDs = append(sourceEntitlementIDs, entitlementIdentityFromParts(
-					princ.GetResourceTypeId(),
-					princ.GetResourceId(),
-					id,
-				).toPublicID())
-			}
-			expansion.SetEntitlementIds(sourceEntitlementIDs)
-		}
 		rows = append(rows, c1zstore.GrantAnnotation{
 			Grant:                   V3GrantToV2(rec),
-			Annotation:              expansion,
+			Annotation:              expansionRecordToV2(rec.GetExpansion()),
 			GrantExternalID:         rec.GetExternalId(),
-			TargetEntitlementID:     targetEntitlementID,
+			TargetEntitlementID:     ent.GetEntitlementId(),
 			PrincipalResourceTypeID: princ.GetResourceTypeId(),
 			PrincipalResourceID:     princ.GetResourceId(),
 			NeedsExpansion:          rec.GetNeedsExpansion(),

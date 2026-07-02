@@ -24,16 +24,42 @@ var expandedGrantImmutableAnnotations = []*anypb.Any{expandedGrantImmutableAnnot
 //
 // INVARIANT: every field the synthesized writers emit must be assigned here
 // unconditionally — a conditionally-set field would leak the previous row's
-// value through the reused struct. Sources is intentionally NOT set: the
-// writers hand-encode it onto the wire after the base marshal
-// (appendGrantSourcesWire); Expansion/NeedsExpansion stay zero for
+// value through the reused struct. Two fields are intentionally NOT set
+// because the writers hand-encode them onto the wire around the base
+// marshal: external_id (field 2, prepended by
+// appendSynthGrantExternalIDWire) and sources (field 9, appended by
+// appendGrantSourcesWire). Expansion/NeedsExpansion stay zero for
 // synthesized grants.
 func fillSynthGrantRecord(r *v3.GrantRecord, rec *synthesizedGrantRecord, now *timestamppb.Timestamp) {
-	r.SetExternalId(rec.externalID)
 	r.SetEntitlement(rec.entitlement)
 	r.SetPrincipal(rec.principal)
 	r.SetAnnotations(expandedGrantImmutableAnnotations)
 	r.SetDiscoveredAt(now)
+}
+
+// grantExternalIDFieldTag is the wire tag for GrantRecord.external_id (2).
+var grantExternalIDFieldTag = protowire.EncodeTag(2, protowire.BytesType)
+
+// appendSynthGrantExternalIDWire appends GrantRecord.external_id (field 2)
+// carrying the legacy concat public id — byte-identical to what the SDK's
+// NewGrantID emits — built directly on the wire so no per-row string is
+// materialized (54M+ concat strings per whale expansion showed up as a
+// top-3 allocation site). external_id is the lowest-numbered field the
+// synthesized writers emit (sync_id is never set), so emitting it BEFORE
+// the base marshal of the remaining fields preserves the canonical
+// ascending field order; byte equality with a fresh reflective marshal is
+// pinned by TestFillSynthGrantRecordReuse.
+func appendSynthGrantExternalIDWire(dst []byte, rec *synthesizedGrantRecord) []byte {
+	entID := rec.entitlement.GetEntitlementId()
+	n := len(entID) + 1 + len(rec.id.principalTypeID) + 1 + len(rec.id.principalID)
+	dst = protowire.AppendVarint(dst, grantExternalIDFieldTag)
+	dst = protowire.AppendVarint(dst, uint64(n)) // #nosec G115 -- n is a small positive length.
+	dst = append(dst, entID...)
+	dst = append(dst, ':')
+	dst = append(dst, rec.id.principalTypeID...)
+	dst = append(dst, ':')
+	dst = append(dst, rec.id.principalID...)
+	return dst
 }
 
 // Wire tags for the hand-encoded GrantRecord.sources map field. A protobuf

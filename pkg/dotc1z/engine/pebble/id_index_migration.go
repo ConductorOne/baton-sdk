@@ -11,8 +11,11 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
@@ -83,7 +86,12 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 	if err := e.recomputeStatsAfterIDIndexMigration(ctx); err != nil {
 		return err
 	}
-	return e.writeIDIndexFormat(idIndexFormatStructuredV1)
+	e.noteEntitlementKeyspaceWrite()
+	if err := e.writeIDIndexFormat(idIndexFormatCurrent); err != nil {
+		return err
+	}
+	e.migratedOnOpen = true
+	return nil
 }
 
 func (e *Engine) recomputeStatsAfterIDIndexMigration(ctx context.Context) error {
@@ -104,6 +112,14 @@ func (e *Engine) recomputeStatsAfterIDIndexMigration(ctx context.Context) error 
 	return nil
 }
 
+// emitStructuredEntitlementMigration re-keys every legacy entitlement row
+// under its structural identity, derived from the record's structured
+// resource fields plus the byte-prefix compression rule — the same single
+// derivation every reader and write path uses, so primary/index divergence
+// is impossible by construction. Values are never modified: external ids
+// are an external-consumer contract and migrate byte-identical. Rows whose
+// resource ref is missing cannot be represented in the structured keyspace
+// at all and are dropped with a warning.
 func (e *Engine) emitStructuredEntitlementMigration(ctx context.Context, out *spillSorter) error {
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: EntitlementLowerBound(),
@@ -113,6 +129,7 @@ func (e *Engine) emitStructuredEntitlementMigration(ctx context.Context, out *sp
 		return err
 	}
 	defer iter.Close()
+	var skippedMissingResource int64
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -121,14 +138,28 @@ func (e *Engine) emitStructuredEntitlementMigration(ctx context.Context, out *sp
 		if err != nil {
 			return fmt.Errorf("id-index migration: scan entitlement: %w", err)
 		}
-		id := entitlementIdentityFromLegacyParts(rt, rid, externalID)
+		if rt == "" || rid == "" {
+			skippedMissingResource++
+			continue
+		}
+		id := entitlementIdentityFromParts(rt, rid, externalID)
 		if err := out.add(encodeEntitlementIdentityKey(id), iter.Value()); err != nil {
 			return err
 		}
 	}
+	if skippedMissingResource > 0 {
+		ctxzap.Extract(ctx).Warn("id-index migration: dropped legacy entitlements with no resource ref; they cannot be keyed in the structured layout",
+			zap.Int64("dropped", skippedMissingResource),
+		)
+	}
 	return iter.Error()
 }
 
+// emitStructuredGrantMigration re-keys every legacy grant row under its
+// structural identity from the record's ref fields, with the same
+// no-value-rewrite contract as emitStructuredEntitlementMigration. Rows
+// missing entitlement or principal ref fields cannot be represented in the
+// structured keyspace and are dropped with a warning.
 func (e *Engine) emitStructuredGrantMigration(ctx context.Context, primary *spillSorter) error {
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: GrantLowerBound(),
@@ -138,6 +169,7 @@ func (e *Engine) emitStructuredGrantMigration(ctx context.Context, primary *spil
 		return err
 	}
 	defer iter.Close()
+	var skippedMissingRefs int64
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -146,14 +178,23 @@ func (e *Engine) emitStructuredGrantMigration(ctx context.Context, primary *spil
 		if err != nil {
 			return fmt.Errorf("id-index migration: scan grant: %w", err)
 		}
+		if entRT == "" || entRID == "" || entID == "" || principalRT == "" || principalID == "" {
+			skippedMissingRefs++
+			continue
+		}
 		id := grantIdentity{
-			entitlement:     entitlementIdentityFromLegacyParts(entRT, entRID, entID),
+			entitlement:     entitlementIdentityFromParts(entRT, entRID, entID),
 			principalTypeID: principalRT,
 			principalID:     principalID,
 		}
 		if err := primary.add(encodeGrantIdentityKey(id), iter.Value()); err != nil {
 			return err
 		}
+	}
+	if skippedMissingRefs > 0 {
+		ctxzap.Extract(ctx).Warn("id-index migration: dropped legacy grants with missing entitlement/principal refs; they cannot be keyed in the structured layout",
+			zap.Int64("dropped", skippedMissingRefs),
+		)
 	}
 	return iter.Error()
 }
@@ -236,6 +277,7 @@ func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, sstPath, name st
 		}
 	}()
 
+	var duplicateGroups, duplicateRowsMerged int64
 	for len(*h) > 0 {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -252,6 +294,10 @@ func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, sstPath, name st
 			if err := advanceMigrationChunk(h, bufReaders, keyBufs, valBufs, &lenBuf, item.chunkIdx); err != nil {
 				return err
 			}
+		}
+		if len(values) > 1 {
+			duplicateGroups++
+			duplicateRowsMerged += int64(len(values) - 1)
 		}
 		merged, err := mergeDuplicateGrantValues(values)
 		if err != nil {
@@ -284,6 +330,12 @@ func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, sstPath, name st
 		if err := os.Rename(w.path, sstPath); err != nil {
 			return err
 		}
+	}
+	if duplicateGroups > 0 {
+		ctxzap.Extract(ctx).Warn("id-index migration: merged legacy grant rows that share one structural identity",
+			zap.Int64("identities_with_duplicates", duplicateGroups),
+			zap.Int64("rows_merged_away", duplicateRowsMerged),
+		)
 	}
 	success = true
 	return nil
@@ -332,19 +384,27 @@ func mergeGrantRecordInto(dst, src *v3.GrantRecord) {
 }
 
 func grantRecordIdentityInfoWins(candidate, incumbent *v3.GrantRecord) bool {
-	cdt, idt := candidate.GetDiscoveredAt(), incumbent.GetDiscoveredAt()
+	return recordIdentityInfoWins(
+		candidate.GetDiscoveredAt(), candidate.GetExternalId(),
+		incumbent.GetDiscoveredAt(), incumbent.GetExternalId(),
+	)
+}
+
+// recordIdentityInfoWins is the shared winner rule for duplicate-identity
+// rows: earliest discovered_at wins; ties break to the smallest external id.
+func recordIdentityInfoWins(candidateDiscovered *timestamppb.Timestamp, candidateExternalID string, incumbentDiscovered *timestamppb.Timestamp, incumbentExternalID string) bool {
 	switch {
-	case cdt != nil && idt == nil:
+	case candidateDiscovered != nil && incumbentDiscovered == nil:
 		return true
-	case cdt == nil && idt != nil:
+	case candidateDiscovered == nil && incumbentDiscovered != nil:
 		return false
-	case cdt != nil && idt != nil:
-		ct, it := cdt.AsTime(), idt.AsTime()
+	case candidateDiscovered != nil && incumbentDiscovered != nil:
+		ct, it := candidateDiscovered.AsTime(), incumbentDiscovered.AsTime()
 		if !ct.Equal(it) {
 			return ct.Before(it)
 		}
 	}
-	return candidate.GetExternalId() < incumbent.GetExternalId()
+	return candidateExternalID < incumbentExternalID
 }
 
 func mergeGrantAnnotations(a, b []*anypb.Any) []*anypb.Any {

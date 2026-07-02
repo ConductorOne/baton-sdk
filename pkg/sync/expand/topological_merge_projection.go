@@ -18,7 +18,6 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
-	batonEntitlement "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -397,53 +396,44 @@ func encodeProjectionValueFromPrincipalRef(principal *v3.PrincipalRef, direct bo
 	return codec.AppendTupleStrings(val, principal.GetParentResourceTypeId(), principal.GetParentResourceId())
 }
 
-func projectionPrincipalRefFromValue(key topoPrincipalKey, val []byte) (*v3.PrincipalRef, []byte, bool) {
-	ref := v3.PrincipalRef_builder{
-		ResourceTypeId: key.resourceType,
-		ResourceId:     key.resource,
-	}.Build()
+func projectionPrincipalRefFromValue(key topoPrincipalKey, val []byte) (principalRefData, []byte, bool) {
+	data := principalRefData{
+		resourceTypeID: key.resourceType,
+		resourceID:     key.resource,
+		ok:             true,
+	}
 	if len(val) <= 1 {
-		return ref, nil, true
+		return data, nil, true
 	}
 	parentRT, off, ok := codec.DecodeTupleStringAlias(val, 1)
 	if !ok {
-		return nil, nil, false
+		return principalRefData{}, nil, false
 	}
 	if off < len(val) && val[off] == 0 {
 		off++
 	}
 	parentID, off, ok := codec.DecodeTupleStringAlias(val, off)
 	if !ok {
-		return nil, nil, false
+		return principalRefData{}, nil, false
 	}
-	ref.SetParentResourceTypeId(string(parentRT))
-	ref.SetParentResourceId(string(parentID))
+	data.parentResourceTypeID = string(parentRT)
+	data.parentResourceID = string(parentID)
 	var principalBytes []byte
 	if off < len(val) && val[off] == 0 {
 		principalBytes = val[off+1:]
 	}
-	return ref, principalBytes, true
+	return data, principalBytes, true
 }
 
+// grantIDForPrincipalRef builds the legacy public grant id (raw concat) —
+// byte-identical to what batonGrant.NewGrantID emits. External ids are an
+// external-consumer contract; identity is structural and never derives
+// from this string.
 func grantIDForPrincipalRef(dest *v2.Entitlement, principal *v3.PrincipalRef) string {
 	if principal == nil {
 		return ""
 	}
-	if dest == nil {
-		return batonEntitlement.JoinEscapedID("", principal.GetResourceTypeId(), principal.GetResourceId())
-	}
-	if res := dest.GetResource(); res != nil && res.GetId() != nil {
-		parts := batonEntitlement.DeriveEntitlementIDParts(
-			res.GetId().GetResourceType(),
-			res.GetId().GetResource(),
-			dest.GetId(),
-		)
-		return batonGrant.EncodeGrantID(parts, principal.GetResourceTypeId(), principal.GetResourceId())
-	}
-	if parts, err := batonEntitlement.DecodeEntitlementID(dest.GetId()); err == nil {
-		return batonGrant.EncodeGrantID(parts, principal.GetResourceTypeId(), principal.GetResourceId())
-	}
-	return batonEntitlement.JoinEscapedID(dest.GetId(), principal.GetResourceTypeId(), principal.GetResourceId())
+	return dest.GetId() + ":" + principal.GetResourceTypeId() + ":" + principal.GetResourceId()
 }
 
 func projectionSourceSet(plan *EntitlementGraphPlan) map[string]struct{} {
@@ -594,12 +584,12 @@ func (s *projectionContributionStream) next(_ context.Context) (contributionGrou
 			continue
 		}
 		key := topoPrincipalKey{resourceType: string(rt), resource: string(resource)}
-		principalRef, principalBytes, ok := projectionPrincipalRefFromValue(key, val)
+		principalData, principalBytes, ok := projectionPrincipalRefFromValue(key, val)
 		if !ok {
 			return contributionGroup{}, false, fmt.Errorf("topological projection: decode principal ref for source %q", s.sourceID)
 		}
 		s.contrib.resetForReuse()
-		s.contrib.principal.setRef(principalRef, principalBytes)
+		s.contrib.principal.setRef(principalData, principalBytes)
 		s.contrib.addSource(s.sourceID, isDirect)
 		for s.valid = s.iter.Next(); s.valid; s.valid = s.iter.Next() {
 			nextRT, nextResource, ok := decodeProjectionPrincipal(s.iter.Key(), s.prefix)

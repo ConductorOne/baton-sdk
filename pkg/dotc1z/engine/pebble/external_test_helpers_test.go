@@ -9,7 +9,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
-	batonEntitlement "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
@@ -31,7 +30,7 @@ func newAdapter(t testing.TB) *pebble.Adapter {
 // tests. Mirrors the in-package helper of the same name in
 // adapter_test.go.
 func mkV2Grant(id, entID, principalRT, principalID string) *v2.Grant {
-	canonicalEntID := batonEntitlement.EncodeEntitlementID("app", "github", batonEntitlement.EntitlementKindCustom, entID)
+	canonicalEntID := "app:github:" + entID
 	ent := v2.Entitlement_builder{
 		Id: canonicalEntID,
 		Resource: v2.Resource_builder{

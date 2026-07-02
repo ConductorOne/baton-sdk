@@ -14,7 +14,6 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	batonEntitlement "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 )
 
 // TestToPebbleRoundTrip seeds a SQLite .c1z with a finished full sync
@@ -113,7 +112,7 @@ func TestToPebbleRoundTrip(t *testing.T) {
 	require.Len(t, resourceFiltered.GetList(), userCount)
 
 	byEntitlement, err := dst.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: v2.Entitlement_builder{Id: batonEntitlement.EncodeEntitlementID("group", "g1", batonEntitlement.EntitlementKindCustom, "ent1")}.Build(),
+		Entitlement: v2.Entitlement_builder{Id: "ent1"}.Build(),
 		PageSize:    1000,
 	}.Build())
 	require.NoError(t, err)

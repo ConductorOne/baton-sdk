@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2/objstorage/objstorageprovider"
@@ -114,30 +115,32 @@ func (w *bulkSSTWriter) finish() error {
 // is written once into its final table — no WAL append, no L0 flush, no
 // background compaction debt.
 //
-// Resource types, resources, and entitlements stream straight into one
-// SST per bucket and must arrive in strictly increasing encoded-key
-// order (SQLite BINARY collation order on the key's tuple columns —
-// the tuple key codec is order-preserving; violations fail with
-// ErrBulkImportOutOfOrder). These add methods are single-threaded.
+// Resource types and resources stream straight into one SST per bucket
+// and must arrive in strictly increasing encoded-key order (SQLite BINARY
+// collation order on the key's tuple columns — the tuple key codec is
+// order-preserving; violations fail with ErrBulkImportOutOfOrder). These
+// add methods are single-threaded.
 //
-// Grants scale across goroutines: each scanning goroutine takes its own
-// shard (NewGrantShard) covering a disjoint ascending external-id range,
-// so the grant hot path acquires no shared lock at all. Shard primaries
-// stream straight into one final SST per shard (ordered by the shard
-// contract — no spill, no sort, no merge); the five secondary index
-// families (derived internally from the translated records — the same
-// nil-guards and key shapes as the engine's canonical writeXxxIndexes
-// paths) are key-only spill-sorted. Spill chunks sort and flush to disk
-// in the background while the scans keep streaming; Finish k-way merges
-// each family's sorted runs (across all shards) into one SST per
-// family, in parallel, and ingests everything in a single call.
+// Entitlements and grants are keyed by structural identity, whose tuple
+// order does NOT match the converter's external-id scan order, so they go
+// through spill sorters instead (entitlements single-threaded on the
+// parent; grants scale across goroutines, each scanning goroutine taking
+// its own shard via NewGrantShard so the grant hot path acquires no
+// shared lock at all). The secondary index families are derived
+// internally from the translated records — the same nil-guards and key
+// shapes as the engine's canonical writeXxxIndexes paths — and are
+// key-only spill-sorted. Spill chunks sort and flush to disk in the
+// background while the scans keep streaming; Finish k-way merges each
+// family's sorted runs (across all shards) into one SST per family, in
+// parallel, and ingests everything in a single call.
 //
-// Every record/index tuple must appear at most once (no dedup, no
-// read-before-write); SQLite's UNIQUE(external_id, sync_id) gives
-// converters that guarantee. The destination sync must be freshly
-// started (MarkFreshSync via StartNewSync) and empty; nothing else may
-// write to the engine between Start and Finish. Used by C1File.ToPebble
-// for sqlite→pebble conversion.
+// SQLite's UNIQUE(external_id, sync_id) guarantees each row appears once.
+// Grant rows with distinct external ids but identical refs fold to one
+// structural identity; Finish field-merges such duplicates and warns.
+// Entitlement identities embed the raw external id and cannot fold. The
+// destination sync must be freshly started (MarkFreshSync via
+// StartNewSync) and empty; nothing else may write to the engine between
+// Start and Finish. Used by C1File.ToPebble for sqlite→pebble conversion.
 type BulkSyncImport struct {
 	e      *Engine
 	syncID string
@@ -146,7 +149,13 @@ type BulkSyncImport struct {
 
 	resourceTypes *bulkSSTWriter
 	resources     *bulkSSTWriter
-	entitlements  *bulkSSTWriter
+
+	// entitlements go through a spill sorter, not an ordered SST writer:
+	// the converter scans in external-id order, but the structural identity
+	// key does not sort the same way (tuple separators sort below printable
+	// bytes, and the flag component reorders stripped vs opaque ids), so the
+	// stream must be re-sorted before it can become an SST.
+	entitlements *spillSorter
 
 	// sortSem bounds concurrently running background chunk sorts
 	// across all sorters and shards.
@@ -163,6 +172,25 @@ type BulkSyncImport struct {
 
 	resourcesByRT    map[string]int64
 	entitlementsByRT map[string]int64
+
+	// Duplicate-fold accounting, written by Finish's grants merge goroutine
+	// and read by ComputedStats afterwards. Legacy files can hold grant rows
+	// with distinct external ids but identical refs — one structural
+	// identity; those fold to a single row at merge time, and the streaming
+	// per-RT counters above must be corrected to match. Entitlements cannot
+	// fold: their identity embeds the raw external id, which SQLite's
+	// UNIQUE(external_id, sync_id) makes unique.
+	grantDupRowsMerged  int64
+	grantDupRowsByEntRT map[string]int64
+
+	// Ref-less legacy rows cannot be represented in the structured keyspace
+	// at all; they are dropped with a warning, matching the in-place
+	// id-index migration's policy (a single malformed row in a legacy
+	// SQLite file must not fail the whole conversion). Written by
+	// AddEntitlements (single-threaded) and by shards under their own
+	// accounting, aggregated at Finish.
+	entitlementsSkippedMissingRefs atomic.Int64
+	grantsSkippedMissingRefs       atomic.Int64
 }
 
 // StartBulkSyncImport opens a bulk import targeting syncID, which must be
@@ -190,12 +218,13 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 	// pins one chunk arena, so this bounds sort memory too).
 	sorters := min(4, max(2, runtime.GOMAXPROCS(0)/2))
 	b := &BulkSyncImport{
-		e:                e,
-		syncID:           syncID,
-		dir:              dir,
-		sortSem:          make(chan struct{}, sorters),
-		resourcesByRT:    map[string]int64{},
-		entitlementsByRT: map[string]int64{},
+		e:                   e,
+		syncID:              syncID,
+		dir:                 dir,
+		sortSem:             make(chan struct{}, sorters),
+		resourcesByRT:       map[string]int64{},
+		entitlementsByRT:    map[string]int64{},
+		grantDupRowsByEntRT: map[string]int64{},
 	}
 	for _, w := range []struct {
 		slot **bulkSSTWriter
@@ -203,7 +232,6 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 	}{
 		{&b.resourceTypes, "resource-types"},
 		{&b.resources, "resources"},
-		{&b.entitlements, "entitlements"},
 	} {
 		sw, err := newBulkSSTWriter(dir, w.name)
 		if err != nil {
@@ -212,23 +240,22 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 		}
 		*w.slot = sw
 	}
+	b.entitlements = newSpillSorter(dir, "entitlements", b.sortSem, bulkSpillKeyChunkBytes)
 	b.idxResourceByParent = newSpillSorter(dir, fmt.Sprintf("index-%02x-p", idxResourceByParent), b.sortSem, bulkSpillKeyChunkBytes)
 	return b, nil
 }
 
 // BulkGrantShard is one goroutine's private view of the grant import:
-// an ordered primary SST writer and per-family index sorters. Create
+// a primary-record spill sorter and per-family index sorters. Create
 // one per scanning goroutine via NewGrantShard; AddGrants on a shard
 // takes no shared locks. Close the shard when its scan completes.
 //
-// Grants within a shard MUST arrive sorted by external id, and shards
-// must cover pairwise-disjoint external-id ranges — exactly what a
-// sharded `ORDER BY external_id` scan over partitioned ranges of
-// SQLite's UNIQUE(external_id, sync_id) index produces. That lets each
-// shard stream its primaries straight into a final SST with no spill,
-// no sort, and no merge; pebble's Ingest rejects overlapping tables, so
-// a boundary bug cannot corrupt the store. The index keys sort on other
-// fields and go through the shard's spill sorters.
+// Grant primary keys are structural identities, which do not sort in the
+// converter's external-id scan order, so both the primary rows and the
+// index keys go through spill sorters; Finish k-way merges the runs of
+// all shards per family. Arrival order therefore does not matter for
+// correctness. Distinct legacy external ids that fold to one structural
+// identity are merged at Finish with a warning.
 type BulkGrantShard struct {
 	b      *BulkSyncImport
 	grants *spillSorter
@@ -285,7 +312,11 @@ func (s *BulkGrantShard) AddGrants(ctx context.Context, grants ...*v2.Grant) err
 		s.valBuf = val
 		id, err := grantIdentityFromRecord(r)
 		if err != nil {
-			return s.fail(err)
+			// Missing entitlement/principal refs: unrepresentable in the
+			// structured keyspace. Drop with a warning (counted, logged at
+			// Finish) — the in-place migration applies the same policy.
+			s.b.grantsSkippedMissingRefs.Add(1)
+			continue
 		}
 		if err := s.grants.add(encodeGrantIdentityKey(id), val); err != nil {
 			return s.fail(err)
@@ -391,9 +422,11 @@ func (b *BulkSyncImport) AddResources(ctx context.Context, resources ...*v2.Reso
 	return nil
 }
 
-// AddEntitlements translates and appends entitlements, which must arrive
-// sorted by external id. by_resource index keys are derived and spilled
-// with the same resource guard as writeEntitlementIndexes.
+// AddEntitlements translates and appends entitlements. Rows are keyed by
+// structural identity and re-sorted through a spill sorter, so arrival
+// order does not matter (the converter's external-id scan order does NOT
+// match identity-tuple order). Identity embeds the raw external id, so
+// duplicates are impossible for well-formed sources and fail the merge.
 func (b *BulkSyncImport) AddEntitlements(ctx context.Context, ents ...*v2.Entitlement) error {
 	now := timestamppb.Now()
 	for _, e := range ents {
@@ -413,7 +446,11 @@ func (b *BulkSyncImport) AddEntitlements(ctx context.Context, ents ...*v2.Entitl
 		}
 		id, err := entitlementIdentityFromRecord(rec)
 		if err != nil {
-			return err
+			// Missing resource ref: unrepresentable in the structured
+			// keyspace. Drop with a warning (counted, logged at Finish) —
+			// the in-place migration applies the same policy.
+			b.entitlementsSkippedMissingRefs.Add(1)
+			continue
 		}
 		if err := b.entitlements.add(encodeEntitlementIdentityKey(id), val); err != nil {
 			return err
@@ -426,9 +463,10 @@ func (b *BulkSyncImport) AddEntitlements(ctx context.Context, ents ...*v2.Entitl
 // ComputedStats returns a SyncStatsRecord built from the counts the
 // import accumulated while streaming (primary record counts, resources
 // by resource type, entitlements by resource type, grants by entitlement
-// resource type). Valid after
-// all grant shards are Closed. Assets do not flow through the importer
-// — the caller sets that count itself before stashing the record via
+// resource type). Valid after all grant shards are Closed; call it after
+// Finish so the counts reflect any duplicate-identity grant rows that
+// folded at merge time. Assets do not flow through the importer — the
+// caller sets that count itself before stashing the record via
 // Engine.StashComputedSyncStats.
 func (b *BulkSyncImport) ComputedStats() *v3.SyncStatsRecord {
 	b.mu.Lock()
@@ -441,11 +479,15 @@ func (b *BulkSyncImport) ComputedStats() *v3.SyncStatsRecord {
 			grantsByEntRT[rt] += n
 		}
 	}
+	grants -= b.grantDupRowsMerged
+	for rt, n := range b.grantDupRowsByEntRT {
+		grantsByEntRT[rt] -= n
+	}
 	rec := &v3.SyncStatsRecord{
 		SyncId:                          b.syncID,
 		ResourceTypes:                   int64(b.resourceTypes.count),
 		Resources:                       int64(b.resources.count),
-		Entitlements:                    int64(b.entitlements.count),
+		Entitlements:                    b.entitlements.count,
 		Grants:                          grants,
 		ResourcesByResourceType:         b.resourcesByRT,
 		EntitlementsByResourceType:      b.entitlementsByRT,
@@ -470,7 +512,7 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 	start := time.Now()
 
 	paths := make([]string, 0, 4+len(grantIndexFamilies))
-	for _, w := range []*bulkSSTWriter{b.resourceTypes, b.resources, b.entitlements} {
+	for _, w := range []*bulkSSTWriter{b.resourceTypes, b.resources} {
 		if err := w.finish(); err != nil {
 			return err
 		}
@@ -492,20 +534,31 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 	}
 
 	// Build the merge units: each combines the sorted runs of one key
-	// family across every sorter that produced them.
+	// family across every sorter that produced them. Units with a resolve
+	// function tolerate duplicate keys by merging their values (legacy
+	// files can hold grant rows with distinct external ids but identical
+	// refs); units without one treat duplicates as corruption.
 	type mergeUnit struct {
 		name    string
 		sorters []*spillSorter
+		resolve func(key []byte, values [][]byte) ([]byte, error)
 	}
 	units := []mergeUnit{
-		{name: "grants"},
+		{name: "grants", resolve: b.resolveDuplicateGrants},
+		{name: "entitlements", sorters: []*spillSorter{b.entitlements}},
 		{name: fmt.Sprintf("index-%02x", idxResourceByParent), sorters: []*spillSorter{b.idxResourceByParent}},
 	}
 	for _, s := range shards {
 		units[0].sorters = append(units[0].sorters, s.grants)
 	}
 	for _, idx := range grantIndexFamilies {
-		u := mergeUnit{name: fmt.Sprintf("index-%02x", idx)}
+		u := mergeUnit{
+			name: fmt.Sprintf("index-%02x", idx),
+			// Grant index keys are emitted per input row, so folded
+			// duplicate grants emit byte-identical (value-less) index keys;
+			// keep the first and drop the rest.
+			resolve: func(_ []byte, values [][]byte) ([]byte, error) { return values[0], nil },
+		}
 		for _, s := range shards {
 			u.sorters = append(u.sorters, s.idx[idx])
 		}
@@ -534,7 +587,13 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 				return
 			}
 			sstPath := filepath.Join(b.dir, u.name+".sst")
-			if err := mergeSortedSpillChunksToSST(ctx, sstPath, u.name, chunks); err != nil {
+			var err error
+			if u.resolve != nil {
+				_, err = mergeSpillChunksToSSTResolvingDuplicates(ctx, sstPath, u.name, chunks, u.resolve)
+			} else {
+				err = mergeSortedSpillChunksToSST(ctx, sstPath, u.name, chunks)
+			}
+			if err != nil {
 				results[slot].err = err
 				return
 			}
@@ -550,6 +609,21 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 			paths = append(paths, r.path)
 		}
 	}
+	if b.grantDupRowsMerged > 0 {
+		ctxzap.Extract(ctx).Warn("bulk sync import: merged legacy grant rows that share one structural identity",
+			zap.Int64("rows_merged_away", b.grantDupRowsMerged),
+		)
+	}
+	if n := b.entitlementsSkippedMissingRefs.Load(); n > 0 {
+		ctxzap.Extract(ctx).Warn("bulk sync import: dropped legacy entitlements with no resource ref; they cannot be keyed in the structured layout",
+			zap.Int64("dropped", n),
+		)
+	}
+	if n := b.grantsSkippedMissingRefs.Load(); n > 0 {
+		ctxzap.Extract(ctx).Warn("bulk sync import: dropped legacy grants with missing entitlement/principal refs; they cannot be keyed in the structured layout",
+			zap.Int64("dropped", n),
+		)
+	}
 	mergesDone := time.Now()
 
 	if len(paths) == 0 {
@@ -559,6 +633,12 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		if err := b.e.db.Ingest(ctx, paths); err != nil {
 			return fmt.Errorf("bulk sync import: ingest: %w", err)
 		}
+		b.e.noteEntitlementKeyspaceWrite()
+		// The data keyspaces are no longer provably empty: subsequent
+		// Put*Records calls in this sync must take their read-before-write
+		// paths so overwrites of imported identities clean up index entries.
+		_ = b.e.takeFreshGrantsEmpty()
+		_ = b.e.takeFreshResourcesEmpty()
 		return nil
 	})
 	if err != nil {
@@ -572,6 +652,24 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 	return nil
 }
 
+// resolveDuplicateGrants merges the values of grant rows whose distinct
+// legacy external ids fold to one structural identity, using the same
+// policy as the in-place id-index migration, and records the fold so
+// ComputedStats can correct its streaming per-row counters.
+func (b *BulkSyncImport) resolveDuplicateGrants(key []byte, values [][]byte) ([]byte, error) {
+	merged, err := mergeDuplicateGrantValues(values)
+	if err != nil {
+		return nil, fmt.Errorf("bulk sync import: merge duplicate grant key %x: %w", key, err)
+	}
+	var rec v3.GrantRecord
+	if err := unmarshalRecord(merged, &rec); err != nil {
+		return nil, err
+	}
+	b.grantDupRowsMerged += int64(len(values) - 1)
+	b.grantDupRowsByEntRT[rec.GetEntitlement().GetResourceTypeId()] += int64(len(values) - 1)
+	return merged, nil
+}
+
 // Abort closes and removes all staged files without ingesting. Safe to
 // call after Finish (no-op) or on a partially-failed import.
 func (b *BulkSyncImport) Abort() {
@@ -579,7 +677,7 @@ func (b *BulkSyncImport) Abort() {
 		return
 	}
 	b.done = true
-	for _, w := range []*bulkSSTWriter{b.resourceTypes, b.resources, b.entitlements} {
+	for _, w := range []*bulkSSTWriter{b.resourceTypes, b.resources} {
 		if w != nil {
 			_ = w.finish()
 		}
@@ -594,7 +692,7 @@ func (b *BulkSyncImport) Abort() {
 			w.abort()
 		}
 	}
-	for _, w := range []*spillSorter{b.idxResourceByParent} {
+	for _, w := range []*spillSorter{b.entitlements, b.idxResourceByParent} {
 		if w != nil {
 			w.abort()
 		}
@@ -626,6 +724,13 @@ type spillSorter struct {
 	dir        string
 	sem        chan struct{}
 	chunkBytes int
+	// free, when set, recycles chunk arenas through an explicit bounded
+	// freelist instead of the sync.Pool. Long single-producer builds (the
+	// synth-grant layer, the deferred index) allocate tens of GB per run
+	// through the pool because GC cycles clear it faster than arenas
+	// return; a plain channel survives GC and caps live arenas at the
+	// sort concurrency anyway (cutAndDispatch blocks on the sem).
+	free *spillArenaFreeList
 
 	arena []byte
 	views []kvView
@@ -639,6 +744,38 @@ type spillSorter struct {
 
 func newSpillSorter(dir, name string, sem chan struct{}, chunkBytes int) *spillSorter {
 	return &spillSorter{name: name, dir: dir, sem: sem, chunkBytes: chunkBytes}
+}
+
+// spillArenaFreeList is a bounded, GC-proof recycler for chunk arenas of one
+// size, shared by the sorters of one build (segments of a layer session, the
+// deferred index sorter). Capacity should cover the maximum arenas live at
+// once: one being filled by the producer plus one per concurrent sort slot.
+type spillArenaFreeList struct {
+	size int
+	ch   chan []byte
+}
+
+func newSpillArenaFreeList(size, slots int) *spillArenaFreeList {
+	return &spillArenaFreeList{size: size, ch: make(chan []byte, slots)}
+}
+
+func (f *spillArenaFreeList) get() []byte {
+	select {
+	case b := <-f.ch:
+		return b[:0]
+	default:
+		return make([]byte, 0, f.size)
+	}
+}
+
+func (f *spillArenaFreeList) put(b []byte) {
+	if cap(b) < f.size {
+		return
+	}
+	select {
+	case f.ch <- b[:0]:
+	default:
+	}
 }
 
 // spillArenaPool / spillViewsPool recycle the per-chunk key/value arena and its
@@ -683,14 +820,18 @@ func (s *spillSorter) add(key, val []byte) error {
 		return err
 	}
 	if s.arena == nil {
-		s.arena = getSpillArena()
-		if cap(s.arena) < s.chunkBytes {
-			// Pooled arenas are sized for bulkSpillKeyChunkBytes; a sorter
-			// with a larger chunk size (deferredIndexSpillChunkBytes)
-			// allocates its full arena up front instead of append-doubling
-			// through it, and returns the small one to the pool.
-			putSpillArena(s.arena)
-			s.arena = make([]byte, 0, s.chunkBytes)
+		if s.free != nil {
+			s.arena = s.free.get()
+		} else {
+			s.arena = getSpillArena()
+			if cap(s.arena) < s.chunkBytes {
+				// Pooled arenas are sized for bulkSpillKeyChunkBytes; a sorter
+				// with a larger chunk size (deferredIndexSpillChunkBytes)
+				// allocates its full arena up front instead of append-doubling
+				// through it, and returns the small one to the pool.
+				putSpillArena(s.arena)
+				s.arena = make([]byte, 0, s.chunkBytes)
+			}
 		}
 		s.views = getSpillViews()
 	}
@@ -738,7 +879,11 @@ func (s *spillSorter) sortAndWriteChunk(arena []byte, views []kvView) {
 	if err := writeSortedSpillChunk(chunkPath, arena, views); err != nil {
 		s.setErr(err)
 	}
-	putSpillArena(arena)
+	if s.free != nil {
+		s.free.put(arena)
+	} else {
+		putSpillArena(arena)
+	}
 	putSpillViews(views)
 }
 
@@ -995,4 +1140,161 @@ func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chun
 	)
 	success = true
 	return nil
+}
+
+// mergeSpillChunksToSSTResolvingDuplicates heap-merges sorted chunk files
+// into a single SST like mergeSortedSpillChunksToSST, but tolerates duplicate
+// keys: the values of each duplicate-key group are handed to resolve and the
+// resolved value is written once. Legacy sources can hold rows with distinct
+// external ids that fold to one structural identity, so buckets keyed by
+// identity use this variant instead of treating duplicates as corruption.
+//
+// Unlike the strict variant, every entry is copied into reused group scratch
+// before its chunk buffer is advanced (one extra value memcpy per entry, no
+// per-entry allocation) — that is what makes the one-group lookahead safe
+// against chunk-buffer reuse. Returns the number of duplicate groups
+// resolved.
+func mergeSpillChunksToSSTResolvingDuplicates(
+	ctx context.Context,
+	sstPath, name string,
+	chunks []string,
+	resolve func(key []byte, values [][]byte) ([]byte, error),
+) (int64, error) {
+	start := time.Now()
+	l := ctxzap.Extract(ctx)
+	readers := make([]*os.File, 0, len(chunks))
+	defer func() {
+		for _, r := range readers {
+			_ = r.Close()
+		}
+	}()
+	bufReaders := make([]*bufio.Reader, len(chunks))
+	keyBufs := make([][]byte, len(chunks))
+	valBufs := make([][]byte, len(chunks))
+	h := &spillChunkHeap{}
+	var lenBuf [4]byte
+	for i, chunk := range chunks {
+		f, err := os.Open(chunk) // #nosec G304 - staged under the import's MkdirTemp dir.
+		if err != nil {
+			return 0, err
+		}
+		readers = append(readers, f)
+		bufReaders[i] = bufio.NewReaderSize(f, bulkSpillBufferSize)
+		ok, err := readSpillEntry(bufReaders[i], &keyBufs[i], &valBufs[i], &lenBuf)
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			h.push(spillChunkItem{chunkIdx: i, key: keyBufs[i], val: valBufs[i]})
+		}
+	}
+
+	writer, err := newBulkSSTWriter(filepath.Dir(sstPath), name)
+	if err != nil {
+		return 0, err
+	}
+	success := false
+	defer func() {
+		_ = writer.finish()
+		if !success {
+			_ = os.Remove(sstPath)
+		}
+	}()
+
+	type valSpan struct{ off, end int }
+	var (
+		haveCur  bool
+		curKey   []byte // reused scratch: the pending group's key
+		curArena []byte // reused scratch: the pending group's values
+		curSpans []valSpan
+	)
+	var dupGroups, written, scanned int64
+	flushCur := func() error {
+		if !haveCur {
+			return nil
+		}
+		var val []byte
+		if len(curSpans) == 1 {
+			val = curArena[curSpans[0].off:curSpans[0].end]
+		} else {
+			dupGroups++
+			values := make([][]byte, len(curSpans))
+			for i, sp := range curSpans {
+				values[i] = curArena[sp.off:sp.end]
+			}
+			resolved, err := resolve(curKey, values)
+			if err != nil {
+				return err
+			}
+			val = resolved
+		}
+		if len(val) == 0 {
+			val = nil
+		}
+		if err := writer.add(curKey, val); err != nil {
+			return err
+		}
+		written++
+		return nil
+	}
+
+	lastLog := start
+	for len(*h) > 0 {
+		item := h.pop()
+		if haveCur && bytes.Equal(item.key, curKey) {
+			off := len(curArena)
+			curArena = append(curArena, item.val...)
+			curSpans = append(curSpans, valSpan{off: off, end: len(curArena)})
+		} else {
+			if err := flushCur(); err != nil {
+				return dupGroups, err
+			}
+			curKey = append(curKey[:0], item.key...)
+			curArena = append(curArena[:0], item.val...)
+			curSpans = append(curSpans[:0], valSpan{off: 0, end: len(curArena)})
+			haveCur = true
+		}
+		scanned++
+		// Same throttled bookkeeping as the strict merge.
+		if scanned&0xFFFF == 0 {
+			if err := ctx.Err(); err != nil {
+				return dupGroups, err
+			}
+			if now := time.Now(); now.Sub(lastLog) >= 15*time.Second {
+				l.Info("spill sorter: merging chunks",
+					zap.String("name", name),
+					zap.Int("chunks", len(chunks)),
+					zap.Int("active_chunks", len(*h)+1),
+					zap.Int64("entries_scanned", scanned),
+					zap.Duration("elapsed", now.Sub(start)),
+				)
+				lastLog = now
+			}
+		}
+		// Advance the popped chunk only AFTER the entry was consumed into
+		// the group scratch: readSpillEntry overwrites the buffers item
+		// aliases.
+		ok, err := readSpillEntry(bufReaders[item.chunkIdx], &keyBufs[item.chunkIdx], &valBufs[item.chunkIdx], &lenBuf)
+		if err != nil {
+			return dupGroups, err
+		}
+		if ok {
+			h.push(spillChunkItem{chunkIdx: item.chunkIdx, key: keyBufs[item.chunkIdx], val: valBufs[item.chunkIdx]})
+		}
+	}
+	if err := flushCur(); err != nil {
+		return dupGroups, err
+	}
+	if err := writer.finish(); err != nil {
+		return dupGroups, err
+	}
+	l.Info("spill sorter: merge complete",
+		zap.String("name", name),
+		zap.Int("chunks", len(chunks)),
+		zap.Int64("entries_written", written),
+		zap.Int64("duplicate_groups_resolved", dupGroups),
+		zap.Duration("elapsed", time.Since(start)),
+	)
+	success = true
+	return dupGroups, nil
 }

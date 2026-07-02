@@ -1,30 +1,12 @@
 package entitlement
 
 import (
-	"errors"
-	"strings"
+	"fmt"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"google.golang.org/protobuf/proto"
 )
-
-const (
-	EntitlementKindSDK    = "sdk"
-	EntitlementKindCustom = "custom"
-)
-
-var (
-	ErrInvalidEntitlementID = errors.New("invalid entitlement id")
-	ErrInvalidEscapedID     = errors.New("invalid escaped id")
-)
-
-type EntitlementIDParts struct {
-	ResourceTypeID string
-	ResourceID     string
-	Kind           string
-	Name           string
-}
 
 type EntitlementOption func(*v2.Entitlement)
 
@@ -94,223 +76,14 @@ func WithExclusionGroupDefault(exclusionGroupID string, order uint32) Entitlemen
 	})
 }
 
+// NewEntitlementID returns the public entitlement id for a resource and
+// permission. The raw ":"-join is an external-consumer contract: ids must
+// stay byte-identical across SDK versions (C1 carries configuration keyed on
+// them), so this join is deliberately lossy and MUST NOT be used as an
+// internal identity — storage keys derive from the structured resource
+// fields instead (see pkg/dotc1z/engine/pebble/identity.go).
 func NewEntitlementID(resource *v2.Resource, permission string) string {
-	return EncodeEntitlementID(resource.GetId().GetResourceType(), resource.GetId().GetResource(), EntitlementKindSDK, permission)
-}
-
-func EncodeEntitlementID(resourceTypeID, resourceID, kind, name string) string {
-	if kind == EntitlementKindCustom {
-		return JoinEscapedID(resourceTypeID, resourceID, EntitlementKindCustom, name)
-	}
-	return JoinEscapedID(resourceTypeID, resourceID, name)
-}
-
-func DecodeEntitlementID(id string) (EntitlementIDParts, error) {
-	parts, err := SplitEscapedID(id)
-	if err != nil {
-		return EntitlementIDParts{}, err
-	}
-	switch {
-	case len(parts) == 3:
-		return EntitlementIDParts{
-			ResourceTypeID: parts[0],
-			ResourceID:     parts[1],
-			Kind:           EntitlementKindSDK,
-			Name:           parts[2],
-		}, nil
-	case len(parts) == 4 && parts[2] == EntitlementKindCustom:
-		return EntitlementIDParts{
-			ResourceTypeID: parts[0],
-			ResourceID:     parts[1],
-			Kind:           EntitlementKindCustom,
-			Name:           parts[3],
-		}, nil
-	default:
-		return EntitlementIDParts{}, ErrInvalidEntitlementID
-	}
-}
-
-func DeriveEntitlementIDParts(resourceTypeID, resourceID, entitlementID string) EntitlementIDParts {
-	// Hot path for expansion: entitlement ids are commonly canonical strings for
-	// resource ids without escaped delimiters. Avoid the generic split/decode path
-	// for every synthesized grant.
-	prefix := resourceTypeID + ":" + resourceID + ":"
-	if strings.HasPrefix(entitlementID, prefix) {
-		tail := entitlementID[len(prefix):]
-		if strings.HasPrefix(tail, EntitlementKindCustom+":") {
-			name, ok := unescapeIDPart(tail[len(EntitlementKindCustom)+1:])
-			if ok {
-				return EntitlementIDParts{
-					ResourceTypeID: resourceTypeID,
-					ResourceID:     resourceID,
-					Kind:           EntitlementKindCustom,
-					Name:           name,
-				}
-			}
-		} else {
-			name, ok := unescapeIDPart(tail)
-			if ok {
-				return EntitlementIDParts{
-					ResourceTypeID: resourceTypeID,
-					ResourceID:     resourceID,
-					Kind:           EntitlementKindSDK,
-					Name:           name,
-				}
-			}
-		}
-	}
-
-	if parts, err := DecodeEntitlementID(entitlementID); err == nil &&
-		parts.ResourceTypeID == resourceTypeID &&
-		parts.ResourceID == resourceID {
-		return parts
-	}
-
-	return DeriveLegacyEntitlementIDParts(resourceTypeID, resourceID, entitlementID)
-}
-
-func DeriveLegacyEntitlementIDParts(resourceTypeID, resourceID, entitlementID string) EntitlementIDParts {
-	prefix := resourceTypeID + ":" + resourceID + ":"
-	if strings.HasPrefix(entitlementID, prefix) {
-		return EntitlementIDParts{
-			ResourceTypeID: resourceTypeID,
-			ResourceID:     resourceID,
-			Kind:           EntitlementKindSDK,
-			Name:           strings.TrimPrefix(entitlementID, prefix),
-		}
-	}
-
-	return EntitlementIDParts{
-		ResourceTypeID: resourceTypeID,
-		ResourceID:     resourceID,
-		Kind:           EntitlementKindCustom,
-		Name:           entitlementID,
-	}
-}
-
-func (p EntitlementIDParts) Encode() string {
-	return EncodeEntitlementID(p.ResourceTypeID, p.ResourceID, p.Kind, p.Name)
-}
-
-func JoinEscapedID(parts ...string) string {
-	needsEscape := false
-	totalLen := max(0, len(parts)-1)
-	for _, part := range parts {
-		totalLen += len(part)
-		if strings.ContainsAny(part, `:\`) {
-			needsEscape = true
-		}
-	}
-	if !needsEscape {
-		return strings.Join(parts, ":")
-	}
-	var b strings.Builder
-	b.Grow(totalLen)
-	for i, part := range parts {
-		if i > 0 {
-			writeBuilderByte(&b, ':')
-		}
-		writeEscapedIDPart(&b, part)
-	}
-	return b.String()
-}
-
-func SplitEscapedID(id string) ([]string, error) {
-	if !strings.Contains(id, `\`) {
-		return splitUnescapedID(id), nil
-	}
-	parts := make([]string, 0, strings.Count(id, ":")+1)
-	var b strings.Builder
-	b.Grow(len(id))
-	escaped := false
-	for i := 0; i < len(id); i++ {
-		c := id[i]
-		switch {
-		case escaped:
-			if c != '\\' && c != ':' {
-				return nil, ErrInvalidEscapedID
-			}
-			writeBuilderByte(&b, c)
-			escaped = false
-		case c == '\\':
-			escaped = true
-		case c == ':':
-			parts = append(parts, b.String())
-			b.Reset()
-		default:
-			writeBuilderByte(&b, c)
-		}
-	}
-	if escaped {
-		return nil, ErrInvalidEscapedID
-	}
-	parts = append(parts, b.String())
-	return parts, nil
-}
-
-func writeEscapedIDPart(b *strings.Builder, part string) {
-	start := 0
-	for i := 0; i < len(part); i++ {
-		if part[i] != '\\' && part[i] != ':' {
-			continue
-		}
-		writeBuilderString(b, part[start:i])
-		writeBuilderByte(b, '\\')
-		writeBuilderByte(b, part[i])
-		start = i + 1
-	}
-	writeBuilderString(b, part[start:])
-}
-
-func splitUnescapedID(id string) []string {
-	parts := make([]string, 0, strings.Count(id, ":")+1)
-	start := 0
-	for {
-		i := strings.IndexByte(id[start:], ':')
-		if i < 0 {
-			parts = append(parts, id[start:])
-			return parts
-		}
-		i += start
-		parts = append(parts, id[start:i])
-		start = i + 1
-	}
-}
-
-func unescapeIDPart(part string) (string, bool) {
-	if !strings.Contains(part, `\`) {
-		return part, true
-	}
-	var b strings.Builder
-	b.Grow(len(part))
-	escaped := false
-	for i := 0; i < len(part); i++ {
-		c := part[i]
-		switch {
-		case escaped:
-			if c != '\\' && c != ':' {
-				return "", false
-			}
-			writeBuilderByte(&b, c)
-			escaped = false
-		case c == '\\':
-			escaped = true
-		default:
-			writeBuilderByte(&b, c)
-		}
-	}
-	if escaped {
-		return "", false
-	}
-	return b.String(), true
-}
-
-func writeBuilderByte(b *strings.Builder, c byte) {
-	_ = b.WriteByte(c)
-}
-
-func writeBuilderString(b *strings.Builder, s string) {
-	_, _ = b.WriteString(s)
+	return fmt.Sprintf("%s:%s:%s", resource.GetId().GetResourceType(), resource.GetId().GetResource(), permission)
 }
 
 func NewPermissionEntitlement(resource *v2.Resource, name string, entitlementOptions ...EntitlementOption) *v2.Entitlement {

@@ -64,9 +64,15 @@ func (a *Adapter) ListGrantsForEntitlements(
 
 EntitlementLoop:
 	for i := startIdx; i < len(ents); i++ {
-		entID := canonicalEntitlementRequestID(ents[i])
-		if entID == "" {
+		if ents[i].GetId() == "" {
 			continue
+		}
+		entID, err := a.entitlementIdentityForRequest(ctx, ents[i])
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+				continue // unknown entitlement → no grants
+			}
+			return nil, err
 		}
 		intraCursor := ""
 		if i == startIdx {
@@ -181,7 +187,10 @@ func decodeBatchCursor(token string, currentChecksum uint32) (int, string, error
 		return 0, "", errors.New("ListGrantsForEntitlements: cursor missing intra length")
 	}
 	raw = raw[n:]
-	if uint64(len(raw)) < lenU+4 {
+	// Guard each term separately: lenU is attacker-controlled and lenU+4
+	// can wrap around uint64, which would pass a combined comparison and
+	// panic on the slice below.
+	if lenU > uint64(len(raw)) || uint64(len(raw))-lenU < 4 {
 		return 0, "", errors.New("ListGrantsForEntitlements: cursor truncated")
 	}
 	intra := string(raw[:lenU])

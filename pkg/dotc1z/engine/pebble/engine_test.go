@@ -52,19 +52,33 @@ func regularFileSizeUnder(t *testing.T, dir string) int64 {
 }
 
 // makeGrant returns a fully-populated GrantRecord under the given sync.
+// The entitlement ref carries the SDK-shaped raw id ("app:github:"+entID) so
+// fixtures match what connectors actually store and bare-id lookups resolve.
 func makeGrant(syncID, externalID, entID, principalID string) *v3.GrantRecord {
 	return v3.GrantRecord_builder{
 		ExternalId: externalID,
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app",
 			ResourceId:     "github",
-			EntitlementId:  entID,
+			EntitlementId:  canonicalTestEntID(entID),
 		}.Build(),
 		Principal: v3.PrincipalRef_builder{
 			ResourceTypeId: "user",
 			ResourceId:     principalID,
 		}.Build(),
 	}.Build()
+}
+
+// testGrantByIdentity fetches a grant by its structural refs — the exact
+// path for fixtures whose stored external id is connector-custom (not the
+// concat shape) and therefore not addressable by bare id string.
+func testGrantByIdentity(ctx context.Context, e *Engine, entID, principalRT, principalID string) (*v3.GrantRecord, error) {
+	id := grantIdentity{
+		entitlement:     entitlementIdentityFromParts("app", "github", canonicalTestEntID(entID)),
+		principalTypeID: principalRT,
+		principalID:     principalID,
+	}
+	return getGrantByIdentity(ctx, e.db, id)
 }
 
 func TestEngineOpenClose(t *testing.T) {
@@ -104,14 +118,23 @@ func TestPutGetGrantRecord(t *testing.T) {
 	syncID := ksuid.New().String()
 	require.NoError(t, e.SetCurrentSync(syncID))
 
+	// Custom stored external id: addressable only by identity, not by the
+	// concat id string (which no longer equals the stored public id).
 	r := makeGrant(syncID, "grant-1", "github-read", "alice")
 	require.NoError(t, e.PutGrantRecord(ctx, r), "Put")
-
-	got, err := e.GetGrantRecord(ctx, canonicalTestGrantID("github-read", "user", "alice"))
-	require.NoError(t, err, "Get")
+	got, err := testGrantByIdentity(ctx, e, "github-read", "user", "alice")
+	require.NoError(t, err, "get by identity")
 	require.Equal(t, "grant-1", got.GetExternalId(), "external_id")
-	require.Equal(t, "github-read", got.GetEntitlement().GetEntitlementId(), "entitlement")
-	require.Equal(t, "alice", got.GetPrincipal().GetResourceId(), "principal")
+
+	// SDK-shaped external id (the concat): addressable by bare id string.
+	sdkID := canonicalTestGrantID("github-write", "user", "alice")
+	r2 := makeGrant(syncID, sdkID, "github-write", "alice")
+	require.NoError(t, e.PutGrantRecord(ctx, r2), "Put sdk-shaped")
+	got2, err := e.GetGrantRecord(ctx, sdkID)
+	require.NoError(t, err, "Get")
+	require.Equal(t, sdkID, got2.GetExternalId(), "external_id")
+	require.Equal(t, canonicalTestEntID("github-write"), got2.GetEntitlement().GetEntitlementId(), "entitlement")
+	require.Equal(t, "alice", got2.GetPrincipal().GetResourceId(), "principal")
 }
 
 func TestIterateGrantsBySync(t *testing.T) {
@@ -210,7 +233,7 @@ func TestDeleteGrantRecord(t *testing.T) {
 	syncID := ksuid.New().String()
 	require.NoError(t, e.SetCurrentSync(syncID))
 
-	r := makeGrant(syncID, "to-delete", "ent-X", "user-X")
+	r := makeGrant(syncID, canonicalTestGrantID("ent-X", "user", "user-X"), "ent-X", "user-X")
 	require.NoError(t, e.PutGrantRecord(ctx, r))
 
 	// Delete it. Both the primary and the index entries should go.
@@ -233,7 +256,7 @@ func TestCheckpointToReadOnly(t *testing.T) {
 	e, dir := newTestEngine(t)
 	syncID := ksuid.New().String()
 	require.NoError(t, e.SetCurrentSync(syncID))
-	r := makeGrant(syncID, "g1", "e1", "p1")
+	r := makeGrant(syncID, canonicalTestGrantID("e1", "user", "p1"), "e1", "p1")
 	require.NoError(t, e.PutGrantRecord(ctx, r))
 	require.NoError(t, e.Close())
 
@@ -251,7 +274,7 @@ func TestCheckpointToReadOnly(t *testing.T) {
 	defer e2.Close()
 	got, err := e2.GetGrantRecord(ctx, canonicalTestGrantID("e1", "user", "p1"))
 	require.NoError(t, err, "checkpoint Get")
-	require.Equal(t, "e1", got.GetEntitlement().GetEntitlementId(), "checkpoint Get returned wrong entitlement")
+	require.Equal(t, canonicalTestEntID("e1"), got.GetEntitlement().GetEntitlementId(), "checkpoint Get returned wrong entitlement")
 }
 
 func TestCheckpointTo(t *testing.T) {
@@ -260,7 +283,7 @@ func TestCheckpointTo(t *testing.T) {
 	syncID := ksuid.New().String()
 	require.NoError(t, e.SetCurrentSync(syncID))
 
-	r := makeGrant(syncID, "g1", "e1", "p1")
+	r := makeGrant(syncID, canonicalTestGrantID("e1", "user", "p1"), "e1", "p1")
 	require.NoError(t, e.PutGrantRecord(ctx, r))
 
 	ckDir := filepath.Join(dir, "checkpoint")
@@ -273,7 +296,7 @@ func TestCheckpointTo(t *testing.T) {
 	got, err := e2.GetGrantRecord(ctx, canonicalTestGrantID("e1", "user", "p1"))
 	require.NoError(t, err)
 
-	require.Equal(t, "e1", got.GetEntitlement().GetEntitlementId(), "checkpoint Get returned wrong entitlement")
+	require.Equal(t, canonicalTestEntID("e1"), got.GetEntitlement().GetEntitlementId(), "checkpoint Get returned wrong entitlement")
 
 	r2 := makeGrant(syncID, "g2", "e2", "p2")
 	err = e.PutGrantRecord(ctx, r2)
@@ -344,12 +367,13 @@ func TestEmptySyncIDFallsBackToCurrent(t *testing.T) {
 	require.NoError(t, e.SetCurrentSync(syncID))
 
 	// Put with explicit sync id...
-	r := makeGrant(syncID, "g1", "e1", "p1")
+	sdkID := canonicalTestGrantID("e1", "user", "p1")
+	r := makeGrant(syncID, sdkID, "e1", "p1")
 	require.NoError(t, e.PutGrantRecord(ctx, r))
 	// ...and Get with empty sync id (should use the engine's current).
-	got, err := e.GetGrantRecord(ctx, canonicalTestGrantID("e1", "user", "p1"))
+	got, err := e.GetGrantRecord(ctx, sdkID)
 	require.NoError(t, err, "Get with empty syncID")
-	require.Equal(t, "g1", got.GetExternalId(), "unexpected: %v", got)
+	require.Equal(t, sdkID, got.GetExternalId(), "unexpected: %v", got)
 }
 
 func TestWriteWithNoCurrentSyncFails(t *testing.T) {

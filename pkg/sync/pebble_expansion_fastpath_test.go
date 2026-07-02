@@ -47,8 +47,9 @@ func TestPebbleExpansionUsesSynthesizedFastPath(t *testing.T) {
 	))
 
 	graph := expand.NewEntitlementGraph(ctx)
-	srcID := "group:org:custom:ent\\:source"
-	dstID := "group:org:custom:ent\\:dest"
+	// Graph node ids are the connector's raw entitlement ids.
+	srcID := "ent:source"
+	dstID := "ent:dest"
 	graph.AddEntitlementID(srcID)
 	graph.AddEntitlementID(dstID)
 	require.NoError(t, graph.AddEdge(ctx, srcID, dstID, false, []string{"user"}))
@@ -90,8 +91,9 @@ func TestPebbleExpansionSplitsSynthesizedAndUpdatePaths(t *testing.T) {
 	))
 
 	graph := expand.NewEntitlementGraph(ctx)
-	srcID := "group:org:custom:ent\\:source"
-	dstID := "group:org:custom:ent\\:dest"
+	// Graph node ids are the connector's raw entitlement ids.
+	srcID := "ent:source"
+	dstID := "ent:dest"
 	graph.AddEntitlementID(srcID)
 	graph.AddEntitlementID(dstID)
 	require.NoError(t, graph.AddEdge(ctx, srcID, dstID, false, []string{"user"}))

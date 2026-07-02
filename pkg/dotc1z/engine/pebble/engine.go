@@ -45,7 +45,7 @@ type Engine struct {
 	// can skip the read-before-write index-cleanup path because this
 	// sync_id is guaranteed to be empty.
 	freshSync bool
-	// freshGrantsEmpty / freshResourcesEmpty / freshEntitlementsEmpty
+	// freshGrantsEmpty / freshResourcesEmpty
 	// are one-shot bits guarded by currentSyncMu. MarkFreshSync sets
 	// each to true; the first PutXxxRecords call of the fresh sync
 	// reads the value via takeFreshXxxEmpty() which returns it and
@@ -53,9 +53,8 @@ type Engine struct {
 	// call only" — subsequent calls in the same fresh sync must
 	// still read-before-write to clean up cross-call duplicate index
 	// entries.
-	freshGrantsEmpty       bool
-	freshResourcesEmpty    bool
-	freshEntitlementsEmpty bool
+	freshGrantsEmpty    bool
+	freshResourcesEmpty bool
 
 	// writeWG tracks in-flight writes. Incremented at the start of
 	// every Writer method, decremented in defer.
@@ -94,6 +93,20 @@ type Engine struct {
 	// installed by newPebbleOptions. Pause/resume via PauseCompactions /
 	// ResumeCompactions.
 	compactionScheduler *pausableCompactionScheduler
+
+	// Lazy bare-id entitlement lookup (see lookup.go). entIDLookupGen is
+	// bumped by every entitlement-keyspace mutation; the map rebuilds on the
+	// next lookup when its built generation is stale.
+	entIDLookupGen      atomic.Uint64
+	entIDLookupMu       sync.Mutex
+	entIDLookup         map[string][]entitlementIdentity
+	entIDLookupBuiltGen uint64
+
+	// migratedOnOpen reports that this Open ran the in-place id-index
+	// migration. The store layer uses it to mark a writable store dirty so
+	// the migrated layout is saved back into the c1z once, instead of
+	// re-running the O(rows) migration on every subsequent open.
+	migratedOnOpen bool
 
 	expandedWriteCalls    atomic.Int64
 	expandedWriteRows     atomic.Int64
@@ -147,6 +160,16 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		_ = e.Close()
 		return nil, err
 	}
+	// Restore the durable deferred-index marker (see
+	// encodeDeferredIdxPendingKey): a prior process may have deferred
+	// by_principal writes and been interrupted before the EndSync rebuild.
+	if _, closer, err := e.db.Get(encodeDeferredIdxPendingKey()); err == nil {
+		closer.Close()
+		e.deferredIdxPending.Store(true)
+	} else if !errors.Is(err, pebble.ErrNotFound) {
+		_ = e.Close()
+		return nil, err
+	}
 	// Run secondary-index migrations before returning. Migrations
 	// are skipped for read-only opens (the on-disk file is
 	// immutable, so we'd error out trying to backfill).
@@ -167,6 +190,15 @@ func (e *Engine) Close() error {
 	}
 	e.closing.Store(true)
 	e.writeWG.Wait()
+	// A leaked synthesized-grant layer session (possible only if a panic
+	// unwound past the expansion driver's Abort) has a background worker
+	// ingesting through e.db; drain it before tearing the DB down. This
+	// runs AFTER the closing/writeWG barrier so no in-flight Add/Finish
+	// (which run under withWrite) can be touching the session concurrently
+	// — Abort itself takes no write barrier.
+	if e.synthLayer != nil {
+		_ = e.AbortSynthesizedGrantLayer(context.Background())
+	}
 	// Invariant: flush before close on any write path. This drives the
 	// memtable out to an SST so a Close is never the step that leaves
 	// un-materialized writes behind — independent of whether EndSync or
@@ -203,7 +235,6 @@ func (e *Engine) SetCurrentSync(syncID string) error {
 	e.freshSync = false
 	e.freshGrantsEmpty = false
 	e.freshResourcesEmpty = false
-	e.freshEntitlementsEmpty = false
 	e.currentSyncMu.Unlock()
 	// Binding a sync means more writes are coming; compactions must run so
 	// L0 keeps draining (see PauseCompactions).
@@ -250,7 +281,6 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 	e.freshSync = true
 	e.freshGrantsEmpty = true
 	e.freshResourcesEmpty = true
-	e.freshEntitlementsEmpty = true
 	e.currentSyncMu.Unlock()
 	// A fresh sync writes heavily; compactions must run so L0 keeps
 	// draining (see PauseCompactions).
@@ -268,7 +298,6 @@ func (e *Engine) clearCurrentSync() {
 	e.freshSync = false
 	e.freshGrantsEmpty = false
 	e.freshResourcesEmpty = false
-	e.freshEntitlementsEmpty = false
 	e.currentSyncMu.Unlock()
 }
 
@@ -280,9 +309,9 @@ func (e *Engine) IsFreshSync() bool {
 	return e.freshSync
 }
 
-// takeFreshGrantsEmpty / takeFreshResourcesEmpty /
-// takeFreshEntitlementsEmpty return true exactly once per fresh
-// sync, for the first PutXxxRecords call of that type after
+// takeFreshGrantsEmpty / takeFreshResourcesEmpty return true
+// exactly once per fresh sync, for the first PutXxxRecords call
+// of that type after
 // MarkFreshSync. Subsequent calls (and any call after EndSync) see
 // false. PutXxxRecords uses these to safely skip the
 // read-before-write Get on the first bulk write of each type:
@@ -305,16 +334,6 @@ func (e *Engine) takeFreshResourcesEmpty() bool {
 		return false
 	}
 	e.freshResourcesEmpty = false
-	return true
-}
-
-func (e *Engine) takeFreshEntitlementsEmpty() bool {
-	e.currentSyncMu.Lock()
-	defer e.currentSyncMu.Unlock()
-	if !e.freshEntitlementsEmpty {
-		return false
-	}
-	e.freshEntitlementsEmpty = false
 	return true
 }
 
@@ -450,8 +469,19 @@ func (e *Engine) CurrentDBSizeBytes() (int64, error) {
 // DB returns the underlying *pebble.DB. Exported for the
 // synccompactor/pebble package; callers must not Close it directly
 // (use Engine.Close) and must respect the engine's lifecycle. Returns
-// nil after Close.
+// nil after Close. Callers that write the entitlement keyspace through
+// this handle (ingests, excises) must call InvalidateBareIDLookups
+// afterwards.
 func (e *Engine) DB() *pebble.DB { return e.db }
+
+// InvalidateBareIDLookups invalidates the lazily built bare-id lookup
+// state (see lookup.go). Engine write paths call this internally; it is
+// exported for callers that mutate the keyspace through DB() directly.
+func (e *Engine) InvalidateBareIDLookups() { e.noteEntitlementKeyspaceWrite() }
+
+// MigratedOnOpen reports whether this Open ran the in-place id-index
+// migration (see migratedOnOpen).
+func (e *Engine) MigratedOnOpen() bool { return e.migratedOnOpen }
 
 // CheckpointTo writes a self-contained Pebble directory snapshot to
 // destDir. destDir must not exist yet. Pebble creates it and

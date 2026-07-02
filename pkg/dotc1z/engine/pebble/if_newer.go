@@ -199,7 +199,11 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 		if written == 0 {
 			return nil
 		}
-		return batch.Commit(writeOpts(e.opts.durability))
+		if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
+			return err
+		}
+		e.noteEntitlementKeyspaceWrite()
+		return nil
 	})
 }
 

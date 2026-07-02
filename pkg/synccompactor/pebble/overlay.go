@@ -363,6 +363,9 @@ func MergeFilesIntoOverlay(ctx context.Context, dest *enginepkg.Engine, sources 
 	for _, opt := range opts {
 		opt(&cfg)
 	}
+	// Overlay writers commit batches through the raw DB handle; invalidate
+	// the dest engine's bare-id lookup state on the way out (even on error).
+	defer dest.InvalidateBareIDLookups()
 	hardLimit := cfg.hardLimit()
 	gateThreshold := cfg.gateThreshold()
 	buckets := allBuckets()
@@ -1088,6 +1091,7 @@ func overlayMaterializeWholeSourceBucketSST(
 		if err := dest.DB().Ingest(ctx, []string{primaryPath}); err != nil {
 			return fmt.Errorf("overlay merge: ingest whole primary %s: %w", bucket.name, err)
 		}
+		dest.InvalidateBareIDLookups()
 	}
 	return overlayCopySourceIndexesSST(ctx, dest, source, bucket, seen, tmpDir)
 }
@@ -1184,6 +1188,7 @@ func overlayCopySourceIndexesSST(
 	if err := dest.DB().Ingest(ctx, []string{sstPath}); err != nil {
 		return fmt.Errorf("overlay merge: ingest whole index %s: %w", bucket.name, err)
 	}
+	dest.InvalidateBareIDLookups()
 	return nil
 }
 

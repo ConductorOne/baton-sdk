@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,7 +15,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	entitlementtype "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 )
 
 // parallelTransform applies fn to each index [0,n) using up to GOMAXPROCS
@@ -76,41 +76,38 @@ const listPageSize = 10000
 
 // transformID rewrites a composite baton identifier one ':'-delimited
 // component at a time. A component is preserved verbatim only when it
-// is a declared resource-type token or entitlementtype.EntitlementKindCustom;
-// these are structural schema, not tenant data. Preserving resource-type tokens
-// keeps a sanitized id's embedded type tokens equal to the separately-sanitized
-// resource/principal type fields, and preserving the custom kind marker keeps
-// the canonical entitlement id grammar parseable. EVERY other component is
-// HMAC'd — including an opaque id
-// that sits in a position the canonical grammar (entitlement
-// "type:id:perm", grant "entId:type:id") reserves for a type.
+// is a declared resource-type token; connector-defined type names are
+// structural schema, not tenant data, and preserving them keeps a
+// sanitized id's embedded type tokens equal to the separately-
+// sanitized resource/principal type fields. EVERY other component is
+// HMAC'd — including an opaque id that sits in a position the canonical
+// grammar (entitlement "type:id:perm", grant "entId:type:id") reserves
+// for a type.
 //
 // This is deliberately fail-closed: positional grammar is not trusted
 // to decide what is safe to keep, because connectors emit
 // non-canonical ids — e.g. a grant id carrying a tenant group UUID in a
 // type slot — and trusting position would let that UUID survive in
-// cleartext. The only positional-looking token we keep without a type
-// registry lookup is entitlementtype.EntitlementKindCustom, which is an
-// SDK-defined marker rather than connector-supplied data. HMAC is
-// deterministic, so a component that is also a resource or principal id still
-// hashes to the same value as the separately-sanitized structured field,
-// keeping cross-references coherent. A single-component id (no ':') has no
-// structural token to keep and is HMAC'd whole.
+// cleartext. HMAC is deterministic, so a component that is also a
+// resource or principal id still hashes to the same value as the
+// separately-sanitized structured field, keeping cross-references
+// coherent. A single-component id (no ':') has no structural token to
+// keep and is HMAC'd whole.
 func (s *sanitizer) transformID(id string) string {
 	if id == "" {
 		return ""
 	}
-	parts, err := entitlementtype.SplitEscapedID(id)
-	if err != nil || len(parts) == 1 {
+	if !strings.Contains(id, ":") {
 		return s.id(id)
 	}
+	parts := strings.Split(id, ":")
 	for i, p := range parts {
-		if p == entitlementtype.EntitlementKindCustom || (p != "" && s.isKnownResourceType(p)) {
+		if p != "" && s.isKnownResourceType(p) {
 			continue
 		}
 		parts[i] = s.id(p)
 	}
-	return entitlementtype.JoinEscapedID(parts...)
+	return strings.Join(parts, ":")
 }
 
 func (s *sanitizer) isKnownResourceType(token string) bool {

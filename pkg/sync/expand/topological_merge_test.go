@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	entitlementtype "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/stretchr/testify/require"
 )
 
@@ -94,11 +93,11 @@ func snapshotStoreGrants(store *MockExpanderStore) map[string]grantSnapshot {
 		sources := grant.GetSources().GetSources()
 		sourceDirect := make(map[string]bool, len(sources))
 		for sourceID, source := range sources {
-			sourceDirect[normalizeSnapshotEntitlementID(sourceID)] = source.GetIsDirect()
+			sourceDirect[sourceID] = source.GetIsDirect()
 		}
 		out[id] = grantSnapshot{
 			id:           grant.GetId(),
-			entitlement:  normalizeSnapshotEntitlementID(grant.GetEntitlement().GetId()),
+			entitlement:  grant.GetEntitlement().GetId(),
 			principalRT:  grant.GetPrincipal().GetId().GetResourceType(),
 			principalID:  grant.GetPrincipal().GetId().GetResource(),
 			sourceDirect: sourceDirect,
@@ -112,18 +111,7 @@ func grantSnapshotKey(grant *v2.Grant) string {
 		return ""
 	}
 	pid := grant.GetPrincipal().GetId()
-	return normalizeSnapshotEntitlementID(grant.GetEntitlement().GetId()) + "\x00" + pid.GetResourceType() + "\x00" + pid.GetResource()
-}
-
-func normalizeSnapshotEntitlementID(id string) string {
-	parts, err := entitlementtype.DecodeEntitlementID(id)
-	if err != nil {
-		return id
-	}
-	if parts.ResourceTypeID != "group" || parts.ResourceID != "org" {
-		return id
-	}
-	return parts.Name
+	return grant.GetEntitlement().GetId() + "\x00" + pid.GetResourceType() + "\x00" + pid.GetResource()
 }
 
 func compareCurrentAndTopologicalStreaming(

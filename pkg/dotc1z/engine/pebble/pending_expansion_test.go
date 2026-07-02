@@ -119,7 +119,7 @@ func TestPebbleGrantStorePendingExpansionPage(t *testing.T) {
 	require.NoErrorf(t, err, "PendingExpansionPage")
 	require.Len(t, rows, 1, "PendingExpansionPage rows")
 	require.Equal(t, "g1", rows[0].GrantExternalID, "PendingExpansion[0].GrantExternalID")
-	require.Equal(t, "app:github:custom:ent-A", rows[0].TargetEntitlementID, "PendingExpansion[0].TargetEntitlementID")
+	require.Equal(t, "ent-A", rows[0].TargetEntitlementID, "PendingExpansion[0].TargetEntitlementID")
 	require.True(t, rows[0].NeedsExpansion, "PendingExpansion[0].NeedsExpansion")
 	require.NotNil(t, rows[0].Annotation, "PendingExpansion[0].Annotation")
 	require.Len(t, rows[0].Annotation.GetEntitlementIds(), 1, "PendingExpansion[0].Annotation entitlement ids")

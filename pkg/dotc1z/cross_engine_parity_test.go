@@ -13,8 +13,6 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	batonEntitlement "github.com/conductorone/baton-sdk/pkg/types/entitlement"
-	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 // TestCrossEngineParity drives BOTH SQLite and Pebble backends
@@ -73,23 +71,21 @@ func TestCrossEngineParity(t *testing.T) {
 		require.NoError(t, store.PutResources(ctx, users...))
 		require.NoError(t, store.PutResources(ctx, groups...))
 
-		entAID := batonEntitlement.EncodeEntitlementID("app", "gh", batonEntitlement.EntitlementKindCustom, "ent-A")
-		entBID := batonEntitlement.EncodeEntitlementID("app", "gh", batonEntitlement.EntitlementKindCustom, "ent-B")
-		entA := v2.Entitlement_builder{Id: entAID, Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "A"}.Build()
-		entB := v2.Entitlement_builder{Id: entBID, Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "B"}.Build()
+		entA := v2.Entitlement_builder{Id: "ent-A", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "A"}.Build()
+		entB := v2.Entitlement_builder{Id: "ent-B", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "B"}.Build()
 		require.NoError(t, store.PutEntitlements(ctx, entA, entB))
 
 		grants := []*v2.Grant{}
 		for i := 0; i < userCount; i++ {
 			grants = append(grants, v2.Grant_builder{
-				Id:          batonGrant.NewGrantID(users[i], entA),
+				Id:          "ga-" + strconv.Itoa(i),
 				Entitlement: entA,
 				Principal:   users[i],
 			}.Build())
 		}
 		for i := 0; i < groupCount; i++ {
 			grants = append(grants, v2.Grant_builder{
-				Id:          batonGrant.NewGrantID(groups[i], entB),
+				Id:          "gb-" + strconv.Itoa(i),
 				Entitlement: entB,
 				Principal:   groups[i],
 			}.Build())
@@ -174,7 +170,7 @@ func TestCrossEngineParity(t *testing.T) {
 	// ListGrantsForEntitlement — same count, same set of ids.
 	t.Run("ListGrantsForEntitlement set parity", func(t *testing.T) {
 		req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-			Entitlement: v2.Entitlement_builder{Id: batonEntitlement.EncodeEntitlementID("app", "gh", batonEntitlement.EntitlementKindCustom, "ent-A")}.Build(),
+			Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
 			PageSize:    1000,
 		}.Build()
 		sResp, err := pair.sqlite.ListGrantsForEntitlement(ctx, req)
@@ -216,8 +212,8 @@ func TestCrossEngineParity(t *testing.T) {
 	t.Run("ListGrantsForEntitlements parity", func(t *testing.T) {
 		req := reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
 			Entitlements: []*v2.Entitlement{
-				v2.Entitlement_builder{Id: batonEntitlement.EncodeEntitlementID("app", "gh", batonEntitlement.EntitlementKindCustom, "ent-A")}.Build(),
-				v2.Entitlement_builder{Id: batonEntitlement.EncodeEntitlementID("app", "gh", batonEntitlement.EntitlementKindCustom, "ent-B")}.Build(),
+				v2.Entitlement_builder{Id: "ent-A"}.Build(),
+				v2.Entitlement_builder{Id: "ent-B"}.Build(),
 			},
 			PageSize: 1000,
 		}.Build()
@@ -250,11 +246,7 @@ func TestCrossEngineParity(t *testing.T) {
 	// ListEntitlementsByIds — bulk Get parity.
 	t.Run("ListEntitlementsByIds parity", func(t *testing.T) {
 		req := reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest_builder{
-			EntitlementIds: []string{
-				batonEntitlement.EncodeEntitlementID("app", "gh", batonEntitlement.EntitlementKindCustom, "ent-A"),
-				batonEntitlement.EncodeEntitlementID("app", "gh", batonEntitlement.EntitlementKindCustom, "ent-B"),
-				batonEntitlement.EncodeEntitlementID("app", "gh", batonEntitlement.EntitlementKindCustom, "ent-zzz"),
-			},
+			EntitlementIds: []string{"ent-A", "ent-B", "ent-zzz"},
 		}.Build()
 		sResp, err := pair.sqlite.ListEntitlementsByIds(ctx, req)
 		require.NoError(t, err)
@@ -268,7 +260,7 @@ func TestCrossEngineParity(t *testing.T) {
 	// fields. Locked in here so future regressions get caught at CI.
 	t.Run("Entitlement slug + grantable_to parity", func(t *testing.T) {
 		req := reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest_builder{
-			EntitlementIds: []string{batonEntitlement.EncodeEntitlementID("app", "gh", batonEntitlement.EntitlementKindCustom, "ent-A")},
+			EntitlementIds: []string{"ent-A"},
 		}.Build()
 		sResp, err := pair.sqlite.ListEntitlementsByIds(ctx, req)
 		require.NoError(t, err)

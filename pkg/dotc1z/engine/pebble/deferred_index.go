@@ -288,6 +288,11 @@ func (t *grantRebuildTee) closeAndWait() {
 // stats accumulation is best-effort: a value that fails the shallow field
 // scan just disables the stash and PersistSyncStats falls back to scanning.
 func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
+	// The scan below only polls ctx periodically; don't start an O(grants)
+	// pass (or its destructive IngestAndExcise) on an already-dead context.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
 	dir, err := os.MkdirTemp("", "pebble-deferred-idx-")
@@ -299,6 +304,7 @@ func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
 	sorters := min(4, max(2, runtime.GOMAXPROCS(0)/2))
 	sem := make(chan struct{}, sorters)
 	principal := newSpillSorter(dir, fmt.Sprintf("index-%02x", idxGrantByPrincipal), sem, deferredIndexSpillChunkBytes)
+	principal.free = newSpillArenaFreeList(deferredIndexSpillChunkBytes, sorters+2)
 
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: GrantLowerBound(),

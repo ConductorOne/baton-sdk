@@ -70,7 +70,7 @@ func TestForEachIndexKeyFromRawAllocs(t *testing.T) {
 		require.NoError(t, forEachIndexKeyFromRaw(fx.bucket, fx.destKey, fx.destLower, fx.value, &scratch, stats, func([]byte) error { return nil }))
 	}
 	allocs := testing.AllocsPerRun(100, run)
-	require.Equal(t, float64(3), allocs, "forEachIndexKeyFromRaw allocs/op")
+	require.Equal(t, float64(2), allocs, "forEachIndexKeyFromRaw allocs/op")
 }
 
 // TestSeenSuffixSetLookupAllocs locks in the allocation-free lookup

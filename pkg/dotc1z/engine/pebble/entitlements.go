@@ -19,13 +19,10 @@ func (e *Engine) PutEntitlementRecord(ctx context.Context, r *v3.EntitlementReco
 }
 
 // PutEntitlementRecords writes N entitlements by structured primary key.
-// Mirrors the PutGrantRecords pattern (RFC §3a Tier-B/C):
-//   - within-call dedup pre-pass keyed by external_id drops earlier
-//     occurrences;
-//   - the first PutEntitlementRecords call of a fresh sync skips
-//     the read-before-write Get (keyspace provably empty);
-//   - subsequent calls fall back to read-before-write so cross-call
-//     duplicates can clean up the prior call's index entries.
+// The identity key is a pure function of the record (it contains the raw
+// external id), so overwrites are idempotent and no read-before-write or
+// index cleanup is needed; a within-call dedup pre-pass keeps last-wins
+// semantics for same-identity duplicates in one batch.
 func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.EntitlementRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -38,7 +35,6 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		defer priBatch.Close()
 
 		fresh := e.IsFreshSync()
-		skipGet := e.takeFreshEntitlementsEmpty()
 
 		type dedupKey struct {
 			id entitlementIdentity
@@ -76,17 +72,6 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 			if err != nil {
 				return err
 			}
-			if !skipGet {
-				_, closer, getErr := e.db.Get(key)
-				switch {
-				case getErr == nil:
-					closer.Close()
-				case errors.Is(getErr, pebble.ErrNotFound):
-					// no prior — write unconditionally
-				default:
-					return fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
-				}
-			}
 			if err := priBatch.Set(key, val, nil); err != nil {
 				return err
 			}
@@ -95,14 +80,20 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		if fresh {
 			opts = pebble.NoSync
 		}
-		return priBatch.Commit(opts)
+		if err := priBatch.Commit(opts); err != nil {
+			return err
+		}
+		e.noteEntitlementKeyspaceWrite()
+		return nil
 	})
 }
 
+// GetEntitlementRecord fetches an entitlement by its raw public id via the
+// bare-id lookup (exact string-match, exactly-one rule — see lookup.go).
 func (e *Engine) GetEntitlementRecord(ctx context.Context, externalID string) (*v3.EntitlementRecord, error) {
-	id, err := entitlementIdentityFromID(externalID)
+	id, err := e.resolveEntitlementIdentityByExternalID(ctx, externalID)
 	if err != nil {
-		return nil, pebble.ErrNotFound
+		return nil, err
 	}
 	val, closer, err := e.db.Get(encodeEntitlementIdentityKey(id))
 	if err != nil {
@@ -116,27 +107,29 @@ func (e *Engine) GetEntitlementRecord(ctx context.Context, externalID string) (*
 	return r, nil
 }
 
+// DeleteEntitlementRecord deletes by raw public id. A missing id is a
+// no-op; an ambiguous id is an error (a lossy string must never guess a
+// delete).
 func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
-		id, err := entitlementIdentityFromID(externalID)
-		if err != nil {
-			return nil
-		}
-		key := encodeEntitlementIdentityKey(id)
-		batch := e.db.NewBatch()
-		defer batch.Close()
-		_, closer, err := e.db.Get(key)
+		id, err := e.resolveEntitlementIdentityByExternalID(ctx, externalID)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				return nil
 			}
 			return err
 		}
-		closer.Close()
+		key := encodeEntitlementIdentityKey(id)
+		batch := e.db.NewBatch()
+		defer batch.Close()
 		if err := batch.Delete(key, nil); err != nil {
 			return err
 		}
-		return batch.Commit(writeOpts(e.opts.durability))
+		if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
+			return err
+		}
+		e.noteEntitlementKeyspaceWrite()
+		return nil
 	})
 }
 

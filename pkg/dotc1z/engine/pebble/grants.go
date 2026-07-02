@@ -353,7 +353,6 @@ func (e *Engine) PutSynthesizedGrantRecords(ctx context.Context, records []*v3.G
 
 type synthesizedGrantRecord struct {
 	id          grantIdentity
-	externalID  string
 	entitlement *v3.EntitlementRef
 	principal   *v3.PrincipalRef
 	sources     batonGrant.Sources
@@ -424,6 +423,10 @@ type synthGrantLayerSession struct {
 	segMu  sync.Mutex
 	segErr error
 
+	// arenaFree recycles the 128MiB chunk arenas across all of the
+	// session's segment sorters (see spillArenaFreeList).
+	arenaFree *spillArenaFreeList
+
 	now        *timestamppb.Timestamp
 	keyScratch []byte
 	valScratch []byte
@@ -462,6 +465,7 @@ func (s *synthGrantLayerSession) cutSegment() error {
 	s.segIdx++
 	s.segRows = 0
 	s.sorter = newSpillSorter(s.dir, s.segName(), s.sortSem, deferredIndexSpillChunkBytes)
+	s.sorter.free = s.arenaFree
 	if len(chunks) == 0 {
 		return nil
 	}
@@ -502,12 +506,14 @@ func (e *Engine) initSynthLayerSession(ctx context.Context, s *synthGrantLayerSe
 	s.dir = dir
 	sorters := min(4, max(2, runtime.GOMAXPROCS(0)/2))
 	s.sortSem = make(chan struct{}, sorters)
+	s.arenaFree = newSpillArenaFreeList(deferredIndexSpillChunkBytes, sorters+2)
 	// deferredIndexSpillChunkBytes, not bulkSpillKeyChunkBytes: like the
 	// deferred index build, the layer session is one producer with one live
 	// sorter carrying full grant records. 8MiB chunks turned one whale wave
 	// into a 3,400-way merge with ~3.4GB of read buffers; 128MiB chunks keep
 	// each segment's merge fan-in small.
 	s.sorter = newSpillSorter(dir, s.segName(), s.sortSem, deferredIndexSpillChunkBytes)
+	s.sorter.free = s.arenaFree
 	s.segCh = make(chan synthLayerSegment, 1)
 	s.segWG.Add(1)
 	go func() {
@@ -565,7 +571,9 @@ func (e *Engine) AddSynthesizedGrantLayerContributions(ctx context.Context, reco
 			// Segment SSTs carry primary rows only; make sure EndSync builds
 			// the deferred by_principal index even if no batch write set the
 			// flag.
-			e.deferredIdxPending.Store(true)
+			if err := e.markDeferredIdxPending(); err != nil {
+				return err
+			}
 		}
 		e.synthesizedWriteCalls.Add(1)
 		e.synthesizedWriteRows.Add(int64(len(records)))
@@ -575,8 +583,13 @@ func (e *Engine) AddSynthesizedGrantLayerContributions(ctx context.Context, reco
 				continue
 			}
 			s.keyScratch = appendGrantIdentityKey(s.keyScratch[:0], rec.id)
+			// external_id (field 2) is hand-encoded FIRST — it is the
+			// lowest-numbered field these records carry, so emitting it
+			// before the base marshal preserves canonical field order
+			// without materializing a per-row concat string.
+			s.valScratch = appendSynthGrantExternalIDWire(s.valScratch[:0], rec)
 			fillSynthGrantRecord(s.rec, rec, s.now)
-			val, err := marshalRecordAppend(s.valScratch[:0], s.rec)
+			val, err := marshalRecordAppend(s.valScratch, s.rec)
 			if err != nil {
 				return err
 			}
@@ -675,8 +688,10 @@ func (e *Engine) putSynthesizedGrantContributionsBatch(ctx context.Context, reco
 				continue
 			}
 			keyScratch = appendGrantIdentityKey(keyScratch[:0], rec.id)
+			// external_id first; see AddSynthesizedGrantLayerContributions.
+			valScratch = appendSynthGrantExternalIDWire(valScratch[:0], rec)
 			fillSynthGrantRecord(r, rec, now)
-			val, err := marshalRecordAppend(valScratch[:0], r)
+			val, err := marshalRecordAppend(valScratch, r)
 			if err != nil {
 				return err
 			}
@@ -721,6 +736,11 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 		if !e.IsFreshSync() {
 			return errors.New("UnsafePutUniqueGrantRecords: sync is not fresh")
 		}
+		// Consume the fresh-grants-empty bit: the keyspace is no longer
+		// provably empty, so a subsequent PutGrantRecords in this sync must
+		// take its read-before-write path to clean up index entries on
+		// overwrites of identities written here.
+		_ = e.takeFreshGrantsEmpty()
 
 		type encoded struct {
 			priKey  []byte
@@ -822,11 +842,12 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 	})
 }
 
-// GetGrantRecord fetches a grant record by canonical grant id.
+// GetGrantRecord fetches a grant record by its raw public id via the
+// bare-id lookup (candidate-split probing, exactly-one rule — lookup.go).
 func (e *Engine) GetGrantRecord(ctx context.Context, externalID string) (*v3.GrantRecord, error) {
-	id, err := grantIdentityFromID(externalID)
+	id, err := e.resolveGrantIdentityByExternalID(ctx, externalID)
 	if err != nil {
-		return nil, pebble.ErrNotFound
+		return nil, err
 	}
 	key := encodeGrantIdentityKey(id)
 	val, closer, err := e.db.Get(key)
@@ -841,36 +862,60 @@ func (e *Engine) GetGrantRecord(ctx context.Context, externalID string) (*v3.Gra
 	return r, nil
 }
 
-// DeleteGrantRecord removes a grant and its index entries.
+// DeleteGrantRecord removes a grant and its index entries by raw public id.
+// A missing/unresolvable id is a no-op; an ambiguous id is an error (a
+// lossy string must never guess a delete).
 func (e *Engine) DeleteGrantRecord(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
-		id, err := grantIdentityFromID(externalID)
-		if err != nil {
-			return nil
-		}
-		key := encodeGrantIdentityKey(id)
-
-		batch := e.db.NewBatch()
-		defer batch.Close()
-
-		oldVal, closer, err := e.db.Get(key)
+		id, err := e.resolveGrantIdentityByExternalID(ctx, externalID)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
-				return nil // delete of non-existent is a no-op
+				return nil
 			}
 			return err
 		}
-		if err := e.deleteGrantIndexesRaw(batch, externalID, oldVal); err != nil {
-			closer.Close()
-			return err
-		}
-		closer.Close()
-
-		if err := batch.Delete(key, nil); err != nil {
-			return err
-		}
-		return batch.Commit(writeOpts(e.opts.durability))
+		return e.deleteGrantByIdentityLocked(id)
 	})
+}
+
+// DeleteGrantByIdentityRefs removes a grant addressed by its structural
+// refs — the exact delete path for callers that hold the full grant. No
+// lossy id string is involved. Deleting a non-existent grant is a no-op.
+func (e *Engine) DeleteGrantByIdentityRefs(ctx context.Context, r *v3.GrantRecord) error {
+	id, err := grantIdentityFromRecord(r)
+	if err != nil {
+		return fmt.Errorf("DeleteGrantByIdentityRefs: %w", err)
+	}
+	return e.withWrite(func() error {
+		return e.deleteGrantByIdentityLocked(id)
+	})
+}
+
+// deleteGrantByIdentityLocked deletes one grant row and its index entries.
+// Caller holds the engine write lock (withWrite).
+func (e *Engine) deleteGrantByIdentityLocked(id grantIdentity) error {
+	key := encodeGrantIdentityKey(id)
+
+	batch := e.db.NewBatch()
+	defer batch.Close()
+
+	oldVal, closer, err := e.db.Get(key)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil // delete of non-existent is a no-op
+		}
+		return err
+	}
+	if err := e.deleteGrantIndexesRaw(batch, "", oldVal); err != nil {
+		closer.Close()
+		return err
+	}
+	closer.Close()
+
+	if err := batch.Delete(key, nil); err != nil {
+		return err
+	}
+	return batch.Commit(writeOpts(e.opts.durability))
 }
 
 // grantIndexKeys returns the secondary-index keys for r. Folded families
@@ -914,12 +959,34 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 	return e.writeGrantIndexesForIdentityScratch(batch, id, r.GetNeedsExpansion(), scratch)
 }
 
+// markDeferredIdxPending arms the deferred by_principal rebuild, durably.
+// The atomic flag serves in-process checks; the engine-meta marker survives
+// a process restart so a resumed sync still runs the rebuild at EndSync
+// even when the resume itself writes nothing (see
+// encodeDeferredIdxPendingKey). The CAS keeps the durable write to one per
+// arming, off the per-record hot path.
+func (e *Engine) markDeferredIdxPending() error {
+	if !e.deferredIdxPending.CompareAndSwap(false, true) {
+		return nil
+	}
+	return e.db.Set(encodeDeferredIdxPendingKey(), nil, pebble.Sync)
+}
+
+// clearDeferredIdxPending drops both forms of the marker after a successful
+// rebuild.
+func (e *Engine) clearDeferredIdxPending() error {
+	e.deferredIdxPending.Store(false)
+	return e.db.Delete(encodeDeferredIdxPendingKey(), pebble.Sync)
+}
+
 // writeGrantIndexesForIdentityScratch writes the inline-maintained index keys
 // for one grant. by_principal is never written inline: it is scattered
 // relative to the entitlement-first write order, so it is always rebuilt as
 // one sorted SST at EndSync (deferredIdxPending → BuildDeferredGrantIndexes).
 func (e *Engine) writeGrantIndexesForIdentityScratch(batch *pebble.Batch, id grantIdentity, needsExpansion bool, scratch []byte) ([]byte, error) {
-	e.deferredIdxPending.Store(true)
+	if err := e.markDeferredIdxPending(); err != nil {
+		return scratch, err
+	}
 	if needsExpansion {
 		scratch = appendGrantByNeedsExpansionIdentityIndexKey(scratch[:0], id)
 		if err := batch.Set(scratch, nil, nil); err != nil {
@@ -982,11 +1049,15 @@ func (e *Engine) IterateGrants(ctx context.Context, yield func(*v3.GrantRecord) 
 }
 
 // IterateGrantsByEntitlement iterates the primary grant keyspace for the given
-// entitlement_id, yielding each grant in encoded principal-key order. yield
-// returns false to stop.
+// raw entitlement id, yielding each grant in encoded principal-key order.
+// The id resolves through the bare-id lookup; an id matching no entitlement
+// iterates nothing. yield returns false to stop.
 func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, entitlementID string, yield func(*v3.GrantRecord) bool) error {
-	entID, err := entitlementIdentityFromID(entitlementID)
+	entID, err := e.resolveGrantScanEntitlementIdentity(ctx, entitlementID)
 	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil
+		}
 		return err
 	}
 	indexPrefix := encodeGrantPrimaryEntitlementPrefix(entID)
@@ -1030,8 +1101,8 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, principalRT, prin
 			entitlement: entitlementIdentity{
 				resourceTypeID: components[0],
 				resourceID:     components[1],
-				kind:           components[2],
-				name:           components[3],
+				stripped:       components[2] == idFlagStripped,
+				tail:           components[3],
 			},
 			principalTypeID: principalRT,
 			principalID:     principalID,
@@ -1071,8 +1142,8 @@ func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, princ
 			entitlement: entitlementIdentity{
 				resourceTypeID: components[1],
 				resourceID:     components[2],
-				kind:           components[3],
-				name:           components[4],
+				stripped:       components[3] == idFlagStripped,
+				tail:           components[4],
 			},
 			principalTypeID: principalRT,
 			principalID:     components[0],
@@ -1116,8 +1187,8 @@ func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, yield func(*
 			entitlement: entitlementIdentity{
 				resourceTypeID: components[0],
 				resourceID:     components[1],
-				kind:           components[2],
-				name:           components[3],
+				stripped:       components[2] == idFlagStripped,
+				tail:           components[3],
 			},
 			principalTypeID: components[4],
 			principalID:     components[5],
@@ -1210,11 +1281,11 @@ func decodeGrantIdentityTail(key, prefix []byte) (grantIdentity, bool) {
 	if !ok {
 		return grantIdentity{}, false
 	}
-	entKind, ok := nextString()
+	entFlag, ok := nextString()
 	if !ok {
 		return grantIdentity{}, false
 	}
-	entName, ok := nextString()
+	entTail, ok := nextString()
 	if !ok {
 		return grantIdentity{}, false
 	}
@@ -1230,8 +1301,8 @@ func decodeGrantIdentityTail(key, prefix []byte) (grantIdentity, bool) {
 		entitlement: entitlementIdentity{
 			resourceTypeID: entRT,
 			resourceID:     entRID,
-			kind:           entKind,
-			name:           entName,
+			stripped:       entFlag == idFlagStripped,
+			tail:           entTail,
 		},
 		principalTypeID: principalRT,
 		principalID:     principalID,

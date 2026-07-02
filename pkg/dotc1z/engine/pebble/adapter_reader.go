@@ -168,10 +168,14 @@ func (a *Adapter) ListEntitlementsByIds(
 
 // GrantsForEntitlementPrincipalSorted reports whether ListGrantsForEntitlement
 // yields grants in non-decreasing principal (resource_type, resource) order.
-// The structured-key rewrite moved full-record reads to primary prefix scans; keep
-// this false until the streaming expander's principal-group assumptions are
-// revalidated against that cursor/order shape.
-func (a *Adapter) GrantsForEntitlementPrincipalSorted() bool { return false }
+// True under the structured key layout: the primary grant key ends in the
+// tuple-encoded (principal_rt, principal_id) components and the tuple codec
+// is order-preserving, so a per-entitlement primary prefix scan IS a
+// principal-ordered scan. This gates the topological-merge expansion path;
+// streamingPrincipalGroupStream additionally fails loudly if the order
+// invariant is ever violated, and the differential/parity suites compare
+// the sorted and unsorted evaluators against SQLite.
+func (a *Adapter) GrantsForEntitlementPrincipalSorted() bool { return true }
 
 // ListGrantsForEntitlement paginates grants on a specific
 // entitlement, optionally narrowed by principal_id or
@@ -192,7 +196,15 @@ func (a *Adapter) ListGrantsForEntitlement(
 	if ent == nil || ent.GetId() == "" {
 		return nil, errors.New("ListGrantsForEntitlement: missing entitlement id")
 	}
-	entitlementID := canonicalEntitlementRequestID(ent)
+	entIdentity, err := a.entitlementIdentityForRequest(ctx, ent)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			// Unknown entitlement → no grants, matching the legacy
+			// empty-prefix-scan semantics.
+			return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{}.Build(), nil
+		}
+		return nil, err
+	}
 	limit := clampPageSize(req.GetPageSize())
 	cursor := req.GetPageToken()
 
@@ -232,10 +244,10 @@ func (a *Adapter) ListGrantsForEntitlement(
 		var next string
 		if principalID != nil {
 			records, next, err = a.engine.PaginateGrantsByEntitlementPrincipal(ctx,
-				entitlementID, principalID.GetResourceType(), principalID.GetResource(), cursor, fetchLimit)
+				entIdentity, principalID.GetResourceType(), principalID.GetResource(), cursor, fetchLimit)
 		} else {
 			records, next, err = a.engine.PaginateGrantsByEntitlement(ctx,
-				entitlementID, cursor, fetchLimit)
+				entIdentity, cursor, fetchLimit)
 		}
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -296,11 +308,34 @@ func (a *Adapter) ListGrantPrincipalKeysForEntitlement(
 	if entitlement == nil || entitlement.GetId() == "" {
 		return nil, "", errors.New("ListGrantPrincipalKeysForEntitlement: missing entitlement id")
 	}
-	keys, next, err := a.engine.PaginateGrantPrincipalKeysByEntitlement(ctx, canonicalEntitlementRequestID(entitlement), pageToken, clampPageSize(pageSize))
+	entIdentity, err := a.entitlementIdentityForRequest(ctx, entitlement)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil, "", nil
+		}
+		return nil, "", err
+	}
+	keys, next, err := a.engine.PaginateGrantPrincipalKeysByEntitlement(ctx, entIdentity, pageToken, clampPageSize(pageSize))
 	if err != nil {
 		return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
 	return keys, next, nil
+}
+
+// entitlementIdentityForRequest resolves the structural identity for a
+// request-supplied entitlement. When the request carries the resource ref
+// (the normal case — the expander and c1 send full stubs), identity derives
+// exactly from structured parts; otherwise the raw id string resolves
+// through the bare-id lookup (exactly-one rule; pebble.ErrNotFound when the
+// id matches nothing).
+func (a *Adapter) entitlementIdentityForRequest(ctx context.Context, ent *v2.Entitlement) (entitlementIdentity, error) {
+	if ent == nil || ent.GetId() == "" {
+		return entitlementIdentity{}, errors.New("missing entitlement id")
+	}
+	if res := ent.GetResource(); res.GetId().GetResourceType() != "" && res.GetId().GetResource() != "" {
+		return entitlementIdentityFromParts(res.GetId().GetResourceType(), res.GetId().GetResource(), ent.GetId()), nil
+	}
+	return a.engine.resolveGrantScanEntitlementIdentity(ctx, ent.GetId())
 }
 
 // ListGrantsForPrincipal is the Go-level convenience method that
@@ -337,9 +372,10 @@ func (a *Adapter) ListGrantsForPrincipal(
 	out := make([]*v2.Grant, 0, len(records))
 	for _, rec := range records {
 		// Optional entitlement filter — narrows the principal scan
-		// to a single entitlement when the caller passes one.
+		// to a single entitlement when the caller passes one. Raw string
+		// equality: refs and request ids are the same connector strings.
 		if ent := req.GetEntitlement(); ent != nil && ent.GetId() != "" {
-			if entitlementRefToStub(rec.GetEntitlement()).GetId() != canonicalEntitlementRequestID(ent) {
+			if rec.GetEntitlement().GetEntitlementId() != ent.GetId() {
 				continue
 			}
 		}

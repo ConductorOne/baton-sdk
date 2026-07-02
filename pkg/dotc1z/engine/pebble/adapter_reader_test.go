@@ -54,7 +54,8 @@ func TestGetEntitlementResourceResourceType(t *testing.T) {
 	require.Equal(t, "Alice", rResp.GetResource().GetDisplayName(), "GetResource display")
 
 	// GetEntitlement
-	readEntID := canonicalTestEntID("github-read")
+	// Stored external ids are verbatim; the fixture seeded the raw id.
+	readEntID := "github-read"
 	eResp, err := a.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: readEntID,
 	}.Build())
@@ -249,7 +250,7 @@ func TestBulkByIdsRoundtripPebble(t *testing.T) {
 
 	t.Run("ListEntitlementsByIds", func(t *testing.T) {
 		resp, err := a.ListEntitlementsByIds(ctx, reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest_builder{
-			EntitlementIds: []string{canonicalTestEntID("ent-A"), "ent-zzz", canonicalTestEntID("ent-B")},
+			EntitlementIds: []string{"ent-A", "ent-zzz", "ent-B"},
 		}.Build())
 		require.NoError(t, err)
 		require.Len(t, resp.GetList(), 2)
@@ -348,7 +349,7 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 		}.Build())
 		require.NoError(t, err)
 		require.Len(t, resp2.GetList(), 2, "after checksum mismatch")
-		require.Equal(t, "app:gh:custom:ent-A", resp2.GetList()[0].GetEntitlement().GetId(), "after reset first ent")
+		require.Equal(t, "ent-A", resp2.GetList()[0].GetEntitlement().GetId(), "after reset first ent")
 	})
 }
 
@@ -406,7 +407,7 @@ func TestStreamingReaderPebble(t *testing.T) {
 		seen := 0
 		for e, err := range a.StreamEntitlements(ctx, syncID) {
 			require.NoError(t, err)
-			require.Equal(t, "app:gh:custom:ent-A", e.GetId())
+			require.Equal(t, "ent-A", e.GetId())
 			seen++
 		}
 		require.Equal(t, 1, seen)
@@ -469,13 +470,13 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 
 	t.Run("entitlement filter narrows", func(t *testing.T) {
 		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-			Entitlement: v2.Entitlement_builder{Id: "app:gh:custom:ent-A"}.Build(),
+			Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
 			PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 			PageSize:    100,
 		}.Build())
 		require.NoError(t, err)
 		require.Len(t, resp.GetList(), 1, "filter")
-		require.Equal(t, "app:gh:custom:ent-A:user:alice", resp.GetList()[0].GetId())
+		require.Equal(t, "g1", resp.GetList()[0].GetId())
 	})
 }
 

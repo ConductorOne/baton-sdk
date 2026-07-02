@@ -75,6 +75,15 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	}
 
 	if opts.ReadOnly {
+		// A read-only open of a missing or empty c1z must fail loudly (as it
+		// does on main via pebble's ErrDBDoesNotExist), not silently create
+		// an empty DB in the temp dir: the writable migration pre-open below
+		// would otherwise mint a fresh store and mask a mistyped path as
+		// "file has no syncs". unpackExistingPebbleC1Z creates dbDir exactly
+		// when it actually unpacked a payload.
+		if _, statErr := os.Stat(dbDir); statErr != nil {
+			return nil, cleanupOnError(fmt.Errorf("pebble: read-only open: %s does not exist or is empty", outputFilePath))
+		}
 		// Match SQLite read-only semantics: the source c1z is immutable, but the
 		// unpacked temp DB may be migrated so current read paths see the latest
 		// layout. Reopen read-only afterwards so callers that reach the engine
@@ -114,6 +123,11 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 		foldDeadBytes:   foldDeadBytes,
 		syncLimit:       opts.SyncLimit,
 		skipCleanup:     opts.SkipCleanup,
+		// A writable open that ran the in-place id-index migration must
+		// save the migrated layout back into the c1z even if the caller
+		// never writes, or every subsequent open re-pays the O(rows)
+		// migration.
+		dirty: !opts.ReadOnly && e.MigratedOnOpen(),
 	}, nil
 }
 
@@ -473,6 +487,13 @@ func (s *pebbleStore) PutEntitlements(ctx context.Context, entitlements ...*v2.E
 
 func (s *pebbleStore) DeleteGrant(ctx context.Context, grantID string) error {
 	return s.markDirty(s.Adapter.DeleteGrant(ctx, grantID))
+}
+
+// DeleteGrantByRefs is the exact grant delete for callers holding the full
+// grant: identity derives from the structured refs, never the lossy id
+// string. The syncer prefers this when available.
+func (s *pebbleStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
+	return s.markDirty(s.Adapter.DeleteGrantByRefs(ctx, grant))
 }
 
 // Grants overrides Adapter.Grants() so the returned GrantStore

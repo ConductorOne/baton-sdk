@@ -237,15 +237,13 @@ func (e *Engine) PaginateGrants(
 }
 
 // PaginateGrantsByEntitlement scans the primary grant keyspace under the
-// entitlement identity prefix. Cursor is the primary key.
+// entitlement identity prefix. Cursor is the primary key. Callers resolve
+// the identity from structured refs (or the bare-id lookup) — the engine
+// never parses id strings here.
 func (e *Engine) PaginateGrantsByEntitlement(
-	ctx context.Context, entitlementID, cursor string, limit int,
+	ctx context.Context, entID entitlementIdentity, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
-	if err != nil {
-		return nil, "", err
-	}
-	entID, err := entitlementIdentityFromID(entitlementID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -257,7 +255,7 @@ func (e *Engine) PaginateGrantsByEntitlement(
 // each matching grant. The key format is principal_resource_type + "\x00" +
 // principal_resource_id, matching pkg/sync/expand's descendantGrantKey.
 func (e *Engine) PaginateGrantPrincipalKeysByEntitlement(
-	ctx context.Context, entitlementID, cursor string, limit int,
+	ctx context.Context, entID entitlementIdentity, cursor string, limit int,
 ) ([]string, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
 	if err != nil {
@@ -265,10 +263,6 @@ func (e *Engine) PaginateGrantPrincipalKeysByEntitlement(
 	}
 	if limit <= 0 {
 		limit = DefaultPageSize
-	}
-	entID, err := entitlementIdentityFromID(entitlementID)
-	if err != nil {
-		return nil, "", err
 	}
 	primaryPrefix := encodeGrantPrimaryEntitlementPrefix(entID)
 	lower, upper := rangeAfter(primaryPrefix, cursorBytes)
@@ -313,7 +307,7 @@ func (e *Engine) PaginateGrantPrincipalKeysByEntitlement(
 // expansion, where callers repeatedly ask whether a single principal already
 // has a grant on a descendant entitlement.
 func (e *Engine) PaginateGrantsByEntitlementPrincipal(
-	ctx context.Context, entitlementID, principalRT, principalID, cursor string, limit int,
+	ctx context.Context, entID entitlementIdentity, principalRT, principalID, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
 	if err != nil {
@@ -321,10 +315,6 @@ func (e *Engine) PaginateGrantsByEntitlementPrincipal(
 	}
 	if len(cursorBytes) != 0 {
 		return nil, "", nil
-	}
-	entID, err := entitlementIdentityFromID(entitlementID)
-	if err != nil {
-		return nil, "", err
 	}
 	id := grantIdentity{
 		entitlement:     entID,
@@ -382,8 +372,8 @@ func (e *Engine) PaginateGrantsByPrincipal(
 			entitlement: entitlementIdentity{
 				resourceTypeID: components[0],
 				resourceID:     components[1],
-				kind:           components[2],
-				name:           components[3],
+				stripped:       components[2] == idFlagStripped,
+				tail:           components[3],
 			},
 			principalTypeID: principalRT,
 			principalID:     principalID,
@@ -472,8 +462,8 @@ func (e *Engine) PaginateGrantsByPrincipalResourceType(
 			entitlement: entitlementIdentity{
 				resourceTypeID: components[1],
 				resourceID:     components[2],
-				kind:           components[3],
-				name:           components[4],
+				stripped:       components[3] == idFlagStripped,
+				tail:           components[4],
 			},
 			principalTypeID: principalRT,
 			principalID:     components[0],
@@ -543,8 +533,8 @@ func (e *Engine) PaginateGrantsByNeedsExpansion(
 			entitlement: entitlementIdentity{
 				resourceTypeID: components[0],
 				resourceID:     components[1],
-				kind:           components[2],
-				name:           components[3],
+				stripped:       components[2] == idFlagStripped,
+				tail:           components[3],
 			},
 			principalTypeID: components[4],
 			principalID:     components[5],

@@ -136,9 +136,21 @@ func randomExpansionCase(seed int64) sqliteParityCase {
 	// has something to chew on.
 	numGrants := numEnts + rng.Intn(numEnts*3)
 	grants := make([]sqliteGrantSpec, 0, numGrants)
+	// One grant per (entitlement, principal): Pebble keys grants by
+	// structural identity, so duplicate pairs with distinct external ids
+	// deliberately fold there while SQLite keeps both rows — cross-engine
+	// byte-parity cannot hold for such fixtures. The fold semantics are
+	// pinned by the migration/bulk-import duplicate-merge tests; this
+	// fuzzer explores expansion semantics.
+	seenPair := make(map[string]struct{}, numGrants)
 	for i := 0; i < numGrants; i++ {
 		entID := entIDs[rng.Intn(numEnts)]
 		p := principals[rng.Intn(numPrincipals)]
+		pairKey := entID + "\x00" + p.rt + "\x00" + p.id
+		if _, dup := seenPair[pairKey]; dup {
+			continue
+		}
+		seenPair[pairKey] = struct{}{}
 		gs := sqliteGrantSpec{
 			id:            fmt.Sprintf("grant:%03d:%s:%s:%s", i, entID, p.rt, p.id),
 			entitlementID: entID,
@@ -428,7 +440,9 @@ func TestTopologicalMergeUntouchedBaseGrantNotRewritten(t *testing.T) {
 					"%s: untouched base grant was rewritten through the expansion sink", label)
 				// alice did get a contribution; the synthesized grant proves
 				// expansion actually ran (so the assertion above is meaningful).
-				require.Contains(t, rec.storedIDs(), "group:org:custom:ent\\:dest:user:alice",
+				// Synthesized ids are the raw concat of the connector's own
+				// entitlement id (colons and all) with the principal ref.
+				require.Contains(t, rec.storedIDs(), "ent:dest:user:alice",
 					"%s: expected alice to be synthesized on ent:dest", label)
 
 				require.NoError(t, store.EndSync(ctx))

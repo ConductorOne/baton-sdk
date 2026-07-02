@@ -6,10 +6,12 @@ import (
 )
 
 // mkV2Grant builds a minimal v2.Grant for Pebble store tests. Mirrors the
-// helper of the same name in pkg/dotc1z/engine/pebble's tests.
+// helper of the same name in pkg/dotc1z/engine/pebble's tests. Entitlement
+// ids are SDK-shaped ("app:github:"+entID) so bare-id lookups resolve the
+// way they do for real connector data.
 func mkV2Grant(id, entID, principalRT, principalID string) *v2.Grant {
 	ent := v2.Entitlement_builder{
-		Id: entID,
+		Id: "app:github:" + entID,
 		Resource: v2.Resource_builder{
 			Id: v2.ResourceId_builder{
 				ResourceType: "app",
@@ -39,7 +41,7 @@ func mkV2GrantID(entID, principalRT, principalID string) string {
 			}.Build(),
 		}.Build(),
 		v2.Entitlement_builder{
-			Id: entID,
+			Id: "app:github:" + entID,
 			Resource: v2.Resource_builder{
 				Id: v2.ResourceId_builder{
 					ResourceType: "app",

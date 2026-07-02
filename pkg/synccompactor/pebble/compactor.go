@@ -96,6 +96,10 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 	if dstDB == nil {
 		return errors.New("synccompactor/pebble.Compact: base engine has no DB (closed?)")
 	}
+	// This function writes the base keyspace through the raw DB handle;
+	// invalidate the engine's bare-id lookup state on the way out (even on
+	// error — earlier buckets may already have been replaced).
+	defer c.base.InvalidateBareIDLookups()
 
 	// The full key range belonging to the file's one sync, across all
 	// record types and indexes. v3 keys carry no sync_id, so each

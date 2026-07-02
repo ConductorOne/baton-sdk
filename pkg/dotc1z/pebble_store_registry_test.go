@@ -197,8 +197,9 @@ func TestReadOnlyPebbleOpenMigratesLegacyIDIndexTempCopy(t *testing.T) {
 	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 10}.Build())
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 1)
-	require.Equal(t, "group:g1:custom:member:user:u1", resp.GetList()[0].GetId())
-	require.Equal(t, "group:g1:custom:member", resp.GetList()[0].GetEntitlement().GetId())
+	// Migration is a pure re-key: stored external ids migrate byte-identical.
+	require.Equal(t, "g1", resp.GetList()[0].GetId())
+	require.Equal(t, "member", resp.GetList()[0].GetEntitlement().GetId())
 
 	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.Error(t, err)

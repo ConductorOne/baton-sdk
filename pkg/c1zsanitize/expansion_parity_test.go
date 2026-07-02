@@ -5,7 +5,6 @@ import (
 	"io"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,7 +14,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	entitlementtype "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 )
 
 // Fixture identifiers. The cross-engine matrix sanitizes the same logical
@@ -308,18 +306,9 @@ func parityGrantRef(g *v2.Grant) string {
 	return parityEntitlementID(g.GetEntitlement().GetId()) + "|" + pid.GetResourceType() + "/" + pid.GetResource()
 }
 
+// parityEntitlementID: ids are raw pass-through on both engines now; the
+// helper survives as the identity function so call sites read the same.
 func parityEntitlementID(id string) string {
-	parts, err := entitlementtype.DecodeEntitlementID(id)
-	if err == nil {
-		if strings.HasPrefix(parts.Name, "custom:") {
-			return strings.TrimPrefix(parts.Name, "custom:")
-		}
-		return parts.Name
-	}
-	raw, splitErr := entitlementtype.SplitEscapedID(id)
-	if splitErr == nil && len(raw) == 2 && raw[0] == "custom" {
-		return raw[1]
-	}
 	return id
 }
 

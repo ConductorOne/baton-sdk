@@ -297,17 +297,6 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	updated := v3.SyncRunRecord_builder{
-		SyncId:       existing.GetSyncId(),
-		Type:         existing.GetType(),
-		ParentSyncId: existing.GetParentSyncId(),
-		StartedAt:    existing.GetStartedAt(),
-		EndedAt:      timestamppb.Now(),
-		SyncToken:    existing.GetSyncToken(),
-	}.Build()
-	if err := a.engine.PutSyncRunRecord(ctx, updated); err != nil {
-		return err
-	}
 	// The sync's writes are done. From here to save/close the store only
 	// runs the deferred index build, the stats sidecar, and the durability
 	// flush — automatic compactions in that window are incremental
@@ -319,15 +308,48 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	// StartNewSync/SetCurrentSync resume the scheduler if the store is
 	// written to again.
 	a.engine.PauseCompactions()
-	// Build the deferred by_principal index BEFORE the stats sidecar:
-	// its full grant scan also accumulates the grant portion of the
-	// stats (stashDeferredGrantStats), letting PersistSyncStats skip a
-	// second O(grants) pass over the keyspace.
+	if err := a.endSyncFinalize(ctx, existing); err != nil {
+		// The pause is only for the successful EndSync-to-close window. On
+		// failure the sync stays bound and the caller may keep writing (or
+		// retry EndSync later); leaving compactions paused there would let
+		// L0 accumulate until pebble stalls writes at
+		// L0StopWritesThreshold, with nothing left to resume the scheduler.
+		a.engine.ResumeCompactions()
+		return err
+	}
+	a.current = syncRunState{}
+	return nil
+}
+
+// endSyncFinalize runs the post-pause tail of EndSync: the deferred index
+// build, the ended_at stamp, the stats sidecar, and the durability flush.
+// Split out so EndSync can resume the compaction scheduler on any failure.
+func (a *Adapter) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord) error {
+	// Build the deferred by_principal index BEFORE stamping ended_at (an
+	// interrupted build must leave the sync visibly unfinished so a resume
+	// re-runs EndSync and the rebuild — the pending marker is durable, see
+	// markDeferredIdxPending) and BEFORE the stats sidecar (the build's
+	// full grant scan also accumulates the grant portion of the stats via
+	// stashDeferredGrantStats, letting PersistSyncStats skip a second
+	// O(grants) pass over the keyspace).
 	if a.engine.deferredIdxPending.Load() {
 		if err := a.engine.BuildDeferredGrantIndexes(ctx); err != nil {
 			return fmt.Errorf("EndSync: build deferred grant indexes: %w", err)
 		}
-		a.engine.deferredIdxPending.Store(false)
+		if err := a.engine.clearDeferredIdxPending(); err != nil {
+			return fmt.Errorf("EndSync: clear deferred index marker: %w", err)
+		}
+	}
+	updated := v3.SyncRunRecord_builder{
+		SyncId:       existing.GetSyncId(),
+		Type:         existing.GetType(),
+		ParentSyncId: existing.GetParentSyncId(),
+		StartedAt:    existing.GetStartedAt(),
+		EndedAt:      timestamppb.Now(),
+		SyncToken:    existing.GetSyncToken(),
+	}.Build()
+	if err := a.engine.PutSyncRunRecord(ctx, updated); err != nil {
+		return err
 	}
 	// Populate the stats sidecar BEFORE the durability flush. Stats
 	// is engine-meta keyspace; the EndFreshSync flush below covers
@@ -346,11 +368,7 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After
 	// this returns, all writes from the sync are on disk.
-	if err := a.engine.EndFreshSync(ctx); err != nil {
-		return err
-	}
-	a.current = syncRunState{}
-	return nil
+	return a.engine.EndFreshSync(ctx)
 }
 
 // === writes ===
@@ -572,13 +590,34 @@ func (a *Adapter) PutEntitlements(ctx context.Context, entitlements ...*v2.Entit
 	return nil
 }
 
-// DeleteGrant removes a grant by id.
+// DeleteGrant removes a grant by its raw public id, resolved through the
+// bare-id lookup edge. Callers holding the full grant should prefer
+// DeleteGrantByRefs, which needs no id-string resolution.
 func (a *Adapter) DeleteGrant(ctx context.Context, grantID string) error {
 	syncID := a.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
 	return a.engine.DeleteGrantRecord(ctx, grantID)
+}
+
+// DeleteGrantByRefs removes a grant addressed by the structured refs of the
+// supplied v2 grant — the exact delete path, no lossy id string involved.
+// Incomplete refs are an error, never a fallback to bare-id resolution:
+// this is a sync-internal surface, and string resolution is reserved for
+// interactive/CLI edges (see lookup.go). A grant whose refs cannot derive
+// an identity could not have been stored in the first place, so there is
+// nothing a string could correctly address here.
+func (a *Adapter) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
+	syncID := a.currentSyncID()
+	if syncID == "" {
+		return ErrNoCurrentSync
+	}
+	rec := V2GrantToV3(syncID, grant)
+	if _, err := grantIdentityFromRecord(rec); err != nil {
+		return fmt.Errorf("DeleteGrantByRefs: grant %q: %w", grant.GetId(), err)
+	}
+	return a.engine.DeleteGrantByIdentityRefs(ctx, rec)
 }
 
 // PutAsset writes a single asset row. assetRef carries the
