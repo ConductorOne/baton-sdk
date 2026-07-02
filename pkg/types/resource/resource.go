@@ -219,6 +219,30 @@ func WithSecretTrait(opts ...SecretTraitOption) ResourceOption {
 	}
 }
 
+func WithManagedDeviceTrait(opts ...ManagedDeviceTraitOption) ResourceOption {
+	return func(r *v2.Resource) error {
+		rt := &v2.ManagedDeviceTrait{}
+
+		annos := annotations.Annotations(r.GetAnnotations())
+		_, err := annos.Pick(rt)
+		if err != nil {
+			return err
+		}
+
+		for _, o := range opts {
+			err := o(rt)
+			if err != nil {
+				return err
+			}
+		}
+
+		annos.Update(rt)
+		r.SetAnnotations(annos)
+
+		return nil
+	}
+}
+
 // WithNHIType adds or updates a NonHumanIdentityTrait annotation on a
 // resource, marking it as a non-human identity. It is kind-agnostic and may
 // be combined with any resource trait (e.g. TRAIT_APP or TRAIT_ROLE).
@@ -473,6 +497,23 @@ func NewSecretResource(
 	opts ...ResourceOption,
 ) (*v2.Resource, error) {
 	opts = append(opts, WithSecretTrait(traitOpts...))
+
+	ret, err := NewResource(name, resourceType, objectID, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
+func NewManagedDeviceResource(
+	name string,
+	resourceType *v2.ResourceType,
+	objectID interface{},
+	traitOpts []ManagedDeviceTraitOption,
+	opts ...ResourceOption,
+) (*v2.Resource, error) {
+	opts = append(opts, WithManagedDeviceTrait(traitOpts...))
 
 	ret, err := NewResource(name, resourceType, objectID, opts...)
 	if err != nil {
