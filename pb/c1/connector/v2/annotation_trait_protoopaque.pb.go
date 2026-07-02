@@ -2060,13 +2060,13 @@ type ManagedDeviceTrait struct {
 	xxx_hidden_Model           string                             `protobuf:"bytes,5,opt,name=model,proto3"`
 	xxx_hidden_Vendor          string                             `protobuf:"bytes,6,opt,name=vendor,proto3"`
 	xxx_hidden_Os              *DeviceOS                          `protobuf:"bytes,7,opt,name=os,proto3"`
-	xxx_hidden_Compliance      ManagedDeviceTrait_Compliance      `protobuf:"varint,9,opt,name=compliance,proto3,enum=c1.connector.v2.ManagedDeviceTrait_Compliance"`
-	xxx_hidden_IsEncrypted     *wrapperspb.BoolValue              `protobuf:"bytes,10,opt,name=is_encrypted,json=isEncrypted,proto3"`
-	xxx_hidden_IsSupervised    *wrapperspb.BoolValue              `protobuf:"bytes,11,opt,name=is_supervised,json=isSupervised,proto3"`
-	xxx_hidden_IsPersonal      *wrapperspb.BoolValue              `protobuf:"bytes,12,opt,name=is_personal,json=isPersonal,proto3"`
-	xxx_hidden_ManagementState ManagedDeviceTrait_ManagementState `protobuf:"varint,13,opt,name=management_state,json=managementState,proto3,enum=c1.connector.v2.ManagedDeviceTrait_ManagementState"`
-	xxx_hidden_EnrolledAt      *timestamppb.Timestamp             `protobuf:"bytes,14,opt,name=enrolled_at,json=enrolledAt,proto3"`
-	xxx_hidden_Profile         *structpb.Struct                   `protobuf:"bytes,15,opt,name=profile,proto3"`
+	xxx_hidden_Compliance      ManagedDeviceTrait_Compliance      `protobuf:"varint,8,opt,name=compliance,proto3,enum=c1.connector.v2.ManagedDeviceTrait_Compliance"`
+	xxx_hidden_IsEncrypted     *wrapperspb.BoolValue              `protobuf:"bytes,9,opt,name=is_encrypted,json=isEncrypted,proto3"`
+	xxx_hidden_IsSupervised    *wrapperspb.BoolValue              `protobuf:"bytes,10,opt,name=is_supervised,json=isSupervised,proto3"`
+	xxx_hidden_IsPersonal      *wrapperspb.BoolValue              `protobuf:"bytes,11,opt,name=is_personal,json=isPersonal,proto3"`
+	xxx_hidden_ManagementState ManagedDeviceTrait_ManagementState `protobuf:"varint,12,opt,name=management_state,json=managementState,proto3,enum=c1.connector.v2.ManagedDeviceTrait_ManagementState"`
+	xxx_hidden_EnrolledAt      *timestamppb.Timestamp             `protobuf:"bytes,13,opt,name=enrolled_at,json=enrolledAt,proto3"`
+	xxx_hidden_Profile         *structpb.Struct                   `protobuf:"bytes,14,opt,name=profile,proto3"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
@@ -2977,17 +2977,17 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x06vendor\x18\x06 \x01(\tR\x06vendor\x12)\n" +
 	"\x02os\x18\a \x01(\v2\x19.c1.connector.v2.DeviceOSR\x02os\x12X\n" +
 	"\n" +
-	"compliance\x18\t \x01(\x0e2..c1.connector.v2.ManagedDeviceTrait.ComplianceB\b\xfaB\x05\x82\x01\x02\x10\x01R\n" +
+	"compliance\x18\b \x01(\x0e2..c1.connector.v2.ManagedDeviceTrait.ComplianceB\b\xfaB\x05\x82\x01\x02\x10\x01R\n" +
 	"compliance\x12=\n" +
-	"\fis_encrypted\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.BoolValueR\visEncrypted\x12?\n" +
-	"\ris_supervised\x18\v \x01(\v2\x1a.google.protobuf.BoolValueR\fisSupervised\x12;\n" +
-	"\vis_personal\x18\f \x01(\v2\x1a.google.protobuf.BoolValueR\n" +
+	"\fis_encrypted\x18\t \x01(\v2\x1a.google.protobuf.BoolValueR\visEncrypted\x12?\n" +
+	"\ris_supervised\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.BoolValueR\fisSupervised\x12;\n" +
+	"\vis_personal\x18\v \x01(\v2\x1a.google.protobuf.BoolValueR\n" +
 	"isPersonal\x12h\n" +
-	"\x10management_state\x18\r \x01(\x0e23.c1.connector.v2.ManagedDeviceTrait.ManagementStateB\b\xfaB\x05\x82\x01\x02\x10\x01R\x0fmanagementState\x12;\n" +
-	"\venrolled_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"\x10management_state\x18\f \x01(\x0e23.c1.connector.v2.ManagedDeviceTrait.ManagementStateB\b\xfaB\x05\x82\x01\x02\x10\x01R\x0fmanagementState\x12;\n" +
+	"\venrolled_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"enrolledAt\x121\n" +
-	"\aprofile\x18\x0f \x01(\v2\x17.google.protobuf.StructR\aprofile\"\xd2\x01\n" +
+	"\aprofile\x18\x0e \x01(\v2\x17.google.protobuf.StructR\aprofile\"\xd2\x01\n" +
 	"\n" +
 	"DeviceType\x12\x1b\n" +
 	"\x17DEVICE_TYPE_UNSPECIFIED\x10\x00\x12\x16\n" +

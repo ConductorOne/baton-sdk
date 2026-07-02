@@ -273,13 +273,13 @@ message ManagedDeviceTrait {
   string model = 5; // OCSF device.model
   string vendor = 6; // OCSF device.vendor_name
   DeviceOS os = 7; // OCSF device.os
-  Compliance compliance = 9 [(validate.rules).enum = {defined_only: true}];
-  google.protobuf.BoolValue is_encrypted = 10;
-  google.protobuf.BoolValue is_supervised = 11;
-  google.protobuf.BoolValue is_personal = 12;
-  ManagementState management_state = 13 [(validate.rules).enum = {defined_only: true}];
-  google.protobuf.Timestamp enrolled_at = 14;
-  google.protobuf.Struct profile = 15;
+  Compliance compliance = 8 [(validate.rules).enum = {defined_only: true}];
+  google.protobuf.BoolValue is_encrypted = 9;
+  google.protobuf.BoolValue is_supervised = 10;
+  google.protobuf.BoolValue is_personal = 11;
+  ManagementState management_state = 12 [(validate.rules).enum = {defined_only: true}];
+  google.protobuf.Timestamp enrolled_at = 13;
+  google.protobuf.Struct profile = 14;
   // (no last-seen in v1)
 }
 
