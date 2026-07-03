@@ -14,6 +14,7 @@ import (
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 	reflect "reflect"
 	unsafe "unsafe"
 )
@@ -323,6 +324,246 @@ func (AgentTrait_AgentStatus) Type() protoreflect.EnumType {
 }
 
 func (x AgentTrait_AgentStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+type ManagedDeviceTrait_DeviceType int32
+
+const (
+	ManagedDeviceTrait_DEVICE_TYPE_UNSPECIFIED ManagedDeviceTrait_DeviceType = 0
+	ManagedDeviceTrait_DEVICE_TYPE_SERVER      ManagedDeviceTrait_DeviceType = 1
+	ManagedDeviceTrait_DEVICE_TYPE_DESKTOP     ManagedDeviceTrait_DeviceType = 2
+	ManagedDeviceTrait_DEVICE_TYPE_LAPTOP      ManagedDeviceTrait_DeviceType = 3
+	ManagedDeviceTrait_DEVICE_TYPE_TABLET      ManagedDeviceTrait_DeviceType = 4
+	ManagedDeviceTrait_DEVICE_TYPE_MOBILE      ManagedDeviceTrait_DeviceType = 5
+	ManagedDeviceTrait_DEVICE_TYPE_VIRTUAL     ManagedDeviceTrait_DeviceType = 6
+	ManagedDeviceTrait_DEVICE_TYPE_OTHER       ManagedDeviceTrait_DeviceType = 99
+)
+
+// Enum value maps for ManagedDeviceTrait_DeviceType.
+var (
+	ManagedDeviceTrait_DeviceType_name = map[int32]string{
+		0:  "DEVICE_TYPE_UNSPECIFIED",
+		1:  "DEVICE_TYPE_SERVER",
+		2:  "DEVICE_TYPE_DESKTOP",
+		3:  "DEVICE_TYPE_LAPTOP",
+		4:  "DEVICE_TYPE_TABLET",
+		5:  "DEVICE_TYPE_MOBILE",
+		6:  "DEVICE_TYPE_VIRTUAL",
+		99: "DEVICE_TYPE_OTHER",
+	}
+	ManagedDeviceTrait_DeviceType_value = map[string]int32{
+		"DEVICE_TYPE_UNSPECIFIED": 0,
+		"DEVICE_TYPE_SERVER":      1,
+		"DEVICE_TYPE_DESKTOP":     2,
+		"DEVICE_TYPE_LAPTOP":      3,
+		"DEVICE_TYPE_TABLET":      4,
+		"DEVICE_TYPE_MOBILE":      5,
+		"DEVICE_TYPE_VIRTUAL":     6,
+		"DEVICE_TYPE_OTHER":       99,
+	}
+)
+
+func (x ManagedDeviceTrait_DeviceType) Enum() *ManagedDeviceTrait_DeviceType {
+	p := new(ManagedDeviceTrait_DeviceType)
+	*p = x
+	return p
+}
+
+func (x ManagedDeviceTrait_DeviceType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ManagedDeviceTrait_DeviceType) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_connector_v2_annotation_trait_proto_enumTypes[6].Descriptor()
+}
+
+func (ManagedDeviceTrait_DeviceType) Type() protoreflect.EnumType {
+	return &file_c1_connector_v2_annotation_trait_proto_enumTypes[6]
+}
+
+func (x ManagedDeviceTrait_DeviceType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+type ManagedDeviceTrait_ManagementState int32
+
+const (
+	ManagedDeviceTrait_MANAGEMENT_STATE_UNSPECIFIED ManagedDeviceTrait_ManagementState = 0
+	ManagedDeviceTrait_MANAGEMENT_STATE_MANAGED     ManagedDeviceTrait_ManagementState = 1
+	ManagedDeviceTrait_MANAGEMENT_STATE_UNMANAGED   ManagedDeviceTrait_ManagementState = 2
+	ManagedDeviceTrait_MANAGEMENT_STATE_PENDING     ManagedDeviceTrait_ManagementState = 3
+	ManagedDeviceTrait_MANAGEMENT_STATE_RETIRED     ManagedDeviceTrait_ManagementState = 4
+	ManagedDeviceTrait_MANAGEMENT_STATE_WIPED       ManagedDeviceTrait_ManagementState = 5
+)
+
+// Enum value maps for ManagedDeviceTrait_ManagementState.
+var (
+	ManagedDeviceTrait_ManagementState_name = map[int32]string{
+		0: "MANAGEMENT_STATE_UNSPECIFIED",
+		1: "MANAGEMENT_STATE_MANAGED",
+		2: "MANAGEMENT_STATE_UNMANAGED",
+		3: "MANAGEMENT_STATE_PENDING",
+		4: "MANAGEMENT_STATE_RETIRED",
+		5: "MANAGEMENT_STATE_WIPED",
+	}
+	ManagedDeviceTrait_ManagementState_value = map[string]int32{
+		"MANAGEMENT_STATE_UNSPECIFIED": 0,
+		"MANAGEMENT_STATE_MANAGED":     1,
+		"MANAGEMENT_STATE_UNMANAGED":   2,
+		"MANAGEMENT_STATE_PENDING":     3,
+		"MANAGEMENT_STATE_RETIRED":     4,
+		"MANAGEMENT_STATE_WIPED":       5,
+	}
+)
+
+func (x ManagedDeviceTrait_ManagementState) Enum() *ManagedDeviceTrait_ManagementState {
+	p := new(ManagedDeviceTrait_ManagementState)
+	*p = x
+	return p
+}
+
+func (x ManagedDeviceTrait_ManagementState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ManagedDeviceTrait_ManagementState) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_connector_v2_annotation_trait_proto_enumTypes[7].Descriptor()
+}
+
+func (ManagedDeviceTrait_ManagementState) Type() protoreflect.EnumType {
+	return &file_c1_connector_v2_annotation_trait_proto_enumTypes[7]
+}
+
+func (x ManagedDeviceTrait_ManagementState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+type ManagedDeviceTrait_Compliance int32
+
+const (
+	ManagedDeviceTrait_COMPLIANCE_UNSPECIFIED ManagedDeviceTrait_Compliance = 0
+	ManagedDeviceTrait_COMPLIANCE_COMPLIANT   ManagedDeviceTrait_Compliance = 1
+	// Evaluated, but the device fails policy (e.g. not on the latest policy,
+	// disk not encrypted).
+	ManagedDeviceTrait_COMPLIANCE_NONCOMPLIANT    ManagedDeviceTrait_Compliance = 2
+	ManagedDeviceTrait_COMPLIANCE_IN_GRACE_PERIOD ManagedDeviceTrait_Compliance = 3
+	// The compliance check itself failed/errored, so posture could not be
+	// evaluated (as opposed to a clean non-compliant result).
+	ManagedDeviceTrait_COMPLIANCE_ERROR ManagedDeviceTrait_Compliance = 4
+)
+
+// Enum value maps for ManagedDeviceTrait_Compliance.
+var (
+	ManagedDeviceTrait_Compliance_name = map[int32]string{
+		0: "COMPLIANCE_UNSPECIFIED",
+		1: "COMPLIANCE_COMPLIANT",
+		2: "COMPLIANCE_NONCOMPLIANT",
+		3: "COMPLIANCE_IN_GRACE_PERIOD",
+		4: "COMPLIANCE_ERROR",
+	}
+	ManagedDeviceTrait_Compliance_value = map[string]int32{
+		"COMPLIANCE_UNSPECIFIED":     0,
+		"COMPLIANCE_COMPLIANT":       1,
+		"COMPLIANCE_NONCOMPLIANT":    2,
+		"COMPLIANCE_IN_GRACE_PERIOD": 3,
+		"COMPLIANCE_ERROR":           4,
+	}
+)
+
+func (x ManagedDeviceTrait_Compliance) Enum() *ManagedDeviceTrait_Compliance {
+	p := new(ManagedDeviceTrait_Compliance)
+	*p = x
+	return p
+}
+
+func (x ManagedDeviceTrait_Compliance) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ManagedDeviceTrait_Compliance) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_connector_v2_annotation_trait_proto_enumTypes[8].Descriptor()
+}
+
+func (ManagedDeviceTrait_Compliance) Type() protoreflect.EnumType {
+	return &file_c1_connector_v2_annotation_trait_proto_enumTypes[8]
+}
+
+func (x ManagedDeviceTrait_Compliance) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+type DeviceOS_OsType int32
+
+const (
+	DeviceOS_OS_TYPE_UNSPECIFIED    DeviceOS_OsType = 0
+	DeviceOS_OS_TYPE_WINDOWS        DeviceOS_OsType = 1
+	DeviceOS_OS_TYPE_WINDOWS_MOBILE DeviceOS_OsType = 2
+	DeviceOS_OS_TYPE_LINUX          DeviceOS_OsType = 3
+	DeviceOS_OS_TYPE_ANDROID        DeviceOS_OsType = 4
+	DeviceOS_OS_TYPE_MACOS          DeviceOS_OsType = 5
+	DeviceOS_OS_TYPE_IOS            DeviceOS_OsType = 6
+	DeviceOS_OS_TYPE_IPADOS         DeviceOS_OsType = 7
+	DeviceOS_OS_TYPE_SOLARIS        DeviceOS_OsType = 8
+	DeviceOS_OS_TYPE_AIX            DeviceOS_OsType = 9
+	DeviceOS_OS_TYPE_HPUX           DeviceOS_OsType = 10
+	DeviceOS_OS_TYPE_CHROMEOS       DeviceOS_OsType = 11
+	DeviceOS_OS_TYPE_OTHER          DeviceOS_OsType = 99
+)
+
+// Enum value maps for DeviceOS_OsType.
+var (
+	DeviceOS_OsType_name = map[int32]string{
+		0:  "OS_TYPE_UNSPECIFIED",
+		1:  "OS_TYPE_WINDOWS",
+		2:  "OS_TYPE_WINDOWS_MOBILE",
+		3:  "OS_TYPE_LINUX",
+		4:  "OS_TYPE_ANDROID",
+		5:  "OS_TYPE_MACOS",
+		6:  "OS_TYPE_IOS",
+		7:  "OS_TYPE_IPADOS",
+		8:  "OS_TYPE_SOLARIS",
+		9:  "OS_TYPE_AIX",
+		10: "OS_TYPE_HPUX",
+		11: "OS_TYPE_CHROMEOS",
+		99: "OS_TYPE_OTHER",
+	}
+	DeviceOS_OsType_value = map[string]int32{
+		"OS_TYPE_UNSPECIFIED":    0,
+		"OS_TYPE_WINDOWS":        1,
+		"OS_TYPE_WINDOWS_MOBILE": 2,
+		"OS_TYPE_LINUX":          3,
+		"OS_TYPE_ANDROID":        4,
+		"OS_TYPE_MACOS":          5,
+		"OS_TYPE_IOS":            6,
+		"OS_TYPE_IPADOS":         7,
+		"OS_TYPE_SOLARIS":        8,
+		"OS_TYPE_AIX":            9,
+		"OS_TYPE_HPUX":           10,
+		"OS_TYPE_CHROMEOS":       11,
+		"OS_TYPE_OTHER":          99,
+	}
+)
+
+func (x DeviceOS_OsType) Enum() *DeviceOS_OsType {
+	p := new(DeviceOS_OsType)
+	*p = x
+	return p
+}
+
+func (x DeviceOS_OsType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DeviceOS_OsType) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_connector_v2_annotation_trait_proto_enumTypes[9].Descriptor()
+}
+
+func (DeviceOS_OsType) Type() protoreflect.EnumType {
+	return &file_c1_connector_v2_annotation_trait_proto_enumTypes[9]
+}
+
+func (x DeviceOS_OsType) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
@@ -1819,6 +2060,400 @@ func (b0 AgentTrait_builder) Build() *AgentTrait {
 	return m0
 }
 
+// ManagedDeviceTrait is the trait annotation for resources with
+// TRAIT_MANAGED_DEVICE. It is a device asset trait for MDM/UEM inventory: a
+// managed endpoint (laptop, desktop, mobile, etc.) enrolled in a device
+// management platform. The trait itself is pure data and rides the resource's
+// annotations bag, describing the device's hardware, OS, management state, and
+// compliance posture. A device's assigned user is not carried on the trait;
+// assignment is expressed as a grant — an `assigned` entitlement on the device
+// resource, granted to the user principal.
+type ManagedDeviceTrait struct {
+	state           protoimpl.MessageState             `protogen:"hybrid.v1"`
+	Serial          string                             `protobuf:"bytes,1,opt,name=serial,proto3" json:"serial,omitempty"`                                                                               // hardware serial (primary correlation key)
+	Udid            string                             `protobuf:"bytes,2,opt,name=udid,proto3" json:"udid,omitempty"`                                                                                   // Apple UDID
+	HardwareHash    string                             `protobuf:"bytes,3,opt,name=hardware_hash,json=hardwareHash,proto3" json:"hardware_hash,omitempty"`                                               // Windows Autopilot hardware hash
+	DeviceType      ManagedDeviceTrait_DeviceType      `protobuf:"varint,4,opt,name=device_type,json=deviceType,proto3,enum=c1.connector.v2.ManagedDeviceTrait_DeviceType" json:"device_type,omitempty"` // form factor (OCSF device.type_id taxonomy)
+	Model           string                             `protobuf:"bytes,5,opt,name=model,proto3" json:"model,omitempty"`                                                                                 // OCSF device.model
+	Vendor          string                             `protobuf:"bytes,6,opt,name=vendor,proto3" json:"vendor,omitempty"`                                                                               // OCSF device.vendor_name
+	Os              *DeviceOS                          `protobuf:"bytes,7,opt,name=os,proto3" json:"os,omitempty"`                                                                                       // OCSF device.os
+	Compliance      ManagedDeviceTrait_Compliance      `protobuf:"varint,8,opt,name=compliance,proto3,enum=c1.connector.v2.ManagedDeviceTrait_Compliance" json:"compliance,omitempty"`
+	IsEncrypted     *wrapperspb.BoolValue              `protobuf:"bytes,9,opt,name=is_encrypted,json=isEncrypted,proto3" json:"is_encrypted,omitempty"`
+	IsSupervised    *wrapperspb.BoolValue              `protobuf:"bytes,10,opt,name=is_supervised,json=isSupervised,proto3" json:"is_supervised,omitempty"`
+	IsPersonal      *wrapperspb.BoolValue              `protobuf:"bytes,11,opt,name=is_personal,json=isPersonal,proto3" json:"is_personal,omitempty"`
+	ManagementState ManagedDeviceTrait_ManagementState `protobuf:"varint,12,opt,name=management_state,json=managementState,proto3,enum=c1.connector.v2.ManagedDeviceTrait_ManagementState" json:"management_state,omitempty"`
+	EnrolledAt      *timestamppb.Timestamp             `protobuf:"bytes,13,opt,name=enrolled_at,json=enrolledAt,proto3" json:"enrolled_at,omitempty"` // (no last-seen in v1)
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ManagedDeviceTrait) Reset() {
+	*x = ManagedDeviceTrait{}
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ManagedDeviceTrait) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ManagedDeviceTrait) ProtoMessage() {}
+
+func (x *ManagedDeviceTrait) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ManagedDeviceTrait) GetSerial() string {
+	if x != nil {
+		return x.Serial
+	}
+	return ""
+}
+
+func (x *ManagedDeviceTrait) GetUdid() string {
+	if x != nil {
+		return x.Udid
+	}
+	return ""
+}
+
+func (x *ManagedDeviceTrait) GetHardwareHash() string {
+	if x != nil {
+		return x.HardwareHash
+	}
+	return ""
+}
+
+func (x *ManagedDeviceTrait) GetDeviceType() ManagedDeviceTrait_DeviceType {
+	if x != nil {
+		return x.DeviceType
+	}
+	return ManagedDeviceTrait_DEVICE_TYPE_UNSPECIFIED
+}
+
+func (x *ManagedDeviceTrait) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *ManagedDeviceTrait) GetVendor() string {
+	if x != nil {
+		return x.Vendor
+	}
+	return ""
+}
+
+func (x *ManagedDeviceTrait) GetOs() *DeviceOS {
+	if x != nil {
+		return x.Os
+	}
+	return nil
+}
+
+func (x *ManagedDeviceTrait) GetCompliance() ManagedDeviceTrait_Compliance {
+	if x != nil {
+		return x.Compliance
+	}
+	return ManagedDeviceTrait_COMPLIANCE_UNSPECIFIED
+}
+
+func (x *ManagedDeviceTrait) GetIsEncrypted() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.IsEncrypted
+	}
+	return nil
+}
+
+func (x *ManagedDeviceTrait) GetIsSupervised() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.IsSupervised
+	}
+	return nil
+}
+
+func (x *ManagedDeviceTrait) GetIsPersonal() *wrapperspb.BoolValue {
+	if x != nil {
+		return x.IsPersonal
+	}
+	return nil
+}
+
+func (x *ManagedDeviceTrait) GetManagementState() ManagedDeviceTrait_ManagementState {
+	if x != nil {
+		return x.ManagementState
+	}
+	return ManagedDeviceTrait_MANAGEMENT_STATE_UNSPECIFIED
+}
+
+func (x *ManagedDeviceTrait) GetEnrolledAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EnrolledAt
+	}
+	return nil
+}
+
+func (x *ManagedDeviceTrait) SetSerial(v string) {
+	x.Serial = v
+}
+
+func (x *ManagedDeviceTrait) SetUdid(v string) {
+	x.Udid = v
+}
+
+func (x *ManagedDeviceTrait) SetHardwareHash(v string) {
+	x.HardwareHash = v
+}
+
+func (x *ManagedDeviceTrait) SetDeviceType(v ManagedDeviceTrait_DeviceType) {
+	x.DeviceType = v
+}
+
+func (x *ManagedDeviceTrait) SetModel(v string) {
+	x.Model = v
+}
+
+func (x *ManagedDeviceTrait) SetVendor(v string) {
+	x.Vendor = v
+}
+
+func (x *ManagedDeviceTrait) SetOs(v *DeviceOS) {
+	x.Os = v
+}
+
+func (x *ManagedDeviceTrait) SetCompliance(v ManagedDeviceTrait_Compliance) {
+	x.Compliance = v
+}
+
+func (x *ManagedDeviceTrait) SetIsEncrypted(v *wrapperspb.BoolValue) {
+	x.IsEncrypted = v
+}
+
+func (x *ManagedDeviceTrait) SetIsSupervised(v *wrapperspb.BoolValue) {
+	x.IsSupervised = v
+}
+
+func (x *ManagedDeviceTrait) SetIsPersonal(v *wrapperspb.BoolValue) {
+	x.IsPersonal = v
+}
+
+func (x *ManagedDeviceTrait) SetManagementState(v ManagedDeviceTrait_ManagementState) {
+	x.ManagementState = v
+}
+
+func (x *ManagedDeviceTrait) SetEnrolledAt(v *timestamppb.Timestamp) {
+	x.EnrolledAt = v
+}
+
+func (x *ManagedDeviceTrait) HasOs() bool {
+	if x == nil {
+		return false
+	}
+	return x.Os != nil
+}
+
+func (x *ManagedDeviceTrait) HasIsEncrypted() bool {
+	if x == nil {
+		return false
+	}
+	return x.IsEncrypted != nil
+}
+
+func (x *ManagedDeviceTrait) HasIsSupervised() bool {
+	if x == nil {
+		return false
+	}
+	return x.IsSupervised != nil
+}
+
+func (x *ManagedDeviceTrait) HasIsPersonal() bool {
+	if x == nil {
+		return false
+	}
+	return x.IsPersonal != nil
+}
+
+func (x *ManagedDeviceTrait) HasEnrolledAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.EnrolledAt != nil
+}
+
+func (x *ManagedDeviceTrait) ClearOs() {
+	x.Os = nil
+}
+
+func (x *ManagedDeviceTrait) ClearIsEncrypted() {
+	x.IsEncrypted = nil
+}
+
+func (x *ManagedDeviceTrait) ClearIsSupervised() {
+	x.IsSupervised = nil
+}
+
+func (x *ManagedDeviceTrait) ClearIsPersonal() {
+	x.IsPersonal = nil
+}
+
+func (x *ManagedDeviceTrait) ClearEnrolledAt() {
+	x.EnrolledAt = nil
+}
+
+type ManagedDeviceTrait_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Serial          string
+	Udid            string
+	HardwareHash    string
+	DeviceType      ManagedDeviceTrait_DeviceType
+	Model           string
+	Vendor          string
+	Os              *DeviceOS
+	Compliance      ManagedDeviceTrait_Compliance
+	IsEncrypted     *wrapperspb.BoolValue
+	IsSupervised    *wrapperspb.BoolValue
+	IsPersonal      *wrapperspb.BoolValue
+	ManagementState ManagedDeviceTrait_ManagementState
+	EnrolledAt      *timestamppb.Timestamp
+}
+
+func (b0 ManagedDeviceTrait_builder) Build() *ManagedDeviceTrait {
+	m0 := &ManagedDeviceTrait{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Serial = b.Serial
+	x.Udid = b.Udid
+	x.HardwareHash = b.HardwareHash
+	x.DeviceType = b.DeviceType
+	x.Model = b.Model
+	x.Vendor = b.Vendor
+	x.Os = b.Os
+	x.Compliance = b.Compliance
+	x.IsEncrypted = b.IsEncrypted
+	x.IsSupervised = b.IsSupervised
+	x.IsPersonal = b.IsPersonal
+	x.ManagementState = b.ManagementState
+	x.EnrolledAt = b.EnrolledAt
+	return m0
+}
+
+// DeviceOS describes the operating system of a managed device
+// (OCSF device.os).
+type DeviceOS struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Type          DeviceOS_OsType        `protobuf:"varint,1,opt,name=type,proto3,enum=c1.connector.v2.DeviceOS_OsType" json:"type,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Version       string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
+	Build         string                 `protobuf:"bytes,4,opt,name=build,proto3" json:"build,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceOS) Reset() {
+	*x = DeviceOS{}
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceOS) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceOS) ProtoMessage() {}
+
+func (x *DeviceOS) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *DeviceOS) GetType() DeviceOS_OsType {
+	if x != nil {
+		return x.Type
+	}
+	return DeviceOS_OS_TYPE_UNSPECIFIED
+}
+
+func (x *DeviceOS) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DeviceOS) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *DeviceOS) GetBuild_() string {
+	if x != nil {
+		return x.Build
+	}
+	return ""
+}
+
+// Deprecated: Use GetBuild_ instead.
+func (x *DeviceOS) GetBuild() string {
+	return x.GetBuild_()
+}
+
+func (x *DeviceOS) SetType(v DeviceOS_OsType) {
+	x.Type = v
+}
+
+func (x *DeviceOS) SetName(v string) {
+	x.Name = v
+}
+
+func (x *DeviceOS) SetVersion(v string) {
+	x.Version = v
+}
+
+func (x *DeviceOS) SetBuild_(v string) {
+	x.Build = v
+}
+
+type DeviceOS_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Type    DeviceOS_OsType
+	Name    string
+	Version string
+	Build_  string
+}
+
+func (b0 DeviceOS_builder) Build() *DeviceOS {
+	m0 := &DeviceOS{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Type = b.Type
+	x.Name = b.Name
+	x.Version = b.Version
+	x.Build = b.Build_
+	return m0
+}
+
 type UserTrait_Email struct {
 	state   protoimpl.MessageState `protogen:"hybrid.v1"`
 	Address string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
@@ -1830,7 +2465,7 @@ type UserTrait_Email struct {
 
 func (x *UserTrait_Email) Reset() {
 	*x = UserTrait_Email{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[11]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1842,7 +2477,7 @@ func (x *UserTrait_Email) String() string {
 func (*UserTrait_Email) ProtoMessage() {}
 
 func (x *UserTrait_Email) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[11]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1902,7 +2537,7 @@ type UserTrait_Status struct {
 
 func (x *UserTrait_Status) Reset() {
 	*x = UserTrait_Status{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[12]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1914,7 +2549,7 @@ func (x *UserTrait_Status) String() string {
 func (*UserTrait_Status) ProtoMessage() {}
 
 func (x *UserTrait_Status) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[12]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1972,7 +2607,7 @@ type UserTrait_MFAStatus struct {
 
 func (x *UserTrait_MFAStatus) Reset() {
 	*x = UserTrait_MFAStatus{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[13]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1984,7 +2619,7 @@ func (x *UserTrait_MFAStatus) String() string {
 func (*UserTrait_MFAStatus) ProtoMessage() {}
 
 func (x *UserTrait_MFAStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[13]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2029,7 +2664,7 @@ type UserTrait_SSOStatus struct {
 
 func (x *UserTrait_SSOStatus) Reset() {
 	*x = UserTrait_SSOStatus{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[14]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2041,7 +2676,7 @@ func (x *UserTrait_SSOStatus) String() string {
 func (*UserTrait_SSOStatus) ProtoMessage() {}
 
 func (x *UserTrait_SSOStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[14]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2090,7 +2725,7 @@ type UserTrait_StructuredName struct {
 
 func (x *UserTrait_StructuredName) Reset() {
 	*x = UserTrait_StructuredName{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[15]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2102,7 +2737,7 @@ func (x *UserTrait_StructuredName) String() string {
 func (*UserTrait_StructuredName) ProtoMessage() {}
 
 func (x *UserTrait_StructuredName) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[15]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2194,7 +2829,7 @@ var File_c1_connector_v2_annotation_trait_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\n" +
-	"&c1/connector/v2/annotation_trait.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\x97\v\n" +
+	"&c1/connector/v2/annotation_trait.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x17validate/validate.proto\"\x97\v\n" +
 	"\tUserTrait\x128\n" +
 	"\x06emails\x18\x01 \x03(\v2 .c1.connector.v2.UserTrait.EmailR\x06emails\x12C\n" +
 	"\x06status\x18\x02 \x01(\v2!.c1.connector.v2.UserTrait.StatusB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x06status\x121\n" +
@@ -2328,77 +2963,158 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x18AGENT_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12AGENT_STATUS_READY\x10\x01\x12\x19\n" +
 	"\x15AGENT_STATUS_DISABLED\x10\x02\x12\x18\n" +
-	"\x14AGENT_STATUS_DELETED\x10\x03B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"\x14AGENT_STATUS_DELETED\x10\x03\"\x90\n" +
+	"\n" +
+	"\x12ManagedDeviceTrait\x12\x16\n" +
+	"\x06serial\x18\x01 \x01(\tR\x06serial\x12\x12\n" +
+	"\x04udid\x18\x02 \x01(\tR\x04udid\x12#\n" +
+	"\rhardware_hash\x18\x03 \x01(\tR\fhardwareHash\x12Y\n" +
+	"\vdevice_type\x18\x04 \x01(\x0e2..c1.connector.v2.ManagedDeviceTrait.DeviceTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\n" +
+	"deviceType\x12\x14\n" +
+	"\x05model\x18\x05 \x01(\tR\x05model\x12\x16\n" +
+	"\x06vendor\x18\x06 \x01(\tR\x06vendor\x12)\n" +
+	"\x02os\x18\a \x01(\v2\x19.c1.connector.v2.DeviceOSR\x02os\x12X\n" +
+	"\n" +
+	"compliance\x18\b \x01(\x0e2..c1.connector.v2.ManagedDeviceTrait.ComplianceB\b\xfaB\x05\x82\x01\x02\x10\x01R\n" +
+	"compliance\x12=\n" +
+	"\fis_encrypted\x18\t \x01(\v2\x1a.google.protobuf.BoolValueR\visEncrypted\x12?\n" +
+	"\ris_supervised\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.BoolValueR\fisSupervised\x12;\n" +
+	"\vis_personal\x18\v \x01(\v2\x1a.google.protobuf.BoolValueR\n" +
+	"isPersonal\x12h\n" +
+	"\x10management_state\x18\f \x01(\x0e23.c1.connector.v2.ManagedDeviceTrait.ManagementStateB\b\xfaB\x05\x82\x01\x02\x10\x01R\x0fmanagementState\x12;\n" +
+	"\venrolled_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"enrolledAt\"\xd2\x01\n" +
+	"\n" +
+	"DeviceType\x12\x1b\n" +
+	"\x17DEVICE_TYPE_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12DEVICE_TYPE_SERVER\x10\x01\x12\x17\n" +
+	"\x13DEVICE_TYPE_DESKTOP\x10\x02\x12\x16\n" +
+	"\x12DEVICE_TYPE_LAPTOP\x10\x03\x12\x16\n" +
+	"\x12DEVICE_TYPE_TABLET\x10\x04\x12\x16\n" +
+	"\x12DEVICE_TYPE_MOBILE\x10\x05\x12\x17\n" +
+	"\x13DEVICE_TYPE_VIRTUAL\x10\x06\x12\x15\n" +
+	"\x11DEVICE_TYPE_OTHER\x10c\"\xc9\x01\n" +
+	"\x0fManagementState\x12 \n" +
+	"\x1cMANAGEMENT_STATE_UNSPECIFIED\x10\x00\x12\x1c\n" +
+	"\x18MANAGEMENT_STATE_MANAGED\x10\x01\x12\x1e\n" +
+	"\x1aMANAGEMENT_STATE_UNMANAGED\x10\x02\x12\x1c\n" +
+	"\x18MANAGEMENT_STATE_PENDING\x10\x03\x12\x1c\n" +
+	"\x18MANAGEMENT_STATE_RETIRED\x10\x04\x12\x1a\n" +
+	"\x16MANAGEMENT_STATE_WIPED\x10\x05\"\x95\x01\n" +
+	"\n" +
+	"Compliance\x12\x1a\n" +
+	"\x16COMPLIANCE_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14COMPLIANCE_COMPLIANT\x10\x01\x12\x1b\n" +
+	"\x17COMPLIANCE_NONCOMPLIANT\x10\x02\x12\x1e\n" +
+	"\x1aCOMPLIANCE_IN_GRACE_PERIOD\x10\x03\x12\x14\n" +
+	"\x10COMPLIANCE_ERROR\x10\x04\"\xa4\x03\n" +
+	"\bDeviceOS\x12>\n" +
+	"\x04type\x18\x01 \x01(\x0e2 .c1.connector.v2.DeviceOS.OsTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\x04type\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\tR\aversion\x12\x14\n" +
+	"\x05build\x18\x04 \x01(\tR\x05build\"\x93\x02\n" +
+	"\x06OsType\x12\x17\n" +
+	"\x13OS_TYPE_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fOS_TYPE_WINDOWS\x10\x01\x12\x1a\n" +
+	"\x16OS_TYPE_WINDOWS_MOBILE\x10\x02\x12\x11\n" +
+	"\rOS_TYPE_LINUX\x10\x03\x12\x13\n" +
+	"\x0fOS_TYPE_ANDROID\x10\x04\x12\x11\n" +
+	"\rOS_TYPE_MACOS\x10\x05\x12\x0f\n" +
+	"\vOS_TYPE_IOS\x10\x06\x12\x12\n" +
+	"\x0eOS_TYPE_IPADOS\x10\a\x12\x13\n" +
+	"\x0fOS_TYPE_SOLARIS\x10\b\x12\x0f\n" +
+	"\vOS_TYPE_AIX\x10\t\x12\x10\n" +
+	"\fOS_TYPE_HPUX\x10\n" +
+	"\x12\x14\n" +
+	"\x10OS_TYPE_CHROMEOS\x10\v\x12\x11\n" +
+	"\rOS_TYPE_OTHER\x10cB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_annotation_trait_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_c1_connector_v2_annotation_trait_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_c1_connector_v2_annotation_trait_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
+var file_c1_connector_v2_annotation_trait_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_c1_connector_v2_annotation_trait_proto_goTypes = []any{
-	(UserTrait_AccountType)(0),         // 0: c1.connector.v2.UserTrait.AccountType
-	(UserTrait_Status_Status)(0),       // 1: c1.connector.v2.UserTrait.Status.Status
-	(AppTrait_AppFlag)(0),              // 2: c1.connector.v2.AppTrait.AppFlag
-	(SecretTrait_CredentialType)(0),    // 3: c1.connector.v2.SecretTrait.CredentialType
-	(NonHumanIdentityTrait_NhiType)(0), // 4: c1.connector.v2.NonHumanIdentityTrait.NhiType
-	(AgentTrait_AgentStatus)(0),        // 5: c1.connector.v2.AgentTrait.AgentStatus
-	(*UserTrait)(nil),                  // 6: c1.connector.v2.UserTrait
-	(*GroupTrait)(nil),                 // 7: c1.connector.v2.GroupTrait
-	(*RoleTrait)(nil),                  // 8: c1.connector.v2.RoleTrait
-	(*RoleScopeConditions)(nil),        // 9: c1.connector.v2.RoleScopeConditions
-	(*RoleScopeCondition)(nil),         // 10: c1.connector.v2.RoleScopeCondition
-	(*ScopeBindingTrait)(nil),          // 11: c1.connector.v2.ScopeBindingTrait
-	(*AppTrait)(nil),                   // 12: c1.connector.v2.AppTrait
-	(*SecretTrait)(nil),                // 13: c1.connector.v2.SecretTrait
-	(*LicenseProfileTrait)(nil),        // 14: c1.connector.v2.LicenseProfileTrait
-	(*NonHumanIdentityTrait)(nil),      // 15: c1.connector.v2.NonHumanIdentityTrait
-	(*AgentTrait)(nil),                 // 16: c1.connector.v2.AgentTrait
-	(*UserTrait_Email)(nil),            // 17: c1.connector.v2.UserTrait.Email
-	(*UserTrait_Status)(nil),           // 18: c1.connector.v2.UserTrait.Status
-	(*UserTrait_MFAStatus)(nil),        // 19: c1.connector.v2.UserTrait.MFAStatus
-	(*UserTrait_SSOStatus)(nil),        // 20: c1.connector.v2.UserTrait.SSOStatus
-	(*UserTrait_StructuredName)(nil),   // 21: c1.connector.v2.UserTrait.StructuredName
-	(*structpb.Struct)(nil),            // 22: google.protobuf.Struct
-	(*AssetRef)(nil),                   // 23: c1.connector.v2.AssetRef
-	(*timestamppb.Timestamp)(nil),      // 24: google.protobuf.Timestamp
-	(*ResourceId)(nil),                 // 25: c1.connector.v2.ResourceId
+	(UserTrait_AccountType)(0),              // 0: c1.connector.v2.UserTrait.AccountType
+	(UserTrait_Status_Status)(0),            // 1: c1.connector.v2.UserTrait.Status.Status
+	(AppTrait_AppFlag)(0),                   // 2: c1.connector.v2.AppTrait.AppFlag
+	(SecretTrait_CredentialType)(0),         // 3: c1.connector.v2.SecretTrait.CredentialType
+	(NonHumanIdentityTrait_NhiType)(0),      // 4: c1.connector.v2.NonHumanIdentityTrait.NhiType
+	(AgentTrait_AgentStatus)(0),             // 5: c1.connector.v2.AgentTrait.AgentStatus
+	(ManagedDeviceTrait_DeviceType)(0),      // 6: c1.connector.v2.ManagedDeviceTrait.DeviceType
+	(ManagedDeviceTrait_ManagementState)(0), // 7: c1.connector.v2.ManagedDeviceTrait.ManagementState
+	(ManagedDeviceTrait_Compliance)(0),      // 8: c1.connector.v2.ManagedDeviceTrait.Compliance
+	(DeviceOS_OsType)(0),                    // 9: c1.connector.v2.DeviceOS.OsType
+	(*UserTrait)(nil),                       // 10: c1.connector.v2.UserTrait
+	(*GroupTrait)(nil),                      // 11: c1.connector.v2.GroupTrait
+	(*RoleTrait)(nil),                       // 12: c1.connector.v2.RoleTrait
+	(*RoleScopeConditions)(nil),             // 13: c1.connector.v2.RoleScopeConditions
+	(*RoleScopeCondition)(nil),              // 14: c1.connector.v2.RoleScopeCondition
+	(*ScopeBindingTrait)(nil),               // 15: c1.connector.v2.ScopeBindingTrait
+	(*AppTrait)(nil),                        // 16: c1.connector.v2.AppTrait
+	(*SecretTrait)(nil),                     // 17: c1.connector.v2.SecretTrait
+	(*LicenseProfileTrait)(nil),             // 18: c1.connector.v2.LicenseProfileTrait
+	(*NonHumanIdentityTrait)(nil),           // 19: c1.connector.v2.NonHumanIdentityTrait
+	(*AgentTrait)(nil),                      // 20: c1.connector.v2.AgentTrait
+	(*ManagedDeviceTrait)(nil),              // 21: c1.connector.v2.ManagedDeviceTrait
+	(*DeviceOS)(nil),                        // 22: c1.connector.v2.DeviceOS
+	(*UserTrait_Email)(nil),                 // 23: c1.connector.v2.UserTrait.Email
+	(*UserTrait_Status)(nil),                // 24: c1.connector.v2.UserTrait.Status
+	(*UserTrait_MFAStatus)(nil),             // 25: c1.connector.v2.UserTrait.MFAStatus
+	(*UserTrait_SSOStatus)(nil),             // 26: c1.connector.v2.UserTrait.SSOStatus
+	(*UserTrait_StructuredName)(nil),        // 27: c1.connector.v2.UserTrait.StructuredName
+	(*structpb.Struct)(nil),                 // 28: google.protobuf.Struct
+	(*AssetRef)(nil),                        // 29: c1.connector.v2.AssetRef
+	(*timestamppb.Timestamp)(nil),           // 30: google.protobuf.Timestamp
+	(*ResourceId)(nil),                      // 31: c1.connector.v2.ResourceId
+	(*wrapperspb.BoolValue)(nil),            // 32: google.protobuf.BoolValue
 }
 var file_c1_connector_v2_annotation_trait_proto_depIdxs = []int32{
-	17, // 0: c1.connector.v2.UserTrait.emails:type_name -> c1.connector.v2.UserTrait.Email
-	18, // 1: c1.connector.v2.UserTrait.status:type_name -> c1.connector.v2.UserTrait.Status
-	22, // 2: c1.connector.v2.UserTrait.profile:type_name -> google.protobuf.Struct
-	23, // 3: c1.connector.v2.UserTrait.icon:type_name -> c1.connector.v2.AssetRef
+	23, // 0: c1.connector.v2.UserTrait.emails:type_name -> c1.connector.v2.UserTrait.Email
+	24, // 1: c1.connector.v2.UserTrait.status:type_name -> c1.connector.v2.UserTrait.Status
+	28, // 2: c1.connector.v2.UserTrait.profile:type_name -> google.protobuf.Struct
+	29, // 3: c1.connector.v2.UserTrait.icon:type_name -> c1.connector.v2.AssetRef
 	0,  // 4: c1.connector.v2.UserTrait.account_type:type_name -> c1.connector.v2.UserTrait.AccountType
-	24, // 5: c1.connector.v2.UserTrait.created_at:type_name -> google.protobuf.Timestamp
-	24, // 6: c1.connector.v2.UserTrait.last_login:type_name -> google.protobuf.Timestamp
-	19, // 7: c1.connector.v2.UserTrait.mfa_status:type_name -> c1.connector.v2.UserTrait.MFAStatus
-	20, // 8: c1.connector.v2.UserTrait.sso_status:type_name -> c1.connector.v2.UserTrait.SSOStatus
-	21, // 9: c1.connector.v2.UserTrait.structured_name:type_name -> c1.connector.v2.UserTrait.StructuredName
-	23, // 10: c1.connector.v2.GroupTrait.icon:type_name -> c1.connector.v2.AssetRef
-	22, // 11: c1.connector.v2.GroupTrait.profile:type_name -> google.protobuf.Struct
-	22, // 12: c1.connector.v2.RoleTrait.profile:type_name -> google.protobuf.Struct
-	9,  // 13: c1.connector.v2.RoleTrait.role_scope_conditions:type_name -> c1.connector.v2.RoleScopeConditions
-	10, // 14: c1.connector.v2.RoleScopeConditions.conditions:type_name -> c1.connector.v2.RoleScopeCondition
-	25, // 15: c1.connector.v2.ScopeBindingTrait.role_id:type_name -> c1.connector.v2.ResourceId
-	25, // 16: c1.connector.v2.ScopeBindingTrait.scope_resource_id:type_name -> c1.connector.v2.ResourceId
-	23, // 17: c1.connector.v2.AppTrait.icon:type_name -> c1.connector.v2.AssetRef
-	23, // 18: c1.connector.v2.AppTrait.logo:type_name -> c1.connector.v2.AssetRef
-	22, // 19: c1.connector.v2.AppTrait.profile:type_name -> google.protobuf.Struct
+	30, // 5: c1.connector.v2.UserTrait.created_at:type_name -> google.protobuf.Timestamp
+	30, // 6: c1.connector.v2.UserTrait.last_login:type_name -> google.protobuf.Timestamp
+	25, // 7: c1.connector.v2.UserTrait.mfa_status:type_name -> c1.connector.v2.UserTrait.MFAStatus
+	26, // 8: c1.connector.v2.UserTrait.sso_status:type_name -> c1.connector.v2.UserTrait.SSOStatus
+	27, // 9: c1.connector.v2.UserTrait.structured_name:type_name -> c1.connector.v2.UserTrait.StructuredName
+	29, // 10: c1.connector.v2.GroupTrait.icon:type_name -> c1.connector.v2.AssetRef
+	28, // 11: c1.connector.v2.GroupTrait.profile:type_name -> google.protobuf.Struct
+	28, // 12: c1.connector.v2.RoleTrait.profile:type_name -> google.protobuf.Struct
+	13, // 13: c1.connector.v2.RoleTrait.role_scope_conditions:type_name -> c1.connector.v2.RoleScopeConditions
+	14, // 14: c1.connector.v2.RoleScopeConditions.conditions:type_name -> c1.connector.v2.RoleScopeCondition
+	31, // 15: c1.connector.v2.ScopeBindingTrait.role_id:type_name -> c1.connector.v2.ResourceId
+	31, // 16: c1.connector.v2.ScopeBindingTrait.scope_resource_id:type_name -> c1.connector.v2.ResourceId
+	29, // 17: c1.connector.v2.AppTrait.icon:type_name -> c1.connector.v2.AssetRef
+	29, // 18: c1.connector.v2.AppTrait.logo:type_name -> c1.connector.v2.AssetRef
+	28, // 19: c1.connector.v2.AppTrait.profile:type_name -> google.protobuf.Struct
 	2,  // 20: c1.connector.v2.AppTrait.flags:type_name -> c1.connector.v2.AppTrait.AppFlag
-	22, // 21: c1.connector.v2.SecretTrait.profile:type_name -> google.protobuf.Struct
-	24, // 22: c1.connector.v2.SecretTrait.created_at:type_name -> google.protobuf.Timestamp
-	24, // 23: c1.connector.v2.SecretTrait.expires_at:type_name -> google.protobuf.Timestamp
-	24, // 24: c1.connector.v2.SecretTrait.last_used_at:type_name -> google.protobuf.Timestamp
-	25, // 25: c1.connector.v2.SecretTrait.created_by_id:type_name -> c1.connector.v2.ResourceId
-	25, // 26: c1.connector.v2.SecretTrait.identity_id:type_name -> c1.connector.v2.ResourceId
+	28, // 21: c1.connector.v2.SecretTrait.profile:type_name -> google.protobuf.Struct
+	30, // 22: c1.connector.v2.SecretTrait.created_at:type_name -> google.protobuf.Timestamp
+	30, // 23: c1.connector.v2.SecretTrait.expires_at:type_name -> google.protobuf.Timestamp
+	30, // 24: c1.connector.v2.SecretTrait.last_used_at:type_name -> google.protobuf.Timestamp
+	31, // 25: c1.connector.v2.SecretTrait.created_by_id:type_name -> c1.connector.v2.ResourceId
+	31, // 26: c1.connector.v2.SecretTrait.identity_id:type_name -> c1.connector.v2.ResourceId
 	3,  // 27: c1.connector.v2.SecretTrait.credential_type:type_name -> c1.connector.v2.SecretTrait.CredentialType
 	4,  // 28: c1.connector.v2.NonHumanIdentityTrait.nhi_type:type_name -> c1.connector.v2.NonHumanIdentityTrait.NhiType
 	5,  // 29: c1.connector.v2.AgentTrait.status:type_name -> c1.connector.v2.AgentTrait.AgentStatus
-	25, // 30: c1.connector.v2.AgentTrait.identity_resource_id:type_name -> c1.connector.v2.ResourceId
-	22, // 31: c1.connector.v2.AgentTrait.profile:type_name -> google.protobuf.Struct
-	1,  // 32: c1.connector.v2.UserTrait.Status.status:type_name -> c1.connector.v2.UserTrait.Status.Status
-	33, // [33:33] is the sub-list for method output_type
-	33, // [33:33] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	31, // 30: c1.connector.v2.AgentTrait.identity_resource_id:type_name -> c1.connector.v2.ResourceId
+	28, // 31: c1.connector.v2.AgentTrait.profile:type_name -> google.protobuf.Struct
+	6,  // 32: c1.connector.v2.ManagedDeviceTrait.device_type:type_name -> c1.connector.v2.ManagedDeviceTrait.DeviceType
+	22, // 33: c1.connector.v2.ManagedDeviceTrait.os:type_name -> c1.connector.v2.DeviceOS
+	8,  // 34: c1.connector.v2.ManagedDeviceTrait.compliance:type_name -> c1.connector.v2.ManagedDeviceTrait.Compliance
+	32, // 35: c1.connector.v2.ManagedDeviceTrait.is_encrypted:type_name -> google.protobuf.BoolValue
+	32, // 36: c1.connector.v2.ManagedDeviceTrait.is_supervised:type_name -> google.protobuf.BoolValue
+	32, // 37: c1.connector.v2.ManagedDeviceTrait.is_personal:type_name -> google.protobuf.BoolValue
+	7,  // 38: c1.connector.v2.ManagedDeviceTrait.management_state:type_name -> c1.connector.v2.ManagedDeviceTrait.ManagementState
+	30, // 39: c1.connector.v2.ManagedDeviceTrait.enrolled_at:type_name -> google.protobuf.Timestamp
+	9,  // 40: c1.connector.v2.DeviceOS.type:type_name -> c1.connector.v2.DeviceOS.OsType
+	1,  // 41: c1.connector.v2.UserTrait.Status.status:type_name -> c1.connector.v2.UserTrait.Status.Status
+	42, // [42:42] is the sub-list for method output_type
+	42, // [42:42] is the sub-list for method input_type
+	42, // [42:42] is the sub-list for extension type_name
+	42, // [42:42] is the sub-list for extension extendee
+	0,  // [0:42] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_trait_proto_init() }
@@ -2413,8 +3129,8 @@ func file_c1_connector_v2_annotation_trait_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_trait_proto_rawDesc), len(file_c1_connector_v2_annotation_trait_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   16,
+			NumEnums:      10,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

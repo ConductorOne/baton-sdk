@@ -2183,6 +2183,412 @@ var _ interface {
 	ErrorName() string
 } = AgentTraitValidationError{}
 
+// Validate checks the field values on ManagedDeviceTrait with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ManagedDeviceTrait) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ManagedDeviceTrait with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ManagedDeviceTraitMultiError, or nil if none found.
+func (m *ManagedDeviceTrait) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ManagedDeviceTrait) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Serial
+
+	// no validation rules for Udid
+
+	// no validation rules for HardwareHash
+
+	if _, ok := ManagedDeviceTrait_DeviceType_name[int32(m.GetDeviceType())]; !ok {
+		err := ManagedDeviceTraitValidationError{
+			field:  "DeviceType",
+			reason: "value must be one of the defined enum values",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	// no validation rules for Model
+
+	// no validation rules for Vendor
+
+	if all {
+		switch v := interface{}(m.GetOs()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ManagedDeviceTraitValidationError{
+					field:  "Os",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ManagedDeviceTraitValidationError{
+					field:  "Os",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetOs()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ManagedDeviceTraitValidationError{
+				field:  "Os",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if _, ok := ManagedDeviceTrait_Compliance_name[int32(m.GetCompliance())]; !ok {
+		err := ManagedDeviceTraitValidationError{
+			field:  "Compliance",
+			reason: "value must be one of the defined enum values",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if all {
+		switch v := interface{}(m.GetIsEncrypted()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ManagedDeviceTraitValidationError{
+					field:  "IsEncrypted",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ManagedDeviceTraitValidationError{
+					field:  "IsEncrypted",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetIsEncrypted()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ManagedDeviceTraitValidationError{
+				field:  "IsEncrypted",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetIsSupervised()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ManagedDeviceTraitValidationError{
+					field:  "IsSupervised",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ManagedDeviceTraitValidationError{
+					field:  "IsSupervised",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetIsSupervised()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ManagedDeviceTraitValidationError{
+				field:  "IsSupervised",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetIsPersonal()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ManagedDeviceTraitValidationError{
+					field:  "IsPersonal",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ManagedDeviceTraitValidationError{
+					field:  "IsPersonal",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetIsPersonal()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ManagedDeviceTraitValidationError{
+				field:  "IsPersonal",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if _, ok := ManagedDeviceTrait_ManagementState_name[int32(m.GetManagementState())]; !ok {
+		err := ManagedDeviceTraitValidationError{
+			field:  "ManagementState",
+			reason: "value must be one of the defined enum values",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if all {
+		switch v := interface{}(m.GetEnrolledAt()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ManagedDeviceTraitValidationError{
+					field:  "EnrolledAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ManagedDeviceTraitValidationError{
+					field:  "EnrolledAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetEnrolledAt()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ManagedDeviceTraitValidationError{
+				field:  "EnrolledAt",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return ManagedDeviceTraitMultiError(errors)
+	}
+
+	return nil
+}
+
+// ManagedDeviceTraitMultiError is an error wrapping multiple validation errors
+// returned by ManagedDeviceTrait.ValidateAll() if the designated constraints
+// aren't met.
+type ManagedDeviceTraitMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ManagedDeviceTraitMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ManagedDeviceTraitMultiError) AllErrors() []error { return m }
+
+// ManagedDeviceTraitValidationError is the validation error returned by
+// ManagedDeviceTrait.Validate if the designated constraints aren't met.
+type ManagedDeviceTraitValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ManagedDeviceTraitValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ManagedDeviceTraitValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ManagedDeviceTraitValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ManagedDeviceTraitValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ManagedDeviceTraitValidationError) ErrorName() string {
+	return "ManagedDeviceTraitValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ManagedDeviceTraitValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sManagedDeviceTrait.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ManagedDeviceTraitValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ManagedDeviceTraitValidationError{}
+
+// Validate checks the field values on DeviceOS with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *DeviceOS) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on DeviceOS with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in DeviceOSMultiError, or nil
+// if none found.
+func (m *DeviceOS) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *DeviceOS) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if _, ok := DeviceOS_OsType_name[int32(m.GetType())]; !ok {
+		err := DeviceOSValidationError{
+			field:  "Type",
+			reason: "value must be one of the defined enum values",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	// no validation rules for Name
+
+	// no validation rules for Version
+
+	// no validation rules for Build
+
+	if len(errors) > 0 {
+		return DeviceOSMultiError(errors)
+	}
+
+	return nil
+}
+
+// DeviceOSMultiError is an error wrapping multiple validation errors returned
+// by DeviceOS.ValidateAll() if the designated constraints aren't met.
+type DeviceOSMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m DeviceOSMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m DeviceOSMultiError) AllErrors() []error { return m }
+
+// DeviceOSValidationError is the validation error returned by
+// DeviceOS.Validate if the designated constraints aren't met.
+type DeviceOSValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e DeviceOSValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e DeviceOSValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e DeviceOSValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e DeviceOSValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e DeviceOSValidationError) ErrorName() string { return "DeviceOSValidationError" }
+
+// Error satisfies the builtin error interface
+func (e DeviceOSValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sDeviceOS.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = DeviceOSValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = DeviceOSValidationError{}
+
 // Validate checks the field values on UserTrait_Email with the rules defined
 // in the proto definition for this message. If any rules are violated, the
 // first error encountered is returned, or nil if there are no violations.
