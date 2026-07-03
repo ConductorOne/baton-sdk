@@ -3,7 +3,6 @@ package resource
 import (
 	"time"
 
-	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -112,14 +111,6 @@ func WithManagedDeviceManagementState(managementState v2.ManagedDeviceTrait_Mana
 func WithManagedDeviceEnrolledAt(enrolledAt time.Time) ManagedDeviceTraitOption {
 	return func(t *v2.ManagedDeviceTrait) error {
 		t.SetEnrolledAt(timestamppb.New(enrolledAt))
-		return nil
-	}
-}
-
-// WithManagedDeviceProfile sets the free-form profile struct.
-func WithManagedDeviceProfile(profile *structpb.Struct) ManagedDeviceTraitOption {
-	return func(t *v2.ManagedDeviceTrait) error {
-		t.SetProfile(profile)
 		return nil
 	}
 }

@@ -286,7 +286,6 @@ message ManagedDeviceTrait {
   google.protobuf.BoolValue is_personal = 11;
   ManagementState management_state = 12 [(validate.rules).enum = {defined_only: true}];
   google.protobuf.Timestamp enrolled_at = 13;
-  google.protobuf.Struct profile = 14;
   // (no last-seen in v1)
 }
 
