@@ -1,6 +1,8 @@
 package pebble
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -94,13 +96,163 @@ func grantContentHashFromParts(entID, principalRT, principalID, externalID strin
 	return out
 }
 
-// sealIndexSpillChunkBytes is the in-memory arena size of the seal-time
-// index spill sorter: entries accumulate unsorted until the arena
-// reaches this size, then the chunk sorts in the background and spills
-// to a run file. Most connectors' whole index fits in one or two
-// chunks; only very large syncs produce enough runs for a real
-// multi-way merge. Bounds memory to O(chunk) regardless of grant count.
-const sealIndexSpillChunkBytes = 32 << 20
+// sealIndexSpillChunkBytes is the size of the seal-time index sorter's
+// in-memory page. Most connectors' whole index fits in one page and
+// never touches a temp file (the sorted page streams straight into the
+// SST); larger syncs spill one sorted run file per full page and k-way
+// merge. Bounds memory to O(page) regardless of grant count.
+const sealIndexSpillChunkBytes = 8 << 20
+
+// sealIndexSorter accumulates (index key, content hash) rows in one
+// in-memory page during the seal-time index scan. The page sorts in
+// place the moment it fills — synchronously, on the scanning goroutine
+// (a page sort is milliseconds against an I/O-bound scan; keeping the
+// page sorted per-insert instead would cost O(page) of memmove per
+// row) — and each full page spills to a sorted run file. writeSST then
+// produces the final SST:
+//
+//   - nothing spilled → the sorted page streams straight into the SST,
+//     no temp-file round trip at all (the common, small-sync case);
+//   - otherwise → the run files k-way merge with the in-memory tail
+//     page as one more source, so the tail never touches disk either.
+//
+// The run-file format, reader, and merge heap are shared with the bulk
+// importer's spillSorter (writeSortedSpillChunk / readSpillEntry /
+// spillChunkHeap); only the accumulate/flush policy differs.
+type sealIndexSorter struct {
+	dir        string // staging dir for run files + the final SST
+	chunkBytes int
+
+	arena []byte
+	views []kvView
+	runs  []string
+}
+
+// add appends one row, spilling the page if it is full. key and val
+// are copied into the arena.
+func (s *sealIndexSorter) add(key, val []byte) error {
+	keyOff := len(s.arena)
+	s.arena = append(s.arena, key...)
+	s.arena = append(s.arena, val...)
+	s.views = append(s.views, kvView{keyOff: keyOff, keyEnd: keyOff + len(key), valEnd: keyOff + len(key) + len(val)})
+	if len(s.arena) >= s.chunkBytes {
+		return s.spillPage()
+	}
+	return nil
+}
+
+func (s *sealIndexSorter) empty() bool { return len(s.views) == 0 && len(s.runs) == 0 }
+
+// sortPage sorts the current page's views by key, in place.
+func (s *sealIndexSorter) sortPage() {
+	sort.Slice(s.views, func(i, j int) bool {
+		return bytes.Compare(s.arena[s.views[i].keyOff:s.views[i].keyEnd], s.arena[s.views[j].keyOff:s.views[j].keyEnd]) < 0
+	})
+}
+
+// spillPage sorts the current page and writes it to a new run file,
+// then resets the page (the arena's capacity is reused).
+func (s *sealIndexSorter) spillPage() error {
+	s.sortPage()
+	path := filepath.Join(s.dir, fmt.Sprintf("hash-index-run-%04d.bin", len(s.runs)))
+	if err := writeSortedSpillChunk(path, s.arena, s.views); err != nil {
+		return err
+	}
+	s.runs = append(s.runs, path)
+	s.arena = s.arena[:0]
+	s.views = s.views[:0]
+	return nil
+}
+
+// writeSST sorts the tail page and produces one SST holding every row
+// in key order, returning its path. See the type comment for the
+// single-page fast path vs the run-merge path.
+func (s *sealIndexSorter) writeSST(ctx context.Context, name string) (string, error) {
+	s.sortPage()
+	w, err := newBulkSSTWriter(s.dir, name)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = w.finish() }()
+
+	if len(s.runs) == 0 {
+		for _, v := range s.views {
+			if err := w.add(s.arena[v.keyOff:v.keyEnd], s.arena[v.keyEnd:v.valEnd]); err != nil {
+				return "", err
+			}
+		}
+		if err := w.finish(); err != nil {
+			return "", err
+		}
+		return w.path, nil
+	}
+
+	// K-way merge of the run files plus the in-memory tail page. One
+	// outstanding heap item per source; a source's read buffers are
+	// only reused after its current item is popped (and copied by the
+	// SST writer), matching mergeSortedSpillChunksToSST.
+	readers := make([]*os.File, 0, len(s.runs))
+	defer func() {
+		for _, r := range readers {
+			_ = r.Close()
+		}
+	}()
+	bufReaders := make([]*bufio.Reader, len(s.runs))
+	keyBufs := make([][]byte, len(s.runs))
+	valBufs := make([][]byte, len(s.runs))
+	h := &spillChunkHeap{}
+	var lenBuf [4]byte
+	for i, run := range s.runs {
+		f, err := os.Open(run) // #nosec G304 - staged under our MkdirTemp dir.
+		if err != nil {
+			return "", err
+		}
+		readers = append(readers, f)
+		bufReaders[i] = bufio.NewReaderSize(f, bulkSpillBufferSize)
+		ok, err := readSpillEntry(bufReaders[i], &keyBufs[i], &valBufs[i], &lenBuf)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			h.push(spillChunkItem{chunkIdx: i, key: keyBufs[i], val: valBufs[i]})
+		}
+	}
+	memIdx := len(s.runs)
+	nextView := 0
+	pushMem := func() {
+		if nextView < len(s.views) {
+			v := s.views[nextView]
+			nextView++
+			h.push(spillChunkItem{chunkIdx: memIdx, key: s.arena[v.keyOff:v.keyEnd], val: s.arena[v.keyEnd:v.valEnd]})
+		}
+	}
+	pushMem()
+
+	for len(*h) > 0 {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		item := h.pop()
+		if err := w.add(item.key, item.val); err != nil {
+			return "", err
+		}
+		if item.chunkIdx == memIdx {
+			pushMem()
+			continue
+		}
+		ok, err := readSpillEntry(bufReaders[item.chunkIdx], &keyBufs[item.chunkIdx], &valBufs[item.chunkIdx], &lenBuf)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			h.push(spillChunkItem{chunkIdx: item.chunkIdx, key: keyBufs[item.chunkIdx], val: valBufs[item.chunkIdx]})
+		}
+	}
+	if err := w.finish(); err != nil {
+		return "", err
+	}
+	return w.path, nil
+}
 
 // SealGrantHashIndexAndDigests builds the by_entitlement_principal_hash
 // index and the per-entitlement grant digests, in that order. This is
@@ -141,22 +293,23 @@ func (e *Engine) SealGrantHashIndexAndDigests(ctx context.Context) error {
 //
 // The primaries iterate in external_id order, which is unordered with
 // respect to the index's (entitlement, principal-hash) key order, so
-// the rows need a sort before they can enter an SST. The bulk
-// importer's spillSorter provides it: rows accumulate in an in-memory
-// arena; each full arena sorts in the background (overlapping the
-// scan) and spills to a sorted run file; the runs then k-way merge
-// into the SST. Because the entitlement id LEADS the index key,
-// per-entitlement grouping falls out of the global sort — an
-// entitlement small enough to sit inside one arena chunk is sorted
-// entirely in memory, and a 100k-grant entitlement simply spans
-// several runs and reassembles, contiguously, during the merge.
+// the rows need a sort before they can enter an SST. sealIndexSorter
+// provides it: rows accumulate in one in-memory page that sorts in
+// place when full; a sync that fits in a single page streams the
+// sorted page straight into the SST (no temp-file round trip), and a
+// larger sync spills sorted run files that k-way merge with the
+// in-memory tail. Because the entitlement id LEADS the index key,
+// per-entitlement grouping falls out of the global sort — a small
+// entitlement's rows sort within the pages they land in, and a
+// 100k-grant entitlement simply spans several runs and reassembles,
+// contiguously, during the merge.
 func (e *Engine) rebuildGrantHashIndex(ctx context.Context) (map[string]int64, error) {
 	return e.rebuildGrantHashIndexChunked(ctx, sealIndexSpillChunkBytes)
 }
 
-// rebuildGrantHashIndexChunked is rebuildGrantHashIndex with the spill
-// arena size as a parameter, so tests can force the multi-run k-way
-// merge path with a small data set.
+// rebuildGrantHashIndexChunked is rebuildGrantHashIndex with the page
+// size as a parameter, so tests can force the multi-run k-way merge
+// path with a small data set.
 func (e *Engine) rebuildGrantHashIndexChunked(ctx context.Context, chunkBytes int) (map[string]int64, error) {
 	counts := make(map[string]int64)
 
@@ -168,12 +321,7 @@ func (e *Engine) rebuildGrantHashIndexChunked(ctx context.Context, chunkBytes in
 	// the staging dir (runs + SST) is safe either way.
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	// Two background sort slots: enough to overlap chunk sorting with
-	// the scan without competing with it for cores.
-	sorter := newSpillSorter(dir, "grant_hash_index", make(chan struct{}, 2), chunkBytes)
-	// abort() waits out in-flight chunk sorts so RemoveAll can't race
-	// them; harmless after a successful finalize.
-	defer sorter.abort()
+	sorter := &sealIndexSorter{dir: dir, chunkBytes: chunkBytes}
 
 	err = e.withWrite(func() error {
 		prefix := encodeGrantPrefix()
@@ -217,18 +365,13 @@ func (e *Engine) rebuildGrantHashIndexChunked(ctx context.Context, chunkBytes in
 			return err
 		}
 
-		chunks, err := sorter.finalize()
-		if err != nil {
-			return err
-		}
-		if len(chunks) == 0 {
+		if sorter.empty() {
 			// No grants at all — pebble rejects an empty SST, so just
 			// clear any stale index rows directly.
 			return e.db.DeleteRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), writeOpts(e.opts.durability))
 		}
-		const sstName = "grant_hash_index"
-		sstPath := filepath.Join(dir, sstName+".sst")
-		if err := mergeSortedSpillChunksToSST(ctx, sstPath, sstName, chunks); err != nil {
+		sstPath, err := sorter.writeSST(ctx, "grant_hash_index")
+		if err != nil {
 			return err
 		}
 		if _, err := e.db.IngestAndExcise(ctx, []string{sstPath}, nil, nil, pebble.KeyRange{
