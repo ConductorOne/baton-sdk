@@ -148,9 +148,15 @@ func TestFileRotationRotatesOnSize(t *testing.T) {
 	logPath := filepath.Join(dir, "baton.log")
 
 	// 1 MB is lumberjack's minimum rotation granularity; write well past it.
+	// Compression is disabled here: lumberjack gzips rotated files in a background
+	// goroutine that closeActiveRotator can't drain, so with it on the mill can
+	// create/rename a .gz in dir concurrently with t.TempDir's RemoveAll and fail
+	// the cleanup ("directory not empty") on Linux. This test only needs to
+	// observe that rotation happened, which is independent of compression.
 	ctx, err := Init(context.Background(),
 		WithFileRotation(logPath, 1, 0, 7),
 		WithFileOnly(true),
+		WithFileCompression(false),
 	)
 	require.NoError(t, err, "Init")
 	t.Cleanup(func() { closeActiveRotator(t) })

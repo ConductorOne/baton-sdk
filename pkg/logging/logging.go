@@ -37,6 +37,7 @@ type logConfig struct {
 	maxBackups    int
 	retentionDays int
 	fileOnly      bool
+	compress      bool
 }
 
 // Option configures the logger created by Init.
@@ -156,6 +157,17 @@ func WithFileOnly(fileOnly bool) Option {
 	}
 }
 
+// WithFileCompression controls gzip compression of rotated log files. It
+// defaults to true. Disabling it is mainly useful in tests: lumberjack performs
+// compression in a background goroutine, which can outlive a test and race
+// t.TempDir cleanup; a test that only needs to observe rotation can turn it off
+// for deterministic teardown.
+func WithFileCompression(compress bool) Option {
+	return func(c *logConfig) {
+		c.compress = compress
+	}
+}
+
 // Init creates a new zap logger and attaches it to the provided context.
 // When file rotation is configured via WithFileRotation, it builds a logger
 // core backed by lumberjack. Otherwise it falls back to the standard
@@ -166,6 +178,7 @@ func Init(ctx context.Context, opts ...Option) (context.Context, error) {
 	}
 	cfg.zapConfig.Sampling = nil
 	cfg.zapConfig.DisableStacktrace = true
+	cfg.compress = true // default; overridable via WithFileCompression
 
 	for _, opt := range opts {
 		opt(cfg)
@@ -217,6 +230,7 @@ func InitWithCore(ctx context.Context, buildCore func(zap.Config) zapcore.Core, 
 	}
 	cfg.zapConfig.Sampling = nil
 	cfg.zapConfig.DisableStacktrace = true
+	cfg.compress = true // default; overridable via WithFileCompression
 
 	for _, opt := range opts {
 		opt(cfg)
@@ -274,7 +288,7 @@ func buildRotatingLogger(cfg *logConfig) (*zap.Logger, error) {
 		MaxSize:    maxSizeMB,      // megabytes before the active file is rotated
 		MaxBackups: cfg.maxBackups, // max rotated files to keep (0 = no count limit)
 		MaxAge:     retentionDays,  // days to retain rotated files
-		Compress:   true,           // gzip rotated files
+		Compress:   cfg.compress,   // gzip rotated files (default true; see WithFileCompression)
 		// LocalTime is deliberately false (UTC). lumberjack formats backup
 		// timestamps with LocalTime but always parses them as UTC when enforcing
 		// MaxAge, so local time would skew age-based retention by the host's tz
