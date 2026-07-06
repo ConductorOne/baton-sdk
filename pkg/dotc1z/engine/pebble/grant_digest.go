@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"github.com/cespare/xxhash/v2"
@@ -61,6 +62,20 @@ func principalBucketHash(rt, id string) []byte {
 	return out
 }
 
+// principalBucketHash64 is principalBucketHash's 64-bit hash over
+// byte-view components: xxHash64 of rt || 0x00 || id, one-shot over a
+// caller-reused input buffer (returned grown for reuse). The seal-time
+// index build calls this once per grant; the streaming form above
+// allocates a Digest per call. xxHash64 one-shot and streamed agree by
+// construction, so the two MUST hash the same input bytes — a
+// divergence is an index-migration event (see the ABI notes below).
+func principalBucketHash64(hashIn, rt, id []byte) (uint64, []byte) {
+	hashIn = append(hashIn[:0], rt...)
+	hashIn = append(hashIn, 0)
+	hashIn = append(hashIn, id...)
+	return xxhash.Sum64(hashIn), hashIn
+}
+
 // grantContentHashFromParts is the canonical content hash of a grant —
 // the value stored in the hash index and the unit the grant digest
 // folds. sortedSourceKeys (the grant's source-entitlement ids) must
@@ -87,13 +102,36 @@ func principalBucketHash(rt, id string) []byte {
 // 0x00-joined concatenation is NOT injective (e.g. sources ["a","b"] vs
 // ["a\x00b"]), which would deterministically collide distinct grants.
 func grantContentHashFromParts(entID, principalRT, principalID, externalID string, sortedSourceKeys []string) []byte {
-	fields := make([]string, 0, 4+len(sortedSourceKeys))
-	fields = append(fields, entID, principalRT, principalID, externalID)
-	fields = append(fields, sortedSourceKeys...)
-	buf := codec.AppendTupleStrings(nil, fields...)
+	srcs := make([][]byte, len(sortedSourceKeys))
+	for i := range sortedSourceKeys {
+		srcs[i] = []byte(sortedSourceKeys[i])
+	}
+	h, _ := grantContentHash64(nil, []byte(entID), []byte(principalRT), []byte(principalID), []byte(externalID), srcs)
 	out := make([]byte, hashLen)
-	binary.BigEndian.PutUint64(out, xxhash.Sum64(buf))
+	binary.BigEndian.PutUint64(out, h)
 	return out
+}
+
+// grantContentHash64 is the implementation of the content hash over
+// byte-view parts with a caller-reused tuple buffer (returned grown for
+// reuse) — the seal-time index build's per-grant form of
+// grantContentHashFromParts, which wraps it and carries the ABI
+// contract. The framing is exactly AppendTupleStrings over
+// (entID, principalRT, principalID, externalID, sources...): every
+// field escaped, separators between fields only.
+func grantContentHash64(tuple, entID, principalRT, principalID, externalID []byte, sortedSourceKeys [][]byte) (uint64, []byte) {
+	tuple = codec.AppendTupleBytes(tuple[:0], entID)
+	tuple = codec.AppendTupleSeparator(tuple)
+	tuple = codec.AppendTupleBytes(tuple, principalRT)
+	tuple = codec.AppendTupleSeparator(tuple)
+	tuple = codec.AppendTupleBytes(tuple, principalID)
+	tuple = codec.AppendTupleSeparator(tuple)
+	tuple = codec.AppendTupleBytes(tuple, externalID)
+	for _, k := range sortedSourceKeys {
+		tuple = codec.AppendTupleSeparator(tuple)
+		tuple = codec.AppendTupleBytes(tuple, k)
+	}
+	return xxhash.Sum64(tuple), tuple
 }
 
 // sealIndexSpillChunkBytes is the size of the seal-time index sorter's
@@ -331,35 +369,56 @@ func (e *Engine) rebuildGrantHashIndexChunked(ctx context.Context, chunkBytes in
 		}
 		defer iter.Close()
 
+		// Per-row scratch, reused across the whole scan: every field is a
+		// view into the iterator's current key/value (dead once
+		// sorter.add copies the row into the arena), the hash/tuple/key
+		// buffers recycle their backing arrays, and entitlement ids are
+		// interned so the counts tally costs one string per DISTINCT
+		// entitlement instead of one per grant. Together this keeps the
+		// loop allocation-free per row (~15 allocs/grant before).
+		var (
+			hashIn, tuple, keyBuf []byte
+			srcKeys               [][]byte
+		)
+		entIDs := make(map[string]string)
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			ext, _, err := codec.DecodeTupleStringTo(nil, iter.Key(), len(prefix)+1)
-			if err != nil {
-				return fmt.Errorf("decode grant key %x: %w", iter.Key(), err)
+			ext, _, ok := codec.DecodeTupleStringAlias(iter.Key(), len(prefix)+1)
+			if !ok {
+				return fmt.Errorf("decode grant key %x: %w", iter.Key(), codec.ErrInvalidTuple)
 			}
 			val := iter.Value()
-			_, _, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(val)
+			_, _, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRawBytes(val)
 			if err != nil {
 				return err
 			}
-			if entID == "" || principalRT == "" || principalID == "" {
+			if len(entID) == 0 || len(principalRT) == 0 || len(principalID) == 0 {
 				continue // no entitlement/principal → no place in the index
 			}
-			sourceKeys, err := scanGrantSourceKeysRaw(val)
+			srcKeys, err = scanGrantSourceKeysRawBytes(val, srcKeys[:0])
 			if err != nil {
 				return err
 			}
-			sort.Strings(sourceKeys)
-			externalID := string(ext)
-			bh := principalBucketHash(principalRT, principalID)
-			ch := grantContentHashFromParts(entID, principalRT, principalID, externalID, sourceKeys)
-			hk := encodeGrantByEntPrincHashIndexKey(entID, bh, principalRT, principalID, externalID)
-			if err := sorter.add(hk, ch); err != nil {
+			slices.SortFunc(srcKeys, bytes.Compare)
+			var bh64, ch64 uint64
+			bh64, hashIn = principalBucketHash64(hashIn, principalRT, principalID)
+			ch64, tuple = grantContentHash64(tuple, entID, principalRT, principalID, ext, srcKeys)
+			var bhFull [8]byte
+			binary.BigEndian.PutUint64(bhFull[:], bh64)
+			var ch [hashLen]byte
+			binary.BigEndian.PutUint64(ch[:], ch64)
+			keyBuf = appendGrantByEntPrincHashIndexKeyBytes(keyBuf[:0], entID, bhFull[:digestBucketHashLen], principalRT, principalID, ext)
+			if err := sorter.add(keyBuf, ch[:]); err != nil {
 				return err
 			}
-			counts[entID]++
+			id, ok := entIDs[string(entID)] // zero-alloc map read
+			if !ok {
+				id = string(entID)
+				entIDs[id] = id
+			}
+			counts[id]++
 		}
 		if err := iter.Error(); err != nil {
 			return err

@@ -324,6 +324,25 @@ func encodeGrantByEntPrincHashIndexKey(entitlementID string, bucketHash []byte, 
 	return codec.AppendTupleStrings(buf, principalRT, principalID, externalID)
 }
 
+// appendGrantByEntPrincHashIndexKeyBytes is
+// encodeGrantByEntPrincHashIndexKey over byte-view components with a
+// caller-reused dst. The seal-time index build encodes one key per
+// grant from fields borrowed off the record scan, so it recycles one
+// buffer instead of allocating per row. MUST stay byte-for-byte in
+// lockstep with encodeGrantByEntPrincHashIndexKey.
+func appendGrantByEntPrincHashIndexKeyBytes(dst []byte, entitlementID, bucketHash, principalRT, principalID, externalID []byte) []byte {
+	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlementPrincipalHash)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = codec.AppendTupleBytes(dst, entitlementID)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = append(dst, bucketHash...)
+	dst = codec.AppendTupleBytes(dst, principalRT)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = codec.AppendTupleBytes(dst, principalID)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleBytes(dst, externalID)
+}
+
 // encodeGrantByEntPrincHashEntPrefix is the by-value prefix for "all
 // grants under this entitlement", in hash order. The trailing separator
 // is load-bearing (see the keys.go convention doc); the raw bucket hash
