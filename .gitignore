@@ -33,3 +33,8 @@ dist/
 # Local profiling output and benchmark fixtures (pprof files, prebuilt
 # compaction fixture trees referenced via BATON_COMPACTION_COMPARE_FIXTURES_DIR).
 .profiles/
+
+# Working docs / presentation material stay local: they may reference
+# specific tenants and their data shapes, which must not enter this
+# public repository (see CLAUDE.md content guidelines).
+docs/tasks/
