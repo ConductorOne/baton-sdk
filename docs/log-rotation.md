@@ -79,10 +79,15 @@ Given `--log-file /var/log/baton.log`, lumberjack manages the file set:
 
 ### Output targets
 
-- **CLI mode** (default): logs go to both the rotating file AND stderr, so
-  terminal output is preserved.
-- **Windows service mode**: logs go to the file only (no stderr). The file
-  defaults to `%PROGRAMDATA%\ConductorOne\{service-name}\baton.log`.
+- **With `--log-file`** (default): logs go to both the rotating file AND stderr,
+  so terminal output is preserved. Pass `WithFileOnly(true)` to write only the
+  file (intended for no-console environments such as a Windows service).
+- **Windows service default**: rotation is **not** wired into the service path
+  by default yet. Unless `--log-file` is explicitly set, a Windows service still
+  uses its existing (unrotated) `baton.log` sink, so that file is not size-bounded.
+  Automatically rotating a service's `baton.log` — and which process owns the file
+  across the launcher/`_connector-service` split — is pending a design decision
+  (see the PR discussion); until then, rotation is opt-in via `--log-file`.
 
 ## Interaction with other logging options
 

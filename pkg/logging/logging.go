@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -325,9 +326,18 @@ func buildRotatingLogger(cfg *logConfig) (*zap.Logger, error) {
 	// would be silently dropped in rotation mode. (Caller annotation, error
 	// output, and stacktrace are logger-level options and survive the core swap.)
 	if len(cfg.zapConfig.InitialFields) > 0 {
-		fields := make([]zap.Field, 0, len(cfg.zapConfig.InitialFields))
-		for k, v := range cfg.zapConfig.InitialFields {
-			fields = append(fields, zap.Any(k, v))
+		// Sort keys so field order is deterministic and matches zap.Config.Build,
+		// which sorts InitialFields keys before attaching them. Without this the
+		// rotation path would emit fields in random map-iteration order, diverging
+		// from the non-rotation path (and breaking console/golden-output tests).
+		keys := make([]string, 0, len(cfg.zapConfig.InitialFields))
+		for k := range cfg.zapConfig.InitialFields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		fields := make([]zap.Field, 0, len(keys))
+		for _, k := range keys {
+			fields = append(fields, zap.Any(k, cfg.zapConfig.InitialFields[k]))
 		}
 		core = core.With(fields)
 	}
