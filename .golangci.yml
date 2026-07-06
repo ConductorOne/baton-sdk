@@ -96,6 +96,12 @@ linters:
       - linters:
           - godot
         source: (TODO)
+      # NewC1ZFile is deprecated in favor of the multi-engine NewStore, but tests
+      # still exercise the SQLite-only constructor and its concrete *C1File methods.
+      - linters:
+          - staticcheck
+        path: _test\.go
+        text: 'SA1019: dotc1z.NewC1ZFile is deprecated'
     paths:
       - third_party$
       - builtin$

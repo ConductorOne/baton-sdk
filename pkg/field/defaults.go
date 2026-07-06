@@ -16,6 +16,11 @@ const (
 	OtelTracingDisabledFieldName              = "otel-tracing-disabled"
 	OtelLoggingDisabledFieldName              = "otel-logging-disabled"
 
+	// LogEventLogFieldName is the name of the flag that redirects logging to
+	// the Windows event log. The field is only registered on Windows builds
+	// (see defaults_windows.go), so the flag does not exist on other platforms.
+	LogEventLogFieldName = "log-event-log"
+
 	// TaskConcurrencySchemaDefault is the configured default for [TaskConcurrencyField].
 	TaskConcurrencySchemaDefault = 3
 )
@@ -84,6 +89,7 @@ var (
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	logFormatField = StringField("log-format", WithDefaultValueFunc(defaultLogFormat), WithDescription("The output format for logs: json, console"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
+	logOutputPathField     = StringSliceField("log-path", WithDescription("The file path to write logs to"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	revokeGrantField       = StringField("revoke-grant", WithHidden(true), WithDescription("The grant to revoke"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	rotateCredentialsField = StringField("rotate-credentials", WithHidden(true), WithDescription("The id of the resource to rotate credentials on"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
@@ -383,7 +389,9 @@ func LambdaServerFields() []SchemaField {
 var LambdaServerRelationships = make([]SchemaFieldRelationship, 0)
 
 // DefaultFields list the default fields expected in every single connector.
-var DefaultFields = []SchemaField{
+// platformDefaultFields (defined per-platform) holds additional fields that
+// only exist on some platforms, e.g. the Windows event log flag.
+var DefaultFields = append([]SchemaField{
 	createTicketField,
 	bulkCreateTicketField,
 	bulkTicketTemplatePathField,
@@ -409,6 +417,7 @@ var DefaultFields = []SchemaField{
 	grantPrincipalField,
 	grantPrincipalTypeField,
 	logFormatField,
+	logOutputPathField,
 	revokeGrantField,
 	rotateCredentialsField,
 	rotateCredentialsTypeField,
@@ -460,7 +469,7 @@ var DefaultFields = []SchemaField{
 	HttpTimeoutField,
 	StorageEngineField,
 	TaskConcurrencyField,
-}
+}, platformDefaultFields...)
 
 func IsFieldAmongDefaultList(f SchemaField) bool {
 	for _, v := range DefaultFields {

@@ -294,13 +294,23 @@ func (b *BulkSyncImport) NewGrantShard() (*BulkGrantShard, error) {
 // and key encoding run in the caller's goroutine; all writers are
 // shard-private, so concurrent shards never contend.
 func (s *BulkGrantShard) AddGrants(ctx context.Context, grants ...*v2.Grant) error {
+	return s.AddGrantsWithDiscoveredAt(ctx, grants, nil)
+}
+
+// AddGrantsWithDiscoveredAt is AddGrants with an optional per-record
+// discovered_at, aligned by index with grants (nil slice or nil entries
+// fall back to now). Conversions use it to preserve the source record's
+// original discovery time: compaction merges pick winners by newest
+// discovered_at, so re-stamping conversion wall-clock time would make
+// converted records override genuinely newer data.
+func (s *BulkGrantShard) AddGrantsWithDiscoveredAt(ctx context.Context, grants []*v2.Grant, discoveredAt []*timestamppb.Timestamp) error {
 	if s.closed {
 		return errors.New("bulk sync import: AddGrants on closed shard")
 	}
 	// Serial translate: the caller's lanes are the parallelism; the
 	// fan-out inside translateGrants would only oversubscribe shared
 	// hosts (lanes × translate shards goroutine bursts).
-	records := translateGrantsSerial(s.b.syncID, grants, timestamppb.Now())
+	records := translateGrantsSerial(s.b.syncID, grants, discoveredAt, timestamppb.Now())
 	for _, r := range records {
 		if r == nil {
 			continue
@@ -359,11 +369,30 @@ func (s *BulkGrantShard) Close() {
 	}
 }
 
+// discoveredAtOrNow returns the i-th per-record discovered_at when the
+// caller supplied one, and now otherwise. The slice is aligned by index
+// with the caller's input records; a short or nil slice falls back to
+// now.
+func discoveredAtOrNow(discoveredAt []*timestamppb.Timestamp, i int, now *timestamppb.Timestamp) *timestamppb.Timestamp {
+	if i < len(discoveredAt) && discoveredAt[i] != nil {
+		return discoveredAt[i]
+	}
+	return now
+}
+
 // AddResourceTypes translates and appends resource types, which must
 // arrive sorted by external id.
 func (b *BulkSyncImport) AddResourceTypes(ctx context.Context, rts ...*v2.ResourceType) error {
+	return b.AddResourceTypesWithDiscoveredAt(ctx, rts, nil)
+}
+
+// AddResourceTypesWithDiscoveredAt is AddResourceTypes with an optional
+// per-record discovered_at aligned by index with rts; nil entries fall
+// back to now. See AddGrantsWithDiscoveredAt for why conversions must
+// preserve source discovery times.
+func (b *BulkSyncImport) AddResourceTypesWithDiscoveredAt(ctx context.Context, rts []*v2.ResourceType, discoveredAt []*timestamppb.Timestamp) error {
 	now := timestamppb.Now()
-	for _, rt := range rts {
+	for i, rt := range rts {
 		if rt == nil {
 			continue
 		}
@@ -372,7 +401,7 @@ func (b *BulkSyncImport) AddResourceTypes(ctx context.Context, rts ...*v2.Resour
 			continue
 		}
 		if rec.GetDiscoveredAt() == nil {
-			rec.SetDiscoveredAt(now)
+			rec.SetDiscoveredAt(discoveredAtOrNow(discoveredAt, i, now))
 		}
 		val, err := marshalRecord(rec)
 		if err != nil {
@@ -389,8 +418,16 @@ func (b *BulkSyncImport) AddResourceTypes(ctx context.Context, rts ...*v2.Resour
 // sorted by (resource_type_id, resource_id). by_parent index keys are
 // derived and spilled with the same parent guard as writeResourceIndexes.
 func (b *BulkSyncImport) AddResources(ctx context.Context, resources ...*v2.Resource) error {
+	return b.AddResourcesWithDiscoveredAt(ctx, resources, nil)
+}
+
+// AddResourcesWithDiscoveredAt is AddResources with an optional
+// per-record discovered_at aligned by index with resources; nil entries
+// fall back to now. See AddGrantsWithDiscoveredAt for why conversions
+// must preserve source discovery times.
+func (b *BulkSyncImport) AddResourcesWithDiscoveredAt(ctx context.Context, resources []*v2.Resource, discoveredAt []*timestamppb.Timestamp) error {
 	now := timestamppb.Now()
-	for _, r := range resources {
+	for i, r := range resources {
 		if r == nil {
 			continue
 		}
@@ -399,7 +436,7 @@ func (b *BulkSyncImport) AddResources(ctx context.Context, resources ...*v2.Reso
 			continue
 		}
 		if rec.GetDiscoveredAt() == nil {
-			rec.SetDiscoveredAt(now)
+			rec.SetDiscoveredAt(discoveredAtOrNow(discoveredAt, i, now))
 		}
 		val, err := marshalRecord(rec)
 		if err != nil {
@@ -428,8 +465,16 @@ func (b *BulkSyncImport) AddResources(ctx context.Context, resources ...*v2.Reso
 // match identity-tuple order). Identity embeds the raw external id, so
 // duplicates are impossible for well-formed sources and fail the merge.
 func (b *BulkSyncImport) AddEntitlements(ctx context.Context, ents ...*v2.Entitlement) error {
+	return b.AddEntitlementsWithDiscoveredAt(ctx, ents, nil)
+}
+
+// AddEntitlementsWithDiscoveredAt is AddEntitlements with an optional
+// per-record discovered_at aligned by index with ents; nil entries fall
+// back to now. See AddGrantsWithDiscoveredAt for why conversions must
+// preserve source discovery times.
+func (b *BulkSyncImport) AddEntitlementsWithDiscoveredAt(ctx context.Context, ents []*v2.Entitlement, discoveredAt []*timestamppb.Timestamp) error {
 	now := timestamppb.Now()
-	for _, e := range ents {
+	for i, e := range ents {
 		if e == nil {
 			continue
 		}
@@ -438,7 +483,7 @@ func (b *BulkSyncImport) AddEntitlements(ctx context.Context, ents ...*v2.Entitl
 			continue
 		}
 		if rec.GetDiscoveredAt() == nil {
-			rec.SetDiscoveredAt(now)
+			rec.SetDiscoveredAt(discoveredAtOrNow(discoveredAt, i, now))
 		}
 		val, err := marshalRecord(rec)
 		if err != nil {

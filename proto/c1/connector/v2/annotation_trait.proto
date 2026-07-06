@@ -6,6 +6,7 @@ import "c1/connector/v2/asset.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
 import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
@@ -231,4 +232,83 @@ message AgentTrait {
   // The identity resource this agent authenticates as.
   connector.v2.ResourceId identity_resource_id = 2;
   google.protobuf.Struct profile = 3;
+}
+
+// ManagedDeviceTrait is the trait annotation for resources with
+// TRAIT_MANAGED_DEVICE. It is a device asset trait for MDM/UEM inventory: a
+// managed endpoint (laptop, desktop, mobile, etc.) enrolled in a device
+// management platform. The trait itself is pure data and rides the resource's
+// annotations bag, describing the device's hardware, OS, management state, and
+// compliance posture. A device's assigned user is not carried on the trait;
+// assignment is expressed as a grant — an `assigned` entitlement on the device
+// resource, granted to the user principal.
+message ManagedDeviceTrait {
+  enum DeviceType {
+    DEVICE_TYPE_UNSPECIFIED = 0;
+    DEVICE_TYPE_SERVER = 1;
+    DEVICE_TYPE_DESKTOP = 2;
+    DEVICE_TYPE_LAPTOP = 3;
+    DEVICE_TYPE_TABLET = 4;
+    DEVICE_TYPE_MOBILE = 5;
+    DEVICE_TYPE_VIRTUAL = 6;
+    DEVICE_TYPE_OTHER = 99;
+  }
+  enum ManagementState {
+    MANAGEMENT_STATE_UNSPECIFIED = 0;
+    MANAGEMENT_STATE_MANAGED = 1;
+    MANAGEMENT_STATE_UNMANAGED = 2;
+    MANAGEMENT_STATE_PENDING = 3;
+    MANAGEMENT_STATE_RETIRED = 4;
+    MANAGEMENT_STATE_WIPED = 5;
+  }
+  enum Compliance {
+    COMPLIANCE_UNSPECIFIED = 0;
+    COMPLIANCE_COMPLIANT = 1;
+    // Evaluated, but the device fails policy (e.g. not on the latest policy,
+    // disk not encrypted).
+    COMPLIANCE_NONCOMPLIANT = 2;
+    COMPLIANCE_IN_GRACE_PERIOD = 3;
+    // The compliance check itself failed/errored, so posture could not be
+    // evaluated (as opposed to a clean non-compliant result).
+    COMPLIANCE_ERROR = 4;
+  }
+
+  string serial = 1; // hardware serial (primary correlation key)
+  string udid = 2; // Apple UDID
+  string hardware_hash = 3; // Windows Autopilot hardware hash
+  DeviceType device_type = 4 [(validate.rules).enum = {defined_only: true}]; // form factor (OCSF device.type_id taxonomy)
+  string model = 5; // OCSF device.model
+  string vendor = 6; // OCSF device.vendor_name
+  DeviceOS os = 7; // OCSF device.os
+  Compliance compliance = 8 [(validate.rules).enum = {defined_only: true}];
+  google.protobuf.BoolValue is_encrypted = 9;
+  google.protobuf.BoolValue is_supervised = 10;
+  google.protobuf.BoolValue is_personal = 11;
+  ManagementState management_state = 12 [(validate.rules).enum = {defined_only: true}];
+  google.protobuf.Timestamp enrolled_at = 13;
+  // (no last-seen in v1)
+}
+
+// DeviceOS describes the operating system of a managed device
+// (OCSF device.os).
+message DeviceOS {
+  enum OsType {
+    OS_TYPE_UNSPECIFIED = 0;
+    OS_TYPE_WINDOWS = 1;
+    OS_TYPE_WINDOWS_MOBILE = 2;
+    OS_TYPE_LINUX = 3;
+    OS_TYPE_ANDROID = 4;
+    OS_TYPE_MACOS = 5;
+    OS_TYPE_IOS = 6;
+    OS_TYPE_IPADOS = 7;
+    OS_TYPE_SOLARIS = 8;
+    OS_TYPE_AIX = 9;
+    OS_TYPE_HPUX = 10;
+    OS_TYPE_CHROMEOS = 11;
+    OS_TYPE_OTHER = 99;
+  }
+  OsType type = 1 [(validate.rules).enum = {defined_only: true}];
+  string name = 2;
+  string version = 3;
+  string build = 4;
 }
