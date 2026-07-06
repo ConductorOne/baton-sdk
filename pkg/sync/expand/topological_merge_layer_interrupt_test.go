@@ -11,6 +11,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
@@ -93,7 +94,7 @@ func TestTopologicalMergeLayerSessionInterruptResume(t *testing.T) {
 	// Pebble only: layer sessions are a Pebble fast path; SQLite routes
 	// through the generic path already covered by
 	// TestTopologicalMergePartialInterruptResume.
-	engine := dotc1z.EnginePebble
+	engine := c1zstore.EnginePebble
 	cases := append(parityCases(), cyclicCases()...)
 	if testing.Short() {
 		// Windows CI: one representative acyclic + one cyclic case per

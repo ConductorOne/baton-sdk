@@ -14,6 +14,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // TestToPebbleRoundTrip seeds a SQLite .c1z with a finished full sync
@@ -84,7 +85,7 @@ func TestToPebbleRoundTrip(t *testing.T) {
 	require.Equal(t, int64(len(assetData)), stats.AssetBytes)
 
 	// Open the converted Pebble store and verify the data round-tripped.
-	dst, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(dir))
+	dst, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(dir))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, dst.Close(ctx)) }()
 	require.NoError(t, dst.SetCurrentSync(ctx, stats.DestSyncID))
@@ -178,7 +179,7 @@ func TestToPebbleErrors(t *testing.T) {
 
 		// The destination sync is written ended, so LatestFullSync (which
 		// only returns finished syncs) finds it under the preserved id.
-		dst, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(dir))
+		dst, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(dir))
 		require.NoError(t, err)
 		defer func() { require.NoError(t, dst.Close(ctx)) }()
 		latest, err := dst.SyncMeta().LatestFullSync(ctx)

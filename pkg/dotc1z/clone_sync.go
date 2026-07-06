@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -195,8 +196,8 @@ func (c *C1File) SnapshotTo(ctx context.Context, outPath string, opts ...C1FOpti
 		return err
 	}
 
-	if c.engine == EnginePebble {
-		err = fmt.Errorf("snapshot-to: unsupported for the %q engine; it manages its own storage", EnginePebble)
+	if c.engine == c1zstore.EnginePebble {
+		err = fmt.Errorf("snapshot-to: unsupported for the %q engine; it manages its own storage", c1zstore.EnginePebble)
 		return err
 	}
 	if c.readOnly {

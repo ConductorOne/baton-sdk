@@ -11,6 +11,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // TestStoreExpandedGrantsPreservesExpansion mirrors the SQLite
@@ -31,7 +32,7 @@ import (
 // via `grantUpsertModePreserveExpansion`.
 func TestStoreExpandedGrantsPreservesExpansion(t *testing.T) {
 	ctx := context.Background()
-	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "store_expanded.c1z"), dotc1z.WithEngine(dotc1z.EnginePebble))
+	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "store_expanded.c1z"), dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer func() { _ = store.Close(ctx) }()
 
@@ -95,7 +96,7 @@ func TestStoreExpandedGrantsPreservesExpansion(t *testing.T) {
 
 func TestStoreExpandedGrantsStripsResidualExpandableForNewGrant(t *testing.T) {
 	ctx := context.Background()
-	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "store_expanded_new.c1z"), dotc1z.WithEngine(dotc1z.EnginePebble))
+	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "store_expanded_new.c1z"), dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer func() { _ = store.Close(ctx) }()
 

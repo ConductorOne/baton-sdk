@@ -10,12 +10,13 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 )
 
 // TestPebbleFullSyncThroughSyncer drives pkg/sync.NewSyncer end-to-end
 // against the Pebble engine via WithConnectorStore. Validates that the
-// pebble.registeredStore satisfies dotc1z.C1ZStore for real (the
+// pebble.registeredStore satisfies c1zstore.Store for real (the
 // var-decl compile-time guard catches missing methods; this test
 // catches signature drift and runtime errors).
 //
@@ -31,7 +32,7 @@ func TestPebbleFullSyncThroughSyncer(t *testing.T) {
 	c1zPath := filepath.Join(tempDir, "pebble-sync.c1z")
 
 	store, err := dotc1z.NewStore(ctx, c1zPath,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)
@@ -61,7 +62,7 @@ func TestPebbleFullSyncThroughSyncer(t *testing.T) {
 
 	// Re-open the produced c1z and confirm grants round-trip.
 	reopen, err := dotc1z.NewStore(ctx, c1zPath,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithReadOnly(true),
 	)
 	require.NoError(t, err)

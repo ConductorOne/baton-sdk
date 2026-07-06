@@ -12,6 +12,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor"
 )
@@ -29,7 +30,7 @@ func TestLocalCompactorPassesStorageEngine(t *testing.T) {
 	mgr := NewLocalCompactor(ctx, outDir, []*synccompactor.CompactableSync{
 		{FilePath: p1, SyncID: s1},
 		{FilePath: p2, SyncID: s2},
-	}, t.TempDir(), WithCompactorStorageEngine(dotc1z.EnginePebble))
+	}, t.TempDir(), WithCompactorStorageEngine(c1zstore.EnginePebble))
 
 	require.NoError(t, mgr.Process(ctx, nil, nil))
 

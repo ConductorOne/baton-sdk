@@ -13,7 +13,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/healthcheck"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor"
@@ -422,7 +422,7 @@ type runnerConfig struct {
 	syncDifferConfig                      *syncDifferConfig
 	syncCompactorConfig                   *syncCompactorConfig
 	skipFullSync                          bool
-	storageEngine                         dotc1z.Engine
+	storageEngine                         c1zstore.Engine
 	workerCount                           int
 	targetedSyncResourceIDs               []string
 	externalResourceC1Z                   string
@@ -669,7 +669,7 @@ func WithWorkerCount(workerCount int) Option {
 	}
 }
 
-func WithStorageEngine(engine dotc1z.Engine) Option {
+func WithStorageEngine(engine c1zstore.Engine) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.storageEngine = engine
 		return nil

@@ -13,6 +13,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // TestCrossEngineParity drives BOTH SQLite and Pebble backends
@@ -95,7 +96,7 @@ func TestCrossEngineParity(t *testing.T) {
 		return syncID
 	}
 
-	openStore := func(t *testing.T, engine dotc1z.Engine) (connectorstore.Writer, string) {
+	openStore := func(t *testing.T, engine c1zstore.Engine) (connectorstore.Writer, string) {
 		t.Helper()
 		path := filepath.Join(t.TempDir(), string(engine)+".c1z")
 		store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(engine))
@@ -104,9 +105,9 @@ func TestCrossEngineParity(t *testing.T) {
 		return store, syncID
 	}
 
-	sqlite, sqliteSync := openStore(t, dotc1z.EngineSQLite)
+	sqlite, sqliteSync := openStore(t, c1zstore.EngineSQLite)
 	defer func() { _ = sqlite.Close(ctx) }()
-	pbl, pblSync := openStore(t, dotc1z.EnginePebble)
+	pbl, pblSync := openStore(t, c1zstore.EnginePebble)
 	defer func() { _ = pbl.Close(ctx) }()
 	_ = sqliteSync
 	_ = pblSync

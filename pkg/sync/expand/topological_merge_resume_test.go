@@ -10,6 +10,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,13 +41,13 @@ func TestTopologicalMergeResumeIdempotent(t *testing.T) {
 		// subset for slow (windows) CI; full matrix on long CI.
 		interruptCases = []sqliteParityCase{parityCases()[0], cyclicCases()[0]}
 	}
-	for _, engine := range []dotc1z.Engine{dotc1z.EnginePebble, dotc1z.EngineSQLite} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
 		for _, algo := range algos {
 			for _, tc := range interruptCases {
 				tc := tc
 				label := string(engine) + "/" + algo.name
 				t.Run(label+"/"+tc.name, func(t *testing.T) {
-					if engine == dotc1z.EnginePebble && algo.name == "streaming" {
+					if engine == c1zstore.EnginePebble && algo.name == "streaming" {
 						t.Skip("Pebble store-level streaming parity is disabled for structured grant keys; projection is the production path")
 					}
 					ctx := context.Background()
@@ -84,7 +85,7 @@ func TestTopologicalMergeResumeIdempotent(t *testing.T) {
 // snapshotOpenStoreGrants reads every grant from a store mid-sync (without
 // ending it), so the resume test can compare the grant set across two
 // expansion passes on the same open store.
-func snapshotOpenStoreGrants(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) map[string]storeGrantSnapshot {
+func snapshotOpenStoreGrants(t *testing.T, ctx context.Context, store c1zstore.Store) map[string]storeGrantSnapshot {
 	t.Helper()
 	return readBackGrantSnapshot(t, ctx, store)
 }
@@ -105,7 +106,7 @@ func TestTopologicalMergeCyclic(t *testing.T) {
 		{"streaming", func(ctx context.Context, e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
 	}
 
-	for _, engine := range []dotc1z.Engine{dotc1z.EnginePebble, dotc1z.EngineSQLite} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
 		for _, tc := range cyclicCases() {
 			tc := tc
 			t.Run(string(engine)+"/"+tc.name, func(t *testing.T) {
@@ -191,7 +192,7 @@ func TestTopologicalMergePartialInterruptResume(t *testing.T) {
 		// subset for slow (windows) CI; full matrix on long CI.
 		interruptCases = []sqliteParityCase{parityCases()[0], cyclicCases()[0]}
 	}
-	for _, engine := range []dotc1z.Engine{dotc1z.EnginePebble, dotc1z.EngineSQLite} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
 		for _, algo := range algos {
 			for _, tc := range interruptCases {
 				tc := tc

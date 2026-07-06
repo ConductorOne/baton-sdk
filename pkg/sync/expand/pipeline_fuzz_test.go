@@ -14,6 +14,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,8 +65,8 @@ func TestFullPipelineDifferentialFuzz(t *testing.T) {
 		tc := pipelineFuzzCase(seed)
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			sqliteArt := buildPipelineArtifact(t, ctx, tc, dotc1z.EngineSQLite)
-			pebbleArt := buildPipelineArtifact(t, ctx, tc, dotc1z.EnginePebble)
+			sqliteArt := buildPipelineArtifact(t, ctx, tc, c1zstore.EngineSQLite)
+			pebbleArt := buildPipelineArtifact(t, ctx, tc, c1zstore.EnginePebble)
 			comparePipelineArtifacts(t, tc, sqliteArt, pebbleArt)
 		})
 		done++
@@ -116,7 +117,7 @@ func pipelineFuzzCase(seed int64) sqliteParityCase {
 
 // pipelineArtifact is everything read back out of one saved-and-reopened c1z.
 type pipelineArtifact struct {
-	engine dotc1z.Engine
+	engine c1zstore.Engine
 	// grants is the global listing snapshot, keyed by (ent, principal).
 	grants map[string]storeGrantSnapshot
 	// byEntitlement / byPrincipal map an entitlement id / principal key to
@@ -135,7 +136,7 @@ type pipelineArtifact struct {
 // buildPipelineArtifact runs the full pipeline for one engine and returns the
 // artifact snapshot. The c1z lives in the test's temp dir and is discarded
 // when the test ends.
-func buildPipelineArtifact(t *testing.T, ctx context.Context, tc sqliteParityCase, engine dotc1z.Engine) *pipelineArtifact {
+func buildPipelineArtifact(t *testing.T, ctx context.Context, tc sqliteParityCase, engine c1zstore.Engine) *pipelineArtifact {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), fmt.Sprintf("pipeline-%s.c1z", engine))
 

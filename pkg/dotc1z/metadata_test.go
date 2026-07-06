@@ -9,6 +9,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // TestStoreMetadata locks in the Reader.Metadata() contract on both
@@ -33,7 +34,7 @@ func TestStoreMetadata(t *testing.T) {
 
 	t.Run("Pebble adapter returns pebble/v3 with default encoding", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "pebble.c1z")
-		store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
+		store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
 		require.NoError(t, err)
 		defer func() { _ = store.Close(ctx) }()
 
@@ -47,8 +48,8 @@ func TestStoreMetadata(t *testing.T) {
 	t.Run("Pebble with explicit Tar encoding reports tar", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "pebble_tar.c1z")
 		store, err := dotc1z.NewStore(ctx, path,
-			dotc1z.WithEngine(dotc1z.EnginePebble),
-			dotc1z.WithPayloadEncoding(dotc1z.PayloadEncodingTar),
+			dotc1z.WithEngine(c1zstore.EnginePebble),
+			dotc1z.WithPayloadEncoding(c1zstore.PayloadEncodingTar),
 		)
 		require.NoError(t, err)
 		defer func() { _ = store.Close(ctx) }()

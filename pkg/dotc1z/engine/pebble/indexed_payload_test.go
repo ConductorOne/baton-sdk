@@ -11,6 +11,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 )
@@ -44,7 +45,7 @@ func TestIndexedPayloadStoreLifecycle(t *testing.T) {
 		return syncID
 	}
 
-	first := runSync("user", dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithPayloadEncoding(dotc1z.PayloadEncodingIndexedZstd))
+	first := runSync("user", dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithPayloadEncoding(c1zstore.PayloadEncodingIndexedZstd))
 
 	// The file on disk must carry the indexed encoding.
 	requireFileEncoding := func() {

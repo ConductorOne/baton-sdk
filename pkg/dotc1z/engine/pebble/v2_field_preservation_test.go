@@ -10,6 +10,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // TestV2FieldPreservation locks in V2↔V3 round-trip for the fields
@@ -26,7 +27,7 @@ import (
 // only.
 func TestV2FieldPreservation(t *testing.T) {
 	ctx := context.Background()
-	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "preserve.c1z"), dotc1z.WithEngine(dotc1z.EnginePebble))
+	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "preserve.c1z"), dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer func() { _ = store.Close(ctx) }()
 

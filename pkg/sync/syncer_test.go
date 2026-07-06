@@ -14,6 +14,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -1127,7 +1128,7 @@ func TestExternalResourceMatchIDWithExpandableRemapping(t *testing.T) {
 	}
 
 	// Walk all expansion rows via the new GrantStore iterator.
-	var defs []dotc1z.PendingExpansion
+	var defs []c1zstore.PendingExpansion
 	for pe, err := range store.Grants().PendingExpansion(ctx) {
 		require.NoError(t, err)
 		defs = append(defs, pe)

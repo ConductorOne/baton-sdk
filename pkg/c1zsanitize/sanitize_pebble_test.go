@@ -10,6 +10,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // TestSanitizePebbleEndToEnd is the core-invariant check on a
@@ -25,7 +26,7 @@ func TestSanitizePebbleEndToEnd(t *testing.T) {
 
 	var srcSyncID string
 	func() {
-		src := newEngineStore(t, ctx, srcPath, dotc1z.EnginePebble)
+		src := newEngineStore(t, ctx, srcPath, c1zstore.EnginePebble)
 		// Reuse the shared fixture, then mark the sync diff-capable.
 		buildParityFixture(t, ctx, src)
 		runs, _, err := src.(syncRunMetadataReader).ListSyncRuns(ctx, "", 100)
@@ -37,7 +38,7 @@ func TestSanitizePebbleEndToEnd(t *testing.T) {
 	}()
 
 	src := openEngineStoreRO(t, ctx, srcPath)
-	dst := newEngineStore(t, ctx, dstPath, dotc1z.EnginePebble)
+	dst := newEngineStore(t, ctx, dstPath, c1zstore.EnginePebble)
 	require.NoError(t, Sanitize(ctx, src, dst, Options{Secret: secret, TimestampAnchor: fixedAnchor}))
 	require.NoError(t, dst.Close(ctx))
 	require.NoError(t, src.Close(ctx))
@@ -97,7 +98,7 @@ func TestSanitizeMultiSyncIntoPebbleIsRejected(t *testing.T) {
 	}()
 
 	src := openEngineStoreRO(t, ctx, multiPath)
-	dst := newEngineStore(t, ctx, filepath.Join(tmp, "dst-pebble.c1z"), dotc1z.EnginePebble)
+	dst := newEngineStore(t, ctx, filepath.Join(tmp, "dst-pebble.c1z"), c1zstore.EnginePebble)
 	err := Sanitize(ctx, src, dst, Options{Secret: secret, TimestampAnchor: fixedAnchor})
 	require.Error(t, err, "multi-sync source into a pebble destination must be rejected")
 	require.Contains(t, err.Error(), "pebble holds exactly one sync")
@@ -106,7 +107,7 @@ func TestSanitizeMultiSyncIntoPebbleIsRejected(t *testing.T) {
 
 	// Sanity: the same multi-sync source into a SQLite destination is allowed.
 	src2 := openEngineStoreRO(t, ctx, multiPath)
-	dstSQLite := newEngineStore(t, ctx, filepath.Join(tmp, "dst-sqlite.c1z"), dotc1z.EngineSQLite)
+	dstSQLite := newEngineStore(t, ctx, filepath.Join(tmp, "dst-sqlite.c1z"), c1zstore.EngineSQLite)
 	require.NoError(t, Sanitize(ctx, src2, dstSQLite, Options{Secret: secret, TimestampAnchor: fixedAnchor}))
 	require.NoError(t, dstSQLite.Close(ctx))
 	require.NoError(t, src2.Close(ctx))
@@ -126,13 +127,13 @@ func TestSanitizeResumableIntoPebbleIsRejected(t *testing.T) {
 	dstPath := filepath.Join(tmp, "dst.c1z")
 
 	func() {
-		src := newEngineStore(t, ctx, srcPath, dotc1z.EnginePebble)
+		src := newEngineStore(t, ctx, srcPath, c1zstore.EnginePebble)
 		buildParityFixture(t, ctx, src)
 		require.NoError(t, src.Close(ctx))
 	}()
 
 	src := openEngineStoreRO(t, ctx, srcPath)
-	dst := newEngineStore(t, ctx, dstPath, dotc1z.EnginePebble)
+	dst := newEngineStore(t, ctx, dstPath, c1zstore.EnginePebble)
 	err := Sanitize(ctx, src, dst, Options{Secret: secret, TimestampAnchor: fixedAnchor, Resumable: true})
 	require.Error(t, err, "resumable sanitize into a pebble destination must be rejected")
 	require.Contains(t, err.Error(), "pebble destination")
@@ -141,7 +142,7 @@ func TestSanitizeResumableIntoPebbleIsRejected(t *testing.T) {
 
 	// Control: the same source is accepted into a sqlite destination.
 	src2 := openEngineStoreRO(t, ctx, srcPath)
-	dstSQLite := newEngineStore(t, ctx, filepath.Join(tmp, "dst-sqlite.c1z"), dotc1z.EngineSQLite)
+	dstSQLite := newEngineStore(t, ctx, filepath.Join(tmp, "dst-sqlite.c1z"), c1zstore.EngineSQLite)
 	require.NoError(t, Sanitize(ctx, src2, dstSQLite, Options{Secret: secret, TimestampAnchor: fixedAnchor, Resumable: true}))
 	require.NoError(t, dstSQLite.Close(ctx))
 	require.NoError(t, src2.Close(ctx))
@@ -163,7 +164,7 @@ func TestSanitizeRealExpanderEngineParity(t *testing.T) {
 	syncID := buildNestedExpandableC1Z(t, ctx, srcPath)
 	expandViaRealSyncer(t, ctx, srcPath, syncID)
 
-	sanitizeTo := func(eng dotc1z.Engine, name string) (map[string]expandBlob, map[string][]string, int) {
+	sanitizeTo := func(eng c1zstore.Engine, name string) (map[string]expandBlob, map[string][]string, int) {
 		dstPath := filepath.Join(tmp, "dst-"+name+".c1z")
 		src := openEngineStoreRO(t, ctx, srcPath)
 		dst := newEngineStore(t, ctx, dstPath, eng)
@@ -176,8 +177,8 @@ func TestSanitizeRealExpanderEngineParity(t *testing.T) {
 		return pendingExpansionBlobs(t, ctx, ro), grantSourcesCanonical(t, ctx, ro), grantCount(t, ctx, ro)
 	}
 
-	sqlBlobs, sqlSources, sqlGrants := sanitizeTo(dotc1z.EngineSQLite, "sqlite")
-	pebBlobs, pebSources, pebGrants := sanitizeTo(dotc1z.EnginePebble, "pebble")
+	sqlBlobs, sqlSources, sqlGrants := sanitizeTo(c1zstore.EngineSQLite, "sqlite")
+	pebBlobs, pebSources, pebGrants := sanitizeTo(c1zstore.EnginePebble, "pebble")
 
 	require.Equal(t, sqlGrants, pebGrants, "real-expander grant count must match across engines")
 	require.Greater(t, sqlGrants, 4, "the expander must have derived additional grants")

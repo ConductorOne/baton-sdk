@@ -17,6 +17,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -137,7 +138,7 @@ func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID
 	return loadEntitlementGraphFromStore(ctx, c1f)
 }
 
-func loadEntitlementGraphFromStore(ctx context.Context, store dotc1z.C1ZStore) (*EntitlementGraph, error) {
+func loadEntitlementGraphFromStore(ctx context.Context, store c1zstore.Store) (*EntitlementGraph, error) {
 	graph := NewEntitlementGraph(ctx)
 
 	for def, err := range store.Grants().PendingExpansion(ctx) {
@@ -172,7 +173,7 @@ func loadEntitlementGraphFromStore(ctx context.Context, store dotc1z.C1ZStore) (
 }
 
 type benchmarkExpanderStore struct {
-	store dotc1z.C1ZStore
+	store c1zstore.Store
 }
 
 func (s benchmarkExpanderStore) GetEntitlement(

@@ -12,6 +12,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 )
@@ -59,7 +60,7 @@ func TestCompactPebbleFoldMintsFreshSync(t *testing.T) {
 	c, cleanup, err := NewCompactor(ctx, t.TempDir(), []*CompactableSync{
 		{FilePath: basePath, SyncID: baseSyncID},
 		{FilePath: partialPath, SyncID: partialSyncID},
-	}, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble), WithSkipGrantExpansion())
+	}, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithSkipGrantExpansion())
 	require.NoError(t, err)
 	defer func() { require.NoError(t, cleanup()) }()
 
@@ -244,7 +245,7 @@ func TestFoldWasteCarryForwardAndAutoCutover(t *testing.T) {
 // returns the output.
 func compactPairOnce(t *testing.T, ctx context.Context, base, partial *CompactableSync, opts ...Option) *CompactableSync {
 	t.Helper()
-	opts = append([]Option{WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble), WithSkipGrantExpansion()}, opts...)
+	opts = append([]Option{WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithSkipGrantExpansion()}, opts...)
 	c, cleanup, err := NewCompactor(ctx, t.TempDir(), []*CompactableSync{base, partial}, opts...)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, cleanup()) }()

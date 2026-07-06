@@ -12,11 +12,12 @@ import (
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 )
 
 type registryTestDriver struct {
-	engine Engine
+	engine c1zstore.Engine
 	format C1ZFormat
 	err    error
 	called bool
@@ -24,24 +25,24 @@ type registryTestDriver struct {
 	opts   StoreOptions
 }
 
-func (d *registryTestDriver) Engine() Engine    { return d.engine }
-func (d *registryTestDriver) Format() C1ZFormat { return d.format }
+func (d *registryTestDriver) Engine() c1zstore.Engine { return d.engine }
+func (d *registryTestDriver) Format() C1ZFormat       { return d.format }
 
-func (d *registryTestDriver) OpenStore(ctx context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
+func (d *registryTestDriver) OpenStore(ctx context.Context, outputFilePath string, opts StoreOptions) (c1zstore.Store, error) {
 	d.called = true
 	d.path = outputFilePath
 	d.opts = opts
 	return nil, d.err
 }
 
-func uniqueEngineName(t *testing.T, suffix string) Engine {
+func uniqueEngineName(t *testing.T, suffix string) c1zstore.Engine {
 	t.Helper()
 	name := strings.ToLower(t.Name())
 	name = strings.NewReplacer("/", "-", "_", "-").Replace(name)
-	return Engine(name + "-" + suffix)
+	return c1zstore.Engine(name + "-" + suffix)
 }
 
-func writeV3EnvelopeForEngine(t *testing.T, path string, engine Engine) {
+func writeV3EnvelopeForEngine(t *testing.T, path string, engine c1zstore.Engine) {
 	t.Helper()
 	payloadDir := filepath.Join(t.TempDir(), "payload")
 	require.NoError(t, os.MkdirAll(payloadDir, 0o755))

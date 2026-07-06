@@ -13,6 +13,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
@@ -30,7 +31,7 @@ type statsGrantSpec struct {
 // across sources so cross-source dedupe is exercised by every bucket.
 func writeStatsSource(t *testing.T, ctx context.Context, path string, grants []statsGrantSpec) kwaySourceFixture {
 	t.Helper()
-	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
+	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)
 	store := w
 	eng, ok := enginepkg.AsEngine(w)

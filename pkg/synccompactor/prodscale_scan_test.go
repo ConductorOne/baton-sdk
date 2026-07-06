@@ -12,6 +12,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
@@ -111,7 +112,7 @@ func TestProdScaleScanVsFoldDebt(t *testing.T) {
 				{FilePath: curPath, SyncID: manifestSyncID(t, curPath)},
 				{FilePath: partialPath, SyncID: manifestSyncID(t, partialPath)},
 			},
-			WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble), WithSkipGrantExpansion())
+			WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithSkipGrantExpansion())
 		require.NoError(t, err)
 		out, err := c.Compact(ctx)
 		require.NoError(t, err)
@@ -143,7 +144,7 @@ func TestProdScaleScanVsFoldDebt(t *testing.T) {
 			{FilePath: basePath, SyncID: manifestSyncID(t, basePath)},
 			{FilePath: partialPath, SyncID: manifestSyncID(t, partialPath)},
 		},
-		WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble), WithSkipGrantExpansion())
+		WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithSkipGrantExpansion())
 	require.NoError(t, err)
 	defer func() { require.NoError(t, cleanup()) }()
 	out, err := c.Compact(ctx)

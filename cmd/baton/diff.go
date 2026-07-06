@@ -8,7 +8,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/baton/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -88,7 +88,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func bucketResources(ctx context.Context, store dotc1z.C1ZStore, oldSyncID string, newSyncID string) (*v1.ResourceDiff, error) {
+func bucketResources(ctx context.Context, store c1zstore.Store, oldSyncID string, newSyncID string) (*v1.ResourceDiff, error) {
 	ret := &v1.ResourceDiff{}
 
 	oldResources := make(map[string]*v2.Resource)
@@ -171,7 +171,7 @@ func bucketResources(ctx context.Context, store dotc1z.C1ZStore, oldSyncID strin
 	return ret, nil
 }
 
-func bucketEntitlements(ctx context.Context, store dotc1z.C1ZStore, oldSyncID string, newSyncID string) (*v1.EntitlementDiff, error) {
+func bucketEntitlements(ctx context.Context, store c1zstore.Store, oldSyncID string, newSyncID string) (*v1.EntitlementDiff, error) {
 	ret := &v1.EntitlementDiff{}
 
 	oldEntitlements := make(map[string]*v2.Entitlement)
@@ -249,7 +249,7 @@ func bucketEntitlements(ctx context.Context, store dotc1z.C1ZStore, oldSyncID st
 	return ret, nil
 }
 
-func bucketGrants(ctx context.Context, store dotc1z.C1ZStore, oldSyncID string, newSyncID string) (*v1.GrantDiff, error) {
+func bucketGrants(ctx context.Context, store c1zstore.Store, oldSyncID string, newSyncID string) (*v1.GrantDiff, error) {
 	ret := &v1.GrantDiff{}
 
 	oldGrants := make(map[string]*v2.Grant)

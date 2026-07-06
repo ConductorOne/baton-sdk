@@ -39,7 +39,7 @@ var AllSyncTypes = []SyncType{
 // unless the value is recognized.
 type StoreMetadata struct {
 	// Engine identifies the storage backend. Values match
-	// dotc1z.Engine string values; using string here keeps
+	// c1zstore.Engine string values; using string here keeps
 	// connectorstore from depending on dotc1z (avoids an import
 	// cycle).
 	//   "sqlite" — original .c1z, v1 magic + zstd-compressed SQLite
@@ -56,7 +56,7 @@ type StoreMetadata struct {
 
 	// PayloadEncoding identifies the v3 envelope payload framing.
 	// Empty for v1 / SQLite. Values match
-	// dotc1z.PayloadEncoding.String():
+	// c1zstore.PayloadEncoding.String():
 	//   "tar_zstd" — Pebble checkpoint as zstd-compressed tar
 	//   "tar"      — Pebble checkpoint as uncompressed tar
 	//   ""         — N/A or unset

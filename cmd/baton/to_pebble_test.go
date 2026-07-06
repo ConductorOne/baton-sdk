@@ -11,6 +11,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 func TestToPebbleCommandConvertsSQLiteC1Z(t *testing.T) {
@@ -19,7 +20,7 @@ func TestToPebbleCommandConvertsSQLiteC1Z(t *testing.T) {
 	srcPath := filepath.Join(dir, "source.c1z")
 	outPath := filepath.Join(dir, "out.c1z")
 
-	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithTmpDir(dir), dotc1z.WithEngine(dotc1z.EngineSQLite))
+	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithTmpDir(dir), dotc1z.WithEngine(c1zstore.EngineSQLite))
 	require.NoError(t, err)
 
 	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")

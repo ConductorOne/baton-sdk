@@ -10,11 +10,12 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/stretchr/testify/require"
 )
 
-func openSessionTestStore(t *testing.T, ctx context.Context, engine Engine, extraOpts ...C1ZOption) (C1ZStore, string) {
+func openSessionTestStore(t *testing.T, ctx context.Context, engine c1zstore.Engine, extraOpts ...C1ZOption) (c1zstore.Store, string) {
 	t.Helper()
 	storePath := filepath.Join(t.TempDir(), string(engine)+"-session.c1z")
 	opts := append([]C1ZOption{WithEngine(engine)}, extraOpts...)
@@ -25,10 +26,10 @@ func openSessionTestStore(t *testing.T, ctx context.Context, engine Engine, extr
 	return store, syncID
 }
 
-func forEachSessionStoreEngine(t *testing.T, fn func(t *testing.T, ctx context.Context, store C1ZStore, syncID string, ss sessions.SessionStore)) {
+func forEachSessionStoreEngine(t *testing.T, fn func(t *testing.T, ctx context.Context, store c1zstore.Store, syncID string, ss sessions.SessionStore)) {
 	t.Helper()
 	ctx := t.Context()
-	for _, engine := range []Engine{EngineSQLite, EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			store, syncID := openSessionTestStore(t, ctx, engine)
 			defer func() { _ = store.Close(ctx) }()
@@ -38,7 +39,7 @@ func forEachSessionStoreEngine(t *testing.T, fn func(t *testing.T, ctx context.C
 }
 
 func TestSessionStore_Get(t *testing.T) {
-	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store C1ZStore, syncID string, ss sessions.SessionStore) {
+	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store c1zstore.Store, syncID string, ss sessions.SessionStore) {
 		t.Run("Get non-existent key", func(t *testing.T) {
 			value, found, err := ss.Get(ctx, "non-existent", sessions.WithSyncID(syncID))
 			require.NoError(t, err)
@@ -87,7 +88,7 @@ func TestSessionStore_Get(t *testing.T) {
 	})
 }
 func TestSessionStore_Set(t *testing.T) {
-	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store C1ZStore, syncID string, ss sessions.SessionStore) {
+	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store c1zstore.Store, syncID string, ss sessions.SessionStore) {
 		t.Run("Set new key", func(t *testing.T) {
 			err := ss.Set(ctx, "new-key", []byte("new-value"), sessions.WithSyncID(syncID))
 			require.NoError(t, err)
@@ -146,7 +147,7 @@ func TestSessionStore_Set(t *testing.T) {
 	})
 }
 func TestSessionStore_GetMany(t *testing.T) {
-	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store C1ZStore, syncID string, ss sessions.SessionStore) {
+	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store c1zstore.Store, syncID string, ss sessions.SessionStore) {
 		t.Run("GetMany empty keys", func(t *testing.T) {
 			result, unprocessedKeys, err := ss.GetMany(ctx, []string{}, sessions.WithSyncID(syncID))
 			require.NoError(t, err)
@@ -466,7 +467,7 @@ func TestSessionStore_GetMany(t *testing.T) {
 	})
 }
 func TestSessionStore_SetMany(t *testing.T) {
-	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store C1ZStore, syncID string, ss sessions.SessionStore) {
+	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store c1zstore.Store, syncID string, ss sessions.SessionStore) {
 		t.Run("SetMany empty map", func(t *testing.T) {
 			err := ss.SetMany(ctx, map[string][]byte{}, sessions.WithSyncID(syncID))
 			require.NoError(t, err)
@@ -538,7 +539,7 @@ func TestSessionStore_SetMany(t *testing.T) {
 	})
 }
 func TestSessionStore_Delete(t *testing.T) {
-	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store C1ZStore, syncID string, ss sessions.SessionStore) {
+	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store c1zstore.Store, syncID string, ss sessions.SessionStore) {
 		t.Run("Delete non-existent key", func(t *testing.T) {
 			err := ss.Delete(ctx, "non-existent-key", sessions.WithSyncID(syncID))
 			require.NoError(t, err)
@@ -600,7 +601,7 @@ func TestSessionStore_Delete(t *testing.T) {
 	})
 }
 func TestSessionStore_Clear(t *testing.T) {
-	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store C1ZStore, syncID string, ss sessions.SessionStore) {
+	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store c1zstore.Store, syncID string, ss sessions.SessionStore) {
 		t.Run("Clear empty store", func(t *testing.T) {
 			err := ss.Clear(ctx, sessions.WithSyncID(syncID))
 			require.NoError(t, err)
@@ -732,7 +733,7 @@ func TestSessionStore_Clear(t *testing.T) {
 	})
 }
 func TestSessionStore_GetAll(t *testing.T) {
-	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store C1ZStore, syncID string, ss sessions.SessionStore) {
+	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store c1zstore.Store, syncID string, ss sessions.SessionStore) {
 		t.Run("GetAll empty store", func(t *testing.T) {
 			result, pageToken, err := ss.GetAll(ctx, "", sessions.WithSyncID(syncID))
 			require.NoError(t, err)
@@ -1700,7 +1701,7 @@ func TestSessionStore_GetAll(t *testing.T) {
 }
 func TestSessionStore_Isolation(t *testing.T) {
 	ctx := t.Context()
-	for _, engine := range []Engine{EngineSQLite, EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			storePath := filepath.Join(t.TempDir(), string(engine)+"-session-isolation.c1z")
 			store, err := NewStore(ctx, storePath, WithEngine(engine))
@@ -1770,10 +1771,10 @@ func TestSessionStore_Isolation(t *testing.T) {
 }
 func TestSessionStore_ConcurrentAccess(t *testing.T) {
 	ctx := t.Context()
-	for _, engine := range []Engine{EngineSQLite, EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			var extraOpts []C1ZOption
-			if engine == EngineSQLite {
+			if engine == c1zstore.EngineSQLite {
 				extraOpts = append(extraOpts, WithPragma("main.locking_mode", "NORMAL"))
 			}
 			store, syncID := openSessionTestStore(t, ctx, engine, extraOpts...)
@@ -1825,7 +1826,7 @@ func TestSessionStore_ConcurrentAccess(t *testing.T) {
 }
 
 func TestSessionStore_ErrorHandling(t *testing.T) {
-	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store C1ZStore, syncID string, ss sessions.SessionStore) {
+	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store c1zstore.Store, syncID string, ss sessions.SessionStore) {
 		t.Run("Invalid options", func(t *testing.T) {
 			// Test with invalid option (this should not happen in practice, but test error handling)
 			invalidOption := func(ctx context.Context, bag *sessions.SessionStoreBag) error {
@@ -1848,7 +1849,7 @@ func TestSessionStore_ErrorHandling(t *testing.T) {
 	})
 }
 func TestSessionStore_Performance(t *testing.T) {
-	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store C1ZStore, syncID string, ss sessions.SessionStore) {
+	forEachSessionStoreEngine(t, func(t *testing.T, ctx context.Context, store c1zstore.Store, syncID string, ss sessions.SessionStore) {
 		t.Run("Large batch operations", func(t *testing.T) {
 			// Test SetMany with large number of keys
 			largeValues := make(map[string][]byte)

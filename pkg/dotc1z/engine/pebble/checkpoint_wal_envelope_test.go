@@ -10,6 +10,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
@@ -27,7 +28,7 @@ func TestSavedC1ZReopensAfterWALTruncation(t *testing.T) {
 
 	runSync := func(rtID string) string {
 		t.Helper()
-		w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
+		w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
 		require.NoError(t, err)
 		syncID, err := w.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)

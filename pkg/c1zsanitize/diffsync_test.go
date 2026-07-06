@@ -10,6 +10,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // A diff c1z produced by GenerateSyncDiffFromFile holds a full sync
@@ -94,7 +95,7 @@ func TestSanitizeDiffSyncGraph(t *testing.T) {
 		srcToDst[sr.ID] = dstRuns[i].ID
 	}
 
-	var dstUpserts, dstDeletions *dotc1z.SyncRun
+	var dstUpserts, dstDeletions *c1zstore.SyncRun
 	for _, dr := range dstRuns {
 		switch dr.Type {
 		case connectorstore.SyncTypePartialUpserts:

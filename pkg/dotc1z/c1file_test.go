@@ -18,6 +18,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 const testResourceType = "test-resource-type"
@@ -686,12 +687,12 @@ func TestC1ZCachedViewSyncRunInvalidation(t *testing.T) {
 }
 
 // TestEngineDefaultsToSQLite proves that omitting WithEngine yields
-// EngineSQLite (the documented default), not the empty zero value.
+// c1zstore.EngineSQLite (the documented default), not the empty zero value.
 func TestEngineDefaultsToSQLite(t *testing.T) {
 	dir := t.TempDir()
 	f, err := NewStore(context.Background(), filepath.Join(dir, "default.c1z"))
 	require.NoError(t, err, "NewStore")
 	defer f.Close(context.Background())
 	engine := f.Metadata().Engine
-	require.Equal(t, string(EngineSQLite), engine)
+	require.Equal(t, string(c1zstore.EngineSQLite), engine)
 }

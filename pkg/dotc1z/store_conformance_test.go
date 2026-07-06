@@ -12,6 +12,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // TestC1ZStoreConformance exercises every method on C1ZStore and its
@@ -102,7 +103,7 @@ func testPendingExpansionNeedsOnly(t *testing.T) {
 	plain := plainGrant(t, "g-plain", "ent1", "group", "g1", "user", "u1")
 	require.NoError(t, c1f.PutGrants(ctx, needsOne, needsTwo, plain))
 
-	seen := make(map[string]PendingExpansion)
+	seen := make(map[string]c1zstore.PendingExpansion)
 	for pe, err := range c1f.Grants().PendingExpansion(ctx) {
 		require.NoError(t, err)
 		seen[pe.GrantExternalID] = pe
@@ -157,7 +158,7 @@ func testListWithAnnotationsNilForNonExpandable(t *testing.T) {
 	g := plainGrant(t, "g-la-plain", "ent1", "group", "g1", "user", "u1")
 	require.NoError(t, c1f.PutGrants(ctx, g))
 
-	var seen []GrantAnnotation
+	var seen []c1zstore.GrantAnnotation
 	for ga, err := range c1f.Grants().ListWithAnnotations(ctx) {
 		require.NoError(t, err)
 		seen = append(seen, ga)
@@ -175,7 +176,7 @@ func testListWithAnnotationsAnnotationPopulated(t *testing.T) {
 	g := expandableGrant(t, "g-la-exp", "ent1", "group", "g1", "user", "u1", []string{"ent2"}, true)
 	require.NoError(t, c1f.PutGrants(ctx, g))
 
-	var seen []GrantAnnotation
+	var seen []c1zstore.GrantAnnotation
 	for ga, err := range c1f.Grants().ListWithAnnotations(ctx) {
 		require.NoError(t, err)
 		seen = append(seen, ga)

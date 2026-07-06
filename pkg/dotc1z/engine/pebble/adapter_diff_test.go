@@ -9,6 +9,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
@@ -21,7 +22,7 @@ func TestGenerateSyncDiffUnsupported(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "diff.c1z")
 
-	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err, "NewStore")
 	defer store.Close(ctx)
 

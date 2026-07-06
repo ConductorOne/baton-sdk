@@ -15,6 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/c1zsanitize"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // Exercises the relocated `baton sanitize` subcommand end-to-end: build
@@ -84,7 +85,7 @@ func TestSanitizeCommandPebbleEngine(t *testing.T) {
 	const assetID = "icon-1"
 	srcIcon := []byte{0x11, 0x22, 0x33, 0x44}
 
-	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithEngine(dotc1z.EnginePebble))
+	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	_, err = src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -120,7 +121,7 @@ func TestSanitizeCommandPebbleEngine(t *testing.T) {
 	out, err := openReadOnlyC1ZStore(ctx, outPath)
 	require.NoError(t, err)
 	defer out.Close(ctx)
-	require.Equal(t, string(dotc1z.EnginePebble), out.Metadata().Engine, "output engine must default to the source (pebble)")
+	require.Equal(t, string(c1zstore.EnginePebble), out.Metadata().Engine, "output engine must default to the source (pebble)")
 
 	rtResp, err := out.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageSize: 100}.Build())
 	require.NoError(t, err)
@@ -165,7 +166,7 @@ func TestSanitizeCommandPebbleEngine(t *testing.T) {
 	outS, err := openReadOnlyC1ZStore(ctx, outSQLite)
 	require.NoError(t, err)
 	defer outS.Close(ctx)
-	require.Equal(t, string(dotc1z.EngineSQLite), outS.Metadata().Engine, "--out-engine sqlite must force a sqlite output")
+	require.Equal(t, string(c1zstore.EngineSQLite), outS.Metadata().Engine, "--out-engine sqlite must force a sqlite output")
 }
 
 // newSanitizeRoot builds the cobra root the same way main.go wires it:

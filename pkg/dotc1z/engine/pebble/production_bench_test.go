@@ -11,6 +11,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 func benchmarkGrants(n int) []*v2.Grant {
@@ -26,7 +27,7 @@ func benchmarkGrants(n int) []*v2.Grant {
 	return grants
 }
 
-func prepareRegisteredC1Z(b *testing.B, n int, engine dotc1z.Engine) (string, string) {
+func prepareRegisteredC1Z(b *testing.B, n int, engine c1zstore.Engine) (string, string) {
 	b.Helper()
 	ctx := context.Background()
 	path := fmt.Sprintf("%s/%s-sync.c1z", b.TempDir(), engine)
@@ -50,7 +51,7 @@ func prepareRegisteredC1Z(b *testing.B, n int, engine dotc1z.Engine) (string, st
 	return path, syncID
 }
 
-func benchmarkRegisteredWritePack(b *testing.B, engine dotc1z.Engine, n int) {
+func benchmarkRegisteredWritePack(b *testing.B, engine c1zstore.Engine, n int) {
 	ctx := context.Background()
 	root := b.TempDir()
 	grants := benchmarkGrants(n)
@@ -78,7 +79,7 @@ func benchmarkRegisteredWritePack(b *testing.B, engine dotc1z.Engine, n int) {
 	}
 }
 
-func benchmarkRegisteredUnpackReadGrants(b *testing.B, engine dotc1z.Engine, n int) {
+func benchmarkRegisteredUnpackReadGrants(b *testing.B, engine c1zstore.Engine, n int) {
 	ctx := context.Background()
 	path, syncID := prepareRegisteredC1Z(b, n, engine)
 	b.ReportAllocs()
@@ -146,7 +147,7 @@ func BenchmarkPebbleAdapterWriteGrant(b *testing.B) {
 	b.StopTimer()
 }
 
-func benchmarkRegisteredWriteGrant(b *testing.B, engine dotc1z.Engine) {
+func benchmarkRegisteredWriteGrant(b *testing.B, engine c1zstore.Engine) {
 	ctx := context.Background()
 	path := fmt.Sprintf("%s/%s-sync.c1z", b.TempDir(), engine)
 	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(engine))
@@ -181,11 +182,11 @@ func benchmarkRegisteredWriteGrant(b *testing.B, engine dotc1z.Engine) {
 }
 
 func BenchmarkRegisteredPebbleWriteGrant(b *testing.B) {
-	benchmarkRegisteredWriteGrant(b, dotc1z.EnginePebble)
+	benchmarkRegisteredWriteGrant(b, c1zstore.EnginePebble)
 }
 
 func BenchmarkRegisteredSQLiteWriteGrant(b *testing.B) {
-	benchmarkRegisteredWriteGrant(b, dotc1z.EngineSQLite)
+	benchmarkRegisteredWriteGrant(b, c1zstore.EngineSQLite)
 }
 
 // writePackScales is the grant-count grid the bench sweeps. Small
@@ -217,7 +218,7 @@ func grantsScales() []int {
 func BenchmarkRegisteredPebbleWritePack(b *testing.B) {
 	for _, n := range grantsScales() {
 		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
-			benchmarkRegisteredWritePack(b, dotc1z.EnginePebble, n)
+			benchmarkRegisteredWritePack(b, c1zstore.EnginePebble, n)
 		})
 	}
 }
@@ -225,7 +226,7 @@ func BenchmarkRegisteredPebbleWritePack(b *testing.B) {
 func BenchmarkRegisteredSQLiteWritePack(b *testing.B) {
 	for _, n := range grantsScales() {
 		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
-			benchmarkRegisteredWritePack(b, dotc1z.EngineSQLite, n)
+			benchmarkRegisteredWritePack(b, c1zstore.EngineSQLite, n)
 		})
 	}
 }
@@ -233,7 +234,7 @@ func BenchmarkRegisteredSQLiteWritePack(b *testing.B) {
 func BenchmarkRegisteredPebbleUnpackReadGrants(b *testing.B) {
 	for _, n := range grantsScales() {
 		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
-			benchmarkRegisteredUnpackReadGrants(b, dotc1z.EnginePebble, n)
+			benchmarkRegisteredUnpackReadGrants(b, c1zstore.EnginePebble, n)
 		})
 	}
 }
@@ -241,7 +242,7 @@ func BenchmarkRegisteredPebbleUnpackReadGrants(b *testing.B) {
 func BenchmarkRegisteredSQLiteUnpackReadGrants(b *testing.B) {
 	for _, n := range grantsScales() {
 		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
-			benchmarkRegisteredUnpackReadGrants(b, dotc1z.EngineSQLite, n)
+			benchmarkRegisteredUnpackReadGrants(b, c1zstore.EngineSQLite, n)
 		})
 	}
 }

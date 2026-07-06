@@ -14,6 +14,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
@@ -26,7 +27,7 @@ func BenchmarkMergeFilesIntoKWay(b *testing.B) {
 	sources := make([]SourceFile, 0, sourceCount)
 	for sourceIdx := 0; sourceIdx < sourceCount; sourceIdx++ {
 		path := filepath.Join(fixtureDir, fmt.Sprintf("source-%03d.c1z", sourceIdx))
-		w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(fixtureDir))
+		w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(fixtureDir))
 		if err != nil {
 			b.Fatal(err)
 		}

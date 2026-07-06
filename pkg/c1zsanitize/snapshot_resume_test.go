@@ -11,6 +11,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // buildManyGrantsFixture writes a single sync with nGrants grants on one
@@ -57,9 +58,9 @@ func buildManyGrantsFixture(t *testing.T, ctx context.Context, path string, nGra
 	require.NoError(t, f.Close(ctx))
 }
 
-func listAllRuns(t *testing.T, ctx context.Context, f *dotc1z.C1File) []*dotc1z.SyncRun {
+func listAllRuns(t *testing.T, ctx context.Context, f *dotc1z.C1File) []*c1zstore.SyncRun {
 	t.Helper()
-	var out []*dotc1z.SyncRun
+	var out []*c1zstore.SyncRun
 	pageToken := ""
 	for {
 		runs, next, err := f.ListSyncRuns(ctx, pageToken, 1000)

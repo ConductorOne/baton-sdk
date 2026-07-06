@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/maypok86/otter/v2"
@@ -31,7 +32,6 @@ import (
 	baton_v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/session"
@@ -439,7 +439,7 @@ func MakeMainCommand[T field.Configurable](
 			return err
 		}
 		if storageEngine != "" {
-			opts = append(opts, connectorrunner.WithStorageEngine(dotc1z.Engine(storageEngine)))
+			opts = append(opts, connectorrunner.WithStorageEngine(c1zstore.Engine(storageEngine)))
 		}
 
 		taskConcurrency := v.GetInt(field.TaskConcurrencyField.GetName())

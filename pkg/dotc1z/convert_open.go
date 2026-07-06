@@ -9,6 +9,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -22,7 +23,7 @@ type pebbleOpenOptions struct {
 	skipCleanup        bool
 	skipVacuum         bool
 	v2GrantsWriter     bool
-	payloadEncoding    PayloadEncoding
+	payloadEncoding    c1zstore.PayloadEncoding
 }
 
 func pebbleOpenOptionsFromC1Z(options *c1zOptions) pebbleOpenOptions {

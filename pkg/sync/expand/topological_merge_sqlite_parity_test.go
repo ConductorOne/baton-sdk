@@ -10,6 +10,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -210,18 +211,18 @@ func TestTopologicalMergeMatchesSQLiteGroundTruth(t *testing.T) {
 			ctx := context.Background()
 
 			// Ground truth: the current source-batched expander on SQLite.
-			ground := runExpansion(t, ctx, tc, dotc1z.EngineSQLite, 0, func(e *Expander) error { return e.Run(ctx) })
+			ground := runExpansion(t, ctx, tc, c1zstore.EngineSQLite, 0, func(e *Expander) error { return e.Run(ctx) })
 
 			// SQLite candidates exercise the buffer+sort grouping path (SQLite
 			// orders grants by id, not principal).
-			streamingSQLite := runExpansion(t, ctx, tc, dotc1z.EngineSQLite, 0, func(e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) })
+			streamingSQLite := runExpansion(t, ctx, tc, c1zstore.EngineSQLite, 0, func(e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) })
 			assertStoreSnapshotsEqual(t, ground, streamingSQLite, "topological_streaming/sqlite")
 
-			projectionSQLite := runExpansion(t, ctx, tc, dotc1z.EngineSQLite, 0, func(e *Expander) error { return e.RunTopologicalMergeProjection(ctx) })
+			projectionSQLite := runExpansion(t, ctx, tc, c1zstore.EngineSQLite, 0, func(e *Expander) error { return e.RunTopologicalMergeProjection(ctx) })
 			assertStoreSnapshotsEqual(t, ground, projectionSQLite, "topological_projection/sqlite")
 
 			if tc.name != "shallow_drops_transitive" && tc.name != "resource_type_filters" {
-				projectionPebble := runExpansion(t, ctx, tc, dotc1z.EnginePebble, 0, func(e *Expander) error { return e.RunTopologicalMergeProjection(ctx) })
+				projectionPebble := runExpansion(t, ctx, tc, c1zstore.EnginePebble, 0, func(e *Expander) error { return e.RunTopologicalMergeProjection(ctx) })
 				assertStoreSnapshotsEqual(t, ground, projectionPebble, "topological_projection/pebble")
 			}
 		})
@@ -237,7 +238,7 @@ func runExpansion(
 	t *testing.T,
 	ctx context.Context,
 	tc sqliteParityCase,
-	engine dotc1z.Engine,
+	engine c1zstore.Engine,
 	pageSize uint32,
 	run func(*Expander) error,
 ) map[string]storeGrantSnapshot {
@@ -302,7 +303,7 @@ func (s smallPageExpanderStore) GrantsForEntitlementPrincipalSorted() bool {
 	return s.inner.GrantsForEntitlementPrincipalSorted()
 }
 
-func seedSQLiteBaseData(t *testing.T, ctx context.Context, store dotc1z.C1ZStore, tc sqliteParityCase) {
+func seedSQLiteBaseData(t *testing.T, ctx context.Context, store c1zstore.Store, tc sqliteParityCase) {
 	t.Helper()
 
 	resourceTypeIDs := map[string]struct{}{"group": {}}
@@ -358,7 +359,7 @@ func seedSQLiteBaseData(t *testing.T, ctx context.Context, store dotc1z.C1ZStore
 	require.NoError(t, store.PutGrants(ctx, grants...))
 }
 
-func buildGraphFromCase(t *testing.T, ctx context.Context, tc sqliteParityCase, engine dotc1z.Engine) *EntitlementGraph {
+func buildGraphFromCase(t *testing.T, ctx context.Context, tc sqliteParityCase, engine c1zstore.Engine) *EntitlementGraph {
 	t.Helper()
 	graph := NewEntitlementGraph(ctx)
 	// Raw ids are pass-through on both engines; no per-engine encoding.
@@ -375,7 +376,7 @@ func buildGraphFromCase(t *testing.T, ctx context.Context, tc sqliteParityCase, 
 	return graph
 }
 
-func readBackGrantSnapshot(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) map[string]storeGrantSnapshot {
+func readBackGrantSnapshot(t *testing.T, ctx context.Context, store c1zstore.Store) map[string]storeGrantSnapshot {
 	t.Helper()
 	out := make(map[string]storeGrantSnapshot)
 	pageToken := ""
