@@ -165,6 +165,7 @@ func TestInferEngineFromInputFormats(t *testing.T) {
 	v1 := writeHeader("sqlite.c1z", dotc1z.C1ZFileHeader)
 	v3 := writeHeader("pebble.c1z", dotc1z.C1Z3FileHeader)
 
+	// All-SQLite → SQLite.
 	engine, err := (&Compactor{entries: []*CompactableSync{
 		{FilePath: v1, SyncID: "s1"},
 		{FilePath: v1, SyncID: "s2"},
@@ -172,6 +173,7 @@ func TestInferEngineFromInputFormats(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, dotc1z.EngineSQLite, engine)
 
+	// All-Pebble → Pebble.
 	engine, err = (&Compactor{entries: []*CompactableSync{
 		{FilePath: v3, SyncID: "s1"},
 		{FilePath: v3, SyncID: "s2"},
@@ -179,19 +181,44 @@ func TestInferEngineFromInputFormats(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, dotc1z.EnginePebble, engine)
 
-	_, err = (&Compactor{entries: []*CompactableSync{
+	// Mixed SQLite/Pebble → Pebble (any Pebble wins).
+	engine, err = (&Compactor{entries: []*CompactableSync{
 		{FilePath: v1, SyncID: "s1"},
 		{FilePath: v3, SyncID: "s2"},
 	}}).inferEngineFromInputs()
-	require.Error(t, err)
+	require.NoError(t, err, "mixed inputs must no longer return an error; any Pebble input wins")
+	require.Equal(t, dotc1z.EnginePebble, engine, "mixed input must produce Pebble output")
 
+	// Explicit Pebble + all-Pebble → Pebble.
 	engine, err = (&Compactor{
-		engine: dotc1z.EngineSQLite,
+		engine: dotc1z.EnginePebble,
 		entries: []*CompactableSync{
 			{FilePath: v3, SyncID: "s1"},
 			{FilePath: v3, SyncID: "s2"},
 		},
 	}).inferEngineFromInputs()
 	require.NoError(t, err)
-	require.Equal(t, dotc1z.EngineSQLite, engine)
+	require.Equal(t, dotc1z.EnginePebble, engine)
+
+	// Explicit SQLite + Pebble input → ErrEnginePolicyConflict.
+	_, err = (&Compactor{
+		engine: dotc1z.EngineSQLite,
+		entries: []*CompactableSync{
+			{FilePath: v3, SyncID: "s1"},
+			{FilePath: v3, SyncID: "s2"},
+		},
+	}).inferEngineFromInputs()
+	require.ErrorIs(t, err, ErrEnginePolicyConflict,
+		"explicit SQLite with Pebble input must return ErrEnginePolicyConflict")
+
+	// Explicit Pebble + SQLite inputs → Pebble (SQLite inputs are converted).
+	engine, err = (&Compactor{
+		engine: dotc1z.EnginePebble,
+		entries: []*CompactableSync{
+			{FilePath: v1, SyncID: "s1"},
+			{FilePath: v1, SyncID: "s2"},
+		},
+	}).inferEngineFromInputs()
+	require.NoError(t, err)
+	require.Equal(t, dotc1z.EnginePebble, engine, "explicit Pebble with SQLite inputs is valid")
 }

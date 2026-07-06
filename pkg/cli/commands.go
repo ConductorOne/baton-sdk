@@ -46,6 +46,11 @@ const (
 	otelShutdownTimeout = 5 * time.Second
 )
 
+// eventLogEnabledKey marks the context when the user passed --log-event-log.
+// The flag is only registered on Windows; the Windows initLogger reads this
+// value to redirect logging to the Windows event log.
+type eventLogEnabledKey struct{}
+
 type ContrainstSetter func(*cobra.Command, field.Configuration) error
 
 // In one shot & service mode, the child process uses this client to connect to the session store server...
@@ -117,12 +122,23 @@ func MakeMainCommand[T field.Configurable](
 			return err
 		}
 
-		runCtx, err := initLogger(
-			ctx,
-			name,
+		logOpts := []logging.Option{
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(v.GetString("log-level")),
 			logging.WithFileRotation(v.GetString("log-file"), v.GetInt("log-max-size-mb"), v.GetInt("log-max-backups"), v.GetInt("log-retention-days")),
+		}
+		logPaths := v.GetStringSlice("log-path")
+		if len(logPaths) > 0 {
+			logOpts = append(logOpts, logging.WithOutputPaths(logPaths))
+		}
+		loggerCtx := ctx
+		if v.GetBool(field.LogEventLogFieldName) {
+			loggerCtx = context.WithValue(loggerCtx, eventLogEnabledKey{}, true)
+		}
+		runCtx, err := initLogger(
+			loggerCtx,
+			name,
+			logOpts...,
 		)
 		if err != nil {
 			return err

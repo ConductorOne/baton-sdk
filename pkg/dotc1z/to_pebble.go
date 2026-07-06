@@ -18,6 +18,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -244,6 +245,16 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	if err = dest.EndSync(ctx); err != nil {
 		return nil, fmt.Errorf("to-pebble: end destination sync: %w", err)
 	}
+	if sync.EndedAt != nil {
+		rec, err := destEng.GetSyncRunRecord(ctx, destSyncID)
+		if err != nil {
+			return nil, fmt.Errorf("to-pebble: load destination sync metadata: %w", err)
+		}
+		rec.SetEndedAt(timestamppb.New(*sync.EndedAt))
+		if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
+			return nil, fmt.Errorf("to-pebble: preserve source ended_at: %w", err)
+		}
+	}
 	endSyncDur := time.Since(endSyncStart)
 	closeStart := time.Now()
 	if err = dest.Close(ctx); err != nil {
@@ -337,27 +348,43 @@ func (c *C1File) syncScope(table string, syncID string, cols ...any) *goqu.Selec
 	return c.db.From(table).Prepared(true).Select(cols...).Where(goqu.C("sync_id").Eq(syncID))
 }
 
+// discoveredAtTimestamp converts a scanned discovered_at column value to
+// a per-record timestamp for the bulk import. A zero time yields nil so
+// the importer falls back to its own now-stamp.
+func discoveredAtTimestamp(t time.Time) *timestamppb.Timestamp {
+	if t.IsZero() {
+		return nil
+	}
+	return timestamppb.New(t)
+}
+
 func (c *C1File) convertResourceTypes(ctx context.Context, bi *pebble.BulkSyncImport, syncID string, batchSize int, stage *ConvertStageStats) error {
 	start := time.Now()
 	defer func() { stage.Duration = time.Since(start) }()
 
 	batch := make([]*v2.ResourceType, 0, batchSize)
+	discovered := make([]*timestamppb.Timestamp, 0, batchSize)
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
 		}
-		if err := bi.AddResourceTypes(ctx, batch...); err != nil {
+		if err := bi.AddResourceTypesWithDiscoveredAt(ctx, batch, discovered); err != nil {
 			return err
 		}
 		stage.Rows += int64(len(batch))
 		batch = batch[:0]
+		discovered = discovered[:0]
 		return nil
 	}
 	// Key order: external_id (the v3 resource_type primary key tuple).
-	q := c.syncScope(resourceTypes.Name(), syncID, "data").Order(goqu.C("external_id").Asc())
+	// discovered_at rides along so the converted record keeps the source
+	// row's discovery time — compaction merges pick winners by newest
+	// discovered_at, so re-stamping would invert record precedence.
+	q := c.syncScope(resourceTypes.Name(), syncID, "data", "discovered_at").Order(goqu.C("external_id").Asc())
 	err := c.scanRows(ctx, q, func(rows *sql.Rows) error {
 		var data []byte
-		if err := rows.Scan(&data); err != nil {
+		var discoveredAt time.Time
+		if err := rows.Scan(&data, &discoveredAt); err != nil {
 			return err
 		}
 		m := &v2.ResourceType{}
@@ -365,6 +392,7 @@ func (c *C1File) convertResourceTypes(ctx context.Context, bi *pebble.BulkSyncIm
 			return err
 		}
 		batch = append(batch, m)
+		discovered = append(discovered, discoveredAtTimestamp(discoveredAt))
 		if len(batch) >= batchSize {
 			return flush()
 		}
@@ -384,22 +412,25 @@ func (c *C1File) convertResources(ctx context.Context, bi *pebble.BulkSyncImport
 	// sqlite external_id is "<rt>:<rid>", so for a fixed resource_type_id
 	// ordering by external_id equals ordering by resource_id.
 	batch := make([]*v2.Resource, 0, batchSize)
+	discovered := make([]*timestamppb.Timestamp, 0, batchSize)
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
 		}
-		if err := bi.AddResources(ctx, batch...); err != nil {
+		if err := bi.AddResourcesWithDiscoveredAt(ctx, batch, discovered); err != nil {
 			return err
 		}
 		stage.Rows += int64(len(batch))
 		batch = batch[:0]
+		discovered = discovered[:0]
 		return nil
 	}
-	q := c.syncScope(resources.Name(), syncID, "data").
+	q := c.syncScope(resources.Name(), syncID, "data", "discovered_at").
 		Order(goqu.C("resource_type_id").Asc(), goqu.C("external_id").Asc())
 	err := c.scanRows(ctx, q, func(rows *sql.Rows) error {
 		var data []byte
-		if err := rows.Scan(&data); err != nil {
+		var discoveredAt time.Time
+		if err := rows.Scan(&data, &discoveredAt); err != nil {
 			return err
 		}
 		m := &v2.Resource{}
@@ -407,6 +438,7 @@ func (c *C1File) convertResources(ctx context.Context, bi *pebble.BulkSyncImport
 			return err
 		}
 		batch = append(batch, m)
+		discovered = append(discovered, discoveredAtTimestamp(discoveredAt))
 		if len(batch) >= batchSize {
 			return flush()
 		}
@@ -423,22 +455,25 @@ func (c *C1File) convertEntitlements(ctx context.Context, bi *pebble.BulkSyncImp
 	defer func() { stage.Duration = time.Since(start) }()
 
 	batch := make([]*v2.Entitlement, 0, batchSize)
+	discovered := make([]*timestamppb.Timestamp, 0, batchSize)
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
 		}
-		if err := bi.AddEntitlements(ctx, batch...); err != nil {
+		if err := bi.AddEntitlementsWithDiscoveredAt(ctx, batch, discovered); err != nil {
 			return err
 		}
 		stage.Rows += int64(len(batch))
 		batch = batch[:0]
+		discovered = discovered[:0]
 		return nil
 	}
 	// Primary records in external_id key order.
-	q := c.syncScope(entitlements.Name(), syncID, "data").Order(goqu.C("external_id").Asc())
+	q := c.syncScope(entitlements.Name(), syncID, "data", "discovered_at").Order(goqu.C("external_id").Asc())
 	err := c.scanRows(ctx, q, func(rows *sql.Rows) error {
 		var data []byte
-		if err := rows.Scan(&data); err != nil {
+		var discoveredAt time.Time
+		if err := rows.Scan(&data, &discoveredAt); err != nil {
 			return err
 		}
 		m := &v2.Entitlement{}
@@ -446,6 +481,7 @@ func (c *C1File) convertEntitlements(ctx context.Context, bi *pebble.BulkSyncImp
 			return err
 		}
 		batch = append(batch, m)
+		discovered = append(discovered, discoveredAtTimestamp(discoveredAt))
 		if len(batch) >= batchSize {
 			return flush()
 		}
@@ -467,10 +503,12 @@ const convertGrantScanLanes = 4
 
 // rawGrantRow is one grant row's raw column bytes, copied out of the
 // scan into a batch-owned arena so decoding can happen on another
-// goroutine after the scanner has moved on.
+// goroutine after the scanner has moved on, plus the row's
+// discovered_at (carried onto the translated v3 record).
 type rawGrantRow struct {
-	data      []byte
-	expansion []byte
+	data         []byte
+	expansion    []byte
+	discoveredAt time.Time
 }
 
 // convertGrants streams the sync's grants into the bulk import. The
@@ -589,7 +627,7 @@ func (c *C1File) convertGrants(ctx context.Context, bi *pebble.BulkSyncImport, s
 			return err
 		}
 
-		query := "SELECT data, expansion FROM " + grants.Name() + " WHERE sync_id = ?" // #nosec G202 - internal table name.
+		query := "SELECT data, expansion, discovered_at FROM " + grants.Name() + " WHERE sync_id = ?" // #nosec G202 - internal table name.
 		args := []any{syncID}
 		if loExt != "" {
 			query += " AND external_id >= ?"
@@ -607,11 +645,13 @@ func (c *C1File) convertGrants(ctx context.Context, bi *pebble.BulkSyncImport, s
 			defer laneWG.Done()
 			defer shard.Close()
 			batch := make([]*v2.Grant, 0, batchSize)
+			discovered := make([]*timestamppb.Timestamp, 0, batchSize)
 			for raw := range rawCh {
 				if scanCtx.Err() != nil {
 					continue // drain
 				}
 				batch = batch[:0]
+				discovered = discovered[:0]
 				for i := range raw {
 					g := &v2.Grant{}
 					if err := proto.Unmarshal(raw[i].data, g); err != nil {
@@ -623,11 +663,12 @@ func (c *C1File) convertGrants(ctx context.Context, bi *pebble.BulkSyncImport, s
 						break
 					}
 					batch = append(batch, g)
+					discovered = append(discovered, discoveredAtTimestamp(raw[i].discoveredAt))
 				}
 				if scanCtx.Err() != nil {
 					continue
 				}
-				if err := shard.AddGrants(scanCtx, batch...); err != nil {
+				if err := shard.AddGrantsWithDiscoveredAt(scanCtx, batch, discovered); err != nil {
 					fail(err)
 					continue
 				}
@@ -662,7 +703,8 @@ func (c *C1File) convertGrants(ctx context.Context, bi *pebble.BulkSyncImport, s
 					return
 				}
 				var data, expansion sql.RawBytes
-				if err := rows.Scan(&data, &expansion); err != nil {
+				var discoveredAt time.Time
+				if err := rows.Scan(&data, &expansion, &discoveredAt); err != nil {
 					fail(err)
 					return
 				}
@@ -671,7 +713,7 @@ func (c *C1File) convertGrants(ctx context.Context, bi *pebble.BulkSyncImport, s
 				off := len(arena)
 				arena = append(arena, data...)
 				arena = append(arena, expansion...)
-				row := rawGrantRow{data: arena[off : off+len(data) : off+len(data)]}
+				row := rawGrantRow{data: arena[off : off+len(data) : off+len(data)], discoveredAt: discoveredAt}
 				if len(expansion) > 0 {
 					row.expansion = arena[off+len(data) : off+len(data)+len(expansion)]
 				}

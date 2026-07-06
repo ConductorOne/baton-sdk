@@ -86,6 +86,21 @@ func (s pebbleSyncMeta) Stats(ctx context.Context, syncType connectorstore.SyncT
 	return s.a.Stats(ctx, syncType, syncID)
 }
 
+// RecalculateStats recomputes the stats sidecar for syncID from the
+// per-record-type keyspaces and persists it, overwriting any previously
+// cached value. A v3 Pebble c1z holds a single sync, so the sidecar is a
+// fixed key; the recompute scans the whole keyspace regardless of which
+// sync is named.
+func (s pebbleSyncMeta) RecalculateStats(ctx context.Context, syncID string) error {
+	if syncID == "" {
+		syncID = s.a.currentSyncID()
+	}
+	if syncID == "" {
+		return errors.New("RecalculateStats: empty syncID and no current sync")
+	}
+	return s.a.engine.PersistSyncStats(ctx, syncID)
+}
+
 // syncRunRecordToExported translates the Pebble v3.SyncRunRecord
 // proto into the exported c1zstore.SyncRun shape. Mirrors
 // syncRunToExported in pkg/dotc1z but adapted for the v3 proto.

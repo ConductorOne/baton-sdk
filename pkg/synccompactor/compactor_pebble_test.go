@@ -2,10 +2,14 @@ package synccompactor
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
+	"unsafe"
 
+	"github.com/segmentio/ksuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -173,6 +177,435 @@ func TestCompactPebbleEndToEnd(t *testing.T) {
 	require.Len(t, byResource.GetList(), 3, "compacted pebble output must materialize grant_by_entitlement_resource index")
 }
 
+// requirePebbleOutput asserts the compacted output at path is a Pebble store.
+func requirePebbleOutput(t *testing.T, ctx context.Context, path string) {
+	t.Helper()
+	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
+	require.NoError(t, err)
+	defer w.Close(ctx)
+	_, ok := enginepkg.AsEngine(w)
+	require.True(t, ok, "compacted output at %s must be a pebble engine", path)
+}
+
+// TestCompactMixedInputsAutoSelectsPebble exercises multi-engine compaction:
+// when the incremental chain mixes a SQLite (v1) input and a Pebble (v3)
+// input and no engine is forced, the run auto-selects Pebble, converts the
+// SQLite input, and produces a single Pebble output with the deduped union.
+func TestCompactMixedInputsAutoSelectsPebble(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	sqlitePath := filepath.Join(inDir, "in-sqlite.c1z")
+	pebblePath := filepath.Join(inDir, "in-pebble.c1z")
+	s1 := buildSQLiteInput(t, ctx, sqlitePath, connectorstore.SyncTypeFull, "g-shared", "g-only1")
+	s2 := buildPebbleInput(t, ctx, pebblePath, connectorstore.SyncTypePartial, "g-shared", "g-only2")
+
+	// Base (entries[0]) is the SQLite input, so the conversion path covers
+	// the base, not just a partial.
+	entries := []*CompactableSync{{FilePath: sqlitePath, SyncID: s1}, {FilePath: pebblePath, SyncID: s2}}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	requirePebbleOutput(t, ctx, out.FilePath)
+	count, st := verifyCompacted(t, ctx, out.FilePath, out.SyncID)
+	require.Equal(t, 3, count, "union of {g-shared,g-only1} and {g-shared,g-only2} deduped = 3 grants")
+	require.Equal(t, string(connectorstore.SyncTypeFull), st, "union of full + partial = full")
+}
+
+// TestCompactExplicitPebbleConvertsAllSQLiteInputs pins that an explicit
+// WithEngine(EnginePebble) request over all-SQLite inputs converts every
+// input to Pebble and merges them, rather than rejecting the run.
+func TestCompactExplicitPebbleConvertsAllSQLiteInputs(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	p1 := filepath.Join(inDir, "in1.c1z")
+	p2 := filepath.Join(inDir, "in2.c1z")
+	s1 := buildSQLiteInput(t, ctx, p1, connectorstore.SyncTypeFull, "g-shared", "g-only1")
+	s2 := buildSQLiteInput(t, ctx, p2, connectorstore.SyncTypePartial, "g-shared", "g-only2")
+
+	entries := []*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble))
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	requirePebbleOutput(t, ctx, out.FilePath)
+	count, st := verifyCompacted(t, ctx, out.FilePath, out.SyncID)
+	require.Equal(t, 3, count, "union of all-sqlite inputs deduped = 3 grants")
+	require.Equal(t, string(connectorstore.SyncTypeFull), st, "union of full + partial = full")
+}
+
+// TestCompactExplicitPebbleConvertsSQLitePartialWithEmptySyncID preserves the
+// SQLite compactor's empty-SyncID behavior: it selects the latest finished
+// compactable sync, including partial-only inputs. ToPebble's own "" fallback
+// is full-only, so conversion must resolve the compactable sync first.
+func TestCompactExplicitPebbleConvertsSQLitePartialWithEmptySyncID(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	p1 := filepath.Join(inDir, "full.c1z")
+	p2 := filepath.Join(inDir, "partial-only.c1z")
+	s1 := buildSQLiteInput(t, ctx, p1, connectorstore.SyncTypeFull, "g-shared", "g-only1")
+	_ = buildSQLiteInput(t, ctx, p2, connectorstore.SyncTypePartial, "g-shared", "g-only2")
+
+	entries := []*CompactableSync{
+		{FilePath: p1, SyncID: s1},
+		{FilePath: p2, SyncID: ""},
+	}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble))
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	requirePebbleOutput(t, ctx, out.FilePath)
+	count, st := verifyCompacted(t, ctx, out.FilePath, out.SyncID)
+	require.Equal(t, 3, count, "empty SyncID partial-only sqlite input must be selected and converted")
+	require.Equal(t, string(connectorstore.SyncTypeFull), st, "union of full + partial = full")
+}
+
+func TestCompactExplicitPebbleConvertsSQLiteEmptySyncIDTiebreaksBySyncID(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	p1 := filepath.Join(inDir, "base.c1z")
+	p2 := filepath.Join(inDir, "tied-source.c1z")
+	s1 := buildSQLiteInput(t, ctx, p1, connectorstore.SyncTypePartial, "g-base")
+	_, partialSyncID := buildSQLiteInputWithTiedCompactableSyncs(t, ctx, p2)
+
+	entries := []*CompactableSync{
+		{FilePath: p1, SyncID: s1},
+		{FilePath: p2, SyncID: ""},
+	}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble), WithSkipGrantExpansion())
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	store, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	defer store.Close(ctx)
+	require.NoError(t, store.SetCurrentSync(ctx, out.SyncID))
+
+	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 1000}.Build())
+	require.NoError(t, err)
+	grantIDs := make(map[string]bool, len(resp.GetList()))
+	for _, grant := range resp.GetList() {
+		grantIDs[grant.GetId()] = true
+	}
+	require.True(t, grantIDs["g-partial"], "empty SyncID must select tied sync with greater sync_id %s", partialSyncID)
+	require.False(t, grantIDs["g-full"], "lower sync_id full sync must not be selected just because full is checked first")
+}
+
+// TestCompactFoldConvertsSQLitePartial pins that the in-place fold strategy
+// only requires the BASE to be Pebble: with a Pebble base and a SQLite
+// partial (fold forced), the SQLite partial is converted to Pebble and
+// folded into the base copy, yielding the deduped union.
+func TestCompactFoldConvertsSQLitePartial(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	basePath := filepath.Join(inDir, "base-pebble.c1z")
+	partialPath := filepath.Join(inDir, "partial-sqlite.c1z")
+	s1 := buildPebbleInput(t, ctx, basePath, connectorstore.SyncTypeFull, "g-shared", "g-only1")
+	s2 := buildSQLiteInput(t, ctx, partialPath, connectorstore.SyncTypePartial, "g-shared", "g-only2")
+
+	entries := []*CompactableSync{{FilePath: basePath, SyncID: s1}, {FilePath: partialPath, SyncID: s2}}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(dotc1z.EnginePebble),
+		WithPebbleCompactorMode(PebbleCompactorModeFold),
+	)
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	requirePebbleOutput(t, ctx, out.FilePath)
+	count, st := verifyCompacted(t, ctx, out.FilePath, out.SyncID)
+	require.Equal(t, 3, count, "fold of pebble base + sqlite partial deduped = 3 grants")
+	require.Equal(t, string(connectorstore.SyncTypeFull), st, "union of full + partial = full")
+}
+
+// TestCompactFoldPebbleBaseMixedPartials covers the canonical multi-engine
+// fold chain: a Pebble base plus two partials, one Pebble and one SQLite.
+// The SQLite partial is converted to Pebble and both partials are folded
+// into the base copy (fold forced), yielding the deduped union across all
+// three inputs.
+func TestCompactFoldPebbleBaseMixedPartials(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	basePath := filepath.Join(inDir, "base-pebble.c1z")
+	partialPebblePath := filepath.Join(inDir, "partial-pebble.c1z")
+	partialSQLitePath := filepath.Join(inDir, "partial-sqlite.c1z")
+
+	// base: {g-shared, g-base1}; pebble partial: {g-shared, g-p1};
+	// sqlite partial: {g-shared, g-p2}. Deduped union = 4 grants.
+	sBase := buildPebbleInput(t, ctx, basePath, connectorstore.SyncTypeFull, "g-shared", "g-base1")
+	sPebble := buildPebbleInput(t, ctx, partialPebblePath, connectorstore.SyncTypePartial, "g-shared", "g-p1")
+	sSQLite := buildSQLiteInput(t, ctx, partialSQLitePath, connectorstore.SyncTypePartial, "g-shared", "g-p2")
+
+	// entries[0] is the base; the two partials follow.
+	entries := []*CompactableSync{
+		{FilePath: basePath, SyncID: sBase},
+		{FilePath: partialPebblePath, SyncID: sPebble},
+		{FilePath: partialSQLitePath, SyncID: sSQLite},
+	}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(dotc1z.EnginePebble),
+		WithPebbleCompactorMode(PebbleCompactorModeFold),
+	)
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	requirePebbleOutput(t, ctx, out.FilePath)
+	count, st := verifyCompacted(t, ctx, out.FilePath, out.SyncID)
+	require.Equal(t, 4, count, "deduped union of base + pebble partial + sqlite partial = 4 grants")
+	require.Equal(t, string(connectorstore.SyncTypeFull), st, "union of full + partial + partial = full")
+}
+
+// TestCompactPebbleBaseMixedPartialsAutoMode is the same Pebble-base +
+// mixed-partial chain but with the strategy auto-selected rather than fold
+// forced, ensuring the overlay/kway merge path also handles a SQLite partial.
+func TestCompactPebbleBaseMixedPartialsAutoMode(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	basePath := filepath.Join(inDir, "base-pebble.c1z")
+	partialPebblePath := filepath.Join(inDir, "partial-pebble.c1z")
+	partialSQLitePath := filepath.Join(inDir, "partial-sqlite.c1z")
+
+	sBase := buildPebbleInput(t, ctx, basePath, connectorstore.SyncTypeFull, "g-shared", "g-base1")
+	sPebble := buildPebbleInput(t, ctx, partialPebblePath, connectorstore.SyncTypePartial, "g-shared", "g-p1")
+	sSQLite := buildSQLiteInput(t, ctx, partialSQLitePath, connectorstore.SyncTypePartial, "g-shared", "g-p2")
+
+	entries := []*CompactableSync{
+		{FilePath: basePath, SyncID: sBase},
+		{FilePath: partialPebblePath, SyncID: sPebble},
+		{FilePath: partialSQLitePath, SyncID: sSQLite},
+	}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	requirePebbleOutput(t, ctx, out.FilePath)
+	count, st := verifyCompacted(t, ctx, out.FilePath, out.SyncID)
+	require.Equal(t, 4, count, "deduped union of base + pebble partial + sqlite partial = 4 grants")
+	require.Equal(t, string(connectorstore.SyncTypeFull), st, "union of full + partial + partial = full")
+}
+
+// recencyStore is the Put* surface shared by the SQLite C1File and the
+// engine-agnostic C1ZStore, so one data builder can seed either input.
+type recencyStore interface {
+	PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error
+	PutResources(ctx context.Context, resources ...*v2.Resource) error
+	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
+	PutGrants(ctx context.Context, grants ...*v2.Grant) error
+}
+
+// putRecencyData writes the fixed group/member graph with one grant per
+// id, all held by the given principal — the principal is the marker that
+// identifies which input's version of an overlapping grant won.
+func putRecencyData(t testing.TB, ctx context.Context, store recencyStore, principal string, grantIDs ...string) {
+	t.Helper()
+	require.NoError(t, store.PutResourceTypes(ctx,
+		v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build(),
+		v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()))
+	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "Group One"}.Build()
+	user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: principal}.Build(), DisplayName: principal}.Build()
+	require.NoError(t, store.PutResources(ctx, group, user))
+	member := v2.Entitlement_builder{Id: "member", Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build()
+	require.NoError(t, store.PutEntitlements(ctx, member))
+	for _, id := range grantIDs {
+		require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: id, Principal: user, Entitlement: member}.Build()))
+	}
+}
+
+// buildPebbleRecencyInput writes a Pebble (v3) c1z whose records carry
+// real sync-time discovered_at stamps.
+func buildPebbleRecencyInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, principal string, grantIDs ...string) string {
+	t.Helper()
+	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
+	require.NoError(t, err)
+	syncID, err := w.StartNewSync(ctx, st, "")
+	require.NoError(t, err)
+	putRecencyData(t, ctx, w, principal, grantIDs...)
+	require.NoError(t, w.EndSync(ctx))
+	require.NoError(t, w.Close(ctx))
+	return syncID
+}
+
+// buildSQLiteRecencyInput writes a SQLite (v1) c1z and backdates every
+// record's discovered_at column to the given instant, so the input's
+// true record recency is unambiguous relative to the other inputs.
+func buildSQLiteRecencyInput(
+	t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, principal string, discoveredAt time.Time, grantIDs ...string,
+) string {
+	t.Helper()
+	store, err := dotc1z.NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	syncID, err := store.StartNewSync(ctx, st, "")
+	require.NoError(t, err)
+	putRecencyData(t, ctx, store, principal, grantIDs...)
+	db := rawSQLiteDBForTest(t, store)
+	stamp := discoveredAt.Format("2006-01-02 15:04:05.999999999")
+	for _, table := range []string{"v1_resource_types", "v1_resources", "v1_entitlements", "v1_grants"} {
+		_, err := db.ExecContext(ctx, "UPDATE "+table+" SET discovered_at = ?", stamp) //nolint:gosec // Table names are fixed test fixtures.
+		require.NoError(t, err)
+	}
+	require.NoError(t, store.EndSync(ctx))
+	require.NoError(t, store.Close(ctx))
+	return syncID
+}
+
+// winningPrincipal returns the principal resource id of grantID in the
+// compacted output — i.e. which input's version of the grant won.
+func winningPrincipal(t *testing.T, ctx context.Context, out *CompactableSync, grantID string) string {
+	t.Helper()
+	store := openCompactedPebble(t, ctx, out)
+	defer store.Close(ctx)
+	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: grantID}.Build())
+	require.NoError(t, err)
+	return grant.GetGrant().GetPrincipal().GetId().GetResource()
+}
+
+// TestCompactMixedInputsPreservesRecordRecency pins that converting a
+// SQLite input during multi-engine compaction preserves each record's
+// original discovered_at: the merge picks winners by newest
+// discovered_at, so a conversion that re-stamped records with the
+// conversion wall clock would make the OLD SQLite base override the
+// newer Pebble partial on overlapping keys.
+//
+// Chain: an old SQLite full (records discovered in 2020, principal
+// alice) + a fresh Pebble partial (principal bob), both carrying grant
+// g-shared. The partial is newer, so bob must win.
+func TestCompactMixedInputsPreservesRecordRecency(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	sqlitePath := filepath.Join(inDir, "base-sqlite.c1z")
+	pebblePath := filepath.Join(inDir, "partial-pebble.c1z")
+	oldDiscovery := time.Date(2020, time.January, 2, 3, 4, 5, 0, time.UTC)
+	s1 := buildSQLiteRecencyInput(t, ctx, sqlitePath, connectorstore.SyncTypeFull, "alice", oldDiscovery, "g-shared", "g-base")
+	s2 := buildPebbleRecencyInput(t, ctx, pebblePath, connectorstore.SyncTypePartial, "bob", "g-shared")
+
+	entries := []*CompactableSync{
+		{FilePath: sqlitePath, SyncID: s1},
+		{FilePath: pebblePath, SyncID: s2},
+	}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithSkipGrantExpansion())
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	requirePebbleOutput(t, ctx, out.FilePath)
+
+	require.Equal(t, "bob", winningPrincipal(t, ctx, out, "g-shared"),
+		"the newer pebble partial must win the overlapping grant; the converted sqlite base's 2020 records must not be re-stamped to conversion time")
+}
+
+// TestCompactFoldMixedPartialsPreservesRecordRecency is the fold-path
+// variant: a Pebble base plus an OLD SQLite partial (2020 records) and
+// a fresh Pebble partial, all carrying grant g-shared. Fold applies
+// partials newest-first with strictly-newer-wins, so the fresh Pebble
+// partial (bob) must win; a conversion that re-stamped the SQLite
+// partial's records to conversion time would let carol override bob.
+func TestCompactFoldMixedPartialsPreservesRecordRecency(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	basePath := filepath.Join(inDir, "base-pebble.c1z")
+	sqlitePartialPath := filepath.Join(inDir, "partial-sqlite.c1z")
+	pebblePartialPath := filepath.Join(inDir, "partial-pebble.c1z")
+
+	oldDiscovery := time.Date(2020, time.January, 2, 3, 4, 5, 0, time.UTC)
+	sBase := buildPebbleRecencyInput(t, ctx, basePath, connectorstore.SyncTypeFull, "alice", "g-shared", "g-base")
+	sSQLite := buildSQLiteRecencyInput(t, ctx, sqlitePartialPath, connectorstore.SyncTypePartial, "carol", oldDiscovery, "g-shared")
+	sPebble := buildPebbleRecencyInput(t, ctx, pebblePartialPath, connectorstore.SyncTypePartial, "bob", "g-shared")
+
+	// Chain order: base, then partials oldest-first.
+	entries := []*CompactableSync{
+		{FilePath: basePath, SyncID: sBase},
+		{FilePath: sqlitePartialPath, SyncID: sSQLite},
+		{FilePath: pebblePartialPath, SyncID: sPebble},
+	}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(dotc1z.EnginePebble),
+		WithPebbleCompactorMode(PebbleCompactorModeFold),
+		WithSkipGrantExpansion(),
+	)
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	requirePebbleOutput(t, ctx, out.FilePath)
+
+	require.Equal(t, "bob", winningPrincipal(t, ctx, out, "g-shared"),
+		"the fresh pebble partial must win; the converted 2020 sqlite partial must not be re-stamped to conversion time and override it")
+}
+
+// TestCompactExplicitSQLiteRejectsPebbleInput pins the policy conflict: an
+// explicit SQLite request with a Pebble input is rejected rather than
+// silently downgrading the Pebble data.
+func TestCompactExplicitSQLiteRejectsPebbleInput(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	sqlitePath := filepath.Join(inDir, "in-sqlite.c1z")
+	pebblePath := filepath.Join(inDir, "in-pebble.c1z")
+	s1 := buildSQLiteInput(t, ctx, sqlitePath, connectorstore.SyncTypeFull, "g1")
+	s2 := buildPebbleInput(t, ctx, pebblePath, connectorstore.SyncTypePartial, "g2")
+
+	entries := []*CompactableSync{{FilePath: sqlitePath, SyncID: s1}, {FilePath: pebblePath, SyncID: s2}}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EngineSQLite))
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	_, err = c.Compact(ctx)
+	require.ErrorIs(t, err, ErrEnginePolicyConflict)
+}
+
 // buildSQLiteInput writes a minimal SQLite (v1) c1z with one grant per
 // id, for the default-engine regression.
 func buildSQLiteInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, grantIDs ...string) string {
@@ -181,6 +614,44 @@ func buildSQLiteInput(t testing.TB, ctx context.Context, path string, st connect
 	require.NoError(t, err)
 	syncID, err := store.StartNewSync(ctx, st, "")
 	require.NoError(t, err)
+	putSQLiteInputData(t, ctx, store, grantIDs...)
+	require.NoError(t, store.EndSync(ctx))
+	require.NoError(t, store.Close(ctx))
+	return syncID
+}
+
+func buildSQLiteInputWithTiedCompactableSyncs(t testing.TB, ctx context.Context, path string) (string, string) {
+	t.Helper()
+	store, err := dotc1z.NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+
+	fullOriginalID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	putSQLiteInputData(t, ctx, store, "g-full")
+	require.NoError(t, store.EndSync(ctx))
+
+	partialOriginalID, err := store.StartNewSync(ctx, connectorstore.SyncTypePartial, fullOriginalID)
+	require.NoError(t, err)
+	putSQLiteInputData(t, ctx, store, "g-partial")
+	require.NoError(t, store.EndSync(ctx))
+
+	fullSyncID, partialSyncID := orderedTestSyncIDs()
+	db := rawSQLiteDBForTest(t, store)
+	retargetSQLiteSyncID(t, ctx, db, fullOriginalID, fullSyncID)
+	retargetSQLiteSyncID(t, ctx, db, partialOriginalID, partialSyncID)
+	_, err = db.ExecContext(ctx, "UPDATE v1_sync_runs SET parent_sync_id = ? WHERE sync_id = ?", fullSyncID, partialSyncID)
+	require.NoError(t, err)
+
+	tiedEndedAt := time.Date(2026, time.June, 29, 12, 0, 0, 0, time.UTC).Format("2006-01-02 15:04:05.999999999")
+	_, err = db.ExecContext(ctx, "UPDATE v1_sync_runs SET ended_at = ? WHERE sync_id IN (?, ?)", tiedEndedAt, fullSyncID, partialSyncID)
+	require.NoError(t, err)
+
+	require.NoError(t, store.Close(ctx))
+	return fullSyncID, partialSyncID
+}
+
+func putSQLiteInputData(t testing.TB, ctx context.Context, store *dotc1z.C1File, grantIDs ...string) {
+	t.Helper()
 	require.NoError(t, store.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build(),
 		v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()))
@@ -192,9 +663,33 @@ func buildSQLiteInput(t testing.TB, ctx context.Context, path string, st connect
 	for _, id := range grantIDs {
 		require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: id, Principal: user, Entitlement: member}.Build()))
 	}
-	require.NoError(t, store.EndSync(ctx))
-	require.NoError(t, store.Close(ctx))
-	return syncID
+}
+
+func orderedTestSyncIDs() (string, string) {
+	a := ksuid.New().String()
+	b := ksuid.New().String()
+	if a > b {
+		return b, a
+	}
+	return a, b
+}
+
+func rawSQLiteDBForTest(t testing.TB, store *dotc1z.C1File) *sql.DB {
+	t.Helper()
+	field := reflect.ValueOf(store).Elem().FieldByName("rawDb")
+	require.True(t, field.IsValid())
+	require.False(t, field.IsNil())
+	return (*sql.DB)(unsafe.Pointer(field.Pointer()))
+}
+
+func retargetSQLiteSyncID(t testing.TB, ctx context.Context, db *sql.DB, oldID, newID string) {
+	t.Helper()
+	for _, table := range []string{"v1_sync_runs", "v1_resource_types", "v1_resources", "v1_entitlements", "v1_grants"} {
+		_, err := db.ExecContext(ctx, "UPDATE "+table+" SET sync_id = ? WHERE sync_id = ?", newID, oldID) //nolint:gosec // Table names are fixed test fixtures.
+		require.NoError(t, err)
+	}
+	_, err := db.ExecContext(ctx, "UPDATE v1_sync_runs SET parent_sync_id = ? WHERE parent_sync_id = ?", newID, oldID)
+	require.NoError(t, err)
 }
 
 // TestCompactPebbleDropsAssets pins the asset-drop parity: the SQLite

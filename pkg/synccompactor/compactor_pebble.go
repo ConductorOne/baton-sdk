@@ -483,37 +483,58 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// base at entries[0]); strictly-newer-wins makes earlier
 	// applications take precedence on ties.
 	var foldStats mergepkg.FoldStats
+	// SQLite/v1 partials are converted to Pebble in the tmp dir before being
+	// folded in; their converted copies are removed when this run completes.
+	var convertedInputs []string
+	defer func() {
+		for _, path := range convertedInputs {
+			_ = os.Remove(path)
+		}
+	}()
 	for i := len(c.entries) - 1; i >= 1; i-- {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
 		cs := c.entries[i]
+		sourcePath := cs.FilePath
+		format, err := readCompactionInputFormat(sourcePath)
+		if err != nil {
+			return "", err
+		}
+		if format == dotc1z.C1ZFormatV1 {
+			convertedPath, err := c.convertSQLiteInputToPebble(ctx, cs)
+			if err != nil {
+				return "", err
+			}
+			convertedInputs = append(convertedInputs, convertedPath)
+			sourcePath = convertedPath
+		}
 		srcSyncID := ""
-		if sel, ok := selectSourceSyncFromManifest(cs.FilePath); ok {
+		if sel, ok := selectSourceSyncFromManifest(sourcePath); ok {
 			srcSyncID = sel.syncID
 			unionType = unionV3SyncType(unionType, sel.syncType)
 			if sel.endedAt.After(maxEnded) {
 				maxEnded = sel.endedAt
 			}
 		}
-		w, err := dotc1z.NewStore(ctx, cs.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
+		w, err := dotc1z.NewStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
 		if err != nil {
-			return "", fmt.Errorf("compactPebbleFold: open input %s: %w", cs.FilePath, err)
+			return "", fmt.Errorf("compactPebbleFold: open input %s: %w", sourcePath, err)
 		}
 		srcEng, ok := enginepkg.AsEngine(w)
 		if !ok {
 			_ = w.Close(ctx)
-			return "", fmt.Errorf("compactPebbleFold: input %s is not a pebble c1z", cs.FilePath)
+			return "", fmt.Errorf("compactPebbleFold: input %s is not a pebble c1z", sourcePath)
 		}
 		if srcSyncID == "" {
 			rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 			if err != nil {
 				_ = w.Close(ctx)
-				return "", fmt.Errorf("compactPebbleFold: input %s: select compactable sync: %w", cs.FilePath, err)
+				return "", fmt.Errorf("compactPebbleFold: input %s: select compactable sync: %w", sourcePath, err)
 			}
 			if rec == nil {
 				_ = w.Close(ctx)
-				return "", fmt.Errorf("compactPebbleFold: input %s has no finished compactable sync", cs.FilePath)
+				return "", fmt.Errorf("compactPebbleFold: input %s has no finished compactable sync", sourcePath)
 			}
 			srcSyncID = rec.GetSyncId()
 			unionType = unionV3SyncType(unionType, rec.GetType())
@@ -524,10 +545,10 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		mergeStats, mergeErr := mergepkg.MergeInto(ctx, destEng, []mergepkg.SourceSync{{Engine: srcEng, SyncID: srcSyncID}}, baseSyncID)
 		foldStats.Add(mergeStats)
 		if cerr := w.Close(ctx); cerr != nil {
-			l.Error("compactPebbleFold: error closing source store", zap.Error(cerr), zap.String("file", cs.FilePath))
+			l.Error("compactPebbleFold: error closing source store", zap.Error(cerr), zap.String("file", sourcePath))
 		}
 		if mergeErr != nil {
-			return "", fmt.Errorf("compactPebbleFold: merge %s: %w", cs.FilePath, mergeErr)
+			return "", fmt.Errorf("compactPebbleFold: merge %s: %w", sourcePath, mergeErr)
 		}
 	}
 
@@ -645,6 +666,116 @@ func copyFileForFold(src, dst string) error {
 	return out.Close()
 }
 
+// readCompactionInputFormat reads the c1z header of path and returns its
+// on-disk format, rejecting anything that is not a supported v1/v3 c1z.
+func readCompactionInputFormat(path string) (dotc1z.C1ZFormat, error) {
+	f, err := os.Open(path) // #nosec G304 - compaction inputs are caller-provided c1z paths.
+	if err != nil {
+		return dotc1z.C1ZFormatUnknown, fmt.Errorf("compactPebble: open input header %s: %w", path, err)
+	}
+	defer f.Close()
+	format, err := dotc1z.ReadHeaderFormat(f)
+	if err != nil {
+		return dotc1z.C1ZFormatUnknown, fmt.Errorf("compactPebble: read input header %s: %w", path, err)
+	}
+	switch format {
+	case dotc1z.C1ZFormatV1, dotc1z.C1ZFormatV3:
+		return format, nil
+	default:
+		return dotc1z.C1ZFormatUnknown, fmt.Errorf("compactPebble: unsupported c1z format %s for %s", format, path)
+	}
+}
+
+func resolveSQLiteCompactionSyncID(ctx context.Context, store *dotc1z.C1File, explicitSyncID string) (string, error) {
+	if explicitSyncID != "" {
+		return explicitSyncID, nil
+	}
+
+	candidates := []connectorstore.SyncType{
+		connectorstore.SyncTypeFull,
+		connectorstore.SyncTypeResourcesOnly,
+		connectorstore.SyncTypePartial,
+	}
+	var best *reader_v2.SyncRun
+	for _, st := range candidates {
+		resp, err := store.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
+			SyncType: string(st),
+		}.Build())
+		if err != nil {
+			return "", err
+		}
+		sync := resp.GetSync()
+		if sync == nil {
+			continue
+		}
+		syncEndedAt := sync.GetEndedAt().AsTime()
+		bestEndedAt := time.Time{}
+		if best != nil {
+			bestEndedAt = best.GetEndedAt().AsTime()
+		}
+		if best == nil || syncEndedAt.After(bestEndedAt) || (syncEndedAt.Equal(bestEndedAt) && sync.GetId() > best.GetId()) {
+			best = sync
+		}
+	}
+	if best == nil {
+		return "", fmt.Errorf(
+			"no finished compactable sync found in sqlite input (diff sync types %q/%q are not compactable)",
+			string(connectorstore.SyncTypePartialUpserts),
+			string(connectorstore.SyncTypePartialDeletions),
+		)
+	}
+	return best.GetId(), nil
+}
+
+// convertSQLiteInputToPebble converts a v1/SQLite compaction input into a
+// freshly-written Pebble (v3) c1z in the compactor tmp dir and returns the
+// path to the converted file. The caller owns the returned path and must
+// remove it when the compaction run completes.
+func (c *Compactor) convertSQLiteInputToPebble(ctx context.Context, cs *CompactableSync) (string, error) {
+	if cs == nil {
+		return "", errors.New("compactPebble: nil compactable sync")
+	}
+	tmp, err := os.CreateTemp(c.tmpDir, "sqlite-input-*.pebble.c1z")
+	if err != nil {
+		return "", fmt.Errorf("compactPebble: create conversion temp file: %w", err)
+	}
+	convertedPath := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(convertedPath)
+		return "", fmt.Errorf("compactPebble: close conversion temp file: %w", err)
+	}
+	// ToPebble requires the destination path to not exist.
+	if err := os.Remove(convertedPath); err != nil {
+		return "", fmt.Errorf("compactPebble: remove conversion temp placeholder: %w", err)
+	}
+
+	store, err := dotc1z.NewStore(ctx, cs.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir))
+	if err != nil {
+		return "", fmt.Errorf("compactPebble: open sqlite input for conversion %s: %w", cs.FilePath, err)
+	}
+	sqliteStore, ok := dotc1z.AsSQLiteStore(store)
+	if !ok {
+		_ = store.Close(ctx)
+		return "", fmt.Errorf("compactPebble: expected SQLite input while converting %s, got %T", cs.FilePath, store)
+	}
+	syncID, err := resolveSQLiteCompactionSyncID(ctx, sqliteStore, cs.SyncID)
+	if err != nil {
+		_ = store.Close(ctx)
+		_ = os.Remove(convertedPath)
+		return "", fmt.Errorf("compactPebble: select sqlite input sync %s: %w", cs.FilePath, err)
+	}
+	if _, err := sqliteStore.ToPebble(ctx, convertedPath, syncID, dotc1z.WithConvertTmpDir(c.tmpDir)); err != nil {
+		_ = store.Close(ctx)
+		_ = os.Remove(convertedPath)
+		return "", fmt.Errorf("compactPebble: convert sqlite input %s to pebble: %w", cs.FilePath, err)
+	}
+	if err := store.Close(ctx); err != nil {
+		_ = os.Remove(convertedPath)
+		return "", fmt.Errorf("compactPebble: close sqlite input after conversion %s: %w", cs.FilePath, err)
+	}
+	return convertedPath, nil
+}
+
 // compactPebble folds every input into the empty newSyncId on the
 // Pebble output via a native record merge: each input is opened, its
 // latest finished compactable sync is selected (diff syncs excluded),
@@ -671,19 +802,40 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 	var maxEnded time.Time
 
 	manifestSelected := 0
+	// SQLite/v1 inputs are converted to Pebble in the tmp dir before being
+	// merged; their converted copies are removed when this run completes.
+	var convertedInputs []string
+	defer func() {
+		for _, path := range convertedInputs {
+			_ = os.Remove(path)
+		}
+	}()
 	for i := len(c.entries) - 1; i >= 0; i-- {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		cs := c.entries[i]
+		sourcePath := cs.FilePath
+		format, err := readCompactionInputFormat(sourcePath)
+		if err != nil {
+			return err
+		}
+		if format == dotc1z.C1ZFormatV1 {
+			convertedPath, err := c.convertSQLiteInputToPebble(ctx, cs)
+			if err != nil {
+				return err
+			}
+			convertedInputs = append(convertedInputs, convertedPath)
+			sourcePath = convertedPath
+		}
 
 		// Fast path: read the latest finished compactable sync (and its
 		// cached stats) from the envelope manifest's sync-run projection
 		// — a header read, no payload unpack. Files written before the
 		// projection existed fall back to the unpack path below.
-		if sel, ok := selectSourceSyncFromManifest(cs.FilePath); ok {
+		if sel, ok := selectSourceSyncFromManifest(sourcePath); ok {
 			manifestSelected++
-			sources = append(sources, mergepkg.SourceFile{Path: cs.FilePath, SyncID: sel.syncID, Stats: sel.stats, DecoderPool: c.decoderPool})
+			sources = append(sources, mergepkg.SourceFile{Path: sourcePath, SyncID: sel.syncID, Stats: sel.stats, DecoderPool: c.decoderPool})
 			unionType = unionV3SyncType(unionType, sel.syncType)
 			if sel.endedAt.After(maxEnded) {
 				maxEnded = sel.endedAt
@@ -693,26 +845,26 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 
 		source, syncType, endedAt, err := func() (mergepkg.SourceFile, v3.SyncType, time.Time, error) {
 			var zeroSource mergepkg.SourceFile
-			w, err := dotc1z.NewStore(ctx, cs.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
+			w, err := dotc1z.NewStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
 			if err != nil {
-				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: open input %s: %w", cs.FilePath, err)
+				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: open input %s: %w", sourcePath, err)
 			}
 			defer func() {
 				if cerr := w.Close(ctx); cerr != nil {
-					l.Error("compactPebble: error closing source store", zap.Error(cerr), zap.String("file", cs.FilePath))
+					l.Error("compactPebble: error closing source store", zap.Error(cerr), zap.String("file", sourcePath))
 				}
 			}()
 
 			srcEng, ok := enginepkg.AsEngine(w)
 			if !ok {
-				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s is not a pebble c1z", cs.FilePath)
+				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s is not a pebble c1z", sourcePath)
 			}
 			rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 			if err != nil {
-				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: select source sync for %s: %w", cs.FilePath, err)
+				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: select source sync for %s: %w", sourcePath, err)
 			}
 			if rec == nil {
-				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s has no finished compactable sync (diff syncs are not compactable)", cs.FilePath)
+				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s has no finished compactable sync (diff syncs are not compactable)", sourcePath)
 			}
 
 			// Record only (Path, SyncID, Stats) and fully close the store,
@@ -721,11 +873,11 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 			// chunk closes, so peak disk is O(fan-in) source directories,
 			// not O(len(entries)). The fallback unpacks one source at a
 			// time and pays one extra unpack per source (selection + merge).
-			source := mergepkg.SourceFile{Path: cs.FilePath, SyncID: rec.GetSyncId(), DecoderPool: c.decoderPool}
+			source := mergepkg.SourceFile{Path: sourcePath, SyncID: rec.GetSyncId(), DecoderPool: c.decoderPool}
 			if useOverlay {
 				stats, ok, err := enginepkg.CachedSyncStats(ctx, srcEng, rec.GetSyncId())
 				if err != nil {
-					return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: cached stats for %s: %w", cs.FilePath, err)
+					return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: cached stats for %s: %w", sourcePath, err)
 				}
 				if ok {
 					source.Stats = stats

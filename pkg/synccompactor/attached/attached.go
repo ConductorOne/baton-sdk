@@ -3,6 +3,7 @@ package attached
 import (
 	"context"
 	"fmt"
+	"time"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -61,7 +62,12 @@ func latestFinishedCompactableSync(ctx context.Context, f *dotc1z.C1File) (*read
 			continue
 		}
 
-		if best == nil || s.GetEndedAt().AsTime().After(best.GetEndedAt().AsTime()) {
+		sEndedAt := s.GetEndedAt().AsTime()
+		bestEndedAt := time.Time{}
+		if best != nil {
+			bestEndedAt = best.GetEndedAt().AsTime()
+		}
+		if best == nil || sEndedAt.After(bestEndedAt) || (sEndedAt.Equal(bestEndedAt) && s.GetId() > best.GetId()) {
 			best = s
 		}
 	}

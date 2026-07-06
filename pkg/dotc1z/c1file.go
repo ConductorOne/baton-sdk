@@ -471,7 +471,16 @@ func WithPayloadEncoding(enc PayloadEncoding) C1ZOption {
 	}
 }
 
-// Returns a new C1File instance with its state stored at the provided filename.
+// NewC1ZFile returns a new C1File instance with its state stored at the
+// provided filename.
+//
+// Deprecated: NewC1ZFile is the SQLite-only constructor; it always returns a
+// *C1File backed by the v1/SQLite engine and errors if the Pebble engine is
+// requested for a writable file. Prefer [NewStore], which supports multiple
+// database engines — it selects the engine appropriate for outputFilePath
+// (SQLite or Pebble) and returns the engine-neutral [C1ZStore] interface.
+// NewC1ZFile remains only for callers that need SQLite-specific *C1File
+// methods (e.g. ToPebble, RollbackExpansion) that are not part of C1ZStore.
 func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
 	var err error
@@ -1153,6 +1162,18 @@ func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, sy
 		return nil, err
 	}
 	return statsToMap(stats, connectorstore.SyncType(sync.GetSyncType())), nil
+}
+
+// RecalculateStats recomputes the cached stats for the given sync from the
+// underlying tables and persists them, discarding any previously cached
+// value. The store must be writable (stats are only persisted for ended
+// syncs on a non-read-only c1z).
+func (c *C1File) RecalculateStats(ctx context.Context, syncId string) error {
+	if c.readOnly {
+		return ErrReadOnly
+	}
+	_, _, err := c.stats(ctx, connectorstore.SyncTypeAny, syncId, true)
+	return err
 }
 
 func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, syncId string, forceRefresh bool) (*reader_v2.SyncRun, *reader_v2.SyncStats, error) {

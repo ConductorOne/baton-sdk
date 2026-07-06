@@ -83,11 +83,29 @@ func (c *Compactor) resolvedEngine() dotc1z.Engine {
 	return c.engine
 }
 
+// ErrEnginePolicyConflict is returned when the caller explicitly requests
+// SQLite output but one or more inputs are Pebble/v3 format. Pebble inputs
+// cannot be re-encoded as SQLite without a full data-layer conversion, so
+// the combination is rejected rather than silently downgrading.
+var ErrEnginePolicyConflict = errors.New("compactor: engine policy conflict: cannot compact Pebble input to SQLite output")
+
+// inferEngineFromInputs determines the output engine for a compaction run
+// when no engine was explicitly set by the caller (WithEngine).
+//
+// Policy (evaluated in order):
+//  1. Explicit engine set via WithEngine: honored, subject to the Pebble-input
+//     constraint below.
+//  2. Any input is Pebble/v3: output is Pebble, regardless of whether other
+//     inputs are SQLite/v1 (mixed inputs produce Pebble). SQLite inputs in a
+//     Pebble run are converted to Pebble automatically; callers are not
+//     required to pre-convert.
+//  3. All inputs are SQLite/v1: output is SQLite.
+//
+// Constraint: an explicit SQLite request (WithEngine(EngineSQLite)) when any
+// input is Pebble/v3 returns ErrEnginePolicyConflict.
 func (c *Compactor) inferEngineFromInputs() (dotc1z.Engine, error) {
-	if c.engine != "" {
-		return c.engine, nil
-	}
-	var inferred dotc1z.Engine
+	hasPebble := false
+	hasSQLite := false
 	for _, entry := range c.entries {
 		if entry == nil || entry.FilePath == "" {
 			continue
@@ -104,27 +122,33 @@ func (c *Compactor) inferEngineFromInputs() (dotc1z.Engine, error) {
 		if closeErr != nil {
 			return "", fmt.Errorf("infer compactor engine from %s: %w", entry.FilePath, closeErr)
 		}
-		var engine dotc1z.Engine
 		switch format {
 		case dotc1z.C1ZFormatV1:
-			engine = dotc1z.EngineSQLite
+			hasSQLite = true
 		case dotc1z.C1ZFormatV3:
-			engine = dotc1z.EnginePebble
+			hasPebble = true
 		default:
 			return "", fmt.Errorf("infer compactor engine from %s: unsupported c1z format %s", entry.FilePath, format)
 		}
-		if inferred == "" {
-			inferred = engine
-			continue
-		}
-		if inferred != engine {
-			return "", fmt.Errorf("infer compactor engine: mixed input formats are not supported (%s is %s, previously inferred %s)", entry.FilePath, engine, inferred)
-		}
 	}
-	if inferred == "" {
+
+	// Explicit engine: validate and return.
+	if c.engine != "" {
+		if c.engine == dotc1z.EngineSQLite && hasPebble {
+			return "", fmt.Errorf("%w: caller requested SQLite but at least one input is Pebble/v3", ErrEnginePolicyConflict)
+		}
+		return c.engine, nil
+	}
+
+	// Auto-select: any Pebble input → Pebble output.
+	if hasPebble {
+		return dotc1z.EnginePebble, nil
+	}
+	if hasSQLite {
 		return dotc1z.EngineSQLite, nil
 	}
-	return inferred, nil
+	// No readable inputs: default to SQLite to preserve historical behavior.
+	return dotc1z.EngineSQLite, nil
 }
 
 type CompactableSync struct {
@@ -290,6 +314,22 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		c.pebbleMode = c.resolvePebbleMode(ctx)
 	}
 	foldMode := c.pebbleMode == PebbleCompactorModeFold
+	if foldMode {
+		// Fold merges partials in place into a private copy of the base, so
+		// only the BASE must already be Pebble: converting the base would
+		// mean rewriting the whole base, which defeats fold's point. SQLite
+		// partials are fine — they are converted to Pebble inside the fold
+		// loop. When the base itself is SQLite/v1, fall back to the overlay
+		// path, which converts every input before merging.
+		baseFormat, ferr := readCompactionInputFormat(c.entries[0].FilePath)
+		if ferr != nil {
+			return nil, ferr
+		}
+		if baseFormat != dotc1z.C1ZFormatV3 {
+			foldMode = false
+			c.pebbleMode = PebbleCompactorModeOverlay
+		}
+	}
 	if foldMode {
 		if err = copyFileForFold(c.entries[0].FilePath, destFilePath); err != nil {
 			return nil, fmt.Errorf("fold: copy base input: %w", err)

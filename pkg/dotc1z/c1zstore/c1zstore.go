@@ -16,6 +16,7 @@ import (
 	"context"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 )
 
 // Store is the internal contract used by the sync pipeline, compactor, and
@@ -58,4 +59,6 @@ type Store interface {
 	// Close releases resources, flushing any pending writes.
 	// Overrides the embedded Reader.Close to document this signature.
 	Close(ctx context.Context) error
+
+	SessionStore() sessions.SessionStore
 }

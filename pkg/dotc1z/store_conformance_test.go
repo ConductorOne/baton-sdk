@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/doug-martin/goqu/v9"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
@@ -29,6 +30,7 @@ func TestC1ZStoreConformance(t *testing.T) {
 	t.Run("SyncMeta/LatestFullSync ignores in-progress and non-full", testLatestFullSyncIgnoresInProgressAndPartial)
 	t.Run("SyncMeta/LatestFinishedSyncOfAnyType includes diff types", testLatestFinishedSyncOfAnyTypeIncludesDiff)
 	t.Run("SyncMeta/Stats reports row counts", testStatsReportsRowCounts)
+	t.Run("SyncMeta/RecalculateStats refreshes stale cached stats", testRecalculateStatsRefreshesStale)
 	t.Run("FileOps/CloneSync produces readable c1z", testCloneSyncProducesReadableC1Z)
 	t.Run("FileOps/GenerateSyncDiff creates partial sync", testGenerateSyncDiffCreatesPartial)
 }
@@ -308,6 +310,34 @@ func testStatsReportsRowCounts(t *testing.T) {
 		}
 	}
 	require.True(t, hasNonZero, "Stats should report at least one non-zero row count")
+}
+
+func testRecalculateStatsRefreshesStale(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	syncID := c1f.currentSyncID
+
+	require.NoError(t, c1f.PutGrants(ctx,
+		plainGrant(t, "g-recalc", "ent1", "group", "g1", "user", "u1")))
+	require.NoError(t, c1f.EndSync(ctx))
+
+	// EndSync caches stats. Corrupt the cached value so we can prove
+	// RecalculateStats overwrites it rather than returning the stale cache.
+	q := c1f.db.Update(syncRuns.Name()).
+		Set(goqu.Record{"stats": `{"grants":999999}`}).
+		Where(goqu.C("sync_id").Eq(syncID))
+	query, args, err := q.ToSQL()
+	require.NoError(t, err)
+	_, err = c1f.db.ExecContext(ctx, query, args...)
+	require.NoError(t, err)
+
+	require.NoError(t, c1f.SyncMeta().RecalculateStats(ctx, syncID))
+
+	stats, err := c1f.SyncMeta().Stats(ctx, connectorstore.SyncTypeFull, syncID)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), stats["grants"], "RecalculateStats should overwrite the stale cached grant count")
 }
 
 // -----------------------------------------------------------------------------

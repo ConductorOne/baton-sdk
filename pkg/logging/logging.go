@@ -207,6 +207,55 @@ func Init(ctx context.Context, opts ...Option) (context.Context, error) {
 	return ctxzap.ToContext(ctx, l), nil
 }
 
+// InitWithCore behaves like Init but tees an additional core onto the logger —
+// used, e.g., to also emit to the Windows event log. The extra core is built
+// from the resolved zap.Config so it inherits the encoder and level. Any file
+// rotation configured via WithFileRotation still applies to the base logger.
+func InitWithCore(ctx context.Context, buildCore func(zap.Config) zapcore.Core, opts ...Option) (context.Context, error) {
+	cfg := &logConfig{
+		zapConfig: zap.NewProductionConfig(),
+	}
+	cfg.zapConfig.Sampling = nil
+	cfg.zapConfig.DisableStacktrace = true
+
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	activeMu.Lock()
+	defer activeMu.Unlock()
+
+	if activeRotator != nil {
+		if err := activeRotator.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "baton: log rotation: close previous rotator: %v\n", err)
+		}
+		activeRotator = nil
+	}
+
+	var l *zap.Logger
+	var err error
+	if cfg.filePath != "" {
+		l, err = buildRotatingLogger(cfg)
+	} else {
+		l, err = cfg.zapConfig.Build()
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if buildCore != nil {
+		extra := buildCore(cfg.zapConfig)
+		l = l.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+			return zapcore.NewTee(c, extra)
+		}))
+	}
+
+	activeLevel = &cfg.zapConfig.Level
+	zap.ReplaceGlobals(l)
+
+	return ctxzap.ToContext(ctx, l), nil
+}
+
 // buildRotatingLogger creates a zap.Logger backed by a lumberjack.Logger.
 // The caller must hold activeMu and must already have closed any previous
 // rotator; this publishes the new one to the activeRotator global.
