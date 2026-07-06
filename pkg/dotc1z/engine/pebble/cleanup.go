@@ -114,6 +114,12 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 // so on a sealed (paused) engine db.Compact would block forever waiting
 // for a grant — and, because we hold writeWG, deadlock Engine.Close too.
 // Bind a sync (SetCurrentSync) first.
+//
+// KNOWN LIMITATION: the gate only refuses calls made after the seal. A
+// CompactAllRanges already inside its loop when EndSync pauses the
+// scheduler blocks in db.Compact indefinitely (and holds writeWG, so a
+// later Close hangs too). Do not run this concurrently with EndSync; no
+// in-tree caller does.
 func (e *Engine) CompactAllRanges(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err

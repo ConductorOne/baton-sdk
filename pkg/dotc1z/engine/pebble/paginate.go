@@ -1,6 +1,7 @@
 package pebble
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -59,7 +60,12 @@ func decodeCursor(s string) ([]byte, error) {
 
 // rangeAfter returns the half-open Pebble range [start, upper) where
 // `start` is positioned to be strictly greater than `cursor`. If
-// `cursor` is empty, returns the prefix itself.
+// `cursor` is empty, returns the prefix itself. A cursor that does not
+// carry the prefix is rejected with ErrInvalidPageToken: cursors are
+// raw keys we minted for THIS keyspace, so a foreign prefix means a
+// corrupted or hostile token — accepting one whose bytes sort below
+// the prefix would start the scan in a different record type's
+// keyspace and serve its values as this type's records.
 //
 // The trick: pebble.IterOptions.LowerBound is inclusive, so we append
 // 0x00 to the cursor to make the iteration start at any key
@@ -67,15 +73,18 @@ func decodeCursor(s string) ([]byte, error) {
 // equal to `cursor + 0x00` for our tuple-encoded keyspace because
 // tuple-encoded strings always end at the separator (0x00) or
 // end-of-prefix, never with a bare 0x00 byte at the tail.
-func rangeAfter(prefix, cursor []byte) ([]byte, []byte) {
+func rangeAfter(prefix, cursor []byte) ([]byte, []byte, error) {
 	upper := upperBoundOf(prefix)
 	if len(cursor) == 0 {
-		return prefix, upper
+		return prefix, upper, nil
+	}
+	if !bytes.HasPrefix(cursor, prefix) {
+		return nil, nil, fmt.Errorf("%w: cursor does not belong to this keyspace", ErrInvalidPageToken)
 	}
 	lower := make([]byte, 0, len(cursor)+1)
 	lower = append(lower, cursor...)
 	lower = append(lower, 0x00)
-	return lower, upper
+	return lower, upper, nil
 }
 
 // iteratePrimaryPageWithKey iterates over a [prefix, upperBoundOf(prefix))
@@ -97,7 +106,10 @@ func iteratePrimaryPageWithKey[T proto.Message](
 	if limit <= 0 {
 		limit = DefaultPageSize
 	}
-	lower, upper := rangeAfter(prefix, cursor)
+	lower, upper, rangeErr := rangeAfter(prefix, cursor)
+	if rangeErr != nil {
+		return nil, "", rangeErr
+	}
 	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,
@@ -143,7 +155,10 @@ func iterateGrantPrimaryPage(
 	if limit <= 0 {
 		limit = DefaultPageSize
 	}
-	lower, upper := rangeAfter(prefix, cursor)
+	lower, upper, rangeErr := rangeAfter(prefix, cursor)
+	if rangeErr != nil {
+		return nil, "", rangeErr
+	}
 	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,
@@ -265,7 +280,10 @@ func (e *Engine) PaginateGrantPrincipalKeysByEntitlement(
 		limit = DefaultPageSize
 	}
 	primaryPrefix := encodeGrantPrimaryEntitlementPrefix(entID)
-	lower, upper := rangeAfter(primaryPrefix, cursorBytes)
+	lower, upper, err := rangeAfter(primaryPrefix, cursorBytes)
+	if err != nil {
+		return nil, "", err
+	}
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,
@@ -344,7 +362,10 @@ func (e *Engine) PaginateGrantsByPrincipal(
 		limit = DefaultPageSize
 	}
 	indexPrefix := encodeGrantByPrincipalPrefix(principalRT, principalID)
-	lower, upper := rangeAfter(indexPrefix, cursorBytes)
+	lower, upper, err := rangeAfter(indexPrefix, cursorBytes)
+	if err != nil {
+		return nil, "", err
+	}
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,
@@ -434,7 +455,10 @@ func (e *Engine) PaginateGrantsByPrincipalResourceType(
 		limit = DefaultPageSize
 	}
 	indexPrefix := encodeGrantByPrincipalResourceTypeIdentityPrefix(principalRT)
-	lower, upper := rangeAfter(indexPrefix, cursorBytes)
+	lower, upper, err := rangeAfter(indexPrefix, cursorBytes)
+	if err != nil {
+		return nil, "", err
+	}
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,
@@ -505,7 +529,10 @@ func (e *Engine) PaginateGrantsByNeedsExpansion(
 		limit = DefaultPageSize
 	}
 	indexPrefix := encodeGrantByNeedsExpansionPrefix()
-	lower, upper := rangeAfter(indexPrefix, cursorBytes)
+	lower, upper, err := rangeAfter(indexPrefix, cursorBytes)
+	if err != nil {
+		return nil, "", err
+	}
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,
@@ -588,7 +615,10 @@ func (e *Engine) PaginateResourcesByParent(
 		limit = DefaultPageSize
 	}
 	indexPrefix := encodeResourceByParentPrefix(parentRT, parentID)
-	lower, upper := rangeAfter(indexPrefix, cursorBytes)
+	lower, upper, err := rangeAfter(indexPrefix, cursorBytes)
+	if err != nil {
+		return nil, "", err
+	}
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,
@@ -679,7 +709,10 @@ func (e *Engine) PaginateEntitlementsByResource(
 		limit = DefaultPageSize
 	}
 	indexPrefix := encodeEntitlementPrimaryResourcePrefix(resourceTypeID, resourceID)
-	lower, upper := rangeAfter(indexPrefix, cursorBytes)
+	lower, upper, err := rangeAfter(indexPrefix, cursorBytes)
+	if err != nil {
+		return nil, "", err
+	}
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,

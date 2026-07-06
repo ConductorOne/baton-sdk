@@ -98,10 +98,13 @@ type synthesizedContributionStorer interface {
 // write (SST ingest on Pebble) published at the wave boundary, instead of
 // committing each destination's rows out of key order as they are produced.
 //
-// Begin returns false when the store cannot run a layer session (e.g. Pebble
-// without deferred expansion indexes); the caller then falls back to
-// StoreNewExpandedGrantContributions. Rows streamed via Add are not readable
-// until Finish returns. Abort discards an in-flight session.
+// Begin returning false routes the caller to the
+// StoreNewExpandedGrantContributions fallback. Today the Pebble engine
+// always returns true when a sync is open (the by_principal index is
+// unconditionally rebuilt at EndSync, so a layer session never skips index
+// maintenance); the boolean exists so a future store can decline. Rows
+// streamed via Add are not readable until Finish returns. Abort discards an
+// in-flight session.
 type synthesizedContributionLayerStorer interface {
 	BeginExpandedGrantLayer(ctx context.Context) (bool, error)
 	AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error

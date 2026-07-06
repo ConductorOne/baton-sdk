@@ -464,7 +464,10 @@ func (a *Adapter) ListSyncs(ctx context.Context, req *reader_v2.SyncsReaderServi
 		return nil, err
 	}
 	prefix := encodeSyncRunFullPrefix()
-	lower, upper := rangeAfter(prefix, cursorBytes)
+	lower, upper, err := rangeAfter(prefix, cursorBytes)
+	if err != nil {
+		return nil, err
+	}
 	iter, err := a.engine.DB().NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,

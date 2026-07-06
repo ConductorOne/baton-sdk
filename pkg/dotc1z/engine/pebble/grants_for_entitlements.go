@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
-	"sort"
 
 	"github.com/cockroachdb/pebble/v2"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -126,19 +125,18 @@ EntitlementLoop:
 	}.Build(), nil
 }
 
-// entitlementListChecksum hashes the sorted entitlement ID set so
-// it is stable across client-side reorderings. If the caller drops
-// or adds an entitlement between pages the checksum changes and
-// decodeBatchCursor rejects the cursor.
+// entitlementListChecksum hashes the entitlement ID list IN REQUEST
+// ORDER. The cursor resumes by positional index into the list, so a
+// reordering is just as fatal to the resume as a drop or an add — a
+// sorted (order-insensitive) checksum would bless a reorder while the
+// index resumed over a different entitlement, re-returning some and
+// silently skipping others. Any change to the list, including order,
+// changes the checksum and decodeBatchCursor restarts from the
+// beginning.
 func entitlementListChecksum(ents []*v2.Entitlement) uint32 {
-	ids := make([]string, 0, len(ents))
-	for _, e := range ents {
-		ids = append(ids, e.GetId())
-	}
-	sort.Strings(ids)
 	h := crc32.NewIEEE()
-	for _, id := range ids {
-		_, _ = h.Write([]byte(id))
+	for _, e := range ents {
+		_, _ = h.Write([]byte(e.GetId()))
 		_, _ = h.Write([]byte{0})
 	}
 	return h.Sum32()

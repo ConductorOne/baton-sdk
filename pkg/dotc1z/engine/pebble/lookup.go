@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/cockroachdb/pebble/v2"
 )
@@ -57,6 +58,15 @@ import (
 // grant-id lookup. Ids with enough colons to exceed it are unresolvable by
 // string per policy ("if we can't resolve safely, error").
 const maxGrantIDCandidates = 4096
+
+// maxBareIDColons caps the colon count a bare-id string may carry before
+// the combinatorial machinery refuses outright: the split enumeration is
+// O(colons²) (and each entitlement-scan fallback probe opens an iterator),
+// so a pathological id — hostile or corrupt — must fail fast instead of
+// grinding through billions of loop iterations that no context check can
+// interrupt. Real ids carry a handful of colons; 64 is beyond any
+// legitimate ARN-ish shape while keeping the worst case trivial.
+const maxBareIDColons = 64
 
 // noteEntitlementKeyspaceWrite invalidates the lazy entitlement id lookup
 // map. Call after ANY mutation of the entitlement primary keyspace (batch
@@ -174,10 +184,16 @@ func (e *Engine) resolveGrantScanEntitlementIdentity(ctx context.Context, entitl
 	}
 	// No entitlement record: probe direct (rt | rid | tail) splits against
 	// the grant primary keyspace.
+	if n := strings.Count(entitlementID, ":"); n > maxBareIDColons {
+		return entitlementIdentity{}, fmt.Errorf("%w: entitlement id has %d colons; too complex to resolve safely by string", ErrAmbiguousExternalID, n)
+	}
 	var hits []entitlementIdentity
 	for k := 0; k < len(entitlementID); k++ {
 		if entitlementID[k] != ':' {
 			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return entitlementIdentity{}, err
 		}
 		for l := k + 1; l < len(entitlementID); l++ {
 			if entitlementID[l] != ':' {
@@ -251,6 +267,9 @@ func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID s
 	if len(colons) < 2 {
 		return grantIdentity{}, pebble.ErrNotFound
 	}
+	if len(colons) > maxBareIDColons {
+		return grantIdentity{}, fmt.Errorf("%w: grant id has %d colons; too complex to resolve safely by string", ErrAmbiguousExternalID, len(colons))
+	}
 
 	var candidates []grantIdentity
 	addCandidate := func(id grantIdentity) error {
@@ -261,14 +280,24 @@ func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID s
 		return nil
 	}
 
-	// Entitlement-resolved splits: (entID | prt | pid).
+	// Entitlement-resolved splits: (entID | prt | pid). The entitlement
+	// lookup depends only on the first boundary, so it is hoisted out of
+	// the inner loop — one map probe per candidate entitlement id, not one
+	// per (i, j) pair.
 	for ii := 0; ii < len(colons); ii++ {
+		if err := ctx.Err(); err != nil {
+			return grantIdentity{}, err
+		}
+		i := colons[ii]
+		entMatches, err := e.entitlementIdentitiesForExternalID(ctx, grantID[:i])
+		if err != nil {
+			return grantIdentity{}, err
+		}
+		if len(entMatches) == 0 {
+			continue
+		}
 		for jj := ii + 1; jj < len(colons); jj++ {
-			i, j := colons[ii], colons[jj]
-			entMatches, err := e.entitlementIdentitiesForExternalID(ctx, grantID[:i])
-			if err != nil {
-				return grantIdentity{}, err
-			}
+			j := colons[jj]
 			for _, ent := range entMatches {
 				if err := addCandidate(grantIdentity{
 					entitlement:     ent,
@@ -282,7 +311,12 @@ func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID s
 	}
 	// Direct stripped splits: (rt | rid | tail | prt | pid). These need no
 	// entitlement record, covering grants whose entitlement row is absent.
+	// Bounded by maxBareIDColons⁴ in the worst case, which the colon cap
+	// above keeps trivial; the ctx check makes even that interruptible.
 	for kk := 0; kk < len(colons); kk++ {
+		if err := ctx.Err(); err != nil {
+			return grantIdentity{}, err
+		}
 		for ll := kk + 1; ll < len(colons); ll++ {
 			for ii := ll + 1; ii < len(colons); ii++ {
 				for jj := ii + 1; jj < len(colons); jj++ {

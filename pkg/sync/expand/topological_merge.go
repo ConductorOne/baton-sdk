@@ -388,10 +388,15 @@ func (e *Expander) driveTopologicalWave(
 			}
 			destEntitlement := entitlements[destID]
 			if destEntitlement == nil {
+				// Same drop-don't-fail policy as the legacy expander's
+				// missing-descendant handling, but say so: silently zeroing
+				// a subtree of expansion is undiagnosable in production.
+				ctxzap.Extract(ctx).Warn("topological expansion: destination entitlement not in store; skipping its reduction",
+					zap.String("entitlement_id", destID))
 				continue
 			}
 			if err := run.reduce(ctx, destEntitlement, incoming, entitlements, sink); err != nil {
-				return err
+				return fmt.Errorf("reduce destination entitlement %q: %w", destID, err)
 			}
 			reducedAny = true
 			if run.metrics != nil {

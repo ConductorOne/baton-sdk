@@ -154,10 +154,14 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		if fresh {
 			opts = pebble.NoSync
 		}
-		if err := priBatch.Commit(opts); err != nil {
+		// One atomic commit: folding the index batch into the primary batch
+		// closes the durability gap where the primary commit landed but the
+		// index commit failed — a divergence that would persist in the saved
+		// artifact if the caller shipped it anyway.
+		if err := priBatch.Apply(idxBatch, nil); err != nil {
 			return err
 		}
-		return idxBatch.Commit(opts)
+		return priBatch.Commit(opts)
 	})
 }
 
@@ -290,10 +294,14 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 			}
 		}
 
-		if err := priBatch.Commit(pebble.NoSync); err != nil {
+		// One atomic commit: folding the index batch into the primary batch
+		// closes the durability gap where the primary commit landed but the
+		// index commit failed — a divergence that would persist in the saved
+		// artifact if the caller shipped it anyway.
+		if err := priBatch.Apply(idxBatch, nil); err != nil {
 			return err
 		}
-		return idxBatch.Commit(pebble.NoSync)
+		return priBatch.Commit(pebble.NoSync)
 	})
 }
 
@@ -344,10 +352,14 @@ func (e *Engine) PutSynthesizedGrantRecords(ctx context.Context, records []*v3.G
 				return err
 			}
 		}
-		if err := priBatch.Commit(pebble.NoSync); err != nil {
+		// One atomic commit: folding the index batch into the primary batch
+		// closes the durability gap where the primary commit landed but the
+		// index commit failed — a divergence that would persist in the saved
+		// artifact if the caller shipped it anyway.
+		if err := priBatch.Apply(idxBatch, nil); err != nil {
 			return err
 		}
-		return idxBatch.Commit(pebble.NoSync)
+		return priBatch.Commit(pebble.NoSync)
 	})
 }
 
@@ -742,10 +754,14 @@ func (e *Engine) putSynthesizedGrantContributionsBatch(ctx context.Context, reco
 				return err
 			}
 		}
-		if err := priBatch.Commit(pebble.NoSync); err != nil {
+		// One atomic commit: folding the index batch into the primary batch
+		// closes the durability gap where the primary commit landed but the
+		// index commit failed — a divergence that would persist in the saved
+		// artifact if the caller shipped it anyway.
+		if err := priBatch.Apply(idxBatch, nil); err != nil {
 			return err
 		}
-		return idxBatch.Commit(pebble.NoSync)
+		return priBatch.Commit(pebble.NoSync)
 	})
 }
 
@@ -870,10 +886,14 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 		if e.IsFreshSync() {
 			opts = pebble.NoSync
 		}
-		if err := priBatch.Commit(opts); err != nil {
+		// One atomic commit: folding the index batch into the primary batch
+		// closes the durability gap where the primary commit landed but the
+		// index commit failed — a divergence that would persist in the saved
+		// artifact if the caller shipped it anyway.
+		if err := priBatch.Apply(idxBatch, nil); err != nil {
 			return err
 		}
-		return idxBatch.Commit(opts)
+		return priBatch.Commit(opts)
 	})
 }
 
@@ -1004,7 +1024,16 @@ func (e *Engine) markDeferredIdxPending() error {
 	if !e.deferredIdxPending.CompareAndSwap(false, true) {
 		return nil
 	}
-	return e.db.Set(encodeDeferredIdxPendingKey(), nil, pebble.Sync)
+	if err := e.db.Set(encodeDeferredIdxPendingKey(), nil, pebble.Sync); err != nil {
+		// Roll the CAS back so a retried write attempts the durable marker
+		// again. Leaving the flag armed with no durable key would make the
+		// in-process EndSync build the index (flag true) while a
+		// crash+resume silently skipped it (key absent) — exactly the
+		// divergence the durable marker exists to close.
+		e.deferredIdxPending.Store(false)
+		return fmt.Errorf("arm deferred index marker: %w", err)
+	}
+	return nil
 }
 
 // clearDeferredIdxPending drops both forms of the marker after a successful
@@ -1013,7 +1042,9 @@ func (e *Engine) markDeferredIdxPending() error {
 // (which would leave the atomic flag armed but the durable marker deleted,
 // or vice versa).
 func (e *Engine) clearDeferredIdxPending() error {
-	return e.withWrite(func() error {
+	// AllowSealed: runs inside EndSync's sealed finalize window, right
+	// after the deferred build (see Adapter.EndSync).
+	return e.withWriteAllowSealed(func() error {
 		e.deferredIdxPending.Store(false)
 		return e.db.Delete(encodeDeferredIdxPendingKey(), pebble.Sync)
 	})

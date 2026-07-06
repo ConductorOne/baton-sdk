@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/sync/expand/scc"
+	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
@@ -377,10 +378,43 @@ func (g *EntitlementGraph) AddEdge(
 	}
 
 	if destinations, ok := g.SourcesToDestinations[srcNode.Id]; ok {
-		if _, ok = destinations[dstNode.Id]; ok {
-			// TODO: just do nothing? it's probably a mistake if we're adding the same edge twice
+		if edgeID, ok := destinations[dstNode.Id]; ok {
+			// A duplicate (src, dst) edge from the datasource. Fold the
+			// specs deterministically instead of keeping whichever the
+			// engine-dependent pagination order delivered first — the two
+			// engines can iterate pending expansions in different orders,
+			// and a first-wins rule would let them build different graphs
+			// from identical connector data. Union semantics match
+			// fixCycle's edge merge: any deep edge makes the pair deep
+			// (deep admits strictly more), and any unfiltered edge makes
+			// the pair unfiltered (an empty filter means match-all, so
+			// set-unioning across it would narrow it).
+			existing := g.Edges[edgeID]
+			changed := false
+			if existing.IsShallow && !isShallow {
+				existing.IsShallow = false
+				changed = true
+			}
+			switch {
+			case len(existing.ResourceTypeIDs) == 0:
+				// Already unfiltered; nothing wider exists.
+			case len(resourceTypeIDs) == 0:
+				existing.ResourceTypeIDs = nil
+				changed = true
+			default:
+				merged := mapset.NewThreadUnsafeSet[string](existing.ResourceTypeIDs...)
+				before := merged.Cardinality()
+				merged.Append(resourceTypeIDs...)
+				if merged.Cardinality() != before {
+					existing.ResourceTypeIDs = merged.ToSlice()
+					changed = true
+				}
+			}
+			if changed {
+				g.Edges[edgeID] = existing
+			}
 			ctxzap.Extract(ctx).Warn(
-				"duplicate edge from datasource",
+				"duplicate edge from datasource; merged specs (deep-wins, unfiltered-wins)",
 				zap.String("src_entitlement_id", srcEntitlementID),
 				zap.String("dst_entitlement_id", dstEntitlementID),
 				zap.Bool("shallow", isShallow),
@@ -394,13 +428,13 @@ func (g *EntitlementGraph) AddEdge(
 
 	if sources, ok := g.DestinationsToSources[dstNode.Id]; ok {
 		if _, ok = sources[srcNode.Id]; ok {
-			// TODO: just do nothing? it's probably a mistake if we're adding the same edge twice
+			// Unreachable when the maps are consistent (the
+			// SourcesToDestinations check above already handled the
+			// duplicate), kept as a guard against map divergence.
 			ctxzap.Extract(ctx).Warn(
-				"duplicate edge from datasource",
+				"duplicate edge from datasource (reverse map only)",
 				zap.String("src_entitlement_id", srcEntitlementID),
 				zap.String("dst_entitlement_id", dstEntitlementID),
-				zap.Bool("shallow", isShallow),
-				zap.Strings("resource_type_ids", resourceTypeIDs),
 			)
 			return nil
 		}

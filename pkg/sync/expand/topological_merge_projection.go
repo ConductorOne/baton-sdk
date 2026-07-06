@@ -94,7 +94,7 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 		onStoredSynth: func(_ context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
 			addedRows, err := addProjectionRowsFromSynthesized(projDB, dest, principals, sources, projectionSources)
 			if err != nil {
-				return err
+				return fmt.Errorf("topological projection: append synthesized projection rows for %q: %w", dest.GetId(), err)
 			}
 			metrics.ProjectionRowsBuilt += int64(addedRows)
 			return nil
@@ -162,6 +162,10 @@ func (e *Expander) mergeDestinationStreams(
 		for _, sourceID := range sortedCopy(sourceNode.EntitlementIDs) {
 			sourceEntitlement := entitlements[sourceID]
 			if sourceEntitlement == nil {
+				// Drop-don't-fail, but loudly (see the destination-side
+				// warning in driveTopologicalWave).
+				ctxzap.Extract(ctx).Warn("topological expansion: source entitlement not in store; its contributions are skipped",
+					zap.String("entitlement_id", sourceID))
 				continue
 			}
 			if projDB != nil {

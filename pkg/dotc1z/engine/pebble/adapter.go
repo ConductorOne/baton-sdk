@@ -305,30 +305,31 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	// the grant keyspace itself (its scan is teed into a flat rebuild that
 	// replaces the range via IngestAndExcise), so the saved artifact ships
 	// with near-zero compaction debt without running the compactor.
-	a.engine.pauseCompactions()
-	if err := a.endSyncFinalize(ctx, existing); err != nil {
-		// The pause is only for the successful EndSync-to-close window. On
-		// failure the sync stays bound and the caller may keep writing (or
-		// retry EndSync later); leaving compactions paused there would let
-		// L0 accumulate until pebble stalls writes at
-		// L0StopWritesThreshold, with nothing left to resume the scheduler.
-		a.engine.resumeCompactions()
+	// Seal BEFORE finalize, not after: the seal must cover the deferred
+	// index build and the pending-marker clear, or a straggler record
+	// writer that was blocked on writeMu could commit in the gap between
+	// them — a row present in the primary keyspace but permanently missing
+	// from by_principal, in the saved artifact. Finalize's own steps run
+	// on AllowSealed paths; sync-run metadata stamps remain allowed.
+	// Sealing also pauses compactions for the EndSync-to-close window.
+	a.engine.seal()
+	if err := a.engine.endSyncFinalize(ctx, existing); err != nil {
+		// On failure the sync stays bound and the caller may keep writing
+		// (or retry EndSync later): leave the sealed state and resume
+		// compactions, or L0 would accumulate until pebble stalls writes at
+		// L0StopWritesThreshold with nothing left to resume the scheduler.
+		a.engine.unseal()
 		return err
 	}
-	// Success: enter the explicit sealed state — compactions stay paused
-	// AND record writes now fail with ErrEngineSealed until a sync is
-	// bound again (StartNewSync/ResumeSync/SetCurrentSync unseal). This
-	// turns the "no writes between EndSync and close" convention into an
-	// enforced invariant; sync-run metadata stamps remain allowed.
-	a.engine.seal()
 	a.current = syncRunState{}
 	return nil
 }
 
-// endSyncFinalize runs the post-pause tail of EndSync: the deferred index
+// endSyncFinalize runs the sealed tail of EndSync: the deferred index
 // build, the ended_at stamp, the stats sidecar, and the durability flush.
-// Split out so EndSync can resume the compaction scheduler on any failure.
-func (a *Adapter) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord) error {
+// Runs with the engine SEALED (see EndSync) — every write below goes
+// through an AllowSealed path. Split out so EndSync can unseal on failure.
+func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord) error {
 	// Build the deferred by_principal index BEFORE stamping ended_at (an
 	// interrupted build must leave the sync visibly unfinished so a resume
 	// re-runs EndSync and the rebuild — the pending marker is durable, see
@@ -336,11 +337,11 @@ func (a *Adapter) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecor
 	// full grant scan also accumulates the grant portion of the stats via
 	// stashDeferredGrantStats, letting PersistSyncStats skip a second
 	// O(grants) pass over the keyspace).
-	if a.engine.deferredIdxPending.Load() {
-		if err := a.engine.BuildDeferredGrantIndexes(ctx); err != nil {
+	if e.deferredIdxPending.Load() {
+		if err := e.BuildDeferredGrantIndexes(ctx); err != nil {
 			return fmt.Errorf("EndSync: build deferred grant indexes: %w", err)
 		}
-		if err := a.engine.clearDeferredIdxPending(); err != nil {
+		if err := e.clearDeferredIdxPending(); err != nil {
 			return fmt.Errorf("EndSync: clear deferred index marker: %w", err)
 		}
 	}
@@ -352,7 +353,7 @@ func (a *Adapter) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecor
 		EndedAt:      timestamppb.Now(),
 		SyncToken:    existing.GetSyncToken(),
 	}.Build()
-	if err := a.engine.PutSyncRunRecord(ctx, updated); err != nil {
+	if err := e.PutSyncRunRecord(ctx, updated); err != nil {
 		return err
 	}
 	// Populate the stats sidecar BEFORE the durability flush. Stats
@@ -363,7 +364,7 @@ func (a *Adapter) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecor
 	// framework will backfill next time the file opens. We log a
 	// warning so the failure is visible in production telemetry but
 	// don't fail the sync end on stats-sidecar trouble.
-	if err := a.engine.PersistSyncStats(ctx, existing.GetSyncId()); err != nil {
+	if err := e.PersistSyncStats(ctx, existing.GetSyncId()); err != nil {
 		ctxzap.Extract(ctx).Warn("pebble: persist sync stats sidecar failed; Stats() will fall back to O(N) iteration until the next Open backfills it",
 			zap.String("sync_id", existing.GetSyncId()),
 			zap.Error(err),
@@ -372,7 +373,7 @@ func (a *Adapter) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecor
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After
 	// this returns, all writes from the sync are on disk.
-	return a.engine.EndFreshSync(ctx)
+	return e.EndFreshSync(ctx)
 }
 
 // === writes ===

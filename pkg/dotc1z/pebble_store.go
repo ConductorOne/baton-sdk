@@ -669,6 +669,20 @@ func (s *pebbleStore) Close(ctx context.Context) (retErr error) {
 	if s.closed {
 		return nil
 	}
+
+	if !s.readOnly && s.dirty {
+		if err := s.save(ctx); err != nil {
+			// Tear NOTHING down: the unpacked DB under tmpDir is the only
+			// copy of the synced data, and save failures are frequently
+			// transient (target-path permissions, disk space for the
+			// envelope). Leave the store open so the caller can fix the
+			// condition and Close again; if the process exits instead, the
+			// temp dir survives on disk for manual recovery rather than
+			// being deleted out from under a failed save.
+			return fmt.Errorf("pebble store close: save failed, store left open and unsaved data preserved under %s: %w", s.tmpDir, err)
+		}
+		s.dirty = false
+	}
 	s.closed = true
 
 	defer func() {
@@ -677,11 +691,6 @@ func (s *pebbleStore) Close(ctx context.Context) (retErr error) {
 		}
 	}()
 
-	if !s.readOnly && s.dirty {
-		if err := s.save(ctx); err != nil {
-			retErr = errors.Join(retErr, err)
-		}
-	}
 	if err := s.engine.Close(); err != nil {
 		retErr = errors.Join(retErr, err)
 	}

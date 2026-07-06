@@ -272,19 +272,72 @@ func overlayPreGateFires(seen *seenSuffixSet, srcStats *reader_v2.SyncStats, buc
 // holds one sync and keys carry no sync_id, so each is one contiguous
 // range.
 func bucketIndexRanges(bucket bucketSpec) [][2][]byte {
+	ranges := make([][2][]byte, 0, len(bucketIndexCopySpecs(bucket)))
+	for _, spec := range bucketIndexCopySpecs(bucket) {
+		ranges = append(ranges, spec.bounds)
+	}
+	return ranges
+}
+
+// indexFamilyCopySpec describes how one secondary-index family participates in
+// the whole-source copy: its key range, whether copied entries must be
+// filtered against the primary seen set, and — when filtering — how many
+// trailing tuple elements of the index key reconstruct the record's
+// primary-key suffix (the exact bytes the seen set hashed at admission).
+type indexFamilyCopySpec struct {
+	bounds [2][]byte
+	// filter=false families are copied verbatim: their index key is a pure
+	// function of the record's structural identity, so a "seen" identity
+	// implies the admitted winner produces the byte-identical index key —
+	// the copy is an exact duplicate Set, never a stale entry.
+	filter bool
+	elems  int
+}
+
+func bucketIndexCopySpecs(bucket bucketSpec) []indexFamilyCopySpec {
 	switch bucket.id {
 	case runBucketResources:
-		return [][2][]byte{
-			{enginepkg.ResourceByParentLowerBound(), enginepkg.ResourceByParentUpperBound()},
-		}
+		// by_parent tail is (parent_rt, parent_id, child_rt, child_id);
+		// the resource primary suffix is the trailing (child_rt, child_id).
+		return []indexFamilyCopySpec{{
+			bounds: [2][]byte{enginepkg.ResourceByParentLowerBound(), enginepkg.ResourceByParentUpperBound()},
+			filter: true,
+			elems:  2,
+		}}
 	case runBucketEntitlements:
-		return [][2][]byte{
-			{enginepkg.EntitlementByResourceLowerBound(), enginepkg.EntitlementByResourceUpperBound()},
-		}
+		// Retired family: the structured-identity migration deletes this
+		// range, so it is empty on every source this copy can see. Copied
+		// verbatim (i.e. not at all) for symmetry.
+		return []indexFamilyCopySpec{{
+			bounds: [2][]byte{enginepkg.EntitlementByResourceLowerBound(), enginepkg.EntitlementByResourceUpperBound()},
+			filter: false,
+		}}
 	case runBucketGrants:
-		return [][2][]byte{
-			{enginepkg.GrantByPrincipalLowerBound(), enginepkg.GrantByPrincipalUpperBound()},
-			{enginepkg.GrantByNeedsExpansionLowerBound(), enginepkg.GrantByNeedsExpansionUpperBound()},
+		return []indexFamilyCopySpec{
+			{
+				// by_principal permutes the identity components
+				// (prt, pid, rt, rid, flag, tail): a trailing-element walk
+				// CANNOT reconstruct the primary suffix. It doesn't need
+				// to — the key is a pure function of the grant identity,
+				// so filtered (seen) identities would produce the same
+				// bytes the winner's own index entry carries. Copy
+				// verbatim.
+				bounds: [2][]byte{enginepkg.GrantByPrincipalLowerBound(), enginepkg.GrantByPrincipalUpperBound()},
+				filter: false,
+			},
+			{
+				// by_needs_expansion tail IS the grant primary tail
+				// (rt, rid, flag, tail, prt, pid): the whole 6-element
+				// suffix reconstructs the primary suffix byte-for-byte.
+				// This one MUST filter: the flag is record state, not
+				// identity — a newer source can admit the same identity
+				// with needs_expansion=false, and copying the older
+				// source's entry verbatim would bake a phantom
+				// pending-expansion row into the artifact.
+				bounds: [2][]byte{enginepkg.GrantByNeedsExpansionLowerBound(), enginepkg.GrantByNeedsExpansionUpperBound()},
+				filter: true,
+				elems:  6,
+			},
 		}
 	default:
 		return nil
@@ -1146,19 +1199,15 @@ func overlayCopySourceIndexesSST(
 	seen *seenSuffixSet,
 	tmpDir string,
 ) error {
-	ranges := bucketIndexRanges(bucket)
-	if len(ranges) == 0 {
+	specs := bucketIndexCopySpecs(bucket)
+	if len(specs) == 0 {
 		return nil
 	}
 	// SST keys must be appended in ascending order; the family ranges
 	// are disjoint, so ordering them by lower bound suffices.
-	sort.Slice(ranges, func(i, j int) bool {
-		return bytes.Compare(ranges[i][0], ranges[j][0]) < 0
+	sort.Slice(specs, func(i, j int) bool {
+		return bytes.Compare(specs[i].bounds[0], specs[j].bounds[0]) < 0
 	})
-	suffixElems := 1
-	if bucket.id == runBucketResources {
-		suffixElems = 2
-	}
 	sstPath := filepath.Join(tmpDir, fmt.Sprintf("overlay-whole-%s-index.sst", bucket.name))
 	w, err := newSSTBuilder(sstPath)
 	if err != nil {
@@ -1171,10 +1220,10 @@ func overlayCopySourceIndexesSST(
 		}
 		_ = os.Remove(sstPath)
 	}()
-	checkSeen := seen.size() > 0
 	wrote := false
-	for _, r := range ranges {
-		if err := copyIndexRangeFiltered(ctx, source, r[0], r[1], checkSeen, seen, suffixElems, w, &wrote); err != nil {
+	for _, spec := range specs {
+		checkSeen := spec.filter && seen.size() > 0
+		if err := copyIndexRangeFiltered(ctx, source, spec.bounds[0], spec.bounds[1], checkSeen, seen, spec.elems, w, &wrote); err != nil {
 			return err
 		}
 	}

@@ -86,7 +86,10 @@ func (s *streamingPrincipalGroupStream) rawNext(ctx context.Context) (*v2.Grant,
 			PageToken:   s.pageToken,
 		}.Build())
 		if err != nil {
-			return nil, false, err
+			// Identify which of potentially hundreds of thousands of
+			// entitlement streams failed; a raw engine error is
+			// undiagnosable at that scale.
+			return nil, false, fmt.Errorf("list grants for entitlement %q: %w", s.entitlement.GetId(), err)
 		}
 		s.buf = resp.GetList()
 		s.pos = 0

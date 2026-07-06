@@ -297,7 +297,10 @@ func (t *grantRebuildTee) closeAndWait() {
 // build finishes instead of racing the excise), and writeWG participation
 // means Close waits the build out instead of tearing down e.db under it.
 func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
-	return e.withWrite(func() error {
+	// AllowSealed: EndSync seals BEFORE running this build so no straggler
+	// record writer can slip a row in behind the scan (see Adapter.EndSync);
+	// the build itself is one of the sealed window's own steps.
+	return e.withWriteAllowSealed(func() error {
 		return e.buildDeferredGrantIndexesLocked(ctx)
 	})
 }

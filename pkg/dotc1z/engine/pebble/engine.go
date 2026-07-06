@@ -95,11 +95,21 @@ type Engine struct {
 
 	// checkpointMu is the barrier between CheckpointTo's Flush→Checkpoint→
 	// WAL-truncate window (write lock) and DB mutations that bypass writeMu
-	// — today only the synth-layer worker's background SST ingest (read
-	// lock). The worker cannot take writeMu: an Add holding writeMu blocks
-	// on the worker's bounded segment channel, so worker-needs-writeMu
-	// would deadlock. A dedicated RWMutex gives CheckpointTo exclusion
-	// without that cycle.
+	// (read lock). The full bypass inventory:
+	//   - the synth-layer worker's background SST ingest (takes the read
+	//     lock). It cannot take writeMu: an Add holding writeMu blocks on
+	//     the worker's bounded segment channel, so worker-needs-writeMu
+	//     would deadlock. A dedicated RWMutex gives CheckpointTo exclusion
+	//     without that cycle.
+	//   - CompactAllRanges/Flush (cleanup.go): deliberately writeMu-free
+	//     long operations; safe against checkpoints because pebble
+	//     compactions/flushes are internally consistent with Checkpoint
+	//     and LogData(nil) carries no keys.
+	//   - the compactor's raw DB() writes: fenced by call ordering (the
+	//     merge completes before the store's save/CheckpointTo runs).
+	// Everything else (record writes, sessions, the stats sidecar, the
+	// deferred index build, bulk-import ingest) holds writeMu via
+	// withWrite*, which CheckpointTo also takes.
 	checkpointMu sync.RWMutex
 
 	// sealed is the explicit post-EndSync lifecycle state. A successful
@@ -115,6 +125,11 @@ type Engine struct {
 	// silently accumulate L0 until pebble stalled writes at
 	// L0StopWritesThreshold with nothing left to resume the scheduler.
 	sealed atomic.Bool
+	// sealMu makes the (sealed, compactions-paused) pair transition
+	// atomically: an interleaved seal/unseal could otherwise end at
+	// sealed=false with the scheduler paused — writes allowed with nothing
+	// draining L0, the silent stall state sealing exists to eliminate.
+	sealMu sync.Mutex
 
 	// compactionScheduler is the engine's pausable compaction scheduler,
 	// installed by newPebbleOptions. Pause/resume via pauseCompactions /
@@ -307,12 +322,16 @@ func (e *Engine) resumeCompactions() {
 // (SetCurrentSync / MarkFreshSync → unseal). See the sealed field doc for
 // why this is a hard state rather than a convention.
 func (e *Engine) seal() {
+	e.sealMu.Lock()
+	defer e.sealMu.Unlock()
 	e.sealed.Store(true)
 	e.pauseCompactions()
 }
 
 // unseal leaves the sealed state and resumes automatic compactions.
 func (e *Engine) unseal() {
+	e.sealMu.Lock()
+	defer e.sealMu.Unlock()
 	e.sealed.Store(false)
 	e.resumeCompactions()
 }
@@ -406,7 +425,9 @@ func (e *Engine) takeFreshResourcesEmpty() bool {
 // closing check and writeWG: Close tears e.db down after writeWG.Wait,
 // and a bare-mutex EndFreshSync racing Close would flush a nil db.
 func (e *Engine) EndFreshSync(ctx context.Context) error {
-	return e.withWrite(func() error {
+	// AllowSealed: this is the last step of EndSync's sealed finalize
+	// window (see Adapter.EndSync).
+	return e.withWriteAllowSealed(func() error {
 		e.currentSyncMu.RLock()
 		wasFresh := e.freshSync
 		e.currentSyncMu.RUnlock()
@@ -490,7 +511,18 @@ func (e *Engine) withWrite(fn func() error) error {
 	if e.sealed.Load() {
 		return ErrEngineSealed
 	}
-	return e.withWriteAllowSealed(fn)
+	return e.withWriteAllowSealed(func() error {
+		// Re-check under writeMu: the first check is lock-free, so a writer
+		// that passed it and then blocked on writeMu (e.g. behind the
+		// EndSync finalize steps) must not commit once the engine sealed in
+		// the meantime — a grant landing in that window would be
+		// permanently missing from by_principal (the deferred rebuild
+		// already ran and the pending marker was cleared).
+		if e.sealed.Load() {
+			return ErrEngineSealed
+		}
+		return fn()
+	})
 }
 
 // withWriteAllowSealed is withWrite without the sealed check. Reserved for
