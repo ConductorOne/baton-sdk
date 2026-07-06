@@ -426,6 +426,38 @@ func scanGrantIndexFieldsRaw(value []byte) (string, string, string, string, stri
 	return entRT, entRID, entID, principalRT, principalID, needsExpansion, nil
 }
 
+// scanGrantNeedsExpansionRaw extracts only the needs_expansion flag
+// (GrantRecord field 7) with a shallow wire scan — for callers that already
+// carry the identity in the key and need nothing else from the value.
+func scanGrantNeedsExpansionRaw(value []byte) (bool, error) {
+	var needsExpansion bool
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return false, protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num == 7 {
+			if typ != protowire.VarintType {
+				return false, fmt.Errorf("raw record: grant needs_expansion has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeVarint(value)
+			if n < 0 {
+				return false, protowire.ParseError(n)
+			}
+			needsExpansion = v != 0
+			value = value[n:]
+			continue
+		}
+		n = protowire.ConsumeFieldValue(num, typ, value)
+		if n < 0 {
+			return false, protowire.ParseError(n)
+		}
+		value = value[n:]
+	}
+	return needsExpansion, nil
+}
+
 func scanResourceRefRaw(value []byte) (string, string, error) {
 	var rt, id []byte
 	err := scanResourceRefRawBytes(value, func(num protowire.Number, val []byte) {

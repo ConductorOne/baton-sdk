@@ -340,6 +340,14 @@ func (e *Expander) driveTopological(
 		}
 		if activeLayer != nil {
 			if err := activeLayer.FinishExpandedGrantLayer(ctx); err != nil {
+				// Symmetric with the mid-wave error path above: if the
+				// finish failed before the engine detached the session
+				// (e.g. an error thrown by a wrapper before reaching the
+				// engine, or an engine failure that left the session
+				// attached), a same-process retry's BeginExpandedGrantLayer
+				// would hit "session already open". Abort is a no-op when
+				// the session is already gone.
+				_ = activeLayer.AbortExpandedGrantLayer(ctx)
 				activeLayer = nil
 				return fmt.Errorf("topological merge: finish synthesized layer: %w", err)
 			}

@@ -351,6 +351,114 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 		require.Len(t, resp2.GetList(), 2, "after checksum mismatch")
 		require.Equal(t, "ent-A", resp2.GetList()[0].GetEntitlement().GetId(), "after reset first ent")
 	})
+	t.Run("reorder mid-pagination resets", func(t *testing.T) {
+		// The cursor resumes by POSITIONAL index into the entitlement
+		// list, so a reordered list (same set!) must reset the scan, not
+		// resume — an order-insensitive checksum would bless the token
+		// while the positional index resumed over a different
+		// entitlement, silently skipping and re-returning grants.
+		resp1, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+			Entitlements: []*v2.Entitlement{entA, entB, entC},
+			PageSize:     6, // past entA (5 grants), into entB at index 1
+		}.Build())
+		require.NoError(t, err)
+		require.NotEmpty(t, resp1.GetNextPageToken(), "first page should overflow")
+
+		reordered := []*v2.Entitlement{entC, entB, entA}
+		resp2, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+			Entitlements: reordered,
+			PageSize:     6,
+			PageToken:    resp1.GetNextPageToken(),
+		}.Build())
+		require.NoError(t, err)
+		require.NotEmpty(t, resp2.GetList(), "reset page")
+		require.Equal(t, "ent-C", resp2.GetList()[0].GetEntitlement().GetId(),
+			"reordered list must restart from its own first entitlement")
+
+		// Paging the reordered list to completion from the reset point
+		// yields every grant exactly once.
+		seen := map[string]bool{}
+		token := ""
+		for i := 0; i < 10; i++ {
+			resp, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+				Entitlements: reordered,
+				PageSize:     4,
+				PageToken:    token,
+			}.Build())
+			require.NoError(t, err)
+			for _, g := range resp.GetList() {
+				require.False(t, seen[g.GetId()], "dup grant %s after reorder", g.GetId())
+				seen[g.GetId()] = true
+			}
+			token = resp.GetNextPageToken()
+			if token == "" {
+				break
+			}
+		}
+		require.Len(t, seen, 15, "reordered pagination must cover every grant")
+	})
+}
+
+// TestCrossKeyspaceCursorRejected pins the page-token clamp: a cursor is a
+// raw key minted for one keyspace, and feeding it to a different record
+// type's list call must fail with ErrInvalidPageToken — not silently start
+// the scan inside the foreign keyspace and serve its values as this type's
+// records.
+func TestCrossKeyspaceCursorRejected(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	appRes := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "app", Resource: "gh"}.Build(),
+	}.Build()
+	require.NoError(t, a.PutResources(ctx, appRes))
+	ents := make([]*v2.Entitlement, 0, 4)
+	for i := 0; i < 4; i++ {
+		ents = append(ents, v2.Entitlement_builder{
+			Id:       "ent-" + strconv.Itoa(i),
+			Resource: appRes,
+			Purpose:  v2.Entitlement_PURPOSE_VALUE_PERMISSION,
+			Slug:     "s" + strconv.Itoa(i),
+		}.Build())
+	}
+	require.NoError(t, a.PutEntitlements(ctx, ents...))
+	users := make([]*v2.Resource, 0, 4)
+	for i := 0; i < 4; i++ {
+		users = append(users, v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u" + strconv.Itoa(i)}.Build(),
+		}.Build())
+	}
+	require.NoError(t, a.PutResources(ctx, users...))
+
+	// Mint a genuine entitlement-keyspace cursor.
+	entResp, err := a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+		PageSize: 2,
+	}.Build())
+	require.NoError(t, err)
+	entToken := entResp.GetNextPageToken()
+	require.NotEmpty(t, entToken, "entitlement page should overflow")
+
+	// Feed it to the resources reader: foreign keyspace, must be rejected.
+	_, err = a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: "user",
+		PageToken:      entToken,
+	}.Build())
+	require.ErrorIs(t, err, ErrInvalidPageToken, "entitlement cursor fed to resources reader must fail as an invalid page token")
+
+	// And the reverse: a resources cursor fed to the entitlements reader.
+	resResp, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: "user",
+		PageSize:       2,
+	}.Build())
+	require.NoError(t, err)
+	resToken := resResp.GetNextPageToken()
+	require.NotEmpty(t, resToken, "resource page should overflow")
+	_, err = a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+		PageToken: resToken,
+	}.Build())
+	require.ErrorIs(t, err, ErrInvalidPageToken, "resource cursor fed to entitlements reader must fail as an invalid page token")
 }
 
 // TestStreamingReaderPebble exercises iter.Seq2 streaming on the

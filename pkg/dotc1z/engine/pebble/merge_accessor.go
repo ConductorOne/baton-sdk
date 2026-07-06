@@ -273,16 +273,6 @@ func ForEachEntitlementIndexKeyRaw(resourceRT string, resourceID string, externa
 	return nil
 }
 
-func AppendEntitlementIndexKeyRawBytes(dst []byte, resourceRT []byte, resourceID []byte, externalID []byte) []byte {
-	dst = append(dst, versionV3, typeIndex, idxEntitlementByResource)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, resourceRT)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, resourceID)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleBytes(dst, externalID)
-}
-
 func GrantIndexKeys(r *v3.GrantRecord) [][]byte {
 	return grantIndexKeys(r)
 }
@@ -323,50 +313,4 @@ func ForEachGrantIndexKeyRaw(
 		}
 	}
 	return nil
-}
-
-func AppendGrantByEntitlementIndexKeyRawBytes(dst []byte, entitlementID []byte, principalRT []byte, principalID []byte, externalID []byte) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlement)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, entitlementID)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, principalRT)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, principalID)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleBytes(dst, externalID)
-}
-
-func AppendGrantByEntitlementResourceIndexKeyRawBytes(dst []byte, entitlementRT []byte, entitlementResourceID []byte, externalID []byte) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlementResource)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, entitlementRT)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, entitlementResourceID)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleBytes(dst, externalID)
-}
-
-func AppendGrantByPrincipalIndexKeyRawBytes(dst []byte, principalRT []byte, principalID []byte, externalID []byte) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipal)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, principalRT)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, principalID)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleBytes(dst, externalID)
-}
-
-func AppendGrantByPrincipalResourceTypeIndexKeyRawBytes(dst []byte, principalRT []byte, externalID []byte) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipalResourceType)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, principalRT)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleBytes(dst, externalID)
-}
-
-func AppendGrantByNeedsExpansionIndexKeyRawBytes(dst []byte, externalID []byte) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByNeedsExpansion)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleBytes(dst, externalID)
 }

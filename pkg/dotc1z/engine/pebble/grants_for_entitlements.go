@@ -24,10 +24,10 @@ import (
 //	varint(entitlement_index) || varint(intra_cursor_len) ||
 //	intra_cursor_bytes || crc32(list_checksum)
 //
-// list_checksum is crc32 over the sorted entitlement IDs in the
-// request — if the caller changes the entitlement list between
-// pages we detect the mismatch and restart from the beginning
-// rather than silently mis-paginate.
+// list_checksum is crc32 over the entitlement IDs in REQUEST
+// ORDER — the cursor resumes by positional index, so a reorder is
+// as fatal as a drop/add; any change to the list (including order)
+// restarts from the beginning rather than silently mis-paginating.
 func (a *Adapter) ListGrantsForEntitlements(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest,

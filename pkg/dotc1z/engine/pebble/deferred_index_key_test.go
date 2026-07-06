@@ -57,6 +57,36 @@ func TestAppendGrantByPrincipalKeyFromPrimary(t *testing.T) {
 	}
 }
 
+// TestNeedsExpansionKeyHeaderSpliceFromPrimary pins the byte splice the
+// id-index migration merge uses instead of decode+re-encode: the
+// by_needs_expansion identity index key is exactly the 3-byte index header
+// followed by the primary key's sep+tail (the two keys share the identical
+// 6-segment tuple encoding).
+func TestNeedsExpansionKeyHeaderSpliceFromPrimary(t *testing.T) {
+	ids := []grantIdentity{
+		{
+			entitlement:     entitlementIdentity{resourceTypeID: "group", resourceID: "g1", stripped: true, tail: "member"},
+			principalTypeID: "user",
+			principalID:     "u1",
+		},
+		{
+			entitlement:     entitlementIdentity{resourceTypeID: "gr\x00oup", resourceID: "g\x011", tail: "\x00k\x00\x01"},
+			principalTypeID: "us\x01er",
+			principalID:     "u\x00\x001",
+		},
+		{
+			entitlement:     entitlementIdentity{resourceTypeID: "", resourceID: "g1", tail: "member"},
+			principalTypeID: "user",
+			principalID:     "",
+		},
+	}
+	for _, id := range ids {
+		primary := encodeGrantIdentityKey(id)
+		spliced := append([]byte{versionV3, typeIndex, idxGrantByNeedsExpansion}, primary[2:]...)
+		require.Equal(t, encodeGrantByNeedsExpansionIdentityIndexKey(id), spliced, "identity %+v", id)
+	}
+}
+
 func TestAppendGrantByPrincipalKeyFromPrimaryRejectsMalformed(t *testing.T) {
 	cases := [][]byte{
 		nil,

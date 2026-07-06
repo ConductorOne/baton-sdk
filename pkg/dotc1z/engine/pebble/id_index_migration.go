@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -19,6 +20,8 @@ import (
 )
 
 func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
+	start := time.Now()
+	l := ctxzap.Extract(ctx)
 	dir, err := os.MkdirTemp("", "pebble-id-index-migration-")
 	if err != nil {
 		return fmt.Errorf("id-index migration: mkdir temp: %w", err)
@@ -26,23 +29,35 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 	defer os.RemoveAll(dir)
 
 	sortSem := make(chan struct{}, 4)
-	grantPrimary := newSpillSorter(dir, "grant-primary", sortSem, bulkSpillKeyChunkBytes)
-	entitlementPrimary := newSpillSorter(dir, "entitlement-primary", sortSem, bulkSpillKeyChunkBytes)
-	byPrincipal := newSpillSorter(dir, "idx-grant-by-principal", sortSem, bulkSpillKeyChunkBytes)
-	byNeedsExpansion := newSpillSorter(dir, "idx-grant-by-needs-expansion", sortSem, bulkSpillKeyChunkBytes)
+	// 128MiB chunks (deferredIndexSpillChunkBytes), not the bulk import's
+	// 8MiB: the merge holds a 1MiB read buffer per chunk, so chunk size
+	// bounds the fan-in. At 8MiB a 150M-grant file would merge ~4,000
+	// chunks (~4GB of buffers); at 128MiB it stays in the low hundreds.
+	// The arena freelist recycles the big chunks across all four sorters.
+	arenaFree := newSpillArenaFreeList(deferredIndexSpillChunkBytes, 6)
+	grantPrimary := newSpillSorter(dir, "grant-primary", sortSem, deferredIndexSpillChunkBytes)
+	entitlementPrimary := newSpillSorter(dir, "entitlement-primary", sortSem, deferredIndexSpillChunkBytes)
+	byPrincipal := newSpillSorter(dir, "idx-grant-by-principal", sortSem, deferredIndexSpillChunkBytes)
+	byNeedsExpansion := newSpillSorter(dir, "idx-grant-by-needs-expansion", sortSem, deferredIndexSpillChunkBytes)
 	sorters := []*spillSorter{grantPrimary, entitlementPrimary, byPrincipal, byNeedsExpansion}
+	for _, s := range sorters {
+		s.free = arenaFree
+	}
 	defer func() {
 		for _, s := range sorters {
 			s.abort()
 		}
 	}()
 
-	if err := e.emitStructuredEntitlementMigration(ctx, entitlementPrimary); err != nil {
+	entitlementRows, err := e.emitStructuredEntitlementMigration(ctx, entitlementPrimary)
+	if err != nil {
 		return err
 	}
-	if err := e.emitStructuredGrantMigration(ctx, grantPrimary); err != nil {
+	grantRows, err := e.emitStructuredGrantMigration(ctx, grantPrimary)
+	if err != nil {
 		return err
 	}
+	scanDone := time.Now()
 
 	type replacement struct {
 		name         string
@@ -91,6 +106,12 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 		return err
 	}
 	e.migratedOnOpen = true
+	l.Info("id-index migration: structured identity re-key complete",
+		zap.Int64("grants", grantRows),
+		zap.Int64("entitlements", entitlementRows),
+		zap.Duration("scan", scanDone.Sub(start)),
+		zap.Duration("total", time.Since(start)),
+	)
 	return nil
 }
 
@@ -120,23 +141,23 @@ func (e *Engine) recomputeStatsAfterIDIndexMigration(ctx context.Context) error 
 // are an external-consumer contract and migrate byte-identical. Rows whose
 // resource ref is missing cannot be represented in the structured keyspace
 // at all and are dropped with a warning.
-func (e *Engine) emitStructuredEntitlementMigration(ctx context.Context, out *spillSorter) error {
+func (e *Engine) emitStructuredEntitlementMigration(ctx context.Context, out *spillSorter) (int64, error) {
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: EntitlementLowerBound(),
 		UpperBound: EntitlementUpperBound(),
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer iter.Close()
-	var skippedMissingResource int64
+	var rows, skippedMissingResource int64
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
-			return err
+			return rows, err
 		}
 		rt, rid, externalID, err := scanEntitlementIdentityFieldsRaw(iter.Value())
 		if err != nil {
-			return fmt.Errorf("id-index migration: scan entitlement: %w", err)
+			return rows, fmt.Errorf("id-index migration: scan entitlement: %w", err)
 		}
 		if rt == "" || rid == "" {
 			skippedMissingResource++
@@ -144,15 +165,16 @@ func (e *Engine) emitStructuredEntitlementMigration(ctx context.Context, out *sp
 		}
 		id := entitlementIdentityFromParts(rt, rid, externalID)
 		if err := out.add(encodeEntitlementIdentityKey(id), iter.Value()); err != nil {
-			return err
+			return rows, err
 		}
+		rows++
 	}
 	if skippedMissingResource > 0 {
 		ctxzap.Extract(ctx).Warn("id-index migration: dropped legacy entitlements with no resource ref; they cannot be keyed in the structured layout",
 			zap.Int64("dropped", skippedMissingResource),
 		)
 	}
-	return iter.Error()
+	return rows, iter.Error()
 }
 
 // emitStructuredGrantMigration re-keys every legacy grant row under its
@@ -160,23 +182,23 @@ func (e *Engine) emitStructuredEntitlementMigration(ctx context.Context, out *sp
 // no-value-rewrite contract as emitStructuredEntitlementMigration. Rows
 // missing entitlement or principal ref fields cannot be represented in the
 // structured keyspace and are dropped with a warning.
-func (e *Engine) emitStructuredGrantMigration(ctx context.Context, primary *spillSorter) error {
+func (e *Engine) emitStructuredGrantMigration(ctx context.Context, primary *spillSorter) (int64, error) {
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: GrantLowerBound(),
 		UpperBound: GrantUpperBound(),
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer iter.Close()
-	var skippedMissingRefs int64
+	var rows, skippedMissingRefs int64
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
-			return err
+			return rows, err
 		}
 		entRT, entRID, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(iter.Value())
 		if err != nil {
-			return fmt.Errorf("id-index migration: scan grant: %w", err)
+			return rows, fmt.Errorf("id-index migration: scan grant: %w", err)
 		}
 		if entRT == "" || entRID == "" || entID == "" || principalRT == "" || principalID == "" {
 			skippedMissingRefs++
@@ -188,15 +210,16 @@ func (e *Engine) emitStructuredGrantMigration(ctx context.Context, primary *spil
 			principalID:     principalID,
 		}
 		if err := primary.add(encodeGrantIdentityKey(id), iter.Value()); err != nil {
-			return err
+			return rows, err
 		}
+		rows++
 	}
 	if skippedMissingRefs > 0 {
 		ctxzap.Extract(ctx).Warn("id-index migration: dropped legacy grants with missing entitlement/principal refs; they cannot be keyed in the structured layout",
 			zap.Int64("dropped", skippedMissingRefs),
 		)
 	}
-	return iter.Error()
+	return rows, iter.Error()
 }
 
 func finalizeMigrationSorter(ctx context.Context, dir, name string, sorter *spillSorter) (string, error) {
@@ -278,19 +301,27 @@ func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, sstPath, name st
 	}()
 
 	var duplicateGroups, duplicateRowsMerged int64
+	var idxKeyScratch []byte
+	var rowsProcessed int64
 	for len(*h) > 0 {
-		if err := ctx.Err(); err != nil {
-			return err
+		rowsProcessed++
+		if rowsProcessed&0xFFFF == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 		}
+		// Heap items are owned copies (pushed via append([]byte(nil), ...)
+		// in the initial fill and advanceMigrationChunk), so no re-copy is
+		// needed to hold them across chunk advances.
 		first := h.pop()
-		key := append([]byte(nil), first.key...)
-		values := [][]byte{append([]byte(nil), first.val...)}
+		key := first.key
+		values := [][]byte{first.val}
 		if err := advanceMigrationChunk(h, bufReaders, keyBufs, valBufs, &lenBuf, first.chunkIdx); err != nil {
 			return err
 		}
 		for len(*h) > 0 && bytes.Equal((*h)[0].key, key) {
 			item := h.pop()
-			values = append(values, append([]byte(nil), item.val...))
+			values = append(values, item.val)
 			if err := advanceMigrationChunk(h, bufReaders, keyBufs, valBufs, &lenBuf, item.chunkIdx); err != nil {
 				return err
 			}
@@ -306,19 +337,31 @@ func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, sstPath, name st
 		if err := w.add(key, merged); err != nil {
 			return err
 		}
-		var rec v3.GrantRecord
-		if err := unmarshalRecord(merged, &rec); err != nil {
+		// The identity is already fully encoded in the primary key being
+		// written, so both index keys derive from it at the byte level —
+		// no proto unmarshal per row (the dominant per-row cost at whale
+		// scale and beyond). by_principal is the pinned segment
+		// permutation; by_needs_expansion shares the primary's exact tail
+		// (header swap only). Only the flag needs a value read, via a
+		// single-field shallow scan.
+		idxKey, ok := appendGrantByPrincipalKeyFromPrimary(idxKeyScratch[:0], key)
+		idxKeyScratch = idxKey
+		if !ok {
+			return fmt.Errorf("id-index migration: grant primary key %x did not decode as a 6-segment identity", key)
+		}
+		if err := byPrincipal.add(idxKey, nil); err != nil {
 			return err
 		}
-		id, err := grantIdentityFromRecord(&rec)
+		needsExpansion, err := scanGrantNeedsExpansionRaw(merged)
 		if err != nil {
-			return err
+			return fmt.Errorf("id-index migration: scan needs_expansion for key %x: %w", key, err)
 		}
-		if err := byPrincipal.add(encodeGrantByPrincipalIdentityIndexKey(id), nil); err != nil {
-			return err
-		}
-		if rec.GetNeedsExpansion() {
-			if err := byNeedsExpansion.add(encodeGrantByNeedsExpansionIdentityIndexKey(id), nil); err != nil {
+		if needsExpansion {
+			idxKeyScratch = append(idxKeyScratch[:0], versionV3, typeIndex, idxGrantByNeedsExpansion)
+			// The primary's sep+tail IS the identity index tail, byte-identical
+			// (pinned by TestNeedsExpansionKeyHeaderSpliceFromPrimary).
+			idxKeyScratch = append(idxKeyScratch, key[2:]...)
+			if err := byNeedsExpansion.add(idxKeyScratch, nil); err != nil {
 				return err
 			}
 		}
@@ -460,6 +503,17 @@ func mergeGrantAnnotations(a, b []*anypb.Any) []*anypb.Any {
 	return out
 }
 
+// mergeGrantSources merges by map key; colliding values fold field-wise
+// with commutative+associative rules only (the mergeDuplicateGrantValues
+// invariant): IsDirect is an OR, and each ref field resolves to the
+// lexicographically smallest non-empty value ("" is the identity). A
+// "direct side's fields win" preference would NOT satisfy the invariant:
+// IsDirect ORs into the fold accumulator and loses provenance, so a field
+// donated by a non-direct value would masquerade as direct in later fold
+// steps and different arrival orders could produce different bytes. In
+// practice no writer populates the ref fields today (translate_v2 and the
+// synth encoder set only IsDirect), so any rule is byte-neutral for real
+// inputs — this one stays correct if a writer ever starts setting them.
 func mergeGrantSources(a, b map[string]*v3.GrantSourceRecord) map[string]*v3.GrantSourceRecord {
 	if len(a) == 0 {
 		return b
@@ -480,36 +534,31 @@ func mergeGrantSources(a, b map[string]*v3.GrantSourceRecord) map[string]*v3.Gra
 			out[key] = proto.Clone(value).(*v3.GrantSourceRecord)
 			continue
 		}
-		rt, rid, eid := existing.GetResourceTypeId(), existing.GetResourceId(), existing.GetEntitlementId()
-		if value.GetIsDirect() {
-			if value.GetResourceTypeId() != "" {
-				rt = value.GetResourceTypeId()
-			}
-			if value.GetResourceId() != "" {
-				rid = value.GetResourceId()
-			}
-			if value.GetEntitlementId() != "" {
-				eid = value.GetEntitlementId()
-			}
-		} else {
-			if rt == "" {
-				rt = value.GetResourceTypeId()
-			}
-			if rid == "" {
-				rid = value.GetResourceId()
-			}
-			if eid == "" {
-				eid = value.GetEntitlementId()
-			}
-		}
 		out[key] = v3.GrantSourceRecord_builder{
-			ResourceTypeId: rt,
-			ResourceId:     rid,
-			EntitlementId:  eid,
+			ResourceTypeId: minNonEmptyString(existing.GetResourceTypeId(), value.GetResourceTypeId()),
+			ResourceId:     minNonEmptyString(existing.GetResourceId(), value.GetResourceId()),
+			EntitlementId:  minNonEmptyString(existing.GetEntitlementId(), value.GetEntitlementId()),
 			IsDirect:       existing.GetIsDirect() || value.GetIsDirect(),
 		}.Build()
 	}
 	return out
+}
+
+// minNonEmptyString returns the lexicographically smallest non-empty
+// argument, or "" when both are empty. Commutative and associative, with
+// "" as the identity — folding it over N values yields the global smallest
+// non-empty value regardless of order.
+func minNonEmptyString(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	case a < b:
+		return a
+	default:
+		return b
+	}
 }
 
 func mergeGrantExpansion(a, b *v3.GrantExpandableRecord) *v3.GrantExpandableRecord {

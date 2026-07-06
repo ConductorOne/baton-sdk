@@ -183,7 +183,11 @@ func (e *Engine) resolveGrantScanEntitlementIdentity(ctx context.Context, entitl
 			ErrAmbiguousExternalID, entitlementID, len(matches))
 	}
 	// No entitlement record: probe direct (rt | rid | tail) splits against
-	// the grant primary keyspace.
+	// the grant primary keyspace. Each probe opens a (bounded, single-seek)
+	// iterator; the colon cap bounds the enumeration at C(maxBareIDColons, 2)
+	// = ~2k probes worst case, so no maxGrantIDCandidates-style cap is
+	// needed here — O(colons²) can never exceed it, unlike the grant
+	// path's O(colons⁴) direct splits.
 	if n := strings.Count(entitlementID, ":"); n > maxBareIDColons {
 		return entitlementIdentity{}, fmt.Errorf("%w: entitlement id has %d colons; too complex to resolve safely by string", ErrAmbiguousExternalID, n)
 	}

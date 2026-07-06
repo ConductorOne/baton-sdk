@@ -703,6 +703,13 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	}
 	saveStart := time.Now()
 	checkpointDir := filepath.Join(s.tmpDir, "checkpoint")
+	// A previous failed save can leave this dir behind, and pebble's
+	// Checkpoint refuses an existing destination — without this, the
+	// "fix the condition and Close again" recovery path advertised by
+	// Close would fail forever with ErrExist.
+	if err := os.RemoveAll(checkpointDir); err != nil {
+		return fmt.Errorf("pebble save: clear stale checkpoint dir: %w", err)
+	}
 	if err := s.engine.CheckpointTo(ctx, checkpointDir); err != nil {
 		return err
 	}

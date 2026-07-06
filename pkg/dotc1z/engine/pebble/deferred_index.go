@@ -355,6 +355,12 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 			rebuild.abort()
 		}
 	}()
+	// A tee failure surfacing mid-scan (via add→flushBatch→takeErr) is the
+	// same class of failure finish() reports post-scan, and the GUARD below
+	// downgrades that to a loud skip-the-excise no-op. Honor the same
+	// contract here: remember the error, stop teeing, and keep scanning —
+	// by_principal and the stats stash don't depend on the rebuild.
+	var rebuildScanErr error
 
 	var scanned, droppedMalformedKeys int64
 	var idxKeyScratch []byte
@@ -376,8 +382,10 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 		// Tee the raw row into the primary-keyspace rebuild pipeline. The
 		// iterator yields globally sorted keys, so each SST is sorted and
 		// the cut files are mutually disjoint.
-		if err := rebuild.add(iter.Key(), iter.Value()); err != nil {
-			return err
+		if rebuildScanErr == nil {
+			if err := rebuild.add(iter.Key(), iter.Value()); err != nil {
+				rebuildScanErr = err
+			}
 		}
 		idxKey, ok := appendGrantByPrincipalKeyFromPrimary(idxKeyScratch[:0], iter.Key())
 		idxKeyScratch = idxKey
@@ -418,10 +426,17 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 		)
 	}
 	rebuildFinished = true
-	// The rebuild is an optimization: any failure below skips the excise and
-	// leaves the (correct, just unconsolidated) LSM alone rather than failing
-	// the sync.
-	rebuildFiles, rebuildRows, rebuildBytes, rebuildErr := rebuild.finish()
+	// The rebuild is an optimization: any failure — scan-time tee error or
+	// finish-time writer error — skips the excise and leaves the (correct,
+	// just unconsolidated) LSM alone rather than failing the sync.
+	var rebuildFiles []string
+	var rebuildRows, rebuildBytes int64
+	rebuildErr := rebuildScanErr
+	if rebuildErr == nil {
+		rebuildFiles, rebuildRows, rebuildBytes, rebuildErr = rebuild.finish()
+	} else {
+		rebuild.abort()
+	}
 	if statsOK {
 		if syncID := codec.DecodeSyncID(e.currentSyncBytes()); syncID != "" {
 			grantsByEntitlementRT := make(map[string]int64, len(grantsByEntRTPtr))

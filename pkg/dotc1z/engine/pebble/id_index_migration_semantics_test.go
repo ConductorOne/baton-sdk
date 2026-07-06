@@ -154,6 +154,77 @@ func TestIDIndexMigrationSemantics(t *testing.T) {
 	require.Equal(t, "member", got.GetExternalId())
 }
 
+// TestMergeDuplicateGrantValuesFoldOrderIndependent pins the
+// mergeDuplicateGrantValues INVARIANT: identical merged bytes for every
+// fold order. The fixture deliberately includes the shapes that a
+// preference-based sources merge got wrong — colliding source keys where
+// both values are direct with conflicting ref fields (last-folded used to
+// win) and where both are non-direct (first-folded used to win) — plus
+// differing expansion lists and discovered_at values.
+func TestMergeDuplicateGrantValuesFoldOrderIndependent(t *testing.T) {
+	ent := v3.EntitlementRef_builder{ResourceTypeId: "group", ResourceId: "g1", EntitlementId: "member"}.Build()
+	princ := v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "u1"}.Build()
+	mk := func(ext string, at *timestamppb.Timestamp, sources map[string]*v3.GrantSourceRecord, exp *v3.GrantExpandableRecord) []byte {
+		val, err := proto.Marshal(v3.GrantRecord_builder{
+			ExternalId:   ext,
+			Entitlement:  ent,
+			Principal:    princ,
+			DiscoveredAt: at,
+			Sources:      sources,
+			Expansion:    exp,
+		}.Build())
+		require.NoError(t, err)
+		return val
+	}
+	older := timestamppb.New(time.Unix(1000, 0).UTC())
+	newer := timestamppb.New(time.Unix(2000, 0).UTC())
+	values := [][]byte{
+		mk("dup-a", newer, map[string]*v3.GrantSourceRecord{
+			"src-direct":   v3.GrantSourceRecord_builder{IsDirect: true, ResourceTypeId: "rt-b", ResourceId: "rid-b", EntitlementId: "eid-b"}.Build(),
+			"src-indirect": v3.GrantSourceRecord_builder{ResourceTypeId: "rt-z"}.Build(),
+		}, v3.GrantExpandableRecord_builder{EntitlementIds: []string{"e2"}, Shallow: true}.Build()),
+		mk("dup-b", older, map[string]*v3.GrantSourceRecord{
+			"src-direct":   v3.GrantSourceRecord_builder{IsDirect: true, ResourceTypeId: "rt-a", ResourceId: "rid-c", EntitlementId: ""}.Build(),
+			"src-indirect": v3.GrantSourceRecord_builder{ResourceTypeId: "rt-y", EntitlementId: "eid-y"}.Build(),
+		}, v3.GrantExpandableRecord_builder{EntitlementIds: []string{"e1"}, Shallow: true}.Build()),
+		mk("dup-c", older, map[string]*v3.GrantSourceRecord{
+			"src-direct": v3.GrantSourceRecord_builder{ResourceTypeId: "rt-c"}.Build(),
+			"src-only-c": v3.GrantSourceRecord_builder{IsDirect: true}.Build(),
+		}, nil),
+	}
+
+	var want []byte
+	perms := [][]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}
+	for _, p := range perms {
+		ordered := [][]byte{values[p[0]], values[p[1]], values[p[2]]}
+		got, err := mergeDuplicateGrantValues(ordered)
+		require.NoError(t, err)
+		if want == nil {
+			want = got
+			continue
+		}
+		require.Equalf(t, want, got, "fold order %v produced different merged bytes", p)
+	}
+
+	var merged v3.GrantRecord
+	require.NoError(t, proto.Unmarshal(want, &merged))
+	// Winner rule: earliest discovered_at, tie-break smallest external id.
+	require.Equal(t, "dup-b", merged.GetExternalId())
+	// Colliding source values fold to smallest-non-empty per field, OR of
+	// IsDirect — regardless of which side was direct.
+	direct := merged.GetSources()["src-direct"]
+	require.True(t, direct.GetIsDirect())
+	require.Equal(t, "rt-a", direct.GetResourceTypeId())
+	require.Equal(t, "rid-b", direct.GetResourceId())
+	require.Equal(t, "eid-b", direct.GetEntitlementId())
+	indirect := merged.GetSources()["src-indirect"]
+	require.False(t, indirect.GetIsDirect())
+	require.Equal(t, "rt-y", indirect.GetResourceTypeId())
+	require.Equal(t, "eid-y", indirect.GetEntitlementId())
+	require.True(t, merged.GetSources()["src-only-c"].GetIsDirect())
+	require.Equal(t, []string{"e1", "e2"}, merged.GetExpansion().GetEntitlementIds())
+}
+
 // TestIDIndexFormatRejectsInterimV1 pins that the interim pre-release v1
 // stamp (dev artifacts only; never shipped) is rejected loudly on open
 // instead of being silently misread under the v2 layout.

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
-	"sort"
 	"strconv"
 	"time"
 
@@ -212,17 +211,16 @@ func findEntitlementIndex(ents []*v2.Entitlement, id string) int {
 	return -1
 }
 
-// entitlementListChecksum hashes the sorted entitlement ID set so
-// reorderings don't bust the cursor. Drop/add does.
+// entitlementListChecksum hashes the entitlement ID list IN REQUEST
+// ORDER. The cursor resumes positionally (ents[startIdx] provides the
+// resume entitlement id), so a reordered same-set list must restart the
+// scan — a sorted (order-insensitive) checksum would bless the stale
+// token while startIdx selected a different entitlement, silently
+// skipping and re-returning grants.
 func entitlementListChecksum(ents []*v2.Entitlement) uint32 {
-	ids := make([]string, 0, len(ents))
-	for _, e := range ents {
-		ids = append(ids, e.GetId())
-	}
-	sort.Strings(ids)
 	h := crc32.NewIEEE()
-	for _, id := range ids {
-		_, _ = h.Write([]byte(id))
+	for _, e := range ents {
+		_, _ = h.Write([]byte(e.GetId()))
 		_, _ = h.Write([]byte{0})
 	}
 	return h.Sum32()

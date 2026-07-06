@@ -39,8 +39,12 @@ func newGrantRawIndexAllocFixture(tb testing.TB) rawIndexAllocFixture {
 	value, err := proto.Marshal(rec)
 	require.NoError(tb, err)
 	return rawIndexAllocFixture{
-		bucket:    grantBucket(),
-		destKey:   enginepkg.GrantRecordKey(externalID),
+		bucket: grantBucket(),
+		// The structural-identity primary key — what the overlay actually
+		// passes for a grant winner. (forEachIndexKeyFromRaw derives grant
+		// index keys from the VALUE, but the fixture should still mirror
+		// production inputs, not the retired external-id key layout.)
+		destKey:   []byte(enginepkg.GrantRecordIdentityKey(rec)),
 		destLower: enginepkg.GrantLowerBound(),
 		value:     value,
 	}
