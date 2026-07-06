@@ -164,7 +164,7 @@ func unpackExistingPebbleC1Z(
 	if err != nil {
 		return nil, PayloadEncodingUnspecified, 0, err
 	}
-	if e := Engine(header.GetEngine()); e != EnginePebble && e != PebbleManifestEngine {
+	if e := Engine(header.GetEngine()); e != EnginePebble && e != PebbleManifestEngine && e != PebbleManifestEngineV2 {
 		return nil, PayloadEncodingUnspecified, 0, fmt.Errorf("%w: %s", pebble.ErrUnknownEngine, header.GetEngine())
 	}
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {

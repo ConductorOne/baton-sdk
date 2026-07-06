@@ -27,14 +27,28 @@ const (
 	EnginePebble Engine = "pebble"
 
 	// PebbleManifestEngine is the engine name written into the v3
-	// envelope manifest for the single-sync (sync_id-less) keyspace.
-	// It is deliberately NOT "pebble": the manifest engine name is the
-	// one field readers validate at dispatch, so a name pre-single-sync
-	// SDKs don't recognize makes them fail loudly ("engine not
-	// available: pebble2") instead of opening the file and reading its
-	// keys as empty. Readers that understand the single-sync layout map
-	// this name back to EnginePebble.
-	PebbleManifestEngine = "pebble2"
+	// envelope manifest. It is deliberately NOT "pebble": the manifest
+	// engine name is the one field readers validate at dispatch, so a
+	// name older SDKs don't recognize makes them fail loudly ("engine
+	// not available: pebble3") instead of opening the file and reading
+	// its keyspaces as empty. It MUST be bumped on every incompatible
+	// keyspace layout change:
+	//
+	//   - "pebble2" fenced the single-sync (sync_id-less) keyspace from
+	//     pre-single-sync readers;
+	//   - "pebble3" fences the structural-identity keyspace (identity-
+	//     keyed grant/entitlement primaries, retired by_entitlement
+	//     index family) from pebble2-era readers, which would otherwise
+	//     scan the retired index ranges and silently report zero rows.
+	//
+	// Readers that understand the current layout map this name (and the
+	// legacy names below, whose interiors the id-index migration
+	// re-keys on a writable open) back to EnginePebble.
+	PebbleManifestEngine = "pebble3"
+
+	// PebbleManifestEngineV2 is the retired manifest name for the
+	// single-sync external-id keyspace. Accepted on read; never written.
+	PebbleManifestEngineV2 = "pebble2"
 )
 
 // PayloadEncoding selects the v3 envelope payload framing. Only the
