@@ -609,13 +609,17 @@ func (e *Engine) AddSynthesizedGrantLayerContributions(ctx context.Context, reco
 			return err
 		}
 		if s.sorter == nil {
-			if err := e.initSynthLayerSession(ctx, s); err != nil {
-				return err
-			}
 			// Segment SSTs carry primary rows only; make sure EndSync builds
 			// the deferred by_principal index even if no batch write set the
-			// flag.
+			// flag. Arm the marker BEFORE initializing the session: if the
+			// marker lands but init fails, the worst case is a spurious
+			// (cheap) rebuild at EndSync. The reverse order could leave an
+			// initialized session whose later Adds skip this block, ingesting
+			// rows with the rebuild unarmed.
 			if err := e.markDeferredIdxPending(); err != nil {
+				return err
+			}
+			if err := e.initSynthLayerSession(ctx, s); err != nil {
 				return err
 			}
 		}
