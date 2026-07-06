@@ -287,7 +287,22 @@ func (t *grantRebuildTee) closeAndWait() {
 // the subsequent PersistSyncStats call can skip its own full grant scan. The
 // stats accumulation is best-effort: a value that fails the shallow field
 // scan just disables the stash and PersistSyncStats falls back to scanning.
+//
+// The whole build runs under the engine write barrier (withWrite): the
+// IngestAndExcise calls destroy everything in their key ranges, so a grant
+// row committed by a concurrent writer after the scan's iterator snapshot
+// would be silently erased. EndSync's callers are expected to have quiesced
+// writers already — holding writeMu for the duration converts that
+// convention into an enforced invariant (a straggler write blocks until the
+// build finishes instead of racing the excise), and writeWG participation
+// means Close waits the build out instead of tearing down e.db under it.
 func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
+	return e.withWrite(func() error {
+		return e.buildDeferredGrantIndexesLocked(ctx)
+	})
+}
+
+func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 	// The scan below only polls ctx periodically; don't start an O(grants)
 	// pass (or its destructive IngestAndExcise) on an already-dead context.
 	if err := ctx.Err(); err != nil {

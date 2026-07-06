@@ -123,10 +123,12 @@ func TestAdapterEndSyncClearsEngineCurrentSync(t *testing.T) {
 	require.NoError(t, a.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")), "PutGrants")
 	require.NoError(t, a.EndSync(ctx), "EndSync")
 
-	// EndSync cleared the engine's bound sync: a direct record write
-	// must now fail rather than land an orphan record with no sync run.
+	// EndSync sealed the engine (and cleared its bound sync): a direct
+	// record write must now fail rather than land an orphan record with
+	// no sync run. The seal check fires first — it is the explicit
+	// post-EndSync state; ErrNoCurrentSync would catch it anyway.
 	err = a.engine.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-B", "bob"))
-	require.ErrorIs(t, err, ErrNoCurrentSync, "direct engine write after EndSync: got %v, want ErrNoCurrentSync", err)
+	require.ErrorIs(t, err, ErrEngineSealed, "direct engine write after EndSync: got %v, want ErrEngineSealed", err)
 
 	// Reads do NOT gate on the bound sync: the finished sync's data
 	// persists and stays readable through the engine after EndSync.

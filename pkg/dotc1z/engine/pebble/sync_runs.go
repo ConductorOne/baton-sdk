@@ -29,7 +29,11 @@ func (e *Engine) PutSyncRunRecord(ctx context.Context, r *v3.SyncRunRecord) erro
 	if r.GetSyncId() == "" {
 		return errors.New("PutSyncRunRecord: empty sync_id")
 	}
-	return e.withWrite(func() error {
+	// AllowSealed: sync-run metadata is legitimately stamped on a finished
+	// sync — ToPebble preserves the source ended_at, the sanitizer applies
+	// diff links / supports_diff, and the compactor renames the folded sync
+	// — all after EndSync sealed the engine.
+	return e.withWriteAllowSealed(func() error {
 		val, err := marshalRecord(r)
 		if err != nil {
 			return err
@@ -63,7 +67,9 @@ func (e *Engine) GetSyncRunRecord(ctx context.Context, syncID string) (*v3.SyncR
 }
 
 func (e *Engine) DeleteSyncRunRecord(ctx context.Context, syncID string) error {
-	return e.withWrite(func() error {
+	// AllowSealed: sync-run pruning is metadata maintenance on finished
+	// syncs, same class as PutSyncRunRecord above.
+	return e.withWriteAllowSealed(func() error {
 		if syncID == "" {
 			return errors.New("DeleteSyncRunRecord: empty sync_id")
 		}

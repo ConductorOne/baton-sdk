@@ -508,7 +508,15 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		return errors.New("bulk sync import: already finished or aborted")
 	}
 	b.done = true
-	defer func() { _ = os.RemoveAll(b.dir) }()
+	// Full teardown, not a bare RemoveAll: Finish's error paths can return
+	// with the ordered SST writers still open (finish() failing on one
+	// leaves the other's file handle live) and with background chunk sorts
+	// still writing into the staging dir (nothing finalized the sorters
+	// yet). Removing the dir while a sort races its os.Create can strand
+	// the dir on disk, and Abort is a no-op once done is set — so this
+	// defer must do the closing and waiting itself. On success everything
+	// is already finished/finalized and teardown reduces to the RemoveAll.
+	defer b.teardown()
 	start := time.Now()
 
 	paths := make([]string, 0, 4+len(grantIndexFamilies))
@@ -677,6 +685,16 @@ func (b *BulkSyncImport) Abort() {
 		return
 	}
 	b.done = true
+	b.teardown()
+}
+
+// teardown closes both ordered SST writers, waits out every spill
+// sorter's in-flight background chunk sorts, and then removes the
+// staging directory. The waits must precede the RemoveAll: a chunk
+// sort racing the removal can re-create a file mid-walk and strand the
+// directory. Idempotent against already-finished writers and
+// already-finalized sorters, so Finish can run it unconditionally.
+func (b *BulkSyncImport) teardown() {
 	for _, w := range []*bulkSSTWriter{b.resourceTypes, b.resources} {
 		if w != nil {
 			_ = w.finish()

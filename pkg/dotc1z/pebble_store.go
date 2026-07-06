@@ -109,6 +109,12 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	adapter := pebble.NewAdapter(e)
 	err = adapter.InitCurrentSync(ctx)
 	if err != nil {
+		// Close the engine before removing its directory: a live pebble DB
+		// holds open fds and background goroutines that would otherwise
+		// leak for the life of the process.
+		if closeErr := e.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
 		return nil, cleanupOnError(err)
 	}
 

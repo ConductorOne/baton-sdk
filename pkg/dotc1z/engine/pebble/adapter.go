@@ -305,18 +305,22 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	// the grant keyspace itself (its scan is teed into a flat rebuild that
 	// replaces the range via IngestAndExcise), so the saved artifact ships
 	// with near-zero compaction debt without running the compactor.
-	// StartNewSync/SetCurrentSync resume the scheduler if the store is
-	// written to again.
-	a.engine.PauseCompactions()
+	a.engine.pauseCompactions()
 	if err := a.endSyncFinalize(ctx, existing); err != nil {
 		// The pause is only for the successful EndSync-to-close window. On
 		// failure the sync stays bound and the caller may keep writing (or
 		// retry EndSync later); leaving compactions paused there would let
 		// L0 accumulate until pebble stalls writes at
 		// L0StopWritesThreshold, with nothing left to resume the scheduler.
-		a.engine.ResumeCompactions()
+		a.engine.resumeCompactions()
 		return err
 	}
+	// Success: enter the explicit sealed state — compactions stay paused
+	// AND record writes now fail with ErrEngineSealed until a sync is
+	// bound again (StartNewSync/ResumeSync/SetCurrentSync unseal). This
+	// turns the "no writes between EndSync and close" convention into an
+	// enforced invariant; sync-run metadata stamps remain allowed.
+	a.engine.seal()
 	a.current = syncRunState{}
 	return nil
 }

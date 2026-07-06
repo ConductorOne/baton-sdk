@@ -40,6 +40,7 @@ var (
 	ErrEnvelopeTruncated             = sentinel(codes.DataLoss, "pebble engine: v3 envelope truncated")
 	ErrDiskFull                      = sentinel(codes.ResourceExhausted, "pebble engine: disk full (ENOSPC)")
 	ErrNoCurrentSync                 = sentinel(codes.FailedPrecondition, "pebble engine: no current sync")
+	ErrEngineSealed                  = sentinel(codes.FailedPrecondition, "pebble engine: sealed after EndSync; bind a sync (StartNewSync/ResumeSync/SetCurrentSync) before writing")
 	ErrSaveDestExists                = sentinel(codes.AlreadyExists, "pebble engine: save destination already exists")
 	ErrCrossFilesystem               = sentinel(codes.InvalidArgument, "pebble engine: save tmpDir and dest must be on the same filesystem")
 	ErrInvalidPageToken              = sentinel(codes.InvalidArgument, "pebble engine: invalid page token")

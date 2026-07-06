@@ -84,14 +84,41 @@ type Engine struct {
 	// as one sorted SST at EndSync — see BuildDeferredGrantIndexes).
 	deferredIdxPending atomic.Bool
 
-	// synthLayer is the open wave-scoped synthesized-grant layer session, if
-	// any (see BeginSynthesizedGrantLayer). Single producer: the expansion
-	// driver opens/adds/finishes sessions strictly sequentially.
-	synthLayer *synthGrantLayerSession
+	// synthLayer is the open wave-scoped layer session, if any (see
+	// BeginSynthesizedGrantLayer). Single producer: the expansion driver
+	// opens/adds/finishes sessions strictly sequentially. synthLayerMu
+	// guards the pointer itself — Abort and Close read/nil it without the
+	// engine write barrier, so pointer access needs its own lock even
+	// though the session contents are only ever touched by one goroutine.
+	synthLayerMu sync.Mutex
+	synthLayer   *synthGrantLayerSession
+
+	// checkpointMu is the barrier between CheckpointTo's Flush→Checkpoint→
+	// WAL-truncate window (write lock) and DB mutations that bypass writeMu
+	// — today only the synth-layer worker's background SST ingest (read
+	// lock). The worker cannot take writeMu: an Add holding writeMu blocks
+	// on the worker's bounded segment channel, so worker-needs-writeMu
+	// would deadlock. A dedicated RWMutex gives CheckpointTo exclusion
+	// without that cycle.
+	checkpointMu sync.RWMutex
+
+	// sealed is the explicit post-EndSync lifecycle state. A successful
+	// EndSync seals the engine: record writes fail with ErrEngineSealed and
+	// the compaction scheduler is paused, because the only work left before
+	// save/close (checkpoint + envelope encode) never benefits from either.
+	// Binding a sync again (SetCurrentSync / MarkFreshSync) unseals and
+	// resumes compactions. Sync-run metadata writes (PutSyncRunRecord and
+	// friends) are exempt — callers legitimately stamp ended_at overrides,
+	// diff links, and supports_diff markers on a finished sync. Without this
+	// state the "no writes while compactions are paused" invariant was
+	// convention only, and a caller that kept writing after EndSync would
+	// silently accumulate L0 until pebble stalled writes at
+	// L0StopWritesThreshold with nothing left to resume the scheduler.
+	sealed atomic.Bool
 
 	// compactionScheduler is the engine's pausable compaction scheduler,
-	// installed by newPebbleOptions. Pause/resume via PauseCompactions /
-	// ResumeCompactions.
+	// installed by newPebbleOptions. Pause/resume via pauseCompactions /
+	// resumeCompactions (package-private; see those funcs for why).
 	compactionScheduler *pausableCompactionScheduler
 
 	// Lazy bare-id entitlement lookup (see lookup.go). entIDLookupGen is
@@ -195,10 +222,16 @@ func (e *Engine) Close() error {
 	// ingesting through e.db; drain it before tearing the DB down. This
 	// runs AFTER the closing/writeWG barrier so no in-flight Add/Finish
 	// (which run under withWrite) can be touching the session concurrently
-	// — Abort itself takes no write barrier.
-	if e.synthLayer != nil {
-		_ = e.AbortSynthesizedGrantLayer(context.Background())
-	}
+	// — Abort itself takes no write barrier, only synthLayerMu for the
+	// pointer handoff, and is a no-op when no session is open.
+	_ = e.AbortSynthesizedGrantLayer(context.Background())
+	// Hold writeMu for the teardown: writeWG only covers withWrite users,
+	// while CheckpointTo takes writeMu directly (no WG participation). A
+	// CheckpointTo that passed its closing check but hasn't locked yet must
+	// find either the mutex held or db nil'd under the lock — never a db
+	// torn down mid-checkpoint.
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
 	// Invariant: flush before close on any write path. This drives the
 	// memtable out to an SST so a Close is never the step that leaves
 	// un-materialized writes behind — independent of whether EndSync or
@@ -236,29 +269,57 @@ func (e *Engine) SetCurrentSync(syncID string) error {
 	e.freshGrantsEmpty = false
 	e.freshResourcesEmpty = false
 	e.currentSyncMu.Unlock()
-	// Binding a sync means more writes are coming; compactions must run so
-	// L0 keeps draining (see PauseCompactions).
-	e.ResumeCompactions()
+	// Binding a sync means more writes are coming; leave the sealed state
+	// and resume compactions so L0 keeps draining (see seal).
+	e.unseal()
 	return nil
 }
 
-// PauseCompactions stops the engine from granting new automatic compactions.
+// pauseCompactions stops the engine from granting new automatic compactions.
 // In-flight compactions finish; flushes are unaffected. Intended for the
 // EndSync-to-close window, where compaction output never survives to the
 // saved artifact but competes with the deferred index build and envelope
-// encode. Callers that keep writing afterwards must ResumeCompactions (or
-// bind a new sync, which resumes implicitly) so L0 keeps draining.
-func (e *Engine) PauseCompactions() {
+// encode.
+//
+// Deliberately unexported, as is resumeCompactions: the only way for a
+// caller outside this package to restart compactions is to bind a sync
+// (StartNewSync / ResumeSync / SetCurrentSync), which also unseals the
+// engine. Pause without seal (or resume without a bound sync) is how the
+// "writes on a paused scheduler stall at L0StopWritesThreshold" hang
+// happens, so the two transitions are only available as a pair.
+func (e *Engine) pauseCompactions() {
 	if e.compactionScheduler != nil {
 		e.compactionScheduler.pause()
 	}
 }
 
-// ResumeCompactions re-enables automatic compaction granting.
-func (e *Engine) ResumeCompactions() {
+// resumeCompactions re-enables automatic compaction granting. See
+// pauseCompactions for why this is unexported.
+func (e *Engine) resumeCompactions() {
 	if e.compactionScheduler != nil {
 		e.compactionScheduler.resume()
 	}
+}
+
+// seal moves the engine into the explicit post-EndSync state: record
+// writes fail with ErrEngineSealed and automatic compactions stop. Called
+// by Adapter.EndSync after a successful finalize; undone by binding a sync
+// (SetCurrentSync / MarkFreshSync → unseal). See the sealed field doc for
+// why this is a hard state rather than a convention.
+func (e *Engine) seal() {
+	e.sealed.Store(true)
+	e.pauseCompactions()
+}
+
+// unseal leaves the sealed state and resumes automatic compactions.
+func (e *Engine) unseal() {
+	e.sealed.Store(false)
+	e.resumeCompactions()
+}
+
+// IsSealed reports whether the engine is in the post-EndSync sealed state.
+func (e *Engine) IsSealed() bool {
+	return e.sealed.Load()
 }
 
 // MarkFreshSync sets currentSync AND flags the sync as freshly
@@ -282,9 +343,9 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 	e.freshGrantsEmpty = true
 	e.freshResourcesEmpty = true
 	e.currentSyncMu.Unlock()
-	// A fresh sync writes heavily; compactions must run so L0 keeps
-	// draining (see PauseCompactions).
-	e.ResumeCompactions()
+	// A fresh sync writes heavily; leave the sealed state and resume
+	// compactions so L0 keeps draining (see seal).
+	e.unseal()
 	return nil
 }
 
@@ -340,27 +401,30 @@ func (e *Engine) takeFreshResourcesEmpty() bool {
 // EndFreshSync clears the fresh-sync flag and flushes the memtable
 // + fsyncs the WAL so the data written during the sync is on disk
 // before the caller returns. Called by Adapter.EndSync.
+//
+// Uses withWrite (not a bare writeMu) so the flush participates in the
+// closing check and writeWG: Close tears e.db down after writeWG.Wait,
+// and a bare-mutex EndFreshSync racing Close would flush a nil db.
 func (e *Engine) EndFreshSync(ctx context.Context) error {
-	e.writeMu.Lock()
-	defer e.writeMu.Unlock()
-
-	e.currentSyncMu.RLock()
-	wasFresh := e.freshSync
-	e.currentSyncMu.RUnlock()
-	if !wasFresh {
+	return e.withWrite(func() error {
+		e.currentSyncMu.RLock()
+		wasFresh := e.freshSync
+		e.currentSyncMu.RUnlock()
+		if !wasFresh {
+			e.clearCurrentSync()
+			return nil
+		}
+		// Flush the memtable (turns NoSync-buffered writes into on-disk
+		// SSTs) and let pebble.LogData with Sync force-fsync the WAL tail.
+		if err := e.db.Flush(); err != nil {
+			return fmt.Errorf("EndFreshSync: flush: %w", err)
+		}
+		if err := e.db.LogData(nil, pebble.Sync); err != nil {
+			return fmt.Errorf("EndFreshSync: fsync WAL: %w", err)
+		}
 		e.clearCurrentSync()
 		return nil
-	}
-	// Flush the memtable (turns NoSync-buffered writes into on-disk
-	// SSTs) and let pebble.LogData with Sync force-fsync the WAL tail.
-	if err := e.db.Flush(); err != nil {
-		return fmt.Errorf("EndFreshSync: flush: %w", err)
-	}
-	if err := e.db.LogData(nil, pebble.Sync); err != nil {
-		return fmt.Errorf("EndFreshSync: fsync WAL: %w", err)
-	}
-	e.clearCurrentSync()
-	return nil
+	})
 }
 
 // currentSyncBytes returns the engine's tracked sync_id (raw bytes)
@@ -390,9 +454,23 @@ func (e *Engine) requireCurrentSync() error {
 	return nil
 }
 
-// checkWritable returns ErrEngineClosing if the engine has been
-// closed. Called at the start of every Writer method.
+// checkWritable returns ErrEngineClosing if the engine has been closed,
+// and ErrEngineSealed after a successful EndSync until a sync is bound
+// again. Called at the start of every Writer method.
 func (e *Engine) checkWritable() error {
+	if err := e.checkWritableAllowSealed(); err != nil {
+		return err
+	}
+	if e.sealed.Load() {
+		return ErrEngineSealed
+	}
+	return nil
+}
+
+// checkWritableAllowSealed is checkWritable without the sealed check, for
+// the few write paths that legitimately run on a finished sync (sync-run
+// metadata updates and the pre-StartNewSync wipe).
+func (e *Engine) checkWritableAllowSealed() error {
 	if e.closing.Load() {
 		return ErrEngineClosing
 	}
@@ -406,9 +484,22 @@ func (e *Engine) checkWritable() error {
 }
 
 // withWrite wraps a writer function with WaitGroup tracking + the
-// closing check. The closure runs only if the engine is open.
+// closing and sealed checks. The closure runs only if the engine is open
+// and a sync is bound (not sealed).
 func (e *Engine) withWrite(fn func() error) error {
-	if err := e.checkWritable(); err != nil {
+	if e.sealed.Load() {
+		return ErrEngineSealed
+	}
+	return e.withWriteAllowSealed(fn)
+}
+
+// withWriteAllowSealed is withWrite without the sealed check. Reserved for
+// writes that are part of the sealed lifecycle itself: sync-run metadata
+// stamps on a finished sync (ended_at overrides, diff links, supports_diff)
+// and ResetForNewSync's wipe on the way into a new sync. Record-data writes
+// must use withWrite.
+func (e *Engine) withWriteAllowSealed(fn func() error) error {
+	if err := e.checkWritableAllowSealed(); err != nil {
 		return err
 	}
 	e.writeWG.Add(1)
@@ -506,6 +597,10 @@ func (e *Engine) MigratedOnOpen() bool { return e.migratedOnOpen }
 // Flush→Checkpoint→truncate window. That prevents a write from
 // committing between the Flush and Checkpoint — such a write would
 // otherwise exist only in the WAL, which truncateCheckpointWALs discards.
+// It also takes checkpointMu exclusively for the same window: the
+// synth-layer session's background worker ingests SSTs outside writeMu
+// (see ingestSynthLayerSegment), and a flushable ingest landing mid-window
+// would be a WAL-only record the truncate discards.
 func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	// Wait for all in-flight writes to complete.
 	e.writeWG.Wait()
@@ -515,6 +610,13 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	}
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
+	e.checkpointMu.Lock()
+	defer e.checkpointMu.Unlock()
+	// Re-check under the lock: Close (which also takes writeMu for its
+	// teardown) may have won the race and nil'd e.db.
+	if e.closing.Load() || e.db == nil {
+		return ErrEngineClosing
+	}
 
 	if e.opts.readOnly {
 		return copyReadOnlyDBDir(e.dbDir, destDir)
