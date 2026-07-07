@@ -393,11 +393,32 @@ func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID s
 // a shallow per-value field read. This is the resolution of last resort
 // for connector-custom ids that carry no reconstructible concat shape —
 // SQLite keyed grant rows by exactly this id, so string reads must find
-// them for reader parity. O(all grants) with only the external_id field
-// decoded per row; reachable only from the CLI/reader-API edge (the
-// combinatorial prober above answers SDK-shaped ids without ever getting
-// here), never from sync or expansion. Exactly-one rule: zero matches is
-// pebble.ErrNotFound, several is ErrAmbiguousExternalID.
+// them for reader parity.
+//
+// COST: O(all grants) per call, hit or miss. Every NotFound outcome ends
+// here (absence is unprovable without the scan), and a successful custom-id
+// hit scans to EOF anyway — the exactly-one rule keeps looking for a second
+// match (early exit only on ambiguity). Only the external_id field is
+// decoded per row. This is acceptable ONLY because every caller is an
+// interactive one-shot:
+//
+//   - reachable from the CLI/reader-API edge (provisioner --revoke-grant,
+//     explorer detail views via the storecache, which memoizes per id);
+//     the combinatorial prober above answers SDK-shaped ids without ever
+//     getting here;
+//   - sync and expansion never reach it: the syncer's only
+//     delete-grants-by-id loop prefers the store's DeleteGrantByRefs
+//     (grantByRefsDeleter in pkg/sync), which Pebble implements, so the
+//     string path there runs only on SQLite where external_id is indexed.
+//
+// If a real workload ever resolves many DISTINCT custom ids (each one a
+// full scan — quadratic in aggregate), the escape hatch is a skinny
+// by-custom-external-id index written at put time only for rows whose
+// stored id differs from their concat reconstruction; SDK-shaped ids need
+// no index entry, so the added write weight would be near zero.
+//
+// Exactly-one rule: zero matches is pebble.ErrNotFound, several is
+// ErrAmbiguousExternalID.
 func (e *Engine) scanGrantIdentityByStoredExternalID(ctx context.Context, grantID string) (grantIdentity, error) {
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: GrantLowerBound(),
