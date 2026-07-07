@@ -3,13 +3,16 @@ package pebble
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 
 	"github.com/cockroachdb/pebble/v2"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 // Grants returns the GrantStore implementation backed by the Pebble
@@ -28,6 +31,14 @@ func (a *Adapter) Grants() c1zstore.GrantStore {
 type pebbleGrantStore struct {
 	a *Adapter
 }
+
+var expandedGrantImmutableAnnotationAny = func() *anypb.Any {
+	a, err := anypb.New(&v2.GrantImmutable{})
+	if err != nil {
+		panic(fmt.Errorf("pebble: marshal GrantImmutable annotation: %w", err))
+	}
+	return a
+}()
 
 // StoreExpandedGrants writes a batch of grants that have already
 // had their expansion annotations consumed by the expander. Matches
@@ -72,6 +83,127 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 	// equivalent to V2GrantToV3 and (like it) leaves discovered_at unset:
 	// PutExpandedGrantRecords stamps/preserves it. The returned pointers alias
 	// the arena, which outlives this call's use of `merged`.
+	merged := g.translateExpanded(syncID, grants)
+	return g.a.engine.PutExpandedGrantRecords(ctx, merged)
+}
+
+// StoreNewExpandedGrants is the fast path for synthesized expanded grants. The
+// caller guarantees no existing grant has the same structured identity, so Pebble
+// can skip the read-before-write Get used to preserve side-state and clean stale
+// indexes for updates.
+func (g pebbleGrantStore) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	syncID := g.a.currentSyncID()
+	if syncID == "" {
+		return ErrNoCurrentSync
+	}
+	if len(grants) == 0 {
+		return nil
+	}
+	merged := g.translateExpanded(syncID, grants)
+	return g.a.engine.PutSynthesizedGrantRecords(ctx, merged)
+}
+
+// appendSynthesizedGrantRecords translates one destination's synthesized
+// contributions into engine records, appending to records. Shared by the
+// per-destination write path and the layer-scoped layer session.
+func appendSynthesizedGrantRecords(records []synthesizedGrantRecord, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) ([]synthesizedGrantRecord, error) {
+	if len(principals) != len(sources) {
+		return records, fmt.Errorf("store new expanded grant contributions: principals/sources length mismatch")
+	}
+	entRef := entitlementToRef(dest)
+	if entRef == nil {
+		return records, fmt.Errorf("store new expanded grant contributions: entitlement is nil")
+	}
+	entID := entitlementIdentityFromParts(entRef.GetResourceTypeId(), entRef.GetResourceId(), entRef.GetEntitlementId())
+	for i, principal := range principals {
+		if principal == nil || principal.GetResourceTypeId() == "" || principal.GetResourceId() == "" {
+			continue
+		}
+		if len(sources[i]) == 0 {
+			return records, fmt.Errorf("store new expanded grant contributions: empty sources")
+		}
+		id := grantIdentity{
+			entitlement:     entID,
+			principalTypeID: principal.GetResourceTypeId(),
+			principalID:     principal.GetResourceId(),
+		}
+		// The public external id (the legacy concat) is not materialized
+		// here: the engine encoders build it directly on the wire from the
+		// refs (appendSynthGrantExternalIDWire).
+		records = append(records, synthesizedGrantRecord{
+			id:          id,
+			entitlement: entRef,
+			principal:   principal,
+			sources:     sources[i],
+		})
+	}
+	return records, nil
+}
+
+func (g pebbleGrantStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	if g.a.currentSyncID() == "" {
+		return ErrNoCurrentSync
+	}
+	if len(principals) == 0 {
+		return nil
+	}
+	// Pooled: the engine's Put/ingest paths copy everything they need out of
+	// records before returning, so the backing array is safe to recycle.
+	recordsPtr := getSynthRecords()
+	records := *recordsPtr
+	defer func() {
+		*recordsPtr = records
+		putSynthRecords(recordsPtr)
+	}()
+	records, err := appendSynthesizedGrantRecords(records, dest, principals, sources)
+	if err != nil {
+		return err
+	}
+	return g.a.engine.PutSynthesizedGrantContributions(ctx, records)
+}
+
+// BeginExpandedGrantLayer opens a layer-scoped synthesized-grant layer session
+// on the engine. Returns false when the engine cannot serve one (e.g. the
+// by_principal index is not deferred); callers fall back to
+// StoreNewExpandedGrantContributions.
+func (g pebbleGrantStore) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
+	if g.a.currentSyncID() == "" {
+		return false, ErrNoCurrentSync
+	}
+	return g.a.engine.BeginSynthesizedGrantLayer(ctx)
+}
+
+// AddExpandedGrantLayerContributions streams one destination's synthesized
+// contributions into the open layer session. Rows become readable when
+// FinishExpandedGrantLayer publishes the layer.
+func (g pebbleGrantStore) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	if len(principals) == 0 {
+		return nil
+	}
+	// Pooled: the engine encodes everything it needs out of records before
+	// returning, so the backing array is safe to recycle.
+	recordsPtr := getSynthRecords()
+	records := *recordsPtr
+	defer func() {
+		*recordsPtr = records
+		putSynthRecords(recordsPtr)
+	}()
+	records, err := appendSynthesizedGrantRecords(records, dest, principals, sources)
+	if err != nil {
+		return err
+	}
+	return g.a.engine.AddSynthesizedGrantLayerContributions(ctx, records)
+}
+
+func (g pebbleGrantStore) FinishExpandedGrantLayer(ctx context.Context) error {
+	return g.a.engine.FinishSynthesizedGrantLayer(ctx)
+}
+
+func (g pebbleGrantStore) AbortExpandedGrantLayer(ctx context.Context) error {
+	return g.a.engine.AbortSynthesizedGrantLayer(ctx)
+}
+
+func (g pebbleGrantStore) translateExpanded(syncID string, grants []*v2.Grant) []*v3.GrantRecord {
 	merged := make([]*v3.GrantRecord, 0, len(grants))
 	arena := newGrantTranslateArena(len(grants))
 	for _, gr := range grants {
@@ -90,7 +222,7 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 		newRec.SetNeedsExpansion(false)
 		merged = append(merged, newRec)
 	}
-	return g.a.engine.PutExpandedGrantRecords(ctx, merged)
+	return merged
 }
 
 // PendingExpansionPage returns the next page of grants whose
@@ -122,11 +254,15 @@ func (g pebbleGrantStore) PendingExpansionPage(ctx context.Context, pageToken st
 			continue
 		}
 		exp := rec.GetExpansion()
+		ent := rec.GetEntitlement()
+		princ := rec.GetPrincipal()
+		// Raw pass-through: refs and expandable ids are the connector's own
+		// strings; the graph, sources maps, and stored refs all share them.
 		out = append(out, c1zstore.PendingExpansion{
 			GrantExternalID:         rec.GetExternalId(),
-			TargetEntitlementID:     rec.GetEntitlement().GetEntitlementId(),
-			PrincipalResourceTypeID: rec.GetPrincipal().GetResourceTypeId(),
-			PrincipalResourceID:     rec.GetPrincipal().GetResourceId(),
+			TargetEntitlementID:     ent.GetEntitlementId(),
+			PrincipalResourceTypeID: princ.GetResourceTypeId(),
+			PrincipalResourceID:     princ.GetResourceId(),
 			Annotation: v2.GrantExpandable_builder{
 				EntitlementIds:  exp.GetEntitlementIds(),
 				Shallow:         exp.GetShallow(),
@@ -181,13 +317,15 @@ func (g pebbleGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken
 	}
 	rows := make([]c1zstore.GrantAnnotation, 0, len(records))
 	for _, rec := range records {
+		ent := rec.GetEntitlement()
+		princ := rec.GetPrincipal()
 		rows = append(rows, c1zstore.GrantAnnotation{
 			Grant:                   V3GrantToV2(rec),
 			Annotation:              expansionRecordToV2(rec.GetExpansion()),
 			GrantExternalID:         rec.GetExternalId(),
-			TargetEntitlementID:     rec.GetEntitlement().GetEntitlementId(),
-			PrincipalResourceTypeID: rec.GetPrincipal().GetResourceTypeId(),
-			PrincipalResourceID:     rec.GetPrincipal().GetResourceId(),
+			TargetEntitlementID:     ent.GetEntitlementId(),
+			PrincipalResourceTypeID: princ.GetResourceTypeId(),
+			PrincipalResourceID:     princ.GetResourceId(),
 			NeedsExpansion:          rec.GetNeedsExpansion(),
 		})
 	}

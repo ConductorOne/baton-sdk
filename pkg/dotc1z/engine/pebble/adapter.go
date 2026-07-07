@@ -297,6 +297,54 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The sync's writes are done. From here to save/close the store only
+	// runs the deferred index build, the stats sidecar, and the durability
+	// flush — automatic compactions in that window are incremental
+	// level-by-level rewrites that compete with those phases for CPU and IO,
+	// so stop granting new ones. The deferred index build below consolidates
+	// the grant keyspace itself (its scan is teed into a flat rebuild that
+	// replaces the range via IngestAndExcise), so the saved artifact ships
+	// with near-zero compaction debt without running the compactor.
+	// Seal BEFORE finalize, not after: the seal must cover the deferred
+	// index build and the pending-marker clear, or a straggler record
+	// writer that was blocked on writeMu could commit in the gap between
+	// them — a row present in the primary keyspace but permanently missing
+	// from by_principal, in the saved artifact. Finalize's own steps run
+	// on AllowSealed paths; sync-run metadata stamps remain allowed.
+	// Sealing also pauses compactions for the EndSync-to-close window.
+	a.engine.seal()
+	if err := a.engine.endSyncFinalize(ctx, existing); err != nil {
+		// On failure the sync stays bound and the caller may keep writing
+		// (or retry EndSync later): leave the sealed state and resume
+		// compactions, or L0 would accumulate until pebble stalls writes at
+		// L0StopWritesThreshold with nothing left to resume the scheduler.
+		a.engine.unseal()
+		return err
+	}
+	a.current = syncRunState{}
+	return nil
+}
+
+// endSyncFinalize runs the sealed tail of EndSync: the deferred index
+// build, the ended_at stamp, the stats sidecar, and the durability flush.
+// Runs with the engine SEALED (see EndSync) — every write below goes
+// through an AllowSealed path. Split out so EndSync can unseal on failure.
+func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord) error {
+	// Build the deferred by_principal index BEFORE stamping ended_at (an
+	// interrupted build must leave the sync visibly unfinished so a resume
+	// re-runs EndSync and the rebuild — the pending marker is durable, see
+	// markDeferredIdxPending) and BEFORE the stats sidecar (the build's
+	// full grant scan also accumulates the grant portion of the stats via
+	// stashDeferredGrantStats, letting PersistSyncStats skip a second
+	// O(grants) pass over the keyspace).
+	if e.deferredIdxPending.Load() {
+		if err := e.BuildDeferredGrantIndexes(ctx); err != nil {
+			return fmt.Errorf("EndSync: build deferred grant indexes: %w", err)
+		}
+		if err := e.clearDeferredIdxPending(); err != nil {
+			return fmt.Errorf("EndSync: clear deferred index marker: %w", err)
+		}
+	}
 	updated := v3.SyncRunRecord_builder{
 		SyncId:       existing.GetSyncId(),
 		Type:         existing.GetType(),
@@ -305,7 +353,7 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 		EndedAt:      timestamppb.Now(),
 		SyncToken:    existing.GetSyncToken(),
 	}.Build()
-	if err := a.engine.PutSyncRunRecord(ctx, updated); err != nil {
+	if err := e.PutSyncRunRecord(ctx, updated); err != nil {
 		return err
 	}
 	// Populate the stats sidecar BEFORE the durability flush. Stats
@@ -316,7 +364,7 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	// framework will backfill next time the file opens. We log a
 	// warning so the failure is visible in production telemetry but
 	// don't fail the sync end on stats-sidecar trouble.
-	if err := a.engine.PersistSyncStats(ctx, existing.GetSyncId()); err != nil {
+	if err := e.PersistSyncStats(ctx, existing.GetSyncId()); err != nil {
 		ctxzap.Extract(ctx).Warn("pebble: persist sync stats sidecar failed; Stats() will fall back to O(N) iteration until the next Open backfills it",
 			zap.String("sync_id", existing.GetSyncId()),
 			zap.Error(err),
@@ -325,11 +373,7 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After
 	// this returns, all writes from the sync are on disk.
-	if err := a.engine.EndFreshSync(ctx); err != nil {
-		return err
-	}
-	a.current = syncRunState{}
-	return nil
+	return e.EndFreshSync(ctx)
 }
 
 // === writes ===
@@ -552,13 +596,34 @@ func (a *Adapter) PutEntitlements(ctx context.Context, entitlements ...*v2.Entit
 	return nil
 }
 
-// DeleteGrant removes a grant by id.
+// DeleteGrant removes a grant by its raw public id, resolved through the
+// bare-id lookup edge. Callers holding the full grant should prefer
+// DeleteGrantByRefs, which needs no id-string resolution.
 func (a *Adapter) DeleteGrant(ctx context.Context, grantID string) error {
 	syncID := a.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
 	return a.engine.DeleteGrantRecord(ctx, grantID)
+}
+
+// DeleteGrantByRefs removes a grant addressed by the structured refs of the
+// supplied v2 grant — the exact delete path, no lossy id string involved.
+// Incomplete refs are an error, never a fallback to bare-id resolution:
+// this is a sync-internal surface, and string resolution is reserved for
+// interactive/CLI edges (see lookup.go). A grant whose refs cannot derive
+// an identity could not have been stored in the first place, so there is
+// nothing a string could correctly address here.
+func (a *Adapter) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
+	syncID := a.currentSyncID()
+	if syncID == "" {
+		return ErrNoCurrentSync
+	}
+	rec := V2GrantToV3(syncID, grant)
+	if _, err := grantIdentityFromRecord(rec); err != nil {
+		return fmt.Errorf("DeleteGrantByRefs: grant %q: %w", grant.GetId(), err)
+	}
+	return a.engine.DeleteGrantByIdentityRefs(ctx, rec)
 }
 
 // PutAsset writes a single asset row. assetRef carries the
@@ -637,7 +702,7 @@ func (a *Adapter) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequ
 //   - page_size == 0 || page_size > MaxPageSize → DefaultPageSize (10000)
 //   - page_token is opaque base64; pass nextPageToken back verbatim
 //   - filter by req.Resource — the entitlement-side resource of each
-//     grant — when set; uses the by_entitlement_resource index. This
+//     grant — when set; uses primary grant entitlement-resource prefixes. This
 //     matches SQLite's `listGrantsGeneric` which filters on
 //     grants.resource_id / resource_type_id (the entitlement's
 //     resource columns). Callers who want to filter by principal

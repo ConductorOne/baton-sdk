@@ -79,5 +79,6 @@ func TestPebble_ListGrants_HonorsSyncDetailsAnnotation(t *testing.T) {
 	resp, err := store.ListGrants(ctx, req)
 	require.NoError(t, err, "ListGrants should honor a SyncDetails annotation pointing at the file's sync")
 	require.Len(t, resp.GetList(), 1)
+	// Stored external id round-trips verbatim.
 	require.Equal(t, "grant-sync1", resp.GetList()[0].GetId())
 }

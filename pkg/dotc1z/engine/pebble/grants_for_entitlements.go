@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
-	"sort"
 
 	"github.com/cockroachdb/pebble/v2"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -25,10 +24,10 @@ import (
 //	varint(entitlement_index) || varint(intra_cursor_len) ||
 //	intra_cursor_bytes || crc32(list_checksum)
 //
-// list_checksum is crc32 over the sorted entitlement IDs in the
-// request — if the caller changes the entitlement list between
-// pages we detect the mismatch and restart from the beginning
-// rather than silently mis-paginate.
+// list_checksum is crc32 over the entitlement IDs in REQUEST
+// ORDER — the cursor resumes by positional index, so a reorder is
+// as fatal as a drop/add; any change to the list (including order)
+// restarts from the beginning rather than silently mis-paginating.
 func (a *Adapter) ListGrantsForEntitlements(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest,
@@ -64,9 +63,15 @@ func (a *Adapter) ListGrantsForEntitlements(
 
 EntitlementLoop:
 	for i := startIdx; i < len(ents); i++ {
-		entID := ents[i].GetId()
-		if entID == "" {
+		if ents[i].GetId() == "" {
 			continue
+		}
+		entID, err := a.entitlementIdentityForRequest(ctx, ents[i])
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+				continue // unknown entitlement → no grants
+			}
+			return nil, err
 		}
 		intraCursor := ""
 		if i == startIdx {
@@ -86,12 +91,11 @@ EntitlementLoop:
 			for _, rec := range records {
 				out = append(out, V3GrantToV2(rec))
 				if len(out) == limit {
-					p := rec.GetPrincipal()
-					lastIntra = encodeCursor(encodeGrantByEntitlementIndexKey(
-						entID,
-						p.GetResourceTypeId(), p.GetResourceId(),
-						rec.GetExternalId(),
-					))
+					id, err := grantIdentityFromRecord(rec)
+					if err != nil {
+						return nil, err
+					}
+					lastIntra = encodeCursor(encodeGrantIdentityKey(id))
 					brokeEarly = true
 					break
 				}
@@ -121,19 +125,18 @@ EntitlementLoop:
 	}.Build(), nil
 }
 
-// entitlementListChecksum hashes the sorted entitlement ID set so
-// it is stable across client-side reorderings. If the caller drops
-// or adds an entitlement between pages the checksum changes and
-// decodeBatchCursor rejects the cursor.
+// entitlementListChecksum hashes the entitlement ID list IN REQUEST
+// ORDER. The cursor resumes by positional index into the list, so a
+// reordering is just as fatal to the resume as a drop or an add — a
+// sorted (order-insensitive) checksum would bless a reorder while the
+// index resumed over a different entitlement, re-returning some and
+// silently skipping others. Any change to the list, including order,
+// changes the checksum and decodeBatchCursor restarts from the
+// beginning.
 func entitlementListChecksum(ents []*v2.Entitlement) uint32 {
-	ids := make([]string, 0, len(ents))
-	for _, e := range ents {
-		ids = append(ids, e.GetId())
-	}
-	sort.Strings(ids)
 	h := crc32.NewIEEE()
-	for _, id := range ids {
-		_, _ = h.Write([]byte(id))
+	for _, e := range ents {
+		_, _ = h.Write([]byte(e.GetId()))
 		_, _ = h.Write([]byte{0})
 	}
 	return h.Sum32()
@@ -182,7 +185,10 @@ func decodeBatchCursor(token string, currentChecksum uint32) (int, string, error
 		return 0, "", errors.New("ListGrantsForEntitlements: cursor missing intra length")
 	}
 	raw = raw[n:]
-	if uint64(len(raw)) < lenU+4 {
+	// Guard each term separately: lenU is attacker-controlled and lenU+4
+	// can wrap around uint64, which would pass a combined comparison and
+	// panic on the slice below.
+	if lenU > uint64(len(raw)) || uint64(len(raw))-lenU < 4 {
 		return 0, "", errors.New("ListGrantsForEntitlements: cursor truncated")
 	}
 	intra := string(raw[:lenU])

@@ -140,7 +140,7 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 		return nil, err
 	}
 
-	if _, statErr := os.Stat(outPath); statErr == nil {
+	if _, statErr := os.Stat(outPath); statErr == nil { // #nosec G703 -- conversion output path is caller-controlled by API design.
 		return nil, fmt.Errorf("to-pebble: output path (%s) must not exist", outPath)
 	} else if !errors.Is(statErr, fs.ErrNotExist) {
 		return nil, fmt.Errorf("to-pebble: stat output path %s: %w", outPath, statErr)
@@ -179,7 +179,7 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	defer func() {
 		if cleanupDest {
 			_ = dest.Close(ctx)
-			_ = os.Remove(outPath)
+			_ = os.Remove(outPath) // #nosec G703 -- cleanup of caller-selected conversion output.
 		}
 	}()
 
@@ -259,7 +259,7 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	closeStart := time.Now()
 	if err = dest.Close(ctx); err != nil {
 		cleanupDest = false
-		_ = os.Remove(outPath)
+		_ = os.Remove(outPath) // #nosec G703 -- cleanup of caller-selected conversion output.
 		return nil, fmt.Errorf("to-pebble: close destination: %w", err)
 	}
 	closeDur := time.Since(closeStart)

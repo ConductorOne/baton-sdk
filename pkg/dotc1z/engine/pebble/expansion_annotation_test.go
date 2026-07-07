@@ -75,6 +75,7 @@ func TestExpansionAnnotationRoundtrip(t *testing.T) {
 		require.Equal(t, "ent-A", seen.TargetEntitlementID)
 		require.True(t, seen.NeedsExpansion)
 		require.NotNil(t, seen.Annotation)
+		// Expandable ids are the connector's own strings, passed through raw.
 		require.Equal(t, []string{"src-ent-1", "src-ent-2"}, seen.Annotation.GetEntitlementIds())
 		require.True(t, seen.Annotation.GetShallow())
 		require.Equal(t, []string{"role"}, seen.Annotation.GetResourceTypeIds())

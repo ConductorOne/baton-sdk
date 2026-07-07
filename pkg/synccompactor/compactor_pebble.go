@@ -792,6 +792,26 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 		return errors.New("compactPebble: compacted store is not a pebble engine")
 	}
 
+	// runPebbleRebuild's StartNewSync→EndSync left the dest engine SEALED
+	// (writes refused, compactions paused). The merge below writes the whole
+	// compacted dataset — overlay mode through raw memtable batches — so
+	// bind the sync first: unseals the engine and resumes the compaction
+	// scheduler. Without this, L0 accumulates with no compactions granted
+	// until pebble stalls writes at L0StopWritesThreshold, permanently
+	// (nothing else resumes the scheduler mid-merge).
+	//
+	// Yes, "SetCurrentSync to restart compactions" is an odd spelling. It
+	// is deliberate: unseal/resume is not a public engine operation, because
+	// the sealed state exists precisely to guarantee "no record writes
+	// without a bound sync". Binding the sync we're about to write under is
+	// the one sanctioned way to declare that intent, and unseal+resume ride
+	// along as consequences (see Engine.SetCurrentSync / Engine.seal). An
+	// exported ResumeCompactions-style escape hatch would let callers write
+	// on a sealed engine again, recreating the very hang this fixes.
+	if err := destEng.SetCurrentSync(newSyncId); err != nil {
+		return fmt.Errorf("compactPebble: bind dest sync: %w", err)
+	}
+
 	pebbleCompactorMode := c.pebbleMode
 	if pebbleCompactorMode == PebbleCompactorModeAuto {
 		pebbleCompactorMode = c.resolvePebbleMode(ctx)

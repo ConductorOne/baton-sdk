@@ -12,12 +12,15 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 // pebbleDriver is the EngineDriver for the Pebble v3 engine.
@@ -71,6 +74,29 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 		return nil, cleanupOnError(err)
 	}
 
+	if opts.ReadOnly {
+		// A read-only open of a missing or empty c1z must fail loudly (as it
+		// does on main via pebble's ErrDBDoesNotExist), not silently create
+		// an empty DB in the temp dir: the writable migration pre-open below
+		// would otherwise mint a fresh store and mask a mistyped path as
+		// "file has no syncs". unpackExistingPebbleC1Z creates dbDir exactly
+		// when it actually unpacked a payload.
+		if _, statErr := os.Stat(dbDir); statErr != nil {
+			return nil, cleanupOnError(fmt.Errorf("pebble: read-only open: %s does not exist or is empty", outputFilePath))
+		}
+		// Match SQLite read-only semantics: the source c1z is immutable, but the
+		// unpacked temp DB may be migrated so current read paths see the latest
+		// layout. Reopen read-only afterwards so callers that reach the engine
+		// directly still get read-only write barriers.
+		migratingEngine, err := pebble.Open(ctx, dbDir)
+		if err != nil {
+			return nil, cleanupOnError(err)
+		}
+		if err := migratingEngine.Close(); err != nil {
+			return nil, cleanupOnError(err)
+		}
+	}
+
 	e, err := pebble.Open(ctx, dbDir, pebble.WithReadOnly(opts.ReadOnly))
 	if err != nil {
 		return nil, cleanupOnError(err)
@@ -83,6 +109,12 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	adapter := pebble.NewAdapter(e)
 	err = adapter.InitCurrentSync(ctx)
 	if err != nil {
+		// Close the engine before removing its directory: a live pebble DB
+		// holds open fds and background goroutines that would otherwise
+		// leak for the life of the process.
+		if closeErr := e.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
 		return nil, cleanupOnError(err)
 	}
 
@@ -97,6 +129,11 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 		foldDeadBytes:   foldDeadBytes,
 		syncLimit:       opts.SyncLimit,
 		skipCleanup:     opts.SkipCleanup,
+		// A writable open that ran the in-place id-index migration must
+		// save the migrated layout back into the c1z even if the caller
+		// never writes, or every subsequent open re-pays the O(rows)
+		// migration.
+		dirty: !opts.ReadOnly && e.MigratedOnOpen(),
 	}, nil
 }
 
@@ -127,7 +164,7 @@ func unpackExistingPebbleC1Z(
 	if err != nil {
 		return nil, PayloadEncodingUnspecified, 0, err
 	}
-	if e := Engine(header.GetEngine()); e != EnginePebble && e != PebbleManifestEngine {
+	if e := Engine(header.GetEngine()); e != EnginePebble && e != PebbleManifestEngine && e != PebbleManifestEngineV2 {
 		return nil, PayloadEncodingUnspecified, 0, fmt.Errorf("%w: %s", pebble.ErrUnknownEngine, header.GetEngine())
 	}
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
@@ -458,6 +495,13 @@ func (s *pebbleStore) DeleteGrant(ctx context.Context, grantID string) error {
 	return s.markDirty(s.Adapter.DeleteGrant(ctx, grantID))
 }
 
+// DeleteGrantByRefs is the exact grant delete for callers holding the full
+// grant: identity derives from the structured refs, never the lossy id
+// string. The syncer prefers this when available.
+func (s *pebbleStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
+	return s.markDirty(s.Adapter.DeleteGrantByRefs(ctx, grant))
+}
+
 // Grants overrides Adapter.Grants() so the returned GrantStore
 // routes StoreExpandedGrants through the pebbleStore's dirty-marking
 // path. The Adapter-level wrapper calls Adapter.PutGrants directly,
@@ -474,8 +518,127 @@ type pebbleStoreGrants struct {
 	store *pebbleStore
 }
 
+var pebbleStoreExpandedGrantImmutableAnnotationAny = func() *anypb.Any {
+	a, err := anypb.New(&v2.GrantImmutable{})
+	if err != nil {
+		panic(fmt.Errorf("dotc1z: marshal GrantImmutable annotation: %w", err))
+	}
+	return a
+}()
+
 func (g pebbleStoreGrants) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
+}
+
+func (g pebbleStoreGrants) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	if fast, ok := g.inner.(interface {
+		StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
+	}); ok {
+		return g.store.markDirty(fast.StoreNewExpandedGrants(ctx, grants...))
+	}
+	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
+}
+
+func (g pebbleStoreGrants) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	if fast, ok := g.inner.(interface {
+		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*v3.PrincipalRef, []batonGrant.Sources) error
+	}); ok {
+		return g.store.markDirty(fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources))
+	}
+	grants := make([]*v2.Grant, 0, len(principals))
+	for i, principalRef := range principals {
+		principal := newPebbleStorePrincipalResource(principalRef)
+		grant, err := newPebbleStoreExpandedGrant(dest, principal, sources[i])
+		if err != nil {
+			return err
+		}
+		grants = append(grants, grant)
+	}
+	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
+}
+
+// pebbleStoreGrantLayerStorer is the layer-scoped layer session surface the
+// engine-level grant store may implement (see the pebble adapter). Kept as a
+// local interface so the wrapper can pass sessions through with the dirty bit.
+type pebbleStoreGrantLayerStorer interface {
+	BeginExpandedGrantLayer(ctx context.Context) (bool, error)
+	AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error
+	FinishExpandedGrantLayer(ctx context.Context) error
+	AbortExpandedGrantLayer(ctx context.Context) error
+}
+
+func (g pebbleStoreGrants) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
+	if fast, ok := g.inner.(pebbleStoreGrantLayerStorer); ok {
+		return fast.BeginExpandedGrantLayer(ctx)
+	}
+	return false, nil
+}
+
+func (g pebbleStoreGrants) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	fast, ok := g.inner.(pebbleStoreGrantLayerStorer)
+	if !ok {
+		return fmt.Errorf("expanded grant layer: store does not support layer sessions")
+	}
+	return fast.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+}
+
+func (g pebbleStoreGrants) FinishExpandedGrantLayer(ctx context.Context) error {
+	fast, ok := g.inner.(pebbleStoreGrantLayerStorer)
+	if !ok {
+		return fmt.Errorf("expanded grant layer: store does not support layer sessions")
+	}
+	return g.store.markDirty(fast.FinishExpandedGrantLayer(ctx))
+}
+
+func (g pebbleStoreGrants) AbortExpandedGrantLayer(ctx context.Context) error {
+	fast, ok := g.inner.(pebbleStoreGrantLayerStorer)
+	if !ok {
+		return nil
+	}
+	return fast.AbortExpandedGrantLayer(ctx)
+}
+
+func newPebbleStorePrincipalResource(ref *v3.PrincipalRef) *v2.Resource {
+	if ref == nil {
+		return nil
+	}
+	var parent *v2.ResourceId
+	if ref.GetParentResourceId() != "" {
+		parent = v2.ResourceId_builder{
+			ResourceType: ref.GetParentResourceTypeId(),
+			Resource:     ref.GetParentResourceId(),
+		}.Build()
+	}
+	return v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: ref.GetResourceTypeId(),
+			Resource:     ref.GetResourceId(),
+		}.Build(),
+		ParentResourceId: parent,
+	}.Build()
+}
+
+func newPebbleStoreExpandedGrant(dest *v2.Entitlement, principal *v2.Resource, sources batonGrant.Sources) (*v2.Grant, error) {
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("new expanded grant: empty sources")
+	}
+	if dest == nil || dest.GetResource() == nil {
+		return nil, fmt.Errorf("new expanded grant: entitlement has no resource")
+	}
+	if principal == nil {
+		return nil, fmt.Errorf("new expanded grant: principal is nil")
+	}
+	sourceMap := make(map[string]*v2.GrantSources_GrantSource, len(sources))
+	for _, src := range sources {
+		sourceMap[src.EntitlementID] = &v2.GrantSources_GrantSource{IsDirect: src.IsDirect}
+	}
+	return v2.Grant_builder{
+		Id:          batonGrant.NewGrantID(principal, dest),
+		Entitlement: dest,
+		Principal:   principal,
+		Sources:     v2.GrantSources_builder{Sources: sourceMap}.Build(),
+		Annotations: []*anypb.Any{pebbleStoreExpandedGrantImmutableAnnotationAny},
+	}.Build(), nil
 }
 
 func (g pebbleStoreGrants) PendingExpansionPage(ctx context.Context, pageToken string) ([]PendingExpansion, string, error) {
@@ -506,6 +669,20 @@ func (s *pebbleStore) Close(ctx context.Context) (retErr error) {
 	if s.closed {
 		return nil
 	}
+
+	if !s.readOnly && s.dirty {
+		if err := s.save(ctx); err != nil {
+			// Tear NOTHING down: the unpacked DB under tmpDir is the only
+			// copy of the synced data, and save failures are frequently
+			// transient (target-path permissions, disk space for the
+			// envelope). Leave the store open so the caller can fix the
+			// condition and Close again; if the process exits instead, the
+			// temp dir survives on disk for manual recovery rather than
+			// being deleted out from under a failed save.
+			return fmt.Errorf("pebble store close: save failed, store left open and unsaved data preserved under %s: %w", s.tmpDir, err)
+		}
+		s.dirty = false
+	}
 	s.closed = true
 
 	defer func() {
@@ -514,11 +691,6 @@ func (s *pebbleStore) Close(ctx context.Context) (retErr error) {
 		}
 	}()
 
-	if !s.readOnly && s.dirty {
-		if err := s.save(ctx); err != nil {
-			retErr = errors.Join(retErr, err)
-		}
-	}
 	if err := s.engine.Close(); err != nil {
 		retErr = errors.Join(retErr, err)
 	}
@@ -531,6 +703,13 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	}
 	saveStart := time.Now()
 	checkpointDir := filepath.Join(s.tmpDir, "checkpoint")
+	// A previous failed save can leave this dir behind, and pebble's
+	// Checkpoint refuses an existing destination — without this, the
+	// "fix the condition and Close again" recovery path advertised by
+	// Close would fail forever with ErrExist.
+	if err := os.RemoveAll(checkpointDir); err != nil {
+		return fmt.Errorf("pebble save: clear stale checkpoint dir: %w", err)
+	}
 	if err := s.engine.CheckpointTo(ctx, checkpointDir); err != nil {
 		return err
 	}

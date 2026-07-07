@@ -34,6 +34,7 @@ func TestV2GrantRoundtrip(t *testing.T) {
 	require.Equal(t, "user", v3rec.GetPrincipal().GetResourceTypeId(), "principal rt")
 
 	back := V3GrantToV2(v3rec)
+	// Stored external id round-trips verbatim; refs round-trip raw.
 	require.Equal(t, "grant-1", back.GetId(), "roundtrip id")
 	require.Equal(t, "github-read", back.GetEntitlement().GetId(), "roundtrip entitlement id")
 	require.Equal(t, "app", back.GetEntitlement().GetResource().GetId().GetResourceType(), "roundtrip ent.resource.rt")

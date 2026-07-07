@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -75,9 +77,47 @@ type ExpanderStore interface {
 	// GrantsForEntitlementPrincipalSorted reports whether ListGrantsForEntitlement
 	// yields grants in non-decreasing principal (resource_type, resource) order
 	// for a given entitlement. The topological evaluators require it. Pebble's
-	// by_entitlement index satisfies it; SQLite (orders by grant id) and the
-	// in-memory test doubles do not and report false.
+	// entitlement-first primary grant key satisfies it; SQLite (orders by grant
+	// id) and the in-memory test doubles do not and report false.
 	GrantsForEntitlementPrincipalSorted() bool
+}
+
+// newExpandedGrantStorer is an optional fast path for stores that can persist
+// caller-proven-new expanded grants without read-before-write. Pebble implements
+// it; SQLite and tests can omit it and fall back to StoreExpandedGrants.
+type newExpandedGrantStorer interface {
+	StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
+}
+
+// synthesizedContributionStorer is an optional store fast path for
+// caller-proven-new synthesized grants expressed as raw contributions
+// (destination + principal refs + sources) rather than materialized
+// v2.Grants, skipping both the grant construction and the read-before-write.
+// Pebble implements it; other stores fall back to StoreExpandedGrants via
+// the caller.
+type synthesizedContributionStorer interface {
+	StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error
+}
+
+// synthesizedContributionLayerStorer is an optional store fast path that
+// accumulates one topological layer's synthesized grants into sorted bulk
+// writes (SST ingests on Pebble) instead of committing each destination's
+// rows out of key order as they are produced.
+//
+// Begin returning false routes the caller to the
+// StoreNewExpandedGrantContributions fallback. Today the Pebble engine
+// always returns true when a sync is open (the by_principal index is
+// unconditionally rebuilt at EndSync, so a layer session never skips index
+// maintenance); the boolean exists so a future store can decline. Rows
+// streamed via Add become readable in bulk publishes no later than Finish
+// returning — callers must not rely on visibility before Finish, nor on
+// invisibility before it (large layers publish interior segments early).
+// Abort discards an in-flight session.
+type synthesizedContributionLayerStorer interface {
+	BeginExpandedGrantLayer(ctx context.Context) (bool, error)
+	AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error
+	FinishExpandedGrantLayer(ctx context.Context) error
+	AbortExpandedGrantLayer(ctx context.Context) error
 }
 
 // entitlementGrantPrincipalKeyLister is an optional fast path for stores that
@@ -131,9 +171,9 @@ func (e *Expander) Run(ctx context.Context) error {
 // This matches the syncer's step-by-step execution model.
 func (e *Expander) RunSingleStep(ctx context.Context) error {
 	// The topological projection evaluator is the default whenever the store
-	// yields grants in principal order (Pebble's by_entitlement index). Stores
-	// that can't guarantee that ordering (SQLite, in-memory test doubles) fall
-	// through to the source-batched expander below.
+	// yields grants in principal order (Pebble's entitlement-first primary grant
+	// key). Stores that can't guarantee that ordering (SQLite, in-memory test
+	// doubles) fall through to the source-batched expander below.
 	if e.store.GrantsForEntitlementPrincipalSorted() {
 		if e.IsDone(ctx) {
 			return nil

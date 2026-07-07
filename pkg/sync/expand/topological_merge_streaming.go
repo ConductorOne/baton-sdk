@@ -1,7 +1,6 @@
 package expand
 
 import (
-	"container/heap"
 	"context"
 	"fmt"
 	"sort"
@@ -14,12 +13,12 @@ import (
 // only one principal group per active input stream, instead of materializing all
 // source entitlement grant groups into maps for each destination.
 func (e *Expander) RunTopologicalMergeStreaming(ctx context.Context) error {
-	entitlements, order, err := e.prepareTopological(ctx)
+	entitlements, layers, err := e.prepareTopological(ctx)
 	if err != nil {
 		return err
 	}
-	if err := e.driveTopological(ctx, entitlements, order, topologicalRun{
-		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink destinationSink) error {
+	if err := e.driveTopological(ctx, entitlements, layers, topologicalRun{
+		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink *destinationSink) error {
 			return e.mergeDestinationStreams(ctx, dest, incoming, ents, nil, nil, sink)
 		},
 	}); err != nil {
@@ -87,7 +86,10 @@ func (s *streamingPrincipalGroupStream) rawNext(ctx context.Context) (*v2.Grant,
 			PageToken:   s.pageToken,
 		}.Build())
 		if err != nil {
-			return nil, false, err
+			// Identify which of potentially hundreds of thousands of
+			// entitlement streams failed; a raw engine error is
+			// undiagnosable at that scale.
+			return nil, false, fmt.Errorf("list grants for entitlement %q: %w", s.entitlement.GetId(), err)
 		}
 		s.buf = resp.GetList()
 		s.pos = 0
@@ -235,6 +237,10 @@ type contributionStream struct {
 	sourceEntitlementID string
 	edge                Edge
 	stream              principalGroupStream
+	// contrib is reused across groups: the k-way merge fully consumes a
+	// stream's current group before pulling the next one from that stream, so
+	// at most one group per stream is live at a time.
+	contrib topoContribution
 }
 
 func (s *contributionStream) next(ctx context.Context) (contributionGroup, bool, error) {
@@ -243,17 +249,17 @@ func (s *contributionStream) next(ctx context.Context) (contributionGroup, bool,
 		if err != nil || !ok {
 			return contributionGroup{}, ok, err
 		}
-		contrib := &topoContribution{}
+		s.contrib.resetForReuse()
 		for _, grant := range group.grants {
 			if !grantContributesOverEdge(grant, s.sourceEntitlementID, s.edge) {
 				continue
 			}
-			contrib.add(s.sourceEntitlementID, isGrantDirectOnEntitlement(grant, s.sourceEntitlementID), grant.GetPrincipal())
+			s.contrib.add(s.sourceEntitlementID, isGrantDirectOnEntitlement(grant, s.sourceEntitlementID), grant.GetPrincipal())
 		}
-		if len(contrib.sources) == 0 {
+		if len(s.contrib.sources) == 0 {
 			continue
 		}
-		return contributionGroup{key: group.key, contrib: contrib}, true, nil
+		return contributionGroup{key: group.key, contrib: &s.contrib}, true, nil
 	}
 }
 
@@ -278,22 +284,57 @@ type mergeHeapItem struct {
 	streamID int
 }
 
+// mergeHeap is a hand-rolled binary min-heap of concrete mergeHeapItem values.
+// container/heap boxes every Push/Pop through interface{}, which allocated per
+// heap operation on the expansion hot path; the concrete implementation is
+// allocation-free.
 type mergeHeap []mergeHeapItem
 
-func (h mergeHeap) Len() int { return len(h) }
-func (h mergeHeap) Less(i, j int) bool {
+func (h mergeHeap) less(i, j int) bool {
 	if h[i].group.key != h[j].group.key {
 		return principalKeyLess(h[i].group.key, h[j].group.key)
 	}
 	return h[i].streamID < h[j].streamID
 }
-func (h mergeHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
-func (h *mergeHeap) Push(x any)   { *h = append(*h, x.(mergeHeapItem)) }
-func (h *mergeHeap) Pop() any {
-	old := *h
-	n := len(old)
-	item := old[n-1]
-	*h = old[:n-1]
+
+func (h *mergeHeap) push(item mergeHeapItem) {
+	*h = append(*h, item)
+	s := *h
+	i := len(s) - 1
+	for i > 0 {
+		parent := (i - 1) / 2
+		if !s.less(i, parent) {
+			break
+		}
+		s[i], s[parent] = s[parent], s[i]
+		i = parent
+	}
+}
+
+func (h *mergeHeap) pop() mergeHeapItem {
+	s := *h
+	n := len(s) - 1
+	s[0], s[n] = s[n], s[0]
+	item := s[n]
+	s[n] = mergeHeapItem{} // release contribution references
+	s = s[:n]
+	*h = s
+	i := 0
+	for {
+		l := 2*i + 1
+		if l >= n {
+			break
+		}
+		m := l
+		if r := l + 1; r < n && s.less(r, l) {
+			m = r
+		}
+		if !s.less(m, i) {
+			break
+		}
+		s[i], s[m] = s[m], s[i]
+		i = m
+	}
 	return item
 }
 
@@ -305,7 +346,7 @@ func mergeContributionGroupStreams(
 	ctx context.Context,
 	destEntitlement *v2.Entitlement,
 	streams []contributionGroupStream,
-	sink destinationSink,
+	sink *destinationSink,
 ) error {
 	for _, stream := range streams {
 		defer stream.close()
@@ -319,41 +360,42 @@ func mergeContributionGroupStreams(
 		if !ok {
 			continue
 		}
-		heap.Push(&h, mergeHeapItem{group: group, streamID: i})
+		h.push(mergeHeapItem{group: group, streamID: i})
 	}
 
-	flusher := newDirtyFlusher(sink)
-	for h.Len() > 0 {
+	flusher := newDirtyFlusher(destEntitlement, sink)
+	contrib := &topoContribution{}
+	var base []*v2.Grant
+	consume := func(group contributionGroup) {
+		if group.isBase {
+			base = append(base, group.base...)
+			return
+		}
+		contrib.merge(group.contrib)
+	}
+	for len(h) > 0 {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		item := heap.Pop(&h).(mergeHeapItem)
+		item := h.pop()
 		key := item.group.key
-		var base []*v2.Grant
-		contrib := &topoContribution{}
-
-		consume := func(group contributionGroup) {
-			if group.isBase {
-				base = append(base, group.base...)
-				return
-			}
-			contrib.merge(group.contrib)
-		}
+		base = base[:0]
+		contrib.resetForReuse()
 		consume(item.group)
 
 		if next, ok, err := streams[item.streamID].next(ctx); err != nil {
 			return err
 		} else if ok {
-			heap.Push(&h, mergeHeapItem{group: next, streamID: item.streamID})
+			h.push(mergeHeapItem{group: next, streamID: item.streamID})
 		}
 
-		for h.Len() > 0 && h[0].group.key == key {
-			same := heap.Pop(&h).(mergeHeapItem)
+		for len(h) > 0 && h[0].group.key == key {
+			same := h.pop()
 			consume(same.group)
 			if next, ok, err := streams[same.streamID].next(ctx); err != nil {
 				return err
 			} else if ok {
-				heap.Push(&h, mergeHeapItem{group: next, streamID: same.streamID})
+				h.push(mergeHeapItem{group: next, streamID: same.streamID})
 			}
 		}
 
@@ -361,18 +403,7 @@ func mergeContributionGroupStreams(
 			continue
 		}
 		if len(base) == 0 {
-			principal, err := contrib.principalResource()
-			if err != nil {
-				return err
-			}
-			if principal == nil {
-				continue
-			}
-			grant, err := newExpandedGrantWithSources(destEntitlement, principal, contrib.sources)
-			if err != nil {
-				return err
-			}
-			if err := flusher.add(ctx, grant); err != nil {
+			if err := flusher.addSynthesizedContribution(ctx, contrib, contrib.sources); err != nil {
 				return err
 			}
 			continue
@@ -380,7 +411,7 @@ func mergeContributionGroupStreams(
 		for _, baseGrant := range base {
 			updated := mergeContributionIntoExistingGrant(baseGrant, destEntitlement.GetId(), contrib.sources)
 			if updated != nil {
-				if err := flusher.add(ctx, updated); err != nil {
+				if err := flusher.add(ctx, updated, false); err != nil {
 					return err
 				}
 			}

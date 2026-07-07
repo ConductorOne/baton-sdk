@@ -54,11 +54,13 @@ func TestGetEntitlementResourceResourceType(t *testing.T) {
 	require.Equal(t, "Alice", rResp.GetResource().GetDisplayName(), "GetResource display")
 
 	// GetEntitlement
+	// Stored external ids are verbatim; the fixture seeded the raw id.
+	readEntID := "github-read"
 	eResp, err := a.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-		EntitlementId: "github-read",
+		EntitlementId: readEntID,
 	}.Build())
 	require.NoError(t, err, "GetEntitlement")
-	require.Equal(t, "github-read", eResp.GetEntitlement().GetId(), "GetEntitlement id")
+	require.Equal(t, readEntID, eResp.GetEntitlement().GetId(), "GetEntitlement id")
 	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_PERMISSION, eResp.GetEntitlement().GetPurpose(), "GetEntitlement purpose")
 
 	// Missing entity returns gRPC NotFound — the Adapter normalizes
@@ -93,7 +95,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 
 	// ListGrantsForEntitlement(ent-A) → 8 grants total
 	resp, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
+		Entitlement: v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build(),
 		PageSize:    100,
 	}.Build())
 	require.NoError(t, err)
@@ -101,7 +103,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 
 	// ListGrantsForEntitlement(ent-A) filtered by principal RT=user → 5
 	respFiltered, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement:              v2.Entitlement_builder{Id: "ent-A"}.Build(),
+		Entitlement:              v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build(),
 		PrincipalResourceTypeIds: []string{"user"},
 		PageSize:                 100,
 	}.Build())
@@ -110,7 +112,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 
 	// ListGrantsForEntitlement(ent-A) filtered by principal ID=user/u1 → 1
 	respPrincipal, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
+		Entitlement: v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build(),
 		PrincipalId: v2.ResourceId_builder{
 			ResourceType: "user",
 			Resource:     "u1",
@@ -119,13 +121,13 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 	require.Len(t, respPrincipal.GetList(), 1, "ListGrantsForEntitlement(ent-A, user/u1)")
-	require.Equal(t, "u-a-1", respPrincipal.GetList()[0].GetId(), "ListGrantsForEntitlement(ent-A, user/u1) id")
+	require.Equal(t, canonicalTestGrantID("ent-A", "user", "u1"), respPrincipal.GetList()[0].GetId(), "ListGrantsForEntitlement(ent-A, user/u1) id")
 
 	var principalPageIDs []string
 	principalPageToken := ""
 	for {
 		respPrincipalPage, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-			Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
+			Entitlement: v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build(),
 			PrincipalId: v2.ResourceId_builder{
 				ResourceType: "user",
 				Resource:     "u1",
@@ -143,7 +145,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 		}
 	}
 	require.Len(t, principalPageIDs, 1, "paginated ListGrantsForEntitlement(ent-A, user/u1)")
-	require.Equal(t, "u-a-1", principalPageIDs[0], "paginated ListGrantsForEntitlement(ent-A, user/u1)")
+	require.Equal(t, canonicalTestGrantID("ent-A", "user", "u1"), principalPageIDs[0], "paginated ListGrantsForEntitlement(ent-A, user/u1)")
 
 	// ListGrantsForResourceType(user) → 7 grants (5 ent-A + 2 ent-B)
 	rtResp, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
@@ -196,10 +198,10 @@ func TestListGrantsForResourceTypePagination(t *testing.T) {
 	}
 	require.Equal(t, userCount, len(collected), "paginated user grants")
 
-	// Re-put a subset with a different principal RT to verify index
-	// flip on overwrite. The first 10 "user" grants become "group"
-	// principals; ListGrantsForResourceType(user) should drop to 40
-	// and ListGrantsForResourceType(group) should rise to 30.
+	// Re-put a subset with a different principal RT. With structured
+	// identity, principal is part of the grant key, so these are new
+	// grants rather than external-id overwrites: user stays 50 and group
+	// rises to 30.
 	updated := make([]*v2.Grant, 0, 10)
 	for i := 0; i < 10; i++ {
 		updated = append(updated, mkV2Grant("u-"+strconv.Itoa(i), "ent-A", "group", "moved-"+strconv.Itoa(i)))
@@ -210,13 +212,13 @@ func TestListGrantsForResourceTypePagination(t *testing.T) {
 		ResourceTypeId: "user", PageSize: 1000,
 	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, userCount-10, len(respUser.GetList()), "after move, user grants")
+	require.Equal(t, userCount, len(respUser.GetList()), "after structured-identity add, user grants")
 
 	respGroup, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
 		ResourceTypeId: "group", PageSize: 1000,
 	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, groupCount+10, len(respGroup.GetList()), "after move, group grants")
+	require.Equal(t, groupCount+10, len(respGroup.GetList()), "after structured-identity add, group grants")
 }
 
 // TestBulkByIdsRoundtripPebble exercises the Adapter's
@@ -349,6 +351,114 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 		require.Len(t, resp2.GetList(), 2, "after checksum mismatch")
 		require.Equal(t, "ent-A", resp2.GetList()[0].GetEntitlement().GetId(), "after reset first ent")
 	})
+	t.Run("reorder mid-pagination resets", func(t *testing.T) {
+		// The cursor resumes by POSITIONAL index into the entitlement
+		// list, so a reordered list (same set!) must reset the scan, not
+		// resume — an order-insensitive checksum would bless the token
+		// while the positional index resumed over a different
+		// entitlement, silently skipping and re-returning grants.
+		resp1, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+			Entitlements: []*v2.Entitlement{entA, entB, entC},
+			PageSize:     6, // past entA (5 grants), into entB at index 1
+		}.Build())
+		require.NoError(t, err)
+		require.NotEmpty(t, resp1.GetNextPageToken(), "first page should overflow")
+
+		reordered := []*v2.Entitlement{entC, entB, entA}
+		resp2, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+			Entitlements: reordered,
+			PageSize:     6,
+			PageToken:    resp1.GetNextPageToken(),
+		}.Build())
+		require.NoError(t, err)
+		require.NotEmpty(t, resp2.GetList(), "reset page")
+		require.Equal(t, "ent-C", resp2.GetList()[0].GetEntitlement().GetId(),
+			"reordered list must restart from its own first entitlement")
+
+		// Paging the reordered list to completion from the reset point
+		// yields every grant exactly once.
+		seen := map[string]bool{}
+		token := ""
+		for i := 0; i < 10; i++ {
+			resp, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+				Entitlements: reordered,
+				PageSize:     4,
+				PageToken:    token,
+			}.Build())
+			require.NoError(t, err)
+			for _, g := range resp.GetList() {
+				require.False(t, seen[g.GetId()], "dup grant %s after reorder", g.GetId())
+				seen[g.GetId()] = true
+			}
+			token = resp.GetNextPageToken()
+			if token == "" {
+				break
+			}
+		}
+		require.Len(t, seen, 15, "reordered pagination must cover every grant")
+	})
+}
+
+// TestCrossKeyspaceCursorRejected pins the page-token clamp: a cursor is a
+// raw key minted for one keyspace, and feeding it to a different record
+// type's list call must fail with ErrInvalidPageToken — not silently start
+// the scan inside the foreign keyspace and serve its values as this type's
+// records.
+func TestCrossKeyspaceCursorRejected(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	appRes := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "app", Resource: "gh"}.Build(),
+	}.Build()
+	require.NoError(t, a.PutResources(ctx, appRes))
+	ents := make([]*v2.Entitlement, 0, 4)
+	for i := 0; i < 4; i++ {
+		ents = append(ents, v2.Entitlement_builder{
+			Id:       "ent-" + strconv.Itoa(i),
+			Resource: appRes,
+			Purpose:  v2.Entitlement_PURPOSE_VALUE_PERMISSION,
+			Slug:     "s" + strconv.Itoa(i),
+		}.Build())
+	}
+	require.NoError(t, a.PutEntitlements(ctx, ents...))
+	users := make([]*v2.Resource, 0, 4)
+	for i := 0; i < 4; i++ {
+		users = append(users, v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u" + strconv.Itoa(i)}.Build(),
+		}.Build())
+	}
+	require.NoError(t, a.PutResources(ctx, users...))
+
+	// Mint a genuine entitlement-keyspace cursor.
+	entResp, err := a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+		PageSize: 2,
+	}.Build())
+	require.NoError(t, err)
+	entToken := entResp.GetNextPageToken()
+	require.NotEmpty(t, entToken, "entitlement page should overflow")
+
+	// Feed it to the resources reader: foreign keyspace, must be rejected.
+	_, err = a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: "user",
+		PageToken:      entToken,
+	}.Build())
+	require.ErrorIs(t, err, ErrInvalidPageToken, "entitlement cursor fed to resources reader must fail as an invalid page token")
+
+	// And the reverse: a resources cursor fed to the entitlements reader.
+	resResp, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: "user",
+		PageSize:       2,
+	}.Build())
+	require.NoError(t, err)
+	resToken := resResp.GetNextPageToken()
+	require.NotEmpty(t, resToken, "resource page should overflow")
+	_, err = a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+		PageToken: resToken,
+	}.Build())
+	require.ErrorIs(t, err, ErrInvalidPageToken, "resource cursor fed to entitlements reader must fail as an invalid page token")
 }
 
 // TestStreamingReaderPebble exercises iter.Seq2 streaming on the

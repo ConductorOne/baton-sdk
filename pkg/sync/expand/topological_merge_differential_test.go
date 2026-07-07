@@ -67,7 +67,10 @@ func TestTopologicalMergeDifferentialRandom(t *testing.T) {
 func TestTopologicalMergeDifferentialRandomStore(t *testing.T) {
 	// ~1.3s/seed (a fresh c1z per algorithm per seed), so keep this modest: the
 	// mock sweep is the wide net, this is the storage-path depth check.
-	start, count := fuzzSeedRange(8, 25)
+	// Store-backed seeds cost ~10s each (a pebble + sqlite store per
+	// seed), so short mode (Windows CI) runs a token few; the wide
+	// sweep is long-CI and ad-hoc (BATON_EXPAND_FUZZ_SEEDS) territory.
+	start, count := fuzzSeedRange(3, 25)
 	for seed := start; seed < start+count; seed++ {
 		seed := seed
 		tc := randomExpansionCase(seed)
@@ -136,9 +139,21 @@ func randomExpansionCase(seed int64) sqliteParityCase {
 	// has something to chew on.
 	numGrants := numEnts + rng.Intn(numEnts*3)
 	grants := make([]sqliteGrantSpec, 0, numGrants)
+	// One grant per (entitlement, principal): Pebble keys grants by
+	// structural identity, so duplicate pairs with distinct external ids
+	// deliberately fold there while SQLite keeps both rows — cross-engine
+	// byte-parity cannot hold for such fixtures. The fold semantics are
+	// pinned by the migration/bulk-import duplicate-merge tests; this
+	// fuzzer explores expansion semantics.
+	seenPair := make(map[string]struct{}, numGrants)
 	for i := 0; i < numGrants; i++ {
 		entID := entIDs[rng.Intn(numEnts)]
 		p := principals[rng.Intn(numPrincipals)]
+		pairKey := entID + "\x00" + p.rt + "\x00" + p.id
+		if _, dup := seenPair[pairKey]; dup {
+			continue
+		}
+		seenPair[pairKey] = struct{}{}
 		gs := sqliteGrantSpec{
 			id:            fmt.Sprintf("grant:%03d:%s:%s:%s", i, entID, p.rt, p.id),
 			entitlementID: entID,
@@ -418,7 +433,7 @@ func TestTopologicalMergeUntouchedBaseGrantNotRewritten(t *testing.T) {
 				require.NoError(t, err)
 				seedSQLiteBaseData(t, ctx, store, tc)
 
-				graph := buildGraphFromCase(t, ctx, tc)
+				graph := buildGraphFromCase(t, ctx, tc, engine)
 				rec := &recordingExpanderStore{inner: benchmarkExpanderStore{store: store}}
 				require.NoError(t, algo.run(ctx, NewExpander(rec, graph)))
 
@@ -428,6 +443,8 @@ func TestTopologicalMergeUntouchedBaseGrantNotRewritten(t *testing.T) {
 					"%s: untouched base grant was rewritten through the expansion sink", label)
 				// alice did get a contribution; the synthesized grant proves
 				// expansion actually ran (so the assertion above is meaningful).
+				// Synthesized ids are the raw concat of the connector's own
+				// entitlement id (colons and all) with the principal ref.
 				require.Contains(t, rec.storedIDs(), "ent:dest:user:alice",
 					"%s: expected alice to be synthesized on ent:dest", label)
 
@@ -440,7 +457,7 @@ func TestTopologicalMergeUntouchedBaseGrantNotRewritten(t *testing.T) {
 				require.NoError(t, ro.SetCurrentSync(ctx, syncID))
 				snap := readBackGrantSnapshot(t, ctx, ro)
 
-				bob, ok := snap["grant:bob:dest"]
+				bob, ok := snap["ent:dest\x00user\x00bob"]
 				require.Truef(t, ok, "%s: bob's base grant disappeared", label)
 				require.Emptyf(t, bob.sourceDirect, "%s: untouched base grant gained sources", label)
 				require.NotContainsf(t, bob.annotationTypes, immutableAnnotationAny.GetTypeUrl(),

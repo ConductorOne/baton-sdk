@@ -271,7 +271,19 @@ func (e *Engine) SessionSet(ctx context.Context, key string, value []byte, opt .
 		return fmt.Errorf("error marshalling session record: %w", err)
 	}
 
-	return e.db.Set(keyBytes, val, writeOpts(e.opts.durability))
+	// Under the write barrier like every other record write: a bare Set
+	// would race Close's teardown (no writeWG coverage) and could land
+	// inside CheckpointTo's Flush→Checkpoint window as a WAL-only record
+	// the truncate silently drops from the saved snapshot.
+	//
+	// AllowSealed, like the sync-run metadata writers: sessions are
+	// connector scratch state, not sync records — the seal exists to keep
+	// record data immutable after EndSync, and the production lifecycle
+	// WRITES to the session keyspace after EndSync (connector Cleanup
+	// clears sessions post-sync so they don't ship in the saved c1z).
+	return e.withWriteAllowSealed(func() error {
+		return e.db.Set(keyBytes, val, writeOpts(e.opts.durability))
+	})
 }
 
 func (e *Engine) SessionSetMany(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error {
@@ -280,30 +292,32 @@ func (e *Engine) SessionSetMany(ctx context.Context, values map[string][]byte, o
 		return fmt.Errorf("error applying session option: %w", err)
 	}
 
-	batch := e.db.NewBatch()
-	defer batch.Close()
+	// See SessionSet for why the barrier is required and why AllowSealed.
+	return e.withWriteAllowSealed(func() error {
+		batch := e.db.NewBatch()
+		defer batch.Close()
 
-	for key, value := range values {
-		prefixedKey := bag.Prefix + key
-		keyBytes := encodeSessionKey(bag.SyncID, prefixedKey)
-		val, err := marshalRecord(&v3.SessionRecord{
-			SyncId: bag.SyncID,
-			Key:    prefixedKey,
-			Value:  value,
-		})
-		if err != nil {
-			return fmt.Errorf("error marshalling session record: %w", err)
+		for key, value := range values {
+			prefixedKey := bag.Prefix + key
+			keyBytes := encodeSessionKey(bag.SyncID, prefixedKey)
+			val, err := marshalRecord(&v3.SessionRecord{
+				SyncId: bag.SyncID,
+				Key:    prefixedKey,
+				Value:  value,
+			})
+			if err != nil {
+				return fmt.Errorf("error marshalling session record: %w", err)
+			}
+			if err := batch.Set(keyBytes, val, nil); err != nil {
+				return fmt.Errorf("error setting session record: %w", err)
+			}
 		}
-		if err := batch.Set(keyBytes, val, nil); err != nil {
-			return fmt.Errorf("error setting session record: %w", err)
-		}
-	}
 
-	err = batch.Commit(writeOpts(e.opts.durability))
-	if err != nil {
-		return fmt.Errorf("error committing session batch: %w", err)
-	}
-	return nil
+		if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
+			return fmt.Errorf("error committing session batch: %w", err)
+		}
+		return nil
+	})
 }
 
 func (e *Engine) SessionDelete(ctx context.Context, key string, opt ...sessions.SessionStoreOption) error {
@@ -312,7 +326,10 @@ func (e *Engine) SessionDelete(ctx context.Context, key string, opt ...sessions.
 		return fmt.Errorf("error applying session option: %w", err)
 	}
 	keyBytes := encodeSessionKey(bag.SyncID, bag.Prefix+key)
-	return e.db.Delete(keyBytes, writeOpts(e.opts.durability))
+	// See SessionSet for why the barrier is required and why AllowSealed.
+	return e.withWriteAllowSealed(func() error {
+		return e.db.Delete(keyBytes, writeOpts(e.opts.durability))
+	})
 }
 
 func (e *Engine) SessionClear(ctx context.Context, opt ...sessions.SessionStoreOption) error {
@@ -322,41 +339,47 @@ func (e *Engine) SessionClear(ctx context.Context, opt ...sessions.SessionStoreO
 	}
 	syncPrefix := encodeSessionBySyncPrefix(bag.SyncID)
 	if bag.Prefix == "" {
-		return e.db.DeleteRange(syncPrefix, upperBoundOf(syncPrefix), writeOpts(e.opts.durability))
+		// See SessionSet for why the barrier is required and why AllowSealed.
+		return e.withWriteAllowSealed(func() error {
+			return e.db.DeleteRange(syncPrefix, upperBoundOf(syncPrefix), writeOpts(e.opts.durability))
+		})
 	}
 
-	lower := encodeSessionKey(bag.SyncID, bag.Prefix)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
-		LowerBound: lower,
-		UpperBound: upperBoundOf(syncPrefix),
+	// See SessionSet for why the barrier is required and why AllowSealed.
+	return e.withWriteAllowSealed(func() error {
+		lower := encodeSessionKey(bag.SyncID, bag.Prefix)
+		iter, err := e.db.NewIter(&pebble.IterOptions{
+			LowerBound: lower,
+			UpperBound: upperBoundOf(syncPrefix),
+		})
+		if err != nil {
+			return err
+		}
+		defer iter.Close()
+
+		batch := e.db.NewBatch()
+		defer batch.Close()
+		for iter.First(); iter.Valid(); iter.Next() {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			r := &v3.SessionRecord{}
+			if err := unmarshalRecord(iter.Value(), r); err != nil {
+				return fmt.Errorf("session-clear: unmarshal: %w", err)
+			}
+			if r.GetSyncId() != bag.SyncID {
+				continue
+			}
+			if !strings.HasPrefix(r.GetKey(), bag.Prefix) {
+				break
+			}
+			if err := batch.Delete(iter.Key(), nil); err != nil {
+				return err
+			}
+		}
+		if err := iter.Error(); err != nil {
+			return fmt.Errorf("session-clear: iter: %w", err)
+		}
+		return batch.Commit(writeOpts(e.opts.durability))
 	})
-	if err != nil {
-		return err
-	}
-	defer iter.Close()
-
-	batch := e.db.NewBatch()
-	defer batch.Close()
-	for iter.First(); iter.Valid(); iter.Next() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		r := &v3.SessionRecord{}
-		if err := unmarshalRecord(iter.Value(), r); err != nil {
-			return fmt.Errorf("session-clear: unmarshal: %w", err)
-		}
-		if r.GetSyncId() != bag.SyncID {
-			continue
-		}
-		if !strings.HasPrefix(r.GetKey(), bag.Prefix) {
-			break
-		}
-		if err := batch.Delete(iter.Key(), nil); err != nil {
-			return err
-		}
-	}
-	if err := iter.Error(); err != nil {
-		return fmt.Errorf("session-clear: iter: %w", err)
-	}
-	return batch.Commit(writeOpts(e.opts.durability))
 }

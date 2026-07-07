@@ -212,6 +212,7 @@ type Grant_builder struct {
 
 	Entitlement *Entitlement
 	Principal   *Resource
+	// These ids may not map one to one with the grant itself.
 	Id          string
 	Sources     *GrantSources
 	Annotations []*anypb.Any

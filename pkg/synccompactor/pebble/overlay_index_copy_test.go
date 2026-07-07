@@ -35,20 +35,40 @@ func TestIndexKeyPrimarySuffix(t *testing.T) {
 		"\x01\x01",
 		"tail\x00",
 	}
+	// Grants under structural identity: the by_needs_expansion index tail
+	// IS the 6-element grant primary tail (rt, rid, flag, tail, prt, pid),
+	// so a 6-element suffix walk must reconstruct the primary suffix
+	// byte-for-byte, including ids carrying separator/escape bytes.
+	const idxGrantByNeedsExpansionByte = 0x05
 	for _, ext := range nasty {
-		primarySuffix := enginepkg.GrantRecordKey(ext)[2:]
-		grantIndexKeys := [][]byte{
-			enginepkg.AppendGrantByEntitlementIndexKeyRawBytes(nil, []byte("ent\x00id"), []byte("user"), []byte("alice"), []byte(ext)),
-			enginepkg.AppendGrantByEntitlementResourceIndexKeyRawBytes(nil, []byte("group"), []byte("eng\x01"), []byte(ext)),
-			enginepkg.AppendGrantByPrincipalIndexKeyRawBytes(nil, []byte("user"), []byte("ali\x00ce"), []byte(ext)),
-			enginepkg.AppendGrantByPrincipalResourceTypeIndexKeyRawBytes(nil, []byte("user"), []byte(ext)),
-			enginepkg.AppendGrantByNeedsExpansionIndexKeyRawBytes(nil, []byte(ext)),
+		if ext == "" {
+			// A grant with no entitlement id has no structural identity
+			// (such rows are dropped at write/migration time) and thus no
+			// index keys; nothing to pin.
+			continue
 		}
-		for i, key := range grantIndexKeys {
-			got, err := indexKeyPrimarySuffix(key, 1)
-			require.NoError(t, err, "ext=%q family=%d", ext, i)
-			require.Equal(t, primarySuffix, got, "ext=%q family=%d: suffix", ext, i)
-		}
+		rec := v3.GrantRecord_builder{
+			ExternalId: "x",
+			Entitlement: v3.EntitlementRef_builder{
+				ResourceTypeId: "gr\x00oup",
+				ResourceId:     "eng\x01",
+				EntitlementId:  ext,
+			}.Build(),
+			Principal:      v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "ali\x00ce"}.Build(),
+			NeedsExpansion: true,
+		}.Build()
+		var idxKey []byte
+		require.NoError(t, enginepkg.ForEachGrantIndexKey(rec, func(key []byte) error {
+			if key[2] == idxGrantByNeedsExpansionByte {
+				idxKey = append([]byte(nil), key...)
+			}
+			return nil
+		}))
+		require.NotNil(t, idxKey, "needs_expansion index key for ext=%q", ext)
+		primaryKey := []byte(enginepkg.GrantRecordIdentityKey(rec))
+		got, err := indexKeyPrimarySuffix(idxKey, 6)
+		require.NoError(t, err, "ext=%q", ext)
+		require.Equal(t, primaryKey[2:], got, "ext=%q: suffix", ext)
 	}
 	for _, rt := range nasty {
 		for _, id := range nasty {
@@ -61,7 +81,7 @@ func TestIndexKeyPrimarySuffix(t *testing.T) {
 	}
 	_, err := indexKeyPrimarySuffix([]byte{0x03, 0x07, 0x01}, 1)
 	require.Error(t, err, "separator-free index key: expected error, got nil")
-	_, err = indexKeyPrimarySuffix(enginepkg.AppendGrantByNeedsExpansionIndexKeyRawBytes(nil, []byte("x")), 2)
+	_, err = indexKeyPrimarySuffix([]byte{0x03, 0x07, 0x05, 0x00, 'x'}, 2)
 	require.Error(t, err, "2-element suffix on 1-element tail: expected error, got nil")
 }
 
@@ -81,20 +101,24 @@ func TestOverlayWholeSourceIndexCopyParityWithDerived(t *testing.T) {
 	// Newer partial: overlaps base keys with different index-relevant
 	// fields (principal, entitlement, needs_expansion) so the base's
 	// index entries for those keys are stale and must be filtered.
-	partial := writeIndexCopySource(t, ctx, filepath.Join(dir, "partial.c1z"), indexCopySpec{
+	partial := writeIndexCopySource(t, ctx, filepath.Join(dir, "partial.c1z"), indexCopyCaseSpec{
 		resources: []resourceSpec{
 			{rt: "user", id: "alice", parentRT: "group", parentID: "platform"},
 			{rt: "user", id: "evil\x00nul", parentRT: "group", parentID: "eng\x01neering"},
 		},
 		grants: []kwayGrantSpec{
-			{id: "shared", principalID: "alice", entitlement: "admin", discovered: newer, needsExpand: true},
+			// SAME identity as the base's (member, alice) grant but with
+			// needs_expansion flipped OFF: the base's by_needs_expansion
+			// entry is stale and MUST be filtered out of the verbatim copy,
+			// or the artifact carries a phantom pending-expansion row.
+			{id: "shared", principalID: "alice", entitlement: "member", discovered: newer, needsExpand: false},
 			{id: "gr\x00nul", principalID: "evil\x00nul", entitlement: "admin", discovered: newer},
 		},
 		discovered: newer,
 	})
 	// Older base: superset of keys, including ones the partial
 	// overrides and ones only it has.
-	base := writeIndexCopySource(t, ctx, filepath.Join(dir, "base.c1z"), indexCopySpec{
+	base := writeIndexCopySource(t, ctx, filepath.Join(dir, "base.c1z"), indexCopyCaseSpec{
 		resources: []resourceSpec{
 			{rt: "user", id: "alice", parentRT: "group", parentID: "engineering"},
 			{rt: "user", id: "bob", parentRT: "group", parentID: "engineering"},
@@ -102,9 +126,13 @@ func TestOverlayWholeSourceIndexCopyParityWithDerived(t *testing.T) {
 			{rt: "user", id: "orphan"},
 		},
 		grants: []kwayGrantSpec{
-			{id: "shared", principalID: "bob", entitlement: "member", discovered: older},
+			// Identity-overlaps the partial's (member, alice) grant with
+			// needs_expansion=true — the stale index entry that must not
+			// survive the copy.
+			{id: "shared", principalID: "alice", entitlement: "member", discovered: older, needsExpand: true},
 			{id: "base-only", principalID: "bob", entitlement: "member", discovered: older, needsExpand: true},
-			{id: "gr\x00nul", principalID: "bob", entitlement: "member", discovered: older},
+			// Identity-overlaps the partial's (admin, evil) grant.
+			{id: "gr\x00nul", principalID: "evil\x00nul", entitlement: "admin", discovered: older, needsExpand: true},
 		},
 		discovered: older,
 	})
@@ -128,13 +156,13 @@ type resourceSpec struct {
 	rt, id, parentRT, parentID string
 }
 
-type indexCopySpec struct {
+type indexCopyCaseSpec struct {
 	resources  []resourceSpec
 	grants     []kwayGrantSpec
 	discovered time.Time
 }
 
-func writeIndexCopySource(t *testing.T, ctx context.Context, path string, spec indexCopySpec) kwaySourceFixture {
+func writeIndexCopySource(t *testing.T, ctx context.Context, path string, spec indexCopyCaseSpec) kwaySourceFixture {
 	t.Helper()
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)

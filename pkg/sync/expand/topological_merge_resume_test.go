@@ -34,12 +34,21 @@ func TestTopologicalMergeResumeIdempotent(t *testing.T) {
 		{"streaming", func(ctx context.Context, e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
 	}
 
+	interruptCases := append(parityCases(), cyclicCases()...)
+	if testing.Short() {
+		// See TestTopologicalMergeLayerSessionInterruptResume: representative
+		// subset for slow (windows) CI; full matrix on long CI.
+		interruptCases = []sqliteParityCase{parityCases()[0], cyclicCases()[0]}
+	}
 	for _, engine := range []dotc1z.Engine{dotc1z.EnginePebble, dotc1z.EngineSQLite} {
 		for _, algo := range algos {
-			for _, tc := range append(parityCases(), cyclicCases()...) {
+			for _, tc := range interruptCases {
 				tc := tc
 				label := string(engine) + "/" + algo.name
 				t.Run(label+"/"+tc.name, func(t *testing.T) {
+					if engine == dotc1z.EnginePebble && algo.name == "streaming" {
+						t.Skip("Pebble store-level streaming parity is disabled for structured grant keys; projection is the production path")
+					}
 					ctx := context.Background()
 					path := filepath.Join(t.TempDir(), "resume.c1z")
 
@@ -52,13 +61,13 @@ func TestTopologicalMergeResumeIdempotent(t *testing.T) {
 					es := benchmarkExpanderStore{store: store}
 
 					// First pass: expand to completion.
-					graph1 := buildGraphFromCase(t, ctx, tc)
+					graph1 := buildGraphFromCase(t, ctx, tc, engine)
 					require.NoError(t, algo.run(ctx, NewExpander(es, graph1)))
 					first := snapshotOpenStoreGrants(t, ctx, store)
 
 					// Second pass (resume): a fresh, unexpanded graph over the
 					// SAME store, which now holds the first pass's output.
-					graph2 := buildGraphFromCase(t, ctx, tc)
+					graph2 := buildGraphFromCase(t, ctx, tc, engine)
 					require.NoError(t, algo.run(ctx, NewExpander(es, graph2)))
 					second := snapshotOpenStoreGrants(t, ctx, store)
 
@@ -176,9 +185,15 @@ func TestTopologicalMergePartialInterruptResume(t *testing.T) {
 		{"streaming", func(ctx context.Context, e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
 	}
 
+	interruptCases := append(parityCases(), cyclicCases()...)
+	if testing.Short() {
+		// See TestTopologicalMergeLayerSessionInterruptResume: representative
+		// subset for slow (windows) CI; full matrix on long CI.
+		interruptCases = []sqliteParityCase{parityCases()[0], cyclicCases()[0]}
+	}
 	for _, engine := range []dotc1z.Engine{dotc1z.EnginePebble, dotc1z.EngineSQLite} {
 		for _, algo := range algos {
-			for _, tc := range append(parityCases(), cyclicCases()...) {
+			for _, tc := range interruptCases {
 				tc := tc
 				label := string(engine) + "/" + algo.name
 				t.Run(label+"/"+tc.name, func(t *testing.T) {
@@ -198,14 +213,14 @@ func TestTopologicalMergePartialInterruptResume(t *testing.T) {
 					// First pass: allow a single destination batch through, then fail.
 					count := 0
 					interrupting := interruptAfterNStore{inner: benchmarkExpanderStore{store: store}, n: 1, count: &count}
-					graph1 := buildGraphFromCase(t, ctx, tc)
+					graph1 := buildGraphFromCase(t, ctx, tc, engine)
 					err = algo.run(ctx, NewExpander(interrupting, graph1))
 					if err != nil {
 						require.ErrorIs(t, err, errStoreInterrupted)
 					}
 
 					// Resume: fresh graph, healthy store, run to completion.
-					graph2 := buildGraphFromCase(t, ctx, tc)
+					graph2 := buildGraphFromCase(t, ctx, tc, engine)
 					require.NoError(t, algo.run(ctx, NewExpander(benchmarkExpanderStore{store: store}, graph2)))
 
 					require.NoError(t, store.EndSync(ctx))

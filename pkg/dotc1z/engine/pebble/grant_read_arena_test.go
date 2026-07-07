@@ -2,8 +2,10 @@ package pebble
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/segmentio/ksuid"
 	"github.com/stretchr/testify/require"
 
@@ -27,7 +29,13 @@ func TestGrantReadArenaReconcileAbsent(t *testing.T) {
 	r := v3.GrantRecord_builder{
 		ExternalId: "bare",
 	}.Build()
-	require.NoError(t, e.PutGrantRecord(ctx, r), "PutGrantRecord")
+	val, err := marshalRecord(r)
+	require.NoError(t, err)
+	require.NoError(t, e.db.Set(encodeGrantIdentityKey(grantIdentity{
+		entitlement:     entitlementIdentityFromParts("app", "github", "ent-A"),
+		principalTypeID: "user",
+		principalID:     "alice",
+	}), val, pebble.NoSync), "raw set")
 
 	got, _, err := e.PaginateGrants(ctx, "", 0)
 	require.NoError(t, err, "PaginateGrantsBySync")
@@ -48,7 +56,7 @@ func TestGrantReadArenaPopulatedRoundtrip(t *testing.T) {
 
 	const n = 64
 	for i := 0; i < n; i++ {
-		require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g-"+ksuid.New().String(), "ent-A", "alice")), "PutGrantRecord")
+		require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g-"+ksuid.New().String(), "ent-A", "alice-"+strconv.Itoa(i))), "PutGrantRecord")
 	}
 
 	got, _, err := e.PaginateGrants(ctx, "", n)
@@ -57,9 +65,8 @@ func TestGrantReadArenaPopulatedRoundtrip(t *testing.T) {
 	for _, g := range got {
 		e := g.GetEntitlement()
 		require.NotNil(t, e, "GetEntitlement()")
-		require.Equal(t, "ent-A", e.GetEntitlementId(), "GetEntitlement()")
+		require.Equal(t, canonicalTestEntID("ent-A"), e.GetEntitlementId(), "GetEntitlement()")
 		p := g.GetPrincipal()
 		require.NotNil(t, p, "GetPrincipal()")
-		require.Equal(t, "alice", p.GetResourceId(), "GetPrincipal()")
 	}
 }

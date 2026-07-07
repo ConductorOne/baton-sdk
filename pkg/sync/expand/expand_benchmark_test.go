@@ -14,8 +14,10 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -219,6 +221,72 @@ func (s benchmarkExpanderStore) ListGrantPrincipalKeysForEntitlement(
 
 func (s benchmarkExpanderStore) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+func (s benchmarkExpanderStore) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	if fast, ok := s.store.Grants().(interface {
+		StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
+	}); ok {
+		return fast.StoreNewExpandedGrants(ctx, grants...)
+	}
+	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+func (s benchmarkExpanderStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	if fast, ok := s.store.Grants().(interface {
+		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*v3.PrincipalRef, []batonGrant.Sources) error
+	}); ok {
+		return fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
+	}
+	grants := make([]*v2.Grant, 0, len(principals))
+	for i, principalRef := range principals {
+		principal := principalResourceFromRef(principalRef)
+		grant, err := NewExpandedGrantForStore(dest, principal, sources[i])
+		if err != nil {
+			return err
+		}
+		grants = append(grants, grant)
+	}
+	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+// benchmarkExpandedGrantLayerStorer mirrors the expander's layer-scoped layer
+// session interface for pass-through to Pebble-backed stores.
+type benchmarkExpandedGrantLayerStorer interface {
+	BeginExpandedGrantLayer(ctx context.Context) (bool, error)
+	AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error
+	FinishExpandedGrantLayer(ctx context.Context) error
+	AbortExpandedGrantLayer(ctx context.Context) error
+}
+
+func (s benchmarkExpanderStore) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
+	if fast, ok := s.store.Grants().(benchmarkExpandedGrantLayerStorer); ok {
+		return fast.BeginExpandedGrantLayer(ctx)
+	}
+	return false, nil
+}
+
+func (s benchmarkExpanderStore) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	fast, ok := s.store.Grants().(benchmarkExpandedGrantLayerStorer)
+	if !ok {
+		return errors.New("expanded grant layer: store does not support layer sessions")
+	}
+	return fast.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+}
+
+func (s benchmarkExpanderStore) FinishExpandedGrantLayer(ctx context.Context) error {
+	fast, ok := s.store.Grants().(benchmarkExpandedGrantLayerStorer)
+	if !ok {
+		return errors.New("expanded grant layer: store does not support layer sessions")
+	}
+	return fast.FinishExpandedGrantLayer(ctx)
+}
+
+func (s benchmarkExpanderStore) AbortExpandedGrantLayer(ctx context.Context) error {
+	if fast, ok := s.store.Grants().(benchmarkExpandedGrantLayerStorer); ok {
+		return fast.AbortExpandedGrantLayer(ctx)
+	}
+	return nil
 }
 
 func (s benchmarkExpanderStore) GrantsForEntitlementPrincipalSorted() bool {

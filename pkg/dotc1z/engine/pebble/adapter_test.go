@@ -21,10 +21,11 @@ func newAdapter(t testing.TB) *Adapter {
 }
 
 func mkV2Grant(id, entID, principalRT, principalID string) *v2.Grant {
+	canonicalEntID := canonicalTestEntID(entID)
 	return v2.Grant_builder{
-		Id: id,
+		Id: canonicalTestGrantID(entID, principalRT, principalID),
 		Entitlement: v2.Entitlement_builder{
-			Id: entID,
+			Id: canonicalEntID,
 			Resource: v2.Resource_builder{
 				Id: v2.ResourceId_builder{
 					ResourceType: "app",
@@ -39,6 +40,14 @@ func mkV2Grant(id, entID, principalRT, principalID string) *v2.Grant {
 			}.Build(),
 		}.Build(),
 	}.Build()
+}
+
+func canonicalTestEntID(entID string) string {
+	return "app:github:" + entID
+}
+
+func canonicalTestGrantID(entID, principalRT, principalID string) string {
+	return canonicalTestEntID(entID) + ":" + principalRT + ":" + principalID
 }
 
 func TestAdapterStartSyncAndPutGrants(t *testing.T) {
@@ -88,14 +97,15 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 	require.Equal(t, 2, len(gforP.GetList()), "ListGrantsForPrincipal alice count")
 
 	// GetGrant single.
+	g1ID := canonicalTestGrantID("ent-A", "user", "alice")
 	g, err := a.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
-		GrantId: "g1",
+		GrantId: g1ID,
 	}.Build())
 	require.NoError(t, err, "GetGrant")
-	require.Equal(t, "g1", g.GetGrant().GetId(), "GetGrant id")
+	require.Equal(t, g1ID, g.GetGrant().GetId(), "GetGrant id")
 
 	// DeleteGrant
-	require.NoError(t, a.DeleteGrant(ctx, "g1"), "DeleteGrant")
+	require.NoError(t, a.DeleteGrant(ctx, g1ID), "DeleteGrant")
 	resp, err = a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Equal(t, 2, len(resp.GetList()), "post-delete count")
@@ -113,15 +123,17 @@ func TestAdapterEndSyncClearsEngineCurrentSync(t *testing.T) {
 	require.NoError(t, a.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")), "PutGrants")
 	require.NoError(t, a.EndSync(ctx), "EndSync")
 
-	// EndSync cleared the engine's bound sync: a direct record write
-	// must now fail rather than land an orphan record with no sync run.
+	// EndSync sealed the engine (and cleared its bound sync): a direct
+	// record write must now fail rather than land an orphan record with
+	// no sync run. The seal check fires first — it is the explicit
+	// post-EndSync state; ErrNoCurrentSync would catch it anyway.
 	err = a.engine.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-B", "bob"))
-	require.ErrorIs(t, err, ErrNoCurrentSync, "direct engine write after EndSync: got %v, want ErrNoCurrentSync", err)
+	require.ErrorIs(t, err, ErrEngineSealed, "direct engine write after EndSync: got %v, want ErrEngineSealed", err)
 
 	// Reads do NOT gate on the bound sync: the finished sync's data
 	// persists and stays readable through the engine after EndSync.
 	count := 0
-	err = a.engine.IterateGrantsByEntitlement(ctx, "ent-A", func(*v3.GrantRecord) bool {
+	err = a.engine.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
 		count++
 		return true
 	})

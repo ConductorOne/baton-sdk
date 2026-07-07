@@ -109,6 +109,7 @@ func TestV2GrantRoundTrip_V3Contract(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 1)
 	got := resp.GetList()[0]
+	// Stored external id round-trips verbatim.
 	require.Equal(t, "grant-1", got.GetId())
 
 	t.Run("grant identity round-trips", func(t *testing.T) {

@@ -49,23 +49,23 @@ func convertSQLiteC1ZToPebble(ctx context.Context, src *C1File, outPath string) 
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	tmpOut := outPath + ".pebble-convert.tmp"
-	if removeErr := os.Remove(tmpOut); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+	if removeErr := os.Remove(tmpOut); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) { // #nosec G703 -- conversion output path is caller-controlled by API design.
 		err = removeErr
 		return err
 	}
 
 	if _, err = src.ToPebble(ctx, tmpOut, ""); err != nil {
-		_ = os.Remove(tmpOut)
+		_ = os.Remove(tmpOut) // #nosec G703 -- cleanup of caller-selected conversion temp output.
 		return err
 	}
 
 	if err = src.closeWithoutSave(ctx); err != nil {
-		_ = os.Remove(tmpOut)
+		_ = os.Remove(tmpOut) // #nosec G703 -- cleanup of caller-selected conversion temp output.
 		return fmt.Errorf("convert-open: close sqlite source: %w", err)
 	}
 
-	if err = os.Rename(tmpOut, outPath); err != nil {
-		_ = os.Remove(tmpOut)
+	if err = os.Rename(tmpOut, outPath); err != nil { // #nosec G703 -- conversion output path is caller-controlled by API design.
+		_ = os.Remove(tmpOut) // #nosec G703 -- cleanup of caller-selected conversion temp output.
 		return fmt.Errorf("convert-open: replace output c1z: %w", err)
 	}
 

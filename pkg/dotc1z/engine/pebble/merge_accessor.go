@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -39,6 +42,28 @@ func AsEngine(w connectorstore.Writer) (*Engine, bool) {
 		}
 	}
 	return nil, false
+}
+
+// LogCompactionMetrics logs a snapshot of the LSM's compaction and ingest
+// counters, labeled with the caller's phase name. Diagnostic only: used to
+// attribute wall time lost to background compactions triggered by large
+// ingests (e.g. the synthesized-grant layer segments) during benchmark runs.
+func (e *Engine) LogCompactionMetrics(ctx context.Context, phase string) {
+	if e == nil || e.db == nil {
+		return
+	}
+	m := e.db.Metrics()
+	ctxzap.Extract(ctx).Info("pebble compaction metrics",
+		zap.String("phase", phase),
+		zap.Int64("compact_count", m.Compact.Count),
+		zap.Duration("compact_duration_total", m.Compact.Duration),
+		zap.Uint64("compact_estimated_debt_bytes", m.Compact.EstimatedDebt),
+		zap.Int64("compact_in_progress", m.Compact.NumInProgress),
+		zap.Int64("compact_in_progress_bytes", m.Compact.InProgressBytes),
+		zap.Uint64("ingest_count", m.Ingest.Count),
+		zap.Int64("flush_count", m.Flush.Count),
+		zap.Int("read_amp", m.ReadAmp()),
+	)
 }
 
 // ReadSyncStatsRecord returns the raw stats sidecar record for a sync,
@@ -181,6 +206,22 @@ func GrantRecordKey(externalID string) []byte {
 	return encodeGrantKey(externalID)
 }
 
+func EntitlementRecordIdentityKey(r *v3.EntitlementRecord) string {
+	id, err := entitlementIdentityFromRecord(r)
+	if err != nil {
+		return r.GetExternalId()
+	}
+	return string(encodeEntitlementIdentityKey(id))
+}
+
+func GrantRecordIdentityKey(r *v3.GrantRecord) string {
+	id, err := grantIdentityFromRecord(r)
+	if err != nil {
+		return r.GetExternalId()
+	}
+	return string(encodeGrantIdentityKey(id))
+}
+
 func ResourceIndexKeys(r *v3.ResourceRecord) [][]byte {
 	parent := r.GetParent()
 	if parent == nil || parent.GetResourceId() == "" {
@@ -221,36 +262,15 @@ func AppendResourceIndexKeyRawBytes(dst []byte, parentRT []byte, parentID []byte
 }
 
 func EntitlementIndexKeys(r *v3.EntitlementRecord) [][]byte {
-	res := r.GetResource()
-	if res == nil || res.GetResourceId() == "" {
-		return nil
-	}
-	return [][]byte{encodeEntitlementByResourceIndexKey(res.GetResourceTypeId(), res.GetResourceId(), r.GetExternalId())}
+	return nil
 }
 
 func ForEachEntitlementIndexKey(r *v3.EntitlementRecord, yield func([]byte) error) error {
-	res := r.GetResource()
-	if res == nil || res.GetResourceId() == "" {
-		return nil
-	}
-	return yield(encodeEntitlementByResourceIndexKey(res.GetResourceTypeId(), res.GetResourceId(), r.GetExternalId()))
+	return nil
 }
 
 func ForEachEntitlementIndexKeyRaw(resourceRT string, resourceID string, externalID string, yield func([]byte) error) error {
-	if resourceID == "" {
-		return nil
-	}
-	return yield(encodeEntitlementByResourceIndexKey(resourceRT, resourceID, externalID))
-}
-
-func AppendEntitlementIndexKeyRawBytes(dst []byte, resourceRT []byte, resourceID []byte, externalID []byte) []byte {
-	dst = append(dst, versionV3, typeIndex, idxEntitlementByResource)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, resourceRT)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, resourceID)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleBytes(dst, externalID)
+	return nil
 }
 
 func GrantIndexKeys(r *v3.GrantRecord) [][]byte {
@@ -258,29 +278,8 @@ func GrantIndexKeys(r *v3.GrantRecord) [][]byte {
 }
 
 func ForEachGrantIndexKey(r *v3.GrantRecord, yield func([]byte) error) error {
-	ent := r.GetEntitlement()
-	princ := r.GetPrincipal()
-	ext := r.GetExternalId()
-	if ent != nil && princ != nil {
-		if err := yield(encodeGrantByEntitlementIndexKey(ent.GetEntitlementId(), princ.GetResourceTypeId(), princ.GetResourceId(), ext)); err != nil {
-			return err
-		}
-	}
-	if ent != nil && ent.GetResourceId() != "" {
-		if err := yield(encodeGrantByEntitlementResourceIndexKey(ent.GetResourceTypeId(), ent.GetResourceId(), ext)); err != nil {
-			return err
-		}
-	}
-	if princ != nil {
-		if err := yield(encodeGrantByPrincipalIndexKey(princ.GetResourceTypeId(), princ.GetResourceId(), ext)); err != nil {
-			return err
-		}
-		if err := yield(encodeGrantByPrincipalResourceTypeIndexKey(princ.GetResourceTypeId(), ext)); err != nil {
-			return err
-		}
-	}
-	if r.GetNeedsExpansion() {
-		if err := yield(encodeGrantByNeedsExpansionIndexKey(ext)); err != nil {
+	for _, key := range grantIndexKeys(r) {
+		if err := yield(key); err != nil {
 			return err
 		}
 	}
@@ -297,74 +296,21 @@ func ForEachGrantIndexKeyRaw(
 	needsExpansion bool,
 	yield func([]byte) error,
 ) error {
-	if entitlementID != "" && principalRT != "" && principalID != "" {
-		if err := yield(encodeGrantByEntitlementIndexKey(entitlementID, principalRT, principalID, externalID)); err != nil {
-			return err
-		}
+	if entitlementRT == "" || entitlementResourceID == "" || entitlementID == "" || principalRT == "" || principalID == "" {
+		return nil
 	}
-	if entitlementResourceID != "" {
-		if err := yield(encodeGrantByEntitlementResourceIndexKey(entitlementRT, entitlementResourceID, externalID)); err != nil {
-			return err
-		}
+	id := grantIdentity{
+		entitlement:     entitlementIdentityFromParts(entitlementRT, entitlementResourceID, entitlementID),
+		principalTypeID: principalRT,
+		principalID:     principalID,
 	}
-	if principalRT != "" && principalID != "" {
-		if err := yield(encodeGrantByPrincipalIndexKey(principalRT, principalID, externalID)); err != nil {
-			return err
-		}
-		if err := yield(encodeGrantByPrincipalResourceTypeIndexKey(principalRT, externalID)); err != nil {
-			return err
-		}
+	if err := yield(encodeGrantByPrincipalIdentityIndexKey(id)); err != nil {
+		return err
 	}
 	if needsExpansion {
-		if err := yield(encodeGrantByNeedsExpansionIndexKey(externalID)); err != nil {
+		if err := yield(encodeGrantByNeedsExpansionIdentityIndexKey(id)); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func AppendGrantByEntitlementIndexKeyRawBytes(dst []byte, entitlementID []byte, principalRT []byte, principalID []byte, externalID []byte) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlement)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, entitlementID)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, principalRT)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, principalID)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleBytes(dst, externalID)
-}
-
-func AppendGrantByEntitlementResourceIndexKeyRawBytes(dst []byte, entitlementRT []byte, entitlementResourceID []byte, externalID []byte) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByEntitlementResource)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, entitlementRT)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, entitlementResourceID)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleBytes(dst, externalID)
-}
-
-func AppendGrantByPrincipalIndexKeyRawBytes(dst []byte, principalRT []byte, principalID []byte, externalID []byte) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipal)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, principalRT)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, principalID)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleBytes(dst, externalID)
-}
-
-func AppendGrantByPrincipalResourceTypeIndexKeyRawBytes(dst []byte, principalRT []byte, externalID []byte) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipalResourceType)
-	dst = codec.AppendTupleSeparator(dst)
-	dst = codec.AppendTupleBytes(dst, principalRT)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleBytes(dst, externalID)
-}
-
-func AppendGrantByNeedsExpansionIndexKeyRawBytes(dst []byte, externalID []byte) []byte {
-	dst = append(dst, versionV3, typeIndex, idxGrantByNeedsExpansion)
-	dst = codec.AppendTupleSeparator(dst)
-	return codec.AppendTupleBytes(dst, externalID)
 }

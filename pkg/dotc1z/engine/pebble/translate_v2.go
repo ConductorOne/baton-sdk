@@ -123,7 +123,7 @@ func V3GrantToV2(r *v3.GrantRecord) *v2.Grant {
 		}
 	}
 	return v2.Grant_builder{
-		Id:          r.GetExternalId(),
+		Id:          publicGrantRecordID(r),
 		Entitlement: entitlementRefToStub(r.GetEntitlement()),
 		Principal:   principalRefToStubResource(r.GetPrincipal()),
 		Annotations: anns,
@@ -267,6 +267,8 @@ func entitlementRefToStub(ref *v3.EntitlementRef) *v2.Entitlement {
 		return nil
 	}
 	return v2.Entitlement_builder{
+		// The ref carries the raw connector id; emit it verbatim — external
+		// ids are an external-consumer contract and are never re-encoded.
 		Id: ref.GetEntitlementId(),
 		Resource: v2.Resource_builder{
 			Id: v2.ResourceId_builder{
@@ -501,6 +503,7 @@ func V3EntitlementToV2(r *v3.EntitlementRecord) *v2.Entitlement {
 		}
 	}
 	return v2.Entitlement_builder{
+		// Stored raw external id, emitted verbatim.
 		Id:          r.GetExternalId(),
 		Resource:    resource,
 		DisplayName: r.GetDisplayName(),

@@ -16,7 +16,9 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
@@ -28,8 +30,8 @@ const projectionProgressInterval = 15 * time.Second
 
 // RunTopologicalMergeProjection runs topological pull expansion using a
 // temporary source projection DB for finalized source streams. The projection
-// avoids repeatedly materializing parent grants through the permanent
-// by_entitlement index while keeping the canonical grant store as the sink.
+// avoids repeatedly materializing parent grants through permanent grant scans
+// while keeping the canonical grant store as the sink.
 func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	plan, err := e.graph.ensureExpansionPlan(ctx)
 	if err != nil {
@@ -51,9 +53,13 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	}
 	defer projDB.Close()
 
-	entitlements, order, err := e.prepareTopological(ctx)
+	entitlements, layers, err := e.prepareTopological(ctx)
 	if err != nil {
 		return err
+	}
+	totalNodes := 0
+	for _, layer := range layers {
+		totalNodes += len(layer)
 	}
 
 	l := ctxzap.Extract(ctx)
@@ -66,20 +72,29 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	l.Info("topological projection: built source projection",
 		zap.Int("projection_rows", rows),
 		zap.Int("projection_sources", len(projectionSources)),
-		zap.Int("nodes", len(order)),
+		zap.Int("nodes", totalNodes),
+		zap.Int("layers", len(layers)),
 		zap.Duration("elapsed", time.Since(buildStart)),
 	)
 
 	expandStart := time.Now()
 	lastLog := expandStart
-	err = e.driveTopological(ctx, entitlements, order, topologicalRun{
-		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink destinationSink) error {
+	err = e.driveTopological(ctx, entitlements, layers, topologicalRun{
+		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink *destinationSink) error {
 			return e.mergeDestinationStreams(ctx, dest, incoming, ents, projDB, projectionSources, sink)
 		},
 		onStored: func(_ context.Context, dirty []*v2.Grant) error {
 			addedRows, err := addProjectionRows(projDB, dirty, projectionSources)
 			if err != nil {
 				return fmt.Errorf("topological projection: append projection rows: %w", err)
+			}
+			metrics.ProjectionRowsBuilt += int64(addedRows)
+			return nil
+		},
+		onStoredSynth: func(_ context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+			addedRows, err := addProjectionRowsFromSynthesized(projDB, dest, principals, sources, projectionSources)
+			if err != nil {
+				return fmt.Errorf("topological projection: append synthesized projection rows for %q: %w", dest.GetId(), err)
 			}
 			metrics.ProjectionRowsBuilt += int64(addedRows)
 			return nil
@@ -110,7 +125,7 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	}
 
 	l.Info("topological projection: expansion complete",
-		zap.Int("nodes_total", len(order)),
+		zap.Int("nodes_total", totalNodes),
 		zap.Int64("dirty_grants_written", metrics.DirtyGrantsWritten),
 		zap.Int64("projection_rows", metrics.ProjectionRowsBuilt),
 		zap.Int64("nodes_reduced", metrics.NodesReduced),
@@ -133,7 +148,7 @@ func (e *Expander) mergeDestinationStreams(
 	entitlements map[string]*v2.Entitlement,
 	projDB *pebble.DB,
 	projectionSources map[string]struct{},
-	sink destinationSink,
+	sink *destinationSink,
 ) error {
 	streams := make([]contributionGroupStream, 0, 1+len(incoming))
 	streams = append(streams, &baseContributionStream{
@@ -147,6 +162,10 @@ func (e *Expander) mergeDestinationStreams(
 		for _, sourceID := range sortedCopy(sourceNode.EntitlementIDs) {
 			sourceEntitlement := entitlements[sourceID]
 			if sourceEntitlement == nil {
+				// Drop-don't-fail, but loudly (see the destination-side
+				// warning in driveTopologicalLayer).
+				ctxzap.Extract(ctx).Warn("topological expansion: source entitlement not in store; its contributions are skipped",
+					zap.String("entitlement_id", sourceID))
 				continue
 			}
 			if projDB != nil {
@@ -172,7 +191,7 @@ func (e *Expander) mergeDestinationStreams(
 // Entitlements are processed in sorted id order, and the tuple-encoded
 // projection key is prefix-ordered by entitlement, so each entitlement's rows
 // form a contiguous, globally-ordered block. When the store yields grants in
-// principal order (Pebble's by_entitlement index — see
+// principal order (Pebble's entitlement-first primary grant key — see
 // ExpanderStore.GrantsForEntitlementPrincipalSorted) the rows arrive already in
 // projection-key order and are streamed straight into
 // the SST writer with only one page resident. Otherwise (SQLite orders by grant
@@ -284,15 +303,10 @@ func encodeProjectionKV(grant *v2.Grant, entitlementID string) ([]byte, []byte, 
 		resourceType: pid.GetResourceType(),
 		resource:     pid.GetResource(),
 	}, grant.GetId())
-	principalBytes, err := proto.Marshal(grant.GetPrincipal())
+	val, err := encodeProjectionValueFromResource(grant.GetPrincipal(), isGrantDirectOnEntitlement(grant, entitlementID))
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("topological projection: marshal principal: %w", err)
+		return nil, nil, false, err
 	}
-	val := make([]byte, 1+len(principalBytes))
-	if isGrantDirectOnEntitlement(grant, entitlementID) {
-		val[0] = 1
-	}
-	copy(val[1:], principalBytes)
 	return key, val, true, nil
 }
 
@@ -323,6 +337,115 @@ func addProjectionRows(projDB *pebble.DB, grants []*v2.Grant, projectionSources 
 	return count, batch.Commit(pebble.NoSync)
 }
 
+func addProjectionRowsFromSynthesized(projDB *pebble.DB, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources, projectionSources map[string]struct{}) (int, error) {
+	if dest == nil {
+		return 0, nil
+	}
+	entID := dest.GetId()
+	if _, ok := projectionSources[entID]; !ok {
+		return 0, nil
+	}
+	batch := projDB.NewBatch()
+	defer batch.Close()
+	count := 0
+	for i, principal := range principals {
+		if principal == nil {
+			continue
+		}
+		if principal.GetResourceTypeId() == "" || principal.GetResourceId() == "" {
+			continue
+		}
+		grantID := grantIDForPrincipalRef(dest, principal)
+		key := projectionKey(entID, topoPrincipalKey{
+			resourceType: principal.GetResourceTypeId(),
+			resource:     principal.GetResourceId(),
+		}, grantID)
+		val := encodeProjectionValueFromPrincipalRef(principal, sources[i].DirectFor(entID))
+		if err := batch.Set(key, val, nil); err != nil {
+			return 0, err
+		}
+		count++
+	}
+	if count == 0 {
+		return 0, nil
+	}
+	return count, batch.Commit(pebble.NoSync)
+}
+
+func encodeProjectionValueFromResource(principal *v2.Resource, direct bool) ([]byte, error) {
+	var parent *v2.ResourceId
+	if principal != nil {
+		parent = principal.GetParentResourceId()
+	}
+	val := []byte{0}
+	if direct {
+		val[0] = 1
+	}
+	val = codec.AppendTupleStrings(val, parent.GetResourceType(), parent.GetResource())
+	if principal != nil {
+		principalBytes, err := proto.Marshal(principal)
+		if err != nil {
+			// A dropped payload would silently degrade fallback stores to a
+			// refs-only principal reconstruction; surface the failure instead.
+			return nil, fmt.Errorf("topological projection: marshal principal payload: %w", err)
+		}
+		val = codec.AppendTupleSeparator(val)
+		val = append(val, principalBytes...)
+	}
+	return val, nil
+}
+
+func encodeProjectionValueFromPrincipalRef(principal *v3.PrincipalRef, direct bool) []byte {
+	val := []byte{0}
+	if direct {
+		val[0] = 1
+	}
+	if principal == nil {
+		return codec.AppendTupleStrings(val, "", "")
+	}
+	return codec.AppendTupleStrings(val, principal.GetParentResourceTypeId(), principal.GetParentResourceId())
+}
+
+func projectionPrincipalRefFromValue(key topoPrincipalKey, val []byte) (principalRefData, []byte, bool) {
+	data := principalRefData{
+		resourceTypeID: key.resourceType,
+		resourceID:     key.resource,
+		ok:             true,
+	}
+	if len(val) <= 1 {
+		return data, nil, true
+	}
+	parentRT, off, ok := codec.DecodeTupleStringAlias(val, 1)
+	if !ok {
+		return principalRefData{}, nil, false
+	}
+	if off < len(val) && val[off] == 0 {
+		off++
+	}
+	parentID, off, ok := codec.DecodeTupleStringAlias(val, off)
+	if !ok {
+		return principalRefData{}, nil, false
+	}
+	data.parentResourceTypeID = string(parentRT)
+	data.parentResourceID = string(parentID)
+	var principalBytes []byte
+	if off < len(val) && val[off] == 0 {
+		principalBytes = val[off+1:]
+	}
+	return data, principalBytes, true
+}
+
+// grantIDForPrincipalRef builds the legacy public grant id (raw concat) —
+// byte-identical to what batonGrant.NewGrantID emits. External ids are an
+// external-consumer contract; identity is structural and never derives
+// from this string.
+func grantIDForPrincipalRef(dest *v2.Entitlement, principal *v3.PrincipalRef) string {
+	if principal == nil {
+		return ""
+	}
+	return dest.GetId() + ":" + principal.GetResourceTypeId() + ":" + principal.GetResourceId()
+}
+
 func projectionSourceSet(plan *EntitlementGraphPlan) map[string]struct{} {
 	out := make(map[string]struct{}, len(plan.GetProjectionSources()))
 	for _, source := range plan.GetProjectionSources() {
@@ -332,8 +455,8 @@ func projectionSourceSet(plan *EntitlementGraphPlan) map[string]struct{} {
 }
 
 // projectionKey encodes (entitlement, principal_rt, principal_id, external_id)
-// with the engine's order-preserving tuple codec — the same encoding the
-// permanent by_entitlement index uses. This keeps the projection key
+// with the engine's order-preserving tuple codec — the same entitlement-first
+// ordering as primary grant keys. This keeps the projection key
 // unambiguous when any component carries a raw 0x00/0x01 (which the codec
 // escapes), and makes the projection key order byte-for-byte identical to
 // Pebble's by_entitlement iteration order, so a principal-sorted store yields
@@ -418,10 +541,11 @@ type projectionContributionStream struct {
 	iter     *pebble.Iterator
 	started  bool
 	valid    bool
-	// principalBuf stabilizes the current group's principal payload across the
-	// iterator advances in next's inner loop. It is reused for every group this
-	// stream yields; see next for the safety argument.
-	principalBuf []byte
+	// contrib is reused across groups: the k-way merge fully consumes a
+	// stream's current group before pulling the next one from that stream, so
+	// at most one group per stream is live at a time. The PrincipalRef handed
+	// to it is still allocated per group because downstream sinks retain it.
+	contrib topoContribution
 }
 
 func newProjectionContributionStream(db *pebble.DB, sourceID string, edge Edge) *projectionContributionStream {
@@ -469,18 +593,14 @@ func (s *projectionContributionStream) next(_ context.Context) (contributionGrou
 			s.valid = s.iter.Next()
 			continue
 		}
-		// Allocate the principal-key strings exactly once per group.
 		key := topoPrincipalKey{resourceType: string(rt), resource: string(resource)}
-		contrib := &topoContribution{}
-		// Pebble's Value() bytes are only valid until the iterator advances, and
-		// the inner loop below advances it. Copy the principal payload once into
-		// this stream's reusable buffer so it survives the scan and reuses
-		// memory across groups. mergeContributionGroupStreams copies these bytes
-		// into the combined contribution during consume — before this stream is
-		// advanced again — so the per-group reuse is safe (see merge).
-		s.principalBuf = append(s.principalBuf[:0], val[1:]...)
-		contrib.principalBytes = s.principalBuf
-		contrib.addSource(s.sourceID, isDirect)
+		principalData, principalBytes, ok := projectionPrincipalRefFromValue(key, val)
+		if !ok {
+			return contributionGroup{}, false, fmt.Errorf("topological projection: decode principal ref for source %q", s.sourceID)
+		}
+		s.contrib.resetForReuse()
+		s.contrib.principal.setRef(principalData, principalBytes)
+		s.contrib.addSource(s.sourceID, isDirect)
 		for s.valid = s.iter.Next(); s.valid; s.valid = s.iter.Next() {
 			nextRT, nextResource, ok := decodeProjectionPrincipal(s.iter.Key(), s.prefix)
 			if !ok {
@@ -494,9 +614,9 @@ func (s *projectionContributionStream) next(_ context.Context) (contributionGrou
 			if s.edge.IsShallow && !nextDirect {
 				continue
 			}
-			contrib.addSource(s.sourceID, nextDirect)
+			s.contrib.addSource(s.sourceID, nextDirect)
 		}
-		return contributionGroup{key: key, contrib: contrib}, true, nil
+		return contributionGroup{key: key, contrib: &s.contrib}, true, nil
 	}
 	if s.iter == nil {
 		return contributionGroup{}, false, nil

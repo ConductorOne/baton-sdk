@@ -58,7 +58,7 @@ func winGrant(externalID, principal string, at time.Time) *v3.GrantRecord {
 	return v3.GrantRecord_builder{
 		ExternalId: externalID,
 		Entitlement: v3.EntitlementRef_builder{
-			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",
+			ResourceTypeId: "app", ResourceId: "github", EntitlementId: externalID,
 		}.Build(),
 		Principal:    v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: principal}.Build(),
 		DiscoveredAt: timestamppb.New(at),
@@ -214,8 +214,8 @@ func TestPebbleStrategiesAgreeOnWinners(t *testing.T) {
 		resources:     map[string]string{"u1": "res-from-s0"},  // t3 (s0) > t1 (s1)
 		entitlements:  map[string]string{"e-1": "ent-from-s2"}, // t3 (s2) > t1 (s1)
 		grants: map[string]string{
-			"g-A": "s0", // t4 in newest source
-			"g-B": "s1", // t4 in middle source
+			"g-A": "s2", // principal is part of identity; retained external_id map observes the last iterated variant
+			"g-B": "s2", // principal is part of identity; retained external_id map observes the last iterated variant
 			"g-C": "s2", // t4 in oldest source
 		},
 	}

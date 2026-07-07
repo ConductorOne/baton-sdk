@@ -112,6 +112,16 @@ jobs:
         run: |
           cd baton-demo
           go build ./cmd/baton-demo
+      # The sync-test action's get-baton step downloads the latest RELEASED
+      # baton (published from this repo's cmd/baton), which is built against
+      # the released keyspace layout. This branch changes the pebble
+      # keyspace, so a released reader would reject the new manifest engine
+      # name ("pebble3") — build baton from the local checkout instead.
+      # get-baton skips its download when a baton binary is already on PATH.
+      - name: Build baton CLI from local checkout
+        run: |
+          cd baton-sdk
+          go build -o /usr/local/bin/baton ./cmd/baton
       - name: Initialize database
         run: ./baton-demo/baton-demo --init-db
       - name: Test grant/revoke

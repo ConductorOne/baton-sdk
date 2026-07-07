@@ -36,6 +36,12 @@ import (
 //
 //	go test -run TestGrantStatsGroupByParity -v ./pkg/dotc1z/...
 func TestGrantStatsGroupByParity(t *testing.T) {
+	if testing.Short() {
+		// Perf-parity measurement over 100k-300k sqlite rows (~2min on a
+		// fast machine, far worse on Windows CI). The correctness it pins
+		// is engine-level and platform-independent; long (linux) CI runs it.
+		t.Skip("short mode: skipping 100k-row stats parity measurement")
+	}
 	cases := []struct {
 		name             string
 		numResourceTypes int

@@ -120,7 +120,13 @@ func (g *EntitlementGraph) BuildExpansionPlan(ctx context.Context) (*Entitlement
 }
 
 func (g *EntitlementGraph) ensureExpansionPlan(ctx context.Context) (*EntitlementGraphPlan, error) {
-	if g.ExpansionPlan != nil {
+	// A plan checkpointed by a different SDK version may encode different
+	// projection-source selection rules; rebuild rather than consume it.
+	// Correctness today is independent of the source set (rows are built
+	// into and routed through the same set), but the version gate keeps
+	// that a choice instead of an accident if a plan field ever becomes
+	// semantically load-bearing.
+	if g.ExpansionPlan != nil && g.ExpansionPlan.Version == expansionPlanVersion {
 		return g.ExpansionPlan, nil
 	}
 	return g.BuildExpansionPlan(ctx)

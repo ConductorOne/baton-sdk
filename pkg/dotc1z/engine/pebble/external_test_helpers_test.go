@@ -9,6 +9,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 // newAdapter opens a fresh engine in a temp dir and wraps it in an
@@ -29,22 +30,25 @@ func newAdapter(t testing.TB) *pebble.Adapter {
 // tests. Mirrors the in-package helper of the same name in
 // adapter_test.go.
 func mkV2Grant(id, entID, principalRT, principalID string) *v2.Grant {
-	return v2.Grant_builder{
-		Id: id,
-		Entitlement: v2.Entitlement_builder{
-			Id: entID,
-			Resource: v2.Resource_builder{
-				Id: v2.ResourceId_builder{
-					ResourceType: "app",
-					Resource:     "github",
-				}.Build(),
-			}.Build(),
-		}.Build(),
-		Principal: v2.Resource_builder{
+	canonicalEntID := "app:github:" + entID
+	ent := v2.Entitlement_builder{
+		Id: canonicalEntID,
+		Resource: v2.Resource_builder{
 			Id: v2.ResourceId_builder{
-				ResourceType: principalRT,
-				Resource:     principalID,
+				ResourceType: "app",
+				Resource:     "github",
 			}.Build(),
 		}.Build(),
+	}.Build()
+	principal := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: principalRT,
+			Resource:     principalID,
+		}.Build(),
+	}.Build()
+	return v2.Grant_builder{
+		Id:          batonGrant.NewGrantID(principal, ent),
+		Entitlement: ent,
+		Principal:   principal,
 	}.Build()
 }

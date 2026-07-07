@@ -40,9 +40,11 @@ func TestMergeContributionGroupStreamsChecksContextDuringMergeLoop(t *testing.T)
 	stream := &cancelingBaseGroupStream{cancel: cancel, remaining: 3}
 	sinkCalled := false
 
-	err := mergeContributionGroupStreams(ctx, makeEntitlement("ent:dest", makeResource("group", "dest")), []contributionGroupStream{stream}, func(context.Context, []*v2.Grant) error {
-		sinkCalled = true
-		return nil
+	err := mergeContributionGroupStreams(ctx, makeEntitlement("ent:dest", makeResource("group", "dest")), []contributionGroupStream{stream}, &destinationSink{
+		store: func(context.Context, []*v2.Grant, bool) error {
+			sinkCalled = true
+			return nil
+		},
 	})
 
 	require.Error(t, err)
@@ -71,10 +73,14 @@ func snapshotStoreGrants(store *MockExpanderStore) map[string]grantSnapshot {
 			if grant == nil {
 				continue
 			}
-			if _, ok := byID[grant.GetId()]; !ok {
-				order = append(order, grant.GetId())
+			key := grantSnapshotKey(grant)
+			if key == "" {
+				continue
 			}
-			byID[grant.GetId()] = grant
+			if _, ok := byID[key]; !ok {
+				order = append(order, key)
+			}
+			byID[key] = grant
 		}
 	}
 
@@ -98,6 +104,14 @@ func snapshotStoreGrants(store *MockExpanderStore) map[string]grantSnapshot {
 		}
 	}
 	return out
+}
+
+func grantSnapshotKey(grant *v2.Grant) string {
+	if grant == nil || grant.GetEntitlement() == nil || grant.GetPrincipal() == nil || grant.GetPrincipal().GetId() == nil {
+		return ""
+	}
+	pid := grant.GetPrincipal().GetId()
+	return grant.GetEntitlement().GetId() + "\x00" + pid.GetResourceType() + "\x00" + pid.GetResource()
 }
 
 func compareCurrentAndTopologicalStreaming(

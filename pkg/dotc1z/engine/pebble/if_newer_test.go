@@ -66,10 +66,14 @@ func TestDiscoveredAtIsNewer(t *testing.T) {
 }
 
 func ifNewerGrant(principal string, at time.Time) *v3.GrantRecord {
+	return ifNewerGrantExternal("g-1", principal, at)
+}
+
+func ifNewerGrantExternal(externalID, principal string, at time.Time) *v3.GrantRecord {
 	return v3.GrantRecord_builder{
-		ExternalId: "g-1",
+		ExternalId: externalID,
 		Entitlement: v3.EntitlementRef_builder{
-			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",
+			ResourceTypeId: "app", ResourceId: "github", EntitlementId: canonicalTestEntID("ent-A"),
 		}.Build(),
 		Principal:    v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: principal}.Build(),
 		DiscoveredAt: timestamppb.New(at),
@@ -106,34 +110,32 @@ func TestPutGrantRecordsIfNewerSkipsStale(t *testing.T) {
 
 	// Seed the incumbent at `newer`.
 	require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrant("winner", newer)))
-	got, err := e.GetGrantRecord(ctx, "g-1")
+	// Fixture external ids are connector-custom, so address rows by refs.
+	got, err := testGrantByIdentity(ctx, e, "ent-A", "user", "winner")
 	require.NoError(t, err)
 	require.Equal(t, "winner", got.GetPrincipal().GetResourceId())
 
 	// Older replay: dropped — value and index unchanged.
-	require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrant("stale-older", older)))
-	got, err = e.GetGrantRecord(ctx, "g-1")
+	require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrantExternal("g-stale-older", "winner", older)))
+	got, err = testGrantByIdentity(ctx, e, "ent-A", "user", "winner")
 	require.NoError(t, err)
 	require.Equal(t, "winner", got.GetPrincipal().GetResourceId(), "older replay must not regress the grant")
 
 	// Equal replay: dropped — strict `>` keeps the incumbent.
-	require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrant("stale-tie", newer)))
-	got, err = e.GetGrantRecord(ctx, "g-1")
+	require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrantExternal("g-stale-tie", "winner", newer)))
+	got, err = testGrantByIdentity(ctx, e, "ent-A", "user", "winner")
 	require.NoError(t, err)
 	require.Equal(t, "winner", got.GetPrincipal().GetResourceId(), "equal discovered_at must keep the incumbent")
 
 	// No stale index keys leaked from the dropped writes.
 	require.Equal(t, []string{"g-1"}, grantsByPrincipal(t, ctx, e, "winner"))
-	require.Empty(t, grantsByPrincipal(t, ctx, e, "stale-older"))
-	require.Empty(t, grantsByPrincipal(t, ctx, e, "stale-tie"))
 
-	// Strictly newer: replaces value AND swaps the by_principal index.
-	require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrant("new-winner", newest)))
-	got, err = e.GetGrantRecord(ctx, "g-1")
+	// Strictly newer for the same identity: replaces the retained value.
+	require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrantExternal("g-newest", "winner", newest)))
+	got, err = testGrantByIdentity(ctx, e, "ent-A", "user", "winner")
 	require.NoError(t, err)
-	require.Equal(t, "new-winner", got.GetPrincipal().GetResourceId(), "strictly newer must replace")
-	require.Empty(t, grantsByPrincipal(t, ctx, e, "winner"), "stale index entry must be removed on replace")
-	require.Equal(t, []string{"g-1"}, grantsByPrincipal(t, ctx, e, "new-winner"))
+	require.Equal(t, "g-newest", got.GetExternalId(), "strictly newer must replace")
+	require.Equal(t, []string{"g-newest"}, grantsByPrincipal(t, ctx, e, "winner"))
 }
 
 // TestPutRecordsIfNewerRejectsOlderAllTypes guards the per-type
@@ -192,7 +194,7 @@ func TestPutRecordsIfNewerRejectsOlderAllTypes(t *testing.T) {
 	t.Run("grant", func(t *testing.T) {
 		require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrant("kept", newer)))
 		require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrant("stale", older)))
-		got, err := e.GetGrantRecord(ctx, "g-1")
+		got, err := testGrantByIdentity(ctx, e, "ent-A", "user", "kept")
 		require.NoError(t, err)
 		require.Equal(t, "kept", got.GetPrincipal().GetResourceId())
 	})

@@ -82,12 +82,13 @@ func (b0 GrantSources_builder) Build() *GrantSources {
 }
 
 type Grant struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Entitlement   *Entitlement           `protobuf:"bytes,1,opt,name=entitlement,proto3" json:"entitlement,omitempty"`
-	Principal     *Resource              `protobuf:"bytes,2,opt,name=principal,proto3" json:"principal,omitempty"`
-	Id            string                 `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
-	Sources       *GrantSources          `protobuf:"bytes,5,opt,name=sources,proto3" json:"sources,omitempty"`
-	Annotations   []*anypb.Any           `protobuf:"bytes,4,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	state       protoimpl.MessageState `protogen:"hybrid.v1"`
+	Entitlement *Entitlement           `protobuf:"bytes,1,opt,name=entitlement,proto3" json:"entitlement,omitempty"`
+	Principal   *Resource              `protobuf:"bytes,2,opt,name=principal,proto3" json:"principal,omitempty"`
+	// These ids may not map one to one with the grant itself.
+	Id            string        `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
+	Sources       *GrantSources `protobuf:"bytes,5,opt,name=sources,proto3" json:"sources,omitempty"`
+	Annotations   []*anypb.Any  `protobuf:"bytes,4,rep,name=annotations,proto3" json:"annotations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -210,6 +211,7 @@ type Grant_builder struct {
 
 	Entitlement *Entitlement
 	Principal   *Resource
+	// These ids may not map one to one with the grant itself.
 	Id          string
 	Sources     *GrantSources
 	Annotations []*anypb.Any

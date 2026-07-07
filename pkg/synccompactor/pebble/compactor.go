@@ -67,10 +67,9 @@ func NewCompactor(base *enginepkg.Engine, tmpDir string) (*Compactor, error) {
 // source's view of that sync.
 //
 // Atomicity: per-bucket atomic, NOT whole-Compact atomic. Each
-// IngestAndExcise call (one per record-type bucket: grants,
-// by_entitlement index, by_principal index) is atomic from base's
-// perspective — a concurrent reader sees the old-or-new state of that
-// bucket, never a mixture. However, the multi-bucket loop is NOT
+// IngestAndExcise call (one per record-type bucket: grants, by_principal index,
+// etc.) is atomic from base's perspective — a concurrent reader sees the
+// old-or-new state of that bucket, never a mixture. However, the multi-bucket loop is NOT
 // transactional as a whole: a crash or hard cancellation mid-loop
 // leaves base with new data in some buckets and old data in others
 // (and the same for the DeleteRange-only path used for empty
@@ -97,6 +96,10 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 	if dstDB == nil {
 		return errors.New("synccompactor/pebble.Compact: base engine has no DB (closed?)")
 	}
+	// This function writes the base keyspace through the raw DB handle;
+	// invalidate the engine's bare-id lookup state on the way out (even on
+	// error — earlier buckets may already have been replaced).
+	defer c.base.InvalidateBareIDLookups()
 
 	// The full key range belonging to the file's one sync, across all
 	// record types and indexes. v3 keys carry no sync_id, so each

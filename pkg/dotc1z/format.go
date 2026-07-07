@@ -63,7 +63,8 @@ const (
 	// Pebble v3 manifest. It deliberately differs from EnginePebble so
 	// pre-single-sync readers reject the file at dispatch instead of
 	// reading its keys as empty. See c1zstore.PebbleManifestEngine.
-	PebbleManifestEngine = c1zstore.PebbleManifestEngine
+	PebbleManifestEngine   = c1zstore.PebbleManifestEngine
+	PebbleManifestEngineV2 = c1zstore.PebbleManifestEngineV2
 )
 
 // ErrEngineNotAvailable is returned when a caller requests an engine

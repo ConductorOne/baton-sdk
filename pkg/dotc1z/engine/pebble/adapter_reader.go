@@ -166,12 +166,15 @@ func (a *Adapter) ListEntitlementsByIds(
 	}.Build(), nil
 }
 
-// GrantsForEntitlementPrincipalSorted reports that ListGrantsForEntitlement
+// GrantsForEntitlementPrincipalSorted reports whether ListGrantsForEntitlement
 // yields grants in non-decreasing principal (resource_type, resource) order.
-// The by_entitlement index is keyed
-// entitlement_id|principal_rt|principal_id|external_id, and pagination walks it
-// in key order, so consumers can group by principal without buffering and
-// sorting the whole entitlement.
+// True under the structured key layout: the primary grant key ends in the
+// tuple-encoded (principal_rt, principal_id) components and the tuple codec
+// is order-preserving, so a per-entitlement primary prefix scan IS a
+// principal-ordered scan. This gates the topological-merge expansion path;
+// streamingPrincipalGroupStream additionally fails loudly if the order
+// invariant is ever violated, and the differential/parity suites compare
+// the sorted and unsorted evaluators against SQLite.
 func (a *Adapter) GrantsForEntitlementPrincipalSorted() bool { return true }
 
 // ListGrantsForEntitlement paginates grants on a specific
@@ -193,6 +196,15 @@ func (a *Adapter) ListGrantsForEntitlement(
 	if ent == nil || ent.GetId() == "" {
 		return nil, errors.New("ListGrantsForEntitlement: missing entitlement id")
 	}
+	entIdentity, err := a.entitlementIdentityForRequest(ctx, ent)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			// Unknown entitlement → no grants, matching the legacy
+			// empty-prefix-scan semantics.
+			return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{}.Build(), nil
+		}
+		return nil, err
+	}
 	limit := clampPageSize(req.GetPageSize())
 	cursor := req.GetPageToken()
 
@@ -205,17 +217,16 @@ func (a *Adapter) ListGrantsForEntitlement(
 		rtSet[rt] = struct{}{}
 	}
 
-	// cursorFor returns the by_entitlement index key for rec —
+	// cursorFor returns the primary grant key for rec —
 	// needed because a post-filter break at len(out) == limit may
 	// leave matching records unconsumed in the engine page, and
 	// the engine's end-of-page cursor would skip them.
 	cursorFor := func(rec *v3.GrantRecord) string {
-		p := rec.GetPrincipal()
-		return encodeCursor(encodeGrantByEntitlementIndexKey(
-			ent.GetId(),
-			p.GetResourceTypeId(), p.GetResourceId(),
-			rec.GetExternalId(),
-		))
+		id, err := grantIdentityFromRecord(rec)
+		if err != nil {
+			return ""
+		}
+		return encodeCursor(encodeGrantIdentityKey(id))
 	}
 
 	out := make([]*v2.Grant, 0, limit)
@@ -233,10 +244,10 @@ func (a *Adapter) ListGrantsForEntitlement(
 		var next string
 		if principalID != nil {
 			records, next, err = a.engine.PaginateGrantsByEntitlementPrincipal(ctx,
-				ent.GetId(), principalID.GetResourceType(), principalID.GetResource(), cursor, fetchLimit)
+				entIdentity, principalID.GetResourceType(), principalID.GetResource(), cursor, fetchLimit)
 		} else {
 			records, next, err = a.engine.PaginateGrantsByEntitlement(ctx,
-				ent.GetId(), cursor, fetchLimit)
+				entIdentity, cursor, fetchLimit)
 		}
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -297,11 +308,34 @@ func (a *Adapter) ListGrantPrincipalKeysForEntitlement(
 	if entitlement == nil || entitlement.GetId() == "" {
 		return nil, "", errors.New("ListGrantPrincipalKeysForEntitlement: missing entitlement id")
 	}
-	keys, next, err := a.engine.PaginateGrantPrincipalKeysByEntitlement(ctx, entitlement.GetId(), pageToken, clampPageSize(pageSize))
+	entIdentity, err := a.entitlementIdentityForRequest(ctx, entitlement)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil, "", nil
+		}
+		return nil, "", err
+	}
+	keys, next, err := a.engine.PaginateGrantPrincipalKeysByEntitlement(ctx, entIdentity, pageToken, clampPageSize(pageSize))
 	if err != nil {
 		return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
 	return keys, next, nil
+}
+
+// entitlementIdentityForRequest resolves the structural identity for a
+// request-supplied entitlement. When the request carries the resource ref
+// (the normal case — the expander and c1 send full stubs), identity derives
+// exactly from structured parts; otherwise the raw id string resolves
+// through the bare-id lookup (exactly-one rule; pebble.ErrNotFound when the
+// id matches nothing).
+func (a *Adapter) entitlementIdentityForRequest(ctx context.Context, ent *v2.Entitlement) (entitlementIdentity, error) {
+	if ent == nil || ent.GetId() == "" {
+		return entitlementIdentity{}, errors.New("missing entitlement id")
+	}
+	if res := ent.GetResource(); res.GetId().GetResourceType() != "" && res.GetId().GetResource() != "" {
+		return entitlementIdentityFromParts(res.GetId().GetResourceType(), res.GetId().GetResource(), ent.GetId()), nil
+	}
+	return a.engine.resolveGrantScanEntitlementIdentity(ctx, ent.GetId())
 }
 
 // ListGrantsForPrincipal is the Go-level convenience method that
@@ -338,7 +372,8 @@ func (a *Adapter) ListGrantsForPrincipal(
 	out := make([]*v2.Grant, 0, len(records))
 	for _, rec := range records {
 		// Optional entitlement filter — narrows the principal scan
-		// to a single entitlement when the caller passes one.
+		// to a single entitlement when the caller passes one. Raw string
+		// equality: refs and request ids are the same connector strings.
 		if ent := req.GetEntitlement(); ent != nil && ent.GetId() != "" {
 			if rec.GetEntitlement().GetEntitlementId() != ent.GetId() {
 				continue
@@ -353,8 +388,8 @@ func (a *Adapter) ListGrantsForPrincipal(
 }
 
 // ListGrantsForResourceType paginates grants whose principal is of
-// the given resource_type_id, via idxGrantByPrincipalResourceType.
-// The cursor is the index key.
+// the given resource_type_id, via the by_principal index prefix.
+// The cursor is the by_principal index key.
 //
 // Implements reader_v2.GrantsReaderServiceServer.
 func (a *Adapter) ListGrantsForResourceType(
@@ -429,7 +464,10 @@ func (a *Adapter) ListSyncs(ctx context.Context, req *reader_v2.SyncsReaderServi
 		return nil, err
 	}
 	prefix := encodeSyncRunFullPrefix()
-	lower, upper := rangeAfter(prefix, cursorBytes)
+	lower, upper, err := rangeAfter(prefix, cursorBytes)
+	if err != nil {
+		return nil, err
+	}
 	iter, err := a.engine.DB().NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,

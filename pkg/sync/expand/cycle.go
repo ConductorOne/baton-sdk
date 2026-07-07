@@ -142,7 +142,7 @@ func (g *EntitlementGraph) removeNode(nodeID int) {
 			delete(g.Edges, edgeID)
 		}
 	}
-	delete(g.SourcesToDestinations, nodeID)
+	delete(g.DestinationsToSources, nodeID)
 }
 
 // FixCyclesFromComponents merges all provided cyclic components in one pass.
@@ -172,8 +172,8 @@ func (g *EntitlementGraph) FixCyclesFromComponents(ctx context.Context, cyclic [
 // single, new node.
 func (g *EntitlementGraph) fixCycle(nodeIDs []int) error {
 	entitlementIDs := mapset.NewThreadUnsafeSet[string]()
-	outgoingEdgesToResourceTypeIDs := map[int]mapset.Set[string]{}
-	incomingEdgesToResourceTypeIDs := map[int]mapset.Set[string]{}
+	outgoing := map[int]*mergedEdgeSpec{}
+	incoming := map[int]*mergedEdgeSpec{}
 	for _, nodeID := range nodeIDs {
 		if node, ok := g.Nodes[nodeID]; ok {
 			// Gather entitlements.
@@ -185,14 +185,7 @@ func (g *EntitlementGraph) fixCycle(nodeIDs []int) error {
 			if sources, ok := g.DestinationsToSources[nodeID]; ok {
 				for sourceNodeID, edgeID := range sources {
 					if edge, ok := g.Edges[edgeID]; ok {
-						resourceTypeIDs, ok := incomingEdgesToResourceTypeIDs[sourceNodeID]
-						if !ok {
-							resourceTypeIDs = mapset.NewThreadUnsafeSet[string]()
-						}
-						for _, resourceTypeID := range edge.ResourceTypeIDs {
-							resourceTypeIDs.Add(resourceTypeID)
-						}
-						incomingEdgesToResourceTypeIDs[sourceNodeID] = resourceTypeIDs
+						mergeEdgeSpec(incoming, sourceNodeID, edge)
 					}
 				}
 			}
@@ -201,14 +194,7 @@ func (g *EntitlementGraph) fixCycle(nodeIDs []int) error {
 			if destinations, ok := g.SourcesToDestinations[nodeID]; ok {
 				for destinationNodeID, edgeID := range destinations {
 					if edge, ok := g.Edges[edgeID]; ok {
-						resourceTypeIDs, ok := outgoingEdgesToResourceTypeIDs[destinationNodeID]
-						if !ok {
-							resourceTypeIDs = mapset.NewThreadUnsafeSet[string]()
-						}
-						for _, resourceTypeID := range edge.ResourceTypeIDs {
-							resourceTypeIDs.Add(resourceTypeID)
-						}
-						outgoingEdgesToResourceTypeIDs[destinationNodeID] = resourceTypeIDs
+						mergeEdgeSpec(outgoing, destinationNodeID, edge)
 					}
 				}
 			}
@@ -228,15 +214,15 @@ func (g *EntitlementGraph) fixCycle(nodeIDs []int) error {
 	}
 
 	// Hook up edges
-	for destinationID, resourceTypeIDs := range outgoingEdgesToResourceTypeIDs {
+	for destinationID, spec := range outgoing {
 		g.NextEdgeID++
 		edge := Edge{
 			EdgeID:          g.NextEdgeID,
 			SourceID:        node.Id,
 			DestinationID:   destinationID,
 			IsExpanded:      false,
-			IsShallow:       false,
-			ResourceTypeIDs: resourceTypeIDs.ToSlice(),
+			IsShallow:       spec.allShallow,
+			ResourceTypeIDs: spec.resourceTypeIDs(),
 		}
 		g.Edges[edge.EdgeID] = edge
 		if _, ok := g.SourcesToDestinations[node.Id]; !ok {
@@ -248,15 +234,15 @@ func (g *EntitlementGraph) fixCycle(nodeIDs []int) error {
 		}
 		g.DestinationsToSources[destinationID][node.Id] = edge.EdgeID
 	}
-	for sourceID, resourceTypeIDs := range incomingEdgesToResourceTypeIDs {
+	for sourceID, spec := range incoming {
 		g.NextEdgeID++
 		edge := Edge{
 			EdgeID:          g.NextEdgeID,
 			SourceID:        sourceID,
 			DestinationID:   node.Id,
 			IsExpanded:      false,
-			IsShallow:       false,
-			ResourceTypeIDs: resourceTypeIDs.ToSlice(),
+			IsShallow:       spec.allShallow,
+			ResourceTypeIDs: spec.resourceTypeIDs(),
 		}
 		g.Edges[edge.EdgeID] = edge
 
@@ -278,4 +264,46 @@ func (g *EntitlementGraph) fixCycle(nodeIDs []int) error {
 	}
 
 	return nil
+}
+
+// mergedEdgeSpec accumulates the attributes of the parallel edges one
+// neighbor node carries into/out of a cycle being collapsed, with the
+// widest-grant union semantics:
+//
+//   - resource-type filters: an EMPTY filter means "match every principal
+//     type", so any unfiltered edge makes the merged edge unfiltered. Only
+//     when every edge is filtered is the union of their sets a faithful
+//     merge — set-unioning across an unfiltered edge would NARROW it.
+//   - shallow: a deep edge admits strictly more than a shallow one, so any
+//     deep edge makes the merged edge deep; only when every edge is
+//     shallow does the merged edge stay shallow.
+type mergedEdgeSpec struct {
+	unfiltered bool
+	rtids      mapset.Set[string]
+	allShallow bool
+}
+
+func mergeEdgeSpec(into map[int]*mergedEdgeSpec, neighborID int, edge Edge) {
+	spec, ok := into[neighborID]
+	if !ok {
+		spec = &mergedEdgeSpec{rtids: mapset.NewThreadUnsafeSet[string](), allShallow: true}
+		into[neighborID] = spec
+	}
+	if len(edge.ResourceTypeIDs) == 0 {
+		spec.unfiltered = true
+	} else {
+		for _, rtid := range edge.ResourceTypeIDs {
+			spec.rtids.Add(rtid)
+		}
+	}
+	if !edge.IsShallow {
+		spec.allShallow = false
+	}
+}
+
+func (s *mergedEdgeSpec) resourceTypeIDs() []string {
+	if s.unfiltered {
+		return nil
+	}
+	return s.rtids.ToSlice()
 }

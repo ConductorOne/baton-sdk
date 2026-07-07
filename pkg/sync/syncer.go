@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	storage_v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
@@ -158,10 +159,30 @@ func (a expanderStoreAdapter) GetEntitlement(ctx context.Context, req *reader_v2
 	return a.store.GetEntitlement(ctx, req)
 }
 
+// requireEntitlementRefs guards the expansion → store boundary: grant
+// listings during expansion must address the entitlement by its structured
+// resource refs (from a fetched entitlement record), never by a bare id
+// string. Bare-id resolution is a query-planning convenience reserved for
+// interactive edges (CLI, explorer) where an ambiguity error is acceptable;
+// expansion must not depend on it. Every expansion call site fetches the
+// entitlement record first, so this only fires on a regression.
+func requireEntitlementRefs(ent *v2.Entitlement) error {
+	if ent == nil || ent.GetId() == "" {
+		return errors.New("grant expansion: missing entitlement")
+	}
+	if res := ent.GetResource(); res.GetId().GetResourceType() == "" || res.GetId().GetResource() == "" {
+		return fmt.Errorf("grant expansion: entitlement %q has no resource refs; expansion must not resolve bare id strings", ent.GetId())
+	}
+	return nil
+}
+
 func (a expanderStoreAdapter) ListGrantsForEntitlement(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+	if err := requireEntitlementRefs(req.GetEntitlement()); err != nil {
+		return nil, err
+	}
 	return a.store.ListGrantsForEntitlement(ctx, req)
 }
 
@@ -171,6 +192,9 @@ func (a expanderStoreAdapter) ListGrantPrincipalKeysForEntitlement(
 	pageToken string,
 	pageSize uint32,
 ) ([]string, string, error) {
+	if err := requireEntitlementRefs(entitlement); err != nil {
+		return nil, "", err
+	}
 	// Preserve Pebble's compact prefetch path through this wrapper. Non-Pebble
 	// stores fall back to regular grant listing and local key extraction.
 	if store, ok := a.store.(interface {
@@ -199,6 +223,93 @@ func (a expanderStoreAdapter) ListGrantPrincipalKeysForEntitlement(
 
 func (a expanderStoreAdapter) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+func (a expanderStoreAdapter) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	if fast, ok := a.store.Grants().(interface {
+		StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
+	}); ok {
+		return fast.StoreNewExpandedGrants(ctx, grants...)
+	}
+	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+func (a expanderStoreAdapter) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []batonGrant.Sources) error {
+	if fast, ok := a.store.Grants().(interface {
+		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*storage_v3.PrincipalRef, []batonGrant.Sources) error
+	}); ok {
+		return fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
+	}
+	grants := make([]*v2.Grant, 0, len(principals))
+	for i, principalRef := range principals {
+		principal := resourceFromPrincipalRef(principalRef)
+		grant, err := expand.NewExpandedGrantForStore(dest, principal, sources[i])
+		if err != nil {
+			return err
+		}
+		grants = append(grants, grant)
+	}
+	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
+}
+
+// expandedGrantLayerStorer is the layer-scoped synthesized-grant layer session
+// surface the store's GrantStore may implement (Pebble). Local interface so
+// the adapter can pass sessions through without importing engine internals.
+type expandedGrantLayerStorer interface {
+	BeginExpandedGrantLayer(ctx context.Context) (bool, error)
+	AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []batonGrant.Sources) error
+	FinishExpandedGrantLayer(ctx context.Context) error
+	AbortExpandedGrantLayer(ctx context.Context) error
+}
+
+func (a expanderStoreAdapter) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
+	if fast, ok := a.store.Grants().(expandedGrantLayerStorer); ok {
+		return fast.BeginExpandedGrantLayer(ctx)
+	}
+	return false, nil
+}
+
+func (a expanderStoreAdapter) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []batonGrant.Sources) error {
+	fast, ok := a.store.Grants().(expandedGrantLayerStorer)
+	if !ok {
+		return errors.New("expanded grant layer: store does not support layer sessions")
+	}
+	return fast.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+}
+
+func (a expanderStoreAdapter) FinishExpandedGrantLayer(ctx context.Context) error {
+	fast, ok := a.store.Grants().(expandedGrantLayerStorer)
+	if !ok {
+		return errors.New("expanded grant layer: store does not support layer sessions")
+	}
+	return fast.FinishExpandedGrantLayer(ctx)
+}
+
+func (a expanderStoreAdapter) AbortExpandedGrantLayer(ctx context.Context) error {
+	if fast, ok := a.store.Grants().(expandedGrantLayerStorer); ok {
+		return fast.AbortExpandedGrantLayer(ctx)
+	}
+	return nil
+}
+
+func resourceFromPrincipalRef(ref *storage_v3.PrincipalRef) *v2.Resource {
+	if ref == nil {
+		return nil
+	}
+	var parent *v2.ResourceId
+	if ref.GetParentResourceId() != "" {
+		parent = v2.ResourceId_builder{
+			ResourceType: ref.GetParentResourceTypeId(),
+			Resource:     ref.GetParentResourceId(),
+		}.Build()
+	}
+	return v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: ref.GetResourceTypeId(),
+			Resource:     ref.GetResourceId(),
+		}.Build(),
+		ParentResourceId: parent,
+	}.Build()
 }
 
 // GrantsForEntitlementPrincipalSorted forwards the underlying engine's
@@ -2223,7 +2334,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		principalMap[principalID] = principal
 	}
 
-	grantsToDelete := make([]string, 0)
+	grantsToDelete := make([]*v2.Grant, 0)
 	expandedGrants := make([]*v2.Grant, 0)
 
 	for ga, err := range s.store.Grants().ListWithAnnotations(ctx) {
@@ -2256,7 +2367,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				newGrant := newGrantForExternalPrincipal(grant, principal)
 				expandedGrants = append(expandedGrants, newGrant)
 			}
-			grantsToDelete = append(grantsToDelete, grant.GetId())
+			grantsToDelete = append(grantsToDelete, grant)
 			continue
 		}
 
@@ -2332,7 +2443,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 			// We still want to delete the grant even if there are no matches
 			// Since it does not correspond to any known user
-			grantsToDelete = append(grantsToDelete, grant.GetId())
+			grantsToDelete = append(grantsToDelete, grant)
 		}
 
 		// Match by key/val
@@ -2414,7 +2525,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			}
 
 			// We still want to delete the grant even if there are no matches
-			grantsToDelete = append(grantsToDelete, grant.GetId())
+			grantsToDelete = append(grantsToDelete, grant)
 		}
 	}
 
@@ -2428,11 +2539,19 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return err
 	}
 
-	for _, grantId := range grantsToDelete {
-		if newGrantIDs.ContainsOne(grantId) {
+	// Prefer the refs-based delete (exact structural identity) when the
+	// store supports it; external ids are a lossy external contract and
+	// stores keyed by structural identity cannot always resolve them.
+	refsDeleter, _ := s.store.(grantByRefsDeleter)
+	for _, grantToDelete := range grantsToDelete {
+		if newGrantIDs.ContainsOne(grantToDelete.GetId()) {
 			continue
 		}
-		err = s.store.DeleteGrant(ctx, grantId)
+		if refsDeleter != nil {
+			err = refsDeleter.DeleteGrantByRefs(ctx, grantToDelete)
+		} else {
+			err = s.store.DeleteGrant(ctx, grantToDelete.GetId())
+		}
 		if err != nil {
 			return err
 		}
@@ -2445,6 +2564,13 @@ func userTraitContainsEmail(emails []*v2.UserTrait_Email, address string) bool {
 	return slices.ContainsFunc(emails, func(e *v2.UserTrait_Email) bool {
 		return strings.EqualFold(e.GetAddress(), address)
 	})
+}
+
+// grantByRefsDeleter is the optional store fast path for deleting a grant
+// by its structured refs instead of its lossy public id (Pebble implements
+// it; SQLite resolves ids by exact string and does not need it).
+type grantByRefsDeleter interface {
+	DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error
 }
 
 func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.Grant {

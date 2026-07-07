@@ -227,7 +227,7 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 		requested = EngineSQLite
 	}
 
-	stat, err := os.Stat(outputFilePath)
+	stat, err := os.Stat(outputFilePath) // #nosec G703 -- c1z path is caller-controlled by API design.
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		return requireEngineDriver(requested)
@@ -237,7 +237,7 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 		return requireEngineDriver(requested)
 	}
 
-	f, err := os.Open(outputFilePath)
+	f, err := os.Open(outputFilePath) // #nosec G703 -- c1z path is caller-controlled by API design.
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +289,11 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 			return nil, err
 		}
 		fileEngine = Engine(m.GetEngine())
-		if fileEngine == PebbleManifestEngine { // single-sync manifest name; same driver
+		// Current and legacy pebble manifest names all dispatch to the same
+		// driver; legacy interiors are re-keyed by the on-open id-index
+		// migration. Unknown (newer) names fall through and fail loudly in
+		// requireEngineDriver.
+		if fileEngine == PebbleManifestEngine || fileEngine == PebbleManifestEngineV2 {
 			fileEngine = EnginePebble
 		}
 	default:

@@ -22,12 +22,15 @@ func openPebble(t *testing.T) *enginepkg.Engine {
 }
 
 func mkGrant(syncID, externalID, entID, principalRT, principalID string) *v3.GrantRecord {
+	// SDK-shaped raw ids: entitlement id carries the rt:rid: prefix and the
+	// grant external id is the raw concat NewGrantID emits.
+	canonicalEntID := "app:github:" + entID
 	return v3.GrantRecord_builder{
-		ExternalId: externalID,
+		ExternalId: canonicalEntID + ":" + principalRT + ":" + principalID,
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app",
 			ResourceId:     "github",
-			EntitlementId:  entID,
+			EntitlementId:  canonicalEntID,
 		}.Build(),
 		Principal: v3.PrincipalRef_builder{
 			ResourceTypeId: principalRT,
@@ -55,7 +58,6 @@ func TestPebbleMatchesMemoryRef(t *testing.T) {
 			}
 			i := len(externalIDs)
 			ext := ksuid.New().String()
-			externalIDs = append(externalIDs, ext)
 			principalRT := "user"
 			principalID := ksuid.New().String()
 			// Reuse 10 principals' IDs to make the per-principal index
@@ -66,7 +68,9 @@ func TestPebbleMatchesMemoryRef(t *testing.T) {
 			case 1:
 				principalID = "shared-principal-2"
 			}
-			ops = append(ops, Op{Kind: OpPut, Record: mkGrant(syncID, ext, ent, principalRT, principalID)})
+			rec := mkGrant(syncID, ext, ent, principalRT, principalID)
+			externalIDs = append(externalIDs, rec.GetExternalId())
+			ops = append(ops, Op{Kind: OpPut, Record: rec})
 		}
 	}
 	// Delete every 8th grant.

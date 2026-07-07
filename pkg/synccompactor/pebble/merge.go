@@ -81,6 +81,10 @@ func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync
 	if err := dest.SetCurrentSync(destSyncID); err != nil {
 		return stats, fmt.Errorf("synccompactor/pebble.MergeInto: bind dest sync: %w", err)
 	}
+	// Folds write the dest keyspace through the raw DB handle; invalidate
+	// the engine's bare-id lookup state on the way out (even on error —
+	// earlier sources may already have been folded in).
+	defer dest.InvalidateBareIDLookups()
 	for i := range sources {
 		if err := ctx.Err(); err != nil {
 			return stats, err

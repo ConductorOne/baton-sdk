@@ -76,6 +76,12 @@ func WithExclusionGroupDefault(exclusionGroupID string, order uint32) Entitlemen
 	})
 }
 
+// NewEntitlementID returns the public entitlement id for a resource and
+// permission. The raw ":"-join is an external-consumer contract: ids must
+// stay byte-identical across SDK versions (C1 carries configuration keyed on
+// them), so this join is deliberately lossy and MUST NOT be used as an
+// internal identity — storage keys derive from the structured resource
+// fields instead (see pkg/dotc1z/engine/pebble/identity.go).
 func NewEntitlementID(resource *v2.Resource, permission string) string {
 	return fmt.Sprintf("%s:%s:%s", resource.GetId().GetResourceType(), resource.GetId().GetResource(), permission)
 }

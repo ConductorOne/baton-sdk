@@ -85,12 +85,16 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 		{Start: []byte{versionV3, typeResourceType}, End: []byte{versionV3, typeEngineMeta}},
 		{Start: SyncStatsSidecarLowerBound(), End: SyncStatsSidecarUpperBound()},
 	}
-	return e.withWrite(func() error {
+	// AllowSealed: StartNewSync legitimately replaces a finished (sealed)
+	// sync; the wipe is the first step of leaving the sealed state. The
+	// engine stays sealed until MarkFreshSync unseals it right after.
+	return e.withWriteAllowSealed(func() error {
 		for _, span := range spans {
 			if err := e.db.Excise(ctx, span); err != nil {
 				return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)
 			}
 		}
+		e.noteEntitlementKeyspaceWrite()
 		return nil
 	})
 }
@@ -104,6 +108,18 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 // Errors are best-effort: a Compact failure on one range doesn't block
 // the others — pebble retries compaction in the background. ctx is
 // honored between ranges and surfaced verbatim on cancellation.
+//
+// Refuses with ErrEngineSealed after EndSync (via checkWritable): manual
+// compactions go through the same CompactionScheduler as automatic ones,
+// so on a sealed (paused) engine db.Compact would block forever waiting
+// for a grant — and, because we hold writeWG, deadlock Engine.Close too.
+// Bind a sync (SetCurrentSync) first.
+//
+// KNOWN LIMITATION: the gate only refuses calls made after the seal. A
+// CompactAllRanges already inside its loop when EndSync pauses the
+// scheduler blocks in db.Compact indefinitely (and holds writeWG, so a
+// later Close hangs too). Do not run this concurrently with EndSync; no
+// in-tree caller does.
 func (e *Engine) CompactAllRanges(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err

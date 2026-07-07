@@ -89,10 +89,10 @@ func BenchmarkPebbleExpansion_StoreExpandedGrants(b *testing.B) {
 
 // BenchmarkPebbleUpliftRead_CrossSync exercises the access pattern
 // kans called "critical": iterating all grants for a fixed
-// entitlement across N finished syncs. The current
-// idxGrantByEntitlement keyspace is sync-prefixed, so this
-// benchmark walks one PaginateGrantsByEntitlement per sync. A
-// future entitlement-first index would collapse the call count.
+// entitlement across N finished syncs. Under the structural-identity
+// layout the grant primary key is entitlement-first (the retired
+// sync-prefixed idxGrantByEntitlement keyspace is gone), so each
+// PaginateGrantsByEntitlement call is a single primary-prefix scan.
 //
 // Output metric `entries_returned` is the number of grants
 // surfaced for the target entitlement across all syncs — should

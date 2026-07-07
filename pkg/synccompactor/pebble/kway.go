@@ -103,6 +103,9 @@ func mergeBucketsInto(ctx context.Context, dest *enginepkg.Engine, sources []Sou
 	if cfg.fanIn < 2 {
 		cfg.fanIn = defaultKWayFanIn
 	}
+	// Every bucket lands through the raw DB handle; invalidate the dest
+	// engine's bare-id lookup state on the way out (even on error).
+	defer dest.InvalidateBareIDLookups()
 	l := ctxzap.Extract(ctx)
 	mergeStart := time.Now()
 	direct := len(sources) <= cfg.fanIn
@@ -490,7 +493,7 @@ func entitlementBucket() bucketSpec {
 		syncRange: func() ([]byte, []byte) {
 			return enginepkg.EntitlementLowerBound(), enginepkg.EntitlementUpperBound()
 		},
-		key: func(m proto.Message) string { return m.(*v3.EntitlementRecord).GetExternalId() },
+		key: func(m proto.Message) string { return enginepkg.EntitlementRecordIdentityKey(m.(*v3.EntitlementRecord)) },
 		ts:  func(m proto.Message) *timestamppb.Timestamp { return m.(*v3.EntitlementRecord).GetDiscoveredAt() },
 		indexKeys: func(m proto.Message) [][]byte {
 			return enginepkg.EntitlementIndexKeys(m.(*v3.EntitlementRecord))
@@ -509,7 +512,7 @@ func grantBucket() bucketSpec {
 		syncRange: func() ([]byte, []byte) {
 			return enginepkg.GrantLowerBound(), enginepkg.GrantUpperBound()
 		},
-		key: func(m proto.Message) string { return m.(*v3.GrantRecord).GetExternalId() },
+		key: func(m proto.Message) string { return enginepkg.GrantRecordIdentityKey(m.(*v3.GrantRecord)) },
 		ts:  func(m proto.Message) *timestamppb.Timestamp { return m.(*v3.GrantRecord).GetDiscoveredAt() },
 		indexKeys: func(m proto.Message) [][]byte {
 			return enginepkg.GrantIndexKeys(m.(*v3.GrantRecord))
@@ -752,6 +755,7 @@ func materializeSourceBucketToPebble(
 	if err := dest.DB().Ingest(ctx, []string{primaryPath}); err != nil {
 		return fmt.Errorf("ingest direct primary %s: %w", bucket.name, err)
 	}
+	dest.InvalidateBareIDLookups()
 	return indexWriters.closeSortAndIngest(ctx, dest)
 }
 
@@ -1259,6 +1263,7 @@ func materializeRunFileBucket(ctx context.Context, dest *enginepkg.Engine, tmpDi
 	if err := dest.DB().Ingest(ctx, []string{primaryPath}); err != nil {
 		return fmt.Errorf("ingest primary %s: %w", bucket.name, err)
 	}
+	dest.InvalidateBareIDLookups()
 	return indexWriters.closeSortAndIngest(ctx, dest)
 }
 
@@ -1379,6 +1384,7 @@ func (w *indexRunWriter) closeSortAndIngest(ctx context.Context, dest *enginepkg
 	if err := dest.DB().Ingest(ctx, []string{sstPath}); err != nil {
 		return fmt.Errorf("ingest index %s: %w", w.name, err)
 	}
+	dest.InvalidateBareIDLookups()
 	return nil
 }
 

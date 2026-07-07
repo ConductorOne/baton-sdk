@@ -42,7 +42,7 @@ func TestStoreExpandedGrantsPreservesDiscoveredAt(t *testing.T) {
 	seed := v3.GrantRecord_builder{
 		ExternalId: "g-1",
 		Entitlement: v3.EntitlementRef_builder{
-			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",
+			ResourceTypeId: "app", ResourceId: "github", EntitlementId: canonicalTestEntID("ent-A"),
 		}.Build(),
 		Principal: v3.PrincipalRef_builder{
 			ResourceTypeId: "user", ResourceId: "alice",
@@ -62,14 +62,14 @@ func TestStoreExpandedGrantsPreservesDiscoveredAt(t *testing.T) {
 	}.Build()
 	rewrite := v2.Grant_builder{
 		Id:          "g-1",
-		Entitlement: v2.Entitlement_builder{Id: "ent-A", Resource: app}.Build(),
+		Entitlement: v2.Entitlement_builder{Id: canonicalTestEntID("ent-A"), Resource: app}.Build(),
 		Principal: v2.Resource_builder{
 			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 		}.Build(),
 	}.Build()
 	require.NoError(t, a.Grants().StoreExpandedGrants(ctx, rewrite))
 
-	got, err := e.GetGrantRecord(ctx, "g-1")
+	got, err := testGrantByIdentity(ctx, e, "ent-A", "user", "alice")
 	require.NoError(t, err)
 	require.NotNil(t, got.GetDiscoveredAt(), "discovered_at must survive the rewrite")
 	require.Equal(t, seeded.AsTime(), got.GetDiscoveredAt().AsTime(),
@@ -92,7 +92,7 @@ func TestStoreExpandedGrantsBackfillsNilDiscoveredAt(t *testing.T) {
 	seed := v3.GrantRecord_builder{
 		ExternalId: "g-nil-discovered-at",
 		Entitlement: v3.EntitlementRef_builder{
-			ResourceTypeId: "app", ResourceId: "github", EntitlementId: "ent-A",
+			ResourceTypeId: "app", ResourceId: "github", EntitlementId: canonicalTestEntID("ent-A"),
 		}.Build(),
 		Principal: v3.PrincipalRef_builder{
 			ResourceTypeId: "user", ResourceId: "alice",
@@ -106,14 +106,14 @@ func TestStoreExpandedGrantsBackfillsNilDiscoveredAt(t *testing.T) {
 	}.Build()
 	rewrite := v2.Grant_builder{
 		Id:          "g-nil-discovered-at",
-		Entitlement: v2.Entitlement_builder{Id: "ent-A", Resource: app}.Build(),
+		Entitlement: v2.Entitlement_builder{Id: canonicalTestEntID("ent-A"), Resource: app}.Build(),
 		Principal: v2.Resource_builder{
 			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 		}.Build(),
 	}.Build()
 	require.NoError(t, a.Grants().StoreExpandedGrants(ctx, rewrite))
 
-	got, err := e.GetGrantRecord(ctx, "g-nil-discovered-at")
+	got, err := testGrantByIdentity(ctx, e, "ent-A", "user", "alice")
 	require.NoError(t, err)
 	require.NotNil(t, got.GetDiscoveredAt(), "StoreExpandedGrants should backfill nil discovered_at on existing grants")
 }

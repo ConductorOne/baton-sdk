@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -21,6 +22,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 // buildPebbleInput writes a minimal Pebble (v3) c1z at path with the
@@ -43,11 +45,21 @@ func buildPebbleInput(t testing.TB, ctx context.Context, path string, st connect
 		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
 		DisplayName: "Group One",
 	}.Build()
-	user := v2.Resource_builder{
-		Id:          v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(),
-		DisplayName: "User One",
-	}.Build()
-	require.NoError(t, w.PutResources(ctx, group, user))
+	users := make([]*v2.Resource, 0, len(grantIDs))
+	usersByGrantID := make(map[string]*v2.Resource, len(grantIDs))
+	for _, id := range grantIDs {
+		principalID := compactFixturePrincipalID(id)
+		if _, ok := usersByGrantID[id]; ok {
+			continue
+		}
+		user := v2.Resource_builder{
+			Id:          v2.ResourceId_builder{ResourceType: "user", Resource: principalID}.Build(),
+			DisplayName: "User " + principalID,
+		}.Build()
+		users = append(users, user)
+		usersByGrantID[id] = user
+	}
+	require.NoError(t, w.PutResources(ctx, append([]*v2.Resource{group}, users...)...))
 
 	member := v2.Entitlement_builder{
 		Id:       "member",
@@ -57,7 +69,8 @@ func buildPebbleInput(t testing.TB, ctx context.Context, path string, st connect
 	require.NoError(t, w.PutEntitlements(ctx, member))
 
 	for _, id := range grantIDs {
-		g := v2.Grant_builder{Id: id, Principal: user, Entitlement: member}.Build()
+		user := usersByGrantID[id]
+		g := v2.Grant_builder{Id: batonGrant.NewGrantID(user, member), Principal: user, Entitlement: member}.Build()
 		require.NoError(t, w.PutGrants(ctx, g))
 	}
 
@@ -311,8 +324,8 @@ func TestCompactExplicitPebbleConvertsSQLiteEmptySyncIDTiebreaksBySyncID(t *test
 	for _, grant := range resp.GetList() {
 		grantIDs[grant.GetId()] = true
 	}
-	require.True(t, grantIDs["g-partial"], "empty SyncID must select tied sync with greater sync_id %s", partialSyncID)
-	require.False(t, grantIDs["g-full"], "lower sync_id full sync must not be selected just because full is checked first")
+	require.True(t, grantIDs[compactInputGrantID("g-partial")], "empty SyncID must select tied sync with greater sync_id %s", partialSyncID)
+	require.False(t, grantIDs[compactInputGrantID("g-full")], "lower sync_id full sync must not be selected just because full is checked first")
 }
 
 // TestCompactFoldConvertsSQLitePartial pins that the in-place fold strategy
@@ -436,33 +449,54 @@ type recencyStore interface {
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
 }
 
-// putRecencyData writes the fixed group/member graph with one grant per
-// id, all held by the given principal — the principal is the marker that
-// identifies which input's version of an overlapping grant won.
-func putRecencyData(t testing.TB, ctx context.Context, store recencyStore, principal string, grantIDs ...string) {
+// putRecencyData writes the fixed group/member graph with ONE grant on the
+// shared (member@g1, user/shared-user) structural identity, whose stored
+// external id is "g-" + marker — the marker identifies which input's
+// version of the overlapping grant won the merge.
+//
+// Under the structural-identity layout, grants are keyed by
+// (entitlement, principal) refs, NOT by their public id string: inputs
+// overlap only when their refs match, and the merge's recency rule picks
+// one whole row per identity. The stored external id rides along on the
+// winning row, which is what makes it a usable winner marker — and what a
+// conversion that re-stamped discovered_at would flip. (The pre-identity
+// fixtures marked winners with the principal and overlapped rows by a
+// shared id string; two grants sharing a public id across DIFFERENT
+// principals are two distinct grants now, so that shape no longer
+// overlaps at all.)
+//
+// includeBaseOnly adds a second, distinct identity (user/base-only) that
+// no partial carries, pinning that non-overlapping base rows survive.
+func putRecencyData(t testing.TB, ctx context.Context, store recencyStore, marker string, includeBaseOnly bool) {
 	t.Helper()
 	require.NoError(t, store.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build(),
 		v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()))
 	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "Group One"}.Build()
-	user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: principal}.Build(), DisplayName: principal}.Build()
-	require.NoError(t, store.PutResources(ctx, group, user))
+	shared := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "shared-user"}.Build(), DisplayName: "Shared User"}.Build()
+	resources := []*v2.Resource{group, shared}
+	baseOnly := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "base-only"}.Build(), DisplayName: "Base Only"}.Build()
+	if includeBaseOnly {
+		resources = append(resources, baseOnly)
+	}
+	require.NoError(t, store.PutResources(ctx, resources...))
 	member := v2.Entitlement_builder{Id: "member", Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build()
 	require.NoError(t, store.PutEntitlements(ctx, member))
-	for _, id := range grantIDs {
-		require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: id, Principal: user, Entitlement: member}.Build()))
+	require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: "g-" + marker, Principal: shared, Entitlement: member}.Build()))
+	if includeBaseOnly {
+		require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: "g-base", Principal: baseOnly, Entitlement: member}.Build()))
 	}
 }
 
 // buildPebbleRecencyInput writes a Pebble (v3) c1z whose records carry
 // real sync-time discovered_at stamps.
-func buildPebbleRecencyInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, principal string, grantIDs ...string) string {
+func buildPebbleRecencyInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, marker string, includeBaseOnly bool) string {
 	t.Helper()
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
 	require.NoError(t, err)
 	syncID, err := w.StartNewSync(ctx, st, "")
 	require.NoError(t, err)
-	putRecencyData(t, ctx, w, principal, grantIDs...)
+	putRecencyData(t, ctx, w, marker, includeBaseOnly)
 	require.NoError(t, w.EndSync(ctx))
 	require.NoError(t, w.Close(ctx))
 	return syncID
@@ -472,14 +506,14 @@ func buildPebbleRecencyInput(t testing.TB, ctx context.Context, path string, st 
 // record's discovered_at column to the given instant, so the input's
 // true record recency is unambiguous relative to the other inputs.
 func buildSQLiteRecencyInput(
-	t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, principal string, discoveredAt time.Time, grantIDs ...string,
+	t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, marker string, discoveredAt time.Time, includeBaseOnly bool,
 ) string {
 	t.Helper()
 	store, err := dotc1z.NewC1ZFile(ctx, path)
 	require.NoError(t, err)
 	syncID, err := store.StartNewSync(ctx, st, "")
 	require.NoError(t, err)
-	putRecencyData(t, ctx, store, principal, grantIDs...)
+	putRecencyData(t, ctx, store, marker, includeBaseOnly)
 	db := rawSQLiteDBForTest(t, store)
 	stamp := discoveredAt.Format("2006-01-02 15:04:05.999999999")
 	for _, table := range []string{"v1_resource_types", "v1_resources", "v1_entitlements", "v1_grants"} {
@@ -491,15 +525,27 @@ func buildSQLiteRecencyInput(
 	return syncID
 }
 
-// winningPrincipal returns the principal resource id of grantID in the
-// compacted output — i.e. which input's version of the grant won.
-func winningPrincipal(t *testing.T, ctx context.Context, out *CompactableSync, grantID string) string {
+// winningMarker returns the stored external id of the grant on the shared
+// (member@g1, user/shared-user) identity in the compacted output — i.e.
+// which input's version of the overlapping grant won the recency merge.
+func winningMarker(t *testing.T, ctx context.Context, out *CompactableSync) string {
 	t.Helper()
 	store := openCompactedPebble(t, ctx, out)
 	defer store.Close(ctx)
-	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: grantID}.Build())
+	var winner string
+	found := 0
+	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 1000}.Build())
 	require.NoError(t, err)
-	return grant.GetGrant().GetPrincipal().GetId().GetResource()
+	require.Empty(t, resp.GetNextPageToken(), "recency fixtures are single-page")
+	for _, g := range resp.GetList() {
+		if g.GetPrincipal().GetId().GetResource() != "shared-user" {
+			continue
+		}
+		found++
+		winner = g.GetId()
+	}
+	require.Equal(t, 1, found, "exactly one grant must survive on the shared identity")
+	return winner
 }
 
 // TestCompactMixedInputsPreservesRecordRecency pins that converting a
@@ -509,9 +555,9 @@ func winningPrincipal(t *testing.T, ctx context.Context, out *CompactableSync, g
 // conversion wall clock would make the OLD SQLite base override the
 // newer Pebble partial on overlapping keys.
 //
-// Chain: an old SQLite full (records discovered in 2020, principal
-// alice) + a fresh Pebble partial (principal bob), both carrying grant
-// g-shared. The partial is newer, so bob must win.
+// Chain: an old SQLite full (records discovered in 2020, marker alice) +
+// a fresh Pebble partial (marker bob), overlapping on one structural
+// identity. The partial is newer, so bob's row must win.
 func TestCompactMixedInputsPreservesRecordRecency(t *testing.T) {
 	ctx := context.Background()
 	inDir := t.TempDir()
@@ -520,8 +566,8 @@ func TestCompactMixedInputsPreservesRecordRecency(t *testing.T) {
 	sqlitePath := filepath.Join(inDir, "base-sqlite.c1z")
 	pebblePath := filepath.Join(inDir, "partial-pebble.c1z")
 	oldDiscovery := time.Date(2020, time.January, 2, 3, 4, 5, 0, time.UTC)
-	s1 := buildSQLiteRecencyInput(t, ctx, sqlitePath, connectorstore.SyncTypeFull, "alice", oldDiscovery, "g-shared", "g-base")
-	s2 := buildPebbleRecencyInput(t, ctx, pebblePath, connectorstore.SyncTypePartial, "bob", "g-shared")
+	s1 := buildSQLiteRecencyInput(t, ctx, sqlitePath, connectorstore.SyncTypeFull, "alice", oldDiscovery, true)
+	s2 := buildPebbleRecencyInput(t, ctx, pebblePath, connectorstore.SyncTypePartial, "bob", false)
 
 	entries := []*CompactableSync{
 		{FilePath: sqlitePath, SyncID: s1},
@@ -536,15 +582,15 @@ func TestCompactMixedInputsPreservesRecordRecency(t *testing.T) {
 	require.NotNil(t, out)
 	requirePebbleOutput(t, ctx, out.FilePath)
 
-	require.Equal(t, "bob", winningPrincipal(t, ctx, out, "g-shared"),
+	require.Equal(t, "g-bob", winningMarker(t, ctx, out),
 		"the newer pebble partial must win the overlapping grant; the converted sqlite base's 2020 records must not be re-stamped to conversion time")
 }
 
 // TestCompactFoldMixedPartialsPreservesRecordRecency is the fold-path
 // variant: a Pebble base plus an OLD SQLite partial (2020 records) and
-// a fresh Pebble partial, all carrying grant g-shared. Fold applies
-// partials newest-first with strictly-newer-wins, so the fresh Pebble
-// partial (bob) must win; a conversion that re-stamped the SQLite
+// a fresh Pebble partial, overlapping on one structural identity. Fold
+// applies partials newest-first with strictly-newer-wins, so the fresh
+// Pebble partial (bob) must win; a conversion that re-stamped the SQLite
 // partial's records to conversion time would let carol override bob.
 func TestCompactFoldMixedPartialsPreservesRecordRecency(t *testing.T) {
 	ctx := context.Background()
@@ -556,9 +602,9 @@ func TestCompactFoldMixedPartialsPreservesRecordRecency(t *testing.T) {
 	pebblePartialPath := filepath.Join(inDir, "partial-pebble.c1z")
 
 	oldDiscovery := time.Date(2020, time.January, 2, 3, 4, 5, 0, time.UTC)
-	sBase := buildPebbleRecencyInput(t, ctx, basePath, connectorstore.SyncTypeFull, "alice", "g-shared", "g-base")
-	sSQLite := buildSQLiteRecencyInput(t, ctx, sqlitePartialPath, connectorstore.SyncTypePartial, "carol", oldDiscovery, "g-shared")
-	sPebble := buildPebbleRecencyInput(t, ctx, pebblePartialPath, connectorstore.SyncTypePartial, "bob", "g-shared")
+	sBase := buildPebbleRecencyInput(t, ctx, basePath, connectorstore.SyncTypeFull, "alice", true)
+	sSQLite := buildSQLiteRecencyInput(t, ctx, sqlitePartialPath, connectorstore.SyncTypePartial, "carol", oldDiscovery, false)
+	sPebble := buildPebbleRecencyInput(t, ctx, pebblePartialPath, connectorstore.SyncTypePartial, "bob", false)
 
 	// Chain order: base, then partials oldest-first.
 	entries := []*CompactableSync{
@@ -580,7 +626,7 @@ func TestCompactFoldMixedPartialsPreservesRecordRecency(t *testing.T) {
 	require.NotNil(t, out)
 	requirePebbleOutput(t, ctx, out.FilePath)
 
-	require.Equal(t, "bob", winningPrincipal(t, ctx, out, "g-shared"),
+	require.Equal(t, "g-bob", winningMarker(t, ctx, out),
 		"the fresh pebble partial must win; the converted 2020 sqlite partial must not be re-stamped to conversion time and override it")
 }
 
@@ -656,13 +702,47 @@ func putSQLiteInputData(t testing.TB, ctx context.Context, store *dotc1z.C1File,
 		v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build(),
 		v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()))
 	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "Group One"}.Build()
-	user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "User One"}.Build()
-	require.NoError(t, store.PutResources(ctx, group, user))
+	users := make([]*v2.Resource, 0, len(grantIDs))
+	usersByGrantID := make(map[string]*v2.Resource, len(grantIDs))
+	for _, id := range grantIDs {
+		principalID := compactFixturePrincipalID(id)
+		if _, ok := usersByGrantID[id]; ok {
+			continue
+		}
+		user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: principalID}.Build(), DisplayName: "User " + principalID}.Build()
+		users = append(users, user)
+		usersByGrantID[id] = user
+	}
+	require.NoError(t, store.PutResources(ctx, append([]*v2.Resource{group}, users...)...))
 	member := v2.Entitlement_builder{Id: "member", Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build()
 	require.NoError(t, store.PutEntitlements(ctx, member))
 	for _, id := range grantIDs {
-		require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: id, Principal: user, Entitlement: member}.Build()))
+		require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: id, Principal: usersByGrantID[id], Entitlement: member}.Build()))
 	}
+}
+
+func compactFixturePrincipalID(grantID string) string {
+	if strings.Contains(grantID, "shared") {
+		return "shared"
+	}
+	return grantID
+}
+
+// compactInputGrantID: stored external ids now round-trip verbatim, so the
+// converted output emits the fixture's own grant id.
+func compactInputGrantID(grantID string) string {
+	return grantID
+}
+
+func overlayGrantID(entitlementID, principalID string) string {
+	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "engineering"}.Build()}.Build()
+	user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: principalID}.Build(), ParentResourceId: group.GetId()}.Build()
+	ent := v2.Entitlement_builder{Id: entitlementID, Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build()
+	return batonGrant.NewGrantID(user, ent)
+}
+
+func overlayEntitlementID(entitlementID string) string {
+	return entitlementID
 }
 
 func orderedTestSyncIDs() (string, string) {
@@ -839,8 +919,10 @@ func buildOverlayInput(t testing.TB, ctx context.Context, path string, spec over
 		if g.principalID == "bob" {
 			principalID = bob
 		}
+		// SDK-shaped grant id (the concat) so bare-id GetGrant queries in
+		// these tests resolve; spec ids only label expansion assertions.
 		grant := v2.Grant_builder{
-			Id:          g.id,
+			Id:          overlayGrantID(g.entitlementID, g.principalID),
 			Principal:   principalID,
 			Entitlement: v2.Entitlement_builder{Id: g.entitlementID, Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build(),
 		}.Build()
@@ -916,7 +998,7 @@ func TestCompactPebbleOverlayMaterializesAllQueryIndexes(t *testing.T) {
 
 	byResource, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{Resource: group, PageSize: 100}.Build())
 	require.NoError(t, err)
-	requireGrantIDs(t, byResource.GetList(), "g-alice-member", "g-bob-admin", "g-inc-bob-member")
+	requireGrantIDs(t, byResource.GetList(), overlayGrantID("member", "alice"), overlayGrantID("admin", "bob"), overlayGrantID("member", "bob"))
 
 	member := v2.Entitlement_builder{Id: "member", Resource: group}.Build()
 	byEntitlement, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
@@ -924,7 +1006,7 @@ func TestCompactPebbleOverlayMaterializesAllQueryIndexes(t *testing.T) {
 		PageSize:    100,
 	}.Build())
 	require.NoError(t, err)
-	requireGrantIDs(t, byEntitlement.GetList(), "g-alice-member", "g-inc-bob-member")
+	requireGrantIDs(t, byEntitlement.GetList(), overlayGrantID("member", "alice"), overlayGrantID("member", "bob"))
 
 	byPrincipalAndEntitlement, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: member,
@@ -932,7 +1014,7 @@ func TestCompactPebbleOverlayMaterializesAllQueryIndexes(t *testing.T) {
 		PageSize:    100,
 	}.Build())
 	require.NoError(t, err)
-	requireGrantIDs(t, byPrincipalAndEntitlement.GetList(), "g-alice-member")
+	requireGrantIDs(t, byPrincipalAndEntitlement.GetList(), overlayGrantID("member", "alice"))
 
 	users, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{ParentResourceId: group.GetId(), PageSize: 100}.Build())
 	require.NoError(t, err)
@@ -940,13 +1022,13 @@ func TestCompactPebbleOverlayMaterializesAllQueryIndexes(t *testing.T) {
 
 	ents, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{Resource: group, PageSize: 100}.Build())
 	require.NoError(t, err)
-	requireEntitlementIDs(t, ents.GetList(), "admin", "member")
+	requireEntitlementIDs(t, ents.GetList(), overlayEntitlementID("admin"), overlayEntitlementID("member"))
 
 	pending, next, err := store.Grants().PendingExpansionPage(ctx, "")
 	require.NoError(t, err)
 	require.Empty(t, next)
 	require.Len(t, pending, 1)
-	require.Equal(t, "g-bob-admin", pending[0].GrantExternalID)
+	require.Equal(t, overlayGrantID("admin", "bob"), pending[0].GrantExternalID)
 }
 
 func TestCompactPebbleOverlayFirstSeenWinsForOverlappingGrant(t *testing.T) {
@@ -967,7 +1049,7 @@ func TestCompactPebbleOverlayFirstSeenWinsForOverlappingGrant(t *testing.T) {
 	out := compactPebbleOverlay(t, ctx, []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: incPath, SyncID: incSync}})
 	store := openCompactedPebble(t, ctx, out)
 	defer store.Close(ctx)
-	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "shared"}.Build())
+	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: overlayGrantID("member", "bob")}.Build())
 	require.NoError(t, err)
 	require.Equal(t, "bob", grant.GetGrant().GetPrincipal().GetId().GetResource(), "newest/applied source must win overlay duplicate")
 }
@@ -990,7 +1072,7 @@ func TestCompactPebbleOverlayFallsBackToKWayAboveSeenLimit(t *testing.T) {
 	out := compactPebbleOverlay(t, ctx, []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: incPath, SyncID: incSync}}, WithOverlaySeenKeyLimit(1))
 	store := openCompactedPebble(t, ctx, out)
 	defer store.Close(ctx)
-	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "shared"}.Build())
+	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: overlayGrantID("member", "bob")}.Build())
 	require.NoError(t, err)
 	require.Equal(t, "bob", grant.GetGrant().GetPrincipal().GetId().GetResource(), "fallback must preserve compaction semantics")
 }
@@ -1016,7 +1098,7 @@ func TestCompactPebbleOverlayFallsBackToKWayWhenMissingStatsPreflightExceedsLimi
 	out := compactPebbleOverlay(t, ctx, []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: incPath, SyncID: incSync}}, WithOverlaySeenKeyLimit(1))
 	store := openCompactedPebble(t, ctx, out)
 	defer store.Close(ctx)
-	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "shared"}.Build())
+	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: overlayGrantID("member", "bob")}.Build())
 	require.NoError(t, err)
 	require.Equal(t, "bob", grant.GetGrant().GetPrincipal().GetId().GetResource(), "missing cached stats preflight fallback must preserve compaction semantics")
 }
@@ -1044,7 +1126,7 @@ func TestCompactPebbleOverlayMissingStatsPreflightAllowsSmallInputs(t *testing.T
 	defer store.Close(ctx)
 	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 100}.Build())
 	require.NoError(t, err)
-	requireGrantIDs(t, resp.GetList(), "base-only")
+	requireGrantIDs(t, resp.GetList(), overlayGrantID("member", "alice"))
 }
 
 func TestCompactPebbleOverlayWholeBaseBucketFastPathIndexesBaseGrants(t *testing.T) {
@@ -1071,11 +1153,11 @@ func TestCompactPebbleOverlayWholeBaseBucketFastPathIndexesBaseGrants(t *testing
 	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "engineering"}.Build()}.Build()
 	byResource, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{Resource: group, PageSize: 100}.Build())
 	require.NoError(t, err)
-	requireGrantIDs(t, byResource.GetList(), "base-alice", "base-bob")
+	requireGrantIDs(t, byResource.GetList(), overlayGrantID("member", "alice"), overlayGrantID("admin", "bob"))
 	pending, _, err := store.Grants().PendingExpansionPage(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, pending, 1)
-	require.Equal(t, "base-bob", pending[0].GrantExternalID)
+	require.Equal(t, overlayGrantID("admin", "bob"), pending[0].GrantExternalID)
 }
 
 // TestCompactPebbleStatsSidecarMatchesRecompute pins that compaction
@@ -1115,11 +1197,11 @@ func TestCompactPebbleStatsSidecarMatchesRecompute(t *testing.T) {
 			// Sanity-pin the expected fixture counts so a dual-sided
 			// systematic error can't slip through the parity check.
 			require.Equal(t, int64(2), stored.GetResourceTypes())
-			require.Equal(t, int64(2), stored.GetResources())
+			require.Equal(t, int64(4), stored.GetResources())
 			require.Equal(t, int64(1), stored.GetEntitlements())
 			require.Equal(t, int64(3), stored.GetGrants(), "union of {g-shared,g-only1} and {g-shared,g-only2}")
 			require.Equal(t, int64(0), stored.GetAssets(), "compaction drops assets")
-			require.Equal(t, map[string]int64{"group": 1, "user": 1}, stored.GetResourcesByResourceType())
+			require.Equal(t, map[string]int64{"group": 1, "user": 3}, stored.GetResourcesByResourceType())
 			require.Equal(t, map[string]int64{"group": 3}, stored.GetGrantsByEntitlementResourceType())
 
 			require.NoError(t, eng.PersistSyncStats(ctx, out.SyncID))

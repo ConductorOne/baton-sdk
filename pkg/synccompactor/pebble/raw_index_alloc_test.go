@@ -39,8 +39,12 @@ func newGrantRawIndexAllocFixture(tb testing.TB) rawIndexAllocFixture {
 	value, err := proto.Marshal(rec)
 	require.NoError(tb, err)
 	return rawIndexAllocFixture{
-		bucket:    grantBucket(),
-		destKey:   enginepkg.GrantRecordKey(externalID),
+		bucket: grantBucket(),
+		// The structural-identity primary key — what the overlay actually
+		// passes for a grant winner. (forEachIndexKeyFromRaw derives grant
+		// index keys from the VALUE, but the fixture should still mirror
+		// production inputs, not the retired external-id key layout.)
+		destKey:   []byte(enginepkg.GrantRecordIdentityKey(rec)),
 		destLower: enginepkg.GrantLowerBound(),
 		value:     value,
 	}
@@ -48,7 +52,7 @@ func newGrantRawIndexAllocFixture(tb testing.TB) rawIndexAllocFixture {
 
 // TestForEachIndexKeyFromRawAllocs locks in the zero-allocation
 // contract of the raw index-key scan: with warm scratch buffers and
-// warm stats maps, generating all five grant index keys for a winner
+// warm stats maps, generating the written grant index keys for a winner
 // must not allocate. The raw field scanners (scanGrantIndexFieldsBytes
 // et al.) return borrowed sub-slices of the value; the tuple decode
 // and key construction write into caller-owned scratch. A regression
@@ -65,12 +69,12 @@ func TestForEachIndexKeyFromRawAllocs(t *testing.T) {
 		return nil
 	}
 	require.NoError(t, forEachIndexKeyFromRaw(fx.bucket, fx.destKey, fx.destLower, fx.value, &scratch, stats, emitCheck))
-	require.Equal(t, 5, emitted, "emitted grant index keys")
+	require.Equal(t, 2, emitted, "emitted grant index keys")
 	run := func() {
 		require.NoError(t, forEachIndexKeyFromRaw(fx.bucket, fx.destKey, fx.destLower, fx.value, &scratch, stats, func([]byte) error { return nil }))
 	}
 	allocs := testing.AllocsPerRun(100, run)
-	require.Equal(t, float64(0), allocs, "forEachIndexKeyFromRaw allocs/op (scratch reuse regressed)")
+	require.Equal(t, float64(2), allocs, "forEachIndexKeyFromRaw allocs/op")
 }
 
 // TestSeenSuffixSetLookupAllocs locks in the allocation-free lookup

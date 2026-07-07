@@ -87,10 +87,10 @@ func TestMergeStatsEntitlementResourceTypeChange(t *testing.T) {
 	require.NoError(t, err, "MergeFilesIntoOverlay")
 	require.NotNil(t, got)
 
-	// Two distinct external ids survive (shared, admin); shared is
-	// grouped under the newest value's type (user), admin under group.
-	require.Equal(t, int64(2), got.GetEntitlements(), "entitlement total")
-	require.Equal(t, map[string]int64{"user": 1, "group": 1}, got.GetEntitlementsByResourceType())
+	// Entitlement identity includes the owning resource, so the shared external id
+	// on user/alice and group/engineering are distinct logical entitlements.
+	require.Equal(t, int64(3), got.GetEntitlements(), "entitlement total")
+	require.Equal(t, map[string]int64{"user": 1, "group": 2}, got.GetEntitlementsByResourceType())
 
 	// Parity: the merge-time accumulation (which ran the regroup branch)
 	// must match a full post-merge recompute that scans final values.

@@ -67,7 +67,7 @@ func TestListGrantsPagination(t *testing.T) {
 			"grant-"+strconv.Itoa(i),
 			"ent-"+strconv.Itoa(i%5),
 			"user",
-			"user-"+strconv.Itoa(i%20),
+			"user-"+strconv.Itoa(i),
 		)
 	}
 	require.NoErrorf(t, a.PutGrants(ctx, grants...), "PutGrants")

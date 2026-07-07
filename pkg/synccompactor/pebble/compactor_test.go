@@ -23,13 +23,16 @@ func newEngine(t *testing.T, name string) (*enginepkg.Engine, string) {
 	return e, dir
 }
 
+// grant builds a grant whose entitlement ref carries the SDK-shaped raw id
+// ("app:github:"+entID), matching what connectors actually store, so
+// bare-id entitlement scans resolve even without entitlement records.
 func grant(syncID, externalID, entID, principalID string) *v3.GrantRecord {
 	return v3.GrantRecord_builder{
 		ExternalId: externalID,
 		Entitlement: v3.EntitlementRef_builder{
 			ResourceTypeId: "app",
 			ResourceId:     "github",
-			EntitlementId:  entID,
+			EntitlementId:  "app:github:" + entID,
 		}.Build(),
 		Principal: v3.PrincipalRef_builder{
 			ResourceTypeId: "user",
@@ -106,14 +109,14 @@ func TestCompactReplacesExisting(t *testing.T) {
 
 	// Also verify by_entitlement index — stale-ent should have 0 entries.
 	staleCount := 0
-	require.NoError(t, dst.IterateGrantsByEntitlement(ctx, "stale-ent", func(*v3.GrantRecord) bool {
+	require.NoError(t, dst.IterateGrantsByEntitlement(ctx, "app:github:stale-ent", func(*v3.GrantRecord) bool {
 		staleCount++
 		return true
 	}))
 	require.Equal(t, 0, staleCount, "stale-ent index (compact should have excised them)")
 
 	freshCount := 0
-	require.NoError(t, dst.IterateGrantsByEntitlement(ctx, "fresh-ent", func(*v3.GrantRecord) bool {
+	require.NoError(t, dst.IterateGrantsByEntitlement(ctx, "app:github:fresh-ent", func(*v3.GrantRecord) bool {
 		freshCount++
 		return true
 	}))

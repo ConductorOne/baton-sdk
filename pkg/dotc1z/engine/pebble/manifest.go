@@ -22,9 +22,10 @@ func BuildManifest(encoding c1zstore.PayloadEncoding) (*c1zv3.C1ZManifestV3, err
 		return nil, err
 	}
 	return c1zv3.C1ZManifestV3_builder{
-		// PebbleManifestEngine ("pebble2"), not EnginePebble: pre-single-sync
-		// readers dispatch on this name and must reject the file instead of
-		// reading the sync_id-less keyspace as empty. See its doc comment.
+		// PebbleManifestEngine ("pebble3"), not EnginePebble: readers
+		// dispatch on this name, and SDKs that predate the structural-
+		// identity keyspace must reject the file loudly instead of
+		// scanning retired index families as empty. See its doc comment.
 		Engine:              c1zstore.PebbleManifestEngine,
 		EngineSchemaVersion: uint32(SDKPebbleFormat),
 		PayloadEncoding:     payloadEncodingToProto(encoding),
@@ -48,6 +49,7 @@ func BuildManifestWithSyncRuns(ctx context.Context, e *Engine, encoding c1zstore
 		return nil, err
 	}
 	m.SetSyncRuns(syncRuns)
+	m.SetPebbleIdIndexFormat(e.manifestIDIndexFormat())
 	return m, nil
 }
 
