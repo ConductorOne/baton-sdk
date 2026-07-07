@@ -422,6 +422,20 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, externalID string) error
 			closer.Close()
 			return err
 		}
+		// DeleteGrantRecord is callable outside a sync, i.e. against a
+		// sealed file whose digests are built. Digests are never updated
+		// in place (present means exact — see digest.go): drop the
+		// touched entitlement's nodes so its digest reads as "missing,
+		// recalculate" until the next seal-time build.
+		if _, _, entID, _, _, _, scanErr := scanGrantIndexFieldsRaw(oldVal); scanErr != nil {
+			closer.Close()
+			return scanErr
+		} else if entID != "" {
+			if err := dropGrantDigestForEntitlement(batch, entID); err != nil {
+				closer.Close()
+				return err
+			}
+		}
 		closer.Close()
 
 		if err := batch.Delete(key, nil); err != nil {
@@ -464,7 +478,11 @@ func grantIndexKeys(r *v3.GrantRecord) [][]byte {
 	return keys
 }
 
-// writeGrantIndexes adds index entries for r to batch.
+// writeGrantIndexes adds index entries for r to batch. The
+// by_entitlement_principal_hash index is deliberately NOT written here:
+// it (and the digests over it) is derived from the primaries in one
+// pass at seal time (SealGrantHashIndexAndDigests), never maintained
+// inline.
 func (e *Engine) writeGrantIndexes(batch *pebble.Batch, r *v3.GrantRecord) error {
 	for _, k := range grantIndexKeys(r) {
 		if err := batch.Set(k, nil, nil); err != nil {
@@ -552,6 +570,18 @@ func (e *Engine) deleteGrantIndexesScratch(batch *pebble.Batch, externalID strin
 	scratch = appendGrantByNeedsExpansionIndexKey(scratch[:0], externalID)
 	if err := batch.Delete(scratch, nil); err != nil {
 		return scratch, err
+	}
+	// by_entitlement_principal_hash: reconstruct the key from the
+	// principal identity (mirrors deleteGrantIndexesRaw). The write
+	// paths never CREATE hash-index entries (the index is rebuilt at
+	// seal), but a record mutated on a sealed file — where the index is
+	// built — must remove its stale entry. Unconditional; delete of an
+	// absent key is a no-op.
+	if entID != "" && principalRT != "" && principalID != "" {
+		bh := principalBucketHash(principalRT, principalID)
+		if err := batch.Delete(encodeGrantByEntPrincHashIndexKey(entID, bh, principalRT, principalID, externalID), nil); err != nil {
+			return scratch, err
+		}
 	}
 	return scratch, nil
 }

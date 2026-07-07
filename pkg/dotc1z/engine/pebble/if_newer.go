@@ -40,6 +40,10 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 		}
 		batch := e.db.NewBatch()
 		defer batch.Close()
+		// No hash-index or digest maintenance here: IfNewer requires an
+		// open sync, and opening a sync excises both keyspaces — the
+		// seal-time build (SealGrantHashIndexAndDigests) derives them
+		// from the primaries this path writes.
 		written := 0
 		for _, r := range records {
 			if r == nil {

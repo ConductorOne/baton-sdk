@@ -75,9 +75,10 @@ func NewAdapter(e *Engine) *Adapter {
 // Compile-time checks for the full Writer interface and the optional
 // connectorstore capabilities that SQLite's *C1File also exposes.
 var (
-	_ connectorstore.Writer                      = (*Adapter)(nil)
-	_ connectorstore.LatestFinishedSyncIDFetcher = (*Adapter)(nil)
-	_ connectorstore.DBSizeProvider              = (*Adapter)(nil)
+	_ connectorstore.Writer                       = (*Adapter)(nil)
+	_ connectorstore.LatestFinishedSyncIDFetcher  = (*Adapter)(nil)
+	_ connectorstore.DBSizeProvider               = (*Adapter)(nil)
+	_ connectorstore.EntitlementGrantDigestReader = (*Adapter)(nil)
 )
 
 // === sync lifecycle ===
@@ -321,6 +322,28 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 			zap.String("sync_id", existing.GetSyncId()),
 			zap.Error(err),
 		)
+	}
+	// Build the grant hash index and the per-entitlement grant digests
+	// at seal time, after all grants — including expanded grants — are
+	// written, and while still on the fresh-sync NoSync path (the
+	// EndFreshSync flush below hardens the nodes). This is the ONLY
+	// writer of either keyspace; the grant write paths never maintain
+	// them inline. Non-fatal, like the stats sidecar — but on failure
+	// every digest node is dropped, because a partially built digest
+	// that LOOKS present would violate the present-means-exact contract
+	// (see digest.go). Absent digests just mean a diff consumer
+	// re-reads the grants; the next successful seal recalculates them.
+	// Skipped entirely when the digest index is disabled.
+	if a.engine.GrantDigestIndexEnabled() {
+		if err := a.engine.SealGrantHashIndexAndDigests(ctx); err != nil {
+			ctxzap.Extract(ctx).Warn("pebble: seal grant hash index/digests failed; dropping digests — grant-diff callers must re-read grants until the next successful seal",
+				zap.String("sync_id", existing.GetSyncId()),
+				zap.Error(err),
+			)
+			if dropErr := a.engine.DropAllGrantDigests(ctx); dropErr != nil {
+				return fmt.Errorf("EndSync: drop grant digests after failed seal: %w", dropErr)
+			}
+		}
 	}
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After
