@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -24,9 +26,17 @@ type lambdaTransport struct {
 }
 
 func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Response, error) {
-	payload, err := req.MarshalJSON()
+	payload, frameOnly, err := req.marshalPayload()
 	if err != nil {
 		return nil, fmt.Errorf("lambda_transport: failed to marshal frame: %w", err)
+	}
+	if frameOnly != nil {
+		ctxzap.Extract(ctx).Warn(
+			"lambda_transport: request has no legacy encoding, sending v2 frame only; a connector on a pre-frame SDK cannot process this call",
+			zap.String("method", req.Method()),
+			zap.String("function_name", l.functionName),
+			zap.NamedError("legacy_encoding_error", frameOnly),
+		)
 	}
 
 	input := &lambda.InvokeInput{

@@ -20,10 +20,12 @@ import (
 const annotationsFieldName = "annotations"
 
 /*
-unmarshalTransportJSON unmarshals transport JSON into msg, discarding any
-unknown fields.
+unmarshalTransportJSON unmarshals transport JSON into msg. It reports whether
+the payload carried a v2 wire frame (binary proto, see wireFrame), which is
+decoded losslessly with no type resolution.
 
-When the payload fails to unmarshal, it retries after filtering out any
+Legacy payloads are protojson, unmarshaled discarding any unknown fields.
+When a legacy payload fails to unmarshal, it retries after filtering out any
 annotations whose types are not known to the global registry. Annotation type
 skew happens frequently for new features and would otherwise require rolling
 every lambda function (and, in the response direction, would let an old
@@ -39,7 +41,11 @@ payloads that already failed, where the alternative is a hard error. Our
 payloads are small relative to the work of the connector, so the performance
 impact is negligible.
 */
-func unmarshalTransportJSON(b []byte, msg proto.Message) error {
+func unmarshalTransportJSON(b []byte, msg proto.Message) (bool, error) {
+	if ok, err := decodeWireFrame(b, msg); ok {
+		return true, err
+	}
+
 	unmarshalOptions := protojson.UnmarshalOptions{
 		DiscardUnknown: true,
 	}
@@ -47,19 +53,19 @@ func unmarshalTransportJSON(b []byte, msg proto.Message) error {
 	// so any failure falls through to the annotation filter.
 	originalErr := unmarshalOptions.Unmarshal(b, msg)
 	if originalErr == nil {
-		return nil
+		return false, nil
 	}
 
 	filtered, changed := filterUnknownAnnotations(b)
 	if !changed {
-		return originalErr
+		return false, originalErr
 	}
 
 	if err := unmarshalOptions.Unmarshal(filtered, msg); err != nil {
-		return errors.Join(originalErr, err)
+		return false, errors.Join(originalErr, err)
 	}
 
-	return nil
+	return false, nil
 }
 
 // filterUnknownAnnotations recursively walks raw JSON and prunes entries from
@@ -181,18 +187,61 @@ func filterAnnotationsArray(raw json.RawMessage) (json.RawMessage, bool) {
 
 type Request struct {
 	msg *pbtransport.Request
+
+	// wireV2 records that the request arrived as a v2 wire frame, proving
+	// the invoker can read one back. The server stamps it onto the Response.
+	wireV2 bool
 }
 
-// UnmarshalJSON unmarshals the JSON into a Request, discarding unknown fields
-// and filtering annotations with unresolvable types. See
-// unmarshalTransportJSON.
+// UnmarshalJSON unmarshals the JSON into a Request. v2 wire frames decode
+// losslessly; legacy payloads are protojson, discarding unknown fields and
+// filtering annotations with unresolvable types. See unmarshalTransportJSON.
 func (f *Request) UnmarshalJSON(b []byte) error {
 	f.msg = &pbtransport.Request{}
-	return unmarshalTransportJSON(b, f.msg)
+	wireV2, err := unmarshalTransportJSON(b, f.msg)
+	if err != nil {
+		return err
+	}
+	f.wireV2 = wireV2
+	return nil
 }
 
+// MarshalJSON dual-encodes the request: the legacy protojson fields and the
+// v2 wire frame share one JSON object, so legacy connectors keep working
+// (they discard the unknown frame fields) while v2 connectors decode the
+// frame and see annotations whose types this process cannot resolve. When no
+// legacy view can be produced — protojson cannot represent an Any whose type
+// is not linked into this process — the frame is sent alone: a legacy
+// connector would have failed on that payload anyway. Oversized dual
+// payloads fall back to legacy-only to stay under the Lambda invoke limit;
+// v2 connectors accept those too.
 func (f *Request) MarshalJSON() ([]byte, error) {
-	return protojson.Marshal(f.msg)
+	payload, _, err := f.marshalPayload()
+	return payload, err
+}
+
+// marshalPayload builds the invoke payload. The middle return reports the
+// frame-only condition: when non-nil, the payload carries only the v2 frame
+// and the value is the reason the legacy view could not be produced —
+// callers with a context should surface it, since a legacy connector cannot
+// process a frame-only payload.
+func (f *Request) marshalPayload() ([]byte, error, error) {
+	legacy, legacyErr := protojson.Marshal(f.msg)
+	if legacyErr != nil {
+		payload, err := encodeWireFrame(f.msg)
+		if err != nil {
+			return nil, nil, errors.Join(legacyErr, err)
+		}
+		return payload, legacyErr, nil
+	}
+	dual, err := spliceWireFrame(legacy, f.msg)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(dual) > maxDualEncodedPayload {
+		return legacy, nil, nil
+	}
+	return dual, nil, nil
 }
 
 func (f *Request) Method() string {
@@ -236,20 +285,40 @@ func NewRequest(method string, req proto.Message, headers metadata.MD) (*Request
 
 type Response struct {
 	msg *pbtransport.Response
+
+	// wireV2 selects the v2 wire frame encoding. The server sets it from
+	// the request: a frame in the request proves the invoker reads frames.
+	wireV2 bool
 }
 
-// UnmarshalJSON unmarshals the JSON into a Response, discarding unknown
-// fields and filtering annotations with unresolvable types. Responses carry
-// annotations at the response level and nested inside rows (grants embed
-// resources, etc.), so this protects an invoker from annotation types it
-// does not know about — for example an older invoker receiving annotations
-// from a connector built with a newer SDK. See unmarshalTransportJSON.
+// UnmarshalJSON unmarshals the JSON into a Response. v2 wire frames decode
+// losslessly with no type resolution. Legacy payloads are protojson,
+// discarding unknown fields and filtering annotations with unresolvable
+// types: responses carry annotations at the response level and nested inside
+// rows (grants embed resources, etc.), so this protects an invoker from
+// annotation types it does not know about — for example an older invoker
+// receiving annotations from a connector built with a newer SDK. See
+// unmarshalTransportJSON.
 func (f *Response) UnmarshalJSON(b []byte) error {
 	f.msg = &pbtransport.Response{}
-	return unmarshalTransportJSON(b, f.msg)
+	wireV2, err := unmarshalTransportJSON(b, f.msg)
+	if err != nil {
+		return err
+	}
+	f.wireV2 = wireV2
+	return nil
 }
 
+// MarshalJSON encodes a v2 wire frame when the invoker proved it reads them
+// (see wireV2), preserving annotations whose types this process cannot
+// resolve. Legacy invokers get plain protojson, which fails on an Any whose
+// type is not linked into this process — deliberately: the sender's registry
+// is no authority on what the receiver understands or needs, so degrading
+// the payload by silently dropping data is worse than failing loudly.
 func (f *Response) MarshalJSON() ([]byte, error) {
+	if f.wireV2 {
+		return encodeWireFrame(f.msg)
+	}
 	return protojson.Marshal(f.msg)
 }
 
