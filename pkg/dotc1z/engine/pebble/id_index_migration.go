@@ -191,10 +191,27 @@ func (e *Engine) emitStructuredGrantMigration(ctx context.Context, primary *spil
 		return 0, err
 	}
 	defer iter.Close()
+	// Periodic progress logging: the migration runs inside Open and can
+	// take minutes on very large files — a silent multi-minute open looks
+	// hung and invites an operator (or a startup probe) to kill it,
+	// restarting the migration from scratch. Mirrors the deferred index
+	// build's 15s cadence.
+	l := ctxzap.Extract(ctx)
+	start := time.Now()
+	lastLog := start
 	var rows, skippedMissingRefs int64
 	for iter.First(); iter.Valid(); iter.Next() {
-		if err := ctx.Err(); err != nil {
-			return rows, err
+		if rows&0xFFFF == 0 {
+			if err := ctx.Err(); err != nil {
+				return rows, err
+			}
+			if now := time.Now(); now.Sub(lastLog) >= 15*time.Second {
+				l.Info("id-index migration: re-keying grants",
+					zap.Int64("rows", rows),
+					zap.Duration("elapsed", now.Sub(start)),
+				)
+				lastLog = now
+			}
 		}
 		entRT, entRID, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(iter.Value())
 		if err != nil {
