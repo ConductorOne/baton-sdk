@@ -557,7 +557,7 @@ func (g pebbleStoreGrants) StoreNewExpandedGrantContributions(ctx context.Contex
 	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
 }
 
-// pebbleStoreGrantLayerStorer is the wave-scoped layer session surface the
+// pebbleStoreGrantLayerStorer is the layer-scoped layer session surface the
 // engine-level grant store may implement (see the pebble adapter). Kept as a
 // local interface so the wrapper can pass sessions through with the dirty bit.
 type pebbleStoreGrantLayerStorer interface {

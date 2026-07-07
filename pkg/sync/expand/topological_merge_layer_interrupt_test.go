@@ -19,10 +19,10 @@ import (
 // by embedding benchmarkExpanderStore, so on Pebble the expander routes
 // synthesized rows through Begin/Add/Finish layer sessions instead of
 // silently degrading to the generic StoreExpandedGrants path. It fails the
-// (failAddAfter+1)-th AddExpandedGrantLayerContributions (mid-wave: the
+// (failAddAfter+1)-th AddExpandedGrantLayerContributions (mid-layer: the
 // driver must AbortExpandedGrantLayer; segments already ingested by the
 // engine remain in the DB) or the (failFinishAfter+1)-th
-// FinishExpandedGrantLayer (wave boundary: the wave's rows are being
+// FinishExpandedGrantLayer (layer boundary: the layer's rows are being
 // published when the process dies).
 type layerInterruptStore struct {
 	benchmarkExpanderStore
@@ -64,7 +64,7 @@ func (s layerInterruptStore) FinishExpandedGrantLayer(ctx context.Context) error
 
 // TestTopologicalMergeLayerSessionInterruptResume closes the last
 // manual-trace-only resume invariant: interrupting a Pebble layer session
-// mid-wave (Add) or at the wave boundary (Finish), then resuming with a
+// mid-layer (Add) or at the layer boundary (Finish), then resuming with a
 // healthy store, must converge to exactly the clean-run artifact. The
 // stranded state the first pass leaves behind is real: an aborted session
 // keeps already-ingested SST segments in the DB, so the resume sees some of

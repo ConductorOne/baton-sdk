@@ -89,22 +89,30 @@ type newExpandedGrantStorer interface {
 	StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
 }
 
+// synthesizedContributionStorer is an optional store fast path for
+// caller-proven-new synthesized grants expressed as raw contributions
+// (destination + principal refs + sources) rather than materialized
+// v2.Grants, skipping both the grant construction and the read-before-write.
+// Pebble implements it; other stores fall back to StoreExpandedGrants via
+// the caller.
 type synthesizedContributionStorer interface {
 	StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error
 }
 
 // synthesizedContributionLayerStorer is an optional store fast path that
-// accumulates one topological wave's synthesized grants into a sorted bulk
-// write (SST ingest on Pebble) published at the wave boundary, instead of
-// committing each destination's rows out of key order as they are produced.
+// accumulates one topological layer's synthesized grants into sorted bulk
+// writes (SST ingests on Pebble) instead of committing each destination's
+// rows out of key order as they are produced.
 //
 // Begin returning false routes the caller to the
 // StoreNewExpandedGrantContributions fallback. Today the Pebble engine
 // always returns true when a sync is open (the by_principal index is
 // unconditionally rebuilt at EndSync, so a layer session never skips index
 // maintenance); the boolean exists so a future store can decline. Rows
-// streamed via Add are not readable until Finish returns. Abort discards an
-// in-flight session.
+// streamed via Add become readable in bulk publishes no later than Finish
+// returning — callers must not rely on visibility before Finish, nor on
+// invisibility before it (large layers publish interior segments early).
+// Abort discards an in-flight session.
 type synthesizedContributionLayerStorer interface {
 	BeginExpandedGrantLayer(ctx context.Context) (bool, error)
 	AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error

@@ -15,8 +15,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // ----------------------------------------------------------------------------
@@ -269,10 +267,11 @@ func buildPipelineArtifact(t *testing.T, ctx context.Context, tc sqliteParityCas
 	}
 
 	// Point gets against the saved artifact. Entitlements resolve by bare id
-	// on both engines. Grants resolve by bare id only when the stored id has
-	// the concat shape; connector-custom grant ids are refs-only on Pebble
-	// (the documented gap), so those assert engine-specific behavior instead
-	// of parity.
+	// on both engines. Grants resolve by bare id on both engines too:
+	// SDK-shaped ids through Pebble's combinatorial identity probe, and
+	// connector-custom ids through its stored-external-id scan of last
+	// resort (SQLite reader parity; the generator never reuses an id across
+	// grants, so the scan's exactly-one rule always resolves).
 	for _, entID := range tc.entitlementIDs {
 		got, err := ro.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 			EntitlementId: entID,
@@ -281,20 +280,6 @@ func buildPipelineArtifact(t *testing.T, ctx context.Context, tc sqliteParityCas
 		require.Equal(t, entID, got.GetEntitlement().GetId(), "%s: GetEntitlement id verbatim", engine)
 	}
 	for _, snap := range art.grants {
-		concat := snap.entitlement + ":" + snap.principalRT + ":" + snap.principalID
-		if snap.id != concat {
-			// Custom stored id. SQLite resolves it by exact string; Pebble
-			// documents it as unresolvable by bare string (refs-only).
-			_, err := ro.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: snap.id}.Build())
-			switch engine {
-			case dotc1z.EngineSQLite:
-				require.NoErrorf(t, err, "sqlite: GetGrant(custom id %q)", snap.id)
-			case dotc1z.EnginePebble:
-				require.Equalf(t, codes.NotFound, status.Code(err),
-					"pebble: GetGrant(custom id %q) must be NotFound (refs-only), got %v", snap.id, err)
-			}
-			continue
-		}
 		got, err := ro.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: snap.id}.Build())
 		require.NoErrorf(t, err, "%s: GetGrant(%q) on the saved artifact", engine, snap.id)
 		require.Equalf(t, snap.id, got.GetGrant().GetId(), "%s: GetGrant id verbatim", engine)

@@ -250,7 +250,7 @@ func (s benchmarkExpanderStore) StoreNewExpandedGrantContributions(ctx context.C
 	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
 
-// benchmarkExpandedGrantLayerStorer mirrors the expander's wave-scoped layer
+// benchmarkExpandedGrantLayerStorer mirrors the expander's layer-scoped layer
 // session interface for pass-through to Pebble-backed stores.
 type benchmarkExpandedGrantLayerStorer interface {
 	BeginExpandedGrantLayer(ctx context.Context) (bool, error)

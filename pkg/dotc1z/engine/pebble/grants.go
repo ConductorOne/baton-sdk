@@ -372,7 +372,7 @@ type synthesizedGrantRecord struct {
 
 // PutSynthesizedGrantContributions batch-writes one destination's synthesized
 // contributions. It is the fallback for stores/engines that cannot run a
-// wave-scoped layer session (see BeginSynthesizedGrantLayer); the layer path
+// layer-scoped layer session (see BeginSynthesizedGrantLayer); the layer path
 // is preferred because it publishes sorted SSTs instead of out-of-order batch
 // commits.
 func (e *Engine) PutSynthesizedGrantContributions(ctx context.Context, records []synthesizedGrantRecord) error {
@@ -386,11 +386,11 @@ func (e *Engine) PutSynthesizedGrantContributions(ctx context.Context, records [
 
 // synthLayerSegmentRows is the default row count at which an open layer
 // session cuts its current segment and hands it to the background worker for
-// merge + SST ingest. Cutting mid-wave is safe: nothing reads a wave's rows
-// until the next wave begins, and keys are globally unique, so segments may
+// merge + SST ingest. Cutting mid-layer is safe: nothing reads a layer's rows
+// until the next layer begins, and keys are globally unique, so segments may
 // cover overlapping key ranges without conflict. Segments keep the merge
 // fan-in small, bound temp-disk usage, and overlap merge/ingest work with the
-// producer's compute instead of serializing it at the wave boundary.
+// producer's compute instead of serializing it at the layer boundary.
 const synthLayerSegmentRows = 8_000_000
 
 func synthLayerSegmentLimit() int64 {
@@ -409,7 +409,7 @@ type synthLayerSegment struct {
 	chunks []string
 }
 
-// synthGrantLayerSession accumulates one topological wave's synthesized grant
+// synthGrantLayerSession accumulates one topological layer's synthesized grant
 // rows as encoded (key, value) pairs in a background-sorted spill sorter.
 // Every segLimit rows the current sorter is finalized into a segment and
 // queued for the background worker, which k-way merges the segment's chunks
@@ -485,7 +485,7 @@ func (s *synthGrantLayerSession) cutSegment() error {
 	return nil
 }
 
-// BeginSynthesizedGrantLayer opens a wave-scoped layer session. The ingested
+// BeginSynthesizedGrantLayer opens a layer-scoped layer session. The ingested
 // SSTs carry primary rows only; the by_principal index is always rebuilt at
 // EndSync, so no inline index maintenance is skipped by taking this path.
 // The boolean is part of the store-level contract (non-Pebble stores report
@@ -541,7 +541,7 @@ func (e *Engine) initSynthLayerSession(ctx context.Context, s *synthGrantLayerSe
 	s.arenaFree = newSpillArenaFreeList(deferredIndexSpillChunkBytes, sorters+2)
 	// deferredIndexSpillChunkBytes, not bulkSpillKeyChunkBytes: like the
 	// deferred index build, the layer session is one producer with one live
-	// sorter carrying full grant records. 8MiB chunks turned one whale wave
+	// sorter carrying full grant records. 8MiB chunks turned one whale layer
 	// into a 3,400-way merge with ~3.4GB of read buffers; 128MiB chunks keep
 	// each segment's merge fan-in small.
 	s.sorter = newSpillSorter(dir, s.segName(), s.sortSem, deferredIndexSpillChunkBytes)

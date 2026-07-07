@@ -47,12 +47,15 @@ import (
 // so the map is memory-bounded and the one-time scan amortizes across
 // lookups.
 //
-// Grants have no scan-sized fallback (whale files hold tens of millions);
-// they resolve by combinatorial candidate splitting of the concat shape
+// Grants resolve by combinatorial candidate splitting of the concat shape
 // `entitlement_id + ":" + principal_rt + ":" + principal_id`, probing each
 // candidate identity with a point Get. Connector-custom grant ids with no
-// concat shape are not resolvable by string (documented gap; such grants
-// are addressable by refs or via the identity token the CLI can emit).
+// concat shape (or whose splits match nothing) fall back to a full
+// primary-keyspace scan matching the STORED external id — SQLite keyed
+// rows by that id, so string reads must find them for parity. The scan is
+// O(all grants) and acceptable ONLY because this path is a CLI/reader-API
+// edge (see the safety contract above); sync and expansion never resolve
+// grants by string.
 
 // maxGrantIDCandidates caps the combinatorial split enumeration for one
 // grant-id lookup. Ids with enough colons to exceed it are unresolvable by
@@ -269,7 +272,10 @@ func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID s
 		}
 	}
 	if len(colons) < 2 {
-		return grantIdentity{}, pebble.ErrNotFound
+		// No concat shape to split: connector-custom ids (SQLite keyed rows
+		// by these, and provisioner revokes address grants with them) are
+		// findable only by their STORED external id.
+		return e.scanGrantIdentityByStoredExternalID(ctx, grantID)
 	}
 	if len(colons) > maxBareIDColons {
 		return grantIdentity{}, fmt.Errorf("%w: grant id has %d colons; too complex to resolve safely by string", ErrAmbiguousExternalID, len(colons))
@@ -372,10 +378,65 @@ func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID s
 	}
 	switch len(hits) {
 	case 0:
-		return grantIdentity{}, pebble.ErrNotFound
+		// Every concat split missed: the id may still be a connector-custom
+		// STORED external id that merely contains colons.
+		return e.scanGrantIdentityByStoredExternalID(ctx, grantID)
 	case 1:
 		return hits[0], nil
 	default:
 		return grantIdentity{}, fmt.Errorf("%w: grant id %q matches %d records", ErrAmbiguousExternalID, grantID, len(hits))
 	}
+}
+
+// scanGrantIdentityByStoredExternalID finds the grant whose STORED
+// external id equals grantID by scanning the grant primary keyspace with
+// a shallow per-value field read. This is the resolution of last resort
+// for connector-custom ids that carry no reconstructible concat shape —
+// SQLite keyed grant rows by exactly this id, so string reads must find
+// them for reader parity. O(all grants) with only the external_id field
+// decoded per row; reachable only from the CLI/reader-API edge (the
+// combinatorial prober above answers SDK-shaped ids without ever getting
+// here), never from sync or expansion. Exactly-one rule: zero matches is
+// pebble.ErrNotFound, several is ErrAmbiguousExternalID.
+func (e *Engine) scanGrantIdentityByStoredExternalID(ctx context.Context, grantID string) (grantIdentity, error) {
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: GrantLowerBound(),
+		UpperBound: GrantUpperBound(),
+	})
+	if err != nil {
+		return grantIdentity{}, err
+	}
+	defer iter.Close()
+	var hits []grantIdentity
+	var scanned int64
+	for iter.First(); iter.Valid(); iter.Next() {
+		scanned++
+		if scanned&0x3FFF == 0 {
+			if err := ctx.Err(); err != nil {
+				return grantIdentity{}, err
+			}
+		}
+		ext, serr := scanGrantExternalIDRaw(iter.Value())
+		if serr != nil {
+			return grantIdentity{}, serr
+		}
+		if ext != grantID {
+			continue
+		}
+		id, ok := decodeGrantIdentityKey(iter.Key())
+		if !ok {
+			continue
+		}
+		hits = append(hits, id)
+		if len(hits) > 1 {
+			return grantIdentity{}, fmt.Errorf("%w: grant id %q matches %d records", ErrAmbiguousExternalID, grantID, len(hits))
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return grantIdentity{}, err
+	}
+	if len(hits) == 0 {
+		return grantIdentity{}, pebble.ErrNotFound
+	}
+	return hits[0], nil
 }

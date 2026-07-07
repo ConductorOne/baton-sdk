@@ -53,13 +53,13 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	}
 	defer projDB.Close()
 
-	entitlements, waves, err := e.prepareTopological(ctx)
+	entitlements, layers, err := e.prepareTopological(ctx)
 	if err != nil {
 		return err
 	}
 	totalNodes := 0
-	for _, wave := range waves {
-		totalNodes += len(wave)
+	for _, layer := range layers {
+		totalNodes += len(layer)
 	}
 
 	l := ctxzap.Extract(ctx)
@@ -73,13 +73,13 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 		zap.Int("projection_rows", rows),
 		zap.Int("projection_sources", len(projectionSources)),
 		zap.Int("nodes", totalNodes),
-		zap.Int("waves", len(waves)),
+		zap.Int("layers", len(layers)),
 		zap.Duration("elapsed", time.Since(buildStart)),
 	)
 
 	expandStart := time.Now()
 	lastLog := expandStart
-	err = e.driveTopological(ctx, entitlements, waves, topologicalRun{
+	err = e.driveTopological(ctx, entitlements, layers, topologicalRun{
 		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink *destinationSink) error {
 			return e.mergeDestinationStreams(ctx, dest, incoming, ents, projDB, projectionSources, sink)
 		},
@@ -163,7 +163,7 @@ func (e *Expander) mergeDestinationStreams(
 			sourceEntitlement := entitlements[sourceID]
 			if sourceEntitlement == nil {
 				// Drop-don't-fail, but loudly (see the destination-side
-				// warning in driveTopologicalWave).
+				// warning in driveTopologicalLayer).
 				ctxzap.Extract(ctx).Warn("topological expansion: source entitlement not in store; its contributions are skipped",
 					zap.String("entitlement_id", sourceID))
 				continue

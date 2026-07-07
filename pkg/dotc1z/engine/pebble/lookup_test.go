@@ -137,22 +137,27 @@ func TestBareIDGrantLookupExactlyOne(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "bob", got.GetPrincipal().GetResourceId())
 
-	// Connector-custom id (no concat shape): unresolvable by string.
+	// Connector-custom id (no concat shape): resolves via the stored-id
+	// scan of last resort — SQLite keyed rows by this id, so string reads
+	// must find it for reader parity.
 	require.NoError(t, e.PutGrantRecord(ctx,
 		lookupTestGrant("grant-42", "app", "github", "app:github:write", "user", "carol")))
-	_, err = e.GetGrantRecord(ctx, "grant-42")
-	require.ErrorIs(t, err, pebble.ErrNotFound)
-	// And its concat reconstruction does not address it either: the stored
-	// public id differs from the query, so the probe hit is not counted.
+	got, err = e.GetGrantRecord(ctx, "grant-42")
+	require.NoError(t, err)
+	require.Equal(t, "carol", got.GetPrincipal().GetResourceId(),
+		"custom stored id must resolve via the stored-id scan fallback")
+	// Its concat reconstruction does not address it: the probe hit is not
+	// counted (stored id differs from the query), and the scan fallback
+	// matches stored ids only — no row STORES the concat string.
 	_, err = e.GetGrantRecord(ctx, "app:github:write:user:carol")
 	require.ErrorIs(t, err, pebble.ErrNotFound,
 		"a row with a custom stored id is addressed by that id, not its concat")
 
-	// Known, documented gap: a row whose custom STORED id happens to equal
-	// another row's concat is invisible to string probing (probing only
-	// reaches rows via their own concat shape), so it neither resolves by
-	// its custom id nor contributes ambiguity to the other row's lookup.
-	// The concat query still addresses exactly the SDK-shaped row.
+	// Probe-first precedence: a row whose custom STORED id happens to equal
+	// another row's concat never shadows it — the combinatorial probe
+	// resolves the SDK-shaped row outright (exactly one probe hit), and the
+	// stored-id scan runs only when every probe misses. The custom-id row
+	// stays addressable by refs.
 	require.NoError(t, e.PutGrantRecord(ctx,
 		lookupTestGrant(sdkID, "group", "eng", "group:eng:member", "user", "dave")))
 	got, err = e.GetGrantRecord(ctx, sdkID)

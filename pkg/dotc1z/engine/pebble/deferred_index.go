@@ -109,9 +109,9 @@ type grantRebuildTee struct {
 	dir string
 
 	// Scan-thread state: the arena being filled.
-	arena []byte
-	views []kvView
-	raw   int64
+	arena    []byte
+	views    []kvView
+	rawBytes int64
 
 	ch   chan rebuildBatch
 	done chan struct{}
@@ -212,7 +212,7 @@ func (t *grantRebuildTee) add(key, val []byte) error {
 	t.arena = append(t.arena, key...)
 	t.arena = append(t.arena, val...)
 	t.views = append(t.views, kvView{keyOff: off, keyEnd: off + len(key), valEnd: off + len(key) + len(val)})
-	t.raw += int64(len(key) + len(val))
+	t.rawBytes += int64(len(key) + len(val))
 	if len(t.arena) >= bulkSpillKeyChunkBytes {
 		return t.flushBatch()
 	}
@@ -231,20 +231,28 @@ func (t *grantRebuildTee) flushBatch() error {
 	return nil
 }
 
+// rebuildResult is what a finished tee hands back: the rolling SST paths,
+// the number of rows written into them (compared against the scan's row
+// count before the excise is allowed to fire), and the total raw key+value
+// bytes teed (logging only).
+type rebuildResult struct {
+	files    []string
+	rows     int64
+	rawBytes int64
+}
+
 // finish flushes the tail batch, waits the writer goroutine out, and returns
-// (files, rowsWritten, rawBytes, err): the finished SST paths, the number of
-// rows written into them, and the total raw bytes teed. Call exactly once
-// (use abort on early-error paths).
-func (t *grantRebuildTee) finish() ([]string, int64, int64, error) {
+// the finished result. Call exactly once (use abort on early-error paths).
+func (t *grantRebuildTee) finish() (rebuildResult, error) {
 	flushErr := t.flushBatch()
 	t.closeAndWait()
 	if err := t.takeErr(); err != nil {
-		return nil, 0, 0, err
+		return rebuildResult{}, err
 	}
 	if flushErr != nil {
-		return nil, 0, 0, flushErr
+		return rebuildResult{}, flushErr
 	}
-	return t.files, t.rowsWritten, t.raw, nil
+	return rebuildResult{files: t.files, rows: t.rowsWritten, rawBytes: t.rawBytes}, nil
 }
 
 // abort discards the tee: the writer goroutine drains and exits, partial SSTs
@@ -429,11 +437,10 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 	// The rebuild is an optimization: any failure — scan-time tee error or
 	// finish-time writer error — skips the excise and leaves the (correct,
 	// just unconsolidated) LSM alone rather than failing the sync.
-	var rebuildFiles []string
-	var rebuildRows, rebuildBytes int64
+	var rebuilt rebuildResult
 	rebuildErr := rebuildScanErr
 	if rebuildErr == nil {
-		rebuildFiles, rebuildRows, rebuildBytes, rebuildErr = rebuild.finish()
+		rebuilt, rebuildErr = rebuild.finish()
 	} else {
 		rebuild.abort()
 	}
@@ -476,13 +483,13 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 		l.Error("deferred grant index build: primary keyspace rebuild failed; skipping consolidation",
 			zap.Error(rebuildErr),
 		)
-	case rebuildRows != totalKeys:
+	case rebuilt.rows != totalKeys:
 		l.Error("deferred grant index build: rebuild row count mismatch; skipping consolidation",
 			zap.Int64("rows_scanned", totalKeys),
-			zap.Int64("rows_rebuilt", rebuildRows),
+			zap.Int64("rows_rebuilt", rebuilt.rows),
 		)
-	case len(rebuildFiles) > 0:
-		if _, err := e.db.IngestAndExcise(ctx, rebuildFiles, nil, nil, pebble.KeyRange{
+	case len(rebuilt.files) > 0:
+		if _, err := e.db.IngestAndExcise(ctx, rebuilt.files, nil, nil, pebble.KeyRange{
 			Start: GrantLowerBound(),
 			End:   GrantUpperBound(),
 		}); err != nil {
@@ -493,9 +500,9 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 			break
 		}
 		l.Info("deferred grant index build: primary grant keyspace rebuilt",
-			zap.Int("ssts", len(rebuildFiles)),
-			zap.Int64("rows", rebuildRows),
-			zap.Int64("raw_bytes", rebuildBytes),
+			zap.Int("ssts", len(rebuilt.files)),
+			zap.Int64("rows", rebuilt.rows),
+			zap.Int64("raw_bytes", rebuilt.rawBytes),
 			zap.Duration("elapsed", time.Since(scanDone)),
 		)
 	}

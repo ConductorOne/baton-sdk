@@ -252,7 +252,7 @@ func (a expanderStoreAdapter) StoreNewExpandedGrantContributions(ctx context.Con
 	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
 
-// expandedGrantLayerStorer is the wave-scoped synthesized-grant layer session
+// expandedGrantLayerStorer is the layer-scoped synthesized-grant layer session
 // surface the store's GrantStore may implement (Pebble). Local interface so
 // the adapter can pass sessions through without importing engine internals.
 type expandedGrantLayerStorer interface {

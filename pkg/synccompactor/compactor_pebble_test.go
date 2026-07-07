@@ -449,33 +449,54 @@ type recencyStore interface {
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
 }
 
-// putRecencyData writes the fixed group/member graph with one grant per
-// id, all held by the given principal — the principal is the marker that
-// identifies which input's version of an overlapping grant won.
-func putRecencyData(t testing.TB, ctx context.Context, store recencyStore, principal string, grantIDs ...string) {
+// putRecencyData writes the fixed group/member graph with ONE grant on the
+// shared (member@g1, user/shared-user) structural identity, whose stored
+// external id is "g-" + marker — the marker identifies which input's
+// version of the overlapping grant won the merge.
+//
+// Under the structural-identity layout, grants are keyed by
+// (entitlement, principal) refs, NOT by their public id string: inputs
+// overlap only when their refs match, and the merge's recency rule picks
+// one whole row per identity. The stored external id rides along on the
+// winning row, which is what makes it a usable winner marker — and what a
+// conversion that re-stamped discovered_at would flip. (The pre-identity
+// fixtures marked winners with the principal and overlapped rows by a
+// shared id string; two grants sharing a public id across DIFFERENT
+// principals are two distinct grants now, so that shape no longer
+// overlaps at all.)
+//
+// includeBaseOnly adds a second, distinct identity (user/base-only) that
+// no partial carries, pinning that non-overlapping base rows survive.
+func putRecencyData(t testing.TB, ctx context.Context, store recencyStore, marker string, includeBaseOnly bool) {
 	t.Helper()
 	require.NoError(t, store.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build(),
 		v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()))
 	group := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "Group One"}.Build()
-	user := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: principal}.Build(), DisplayName: principal}.Build()
-	require.NoError(t, store.PutResources(ctx, group, user))
+	shared := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "shared-user"}.Build(), DisplayName: "Shared User"}.Build()
+	resources := []*v2.Resource{group, shared}
+	baseOnly := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "base-only"}.Build(), DisplayName: "Base Only"}.Build()
+	if includeBaseOnly {
+		resources = append(resources, baseOnly)
+	}
+	require.NoError(t, store.PutResources(ctx, resources...))
 	member := v2.Entitlement_builder{Id: "member", Resource: group, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build()
 	require.NoError(t, store.PutEntitlements(ctx, member))
-	for _, id := range grantIDs {
-		require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: id, Principal: user, Entitlement: member}.Build()))
+	require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: "g-" + marker, Principal: shared, Entitlement: member}.Build()))
+	if includeBaseOnly {
+		require.NoError(t, store.PutGrants(ctx, v2.Grant_builder{Id: "g-base", Principal: baseOnly, Entitlement: member}.Build()))
 	}
 }
 
 // buildPebbleRecencyInput writes a Pebble (v3) c1z whose records carry
 // real sync-time discovered_at stamps.
-func buildPebbleRecencyInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, principal string, grantIDs ...string) string {
+func buildPebbleRecencyInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, marker string, includeBaseOnly bool) string {
 	t.Helper()
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
 	require.NoError(t, err)
 	syncID, err := w.StartNewSync(ctx, st, "")
 	require.NoError(t, err)
-	putRecencyData(t, ctx, w, principal, grantIDs...)
+	putRecencyData(t, ctx, w, marker, includeBaseOnly)
 	require.NoError(t, w.EndSync(ctx))
 	require.NoError(t, w.Close(ctx))
 	return syncID
@@ -485,14 +506,14 @@ func buildPebbleRecencyInput(t testing.TB, ctx context.Context, path string, st 
 // record's discovered_at column to the given instant, so the input's
 // true record recency is unambiguous relative to the other inputs.
 func buildSQLiteRecencyInput(
-	t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, principal string, discoveredAt time.Time, grantIDs ...string,
+	t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, marker string, discoveredAt time.Time, includeBaseOnly bool,
 ) string {
 	t.Helper()
 	store, err := dotc1z.NewC1ZFile(ctx, path)
 	require.NoError(t, err)
 	syncID, err := store.StartNewSync(ctx, st, "")
 	require.NoError(t, err)
-	putRecencyData(t, ctx, store, principal, grantIDs...)
+	putRecencyData(t, ctx, store, marker, includeBaseOnly)
 	db := rawSQLiteDBForTest(t, store)
 	stamp := discoveredAt.Format("2006-01-02 15:04:05.999999999")
 	for _, table := range []string{"v1_resource_types", "v1_resources", "v1_entitlements", "v1_grants"} {
@@ -504,15 +525,27 @@ func buildSQLiteRecencyInput(
 	return syncID
 }
 
-// winningPrincipal returns the principal resource id of grantID in the
-// compacted output — i.e. which input's version of the grant won.
-func winningPrincipal(t *testing.T, ctx context.Context, out *CompactableSync, grantID string) string {
+// winningMarker returns the stored external id of the grant on the shared
+// (member@g1, user/shared-user) identity in the compacted output — i.e.
+// which input's version of the overlapping grant won the recency merge.
+func winningMarker(t *testing.T, ctx context.Context, out *CompactableSync) string {
 	t.Helper()
 	store := openCompactedPebble(t, ctx, out)
 	defer store.Close(ctx)
-	grant, err := store.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: grantID}.Build())
+	var winner string
+	found := 0
+	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 1000}.Build())
 	require.NoError(t, err)
-	return grant.GetGrant().GetPrincipal().GetId().GetResource()
+	require.Empty(t, resp.GetNextPageToken(), "recency fixtures are single-page")
+	for _, g := range resp.GetList() {
+		if g.GetPrincipal().GetId().GetResource() != "shared-user" {
+			continue
+		}
+		found++
+		winner = g.GetId()
+	}
+	require.Equal(t, 1, found, "exactly one grant must survive on the shared identity")
+	return winner
 }
 
 // TestCompactMixedInputsPreservesRecordRecency pins that converting a
@@ -522,9 +555,9 @@ func winningPrincipal(t *testing.T, ctx context.Context, out *CompactableSync, g
 // conversion wall clock would make the OLD SQLite base override the
 // newer Pebble partial on overlapping keys.
 //
-// Chain: an old SQLite full (records discovered in 2020, principal
-// alice) + a fresh Pebble partial (principal bob), both carrying grant
-// g-shared. The partial is newer, so bob must win.
+// Chain: an old SQLite full (records discovered in 2020, marker alice) +
+// a fresh Pebble partial (marker bob), overlapping on one structural
+// identity. The partial is newer, so bob's row must win.
 func TestCompactMixedInputsPreservesRecordRecency(t *testing.T) {
 	ctx := context.Background()
 	inDir := t.TempDir()
@@ -533,8 +566,8 @@ func TestCompactMixedInputsPreservesRecordRecency(t *testing.T) {
 	sqlitePath := filepath.Join(inDir, "base-sqlite.c1z")
 	pebblePath := filepath.Join(inDir, "partial-pebble.c1z")
 	oldDiscovery := time.Date(2020, time.January, 2, 3, 4, 5, 0, time.UTC)
-	s1 := buildSQLiteRecencyInput(t, ctx, sqlitePath, connectorstore.SyncTypeFull, "alice", oldDiscovery, "g-shared", "g-base")
-	s2 := buildPebbleRecencyInput(t, ctx, pebblePath, connectorstore.SyncTypePartial, "bob", "g-shared")
+	s1 := buildSQLiteRecencyInput(t, ctx, sqlitePath, connectorstore.SyncTypeFull, "alice", oldDiscovery, true)
+	s2 := buildPebbleRecencyInput(t, ctx, pebblePath, connectorstore.SyncTypePartial, "bob", false)
 
 	entries := []*CompactableSync{
 		{FilePath: sqlitePath, SyncID: s1},
@@ -549,15 +582,15 @@ func TestCompactMixedInputsPreservesRecordRecency(t *testing.T) {
 	require.NotNil(t, out)
 	requirePebbleOutput(t, ctx, out.FilePath)
 
-	require.Equal(t, "bob", winningPrincipal(t, ctx, out, "g-shared"),
+	require.Equal(t, "g-bob", winningMarker(t, ctx, out),
 		"the newer pebble partial must win the overlapping grant; the converted sqlite base's 2020 records must not be re-stamped to conversion time")
 }
 
 // TestCompactFoldMixedPartialsPreservesRecordRecency is the fold-path
 // variant: a Pebble base plus an OLD SQLite partial (2020 records) and
-// a fresh Pebble partial, all carrying grant g-shared. Fold applies
-// partials newest-first with strictly-newer-wins, so the fresh Pebble
-// partial (bob) must win; a conversion that re-stamped the SQLite
+// a fresh Pebble partial, overlapping on one structural identity. Fold
+// applies partials newest-first with strictly-newer-wins, so the fresh
+// Pebble partial (bob) must win; a conversion that re-stamped the SQLite
 // partial's records to conversion time would let carol override bob.
 func TestCompactFoldMixedPartialsPreservesRecordRecency(t *testing.T) {
 	ctx := context.Background()
@@ -569,9 +602,9 @@ func TestCompactFoldMixedPartialsPreservesRecordRecency(t *testing.T) {
 	pebblePartialPath := filepath.Join(inDir, "partial-pebble.c1z")
 
 	oldDiscovery := time.Date(2020, time.January, 2, 3, 4, 5, 0, time.UTC)
-	sBase := buildPebbleRecencyInput(t, ctx, basePath, connectorstore.SyncTypeFull, "alice", "g-shared", "g-base")
-	sSQLite := buildSQLiteRecencyInput(t, ctx, sqlitePartialPath, connectorstore.SyncTypePartial, "carol", oldDiscovery, "g-shared")
-	sPebble := buildPebbleRecencyInput(t, ctx, pebblePartialPath, connectorstore.SyncTypePartial, "bob", "g-shared")
+	sBase := buildPebbleRecencyInput(t, ctx, basePath, connectorstore.SyncTypeFull, "alice", true)
+	sSQLite := buildSQLiteRecencyInput(t, ctx, sqlitePartialPath, connectorstore.SyncTypePartial, "carol", oldDiscovery, false)
+	sPebble := buildPebbleRecencyInput(t, ctx, pebblePartialPath, connectorstore.SyncTypePartial, "bob", false)
 
 	// Chain order: base, then partials oldest-first.
 	entries := []*CompactableSync{
@@ -593,7 +626,7 @@ func TestCompactFoldMixedPartialsPreservesRecordRecency(t *testing.T) {
 	require.NotNil(t, out)
 	requirePebbleOutput(t, ctx, out.FilePath)
 
-	require.Equal(t, "bob", winningPrincipal(t, ctx, out, "g-shared"),
+	require.Equal(t, "g-bob", winningMarker(t, ctx, out),
 		"the fresh pebble partial must win; the converted 2020 sqlite partial must not be re-stamped to conversion time and override it")
 }
 

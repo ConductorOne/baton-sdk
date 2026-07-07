@@ -105,7 +105,7 @@ func (g pebbleGrantStore) StoreNewExpandedGrants(ctx context.Context, grants ...
 
 // appendSynthesizedGrantRecords translates one destination's synthesized
 // contributions into engine records, appending to records. Shared by the
-// per-destination write path and the wave-scoped layer session.
+// per-destination write path and the layer-scoped layer session.
 func appendSynthesizedGrantRecords(records []synthesizedGrantRecord, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) ([]synthesizedGrantRecord, error) {
 	if len(principals) != len(sources) {
 		return records, fmt.Errorf("store new expanded grant contributions: principals/sources length mismatch")
@@ -162,7 +162,7 @@ func (g pebbleGrantStore) StoreNewExpandedGrantContributions(ctx context.Context
 	return g.a.engine.PutSynthesizedGrantContributions(ctx, records)
 }
 
-// BeginExpandedGrantLayer opens a wave-scoped synthesized-grant layer session
+// BeginExpandedGrantLayer opens a layer-scoped synthesized-grant layer session
 // on the engine. Returns false when the engine cannot serve one (e.g. the
 // by_principal index is not deferred); callers fall back to
 // StoreNewExpandedGrantContributions.
@@ -175,7 +175,7 @@ func (g pebbleGrantStore) BeginExpandedGrantLayer(ctx context.Context) (bool, er
 
 // AddExpandedGrantLayerContributions streams one destination's synthesized
 // contributions into the open layer session. Rows become readable when
-// FinishExpandedGrantLayer ingests the wave.
+// FinishExpandedGrantLayer publishes the layer.
 func (g pebbleGrantStore) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
 	if len(principals) == 0 {
 		return nil

@@ -199,15 +199,15 @@ type topologicalRun struct {
 	progress func(nodeIdx, nodeTotal int)
 }
 
-// prepareTopological builds the expansion plan, computes the topological wave
-// decomposition, and resolves every graph entitlement once. All evaluators
-// share it so ordering and the (possibly missing) entitlement set are derived
-// identically.
+// prepareTopological builds the expansion plan, computes the topological
+// layer decomposition, and resolves every graph entitlement once. All
+// evaluators share it so ordering and the (possibly missing) entitlement set
+// are derived identically.
 func (e *Expander) prepareTopological(ctx context.Context) (map[string]*v2.Entitlement, [][]int, error) {
 	if _, err := e.graph.ensureExpansionPlan(ctx); err != nil {
 		return nil, nil, err
 	}
-	waves, err := topologicalNodeWaves(e.graph)
+	layers, err := topologicalNodeLayers(e.graph)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -215,7 +215,7 @@ func (e *Expander) prepareTopological(ctx context.Context) (map[string]*v2.Entit
 	if err != nil {
 		return nil, nil, err
 	}
-	return entitlements, waves, nil
+	return entitlements, layers, nil
 }
 
 func (e *Expander) loadExpansionEntitlements(ctx context.Context) (map[string]*v2.Entitlement, error) {
@@ -232,32 +232,32 @@ func (e *Expander) loadExpansionEntitlements(ctx context.Context) (map[string]*v
 	return entitlements, nil
 }
 
-// driveTopological walks the collapsed DAG wave by wave (Kahn levels) and
+// driveTopological walks the collapsed DAG layer by layer (Kahn levels) and
 // reduces each destination entitlement of every node whose parents are
 // finalized. It is the single scheduling loop behind
 // RunTopologicalMergeStreaming and RunTopologicalMergeProjection; only the
 // per-destination reduce strategy and the optional projection hooks differ
 // between them.
 //
-// When the store supports layer sessions (Pebble), each wave's synthesized
+// When the store supports layer sessions (Pebble), each layer's synthesized
 // grants are streamed into one session and published as sorted bulk writes at
-// segment/wave boundaries. That is safe because every parent of a wave-k node
-// sits in a wave < k, so no reduce in the current wave reads rows the session
-// is still holding.
+// segment/layer boundaries. That is safe because every parent of a layer-k
+// node sits in a layer < k, so no reduce in the current layer reads rows the
+// session is still holding.
 func (e *Expander) driveTopological(
 	ctx context.Context,
 	entitlements map[string]*v2.Entitlement,
-	waves [][]int,
+	layers [][]int,
 	run topologicalRun,
 ) error {
-	logFanInWidth(ctx, e.graph, waves)
+	logFanInWidth(ctx, e.graph, layers)
 
 	totalNodes := 0
-	for _, wave := range waves {
-		totalNodes += len(wave)
+	for _, layer := range layers {
+		totalNodes += len(layer)
 	}
 
-	// activeLayer is non-nil only while a wave's layer session is open; the
+	// activeLayer is non-nil only while a layer session is open; the
 	// storeSynth closure below routes synthesized rows into it.
 	var activeLayer synthesizedContributionLayerStorer
 	sink := &destinationSink{
@@ -321,7 +321,7 @@ func (e *Expander) driveTopological(
 	}
 
 	nodeIdx := 0
-	for _, wave := range waves {
+	for _, layer := range layers {
 		if layerCandidate != nil {
 			ok, err := layerCandidate.BeginExpandedGrantLayer(ctx)
 			if err != nil {
@@ -331,16 +331,17 @@ func (e *Expander) driveTopological(
 				activeLayer = layerCandidate
 			}
 		}
-		if err := e.driveTopologicalWave(ctx, entitlements, wave, run, sink, &nodeIdx, totalNodes); err != nil {
+		if err := e.driveTopologicalLayer(ctx, entitlements, layer, run, sink, nodeIdx, totalNodes); err != nil {
 			if activeLayer != nil {
 				_ = activeLayer.AbortExpandedGrantLayer(ctx)
 				activeLayer = nil
 			}
 			return err
 		}
+		nodeIdx += len(layer)
 		if activeLayer != nil {
 			if err := activeLayer.FinishExpandedGrantLayer(ctx); err != nil {
-				// Symmetric with the mid-wave error path above: if the
+				// Symmetric with the mid-layer error path above: if the
 				// finish failed before the engine detached the session
 				// (e.g. an error thrown by a wrapper before reaching the
 				// engine, or an engine failure that left the session
@@ -357,28 +358,29 @@ func (e *Expander) driveTopological(
 	return nil
 }
 
-// driveTopologicalWave reduces every node of one topological wave against the
-// shared sink. Split out of driveTopological so a wave's error unwinds through
-// one place where the caller can abort the wave's open layer session.
-func (e *Expander) driveTopologicalWave(
+// driveTopologicalLayer reduces every node of one topological layer against
+// the shared sink. startIdx is the number of nodes completed in earlier
+// layers, used only for progress reporting. Split out of driveTopological so
+// a layer's error unwinds through one place where the caller can abort the
+// layer's open session.
+func (e *Expander) driveTopologicalLayer(
 	ctx context.Context,
 	entitlements map[string]*v2.Entitlement,
-	wave []int,
+	layer []int,
 	run topologicalRun,
 	sink *destinationSink,
-	nodeIdx *int,
+	startIdx int,
 	totalNodes int,
 ) error {
-	for _, nodeID := range wave {
+	for i, nodeID := range layer {
 		if run.checkBudget != nil {
 			if err := run.checkBudget(); err != nil {
 				return err
 			}
 		}
 		if run.progress != nil {
-			run.progress(*nodeIdx, totalNodes)
+			run.progress(startIdx+i, totalNodes)
 		}
-		*nodeIdx++
 		node, ok := e.graph.Nodes[nodeID]
 		if !ok {
 			continue
@@ -447,12 +449,12 @@ func sortedCopy(in []string) []string {
 // evaluator re-reads each unprojected source once per destination it feeds, so a
 // high-fan-out "broadcast" source is a read-amplification hotspot. This answers
 // whether projection-source selection should cover fan-out, not just fan-in.
-func logFanInWidth(ctx context.Context, g *EntitlementGraph, waves [][]int) {
+func logFanInWidth(ctx context.Context, g *EntitlementGraph, layers [][]int) {
 	widths := make([]int, 0, len(g.Nodes))
 	outDegrees := make([]int, 0, len(g.Nodes))
 	maxParentEntitlements := 0
-	for _, wave := range waves {
-		for _, nodeID := range wave {
+	for _, layer := range layers {
+		for _, nodeID := range layer {
 			incoming := incomingEdgesSorted(g, nodeID)
 			if len(incoming) > 0 {
 				width := 1 // base(D) stream
@@ -575,13 +577,13 @@ func incomingEdgesSorted(g *EntitlementGraph, nodeID int) []topoIncomingEdge {
 	return out
 }
 
-// topologicalNodeWaves returns the graph's Kahn level decomposition: wave k
-// holds every node whose parents all sit in waves < k, so nodes within one
-// wave never depend on each other. The wave boundary is where synthesized
+// topologicalNodeLayers returns the graph's Kahn level decomposition: layer k
+// holds every node whose parents all sit in layers < k, so nodes within one
+// layer never depend on each other. The layer boundary is where synthesized
 // grant writes can be published (and, later, checkpointed) — a node's reduce
-// only ever reads parent output from strictly earlier waves. Each wave is
+// only ever reads parent output from strictly earlier layers. Each layer is
 // sorted by node id for deterministic iteration.
-func topologicalNodeWaves(g *EntitlementGraph) ([][]int, error) {
+func topologicalNodeLayers(g *EntitlementGraph) ([][]int, error) {
 	inDegree := make(map[int]int, len(g.Nodes))
 	for id := range g.Nodes {
 		inDegree[id] = 0
@@ -604,10 +606,10 @@ func topologicalNodeWaves(g *EntitlementGraph) ([][]int, error) {
 	}
 	sort.Ints(frontier)
 
-	var waves [][]int
+	var layers [][]int
 	seen := 0
 	for len(frontier) > 0 {
-		waves = append(waves, frontier)
+		layers = append(layers, frontier)
 		seen += len(frontier)
 		var next []int
 		for _, id := range frontier {
@@ -624,20 +626,20 @@ func topologicalNodeWaves(g *EntitlementGraph) ([][]int, error) {
 	if seen != len(g.Nodes) {
 		return nil, fmt.Errorf("topological merge: graph contains a cycle or dangling edge")
 	}
-	return waves, nil
+	return layers, nil
 }
 
-// topologicalNodeOrder flattens topologicalNodeWaves into a single valid
+// topologicalNodeOrder flattens topologicalNodeLayers into a single valid
 // topological order. Kept for callers that only need a linear order (the
 // expansion plan builder and benchmarks).
 func topologicalNodeOrder(g *EntitlementGraph) ([]int, error) {
-	waves, err := topologicalNodeWaves(g)
+	layers, err := topologicalNodeLayers(g)
 	if err != nil {
 		return nil, err
 	}
 	order := make([]int, 0, len(g.Nodes))
-	for _, wave := range waves {
-		order = append(order, wave...)
+	for _, layer := range layers {
+		order = append(order, layer...)
 	}
 	return order, nil
 }
