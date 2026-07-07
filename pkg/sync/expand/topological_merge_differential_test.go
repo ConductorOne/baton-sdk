@@ -67,7 +67,10 @@ func TestTopologicalMergeDifferentialRandom(t *testing.T) {
 func TestTopologicalMergeDifferentialRandomStore(t *testing.T) {
 	// ~1.3s/seed (a fresh c1z per algorithm per seed), so keep this modest: the
 	// mock sweep is the wide net, this is the storage-path depth check.
-	start, count := fuzzSeedRange(8, 25)
+	// Store-backed seeds cost ~10s each (a pebble + sqlite store per
+	// seed), so short mode (Windows CI) runs a token few; the wide
+	// sweep is long-CI and ad-hoc (BATON_EXPAND_FUZZ_SEEDS) territory.
+	start, count := fuzzSeedRange(3, 25)
 	for seed := start; seed < start+count; seed++ {
 		seed := seed
 		tc := randomExpansionCase(seed)

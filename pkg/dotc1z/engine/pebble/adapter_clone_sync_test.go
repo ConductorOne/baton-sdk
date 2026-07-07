@@ -64,6 +64,9 @@ func testCloneSyncRoundtrip(t *testing.T, readOnlyClone bool) {
 	f, err := os.Open(clonePath)
 	require.NoError(t, err, "open clone file")
 	manifest, err := formatv3.ReadManifestHeader(f)
+	// Close BEFORE the assertions: a leaked handle keeps Windows from
+	// deleting clone.c1z in TempDir cleanup, which fails the test there.
+	require.NoError(t, f.Close(), "close clone file")
 	require.NoError(t, err, "ReadManifestHeader clone")
 	runs := manifest.GetSyncRuns()
 	require.Equal(t, 1, len(runs), "clone manifest sync_runs = %d, want 1", len(runs))

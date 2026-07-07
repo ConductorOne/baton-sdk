@@ -94,9 +94,16 @@ func TestTopologicalMergeLayerSessionInterruptResume(t *testing.T) {
 	// through the generic path already covered by
 	// TestTopologicalMergePartialInterruptResume.
 	engine := dotc1z.EnginePebble
+	cases := append(parityCases(), cyclicCases()...)
+	if testing.Short() {
+		// Windows CI: one representative acyclic + one cyclic case per
+		// (algo, scenario) still exercises every layer-session code path;
+		// the full matrix runs on long (linux) CI.
+		cases = []sqliteParityCase{parityCases()[0], cyclicCases()[0]}
+	}
 	for _, algo := range algos {
 		for _, sc := range scenarios {
-			for _, tc := range append(parityCases(), cyclicCases()...) {
+			for _, tc := range cases {
 				tc := tc
 				label := algo.name + "/" + sc.name
 				t.Run(label+"/"+tc.name, func(t *testing.T) {

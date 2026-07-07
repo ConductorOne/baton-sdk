@@ -34,9 +34,15 @@ func TestTopologicalMergeResumeIdempotent(t *testing.T) {
 		{"streaming", func(ctx context.Context, e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
 	}
 
+	interruptCases := append(parityCases(), cyclicCases()...)
+	if testing.Short() {
+		// See TestTopologicalMergeLayerSessionInterruptResume: representative
+		// subset for slow (windows) CI; full matrix on long CI.
+		interruptCases = []sqliteParityCase{parityCases()[0], cyclicCases()[0]}
+	}
 	for _, engine := range []dotc1z.Engine{dotc1z.EnginePebble, dotc1z.EngineSQLite} {
 		for _, algo := range algos {
-			for _, tc := range append(parityCases(), cyclicCases()...) {
+			for _, tc := range interruptCases {
 				tc := tc
 				label := string(engine) + "/" + algo.name
 				t.Run(label+"/"+tc.name, func(t *testing.T) {
@@ -179,9 +185,15 @@ func TestTopologicalMergePartialInterruptResume(t *testing.T) {
 		{"streaming", func(ctx context.Context, e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
 	}
 
+	interruptCases := append(parityCases(), cyclicCases()...)
+	if testing.Short() {
+		// See TestTopologicalMergeLayerSessionInterruptResume: representative
+		// subset for slow (windows) CI; full matrix on long CI.
+		interruptCases = []sqliteParityCase{parityCases()[0], cyclicCases()[0]}
+	}
 	for _, engine := range []dotc1z.Engine{dotc1z.EnginePebble, dotc1z.EngineSQLite} {
 		for _, algo := range algos {
-			for _, tc := range append(parityCases(), cyclicCases()...) {
+			for _, tc := range interruptCases {
 				tc := tc
 				label := string(engine) + "/" + algo.name
 				t.Run(label+"/"+tc.name, func(t *testing.T) {
