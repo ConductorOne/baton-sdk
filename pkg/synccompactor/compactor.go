@@ -365,6 +365,17 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		err := c.compactedC1z.Close(ctx)
 		if err != nil {
 			l.Error("compactor: error closing compacted c1z", zap.Error(err), zap.String("compacted_c1z_file", destFilePath))
+			// A Pebble store whose Close failed mid-save is deliberately
+			// left open for a retry (see pebbleStore.Close) — but the
+			// compactor never retries, and this defer only fires on
+			// compaction failure paths where the output is garbage.
+			// Discard it so the engine's fds and goroutines don't outlive
+			// the failed compaction; the tmp-root sweep reclaims the disk.
+			if d, ok := c.compactedC1z.(interface{ Discard(context.Context) error }); ok {
+				if derr := d.Discard(ctx); derr != nil {
+					l.Error("compactor: error discarding compacted c1z after failed close", zap.Error(derr))
+				}
+			}
 		}
 	}()
 	var newSyncId string

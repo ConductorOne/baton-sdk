@@ -28,8 +28,11 @@ import (
 // not a fresh sync (we're filtering against existing data).
 
 // PutGrantRecordsIfNewer writes records that are strictly newer than
-// the stored copy. Records without a discovered_at are treated as
-// "always write" (caller is asserting freshness explicitly).
+// the stored copy. A record with no discovered_at NEVER overwrites an
+// existing row (SQLite's `NULL > X` is NULL — see discoveredAtIsNewer);
+// it is written only when no prior record exists. The adapter-level
+// IfNewer methods stamp DiscoveredAt before reaching here, so direct
+// engine callers must supply one to mean "write this".
 func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil

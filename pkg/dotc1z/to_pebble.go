@@ -172,13 +172,20 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	if err != nil {
 		return nil, fmt.Errorf("to-pebble: open destination: %w", err)
 	}
-	// On any failure after open, close the destination and remove the
+	// On any failure after open, tear the destination down and remove the
 	// partially-written output so the operation is atomic from the caller's
-	// perspective.
+	// perspective. Discard, not Close: the output is being deleted, so the
+	// store's contents are garbage — Close would first attempt a save
+	// (wasted work) and, if that save failed, deliberately leave the engine
+	// open for a retry that never comes, leaking its fds and goroutines.
 	cleanupDest := true
 	defer func() {
 		if cleanupDest {
-			_ = dest.Close(ctx)
+			if d, ok := dest.(storeDiscarder); ok {
+				_ = d.Discard(ctx)
+			} else {
+				_ = dest.Close(ctx)
+			}
 			_ = os.Remove(outPath) // #nosec G703 -- cleanup of caller-selected conversion output.
 		}
 	}()
@@ -258,8 +265,9 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	endSyncDur := time.Since(endSyncStart)
 	closeStart := time.Now()
 	if err = dest.Close(ctx); err != nil {
-		cleanupDest = false
-		_ = os.Remove(outPath) // #nosec G703 -- cleanup of caller-selected conversion output.
+		// cleanupDest is still true: the deferred cleanup discards the
+		// still-open store (a failed final save has no recovery value here —
+		// the output is deleted either way) and removes the partial output.
 		return nil, fmt.Errorf("to-pebble: close destination: %w", err)
 	}
 	closeDur := time.Since(closeStart)

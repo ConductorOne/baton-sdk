@@ -697,6 +697,40 @@ func (s *pebbleStore) Close(ctx context.Context) (retErr error) {
 	return retErr
 }
 
+// Discard force-closes the store WITHOUT saving: the engine is torn down
+// and the unpacked temp directory removed, regardless of the dirty bit.
+// This is the counterpart to Close's leave-open-on-failed-save recovery
+// semantics, for callers that have already decided the store's contents
+// are garbage (a failed conversion or compaction whose output file is
+// being deleted): retrying the save there has no value, and leaving the
+// engine open would leak its fds and background goroutines for the
+// process lifetime. A no-op after a successful Close.
+func (s *pebbleStore) Discard(ctx context.Context) (retErr error) {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	defer func() {
+		if removeErr := os.RemoveAll(s.tmpDir); removeErr != nil {
+			retErr = errors.Join(retErr, removeErr)
+		}
+	}()
+	if err := s.engine.Close(); err != nil {
+		retErr = errors.Join(retErr, err)
+	}
+	return retErr
+}
+
+// storeDiscarder is the optional no-save force-teardown capability
+// (implemented by pebbleStore.Discard). Callers deleting a store's output
+// file should prefer it over Close, whose failed-save path deliberately
+// leaves the store open for a retry.
+type storeDiscarder interface {
+	Discard(ctx context.Context) error
+}
+
 func (s *pebbleStore) save(ctx context.Context) error {
 	if s.outputFilePath == "" {
 		return fmt.Errorf("pebble engine: output file path is empty")

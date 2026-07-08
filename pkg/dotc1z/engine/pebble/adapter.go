@@ -330,6 +330,16 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 // Runs with the engine SEALED (see EndSync) — every write below goes
 // through an AllowSealed path. Split out so EndSync can unseal on failure.
 func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord) error {
+	// A still-open synthesized-grant layer session means the expansion
+	// driver abandoned its Finish/Abort contract. Its background worker
+	// ingests grant SSTs OUTSIDE writeMu (see ingestSynthLayerSegment), so
+	// it could publish rows after the deferred build's iterator snapshot —
+	// rows the destructive IngestAndExcise below would then silently erase.
+	// Fail loudly instead of saving an artifact that lost grants; the
+	// caller must Finish or Abort the session and retry EndSync.
+	if e.loadSynthLayer() != nil {
+		return errors.New("EndSync: synthesized-grant layer session still open; Finish or Abort it before ending the sync")
+	}
 	// Build the deferred by_principal index BEFORE stamping ended_at (an
 	// interrupted build must leave the sync visibly unfinished so a resume
 	// re-runs EndSync and the rebuild — the pending marker is durable, see
