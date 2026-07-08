@@ -162,18 +162,30 @@ type GrantDigestBucket struct {
 // callers must type-assert and fall back when the assertion fails or
 // found is false.
 //
+// Digests are keyed by the entitlement's STRUCTURAL identity —
+// (resource_type_id, resource_id, entitlement id) — so every method
+// takes a *v2.Entitlement stub, the same addressing the grants-for-
+// entitlement readers use. Pass the resource ref when you have it (any
+// caller iterating entitlement records does): identity then derives
+// exactly from the structured parts, with no lookup and no ambiguity.
+// A stub carrying only the Id falls back to bare-id resolution under
+// the exactly-one rule; an id that matches entitlements on more than
+// one resource is an error, never a guess. A nil stub or empty Id is
+// an error.
+//
 // found is false when the reader has no digest built for the
-// entitlement (it was never synced, or the file predates / opted out of
-// the digest index — see WithGrantDigestIndex). A nil error with
-// found=false means "no digest", not "error".
+// entitlement (it was never synced, the file predates / opted out of
+// the digest index — see WithGrantDigestIndex — or a bare id resolved
+// to nothing). A nil error with found=false means "no digest", not
+// "error".
 type EntitlementGrantDigestReader interface {
 	// GetEntitlementGrantDigest returns the entitlement's digest root —
 	// the whole-entitlement hash + grant count, plus the digest's native
 	// rollup Level. One key read.
-	GetEntitlementGrantDigest(ctx context.Context, entitlementID string) (digest GrantDigest, found bool, err error)
+	GetEntitlementGrantDigest(ctx context.Context, entitlement *v2.Entitlement) (digest GrantDigest, found bool, err error)
 
 	// GetEntitlementGrantDigestNodes lists the digest's rollup nodes for
-	// entitlementID at `level`: 2^level principal-hash buckets, with
+	// the entitlement at `level`: 2^level principal-hash buckets, with
 	// level 0 returning a single node (the root) covering the whole
 	// entitlement.
 	//
@@ -185,10 +197,10 @@ type EntitlementGrantDigestReader interface {
 	// bits, so a level beyond that resolution is served at the maximum
 	// (you may get fewer than 2^level distinct buckets). found is false
 	// when no digest exists.
-	GetEntitlementGrantDigestNodes(ctx context.Context, entitlementID string, level int) (nodes []GrantDigestNode, found bool, err error)
+	GetEntitlementGrantDigestNodes(ctx context.Context, entitlement *v2.Entitlement, level int) (nodes []GrantDigestNode, found bool, err error)
 
 	// ScanEntitlementGrantBucket yields every grant in one digest bucket
-	// of entitlementID (see GrantDigestBucket) as a v2.Grant, stopping
+	// of the entitlement (see GrantDigestBucket) as a v2.Grant, stopping
 	// early if yield returns false. Bucket Level 0 scans the whole
 	// entitlement; a Level finer than the bucket-hash resolution is
 	// clamped (matching GetEntitlementGrantDigestNodes). It reads the
@@ -197,7 +209,7 @@ type EntitlementGrantDigestReader interface {
 	// GetEntitlementGrantDigest first and treat found=false as "scan
 	// unavailable — read the grants directly", not as "no grants". It
 	// yields nothing when there is no active sync or no matching grants.
-	ScanEntitlementGrantBucket(ctx context.Context, entitlementID string, bucket GrantDigestBucket, yield func(grant *v2.Grant) bool) error
+	ScanEntitlementGrantBucket(ctx context.Context, entitlement *v2.Entitlement, bucket GrantDigestBucket, yield func(grant *v2.Grant) bool) error
 }
 
 // DBSizeProvider is an optional capability for a store that can report its

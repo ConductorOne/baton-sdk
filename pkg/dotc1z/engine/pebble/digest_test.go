@@ -45,6 +45,22 @@ func testEntPartition(entID string) string {
 	return digestPartitionForEntitlement(testEntIdentity(entID))
 }
 
+// testV2Ent is the full entitlement stub (id + resource ref) the digest
+// reader methods take — the same shape ListGrantsForEntitlement
+// requests carry, so identity derives exactly from the structured
+// parts with no bare-id resolution.
+func testV2Ent(entID string) *v2.Entitlement {
+	return v2.Entitlement_builder{
+		Id: canonicalTestEntID(entID),
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: "app",
+				Resource:     "github",
+			}.Build(),
+		}.Build(),
+	}.Build()
+}
+
 // makeGrantWithSources is makeGrant plus an optional source-entitlement
 // set, which the content hash folds in — so two grants with the same
 // identity but different sources produce different content hashes while
@@ -263,7 +279,7 @@ func TestAdapterGetEntitlementGrantDigest(t *testing.T) {
 	// Digest index on: the entitlement resolves with its grant count.
 	on, _ := newTestEngine(t)
 	a := seal(on)
-	d, found, err := a.GetEntitlementGrantDigest(ctx, canonicalTestEntID("ent-A"))
+	d, found, err := a.GetEntitlementGrantDigest(ctx, testV2Ent("ent-A"))
 	if err != nil {
 		t.Fatalf("GetEntitlementGrantDigest: %v", err)
 	}
@@ -277,15 +293,32 @@ func TestAdapterGetEntitlementGrantDigest(t *testing.T) {
 		t.Fatal("expected non-empty hash")
 	}
 
-	// Unknown entitlement: not found, no error.
-	if _, found, err := a.GetEntitlementGrantDigest(ctx, canonicalTestEntID("ent-missing")); err != nil || found {
-		t.Fatalf("unknown entitlement: found=%v err=%v, want found=false err=nil", found, err)
+	// An id-only stub (no resource ref) resolves through the bare-id
+	// fallback to the same digest.
+	bare := v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build()
+	dBare, found, err := a.GetEntitlementGrantDigest(ctx, bare)
+	if err != nil || !found {
+		t.Fatalf("bare-id stub: found=%v err=%v", found, err)
+	}
+	if dBare.Count != d.Count || !bytes.Equal(dBare.Hash, d.Hash) {
+		t.Fatal("bare-id stub resolved to a different digest than the full stub")
+	}
+
+	// Unknown entitlement: not found, no error — both as a full stub
+	// (identity derives, no root exists) and as a bare id (resolution
+	// misses).
+	if _, found, err := a.GetEntitlementGrantDigest(ctx, testV2Ent("ent-missing")); err != nil || found {
+		t.Fatalf("unknown entitlement (full stub): found=%v err=%v, want found=false err=nil", found, err)
+	}
+	bareMissing := v2.Entitlement_builder{Id: canonicalTestEntID("ent-missing")}.Build()
+	if _, found, err := a.GetEntitlementGrantDigest(ctx, bareMissing); err != nil || found {
+		t.Fatalf("unknown entitlement (bare id): found=%v err=%v, want found=false err=nil", found, err)
 	}
 
 	// Disabled: a real entitlement reports not-found (no digest built).
 	off, _ := newTestEngine(t, WithGrantDigestIndex(false))
 	aOff := seal(off)
-	if _, found, err := aOff.GetEntitlementGrantDigest(ctx, canonicalTestEntID("ent-A")); err != nil || found {
+	if _, found, err := aOff.GetEntitlementGrantDigest(ctx, testV2Ent("ent-A")); err != nil || found {
 		t.Fatalf("digest off: found=%v err=%v, want found=false err=nil", found, err)
 	}
 }
@@ -315,8 +348,8 @@ func TestAdapterGrantDigestNodes(t *testing.T) {
 		t.Fatalf("EndSync: %v", err)
 	}
 
-	entID := canonicalTestEntID("ent-A")
-	d, found, err := a.GetEntitlementGrantDigest(ctx, entID)
+	ent := testV2Ent("ent-A")
+	d, found, err := a.GetEntitlementGrantDigest(ctx, ent)
 	if err != nil || !found {
 		t.Fatalf("digest: found=%v err=%v", found, err)
 	}
@@ -328,7 +361,7 @@ func TestAdapterGrantDigestNodes(t *testing.T) {
 	}
 
 	// Level 0 → a single root node matching the digest root.
-	roots, found, err := a.GetEntitlementGrantDigestNodes(ctx, entID, 0)
+	roots, found, err := a.GetEntitlementGrantDigestNodes(ctx, ent, 0)
 	if err != nil || !found {
 		t.Fatalf("nodes(0): found=%v err=%v", found, err)
 	}
@@ -338,7 +371,7 @@ func TestAdapterGrantDigestNodes(t *testing.T) {
 
 	// Level == native → the stored leaves: sparse (no zero-count nodes),
 	// counts sum to the total, hashes XOR to the root.
-	leaves, found, err := a.GetEntitlementGrantDigestNodes(ctx, entID, d.Level)
+	leaves, found, err := a.GetEntitlementGrantDigestNodes(ctx, ent, d.Level)
 	if err != nil || !found {
 		t.Fatalf("nodes(native): found=%v err=%v", found, err)
 	}
@@ -362,7 +395,7 @@ func TestAdapterGrantDigestNodes(t *testing.T) {
 
 	// Finer than native → index-scan fallback (no error). Same totals:
 	// counts sum to n and hashes XOR to the root.
-	finer, found, err := a.GetEntitlementGrantDigestNodes(ctx, entID, d.Level+1)
+	finer, found, err := a.GetEntitlementGrantDigestNodes(ctx, ent, d.Level+1)
 	if err != nil || !found {
 		t.Fatalf("nodes(native+1): found=%v err=%v, want a scanned result", found, err)
 	}
@@ -378,7 +411,7 @@ func TestAdapterGrantDigestNodes(t *testing.T) {
 	}
 
 	// Absurdly fine level → clamped to the hash resolution, still no error.
-	if _, found, err := a.GetEntitlementGrantDigestNodes(ctx, entID, 999); err != nil || !found {
+	if _, found, err := a.GetEntitlementGrantDigestNodes(ctx, ent, 999); err != nil || !found {
 		t.Fatalf("nodes(999): found=%v err=%v, want clamped scan with no error", found, err)
 	}
 }
@@ -407,10 +440,10 @@ func TestAdapterScanGrantBucket(t *testing.T) {
 		t.Fatalf("EndSync: %v", err)
 	}
 
-	entID := canonicalTestEntID("ent-A")
+	ent := testV2Ent("ent-A")
 	// Level 0 = whole entitlement → every grant.
 	total := 0
-	if err := a.ScanEntitlementGrantBucket(ctx, entID, connectorstore.GrantDigestBucket{Level: 0}, func(*v2.Grant) bool {
+	if err := a.ScanEntitlementGrantBucket(ctx, ent, connectorstore.GrantDigestBucket{Level: 0}, func(*v2.Grant) bool {
 		total++
 		return true
 	}); err != nil {
@@ -422,18 +455,18 @@ func TestAdapterScanGrantBucket(t *testing.T) {
 
 	// Per native-level bucket: each scan's count matches the rollup node,
 	// and the buckets partition all the grants.
-	d, _, err := a.GetEntitlementGrantDigest(ctx, entID)
+	d, _, err := a.GetEntitlementGrantDigest(ctx, ent)
 	if err != nil {
 		t.Fatalf("digest: %v", err)
 	}
-	nodes, _, err := a.GetEntitlementGrantDigestNodes(ctx, entID, d.Level)
+	nodes, _, err := a.GetEntitlementGrantDigestNodes(ctx, ent, d.Level)
 	if err != nil {
 		t.Fatalf("nodes: %v", err)
 	}
 	sum := 0
 	for _, nd := range nodes {
 		c := int64(0)
-		if err := a.ScanEntitlementGrantBucket(ctx, entID, connectorstore.GrantDigestBucket{Level: d.Level, Index: nd.Index}, func(*v2.Grant) bool {
+		if err := a.ScanEntitlementGrantBucket(ctx, ent, connectorstore.GrantDigestBucket{Level: d.Level, Index: nd.Index}, func(*v2.Grant) bool {
 			c++
 			return true
 		}); err != nil {
@@ -450,7 +483,7 @@ func TestAdapterScanGrantBucket(t *testing.T) {
 
 	// yield can stop early.
 	calls := 0
-	if err := a.ScanEntitlementGrantBucket(ctx, entID, connectorstore.GrantDigestBucket{Level: 0}, func(*v2.Grant) bool {
+	if err := a.ScanEntitlementGrantBucket(ctx, ent, connectorstore.GrantDigestBucket{Level: 0}, func(*v2.Grant) bool {
 		calls++
 		return false
 	}); err != nil {
@@ -462,7 +495,7 @@ func TestAdapterScanGrantBucket(t *testing.T) {
 
 	// Unknown entitlement → nothing, no error.
 	missing := 0
-	if err := a.ScanEntitlementGrantBucket(ctx, canonicalTestEntID("ent-missing"), connectorstore.GrantDigestBucket{Level: 0}, func(*v2.Grant) bool {
+	if err := a.ScanEntitlementGrantBucket(ctx, testV2Ent("ent-missing"), connectorstore.GrantDigestBucket{Level: 0}, func(*v2.Grant) bool {
 		missing++
 		return true
 	}); err != nil || missing != 0 {
@@ -687,14 +720,14 @@ func TestGrantDigestZeroGrantRootsAtEndSync(t *testing.T) {
 		t.Fatalf("EndSync: %v", err)
 	}
 
-	d, found, err := a.GetEntitlementGrantDigest(ctx, canonicalTestEntID("ent-with"))
+	d, found, err := a.GetEntitlementGrantDigest(ctx, testV2Ent("ent-with"))
 	if err != nil || !found {
 		t.Fatalf("ent-with digest: found=%v err=%v", found, err)
 	}
 	if d.Count != 1 {
 		t.Fatalf("ent-with count = %d, want 1", d.Count)
 	}
-	dz, found, err := a.GetEntitlementGrantDigest(ctx, canonicalTestEntID("ent-zero"))
+	dz, found, err := a.GetEntitlementGrantDigest(ctx, testV2Ent("ent-zero"))
 	if err != nil || !found {
 		t.Fatalf("ent-zero digest: found=%v err=%v, want a {count: 0} root (empty, not never-built)", found, err)
 	}
