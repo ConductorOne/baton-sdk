@@ -32,7 +32,13 @@ type StoreOptions struct {
 	SyncLimit          int
 	SkipCleanup        bool
 	V2GrantsWriter     bool
-	Engine             c1zstore.Engine
+
+	// DisableGrantDigestIndex turns off the Pebble engine's seal-time
+	// build of the by_entitlement_principal_hash index + grant digests.
+	// Inverted so the zero value keeps the build on (current behavior).
+	DisableGrantDigestIndex bool
+
+	Engine c1zstore.Engine
 
 	// PayloadEncoding selects the v3 envelope payload framing for
 	// engines that produce a v3 envelope (currently Pebble). Zero
@@ -180,18 +186,19 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 	maxDecodedPayloadBytes, _ := explicitMaxDecodedSizeForDecoderOptions(options.decoderOptions...)
 	maxDecoderMemoryBytes, _ := explicitMaxMemorySizeForDecoderOptions(options.decoderOptions...)
 	out := StoreOptions{
-		TmpDir:                 options.tmpDir,
-		DecoderOptions:         append([]DecoderOption(nil), options.decoderOptions...),
-		ReadOnly:               options.readOnly,
-		EncoderConcurrency:     options.encoderConcurrency,
-		SyncLimit:              options.syncLimit,
-		SkipCleanup:            options.skipCleanup,
-		V2GrantsWriter:         options.v2GrantsWriter,
-		Engine:                 options.engine,
-		PayloadEncoding:        options.payloadEncoding,
-		DecoderPool:            options.decoderPool,
-		MaxDecodedPayloadBytes: maxDecodedPayloadBytes,
-		MaxDecoderMemoryBytes:  maxDecoderMemoryBytes,
+		TmpDir:                  options.tmpDir,
+		DecoderOptions:          append([]DecoderOption(nil), options.decoderOptions...),
+		ReadOnly:                options.readOnly,
+		EncoderConcurrency:      options.encoderConcurrency,
+		SyncLimit:               options.syncLimit,
+		SkipCleanup:             options.skipCleanup,
+		V2GrantsWriter:          options.v2GrantsWriter,
+		DisableGrantDigestIndex: options.disableGrantDigestIndex,
+		Engine:                  options.engine,
+		PayloadEncoding:         options.payloadEncoding,
+		DecoderPool:             options.decoderPool,
+		MaxDecodedPayloadBytes:  maxDecodedPayloadBytes,
+		MaxDecoderMemoryBytes:   maxDecoderMemoryBytes,
 	}
 	if out.Engine == "" {
 		out.Engine = c1zstore.EngineSQLite
@@ -350,6 +357,9 @@ func (sqliteDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	}
 	if opts.V2GrantsWriter {
 		c1zOpts = append(c1zOpts, WithV2GrantsWriter(true))
+	}
+	if opts.DisableGrantDigestIndex {
+		c1zOpts = append(c1zOpts, WithGrantDigestIndex(false))
 	}
 	return NewC1ZFile(ctx, outputFilePath, c1zOpts...)
 }

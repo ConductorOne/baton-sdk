@@ -50,7 +50,10 @@ const bulkSpillKeyChunkBytes = 8 << 20
 const bulkSpillBufferSize = 1 << 20
 
 // grantIndexFamilies are the index-discriminator bytes AddGrants can
-// emit (see grantIndexKeys).
+// emit (see grantIndexKeys). The by_entitlement_principal_hash index
+// is deliberately absent: it and the grant digests are derived from
+// the primaries by the fused deferred pass at seal time
+// (BuildDeferredGrantIndexes), never written inline.
 var grantIndexFamilies = []byte{
 	idxGrantByPrincipal,
 	idxGrantByNeedsExpansion,

@@ -84,6 +84,13 @@ type Engine struct {
 	// as one sorted SST at EndSync — see BuildDeferredGrantIndexes).
 	deferredIdxPending atomic.Bool
 
+	// grantDigestsPresent reports whether the digest keyspace holds any
+	// nodes — i.e. whether a grant mutation must invalidate the touched
+	// entitlement's digest + hash-index ranges
+	// (stageGrantDigestInvalidation). Probed once at Open, set by the
+	// seal-time build, cleared by ResetForNewSync and the Drop* paths.
+	grantDigestsPresent atomic.Bool
+
 	// synthLayer is the open wave-scoped layer session, if any (see
 	// BeginSynthesizedGrantLayer). Single producer: the expansion driver
 	// opens/adds/finishes sessions strictly sequentially. synthLayerMu
@@ -209,6 +216,12 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		closer.Close()
 		e.deferredIdxPending.Store(true)
 	} else if !errors.Is(err, pebble.ErrNotFound) {
+		_ = e.Close()
+		return nil, err
+	}
+	// Arm the mutation-path digest invalidation iff the file actually
+	// holds digest nodes (one bounded seek; see grant_digest.go).
+	if err := e.probeGrantDigestsPresent(); err != nil {
 		_ = e.Close()
 		return nil, err
 	}
@@ -388,6 +401,11 @@ func (e *Engine) IsFreshSync() bool {
 	defer e.currentSyncMu.RUnlock()
 	return e.freshSync
 }
+
+// GrantDigestIndexEnabled reports whether the seal-time deferred pass
+// builds the by_entitlement_principal_hash index and grant digests.
+// See WithGrantDigestIndex.
+func (e *Engine) GrantDigestIndexEnabled() bool { return e.opts.grantDigestIndex }
 
 // takeFreshGrantsEmpty / takeFreshResourcesEmpty return true
 // exactly once per fresh sync, for the first PutXxxRecords call

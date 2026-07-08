@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -51,32 +52,44 @@ func prepareRegisteredC1Z(b *testing.B, n int, engine c1zstore.Engine) (string, 
 	return path, syncID
 }
 
-func benchmarkRegisteredWritePack(b *testing.B, engine c1zstore.Engine, n int) {
+func benchmarkRegisteredWritePack(b *testing.B, engine c1zstore.Engine, n int, storeOpts ...dotc1z.C1ZOption) {
 	ctx := context.Background()
 	root := b.TempDir()
 	grants := benchmarkGrants(n)
 	b.ReportAllocs()
 	b.ReportMetric(float64(n), "grants/op")
 	b.ResetTimer()
+
+	var totalPutGrants, totalEndSync int64
 	for i := 0; i < b.N; i++ {
 		path := fmt.Sprintf("%s/%s-sync-%06d.c1z", root, engine, i)
-		store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(engine))
+		openOpts := append([]dotc1z.C1ZOption{dotc1z.WithEngine(engine)}, storeOpts...)
+		store, err := dotc1z.NewStore(ctx, path, openOpts...)
 		if err != nil {
 			b.Fatalf("NewStore: %v", err)
 		}
 		if _, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
 			b.Fatalf("StartNewSync: %v", err)
 		}
+
+		t0 := time.Now()
 		if err := store.PutGrants(ctx, grants...); err != nil {
 			b.Fatalf("PutGrants: %v", err)
 		}
+		totalPutGrants += time.Since(t0).Milliseconds()
+
+		t1 := time.Now()
 		if err := store.EndSync(ctx); err != nil {
 			b.Fatalf("EndSync: %v", err)
 		}
+		totalEndSync += time.Since(t1).Milliseconds()
+
 		if err := store.Close(ctx); err != nil {
 			b.Fatalf("Close: %v", err)
 		}
 	}
+	b.ReportMetric(float64(totalPutGrants)/float64(b.N), "ms/PutGrants")
+	b.ReportMetric(float64(totalEndSync)/float64(b.N), "ms/EndSync")
 }
 
 func benchmarkRegisteredUnpackReadGrants(b *testing.B, engine c1zstore.Engine, n int) {
@@ -219,6 +232,16 @@ func BenchmarkRegisteredPebbleWritePack(b *testing.B) {
 	for _, n := range grantsScales() {
 		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
 			benchmarkRegisteredWritePack(b, c1zstore.EnginePebble, n)
+		})
+	}
+}
+
+func BenchmarkRegisteredPebbleWritePack_NoDigestIndex(b *testing.B) {
+	for _, n := range grantsScales() {
+		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
+			benchmarkRegisteredWritePack(b, c1zstore.EnginePebble, n,
+				dotc1z.WithGrantDigestIndex(false),
+			)
 		})
 	}
 }

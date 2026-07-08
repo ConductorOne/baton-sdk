@@ -994,11 +994,24 @@ func grantIndexKeys(r *v3.GrantRecord) [][]byte {
 	return keys
 }
 
-// writeGrantIndexes adds index entries for r to batch.
+// writeGrantIndexes adds index entries for r to batch. The
+// by_entitlement_principal_hash index and the digests over it are
+// deliberately NOT written here: both are derived from the primaries in
+// the fused deferred pass at seal time (BuildDeferredGrantIndexes),
+// never maintained inline. A write landing on a file whose digests are
+// already built (post-seal mutation) instead invalidates the touched
+// entitlement's digest state.
 func (e *Engine) writeGrantIndexes(batch *pebble.Batch, r *v3.GrantRecord) error {
 	for _, k := range grantIndexKeys(r) {
 		if err := batch.Set(k, nil, nil); err != nil {
 			return err
+		}
+	}
+	if e.grantDigestsPresent.Load() {
+		if id, err := grantIdentityFromRecord(r); err == nil {
+			if err := e.stageGrantDigestInvalidation(batch, id.entitlement); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -1068,6 +1081,11 @@ func (e *Engine) writeGrantIndexesForIdentityScratch(batch *pebble.Batch, id gra
 			return scratch, err
 		}
 	}
+	// Post-seal mutation invalidation; no-op (one atomic load) during
+	// ordinary syncs — see stageGrantDigestInvalidation.
+	if err := e.stageGrantDigestInvalidation(batch, id.entitlement); err != nil {
+		return scratch, err
+	}
 	return scratch, nil
 }
 
@@ -1094,6 +1112,11 @@ func (e *Engine) deleteGrantIndexesScratch(batch *pebble.Batch, externalID strin
 	}
 	scratch = appendGrantByNeedsExpansionIdentityIndexKey(scratch[:0], id)
 	if err := batch.Delete(scratch, nil); err != nil {
+		return scratch, err
+	}
+	// Post-seal mutation invalidation; no-op (one atomic load) during
+	// ordinary syncs — see stageGrantDigestInvalidation.
+	if err := e.stageGrantDigestInvalidation(batch, id.entitlement); err != nil {
 		return scratch, err
 	}
 	return scratch, nil

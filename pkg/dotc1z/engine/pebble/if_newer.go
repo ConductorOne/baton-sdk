@@ -40,6 +40,12 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 		}
 		batch := e.db.NewBatch()
 		defer batch.Close()
+		// No inline hash-index or digest maintenance here: both are
+		// derived at seal time (the fused deferred pass). But IfNewer is
+		// the partial-sync path — it mutates a CLONED sealed file whose
+		// digests are built — so the index write/delete helpers below
+		// stage the touched entitlements' digest invalidation
+		// (stageGrantDigestInvalidation) whenever digests are present.
 		written := 0
 		for _, r := range records {
 			if r == nil {

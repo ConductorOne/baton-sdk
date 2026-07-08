@@ -75,9 +75,10 @@ func NewAdapter(e *Engine) *Adapter {
 // Compile-time checks for the full Writer interface and the optional
 // connectorstore capabilities that SQLite's *C1File also exposes.
 var (
-	_ connectorstore.Writer                      = (*Adapter)(nil)
-	_ connectorstore.LatestFinishedSyncIDFetcher = (*Adapter)(nil)
-	_ connectorstore.DBSizeProvider              = (*Adapter)(nil)
+	_ connectorstore.Writer                       = (*Adapter)(nil)
+	_ connectorstore.LatestFinishedSyncIDFetcher  = (*Adapter)(nil)
+	_ connectorstore.DBSizeProvider               = (*Adapter)(nil)
+	_ connectorstore.EntitlementGrantDigestReader = (*Adapter)(nil)
 )
 
 // === sync lifecycle ===
@@ -343,6 +344,17 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 		}
 		if err := e.clearDeferredIdxPending(); err != nil {
 			return fmt.Errorf("EndSync: clear deferred index marker: %w", err)
+		}
+	} else if e.GrantDigestIndexEnabled() {
+		// The deferred pass didn't run (no grant went through the
+		// deferred index paths — inline-index writes like PutGrantRecords
+		// never arm the marker), but digests are built at every seal:
+		// run the standalone build, which shares the fused build's
+		// merge/fold/ingest machinery over its own grant scan. Build
+		// failures are downgraded to a loud digest-state drop inside;
+		// an error surfacing here (cancellation, drop failure) is fatal.
+		if err := e.BuildGrantDigests(ctx); err != nil {
+			return fmt.Errorf("EndSync: build grant digests: %w", err)
 		}
 	}
 	updated := v3.SyncRunRecord_builder{

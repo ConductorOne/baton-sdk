@@ -35,6 +35,8 @@ func scopedRanges() [][2][]byte {
 		{GrantByPrincipalLowerBound(), GrantByPrincipalUpperBound()},
 		{GrantByPrincipalResourceTypeLowerBound(), GrantByPrincipalResourceTypeUpperBound()},
 		{GrantByNeedsExpansionLowerBound(), GrantByNeedsExpansionUpperBound()},
+		{GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()},
+		{DigestLowerBound(), DigestUpperBound()},
 		{encodeAssetPrefix(), upperBoundOf(encodeAssetPrefix())},
 		// Stats sidecar — single key; the half-open range shape
 		// contains exactly that one key.
@@ -94,6 +96,9 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 				return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)
 			}
 		}
+		// The record-type span above covers typeDigest and the hash
+		// index too; disarm the mutation-path digest invalidation.
+		e.grantDigestsPresent.Store(false)
 		e.noteEntitlementKeyspaceWrite()
 		return nil
 	})

@@ -42,6 +42,14 @@ type Options struct {
 	// readOnly opens the engine without write permission. Save is
 	// disallowed in this mode.
 	readOnly bool
+
+	// grantDigestIndex controls whether the seal-time deferred pass
+	// (BuildDeferredGrantIndexes) also constructs the
+	// by_entitlement_principal_hash index and the per-entitlement grant
+	// digests — the substrate for cross-file grant diffing. Default on.
+	// The write paths never maintain either inline, so this gates only
+	// the fused derivation at EndSync. See WithGrantDigestIndex.
+	grantDigestIndex bool
 }
 
 // Option is a functional option passed to Open.
@@ -64,6 +72,20 @@ func WithDurability(d Durability) Option { return func(o *Options) { o.durabilit
 
 // WithReadOnly opens the engine in read-only mode. Save is disallowed.
 func WithReadOnly(readOnly bool) Option { return func(o *Options) { o.readOnly = readOnly } }
+
+// WithGrantDigestIndex toggles the seal-time construction of the
+// by_entitlement_principal_hash index and the per-entitlement grant
+// digests. Default true.
+//
+// Set false on files that will never be grant-diffed (e.g. local CLI
+// syncs, connector development) to skip the derivation work in the
+// EndSync deferred pass. Safe to toggle per Open: a file sealed with
+// this off simply stores no digest roots, which readers and the
+// cross-file comparison treat as "missing — recalculate /
+// whole-entitlement dirty", never as "no grants".
+func WithGrantDigestIndex(enabled bool) Option {
+	return func(o *Options) { o.grantDigestIndex = enabled }
+}
 
 // WithSlowQueryThreshold overrides the default 5 s threshold for
 // slow-iterator logging.
@@ -140,6 +162,7 @@ func defaultOptions() *Options {
 	return &Options{
 		durability:         DurabilitySync,
 		slowQueryThreshold: 5 * time.Second,
+		grantDigestIndex:   true,
 	}
 }
 
