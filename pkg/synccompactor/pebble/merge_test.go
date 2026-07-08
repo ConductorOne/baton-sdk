@@ -88,6 +88,55 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 	assertIndexesMatchDerived(t, ctx, dst)
 }
 
+// TestMergeIntoGrantWritesTracksActualChanges pins the FoldStats.GrantWrites
+// signal the fold compactor uses to skip a from-scratch grant-digest
+// rebuild when a fold changed nothing: it must be zero whenever no
+// grant record was actually written to dest (a byte-identical
+// resubmission, or a source with no grants at all), and nonzero
+// whenever one was (a fresh admission or a strictly-newer override).
+func TestMergeIntoGrantWritesTracksActualChanges(t *testing.T) {
+	ctx := context.Background()
+	src, _ := newEngine(t, "gw-src")
+	dst, _ := newEngine(t, "gw-dst")
+
+	syncID := ksuid.New().String()
+	destSync := ksuid.New().String()
+	at := time.Unix(1000, 0).UTC()
+
+	require.NoError(t, src.SetCurrentSync(syncID))
+	require.NoError(t, src.PutGrantRecords(ctx, grantAt(syncID, "g1", at)))
+
+	// First merge: a genuinely new grant is admitted.
+	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src, SyncID: syncID}}, destSync)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, stats.GrantWrites, "first merge admits one new grant")
+
+	// Re-merging the SAME source into the SAME dest sync: the incoming
+	// record is now byte-identical to the incumbent, which
+	// mergeBucketRawIfNewer treats as a true no-op — zero grant writes,
+	// even though a grant record was iterated and compared.
+	stats2, err := MergeInto(ctx, dst, []SourceSync{{Engine: src, SyncID: syncID}}, destSync)
+	require.NoError(t, err)
+	require.Zero(t, stats2.GrantWrites, "resubmitting an identical grant must not count as a write")
+
+	// A source with no grants at all contributes zero grant writes.
+	empty, _ := newEngine(t, "gw-empty-src")
+	emptySyncID := ksuid.New().String()
+	require.NoError(t, empty.SetCurrentSync(emptySyncID))
+	stats3, err := MergeInto(ctx, dst, []SourceSync{{Engine: empty, SyncID: emptySyncID}}, destSync)
+	require.NoError(t, err)
+	require.Zero(t, stats3.GrantWrites, "a source with no grants contributes zero grant writes")
+
+	// A genuinely newer record on the same identity DOES count.
+	newer := time.Unix(2000, 0).UTC()
+	src2, _ := newEngine(t, "gw-src2")
+	require.NoError(t, src2.SetCurrentSync(syncID))
+	require.NoError(t, src2.PutGrantRecords(ctx, grantAt(syncID, "g1", newer)))
+	stats4, err := MergeInto(ctx, dst, []SourceSync{{Engine: src2, SyncID: syncID}}, destSync)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, stats4.GrantWrites, "a strictly-newer override counts as a grant write")
+}
+
 // TestMergeIntoTieKeepsIncumbent pins the equal-discovered_at tie rule
 // to SQLite's strict `>`: on a tie, the earlier-applied source's record
 // is kept (it is the incumbent the newer write does not replace).

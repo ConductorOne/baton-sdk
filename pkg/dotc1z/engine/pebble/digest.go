@@ -412,6 +412,15 @@ func (e *Engine) foldPartitionNodes(ctx context.Context, spec digestIndexSpec, p
 // that the natural count→width mapping would only produce at a very
 // large record count, which is how the cross-width comparison path gets
 // covered without seeding hundreds of thousands of records.
+//
+// Test-only today (no production caller). If a future production path
+// reuses this for the grant digest specifically, it MUST also either
+// invalidate or recompute the whole-file global root
+// (globalGrantDigestNodeKey) alongside it:
+// RepairMissingGrantDigests's fast path trusts the global root's mere
+// presence to mean every partition is present and correct, and this
+// function rewrites one partition's content without touching that
+// root at all.
 func (e *Engine) buildPartitionDigestAtWidth(ctx context.Context, spec digestIndexSpec, partition string, widthBits int) error {
 	nodeLower := encodeDigestPartitionPrefix(spec.indexID, partition)
 	nodeUpper := upperBoundOf(nodeLower)

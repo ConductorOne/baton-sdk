@@ -534,16 +534,25 @@ func (e *Engine) writeMissingEntitlementDigestRoots(ctx context.Context, opts *p
 	return batch.Commit(opts)
 }
 
-// BuildGrantDigests is the standalone digest build for an EndSync whose
-// deferred pass never ran: grants written through PutGrantRecords /
-// UnsafePutUniqueGrantRecords / the bulk importer maintain by_principal
-// inline and never arm the deferred-index marker, so a sync without
-// expansion-path writes reaches EndSync with deferredIdxPending false —
-// and possibly millions of grants. Digests are built at EVERY seal, so
-// this runs its own primary-grant scan feeding the same spill-sorter →
-// merge+fold → ingest machinery the fused pass uses
-// (buildGrantDigestsFromSpill). When the deferred pass DOES run, the
-// fused build supersedes this (same output, one shared scan).
+// BuildGrantDigests is the full-file standalone digest build: grants
+// written through PutGrantRecords / UnsafePutUniqueGrantRecords / the
+// bulk importer maintain by_principal inline and never arm the
+// deferred-index marker, so a sync without expansion-path writes
+// reaches EndSync with deferredIdxPending false — and possibly
+// millions of grants. This runs its own primary-grant scan feeding the
+// same spill-sorter → merge+fold → ingest machinery the fused pass
+// uses (buildGrantDigestsFromSpill). When the deferred pass DOES run,
+// the fused build supersedes this (same output, one shared scan).
+//
+// Callers: Adapter.endSyncFinalize calls RepairMissingGrantDigests
+// rather than this directly — RepairMissingGrantDigests falls back to
+// this exact function whenever no digest exists yet at all
+// (grantDigestsPresent false), which is always true for a brand-new
+// sync (ResetForNewSync excises the digest keyspace at StartNewSync),
+// so the common case is unchanged. This function stays exported and
+// self-sufficient for direct callers (tests, explicit repair) that
+// want an unconditional from-scratch rebuild regardless of what
+// already exists.
 //
 // Failure semantics match the fused pass: any build error (except
 // context cancellation, which stays fatal) downgrades to a loud drop of

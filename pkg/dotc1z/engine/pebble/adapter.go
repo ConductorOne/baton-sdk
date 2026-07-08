@@ -348,13 +348,21 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	} else if e.GrantDigestIndexEnabled() {
 		// The deferred pass didn't run (no grant went through the
 		// deferred index paths — inline-index writes like PutGrantRecords
-		// never arm the marker), but digests are built at every seal:
-		// run the standalone build, which shares the fused build's
-		// merge/fold/ingest machinery over its own grant scan. Build
-		// failures are downgraded to a loud digest-state drop inside;
-		// an error surfacing here (cancellation, drop failure) is fatal.
-		if err := e.BuildGrantDigests(ctx); err != nil {
-			return fmt.Errorf("EndSync: build grant digests: %w", err)
+		// never arm the marker). RepairMissingGrantDigests reduces to a
+		// full BuildGrantDigests-equivalent scan for the common case (a
+		// brand-new sync always has grantDigestsPresent false, since
+		// ResetForNewSync excised the digest keyspace at StartNewSync) —
+		// no behavior change there. It only does LESS work when this
+		// EndSync is a second call on an already-digested sync that was
+		// rebound via SetCurrentSync rather than started fresh (grant
+		// expansion's own follow-up sync is exactly this shape): trusting
+		// a still-valid whole-file root outright, or rebuilding only the
+		// entitlements invalidated since the prior seal, instead of
+		// rescanning every grant in the file again. Build failures are
+		// downgraded to a loud digest-state drop inside; an error
+		// surfacing here (cancellation, drop failure) is fatal.
+		if err := e.RepairMissingGrantDigests(ctx); err != nil {
+			return fmt.Errorf("EndSync: repair grant digests: %w", err)
 		}
 	}
 	updated := v3.SyncRunRecord_builder{

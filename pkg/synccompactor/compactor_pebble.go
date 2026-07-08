@@ -571,8 +571,58 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		}
 	}
 
-	if err := rebuildCompactedGrantDigests(ctx, destEng); err != nil {
-		return "", fmt.Errorf("compactPebbleFold: %w", err)
+	// Only touch grant digests for the entitlement partitions this fold
+	// actually wrote a grant into. The dest started as a byte copy of a
+	// sealed base, whose digest state is already exactly correct for
+	// every OTHER entitlement; invalidating (and later recalling
+	// RepairMissingGrantDigests to rebuild) the whole file on every
+	// fold — even one where a single entitlement out of thousands
+	// changed — would reintroduce the O(base) cost fold exists to
+	// avoid. InvalidateGrantDigestPartitions drops exactly the touched
+	// partitions (+ the now-stale whole-file root);
+	// RepairMissingGrantDigests then rebuilds exactly what's missing,
+	// each from a targeted scan of just that entitlement's own grants —
+	// never a full-file scan — and recomputes the whole-file root from
+	// the (small) digest keyspace itself. A fold whose partials add
+	// nothing new (a common steady-state case — re-running compaction
+	// with no new data, or partials that only touch
+	// resources/entitlements) touches nothing at all.
+	//
+	// This result is FINAL only when the caller (Compact) goes on to
+	// skip grant expansion (WithSkipGrantExpansion, or a partial-typed
+	// union) — nothing else touches c.compactedC1z before Close in that
+	// path (GetSync is a pure read; Cleanup is a hard no-op for the
+	// Pebble engine). When expansion runs instead, its own grant writes
+	// use dedicated write paths (PutExpandedGrantRecords /
+	// PutSynthesizedGrantRecords / the layer-session ingest, not
+	// PutGrantRecords) whose invalidation correctness doesn't matter
+	// here: expandGrants' syncer.Sync ALWAYS calls store.EndSync
+	// afterward — even for a no-op expansion — and Adapter.EndSync's
+	// finalize unconditionally runs a FULL digest rebuild
+	// (BuildDeferredGrantIndexes or BuildGrantDigests) whenever the
+	// digest index is enabled, with no branch that skips both. So
+	// whatever this targeted repair produces gets unconditionally
+	// superseded by a full, correct rebuild the moment expansion runs —
+	// safe, but this optimization's actual win is scoped to
+	// skip-expansion compactions; a fold whose base is a full sync
+	// (expansion NOT skipped) pays for both the targeted repair AND the
+	// subsequent full rebuild. See
+	// TestCompactPebbleFoldWithExpansionRebuildsFullyRegardless.
+	if len(foldStats.TouchedGrantPartitions) > 0 && destEng.GrantDigestIndexEnabled() {
+		partitions := make([]string, 0, len(foldStats.TouchedGrantPartitions))
+		for p := range foldStats.TouchedGrantPartitions {
+			partitions = append(partitions, p)
+		}
+		if err := destEng.InvalidateGrantDigestPartitions(ctx, partitions); err != nil {
+			return "", fmt.Errorf("compactPebbleFold: invalidate grant digest partitions: %w", err)
+		}
+		if err := destEng.RepairMissingGrantDigests(ctx); err != nil {
+			return "", fmt.Errorf("compactPebbleFold: repair grant digests: %w", err)
+		}
+		l.Info("compactPebbleFold: repaired grant digests for touched entitlements",
+			zap.Int("touched_partitions", len(partitions)))
+	} else {
+		l.Info("compactPebbleFold: no grant writes; base grant digest state left untouched")
 	}
 
 	// Optionally compact the folded LSM before save. Off by default:
@@ -701,6 +751,18 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 // No-op when the destination engine was opened with the digest index
 // disabled (WithGrantDigestIndex(false)), matching EndSync's own gate
 // (GrantDigestIndexEnabled).
+//
+// Callers: only k-way and overlay use this (unconditionally) — those
+// modes materialize every record fresh on every run regardless of
+// digests, so a full rebuild is proportional to work already
+// unavoidable. Fold does NOT call this: its dest starts as a byte copy
+// of a sealed base whose digest state is already correct for every
+// untouched entitlement, so a full rebuild on every fold — even one
+// where a handful of entitlements out of thousands changed — would
+// reintroduce the O(base) cost fold exists to avoid. Fold instead
+// calls Engine.InvalidateGrantDigestPartitions +
+// Engine.RepairMissingGrantDigests to invalidate and rebuild EXACTLY
+// the entitlements it touched (see compactPebbleFold).
 func rebuildCompactedGrantDigests(ctx context.Context, destEng *enginepkg.Engine) error {
 	if !destEng.GrantDigestIndexEnabled() {
 		return nil
