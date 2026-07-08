@@ -8,7 +8,7 @@ import "encoding/json"
 // the grants phase), the source sync id the token correlates to, and ok=false
 // when the token is empty or not a c1zsanitize checkpoint. It does NOT validate
 // the secret fingerprint and performs no I/O — it is a pure decoder over the
-// token string a caller already holds (e.g. from dotc1z.SyncRun.SyncToken or
+// token string a caller already holds (e.g. from c1zstore.SyncRun.SyncToken or
 // CurrentSyncStep), so a consumer does not have to couple to the unexported
 // token JSON shape.
 //

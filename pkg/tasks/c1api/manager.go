@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/conductorone/baton-sdk/pkg/uotel/uotelzap"
 
@@ -68,7 +68,7 @@ type c1ApiTaskManager struct {
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
 	workerCount                         int
-	storageEngine                       dotc1z.Engine
+	storageEngine                       c1zstore.Engine
 
 	// previousSyncSparePath is non-empty when the connector opted into
 	// ETag replay (keepPreviousSyncC1Z): the fixed, client-id-namespaced
@@ -500,7 +500,7 @@ func NewC1TaskManager(
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 	workerCount int,
-	storageEngine dotc1z.Engine,
+	storageEngine c1zstore.Engine,
 	taskConcurrency int,
 	keepPreviousSyncC1Z bool,
 ) (BootstrappingTaskManager, error) {

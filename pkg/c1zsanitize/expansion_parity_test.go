@@ -14,6 +14,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // Fixture identifiers. The cross-engine matrix sanitizes the same logical
@@ -46,7 +47,7 @@ var pfSourceIconBytes = []byte{0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04}
 // engine-agnostic connectorstore.Writer surface, so the GrantExpandable
 // annotations and Sources land in each engine's real side-state exactly as
 // production files store them.
-func buildParityFixture(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) {
+func buildParityFixture(t *testing.T, ctx context.Context, store c1zstore.Store) {
 	t.Helper()
 
 	_, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -139,7 +140,7 @@ func buildParityFixture(t *testing.T, ctx context.Context, store dotc1z.C1ZStore
 }
 
 // newEngineStore opens a fresh writable store for the given engine.
-func newEngineStore(t *testing.T, ctx context.Context, path string, eng dotc1z.Engine) dotc1z.C1ZStore {
+func newEngineStore(t *testing.T, ctx context.Context, path string, eng c1zstore.Engine) c1zstore.Store {
 	t.Helper()
 	s, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(eng))
 	require.NoError(t, err)
@@ -148,7 +149,7 @@ func newEngineStore(t *testing.T, ctx context.Context, path string, eng dotc1z.E
 
 // openEngineStoreRO reopens a store read-only with its latest finished sync
 // selected, so the neutral reader + Grants() surfaces resolve content.
-func openEngineStoreRO(t *testing.T, ctx context.Context, path string) dotc1z.C1ZStore {
+func openEngineStoreRO(t *testing.T, ctx context.Context, path string) c1zstore.Store {
 	t.Helper()
 	s, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
@@ -168,7 +169,7 @@ type expandBlob struct {
 // pendingExpansionBlobs returns the full GrantExpandable blob for every
 // expandable grant, keyed by the grant external id, read off the
 // needs_expansion index via the neutral Grants().PendingExpansion surface.
-func pendingExpansionBlobs(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) map[string]expandBlob {
+func pendingExpansionBlobs(t *testing.T, ctx context.Context, store c1zstore.Store) map[string]expandBlob {
 	t.Helper()
 	out := map[string]expandBlob{}
 	for pe, err := range store.Grants().PendingExpansion(ctx) {
@@ -190,7 +191,7 @@ func pendingExpansionBlobs(t *testing.T, ctx context.Context, store dotc1z.C1ZSt
 // grantSourcesCanonical returns, per grant id, the sorted expansion-source
 // edge set ("<sourceEntitlementID>=<isDirect>"), read through the neutral
 // ListGrants surface. nil and empty Sources both normalize to an empty slice.
-func grantSourcesCanonical(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) map[string][]string {
+func grantSourcesCanonical(t *testing.T, ctx context.Context, store c1zstore.Store) map[string][]string {
 	t.Helper()
 	out := map[string][]string{}
 	pageToken := ""
@@ -221,7 +222,7 @@ func boolStr(b bool) string {
 	return "false"
 }
 
-func grantCount(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) int {
+func grantCount(t *testing.T, ctx context.Context, store c1zstore.Store) int {
 	t.Helper()
 	n := 0
 	pageToken := ""
@@ -236,21 +237,21 @@ func grantCount(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) int {
 	}
 }
 
-func resourceCount(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) int {
+func resourceCount(t *testing.T, ctx context.Context, store c1zstore.Store) int {
 	t.Helper()
 	resp, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{PageSize: 1000}.Build())
 	require.NoError(t, err)
 	return len(resp.GetList())
 }
 
-func resourceTypeCount(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) int {
+func resourceTypeCount(t *testing.T, ctx context.Context, store c1zstore.Store) int {
 	t.Helper()
 	resp, err := store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageSize: 1000}.Build())
 	require.NoError(t, err)
 	return len(resp.GetList())
 }
 
-func entitlementCount(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) int {
+func entitlementCount(t *testing.T, ctx context.Context, store c1zstore.Store) int {
 	t.Helper()
 	resp, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{PageSize: 1000}.Build())
 	require.NoError(t, err)
@@ -258,7 +259,7 @@ func entitlementCount(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) 
 }
 
 // resourceParentChains maps each resource id to its parent resource id.
-func resourceParentChains(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) map[string]string {
+func resourceParentChains(t *testing.T, ctx context.Context, store c1zstore.Store) map[string]string {
 	t.Helper()
 	resp, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{PageSize: 1000}.Build())
 	require.NoError(t, err)
@@ -270,7 +271,7 @@ func resourceParentChains(t *testing.T, ctx context.Context, store dotc1z.C1ZSto
 }
 
 // entitlementOwnership maps each entitlement id to its owning resource id.
-func entitlementOwnership(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) map[string]string {
+func entitlementOwnership(t *testing.T, ctx context.Context, store c1zstore.Store) map[string]string {
 	t.Helper()
 	resp, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{PageSize: 1000}.Build())
 	require.NoError(t, err)
@@ -282,7 +283,7 @@ func entitlementOwnership(t *testing.T, ctx context.Context, store dotc1z.C1ZSto
 }
 
 // grantRefs maps each grant id to its "<entitlementID>|<principalType>/<principalID>".
-func grantRefs(t *testing.T, ctx context.Context, store dotc1z.C1ZStore) map[string]string {
+func grantRefs(t *testing.T, ctx context.Context, store c1zstore.Store) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	pageToken := ""
@@ -312,7 +313,7 @@ func parityEntitlementID(id string) string {
 	return id
 }
 
-func readAsset(t *testing.T, ctx context.Context, store dotc1z.C1ZStore, assetID string) (string, []byte) {
+func readAsset(t *testing.T, ctx context.Context, store c1zstore.Store, assetID string) (string, []byte) {
 	t.Helper()
 	ct, r, err := store.GetAsset(ctx, v2.AssetServiceGetAssetRequest_builder{Asset: v2.AssetRef_builder{Id: assetID}.Build()}.Build())
 	require.NoError(t, err)
@@ -341,10 +342,10 @@ func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
 
 	engines := []struct {
 		name string
-		eng  dotc1z.Engine
+		eng  c1zstore.Engine
 	}{
-		{"sqlite", dotc1z.EngineSQLite},
-		{"pebble", dotc1z.EnginePebble},
+		{"sqlite", c1zstore.EngineSQLite},
+		{"pebble", c1zstore.EnginePebble},
 	}
 
 	type arm struct {

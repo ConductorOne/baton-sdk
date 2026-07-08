@@ -8,6 +8,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepebble "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/stretchr/testify/require"
@@ -100,7 +101,7 @@ func TestRunWhalePebbleProjectionExpansion(t *testing.T) {
 // ListGrants scan of tens of millions of rows just to log a count. On the
 // pre-expansion (resumed) store it reads the seed sync's sidecar, i.e. the
 // base count.
-func grantCount(ctx context.Context, t *testing.T, store dotc1z.C1ZStore) int64 {
+func grantCount(ctx context.Context, t *testing.T, store c1zstore.Store) int64 {
 	t.Helper()
 	stats, err := store.SyncMeta().Stats(ctx, connectorstore.SyncTypeAny, "")
 	require.NoError(t, err)

@@ -36,7 +36,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // syncRunMetadataReader is the optional source capability for reading
@@ -45,7 +45,7 @@ import (
 // it; sources without it skip graph-metadata preservation with a log
 // line rather than failing the run.
 type syncRunMetadataReader interface {
-	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*dotc1z.SyncRun, string, error)
+	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error)
 }
 
 // syncLinkWriter is the optional destination capability for pairing
@@ -149,7 +149,7 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 	// is data corruption. Reject it up front. The engine is read from the
 	// live destination store, not a caller-supplied option, so the guard
 	// cannot be silenced by omitting a field.
-	if dst.Metadata().Engine == string(dotc1z.EnginePebble) && len(srcSyncs) > 1 {
+	if dst.Metadata().Engine == string(c1zstore.EnginePebble) && len(srcSyncs) > 1 {
 		return fmt.Errorf(
 			"c1zsanitize: destination engine pebble holds exactly one sync, but the source has %d "+
 				"syncs; sanitize to a sqlite destination or pre-select a single source sync",
@@ -362,7 +362,7 @@ func (s *sanitizer) checkpoint(ctx context.Context, dst connectorstore.Writer, s
 // that previously caused StartNewSync to hand a fresh sync's records to an
 // ended sync.
 type dstSyncLister interface {
-	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*dotc1z.SyncRun, string, error)
+	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error)
 }
 
 // isResumableDestination reports whether dst can safely back a resumable run,
@@ -380,7 +380,7 @@ type dstSyncLister interface {
 // adding capability methods. The capability assertion is kept below it as a
 // backstop for any engine that cannot enumerate checkpoints at all.
 func isResumableDestination(dst connectorstore.Writer) error {
-	if dst.Metadata().Engine == string(dotc1z.EnginePebble) {
+	if dst.Metadata().Engine == string(c1zstore.EnginePebble) {
 		return fmt.Errorf(
 			"resumable runs are not supported with a pebble destination: its " +
 				"single-sync, replace-in-place storage cannot rehydrate a persisted " +

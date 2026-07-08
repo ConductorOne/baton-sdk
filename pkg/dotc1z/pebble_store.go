@@ -18,6 +18,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -26,7 +27,7 @@ import (
 // pebbleDriver is the EngineDriver for the Pebble v3 engine.
 type pebbleDriver struct{}
 
-var _ C1ZStore = (*pebbleStore)(nil)
+var _ c1zstore.Store = (*pebbleStore)(nil)
 var _ connectorstore.Writer = (*pebbleStore)(nil)
 
 // Local mirrors of the optional capabilities the c1z sanitizer probes on
@@ -41,7 +42,7 @@ type sanitizeSupportsDiffWriter interface {
 	SetSupportsDiff(ctx context.Context, syncID string) error
 }
 type sanitizeSyncRunMetadataReader interface {
-	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*SyncRun, string, error)
+	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error)
 }
 
 var (
@@ -53,10 +54,10 @@ var (
 	_ sanitizeSyncRunMetadataReader = (*C1File)(nil)
 )
 
-func (pebbleDriver) Engine() Engine    { return EnginePebble }
-func (pebbleDriver) Format() C1ZFormat { return C1ZFormatV3 }
+func (pebbleDriver) Engine() c1zstore.Engine { return c1zstore.EnginePebble }
+func (pebbleDriver) Format() C1ZFormat       { return C1ZFormatV3 }
 
-func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts StoreOptions) (C1ZStore, error) {
+func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts StoreOptions) (c1zstore.Store, error) {
 	tmpDir, err := os.MkdirTemp(opts.TmpDir, "c1z-pebble")
 	if err != nil {
 		return nil, err
@@ -102,7 +103,7 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 		return nil, cleanupOnError(err)
 	}
 	encoding := opts.PayloadEncoding
-	if encoding == PayloadEncodingUnspecified {
+	if encoding == c1zstore.PayloadEncodingUnspecified {
 		encoding = fileEncoding
 	}
 
@@ -143,32 +144,32 @@ func unpackExistingPebbleC1Z(
 	maxDecodedPayloadBytes uint64,
 	maxDecoderMemoryBytes uint64,
 	pool *EnvelopeDecoderPool,
-) (*formatv3.PayloadReuse, PayloadEncoding, int64, error) {
+) (*formatv3.PayloadReuse, c1zstore.PayloadEncoding, int64, error) {
 	stat, err := os.Stat(outputFilePath)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return nil, PayloadEncodingUnspecified, 0, nil
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, nil
 	case err != nil:
-		return nil, PayloadEncodingUnspecified, 0, err
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, err
 	case stat.Size() == 0:
-		return nil, PayloadEncodingUnspecified, 0, nil
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, nil
 	}
 
 	f, err := os.Open(outputFilePath)
 	if err != nil {
-		return nil, PayloadEncodingUnspecified, 0, err
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, err
 	}
 	defer f.Close()
 
 	header, err := formatv3.ReadManifestHeader(f)
 	if err != nil {
-		return nil, PayloadEncodingUnspecified, 0, err
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, err
 	}
-	if e := Engine(header.GetEngine()); e != EnginePebble && e != PebbleManifestEngine && e != PebbleManifestEngineV2 {
-		return nil, PayloadEncodingUnspecified, 0, fmt.Errorf("%w: %s", pebble.ErrUnknownEngine, header.GetEngine())
+	if e := c1zstore.Engine(header.GetEngine()); e != c1zstore.EnginePebble && e != c1zstore.PebbleManifestEngine && e != c1zstore.PebbleManifestEngineV2 {
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, fmt.Errorf("%w: %s", pebble.ErrUnknownEngine, header.GetEngine())
 	}
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
-		return nil, PayloadEncodingUnspecified, 0, err
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, err
 	}
 	manifest, reuse, err := formatv3.ExtractEnvelopePayload(f, dbDir,
 		formatv3.WithMaxDecodedPayloadBytes(maxDecodedPayloadBytes),
@@ -176,7 +177,7 @@ func unpackExistingPebbleC1Z(
 		formatv3.WithPayloadDecoderPool(pool),
 	)
 	if err != nil {
-		return nil, PayloadEncodingUnspecified, 0, err
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, err
 	}
 	// fold_dead_bytes is inherited from the source file so the waste
 	// accounting survives arbitrary open/save cycles, not just fold
@@ -184,18 +185,18 @@ func unpackExistingPebbleC1Z(
 	return reuse, payloadEncodingFromProto(manifest.GetPayloadEncoding()), header.GetFoldDeadBytes(), nil
 }
 
-func payloadEncodingFromProto(enc c1zv3.PayloadEncoding) PayloadEncoding {
+func payloadEncodingFromProto(enc c1zv3.PayloadEncoding) c1zstore.PayloadEncoding {
 	switch enc {
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
-		return PayloadEncodingTar
+		return c1zstore.PayloadEncodingTar
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD:
-		return PayloadEncodingIndexedZstd
+		return c1zstore.PayloadEncodingIndexedZstd
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD:
-		return PayloadEncodingTarZstd
+		return c1zstore.PayloadEncodingTarZstd
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED:
-		return PayloadEncodingUnspecified
+		return c1zstore.PayloadEncodingUnspecified
 	default:
-		return PayloadEncodingUnspecified
+		return c1zstore.PayloadEncodingUnspecified
 	}
 }
 
@@ -205,7 +206,7 @@ type pebbleStore struct {
 	outputFilePath  string
 	tmpDir          string
 	readOnly        bool
-	payloadEncoding PayloadEncoding
+	payloadEncoding c1zstore.PayloadEncoding
 	payloadReuse    *formatv3.PayloadReuse
 	// foldDeadBytes is the cumulative fold-waste counter carried in
 	// the envelope manifest (C1ZManifestV3.fold_dead_bytes): seeded
@@ -233,7 +234,7 @@ type pebbleStore struct {
 // Close(ctx) signature. Lets callers route Pebble stores through
 // pkg/sync.NewSyncer's WithConnectorStore option the same way they
 // route SQLite *C1File handles today.
-var _ C1ZStore = (*pebbleStore)(nil)
+var _ c1zstore.Store = (*pebbleStore)(nil)
 
 // FileOps overrides the Adapter-level FileOps for two reasons:
 //
@@ -244,7 +245,7 @@ var _ C1ZStore = (*pebbleStore)(nil)
 //     flip the dirty bit — without it, Close would skip the envelope
 //     save and the diff sync would exist only in the discarded temp
 //     directory.
-func (s *pebbleStore) FileOps() FileOps {
+func (s *pebbleStore) FileOps() c1zstore.FileOps {
 	return pebbleStoreFileOps{inner: s.FileOpsWithEncoding(s.payloadEncoding), store: s}
 }
 
@@ -253,15 +254,15 @@ func (s *pebbleStore) FileOps() FileOps {
 // dirty-marking path. CloneSync writes a separate file and passes
 // through unchanged.
 type pebbleStoreFileOps struct {
-	inner FileOps
+	inner c1zstore.FileOps
 	store *pebbleStore
 }
 
-func (f pebbleStoreFileOps) CloneSync(ctx context.Context, outPath string, syncID string, opts ...CloneSyncOption) error {
+func (f pebbleStoreFileOps) CloneSync(ctx context.Context, outPath string, syncID string, opts ...c1zstore.CloneSyncOption) error {
 	return f.inner.CloneSync(ctx, outPath, syncID, opts...)
 }
 
-func (f pebbleStoreFileOps) CopyIsolateSync(ctx context.Context, outPath string, syncID string, opts ...CloneSyncOption) error {
+func (f pebbleStoreFileOps) CopyIsolateSync(ctx context.Context, outPath string, syncID string, opts ...c1zstore.CloneSyncOption) error {
 	return f.inner.CopyIsolateSync(ctx, outPath, syncID, opts...)
 }
 
@@ -284,8 +285,8 @@ func (f pebbleStoreFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, ap
 func (s *pebbleStore) Metadata() connectorstore.StoreMetadata {
 	md := s.Adapter.Metadata()
 	enc := s.payloadEncoding
-	if enc == PayloadEncodingUnspecified {
-		enc = PayloadEncodingIndexedZstd
+	if enc == c1zstore.PayloadEncodingUnspecified {
+		enc = c1zstore.PayloadEncodingIndexedZstd
 	}
 	md.PayloadEncoding = enc.String()
 	return md
@@ -506,7 +507,7 @@ func (s *pebbleStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) er
 // routes StoreExpandedGrants through the pebbleStore's dirty-marking
 // path. The Adapter-level wrapper calls Adapter.PutGrants directly,
 // which skips the dirty flag.
-func (s *pebbleStore) Grants() GrantStore {
+func (s *pebbleStore) Grants() c1zstore.GrantStore {
 	return pebbleStoreGrants{inner: s.Adapter.Grants(), store: s}
 }
 
@@ -514,7 +515,7 @@ func (s *pebbleStore) Grants() GrantStore {
 // only StoreExpandedGrants (the lone mutating method) to flip the
 // dirty bit. Read-only methods pass through.
 type pebbleStoreGrants struct {
-	inner GrantStore
+	inner c1zstore.GrantStore
 	store *pebbleStore
 }
 
@@ -641,25 +642,25 @@ func newPebbleStoreExpandedGrant(dest *v2.Entitlement, principal *v2.Resource, s
 	}.Build(), nil
 }
 
-func (g pebbleStoreGrants) PendingExpansionPage(ctx context.Context, pageToken string) ([]PendingExpansion, string, error) {
+func (g pebbleStoreGrants) PendingExpansionPage(ctx context.Context, pageToken string) ([]c1zstore.PendingExpansion, string, error) {
 	return g.inner.PendingExpansionPage(ctx, pageToken)
 }
 
-func (g pebbleStoreGrants) PendingExpansion(ctx context.Context) iter.Seq2[PendingExpansion, error] {
+func (g pebbleStoreGrants) PendingExpansion(ctx context.Context) iter.Seq2[c1zstore.PendingExpansion, error] {
 	return g.inner.PendingExpansion(ctx)
 }
 
-func (g pebbleStoreGrants) ListWithAnnotationsPage(ctx context.Context, pageToken string) ([]GrantAnnotation, string, error) {
+func (g pebbleStoreGrants) ListWithAnnotationsPage(ctx context.Context, pageToken string) ([]c1zstore.GrantAnnotation, string, error) {
 	return g.inner.ListWithAnnotationsPage(ctx, pageToken)
 }
 
 func (g pebbleStoreGrants) ListWithAnnotationsForResourcePage(
 	ctx context.Context, resource *v2.Resource, syncID string, pageToken string, pageSize uint32,
-) ([]GrantAnnotation, string, error) {
+) ([]c1zstore.GrantAnnotation, string, error) {
 	return g.inner.ListWithAnnotationsForResourcePage(ctx, resource, syncID, pageToken, pageSize)
 }
 
-func (g pebbleStoreGrants) ListWithAnnotations(ctx context.Context) iter.Seq2[GrantAnnotation, error] {
+func (g pebbleStoreGrants) ListWithAnnotations(ctx context.Context) iter.Seq2[c1zstore.GrantAnnotation, error] {
 	return g.inner.ListWithAnnotations(ctx)
 }
 

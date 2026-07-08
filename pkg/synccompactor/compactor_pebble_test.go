@@ -21,6 +21,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
@@ -31,7 +32,7 @@ import (
 func buildPebbleInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, grantIDs ...string) string {
 	t.Helper()
 
-	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
+	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 
 	syncID, err := w.StartNewSync(ctx, st, "")
@@ -162,7 +163,7 @@ func TestCompactPebbleEndToEnd(t *testing.T) {
 	s2 := buildPebbleInput(t, ctx, p2, connectorstore.SyncTypePartial, "g-shared", "g-only2")
 
 	entries := []*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}}
-	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble))
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer func() { _ = cleanup() }()
 
@@ -245,7 +246,7 @@ func TestCompactExplicitPebbleConvertsAllSQLiteInputs(t *testing.T) {
 	s2 := buildSQLiteInput(t, ctx, p2, connectorstore.SyncTypePartial, "g-shared", "g-only2")
 
 	entries := []*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}}
-	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble))
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer func() { _ = cleanup() }()
 
@@ -277,7 +278,7 @@ func TestCompactExplicitPebbleConvertsSQLitePartialWithEmptySyncID(t *testing.T)
 		{FilePath: p1, SyncID: s1},
 		{FilePath: p2, SyncID: ""},
 	}
-	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble))
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer func() { _ = cleanup() }()
 
@@ -305,7 +306,7 @@ func TestCompactExplicitPebbleConvertsSQLiteEmptySyncIDTiebreaksBySyncID(t *test
 		{FilePath: p1, SyncID: s1},
 		{FilePath: p2, SyncID: ""},
 	}
-	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble), WithSkipGrantExpansion())
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithSkipGrantExpansion())
 	require.NoError(t, err)
 	defer func() { _ = cleanup() }()
 
@@ -345,7 +346,7 @@ func TestCompactFoldConvertsSQLitePartial(t *testing.T) {
 	entries := []*CompactableSync{{FilePath: basePath, SyncID: s1}, {FilePath: partialPath, SyncID: s2}}
 	c, cleanup, err := NewCompactor(ctx, outDir, entries,
 		WithTmpDir(t.TempDir()),
-		WithEngine(dotc1z.EnginePebble),
+		WithEngine(c1zstore.EnginePebble),
 		WithPebbleCompactorMode(PebbleCompactorModeFold),
 	)
 	require.NoError(t, err)
@@ -389,7 +390,7 @@ func TestCompactFoldPebbleBaseMixedPartials(t *testing.T) {
 	}
 	c, cleanup, err := NewCompactor(ctx, outDir, entries,
 		WithTmpDir(t.TempDir()),
-		WithEngine(dotc1z.EnginePebble),
+		WithEngine(c1zstore.EnginePebble),
 		WithPebbleCompactorMode(PebbleCompactorModeFold),
 	)
 	require.NoError(t, err)
@@ -492,7 +493,7 @@ func putRecencyData(t testing.TB, ctx context.Context, store recencyStore, marke
 // real sync-time discovered_at stamps.
 func buildPebbleRecencyInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, marker string, includeBaseOnly bool) string {
 	t.Helper()
-	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
+	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	syncID, err := w.StartNewSync(ctx, st, "")
 	require.NoError(t, err)
@@ -614,7 +615,7 @@ func TestCompactFoldMixedPartialsPreservesRecordRecency(t *testing.T) {
 	}
 	c, cleanup, err := NewCompactor(ctx, outDir, entries,
 		WithTmpDir(t.TempDir()),
-		WithEngine(dotc1z.EnginePebble),
+		WithEngine(c1zstore.EnginePebble),
 		WithPebbleCompactorMode(PebbleCompactorModeFold),
 		WithSkipGrantExpansion(),
 	)
@@ -644,7 +645,7 @@ func TestCompactExplicitSQLiteRejectsPebbleInput(t *testing.T) {
 	s2 := buildPebbleInput(t, ctx, pebblePath, connectorstore.SyncTypePartial, "g2")
 
 	entries := []*CompactableSync{{FilePath: sqlitePath, SyncID: s1}, {FilePath: pebblePath, SyncID: s2}}
-	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EngineSQLite))
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EngineSQLite))
 	require.NoError(t, err)
 	defer func() { _ = cleanup() }()
 
@@ -788,7 +789,7 @@ func TestCompactPebbleDropsAssets(t *testing.T) {
 	// proves a drop, not an empty fixture.
 	require.Positive(t, countPebbleAssets(t, ctx, p1), "input must carry an asset")
 
-	c, cleanup, err := NewCompactor(ctx, t.TempDir(), []*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}}, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble))
+	c, cleanup, err := NewCompactor(ctx, t.TempDir(), []*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}}, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer func() { _ = cleanup() }()
 	out, err := c.Compact(ctx)
@@ -818,7 +819,7 @@ func TestCompactPebbleEndedAtIsMaxOfInputs(t *testing.T) {
 		want = e2
 	}
 
-	c, cleanup, err := NewCompactor(ctx, t.TempDir(), []*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}}, WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble))
+	c, cleanup, err := NewCompactor(ctx, t.TempDir(), []*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}}, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer func() { _ = cleanup() }()
 	out, err := c.Compact(ctx)
@@ -871,7 +872,7 @@ type overlayGrantSpec struct {
 
 func buildOverlayInput(t testing.TB, ctx context.Context, path string, spec overlayInputSpec) string {
 	t.Helper()
-	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)
 	syncID, err := store.StartNewSync(ctx, spec.syncType, "")
 	require.NoError(t, err)
@@ -949,7 +950,7 @@ func mustAny(t testing.TB, msg proto.Message) *anypb.Any {
 func compactPebbleOverlay(t testing.TB, ctx context.Context, entries []*CompactableSync, extra ...Option) *CompactableSync {
 	t.Helper()
 	opts := append([]Option{
-		WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble), WithSkipGrantExpansion(),
+		WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithSkipGrantExpansion(),
 		WithPebbleCompactorMode(PebbleCompactorModeOverlay),
 	}, extra...)
 	c, cleanup, err := NewCompactor(ctx, t.TempDir(), entries, opts...)
@@ -961,7 +962,7 @@ func compactPebbleOverlay(t testing.TB, ctx context.Context, entries []*Compacta
 	return out
 }
 
-func openCompactedPebble(t testing.TB, ctx context.Context, out *CompactableSync) dotc1z.C1ZStore {
+func openCompactedPebble(t testing.TB, ctx context.Context, out *CompactableSync) c1zstore.Store {
 	t.Helper()
 	store, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)
@@ -1176,7 +1177,7 @@ func TestCompactPebbleStatsSidecarMatchesRecompute(t *testing.T) {
 
 			c, cleanup, err := NewCompactor(ctx, t.TempDir(),
 				[]*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}},
-				WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble), WithSkipGrantExpansion(),
+				WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithSkipGrantExpansion(),
 				WithPebbleCompactorMode(mode))
 			require.NoError(t, err)
 			defer func() { _ = cleanup() }()

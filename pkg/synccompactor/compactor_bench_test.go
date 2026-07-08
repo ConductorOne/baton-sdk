@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // benchGrantIDs returns n distinct grant ids ("g0".."g{n-1}").
@@ -53,7 +53,7 @@ func benchmarkCompaction(b *testing.B, n int, usePebble bool) {
 		entries := []*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}}
 		opts := []Option{WithTmpDir(b.TempDir())}
 		if usePebble {
-			opts = append(opts, WithEngine(dotc1z.EnginePebble))
+			opts = append(opts, WithEngine(c1zstore.EnginePebble))
 		}
 		c, cleanup, err := NewCompactor(ctx, outDir, entries, opts...)
 		require.NoError(b, err)

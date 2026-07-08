@@ -8,6 +8,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
@@ -25,7 +26,7 @@ type Compactor struct {
 // Both arguments are C1ZStore; the constructor type-asserts to *dotc1z.C1File
 // and returns an error on mismatch. This keeps the public entry point clean
 // while confining the SQLite-specific concern to the attached package.
-func NewAttachedCompactor(base, applied dotc1z.C1ZStore) (*Compactor, error) {
+func NewAttachedCompactor(base, applied c1zstore.Store) (*Compactor, error) {
 	baseFile, ok := dotc1z.AsSQLiteStore(base)
 	if !ok {
 		return nil, fmt.Errorf("attached compactor requires SQLite-backed base store, got %T", base)

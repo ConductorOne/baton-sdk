@@ -17,6 +17,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
@@ -37,7 +38,7 @@ func TestRegisteredPebbleNewStoreRoundtrip(t *testing.T) {
 	ctx := context.Background()
 
 	path := t.TempDir() + "/sync.c1z"
-	store, err := NewStore(ctx, path, WithEngine(EnginePebble))
+	store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -52,7 +53,7 @@ func TestRegisteredPebbleNewStoreRoundtrip(t *testing.T) {
 	require.NoError(t, err)
 	env, err := formatv3.ReadEnvelope(bytes.NewReader(encodedBeforeReadOnly))
 	require.NoError(t, err)
-	require.Equal(t, PebbleManifestEngine, env.Manifest.GetEngine(), "manifest engine = %q, want %q", env.Manifest.GetEngine(), PebbleManifestEngine)
+	require.Equal(t, c1zstore.PebbleManifestEngine, env.Manifest.GetEngine(), "manifest engine = %q, want %q", env.Manifest.GetEngine(), c1zstore.PebbleManifestEngine)
 	require.Equal(t, uint32(pebble.SDKPebbleFormat), env.Manifest.GetEngineSchemaVersion(), "manifest schema = %d, want %d", env.Manifest.GetEngineSchemaVersion(), pebble.SDKPebbleFormat)
 	require.Equal(
 		t, c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD, env.Manifest.GetPayloadEncoding(),
@@ -99,8 +100,8 @@ func TestPebbleStoreWithPayloadEncodingTar(t *testing.T) {
 	tmp := t.TempDir()
 	out := filepath.Join(tmp, "tar.c1z")
 	store, err := NewStore(ctx, out,
-		WithEngine(EnginePebble),
-		WithPayloadEncoding(PayloadEncodingTar),
+		WithEngine(c1zstore.EnginePebble),
+		WithPayloadEncoding(c1zstore.PayloadEncodingTar),
 	)
 	require.NoError(t, err)
 	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -126,7 +127,7 @@ func TestPebbleRegisteredStoreDefaultsToIndexedZstd(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 	out := filepath.Join(tmp, "default.c1z")
-	store, err := NewStore(ctx, out, WithEngine(EnginePebble))
+	store, err := NewStore(ctx, out, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -147,7 +148,7 @@ func TestPebbleStoreOpenHonorsDecoderMaxDecodedSize(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 	out := filepath.Join(tmp, "indexed-limit.c1z")
-	store, err := NewStore(ctx, out, WithEngine(EnginePebble))
+	store, err := NewStore(ctx, out, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -166,7 +167,7 @@ func TestPebbleStoreOpenHonorsDecoderMaxMemory(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 	out := filepath.Join(tmp, "indexed-memory.c1z")
-	store, err := NewStore(ctx, out, WithEngine(EnginePebble))
+	store, err := NewStore(ctx, out, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -258,7 +259,7 @@ func writeLegacyIDIndexPebbleC1Z(t *testing.T, path string, syncID string) {
 	require.NoError(t, err)
 	defer out.Close()
 	manifest := c1zv3.C1ZManifestV3_builder{
-		Engine:              string(EnginePebble),
+		Engine:              string(c1zstore.EnginePebble),
 		EngineSchemaVersion: uint32(pebble.SDKPebbleFormat),
 		PayloadEncoding:     c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD,
 	}.Build()

@@ -7,9 +7,10 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-func openReadOnlyC1ZStore(ctx context.Context, path string) (dotc1z.C1ZStore, error) {
+func openReadOnlyC1ZStore(ctx context.Context, path string) (c1zstore.Store, error) {
 	c1zStore, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
 	if err != nil {
 		return nil, err
@@ -26,14 +27,14 @@ func openReadOnlyC1ZStore(ctx context.Context, path string) (dotc1z.C1ZStore, er
 	return c1zStore, nil
 }
 
-func setCurrentSyncIfRequested(ctx context.Context, store dotc1z.C1ZStore, syncID string) error {
+func setCurrentSyncIfRequested(ctx context.Context, store c1zstore.Store, syncID string) error {
 	if syncID == "" {
 		return nil
 	}
 	return store.SetCurrentSync(ctx, syncID)
 }
 
-func latestSyncID(ctx context.Context, store dotc1z.C1ZStore, syncType connectorstore.SyncType) (string, error) {
+func latestSyncID(ctx context.Context, store c1zstore.Store, syncType connectorstore.SyncType) (string, error) {
 	runs, err := finishedSyncs(ctx, store, syncType)
 	if err != nil {
 		return "", err
@@ -44,7 +45,7 @@ func latestSyncID(ctx context.Context, store dotc1z.C1ZStore, syncType connector
 	return runs[0].GetId(), nil
 }
 
-func latestAndPreviousSyncIDs(ctx context.Context, store dotc1z.C1ZStore, syncType connectorstore.SyncType) (string, string, error) {
+func latestAndPreviousSyncIDs(ctx context.Context, store c1zstore.Store, syncType connectorstore.SyncType) (string, string, error) {
 	runs, err := finishedSyncs(ctx, store, syncType)
 	if err != nil {
 		return "", "", err
@@ -59,7 +60,7 @@ func latestAndPreviousSyncIDs(ctx context.Context, store dotc1z.C1ZStore, syncTy
 	return latest, runs[1].GetId(), nil
 }
 
-func finishedSyncs(ctx context.Context, store dotc1z.C1ZStore, syncType connectorstore.SyncType) ([]*reader_v2.SyncRun, error) {
+func finishedSyncs(ctx context.Context, store c1zstore.Store, syncType connectorstore.SyncType) ([]*reader_v2.SyncRun, error) {
 	var out []*reader_v2.SyncRun
 	pageToken := ""
 	for {

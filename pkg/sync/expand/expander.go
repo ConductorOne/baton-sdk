@@ -63,12 +63,12 @@ var ErrMaxDepthExceeded = errors.New("max depth exceeded")
 
 // ExpanderStore defines the minimal store interface needed for grant expansion.
 // Implementations:
-//   - *dotc1z.C1File (via dotc1z.C1ZStore) for production syncs
+//   - *dotc1z.C1File (via c1zstore.Store) for production syncs
 //   - mocks for unit tests
 //
 // StoreExpandedGrants writes a batch of expanded grants back to storage,
 // preserving existing expansion metadata columns on the underlying rows.
-// See dotc1z.GrantStore.StoreExpandedGrants for the full contract.
+// See c1zstore.GrantStore.StoreExpandedGrants for the full contract.
 type ExpanderStore interface {
 	GetEntitlement(ctx context.Context, req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error)
 	ListGrantsForEntitlement(ctx context.Context, req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error)

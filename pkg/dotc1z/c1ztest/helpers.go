@@ -7,7 +7,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +19,7 @@ type C1ZCounts struct {
 	GrantCount        int
 }
 
-func CreateTestSync(ctx context.Context, t *testing.T, f dotc1z.C1ZStore, counts C1ZCounts) (string, error) {
+func CreateTestSync(ctx context.Context, t *testing.T, f c1zstore.Store, counts C1ZCounts) (string, error) {
 	// Add a sync
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)

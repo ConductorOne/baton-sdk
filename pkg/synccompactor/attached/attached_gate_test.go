@@ -7,15 +7,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-// nonSQLiteStore is a minimal C1ZStore implementation that does NOT derive
+// nonSQLiteStore is a minimal c1zstore.Store implementation that does NOT derive
 // from *dotc1z.C1File. It exists only to verify the AsSQLiteStore gate in
-// NewAttachedCompactor. Embedding dotc1z.C1ZStore satisfies the interface
+// NewAttachedCompactor. Embedding c1zstore.Store satisfies the interface
 // with nil-method stubs — sufficient because the test never calls anything
 // on the store; it only passes through the type-assertion gate.
 type nonSQLiteStore struct {
-	dotc1z.C1ZStore
+	c1zstore.Store
 }
 
 func TestNewAttachedCompactor_RejectsNonSQLiteBase(t *testing.T) {

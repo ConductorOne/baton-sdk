@@ -11,6 +11,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // TestExpansionAnnotationRoundtrip closes a reviewer-flagged
@@ -29,7 +30,7 @@ import (
 func TestExpansionAnnotationRoundtrip(t *testing.T) {
 	ctx := context.Background()
 
-	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "exp.c1z"), dotc1z.WithEngine(dotc1z.EnginePebble))
+	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "exp.c1z"), dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer func() { _ = store.Close(ctx) }()
 
@@ -64,7 +65,7 @@ func TestExpansionAnnotationRoundtrip(t *testing.T) {
 
 	t.Run("PendingExpansion sees expandable grant", func(t *testing.T) {
 		count := 0
-		var seen dotc1z.PendingExpansion
+		var seen c1zstore.PendingExpansion
 		for pe, perr := range store.Grants().PendingExpansion(ctx) {
 			require.NoError(t, perr)
 			count++

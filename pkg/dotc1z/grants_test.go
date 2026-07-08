@@ -14,6 +14,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 func TestExtractAndStripExpansion_WhitespaceOnlyEntitlementIDs(t *testing.T) {
@@ -971,7 +972,7 @@ func TestListGrantsInternal_WithPayloadAndExpansionIncludesAllGrantsWhenNeedsNot
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
 
-	byID := map[string]GrantAnnotation{}
+	byID := map[string]c1zstore.GrantAnnotation{}
 	for _, r := range rows {
 		byID[r.Grant.GetId()] = r
 	}

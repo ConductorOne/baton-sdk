@@ -12,6 +12,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	pebbleengine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/stretchr/testify/require"
 )
@@ -179,13 +180,13 @@ func benchmarkCompactorInputs(
 	for _, tc := range []struct {
 		name       string
 		inputs     []*CompactableSync
-		engine     dotc1z.Engine
+		engine     c1zstore.Engine
 		pebbleMode PebbleCompactorMode
 	}{
 		{name: "sqlite", inputs: sqliteInputs},
-		{name: "pebble_kway", inputs: pebbleInputs, engine: dotc1z.EnginePebble, pebbleMode: PebbleCompactorModeKWay},
-		{name: "pebble_overlay", inputs: pebbleInputs, engine: dotc1z.EnginePebble, pebbleMode: PebbleCompactorModeOverlay},
-		{name: "pebble_fold", inputs: pebbleInputs, engine: dotc1z.EnginePebble, pebbleMode: PebbleCompactorModeFold},
+		{name: "pebble_kway", inputs: pebbleInputs, engine: c1zstore.EnginePebble, pebbleMode: PebbleCompactorModeKWay},
+		{name: "pebble_overlay", inputs: pebbleInputs, engine: c1zstore.EnginePebble, pebbleMode: PebbleCompactorModeOverlay},
+		{name: "pebble_fold", inputs: pebbleInputs, engine: c1zstore.EnginePebble, pebbleMode: PebbleCompactorModeFold},
 	} {
 		tc := tc
 		b.Run(tc.name, func(b *testing.B) {

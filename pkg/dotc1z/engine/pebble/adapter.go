@@ -967,7 +967,7 @@ func (a *Adapter) CurrentDBSizeBytes() (int64, error) {
 //
 // Strings are inlined rather than referencing dotc1z constants
 // because this subpackage is imported by dotc1z, so the reverse
-// import would cycle. The values match dotc1z.EnginePebble.String()
+// import would cycle. The values match c1zstore.EnginePebble.String()
 // and dotc1z.C1ZFormatV3.String() — see connectorstore.StoreMetadata
 // docs for the canonical value list.
 func (a *Adapter) Metadata() connectorstore.StoreMetadata {

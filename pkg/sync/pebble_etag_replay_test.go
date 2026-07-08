@@ -14,6 +14,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -157,7 +158,7 @@ func TestPebble_EtagReplay_SendsPreviousEtagOnSecondSync(t *testing.T) {
 
 	// --- Sync 1 into file A ---
 	store1, err := dotc1z.NewStore(ctx, sync1Path,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)
@@ -168,7 +169,7 @@ func TestPebble_EtagReplay_SendsPreviousEtagOnSecondSync(t *testing.T) {
 
 	// --- Sync 2 into a fresh file B, replaying from file A ---
 	store2, err := dotc1z.NewStore(ctx, sync2Path,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)
@@ -248,7 +249,7 @@ func TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward(t *testing.T) {
 
 	// --- Sync 1 into file A: stores the grant and the ETag. ---
 	store1, err := dotc1z.NewStore(ctx, sync1Path,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)
@@ -267,7 +268,7 @@ func TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward(t *testing.T) {
 	mc.mu.Unlock()
 
 	store2, err := dotc1z.NewStore(ctx, sync2Path,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)
@@ -291,7 +292,7 @@ func TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward(t *testing.T) {
 	// end-to-end, sync 2 carried sync 1's grant forward into its own
 	// grants keyspace.
 	reopen, err := dotc1z.NewStore(ctx, sync2Path,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithReadOnly(true),
 	)
 	require.NoError(t, err)
@@ -354,7 +355,7 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 			mc := newEtagObservingMockConnector("etag-v1")
 			mc.WithData(group, ent, grant)
 			store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "out.c1z"),
-				dotc1z.WithEngine(dotc1z.EnginePebble),
+				dotc1z.WithEngine(c1zstore.EnginePebble),
 				dotc1z.WithTmpDir(tempDir),
 			)
 			require.NoError(t, err)
@@ -373,7 +374,7 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 	mc := newEtagObservingMockConnector("etag-v1")
 	mc.WithData(group, ent, grant)
 	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "strict.c1z"),
-		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)

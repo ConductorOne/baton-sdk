@@ -9,7 +9,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/baton/storecache"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // extractProfileFields extracts profile attributes from a resource's UserTrait annotations.
@@ -38,7 +38,7 @@ func extractProfileFields(r *v2.Resource) map[string]string {
 type BatonService struct {
 	syncID       string
 	resourceType string
-	store        dotc1z.C1ZStore
+	store        c1zstore.Store
 	principals   grantPrincipalLister
 	storeCache   *storecache.StoreCache
 	devMode      bool

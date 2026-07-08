@@ -12,6 +12,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/c1zsanitize"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 )
 
@@ -70,9 +71,9 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	// so reject it rather than silently following the source.
 	if cmd.Flags().Changed("out-engine") {
 		switch outEngineRaw {
-		case string(dotc1z.EngineSQLite), string(dotc1z.EnginePebble):
+		case string(c1zstore.EngineSQLite), string(c1zstore.EnginePebble):
 		default:
-			return fmt.Errorf("--out-engine must be %q or %q, got %q", dotc1z.EngineSQLite, dotc1z.EnginePebble, outEngineRaw)
+			return fmt.Errorf("--out-engine must be %q or %q, got %q", c1zstore.EngineSQLite, c1zstore.EnginePebble, outEngineRaw)
 		}
 	}
 
@@ -111,11 +112,11 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	// Default the output engine to the source's so `sanitize` round-trips
 	// the engine unless the operator asks otherwise. An empty source engine
 	// (virtual/unknown store) falls back to the SQLite default.
-	dstEngine := dotc1z.Engine(outEngineRaw)
+	dstEngine := c1zstore.Engine(outEngineRaw)
 	if outEngineRaw == "" {
-		dstEngine = dotc1z.Engine(src.Metadata().Engine)
+		dstEngine = c1zstore.Engine(src.Metadata().Engine)
 		if dstEngine == "" {
-			dstEngine = dotc1z.EngineSQLite
+			dstEngine = c1zstore.EngineSQLite
 		}
 	}
 
@@ -133,7 +134,7 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	// These pragmas are scoped to THIS writer instance; normal connector
 	// syncs open their own store and are unaffected.
 	dstOpts := []dotc1z.C1ZOption{dotc1z.WithEngine(dstEngine)}
-	if dstEngine == dotc1z.EngineSQLite {
+	if dstEngine == c1zstore.EngineSQLite {
 		dstOpts = append(dstOpts,
 			dotc1z.WithPragma("journal_mode", "OFF"),
 			dotc1z.WithPragma("synchronous", "OFF"),

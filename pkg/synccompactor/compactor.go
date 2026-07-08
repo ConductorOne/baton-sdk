@@ -13,6 +13,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor/attached"
@@ -35,7 +36,7 @@ const (
 type Compactor struct {
 	compactorType CompactorType
 	entries       []*CompactableSync
-	compactedC1z  dotc1z.C1ZStore
+	compactedC1z  c1zstore.Store
 
 	tmpDir             string
 	destDir            string
@@ -47,7 +48,7 @@ type Compactor struct {
 	// Empty means EngineSQLite (the default; behavior is unchanged and
 	// the output is byte-identical to the pre-engine-option compactor).
 	// EnginePebble produces a v3 Pebble c1z via a native record merge.
-	engine dotc1z.Engine
+	engine c1zstore.Engine
 	// pebbleMode optionally forces the Pebble merge strategy; the zero
 	// value (Auto) lets the compactor choose. See WithPebbleCompactorMode.
 	pebbleMode PebbleCompactorMode
@@ -76,9 +77,9 @@ type Compactor struct {
 // resolvedEngine returns the configured engine, treating the zero value
 // as EngineSQLite. Compact calls inferEngineFromInputs first so the zero
 // value can follow existing c1z inputs instead of always producing SQLite.
-func (c *Compactor) resolvedEngine() dotc1z.Engine {
+func (c *Compactor) resolvedEngine() c1zstore.Engine {
 	if c.engine == "" {
-		return dotc1z.EngineSQLite
+		return c1zstore.EngineSQLite
 	}
 	return c.engine
 }
@@ -103,7 +104,7 @@ var ErrEnginePolicyConflict = errors.New("compactor: engine policy conflict: can
 //
 // Constraint: an explicit SQLite request (WithEngine(EngineSQLite)) when any
 // input is Pebble/v3 returns ErrEnginePolicyConflict.
-func (c *Compactor) inferEngineFromInputs() (dotc1z.Engine, error) {
+func (c *Compactor) inferEngineFromInputs() (c1zstore.Engine, error) {
 	hasPebble := false
 	hasSQLite := false
 	for _, entry := range c.entries {
@@ -134,7 +135,7 @@ func (c *Compactor) inferEngineFromInputs() (dotc1z.Engine, error) {
 
 	// Explicit engine: validate and return.
 	if c.engine != "" {
-		if c.engine == dotc1z.EngineSQLite && hasPebble {
+		if c.engine == c1zstore.EngineSQLite && hasPebble {
 			return "", fmt.Errorf("%w: caller requested SQLite but at least one input is Pebble/v3", ErrEnginePolicyConflict)
 		}
 		return c.engine, nil
@@ -142,13 +143,13 @@ func (c *Compactor) inferEngineFromInputs() (dotc1z.Engine, error) {
 
 	// Auto-select: any Pebble input → Pebble output.
 	if hasPebble {
-		return dotc1z.EnginePebble, nil
+		return c1zstore.EnginePebble, nil
 	}
 	if hasSQLite {
-		return dotc1z.EngineSQLite, nil
+		return c1zstore.EngineSQLite, nil
 	}
 	// No readable inputs: default to SQLite to preserve historical behavior.
-	return dotc1z.EngineSQLite, nil
+	return c1zstore.EngineSQLite, nil
 }
 
 type CompactableSync struct {
@@ -310,7 +311,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	// and partials are merged into the base keyspace via keep-newer
 	// writes; the folded output is then re-keyed to a fresh sync id.
 	// The original base file is never mutated. See compactPebbleFold.
-	if c.resolvedEngine() == dotc1z.EnginePebble {
+	if c.resolvedEngine() == c1zstore.EnginePebble {
 		c.pebbleMode = c.resolvePebbleMode(ctx)
 	}
 	foldMode := c.pebbleMode == PebbleCompactorModeFold
@@ -336,7 +337,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		}
 	}
 
-	if c.resolvedEngine() == dotc1z.EnginePebble {
+	if c.resolvedEngine() == c1zstore.EnginePebble {
 		// One payload-decoder pool for the whole compaction: the merge
 		// opens every source's envelope (selection + per-chunk unpack),
 		// and reusing one decoder across those opens avoids a fresh
@@ -347,10 +348,10 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		opts = append(opts, dotc1z.WithDecoderPool(c.decoderPool))
 	}
 
-	if c.resolvedEngine() == dotc1z.EnginePebble {
+	if c.resolvedEngine() == c1zstore.EnginePebble {
 		// Force the resolved engine last so a stray engine passed via
 		// WithC1ZOptions cannot mislabel the artifact.
-		c.compactedC1z, err = dotc1z.NewStore(ctx, destFilePath, append(opts, dotc1z.WithEngine(dotc1z.EnginePebble))...)
+		c.compactedC1z, err = dotc1z.NewStore(ctx, destFilePath, append(opts, dotc1z.WithEngine(c1zstore.EnginePebble))...)
 	} else {
 		c.compactedC1z, err = dotc1z.NewStore(ctx, destFilePath, opts...)
 	}
@@ -380,7 +381,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 			}
 			return nil, fmt.Errorf("failed to compact (pebble fold): %w", err)
 		}
-	case c.resolvedEngine() == dotc1z.EnginePebble:
+	case c.resolvedEngine() == c1zstore.EnginePebble:
 		newSyncId, err = c.runPebbleRebuild(ctx, runCtx)
 		if err != nil {
 			if cause := context.Cause(runCtx); errors.Is(cause, context.DeadlineExceeded) && c.runDuration > 0 && ctx.Err() == nil {

@@ -1,5 +1,5 @@
 // Package pebble is the v3 storage engine for baton-sdk. It is the
-// implementation behind dotc1z.EnginePebble and the v3 envelope.
+// implementation behind c1zstore.EnginePebble and the v3 envelope.
 package pebble
 
 import (

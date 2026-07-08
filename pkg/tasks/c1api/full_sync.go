@@ -16,7 +16,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
@@ -42,7 +42,7 @@ type fullSyncTaskHandler struct {
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
 	workerCount                         int
-	storageEngine                       dotc1z.Engine
+	storageEngine                       c1zstore.Engine
 
 	// previousSyncSparePath is the connector's ETag-replay opt-in: when
 	// non-empty, the handler retains one spare c1z (the last successfully
@@ -160,7 +160,7 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	}
 	engine := c.storageEngine
 	if engine == "" && c.task.GetSyncFull().GetStorageEngine() != "" {
-		engine = dotc1z.Engine(c.task.GetSyncFull().GetStorageEngine())
+		engine = c1zstore.Engine(c.task.GetSyncFull().GetStorageEngine())
 	}
 	if engine != "" {
 		syncOpts = append(syncOpts, sdkSync.WithStorageEngine(engine))
@@ -359,7 +359,7 @@ func newFullSyncTaskHandler(
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 	workerCount int,
-	storageEngine dotc1z.Engine,
+	storageEngine c1zstore.Engine,
 	previousSyncSparePath string,
 ) tasks.TaskHandler {
 	return &fullSyncTaskHandler{

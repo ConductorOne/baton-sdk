@@ -9,6 +9,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +32,7 @@ func testCloneSyncRoundtrip(t *testing.T, readOnlyClone bool) {
 	tmp := t.TempDir()
 	srcPath := filepath.Join(tmp, "src.c1z")
 
-	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithEngine(dotc1z.EnginePebble))
+	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err, "NewStore src")
 	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -46,7 +47,7 @@ func testCloneSyncRoundtrip(t *testing.T, readOnlyClone bool) {
 	err = src.Close(ctx)
 	require.NoError(t, err, "close src")
 
-	openOpts := []dotc1z.C1ZOption{dotc1z.WithEngine(dotc1z.EnginePebble)}
+	openOpts := []dotc1z.C1ZOption{dotc1z.WithEngine(c1zstore.EnginePebble)}
 	if readOnlyClone {
 		openOpts = append(openOpts, dotc1z.WithReadOnly(true))
 	}
@@ -74,7 +75,7 @@ func testCloneSyncRoundtrip(t *testing.T, readOnlyClone bool) {
 
 	// Re-open the clone and confirm the grants are present.
 	cloneStore, err := dotc1z.NewStore(ctx, clonePath,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithReadOnly(true),
 	)
 	require.NoError(t, err, "NewStore clone")
@@ -100,7 +101,7 @@ func TestCloneSyncRefusesExistingOutPath(t *testing.T) {
 	tmp := t.TempDir()
 	srcPath := filepath.Join(tmp, "src.c1z")
 
-	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithEngine(dotc1z.EnginePebble))
+	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	_, err = src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -125,7 +126,7 @@ func TestCloneSyncRefusesUnfinishedSync(t *testing.T) {
 	tmp := t.TempDir()
 	srcPath := filepath.Join(tmp, "src.c1z")
 
-	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithEngine(dotc1z.EnginePebble))
+	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)

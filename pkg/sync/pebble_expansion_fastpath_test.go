@@ -8,6 +8,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepebble "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,7 @@ import (
 func TestPebbleExpansionUsesSynthesizedFastPath(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "fastpath.c1z")
-	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer store.Close(ctx)
 
@@ -68,7 +69,7 @@ func TestPebbleExpansionUsesSynthesizedFastPath(t *testing.T) {
 func TestPebbleExpansionSplitsSynthesizedAndUpdatePaths(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "split-fastpath.c1z")
-	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer store.Close(ctx)
 

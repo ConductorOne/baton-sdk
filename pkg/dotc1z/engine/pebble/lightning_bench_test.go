@@ -13,6 +13,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // Lightning benchmarks. Coverage for the four c1z IO operations
@@ -50,7 +51,7 @@ func BenchmarkPebbleExpansion_StoreExpandedGrants(b *testing.B) {
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
 			ctx := context.Background()
 			path := fmt.Sprintf("%s/expansion.c1z", b.TempDir())
-			store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
+			store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
 			if err != nil {
 				b.Fatalf("NewStore: %v", err)
 			}
@@ -101,7 +102,7 @@ func BenchmarkPebbleUpliftRead_CrossSync(b *testing.B) {
 	ctx := context.Background()
 	path := fmt.Sprintf("%s/uplift.c1z", b.TempDir())
 
-	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble))
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
 	if err != nil {
 		b.Fatalf("NewStore: %v", err)
 	}

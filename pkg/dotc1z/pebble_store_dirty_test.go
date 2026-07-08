@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // TestPebbleStoreGrantsStoreExpandedGrantsMarksDirty exercises
@@ -23,7 +24,7 @@ func TestPebbleStoreGrantsStoreExpandedGrantsMarksDirty(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "dirty.c1z")
 
-	store, err := NewStore(ctx, path, WithEngine(EnginePebble))
+	store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)

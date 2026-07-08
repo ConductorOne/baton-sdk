@@ -17,6 +17,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
@@ -82,7 +83,7 @@ func TestProdScaleSkewedCompaction(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("BATON_EXPERIMENTAL_PEBBLE_COMPACTOR", mode)
 			c, cleanup, err := NewCompactor(ctx, t.TempDir(), entries,
-				WithTmpDir(t.TempDir()), WithEngine(dotc1z.EnginePebble), WithSkipGrantExpansion())
+				WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithSkipGrantExpansion())
 			require.NoError(t, err)
 			defer func() { require.NoError(t, cleanup()) }()
 
@@ -183,8 +184,8 @@ func manifestSyncID(t *testing.T, path string) string {
 func buildProdScaleBase(t *testing.T, ctx context.Context, path string, grants, users, ents int) {
 	t.Helper()
 	buildProdScaleBaseStore(t, ctx, path, grants, users, ents,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
-		dotc1z.WithPayloadEncoding(dotc1z.PayloadEncodingIndexedZstd),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithPayloadEncoding(c1zstore.PayloadEncodingIndexedZstd),
 	)
 }
 
@@ -287,8 +288,8 @@ func buildProdScaleBaseStore(t *testing.T, ctx context.Context, path string, gra
 func buildProdScalePartial(t *testing.T, ctx context.Context, path string, idx int) {
 	t.Helper()
 	w, err := dotc1z.NewStore(ctx, path,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
-		dotc1z.WithPayloadEncoding(dotc1z.PayloadEncodingIndexedZstd),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithPayloadEncoding(c1zstore.PayloadEncodingIndexedZstd),
 		dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)
 	_, err = w.StartNewSync(ctx, connectorstore.SyncTypePartial, "")

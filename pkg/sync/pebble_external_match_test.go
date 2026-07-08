@@ -9,6 +9,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
@@ -40,7 +41,7 @@ import (
 // (pkg/dotc1z/engine/pebble/adapter_grants_store.go) sets
 // `Annotation: nil` unconditionally:
 //
-//	rows = append(rows, dotc1z.GrantAnnotation{
+//	rows = append(rows, c1zstore.GrantAnnotation{
 //	    Grant:                   V3GrantToV2(rec),
 //	    Annotation:              nil, // Stack 6 fills this in
 //	    ...
@@ -124,7 +125,7 @@ func TestPebble_ExternalResourceMatchID_RemappingSkipped(t *testing.T) {
 	// Internal sync — Pebble.
 	internalC1zpath := filepath.Join(tempDir, "internal-pebble.c1z")
 	internalStore, err := dotc1z.NewStore(ctx, internalC1zpath,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithTmpDir(tempDir),
 	)
 	require.NoError(t, err)
@@ -145,7 +146,7 @@ func TestPebble_ExternalResourceMatchID_RemappingSkipped(t *testing.T) {
 	// remapped entitlement id we expected to be stored would show
 	// up here. The bug is upstream: the *write* never happened.
 	reopen, err := dotc1z.NewStore(ctx, internalC1zpath,
-		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithReadOnly(true),
 	)
 	require.NoError(t, err)
@@ -156,7 +157,7 @@ func TestPebble_ExternalResourceMatchID_RemappingSkipped(t *testing.T) {
 	require.NotNil(t, prevSync, "expected a finished full sync on the internal Pebble c1z")
 	require.NoError(t, reopen.SetCurrentSync(ctx, prevSync.ID))
 
-	var defs []dotc1z.PendingExpansion
+	var defs []c1zstore.PendingExpansion
 	for pe, err := range reopen.Grants().PendingExpansion(ctx) {
 		require.NoError(t, err)
 		defs = append(defs, pe)

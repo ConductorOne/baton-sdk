@@ -10,6 +10,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // TestPebbleCloseRetryAfterFailedSave pins the recovery path Close
@@ -25,7 +26,7 @@ func TestPebbleCloseRetryAfterFailedSave(t *testing.T) {
 	require.NoError(t, os.MkdirAll(outDir, 0o755))
 	path := filepath.Join(outDir, "retry.c1z")
 
-	store, err := NewStore(ctx, path, WithEngine(EnginePebble))
+	store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)

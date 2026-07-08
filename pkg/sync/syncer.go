@@ -19,6 +19,7 @@ import (
 	storage_v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -115,7 +116,7 @@ type syncer struct {
 	externalResourceEntitlementIdFilter string
 	previousSyncC1ZPath                 string
 	previousSyncC1ZPathOptional         bool
-	store                               dotc1z.C1ZStore
+	store                               c1zstore.Store
 	externalResourceReader              connectorstore.Reader
 	previousSyncReader                  connectorstore.Reader
 	connector                           types.ConnectorClient
@@ -124,7 +125,7 @@ type syncer struct {
 	transitionHandler                   func(s Action)
 	progressHandler                     func(p *Progress)
 	tmpDir                              string
-	storageEngine                       dotc1z.Engine
+	storageEngine                       c1zstore.Engine
 	skipFullSync                        bool
 	lastCheckPointTime                  time.Time
 	counts                              *progresslog.ProgressLog
@@ -152,7 +153,7 @@ var _ Syncer = (*syncer)(nil)
 // GrantStore.StoreExpandedGrants so the expander package can depend on
 // a single narrow interface without knowing about C1ZStore.
 type expanderStoreAdapter struct {
-	store dotc1z.C1ZStore
+	store c1zstore.Store
 }
 
 func (a expanderStoreAdapter) GetEntitlement(ctx context.Context, req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
@@ -2799,7 +2800,7 @@ func WithProgressHandler(f func(s *Progress)) SyncOpt {
 
 // WithConnectorStore sets the connector store to use. This is the preferred option.
 // Either this or WithC1ZPath must be provided to create a new syncer.
-func WithConnectorStore(store dotc1z.C1ZStore) SyncOpt {
+func WithConnectorStore(store c1zstore.Store) SyncOpt {
 	return func(s *syncer) {
 		s.store = store
 	}
@@ -2821,7 +2822,7 @@ func WithTmpDir(path string) SyncOpt {
 
 // WithStorageEngine selects the dotc1z storage engine when opening the c1z
 // file via WithC1ZPath. Empty uses the baton-sdk default.
-func WithStorageEngine(engine dotc1z.Engine) SyncOpt {
+func WithStorageEngine(engine c1zstore.Engine) SyncOpt {
 	return func(s *syncer) {
 		s.storageEngine = engine
 	}

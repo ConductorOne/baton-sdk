@@ -13,6 +13,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
@@ -85,7 +86,7 @@ func populateEngine(t *testing.T, ctx context.Context, eng *enginepkg.Engine, rs
 // sync id, for the file-based strategies (kway, overlay).
 func buildC1ZSource(t *testing.T, ctx context.Context, path string, rs recordSet) SourceFile {
 	t.Helper()
-	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
+	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)
 	eng, ok := enginepkg.AsEngine(w)
 	require.True(t, ok)

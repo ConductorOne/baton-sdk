@@ -10,6 +10,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -462,7 +463,7 @@ func TestCompactionPreservesGrantExpansionColumns(t *testing.T) {
 
 	// Build a map of expandable grants by external ID for easy lookup.
 	// Use the paginated form to avoid assuming a particular iteration order.
-	defsByID := make(map[string]dotc1z.GrantAnnotation)
+	defsByID := make(map[string]c1zstore.GrantAnnotation)
 	pageToken := ""
 	for {
 		rows, next, err := baseDB.Grants().ListWithAnnotationsPage(ctx, pageToken)

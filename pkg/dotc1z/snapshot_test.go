@@ -13,6 +13,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // writeSnapSync writes one sync (resource types, resources, an entitlement, and
@@ -57,9 +58,9 @@ func writeSnapSync(t *testing.T, ctx context.Context, f *C1File, prefix string, 
 	return syncID
 }
 
-func listAllSyncRuns(t *testing.T, ctx context.Context, f *C1File) []*SyncRun {
+func listAllSyncRuns(t *testing.T, ctx context.Context, f *C1File) []*c1zstore.SyncRun {
 	t.Helper()
-	var out []*SyncRun
+	var out []*c1zstore.SyncRun
 	pageToken := ""
 	for {
 		runs, next, err := f.ListSyncRuns(ctx, pageToken, 1000)
@@ -94,7 +95,7 @@ func TestSnapshotIncludesUnendedSyncs(t *testing.T) {
 	defer snap.Close(ctx)
 
 	runs := listAllSyncRuns(t, ctx, snap)
-	byID := map[string]*SyncRun{}
+	byID := map[string]*c1zstore.SyncRun{}
 	for _, r := range runs {
 		byID[r.ID] = r
 	}
@@ -246,7 +247,7 @@ func TestSnapshotGuards(t *testing.T) {
 		f, err := NewC1File(ctx, dbPath, WithC1FTmpDir(tmp))
 		require.NoError(t, err)
 		defer func() { require.NoError(t, f.rawDb.Close()) }()
-		f.engine = EnginePebble
+		f.engine = c1zstore.EnginePebble
 
 		require.Error(t, f.SnapshotTo(ctx, snapPath), "snapshot must reject the pebble engine")
 		_, statErr := os.Stat(snapPath)

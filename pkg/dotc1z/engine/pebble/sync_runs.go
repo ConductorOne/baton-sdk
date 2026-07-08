@@ -142,7 +142,7 @@ func (e *Engine) IterateAllSyncRuns(ctx context.Context, yield func(*v3.SyncRunR
 // This is the single source of truth for "pick the latest finished
 // sync" on the Pebble engine; all three external entry points
 // (connectorstore.LatestFinishedSyncIDFetcher,
-// dotc1z.SyncMeta.LatestFullSync / LatestFinishedSyncOfAnyType, and
+// c1zstore.SyncMeta.LatestFullSync / LatestFinishedSyncOfAnyType, and
 // reader_v2.SyncsReaderService.GetLatestFinishedSync) call here so
 // the tiebreaker and predicate semantics stay consistent.
 //

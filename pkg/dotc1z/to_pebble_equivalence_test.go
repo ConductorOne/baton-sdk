@@ -13,6 +13,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
@@ -110,7 +111,7 @@ func TestToPebbleBulkImportEquivalence(t *testing.T) {
 
 	// --- path 2: canonical Put* reference ---
 	refPath := filepath.Join(dir, "reference.c1z")
-	ref, err := dotc1z.NewStore(ctx, refPath, dotc1z.WithEngine(dotc1z.EnginePebble), dotc1z.WithTmpDir(dir))
+	ref, err := dotc1z.NewStore(ctx, refPath, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(dir))
 	require.NoError(t, err)
 	_, err = ref.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)

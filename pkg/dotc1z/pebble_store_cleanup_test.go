@@ -10,6 +10,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
@@ -51,7 +52,7 @@ func listSyncIDs(t testing.TB, ctx context.Context, e *pebble.Engine) []string {
 // The caller is responsible for closing it.
 func openStoreWithOptions(t testing.TB, ctx context.Context, path string, opts ...C1ZOption) connectorstore.Writer {
 	t.Helper()
-	allOpts := append([]C1ZOption{WithEngine(EnginePebble)}, opts...)
+	allOpts := append([]C1ZOption{WithEngine(c1zstore.EnginePebble)}, opts...)
 	store, err := NewStore(ctx, path, allOpts...)
 	require.NoError(t, err, "NewStore: %v", err)
 	return store

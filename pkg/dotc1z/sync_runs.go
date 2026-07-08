@@ -154,7 +154,7 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) (bool
 // getCachedViewSyncRun returns the cached sync run for read operations.
 // This avoids N+1 queries when paginating through listConnectorObjects.
 // The cache is invalidated when a sync starts or ends.
-func (c *C1File) getCachedViewSyncRun(ctx context.Context) (*SyncRun, error) {
+func (c *C1File) getCachedViewSyncRun(ctx context.Context) (*c1zstore.SyncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getCachedViewSyncRun")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -188,7 +188,7 @@ func (c *C1File) invalidateCachedViewSyncRun() {
 	c.cachedViewSyncErr = nil
 }
 
-func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connectorstore.SyncType) (*SyncRun, error) {
+func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connectorstore.SyncType) (*c1zstore.SyncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getLatestUnfinishedSync")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -200,7 +200,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 
 	// Don't resume syncs that started over a week ago
 	oneWeekAgo := time.Now().AddDate(0, 0, -7)
-	ret := &SyncRun{}
+	ret := &c1zstore.SyncRun{}
 	q := c.db.From(syncRuns.Name())
 	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff", "stats")
 	q = q.Where(goqu.C("ended_at").IsNull())
@@ -231,7 +231,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 	return ret, nil
 }
 
-func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType connectorstore.SyncType) (*SyncRun, error) {
+func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType connectorstore.SyncType) (*c1zstore.SyncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getFinishedSync")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -246,7 +246,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 		return nil, status.Errorf(codes.InvalidArgument, "invalid sync type: %s", syncType)
 	}
 
-	ret := &SyncRun{}
+	ret := &c1zstore.SyncRun{}
 	q := c.db.From(syncRuns.Name())
 	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff", "stats")
 	q = q.Where(goqu.C("ended_at").IsNotNull())
@@ -301,7 +301,7 @@ func parseStats(ctx context.Context, statsBytes *[]byte) *reader_v2.SyncStats {
 	return ret
 }
 
-func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*SyncRun, string, error) {
+func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListSyncRuns")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -325,7 +325,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 	q = q.Order(goqu.C("id").Asc())
 	q = q.Limit(uint(pageSize + 1))
 
-	var ret []*SyncRun
+	var ret []*c1zstore.SyncRun
 
 	query, args, err := q.ToSQL()
 	if err != nil {
@@ -347,7 +347,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 		}
 		statsBytes := &[]byte{}
 		rowId := 0
-		data := &SyncRun{}
+		data := &c1zstore.SyncRun{}
 		err := rows.Scan(&rowId, &data.ID, &data.StartedAt, &data.EndedAt, &data.SyncToken, &data.Type, &data.ParentSyncID, &data.LinkedSyncID, &data.SupportsDiff, &statsBytes)
 		if err != nil {
 			return nil, "", err
@@ -432,7 +432,7 @@ func (c *C1File) LatestFinishedSyncID(ctx context.Context, syncType connectorsto
 	return s.ID, nil
 }
 
-func (c *C1File) getSync(ctx context.Context, syncID string) (*SyncRun, error) {
+func (c *C1File) getSync(ctx context.Context, syncID string) (*c1zstore.SyncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getSync")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -442,7 +442,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*SyncRun, error) {
 		return nil, err
 	}
 
-	ret := &SyncRun{}
+	ret := &c1zstore.SyncRun{}
 
 	q := c.db.From(syncRuns.Name())
 	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff", "stats")
@@ -464,7 +464,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*SyncRun, error) {
 	return ret, nil
 }
 
-func (c *C1File) getCurrentSync(ctx context.Context) (*SyncRun, error) {
+func (c *C1File) getCurrentSync(ctx context.Context) (*c1zstore.SyncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getCurrentSync")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -885,7 +885,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		return err
 	}
 
-	var candidates []SyncRun
+	var candidates []c1zstore.SyncRun
 	pageToken := ""
 	for {
 		runs, nextPageToken, err := c.ListSyncRuns(ctx, pageToken, 100)

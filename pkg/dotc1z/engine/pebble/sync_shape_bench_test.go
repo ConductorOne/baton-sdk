@@ -12,6 +12,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // baton-demo realistic Sync() shape — approximate counts taken
@@ -48,9 +49,9 @@ const (
 //	    -bench=BenchmarkSyncShape_BatonDemo -benchtime=1x \
 //	    ./pkg/dotc1z/engine/pebble
 func BenchmarkSyncShape_BatonDemo(b *testing.B) {
-	engines := []dotc1z.Engine{dotc1z.EngineSQLite, dotc1z.EnginePebble}
+	engines := []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble}
 	if env := os.Getenv("SYNC_BENCH_ENGINE"); env != "" && env != "both" {
-		engines = []dotc1z.Engine{dotc1z.Engine(env)}
+		engines = []c1zstore.Engine{c1zstore.Engine(env)}
 	}
 	for _, eng := range engines {
 		b.Run(string(eng), func(b *testing.B) {
@@ -61,7 +62,7 @@ func BenchmarkSyncShape_BatonDemo(b *testing.B) {
 	}
 }
 
-func runBatonDemoSyncShape(b *testing.B, engine dotc1z.Engine) {
+func runBatonDemoSyncShape(b *testing.B, engine c1zstore.Engine) {
 	b.Helper()
 	ctx := context.Background()
 	path := fmt.Sprintf("%s/%s.c1z", b.TempDir(), engine)

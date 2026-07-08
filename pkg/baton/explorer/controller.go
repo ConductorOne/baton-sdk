@@ -12,7 +12,7 @@ import (
 	"runtime"
 
 	"github.com/conductorone/baton-sdk/pkg/baton/storecache"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/gin-gonic/contrib/static"
 	"github.com/gin-gonic/gin"
 )
@@ -43,7 +43,7 @@ type Controller struct {
 	baton *BatonService
 }
 
-func NewController(ctx context.Context, store dotc1z.C1ZStore, syncID, resourceType string, devMode bool) (Controller, error) {
+func NewController(ctx context.Context, store c1zstore.Store, syncID, resourceType string, devMode bool) (Controller, error) {
 	principals, ok := store.(grantPrincipalLister)
 	if !ok {
 		return Controller{}, fmt.Errorf("store %T does not support ListGrantsForPrincipal", store)

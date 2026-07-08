@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 func TestReadHeaderFormat(t *testing.T) {
@@ -84,9 +86,9 @@ func TestFormatString(t *testing.T) {
 
 func TestEngineConstants(t *testing.T) {
 	// Smoke-check the engine constants are non-empty and distinct.
-	require.NotEmpty(t, EngineSQLite)
-	require.NotEmpty(t, EnginePebble)
-	require.NotEqual(t, EngineSQLite, EnginePebble, "engine constants must be distinct")
+	require.NotEmpty(t, c1zstore.EngineSQLite)
+	require.NotEmpty(t, c1zstore.EnginePebble)
+	require.NotEqual(t, c1zstore.EngineSQLite, c1zstore.EnginePebble, "engine constants must be distinct")
 }
 
 func TestErrEngineNotAvailable(t *testing.T) {

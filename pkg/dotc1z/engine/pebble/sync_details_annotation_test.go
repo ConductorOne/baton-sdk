@@ -12,6 +12,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // TestPebble_ListGrants_HonorsSyncDetailsAnnotation is the regression
@@ -31,7 +32,7 @@ func TestPebble_ListGrants_HonorsSyncDetailsAnnotation(t *testing.T) {
 
 	store, err := dotc1z.NewStore(ctx,
 		filepath.Join(t.TempDir(), "syncdetails.c1z"),
-		dotc1z.WithEngine(dotc1z.EnginePebble),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
 	)
 	require.NoError(t, err)
 	defer func() { _ = store.Close(ctx) }()

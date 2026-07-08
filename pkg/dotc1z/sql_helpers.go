@@ -574,7 +574,7 @@ func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceI
 	case c.viewSyncID != "":
 		q = q.Where(goqu.C("sync_id").Eq(c.viewSyncID))
 	default:
-		var latestSyncRun *SyncRun
+		var latestSyncRun *c1zstore.SyncRun
 		var err error
 		latestSyncRun, err = c.getFinishedSync(ctx, 0, connectorstore.SyncTypeFull)
 		if err != nil {
@@ -634,7 +634,7 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 	case c.viewSyncID != "":
 		q = q.Where(goqu.C("sync_id").Eq(c.viewSyncID))
 	default:
-		var latestSyncRun *SyncRun
+		var latestSyncRun *c1zstore.SyncRun
 		var err error
 		latestSyncRun, err = c.getFinishedSync(ctx, 0, connectorstore.SyncTypeAny)
 		if err != nil {

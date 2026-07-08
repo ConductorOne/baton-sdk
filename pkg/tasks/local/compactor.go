@@ -6,7 +6,7 @@ import (
 	"time"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
@@ -23,12 +23,12 @@ type localCompactor struct {
 	compactableSyncs []*synccompactor.CompactableSync
 	outputPath       string
 	tmpDir           string
-	storageEngine    dotc1z.Engine
+	storageEngine    c1zstore.Engine
 }
 
 type CompactorOption func(*localCompactor)
 
-func WithCompactorStorageEngine(engine dotc1z.Engine) CompactorOption {
+func WithCompactorStorageEngine(engine c1zstore.Engine) CompactorOption {
 	return func(m *localCompactor) {
 		m.storageEngine = engine
 	}

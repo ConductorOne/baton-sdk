@@ -22,6 +22,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
@@ -168,7 +169,7 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
 
-	dest, err := NewStore(ctx, outPath, WithEngine(EnginePebble), WithTmpDir(cfg.tmpDir))
+	dest, err := NewStore(ctx, outPath, WithEngine(c1zstore.EnginePebble), WithTmpDir(cfg.tmpDir))
 	if err != nil {
 		return nil, fmt.Errorf("to-pebble: open destination: %w", err)
 	}

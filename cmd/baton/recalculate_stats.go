@@ -6,6 +6,7 @@ import (
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -75,7 +76,7 @@ func runRecalculateStats(cmd *cobra.Command, args []string) error {
 // is set, it is the only sync returned. Otherwise every finished sync in the
 // c1z is returned — stats are only meaningful for finished syncs, so
 // in-progress runs are skipped.
-func syncIDsToRecalculate(ctx context.Context, store dotc1z.C1ZStore, syncID string) ([]string, error) {
+func syncIDsToRecalculate(ctx context.Context, store c1zstore.Store, syncID string) ([]string, error) {
 	if syncID != "" {
 		// Validate the sync exists so a typo'd id fails loudly instead of
 		// silently recomputing nothing (the Pebble engine would otherwise

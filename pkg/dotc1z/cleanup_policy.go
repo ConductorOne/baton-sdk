@@ -9,7 +9,7 @@ import "github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 // SelectSyncsToDelete applies the SDK retention policy to a snapshot of sync
 // runs and returns the IDs whose data should be deleted. See
 // c1zstore.SelectSyncsToDelete for the policy details.
-func SelectSyncsToDelete(candidates []SyncRun, currentSyncID string, syncLimit int) []string {
+func SelectSyncsToDelete(candidates []c1zstore.SyncRun, currentSyncID string, syncLimit int) []string {
 	return c1zstore.SelectSyncsToDelete(candidates, currentSyncID, syncLimit)
 }
 

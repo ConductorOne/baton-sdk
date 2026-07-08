@@ -14,6 +14,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -78,21 +79,21 @@ func TestTopologicalMergeDifferentialRandomStore(t *testing.T) {
 			ctx := context.Background()
 
 			// Ground truth: the current source-batched expander on SQLite.
-			ground := runExpansion(t, ctx, tc, dotc1z.EngineSQLite, 0, func(e *Expander) error { return e.Run(ctx) })
+			ground := runExpansion(t, ctx, tc, c1zstore.EngineSQLite, 0, func(e *Expander) error { return e.Run(ctx) })
 
 			candidates := []struct {
 				name     string
-				engine   dotc1z.Engine
+				engine   c1zstore.Engine
 				pageSize uint32
 				run      func(*Expander) error
 			}{
-				{"streaming/sqlite", dotc1z.EngineSQLite, 0, func(e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
-				{"projection/sqlite", dotc1z.EngineSQLite, 0, func(e *Expander) error { return e.RunTopologicalMergeProjection(ctx) }},
-				{"streaming/pebble", dotc1z.EnginePebble, 0, func(e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
-				{"projection/pebble", dotc1z.EnginePebble, 0, func(e *Expander) error { return e.RunTopologicalMergeProjection(ctx) }},
+				{"streaming/sqlite", c1zstore.EngineSQLite, 0, func(e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
+				{"projection/sqlite", c1zstore.EngineSQLite, 0, func(e *Expander) error { return e.RunTopologicalMergeProjection(ctx) }},
+				{"streaming/pebble", c1zstore.EnginePebble, 0, func(e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
+				{"projection/pebble", c1zstore.EnginePebble, 0, func(e *Expander) error { return e.RunTopologicalMergeProjection(ctx) }},
 				// Small Pebble pages force principal groups to span reader pages,
 				// exercising streamingPrincipalGroupStream paging + pushback.
-				{"streaming/pebble/small-page", dotc1z.EnginePebble, 2, func(e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
+				{"streaming/pebble/small-page", c1zstore.EnginePebble, 2, func(e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
 			}
 			for _, c := range candidates {
 				got := runExpansion(t, ctx, tc, c.engine, c.pageSize, c.run)
@@ -420,7 +421,7 @@ func TestTopologicalMergeUntouchedBaseGrantNotRewritten(t *testing.T) {
 		edges: []sqliteEdgeSpec{{src: "ent:source", dst: "ent:dest", rtids: []string{"user"}}},
 	}
 
-	for _, engine := range []dotc1z.Engine{dotc1z.EngineSQLite, dotc1z.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
 		for _, algo := range algos {
 			label := string(engine) + "/" + algo.name
 			t.Run(label, func(t *testing.T) {
