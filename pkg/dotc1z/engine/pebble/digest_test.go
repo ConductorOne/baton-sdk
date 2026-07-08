@@ -86,11 +86,24 @@ func sealGrantDigests(t testing.TB, e *Engine) {
 	}
 }
 
-// digestNodeCount counts stored digest nodes (across all partitions and
-// digested indexes).
+// digestNodeCount counts stored PER-PARTITION digest nodes (across all
+// partitions and digested indexes) — i.e. everything callers of this
+// helper actually assert shapes about (root-only, root+leaves, ...).
+// It excludes the whole-file grant-digest global root (see
+// globalGrantDigestNodeKey): that node lives in the same typeDigest
+// keyspace but is a single fold-of-everything summary the seal build
+// writes once per file, not a per-partition node, so counting it here
+// would throw off every existing "N nodes for this one entitlement"
+// assertion by a constant +1.
 func digestNodeCount(t testing.TB, e *Engine) int {
 	t.Helper()
-	return countKeyRangeTest(t, e, DigestLowerBound(), DigestUpperBound())
+	n := countKeyRangeTest(t, e, DigestLowerBound(), DigestUpperBound())
+	if _, ok, err := e.GetGrantDigestGlobalRoot(context.Background()); err != nil {
+		t.Fatalf("GetGrantDigestGlobalRoot: %v", err)
+	} else if ok {
+		n--
+	}
+	return n
 }
 
 // rawLeafPrefixes returns the stored 2-byte leaf key prefixes for one

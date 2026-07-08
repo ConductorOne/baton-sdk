@@ -75,6 +75,34 @@ message C1ZManifestV3 {
   // tooling inspect legacy-vs-structured index state without extracting the
   // Pebble payload.
   PebbleIdIndexFormat pebble_id_index_format = 42;
+
+  // Whole-file grant digest root: the XOR fold of every per-entitlement
+  // grant-digest root's content-hash XOR in the file's single sync (i.e.
+  // the fold of every entitlement's digest, not just entitlements with
+  // grants), plus the total grant count. Lets a consumer answer "did
+  // anything change?" from a header read alone, without unpacking the
+  // Pebble payload. Absent means "no digest built for this file" (older
+  // writers, or a file whose digest state was invalidated after the
+  // last save) — never "zero grants"; see
+  // c1/dotc1z/engine/pebble/digest.go's present-means-exact contract.
+  // Additive field: old readers ignore it, old files simply lack it.
+  GrantDigestRoot grant_digest_root = 43;
+}
+
+// GrantDigestRoot is the whole-file grant digest: present iff the
+// engine successfully built grant digests for the file's sync (seal
+// time, or a compaction that ran the same build). See
+// c1.c1z.v3.C1ZManifestV3.grant_digest_root.
+message GrantDigestRoot {
+  // XOR of every grant's content hash in the sync. hashLen (8) bytes.
+  bytes xor_digest = 1;
+  // Total grant count the digest was built over.
+  int64 count = 2;
+  // Version of the grant content-hash / bucket-hash ABI (grant_digest.go)
+  // this root was computed under. A future ABI bump changes this, which
+  // makes roots computed under different versions incomparable by
+  // construction instead of silently comparing unrelated hash schemes.
+  uint32 abi_version = 3;
 }
 
 enum PebbleIdIndexFormat {

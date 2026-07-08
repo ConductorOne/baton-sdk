@@ -110,6 +110,16 @@ type grantDigestFold struct {
 	rootXor       [hashLen]byte
 	total         int64
 
+	// globalXor/globalTotal accumulate across EVERY partition the fold
+	// sees (never reset by closePartition, unlike rootXor/total): the
+	// whole-file grant digest root written once at finish(). XOR is
+	// associative/commutative, so folding it here in partition-close
+	// order is exact regardless of how partitions or their buckets were
+	// subdivided — same split-independence property the per-partition
+	// digest relies on (digest.go).
+	globalXor   [hashLen]byte
+	globalTotal int64
+
 	batch      *pebble.Batch
 	partitions int64
 	nodes      int64
@@ -162,6 +172,8 @@ func (f *grantDigestFold) add(partitionBytes []byte, bucket uint16, contentHash 
 	xorInto(f.xors[bucket][:], contentHash)
 	xorInto(f.rootXor[:], contentHash)
 	f.total++
+	xorInto(f.globalXor[:], contentHash)
+	f.globalTotal++
 	return nil
 }
 
@@ -224,11 +236,21 @@ func (f *grantDigestFold) closePartition() error {
 	return nil
 }
 
-// finish closes the last partition and commits the tail batch.
+// finish closes the last partition, writes the whole-file global root
+// (the fold of every partition this build touched — see globalXor/
+// globalTotal), and commits the tail batch. The global root lands in
+// the same final batch as the last partition's nodes, so it is never
+// visible without them: a crash between batches can only leave the
+// global root ABSENT, never present ahead of a partition it should
+// have folded in.
 func (f *grantDigestFold) finish() error {
 	if err := f.closePartition(); err != nil {
 		return err
 	}
+	if err := f.batch.Set(globalGrantDigestNodeKey(), packDigestLeaf(f.globalTotal, f.globalXor[:]), nil); err != nil {
+		return err
+	}
+	f.nodes++
 	err := f.batch.Commit(f.opts)
 	f.batch.Close()
 	f.batch = nil
@@ -400,6 +422,12 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 			return err
 		}
 		if err := e.writeMissingEntitlementDigestRoots(ctx, opts); err != nil {
+			return err
+		}
+		// Zero grants still means the digest WAS built (present-means-
+		// exact — an absent global root would tell a manifest reader to
+		// recalculate instead of trusting "nothing to diff").
+		if err := e.db.Set(globalGrantDigestNodeKey(), packDigestLeaf(0, zeroDigest[:]), opts); err != nil {
 			return err
 		}
 		e.grantDigestsPresent.Store(true)

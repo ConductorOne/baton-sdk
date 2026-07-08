@@ -195,8 +195,19 @@ type C1ZManifestV3 struct {
 	// tooling inspect legacy-vs-structured index state without extracting the
 	// Pebble payload.
 	PebbleIdIndexFormat PebbleIdIndexFormat `protobuf:"varint,42,opt,name=pebble_id_index_format,json=pebbleIdIndexFormat,proto3,enum=c1.c1z.v3.PebbleIdIndexFormat" json:"pebble_id_index_format,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Whole-file grant digest root: the XOR fold of every per-entitlement
+	// grant-digest root's content-hash XOR in the file's single sync (i.e.
+	// the fold of every entitlement's digest, not just entitlements with
+	// grants), plus the total grant count. Lets a consumer answer "did
+	// anything change?" from a header read alone, without unpacking the
+	// Pebble payload. Absent means "no digest built for this file" (older
+	// writers, or a file whose digest state was invalidated after the
+	// last save) — never "zero grants"; see
+	// c1/dotc1z/engine/pebble/digest.go's present-means-exact contract.
+	// Additive field: old readers ignore it, old files simply lack it.
+	GrantDigestRoot *GrantDigestRoot `protobuf:"bytes,43,opt,name=grant_digest_root,json=grantDigestRoot,proto3" json:"grant_digest_root,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *C1ZManifestV3) Reset() {
@@ -287,6 +298,13 @@ func (x *C1ZManifestV3) GetPebbleIdIndexFormat() PebbleIdIndexFormat {
 	return PebbleIdIndexFormat_PEBBLE_ID_INDEX_FORMAT_UNSPECIFIED
 }
 
+func (x *C1ZManifestV3) GetGrantDigestRoot() *GrantDigestRoot {
+	if x != nil {
+		return x.GrantDigestRoot
+	}
+	return nil
+}
+
 func (x *C1ZManifestV3) SetEngine(v string) {
 	x.Engine = v
 }
@@ -323,6 +341,10 @@ func (x *C1ZManifestV3) SetPebbleIdIndexFormat(v PebbleIdIndexFormat) {
 	x.PebbleIdIndexFormat = v
 }
 
+func (x *C1ZManifestV3) SetGrantDigestRoot(v *GrantDigestRoot) {
+	x.GrantDigestRoot = v
+}
+
 func (x *C1ZManifestV3) HasEngineConfig() bool {
 	if x == nil {
 		return false
@@ -337,12 +359,23 @@ func (x *C1ZManifestV3) HasDescriptors() bool {
 	return x.Descriptors != nil
 }
 
+func (x *C1ZManifestV3) HasGrantDigestRoot() bool {
+	if x == nil {
+		return false
+	}
+	return x.GrantDigestRoot != nil
+}
+
 func (x *C1ZManifestV3) ClearEngineConfig() {
 	x.EngineConfig = nil
 }
 
 func (x *C1ZManifestV3) ClearDescriptors() {
 	x.Descriptors = nil
+}
+
+func (x *C1ZManifestV3) ClearGrantDigestRoot() {
+	x.GrantDigestRoot = nil
 }
 
 type C1ZManifestV3_builder struct {
@@ -394,6 +427,17 @@ type C1ZManifestV3_builder struct {
 	// tooling inspect legacy-vs-structured index state without extracting the
 	// Pebble payload.
 	PebbleIdIndexFormat PebbleIdIndexFormat
+	// Whole-file grant digest root: the XOR fold of every per-entitlement
+	// grant-digest root's content-hash XOR in the file's single sync (i.e.
+	// the fold of every entitlement's digest, not just entitlements with
+	// grants), plus the total grant count. Lets a consumer answer "did
+	// anything change?" from a header read alone, without unpacking the
+	// Pebble payload. Absent means "no digest built for this file" (older
+	// writers, or a file whose digest state was invalidated after the
+	// last save) — never "zero grants"; see
+	// c1/dotc1z/engine/pebble/digest.go's present-means-exact contract.
+	// Additive field: old readers ignore it, old files simply lack it.
+	GrantDigestRoot *GrantDigestRoot
 }
 
 func (b0 C1ZManifestV3_builder) Build() *C1ZManifestV3 {
@@ -409,6 +453,111 @@ func (b0 C1ZManifestV3_builder) Build() *C1ZManifestV3 {
 	x.SyncRuns = b.SyncRuns
 	x.FoldDeadBytes = b.FoldDeadBytes
 	x.PebbleIdIndexFormat = b.PebbleIdIndexFormat
+	x.GrantDigestRoot = b.GrantDigestRoot
+	return m0
+}
+
+// GrantDigestRoot is the whole-file grant digest: present iff the
+// engine successfully built grant digests for the file's sync (seal
+// time, or a compaction that ran the same build). See
+// c1.c1z.v3.C1ZManifestV3.grant_digest_root.
+type GrantDigestRoot struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// XOR of every grant's content hash in the sync. hashLen (8) bytes.
+	XorDigest []byte `protobuf:"bytes,1,opt,name=xor_digest,json=xorDigest,proto3" json:"xor_digest,omitempty"`
+	// Total grant count the digest was built over.
+	Count int64 `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	// Version of the grant content-hash / bucket-hash ABI (grant_digest.go)
+	// this root was computed under. A future ABI bump changes this, which
+	// makes roots computed under different versions incomparable by
+	// construction instead of silently comparing unrelated hash schemes.
+	AbiVersion    uint32 `protobuf:"varint,3,opt,name=abi_version,json=abiVersion,proto3" json:"abi_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GrantDigestRoot) Reset() {
+	*x = GrantDigestRoot{}
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GrantDigestRoot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GrantDigestRoot) ProtoMessage() {}
+
+func (x *GrantDigestRoot) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GrantDigestRoot) GetXorDigest() []byte {
+	if x != nil {
+		return x.XorDigest
+	}
+	return nil
+}
+
+func (x *GrantDigestRoot) GetCount() int64 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+func (x *GrantDigestRoot) GetAbiVersion() uint32 {
+	if x != nil {
+		return x.AbiVersion
+	}
+	return 0
+}
+
+func (x *GrantDigestRoot) SetXorDigest(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.XorDigest = v
+}
+
+func (x *GrantDigestRoot) SetCount(v int64) {
+	x.Count = v
+}
+
+func (x *GrantDigestRoot) SetAbiVersion(v uint32) {
+	x.AbiVersion = v
+}
+
+type GrantDigestRoot_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// XOR of every grant's content hash in the sync. hashLen (8) bytes.
+	XorDigest []byte
+	// Total grant count the digest was built over.
+	Count int64
+	// Version of the grant content-hash / bucket-hash ABI (grant_digest.go)
+	// this root was computed under. A future ABI bump changes this, which
+	// makes roots computed under different versions incomparable by
+	// construction instead of silently comparing unrelated hash schemes.
+	AbiVersion uint32
+}
+
+func (b0 GrantDigestRoot_builder) Build() *GrantDigestRoot {
+	m0 := &GrantDigestRoot{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.XorDigest = b.XorDigest
+	x.Count = b.Count
+	x.AbiVersion = b.AbiVersion
 	return m0
 }
 
@@ -457,7 +606,7 @@ type IndexedFrameIndex struct {
 
 func (x *IndexedFrameIndex) Reset() {
 	*x = IndexedFrameIndex{}
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[1]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -469,7 +618,7 @@ func (x *IndexedFrameIndex) String() string {
 func (*IndexedFrameIndex) ProtoMessage() {}
 
 func (x *IndexedFrameIndex) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[1]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -587,7 +736,7 @@ type IndexedFrameEntry struct {
 
 func (x *IndexedFrameEntry) Reset() {
 	*x = IndexedFrameEntry{}
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[2]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -599,7 +748,7 @@ func (x *IndexedFrameEntry) String() string {
 func (*IndexedFrameEntry) ProtoMessage() {}
 
 func (x *IndexedFrameEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[2]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -737,7 +886,7 @@ type RecordTypeInfo struct {
 
 func (x *RecordTypeInfo) Reset() {
 	*x = RecordTypeInfo{}
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[3]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -749,7 +898,7 @@ func (x *RecordTypeInfo) String() string {
 func (*RecordTypeInfo) ProtoMessage() {}
 
 func (x *RecordTypeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[3]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -835,7 +984,7 @@ type SyncRunSummary struct {
 
 func (x *SyncRunSummary) Reset() {
 	*x = SyncRunSummary{}
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[4]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -847,7 +996,7 @@ func (x *SyncRunSummary) String() string {
 func (*SyncRunSummary) ProtoMessage() {}
 
 func (x *SyncRunSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[4]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1001,7 +1150,7 @@ type PebbleEngineConfig struct {
 
 func (x *PebbleEngineConfig) Reset() {
 	*x = PebbleEngineConfig{}
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[5]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1013,7 +1162,7 @@ func (x *PebbleEngineConfig) String() string {
 func (*PebbleEngineConfig) ProtoMessage() {}
 
 func (x *PebbleEngineConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[5]
+	mi := &file_c1_c1z_v3_manifest_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1069,7 +1218,7 @@ var File_c1_c1z_v3_manifest_proto protoreflect.FileDescriptor
 
 const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\n" +
-	"\x18c1/c1z/v3/manifest.proto\x12\tc1.c1z.v3\x1a\x1bc1/storage/v3/records.proto\x1a\x19google/protobuf/any.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x96\x04\n" +
+	"\x18c1/c1z/v3/manifest.proto\x12\tc1.c1z.v3\x1a\x1bc1/storage/v3/records.proto\x1a\x19google/protobuf/any.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xde\x04\n" +
 	"\rC1ZManifestV3\x12\x16\n" +
 	"\x06engine\x18\x01 \x01(\tR\x06engine\x122\n" +
 	"\x15engine_schema_version\x18\x02 \x01(\rR\x13engineSchemaVersion\x129\n" +
@@ -1080,7 +1229,14 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\frecord_types\x18\v \x03(\v2\x19.c1.c1z.v3.RecordTypeInfoR\vrecordTypes\x126\n" +
 	"\tsync_runs\x18( \x03(\v2\x19.c1.c1z.v3.SyncRunSummaryR\bsyncRuns\x12&\n" +
 	"\x0ffold_dead_bytes\x18) \x01(\x03R\rfoldDeadBytes\x12S\n" +
-	"\x16pebble_id_index_format\x18* \x01(\x0e2\x1e.c1.c1z.v3.PebbleIdIndexFormatR\x13pebbleIdIndexFormat\"\xcc\x01\n" +
+	"\x16pebble_id_index_format\x18* \x01(\x0e2\x1e.c1.c1z.v3.PebbleIdIndexFormatR\x13pebbleIdIndexFormat\x12F\n" +
+	"\x11grant_digest_root\x18+ \x01(\v2\x1a.c1.c1z.v3.GrantDigestRootR\x0fgrantDigestRoot\"g\n" +
+	"\x0fGrantDigestRoot\x12\x1d\n" +
+	"\n" +
+	"xor_digest\x18\x01 \x01(\fR\txorDigest\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\x03R\x05count\x12\x1f\n" +
+	"\vabi_version\x18\x03 \x01(\rR\n" +
+	"abiVersion\"\xcc\x01\n" +
 	"\x11IndexedFrameIndex\x126\n" +
 	"\aentries\x18\x01 \x03(\v2\x1c.c1.c1z.v3.IndexedFrameEntryR\aentries\x12$\n" +
 	"\x0etotal_raw_size\x18\x02 \x01(\x03R\ftotalRawSize\x122\n" +
@@ -1120,39 +1276,41 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\x1dPAYLOAD_ENCODING_INDEXED_ZSTD\x10\x05\"\x04\b\x03\x10\x03\"\x04\b\x04\x10\x04B0Z.github.com/conductorone/baton-sdk/pb/c1/c1z/v3b\x06proto3"
 
 var file_c1_c1z_v3_manifest_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_c1_c1z_v3_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_c1_c1z_v3_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_c1_c1z_v3_manifest_proto_goTypes = []any{
 	(PebbleIdIndexFormat)(0),               // 0: c1.c1z.v3.PebbleIdIndexFormat
 	(PayloadEncoding)(0),                   // 1: c1.c1z.v3.PayloadEncoding
 	(*C1ZManifestV3)(nil),                  // 2: c1.c1z.v3.C1ZManifestV3
-	(*IndexedFrameIndex)(nil),              // 3: c1.c1z.v3.IndexedFrameIndex
-	(*IndexedFrameEntry)(nil),              // 4: c1.c1z.v3.IndexedFrameEntry
-	(*RecordTypeInfo)(nil),                 // 5: c1.c1z.v3.RecordTypeInfo
-	(*SyncRunSummary)(nil),                 // 6: c1.c1z.v3.SyncRunSummary
-	(*PebbleEngineConfig)(nil),             // 7: c1.c1z.v3.PebbleEngineConfig
-	(*anypb.Any)(nil),                      // 8: google.protobuf.Any
-	(*descriptorpb.FileDescriptorSet)(nil), // 9: google.protobuf.FileDescriptorSet
-	(v3.SyncType)(0),                       // 10: c1.storage.v3.SyncType
-	(*timestamppb.Timestamp)(nil),          // 11: google.protobuf.Timestamp
-	(*v3.SyncStatsRecord)(nil),             // 12: c1.storage.v3.SyncStatsRecord
+	(*GrantDigestRoot)(nil),                // 3: c1.c1z.v3.GrantDigestRoot
+	(*IndexedFrameIndex)(nil),              // 4: c1.c1z.v3.IndexedFrameIndex
+	(*IndexedFrameEntry)(nil),              // 5: c1.c1z.v3.IndexedFrameEntry
+	(*RecordTypeInfo)(nil),                 // 6: c1.c1z.v3.RecordTypeInfo
+	(*SyncRunSummary)(nil),                 // 7: c1.c1z.v3.SyncRunSummary
+	(*PebbleEngineConfig)(nil),             // 8: c1.c1z.v3.PebbleEngineConfig
+	(*anypb.Any)(nil),                      // 9: google.protobuf.Any
+	(*descriptorpb.FileDescriptorSet)(nil), // 10: google.protobuf.FileDescriptorSet
+	(v3.SyncType)(0),                       // 11: c1.storage.v3.SyncType
+	(*timestamppb.Timestamp)(nil),          // 12: google.protobuf.Timestamp
+	(*v3.SyncStatsRecord)(nil),             // 13: c1.storage.v3.SyncStatsRecord
 }
 var file_c1_c1z_v3_manifest_proto_depIdxs = []int32{
-	8,  // 0: c1.c1z.v3.C1ZManifestV3.engine_config:type_name -> google.protobuf.Any
+	9,  // 0: c1.c1z.v3.C1ZManifestV3.engine_config:type_name -> google.protobuf.Any
 	1,  // 1: c1.c1z.v3.C1ZManifestV3.payload_encoding:type_name -> c1.c1z.v3.PayloadEncoding
-	9,  // 2: c1.c1z.v3.C1ZManifestV3.descriptors:type_name -> google.protobuf.FileDescriptorSet
-	5,  // 3: c1.c1z.v3.C1ZManifestV3.record_types:type_name -> c1.c1z.v3.RecordTypeInfo
-	6,  // 4: c1.c1z.v3.C1ZManifestV3.sync_runs:type_name -> c1.c1z.v3.SyncRunSummary
+	10, // 2: c1.c1z.v3.C1ZManifestV3.descriptors:type_name -> google.protobuf.FileDescriptorSet
+	6,  // 3: c1.c1z.v3.C1ZManifestV3.record_types:type_name -> c1.c1z.v3.RecordTypeInfo
+	7,  // 4: c1.c1z.v3.C1ZManifestV3.sync_runs:type_name -> c1.c1z.v3.SyncRunSummary
 	0,  // 5: c1.c1z.v3.C1ZManifestV3.pebble_id_index_format:type_name -> c1.c1z.v3.PebbleIdIndexFormat
-	4,  // 6: c1.c1z.v3.IndexedFrameIndex.entries:type_name -> c1.c1z.v3.IndexedFrameEntry
-	10, // 7: c1.c1z.v3.SyncRunSummary.type:type_name -> c1.storage.v3.SyncType
-	11, // 8: c1.c1z.v3.SyncRunSummary.started_at:type_name -> google.protobuf.Timestamp
-	11, // 9: c1.c1z.v3.SyncRunSummary.ended_at:type_name -> google.protobuf.Timestamp
-	12, // 10: c1.c1z.v3.SyncRunSummary.stats:type_name -> c1.storage.v3.SyncStatsRecord
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	3,  // 6: c1.c1z.v3.C1ZManifestV3.grant_digest_root:type_name -> c1.c1z.v3.GrantDigestRoot
+	5,  // 7: c1.c1z.v3.IndexedFrameIndex.entries:type_name -> c1.c1z.v3.IndexedFrameEntry
+	11, // 8: c1.c1z.v3.SyncRunSummary.type:type_name -> c1.storage.v3.SyncType
+	12, // 9: c1.c1z.v3.SyncRunSummary.started_at:type_name -> google.protobuf.Timestamp
+	12, // 10: c1.c1z.v3.SyncRunSummary.ended_at:type_name -> google.protobuf.Timestamp
+	13, // 11: c1.c1z.v3.SyncRunSummary.stats:type_name -> c1.storage.v3.SyncStatsRecord
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_c1_c1z_v3_manifest_proto_init() }
@@ -1166,7 +1324,7 @@ func file_c1_c1z_v3_manifest_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_c1z_v3_manifest_proto_rawDesc), len(file_c1_c1z_v3_manifest_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

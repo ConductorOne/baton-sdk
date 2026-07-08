@@ -18,10 +18,22 @@ import (
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
-func BenchmarkMergeFilesIntoKWay(b *testing.B) {
+// kwayBenchSourceCount / kwayBenchGrantsPerSource fix the "syncs=50"
+// shape referenced by RFC 0003 Deliverable 1's verification
+// requirement: BenchmarkMergeFilesIntoKWay is the merge-only baseline,
+// BenchmarkMergeFilesIntoKWayWithGrantDigests adds the post-merge
+// digest build compaction now performs, and the delta between the two
+// is the wall-clock cost that build adds at this scale.
+const (
+	kwayBenchSourceCount     = 50
+	kwayBenchGrantsPerSource = 2500
+)
+
+func buildKWayBenchSources(b *testing.B) (string, []SourceFile) {
+	b.Helper()
 	ctx := context.Background()
-	const sourceCount = 50
-	const grantsPerSource = 2500
+	const sourceCount = kwayBenchSourceCount
+	const grantsPerSource = kwayBenchGrantsPerSource
 
 	fixtureDir := b.TempDir()
 	sources := make([]SourceFile, 0, sourceCount)
@@ -86,10 +98,18 @@ func BenchmarkMergeFilesIntoKWay(b *testing.B) {
 		}
 		sources = append(sources, SourceFile{Path: path, SyncID: syncID})
 	}
+	return fixtureDir, sources
+}
+
+// BenchmarkMergeFilesIntoKWay is the merge-only baseline: no grant
+// digest build, matching pre-Deliverable-1 compaction output.
+func BenchmarkMergeFilesIntoKWay(b *testing.B) {
+	ctx := context.Background()
+	fixtureDir, sources := buildKWayBenchSources(b)
 
 	b.ReportAllocs()
-	b.ReportMetric(sourceCount, "sources/op")
-	b.ReportMetric(grantsPerSource, "grants_per_source")
+	b.ReportMetric(kwayBenchSourceCount, "sources/op")
+	b.ReportMetric(kwayBenchGrantsPerSource, "grants_per_source")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		dest, _ := benchNewEngine(b, fmt.Sprintf("dest-%d", i))
@@ -99,6 +119,42 @@ func BenchmarkMergeFilesIntoKWay(b *testing.B) {
 			b.Fatal(err)
 		}
 		if _, err := MergeFilesInto(ctx, dest, sources, destSyncID, tmpDir); err != nil {
+			b.Fatal(err)
+		}
+		if err := dest.Close(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkMergeFilesIntoKWayWithGrantDigests is
+// BenchmarkMergeFilesIntoKWay plus the post-merge BuildGrantDigests
+// call the compactor now runs on every compacted output (RFC 0003
+// Deliverable 1, compactor_pebble.go's rebuildCompactedGrantDigests).
+// The delta against BenchmarkMergeFilesIntoKWay is the wall-clock cost
+// that build adds at the syncs=50 / grants=125000 scale.
+func BenchmarkMergeFilesIntoKWayWithGrantDigests(b *testing.B) {
+	ctx := context.Background()
+	fixtureDir, sources := buildKWayBenchSources(b)
+
+	b.ReportAllocs()
+	b.ReportMetric(kwayBenchSourceCount, "sources/op")
+	b.ReportMetric(kwayBenchGrantsPerSource, "grants_per_source")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		dest, _ := benchNewEngine(b, fmt.Sprintf("dest-%d", i))
+		destSyncID := ksuid.New().String()
+		tmpDir := filepath.Join(fixtureDir, fmt.Sprintf("tmp-%d", i))
+		if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+			b.Fatal(err)
+		}
+		if err := dest.SetCurrentSync(destSyncID); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := MergeFilesInto(ctx, dest, sources, destSyncID, tmpDir); err != nil {
+			b.Fatal(err)
+		}
+		if err := dest.BuildGrantDigests(ctx); err != nil {
 			b.Fatal(err)
 		}
 		if err := dest.Close(); err != nil {

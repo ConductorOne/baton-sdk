@@ -46,6 +46,36 @@ var grantDigestSpec = digestIndexSpec{
 	partitionPrefix: encodeGrantByEntPrincHashEntPrefix,
 }
 
+// grantDigestABIVersion is the version of the content-hash / bucket-hash
+// definitions below (grantContentHash64, grantPrincipalBucketHash64).
+// Stamped into the manifest's GrantDigestRoot.abi_version so a future
+// ABI bump (a change to either hash's input framing) makes stored
+// manifest roots computed under different versions incomparable by
+// construction, rather than silently comparing unrelated hash schemes.
+// Bump alongside any index-migration version bump that touches these
+// hashes (see index_migrations.go).
+const grantDigestABIVersion uint32 = 1
+
+// digestLevelGlobalRoot is the node-key level for the whole-file grant
+// digest root (see globalGrantDigestNodeKey): the XOR fold of every
+// per-entitlement root's digest, plus the total grant count, across
+// the whole sync. It is NOT part of the generic digest.go core (which
+// only knows about per-partition roots/leaves at digestLevelRoot /
+// digestLevelLeaf) — the "whole index" summary is a grant-digest-
+// specific manifest need, so a level value the core never produces
+// keeps the global node's key disjoint from every per-partition node
+// regardless of what any entitlement's partition bytes happen to be.
+const digestLevelGlobalRoot byte = 2
+
+// globalGrantDigestNodeKey returns the storage key for the whole-file
+// grant digest root: a level-digestLevelGlobalRoot node under an empty
+// partition. Its value is packed exactly like a leaf (packDigestLeaf /
+// unpackDigestLeaf: count(8 BE) || digest(hashLen)) — there is no
+// bucket-width concept for a whole-sync aggregate.
+func globalGrantDigestNodeKey() []byte {
+	return encodeDigestNodeKey(grantDigestSpec.indexID, "", digestLevelGlobalRoot, nil)
+}
+
 // digestPartitionForEntitlement returns the digest partition for an
 // entitlement identity: its encoded primary-key tail as a string (see
 // the partition convention in keys.go).
@@ -279,6 +309,33 @@ func (e *Engine) GetEntitlementDigestRoot(ctx context.Context, id entitlementIde
 	return e.getPartitionDigestRoot(grantDigestSpec, digestPartitionForEntitlement(id))
 }
 
+// GetGrantDigestGlobalRoot returns the whole-file grant digest root —
+// the XOR fold of every entitlement's grant-digest root's content-hash
+// plus the total grant count, across the sync's single sync. ok is
+// false when no digest has been built for this file (present-means-
+// exact: absence means "recalculate", never "zero grants"). Written
+// only alongside a full grant-digest build (the seal-time build, or a
+// compaction that runs BuildGrantDigests) and dropped by the same
+// invalidation paths that drop any per-entitlement root — see
+// stageGrantDigestInvalidation and the Drop* functions below.
+func (e *Engine) GetGrantDigestGlobalRoot(ctx context.Context) (DigestRoot, bool, error) {
+	val, closer, err := e.db.Get(globalGrantDigestNodeKey())
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return DigestRoot{}, false, nil
+		}
+		return DigestRoot{}, false, err
+	}
+	defer closer.Close()
+	count, digest, ok := unpackDigestLeaf(val)
+	if !ok {
+		return DigestRoot{}, false, fmt.Errorf("GetGrantDigestGlobalRoot: malformed global root")
+	}
+	out := make([]byte, len(digest))
+	copy(out, digest)
+	return DigestRoot{Hash: out, Count: count}, true, nil
+}
+
 // ComputeEntitlementBucketDigest folds the grant hash index over a
 // single bucket of an entitlement (the zero bucket = the whole
 // entitlement) — the authoritative on-demand counterpart of the stored
@@ -393,6 +450,13 @@ func (e *Engine) stageGrantDigestInvalidation(batch *pebble.Batch, id entitlemen
 	}
 	partition := digestPartitionForEntitlement(id)
 	if err := dropPartitionDigest(batch, grantDigestSpec, partition); err != nil {
+		return err
+	}
+	// The whole-file root is the fold of every partition's root; once
+	// one partition's digest is invalidated the aggregate is stale too,
+	// so it must drop alongside it rather than linger looking present
+	// (present-means-exact — digest.go).
+	if err := batch.Delete(globalGrantDigestNodeKey(), nil); err != nil {
 		return err
 	}
 	lo := encodeGrantByEntPrincHashEntPrefix(partition)

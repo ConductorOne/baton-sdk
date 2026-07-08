@@ -576,8 +576,9 @@ func readEnvelope(r io.Reader, headerOnly bool, pool *DecoderPool) (*Envelope, e
 
 // unmarshalManifestHeader decodes the cheap manifest fields by hand:
 // engine (1), engine_schema_version (2), payload_encoding (4), the
-// sync_runs projection (40), and fold_dead_bytes (41). The descriptor
-// closure (field 10) — by far
+// sync_runs projection (40), fold_dead_bytes (41),
+// pebble_id_index_format (42), and grant_digest_root (43). The
+// descriptor closure (field 10) — by far
 // the largest field — is skipped, which is what makes header reads
 // cheap enough for engine dispatch on every open. Sync run summaries
 // are small and few (bounded by the sync retention limit), so decoding
@@ -663,6 +664,20 @@ func unmarshalManifestHeader(b []byte) (*c1zv3.C1ZManifestV3, error) {
 				return nil, fmt.Errorf("c1z v3: manifest pebble_id_index_format overflow: %d", v)
 			}
 			out.SetPebbleIdIndexFormat(c1zv3.PebbleIdIndexFormat(v))
+			b = b[n:]
+		case 43:
+			if typ != protowire.BytesType {
+				return nil, fmt.Errorf("c1z v3: manifest grant_digest_root has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeBytes(b)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			root := &c1zv3.GrantDigestRoot{}
+			if err := proto.Unmarshal(v, root); err != nil {
+				return nil, fmt.Errorf("%w: grant_digest_root: %w", ErrManifestInvalid, err)
+			}
+			out.SetGrantDigestRoot(root)
 			b = b[n:]
 		default:
 			n := protowire.ConsumeFieldValue(num, typ, b)
