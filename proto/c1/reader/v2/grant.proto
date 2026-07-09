@@ -18,6 +18,11 @@ service GrantsReaderService {
   // in a single RPC. Page boundaries land between entitlements so
   // the cursor only needs to encode (entitlement_index, intra_cursor).
   rpc ListGrantsForEntitlements(GrantsReaderServiceListGrantsForEntitlementsRequest) returns (GrantsReaderServiceListGrantsForEntitlementsResponse);
+  // ListGrantsForPrincipal returns all grants where the given principal_id
+  // is the principal. The optional entitlement field narrows results to a
+  // single entitlement. This is now a first-class RPC required by all
+  // GrantsReaderServiceServer implementations.
+  rpc ListGrantsForPrincipal(GrantsReaderServiceListGrantsForPrincipalRequest) returns (GrantsReaderServiceListGrantsForPrincipalResponse);
 }
 
 message GrantsReaderServiceGetGrantRequest {
@@ -118,5 +123,30 @@ message GrantsReaderServiceListGrantsForEntitlementsResponse {
     ignore_empty: true
     min_bytes: 1
     max_bytes: 4096
+  }];
+}
+
+message GrantsReaderServiceListGrantsForPrincipalRequest {
+  c1.connector.v2.ResourceId principal_id = 1 [(validate.rules).message = {required: true}];
+  // Optional: narrow results to grants on this entitlement.
+  c1.connector.v2.Entitlement entitlement = 2;
+  uint32 page_size = 3 [(validate.rules).uint32 = {
+    ignore_empty: true
+    lte: 250
+  }];
+  string page_token = 4 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 2048
+  }];
+  repeated google.protobuf.Any annotations = 5;
+}
+
+message GrantsReaderServiceListGrantsForPrincipalResponse {
+  repeated c1.connector.v2.Grant list = 1;
+  string next_page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 2048
   }];
 }

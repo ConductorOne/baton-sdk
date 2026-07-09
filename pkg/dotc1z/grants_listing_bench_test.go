@@ -209,11 +209,8 @@ func BenchmarkListGrants_ResourceFilter(b *testing.B) {
 }
 
 // BenchmarkListGrantsForPrincipal benchmarks the principal-filtered
-// reader path used by UI "what does this user have?" lookups. Note
-// the request type is GrantsReaderServiceListGrantsForEntitlementRequest
-// with the PrincipalId field set — not a separately-named
-// principal-request struct. The fixture has unique principals, so
-// each call returns exactly 1 row.
+// reader path used by UI "what does this user have?" lookups.
+// The fixture has unique principals, so each call returns exactly 1 row.
 func BenchmarkListGrantsForPrincipal(b *testing.B) {
 	runForPrincipal := func(b *testing.B, numGrants int, extraOpts ...C1ZOption) {
 		fix, cleanup := setupListGrantsBench(b, numGrants, extraOpts...)
@@ -221,7 +218,7 @@ func BenchmarkListGrantsForPrincipal(b *testing.B) {
 
 		ctx := b.Context()
 
-		req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		req := reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			PrincipalId: fix.PrincipalSample.Id,
 		}.Build()
 

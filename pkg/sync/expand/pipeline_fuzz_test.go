@@ -241,17 +241,11 @@ func buildPipelineArtifact(t *testing.T, ctx context.Context, tc sqliteParityCas
 			ResourceType: g.principalRT, Resource: g.principalID,
 		}.Build()
 	}
-	// ListGrantsForPrincipal is a Go-level convenience method (not an RPC),
-	// present on both concrete stores but not on the C1ZStore interface.
-	principalLister, ok := ro.(interface {
-		ListGrantsForPrincipal(context.Context, *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error)
-	})
-	require.Truef(t, ok, "%s store does not expose ListGrantsForPrincipal", engine)
 	for key, pid := range principals {
 		keys := []string{}
 		pageToken = ""
 		for {
-			resp, err := principalLister.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+			resp, err := ro.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 				PrincipalId: pid, PageSize: 7, PageToken: pageToken,
 			}.Build())
 			require.NoError(t, err)

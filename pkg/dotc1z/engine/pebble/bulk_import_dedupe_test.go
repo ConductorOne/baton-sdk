@@ -126,7 +126,7 @@ func TestBulkImportMergesDuplicateIdentityGrants(t *testing.T) {
 
 	// The by_principal index must resolve to the merged primary (one row,
 	// no dangling second entry).
-	byPrincipal, err := store.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+	byPrincipal, err := store.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 		PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(),
 		PageSize:    100,
 	}.Build())
