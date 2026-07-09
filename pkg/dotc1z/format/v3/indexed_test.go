@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -520,6 +521,37 @@ func TestIndexedTrailerCorruption(t *testing.T) {
 		err := extract(t, p)
 		require.Error(t, err, "want size-range rejection")
 		require.Contains(t, err.Error(), "sizes out of range")
+	})
+
+	// Regression: a single Pebble SST can legitimately exceed 4 GiB
+	// raw (whale-scale whole-bucket SSTs), and an early version of the
+	// trailer validation rejected such entries with "sizes out of
+	// range", making the file unreadable. There is no per-entry size
+	// cap: the decoded-byte budget bounds extraction regardless of
+	// what raw_size claims.
+	t.Run("raw size above 4GiB accepted", func(t *testing.T) {
+		p := newEnv(t)
+		rewriteTrailer(t, p, func(idx *c1zv3.IndexedFrameIndex) {
+			idx.GetEntries()[0].SetRawSize(6 << 30)
+		})
+		f, err := os.Open(p)
+		require.NoError(t, err)
+		defer f.Close()
+		_, err = ReadIndexedFrameIndex(f)
+		require.NoError(t, err, "trailer read must accept large raw sizes")
+	})
+
+	// A hostile compressed_size near MaxInt64 must not wrap the frame
+	// range check (off+compSize) negative and get accepted; the
+	// overflow-safe comparison rejects it as out of bounds.
+	t.Run("compressed size overflow rejected", func(t *testing.T) {
+		p := newEnv(t)
+		rewriteTrailer(t, p, func(idx *c1zv3.IndexedFrameIndex) {
+			idx.GetEntries()[0].SetCompressedSize(math.MaxInt64)
+		})
+		err := extract(t, p)
+		require.Error(t, err, "want frame range rejection")
+		require.Contains(t, err.Error(), "frame range out of bounds")
 	})
 
 	t.Run("corrupt frame byte", func(t *testing.T) {
