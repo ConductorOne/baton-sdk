@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -214,6 +215,32 @@ func TestExtractZstdTarStreamsLargeEntry(t *testing.T) {
 	require.Equal(t, "small", string(small))
 }
 
+// TestPayloadBudgetForFileSize covers the automatic decoded-payload
+// budget: flat default for small files, file-size-proportional scaling
+// for large ones (so a legitimately huge envelope opens with default
+// settings), env var always wins, and the scaling multiply saturates
+// instead of wrapping.
+func TestPayloadBudgetForFileSize(t *testing.T) {
+	t.Run("small file gets the flat default", func(t *testing.T) {
+		require.Equal(t, defaultMaxDecodedPayloadBytes, payloadBudgetForFileSize(1<<20))
+	})
+	t.Run("zero and negative sizes get the flat default", func(t *testing.T) {
+		require.Equal(t, defaultMaxDecodedPayloadBytes, payloadBudgetForFileSize(0))
+		require.Equal(t, defaultMaxDecodedPayloadBytes, payloadBudgetForFileSize(-1))
+	})
+	t.Run("large file scales with its size", func(t *testing.T) {
+		size := int64(1 << 30) // 1 GiB file → 100 GiB budget
+		require.Equal(t, uint64(size)*maxPayloadCompressionRatio, payloadBudgetForFileSize(size))
+	})
+	t.Run("env var overrides scaling", func(t *testing.T) {
+		t.Setenv(maxDecodedSizeEnvVar, "1")
+		require.Equal(t, uint64(1<<20), payloadBudgetForFileSize(1<<40))
+	})
+	t.Run("scaling saturates instead of overflowing", func(t *testing.T) {
+		require.Equal(t, uint64(math.MaxUint64), payloadBudgetForFileSize(math.MaxInt64))
+	})
+}
+
 // TestLimitedPayloadReaderExactLimit verifies a payload of exactly the
 // budget succeeds and reaches EOF — only crossing the budget fails.
 func TestLimitedPayloadReaderExactLimit(t *testing.T) {
@@ -228,13 +255,17 @@ func TestLimitedPayloadReaderExactLimit(t *testing.T) {
 	require.LessOrEqual(t, len(got), 64)
 }
 
-func TestExtractZstdTarRejectsOversizedEntry(t *testing.T) {
+// TestExtractZstdTarRejectsTruncatedEntry: there is no per-entry size
+// cap (a single Pebble SST can legitimately exceed any fixed bound),
+// but an entry whose declared size exceeds the actual stream must
+// still fail as truncation instead of extracting silently short.
+func TestExtractZstdTarRejectsTruncatedEntry(t *testing.T) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	require.NoError(t, tw.WriteHeader(&tar.Header{
 		Name: "too-large.sst",
 		Mode: 0o644,
-		Size: maxTarEntryBytes + 1,
+		Size: (4 << 30) + 1,
 	}))
 
 	err := ExtractZstdTar(&buf, t.TempDir())

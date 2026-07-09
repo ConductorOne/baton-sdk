@@ -464,12 +464,27 @@ func readIndexedTrailer(f *os.File, payloadStart int64) (*c1zv3.IndexedFrameInde
 		// positive: WithZeroFrames guarantees even an empty file encodes
 		// to a complete zstd frame, so a zero-length frame range can
 		// only come from a corrupt or hand-mangled index.
+		//
+		// There is deliberately NO upper bound on either size: a single
+		// Pebble SST can legitimately exceed any fixed cap (whale-scale
+		// grants buckets are written as one whole-bucket SST), and the
+		// bomb protections live elsewhere — compSize is bounds-checked
+		// against the real file layout just below, and total decoded
+		// output is enforced by the extraction budget
+		// (BATON_DECODER_MAX_DECODED_SIZE_MB) regardless of what
+		// raw_size claims.
 		rawSize, compSize := e.GetRawSize(), e.GetCompressedSize()
-		if rawSize < 0 || rawSize > maxTarEntryBytes || compSize <= 0 || compSize > maxTarEntryBytes {
+		if rawSize < 0 || compSize <= 0 {
 			return nil, nil, fmt.Errorf("c1z v3: trailer index entry %q sizes out of range (raw=%d comp=%d)", name, rawSize, compSize)
 		}
+		// Overflow-safe form of off+compSize > indexOff: with no upper
+		// bound on compSize, the addition could wrap negative for a
+		// hostile compressed_size near MaxInt64 and slip past the
+		// comparison. Subtraction can't wrap here (off >= payloadStart
+		// >= 0 and indexOff fits the file), and when off > indexOff the
+		// negative difference rejects too, as it must.
 		off := e.GetFrameOffset()
-		if off < payloadStart || off+compSize > indexOff {
+		if off < payloadStart || compSize > indexOff-off {
 			return nil, nil, fmt.Errorf("c1z v3: trailer index entry %q frame range out of bounds (off=%d comp=%d)", name, off, compSize)
 		}
 		if len(e.GetRawSha256()) != sha256.Size {
@@ -665,6 +680,17 @@ func extractOneFrame(f *os.File, e *ReuseEntry, dec *zstd.Decoder, budget *decod
 // owned by the caller.
 func ExtractEnvelopePayload(f *os.File, destDir string, opts ...PayloadOption) (*c1zv3.C1ZManifestV3, *PayloadReuse, error) {
 	cfg := resolvePayloadOptions(opts...)
+	// With no explicit budget from the caller, scale the decoded-byte
+	// budget with the envelope's own size: the flat default would
+	// refuse any legitimately large file (one WE wrote), while the
+	// scaled budget still bounds a hostile envelope's disk consumption
+	// proportionally to its actual size. The env var, when set, wins
+	// inside payloadBudgetForFileSize.
+	if !cfg.budgetExplicit {
+		if st, err := f.Stat(); err == nil {
+			cfg.maxDecodedPayloadBytes = payloadBudgetForFileSize(st.Size())
+		}
+	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return nil, nil, err
 	}

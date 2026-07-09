@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -40,7 +41,6 @@ var ErrEnvelopeTruncated = errors.New("c1z v3: envelope truncated")
 // usage and protects against a malicious file claiming a billion-byte
 // manifest length.
 const maxManifestBytes = 16 << 20
-const maxTarEntryBytes int64 = 4 << 30
 
 // Tar entries larger than this are streamed straight to disk on the
 // reader goroutine instead of being buffered in memory for the writer
@@ -69,19 +69,63 @@ var fcsFailFastDisabled = os.Getenv(fcsFailFastDisableEnvVar) == "1"
 // bombs in untrusted v3 c1z files.
 var ErrMaxSizeExceeded = fmt.Errorf("c1z v3: max decoded payload size exceeded, increase via the %s environment variable", maxDecodedSizeEnvVar)
 
-// envSizeBytes reads an env var holding a size in MiB and converts it
-// to bytes, falling back to def when unset, unparsable, zero, or large
-// enough to overflow the MiB→bytes conversion.
-func envSizeBytes(envVar string, def uint64) uint64 {
+// envSizeBytesExplicit reads an env var holding a size in MiB and
+// converts it to bytes. ok is false when the var is unset, unparsable,
+// zero, or large enough to overflow the MiB→bytes conversion.
+func envSizeBytesExplicit(envVar string) (uint64, bool) {
 	v := os.Getenv(envVar)
 	if v == "" {
-		return def
+		return 0, false
 	}
 	mb, err := strconv.ParseUint(v, 10, 64)
 	if err != nil || mb == 0 || mb > (1<<63)>>20 {
-		return def
+		return 0, false
 	}
-	return mb << 20
+	return mb << 20, true
+}
+
+// envSizeBytes is envSizeBytesExplicit with a fallback default.
+func envSizeBytes(envVar string, def uint64) uint64 {
+	if n, ok := envSizeBytesExplicit(envVar); ok {
+		return n
+	}
+	return def
+}
+
+// maxPayloadCompressionRatio scales the automatic decoded-payload
+// budget with the size of the envelope file itself. The budget's job
+// is to bound how much disk a hostile envelope can consume at extract
+// relative to what was actually stored; a fixed cap can't do that job
+// without also refusing legitimate large files (a whale c1z's payload
+// decodes to well past any constant that is still meaningful against
+// bombs). Real Pebble payloads compress ~2-5x under zstd, so 100x is
+// an order of magnitude of headroom while still capping a bomb at
+// 100 bytes of output per byte of input.
+const maxPayloadCompressionRatio = 100
+
+// payloadBudgetForFileSize resolves the decoded-payload budget for an
+// envelope of fileSize bytes when the caller configured nothing
+// explicit: the env var when set, otherwise the LARGER of the flat
+// default and fileSize × maxPayloadCompressionRatio. This is what
+// keeps a legitimately huge envelope openable with default settings —
+// the flat default alone would reject any file whose raw payload
+// exceeds it, even though the file was written by us moments earlier.
+func payloadBudgetForFileSize(fileSize int64) uint64 {
+	if n, ok := envSizeBytesExplicit(maxDecodedSizeEnvVar); ok {
+		return n
+	}
+	budget := defaultMaxDecodedPayloadBytes
+	if fileSize > 0 {
+		scaled := uint64(fileSize)
+		if scaled > math.MaxUint64/maxPayloadCompressionRatio {
+			return math.MaxUint64
+		}
+		scaled *= maxPayloadCompressionRatio
+		if scaled > budget {
+			budget = scaled
+		}
+	}
+	return budget
 }
 
 func maxDecodedPayloadBytes() uint64 {
@@ -94,9 +138,14 @@ func decoderMaxMemoryBytes() uint64 {
 
 type payloadOptions struct {
 	maxDecodedPayloadBytes uint64
-	maxDecoderMemoryBytes  uint64
-	disableSizeFailFast    bool
-	pool                   *DecoderPool
+	// budgetExplicit is true when the decoded-payload budget came from
+	// the caller (WithMaxDecodedPayloadBytes) rather than defaults;
+	// only non-explicit budgets are rescaled by the envelope file size
+	// (see payloadBudgetForFileSize).
+	budgetExplicit        bool
+	maxDecoderMemoryBytes uint64
+	disableSizeFailFast   bool
+	pool                  *DecoderPool
 }
 
 type PayloadOption func(*payloadOptions)
@@ -107,6 +156,7 @@ type PayloadOption func(*payloadOptions)
 func WithMaxDecodedPayloadBytes(n uint64) PayloadOption {
 	return func(o *payloadOptions) {
 		o.maxDecodedPayloadBytes = n
+		o.budgetExplicit = n > 0
 	}
 }
 
@@ -493,6 +543,15 @@ func readEnvelope(r io.Reader, headerOnly bool, pool *DecoderPool) (*Envelope, e
 		return nil, err
 	}
 	// 4. Payload. The reader is positioned at the first payload byte.
+	// When the reader is a real file, scale the decoded-byte budget
+	// with its size (see payloadBudgetForFileSize); a non-stat-able
+	// stream falls back to the flat default.
+	budget := maxDecodedPayloadBytes()
+	if st, ok := r.(interface{ Stat() (os.FileInfo, error) }); ok {
+		if fi, err := st.Stat(); err == nil {
+			budget = payloadBudgetForFileSize(fi.Size())
+		}
+	}
 	env := &Envelope{Manifest: m}
 	switch m.GetPayloadEncoding() {
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR_ZSTD:
@@ -502,9 +561,9 @@ func readEnvelope(r io.Reader, headerOnly bool, pool *DecoderPool) (*Envelope, e
 		}
 		env.zstdReader = zr
 		env.pool = pool
-		env.PayloadReader = &limitedPayloadReader{r: zr, limit: maxDecodedPayloadBytes()}
+		env.PayloadReader = &limitedPayloadReader{r: zr, limit: budget}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
-		env.PayloadReader = &limitedPayloadReader{r: r, limit: maxDecodedPayloadBytes()}
+		env.PayloadReader = &limitedPayloadReader{r: r, limit: budget}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD:
 		// Indexed payloads are not a tar stream; extraction goes
 		// through ExtractEnvelopePayload (random access over the
@@ -749,7 +808,7 @@ func writeTar(w io.Writer, dir string) error {
 // writer worker pool; workers perform the per-file open/write/close
 // syscalls in parallel. Larger entries are streamed straight to disk
 // on this goroutine so a hostile archive full of multi-GiB entries
-// can't drive memory to extractWorkerCount × maxTarEntryBytes. Memory
+// can't drive memory up with the worker fan-out. Memory
 // peak is bounded by (extractWorkerCount + channel buffer) ×
 // inlineCopyThresholdBytes; at Pebble's typical 2 MiB FlushSplitBytes
 // nearly every entry takes the parallel path — the per-entry
@@ -833,8 +892,13 @@ entryLoop:
 				break entryLoop
 			}
 		case tar.TypeReg:
-			if hdr.Size < 0 || hdr.Size > maxTarEntryBytes {
-				readErr = fmt.Errorf("c1z v3: tar entry %q size %d exceeds cap %d", hdr.Name, hdr.Size, maxTarEntryBytes)
+			// No per-entry size cap: a single Pebble SST can legitimately
+			// exceed any fixed bound. Aggregate extraction is bounded by
+			// the caller's decoded-byte budget (limitedPayloadReader), and
+			// memory by inlineCopyThresholdBytes — larger entries stream
+			// straight to disk.
+			if hdr.Size < 0 {
+				readErr = fmt.Errorf("c1z v3: tar entry %q has negative size %d", hdr.Name, hdr.Size)
 				break entryLoop
 			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
