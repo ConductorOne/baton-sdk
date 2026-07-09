@@ -349,6 +349,16 @@ var (
 			r.Gte(1).Lte(1800)
 		}))
 
+	HttpResponseHeaderTimeoutField = IntField("http-response-header-timeout-seconds",
+		WithDescription("Time in seconds to wait for a server's response headers after sending a request "+
+			"(0 disables the timeout; useful for endpoints that block while generating a response). Max 1800."),
+		WithDefaultValue(60),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetOps),
+		WithInt(func(r *IntRuler) {
+			r.Gte(0).Lte(1800)
+		}))
+
 	// StorageEngineField selects the dotc1z storage engine for sync tasks.
 	// Empty uses the baton-sdk default (sqlite for new files).
 	StorageEngineField = StringField("storage-engine",
@@ -467,6 +477,7 @@ var DefaultFields = append([]SchemaField{
 	healthCheckBindAddressField,
 
 	HttpTimeoutField,
+	HttpResponseHeaderTimeoutField,
 	StorageEngineField,
 	TaskConcurrencyField,
 }, platformDefaultFields...)
