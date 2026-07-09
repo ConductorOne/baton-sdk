@@ -1008,10 +1008,20 @@ func (e *Engine) writeGrantIndexes(batch *pebble.Batch, r *v3.GrantRecord) error
 		}
 	}
 	if e.grantDigestsPresent.Load() {
-		if id, err := grantIdentityFromRecord(r); err == nil {
-			if err := e.stageGrantDigestInvalidation(batch, id.entitlement); err != nil {
-				return err
-			}
+		// Propagate a derivation failure rather than fail-open: the
+		// sibling paths (writeGrantIndexesForIdentityScratch,
+		// deleteGrantIndexesScratch) already take id as a given and
+		// can't silently skip invalidation either — a record that
+		// reaches here already had its identity derived to build the
+		// primary key, so this should be unreachable in practice, but
+		// swallowing it would leave a stale-but-present digest on the
+		// touched entitlement, violating present-means-exact.
+		id, err := grantIdentityFromRecord(r)
+		if err != nil {
+			return err
+		}
+		if err := e.stageGrantDigestInvalidation(batch, id.entitlement); err != nil {
+			return err
 		}
 	}
 	return nil
