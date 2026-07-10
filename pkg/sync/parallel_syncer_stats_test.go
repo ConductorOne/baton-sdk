@@ -39,6 +39,27 @@ func TestRecordRetryWaitWithoutResourceType(t *testing.T) {
 	require.Equal(t, map[string]int64{"retry_wait": 1000}, s.state.StepDurations())
 }
 
+func TestObserveConnectorCallRecordsPerResourceType(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+
+	s.observeConnectorCall(t.Context(), "list-grants", time.Now().Add(-10*time.Millisecond), "repo", "repo-1")
+	s.observeConnectorCall(t.Context(), "list-grants", time.Now().Add(-20*time.Millisecond), "user", "user-1")
+	// No resource type (e.g. list-resource-types): flat entry only.
+	s.observeConnectorCall(t.Context(), "list-resource-types", time.Now(), "", "")
+
+	stats := s.state.ConnectorCallStats()
+	require.EqualValues(t, 2, stats["list-grants"].Count)
+	require.EqualValues(t, 1, stats["list-grants:repo"].Count)
+	require.EqualValues(t, 1, stats["list-grants:user"].Count)
+	// The labeled entries decompose the flat one.
+	require.Equal(t, stats["list-grants"].TotalMs, stats["list-grants:repo"].TotalMs+stats["list-grants:user"].TotalMs)
+	require.EqualValues(t, 1, stats["list-resource-types"].Count)
+	require.NotContains(t, stats, "list-resource-types:")
+}
+
 func TestRecordSessionUsageFoldsAnnotationIntoState(t *testing.T) {
 	s := &syncer{
 		recordStats: true,

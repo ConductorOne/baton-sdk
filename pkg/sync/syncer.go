@@ -56,8 +56,6 @@ var ErrSyncNotComplete = fmt.Errorf("sync exited without finishing")
 var ErrTooManyWarnings = fmt.Errorf("too many warnings, exiting sync")
 var ErrNoSyncIDFound = fmt.Errorf("no syncID found after starting or resuming sync")
 
-const connectorCallDurationMetric = "baton_sync_connector_call_duration"
-
 var timedSyncOps = []ActionOp{
 	SyncResourceTypesOp,
 	SyncResourcesOp,
@@ -403,6 +401,9 @@ func (s *syncer) observeConnectorCall(
 
 	elapsed := time.Since(start)
 	s.state.RecordConnectorCall(method, elapsed)
+	if resourceTypeID != "" {
+		s.state.RecordConnectorCall(method+":"+resourceTypeID, elapsed)
+	}
 	if elapsed > time.Minute {
 		ctxzap.Extract(ctx).Warn("slow connector call",
 			zap.String("method", method),
@@ -411,13 +412,6 @@ func (s *syncer) observeConnectorCall(
 			zap.Duration("elapsed", elapsed),
 		)
 	}
-	if s.metricsHandler != nil {
-		s.metricsHandler.Int64Histogram(
-			connectorCallDurationMetric,
-			"Connector call duration during sync",
-			metrics.Milliseconds,
-		).Record(ctx, elapsed.Milliseconds(), map[string]string{"method": method})
-	}
 }
 
 // syncSummaryFields builds the timing summary. Bucket semantics: op buckets
@@ -425,6 +419,9 @@ func (s *syncer) observeConnectorCall(
 // their :resource_type labeled variants) re-count that same time as an
 // "of which" decomposition. The full step-durations map is therefore not
 // summable — sync_steps_total_ms sums only the timedSyncOps buckets.
+// Connector call stats follow the same shape: method:resource_type entries
+// re-count their flat method entry, so only the unlabeled methods sum to
+// the true call totals.
 func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 	stepDurations := s.state.StepDurations()
 	callStats := s.state.ConnectorCallStats()
