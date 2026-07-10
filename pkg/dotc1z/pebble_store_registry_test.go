@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -179,7 +180,13 @@ func TestPebbleStoreOpenHonorsDecoderMaxMemory(t *testing.T) {
 		WithReadOnly(true),
 		WithDecoderOptions(WithDecoderMaxMemory(1)),
 	)
-	require.ErrorIs(t, err, zstd.ErrWindowSizeExceeded, "NewStore with tiny decoder memory error = %v, want zstd.ErrWindowSizeExceeded", err)
+	// Depending on the frame shape, the 1-byte cap surfaces as either the
+	// window-size or decoded-size violation; both prove the custom cap
+	// reached the decoder.
+	require.True(t,
+		errors.Is(err, zstd.ErrWindowSizeExceeded) || errors.Is(err, zstd.ErrDecoderSizeExceeded),
+		"NewStore with tiny decoder memory error = %v, want a zstd memory-cap violation", err,
+	)
 }
 
 func TestReadOnlyPebbleOpenMigratesLegacyIDIndexTempCopy(t *testing.T) {
