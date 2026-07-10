@@ -83,6 +83,73 @@ func TestRetryWithRateLimitData(t *testing.T) {
 	require.Less(t, elapsed, 2*time.Second, "should wait approximately 1 second")
 }
 
+func TestRetryOnWait(t *testing.T) {
+	tests := []struct {
+		name            string
+		err             func(t *testing.T) error
+		wantRateLimited bool
+	}{
+		{
+			name: "plain backoff",
+			err: func(_ *testing.T) error {
+				return status.Error(codes.Unavailable, "recoverable error")
+			},
+		},
+		{
+			name: "rate limit",
+			err: func(t *testing.T) error {
+				st := status.New(codes.Unavailable, "rate limited")
+				st, err := st.WithDetails(&v2.RateLimitDescription{
+					Remaining: 0,
+					ResetAt:   timestamppb.New(time.Now().Add(time.Second)),
+				})
+				require.NoError(t, err)
+				return st.Err()
+			},
+			wantRateLimited: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotWait time.Duration
+			var gotRateLimited bool
+			var gotLabel string
+			calls := 0
+			retryer := NewRetryer(t.Context(), RetryConfig{
+				InitialDelay: time.Millisecond,
+				MaxDelay:     time.Millisecond,
+				OnWait: func(ctx context.Context, wait time.Duration, rateLimited bool) {
+					calls++
+					gotWait = wait
+					gotRateLimited = rateLimited
+					gotLabel, _ = WaitLabelFromContext(ctx)
+				},
+			})
+
+			ctx := WithWaitLabel(t.Context(), "project")
+			require.True(t, retryer.ShouldWaitAndRetry(ctx, tt.err(t)))
+			require.Equal(t, 1, calls)
+			require.Equal(t, time.Millisecond, gotWait)
+			require.Equal(t, tt.wantRateLimited, gotRateLimited)
+			require.Equal(t, "project", gotLabel)
+		})
+	}
+}
+
+func TestWaitLabelContext(t *testing.T) {
+	ctx := t.Context()
+	_, ok := WaitLabelFromContext(ctx)
+	require.False(t, ok)
+
+	labeled := WithWaitLabel(ctx, "project")
+	label, ok := WaitLabelFromContext(labeled)
+	require.True(t, ok)
+	require.Equal(t, "project", label)
+
+	require.Same(t, ctx, WithWaitLabel(ctx, ""))
+}
+
 func TestRetryWithHTTPResponse(t *testing.T) {
 	tests := []struct {
 		name             string

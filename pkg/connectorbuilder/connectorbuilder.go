@@ -22,6 +22,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
+	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
@@ -352,6 +353,7 @@ func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceVali
 
 func (b *builder) Cleanup(ctx context.Context, request *v2.ConnectorServiceCleanupRequest) (*v2.ConnectorServiceCleanupResponse, error) {
 	l := ctxzap.Extract(ctx)
+	ctx, sessionUsage := session.WithUsageCollector(ctx)
 	if b.sessionStore != nil {
 		// Limit c1z size before we upload, because the uploads time out...
 		//  TODO(kans): we could hold onto the session store if we are in debug mode.
@@ -368,6 +370,7 @@ func (b *builder) Cleanup(ctx context.Context, request *v2.ConnectorServiceClean
 		l.Warn("error clearing http caches", zap.Error(err))
 	}
 	resp := &v2.ConnectorServiceCleanupResponse{}
+	resp.SetAnnotations(appendSessionUsage(resp.GetAnnotations(), sessionUsage))
 	return resp, err
 }
 

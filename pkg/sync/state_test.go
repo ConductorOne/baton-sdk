@@ -1,8 +1,11 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"testing"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -118,6 +121,71 @@ func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
 	}
 
 	require.Equal(t, i, -1)
+}
+
+func TestSyncerTokenTimingStatsMarshalUnmarshal(t *testing.T) {
+	st := newState()
+	st.AddStepDuration("list-resources", 1500*time.Millisecond)
+	st.AddStepDuration("list-resources", 500*time.Millisecond)
+	st.RecordConnectorCall("list-resources", 1250*time.Millisecond)
+	st.RecordConnectorCall("list-resources", 750*time.Millisecond)
+
+	tokenString, err := st.Marshal()
+	require.NoError(t, err)
+
+	got := newState()
+	require.NoError(t, got.Unmarshal(tokenString))
+	require.Equal(t, map[string]int64{"list-resources": 2000}, got.StepDurations())
+	require.Equal(t, map[string]ConnectorCallStat{
+		"list-resources": {Count: 2, TotalMs: 2000, MaxMs: 1250},
+	}, got.ConnectorCallStats())
+
+	durations := got.StepDurations()
+	durations["list-resources"] = 0
+	stats := got.ConnectorCallStats()
+	stats["list-resources"] = ConnectorCallStat{}
+	require.EqualValues(t, 2000, got.StepDurations()["list-resources"])
+	require.EqualValues(t, 2, got.ConnectorCallStats()["list-resources"].Count)
+}
+
+func TestSyncerTokenSessionStatsMarshalUnmarshal(t *testing.T) {
+	st := newState()
+	st.RecordSessionOp("get", 30*time.Second, context.DeadlineExceeded, true)
+	st.RecordSessionOp("get", time.Millisecond, nil, false)
+	st.RecordSessionOp("set", 5*time.Millisecond, errors.New("boom"), false)
+
+	tokenString, err := st.Marshal()
+	require.NoError(t, err)
+
+	got := newState()
+	require.NoError(t, got.Unmarshal(tokenString))
+	stats := got.SessionStoreStats()
+	require.Equal(t, SessionStoreStat{Count: 2, Errors: 1, Timeouts: 1, TotalMs: 30_001, MaxMs: 30_000}, stats["get"])
+	require.Equal(t, SessionStoreStat{Count: 1, Errors: 1, TotalMs: 5, MaxMs: 5}, stats["set"])
+
+	// Legacy tokens without the field yield an empty-but-usable map.
+	legacy, err := json.Marshal(serializedTokenV1{Version: StateTokenVersion})
+	require.NoError(t, err)
+	fresh := newState()
+	require.NoError(t, fresh.Unmarshal(string(legacy)))
+	require.Empty(t, fresh.SessionStoreStats())
+	fresh.RecordSessionOp("get", time.Millisecond, nil, false)
+	require.EqualValues(t, 1, fresh.SessionStoreStats()["get"].Count)
+}
+
+func TestSyncerTokenLegacyTimingStatsAreUsable(t *testing.T) {
+	tokenBytes, err := json.Marshal(serializedTokenV1{Version: StateTokenVersion})
+	require.NoError(t, err)
+
+	st := newState()
+	require.NoError(t, st.Unmarshal(string(tokenBytes)))
+	require.Empty(t, st.StepDurations())
+	require.Empty(t, st.ConnectorCallStats())
+
+	st.AddStepDuration("checkpoint", time.Millisecond)
+	st.RecordConnectorCall("list-grants", time.Millisecond)
+	require.EqualValues(t, 1, st.StepDurations()["checkpoint"])
+	require.EqualValues(t, 1, st.ConnectorCallStats()["list-grants"].Count)
 }
 
 func TestSyncerTokenUnmarshalEmptyString(t *testing.T) {

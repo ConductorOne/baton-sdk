@@ -80,8 +80,48 @@ func TestPebbleFullSyncThroughSyncer(t *testing.T) {
 	require.NotEmpty(t, syncID, "expected at least one finished sync after Syncer.Sync")
 	require.NoError(t, reopen.SetCurrentSync(ctx, syncID))
 
+	token, err := reopen.CurrentSyncStep(ctx)
+	require.NoError(t, err)
+	completedState := newState()
+	require.NoError(t, completedState.Unmarshal(token))
+	require.Contains(t, completedState.StepDurations(), SyncResourceTypesOp.String())
+	require.Contains(t, completedState.StepDurations(), SyncResourcesOp.String())
+	require.NotZero(t, completedState.ConnectorCallStats()["list-resource-types"].Count)
+	require.NotZero(t, completedState.ConnectorCallStats()["list-resources"].Count)
+
 	resp, err := reopen.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
 	// Two member entitlements × 3 group-memberships = 3 grants total.
 	require.Len(t, resp.GetList(), 3, "expected 3 grants total")
+}
+
+func TestSQLiteSyncDoesNotRecordTimingStats(t *testing.T) {
+	ctx := t.Context()
+	tempDir := t.TempDir()
+	store, err := dotc1z.NewStore(ctx, filepath.Join(tempDir, "sqlite-sync.c1z"),
+		dotc1z.WithEngine(c1zstore.EngineSQLite),
+		dotc1z.WithTmpDir(tempDir),
+	)
+	require.NoError(t, err)
+
+	syncer, err := NewSyncer(ctx, newMockConnector(),
+		WithConnectorStore(store),
+		WithTmpDir(tempDir),
+	)
+	require.NoError(t, err)
+	require.NoError(t, syncer.Sync(ctx))
+
+	latest, ok := store.(connectorstore.LatestFinishedSyncIDFetcher)
+	require.True(t, ok)
+	syncID, err := latest.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
+	require.NoError(t, err)
+	require.NoError(t, store.SetCurrentSync(ctx, syncID))
+	token, err := store.CurrentSyncStep(ctx)
+	require.NoError(t, err)
+	completedState := newState()
+	require.NoError(t, completedState.Unmarshal(token))
+	require.Empty(t, completedState.StepDurations())
+	require.Empty(t, completedState.ConnectorCallStats())
+
+	require.NoError(t, syncer.Close(ctx))
 }

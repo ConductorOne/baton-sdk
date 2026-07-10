@@ -7,6 +7,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
@@ -125,6 +126,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 		return nil, err
 	}
 
+	ctx, sessionUsage := session.WithUsageCollector(ctx)
 	token := pagination.Token{
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
@@ -138,7 +140,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 	resp := v2.ResourcesServiceListResourcesResponse_builder{
 		List:          out,
 		NextPageToken: retOptions.NextPageToken,
-		Annotations:   retOptions.Annotations,
+		Annotations:   appendSessionUsage(retOptions.Annotations, sessionUsage),
 	}.Build()
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
@@ -213,6 +215,7 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 		}.Build(), nil
 	}
 
+	ctx, sessionUsage := session.WithUsageCollector(ctx)
 	token := pagination.Token{
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
@@ -226,7 +229,7 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 	resp := v2.EntitlementsServiceListStaticEntitlementsResponse_builder{
 		List:          out,
 		NextPageToken: retOptions.NextPageToken,
-		Annotations:   retOptions.Annotations,
+		Annotations:   appendSessionUsage(retOptions.Annotations, sessionUsage),
 	}.Build()
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
@@ -261,6 +264,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
+	ctx, sessionUsage := session.WithUsageCollector(ctx)
 	token := pagination.Token{
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
@@ -274,7 +278,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 	resp := v2.EntitlementsServiceListEntitlementsResponse_builder{
 		List:          out,
 		NextPageToken: retOptions.NextPageToken,
-		Annotations:   retOptions.Annotations,
+		Annotations:   appendSessionUsage(retOptions.Annotations, sessionUsage),
 	}.Build()
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
@@ -318,6 +322,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 		return nil, err
 	}
 
+	ctx, sessionUsage := session.WithUsageCollector(ctx)
 	token := pagination.Token{
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
@@ -330,7 +335,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 
 	resp := v2.GrantsServiceListGrantsResponse_builder{
 		List:          out,
-		Annotations:   retOptions.Annotations,
+		Annotations:   appendSessionUsage(retOptions.Annotations, sessionUsage),
 		NextPageToken: retOptions.NextPageToken,
 	}.Build()
 
