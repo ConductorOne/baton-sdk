@@ -229,7 +229,7 @@ func TestPayloadBudgetForFileSize(t *testing.T) {
 		require.Equal(t, defaultMaxDecodedPayloadBytes, payloadBudgetForFileSize(-1))
 	})
 	t.Run("large file scales with its size", func(t *testing.T) {
-		size := int64(1 << 30) // 1 GiB file → 100 GiB budget
+		const size = 1 << 30 // 1 GiB file → 100 GiB budget
 		require.Equal(t, uint64(size)*maxPayloadCompressionRatio, payloadBudgetForFileSize(size))
 	})
 	t.Run("env var overrides scaling", func(t *testing.T) {

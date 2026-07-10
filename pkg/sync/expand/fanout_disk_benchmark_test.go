@@ -161,7 +161,10 @@ func BenchmarkExpandFanout10MDisk(b *testing.B) {
 		_ = tmp.Close()
 		runPath := tmp.Name()
 		// runPath is from os.CreateTemp().Name(), not external input — benchmark-only.
-		if err := os.WriteFile(runPath, baseData, 0600); err != nil { //nolint:gosec // G703: path is a test-created temp file, not tainted
+		// #nosec G703 -- path is a test-created temp file, not tainted. (#nosec, not
+		// //nolint: CI's pinned gosec fires G703 here, newer local builds don't —
+		// nolintlint would report an unused directive on whichever side doesn't.)
+		if err := os.WriteFile(runPath, baseData, 0600); err != nil {
 			b.Fatal(err)
 		}
 		c1f, err := dotc1z.NewC1ZFile(ctx, runPath)

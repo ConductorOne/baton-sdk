@@ -68,7 +68,7 @@ func appendGrantByPrincipalKeyFromPrimary(dst, primaryKey []byte) ([]byte, bool)
 		if sep < 0 {
 			return dst, false
 		}
-		segs[i] = rest[:sep]
+		segs[i] = rest[:sep] // #nosec G602 -- false positive: IndexByte returned >= 0 above, so sep < len(rest).
 		rest = rest[sep+1:]
 	}
 	if bytes.IndexByte(rest, 0) >= 0 {

@@ -78,6 +78,9 @@ linters:
             - hasher.Write
             - os.Setenv
             - os.RemoveAll
+            # bytes.Buffer writes are documented to never return an error.
+            - bytes.Buffer.Write
+            - bytes.Buffer.WriteByte
         - name: var-naming
           arguments:
             - - ID
