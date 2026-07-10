@@ -475,6 +475,14 @@ type DigestRoot struct {
 // to computeBucketDigest, which derives the same digest from the index
 // on demand).
 func (e *Engine) getPartitionDigestRoot(spec digestIndexSpec, partition string) (DigestRoot, bool, error) {
+	if e.grantDigestBuildPending.Load() {
+		// An interrupted digest build's half-committed nodes may be
+		// durable while its hash index never ingested; until the pending
+		// state is consumed (a writable Open drops it; a read-only open
+		// cannot), no stored root may be trusted — report "never built",
+		// which every consumer already treats as "recalculate".
+		return DigestRoot{}, false, nil
+	}
 	val, closer, err := e.db.Get(encodeDigestNodeKey(spec.indexID, partition, digestLevelRoot, nil))
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {

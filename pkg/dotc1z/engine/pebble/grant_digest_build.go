@@ -90,6 +90,36 @@ func appendGrantHashIndexRow(sorter *spillSorter, primaryKey, value []byte, s *g
 // batch accumulates before committing mid-merge.
 const digestNodeBatchFlushBytes = 4 << 20
 
+// markGrantDigestBuildPending durably arms the digest-build marker
+// (encodeGrantDigestBuildPendingKey). MUST be fsync'd (pebble.Sync,
+// even during a fresh sync) and MUST precede the build's first digest
+// write: the build's own node commits may ride NoSync, and a node
+// batch becoming durable ahead of the marker would reopen exactly the
+// trust-a-crashed-build window the marker closes.
+func (e *Engine) markGrantDigestBuildPending() error {
+	if err := e.db.Set(encodeGrantDigestBuildPendingKey(), nil, pebble.Sync); err != nil {
+		return fmt.Errorf("arm grant digest build marker: %w", err)
+	}
+	e.grantDigestBuildPending.Store(true)
+	return nil
+}
+
+// clearGrantDigestBuildPending drops both forms of the marker. Called
+// only once the digest state is a complete, self-consistent whole: a
+// finished build (buildGrantDigestsFromSpill) or a full drop
+// (dropAllGrantDigestStateLocked). The delete is fsync'd deliberately —
+// the WAL is prefix-durable, so a durable clear implies every
+// (possibly NoSync) write that preceded it is durable too. The
+// marker's absence therefore certifies COMPLETE digest state on disk,
+// never a lucky partial one.
+func (e *Engine) clearGrantDigestBuildPending() error {
+	if err := e.db.Delete(encodeGrantDigestBuildPendingKey(), pebble.Sync); err != nil {
+		return fmt.Errorf("clear grant digest build marker: %w", err)
+	}
+	e.grantDigestBuildPending.Store(false)
+	return nil
+}
+
 // grantDigestFold streams the merge's (index key, content hash) rows
 // into digest nodes. Rows arrive in (partition, bucket hash) order, so
 // each partition is a contiguous run and its buckets are touched in
@@ -98,8 +128,9 @@ const digestNodeBatchFlushBytes = 4 << 20
 // touched buckets, so per-partition close and reset are O(touched),
 // never O(2^16).
 type grantDigestFold struct {
-	e    *Engine
-	opts *pebble.WriteOptions
+	e          *Engine
+	opts       *pebble.WriteOptions
+	flushBytes int // digestNodeBatchFlushBytes, or the engine's test override
 
 	counts  []int64         // 1<<digestMaxWidthBits, index = max-width bucket
 	xors    [][hashLen]byte // 1<<digestMaxWidthBits
@@ -132,12 +163,17 @@ func newGrantDigestFold(e *Engine) (*grantDigestFold, error) {
 		// seal-time writes; matches the deferred pass's other writes.
 		opts = pebble.NoSync
 	}
+	flushBytes := digestNodeBatchFlushBytes
+	if e.testDigestNodeFlushBytes > 0 {
+		flushBytes = e.testDigestNodeFlushBytes
+	}
 	f := &grantDigestFold{
-		e:      e,
-		opts:   opts,
-		counts: make([]int64, 1<<digestMaxWidthBits),
-		xors:   make([][hashLen]byte, 1<<digestMaxWidthBits),
-		batch:  e.db.NewBatch(),
+		e:          e,
+		opts:       opts,
+		flushBytes: flushBytes,
+		counts:     make([]int64, 1<<digestMaxWidthBits),
+		xors:       make([][hashLen]byte, 1<<digestMaxWidthBits),
+		batch:      e.db.NewBatch(),
 	}
 	// The build only Sets nodes: clear every prior digest first so a
 	// reseal can't leave stale partitions (dropped entitlements, width
@@ -226,12 +262,20 @@ func (f *grantDigestFold) closePartition() error {
 	f.havePartition = false
 	f.partitions++
 
-	if f.batch.Len() >= digestNodeBatchFlushBytes {
+	if f.batch.Len() >= f.flushBytes {
 		if err := f.batch.Commit(f.opts); err != nil {
 			return err
 		}
 		f.batch.Close()
 		f.batch = f.e.db.NewBatch()
+		if f.e.testDigestBuildHook != nil {
+			// Crash-window seam: digest-node batches are now committed
+			// (durable under WAL replay) while the hash-index ingest has
+			// not run. See grant_digest_build_crash_test.go.
+			if err := f.e.testDigestBuildHook("node-batch-committed"); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -400,6 +444,15 @@ func mergeGrantHashChunksToSST(ctx context.Context, sstPath, name string, chunks
 // written digest nodes behind — the caller MUST drop the digest state
 // on failure (dropAllGrantDigestStateLocked) so no half-built digest
 // survives looking present.
+//
+// An in-process error the caller can drop on is only half the failure
+// surface: node batches commit DURING the merge and at fold.finish(),
+// before the index ingest, and committed WAL writes survive a process
+// kill. The durable build-pending marker armed here (and cleared only
+// once everything below has completed, or by the drop) is what keeps a
+// crash inside that window from resurrecting correct-looking digest
+// roots over a never-ingested hash index — see
+// encodeGrantDigestBuildPendingKey.
 func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, hashIdx *spillSorter) error {
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
@@ -410,6 +463,11 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 	opts := writeOpts(e.opts.durability)
 	if e.IsFreshSync() {
 		opts = pebble.NoSync
+	}
+	// Arm the durable crash marker before the first digest write on
+	// EITHER branch below.
+	if err := e.markGrantDigestBuildPending(); err != nil {
+		return err
 	}
 	if len(chunks) == 0 {
 		// No grants at all — pebble rejects an empty SST, so clear any
@@ -431,7 +489,7 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 			return err
 		}
 		e.grantDigestsPresent.Store(true)
-		return nil
+		return e.clearGrantDigestBuildPending()
 	}
 
 	fold, err := newGrantDigestFold(e)
@@ -447,6 +505,14 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 		return err
 	}
 	mergeDone := time.Now()
+	if e.testDigestBuildHook != nil {
+		// Crash-window seam: every digest node INCLUDING the global root
+		// is committed, the ingest has not run. See
+		// grant_digest_build_crash_test.go.
+		if err := e.testDigestBuildHook("post-finish"); err != nil {
+			return err
+		}
+	}
 
 	// Atomically replace the whole hash-index range with the merged SST.
 	if _, err := e.db.IngestAndExcise(ctx, []string{sstPath}, nil, nil, pebble.KeyRange{
@@ -462,6 +528,13 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 		return err
 	}
 	e.grantDigestsPresent.Store(true)
+	// The digest state is complete: consume the crash marker. Its
+	// fsync'd delete also makes every NoSync node batch above durable
+	// (WAL prefix ordering), so "marker absent" always means "complete
+	// state on disk".
+	if err := e.clearGrantDigestBuildPending(); err != nil {
+		return err
+	}
 
 	l.Info("grant digest build complete",
 		zap.Int64("index_rows", hashIdx.count),
@@ -644,8 +717,13 @@ func (e *Engine) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
 }
 
 // dropAllGrantDigestStateLocked is DropAllGrantDigestState for callers
-// already holding the engine write barrier (the deferred pass's
-// non-fatal error handler).
+// already holding the engine write barrier (the failed-build handlers,
+// Open's interrupted-build recovery), plus the marker consumption those
+// callers need: the drop restores the always-safe "digests absent"
+// state, which is exactly what the build-pending marker demands, so it
+// is cleared here in the same stroke. The clear's fsync'd delete runs
+// LAST — WAL prefix ordering makes the (possibly NoSync) tombstones
+// above durable before the marker's absence is.
 func (e *Engine) dropAllGrantDigestStateLocked() error {
 	e.grantDigestsPresent.Store(false)
 	opts := writeOpts(e.opts.durability)
@@ -655,5 +733,8 @@ func (e *Engine) dropAllGrantDigestStateLocked() error {
 	if err := e.db.DeleteRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
 		return err
 	}
-	return e.db.DeleteRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), opts)
+	if err := e.db.DeleteRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), opts); err != nil {
+		return err
+	}
+	return e.clearGrantDigestBuildPending()
 }

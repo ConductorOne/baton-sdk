@@ -182,6 +182,18 @@ func (e *Engine) RepairMissingGrantDigests(ctx context.Context) error {
 	if !e.opts.grantDigestIndex {
 		return nil
 	}
+	if e.grantDigestBuildPending.Load() {
+		// A prior digest build died mid-commit and the drop that should
+		// have consumed the durable marker never completed (a writable
+		// Open normally does it; in-process, a failed build's own
+		// cleanup). Whatever nodes it left look present over a hash
+		// index that was never ingested, so nothing stored is
+		// trustworthy — restore the safe absent state first and let the
+		// full rebuild below recalculate from scratch.
+		if err := e.withWriteAllowSealed(func() error { return e.dropAllGrantDigestStateLocked() }); err != nil {
+			return fmt.Errorf("RepairMissingGrantDigests: drop digest state left by an interrupted build: %w", err)
+		}
+	}
 	if !e.grantDigestsPresent.Load() {
 		return e.BuildGrantDigests(ctx)
 	}

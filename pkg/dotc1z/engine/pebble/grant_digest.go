@@ -319,6 +319,12 @@ func (e *Engine) GetEntitlementDigestRoot(ctx context.Context, id entitlementIde
 // invalidation paths that drop any per-entitlement root — see
 // stageGrantDigestInvalidation and the Drop* functions below.
 func (e *Engine) GetGrantDigestGlobalRoot(ctx context.Context) (DigestRoot, bool, error) {
+	if e.grantDigestBuildPending.Load() {
+		// Same guard as getPartitionDigestRoot: a global root committed
+		// by an interrupted build must read as absent, not certify a
+		// hash index that was never ingested.
+		return DigestRoot{}, false, nil
+	}
 	val, closer, err := e.db.Get(globalGrantDigestNodeKey())
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
