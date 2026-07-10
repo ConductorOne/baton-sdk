@@ -302,9 +302,14 @@ func grantPrimaryKeyFromHashIndexKey(dst, idxKey []byte) ([]byte, bool) {
 // --- Engine API ---
 
 // GetEntitlementDigestRoot returns the stored grant-digest root for an
-// entitlement. ok is false when no digest has been built for it (the
-// caller can fall back to ComputeEntitlementBucketDigest, which derives
-// the same digest from the index on demand).
+// entitlement. ok is false when no digest has been built for it (or it
+// was invalidated) — which means the caller must re-read the
+// entitlement's grants (or treat the whole entitlement as dirty), NOT
+// fall back to ComputeEntitlementBucketDigest: the hash index that
+// fold reads is only ever written and dropped alongside the digest
+// nodes, so with no root it is absent too and the fold would report
+// "zero grants" for an entitlement that may have millions — the
+// false-clean trap dirtyPartitionBuckets' doc comment describes.
 func (e *Engine) GetEntitlementDigestRoot(ctx context.Context, id entitlementIdentity) (DigestRoot, bool, error) {
 	return e.getPartitionDigestRoot(grantDigestSpec, digestPartitionForEntitlement(id))
 }
@@ -345,7 +350,13 @@ func (e *Engine) GetGrantDigestGlobalRoot(ctx context.Context) (DigestRoot, bool
 // ComputeEntitlementBucketDigest folds the grant hash index over a
 // single bucket of an entitlement (the zero bucket = the whole
 // entitlement) — the authoritative on-demand counterpart of the stored
-// digest nodes.
+// digest nodes, for verifying or subdividing a digest that EXISTS.
+// Only meaningful while the entitlement's digest is built (its root is
+// stored): the hash index lives and dies with the digest nodes, so
+// against a never-built or invalidated entitlement this folds an
+// absent index range and returns {0, 0} — "zero grants", not "unknown".
+// Never use it as a fallback for a missing root; see
+// GetEntitlementDigestRoot and computeBucketDigest's precondition.
 func (e *Engine) ComputeEntitlementBucketDigest(ctx context.Context, id entitlementIdentity, bucket DigestBucket) ([]byte, int64, error) {
 	return e.computeBucketDigest(ctx, grantDigestSpec, digestPartitionForEntitlement(id), bucket)
 }

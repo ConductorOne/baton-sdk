@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -335,22 +334,48 @@ func (e *Engine) findMissingGrantDigestPartitionsLocked(ctx context.Context) ([]
 // through the raw DB handle directly rather than nesting another
 // withWrite call.
 //
-// One entitlement's grants are expected to fit comfortably in memory
-// (this is a targeted repair, not the seal-time build sized for the
-// whole file), so this sorts them directly instead of spilling to
-// disk like the deferred build's spill-sorter.
+// The scan STREAMS each derived row straight into the hash-index
+// batch, rotated at digestNodeBatchFlushBytes, instead of buffering
+// the partition's rows in memory: an "everyone"-style entitlement can
+// hold millions of grants, and one allocation per row made a targeted
+// repair of such a partition multi-GB. No sort is needed — batch Sets
+// accept any order, (entitlement, principal) is the primary identity
+// so duplicates are impossible, and the digest fold (pass 2) reads
+// the committed index, which pebble returns sorted. A crash between
+// rotated commits leaves hash rows without a digest root, which still
+// reads as "missing"; the next repair's leading DeleteRange re-cleans
+// them — the same window that already exists between the hash-index
+// and digest commits.
 func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partition string) error {
 	lower, upper := grantPrimaryEntitlementBoundsFromPartition(partition)
 
-	type hashRow struct {
-		key []byte
-		val [hashLen]byte
+	opts := writeOpts(e.opts.durability)
+	if e.IsFreshSync() {
+		opts = pebble.NoSync
 	}
-	var rows []hashRow
+	flushBytes := digestNodeBatchFlushBytes
+	if e.testDigestNodeFlushBytes > 0 {
+		flushBytes = e.testDigestNodeFlushBytes
+	}
+
+	// Pass 1: replace the hash-index range with the freshly-derived
+	// rows (a clean DeleteRange first: nothing may assume what, if
+	// anything, was left there). Closure defer, not a bound one: the
+	// loop rotates `hiBatch` on flush.
+	hiBatch := e.db.NewBatch()
+	defer func() { hiBatch.Close() }()
+	hiLower := encodeGrantByEntPrincHashEntPrefix(partition)
+	if err := hiBatch.DeleteRange(hiLower, upperBoundOf(hiLower), nil); err != nil {
+		return err
+	}
+
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return err
 	}
+	var rows, droppedMalformedKeys int64
+	var scratch grantHashRowScratch
+	var chb [hashLen]byte
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
 			_ = iter.Close()
@@ -359,23 +384,38 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 		key, value := iter.Key(), iter.Value()
 		sep4, ok := splitGrantPrimaryKey(key)
 		if !ok {
+			// Same key-layout-drift/corruption case the build paths
+			// count: such rows cannot be represented in the digests.
+			droppedMalformedKeys++
 			continue
 		}
-		srcs, serr := scanGrantSourceKeysRawBytes(value, nil)
+		srcs, serr := scanGrantSourceKeysRawBytes(value, scratch.srcKeys[:0])
 		if serr != nil {
 			_ = iter.Close()
 			return serr
 		}
+		scratch.srcKeys = srcs
 		if len(srcs) > 1 {
 			sortByteSlices(srcs)
 		}
-		ch64, _ := grantContentHash64(nil, key[grantPrimaryKeyPrefixLen:], srcs)
+		ch64, tuple := grantContentHash64(scratch.tupleBuf, key[grantPrimaryKeyPrefixLen:], srcs)
+		scratch.tupleBuf = tuple
 		bh64 := grantPrincipalBucketHash64(key[sep4+1:])
-		idxKey := appendGrantHashIndexKeyFromPrimary(nil, key, sep4, bh64)
-		var row hashRow
-		row.key = idxKey
-		binary.BigEndian.PutUint64(row.val[:], ch64)
-		rows = append(rows, row)
+		scratch.keyBuf = appendGrantHashIndexKeyFromPrimary(scratch.keyBuf[:0], key, sep4, bh64)
+		binary.BigEndian.PutUint64(chb[:], ch64)
+		if err := hiBatch.Set(scratch.keyBuf, chb[:], nil); err != nil {
+			_ = iter.Close()
+			return err
+		}
+		rows++
+		if hiBatch.Len() >= flushBytes {
+			if err := hiBatch.Commit(opts); err != nil {
+				_ = iter.Close()
+				return err
+			}
+			hiBatch.Close()
+			hiBatch = e.db.NewBatch()
+		}
 	}
 	if err := iter.Error(); err != nil {
 		_ = iter.Close()
@@ -384,40 +424,23 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 	if err := iter.Close(); err != nil {
 		return err
 	}
-
-	sort.Slice(rows, func(i, j int) bool { return bytes.Compare(rows[i].key, rows[j].key) < 0 })
-
-	opts := writeOpts(e.opts.durability)
-	if e.IsFreshSync() {
-		opts = pebble.NoSync
-	}
-
-	// Pass 1: replace the hash-index range with the freshly-derived
-	// rows (a clean DeleteRange first: nothing may assume what, if
-	// anything, was left there).
-	hiBatch := e.db.NewBatch()
-	hiLower := encodeGrantByEntPrincHashEntPrefix(partition)
-	if err := hiBatch.DeleteRange(hiLower, upperBoundOf(hiLower), nil); err != nil {
-		hiBatch.Close()
-		return err
-	}
-	for i := range rows {
-		if err := hiBatch.Set(rows[i].key, rows[i].val[:], nil); err != nil {
-			hiBatch.Close()
-			return err
-		}
+	if droppedMalformedKeys > 0 {
+		// Mirrors the build paths' loud skip (BuildGrantDigests /
+		// BuildDeferredGrantIndexes): a principal silently losing grants
+		// must be observable.
+		ctxzap.Extract(ctx).Error("grant digest repair: grant primary keys did not decode as 6-segment identities; their rows are NOT represented in the repaired digest",
+			zap.Int64("dropped", droppedMalformedKeys),
+		)
 	}
 	if err := hiBatch.Commit(opts); err != nil {
-		hiBatch.Close()
 		return err
 	}
-	hiBatch.Close()
 
 	// Pass 2: fold the just-committed hash index into the digest,
 	// reusing the exact fold logic the seal-time build runs
 	// (foldPartitionNodes) instead of re-deriving the same computation
-	// a second way from the in-memory rows.
-	width := chooseDigestWidth(int64(len(rows)))
+	// a second way from the scanned rows.
+	width := chooseDigestWidth(rows)
 	rootVal, leaves, err := e.foldPartitionNodes(ctx, grantDigestSpec, partition, width)
 	if err != nil {
 		return err

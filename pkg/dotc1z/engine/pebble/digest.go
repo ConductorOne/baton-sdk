@@ -470,10 +470,14 @@ type DigestRoot struct {
 	Count int64
 }
 
-// getPartitionDigestRoot returns the stored root for a partition. ok is
-// false when no digest has been built for it (the caller can fall back
-// to computeBucketDigest, which derives the same digest from the index
-// on demand).
+// getPartitionDigestRoot returns the stored root for a partition. ok
+// is false when no digest has been built for it (or it was
+// invalidated) — which means RECALCULATE FROM THE PRIMARY RECORDS (or
+// treat the whole partition as dirty), never "fold the index instead":
+// the index is only ever written and dropped alongside the digest
+// nodes, so with no root the index range is absent too and
+// computeBucketDigest would read that absence as "zero records" — the
+// false-clean trap dirtyPartitionBuckets' doc comment describes.
 func (e *Engine) getPartitionDigestRoot(spec digestIndexSpec, partition string) (DigestRoot, bool, error) {
 	if e.grantDigestBuildPending.Load() {
 		// An interrupted digest build's half-committed nodes may be
@@ -575,6 +579,13 @@ func (e *Engine) foldedLeafBuckets(ctx context.Context, spec digestIndexSpec, pa
 // definition of a node; stored nodes are a cache of it.
 // Split-independent: the digest depends only on the records in the
 // bucket's hash range, not on any digest's width.
+//
+// PRECONDITION: only meaningful while the partition's digest is built
+// (its root is stored) — the index rows this folds exist exactly as
+// long as the digest nodes do. Against a never-built or invalidated
+// partition the fold reads an absent index range and returns {0, 0},
+// indistinguishable from a truly empty partition; it must never be
+// used as a fallback for a missing root (see getPartitionDigestRoot).
 func (e *Engine) computeBucketDigest(ctx context.Context, spec digestIndexSpec, partition string, bucket DigestBucket) ([]byte, int64, error) {
 	lower, upper := spec.bucketBounds(partition, bucket)
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})

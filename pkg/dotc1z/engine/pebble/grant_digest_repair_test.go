@@ -2,10 +2,14 @@ package pebble
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
@@ -211,4 +215,148 @@ func TestGrantPartitionFromPrimaryKey(t *testing.T) {
 	if want := testEntPartition("ent-A"); got != want {
 		t.Fatalf("partition = %q, want %q", got, want)
 	}
+}
+
+// repairLogCore is a minimal zapcore.Core recording entries in-memory
+// so tests can assert on repair logs without zaptest/observer (not
+// vendored) — same pattern as progresslog's capturingCore.
+type repairLogCore struct {
+	zapcore.LevelEnabler
+	entries []repairLogEntry
+}
+
+type repairLogEntry struct {
+	msg    string
+	fields map[string]any
+}
+
+func newRepairLogCore() *repairLogCore {
+	return &repairLogCore{LevelEnabler: zapcore.ErrorLevel}
+}
+
+func (c *repairLogCore) With([]zapcore.Field) zapcore.Core { return c }
+func (c *repairLogCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	if c.Enabled(ent.Level) {
+		return ce.AddCore(ent, c)
+	}
+	return ce
+}
+
+func (c *repairLogCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
+	enc := zapcore.NewMapObjectEncoder()
+	for _, f := range fields {
+		f.AddTo(enc)
+	}
+	c.entries = append(c.entries, repairLogEntry{msg: ent.Message, fields: enc.Fields})
+	return nil
+}
+
+func (c *repairLogCore) Sync() error { return nil }
+
+// TestRepairMissingGrantDigestsCountsMalformedKeys pins the repair
+// path's loud skip of grant primary keys that fail the 6-segment
+// split, matching the build paths: the row cannot be represented in
+// the digest, and a principal silently losing grants must be
+// observable. The repair itself still succeeds, covering only the
+// well-formed rows.
+func TestRepairMissingGrantDigestsCountsMalformedKeys(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID := ksuid.New().String()
+	if err := e.SetCurrentSync(syncID); err != nil {
+		t.Fatalf("SetCurrentSync: %v", err)
+	}
+	putEnt(t, e, ctx, "ent-a")
+	if err := e.PutGrantRecords(ctx,
+		makeGrant("", "g1", "ent-a", "alice"),
+		makeGrant("", "g2", "ent-a", "bob"),
+	); err != nil {
+		t.Fatalf("PutGrantRecords: %v", err)
+	}
+	sealGrantDigests(t, e)
+
+	// A key inside ent-a's primary range with SEVEN tuple segments —
+	// the key-layout-drift/corruption shape splitGrantPrimaryKey
+	// rejects (a well-formed grant identity has exactly six).
+	partition := testEntPartition("ent-a")
+	lower, _ := grantPrimaryEntitlementBoundsFromPartition(partition)
+	malformed := append(append([]byte(nil), lower...), 'p', 0, 'q', 0, 'r')
+	if err := e.db.Set(malformed, []byte("junk"), pebble.NoSync); err != nil {
+		t.Fatalf("inject malformed key: %v", err)
+	}
+
+	if err := e.InvalidateGrantDigestPartitions(ctx, []string{partition}); err != nil {
+		t.Fatalf("InvalidateGrantDigestPartitions: %v", err)
+	}
+
+	core := newRepairLogCore()
+	lctx := ctxzap.ToContext(ctx, zap.New(core))
+	if err := e.RepairMissingGrantDigests(lctx); err != nil {
+		t.Fatalf("RepairMissingGrantDigests: %v", err)
+	}
+
+	root, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-a"))
+	if err != nil || !ok {
+		t.Fatalf("ent-a root after repair: ok=%v err=%v, want repaired", ok, err)
+	}
+	if root.Count != 2 {
+		t.Fatalf("repaired root count = %d, want 2 (malformed row must not be represented)", root.Count)
+	}
+
+	var logged bool
+	for _, entry := range core.entries {
+		if !strings.Contains(entry.msg, "NOT represented in the repaired digest") {
+			continue
+		}
+		logged = true
+		if dropped, _ := entry.fields["dropped"].(int64); dropped != 1 {
+			t.Fatalf("dropped field = %v, want 1", entry.fields["dropped"])
+		}
+	}
+	if !logged {
+		t.Fatal("expected an Error log counting the malformed key the repair skipped")
+	}
+}
+
+// TestRepairStreamsPartitionInBoundedBatches pins the repair's
+// streaming pass-1: with the flush threshold forced to rotate the
+// hash-index batch after every row (the smallest possible bound, i.e.
+// maximum rotations — the shape a multi-million-grant "everyone"
+// entitlement would produce at the real 4MiB threshold), the repaired
+// hash index and digest nodes must still be byte-identical to the
+// seal-time build's.
+func TestRepairStreamsPartitionInBoundedBatches(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID := ksuid.New().String()
+	if err := e.SetCurrentSync(syncID); err != nil {
+		t.Fatalf("SetCurrentSync: %v", err)
+	}
+	for entID, n := range map[string]int{"ent-big": 700, "ent-small": 2} {
+		putEnt(t, e, ctx, entID)
+		grants := make([]*v3.GrantRecord, 0, n)
+		for range n {
+			grants = append(grants, makeGrant("", ksuid.New().String(), entID, ksuid.New().String()))
+		}
+		if err := e.PutGrantRecords(ctx, grants...); err != nil {
+			t.Fatalf("PutGrantRecords(%s): %v", entID, err)
+		}
+	}
+	sealGrantDigests(t, e)
+	wantNodes := dumpDigestNodes(t, e)
+	wantHash := dumpKeyRangeTest(t, e, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound())
+
+	// Rotate the repair's hash-index batch on every Set.
+	e.testDigestNodeFlushBytes = 1
+
+	partition := testEntPartition("ent-big")
+	if err := e.InvalidateGrantDigestPartitions(ctx, []string{partition}); err != nil {
+		t.Fatalf("InvalidateGrantDigestPartitions: %v", err)
+	}
+	if err := e.RepairMissingGrantDigests(ctx); err != nil {
+		t.Fatalf("RepairMissingGrantDigests: %v", err)
+	}
+
+	requireSameDigestNodes(t, dumpDigestNodes(t, e), wantNodes)
+	requireSameDigestNodes(t, dumpKeyRangeTest(t, e, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()), wantHash)
 }

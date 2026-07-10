@@ -104,11 +104,13 @@ type Engine struct {
 	// built" instead of trusting nodes a crashed build half-committed.
 	grantDigestBuildPending atomic.Bool
 
-	// Test seams for the digest-build crash-window tests
-	// (grant_digest_build_crash_test.go): a hook fired at named points
-	// inside buildGrantDigestsFromSpill and a node-batch flush-threshold
-	// override so a small test dataset exercises the mid-merge commit
-	// path. Nil/zero in production.
+	// Test seams for the digest build/repair tests: a hook fired at
+	// named points inside buildGrantDigestsFromSpill
+	// (grant_digest_build_crash_test.go) and a batch flush-threshold
+	// override — shared by the build's fold and the streaming partition
+	// repair (repairOneGrantDigestPartitionLocked) — so a small test
+	// dataset exercises the mid-stream commit paths. Nil/zero in
+	// production.
 	testDigestBuildHook      func(stage string) error
 	testDigestNodeFlushBytes int
 
