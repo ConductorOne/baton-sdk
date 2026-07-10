@@ -595,6 +595,78 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 	})
 }
 
+// TestListGrantsForPrincipalEntitlementPointLookup locks in the
+// entitlement+principal point-lookup path: entitlement + principal is the
+// full primary grant key, so the narrowed request must resolve in a single
+// page regardless of how many grants the principal holds on other
+// entitlements. The old by_principal scan with post-filter returned empty
+// pages with a next token here.
+func TestListGrantsForPrincipalEntitlementPointLookup(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	mkRes := func(rt, id string) *v2.Resource {
+		return v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: rt, Resource: id}.Build(),
+		}.Build()
+	}
+	appRes := mkRes("app", "gh")
+	require.NoError(t, a.PutResources(ctx, appRes))
+	const entCount = 20
+	ents := make([]*v2.Entitlement, entCount)
+	grants := make([]*v2.Grant, entCount)
+	for i := range ents {
+		id := "ent-" + strconv.Itoa(i)
+		ents[i] = v2.Entitlement_builder{Id: id, Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: id}.Build()
+		grants[i] = v2.Grant_builder{
+			Id:          "g-" + strconv.Itoa(i),
+			Entitlement: v2.Entitlement_builder{Id: id, Resource: appRes}.Build(),
+			Principal:   mkRes("user", "alice"),
+		}.Build()
+	}
+	require.NoError(t, a.PutEntitlements(ctx, ents...))
+	require.NoError(t, a.PutGrants(ctx, grants...))
+	alice := v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build()
+
+	t.Run("single page even when page size is small", func(t *testing.T) {
+		// Page size 2 with 20 grants on other entitlements: the point
+		// lookup must return the one match on the first page with no
+		// next token.
+		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+			Entitlement: v2.Entitlement_builder{Id: "ent-19", Resource: appRes}.Build(),
+			PrincipalId: alice,
+			PageSize:    2,
+		}.Build())
+		require.NoError(t, err)
+		require.Len(t, resp.GetList(), 1)
+		require.Equal(t, "g-19", resp.GetList()[0].GetId())
+		require.Empty(t, resp.GetNextPageToken())
+	})
+
+	t.Run("unknown entitlement yields empty response", func(t *testing.T) {
+		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+			Entitlement: v2.Entitlement_builder{Id: "ent-nope"}.Build(),
+			PrincipalId: alice,
+			PageSize:    100,
+		}.Build())
+		require.NoError(t, err)
+		require.Empty(t, resp.GetList())
+		require.Empty(t, resp.GetNextPageToken())
+	})
+
+	t.Run("no grant for entitlement+principal yields empty response", func(t *testing.T) {
+		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+			Entitlement: v2.Entitlement_builder{Id: "ent-0", Resource: appRes}.Build(),
+			PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "bob"}.Build(),
+			PageSize:    100,
+		}.Build())
+		require.NoError(t, err)
+		require.Empty(t, resp.GetList())
+		require.Empty(t, resp.GetNextPageToken())
+	})
+}
+
 // TestListStaticEntitlementsPebble is a parity smoke test for the
 // always-empty static-entitlements RPC. Both backends return an
 // empty list; this test guards against a future divergence.

@@ -344,9 +344,10 @@ func (a *Adapter) entitlementIdentityForRequest(ctx context.Context, ent *v2.Ent
 }
 
 // ListGrantsForPrincipal returns all grants where the given principal_id is
-// the principal. The optional Entitlement field narrows results to a single
-// entitlement. The underlying PaginateGrantsByPrincipal index walk is what
-// makes this O(K). Implements reader_v2.GrantsReaderServiceServer.
+// the principal, via the O(K) PaginateGrantsByPrincipal index walk. The
+// optional Entitlement field narrows results to a single entitlement — since
+// entitlement + principal is the full primary grant key, that case is an O(1)
+// point lookup. Implements reader_v2.GrantsReaderServiceServer.
 func (a *Adapter) ListGrantsForPrincipal(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest,
@@ -364,21 +365,34 @@ func (a *Adapter) ListGrantsForPrincipal(
 	}
 	limit := clampPageSize(req.GetPageSize())
 	cursor := req.GetPageToken()
-	records, next, err := a.engine.PaginateGrantsByPrincipal(ctx,
-		principal.GetResourceType(), principal.GetResource(), cursor, limit)
-	if err != nil {
-		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+	var records []*v3.GrantRecord
+	var next string
+	if ent := req.GetEntitlement(); ent != nil && ent.GetId() != "" {
+		// Entitlement + principal is the full primary grant key, so this
+		// is a point lookup rather than a filtered by_principal scan.
+		entIdentity, err := a.entitlementIdentityForRequest(ctx, ent)
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+				// Unknown entitlement → no grants, matching the legacy
+				// post-filter semantics.
+				return reader_v2.GrantsReaderServiceListGrantsForPrincipalResponse_builder{}.Build(), nil
+			}
+			return nil, err
+		}
+		records, next, err = a.engine.PaginateGrantsByEntitlementPrincipal(ctx,
+			entIdentity, principal.GetResourceType(), principal.GetResource(), cursor, limit)
+		if err != nil {
+			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+		}
+	} else {
+		records, next, err = a.engine.PaginateGrantsByPrincipal(ctx,
+			principal.GetResourceType(), principal.GetResource(), cursor, limit)
+		if err != nil {
+			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+		}
 	}
 	out := make([]*v2.Grant, 0, len(records))
 	for _, rec := range records {
-		// Optional entitlement filter — narrows the principal scan
-		// to a single entitlement when the caller passes one. Raw string
-		// equality: refs and request ids are the same connector strings.
-		if ent := req.GetEntitlement(); ent != nil && ent.GetId() != "" {
-			if rec.GetEntitlement().GetEntitlementId() != ent.GetId() {
-				continue
-			}
-		}
 		out = append(out, V3GrantToV2(rec))
 	}
 	return reader_v2.GrantsReaderServiceListGrantsForPrincipalResponse_builder{
