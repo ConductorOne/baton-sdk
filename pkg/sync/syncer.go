@@ -29,6 +29,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"go.uber.org/zap"
@@ -42,6 +43,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/metrics"
+	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/sync/progresslog"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
@@ -53,6 +55,27 @@ var dontFixCycles, _ = strconv.ParseBool(os.Getenv("BATON_DONT_FIX_CYCLES"))
 var ErrSyncNotComplete = fmt.Errorf("sync exited without finishing")
 var ErrTooManyWarnings = fmt.Errorf("too many warnings, exiting sync")
 var ErrNoSyncIDFound = fmt.Errorf("no syncID found after starting or resuming sync")
+
+var timedSyncOps = []ActionOp{
+	SyncResourceTypesOp,
+	SyncResourcesOp,
+	SyncTargetedResourceOp,
+	SyncStaticEntitlementsOp,
+	SyncEntitlementsOp,
+	SyncGrantsOp,
+	SyncExternalResourcesOp,
+	SyncAssetsOp,
+}
+
+var connectorCallMethods = []string{
+	"list-resource-types",
+	"get-resource",
+	"list-resources",
+	"list-entitlements",
+	"list-static-entitlements",
+	"get-asset",
+	"list-grants",
+}
 
 // IsSyncPreservable returns true if the error returned by Sync() means that the sync artifact is useful.
 // This either means that there was no error, or that the error is recoverable (we can resume the sync and possibly succeed next time).
@@ -145,6 +168,7 @@ type syncer struct {
 	workerCount                         int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
 	metricsHandler                      metrics.Handler
 	syncIdentity                        uotel.SyncIdentity
+	recordStats                         bool
 }
 
 var _ Syncer = (*syncer)(nil)
@@ -331,6 +355,12 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < minCheckpointInterval {
 		return nil
 	}
+	start := time.Now()
+	if s.recordStats {
+		defer func() {
+			s.state.AddStepDuration("checkpoint", time.Since(start))
+		}()
+	}
 	ctx, span := tracer.Start(ctx, "syncer.Checkpoint")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -346,6 +376,173 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	}
 
 	return nil
+}
+
+func (s *syncer) timedStep(op ActionOp, f func() error) error {
+	if !s.recordStats {
+		return f()
+	}
+	start := time.Now()
+	err := f()
+	s.state.AddStepDuration(op.String(), time.Since(start))
+	return err
+}
+
+func (s *syncer) observeConnectorCall(
+	ctx context.Context,
+	method string,
+	start time.Time,
+	resourceTypeID string,
+	resourceID string,
+) {
+	if !s.recordStats {
+		return
+	}
+
+	elapsed := time.Since(start)
+	s.state.RecordConnectorCall(method, elapsed)
+	if resourceTypeID != "" {
+		s.state.RecordConnectorCall(method+":"+resourceTypeID, elapsed)
+	}
+	if elapsed > time.Minute {
+		ctxzap.Extract(ctx).Warn("slow connector call",
+			zap.String("method", method),
+			zap.String("resource_type_id", resourceTypeID),
+			zap.String("resource_id", resourceID),
+			zap.Duration("elapsed", elapsed),
+		)
+	}
+}
+
+// syncSummaryFields builds the timing summary. Bucket semantics: op buckets
+// are wall clock INCLUDING retry/rate-limit sleeps; the wait buckets (and
+// their :resource_type labeled variants) re-count that same time as an
+// "of which" decomposition. The full step-durations map is therefore not
+// summable — sync_steps_total_ms sums only the timedSyncOps buckets.
+// Connector call stats follow the same shape: method:resource_type entries
+// re-count their flat method entry, so only the unlabeled methods sum to
+// the true call totals.
+func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
+	stepDurations := s.state.StepDurations()
+	callStats := s.state.ConnectorCallStats()
+
+	var stepsTotalMs int64
+	for _, op := range timedSyncOps {
+		stepsTotalMs += stepDurations[op.String()]
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String("sync.type", string(s.syncType)),
+		attribute.Int64("sync.steps.total_ms", stepsTotalMs),
+		attribute.String("sync.completed_actions", strconv.FormatUint(s.state.GetCompletedActionsCount(), 10)),
+		attribute.Int("sync.worker_count", s.workerCount),
+	}
+	for _, bucket := range []string{
+		SyncResourceTypesOp.String(),
+		SyncResourcesOp.String(),
+		SyncTargetedResourceOp.String(),
+		SyncStaticEntitlementsOp.String(),
+		SyncEntitlementsOp.String(),
+		SyncGrantsOp.String(),
+		SyncExternalResourcesOp.String(),
+		SyncAssetsOp.String(),
+		"checkpoint",
+		"rate_limit_wait",
+		"retry_wait",
+	} {
+		key := strings.ReplaceAll(bucket, "-", "_")
+		attrs = append(attrs, attribute.Int64("sync.step."+key+".duration_ms", stepDurations[bucket]))
+	}
+	for _, method := range connectorCallMethods {
+		key := strings.ReplaceAll(method, "-", "_")
+		stat := callStats[method]
+		attrs = append(attrs,
+			attribute.Int64("sync.connector."+key+".count", stat.Count),
+			attribute.Int64("sync.connector."+key+".total_ms", stat.TotalMs),
+			attribute.Int64("sync.connector."+key+".max_ms", stat.MaxMs),
+		)
+	}
+	sessionStats := s.state.SessionStoreStats()
+	for op, stat := range sessionStats {
+		attrs = append(attrs,
+			attribute.Int64("sync.session."+op+".count", stat.Count),
+			attribute.Int64("sync.session."+op+".errors", stat.Errors),
+			attribute.Int64("sync.session."+op+".timeouts", stat.Timeouts),
+			attribute.Int64("sync.session."+op+".total_ms", stat.TotalMs),
+			attribute.Int64("sync.session."+op+".max_ms", stat.MaxMs),
+		)
+	}
+	span.SetAttributes(attrs...)
+
+	fields := []zap.Field{
+		zap.String("sync_id", s.syncID),
+		zap.String("sync_type", string(s.syncType)),
+		zap.Any("sync_step_durations_ms", stepDurations),
+		zap.Int64("sync_steps_total_ms", stepsTotalMs),
+		zap.Any("connector_call_stats", callStats),
+		zap.Uint64("completed_actions", s.state.GetCompletedActionsCount()),
+		zap.Int("worker_count", s.workerCount),
+	}
+	if len(sessionStats) > 0 {
+		fields = append(fields, zap.Any("session_store_stats", sessionStats))
+	}
+	return fields
+}
+
+// recordSessionOp feeds store-side session observations into the stats
+// token under store.-prefixed ops (the c1z view of session traffic).
+// Session traffic is driven by connector RPCs the syncer initiated, so the
+// state is set before any op arrives; the nil guard covers the Validate
+// window between store load and state creation.
+func (s *syncer) recordSessionOp(op string, elapsed time.Duration, opErr error) {
+	if !s.recordStats {
+		return
+	}
+	st := s.state
+	if st == nil {
+		return
+	}
+	st.RecordSessionOp("store."+op, elapsed, opErr, session.IsDeadlineExceeded(opErr))
+}
+
+// recordSessionUsage folds a connector-reported SessionStoreUsage response
+// annotation into the stats token under connector.-prefixed ops (the
+// connector-perceived view, including transport). The difference between the
+// connector.* and store.* views isolates session-transport overhead.
+func (s *syncer) recordSessionUsage(annos []*anypb.Any) {
+	if !s.recordStats || len(annos) == 0 {
+		return
+	}
+	st := s.state
+	if st == nil {
+		return
+	}
+	usage := &v2.SessionStoreUsage{}
+	respAnnos := annotations.Annotations(annos)
+	ok, err := respAnnos.Pick(usage)
+	if err != nil || !ok {
+		return
+	}
+	for _, op := range usage.GetOps() {
+		if op.GetOp() == "" {
+			continue
+		}
+		st.MergeSessionStat("connector."+op.GetOp(), SessionStoreStat{
+			Count:    op.GetCount(),
+			Errors:   op.GetErrors(),
+			Timeouts: op.GetTimeouts(),
+			TotalMs:  op.GetTotalMs(),
+			MaxMs:    op.GetMaxMs(),
+		})
+	}
+}
+
+func (s *syncer) returnSyncError(l *zap.Logger, span trace.Span, err error) error {
+	if err == nil || !s.recordStats || s.state == nil || errors.Is(err, ErrSyncNotComplete) {
+		return err
+	}
+	l.Info("sync stats so far", s.syncSummaryFields(span)...)
+	return err
 }
 
 func (s *syncer) handleInitialActionForStep(ctx context.Context, a Action) {
@@ -543,6 +740,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	s.recordStats = s.store.Metadata().Engine == string(c1zstore.EnginePebble)
 
 	resp, err := s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
 	if err != nil {
@@ -654,13 +852,13 @@ func (s *syncer) Sync(ctx context.Context) error {
 		s.state.PushAction(ctx, Action{Op: InitOp})
 		err = s.Checkpoint(ctx, true)
 		if err != nil {
-			return err
+			return s.returnSyncError(l, span, err)
 		}
 	}
 
 	warnings, err := s.parallelSync(ctx, runCtx, targetedResources)
 	if err != nil {
-		return err
+		return s.returnSyncError(l, span, err)
 	}
 
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
@@ -669,7 +867,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	err = s.Checkpoint(ctx, true)
 	if err != nil {
-		return err
+		return s.returnSyncError(l, span, err)
 	}
 
 	err = s.store.Cleanup(runCtx)
@@ -679,21 +877,34 @@ func (s *syncer) Sync(ctx context.Context) error {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return ErrSyncNotComplete
 		}
-		return err
+		return s.returnSyncError(l, span, err)
 	}
 
 	err = s.store.EndSync(ctx)
 	if err != nil {
-		return err
+		return s.returnSyncError(l, span, err)
 	}
 
-	l.Info("Sync complete.")
+	if s.recordStats {
+		l.Info("Sync complete.", s.syncSummaryFields(span)...)
+	} else {
+		l.Info("Sync complete.")
+	}
 
-	_, err = s.connector.Cleanup(ctx, v2.ConnectorServiceCleanupRequest_builder{
+	cleanupResp, err := s.connector.Cleanup(ctx, v2.ConnectorServiceCleanupRequest_builder{
 		ActiveSyncId: s.getActiveSyncID(),
 	}.Build())
 	if err != nil {
 		l.Error("error clearing connector caches", zap.Error(err))
+	}
+	// The sync is already sealed, so cleanup-time session usage (the Clear
+	// itself plus any final backend traffic) is log-only evidence.
+	if s.recordStats {
+		usage := &v2.SessionStoreUsage{}
+		cleanupAnnos := annotations.Annotations(cleanupResp.GetAnnotations())
+		if ok, pickErr := cleanupAnnos.Pick(usage); pickErr == nil && ok {
+			l.Info("connector session store cleanup stats", zap.Any("session_store_usage", usage))
+		}
 	}
 
 	if len(warnings) > 0 {
@@ -752,10 +963,12 @@ func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.Resou
 	return func(yield func([]*v2.ResourceType, error) bool) {
 		pageToken := ""
 		for {
+			start := time.Now()
 			resp, err := s.connector.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
 				PageToken:    pageToken,
 				ActiveSyncId: s.getActiveSyncID(),
 			}.Build())
+			s.observeConnectorCall(ctx, "list-resource-types", start, "", "")
 			if err != nil {
 				_ = yield(nil, err)
 				return
@@ -786,10 +999,12 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 		s.handleInitialActionForStep(ctx, *action)
 	}
 
+	start := time.Now()
 	resp, err := s.connector.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
 		PageToken:    action.PageToken,
 		ActiveSyncId: s.getActiveSyncID(),
 	}.Build())
+	s.observeConnectorCall(ctx, "list-resource-types", start, action.ResourceTypeID, action.ResourceID)
 	if err != nil {
 		return err
 	}
@@ -897,6 +1112,7 @@ func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.Re
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
+	start := time.Now()
 	resourceResp, err := s.connector.GetResource(ctx,
 		v2.ResourceGetterServiceGetResourceRequest_builder{
 			ResourceId:       resourceID,
@@ -904,6 +1120,7 @@ func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.Re
 			ActiveSyncId:     s.getActiveSyncID(),
 		}.Build(),
 	)
+	s.observeConnectorCall(ctx, "get-resource", start, resourceID.GetResourceType(), resourceID.GetResource())
 	if err == nil {
 		return resourceResp.GetResource(), nil
 	}
@@ -1054,7 +1271,10 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 		}.Build())
 	}
 
+	start := time.Now()
 	resp, err := s.connector.ListResources(ctx, req)
+	s.observeConnectorCall(ctx, "list-resources", start, action.ResourceTypeID, action.ResourceID)
+	s.recordSessionUsage(resp.GetAnnotations())
 	if err != nil {
 		return err
 	}
@@ -1317,11 +1537,14 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 
 	resource := resourceResponse.GetResource()
 
+	start := time.Now()
 	resp, err := s.connector.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 		Resource:     resource,
 		PageToken:    action.PageToken,
 		ActiveSyncId: s.getActiveSyncID(),
 	}.Build())
+	s.observeConnectorCall(ctx, "list-entitlements", start, action.ResourceTypeID, action.ResourceID)
+	s.recordSessionUsage(resp.GetAnnotations())
 	if err != nil {
 		return err
 	}
@@ -1374,11 +1597,14 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
+	start := time.Now()
 	resp, err := s.connector.ListStaticEntitlements(ctx, v2.EntitlementsServiceListStaticEntitlementsRequest_builder{
 		ResourceTypeId: action.ResourceTypeID,
 		PageToken:      action.PageToken,
 		ActiveSyncId:   s.getActiveSyncID(),
 	}.Build())
+	s.observeConnectorCall(ctx, "list-static-entitlements", start, action.ResourceTypeID, action.ResourceID)
+	s.recordSessionUsage(resp.GetAnnotations())
 	if err != nil {
 		// Ignore prefixError if we're calling a lambda with an old version of baton-sdk.
 		if strings.Contains(err.Error(), `unable to resolve \"type.googleapis.com/c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest\": \"not found\"","errorType":"prefixError"`) {
@@ -1517,56 +1743,61 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, action *Action) erro
 			continue
 		}
 
-		l.Debug("fetching asset", zap.String("asset_ref_id", assetRef.GetId()))
-		resp, err := s.connector.GetAsset(ctx, v2.AssetServiceGetAssetRequest_builder{Asset: assetRef}.Build())
-		if err != nil {
-			return err
-		}
+		err := func() error {
+			l.Debug("fetching asset", zap.String("asset_ref_id", assetRef.GetId()))
+			start := time.Now()
+			defer s.observeConnectorCall(ctx, "get-asset", start, action.ResourceTypeID, action.ResourceID)
 
-		// FIXME(jirwin): if the return from the client is nil, skip this asset
-		// Temporary until we can implement assets on the platform side
-		if resp == nil {
-			continue
-		}
-
-		var metadata *v2.AssetServiceGetAssetResponse_Metadata
-		assetBytes := &bytes.Buffer{}
-
-		var recvErr error
-		var msg *v2.AssetServiceGetAssetResponse
-		for !errors.Is(recvErr, io.EOF) {
-			msg, recvErr = resp.Recv()
-			if recvErr != nil {
-				if errors.Is(recvErr, io.EOF) {
-					continue
-				}
-				l.Error("error fetching asset", zap.Error(recvErr))
+			resp, err := s.connector.GetAsset(ctx, v2.AssetServiceGetAssetRequest_builder{Asset: assetRef}.Build())
+			if err != nil {
 				return err
 			}
 
-			l.Debug("received asset message")
-
-			switch msg.WhichMsg() {
-			case v2.AssetServiceGetAssetResponse_Metadata_case:
-				metadata = msg.GetMetadata()
-			case v2.AssetServiceGetAssetResponse_Data_case:
-				l.Debug("Received data for asset")
-				_, err := io.Copy(assetBytes, bytes.NewReader(msg.GetData().GetData()))
-				if err != nil {
-					_ = resp.CloseSend()
-					return err
-				}
-			case v2.AssetServiceGetAssetResponse_Msg_not_set_case:
-				l.Debug("Received unset asset message")
-				continue
+			// FIXME(jirwin): if the return from the client is nil, skip this asset
+			// Temporary until we can implement assets on the platform side
+			if resp == nil {
+				return nil
 			}
-		}
 
-		if metadata == nil {
-			return fmt.Errorf("no metadata received, unable to store asset")
-		}
+			var metadata *v2.AssetServiceGetAssetResponse_Metadata
+			assetBytes := &bytes.Buffer{}
 
-		err = s.store.PutAsset(ctx, assetRef, metadata.GetContentType(), assetBytes.Bytes())
+			var recvErr error
+			var msg *v2.AssetServiceGetAssetResponse
+			for !errors.Is(recvErr, io.EOF) {
+				msg, recvErr = resp.Recv()
+				if recvErr != nil {
+					if errors.Is(recvErr, io.EOF) {
+						continue
+					}
+					l.Error("error fetching asset", zap.Error(recvErr))
+					return recvErr
+				}
+
+				l.Debug("received asset message")
+
+				switch msg.WhichMsg() {
+				case v2.AssetServiceGetAssetResponse_Metadata_case:
+					metadata = msg.GetMetadata()
+				case v2.AssetServiceGetAssetResponse_Data_case:
+					l.Debug("Received data for asset")
+					_, err := io.Copy(assetBytes, bytes.NewReader(msg.GetData().GetData()))
+					if err != nil {
+						_ = resp.CloseSend()
+						return err
+					}
+				case v2.AssetServiceGetAssetResponse_Msg_not_set_case:
+					l.Debug("Received unset asset message")
+					continue
+				}
+			}
+
+			if metadata == nil {
+				return fmt.Errorf("no metadata received, unable to store asset")
+			}
+
+			return s.store.PutAsset(ctx, assetRef, metadata.GetContentType(), assetBytes.Bytes())
+		}()
 		if err != nil {
 			return err
 		}
@@ -1817,11 +2048,14 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 
 	resource := resourceResponse.GetResource()
 
+	start := time.Now()
 	resp, err := s.connector.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 		Resource:     resource,
 		PageToken:    action.PageToken,
 		ActiveSyncId: s.getActiveSyncID(),
 	}.Build())
+	s.observeConnectorCall(ctx, "list-grants", start, action.ResourceTypeID, action.ResourceID)
+	s.recordSessionUsage(resp.GetAnnotations())
 	if err != nil {
 		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", err)
 	}
@@ -2676,7 +2910,12 @@ func (s *syncer) loadStore(ctx context.Context) error {
 	}
 
 	if s.setSessionStore != nil {
-		s.setSessionStore.SetSessionStore(ctx, store.SessionStore())
+		// Instrumented so session-store cost is attributable in the sync
+		// stats instead of vanishing into inflated connector-call latency
+		// (e.g. a broken backend whose every request times out before the
+		// connector falls back to real work).
+		kind := "c1z_" + store.Metadata().Engine
+		s.setSessionStore.SetSessionStore(ctx, session.NewInstrumentedSessionStore(store.SessionStore(), kind, "", s.recordSessionOp))
 	}
 	s.store = store
 

@@ -22,12 +22,30 @@ type Retryer struct {
 	maxAttempts  uint
 	initialDelay time.Duration
 	maxDelay     time.Duration
+	onWait       func(ctx context.Context, wait time.Duration, rateLimited bool)
 }
 
 type RetryConfig struct {
 	MaxAttempts  uint          // 0 means no limit (which is also the default).
 	InitialDelay time.Duration // Default is 1 second.
 	MaxDelay     time.Duration // Default is 60 seconds. 0 means no limit.
+	OnWait       func(ctx context.Context, wait time.Duration, rateLimited bool)
+}
+
+type waitLabelKey struct{}
+
+// WithWaitLabel attaches a bounded attribution label to retry waits.
+func WithWaitLabel(ctx context.Context, label string) context.Context {
+	if label == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, waitLabelKey{}, label)
+}
+
+// WaitLabelFromContext returns the retry-wait attribution label, if present.
+func WaitLabelFromContext(ctx context.Context) (string, bool) {
+	label, ok := ctx.Value(waitLabelKey{}).(string)
+	return label, ok && label != ""
 }
 
 func NewRetryer(ctx context.Context, config RetryConfig) *Retryer {
@@ -36,6 +54,7 @@ func NewRetryer(ctx context.Context, config RetryConfig) *Retryer {
 		maxAttempts:  config.MaxAttempts,
 		initialDelay: config.InitialDelay,
 		maxDelay:     config.MaxDelay,
+		onWait:       config.OnWait,
 	}
 	if r.initialDelay == 0 {
 		r.initialDelay = time.Second
@@ -88,6 +107,7 @@ func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
 	}
 
 	// If error contains rate limit data, use that instead
+	rateLimited := false
 	if st, ok := status.FromError(err); ok {
 		details := st.Details()
 		for _, detail := range details {
@@ -100,6 +120,7 @@ func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
 				if remaining <= 0 {
 					// No requests remaining, so we need to wait until the reset time.
 					wait = waitResetAt
+					rateLimited = true
 					break
 				}
 				// Divide the wait time by the remaining requests to get the time to wait per request.
@@ -108,6 +129,7 @@ func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
 				waitResetAt = time.Duration(math.Ceil(waitResetAt.Seconds())) * time.Second
 				if waitResetAt > 0 {
 					wait = waitResetAt
+					rateLimited = true
 					break
 				}
 			}
@@ -119,6 +141,9 @@ func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
 	}
 
 	l.Warn("retrying operation", zap.Error(err), zap.Duration("wait", wait))
+	if r.onWait != nil {
+		r.onWait(ctx, wait, rateLimited)
+	}
 
 	for {
 		select {

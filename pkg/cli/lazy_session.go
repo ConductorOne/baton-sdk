@@ -62,12 +62,26 @@ func (l *lazyCachingSessionStore) ensureSession(ctx context.Context) error {
 		if l.err != nil {
 			return
 		}
+		// Instrument below the cache so those counters measure exactly the
+		// traffic that reaches the real backend (cache misses and
+		// write-throughs). This is where a broken backend shows up as
+		// timeouts ≈ count with max latency pinned at the deadline.
+		ss = session.NewInstrumentedSessionStore(ss, "connector_backend", "", nil)
 		if l.otterOptions == nil {
 			ctxzap.Extract(ctx).Info("Session store cache is disabled")
 			l.session = ss
 			return
 		}
-		l.session, l.err = session.NewMemorySessionCache(l.otterOptions, ss)
+		cache, err := session.NewMemorySessionCache(l.otterOptions, ss)
+		if err != nil {
+			l.err = err
+			return
+		}
+		// A second, cache.-prefixed view above the cache distinguishes
+		// "sessions unused" from "sessions used but cache-served": cache.get
+		// counts every read, plain get only the ones that reached the
+		// backend.
+		l.session = session.NewInstrumentedSessionStore(cache, "", "cache.", nil)
 	})
 	return l.err
 }

@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// SessionStoreUsage reports the session-store operations a connector
+// performed while serving one request. Attached to sync-path response
+// annotations so the syncer can attribute session-store cost (including
+// timeout-then-fallback behavior) to the sync that incurred it, without
+// any state accumulating in the connector process.
+message SessionStoreUsage {
+  message OpStats {
+    // op is one of: get, get_many, get_all, set, set_many, delete, clear.
+    string op = 1;
+    int64 count = 2;
+    int64 errors = 3;
+    // timeouts is the deadline-exceeded subset of errors.
+    int64 timeouts = 4;
+    int64 total_ms = 5;
+    int64 max_ms = 6;
+  }
+  // kind labels the backend the connector's session ops reached
+  // (e.g. connector_backend).
+  string kind = 1;
+  repeated OpStats ops = 2;
+}

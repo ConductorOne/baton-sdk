@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 
@@ -38,6 +39,13 @@ type State interface {
 	ShouldSkipGrants() bool
 	SetShouldSkipGrants()
 	GetCompletedActionsCount() uint64
+	AddStepDuration(bucket string, duration time.Duration)
+	StepDurations() map[string]int64
+	RecordConnectorCall(method string, duration time.Duration)
+	ConnectorCallStats() map[string]ConnectorCallStat
+	RecordSessionOp(op string, duration time.Duration, opErr error, timedOut bool)
+	MergeSessionStat(op string, add SessionStoreStat)
+	SessionStoreStats() map[string]SessionStoreStat
 	// CheckAndSetExclusionGroupResourceType records that exclusionGroupID is
 	// used on resourceTypeID. If the group was already recorded against a
 	// different resource type, the prior value is returned with conflict=true
@@ -222,6 +230,33 @@ type state struct {
 	exclusionGroupResourceTypes     map[string]string
 	exclusionGroupDefaults          map[string]string
 	exclusionGroupCounts            map[string]uint32
+	stepDurationsMs                 map[string]int64
+	connectorCallStats              map[string]*ConnectorCallStat
+	sessionStoreStats               map[string]*SessionStoreStat
+	// compaction is provenance written by the sync compactor via
+	// BuildCompactedToken; the syncer itself never sets it. Kept on the
+	// state so Unmarshal→Marshal round trips (e.g. expansion replay
+	// tokens) preserve it.
+	compaction *CompactionTokenStats
+}
+
+// ConnectorCallStat contains cumulative latency statistics for one connector method.
+type ConnectorCallStat struct {
+	Count   int64 `json:"count"`
+	TotalMs int64 `json:"total_ms"`
+	MaxMs   int64 `json:"max_ms"`
+}
+
+// SessionStoreStat contains cumulative latency and outcome counters for one
+// session-store operation. Timeouts is the deadline-exceeded subset of
+// Errors; MaxMs pinned at a fixed value with Timeouts ≈ Count is the
+// signature of a backend whose every request times out.
+type SessionStoreStat struct {
+	Count    int64 `json:"count"`
+	Errors   int64 `json:"errors,omitempty"`
+	Timeouts int64 `json:"timeouts,omitempty"`
+	TotalMs  int64 `json:"total_ms"`
+	MaxMs    int64 `json:"max_ms"`
 }
 
 // Original serialized token format. Needed to parse/resume syncs started by older versions of baton-sdk.
@@ -240,20 +275,24 @@ type serializedTokenV0 struct {
 // serializedTokenV1 is used to serialize the token to JSON. This separate object is used to avoid having exported fields
 // on the object used externally. We should interface this, probably.
 type serializedTokenV1 struct {
-	ActionsMap                      map[string]Action        `json:"actions_map,omitempty"`
-	ActionOrder                     []string                 `json:"action_order,omitempty"`
-	CurrentActionID                 uint64                   `json:"current_action_id,omitempty"`
-	NeedsExpansion                  bool                     `json:"needs_expansion,omitempty"`
-	EntitlementGraph                *expand.EntitlementGraph `json:"entitlement_graph,omitempty"`
-	HasExternalResourceGrants       bool                     `json:"has_external_resource_grants,omitempty"`
-	ShouldFetchRelatedResources     bool                     `json:"should_fetch_related_resources,omitempty"`
-	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants,omitempty"`
-	ShouldSkipGrants                bool                     `json:"should_skip_grants,omitempty"`
-	CompletedActionsCount           uint64                   `json:"completed_actions_count,omitempty"`
-	ExclusionGroupResourceTypes     map[string]string        `json:"exclusion_group_resource_types,omitempty"`
-	ExclusionGroupDefaults          map[string]string        `json:"exclusion_group_defaults,omitempty"`
-	ExclusionGroupCounts            map[string]uint32        `json:"exclusion_group_counts,omitempty"`
-	Version                         uint64                   `json:"version"`
+	ActionsMap                      map[string]Action             `json:"actions_map,omitempty"`
+	ActionOrder                     []string                      `json:"action_order,omitempty"`
+	CurrentActionID                 uint64                        `json:"current_action_id,omitempty"`
+	NeedsExpansion                  bool                          `json:"needs_expansion,omitempty"`
+	EntitlementGraph                *expand.EntitlementGraph      `json:"entitlement_graph,omitempty"`
+	HasExternalResourceGrants       bool                          `json:"has_external_resource_grants,omitempty"`
+	ShouldFetchRelatedResources     bool                          `json:"should_fetch_related_resources,omitempty"`
+	ShouldSkipEntitlementsAndGrants bool                          `json:"should_skip_entitlements_and_grants,omitempty"`
+	ShouldSkipGrants                bool                          `json:"should_skip_grants,omitempty"`
+	CompletedActionsCount           uint64                        `json:"completed_actions_count,omitempty"`
+	ExclusionGroupResourceTypes     map[string]string             `json:"exclusion_group_resource_types,omitempty"`
+	ExclusionGroupDefaults          map[string]string             `json:"exclusion_group_defaults,omitempty"`
+	ExclusionGroupCounts            map[string]uint32             `json:"exclusion_group_counts,omitempty"`
+	StepDurationsMs                 map[string]int64              `json:"step_durations_ms,omitempty"`
+	ConnectorCallStats              map[string]*ConnectorCallStat `json:"connector_call_stats,omitempty"`
+	SessionStoreStats               map[string]*SessionStoreStat  `json:"session_store_stats,omitempty"`
+	Compaction                      *CompactionTokenStats         `json:"compaction,omitempty"`
+	Version                         uint64                        `json:"version"`
 }
 
 func newState() *state {
@@ -266,6 +305,9 @@ func newState() *state {
 		exclusionGroupResourceTypes: make(map[string]string),
 		exclusionGroupDefaults:      make(map[string]string),
 		exclusionGroupCounts:        make(map[string]uint32),
+		stepDurationsMs:             make(map[string]int64),
+		connectorCallStats:          make(map[string]*ConnectorCallStat),
+		sessionStoreStats:           make(map[string]*SessionStoreStat),
 	}
 }
 
@@ -402,6 +444,19 @@ func (st *state) Unmarshal(input string) error {
 		if st.exclusionGroupCounts == nil {
 			st.exclusionGroupCounts = make(map[string]uint32)
 		}
+		st.stepDurationsMs = token.StepDurationsMs
+		if st.stepDurationsMs == nil {
+			st.stepDurationsMs = make(map[string]int64)
+		}
+		st.connectorCallStats = token.ConnectorCallStats
+		if st.connectorCallStats == nil {
+			st.connectorCallStats = make(map[string]*ConnectorCallStat)
+		}
+		st.sessionStoreStats = token.SessionStoreStats
+		if st.sessionStoreStats == nil {
+			st.sessionStoreStats = make(map[string]*SessionStoreStat)
+		}
+		st.compaction = token.Compaction
 	} else {
 		st.actions = make(map[string]Action)
 		st.actionOrder = []string{}
@@ -418,6 +473,10 @@ func (st *state) Unmarshal(input string) error {
 		st.exclusionGroupResourceTypes = make(map[string]string)
 		st.exclusionGroupDefaults = make(map[string]string)
 		st.exclusionGroupCounts = make(map[string]uint32)
+		st.stepDurationsMs = make(map[string]int64)
+		st.connectorCallStats = make(map[string]*ConnectorCallStat)
+		st.sessionStoreStats = make(map[string]*SessionStoreStat)
+		st.compaction = nil
 	}
 
 	return nil
@@ -442,6 +501,10 @@ func (st *state) Marshal() (string, error) {
 		ExclusionGroupResourceTypes:     st.exclusionGroupResourceTypes,
 		ExclusionGroupDefaults:          st.exclusionGroupDefaults,
 		ExclusionGroupCounts:            st.exclusionGroupCounts,
+		StepDurationsMs:                 st.stepDurationsMs,
+		ConnectorCallStats:              st.connectorCallStats,
+		SessionStoreStats:               st.sessionStoreStats,
+		Compaction:                      st.compaction,
 		Version:                         1,
 	})
 	if err != nil {
@@ -449,6 +512,122 @@ func (st *state) Marshal() (string, error) {
 	}
 
 	return string(data), nil
+}
+
+func (st *state) AddStepDuration(bucket string, duration time.Duration) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	if st.stepDurationsMs == nil {
+		st.stepDurationsMs = make(map[string]int64)
+	}
+	st.stepDurationsMs[bucket] += duration.Milliseconds()
+}
+
+func (st *state) StepDurations() map[string]int64 {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
+
+	out := make(map[string]int64, len(st.stepDurationsMs))
+	for bucket, duration := range st.stepDurationsMs {
+		out[bucket] = duration
+	}
+	return out
+}
+
+func (st *state) RecordConnectorCall(method string, duration time.Duration) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	if st.connectorCallStats == nil {
+		st.connectorCallStats = make(map[string]*ConnectorCallStat)
+	}
+	stat := st.connectorCallStats[method]
+	if stat == nil {
+		stat = &ConnectorCallStat{}
+		st.connectorCallStats[method] = stat
+	}
+	durationMs := duration.Milliseconds()
+	stat.Count++
+	stat.TotalMs += durationMs
+	if durationMs > stat.MaxMs {
+		stat.MaxMs = durationMs
+	}
+}
+
+func (st *state) ConnectorCallStats() map[string]ConnectorCallStat {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
+
+	out := make(map[string]ConnectorCallStat, len(st.connectorCallStats))
+	for method, stat := range st.connectorCallStats {
+		if stat != nil {
+			out[method] = *stat
+		}
+	}
+	return out
+}
+
+func (st *state) RecordSessionOp(op string, duration time.Duration, opErr error, timedOut bool) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	if st.sessionStoreStats == nil {
+		st.sessionStoreStats = make(map[string]*SessionStoreStat)
+	}
+	stat := st.sessionStoreStats[op]
+	if stat == nil {
+		stat = &SessionStoreStat{}
+		st.sessionStoreStats[op] = stat
+	}
+	durationMs := duration.Milliseconds()
+	stat.Count++
+	stat.TotalMs += durationMs
+	if durationMs > stat.MaxMs {
+		stat.MaxMs = durationMs
+	}
+	if opErr != nil {
+		stat.Errors++
+		if timedOut {
+			stat.Timeouts++
+		}
+	}
+}
+
+// MergeSessionStat folds pre-aggregated session stats (e.g. a connector's
+// per-request usage report) into op's cumulative counters.
+func (st *state) MergeSessionStat(op string, add SessionStoreStat) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	if st.sessionStoreStats == nil {
+		st.sessionStoreStats = make(map[string]*SessionStoreStat)
+	}
+	stat := st.sessionStoreStats[op]
+	if stat == nil {
+		stat = &SessionStoreStat{}
+		st.sessionStoreStats[op] = stat
+	}
+	stat.Count += add.Count
+	stat.Errors += add.Errors
+	stat.Timeouts += add.Timeouts
+	stat.TotalMs += add.TotalMs
+	if add.MaxMs > stat.MaxMs {
+		stat.MaxMs = add.MaxMs
+	}
+}
+
+func (st *state) SessionStoreStats() map[string]SessionStoreStat {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
+
+	out := make(map[string]SessionStoreStat, len(st.sessionStoreStats))
+	for op, stat := range st.sessionStoreStats {
+		if stat != nil {
+			out[op] = *stat
+		}
+	}
+	return out
 }
 
 func makeActionID(id uint64) string {

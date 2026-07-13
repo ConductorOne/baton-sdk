@@ -3,8 +3,25 @@ package connectorbuilder
 import (
 	"context"
 
+	"google.golang.org/protobuf/types/known/anypb"
+
+	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 )
+
+// appendSessionUsage attaches the request's session-store usage to the
+// response annotations when any session ops were recorded, so session cost
+// rides back to the caller instead of accumulating in the connector process.
+func appendSessionUsage(annos []*anypb.Any, usage *session.UsageCollector) []*anypb.Any {
+	msg := usage.Annotation()
+	if msg == nil {
+		return annos
+	}
+	out := annotations.Annotations(annos)
+	out.Append(msg)
+	return out
+}
 
 var _ sessions.SessionStore = (*SessionStoreWithSyncID)(nil)
 

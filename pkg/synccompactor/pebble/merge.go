@@ -33,11 +33,37 @@ type FoldStats struct {
 	// DeadBytes sums len(key)+len(value) of each overridden incumbent
 	// plus len(key) of each of its stale derived index keys.
 	DeadBytes int64
+	// AddedByBucket counts records admitted with no incumbent, keyed by
+	// bucket name (resource_types, resources, entitlements, grants).
+	AddedByBucket map[string]int64
+	// ReplacedByBucket counts strictly-newer overrides per bucket name.
+	// Sums to OverriddenRecords.
+	ReplacedByBucket map[string]int64
 }
 
 func (s *FoldStats) Add(o FoldStats) {
 	s.OverriddenRecords += o.OverriddenRecords
 	s.DeadBytes += o.DeadBytes
+	for bucket, n := range o.AddedByBucket {
+		s.bumpAdded(bucket, n)
+	}
+	for bucket, n := range o.ReplacedByBucket {
+		s.bumpReplaced(bucket, n)
+	}
+}
+
+func (s *FoldStats) bumpAdded(bucket string, n int64) {
+	if s.AddedByBucket == nil {
+		s.AddedByBucket = make(map[string]int64, 4)
+	}
+	s.AddedByBucket[bucket] += n
+}
+
+func (s *FoldStats) bumpReplaced(bucket string, n int64) {
+	if s.ReplacedByBucket == nil {
+		s.ReplacedByBucket = make(map[string]int64, 4)
+	}
+	s.ReplacedByBucket[bucket] += n
 }
 
 // MergeInto folds every source's primary records into dest under
@@ -211,6 +237,7 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *peb
 			// spliced base frames. Its stale index keys are counted by
 			// delIndexKey as forEachIndexKeyFromRaw enumerates them.
 			stats.OverriddenRecords++
+			stats.bumpReplaced(bucket.name, 1)
 			stats.DeadBytes += int64(len(key)) + int64(len(oldVal))
 			if err := forEachIndexKeyFromRaw(bucket, key, lower, oldVal, &scratch, nil, delIndexKey); err != nil {
 				closer.Close()
@@ -218,6 +245,7 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *peb
 			}
 			closer.Close()
 		case errors.Is(getErr, pebble.ErrNotFound):
+			stats.bumpAdded(bucket.name, 1)
 		default:
 			return stats, fmt.Errorf("get incumbent: %w", getErr)
 		}
