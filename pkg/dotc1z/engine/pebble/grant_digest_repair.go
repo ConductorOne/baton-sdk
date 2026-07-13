@@ -150,12 +150,18 @@ func (e *Engine) InvalidateGrantDigestPartitions(ctx context.Context, partitions
 // complete state independently.
 //
 // Orphan grants (an entitlement identity with grants but no
-// entitlement RECORD) are not discovered by the missing-partition scan
-// below, which walks entitlement records — matching the scope of
-// writeMissingEntitlementDigestRoots's own backfill. An orphan that
-// already has a valid root from an earlier full build is still
-// correctly folded into the recomputed global root, since that step
-// scans the digest keyspace itself, not entitlement records.
+// entitlement RECORD) are covered: the missing-partition scan
+// discovers grant-bearing partitions from the grant primary keyspace
+// itself, not from entitlement records, so an invalidated orphan is
+// rebuilt like any other partition and the recomputed global root
+// always includes it. That keeps the global root a pure function of
+// the stored grant set — identical whether it was produced by a seal
+// (whose fold covers orphans too) or by a fold + targeted repair —
+// which the manifest's header-only "did the grants change?"
+// comparison depends on. Without it, a touched orphan would go
+// missing forever: the recomputed root's presence would satisfy the
+// repair fast path (repairMissingGrantDigestsAttempt) on every later
+// call.
 //
 // Called from Adapter.endSyncFinalize in place of a bare
 // BuildGrantDigests whenever the deferred (by_principal-rebuilding)
@@ -285,43 +291,107 @@ func (e *Engine) repairMissingGrantDigestsLocked(ctx context.Context) error {
 	return nil
 }
 
-// findMissingGrantDigestPartitionsLocked scans every entitlement
-// record and returns the partitions with no stored digest root: one
-// point Get per entitlement, no grant scan unless (in the caller) a
-// partition turns out to be missing. Orphan grant-bearing entitlements
-// without a record are not covered — see RepairMissingGrantDigests's
-// doc comment.
+// findMissingGrantDigestPartitionsLocked returns the partitions with
+// no stored digest root, in two passes. Pass 1 discovers every
+// grant-BEARING partition from the grant primary keyspace itself —
+// one boundary seek plus one root point-Get per partition, so still
+// bounded by partition count, not grant count. Deriving these from
+// the grants rather than the entitlement records is what makes orphan
+// partitions (grants with no entitlement record) repairable: the
+// seal-time fold includes orphans in the global root, so a repair
+// that couldn't rediscover an invalidated orphan would recompute a
+// root that represents the same grant set differently (see
+// RepairMissingGrantDigests's doc comment). Pass 2 walks the
+// entitlement records (one point Get each) and adds only what pass 1
+// can't see: entitlements with zero grants, whose {count: 0} root
+// (writeMissingEntitlementDigestRoots) may equally have been
+// invalidated — e.g. by deleting a partition's last grant.
 func (e *Engine) findMissingGrantDigestPartitionsLocked(ctx context.Context) ([]string, error) {
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	var missing []string
+	missingSet := map[string]struct{}{}
+
+	giter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: GrantLowerBound(),
+		UpperBound: GrantUpperBound(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer giter.Close()
+	for valid := giter.First(); valid; {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		partition, ok := GrantPartitionFromPrimaryKey(giter.Key())
+		if !ok {
+			// Malformed key: no partition to derive seek bounds from, so
+			// step one key. (One inside a well-formed partition's range
+			// is jumped by the seek below instead, and counted when that
+			// partition is repaired — repairOneGrantDigestPartitionLocked.)
+			valid = giter.Next()
+			continue
+		}
+		present, err := e.grantDigestRootPresent(partition)
+		if err != nil {
+			return nil, err
+		}
+		if !present {
+			missing = append(missing, partition)
+			missingSet[partition] = struct{}{}
+		}
+		_, partitionUpper := grantPrimaryEntitlementBoundsFromPartition(partition)
+		valid = giter.SeekGE(partitionUpper)
+	}
+	if err := giter.Error(); err != nil {
+		return nil, err
+	}
+
+	eiter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: EntitlementLowerBound(),
 		UpperBound: EntitlementUpperBound(),
 	})
 	if err != nil {
 		return nil, err
 	}
-	defer iter.Close()
-	var missing []string
-	for iter.First(); iter.Valid(); iter.Next() {
+	defer eiter.Close()
+	for eiter.First(); eiter.Valid(); eiter.Next() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		key := iter.Key()
+		key := eiter.Key()
 		if len(key) <= grantPrimaryKeyPrefixLen {
 			continue
 		}
 		// The entitlement primary tail IS the digest partition (see the
 		// partition convention in keys.go) — a raw splice, no decode.
 		partition := string(key[grantPrimaryKeyPrefixLen:])
-		rootKey := encodeDigestNodeKey(grantDigestSpec.indexID, partition, digestLevelRoot, nil)
-		if _, closer, err := e.db.Get(rootKey); err == nil {
-			closer.Close()
+		if _, dup := missingSet[partition]; dup {
 			continue
-		} else if !errors.Is(err, pebble.ErrNotFound) {
+		}
+		present, err := e.grantDigestRootPresent(partition)
+		if err != nil {
 			return nil, err
 		}
-		missing = append(missing, partition)
+		if !present {
+			missing = append(missing, partition)
+		}
 	}
-	return missing, iter.Error()
+	return missing, eiter.Error()
+}
+
+// grantDigestRootPresent reports whether partition has a stored grant-
+// digest root node: one point Get, no value read.
+func (e *Engine) grantDigestRootPresent(partition string) (bool, error) {
+	rootKey := encodeDigestNodeKey(grantDigestSpec.indexID, partition, digestLevelRoot, nil)
+	_, closer, err := e.db.Get(rootKey)
+	if err == nil {
+		closer.Close()
+		return true, nil
+	}
+	if errors.Is(err, pebble.ErrNotFound) {
+		return false, nil
+	}
+	return false, err
 }
 
 // repairOneGrantDigestPartitionLocked rebuilds BOTH the hash-index

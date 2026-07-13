@@ -136,6 +136,83 @@ func TestRepairMissingGrantDigestsHealsOnlyInvalidatedPartition(t *testing.T) {
 	requireSameDigestNodes(t, dumpDigestNodes(t, e), want)
 }
 
+// TestRepairMissingGrantDigestsRediscoversInvalidatedOrphan pins that
+// the missing-partition scan discovers partitions from the grant
+// primary keyspace, not entitlement records: after invalidating an
+// ORPHAN partition (grants with no entitlement record) alongside a
+// regular one — the shape a fold merge produces when the incoming
+// sync carries a grant whose entitlement record is absent — repair
+// must rebuild both and leave the whole digest keyspace (global root
+// included) byte-identical to the seal-time build's. An
+// entitlement-record-only scan would never rediscover the orphan, and
+// the recomputed global root would silently exclude its grants —
+// permanently, since the root's presence satisfies the repair fast
+// path on every later call.
+func TestRepairMissingGrantDigestsRediscoversInvalidatedOrphan(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID := ksuid.New().String()
+	if err := e.SetCurrentSync(syncID); err != nil {
+		t.Fatalf("SetCurrentSync: %v", err)
+	}
+	putEnt(t, e, ctx, "ent-real")
+	// No putEnt for ent-orphan: its grants have no entitlement record.
+	if err := e.PutGrantRecords(ctx,
+		makeGrant("", "g1", "ent-real", "alice"),
+		makeGrant("", "g2", "ent-orphan", "bob"),
+		makeGrant("", "g3", "ent-orphan", "carol"),
+	); err != nil {
+		t.Fatalf("PutGrantRecords: %v", err)
+	}
+	sealGrantDigests(t, e)
+	if _, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-orphan")); err != nil || !ok {
+		t.Fatalf("orphan root after seal: ok=%v err=%v, want present (seal covers orphans)", ok, err)
+	}
+	want := dumpDigestNodes(t, e)
+
+	if err := e.InvalidateGrantDigestPartitions(ctx, []string{
+		testEntPartition("ent-orphan"),
+		testEntPartition("ent-real"),
+	}); err != nil {
+		t.Fatalf("InvalidateGrantDigestPartitions: %v", err)
+	}
+	if err := e.RepairMissingGrantDigests(ctx); err != nil {
+		t.Fatalf("RepairMissingGrantDigests: %v", err)
+	}
+
+	requireSameDigestNodes(t, dumpDigestNodes(t, e), want)
+}
+
+// TestRepairMissingGrantDigestsRediscoversZeroGrantEntitlement pins
+// the scan's second pass: a zero-grant entitlement's {count: 0} root
+// is invisible to the grant-keyspace pass (it has no grant keys), so
+// after invalidation it must be rediscovered from the entitlement
+// records and rebuilt — again byte-identical to the seal-time build.
+func TestRepairMissingGrantDigestsRediscoversZeroGrantEntitlement(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID := ksuid.New().String()
+	if err := e.SetCurrentSync(syncID); err != nil {
+		t.Fatalf("SetCurrentSync: %v", err)
+	}
+	putEnt(t, e, ctx, "ent-empty")
+	putEnt(t, e, ctx, "ent-a")
+	if err := e.PutGrantRecords(ctx, makeGrant("", "g1", "ent-a", "alice")); err != nil {
+		t.Fatalf("PutGrantRecords: %v", err)
+	}
+	sealGrantDigests(t, e)
+	want := dumpDigestNodes(t, e)
+
+	if err := e.InvalidateGrantDigestPartitions(ctx, []string{testEntPartition("ent-empty")}); err != nil {
+		t.Fatalf("InvalidateGrantDigestPartitions: %v", err)
+	}
+	if err := e.RepairMissingGrantDigests(ctx); err != nil {
+		t.Fatalf("RepairMissingGrantDigests: %v", err)
+	}
+
+	requireSameDigestNodes(t, dumpDigestNodes(t, e), want)
+}
+
 // TestRepairMissingGrantDigestsNoOpWhenNothingMissing verifies a
 // repair call against a fully-built file changes nothing.
 func TestRepairMissingGrantDigestsNoOpWhenNothingMissing(t *testing.T) {
