@@ -16,6 +16,11 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
+// Compile-time assertion: *Adapter must satisfy the full
+// GrantsReaderServiceServer contract, which now includes
+// ListGrantsForPrincipal as a first-class required method.
+var _ reader_v2.GrantsReaderServiceServer = (*Adapter)(nil)
+
 // Reader gRPC service methods. The syncer (`pkg/sync/syncer.go`) and
 // the grant expander (`pkg/sync/expand/expander.go`) hard-depend on
 // these — without them the syncer can't run against the Pebble
@@ -338,19 +343,15 @@ func (a *Adapter) entitlementIdentityForRequest(ctx context.Context, ent *v2.Ent
 	return a.engine.resolveGrantScanEntitlementIdentity(ctx, ent.GetId())
 }
 
-// ListGrantsForPrincipal is the Go-level convenience method that
-// matches C1File.ListGrantsForPrincipal. It is NOT a gRPC RPC —
-// the explorer / cel-search consumers reach C1File directly today.
-// Adapter exposes the same shape for callers that take a typed
-// store (refactor to a shared interface is tracked separately).
-//
-// Semantically equivalent to ListGrantsForEntitlement(req) where
-// the request carries a principal filter — the underlying
-// PaginateGrantsByPrincipal index walk is what makes this O(K).
+// ListGrantsForPrincipal returns all grants where the given principal_id is
+// the principal, via the O(K) PaginateGrantsByPrincipal index walk. The
+// optional Entitlement field narrows results to a single entitlement — since
+// entitlement + principal is the full primary grant key, that case is an O(1)
+// point lookup. Implements reader_v2.GrantsReaderServiceServer.
 func (a *Adapter) ListGrantsForPrincipal(
 	ctx context.Context,
-	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
-) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+	req *reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForPrincipalResponse, error) {
 	syncID, err := a.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
@@ -358,30 +359,43 @@ func (a *Adapter) ListGrantsForPrincipal(
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
-	principal := req.GetPrincipalId() //nolint:staticcheck // ignore deprecated field
+	principal := req.GetPrincipalId()
 	if principal == nil || principal.GetResource() == "" {
 		return nil, errors.New("ListGrantsForPrincipal: missing principal_id")
 	}
 	limit := clampPageSize(req.GetPageSize())
 	cursor := req.GetPageToken()
-	records, next, err := a.engine.PaginateGrantsByPrincipal(ctx,
-		principal.GetResourceType(), principal.GetResource(), cursor, limit)
-	if err != nil {
-		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+	var records []*v3.GrantRecord
+	var next string
+	if ent := req.GetEntitlement(); ent != nil && ent.GetId() != "" {
+		// Entitlement + principal is the full primary grant key, so this
+		// is a point lookup rather than a filtered by_principal scan.
+		entIdentity, err := a.entitlementIdentityForRequest(ctx, ent)
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+				// Unknown entitlement → no grants, matching the legacy
+				// post-filter semantics.
+				return reader_v2.GrantsReaderServiceListGrantsForPrincipalResponse_builder{}.Build(), nil
+			}
+			return nil, err
+		}
+		records, next, err = a.engine.PaginateGrantsByEntitlementPrincipal(ctx,
+			entIdentity, principal.GetResourceType(), principal.GetResource(), cursor, limit)
+		if err != nil {
+			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+		}
+	} else {
+		records, next, err = a.engine.PaginateGrantsByPrincipal(ctx,
+			principal.GetResourceType(), principal.GetResource(), cursor, limit)
+		if err != nil {
+			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+		}
 	}
 	out := make([]*v2.Grant, 0, len(records))
 	for _, rec := range records {
-		// Optional entitlement filter — narrows the principal scan
-		// to a single entitlement when the caller passes one. Raw string
-		// equality: refs and request ids are the same connector strings.
-		if ent := req.GetEntitlement(); ent != nil && ent.GetId() != "" {
-			if rec.GetEntitlement().GetEntitlementId() != ent.GetId() {
-				continue
-			}
-		}
 		out = append(out, V3GrantToV2(rec))
 	}
-	return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{
+	return reader_v2.GrantsReaderServiceListGrantsForPrincipalResponse_builder{
 		List:          out,
 		NextPageToken: next,
 	}.Build(), nil

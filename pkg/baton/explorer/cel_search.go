@@ -299,14 +299,14 @@ func (b *BatonService) SearchGrantsForPrincipal(
 			return nil, "", fmt.Errorf("search timed out")
 		}
 
-		req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		req := reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			PrincipalId: &v2.ResourceId{
 				ResourceType: resourceType,
 				Resource:     resourceID,
 			},
 			PageToken: currentToken,
 		}.Build()
-		resp, err := b.principals.ListGrantsForPrincipal(ctx, req)
+		resp, err := b.store.ListGrantsForPrincipal(ctx, req)
 		if err != nil {
 			return nil, "", err
 		}

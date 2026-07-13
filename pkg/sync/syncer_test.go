@@ -433,18 +433,17 @@ func TestExpandGrantImmutableCycle(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, resp.GetList(), 2) // both users and group2 should have group1 membership
 
-		req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-			// Entitlement: group1Ent,
+		principalReq := reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			PrincipalId: user1.GetId(),
 			PageToken:   "",
 			Annotations: nil,
 		}.Build()
-		resp, err = store.ListGrantsForPrincipal(ctx, req)
+		principalResp, err := store.ListGrantsForPrincipal(ctx, principalReq)
 		require.NoError(t, err)
-		require.Len(t, resp.GetList(), 2)
+		require.Len(t, principalResp.GetList(), 2)
 
-		grant := resp.GetList()[0]
-		for _, g := range resp.GetList() {
+		grant := principalResp.GetList()[0]
+		for _, g := range principalResp.GetList() {
 			if g.GetEntitlement().GetId() == group1Ent.GetId() {
 				grant = g
 				break
@@ -459,16 +458,16 @@ func TestExpandGrantImmutableCycle(t *testing.T) {
 
 		require.False(t, hasImmutable) // Direct grant should not be immutable
 
-		req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		principalReq = reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			PrincipalId: user2.GetId(),
 			PageToken:   "",
 			Annotations: nil,
 		}.Build()
-		resp, err = store.ListGrantsForPrincipal(ctx, req)
+		principalResp, err = store.ListGrantsForPrincipal(ctx, principalReq)
 		require.NoError(t, err)
-		require.Len(t, resp.GetList(), 1)
+		require.Len(t, principalResp.GetList(), 1)
 
-		grant = resp.GetList()[0]
+		grant = principalResp.GetList()[0]
 
 		annos = annotations.Annotations(grant.GetAnnotations())
 		immutable = &v2.GrantImmutable{}

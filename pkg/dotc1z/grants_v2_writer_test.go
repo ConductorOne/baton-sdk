@@ -467,7 +467,7 @@ func TestV2GrantsReader_ListGrantsForPrincipal_Slim(t *testing.T) {
 		v2.Grant_builder{Id: "g-u2", Entitlement: ent1, Principal: u2}.Build(),
 	))
 
-	resp, err := c1f.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+	resp, err := c1f.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 		PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build(),
 	}.Build())
 	require.NoError(t, err)
