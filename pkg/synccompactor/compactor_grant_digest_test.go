@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -307,6 +308,99 @@ func TestCompactPebbleFoldRepairsOnlyTouchedEntitlements(t *testing.T) {
 	require.Equal(t, wantRoot.Count, gotRoot.Count)
 	require.True(t, bytes.Equal(wantRoot.Hash, gotRoot.Hash),
 		"compacted root %x must byte-equal a from-scratch build %x", gotRoot.Hash, wantRoot.Hash)
+}
+
+// requireEmptyKeyRange asserts the engine's raw keyspace holds nothing
+// in [lo, hi).
+func requireEmptyKeyRange(t testing.TB, eng *enginepkg.Engine, lo, hi []byte, what string) {
+	t.Helper()
+	iter, err := eng.DB().NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	require.NoError(t, err)
+	defer iter.Close()
+	require.False(t, iter.First(), "%s keyspace must be empty, found key %x", what, iter.Key())
+	require.NoError(t, iter.Error())
+}
+
+// TestCompactPebbleFoldDigestIndexDisabledDropsDigests pins the fold's
+// disabled-digest-index escape hatch: the dest starts as a byte copy of
+// the sealed base INCLUDING its digest + hash-index keyspaces, readers
+// trust whatever is stored regardless of the writer's flag, and with
+// WithGrantDigestIndex(false) every rebuild path (the targeted repair,
+// EndSync's finalize) is gated off — so once the merge writes a grant,
+// the copied digests are stale and nothing downstream can heal them.
+// The fold must DROP the copied digest state instead (absent is always
+// safe; present-but-stale silently corrupts grant diffs). Before this,
+// the output shipped the base's untouched-but-wrong digest root.
+func TestCompactPebbleFoldDigestIndexDisabledDropsDigests(t *testing.T) {
+	logger, capture := newCapturingLogger()
+	ctx := ctxzap.ToContext(context.Background(), logger)
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	basePath := filepath.Join(inDir, "base.c1z")
+	partialPath := filepath.Join(inDir, "partial.c1z")
+	baseSync := buildOverlayInput(t, ctx, basePath, overlayInputSpec{
+		syncType: connectorstore.SyncTypeFull,
+		suffix:   "base",
+		grants: []overlayGrantSpec{
+			{id: "g-ent1-alice", principalID: "alice", entitlementID: "ent-1"},
+			{id: "g-ent2-bob", principalID: "bob", entitlementID: "ent-2"},
+		},
+	})
+	// The partial adds a grant under ent-1, so the fold's merge writes
+	// into the grants keyspace and ent-1's copied digest goes stale.
+	partialSync := buildOverlayInput(t, ctx, partialPath, overlayInputSpec{
+		syncType: connectorstore.SyncTypePartial,
+		suffix:   "partial",
+		grants: []overlayGrantSpec{
+			{id: "g-ent1-bob", principalID: "bob", entitlementID: "ent-1"},
+		},
+	})
+	// Sanity: the sealed base carries the digest state the fold copies.
+	grantDigestGlobalRootOf(t, ctx, basePath, baseSync)
+
+	entries := []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: partialPath, SyncID: partialSync}}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries,
+		WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithPebbleCompactorMode(PebbleCompactorModeFold),
+		WithSkipGrantExpansion(),
+		WithC1ZOptions(dotc1z.WithGrantDigestIndex(false)))
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	var sawDrop bool
+	for _, msg := range capture() {
+		if msg == "compactPebbleFold: grant writes with digest index disabled; dropped the base's copied digest state" {
+			sawDrop = true
+		}
+	}
+	require.True(t, sawDrop, "expected the fold to log dropping the copied digest state")
+
+	store, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	defer store.Close(ctx)
+	eng, ok := enginepkg.AsEngine(store)
+	require.True(t, ok, "compacted output must be a pebble engine")
+	require.NoError(t, store.SetCurrentSync(ctx, out.SyncID))
+
+	// A default-options reader must see digests as ABSENT (recalculate),
+	// never the base's stale-but-present state.
+	_, ok, err = eng.GetGrantDigestGlobalRoot(ctx)
+	require.NoError(t, err)
+	require.False(t, ok, "output must carry no whole-file digest root")
+	requireEmptyKeyRange(t, eng, enginepkg.DigestLowerBound(), enginepkg.DigestUpperBound(), "digest node")
+	requireEmptyKeyRange(t, eng, enginepkg.GrantByEntPrincHashLowerBound(), enginepkg.GrantByEntPrincHashUpperBound(), "grant hash index")
+
+	// And the saved envelope header must not stamp a stale root either.
+	f, err := os.Open(out.FilePath)
+	require.NoError(t, err)
+	defer f.Close()
+	m, err := formatv3.ReadManifestHeader(f)
+	require.NoError(t, err)
+	require.Nil(t, m.GetGrantDigestRoot(), "manifest must not carry a grant digest root after the drop")
 }
 
 // TestCompactPebbleFoldWithExpansionRebuildsFullyRegardless closes the
