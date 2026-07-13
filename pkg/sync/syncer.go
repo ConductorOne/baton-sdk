@@ -414,17 +414,22 @@ func (s *syncer) observeConnectorCall(
 	}
 }
 
-// syncSummaryFields builds the timing summary. Bucket semantics: op buckets
-// are wall clock INCLUDING retry/rate-limit sleeps; the wait buckets (and
-// their :resource_type labeled variants) re-count that same time as an
-// "of which" decomposition. The full step-durations map is therefore not
-// summable — sync_steps_total_ms sums only the timedSyncOps buckets.
-// Connector call stats follow the same shape: method:resource_type entries
-// re-count their flat method entry, so only the unlabeled methods sum to
-// the true call totals.
+// syncSummaryFields builds the timing summary for logs and span attrs.
+//
+// Token state keeps the full maps (including method:resource_type and wait
+// labels). Logs/spans are a readable projection:
+//   - sync_step_durations_ms is only timedSyncOps (matches sync_steps_total_ms)
+//   - waits and other buckets (checkpoint, connector extras) are separate fields
+//   - connector_call_stats is flat methods; top-N by-RT is a sibling field
+//   - session span attrs are aggregates; per-op session maps stay log-only
 func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 	stepDurations := s.state.StepDurations()
 	callStats := s.state.ConnectorCallStats()
+	sessionStats := s.state.SessionStoreStats()
+
+	ops, waits, other := partitionStepDurationsForLog(stepDurations)
+	flatCalls, topCallsByRT := partitionConnectorCallStatsForLog(callStats)
+	sessionForLog, logSession := filterSessionStatsForLog(sessionStats)
 
 	var stepsTotalMs int64
 	for _, op := range timedSyncOps {
@@ -434,24 +439,17 @@ func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 	attrs := []attribute.KeyValue{
 		attribute.String("sync.type", string(s.syncType)),
 		attribute.Int64("sync.steps.total_ms", stepsTotalMs),
-		attribute.String("sync.completed_actions", strconv.FormatUint(s.state.GetCompletedActionsCount(), 10)),
+		attribute.Int64("sync.completed_actions", int64(s.state.GetCompletedActionsCount())), //nolint:gosec // action counts fit int64
 		attribute.Int("sync.worker_count", s.workerCount),
 	}
-	for _, bucket := range []string{
-		SyncResourceTypesOp.String(),
-		SyncResourcesOp.String(),
-		SyncTargetedResourceOp.String(),
-		SyncStaticEntitlementsOp.String(),
-		SyncEntitlementsOp.String(),
-		SyncGrantsOp.String(),
-		SyncExternalResourcesOp.String(),
-		SyncAssetsOp.String(),
-		"checkpoint",
-		"rate_limit_wait",
-		"retry_wait",
-	} {
+	for _, op := range timedSyncOps {
+		bucket := op.String()
 		key := strings.ReplaceAll(bucket, "-", "_")
 		attrs = append(attrs, attribute.Int64("sync.step."+key+".duration_ms", stepDurations[bucket]))
+	}
+	for _, waitBucket := range []string{"checkpoint", "rate_limit_wait", "retry_wait"} {
+		key := strings.ReplaceAll(waitBucket, "-", "_")
+		attrs = append(attrs, attribute.Int64("sync.step."+key+".duration_ms", stepDurations[waitBucket]))
 	}
 	for _, method := range connectorCallMethods {
 		key := strings.ReplaceAll(method, "-", "_")
@@ -462,14 +460,14 @@ func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 			attribute.Int64("sync.connector."+key+".max_ms", stat.MaxMs),
 		)
 	}
-	sessionStats := s.state.SessionStoreStats()
-	for op, stat := range sessionStats {
+	if len(sessionStats) > 0 {
+		count, errors, timeouts, totalMs, maxMs := aggregateSessionStats(sessionStats)
 		attrs = append(attrs,
-			attribute.Int64("sync.session."+op+".count", stat.Count),
-			attribute.Int64("sync.session."+op+".errors", stat.Errors),
-			attribute.Int64("sync.session."+op+".timeouts", stat.Timeouts),
-			attribute.Int64("sync.session."+op+".total_ms", stat.TotalMs),
-			attribute.Int64("sync.session."+op+".max_ms", stat.MaxMs),
+			attribute.Int64("sync.session.count", count),
+			attribute.Int64("sync.session.errors", errors),
+			attribute.Int64("sync.session.timeouts", timeouts),
+			attribute.Int64("sync.session.total_ms", totalMs),
+			attribute.Int64("sync.session.max_ms", maxMs),
 		)
 	}
 	span.SetAttributes(attrs...)
@@ -477,14 +475,26 @@ func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 	fields := []zap.Field{
 		zap.String("sync_id", s.syncID),
 		zap.String("sync_type", string(s.syncType)),
-		zap.Any("sync_step_durations_ms", stepDurations),
+		zap.Any("sync_step_durations_ms", ops),
 		zap.Int64("sync_steps_total_ms", stepsTotalMs),
-		zap.Any("connector_call_stats", callStats),
+		zap.Any("connector_call_stats", flatCalls),
 		zap.Uint64("completed_actions", s.state.GetCompletedActionsCount()),
 		zap.Int("worker_count", s.workerCount),
 	}
-	if len(sessionStats) > 0 {
-		fields = append(fields, zap.Any("session_store_stats", sessionStats))
+	if len(waits) > 0 {
+		fields = append(fields, zap.Any("sync_step_wait_ms", waits))
+	}
+	if len(other) > 0 {
+		// checkpoint, source_cache_*, and other non-op buckets — not part of
+		// sync_steps_total_ms. Keep them out of the primary map so a dedicated
+		// source-cache log line isn't duplicated under step durations.
+		fields = append(fields, zap.Any("sync_step_other_ms", other))
+	}
+	if len(topCallsByRT) > 0 {
+		fields = append(fields, zap.Any("connector_call_stats_by_resource_type", topCallsByRT))
+	}
+	if logSession {
+		fields = append(fields, zap.Any("session_store_stats", sessionForLog))
 	}
 	return fields
 }
