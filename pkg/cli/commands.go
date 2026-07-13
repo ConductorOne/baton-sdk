@@ -433,6 +433,13 @@ func MakeMainCommand[T field.Configurable](
 		}
 		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
 
+		responseHeaderTimeout := v.GetInt(field.HttpResponseHeaderTimeoutField.GetName())
+		responseHeaderTimeoutField := field.HttpResponseHeaderTimeoutField
+		if _, err := field.ValidateField(&responseHeaderTimeoutField, responseHeaderTimeout); err != nil {
+			return err
+		}
+		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPResponseHeaderTimeoutKey, time.Duration(responseHeaderTimeout)*time.Second)
+
 		storageEngine := v.GetString(field.StorageEngineField.GetName())
 		storageEngineField := field.StorageEngineField
 		if _, err := field.ValidateField(&storageEngineField, storageEngine); err != nil {
@@ -624,6 +631,13 @@ func MakeGRPCServerCommand[T field.Configurable](
 			return err
 		}
 		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
+
+		responseHeaderTimeout := v.GetInt(field.HttpResponseHeaderTimeoutField.GetName())
+		responseHeaderTimeoutField := field.HttpResponseHeaderTimeoutField
+		if _, err := field.ValidateField(&responseHeaderTimeoutField, responseHeaderTimeout); err != nil {
+			return err
+		}
+		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPResponseHeaderTimeoutKey, time.Duration(responseHeaderTimeout)*time.Second)
 
 		sessionStoreMaximumSize := v.GetInt(field.ServerSessionStoreMaximumSizeField.GetName())
 		sessionConstructor := getGRPCSessionStoreClient(runCtx, serverCfg)

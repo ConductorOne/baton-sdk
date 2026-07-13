@@ -57,3 +57,25 @@ func wrapTransientNetworkError(err error) error {
 func isHTTP2ClientConnectionLost(err error) bool {
 	return strings.Contains(err.Error(), "http2: client connection lost")
 }
+
+// IsReconnectableError reports whether err is a transient connection-level
+// failure where re-dialing a fresh connection and replaying the request is
+// likely to succeed -- e.g. a proxy (Squid/NLB) silently dropped a pooled or
+// tunneled connection. It deliberately EXCLUDES timeout/DeadlineExceeded
+// errors: there the peer is reachable but slow, so replaying would just hit the
+// same wall.
+func IsReconnectableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	switch {
+	case errors.Is(err, io.ErrUnexpectedEOF),
+		errors.Is(err, io.EOF),
+		errors.Is(err, syscall.ECONNRESET),
+		errors.Is(err, syscall.EPIPE),
+		errors.Is(err, net.ErrClosed),
+		isHTTP2ClientConnectionLost(err):
+		return true
+	}
+	return false
+}

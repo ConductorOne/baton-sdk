@@ -19,6 +19,13 @@ type contextKeyType struct{}
 // from the CLI configuration to uhttp.NewClient.
 var ContextHTTPTimeoutKey = contextKeyType{}
 
+type responseHeaderTimeoutContextKeyType struct{}
+
+// ContextHTTPResponseHeaderTimeoutKey is the context key used to pass the HTTP
+// response-header timeout duration from the CLI configuration to the transport.
+// An explicit WithResponseHeaderTimeout option takes precedence over this value.
+var ContextHTTPResponseHeaderTimeoutKey = responseHeaderTimeoutContextKeyType{}
+
 type tlsClientConfigOption struct {
 	config *tls.Config
 }
@@ -78,6 +85,58 @@ func (o timeoutOption) Apply(c *Transport) {
 func WithTimeout(timeout time.Duration) Option {
 	return timeoutOption{timeout: timeout}
 }
+
+type idleConnTimeoutOption struct{ d time.Duration }
+
+func (o idleConnTimeoutOption) Apply(c *Transport) { d := o.d; c.idleConnTimeout = &d }
+
+// WithIdleConnTimeout sets how long an idle keep-alive connection stays in the
+// pool before being closed. Defaults to 30s -- intentionally shorter than common
+// proxy idle timeouts (Squid ~60s) so the client discards pooled connections
+// before the proxy silently drops them. Raise this ONLY if the upstream proxy's
+// idle timeout is also higher; a value at/above the proxy's timeout reintroduces
+// "http2: client connection lost" from stale-connection reuse. 0 = no limit.
+func WithIdleConnTimeout(d time.Duration) Option { return idleConnTimeoutOption{d} }
+
+type responseHeaderTimeoutOption struct{ d time.Duration }
+
+func (o responseHeaderTimeoutOption) Apply(c *Transport) { d := o.d; c.responseHeaderTimeout = &d }
+
+// WithResponseHeaderTimeout bounds the wait from finishing the request write to
+// the first byte of the response headers. Applies to HTTP/1.1 and -- because the
+// transport uses http2.ConfigureTransports -- to HTTP/2 as well. Defaults to 60s.
+// Raise this for endpoints that block before responding (e.g. synchronous report
+// generation), which would otherwise fail with "timeout awaiting response
+// headers". 0 = no timeout.
+func WithResponseHeaderTimeout(d time.Duration) Option { return responseHeaderTimeoutOption{d} }
+
+type http2KeepAliveOption struct{ readIdle, pingTimeout time.Duration }
+
+func (o http2KeepAliveOption) Apply(c *Transport) {
+	readIdle, ping := o.readIdle, o.pingTimeout
+	c.readIdleTimeout = &readIdle
+	c.pingTimeout = &ping
+}
+
+// WithHTTP2KeepAlive tunes the HTTP/2 PING health check. readIdle is how long a
+// connection may be silent before a PING is sent; pingTimeout is how long to wait
+// for the PING ack before declaring the connection dead ("http2: client
+// connection lost"). Total detection latency is readIdle+pingTimeout. Defaults
+// are 15s + 15s (= 30s). Increase to tolerate slow-but-alive servers longer at
+// the cost of slower dead-tunnel detection; readIdle of 0 disables the check.
+func WithHTTP2KeepAlive(readIdle, pingTimeout time.Duration) Option {
+	return http2KeepAliveOption{readIdle: readIdle, pingTimeout: pingTimeout}
+}
+
+type maxConnectionRetriesOption struct{ n int }
+
+func (o maxConnectionRetriesOption) Apply(c *Transport) { n := o.n; c.maxConnRetries = &n }
+
+// WithMaxConnectionRetries sets how many times a request is transparently
+// re-issued on a transient, reconnectable transport error (a dropped pooled or
+// tunneled connection). Only idempotent requests with a rewindable body are
+// retried. Defaults to 3; 0 disables retrying.
+func WithMaxConnectionRetries(n int) Option { return maxConnectionRetriesOption{n} }
 
 type Option interface {
 	Apply(*Transport)
