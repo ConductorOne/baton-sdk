@@ -51,6 +51,11 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 			if r == nil {
 				continue
 			}
+			// Dense ingestion facts (see PutGrantRecords): partial-sync
+			// upserts can carry ExternalResourceMatch* annotations too.
+			if err := e.noteGrantRecordFacts(r); err != nil {
+				return err
+			}
 			id, err := grantIdentityFromRecord(r)
 			if err != nil {
 				return err

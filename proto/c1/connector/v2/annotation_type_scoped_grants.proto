@@ -17,9 +17,12 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 //
 // A resource type annotated with TypeScopedGrants is EXCLUDED from the
 // per-resource grants fan-out. Instead the syncer issues ListGrants calls
-// whose resource carries ONLY the resource type (empty resource id); the
-// connector answers with grants for the whole type, across as many
-// paginated cursors as it chooses to spawn (see SpawnCursors).
+// carrying this annotation on the REQUEST as the routing marker; the
+// request's resource is a self-referential stub ({type, type} — wire
+// validation requires a non-empty resource id and the stub identifies
+// the type, never a real resource). The connector answers with grants
+// for the whole type, across as many paginated cursors as it chooses to
+// spawn (see SpawnCursors).
 //
 // This is the grants-phase analogue of StaticEntitlements: the connector
 // takes over enumeration for the type, and every downstream behavior

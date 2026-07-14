@@ -246,5 +246,9 @@ message SourceCacheLookupAnswers {
       max_bytes: 65536
     }];
   }
-  repeated Answer answers = 1;
+  // Cap = ask max_items (4096) × the per-request bounce cap (4): answers
+  // accumulate across bounces, so a request may legally carry every
+  // answer its asks produced. Keep in sync with
+  // sourcecache.MaxLookupBouncesPerRequest / maxAnswersPerMessage.
+  repeated Answer answers = 1 [(validate.rules).repeated = {max_items: 16384}];
 }

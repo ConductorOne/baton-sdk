@@ -591,7 +591,11 @@ func (b0 SourceCacheLookupAsk_builder) Build() *SourceCacheLookupAsk {
 // the connector did not ask before) means unresolved: the connector may
 // ask again, subject to the bounce cap.
 type SourceCacheLookupAnswers struct {
-	state         protoimpl.MessageState             `protogen:"hybrid.v1"`
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Cap = ask max_items (4096) × the per-request bounce cap (4): answers
+	// accumulate across bounces, so a request may legally carry every
+	// answer its asks produced. Keep in sync with
+	// sourcecache.MaxLookupBouncesPerRequest / maxAnswersPerMessage.
 	Answers       []*SourceCacheLookupAnswers_Answer `protobuf:"bytes,1,rep,name=answers,proto3" json:"answers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -636,6 +640,10 @@ func (x *SourceCacheLookupAnswers) SetAnswers(v []*SourceCacheLookupAnswers_Answ
 type SourceCacheLookupAnswers_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
+	// Cap = ask max_items (4096) × the per-request bounce cap (4): answers
+	// accumulate across bounces, so a request may legally carry every
+	// answer its asks produced. Keep in sync with
+	// sourcecache.MaxLookupBouncesPerRequest / maxAnswersPerMessage.
 	Answers []*SourceCacheLookupAnswers_Answer
 }
 
@@ -858,9 +866,10 @@ const file_c1_connector_v2_annotation_source_cache_proto_rawDesc = "" +
 	"\brow_kind\x18\x01 \x01(\tB\t\xfaB\x06r\x04 \x01(@R\arowKind\x12)\n" +
 	"\n" +
 	"scope_hash\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\x02R\tscopeHash\"\xfa\x01\n" +
-	"\x18SourceCacheLookupAnswers\x12J\n" +
-	"\aanswers\x18\x01 \x03(\v20.c1.connector.v2.SourceCacheLookupAnswers.AnswerR\aanswers\x1a\x91\x01\n" +
+	"\xfaB\ar\x05 \x01(\x80\x02R\tscopeHash\"\x86\x02\n" +
+	"\x18SourceCacheLookupAnswers\x12V\n" +
+	"\aanswers\x18\x01 \x03(\v20.c1.connector.v2.SourceCacheLookupAnswers.AnswerB\n" +
+	"\xfaB\a\x92\x01\x04\x10\x80\x80\x01R\aanswers\x1a\x91\x01\n" +
 	"\x06Answer\x12$\n" +
 	"\brow_kind\x18\x01 \x01(\tB\t\xfaB\x06r\x04 \x01(@R\arowKind\x12)\n" +
 	"\n" +

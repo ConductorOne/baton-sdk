@@ -889,6 +889,14 @@ func (c *equivConnector) listEntitlementsInner(
 ) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
 	rid := in.GetResource().GetId()
 	if rid.GetResourceType() == equivTeamRT.GetId() {
+		// Route on the REQUEST marker, not just the resource type: a
+		// syncer bug that drops the TypeScopedEntitlements annotation
+		// (e.g. on a continuation bounce or spawned cursor) must fail
+		// the harness, not silently keep working.
+		reqAnnos := annotations.Annotations(in.GetAnnotations())
+		if !reqAnnos.Contains(&v2.TypeScopedEntitlements{}) {
+			return nil, fmt.Errorf("team entitlements call missing TypeScopedEntitlements request marker (page token %q)", in.GetPageToken())
+		}
 		return c.teamEntitlementsPage(ctx, lookup, in.GetPageToken())
 	}
 	if rid.GetResourceType() != groupResourceType.GetId() {
@@ -945,6 +953,12 @@ func (c *equivConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceLis
 	case equivOrgRT.GetId():
 		resp, err = c.orgGrantsPage(ctx, lookup, rid.GetResource())
 	case equivTeamRT.GetId():
+		// Same marker enforcement as listEntitlementsInner: dropping the
+		// TypeScopedGrants request marker must fail the harness.
+		reqAnnos := annotations.Annotations(in.GetAnnotations())
+		if !reqAnnos.Contains(&v2.TypeScopedGrants{}) {
+			return nil, fmt.Errorf("team grants call missing TypeScopedGrants request marker (page token %q)", in.GetPageToken())
+		}
 		resp, err = c.teamGrantsPage(ctx, lookup, in.GetPageToken())
 	default:
 		return v2.GrantsServiceListGrantsResponse_builder{}.Build(), nil

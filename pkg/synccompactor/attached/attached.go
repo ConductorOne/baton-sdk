@@ -119,6 +119,15 @@ func (c *Compactor) Compact(ctx context.Context) error {
 		return fmt.Errorf("failed to process records: %w", err)
 	}
 
+	// NOTE: unlike the pebble compactors, this path does not mark the
+	// output sync Compacted or clear source-cache state. That is safe,
+	// not an oversight: attached compaction is SQLite-only, SQLite
+	// stores never implement dotc1z.SourceCacheStore, and the syncer's
+	// replay gate type-asserts for that capability before it ever
+	// consults sync metadata — a SQLite artifact can't be a replay
+	// source regardless of its flags. If SQLite ever grows source-cache
+	// support, this path must adopt the pebble compactors' contract
+	// (SetCompacted + ClearSourceCacheEntries).
 	return nil
 }
 

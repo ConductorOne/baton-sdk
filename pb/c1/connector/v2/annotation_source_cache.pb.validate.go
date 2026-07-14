@@ -622,6 +622,17 @@ func (m *SourceCacheLookupAnswers) validate(all bool) error {
 
 	var errors []error
 
+	if len(m.GetAnswers()) > 16384 {
+		err := SourceCacheLookupAnswersValidationError{
+			field:  "Answers",
+			reason: "value must contain no more than 16384 item(s)",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	for idx, item := range m.GetAnswers() {
 		_, _ = idx, item
 

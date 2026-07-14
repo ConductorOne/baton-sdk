@@ -2574,7 +2574,9 @@ func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) erro
 	// Ingestion invariant I2 (repair): reconcile the match-processing
 	// flag with the store-derived fact before anything gates on it —
 	// replayed rows arm the engine's existence bit, never the stream arm.
-	s.repairExternalMatchFlag(ctx)
+	if err := s.repairExternalMatchFlag(ctx); err != nil {
+		return err
+	}
 
 	if s.externalResourceEntitlementIdFilter != "" {
 		err := s.SyncExternalResourcesWithGrantToEntitlement(ctx, s.externalResourceEntitlementIdFilter)
@@ -3057,7 +3059,13 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				}
 			}
 			grantsToDelete = append(grantsToDelete, grant)
-			continue
+			// No `continue`: a grant carrying MatchAll AND MatchID/Match
+			// annotations must still evaluate the more specific rules so
+			// rank resolution (MatchID > key/value > MatchAll) applies
+			// within one grant, not just across grants. Transformed
+			// grant IDs coincide per principal, so addExpanded picks the
+			// higher-rank version; grantsToDelete double-appends are
+			// idempotent (same shape as MatchID+Match today).
 		}
 
 		// Expansion annotation (may be nil for non-expandable grants).

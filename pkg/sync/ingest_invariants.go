@@ -44,6 +44,7 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 import (
 	"context"
 	"fmt"
+	"sort"
 	stdsync "sync"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -107,23 +108,28 @@ func (c *childScheduleSet) has(childTypeID, parentTypeID, parentID string) bool 
 // function of the store: running match processing when the store holds
 // match-annotated grants is required; the flag is only an optimization
 // that lets other syncs skip the scan.
-func (s *syncer) repairExternalMatchFlag(ctx context.Context) {
+//
+// A fact-read error FAILS the sync: proceeding with an unset flag would
+// silently skip match processing for replay-armed grants (the exact bug
+// class I2 exists to prevent), and an engine-meta read error at this
+// point means the store is unhealthy anyway.
+func (s *syncer) repairExternalMatchFlag(ctx context.Context) error {
 	if s.state.HasExternalResourcesGrants() {
-		return
+		return nil
 	}
 	facts, ok := s.store.(dotc1z.IngestFactStore)
 	if !ok {
-		return // SQLite: the response-loop arm is the mechanism.
+		return nil // SQLite: the response-loop arm is the mechanism.
 	}
 	has, err := facts.HasExternalMatchGrants(ctx)
 	if err != nil {
-		ctxzap.Extract(ctx).Warn("ingest invariant I2: could not read external-match fact; relying on stream-armed flag", zap.Error(err))
-		return
+		return fmt.Errorf("ingest invariant I2: reading external-match fact: %w", err)
 	}
 	if has {
 		ctxzap.Extract(ctx).Debug("ingest invariant I2: arming external-match processing from store-derived fact")
 		s.state.SetHasExternalResourcesGrants()
 	}
+	return nil
 }
 
 // checkGrantResourceReferences is invariant I3: every distinct
@@ -220,6 +226,9 @@ func (s *syncer) checkChildScheduling(ctx context.Context) error {
 		}
 	}
 	if len(violations) > 0 {
+		// Sorted so the error text is byte-stable regardless of store
+		// iteration order (the verdict already is).
+		sort.Strings(violations)
 		err := fmt.Errorf(
 			"ingest invariant I4 violated: %d child resource sync(s) were never scheduled: %v",
 			len(violations), violations)
