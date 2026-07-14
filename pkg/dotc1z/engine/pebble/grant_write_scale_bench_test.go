@@ -71,7 +71,7 @@ func makeGrantRecordBatch(syncID string, offset, count int) []*v3.GrantRecord {
 	return out
 }
 
-func benchmarkGrantWriteScale(b *testing.B, putUnique bool) {
+func benchmarkGrantWriteScale(b *testing.B, putUnique, grantIndex bool) {
 	n := benchGrantCount(b)
 	ctx := context.Background()
 	const batchSize = 10000
@@ -79,7 +79,7 @@ func benchmarkGrantWriteScale(b *testing.B, putUnique bool) {
 	b.ReportMetric(float64(n), "grants")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		e, err := Open(ctx, b.TempDir())
+		e, err := Open(ctx, b.TempDir(), WithGrantDigestIndex(grantIndex))
 		require.NoError(b, err)
 		require.NoError(b, e.MarkFreshSync(benchGrantSyncID))
 
@@ -103,7 +103,9 @@ func benchmarkGrantWriteScale(b *testing.B, putUnique bool) {
 	}
 }
 
-func BenchmarkGrantWriteScaleBaseline(b *testing.B) { benchmarkGrantWriteScale(b, false) }
-func BenchmarkGrantWriteScaleUnsafePutUnique(b *testing.B) {
-	benchmarkGrantWriteScale(b, true)
-}
+// The digest index is built at seal time, never inline, so the write
+// path has no per-grant digest cost to isolate; the flag is kept in the
+// matrix only to confirm that.
+func BenchmarkGrantWriteScale_NoDigestIndex(b *testing.B)  { benchmarkGrantWriteScale(b, false, false) }
+func BenchmarkGrantWriteScale(b *testing.B)                { benchmarkGrantWriteScale(b, false, true) }
+func BenchmarkGrantWriteScaleUnsafePutUnique(b *testing.B) { benchmarkGrantWriteScale(b, true, true) }

@@ -661,3 +661,133 @@ func (a *Adapter) InitCurrentSync(ctx context.Context) error {
 	}
 	return nil
 }
+
+// digestEntitlementIdentity maps a request-supplied entitlement stub to
+// the structural identity the digest keyspace is addressed by, via the
+// same entitlementIdentityForRequest the grants-for-entitlement readers
+// use: exact derivation from the resource ref when present, bare-id
+// resolution (exactly-one rule) otherwise. ok is false when a bare id
+// matches nothing; an AMBIGUOUS id stays an error — a lossy string must
+// never guess which digest to answer with. A nil stub or empty Id is an
+// error, matching ListGrantsForEntitlement.
+func (a *Adapter) digestEntitlementIdentity(ctx context.Context, ent *v2.Entitlement) (entitlementIdentity, bool, error) {
+	id, err := a.entitlementIdentityForRequest(ctx, ent)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return entitlementIdentity{}, false, nil
+		}
+		return entitlementIdentity{}, false, err
+	}
+	return id, true, nil
+}
+
+// GetEntitlementGrantDigest implements connectorstore.EntitlementGrantDigestReader.
+// It returns the stored grant-digest root (content hash + grant count)
+// for the entitlement under the reader's active sync. found is false
+// when no digest exists — either no active sync, an unknown bare id, or
+// no digest was built for it (e.g. WithGrantDigestIndex(false), a file
+// that predates the digest, or a post-seal mutation invalidated it). A
+// nil error with found=false means "no digest".
+func (a *Adapter) GetEntitlementGrantDigest(ctx context.Context, ent *v2.Entitlement) (connectorstore.GrantDigest, bool, error) {
+	syncID, err := a.resolveActiveSyncForReader(ctx, nil)
+	if err != nil {
+		return connectorstore.GrantDigest{}, false, err
+	}
+	if syncID == "" {
+		return connectorstore.GrantDigest{}, false, nil
+	}
+	id, ok, err := a.digestEntitlementIdentity(ctx, ent)
+	if err != nil || !ok {
+		return connectorstore.GrantDigest{}, false, err
+	}
+	root, ok, err := a.engine.GetEntitlementDigestRoot(ctx, id)
+	if err != nil || !ok {
+		return connectorstore.GrantDigest{}, false, err
+	}
+	return connectorstore.GrantDigest{Hash: root.Hash, Count: root.Count, Level: root.Bits}, true, nil
+}
+
+// GetEntitlementGrantDigestNodes implements
+// connectorstore.EntitlementGrantDigestReader. It lists the entitlement's
+// grant-digest rollup nodes at the requested level (2^level buckets;
+// level 0 = the root). For 0 <= level <= the digest's native level it
+// folds the stored leaves — one scan of the digest keyspace. For a finer
+// level it scans the grant index directly (O(grants)) instead of
+// erroring; the level is clamped to the bucket-hash resolution
+// (digestMaxWidthBits).
+func (a *Adapter) GetEntitlementGrantDigestNodes(ctx context.Context, ent *v2.Entitlement, level int) ([]connectorstore.GrantDigestNode, bool, error) {
+	if level < 0 {
+		return nil, false, fmt.Errorf("pebble: negative grant-digest level %d", level)
+	}
+	syncID, err := a.resolveActiveSyncForReader(ctx, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	if syncID == "" {
+		return nil, false, nil
+	}
+	id, ok, err := a.digestEntitlementIdentity(ctx, ent)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	root, ok, err := a.engine.GetEntitlementDigestRoot(ctx, id)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	// Level 0 is the whole-entitlement root — return it directly (covers
+	// the root-only digest, which has no stored leaves to fold).
+	if level == 0 {
+		return []connectorstore.GrantDigestNode{{Index: 0, Hash: root.Hash, Count: root.Count}}, true, nil
+	}
+	// The bucket hash carries at most digestMaxWidthBits of resolution;
+	// a finer level can't address more buckets, so clamp.
+	bits := min(level, digestMaxWidthBits)
+	// At or below the stored width, fold the digest leaves (cheap). Finer
+	// than what we stored, scan the grant index to compute the rollup.
+	partition := digestPartitionForEntitlement(id)
+	var folded []foldedBucket
+	if bits <= root.Bits {
+		folded, err = a.engine.foldedLeafBuckets(ctx, grantDigestSpec, partition, bits)
+	} else {
+		folded, err = a.engine.computeBucketsAtWidth(ctx, grantDigestSpec, partition, bits)
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	nodes := make([]connectorstore.GrantDigestNode, len(folded))
+	for i := range folded {
+		nodes[i] = connectorstore.GrantDigestNode{
+			Index: folded[i].idx,
+			Hash:  append([]byte(nil), folded[i].digest[:]...),
+			Count: folded[i].count,
+		}
+	}
+	return nodes, true, nil
+}
+
+// ScanEntitlementGrantBucket implements
+// connectorstore.EntitlementGrantDigestReader. It yields every grant in
+// the given digest bucket of the entitlement, translated to v2.Grant.
+// Bucket Level 0 scans the whole entitlement; a finer Level is clamped
+// to the bucket-hash resolution. Yields nothing when there is no active
+// sync or a bare entitlement id resolves to nothing.
+func (a *Adapter) ScanEntitlementGrantBucket(ctx context.Context, ent *v2.Entitlement, bucket connectorstore.GrantDigestBucket, yield func(*v2.Grant) bool) error {
+	if bucket.Level < 0 {
+		return fmt.Errorf("pebble: negative grant-digest level %d", bucket.Level)
+	}
+	syncID, err := a.resolveActiveSyncForReader(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if syncID == "" {
+		return nil
+	}
+	id, ok, err := a.digestEntitlementIdentity(ctx, ent)
+	if err != nil || !ok {
+		return err
+	}
+	bits := min(bucket.Level, digestMaxWidthBits)
+	return a.engine.IterateGrantsByEntitlementBucket(ctx, id, DigestBucket{Index: bucket.Index, Bits: bits}, func(r *v3.GrantRecord) bool {
+		return yield(V3GrantToV2(r))
+	})
+}

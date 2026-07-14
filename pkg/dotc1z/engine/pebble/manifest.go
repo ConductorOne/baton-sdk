@@ -50,6 +50,15 @@ func BuildManifestWithSyncRuns(ctx context.Context, e *Engine, encoding c1zstore
 	}
 	m.SetSyncRuns(syncRuns)
 	m.SetPebbleIdIndexFormat(e.manifestIDIndexFormat())
+	if root, ok, err := e.GetGrantDigestGlobalRoot(ctx); err != nil {
+		return nil, fmt.Errorf("pebble: manifest grant digest root: %w", err)
+	} else if ok {
+		m.SetGrantDigestRoot(c1zv3.GrantDigestRoot_builder{
+			XorDigest:  root.Hash,
+			Count:      root.Count,
+			AbiVersion: grantDigestABIVersion,
+		}.Build())
+	}
 	return m, nil
 }
 

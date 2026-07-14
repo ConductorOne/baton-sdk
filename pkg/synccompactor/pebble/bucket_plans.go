@@ -61,6 +61,20 @@ func buildBucketPlans() []bucketPlan {
 			upper: enginepkg.GrantByNeedsExpansionUpperBound(),
 		},
 		{
+			name:  "grant_by_entitlement_principal_hash",
+			lower: enginepkg.GrantByEntPrincHashLowerBound(),
+			upper: enginepkg.GrantByEntPrincHashUpperBound(),
+		},
+		{
+			// Digest nodes (all digested indexes, e.g. the per-entitlement
+			// grant digest). Copied byte-for-byte; because the records move
+			// verbatim during Compact, the digests stay valid in the
+			// destination without a rebuild.
+			name:  "digest",
+			lower: enginepkg.DigestLowerBound(),
+			upper: enginepkg.DigestUpperBound(),
+		},
+		{
 			name:  "asset",
 			lower: enginepkg.AssetLowerBound(),
 			upper: enginepkg.AssetUpperBound(),

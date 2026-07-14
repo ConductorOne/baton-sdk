@@ -136,6 +136,12 @@ func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, v
 	if err := batch.Delete(encodeGrantByPrincipalIdentityIndexKey(id), nil); err != nil {
 		return err
 	}
+	// Post-seal mutation of a grant invalidates the touched entitlement's
+	// digest + hash-index state (no-op unless digests exist — see
+	// stageGrantDigestInvalidation).
+	if err := e.stageGrantDigestInvalidation(batch, id.entitlement); err != nil {
+		return err
+	}
 	return batch.Delete(encodeGrantByNeedsExpansionIdentityIndexKey(id), nil)
 }
 
@@ -210,6 +216,62 @@ func scanGrantEntitlementResourceTypeRaw(value []byte) ([]byte, error) {
 		value = value[n:]
 	}
 	return entRT, nil
+}
+
+// scanGrantSourceKeysRawBytes extracts the source-entitlement ID keys
+// from a marshaled GrantRecord without a full unmarshal. Sources are
+// field 9 (map<string, GrantSourceRecord>), encoded as repeated embedded
+// messages each with sub-field 1 = key string. The keys are views
+// borrowed from value (valid only while value's backing bytes are),
+// appended to keys — pass a recycled keys[:0] to reuse its backing
+// array across calls. The seal-time grant digest build calls this once
+// per grant (see appendGrantHashIndexRow).
+func scanGrantSourceKeysRawBytes(value []byte, keys [][]byte) ([][]byte, error) {
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != 9 {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			value = value[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return nil, fmt.Errorf("raw record: grant sources entry has wire type %v", typ)
+		}
+		entry, n := protowire.ConsumeBytes(value)
+		if n < 0 {
+			return nil, protowire.ParseError(n)
+		}
+		value = value[n:]
+		for len(entry) > 0 {
+			eNum, eTyp, en := protowire.ConsumeTag(entry)
+			if en < 0 {
+				return nil, protowire.ParseError(en)
+			}
+			entry = entry[en:]
+			if eNum == 1 && eTyp == protowire.BytesType {
+				k, kn := protowire.ConsumeBytes(entry)
+				if kn < 0 {
+					return nil, protowire.ParseError(kn)
+				}
+				keys = append(keys, k)
+				entry = entry[kn:]
+			} else {
+				en = protowire.ConsumeFieldValue(eNum, eTyp, entry)
+				if en < 0 {
+					return nil, protowire.ParseError(en)
+				}
+				entry = entry[en:]
+			}
+		}
+	}
+	return keys, nil
 }
 
 // scanEntitlementResourceTypeRaw extracts only the entitlement's

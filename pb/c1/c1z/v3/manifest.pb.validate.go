@@ -197,6 +197,35 @@ func (m *C1ZManifestV3) validate(all bool) error {
 
 	// no validation rules for PebbleIdIndexFormat
 
+	if all {
+		switch v := interface{}(m.GetGrantDigestRoot()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, C1ZManifestV3ValidationError{
+					field:  "GrantDigestRoot",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, C1ZManifestV3ValidationError{
+					field:  "GrantDigestRoot",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetGrantDigestRoot()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return C1ZManifestV3ValidationError{
+				field:  "GrantDigestRoot",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
 	if len(errors) > 0 {
 		return C1ZManifestV3MultiError(errors)
 	}
@@ -274,6 +303,112 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = C1ZManifestV3ValidationError{}
+
+// Validate checks the field values on GrantDigestRoot with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *GrantDigestRoot) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GrantDigestRoot with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// GrantDigestRootMultiError, or nil if none found.
+func (m *GrantDigestRoot) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GrantDigestRoot) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for XorDigest
+
+	// no validation rules for Count
+
+	// no validation rules for AbiVersion
+
+	if len(errors) > 0 {
+		return GrantDigestRootMultiError(errors)
+	}
+
+	return nil
+}
+
+// GrantDigestRootMultiError is an error wrapping multiple validation errors
+// returned by GrantDigestRoot.ValidateAll() if the designated constraints
+// aren't met.
+type GrantDigestRootMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GrantDigestRootMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GrantDigestRootMultiError) AllErrors() []error { return m }
+
+// GrantDigestRootValidationError is the validation error returned by
+// GrantDigestRoot.Validate if the designated constraints aren't met.
+type GrantDigestRootValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GrantDigestRootValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GrantDigestRootValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GrantDigestRootValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GrantDigestRootValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GrantDigestRootValidationError) ErrorName() string { return "GrantDigestRootValidationError" }
+
+// Error satisfies the builtin error interface
+func (e GrantDigestRootValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGrantDigestRoot.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GrantDigestRootValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GrantDigestRootValidationError{}
 
 // Validate checks the field values on IndexedFrameIndex with the rules defined
 // in the proto definition for this message. If any rules are violated, the

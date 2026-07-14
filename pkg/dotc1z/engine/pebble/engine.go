@@ -12,6 +12,7 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/vfs"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -83,6 +84,35 @@ type Engine struct {
 	// relative to the entitlement-first write order, so it is always built
 	// as one sorted SST at EndSync — see BuildDeferredGrantIndexes).
 	deferredIdxPending atomic.Bool
+
+	// grantDigestsPresent reports whether the digest keyspace holds any
+	// nodes — i.e. whether a grant mutation must invalidate the touched
+	// entitlement's digest + hash-index ranges
+	// (stageGrantDigestInvalidation). Probed once at Open, set by the
+	// seal-time build, cleared by ResetForNewSync and the Drop* paths.
+	grantDigestsPresent atomic.Bool
+
+	// grantDigestBuildPending mirrors the durable digest-build marker
+	// (encodeGrantDigestBuildPendingKey): true between a digest build's
+	// arm and its completion (or the drop that cleans up after it). A
+	// writable Open that finds the durable marker drops all digest state
+	// immediately, so on a writable engine this is only ever true while
+	// a build owns the write barrier or after an in-process build
+	// failure whose cleanup drop itself failed. A READ-ONLY Open cannot
+	// drop, so the flag stays set and the digest root getters
+	// (getPartitionDigestRoot, GetGrantDigestGlobalRoot) report "never
+	// built" instead of trusting nodes a crashed build half-committed.
+	grantDigestBuildPending atomic.Bool
+
+	// Test seams for the digest build/repair tests: a hook fired at
+	// named points inside buildGrantDigestsFromSpill
+	// (grant_digest_build_crash_test.go) and a batch flush-threshold
+	// override — shared by the build's fold and the streaming partition
+	// repair (repairOneGrantDigestPartitionLocked) — so a small test
+	// dataset exercises the mid-stream commit paths. Nil/zero in
+	// production.
+	testDigestBuildHook      func(stage string) error
+	testDigestNodeFlushBytes int
 
 	// synthLayer is the open wave-scoped layer session, if any (see
 	// BeginSynthesizedGrantLayer). Single producer: the expansion driver
@@ -209,6 +239,35 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		closer.Close()
 		e.deferredIdxPending.Store(true)
 	} else if !errors.Is(err, pebble.ErrNotFound) {
+		_ = e.Close()
+		return nil, err
+	}
+	// Honor the durable digest-build marker (see
+	// encodeGrantDigestBuildPendingKey): a prior process was killed
+	// mid-digest-build, after some digest-node commits were durable but
+	// before the hash-index ingest completed. Those nodes LOOK present
+	// while the index beneath them is empty or stale, so nothing stored
+	// may be trusted: drop it all before probing presence — absent
+	// digests are always safe (present-means-exact, digest.go). A
+	// read-only open cannot drop; it keeps the flag set instead, which
+	// makes the digest root getters report "never built".
+	if _, closer, err := e.db.Get(encodeGrantDigestBuildPendingKey()); err == nil {
+		closer.Close()
+		e.grantDigestBuildPending.Store(true)
+		if !o.readOnly {
+			ctxzap.Extract(ctx).Warn("pebble: interrupted grant digest build detected at open; dropping all digest state — the next EndSync rebuilds it from scratch")
+			if err := e.dropAllGrantDigestStateLocked(); err != nil {
+				_ = e.Close()
+				return nil, fmt.Errorf("pebble: drop digest state left by an interrupted build: %w", err)
+			}
+		}
+	} else if !errors.Is(err, pebble.ErrNotFound) {
+		_ = e.Close()
+		return nil, err
+	}
+	// Arm the mutation-path digest invalidation iff the file actually
+	// holds digest nodes (one bounded seek; see grant_digest.go).
+	if err := e.probeGrantDigestsPresent(); err != nil {
 		_ = e.Close()
 		return nil, err
 	}
@@ -388,6 +447,11 @@ func (e *Engine) IsFreshSync() bool {
 	defer e.currentSyncMu.RUnlock()
 	return e.freshSync
 }
+
+// GrantDigestIndexEnabled reports whether the seal-time deferred pass
+// builds the by_entitlement_principal_hash index and grant digests.
+// See WithGrantDigestIndex.
+func (e *Engine) GrantDigestIndexEnabled() bool { return e.opts.grantDigestIndex }
 
 // takeFreshGrantsEmpty / takeFreshResourcesEmpty return true
 // exactly once per fresh sync, for the first PutXxxRecords call

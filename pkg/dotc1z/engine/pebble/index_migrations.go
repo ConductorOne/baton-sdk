@@ -62,9 +62,17 @@ type indexMigration struct {
 // adding an entry here means the next engine Open will backfill
 // the corresponding index for any existing c1z that doesn't have
 // it yet.
-var indexMigrations = []indexMigration{
-	// none yet, because we have no existing data.
-}
+//
+// Deliberately empty today. The by_entitlement_principal_hash index +
+// grant digests are NOT backfilled at Open: they are rebuilt from the
+// primaries at every seal (the fused deferred pass / BuildGrantDigests),
+// so a file that predates them simply has no digests — readers see
+// "missing, recalculate" (never a wrong answer) and the file's next
+// sync seals them in. Open-time grant backfills have historically been incident
+// bait (unbounded latency and memory at Open on large files); prefer
+// seal-time derivation or explicit rebuild commands over registering
+// one here.
+var indexMigrations []indexMigration
 
 // applyIndexMigrations runs on engine Open (writable opens only —
 // read-only files are immutable on disk). For each registered
