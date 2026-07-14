@@ -1378,11 +1378,15 @@ type SyncRunRecord_builder struct {
 	// rather than by a real connector run. Compacted artifacts are
 	// keep-newer UPSERT merges — base rows a newer input deleted survive —
 	// so no input sync's upstream validators (source-cache etags) describe
-	// their contents. Consequence, enforced by the syncer: a compacted
-	// sync CANNOT be used as a source-cache replay source; feeding one to
-	// WithPreviousSyncC1ZPath degrades to a cold (full-fetch) sync.
-	// Orchestrators deciding which artifact to materialize as the previous
-	// sync should read this flag instead of guessing from provenance.
+	// their contents.
+	//
+	// "Can this sync be used as a source-cache replay source?" is the
+	// predicate c1zstore.SyncRun.UsableAsReplaySource: type == FULL and
+	// !compacted. The syncer enforces it — feeding a compacted or
+	// partial/derived sync to WithPreviousSyncC1ZPath degrades to a cold
+	// (full-fetch) sync. Orchestrators deciding which artifact to
+	// materialize as the previous sync should apply the same predicate
+	// instead of guessing from provenance.
 	Compacted bool
 }
 

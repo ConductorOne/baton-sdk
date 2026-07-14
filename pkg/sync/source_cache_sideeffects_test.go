@@ -17,6 +17,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	pebbleengine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
@@ -609,6 +610,64 @@ func TestSourceCache_PartialSyncDegradesToCold(t *testing.T) {
 	require.NoError(t, syncer.Close(ctx))
 
 	require.Zero(t, mc.lookupHits, "a partial sync must never get a source-cache lookup hit")
+	require.Greater(t, mc.lookupMisses, missesBefore,
+		"sanity: the connector must have looked up and missed (no-op lookup installed)")
+}
+
+// ---------------------------------------------------------------------
+// Non-full previous syncs must not replay.
+// ---------------------------------------------------------------------
+
+// TestSourceCache_PartialPreviousSyncDegradesToCold pins the type half of
+// the replay-source predicate (UsableAsReplaySource): a PARTIAL-typed
+// previous sync must never serve replay, even when its file carries a
+// manifest entry over stamped rows. The fixture plants exactly that —
+// a partial sync with a valid-looking manifest — so a pass proves the
+// run-record TYPE gate causes the degradation, not an incidentally empty
+// manifest. Partial syncs are subsets: their rows do not cover the
+// scopes any validator vouches for.
+func TestSourceCache_PartialPreviousSyncDegradesToCold(t *testing.T) {
+	ctx, err := logging.Init(t.Context())
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+
+	group, ent, alice, _ := sourceCacheTestFixtures(t)
+	g1 := gt.NewGrant(group, "member", alice)
+	grantsScope := grantScopeForResource(group.GetId().GetResource())
+
+	// Hand-build a PARTIAL sync whose grants are stamped with the scope
+	// the connector will look up, manifest entry included.
+	sync1 := filepath.Join(tmpDir, "partial-prev.c1z")
+	prevStore, err := dotc1z.NewStore(ctx, sync1,
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	_, isNew, err := prevStore.StartOrResumeSync(ctx, connectorstore.SyncTypePartial, "")
+	require.NoError(t, err)
+	require.True(t, isNew)
+	require.NoError(t, prevStore.PutResourceTypes(ctx, groupResourceType, userResourceType))
+	require.NoError(t, prevStore.PutResources(ctx, group, alice))
+	require.NoError(t, prevStore.PutEntitlements(ctx, ent))
+	require.NoError(t, prevStore.PutGrants(sourcecache.WithScope(ctx, grantsScope), g1))
+	scPrev, ok := any(prevStore).(dotc1z.SourceCacheStore)
+	require.True(t, ok)
+	require.NoError(t, scPrev.PutSourceCacheEntry(ctx, sourcecache.RowKindGrants, grantsScope, `W/"etag-v1"`))
+	require.NoError(t, prevStore.EndSync(ctx))
+	require.NoError(t, prevStore.Close(ctx))
+
+	mc := newSourceCacheMockConnector()
+	mc.AddResource(ctx, group)
+	mc.AddResource(ctx, alice)
+	mc.entDB[group.GetId().GetResource()] = []*v2.Entitlement{ent}
+	mc.grantDB[group.GetId().GetResource()] = []*v2.Grant{g1}
+	mc.etagByResource[group.GetId().GetResource()] = `W/"etag-v1"`
+
+	sync2 := filepath.Join(tmpDir, "sync2.c1z")
+	missesBefore := mc.lookupMisses
+	runSourceCacheSync(ctx, t, mc, sync2, sync1, tmpDir)
+	require.Zero(t, mc.lookupHits,
+		"a partial-typed previous sync must never produce a source-cache lookup hit, even with a planted manifest entry")
 	require.Greater(t, mc.lookupMisses, missesBefore,
 		"sanity: the connector must have looked up and missed (no-op lookup installed)")
 }

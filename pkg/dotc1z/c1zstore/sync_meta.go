@@ -62,9 +62,30 @@ type SyncRun struct {
 	// no input's source-cache validators (etags) describe their contents:
 	// the syncer refuses to use a compacted sync as a replay source
 	// (degrades to a cold sync), and orchestrators choosing which
-	// artifact to materialize as the previous sync should read this flag.
+	// artifact to materialize as the previous sync should read
+	// UsableAsReplaySource instead of guessing from provenance.
 	// Always false on the SQLite engine (v1 files cannot be replay
 	// sources regardless).
 	Compacted bool
 	Stats     *reader_v2.SyncStats
+}
+
+// UsableAsReplaySource answers "can this sync serve source-cache replay?"
+// — the question an orchestrator must ask before materializing an
+// artifact as a syncer's previous sync. The predicate is deliberately
+// narrow: only a FULL, non-compacted sync is a faithful snapshot that its
+// own recorded validators describe.
+//
+//   - Partial/targeted, resources-only, and diff-typed syncs are subsets
+//     or derivations — their rows do not cover the scopes any validator
+//     would vouch for (they also never write manifest entries, but the
+//     type gate makes the refusal explicit rather than incidental).
+//   - Compacted syncs are keep-newer merges of multiple runs; no single
+//     input's validators describe the merged row set.
+//
+// The syncer enforces this same predicate when a previous-sync c1z is
+// supplied (see pkg/sync's configureSourceCache): a non-qualifying file
+// degrades to a cold sync rather than replaying.
+func (s *SyncRun) UsableAsReplaySource() bool {
+	return s != nil && s.Type == connectorstore.SyncTypeFull && !s.Compacted
 }
