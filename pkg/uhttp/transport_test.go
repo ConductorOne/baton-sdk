@@ -3,10 +3,13 @@ package uhttp
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -154,4 +157,49 @@ func (timeoutError) Timeout() bool {
 
 func (timeoutError) Temporary() bool {
 	return false
+}
+
+func TestTransportDropsPooledConnsAfterWallClockJump(t *testing.T) {
+	var newConns atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.Config.ConnState = func(c net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			newConns.Add(1)
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+
+	ctx := context.Background()
+	tp, err := NewTransport(ctx)
+	require.NoError(t, err)
+	client := &http.Client{Transport: tp}
+
+	doGet := func() {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+		require.NoError(t, err)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		_, err = io.Copy(io.Discard, resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+	}
+
+	doGet()
+	require.Equal(t, int32(1), newConns.Load())
+
+	// no wall-clock gap: the pooled connection is reused
+	doGet()
+	require.Equal(t, int32(1), newConns.Load())
+
+	// simulate a Lambda freeze/thaw: the wall clock jumped while the
+	// monotonic clock (and IdleConnTimeout) stood still
+	tp.wallMtx.Lock()
+	tp.lastActivityWall = time.Now().Round(0).Add(-time.Minute)
+	tp.wallMtx.Unlock()
+
+	doGet()
+	require.Equal(t, int32(2), newConns.Load())
 }
