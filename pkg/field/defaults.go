@@ -89,6 +89,26 @@ var (
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	logFormatField = StringField("log-format", WithDefaultValueFunc(defaultLogFormat), WithDescription("The output format for logs: json, console"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
+	logFileField = StringField("log-file", WithDescription("Path to log file. When set, enables size-based log rotation with gzip compression"),
+		WithPersistent(true), WithExportTarget(ExportTargetOps))
+	logMaxSizeField = IntField("log-max-size-mb", WithDefaultValue(logging.DefaultMaxSizeMB),
+		WithDescription("Maximum size in megabytes of the active log file before it is rotated (requires --log-file)"),
+		WithPersistent(true), WithExportTarget(ExportTargetOps),
+		WithInt(func(r *IntRuler) {
+			r.Gte(1).Lte(10240)
+		}))
+	logMaxBackupsField = IntField("log-max-backups", WithDefaultValue(logging.DefaultMaxBackups),
+		WithDescription("Maximum number of rotated log files to keep; 0 keeps all within --log-retention-days (requires --log-file)"),
+		WithPersistent(true), WithExportTarget(ExportTargetOps),
+		WithInt(func(r *IntRuler) {
+			r.Gte(0).Lte(10000)
+		}))
+	logRetentionDaysField = IntField("log-retention-days", WithDefaultValue(logging.DefaultRetentionDays),
+		WithDescription("Number of days to keep rotated log files (requires --log-file)"),
+		WithPersistent(true), WithExportTarget(ExportTargetOps),
+		WithInt(func(r *IntRuler) {
+			r.Gte(1).Lte(365)
+		}))
 	logOutputPathField     = StringSliceField("log-path", WithDescription("The file path to write logs to"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	revokeGrantField       = StringField("revoke-grant", WithHidden(true), WithDescription("The grant to revoke"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	rotateCredentialsField = StringField("rotate-credentials", WithHidden(true), WithDescription("The id of the resource to rotate credentials on"),
@@ -417,6 +437,10 @@ var DefaultFields = append([]SchemaField{
 	grantPrincipalField,
 	grantPrincipalTypeField,
 	logFormatField,
+	logFileField,
+	logMaxSizeField,
+	logMaxBackupsField,
+	logRetentionDaysField,
 	logOutputPathField,
 	revokeGrantField,
 	rotateCredentialsField,

@@ -125,6 +125,7 @@ func MakeMainCommand[T field.Configurable](
 		logOpts := []logging.Option{
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(v.GetString("log-level")),
+			logging.WithFileRotation(v.GetString("log-file"), v.GetInt("log-max-size-mb"), v.GetInt("log-max-backups"), v.GetInt("log-retention-days")),
 		}
 		logPaths := v.GetStringSlice("log-path")
 		if len(logPaths) > 0 {
@@ -531,6 +532,7 @@ func MakeGRPCServerCommand[T field.Configurable](
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(v.GetString("log-level")),
+			logging.WithFileRotation(v.GetString("log-file"), v.GetInt("log-max-size-mb"), v.GetInt("log-max-backups"), v.GetInt("log-retention-days")),
 		)
 		if err != nil {
 			return err
@@ -719,6 +721,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(v.GetString("log-level")),
+			logging.WithFileRotation(v.GetString("log-file"), v.GetInt("log-max-size-mb"), v.GetInt("log-max-backups"), v.GetInt("log-retention-days")),
 		)
 		if err != nil {
 			return err
