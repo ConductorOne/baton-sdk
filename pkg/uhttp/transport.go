@@ -36,6 +36,14 @@ var loggedResponseHeaders = []string{
 	"Retry-After",                // Often returned with 429
 }
 
+// wallClockGapThreshold is the wall-clock jump between requests treated as
+// evidence the process was suspended (e.g. a Lambda freeze between
+// invocations): the proxy/NLB has likely idle-closed our pooled connections
+// while IdleConnTimeout's monotonic clock was stopped, so drop the pool
+// rather than reuse a dead socket. A false positive only costs one
+// CONNECT+TLS handshake.
+const wallClockGapThreshold = 15 * time.Second
+
 // NewTransport creates a new Transport, applies the options, and then cycles the transport.
 func NewTransport(ctx context.Context, options ...Option) (*Transport, error) {
 	t := newTransport()
@@ -55,11 +63,15 @@ type Transport struct {
 	userAgent       string
 	tlsClientConfig *tls.Config
 	roundTripper    http.RoundTripper
+	baseTransport   *http.Transport
 	logger          *zap.Logger
 	log             bool
 	timeout         time.Duration
 	nextCycle       time.Time
 	mtx             sync.RWMutex
+
+	wallMtx          sync.Mutex
+	lastActivityWall time.Time
 }
 
 func newTransport() *Transport {
@@ -92,11 +104,12 @@ func (t *Transport) cycle(ctx context.Context) (http.RoundTripper, error) {
 	// working RoundTripper with nil on transient make() errors --
 	// subsequent requests served by this Transport would then fail
 	// until the next successful cycle.
-	newRoundTripper, err := t.make(ctx)
+	newRoundTripper, newBase, err := t.make(ctx)
 	if err != nil {
 		return nil, err
 	}
 	t.roundTripper = newRoundTripper
+	t.baseTransport = newBase
 	t.nextCycle = n.Add(time.Minute * 5)
 	return t.roundTripper, nil
 }
@@ -113,7 +126,7 @@ func (uat *userAgentTripper) RoundTrip(req *http.Request) (*http.Response, error
 	return uat.next.RoundTrip(req)
 }
 
-func (t *Transport) make(_ context.Context) (http.RoundTripper, error) {
+func (t *Transport) make(_ context.Context) (http.RoundTripper, *http.Transport, error) {
 	// based on http.DefaultTransport
 	//
 	// Key tuning for Lambda-behind-proxy environments:
@@ -141,17 +154,57 @@ func (t *Transport) make(_ context.Context) (http.RoundTripper, error) {
 	// an outstanding write — the state during a slow response.
 	h2, err := http2.ConfigureTransports(baseTransport)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	h2.ReadIdleTimeout = 15 * time.Second
 	h2.PingTimeout = 15 * time.Second
 	var rv http.RoundTripper = baseTransport
 	rv = &userAgentTripper{next: rv, userAgent: t.userAgent}
-	return rv, nil
+	return rv, baseTransport, nil
+}
+
+// touchWallClock records request activity on the wall clock. Round(0) strips
+// the monotonic reading so gap comparisons use the wall clock, which (unlike
+// the monotonic clock) is resynced across a Lambda freeze/thaw.
+func (t *Transport) touchWallClock() {
+	now := time.Now().Round(0)
+	t.wallMtx.Lock()
+	t.lastActivityWall = now
+	t.wallMtx.Unlock()
+}
+
+// dropPooledConnsAfterClockJump closes idle pooled connections when the wall
+// clock has jumped more than wallClockGapThreshold since the last request.
+// IdleConnTimeout cannot do this: it ages connections on the monotonic clock,
+// which stops while a Lambda execution environment is frozen.
+func (t *Transport) dropPooledConnsAfterClockJump(ctx context.Context) {
+	now := time.Now().Round(0)
+	t.wallMtx.Lock()
+	last := t.lastActivityWall
+	t.lastActivityWall = now
+	t.wallMtx.Unlock()
+	if last.IsZero() {
+		return
+	}
+	gap := now.Sub(last)
+	if gap <= wallClockGapThreshold {
+		return
+	}
+
+	t.mtx.RLock()
+	base := t.baseTransport
+	t.mtx.RUnlock()
+	if base == nil {
+		return
+	}
+	base.CloseIdleConnections()
+	t.l(ctx).Debug("uhttp: wall clock jumped since last request; dropped pooled connections",
+		zap.Duration("gap", gap))
 }
 
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
+	t.dropPooledConnsAfterClockJump(ctx)
 	rt, err := t.cycle(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("uhttp: cycle failed: %w", err)
@@ -174,6 +227,9 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}()
 	resp, err := rt.RoundTrip(req)
+	// A slow response is activity, not suspension — refresh the wall-clock
+	// marker so long round trips don't read as freeze gaps.
+	t.touchWallClock()
 	err = wrapTransientNetworkError(err)
 	if t.log {
 		duration := time.Since(start)
