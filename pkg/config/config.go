@@ -40,6 +40,7 @@ func RunConnector[T field.Configurable](
 		}
 
 		builderOpts = append(builderOpts, connectorbuilder.WithSessionStore(runTimeOpts.SessionStore))
+		builderOpts = append(builderOpts, connectorbuilder.WithSourceCache(runTimeOpts.SourceCacheLookup))
 
 		c, err := connectorbuilder.NewConnector(ctx, connector, builderOpts...)
 		if err != nil {
@@ -159,6 +160,20 @@ func DefineConfigurationV2[T field.Configurable](
 		fields = append(fields, f)
 	}
 	confschema.Fields = fields
+
+	// The replay flags are hidden by default (source-cache replay is
+	// author-opt-in functionality); surface them in help only for
+	// connectors whose author baked the capability into their runner
+	// options. Hidden flags still parse, so this is a visibility decision,
+	// not a behavioral one.
+	if connectorrunner.DeclaresPreviousSyncCapability(ctx, options...) {
+		for i, f := range confschema.Fields {
+			switch f.FieldName {
+			case field.PreviousSyncC1ZField.FieldName, field.KeepPreviousSyncC1ZField.FieldName:
+				confschema.Fields[i].SyncerConfig.Hidden = false
+			}
+		}
+	}
 
 	// setup CLI with cobra
 	mainCMD := &cobra.Command{
@@ -292,6 +307,12 @@ func verifyStructFields[T field.Configurable](schema field.Configuration) error 
 		return fmt.Errorf("T must be a struct type, got %v", configType.Kind()) //nolint:staticcheck // we want to capital letter here
 	}
 	for _, field := range schema.Fields {
+		if field.WasReExported {
+			// Re-exported shared SDK fields (field.WithConnectorDefault)
+			// are parsed by the SDK's own flag handling, not the
+			// connector's configuration struct.
+			continue
+		}
 		fieldFound := false
 		for i := 0; i < configType.NumField(); i++ {
 			structField := configType.Field(i)

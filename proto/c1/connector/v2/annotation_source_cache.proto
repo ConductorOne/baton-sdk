@@ -1,0 +1,250 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// Source-cache replay annotations.
+//
+// A connector that talks to an upstream API with cheap change detection
+// (HTTP conditional requests, delta/watermark queries) can opt in to
+// source-cache replay: the SDK persists which rows each upstream
+// request/scope produced, and on the next sync the connector can tell the
+// SDK to replay a scope's previous rows instead of re-emitting them.
+//
+// The connector owns scope computation. A scope is any stable partition of
+// upstream data the connector can cheaply revalidate as a unit: a page URL
+// for GitHub-style conditional GETs, a whole collection for Microsoft
+// Graph-style delta queries. The SDK never computes provider scopes; it
+// only keys storage by the connector-supplied scope_hash.
+//
+// The etag is an opaque validator persisted per scope: a literal HTTP ETag
+// for conditional requests, a delta/skip token for delta queries. The SDK
+// hands it back via the source-cache lookup on the next sync and never
+// interprets it.
+//
+// Flow per sync, per scope:
+//
+//  1. Connector looks up the previous etag for (row_kind, scope_hash) via
+//     the SDK-provided lookup. Miss => fetch fresh, emit rows, attach
+//     SourceCacheScope. Hit => revalidate upstream with the etag.
+//  2. Unchanged (HTTP 304): attach SourceCacheReplay with overlay=false and
+//     the (unchanged) etag; emit no rows.
+//  3. Changed-with-diff (delta query): attach SourceCacheReplay with
+//     overlay=true and any removed ids; emit ONLY the changed rows (tagged
+//     with SourceCacheScope); the final page's SourceCacheScope carries the
+//     new token as etag.
+//  4. Changed-without-diff (plain conditional GET): fetch fresh, emit rows,
+//     attach SourceCacheScope with the new etag. Nothing is replayed.
+//
+// Replay is only honored when the connector declared
+// SourceCacheCapability MODE_READ_WRITE on its Validate response AND the
+// sync is running on a storage engine that supports source-cache replay
+// with a usable previous sync. When either condition fails the SDK
+// installs a lookup that always misses, so a well-behaved connector
+// (invariant: only emit SourceCacheReplay for a scope whose etag came
+// from this sync's lookup) naturally degrades to full fetch.
+//
+// "This sync's lookup" means the lookup happened during THIS sync — not
+// necessarily during the same call that emits the replay. A planning call
+// may batch-resolve validators for many scopes and hand the verdicts to
+// sibling cursors via SpawnCursors page tokens; a replay emitted by such a
+// cursor satisfies the invariant. What the invariant forbids is validators
+// that outlive the sync (connector-side caches, config, upstream echoes):
+// the lookup result must originate from the sync that consumes it.
+
+// SourceCacheCapability is attached to ConnectorServiceValidateResponse
+// annotations to opt in to source-cache replay. Absent or any mode other
+// than MODE_READ_WRITE means all source-cache annotations are ignored.
+message SourceCacheCapability {
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    MODE_DISABLED = 1;
+    MODE_READ_WRITE = 2;
+  }
+  Mode mode = 1;
+}
+
+// SourceCacheScope is attached to a list-response page whose rows were
+// freshly fetched from upstream. The SDK stamps the page's rows with
+// scope_hash so a future sync can replay them as a unit.
+message SourceCacheScope {
+  // Connector-computed stable identifier for the canonical scope. Must be
+  // byte-stable across syncs for the same logical scope. Prefer an ORDERED
+  // natural identifier (e.g. the request URL, or "groups/{id}/members")
+  // over a random hash: scope-index writes lead with this value, so
+  // identifiers that correlate with fetch order keep index writes nearly
+  // append-ordered at scale. sourcecache.HashScope is the fallback when no
+  // compact natural form exists.
+  string scope_hash = 1;
+
+  // Opaque validator to persist for this scope. May be empty on interim
+  // pages of a multi-page scope (e.g. Graph @odata.nextLink pages); the
+  // SDK writes the scope's manifest entry when a non-empty etag arrives.
+  // A 200 response with zero rows still persists the entry.
+  string etag = 2;
+
+  // Tombstones applied after this page's rows commit. Lets every page of
+  // a multi-page delta round carry its own deletions as the provider
+  // delivers them, instead of buffering a whole round onto the first
+  // (replay-annotated) page. Same formats as SourceCacheReplay.
+  //
+  // PRECONDITION for tombstones anywhere in a round: the provider's delta
+  // must be coalesced — at most one add-or-tombstone per object per round
+  // (Microsoft Graph guarantees this by returning final object state).
+  // With interleaved add/remove events for one object, per-page ordering
+  // is deterministic (a page's rows upsert before its deletions apply)
+  // but cross-page re-adds after a tombstone are the connector's
+  // responsibility to order.
+  repeated string deleted_ids = 3;
+
+  // Principal-scoped grant tombstones: for RowKindGrants pages, each
+  // entry deletes EVERY grant row stamped with this scope whose principal
+  // id equals the entry — no principal resource type and no canonical
+  // grant-id reconstruction required (delta tombstones usually carry only
+  // a bare object id, and the object may no longer exist to look up).
+  //
+  // PRECONDITION: the scope must be partitioned so that "principal
+  // removed from scope" means every grant they have in the scope is gone
+  // — one scope per navigation with independent removal semantics (e.g.
+  // members and owners of a group are separate scopes, or membership
+  // removal would take the owner grant with it).
+  //
+  // For RowKindResources pages, each entry deletes the resource row(s)
+  // stamped with this scope whose resource id equals the entry, any
+  // resource type.
+  repeated string deleted_principal_ids = 4;
+}
+
+// SourceCacheReplay is attached to a list-response page to tell the SDK to
+// copy the previous sync's rows for scope_hash into the current sync.
+//
+// The row kind (resources, entitlements, grants) is determined by which
+// RPC the annotation arrived on, never by the annotation itself.
+//
+// The connector must only emit this for a scope whose etag it received
+// from the SDK's source-cache lookup during this same sync. A replay for
+// an unknown scope fails the sync: the connector has already skipped row
+// generation, so there is nothing to fall back to.
+message SourceCacheReplay {
+  string scope_hash = 1;
+
+  // Validator to persist for this scope in the current sync. For an HTTP
+  // 304 this is the unchanged etag. For a delta query this is the NEW
+  // token; it may instead be supplied by the final overlay page's
+  // SourceCacheScope.etag, in which case this field may be left empty.
+  string etag = 2;
+
+  // When true, the response (and subsequent pages carrying
+  // SourceCacheScope with the same scope_hash) contains changed rows to
+  // upsert on top of the replayed base. When false the response must
+  // contain no rows for this scope.
+  bool overlay = 3;
+
+  // Public canonical IDs (grant/entitlement IDs, or resource BIDs for
+  // RowKindResources) to delete from the current sync after the replay
+  // copy and this page's upserts. Used for delta-query tombstones (e.g.
+  // Microsoft Graph @removed entries). Subsequent pages of the round
+  // carry their tombstones on SourceCacheScope.deleted_ids.
+  repeated string deleted_ids = 4;
+
+  // Principal-scoped tombstones for this page; see
+  // SourceCacheScope.deleted_principal_ids for semantics and
+  // preconditions.
+  repeated string deleted_principal_ids = 5;
+}
+
+// -----------------------------------------------------------------------
+// Lookup continuation (ask/answer) — the source-cache lookup for runtimes
+// that cannot call back to the syncer (single-shot request/response
+// transports, e.g. gRPC-over-Lambda). See
+// docs/tasks/source-cache-lambda-lookup.md.
+//
+//	syncer                              connector
+//	  ── list req + LookupOffer ───────▶
+//	                                      lookup deferred: collect scopes
+//	  ◀── resp{SourceCacheLookupAsk} ───
+//	  resolve locally (previous c1z)
+//	  ── SAME req + LookupOffer
+//	       + SourceCacheLookupAnswers ─▶
+//	                                      lookup served from answers
+//	  ◀── rows + Scope / Replay ────────  (normal page handling)
+//
+// The connector must only defer (emit an ask) when the request carried
+// SourceCacheLookupOffer — old syncers never send it, so version skew
+// degrades to a cold sync instead of a misinterpreted response.
+// -----------------------------------------------------------------------
+
+// SourceCacheLookupOffer is attached by the SDK to list REQUESTS when the
+// syncer can answer source-cache lookup asks: the connector declared
+// SourceCacheCapability and a warm previous-sync lookup is installed.
+// Its presence is the connector's permission to answer with
+// SourceCacheLookupAsk instead of rows. Connectors with a direct lookup
+// (in-process, subprocess) never need to defer and may ignore it.
+message SourceCacheLookupOffer {}
+
+// SourceCacheLookupAsk is attached to a list RESPONSE in place of rows:
+// the connector needs previous-sync validators before it can serve the
+// page. An ask response must carry NO rows, NO next page token, and no
+// other source-cache annotations; the syncer consumes it (it never
+// reaches page handling), resolves every query, and re-invokes the same
+// request with SourceCacheLookupAnswers attached.
+//
+// Only legal on responses to requests that carried
+// SourceCacheLookupOffer. Bounces are capped per REQUEST (a page-token
+// advance is a new request and resets the cap, so a multi-page action
+// may legally ask once per page); a connector that keeps asking without
+// progressing past the cap fails the sync loudly.
+message SourceCacheLookupAsk {
+  message Query {
+    // One of the sourcecache.RowKind values: "resources",
+    // "entitlements", "grants".
+    string row_kind = 1 [(validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 64
+    }];
+    string scope_hash = 2 [(validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 256
+    }];
+  }
+  repeated Query queries = 1 [(validate.rules).repeated = {
+    min_items: 1
+    max_items: 4096
+  }];
+}
+
+// SourceCacheLookupAnswers is attached by the SDK to the re-invoked
+// REQUEST, carrying the resolution of a prior ask's queries.
+//
+// Every query of the prior ask is answered — found=true with the
+// previous sync's etag, or found=false meaning fetch fresh. A found
+// answer whose etag does not fit the per-request answer size budget is
+// delivered as found=false: the scope degrades to a cold fetch
+// (correct, just slower) instead of staying unresolved, because answers
+// accumulate across bounces and an etag that did not fit once can never
+// fit a later re-invoke. An ABSENT query (a phase-2 lookup for a scope
+// the connector did not ask before) means unresolved: the connector may
+// ask again, subject to the bounce cap.
+message SourceCacheLookupAnswers {
+  message Answer {
+    string row_kind = 1 [(validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 64
+    }];
+    string scope_hash = 2 [(validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 256
+    }];
+    bool found = 3;
+    // The previous sync's validator; empty when found is false. Cap
+    // matches the lookup RPC (Graph delta tokens run long).
+    string etag = 4 [(validate.rules).string = {
+      ignore_empty: true
+      max_bytes: 65536
+    }];
+  }
+  repeated Answer answers = 1;
+}

@@ -455,8 +455,11 @@ type ResourceRecord struct {
 	Parent         *ResourceRef           `protobuf:"bytes,6,opt,name=parent,proto3" json:"parent,omitempty"`
 	Annotations    []*anypb.Any           `protobuf:"bytes,7,rep,name=annotations,proto3" json:"annotations,omitempty"`
 	DiscoveredAt   *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=discovered_at,json=discoveredAt,proto3" json:"discovered_at,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Source-cache scope stamp (see annotation_source_cache.proto).
+	// Empty for rows not produced under a source-cache scope.
+	SourceScopeHash string `protobuf:"bytes,9,opt,name=source_scope_hash,json=sourceScopeHash,proto3" json:"source_scope_hash,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ResourceRecord) Reset() {
@@ -533,6 +536,13 @@ func (x *ResourceRecord) GetDiscoveredAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ResourceRecord) GetSourceScopeHash() string {
+	if x != nil {
+		return x.SourceScopeHash
+	}
+	return ""
+}
+
 func (x *ResourceRecord) SetResourceTypeId(v string) {
 	x.ResourceTypeId = v
 }
@@ -559,6 +569,10 @@ func (x *ResourceRecord) SetAnnotations(v []*anypb.Any) {
 
 func (x *ResourceRecord) SetDiscoveredAt(v *timestamppb.Timestamp) {
 	x.DiscoveredAt = v
+}
+
+func (x *ResourceRecord) SetSourceScopeHash(v string) {
+	x.SourceScopeHash = v
 }
 
 func (x *ResourceRecord) HasParent() bool {
@@ -593,6 +607,9 @@ type ResourceRecord_builder struct {
 	Parent         *ResourceRef
 	Annotations    []*anypb.Any
 	DiscoveredAt   *timestamppb.Timestamp
+	// Source-cache scope stamp (see annotation_source_cache.proto).
+	// Empty for rows not produced under a source-cache scope.
+	SourceScopeHash string
 }
 
 func (b0 ResourceRecord_builder) Build() *ResourceRecord {
@@ -606,6 +623,7 @@ func (b0 ResourceRecord_builder) Build() *ResourceRecord {
 	x.Parent = b.Parent
 	x.Annotations = b.Annotations
 	x.DiscoveredAt = b.DiscoveredAt
+	x.SourceScopeHash = b.SourceScopeHash
 	return m0
 }
 
@@ -632,8 +650,11 @@ type EntitlementRecord struct {
 	// resource_types table when needed. Consumed by
 	// pkg/sync/syncer.go's principal-type narrowing.
 	GrantableToResourceTypeIds []string `protobuf:"bytes,10,rep,name=grantable_to_resource_type_ids,json=grantableToResourceTypeIds,proto3" json:"grantable_to_resource_type_ids,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	// Source-cache scope stamp (see annotation_source_cache.proto).
+	// Empty for rows not produced under a source-cache scope.
+	SourceScopeHash string `protobuf:"bytes,11,opt,name=source_scope_hash,json=sourceScopeHash,proto3" json:"source_scope_hash,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *EntitlementRecord) Reset() {
@@ -724,6 +745,13 @@ func (x *EntitlementRecord) GetGrantableToResourceTypeIds() []string {
 	return nil
 }
 
+func (x *EntitlementRecord) GetSourceScopeHash() string {
+	if x != nil {
+		return x.SourceScopeHash
+	}
+	return ""
+}
+
 func (x *EntitlementRecord) SetExternalId(v string) {
 	x.ExternalId = v
 }
@@ -758,6 +786,10 @@ func (x *EntitlementRecord) SetSlug(v string) {
 
 func (x *EntitlementRecord) SetGrantableToResourceTypeIds(v []string) {
 	x.GrantableToResourceTypeIds = v
+}
+
+func (x *EntitlementRecord) SetSourceScopeHash(v string) {
+	x.SourceScopeHash = v
 }
 
 func (x *EntitlementRecord) HasResource() bool {
@@ -806,6 +838,9 @@ type EntitlementRecord_builder struct {
 	// resource_types table when needed. Consumed by
 	// pkg/sync/syncer.go's principal-type narrowing.
 	GrantableToResourceTypeIds []string
+	// Source-cache scope stamp (see annotation_source_cache.proto).
+	// Empty for rows not produced under a source-cache scope.
+	SourceScopeHash string
 }
 
 func (b0 EntitlementRecord_builder) Build() *EntitlementRecord {
@@ -821,6 +856,7 @@ func (b0 EntitlementRecord_builder) Build() *EntitlementRecord {
 	x.DiscoveredAt = b.DiscoveredAt
 	x.Slug = b.Slug
 	x.GrantableToResourceTypeIds = b.GrantableToResourceTypeIds
+	x.SourceScopeHash = b.SourceScopeHash
 	return m0
 }
 
@@ -846,9 +882,15 @@ type GrantRecord struct {
 	Annotations    []*anypb.Any           `protobuf:"bytes,8,rep,name=annotations,proto3" json:"annotations,omitempty"`
 	// map<source_entitlement_id, GrantSourceRecord> — same wire shape as
 	// c1.connector.v2.GrantSources.sources.
-	Sources       map[string]*GrantSourceRecord `protobuf:"bytes,9,rep,name=sources,proto3" json:"sources,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Sources map[string]*GrantSourceRecord `protobuf:"bytes,9,rep,name=sources,proto3" json:"sources,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Source-cache scope stamp (see annotation_source_cache.proto).
+	// Empty for rows not produced under a source-cache scope — notably
+	// expander-derived grants, which are recreated by expansion each sync
+	// and never replayed. StoreExpandedGrants preserves this field on
+	// rewrites of existing rows, exactly like expansion/needs_expansion.
+	SourceScopeHash string `protobuf:"bytes,10,opt,name=source_scope_hash,json=sourceScopeHash,proto3" json:"source_scope_hash,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GrantRecord) Reset() {
@@ -932,6 +974,13 @@ func (x *GrantRecord) GetSources() map[string]*GrantSourceRecord {
 	return nil
 }
 
+func (x *GrantRecord) GetSourceScopeHash() string {
+	if x != nil {
+		return x.SourceScopeHash
+	}
+	return ""
+}
+
 func (x *GrantRecord) SetExternalId(v string) {
 	x.ExternalId = v
 }
@@ -962,6 +1011,10 @@ func (x *GrantRecord) SetAnnotations(v []*anypb.Any) {
 
 func (x *GrantRecord) SetSources(v map[string]*GrantSourceRecord) {
 	x.Sources = v
+}
+
+func (x *GrantRecord) SetSourceScopeHash(v string) {
+	x.SourceScopeHash = v
 }
 
 func (x *GrantRecord) HasEntitlement() bool {
@@ -1032,6 +1085,12 @@ type GrantRecord_builder struct {
 	// map<source_entitlement_id, GrantSourceRecord> — same wire shape as
 	// c1.connector.v2.GrantSources.sources.
 	Sources map[string]*GrantSourceRecord
+	// Source-cache scope stamp (see annotation_source_cache.proto).
+	// Empty for rows not produced under a source-cache scope — notably
+	// expander-derived grants, which are recreated by expansion each sync
+	// and never replayed. StoreExpandedGrants preserves this field on
+	// rewrites of existing rows, exactly like expansion/needs_expansion.
+	SourceScopeHash string
 }
 
 func (b0 GrantRecord_builder) Build() *GrantRecord {
@@ -1046,6 +1105,7 @@ func (b0 GrantRecord_builder) Build() *GrantRecord {
 	x.NeedsExpansion = b.NeedsExpansion
 	x.Annotations = b.Annotations
 	x.Sources = b.Sources
+	x.SourceScopeHash = b.SourceScopeHash
 	return m0
 }
 
@@ -1177,15 +1237,25 @@ func (b0 AssetRecord_builder) Build() *AssetRecord {
 }
 
 type SyncRunRecord struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	SyncId        string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
-	Type          SyncType               `protobuf:"varint,2,opt,name=type,proto3,enum=c1.storage.v3.SyncType" json:"type,omitempty"`
-	ParentSyncId  string                 `protobuf:"bytes,3,opt,name=parent_sync_id,json=parentSyncId,proto3" json:"parent_sync_id,omitempty"`
-	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	EndedAt       *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
-	SyncToken     string                 `protobuf:"bytes,6,opt,name=sync_token,json=syncToken,proto3" json:"sync_token,omitempty"`
-	SupportsDiff  bool                   `protobuf:"varint,7,opt,name=supports_diff,json=supportsDiff,proto3" json:"supports_diff,omitempty"`
-	LinkedSyncId  string                 `protobuf:"bytes,8,opt,name=linked_sync_id,json=linkedSyncId,proto3" json:"linked_sync_id,omitempty"`
+	state        protoimpl.MessageState `protogen:"hybrid.v1"`
+	SyncId       string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
+	Type         SyncType               `protobuf:"varint,2,opt,name=type,proto3,enum=c1.storage.v3.SyncType" json:"type,omitempty"`
+	ParentSyncId string                 `protobuf:"bytes,3,opt,name=parent_sync_id,json=parentSyncId,proto3" json:"parent_sync_id,omitempty"`
+	StartedAt    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	EndedAt      *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	SyncToken    string                 `protobuf:"bytes,6,opt,name=sync_token,json=syncToken,proto3" json:"sync_token,omitempty"`
+	SupportsDiff bool                   `protobuf:"varint,7,opt,name=supports_diff,json=supportsDiff,proto3" json:"supports_diff,omitempty"`
+	LinkedSyncId string                 `protobuf:"bytes,8,opt,name=linked_sync_id,json=linkedSyncId,proto3" json:"linked_sync_id,omitempty"`
+	// compacted marks a sync produced by compaction (fold or rebuild)
+	// rather than by a real connector run. Compacted artifacts are
+	// keep-newer UPSERT merges — base rows a newer input deleted survive —
+	// so no input sync's upstream validators (source-cache etags) describe
+	// their contents. Consequence, enforced by the syncer: a compacted
+	// sync CANNOT be used as a source-cache replay source; feeding one to
+	// WithPreviousSyncC1ZPath degrades to a cold (full-fetch) sync.
+	// Orchestrators deciding which artifact to materialize as the previous
+	// sync should read this flag instead of guessing from provenance.
+	Compacted     bool `protobuf:"varint,9,opt,name=compacted,proto3" json:"compacted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1271,6 +1341,13 @@ func (x *SyncRunRecord) GetLinkedSyncId() string {
 	return ""
 }
 
+func (x *SyncRunRecord) GetCompacted() bool {
+	if x != nil {
+		return x.Compacted
+	}
+	return false
+}
+
 func (x *SyncRunRecord) SetSyncId(v string) {
 	x.SyncId = v
 }
@@ -1301,6 +1378,10 @@ func (x *SyncRunRecord) SetSupportsDiff(v bool) {
 
 func (x *SyncRunRecord) SetLinkedSyncId(v string) {
 	x.LinkedSyncId = v
+}
+
+func (x *SyncRunRecord) SetCompacted(v bool) {
+	x.Compacted = v
 }
 
 func (x *SyncRunRecord) HasStartedAt() bool {
@@ -1336,6 +1417,16 @@ type SyncRunRecord_builder struct {
 	SyncToken    string
 	SupportsDiff bool
 	LinkedSyncId string
+	// compacted marks a sync produced by compaction (fold or rebuild)
+	// rather than by a real connector run. Compacted artifacts are
+	// keep-newer UPSERT merges — base rows a newer input deleted survive —
+	// so no input sync's upstream validators (source-cache etags) describe
+	// their contents. Consequence, enforced by the syncer: a compacted
+	// sync CANNOT be used as a source-cache replay source; feeding one to
+	// WithPreviousSyncC1ZPath degrades to a cold (full-fetch) sync.
+	// Orchestrators deciding which artifact to materialize as the previous
+	// sync should read this flag instead of guessing from provenance.
+	Compacted bool
 }
 
 func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
@@ -1350,6 +1441,7 @@ func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
 	x.SyncToken = b.SyncToken
 	x.SupportsDiff = b.SupportsDiff
 	x.LinkedSyncId = b.LinkedSyncId
+	x.Compacted = b.Compacted
 	return m0
 }
 
@@ -1653,6 +1745,130 @@ func (b0 SessionRecord_builder) Build() *SessionRecord {
 	return m0
 }
 
+// SourceCacheEntryRecord is the per-scope manifest entry for source-cache
+// replay (see c1/connector/v2/annotation_source_cache.proto). One entry
+// per (row_kind, scope_hash), written for every freshly fetched scope —
+// including zero-row responses — and rewritten on replay with the scope's
+// current validator. The previous sync's entries (read from the previous
+// c1z) are the lookup surface connectors revalidate against.
+type SourceCacheEntryRecord struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Row kind partition: "resources", "entitlements", or "grants"
+	// (pkg/sourcecache.RowKind values).
+	RowKind string `protobuf:"bytes,1,opt,name=row_kind,json=rowKind,proto3" json:"row_kind,omitempty"`
+	// Connector-computed scope hash (lowercase hex).
+	ScopeHash string `protobuf:"bytes,2,opt,name=scope_hash,json=scopeHash,proto3" json:"scope_hash,omitempty"`
+	// Opaque upstream validator: HTTP ETag, delta token, etc.
+	Etag          string                 `protobuf:"bytes,3,opt,name=etag,proto3" json:"etag,omitempty"`
+	DiscoveredAt  *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=discovered_at,json=discoveredAt,proto3" json:"discovered_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SourceCacheEntryRecord) Reset() {
+	*x = SourceCacheEntryRecord{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceCacheEntryRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceCacheEntryRecord) ProtoMessage() {}
+
+func (x *SourceCacheEntryRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *SourceCacheEntryRecord) GetRowKind() string {
+	if x != nil {
+		return x.RowKind
+	}
+	return ""
+}
+
+func (x *SourceCacheEntryRecord) GetScopeHash() string {
+	if x != nil {
+		return x.ScopeHash
+	}
+	return ""
+}
+
+func (x *SourceCacheEntryRecord) GetEtag() string {
+	if x != nil {
+		return x.Etag
+	}
+	return ""
+}
+
+func (x *SourceCacheEntryRecord) GetDiscoveredAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.DiscoveredAt
+	}
+	return nil
+}
+
+func (x *SourceCacheEntryRecord) SetRowKind(v string) {
+	x.RowKind = v
+}
+
+func (x *SourceCacheEntryRecord) SetScopeHash(v string) {
+	x.ScopeHash = v
+}
+
+func (x *SourceCacheEntryRecord) SetEtag(v string) {
+	x.Etag = v
+}
+
+func (x *SourceCacheEntryRecord) SetDiscoveredAt(v *timestamppb.Timestamp) {
+	x.DiscoveredAt = v
+}
+
+func (x *SourceCacheEntryRecord) HasDiscoveredAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.DiscoveredAt != nil
+}
+
+func (x *SourceCacheEntryRecord) ClearDiscoveredAt() {
+	x.DiscoveredAt = nil
+}
+
+type SourceCacheEntryRecord_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Row kind partition: "resources", "entitlements", or "grants"
+	// (pkg/sourcecache.RowKind values).
+	RowKind string
+	// Connector-computed scope hash (lowercase hex).
+	ScopeHash string
+	// Opaque upstream validator: HTTP ETag, delta token, etc.
+	Etag         string
+	DiscoveredAt *timestamppb.Timestamp
+}
+
+func (b0 SourceCacheEntryRecord_builder) Build() *SourceCacheEntryRecord {
+	m0 := &SourceCacheEntryRecord{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.RowKind = b.RowKind
+	x.ScopeHash = b.ScopeHash
+	x.Etag = b.Etag
+	x.DiscoveredAt = b.DiscoveredAt
+	return m0
+}
+
 var File_c1_storage_v3_records_proto protoreflect.FileDescriptor
 
 const file_c1_storage_v3_records_proto_rawDesc = "" +
@@ -1677,7 +1893,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\rdiscovered_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12 \n" +
 	"\vdescription\x18\a \x01(\tR\vdescription\x12-\n" +
 	"\x12sourced_externally\x18\b \x01(\bR\x11sourcedExternally:!\x82\xf9+\x1d\n" +
-	"\x0eresource_types\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xbc\x03\n" +
+	"\x0eresource_types\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\x98\x04\n" +
 	"\x0eResourceRecord\x12(\n" +
 	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
@@ -1687,8 +1903,10 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x06parent\x18\x06 \x01(\v2\x1a.c1.storage.v3.ResourceRefB.\x8a\xf9+*\n" +
 	"\tby_parent\x1a\x10resource_type_id\x1a\vresource_idR\x06parent\x126\n" +
 	"\vannotations\x18\a \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12?\n" +
-	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:.\x82\xf9+*\n" +
-	"\tresources\x12\x10resource_type_id\x12\vresource_idJ\x04\b\x01\x10\x02R\async_id\"\xfe\x03\n" +
+	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12Z\n" +
+	"\x11source_scope_hash\x18\t \x01(\tB.\x8a\xf9+*\n" +
+	"\x0fby_source_scope\"\x17source_scope_hash != ''R\x0fsourceScopeHash:.\x82\xf9+*\n" +
+	"\tresources\x12\x10resource_type_id\x12\vresource_idJ\x04\b\x01\x10\x02R\async_id\"\xda\x04\n" +
 	"\x11EntitlementRecord\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +
 	"externalId\x12h\n" +
@@ -1701,8 +1919,10 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12\x12\n" +
 	"\x04slug\x18\t \x01(\tR\x04slug\x12B\n" +
 	"\x1egrantable_to_resource_type_ids\x18\n" +
-	" \x03(\tR\x1agrantableToResourceTypeIds:\x1f\x82\xf9+\x1b\n" +
-	"\fentitlements\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\x9a\x06\n" +
+	" \x03(\tR\x1agrantableToResourceTypeIds\x12Z\n" +
+	"\x11source_scope_hash\x18\v \x01(\tB.\x8a\xf9+*\n" +
+	"\x0fby_source_scope\"\x17source_scope_hash != ''R\x0fsourceScopeHash:\x1f\x82\xf9+\x1b\n" +
+	"\fentitlements\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xf6\x06\n" +
 	"\vGrantRecord\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +
 	"externalId\x12\x98\x01\n" +
@@ -1715,7 +1935,10 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x0fneeds_expansion\x18\a \x01(\bB0\x8a\xf9+,\n" +
 	"\x12by_needs_expansion\"\x16needs_expansion = trueR\x0eneedsExpansion\x126\n" +
 	"\vannotations\x18\b \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12A\n" +
-	"\asources\x18\t \x03(\v2'.c1.storage.v3.GrantRecord.SourcesEntryR\asources\x1a\\\n" +
+	"\asources\x18\t \x03(\v2'.c1.storage.v3.GrantRecord.SourcesEntryR\asources\x12Z\n" +
+	"\x11source_scope_hash\x18\n" +
+	" \x01(\tB.\x8a\xf9+*\n" +
+	"\x0fby_source_scope\"\x17source_scope_hash != ''R\x0fsourceScopeHash\x1a\\\n" +
 	"\fSourcesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x126\n" +
 	"\x05value\x18\x02 \x01(\v2 .c1.storage.v3.GrantSourceRecordR\x05value:\x028\x01:\x19\x82\xf9+\x15\n" +
@@ -1727,7 +1950,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12\x12\n" +
 	"\x04data\x18\x04 \x01(\fR\x04data\x12?\n" +
 	"\rdiscovered_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:\"\x82\xf9+\x1e\n" +
-	"\x06assets\x12\async_id\x12\vexternal_id\"\xf1\x02\n" +
+	"\x06assets\x12\async_id\x12\vexternal_id\"\x8f\x03\n" +
 	"\rSyncRunRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12+\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x17.c1.storage.v3.SyncTypeR\x04type\x12$\n" +
@@ -1738,7 +1961,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\n" +
 	"sync_token\x18\x06 \x01(\tR\tsyncToken\x12#\n" +
 	"\rsupports_diff\x18\a \x01(\bR\fsupportsDiff\x12$\n" +
-	"\x0elinked_sync_id\x18\b \x01(\tR\flinkedSyncId:\x18\x82\xf9+\x14\n" +
+	"\x0elinked_sync_id\x18\b \x01(\tR\flinkedSyncId\x12\x1c\n" +
+	"\tcompacted\x18\t \x01(\bR\tcompacted:\x18\x82\xf9+\x14\n" +
 	"\tsync_runs\x12\async_id\"\xff\x06\n" +
 	"\x0fSyncStatsRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12%\n" +
@@ -1765,7 +1989,15 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x03 \x01(\fR\x05value:\x1c\x82\xf9+\x18\n" +
-	"\bsessions\x12\async_id\x12\x03key*\xae\x01\n" +
+	"\bsessions\x12\async_id\x12\x03key\"\xd9\x01\n" +
+	"\x16SourceCacheEntryRecord\x12\x19\n" +
+	"\brow_kind\x18\x01 \x01(\tR\arowKind\x12\x1d\n" +
+	"\n" +
+	"scope_hash\x18\x02 \x01(\tR\tscopeHash\x12\x12\n" +
+	"\x04etag\x18\x03 \x01(\tR\x04etag\x12?\n" +
+	"\rdiscovered_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:0\x82\xf9+,\n" +
+	"\x14source_cache_entries\x12\brow_kind\x12\n" +
+	"scope_hash*\xae\x01\n" +
 	"\bSyncType\x12\x19\n" +
 	"\x15SYNC_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSYNC_TYPE_FULL\x10\x01\x12\x15\n" +
@@ -1775,58 +2007,60 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
 var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_c1_storage_v3_records_proto_goTypes = []any{
-	(SyncType)(0),                 // 0: c1.storage.v3.SyncType
-	(*GrantExpandableRecord)(nil), // 1: c1.storage.v3.GrantExpandableRecord
-	(*GrantSourceRecord)(nil),     // 2: c1.storage.v3.GrantSourceRecord
-	(*ResourceTypeRecord)(nil),    // 3: c1.storage.v3.ResourceTypeRecord
-	(*ResourceRecord)(nil),        // 4: c1.storage.v3.ResourceRecord
-	(*EntitlementRecord)(nil),     // 5: c1.storage.v3.EntitlementRecord
-	(*GrantRecord)(nil),           // 6: c1.storage.v3.GrantRecord
-	(*AssetRecord)(nil),           // 7: c1.storage.v3.AssetRecord
-	(*SyncRunRecord)(nil),         // 8: c1.storage.v3.SyncRunRecord
-	(*SyncStatsRecord)(nil),       // 9: c1.storage.v3.SyncStatsRecord
-	(*SessionRecord)(nil),         // 10: c1.storage.v3.SessionRecord
-	nil,                           // 11: c1.storage.v3.GrantRecord.SourcesEntry
-	nil,                           // 12: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	nil,                           // 13: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	nil,                           // 14: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	(*anypb.Any)(nil),             // 15: google.protobuf.Any
-	(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
-	(*ResourceRef)(nil),           // 17: c1.storage.v3.ResourceRef
-	(*EntitlementRef)(nil),        // 18: c1.storage.v3.EntitlementRef
-	(*PrincipalRef)(nil),          // 19: c1.storage.v3.PrincipalRef
+	(SyncType)(0),                  // 0: c1.storage.v3.SyncType
+	(*GrantExpandableRecord)(nil),  // 1: c1.storage.v3.GrantExpandableRecord
+	(*GrantSourceRecord)(nil),      // 2: c1.storage.v3.GrantSourceRecord
+	(*ResourceTypeRecord)(nil),     // 3: c1.storage.v3.ResourceTypeRecord
+	(*ResourceRecord)(nil),         // 4: c1.storage.v3.ResourceRecord
+	(*EntitlementRecord)(nil),      // 5: c1.storage.v3.EntitlementRecord
+	(*GrantRecord)(nil),            // 6: c1.storage.v3.GrantRecord
+	(*AssetRecord)(nil),            // 7: c1.storage.v3.AssetRecord
+	(*SyncRunRecord)(nil),          // 8: c1.storage.v3.SyncRunRecord
+	(*SyncStatsRecord)(nil),        // 9: c1.storage.v3.SyncStatsRecord
+	(*SessionRecord)(nil),          // 10: c1.storage.v3.SessionRecord
+	(*SourceCacheEntryRecord)(nil), // 11: c1.storage.v3.SourceCacheEntryRecord
+	nil,                            // 12: c1.storage.v3.GrantRecord.SourcesEntry
+	nil,                            // 13: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	nil,                            // 14: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	nil,                            // 15: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	(*anypb.Any)(nil),              // 16: google.protobuf.Any
+	(*timestamppb.Timestamp)(nil),  // 17: google.protobuf.Timestamp
+	(*ResourceRef)(nil),            // 18: c1.storage.v3.ResourceRef
+	(*EntitlementRef)(nil),         // 19: c1.storage.v3.EntitlementRef
+	(*PrincipalRef)(nil),           // 20: c1.storage.v3.PrincipalRef
 }
 var file_c1_storage_v3_records_proto_depIdxs = []int32{
-	15, // 0: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
-	16, // 1: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	17, // 2: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
-	15, // 3: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
-	16, // 4: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	17, // 5: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
-	15, // 6: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
-	16, // 7: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	18, // 8: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
-	19, // 9: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
-	16, // 10: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	16, // 0: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
+	17, // 1: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	18, // 2: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
+	16, // 3: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
+	17, // 4: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	18, // 5: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
+	16, // 6: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
+	17, // 7: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	19, // 8: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
+	20, // 9: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
+	17, // 10: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	1,  // 11: c1.storage.v3.GrantRecord.expansion:type_name -> c1.storage.v3.GrantExpandableRecord
-	15, // 12: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
-	11, // 13: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
-	16, // 14: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	16, // 12: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
+	12, // 13: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
+	17, // 14: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	0,  // 15: c1.storage.v3.SyncRunRecord.type:type_name -> c1.storage.v3.SyncType
-	16, // 16: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
-	16, // 17: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
-	12, // 18: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	13, // 19: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	14, // 20: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	16, // 21: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
-	2,  // 22: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
-	23, // [23:23] is the sub-list for method output_type
-	23, // [23:23] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	17, // 16: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
+	17, // 17: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
+	13, // 18: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	14, // 19: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	15, // 20: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	17, // 21: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
+	17, // 22: c1.storage.v3.SourceCacheEntryRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	2,  // 23: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
+	24, // [24:24] is the sub-list for method output_type
+	24, // [24:24] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_c1_storage_v3_records_proto_init() }
@@ -1842,7 +2076,7 @@ func file_c1_storage_v3_records_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_storage_v3_records_proto_rawDesc), len(file_c1_storage_v3_records_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   14,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

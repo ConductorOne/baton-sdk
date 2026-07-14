@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package c1.connectorapi.baton.v1;
+
+import "validate/validate.proto";
+
+option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
+
+// BatonSourceCacheService is the dedicated parent-side RPC the connector
+// subprocess uses to ask "do I have a previous validator (etag / delta
+// token) for this scope?" before revalidating upstream.
+//
+// This is intentionally NOT routed through the session-store gRPC service:
+// session data goes through the connector's local MemorySessionCache
+// (otter), which would subject sync-scoped validator state to generic
+// TTL/eviction policies and burn bounded cache weight on it. A dedicated
+// service keeps the message shape explicit and the path uncached.
+//
+// The parent has exactly one active lookup registered at a time (set
+// per-sync, cleared at sync end), so no sync_id travels on the wire.
+service BatonSourceCacheService {
+  rpc Lookup(LookupRequest) returns (LookupResponse) {}
+}
+
+message LookupRequest {
+  // Row kind: resources / entitlements / grants
+  // (pkg/sourcecache.RowKind values). Entries are partitioned by row
+  // kind, so one scope hash can carry a different validator per kind.
+  string row_kind = 1 [(validate.rules).string = {
+    min_len: 1
+    max_len: 64
+  }];
+
+  // Connector-defined stable scope identifier (conventionally a hex hash
+  // of the canonical scope; see pkg/sourcecache.HashScope). Opaque to the
+  // parent; matched verbatim against the previous sync's source-cache
+  // entries.
+  string scope_hash = 2 [(validate.rules).string = {
+    min_len: 1
+    max_len: 256
+  }];
+}
+
+message LookupResponse {
+  // False means no prior entry exists for (row_kind, scope_hash): the
+  // connector must fetch fresh and must not emit SourceCacheReplay for
+  // this scope.
+  bool found = 1;
+
+  // The opaque validator the previous sync recorded for this scope (HTTP
+  // ETag, delta token, ...). Empty when found is false. The cap is a
+  // sanity bound sized for Microsoft Graph delta tokens, which are known
+  // to run to thousands of characters; storage imposes no limit.
+  string etag = 2 [(validate.rules).string = {max_len: 65536}];
+}

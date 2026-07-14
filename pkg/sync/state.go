@@ -46,6 +46,13 @@ type State interface {
 	RecordSessionOp(op string, duration time.Duration, opErr error, timedOut bool)
 	MergeSessionStat(op string, add SessionStoreStat)
 	SessionStoreStats() map[string]SessionStoreStat
+	// AddSourceCacheStats merges delta into the sync's source-cache
+	// counters (replay effectiveness, tombstones, spawn fan-out, lookup
+	// continuation). Token-persisted, so a resumed sync keeps its counts.
+	AddSourceCacheStats(delta SourceCacheStats)
+	// SourceCacheStatsSnapshot returns a copy of the accumulated
+	// source-cache counters, or nil when nothing was recorded.
+	SourceCacheStatsSnapshot() *SourceCacheStats
 	// CheckAndSetExclusionGroupResourceType records that exclusionGroupID is
 	// used on resourceTypeID. If the group was already recorded against a
 	// different resource type, the prior value is returned with conflict=true
@@ -210,6 +217,15 @@ type Action struct {
 	ResourceID           string   `json:"resource_id,omitempty"`
 	ParentResourceTypeID string   `json:"parent_resource_type_id,omitempty"`
 	ParentResourceID     string   `json:"parent_resource_id,omitempty"`
+
+	// Spawned marks an action enqueued by a connector's SpawnCursors
+	// annotation (a sibling cursor) rather than by the syncer's own
+	// planners. Progress accounting uses it: per-resource grant coverage
+	// counts a resource once, when its ORIGIN action's chain ends —
+	// spawned siblings (and their NextPage continuations, which inherit
+	// the action) don't count, or one resource would count N times.
+	// omitempty keeps old checkpointed sync tokens decoding unchanged.
+	Spawned bool `json:"spawned,omitempty"`
 }
 
 var _ State = &state{}
@@ -233,6 +249,7 @@ type state struct {
 	stepDurationsMs                 map[string]int64
 	connectorCallStats              map[string]*ConnectorCallStat
 	sessionStoreStats               map[string]*SessionStoreStat
+	sourceCacheStats                *SourceCacheStats
 	// compaction is provenance written by the sync compactor via
 	// BuildCompactedToken; the syncer itself never sets it. Kept on the
 	// state so Unmarshal→Marshal round trips (e.g. expansion replay
@@ -291,6 +308,7 @@ type serializedTokenV1 struct {
 	StepDurationsMs                 map[string]int64              `json:"step_durations_ms,omitempty"`
 	ConnectorCallStats              map[string]*ConnectorCallStat `json:"connector_call_stats,omitempty"`
 	SessionStoreStats               map[string]*SessionStoreStat  `json:"session_store_stats,omitempty"`
+	SourceCacheStats                *SourceCacheStats             `json:"source_cache_stats,omitempty"`
 	Compaction                      *CompactionTokenStats         `json:"compaction,omitempty"`
 	Version                         uint64                        `json:"version"`
 }
@@ -456,6 +474,7 @@ func (st *state) Unmarshal(input string) error {
 		if st.sessionStoreStats == nil {
 			st.sessionStoreStats = make(map[string]*SessionStoreStat)
 		}
+		st.sourceCacheStats = token.SourceCacheStats
 		st.compaction = token.Compaction
 	} else {
 		st.actions = make(map[string]Action)
@@ -476,6 +495,7 @@ func (st *state) Unmarshal(input string) error {
 		st.stepDurationsMs = make(map[string]int64)
 		st.connectorCallStats = make(map[string]*ConnectorCallStat)
 		st.sessionStoreStats = make(map[string]*SessionStoreStat)
+		st.sourceCacheStats = nil
 		st.compaction = nil
 	}
 
@@ -504,6 +524,7 @@ func (st *state) Marshal() (string, error) {
 		StepDurationsMs:                 st.stepDurationsMs,
 		ConnectorCallStats:              st.connectorCallStats,
 		SessionStoreStats:               st.sessionStoreStats,
+		SourceCacheStats:                st.sourceCacheStats,
 		Compaction:                      st.compaction,
 		Version:                         1,
 	})

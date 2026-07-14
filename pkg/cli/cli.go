@@ -11,6 +11,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/field"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/spf13/cobra"
@@ -20,7 +21,12 @@ import (
 )
 
 type RunTimeOpts struct {
-	SessionStore        sessions.SessionStore
+	SessionStore sessions.SessionStore
+	// SourceCacheLookup resolves a scope's previous-sync validator for
+	// source-cache replay (see pkg/sourcecache). In subprocess mode this
+	// is a gRPC client to the parent SDK's BatonSourceCacheService; when
+	// unset the framework falls back to NoopLookup.
+	SourceCacheLookup   sourcecache.Lookup
 	TokenSource         oauth2.TokenSource
 	SelectedAuthMethod  string
 	SyncResourceTypeIDs []string

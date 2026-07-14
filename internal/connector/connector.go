@@ -23,11 +23,13 @@ import (
 
 	connectorV2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
+	batonV1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	tlsV1 "github.com/conductorone/baton-sdk/pb/c1/utls/v1"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	ratelimit2 "github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/session"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
@@ -55,17 +57,40 @@ type connectorClient struct {
 	connectorV2.ActionServiceClient
 
 	sessionStoreSetter sessions.SetSessionStore // this is the session store server
+	sourceCacheSetter  sourcecache.SetLookup    // this is the source-cache lookup server
 }
 
 var _ sessions.SetSessionStore = (*connectorClient)(nil)
+var _ sourcecache.SetLookup = (*connectorClient)(nil)
 var _ SetSessionStoreSetter = (*connectorClient)(nil)
+var _ SetSourceCacheSetter = (*connectorClient)(nil)
 
 type SetSessionStoreSetter interface {
 	SetSessionStoreSetter(setsessionStoreSetter sessions.SetSessionStore)
 }
 
+type SetSourceCacheSetter interface {
+	SetSourceCacheSetter(sourceCacheSetter sourcecache.SetLookup)
+}
+
 func (c *connectorClient) SetSessionStoreSetter(sessionStoreSetter sessions.SetSessionStore) {
 	c.sessionStoreSetter = sessionStoreSetter
+}
+
+func (c *connectorClient) SetSourceCacheSetter(sourceCacheSetter sourcecache.SetLookup) {
+	c.sourceCacheSetter = sourceCacheSetter
+}
+
+// SetSourceCache forwards the syncer's per-sync lookup to whatever
+// receives it: the subprocess-mode BatonSourceCacheService server, or the
+// in-process builder. A nil setter means the connector never opted in;
+// the syncer calls this unconditionally, so stay quiet at debug level.
+func (c *connectorClient) SetSourceCache(ctx context.Context, lookup sourcecache.Lookup) {
+	if c.sourceCacheSetter == nil {
+		ctxzap.Extract(ctx).Debug("connectorClient's source cache setter is nil — connector did not opt into source caching")
+		return
+	}
+	c.sourceCacheSetter.SetSourceCache(ctx, lookup)
 }
 
 func (c *connectorClient) SetSessionStore(ctx context.Context, store sessions.SessionStore) {
@@ -109,7 +134,8 @@ type wrapper struct {
 
 	now func() time.Time
 
-	SessionServer sessions.SetSessionStore
+	SessionServer     sessions.SetSessionStore
+	SourceCacheServer sourcecache.SetLookup
 }
 
 type Option func(ctx context.Context, w *wrapper) error
@@ -197,6 +223,12 @@ func NewWrapper(ctx context.Context, server interface{}, opts ...Option) (*wrapp
 		server: connectorServer,
 		now:    time.Now,
 	}
+	// In-process delivery: a connectorbuilder-based server implements
+	// sourcecache.SetLookup itself, so the syncer's per-sync lookup can be
+	// installed without the subprocess gRPC hop.
+	if sourceCacheServer, ok := connectorServer.(sourcecache.SetLookup); ok {
+		w.SourceCacheServer = sourceCacheServer
+	}
 
 	for _, o := range opts {
 		err := o(ctx, w)
@@ -276,18 +308,29 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 			return 0, fmt.Errorf("failed to create session listener config: %w", err)
 		}
 
-		// TODO(kans): block until we send a request or something/error handling in general.
+		// One listener serves BatonSessionService (connector session data)
+		// and BatonSourceCacheService (source-cache scope lookups). Keeping
+		// them as separate RPCs keeps validator lookups out of the
+		// connector's local MemorySessionCache and its TTL/eviction rules.
 		l.Info("starting session store server")
-		server := session.NewGRPCSessionServer()
-		cw.SessionServer = server
+		sessionServer := session.NewGRPCSessionServer()
+		sourceCacheServer := sourcecache.NewGRPCServer()
+		cw.SessionServer = sessionServer
+		cw.SourceCacheServer = sourceCacheServer
 		go func() {
 			defer sessionListener.Close()
-			serverErr := session.StartGRPCSessionServerWithOptions(ctx, sessionListener, server,
+			grpcServer := grpc.NewServer(
 				grpc.Creds(credentials.NewTLS(tlsConfig)),
 				grpc.ChainUnaryInterceptor(ugrpc.UnaryServerInterceptor(ctx)...),
 			)
-			if serverErr != nil {
-				l.Error("failed to create session store server", zap.Error(serverErr))
+			batonV1.RegisterBatonSessionServiceServer(grpcServer, sessionServer)
+			batonV1.RegisterBatonSourceCacheServiceServer(grpcServer, sourceCacheServer)
+			go func() {
+				<-ctx.Done()
+				grpcServer.GracefulStop()
+			}()
+			if serveErr := grpcServer.Serve(sessionListener); serveErr != nil {
+				l.Error("session/source-cache server stopped", zap.Error(serveErr))
 				return
 			}
 		}()
@@ -440,6 +483,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	cw.conn = conn
 	client := NewConnectorClient(ctx, cw.conn)
 	client.SetSessionStoreSetter(cw.SessionServer)
+	client.SetSourceCacheSetter(cw.SourceCacheServer)
 	cw.client = client
 
 	return client, nil

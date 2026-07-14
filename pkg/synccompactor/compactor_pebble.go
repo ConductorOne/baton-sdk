@@ -647,6 +647,18 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		l.Info("compactPebbleFold: no grant writes; base grant digest state left untouched")
 	}
 
+	// Drop the source-cache manifest inherited from the base copy. The
+	// fold is a keep-newer UPSERT merge — base rows the partials deleted
+	// survive — so the output is not a faithful snapshot of any input
+	// sync and NO input's validator may be allowed to 304-validate it.
+	// With the manifest empty, a syncer using this artifact as its
+	// previous sync misses every lookup and fetches fresh: cold-correct.
+	// (The rebuild path is already clean: its bucket specs never carry
+	// source-cache entries into the fresh output.)
+	if err := destEng.ClearSourceCacheEntries(ctx); err != nil {
+		return "", fmt.Errorf("compactPebbleFold: clear source-cache manifest: %w", err)
+	}
+
 	// Optionally compact the folded LSM before save. Off by default:
 	// a compaction rewrites the SSTs that overlap the partials' writes
 	// — for scattered overrides that is most of the base — which both
@@ -680,6 +692,10 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	baseRec.SetSyncId(newSyncID)
 	baseRec.SetParentSyncId("")
 	baseRec.SetType(unionType)
+	// Compaction provenance: this artifact is a keep-newer merge, not a
+	// connector run — no input's source-cache validators describe it, so
+	// it must never serve as a replay source (see SyncRunRecord.compacted).
+	baseRec.SetCompacted(true)
 	if !maxEnded.IsZero() {
 		baseRec.SetEndedAt(timestamppb.New(maxEnded))
 	}
@@ -1186,6 +1202,9 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 		return fmt.Errorf("compactPebble: load dest sync_run: %w", err)
 	}
 	rec.SetType(unionType)
+	// Compaction provenance: rebuild outputs are keep-newer merges too —
+	// never replay sources (see SyncRunRecord.compacted).
+	rec.SetCompacted(true)
 	if !maxEnded.IsZero() {
 		rec.SetEndedAt(timestamppb.New(maxEnded))
 	}

@@ -3,11 +3,15 @@ package pebble
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
 const (
@@ -110,18 +114,25 @@ func rawTimestampNanos(value []byte) (int64, error) {
 }
 
 func (e *Engine) deleteResourceIndexesRaw(batch *pebble.Batch, resourceTypeID string, resourceID string, value []byte) error {
-	parentRT, parentID, err := scanResourceParentRaw(value)
+	parentRT, parentID, sourceScopeHash, err := scanResourceIndexFieldsRaw(value)
 	if err != nil {
 		return err
 	}
-	if parentID == "" {
-		return nil
+	if parentID != "" {
+		if err := batch.Delete(encodeResourceByParentIndexKey(parentRT, parentID, resourceTypeID, resourceID), nil); err != nil {
+			return err
+		}
 	}
-	return batch.Delete(encodeResourceByParentIndexKey(parentRT, parentID, resourceTypeID, resourceID), nil)
+	if sourceScopeHash != "" {
+		if err := batch.Delete(encodeResourceBySourceScopeIndexKey(sourceScopeHash, resourceTypeID, resourceID), nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, value []byte) error {
-	entRT, entRID, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(value)
+	entRT, entRID, entID, principalRT, principalID, _, sourceScopeHash, err := scanGrantIndexFieldsRaw(value)
 	if err != nil {
 		return err
 	}
@@ -141,6 +152,11 @@ func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, v
 	// stageGrantDigestInvalidation).
 	if err := e.stageGrantDigestInvalidation(batch, id.entitlement); err != nil {
 		return err
+	}
+	if sourceScopeHash != "" {
+		if err := batch.Delete(encodeGrantBySourceScopeIndexKey(sourceScopeHash, id), nil); err != nil {
+			return err
+		}
 	}
 	return batch.Delete(encodeGrantByNeedsExpansionIdentityIndexKey(id), nil)
 }
@@ -319,37 +335,83 @@ func scanEntitlementResourceTypeRaw(value []byte) ([]byte, error) {
 // occurrence of the target field, matching scanGrantIndexFieldsRaw and
 // approximating proto merge semantics. Values written by this SDK carry
 // at most one occurrence, so this only matters for foreign writers.
-func scanResourceParentRaw(value []byte) (string, string, error) {
-	var rt, id string
+// scanResourceIndexFieldsRaw extracts the parent ref (field 6) and
+// source_scope_hash (field 9) from a marshaled ResourceRecord — the
+// fields that key resource secondary indexes.
+func scanResourceIndexFieldsRaw(value []byte) (string, string, string, error) {
+	var rt, id, sourceScopeHash string
 	for len(value) > 0 {
 		num, typ, n := protowire.ConsumeTag(value)
 		if n < 0 {
-			return "", "", protowire.ParseError(n)
+			return "", "", "", protowire.ParseError(n)
 		}
 		value = value[n:]
-		if num != 6 {
+		switch num {
+		case 6:
+			if typ != protowire.BytesType {
+				return "", "", "", fmt.Errorf("raw record: resource parent has wire type %v", typ)
+			}
+			msg, n := protowire.ConsumeBytes(value)
+			if n < 0 {
+				return "", "", "", protowire.ParseError(n)
+			}
+			var err error
+			rt, id, err = scanResourceRefRaw(msg)
+			if err != nil {
+				return "", "", "", err
+			}
+			value = value[n:]
+		case 9:
+			if typ != protowire.BytesType {
+				return "", "", "", fmt.Errorf("raw record: resource source_scope_hash has wire type %v", typ)
+			}
+			s, n := protowire.ConsumeBytes(value)
+			if n < 0 {
+				return "", "", "", protowire.ParseError(n)
+			}
+			sourceScopeHash = string(s)
+			value = value[n:]
+		default:
 			n = protowire.ConsumeFieldValue(num, typ, value)
 			if n < 0 {
-				return "", "", protowire.ParseError(n)
+				return "", "", "", protowire.ParseError(n)
+			}
+			value = value[n:]
+		}
+	}
+	return rt, id, sourceScopeHash, nil
+}
+
+// scanEntitlementSourceScopeRaw extracts source_scope_hash (field 11)
+// from a marshaled EntitlementRecord. Keys the entitlement
+// by_source_scope index — the only entitlement secondary index.
+func scanEntitlementSourceScopeRaw(value []byte) (string, error) {
+	var sourceScopeHash string
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return "", protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != 11 {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return "", protowire.ParseError(n)
 			}
 			value = value[n:]
 			continue
 		}
 		if typ != protowire.BytesType {
-			return "", "", fmt.Errorf("raw record: resource parent has wire type %v", typ)
+			return "", fmt.Errorf("raw record: entitlement source_scope_hash has wire type %v", typ)
 		}
-		msg, n := protowire.ConsumeBytes(value)
+		s, n := protowire.ConsumeBytes(value)
 		if n < 0 {
-			return "", "", protowire.ParseError(n)
+			return "", protowire.ParseError(n)
 		}
-		var err error
-		rt, id, err = scanResourceRefRaw(msg)
-		if err != nil {
-			return "", "", err
-		}
+		sourceScopeHash = string(s)
 		value = value[n:]
 	}
-	return rt, id, nil
+	return sourceScopeHash, nil
 }
 
 func scanEntitlementResourceRaw(value []byte) (string, string, error) {
@@ -429,63 +491,73 @@ func scanEntitlementIdentityFieldsRaw(value []byte) (string, string, string, err
 	return rt, id, externalID, nil
 }
 
-func scanGrantIndexFieldsRaw(value []byte) (string, string, string, string, string, bool, error) {
-	var entRT, entRID, entID, principalRT, principalID string
+func scanGrantIndexFieldsRaw(value []byte) (string, string, string, string, string, bool, string, error) {
+	var entRT, entRID, entID, principalRT, principalID, sourceScopeHash string
 	var needsExpansion bool
 	for len(value) > 0 {
 		num, typ, n := protowire.ConsumeTag(value)
 		if n < 0 {
-			return "", "", "", "", "", false, protowire.ParseError(n)
+			return "", "", "", "", "", false, "", protowire.ParseError(n)
 		}
 		value = value[n:]
 		switch num {
 		case 3:
 			if typ != protowire.BytesType {
-				return "", "", "", "", "", false, fmt.Errorf("raw record: grant entitlement has wire type %v", typ)
+				return "", "", "", "", "", false, "", fmt.Errorf("raw record: grant entitlement has wire type %v", typ)
 			}
 			msg, n := protowire.ConsumeBytes(value)
 			if n < 0 {
-				return "", "", "", "", "", false, protowire.ParseError(n)
+				return "", "", "", "", "", false, "", protowire.ParseError(n)
 			}
 			var err error
 			entRT, entRID, entID, err = scanEntitlementRefRaw(msg)
 			if err != nil {
-				return "", "", "", "", "", false, err
+				return "", "", "", "", "", false, "", err
 			}
 			value = value[n:]
 		case 4:
 			if typ != protowire.BytesType {
-				return "", "", "", "", "", false, fmt.Errorf("raw record: grant principal has wire type %v", typ)
+				return "", "", "", "", "", false, "", fmt.Errorf("raw record: grant principal has wire type %v", typ)
 			}
 			msg, n := protowire.ConsumeBytes(value)
 			if n < 0 {
-				return "", "", "", "", "", false, protowire.ParseError(n)
+				return "", "", "", "", "", false, "", protowire.ParseError(n)
 			}
 			var err error
 			principalRT, principalID, err = scanPrincipalRefRaw(msg)
 			if err != nil {
-				return "", "", "", "", "", false, err
+				return "", "", "", "", "", false, "", err
 			}
 			value = value[n:]
 		case 7:
 			if typ != protowire.VarintType {
-				return "", "", "", "", "", false, fmt.Errorf("raw record: grant needs_expansion has wire type %v", typ)
+				return "", "", "", "", "", false, "", fmt.Errorf("raw record: grant needs_expansion has wire type %v", typ)
 			}
 			v, n := protowire.ConsumeVarint(value)
 			if n < 0 {
-				return "", "", "", "", "", false, protowire.ParseError(n)
+				return "", "", "", "", "", false, "", protowire.ParseError(n)
 			}
 			needsExpansion = v != 0
+			value = value[n:]
+		case 10:
+			if typ != protowire.BytesType {
+				return "", "", "", "", "", false, "", fmt.Errorf("raw record: grant source_scope_hash has wire type %v", typ)
+			}
+			s, n := protowire.ConsumeBytes(value)
+			if n < 0 {
+				return "", "", "", "", "", false, "", protowire.ParseError(n)
+			}
+			sourceScopeHash = string(s)
 			value = value[n:]
 		default:
 			n = protowire.ConsumeFieldValue(num, typ, value)
 			if n < 0 {
-				return "", "", "", "", "", false, protowire.ParseError(n)
+				return "", "", "", "", "", false, "", protowire.ParseError(n)
 			}
 			value = value[n:]
 		}
 	}
-	return entRT, entRID, entID, principalRT, principalID, needsExpansion, nil
+	return entRT, entRID, entID, principalRT, principalID, needsExpansion, sourceScopeHash, nil
 }
 
 // scanGrantNeedsExpansionRaw extracts only the needs_expansion flag
@@ -591,4 +663,174 @@ func scanResourceRefRawBytes(value []byte, set func(protowire.Number, []byte)) e
 		value = value[n:]
 	}
 	return nil
+}
+
+// Annotation message names (the tail of an Any type_url) that drive
+// replay side effects. Matched on the segment after the last '/' so
+// non-default type-url prefixes still resolve.
+const (
+	anyTypeChildResourceType        = "c1.connector.v2.ChildResourceType"
+	anyTypeInsertResourceGrants     = "c1.connector.v2.InsertResourceGrants"
+	anyTypeExternalResourceMatch    = "c1.connector.v2.ExternalResourceMatch"
+	anyTypeExternalResourceMatchAll = "c1.connector.v2.ExternalResourceMatchAll"
+	anyTypeExternalResourceMatchID  = "c1.connector.v2.ExternalResourceMatchID"
+)
+
+// scanAnnotationAnysRaw walks a record's repeated-Any annotations field
+// (fieldNum) without unmarshaling the record, invoking visit with each
+// Any's message type name and value bytes. Used by the source-cache
+// replay paths to detect side-effect annotations (ChildResourceType,
+// InsertResourceGrants, ExternalResourceMatch*) on raw-copied rows.
+func scanAnnotationAnysRaw(value []byte, fieldNum protowire.Number, visit func(typeName string, payload []byte) error) error {
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != fieldNum {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return protowire.ParseError(n)
+			}
+			value = value[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return fmt.Errorf("raw record: annotations field has wire type %v", typ)
+		}
+		anyMsg, n := protowire.ConsumeBytes(value)
+		if n < 0 {
+			return protowire.ParseError(n)
+		}
+		value = value[n:]
+
+		var typeURL string
+		var payload []byte
+		rest := anyMsg
+		for len(rest) > 0 {
+			anum, atyp, an := protowire.ConsumeTag(rest)
+			if an < 0 {
+				return protowire.ParseError(an)
+			}
+			rest = rest[an:]
+			if atyp != protowire.BytesType {
+				an = protowire.ConsumeFieldValue(anum, atyp, rest)
+				if an < 0 {
+					return protowire.ParseError(an)
+				}
+				rest = rest[an:]
+				continue
+			}
+			b, an := protowire.ConsumeBytes(rest)
+			if an < 0 {
+				return protowire.ParseError(an)
+			}
+			switch anum {
+			case 1:
+				typeURL = string(b)
+			case 2:
+				payload = b
+			default:
+			}
+			rest = rest[an:]
+		}
+		typeName := typeURL
+		if i := strings.LastIndexByte(typeURL, '/'); i >= 0 {
+			typeName = typeURL[i+1:]
+		}
+		if typeName == "" {
+			continue
+		}
+		if err := visit(typeName, payload); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// scanResourceChildTypeIDsRaw returns the resource_type_ids named by
+// ChildResourceType annotations on a marshaled ResourceRecord (field 7).
+// Nil for the common case of a resource with no child types.
+func scanResourceChildTypeIDsRaw(value []byte) ([]string, error) {
+	var out []string
+	err := scanAnnotationAnysRaw(value, 7, func(typeName string, payload []byte) error {
+		if typeName != anyTypeChildResourceType {
+			return nil
+		}
+		crt := &v2.ChildResourceType{}
+		if err := proto.Unmarshal(payload, crt); err != nil {
+			return fmt.Errorf("raw record: unmarshal ChildResourceType annotation: %w", err)
+		}
+		if id := crt.GetResourceTypeId(); id != "" {
+			out = append(out, id)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+const anyTypeEntitlementExclusionGroup = "c1.connector.v2.EntitlementExclusionGroup"
+
+// scanEntitlementExclusionGroupsRaw returns the exclusion-group
+// annotations on a marshaled EntitlementRecord (annotations field 7),
+// paired with the row's identity so the syncer can validate them exactly
+// like fresh response rows. Nil for the common unannotated case, with no
+// identity scan performed.
+func scanEntitlementExclusionGroupsRaw(value []byte) ([]ReplayedExclusionGroup, error) {
+	var groups []*v2.EntitlementExclusionGroup
+	err := scanAnnotationAnysRaw(value, 7, func(typeName string, payload []byte) error {
+		if typeName != anyTypeEntitlementExclusionGroup {
+			return nil
+		}
+		eg := &v2.EntitlementExclusionGroup{}
+		if err := proto.Unmarshal(payload, eg); err != nil {
+			return fmt.Errorf("raw record: unmarshal EntitlementExclusionGroup annotation: %w", err)
+		}
+		groups = append(groups, eg)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	rt, _, externalID, err := scanEntitlementIdentityFieldsRaw(value)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ReplayedExclusionGroup, 0, len(groups))
+	for _, eg := range groups {
+		out = append(out, ReplayedExclusionGroup{
+			EntitlementID:  externalID,
+			ResourceTypeID: rt,
+			Group:          eg,
+		})
+	}
+	return out, nil
+}
+
+// grantSourceCacheFlags reports which replay side-effect annotations a
+// marshaled GrantRecord carries (annotations field 8).
+type grantSourceCacheFlags struct {
+	insertResourceGrants  bool
+	externalResourceMatch bool
+}
+
+func scanGrantSourceCacheFlagsRaw(value []byte) (grantSourceCacheFlags, error) {
+	var f grantSourceCacheFlags
+	err := scanAnnotationAnysRaw(value, 8, func(typeName string, _ []byte) error {
+		switch typeName {
+		case anyTypeInsertResourceGrants:
+			f.insertResourceGrants = true
+		case anyTypeExternalResourceMatch, anyTypeExternalResourceMatchAll, anyTypeExternalResourceMatchID:
+			f.externalResourceMatch = true
+		}
+		return nil
+	})
+	return f, err
 }

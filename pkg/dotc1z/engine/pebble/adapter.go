@@ -21,6 +21,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
 // Adapter wraps an *Engine and implements connectorstore.Writer
@@ -276,15 +277,12 @@ func (a *Adapter) CheckpointSync(ctx context.Context, syncToken string) error {
 	if err != nil {
 		return err
 	}
-	updated := v3.SyncRunRecord_builder{
-		SyncId:       existing.GetSyncId(),
-		Type:         existing.GetType(),
-		ParentSyncId: existing.GetParentSyncId(),
-		StartedAt:    existing.GetStartedAt(),
-		EndedAt:      existing.GetEndedAt(),
-		SyncToken:    syncToken,
-	}.Build()
-	return a.engine.PutSyncRunRecord(ctx, updated)
+	// Mutate the loaded record rather than rebuilding it field-by-field:
+	// a rebuild silently drops every field it doesn't name (this used to
+	// erase compaction provenance when the compactor's grant-expansion
+	// pass checkpointed over a compacted-marked sync).
+	existing.SetSyncToken(syncToken)
+	return a.engine.PutSyncRunRecord(ctx, existing)
 }
 
 // EndSync stamps the open sync_run's ended_at and detaches it. After
@@ -367,15 +365,12 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			return fmt.Errorf("EndSync: repair grant digests: %w", err)
 		}
 	}
-	updated := v3.SyncRunRecord_builder{
-		SyncId:       existing.GetSyncId(),
-		Type:         existing.GetType(),
-		ParentSyncId: existing.GetParentSyncId(),
-		StartedAt:    existing.GetStartedAt(),
-		EndedAt:      timestamppb.Now(),
-		SyncToken:    existing.GetSyncToken(),
-	}.Build()
-	if err := e.PutSyncRunRecord(ctx, updated); err != nil {
+	// Mutate the loaded record rather than rebuilding it field-by-field —
+	// a rebuild drops every field it doesn't name (supports_diff,
+	// linked_sync_id, compacted), which erased compaction provenance and
+	// diff markers when a sync re-ended after expansion or resume.
+	existing.SetEndedAt(timestamppb.Now())
+	if err := e.PutSyncRunRecord(ctx, existing); err != nil {
 		return err
 	}
 	// Populate the stats sidecar BEFORE the durability flush. Stats
@@ -422,10 +417,25 @@ func (a *Adapter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 		return ErrNoCurrentSync
 	}
 	records := translateGrants(syncID, grants)
+	stampSourceScope(ctx, records, func(r *v3.GrantRecord, s string) { r.SetSourceScopeHash(s) })
 	if err := a.engine.PutGrantRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutGrants: %w", err)
 	}
 	return nil
+}
+
+// stampSourceScope stamps the source-cache scope hash carried by ctx
+// (sourcecache.WithScope) onto freshly translated records. The syncer
+// sets the scope around a page's store writes when the page carried a
+// SourceCacheScope annotation; everything else writes unstamped rows.
+func stampSourceScope[T any](ctx context.Context, records []T, set func(T, string)) {
+	scope := sourcecache.ScopeFromContext(ctx)
+	if scope == "" {
+		return
+	}
+	for _, r := range records {
+		set(r, scope)
+	}
 }
 
 // UnsafePutUniqueGrants writes grants on the trusted-import path: records
@@ -585,6 +595,7 @@ func (a *Adapter) PutResources(ctx context.Context, resources ...*v2.Resource) e
 		}
 		records = append(records, rec)
 	}
+	stampSourceScope(ctx, records, func(r *v3.ResourceRecord, s string) { r.SetSourceScopeHash(s) })
 	if err := a.engine.PutResourceRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutResources: %w", err)
 	}
@@ -612,6 +623,7 @@ func (a *Adapter) PutEntitlements(ctx context.Context, entitlements ...*v2.Entit
 		}
 		records = append(records, rec)
 	}
+	stampSourceScope(ctx, records, func(r *v3.EntitlementRecord, s string) { r.SetSourceScopeHash(s) })
 	if err := a.engine.PutEntitlementRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutEntitlements: %w", err)
 	}

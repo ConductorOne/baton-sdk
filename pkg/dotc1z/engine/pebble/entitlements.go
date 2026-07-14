@@ -20,9 +20,16 @@ func (e *Engine) PutEntitlementRecord(ctx context.Context, r *v3.EntitlementReco
 
 // PutEntitlementRecords writes N entitlements by structured primary key.
 // The identity key is a pure function of the record (it contains the raw
-// external id), so overwrites are idempotent and no read-before-write or
-// index cleanup is needed; a within-call dedup pre-pass keeps last-wins
-// semantics for same-identity duplicates in one batch.
+// external id), so overwrites of the PRIMARY row are idempotent; a
+// within-call dedup pre-pass keeps last-wins semantics for same-identity
+// duplicates in one batch. The by_source_scope index (the only
+// entitlement secondary index) is NOT idempotent across scope changes, so
+// a read-before-write Get cleans a differing old stamp — mirroring
+// PutGrantRecords/PutResourceRecords — gated off only on the provably
+// empty first call of a fresh sync. Without this, a same-identity rewrite
+// under a new scope leaves a stale index entry AND the old scope's
+// manifest entry survives, so the NEXT sync's replay of the old scope
+// copies zero rows where the manifest promised content.
 func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.EntitlementRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -35,6 +42,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		defer priBatch.Close()
 
 		fresh := e.IsFreshSync()
+		skipGet := e.takeFreshEntitlementsEmpty()
 
 		type dedupKey struct {
 			id entitlementIdentity
@@ -72,8 +80,34 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 			if err != nil {
 				return err
 			}
+			newScope := r.GetSourceScopeHash()
+			if !skipGet {
+				oldVal, closer, getErr := e.db.Get(key)
+				switch {
+				case getErr == nil:
+					oldScope, scanErr := scanEntitlementSourceScopeRaw(oldVal)
+					closer.Close()
+					if scanErr != nil {
+						return scanErr
+					}
+					if oldScope != "" && oldScope != newScope {
+						if err := priBatch.Delete(encodeEntitlementBySourceScopeIndexKey(oldScope, id), nil); err != nil {
+							return err
+						}
+					}
+				case errors.Is(getErr, pebble.ErrNotFound):
+					// no prior record — write unconditionally
+				default:
+					return fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
+				}
+			}
 			if err := priBatch.Set(key, val, nil); err != nil {
 				return err
+			}
+			if newScope != "" {
+				if err := priBatch.Set(encodeEntitlementBySourceScopeIndexKey(newScope, id), nil, nil); err != nil {
+					return err
+				}
 			}
 		}
 		opts := writeOpts(e.opts.durability)
@@ -122,6 +156,22 @@ func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string)
 		key := encodeEntitlementIdentityKey(id)
 		batch := e.db.NewBatch()
 		defer batch.Close()
+		// Clean up the source-scope index entry (the only entitlement
+		// secondary index) so a replayed scope can't resurrect the row.
+		if oldVal, closer, getErr := e.db.Get(key); getErr == nil {
+			oldScope, scanErr := scanEntitlementSourceScopeRaw(oldVal)
+			closer.Close()
+			if scanErr != nil {
+				return scanErr
+			}
+			if oldScope != "" {
+				if err := batch.Delete(encodeEntitlementBySourceScopeIndexKey(oldScope, id), nil); err != nil {
+					return err
+				}
+			}
+		} else if !errors.Is(getErr, pebble.ErrNotFound) {
+			return getErr
+		}
 		if err := batch.Delete(key, nil); err != nil {
 			return err
 		}

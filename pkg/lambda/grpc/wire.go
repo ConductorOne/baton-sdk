@@ -81,8 +81,9 @@ func spliceWireFrame(legacy []byte, msg proto.Message) ([]byte, error) {
 	}
 	var buf bytes.Buffer
 	buf.Grow(len(legacy) + len(suffix))
-	buf.Write(legacy[:len(legacy)-1])
-	buf.WriteByte(',')
-	buf.Write(suffix[1:])
+	// bytes.Buffer writes are documented to never return an error.
+	_, _ = buf.Write(legacy[:len(legacy)-1])
+	_ = buf.WriteByte(',')
+	_, _ = buf.Write(suffix[1:])
 	return buf.Bytes(), nil
 }

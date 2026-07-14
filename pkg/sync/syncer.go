@@ -20,6 +20,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -158,6 +159,7 @@ type syncer struct {
 	syncID                              string
 	skipEGForResourceType               syncMap[string, bool]
 	skipEntitlementsForResourceType     syncMap[string, bool]
+	typeScopedGrantsForResourceType     syncMap[string, bool]
 	skipEntitlementsAndGrants           bool
 	skipGrants                          bool
 	resourceTypeTraits                  syncMap[string, []v2.ResourceType_Trait]
@@ -169,6 +171,7 @@ type syncer struct {
 	metricsHandler                      metrics.Handler
 	syncIdentity                        uotel.SyncIdentity
 	recordStats                         bool
+	sourceCache                         syncerSourceCache
 }
 
 var _ Syncer = (*syncer)(nil)
@@ -496,6 +499,9 @@ func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 	if logSession {
 		fields = append(fields, zap.Any("session_store_stats", sessionForLog))
 	}
+	if scStats := s.state.SourceCacheStatsSnapshot(); scStats != nil {
+		fields = append(fields, zap.Any("source_cache_stats", scStats))
+	}
 	return fields
 }
 
@@ -770,6 +776,11 @@ func (s *syncer) Sync(ctx context.Context) error {
 		}
 	}
 
+	err = s.configureSourceCache(ctx, resp)
+	if err != nil {
+		return err
+	}
+
 	syncResourceTypeMap := make(map[string]bool)
 	if len(s.syncResourceTypes) > 0 {
 		for _, rt := range s.syncResourceTypes {
@@ -895,6 +906,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return s.returnSyncError(l, span, err)
 	}
 
+	s.logSourceCacheStats(ctx)
 	if s.recordStats {
 		l.Info("Sync complete.", s.syncSummaryFields(span)...)
 	} else {
@@ -1087,11 +1099,7 @@ func (s *syncer) hasChildResources(resource *v2.Resource) bool {
 // At sync scale (100k+ resources per trace) the span overhead and trace bloat
 // outweighed any debugging value.
 func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error {
-	syncResourceTypeMap := make(map[string]bool)
-	for _, rt := range s.syncResourceTypes {
-		syncResourceTypeMap[rt] = true
-	}
-
+	var childTypeIDs []string
 	for _, a := range parent.GetAnnotations() {
 		if a.MessageIs((*v2.ChildResourceType)(nil)) {
 			crt := &v2.ChildResourceType{}
@@ -1099,22 +1107,30 @@ func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error
 			if err != nil {
 				return err
 			}
-			if len(s.syncResourceTypes) > 0 {
-				if shouldSync := syncResourceTypeMap[crt.GetResourceTypeId()]; !shouldSync {
-					continue
-				}
-			}
-			childAction := Action{
-				Op:                   SyncResourcesOp,
-				ResourceTypeID:       crt.GetResourceTypeId(),
-				ParentResourceID:     parent.GetId().GetResource(),
-				ParentResourceTypeID: parent.GetId().GetResourceType(),
-			}
-			s.state.PushAction(ctx, childAction)
+			childTypeIDs = append(childTypeIDs, crt.GetResourceTypeId())
 		}
 	}
-
+	s.pushChildResourceActions(ctx, childTypeIDs, parent.GetId().GetResourceType(), parent.GetId().GetResource())
 	return nil
+}
+
+// pushChildResourceActions queues child resource syncs for one parent,
+// honoring the sync's resource-type filter. Shared by getSubResources
+// (response rows) and the source-cache replay path, which must schedule
+// children for replayed parents itself (a replayed page has no response
+// rows for getSubResources to inspect).
+func (s *syncer) pushChildResourceActions(ctx context.Context, childTypeIDs []string, parentTypeID, parentID string) {
+	for _, childTypeID := range childTypeIDs {
+		if len(s.syncResourceTypes) > 0 && !slices.Contains(s.syncResourceTypes, childTypeID) {
+			continue
+		}
+		s.state.PushAction(ctx, Action{
+			Op:                   SyncResourcesOp,
+			ResourceTypeID:       childTypeID,
+			ParentResourceID:     parentID,
+			ParentResourceTypeID: parentTypeID,
+		})
+	}
 }
 
 func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
@@ -1269,25 +1285,56 @@ func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
 // owns a span — the duplicate inflated trace span counts without adding
 // information.
 func (s *syncer) syncResources(ctx context.Context, action *Action) error {
-	req := v2.ResourcesServiceListResourcesRequest_builder{
-		ResourceTypeId: action.ResourceTypeID,
-		PageToken:      action.PageToken,
-		ActiveSyncId:   s.getActiveSyncID(),
-	}.Build()
-	if action.ParentResourceTypeID != "" && action.ParentResourceID != "" {
-		req.SetParentResourceId(v2.ResourceId_builder{
-			ResourceType: action.ParentResourceTypeID,
-			Resource:     action.ParentResourceID,
-		}.Build())
-	}
-
-	start := time.Now()
-	resp, err := s.connector.ListResources(ctx, req)
-	s.observeConnectorCall(ctx, "list-resources", start, action.ResourceTypeID, action.ResourceID)
-	s.recordSessionUsage(resp.GetAnnotations())
+	var resp *v2.ResourcesServiceListResourcesResponse
+	err := s.withSourceCacheContinuation(ctx, "sync-resources", func(extra annotations.Annotations, attempt int) (listAttempt, error) {
+		req := v2.ResourcesServiceListResourcesRequest_builder{
+			ResourceTypeId: action.ResourceTypeID,
+			PageToken:      action.PageToken,
+			ActiveSyncId:   s.getActiveSyncID(),
+			Annotations:    extra,
+		}.Build()
+		if action.ParentResourceTypeID != "" && action.ParentResourceID != "" {
+			req.SetParentResourceId(v2.ResourceId_builder{
+				ResourceType: action.ParentResourceTypeID,
+				Resource:     action.ParentResourceID,
+			}.Build())
+		}
+		start := time.Now()
+		r, err := s.connector.ListResources(ctx, req)
+		s.observeConnectorCall(ctx, continuationCallMethod("list-resources", attempt), start, action.ResourceTypeID, action.ResourceID)
+		if err != nil {
+			return listAttempt{}, err
+		}
+		s.recordSessionUsage(r.GetAnnotations())
+		resp = r
+		return listAttempt{
+			annos:     annotations.Annotations(r.GetAnnotations()),
+			rows:      len(r.GetList()),
+			nextToken: r.GetNextPageToken(),
+		}, nil
+	})
 	if err != nil {
 		return err
 	}
+
+	putCtx, scPage, err := s.beginSourceCachePage(ctx, sourcecache.RowKindResources, annotations.Annotations(resp.GetAnnotations()), len(resp.GetList()))
+	if err != nil {
+		return err
+	}
+
+	// On any source-cache-scoped page the "already synced this sync"
+	// dedupe below is wrong — scoped pages are upsert streams whose rows
+	// are always authoritative:
+	//   - Replayed rounds copy the previous sync's rows in on the round's
+	//     FIRST page, so an overlay row's identity ALWAYS hits the store,
+	//     on every page of the round — but the stored row is the stale
+	//     base and the overlay row is the update that must overwrite it.
+	//     Keying off the replay annotation alone would only protect page
+	//     one (the annotation fires once per round).
+	//   - Cold delta enumerations may legally return the same object
+	//     multiple times (changed mid-walk), later occurrences
+	//     authoritative; deduping would keep the STALE first occurrence.
+	pageScoped := scPage != nil
 
 	bulkPutResoruces := []*v2.Resource{}
 	for _, r := range resp.GetList() {
@@ -1305,7 +1352,7 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 			validatedResource = true
 
 			// We must *ALSO* check if we have any child resources.
-			if !s.hasChildResources(r) {
+			if !pageScoped && !s.hasChildResources(r) {
 				// Since we only have the resource type IDs of child resources,
 				// we can't tell if we already have synced those child resources.
 				// Those children may also have their own child resources,
@@ -1334,10 +1381,14 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 	}
 
 	if len(bulkPutResoruces) > 0 {
-		err = s.store.PutResources(ctx, bulkPutResoruces...)
+		err = s.store.PutResources(putCtx, bulkPutResoruces...)
 		if err != nil {
 			return err
 		}
+	}
+
+	if err := s.finishSourceCachePage(ctx, scPage); err != nil {
+		return err
 	}
 
 	s.handleProgress(ctx, action, len(resp.GetList()))
@@ -1547,22 +1598,45 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 
 	resource := resourceResponse.GetResource()
 
-	start := time.Now()
-	resp, err := s.connector.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
-		Resource:     resource,
-		PageToken:    action.PageToken,
-		ActiveSyncId: s.getActiveSyncID(),
-	}.Build())
-	s.observeConnectorCall(ctx, "list-entitlements", start, action.ResourceTypeID, action.ResourceID)
-	s.recordSessionUsage(resp.GetAnnotations())
+	var resp *v2.EntitlementsServiceListEntitlementsResponse
+	err = s.withSourceCacheContinuation(ctx, "sync-entitlements", func(extra annotations.Annotations, attempt int) (listAttempt, error) {
+		start := time.Now()
+		r, err := s.connector.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+			Resource:     resource,
+			PageToken:    action.PageToken,
+			ActiveSyncId: s.getActiveSyncID(),
+			Annotations:  extra,
+		}.Build())
+		s.observeConnectorCall(ctx, continuationCallMethod("list-entitlements", attempt), start, action.ResourceTypeID, action.ResourceID)
+		if err != nil {
+			return listAttempt{}, err
+		}
+		s.recordSessionUsage(r.GetAnnotations())
+		resp = r
+		return listAttempt{
+			annos:     annotations.Annotations(r.GetAnnotations()),
+			rows:      len(r.GetList()),
+			nextToken: r.GetNextPageToken(),
+		}, nil
+	})
 	if err != nil {
 		return err
 	}
 	if err := s.validateEntitlementExclusionGroups(resp.GetList()); err != nil {
 		return err
 	}
-	err = s.store.PutEntitlements(ctx, resp.GetList()...)
+
+	putCtx, scPage, err := s.beginSourceCachePage(ctx, sourcecache.RowKindEntitlements, annotations.Annotations(resp.GetAnnotations()), len(resp.GetList()))
 	if err != nil {
+		return err
+	}
+
+	err = s.store.PutEntitlements(putCtx, resp.GetList()...)
+	if err != nil {
+		return err
+	}
+
+	if err := s.finishSourceCachePage(ctx, scPage); err != nil {
 		return err
 	}
 
@@ -1999,6 +2073,9 @@ func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.En
 
 // SyncGrants fetches the grants for each resource from the connector. It iterates each resource
 // from the datastore, and pushes a new action to sync the grants for each individual resource.
+// Resource types annotated with TypeScopedGrants are excluded from the per-resource fan-out and
+// get a single type-scoped action instead (empty ResourceID); the connector enumerates the whole
+// type, optionally spawning additional cursors via the SpawnCursors annotation.
 func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrants")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -2006,9 +2083,20 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" && action.ResourceID == "" {
+		actions := make([]Action, 0)
 		if action.PageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing grants...")
 			s.handleInitialActionForStep(ctx, *action)
+
+			// One type-scoped action per annotated resource type, enqueued
+			// exactly once (the planner's first page).
+			typeScoped, err := s.typeScopedGrantsResourceTypes(ctx)
+			if err != nil {
+				return fmt.Errorf("sync-grants: error listing type-scoped resource types: %w", err)
+			}
+			for _, rtID := range typeScoped {
+				actions = append(actions, Action{Op: SyncGrantsOp, ResourceTypeID: rtID})
+			}
 		}
 
 		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
@@ -2019,16 +2107,25 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 			return fmt.Errorf("sync-grants: error listing resources: %w", err)
 		}
 
-		actions := make([]Action, 0)
 		for _, r := range resp.GetList() {
 			shouldSkip, err := s.shouldSkipGrants(ctx, r)
 			if err != nil {
 				return err
 			}
-
 			if shouldSkip {
 				continue
 			}
+
+			// Types with type-scoped grants are excluded from the
+			// per-resource fan-out; their single action is enqueued above.
+			typeScoped, err := s.resourceTypeHasTypeScopedGrants(ctx, r.GetId().GetResourceType())
+			if err != nil {
+				return err
+			}
+			if typeScoped {
+				continue
+			}
+
 			actions = append(actions, Action{Op: SyncGrantsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 		}
 
@@ -2042,30 +2139,110 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	return nil
 }
 
+// resourceTypeHasTypeScopedGrants reports (cached per sync) whether the
+// resource type carries the TypeScopedGrants annotation.
+func (s *syncer) resourceTypeHasTypeScopedGrants(ctx context.Context, resourceTypeID string) (bool, error) {
+	if v, ok := s.typeScopedGrantsForResourceType.Load(resourceTypeID); ok {
+		return v, nil
+	}
+	rt, err := s.store.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
+		ResourceTypeId: resourceTypeID,
+	}.Build())
+	if err != nil {
+		return false, err
+	}
+	rtAnnos := annotations.Annotations(rt.GetResourceType().GetAnnotations())
+	typeScoped := rtAnnos.Contains(&v2.TypeScopedGrants{})
+	s.typeScopedGrantsForResourceType.Store(resourceTypeID, typeScoped)
+	return typeScoped, nil
+}
+
+// typeScopedGrantsResourceTypes lists every synced resource type annotated
+// with TypeScopedGrants.
+func (s *syncer) typeScopedGrantsResourceTypes(ctx context.Context) ([]string, error) {
+	var out []string
+	pageToken := ""
+	for {
+		resp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return nil, err
+		}
+		for _, rt := range resp.GetList() {
+			rtAnnos := annotations.Annotations(rt.GetAnnotations())
+			typeScoped := rtAnnos.Contains(&v2.TypeScopedGrants{})
+			s.typeScopedGrantsForResourceType.Store(rt.GetId(), typeScoped)
+			if typeScoped {
+				out = append(out, rt.GetId())
+			}
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			return out, nil
+		}
+	}
+}
+
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
+// An action with an empty ResourceID is a TYPE-SCOPED grants cursor: the connector
+// enumerates grants for the whole resource type (no single resource backs the call),
+// and may spawn sibling cursors via the SpawnCursors response annotation.
 // No span here: only call site is SyncGrants, which already owns a span.
 func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) error {
+	typeScoped := action.ResourceID == ""
 	resourceID := v2.ResourceId_builder{
 		ResourceType: action.ResourceTypeID,
 		Resource:     action.ResourceID,
 	}.Build()
-	resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
-		ResourceId: resourceID,
-	}.Build())
-	if err != nil {
-		return fmt.Errorf("sync-grants-for-resource: error getting resource: %w", err)
+
+	var resource *v2.Resource
+	var reqAnnos annotations.Annotations
+	if typeScoped {
+		// Wire validation requires a non-empty resource id, so the stub is
+		// self-referential ({type, type}) and the request carries the
+		// TypeScopedGrants annotation as the routing marker.
+		resource = v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: action.ResourceTypeID,
+				Resource:     action.ResourceTypeID,
+			}.Build(),
+		}.Build()
+		reqAnnos.Update(&v2.TypeScopedGrants{})
+	} else {
+		resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: resourceID,
+		}.Build())
+		if err != nil {
+			return fmt.Errorf("sync-grants-for-resource: error getting resource: %w", err)
+		}
+		resource = resourceResponse.GetResource()
 	}
 
-	resource := resourceResponse.GetResource()
-
-	start := time.Now()
-	resp, err := s.connector.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
-		Resource:     resource,
-		PageToken:    action.PageToken,
-		ActiveSyncId: s.getActiveSyncID(),
-	}.Build())
-	s.observeConnectorCall(ctx, "list-grants", start, action.ResourceTypeID, action.ResourceID)
-	s.recordSessionUsage(resp.GetAnnotations())
+	var resp *v2.GrantsServiceListGrantsResponse
+	err := s.withSourceCacheContinuation(ctx, "sync-grants-for-resource", func(extra annotations.Annotations, attempt int) (listAttempt, error) {
+		annos := make(annotations.Annotations, 0, len(reqAnnos)+len(extra))
+		annos = append(annos, reqAnnos...)
+		annos = append(annos, extra...)
+		start := time.Now()
+		r, err := s.connector.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+			Resource:     resource,
+			PageToken:    action.PageToken,
+			ActiveSyncId: s.getActiveSyncID(),
+			Annotations:  annos,
+		}.Build())
+		s.observeConnectorCall(ctx, continuationCallMethod("list-grants", attempt), start, action.ResourceTypeID, action.ResourceID)
+		if err != nil {
+			return listAttempt{}, err
+		}
+		s.recordSessionUsage(r.GetAnnotations())
+		resp = r
+		return listAttempt{
+			annos:     annotations.Annotations(r.GetAnnotations()),
+			rows:      len(r.GetList()),
+			nextToken: r.GetNextPageToken(),
+		}, nil
+	})
 	if err != nil {
 		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", err)
 	}
@@ -2076,6 +2253,15 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 	resourcesToInsertMap := make(map[string]*v2.Resource, 0)
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	insertResourceGrants := respAnnos.Contains(&v2.InsertResourceGrants{})
+
+	// Source-cache replay/stamping for this grants page. putCtx applies
+	// ONLY to the PutGrants call below — the related-resource PutResources
+	// writes in this function are resource rows and must not inherit a
+	// grants-scope stamp.
+	putCtx, scPage, err := s.beginSourceCachePage(ctx, sourcecache.RowKindGrants, respAnnos, len(grants))
+	if err != nil {
+		return fmt.Errorf("sync-grants-for-resource: %w", err)
+	}
 
 	// Stamp InsertResourceGrants per-grant so the slim-blob writer's
 	// gate sees it. The annotation is response-level, but the writer
@@ -2159,19 +2345,99 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		}
 	}
 
-	err = s.store.PutGrants(ctx, grants...)
+	err = s.store.PutGrants(putCtx, grants...)
 	if err != nil {
 		return fmt.Errorf("sync-grants-for-resource: error putting grants: %w", err)
 	}
 
+	if err := s.finishSourceCachePage(ctx, scPage); err != nil {
+		return fmt.Errorf("sync-grants-for-resource: %w", err)
+	}
+
 	s.handleProgress(ctx, action, len(grants))
 
-	if resp.GetNextPageToken() == "" {
+	if typeScoped {
+		// Cursors don't map 1:1 to resources (one cursor can cover many
+		// groups and may also emit cross-type grants), so the per-resource
+		// "N of M resources covered" accounting is meaningless here and
+		// would trip the "more grant resources than resources" warning on
+		// healthy syncs. Count raw grant rows instead.
+		s.counts.SetGrantsCountOnly(resourceID.GetResourceType())
+		s.counts.AddGrantsProgress(resourceID.GetResourceType(), len(grants))
+		s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
+	} else if resp.GetNextPageToken() == "" && !action.Spawned {
+		// A resource counts as covered exactly once: when its ORIGIN
+		// action's page chain ends. Spawned sibling cursors for the same
+		// resource also end with an empty token but must not count, or a
+		// resource with N spawned pages would count N times and trip the
+		// progress anomaly warning on healthy syncs.
 		s.counts.AddGrantsProgress(resourceID.GetResourceType(), 1)
 		s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
 	}
 
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
+	// SpawnCursors: the response may enqueue sibling cursors — each runs
+	// as its own action, scheduled by the worker pool, rate-limited, and
+	// checkpointed like any other pagination.
+	//
+	//   - Type-scoped calls: one cursor per connector-defined shard (e.g.
+	//     50-id delta chunks); actions carry only the resource type.
+	//   - Per-resource calls: parallel page fan-out for page-numbered APIs
+	//     (the connector knows every page URL from page one, so a warm
+	//     sync can revalidate all pages concurrently instead of serially);
+	//     actions carry the resource identity.
+	//
+	// Spawned cursors are ORDINARY pages that happen to be enqueued
+	// eagerly: the SDK assumes nothing about replay — a spawned page may
+	// hit its lookup and replay, miss and fetch cold (page boundary
+	// shifted since last sync), and may chain further via NextPageToken.
+	spawn := &v2.SpawnCursors{}
+	hasSpawn, err := respAnnos.Pick(spawn)
+	if err != nil {
+		return fmt.Errorf("sync-grants-for-resource: error parsing spawn-cursors annotation: %w", err)
+	}
+	var spawned []Action
+	if hasSpawn {
+		// Every spawned action is persisted in the checkpointed state
+		// token, so an unbounded fan-out (a buggy planner emitting
+		// millions of tokens, or a spawn-inside-spawn loop) would bloat
+		// every checkpoint write before anything else fails. Cap
+		// per-response and fail loudly, mirroring the lookup bounce cap.
+		// Legitimate patterns sit far below this: Entra spawns ~35 chunk
+		// cursors per planning page, GitHub one sibling per stored page.
+		if len(spawn.GetPageTokens()) > maxSpawnCursorsPerResponse {
+			return fmt.Errorf(
+				"sync-grants-for-resource: SpawnCursors carried %d page tokens (max %d per response); chain additional spawns across pages instead",
+				len(spawn.GetPageTokens()), maxSpawnCursorsPerResponse)
+		}
+		for _, tok := range spawn.GetPageTokens() {
+			if tok == "" {
+				continue
+			}
+			if len(tok) > maxSpawnCursorTokenBytes {
+				return fmt.Errorf(
+					"sync-grants-for-resource: SpawnCursors page token is %d bytes (max %d)",
+					len(tok), maxSpawnCursorTokenBytes)
+			}
+			spawned = append(spawned, Action{
+				Op:             SyncGrantsOp,
+				ResourceTypeID: action.ResourceTypeID,
+				ResourceID:     action.ResourceID, // empty on type-scoped actions
+				PageToken:      tok,
+				Spawned:        true,
+			})
+		}
+		if len(spawned) > 0 {
+			s.state.AddSourceCacheStats(SourceCacheStats{SpawnedCursors: int64(len(spawned))})
+		}
+		l.Debug("sync-grants-for-resource: spawned sibling grant cursors",
+			zap.String("resource_type_id", action.ResourceTypeID),
+			zap.String("resource_id", action.ResourceID),
+			zap.Bool("type_scoped", typeScoped),
+			zap.Int("cursors", len(spawned)),
+			zap.Int64("estimated_total", spawn.GetEstimatedTotal()))
+	}
+
+	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), spawned...)
 }
 
 func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) error {
@@ -2580,7 +2846,37 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	}
 
 	grantsToDelete := make([]*v2.Grant, 0)
-	expandedGrants := make([]*v2.Grant, 0)
+	// expanded dedupes transformed grants by id with DETERMINISTIC
+	// collision resolution. Overlapping match rules (e.g. MatchID and
+	// MatchAll on one entitlement resolving to the same principal)
+	// produce the same grant id with different annotations; naive
+	// last-writer-wins depends on store iteration order, which differs
+	// between a cold sync (iterating source grants) and a warm sync
+	// (iterating replayed transformed grants) — breaking replay
+	// equivalence. The more specific rule wins (MatchID > key/value
+	// Match > MatchAll); equal-rank conflicts keep the smaller
+	// deterministic encoding. Each entry also carries its SOURCE grant's
+	// source-cache scope: the source grant is deleted below, and a scope
+	// left holding neither source nor transformed rows would silently
+	// replay empty on the next sync.
+	const (
+		matchRankAll = iota + 1
+		matchRankKeyValue
+		matchRankID
+	)
+	type expandedEntry struct {
+		grant *v2.Grant
+		scope string
+		rank  int
+	}
+	expanded := make(map[string]*expandedEntry)
+	// matchAllSeen guards MatchAll reprocessing. On a warm sync the
+	// previous sync's transformed grants replay and re-enter this loop,
+	// each still carrying the original MatchAll annotation; without
+	// dedupe, N transformed grants would each regenerate all N
+	// principals' grants (O(N²)). One regeneration per (entitlement,
+	// trait) produces the complete set.
+	matchAllSeen := make(map[string]struct{})
 
 	for ga, err := range s.store.Grants().ListWithAnnotations(ctx) {
 		if err != nil {
@@ -2592,6 +2888,23 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if !annos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 			continue
 		}
+		sourceScope := ga.SourceScopeHash
+		addExpanded := func(rank int, g *v2.Grant) {
+			entry := &expandedEntry{grant: g, scope: sourceScope, rank: rank}
+			prev, ok := expanded[g.GetId()]
+			if !ok || entry.rank > prev.rank {
+				expanded[g.GetId()] = entry
+				return
+			}
+			if entry.rank < prev.rank || prev.grant == g {
+				// Lower specificity loses; re-adding the same object (the
+				// MatchID+expandable path mutates and re-adds) is a no-op.
+				return
+			}
+			if grantCollisionKey(entry.scope, g) < grantCollisionKey(prev.scope, prev.grant) {
+				expanded[g.GetId()] = entry
+			}
+		}
 
 		// Match all
 		matchResourceMatchAllAnno, err := GetExternalResourceMatchAllAnnotation(annos)
@@ -2599,18 +2912,22 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			return err
 		}
 		if matchResourceMatchAllAnno != nil {
-			var processPrincipals []*v2.Resource
-			switch matchResourceMatchAllAnno.GetResourceType() {
-			case v2.ResourceType_TRAIT_USER:
-				processPrincipals = userPrincipals
-			case v2.ResourceType_TRAIT_GROUP:
-				processPrincipals = groupPrincipals
-			default:
-				l.Error("unexpected external resource type trait", zap.Any("trait", matchResourceMatchAllAnno.GetResourceType()))
-			}
-			for _, principal := range processPrincipals {
-				newGrant := newGrantForExternalPrincipal(grant, principal)
-				expandedGrants = append(expandedGrants, newGrant)
+			matchAllKey := grant.GetEntitlement().GetId() + "\x00" + matchResourceMatchAllAnno.GetResourceType().String()
+			if _, done := matchAllSeen[matchAllKey]; !done {
+				matchAllSeen[matchAllKey] = struct{}{}
+				var processPrincipals []*v2.Resource
+				switch matchResourceMatchAllAnno.GetResourceType() {
+				case v2.ResourceType_TRAIT_USER:
+					processPrincipals = userPrincipals
+				case v2.ResourceType_TRAIT_GROUP:
+					processPrincipals = groupPrincipals
+				default:
+					l.Error("unexpected external resource type trait", zap.Any("trait", matchResourceMatchAllAnno.GetResourceType()))
+				}
+				for _, principal := range processPrincipals {
+					newGrant := newGrantForExternalPrincipal(grant, principal)
+					addExpanded(matchRankAll, newGrant)
+				}
 			}
 			grantsToDelete = append(grantsToDelete, grant)
 			continue
@@ -2649,7 +2966,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if matchResourceMatchIDAnno != nil {
 			if principal, ok := principalMap[matchResourceMatchIDAnno.GetId()]; ok {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
-				expandedGrants = append(expandedGrants, newGrant)
+				addExpanded(matchRankID, newGrant)
 
 				newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
 
@@ -2682,7 +2999,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					}.Build()
 					newGrantAnnos.Update(newExpandableAnno)
 					newGrant.SetAnnotations(newGrantAnnos)
-					expandedGrants = append(expandedGrants, newGrant)
+					addExpanded(matchRankID, newGrant)
 				}
 			}
 
@@ -2709,7 +3026,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					if matchExternalResource.GetKey() == "email" {
 						if userTraitContainsEmail(userTrait.GetEmails(), matchExternalResource.GetValue()) {
 							newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
-							expandedGrants = append(expandedGrants, newGrant)
+							addExpanded(matchRankKeyValue, newGrant)
 							// continue to next principal since we found an email match
 							continue
 						}
@@ -2717,7 +3034,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					profileVal, ok := resource.GetProfileStringValue(userTrait.GetProfile(), matchExternalResource.GetKey())
 					if ok && strings.EqualFold(profileVal, matchExternalResource.GetValue()) {
 						newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
-						expandedGrants = append(expandedGrants, newGrant)
+						addExpanded(matchRankKeyValue, newGrant)
 					}
 				}
 			case v2.ResourceType_TRAIT_GROUP:
@@ -2761,7 +3078,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 							}.Build()
 							newGrantAnnos.Update(newExpandableAnno)
 							newGrant.SetAnnotations(newGrantAnnos)
-							expandedGrants = append(expandedGrants, newGrant)
+							addExpanded(matchRankKeyValue, newGrant)
 						}
 					}
 				}
@@ -2775,13 +3092,24 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	}
 
 	newGrantIDs := mapset.NewSet[string]()
-	for _, ng := range expandedGrants {
-		newGrantIDs.Add(ng.GetId())
+	expandedByScope := make(map[string][]*v2.Grant)
+	for id, e := range expanded {
+		newGrantIDs.Add(id)
+		expandedByScope[e.scope] = append(expandedByScope[e.scope], e.grant)
 	}
 
-	err = s.store.PutGrants(ctx, expandedGrants...)
-	if err != nil {
-		return err
+	// Stamped groups write under their source grant's scope so the next
+	// sync's replay of that scope carries the transformed grants forward;
+	// the "" group is the plain unstamped write.
+	for scope, grants := range expandedByScope {
+		putCtx := ctx
+		if scope != "" {
+			putCtx = sourcecache.WithScope(ctx, scope)
+		}
+		err = s.store.PutGrants(putCtx, grants...)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Prefer the refs-based delete (exact structural identity) when the
@@ -2816,6 +3144,17 @@ func userTraitContainsEmail(emails []*v2.UserTrait_Email, address string) bool {
 // it; SQLite resolves ids by exact string and does not need it).
 type grantByRefsDeleter interface {
 	DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error
+}
+
+// grantCollisionKey gives equal-rank transformed-grant collisions a
+// deterministic total order that does not depend on store iteration
+// order (which differs between cold syncs and warm replayed syncs).
+func grantCollisionKey(scope string, g *v2.Grant) string {
+	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(g)
+	if err != nil {
+		return scope
+	}
+	return scope + "\x00" + string(b)
 }
 
 func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.Grant {
@@ -2983,6 +3322,10 @@ func (s *syncer) Close(ctx context.Context) error {
 	defer func() { uotel.EndSpanWithError(finalizeSpan, err) }()
 
 	var errs []error
+
+	// Detach the source-cache lookup before the stores go away so a late
+	// connector RPC can't read a store the syncer no longer owns.
+	s.clearSourceCacheLookup(ctx)
 
 	var storeCloseErr error
 	if s.store != nil {

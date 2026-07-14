@@ -115,6 +115,7 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) *c1zstore.SyncRun {
 		ParentSyncID: r.GetParentSyncId(),
 		LinkedSyncID: r.GetLinkedSyncId(),
 		SupportsDiff: r.GetSupportsDiff(),
+		Compacted:    r.GetCompacted(),
 	}
 	if t := r.GetStartedAt(); t != nil {
 		tt := t.AsTime()
@@ -149,6 +150,7 @@ func (a *Adapter) sortedSyncRuns(ctx context.Context) ([]c1zstore.SyncRun, error
 			ParentSyncID: r.GetParentSyncId(),
 			SupportsDiff: r.GetSupportsDiff(),
 			LinkedSyncID: r.GetLinkedSyncId(),
+			Compacted:    r.GetCompacted(),
 		}
 		if t := r.GetStartedAt(); t != nil {
 			tt := t.AsTime()

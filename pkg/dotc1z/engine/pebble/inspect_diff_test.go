@@ -543,7 +543,7 @@ func grantIdentityFromByEntitlementKey(key []byte, layout string) (string, bool)
 }
 
 func grantIdentityFromLegacyGrantValue(value []byte) (string, bool, error) {
-	entRT, entRID, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(value)
+	entRT, entRID, entID, principalRT, principalID, _, _, err := scanGrantIndexFieldsRaw(value)
 	if err != nil {
 		return "", false, err
 	}

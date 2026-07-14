@@ -126,6 +126,34 @@ func (s SchemaField) ExportAs(et ExportTarget) SchemaField {
 	return c
 }
 
+// WithConnectorDefault returns a copy of a shared/default SDK field carrying
+// a connector-specific default value. Include the copy in the connector's
+// field.Configuration Fields — DefineConfiguration replaces the SDK's copy
+// with it (same re-export mechanism as ExportAs), so --help, flag parsing,
+// and exported config schemas all reflect the connector's default.
+//
+// Value-resolution precedence is unchanged and sentinel-free: an explicit
+// flag beats the environment beats the config file beats this default (the
+// default lives on the flag itself, so a user-supplied zero value remains
+// distinguishable from "unset").
+//
+// Example — a connector whose sync fans out well declares its own worker
+// default without hiding the shared flag's semantics:
+//
+//	field.NewConfiguration([]field.SchemaField{
+//	    field.WithConnectorDefault(field.WorkerCountField, 16),
+//	    ...
+//	})
+//
+// The value's type must match the field's variant (int for IntField, etc.);
+// a mismatch fails loudly at startup when the flag is registered.
+func WithConnectorDefault[T SchemaTypes](s SchemaField, defaultValue T) SchemaField {
+	c := s
+	c.DefaultValue = defaultValue
+	c.WasReExported = true
+	return c
+}
+
 // Go doesn't allow generic methods on a non-generic struct.
 func ValidateField[T SchemaTypes](s *SchemaField, value T) (bool, error) {
 	return s.validate(value)

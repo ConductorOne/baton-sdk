@@ -264,6 +264,17 @@ var (
 		WithDescription("The path to the c1z file to sync external baton resources with"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
+	// PreviousSyncC1ZField is hidden by default: source-cache replay is
+	// author-opt-in functionality (connectorrunner.WithKeepPreviousSyncC1Z),
+	// and non-replaying connectors shouldn't advertise it to operators.
+	// DefineConfiguration unhides it for connectors that declare the
+	// capability; the flag still parses everywhere (hidden ≠ disabled) so
+	// expert/debug use keeps working.
+	PreviousSyncC1ZField = StringField("previous-sync-c1z",
+		WithDescription("The path to the previous sync c1z file to use as a source-cache replay input"),
+		WithPersistent(true),
+		WithHidden(true),
+		WithExportTarget(ExportTargetNone))
 	externalResourceEntitlementIdFilter = StringField("external-resource-entitlement-id-filter",
 		WithDescription("The entitlement that external users, groups must have access to sync external baton resources"),
 		WithPersistent(true),
@@ -276,11 +287,14 @@ var (
 	// connectors whose author also declared ETag-replay support at build
 	// time (connectorrunner.WithKeepPreviousSyncC1Z) — both are
 	// required. Costs one c1z of local disk.
+	// Hidden by default for the same reason as PreviousSyncC1ZField; unhidden
+	// when the connector author declares the replay capability.
 	KeepPreviousSyncC1ZField = BoolField("keep-previous-sync-c1z",
 		WithDescription("Keep the previously synced c1z on disk to enable ETag replay across service-mode syncs "+
 			"(requires a connector that supports ETag replay; costs one c1z of local disk)"),
 		WithDefaultValue(false),
 		WithPersistent(true),
+		WithHidden(true),
 		WithExportTarget(ExportTargetNone))
 
 	LambdaServerClientIDField = StringField("lambda-client-id", WithRequired(true), WithDescription("The oauth client id to use with the configuration endpoint"),
@@ -431,6 +445,7 @@ var DefaultFields = append([]SchemaField{
 	skipEntitlementsAndGrants,
 	skipGrants,
 	externalResourceC1ZField,
+	PreviousSyncC1ZField,
 	externalResourceEntitlementIdFilter,
 	KeepPreviousSyncC1ZField,
 	diffSyncsField,

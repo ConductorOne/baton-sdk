@@ -145,4 +145,13 @@ type GrantAnnotation struct {
 	PrincipalResourceTypeID string
 	PrincipalResourceID     string
 	NeedsExpansion          bool
+
+	// SourceScopeHash is the grant row's source-cache scope stamp ("" for
+	// unstamped rows, and always "" on engines without source-cache
+	// support). The external-principal post-processing step writes its
+	// transformed grants under the SOURCE grant's scope so a future
+	// sync's replay of that scope carries them forward — the source
+	// grant itself is deleted by that step, and a scope left holding
+	// neither source nor transformed rows would silently replay empty.
+	SourceScopeHash string
 }

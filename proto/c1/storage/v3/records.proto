@@ -103,6 +103,13 @@ message ResourceRecord {
   // into `annotations` as Any (the v2 connector contract — see
   // pkg/types/resource/user_trait.go). The annotations field above
   // round-trips them lossless; no extra field is needed.
+
+  // Source-cache scope stamp (see annotation_source_cache.proto).
+  // Empty for rows not produced under a source-cache scope.
+  string source_scope_hash = 9 [(index) = {
+    name: "by_source_scope"
+    partial: "source_scope_hash != ''"
+  }];
 }
 
 message EntitlementRecord {
@@ -142,6 +149,13 @@ message EntitlementRecord {
   // resource_types table when needed. Consumed by
   // pkg/sync/syncer.go's principal-type narrowing.
   repeated string grantable_to_resource_type_ids = 10;
+
+  // Source-cache scope stamp (see annotation_source_cache.proto).
+  // Empty for rows not produced under a source-cache scope.
+  string source_scope_hash = 11 [(index) = {
+    name: "by_source_scope"
+    partial: "source_scope_hash != ''"
+  }];
 }
 
 message GrantRecord {
@@ -188,6 +202,16 @@ message GrantRecord {
   // map<source_entitlement_id, GrantSourceRecord> — same wire shape as
   // c1.connector.v2.GrantSources.sources.
   map<string, GrantSourceRecord> sources = 9;
+
+  // Source-cache scope stamp (see annotation_source_cache.proto).
+  // Empty for rows not produced under a source-cache scope — notably
+  // expander-derived grants, which are recreated by expansion each sync
+  // and never replayed. StoreExpandedGrants preserves this field on
+  // rewrites of existing rows, exactly like expansion/needs_expansion.
+  string source_scope_hash = 10 [(index) = {
+    name: "by_source_scope"
+    partial: "source_scope_hash != ''"
+  }];
 }
 
 message AssetRecord {
@@ -220,6 +244,17 @@ message SyncRunRecord {
   string sync_token = 6;
   bool supports_diff = 7;
   string linked_sync_id = 8;
+
+  // compacted marks a sync produced by compaction (fold or rebuild)
+  // rather than by a real connector run. Compacted artifacts are
+  // keep-newer UPSERT merges — base rows a newer input deleted survive —
+  // so no input sync's upstream validators (source-cache etags) describe
+  // their contents. Consequence, enforced by the syncer: a compacted
+  // sync CANNOT be used as a source-cache replay source; feeding one to
+  // WithPreviousSyncC1ZPath degrades to a cold (full-fetch) sync.
+  // Orchestrators deciding which artifact to materialize as the previous
+  // sync should read this flag instead of guessing from provenance.
+  bool compacted = 9;
 }
 
 // SyncStatsRecord is the engine-internal sidecar populated at
@@ -250,10 +285,41 @@ message SyncStatsRecord {
 message SessionRecord {
   option (table) = {
     name: "sessions"
-    primary_key: ["sync_id", "key"]
+    primary_key: [
+      "sync_id",
+      "key"
+    ]
   };
 
   string sync_id = 1;
   string key = 2;
   bytes value = 3;
+}
+
+// SourceCacheEntryRecord is the per-scope manifest entry for source-cache
+// replay (see c1/connector/v2/annotation_source_cache.proto). One entry
+// per (row_kind, scope_hash), written for every freshly fetched scope —
+// including zero-row responses — and rewritten on replay with the scope's
+// current validator. The previous sync's entries (read from the previous
+// c1z) are the lookup surface connectors revalidate against.
+message SourceCacheEntryRecord {
+  option (table) = {
+    name: "source_cache_entries"
+    primary_key: [
+      "row_kind",
+      "scope_hash"
+    ]
+  };
+
+  // Row kind partition: "resources", "entitlements", or "grants"
+  // (pkg/sourcecache.RowKind values).
+  string row_kind = 1;
+
+  // Connector-computed scope hash (lowercase hex).
+  string scope_hash = 2;
+
+  // Opaque upstream validator: HTTP ETag, delta token, etc.
+  string etag = 3;
+
+  google.protobuf.Timestamp discovered_at = 4;
 }

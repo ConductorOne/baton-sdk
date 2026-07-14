@@ -57,6 +57,7 @@ const bulkSpillBufferSize = 1 << 20
 var grantIndexFamilies = []byte{
 	idxGrantByPrincipal,
 	idxGrantByNeedsExpansion,
+	idxGrantBySourceScope,
 }
 
 // bulkSSTWriter builds one SST file for a single disjoint key bucket.
@@ -695,6 +696,7 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		// paths so overwrites of imported identities clean up index entries.
 		_ = b.e.takeFreshGrantsEmpty()
 		_ = b.e.takeFreshResourcesEmpty()
+		_ = b.e.takeFreshEntitlementsEmpty()
 		return nil
 	})
 	if err != nil {

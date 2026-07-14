@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	stdsync "sync"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -23,6 +24,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/session"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
@@ -72,11 +74,17 @@ type closeWithoutContext interface {
 }
 
 type builder struct {
-	ticketingEnabled        bool
-	m                       *metrics.M
-	nowFunc                 func() time.Time
-	clientSecret            *jose.JSONWebKey
-	sessionStore            sessions.SessionStore
+	ticketingEnabled bool
+	m                *metrics.M
+	nowFunc          func() time.Time
+	clientSecret     *jose.JSONWebKey
+	sessionStore     sessions.SessionStore
+	// sourceCache is the single connector-facing lookup slot, guarded by
+	// sourceCacheMu: SetSourceCache (per-sync install/clear from the
+	// runner) can race list RPCs reading it via syncOpAttrs. Access
+	// through sourceCacheLookup / SetSourceCache only.
+	sourceCacheMu           stdsync.RWMutex
+	sourceCache             sourcecache.Lookup
 	metadataProvider        MetadataProvider
 	validateProvider        ValidateProvider
 	ticketManager           TicketManagerLimited
@@ -240,6 +248,64 @@ func WithSessionStore(ss sessions.SessionStore) Opt {
 		b.sessionStore = ss
 		return nil
 	}
+}
+
+// WithSourceCache supplies a direct connector-facing source-cache Lookup
+// exposed on SyncOpAttrs.SourceCache (see pkg/sourcecache).
+//
+// A nil lookup deliberately leaves the builder unset: SyncOpAttrs still
+// supplies NoopLookup by default, but an unset builder is how the
+// single-shot ask/answer continuation recognizes that it may install its
+// per-request ContinuationLookup. Lambda construction passes nil here.
+func WithSourceCache(lookup sourcecache.Lookup) Opt {
+	return func(b *builder) error {
+		if lookup == nil {
+			return nil
+		}
+		b.sourceCacheMu.Lock()
+		b.sourceCache = lookup
+		b.sourceCacheMu.Unlock()
+		return nil
+	}
+}
+
+// SetSourceCache implements sourcecache.SetLookup so an in-process runner
+// (the syncer, via its connector client) can install/clear the active
+// lookup per sync. Subprocess mode instead routes lookups over
+// BatonSourceCacheService and never calls this.
+//
+// The slot is guarded: the runner supports concurrent tasks, so a set or
+// clear can race in-flight list RPCs reading the slot via syncOpAttrs.
+// The slot is still SINGLE — there is no sync-id routing — so two live
+// syncs installing lookups cross-wire each other (one sync's connector
+// calls resolve against the other's previous store) and the first to
+// finish blinds the survivor when it clears. That topology isn't
+// supported; warn loudly when an install lands on top of an existing
+// non-noop lookup so it is visible instead of silently wrong.
+func (b *builder) SetSourceCache(ctx context.Context, lookup sourcecache.Lookup) {
+	installing := lookup != nil
+	if lookup == nil {
+		lookup = sourcecache.NoopLookup{}
+	}
+	b.sourceCacheMu.Lock()
+	prev := b.sourceCache
+	b.sourceCache = lookup
+	b.sourceCacheMu.Unlock()
+	if !installing || prev == nil {
+		return
+	}
+	if _, prevIsNoop := prev.(sourcecache.NoopLookup); !prevIsNoop {
+		ctxzap.Extract(ctx).Warn("source cache: installing a lookup over an existing one; " +
+			"concurrent syncs against one connector share a single lookup slot and will cross-wire or blind each other")
+	}
+}
+
+// sourceCacheLookup returns the active slot value (nil when never set —
+// the continuation's signal that it may install a per-request lookup).
+func (b *builder) sourceCacheLookup() sourcecache.Lookup {
+	b.sourceCacheMu.RLock()
+	defer b.sourceCacheMu.RUnlock()
+	return b.sourceCache
 }
 
 func (b *builder) options(opts ...Opt) error {

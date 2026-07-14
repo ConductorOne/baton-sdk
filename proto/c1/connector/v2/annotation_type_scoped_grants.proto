@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// Type-scoped grant ingestion.
+//
+// Some providers expose change/enumeration APIs whose natural unit is a
+// whole collection (or a connector-defined shard of one), not a single
+// resource — e.g. Microsoft Graph delta queries, where one stream yields
+// membership changes for up to 50 groups. Forcing that shape through the
+// per-resource ListGrants fan-out costs one request per resource even when
+// nothing changed.
+//
+// A resource type annotated with TypeScopedGrants is EXCLUDED from the
+// per-resource grants fan-out. Instead the syncer issues ListGrants calls
+// whose resource carries ONLY the resource type (empty resource id); the
+// connector answers with grants for the whole type, across as many
+// paginated cursors as it chooses to spawn (see SpawnCursors).
+//
+// This is the grants-phase analogue of StaticEntitlements: the connector
+// takes over enumeration for the type, and every downstream behavior
+// (storage, source-cache scopes/replay/tombstones, grant expansion, rate
+// limiting, page-token checkpointing) is unchanged because grants are
+// self-describing rows.
+//
+// COMPLETENESS CONTRACT: a full sync of an annotated type must emit (or
+// replay, via source-cache annotations) EVERY grant of that type. The
+// syncer no longer visits each resource, so completeness rests entirely on
+// the connector's enumeration.
+message TypeScopedGrants {}
+
+// SpawnCursors is attached to a ListGrants response to enqueue additional
+// independent sibling cursors. Each token is delivered back to the
+// connector as the page token of its own action — scheduled by the
+// syncer's worker pool, rate-limited, and checkpointed like any other
+// pagination. Honored on BOTH type-scoped and per-resource ListGrants
+// responses; the spawned actions inherit the response's resource identity
+// (type only for type-scoped calls, type+resource for per-resource calls).
+//
+// Typical uses:
+//
+//   - Type-scoped planning: the first call computes shard assignments —
+//     e.g. one 50-id delta filter chunk per cursor — returns no rows, and
+//     spawns one cursor per shard. Cold enumeration then parallelizes
+//     across shards instead of serializing through one stream.
+//   - Per-resource parallel warm revalidation (page-numbered APIs): on the
+//     first page of a collection the connector already knows every other
+//     page's URL and stored validator, so it answers page one and spawns
+//     pages 2..N; the worker pool revalidates them concurrently instead
+//     of paying one round trip per page serially.
+//
+// Spawned cursors are ORDINARY pages that happen to be enqueued eagerly.
+// The SDK assumes nothing about how they resolve: a spawned page may hit
+// its source-cache lookup and replay, miss and fetch cold (e.g. a page
+// boundary shifted since the last sync), and may continue a chain via its
+// response's next page token. Any page of a fan-out may itself spawn.
+//
+// Progress accounting counts a resource as covered when its ORIGIN
+// action's chain ends; spawned siblings never double-count it.
+//
+// Tokens are opaque to the SDK. They must be self-contained: a cursor may
+// execute after a suspend/resume, on a different worker, so anything the
+// connector needs to serve the cursor must be inside the token (or
+// re-derivable from it) — for per-resource spawns the resource identity
+// rides the action, so tokens only need the page coordinate.
+message SpawnCursors {
+  // Page tokens for the sibling cursors to enqueue, one action each.
+  // Capped per response (spawned actions persist in the checkpointed
+  // state token); chain additional spawns across pages to fan out wider.
+  repeated string page_tokens = 1 [(validate.rules).repeated = {
+    max_items: 1024
+    items: {
+      string: {
+        min_len: 1
+        max_len: 1048576
+      }
+    }
+  }];
+
+  // Optional connector estimate of total grants across all cursors of this
+  // type, for progress reporting. Zero means unknown.
+  int64 estimated_total = 2;
+}

@@ -60,6 +60,34 @@ func buildBucketPlans() []bucketPlan {
 			lower: enginepkg.GrantByNeedsExpansionLowerBound(),
 			upper: enginepkg.GrantByNeedsExpansionUpperBound(),
 		},
+		// Source-cache state MUST fold with its rows. Excising these
+		// ranges alongside the record buckets replaces the base sync's
+		// manifest/index entries with the applied sync's: scopes the
+		// applied sync touched keep a consistent (entry, rows) pair, and
+		// scopes it never touched become clean lookup misses. Leaving
+		// them out would strand the BASE sync's validators and index
+		// entries on top of the applied sync's rows — a stale manifest
+		// hit could then replay rows that no longer belong to the scope.
+		{
+			name:  "grant_by_source_scope",
+			lower: enginepkg.GrantBySourceScopeLowerBound(),
+			upper: enginepkg.GrantBySourceScopeUpperBound(),
+		},
+		{
+			name:  "entitlement_by_source_scope",
+			lower: enginepkg.EntitlementBySourceScopeLowerBound(),
+			upper: enginepkg.EntitlementBySourceScopeUpperBound(),
+		},
+		{
+			name:  "resource_by_source_scope",
+			lower: enginepkg.ResourceBySourceScopeLowerBound(),
+			upper: enginepkg.ResourceBySourceScopeUpperBound(),
+		},
+		{
+			name:  "source_cache_entry",
+			lower: enginepkg.SourceCacheEntryLowerBound(),
+			upper: enginepkg.SourceCacheEntryUpperBound(),
+		},
 		{
 			name:  "grant_by_entitlement_principal_hash",
 			lower: enginepkg.GrantByEntPrincHashLowerBound(),

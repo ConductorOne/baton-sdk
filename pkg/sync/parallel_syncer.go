@@ -304,6 +304,24 @@ func (s *syncer) parallelSync(
 				}
 			}
 
+			if !s.dontExpandGrants && !s.state.NeedsExpansion() {
+				// A replay-only grants phase can arm expansion without
+				// processing a connector GrantExpandable row. If the
+				// process dies after its last grant action finishes but
+				// before that in-memory flag is checkpointed, resume
+				// reaches this action with NeedsExpansion=false even
+				// though the current store contains pending expansion
+				// rows. Reconcile from the authoritative store before
+				// deciding to skip; PendingExpansionPage is read-only and
+				// repeats the expansion loader's first page safely.
+				pending, _, pendingErr := s.store.Grants().PendingExpansionPage(ctx, stateAction.PageToken)
+				if pendingErr != nil {
+					return warnings, pendingErr
+				}
+				if len(pending) > 0 {
+					s.state.SetNeedsExpansion()
+				}
+			}
 			if s.dontExpandGrants || !s.state.NeedsExpansion() {
 				l.Debug("skipping grant expansion, no grants to expand")
 				s.state.FinishAction(ctx, stateAction)

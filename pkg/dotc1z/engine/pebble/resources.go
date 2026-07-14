@@ -151,15 +151,22 @@ func (e *Engine) DeleteResourceRecord(ctx context.Context, resourceTypeID, resou
 }
 
 func (e *Engine) writeResourceIndexes(batch *pebble.Batch, r *v3.ResourceRecord) error {
-	parent := r.GetParent()
-	if parent == nil || parent.GetResourceId() == "" {
-		return nil
+	if parent := r.GetParent(); parent != nil && parent.GetResourceId() != "" {
+		k := encodeResourceByParentIndexKey(
+			parent.GetResourceTypeId(), parent.GetResourceId(),
+			r.GetResourceTypeId(), r.GetResourceId(),
+		)
+		if err := batch.Set(k, nil, nil); err != nil {
+			return err
+		}
 	}
-	k := encodeResourceByParentIndexKey(
-		parent.GetResourceTypeId(), parent.GetResourceId(),
-		r.GetResourceTypeId(), r.GetResourceId(),
-	)
-	return batch.Set(k, nil, nil)
+	if sh := r.GetSourceScopeHash(); sh != "" {
+		k := encodeResourceBySourceScopeIndexKey(sh, r.GetResourceTypeId(), r.GetResourceId())
+		if err := batch.Set(k, nil, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Engine) IterateResources(ctx context.Context, yield func(*v3.ResourceRecord) bool) error {

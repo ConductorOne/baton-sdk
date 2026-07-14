@@ -57,5 +57,14 @@ type SyncRun struct {
 	ParentSyncID string
 	LinkedSyncID string
 	SupportsDiff bool
-	Stats        *reader_v2.SyncStats
+	// Compacted marks a sync produced by compaction rather than a real
+	// connector run. Compacted artifacts are keep-newer upsert merges, so
+	// no input's source-cache validators (etags) describe their contents:
+	// the syncer refuses to use a compacted sync as a replay source
+	// (degrades to a cold sync), and orchestrators choosing which
+	// artifact to materialize as the previous sync should read this flag.
+	// Always false on the SQLite engine (v1 files cannot be replay
+	// sources regardless).
+	Compacted bool
+	Stats     *reader_v2.SyncStats
 }

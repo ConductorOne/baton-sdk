@@ -64,7 +64,16 @@ const (
 	typeCounter      byte = 0x08
 	typeSession      byte = 0x09
 	typeDigest       byte = 0x0A
-	typeEngineMeta   byte = 0xFF
+	// typeSourceCache holds one SourceCacheEntryRecord per
+	// (row_kind, scope_hash) — the source-cache replay manifest (see
+	// proto/c1/connector/v2/annotation_source_cache.proto). Placed
+	// after typeSession so the clone path's counter/session excise
+	// span ([typeCounter, upperBoundOf(typeSession))) leaves it in the
+	// clone: a cloned sync artifact stays usable as a replay source.
+	// ResetForNewSync's [typeResourceType, typeEngineMeta) span wipes
+	// it with the rest of the sync-scoped data.
+	typeSourceCache byte = 0x0B
+	typeEngineMeta  byte = 0xFF
 )
 
 // Index-discriminator bytes (second byte after typeIndex). One byte
@@ -86,6 +95,13 @@ const (
 	// (typeDigest) folds over; built ONLY by the seal-time deferred
 	// pass, never maintained inline. See digest.go and grant_digest.go.
 	idxGrantByEntitlementPrincipalHash byte = 0x08
+	// by_source_scope families: partial indexes over records whose
+	// source_scope_hash is non-empty (source-cache replay). Tails are
+	// identity tuples per the keys.go convention, so replay derives
+	// each primary key from the index key without touching the record.
+	idxGrantBySourceScope       byte = 0x09
+	idxEntitlementBySourceScope byte = 0x0A
+	idxResourceBySourceScope    byte = 0x0B
 )
 
 // --- Grant ---
@@ -399,6 +415,120 @@ func DigestUpperBound() []byte {
 	return upperBoundOf(DigestLowerBound())
 }
 
+// --- Source-cache (by_source_scope indexes + entry keyspace) ---
+
+// encodeGrantBySourceScopeIndexKey is the partial by_source_scope index
+// over grants whose SourceScopeHash is non-empty:
+//
+//	v3 | typeIndex | idxGrantBySourceScope | 0x00 |
+//	    scope_hash | 0x00 |
+//	    ent_rt | 0x00 | ent_rid | 0x00 | ent_flag | 0x00 | ent_tail | 0x00 |
+//	    principal_rt | 0x00 | principal_id
+//
+// The tail after scope_hash is the grant identity tuple — byte-identical
+// to the grant primary key's tail — so replay derives the primary key from
+// the index key alone. Paired with encodeGrantBySourceScopePrefix
+// (by-value prefix, with trailing sep).
+func encodeGrantBySourceScopeIndexKey(scopeHash string, id grantIdentity) []byte {
+	return appendGrantBySourceScopeIndexKey(make([]byte, 0, 128), scopeHash, id)
+}
+
+func appendGrantBySourceScopeIndexKey(dst []byte, scopeHash string, id grantIdentity) []byte {
+	dst = append(dst, versionV3, typeIndex, idxGrantBySourceScope)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(
+		dst,
+		scopeHash,
+		id.entitlement.resourceTypeID,
+		id.entitlement.resourceID,
+		id.entitlement.flagComponent(),
+		id.entitlement.tail,
+		id.principalTypeID,
+		id.principalID,
+	)
+}
+
+// encodeGrantBySourceScopePrefix is the by-value prefix for "all grants
+// stamped with this scope hash". Trailing sep is load-bearing — see the
+// keys.go convention doc.
+func encodeGrantBySourceScopePrefix(scopeHash string) []byte {
+	buf := make([]byte, 0, 32+len(scopeHash))
+	buf = append(buf, versionV3, typeIndex, idxGrantBySourceScope)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, scopeHash)
+	return codec.AppendTupleSeparator(buf)
+}
+
+// encodeEntitlementBySourceScopeIndexKey:
+//
+//	v3 | typeIndex | idxEntitlementBySourceScope | 0x00 |
+//	    scope_hash | 0x00 | rt | 0x00 | rid | 0x00 | flag | 0x00 | tail
+//
+// Tail is the entitlement identity tuple, byte-identical to the
+// entitlement primary key's tail. Paired with
+// encodeEntitlementBySourceScopePrefix.
+func encodeEntitlementBySourceScopeIndexKey(scopeHash string, id entitlementIdentity) []byte {
+	return appendEntitlementBySourceScopeIndexKey(make([]byte, 0, 128), scopeHash, id)
+}
+
+func appendEntitlementBySourceScopeIndexKey(dst []byte, scopeHash string, id entitlementIdentity) []byte {
+	dst = append(dst, versionV3, typeIndex, idxEntitlementBySourceScope)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(dst, scopeHash, id.resourceTypeID, id.resourceID, id.flagComponent(), id.tail)
+}
+
+func encodeEntitlementBySourceScopePrefix(scopeHash string) []byte {
+	buf := make([]byte, 0, 32+len(scopeHash))
+	buf = append(buf, versionV3, typeIndex, idxEntitlementBySourceScope)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, scopeHash)
+	return codec.AppendTupleSeparator(buf)
+}
+
+// encodeResourceBySourceScopeIndexKey:
+//
+//	v3 | typeIndex | idxResourceBySourceScope | 0x00 |
+//	    scope_hash | 0x00 | resource_type_id | 0x00 | resource_id
+//
+// Tail is the resource primary tuple. Paired with
+// encodeResourceBySourceScopePrefix.
+func encodeResourceBySourceScopeIndexKey(scopeHash, resourceTypeID, resourceID string) []byte {
+	return appendResourceBySourceScopeIndexKey(make([]byte, 0, 96), scopeHash, resourceTypeID, resourceID)
+}
+
+func appendResourceBySourceScopeIndexKey(dst []byte, scopeHash, resourceTypeID, resourceID string) []byte {
+	dst = append(dst, versionV3, typeIndex, idxResourceBySourceScope)
+	dst = codec.AppendTupleSeparator(dst)
+	return codec.AppendTupleStrings(dst, scopeHash, resourceTypeID, resourceID)
+}
+
+func encodeResourceBySourceScopePrefix(scopeHash string) []byte {
+	buf := make([]byte, 0, 32+len(scopeHash))
+	buf = append(buf, versionV3, typeIndex, idxResourceBySourceScope)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, scopeHash)
+	return codec.AppendTupleSeparator(buf)
+}
+
+// encodeSourceCacheEntryKey is the primary key for one source-cache
+// manifest entry:
+//
+//	v3 | typeSourceCache | 0x00 | row_kind | 0x00 | scope_hash
+//
+// Paired with encodeSourceCachePrefix (by-type prefix).
+func encodeSourceCacheEntryKey(rowKind, scopeHash string) []byte {
+	buf := make([]byte, 0, 32+len(rowKind)+len(scopeHash))
+	buf = append(buf, versionV3, typeSourceCache)
+	buf = codec.AppendTupleSeparator(buf)
+	return codec.AppendTupleStrings(buf, rowKind, scopeHash)
+}
+
+// encodeSourceCachePrefix is the by-type prefix for all source-cache
+// entries.
+func encodeSourceCachePrefix() []byte {
+	return []byte{versionV3, typeSourceCache}
+}
+
 // --- ResourceType ---
 
 // encodeResourceTypeKey returns the primary key for a resource_type:
@@ -626,6 +756,28 @@ func GrantByEntitlementResourceLowerBound() []byte {
 func GrantByEntitlementResourceUpperBound() []byte {
 	return upperBoundOf(GrantByEntitlementResourceLowerBound())
 }
+
+func GrantBySourceScopeLowerBound() []byte {
+	return []byte{versionV3, typeIndex, idxGrantBySourceScope}
+}
+func GrantBySourceScopeUpperBound() []byte { return upperBoundOf(GrantBySourceScopeLowerBound()) }
+
+func EntitlementBySourceScopeLowerBound() []byte {
+	return []byte{versionV3, typeIndex, idxEntitlementBySourceScope}
+}
+func EntitlementBySourceScopeUpperBound() []byte {
+	return upperBoundOf(EntitlementBySourceScopeLowerBound())
+}
+
+func ResourceBySourceScopeLowerBound() []byte {
+	return []byte{versionV3, typeIndex, idxResourceBySourceScope}
+}
+func ResourceBySourceScopeUpperBound() []byte {
+	return upperBoundOf(ResourceBySourceScopeLowerBound())
+}
+
+func SourceCacheEntryLowerBound() []byte { return encodeSourceCachePrefix() }
+func SourceCacheEntryUpperBound() []byte { return upperBoundOf(encodeSourceCachePrefix()) }
 
 func AssetLowerBound() []byte { return encodeAssetPrefix() }
 func AssetUpperBound() []byte { return upperBoundOf(encodeAssetPrefix()) }

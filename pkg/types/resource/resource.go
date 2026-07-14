@@ -8,6 +8,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -524,9 +525,14 @@ func NewManagedDeviceResource(
 }
 
 type SyncOpAttrs struct {
-	Session   sessions.SessionStore
-	SyncID    string
-	PageToken pagination.Token
+	Session sessions.SessionStore
+	// SourceCache resolves a scope's previous-sync validator (etag /
+	// delta token) for source-cache replay. Never nil for framework-built
+	// connectors: when source cache is disabled or degraded the SDK
+	// supplies sourcecache.NoopLookup, which always misses.
+	SourceCache sourcecache.Lookup
+	SyncID      string
+	PageToken   pagination.Token
 }
 
 type SyncOpResults struct {

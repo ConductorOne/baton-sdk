@@ -213,7 +213,7 @@ func (e *Engine) emitStructuredGrantMigration(ctx context.Context, primary *spil
 				lastLog = now
 			}
 		}
-		entRT, entRID, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(iter.Value())
+		entRT, entRID, entID, principalRT, principalID, _, _, err := scanGrantIndexFieldsRaw(iter.Value())
 		if err != nil {
 			return rows, fmt.Errorf("id-index migration: scan grant: %w", err)
 		}

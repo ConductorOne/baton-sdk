@@ -38,6 +38,7 @@ type ProgressLog struct {
 	lastEntitlementLog   map[string]time.Time
 	grantsProgress       map[string]int
 	lastGrantLog         map[string]time.Time
+	grantsCountOnly      map[string]bool
 	mu                   sync.RWMutex
 	l                    *zap.Logger
 	maxLogFrequency      time.Duration
@@ -150,6 +151,7 @@ func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 		lastEntitlementLog:   make(map[string]time.Time),
 		grantsProgress:       make(map[string]int),
 		lastGrantLog:         make(map[string]time.Time),
+		grantsCountOnly:      make(map[string]bool),
 		l:                    ctxzap.Extract(ctx),
 		maxLogFrequency:      defaultMaxLogFrequency,
 		mu:                   sync.RWMutex{},
@@ -256,18 +258,46 @@ func (p *ProgressLog) LogEntitlementsProgress(ctx context.Context, resourceType 
 	}
 }
 
+// SetGrantsCountOnly marks a resource type's grant progress as a plain
+// count with no resources-covered denominator. Used for type-scoped grant
+// enumeration (v2.TypeScopedGrants), where cursors don't map 1:1 to
+// resources: the per-cursor accounting would exceed the type's resource
+// total and trip the "more grant resources than resources" warning for a
+// perfectly healthy sync. Count-only types log synced row counts
+// periodically and never compute the ratio.
+func (p *ProgressLog) SetGrantsCountOnly(resourceType string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.grantsCountOnly[resourceType] = true
+}
+
+// GrantsProgress returns the current grant-coverage counter for a resource
+// type. For per-resource types this is "resources covered" and must never
+// exceed the type's resource total — spawned sibling cursors
+// (v2.SpawnCursors) don't increment it, only the origin action's chain end
+// does. Exposed for tests pinning that accounting.
+func (p *ProgressLog) GrantsProgress(resourceType string) int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.grantsProgress[resourceType]
+}
+
 func (p *ProgressLog) LogGrantsProgress(ctx context.Context, resourceType string) {
 	var grantsProgress, resources int
 	var lastLogTime time.Time
+	var countOnly bool
 
 	p.mu.RLock()
 	grantsProgress = p.grantsProgress[resourceType]
 	resources = p.resources[resourceType]
 	lastLogTime = p.lastGrantLog[resourceType]
+	countOnly = p.grantsCountOnly[resourceType]
 	p.mu.RUnlock()
 
-	if resources == 0 {
-		// if resuming sync, resource counts will be zero, so don't calculate percentage. just log every 10 seconds.
+	if resources == 0 || countOnly {
+		// Count-only: either a resumed sync (resource counts are zero) or a
+		// type-scoped grants type (no meaningful denominator). Log the raw
+		// synced count every log window; never compute a percentage.
 		if time.Since(lastLogTime) > p.maxLogFrequency {
 			p.l.Info("Syncing grants",
 				zap.String("resource_type_id", resourceType),
