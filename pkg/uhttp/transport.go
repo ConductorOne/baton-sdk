@@ -74,6 +74,11 @@ type Transport struct {
 	nextCycle     time.Time
 	// lastActivityNs is the wall-clock unix-nano time of the last request.
 	lastActivityNs atomic.Int64
+	// gapMu serializes gap-triggered pool drops. The drop must complete
+	// before concurrent callers may treat the pool as live, so the fresh
+	// timestamp is published only after CloseIdleConnections returns and
+	// peers that observed the same gap block here until then.
+	gapMu sync.Mutex
 	// nowFn overrides time.Now in tests.
 	nowFn func() time.Time
 	mtx   sync.RWMutex
@@ -189,7 +194,18 @@ func (t *Transport) now() time.Time {
 // where a monotonic time.Since would report no gap at all.
 func (t *Transport) dropIdleConnectionsAfterGap(ctx context.Context) {
 	nowNs := t.now().UnixNano()
-	lastNs := t.lastActivityNs.Swap(nowNs)
+	lastNs := t.lastActivityNs.Load()
+	if lastNs == 0 || time.Duration(nowNs-lastNs) < staleConnectionGap {
+		return
+	}
+
+	// Serialize the drop and publish the fresh timestamp only after the
+	// pool is clean. Publishing first would let concurrent callers see a
+	// small gap and draw a presumed-dead connection while the drop is
+	// still running; instead they block here until it has completed.
+	t.gapMu.Lock()
+	defer t.gapMu.Unlock()
+	lastNs = t.lastActivityNs.Load()
 	if lastNs == 0 || time.Duration(nowNs-lastNs) < staleConnectionGap {
 		return
 	}
@@ -200,6 +216,7 @@ func (t *Transport) dropIdleConnectionsAfterGap(ctx context.Context) {
 		)
 	}
 	t.closeIdleConnections()
+	t.lastActivityNs.Store(nowNs)
 }
 
 // closeIdleConnections drops the pooled connections on the current base
@@ -275,9 +292,15 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if retryReq, ok := retryableRequest(req, err); ok {
 			// A mass connection death (e.g. a proxy instance replaced) can
 			// leave further corpses in the pool; drop them so the retry
-			// dials fresh instead of drawing the next one.
+			// dials fresh instead of drawing the next one. Re-resolve the
+			// round tripper afterwards: cycle() may have swapped transports
+			// since rt was acquired, and the retry must run on the pool
+			// that was just dropped, not an older one still holding corpses.
 			if isStaleConnectionError(err) {
 				t.closeIdleConnections()
+				if freshRT, cycleErr := t.cycle(ctx); cycleErr == nil {
+					rt = freshRT
+				}
 			}
 			if t.log {
 				t.l(ctx).Debug("uhttp: retrying request after transport error",
