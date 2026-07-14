@@ -773,47 +773,6 @@ func scanResourceChildTypeIDsRaw(value []byte) ([]string, error) {
 	return out, nil
 }
 
-const anyTypeEntitlementExclusionGroup = "c1.connector.v2.EntitlementExclusionGroup"
-
-// scanEntitlementExclusionGroupsRaw returns the exclusion-group
-// annotations on a marshaled EntitlementRecord (annotations field 7),
-// paired with the row's identity so the syncer can validate them exactly
-// like fresh response rows. Nil for the common unannotated case, with no
-// identity scan performed.
-func scanEntitlementExclusionGroupsRaw(value []byte) ([]ReplayedExclusionGroup, error) {
-	var groups []*v2.EntitlementExclusionGroup
-	err := scanAnnotationAnysRaw(value, 7, func(typeName string, payload []byte) error {
-		if typeName != anyTypeEntitlementExclusionGroup {
-			return nil
-		}
-		eg := &v2.EntitlementExclusionGroup{}
-		if err := proto.Unmarshal(payload, eg); err != nil {
-			return fmt.Errorf("raw record: unmarshal EntitlementExclusionGroup annotation: %w", err)
-		}
-		groups = append(groups, eg)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if len(groups) == 0 {
-		return nil, nil
-	}
-	rt, _, externalID, err := scanEntitlementIdentityFieldsRaw(value)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]ReplayedExclusionGroup, 0, len(groups))
-	for _, eg := range groups {
-		out = append(out, ReplayedExclusionGroup{
-			EntitlementID:  externalID,
-			ResourceTypeID: rt,
-			Group:          eg,
-		})
-	}
-	return out, nil
-}
-
 // grantSourceCacheFlags reports which replay side-effect annotations a
 // marshaled GrantRecord carries (annotations field 8).
 type grantSourceCacheFlags struct {

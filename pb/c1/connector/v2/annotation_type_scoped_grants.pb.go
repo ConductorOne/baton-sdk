@@ -48,6 +48,22 @@ const (
 // replay, via source-cache annotations) EVERY grant of that type. The
 // syncer no longer visits each resource, so completeness rests entirely on
 // the connector's enumeration.
+//
+// SKIP ANNOTATIONS: for an annotated type the syncer does not consult
+// shouldSkipGrants on the type-scoped path. The connector owns skip
+// semantics for resources of that type.
+//
+// ZERO-RESOURCE TYPES: the planner still enqueues the type-scoped action
+// when the store holds no resources of the type. The connector must
+// return an empty page (or SpawnCursors that resolve empty), not an error.
+//
+// TARGETED SYNC: SyncTargetedResource must not enqueue a per-resource
+// SyncGrantsOp for a type-scoped type. Type-scoped grant enumeration is
+// left to a full grants phase.
+//
+// ROUTING MARKER ONLY: TypeScopedGrants is absent from the ingestion-
+// invariant side-effect coverage map — it routes ListGrants; it does not
+// imply post-ingest repair beyond ordinary grant handling.
 type TypeScopedGrants struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -91,13 +107,14 @@ func (b0 TypeScopedGrants_builder) Build() *TypeScopedGrants {
 	return m0
 }
 
-// SpawnCursors is attached to a ListGrants response to enqueue additional
-// independent sibling cursors. Each token is delivered back to the
-// connector as the page token of its own action — scheduled by the
-// syncer's worker pool, rate-limited, and checkpointed like any other
-// pagination. Honored on BOTH type-scoped and per-resource ListGrants
-// responses; the spawned actions inherit the response's resource identity
-// (type only for type-scoped calls, type+resource for per-resource calls).
+// SpawnCursors is attached to a ListGrants or ListEntitlements response to
+// enqueue additional independent sibling cursors. Each token is delivered
+// back to the connector as the page token of its own action — scheduled by
+// the syncer's worker pool, rate-limited, and checkpointed like any other
+// pagination. Honored on BOTH type-scoped and per-resource ListGrants /
+// ListEntitlements responses; the spawned actions inherit the response's
+// resource identity (type only for type-scoped calls, type+resource for
+// per-resource calls).
 //
 // Typical uses:
 //
@@ -131,7 +148,7 @@ type SpawnCursors struct {
 	// Capped per response (spawned actions persist in the checkpointed
 	// state token); chain additional spawns across pages to fan out wider.
 	PageTokens []string `protobuf:"bytes,1,rep,name=page_tokens,json=pageTokens,proto3" json:"page_tokens,omitempty"`
-	// Optional connector estimate of total grants across all cursors of this
+	// Optional connector estimate of total rows across all cursors of this
 	// type, for progress reporting. Zero means unknown.
 	EstimatedTotal int64 `protobuf:"varint,2,opt,name=estimated_total,json=estimatedTotal,proto3" json:"estimated_total,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -192,7 +209,7 @@ type SpawnCursors_builder struct {
 	// Capped per response (spawned actions persist in the checkpointed
 	// state token); chain additional spawns across pages to fan out wider.
 	PageTokens []string
-	// Optional connector estimate of total grants across all cursors of this
+	// Optional connector estimate of total rows across all cursors of this
 	// type, for progress reporting. Zero means unknown.
 	EstimatedTotal int64
 }

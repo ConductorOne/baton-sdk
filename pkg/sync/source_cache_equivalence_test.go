@@ -59,8 +59,10 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 //     parity test in source_cache_sideeffects_test.go);
 //   - the ask/answer lookup continuation topology (covered by
 //     source_cache_continuation_test.go / _e2e_test.go);
-//   - SpawnCursors / type-scoped grants (spawn_cursors_test.go,
-//     type_scoped_grants_test.go);
+//   - SpawnCursors / type-scoped grants and entitlements
+//     (spawn_cursors_test.go, type_scoped_grants_test.go,
+//     type_scoped_entitlements_test.go); the team topology below also
+//     exercises both type-scoped shapes in the differential chain;
 //   - compaction in the warm chain (covered separately by
 //     pkg/synccompactor's TestCompactedFileIsColdReplaySource — an import
 //     cycle keeps the compactor out of this package; the contract is that
@@ -118,13 +120,14 @@ var (
 	equivOrgRT     = v2.ResourceType_builder{Id: "eq_org", DisplayName: "Org"}.Build()
 	equivProjectRT = v2.ResourceType_builder{Id: "eq_project", DisplayName: "Project"}.Build()
 	equivRepoRT    = v2.ResourceType_builder{Id: "eq_repo", DisplayName: "Repo"}.Build()
-	// equivTeamRT is TYPE-SCOPED: no per-resource grants pages; one
-	// planner call spawns chunk cursors (SpawnCursors), each chunk a
-	// scope covering two teams — the Entra/Okta planner shape.
+	// equivTeamRT is TYPE-SCOPED for both grants and entitlements: no
+	// per-resource pages; one planner call per phase spawns chunk
+	// cursors (SpawnCursors), each chunk a scope covering two teams —
+	// the Entra/Okta planner shape.
 	equivTeamRT = v2.ResourceType_builder{
 		Id:          "eq_team",
 		DisplayName: "Team",
-		Annotations: annotations.New(&v2.TypeScopedGrants{}),
+		Annotations: annotations.New(&v2.TypeScopedGrants{}, &v2.TypeScopedEntitlements{}),
 	}.Build()
 )
 
@@ -886,16 +889,7 @@ func (c *equivConnector) listEntitlementsInner(
 ) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
 	rid := in.GetResource().GetId()
 	if rid.GetResourceType() == equivTeamRT.GetId() {
-		// Team entitlements are unscoped: served fresh every sync.
-		c.mu.Lock()
-		_, ok := c.model.teams[rid.GetResource()]
-		c.mu.Unlock()
-		if !ok {
-			return v2.EntitlementsServiceListEntitlementsResponse_builder{}.Build(), nil
-		}
-		return v2.EntitlementsServiceListEntitlementsResponse_builder{
-			List: []*v2.Entitlement{equivMemberEnt(equivTeamResource(rid.GetResource()), false)},
-		}.Build(), nil
+		return c.teamEntitlementsPage(ctx, lookup, in.GetPageToken())
 	}
 	if rid.GetResourceType() != groupResourceType.GetId() {
 		return v2.EntitlementsServiceListEntitlementsResponse_builder{}.Build(), nil
@@ -961,6 +955,56 @@ func (c *equivConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceLis
 		}.Build(), nil
 	}
 	return resp, err
+}
+
+// teamEntitlementsPage mirrors teamGrantsPage for type-scoped
+// entitlements: planning SpawnCursors, then one fresh-or-304 scope per
+// chunk of two teams. Entitlement rows are stable (one "member" per
+// team); version stays 0 so warm rounds are pure 304s after the cold
+// fetch — exercising type-scoped entitlement replay in the differential
+// chain without coupling to membership churn.
+func (c *equivConnector) teamEntitlementsPage(ctx context.Context, lookup sourcecache.Lookup, pageToken string) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
+	if pageToken == "" {
+		c.mu.Lock()
+		chunks := len(c.model.teamChunkVersions)
+		c.mu.Unlock()
+		c.count(func(ct *equivCounters) { ct.plannerPages++ })
+		tokens := make([]string, 0, chunks)
+		for i := 0; i < chunks; i++ {
+			tokens = append(tokens, fmt.Sprintf("ent-chunk:%d", i))
+		}
+		return v2.EntitlementsServiceListEntitlementsResponse_builder{
+			Annotations: annotations.New(v2.SpawnCursors_builder{PageTokens: tokens}.Build()),
+		}.Build(), nil
+	}
+	var chunk int
+	if _, err := fmt.Sscanf(pageToken, "ent-chunk:%d", &chunk); err != nil {
+		return nil, fmt.Errorf("teamEntitlementsPage: bad page token %q: %w", pageToken, err)
+	}
+	c.mu.Lock()
+	teamIDs := c.model.teamsInChunk(chunk)
+	c.mu.Unlock()
+
+	scope := fmt.Sprintf("ents:team-chunk:%d", chunk)
+	verdict, err := c.revalidate(ctx, lookup, sourcecache.RowKindEntitlements, sourcecache.HashScope(scope), 0)
+	if err != nil {
+		return nil, err
+	}
+	if verdict == equivCurrent {
+		c.count(func(ct *equivCounters) { ct.chunkPages304++ })
+		return v2.EntitlementsServiceListEntitlementsResponse_builder{
+			Annotations: equivReplayAnnos(scope, 0),
+		}.Build(), nil
+	}
+	c.count(func(ct *equivCounters) { ct.chunkPagesFresh++ })
+	rows := make([]*v2.Entitlement, 0, len(teamIDs))
+	for _, tid := range teamIDs {
+		rows = append(rows, equivMemberEnt(equivTeamResource(tid), false))
+	}
+	return v2.EntitlementsServiceListEntitlementsResponse_builder{
+		List:        rows,
+		Annotations: equivScopeAnnos(scope, 0),
+	}.Build(), nil
 }
 
 // teamGrantsPage is the type-scoped planner shape: the planning call
@@ -1676,6 +1720,10 @@ func runEquivSync(ctx context.Context, t *testing.T, cc types.ConnectorClient, p
 		WithC1ZPath(path),
 		WithStorageEngine(c1zstore.EnginePebble),
 		WithTmpDir(tmpDir),
+		// Check-only ingestion invariants hard-fail in the harness: a
+		// violation must name itself here before the differential
+		// comparison would catch its downstream divergence.
+		WithStrictIngestionInvariants(),
 	}
 	if prevPath != "" {
 		opts = append(opts, WithPreviousSyncC1ZPath(prevPath))

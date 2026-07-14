@@ -415,46 +415,27 @@ func (s *syncer) beginSourceCachePage(
 				zap.Int64("stale_skipped", res.StaleSkipped),
 			)
 		}
-		// Replay bypasses the connector-response path that normally arms
-		// grant expansion (seeing GrantExpandable on returned rows), so a
-		// sync whose expandable pages all replay would silently skip the
-		// expansion phase without this.
-		if kind == sourcecache.RowKindGrants && res.NeedsExpansion && !s.dontExpandGrants {
-			s.state.SetNeedsExpansion()
-		}
-		// Same rationale for external-resource-match processing: the
-		// flag is otherwise set only from response rows, so a sync whose
-		// match-annotated pages all replay would skip the transformation
-		// step and silently drop every matched grant.
-		if kind == sourcecache.RowKindGrants && res.HasExternalResourceGrants {
-			s.state.SetHasExternalResourcesGrants()
-		}
-		// Child scheduling is response-row-driven (getSubResources runs
-		// over resp.GetList()), so replayed parents never reach it —
-		// schedule their child resource syncs here or a warm sync
-		// silently drops whole subtrees.
+		// Side effects for replayed rows are STORE-DERIVED, not armed
+		// here — the engine maintains the needs_expansion index and the
+		// external-match existence bit for replayed rows exactly as for
+		// fresh ones, and the ingestion invariants read the store at
+		// their consuming seams (expansion: the PendingExpansion probe at
+		// SyncGrantExpansionOp; external match: the fact probe at
+		// SyncExternalResourcesOp; exclusion groups: the post-collection
+		// keyspace validation). See
+		// docs/tasks/source-cache-ingestion-invariants.md. The one
+		// replay-carried side effect is child scheduling, which cannot be
+		// derived after the fact (a zero-row child listing leaves no
+		// store evidence), so replay carries the parents' child types:
 		if kind == sourcecache.RowKindResources {
 			for _, parent := range res.ChildResources {
 				s.pushChildResourceActions(ctx, parent.ChildTypeIDs, parent.ResourceTypeID, parent.ResourceID)
-			}
-		}
-		// Exclusion-group validation runs on response rows, so replayed
-		// entitlements would silently stop participating in the
-		// one-default / single-resource-type / size-cap invariants — a
-		// violation split across a replayed and a fresh scope would pass
-		// a warm sync that a full resync hard-fails.
-		if kind == sourcecache.RowKindEntitlements {
-			for _, eg := range res.ExclusionGroups {
-				if err := s.recordEntitlementExclusionGroup(eg.Group, eg.EntitlementID, eg.ResourceTypeID); err != nil {
-					return ctx, nil, fmt.Errorf("source cache: replayed entitlement failed exclusion-group validation: %w", err)
-				}
 			}
 		}
 		ctxzap.Extract(ctx).Debug("source cache replayed scope",
 			zap.String("row_kind", string(kind)),
 			zap.String("scope_hash", page.scopeHash),
 			zap.Int64("rows", res.Rows),
-			zap.Bool("needs_expansion", res.NeedsExpansion),
 			zap.Int("deleted_ids", len(page.deletedIDs)),
 			zap.Int("deleted_principal_ids", len(page.deletedPrincipalIDs)),
 		)

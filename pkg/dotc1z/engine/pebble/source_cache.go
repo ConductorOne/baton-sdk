@@ -9,7 +9,6 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
@@ -43,24 +42,19 @@ type ReplayedParentResource struct {
 	ChildTypeIDs   []string
 }
 
-// ReplayedExclusionGroup is one exclusion-group annotation found on a
-// replayed entitlement row, paired with the row's identity so the syncer
-// can run the same invariant validation fresh response rows get.
-type ReplayedExclusionGroup struct {
-	EntitlementID  string
-	ResourceTypeID string
-	Group          *v2.EntitlementExclusionGroup
-}
-
 // SourceCacheReplayResult reports what one scope's replay copied.
+//
+// NOTE on side effects: replayed rows contribute to the syncer's
+// side-effect state through STORE-DERIVED mechanisms, not through fields
+// here — the needs_expansion index and the external-match existence bit
+// are maintained for replayed rows exactly as for fresh ones, and the
+// syncer's ingestion invariants read the store (see
+// docs/tasks/source-cache-ingestion-invariants.md). The two fields that
+// remain (ChildResources, RelatedResourceRows) are MECHANISMS, not
+// evidence: child scheduling and related-resource recreation cannot be
+// derived from the store after the fact, so replay must carry them.
 type SourceCacheReplayResult struct {
 	Rows int64
-	// NeedsExpansion is true when at least one copied grant row carried
-	// needs_expansion. The syncer must arm grant expansion in this case:
-	// replayed pages never pass GrantExpandable-annotated rows through
-	// the syncer's connector-response path, which is otherwise the only
-	// thing that enables the expansion phase.
-	NeedsExpansion bool
 	// StaleSkipped counts index entries under the scope that did NOT
 	// yield a copied row: the primary was missing, or its value stamp
 	// named a different scope. This is the discriminator between "scope
@@ -72,12 +66,6 @@ type SourceCacheReplayResult struct {
 	// ChildResources lists replayed parents carrying ChildResourceType
 	// annotations (resources replay only). See ReplayedParentResource.
 	ChildResources []ReplayedParentResource
-	// HasExternalResourceGrants is true when at least one copied grant
-	// row carries an ExternalResourceMatch* annotation (grants replay
-	// only). The syncer must arm external-resource-grant processing —
-	// same rationale as NeedsExpansion: response rows are the only
-	// other place the flag is set, and a replayed page has none.
-	HasExternalResourceGrants bool
 	// RelatedResourceRows counts resource rows copied from prev because
 	// a replayed grant carried InsertResourceGrants (grants replay
 	// only). Those resources exist ONLY as grant-driven insertions —
@@ -85,12 +73,6 @@ type SourceCacheReplayResult struct {
 	// recreate them or the current sync holds grants whose resources
 	// do not exist.
 	RelatedResourceRows int64
-	// ExclusionGroups lists exclusion-group annotations found on
-	// replayed entitlement rows (entitlements replay only). The syncer
-	// must run the same invariant validation fresh rows get (one
-	// default per group, single resource type, size cap) — validation
-	// runs on response rows, which a replayed page has none of.
-	ExclusionGroups []ReplayedExclusionGroup
 }
 
 // SourceCacheManifestSnapshot returns every manifest entry as
@@ -749,16 +731,19 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 					writeVal = stripped
 				}
 			}
-			// Replay side-effect annotations: response rows are the only
-			// other place these are detected, and a replayed page has
-			// none — see SourceCacheReplayResult field docs.
+			// Dense ingestion facts for replayed rows: same evidence the
+			// put path maintains, so the syncer's store-derived seams
+			// (I2) see replayed and fresh rows identically.
 			flags, flagsErr := scanGrantSourceCacheFlagsRaw(val)
 			if flagsErr != nil {
 				closer.Close()
 				return flagsErr
 			}
 			if flags.externalResourceMatch {
-				res.HasExternalResourceGrants = true
+				if err := e.markExternalMatchFact(); err != nil {
+					closer.Close()
+					return err
+				}
 			}
 			if flags.insertResourceGrants && entRT != "" && entRID != "" {
 				resKey := encodeResourceKey(entRT, entRID)
@@ -794,9 +779,6 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 				if _, err := e.writeGrantIndexesForIdentityScratch(batch, id, needsExpansion, srcScope, nil); err != nil {
 					return err
 				}
-			}
-			if needsExpansion {
-				res.NeedsExpansion = true
 			}
 			res.Rows++
 			rowsInBatch++
@@ -946,14 +928,6 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 				res.StaleSkipped++
 				continue
 			}
-			// Exclusion-group annotations must reach the syncer's
-			// validator — see SourceCacheReplayResult.ExclusionGroups.
-			egs, egErr := scanEntitlementExclusionGroupsRaw(val)
-			if egErr != nil {
-				closer.Close()
-				return egErr
-			}
-			res.ExclusionGroups = append(res.ExclusionGroups, egs...)
 			// The replayed row's source-scope index key is byte-identical
 			// to prev's — the only entitlement secondary index. Clean up a
 			// differing stamp on any record the current sync already wrote

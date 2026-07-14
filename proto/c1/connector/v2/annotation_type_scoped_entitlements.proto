@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// Type-scoped entitlement ingestion.
+//
+// Some providers expose change/enumeration APIs whose natural unit is a
+// whole collection (or a connector-defined shard of one), not a single
+// resource — e.g. Microsoft Graph delta queries, where one stream yields
+// entitlement definitions for up to 50 groups. Forcing that shape through
+// the per-resource ListEntitlements fan-out costs one request per resource
+// even when nothing changed.
+//
+// A resource type annotated with TypeScopedEntitlements is EXCLUDED from
+// the per-resource entitlements fan-out. Instead the syncer issues
+// ListEntitlements calls whose resource carries ONLY the resource type
+// (empty resource id); the connector answers with entitlements for the
+// whole type, across as many paginated cursors as it chooses to spawn
+// (see SpawnCursors in annotation_type_scoped_grants.proto).
+//
+// This is the entitlements-phase analogue of TypeScopedGrants: the
+// connector takes over enumeration for the type, and every downstream
+// behavior (storage, source-cache scopes/replay/tombstones, exclusion-
+// group validation, rate limiting, page-token checkpointing) is unchanged
+// because entitlements are self-describing rows.
+//
+// COMPLETENESS CONTRACT: a full sync of an annotated type must emit (or
+// replay, via source-cache annotations) EVERY entitlement of that type.
+// The syncer no longer visits each resource, so completeness rests
+// entirely on the connector's enumeration.
+//
+// SKIP ANNOTATIONS: for an annotated type the syncer does not consult
+// shouldSkipEntitlements on the type-scoped path. The connector owns skip
+// semantics for resources of that type (omit rows; do not rely on
+// per-resource SkipEntitlements* annotations to suppress the type-scoped
+// call).
+//
+// ZERO-RESOURCE TYPES: the planner still enqueues the type-scoped action
+// when the store holds no resources of the type. The connector must
+// return an empty page (or SpawnCursors that resolve empty), not an
+// error — an empty type is a valid outcome.
+//
+// TARGETED SYNC: SyncTargetedResource must not enqueue a per-resource
+// SyncEntitlementsOp for a type-scoped type. The type-scoped planner
+// action is the only legal entitlements path; a targeted sync of one
+// resource of an annotated type syncs the resource (and children) but
+// leaves type-scoped entitlement enumeration to a full entitlements
+// phase.
+//
+// ROUTING MARKER ONLY: TypeScopedEntitlements is not a stream-coupled
+// side-effect annotation. It is absent from the ingestion-invariant
+// side-effect coverage map for the same reason as TypeScopedGrants —
+// it routes the ListEntitlements call; it does not imply post-ingest
+// repair or validation beyond ordinary entitlement handling.
+message TypeScopedEntitlements {}

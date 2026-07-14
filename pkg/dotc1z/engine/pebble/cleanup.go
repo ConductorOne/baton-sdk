@@ -113,6 +113,11 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 				return err
 			}
 		}
+		// Ingestion-fact markers live in engine-meta, outside the excised
+		// record span; the new sync must not inherit the old sync's facts.
+		if err := e.clearIngestFactMarkers(); err != nil {
+			return fmt.Errorf("ResetForNewSync: clear ingest fact markers: %w", err)
+		}
 		e.noteEntitlementKeyspaceWrite()
 		return nil
 	})

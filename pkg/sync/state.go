@@ -220,10 +220,11 @@ type Action struct {
 
 	// Spawned marks an action enqueued by a connector's SpawnCursors
 	// annotation (a sibling cursor) rather than by the syncer's own
-	// planners. Progress accounting uses it: per-resource grant coverage
-	// counts a resource once, when its ORIGIN action's chain ends —
-	// spawned siblings (and their NextPage continuations, which inherit
-	// the action) don't count, or one resource would count N times.
+	// planners. Progress accounting uses it: per-resource grant /
+	// entitlement coverage counts a resource once, when its ORIGIN
+	// action's chain ends — spawned siblings (and their NextPage
+	// continuations, which inherit the action) don't count, or one
+	// resource would count N times.
 	// omitempty keeps old checkpointed sync tokens decoding unchanged.
 	Spawned bool `json:"spawned,omitempty"`
 }

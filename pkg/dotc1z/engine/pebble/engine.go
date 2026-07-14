@@ -115,6 +115,12 @@ type Engine struct {
 	testDigestBuildHook      func(stage string) error
 	testDigestNodeFlushBytes int
 
+	// externalMatchFact is the monotone existence bit for "this sync
+	// holds at least one ExternalResourceMatch*-annotated grant" — a
+	// dense ingestion fact tracked without an index (see
+	// ingest_facts.go). Durable twin: encodeExternalMatchFactKey.
+	externalMatchFact atomic.Bool
+
 	// synthLayer is the open wave-scoped layer session, if any (see
 	// BeginSynthesizedGrantLayer). Single producer: the expansion driver
 	// opens/adds/finishes sessions strictly sequentially. synthLayerMu
@@ -269,6 +275,12 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	// Arm the mutation-path digest invalidation iff the file actually
 	// holds digest nodes (one bounded seek; see grant_digest.go).
 	if err := e.probeGrantDigestsPresent(); err != nil {
+		_ = e.Close()
+		return nil, err
+	}
+	// Restore durable ingestion-fact markers (see ingest_facts.go) —
+	// same rationale as the deferred-index marker above.
+	if err := e.restoreIngestFactMarkers(); err != nil {
 		_ = e.Close()
 		return nil, err
 	}

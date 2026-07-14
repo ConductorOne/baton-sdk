@@ -101,7 +101,8 @@ func TestSourceCacheReplayGrantsAcrossEngines(t *testing.T) {
 	res, err := cur.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), scopeA)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), res.Rows)
-	require.True(t, res.NeedsExpansion, "replay must report the expandable grant so the syncer can arm expansion")
+	// Expansion arming is store-derived (the by_needs_expansion index the
+	// replay synthesizes below), no longer reported on the result.
 
 	// Replayed rows are readable by ID and carry their expansion flag.
 	got, err := cur.PebbleEngine().GetGrantRecord(ctx, gExpandable.GetId())
@@ -153,7 +154,7 @@ func TestSourceCacheReplayIsIdempotent(t *testing.T) {
 	res2, err := cur.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), scopeA)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), res2.Rows, "second replay converges, not errors")
-	require.Equal(t, res1.NeedsExpansion, res2.NeedsExpansion)
+	_ = res1
 
 	// State after double replay is exactly the two rows, once each.
 	var seen int

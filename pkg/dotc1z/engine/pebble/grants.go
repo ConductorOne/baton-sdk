@@ -114,6 +114,11 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			if r == nil {
 				continue
 			}
+			// Dense ingestion facts (one atomic load once armed; the
+			// annotation walk only runs until the sync's first hit).
+			if err := e.noteGrantRecordFacts(r); err != nil {
+				return err
+			}
 			id, err := grantIdentityFromRecord(r)
 			if err != nil {
 				return err

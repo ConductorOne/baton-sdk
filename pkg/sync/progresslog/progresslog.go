@@ -32,16 +32,17 @@ const (
 )
 
 type ProgressLog struct {
-	resourceTypes        int
-	resources            map[string]int
-	entitlementsProgress map[string]int
-	lastEntitlementLog   map[string]time.Time
-	grantsProgress       map[string]int
-	lastGrantLog         map[string]time.Time
-	grantsCountOnly      map[string]bool
-	mu                   sync.RWMutex
-	l                    *zap.Logger
-	maxLogFrequency      time.Duration
+	resourceTypes         int
+	resources             map[string]int
+	entitlementsProgress  map[string]int
+	lastEntitlementLog    map[string]time.Time
+	entitlementsCountOnly map[string]bool
+	grantsProgress        map[string]int
+	lastGrantLog          map[string]time.Time
+	grantsCountOnly       map[string]bool
+	mu                    sync.RWMutex
+	l                     *zap.Logger
+	maxLogFrequency       time.Duration
 
 	// Optional cross-step db-size tracking for LogExpandProgress. Populated
 	// via WithDBSizeProvider at construction time or SetDBSizeProvider after
@@ -146,16 +147,17 @@ func (p *ProgressLog) SetDBSizeProvider(provider connectorstore.DBSizeProvider) 
 
 func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 	p := &ProgressLog{
-		resources:            make(map[string]int),
-		entitlementsProgress: make(map[string]int),
-		lastEntitlementLog:   make(map[string]time.Time),
-		grantsProgress:       make(map[string]int),
-		lastGrantLog:         make(map[string]time.Time),
-		grantsCountOnly:      make(map[string]bool),
-		l:                    ctxzap.Extract(ctx),
-		maxLogFrequency:      defaultMaxLogFrequency,
-		mu:                   sync.RWMutex{},
-		metricsHandler:       metrics.NewNoOpHandler(ctx),
+		resources:             make(map[string]int),
+		entitlementsProgress:  make(map[string]int),
+		lastEntitlementLog:    make(map[string]time.Time),
+		entitlementsCountOnly: make(map[string]bool),
+		grantsProgress:        make(map[string]int),
+		lastGrantLog:          make(map[string]time.Time),
+		grantsCountOnly:       make(map[string]bool),
+		l:                     ctxzap.Extract(ctx),
+		maxLogFrequency:       defaultMaxLogFrequency,
+		mu:                    sync.RWMutex{},
+		metricsHandler:        metrics.NewNoOpHandler(ctx),
 	}
 	for _, o := range opts {
 		o(p)
@@ -204,15 +206,19 @@ func (p *ProgressLog) LogResourcesProgress(ctx context.Context, resourceType str
 func (p *ProgressLog) LogEntitlementsProgress(ctx context.Context, resourceType string) {
 	var entitlementsProgress, resources int
 	var lastLogTime time.Time
+	var countOnly bool
 
 	p.mu.RLock()
 	entitlementsProgress = p.entitlementsProgress[resourceType]
 	resources = p.resources[resourceType]
 	lastLogTime = p.lastEntitlementLog[resourceType]
+	countOnly = p.entitlementsCountOnly[resourceType]
 	p.mu.RUnlock()
 
-	if resources == 0 {
-		// if resuming sync, resource counts will be zero, so don't calculate percentage. just log every 10 seconds.
+	if resources == 0 || countOnly {
+		// Count-only: either a resumed sync (resource counts are zero) or a
+		// type-scoped entitlements type (no meaningful denominator). Log the
+		// raw synced count every log window; never compute a percentage.
 		if time.Since(lastLogTime) > p.maxLogFrequency {
 			p.l.Info("Syncing entitlements",
 				zap.String("resource_type_id", resourceType),
@@ -256,6 +262,26 @@ func (p *ProgressLog) LogEntitlementsProgress(ctx context.Context, resourceType 
 		p.lastEntitlementLog[resourceType] = time.Now()
 		p.mu.Unlock()
 	}
+}
+
+// SetEntitlementsCountOnly marks a resource type's entitlement progress as a
+// plain count with no resources-covered denominator. Used for type-scoped
+// entitlement enumeration (v2.TypeScopedEntitlements), where cursors don't
+// map 1:1 to resources.
+func (p *ProgressLog) SetEntitlementsCountOnly(resourceType string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.entitlementsCountOnly[resourceType] = true
+}
+
+// EntitlementsProgress returns the current entitlement-coverage counter for a
+// resource type. For per-resource types this is "resources covered"; for
+// count-only (type-scoped) types it is the raw entitlement-row count.
+// Exposed for tests pinning that accounting.
+func (p *ProgressLog) EntitlementsProgress(resourceType string) int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.entitlementsProgress[resourceType]
 }
 
 // SetGrantsCountOnly marks a resource type's grant progress as a plain

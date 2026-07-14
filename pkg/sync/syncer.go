@@ -143,35 +143,44 @@ type syncer struct {
 	store                               c1zstore.Store
 	externalResourceReader              connectorstore.Reader
 	previousSyncReader                  connectorstore.Reader
-	connector                           types.ConnectorClient
-	state                               State
-	runDuration                         time.Duration
-	transitionHandler                   func(s Action)
-	progressHandler                     func(p *Progress)
-	tmpDir                              string
-	storageEngine                       c1zstore.Engine
-	skipFullSync                        bool
-	lastCheckPointTime                  time.Time
-	counts                              *progresslog.ProgressLog
-	targetedSyncResources               []*v2.Resource
-	onlyExpandGrants                    bool
-	dontExpandGrants                    bool
-	syncID                              string
-	skipEGForResourceType               syncMap[string, bool]
-	skipEntitlementsForResourceType     syncMap[string, bool]
-	typeScopedGrantsForResourceType     syncMap[string, bool]
-	skipEntitlementsAndGrants           bool
-	skipGrants                          bool
-	resourceTypeTraits                  syncMap[string, []v2.ResourceType_Trait]
-	syncType                            connectorstore.SyncType
-	injectSyncIDAnnotation              bool
-	setSessionStore                     sessions.SetSessionStore
-	syncResourceTypes                   []string
-	workerCount                         int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
-	metricsHandler                      metrics.Handler
-	syncIdentity                        uotel.SyncIdentity
-	recordStats                         bool
-	sourceCache                         syncerSourceCache
+	// Ingestion-invariant state (see ingest_invariants.go):
+	// childSchedule is the monotone record backing invariant I4;
+	// resourcesPhaseRanHere gates I4 to processes that actually ran the
+	// resources phase; strictIngestionInvariants promotes I4 from
+	// warn to hard-fail (tests and the equivalence harness set it).
+	childSchedule                         childScheduleSet
+	resourcesPhaseRanHere                 bool
+	strictIngestionInvariants             bool
+	connector                             types.ConnectorClient
+	state                                 State
+	runDuration                           time.Duration
+	transitionHandler                     func(s Action)
+	progressHandler                       func(p *Progress)
+	tmpDir                                string
+	storageEngine                         c1zstore.Engine
+	skipFullSync                          bool
+	lastCheckPointTime                    time.Time
+	counts                                *progresslog.ProgressLog
+	targetedSyncResources                 []*v2.Resource
+	onlyExpandGrants                      bool
+	dontExpandGrants                      bool
+	syncID                                string
+	skipEGForResourceType                 syncMap[string, bool]
+	skipEntitlementsForResourceType       syncMap[string, bool]
+	typeScopedGrantsForResourceType       syncMap[string, bool]
+	typeScopedEntitlementsForResourceType syncMap[string, bool]
+	skipEntitlementsAndGrants             bool
+	skipGrants                            bool
+	resourceTypeTraits                    syncMap[string, []v2.ResourceType_Trait]
+	syncType                              connectorstore.SyncType
+	injectSyncIDAnnotation                bool
+	setSessionStore                       sessions.SetSessionStore
+	syncResourceTypes                     []string
+	workerCount                           int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
+	metricsHandler                        metrics.Handler
+	syncIdentity                          uotel.SyncIdentity
+	recordStats                           bool
+	sourceCache                           syncerSourceCache
 }
 
 var _ Syncer = (*syncer)(nil)
@@ -579,60 +588,6 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 // single exclusion_group_id. Phase 1 limit.
 const maxEntitlementsPerExclusionGroup = 50
 
-// recordEntitlementExclusionGroup enforces the invariants on an exclusion
-// group membership: a given exclusion_group_id must stay within one resource
-// type, a group may have at most one entitlement marked is_default, and a group
-// may contain at most maxEntitlementsPerExclusionGroup entitlements. Empty
-// group ids are treated as "no exclusion group" and skipped.
-func (s *syncer) recordEntitlementExclusionGroup(eg *v2.EntitlementExclusionGroup, entitlementID, resourceTypeID string) error {
-	groupID := eg.GetExclusionGroupId()
-	if groupID == "" {
-		return nil
-	}
-	if existing, conflict := s.state.CheckAndSetExclusionGroupResourceType(groupID, resourceTypeID); conflict {
-		return fmt.Errorf("exclusion group %q is used on multiple resource types (%q and %q); "+
-			"exclusion groups may span resources but must be scoped to a single resource type",
-			groupID, existing, resourceTypeID)
-	}
-	if eg.GetIsDefault() {
-		if existing, conflict := s.state.CheckAndSetExclusionGroupDefault(groupID, entitlementID); conflict {
-			return fmt.Errorf("exclusion group %q has multiple default entitlements (%q and %q); "+
-				"at most one entitlement per exclusion group may set is_default=true",
-				groupID, existing, entitlementID)
-		}
-	}
-	if count := s.state.IncrementExclusionGroupCount(groupID); count > maxEntitlementsPerExclusionGroup {
-		return fmt.Errorf("exclusion group %q has too many entitlements (%d); "+
-			"at most %d entitlements are allowed per exclusion group",
-			groupID, count, maxEntitlementsPerExclusionGroup)
-	}
-	return nil
-}
-
-// validateEntitlementExclusionGroups picks the exclusion group annotation off
-// each entitlement (if present) and forwards to recordEntitlementExclusionGroup.
-// Use this on lists of entitlements that may independently carry exclusion
-// group annotations (e.g., the dynamic ListEntitlements path); callers that
-// already have the annotation in hand should call recordEntitlementExclusionGroup
-// directly to avoid the per-entitlement Pick.
-func (s *syncer) validateEntitlementExclusionGroups(ents []*v2.Entitlement) error {
-	for _, ent := range ents {
-		eg := &v2.EntitlementExclusionGroup{}
-		entAnnos := annotations.Annotations(ent.GetAnnotations())
-		ok, err := entAnnos.Pick(eg)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			continue
-		}
-		if err := s.recordEntitlementExclusionGroup(eg, ent.GetId(), ent.GetResource().GetId().GetResourceType()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // nextPageOrFinishAction updates the action with the next page token, or if there is no next page, finishes the action.
 // It also pushes any child actions before updating/finishing the action.
 // This is useful for pagination, and for actions that create other actions.
@@ -882,6 +837,14 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return s.returnSyncError(l, span, err)
 	}
 
+	// Post-collection ingestion invariants (ingest_invariants.go): every
+	// ingestion path has finished writing, so the store-derived
+	// definitions of the sync's side effects are checkable. Runs before
+	// EndSync so a violating sync is never sealed as complete.
+	if err := s.runIngestionInvariants(ctx); err != nil {
+		return s.returnSyncError(l, span, err)
+	}
+
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
 	s.state.ClearEntitlementGraph(ctx)
 	s.state.ClearExclusionGroupTracking(ctx)
@@ -1124,6 +1087,10 @@ func (s *syncer) pushChildResourceActions(ctx context.Context, childTypeIDs []st
 		if len(s.syncResourceTypes) > 0 && !slices.Contains(s.syncResourceTypes, childTypeID) {
 			continue
 		}
+		// Monotone evidence for ingestion invariant I4 (see
+		// ingest_invariants.go): record the pair regardless of which
+		// ingestion path discovered the parent.
+		s.childSchedule.record(childTypeID, parentTypeID, parentID)
 		s.state.PushAction(ctx, Action{
 			Op:                   SyncResourcesOp,
 			ResourceTypeID:       childTypeID,
@@ -1205,18 +1172,29 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 
 	s.state.FinishAction(ctx, action)
 
-	// Actions happen in reverse order. We want to sync child resources, then entitlements, then grants
+	// Actions happen in reverse order. We want to sync child resources, then entitlements, then grants.
+	// Type-scoped types are excluded from per-resource fan-out here as in
+	// the full-sync planners: SyncTargetedResource must not enqueue
+	// ListGrants/ListEntitlements for a resource whose type is annotated
+	// TypeScopedGrants / TypeScopedEntitlements (those paths use a single
+	// type-scoped action owned by the full phase planners).
 
 	shouldSkipGrants, err := s.shouldSkipGrants(ctx, resource)
 	if err != nil {
 		return err
 	}
 	if !shouldSkipGrants {
-		s.state.PushAction(ctx, Action{
-			Op:             SyncGrantsOp,
-			ResourceTypeID: resourceTypeID,
-			ResourceID:     resourceID,
-		})
+		typeScopedGrants, err := s.resourceTypeHasTypeScopedGrants(ctx, resourceTypeID)
+		if err != nil {
+			return err
+		}
+		if !typeScopedGrants {
+			s.state.PushAction(ctx, Action{
+				Op:             SyncGrantsOp,
+				ResourceTypeID: resourceTypeID,
+				ResourceID:     resourceID,
+			})
+		}
 	}
 
 	shouldSkipEnts, err := s.shouldSkipEntitlements(ctx, resource)
@@ -1225,11 +1203,17 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 	}
 
 	if !shouldSkipEnts {
-		s.state.PushAction(ctx, Action{
-			Op:             SyncEntitlementsOp,
-			ResourceTypeID: resourceTypeID,
-			ResourceID:     resourceID,
-		})
+		typeScopedEnts, err := s.resourceTypeHasTypeScopedEntitlements(ctx, resourceTypeID)
+		if err != nil {
+			return err
+		}
+		if !typeScopedEnts {
+			s.state.PushAction(ctx, Action{
+				Op:             SyncEntitlementsOp,
+				ResourceTypeID: resourceTypeID,
+				ResourceID:     resourceID,
+			})
+		}
 	}
 
 	err = s.getSubResources(ctx, resource)
@@ -1252,6 +1236,10 @@ func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
 		if action.PageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing resources...")
 			s.handleInitialActionForStep(ctx, *action)
+			// Ingestion invariant I4 is only verifiable when the
+			// resources phase started in THIS process (the scheduled
+			// set is in-memory); see ingest_invariants.go.
+			s.resourcesPhaseRanHere = true
 		}
 
 		resp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
@@ -1537,6 +1525,9 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bo
 
 // SyncEntitlements fetches the entitlements from the connector. It first lists each resource from the datastore,
 // and pushes an action to fetch the entitlements for each resource.
+// Resource types annotated with TypeScopedEntitlements are excluded from the per-resource fan-out and
+// get a single type-scoped action instead (empty ResourceID); the connector enumerates the whole
+// type, optionally spawning additional cursors via the SpawnCursors annotation.
 func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -1544,11 +1535,22 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" && action.ResourceID == "" {
+		actions := make([]Action, 0)
 		pageToken := action.PageToken
 
 		if pageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing entitlements...")
 			s.handleInitialActionForStep(ctx, *action)
+
+			// One type-scoped action per annotated resource type, enqueued
+			// exactly once (the planner's first page).
+			typeScoped, err := s.typeScopedEntitlementsResourceTypes(ctx)
+			if err != nil {
+				return fmt.Errorf("sync-entitlements: error listing type-scoped resource types: %w", err)
+			}
+			for _, rtID := range typeScoped {
+				actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceTypeID: rtID})
+			}
 		}
 
 		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
@@ -1559,7 +1561,6 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 			return err
 		}
 
-		actions := make([]Action, 0)
 		for _, r := range resp.GetList() {
 			shouldSkipEntitlements, err := s.shouldSkipEntitlements(ctx, r)
 			if err != nil {
@@ -1568,6 +1569,17 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 			if shouldSkipEntitlements {
 				continue
 			}
+
+			// Types with type-scoped entitlements are excluded from the
+			// per-resource fan-out; their single action is enqueued above.
+			typeScoped, err := s.resourceTypeHasTypeScopedEntitlements(ctx, r.GetId().GetResourceType())
+			if err != nil {
+				return err
+			}
+			if typeScoped {
+				continue
+			}
+
 			actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 		}
 
@@ -1582,30 +1594,97 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 	return nil
 }
 
+// resourceTypeHasTypeScopedEntitlements reports (cached per sync) whether the
+// resource type carries the TypeScopedEntitlements annotation.
+func (s *syncer) resourceTypeHasTypeScopedEntitlements(ctx context.Context, resourceTypeID string) (bool, error) {
+	if v, ok := s.typeScopedEntitlementsForResourceType.Load(resourceTypeID); ok {
+		return v, nil
+	}
+	rt, err := s.store.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
+		ResourceTypeId: resourceTypeID,
+	}.Build())
+	if err != nil {
+		return false, err
+	}
+	rtAnnos := annotations.Annotations(rt.GetResourceType().GetAnnotations())
+	typeScoped := rtAnnos.Contains(&v2.TypeScopedEntitlements{})
+	s.typeScopedEntitlementsForResourceType.Store(resourceTypeID, typeScoped)
+	return typeScoped, nil
+}
+
+// typeScopedEntitlementsResourceTypes lists every synced resource type annotated
+// with TypeScopedEntitlements.
+func (s *syncer) typeScopedEntitlementsResourceTypes(ctx context.Context) ([]string, error) {
+	var out []string
+	pageToken := ""
+	for {
+		resp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return nil, err
+		}
+		for _, rt := range resp.GetList() {
+			rtAnnos := annotations.Annotations(rt.GetAnnotations())
+			typeScoped := rtAnnos.Contains(&v2.TypeScopedEntitlements{})
+			s.typeScopedEntitlementsForResourceType.Store(rt.GetId(), typeScoped)
+			if typeScoped {
+				out = append(out, rt.GetId())
+			}
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			return out, nil
+		}
+	}
+}
+
 // syncEntitlementsForResource fetches the entitlements for a specific resource from the connector.
+// An action with an empty ResourceID is a TYPE-SCOPED entitlements cursor: the connector
+// enumerates entitlements for the whole resource type (no single resource backs the call),
+// and may spawn sibling cursors via the SpawnCursors response annotation.
 // No span here: only call site is SyncEntitlements, which already owns a span.
 func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action) error {
+	typeScoped := action.ResourceID == ""
 	resourceID := v2.ResourceId_builder{
 		ResourceType: action.ResourceTypeID,
 		Resource:     action.ResourceID,
 	}.Build()
-	resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
-		ResourceId: resourceID,
-	}.Build())
-	if err != nil {
-		return err
+
+	var resource *v2.Resource
+	var reqAnnos annotations.Annotations
+	if typeScoped {
+		// Wire validation requires a non-empty resource id, so the stub is
+		// self-referential ({type, type}) and the request carries the
+		// TypeScopedEntitlements annotation as the routing marker.
+		resource = v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: action.ResourceTypeID,
+				Resource:     action.ResourceTypeID,
+			}.Build(),
+		}.Build()
+		reqAnnos.Update(&v2.TypeScopedEntitlements{})
+	} else {
+		resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: resourceID,
+		}.Build())
+		if err != nil {
+			return err
+		}
+		resource = resourceResponse.GetResource()
 	}
 
-	resource := resourceResponse.GetResource()
-
 	var resp *v2.EntitlementsServiceListEntitlementsResponse
-	err = s.withSourceCacheContinuation(ctx, "sync-entitlements", func(extra annotations.Annotations, attempt int) (listAttempt, error) {
+	err := s.withSourceCacheContinuation(ctx, "sync-entitlements", func(extra annotations.Annotations, attempt int) (listAttempt, error) {
+		annos := make(annotations.Annotations, 0, len(reqAnnos)+len(extra))
+		annos = append(annos, reqAnnos...)
+		annos = append(annos, extra...)
 		start := time.Now()
 		r, err := s.connector.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 			Resource:     resource,
 			PageToken:    action.PageToken,
 			ActiveSyncId: s.getActiveSyncID(),
-			Annotations:  extra,
+			Annotations:  annos,
 		}.Build())
 		s.observeConnectorCall(ctx, continuationCallMethod("list-entitlements", attempt), start, action.ResourceTypeID, action.ResourceID)
 		if err != nil {
@@ -1622,11 +1701,8 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	if err != nil {
 		return err
 	}
-	if err := s.validateEntitlementExclusionGroups(resp.GetList()); err != nil {
-		return err
-	}
-
-	putCtx, scPage, err := s.beginSourceCachePage(ctx, sourcecache.RowKindEntitlements, annotations.Annotations(resp.GetAnnotations()), len(resp.GetList()))
+	respAnnos := annotations.Annotations(resp.GetAnnotations())
+	putCtx, scPage, err := s.beginSourceCachePage(ctx, sourcecache.RowKindEntitlements, respAnnos, len(resp.GetList()))
 	if err != nil {
 		return err
 	}
@@ -1641,12 +1717,63 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	}
 
 	s.handleProgress(ctx, action, len(resp.GetList()))
-	if resp.GetNextPageToken() == "" {
-		s.counts.AddEntitlementsProgress(resourceID.ResourceType, 1)
+
+	if typeScoped {
+		// Cursors don't map 1:1 to resources, so the per-resource
+		// "N of M resources covered" accounting is meaningless here.
+		s.counts.SetEntitlementsCountOnly(resourceID.GetResourceType())
+		s.counts.AddEntitlementsProgress(resourceID.GetResourceType(), len(resp.GetList()))
+		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
+	} else if resp.GetNextPageToken() == "" && !action.Spawned {
+		// A resource counts as covered exactly once: when its ORIGIN
+		// action's page chain ends. Spawned sibling cursors must not count.
+		s.counts.AddEntitlementsProgress(resourceID.GetResourceType(), 1)
 		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
 	}
 
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
+	// SpawnCursors: enqueue sibling cursors (type-scoped shards or
+	// per-resource parallel pages). Same contracts as syncGrantsForResource.
+	spawn := &v2.SpawnCursors{}
+	hasSpawn, err := respAnnos.Pick(spawn)
+	if err != nil {
+		return fmt.Errorf("sync-entitlements: error parsing spawn-cursors annotation: %w", err)
+	}
+	var spawned []Action
+	if hasSpawn {
+		if len(spawn.GetPageTokens()) > maxSpawnCursorsPerResponse {
+			return fmt.Errorf(
+				"sync-entitlements: SpawnCursors carried %d page tokens (max %d per response); chain additional spawns across pages instead",
+				len(spawn.GetPageTokens()), maxSpawnCursorsPerResponse)
+		}
+		for _, tok := range spawn.GetPageTokens() {
+			if tok == "" {
+				continue
+			}
+			if len(tok) > maxSpawnCursorTokenBytes {
+				return fmt.Errorf(
+					"sync-entitlements: SpawnCursors page token is %d bytes (max %d)",
+					len(tok), maxSpawnCursorTokenBytes)
+			}
+			spawned = append(spawned, Action{
+				Op:             SyncEntitlementsOp,
+				ResourceTypeID: action.ResourceTypeID,
+				ResourceID:     action.ResourceID, // empty on type-scoped actions
+				PageToken:      tok,
+				Spawned:        true,
+			})
+		}
+		if len(spawned) > 0 {
+			s.state.AddSourceCacheStats(SourceCacheStats{SpawnedCursors: int64(len(spawned))})
+		}
+		ctxzap.Extract(ctx).Debug("sync-entitlements: spawned sibling entitlement cursors",
+			zap.String("resource_type_id", action.ResourceTypeID),
+			zap.String("resource_id", action.ResourceID),
+			zap.Bool("type_scoped", typeScoped),
+			zap.Int("cursors", len(spawned)),
+			zap.Int64("estimated_total", spawn.GetEstimatedTotal()))
+	}
+
+	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), spawned...)
 }
 
 func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) error {
@@ -1739,11 +1866,6 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 				}
 
 				entID := entitlement.NewEntitlementID(resource, ent.GetSlug())
-				if hasExclusionGroup {
-					if err := s.recordEntitlementExclusionGroup(exclusionGroup, entID, resource.GetId().GetResourceType()); err != nil {
-						return err
-					}
-				}
 
 				entitlements = append(entitlements, &v2.Entitlement{
 					Resource:    resource,
@@ -2448,6 +2570,11 @@ func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) erro
 
 	l := ctxzap.Extract(ctx)
 	l.Info("Syncing external resources")
+
+	// Ingestion invariant I2 (repair): reconcile the match-processing
+	// flag with the store-derived fact before anything gates on it —
+	// replayed rows arm the engine's existence bit, never the stream arm.
+	s.repairExternalMatchFlag(ctx)
 
 	if s.externalResourceEntitlementIdFilter != "" {
 		err := s.SyncExternalResourcesWithGrantToEntitlement(ctx, s.externalResourceEntitlementIdFilter)
@@ -3417,6 +3544,16 @@ func WithTmpDir(path string) SyncOpt {
 func WithStorageEngine(engine c1zstore.Engine) SyncOpt {
 	return func(s *syncer) {
 		s.storageEngine = engine
+	}
+}
+
+// WithStrictIngestionInvariants promotes check-only ingestion invariants
+// (see ingest_invariants.go) from warn-with-log to hard sync failure.
+// Tests and the replay-equivalence harness enable it; production default
+// is lenient until the predicates have a clean release behind them.
+func WithStrictIngestionInvariants() SyncOpt {
+	return func(s *syncer) {
+		s.strictIngestionInvariants = true
 	}
 }
 

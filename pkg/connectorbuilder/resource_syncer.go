@@ -84,6 +84,18 @@ type TypeScopedGrantsSyncer interface {
 	GrantsForResourceType(ctx context.Context, resourceTypeID string, opts resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error)
 }
 
+// TypeScopedEntitlementsSyncer is the entitlements-phase analogue of
+// TypeScopedGrantsSyncer: the connector enumerates entitlements for a WHOLE
+// resource type instead of being called once per resource. Implement it on
+// a resource syncer whose ResourceType carries the v2.TypeScopedEntitlements
+// annotation; the syncer then issues ListEntitlements calls with an empty
+// resource id, which the builder routes here.
+//
+// Planning / SpawnCursors / source-cache behavior matches TypeScopedGrantsSyncer.
+type TypeScopedEntitlementsSyncer interface {
+	EntitlementsForResourceType(ctx context.Context, resourceTypeID string, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error)
+}
+
 // syncOpAttrs assembles the per-call SyncOpAttrs handed to V2 resource
 // syncers. SourceCache is never nil: when the runner supplied no lookup
 // (source cache disabled/degraded) connectors see NoopLookup and every
@@ -382,9 +394,17 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 
 	start := b.nowFunc()
 	tt := tasks.ListEntitlementsType
-	rb, ok := b.resourceSyncers[request.GetResource().GetId().GetResourceType()]
+
+	if request.GetResource() == nil {
+		err = status.Error(codes.InvalidArgument, "error: list entitlements requires a resource")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+
+	rid := request.GetResource().GetId()
+	rb, ok := b.resourceSyncers[rid.GetResourceType()]
 	if !ok {
-		err = status.Errorf(codes.NotFound, "error: list entitlements with unknown resource type %s", request.GetResource().GetId().GetResourceType())
+		err = status.Errorf(codes.NotFound, "error: list entitlements with unknown resource type %s", rid.GetResourceType())
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -393,12 +413,33 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
 	}
-	opts, contLookup, err := b.continuationOpAttrs(request.GetActiveSyncId(), token, annotations.Annotations(request.GetAnnotations()))
+	reqAnnos := annotations.Annotations(request.GetAnnotations())
+	opts, contLookup, err := b.continuationOpAttrs(request.GetActiveSyncId(), token, reqAnnos)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
-	out, retOptions, err := rb.Entitlements(ctx, request.GetResource(), opts)
+
+	typeScoped := reqAnnos.Contains(&v2.TypeScopedEntitlements{})
+
+	var out []*v2.Entitlement
+	var retOptions *resource.SyncOpResults
+	if typeScoped {
+		// Type-scoped entitlements call (see v2.TypeScopedEntitlements): the
+		// request annotation is the routing marker (the resource is a
+		// self-referential {type, type} stub to satisfy wire validation).
+		// Only legal against a syncer that opted in.
+		tses, tsOk := rb.(TypeScopedEntitlementsSyncer)
+		if !tsOk {
+			err = status.Errorf(codes.InvalidArgument,
+				"error: type-scoped list entitlements for resource type %s, but its syncer does not implement TypeScopedEntitlementsSyncer", rid.GetResourceType())
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
+		out, retOptions, err = tses.EntitlementsForResourceType(ctx, rid.GetResourceType(), opts)
+	} else {
+		out, retOptions, err = rb.Entitlements(ctx, request.GetResource(), opts)
+	}
 	if retOptions == nil {
 		retOptions = &resource.SyncOpResults{}
 	}

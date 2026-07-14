@@ -24,6 +24,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 
@@ -777,4 +778,145 @@ func TestSourceCacheContinuation_AskWithoutOfferFails(t *testing.T) {
 	err = runContinuationSync(ctx, t, mc, filepath.Join(tmpDir, "sync1.c1z"), "", tmpDir, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no offer")
+}
+
+// multiPagePlannerEntitlementsMock mirrors multiPagePlannerMock for
+// TypeScopedEntitlements: a multi-page planner that asks once per page
+// before spawning a real cursor, asserting the routing marker survives
+// every re-invocation.
+type multiPagePlannerEntitlementsMock struct {
+	*mockConnector
+
+	mu             sync.Mutex
+	groupIDs       []string
+	resByID        map[string]*v2.Resource
+	asks           int
+	cursorServes   int
+	spawns         int
+	markerMissing  bool
+	answersScope   string
+	answersPresent int
+}
+
+func (mc *multiPagePlannerEntitlementsMock) Validate(context.Context, *v2.ConnectorServiceValidateRequest, ...grpc.CallOption) (*v2.ConnectorServiceValidateResponse, error) {
+	return v2.ConnectorServiceValidateResponse_builder{
+		Annotations: annotations.New(v2.SourceCacheCapability_builder{
+			Mode: v2.SourceCacheCapability_MODE_READ_WRITE,
+		}.Build()),
+	}.Build(), nil
+}
+
+func (mc *multiPagePlannerEntitlementsMock) ListEntitlements(
+	_ context.Context, in *v2.EntitlementsServiceListEntitlementsRequest, _ ...grpc.CallOption,
+) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
+	if in.GetResource().GetId().GetResourceType() != typeScopedEntGroupRT.GetId() {
+		return v2.EntitlementsServiceListEntitlementsResponse_builder{}.Build(), nil
+	}
+	reqAnnos := annotations.Annotations(in.GetAnnotations())
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+	if !reqAnnos.Contains(&v2.TypeScopedEntitlements{}) {
+		mc.markerMissing = true
+	}
+
+	tok := in.GetPageToken()
+	if tok == "cursor" {
+		mc.cursorServes++
+		ents := make([]*v2.Entitlement, 0, len(mc.groupIDs))
+		for _, gid := range mc.groupIDs {
+			ents = append(ents, et.NewAssignmentEntitlement(mc.resByID[gid], "member", et.WithGrantableTo(userResourceType)))
+		}
+		return v2.EntitlementsServiceListEntitlementsResponse_builder{List: ents}.Build(), nil
+	}
+
+	page := 0
+	if tok != "" {
+		if _, err := fmt.Sscanf(tok, "plan=%d", &page); err != nil {
+			return nil, fmt.Errorf("bad token %q", tok)
+		}
+	}
+	scope := fmt.Sprintf("ent-chunks/page-%d", page)
+
+	answersMsg := &v2.SourceCacheLookupAnswers{}
+	hasAnswers, err := reqAnnos.Pick(answersMsg)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAnswers && reqAnnos.Contains(&v2.SourceCacheLookupOffer{}) {
+		mc.asks++
+		return v2.EntitlementsServiceListEntitlementsResponse_builder{
+			Annotations: annotations.New(sourcecache.AskProto([]sourcecache.Query{
+				{RowKind: sourcecache.RowKindEntitlements, ScopeHash: scope},
+			})),
+		}.Build(), nil
+	}
+	if hasAnswers {
+		mc.answersPresent++
+		answers, answersErr := sourcecache.AnswersFromProto(answersMsg)
+		if answersErr != nil {
+			return nil, answersErr
+		}
+		for _, a := range answers {
+			if a.ScopeHash == scope {
+				mc.answersScope = scope
+			}
+		}
+	}
+
+	if page == plannerPages-1 {
+		mc.spawns++
+		return v2.EntitlementsServiceListEntitlementsResponse_builder{
+			Annotations: annotations.New(v2.SpawnCursors_builder{PageTokens: []string{"cursor"}}.Build()),
+		}.Build(), nil
+	}
+	return v2.EntitlementsServiceListEntitlementsResponse_builder{
+		NextPageToken: fmt.Sprintf("plan=%d", page+1),
+	}.Build(), nil
+}
+
+func (mc *multiPagePlannerEntitlementsMock) ListGrants(context.Context, *v2.GrantsServiceListGrantsRequest, ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
+	return v2.GrantsServiceListGrantsResponse_builder{}.Build(), nil
+}
+
+func TestSourceCacheContinuation_MultiPagePlannerEntitlementsBouncesPerRequest(t *testing.T) {
+	ctx, err := logging.Init(context.Background())
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+
+	mc := &multiPagePlannerEntitlementsMock{
+		mockConnector: newMockConnector(),
+		resByID:       map[string]*v2.Resource{},
+	}
+	mc.rtDB = append(mc.rtDB, typeScopedEntGroupRT, userResourceType)
+	u, err := rs.NewUserResource("user-00", userResourceType, "user-00", nil, rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}))
+	require.NoError(t, err)
+	mc.AddResource(ctx, u)
+	mc.resByID["user-00"] = u
+	for i := 0; i < 2; i++ {
+		gid := fmt.Sprintf("group-%02d", i)
+		g, err := rs.NewGroupResource(gid, typeScopedEntGroupRT, gid, nil)
+		require.NoError(t, err)
+		mc.AddResource(ctx, g)
+		mc.resByID[gid] = g
+		mc.groupIDs = append(mc.groupIDs, gid)
+	}
+
+	sync1 := filepath.Join(tmpDir, "sync1.c1z")
+	require.NoError(t, runContinuationSync(ctx, t, mc, sync1, "", tmpDir, 0))
+	require.Zero(t, mc.asks)
+	require.Equal(t, 1, mc.spawns)
+	require.Equal(t, 1, mc.cursorServes)
+	ents1 := listEntitlementsInFile(ctx, t, sync1)
+	require.Len(t, ents1, 2)
+
+	sync2 := filepath.Join(tmpDir, "sync2.c1z")
+	require.NoError(t, runContinuationSync(ctx, t, mc, sync2, sync1, tmpDir, 0),
+		"a multi-page entitlements planner asking once per page must not trip the per-request bounce cap")
+	require.Equal(t, plannerPages, mc.asks, "one ask per planning page")
+	require.Equal(t, plannerPages, mc.answersPresent, "every re-invoked planning page carries answers")
+	require.NotEmpty(t, mc.answersScope, "answers must cover the asked scope")
+	require.False(t, mc.markerMissing, "TypeScopedEntitlements routing marker must survive on every request, including re-invokes")
+	require.Equal(t, 2, mc.spawns, "the asking planner page spawns exactly once per sync")
+	require.Equal(t, 2, mc.cursorServes, "spawned cursor executes exactly once per sync")
+	requireSameEntitlementIDs(t, ents1, listEntitlementsInFile(ctx, t, sync2), "warm planner sync vs cold")
 }

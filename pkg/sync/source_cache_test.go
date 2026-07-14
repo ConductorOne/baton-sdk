@@ -169,7 +169,7 @@ func runSourceCacheSync(ctx context.Context, t *testing.T, mc *sourceCacheMockCo
 		dotc1z.WithTmpDir(tmpDir),
 	)
 	require.NoError(t, err)
-	opts := []SyncOpt{WithConnectorStore(store), WithTmpDir(tmpDir)}
+	opts := []SyncOpt{WithConnectorStore(store), WithTmpDir(tmpDir), WithStrictIngestionInvariants()}
 	if prevPath != "" {
 		opts = append(opts, WithPreviousSyncC1ZPath(prevPath))
 	}

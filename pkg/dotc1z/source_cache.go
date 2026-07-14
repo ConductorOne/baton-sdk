@@ -67,6 +67,49 @@ type SourceCacheStore interface {
 
 var _ SourceCacheStore = (*pebbleStore)(nil)
 
+// IngestFactStore is the optional store capability backing the syncer's
+// ingestion invariants (see docs/tasks/source-cache-ingestion-invariants.md):
+// dense row facts tracked as existence bits, and the ordered-key
+// inspection reads the referential invariant uses. Pebble-only; the
+// syncer degrades per-invariant when the store lacks it.
+type IngestFactStore interface {
+	// HasExternalMatchGrants reports whether the open sync holds at
+	// least one grant carrying an ExternalResourceMatch* annotation —
+	// the store-derived truth behind HasExternalResourcesGrants.
+	HasExternalMatchGrants(ctx context.Context) (bool, error)
+
+	// ForEachDistinctGrantEntitlementResource visits each distinct
+	// entitlement resource referenced by any grant: one seek per
+	// distinct resource, never O(grants).
+	ForEachDistinctGrantEntitlementResource(ctx context.Context, visit func(resourceTypeID, resourceID string) error) error
+
+	// GrantsForEntResourceCarryInsertFact reports whether any grant
+	// under the entitlement resource carries InsertResourceGrants.
+	// Value-reading; reserved for dangling-reference probes.
+	GrantsForEntResourceCarryInsertFact(ctx context.Context, resourceTypeID, resourceID string) (bool, error)
+
+	// HasResourceRecord reports whether a resource row exists.
+	HasResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (bool, error)
+}
+
+var _ IngestFactStore = (*pebbleStore)(nil)
+
+func (s *pebbleStore) HasExternalMatchGrants(ctx context.Context) (bool, error) {
+	return s.engine.HasExternalMatchGrants(), nil
+}
+
+func (s *pebbleStore) ForEachDistinctGrantEntitlementResource(ctx context.Context, visit func(resourceTypeID, resourceID string) error) error {
+	return s.engine.ForEachDistinctGrantEntitlementResource(ctx, visit)
+}
+
+func (s *pebbleStore) GrantsForEntResourceCarryInsertFact(ctx context.Context, resourceTypeID, resourceID string) (bool, error) {
+	return s.engine.GrantsForEntResourceCarryInsertFact(ctx, resourceTypeID, resourceID)
+}
+
+func (s *pebbleStore) HasResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (bool, error) {
+	return s.engine.HasResourceRecord(ctx, resourceTypeID, resourceID)
+}
+
 // sourceCacheEngine recovers the Pebble engine from an arbitrary store,
 // nil-safe. Mirrors pebble.AsEngine but accepts any value so the syncer
 // can probe its previous-sync reader without caring about its static type.
