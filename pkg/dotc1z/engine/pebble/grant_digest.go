@@ -10,6 +10,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/cockroachdb/pebble/v2"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
@@ -46,7 +47,7 @@ var grantDigestSpec = digestIndexSpec{
 	partitionPrefix: encodeGrantByEntPrincHashEntPrefix,
 }
 
-// grantDigestABIVersion is the version of the content-hash / bucket-hash
+// GrantDigestABIVersion is the version of the content-hash / bucket-hash
 // definitions below (grantContentHash64, grantPrincipalBucketHash64).
 // Stamped into the manifest's GrantDigestRoot.abi_version so a future
 // ABI bump (a change to either hash's input framing) makes stored
@@ -54,7 +55,10 @@ var grantDigestSpec = digestIndexSpec{
 // construction, rather than silently comparing unrelated hash schemes.
 // Bump alongside any index-migration version bump that touches these
 // hashes (see index_migrations.go).
-const grantDigestABIVersion uint32 = 1
+//
+// Exported so consumers of GrantContentHash / GrantDigestAccumulator
+// can check a stored root's abi_version before comparing.
+const GrantDigestABIVersion uint32 = 1
 
 // digestLevelGlobalRoot is the node-key level for the whole-file grant
 // digest root (see globalGrantDigestNodeKey): the XOR fold of every
@@ -190,6 +194,84 @@ func grantContentHashForRecord(r *v3.GrantRecord) ([]byte, error) {
 	out := make([]byte, hashLen)
 	binary.BigEndian.PutUint64(out, h)
 	return out, nil
+}
+
+// GrantContentHash is the public form of the grant content hash
+// (grantContentHash64) computed from a v2 proto — the uint64 the stored
+// 8-byte big-endian hash encodes. Use it (or GrantDigestAccumulator,
+// its fold) to digest grants not held in a pebble file — e.g. a legacy
+// SQLite c1z — for comparison against engine-served digests.
+//
+// Hash grants as stored, not as emitted: expansion populates the
+// sources map after ingest, so raw connector output hashes differently
+// from what a sealed file digested. A grant missing its structural
+// identity errors — such a grant cannot exist in a pebble file.
+// Duplicates of one identity tuple drift from the disk fold (pebble
+// stores the tuple once), but the counts differ too, so the comparison
+// just reports a mismatch — never a false match.
+//
+// ABI: pinned to GrantDigestABIVersion alongside the internal forms.
+func GrantContentHash(g *v2.Grant) (uint64, error) {
+	ent := g.GetEntitlement()
+	entRes := ent.GetResource().GetId()
+	if entRes.GetResourceType() == "" || entRes.GetResource() == "" || ent.GetId() == "" {
+		return 0, fmt.Errorf("grant content hash: missing entitlement identity")
+	}
+	princ := g.GetPrincipal().GetId()
+	if princ.GetResourceType() == "" || princ.GetResource() == "" {
+		return 0, fmt.Errorf("grant content hash: missing principal identity")
+	}
+	id := grantIdentity{
+		entitlement:     entitlementIdentityFromParts(entRes.GetResourceType(), entRes.GetResource(), ent.GetId()),
+		principalTypeID: princ.GetResourceType(),
+		principalID:     princ.GetResource(),
+	}
+	key := encodeGrantIdentityKey(id)
+	sources := g.GetSources().GetSources()
+	srcs := make([][]byte, 0, len(sources))
+	for k := range sources {
+		srcs = append(srcs, []byte(k))
+	}
+	sortByteSlices(srcs)
+	h, _ := grantContentHash64(nil, key[grantPrimaryKeyPrefixLen:], srcs)
+	return h, nil
+}
+
+// GrantDigestAccumulator XOR/count-folds GrantContentHash over a set of
+// grants. Fold one entitlement's grants to reproduce its stored digest
+// root (GetEntitlementDigestRoot), or every grant in a sync to
+// reproduce the whole-file root (GetGrantDigestGlobalRoot / the
+// manifest's GrantDigestRoot.xor_digest — per-entitlement roots
+// XOR-combine, so the flat fold equals the fold of roots). Compare only
+// digests computed under the same GrantDigestABIVersion; see
+// GrantContentHash for the input contract.
+//
+// The zero value is ready to use. Not safe for concurrent use.
+type GrantDigestAccumulator struct {
+	xor   uint64
+	count int64
+}
+
+// Add folds one grant into the accumulator; a grant GrantContentHash
+// rejects leaves it unchanged.
+func (a *GrantDigestAccumulator) Add(g *v2.Grant) error {
+	h, err := GrantContentHash(g)
+	if err != nil {
+		return err
+	}
+	a.xor ^= h
+	a.count++
+	return nil
+}
+
+// Root returns the fold so far as a DigestRoot: Hash is the 8-byte
+// big-endian XOR fold, Count the number of grants added. Bits is 0
+// (root-only); compare Hash and Count.
+func (a *GrantDigestAccumulator) Root() DigestRoot {
+	return DigestRoot{
+		Hash:  binary.BigEndian.AppendUint64(nil, a.xor),
+		Count: a.count,
+	}
 }
 
 // sortByteSlices sorts byte slices ascending (bytes.Compare order).

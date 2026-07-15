@@ -56,7 +56,7 @@ func BuildManifestWithSyncRuns(ctx context.Context, e *Engine, encoding c1zstore
 		m.SetGrantDigestRoot(c1zv3.GrantDigestRoot_builder{
 			XorDigest:  root.Hash,
 			Count:      root.Count,
-			AbiVersion: grantDigestABIVersion,
+			AbiVersion: GrantDigestABIVersion,
 		}.Build())
 	}
 	return m, nil
