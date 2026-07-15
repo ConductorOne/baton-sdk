@@ -6,6 +6,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	restypes "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
 	"github.com/xuri/excelize/v2"
@@ -278,13 +279,13 @@ func buildXLSX(ctx context.Context, d dataBag, outPath string) error {
 				}
 			}
 
-			profile := ut.Profile.Fields
+			profile := restypes.GetProfile(r).GetFields()
 			er := excelRow{
 				rowType:      "Identity",
 				lastName:     profile["last_name"].GetStringValue(),
 				firstName:    profile["first_name"].GetStringValue(),
 				userID:       profile["user_id"].GetStringValue(),
-				userStatus:   getUserStatus(ctx, ut),
+				userStatus:   getUserStatus(r),
 				emailAddress: emailAddress,
 			}
 
@@ -334,7 +335,7 @@ func buildXLSX(ctx context.Context, d dataBag, outPath string) error {
 					break
 				}
 			}
-			profile := ut.Profile.Fields
+			profile := restypes.GetProfile(p).GetFields()
 
 			var e *v2.Entitlement
 			if en, ok := d.entitlementsByID[g.Entitlement.Id]; ok {

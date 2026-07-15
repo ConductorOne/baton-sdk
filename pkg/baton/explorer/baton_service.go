@@ -10,20 +10,20 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/baton/storecache"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	restypes "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
-// extractProfileFields extracts profile attributes from a resource's UserTrait annotations.
+// extractProfileFields extracts profile attributes from a resource, plus the
+// primary email from a UserTrait annotation when present.
 func extractProfileFields(r *v2.Resource) map[string]string {
 	result := make(map[string]string)
+	for k, v := range restypes.GetProfile(r).GetFields() {
+		result[k] = v.GetStringValue()
+	}
 	for _, ann := range r.GetAnnotations() {
 		ut := &v2.UserTrait{}
 		if err := ann.UnmarshalTo(ut); err != nil {
 			continue
-		}
-		if ut.GetProfile() != nil {
-			for k, v := range ut.GetProfile().GetFields() {
-				result[k] = v.GetStringValue()
-			}
 		}
 		for _, email := range ut.GetEmails() {
 			if email.GetIsPrimary() && email.GetAddress() != "" {

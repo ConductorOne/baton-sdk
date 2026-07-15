@@ -5,7 +5,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestAnnotations_New(t *testing.T) {
@@ -48,14 +47,14 @@ func TestAnnotations_Contains(t *testing.T) {
 func TestAnnotations_Pick(t *testing.T) {
 	var annos Annotations
 
-	annos.Append(v2.GroupTrait_builder{Profile: &structpb.Struct{}}.Build())
+	annos.Append(v2.GroupTrait_builder{GroupSourceType: "native"}.Build())
 
 	trait := &v2.GroupTrait{}
-	require.Nil(t, trait.GetProfile())
+	require.Empty(t, trait.GetGroupSourceType())
 	ok, err := annos.Pick(trait)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.NotNil(t, trait.GetProfile())
+	require.Equal(t, "native", trait.GetGroupSourceType())
 
 	roleTrait := &v2.RoleTrait{}
 	ok, err = annos.Pick(roleTrait)
@@ -71,7 +70,7 @@ func TestAnnotations_Update(t *testing.T) {
 	require.Len(t, annos, 1)
 	annos.Append(&v2.RoleTrait{})
 	require.Len(t, annos, 2)
-	annos.Update(v2.GroupTrait_builder{Profile: &structpb.Struct{}}.Build())
+	annos.Update(v2.GroupTrait_builder{GroupSourceType: "native"}.Build())
 	require.Len(t, annos, 2)
 	annos.Update(&v2.UserTrait{})
 	require.Len(t, annos, 3)
@@ -80,7 +79,7 @@ func TestAnnotations_Update(t *testing.T) {
 	ok, err := annos.Pick(gt)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.NotNil(t, gt.GetProfile())
+	require.Equal(t, "native", gt.GetGroupSourceType())
 }
 
 func TestAnnotations_WithRateLimiting(t *testing.T) {

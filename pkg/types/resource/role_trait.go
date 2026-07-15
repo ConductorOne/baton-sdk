@@ -10,6 +10,12 @@ import (
 
 type RoleTraitOption func(gt *v2.RoleTrait) error
 
+// WithRoleProfile sets the role's profile.
+//
+// Deprecated: profile has moved from RoleTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level profile when
+// used with WithRoleTrait or NewRoleResource — but new code should use
+// WithResourceProfile instead.
 func WithRoleProfile(profile map[string]interface{}) RoleTraitOption {
 	return func(rt *v2.RoleTrait) error {
 		p, err := structpb.NewStruct(profile)

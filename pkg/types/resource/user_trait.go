@@ -13,6 +13,12 @@ import (
 
 type UserTraitOption func(ut *v2.UserTrait) error
 
+// WithStatus sets the user's status.
+//
+// Deprecated: status has moved from UserTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level status when
+// used with WithUserTrait or NewUserResource — but new code should use
+// WithResourceStatus instead.
 func WithStatus(status v2.UserTrait_Status_Status) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
 		ut.SetStatus(v2.UserTrait_Status_builder{Status: status}.Build())
@@ -21,6 +27,12 @@ func WithStatus(status v2.UserTrait_Status_Status) UserTraitOption {
 	}
 }
 
+// WithDetailedStatus sets the user's status along with details.
+//
+// Deprecated: status has moved from UserTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level status when
+// used with WithUserTrait or NewUserResource — but new code should use
+// WithResourceStatus instead.
 func WithDetailedStatus(status v2.UserTrait_Status_Status, details string) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
 		ut.SetStatus(v2.UserTrait_Status_builder{Status: status, Details: details}.Build())
@@ -65,6 +77,12 @@ func WithEmployeeID(employeeIDs ...string) UserTraitOption {
 	}
 }
 
+// WithUserIcon sets the user's icon.
+//
+// Deprecated: icon has moved from UserTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level icon when
+// used with WithUserTrait or NewUserResource — but new code should use
+// WithResourceIcon instead.
 func WithUserIcon(assetRef *v2.AssetRef) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
 		ut.SetIcon(assetRef)
@@ -73,6 +91,12 @@ func WithUserIcon(assetRef *v2.AssetRef) UserTraitOption {
 	}
 }
 
+// WithUserProfile sets the user's profile.
+//
+// Deprecated: profile has moved from UserTrait to an attribute on Resource.
+// This option still works — it also populates the resource-level profile when
+// used with WithUserTrait or NewUserResource — but new code should use
+// WithResourceProfile instead.
 func WithUserProfile(profile map[string]interface{}) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
 		p, err := structpb.NewStruct(profile)
@@ -93,6 +117,12 @@ func WithAccountType(accountType v2.UserTrait_AccountType) UserTraitOption {
 	}
 }
 
+// WithCreatedAt sets the user's creation time.
+//
+// Deprecated: created_at has moved from UserTrait to an attribute on
+// Resource. This option still works — it also populates the resource-level
+// created_at when used with WithUserTrait or NewUserResource — but new code
+// should use WithResourceCreatedAt instead.
 func WithCreatedAt(createdAt time.Time) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
 		ut.SetCreatedAt(timestamppb.New(createdAt))
@@ -140,6 +170,7 @@ func NewUserTrait(opts ...UserTraitOption) (*v2.UserTrait, error) {
 	}
 
 	// If no status was set, default to be enabled.
+	//nolint:staticcheck // intentionally writes the deprecated trait status for backwards compatibility
 	if !userTrait.HasStatus() {
 		userTrait.SetStatus(v2.UserTrait_Status_builder{Status: v2.UserTrait_Status_STATUS_ENABLED}.Build())
 	}

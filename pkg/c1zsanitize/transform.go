@@ -386,21 +386,34 @@ func (s *sanitizer) transformResourceType(in *v2.ResourceType, refs *assetRefSet
 }
 
 // transformResource rewrites the resource id (preserving the type
-// portion), parent id, display name, description, and annotations.
+// portion), parent id, display name, description, annotations, and the
+// resource-level profile/icon/status/created_at attributes.
 // baton_resource is preserved as it's a flag, not identity.
 func (s *sanitizer) transformResource(in *v2.Resource, refs *assetRefSet) *v2.Resource {
 	if in == nil {
 		return nil
 	}
 	annos := s.transformAnnotations(in.GetAnnotations(), refs)
-	return v2.Resource_builder{
+	out := v2.Resource_builder{
 		Id:               s.transformResourceID(in.GetId()),
 		ParentResourceId: s.transformResourceID(in.GetParentResourceId()),
 		DisplayName:      s.id(in.GetDisplayName()),
 		Description:      s.id(in.GetDescription()),
 		Annotations:      annos,
 		BatonResource:    in.GetBatonResource(),
+		Profile:          s.sanitizeStruct(in.GetProfile()),
+		Icon:             s.sanitizeAssetRef(in.GetIcon(), refs),
 	}.Build()
+	if in.HasStatus() {
+		out.SetStatus(v2.Status_builder{
+			Status:  in.GetStatus().GetStatus(),
+			Details: s.id(in.GetStatus().GetDetails()),
+		}.Build())
+	}
+	if in.HasCreatedAt() {
+		out.SetCreatedAt(s.shifter.shift(in.GetCreatedAt()))
+	}
+	return out
 }
 
 func (s *sanitizer) transformResourceID(in *v2.ResourceId) *v2.ResourceId {

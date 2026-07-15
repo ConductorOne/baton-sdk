@@ -91,17 +91,6 @@ func (m *UserTrait) validate(all bool) error {
 
 	}
 
-	if m.GetStatus() == nil {
-		err := UserTraitValidationError{
-			field:  "Status",
-			reason: "value is required",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
-	}
-
 	if all {
 		switch v := interface{}(m.GetStatus()).(type) {
 		case interface{ ValidateAll() error }:
@@ -1933,7 +1922,20 @@ func (m *NonHumanIdentityTrait) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	// no validation rules for NhiDetail
+	if m.GetNhiDetail() != "" {
+
+		if l := len(m.GetNhiDetail()); l < 1 || l > 1024 {
+			err := NonHumanIdentityTraitValidationError{
+				field:  "NhiDetail",
+				reason: "value length must be between 1 and 1024 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
 
 	if len(errors) > 0 {
 		return NonHumanIdentityTraitMultiError(errors)
@@ -2037,16 +2039,7 @@ func (m *AgentTrait) validate(all bool) error {
 
 	var errors []error
 
-	if _, ok := AgentTrait_AgentStatus_name[int32(m.GetStatus())]; !ok {
-		err := AgentTraitValidationError{
-			field:  "Status",
-			reason: "value must be one of the defined enum values",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
-	}
+	// no validation rules for Status
 
 	if all {
 		switch v := interface{}(m.GetIdentityResourceId()).(type) {
