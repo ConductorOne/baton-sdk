@@ -74,6 +74,12 @@ type SourceCacheReplayResult struct {
 	// recreate them or the current sync holds grants whose resources
 	// do not exist.
 	RelatedResourceRows int64
+	// ResumedRowsCleared counts destination rows deleted before the copy
+	// because they were already stamped with the scope — evidence of a
+	// resumed re-run over a crashed attempt's committed replay/overlay
+	// rows (see clearReplayScopeRowsLocked). Always zero on a page's
+	// first run.
+	ResumedRowsCleared int64
 }
 
 // SourceCacheManifestSnapshot returns every manifest entry as
@@ -177,11 +183,13 @@ func (e *Engine) countSourceScopeIndexRange(ctx context.Context, prefix []byte) 
 // verifyReplayedScopeCount is the replay-time count check: immediately
 // after a replay's final commit, the destination's scope-index range must
 // hold exactly the rows the copy claims to have written. Sound because
-// the copy is the scope's first writer in the sync (fresh rows for a
-// replayed scope arrive only via the overlay, after this) and a resumed
-// re-copy overwrites the identical identity set. A mismatch means a
-// partial copy landed — the silent-bad-data class — so it fails the
-// replay rather than letting the manifest entry seal it as complete.
+// the copy is the scope's first writer in the sync — fresh rows for a
+// replayed scope arrive only via the overlay, after this, and a resumed
+// re-run first clears whatever a crashed attempt committed under the
+// scope (clearReplayScopeRowsLocked), including overlay rows whose
+// identities the re-copy would not cover. A mismatch means a partial
+// copy landed — the silent-bad-data class — so it fails the replay
+// rather than letting the manifest entry seal it as complete.
 func (e *Engine) verifyReplayedScopeCount(ctx context.Context, kind, scopeKey string, prefix []byte, copied int64) error {
 	got, err := e.countSourceScopeIndexRange(ctx, prefix)
 	if err != nil {
@@ -678,6 +686,127 @@ func replayPrimaryFromIndexKey(indexKey, indexPrefix []byte, primaryHeader [2]by
 	return append(key, tail...), nil
 }
 
+// clearReplayScopeRowsLocked deletes every row in the CURRENT store whose
+// by_source_scope index entry lives under scopePrefix, restoring the
+// replay copy's "first writer for the scope" precondition when a resumed
+// action re-runs a replay page.
+//
+// Why this must exist: a crashed earlier attempt of the same page may
+// have committed the page's own overlay rows — net-new identities stamped
+// with this scope — AFTER its replay copy landed. Those identities are
+// not in the previous file, so a re-run's copy neither overwrites nor
+// removes them, and verifyReplayedScopeCount's post-copy recount would
+// find copied-base + overlay entries and fail the replay even though no
+// data was lost. Deleting up front is safe because the resumed page
+// re-delivers everything the crashed attempt wrote: the copy re-copies
+// the base and the page's own rows are re-put after the copy.
+//
+// Rows whose VALUE stamp names a different scope are left in place (they
+// belong to that other scope); only their orphaned index entry under this
+// scope is removed. On the first run of a page the scope's index range is
+// empty and this is a single bounded no-op scan.
+//
+// stampOf extracts the row's source-scope stamp from its raw value;
+// deleteRowIndexes stages the row's secondary-index deletes derived from
+// its raw value (including its scope entry, when the kind has more
+// indexes than the scope entry itself). The caller must hold the write
+// lock (this runs inside the replay's withWrite closure).
+func (e *Engine) clearReplayScopeRowsLocked(
+	ctx context.Context,
+	scopeKey string,
+	scopePrefix []byte,
+	primaryHeader [2]byte,
+	stampOf func(val []byte) (string, error),
+	deleteRowIndexes func(batch *pebble.Batch, priKey []byte, val []byte) error,
+) (int64, error) {
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: scopePrefix,
+		UpperBound: upperBoundOf(scopePrefix),
+	})
+	if err != nil {
+		return 0, err
+	}
+	defer iter.Close()
+
+	opts := writeOpts(e.opts.durability)
+	if e.IsFreshSync() {
+		opts = pebble.NoSync
+	}
+	batch := e.db.NewBatch()
+	defer func() { _ = batch.Close() }()
+
+	var deleted int64
+	stagedInBatch := 0
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return deleted, err
+		}
+		priKey, err := replayPrimaryFromIndexKey(iter.Key(), scopePrefix, primaryHeader)
+		if err != nil {
+			return deleted, err
+		}
+		val, closer, getErr := e.db.Get(priKey)
+		switch {
+		case errors.Is(getErr, pebble.ErrNotFound):
+			// Orphan index entry with no row: drop the entry alone.
+			if err := batch.Delete(iter.Key(), nil); err != nil {
+				return deleted, err
+			}
+			stagedInBatch++
+		case getErr != nil:
+			return deleted, fmt.Errorf("source cache replay: pre-clear get: %w", getErr)
+		default:
+			stamp, stampErr := stampOf(val)
+			if stampErr != nil {
+				closer.Close()
+				return deleted, stampErr
+			}
+			if stamp != scopeKey {
+				// The row was rewritten under another scope; this index
+				// entry is stale. Remove the entry, keep the row.
+				closer.Close()
+				if err := batch.Delete(iter.Key(), nil); err != nil {
+					return deleted, err
+				}
+				stagedInBatch++
+				break
+			}
+			if err := deleteRowIndexes(batch, priKey, val); err != nil {
+				closer.Close()
+				return deleted, err
+			}
+			closer.Close()
+			if err := batch.Delete(priKey, nil); err != nil {
+				return deleted, err
+			}
+			// deleteRowIndexes covers the scope entry via the value's
+			// stamp; delete the iterated key too so the range is clean
+			// even if the derivations ever disagree (deleting a missing
+			// key is a pebble no-op).
+			if err := batch.Delete(iter.Key(), nil); err != nil {
+				return deleted, err
+			}
+			deleted++
+			stagedInBatch++
+		}
+		if stagedInBatch >= replayBatchRows {
+			if err := batch.Commit(opts); err != nil {
+				return deleted, err
+			}
+			_ = batch.Close()
+			batch = e.db.NewBatch()
+			stagedInBatch = 0
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return deleted, err
+	}
+	if err := batch.Commit(opts); err != nil {
+		return deleted, err
+	}
+	return deleted, nil
+}
+
 // ReplaySourceCacheGrants copies every grant stamped with scopeKey from
 // prev into the receiver: raw primary copy plus index synthesis from the
 // raw value (principal, needs_expansion, source-scope families). Mirrors
@@ -692,6 +821,24 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
+		// Resume idempotency: drop any destination rows a crashed earlier
+		// attempt already committed under this scope (replay copy and/or
+		// overlay rows), so the copy below is the scope's first writer
+		// again and the post-copy recount stays exact.
+		cleared, err := e.clearReplayScopeRowsLocked(ctx, scopeKey, prefix, primaryHeader,
+			func(val []byte) (string, error) {
+				_, _, _, _, _, _, srcScope, scanErr := scanGrantIndexFieldsRaw(val)
+				return srcScope, scanErr
+			},
+			func(batch *pebble.Batch, priKey []byte, val []byte) error {
+				return e.deleteGrantIndexesRaw(batch, "", val)
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("source cache replay: pre-clear grants scope %q: %w", scopeKey, err)
+		}
+		res.ResumedRowsCleared = cleared
+
 		iter, err := prev.db.NewIter(&pebble.IterOptions{
 			LowerBound: prefix,
 			UpperBound: upperBoundOf(prefix),
@@ -986,6 +1133,22 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
+		// Resume idempotency: see the grants replay. The entitlement
+		// bare-id lookup map is invalidated for the deletes exactly as
+		// for the copies (the defer below keys on either landing).
+		cleared, err := e.clearReplayScopeRowsLocked(ctx, scopeKey, prefix, primaryHeader,
+			scanEntitlementSourceScopeRaw,
+			func(batch *pebble.Batch, priKey []byte, val []byte) error {
+				// The scope entry is the only entitlement secondary
+				// index, and the caller deletes the iterated entry.
+				return nil
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("source cache replay: pre-clear entitlements scope %q: %w", scopeKey, err)
+		}
+		res.ResumedRowsCleared = cleared
+
 		iter, err := prev.db.NewIter(&pebble.IterOptions{
 			LowerBound: prefix,
 			UpperBound: upperBoundOf(prefix),
@@ -1009,9 +1172,11 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 		// invalidated and the empty-keyspace fast path disarmed even when
 		// the replay itself fails — draining workers can still resolve
 		// tombstones and write entitlements while the failure unwinds.
+		// Pre-clear deletes mutate the keyspace the same way, so they
+		// arm the invalidation too.
 		committedRows := 0
 		defer func() {
-			if committedRows > 0 {
+			if committedRows > 0 || res.ResumedRowsCleared > 0 {
 				e.noteEntitlementKeyspaceWrite()
 				_ = e.takeFreshEntitlementsEmpty()
 			}
@@ -1129,6 +1294,25 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
+		// Resume idempotency: see the grants replay.
+		cleared, err := e.clearReplayScopeRowsLocked(ctx, scopeKey, prefix, primaryHeader,
+			func(val []byte) (string, error) {
+				_, _, srcScope, scanErr := scanResourceIndexFieldsRaw(val)
+				return srcScope, scanErr
+			},
+			func(batch *pebble.Batch, priKey []byte, val []byte) error {
+				rt, rid, decodeErr := decodeResourcePrimaryTail(priKey)
+				if decodeErr != nil {
+					return decodeErr
+				}
+				return e.deleteResourceIndexesRaw(batch, rt, rid, val)
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("source cache replay: pre-clear resources scope %q: %w", scopeKey, err)
+		}
+		res.ResumedRowsCleared = cleared
+
 		iter, err := prev.db.NewIter(&pebble.IterOptions{
 			LowerBound: prefix,
 			UpperBound: upperBoundOf(prefix),

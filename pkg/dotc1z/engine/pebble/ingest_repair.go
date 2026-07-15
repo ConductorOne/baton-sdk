@@ -303,16 +303,21 @@ func (e *Engine) DeleteGrantsForPrincipal(ctx context.Context, principalRT, prin
 }
 
 // DeleteGrantsForEntitlement deletes every grant row under one
-// entitlement identity — the drop arm for grants referencing an
-// entitlement with no row. Streams the primary prefix with values in
+// entitlement identity EXCEPT rows carrying the InsertResourceGrants
+// annotation — the drop arm for grants referencing an entitlement with no
+// row. The exemption is per GRANT, matching the ownership rule
+// (docs/tasks/dangling-reference-drops.md): a machinery-owned IRG grant
+// legitimately has no entitlement row (downstream synthesizes it), while
+// a connector-owned grant under the same missing entitlement is a
+// dangling reference and drops. Streams the primary prefix with values in
 // hand (index cleanup derives from the value), chunked batches, no
-// per-row commits.
-func (e *Engine) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (int64, error) {
+// per-row commits. Returns (deleted, skippedInsertFact).
+func (e *Engine) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (int64, int64, error) {
 	entID := entitlementIdentityFromParts(entResourceTypeID, entResourceID, entitlementID)
 	prefix := encodeGrantPrimaryEntitlementIdentityPrefix(
 		entID.resourceTypeID, entID.resourceID, entID.flagComponent(), entID.tail)
 
-	var deleted int64
+	var deleted, skipped int64
 	err := e.withWrite(func() error {
 		iter, err := e.db.NewIter(&pebble.IterOptions{
 			LowerBound: prefix,
@@ -331,6 +336,14 @@ func (e *Engine) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, 
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
 				return err
+			}
+			flags, flagsErr := scanGrantSourceCacheFlagsRaw(iter.Value())
+			if flagsErr != nil {
+				return fmt.Errorf("dangling entitlement drop: scan flags: %w", flagsErr)
+			}
+			if flags.insertResourceGrants {
+				skipped++
+				continue
 			}
 			if err := e.deleteGrantIndexesRaw(batch, "", iter.Value()); err != nil {
 				return err
@@ -358,9 +371,9 @@ func (e *Engine) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, 
 		return batch.Commit(opts)
 	})
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return deleted, nil
+	return deleted, skipped, nil
 }
 
 // DeleteEntitlementsForResource deletes every entitlement row under one

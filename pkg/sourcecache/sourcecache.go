@@ -132,7 +132,11 @@ func (NoopLookup) Lookup(context.Context, RowKind, string) (Entry, bool, error) 
 // SourceCacheSetter is implemented by connector clients/servers that can receive a
 // source-cache lookup implementation from the sync runner. The SDK calls
 // SetSourceCache(lookup) at the start of each sync and SetSourceCache(nil)
-// when the sync ends so a late RPC can't read stale state.
+// when the sync ends so a late RPC can't read stale state. Calls must be
+// balanced per sync — exactly one nil clear for each non-nil install, and
+// no clear from a sync that never installed — because the shared
+// subprocess slot counts installs to detect concurrent-sync contention
+// (see GRPCServer.SetSourceCache).
 type SourceCacheSetter interface {
 	SetSourceCache(ctx context.Context, lookup Lookup)
 }

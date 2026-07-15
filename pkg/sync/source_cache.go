@@ -62,6 +62,12 @@ type syncerSourceCache struct {
 	// per-sync struct shares the set; guarded internally for parallel
 	// workers. Best-effort across resume (in-memory), stats-only.
 	replayedScopes *replayedScopeSet
+	// lookupInstalled records that THIS sync installed a lookup (real or
+	// no-op) into the connector's shared slot, so Close only clears what
+	// it owns. A syncer that failed before installing must not clear —
+	// on the shared subprocess slot that would decrement another live
+	// sync's install and blind it (see sourcecache.GRPCServer).
+	lookupInstalled bool
 }
 
 type scopeRef struct {
@@ -128,7 +134,12 @@ func (s *syncer) configureSourceCache(ctx context.Context, resp *v2.ConnectorSer
 	setLookup, canSetLookup := s.connector.(sourcecache.SourceCacheSetter)
 	degrade := func(reason string) error {
 		if canSetLookup {
+			// The no-op install still occupies the shared slot: a
+			// degraded sync's connector must see misses even while
+			// another sync's real lookup is live, or its replay-illegal
+			// state could receive hits.
 			setLookup.SetSourceCache(ctx, sourcecache.NoopLookup{})
+			s.sourceCache.lookupInstalled = true
 		}
 		if reason != "" {
 			l.Info("source cache disabled", zap.String("reason", reason))
@@ -197,6 +208,7 @@ func (s *syncer) configureSourceCache(ctx context.Context, resp *v2.ConnectorSer
 	s.sourceCache.lookup = lookup
 	if canSetLookup {
 		setLookup.SetSourceCache(ctx, lookup)
+		s.sourceCache.lookupInstalled = true
 	} else {
 		// The connector declared the capability but the client offers no
 		// way to deliver lookups. Its own lookup stays no-op, so every
@@ -229,6 +241,19 @@ func previousSyncReplayUnusableReason(ctx context.Context, reader connectorstore
 	case run == nil:
 		return "previous-sync c1z has no finished sync run", nil
 	case run.UsableAsReplaySource():
+		// The record can lie by omission: a compacted artifact produced
+		// by an SDK that predates the run record's compacted flag carries
+		// a full type and no flag, and its fold never cleared the base
+		// copy's source-cache manifest — so both the metadata gate and
+		// the manifest belt would pass, and the keep-newer merge would
+		// replay under validators that do not describe its contents. The
+		// sync TOKEN's compaction provenance section has been written by
+		// every compactor version, so it is the one signal a mixed-version
+		// artifact cannot omit. A token that fails to parse proves
+		// nothing either way and is ignored (the primary gates stand).
+		if comp, tokenErr := CompactionStatsFromToken(run.SyncToken); tokenErr == nil && comp != nil {
+			return "previous sync's token carries compaction provenance; the artifact is a merge no upstream validator describes (produced by a pre-compacted-flag compactor)", nil
+		}
 		return "", nil
 	case run.Compacted:
 		return "previous sync is a compaction artifact; upstream validators do not describe its merged contents", nil
@@ -238,10 +263,17 @@ func previousSyncReplayUnusableReason(ctx context.Context, reader connectorstore
 }
 
 // clearSourceCacheLookup detaches the per-sync lookup so a late RPC from
-// the connector cannot read a store the syncer no longer owns.
+// the connector cannot read a store the syncer no longer owns. Only the
+// sync that actually installed a lookup clears: a syncer that failed
+// before configureSourceCache's install must not decrement the shared
+// slot's accounting or blind a concurrently live sync.
 func (s *syncer) clearSourceCacheLookup(ctx context.Context) {
+	if !s.sourceCache.lookupInstalled {
+		return
+	}
 	if setLookup, ok := s.connector.(sourcecache.SourceCacheSetter); ok {
 		setLookup.SetSourceCache(ctx, nil)
+		s.sourceCache.lookupInstalled = false
 	}
 }
 
@@ -439,6 +471,16 @@ func (s *syncer) executeScopeReplay(ctx context.Context, kind sourcecache.RowKin
 			zap.String("scope_key", page.scopeKey),
 			zap.Int64("rows", res.Rows),
 			zap.Int64("stale_skipped", res.StaleSkipped),
+		)
+	}
+	if res.ResumedRowsCleared > 0 {
+		// A re-run over a crashed attempt's committed rows: the engine
+		// cleared them before re-copying so the copy is idempotent.
+		// Expected after a resume; noteworthy otherwise.
+		ctxzap.Extract(ctx).Info("source cache: replay re-run cleared rows committed by a previous attempt",
+			zap.String("scope_key", page.scopeKey),
+			zap.Int64("rows_cleared", res.ResumedRowsCleared),
+			zap.Int64("rows_copied", res.Rows),
 		)
 	}
 	// Side effects for replayed rows are STORE-DERIVED, not armed

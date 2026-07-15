@@ -603,12 +603,16 @@ func (s *syncer) checkEntitlementResourceReferences(ctx context.Context) error {
 // One seek plus one point probe per distinct entitlement — O(distinct
 // entitlements), never O(grants).
 //
-// InsertResourceGrants pages are EXEMPT in every mode: that pattern has
-// always produced grants whose entitlements have no row (the machinery
-// inserts the grant's embedded resource; no listing ever returns an
-// entitlement for it), and downstream consumers synthesize the
-// entitlement from the grant. The insert-fact probe is the same one I3
-// uses, value-reading and reserved for dangling refs.
+// InsertResourceGrants grants are EXEMPT in every mode, per GRANT: that
+// pattern has always produced grants whose entitlements have no row (the
+// machinery inserts the grant's embedded resource; no listing ever
+// returns an entitlement for it), and downstream consumers synthesize
+// the entitlement from the grant. The exemption follows the ownership
+// rule (docs/tasks/dangling-reference-drops.md) at the grant's own
+// granularity: a connector-owned grant dangling under the same missing
+// entitlement as machinery-owned IRG grants is still a violation — a
+// resource- or entitlement-level exemption would let one IRG grant
+// launder every dangling reference that shares its resource.
 //
 // Default mode DROPS the dangling grants (uplift reads grants BY
 // entitlement, so rows under a missing entitlement are never even read
@@ -622,37 +626,33 @@ func (s *syncer) checkGrantEntitlementReferences(ctx context.Context) error {
 	if !ok {
 		return nil // engine without the inspection surface
 	}
-	// Dangling entitlements cluster under shared resources; memoize the
-	// per-resource insert-fact probe (it reads row values).
-	insertFactByResource := map[string]bool{}
 	probe := &danglingTypeProbe{s: s}
 	danglingEnts, unsyncedType, missingRow := 0, 0, 0
-	var droppedRows int64
+	var droppedRows, insertFactKept int64
 	var entIDExamples []string
 	err := facts.ForEachDanglingGrantEntitlement(ctx, func(entitlementID, rt, rid string) error {
-		resKey := rt + "\x00" + rid
-		annotated, probed := insertFactByResource[resKey]
-		if !probed {
-			var err error
-			annotated, err = facts.GrantsForEntResourceCarryInsertFact(ctx, rt, rid)
-			if err != nil {
-				return fmt.Errorf("ingest invariant I8: probing grant annotations for %s/%s: %w", rt, rid, err)
-			}
-			insertFactByResource[resKey] = annotated
-		}
-		if annotated {
-			return nil // the established InsertResourceGrants shape
-		}
 		if s.failFastInvariants {
+			allCarry, err := facts.GrantsForEntitlementAllCarryInsertFact(ctx, entitlementID, rt, rid)
+			if err != nil {
+				return fmt.Errorf("ingest invariant I8: probing grant annotations for entitlement %q: %w", entitlementID, err)
+			}
+			if allCarry {
+				return nil // the established InsertResourceGrants shape
+			}
 			return fmt.Errorf(
-				"ingest invariant I8 violated: grants reference entitlement %q (resource %s/%s) but no entitlement row exists "+
+				"ingest invariant I8 violated: grants without InsertResourceGrants reference entitlement %q (resource %s/%s) but no entitlement row exists "+
 					"(resource type synced: %t — false means a config gap, true a magic-id construction bug "+
 					"or a grants scope replayed against a refreshed entitlement set)",
 				entitlementID, rt, rid, probe.typeExists(ctx, rt))
 		}
-		n, err := facts.DeleteGrantsForEntitlement(ctx, entitlementID, rt, rid)
+		n, skipped, err := facts.DeleteGrantsForEntitlement(ctx, entitlementID, rt, rid)
 		if err != nil {
 			return fmt.Errorf("ingest invariant I8: dropping grants for entitlement %q: %w", entitlementID, err)
+		}
+		insertFactKept += skipped
+		if n == 0 {
+			// Pure machinery shape: every grant carried the insert fact.
+			return nil
 		}
 		danglingEnts++
 		droppedRows += n
@@ -673,6 +673,7 @@ func (s *syncer) checkGrantEntitlementReferences(ctx context.Context) error {
 		ctxzap.Extract(ctx).Warn("ingest invariant I8: DROPPED grants referencing entitlements with no entitlement row",
 			zap.Int64("dropped_grants", droppedRows),
 			zap.Int("dangling_entitlements", danglingEnts),
+			zap.Int64("insert_resource_grants_kept", insertFactKept),
 			zap.Int("refs_into_unsynced_types", unsyncedType),
 			zap.Int("refs_missing_rows_in_synced_types", missingRow),
 			zap.String("attribution", danglingAttribution(unsyncedType, missingRow)),
@@ -775,6 +776,16 @@ func (s *syncer) checkGrantPrincipalReferences(ctx context.Context) error {
 // lost manifest write or a stamp leak — and the damage is deferred: THIS
 // sync reads clean, the NEXT sync replays from the damaged state.
 func (s *syncer) checkSourceCacheScopeConsistency(ctx context.Context) error {
+	if s.onlyExpandGrants {
+		// Expansion-only runs ingest no pages, so scope/manifest state
+		// was settled (and I6-checked) by whoever produced the store.
+		// The load-bearing case is compaction's expand-grants pass: a
+		// fold output deliberately violates I6's premise — the manifest
+		// was cleared (no input's validator describes the merged rows)
+		// while the base copy's scope stamps remain — so every stamped
+		// scope would be reported as an orphan on a healthy artifact.
+		return nil
+	}
 	sc, ok := s.store.(dotc1z.SourceCacheStore)
 	if !ok {
 		return nil // engine without source-cache state

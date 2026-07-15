@@ -166,7 +166,15 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		// replayed rows may be wrong; resuming would keep them) and
 		// re-run cold, without the previous-sync source. One retry: a
 		// cold sync cannot fail this way again. See ErrReplayIntegrity.
-		ctxzap.Extract(ctx).Error("source-cache replay integrity failure; discarding replay state and re-running the sync cold",
+		//
+		// Unlike the service-mode runner (c1api), which retires its
+		// SDK-owned previous-sync spare on this failure, the local
+		// previous-sync file is USER-SUPPLIED and is deliberately left
+		// in place — deleting an operator's file is not ours to do. The
+		// consequence: if the file itself is bad, every future run that
+		// passes it will warm-fail and cold-retry again, so say so.
+		ctxzap.Extract(ctx).Error("source-cache replay integrity failure; discarding replay state and re-running the sync cold. "+
+			"The previous-sync c1z is retained; if this recurs across runs, the file is implicated — replace it with a fresh sync's output or stop passing it",
 			zap.Error(err),
 			zap.String("previous_sync_c1z", m.previousSyncC1Z))
 		if rmErr := os.Remove(m.dbPath); rmErr != nil && !os.IsNotExist(rmErr) {

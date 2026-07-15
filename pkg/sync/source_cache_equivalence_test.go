@@ -91,7 +91,10 @@ import (
 	stdsync "sync"
 	"testing"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -1838,9 +1841,68 @@ func TestSourceCache_ReplayEquivalence(t *testing.T) {
 	}
 }
 
+// invariantWarningRecorder captures ingestion-invariant warnings emitted
+// during a scenario. Warnings are the invariants' DEFAULT-mode verdicts,
+// and nothing in a test suite fails on a log line — which is exactly how
+// a false-positive warning (the I6-on-compaction class) can fire on every
+// run of a green suite without anyone noticing. The harness therefore
+// asserts warning-SILENCE for its clean scenarios: an invariant warning
+// here is either an invariant false positive or an undetected data
+// problem in the harness fixtures, and both must be named.
+type invariantWarningRecorder struct {
+	mu   stdsync.Mutex
+	msgs []string
+}
+
+func (r *invariantWarningRecorder) record(msg string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.msgs = append(r.msgs, msg)
+}
+
+func (r *invariantWarningRecorder) captured() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.msgs...)
+}
+
+// invariantWarningCore is a zapcore.Core that records Warn+ entries whose
+// message names an ingestion invariant. Tee'd with the base core so
+// human-readable output is unchanged.
+type invariantWarningCore struct {
+	zapcore.LevelEnabler
+	rec *invariantWarningRecorder
+}
+
+func (c invariantWarningCore) With([]zapcore.Field) zapcore.Core { return c }
+
+func (c invariantWarningCore) Check(e zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	if c.Enabled(e.Level) {
+		return ce.AddCore(e, c)
+	}
+	return ce
+}
+
+func (c invariantWarningCore) Write(e zapcore.Entry, _ []zapcore.Field) error {
+	if strings.Contains(e.Message, "ingest invariant") {
+		c.rec.record(e.Level.String() + ": " + e.Message)
+	}
+	return nil
+}
+
+func (c invariantWarningCore) Sync() error { return nil }
+
+func withInvariantWarningOracle(ctx context.Context) (context.Context, *invariantWarningRecorder) {
+	rec := &invariantWarningRecorder{}
+	base := ctxzap.Extract(ctx)
+	logger := zap.New(zapcore.NewTee(base.Core(), invariantWarningCore{LevelEnabler: zapcore.WarnLevel, rec: rec}))
+	return ctxzap.ToContext(ctx, logger), rec
+}
+
 func runReplayEquivalenceScenario(t *testing.T, workers int, seed int64, continuation bool) {
 	ctx, err := logging.Init(t.Context())
 	require.NoError(t, err)
+	ctx, invariantWarnings := withInvariantWarningOracle(ctx)
 	tmpDir := t.TempDir()
 	rng := rand.New(rand.NewSource(seed)) //nolint:gosec // deterministic test randomness
 	t.Logf("replay-equivalence scenario: workers=%d seed=%d rounds=%d continuation=%v", workers, seed, equivRounds, continuation)
@@ -1941,4 +2003,13 @@ func runReplayEquivalenceScenario(t *testing.T, workers int, seed int64, continu
 	require.Zero(t, coldFinal.pages304+coldFinal.pagesOverlay,
 		"harness bug: the cold connector must never replay")
 	require.Zero(t, coldFinal.askPages, "harness bug: the cold connector must never ask (no offer without a warm lookup)")
+
+	// Warning-silence oracle: clean scenarios must emit ZERO ingestion-
+	// invariant warnings across every warm/cold/resume leg. A warning is
+	// an invariant verdict that no test asserts on — the escape route the
+	// I6-on-compaction false positive took (warned on every run of a
+	// green suite). Either the invariant is falsely firing or the harness
+	// fixtures have an undetected data problem; both must fail here.
+	require.Empty(t, invariantWarnings.captured(),
+		"ingestion-invariant warnings during a clean scenario")
 }

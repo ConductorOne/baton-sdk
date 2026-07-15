@@ -117,6 +117,12 @@ type IngestInvariantStore interface {
 	// Value-reading; reserved for dangling-reference probes.
 	GrantsForEntResourceCarryInsertFact(ctx context.Context, resourceTypeID, resourceID string) (bool, error)
 
+	// GrantsForEntitlementAllCarryInsertFact reports whether every grant
+	// under the entitlement identity carries InsertResourceGrants — the
+	// fail-fast side of I8's per-grant exemption. Value-reading;
+	// reserved for dangling-reference probes.
+	GrantsForEntitlementAllCarryInsertFact(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (bool, error)
+
 	// HasResourceRecord reports whether a resource row exists.
 	HasResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (bool, error)
 
@@ -148,8 +154,9 @@ type IngestInvariantStore interface {
 	DeleteEntitlementsForResource(ctx context.Context, resourceTypeID, resourceID string, maxIDs int) (int64, []string, error)
 
 	// DeleteGrantsForEntitlement drops every grant row under one
-	// entitlement identity; returns the count.
-	DeleteGrantsForEntitlement(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (int64, error)
+	// entitlement identity except InsertResourceGrants carriers (the
+	// machinery-owned shape); returns (deleted, skippedInsertFact).
+	DeleteGrantsForEntitlement(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (int64, int64, error)
 
 	// DeleteGrantsForPrincipal drops every grant of one principal except
 	// ExternalResourceMatch* carriers; returns (deleted, skipped).
@@ -168,6 +175,10 @@ func (s *pebbleStore) ForEachDistinctGrantEntitlementResource(ctx context.Contex
 
 func (s *pebbleStore) GrantsForEntResourceCarryInsertFact(ctx context.Context, resourceTypeID, resourceID string) (bool, error) {
 	return s.engine.GrantsForEntResourceCarryInsertFact(ctx, resourceTypeID, resourceID)
+}
+
+func (s *pebbleStore) GrantsForEntitlementAllCarryInsertFact(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (bool, error) {
+	return s.engine.GrantsForEntitlementAllCarryInsertFact(ctx, entitlementID, entResourceTypeID, entResourceID)
 }
 
 func (s *pebbleStore) HasResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (bool, error) {
@@ -198,12 +209,12 @@ func (s *pebbleStore) DeleteEntitlementsForResource(ctx context.Context, resourc
 	return n, ids, err
 }
 
-func (s *pebbleStore) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (int64, error) {
-	n, err := s.engine.DeleteGrantsForEntitlement(ctx, entitlementID, entResourceTypeID, entResourceID)
+func (s *pebbleStore) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (int64, int64, error) {
+	n, skipped, err := s.engine.DeleteGrantsForEntitlement(ctx, entitlementID, entResourceTypeID, entResourceID)
 	if n > 0 {
 		s.MarkDirty()
 	}
-	return n, err
+	return n, skipped, err
 }
 
 func (s *pebbleStore) DeleteGrantsForPrincipal(ctx context.Context, principalRT, principalID string) (int64, int64, error) {

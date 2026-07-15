@@ -279,6 +279,42 @@ func (e *Engine) hasEntitlementIdentity(id entitlementIdentity) (bool, error) {
 	return true, nil
 }
 
+// GrantsForEntitlementAllCarryInsertFact reports whether EVERY grant
+// under the given entitlement identity carries the InsertResourceGrants
+// annotation — the fail-fast probe for the per-grant I8 exemption: a
+// dangling entitlement whose grants all carry the fact is the
+// machinery-owned shape (exempt); one non-carrying grant makes it a
+// connector-owned dangling reference. Vacuously true with no grants
+// (never the case for a dangling entitlement, which is only visited
+// because grants reference it). Reads row values, so it is reserved for
+// DANGLING referential probes — rare to zero on healthy syncs.
+func (e *Engine) GrantsForEntitlementAllCarryInsertFact(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (bool, error) {
+	entID := entitlementIdentityFromParts(entResourceTypeID, entResourceID, entitlementID)
+	prefix := encodeGrantPrimaryEntitlementIdentityPrefix(
+		entID.resourceTypeID, entID.resourceID, entID.flagComponent(), entID.tail)
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefix,
+		UpperBound: upperBoundOf(prefix),
+	})
+	if err != nil {
+		return false, err
+	}
+	defer iter.Close()
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		flags, err := scanGrantSourceCacheFlagsRaw(iter.Value())
+		if err != nil {
+			return false, err
+		}
+		if !flags.insertResourceGrants {
+			return false, nil
+		}
+	}
+	return true, iter.Error()
+}
+
 // GrantsForEntResourceCarryInsertFact reports whether any grant under the
 // given entitlement resource carries the InsertResourceGrants annotation.
 // Reads row values, so it is reserved for DANGLING referential probes —
