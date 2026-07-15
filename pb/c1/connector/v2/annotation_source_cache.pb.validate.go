@@ -139,46 +139,46 @@ var _ interface {
 	ErrorName() string
 } = SourceCacheCapabilityValidationError{}
 
-// Validate checks the field values on SourceCacheScope with the rules defined
+// Validate checks the field values on SourceCacheRecord with the rules defined
 // in the proto definition for this message. If any rules are violated, the
 // first error encountered is returned, or nil if there are no violations.
-func (m *SourceCacheScope) Validate() error {
+func (m *SourceCacheRecord) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on SourceCacheScope with the rules
+// ValidateAll checks the field values on SourceCacheRecord with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the result is a list of violation errors wrapped in
-// SourceCacheScopeMultiError, or nil if none found.
-func (m *SourceCacheScope) ValidateAll() error {
+// SourceCacheRecordMultiError, or nil if none found.
+func (m *SourceCacheRecord) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *SourceCacheScope) validate(all bool) error {
+func (m *SourceCacheRecord) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	// no validation rules for ScopeHash
+	// no validation rules for ScopeKey
 
-	// no validation rules for Etag
+	// no validation rules for CacheValidator
 
 	if len(errors) > 0 {
-		return SourceCacheScopeMultiError(errors)
+		return SourceCacheRecordMultiError(errors)
 	}
 
 	return nil
 }
 
-// SourceCacheScopeMultiError is an error wrapping multiple validation errors
-// returned by SourceCacheScope.ValidateAll() if the designated constraints
+// SourceCacheRecordMultiError is an error wrapping multiple validation errors
+// returned by SourceCacheRecord.ValidateAll() if the designated constraints
 // aren't met.
-type SourceCacheScopeMultiError []error
+type SourceCacheRecordMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m SourceCacheScopeMultiError) Error() string {
+func (m SourceCacheRecordMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -187,11 +187,11 @@ func (m SourceCacheScopeMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m SourceCacheScopeMultiError) AllErrors() []error { return m }
+func (m SourceCacheRecordMultiError) AllErrors() []error { return m }
 
-// SourceCacheScopeValidationError is the validation error returned by
-// SourceCacheScope.Validate if the designated constraints aren't met.
-type SourceCacheScopeValidationError struct {
+// SourceCacheRecordValidationError is the validation error returned by
+// SourceCacheRecord.Validate if the designated constraints aren't met.
+type SourceCacheRecordValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -199,22 +199,24 @@ type SourceCacheScopeValidationError struct {
 }
 
 // Field function returns field value.
-func (e SourceCacheScopeValidationError) Field() string { return e.field }
+func (e SourceCacheRecordValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e SourceCacheScopeValidationError) Reason() string { return e.reason }
+func (e SourceCacheRecordValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e SourceCacheScopeValidationError) Cause() error { return e.cause }
+func (e SourceCacheRecordValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e SourceCacheScopeValidationError) Key() bool { return e.key }
+func (e SourceCacheRecordValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e SourceCacheScopeValidationError) ErrorName() string { return "SourceCacheScopeValidationError" }
+func (e SourceCacheRecordValidationError) ErrorName() string {
+	return "SourceCacheRecordValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e SourceCacheScopeValidationError) Error() string {
+func (e SourceCacheRecordValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -226,14 +228,14 @@ func (e SourceCacheScopeValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sSourceCacheScope.%s: %s%s",
+		"invalid %sSourceCacheRecord.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = SourceCacheScopeValidationError{}
+var _ error = SourceCacheRecordValidationError{}
 
 var _ interface {
 	Field() string
@@ -241,7 +243,7 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = SourceCacheScopeValidationError{}
+} = SourceCacheRecordValidationError{}
 
 // Validate checks the field values on SourceCacheReplay with the rules defined
 // in the proto definition for this message. If any rules are violated, the
@@ -265,9 +267,9 @@ func (m *SourceCacheReplay) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for ScopeHash
+	// no validation rules for ScopeKey
 
-	// no validation rules for Etag
+	// no validation rules for CacheValidator
 
 	// no validation rules for Overlay
 
@@ -780,9 +782,9 @@ func (m *SourceCacheLookupAsk_Query) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := len(m.GetScopeHash()); l < 1 || l > 256 {
+	if l := len(m.GetScopeKey()); l < 1 || l > 256 {
 		err := SourceCacheLookupAsk_QueryValidationError{
-			field:  "ScopeHash",
+			field:  "ScopeKey",
 			reason: "value length must be between 1 and 256 bytes, inclusive",
 		}
 		if !all {
@@ -904,9 +906,9 @@ func (m *SourceCacheLookupAnswers_Answer) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := len(m.GetScopeHash()); l < 1 || l > 256 {
+	if l := len(m.GetScopeKey()); l < 1 || l > 256 {
 		err := SourceCacheLookupAnswers_AnswerValidationError{
-			field:  "ScopeHash",
+			field:  "ScopeKey",
 			reason: "value length must be between 1 and 256 bytes, inclusive",
 		}
 		if !all {
@@ -917,11 +919,11 @@ func (m *SourceCacheLookupAnswers_Answer) validate(all bool) error {
 
 	// no validation rules for Found
 
-	if m.GetEtag() != "" {
+	if m.GetCacheValidator() != "" {
 
-		if len(m.GetEtag()) > 65536 {
+		if len(m.GetCacheValidator()) > 65536 {
 			err := SourceCacheLookupAnswers_AnswerValidationError{
-				field:  "Etag",
+				field:  "CacheValidator",
 				reason: "value length must be at most 65536 bytes",
 			}
 			if !all {

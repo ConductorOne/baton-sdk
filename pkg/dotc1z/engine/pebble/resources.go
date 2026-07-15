@@ -160,7 +160,7 @@ func (e *Engine) writeResourceIndexes(batch *pebble.Batch, r *v3.ResourceRecord)
 			return err
 		}
 	}
-	if sh := r.GetSourceScopeHash(); sh != "" {
+	if sh := r.GetSourceScopeKey(); sh != "" {
 		k := encodeResourceBySourceScopeIndexKey(sh, r.GetResourceTypeId(), r.GetResourceId())
 		if err := batch.Set(k, nil, nil); err != nil {
 			return err

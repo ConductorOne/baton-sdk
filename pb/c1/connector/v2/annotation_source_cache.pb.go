@@ -127,10 +127,10 @@ func (b0 SourceCacheCapability_builder) Build() *SourceCacheCapability {
 	return m0
 }
 
-// SourceCacheScope is attached to a list-response page whose rows were
+// SourceCacheRecord is attached to a list-response page whose rows were
 // freshly fetched from upstream. The SDK stamps the page's rows with
-// scope_hash so a future sync can replay them as a unit.
-type SourceCacheScope struct {
+// scope_key so a future sync can replay them as a unit.
+type SourceCacheRecord struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// Connector-computed stable identifier for the canonical scope. Must be
 	// byte-stable across syncs for the same logical scope. Prefer an ORDERED
@@ -139,12 +139,12 @@ type SourceCacheScope struct {
 	// identifiers that correlate with fetch order keep index writes nearly
 	// append-ordered at scale. sourcecache.HashScope is the fallback when no
 	// compact natural form exists.
-	ScopeHash string `protobuf:"bytes,1,opt,name=scope_hash,json=scopeHash,proto3" json:"scope_hash,omitempty"`
+	ScopeKey string `protobuf:"bytes,1,opt,name=scope_key,json=scopeKey,proto3" json:"scope_key,omitempty"`
 	// Opaque validator to persist for this scope. May be empty on interim
 	// pages of a multi-page scope (e.g. Graph @odata.nextLink pages); the
-	// SDK writes the scope's manifest entry when a non-empty etag arrives.
+	// SDK writes the scope's manifest entry when a non-empty cache_validator arrives.
 	// A 200 response with zero rows still persists the entry.
-	Etag string `protobuf:"bytes,2,opt,name=etag,proto3" json:"etag,omitempty"`
+	CacheValidator string `protobuf:"bytes,2,opt,name=cache_validator,json=cacheValidator,proto3" json:"cache_validator,omitempty"`
 	// Tombstones applied after this page's rows commit. Lets every page of
 	// a multi-page delta round carry its own deletions as the provider
 	// delivers them, instead of buffering a whole round onto the first
@@ -178,20 +178,20 @@ type SourceCacheScope struct {
 	sizeCache           protoimpl.SizeCache
 }
 
-func (x *SourceCacheScope) Reset() {
-	*x = SourceCacheScope{}
+func (x *SourceCacheRecord) Reset() {
+	*x = SourceCacheRecord{}
 	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SourceCacheScope) String() string {
+func (x *SourceCacheRecord) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SourceCacheScope) ProtoMessage() {}
+func (*SourceCacheRecord) ProtoMessage() {}
 
-func (x *SourceCacheScope) ProtoReflect() protoreflect.Message {
+func (x *SourceCacheRecord) ProtoReflect() protoreflect.Message {
 	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -203,51 +203,51 @@ func (x *SourceCacheScope) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *SourceCacheScope) GetScopeHash() string {
+func (x *SourceCacheRecord) GetScopeKey() string {
 	if x != nil {
-		return x.ScopeHash
+		return x.ScopeKey
 	}
 	return ""
 }
 
-func (x *SourceCacheScope) GetEtag() string {
+func (x *SourceCacheRecord) GetCacheValidator() string {
 	if x != nil {
-		return x.Etag
+		return x.CacheValidator
 	}
 	return ""
 }
 
-func (x *SourceCacheScope) GetDeletedIds() []string {
+func (x *SourceCacheRecord) GetDeletedIds() []string {
 	if x != nil {
 		return x.DeletedIds
 	}
 	return nil
 }
 
-func (x *SourceCacheScope) GetDeletedPrincipalIds() []string {
+func (x *SourceCacheRecord) GetDeletedPrincipalIds() []string {
 	if x != nil {
 		return x.DeletedPrincipalIds
 	}
 	return nil
 }
 
-func (x *SourceCacheScope) SetScopeHash(v string) {
-	x.ScopeHash = v
+func (x *SourceCacheRecord) SetScopeKey(v string) {
+	x.ScopeKey = v
 }
 
-func (x *SourceCacheScope) SetEtag(v string) {
-	x.Etag = v
+func (x *SourceCacheRecord) SetCacheValidator(v string) {
+	x.CacheValidator = v
 }
 
-func (x *SourceCacheScope) SetDeletedIds(v []string) {
+func (x *SourceCacheRecord) SetDeletedIds(v []string) {
 	x.DeletedIds = v
 }
 
-func (x *SourceCacheScope) SetDeletedPrincipalIds(v []string) {
+func (x *SourceCacheRecord) SetDeletedPrincipalIds(v []string) {
 	x.DeletedPrincipalIds = v
 }
 
-type SourceCacheScope_builder struct {
+type SourceCacheRecord_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	// Connector-computed stable identifier for the canonical scope. Must be
@@ -257,12 +257,12 @@ type SourceCacheScope_builder struct {
 	// identifiers that correlate with fetch order keep index writes nearly
 	// append-ordered at scale. sourcecache.HashScope is the fallback when no
 	// compact natural form exists.
-	ScopeHash string
+	ScopeKey string
 	// Opaque validator to persist for this scope. May be empty on interim
 	// pages of a multi-page scope (e.g. Graph @odata.nextLink pages); the
-	// SDK writes the scope's manifest entry when a non-empty etag arrives.
+	// SDK writes the scope's manifest entry when a non-empty cache_validator arrives.
 	// A 200 response with zero rows still persists the entry.
-	Etag string
+	CacheValidator string
 	// Tombstones applied after this page's rows commit. Lets every page of
 	// a multi-page delta round carry its own deletions as the provider
 	// delivers them, instead of buffering a whole round onto the first
@@ -294,37 +294,37 @@ type SourceCacheScope_builder struct {
 	DeletedPrincipalIds []string
 }
 
-func (b0 SourceCacheScope_builder) Build() *SourceCacheScope {
-	m0 := &SourceCacheScope{}
+func (b0 SourceCacheRecord_builder) Build() *SourceCacheRecord {
+	m0 := &SourceCacheRecord{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.ScopeHash = b.ScopeHash
-	x.Etag = b.Etag
+	x.ScopeKey = b.ScopeKey
+	x.CacheValidator = b.CacheValidator
 	x.DeletedIds = b.DeletedIds
 	x.DeletedPrincipalIds = b.DeletedPrincipalIds
 	return m0
 }
 
 // SourceCacheReplay is attached to a list-response page to tell the SDK to
-// copy the previous sync's rows for scope_hash into the current sync.
+// copy the previous sync's rows for scope_key into the current sync.
 //
 // The row kind (resources, entitlements, grants) is determined by which
 // RPC the annotation arrived on, never by the annotation itself.
 //
-// The connector must only emit this for a scope whose etag it received
+// The connector must only emit this for a scope whose validator it received
 // from the SDK's source-cache lookup during this same sync. A replay for
 // an unknown scope fails the sync: the connector has already skipped row
 // generation, so there is nothing to fall back to.
 type SourceCacheReplay struct {
-	state     protoimpl.MessageState `protogen:"hybrid.v1"`
-	ScopeHash string                 `protobuf:"bytes,1,opt,name=scope_hash,json=scopeHash,proto3" json:"scope_hash,omitempty"`
+	state    protoimpl.MessageState `protogen:"hybrid.v1"`
+	ScopeKey string                 `protobuf:"bytes,1,opt,name=scope_key,json=scopeKey,proto3" json:"scope_key,omitempty"`
 	// Validator to persist for this scope in the current sync. For an HTTP
-	// 304 this is the unchanged etag. For a delta query this is the NEW
+	// 304 this is the unchanged validator. For a delta query this is the NEW
 	// token; it may instead be supplied by the final overlay page's
-	// SourceCacheScope.etag, in which case this field may be left empty.
-	Etag string `protobuf:"bytes,2,opt,name=etag,proto3" json:"etag,omitempty"`
+	// SourceCacheRecord.cache_validator, in which case this field may be left empty.
+	CacheValidator string `protobuf:"bytes,2,opt,name=cache_validator,json=cacheValidator,proto3" json:"cache_validator,omitempty"`
 	// When true, the response (and subsequent pages carrying
-	// SourceCacheScope with the same scope_hash) contains changed rows to
+	// SourceCacheRecord with the same scope_key) contains changed rows to
 	// upsert on top of the replayed base. When false the response must
 	// contain no rows for this scope.
 	Overlay bool `protobuf:"varint,3,opt,name=overlay,proto3" json:"overlay,omitempty"`
@@ -332,10 +332,10 @@ type SourceCacheReplay struct {
 	// RowKindResources) to delete from the current sync after the replay
 	// copy and this page's upserts. Used for delta-query tombstones (e.g.
 	// Microsoft Graph @removed entries). Subsequent pages of the round
-	// carry their tombstones on SourceCacheScope.deleted_ids.
+	// carry their tombstones on SourceCacheRecord.deleted_ids.
 	DeletedIds []string `protobuf:"bytes,4,rep,name=deleted_ids,json=deletedIds,proto3" json:"deleted_ids,omitempty"`
 	// Principal-scoped tombstones for this page; see
-	// SourceCacheScope.deleted_principal_ids for semantics and
+	// SourceCacheRecord.deleted_principal_ids for semantics and
 	// preconditions.
 	DeletedPrincipalIds []string `protobuf:"bytes,5,rep,name=deleted_principal_ids,json=deletedPrincipalIds,proto3" json:"deleted_principal_ids,omitempty"`
 	unknownFields       protoimpl.UnknownFields
@@ -367,16 +367,16 @@ func (x *SourceCacheReplay) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *SourceCacheReplay) GetScopeHash() string {
+func (x *SourceCacheReplay) GetScopeKey() string {
 	if x != nil {
-		return x.ScopeHash
+		return x.ScopeKey
 	}
 	return ""
 }
 
-func (x *SourceCacheReplay) GetEtag() string {
+func (x *SourceCacheReplay) GetCacheValidator() string {
 	if x != nil {
-		return x.Etag
+		return x.CacheValidator
 	}
 	return ""
 }
@@ -402,12 +402,12 @@ func (x *SourceCacheReplay) GetDeletedPrincipalIds() []string {
 	return nil
 }
 
-func (x *SourceCacheReplay) SetScopeHash(v string) {
-	x.ScopeHash = v
+func (x *SourceCacheReplay) SetScopeKey(v string) {
+	x.ScopeKey = v
 }
 
-func (x *SourceCacheReplay) SetEtag(v string) {
-	x.Etag = v
+func (x *SourceCacheReplay) SetCacheValidator(v string) {
+	x.CacheValidator = v
 }
 
 func (x *SourceCacheReplay) SetOverlay(v bool) {
@@ -425,14 +425,14 @@ func (x *SourceCacheReplay) SetDeletedPrincipalIds(v []string) {
 type SourceCacheReplay_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	ScopeHash string
+	ScopeKey string
 	// Validator to persist for this scope in the current sync. For an HTTP
-	// 304 this is the unchanged etag. For a delta query this is the NEW
+	// 304 this is the unchanged validator. For a delta query this is the NEW
 	// token; it may instead be supplied by the final overlay page's
-	// SourceCacheScope.etag, in which case this field may be left empty.
-	Etag string
+	// SourceCacheRecord.cache_validator, in which case this field may be left empty.
+	CacheValidator string
 	// When true, the response (and subsequent pages carrying
-	// SourceCacheScope with the same scope_hash) contains changed rows to
+	// SourceCacheRecord with the same scope_key) contains changed rows to
 	// upsert on top of the replayed base. When false the response must
 	// contain no rows for this scope.
 	Overlay bool
@@ -440,10 +440,10 @@ type SourceCacheReplay_builder struct {
 	// RowKindResources) to delete from the current sync after the replay
 	// copy and this page's upserts. Used for delta-query tombstones (e.g.
 	// Microsoft Graph @removed entries). Subsequent pages of the round
-	// carry their tombstones on SourceCacheScope.deleted_ids.
+	// carry their tombstones on SourceCacheRecord.deleted_ids.
 	DeletedIds []string
 	// Principal-scoped tombstones for this page; see
-	// SourceCacheScope.deleted_principal_ids for semantics and
+	// SourceCacheRecord.deleted_principal_ids for semantics and
 	// preconditions.
 	DeletedPrincipalIds []string
 }
@@ -452,8 +452,8 @@ func (b0 SourceCacheReplay_builder) Build() *SourceCacheReplay {
 	m0 := &SourceCacheReplay{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.ScopeHash = b.ScopeHash
-	x.Etag = b.Etag
+	x.ScopeKey = b.ScopeKey
+	x.CacheValidator = b.CacheValidator
 	x.Overlay = b.Overlay
 	x.DeletedIds = b.DeletedIds
 	x.DeletedPrincipalIds = b.DeletedPrincipalIds
@@ -582,11 +582,11 @@ func (b0 SourceCacheLookupAsk_builder) Build() *SourceCacheLookupAsk {
 // REQUEST, carrying the resolution of a prior ask's queries.
 //
 // Every query of the prior ask is answered — found=true with the
-// previous sync's etag, or found=false meaning fetch fresh. A found
-// answer whose etag does not fit the per-request answer size budget is
+// previous sync's validator, or found=false meaning fetch fresh. A found
+// answer whose validator does not fit the per-request answer size budget is
 // delivered as found=false: the scope degrades to a cold fetch
 // (correct, just slower) instead of staying unresolved, because answers
-// accumulate across bounces and an etag that did not fit once can never
+// accumulate across bounces and a validator that did not fit once can never
 // fit a later re-invoke. An ABSENT query (a phase-2 lookup for a scope
 // the connector did not ask before) means unresolved: the connector may
 // ask again, subject to the bounce cap.
@@ -660,7 +660,7 @@ type SourceCacheLookupAsk_Query struct {
 	// One of the sourcecache.RowKind values: "resources",
 	// "entitlements", "grants".
 	RowKind       string `protobuf:"bytes,1,opt,name=row_kind,json=rowKind,proto3" json:"row_kind,omitempty"`
-	ScopeHash     string `protobuf:"bytes,2,opt,name=scope_hash,json=scopeHash,proto3" json:"scope_hash,omitempty"`
+	ScopeKey      string `protobuf:"bytes,2,opt,name=scope_key,json=scopeKey,proto3" json:"scope_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -697,9 +697,9 @@ func (x *SourceCacheLookupAsk_Query) GetRowKind() string {
 	return ""
 }
 
-func (x *SourceCacheLookupAsk_Query) GetScopeHash() string {
+func (x *SourceCacheLookupAsk_Query) GetScopeKey() string {
 	if x != nil {
-		return x.ScopeHash
+		return x.ScopeKey
 	}
 	return ""
 }
@@ -708,8 +708,8 @@ func (x *SourceCacheLookupAsk_Query) SetRowKind(v string) {
 	x.RowKind = v
 }
 
-func (x *SourceCacheLookupAsk_Query) SetScopeHash(v string) {
-	x.ScopeHash = v
+func (x *SourceCacheLookupAsk_Query) SetScopeKey(v string) {
+	x.ScopeKey = v
 }
 
 type SourceCacheLookupAsk_Query_builder struct {
@@ -717,8 +717,8 @@ type SourceCacheLookupAsk_Query_builder struct {
 
 	// One of the sourcecache.RowKind values: "resources",
 	// "entitlements", "grants".
-	RowKind   string
-	ScopeHash string
+	RowKind  string
+	ScopeKey string
 }
 
 func (b0 SourceCacheLookupAsk_Query_builder) Build() *SourceCacheLookupAsk_Query {
@@ -726,20 +726,20 @@ func (b0 SourceCacheLookupAsk_Query_builder) Build() *SourceCacheLookupAsk_Query
 	b, x := &b0, m0
 	_, _ = b, x
 	x.RowKind = b.RowKind
-	x.ScopeHash = b.ScopeHash
+	x.ScopeKey = b.ScopeKey
 	return m0
 }
 
 type SourceCacheLookupAnswers_Answer struct {
-	state     protoimpl.MessageState `protogen:"hybrid.v1"`
-	RowKind   string                 `protobuf:"bytes,1,opt,name=row_kind,json=rowKind,proto3" json:"row_kind,omitempty"`
-	ScopeHash string                 `protobuf:"bytes,2,opt,name=scope_hash,json=scopeHash,proto3" json:"scope_hash,omitempty"`
-	Found     bool                   `protobuf:"varint,3,opt,name=found,proto3" json:"found,omitempty"`
+	state    protoimpl.MessageState `protogen:"hybrid.v1"`
+	RowKind  string                 `protobuf:"bytes,1,opt,name=row_kind,json=rowKind,proto3" json:"row_kind,omitempty"`
+	ScopeKey string                 `protobuf:"bytes,2,opt,name=scope_key,json=scopeKey,proto3" json:"scope_key,omitempty"`
+	Found    bool                   `protobuf:"varint,3,opt,name=found,proto3" json:"found,omitempty"`
 	// The previous sync's validator; empty when found is false. Cap
 	// matches the lookup RPC (Graph delta tokens run long).
-	Etag          string `protobuf:"bytes,4,opt,name=etag,proto3" json:"etag,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	CacheValidator string `protobuf:"bytes,4,opt,name=cache_validator,json=cacheValidator,proto3" json:"cache_validator,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SourceCacheLookupAnswers_Answer) Reset() {
@@ -774,9 +774,9 @@ func (x *SourceCacheLookupAnswers_Answer) GetRowKind() string {
 	return ""
 }
 
-func (x *SourceCacheLookupAnswers_Answer) GetScopeHash() string {
+func (x *SourceCacheLookupAnswers_Answer) GetScopeKey() string {
 	if x != nil {
-		return x.ScopeHash
+		return x.ScopeKey
 	}
 	return ""
 }
@@ -788,9 +788,9 @@ func (x *SourceCacheLookupAnswers_Answer) GetFound() bool {
 	return false
 }
 
-func (x *SourceCacheLookupAnswers_Answer) GetEtag() string {
+func (x *SourceCacheLookupAnswers_Answer) GetCacheValidator() string {
 	if x != nil {
-		return x.Etag
+		return x.CacheValidator
 	}
 	return ""
 }
@@ -799,27 +799,27 @@ func (x *SourceCacheLookupAnswers_Answer) SetRowKind(v string) {
 	x.RowKind = v
 }
 
-func (x *SourceCacheLookupAnswers_Answer) SetScopeHash(v string) {
-	x.ScopeHash = v
+func (x *SourceCacheLookupAnswers_Answer) SetScopeKey(v string) {
+	x.ScopeKey = v
 }
 
 func (x *SourceCacheLookupAnswers_Answer) SetFound(v bool) {
 	x.Found = v
 }
 
-func (x *SourceCacheLookupAnswers_Answer) SetEtag(v string) {
-	x.Etag = v
+func (x *SourceCacheLookupAnswers_Answer) SetCacheValidator(v string) {
+	x.CacheValidator = v
 }
 
 type SourceCacheLookupAnswers_Answer_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	RowKind   string
-	ScopeHash string
-	Found     bool
+	RowKind  string
+	ScopeKey string
+	Found    bool
 	// The previous sync's validator; empty when found is false. Cap
 	// matches the lookup RPC (Graph delta tokens run long).
-	Etag string
+	CacheValidator string
 }
 
 func (b0 SourceCacheLookupAnswers_Answer_builder) Build() *SourceCacheLookupAnswers_Answer {
@@ -827,9 +827,9 @@ func (b0 SourceCacheLookupAnswers_Answer_builder) Build() *SourceCacheLookupAnsw
 	b, x := &b0, m0
 	_, _ = b, x
 	x.RowKind = b.RowKind
-	x.ScopeHash = b.ScopeHash
+	x.ScopeKey = b.ScopeKey
 	x.Found = b.Found
-	x.Etag = b.Etag
+	x.CacheValidator = b.CacheValidator
 	return m0
 }
 
@@ -843,47 +843,43 @@ const file_c1_connector_v2_annotation_source_cache_proto_rawDesc = "" +
 	"\x04Mode\x12\x14\n" +
 	"\x10MODE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rMODE_DISABLED\x10\x01\x12\x13\n" +
-	"\x0fMODE_READ_WRITE\x10\x02\"\x9a\x01\n" +
-	"\x10SourceCacheScope\x12\x1d\n" +
-	"\n" +
-	"scope_hash\x18\x01 \x01(\tR\tscopeHash\x12\x12\n" +
-	"\x04etag\x18\x02 \x01(\tR\x04etag\x12\x1f\n" +
+	"\x0fMODE_READ_WRITE\x10\x02\"\xae\x01\n" +
+	"\x11SourceCacheRecord\x12\x1b\n" +
+	"\tscope_key\x18\x01 \x01(\tR\bscopeKey\x12'\n" +
+	"\x0fcache_validator\x18\x02 \x01(\tR\x0ecacheValidator\x12\x1f\n" +
 	"\vdeleted_ids\x18\x03 \x03(\tR\n" +
 	"deletedIds\x122\n" +
-	"\x15deleted_principal_ids\x18\x04 \x03(\tR\x13deletedPrincipalIds\"\xb5\x01\n" +
-	"\x11SourceCacheReplay\x12\x1d\n" +
-	"\n" +
-	"scope_hash\x18\x01 \x01(\tR\tscopeHash\x12\x12\n" +
-	"\x04etag\x18\x02 \x01(\tR\x04etag\x12\x18\n" +
+	"\x15deleted_principal_ids\x18\x04 \x03(\tR\x13deletedPrincipalIds\"\xc8\x01\n" +
+	"\x11SourceCacheReplay\x12\x1b\n" +
+	"\tscope_key\x18\x01 \x01(\tR\bscopeKey\x12'\n" +
+	"\x0fcache_validator\x18\x02 \x01(\tR\x0ecacheValidator\x12\x18\n" +
 	"\aoverlay\x18\x03 \x01(\bR\aoverlay\x12\x1f\n" +
 	"\vdeleted_ids\x18\x04 \x03(\tR\n" +
 	"deletedIds\x122\n" +
 	"\x15deleted_principal_ids\x18\x05 \x03(\tR\x13deletedPrincipalIds\"\x18\n" +
-	"\x16SourceCacheLookupOffer\"\xc4\x01\n" +
+	"\x16SourceCacheLookupOffer\"\xc2\x01\n" +
 	"\x14SourceCacheLookupAsk\x12R\n" +
-	"\aqueries\x18\x01 \x03(\v2+.c1.connector.v2.SourceCacheLookupAsk.QueryB\v\xfaB\b\x92\x01\x05\b\x01\x10\x80 R\aqueries\x1aX\n" +
+	"\aqueries\x18\x01 \x03(\v2+.c1.connector.v2.SourceCacheLookupAsk.QueryB\v\xfaB\b\x92\x01\x05\b\x01\x10\x80 R\aqueries\x1aV\n" +
 	"\x05Query\x12$\n" +
-	"\brow_kind\x18\x01 \x01(\tB\t\xfaB\x06r\x04 \x01(@R\arowKind\x12)\n" +
-	"\n" +
-	"scope_hash\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\x02R\tscopeHash\"\x86\x02\n" +
+	"\brow_kind\x18\x01 \x01(\tB\t\xfaB\x06r\x04 \x01(@R\arowKind\x12'\n" +
+	"\tscope_key\x18\x02 \x01(\tB\n" +
+	"\xfaB\ar\x05 \x01(\x80\x02R\bscopeKey\"\x99\x02\n" +
 	"\x18SourceCacheLookupAnswers\x12V\n" +
 	"\aanswers\x18\x01 \x03(\v20.c1.connector.v2.SourceCacheLookupAnswers.AnswerB\n" +
-	"\xfaB\a\x92\x01\x04\x10\x80\x80\x01R\aanswers\x1a\x91\x01\n" +
+	"\xfaB\a\x92\x01\x04\x10\x80\x80\x01R\aanswers\x1a\xa4\x01\n" +
 	"\x06Answer\x12$\n" +
-	"\brow_kind\x18\x01 \x01(\tB\t\xfaB\x06r\x04 \x01(@R\arowKind\x12)\n" +
-	"\n" +
-	"scope_hash\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\x02R\tscopeHash\x12\x14\n" +
-	"\x05found\x18\x03 \x01(\bR\x05found\x12 \n" +
-	"\x04etag\x18\x04 \x01(\tB\f\xfaB\tr\a(\x80\x80\x04\xd0\x01\x01R\x04etagB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"\brow_kind\x18\x01 \x01(\tB\t\xfaB\x06r\x04 \x01(@R\arowKind\x12'\n" +
+	"\tscope_key\x18\x02 \x01(\tB\n" +
+	"\xfaB\ar\x05 \x01(\x80\x02R\bscopeKey\x12\x14\n" +
+	"\x05found\x18\x03 \x01(\bR\x05found\x125\n" +
+	"\x0fcache_validator\x18\x04 \x01(\tB\f\xfaB\tr\a(\x80\x80\x04\xd0\x01\x01R\x0ecacheValidatorB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_source_cache_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_c1_connector_v2_annotation_source_cache_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_c1_connector_v2_annotation_source_cache_proto_goTypes = []any{
 	(SourceCacheCapability_Mode)(0),         // 0: c1.connector.v2.SourceCacheCapability.Mode
 	(*SourceCacheCapability)(nil),           // 1: c1.connector.v2.SourceCacheCapability
-	(*SourceCacheScope)(nil),                // 2: c1.connector.v2.SourceCacheScope
+	(*SourceCacheRecord)(nil),               // 2: c1.connector.v2.SourceCacheRecord
 	(*SourceCacheReplay)(nil),               // 3: c1.connector.v2.SourceCacheReplay
 	(*SourceCacheLookupOffer)(nil),          // 4: c1.connector.v2.SourceCacheLookupOffer
 	(*SourceCacheLookupAsk)(nil),            // 5: c1.connector.v2.SourceCacheLookupAsk

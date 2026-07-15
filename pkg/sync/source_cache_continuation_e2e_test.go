@@ -164,16 +164,16 @@ func (s *lambdaE2ESyncer) Grants(ctx context.Context, r *v2.Resource, opts rs.Sy
 	uids := append([]string(nil), s.members[gid]...)
 	s.mu.Unlock()
 
-	entry, found, err := opts.SourceCache.LookupPreviousSourceCache(ctx, sourcecache.RowKindGrants, scope)
+	entry, found, err := opts.SourceCache.Lookup(ctx, sourcecache.RowKindGrants, scope)
 	if err != nil {
 		return nil, nil, fmt.Errorf("revalidating %s: %w", gid, err)
 	}
 	ret := &rs.SyncOpResults{Annotations: annotations.Annotations{}}
-	if found && entry.ETag == etag {
+	if found && entry.CacheValidator == etag {
 		s.mu.Lock()
 		s.replays++
 		s.mu.Unlock()
-		ret.Annotations.Update(v2.SourceCacheReplay_builder{ScopeHash: scope, Etag: etag}.Build())
+		ret.Annotations.Update(v2.SourceCacheReplay_builder{ScopeKey: scope, CacheValidator: etag}.Build())
 		return nil, ret, nil
 	}
 
@@ -188,7 +188,7 @@ func (s *lambdaE2ESyncer) Grants(ctx context.Context, r *v2.Resource, opts rs.Sy
 		}
 		grants = append(grants, gt.NewGrant(r, "member", u.GetId()))
 	}
-	ret.Annotations.Update(v2.SourceCacheScope_builder{ScopeHash: scope, Etag: etag}.Build())
+	ret.Annotations.Update(v2.SourceCacheRecord_builder{ScopeKey: scope, CacheValidator: etag}.Build())
 	return grants, ret, nil
 }
 

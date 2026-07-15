@@ -198,7 +198,7 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 				if scanErr != nil {
 					return scanErr
 				}
-				if oldScope != "" && oldScope != r.GetSourceScopeHash() {
+				if oldScope != "" && oldScope != r.GetSourceScopeKey() {
 					if err := batch.Delete(encodeEntitlementBySourceScopeIndexKey(oldScope, id), nil); err != nil {
 						return err
 					}
@@ -214,7 +214,7 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 			if err := batch.Set(key, val, nil); err != nil {
 				return err
 			}
-			if sh := r.GetSourceScopeHash(); sh != "" {
+			if sh := r.GetSourceScopeKey(); sh != "" {
 				if err := batch.Set(encodeEntitlementBySourceScopeIndexKey(sh, id), nil, nil); err != nil {
 					return err
 				}

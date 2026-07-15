@@ -28,7 +28,7 @@ import (
 // syncer installs (SetSourceCache) and either:
 //
 //   - miss, or validator != current upstream etag: return fresh rows +
-//     SourceCacheScope (a 200),
+//     SourceCacheRecord (a 200),
 //   - hit with matching etag: return no rows + SourceCacheReplay (a 304),
 //   - hit in delta mode: return only changed rows + overlay replay with
 //     tombstones and a rotated token (a Graph-style delta round).
@@ -46,7 +46,7 @@ type sourceCacheMockConnector struct {
 	deltaAdds       map[string][]*v2.Grant
 	deltaDeletedIDs map[string][]string
 	// deltaDeletedPrincipals are bare principal-id tombstones, emitted on
-	// the SourceCacheScope annotation (the per-page channel) rather than
+	// the SourceCacheRecord annotation (the per-page channel) rather than
 	// the replay annotation — exercising both proposal A and B paths.
 	deltaDeletedPrincipals map[string][]string
 
@@ -103,7 +103,7 @@ func (mc *sourceCacheMockConnector) ListGrants(ctx context.Context, in *v2.Grant
 	if lookup == nil {
 		lookup = sourcecache.NoopLookup{}
 	}
-	entry, found, err := lookup.LookupPreviousSourceCache(ctx, sourcecache.RowKindGrants, scope)
+	entry, found, err := lookup.Lookup(ctx, sourcecache.RowKindGrants, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -120,20 +120,20 @@ func (mc *sourceCacheMockConnector) ListGrants(ctx context.Context, in *v2.Grant
 			List: adds,
 			Annotations: annotations.New(
 				v2.SourceCacheReplay_builder{
-					ScopeHash:  scope,
-					Etag:       currentEtag, // new token for this round
-					Overlay:    true,
-					DeletedIds: deleted,
+					ScopeKey:       scope,
+					CacheValidator: currentEtag, // new token for this round
+					Overlay:        true,
+					DeletedIds:     deleted,
 				}.Build(),
-				v2.SourceCacheScope_builder{
-					ScopeHash:           scope,
+				v2.SourceCacheRecord_builder{
+					ScopeKey:            scope,
 					DeletedPrincipalIds: deletedPrincipals,
 				}.Build(),
 			),
 		}.Build(), nil
 	}
 
-	if found && entry.ETag == currentEtag {
+	if found && entry.CacheValidator == currentEtag {
 		// Conditional-request 304: nothing changed upstream.
 		mc.mu.Lock()
 		mc.lookupHits++
@@ -141,8 +141,8 @@ func (mc *sourceCacheMockConnector) ListGrants(ctx context.Context, in *v2.Grant
 		return v2.GrantsServiceListGrantsResponse_builder{
 			List: []*v2.Grant{},
 			Annotations: annotations.New(v2.SourceCacheReplay_builder{
-				ScopeHash: scope,
-				Etag:      currentEtag,
+				ScopeKey:       scope,
+				CacheValidator: currentEtag,
 			}.Build()),
 		}.Build(), nil
 	}
@@ -153,9 +153,9 @@ func (mc *sourceCacheMockConnector) ListGrants(ctx context.Context, in *v2.Grant
 	mc.mu.Unlock()
 	return v2.GrantsServiceListGrantsResponse_builder{
 		List: mc.grantDB[resourceID],
-		Annotations: annotations.New(v2.SourceCacheScope_builder{
-			ScopeHash: scope,
-			Etag:      currentEtag,
+		Annotations: annotations.New(v2.SourceCacheRecord_builder{
+			ScopeKey:       scope,
+			CacheValidator: currentEtag,
 		}.Build()),
 	}.Build(), nil
 }
@@ -473,15 +473,15 @@ type stubSourceCacheStore struct {
 }
 
 func (s *stubSourceCacheStore) LookupSourceCacheEntry(context.Context, sourcecache.RowKind, string) (sourcecache.Entry, bool, error) {
-	return sourcecache.Entry{ETag: "prev-token"}, true, nil
+	return sourcecache.Entry{CacheValidator: "prev-token"}, true, nil
 }
 
 func (s *stubSourceCacheStore) ReplaySourceCache(context.Context, connectorstore.Reader, sourcecache.RowKind, string) (dotc1z.SourceCacheReplayResult, error) {
 	return dotc1z.SourceCacheReplayResult{Rows: s.replayRows}, nil
 }
 
-func (s *stubSourceCacheStore) PutSourceCacheEntry(_ context.Context, _ sourcecache.RowKind, scopeHash, _ string) error {
-	s.stamped = append(s.stamped, scopeHash)
+func (s *stubSourceCacheStore) PutSourceCacheEntry(_ context.Context, _ sourcecache.RowKind, scopeKey, _ string) error {
+	s.stamped = append(s.stamped, scopeKey)
 	return nil
 }
 
@@ -512,7 +512,7 @@ func TestSourceCacheStats_OverlayRoundBooksOneHit(t *testing.T) {
 	// Page 1: overlay replay, no etag yet (the delta token rotates on the
 	// final page). One overlay row rides along.
 	_, page1, err := s.beginSourceCachePage(ctx, sourcecache.RowKindGrants,
-		annotations.New(v2.SourceCacheReplay_builder{ScopeHash: scope, Overlay: true}.Build()), 1)
+		annotations.New(v2.SourceCacheReplay_builder{ScopeKey: scope, Overlay: true}.Build()), 1)
 	require.NoError(t, err)
 	require.True(t, page1.replayed)
 
@@ -526,7 +526,7 @@ func TestSourceCacheStats_OverlayRoundBooksOneHit(t *testing.T) {
 	// replay annotation — this is a stamp write, but of the round's own
 	// scope, not a cold miss.
 	_, page2, err := s.beginSourceCachePage(ctx, sourcecache.RowKindGrants,
-		annotations.New(v2.SourceCacheScope_builder{ScopeHash: scope, Etag: "delta-token-2"}.Build()), 0)
+		annotations.New(v2.SourceCacheRecord_builder{ScopeKey: scope, CacheValidator: "delta-token-2"}.Build()), 0)
 	require.NoError(t, err)
 	require.False(t, page2.replayed)
 	require.NoError(t, s.finishSourceCachePage(ctx, page2))
@@ -535,7 +535,7 @@ func TestSourceCacheStats_OverlayRoundBooksOneHit(t *testing.T) {
 	// A genuinely cold scope still counts as stamped.
 	coldScope := sourcecache.HashScope("delta://users")
 	_, page3, err := s.beginSourceCachePage(ctx, sourcecache.RowKindGrants,
-		annotations.New(v2.SourceCacheScope_builder{ScopeHash: coldScope, Etag: "etag-1"}.Build()), 3)
+		annotations.New(v2.SourceCacheRecord_builder{ScopeKey: coldScope, CacheValidator: "etag-1"}.Build()), 3)
 	require.NoError(t, err)
 	require.NoError(t, s.finishSourceCachePage(ctx, page3))
 
@@ -551,8 +551,8 @@ func TestSourceCacheStats_OverlayRoundBooksOneHit(t *testing.T) {
 // connector that violates the only-replay-what-you-looked-up invariant.
 type staticLookup struct{ etag string }
 
-func (s staticLookup) LookupPreviousSourceCache(context.Context, sourcecache.RowKind, string) (sourcecache.Entry, bool, error) {
-	return sourcecache.Entry{ETag: s.etag}, true, nil
+func (s staticLookup) Lookup(context.Context, sourcecache.RowKind, string) (sourcecache.Entry, bool, error) {
+	return sourcecache.Entry{CacheValidator: s.etag}, true, nil
 }
 
 // degradedLookupConnector shadows SetSourceCache so the syncer cannot

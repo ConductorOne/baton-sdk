@@ -29,11 +29,11 @@ type LookupRequest struct {
 	// (pkg/sourcecache.RowKind values). Entries are partitioned by row
 	// kind, so one scope hash can carry a different validator per kind.
 	RowKind string `protobuf:"bytes,1,opt,name=row_kind,json=rowKind,proto3" json:"row_kind,omitempty"`
-	// Connector-defined stable scope identifier (conventionally a hex hash
-	// of the canonical scope; see pkg/sourcecache.HashScope). Opaque to the
+	// Connector-defined stable scope identifier (a stable identifier for the canonical scope
+	// (often a hex hash; see pkg/sourcecache.HashScope). Opaque to the
 	// parent; matched verbatim against the previous sync's source-cache
 	// entries.
-	ScopeHash     string `protobuf:"bytes,2,opt,name=scope_hash,json=scopeHash,proto3" json:"scope_hash,omitempty"`
+	ScopeKey      string `protobuf:"bytes,2,opt,name=scope_key,json=scopeKey,proto3" json:"scope_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -70,9 +70,9 @@ func (x *LookupRequest) GetRowKind() string {
 	return ""
 }
 
-func (x *LookupRequest) GetScopeHash() string {
+func (x *LookupRequest) GetScopeKey() string {
 	if x != nil {
-		return x.ScopeHash
+		return x.ScopeKey
 	}
 	return ""
 }
@@ -81,8 +81,8 @@ func (x *LookupRequest) SetRowKind(v string) {
 	x.RowKind = v
 }
 
-func (x *LookupRequest) SetScopeHash(v string) {
-	x.ScopeHash = v
+func (x *LookupRequest) SetScopeKey(v string) {
+	x.ScopeKey = v
 }
 
 type LookupRequest_builder struct {
@@ -92,11 +92,11 @@ type LookupRequest_builder struct {
 	// (pkg/sourcecache.RowKind values). Entries are partitioned by row
 	// kind, so one scope hash can carry a different validator per kind.
 	RowKind string
-	// Connector-defined stable scope identifier (conventionally a hex hash
-	// of the canonical scope; see pkg/sourcecache.HashScope). Opaque to the
+	// Connector-defined stable scope identifier (a stable identifier for the canonical scope
+	// (often a hex hash; see pkg/sourcecache.HashScope). Opaque to the
 	// parent; matched verbatim against the previous sync's source-cache
 	// entries.
-	ScopeHash string
+	ScopeKey string
 }
 
 func (b0 LookupRequest_builder) Build() *LookupRequest {
@@ -104,13 +104,13 @@ func (b0 LookupRequest_builder) Build() *LookupRequest {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.RowKind = b.RowKind
-	x.ScopeHash = b.ScopeHash
+	x.ScopeKey = b.ScopeKey
 	return m0
 }
 
 type LookupResponse struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
-	// False means no prior entry exists for (row_kind, scope_hash): the
+	// False means no prior entry exists for (row_kind, scope_key): the
 	// connector must fetch fresh and must not emit SourceCacheReplay for
 	// this scope.
 	Found bool `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
@@ -118,9 +118,9 @@ type LookupResponse struct {
 	// ETag, delta token, ...). Empty when found is false. The cap is a
 	// sanity bound sized for Microsoft Graph delta tokens, which are known
 	// to run to thousands of characters; storage imposes no limit.
-	Etag          string `protobuf:"bytes,2,opt,name=etag,proto3" json:"etag,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	CacheValidator string `protobuf:"bytes,2,opt,name=cache_validator,json=cacheValidator,proto3" json:"cache_validator,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *LookupResponse) Reset() {
@@ -155,9 +155,9 @@ func (x *LookupResponse) GetFound() bool {
 	return false
 }
 
-func (x *LookupResponse) GetEtag() string {
+func (x *LookupResponse) GetCacheValidator() string {
 	if x != nil {
-		return x.Etag
+		return x.CacheValidator
 	}
 	return ""
 }
@@ -166,14 +166,14 @@ func (x *LookupResponse) SetFound(v bool) {
 	x.Found = v
 }
 
-func (x *LookupResponse) SetEtag(v string) {
-	x.Etag = v
+func (x *LookupResponse) SetCacheValidator(v string) {
+	x.CacheValidator = v
 }
 
 type LookupResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// False means no prior entry exists for (row_kind, scope_hash): the
+	// False means no prior entry exists for (row_kind, scope_key): the
 	// connector must fetch fresh and must not emit SourceCacheReplay for
 	// this scope.
 	Found bool
@@ -181,7 +181,7 @@ type LookupResponse_builder struct {
 	// ETag, delta token, ...). Empty when found is false. The cap is a
 	// sanity bound sized for Microsoft Graph delta tokens, which are known
 	// to run to thousands of characters; storage imposes no limit.
-	Etag string
+	CacheValidator string
 }
 
 func (b0 LookupResponse_builder) Build() *LookupResponse {
@@ -189,7 +189,7 @@ func (b0 LookupResponse_builder) Build() *LookupResponse {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.Found = b.Found
-	x.Etag = b.Etag
+	x.CacheValidator = b.CacheValidator
 	return m0
 }
 
@@ -197,15 +197,14 @@ var File_c1_connectorapi_baton_v1_source_cache_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_source_cache_proto_rawDesc = "" +
 	"\n" +
-	"+c1/connectorapi/baton/v1/source_cache.proto\x12\x18c1.connectorapi.baton.v1\x1a\x17validate/validate.proto\"`\n" +
+	"+c1/connectorapi/baton/v1/source_cache.proto\x12\x18c1.connectorapi.baton.v1\x1a\x17validate/validate.proto\"^\n" +
 	"\rLookupRequest\x12$\n" +
-	"\brow_kind\x18\x01 \x01(\tB\t\xfaB\x06r\x04\x10\x01\x18@R\arowKind\x12)\n" +
-	"\n" +
-	"scope_hash\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\tscopeHash\"E\n" +
+	"\brow_kind\x18\x01 \x01(\tB\t\xfaB\x06r\x04\x10\x01\x18@R\arowKind\x12'\n" +
+	"\tscope_key\x18\x02 \x01(\tB\n" +
+	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\bscopeKey\"Z\n" +
 	"\x0eLookupResponse\x12\x14\n" +
-	"\x05found\x18\x01 \x01(\bR\x05found\x12\x1d\n" +
-	"\x04etag\x18\x02 \x01(\tB\t\xfaB\x06r\x04\x18\x80\x80\x04R\x04etag2x\n" +
+	"\x05found\x18\x01 \x01(\bR\x05found\x122\n" +
+	"\x0fcache_validator\x18\x02 \x01(\tB\t\xfaB\x06r\x04\x18\x80\x80\x04R\x0ecacheValidator2x\n" +
 	"\x17BatonSourceCacheService\x12]\n" +
 	"\x06Lookup\x12'.c1.connectorapi.baton.v1.LookupRequest\x1a(.c1.connectorapi.baton.v1.LookupResponse\"\x00B7Z5gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1b\x06proto3"
 

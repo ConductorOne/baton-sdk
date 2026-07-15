@@ -69,7 +69,7 @@ type replayedScopeSet struct {
 	m  map[string]struct{}
 }
 
-func (c *syncerSourceCache) markScopeReplayed(kind sourcecache.RowKind, scopeHash string) {
+func (c *syncerSourceCache) markScopeReplayed(kind sourcecache.RowKind, scopeKey string) {
 	if c.replayedScopes == nil {
 		return
 	}
@@ -78,16 +78,16 @@ func (c *syncerSourceCache) markScopeReplayed(kind sourcecache.RowKind, scopeHas
 	if c.replayedScopes.m == nil {
 		c.replayedScopes.m = make(map[string]struct{})
 	}
-	c.replayedScopes.m[string(kind)+"\x00"+scopeHash] = struct{}{}
+	c.replayedScopes.m[string(kind)+"\x00"+scopeKey] = struct{}{}
 }
 
-func (c *syncerSourceCache) scopeReplayedThisSync(kind sourcecache.RowKind, scopeHash string) bool {
+func (c *syncerSourceCache) scopeReplayedThisSync(kind sourcecache.RowKind, scopeKey string) bool {
 	if c.replayedScopes == nil {
 		return false
 	}
 	c.replayedScopes.mu.Lock()
 	defer c.replayedScopes.mu.Unlock()
-	_, ok := c.replayedScopes.m[string(kind)+"\x00"+scopeHash]
+	_, ok := c.replayedScopes.m[string(kind)+"\x00"+scopeKey]
 	return ok
 }
 
@@ -102,8 +102,8 @@ type prevStoreLookup struct {
 
 var _ sourcecache.Lookup = prevStoreLookup{}
 
-func (p prevStoreLookup) LookupPreviousSourceCache(ctx context.Context, kind sourcecache.RowKind, scopeHash string) (sourcecache.Entry, bool, error) {
-	entry, found, err := p.prev.LookupSourceCacheEntry(ctx, kind, scopeHash)
+func (p prevStoreLookup) Lookup(ctx context.Context, kind sourcecache.RowKind, scopeKey string) (sourcecache.Entry, bool, error) {
+	entry, found, err := p.prev.LookupSourceCacheEntry(ctx, kind, scopeKey)
 	if err != nil {
 		p.logOnce.Do(func() {
 			ctxzap.Extract(ctx).Warn("source cache lookup failed; treating as miss", zap.Error(err))
@@ -244,9 +244,9 @@ func (s *syncer) clearSourceCacheLookup(ctx context.Context) {
 // from beginSourceCachePage (before rows are written) to
 // finishSourceCachePage (after rows are written).
 type sourceCachePage struct {
-	kind      sourcecache.RowKind
-	scopeHash string
-	etag      string
+	kind     sourcecache.RowKind
+	scopeKey string
+	etag     string
 	// replayed reports that beginSourceCachePage copied the previous
 	// sync's rows for this scope into the current sync BEFORE the page's
 	// own rows commit. Consumers that dedupe against "already synced this
@@ -287,7 +287,7 @@ func (s *syncer) beginSourceCachePage(
 	if err != nil {
 		return ctx, nil, fmt.Errorf("source cache: error parsing replay annotation: %w", err)
 	}
-	scope := &v2.SourceCacheScope{}
+	scope := &v2.SourceCacheRecord{}
 	hasScope, err := respAnnos.Pick(scope)
 	if err != nil {
 		return ctx, nil, fmt.Errorf("source cache: error parsing scope annotation: %w", err)
@@ -302,7 +302,7 @@ func (s *syncer) beginSourceCachePage(
 			// source cache disabled there is nothing to replay from. This is
 			// a connector bug (replay for a scope it never got a lookup hit
 			// on), not a degradable condition.
-			return ctx, nil, fmt.Errorf("source cache: connector requested replay for scope %q but source cache is disabled", replay.GetScopeHash())
+			return ctx, nil, fmt.Errorf("source cache: connector requested replay for scope %q but source cache is disabled", replay.GetScopeKey())
 		}
 		// Scope annotations without the capability handshake are ignored.
 		return ctx, nil, nil
@@ -311,23 +311,23 @@ func (s *syncer) beginSourceCachePage(
 	page := &sourceCachePage{kind: kind}
 	switch {
 	case hasReplay && hasScope:
-		if replay.GetScopeHash() != scope.GetScopeHash() {
-			return ctx, nil, fmt.Errorf("source cache: replay scope %q and page scope %q disagree", replay.GetScopeHash(), scope.GetScopeHash())
+		if replay.GetScopeKey() != scope.GetScopeKey() {
+			return ctx, nil, fmt.Errorf("source cache: replay scope %q and page scope %q disagree", replay.GetScopeKey(), scope.GetScopeKey())
 		}
-		page.scopeHash = replay.GetScopeHash()
+		page.scopeKey = replay.GetScopeKey()
 	case hasReplay:
-		page.scopeHash = replay.GetScopeHash()
+		page.scopeKey = replay.GetScopeKey()
 	default:
-		page.scopeHash = scope.GetScopeHash()
+		page.scopeKey = scope.GetScopeKey()
 	}
-	if err := sourcecache.ValidateScopeHash(page.scopeHash); err != nil {
+	if err := sourcecache.ValidateScopeKey(page.scopeKey); err != nil {
 		return ctx, nil, fmt.Errorf("source cache: %w", err)
 	}
 	// Prefer the scope annotation's etag (the freshest validator on
 	// overlay pages); fall back to the replay's.
-	page.etag = scope.GetEtag()
+	page.etag = scope.GetCacheValidator()
 	if page.etag == "" {
-		page.etag = replay.GetEtag()
+		page.etag = replay.GetCacheValidator()
 	}
 	// Tombstones may ride either annotation — the replay annotation on a
 	// round's first page, the scope annotation on every page (so a
@@ -341,7 +341,7 @@ func (s *syncer) beginSourceCachePage(
 		if s.sourceCache.prev == nil {
 			// Same invariant violation as the disabled case: the connector
 			// can only have gotten a lookup hit if a previous source exists.
-			return ctx, nil, fmt.Errorf("source cache: connector requested replay for scope %q but no previous sync is available", replay.GetScopeHash())
+			return ctx, nil, fmt.Errorf("source cache: connector requested replay for scope %q but no previous sync is available", replay.GetScopeKey())
 		}
 		page.replayed = true
 		if !replay.GetOverlay() && rowCount > 0 {
@@ -351,7 +351,7 @@ func (s *syncer) beginSourceCachePage(
 			// sync. Kept lenient while the model is proven against real
 			// providers.
 			ctxzap.Extract(ctx).Warn("source cache: non-overlay replay returned rows; treating them as an overlay",
-				zap.String("scope_hash", page.scopeHash),
+				zap.String("scope_key", page.scopeKey),
 				zap.Int("rows", rowCount),
 			)
 		}
@@ -361,19 +361,19 @@ func (s *syncer) beginSourceCachePage(
 		// loss (the stamped rows may still exist, e.g. a partially carried
 		// file). The hard error below is reserved for a replay that
 		// produces nothing.
-		_, entryFound, err := s.sourceCache.prev.LookupSourceCacheEntry(ctx, kind, page.scopeHash)
+		_, entryFound, err := s.sourceCache.prev.LookupSourceCacheEntry(ctx, kind, page.scopeKey)
 		if err != nil {
-			return ctx, nil, fmt.Errorf("source cache: error reading previous manifest for scope %q: %w", page.scopeHash, err)
+			return ctx, nil, fmt.Errorf("source cache: error reading previous manifest for scope %q: %w", page.scopeKey, err)
 		}
 		if !entryFound {
 			ctxzap.Extract(ctx).Warn("source cache: replay requested for scope with no previous manifest entry",
-				zap.String("scope_hash", page.scopeHash))
+				zap.String("scope_key", page.scopeKey))
 		}
 		replayStart := time.Now()
-		res, err := s.sourceCache.current.ReplaySourceCache(ctx, s.sourceCache.prevReader, kind, page.scopeHash)
+		res, err := s.sourceCache.current.ReplaySourceCache(ctx, s.sourceCache.prevReader, kind, page.scopeKey)
 		s.state.AddStepDuration("source_cache_replay", time.Since(replayStart))
 		if err != nil {
-			return ctx, nil, fmt.Errorf("source cache: replay for scope %q failed: %w", page.scopeHash, err)
+			return ctx, nil, fmt.Errorf("source cache: replay for scope %q failed: %w", page.scopeKey, err)
 		}
 		// Stats are stashed on the page and recorded in
 		// finishSourceCachePage so a page re-run after failing between
@@ -385,13 +385,13 @@ func (s *syncer) beginSourceCachePage(
 			// a LATER page's scope annotation (delta rounds), and that
 			// page must count toward ScopesReplayed's scope, not as a
 			// freshly stamped one — see finishSourceCachePage.
-			s.sourceCache.markScopeReplayed(kind, page.scopeHash)
+			s.sourceCache.markScopeReplayed(kind, page.scopeKey)
 		}
 		if res.Rows == 0 && !entryFound {
 			// The connector skipped row generation expecting a base that
 			// does not exist anywhere in the previous file — this sync
 			// would silently drop the scope's rows.
-			return ctx, nil, fmt.Errorf("source cache: replay for scope %q found no previous rows and no manifest entry; the connector replayed a scope it never looked up", page.scopeHash)
+			return ctx, nil, fmt.Errorf("source cache: replay for scope %q found no previous rows and no manifest entry; the connector replayed a scope it never looked up", page.scopeKey)
 		}
 		// Empty-vs-dropped discrimination via the previous file's scope
 		// index: a legitimately empty scope has NO index entries
@@ -403,14 +403,14 @@ func (s *syncer) beginSourceCachePage(
 			return ctx, nil, fmt.Errorf(
 				"source cache: replay for scope %q copied no rows but the previous file's scope index holds %d entries "+
 					"whose rows no longer carry this scope's stamp; refusing to silently drop the scope",
-				page.scopeHash, res.StaleSkipped)
+				page.scopeKey, res.StaleSkipped)
 		}
 		if res.StaleSkipped > 0 {
 			// Partial staleness: some rows copied, some index entries were
 			// dead. Not data loss by itself (the live rows carried their
 			// true stamp), but a signal a writer skipped index cleanup.
 			ctxzap.Extract(ctx).Warn("source cache: replay skipped stale scope-index entries",
-				zap.String("scope_hash", page.scopeHash),
+				zap.String("scope_key", page.scopeKey),
 				zap.Int64("rows", res.Rows),
 				zap.Int64("stale_skipped", res.StaleSkipped),
 			)
@@ -434,14 +434,14 @@ func (s *syncer) beginSourceCachePage(
 		}
 		ctxzap.Extract(ctx).Debug("source cache replayed scope",
 			zap.String("row_kind", string(kind)),
-			zap.String("scope_hash", page.scopeHash),
+			zap.String("scope_key", page.scopeKey),
 			zap.Int64("rows", res.Rows),
 			zap.Int("deleted_ids", len(page.deletedIDs)),
 			zap.Int("deleted_principal_ids", len(page.deletedPrincipalIDs)),
 		)
 	}
 
-	return sourcecache.WithScope(ctx, page.scopeHash), page, nil
+	return sourcecache.WithScope(ctx, page.scopeKey), page, nil
 }
 
 // finishSourceCachePage runs after the page's rows committed: applies
@@ -465,36 +465,36 @@ func (s *syncer) finishSourceCachePage(ctx context.Context, page *sourceCachePag
 			// connector-custom grant-id shapes (unreachable by the global
 			// bounded delete) work, and the cost stays bounded by the
 			// scope's size.
-			deleted, err := s.sourceCache.current.DeleteSourceCacheGrantsByIDInScope(ctx, page.scopeHash, page.deletedIDs)
+			deleted, err := s.sourceCache.current.DeleteSourceCacheGrantsByIDInScope(ctx, page.scopeKey, page.deletedIDs)
 			if err != nil {
-				return fmt.Errorf("source cache: error applying grant deletions for scope %q: %w", page.scopeHash, err)
+				return fmt.Errorf("source cache: error applying grant deletions for scope %q: %w", page.scopeKey, err)
 			}
 			rowsDeleted += deleted
 			ctxzap.Extract(ctx).Debug("source cache applied grant-id deletions",
-				zap.String("scope_hash", page.scopeHash),
+				zap.String("scope_key", page.scopeKey),
 				zap.Int("tombstones", len(page.deletedIDs)),
 				zap.Int64("rows_deleted", deleted),
 			)
 		} else if err := s.sourceCache.current.DeleteSourceCacheRows(ctx, page.kind, page.deletedIDs); err != nil {
-			return fmt.Errorf("source cache: error applying deletions for scope %q: %w", page.scopeHash, err)
+			return fmt.Errorf("source cache: error applying deletions for scope %q: %w", page.scopeKey, err)
 		}
 	}
 	if len(page.deletedPrincipalIDs) > 0 {
-		deleted, err := s.sourceCache.current.DeleteSourceCacheRowsInScope(ctx, page.kind, page.scopeHash, page.deletedPrincipalIDs)
+		deleted, err := s.sourceCache.current.DeleteSourceCacheRowsInScope(ctx, page.kind, page.scopeKey, page.deletedPrincipalIDs)
 		if err != nil {
-			return fmt.Errorf("source cache: error applying scoped deletions for scope %q: %w", page.scopeHash, err)
+			return fmt.Errorf("source cache: error applying scoped deletions for scope %q: %w", page.scopeKey, err)
 		}
 		rowsDeleted += deleted
 		ctxzap.Extract(ctx).Debug("source cache applied scoped deletions",
 			zap.String("row_kind", string(page.kind)),
-			zap.String("scope_hash", page.scopeHash),
+			zap.String("scope_key", page.scopeKey),
 			zap.Int("tombstones", len(page.deletedPrincipalIDs)),
 			zap.Int64("rows_deleted", deleted),
 		)
 	}
 	if page.etag != "" {
-		if err := s.sourceCache.current.PutSourceCacheEntry(ctx, page.kind, page.scopeHash, page.etag); err != nil {
-			return fmt.Errorf("source cache: error writing manifest entry for scope %q: %w", page.scopeHash, err)
+		if err := s.sourceCache.current.PutSourceCacheEntry(ctx, page.kind, page.scopeKey, page.etag); err != nil {
+			return fmt.Errorf("source cache: error writing manifest entry for scope %q: %w", page.scopeKey, err)
 		}
 	}
 
@@ -511,7 +511,7 @@ func (s *syncer) finishSourceCachePage(ctx context.Context, page *sourceCachePag
 		stats.RowsReplayed = map[string]int64{string(page.kind): page.replayRows}
 		stats.OverlayRows = int64(page.overlayRows)
 	}
-	if page.etag != "" && !page.replayed && !s.sourceCache.scopeReplayedThisSync(page.kind, page.scopeHash) {
+	if page.etag != "" && !page.replayed && !s.sourceCache.scopeReplayedThisSync(page.kind, page.scopeKey) {
 		// A cold/fresh page that persisted a validator: the denominator
 		// of the replay hit ratio. The replayed-scope check keeps a
 		// multi-page overlay round — whose new validator legally arrives

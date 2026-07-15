@@ -300,7 +300,7 @@ func (p *ProgressLog) SetGrantsCountOnly(resourceType string) {
 // GrantsProgress returns the current grant-coverage counter for a resource
 // type. For per-resource types this is "resources covered" and must never
 // exceed the type's resource total — spawned sibling cursors
-// (v2.SpawnCursors) don't increment it, only the origin action's chain end
+// (v2.EnqueuePageTokens) don't increment it, only the origin action's chain end
 // does. Exposed for tests pinning that accounting.
 func (p *ProgressLog) GrantsProgress(resourceType string) int {
 	p.mu.RLock()

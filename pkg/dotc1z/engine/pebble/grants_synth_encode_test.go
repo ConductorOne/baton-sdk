@@ -45,19 +45,19 @@ func TestGrantSourcesWireSchemaPin(t *testing.T) {
 			maxNum = n
 		}
 	}
-	// source_scope_hash (10) sorts above sources (9), which would break the
+	// source_scope_key (10) sorts above sources (9), which would break the
 	// append-after-base-marshal canonical order IF it were ever populated on
 	// a synthesized record. It never is: fillSynthGrantRecord clears it
 	// unconditionally, and an empty proto3 scalar emits no bytes, so sources
 	// stays the highest field on the wire. Any field beyond 10 (or a
 	// non-scalar 10) requires revisiting appendGrantSourcesWire.
 	require.Equal(t, protoreflect.FieldNumber(10), maxNum,
-		"GrantRecord gained a field beyond source_scope_hash(10): decide whether appendGrantSourcesWire's append-last invariant still holds")
+		"GrantRecord gained a field beyond source_scope_key(10): decide whether appendGrantSourcesWire's append-last invariant still holds")
 	ssh := fields.ByNumber(10)
 	require.NotNil(t, ssh)
-	require.Equal(t, protoreflect.Name("source_scope_hash"), ssh.Name(), "field 10 is no longer source_scope_hash")
+	require.Equal(t, protoreflect.Name("source_scope_key"), ssh.Name(), "field 10 is no longer source_scope_key")
 	require.Equal(t, protoreflect.StringKind, ssh.Kind(),
-		"source_scope_hash is no longer a string scalar; the empty-value-emits-nothing guarantee appendGrantSourcesWire relies on may not hold")
+		"source_scope_key is no longer a string scalar; the empty-value-emits-nothing guarantee appendGrantSourcesWire relies on may not hold")
 
 	src := fields.ByName("sources")
 	require.NotNil(t, src, "GrantRecord.sources missing")
@@ -249,12 +249,12 @@ func TestFillSynthGrantRecordSchemaPin(t *testing.T) {
 		"7:needs_expansion:bool",
 		"8:annotations:message",
 		"9:sources:message",
-		// source_scope_hash is part of the synthesized write path only as an
+		// source_scope_key is part of the synthesized write path only as an
 		// unconditional CLEAR (expander-derived grants are never part of a
 		// source-cache scope); fillSynthGrantRecord sets it to "" to honor
 		// the reused-struct invariant and appendGrantSourcesWire's
 		// highest-populated-field assumption.
-		"10:source_scope_hash:string",
+		"10:source_scope_key:string",
 	}, protoFields, "GrantRecord shape changed: decide whether fillSynthGrantRecord must set the new/changed field")
 
 	recType := reflect.TypeOf(synthesizedGrantRecord{})

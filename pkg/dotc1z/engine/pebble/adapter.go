@@ -417,17 +417,17 @@ func (a *Adapter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 		return ErrNoCurrentSync
 	}
 	records := translateGrants(syncID, grants)
-	stampSourceScope(ctx, records, func(r *v3.GrantRecord, s string) { r.SetSourceScopeHash(s) })
+	stampSourceScope(ctx, records, func(r *v3.GrantRecord, s string) { r.SetSourceScopeKey(s) })
 	if err := a.engine.PutGrantRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutGrants: %w", err)
 	}
 	return nil
 }
 
-// stampSourceScope stamps the source-cache scope hash carried by ctx
+// stampSourceScope stamps the source-cache scope key carried by ctx
 // (sourcecache.WithScope) onto freshly translated records. The syncer
 // sets the scope around a page's store writes when the page carried a
-// SourceCacheScope annotation; everything else writes unstamped rows.
+// SourceCacheRecord annotation; everything else writes unstamped rows.
 func stampSourceScope[T any](ctx context.Context, records []T, set func(T, string)) {
 	scope := sourcecache.ScopeFromContext(ctx)
 	if scope == "" {
@@ -595,7 +595,7 @@ func (a *Adapter) PutResources(ctx context.Context, resources ...*v2.Resource) e
 		}
 		records = append(records, rec)
 	}
-	stampSourceScope(ctx, records, func(r *v3.ResourceRecord, s string) { r.SetSourceScopeHash(s) })
+	stampSourceScope(ctx, records, func(r *v3.ResourceRecord, s string) { r.SetSourceScopeKey(s) })
 	if err := a.engine.PutResourceRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutResources: %w", err)
 	}
@@ -623,7 +623,7 @@ func (a *Adapter) PutEntitlements(ctx context.Context, entitlements ...*v2.Entit
 		}
 		records = append(records, rec)
 	}
-	stampSourceScope(ctx, records, func(r *v3.EntitlementRecord, s string) { r.SetSourceScopeHash(s) })
+	stampSourceScope(ctx, records, func(r *v3.EntitlementRecord, s string) { r.SetSourceScopeKey(s) })
 	if err := a.engine.PutEntitlementRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutEntitlements: %w", err)
 	}

@@ -68,9 +68,9 @@ func (m *LookupRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := utf8.RuneCountInString(m.GetScopeHash()); l < 1 || l > 256 {
+	if l := utf8.RuneCountInString(m.GetScopeKey()); l < 1 || l > 256 {
 		err := LookupRequestValidationError{
-			field:  "ScopeHash",
+			field:  "ScopeKey",
 			reason: "value length must be between 1 and 256 runes, inclusive",
 		}
 		if !all {
@@ -181,9 +181,9 @@ func (m *LookupResponse) validate(all bool) error {
 
 	// no validation rules for Found
 
-	if utf8.RuneCountInString(m.GetEtag()) > 65536 {
+	if utf8.RuneCountInString(m.GetCacheValidator()) > 65536 {
 		err := LookupResponseValidationError{
-			field:  "Etag",
+			field:  "CacheValidator",
 			reason: "value length must be at most 65536 runes",
 		}
 		if !all {

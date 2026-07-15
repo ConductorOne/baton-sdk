@@ -76,7 +76,7 @@ type StaticEntitlementSyncerV2 interface {
 //
 // The first call of a sync arrives with an empty page token (the planning
 // call); the connector may answer with rows directly and/or spawn
-// additional independent cursors by attaching a v2.SpawnCursors annotation
+// additional independent cursors by attaching a v2.EnqueuePageTokens annotation
 // whose page tokens are delivered back through opts.PageToken, one action
 // each. Source-cache scope/replay/tombstone annotations work exactly as on
 // per-resource grants pages.
@@ -91,7 +91,7 @@ type TypeScopedGrantsSyncer interface {
 // annotation; the syncer then issues ListEntitlements calls with an empty
 // resource id, which the builder routes here.
 //
-// Planning / SpawnCursors / source-cache behavior matches TypeScopedGrantsSyncer.
+// Planning / EnqueuePageTokens / source-cache behavior matches TypeScopedGrantsSyncer.
 type TypeScopedEntitlementsSyncer interface {
 	EntitlementsForResourceType(ctx context.Context, resourceTypeID string, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error)
 }

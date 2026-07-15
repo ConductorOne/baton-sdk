@@ -115,26 +115,26 @@ func (c *childReplayConnector) ListResources(ctx context.Context, in *v2.Resourc
 		if lookup == nil {
 			lookup = sourcecache.NoopLookup{}
 		}
-		entry, found, err := lookup.LookupPreviousSourceCache(ctx, sourcecache.RowKindResources, scope)
+		entry, found, err := lookup.Lookup(ctx, sourcecache.RowKindResources, scope)
 		if err != nil {
 			return nil, err
 		}
-		if found && entry.ETag == etag {
+		if found && entry.CacheValidator == etag {
 			c.mu.Lock()
 			c.resourceLookupHits++
 			c.mu.Unlock()
 			return v2.ResourcesServiceListResourcesResponse_builder{
 				Annotations: annotations.New(v2.SourceCacheReplay_builder{
-					ScopeHash: scope,
-					Etag:      etag,
+					ScopeKey:       scope,
+					CacheValidator: etag,
 				}.Build()),
 			}.Build(), nil
 		}
 		return v2.ResourcesServiceListResourcesResponse_builder{
 			List: c.parents,
-			Annotations: annotations.New(v2.SourceCacheScope_builder{
-				ScopeHash: scope,
-				Etag:      etag,
+			Annotations: annotations.New(v2.SourceCacheRecord_builder{
+				ScopeKey:       scope,
+				CacheValidator: etag,
 			}.Build()),
 		}.Build(), nil
 	case c.childType.GetId():
@@ -337,18 +337,18 @@ func (c *insertResourceGrantsConnector) ListGrants(ctx context.Context, in *v2.G
 	if lookup == nil {
 		lookup = sourcecache.NoopLookup{}
 	}
-	entry, found, err := lookup.LookupPreviousSourceCache(ctx, sourcecache.RowKindGrants, scope)
+	entry, found, err := lookup.Lookup(ctx, sourcecache.RowKindGrants, scope)
 	if err != nil {
 		return nil, err
 	}
-	if found && entry.ETag == currentEtag {
+	if found && entry.CacheValidator == currentEtag {
 		c.mu.Lock()
 		c.lookupHits++
 		c.mu.Unlock()
 		return v2.GrantsServiceListGrantsResponse_builder{
 			Annotations: annotations.New(v2.SourceCacheReplay_builder{
-				ScopeHash: scope,
-				Etag:      currentEtag,
+				ScopeKey:       scope,
+				CacheValidator: currentEtag,
 			}.Build()),
 		}.Build(), nil
 	}
@@ -358,7 +358,7 @@ func (c *insertResourceGrantsConnector) ListGrants(ctx context.Context, in *v2.G
 	return v2.GrantsServiceListGrantsResponse_builder{
 		List: c.insertGrants,
 		Annotations: annotations.New(
-			v2.SourceCacheScope_builder{ScopeHash: scope, Etag: currentEtag}.Build(),
+			v2.SourceCacheRecord_builder{ScopeKey: scope, CacheValidator: currentEtag}.Build(),
 			&v2.InsertResourceGrants{},
 		),
 	}.Build(), nil
@@ -464,18 +464,18 @@ func (c *exclusionGroupReplayConnector) ListEntitlements(
 	if lookup == nil {
 		lookup = sourcecache.NoopLookup{}
 	}
-	entry, found, err := lookup.LookupPreviousSourceCache(ctx, sourcecache.RowKindEntitlements, scope)
+	entry, found, err := lookup.Lookup(ctx, sourcecache.RowKindEntitlements, scope)
 	if err != nil {
 		return nil, err
 	}
-	if found && entry.ETag == etag {
+	if found && entry.CacheValidator == etag {
 		c.mu.Lock()
 		c.entLookupHits++
 		c.mu.Unlock()
 		return v2.EntitlementsServiceListEntitlementsResponse_builder{
 			Annotations: annotations.New(v2.SourceCacheReplay_builder{
-				ScopeHash: scope,
-				Etag:      etag,
+				ScopeKey:       scope,
+				CacheValidator: etag,
 			}.Build()),
 		}.Build(), nil
 	}
@@ -484,9 +484,9 @@ func (c *exclusionGroupReplayConnector) ListEntitlements(
 	c.mu.Unlock()
 	return v2.EntitlementsServiceListEntitlementsResponse_builder{
 		List: c.entDB[resourceID],
-		Annotations: annotations.New(v2.SourceCacheScope_builder{
-			ScopeHash: scope,
-			Etag:      etag,
+		Annotations: annotations.New(v2.SourceCacheRecord_builder{
+			ScopeKey:       scope,
+			CacheValidator: etag,
 		}.Build()),
 	}.Build(), nil
 }
@@ -763,11 +763,11 @@ func TestSourceCacheContinuation_AnswerAccumulationBeyondOneAsk(t *testing.T) {
 	bigAsk := make([]sourcecache.Query, 0, 4096)
 	for i := 0; i < 4096; i++ {
 		bigAsk = append(bigAsk, sourcecache.Query{
-			RowKind:   sourcecache.RowKindGrants,
-			ScopeHash: fmt.Sprintf("scope-%04d", i),
+			RowKind:  sourcecache.RowKindGrants,
+			ScopeKey: fmt.Sprintf("scope-%04d", i),
 		})
 	}
-	lateAsk := []sourcecache.Query{{RowKind: sourcecache.RowKindGrants, ScopeHash: "late-scope"}}
+	lateAsk := []sourcecache.Query{{RowKind: sourcecache.RowKindGrants, ScopeKey: "late-scope"}}
 
 	err = s.withSourceCacheContinuation(ctx, "test-op", func(extra annotations.Annotations, attempt int) (listAttempt, error) {
 		answersMsg := &v2.SourceCacheLookupAnswers{}
@@ -802,7 +802,7 @@ func TestSourceCacheContinuation_AnswerAccumulationBeyondOneAsk(t *testing.T) {
 
 // TestSourceCacheContinuation_OversizedAskFailsLoudly pins the intended
 // hard boundary on ONE ask: more than 4096 queries in a single ask is a
-// connector bug (shard via SpawnCursors instead) and must fail the sync
+// connector bug (shard via EnqueuePageTokens instead) and must fail the sync
 // with a descriptive error, not silently truncate.
 func TestSourceCacheContinuation_OversizedAskFailsLoudly(t *testing.T) {
 	ctx, err := logging.Init(t.Context())
@@ -823,8 +823,8 @@ func TestSourceCacheContinuation_OversizedAskFailsLoudly(t *testing.T) {
 	oversized := make([]sourcecache.Query, 0, 4097)
 	for i := 0; i < 4097; i++ {
 		oversized = append(oversized, sourcecache.Query{
-			RowKind:   sourcecache.RowKindGrants,
-			ScopeHash: fmt.Sprintf("scope-%04d", i),
+			RowKind:  sourcecache.RowKindGrants,
+			ScopeKey: fmt.Sprintf("scope-%04d", i),
 		})
 	}
 	err = s.withSourceCacheContinuation(ctx, "test-op", func(extra annotations.Annotations, attempt int) (listAttempt, error) {

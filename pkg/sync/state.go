@@ -218,7 +218,7 @@ type Action struct {
 	ParentResourceTypeID string   `json:"parent_resource_type_id,omitempty"`
 	ParentResourceID     string   `json:"parent_resource_id,omitempty"`
 
-	// Spawned marks an action enqueued by a connector's SpawnCursors
+	// Spawned marks an action enqueued by a connector's EnqueuePageTokens
 	// annotation (a sibling cursor) rather than by the syncer's own
 	// planners. Progress accounting uses it: per-resource grant /
 	// entitlement coverage counts a resource once, when its ORIGIN

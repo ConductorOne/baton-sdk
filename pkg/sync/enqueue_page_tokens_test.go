@@ -1,13 +1,13 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
-// Per-resource SpawnCursors: parallel warm revalidation for page-numbered
+// Per-resource EnqueuePageTokens: parallel warm revalidation for page-numbered
 // APIs (the GitHub shape). On page one of a resource's grant collection the
 // connector already knows every other page's URL and stored validator, so
 // it answers page one and spawns pages 2..N as sibling actions; each
 // spawned page independently hits or misses its source-cache lookup.
 //
 // Under test:
-//   - SpawnCursors on a per-resource grants response fans out sibling
+//   - EnqueuePageTokens on a per-resource grants response fans out sibling
 //     actions carrying the resource identity (no warning, no drops);
 //   - spawned pages are ordinary pages: replay on hit, cold fetch on miss
 //     (page boundary shifted), and a cold spawned page may CHAIN to a
@@ -41,7 +41,7 @@ const spawnPageSize = 4
 
 // pagedSpawnMockConnector serves each group's member grants through
 // numbered pages of size spawnPageSize. Page 1 carries its own rows plus
-// SpawnCursors for every other page the previous sync recorded (warm) or
+// EnqueuePageTokens for every other page the previous sync recorded (warm) or
 // that exist upstream (cold). Every page is its own source-cache scope
 // (page-URL style). Membership mutations shift page contents, so mutated
 // pages miss their lookup and refetch cold — including discovering fresh
@@ -202,18 +202,18 @@ func (mc *pagedSpawnMockConnector) servePage(ctx context.Context, gid string, pa
 	}
 	scope := pageScopeFor(gid, page)
 
-	entry, found, err := lookup.LookupPreviousSourceCache(ctx, sourcecache.RowKindGrants, scope)
+	entry, found, err := lookup.Lookup(ctx, sourcecache.RowKindGrants, scope)
 	if err != nil {
 		return nil, err
 	}
-	if found && entry.ETag == etag {
+	if found && entry.CacheValidator == etag {
 		mc.mu.Lock()
 		mc.replayPages++
 		mc.mu.Unlock()
 		return v2.GrantsServiceListGrantsResponse_builder{
 			Annotations: annotations.New(v2.SourceCacheReplay_builder{
-				ScopeHash: scope,
-				Etag:      etag,
+				ScopeKey:       scope,
+				CacheValidator: etag,
 			}.Build()),
 		}.Build(), nil
 	}
@@ -232,9 +232,9 @@ func (mc *pagedSpawnMockConnector) servePage(ctx context.Context, gid string, pa
 	mc.mu.Unlock()
 	return v2.GrantsServiceListGrantsResponse_builder{
 		List: mc.grantsFor(gid, rows),
-		Annotations: annotations.New(v2.SourceCacheScope_builder{
-			ScopeHash: scope,
-			Etag:      etag,
+		Annotations: annotations.New(v2.SourceCacheRecord_builder{
+			ScopeKey:       scope,
+			CacheValidator: etag,
 		}.Build()),
 		NextPageToken: next,
 	}.Build(), nil
@@ -274,7 +274,7 @@ func (mc *pagedSpawnMockConnector) ListGrants(ctx context.Context, in *v2.Grants
 	}
 	if len(tokens) > 0 {
 		annos := annotations.Annotations(resp.GetAnnotations())
-		annos.Update(v2.SpawnCursors_builder{PageTokens: tokens}.Build())
+		annos.Update(v2.EnqueuePageTokens_builder{PageTokens: tokens}.Build())
 		resp.SetAnnotations(annos)
 		// Page one's own chain ends here; siblings carry the rest.
 		resp.SetNextPageToken("")
@@ -322,7 +322,7 @@ func runSpawnSync(ctx context.Context, t *testing.T, mc *pagedSpawnMockConnector
 	return covered
 }
 
-func TestPerResourceSpawnCursorsWarmRevalidation(t *testing.T) {
+func TestPerResourceEnqueuePageTokensWarmRevalidation(t *testing.T) {
 	for _, workers := range []int{0, 4} {
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
 			ctx, err := logging.Init(context.Background())
@@ -377,7 +377,7 @@ func TestPerResourceSpawnCursorsWarmRevalidation(t *testing.T) {
 	}
 }
 
-// TestPerResourceSpawnCursorsResumeWithPendingSiblings pins suspend/resume
+// TestPerResourceEnqueuePageTokensResumeWithPendingSiblings pins suspend/resume
 // across a spawn fan-out. A warm sync crashes while serving one of a
 // group's spawned sibling pages and is then resumed on the same c1z.
 // Checkpoints are rate-limited (minCheckpointInterval), so resume
@@ -395,7 +395,7 @@ func TestPerResourceSpawnCursorsWarmRevalidation(t *testing.T) {
 // (The complementary serialization half — a checkpoint can never hold
 // "page finished but siblings missing", and the Spawned marker survives
 // the round trip — is pinned by TestSpawnedActionsSurviveCheckpoint.)
-func TestPerResourceSpawnCursorsResumeWithPendingSiblings(t *testing.T) {
+func TestPerResourceEnqueuePageTokensResumeWithPendingSiblings(t *testing.T) {
 	for _, workers := range []int{0, 4} {
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
 			ctx, err := logging.Init(context.Background())
@@ -516,7 +516,7 @@ func TestSpawnedActionsSurviveCheckpoint(t *testing.T) {
 	require.Equal(t, map[string]bool{"page=1": true, "page=2": true}, tokens)
 }
 
-// TestPerResourceSpawnCursorsChurnSoak is the randomized soak (the shape
+// TestPerResourceEnqueuePageTokensChurnSoak is the randomized soak (the shape
 // that caught real bugs in both the Entra and GitHub POCs): seeded rounds
 // of membership churn against the paged-spawn connector, each round
 // running a warm chained sync at workers=4 and asserting reader-surface
@@ -524,7 +524,7 @@ func TestSpawnedActionsSurviveCheckpoint(t *testing.T) {
 // shifts page boundaries arbitrarily, so every round mixes replayed pages,
 // cold refetches of shifted pages, vanished tails (zero-row probes), and
 // fresh tails discovered by chaining — concurrently.
-func TestPerResourceSpawnCursorsChurnSoak(t *testing.T) {
+func TestPerResourceEnqueuePageTokensChurnSoak(t *testing.T) {
 	if testing.Short() {
 		t.Skip("soak test")
 	}

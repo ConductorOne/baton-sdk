@@ -36,9 +36,9 @@ func (s *continuationTestSyncer) Grants(ctx context.Context, r *v2.Resource, opt
 	s.lookupCalls++
 	if s.batch {
 		queries := []sourcecache.Query{
-			{RowKind: sourcecache.RowKindGrants, ScopeHash: s.scope + "/1"},
-			{RowKind: sourcecache.RowKindGrants, ScopeHash: s.scope + "/2"},
-			{RowKind: sourcecache.RowKindGrants, ScopeHash: s.scope + "/3"},
+			{RowKind: sourcecache.RowKindGrants, ScopeKey: s.scope + "/1"},
+			{RowKind: sourcecache.RowKindGrants, ScopeKey: s.scope + "/2"},
+			{RowKind: sourcecache.RowKindGrants, ScopeKey: s.scope + "/3"},
 		}
 		answers, err := sourcecache.LookupMany(ctx, opts.SourceCache, queries)
 		if err != nil {
@@ -46,26 +46,26 @@ func (s *continuationTestSyncer) Grants(ctx context.Context, r *v2.Resource, opt
 		}
 		ret := &resource.SyncOpResults{Annotations: annotations.Annotations{}}
 		for _, a := range answers {
-			if !a.Found || a.ETag != "current" {
+			if !a.Found || a.CacheValidator != "current" {
 				return nil, nil, fmt.Errorf("test wants all hits, got %+v", a)
 			}
 		}
-		ret.Annotations.Update(v2.SourceCacheReplay_builder{ScopeHash: s.scope + "/1", Etag: "current"}.Build())
+		ret.Annotations.Update(v2.SourceCacheReplay_builder{ScopeKey: s.scope + "/1", CacheValidator: "current"}.Build())
 		return nil, ret, nil
 	}
 
-	entry, found, err := opts.SourceCache.LookupPreviousSourceCache(ctx, sourcecache.RowKindGrants, s.scope)
+	entry, found, err := opts.SourceCache.Lookup(ctx, sourcecache.RowKindGrants, s.scope)
 	if err != nil && !s.swallow {
 		// Idiomatic wrapping — the builder must match via errors.Is.
 		return nil, nil, fmt.Errorf("listing grants for %s: %w", r.GetId().GetResource(), err)
 	}
 	ret := &resource.SyncOpResults{Annotations: annotations.Annotations{}}
-	if err == nil && found && entry.ETag == "current" {
-		ret.Annotations.Update(v2.SourceCacheReplay_builder{ScopeHash: s.scope, Etag: entry.ETag}.Build())
+	if err == nil && found && entry.CacheValidator == "current" {
+		ret.Annotations.Update(v2.SourceCacheReplay_builder{ScopeKey: s.scope, CacheValidator: entry.CacheValidator}.Build())
 		return nil, ret, nil
 	}
 	// Miss (or swallowed deferral): cold row.
-	ret.Annotations.Update(v2.SourceCacheScope_builder{ScopeHash: s.scope, Etag: "current"}.Build())
+	ret.Annotations.Update(v2.SourceCacheRecord_builder{ScopeKey: s.scope, CacheValidator: "current"}.Build())
 	return []*v2.Grant{mkTestGrant(r)}, ret, nil
 }
 
@@ -117,13 +117,13 @@ func TestContinuation_DeferThenAnswer(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, hasAsk)
 	require.Len(t, ask.GetQueries(), 1)
-	require.Equal(t, "groups/g1/members", ask.GetQueries()[0].GetScopeHash())
+	require.Equal(t, "groups/g1/members", ask.GetQueries()[0].GetScopeKey())
 	require.Equal(t, string(sourcecache.RowKindGrants), ask.GetQueries()[0].GetRowKind())
 
 	// Phase 2: same request + answers → the SAME connector code replays.
 	answers := annotations.New(&v2.SourceCacheLookupOffer{})
 	answers.Update(sourcecache.AnswersProto([]sourcecache.Answer{
-		{Query: sourcecache.Query{RowKind: sourcecache.RowKindGrants, ScopeHash: "groups/g1/members"}, Found: true, ETag: "current"},
+		{Query: sourcecache.Query{RowKind: sourcecache.RowKindGrants, ScopeKey: "groups/g1/members"}, Found: true, CacheValidator: "current"},
 	}))
 	resp2, err := b.ListGrants(ctx, continuationGrantsRequest(answers))
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestContinuation_DeferThenAnswer(t *testing.T) {
 	// A not-found answer is a MISS, not a deferral: cold fetch.
 	miss := annotations.New(&v2.SourceCacheLookupOffer{})
 	miss.Update(sourcecache.AnswersProto([]sourcecache.Answer{
-		{Query: sourcecache.Query{RowKind: sourcecache.RowKindGrants, ScopeHash: "groups/g1/members"}, Found: false},
+		{Query: sourcecache.Query{RowKind: sourcecache.RowKindGrants, ScopeKey: "groups/g1/members"}, Found: false},
 	}))
 	resp3, err := b.ListGrants(ctx, continuationGrantsRequest(miss))
 	require.NoError(t, err)
@@ -161,8 +161,8 @@ func TestContinuation_LookupManyBatchesOneAsk(t *testing.T) {
 	var answers []sourcecache.Answer
 	for _, q := range ask.GetQueries() {
 		answers = append(answers, sourcecache.Answer{
-			Query: sourcecache.Query{RowKind: sourcecache.RowKind(q.GetRowKind()), ScopeHash: q.GetScopeHash()},
-			Found: true, ETag: "current",
+			Query: sourcecache.Query{RowKind: sourcecache.RowKind(q.GetRowKind()), ScopeKey: q.GetScopeKey()},
+			Found: true, CacheValidator: "current",
 		})
 	}
 	req := annotations.New(&v2.SourceCacheLookupOffer{})
@@ -217,6 +217,6 @@ func TestContinuation_DirectLookupWins(t *testing.T) {
 
 type staticTestLookup struct{ etag string }
 
-func (s staticTestLookup) LookupPreviousSourceCache(context.Context, sourcecache.RowKind, string) (sourcecache.Entry, bool, error) {
-	return sourcecache.Entry{ETag: s.etag}, true, nil
+func (s staticTestLookup) Lookup(context.Context, sourcecache.RowKind, string) (sourcecache.Entry, bool, error) {
+	return sourcecache.Entry{CacheValidator: s.etag}, true, nil
 }

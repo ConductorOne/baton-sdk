@@ -22,7 +22,7 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 // validation requires a non-empty resource id and the stub identifies
 // the type, never a real resource). The connector answers with grants
 // for the whole type, across as many paginated cursors as it chooses to
-// spawn (see SpawnCursors).
+// spawn (see EnqueuePageTokens).
 //
 // This is the grants-phase analogue of StaticEntitlements: the connector
 // takes over enumeration for the type, and every downstream behavior
@@ -41,7 +41,7 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 //
 // ZERO-RESOURCE TYPES: the planner still enqueues the type-scoped action
 // when the store holds no resources of the type. The connector must
-// return an empty page (or SpawnCursors that resolve empty), not an error.
+// return an empty page (or EnqueuePageTokens that resolve empty), not an error.
 //
 // TARGETED SYNC: SyncTargetedResource must not enqueue a per-resource
 // SyncGrantsOp for a type-scoped type. Type-scoped grant enumeration is
@@ -52,7 +52,7 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 // imply post-ingest repair beyond ordinary grant handling.
 message TypeScopedGrants {}
 
-// SpawnCursors is attached to a ListGrants or ListEntitlements response to
+// EnqueuePageTokens is attached to a ListGrants or ListEntitlements response to
 // enqueue additional independent sibling cursors. Each token is delivered
 // back to the connector as the page token of its own action — scheduled by
 // the syncer's worker pool, rate-limited, and checkpointed like any other
@@ -87,7 +87,7 @@ message TypeScopedGrants {}
 // connector needs to serve the cursor must be inside the token (or
 // re-derivable from it) — for per-resource spawns the resource identity
 // rides the action, so tokens only need the page coordinate.
-message SpawnCursors {
+message EnqueuePageTokens {
   // Page tokens for the sibling cursors to enqueue, one action each.
   // Capped per response (spawned actions persist in the checkpointed
   // state token); chain additional spawns across pages to fan out wider.

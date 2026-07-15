@@ -1,7 +1,7 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 // End-to-end harness for TYPE-SCOPED entitlements (v2.TypeScopedEntitlements +
-// SpawnCursors), mirroring type_scoped_grants_test.go: entitlement rows for a
+// EnqueuePageTokens), mirroring type_scoped_grants_test.go: entitlement rows for a
 // whole resource type are served through connector-defined chunk cursors
 // instead of one ListEntitlements call per group. Each chunk is its own
 // source-cache scope, so warm syncs replay unchanged chunks and
@@ -206,7 +206,7 @@ func (mc *chunkedEntitlementsMockConnector) ListEntitlements(
 			tokens = append(tokens, fmt.Sprintf("chunk=%d", i))
 		}
 		return v2.EntitlementsServiceListEntitlementsResponse_builder{
-			Annotations: annotations.New(v2.SpawnCursors_builder{
+			Annotations: annotations.New(v2.EnqueuePageTokens_builder{
 				PageTokens:     tokens,
 				EstimatedTotal: int64(len(mc.groupIDs)),
 			}.Build()),
@@ -250,11 +250,11 @@ func (mc *chunkedEntitlementsMockConnector) ListEntitlements(
 	}
 
 	if page == 0 {
-		entry, found, err := lookup.LookupPreviousSourceCache(ctx, sourcecache.RowKindEntitlements, scope)
+		entry, found, err := lookup.Lookup(ctx, sourcecache.RowKindEntitlements, scope)
 		if err != nil {
 			return nil, err
 		}
-		if found && lastTok != "" && entry.ETag == lastTok {
+		if found && lastTok != "" && entry.CacheValidator == lastTok {
 			mc.mu.Lock()
 			mc.warmChunkRounds++
 			mc.mu.Unlock()
@@ -266,10 +266,10 @@ func (mc *chunkedEntitlementsMockConnector) ListEntitlements(
 			return v2.EntitlementsServiceListEntitlementsResponse_builder{
 				List: adds,
 				Annotations: annotations.New(v2.SourceCacheReplay_builder{
-					ScopeHash:  scope,
-					Etag:       newTok,
-					Overlay:    true,
-					DeletedIds: deleted,
+					ScopeKey:       scope,
+					CacheValidator: newTok,
+					Overlay:        true,
+					DeletedIds:     deleted,
 				}.Build()),
 				NextPageToken: next,
 			}.Build(), nil
@@ -284,8 +284,8 @@ func (mc *chunkedEntitlementsMockConnector) ListEntitlements(
 		mc.mu.Unlock()
 		return v2.EntitlementsServiceListEntitlementsResponse_builder{
 			List: ents[:half],
-			Annotations: annotations.New(v2.SourceCacheScope_builder{
-				ScopeHash: scope,
+			Annotations: annotations.New(v2.SourceCacheRecord_builder{
+				ScopeKey: scope,
 			}.Build()),
 			NextPageToken: fmt.Sprintf("chunk=%d&page=1", chunk),
 		}.Build(), nil
@@ -297,9 +297,9 @@ func (mc *chunkedEntitlementsMockConnector) ListEntitlements(
 	}
 	return v2.EntitlementsServiceListEntitlementsResponse_builder{
 		List: ents[half:],
-		Annotations: annotations.New(v2.SourceCacheScope_builder{
-			ScopeHash: scope,
-			Etag:      newTok,
+		Annotations: annotations.New(v2.SourceCacheRecord_builder{
+			ScopeKey:       scope,
+			CacheValidator: newTok,
 		}.Build()),
 		NextPageToken: next,
 	}.Build(), nil

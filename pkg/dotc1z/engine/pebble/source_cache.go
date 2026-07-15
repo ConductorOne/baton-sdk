@@ -16,9 +16,9 @@ import (
 // Source-cache replay, engine side.
 //
 // The typeSourceCache keyspace holds one SourceCacheEntryRecord per
-// (row_kind, scope_hash): the opaque upstream validator (etag / delta
+// (row_kind, scope_key): the opaque upstream validator (etag / delta
 // token) the sync recorded for that scope. Rows produced under a scope
-// are stamped with source_scope_hash and indexed under the
+// are stamped with source_scope_key and indexed under the
 // by_source_scope families, whose tails are identity tuples — so a
 // replay derives every primary key from the index key alone and copies
 // raw values across files without a proto unmarshal.
@@ -76,7 +76,7 @@ type SourceCacheReplayResult struct {
 }
 
 // SourceCacheManifestSnapshot returns every manifest entry as
-// "row_kind\x00scope_hash" -> etag. Inspection surface: the
+// "row_kind\x00scope_key" -> etag. Inspection surface: the
 // replay-equivalence harness compares a warm sync's manifest against a
 // cold sync's (they must be identical — same scopes, same validators),
 // catching phantom or missing entries that are invisible through the v2
@@ -99,17 +99,17 @@ func (e *Engine) SourceCacheManifestSnapshot(ctx context.Context) (map[string]st
 		if err := unmarshalRecord(iter.Value(), rec); err != nil {
 			return nil, fmt.Errorf("SourceCacheManifestSnapshot: unmarshal: %w", err)
 		}
-		out[rec.GetRowKind()+"\x00"+rec.GetScopeHash()] = rec.GetEtag()
+		out[rec.GetRowKind()+"\x00"+rec.GetScopeKey()] = rec.GetCacheValidator()
 	}
 	return out, iter.Error()
 }
 
-// SourceCacheScopeIndexSnapshot returns, per row kind, scope_hash -> the
+// SourceScopeIndexSnapshot returns, per row kind, scope_key -> the
 // number of by_source_scope index entries. Same inspection rationale as
 // SourceCacheManifestSnapshot: stamp/index divergence between a warm and
 // a cold sync is invisible to v2 reads until a later sync replays from
 // the damaged file.
-func (e *Engine) SourceCacheScopeIndexSnapshot(ctx context.Context) (map[string]map[string]int, error) {
+func (e *Engine) SourceScopeIndexSnapshot(ctx context.Context) (map[string]map[string]int, error) {
 	out := map[string]map[string]int{}
 	families := []struct {
 		kind  string
@@ -138,7 +138,7 @@ func (e *Engine) SourceCacheScopeIndexSnapshot(ctx context.Context) (map[string]
 			scope, _, ok := codec.DecodeTupleStringAlias(tail, 0)
 			if !ok {
 				iter.Close()
-				return nil, fmt.Errorf("SourceCacheScopeIndexSnapshot: malformed %s index key %x", fam.kind, iter.Key())
+				return nil, fmt.Errorf("SourceScopeIndexSnapshot: malformed %s index key %x", fam.kind, iter.Key())
 			}
 			counts[string(scope)]++
 		}
@@ -169,18 +169,18 @@ func (e *Engine) ClearSourceCacheEntries(ctx context.Context) error {
 	})
 }
 
-// PutSourceCacheEntry writes the manifest entry for (rowKind, scopeHash).
+// PutSourceCacheEntry writes the manifest entry for (rowKind, scopeKey).
 // Zero-row scopes still get entries — the validator must survive to the
 // next sync even when the scope produced no rows.
-func (e *Engine) PutSourceCacheEntry(ctx context.Context, rowKind, scopeHash, etag string) error {
+func (e *Engine) PutSourceCacheEntry(ctx context.Context, rowKind, scopeKey, etag string) error {
 	return e.withWrite(func() error {
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
 		rec := &v3.SourceCacheEntryRecord{}
 		rec.SetRowKind(rowKind)
-		rec.SetScopeHash(scopeHash)
-		rec.SetEtag(etag)
+		rec.SetScopeKey(scopeKey)
+		rec.SetCacheValidator(etag)
 		rec.SetDiscoveredAt(timestamppb.Now())
 		val, err := marshalRecord(rec)
 		if err != nil {
@@ -190,14 +190,14 @@ func (e *Engine) PutSourceCacheEntry(ctx context.Context, rowKind, scopeHash, et
 		if e.IsFreshSync() {
 			opts = pebble.NoSync
 		}
-		return e.db.Set(encodeSourceCacheEntryKey(rowKind, scopeHash), val, opts)
+		return e.db.Set(encodeSourceCacheEntryKey(rowKind, scopeKey), val, opts)
 	})
 }
 
-// GetSourceCacheEntry returns the manifest entry for (rowKind, scopeHash),
+// GetSourceCacheEntry returns the manifest entry for (rowKind, scopeKey),
 // or pebble.ErrNotFound.
-func (e *Engine) GetSourceCacheEntry(ctx context.Context, rowKind, scopeHash string) (*v3.SourceCacheEntryRecord, error) {
-	val, closer, err := e.db.Get(encodeSourceCacheEntryKey(rowKind, scopeHash))
+func (e *Engine) GetSourceCacheEntry(ctx context.Context, rowKind, scopeKey string) (*v3.SourceCacheEntryRecord, error) {
+	val, closer, err := e.db.Get(encodeSourceCacheEntryKey(rowKind, scopeKey))
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +218,7 @@ func (e *Engine) GetSourceCacheEntry(ctx context.Context, rowKind, scopeHash str
 // Consequence, by design: a grant stored under a connector-CUSTOM id (one
 // that isn't the SDK concat shape) is unreachable here and the delete
 // no-ops. Connectors with custom grant ids must use principal-scoped
-// tombstones (SourceCacheScope.deleted_principal_ids) instead — documented
+// tombstones (SourceCacheRecord.deleted_principal_ids) instead — documented
 // in the annotation proto.
 func (e *Engine) DeleteGrantRecordBounded(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
@@ -234,9 +234,9 @@ func (e *Engine) DeleteGrantRecordBounded(ctx context.Context, externalID string
 }
 
 // DeleteGrantsByPrincipalsInScope deletes every grant row in the CURRENT
-// store stamped with scopeHash whose principal id is in principalIDs —
+// store stamped with scopeKey whose principal id is in principalIDs —
 // the engine side of principal-scoped delta tombstones
-// (SourceCacheScope.deleted_principal_ids).
+// (SourceCacheRecord.deleted_principal_ids).
 //
 // One prefix scan of the scope's by_source_scope index resolves
 // everything: the index tail IS the grant identity, so the primary key
@@ -249,11 +249,11 @@ func (e *Engine) DeleteGrantRecordBounded(ctx context.Context, externalID string
 //
 // Complexity: O(scope size) tuple-walks per call regardless of tombstone
 // count — callers batch a page's tombstones into one call.
-func (e *Engine) DeleteGrantsByPrincipalsInScope(ctx context.Context, scopeHash string, principalIDs map[string]struct{}) (int64, error) {
+func (e *Engine) DeleteGrantsByPrincipalsInScope(ctx context.Context, scopeKey string, principalIDs map[string]struct{}) (int64, error) {
 	if len(principalIDs) == 0 {
 		return 0, nil
 	}
-	prefix := encodeGrantBySourceScopePrefix(scopeHash)
+	prefix := encodeGrantBySourceScopePrefix(scopeKey)
 	var deleted int64
 
 	err := e.withWrite(func() error {
@@ -328,17 +328,17 @@ func (e *Engine) DeleteGrantsByPrincipalsInScope(ctx context.Context, scopeHash 
 }
 
 // DeleteGrantsByExternalIDsInScope deletes every grant row in the CURRENT
-// store stamped with scopeHash whose STORED grant id (external id, which
+// store stamped with scopeKey whose STORED grant id (external id, which
 // may be a connector-custom shape) is in ids. One scan of the scope's
 // index, loading each candidate's primary row to compare the stored id —
 // bounded by the scope's row count, never the whole keyspace. This is the
 // tombstone path for connectors with custom grant ids whose scopes span
 // multiple resources (so principal-scoped deletes would over-delete).
-func (e *Engine) DeleteGrantsByExternalIDsInScope(ctx context.Context, scopeHash string, ids map[string]struct{}) (int64, error) {
+func (e *Engine) DeleteGrantsByExternalIDsInScope(ctx context.Context, scopeKey string, ids map[string]struct{}) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	prefix := encodeGrantBySourceScopePrefix(scopeHash)
+	prefix := encodeGrantBySourceScopePrefix(scopeKey)
 	var deleted int64
 
 	err := e.withWrite(func() error {
@@ -422,13 +422,13 @@ func (e *Engine) DeleteGrantsByExternalIDsInScope(ctx context.Context, scopeHash
 }
 
 // DeleteResourcesByIDsInScope deletes every resource row in the CURRENT
-// store stamped with scopeHash whose resource id is in resourceIDs (any
+// store stamped with scopeKey whose resource id is in resourceIDs (any
 // resource type) — principal-scoped tombstones for RowKindResources.
-func (e *Engine) DeleteResourcesByIDsInScope(ctx context.Context, scopeHash string, resourceIDs map[string]struct{}) (int64, error) {
+func (e *Engine) DeleteResourcesByIDsInScope(ctx context.Context, scopeKey string, resourceIDs map[string]struct{}) (int64, error) {
 	if len(resourceIDs) == 0 {
 		return 0, nil
 	}
-	prefix := encodeResourceBySourceScopePrefix(scopeHash)
+	prefix := encodeResourceBySourceScopePrefix(scopeKey)
 	var deleted int64
 
 	err := e.withWrite(func() error {
@@ -488,7 +488,7 @@ func (e *Engine) DeleteResourcesByIDsInScope(ctx context.Context, scopeHash stri
 				return err
 			}
 			// deleteResourceIndexesRaw already covered the scope entry
-			// (source_scope_hash is in the value), but delete the iterated
+			// (source_scope_key is in the value), but delete the iterated
 			// key too in case the value read missed (orphan entry).
 			if err := batch.Delete(key, nil); err != nil {
 				return err
@@ -593,14 +593,14 @@ func replayPrimaryFromIndexKey(indexKey, indexPrefix []byte, primaryHeader [2]by
 	return append(key, tail...), nil
 }
 
-// ReplaySourceCacheGrants copies every grant stamped with scopeHash from
+// ReplaySourceCacheGrants copies every grant stamped with scopeKey from
 // prev into the receiver: raw primary copy plus index synthesis from the
 // raw value (principal, needs_expansion, source-scope families). Mirrors
 // PutGrantRecords' read-before-write index cleanup when the receiver
 // already holds a record at the same identity.
-func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scopeHash string) (SourceCacheReplayResult, error) {
+func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scopeKey string) (SourceCacheReplayResult, error) {
 	var res SourceCacheReplayResult
-	prefix := encodeGrantBySourceScopePrefix(scopeHash)
+	prefix := encodeGrantBySourceScopePrefix(scopeKey)
 	primaryHeader := [2]byte{versionV3, typeGrant}
 
 	err := e.withWrite(func() error {
@@ -683,7 +683,7 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 			// compaction predating the source-cache bucket plans, or an
 			// in-sync same-identity rewrite under a different scope. Copying
 			// it would inject rows upstream never returned for this scope.
-			if srcScope != scopeHash {
+			if srcScope != scopeKey {
 				closer.Close()
 				res.StaleSkipped++
 				continue
@@ -859,10 +859,10 @@ func (e *Engine) replayRelatedResourceRaw(batch *pebble.Batch, prev *Engine, pri
 }
 
 // ReplaySourceCacheEntitlements copies every entitlement stamped with
-// scopeHash from prev into the receiver.
-func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine, scopeHash string) (SourceCacheReplayResult, error) {
+// scopeKey from prev into the receiver.
+func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine, scopeKey string) (SourceCacheReplayResult, error) {
 	var res SourceCacheReplayResult
-	prefix := encodeEntitlementBySourceScopePrefix(scopeHash)
+	prefix := encodeEntitlementBySourceScopePrefix(scopeKey)
 	primaryHeader := [2]byte{versionV3, typeEntitlement}
 
 	err := e.withWrite(func() error {
@@ -923,7 +923,7 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 				closer.Close()
 				return prevScanErr
 			}
-			if prevScope != scopeHash {
+			if prevScope != scopeKey {
 				closer.Close()
 				res.StaleSkipped++
 				continue
@@ -939,7 +939,7 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 					closer.Close()
 					return scanErr
 				}
-				if oldScope != "" && oldScope != scopeHash {
+				if oldScope != "" && oldScope != scopeKey {
 					// The old index key's tail equals the primary key's
 					// tail (identity tuple), so rebuild it byte-wise.
 					oldIdxKey := make([]byte, 0, 8+len(oldScope)+len(priKey))
@@ -1000,12 +1000,12 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 	return res, nil
 }
 
-// ReplaySourceCacheResources copies every resource stamped with scopeHash
+// ReplaySourceCacheResources copies every resource stamped with scopeKey
 // from prev into the receiver, synthesizing by_parent and by_source_scope
 // index entries from the raw value.
-func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, scopeHash string) (SourceCacheReplayResult, error) {
+func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, scopeKey string) (SourceCacheReplayResult, error) {
 	var res SourceCacheReplayResult
-	prefix := encodeResourceBySourceScopePrefix(scopeHash)
+	prefix := encodeResourceBySourceScopePrefix(scopeKey)
 	primaryHeader := [2]byte{versionV3, typeResource}
 
 	err := e.withWrite(func() error {
@@ -1067,7 +1067,7 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 			}
 			// Stale-index defense: only copy rows whose VALUE stamp matches
 			// the queried scope (see the grants replay for rationale).
-			if srcScope != scopeHash {
+			if srcScope != scopeKey {
 				closer.Close()
 				res.StaleSkipped++
 				continue

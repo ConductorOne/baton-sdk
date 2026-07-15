@@ -233,7 +233,7 @@ func (c *C1File) CopyIsolateSync(ctx context.Context, outPath string, syncID str
 	// Step 4 — recompress the isolated copy to outPath. Mirrors cloneCopy's
 	// finalize: dbUpdated + outputFilePath + Close() runs the
 	// WAL-checkpoint -> close-raw-db -> saveC1z sequence.
-	copyFile.dbUpdated = true
+	copyFile.dbUpdated.Store(true)
 	copyFile.outputFilePath = outPath
 	finalized = true
 	if err = copyFile.Close(ctx); err != nil {

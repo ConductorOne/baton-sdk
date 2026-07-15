@@ -31,7 +31,7 @@ var expandedGrantImmutableAnnotations = []*anypb.Any{expandedGrantImmutableAnnot
 // appendGrantSourcesWire). Expansion/NeedsExpansion stay zero for
 // synthesized grants.
 //
-// SourceScopeHash is cleared unconditionally, for two reasons: synthesized
+// SourceScopeKey is cleared unconditionally, for two reasons: synthesized
 // (expander-derived) grants are never part of a source-cache scope, and —
 // load-bearing for appendGrantSourcesWire — an empty proto3 scalar emits no
 // bytes, which keeps sources (field 9) the highest field on the wire so the
@@ -42,7 +42,7 @@ func fillSynthGrantRecord(r *v3.GrantRecord, rec *synthesizedGrantRecord, now *t
 	r.SetPrincipal(rec.principal)
 	r.SetAnnotations(expandedGrantImmutableAnnotations)
 	r.SetDiscoveredAt(now)
-	r.SetSourceScopeHash("")
+	r.SetSourceScopeKey("")
 }
 
 // grantExternalIDFieldTag is the wire tag for GrantRecord.external_id (2).

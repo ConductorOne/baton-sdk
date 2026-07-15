@@ -135,22 +135,22 @@ var _ interface {
 	ErrorName() string
 } = TypeScopedGrantsValidationError{}
 
-// Validate checks the field values on SpawnCursors with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *SpawnCursors) Validate() error {
+// Validate checks the field values on EnqueuePageTokens with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *EnqueuePageTokens) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on SpawnCursors with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in SpawnCursorsMultiError, or
-// nil if none found.
-func (m *SpawnCursors) ValidateAll() error {
+// ValidateAll checks the field values on EnqueuePageTokens with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// EnqueuePageTokensMultiError, or nil if none found.
+func (m *EnqueuePageTokens) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *SpawnCursors) validate(all bool) error {
+func (m *EnqueuePageTokens) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -158,7 +158,7 @@ func (m *SpawnCursors) validate(all bool) error {
 	var errors []error
 
 	if len(m.GetPageTokens()) > 1024 {
-		err := SpawnCursorsValidationError{
+		err := EnqueuePageTokensValidationError{
 			field:  "PageTokens",
 			reason: "value must contain no more than 1024 item(s)",
 		}
@@ -172,7 +172,7 @@ func (m *SpawnCursors) validate(all bool) error {
 		_, _ = idx, item
 
 		if l := utf8.RuneCountInString(item); l < 1 || l > 1048576 {
-			err := SpawnCursorsValidationError{
+			err := EnqueuePageTokensValidationError{
 				field:  fmt.Sprintf("PageTokens[%v]", idx),
 				reason: "value length must be between 1 and 1048576 runes, inclusive",
 			}
@@ -187,18 +187,19 @@ func (m *SpawnCursors) validate(all bool) error {
 	// no validation rules for EstimatedTotal
 
 	if len(errors) > 0 {
-		return SpawnCursorsMultiError(errors)
+		return EnqueuePageTokensMultiError(errors)
 	}
 
 	return nil
 }
 
-// SpawnCursorsMultiError is an error wrapping multiple validation errors
-// returned by SpawnCursors.ValidateAll() if the designated constraints aren't met.
-type SpawnCursorsMultiError []error
+// EnqueuePageTokensMultiError is an error wrapping multiple validation errors
+// returned by EnqueuePageTokens.ValidateAll() if the designated constraints
+// aren't met.
+type EnqueuePageTokensMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m SpawnCursorsMultiError) Error() string {
+func (m EnqueuePageTokensMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -207,11 +208,11 @@ func (m SpawnCursorsMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m SpawnCursorsMultiError) AllErrors() []error { return m }
+func (m EnqueuePageTokensMultiError) AllErrors() []error { return m }
 
-// SpawnCursorsValidationError is the validation error returned by
-// SpawnCursors.Validate if the designated constraints aren't met.
-type SpawnCursorsValidationError struct {
+// EnqueuePageTokensValidationError is the validation error returned by
+// EnqueuePageTokens.Validate if the designated constraints aren't met.
+type EnqueuePageTokensValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -219,22 +220,24 @@ type SpawnCursorsValidationError struct {
 }
 
 // Field function returns field value.
-func (e SpawnCursorsValidationError) Field() string { return e.field }
+func (e EnqueuePageTokensValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e SpawnCursorsValidationError) Reason() string { return e.reason }
+func (e EnqueuePageTokensValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e SpawnCursorsValidationError) Cause() error { return e.cause }
+func (e EnqueuePageTokensValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e SpawnCursorsValidationError) Key() bool { return e.key }
+func (e EnqueuePageTokensValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e SpawnCursorsValidationError) ErrorName() string { return "SpawnCursorsValidationError" }
+func (e EnqueuePageTokensValidationError) ErrorName() string {
+	return "EnqueuePageTokensValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e SpawnCursorsValidationError) Error() string {
+func (e EnqueuePageTokensValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -246,14 +249,14 @@ func (e SpawnCursorsValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sSpawnCursors.%s: %s%s",
+		"invalid %sEnqueuePageTokens.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = SpawnCursorsValidationError{}
+var _ error = EnqueuePageTokensValidationError{}
 
 var _ interface {
 	Field() string
@@ -261,4 +264,4 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = SpawnCursorsValidationError{}
+} = EnqueuePageTokensValidationError{}

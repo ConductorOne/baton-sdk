@@ -34,7 +34,7 @@ func TestGRPCLookupDegradesRPCErrorToMiss(t *testing.T) {
 	lookup := NewGRPCLookup(&fakeLookupClient{err: errors.New("connection refused")})
 
 	scope := HashScope("https://example.test/teams/1/members?page=1")
-	_, found, err := lookup.LookupPreviousSourceCache(ctx, RowKindGrants, scope)
+	_, found, err := lookup.Lookup(ctx, RowKindGrants, scope)
 	require.NoError(t, err, "an RPC failure must degrade to a miss, not fail the connector call")
 	require.False(t, found)
 }
@@ -90,14 +90,14 @@ func TestGRPCLookupFailureLogRateLimited(t *testing.T) {
 	// window a real failure needs.
 	canceledCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	_, found, err := lookup.LookupPreviousSourceCache(canceledCtx, RowKindGrants, scope)
+	_, found, err := lookup.Lookup(canceledCtx, RowKindGrants, scope)
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Empty(t, *logs, "a failure on a done context must not log")
 
 	// The first live-context failure logs immediately, with the running
 	// count including the silent canceled-context failure above.
-	_, found, err = lookup.LookupPreviousSourceCache(ctx, RowKindGrants, scope)
+	_, found, err = lookup.Lookup(ctx, RowKindGrants, scope)
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Len(t, *logs, 1)
@@ -107,7 +107,7 @@ func TestGRPCLookupFailureLogRateLimited(t *testing.T) {
 	// Immediate subsequent failures still degrade to misses but stay
 	// within the rate window and do not log again.
 	for range 10 {
-		_, found, err = lookup.LookupPreviousSourceCache(ctx, RowKindGrants, scope)
+		_, found, err = lookup.Lookup(ctx, RowKindGrants, scope)
 		require.NoError(t, err)
 		require.False(t, found)
 	}
@@ -119,27 +119,27 @@ func TestGRPCLookupFailureLogRateLimited(t *testing.T) {
 // would let a broken connector silently cold-fetch forever.
 func TestGRPCLookupValidationStaysLoud(t *testing.T) {
 	ctx := context.Background()
-	lookup := NewGRPCLookup(&fakeLookupClient{resp: v1.LookupResponse_builder{Found: true, Etag: "e"}.Build()})
+	lookup := NewGRPCLookup(&fakeLookupClient{resp: v1.LookupResponse_builder{Found: true, CacheValidator: "e"}.Build()})
 
-	_, _, err := lookup.LookupPreviousSourceCache(ctx, RowKind("bogus"), HashScope("s"))
+	_, _, err := lookup.Lookup(ctx, RowKind("bogus"), HashScope("s"))
 	require.Error(t, err, "invalid row kind must fail loudly")
 
-	_, _, err = lookup.LookupPreviousSourceCache(ctx, RowKindGrants, "")
-	require.Error(t, err, "empty scope hash must fail loudly")
+	_, _, err = lookup.Lookup(ctx, RowKindGrants, "")
+	require.Error(t, err, "empty scope key must fail loudly")
 }
 
 func TestGRPCLookupHitAndMiss(t *testing.T) {
 	ctx := context.Background()
 	scope := HashScope("https://example.test/teams/1/members?page=1")
 
-	hit := NewGRPCLookup(&fakeLookupClient{resp: v1.LookupResponse_builder{Found: true, Etag: `W/"etag-1"`}.Build()})
-	entry, found, err := hit.LookupPreviousSourceCache(ctx, RowKindGrants, scope)
+	hit := NewGRPCLookup(&fakeLookupClient{resp: v1.LookupResponse_builder{Found: true, CacheValidator: `W/"etag-1"`}.Build()})
+	entry, found, err := hit.Lookup(ctx, RowKindGrants, scope)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Equal(t, `W/"etag-1"`, entry.ETag)
+	require.Equal(t, `W/"etag-1"`, entry.CacheValidator)
 
 	miss := NewGRPCLookup(&fakeLookupClient{resp: v1.LookupResponse_builder{Found: false}.Build()})
-	_, found, err = miss.LookupPreviousSourceCache(ctx, RowKindGrants, scope)
+	_, found, err = miss.Lookup(ctx, RowKindGrants, scope)
 	require.NoError(t, err)
 	require.False(t, found)
 }

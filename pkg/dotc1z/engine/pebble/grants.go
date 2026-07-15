@@ -273,7 +273,7 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 				// direct grants to bake in Sources, and clobbering the
 				// stamp here would silently drop every expander-touched
 				// grant from the next sync's replay of its scope.
-				r.SetSourceScopeHash(prior.GetSourceScopeHash())
+				r.SetSourceScopeKey(prior.GetSourceScopeKey())
 				var err error
 				idxScratch, err = e.deleteGrantIndexesScratch(idxBatch, ext, oldVal, idxScratch)
 				if err != nil {
@@ -759,7 +759,7 @@ func (e *Engine) putSynthesizedGrantContributionsBatch(ctx context.Context, reco
 			}
 			// sources (field 9) is the highest field this record carries, so
 			// appending it after the base marshal matches the deterministic
-			// byte order. (source_scope_hash is field 10, but synthesized
+			// byte order. (source_scope_key is field 10, but synthesized
 			// grants never carry a scope stamp — fillSynthGrantRecord leaves
 			// it unset — so field 9 stays last on the wire.)
 			val, srcScratch = appendGrantSourcesWire(val, srcScratch, rec.sources)
@@ -1017,7 +1017,7 @@ func grantIndexKeys(r *v3.GrantRecord) [][]byte {
 	if r.GetNeedsExpansion() {
 		keys = append(keys, encodeGrantByNeedsExpansionIdentityIndexKey(id))
 	}
-	if sh := r.GetSourceScopeHash(); sh != "" {
+	if sh := r.GetSourceScopeKey(); sh != "" {
 		keys = append(keys, encodeGrantBySourceScopeIndexKey(sh, id))
 	}
 	return keys
@@ -1067,7 +1067,7 @@ func (e *Engine) writeGrantIndexesScratch(batch *pebble.Batch, r *v3.GrantRecord
 	if err != nil {
 		return scratch, err
 	}
-	return e.writeGrantIndexesForIdentityScratch(batch, id, r.GetNeedsExpansion(), r.GetSourceScopeHash(), scratch)
+	return e.writeGrantIndexesForIdentityScratch(batch, id, r.GetNeedsExpansion(), r.GetSourceScopeKey(), scratch)
 }
 
 // markDeferredIdxPending arms the deferred by_principal rebuild, durably.
@@ -1113,7 +1113,7 @@ func (e *Engine) clearDeferredIdxPending() error {
 // by_needs_expansion and by_source_scope are written inline: both share the
 // entitlement-first ordering of the primary keyspace, so their writes stay
 // sorted.
-func (e *Engine) writeGrantIndexesForIdentityScratch(batch *pebble.Batch, id grantIdentity, needsExpansion bool, sourceScopeHash string, scratch []byte) ([]byte, error) {
+func (e *Engine) writeGrantIndexesForIdentityScratch(batch *pebble.Batch, id grantIdentity, needsExpansion bool, sourceScopeKey string, scratch []byte) ([]byte, error) {
 	if err := e.markDeferredIdxPending(); err != nil {
 		return scratch, err
 	}
@@ -1128,8 +1128,8 @@ func (e *Engine) writeGrantIndexesForIdentityScratch(batch *pebble.Batch, id gra
 	if err := e.stageGrantDigestInvalidation(batch, id.entitlement); err != nil {
 		return scratch, err
 	}
-	if sourceScopeHash != "" {
-		scratch = appendGrantBySourceScopeIndexKey(scratch[:0], sourceScopeHash, id)
+	if sourceScopeKey != "" {
+		scratch = appendGrantBySourceScopeIndexKey(scratch[:0], sourceScopeKey, id)
 		if err := batch.Set(scratch, nil, nil); err != nil {
 			return scratch, err
 		}
@@ -1146,7 +1146,7 @@ func (e *Engine) writeGrantIndexesForIdentityScratch(batch *pebble.Batch, id gra
 // which also clears any stale entries an overwrite would have left. Returns
 // the (possibly grown) scratch buffer.
 func (e *Engine) deleteGrantIndexesScratch(batch *pebble.Batch, externalID string, value, scratch []byte) ([]byte, error) {
-	entRT, entRID, entID, principalRT, principalID, _, sourceScopeHash, err := scanGrantIndexFieldsRaw(value)
+	entRT, entRID, entID, principalRT, principalID, _, sourceScopeKey, err := scanGrantIndexFieldsRaw(value)
 	if err != nil {
 		return scratch, err
 	}
@@ -1167,8 +1167,8 @@ func (e *Engine) deleteGrantIndexesScratch(batch *pebble.Batch, externalID strin
 	if err := e.stageGrantDigestInvalidation(batch, id.entitlement); err != nil {
 		return scratch, err
 	}
-	if sourceScopeHash != "" {
-		scratch = appendGrantBySourceScopeIndexKey(scratch[:0], sourceScopeHash, id)
+	if sourceScopeKey != "" {
+		scratch = appendGrantBySourceScopeIndexKey(scratch[:0], sourceScopeKey, id)
 		if err := batch.Delete(scratch, nil); err != nil {
 			return scratch, err
 		}

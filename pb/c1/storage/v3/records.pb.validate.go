@@ -544,7 +544,7 @@ func (m *ResourceRecord) validate(all bool) error {
 		}
 	}
 
-	// no validation rules for SourceScopeHash
+	// no validation rules for SourceScopeKey
 
 	if len(errors) > 0 {
 		return ResourceRecordMultiError(errors)
@@ -748,7 +748,7 @@ func (m *EntitlementRecord) validate(all bool) error {
 
 	// no validation rules for Slug
 
-	// no validation rules for SourceScopeHash
+	// no validation rules for SourceScopeKey
 
 	if len(errors) > 0 {
 		return EntitlementRecordMultiError(errors)
@@ -1052,7 +1052,7 @@ func (m *GrantRecord) validate(all bool) error {
 		}
 	}
 
-	// no validation rules for SourceScopeHash
+	// no validation rules for SourceScopeKey
 
 	if len(errors) > 0 {
 		return GrantRecordMultiError(errors)
@@ -1716,9 +1716,9 @@ func (m *SourceCacheEntryRecord) validate(all bool) error {
 
 	// no validation rules for RowKind
 
-	// no validation rules for ScopeHash
+	// no validation rules for ScopeKey
 
-	// no validation rules for Etag
+	// no validation rules for CacheValidator
 
 	if all {
 		switch v := interface{}(m.GetDiscoveredAt()).(type) {

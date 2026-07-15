@@ -20,7 +20,7 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 // ({type, type} — wire validation requires a non-empty resource id and
 // the stub identifies the type, never a real resource). The connector
 // answers with entitlements for the whole type, across as many paginated
-// cursors as it chooses to spawn (see SpawnCursors in
+// cursors as it chooses to spawn (see EnqueuePageTokens in
 // annotation_type_scoped_grants.proto).
 //
 // This is the entitlements-phase analogue of TypeScopedGrants: the
@@ -42,7 +42,7 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 //
 // ZERO-RESOURCE TYPES: the planner still enqueues the type-scoped action
 // when the store holds no resources of the type. The connector must
-// return an empty page (or SpawnCursors that resolve empty), not an
+// return an empty page (or EnqueuePageTokens that resolve empty), not an
 // error — an empty type is a valid outcome.
 //
 // TARGETED SYNC: SyncTargetedResource must not enqueue a per-resource

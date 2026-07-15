@@ -1,7 +1,7 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 // End-to-end harness for TYPE-SCOPED grants (v2.TypeScopedGrants +
-// SpawnCursors), modeled on Microsoft Graph's chunked groups/delta:
+// EnqueuePageTokens), modeled on Microsoft Graph's chunked groups/delta:
 // membership grants for a whole resource type are served through
 // connector-defined 50-id chunk cursors instead of one ListGrants call per
 // group. Each chunk is its own source-cache scope, so warm syncs replay
@@ -10,7 +10,7 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 // The syncer-side behaviors under test:
 //   - the grants planner excludes the annotated type from the per-resource
 //     fan-out and enqueues exactly one type-scoped action,
-//   - the planning call's SpawnCursors annotation enqueues one action per
+//   - the planning call's EnqueuePageTokens annotation enqueues one action per
 //     chunk, each checkpointed/paginated independently,
 //   - chunk scopes replay warm with overlay adds and canonical-id
 //     tombstones, and equivalence against a cold control sync holds.
@@ -43,7 +43,7 @@ const chunkSize = 50
 // chunkedGrantsMockConnector serves group-membership grants exclusively
 // through type-scoped cursors, mimicking chunked Graph delta:
 //
-//   - planning call (empty page token): no rows; SpawnCursors with one
+//   - planning call (empty page token): no rows; EnqueuePageTokens with one
 //     token per 50-group chunk.
 //   - chunk cursor, lookup miss (cold): enumerate the chunk's grants,
 //     paginated, final page carrying the chunk's validator.
@@ -245,7 +245,7 @@ func (mc *chunkedGrantsMockConnector) ListGrants(ctx context.Context, in *v2.Gra
 			tokens = append(tokens, fmt.Sprintf("chunk=%d", i))
 		}
 		return v2.GrantsServiceListGrantsResponse_builder{
-			Annotations: annotations.New(v2.SpawnCursors_builder{
+			Annotations: annotations.New(v2.EnqueuePageTokens_builder{
 				PageTokens:     tokens,
 				EstimatedTotal: int64(len(mc.groupIDs)),
 			}.Build()),
@@ -292,11 +292,11 @@ func (mc *chunkedGrantsMockConnector) ListGrants(ctx context.Context, in *v2.Gra
 	}
 
 	if page == 0 {
-		entry, found, err := lookup.LookupPreviousSourceCache(ctx, sourcecache.RowKindGrants, scope)
+		entry, found, err := lookup.Lookup(ctx, sourcecache.RowKindGrants, scope)
 		if err != nil {
 			return nil, err
 		}
-		if found && lastTok != "" && entry.ETag == lastTok {
+		if found && lastTok != "" && entry.CacheValidator == lastTok {
 			// Warm round: one page — replay, overlay adds, tombstones,
 			// rotated validator. With unstampedExtra set, chunk 0 chains
 			// its unstamped trailing page after the replay page: scoped
@@ -312,10 +312,10 @@ func (mc *chunkedGrantsMockConnector) ListGrants(ctx context.Context, in *v2.Gra
 			return v2.GrantsServiceListGrantsResponse_builder{
 				List: adds,
 				Annotations: annotations.New(v2.SourceCacheReplay_builder{
-					ScopeHash:  scope,
-					Etag:       newTok,
-					Overlay:    true,
-					DeletedIds: deleted,
+					ScopeKey:       scope,
+					CacheValidator: newTok,
+					Overlay:        true,
+					DeletedIds:     deleted,
 				}.Build()),
 				NextPageToken: next,
 			}.Build(), nil
@@ -333,8 +333,8 @@ func (mc *chunkedGrantsMockConnector) ListGrants(ctx context.Context, in *v2.Gra
 		mc.mu.Unlock()
 		return v2.GrantsServiceListGrantsResponse_builder{
 			List: grants[:half],
-			Annotations: annotations.New(v2.SourceCacheScope_builder{
-				ScopeHash: scope,
+			Annotations: annotations.New(v2.SourceCacheRecord_builder{
+				ScopeKey: scope,
 			}.Build()),
 			NextPageToken: fmt.Sprintf("chunk=%d&page=1", chunk),
 		}.Build(), nil
@@ -346,9 +346,9 @@ func (mc *chunkedGrantsMockConnector) ListGrants(ctx context.Context, in *v2.Gra
 	}
 	return v2.GrantsServiceListGrantsResponse_builder{
 		List: grants[half:],
-		Annotations: annotations.New(v2.SourceCacheScope_builder{
-			ScopeHash: scope,
-			Etag:      newTok,
+		Annotations: annotations.New(v2.SourceCacheRecord_builder{
+			ScopeKey:       scope,
+			CacheValidator: newTok,
 		}.Build()),
 		NextPageToken: next,
 	}.Build(), nil

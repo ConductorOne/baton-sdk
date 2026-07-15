@@ -60,8 +60,8 @@ func (s *GRPCServer) Lookup(ctx context.Context, req *v1.LookupRequest) (*v1.Loo
 	if err := ValidateRowKind(rowKind); err != nil {
 		return nil, err
 	}
-	scopeHash := req.GetScopeHash()
-	if err := ValidateScopeHash(scopeHash); err != nil {
+	scopeKey := req.GetScopeKey()
+	if err := ValidateScopeKey(scopeKey); err != nil {
 		return nil, err
 	}
 
@@ -69,7 +69,7 @@ func (s *GRPCServer) Lookup(ctx context.Context, req *v1.LookupRequest) (*v1.Loo
 	if lookupPtr == nil {
 		return v1.LookupResponse_builder{Found: false}.Build(), nil
 	}
-	entry, found, err := (*lookupPtr).LookupPreviousSourceCache(ctx, rowKind, scopeHash)
+	entry, found, err := (*lookupPtr).Lookup(ctx, rowKind, scopeKey)
 	if err != nil {
 		return nil, fmt.Errorf("source cache lookup: %w", err)
 	}
@@ -77,7 +77,7 @@ func (s *GRPCServer) Lookup(ctx context.Context, req *v1.LookupRequest) (*v1.Loo
 		return v1.LookupResponse_builder{Found: false}.Build(), nil
 	}
 	return v1.LookupResponse_builder{
-		Found: true,
-		Etag:  entry.ETag,
+		Found:          true,
+		CacheValidator: entry.CacheValidator,
 	}.Build(), nil
 }

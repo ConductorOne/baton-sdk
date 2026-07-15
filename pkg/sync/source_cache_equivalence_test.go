@@ -59,7 +59,7 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 //     parity test in source_cache_sideeffects_test.go);
 //   - the ask/answer lookup continuation topology (covered by
 //     source_cache_continuation_test.go / _e2e_test.go);
-//   - SpawnCursors / type-scoped grants and entitlements
+//   - EnqueuePageTokens / type-scoped grants and entitlements
 //     (spawn_cursors_test.go, type_scoped_grants_test.go,
 //     type_scoped_entitlements_test.go); the team topology below also
 //     exercises both type-scoped shapes in the differential chain;
@@ -122,7 +122,7 @@ var (
 	equivRepoRT    = v2.ResourceType_builder{Id: "eq_repo", DisplayName: "Repo"}.Build()
 	// equivTeamRT is TYPE-SCOPED for both grants and entitlements: no
 	// per-resource pages; one planner call per phase spawns chunk
-	// cursors (SpawnCursors), each chunk a scope covering two teams —
+	// cursors (EnqueuePageTokens), each chunk a scope covering two teams —
 	// the Entra/Okta planner shape.
 	equivTeamRT = v2.ResourceType_builder{
 		Id:          "eq_team",
@@ -443,7 +443,7 @@ type equivCounters struct {
 	tombsPrincipal      int
 	childPageCalls      int
 	injectedFailures    int
-	plannerPages        int // type-scoped planning calls (SpawnCursors emitters)
+	plannerPages        int // type-scoped planning calls (EnqueuePageTokens emitters)
 	chunkPages304       int // spawned chunk cursors that replayed
 	chunkPagesFresh     int // spawned chunk cursors fetched fresh
 	askPages            int // continuation phase-1 responses (lookup asks)
@@ -583,14 +583,14 @@ func (c *equivConnector) revalidate(ctx context.Context, lookup sourcecache.Look
 	if c.forceCold {
 		return equivFresh, nil
 	}
-	entry, found, err := lookup.LookupPreviousSourceCache(ctx, kind, scope)
+	entry, found, err := lookup.Lookup(ctx, kind, scope)
 	if err != nil {
 		return equivFresh, err
 	}
 	if !found {
 		return equivFresh, nil
 	}
-	switch entry.ETag {
+	switch entry.CacheValidator {
 	case equivEtag(version):
 		return equivCurrent, nil
 	case equivEtag(version - 1):
@@ -613,16 +613,16 @@ func (c *equivConnector) snapshotCounters() equivCounters {
 }
 
 func equivScopeAnnos(scope string, version int) annotations.Annotations {
-	return annotations.New(v2.SourceCacheScope_builder{
-		ScopeHash: sourcecache.HashScope(scope),
-		Etag:      equivEtag(version),
+	return annotations.New(v2.SourceCacheRecord_builder{
+		ScopeKey:       sourcecache.HashScope(scope),
+		CacheValidator: equivEtag(version),
 	}.Build())
 }
 
 func equivReplayAnnos(scope string, version int) annotations.Annotations {
 	return annotations.New(v2.SourceCacheReplay_builder{
-		ScopeHash: sourcecache.HashScope(scope),
-		Etag:      equivEtag(version),
+		ScopeKey:       sourcecache.HashScope(scope),
+		CacheValidator: equivEtag(version),
 	}.Build())
 }
 
@@ -822,8 +822,8 @@ func (c *equivConnector) usersPageMulti(ctx context.Context, lookup sourcecache.
 		c.count(func(ct *equivCounters) { ct.pagesFreshInterim++ })
 		return v2.ResourcesServiceListResourcesResponse_builder{
 			List: buildRows(userIDs[:half]),
-			Annotations: annotations.New(v2.SourceCacheScope_builder{
-				ScopeHash: sourcecache.HashScope(scope),
+			Annotations: annotations.New(v2.SourceCacheRecord_builder{
+				ScopeKey: sourcecache.HashScope(scope),
 				// No etag: the validator arrives on the final page.
 			}.Build()),
 			NextPageToken: "users:2",
@@ -972,7 +972,7 @@ func (c *equivConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceLis
 }
 
 // teamEntitlementsPage mirrors teamGrantsPage for type-scoped
-// entitlements: planning SpawnCursors, then one fresh-or-304 scope per
+// entitlements: planning EnqueuePageTokens, then one fresh-or-304 scope per
 // chunk of two teams. Entitlement rows are stable (one "member" per
 // team); version stays 0 so warm rounds are pure 304s after the cold
 // fetch — exercising type-scoped entitlement replay in the differential
@@ -988,7 +988,7 @@ func (c *equivConnector) teamEntitlementsPage(ctx context.Context, lookup source
 			tokens = append(tokens, fmt.Sprintf("ent-chunk:%d", i))
 		}
 		return v2.EntitlementsServiceListEntitlementsResponse_builder{
-			Annotations: annotations.New(v2.SpawnCursors_builder{PageTokens: tokens}.Build()),
+			Annotations: annotations.New(v2.EnqueuePageTokens_builder{PageTokens: tokens}.Build()),
 		}.Build(), nil
 	}
 	var chunk int
@@ -1022,7 +1022,7 @@ func (c *equivConnector) teamEntitlementsPage(ctx context.Context, lookup source
 }
 
 // teamGrantsPage is the type-scoped planner shape: the planning call
-// (empty page token) emits SpawnCursors — one token per chunk of two
+// (empty page token) emits EnqueuePageTokens — one token per chunk of two
 // teams — and each spawned cursor serves its chunk as a fresh-or-304
 // scope.
 func (c *equivConnector) teamGrantsPage(ctx context.Context, lookup sourcecache.Lookup, pageToken string) (*v2.GrantsServiceListGrantsResponse, error) {
@@ -1036,7 +1036,7 @@ func (c *equivConnector) teamGrantsPage(ctx context.Context, lookup sourcecache.
 			tokens = append(tokens, fmt.Sprintf("chunk:%d", i))
 		}
 		return v2.GrantsServiceListGrantsResponse_builder{
-			Annotations: annotations.New(v2.SpawnCursors_builder{PageTokens: tokens}.Build()),
+			Annotations: annotations.New(v2.EnqueuePageTokens_builder{PageTokens: tokens}.Build()),
 		}.Build(), nil
 	}
 	var chunk int
@@ -1168,8 +1168,8 @@ func (c *equivConnector) groupGrantsPage(ctx context.Context, lookup sourcecache
 				return v2.GrantsServiceListGrantsResponse_builder{
 					List: firstAdds,
 					Annotations: annotations.New(v2.SourceCacheReplay_builder{
-						ScopeHash: sourcecache.HashScope(scope),
-						Overlay:   true,
+						ScopeKey: sourcecache.HashScope(scope),
+						Overlay:  true,
 					}.Build()),
 					NextPageToken: "ov:2",
 				}.Build(), nil
@@ -1181,9 +1181,9 @@ func (c *equivConnector) groupGrantsPage(ctx context.Context, lookup sourcecache
 			if len(adds) > 1 {
 				restAdds = adds[1:]
 			}
-			finalAnno := v2.SourceCacheScope_builder{
-				ScopeHash: sourcecache.HashScope(scope),
-				Etag:      equivEtag(version),
+			finalAnno := v2.SourceCacheRecord_builder{
+				ScopeKey:       sourcecache.HashScope(scope),
+				CacheValidator: equivEtag(version),
 			}.Build()
 			if canonical {
 				ids := make([]string, 0, len(deltaRemoves))
@@ -1203,12 +1203,12 @@ func (c *equivConnector) groupGrantsPage(ctx context.Context, lookup sourcecache
 		}
 		c.count(func(ct *equivCounters) { ct.pagesOverlay++ })
 		replay := v2.SourceCacheReplay_builder{
-			ScopeHash: sourcecache.HashScope(scope),
-			Etag:      equivEtag(version),
-			Overlay:   true,
+			ScopeKey:       sourcecache.HashScope(scope),
+			CacheValidator: equivEtag(version),
+			Overlay:        true,
 		}.Build()
-		scopeAnno := v2.SourceCacheScope_builder{
-			ScopeHash: sourcecache.HashScope(scope),
+		scopeAnno := v2.SourceCacheRecord_builder{
+			ScopeKey: sourcecache.HashScope(scope),
 		}.Build()
 		if canonical {
 			ids := make([]string, 0, len(deltaRemoves))
@@ -1322,8 +1322,8 @@ type c1zSnapshot struct {
 	// grantsByEntResource: entitlement-resource "rt/id" -> grant ids via
 	// the by_entitlement_resource index read path.
 	grantsByEntResource map[string][]string
-	// manifest ("row_kind\x00scope_hash" -> etag) and scopeIndexCounts
-	// (row kind -> scope hash -> index entries): the source-cache state
+	// manifest ("row_kind\x00scope_key" -> etag) and scopeIndexCounts
+	// (row kind -> scope key -> index entries): the source-cache state
 	// invisible to v2 reads but load-bearing for the NEXT sync's replay.
 	manifest         map[string]string
 	scopeIndexCounts map[string]map[string]int
@@ -1420,7 +1420,7 @@ func snapshotC1z(ctx context.Context, t *testing.T, path string) *c1zSnapshot {
 	require.True(t, ok, "store must expose its pebble engine for source-cache inspection")
 	snap.manifest, err = engineHolder.PebbleEngine().SourceCacheManifestSnapshot(ctx)
 	require.NoError(t, err)
-	snap.scopeIndexCounts, err = engineHolder.PebbleEngine().SourceCacheScopeIndexSnapshot(ctx)
+	snap.scopeIndexCounts, err = engineHolder.PebbleEngine().SourceScopeIndexSnapshot(ctx)
 	require.NoError(t, err)
 	runLister, ok := any(reopen).(interface {
 		ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error)

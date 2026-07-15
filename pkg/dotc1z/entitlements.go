@@ -127,6 +127,6 @@ func (c *C1File) putEntitlementsInternal(ctx context.Context, f entitlementPutFu
 	if err != nil {
 		return err
 	}
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 	return nil
 }

@@ -39,7 +39,7 @@ const (
 // validation requires a non-empty resource id and the stub identifies
 // the type, never a real resource). The connector answers with grants
 // for the whole type, across as many paginated cursors as it chooses to
-// spawn (see SpawnCursors).
+// spawn (see EnqueuePageTokens).
 //
 // This is the grants-phase analogue of StaticEntitlements: the connector
 // takes over enumeration for the type, and every downstream behavior
@@ -58,7 +58,7 @@ const (
 //
 // ZERO-RESOURCE TYPES: the planner still enqueues the type-scoped action
 // when the store holds no resources of the type. The connector must
-// return an empty page (or SpawnCursors that resolve empty), not an error.
+// return an empty page (or EnqueuePageTokens that resolve empty), not an error.
 //
 // TARGETED SYNC: SyncTargetedResource must not enqueue a per-resource
 // SyncGrantsOp for a type-scoped type. Type-scoped grant enumeration is
@@ -110,7 +110,7 @@ func (b0 TypeScopedGrants_builder) Build() *TypeScopedGrants {
 	return m0
 }
 
-// SpawnCursors is attached to a ListGrants or ListEntitlements response to
+// EnqueuePageTokens is attached to a ListGrants or ListEntitlements response to
 // enqueue additional independent sibling cursors. Each token is delivered
 // back to the connector as the page token of its own action — scheduled by
 // the syncer's worker pool, rate-limited, and checkpointed like any other
@@ -145,7 +145,7 @@ func (b0 TypeScopedGrants_builder) Build() *TypeScopedGrants {
 // connector needs to serve the cursor must be inside the token (or
 // re-derivable from it) — for per-resource spawns the resource identity
 // rides the action, so tokens only need the page coordinate.
-type SpawnCursors struct {
+type EnqueuePageTokens struct {
 	state                     protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_PageTokens     []string               `protobuf:"bytes,1,rep,name=page_tokens,json=pageTokens,proto3"`
 	xxx_hidden_EstimatedTotal int64                  `protobuf:"varint,2,opt,name=estimated_total,json=estimatedTotal,proto3"`
@@ -153,20 +153,20 @@ type SpawnCursors struct {
 	sizeCache                 protoimpl.SizeCache
 }
 
-func (x *SpawnCursors) Reset() {
-	*x = SpawnCursors{}
+func (x *EnqueuePageTokens) Reset() {
+	*x = EnqueuePageTokens{}
 	mi := &file_c1_connector_v2_annotation_type_scoped_grants_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SpawnCursors) String() string {
+func (x *EnqueuePageTokens) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SpawnCursors) ProtoMessage() {}
+func (*EnqueuePageTokens) ProtoMessage() {}
 
-func (x *SpawnCursors) ProtoReflect() protoreflect.Message {
+func (x *EnqueuePageTokens) ProtoReflect() protoreflect.Message {
 	mi := &file_c1_connector_v2_annotation_type_scoped_grants_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -178,29 +178,29 @@ func (x *SpawnCursors) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *SpawnCursors) GetPageTokens() []string {
+func (x *EnqueuePageTokens) GetPageTokens() []string {
 	if x != nil {
 		return x.xxx_hidden_PageTokens
 	}
 	return nil
 }
 
-func (x *SpawnCursors) GetEstimatedTotal() int64 {
+func (x *EnqueuePageTokens) GetEstimatedTotal() int64 {
 	if x != nil {
 		return x.xxx_hidden_EstimatedTotal
 	}
 	return 0
 }
 
-func (x *SpawnCursors) SetPageTokens(v []string) {
+func (x *EnqueuePageTokens) SetPageTokens(v []string) {
 	x.xxx_hidden_PageTokens = v
 }
 
-func (x *SpawnCursors) SetEstimatedTotal(v int64) {
+func (x *EnqueuePageTokens) SetEstimatedTotal(v int64) {
 	x.xxx_hidden_EstimatedTotal = v
 }
 
-type SpawnCursors_builder struct {
+type EnqueuePageTokens_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	// Page tokens for the sibling cursors to enqueue, one action each.
@@ -212,8 +212,8 @@ type SpawnCursors_builder struct {
 	EstimatedTotal int64
 }
 
-func (b0 SpawnCursors_builder) Build() *SpawnCursors {
-	m0 := &SpawnCursors{}
+func (b0 EnqueuePageTokens_builder) Build() *EnqueuePageTokens {
+	m0 := &EnqueuePageTokens{}
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_PageTokens = b.PageTokens
@@ -226,16 +226,16 @@ var File_c1_connector_v2_annotation_type_scoped_grants_proto protoreflect.FileDe
 const file_c1_connector_v2_annotation_type_scoped_grants_proto_rawDesc = "" +
 	"\n" +
 	"3c1/connector/v2/annotation_type_scoped_grants.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"\x12\n" +
-	"\x10TypeScopedGrants\"m\n" +
-	"\fSpawnCursors\x124\n" +
+	"\x10TypeScopedGrants\"r\n" +
+	"\x11EnqueuePageTokens\x124\n" +
 	"\vpage_tokens\x18\x01 \x03(\tB\x13\xfaB\x10\x92\x01\r\x10\x80\b\"\br\x06\x10\x01\x18\x80\x80@R\n" +
 	"pageTokens\x12'\n" +
 	"\x0festimated_total\x18\x02 \x01(\x03R\x0eestimatedTotalB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_type_scoped_grants_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_c1_connector_v2_annotation_type_scoped_grants_proto_goTypes = []any{
-	(*TypeScopedGrants)(nil), // 0: c1.connector.v2.TypeScopedGrants
-	(*SpawnCursors)(nil),     // 1: c1.connector.v2.SpawnCursors
+	(*TypeScopedGrants)(nil),  // 0: c1.connector.v2.TypeScopedGrants
+	(*EnqueuePageTokens)(nil), // 1: c1.connector.v2.EnqueuePageTokens
 }
 var file_c1_connector_v2_annotation_type_scoped_grants_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type

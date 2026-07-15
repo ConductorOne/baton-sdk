@@ -33,15 +33,15 @@ func continuationRequestPayload(t *testing.T) []byte {
 	annos.Update(v2.SourceCacheLookupAnswers_builder{
 		Answers: []*v2.SourceCacheLookupAnswers_Answer{
 			v2.SourceCacheLookupAnswers_Answer_builder{
-				RowKind:   "grants",
-				ScopeHash: "groups/g1/members",
-				Found:     true,
-				Etag:      `W/"abc123"`,
+				RowKind:        "grants",
+				ScopeKey:       "groups/g1/members",
+				Found:          true,
+				CacheValidator: `W/"abc123"`,
 			}.Build(),
 			v2.SourceCacheLookupAnswers_Answer_builder{
-				RowKind:   "grants",
-				ScopeHash: "groups/g2/members",
-				Found:     false,
+				RowKind:  "grants",
+				ScopeKey: "groups/g2/members",
+				Found:    false,
 			}.Build(),
 		},
 	}.Build())
@@ -71,7 +71,7 @@ func assertContinuationRequest(t *testing.T, req *Request) {
 	require.True(t, ok, "answers must survive the wire")
 	require.Len(t, answers.GetAnswers(), 2)
 	require.True(t, answers.GetAnswers()[0].GetFound())
-	require.Equal(t, `W/"abc123"`, answers.GetAnswers()[0].GetEtag())
+	require.Equal(t, `W/"abc123"`, answers.GetAnswers()[0].GetCacheValidator())
 	require.False(t, answers.GetAnswers()[1].GetFound(), "explicit not-found must survive (distinct from absent)")
 }
 
@@ -107,7 +107,7 @@ func TestContinuationAnnotations_AskResponseRoundTrip(t *testing.T) {
 	inner := v2.GrantsServiceListGrantsResponse_builder{
 		Annotations: annotations.New(v2.SourceCacheLookupAsk_builder{
 			Queries: []*v2.SourceCacheLookupAsk_Query{
-				v2.SourceCacheLookupAsk_Query_builder{RowKind: "grants", ScopeHash: "groups/g1/members"}.Build(),
+				v2.SourceCacheLookupAsk_Query_builder{RowKind: "grants", ScopeKey: "groups/g1/members"}.Build(),
 			},
 		}.Build()),
 	}.Build()
@@ -139,6 +139,6 @@ func TestContinuationAnnotations_AskResponseRoundTrip(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, ok, "ask must survive the wire (wireV2=%v)", wireV2)
 		require.Len(t, ask.GetQueries(), 1)
-		require.Equal(t, "groups/g1/members", ask.GetQueries()[0].GetScopeHash())
+		require.Equal(t, "groups/g1/members", ask.GetQueries()[0].GetScopeKey())
 	}
 }

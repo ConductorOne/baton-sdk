@@ -39,13 +39,13 @@ const (
 	// (bounces × ask size) stays coherent with this loop's enforcement.
 	sourceCacheBounceCap = sourcecache.MaxLookupBouncesPerRequest
 
-	// maxSpawnCursorsPerResponse bounds SpawnCursors fan-out per response
+	// maxEnqueuePageTokensPerResponse bounds EnqueuePageTokens fan-out per response
 	// (each spawned action persists in the checkpointed state token, so
 	// unbounded fan-out bloats every checkpoint). Matches the proto
-	// max_items validate rule on SpawnCursors.page_tokens.
-	maxSpawnCursorsPerResponse = 1024
+	// max_items validate rule on EnqueuePageTokens.page_tokens.
+	maxEnqueuePageTokensPerResponse = 1024
 	// maxSpawnCursorTokenBytes matches the page-token request field and
-	// the SpawnCursors item validation. Enforced before creating Actions:
+	// the EnqueuePageTokens item validation. Enforced before creating Actions:
 	// action tokens are checkpointed before they are sent through the
 	// later request field's validator.
 	maxSpawnCursorTokenBytes = 1 << 20
@@ -148,8 +148,8 @@ func (s *syncer) withSourceCacheContinuation(ctx context.Context, op string, iss
 			return fmt.Errorf("%s: connector sent a source-cache lookup ask on a request that carried no offer (connector must gate asks on SourceCacheLookupOffer)", op)
 		}
 		if attempt.rows > 0 || attempt.nextToken != "" ||
-			attempt.annos.Contains(&v2.SourceCacheScope{}) || attempt.annos.Contains(&v2.SourceCacheReplay{}) ||
-			attempt.annos.Contains(&v2.SpawnCursors{}) {
+			attempt.annos.Contains(&v2.SourceCacheRecord{}) || attempt.annos.Contains(&v2.SourceCacheReplay{}) ||
+			attempt.annos.Contains(&v2.EnqueuePageTokens{}) {
 			return fmt.Errorf("%s: source-cache lookup ask response must carry ONLY the ask: "+
 				"no rows, no next page token, no scope/replay annotations, no spawned cursors "+
 				"(spawn on the re-invoked request's real response instead)", op)
@@ -169,7 +169,7 @@ func (s *syncer) withSourceCacheContinuation(ctx context.Context, op string, iss
 
 		budget := sourceCacheAnswerBudget
 		for _, a := range ordered {
-			budget -= len(a.ETag)
+			budget -= len(a.CacheValidator)
 		}
 		newAsked, newFound, newNotFound, newTruncated := 0, 0, 0, 0
 		for _, q := range queries {
@@ -177,7 +177,7 @@ func (s *syncer) withSourceCacheContinuation(ctx context.Context, op string, iss
 				continue
 			}
 			newAsked++
-			entry, ok, err := s.sourceCache.lookup.LookupPreviousSourceCache(ctx, q.RowKind, q.ScopeHash)
+			entry, ok, err := s.sourceCache.lookup.Lookup(ctx, q.RowKind, q.ScopeKey)
 			if err != nil {
 				return fmt.Errorf("%s: resolving source-cache lookup ask: %w", op, err)
 			}
@@ -187,7 +187,7 @@ func (s *syncer) withSourceCacheContinuation(ctx context.Context, op string, iss
 				newNotFound++
 				continue
 			}
-			if len(entry.ETag) > budget {
+			if len(entry.CacheValidator) > budget {
 				// Found, but the etag does not fit the remaining budget.
 				// Degrade to an explicit not-found so the connector
 				// fetches this scope fresh (cold-correct). See the
@@ -199,9 +199,9 @@ func (s *syncer) withSourceCacheContinuation(ctx context.Context, op string, iss
 				newTruncated++
 				continue
 			}
-			budget -= len(entry.ETag)
+			budget -= len(entry.CacheValidator)
 			seen[q] = true
-			ordered = append(ordered, sourcecache.Answer{Query: q, Found: true, ETag: entry.ETag})
+			ordered = append(ordered, sourcecache.Answer{Query: q, Found: true, CacheValidator: entry.CacheValidator})
 			newFound++
 		}
 		asked += newAsked

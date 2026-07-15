@@ -1527,7 +1527,7 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bo
 // and pushes an action to fetch the entitlements for each resource.
 // Resource types annotated with TypeScopedEntitlements are excluded from the per-resource fan-out and
 // get a single type-scoped action instead (empty ResourceID); the connector enumerates the whole
-// type, optionally spawning additional cursors via the SpawnCursors annotation.
+// type, optionally spawning additional cursors via the EnqueuePageTokens annotation.
 func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -1642,7 +1642,7 @@ func (s *syncer) typeScopedEntitlementsResourceTypes(ctx context.Context) ([]str
 // syncEntitlementsForResource fetches the entitlements for a specific resource from the connector.
 // An action with an empty ResourceID is a TYPE-SCOPED entitlements cursor: the connector
 // enumerates entitlements for the whole resource type (no single resource backs the call),
-// and may spawn sibling cursors via the SpawnCursors response annotation.
+// and may spawn sibling cursors via the EnqueuePageTokens response annotation.
 // No span here: only call site is SyncEntitlements, which already owns a span.
 func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action) error {
 	typeScoped := action.ResourceID == ""
@@ -1731,19 +1731,19 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
 	}
 
-	// SpawnCursors: enqueue sibling cursors (type-scoped shards or
+	// EnqueuePageTokens: enqueue sibling cursors (type-scoped shards or
 	// per-resource parallel pages). Same contracts as syncGrantsForResource.
-	spawn := &v2.SpawnCursors{}
+	spawn := &v2.EnqueuePageTokens{}
 	hasSpawn, err := respAnnos.Pick(spawn)
 	if err != nil {
 		return fmt.Errorf("sync-entitlements: error parsing spawn-cursors annotation: %w", err)
 	}
 	var spawned []Action
 	if hasSpawn {
-		if len(spawn.GetPageTokens()) > maxSpawnCursorsPerResponse {
+		if len(spawn.GetPageTokens()) > maxEnqueuePageTokensPerResponse {
 			return fmt.Errorf(
-				"sync-entitlements: SpawnCursors carried %d page tokens (max %d per response); chain additional spawns across pages instead",
-				len(spawn.GetPageTokens()), maxSpawnCursorsPerResponse)
+				"sync-entitlements: EnqueuePageTokens carried %d page tokens (max %d per response); chain additional spawns across pages instead",
+				len(spawn.GetPageTokens()), maxEnqueuePageTokensPerResponse)
 		}
 		for _, tok := range spawn.GetPageTokens() {
 			if tok == "" {
@@ -1751,7 +1751,7 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 			}
 			if len(tok) > maxSpawnCursorTokenBytes {
 				return fmt.Errorf(
-					"sync-entitlements: SpawnCursors page token is %d bytes (max %d)",
+					"sync-entitlements: EnqueuePageTokens page token is %d bytes (max %d)",
 					len(tok), maxSpawnCursorTokenBytes)
 			}
 			spawned = append(spawned, Action{
@@ -2197,7 +2197,7 @@ func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.En
 // from the datastore, and pushes a new action to sync the grants for each individual resource.
 // Resource types annotated with TypeScopedGrants are excluded from the per-resource fan-out and
 // get a single type-scoped action instead (empty ResourceID); the connector enumerates the whole
-// type, optionally spawning additional cursors via the SpawnCursors annotation.
+// type, optionally spawning additional cursors via the EnqueuePageTokens annotation.
 func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrants")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -2309,7 +2309,7 @@ func (s *syncer) typeScopedGrantsResourceTypes(ctx context.Context) ([]string, e
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
 // An action with an empty ResourceID is a TYPE-SCOPED grants cursor: the connector
 // enumerates grants for the whole resource type (no single resource backs the call),
-// and may spawn sibling cursors via the SpawnCursors response annotation.
+// and may spawn sibling cursors via the EnqueuePageTokens response annotation.
 // No span here: only call site is SyncGrants, which already owns a span.
 func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) error {
 	typeScoped := action.ResourceID == ""
@@ -2497,7 +2497,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
 	}
 
-	// SpawnCursors: the response may enqueue sibling cursors — each runs
+	// EnqueuePageTokens: the response may enqueue sibling cursors — each runs
 	// as its own action, scheduled by the worker pool, rate-limited, and
 	// checkpointed like any other pagination.
 	//
@@ -2512,7 +2512,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 	// eagerly: the SDK assumes nothing about replay — a spawned page may
 	// hit its lookup and replay, miss and fetch cold (page boundary
 	// shifted since last sync), and may chain further via NextPageToken.
-	spawn := &v2.SpawnCursors{}
+	spawn := &v2.EnqueuePageTokens{}
 	hasSpawn, err := respAnnos.Pick(spawn)
 	if err != nil {
 		return fmt.Errorf("sync-grants-for-resource: error parsing spawn-cursors annotation: %w", err)
@@ -2526,10 +2526,10 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		// per-response and fail loudly, mirroring the lookup bounce cap.
 		// Legitimate patterns sit far below this: Entra spawns ~35 chunk
 		// cursors per planning page, GitHub one sibling per stored page.
-		if len(spawn.GetPageTokens()) > maxSpawnCursorsPerResponse {
+		if len(spawn.GetPageTokens()) > maxEnqueuePageTokensPerResponse {
 			return fmt.Errorf(
-				"sync-grants-for-resource: SpawnCursors carried %d page tokens (max %d per response); chain additional spawns across pages instead",
-				len(spawn.GetPageTokens()), maxSpawnCursorsPerResponse)
+				"sync-grants-for-resource: EnqueuePageTokens carried %d page tokens (max %d per response); chain additional spawns across pages instead",
+				len(spawn.GetPageTokens()), maxEnqueuePageTokensPerResponse)
 		}
 		for _, tok := range spawn.GetPageTokens() {
 			if tok == "" {
@@ -2537,7 +2537,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 			}
 			if len(tok) > maxSpawnCursorTokenBytes {
 				return fmt.Errorf(
-					"sync-grants-for-resource: SpawnCursors page token is %d bytes (max %d)",
+					"sync-grants-for-resource: EnqueuePageTokens page token is %d bytes (max %d)",
 					len(tok), maxSpawnCursorTokenBytes)
 			}
 			spawned = append(spawned, Action{
@@ -3017,7 +3017,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if !annos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 			continue
 		}
-		sourceScope := ga.SourceScopeHash
+		sourceScope := ga.SourceScopeKey
 		addExpanded := func(rank int, g *v2.Grant) {
 			entry := &expandedEntry{grant: g, scope: sourceScope, rank: rank}
 			prev, ok := expanded[g.GetId()]

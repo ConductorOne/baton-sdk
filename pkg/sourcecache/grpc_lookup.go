@@ -35,7 +35,7 @@ import (
 // scope), and not at all when the caller's context is already done — a
 // teardown-time Canceled is noise, and logging it would eat the rate
 // window a real failure needs. Validation failures stay loud: a malformed
-// row kind or scope hash is a connector bug, and degrading it to a miss
+// row kind or scope key is a connector bug, and degrading it to a miss
 // would let the connector silently cold-fetch forever with no signal.
 type GRPCLookup struct {
 	client v1.BatonSourceCacheServiceClient
@@ -58,16 +58,16 @@ func NewGRPCLookup(client v1.BatonSourceCacheServiceClient) Lookup {
 	return &GRPCLookup{client: client}
 }
 
-func (g *GRPCLookup) LookupPreviousSourceCache(ctx context.Context, rowKind RowKind, scopeHash string) (Entry, bool, error) {
+func (g *GRPCLookup) Lookup(ctx context.Context, rowKind RowKind, scopeKey string) (Entry, bool, error) {
 	if err := ValidateRowKind(rowKind); err != nil {
 		return Entry{}, false, err
 	}
-	if err := ValidateScopeHash(scopeHash); err != nil {
+	if err := ValidateScopeKey(scopeKey); err != nil {
 		return Entry{}, false, err
 	}
 	resp, err := g.client.Lookup(ctx, v1.LookupRequest_builder{
-		RowKind:   string(rowKind),
-		ScopeHash: scopeHash,
+		RowKind:  string(rowKind),
+		ScopeKey: scopeKey,
 	}.Build())
 	if err != nil {
 		count := g.failures.Add(1)
@@ -87,5 +87,5 @@ func (g *GRPCLookup) LookupPreviousSourceCache(ctx context.Context, rowKind RowK
 	if !resp.GetFound() {
 		return Entry{}, false, nil
 	}
-	return Entry{ETag: resp.GetEtag()}, true, nil
+	return Entry{CacheValidator: resp.GetCacheValidator()}, true, nil
 }

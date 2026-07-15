@@ -40,7 +40,7 @@ type SourceCacheStats struct {
 	TombstonePrincipals int64 `json:"tombstone_principals,omitempty"`
 	RowsDeleted         int64 `json:"rows_deleted,omitempty"`
 
-	// SpawnedCursors counts sibling actions enqueued via SpawnCursors
+	// SpawnedCursors counts sibling actions enqueued via EnqueuePageTokens
 	// (pairs with the per-response cap).
 	SpawnedCursors int64 `json:"spawned_cursors,omitempty"`
 
@@ -51,7 +51,7 @@ type SourceCacheStats struct {
 	// fetch) because their etags did not fit the per-request answer size
 	// budget; nonzero means a connector is batching more fat-token scopes
 	// per ask than the transport can carry and should shard via
-	// SpawnCursors.
+	// EnqueuePageTokens.
 	LookupBounces          int64            `json:"lookup_bounces,omitempty"`
 	LookupRequestsBounced  int64            `json:"lookup_requests_bounced,omitempty"`
 	LookupScopesAsked      int64            `json:"lookup_scopes_asked,omitempty"`

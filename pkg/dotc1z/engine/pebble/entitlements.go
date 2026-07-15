@@ -80,7 +80,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 			if err != nil {
 				return err
 			}
-			newScope := r.GetSourceScopeHash()
+			newScope := r.GetSourceScopeKey()
 			if !skipGet {
 				oldVal, closer, getErr := e.db.Get(key)
 				switch {

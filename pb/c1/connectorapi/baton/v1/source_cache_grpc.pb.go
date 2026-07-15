@@ -27,7 +27,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // BatonSourceCacheService is the dedicated parent-side RPC the connector
-// subprocess uses to ask "do I have a previous validator (etag / delta
+// subprocess uses to ask "do I have a previous validator (HTTP ETag / delta
 // token) for this scope?" before revalidating upstream.
 //
 // This is intentionally NOT routed through the session-store gRPC service:
@@ -65,7 +65,7 @@ func (c *batonSourceCacheServiceClient) Lookup(ctx context.Context, in *LookupRe
 // for forward compatibility.
 //
 // BatonSourceCacheService is the dedicated parent-side RPC the connector
-// subprocess uses to ask "do I have a previous validator (etag / delta
+// subprocess uses to ask "do I have a previous validator (HTTP ETag / delta
 // token) for this scope?" before revalidating upstream.
 //
 // This is intentionally NOT routed through the session-store gRPC service:

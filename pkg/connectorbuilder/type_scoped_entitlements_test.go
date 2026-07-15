@@ -29,7 +29,7 @@ func (s *typeScopedEntitlementsSyncer) Entitlements(ctx context.Context, r *v2.R
 func (s *typeScopedEntitlementsSyncer) EntitlementsForResourceType(ctx context.Context, resourceTypeID string, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
 	s.calls++
 	if s.deferredLookup {
-		_, _, err := opts.SourceCache.LookupPreviousSourceCache(ctx, sourcecache.RowKindEntitlements, "ents/type")
+		_, _, err := opts.SourceCache.Lookup(ctx, sourcecache.RowKindEntitlements, "ents/type")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -112,7 +112,7 @@ func TestListEntitlements_TypeScopedContinuationPreservesMarker(t *testing.T) {
 
 	answers := annotations.New(&v2.SourceCacheLookupOffer{}, &v2.TypeScopedEntitlements{})
 	answers.Update(sourcecache.AnswersProto([]sourcecache.Answer{
-		{Query: sourcecache.Query{RowKind: sourcecache.RowKindEntitlements, ScopeHash: "ents/type"}, Found: false},
+		{Query: sourcecache.Query{RowKind: sourcecache.RowKindEntitlements, ScopeKey: "ents/type"}, Found: false},
 	}))
 	resp2, err := conn.ListEntitlements(ctx, typeScopedEntitlementsRequest(answers))
 	require.NoError(t, err)

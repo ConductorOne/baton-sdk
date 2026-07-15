@@ -33,8 +33,8 @@ var ErrLookupDeferred = errors.New("source cache lookup deferred: answer arrives
 
 // Query identifies one scope to resolve against the previous sync.
 type Query struct {
-	RowKind   RowKind
-	ScopeHash string
+	RowKind  RowKind
+	ScopeKey string
 }
 
 // Answer resolves one Query. Found=false means the previous sync has no
@@ -42,15 +42,15 @@ type Query struct {
 // Answer at all, which means unresolved: ask again.)
 type Answer struct {
 	Query
-	Found bool
-	ETag  string
+	Found          bool
+	CacheValidator string
 }
 
 // BatchLookup is optionally implemented by Lookup implementations that can
 // resolve many scopes in one round trip. Connectors should not type-assert
 // for it directly; call LookupMany, which falls back to per-query lookups.
 type BatchLookup interface {
-	LookupPreviousSourceCacheMany(ctx context.Context, queries []Query) ([]Answer, error)
+	LookupMany(ctx context.Context, queries []Query) ([]Answer, error)
 }
 
 // LookupMany resolves a batch of queries through lookup, using one round
@@ -67,17 +67,17 @@ type BatchLookup interface {
 // is correct, just slower — never as a silent omission.)
 func LookupMany(ctx context.Context, lookup Lookup, queries []Query) ([]Answer, error) {
 	if bl, ok := lookup.(BatchLookup); ok {
-		return bl.LookupPreviousSourceCacheMany(ctx, queries)
+		return bl.LookupMany(ctx, queries)
 	}
 	answers := make([]Answer, 0, len(queries))
 	for _, q := range queries {
-		entry, found, err := lookup.LookupPreviousSourceCache(ctx, q.RowKind, q.ScopeHash)
+		entry, found, err := lookup.Lookup(ctx, q.RowKind, q.ScopeKey)
 		if err != nil {
 			return nil, err
 		}
 		a := Answer{Query: q, Found: found}
 		if found {
-			a.ETag = entry.ETag
+			a.CacheValidator = entry.CacheValidator
 		}
 		answers = append(answers, a)
 	}
@@ -117,21 +117,21 @@ func NewContinuationLookup(answers []Answer) *ContinuationLookup {
 	}
 }
 
-func (c *ContinuationLookup) LookupPreviousSourceCache(_ context.Context, rowKind RowKind, scopeHash string) (Entry, bool, error) {
-	q := Query{RowKind: rowKind, ScopeHash: scopeHash}
+func (c *ContinuationLookup) Lookup(_ context.Context, rowKind RowKind, scopeKey string) (Entry, bool, error) {
+	q := Query{RowKind: rowKind, ScopeKey: scopeKey}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if a, ok := c.answers[q]; ok {
 		if !a.Found {
 			return Entry{}, false, nil
 		}
-		return Entry{ETag: a.ETag}, true, nil
+		return Entry{CacheValidator: a.CacheValidator}, true, nil
 	}
 	c.recordLocked(q)
-	return Entry{}, false, fmt.Errorf("lookup %s/%s: %w", rowKind, scopeHash, ErrLookupDeferred)
+	return Entry{}, false, fmt.Errorf("lookup %s/%s: %w", rowKind, scopeKey, ErrLookupDeferred)
 }
 
-func (c *ContinuationLookup) LookupPreviousSourceCacheMany(_ context.Context, queries []Query) ([]Answer, error) {
+func (c *ContinuationLookup) LookupMany(_ context.Context, queries []Query) ([]Answer, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	answers := make([]Answer, 0, len(queries))
@@ -181,8 +181,8 @@ func AskProto(queries []Query) *v2.SourceCacheLookupAsk {
 	qs := make([]*v2.SourceCacheLookupAsk_Query, 0, len(queries))
 	for _, q := range queries {
 		qs = append(qs, v2.SourceCacheLookupAsk_Query_builder{
-			RowKind:   string(q.RowKind),
-			ScopeHash: q.ScopeHash,
+			RowKind:  string(q.RowKind),
+			ScopeKey: q.ScopeKey,
 		}.Build())
 	}
 	return v2.SourceCacheLookupAsk_builder{Queries: qs}.Build()
@@ -219,10 +219,10 @@ func QueriesFromProto(ask *v2.SourceCacheLookupAsk) ([]Query, error) {
 		if err := ValidateRowKind(kind); err != nil {
 			return nil, err
 		}
-		if err := ValidateScopeHash(q.GetScopeHash()); err != nil {
+		if err := ValidateScopeKey(q.GetScopeKey()); err != nil {
 			return nil, err
 		}
-		out = append(out, Query{RowKind: kind, ScopeHash: q.GetScopeHash()})
+		out = append(out, Query{RowKind: kind, ScopeKey: q.GetScopeKey()})
 	}
 	return out, nil
 }
@@ -232,10 +232,10 @@ func AnswersProto(answers []Answer) *v2.SourceCacheLookupAnswers {
 	as := make([]*v2.SourceCacheLookupAnswers_Answer, 0, len(answers))
 	for _, a := range answers {
 		as = append(as, v2.SourceCacheLookupAnswers_Answer_builder{
-			RowKind:   string(a.RowKind),
-			ScopeHash: a.ScopeHash,
-			Found:     a.Found,
-			Etag:      a.ETag,
+			RowKind:        string(a.RowKind),
+			ScopeKey:       a.ScopeKey,
+			Found:          a.Found,
+			CacheValidator: a.CacheValidator,
 		}.Build())
 	}
 	return v2.SourceCacheLookupAnswers_builder{Answers: as}.Build()
@@ -253,8 +253,8 @@ func AnswersProto(answers []Answer) *v2.SourceCacheLookupAnswers {
 // one ask's size would hard-fail a legal 4096-scope first ask followed by
 // a single late scope on a later bounce.
 const (
-	maxAnswersPerMessage = maxQueriesPerAsk * MaxLookupBouncesPerRequest
-	maxAnswerETagLen     = 65536
+	maxAnswersPerMessage  = maxQueriesPerAsk * MaxLookupBouncesPerRequest
+	maxAnswerValidatorLen = 65536
 )
 
 // AnswersFromProto extracts and validates the answers delivered on a
@@ -269,16 +269,16 @@ func AnswersFromProto(msg *v2.SourceCacheLookupAnswers) ([]Answer, error) {
 		if err := ValidateRowKind(kind); err != nil {
 			return nil, fmt.Errorf("source cache lookup answers: %w", err)
 		}
-		if err := ValidateScopeHash(a.GetScopeHash()); err != nil {
+		if err := ValidateScopeKey(a.GetScopeKey()); err != nil {
 			return nil, fmt.Errorf("source cache lookup answers: %w", err)
 		}
-		if len(a.GetEtag()) > maxAnswerETagLen {
-			return nil, fmt.Errorf("source cache lookup answers: etag for scope %q is %d bytes (max %d)", a.GetScopeHash(), len(a.GetEtag()), maxAnswerETagLen)
+		if len(a.GetCacheValidator()) > maxAnswerValidatorLen {
+			return nil, fmt.Errorf("source cache lookup answers: cache validator for scope %q is %d bytes (max %d)", a.GetScopeKey(), len(a.GetCacheValidator()), maxAnswerValidatorLen)
 		}
 		out = append(out, Answer{
-			Query: Query{RowKind: kind, ScopeHash: a.GetScopeHash()},
-			Found: a.GetFound(),
-			ETag:  a.GetEtag(),
+			Query:          Query{RowKind: kind, ScopeKey: a.GetScopeKey()},
+			Found:          a.GetFound(),
+			CacheValidator: a.GetCacheValidator(),
 		})
 	}
 	return out, nil

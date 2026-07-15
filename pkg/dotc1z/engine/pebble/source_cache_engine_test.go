@@ -58,10 +58,10 @@ func TestSourceCacheEntryCRUD(t *testing.T) {
 	require.NoError(t, e.PutSourceCacheEntry(ctx, "grants", scopeA, `W/"etag-1"`))
 	rec, err := e.GetSourceCacheEntry(ctx, "grants", scopeA)
 	require.NoError(t, err)
-	require.Equal(t, `W/"etag-1"`, rec.GetEtag())
+	require.Equal(t, `W/"etag-1"`, rec.GetCacheValidator())
 	require.NotNil(t, rec.GetDiscoveredAt())
 
-	// Row-kind partition: the same scope hash under a different kind misses.
+	// Row-kind partition: the same scope key under a different kind misses.
 	_, err = e.GetSourceCacheEntry(ctx, "resources", scopeA)
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
@@ -69,7 +69,7 @@ func TestSourceCacheEntryCRUD(t *testing.T) {
 	require.NoError(t, e.PutSourceCacheEntry(ctx, "grants", scopeA, "delta-token-2"))
 	rec, err = e.GetSourceCacheEntry(ctx, "grants", scopeA)
 	require.NoError(t, err)
-	require.Equal(t, "delta-token-2", rec.GetEtag())
+	require.Equal(t, "delta-token-2", rec.GetCacheValidator())
 }
 
 // TestSourceCacheReplayGrantsAcrossEngines is the core replay contract:
@@ -108,7 +108,7 @@ func TestSourceCacheReplayGrantsAcrossEngines(t *testing.T) {
 	got, err := cur.PebbleEngine().GetGrantRecord(ctx, gExpandable.GetId())
 	require.NoError(t, err)
 	require.True(t, got.GetNeedsExpansion())
-	require.Equal(t, scopeA, got.GetSourceScopeHash())
+	require.Equal(t, scopeA, got.GetSourceScopeKey())
 	_, err = cur.PebbleEngine().GetGrantRecord(ctx, gPlain.GetId())
 	require.NoError(t, err)
 
@@ -251,18 +251,18 @@ func TestEntitlementRestampCleansOldScopeIndex(t *testing.T) {
 	require.Zero(t, resB.StaleSkipped)
 	got, err := cur.PebbleEngine().GetEntitlementRecord(ctx, entID)
 	require.NoError(t, err)
-	require.Equal(t, scopeB, got.GetSourceScopeHash())
+	require.Equal(t, scopeB, got.GetSourceScopeKey())
 	require.Equal(t, "member (renamed)", got.GetDisplayName())
 }
 
 // replayTestGrantScopeIndexKey builds a by_source_scope index key for the
 // given scope pointing at rec's identity, bypassing the write path — the
 // test plants it as a stale entry.
-func replayTestGrantScopeIndexKey(t *testing.T, scopeHash string, rec *v3.GrantRecord) []byte {
+func replayTestGrantScopeIndexKey(t *testing.T, scopeKey string, rec *v3.GrantRecord) []byte {
 	t.Helper()
 	id, err := grantIdentityFromRecord(rec)
 	require.NoError(t, err)
-	return encodeGrantBySourceScopeIndexKey(scopeHash, id)
+	return encodeGrantBySourceScopeIndexKey(scopeKey, id)
 }
 
 // TestDeleteGrantsByPrincipalsInScope pins the principal-scoped tombstone
@@ -391,11 +391,11 @@ func TestSourceCacheReplayResourcesAndEntitlements(t *testing.T) {
 	gotRes, err := cur.PebbleEngine().GetResourceRecord(ctx, "group", "g1")
 	require.NoError(t, err)
 	require.Equal(t, "Group One", gotRes.GetDisplayName())
-	require.Equal(t, scopeA, gotRes.GetSourceScopeHash())
+	require.Equal(t, scopeA, gotRes.GetSourceScopeKey())
 
 	gotEnt, err := cur.PebbleEngine().GetEntitlementRecord(ctx, entID)
 	require.NoError(t, err)
-	require.Equal(t, scopeA, gotEnt.GetSourceScopeHash())
+	require.Equal(t, scopeA, gotEnt.GetSourceScopeKey())
 }
 
 // TestReplayInvalidatesEntitlementIDLookup pins the keyspace-generation
@@ -437,7 +437,7 @@ func TestReplayInvalidatesEntitlementIDLookup(t *testing.T) {
 	// map built above is stale and must have been invalidated) ...
 	gotEnt, err := cur.PebbleEngine().GetEntitlementRecord(ctx, entID)
 	require.NoError(t, err, "replayed entitlement must resolve by external id after a pre-replay map build")
-	require.Equal(t, scopeA, gotEnt.GetSourceScopeHash())
+	require.Equal(t, scopeA, gotEnt.GetSourceScopeKey())
 
 	// ... and, the actual production stake: a delta tombstone against the
 	// replayed row must DELETE it, not silently no-op.
@@ -472,7 +472,7 @@ func TestStoreExpandedGrantsPreservesSourceScope(t *testing.T) {
 
 	got, err := a.PebbleEngine().GetGrantRecord(ctx, g.GetId())
 	require.NoError(t, err)
-	require.Equal(t, scopeA, got.GetSourceScopeHash(), "expander rewrite clobbered the source scope stamp")
+	require.Equal(t, scopeA, got.GetSourceScopeKey(), "expander rewrite clobbered the source scope stamp")
 	require.True(t, got.GetNeedsExpansion(), "expansion side-state must be preserved too")
 
 	// And the index survives: a replay from this store still finds the row.

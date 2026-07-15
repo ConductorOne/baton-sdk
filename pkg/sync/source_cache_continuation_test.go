@@ -71,7 +71,7 @@ type continuationMockConnector struct {
 	askAlways    bool // never satisfied: bounce-cap test
 	askWithRows  bool // protocol violation: ask + rows
 	askNoOffer   bool // protocol violation: ask on offerless request
-	askWithSpawn bool // protocol violation: ask + SpawnCursors
+	askWithSpawn bool // protocol violation: ask + EnqueuePageTokens
 
 	asks        int
 	replayPages int
@@ -96,7 +96,7 @@ func (mc *continuationMockConnector) askResponse(scope string, rows []*v2.Grant)
 	return v2.GrantsServiceListGrantsResponse_builder{
 		List: rows,
 		Annotations: annotations.New(sourcecache.AskProto([]sourcecache.Query{
-			{RowKind: sourcecache.RowKindGrants, ScopeHash: scope},
+			{RowKind: sourcecache.RowKindGrants, ScopeKey: scope},
 		})),
 	}.Build()
 }
@@ -134,7 +134,7 @@ func (mc *continuationMockConnector) ListGrants(ctx context.Context, in *v2.Gran
 	if mc.askWithSpawn && !hasAnswers && hasOffer {
 		resp := mc.askResponse(scope, nil)
 		annos := annotations.Annotations(resp.GetAnnotations())
-		annos.Update(v2.SpawnCursors_builder{PageTokens: []string{"bogus"}}.Build())
+		annos.Update(v2.EnqueuePageTokens_builder{PageTokens: []string{"bogus"}}.Build())
 		resp.SetAnnotations(annos)
 		return resp, nil
 	}
@@ -145,17 +145,17 @@ func (mc *continuationMockConnector) ListGrants(ctx context.Context, in *v2.Gran
 			return nil, answersErr
 		}
 		for _, a := range answers {
-			if a.ScopeHash != scope || a.RowKind != sourcecache.RowKindGrants {
+			if a.ScopeKey != scope || a.RowKind != sourcecache.RowKindGrants {
 				continue
 			}
-			if a.Found && a.ETag == etag {
+			if a.Found && a.CacheValidator == etag {
 				mc.mu.Lock()
 				mc.replayPages++
 				mc.mu.Unlock()
 				return v2.GrantsServiceListGrantsResponse_builder{
 					Annotations: annotations.New(v2.SourceCacheReplay_builder{
-						ScopeHash: scope,
-						Etag:      etag,
+						ScopeKey:       scope,
+						CacheValidator: etag,
 					}.Build()),
 				}.Build(), nil
 			}
@@ -171,9 +171,9 @@ func (mc *continuationMockConnector) ListGrants(ctx context.Context, in *v2.Gran
 	mc.mu.Unlock()
 	return v2.GrantsServiceListGrantsResponse_builder{
 		List: rows,
-		Annotations: annotations.New(v2.SourceCacheScope_builder{
-			ScopeHash: scope,
-			Etag:      etag,
+		Annotations: annotations.New(v2.SourceCacheRecord_builder{
+			ScopeKey:       scope,
+			CacheValidator: etag,
 		}.Build()),
 	}.Build(), nil
 }
@@ -267,7 +267,7 @@ func TestSourceCacheContinuation_WarmReplay(t *testing.T) {
 // spawns sibling cursors whose tokens CARRY the verdicts. Siblings serve
 // replay/cold from their token alone — zero asks, zero bounces. This pins
 // the two contract commitments from the review briefs: the ask/answer loop
-// composes with a phase-2 SpawnCursors response, and a validator resolved
+// composes with a phase-2 EnqueuePageTokens response, and a validator resolved
 // in an EARLIER action of the same sync legally rides page tokens.
 type verdictSpawnMock struct {
 	*mockConnector
@@ -323,9 +323,9 @@ func (mc *verdictSpawnMock) servePage(gid string, page int, chain bool) *v2.Gran
 	mc.colds++
 	return v2.GrantsServiceListGrantsResponse_builder{
 		List: grants,
-		Annotations: annotations.New(v2.SourceCacheScope_builder{
-			ScopeHash: vsPageScope(gid, page),
-			Etag:      vsPageEtag(gid, page, rows),
+		Annotations: annotations.New(v2.SourceCacheRecord_builder{
+			ScopeKey:       vsPageScope(gid, page),
+			CacheValidator: vsPageEtag(gid, page, rows),
 		}.Build()),
 		NextPageToken: next,
 	}.Build()
@@ -355,8 +355,8 @@ func (mc *verdictSpawnMock) ListGrants(_ context.Context, in *v2.GrantsServiceLi
 				mc.replays++
 				return v2.GrantsServiceListGrantsResponse_builder{
 					Annotations: annotations.New(v2.SourceCacheReplay_builder{
-						ScopeHash: vsPageScope(gid, page),
-						Etag:      etag,
+						ScopeKey:       vsPageScope(gid, page),
+						CacheValidator: etag,
 					}.Build()),
 				}.Build(), nil
 			}
@@ -385,7 +385,7 @@ func (mc *verdictSpawnMock) ListGrants(_ context.Context, in *v2.GrantsServiceLi
 			mc.originAsks++
 			queries := make([]sourcecache.Query, 0, prev)
 			for p := 0; p < prev; p++ {
-				queries = append(queries, sourcecache.Query{RowKind: sourcecache.RowKindGrants, ScopeHash: vsPageScope(gid, p)})
+				queries = append(queries, sourcecache.Query{RowKind: sourcecache.RowKindGrants, ScopeKey: vsPageScope(gid, p)})
 			}
 			return v2.GrantsServiceListGrantsResponse_builder{
 				Annotations: annotations.New(sourcecache.AskProto(queries)),
@@ -402,15 +402,15 @@ func (mc *verdictSpawnMock) ListGrants(_ context.Context, in *v2.GrantsServiceLi
 		return nil, answersErr
 	}
 	for _, a := range answers {
-		byScope[a.ScopeHash] = a
+		byScope[a.ScopeKey] = a
 	}
 	var resp *v2.GrantsServiceListGrantsResponse
-	if a, ok := byScope[vsPageScope(gid, 0)]; ok && a.Found && a.ETag == vsPageEtag(gid, 0, mc.pageRows(gid, 0)) {
+	if a, ok := byScope[vsPageScope(gid, 0)]; ok && a.Found && a.CacheValidator == vsPageEtag(gid, 0, mc.pageRows(gid, 0)) {
 		mc.replays++
 		resp = v2.GrantsServiceListGrantsResponse_builder{
 			Annotations: annotations.New(v2.SourceCacheReplay_builder{
-				ScopeHash: vsPageScope(gid, 0),
-				Etag:      a.ETag,
+				ScopeKey:       vsPageScope(gid, 0),
+				CacheValidator: a.CacheValidator,
 			}.Build()),
 		}.Build()
 	} else {
@@ -423,18 +423,18 @@ func (mc *verdictSpawnMock) ListGrants(_ context.Context, in *v2.GrantsServiceLi
 		if a.Found {
 			found = 1
 		}
-		tokens = append(tokens, fmt.Sprintf("page=%d|%d|%s", p, found, a.ETag))
+		tokens = append(tokens, fmt.Sprintf("page=%d|%d|%s", p, found, a.CacheValidator))
 	}
 	if len(tokens) > 0 {
 		annos := annotations.Annotations(resp.GetAnnotations())
-		annos.Update(v2.SpawnCursors_builder{PageTokens: tokens}.Build())
+		annos.Update(v2.EnqueuePageTokens_builder{PageTokens: tokens}.Build())
 		resp.SetAnnotations(annos)
 		resp.SetNextPageToken("")
 	}
 	return resp, nil
 }
 
-func TestSourceCacheContinuation_Phase2SpawnCursors(t *testing.T) {
+func TestSourceCacheContinuation_Phase2EnqueuePageTokens(t *testing.T) {
 	for _, workers := range []int{0, 4} {
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
 			ctx, err := logging.Init(context.Background())
@@ -527,7 +527,7 @@ func TestSourceCacheContinuation_BounceCapFails(t *testing.T) {
 // complete, because the cap is per REQUEST (same page token) and every
 // NextPageToken advance is a fresh request. The final planning page spawns
 // the real cursor; it must spawn exactly once (the ask response never
-// reaches SpawnCursors processing; the re-invoke serves the same page).
+// reaches EnqueuePageTokens processing; the re-invoke serves the same page).
 type multiPagePlannerMock struct {
 	*mockConnector
 
@@ -590,7 +590,7 @@ func (mc *multiPagePlannerMock) ListGrants(_ context.Context, in *v2.GrantsServi
 		mc.asks++
 		return v2.GrantsServiceListGrantsResponse_builder{
 			Annotations: annotations.New(sourcecache.AskProto([]sourcecache.Query{
-				{RowKind: sourcecache.RowKindGrants, ScopeHash: scope},
+				{RowKind: sourcecache.RowKindGrants, ScopeKey: scope},
 			})),
 		}.Build(), nil
 	}
@@ -601,7 +601,7 @@ func (mc *multiPagePlannerMock) ListGrants(_ context.Context, in *v2.GrantsServi
 			return nil, answersErr
 		}
 		for _, a := range answers {
-			if a.ScopeHash == scope {
+			if a.ScopeKey == scope {
 				mc.answersScope = scope
 			}
 		}
@@ -611,7 +611,7 @@ func (mc *multiPagePlannerMock) ListGrants(_ context.Context, in *v2.GrantsServi
 	if page == plannerPages-1 {
 		mc.spawns++
 		return v2.GrantsServiceListGrantsResponse_builder{
-			Annotations: annotations.New(v2.SpawnCursors_builder{PageTokens: []string{"cursor"}}.Build()),
+			Annotations: annotations.New(v2.EnqueuePageTokens_builder{PageTokens: []string{"cursor"}}.Build()),
 		}.Build(), nil
 	}
 	return v2.GrantsServiceListGrantsResponse_builder{
@@ -670,8 +670,8 @@ func TestSourceCacheContinuation_MultiPagePlannerBouncesPerRequest(t *testing.T)
 // fatEtagLookup finds every scope with the same (large) etag.
 type fatEtagLookup struct{ etag string }
 
-func (f fatEtagLookup) LookupPreviousSourceCache(context.Context, sourcecache.RowKind, string) (sourcecache.Entry, bool, error) {
-	return sourcecache.Entry{ETag: f.etag}, true, nil
+func (f fatEtagLookup) Lookup(context.Context, sourcecache.RowKind, string) (sourcecache.Entry, bool, error) {
+	return sourcecache.Entry{CacheValidator: f.etag}, true, nil
 }
 
 // TestSourceCacheContinuation_AnswerBudgetDegradesToCold pins the answer
@@ -700,7 +700,7 @@ func TestSourceCacheContinuation_AnswerBudgetDegradesToCold(t *testing.T) {
 
 	queries := make([]sourcecache.Query, 0, queryCount)
 	for i := 0; i < queryCount; i++ {
-		queries = append(queries, sourcecache.Query{RowKind: sourcecache.RowKindGrants, ScopeHash: fmt.Sprintf("scope-%03d", i)})
+		queries = append(queries, sourcecache.Query{RowKind: sourcecache.RowKindGrants, ScopeKey: fmt.Sprintf("scope-%03d", i)})
 	}
 
 	turns := 0
@@ -735,7 +735,7 @@ func TestSourceCacheContinuation_AnswerBudgetDegradesToCold(t *testing.T) {
 	require.Zero(t, stats.LookupAnsweredNotFound, "budget degradation counts as truncated, not as a genuine miss")
 }
 
-func TestSourceCacheContinuation_AskWithSpawnCursorsFails(t *testing.T) {
+func TestSourceCacheContinuation_AskWithEnqueuePageTokensFails(t *testing.T) {
 	ctx, err := logging.Init(context.Background())
 	require.NoError(t, err)
 	tmpDir := t.TempDir()
@@ -748,7 +748,7 @@ func TestSourceCacheContinuation_AskWithSpawnCursorsFails(t *testing.T) {
 	err = runContinuationSync(ctx, t, mc, filepath.Join(tmpDir, "sync2.c1z"), sync1, tmpDir, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no spawned cursors",
-		"SpawnCursors alongside an ask is a connector bug and must fail loudly")
+		"EnqueuePageTokens alongside an ask is a connector bug and must fail loudly")
 }
 
 func TestSourceCacheContinuation_AskWithRowsFails(t *testing.T) {
@@ -846,7 +846,7 @@ func (mc *multiPagePlannerEntitlementsMock) ListEntitlements(
 		mc.asks++
 		return v2.EntitlementsServiceListEntitlementsResponse_builder{
 			Annotations: annotations.New(sourcecache.AskProto([]sourcecache.Query{
-				{RowKind: sourcecache.RowKindEntitlements, ScopeHash: scope},
+				{RowKind: sourcecache.RowKindEntitlements, ScopeKey: scope},
 			})),
 		}.Build(), nil
 	}
@@ -857,7 +857,7 @@ func (mc *multiPagePlannerEntitlementsMock) ListEntitlements(
 			return nil, answersErr
 		}
 		for _, a := range answers {
-			if a.ScopeHash == scope {
+			if a.ScopeKey == scope {
 				mc.answersScope = scope
 			}
 		}
@@ -866,7 +866,7 @@ func (mc *multiPagePlannerEntitlementsMock) ListEntitlements(
 	if page == plannerPages-1 {
 		mc.spawns++
 		return v2.EntitlementsServiceListEntitlementsResponse_builder{
-			Annotations: annotations.New(v2.SpawnCursors_builder{PageTokens: []string{"cursor"}}.Build()),
+			Annotations: annotations.New(v2.EnqueuePageTokens_builder{PageTokens: []string{"cursor"}}.Build()),
 		}.Build(), nil
 	}
 	return v2.EntitlementsServiceListEntitlementsResponse_builder{

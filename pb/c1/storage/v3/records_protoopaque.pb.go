@@ -441,17 +441,17 @@ func (b0 ResourceTypeRecord_builder) Build() *ResourceTypeRecord {
 }
 
 type ResourceRecord struct {
-	state                      protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ResourceTypeId  string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3"`
-	xxx_hidden_ResourceId      string                 `protobuf:"bytes,3,opt,name=resource_id,json=resourceId,proto3"`
-	xxx_hidden_DisplayName     string                 `protobuf:"bytes,4,opt,name=display_name,json=displayName,proto3"`
-	xxx_hidden_Description     string                 `protobuf:"bytes,5,opt,name=description,proto3"`
-	xxx_hidden_Parent          *ResourceRef           `protobuf:"bytes,6,opt,name=parent,proto3"`
-	xxx_hidden_Annotations     *[]*anypb.Any          `protobuf:"bytes,7,rep,name=annotations,proto3"`
-	xxx_hidden_DiscoveredAt    *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=discovered_at,json=discoveredAt,proto3"`
-	xxx_hidden_SourceScopeHash string                 `protobuf:"bytes,9,opt,name=source_scope_hash,json=sourceScopeHash,proto3"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3"`
+	xxx_hidden_ResourceId     string                 `protobuf:"bytes,3,opt,name=resource_id,json=resourceId,proto3"`
+	xxx_hidden_DisplayName    string                 `protobuf:"bytes,4,opt,name=display_name,json=displayName,proto3"`
+	xxx_hidden_Description    string                 `protobuf:"bytes,5,opt,name=description,proto3"`
+	xxx_hidden_Parent         *ResourceRef           `protobuf:"bytes,6,opt,name=parent,proto3"`
+	xxx_hidden_Annotations    *[]*anypb.Any          `protobuf:"bytes,7,rep,name=annotations,proto3"`
+	xxx_hidden_DiscoveredAt   *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=discovered_at,json=discoveredAt,proto3"`
+	xxx_hidden_SourceScopeKey string                 `protobuf:"bytes,9,opt,name=source_scope_key,json=sourceScopeKey,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *ResourceRecord) Reset() {
@@ -530,9 +530,9 @@ func (x *ResourceRecord) GetDiscoveredAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *ResourceRecord) GetSourceScopeHash() string {
+func (x *ResourceRecord) GetSourceScopeKey() string {
 	if x != nil {
-		return x.xxx_hidden_SourceScopeHash
+		return x.xxx_hidden_SourceScopeKey
 	}
 	return ""
 }
@@ -565,8 +565,8 @@ func (x *ResourceRecord) SetDiscoveredAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_DiscoveredAt = v
 }
 
-func (x *ResourceRecord) SetSourceScopeHash(v string) {
-	x.xxx_hidden_SourceScopeHash = v
+func (x *ResourceRecord) SetSourceScopeKey(v string) {
+	x.xxx_hidden_SourceScopeKey = v
 }
 
 func (x *ResourceRecord) HasParent() bool {
@@ -603,7 +603,7 @@ type ResourceRecord_builder struct {
 	DiscoveredAt   *timestamppb.Timestamp
 	// Source-cache scope stamp (see annotation_source_cache.proto).
 	// Empty for rows not produced under a source-cache scope.
-	SourceScopeHash string
+	SourceScopeKey string
 }
 
 func (b0 ResourceRecord_builder) Build() *ResourceRecord {
@@ -617,7 +617,7 @@ func (b0 ResourceRecord_builder) Build() *ResourceRecord {
 	x.xxx_hidden_Parent = b.Parent
 	x.xxx_hidden_Annotations = &b.Annotations
 	x.xxx_hidden_DiscoveredAt = b.DiscoveredAt
-	x.xxx_hidden_SourceScopeHash = b.SourceScopeHash
+	x.xxx_hidden_SourceScopeKey = b.SourceScopeKey
 	return m0
 }
 
@@ -632,7 +632,7 @@ type EntitlementRecord struct {
 	xxx_hidden_DiscoveredAt               *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=discovered_at,json=discoveredAt,proto3"`
 	xxx_hidden_Slug                       string                 `protobuf:"bytes,9,opt,name=slug,proto3"`
 	xxx_hidden_GrantableToResourceTypeIds []string               `protobuf:"bytes,10,rep,name=grantable_to_resource_type_ids,json=grantableToResourceTypeIds,proto3"`
-	xxx_hidden_SourceScopeHash            string                 `protobuf:"bytes,11,opt,name=source_scope_hash,json=sourceScopeHash,proto3"`
+	xxx_hidden_SourceScopeKey             string                 `protobuf:"bytes,11,opt,name=source_scope_key,json=sourceScopeKey,proto3"`
 	unknownFields                         protoimpl.UnknownFields
 	sizeCache                             protoimpl.SizeCache
 }
@@ -727,9 +727,9 @@ func (x *EntitlementRecord) GetGrantableToResourceTypeIds() []string {
 	return nil
 }
 
-func (x *EntitlementRecord) GetSourceScopeHash() string {
+func (x *EntitlementRecord) GetSourceScopeKey() string {
 	if x != nil {
-		return x.xxx_hidden_SourceScopeHash
+		return x.xxx_hidden_SourceScopeKey
 	}
 	return ""
 }
@@ -770,8 +770,8 @@ func (x *EntitlementRecord) SetGrantableToResourceTypeIds(v []string) {
 	x.xxx_hidden_GrantableToResourceTypeIds = v
 }
 
-func (x *EntitlementRecord) SetSourceScopeHash(v string) {
-	x.xxx_hidden_SourceScopeHash = v
+func (x *EntitlementRecord) SetSourceScopeKey(v string) {
+	x.xxx_hidden_SourceScopeKey = v
 }
 
 func (x *EntitlementRecord) HasResource() bool {
@@ -822,7 +822,7 @@ type EntitlementRecord_builder struct {
 	GrantableToResourceTypeIds []string
 	// Source-cache scope stamp (see annotation_source_cache.proto).
 	// Empty for rows not produced under a source-cache scope.
-	SourceScopeHash string
+	SourceScopeKey string
 }
 
 func (b0 EntitlementRecord_builder) Build() *EntitlementRecord {
@@ -838,23 +838,23 @@ func (b0 EntitlementRecord_builder) Build() *EntitlementRecord {
 	x.xxx_hidden_DiscoveredAt = b.DiscoveredAt
 	x.xxx_hidden_Slug = b.Slug
 	x.xxx_hidden_GrantableToResourceTypeIds = b.GrantableToResourceTypeIds
-	x.xxx_hidden_SourceScopeHash = b.SourceScopeHash
+	x.xxx_hidden_SourceScopeKey = b.SourceScopeKey
 	return m0
 }
 
 type GrantRecord struct {
-	state                      protoimpl.MessageState        `protogen:"opaque.v1"`
-	xxx_hidden_ExternalId      string                        `protobuf:"bytes,2,opt,name=external_id,json=externalId,proto3"`
-	xxx_hidden_Entitlement     *EntitlementRef               `protobuf:"bytes,3,opt,name=entitlement,proto3"`
-	xxx_hidden_Principal       *PrincipalRef                 `protobuf:"bytes,4,opt,name=principal,proto3"`
-	xxx_hidden_DiscoveredAt    *timestamppb.Timestamp        `protobuf:"bytes,5,opt,name=discovered_at,json=discoveredAt,proto3"`
-	xxx_hidden_Expansion       *GrantExpandableRecord        `protobuf:"bytes,6,opt,name=expansion,proto3"`
-	xxx_hidden_NeedsExpansion  bool                          `protobuf:"varint,7,opt,name=needs_expansion,json=needsExpansion,proto3"`
-	xxx_hidden_Annotations     *[]*anypb.Any                 `protobuf:"bytes,8,rep,name=annotations,proto3"`
-	xxx_hidden_Sources         map[string]*GrantSourceRecord `protobuf:"bytes,9,rep,name=sources,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	xxx_hidden_SourceScopeHash string                        `protobuf:"bytes,10,opt,name=source_scope_hash,json=sourceScopeHash,proto3"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	state                     protoimpl.MessageState        `protogen:"opaque.v1"`
+	xxx_hidden_ExternalId     string                        `protobuf:"bytes,2,opt,name=external_id,json=externalId,proto3"`
+	xxx_hidden_Entitlement    *EntitlementRef               `protobuf:"bytes,3,opt,name=entitlement,proto3"`
+	xxx_hidden_Principal      *PrincipalRef                 `protobuf:"bytes,4,opt,name=principal,proto3"`
+	xxx_hidden_DiscoveredAt   *timestamppb.Timestamp        `protobuf:"bytes,5,opt,name=discovered_at,json=discoveredAt,proto3"`
+	xxx_hidden_Expansion      *GrantExpandableRecord        `protobuf:"bytes,6,opt,name=expansion,proto3"`
+	xxx_hidden_NeedsExpansion bool                          `protobuf:"varint,7,opt,name=needs_expansion,json=needsExpansion,proto3"`
+	xxx_hidden_Annotations    *[]*anypb.Any                 `protobuf:"bytes,8,rep,name=annotations,proto3"`
+	xxx_hidden_Sources        map[string]*GrantSourceRecord `protobuf:"bytes,9,rep,name=sources,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	xxx_hidden_SourceScopeKey string                        `protobuf:"bytes,10,opt,name=source_scope_key,json=sourceScopeKey,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *GrantRecord) Reset() {
@@ -940,9 +940,9 @@ func (x *GrantRecord) GetSources() map[string]*GrantSourceRecord {
 	return nil
 }
 
-func (x *GrantRecord) GetSourceScopeHash() string {
+func (x *GrantRecord) GetSourceScopeKey() string {
 	if x != nil {
-		return x.xxx_hidden_SourceScopeHash
+		return x.xxx_hidden_SourceScopeKey
 	}
 	return ""
 }
@@ -979,8 +979,8 @@ func (x *GrantRecord) SetSources(v map[string]*GrantSourceRecord) {
 	x.xxx_hidden_Sources = v
 }
 
-func (x *GrantRecord) SetSourceScopeHash(v string) {
-	x.xxx_hidden_SourceScopeHash = v
+func (x *GrantRecord) SetSourceScopeKey(v string) {
+	x.xxx_hidden_SourceScopeKey = v
 }
 
 func (x *GrantRecord) HasEntitlement() bool {
@@ -1056,7 +1056,7 @@ type GrantRecord_builder struct {
 	// expander-derived grants, which are recreated by expansion each sync
 	// and never replayed. StoreExpandedGrants preserves this field on
 	// rewrites of existing rows, exactly like expansion/needs_expansion.
-	SourceScopeHash string
+	SourceScopeKey string
 }
 
 func (b0 GrantRecord_builder) Build() *GrantRecord {
@@ -1071,7 +1071,7 @@ func (b0 GrantRecord_builder) Build() *GrantRecord {
 	x.xxx_hidden_NeedsExpansion = b.NeedsExpansion
 	x.xxx_hidden_Annotations = &b.Annotations
 	x.xxx_hidden_Sources = b.Sources
-	x.xxx_hidden_SourceScopeHash = b.SourceScopeHash
+	x.xxx_hidden_SourceScopeKey = b.SourceScopeKey
 	return m0
 }
 
@@ -1377,7 +1377,7 @@ type SyncRunRecord_builder struct {
 	// compacted marks a sync produced by compaction (fold or rebuild)
 	// rather than by a real connector run. Compacted artifacts are
 	// keep-newer UPSERT merges — base rows a newer input deleted survive —
-	// so no input sync's upstream validators (source-cache etags) describe
+	// so no input sync's upstream validators (source-cache validators) describe
 	// their contents.
 	//
 	// "Can this sync be used as a source-cache replay source?" is the
@@ -1702,18 +1702,18 @@ func (b0 SessionRecord_builder) Build() *SessionRecord {
 
 // SourceCacheEntryRecord is the per-scope manifest entry for source-cache
 // replay (see c1/connector/v2/annotation_source_cache.proto). One entry
-// per (row_kind, scope_hash), written for every freshly fetched scope —
+// per (row_kind, scope_key), written for every freshly fetched scope —
 // including zero-row responses — and rewritten on replay with the scope's
 // current validator. The previous sync's entries (read from the previous
 // c1z) are the lookup surface connectors revalidate against.
 type SourceCacheEntryRecord struct {
-	state                   protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_RowKind      string                 `protobuf:"bytes,1,opt,name=row_kind,json=rowKind,proto3"`
-	xxx_hidden_ScopeHash    string                 `protobuf:"bytes,2,opt,name=scope_hash,json=scopeHash,proto3"`
-	xxx_hidden_Etag         string                 `protobuf:"bytes,3,opt,name=etag,proto3"`
-	xxx_hidden_DiscoveredAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=discovered_at,json=discoveredAt,proto3"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_RowKind        string                 `protobuf:"bytes,1,opt,name=row_kind,json=rowKind,proto3"`
+	xxx_hidden_ScopeKey       string                 `protobuf:"bytes,2,opt,name=scope_key,json=scopeKey,proto3"`
+	xxx_hidden_CacheValidator string                 `protobuf:"bytes,3,opt,name=cache_validator,json=cacheValidator,proto3"`
+	xxx_hidden_DiscoveredAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=discovered_at,json=discoveredAt,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *SourceCacheEntryRecord) Reset() {
@@ -1748,16 +1748,16 @@ func (x *SourceCacheEntryRecord) GetRowKind() string {
 	return ""
 }
 
-func (x *SourceCacheEntryRecord) GetScopeHash() string {
+func (x *SourceCacheEntryRecord) GetScopeKey() string {
 	if x != nil {
-		return x.xxx_hidden_ScopeHash
+		return x.xxx_hidden_ScopeKey
 	}
 	return ""
 }
 
-func (x *SourceCacheEntryRecord) GetEtag() string {
+func (x *SourceCacheEntryRecord) GetCacheValidator() string {
 	if x != nil {
-		return x.xxx_hidden_Etag
+		return x.xxx_hidden_CacheValidator
 	}
 	return ""
 }
@@ -1773,12 +1773,12 @@ func (x *SourceCacheEntryRecord) SetRowKind(v string) {
 	x.xxx_hidden_RowKind = v
 }
 
-func (x *SourceCacheEntryRecord) SetScopeHash(v string) {
-	x.xxx_hidden_ScopeHash = v
+func (x *SourceCacheEntryRecord) SetScopeKey(v string) {
+	x.xxx_hidden_ScopeKey = v
 }
 
-func (x *SourceCacheEntryRecord) SetEtag(v string) {
-	x.xxx_hidden_Etag = v
+func (x *SourceCacheEntryRecord) SetCacheValidator(v string) {
+	x.xxx_hidden_CacheValidator = v
 }
 
 func (x *SourceCacheEntryRecord) SetDiscoveredAt(v *timestamppb.Timestamp) {
@@ -1802,11 +1802,12 @@ type SourceCacheEntryRecord_builder struct {
 	// Row kind partition: "resources", "entitlements", or "grants"
 	// (pkg/sourcecache.RowKind values).
 	RowKind string
-	// Connector-computed scope hash (lowercase hex).
-	ScopeHash string
+	// Connector-computed stable scope identifier (conventionally lowercase
+	// hex when hashed via sourcecache.HashScope; any byte-stable string).
+	ScopeKey string
 	// Opaque upstream validator: HTTP ETag, delta token, etc.
-	Etag         string
-	DiscoveredAt *timestamppb.Timestamp
+	CacheValidator string
+	DiscoveredAt   *timestamppb.Timestamp
 }
 
 func (b0 SourceCacheEntryRecord_builder) Build() *SourceCacheEntryRecord {
@@ -1814,8 +1815,8 @@ func (b0 SourceCacheEntryRecord_builder) Build() *SourceCacheEntryRecord {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_RowKind = b.RowKind
-	x.xxx_hidden_ScopeHash = b.ScopeHash
-	x.xxx_hidden_Etag = b.Etag
+	x.xxx_hidden_ScopeKey = b.ScopeKey
+	x.xxx_hidden_CacheValidator = b.CacheValidator
 	x.xxx_hidden_DiscoveredAt = b.DiscoveredAt
 	return m0
 }
@@ -1844,7 +1845,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\rdiscovered_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12 \n" +
 	"\vdescription\x18\a \x01(\tR\vdescription\x12-\n" +
 	"\x12sourced_externally\x18\b \x01(\bR\x11sourcedExternally:!\x82\xf9+\x1d\n" +
-	"\x0eresource_types\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\x98\x04\n" +
+	"\x0eresource_types\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\x95\x04\n" +
 	"\x0eResourceRecord\x12(\n" +
 	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
@@ -1854,10 +1855,10 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x06parent\x18\x06 \x01(\v2\x1a.c1.storage.v3.ResourceRefB.\x8a\xf9+*\n" +
 	"\tby_parent\x1a\x10resource_type_id\x1a\vresource_idR\x06parent\x126\n" +
 	"\vannotations\x18\a \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12?\n" +
-	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12Z\n" +
-	"\x11source_scope_hash\x18\t \x01(\tB.\x8a\xf9+*\n" +
-	"\x0fby_source_scope\"\x17source_scope_hash != ''R\x0fsourceScopeHash:.\x82\xf9+*\n" +
-	"\tresources\x12\x10resource_type_id\x12\vresource_idJ\x04\b\x01\x10\x02R\async_id\"\xda\x04\n" +
+	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12W\n" +
+	"\x10source_scope_key\x18\t \x01(\tB-\x8a\xf9+)\n" +
+	"\x0fby_source_scope\"\x16source_scope_key != ''R\x0esourceScopeKey:.\x82\xf9+*\n" +
+	"\tresources\x12\x10resource_type_id\x12\vresource_idJ\x04\b\x01\x10\x02R\async_id\"\xd7\x04\n" +
 	"\x11EntitlementRecord\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +
 	"externalId\x12h\n" +
@@ -1870,10 +1871,10 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12\x12\n" +
 	"\x04slug\x18\t \x01(\tR\x04slug\x12B\n" +
 	"\x1egrantable_to_resource_type_ids\x18\n" +
-	" \x03(\tR\x1agrantableToResourceTypeIds\x12Z\n" +
-	"\x11source_scope_hash\x18\v \x01(\tB.\x8a\xf9+*\n" +
-	"\x0fby_source_scope\"\x17source_scope_hash != ''R\x0fsourceScopeHash:\x1f\x82\xf9+\x1b\n" +
-	"\fentitlements\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xf6\x06\n" +
+	" \x03(\tR\x1agrantableToResourceTypeIds\x12W\n" +
+	"\x10source_scope_key\x18\v \x01(\tB-\x8a\xf9+)\n" +
+	"\x0fby_source_scope\"\x16source_scope_key != ''R\x0esourceScopeKey:\x1f\x82\xf9+\x1b\n" +
+	"\fentitlements\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xf3\x06\n" +
 	"\vGrantRecord\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +
 	"externalId\x12\x98\x01\n" +
@@ -1886,10 +1887,10 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x0fneeds_expansion\x18\a \x01(\bB0\x8a\xf9+,\n" +
 	"\x12by_needs_expansion\"\x16needs_expansion = trueR\x0eneedsExpansion\x126\n" +
 	"\vannotations\x18\b \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12A\n" +
-	"\asources\x18\t \x03(\v2'.c1.storage.v3.GrantRecord.SourcesEntryR\asources\x12Z\n" +
-	"\x11source_scope_hash\x18\n" +
-	" \x01(\tB.\x8a\xf9+*\n" +
-	"\x0fby_source_scope\"\x17source_scope_hash != ''R\x0fsourceScopeHash\x1a\\\n" +
+	"\asources\x18\t \x03(\v2'.c1.storage.v3.GrantRecord.SourcesEntryR\asources\x12W\n" +
+	"\x10source_scope_key\x18\n" +
+	" \x01(\tB-\x8a\xf9+)\n" +
+	"\x0fby_source_scope\"\x16source_scope_key != ''R\x0esourceScopeKey\x1a\\\n" +
 	"\fSourcesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x126\n" +
 	"\x05value\x18\x02 \x01(\v2 .c1.storage.v3.GrantSourceRecordR\x05value:\x028\x01:\x19\x82\xf9+\x15\n" +
@@ -1940,15 +1941,13 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x03 \x01(\fR\x05value:\x1c\x82\xf9+\x18\n" +
-	"\bsessions\x12\async_id\x12\x03key\"\xd9\x01\n" +
+	"\bsessions\x12\async_id\x12\x03key\"\xeb\x01\n" +
 	"\x16SourceCacheEntryRecord\x12\x19\n" +
-	"\brow_kind\x18\x01 \x01(\tR\arowKind\x12\x1d\n" +
-	"\n" +
-	"scope_hash\x18\x02 \x01(\tR\tscopeHash\x12\x12\n" +
-	"\x04etag\x18\x03 \x01(\tR\x04etag\x12?\n" +
-	"\rdiscovered_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:0\x82\xf9+,\n" +
-	"\x14source_cache_entries\x12\brow_kind\x12\n" +
-	"scope_hash*\xae\x01\n" +
+	"\brow_kind\x18\x01 \x01(\tR\arowKind\x12\x1b\n" +
+	"\tscope_key\x18\x02 \x01(\tR\bscopeKey\x12'\n" +
+	"\x0fcache_validator\x18\x03 \x01(\tR\x0ecacheValidator\x12?\n" +
+	"\rdiscovered_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:/\x82\xf9++\n" +
+	"\x14source_cache_entries\x12\brow_kind\x12\tscope_key*\xae\x01\n" +
 	"\bSyncType\x12\x19\n" +
 	"\x15SYNC_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSYNC_TYPE_FULL\x10\x01\x12\x15\n" +

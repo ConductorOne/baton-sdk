@@ -114,7 +114,7 @@ func rawTimestampNanos(value []byte) (int64, error) {
 }
 
 func (e *Engine) deleteResourceIndexesRaw(batch *pebble.Batch, resourceTypeID string, resourceID string, value []byte) error {
-	parentRT, parentID, sourceScopeHash, err := scanResourceIndexFieldsRaw(value)
+	parentRT, parentID, sourceScopeKey, err := scanResourceIndexFieldsRaw(value)
 	if err != nil {
 		return err
 	}
@@ -123,8 +123,8 @@ func (e *Engine) deleteResourceIndexesRaw(batch *pebble.Batch, resourceTypeID st
 			return err
 		}
 	}
-	if sourceScopeHash != "" {
-		if err := batch.Delete(encodeResourceBySourceScopeIndexKey(sourceScopeHash, resourceTypeID, resourceID), nil); err != nil {
+	if sourceScopeKey != "" {
+		if err := batch.Delete(encodeResourceBySourceScopeIndexKey(sourceScopeKey, resourceTypeID, resourceID), nil); err != nil {
 			return err
 		}
 	}
@@ -132,7 +132,7 @@ func (e *Engine) deleteResourceIndexesRaw(batch *pebble.Batch, resourceTypeID st
 }
 
 func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, value []byte) error {
-	entRT, entRID, entID, principalRT, principalID, _, sourceScopeHash, err := scanGrantIndexFieldsRaw(value)
+	entRT, entRID, entID, principalRT, principalID, _, sourceScopeKey, err := scanGrantIndexFieldsRaw(value)
 	if err != nil {
 		return err
 	}
@@ -153,8 +153,8 @@ func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, v
 	if err := e.stageGrantDigestInvalidation(batch, id.entitlement); err != nil {
 		return err
 	}
-	if sourceScopeHash != "" {
-		if err := batch.Delete(encodeGrantBySourceScopeIndexKey(sourceScopeHash, id), nil); err != nil {
+	if sourceScopeKey != "" {
+		if err := batch.Delete(encodeGrantBySourceScopeIndexKey(sourceScopeKey, id), nil); err != nil {
 			return err
 		}
 	}
@@ -336,10 +336,10 @@ func scanEntitlementResourceTypeRaw(value []byte) ([]byte, error) {
 // approximating proto merge semantics. Values written by this SDK carry
 // at most one occurrence, so this only matters for foreign writers.
 // scanResourceIndexFieldsRaw extracts the parent ref (field 6) and
-// source_scope_hash (field 9) from a marshaled ResourceRecord — the
+// source_scope_key (field 9) from a marshaled ResourceRecord — the
 // fields that key resource secondary indexes.
 func scanResourceIndexFieldsRaw(value []byte) (string, string, string, error) {
-	var rt, id, sourceScopeHash string
+	var rt, id, sourceScopeKey string
 	for len(value) > 0 {
 		num, typ, n := protowire.ConsumeTag(value)
 		if n < 0 {
@@ -363,13 +363,13 @@ func scanResourceIndexFieldsRaw(value []byte) (string, string, string, error) {
 			value = value[n:]
 		case 9:
 			if typ != protowire.BytesType {
-				return "", "", "", fmt.Errorf("raw record: resource source_scope_hash has wire type %v", typ)
+				return "", "", "", fmt.Errorf("raw record: resource source_scope_key has wire type %v", typ)
 			}
 			s, n := protowire.ConsumeBytes(value)
 			if n < 0 {
 				return "", "", "", protowire.ParseError(n)
 			}
-			sourceScopeHash = string(s)
+			sourceScopeKey = string(s)
 			value = value[n:]
 		default:
 			n = protowire.ConsumeFieldValue(num, typ, value)
@@ -379,14 +379,14 @@ func scanResourceIndexFieldsRaw(value []byte) (string, string, string, error) {
 			value = value[n:]
 		}
 	}
-	return rt, id, sourceScopeHash, nil
+	return rt, id, sourceScopeKey, nil
 }
 
-// scanEntitlementSourceScopeRaw extracts source_scope_hash (field 11)
+// scanEntitlementSourceScopeRaw extracts source_scope_key (field 11)
 // from a marshaled EntitlementRecord. Keys the entitlement
 // by_source_scope index — the only entitlement secondary index.
 func scanEntitlementSourceScopeRaw(value []byte) (string, error) {
-	var sourceScopeHash string
+	var sourceScopeKey string
 	for len(value) > 0 {
 		num, typ, n := protowire.ConsumeTag(value)
 		if n < 0 {
@@ -402,16 +402,16 @@ func scanEntitlementSourceScopeRaw(value []byte) (string, error) {
 			continue
 		}
 		if typ != protowire.BytesType {
-			return "", fmt.Errorf("raw record: entitlement source_scope_hash has wire type %v", typ)
+			return "", fmt.Errorf("raw record: entitlement source_scope_key has wire type %v", typ)
 		}
 		s, n := protowire.ConsumeBytes(value)
 		if n < 0 {
 			return "", protowire.ParseError(n)
 		}
-		sourceScopeHash = string(s)
+		sourceScopeKey = string(s)
 		value = value[n:]
 	}
-	return sourceScopeHash, nil
+	return sourceScopeKey, nil
 }
 
 func scanEntitlementResourceRaw(value []byte) (string, string, error) {
@@ -492,7 +492,7 @@ func scanEntitlementIdentityFieldsRaw(value []byte) (string, string, string, err
 }
 
 func scanGrantIndexFieldsRaw(value []byte) (string, string, string, string, string, bool, string, error) {
-	var entRT, entRID, entID, principalRT, principalID, sourceScopeHash string
+	var entRT, entRID, entID, principalRT, principalID, sourceScopeKey string
 	var needsExpansion bool
 	for len(value) > 0 {
 		num, typ, n := protowire.ConsumeTag(value)
@@ -541,13 +541,13 @@ func scanGrantIndexFieldsRaw(value []byte) (string, string, string, string, stri
 			value = value[n:]
 		case 10:
 			if typ != protowire.BytesType {
-				return "", "", "", "", "", false, "", fmt.Errorf("raw record: grant source_scope_hash has wire type %v", typ)
+				return "", "", "", "", "", false, "", fmt.Errorf("raw record: grant source_scope_key has wire type %v", typ)
 			}
 			s, n := protowire.ConsumeBytes(value)
 			if n < 0 {
 				return "", "", "", "", "", false, "", protowire.ParseError(n)
 			}
-			sourceScopeHash = string(s)
+			sourceScopeKey = string(s)
 			value = value[n:]
 		default:
 			n = protowire.ConsumeFieldValue(num, typ, value)
@@ -557,7 +557,7 @@ func scanGrantIndexFieldsRaw(value []byte) (string, string, string, string, stri
 			value = value[n:]
 		}
 	}
-	return entRT, entRID, entID, principalRT, principalID, needsExpansion, sourceScopeHash, nil
+	return entRT, entRID, entID, principalRT, principalID, needsExpansion, sourceScopeKey, nil
 }
 
 // scanGrantNeedsExpansionRaw extracts only the needs_expansion flag
