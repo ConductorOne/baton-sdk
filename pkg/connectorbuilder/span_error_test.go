@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	otelcodes "go.opentelemetry.io/otel/codes"
@@ -40,25 +41,29 @@ func (r *recordingExporter) spansByName(name string) []sdktrace.ReadOnlySpan {
 	return out
 }
 
-// installSpanRecorder swaps the global otel tracer provider for an in-memory
-// recorder for the duration of the test. The package-level tracer var in
-// connectorbuilder.go is captured at init via otel.Tracer(name), which
-// returns a delegating wrapper that lazily routes through the current global
-// provider — so this swap reaches the existing tracer references.
+// installSpanRecorder installs an in-memory span recorder as the global
+// otel tracer provider, ONCE per test process, and returns it. A singleton
+// because otel's global delegation is one-shot: the package-level tracer in
+// connectorbuilder.go (captured at init via otel.Tracer) wires itself to
+// the FIRST SetTracerProvider and never re-delegates — a second install
+// would silently record nothing, and restoring the previous provider on
+// cleanup would shut the only wired exporter down for every later test.
 //
-// Mutates global state; callers must not call t.Parallel().
+// The recorder accumulates spans across tests; assert on the LAST span of
+// a name. Mutates global state; callers must not call t.Parallel().
 func installSpanRecorder(t *testing.T) *recordingExporter {
 	t.Helper()
-	exp := &recordingExporter{}
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
-	prev := otel.GetTracerProvider()
-	otel.SetTracerProvider(tp)
-	t.Cleanup(func() {
-		otel.SetTracerProvider(prev)
-		_ = tp.Shutdown(context.Background())
+	spanRecorderOnce.Do(func() {
+		spanRecorderExp = &recordingExporter{}
+		otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSyncer(spanRecorderExp)))
 	})
-	return exp
+	return spanRecorderExp
 }
+
+var (
+	spanRecorderOnce sync.Once
+	spanRecorderExp  *recordingExporter
+)
 
 // TestSpanErrorRecorded_EarlyReturns is the regression test for OPS-1543.
 // Pre-fix, ~30 early-return error paths in pkg/connectorbuilder shadowed
@@ -69,6 +74,31 @@ func installSpanRecorder(t *testing.T) *recordingExporter {
 // one representative path per bug-pattern class: err := inside if-block
 // with InvalidArgument, err := inside if-block with NotFound, and direct
 // return (no outer assignment) with NotFound.
+// TestSpanOKOnDeferredProtocolTurn is the inverse regression: a deferred
+// source-cache lookup (ask/answer bounce) is a PROTOCOL TURN — the RPC
+// succeeds — but the handler's ErrLookupDeferred used to linger in the
+// function-scoped err that the deferred EndSpanWithError reads, marking
+// every normal bounce as a trace error. The span must end status:ok.
+func TestSpanOKOnDeferredProtocolTurn(t *testing.T) {
+	ctx := context.Background()
+	exp := installSpanRecorder(t)
+
+	ts := &continuationTestSyncer{testResourceSyncerV2Simple: testResourceSyncerV2Simple{resourceType: "group"}, scope: "groups/g1/members"}
+	b := newContinuationTestBuilder(t, ts)
+
+	offer := annotations.New(&v2.SourceCacheLookupOffer{})
+	resp, err := b.ListGrants(ctx, continuationGrantsRequest(offer))
+	require.NoError(t, err, "a deferral is a protocol turn, not a failure")
+	respAnnos := annotations.Annotations(resp.GetAnnotations())
+	require.True(t, respAnnos.Contains(&v2.SourceCacheLookupAsk{}), "sanity: this must be the ask turn")
+
+	spans := exp.spansByName("builder.ListGrants")
+	require.NotEmpty(t, spans)
+	s := spans[len(spans)-1]
+	require.NotEqual(t, otelcodes.Error, s.Status().Code,
+		"a deferred ask/answer turn must not record a span error; ErrLookupDeferred must be cleared before the deferred EndSpanWithError reads err")
+}
+
 func TestSpanErrorRecorded_EarlyReturns(t *testing.T) {
 	ctx := context.Background()
 	exp := installSpanRecorder(t)

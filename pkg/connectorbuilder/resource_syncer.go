@@ -302,6 +302,10 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 	}
 	if deferred {
 		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+		// A deferral is a protocol turn, not a failure: clear the
+		// handler's ErrLookupDeferred so the span defer above doesn't
+		// record every normal ask/answer bounce as a trace error.
+		err = nil
 		// Session usage rides the ask too: the phase-1 handler may have
 		// touched the session before deferring, and the protocol turn is
 		// the only response that work will ever produce.
@@ -486,6 +490,9 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 	}
 	if deferred {
 		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+		// Protocol turn, not a failure — clear ErrLookupDeferred for the
+		// span defer; see the ListResources deferred path.
+		err = nil
 		// Session usage rides the ask; see the ListResources deferred path.
 		return v2.EntitlementsServiceListEntitlementsResponse_builder{Annotations: appendSessionUsage(askAnnos, sessionUsage)}.Build(), nil
 	}
@@ -580,6 +587,9 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 	}
 	if deferred {
 		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+		// Protocol turn, not a failure — clear ErrLookupDeferred for the
+		// span defer; see the ListResources deferred path.
+		err = nil
 		// Session usage rides the ask; see the ListResources deferred path.
 		return v2.GrantsServiceListGrantsResponse_builder{Annotations: appendSessionUsage(askAnnos, sessionUsage)}.Build(), nil
 	}

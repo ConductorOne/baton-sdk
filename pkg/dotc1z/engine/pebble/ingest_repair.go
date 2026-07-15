@@ -366,7 +366,8 @@ func (e *Engine) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, 
 // DeleteEntitlementsForResource deletes every entitlement row under one
 // resource — the drop arm for entitlements referencing a resource with no
 // row. Returns the count and up to maxIDs deleted external ids for the
-// caller's aggregate report.
+// caller's aggregate report; maxIDs <= 0 collects none (callers pass a
+// shrinking example budget, so the guard below doubles as the clamp).
 func (e *Engine) DeleteEntitlementsForResource(ctx context.Context, resourceTypeID, resourceID string, maxIDs int) (int64, []string, error) {
 	prefix := encodeEntitlementPrimaryResourcePrefix(resourceTypeID, resourceID)
 	type entRow struct {

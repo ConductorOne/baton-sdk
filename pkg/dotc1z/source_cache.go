@@ -143,7 +143,8 @@ type IngestInvariantStore interface {
 	ForEachDanglingGrantPrincipal(ctx context.Context, visit func(principalRT, principalID string, matchAnnotatedOnly bool, carrierGrants int64) error) error
 
 	// DeleteEntitlementsForResource drops every entitlement row under a
-	// resource; returns the count and up to maxIDs deleted ids.
+	// resource; returns the count and up to maxIDs deleted ids
+	// (maxIDs <= 0 collects none — callers pass a shrinking budget).
 	DeleteEntitlementsForResource(ctx context.Context, resourceTypeID, resourceID string, maxIDs int) (int64, []string, error)
 
 	// DeleteGrantsForEntitlement drops every grant row under one
