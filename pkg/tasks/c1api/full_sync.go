@@ -44,7 +44,7 @@ type fullSyncTaskHandler struct {
 	workerCount                         int
 	storageEngine                       c1zstore.Engine
 
-	// previousSyncSparePath is the connector's ETag-replay opt-in: when
+	// previousSyncSparePath is the connector's source-cache-replay opt-in: when
 	// non-empty, the handler retains one spare c1z (the last successfully
 	// uploaded sync) at exactly this path and feeds it to the next sync
 	// as the replay source. Empty (the default) disables the feature
@@ -96,7 +96,7 @@ func previousSyncSparePath(tempDir, clientID string) string {
 // payload decode) so the spare a future task replays from is positively
 // identifiable in the logs, and both failure paths warn — a connector
 // that opted in but whose rotation keeps failing must be visible, not
-// silently etag-less forever.
+// silently replay-less forever.
 func promoteOrRemoveC1Z(ctx context.Context, currentPath, sparePath string, keep bool) {
 	l := ctxzap.Extract(ctx)
 	if keep {
@@ -107,7 +107,7 @@ func promoteOrRemoveC1Z(ctx context.Context, currentPath, sparePath string, keep
 				zap.String("spare_sync_id", c1zSyncIDBestEffort(sparePath)))
 			return
 		}
-		l.Warn("failed to retain uploaded c1z as previous-sync spare; removing it instead (etag replay will be inactive next sync)",
+		l.Warn("failed to retain uploaded c1z as previous-sync spare; removing it instead (source-cache replay will be inactive next sync)",
 			zap.String("current_path", currentPath),
 			zap.String("spare_path", sparePath),
 			zap.Error(err))
@@ -188,22 +188,22 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithExternalResourceC1ZPath(c.externalResourceC1ZPath))
 	}
 
-	// ETag replay (opt-in): feed the spare retained from the last
+	// source-cache replay (opt-in): feed the spare retained from the last
 	// successful upload as the previous-sync replay source. Optional
 	// semantics — a missing/corrupt/stale-format spare degrades to a
 	// plain sync and is replaced by this task's rotation on success,
 	// so a bad spare self-heals and can never fail the sync. Both
 	// branches log: a persistently-absent spare on an opted-in
 	// connector means rotation is broken, and that must be visible
-	// rather than silently disabling etag replay forever.
+	// rather than silently disabling source-cache replay forever.
 	if c.previousSyncSparePath != "" {
 		if fileExists(c.previousSyncSparePath) {
-			l.Info("previous-sync spare found; etag replay enabled for this sync",
+			l.Info("previous-sync spare found; source-cache replay enabled for this sync",
 				zap.String("spare_path", c.previousSyncSparePath),
 				zap.String("spare_sync_id", c1zSyncIDBestEffort(c.previousSyncSparePath)))
 			syncOpts = append(syncOpts, sdkSync.WithOptionalPreviousSyncC1ZPath(c.previousSyncSparePath))
 		} else {
-			l.Info("no previous-sync spare on disk; etag replay inactive for this sync (expected on the first sync after enabling, or after a failed rotation)",
+			l.Info("no previous-sync spare on disk; source-cache replay inactive for this sync (expected on the first sync after enabling, or after a failed rotation)",
 				zap.String("spare_path", c.previousSyncSparePath))
 		}
 	}

@@ -543,7 +543,7 @@ func TestSourceCacheStats_OverlayRoundBooksOneHit(t *testing.T) {
 	require.NotNil(t, stats)
 	require.Equal(t, int64(1), stats.ScopesReplayed, "one warm round, one hit")
 	require.Equal(t, int64(1), stats.ScopesStamped, "only the cold scope counts as stamped")
-	require.Equal(t, int64(2), stats.RowsReplayed[string(sourcecache.RowKindGrants)])
+	require.Equal(t, int64(2), stats.RowsReplayed[sourcecache.RowKindGrants])
 	require.Equal(t, int64(1), stats.OverlayRows)
 }
 

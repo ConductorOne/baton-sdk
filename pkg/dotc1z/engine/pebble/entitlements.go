@@ -142,10 +142,11 @@ func (e *Engine) GetEntitlementRecord(ctx context.Context, externalID string) (*
 }
 
 // DeleteEntitlementRecord deletes by raw public id. A missing id is a
-// no-op; an ambiguous id is an error (a lossy string must never guess a
-// delete).
-func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string) error {
-	return e.withWrite(func() error {
+// no-op (returns false); an ambiguous id is an error (a lossy string
+// must never guess a delete). Returns whether a row was deleted.
+func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string) (bool, error) {
+	deleted := false
+	err := e.withWrite(func() error {
 		id, err := e.resolveEntitlementIdentityByExternalID(ctx, externalID)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
@@ -179,8 +180,10 @@ func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string)
 			return err
 		}
 		e.noteEntitlementKeyspaceWrite()
+		deleted = true
 		return nil
 	})
+	return deleted, err
 }
 
 func (e *Engine) IterateEntitlements(ctx context.Context, yield func(*v3.EntitlementRecord) bool) error {

@@ -27,7 +27,7 @@ type LookupRequest struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// Row kind: resources / entitlements / grants
 	// (pkg/sourcecache.RowKind values). Entries are partitioned by row
-	// kind, so one scope hash can carry a different validator per kind.
+	// kind, so one scope key can carry a different validator per kind.
 	RowKind string `protobuf:"bytes,1,opt,name=row_kind,json=rowKind,proto3" json:"row_kind,omitempty"`
 	// Connector-defined stable scope identifier (a stable identifier for the canonical scope
 	// (often a hex hash; see pkg/sourcecache.HashScope). Opaque to the
@@ -90,7 +90,7 @@ type LookupRequest_builder struct {
 
 	// Row kind: resources / entitlements / grants
 	// (pkg/sourcecache.RowKind values). Entries are partitioned by row
-	// kind, so one scope hash can carry a different validator per kind.
+	// kind, so one scope key can carry a different validator per kind.
 	RowKind string
 	// Connector-defined stable scope identifier (a stable identifier for the canonical scope
 	// (often a hex hash; see pkg/sourcecache.HashScope). Opaque to the

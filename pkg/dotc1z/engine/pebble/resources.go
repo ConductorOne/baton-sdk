@@ -124,8 +124,12 @@ func (e *Engine) GetResourceRecord(ctx context.Context, resourceTypeID, resource
 	return r, nil
 }
 
-func (e *Engine) DeleteResourceRecord(ctx context.Context, resourceTypeID, resourceID string) error {
-	return e.withWrite(func() error {
+// DeleteResourceRecord deletes one resource row and its index entries.
+// Returns whether a row existed (a missing row is a no-op, not an error —
+// tombstone semantics).
+func (e *Engine) DeleteResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (bool, error) {
+	deleted := false
+	err := e.withWrite(func() error {
 		key := encodeResourceKey(resourceTypeID, resourceID)
 
 		batch := e.db.NewBatch()
@@ -146,8 +150,13 @@ func (e *Engine) DeleteResourceRecord(ctx context.Context, resourceTypeID, resou
 		if err := batch.Delete(key, nil); err != nil {
 			return err
 		}
-		return batch.Commit(writeOpts(e.opts.durability))
+		if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
+			return err
+		}
+		deleted = true
+		return nil
 	})
+	return deleted, err
 }
 
 func (e *Engine) writeResourceIndexes(batch *pebble.Batch, r *v3.ResourceRecord) error {

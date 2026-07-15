@@ -83,7 +83,7 @@ type LookupRequest_builder struct {
 
 	// Row kind: resources / entitlements / grants
 	// (pkg/sourcecache.RowKind values). Entries are partitioned by row
-	// kind, so one scope hash can carry a different validator per kind.
+	// kind, so one scope key can carry a different validator per kind.
 	RowKind string
 	// Connector-defined stable scope identifier (a stable identifier for the canonical scope
 	// (often a hex hash; see pkg/sourcecache.HashScope). Opaque to the

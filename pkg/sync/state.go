@@ -211,13 +211,20 @@ const (
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.
 type Action struct {
-	ID                   string   `json:"id,omitempty"`
-	Op                   ActionOp `json:"operation,omitempty"`
-	PageToken            string   `json:"page_token,omitempty"`
-	ResourceTypeID       string   `json:"resource_type_id,omitempty"`
-	ResourceID           string   `json:"resource_id,omitempty"`
-	ParentResourceTypeID string   `json:"parent_resource_type_id,omitempty"`
-	ParentResourceID     string   `json:"parent_resource_id,omitempty"`
+	ID             string   `json:"id,omitempty"`
+	Op             ActionOp `json:"operation,omitempty"`
+	PageToken      string   `json:"page_token,omitempty"`
+	ResourceTypeID string   `json:"resource_type_id,omitempty"`
+	// ResourceID == "" on a SyncGrantsOp / SyncEntitlementsOp action is
+	// the TYPE-SCOPED discriminator: the action enumerates the whole
+	// resource type (TypeScopedGrants / TypeScopedEntitlements) instead
+	// of one resource. Deliberately not a separate field — actions are
+	// JSON-serialized into checkpointed sync tokens, and the planners
+	// never emit an empty ResourceID for those ops otherwise, so the
+	// sentinel is unambiguous and keeps old tokens decoding unchanged.
+	ResourceID           string `json:"resource_id,omitempty"`
+	ParentResourceTypeID string `json:"parent_resource_type_id,omitempty"`
+	ParentResourceID     string `json:"parent_resource_id,omitempty"`
 
 	// Spawned marks an action enqueued by a connector's EnqueuePageTokens
 	// annotation (a sibling cursor) rather than by the syncer's own

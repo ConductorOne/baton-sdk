@@ -25,7 +25,7 @@ service BatonSourceCacheService {
 message LookupRequest {
   // Row kind: resources / entitlements / grants
   // (pkg/sourcecache.RowKind values). Entries are partitioned by row
-  // kind, so one scope hash can carry a different validator per kind.
+  // kind, so one scope key can carry a different validator per kind.
   string row_kind = 1 [(validate.rules).string = {
     min_len: 1
     max_len: 64

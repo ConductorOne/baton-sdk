@@ -68,7 +68,7 @@ func TestBareIDEntitlementLookupExactlyOne(t *testing.T) {
 	// Two matches → explicit ambiguity, for reads AND deletes.
 	_, err = e.GetEntitlementRecord(ctx, "shared-id")
 	require.ErrorIs(t, err, ErrAmbiguousExternalID)
-	err = e.DeleteEntitlementRecord(ctx, "shared-id")
+	_, err = e.DeleteEntitlementRecord(ctx, "shared-id")
 	require.ErrorIs(t, err, ErrAmbiguousExternalID, "an ambiguous string must never guess a delete")
 
 	// Both ambiguous rows are intact.
@@ -101,7 +101,9 @@ func TestBareIDEntitlementLookupInvalidation(t *testing.T) {
 	require.NoError(t, err, "write must invalidate the cached map")
 	require.Equal(t, "second", got.GetExternalId())
 
-	require.NoError(t, e.DeleteEntitlementRecord(ctx, "first"))
+	deletedFirst, err := e.DeleteEntitlementRecord(ctx, "first")
+	require.NoError(t, err)
+	require.True(t, deletedFirst)
 	_, err = e.GetEntitlementRecord(ctx, "first")
 	require.ErrorIs(t, err, pebble.ErrNotFound, "delete must invalidate the cached map")
 }

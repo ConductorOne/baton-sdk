@@ -57,16 +57,21 @@ type syncerSourceCache struct {
 	// page's manifest write is not also counted as a fresh stamp — one
 	// warm delta round would otherwise book as both a hit and a miss in
 	// the replay ratio. Only rounds that can span pages are recorded
-	// (overlay, or replay without an inline etag), keeping the set tiny:
+	// (overlay, or replay without an inline validator), keeping the set tiny:
 	// single-page 304 rounds never enter it. Pointer so copying the
 	// per-sync struct shares the set; guarded internally for parallel
 	// workers. Best-effort across resume (in-memory), stats-only.
 	replayedScopes *replayedScopeSet
 }
 
+type scopeRef struct {
+	kind     sourcecache.RowKind
+	scopeKey string
+}
+
 type replayedScopeSet struct {
 	mu stdsync.Mutex
-	m  map[string]struct{}
+	m  map[scopeRef]struct{}
 }
 
 func (c *syncerSourceCache) markScopeReplayed(kind sourcecache.RowKind, scopeKey string) {
@@ -76,9 +81,9 @@ func (c *syncerSourceCache) markScopeReplayed(kind sourcecache.RowKind, scopeKey
 	c.replayedScopes.mu.Lock()
 	defer c.replayedScopes.mu.Unlock()
 	if c.replayedScopes.m == nil {
-		c.replayedScopes.m = make(map[string]struct{})
+		c.replayedScopes.m = make(map[scopeRef]struct{})
 	}
-	c.replayedScopes.m[string(kind)+"\x00"+scopeKey] = struct{}{}
+	c.replayedScopes.m[scopeRef{kind: kind, scopeKey: scopeKey}] = struct{}{}
 }
 
 func (c *syncerSourceCache) scopeReplayedThisSync(kind sourcecache.RowKind, scopeKey string) bool {
@@ -87,7 +92,7 @@ func (c *syncerSourceCache) scopeReplayedThisSync(kind sourcecache.RowKind, scop
 	}
 	c.replayedScopes.mu.Lock()
 	defer c.replayedScopes.mu.Unlock()
-	_, ok := c.replayedScopes.m[string(kind)+"\x00"+scopeKey]
+	_, ok := c.replayedScopes.m[scopeRef{kind: kind, scopeKey: scopeKey}]
 	return ok
 }
 
@@ -120,7 +125,7 @@ func (s *syncer) configureSourceCache(ctx context.Context, resp *v2.ConnectorSer
 	l := ctxzap.Extract(ctx)
 	s.sourceCache = syncerSourceCache{}
 
-	setLookup, canSetLookup := s.connector.(sourcecache.SetLookup)
+	setLookup, canSetLookup := s.connector.(sourcecache.SourceCacheSetter)
 	degrade := func(reason string) error {
 		if canSetLookup {
 			setLookup.SetSourceCache(ctx, sourcecache.NoopLookup{})
@@ -235,7 +240,7 @@ func previousSyncReplayUnusableReason(ctx context.Context, reader connectorstore
 // clearSourceCacheLookup detaches the per-sync lookup so a late RPC from
 // the connector cannot read a store the syncer no longer owns.
 func (s *syncer) clearSourceCacheLookup(ctx context.Context) {
-	if setLookup, ok := s.connector.(sourcecache.SetLookup); ok {
+	if setLookup, ok := s.connector.(sourcecache.SourceCacheSetter); ok {
 		setLookup.SetSourceCache(ctx, nil)
 	}
 }
@@ -244,9 +249,9 @@ func (s *syncer) clearSourceCacheLookup(ctx context.Context) {
 // from beginSourceCachePage (before rows are written) to
 // finishSourceCachePage (after rows are written).
 type sourceCachePage struct {
-	kind     sourcecache.RowKind
-	scopeKey string
-	etag     string
+	kind           sourcecache.RowKind
+	scopeKey       string
+	cacheValidator string
 	// replayed reports that beginSourceCachePage copied the previous
 	// sync's rows for this scope into the current sync BEFORE the page's
 	// own rows commit. Consumers that dedupe against "already synced this
@@ -325,9 +330,9 @@ func (s *syncer) beginSourceCachePage(
 	}
 	// Prefer the scope annotation's etag (the freshest validator on
 	// overlay pages); fall back to the replay's.
-	page.etag = scope.GetCacheValidator()
-	if page.etag == "" {
-		page.etag = replay.GetCacheValidator()
+	page.cacheValidator = scope.GetCacheValidator()
+	if page.cacheValidator == "" {
+		page.cacheValidator = replay.GetCacheValidator()
 	}
 	// Tombstones may ride either annotation — the replay annotation on a
 	// round's first page, the scope annotation on every page (so a
@@ -338,115 +343,126 @@ func (s *syncer) beginSourceCachePage(
 	page.deletedPrincipalIDs = append(append([]string{}, replay.GetDeletedPrincipalIds()...), scope.GetDeletedPrincipalIds()...)
 
 	if hasReplay {
-		if s.sourceCache.prev == nil {
-			// Same invariant violation as the disabled case: the connector
-			// can only have gotten a lookup hit if a previous source exists.
-			return ctx, nil, fmt.Errorf("source cache: connector requested replay for scope %q but no previous sync is available", replay.GetScopeKey())
-		}
-		page.replayed = true
-		if !replay.GetOverlay() && rowCount > 0 {
-			// The contract says a 304-style replay page is empty, but rows
-			// arriving here are more data, not less — upsert them on top of
-			// the replayed base (overlay semantics) rather than failing the
-			// sync. Kept lenient while the model is proven against real
-			// providers.
-			ctxzap.Extract(ctx).Warn("source cache: non-overlay replay returned rows; treating them as an overlay",
-				zap.String("scope_key", page.scopeKey),
-				zap.Int("rows", rowCount),
-			)
-		}
-		// Advisory check: a well-behaved connector only replays a scope
-		// whose validator came from this sync's lookup, so a missing
-		// previous manifest entry is suspicious — but not by itself data
-		// loss (the stamped rows may still exist, e.g. a partially carried
-		// file). The hard error below is reserved for a replay that
-		// produces nothing.
-		_, entryFound, err := s.sourceCache.prev.LookupSourceCacheEntry(ctx, kind, page.scopeKey)
-		if err != nil {
-			return ctx, nil, fmt.Errorf("source cache: error reading previous manifest for scope %q: %w", page.scopeKey, err)
-		}
-		if !entryFound {
-			ctxzap.Extract(ctx).Warn("source cache: replay requested for scope with no previous manifest entry",
-				zap.String("scope_key", page.scopeKey))
-		}
-		replayStart := time.Now()
-		res, err := s.sourceCache.current.ReplaySourceCache(ctx, s.sourceCache.prevReader, kind, page.scopeKey)
-		s.state.AddStepDuration("source_cache_replay", time.Since(replayStart))
-		if err != nil {
-			return ctx, nil, fmt.Errorf("source cache: replay for scope %q failed: %w", page.scopeKey, err)
-		}
-		// Stats are stashed on the page and recorded in
-		// finishSourceCachePage so a page re-run after failing between
-		// replay and finish doesn't double-count.
-		page.replayRows = res.Rows
-		page.overlayRows = rowCount
-		if replay.GetOverlay() || page.etag == "" {
-			// This replay round can span pages: the validator arrives on
-			// a LATER page's scope annotation (delta rounds), and that
-			// page must count toward ScopesReplayed's scope, not as a
-			// freshly stamped one — see finishSourceCachePage.
-			s.sourceCache.markScopeReplayed(kind, page.scopeKey)
-		}
-		if res.Rows == 0 && !entryFound {
-			// The connector skipped row generation expecting a base that
-			// does not exist anywhere in the previous file — this sync
-			// would silently drop the scope's rows.
-			return ctx, nil, fmt.Errorf("source cache: replay for scope %q found no previous rows and no manifest entry; the connector replayed a scope it never looked up", page.scopeKey)
-		}
-		// Empty-vs-dropped discrimination via the previous file's scope
-		// index: a legitimately empty scope has NO index entries
-		// (StaleSkipped == 0, fine to proceed); a scope whose index says
-		// rows existed but none carried a matching value stamp means the
-		// rows were rewritten without index cleanup — proceeding would
-		// silently drop the scope's contents from this sync.
-		if res.Rows == 0 && res.StaleSkipped > 0 {
-			return ctx, nil, fmt.Errorf(
-				"source cache: replay for scope %q copied no rows but the previous file's scope index holds %d entries "+
-					"whose rows no longer carry this scope's stamp; refusing to silently drop the scope",
-				page.scopeKey, res.StaleSkipped)
-		}
-		if res.StaleSkipped > 0 {
-			// Partial staleness: some rows copied, some index entries were
-			// dead. Not data loss by itself (the live rows carried their
-			// true stamp), but a signal a writer skipped index cleanup.
-			ctxzap.Extract(ctx).Warn("source cache: replay skipped stale scope-index entries",
-				zap.String("scope_key", page.scopeKey),
-				zap.Int64("rows", res.Rows),
-				zap.Int64("stale_skipped", res.StaleSkipped),
-			)
-		}
-		// Side effects for replayed rows are STORE-DERIVED, not armed
-		// here — the engine maintains the needs_expansion index and the
-		// external-match existence bit for replayed rows exactly as for
-		// fresh ones, and the ingestion invariants read the store at
-		// their consuming seams (expansion: the PendingExpansion probe at
-		// SyncGrantExpansionOp; external match: the fact probe at
-		// SyncExternalResourcesOp; exclusion groups: the post-collection
-		// keyspace validation). See
-		// docs/tasks/source-cache-ingestion-invariants.md. The one
-		// replay-carried side effect is child scheduling, which cannot be
-		// derived after the fact (a zero-row child listing leaves no
-		// store evidence), so replay carries the parents' child types:
-		if kind == sourcecache.RowKindResources {
-			for _, parent := range res.ChildResources {
-				s.pushChildResourceActions(ctx, parent.ChildTypeIDs, parent.ResourceTypeID, parent.ResourceID)
-			}
-		}
-		ctxzap.Extract(ctx).Debug("source cache replayed scope",
-			zap.String("row_kind", string(kind)),
-			zap.String("scope_key", page.scopeKey),
-			zap.Int64("rows", res.Rows),
-			zap.Int("deleted_ids", len(page.deletedIDs)),
-			zap.Int("deleted_principal_ids", len(page.deletedPrincipalIDs)),
-		)
-		if s.testSourceCacheHaltHook != nil {
-			if err := s.testSourceCacheHaltHook("replay-copied", page.scopeKey); err != nil {
-				return ctx, nil, err
-			}
+		if err := s.executeScopeReplay(ctx, kind, page, replay, rowCount); err != nil {
+			return ctx, nil, err
 		}
 	}
 
 	return sourcecache.WithScope(ctx, page.scopeKey), page, nil
+}
+
+// executeScopeReplay is beginSourceCachePage's replay step: validate the
+// replay request against this sync's state, copy the previous sync's
+// rows for the scope, and record the page-level bookkeeping. The page's
+// scope key, validator, and tombstones have already been parsed.
+func (s *syncer) executeScopeReplay(ctx context.Context, kind sourcecache.RowKind, page *sourceCachePage, replay *v2.SourceCacheReplay, rowCount int) error {
+	if s.sourceCache.prev == nil {
+		// Same invariant violation as the disabled case: the connector
+		// can only have gotten a lookup hit if a previous source exists.
+		return fmt.Errorf("source cache: connector requested replay for scope %q but no previous sync is available", replay.GetScopeKey())
+	}
+	page.replayed = true
+	if !replay.GetOverlay() && rowCount > 0 {
+		// The contract says a 304-style replay page is empty, but rows
+		// arriving here are more data, not less — upsert them on top of
+		// the replayed base (overlay semantics) rather than failing the
+		// sync. Kept lenient while the model is proven against real
+		// providers.
+		ctxzap.Extract(ctx).Warn("source cache: non-overlay replay returned rows; treating them as an overlay",
+			zap.String("scope_key", page.scopeKey),
+			zap.Int("rows", rowCount),
+		)
+	}
+	// Advisory check: a well-behaved connector only replays a scope
+	// whose validator came from this sync's lookup, so a missing
+	// previous manifest entry is suspicious — but not by itself data
+	// loss (the stamped rows may still exist, e.g. a partially carried
+	// file). The hard error below is reserved for a replay that
+	// produces nothing.
+	_, entryFound, err := s.sourceCache.prev.LookupSourceCacheEntry(ctx, kind, page.scopeKey)
+	if err != nil {
+		return fmt.Errorf("source cache: error reading previous manifest for scope %q: %w", page.scopeKey, err)
+	}
+	if !entryFound {
+		ctxzap.Extract(ctx).Warn("source cache: replay requested for scope with no previous manifest entry",
+			zap.String("scope_key", page.scopeKey))
+	}
+	replayStart := time.Now()
+	res, err := s.sourceCache.current.ReplaySourceCache(ctx, s.sourceCache.prevReader, kind, page.scopeKey)
+	s.state.AddStepDuration("source_cache_replay", time.Since(replayStart))
+	if err != nil {
+		return fmt.Errorf("source cache: replay for scope %q failed: %w", page.scopeKey, err)
+	}
+	// Stats are stashed on the page and recorded in
+	// finishSourceCachePage so a page re-run after failing between
+	// replay and finish doesn't double-count.
+	page.replayRows = res.Rows
+	page.overlayRows = rowCount
+	if replay.GetOverlay() || page.cacheValidator == "" {
+		// This replay round can span pages: the validator arrives on
+		// a LATER page's scope annotation (delta rounds), and that
+		// page must count toward ScopesReplayed's scope, not as a
+		// freshly stamped one — see finishSourceCachePage.
+		s.sourceCache.markScopeReplayed(kind, page.scopeKey)
+	}
+	if res.Rows == 0 && !entryFound {
+		// The connector skipped row generation expecting a base that
+		// does not exist anywhere in the previous file — this sync
+		// would silently drop the scope's rows.
+		return fmt.Errorf("source cache: replay for scope %q found no previous rows and no manifest entry; the connector replayed a scope it never looked up", page.scopeKey)
+	}
+	// Empty-vs-dropped discrimination via the previous file's scope
+	// index: a legitimately empty scope has NO index entries
+	// (StaleSkipped == 0, fine to proceed); a scope whose index says
+	// rows existed but none carried a matching value stamp means the
+	// rows were rewritten without index cleanup — proceeding would
+	// silently drop the scope's contents from this sync.
+	if res.Rows == 0 && res.StaleSkipped > 0 {
+		return fmt.Errorf(
+			"source cache: replay for scope %q copied no rows but the previous file's scope index holds %d entries "+
+				"whose rows no longer carry this scope's stamp; refusing to silently drop the scope",
+			page.scopeKey, res.StaleSkipped)
+	}
+	if res.StaleSkipped > 0 {
+		// Partial staleness: some rows copied, some index entries were
+		// dead. Not data loss by itself (the live rows carried their
+		// true stamp), but a signal a writer skipped index cleanup.
+		ctxzap.Extract(ctx).Warn("source cache: replay skipped stale scope-index entries",
+			zap.String("scope_key", page.scopeKey),
+			zap.Int64("rows", res.Rows),
+			zap.Int64("stale_skipped", res.StaleSkipped),
+		)
+	}
+	// Side effects for replayed rows are STORE-DERIVED, not armed
+	// here — the engine maintains the needs_expansion index and the
+	// external-match existence bit for replayed rows exactly as for
+	// fresh ones, and the ingestion invariants read the store at
+	// their consuming seams (expansion: the PendingExpansion probe at
+	// SyncGrantExpansionOp; external match: the fact probe at
+	// SyncExternalResourcesOp; exclusion groups: the post-collection
+	// keyspace validation). See
+	// docs/tasks/source-cache-ingestion-invariants.md. The one
+	// replay-carried side effect is child scheduling, which cannot be
+	// derived after the fact (a zero-row child listing leaves no
+	// store evidence), so replay carries the parents' child types:
+	if kind == sourcecache.RowKindResources {
+		for _, parent := range res.ChildResources {
+			s.pushChildResourceActions(ctx, parent.ChildTypeIDs, parent.ResourceTypeID, parent.ResourceID)
+		}
+	}
+	ctxzap.Extract(ctx).Debug("source cache replayed scope",
+		zap.String("row_kind", string(kind)),
+		zap.String("scope_key", page.scopeKey),
+		zap.Int64("rows", res.Rows),
+		zap.Int("deleted_ids", len(page.deletedIDs)),
+		zap.Int("deleted_principal_ids", len(page.deletedPrincipalIDs)),
+	)
+	if s.testSourceCacheHaltHook != nil {
+		if err := s.testSourceCacheHaltHook("replay-copied", page.scopeKey); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // finishSourceCachePage runs after the page's rows committed: applies
@@ -468,37 +484,16 @@ func (s *syncer) finishSourceCachePage(ctx context.Context, page *sourceCachePag
 		defer func() {
 			s.state.AddStepDuration("source_cache_tombstones", time.Since(tombstoneStart))
 		}()
-	}
-	if len(page.deletedIDs) > 0 {
-		if page.kind == sourcecache.RowKindGrants {
-			// Grant-id tombstones resolve within the scope's own rows so
-			// connector-custom grant-id shapes (unreachable by the global
-			// bounded delete) work, and the cost stays bounded by the
-			// scope's size.
-			deleted, err := s.sourceCache.current.DeleteSourceCacheGrantsByIDInScope(ctx, page.scopeKey, page.deletedIDs)
-			if err != nil {
-				return fmt.Errorf("source cache: error applying grant deletions for scope %q: %w", page.scopeKey, err)
-			}
-			rowsDeleted += deleted
-			ctxzap.Extract(ctx).Debug("source cache applied grant-id deletions",
-				zap.String("scope_key", page.scopeKey),
-				zap.Int("tombstones", len(page.deletedIDs)),
-				zap.Int64("rows_deleted", deleted),
-			)
-		} else if err := s.sourceCache.current.DeleteSourceCacheRows(ctx, page.kind, page.deletedIDs); err != nil {
-			return fmt.Errorf("source cache: error applying deletions for scope %q: %w", page.scopeKey, err)
-		}
-	}
-	if len(page.deletedPrincipalIDs) > 0 {
-		deleted, err := s.sourceCache.current.DeleteSourceCacheRowsInScope(ctx, page.kind, page.scopeKey, page.deletedPrincipalIDs)
+		deleted, err := s.sourceCache.current.ApplyTombstones(ctx, page.kind, page.scopeKey, page.deletedIDs, page.deletedPrincipalIDs)
 		if err != nil {
-			return fmt.Errorf("source cache: error applying scoped deletions for scope %q: %w", page.scopeKey, err)
+			return fmt.Errorf("source cache: error applying tombstones for scope %q: %w", page.scopeKey, err)
 		}
-		rowsDeleted += deleted
-		ctxzap.Extract(ctx).Debug("source cache applied scoped deletions",
+		rowsDeleted = deleted
+		ctxzap.Extract(ctx).Debug("source cache applied tombstones",
 			zap.String("row_kind", string(page.kind)),
 			zap.String("scope_key", page.scopeKey),
-			zap.Int("tombstones", len(page.deletedPrincipalIDs)),
+			zap.Int("tombstone_ids", len(page.deletedIDs)),
+			zap.Int("tombstone_principals", len(page.deletedPrincipalIDs)),
 			zap.Int64("rows_deleted", deleted),
 		)
 	}
@@ -507,8 +502,8 @@ func (s *syncer) finishSourceCachePage(ctx context.Context, page *sourceCachePag
 			return err
 		}
 	}
-	if page.etag != "" {
-		if err := s.sourceCache.current.PutSourceCacheEntry(ctx, page.kind, page.scopeKey, page.etag); err != nil {
+	if page.cacheValidator != "" {
+		if err := s.sourceCache.current.PutSourceCacheEntry(ctx, page.kind, page.scopeKey, page.cacheValidator); err != nil {
 			return fmt.Errorf("source cache: error writing manifest entry for scope %q: %w", page.scopeKey, err)
 		}
 		if s.testSourceCacheHaltHook != nil {
@@ -528,10 +523,10 @@ func (s *syncer) finishSourceCachePage(ctx context.Context, page *sourceCachePag
 		// re-run after failing between replay and finish doesn't
 		// double-count the scope.
 		stats.ScopesReplayed = 1
-		stats.RowsReplayed = map[string]int64{string(page.kind): page.replayRows}
+		stats.RowsReplayed = map[sourcecache.RowKind]int64{page.kind: page.replayRows}
 		stats.OverlayRows = int64(page.overlayRows)
 	}
-	if page.etag != "" && !page.replayed && !s.sourceCache.scopeReplayedThisSync(page.kind, page.scopeKey) {
+	if page.cacheValidator != "" && !page.replayed && !s.sourceCache.scopeReplayedThisSync(page.kind, page.scopeKey) {
 		// A cold/fresh page that persisted a validator: the denominator
 		// of the replay hit ratio. The replayed-scope check keeps a
 		// multi-page overlay round — whose new validator legally arrives

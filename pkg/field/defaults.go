@@ -281,17 +281,17 @@ var (
 		WithExportTarget(ExportTargetNone))
 
 	// KeepPreviousSyncC1ZField is the CUSTOMER's runtime half of the
-	// service-mode ETag-replay opt-in: keep the last successfully
+	// service-mode source-cache-replay opt-in: keep the last successfully
 	// uploaded c1z on disk as a spare and feed it to the next full sync
 	// as the previous-sync replay source. It only takes effect on
-	// connectors whose author also declared ETag-replay support at build
+	// connectors whose author also declared source-cache-replay support at build
 	// time (connectorrunner.WithKeepPreviousSyncC1Z) — both are
 	// required. Costs one c1z of local disk.
 	// Hidden by default for the same reason as PreviousSyncC1ZField; unhidden
 	// when the connector author declares the replay capability.
 	KeepPreviousSyncC1ZField = BoolField("keep-previous-sync-c1z",
-		WithDescription("Keep the previously synced c1z on disk to enable ETag replay across service-mode syncs "+
-			"(requires a connector that supports ETag replay; costs one c1z of local disk)"),
+		WithDescription("Keep the previously synced c1z on disk to enable source-cache replay across service-mode syncs "+
+			"(requires a connector that supports source-cache replay; costs one c1z of local disk)"),
 		WithDefaultValue(false),
 		WithPersistent(true),
 		WithHidden(true),

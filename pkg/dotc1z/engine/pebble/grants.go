@@ -849,18 +849,10 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 					if r == nil {
 						continue
 					}
-					// Dense ingestion facts (see PutGrantRecords).
-					// Thread-safe: atomic load once armed, CAS +
-					// concurrent-safe db.Set on the first hit.
-					if err := e.noteGrantRecordFacts(r); err != nil {
-						errMu.Lock()
-						if encErr == nil {
-							encErr = err
-						}
-						errMu.Unlock()
-						failed.Store(true)
-						return
-					}
+					// No noteGrantRecordFacts here (unlike PutGrantRecords
+					// and PutGrantRecordsIfNewer): this is the trusted-import
+					// path — nothing in a bulk-import lifecycle consumes the
+					// external-match fact, so the hot loop skips the walk.
 					val, err := marshalRecord(r)
 					if err != nil {
 						errMu.Lock()

@@ -29,7 +29,10 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 //     ChildResourceType must have had its (childType, parent) action
 //     scheduled. Check-only; skipped when the resources phase did not
 //     run in this process (a zero-row child listing leaves no store
-//     evidence that its action ran). Full syncs only.
+//     evidence that its action ran). Full syncs only. STRICT MODE ONLY:
+//     the check costs a full post-collection resource scan and its
+//     lenient outcome was only ever a warning, so production (lenient)
+//     skips it entirely — tests and the equivalence harness enforce it.
 //   - I5 exclusion-group validation: the stored entitlement keyspace is
 //     validated post-collection (one default per group, one resource
 //     type per group, size cap). This REPLACES the former streaming
@@ -93,13 +96,25 @@ func childScheduleKey(childTypeID, parentTypeID, parentID string) string {
 	return childTypeID + "\x00" + parentTypeID + "\x00" + parentID
 }
 
-func (c *childScheduleSet) record(childTypeID, parentTypeID, parentID string) {
+// recordIfNew records the pair and reports whether it was NEW this sync.
+// The set doubles as the scheduling dedupe: a parent can be discovered by
+// several ingestion paths in one sync (replay copies its stored row AND a
+// delta overlay re-emits it changed), and its children only need one
+// SyncResourcesOp per pair — the second discovery would double the
+// child-listing work. Atomic check-and-set so parallel workers can't both
+// see "new".
+func (c *childScheduleSet) recordIfNew(childTypeID, parentTypeID, parentID string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.m == nil {
 		c.m = make(map[string]struct{})
 	}
-	c.m[childScheduleKey(childTypeID, parentTypeID, parentID)] = struct{}{}
+	key := childScheduleKey(childTypeID, parentTypeID, parentID)
+	if _, ok := c.m[key]; ok {
+		return false
+	}
+	c.m[key] = struct{}{}
+	return true
 }
 
 func (c *childScheduleSet) has(childTypeID, parentTypeID, parentID string) bool {
@@ -185,6 +200,14 @@ func (s *syncer) checkGrantResourceReferences(ctx context.Context) error {
 // cannot be derived after the fact (an executed child action that
 // returned zero rows leaves no store evidence).
 func (s *syncer) checkChildScheduling(ctx context.Context) error {
+	if !s.strictIngestionInvariants {
+		// Strict mode only: the check costs a full post-collection
+		// resource scan (value decode + annotation walk per row) and in
+		// lenient mode a violation was only ever a warning — a bad
+		// trade at whale scale. Tests and the harness run strict and
+		// enforce it there.
+		return nil
+	}
 	if s.syncType != connectorstore.SyncTypeFull || !s.resourcesPhaseRanHere {
 		// Resumed past the resources phase: the scheduled set from the
 		// prior process is gone; the predicate is unverifiable.
@@ -236,13 +259,9 @@ func (s *syncer) checkChildScheduling(ctx context.Context) error {
 		// Sorted so the error text is byte-stable regardless of store
 		// iteration order (the verdict already is).
 		sort.Strings(violations)
-		err := fmt.Errorf(
+		return fmt.Errorf(
 			"ingest invariant I4 violated: %d child resource sync(s) were never scheduled: %v",
 			len(violations), violations)
-		if s.strictIngestionInvariants {
-			return err
-		}
-		ctxzap.Extract(ctx).Warn("ingest invariant I4 violated (lenient mode)", zap.Error(err))
 	}
 	return nil
 }
@@ -344,11 +363,11 @@ func (s *syncer) validateStoredExclusionGroups(ctx context.Context) error {
 // lost manifest write or a stamp leak — and the damage is deferred: THIS
 // sync reads clean, the NEXT sync replays from the damaged state.
 func (s *syncer) checkSourceCacheScopeConsistency(ctx context.Context) error {
-	facts, ok := s.store.(dotc1z.IngestFactStore)
+	sc, ok := s.store.(dotc1z.SourceCacheStore)
 	if !ok {
 		return nil // engine without source-cache state
 	}
-	orphans, err := facts.SourceCacheOrphanScopes(ctx)
+	orphans, err := sc.SourceCacheOrphanScopes(ctx)
 	if err != nil {
 		return fmt.Errorf("ingest invariant I6: scanning scope indexes: %w", err)
 	}

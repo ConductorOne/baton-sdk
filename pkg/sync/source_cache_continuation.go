@@ -44,11 +44,11 @@ const (
 	// unbounded fan-out bloats every checkpoint). Matches the proto
 	// max_items validate rule on EnqueuePageTokens.page_tokens.
 	maxEnqueuePageTokensPerResponse = 1024
-	// maxSpawnCursorTokenBytes matches the page-token request field and
+	// maxEnqueuedPageTokenBytes matches the page-token request field and
 	// the EnqueuePageTokens item validation. Enforced before creating Actions:
 	// action tokens are checkpointed before they are sent through the
 	// later request field's validator.
-	maxSpawnCursorTokenBytes = 1 << 20
+	maxEnqueuedPageTokenBytes = 1 << 20
 
 	// sourceCacheAnswerBudget caps the FOUND-etag payload attached to one
 	// re-invoke, keeping the request under single-shot transport payload

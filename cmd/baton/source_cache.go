@@ -12,8 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	pebbleengine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
 // source-cache: the attribution surface for source-cache replay. Rows in
@@ -22,6 +23,9 @@ import (
 // two so "why is this row missing / stale?" becomes a per-scope answer:
 // when was the scope last actually fetched, what validator did it record,
 // how many rows does it hold, and is its index/manifest state consistent.
+//
+// Exits non-zero when any orphan-index scope is found (ingestion
+// invariant I6): such a file would poison a future sync's replay.
 func sourceCacheCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "source-cache",
@@ -45,6 +49,18 @@ type sourceCacheScopeReport struct {
 	Status string `json:"status"`
 }
 
+type sourceCacheAuditReport struct {
+	SyncID string `json:"sync_id,omitempty"`
+	// SyncType / Compacted / UsableAsReplaySource describe whether a
+	// FUTURE sync may use this file as its replay source (the metadata
+	// gate; see c1zstore.SyncRun.UsableAsReplaySource).
+	SyncType             string                   `json:"sync_type,omitempty"`
+	Compacted            bool                     `json:"compacted"`
+	UsableAsReplaySource bool                     `json:"usable_as_replay_source"`
+	Scopes               []sourceCacheScopeReport `json:"scopes"`
+	OrphanIndexScopes    int                      `json:"orphan_index_scopes"`
+}
+
 func runSourceCacheAudit(cmd *cobra.Command, args []string) error {
 	ctx, err := logging.Init(context.Background(), logging.WithLogFormat("console"), logging.WithLogLevel("error"))
 	if err != nil {
@@ -65,75 +81,95 @@ func runSourceCacheAudit(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close(ctx)
 
-	holder, ok := store.(interface{ PebbleEngine() *pebbleengine.Engine })
-	var engine *pebbleengine.Engine
-	if ok {
-		engine = holder.PebbleEngine()
-	}
-	if engine == nil {
+	inspector, ok := store.(dotc1z.SourceCacheInspector)
+	if !ok {
 		return fmt.Errorf("source-cache state exists only in pebble-format c1z files; %q is not one", c1zPath)
 	}
 
-	manifest, err := engine.SourceCacheManifestSnapshot(ctx)
+	report := sourceCacheAuditReport{}
+	if latest, err := store.SyncMeta().LatestFullSync(ctx); err == nil && latest != nil {
+		report.SyncID = latest.ID
+		report.SyncType = string(latest.Type)
+		report.Compacted = latest.Compacted
+		report.UsableAsReplaySource = latest.UsableAsReplaySource()
+	}
+
+	manifest, err := inspector.SourceCacheManifestSnapshot(ctx)
 	if err != nil {
 		return fmt.Errorf("reading source-cache manifest: %w", err)
 	}
-	indexCounts, err := engine.SourceScopeIndexSnapshot(ctx)
+	indexCounts, err := inspector.SourceScopeIndexSnapshot(ctx)
 	if err != nil {
 		return fmt.Errorf("reading scope indexes: %w", err)
 	}
+	orphans, err := inspector.SourceCacheOrphanScopes(ctx)
+	if err != nil {
+		return fmt.Errorf("checking scope consistency: %w", err)
+	}
 
-	reports := make([]sourceCacheScopeReport, 0, len(manifest))
 	for key := range manifest {
 		kind, scope, found := strings.Cut(key, "\x00")
 		if !found {
 			return fmt.Errorf("malformed manifest snapshot key %q", key)
 		}
 		rep := sourceCacheScopeReport{RowKind: kind, ScopeKey: scope, Rows: indexCounts[kind][scope]}
-		rec, err := engine.GetSourceCacheEntry(ctx, kind, scope)
+		entry, entryFound, err := inspector.LookupSourceCacheEntry(ctx, sourcecache.RowKind(kind), scope)
 		if err != nil {
 			return fmt.Errorf("reading manifest entry for %s/%q: %w", kind, scope, err)
 		}
-		rep.Validator = rec.GetCacheValidator()
-		rep.DiscoveredAt = rec.GetDiscoveredAt().AsTime()
+		if entryFound {
+			rep.Validator = entry.CacheValidator
+			rep.DiscoveredAt = entry.DiscoveredAt
+		}
 		if rep.Rows == 0 {
 			rep.Status = "zero-row"
 		} else {
 			rep.Status = "ok"
 		}
-		reports = append(reports, rep)
+		report.Scopes = append(report.Scopes, rep)
 	}
-	// Index scopes with no manifest entry: invariant I6 violations.
-	for kind, scopes := range indexCounts {
-		for scope, n := range scopes {
-			if _, ok := manifest[kind+"\x00"+scope]; !ok {
-				reports = append(reports, sourceCacheScopeReport{
-					RowKind: kind, ScopeKey: scope, Rows: n, Status: "orphan-index",
-				})
-			}
+	for kind, scopes := range orphans {
+		for _, scope := range scopes {
+			report.Scopes = append(report.Scopes, sourceCacheScopeReport{
+				RowKind: kind, ScopeKey: scope, Rows: indexCounts[kind][scope], Status: "orphan-index",
+			})
+			report.OrphanIndexScopes++
 		}
 	}
-	sort.Slice(reports, func(i, j int) bool {
-		if reports[i].RowKind != reports[j].RowKind {
-			return reports[i].RowKind < reports[j].RowKind
+	sort.Slice(report.Scopes, func(i, j int) bool {
+		if report.Scopes[i].RowKind != report.Scopes[j].RowKind {
+			return report.Scopes[i].RowKind < report.Scopes[j].RowKind
 		}
-		return reports[i].ScopeKey < reports[j].ScopeKey
+		return report.Scopes[i].ScopeKey < report.Scopes[j].ScopeKey
 	})
 
 	if outputFormat == "json" {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(reports)
+		if err := enc.Encode(report); err != nil {
+			return err
+		}
+	} else if err := printSourceCacheAudit(report); err != nil {
+		return err
 	}
+	if report.OrphanIndexScopes > 0 {
+		return fmt.Errorf("%d orphan-index scope(s) found (ingestion invariant I6); a future sync replaying from this file could silently drop or resurrect rows", report.OrphanIndexScopes)
+	}
+	return nil
+}
 
-	if len(reports) == 0 {
+func printSourceCacheAudit(report sourceCacheAuditReport) error {
+	if report.SyncID != "" {
+		fmt.Fprintf(os.Stdout, "sync %s type=%s compacted=%v usable-as-replay-source=%v\n\n",
+			report.SyncID, report.SyncType, report.Compacted, report.UsableAsReplaySource)
+	}
+	if len(report.Scopes) == 0 {
 		fmt.Fprintln(os.Stdout, "no source-cache state (cold artifact: every scope will fetch fresh next sync)")
 		return nil
 	}
 	w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "KIND\tSCOPE\tROWS\tSTATUS\tDISCOVERED\tVALIDATOR")
-	orphans := 0
-	for _, r := range reports {
+	for _, r := range report.Scopes {
 		validator := r.Validator
 		if len(validator) > 48 {
 			validator = validator[:45] + "..."
@@ -142,17 +178,7 @@ func runSourceCacheAudit(cmd *cobra.Command, args []string) error {
 		if !r.DiscoveredAt.IsZero() {
 			discovered = r.DiscoveredAt.UTC().Format(time.RFC3339)
 		}
-		if r.Status == "orphan-index" {
-			orphans++
-		}
 		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\n", r.RowKind, r.ScopeKey, r.Rows, r.Status, discovered, validator)
 	}
-	if err := w.Flush(); err != nil {
-		return err
-	}
-	if orphans > 0 {
-		fmt.Fprintf(os.Stdout, "\nWARNING: %d orphan-index scope(s): stamped rows with no manifest entry (ingestion invariant I6). "+
-			"A future sync replaying from this file could silently drop or resurrect these scopes' rows.\n", orphans)
-	}
-	return nil
+	return w.Flush()
 }

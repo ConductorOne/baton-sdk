@@ -71,7 +71,7 @@ type c1ApiTaskManager struct {
 	storageEngine                       c1zstore.Engine
 
 	// previousSyncSparePath is non-empty when the connector opted into
-	// ETag replay (keepPreviousSyncC1Z): the fixed, client-id-namespaced
+	// source-cache replay (keepPreviousSyncC1Z): the fixed, client-id-namespaced
 	// location of the retained previous-sync c1z. Computed once at
 	// construction so every full-sync task agrees on the same spare.
 	previousSyncSparePath string

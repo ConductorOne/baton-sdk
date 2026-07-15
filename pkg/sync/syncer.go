@@ -1095,9 +1095,15 @@ func (s *syncer) pushChildResourceActions(ctx context.Context, childTypeIDs []st
 			continue
 		}
 		// Monotone evidence for ingestion invariant I4 (see
-		// ingest_invariants.go): record the pair regardless of which
-		// ingestion path discovered the parent.
-		s.childSchedule.record(childTypeID, parentTypeID, parentID)
+		// ingest_invariants.go), doubling as the per-sync scheduling
+		// dedupe: a parent discovered by BOTH the replay copy and a
+		// delta overlay re-emission (or re-emitted within a cold delta
+		// walk) schedules its children exactly once. In-memory, so a
+		// resumed process re-schedules — the existing at-least-once
+		// semantic, just not N-times-per-sync.
+		if !s.childSchedule.recordIfNew(childTypeID, parentTypeID, parentID) {
+			continue
+		}
 		s.state.PushAction(ctx, Action{
 			Op:                   SyncResourcesOp,
 			ResourceTypeID:       childTypeID,
@@ -1604,46 +1610,13 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 // resourceTypeHasTypeScopedEntitlements reports (cached per sync) whether the
 // resource type carries the TypeScopedEntitlements annotation.
 func (s *syncer) resourceTypeHasTypeScopedEntitlements(ctx context.Context, resourceTypeID string) (bool, error) {
-	if v, ok := s.typeScopedEntitlementsForResourceType.Load(resourceTypeID); ok {
-		return v, nil
-	}
-	rt, err := s.store.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
-		ResourceTypeId: resourceTypeID,
-	}.Build())
-	if err != nil {
-		return false, err
-	}
-	rtAnnos := annotations.Annotations(rt.GetResourceType().GetAnnotations())
-	typeScoped := rtAnnos.Contains(&v2.TypeScopedEntitlements{})
-	s.typeScopedEntitlementsForResourceType.Store(resourceTypeID, typeScoped)
-	return typeScoped, nil
+	return s.resourceTypeCarries(ctx, resourceTypeID, &v2.TypeScopedEntitlements{}, &s.typeScopedEntitlementsForResourceType)
 }
 
 // typeScopedEntitlementsResourceTypes lists every synced resource type annotated
 // with TypeScopedEntitlements.
 func (s *syncer) typeScopedEntitlementsResourceTypes(ctx context.Context) ([]string, error) {
-	var out []string
-	pageToken := ""
-	for {
-		resp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
-			PageToken: pageToken,
-		}.Build())
-		if err != nil {
-			return nil, err
-		}
-		for _, rt := range resp.GetList() {
-			rtAnnos := annotations.Annotations(rt.GetAnnotations())
-			typeScoped := rtAnnos.Contains(&v2.TypeScopedEntitlements{})
-			s.typeScopedEntitlementsForResourceType.Store(rt.GetId(), typeScoped)
-			if typeScoped {
-				out = append(out, rt.GetId())
-			}
-		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			return out, nil
-		}
-	}
+	return s.resourceTypesCarrying(ctx, &v2.TypeScopedEntitlements{}, &s.typeScopedEntitlementsForResourceType)
 }
 
 // syncEntitlementsForResource fetches the entitlements for a specific resource from the connector.
@@ -1661,16 +1634,7 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	var resource *v2.Resource
 	var reqAnnos annotations.Annotations
 	if typeScoped {
-		// Wire validation requires a non-empty resource id, so the stub is
-		// self-referential ({type, type}) and the request carries the
-		// TypeScopedEntitlements annotation as the routing marker.
-		resource = v2.Resource_builder{
-			Id: v2.ResourceId_builder{
-				ResourceType: action.ResourceTypeID,
-				Resource:     action.ResourceTypeID,
-			}.Build(),
-		}.Build()
-		reqAnnos.Update(&v2.TypeScopedEntitlements{})
+		resource, reqAnnos = typeScopedRequestStub(action.ResourceTypeID, &v2.TypeScopedEntitlements{})
 	} else {
 		resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: resourceID,
@@ -1739,45 +1703,11 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	}
 
 	// EnqueuePageTokens: enqueue sibling cursors (type-scoped shards or
-	// per-resource parallel pages). Same contracts as syncGrantsForResource.
-	spawn := &v2.EnqueuePageTokens{}
-	hasSpawn, err := respAnnos.Pick(spawn)
+	// per-resource parallel pages). Shared contract: see
+	// collectEnqueuedPageTokens (type_scoped.go).
+	spawned, err := s.collectEnqueuedPageTokens(ctx, "sync-entitlements", SyncEntitlementsOp, action, respAnnos)
 	if err != nil {
-		return fmt.Errorf("sync-entitlements: error parsing spawn-cursors annotation: %w", err)
-	}
-	var spawned []Action
-	if hasSpawn {
-		if len(spawn.GetPageTokens()) > maxEnqueuePageTokensPerResponse {
-			return fmt.Errorf(
-				"sync-entitlements: EnqueuePageTokens carried %d page tokens (max %d per response); chain additional spawns across pages instead",
-				len(spawn.GetPageTokens()), maxEnqueuePageTokensPerResponse)
-		}
-		for _, tok := range spawn.GetPageTokens() {
-			if tok == "" {
-				continue
-			}
-			if len(tok) > maxSpawnCursorTokenBytes {
-				return fmt.Errorf(
-					"sync-entitlements: EnqueuePageTokens page token is %d bytes (max %d)",
-					len(tok), maxSpawnCursorTokenBytes)
-			}
-			spawned = append(spawned, Action{
-				Op:             SyncEntitlementsOp,
-				ResourceTypeID: action.ResourceTypeID,
-				ResourceID:     action.ResourceID, // empty on type-scoped actions
-				PageToken:      tok,
-				Spawned:        true,
-			})
-		}
-		if len(spawned) > 0 {
-			s.state.AddSourceCacheStats(SourceCacheStats{SpawnedCursors: int64(len(spawned))})
-		}
-		ctxzap.Extract(ctx).Debug("sync-entitlements: spawned sibling entitlement cursors",
-			zap.String("resource_type_id", action.ResourceTypeID),
-			zap.String("resource_id", action.ResourceID),
-			zap.Bool("type_scoped", typeScoped),
-			zap.Int("cursors", len(spawned)),
-			zap.Int64("estimated_total", spawn.GetEstimatedTotal()))
+		return err
 	}
 
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), spawned...)
@@ -2271,46 +2201,13 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 // resourceTypeHasTypeScopedGrants reports (cached per sync) whether the
 // resource type carries the TypeScopedGrants annotation.
 func (s *syncer) resourceTypeHasTypeScopedGrants(ctx context.Context, resourceTypeID string) (bool, error) {
-	if v, ok := s.typeScopedGrantsForResourceType.Load(resourceTypeID); ok {
-		return v, nil
-	}
-	rt, err := s.store.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
-		ResourceTypeId: resourceTypeID,
-	}.Build())
-	if err != nil {
-		return false, err
-	}
-	rtAnnos := annotations.Annotations(rt.GetResourceType().GetAnnotations())
-	typeScoped := rtAnnos.Contains(&v2.TypeScopedGrants{})
-	s.typeScopedGrantsForResourceType.Store(resourceTypeID, typeScoped)
-	return typeScoped, nil
+	return s.resourceTypeCarries(ctx, resourceTypeID, &v2.TypeScopedGrants{}, &s.typeScopedGrantsForResourceType)
 }
 
 // typeScopedGrantsResourceTypes lists every synced resource type annotated
 // with TypeScopedGrants.
 func (s *syncer) typeScopedGrantsResourceTypes(ctx context.Context) ([]string, error) {
-	var out []string
-	pageToken := ""
-	for {
-		resp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
-			PageToken: pageToken,
-		}.Build())
-		if err != nil {
-			return nil, err
-		}
-		for _, rt := range resp.GetList() {
-			rtAnnos := annotations.Annotations(rt.GetAnnotations())
-			typeScoped := rtAnnos.Contains(&v2.TypeScopedGrants{})
-			s.typeScopedGrantsForResourceType.Store(rt.GetId(), typeScoped)
-			if typeScoped {
-				out = append(out, rt.GetId())
-			}
-		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			return out, nil
-		}
-	}
+	return s.resourceTypesCarrying(ctx, &v2.TypeScopedGrants{}, &s.typeScopedGrantsForResourceType)
 }
 
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
@@ -2328,16 +2225,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 	var resource *v2.Resource
 	var reqAnnos annotations.Annotations
 	if typeScoped {
-		// Wire validation requires a non-empty resource id, so the stub is
-		// self-referential ({type, type}) and the request carries the
-		// TypeScopedGrants annotation as the routing marker.
-		resource = v2.Resource_builder{
-			Id: v2.ResourceId_builder{
-				ResourceType: action.ResourceTypeID,
-				Resource:     action.ResourceTypeID,
-			}.Build(),
-		}.Build()
-		reqAnnos.Update(&v2.TypeScopedGrants{})
+		resource, reqAnnos = typeScopedRequestStub(action.ResourceTypeID, &v2.TypeScopedGrants{})
 	} else {
 		resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: resourceID,
@@ -2504,66 +2392,16 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
 	}
 
-	// EnqueuePageTokens: the response may enqueue sibling cursors — each runs
-	// as its own action, scheduled by the worker pool, rate-limited, and
-	// checkpointed like any other pagination.
-	//
-	//   - Type-scoped calls: one cursor per connector-defined shard (e.g.
-	//     50-id delta chunks); actions carry only the resource type.
-	//   - Per-resource calls: parallel page fan-out for page-numbered APIs
-	//     (the connector knows every page URL from page one, so a warm
-	//     sync can revalidate all pages concurrently instead of serially);
-	//     actions carry the resource identity.
-	//
-	// Spawned cursors are ORDINARY pages that happen to be enqueued
-	// eagerly: the SDK assumes nothing about replay — a spawned page may
-	// hit its lookup and replay, miss and fetch cold (page boundary
-	// shifted since last sync), and may chain further via NextPageToken.
-	spawn := &v2.EnqueuePageTokens{}
-	hasSpawn, err := respAnnos.Pick(spawn)
+	// EnqueuePageTokens: the response may enqueue sibling cursors —
+	// type-scoped shards or per-resource parallel pages. Spawned cursors
+	// are ORDINARY pages that happen to be enqueued eagerly: the SDK
+	// assumes nothing about replay — a spawned page may hit its lookup
+	// and replay, miss and fetch cold (page boundary shifted since last
+	// sync), and may chain further via NextPageToken. Shared contract:
+	// see collectEnqueuedPageTokens (type_scoped.go).
+	spawned, err := s.collectEnqueuedPageTokens(ctx, "sync-grants-for-resource", SyncGrantsOp, action, respAnnos)
 	if err != nil {
-		return fmt.Errorf("sync-grants-for-resource: error parsing spawn-cursors annotation: %w", err)
-	}
-	var spawned []Action
-	if hasSpawn {
-		// Every spawned action is persisted in the checkpointed state
-		// token, so an unbounded fan-out (a buggy planner emitting
-		// millions of tokens, or a spawn-inside-spawn loop) would bloat
-		// every checkpoint write before anything else fails. Cap
-		// per-response and fail loudly, mirroring the lookup bounce cap.
-		// Legitimate patterns sit far below this: Entra spawns ~35 chunk
-		// cursors per planning page, GitHub one sibling per stored page.
-		if len(spawn.GetPageTokens()) > maxEnqueuePageTokensPerResponse {
-			return fmt.Errorf(
-				"sync-grants-for-resource: EnqueuePageTokens carried %d page tokens (max %d per response); chain additional spawns across pages instead",
-				len(spawn.GetPageTokens()), maxEnqueuePageTokensPerResponse)
-		}
-		for _, tok := range spawn.GetPageTokens() {
-			if tok == "" {
-				continue
-			}
-			if len(tok) > maxSpawnCursorTokenBytes {
-				return fmt.Errorf(
-					"sync-grants-for-resource: EnqueuePageTokens page token is %d bytes (max %d)",
-					len(tok), maxSpawnCursorTokenBytes)
-			}
-			spawned = append(spawned, Action{
-				Op:             SyncGrantsOp,
-				ResourceTypeID: action.ResourceTypeID,
-				ResourceID:     action.ResourceID, // empty on type-scoped actions
-				PageToken:      tok,
-				Spawned:        true,
-			})
-		}
-		if len(spawned) > 0 {
-			s.state.AddSourceCacheStats(SourceCacheStats{SpawnedCursors: int64(len(spawned))})
-		}
-		l.Debug("sync-grants-for-resource: spawned sibling grant cursors",
-			zap.String("resource_type_id", action.ResourceTypeID),
-			zap.String("resource_id", action.ResourceID),
-			zap.Bool("type_scoped", typeScoped),
-			zap.Int("cursors", len(spawned)),
-			zap.Int64("estimated_total", spawn.GetEstimatedTotal()))
+		return err
 	}
 
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), spawned...)
@@ -3800,7 +3638,7 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 			// without ETag replay, never a failed sync. The caller that
 			// maintains the cache replaces it after its next successful
 			// upload, so a bad file self-heals.
-			ctxzap.Extract(ctx).Warn("previous-sync c1z unusable; syncing without etag replay",
+			ctxzap.Extract(ctx).Warn("previous-sync c1z unusable; syncing without source-cache replay",
 				zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
 				zap.Error(err),
 			)

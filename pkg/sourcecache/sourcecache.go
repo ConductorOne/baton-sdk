@@ -10,7 +10,7 @@
 // with SourceCacheReplay.
 //
 // The connector owns scope computation; the SDK only keys storage by the
-// connector-supplied scope key. The validator (etag, delta token) is opaque
+// connector-supplied scope key. The validator (HTTP ETag, delta token, ...) is opaque
 // to the SDK.
 //
 // Invariant that keeps replay safe: a connector must only emit
@@ -41,6 +41,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -79,15 +80,20 @@ func ValidateRowKind(rowKind RowKind) error {
 // real providers.
 const maxScopeKeyLen = 256
 
-// ValidateScopeKey returns an error when scopeKey is empty or
-// unreasonably long. Connectors conventionally use HashScope, but any
-// stable identifier is accepted.
+// ValidateScopeKey returns an error when scopeKey is empty, unreasonably
+// long, or contains a NUL byte. Connectors conventionally use HashScope,
+// but any stable identifier is accepted. NUL is reserved: composite
+// "kind\x00scope" keys appear in inspection surfaces (engine snapshots),
+// and a scope key containing NUL could alias another entry there.
 func ValidateScopeKey(scopeKey string) error {
 	if scopeKey == "" {
 		return fmt.Errorf("source cache scope key is required")
 	}
 	if len(scopeKey) > maxScopeKeyLen {
 		return fmt.Errorf("source cache scope key too long: %d bytes (max %d)", len(scopeKey), maxScopeKeyLen)
+	}
+	if strings.ContainsRune(scopeKey, 0) {
+		return fmt.Errorf("source cache scope key must not contain NUL bytes")
 	}
 	return nil
 }
@@ -123,11 +129,11 @@ func (NoopLookup) Lookup(context.Context, RowKind, string) (Entry, bool, error) 
 	return Entry{}, false, nil
 }
 
-// SetLookup is implemented by connector clients/servers that can receive a
+// SourceCacheSetter is implemented by connector clients/servers that can receive a
 // source-cache lookup implementation from the sync runner. The SDK calls
 // SetSourceCache(lookup) at the start of each sync and SetSourceCache(nil)
 // when the sync ends so a late RPC can't read stale state.
-type SetLookup interface {
+type SourceCacheSetter interface {
 	SetSourceCache(ctx context.Context, lookup Lookup)
 }
 

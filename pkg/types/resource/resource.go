@@ -526,7 +526,7 @@ func NewManagedDeviceResource(
 
 type SyncOpAttrs struct {
 	Session sessions.SessionStore
-	// SourceCache resolves a scope's previous-sync validator (etag /
+	// SourceCache resolves a scope's previous-sync validator (HTTP ETag /
 	// delta token) for source-cache replay. Never nil for framework-built
 	// connectors: when source cache is disabled or degraded the SDK
 	// supplies sourcecache.NoopLookup, which always misses.

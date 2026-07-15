@@ -488,7 +488,9 @@ func TestReplayInvalidatesEntitlementIDLookup(t *testing.T) {
 
 	// ... and, the actual production stake: a delta tombstone against the
 	// replayed row must DELETE it, not silently no-op.
-	require.NoError(t, cur.PebbleEngine().DeleteEntitlementRecord(ctx, entID))
+	tombstoned, err := cur.PebbleEngine().DeleteEntitlementRecord(ctx, entID)
+	require.NoError(t, err)
+	require.True(t, tombstoned, "the tombstone must delete the replayed row, not silently no-op")
 	_, err = cur.PebbleEngine().GetEntitlementRecord(ctx, entID)
 	require.Error(t, err, "tombstoned replayed entitlement must be gone")
 }

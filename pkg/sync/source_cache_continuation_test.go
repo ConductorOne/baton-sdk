@@ -2,7 +2,7 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 
 // Syncer-side tests for the source-cache lookup continuation (ask/answer).
 // The mocks here play the LAMBDA side of the protocol by hand: they do NOT
-// implement sourcecache.SetLookup (no direct lookup install — exactly the
+// implement sourcecache.SourceCacheSetter (no direct lookup install — exactly the
 // single-shot-transport topology), and instead answer list RPCs with
 // SourceCacheLookupAsk and consume SourceCacheLookupAnswers from the
 // re-invoked request.

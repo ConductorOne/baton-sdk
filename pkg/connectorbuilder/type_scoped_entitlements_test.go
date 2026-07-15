@@ -54,6 +54,30 @@ func typeScopedEntitlementsRequest(annos annotations.Annotations) *v2.Entitlemen
 	}.Build()
 }
 
+// annotatedNoInterfaceSyncer carries the TypeScopedEntitlements annotation
+// on its resource type but does NOT implement TypeScopedEntitlementsSyncer.
+type annotatedNoInterfaceSyncer struct {
+	testResourceSyncerV2Simple
+}
+
+func (s *annotatedNoInterfaceSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
+	rt := s.testResourceSyncerV2Simple.ResourceType(ctx)
+	rt.SetAnnotations(annotations.New(&v2.TypeScopedEntitlements{}))
+	return rt
+}
+
+// TestNewConnector_TypeScopedAnnotationRequiresInterface pins the
+// registration contract: an annotated type whose syncer lacks the
+// matching TypeScoped*Syncer interface fails at NewConnector instead of
+// dying mid-sync with InvalidArgument on the first type-scoped call.
+func TestNewConnector_TypeScopedAnnotationRequiresInterface(t *testing.T) {
+	ctx := context.Background()
+	bad := &annotatedNoInterfaceSyncer{testResourceSyncerV2Simple{resourceType: "group"}}
+	_, err := NewConnector(ctx, &testConnectorV2{resourceSyncers: []ResourceSyncerV2{bad}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "TypeScopedEntitlements annotation")
+}
+
 func TestListEntitlements_TypeScopedRoutes(t *testing.T) {
 	ctx := context.Background()
 	ts := &typeScopedEntitlementsSyncer{testResourceSyncerV2Simple: testResourceSyncerV2Simple{resourceType: "group"}}

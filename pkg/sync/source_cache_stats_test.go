@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -22,7 +24,7 @@ func TestSourceCacheStats_TokenRoundTrip(t *testing.T) {
 	st.AddSourceCacheStats(SourceCacheStats{
 		ScopesReplayed: 3,
 		ScopesStamped:  2,
-		RowsReplayed:   map[string]int64{"grants": 40, "resources": 5},
+		RowsReplayed:   map[sourcecache.RowKind]int64{"grants": 40, "resources": 5},
 		OverlayRows:    4,
 		TombstoneIDs:   2,
 		LookupBounces:  6,
@@ -33,7 +35,7 @@ func TestSourceCacheStats_TokenRoundTrip(t *testing.T) {
 	// Second merge accumulates.
 	st.AddSourceCacheStats(SourceCacheStats{
 		ScopesReplayed:    1,
-		RowsReplayed:      map[string]int64{"grants": 10},
+		RowsReplayed:      map[sourcecache.RowKind]int64{"grants": 10},
 		LookupBouncesByOp: map[string]int64{"sync-resources": 1},
 	})
 

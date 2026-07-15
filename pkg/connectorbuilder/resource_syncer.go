@@ -67,12 +67,14 @@ type StaticEntitlementSyncerV2 interface {
 	StaticEntitlements(ctx context.Context, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error)
 }
 
-// TypeScopedGrantsSyncer is the grants-phase analogue of
-// StaticEntitlementSyncerV2: the connector enumerates grants for a WHOLE
+// TypeScopedGrantsSyncer lets a connector enumerate grants for a WHOLE
 // resource type instead of being called once per resource. Implement it on
 // a resource syncer whose ResourceType carries the v2.TypeScopedGrants
-// annotation; the syncer then issues ListGrants calls with an empty
-// resource id, which the builder routes here.
+// annotation; the syncer then issues ListGrants requests carrying the
+// v2.TypeScopedGrants REQUEST annotation as the routing marker (the
+// request's resource is a self-referential {type, type} stub — wire
+// validation requires a non-empty resource id), which the builder routes
+// here.
 //
 // The first call of a sync arrives with an empty page token (the planning
 // call); the connector may answer with rows directly and/or spawn
@@ -80,6 +82,12 @@ type StaticEntitlementSyncerV2 interface {
 // whose page tokens are delivered back through opts.PageToken, one action
 // each. Source-cache scope/replay/tombstone annotations work exactly as on
 // per-resource grants pages.
+//
+// The per-resource Grants method is still required by ResourceSyncerV2
+// but is NEVER called for an annotated type during a full sync; the
+// convention is to return empty results (registration fails loudly if
+// the annotation is present without this interface — see
+// validateTypeScopedRegistration).
 type TypeScopedGrantsSyncer interface {
 	GrantsForResourceType(ctx context.Context, resourceTypeID string, opts resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error)
 }
@@ -88,8 +96,9 @@ type TypeScopedGrantsSyncer interface {
 // TypeScopedGrantsSyncer: the connector enumerates entitlements for a WHOLE
 // resource type instead of being called once per resource. Implement it on
 // a resource syncer whose ResourceType carries the v2.TypeScopedEntitlements
-// annotation; the syncer then issues ListEntitlements calls with an empty
-// resource id, which the builder routes here.
+// annotation; the syncer then issues ListEntitlements requests carrying
+// that annotation as the routing marker (same {type, type} stub resource
+// as the grants variant), which the builder routes here.
 //
 // Planning / EnqueuePageTokens / source-cache behavior matches TypeScopedGrantsSyncer.
 type TypeScopedEntitlementsSyncer interface {
@@ -103,7 +112,16 @@ type TypeScopedEntitlementsSyncer interface {
 // configured store, connectors see the erroring no-op store instead of a
 // panic on first use.
 func (b *builder) syncOpAttrs(activeSyncID string, token pagination.Token) resource.SyncOpAttrs {
-	sc := b.sourceCacheLookup()
+	return b.syncOpAttrsWithLookup(activeSyncID, token, b.sourceCacheLookup())
+}
+
+// syncOpAttrsWithLookup is syncOpAttrs over a caller-held slot snapshot:
+// SetSourceCache can install/clear the slot concurrently with an
+// in-flight RPC, so a caller that also BRANCHES on the slot value
+// (continuationOpAttrs) must read it exactly once and thread the same
+// snapshot into both decisions — two reads could hand a connector
+// NoopLookup while treating the topology as direct.
+func (b *builder) syncOpAttrsWithLookup(activeSyncID string, token pagination.Token, sc sourcecache.Lookup) resource.SyncOpAttrs {
 	if sc == nil {
 		sc = sourcecache.NoopLookup{}
 	}
@@ -134,9 +152,23 @@ func (b *builder) syncOpAttrs(activeSyncID string, token pagination.Token) resou
 // The returned ContinuationLookup is nil when the continuation is not in
 // play for this request.
 func (b *builder) continuationOpAttrs(activeSyncID string, token pagination.Token, reqAnnos annotations.Annotations) (resource.SyncOpAttrs, *sourcecache.ContinuationLookup, error) {
-	attrs := b.syncOpAttrs(activeSyncID, token)
-	if b.sourceCacheLookup() != nil {
-		return attrs, nil, nil
+	// One slot read for both the attrs and the topology branch below —
+	// see syncOpAttrsWithLookup for why two reads would be a race.
+	slot := b.sourceCacheLookup()
+	attrs := b.syncOpAttrsWithLookup(activeSyncID, token, slot)
+	if l := slot; l != nil {
+		// A NoopLookup slot is a CLEARED slot, not a direct lookup:
+		// SetSourceCache(nil) stores NoopLookup so late in-flight RPCs
+		// read a deterministic miss (see SetSourceCache), and treating
+		// it as "direct lookup wins" here would silently disable the
+		// ask/answer continuation for every later request — permanent
+		// cold syncs with no error. A degraded sync can't sneak into
+		// continuation through this branch either: without a warm
+		// lookup the syncer never attaches SourceCacheLookupOffer, so
+		// the offer check below already returns the noop path.
+		if _, isNoop := l.(sourcecache.NoopLookup); !isNoop {
+			return attrs, nil, nil
+		}
 	}
 	answersMsg := &v2.SourceCacheLookupAnswers{}
 	hasAnswers, err := reqAnnos.Pick(answersMsg)
@@ -270,7 +302,10 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 	}
 	if deferred {
 		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return v2.ResourcesServiceListResourcesResponse_builder{Annotations: askAnnos}.Build(), nil
+		// Session usage rides the ask too: the phase-1 handler may have
+		// touched the session before deferring, and the protocol turn is
+		// the only response that work will ever produce.
+		return v2.ResourcesServiceListResourcesResponse_builder{Annotations: appendSessionUsage(askAnnos, sessionUsage)}.Build(), nil
 	}
 
 	resp := v2.ResourcesServiceListResourcesResponse_builder{
@@ -451,7 +486,8 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 	}
 	if deferred {
 		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return v2.EntitlementsServiceListEntitlementsResponse_builder{Annotations: askAnnos}.Build(), nil
+		// Session usage rides the ask; see the ListResources deferred path.
+		return v2.EntitlementsServiceListEntitlementsResponse_builder{Annotations: appendSessionUsage(askAnnos, sessionUsage)}.Build(), nil
 	}
 
 	resp := v2.EntitlementsServiceListEntitlementsResponse_builder{
@@ -544,7 +580,8 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 	}
 	if deferred {
 		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return v2.GrantsServiceListGrantsResponse_builder{Annotations: askAnnos}.Build(), nil
+		// Session usage rides the ask; see the ListResources deferred path.
+		return v2.GrantsServiceListGrantsResponse_builder{Annotations: appendSessionUsage(askAnnos, sessionUsage)}.Build(), nil
 	}
 
 	resp := v2.GrantsServiceListGrantsResponse_builder{
@@ -611,6 +648,36 @@ func (rw *resourceSyncerV1toV2) Grants(ctx context.Context, r *v2.Resource, opts
 	grants, pageToken, annos, err := rw.rb.Grants(ctx, r, &opts.PageToken)
 	ret := &resource.SyncOpResults{NextPageToken: pageToken, Annotations: annos}
 	return grants, ret, err
+}
+
+// validateTypeScopedRegistration fails connector construction when a
+// resource type's annotations promise a type-scoped phase the syncer
+// cannot serve: a TypeScopedGrants / TypeScopedEntitlements annotation
+// without the matching TypeScoped*Syncer interface would otherwise die
+// mid-sync with InvalidArgument on the first type-scoped call — a
+// runtime failure for what is a wiring bug, caught here at build.
+//
+// The reverse (interface implemented, annotation absent) is deliberately
+// allowed: shared embedded bases may implement the interface across many
+// syncers while only some types opt in via the annotation, and the
+// unreferenced method is harmless.
+func validateTypeScopedRegistration(rType *v2.ResourceType, in any) error {
+	rtAnnos := annotations.Annotations(rType.GetAnnotations())
+	if rtAnnos.Contains(&v2.TypeScopedGrants{}) {
+		if _, ok := in.(TypeScopedGrantsSyncer); !ok {
+			return fmt.Errorf(
+				"resource type %s carries the TypeScopedGrants annotation but its syncer does not implement TypeScopedGrantsSyncer",
+				rType.GetId())
+		}
+	}
+	if rtAnnos.Contains(&v2.TypeScopedEntitlements{}) {
+		if _, ok := in.(TypeScopedEntitlementsSyncer); !ok {
+			return fmt.Errorf(
+				"resource type %s carries the TypeScopedEntitlements annotation but its syncer does not implement TypeScopedEntitlementsSyncer",
+				rType.GetId())
+		}
+	}
+	return nil
 }
 
 func (b *builder) addTargetedSyncer(_ context.Context, typeId string, in any) error {

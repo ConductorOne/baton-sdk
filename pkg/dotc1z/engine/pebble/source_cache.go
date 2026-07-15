@@ -281,7 +281,7 @@ func (e *Engine) ClearSourceCacheEntries(ctx context.Context) error {
 // PutSourceCacheEntry writes the manifest entry for (rowKind, scopeKey).
 // Zero-row scopes still get entries — the validator must survive to the
 // next sync even when the scope produced no rows.
-func (e *Engine) PutSourceCacheEntry(ctx context.Context, rowKind, scopeKey, etag string) error {
+func (e *Engine) PutSourceCacheEntry(ctx context.Context, rowKind, scopeKey, cacheValidator string) error {
 	return e.withWrite(func() error {
 		if err := e.requireCurrentSync(); err != nil {
 			return err
@@ -289,7 +289,7 @@ func (e *Engine) PutSourceCacheEntry(ctx context.Context, rowKind, scopeKey, eta
 		rec := &v3.SourceCacheEntryRecord{}
 		rec.SetRowKind(rowKind)
 		rec.SetScopeKey(scopeKey)
-		rec.SetCacheValidator(etag)
+		rec.SetCacheValidator(cacheValidator)
 		rec.SetDiscoveredAt(timestamppb.Now())
 		val, err := marshalRecord(rec)
 		if err != nil {

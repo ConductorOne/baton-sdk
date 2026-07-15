@@ -27,7 +27,7 @@ type GRPCServer struct {
 }
 
 var _ v1.BatonSourceCacheServiceServer = (*GRPCServer)(nil)
-var _ SetLookup = (*GRPCServer)(nil)
+var _ SourceCacheSetter = (*GRPCServer)(nil)
 
 // NewGRPCServer returns a GRPCServer with no active Lookup registered.
 func NewGRPCServer() *GRPCServer {

@@ -62,7 +62,7 @@ type BatchLookup interface {
 // The returned answers are exact and complete for the queried set — one
 // Answer per Query, order preserved, explicit Found per entry. (A
 // deferring lookup returns ErrLookupDeferred instead of answers; phase 2
-// then answers the same calls. A found answer whose etag does not fit the
+// then answers the same calls. A found answer whose validator does not fit the
 // transport size budget arrives as not-found — the scope goes cold, which
 // is correct, just slower — never as a silent omission.)
 func LookupMany(ctx context.Context, lookup Lookup, queries []Query) ([]Answer, error) {

@@ -475,7 +475,7 @@ type equivConnector struct {
 }
 
 // equivContinuationClient hides the embedded SetSourceCache from the
-// syncer's sourcecache.SetLookup type assertion, making the connector a
+// syncer's sourcecache.SourceCacheSetter type assertion, making the connector a
 // single-shot transport: the syncer attaches SourceCacheLookupOffer to
 // requests and the connector answers with asks.
 type equivContinuationClient struct {
@@ -483,7 +483,7 @@ type equivContinuationClient struct {
 }
 
 // SetSourceCache shadows the embedded method with a different signature
-// so equivContinuationClient does NOT satisfy sourcecache.SetLookup.
+// so equivContinuationClient does NOT satisfy sourcecache.SourceCacheSetter.
 func (equivContinuationClient) SetSourceCache() {}
 
 func (c *equivConnector) injectGrantsFailure(resourceID string) {

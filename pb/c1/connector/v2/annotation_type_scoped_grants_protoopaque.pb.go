@@ -41,8 +41,9 @@ const (
 // for the whole type, across as many paginated cursors as it chooses to
 // spawn (see EnqueuePageTokens).
 //
-// This is the grants-phase analogue of StaticEntitlements: the connector
-// takes over enumeration for the type, and every downstream behavior
+// The connector takes over enumeration for the type (the same contract
+// as TypeScopedEntitlements in
+// annotation_type_scoped_entitlements.proto), and every downstream behavior
 // (storage, source-cache scopes/replay/tombstones, grant expansion, rate
 // limiting, page-token checkpointing) is unchanged because grants are
 // self-describing rows.

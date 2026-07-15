@@ -10,6 +10,8 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
 // SourceCacheStats accumulates per-sync source-cache counters: replay
@@ -24,10 +26,18 @@ type SourceCacheStats struct {
 	// ScopesStamped counts manifest entries written for NON-replayed
 	// (cold/fresh) pages. Interim pages with no validator count in
 	// neither bucket.
+	//
+	// APPROXIMATE UNDER RESUME: the suppression that keeps a multi-page
+	// overlay round's final (validator-carrying) page out of this count
+	// rides an in-memory set (syncerSourceCache.replayedScopes); a
+	// resume landing mid-round books that round as both a hit and a
+	// miss. Rows are unaffected — but do NOT gate behavior on the
+	// replay ratio without first persisting that set (or deriving
+	// suppression from durable manifest state).
 	ScopesStamped int64 `json:"scopes_stamped,omitempty"`
 	// RowsReplayed counts rows bulk-copied from the previous sync, keyed
 	// by row kind (resources / entitlements / grants).
-	RowsReplayed map[string]int64 `json:"rows_replayed,omitempty"`
+	RowsReplayed map[sourcecache.RowKind]int64 `json:"rows_replayed,omitempty"`
 	// OverlayRows counts connector-emitted rows upserted on top of a
 	// replayed base (delta adds/changes).
 	OverlayRows int64 `json:"overlay_rows,omitempty"`
@@ -40,9 +50,9 @@ type SourceCacheStats struct {
 	TombstonePrincipals int64 `json:"tombstone_principals,omitempty"`
 	RowsDeleted         int64 `json:"rows_deleted,omitempty"`
 
-	// SpawnedCursors counts sibling actions enqueued via EnqueuePageTokens
+	// EnqueuedPageTokens counts sibling actions enqueued via EnqueuePageTokens
 	// (pairs with the per-response cap).
-	SpawnedCursors int64 `json:"spawned_cursors,omitempty"`
+	EnqueuedPageTokens int64 `json:"enqueued_page_tokens,omitempty"`
 
 	// Lookup continuation (ask/answer) counters. BouncesByOp splits
 	// bounces by list-op kind, distinguishing planner asks (expected: one
@@ -67,7 +77,7 @@ func (s *SourceCacheStats) merge(delta SourceCacheStats) {
 	s.ScopesStamped += delta.ScopesStamped
 	for kind, n := range delta.RowsReplayed {
 		if s.RowsReplayed == nil {
-			s.RowsReplayed = make(map[string]int64, len(delta.RowsReplayed))
+			s.RowsReplayed = make(map[sourcecache.RowKind]int64, len(delta.RowsReplayed))
 		}
 		s.RowsReplayed[kind] += n
 	}
@@ -75,7 +85,7 @@ func (s *SourceCacheStats) merge(delta SourceCacheStats) {
 	s.TombstoneIDs += delta.TombstoneIDs
 	s.TombstonePrincipals += delta.TombstonePrincipals
 	s.RowsDeleted += delta.RowsDeleted
-	s.SpawnedCursors += delta.SpawnedCursors
+	s.EnqueuedPageTokens += delta.EnqueuedPageTokens
 	s.LookupBounces += delta.LookupBounces
 	s.LookupRequestsBounced += delta.LookupRequestsBounced
 	s.LookupScopesAsked += delta.LookupScopesAsked
@@ -95,7 +105,7 @@ func (s *SourceCacheStats) merge(delta SourceCacheStats) {
 func (s *SourceCacheStats) copy() *SourceCacheStats {
 	out := *s
 	if s.RowsReplayed != nil {
-		out.RowsReplayed = make(map[string]int64, len(s.RowsReplayed))
+		out.RowsReplayed = make(map[sourcecache.RowKind]int64, len(s.RowsReplayed))
 		for k, v := range s.RowsReplayed {
 			out.RowsReplayed[k] = v
 		}

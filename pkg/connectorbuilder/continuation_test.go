@@ -99,6 +99,40 @@ func continuationGrantsRequest(annos annotations.Annotations) *v2.GrantsServiceL
 	}.Build()
 }
 
+// clearedSlotTestLookup is a trivially non-noop direct lookup for the
+// cleared-slot test below.
+type clearedSlotTestLookup struct{}
+
+func (clearedSlotTestLookup) Lookup(context.Context, sourcecache.RowKind, string) (sourcecache.Entry, bool, error) {
+	return sourcecache.Entry{CacheValidator: "current"}, true, nil
+}
+
+// TestContinuation_SurvivesClearedLookupSlot pins the slot-semantics
+// contract between SetSourceCache and continuationOpAttrs: clearing the
+// slot (SetSourceCache(nil) stores NoopLookup so late RPCs read a
+// deterministic miss) must NOT count as "a direct lookup is installed" —
+// that would silently disable the ask/answer continuation for every
+// later request, degrading to permanent cold syncs with no error.
+func TestContinuation_SurvivesClearedLookupSlot(t *testing.T) {
+	ctx := context.Background()
+	ts := &continuationTestSyncer{testResourceSyncerV2Simple: testResourceSyncerV2Simple{resourceType: "group"}, scope: "groups/g1/members"}
+	b := newContinuationTestBuilder(t, ts)
+
+	// Install then clear, as a completed direct-topology sync would.
+	b.SetSourceCache(ctx, clearedSlotTestLookup{})
+	b.SetSourceCache(ctx, nil)
+
+	// A continuation request must still defer into an ask.
+	resp, err := b.ListGrants(ctx, continuationGrantsRequest(annotations.New(&v2.SourceCacheLookupOffer{})))
+	require.NoError(t, err)
+	require.Empty(t, resp.GetList())
+	ask := &v2.SourceCacheLookupAsk{}
+	respAnnos := annotations.Annotations(resp.GetAnnotations())
+	hasAsk, err := respAnnos.Pick(ask)
+	require.NoError(t, err)
+	require.True(t, hasAsk, "a cleared lookup slot must not disable the continuation")
+}
+
 func TestContinuation_DeferThenAnswer(t *testing.T) {
 	ctx := context.Background()
 	ts := &continuationTestSyncer{testResourceSyncerV2Simple: testResourceSyncerV2Simple{resourceType: "group"}, scope: "groups/g1/members"}

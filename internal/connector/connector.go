@@ -56,12 +56,12 @@ type connectorClient struct {
 	connectorV2.TicketsServiceClient
 	connectorV2.ActionServiceClient
 
-	sessionStoreSetter sessions.SetSessionStore // this is the session store server
-	sourceCacheSetter  sourcecache.SetLookup    // this is the source-cache lookup server
+	sessionStoreSetter sessions.SetSessionStore      // this is the session store server
+	sourceCacheSetter  sourcecache.SourceCacheSetter // this is the source-cache lookup server
 }
 
 var _ sessions.SetSessionStore = (*connectorClient)(nil)
-var _ sourcecache.SetLookup = (*connectorClient)(nil)
+var _ sourcecache.SourceCacheSetter = (*connectorClient)(nil)
 var _ SetSessionStoreSetter = (*connectorClient)(nil)
 var _ SetSourceCacheSetter = (*connectorClient)(nil)
 
@@ -70,14 +70,14 @@ type SetSessionStoreSetter interface {
 }
 
 type SetSourceCacheSetter interface {
-	SetSourceCacheSetter(sourceCacheSetter sourcecache.SetLookup)
+	SetSourceCacheSetter(sourceCacheSetter sourcecache.SourceCacheSetter)
 }
 
 func (c *connectorClient) SetSessionStoreSetter(sessionStoreSetter sessions.SetSessionStore) {
 	c.sessionStoreSetter = sessionStoreSetter
 }
 
-func (c *connectorClient) SetSourceCacheSetter(sourceCacheSetter sourcecache.SetLookup) {
+func (c *connectorClient) SetSourceCacheSetter(sourceCacheSetter sourcecache.SourceCacheSetter) {
 	c.sourceCacheSetter = sourceCacheSetter
 }
 
@@ -135,7 +135,7 @@ type wrapper struct {
 	now func() time.Time
 
 	SessionServer     sessions.SetSessionStore
-	SourceCacheServer sourcecache.SetLookup
+	SourceCacheServer sourcecache.SourceCacheSetter
 }
 
 type Option func(ctx context.Context, w *wrapper) error
@@ -224,9 +224,9 @@ func NewWrapper(ctx context.Context, server interface{}, opts ...Option) (*wrapp
 		now:    time.Now,
 	}
 	// In-process delivery: a connectorbuilder-based server implements
-	// sourcecache.SetLookup itself, so the syncer's per-sync lookup can be
+	// sourcecache.SourceCacheSetter itself, so the syncer's per-sync lookup can be
 	// installed without the subprocess gRPC hop.
-	if sourceCacheServer, ok := connectorServer.(sourcecache.SetLookup); ok {
+	if sourceCacheServer, ok := connectorServer.(sourcecache.SourceCacheSetter); ok {
 		w.SourceCacheServer = sourceCacheServer
 	}
 

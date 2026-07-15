@@ -61,6 +61,15 @@ type C1File struct {
 	closed             bool
 	closedMu           sync.Mutex
 
+	// dbClosed is set by closeRawDB just before the pool closes. It is
+	// the race-safe "no more operations" signal: c.db itself is never
+	// nil'ed on close (an operation concurrent with Close may already
+	// hold the pointer, and the unsynchronized nil-write is itself a
+	// data race against validateDb's read), so validateDb checks this
+	// flag and anything already past validateDb fails on the closed
+	// pool's own "sql: database is closed" error instead.
+	dbClosed atomic.Bool
+
 	// bulkLoad defers secondary-index creation on a freshly-created
 	// destination. When set, the per-table non-unique secondary indexes
 	// are dropped right after table creation (instant on the empty table)
@@ -815,8 +824,16 @@ func (c *C1File) closeRawDB(ctx context.Context) error {
 	// Copy the rawDb to a local variable to avoid race conditions.
 	rawDb := c.rawDb
 	c.rawDb = nil
+	// Flag first, then close: operations that haven't passed validateDb
+	// yet are rejected with ErrDbNotOpen; anything already past it fails
+	// on the closed pool's own "sql: database is closed". c.db is
+	// deliberately NOT nil'ed — a concurrent operation may already have
+	// read the pointer and goqu dereferences it (nil here means a
+	// SIGSEGV in BeginTx, and the unsynchronized write itself is a data
+	// race against validateDb's read); the closed pool underneath makes
+	// the handle inert.
+	c.dbClosed.Store(true)
 	err = rawDb.Close()
-	c.db = nil
 	return err
 }
 
@@ -1418,9 +1435,9 @@ func (c *C1File) countBySyncAndResourceType(
 	return out, nil
 }
 
-// validateDb ensures that the database has been opened.
+// validateDb ensures that the database has been opened and not closed.
 func (c *C1File) validateDb(ctx context.Context) error {
-	if c.db == nil {
+	if c.db == nil || c.dbClosed.Load() {
 		return ErrDbNotOpen
 	}
 
