@@ -146,8 +146,8 @@ func TestManifestGrantDigestRoot(t *testing.T) {
 	if root == nil {
 		t.Fatal("expected manifest GrantDigestRoot to be present")
 	}
-	if root.GetAbiVersion() != grantDigestABIVersion {
-		t.Fatalf("manifest abi_version = %d, want %d", root.GetAbiVersion(), grantDigestABIVersion)
+	if root.GetAbiVersion() != GrantDigestABIVersion {
+		t.Fatalf("manifest abi_version = %d, want %d", root.GetAbiVersion(), GrantDigestABIVersion)
 	}
 	want, ok, err := e.GetGrantDigestGlobalRoot(ctx)
 	if err != nil || !ok {
