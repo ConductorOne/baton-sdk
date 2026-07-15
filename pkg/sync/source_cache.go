@@ -439,6 +439,11 @@ func (s *syncer) beginSourceCachePage(
 			zap.Int("deleted_ids", len(page.deletedIDs)),
 			zap.Int("deleted_principal_ids", len(page.deletedPrincipalIDs)),
 		)
+		if s.testSourceCacheHaltHook != nil {
+			if err := s.testSourceCacheHaltHook("replay-copied", page.scopeKey); err != nil {
+				return ctx, nil, err
+			}
+		}
 	}
 
 	return sourcecache.WithScope(ctx, page.scopeKey), page, nil
@@ -451,6 +456,11 @@ func (s *syncer) beginSourceCachePage(
 func (s *syncer) finishSourceCachePage(ctx context.Context, page *sourceCachePage) error {
 	if page == nil {
 		return nil
+	}
+	if s.testSourceCacheHaltHook != nil {
+		if err := s.testSourceCacheHaltHook("rows-committed", page.scopeKey); err != nil {
+			return err
+		}
 	}
 	var rowsDeleted int64
 	if len(page.deletedIDs)+len(page.deletedPrincipalIDs) > 0 {
@@ -492,9 +502,19 @@ func (s *syncer) finishSourceCachePage(ctx context.Context, page *sourceCachePag
 			zap.Int64("rows_deleted", deleted),
 		)
 	}
+	if s.testSourceCacheHaltHook != nil {
+		if err := s.testSourceCacheHaltHook("tombstones-applied", page.scopeKey); err != nil {
+			return err
+		}
+	}
 	if page.etag != "" {
 		if err := s.sourceCache.current.PutSourceCacheEntry(ctx, page.kind, page.scopeKey, page.etag); err != nil {
 			return fmt.Errorf("source cache: error writing manifest entry for scope %q: %w", page.scopeKey, err)
+		}
+		if s.testSourceCacheHaltHook != nil {
+			if err := s.testSourceCacheHaltHook("manifest-written", page.scopeKey); err != nil {
+				return err
+			}
 		}
 	}
 

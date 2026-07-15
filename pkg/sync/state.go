@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
@@ -233,16 +234,20 @@ var _ State = &state{}
 
 // state is an object used for tracking the current status of a connector sync. It operates like a stack.
 type state struct {
-	mtx                             sync.RWMutex
-	actions                         map[string]Action
-	actionOrder                     []string
-	currentActionID                 uint64 // Counter for generating new action IDs.
-	entitlementGraph                *expand.EntitlementGraph
-	needsExpansion                  bool
-	hasExternalResourceGrants       bool
-	shouldFetchRelatedResources     bool
-	shouldSkipEntitlementsAndGrants bool
-	shouldSkipGrants                bool
+	mtx              sync.RWMutex
+	actions          map[string]Action
+	actionOrder      []string
+	currentActionID  uint64 // Counter for generating new action IDs.
+	entitlementGraph *expand.EntitlementGraph
+	// Monotone set-once flags, written concurrently by parallel sync
+	// workers (grant pages arm needsExpansion / hasExternalResourceGrants
+	// from any worker goroutine) — atomic, or -race flags every parallel
+	// sync. Set-once semantics make the ordering irrelevant.
+	needsExpansion                  atomic.Bool
+	hasExternalResourceGrants       atomic.Bool
+	shouldFetchRelatedResources     atomic.Bool
+	shouldSkipEntitlementsAndGrants atomic.Bool
+	shouldSkipGrants                atomic.Bool
 	completedActionsCount           uint64
 	exclusionGroupResourceTypes     map[string]string
 	exclusionGroupDefaults          map[string]string
@@ -320,7 +325,6 @@ func newState() *state {
 		actionOrder:                 []string{},
 		currentActionID:             0,
 		entitlementGraph:            nil,
-		needsExpansion:              false,
 		exclusionGroupResourceTypes: make(map[string]string),
 		exclusionGroupDefaults:      make(map[string]string),
 		exclusionGroupCounts:        make(map[string]uint32),
@@ -444,12 +448,12 @@ func (st *state) Unmarshal(input string) error {
 			st.actionOrder = []string{}
 		}
 		st.currentActionID = token.CurrentActionID
-		st.needsExpansion = token.NeedsExpansion
+		st.needsExpansion.Store(token.NeedsExpansion)
 		st.entitlementGraph = token.EntitlementGraph
-		st.hasExternalResourceGrants = token.HasExternalResourceGrants
-		st.shouldSkipEntitlementsAndGrants = token.ShouldSkipEntitlementsAndGrants
-		st.shouldSkipGrants = token.ShouldSkipGrants
-		st.shouldFetchRelatedResources = token.ShouldFetchRelatedResources
+		st.hasExternalResourceGrants.Store(token.HasExternalResourceGrants)
+		st.shouldSkipEntitlementsAndGrants.Store(token.ShouldSkipEntitlementsAndGrants)
+		st.shouldSkipGrants.Store(token.ShouldSkipGrants)
+		st.shouldFetchRelatedResources.Store(token.ShouldFetchRelatedResources)
 		st.completedActionsCount = token.CompletedActionsCount
 		st.exclusionGroupResourceTypes = token.ExclusionGroupResourceTypes
 		if st.exclusionGroupResourceTypes == nil {
@@ -512,12 +516,12 @@ func (st *state) Marshal() (string, error) {
 		ActionsMap:                      st.actions,
 		ActionOrder:                     st.actionOrder,
 		CurrentActionID:                 st.currentActionID,
-		NeedsExpansion:                  st.needsExpansion,
+		NeedsExpansion:                  st.needsExpansion.Load(),
 		EntitlementGraph:                st.entitlementGraph,
-		HasExternalResourceGrants:       st.hasExternalResourceGrants,
-		ShouldFetchRelatedResources:     st.shouldFetchRelatedResources,
-		ShouldSkipEntitlementsAndGrants: st.shouldSkipEntitlementsAndGrants,
-		ShouldSkipGrants:                st.shouldSkipGrants,
+		HasExternalResourceGrants:       st.hasExternalResourceGrants.Load(),
+		ShouldFetchRelatedResources:     st.shouldFetchRelatedResources.Load(),
+		ShouldSkipEntitlementsAndGrants: st.shouldSkipEntitlementsAndGrants.Load(),
+		ShouldSkipGrants:                st.shouldSkipGrants.Load(),
 		CompletedActionsCount:           st.completedActionsCount,
 		ExclusionGroupResourceTypes:     st.exclusionGroupResourceTypes,
 		ExclusionGroupDefaults:          st.exclusionGroupDefaults,
@@ -717,43 +721,43 @@ func (st *state) NextPage(ctx context.Context, actionID string, pageToken string
 }
 
 func (st *state) NeedsExpansion() bool {
-	return st.needsExpansion
+	return st.needsExpansion.Load()
 }
 
 func (st *state) SetNeedsExpansion() {
-	st.needsExpansion = true
+	st.needsExpansion.Store(true)
 }
 
 func (st *state) HasExternalResourcesGrants() bool {
-	return st.hasExternalResourceGrants
+	return st.hasExternalResourceGrants.Load()
 }
 
 func (st *state) SetHasExternalResourcesGrants() {
-	st.hasExternalResourceGrants = true
+	st.hasExternalResourceGrants.Store(true)
 }
 
 func (st *state) ShouldFetchRelatedResources() bool {
-	return st.shouldFetchRelatedResources
+	return st.shouldFetchRelatedResources.Load()
 }
 
 func (st *state) SetShouldFetchRelatedResources() {
-	st.shouldFetchRelatedResources = true
+	st.shouldFetchRelatedResources.Store(true)
 }
 
 func (st *state) ShouldSkipEntitlementsAndGrants() bool {
-	return st.shouldSkipEntitlementsAndGrants
+	return st.shouldSkipEntitlementsAndGrants.Load()
 }
 
 func (st *state) SetShouldSkipEntitlementsAndGrants() {
-	st.shouldSkipEntitlementsAndGrants = true
+	st.shouldSkipEntitlementsAndGrants.Store(true)
 }
 
 func (st *state) ShouldSkipGrants() bool {
-	return st.shouldSkipGrants
+	return st.shouldSkipGrants.Load()
 }
 
 func (st *state) SetShouldSkipGrants() {
-	st.shouldSkipGrants = true
+	st.shouldSkipGrants.Store(true)
 }
 
 // EntitlementGraph returns the entitlement graph for the current action.

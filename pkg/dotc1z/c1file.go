@@ -44,12 +44,12 @@ type pragma struct {
 }
 
 type C1File struct {
-	rawDb              *sql.DB
-	db                 *goqu.Database
-	currentSyncID      string
-	viewSyncID         string
-	outputFilePath     string
-	dbFilePath         string
+	rawDb          *sql.DB
+	db             *goqu.Database
+	currentSyncID  string
+	viewSyncID     string
+	outputFilePath string
+	dbFilePath     string
 	// dbUpdated records that any mutation ran; parallel sync workers set
 	// it concurrently, so it is atomic (it was a plain bool data race
 	// under -race). Only ever set true during a session; read at Close.

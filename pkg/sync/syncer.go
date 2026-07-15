@@ -148,9 +148,16 @@ type syncer struct {
 	// resourcesPhaseRanHere gates I4 to processes that actually ran the
 	// resources phase; strictIngestionInvariants promotes I4 from
 	// warn to hard-fail (tests and the equivalence harness set it).
-	childSchedule                         childScheduleSet
-	resourcesPhaseRanHere                 bool
-	strictIngestionInvariants             bool
+	childSchedule             childScheduleSet
+	resourcesPhaseRanHere     bool
+	strictIngestionInvariants bool
+	// testSourceCacheHaltHook, when non-nil, fires at named seams of the
+	// scope lifecycle (replay-copied, rows-committed, tombstones-applied,
+	// manifest-written); returning an error fails the sync at exactly
+	// that boundary. The halt-point sweep (source_cache_halt_test.go)
+	// uses it to prove crash/resume equivalence at every
+	// ordering-sensitive point. Nil in production: one pointer check.
+	testSourceCacheHaltHook               func(stage, scopeKey string) error
 	connector                             types.ConnectorClient
 	state                                 State
 	runDuration                           time.Duration

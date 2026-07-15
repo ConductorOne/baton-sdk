@@ -128,6 +128,53 @@ func TestSourceCacheReplayGrantsAcrossEngines(t *testing.T) {
 	require.Equal(t, int64(2), res2.Rows)
 }
 
+// TestSourceCacheOrphanScopes pins invariant I6's evidence surface:
+// scope-index entries whose scope has no manifest entry are reported as
+// orphans (a lost manifest write or stamp leak would poison a future
+// sync's replay); writing the entry clears the report. Zero-row manifest
+// entries (the reverse direction) are legal and never reported.
+func TestSourceCacheOrphanScopes(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	e := a.PebbleEngine()
+
+	// Stamped rows in two scopes; a manifest entry for only one.
+	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, scopeA), scGrant("member", "alice", false)))
+	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, scopeB), scGrant("member", "bob", false)))
+	require.NoError(t, e.PutSourceCacheEntry(ctx, "grants", scopeA, "etag-a"))
+
+	orphans, err := e.SourceCacheOrphanScopes(ctx)
+	require.NoError(t, err)
+	require.Equal(t, map[string][]string{"grants": {scopeB}}, orphans)
+
+	// Writing the missing entry clears the violation.
+	require.NoError(t, e.PutSourceCacheEntry(ctx, "grants", scopeB, "etag-b"))
+	orphans, err = e.SourceCacheOrphanScopes(ctx)
+	require.NoError(t, err)
+	require.Empty(t, orphans)
+
+	// A zero-row scope (manifest entry, no index entries) is legal.
+	require.NoError(t, e.PutSourceCacheEntry(ctx, "resources", scopeA, "etag-r"))
+	orphans, err = e.SourceCacheOrphanScopes(ctx)
+	require.NoError(t, err)
+	require.Empty(t, orphans)
+
+	// Row-kind partitions are independent: entitlement stamps under a
+	// scope key that only has a GRANTS manifest entry are orphans.
+	ent := v2.Entitlement_builder{
+		Id: "group:g1:member",
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+		}.Build(),
+	}.Build()
+	require.NoError(t, a.PutEntitlements(sourcecache.WithScope(ctx, scopeB), ent))
+	orphans, err = e.SourceCacheOrphanScopes(ctx)
+	require.NoError(t, err)
+	require.Equal(t, map[string][]string{"entitlements": {scopeB}}, orphans)
+}
+
 // TestSourceCacheReplayIsIdempotent pins double-execution safety: a
 // resumed sync can re-run a replay page whose first execution already
 // committed (the checkpoint races the crash), so replaying the same scope

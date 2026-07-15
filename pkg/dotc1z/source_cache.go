@@ -90,6 +90,12 @@ type IngestFactStore interface {
 
 	// HasResourceRecord reports whether a resource row exists.
 	HasResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (bool, error)
+
+	// SourceCacheOrphanScopes returns, per row kind, scope keys present
+	// in the by_source_scope indexes with no manifest entry — an
+	// invariant violation at a sealed sync's quiesce point (invariant
+	// I6): the orphaned stamps would poison a future sync's replay.
+	SourceCacheOrphanScopes(ctx context.Context) (map[string][]string, error)
 }
 
 var _ IngestFactStore = (*pebbleStore)(nil)
@@ -108,6 +114,10 @@ func (s *pebbleStore) GrantsForEntResourceCarryInsertFact(ctx context.Context, r
 
 func (s *pebbleStore) HasResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (bool, error) {
 	return s.engine.HasResourceRecord(ctx, resourceTypeID, resourceID)
+}
+
+func (s *pebbleStore) SourceCacheOrphanScopes(ctx context.Context) (map[string][]string, error) {
+	return s.engine.SourceCacheOrphanScopes(ctx)
 }
 
 // sourceCacheEngine recovers the Pebble engine from an arbitrary store,

@@ -1603,6 +1603,57 @@ func assertNoStaleResources(t *testing.T, round int, m *equivModel, label string
 	}
 }
 
+// expectedResourceKeys derives the COMPLETE resource set ("rt/id" keys)
+// the model implies: users (local + matched external principals), groups,
+// orgs, per-org child projects, InsertResourceGrants repos, and teams.
+// Exact set equality against the cold output removes the differential
+// test's structural blind spot for the resources phase (see
+// expectedGrantIDs).
+func expectedResourceKeys(m *equivModel) []string {
+	set := map[string]struct{}{}
+	for uid := range m.users {
+		set[userResourceType.GetId()+"/"+uid] = struct{}{}
+	}
+	// Every external user is matched by the MatchAll(USER) grant, so
+	// every one is inserted as a principal resource.
+	for extID := range m.extUsers {
+		set[userResourceType.GetId()+"/"+extID] = struct{}{}
+	}
+	for gid := range m.groups {
+		set[groupResourceType.GetId()+"/"+gid] = struct{}{}
+	}
+	for orgID, org := range m.orgs {
+		set[equivOrgRT.GetId()+"/"+orgID] = struct{}{}
+		for projID := range org.projects {
+			set[equivProjectRT.GetId()+"/"+projID] = struct{}{}
+		}
+		for repoID := range org.repoGrants {
+			set[equivRepoRT.GetId()+"/"+repoID] = struct{}{}
+		}
+	}
+	for tid := range m.teams {
+		set[equivTeamRT.GetId()+"/"+tid] = struct{}{}
+	}
+	return sortedKeys(set)
+}
+
+// expectedEntitlementIDs derives the COMPLETE entitlement set the model
+// implies: one member entitlement per group (including the external-match
+// group — its entitlement anchors the transformed grants) and one per
+// type-scoped team. Users, projects, and repos are skip-annotated or
+// never enumerated; orgs serve no entitlements; expansion and external
+// processing create no entitlement rows.
+func expectedEntitlementIDs(m *equivModel) []string {
+	set := map[string]struct{}{}
+	for gid, g := range m.groups {
+		set[equivMemberEnt(equivGroupResource(gid), g.exclusionDefault).GetId()] = struct{}{}
+	}
+	for tid := range m.teams {
+		set[equivMemberEnt(equivTeamResource(tid), false).GetId()] = struct{}{}
+	}
+	return sortedKeys(set)
+}
+
 // expectedGrantIDs derives the COMPLETE grant set the model implies:
 // group memberships, the expandable membership plus its expansion-derived
 // grants, match-transformed external grants, repo (InsertResourceGrants)
@@ -1707,9 +1758,13 @@ func assertColdArtifacts(t *testing.T, round int, m *equivModel, snap *c1zSnapsh
 		require.NotContains(t, id, "placeholder-",
 			"round %d: coverage: untransformed placeholder grant leaked into output", round)
 	}
-	// The independent oracle: the cold grant set must EXACTLY equal the
-	// model-derived expectation — the check that doesn't trust the
-	// syncer code both outputs share.
+	// The independent oracle: the cold output's resource, entitlement,
+	// and grant sets must EXACTLY equal the model-derived expectations —
+	// the checks that don't trust the syncer code both outputs share.
+	require.Equal(t, expectedResourceKeys(m), sortedKeys(snap.resources),
+		"round %d: cold output's resource set must equal the model-derived expectation", round)
+	require.Equal(t, expectedEntitlementIDs(m), sortedKeys(snap.entitlements),
+		"round %d: cold output's entitlement set must equal the model-derived expectation", round)
 	require.Equal(t, expectedGrantIDs(m), sortedKeys(snap.grants),
 		"round %d: cold output's grant set must equal the model-derived expectation", round)
 }

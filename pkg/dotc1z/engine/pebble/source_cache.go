@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -148,6 +149,114 @@ func (e *Engine) SourceScopeIndexSnapshot(ctx context.Context) (map[string]map[s
 		}
 		iter.Close()
 		out[fam.kind] = counts
+	}
+	return out, nil
+}
+
+// countSourceScopeIndexRange counts the index entries under one scope's
+// by_source_scope prefix — a contiguous key-only scan, no value reads.
+func (e *Engine) countSourceScopeIndexRange(ctx context.Context, prefix []byte) (int64, error) {
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefix,
+		UpperBound: upperBoundOf(prefix),
+	})
+	if err != nil {
+		return 0, err
+	}
+	defer iter.Close()
+	var n int64
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		n++
+	}
+	return n, iter.Error()
+}
+
+// verifyReplayedScopeCount is the replay-time count check: immediately
+// after a replay's final commit, the destination's scope-index range must
+// hold exactly the rows the copy claims to have written. Sound because
+// the copy is the scope's first writer in the sync (fresh rows for a
+// replayed scope arrive only via the overlay, after this) and a resumed
+// re-copy overwrites the identical identity set. A mismatch means a
+// partial copy landed — the silent-bad-data class — so it fails the
+// replay rather than letting the manifest entry seal it as complete.
+func (e *Engine) verifyReplayedScopeCount(ctx context.Context, kind, scopeKey string, prefix []byte, copied int64) error {
+	got, err := e.countSourceScopeIndexRange(ctx, prefix)
+	if err != nil {
+		return fmt.Errorf("source cache replay: recount %s scope %q: %w", kind, scopeKey, err)
+	}
+	if got != copied {
+		return fmt.Errorf(
+			"source cache replay: %s scope %q index holds %d entries after copy but %d rows were copied (partial replay copy)",
+			kind, scopeKey, got, copied)
+	}
+	return nil
+}
+
+// SourceCacheOrphanScopes returns, per row kind, every scope key present
+// in a by_source_scope index that has NO manifest entry. At a sealed
+// sync's quiesce point this is an invariant violation: every stamped row
+// was written under a scope whose completion writes the manifest entry,
+// and post-processing (external match, expansion) only re-stamps rows
+// with scopes that already completed. An orphan means a manifest write
+// was lost or a stamp leaked — either would poison the NEXT sync's
+// replay. One skip-scan per distinct scope; O(distinct scopes) seeks.
+func (e *Engine) SourceCacheOrphanScopes(ctx context.Context) (map[string][]string, error) {
+	out := map[string][]string{}
+	families := []struct {
+		kind   string
+		lower  []byte
+		prefix func(scope string) []byte
+	}{
+		{"resources", ResourceBySourceScopeLowerBound(), encodeResourceBySourceScopePrefix},
+		{"entitlements", EntitlementBySourceScopeLowerBound(), encodeEntitlementBySourceScopePrefix},
+		{"grants", GrantBySourceScopeLowerBound(), encodeGrantBySourceScopePrefix},
+	}
+	for _, fam := range families {
+		famPrefix := codec.AppendTupleSeparator(append([]byte{}, fam.lower...))
+		iter, err := e.db.NewIter(&pebble.IterOptions{
+			LowerBound: famPrefix,
+			UpperBound: upperBoundOf(fam.lower),
+		})
+		if err != nil {
+			return nil, err
+		}
+		for valid := iter.First(); valid; {
+			if err := ctx.Err(); err != nil {
+				iter.Close()
+				return nil, err
+			}
+			tail := iter.Key()[len(famPrefix):]
+			scopeBytes, _, ok := codec.DecodeTupleStringAlias(tail, 0)
+			if !ok {
+				iter.Close()
+				return nil, fmt.Errorf("SourceCacheOrphanScopes: malformed %s index key %x", fam.kind, iter.Key())
+			}
+			scope := string(scopeBytes)
+			if _, closer, getErr := e.db.Get(encodeSourceCacheEntryKey(fam.kind, scope)); getErr == nil {
+				closer.Close()
+			} else if errors.Is(getErr, pebble.ErrNotFound) {
+				out[fam.kind] = append(out[fam.kind], scope)
+			} else {
+				iter.Close()
+				return nil, getErr
+			}
+			// Skip the rest of this scope's entries.
+			valid = iter.SeekGE(upperBoundOf(fam.prefix(scope)))
+		}
+		if err := iter.Error(); err != nil {
+			iter.Close()
+			return nil, err
+		}
+		iter.Close()
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	for _, scopes := range out {
+		sort.Strings(scopes)
 	}
 	return out, nil
 }
@@ -804,7 +913,7 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 		// keyspace is still empty and leaving replayed index entries stale
 		// (consumed by the defer above).
 		committedRows += rowsInBatch
-		return nil
+		return e.verifyReplayedScopeCount(ctx, "grants", scopeKey, prefix, res.Rows)
 	})
 	if err != nil {
 		return SourceCacheReplayResult{}, err
@@ -992,7 +1101,7 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 		// invalidated; bumping earlier would let such a build record the
 		// fresh generation against partially-replayed state.
 		committedRows += rowsInBatch
-		return nil
+		return e.verifyReplayedScopeCount(ctx, "entitlements", scopeKey, prefix, res.Rows)
 	})
 	if err != nil {
 		return SourceCacheReplayResult{}, err
@@ -1138,7 +1247,7 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 		// fast-path, or old by_parent/by_source_scope entries survive
 		// (consumed by the defer above).
 		committedRows += rowsInBatch
-		return nil
+		return e.verifyReplayedScopeCount(ctx, "resources", scopeKey, prefix, res.Rows)
 	})
 	if err != nil {
 		return SourceCacheReplayResult{}, err

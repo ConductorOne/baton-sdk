@@ -28,7 +28,11 @@ func TestEncoderPool(t *testing.T) {
 
 		enc2, fromPool2 := getEncoder()
 		require.NotNil(t, enc2)
-		require.True(t, fromPool2)
+		if !raceEnabled {
+			// sync.Pool randomly discards Puts under -race; reuse is
+			// only deterministic without it.
+			require.True(t, fromPool2)
+		}
 		putEncoder(enc2)
 	})
 
@@ -121,7 +125,11 @@ func TestDecoderPool(t *testing.T) {
 
 		dec2, fromPool2 := getDecoder()
 		require.NotNil(t, dec2)
-		require.True(t, fromPool2)
+		if !raceEnabled {
+			// See the encoder variant: sync.Pool discards randomly
+			// under -race.
+			require.True(t, fromPool2)
+		}
 		putDecoder(dec2)
 	})
 

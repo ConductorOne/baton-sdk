@@ -35,6 +35,13 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 //     type per group, size cap). This REPLACES the former streaming
 //     validation entirely — it is engine-agnostic and covers replayed,
 //     fresh, and generated (static) entitlements uniformly.
+//   - I6 source-cache scope consistency: every scope present in a
+//     by_source_scope index has a manifest entry at seal. Orphaned
+//     stamps mean a lost manifest write or a stamp leak — either would
+//     poison a FUTURE sync's replay while this sync reads clean.
+//     Pebble-only (the only engine with source-cache state); the
+//     replay-time counterpart (copied-row count vs the scope index)
+//     lives in the engine's ReplaySourceCache* and always hard-fails.
 //
 // Evidence is monotone (existence bits, set-union scheduling records),
 // so parallel workers and mixed stream/replay arrival orders yield
@@ -329,8 +336,37 @@ func (s *syncer) validateStoredExclusionGroups(ctx context.Context) error {
 	return nil
 }
 
+// checkSourceCacheScopeConsistency is invariant I6: at the sealed sync's
+// quiesce point, every scope present in a by_source_scope index must have
+// a manifest entry. Post-processing only re-stamps rows with scopes that
+// already completed (external-match transformed grants and expansion
+// writes inherit the SOURCE scope), so an orphan at this seam is always a
+// lost manifest write or a stamp leak — and the damage is deferred: THIS
+// sync reads clean, the NEXT sync replays from the damaged state.
+func (s *syncer) checkSourceCacheScopeConsistency(ctx context.Context) error {
+	facts, ok := s.store.(dotc1z.IngestFactStore)
+	if !ok {
+		return nil // engine without source-cache state
+	}
+	orphans, err := facts.SourceCacheOrphanScopes(ctx)
+	if err != nil {
+		return fmt.Errorf("ingest invariant I6: scanning scope indexes: %w", err)
+	}
+	if len(orphans) == 0 {
+		return nil
+	}
+	err = fmt.Errorf(
+		"ingest invariant I6 violated: scope index entries exist with no manifest entry (lost manifest write or stamp leak): %v",
+		orphans)
+	if s.strictIngestionInvariants {
+		return err
+	}
+	ctxzap.Extract(ctx).Warn("ingest invariant I6 violated (lenient mode)", zap.Error(err))
+	return nil
+}
+
 // runIngestionInvariants evaluates the post-collection (check-flavored)
-// invariants: I5, I4, I3, in that order (cheapest and most
+// invariants: I5, I6, I4, I3, in that order (cheapest and most
 // behavior-critical first). Runs after the action loop drains and before
 // EndSync, so every ingestion path — stream, replay, resume re-runs,
 // expansion, external-match processing — has finished writing.
@@ -338,6 +374,9 @@ func (s *syncer) validateStoredExclusionGroups(ctx context.Context) error {
 // with the same verdict.
 func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 	if err := s.validateStoredExclusionGroups(ctx); err != nil {
+		return err
+	}
+	if err := s.checkSourceCacheScopeConsistency(ctx); err != nil {
 		return err
 	}
 	if err := s.checkChildScheduling(ctx); err != nil {
