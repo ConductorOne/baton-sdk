@@ -1019,19 +1019,23 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 		return err
 	}
 
+	explicitFilter := len(s.syncResourceTypes) > 0
 	var resourceTypes []*v2.ResourceType
-	if len(s.syncResourceTypes) > 0 {
-		syncResourceTypeMap := make(map[string]bool)
-		for _, rt := range s.syncResourceTypes {
-			syncResourceTypeMap[rt] = true
-		}
-		for _, rt := range resp.GetList() {
-			if shouldSync := syncResourceTypeMap[rt.GetId()]; shouldSync {
-				resourceTypes = append(resourceTypes, rt)
+	for _, rt := range resp.GetList() {
+		if !s.shouldSyncResourceType(rt) {
+			// A type excluded on the default (no-filter) path can only be one
+			// carrying OptInRequired; surface that so an operator understands
+			// why it was skipped. Exclusions under an explicit filter are the
+			// expected "not selected" case and stay quiet, as before.
+			if !explicitFilter {
+				ctxzap.Extract(ctx).Info(
+					"skipping opt-in-required resource type; select it via --sync-resource-types to include it",
+					zap.String("resource_type_id", rt.GetId()),
+				)
 			}
+			continue
 		}
-	} else {
-		resourceTypes = resp.GetList()
+		resourceTypes = append(resourceTypes, rt)
 	}
 
 	err = s.store.PutResourceTypes(ctx, resourceTypes...)
@@ -1061,6 +1065,27 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 	}
 
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
+}
+
+// shouldSyncResourceType reports whether a resource type advertised by the
+// connector should be included in a local/CLI sync.
+//
+//   - With an explicit --sync-resource-types filter, exactly the named types
+//     sync and the rest are skipped. Naming an OptInRequired type in the filter
+//     IS the operator's opt-in, so it is included.
+//   - With no filter, every type syncs EXCEPT those carrying the OptInRequired
+//     annotation, which stay off until an operator selects them explicitly.
+//     This mirrors the platform, which reads OptInRequired from connector
+//     capabilities and only syncs such a type once selected.
+//
+// Connectors that never set OptInRequired on any resource type are unaffected:
+// on the default path the annotation is simply never present.
+func (s *syncer) shouldSyncResourceType(rt *v2.ResourceType) bool {
+	if len(s.syncResourceTypes) > 0 {
+		return slices.Contains(s.syncResourceTypes, rt.GetId())
+	}
+	annos := annotations.Annotations(rt.GetAnnotations())
+	return !annos.Contains(&v2.OptInRequired{})
 }
 
 func validateSyncResourceTypesFilter(resourceTypesFilter []string, validResourceTypes []*v2.ResourceType) error {
