@@ -39,6 +39,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	pebbleengine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
+	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
@@ -66,6 +67,14 @@ func writeScopedSyncFile(ctx context.Context, t *testing.T, path, tmpDir, scope,
 	require.NoError(t, err)
 	require.NoError(t, store.PutResourceTypes(ctx, scGroupRT, scUserRT))
 	require.NoError(t, store.PutResources(ctx, group))
+	// Referential honesty: the grants below reference the member
+	// entitlement, and compaction's expand-grants pass runs the
+	// ingestion invariants over the merged output — grants whose
+	// entitlement has no row would be dropped (I8), as they would be
+	// for a real connector with this bug.
+	memberEnt := et.NewAssignmentEntitlement(group, "member")
+	memberEnt.SetSlug("member")
+	require.NoError(t, store.PutEntitlements(ctx, memberEnt))
 
 	grants := make([]*v2.Grant, 0, len(memberIDs))
 	for _, uid := range memberIDs {

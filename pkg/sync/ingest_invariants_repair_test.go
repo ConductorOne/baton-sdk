@@ -2,12 +2,13 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 
 // I3 repair-arm tests: a grant-inserted resource lost from the current
 // sync (the replay-loss class) is repaired by copying the previous
-// sync's row in lenient mode, and hard-fails under ErrReplayIntegrity in
-// strict mode (so mutation tests still name the machinery bug) or when
+// sync's row in default mode, and hard-fails under ErrReplayIntegrity in
+// fail-fast mode (so mutation tests still name the machinery bug) or when
 // no previous source can supply the row.
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -77,15 +78,15 @@ func TestIngestInvariantI3RepairsLostRelatedResource(t *testing.T) {
 	s.sourceCache.prev = prevSC
 	s.sourceCache.prevReader = prev
 
-	// Strict mode: no repair — the machinery bug must be NAMED, and the
+	// Fail-fast mode: no repair — the machinery bug must be NAMED, and the
 	// failure classified as replay-integrity.
-	s.strictIngestionInvariants = true
+	s.failFastInvariants = true
 	err = s.checkGrantResourceReferences(ctx)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrReplayIntegrity)
 
-	// Lenient mode: repaired from the previous sync's row, full fidelity.
-	s.strictIngestionInvariants = false
+	// Default mode: repaired from the previous sync's row, full fidelity.
+	s.failFastInvariants = false
 	require.NoError(t, s.checkGrantResourceReferences(ctx))
 	got, err := cur.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 		ResourceId: repo.GetId(),
@@ -99,6 +100,55 @@ func TestIngestInvariantI3RepairsLostRelatedResource(t *testing.T) {
 
 	require.NoError(t, cur.Close(ctx))
 	require.NoError(t, prev.Close(ctx))
+}
+
+// TestReplayIntegrityErrorPropagatesFromSync pins the propagation the
+// runners' cold-retry depends on: an ErrReplayIntegrity-classified
+// failure raised at the replay seam must survive the action loop and
+// parallel workers and satisfy errors.Is at syncer.Sync()'s return.
+func TestReplayIntegrityErrorPropagatesFromSync(t *testing.T) {
+	ctx, err := logging.Init(t.Context())
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+
+	mc := newSourceCacheMockConnector()
+	res, _, err := mc.AddGroup(ctx, "g1")
+	require.NoError(t, err)
+	_, err = mc.AddUser(ctx, "u1")
+	require.NoError(t, err)
+	mc.etagByResource[res.GetId().GetResource()] = "v1"
+
+	sync1 := filepath.Join(tmpDir, "s1.c1z")
+	runSourceCacheSync(ctx, t, mc, sync1, "", tmpDir)
+
+	// Warm sync whose replay seam raises a classified failure — the same
+	// return path a real replay copy/count-check failure takes.
+	store, err := dotc1z.NewStore(ctx, filepath.Join(tmpDir, "s2.c1z"),
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	syncer, err := NewSyncer(ctx, mc,
+		WithConnectorStore(store),
+		WithTmpDir(tmpDir),
+		WithPreviousSyncC1ZPath(sync1),
+		func(s *syncer) {
+			s.testSourceCacheHaltHook = func(stage, scopeKey string) error {
+				if stage != "replay-copied" {
+					return nil
+				}
+				return fmt.Errorf("injected replay-seam failure for scope %q: %w", scopeKey, ErrReplayIntegrity)
+			}
+		},
+	)
+	require.NoError(t, err)
+	err = syncer.Sync(ctx)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrReplayIntegrity,
+		"the sentinel must survive propagation to Sync()'s return, or the runners' cold retry never fires")
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	_ = syncer.Close(cctx)
 }
 
 // TestWithoutPreviousSyncForcesCold pins the runners' cold-retry
@@ -142,7 +192,7 @@ func TestIngestInvariantI3UnrepairableFailsWithReplayIntegrity(t *testing.T) {
 	g := repairTestGrant(t, repo)
 
 	// Previous sync exists but is ALSO missing the resource: repair has
-	// no source, so even lenient mode must fail — and classify as
+	// no source, so even default mode must fail — and classify as
 	// replay-integrity so the runners' cold retry can take over.
 	prev := newRepairTestStore(ctx, t, filepath.Join(tmpDir, "prev.c1z"), tmpDir)
 	_, err = prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")

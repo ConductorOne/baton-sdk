@@ -229,6 +229,19 @@ func encodeGrantPrimaryEntitlementResourcePrefix(resourceTypeID, resourceID stri
 	return codec.AppendTupleSeparator(buf)
 }
 
+// encodeGrantPrimaryEntitlementIdentityPrefix is the grant primary-key
+// prefix covering every grant of one entitlement identity: the four
+// leading tuple components (rt, rid, flag, tail) with a trailing
+// separator. Components are passed raw (as decoded from a key) and
+// re-escaped by the tuple codec, so the round trip is byte-exact.
+func encodeGrantPrimaryEntitlementIdentityPrefix(resourceTypeID, resourceID, flag, tail string) []byte {
+	buf := make([]byte, 0, 96)
+	buf = append(buf, versionV3, typeGrant)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, resourceTypeID, resourceID, flag, tail)
+	return codec.AppendTupleSeparator(buf)
+}
+
 // encodeGrantByNeedsExpansionIndexKey: index of grants whose
 // NeedsExpansion flag is true. Pebble equivalent of the SQLite
 // partial index `WHERE needs_expansion = 1`. The grant is added to

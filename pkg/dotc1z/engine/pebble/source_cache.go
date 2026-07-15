@@ -318,30 +318,6 @@ func (e *Engine) GetSourceCacheEntry(ctx context.Context, rowKind, scopeKey stri
 	return rec, nil
 }
 
-// DeleteGrantRecordBounded deletes a grant by canonical public id WITHOUT
-// the O(all grants) stored-external-id scan fallback that the interactive
-// DeleteGrantRecord path is allowed to take. Used by the source-cache
-// tombstone path, where a mass-removal round would otherwise pay a full
-// keyspace scan PER already-absent id.
-//
-// Consequence, by design: a grant stored under a connector-CUSTOM id (one
-// that isn't the SDK concat shape) is unreachable here and the delete
-// no-ops. Connectors with custom grant ids must use principal-scoped
-// tombstones (SourceCacheRecord.deleted_principal_ids) instead — documented
-// in the annotation proto.
-func (e *Engine) DeleteGrantRecordBounded(ctx context.Context, externalID string) error {
-	return e.withWrite(func() error {
-		id, err := e.resolveGrantIdentityByCandidates(ctx, externalID)
-		if err != nil {
-			if errors.Is(err, errNoGrantCandidateHits) || errors.Is(err, pebble.ErrNotFound) {
-				return nil // absent (or custom-id) — tombstone no-op
-			}
-			return err
-		}
-		return e.deleteGrantByIdentityLocked(id)
-	})
-}
-
 // DeleteGrantsByPrincipalsInScope deletes every grant row in the CURRENT
 // store stamped with scopeKey whose principal id is in principalIDs —
 // the engine side of principal-scoped delta tombstones

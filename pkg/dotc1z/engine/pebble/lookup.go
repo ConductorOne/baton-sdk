@@ -271,8 +271,9 @@ func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID s
 	}
 	// Candidate probing proved nothing either way: the id may still be a
 	// connector-custom STORED external id (with or without colons), which
-	// only the O(all grants) scan can find. Interactive edges pay it;
-	// bounded callers (DeleteGrantRecordBounded) stop before this line.
+	// only the O(all grants) scan can find. Only interactive edges reach
+	// this line; bulk paths (source-cache tombstones) resolve rows via
+	// the scope index instead and never pay the scan.
 	return e.scanGrantIdentityByStoredExternalID(ctx, grantID)
 }
 

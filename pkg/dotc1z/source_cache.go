@@ -93,12 +93,15 @@ func (s *pebbleStore) SourceScopeIndexSnapshot(ctx context.Context) (map[string]
 	return s.engine.SourceScopeIndexSnapshot(ctx)
 }
 
-// IngestFactStore is the optional store capability backing the syncer's
-// ingestion invariants (see docs/tasks/source-cache-ingestion-invariants.md):
-// dense row facts tracked as existence bits, and the ordered-key
-// inspection reads the referential invariant uses. Pebble-only; the
-// syncer degrades per-invariant when the store lacks it.
-type IngestFactStore interface {
+// IngestInvariantStore is the optional store capability backing the
+// syncer's ingestion invariants (see
+// docs/tasks/source-cache-ingestion-invariants.md): dense row facts
+// tracked as existence bits, the ordered-key scans the referential
+// invariants (I3/I7/I8/I9) ride, and the drop/repair mechanics their
+// default-mode verdicts apply. Pebble-only; the syncer degrades
+// per-invariant when the store lacks it (SQLite artifacts are never
+// scanned or mutated).
+type IngestInvariantStore interface {
 	// HasExternalMatchGrants reports whether the open sync holds at
 	// least one grant carrying an ExternalResourceMatch* annotation —
 	// the store-derived truth behind HasExternalResourcesGrants.
@@ -116,9 +119,43 @@ type IngestFactStore interface {
 
 	// HasResourceRecord reports whether a resource row exists.
 	HasResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (bool, error)
+
+	// ForEachDistinctEntitlementResource visits each distinct resource
+	// referenced by any entitlement row: one seek per distinct
+	// resource, never O(entitlements).
+	ForEachDistinctEntitlementResource(ctx context.Context, visit func(resourceTypeID, resourceID string) error) error
+
+	// ForEachDanglingGrantEntitlement visits each distinct entitlement
+	// referenced by grants that has no entitlement row: one seek plus
+	// one point probe per distinct entitlement, never O(grants).
+	ForEachDanglingGrantEntitlement(ctx context.Context, visit func(entitlementID, resourceTypeID, resourceID string) error) error
+
+	// EnsureGrantIndexes forces a pending deferred grant-index build to
+	// run now, making by_principal complete for the dangling-principal
+	// scan. Near-free: the same build would run at EndSync.
+	EnsureGrantIndexes(ctx context.Context) error
+
+	// ForEachDanglingGrantPrincipal visits each distinct principal
+	// referenced by grants that has no resource row. matchAnnotatedOnly
+	// reports that every grant of the principal is an unprocessed
+	// ExternalResourceMatch* carrier (exempt shape); carrierGrants is
+	// the per-grant count of that population.
+	ForEachDanglingGrantPrincipal(ctx context.Context, visit func(principalRT, principalID string, matchAnnotatedOnly bool, carrierGrants int64) error) error
+
+	// DeleteEntitlementsForResource drops every entitlement row under a
+	// resource; returns the count and up to maxIDs deleted ids.
+	DeleteEntitlementsForResource(ctx context.Context, resourceTypeID, resourceID string, maxIDs int) (int64, []string, error)
+
+	// DeleteGrantsForEntitlement drops every grant row under one
+	// entitlement identity; returns the count.
+	DeleteGrantsForEntitlement(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (int64, error)
+
+	// DeleteGrantsForPrincipal drops every grant of one principal except
+	// ExternalResourceMatch* carriers; returns (deleted, skipped).
+	DeleteGrantsForPrincipal(ctx context.Context, principalRT, principalID string) (int64, int64, error)
 }
 
-var _ IngestFactStore = (*pebbleStore)(nil)
+var _ IngestInvariantStore = (*pebbleStore)(nil)
 
 func (s *pebbleStore) HasExternalMatchGrants(ctx context.Context) (bool, error) {
 	return s.engine.HasExternalMatchGrants(), nil
@@ -134,6 +171,46 @@ func (s *pebbleStore) GrantsForEntResourceCarryInsertFact(ctx context.Context, r
 
 func (s *pebbleStore) HasResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (bool, error) {
 	return s.engine.HasResourceRecord(ctx, resourceTypeID, resourceID)
+}
+
+func (s *pebbleStore) ForEachDistinctEntitlementResource(ctx context.Context, visit func(resourceTypeID, resourceID string) error) error {
+	return s.engine.ForEachDistinctEntitlementResource(ctx, visit)
+}
+
+func (s *pebbleStore) ForEachDanglingGrantEntitlement(ctx context.Context, visit func(entitlementID, resourceTypeID, resourceID string) error) error {
+	return s.engine.ForEachDanglingGrantEntitlement(ctx, visit)
+}
+
+func (s *pebbleStore) EnsureGrantIndexes(ctx context.Context) error {
+	return s.engine.EnsureGrantIndexes(ctx)
+}
+
+func (s *pebbleStore) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(principalRT, principalID string, matchAnnotatedOnly bool, carrierGrants int64) error) error {
+	return s.engine.ForEachDanglingGrantPrincipal(ctx, visit)
+}
+
+func (s *pebbleStore) DeleteEntitlementsForResource(ctx context.Context, resourceTypeID, resourceID string, maxIDs int) (int64, []string, error) {
+	n, ids, err := s.engine.DeleteEntitlementsForResource(ctx, resourceTypeID, resourceID, maxIDs)
+	if n > 0 {
+		s.MarkDirty()
+	}
+	return n, ids, err
+}
+
+func (s *pebbleStore) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (int64, error) {
+	n, err := s.engine.DeleteGrantsForEntitlement(ctx, entitlementID, entResourceTypeID, entResourceID)
+	if n > 0 {
+		s.MarkDirty()
+	}
+	return n, err
+}
+
+func (s *pebbleStore) DeleteGrantsForPrincipal(ctx context.Context, principalRT, principalID string) (int64, int64, error) {
+	n, skipped, err := s.engine.DeleteGrantsForPrincipal(ctx, principalRT, principalID)
+	if n > 0 {
+		s.MarkDirty()
+	}
+	return n, skipped, err
 }
 
 func (s *pebbleStore) SourceCacheOrphanScopes(ctx context.Context) (map[string][]string, error) {

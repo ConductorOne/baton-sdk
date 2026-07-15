@@ -146,11 +146,12 @@ type syncer struct {
 	// Ingestion-invariant state (see ingest_invariants.go):
 	// childSchedule is the monotone record backing invariant I4;
 	// resourcesPhaseRanHere gates I4 to processes that actually ran the
-	// resources phase; strictIngestionInvariants promotes I4 from
-	// warn to hard-fail (tests and the equivalence harness set it).
-	childSchedule             childScheduleSet
-	resourcesPhaseRanHere     bool
-	strictIngestionInvariants bool
+	// resources phase; failFastInvariants promotes every invariant
+	// verdict from its default handling (warn, drop, or repair) to hard
+	// sync failure (tests and the equivalence harness set it).
+	childSchedule         childScheduleSet
+	resourcesPhaseRanHere bool
+	failFastInvariants    bool
 	// testSourceCacheHaltHook, when non-nil, fires at named seams of the
 	// scope lifecycle (replay-copied, rows-committed, tombstones-applied,
 	// manifest-written); returning an error fails the sync at exactly
@@ -3400,13 +3401,13 @@ func WithStorageEngine(engine c1zstore.Engine) SyncOpt {
 	}
 }
 
-// WithStrictIngestionInvariants promotes check-only ingestion invariants
+// WithFailFastInvariants promotes check-only ingestion invariants
 // (see ingest_invariants.go) from warn-with-log to hard sync failure.
 // Tests and the replay-equivalence harness enable it; production default
-// is lenient until the predicates have a clean release behind them.
-func WithStrictIngestionInvariants() SyncOpt {
+// stays warn-and-drop until the predicates have a clean release behind them.
+func WithFailFastInvariants() SyncOpt {
 	return func(s *syncer) {
-		s.strictIngestionInvariants = true
+		s.failFastInvariants = true
 	}
 }
 

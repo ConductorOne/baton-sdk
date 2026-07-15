@@ -38,7 +38,7 @@ func runSourceCacheSyncClient(ctx context.Context, t *testing.T, cc types.Connec
 		dotc1z.WithTmpDir(tmpDir),
 	)
 	require.NoError(t, err)
-	opts := []SyncOpt{WithConnectorStore(store), WithTmpDir(tmpDir), WithStrictIngestionInvariants()}
+	opts := []SyncOpt{WithConnectorStore(store), WithTmpDir(tmpDir), WithFailFastInvariants()}
 	if prevPath != "" {
 		opts = append(opts, WithPreviousSyncC1ZPath(prevPath))
 	}

@@ -354,6 +354,23 @@ func (mc *chunkedGrantsMockConnector) ListGrants(ctx context.Context, in *v2.Gra
 	}.Build(), nil
 }
 
+// enableUnstampedExtra turns on the unstamped trailing page AND registers
+// the "admin" entitlement its grants reference: ingest invariant I8 drops
+// grants whose entitlement has no row at seal, so the fixture must stay
+// referentially honest (as the real connector this scenario pins is).
+func (mc *chunkedGrantsMockConnector) enableUnstampedExtra() {
+	mc.unstampedExtra = true
+	gid := mc.groupIDs[0]
+	for _, ent := range mc.entDB[gid] {
+		if ent.GetSlug() == "admin" {
+			return
+		}
+	}
+	adminEnt := et.NewAssignmentEntitlement(mc.resByID[gid], "admin", et.WithGrantableTo(userResourceType))
+	adminEnt.SetSlug("admin")
+	mc.entDB[gid] = append(mc.entDB[gid], adminEnt)
+}
+
 // unstampedExtraGrants are the rows served by the unstamped trailing page:
 // "admin" grants on group-000 for two fixed users. They exist only while
 // the connector emits them — nothing replays them.
@@ -422,7 +439,7 @@ func TestTypeScopedGrantsMixedStampedUnstampedCursor(t *testing.T) {
 	// 10 groups => 1 chunk, 3 members each => 30 member grants, plus 2
 	// unstamped "admin" grants from the trailing extra page.
 	mc := newChunkedGrantsMockConnector(t, 10, 3)
-	mc.unstampedExtra = true
+	mc.enableUnstampedExtra()
 	require.Equal(t, 1, mc.chunkCount())
 
 	// --- Sync 1: cold — scoped member pages then the unstamped page ----

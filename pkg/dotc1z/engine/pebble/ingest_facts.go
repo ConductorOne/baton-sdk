@@ -163,6 +163,122 @@ func (e *Engine) ForEachDistinctGrantEntitlementResource(ctx context.Context, vi
 	return iter.Error()
 }
 
+// ForEachDistinctEntitlementResource visits each distinct
+// (resource_type_id, resource_id) pair present in the entitlement
+// primary keyspace, in key order. Same prefix-skip shape as the grant
+// scan: one seek per distinct resource, never O(entitlements). Backs
+// the syncer's entitlement→resource referential invariant (I7).
+func (e *Engine) ForEachDistinctEntitlementResource(ctx context.Context, visit func(resourceTypeID, resourceID string) error) error {
+	prefix := encodeEntitlementPrefix()
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefix,
+		UpperBound: upperBoundOf(prefix),
+	})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+
+	const headerLen = 3 // versionV3, typeEntitlement, separator
+	for valid := iter.First(); valid; {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		key := iter.Key()
+		if len(key) <= headerLen {
+			return fmt.Errorf("distinct entitlement-resource scan: malformed entitlement key %x", key)
+		}
+		tail := key[headerLen:]
+		rtBytes, next, ok := codec.DecodeTupleStringAlias(tail, 0)
+		if !ok || next >= len(tail) {
+			return fmt.Errorf("distinct entitlement-resource scan: malformed entitlement key tail %x", key)
+		}
+		ridBytes, _, ok := codec.DecodeTupleStringAlias(tail, next+1)
+		if !ok {
+			return fmt.Errorf("distinct entitlement-resource scan: malformed entitlement key tail %x", key)
+		}
+		rt, rid := string(rtBytes), string(ridBytes)
+		if err := visit(rt, rid); err != nil {
+			return err
+		}
+		valid = iter.SeekGE(upperBoundOf(encodeEntitlementPrimaryResourcePrefix(rt, rid)))
+	}
+	return iter.Error()
+}
+
+// ForEachDanglingGrantEntitlement visits each distinct entitlement
+// identity referenced by grants for which NO entitlement row exists.
+// The grant primary key leads with the full entitlement identity tuple
+// (which is byte-identical to the entitlement primary key's tuple), so
+// the scan is one seek per distinct entitlement plus one point-Get
+// probe each — O(distinct entitlements), never O(grants), and no value
+// reads: the identity tuple reconstructs the external id byte-exactly
+// (see identity.go). Backs the syncer's grant→entitlement referential
+// invariant (I8).
+func (e *Engine) ForEachDanglingGrantEntitlement(ctx context.Context, visit func(entitlementID, resourceTypeID, resourceID string) error) error {
+	prefix := encodeGrantPrefix()
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefix,
+		UpperBound: upperBoundOf(prefix),
+	})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+
+	const headerLen = 3 // versionV3, typeGrant, separator
+	for valid := iter.First(); valid; {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		key := iter.Key()
+		if len(key) <= headerLen {
+			return fmt.Errorf("dangling grant-entitlement scan: malformed grant key %x", key)
+		}
+		tail := key[headerLen:]
+		var comps [4]string
+		off := 0
+		for i := range comps {
+			b, next, ok := codec.DecodeTupleStringAlias(tail, off)
+			if !ok || (i < len(comps)-1 && next >= len(tail)) {
+				return fmt.Errorf("dangling grant-entitlement scan: malformed grant key tail %x", key)
+			}
+			comps[i] = string(b)
+			off = next + 1
+		}
+		id := entitlementIdentity{
+			resourceTypeID: comps[0],
+			resourceID:     comps[1],
+			stripped:       comps[2] == idFlagStripped,
+			tail:           comps[3],
+		}
+		exists, err := e.hasEntitlementIdentity(id)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if err := visit(id.externalID(), id.resourceTypeID, id.resourceID); err != nil {
+				return err
+			}
+		}
+		// Skip every remaining grant of this entitlement.
+		valid = iter.SeekGE(upperBoundOf(encodeGrantPrimaryEntitlementIdentityPrefix(comps[0], comps[1], comps[2], comps[3])))
+	}
+	return iter.Error()
+}
+
+func (e *Engine) hasEntitlementIdentity(id entitlementIdentity) (bool, error) {
+	_, closer, err := e.db.Get(encodeEntitlementIdentityKey(id))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	closer.Close()
+	return true, nil
+}
+
 // GrantsForEntResourceCarryInsertFact reports whether any grant under the
 // given entitlement resource carries the InsertResourceGrants annotation.
 // Reads row values, so it is reserved for DANGLING referential probes —

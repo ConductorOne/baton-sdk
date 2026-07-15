@@ -61,6 +61,8 @@ func TestIngestInvariantAnnotationCoverage(t *testing.T) {
 		&v2.InsertResourceGrants{},
 		&v2.ChildResourceType{},
 		&v2.EntitlementExclusionGroup{},
+		&v2.TypeScopedEntitlements{},
+		&v2.TypeScopedGrants{},
 	}
 	for _, msg := range sideEffectAnnotations {
 		name := string(msg.ProtoReflect().Descriptor().FullName())

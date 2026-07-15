@@ -383,29 +383,6 @@ func TestDeleteResourcesByIDsInScope(t *testing.T) {
 	require.NoError(t, err, "tombstone must be scope-relative")
 }
 
-// TestDeleteGrantRecordBounded pins the no-scan contract: SDK-shaped ids
-// resolve and delete; absent ids no-op without error (and without the
-// O(all grants) fallback scan, by construction).
-func TestDeleteGrantRecordBounded(t *testing.T) {
-	ctx := context.Background()
-	a := newAdapter(t)
-	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-
-	g := scGrant("member", "alice", false)
-	require.NoError(t, a.PutGrants(ctx, g))
-
-	// Absent id (well-formed, no row): no-op, no error.
-	require.NoError(t, a.PebbleEngine().DeleteGrantRecordBounded(ctx, "group:g1:custom:member:user:ghost"))
-	_, err = a.PebbleEngine().GetGrantRecord(ctx, g.GetId())
-	require.NoError(t, err)
-
-	// Present id: deleted.
-	require.NoError(t, a.PebbleEngine().DeleteGrantRecordBounded(ctx, g.GetId()))
-	_, err = a.PebbleEngine().GetGrantRecord(ctx, g.GetId())
-	require.ErrorIs(t, err, pebble.ErrNotFound)
-}
-
 func TestSourceCacheReplayResourcesAndEntitlements(t *testing.T) {
 	ctx := context.Background()
 

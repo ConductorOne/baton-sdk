@@ -1792,7 +1792,7 @@ func runEquivSync(ctx context.Context, t *testing.T, cc types.ConnectorClient, p
 		// Check-only ingestion invariants hard-fail in the harness: a
 		// violation must name itself here before the differential
 		// comparison would catch its downstream divergence.
-		WithStrictIngestionInvariants(),
+		WithFailFastInvariants(),
 	}
 	if prevPath != "" {
 		opts = append(opts, WithPreviousSyncC1ZPath(prevPath))

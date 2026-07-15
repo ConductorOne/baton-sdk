@@ -381,7 +381,11 @@ func (s *syncer) executeScopeReplay(ctx context.Context, kind sourcecache.RowKin
 	// produces nothing.
 	_, entryFound, err := s.sourceCache.prev.LookupSourceCacheEntry(ctx, kind, page.scopeKey)
 	if err != nil {
-		return fmt.Errorf("source cache: error reading previous manifest for scope %q: %w", page.scopeKey, err)
+		// The PREVIOUS file failing to serve reads mid-sync means the
+		// replay source itself is sick; retiring it and re-running cold
+		// (the runners' ErrReplayIntegrity handling) is the definitive
+		// remediation.
+		return fmt.Errorf("source cache: error reading previous manifest for scope %q: %w: %w", page.scopeKey, err, ErrReplayIntegrity)
 	}
 	if !entryFound {
 		ctxzap.Extract(ctx).Warn("source cache: replay requested for scope with no previous manifest entry",
