@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "c1/connector/v2/resource.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// ResourceDeleted is attached by a connector to a Grant or Revoke response when
+// the operation caused a resource to be deleted in the downstream system as a
+// side effect.
+//
+// The canonical case is a Revoke: revoking a principal's last role causes the
+// downstream app to delete the underlying account. The connector reports the
+// deleted resource so ConductorOne can mark the corresponding account deleted
+// immediately, without waiting for the next full sync to observe its absence.
+//
+// Typical use: an entitlement's revoke removes the last role for a user and the
+// same operation deletes the user row. The connector detects the deletion and
+// attaches ResourceDeleted with the principal's resource ID.
+message ResourceDeleted {
+  // The resource that was deleted as a side effect of the operation. For a
+  // Revoke this is normally the grant's principal. Required.
+  ResourceId resource_id = 1 [(validate.rules).message = {required: true}];
+}
