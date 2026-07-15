@@ -3,10 +3,13 @@ package local
 import (
 	"context"
 	"errors"
+	"os"
+	"slices"
 	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -17,6 +20,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/conductorone/baton-sdk/pkg/uotel/uotelzap"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
 
 type localSyncer struct {
@@ -142,24 +146,35 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		syncOpts = append(syncOpts, sdkSync.WithStorageEngine(m.storageEngine))
 	}
 
-	syncer, err := sdkSync.NewSyncer(ctx, cc, syncOpts...)
-	if err != nil {
-		return err
-	}
-
-	err = syncer.Sync(ctx)
-	if err != nil {
-		if closeErr := syncer.Close(ctx); closeErr != nil {
-			err = errors.Join(err, closeErr)
+	runSync := func(opts []sdkSync.SyncOpt) error {
+		syncer, err := sdkSync.NewSyncer(ctx, cc, opts...)
+		if err != nil {
+			return err
 		}
-		return err
+		if err := syncer.Sync(ctx); err != nil {
+			if closeErr := syncer.Close(ctx); closeErr != nil {
+				err = errors.Join(err, closeErr)
+			}
+			return err
+		}
+		return syncer.Close(ctx)
 	}
 
-	if err := syncer.Close(ctx); err != nil {
-		return err
+	err = runSync(syncOpts)
+	if errors.Is(err, sdkSync.ErrReplayIntegrity) {
+		// Replay is a pure optimization: discard the partial output (its
+		// replayed rows may be wrong; resuming would keep them) and
+		// re-run cold, without the previous-sync source. One retry: a
+		// cold sync cannot fail this way again. See ErrReplayIntegrity.
+		ctxzap.Extract(ctx).Error("source-cache replay integrity failure; discarding replay state and re-running the sync cold",
+			zap.Error(err),
+			zap.String("previous_sync_c1z", m.previousSyncC1Z))
+		if rmErr := os.Remove(m.dbPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			return errors.Join(err, rmErr)
+		}
+		err = runSync(append(slices.Clone(syncOpts), sdkSync.WithoutPreviousSync()))
 	}
-
-	return nil
+	return err
 }
 
 // NewSyncer returns a task manager that queues a sync task.

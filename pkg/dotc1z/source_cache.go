@@ -140,6 +140,25 @@ func (s *pebbleStore) SourceCacheOrphanScopes(ctx context.Context) (map[string][
 	return s.engine.SourceCacheOrphanScopes(ctx)
 }
 
+// RepairRelatedResource copies one resource row from prev (the previous
+// sync's store) into the current sync — ingestion invariant I3's repair
+// arm for grant-inserted resources lost by a replay-path failure.
+// Returns false when prev holds no such row (repair impossible).
+func (s *pebbleStore) RepairRelatedResource(ctx context.Context, prev connectorstore.Reader, resourceTypeID, resourceID string) (bool, error) {
+	prevEngine, ok := sourceCacheEngine(prev)
+	if !ok {
+		return false, errors.New("related-resource repair: previous sync store is not a pebble store")
+	}
+	copied, err := s.engine.CopyResourceRowFrom(ctx, prevEngine, resourceTypeID, resourceID)
+	if err != nil {
+		return false, err
+	}
+	if copied {
+		s.MarkDirty()
+	}
+	return copied, nil
+}
+
 // sourceCacheEngine recovers the Pebble engine from an arbitrary store,
 // nil-safe. Mirrors pebble.AsEngine but accepts any value so the syncer
 // can probe its previous-sync reader without caring about its static type.

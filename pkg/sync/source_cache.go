@@ -391,7 +391,11 @@ func (s *syncer) executeScopeReplay(ctx context.Context, kind sourcecache.RowKin
 	res, err := s.sourceCache.current.ReplaySourceCache(ctx, s.sourceCache.prevReader, kind, page.scopeKey)
 	s.state.AddStepDuration("source_cache_replay", time.Since(replayStart))
 	if err != nil {
-		return fmt.Errorf("source cache: replay for scope %q failed: %w", page.scopeKey, err)
+		// Classified as a replay-integrity failure: whether the copy
+		// tripped its own count check or plain I/O died mid-copy, the
+		// replay state can't be trusted and a cold re-run is the safe
+		// remediation (see ErrReplayIntegrity).
+		return fmt.Errorf("source cache: replay for scope %q failed: %w: %w", page.scopeKey, err, ErrReplayIntegrity)
 	}
 	// Stats are stashed on the page and recorded in
 	// finishSourceCachePage so a page re-run after failing between
@@ -420,8 +424,8 @@ func (s *syncer) executeScopeReplay(ctx context.Context, kind sourcecache.RowKin
 	if res.Rows == 0 && res.StaleSkipped > 0 {
 		return fmt.Errorf(
 			"source cache: replay for scope %q copied no rows but the previous file's scope index holds %d entries "+
-				"whose rows no longer carry this scope's stamp; refusing to silently drop the scope",
-			page.scopeKey, res.StaleSkipped)
+				"whose rows no longer carry this scope's stamp; refusing to silently drop the scope: %w",
+			page.scopeKey, res.StaleSkipped, ErrReplayIntegrity)
 	}
 	if res.StaleSkipped > 0 {
 		// Partial staleness: some rows copied, some index entries were

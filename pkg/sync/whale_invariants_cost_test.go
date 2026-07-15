@@ -103,6 +103,24 @@ func TestWhaleInvariantCost(t *testing.T) {
 		t.Logf("I6 orphan scopes: %v (orphans=%d kinds)", i6, len(orphans))
 	}
 
+	// --- Contrast: a full O(grants) pass over the grant keyspace — what
+	// I3 would cost if it were per-grant instead of per-distinct-resource.
+	// Uses the raw listing read path (value decode per row, like any
+	// full-table invariant would pay).
+	start = time.Now()
+	grants := 0
+	pageToken = ""
+	for {
+		resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageToken: pageToken, PageSize: 1000}.Build())
+		require.NoError(t, err)
+		grants += len(resp.GetList())
+		if pageToken = resp.GetNextPageToken(); pageToken == "" {
+			break
+		}
+	}
+	scan := time.Since(start)
+	t.Logf("CONTRAST full grant scan (O(grants)): %v (grants=%d) — vs I3's %v", scan, grants, i3)
+
 	// --- I4 (STRICT-ONLY in production; measured for reference): full
 	// resource listing + annotation walk, as checkChildScheduling would.
 	start = time.Now()

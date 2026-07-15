@@ -921,6 +921,38 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 	return res, nil
 }
 
+// CopyResourceRowFrom copies one resource row (primary + secondary
+// indexes) from prev into the receiver, byte-verbatim. The repair side of
+// ingestion invariant I3: when a grant-inserted resource row was lost by
+// a replay-path failure, the previous sync's row is the full-fidelity
+// source of truth (it was cold-materialized from the wire grant's
+// embedded resource, which grant STORAGE does not retain). Returns false
+// when prev has no such row — repair impossible.
+func (e *Engine) CopyResourceRowFrom(ctx context.Context, prev *Engine, resourceTypeID, resourceID string) (bool, error) {
+	copied := false
+	err := e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
+		batch := e.db.NewBatch()
+		defer batch.Close()
+		ok, err := e.replayRelatedResourceRaw(batch, prev, encodeResourceKey(resourceTypeID, resourceID), resourceTypeID, resourceID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
+			return err
+		}
+		_ = e.takeFreshResourcesEmpty()
+		copied = true
+		return nil
+	})
+	return copied, err
+}
+
 // replayRelatedResourceRaw copies one resource row from prev into batch
 // (primary + secondary indexes), byte-verbatim — the engine side of
 // recreating InsertResourceGrants-inserted resources when their grants

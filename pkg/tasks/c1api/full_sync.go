@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -235,28 +236,49 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithSessionStore(setSessionStore))
 	}
 
-	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), syncOpts...)
-	if err != nil {
-		l.Error("failed to create syncer", zap.Error(err))
-		return err
+	runSync := func(opts []sdkSync.SyncOpt) error {
+		syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), opts...)
+		if err != nil {
+			l.Error("failed to create syncer", zap.Error(err))
+			return err
+		}
+		err = syncer.Sync(ctx)
+		if err != nil {
+			// We don't defer syncer.Close() in order to capture the error without named return values.
+			if closeErr := syncer.Close(ctx); closeErr != nil {
+				l.Error("failed to close syncer after sync error", zap.Error(closeErr))
+				err = errors.Join(err, closeErr)
+			}
+			return err
+		}
+		return syncer.Close(ctx)
 	}
 
 	// TODO(jirwin): Should we attempt to retry at all before failing the task?
-	err = syncer.Sync(ctx)
+	err = runSync(syncOpts)
+	if errors.Is(err, sdkSync.ErrReplayIntegrity) {
+		// Replay is a pure optimization: a replay-integrity failure means
+		// the warm sync's state cannot be trusted, and the safe automatic
+		// remediation is a cold re-run — discard the partial output (its
+		// replayed rows may be wrong; resuming would keep them), retire
+		// the spare (it is implicated until a fresh rotation replaces
+		// it), and sync again without a previous source. One retry: a
+		// cold sync cannot fail this way again.
+		l.Error("source-cache replay integrity failure; discarding replay state and re-running the sync cold",
+			zap.Error(err),
+			zap.String("spare_path", c.previousSyncSparePath))
+		if rmErr := os.Remove(c1zPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			return errors.Join(err, rmErr)
+		}
+		if c.previousSyncSparePath != "" {
+			if rmErr := os.Remove(c.previousSyncSparePath); rmErr != nil && !os.IsNotExist(rmErr) {
+				l.Warn("failed to remove implicated previous-sync spare", zap.Error(rmErr))
+			}
+		}
+		err = runSync(append(slices.Clone(syncOpts), sdkSync.WithoutPreviousSync()))
+	}
 	if err != nil {
 		l.Error("failed to sync", zap.Error(err))
-
-		// We don't defer syncer.Close() in order to capture the error without named return values.
-		if closeErr := syncer.Close(ctx); closeErr != nil {
-			l.Error("failed to close syncer after sync error", zap.Error(err))
-			err = errors.Join(err, closeErr)
-		}
-
-		return err
-	}
-
-	if err := syncer.Close(ctx); err != nil {
-		l.Error("failed to close syncer", zap.Error(err))
 		return err
 	}
 

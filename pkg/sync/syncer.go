@@ -3460,6 +3460,19 @@ func WithOptionalPreviousSyncC1ZPath(path string) SyncOpt {
 	}
 }
 
+// WithoutPreviousSync clears any previous-sync replay source, forcing a
+// cold sync. Applied LAST it overrides an earlier
+// With(Optional)PreviousSyncC1ZPath — the runners' cold-retry appends it
+// to the original option set after a replay-integrity failure
+// (ErrReplayIntegrity) so the re-run cannot consult the implicated
+// artifact.
+func WithoutPreviousSync() SyncOpt {
+	return func(s *syncer) {
+		s.previousSyncC1ZPath = ""
+		s.previousSyncC1ZPathOptional = false
+	}
+}
+
 func WithExternalResourceEntitlementIdFilter(entitlementId string) SyncOpt {
 	return func(s *syncer) {
 		s.externalResourceEntitlementIdFilter = entitlementId

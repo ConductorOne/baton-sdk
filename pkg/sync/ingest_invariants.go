@@ -53,6 +53,7 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	stdsync "sync"
@@ -154,10 +155,43 @@ func (s *syncer) repairExternalMatchFlag(ctx context.Context) error {
 	return nil
 }
 
+// ErrReplayIntegrity classifies sync failures where source-cache REPLAY
+// state is implicated: a replay copy that lost or dropped rows, or
+// store-derived evidence that a replayed artifact is inconsistent. Since
+// replay is a pure optimization, every such failure has a safe
+// remediation the runner can apply automatically — discard the previous
+// sync source and re-run the sync cold (see the runners' cold-retry).
+//
+// The retry doubles as the attribution experiment: a clean cold run
+// means replay was at fault (and the sync self-healed); a cold run that
+// STILL violates the invariant is re-attributed to connector data — the
+// cold-path failure deliberately does NOT carry this sentinel, so a
+// recurring connector bug fails plainly (and cheaply) every sync instead
+// of looping through wasted warm-attempt-plus-retry cycles under an SDK
+// label. Also deliberately NOT applied to connector-contract violations
+// (e.g. a replay requested for a scope that was never looked up): a cold
+// retry would mask those without fixing the connector.
+var ErrReplayIntegrity = errors.New("source-cache replay integrity failure")
+
+// relatedResourceRepairer is the optional store capability behind I3's
+// repair arm (pebble implements it).
+type relatedResourceRepairer interface {
+	RepairRelatedResource(ctx context.Context, prev connectorstore.Reader, resourceTypeID, resourceID string) (bool, error)
+}
+
 // checkGrantResourceReferences is invariant I3: every distinct
 // entitlement resource referenced by a grant must exist as a resource
 // row. One seek per distinct resource (the grant keyspace leads with the
 // entitlement resource), value reads only for dangling refs.
+//
+// The annotated arm (dangling ref + InsertResourceGrants) is
+// REPAIR-flavored in lenient mode: those rows are the syncer's own
+// establishment guarantee (no ListResources call ever returns them), and
+// the previous sync's row — still open on s.sourceCache.prevReader — is
+// a full-fidelity copy source, exactly the copy replay itself performs.
+// Strict mode (tests, the harness) skips repair and hard-fails so the
+// underlying machinery bug is named rather than papered over. An
+// unrepairable annotated ref fails the sync under ErrReplayIntegrity.
 func (s *syncer) checkGrantResourceReferences(ctx context.Context) error {
 	if s.syncType != connectorstore.SyncTypeFull {
 		return nil
@@ -180,9 +214,41 @@ func (s *syncer) checkGrantResourceReferences(ctx context.Context) error {
 			return fmt.Errorf("ingest invariant I3: probing grant annotations for %s/%s: %w", rt, rid, err)
 		}
 		if annotated {
+			if s.sourceCache.prev == nil {
+				// COLD sync: replay cannot be the culprit — the cold
+				// path materializes these rows unconditionally in the
+				// same page handling, so this state means the connector
+				// destroyed or never supplied the row (e.g. a tombstone
+				// naming a grant-inserted resource). Deliberately NOT
+				// ErrReplayIntegrity: a cold retry can't fix connector
+				// data, and mislabeling would send operators hunting an
+				// SDK replay bug. This is also the terminal verdict of
+				// the runners' cold retry — a warm failure retried cold
+				// that still fails lands here, correctly re-attributed.
+				return fmt.Errorf(
+					"ingest invariant I3 violated on a COLD sync: grants reference resource %s/%s via InsertResourceGrants "+
+						"but no resource row exists — the connector's own data is inconsistent "+
+						"(check for tombstones deleting grant-inserted resources)",
+					rt, rid)
+			}
+			if !s.strictIngestionInvariants {
+				if repaired := s.repairRelatedResource(ctx, rt, rid); repaired {
+					l.Warn("ingest invariant I3: REPAIRED a lost grant-inserted resource by copying the previous sync's row; "+
+						"the replay path failed to carry it — investigate before trusting warm syncs",
+						zap.String("resource_type_id", rt),
+						zap.String("resource_id", rid),
+					)
+					return nil
+				}
+			}
+			// WARM sync: replay is implicated (possibly alongside a
+			// connector bug — the runners' cold retry disambiguates:
+			// a clean cold run means replay was at fault and the sync
+			// self-healed; a cold failure lands in the branch above.
 			return fmt.Errorf(
-				"ingest invariant I3 violated: grants reference resource %s/%s via InsertResourceGrants but no resource row exists (related-resource insertion was lost)",
-				rt, rid)
+				"ingest invariant I3 violated: grants reference resource %s/%s via InsertResourceGrants but no resource row exists "+
+					"(related-resource insertion was lost and could not be repaired from the previous sync): %w",
+				rt, rid, ErrReplayIntegrity)
 		}
 		// Tolerated today: connectors emitting grants for unlisted
 		// resources without InsertResourceGrants. Visible, not fatal.
@@ -192,6 +258,26 @@ func (s *syncer) checkGrantResourceReferences(ctx context.Context) error {
 		)
 		return nil
 	})
+}
+
+// repairRelatedResource attempts I3's repair: copy the missing
+// grant-inserted resource row from the previous sync's store. Best
+// effort — a false return falls through to the hard failure.
+func (s *syncer) repairRelatedResource(ctx context.Context, rt, rid string) bool {
+	repairer, ok := s.store.(relatedResourceRepairer)
+	if !ok || s.sourceCache.prevReader == nil {
+		return false
+	}
+	repaired, err := repairer.RepairRelatedResource(ctx, s.sourceCache.prevReader, rt, rid)
+	if err != nil {
+		ctxzap.Extract(ctx).Warn("ingest invariant I3: related-resource repair failed",
+			zap.String("resource_type_id", rt),
+			zap.String("resource_id", rid),
+			zap.Error(err),
+		)
+		return false
+	}
+	return repaired
 }
 
 // checkChildScheduling is invariant I4: every stored resource carrying a
