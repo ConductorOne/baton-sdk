@@ -77,11 +77,11 @@ func (a *Adapter) stats(ctx context.Context, syncType connectorstore.SyncType, s
 	// is one LSM Get vs the legacy fallback's O(N) iteration. Sync
 	// types that haven't run through the sidecar writer (Partial /
 	// Incremental that bypass EndFreshSync) fall through to the
-	// legacy path below.
-	if stats, err := a.engine.readSyncStats(ctx, syncID); err == nil && stats != nil {
-		return stats, nil
+	// legacy path below. Token timings are written into the sidecar
+	// at EndSync; older count-only sidecars are returned as-is.
+	if cached, err := a.engine.readSyncStats(ctx, syncID); err == nil && cached != nil {
+		return cached, nil
 	}
-
 	return a.statsFromIteration(ctx, syncID)
 }
 

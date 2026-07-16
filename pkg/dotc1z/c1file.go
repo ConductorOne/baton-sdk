@@ -1338,6 +1338,11 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 	}
 	stats.Assets = assetCount
 
+	// Lift timing / call stats from the syncer token into the stats we
+	// are about to cache. Older count-only caches are left as-is on
+	// the fast path above.
+	c1zstore.ApplySyncTokenStats(stats, sync.SyncToken)
+
 	// If sync is ended and c1z is not read-only, save stats to the database.
 	if sync.EndedAt != nil && !c.readOnly {
 		statsJSON, err := json.Marshal(stats)

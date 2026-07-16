@@ -92,7 +92,30 @@ func SyncStatsFromRecord(stats *v3.SyncStatsRecord) *reader_v2.SyncStats {
 		ResourcesByResourceType:    stats.GetResourcesByResourceType(),
 		EntitlementsByResourceType: stats.GetEntitlementsByResourceType(),
 		GrantsByResourceType:       stats.GetGrantsByEntitlementResourceType(),
+		StepDurationsMs:            stats.GetStepDurationsMs(),
+		ConnectorCallStats:         storageCallStatsToReader(stats.GetConnectorCallStats()),
+		SessionStoreStats:          storageCallStatsToReader(stats.GetSessionStoreStats()),
 	}.Build()
+}
+
+func storageCallStatsToReader(in map[string]*v3.CallStat) map[string]*reader_v2.CallStat {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]*reader_v2.CallStat, len(in))
+	for k, v := range in {
+		if v == nil {
+			continue
+		}
+		out[k] = reader_v2.CallStat_builder{
+			Count:    v.GetCount(),
+			TotalMs:  v.GetTotalMs(),
+			MaxMs:    v.GetMaxMs(),
+			Errors:   v.GetErrors(),
+			Timeouts: v.GetTimeouts(),
+		}.Build()
+	}
+	return out
 }
 
 func CachedSyncStats(ctx context.Context, e *Engine, syncID string) (*reader_v2.SyncStats, bool, error) {

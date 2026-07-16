@@ -64,9 +64,9 @@ func tokenTopLevelStepDurations(t *testing.T, token string) map[string]int64 {
 }
 
 // TestCompactPebbleFoldWritesProvenance pins the fold output's token: the
-// base sync's timing stats survive re-attributed via stats_sync_id, the
-// partials' stats aggregate as their own category, and per-type record
-// counts carry added/replaced/carried provenance.
+// base sync's timing stats survive re-attributed via stats_sync_id, partial
+// timings are folded into the top-level maps, and per-type record counts
+// carry added/replaced/carried provenance.
 func TestCompactPebbleFoldWritesProvenance(t *testing.T) {
 	ctx := context.Background()
 	inDir := t.TempDir()
@@ -88,24 +88,16 @@ func TestCompactPebbleFoldWritesProvenance(t *testing.T) {
 	token := readSyncToken(t, ctx, out.FilePath, out.SyncID)
 	require.NotEmpty(t, token)
 
-	// The base sync's own timing stats survive at the top level.
-	require.EqualValues(t, 90_000, tokenTopLevelStepDurations(t, token)["list-grants"])
+	require.EqualValues(t, 95_000, tokenTopLevelStepDurations(t, token)["list-grants"])
 
 	comp, err := sdksync.CompactionStatsFromToken(token)
 	require.NoError(t, err)
 	require.NotNil(t, comp, "fold output must carry a compaction section")
 	require.Equal(t, "fold", comp.Mode)
-	require.Equal(t, baseSyncID, comp.StatsSyncID, "timing stats must be attributed to the base sync")
+	require.Equal(t, baseSyncID, comp.StatsSyncID)
 	require.Equal(t, baseSyncID, comp.BaseSyncID)
 	require.Equal(t, []string{partialSyncID}, comp.PartialSyncIDs)
 	require.EqualValues(t, 1, comp.PartialCount)
-
-	agg := comp.PartialsAggregate
-	require.NotNil(t, agg, "partial carried stats; aggregate must be present")
-	require.EqualValues(t, 1, agg.Executions)
-	require.EqualValues(t, 5_000, agg.StepDurationsMs["list-grants"])
-	require.EqualValues(t, 2, agg.ConnectorCallStats["list-grants"].Count)
-	require.EqualValues(t, 1_000, agg.ConnectorCallStats["list-grants"].MaxMs)
 
 	// Grants: base {g-shared, g-base-only} + partial {g-shared newer,
 	// g-partial-only} → output 3, added 1, replaced 1, carried 1.
@@ -123,7 +115,7 @@ func TestCompactPebbleFoldWritesProvenance(t *testing.T) {
 
 // TestCompactPebbleChainedFoldAccumulatesProvenance pins chained-fold
 // semantics: the original collection sync stays the stats attribution, and
-// partial counts/aggregates accumulate across folds.
+// partial counts / top-level timings accumulate across folds.
 func TestCompactPebbleChainedFoldAccumulatesProvenance(t *testing.T) {
 	ctx := context.Background()
 	inDir := t.TempDir()
@@ -149,17 +141,16 @@ func TestCompactPebbleChainedFoldAccumulatesProvenance(t *testing.T) {
 		&CompactableSync{FilePath: p2Path, SyncID: p2SyncID},
 	)
 
-	comp, err := sdksync.CompactionStatsFromToken(readSyncToken(t, ctx, second.FilePath, second.SyncID))
+	token := readSyncToken(t, ctx, second.FilePath, second.SyncID)
+	require.EqualValues(t, 98_000, tokenTopLevelStepDurations(t, token)["list-grants"])
+
+	comp, err := sdksync.CompactionStatsFromToken(token)
 	require.NoError(t, err)
 	require.NotNil(t, comp)
 	require.Equal(t, baseSyncID, comp.StatsSyncID, "chained folds must keep the original attribution")
 	require.Equal(t, first.SyncID, comp.BaseSyncID, "the immediate base is the first fold's output")
 	require.Equal(t, []string{p1SyncID, p2SyncID}, comp.PartialSyncIDs)
 	require.EqualValues(t, 2, comp.PartialCount)
-	require.EqualValues(t, 2, comp.PartialsAggregate.Executions)
-	require.EqualValues(t, 8_000, comp.PartialsAggregate.StepDurationsMs["list-grants"])
-	require.EqualValues(t, 3, comp.PartialsAggregate.ConnectorCallStats["list-grants"].Count)
-	require.EqualValues(t, 1_000, comp.PartialsAggregate.ConnectorCallStats["list-grants"].MaxMs)
 }
 
 // TestCompactPebbleRebuildWritesProvenance pins the rebuild (overlay) output:
@@ -192,7 +183,6 @@ func TestCompactPebbleRebuildWritesProvenance(t *testing.T) {
 	require.Equal(t, baseSyncID, comp.BaseSyncID)
 	require.Equal(t, []string{partialSyncID}, comp.PartialSyncIDs)
 	require.EqualValues(t, 1, comp.PartialCount)
-	require.Nil(t, comp.PartialsAggregate, "rebuild does not read source tokens")
 
 	grants := comp.RecordCounts["grants"]
 	require.NotNil(t, grants)
