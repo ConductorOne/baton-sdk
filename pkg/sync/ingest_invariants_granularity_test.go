@@ -20,6 +20,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -45,10 +46,12 @@ func TestIngestInvariantI8ExemptionIsPerGrant(t *testing.T) {
 	// connector-owned dangling reference.
 	plainGrant := grant.NewGrant(repo, "viewer", ghost.GetId())
 
+	// NO resource-type row for eq_repo: a disabled-type configuration
+	// gap, which is the DROP arm of the replay policy (enabled-type
+	// danglings fail the sync instead — see the referential tests).
 	cur := newRepairTestStore(ctx, t, filepath.Join(tmpDir, "cur.c1z"), tmpDir)
 	_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, cur.PutResourceTypes(ctx, equivRepoRT))
 	require.NoError(t, cur.PutResources(ctx, repo))
 	require.NoError(t, cur.PutGrants(ctx, irgGrant, plainGrant))
 
@@ -100,10 +103,10 @@ func TestIngestInvariantI8MixedGrantsUnderOneEntitlement(t *testing.T) {
 	}.Build()
 	plainGrant := grant.NewGrant(repo, "admin", ghost.GetId()) // same entitlement, no annotation
 
+	// Disabled-type gap (no eq_repo type row): the drop arm.
 	cur := newRepairTestStore(ctx, t, filepath.Join(tmpDir, "cur.c1z"), tmpDir)
 	_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, cur.PutResourceTypes(ctx, equivRepoRT))
 	require.NoError(t, cur.PutResources(ctx, repo))
 	require.NoError(t, cur.PutGrants(ctx, irgGrant, plainGrant))
 
@@ -155,11 +158,28 @@ func TestIngestInvariantI6SkippedForExpandOnlySyncs(t *testing.T) {
 
 	s := &syncer{store: cur, syncType: connectorstore.SyncTypeFull, failFastInvariants: true}
 
-	// Sanity: a normal sync detects the orphan (replay-integrity class).
+	// Sanity: a normal sync detects the orphan and fails in EVERY mode
+	// (replay policy: a stale replay index is never sealed away). This
+	// syncer is COLD (no previous sync), so the failure is attributed
+	// plainly — the replay-integrity sentinel rides only warm syncs,
+	// where a discarded output and a cold retry can remediate.
 	err = s.checkSourceCacheScopeConsistency(ctx)
 	require.Error(t, err)
-	require.ErrorIs(t, err, ErrReplayIntegrity)
+	require.NotErrorIs(t, err, ErrReplayIntegrity)
 	require.Contains(t, err.Error(), "ingest invariant I6")
+
+	// Warm shape: the same evidence carries the sentinel so the runners
+	// discard the output and retry cold.
+	s.sourceCache.prev = struct{ dotc1z.SourceCacheStore }{}
+	err = s.checkSourceCacheScopeConsistency(ctx)
+	require.ErrorIs(t, err, ErrReplayIntegrity)
+	s.sourceCache.prev = nil
+
+	// Default mode is no longer warn-and-seal: the same cold failure.
+	s.failFastInvariants = false
+	err = s.checkSourceCacheScopeConsistency(ctx)
+	require.Error(t, err, "I6 must fail in default mode too — warn-and-seal would publish a poisoned replay source")
+	s.failFastInvariants = true
 
 	// The expansion-only pass must skip the check entirely.
 	s.onlyExpandGrants = true

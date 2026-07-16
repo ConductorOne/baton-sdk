@@ -536,10 +536,29 @@ func encodeSourceCacheEntryKey(rowKind, scopeKey string) []byte {
 	return codec.AppendTupleStrings(buf, rowKind, scopeKey)
 }
 
-// encodeSourceCachePrefix is the by-type prefix for all source-cache
-// entries.
+// encodeSourceCachePrefix is the by-type prefix for ALL source-cache
+// state (manifest entries and the compat record). ClearSourceCacheEntries
+// and ResetForNewSync cover this whole prefix.
 func encodeSourceCachePrefix() []byte {
 	return []byte{versionV3, typeSourceCache}
+}
+
+// encodeSourceCacheManifestPrefix is the sub-prefix for (row_kind,
+// scope_key) MANIFEST entries only — the 0x00 discriminator every
+// encodeSourceCacheEntryKey starts with. Manifest iterators (snapshot,
+// clear-check) bound here so the compat record (0x01 discriminator)
+// never unmarshals as a manifest entry.
+func encodeSourceCacheManifestPrefix() []byte {
+	return []byte{versionV3, typeSourceCache, 0x00}
+}
+
+// encodeSourceCacheCompatKey is the singleton replay-compatibility key
+// record for the sync (see SourceCacheCompatRecord): one key under the
+// source-cache prefix with a 0x01 discriminator, so the fold's
+// ClearSourceCacheEntries and ResetForNewSync wipe it with the manifest
+// while manifest iterators never see it.
+func encodeSourceCacheCompatKey() []byte {
+	return []byte{versionV3, typeSourceCache, 0x01, 'c', 'o', 'm', 'p', 'a', 't'}
 }
 
 // --- ResourceType ---

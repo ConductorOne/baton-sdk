@@ -7,6 +7,7 @@ import (
 
 	cdbpebble "github.com/cockroachdb/pebble/v2"
 
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
@@ -62,6 +63,14 @@ type SourceCacheStore interface {
 	// invariant I6): the orphaned stamps would poison a future sync's
 	// replay.
 	SourceCacheOrphanScopes(ctx context.Context) (map[string][]string, error)
+
+	// PutSourceCacheCompat records the current sync's replay-
+	// compatibility key (written when the write side enables, BEFORE any
+	// manifest entry). GetSourceCacheCompat returns the recorded key;
+	// found is false on pre-key artifacts and compaction folds — the
+	// syncer treats absent or unreadable keys as a mismatch (cold).
+	PutSourceCacheCompat(ctx context.Context, key sourcecache.CompatKey) error
+	GetSourceCacheCompat(ctx context.Context) (sourcecache.CompatKey, bool, error)
 }
 
 var _ SourceCacheStore = (*pebbleStore)(nil)
@@ -72,8 +81,10 @@ var _ SourceCacheStore = (*pebbleStore)(nil)
 // reaching for the raw engine.
 type SourceCacheInspector interface {
 	// SourceCacheManifestSnapshot returns every manifest entry as
-	// "row_kind\x00scope_key" -> cache validator.
-	SourceCacheManifestSnapshot(ctx context.Context) (map[string]string, error)
+	// "row_kind\x00scope_key" -> typed entry (validator + invalidation
+	// verdict as separate fields — validators are opaque connector
+	// strings, so invalidation must never be encoded in-band).
+	SourceCacheManifestSnapshot(ctx context.Context) (map[string]pebble.SourceCacheManifestEntry, error)
 	// SourceScopeIndexSnapshot returns, per row kind, scope_key -> the
 	// number of by_source_scope index entries.
 	SourceScopeIndexSnapshot(ctx context.Context) (map[string]map[string]int, error)
@@ -85,7 +96,7 @@ type SourceCacheInspector interface {
 
 var _ SourceCacheInspector = (*pebbleStore)(nil)
 
-func (s *pebbleStore) SourceCacheManifestSnapshot(ctx context.Context) (map[string]string, error) {
+func (s *pebbleStore) SourceCacheManifestSnapshot(ctx context.Context) (map[string]pebble.SourceCacheManifestEntry, error) {
 	return s.engine.SourceCacheManifestSnapshot(ctx)
 }
 
@@ -271,6 +282,13 @@ func (s *pebbleStore) LookupSourceCacheEntry(ctx context.Context, kind sourcecac
 		}
 		return sourcecache.Entry{}, false, err
 	}
+	if rec.GetInvalidated() {
+		// The dangling-reference drops removed rows from this scope after
+		// its manifest entry was written: the validator no longer
+		// describes the artifact's contents, so the scope must miss and
+		// re-fetch cold rather than 304-replay the sanitized subset.
+		return sourcecache.Entry{}, false, nil
+	}
 	return sourcecache.Entry{
 		CacheValidator: rec.GetCacheValidator(),
 		DiscoveredAt:   rec.GetDiscoveredAt().AsTime(),
@@ -282,6 +300,31 @@ func (s *pebbleStore) PutSourceCacheEntry(ctx context.Context, kind sourcecache.
 		return err
 	}
 	return s.markDirty(s.engine.PutSourceCacheEntry(ctx, string(kind), scopeKey, cacheValidator))
+}
+
+func (s *pebbleStore) PutSourceCacheCompat(ctx context.Context, key sourcecache.CompatKey) error {
+	rec := &v3.SourceCacheCompatRecord{}
+	rec.SetConnectorCacheGeneration(key.ConnectorCacheGeneration)
+	rec.SetConnectorConfigFingerprint(key.ConnectorConfigFingerprint)
+	rec.SetSdkMaterializationGeneration(key.SDKMaterializationGeneration)
+	rec.SetSyncSelectionFingerprint(key.SyncSelectionFingerprint)
+	return s.markDirty(s.engine.PutSourceCacheCompat(ctx, rec))
+}
+
+func (s *pebbleStore) GetSourceCacheCompat(ctx context.Context) (sourcecache.CompatKey, bool, error) {
+	rec, err := s.engine.GetSourceCacheCompat(ctx)
+	if err != nil {
+		if errors.Is(err, cdbpebble.ErrNotFound) {
+			return sourcecache.CompatKey{}, false, nil
+		}
+		return sourcecache.CompatKey{}, false, err
+	}
+	return sourcecache.CompatKey{
+		ConnectorCacheGeneration:     rec.GetConnectorCacheGeneration(),
+		ConnectorConfigFingerprint:   rec.GetConnectorConfigFingerprint(),
+		SDKMaterializationGeneration: rec.GetSdkMaterializationGeneration(),
+		SyncSelectionFingerprint:     rec.GetSyncSelectionFingerprint(),
+	}, true, nil
 }
 
 func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore.Reader, kind sourcecache.RowKind, scopeKey string) (SourceCacheReplayResult, error) {
@@ -304,7 +347,10 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 	if err != nil {
 		return SourceCacheReplayResult{}, err
 	}
-	if res.Rows > 0 {
+	if res.Rows > 0 || res.ResumedRowsCleared > 0 {
+		// ResumedRowsCleared counts destination rows the resume pre-clear
+		// deleted before an (possibly empty) copy — a mutation that must
+		// survive Close even when nothing was copied back.
 		s.MarkDirty()
 	}
 	return res, nil

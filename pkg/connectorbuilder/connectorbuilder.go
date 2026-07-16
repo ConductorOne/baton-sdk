@@ -83,8 +83,17 @@ type builder struct {
 	// sourceCacheMu: SetSourceCache (per-sync install/clear from the
 	// runner) can race list RPCs reading it via syncOpAttrs. Access
 	// through sourceCacheLookup / SetSourceCache only.
-	sourceCacheMu           stdsync.RWMutex
-	sourceCache             sourcecache.Lookup
+	sourceCacheMu stdsync.RWMutex
+	sourceCache   sourcecache.Lookup
+	// sourceCacheInstalls / sourceCacheContended implement the same
+	// contention blinding as sourcecache.GRPCServer: the slot carries no
+	// sync-id routing, so with two live installs a lookup cannot be
+	// attributed to either sync and serving EITHER cross-wires them (one
+	// sync validates against the other's previous artifact and replays
+	// from its own — stale rows sealed as current). A miss is always
+	// safe, so on overlap every lookup misses until the slot drains.
+	sourceCacheInstalls     int
+	sourceCacheContended    bool
 	metadataProvider        MetadataProvider
 	validateProvider        ValidateProvider
 	ticketManager           TicketManagerLimited
@@ -283,27 +292,42 @@ func WithSourceCache(lookup sourcecache.Lookup) Opt {
 // The slot is guarded: the runner supports concurrent tasks, so a set or
 // clear can race in-flight list RPCs reading the slot via syncOpAttrs.
 // The slot is still SINGLE — there is no sync-id routing — so two live
-// syncs installing lookups cross-wire each other (one sync's connector
-// calls resolve against the other's previous store) and the first to
-// finish blinds the survivor when it clears. That topology isn't
-// supported; warn loudly when an install lands on top of an existing
-// non-noop lookup so it is visible instead of silently wrong.
+// syncs installing lookups would cross-wire each other (one sync's
+// connector would resolve validators against the other's previous store,
+// then replay rows from its OWN store under a validator the other
+// artifact vouched for — stale rows sealed as current). A miss is always
+// safe (the connector fetches cold), so overlapping installs BLIND the
+// slot — every lookup misses until all concurrent owners have cleared —
+// mirroring sourcecache.GRPCServer's contention defense, and warn loudly
+// so the degraded overlap is visible.
 func (b *builder) SetSourceCache(ctx context.Context, lookup sourcecache.Lookup) {
-	installing := lookup != nil
-	if lookup == nil {
-		lookup = sourcecache.NoopLookup{}
-	}
 	b.sourceCacheMu.Lock()
-	prev := b.sourceCache
-	b.sourceCache = lookup
-	b.sourceCacheMu.Unlock()
-	if !installing || prev == nil {
+	if lookup == nil {
+		// Clear: the finished sync's lookup must not serve late RPCs. The
+		// slot stays occupied (NoopLookup, never back to nil) so the
+		// continuation's "never set" signal remains accurate.
+		if b.sourceCacheInstalls > 0 {
+			b.sourceCacheInstalls--
+		}
+		if b.sourceCacheInstalls == 0 {
+			// Slot fully drained: the next sync starts clean.
+			b.sourceCacheContended = false
+		}
+		b.sourceCache = sourcecache.NoopLookup{}
+		b.sourceCacheMu.Unlock()
 		return
 	}
-	if _, prevIsNoop := prev.(sourcecache.NoopLookup); !prevIsNoop {
-		ctxzap.Extract(ctx).Warn("source cache: installing a lookup over an existing one; " +
-			"concurrent syncs against one connector share a single lookup slot and will cross-wire or blind each other")
+	b.sourceCacheInstalls++
+	if b.sourceCacheInstalls > 1 || b.sourceCacheContended {
+		b.sourceCacheContended = true
+		b.sourceCache = sourcecache.NoopLookup{}
+		b.sourceCacheMu.Unlock()
+		ctxzap.Extract(ctx).Warn("source cache: concurrent syncs share this connector's single lookup slot; " +
+			"serving misses to every sync (cold fetches) until the overlap drains, to avoid cross-wiring validators between previous-sync artifacts")
+		return
 	}
+	b.sourceCache = lookup
+	b.sourceCacheMu.Unlock()
 }
 
 // sourceCacheLookup returns the active slot value (nil when never set —

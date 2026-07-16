@@ -41,10 +41,11 @@ func TestIngestInvariantI8DropScale(t *testing.T) {
 	repo, err := rs.NewResource("Repo r1", equivRepoRT, "r1")
 	require.NoError(t, err)
 
+	// No eq_repo TYPE row: a disabled-type gap, which is the drop arm of
+	// the replay policy (an enabled-type dangling would fail instead).
 	cur := newRepairTestStore(ctx, t, filepath.Join(tmpDir, "cur.c1z"), tmpDir)
 	_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, cur.PutResourceTypes(ctx, equivRepoRT))
 	require.NoError(t, cur.PutResources(ctx, repo))
 
 	const grantCount = 100_000

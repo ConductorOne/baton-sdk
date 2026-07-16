@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	stdsync "sync"
 	"sync/atomic"
 	"time"
 
@@ -75,6 +76,17 @@ type c1ApiTaskManager struct {
 	// location of the retained previous-sync c1z. Computed once at
 	// construction so every full-sync task agrees on the same spare.
 	previousSyncSparePath string
+
+	// previousSyncC1ZPath is an operator-supplied previous-sync c1z
+	// (--previous-sync-c1z); takes precedence over the spare and is
+	// never rotated or deleted by the SDK.
+	previousSyncC1ZPath string
+
+	// spareLifecycleMu serializes spare-slot mutations (promotion,
+	// replay-integrity retirement) across concurrent full-sync handlers,
+	// which all share previousSyncSparePath. See
+	// retireSpareIfStillImplicated.
+	spareLifecycleMu stdsync.Mutex
 
 	// runnerShouldDebug is flipped by the StartDebugging task handler (which
 	// runs on a task-processing goroutine) and read by the runner loop via
@@ -434,6 +446,8 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 			c.workerCount,
 			c.storageEngine,
 			c.previousSyncSparePath,
+			c.previousSyncC1ZPath,
+			&c.spareLifecycleMu,
 		)
 	case taskTypes.HelloType:
 		handler = newHelloTaskHandler(task, tHelpers)
@@ -503,6 +517,7 @@ func NewC1TaskManager(
 	storageEngine c1zstore.Engine,
 	taskConcurrency int,
 	keepPreviousSyncC1Z bool,
+	previousSyncC1Z string,
 ) (BootstrappingTaskManager, error) {
 	serviceClient, err := newServiceClient(ctx, clientID, clientSecret)
 	if err != nil {
@@ -530,5 +545,6 @@ func NewC1TaskManager(
 		workerCount:                         workerCount,
 		storageEngine:                       storageEngine,
 		previousSyncSparePath:               sparePath,
+		previousSyncC1ZPath:                 previousSyncC1Z,
 	}, nil
 }

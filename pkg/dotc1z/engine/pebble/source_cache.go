@@ -82,22 +82,38 @@ type SourceCacheReplayResult struct {
 	ResumedRowsCleared int64
 }
 
+// SourceCacheManifestEntry is one manifest entry as reported by
+// SourceCacheManifestSnapshot. Typed on purpose: the validator is an
+// OPAQUE connector string, so invalidation must be a separate field —
+// any in-band sentinel encoding could collide with a legitimate
+// validator and misclassify it.
+type SourceCacheManifestEntry struct {
+	// CacheValidator is the stored upstream validator (kept even on
+	// invalidated entries, for the audit surface).
+	CacheValidator string
+	// Invalidated reports the dangling-reference drops marked this scope
+	// (see stageSourceCacheScopeInvalidationLocked): lookups miss it and
+	// the scope re-fetches cold next sync.
+	Invalidated bool
+}
+
 // SourceCacheManifestSnapshot returns every manifest entry as
-// "row_kind\x00scope_key" -> etag. Inspection surface: the
-// replay-equivalence harness compares a warm sync's manifest against a
-// cold sync's (they must be identical — same scopes, same validators),
-// catching phantom or missing entries that are invisible through the v2
-// read API but poison FUTURE syncs' replays.
-func (e *Engine) SourceCacheManifestSnapshot(ctx context.Context) (map[string]string, error) {
+// "row_kind\x00scope_key" -> SourceCacheManifestEntry. Inspection
+// surface: the replay-equivalence harness compares a warm sync's
+// manifest against a cold sync's (they must be identical — same scopes,
+// same validators, same invalidation verdicts), catching phantom or
+// missing entries that are invisible through the v2 read API but poison
+// FUTURE syncs' replays.
+func (e *Engine) SourceCacheManifestSnapshot(ctx context.Context) (map[string]SourceCacheManifestEntry, error) {
 	iter, err := e.db.NewIter(&pebble.IterOptions{
-		LowerBound: encodeSourceCachePrefix(),
-		UpperBound: upperBoundOf(encodeSourceCachePrefix()),
+		LowerBound: encodeSourceCacheManifestPrefix(),
+		UpperBound: upperBoundOf(encodeSourceCacheManifestPrefix()),
 	})
 	if err != nil {
 		return nil, err
 	}
 	defer iter.Close()
-	out := map[string]string{}
+	out := map[string]SourceCacheManifestEntry{}
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -106,7 +122,10 @@ func (e *Engine) SourceCacheManifestSnapshot(ctx context.Context) (map[string]st
 		if err := unmarshalRecord(iter.Value(), rec); err != nil {
 			return nil, fmt.Errorf("SourceCacheManifestSnapshot: unmarshal: %w", err)
 		}
-		out[rec.GetRowKind()+"\x00"+rec.GetScopeKey()] = rec.GetCacheValidator()
+		out[rec.GetRowKind()+"\x00"+rec.GetScopeKey()] = SourceCacheManifestEntry{
+			CacheValidator: rec.GetCacheValidator(),
+			Invalidated:    rec.GetInvalidated(),
+		}
 	}
 	return out, iter.Error()
 }
@@ -269,14 +288,16 @@ func (e *Engine) SourceCacheOrphanScopes(ctx context.Context) (map[string][]stri
 	return out, nil
 }
 
-// ClearSourceCacheEntries removes every source-cache manifest entry.
-// Compaction calls this on fold outputs: a keep-newer upsert merge is not
-// a faithful snapshot of ANY input sync (base rows the newer sync deleted
-// survive), so no input's validator may be allowed to 304-validate the
-// merged row set. With the manifest empty, every lookup against the
-// artifact misses and the next sync fetches fresh — cold-correct. The
-// scope stamps and scope-index entries on rows are left in place: replay
-// only reads them after a manifest hit, which can no longer happen.
+// ClearSourceCacheEntries removes every source-cache manifest entry AND
+// the replay-compatibility record (the range covers the whole
+// typeSourceCache prefix). Compaction calls this on fold outputs: a
+// keep-newer upsert merge is not a faithful snapshot of ANY input sync
+// (base rows the newer sync deleted survive), so no input's validator
+// may be allowed to 304-validate the merged row set. With the manifest
+// empty, every lookup against the artifact misses and the next sync
+// fetches fresh — cold-correct. The scope stamps and scope-index entries
+// on rows are left in place: replay only reads them after a manifest
+// hit, which can no longer happen.
 func (e *Engine) ClearSourceCacheEntries(ctx context.Context) error {
 	return e.withWrite(func() error {
 		if err := e.requireCurrentSync(); err != nil {
@@ -309,6 +330,44 @@ func (e *Engine) PutSourceCacheEntry(ctx context.Context, rowKind, scopeKey, cac
 		}
 		return e.db.Set(encodeSourceCacheEntryKey(rowKind, scopeKey), val, opts)
 	})
+}
+
+// PutSourceCacheCompat writes the sync's replay-compatibility key record
+// (singleton; see SourceCacheCompatRecord). Written when the source
+// cache's write side enables — BEFORE any manifest entry — so an
+// artifact can never hold validators without the key that scopes their
+// validity. Idempotent overwrite on resume.
+func (e *Engine) PutSourceCacheCompat(ctx context.Context, rec *v3.SourceCacheCompatRecord) error {
+	return e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
+		rec.SetId("compat")
+		val, err := marshalRecord(rec)
+		if err != nil {
+			return err
+		}
+		opts := writeOpts(e.opts.durability)
+		if e.IsFreshSync() {
+			opts = pebble.NoSync
+		}
+		return e.db.Set(encodeSourceCacheCompatKey(), val, opts)
+	})
+}
+
+// GetSourceCacheCompat returns the sync's replay-compatibility key
+// record, or pebble.ErrNotFound (pre-key artifacts, folds).
+func (e *Engine) GetSourceCacheCompat(ctx context.Context) (*v3.SourceCacheCompatRecord, error) {
+	val, closer, err := e.db.Get(encodeSourceCacheCompatKey())
+	if err != nil {
+		return nil, err
+	}
+	defer closer.Close()
+	rec := &v3.SourceCacheCompatRecord{}
+	if err := unmarshalRecord(val, rec); err != nil {
+		return nil, fmt.Errorf("GetSourceCacheCompat: unmarshal: %w", err)
+	}
+	return rec, nil
 }
 
 // GetSourceCacheEntry returns the manifest entry for (rowKind, scopeKey),

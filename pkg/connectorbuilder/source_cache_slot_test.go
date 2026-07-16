@@ -54,3 +54,53 @@ func TestSetSourceCacheConcurrentWithListCalls(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+// slotTestLookup is a non-noop lookup whose hits identify their owner.
+type slotTestLookup struct{ validator string }
+
+func (l slotTestLookup) Lookup(context.Context, sourcecache.RowKind, string) (sourcecache.Entry, bool, error) {
+	return sourcecache.Entry{CacheValidator: l.validator}, true, nil
+}
+
+// TestSetSourceCacheContentionBlindsSlot pins the in-process slot's
+// contention defense (mirroring sourcecache.GRPCServer): two live
+// installs cannot be attributed by lookups (no sync-id routing), so the
+// slot must serve misses to EVERYONE until every owner clears — serving
+// either lookup would cross-wire validators between previous-sync
+// artifacts. After the overlap drains, a fresh install serves normally.
+func TestSetSourceCacheContentionBlindsSlot(t *testing.T) {
+	ctx := context.Background()
+	b := &builder{}
+
+	lookupHits := func() (string, bool) {
+		lk := b.sourceCacheLookup()
+		require.NotNil(t, lk)
+		entry, found, err := lk.Lookup(ctx, sourcecache.RowKindGrants, "scope")
+		require.NoError(t, err)
+		return entry.CacheValidator, found
+	}
+
+	// Single owner: served.
+	b.SetSourceCache(ctx, slotTestLookup{validator: "sync-a"})
+	v, found := lookupHits()
+	require.True(t, found)
+	require.Equal(t, "sync-a", v)
+
+	// Second concurrent owner: blinded for everyone.
+	b.SetSourceCache(ctx, slotTestLookup{validator: "sync-b"})
+	_, found = lookupHits()
+	require.False(t, found, "contended slot must serve misses, not either sync's lookup")
+
+	// One owner clears; the survivor must STAY blinded (the slot cannot
+	// know which lookup the survivor owns).
+	b.SetSourceCache(ctx, nil)
+	_, found = lookupHits()
+	require.False(t, found, "slot must stay blinded until the overlap fully drains")
+
+	// Fully drained: a fresh install serves again.
+	b.SetSourceCache(ctx, nil)
+	b.SetSourceCache(ctx, slotTestLookup{validator: "sync-c"})
+	v, found = lookupHits()
+	require.True(t, found, "a drained slot must serve a fresh single owner")
+	require.Equal(t, "sync-c", v)
+}

@@ -354,6 +354,11 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			mc := newEtagObservingMockConnector("etag-v1")
 			mc.WithData(group, ent, grant)
+			// The grant's principal must exist: a missing row under the
+			// synced user type is an enabled-type dangling and fails the
+			// sync under the replay policy (this fixture was previously
+			// referentially dishonest and the drop arm hid it).
+			mc.AddResource(ctx, user)
 			store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "out.c1z"),
 				dotc1z.WithEngine(c1zstore.EnginePebble),
 				dotc1z.WithTmpDir(tempDir),

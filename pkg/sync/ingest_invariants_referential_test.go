@@ -1,13 +1,17 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
-// I7/I8/I9 referential-invariant tests: entitlements referencing
-// vanished resources (I7), grants referencing vanished entitlements
-// (I8), and grants referencing vanished principals (I9) — connector
-// magic-id bugs and the holes type-granularity scopes open. All are
-// connector-attributable: default mode DROPS the rows (platform uplift
-// discards them anyway) with one aggregated warning, fail-fast mode fails,
-// and none carry ErrReplayIntegrity (a cold retry is clean on a
-// dishonest validator, so the sentinel would loop forever).
+// I7/I8/I9 referential-invariant tests, under the replay policy's
+// attribution split:
+//
+//   - DISABLED-TYPE gaps (the referent's resource type was never
+//     synced): expected configuration shapes. Default mode DROPS the
+//     dependent rows with one aggregated warning and seals a
+//     referentially consistent artifact; fail-fast mode fails. The drop
+//     fixtures below deliberately omit the referent's type row.
+//   - ENABLED-TYPE danglings (the type IS synced, the row is not):
+//     never sealed away. Warm syncs fail with ErrReplayIntegrity
+//     (discard + cold retry); cold syncs fail plainly (connector
+//     data/behavior). See the *_EnabledTypeFails tests.
 
 import (
 	"path/filepath"
@@ -36,11 +40,11 @@ func TestIngestInvariantI7DropsDanglingEntitlements(t *testing.T) {
 	require.NoError(t, err)
 	ent := et.NewAssignmentEntitlement(repo, "admin")
 
-	// The violating shape: an entitlement row whose resource has no row.
+	// The violating shape: an entitlement row whose resource has no row —
+	// and no TYPE row either (disabled-type gap: the drop arm).
 	cur := newRepairTestStore(ctx, t, filepath.Join(tmpDir, "cur.c1z"), tmpDir)
 	_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, cur.PutResourceTypes(ctx, equivRepoRT))
 	require.NoError(t, cur.PutEntitlements(ctx, ent))
 
 	s := &syncer{store: cur, syncType: connectorstore.SyncTypeFull}
@@ -85,11 +89,12 @@ func TestIngestInvariantI8DropsDanglingGrants(t *testing.T) {
 	}.Build()
 	g := grant.NewGrant(repo, "admin", principal.GetId())
 
-	// The violating shape: a grant row whose entitlement has no row.
+	// The violating shape: a grant row whose entitlement has no row —
+	// and no TYPE row for the entitlement's resource type (disabled-type
+	// gap: the drop arm).
 	cur := newRepairTestStore(ctx, t, filepath.Join(tmpDir, "cur.c1z"), tmpDir)
 	_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, cur.PutResourceTypes(ctx, equivRepoRT))
 	require.NoError(t, cur.PutResources(ctx, repo))
 	require.NoError(t, cur.PutGrants(ctx, g))
 
@@ -266,9 +271,11 @@ func TestIngestInvariantI9ExemptsExternalMatchCarriers(t *testing.T) {
 // TestDishonestValidatorStrandsGrantEntitlements is the end-to-end I8
 // scenario: a connector whose grants validator says "unchanged" (so the
 // scope replays) while its entitlement listing was refreshed and dropped
-// the entitlement. Fail-fast mode names it without the replay sentinel;
-// default mode drops the stranded grants and the sync converges to what
-// a cold sync would have produced.
+// the entitlement. The stranded grants dangle under an ENABLED type, so
+// the replay policy applies: the warm output is DISCARDED
+// (ErrReplayIntegrity — the runners' cold-retry ladder) and the cold
+// re-run, whose fresh fetch has no stranded grants, seals clean. The
+// artifact is never silently sanitized.
 func TestDishonestValidatorStrandsGrantEntitlements(t *testing.T) {
 	ctx, err := logging.Init(t.Context())
 	require.NoError(t, err)
@@ -287,48 +294,132 @@ func TestDishonestValidatorStrandsGrantEntitlements(t *testing.T) {
 
 	// The dishonesty: the entitlement listing drops the member
 	// entitlement while the grants validator still reports "unchanged".
+	// The membership grants also vanish upstream (the fresh fetch has
+	// none) — only the REPLAY carries the stranded grants forward.
 	mc.entDB[group.GetId().GetResource()] = nil
+	mc.grantDB[group.GetId().GetResource()] = nil
 
-	// Fail-fast warm sync: fails, named, not replay-classified.
+	// Warm sync (default mode): the stranded grants dangle under the
+	// SYNCED group type — replay is implicated, the output must be
+	// discarded and retried cold, never sealed sanitized.
 	store2, err := dotc1z.NewStore(ctx, filepath.Join(tmpDir, "s2.c1z"),
 		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithTmpDir(tmpDir),
 	)
 	require.NoError(t, err)
-	warmStrict, err := NewSyncer(ctx, mc,
+	warm, err := NewSyncer(ctx, mc,
 		WithConnectorStore(store2),
 		WithTmpDir(tmpDir),
 		WithPreviousSyncC1ZPath(sync1),
-		WithFailFastInvariants(),
 	)
 	require.NoError(t, err)
-	err = warmStrict.Sync(ctx)
+	err = warm.Sync(ctx)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ingest invariant I8")
-	require.NotErrorIs(t, err, ErrReplayIntegrity,
-		"a dishonest validator must not trigger the cold-retry ladder: the cold run is clean, "+
-			"so the retry would mask the connector bug on every sync forever")
-	require.NoError(t, warmStrict.Close(ctx))
+	require.ErrorIs(t, err, ErrReplayIntegrity,
+		"stranded grants under an enabled type on a warm sync must route to the cold-retry ladder")
+	require.NoError(t, warm.Close(ctx))
 
-	// Default-mode warm sync: succeeds, and the stranded grants are DROPPED —
-	// the artifact converges to cold-sync semantics.
+	// The cold retry (what the runners do with ErrReplayIntegrity):
+	// clean — the fresh fetch never had the stranded grants.
 	sync3 := filepath.Join(tmpDir, "s3.c1z")
-	store3, err := dotc1z.NewStore(ctx, sync3,
-		dotc1z.WithEngine(c1zstore.EnginePebble),
-		dotc1z.WithTmpDir(tmpDir),
-	)
-	require.NoError(t, err)
-	warmLenient, err := NewSyncer(ctx, mc,
-		WithConnectorStore(store3),
-		WithTmpDir(tmpDir),
-		WithPreviousSyncC1ZPath(sync1),
-	)
-	require.NoError(t, err)
-	require.NoError(t, warmLenient.Sync(ctx))
-	require.NoError(t, warmLenient.Close(ctx))
-
+	runSourceCacheSync(ctx, t, mc, sync3, "", tmpDir)
 	grants3 := listGrantsInFile(ctx, t, sync3)
 	require.NotContains(t, grants3, stranded.GetId(),
-		"default mode must drop grants stranded by the dishonest validator")
+		"the cold retry's artifact must not contain the stranded grant")
 	_ = memberEnt
+}
+
+// TestIngestInvariantEnabledTypeDanglingsFail pins the replay policy's
+// strict arm for all three referential invariants: a missing referent
+// whose resource TYPE is synced is never sealed away. Cold syncs fail
+// plainly (connector data/behavior — the retry could not help); warm
+// syncs fail with ErrReplayIntegrity (discard + cold retry); the
+// compaction expand pass is exempt (keep-newer merges legitimately
+// manufacture dangling refs, and its drop pass converges the artifact).
+func TestIngestInvariantEnabledTypeDanglingsFail(t *testing.T) {
+	ctx, err := logging.Init(t.Context())
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+
+	repo, err := rs.NewResource("Repo r1", equivRepoRT, "r1")
+	require.NoError(t, err)
+	ent := et.NewAssignmentEntitlement(repo, "admin")
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+	ghost := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "user", Resource: "ghost"}.Build(),
+	}.Build()
+
+	// All three shapes, every referent under a SYNCED type: an
+	// entitlement whose resource row is missing (I7), a grant whose
+	// entitlement row is missing (I8), and a grant whose principal row
+	// is missing (I9).
+	cur := newRepairTestStore(ctx, t, filepath.Join(tmpDir, "cur.c1z"), tmpDir)
+	_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, cur.PutResourceTypes(ctx, equivRepoRT, userRT))
+
+	// I7 shape: entitlement row, no resource row, type row present.
+	require.NoError(t, cur.PutEntitlements(ctx, ent))
+
+	s := &syncer{store: cur, syncType: connectorstore.SyncTypeFull}
+
+	// COLD: plain failure, no sentinel, nothing dropped.
+	err = s.checkEntitlementResourceReferences(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ingest invariant I7")
+	require.Contains(t, err.Error(), "SYNCED type")
+	require.NotErrorIs(t, err, ErrReplayIntegrity)
+	_, err = cur.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+		EntitlementId: ent.GetId(),
+	}.Build())
+	require.NoError(t, err, "an enabled-type dangling must never be dropped")
+
+	// WARM: same evidence carries the replay-integrity sentinel.
+	s.sourceCache.prev = struct{ dotc1z.SourceCacheStore }{}
+	err = s.checkEntitlementResourceReferences(ctx)
+	require.ErrorIs(t, err, ErrReplayIntegrity)
+	s.sourceCache.prev = nil
+
+	// COMPACTION EXPAND PASS: exempt — the drop arm converges the
+	// merged artifact (keep-newer merges manufacture these by design).
+	s.onlyExpandGrants = true
+	require.NoError(t, s.checkEntitlementResourceReferences(ctx),
+		"the compaction expand pass must drop, not fail: merges manufacture dangling refs no input contained")
+	s.onlyExpandGrants = false
+
+	// I8 + I9 shapes: resource row present now; a grant under a missing
+	// entitlement (enabled repo type) and a grant to a missing principal
+	// (enabled user type).
+	require.NoError(t, cur.PutResources(ctx, repo))
+	gEnt := grant.NewGrant(repo, "missing-ent", ghost.GetId())
+	require.NoError(t, cur.PutGrants(ctx, gEnt))
+
+	err = s.checkGrantEntitlementReferences(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ingest invariant I8")
+	require.Contains(t, err.Error(), "SYNCED type")
+	require.NotErrorIs(t, err, ErrReplayIntegrity)
+	s.sourceCache.prev = struct{ dotc1z.SourceCacheStore }{}
+	require.ErrorIs(t, s.checkGrantEntitlementReferences(ctx), ErrReplayIntegrity)
+	s.sourceCache.prev = nil
+
+	// Heal I8's shape (put its entitlement) so I9 is isolated: the
+	// grant's principal "user/ghost" has a type row but no resource row.
+	missingEnt := et.NewAssignmentEntitlement(repo, "missing-ent")
+	require.NoError(t, cur.PutEntitlements(ctx, missingEnt))
+	err = s.checkGrantPrincipalReferences(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ingest invariant I9")
+	require.Contains(t, err.Error(), "SYNCED type")
+	require.NotErrorIs(t, err, ErrReplayIntegrity)
+	s.sourceCache.prev = struct{ dotc1z.SourceCacheStore }{}
+	require.ErrorIs(t, s.checkGrantPrincipalReferences(ctx), ErrReplayIntegrity)
+	s.sourceCache.prev = nil
+	_, err = cur.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+		GrantId: gEnt.GetId(),
+	}.Build())
+	require.NoError(t, err, "enabled-type danglings must never be dropped in any failing mode")
+
+	require.NoError(t, cur.Close(ctx))
 }

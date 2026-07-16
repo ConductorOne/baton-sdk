@@ -65,6 +65,16 @@ type Engine struct {
 	closing atomic.Bool // strict write-barrier flag, read on every Writer call
 	closeMu sync.Mutex
 
+	// mutated latches when ANY write closure runs (see
+	// withWriteAllowSealed) — the engine-derived backstop for the
+	// store-level dirty bit. The pebbleStore wrappers mark dirty
+	// per-method by convention, and every missed wrapper is a lost
+	// envelope save (the replay pre-clear was one). Latching here is
+	// conservative in the safe direction: a spurious save costs seconds,
+	// a skipped one loses the sync. Set even when the closure errors —
+	// chunked paths may have committed batches before failing.
+	mutated atomic.Bool
+
 	// computedStats holds caller-computed stats records stashed via
 	// StashComputedSyncStats, keyed by sync_id. PersistSyncStats pops
 	// and persists the stashed record instead of re-scanning the
@@ -85,6 +95,13 @@ type Engine struct {
 	// relative to the entitlement-first write order, so it is always built
 	// as one sorted SST at EndSync — see BuildDeferredGrantIndexes).
 	deferredIdxPending atomic.Bool
+
+	// testDropChunkHook, when non-nil, runs after every chunked
+	// dangling-reference drop batch commit (ingest_repair.go). Test-only:
+	// deterministic crash injection at the exact seam between a committed
+	// chunk and the drop's completion, pinning the atomicity contract of
+	// stageSourceCacheScopeInvalidationLocked.
+	testDropChunkHook func() error
 
 	// grantDigestsPresent reports whether the digest keyspace holds any
 	// nodes — i.e. whether a grant mutation must invalidate the touched
@@ -633,7 +650,20 @@ func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	}
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
+	// Latch BEFORE the closure runs, not on success: a failing closure
+	// may have committed chunks (see the streaming drops), and a lost
+	// envelope save is the unrecoverable direction.
+	e.mutated.Store(true)
 	return fn()
+}
+
+// Mutated reports whether any write closure has run since Open — the
+// engine-derived dirty signal. Store-level Close saves the envelope when
+// EITHER its own per-method dirty bit or this latch is set, so an engine
+// mutation path missing a store wrapper can no longer silently skip the
+// save.
+func (e *Engine) Mutated() bool {
+	return e.mutated.Load()
 }
 
 func (e *Engine) Save(ctx context.Context, dest string) error {

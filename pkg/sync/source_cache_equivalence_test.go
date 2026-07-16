@@ -54,6 +54,16 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 // replayed state (replay idempotency, checkpoint interplay) are part of
 // the compared output, every scenario.
 //
+// THE DIRTY FAMILY (source_cache_equivalence_dirty_test.go) is this
+// harness's DEFAULT-MODE sibling: connectors that emit referentially
+// broken data (I7/I8/I9 dangling shapes, mixed exempt-carrier
+// populations), run WITHOUT fail-fast so the drop arms execute inside
+// the equivalence property, with the warning-silence oracle inverted
+// (expected drop warnings must be PRESENT). Every scenario in THIS file
+// stays fail-fast and warning-silent; the dirty knobs on the model
+// (ghostAdminGrant, ghostTeamEnt, extraTeamResources, entsVersion) are
+// zero here and must stay zero.
+//
 // EXPLICITLY NOT COVERED HERE (do not mistake green for proof of these):
 //   - error-outcome parity (covered by the dedicated exclusion-group
 //     parity test in source_cache_sideeffects_test.go);
@@ -156,6 +166,22 @@ type equivGroup struct {
 	// default annotation to the member entitlement, so replayed
 	// entitlement rows carry exclusion state through validation.
 	exclusionDefault bool
+
+	// Dirty-connector knobs (see the dirty scenario family in
+	// source_cache_equivalence_dirty_test.go). All zero for the clean
+	// model, keeping clean-scenario behavior byte-identical.
+	//
+	// ghostAdminGrant makes the group's grants page emit a grant on the
+	// SHADOW host resource's "admin" entitlement (see
+	// equivShadowAdminGrant). While the shadow type is disabled the
+	// grant is an I8-class dangling reference inside a stamped scope
+	// (an expected configuration gap: the referent's TYPE is not
+	// synced); enabling the shadow type is the "referent appears"
+	// transition while the grants scope's validator stays put.
+	ghostAdminGrant bool
+	// entsVersion is the group's ENTITLEMENTS scope validator generation
+	// (the clean model never rotates it).
+	entsVersion int
 }
 
 type equivOrg struct {
@@ -210,6 +236,28 @@ type equivModel struct {
 	// are fresh-or-304 scopes, no deltas.
 	teams             map[string]map[string]bool
 	teamChunkVersions []int
+
+	// Dirty-connector knobs (zero for the clean model; see the dirty
+	// scenario family in source_cache_equivalence_dirty_test.go).
+	//
+	// ghostTeamEnt makes chunk 0's type-scoped ENTITLEMENTS page emit an
+	// entitlement for the SHADOW resource "shadow-host2" — and chunk 0's
+	// grants page a grant under it. While the shadow type is disabled
+	// the entitlement is an I7-class dangling reference (and the grant
+	// its I8 cascade) — expected configuration gaps, since the referent
+	// TYPE is not synced — inside stamped type-scoped scopes whose
+	// validators never rotate.
+	ghostTeamEnt bool
+	// shadowEnabled "enables the resource type" eq_shadow: the type is
+	// listed in resource types and its resources (shadowUsers + the two
+	// fixed hosts) are listed fresh each sync. The dirty family's
+	// dirty→clean transition flips this while every dangling scope's
+	// validator stays put.
+	shadowEnabled bool
+	// shadowUsers are the shadow-typed principals dirty groups reference
+	// as members (ids prefixed "shadow-"). Rows exist only while
+	// shadowEnabled.
+	shadowUsers map[string]bool
 }
 
 // teamChunkOf returns the chunk index a team belongs to (two teams per
@@ -510,6 +558,22 @@ func (c *equivConnector) SetSourceCache(_ context.Context, lookup sourcecache.Lo
 	c.lookup = lookup
 }
 
+// ListResourceTypes includes the dirty family's shadow type only while
+// the model has "enabled" it — the store-level type row is what the
+// invariants' enabled/disabled attribution probes, so the type must be
+// genuinely absent before the transition. Clean scenarios never enable
+// it and see exactly rtDB.
+func (c *equivConnector) ListResourceTypes(context.Context, *v2.ResourceTypesServiceListResourceTypesRequest, ...grpc.CallOption) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
+	c.mu.Lock()
+	enabled := c.model.shadowEnabled
+	c.mu.Unlock()
+	list := c.rtDB
+	if enabled {
+		list = append(append([]*v2.ResourceType{}, list...), equivShadowRT)
+	}
+	return v2.ResourceTypesServiceListResourceTypesResponse_builder{List: list}.Build(), nil
+}
+
 func (c *equivConnector) Validate(context.Context, *v2.ConnectorServiceValidateRequest, ...grpc.CallOption) (*v2.ConnectorServiceValidateResponse, error) {
 	return v2.ConnectorServiceValidateResponse_builder{
 		Annotations: annotations.New(v2.SourceCacheCapability_builder{
@@ -704,8 +768,87 @@ func equivMemberEnt(g *v2.Resource, exclusionDefault bool) *v2.Entitlement {
 	return ent
 }
 
+// equivMemberGrant builds a group-membership grant. Principal type
+// routes by id prefix for the dirty family: "shadow-" members are the
+// toggleable disabled type (eq_shadow), "ghost2-" members a type that
+// NEVER gets enabled (steady-dirty shapes). Clean-model member ids use
+// neither prefix and stay user-typed.
 func equivMemberGrant(gid, uid string) *v2.Grant {
+	principalType := userResourceType.GetId()
+	switch {
+	case strings.HasPrefix(uid, "shadow-"):
+		principalType = equivShadowRT.GetId()
+	case strings.HasPrefix(uid, "ghost2-"):
+		principalType = equivGhost2TypeID
+	}
 	return gt.NewGrant(equivGroupResource(gid), "member",
+		v2.ResourceId_builder{ResourceType: principalType, Resource: uid}.Build())
+}
+
+// equivGhost2TypeID is the dirty family's never-enabled principal type:
+// no resource type row ever exists for it, so references stay expected
+// configuration gaps (the drop arm) in every round.
+const equivGhost2TypeID = "eq_ghost2"
+
+// --- dirty-family shadow builders -------------------------------------
+//
+// equivShadowRT is the dirty family's toggleable resource type: DISABLED
+// (never listed) until the model's shadowEnabled flips. References into
+// it are expected configuration gaps — the replay policy's DROP arm —
+// and enabling it is the dirty→clean "referent appears" transition.
+// Never used by clean scenarios.
+var equivShadowRT = v2.ResourceType_builder{Id: "eq_shadow", DisplayName: "Shadow"}.Build()
+
+const (
+	// equivShadowHostID hosts the "admin" entitlement ghostAdminGrant
+	// references (the I8 dirty shape).
+	equivShadowHostID = "shadow-host"
+	// equivShadowHost2ID hosts the entitlement the ghost team-chunk
+	// emission references (the I7 dirty shape + I8 cascade).
+	equivShadowHost2ID = "shadow-host2"
+)
+
+func equivShadowResource(id string) *v2.Resource {
+	r, err := rs.NewResource("Shadow "+id, equivShadowRT, id, rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}))
+	if err != nil {
+		panic(err)
+	}
+	return r
+}
+
+// equivShadowHostResource is a shadow host WITHOUT the skip annotation:
+// hosts serve entitlement pages once the type is enabled.
+func equivShadowHostResource(id string) *v2.Resource {
+	r, err := rs.NewResource("Shadow "+id, equivShadowRT, id)
+	if err != nil {
+		panic(err)
+	}
+	return r
+}
+
+// equivShadowAdminEnt / equivShadowAdminGrant: the I8 dirty shape — the
+// grant is emitted (inside a group's stamped grants scope) whether or
+// not the shadow type is enabled; the entitlement row exists only once
+// it is.
+func equivShadowAdminEnt() *v2.Entitlement {
+	ent := et.NewAssignmentEntitlement(equivShadowHostResource(equivShadowHostID), "admin", et.WithGrantableTo(userResourceType))
+	ent.SetSlug("admin")
+	return ent
+}
+
+func equivShadowAdminGrant(uid string) *v2.Grant {
+	return gt.NewGrant(equivShadowHostResource(equivShadowHostID), "admin",
+		v2.ResourceId_builder{ResourceType: userResourceType.GetId(), Resource: uid}.Build())
+}
+
+// equivShadowHost2Ent / equivShadowHost2Grant: the I7 dirty shape and
+// its I8 cascade, emitted inside the type-scoped team chunk-0 scopes.
+func equivShadowHost2Ent() *v2.Entitlement {
+	return equivMemberEnt(equivShadowHostResource(equivShadowHost2ID), false)
+}
+
+func equivShadowHost2Grant(uid string) *v2.Grant {
+	return gt.NewGrant(equivShadowHostResource(equivShadowHost2ID), "member",
 		v2.ResourceId_builder{ResourceType: userResourceType.GetId(), Resource: uid}.Build())
 }
 
@@ -784,6 +927,31 @@ func (c *equivConnector) listResourcesInner(ctx context.Context, lookup sourceca
 		out := make([]*v2.Resource, 0, len(teamIDs))
 		for _, id := range teamIDs {
 			out = append(out, equivTeamResource(id))
+		}
+		return v2.ResourcesServiceListResourcesResponse_builder{List: out}.Build(), nil
+	case equivShadowRT.GetId():
+		// The dirty family's "enable the resource type" switch: listed
+		// UNSCOPED and fresh (like teams) only while enabled; before
+		// that, references into the type are expected configuration
+		// gaps that the invariants drop.
+		if !m.shadowEnabled {
+			c.mu.Unlock()
+			return v2.ResourcesServiceListResourcesResponse_builder{}.Build(), nil
+		}
+		ids := sortedKeys(m.shadowUsers)
+		ids = append(ids, equivShadowHostID, equivShadowHost2ID)
+		sort.Strings(ids)
+		c.mu.Unlock()
+		out := make([]*v2.Resource, 0, len(ids))
+		for _, id := range ids {
+			if id == equivShadowHostID {
+				// The admin-ent host serves an entitlements page (no
+				// skip annotation); everything else is skip-annotated
+				// (host2's entitlement arrives via the team chunk).
+				out = append(out, equivShadowHostResource(id))
+				continue
+			}
+			out = append(out, equivShadowResource(id))
 		}
 		return v2.ResourcesServiceListResourcesResponse_builder{List: out}.Build(), nil
 	case userResourceType.GetId():
@@ -902,33 +1070,50 @@ func (c *equivConnector) listEntitlementsInner(
 		}
 		return c.teamEntitlementsPage(ctx, lookup, in.GetPageToken())
 	}
+	if rid.GetResourceType() == equivShadowRT.GetId() {
+		// Shadow HOST entitlements: unscoped, fresh — served only while
+		// the type is enabled (the dirty family's dirty→clean referent).
+		c.mu.Lock()
+		enabled := c.model.shadowEnabled
+		c.mu.Unlock()
+		if enabled && rid.GetResource() == equivShadowHostID {
+			return v2.EntitlementsServiceListEntitlementsResponse_builder{
+				List: []*v2.Entitlement{equivShadowAdminEnt()},
+			}.Build(), nil
+		}
+		return v2.EntitlementsServiceListEntitlementsResponse_builder{}.Build(), nil
+	}
 	if rid.GetResourceType() != groupResourceType.GetId() {
 		return v2.EntitlementsServiceListEntitlementsResponse_builder{}.Build(), nil
 	}
 	c.mu.Lock()
 	g := c.model.groups[rid.GetResource()]
+	var entsVersion int
+	if g != nil {
+		entsVersion = g.entsVersion
+	}
 	c.mu.Unlock()
 	if g == nil {
 		return v2.EntitlementsServiceListEntitlementsResponse_builder{}.Build(), nil
 	}
 	scope := "ents:" + g.id
-	// Entitlement scopes never rotate after creation: warm rounds are
-	// pure 304s, which is exactly what keeps exclusion-group state on
-	// the replayed path.
-	verdict, err := c.revalidate(ctx, lookup, sourcecache.RowKindEntitlements, sourcecache.HashScope(scope), 0)
+	// Entitlement scopes never rotate after creation (entsVersion stays
+	// 0): warm rounds are pure 304s, which is exactly what keeps
+	// exclusion-group state on the replayed path.
+	verdict, err := c.revalidate(ctx, lookup, sourcecache.RowKindEntitlements, sourcecache.HashScope(scope), entsVersion)
 	if err != nil {
 		return nil, err
 	}
 	if verdict == equivCurrent {
 		c.count(func(ct *equivCounters) { ct.pages304++ })
 		return v2.EntitlementsServiceListEntitlementsResponse_builder{
-			Annotations: equivReplayAnnos(scope, 0),
+			Annotations: equivReplayAnnos(scope, entsVersion),
 		}.Build(), nil
 	}
 	c.count(func(ct *equivCounters) { ct.pagesFresh++ })
 	return v2.EntitlementsServiceListEntitlementsResponse_builder{
 		List:        []*v2.Entitlement{equivMemberEnt(equivGroupResource(g.id), g.exclusionDefault)},
-		Annotations: equivScopeAnnos(scope, 0),
+		Annotations: equivScopeAnnos(scope, entsVersion),
 	}.Build(), nil
 }
 
@@ -1000,6 +1185,7 @@ func (c *equivConnector) teamEntitlementsPage(ctx context.Context, lookup source
 	}
 	c.mu.Lock()
 	teamIDs := c.model.teamsInChunk(chunk)
+	ghost := c.model.ghostTeamEnt && chunk == 0
 	c.mu.Unlock()
 
 	scope := fmt.Sprintf("ents:team-chunk:%d", chunk)
@@ -1017,6 +1203,12 @@ func (c *equivConnector) teamEntitlementsPage(ctx context.Context, lookup source
 	rows := make([]*v2.Entitlement, 0, len(teamIDs))
 	for _, tid := range teamIDs {
 		rows = append(rows, equivMemberEnt(equivTeamResource(tid), false))
+	}
+	if ghost {
+		// The I7-class dangling shape: an entitlement for the shadow
+		// host2 resource, which is only listed once the shadow type is
+		// enabled. The scope's validator never rotates.
+		rows = append(rows, equivShadowHost2Ent())
 	}
 	return v2.EntitlementsServiceListEntitlementsResponse_builder{
 		List:        rows,
@@ -1050,6 +1242,7 @@ func (c *equivConnector) teamGrantsPage(ctx context.Context, lookup sourcecache.
 	m := c.model
 	version := m.teamChunkVersions[chunk]
 	teamIDs := m.teamsInChunk(chunk)
+	ghost := m.ghostTeamEnt && chunk == 0
 	membersByTeam := make(map[string][]string, len(teamIDs))
 	for _, tid := range teamIDs {
 		membersByTeam[tid] = sortedKeys(m.teams[tid])
@@ -1073,6 +1266,11 @@ func (c *equivConnector) teamGrantsPage(ctx context.Context, lookup sourcecache.
 		for _, uid := range membersByTeam[tid] {
 			rows = append(rows, equivTeamGrant(tid, uid))
 		}
+	}
+	if ghost {
+		// The shadow host2 entitlement's grant: dropped as I7's I8
+		// cascade while the shadow type is disabled, kept once enabled.
+		rows = append(rows, equivShadowHost2Grant("u0"))
 	}
 	return v2.GrantsServiceListGrantsResponse_builder{
 		List:        rows,
@@ -1100,6 +1298,7 @@ func (c *equivConnector) groupGrantsPage(ctx context.Context, lookup sourcecache
 	isMultiPage := gid == m.multiPageGroup
 	expandableChild := m.expandableChild
 	version := g.version
+	ghostAdmin := g.ghostAdminGrant
 	members := sortedKeys(g.members)
 	deltaAdds := append([]string{}, g.deltaAdds...)
 	deltaRemoves := append([]string{}, g.deltaRemoves...)
@@ -1129,6 +1328,12 @@ func (c *equivConnector) groupGrantsPage(ctx context.Context, lookup sourcecache
 		}
 		for _, uid := range members {
 			out = append(out, equivMemberGrant(gid, uid))
+		}
+		if ghostAdmin {
+			// Emitted every fresh fetch; an I8-class dangling (expected
+			// disabled-type gap) until the shadow type is enabled and
+			// its host's admin entitlement row exists.
+			out = append(out, equivShadowAdminGrant("u1"))
 		}
 		if isExpandableParent {
 			childRes := equivGroupResource(expandableChild)
@@ -1325,10 +1530,11 @@ type c1zSnapshot struct {
 	// grantsByEntResource: entitlement-resource "rt/id" -> grant ids via
 	// the by_entitlement_resource index read path.
 	grantsByEntResource map[string][]string
-	// manifest ("row_kind\x00scope_key" -> etag) and scopeIndexCounts
-	// (row kind -> scope key -> index entries): the source-cache state
-	// invisible to v2 reads but load-bearing for the NEXT sync's replay.
-	manifest         map[string]string
+	// manifest ("row_kind\x00scope_key" -> typed entry: validator +
+	// invalidation verdict) and scopeIndexCounts (row kind -> scope key
+	// -> index entries): the source-cache state invisible to v2 reads
+	// but load-bearing for the NEXT sync's replay.
+	manifest         map[string]pebbleengine.SourceCacheManifestEntry
 	scopeIndexCounts map[string]map[string]int
 	// syncRuns is the number of sync runs in the file — the
 	// crash/resume round asserts exactly one (resume, not restart).
@@ -1786,16 +1992,27 @@ const equivCrashRound = 2
 // unfinished sync), returning Sync's error. Path-based store creation —
 // not WithConnectorStore — so a crashed sync's file can be reopened and
 // resumed exactly like production resume.
+//
+// Clean scenarios run fail-fast: check-only ingestion invariants
+// hard-fail, so a violation names itself before the differential
+// comparison would catch its downstream divergence. The dirty family
+// (source_cache_equivalence_dirty_test.go) uses runEquivSyncMode with
+// failFast=false — its PROPERTY is default-warm ≡ default-cold, which
+// requires the drop arms to actually execute.
 func runEquivSync(ctx context.Context, t *testing.T, cc types.ConnectorClient, path, prevPath, tmpDir string, extraOpts ...SyncOpt) error {
+	t.Helper()
+	return runEquivSyncMode(ctx, t, cc, path, prevPath, tmpDir, true, extraOpts...)
+}
+
+func runEquivSyncMode(ctx context.Context, t *testing.T, cc types.ConnectorClient, path, prevPath, tmpDir string, failFast bool, extraOpts ...SyncOpt) error {
 	t.Helper()
 	opts := []SyncOpt{
 		WithC1ZPath(path),
 		WithStorageEngine(c1zstore.EnginePebble),
 		WithTmpDir(tmpDir),
-		// Check-only ingestion invariants hard-fail in the harness: a
-		// violation must name itself here before the differential
-		// comparison would catch its downstream divergence.
-		WithFailFastInvariants(),
+	}
+	if failFast {
+		opts = append(opts, WithFailFastInvariants())
 	}
 	if prevPath != "" {
 		opts = append(opts, WithPreviousSyncC1ZPath(prevPath))

@@ -27,17 +27,24 @@ import (
 )
 
 // EnsureGrantIndexes runs the deferred grant-index build NOW if one is
-// pending. The by_principal index is inline for connector-emitted grants
-// but deferred for expansion/synth writes; the dangling-principal scan
-// (I9) needs it complete. Calling early is near-free: the same build
-// would run at EndSync anyway — this just moves it before the invariant
-// seam (rows dropped afterward maintain the indexes inline and stage
-// digest invalidation, which EndSync's repair pass heals).
+// pending, and retires the pending marker. The by_principal index is
+// inline for connector-emitted grants but deferred for expansion/synth
+// writes; the dangling-principal scan (I9) needs it complete. This is
+// the SAME build EndSync would run, so the marker must clear here or
+// EndSync repeats the whole O(grants) scan/build a second time. Rows
+// dropped afterward maintain the indexes inline and stage digest
+// invalidation, which EndSync's RepairMissingGrantDigests pass heals;
+// grant drops also invalidate the stashed deferred grant stats
+// (invalidateDeferredGrantStats) so the stats sidecar recounts instead
+// of reporting dropped rows.
 func (e *Engine) EnsureGrantIndexes(ctx context.Context) error {
 	if !e.deferredIdxPending.Load() {
 		return nil
 	}
-	return e.BuildDeferredGrantIndexes(ctx)
+	if err := e.BuildDeferredGrantIndexes(ctx); err != nil {
+		return err
+	}
+	return e.clearDeferredIdxPending()
 }
 
 // ForEachDanglingGrantPrincipal visits each distinct principal referenced
@@ -194,6 +201,78 @@ func (e *Engine) getGrantRecordByIdentity(id grantIdentity) (*v3.GrantRecord, er
 // row.
 const dropBatchRows = 4096
 
+// stageSourceCacheScopeInvalidationLocked stages a dropped row's
+// source-scope manifest invalidation INTO the batch that carries the
+// row's delete. A drop deletes rows out from under a manifest entry
+// whose validator still vouches for the scope's FULL upstream row set;
+// left intact, the next sync's lookup would hit, the connector would
+// 304, and the replay would carry the sanitized subset forward —
+// permanently, even after the dangling rows' referent reappears upstream
+// (a cold sync would restore them; a warm one never would). Marking the
+// entry invalidated makes the next lookup miss, so exactly the
+// dropped-from scopes re-fetch cold and warm/cold equivalence is
+// preserved.
+//
+// ORDERING IS LOAD-BEARING: the invalidation must ride the SAME batch as
+// the scope's FIRST staged delete, never a later write. Batches commit
+// atomically and the WAL preserves commit order (a crash loses only a
+// suffix), so "a committed delete for a scope implies its committed
+// invalidation" holds through any crash or mid-loop error — including a
+// crash between chunked commits. Invalidating after the deletes (a
+// separate write) would open the one unrecoverable window: rows durably
+// gone, validator retained, and the resumed invariant pass finds nothing
+// dangling to re-trigger the invalidation — the next sync 304s the
+// sanitized subset forever. The inverse leak (invalidation committed,
+// deletes lost or unfinished) is safe: the scope re-fetches cold once,
+// and the resumed pass re-detects whatever still dangles.
+//
+// The entry is kept (marked, not deleted) so the scope's SURVIVING
+// stamped rows don't read as an I6 orphan (lost manifest write), and the
+// stale validator stays visible to the audit tooling. Scopes with no
+// manifest entry are skipped: nothing vouches for them, so there is
+// nothing to invalidate (and writing one would hide a real I6 orphan).
+// Idempotent — re-marking an invalidated entry is a no-op — so resumed
+// syncs re-reaching the invariant seam converge. staged dedupes within
+// one drop call; the read sees committed state, so a scope invalidated
+// by an earlier call (or an earlier committed chunk) is skipped too.
+// Caller must hold the write lock (runs inside the drop's withWrite
+// closure).
+func (e *Engine) stageSourceCacheScopeInvalidationLocked(batch *pebble.Batch, rowKind, scopeKey string, staged map[string]struct{}) error {
+	if scopeKey == "" {
+		return nil
+	}
+	if _, ok := staged[scopeKey]; ok {
+		return nil
+	}
+	staged[scopeKey] = struct{}{}
+	key := encodeSourceCacheEntryKey(rowKind, scopeKey)
+	val, closer, err := e.db.Get(key)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("invalidate source-cache scope %q: %w", scopeKey, err)
+	}
+	rec := &v3.SourceCacheEntryRecord{}
+	unmarshalErr := unmarshalRecord(val, rec)
+	closer.Close()
+	if unmarshalErr != nil {
+		return fmt.Errorf("invalidate source-cache scope %q: unmarshal: %w", scopeKey, unmarshalErr)
+	}
+	if rec.GetInvalidated() {
+		return nil
+	}
+	rec.SetInvalidated(true)
+	newVal, err := marshalRecord(rec)
+	if err != nil {
+		return fmt.Errorf("invalidate source-cache scope %q: marshal: %w", scopeKey, err)
+	}
+	if err := batch.Set(key, newVal, nil); err != nil {
+		return fmt.Errorf("invalidate source-cache scope %q: %w", scopeKey, err)
+	}
+	return nil
+}
+
 // dropWriteOpts returns the write options for streaming drops.
 func (e *Engine) dropWriteOpts() *pebble.WriteOptions {
 	if e.IsFreshSync() {
@@ -202,11 +281,124 @@ func (e *Engine) dropWriteOpts() *pebble.WriteOptions {
 	return writeOpts(e.opts.durability)
 }
 
+// dropBatcher is the single choke point for dangling-reference row
+// deletion. Every dropped row carries cross-cutting obligations —
+// secondary-index cleanup, digest invalidation, source-cache manifest
+// invalidation, chunked-commit crash ordering — and every one of them
+// has produced a bug when a call site was left to remember it. The
+// batcher makes the obligations structural: a drop arm stages rows
+// through stageGrantDelete / stageEntitlementDelete and calls finish;
+// it never touches a raw batch, so it cannot stage a delete without its
+// obligations or commit them in an unsafe order.
+//
+// Crash contract (see stageSourceCacheScopeInvalidationLocked): a
+// scope's manifest invalidation rides the same batch as its first
+// staged delete, chunks commit in WAL order, and the test hook fires
+// between chunk commits so the crash-window tests can land exactly
+// there. Callers must hold the engine write lock (the batcher runs
+// inside the drop's withWrite closure).
+type dropBatcher struct {
+	e            *Engine
+	ctx          context.Context
+	opts         *pebble.WriteOptions
+	batch        *pebble.Batch
+	rowsInBatch  int
+	stagedScopes map[string]struct{}
+	// committedRows counts rows whose chunk commit LANDED — consumed by
+	// obligations that must fire even when a later chunk errors (the
+	// entitlement bare-id keyspace note).
+	committedRows int64
+}
+
+func (e *Engine) newDropBatcher(ctx context.Context) *dropBatcher {
+	return &dropBatcher{
+		e:            e,
+		ctx:          ctx,
+		opts:         e.dropWriteOpts(),
+		batch:        e.db.NewBatch(),
+		stagedScopes: map[string]struct{}{},
+	}
+}
+
+// close releases the open batch; safe after finish (callers defer it).
+func (b *dropBatcher) close() { _ = b.batch.Close() }
+
+// stageGrantDelete stages one grant row's COMPLETE drop: manifest
+// invalidation for its source scope (first occurrence, same batch),
+// every secondary index + digest invalidation derived from the raw
+// value, and the primary delete; then rotates the chunk if full.
+func (b *dropBatcher) stageGrantDelete(priKey, rawValue []byte, sourceScopeKey string) error {
+	if err := b.ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.e.stageSourceCacheScopeInvalidationLocked(b.batch, "grants", sourceScopeKey, b.stagedScopes); err != nil {
+		return err
+	}
+	if err := b.e.deleteGrantIndexesRaw(b.batch, "", rawValue); err != nil {
+		return err
+	}
+	if err := b.batch.Delete(priKey, nil); err != nil {
+		return err
+	}
+	return b.rotate()
+}
+
+// stageEntitlementDelete is stageGrantDelete's entitlement twin (the
+// scope entry is the only entitlement secondary index).
+func (b *dropBatcher) stageEntitlementDelete(id entitlementIdentity, priKey []byte, scopeKey string) error {
+	if err := b.ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.e.stageSourceCacheScopeInvalidationLocked(b.batch, "entitlements", scopeKey, b.stagedScopes); err != nil {
+		return err
+	}
+	if scopeKey != "" {
+		if err := b.batch.Delete(encodeEntitlementBySourceScopeIndexKey(scopeKey, id), nil); err != nil {
+			return err
+		}
+	}
+	if err := b.batch.Delete(priKey, nil); err != nil {
+		return err
+	}
+	return b.rotate()
+}
+
+func (b *dropBatcher) rotate() error {
+	b.rowsInBatch++
+	if b.rowsInBatch < dropBatchRows {
+		return nil
+	}
+	if err := b.batch.Commit(b.opts); err != nil {
+		return err
+	}
+	b.committedRows += int64(b.rowsInBatch)
+	_ = b.batch.Close()
+	b.batch = b.e.db.NewBatch()
+	b.rowsInBatch = 0
+	if b.e.testDropChunkHook != nil {
+		return b.e.testDropChunkHook()
+	}
+	return nil
+}
+
+// finish commits the final partial chunk.
+func (b *dropBatcher) finish() error {
+	if err := b.batch.Commit(b.opts); err != nil {
+		return err
+	}
+	b.committedRows += int64(b.rowsInBatch)
+	b.rowsInBatch = 0
+	return nil
+}
+
 // DeleteGrantsForPrincipal deletes every grant of one principal EXCEPT
 // rows carrying ExternalResourceMatch* annotations (unprocessed match
 // carriers are evidence of a missing external-resource file, not bad
 // data). Streams one chunked batch pass — never one commit per row.
-// Returns (deleted, skippedMatchAnnotated).
+// Dropped rows' source scopes get their manifest entries invalidated
+// atomically with each scope's first staged delete (see
+// stageSourceCacheScopeInvalidationLocked). Returns
+// (deleted, skippedMatchAnnotated).
 func (e *Engine) DeleteGrantsForPrincipal(ctx context.Context, principalRT, principalID string) (int64, int64, error) {
 	indexPrefix := encodeGrantByPrincipalPrefix(principalRT, principalID)
 
@@ -221,10 +413,8 @@ func (e *Engine) DeleteGrantsForPrincipal(ctx context.Context, principalRT, prin
 		}
 		defer iter.Close()
 
-		opts := e.dropWriteOpts()
-		batch := e.db.NewBatch()
-		defer func() { _ = batch.Close() }()
-		rowsInBatch := 0
+		b := e.newDropBatcher(ctx)
+		defer b.close()
 
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
@@ -237,11 +427,11 @@ func (e *Engine) DeleteGrantsForPrincipal(ctx context.Context, principalRT, prin
 			var comps [4]string
 			off := 0
 			for i := range comps {
-				b, next, ok := codec.DecodeTupleStringAlias(tail, off)
+				c, next, ok := codec.DecodeTupleStringAlias(tail, off)
 				if !ok {
 					return fmt.Errorf("by_principal index: malformed key tail %x", iter.Key())
 				}
-				comps[i] = string(b)
+				comps[i] = string(c)
 				off = next + 1
 			}
 			id := grantIdentity{
@@ -272,32 +462,23 @@ func (e *Engine) DeleteGrantsForPrincipal(ctx context.Context, principalRT, prin
 				skipped++
 				continue
 			}
-			if err := e.deleteGrantIndexesRaw(batch, "", val); err != nil {
-				closer.Close()
-				return err
-			}
+			stageErr := b.stageGrantDelete(priKey, val, rec.GetSourceScopeKey())
 			closer.Close()
-			if err := batch.Delete(priKey, nil); err != nil {
-				return err
+			if stageErr != nil {
+				return stageErr
 			}
 			deleted++
-			rowsInBatch++
-			if rowsInBatch >= dropBatchRows {
-				if err := batch.Commit(opts); err != nil {
-					return err
-				}
-				_ = batch.Close()
-				batch = e.db.NewBatch()
-				rowsInBatch = 0
-			}
 		}
 		if err := iter.Error(); err != nil {
 			return err
 		}
-		return batch.Commit(opts)
+		return b.finish()
 	})
 	if err != nil {
 		return 0, 0, err
+	}
+	if deleted > 0 {
+		e.invalidateDeferredGrantStats()
 	}
 	return deleted, skipped, nil
 }
@@ -311,7 +492,10 @@ func (e *Engine) DeleteGrantsForPrincipal(ctx context.Context, principalRT, prin
 // a connector-owned grant under the same missing entitlement is a
 // dangling reference and drops. Streams the primary prefix with values in
 // hand (index cleanup derives from the value), chunked batches, no
-// per-row commits. Returns (deleted, skippedInsertFact).
+// per-row commits. Dropped rows' source scopes get their manifest
+// entries invalidated atomically with each scope's first staged delete
+// (see stageSourceCacheScopeInvalidationLocked). Returns
+// (deleted, skippedInsertFact).
 func (e *Engine) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (int64, int64, error) {
 	entID := entitlementIdentityFromParts(entResourceTypeID, entResourceID, entitlementID)
 	prefix := encodeGrantPrimaryEntitlementIdentityPrefix(
@@ -328,10 +512,8 @@ func (e *Engine) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, 
 		}
 		defer iter.Close()
 
-		opts := e.dropWriteOpts()
-		batch := e.db.NewBatch()
-		defer func() { _ = batch.Close() }()
-		rowsInBatch := 0
+		b := e.newDropBatcher(ctx)
+		defer b.close()
 
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
@@ -345,42 +527,40 @@ func (e *Engine) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, 
 				skipped++
 				continue
 			}
-			if err := e.deleteGrantIndexesRaw(batch, "", iter.Value()); err != nil {
-				return err
+			_, _, _, _, _, _, sourceScopeKey, scanErr := scanGrantIndexFieldsRaw(iter.Value())
+			if scanErr != nil {
+				return fmt.Errorf("dangling entitlement drop: scan scope: %w", scanErr)
 			}
 			key := iter.Key()
 			k := make([]byte, len(key))
 			copy(k, key)
-			if err := batch.Delete(k, nil); err != nil {
+			if err := b.stageGrantDelete(k, iter.Value(), sourceScopeKey); err != nil {
 				return err
 			}
 			deleted++
-			rowsInBatch++
-			if rowsInBatch >= dropBatchRows {
-				if err := batch.Commit(opts); err != nil {
-					return err
-				}
-				_ = batch.Close()
-				batch = e.db.NewBatch()
-				rowsInBatch = 0
-			}
 		}
 		if err := iter.Error(); err != nil {
 			return err
 		}
-		return batch.Commit(opts)
+		return b.finish()
 	})
 	if err != nil {
 		return 0, 0, err
+	}
+	if deleted > 0 {
+		e.invalidateDeferredGrantStats()
 	}
 	return deleted, skipped, nil
 }
 
 // DeleteEntitlementsForResource deletes every entitlement row under one
 // resource — the drop arm for entitlements referencing a resource with no
-// row. Returns the count and up to maxIDs deleted external ids for the
-// caller's aggregate report; maxIDs <= 0 collects none (callers pass a
-// shrinking example budget, so the guard below doubles as the clamp).
+// row. Dropped rows' source scopes get their manifest entries
+// invalidated atomically with each scope's first staged delete (see
+// stageSourceCacheScopeInvalidationLocked). Returns the count
+// and up to maxIDs deleted external ids for the caller's aggregate
+// report; maxIDs <= 0 collects none (callers pass a shrinking example
+// budget, so the guard below doubles as the clamp).
 func (e *Engine) DeleteEntitlementsForResource(ctx context.Context, resourceTypeID, resourceID string, maxIDs int) (int64, []string, error) {
 	prefix := encodeEntitlementPrimaryResourcePrefix(resourceTypeID, resourceID)
 	type entRow struct {
@@ -448,15 +628,19 @@ func (e *Engine) DeleteEntitlementsForResource(ctx context.Context, resourceType
 	var deleted int64
 	var ids []string
 	err = e.withWrite(func() error {
-		batch := e.db.NewBatch()
-		defer batch.Close()
-		for _, row := range rows {
-			if row.scopeKey != "" {
-				if err := batch.Delete(encodeEntitlementBySourceScopeIndexKey(row.scopeKey, row.id), nil); err != nil {
-					return err
-				}
+		b := e.newDropBatcher(ctx)
+		defer b.close()
+		// Keyed on commits that LANDED, not on success: a failure after a
+		// partial chunk commit has already mutated the entitlement
+		// keyspace, so the bare-id lookup map must be invalidated even as
+		// the error unwinds (same contract as the replay pre-clear).
+		defer func() {
+			if b.committedRows > 0 {
+				e.noteEntitlementKeyspaceWrite()
 			}
-			if err := batch.Delete(row.primaryKy, nil); err != nil {
+		}()
+		for _, row := range rows {
+			if err := b.stageEntitlementDelete(row.id, row.primaryKy, row.scopeKey); err != nil {
 				return err
 			}
 			deleted++
@@ -464,13 +648,7 @@ func (e *Engine) DeleteEntitlementsForResource(ctx context.Context, resourceType
 				ids = append(ids, row.id.externalID())
 			}
 		}
-		if err := batch.Commit(e.dropWriteOpts()); err != nil {
-			return err
-		}
-		if deleted > 0 {
-			e.noteEntitlementKeyspaceWrite()
-		}
-		return nil
+		return b.finish()
 	})
 	return deleted, ids, err
 }

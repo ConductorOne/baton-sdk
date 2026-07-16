@@ -519,6 +519,29 @@ func (p *danglingTypeProbe) typeExists(ctx context.Context, resourceTypeID strin
 	return exists
 }
 
+// unexpectedDanglingError renders the ENABLED-TYPE dangling verdict of
+// the replay policy: a missing referent whose resource type IS synced is
+// never an expected configuration gap — it is connector data/behavior
+// (magic-id construction, deleted-referent emission) or replay-carried
+// staleness, and the artifact must not seal with the rows silently
+// dropped. A WARM sync is replay-implicated: the error carries
+// ErrReplayIntegrity so the runners discard the output and retry cold.
+// A COLD sync with the same evidence is terminal — the cold retry
+// already happened (or could never have helped), so the failure is
+// attributed plainly to the connector.
+//
+// Disabled-type gaps (referent's type never synced) keep the drop arm:
+// they are expected configuration shapes, sealed referentially
+// consistent with one aggregated warning, and their scopes' manifest
+// entries are invalidated so a later type-enable re-fetches them cold.
+func (s *syncer) unexpectedDanglingError(format string, args ...any) error {
+	err := fmt.Errorf(format, args...)
+	if s.sourceCache.prev != nil {
+		return fmt.Errorf("%w (warm sync: discard the output and retry cold): %w", err, ErrReplayIntegrity)
+	}
+	return err
+}
+
 // danglingAttribution renders the config-gap vs bug split for the
 // aggregated warnings.
 func danglingAttribution(unsyncedTypeCount, missingRowCount int) string {
@@ -563,6 +586,17 @@ func (s *syncer) checkEntitlementResourceReferences(ctx context.Context) error {
 				"ingest invariant I7 violated: entitlements reference resource %s/%s but no resource row exists "+
 					"(resource type synced: %t — false means a config gap, true a magic-id construction bug)",
 				rt, rid, probe.typeExists(ctx, rt))
+		}
+		if !s.onlyExpandGrants && probe.typeExists(ctx, rt) {
+			// Enabled-type dangling: the referent's type IS synced, so the
+			// missing row is unexpected — never sealed away (replay
+			// policy; see unexpectedDanglingError). The compaction
+			// expand pass is exempt: keep-newer merges legitimately
+			// manufacture dangling refs no input contained, and the drop
+			// pass is what converges the artifact.
+			return s.unexpectedDanglingError(
+				"ingest invariant I7 violated: entitlements reference resource %s/%s but no resource row exists under a SYNCED type",
+				rt, rid)
 		}
 		n, ids, err := facts.DeleteEntitlementsForResource(ctx, rt, rid, maxDanglingIDExamples-len(entIDExamples))
 		if err != nil {
@@ -644,6 +678,22 @@ func (s *syncer) checkGrantEntitlementReferences(ctx context.Context) error {
 					"(resource type synced: %t — false means a config gap, true a magic-id construction bug "+
 					"or a grants scope replayed against a refreshed entitlement set)",
 				entitlementID, rt, rid, probe.typeExists(ctx, rt))
+		}
+		if !s.onlyExpandGrants && probe.typeExists(ctx, rt) {
+			// Enabled-type dangling (replay policy; see I7's twin arm).
+			// The per-grant IRG exemption still applies: an entitlement
+			// whose grants ALL carry InsertResourceGrants is the
+			// machinery-owned shape in every mode.
+			allCarry, err := facts.GrantsForEntitlementAllCarryInsertFact(ctx, entitlementID, rt, rid)
+			if err != nil {
+				return fmt.Errorf("ingest invariant I8: probing grant annotations for entitlement %q: %w", entitlementID, err)
+			}
+			if allCarry {
+				return nil
+			}
+			return s.unexpectedDanglingError(
+				"ingest invariant I8 violated: grants without InsertResourceGrants reference entitlement %q (resource %s/%s) but no entitlement row exists under a SYNCED type",
+				entitlementID, rt, rid)
 		}
 		n, skipped, err := facts.DeleteGrantsForEntitlement(ctx, entitlementID, rt, rid)
 		if err != nil {
@@ -729,6 +779,16 @@ func (s *syncer) checkGrantPrincipalReferences(ctx context.Context) error {
 					"emitted grants for a principal it never synced)",
 				rt, rid, probe.typeExists(ctx, rt))
 		}
+		if !s.onlyExpandGrants && probe.typeExists(ctx, rt) {
+			// Enabled-type dangling (replay policy; see I7's twin arm).
+			// Mixed populations land here too: exempt carriers were
+			// already excluded above (matchAnnotatedOnly), so a plain
+			// grant on a synced-type principal with no row is never
+			// silently dropped.
+			return s.unexpectedDanglingError(
+				"ingest invariant I9 violated: grants reference principal %s/%s but no resource row exists under a SYNCED type",
+				rt, rid)
+		}
 		deleted, skipped, err := facts.DeleteGrantsForPrincipal(ctx, rt, rid)
 		if err != nil {
 			return fmt.Errorf("ingest invariant I9: dropping grants for principal %s/%s: %w", rt, rid, err)
@@ -797,19 +857,21 @@ func (s *syncer) checkSourceCacheScopeConsistency(ctx context.Context) error {
 	if len(orphans) == 0 {
 		return nil
 	}
-	// Classified as replay-integrity: orphaned scope state in the sealed
-	// output is exactly the inconsistency that poisons a future replay,
-	// and a cold re-run either produces a clean artifact (replay-path
-	// fault, self-healed) or reproduces the orphan and fails terminally
-	// (a put-path bug, correctly fatal).
+	// A stale replay index in the sealed output ALWAYS fails the sync
+	// (replay policy): I6 has no repair arm, and warn-and-seal would
+	// publish an artifact whose next replay silently drops or resurrects
+	// rows. On a WARM sync the error carries ErrReplayIntegrity — the
+	// runners discard the output and re-run cold (replay-path fault,
+	// self-healed). A cold re-run that reproduces the orphan fails
+	// terminally here WITHOUT the sentinel (a put-path bug, correctly
+	// fatal and correctly attributed).
 	err = fmt.Errorf(
-		"ingest invariant I6 violated: scope index entries exist with no manifest entry (lost manifest write or stamp leak): %v: %w",
-		orphans, ErrReplayIntegrity)
-	if s.failFastInvariants {
-		return err
+		"ingest invariant I6 violated: scope index entries exist with no manifest entry (lost manifest write or stamp leak): %v",
+		orphans)
+	if s.sourceCache.prev != nil {
+		return fmt.Errorf("%w: %w", err, ErrReplayIntegrity)
 	}
-	ctxzap.Extract(ctx).Warn("ingest invariant I6 violated (default mode)", zap.Error(err))
-	return nil
+	return err
 }
 
 // runIngestionInvariants evaluates the post-collection (check-flavored)

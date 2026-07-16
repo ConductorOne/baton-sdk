@@ -152,6 +152,10 @@ type syncer struct {
 	childSchedule         childScheduleSet
 	resourcesPhaseRanHere bool
 	failFastInvariants    bool
+	// expandDropStats aggregates expansion edges dropped over missing
+	// entitlements across the whole sync (see expand.DroppedEdgeStats);
+	// summarized once when expansion completes.
+	expandDropStats *expand.DroppedEdgeStats
 	// testSourceCacheHaltHook, when non-nil, fires at named seams of the
 	// scope lifecycle (replay-copied, rows-committed, tombstones-applied,
 	// manifest-written); returning an error fails the sync at exactly
@@ -784,6 +788,16 @@ func (s *syncer) Sync(ctx context.Context) error {
 		l.Debug("resuming previous sync", zap.String("sync_id", syncID))
 	}
 
+	if s.sourceCache.enabled {
+		// Persist the replay-compatibility key before any page can write
+		// a manifest entry (idempotent overwrite on resume): an artifact
+		// must never hold validators without the key that scopes their
+		// validity. See configureSourceCache.
+		if err := s.sourceCache.current.PutSourceCacheCompat(ctx, s.sourceCache.compatKey); err != nil {
+			return s.returnSyncError(l, span, fmt.Errorf("error recording source-cache replay-compatibility key: %w", err))
+		}
+	}
+
 	currentStep, err := s.store.CurrentSyncStep(ctx)
 	if err != nil {
 		return err
@@ -851,6 +865,16 @@ func (s *syncer) Sync(ctx context.Context) error {
 	// EndSync so a violating sync is never sealed as complete.
 	if err := s.runIngestionInvariants(ctx); err != nil {
 		return s.returnSyncError(l, span, err)
+	}
+	if s.testSourceCacheHaltHook != nil {
+		// The seam AFTER the invariants' drops/repairs committed and
+		// BEFORE the checkpoint/EndSync below: a resumed sync re-runs the
+		// whole invariant pass over already-dropped state, so drops must
+		// be idempotent and their manifest invalidations must already be
+		// durable (see stageSourceCacheScopeInvalidationLocked).
+		if err := s.testSourceCacheHaltHook("ingest-invariants-complete", ""); err != nil {
+			return s.returnSyncError(l, span, err)
+		}
 	}
 
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
@@ -1693,8 +1717,16 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	if typeScoped {
 		// Cursors don't map 1:1 to resources, so the per-resource
 		// "N of M resources covered" accounting is meaningless here.
+		// Row progress counts response rows PLUS replayed rows: a warm
+		// 304 page carries zero response rows while landing the scope's
+		// whole replayed row set, and counting only the former reported
+		// near-zero progress for healthy warm syncs.
+		rows := len(resp.GetList())
+		if scPage != nil {
+			rows += int(scPage.replayRows)
+		}
 		s.counts.SetEntitlementsCountOnly(resourceID.GetResourceType())
-		s.counts.AddEntitlementsProgress(resourceID.GetResourceType(), len(resp.GetList()))
+		s.counts.AddEntitlementsProgress(resourceID.GetResourceType(), rows)
 		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
 	} else if resp.GetNextPageToken() == "" && !action.Spawned {
 		// A resource counts as covered exactly once: when its ORIGIN
@@ -2054,6 +2086,13 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, action *Action, graph
 				// Only skip not-found entitlements; propagate other errors
 				// to avoid silently dropping edges and yielding incorrect expansions.
 				if status.Code(err) == codes.NotFound {
+					// Counted on the same sync-wide aggregate as the
+					// expander's drops (this seam was previously
+					// Debug-only — invisible in production).
+					if s.expandDropStats == nil {
+						s.expandDropStats = &expand.DroppedEdgeStats{}
+					}
+					s.expandDropStats.RecordSourceMissing(srcEntitlementID)
 					l.Debug("source entitlement not found, skipping edge",
 						zap.String("src_entitlement_id", srcEntitlementID),
 						zap.String("dst_entitlement_id", dstEntitlementID),
@@ -2379,9 +2418,16 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		// groups and may also emit cross-type grants), so the per-resource
 		// "N of M resources covered" accounting is meaningless here and
 		// would trip the "more grant resources than resources" warning on
-		// healthy syncs. Count raw grant rows instead.
+		// healthy syncs. Count raw grant rows instead — response rows PLUS
+		// replayed rows: a warm 304 page carries zero response rows while
+		// landing the scope's whole replayed row set, and counting only
+		// the former reported near-zero progress for healthy warm syncs.
+		rows := len(grants)
+		if scPage != nil {
+			rows += int(scPage.replayRows)
+		}
 		s.counts.SetGrantsCountOnly(resourceID.GetResourceType())
-		s.counts.AddGrantsProgress(resourceID.GetResourceType(), len(grants))
+		s.counts.AddGrantsProgress(resourceID.GetResourceType(), rows)
 		s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
 	} else if resp.GetNextPageToken() == "" && !action.Spawned {
 		// A resource counts as covered exactly once: when its ORIGIN
@@ -3201,7 +3247,11 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context, action *Action
 	// The expander needs Reader methods (on s.store) plus StoreExpandedGrants
 	// (on s.store.Grants()). An inline adapter composes them so expand
 	// stays decoupled from C1ZStore.
+	if s.expandDropStats == nil {
+		s.expandDropStats = &expand.DroppedEdgeStats{}
+	}
 	expander := expand.NewExpander(expanderStoreAdapter{s.store}, graph)
+	expander.SetDropStats(s.expandDropStats)
 	err = expander.RunSingleStep(ctx)
 	if err != nil {
 		l.Error("expandGrantsForEntitlements: error during expansion", zap.Error(err))
@@ -3215,6 +3265,9 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context, action *Action
 
 	if expander.IsDone(ctx) {
 		l.Debug("expandGrantsForEntitlements: graph is expanded")
+		// The sync's one aggregated dropped-edge report (totals +
+		// distinct-id examples) — per-edge drops log at Debug only.
+		s.expandDropStats.LogSummary(ctx)
 		s.state.FinishAction(ctx, action)
 	}
 
@@ -3437,8 +3490,10 @@ func WithExternalResourceC1ZPath(path string) SyncOpt {
 // multi-sync behavior), so existing callers are unaffected.
 //
 // The file is opened read-only and engine-agnostically (the magic byte
-// selects SQLite or Pebble), so the previous-sync c1z may use either
-// engine.
+// selects SQLite or Pebble), but source-cache replay is served ONLY by
+// Pebble artifacts: a SQLite previous sync opens fine and then degrades
+// to a cold sync (every lookup misses), with a warning naming the
+// reason. SQLite replay is an explicit non-goal.
 func WithPreviousSyncC1ZPath(path string) SyncOpt {
 	return func(s *syncer) {
 		s.previousSyncC1ZPath = path
@@ -3637,8 +3692,11 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 
 	if s.previousSyncC1ZPath != "" {
 		// Open the previous-sync c1z read-only and engine-agnostically
-		// (NewStore selects the engine from the file's magic byte), so a
-		// Pebble or SQLite prior run both work as a replay source.
+		// (NewStore selects the engine from the file's magic byte). Note
+		// that opening is NOT eligibility: only Pebble artifacts serve
+		// source-cache replay — a SQLite prior run opens fine and then
+		// degrades to cold in configureSourceCache (SQLite replay is an
+		// explicit non-goal).
 		previousSyncStore, err := dotc1z.NewStore(ctx, s.previousSyncC1ZPath,
 			dotc1z.WithReadOnly(true),
 			dotc1z.WithTmpDir(s.tmpDir),

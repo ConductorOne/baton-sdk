@@ -687,7 +687,20 @@ func TestSourceCacheContinuation_AnswerBudgetDegradesToCold(t *testing.T) {
 
 	const queryCount = 40
 	etag := strings.Repeat("e", 65536) // the wire cap for one etag
-	fitting := sourceCacheAnswerBudget / len(etag)
+	// Mirror the budget arithmetic: every answered query spends its
+	// identity bytes (row_kind + scope_key + framing overhead) whether
+	// found or degraded; a found answer additionally needs its etag to
+	// fit the remaining budget.
+	identityCost := len(sourcecache.RowKindGrants) + len("scope-000") + sourceCacheAnswerOverheadBytes
+	fitting := 0
+	for i, budget := 0, sourceCacheAnswerBudget; i < queryCount; i++ {
+		budget -= identityCost
+		if len(etag) <= budget {
+			budget -= len(etag)
+			fitting++
+		}
+	}
+	require.Positive(t, fitting, "test must fit some answers")
 	require.Less(t, fitting, queryCount, "test must overflow the budget")
 
 	s := &syncer{

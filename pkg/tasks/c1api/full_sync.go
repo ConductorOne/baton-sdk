@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	stdsync "sync"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -53,6 +54,30 @@ type fullSyncTaskHandler struct {
 	// host a full c1z of disk. Computed once by the task manager via
 	// previousSyncSparePath().
 	previousSyncSparePath string
+
+	// previousSyncC1ZPath is an OPERATOR-supplied previous-sync c1z
+	// (--previous-sync-c1z), taking precedence over the SDK-owned spare.
+	// Unlike the spare it is never rotated or retired: deleting an
+	// operator's file is not ours to do (same contract as the local task
+	// manager), so a replay-integrity retry re-runs cold but leaves the
+	// file in place.
+	previousSyncC1ZPath string
+
+	// spareMu serializes every mutation of the spare slot (promotion and
+	// retirement) across this manager's CONCURRENT full-sync handlers,
+	// which share one deterministic spare path. Without it, a failing
+	// task's replay-integrity retirement can race another task's
+	// promotion and delete a fresh, uninvolved spare. Shared from the
+	// task manager; nil in tests that don't exercise rotation.
+	spareMu *stdsync.Mutex
+
+	// openedSpareSyncID records the sync id of the spare THIS task
+	// actually opened as its replay source (read at open time, before
+	// any concurrent rotation can swap the file). Retirement compares it
+	// against the CURRENT spare's id and only removes on a match — the
+	// failing sync may only retire the artifact that failed it, never a
+	// newer spare promoted underneath it.
+	openedSpareSyncID string
 }
 
 // previousSyncSparePrefix is the fixed filename prefix of the retained
@@ -144,6 +169,70 @@ func fileExists(path string) bool {
 	return err == nil && fi.Mode().IsRegular()
 }
 
+// retireSpareIfStillImplicated removes the spare after a
+// replay-integrity failure, but ONLY when it is still the artifact the
+// failing sync replayed from. Concurrent full-sync tasks share one
+// deterministic spare path: while this task was syncing (minutes to
+// hours), another task may have finished and promoted a FRESH spare into
+// the slot — that artifact is uninvolved in this failure and must
+// survive, or a slow failing task permanently blinds replay that a
+// successful sibling just re-armed.
+//
+// Identity is the sync id read from the c1z manifest header at OPEN time
+// vs now. An unreadable id on either side degrades to removal (the old,
+// conservative behavior): an extra cold sync is safe; replaying from an
+// implicated spare is not. Callers must hold the manager's spare mutex
+// so the check-then-remove cannot interleave with a promotion.
+func retireSpareIfStillImplicated(ctx context.Context, sparePath, openedSyncID string) {
+	l := ctxzap.Extract(ctx)
+	if openedSyncID != "" {
+		if currentID := c1zSyncIDBestEffort(sparePath); currentID != "" && currentID != openedSyncID {
+			l.Info("previous-sync spare was rotated by a concurrent task since this sync opened it; leaving the fresh spare in place",
+				zap.String("spare_path", sparePath),
+				zap.String("implicated_sync_id", openedSyncID),
+				zap.String("current_spare_sync_id", currentID))
+			return
+		}
+	}
+	if rmErr := os.Remove(sparePath); rmErr != nil && !os.IsNotExist(rmErr) {
+		l.Warn("failed to remove implicated previous-sync spare", zap.Error(rmErr))
+	}
+}
+
+// withSpareLock runs fn holding the manager-wide spare mutex (no-op
+// when unset — tests that don't exercise rotation).
+func (c *fullSyncTaskHandler) withSpareLock(fn func()) {
+	if c.spareMu != nil {
+		c.spareMu.Lock()
+		defer c.spareMu.Unlock()
+	}
+	fn()
+}
+
+// resolveStorageEngine returns the engine this task's sync writes:
+// runner config wins, then the task's own engine, then "" (the SDK
+// default — SQLite).
+func (c *fullSyncTaskHandler) resolveStorageEngine() c1zstore.Engine {
+	if c.storageEngine != "" {
+		return c.storageEngine
+	}
+	if taskEngine := c.task.GetSyncFull().GetStorageEngine(); taskEngine != "" {
+		return c1zstore.Engine(taskEngine)
+	}
+	return ""
+}
+
+// spareRetentionEligible reports whether an artifact written with engine
+// can ever serve source-cache replay. Only Pebble implements
+// dotc1z.SourceCacheStore (SQLite replay is an explicit non-goal), so
+// retaining a non-Pebble spare costs a full c1z of disk per rotation for
+// a file every future sync would refuse — the retention is skipped, with
+// a warning so an opted-in operator learns WHY replay never engages
+// (set --storage-engine pebble) instead of silently paying for nothing.
+func spareRetentionEligible(engine c1zstore.Engine) bool {
+	return engine == c1zstore.EnginePebble
+}
+
 func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	ctx, span := tracer.Start(ctx, "fullSyncTaskHandler.sync")
 	var err error
@@ -159,11 +248,7 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		sdkSync.WithTmpDir(c.helpers.TempDir()),
 		sdkSync.WithWorkerCount(c.workerCount),
 	}
-	engine := c.storageEngine
-	if engine == "" && c.task.GetSyncFull().GetStorageEngine() != "" {
-		engine = c1zstore.Engine(c.task.GetSyncFull().GetStorageEngine())
-	}
-	if engine != "" {
+	if engine := c.resolveStorageEngine(); engine != "" {
 		syncOpts = append(syncOpts, sdkSync.WithStorageEngine(engine))
 	}
 
@@ -189,19 +274,30 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithExternalResourceC1ZPath(c.externalResourceC1ZPath))
 	}
 
-	// source-cache replay (opt-in): feed the spare retained from the last
-	// successful upload as the previous-sync replay source. Optional
-	// semantics — a missing/corrupt/stale-format spare degrades to a
-	// plain sync and is replaced by this task's rotation on success,
-	// so a bad spare self-heals and can never fail the sync. Both
-	// branches log: a persistently-absent spare on an opted-in
-	// connector means rotation is broken, and that must be visible
-	// rather than silently disabling source-cache replay forever.
-	if c.previousSyncSparePath != "" {
+	// source-cache replay (opt-in): an operator-supplied
+	// --previous-sync-c1z path wins over the SDK-owned spare retained
+	// from the last successful upload. The spare uses optional semantics
+	// — a missing/corrupt/stale-format spare degrades to a plain sync
+	// and is replaced by this task's rotation on success, so a bad spare
+	// self-heals and can never fail the sync. Both spare branches log: a
+	// persistently-absent spare on an opted-in connector means rotation
+	// is broken, and that must be visible rather than silently disabling
+	// source-cache replay forever.
+	switch {
+	case c.previousSyncC1ZPath != "":
+		l.Info("using operator-supplied previous-sync c1z as the source-cache replay source",
+			zap.String("previous_sync_c1z", c.previousSyncC1ZPath),
+			zap.String("previous_sync_id", c1zSyncIDBestEffort(c.previousSyncC1ZPath)))
+		syncOpts = append(syncOpts, sdkSync.WithPreviousSyncC1ZPath(c.previousSyncC1ZPath))
+	case c.previousSyncSparePath != "":
 		if fileExists(c.previousSyncSparePath) {
+			// Record which artifact THIS sync replays from, so a
+			// replay-integrity retirement can never remove a fresh spare
+			// a concurrent task promoted mid-sync.
+			c.openedSpareSyncID = c1zSyncIDBestEffort(c.previousSyncSparePath)
 			l.Info("previous-sync spare found; source-cache replay enabled for this sync",
 				zap.String("spare_path", c.previousSyncSparePath),
-				zap.String("spare_sync_id", c1zSyncIDBestEffort(c.previousSyncSparePath)))
+				zap.String("spare_sync_id", c.openedSpareSyncID))
 			syncOpts = append(syncOpts, sdkSync.WithOptionalPreviousSyncC1ZPath(c.previousSyncSparePath))
 		} else {
 			l.Info("no previous-sync spare on disk; source-cache replay inactive for this sync (expected on the first sync after enabling, or after a failed rotation)",
@@ -271,9 +367,12 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 			return errors.Join(err, rmErr)
 		}
 		if c.previousSyncSparePath != "" {
-			if rmErr := os.Remove(c.previousSyncSparePath); rmErr != nil && !os.IsNotExist(rmErr) {
-				l.Warn("failed to remove implicated previous-sync spare", zap.Error(rmErr))
-			}
+			// Under the spare lock, and only the exact artifact this sync
+			// opened — a concurrent task's freshly promoted spare is not
+			// implicated and must survive.
+			c.withSpareLock(func() {
+				retireSpareIfStillImplicated(ctx, c.previousSyncSparePath, c.openedSpareSyncID)
+			})
 		}
 		err = runSync(append(slices.Clone(syncOpts), sdkSync.WithoutPreviousSync()))
 	}
@@ -348,7 +447,21 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	// retained previous sync always corresponds to an artifact C1 has.
 	uploaded := false
 	defer func() {
-		promoteOrRemoveC1Z(ctx, c1zPath, c.previousSyncSparePath, c.previousSyncSparePath != "" && uploaded)
+		keep := c.previousSyncSparePath != "" && uploaded
+		if keep && !spareRetentionEligible(c.resolveStorageEngine()) {
+			// Retaining a spare that no future sync can replay from is
+			// pure disk cost; see spareRetentionEligible.
+			l.Warn("keep-previous-sync-c1z is enabled but this sync's storage engine cannot serve source-cache replay; not retaining a spare "+
+				"(set --storage-engine pebble to activate replay)",
+				zap.String("storage_engine", string(c.resolveStorageEngine())))
+			keep = false
+		}
+		// Under the spare lock: promotion renames onto the shared slot
+		// and must not interleave with another task's identity-checked
+		// retirement.
+		c.withSpareLock(func() {
+			promoteOrRemoveC1Z(ctx, c1zPath, c.previousSyncSparePath, keep)
+		})
 	}()
 	defer func(f *os.File) {
 		if closeErr := f.Close(); closeErr != nil {
@@ -383,6 +496,8 @@ func newFullSyncTaskHandler(
 	workerCount int,
 	storageEngine c1zstore.Engine,
 	previousSyncSparePath string,
+	previousSyncC1ZPath string,
+	spareMu *stdsync.Mutex,
 ) tasks.TaskHandler {
 	return &fullSyncTaskHandler{
 		task:                                task,
@@ -395,6 +510,8 @@ func newFullSyncTaskHandler(
 		workerCount:                         workerCount,
 		storageEngine:                       storageEngine,
 		previousSyncSparePath:               previousSyncSparePath,
+		previousSyncC1ZPath:                 previousSyncC1ZPath,
+		spareMu:                             spareMu,
 	}
 }
 

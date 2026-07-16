@@ -1166,6 +1166,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		cfg.storageEngine,
 		runner.taskConcurrency,
 		keepPreviousSyncC1Z,
+		cfg.previousSyncC1Z,
 	)
 	if err != nil {
 		return nil, err

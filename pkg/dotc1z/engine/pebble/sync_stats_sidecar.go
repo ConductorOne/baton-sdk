@@ -240,6 +240,16 @@ func (e *Engine) stashDeferredGrantStats(ds *deferredGrantStats) {
 	e.deferredGrantStatsMu.Unlock()
 }
 
+// invalidateDeferredGrantStats drops any stashed grant counts. Called by
+// the dangling-reference grant drops (ingest_repair.go): rows deleted
+// AFTER the deferred build ran would make the stash overcount, so the
+// stats sidecar must fall back to its own post-drop scan.
+func (e *Engine) invalidateDeferredGrantStats() {
+	e.deferredGrantStatsMu.Lock()
+	e.deferredGrantStats = nil
+	e.deferredGrantStatsMu.Unlock()
+}
+
 // takeDeferredGrantStats pops the stashed grant stats if they belong to
 // syncID, or returns nil. Consume-once: a later RecalculateStats falls back
 // to the full scan.

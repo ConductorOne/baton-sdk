@@ -68,6 +68,11 @@ type syncerSourceCache struct {
 	// on the shared subprocess slot that would decrement another live
 	// sync's install and blind it (see sourcecache.GRPCServer).
 	lookupInstalled bool
+	// compatKey is this sync's replay-compatibility key, computed by
+	// configureSourceCache and persisted into the artifact right after
+	// the sync starts (see Sync). The read side requires the previous
+	// artifact's recorded key to match it byte-exactly.
+	compatKey sourcecache.CompatKey
 }
 
 type scopeRef struct {
@@ -141,6 +146,22 @@ func (s *syncer) configureSourceCache(ctx context.Context, resp *v2.ConnectorSer
 			setLookup.SetSourceCache(ctx, sourcecache.NoopLookup{})
 			s.sourceCache.lookupInstalled = true
 		}
+		// An operator who EXPLICITLY configured --previous-sync-c1z (not
+		// the runner's optional spare) is expecting replay; degrading to
+		// a cold sync at Info level left them silently replay-less — the
+		// default storage engine (SQLite) doesn't support source cache,
+		// so the flag alone quietly did nothing without
+		// --storage-engine pebble. Warn with the reason instead.
+		if s.previousSyncC1ZPath != "" && !s.previousSyncC1ZPathOptional {
+			if reason == "" {
+				reason = "connector does not declare the source-cache capability"
+			}
+			l.Warn("source cache disabled; --previous-sync-c1z will be ignored and the sync runs cold",
+				zap.String("reason", reason),
+				zap.String("previous_sync_c1z", s.previousSyncC1ZPath),
+			)
+			return nil
+		}
 		if reason != "" {
 			l.Info("source cache disabled", zap.String("reason", reason))
 		}
@@ -173,10 +194,29 @@ func (s *syncer) configureSourceCache(ctx context.Context, resp *v2.ConnectorSer
 		return degrade("storage engine does not support source cache")
 	}
 
+	// The replay-compatibility key: the exact conditions this sync's
+	// manifest is recorded under, and the conditions a previous artifact
+	// must have been recorded under to serve replay. Components are
+	// explicit declarations (never inferred from versions): the
+	// connector's cache generation and config/permission fingerprint
+	// (Validate annotations), the SDK's materialization-policy
+	// generation, and the sync-selection fingerprint.
+	compatKey := sourcecache.CompatKey{
+		ConnectorCacheGeneration:     capability.GetCacheGeneration(),
+		ConnectorConfigFingerprint:   capability.GetConfigFingerprint(),
+		SDKMaterializationGeneration: sourcecache.MaterializationPolicyGeneration,
+		SyncSelectionFingerprint:     sourcecache.SelectionFingerprint(s.syncResourceTypes, s.skipEntitlementsAndGrants, s.skipGrants),
+	}
+
 	// Write side enabled: rows produced under a scope get stamped and
 	// manifest entries get written, so this sync is usable as the NEXT
 	// sync's replay source even when this one has nothing to replay from.
-	s.sourceCache = syncerSourceCache{enabled: true, current: current, replayedScopes: &replayedScopeSet{}}
+	// The compat key is stashed here and persisted by Sync right after
+	// the sync starts (configureSourceCache runs before StartOrResumeSync,
+	// so the store has no current sync yet) — still BEFORE any page could
+	// write a manifest entry, so the artifact can never hold validators
+	// without the key that scopes their validity.
+	s.sourceCache = syncerSourceCache{enabled: true, current: current, replayedScopes: &replayedScopeSet{}, compatKey: compatKey}
 
 	// Read side: a usable previous sync makes lookups hit and replay legal.
 	var readReason string
@@ -196,6 +236,12 @@ func (s *syncer) configureSourceCache(ctx context.Context, resp *v2.ConnectorSer
 		// (suspenders) — "what kind of sync is this" answers "can it be
 		// used for replay" without inspecting keyspaces.
 		readReason = reason
+	} else if compatReason := replayCompatMismatchReason(ctx, compatKey, prev); compatReason != "" {
+		// The replay-compatibility gate: exact key match or cold. An
+		// absent key (pre-key artifact, fold) and an unreadable key both
+		// count as mismatches — replay is optional, and "cannot prove
+		// compatible" means incompatible.
+		readReason = compatReason
 	} else {
 		s.sourceCache.prev = prev
 		s.sourceCache.prevReader = s.previousSyncReader
@@ -220,6 +266,24 @@ func (s *syncer) configureSourceCache(ctx context.Context, resp *v2.ConnectorSer
 		zap.String("replay_unavailable_reason", readReason),
 	)
 	return nil
+}
+
+// replayCompatMismatchReason evaluates the replay-compatibility gate:
+// the previous artifact's recorded key must match the current run's key
+// byte-exactly on every component, or the sync runs cold. Absent
+// (pre-key artifacts, compaction folds) and unreadable keys are
+// mismatches, not errors: replay is a pure optimization, and a key we
+// cannot verify is a key that does not match.
+func replayCompatMismatchReason(ctx context.Context, current sourcecache.CompatKey, prev dotc1z.SourceCacheStore) string {
+	prevKey, found, err := prev.GetSourceCacheCompat(ctx)
+	if err != nil {
+		ctxzap.Extract(ctx).Warn("error reading previous sync's replay-compatibility key; running cold", zap.Error(err))
+		return "previous sync's replay-compatibility key is unreadable"
+	}
+	if !found {
+		return "previous sync carries no replay-compatibility key (recorded by a pre-key SDK, or a compaction fold)"
+	}
+	return current.MismatchReason(prevKey)
 }
 
 // previousSyncReplayUnusableReason inspects the previous-sync reader's
@@ -465,13 +529,14 @@ func (s *syncer) executeScopeReplay(ctx context.Context, kind sourcecache.RowKin
 	}
 	if res.StaleSkipped > 0 {
 		// Partial staleness: some rows copied, some index entries were
-		// dead. Not data loss by itself (the live rows carried their
-		// true stamp), but a signal a writer skipped index cleanup.
-		ctxzap.Extract(ctx).Warn("source cache: replay skipped stale scope-index entries",
-			zap.String("scope_key", page.scopeKey),
-			zap.Int64("rows", res.Rows),
-			zap.Int64("stale_skipped", res.StaleSkipped),
-		)
+		// dead — a writer skipped index cleanup somewhere upstream. The
+		// replay policy treats a stale replay index as untrustworthy
+		// wholesale: discard the warm output and re-run cold rather than
+		// guess which side of the divergence is right.
+		return fmt.Errorf(
+			"source cache: replay for scope %q skipped %d stale scope-index entries (rows copied: %d); "+
+				"the previous file's replay index cannot be trusted: %w",
+			page.scopeKey, res.StaleSkipped, res.Rows, ErrReplayIntegrity)
 	}
 	if res.ResumedRowsCleared > 0 {
 		// A re-run over a crashed attempt's committed rows: the engine

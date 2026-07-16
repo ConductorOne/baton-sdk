@@ -50,9 +50,24 @@ const (
 	// later request field's validator.
 	maxEnqueuedPageTokenBytes = 1 << 20
 
-	// sourceCacheAnswerBudget caps the FOUND-etag payload attached to one
-	// re-invoke, keeping the request under single-shot transport payload
-	// limits (Lambda invokes cap at 6MB; the dual-encoded frame at 5MiB).
+	// maxEnqueuedPageTokenTotalBytes bounds the AGGREGATE token bytes of
+	// one EnqueuePageTokens response. The per-item caps alone still admit
+	// 1024 × 1MiB = 1GiB of tokens in a single legal response — all of it
+	// persisted into every subsequent checkpoint token until the actions
+	// drain. Real planner tokens are tiny (chunk ids, cursor strings);
+	// 16MiB of aggregate budget is orders of magnitude above any sane
+	// fan-out while keeping worst-case checkpoints bounded.
+	maxEnqueuedPageTokenTotalBytes = 16 << 20
+
+	// sourceCacheAnswerBudget caps the TOTAL answers payload attached to
+	// one re-invoke — validator bytes AND per-answer identity bytes
+	// (row_kind, scope_key, proto framing) — keeping the request under
+	// single-shot transport payload limits (Lambda invokes cap at 6MB;
+	// the dual-encoded frame at 5MiB). Identity bytes must be charged
+	// too: at the proto caps (16384 accumulated answers × 256-byte scope
+	// keys) identities alone reach ~5MiB with zero validator bytes, so a
+	// validator-only budget could not actually bound the request.
+	//
 	// A found answer whose etag does not fit the remaining budget is
 	// DEGRADED to a not-found answer: the connector fetches that scope
 	// fresh (cold-correct, just slower). Leaving it absent-and-re-askable
@@ -60,8 +75,18 @@ const (
 	// re-executes from scratch each phase, so every re-invoke carries the
 	// union), so the budget only shrinks and an etag that did not fit once
 	// can never fit later; re-asking would burn straight into the bounce
-	// cap and hard-fail a sync that cold-degrades correctly.
+	// cap and hard-fail a sync that cold-degrades correctly. Identity
+	// bytes are NOT degradable (a not-found answer carries the same
+	// identity, and an absent answer livelocks), so identity bytes alone
+	// exceeding the budget is a hard failure — the connector asked for an
+	// answer set no re-invoke could ever carry.
 	sourceCacheAnswerBudget = 2 << 20
+
+	// sourceCacheAnswerOverheadBytes approximates one answer's non-string
+	// proto framing (field tags, length prefixes, the found bool, the Any
+	// wrapping amortized across the message). Deliberately generous: the
+	// budget exists to stay under transport limits, not to be exact.
+	sourceCacheAnswerOverheadBytes = 16
 )
 
 // Continuation counters live in SourceCacheStats on the sync state (see
@@ -167,9 +192,12 @@ func (s *syncer) withSourceCacheContinuation(ctx context.Context, op string, iss
 			return fmt.Errorf("%s: invalid source-cache lookup ask: %w", op, err)
 		}
 
+		answerIdentityCost := func(q sourcecache.Query) int {
+			return len(q.RowKind) + len(q.ScopeKey) + sourceCacheAnswerOverheadBytes
+		}
 		budget := sourceCacheAnswerBudget
 		for _, a := range ordered {
-			budget -= len(a.CacheValidator)
+			budget -= answerIdentityCost(a.Query) + len(a.CacheValidator)
 		}
 		newAsked, newFound, newNotFound, newTruncated := 0, 0, 0, 0
 		for _, q := range queries {
@@ -177,6 +205,18 @@ func (s *syncer) withSourceCacheContinuation(ctx context.Context, op string, iss
 				continue
 			}
 			newAsked++
+			// Identity bytes are spent for EVERY answered query — found,
+			// not-found, and degraded alike (the answer must exist or the
+			// connector livelocks re-asking it). If identities alone blow
+			// the budget, no degradation can produce a carryable request.
+			identityCost := answerIdentityCost(q)
+			if identityCost > budget {
+				s.state.AddSourceCacheStats(SourceCacheStats{LookupCapFailures: 1})
+				return fmt.Errorf("%s: source-cache lookup answers exceed the %d-byte request budget on identity bytes alone "+
+					"(%d answers accumulated); the connector's asks name more scope bytes than any re-invoke can carry",
+					op, sourceCacheAnswerBudget, len(ordered))
+			}
+			budget -= identityCost
 			entry, ok, err := s.sourceCache.lookup.Lookup(ctx, q.RowKind, q.ScopeKey)
 			if err != nil {
 				return fmt.Errorf("%s: resolving source-cache lookup ask: %w", op, err)

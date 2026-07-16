@@ -320,7 +320,7 @@ func (s *pebbleStore) CloseEngineOnly() error {
 		s.closeMu.Unlock()
 		return nil
 	}
-	if !s.readOnly && s.dirty {
+	if !s.readOnly && (s.dirty || s.engine.Mutated()) {
 		s.closeMu.Unlock()
 		return errors.New("pebble CloseEngineOnly: refusing to discard dirty writable store")
 	}
@@ -675,7 +675,11 @@ func (s *pebbleStore) Close(ctx context.Context) (retErr error) {
 		return nil
 	}
 
-	if !s.readOnly && s.dirty {
+	// The engine's mutated latch is the backstop for the per-method
+	// wrapper dirty bit: any engine write path that bypassed a wrapper
+	// still forces the envelope save. Conservative in the safe
+	// direction — see Engine.Mutated.
+	if !s.readOnly && (s.dirty || s.engine.Mutated()) {
 		if err := s.save(ctx); err != nil {
 			// Tear NOTHING down: the unpacked DB under tmpDir is the only
 			// copy of the synced data, and save failures are frequently

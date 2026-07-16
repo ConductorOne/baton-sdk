@@ -52,6 +52,12 @@ type sourceCacheMockConnector struct {
 
 	lookupHits   int
 	lookupMisses int
+
+	// Replay-compatibility key components declared on Validate
+	// (SourceCacheCapability.cache_generation / config_fingerprint).
+	// Empty by default — a constant, matching generation.
+	cacheGeneration   string
+	configFingerprint string
 }
 
 func newSourceCacheMockConnector() *sourceCacheMockConnector {
@@ -76,9 +82,13 @@ func (mc *sourceCacheMockConnector) SetSourceCache(_ context.Context, lookup sou
 }
 
 func (mc *sourceCacheMockConnector) Validate(context.Context, *v2.ConnectorServiceValidateRequest, ...grpc.CallOption) (*v2.ConnectorServiceValidateResponse, error) {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
 	return v2.ConnectorServiceValidateResponse_builder{
 		Annotations: annotations.New(v2.SourceCacheCapability_builder{
-			Mode: v2.SourceCacheCapability_MODE_READ_WRITE,
+			Mode:              v2.SourceCacheCapability_MODE_READ_WRITE,
+			CacheGeneration:   mc.cacheGeneration,
+			ConfigFingerprint: mc.configFingerprint,
 		}.Build()),
 	}.Build(), nil
 }

@@ -616,8 +616,39 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 	return resp, nil
 }
 
+// newResourceSyncerV1toV2 adapts a V1 ResourceSyncer to the V2 surface.
+// The adapter must FORWARD the optional type-scoped interfaces: routing
+// and validation type-assert TypeScopedGrantsSyncer /
+// TypeScopedEntitlementsSyncer, validation against the ORIGINAL syncer
+// but routing against the STORED (wrapped) one — a plain wrapper would
+// pass construction and then fail every type-scoped call at runtime
+// with InvalidArgument. The composite shapes below satisfy exactly the
+// interfaces the wrapped syncer does, so the tsOk routing checks stay
+// meaningful for syncers that never opted in.
 func newResourceSyncerV1toV2(rb ResourceSyncer) ResourceSyncerV2 {
-	return &resourceSyncerV1toV2{rb: rb}
+	base := &resourceSyncerV1toV2{rb: rb}
+	tsg, hasTSG := rb.(TypeScopedGrantsSyncer)
+	tse, hasTSE := rb.(TypeScopedEntitlementsSyncer)
+	switch {
+	case hasTSG && hasTSE:
+		return &struct {
+			*resourceSyncerV1toV2
+			TypeScopedGrantsSyncer
+			TypeScopedEntitlementsSyncer
+		}{base, tsg, tse}
+	case hasTSG:
+		return &struct {
+			*resourceSyncerV1toV2
+			TypeScopedGrantsSyncer
+		}{base, tsg}
+	case hasTSE:
+		return &struct {
+			*resourceSyncerV1toV2
+			TypeScopedEntitlementsSyncer
+		}{base, tse}
+	default:
+		return base
+	}
 }
 
 type resourceSyncerV1toV2 struct {

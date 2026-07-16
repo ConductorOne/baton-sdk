@@ -114,6 +114,7 @@ func (s *syncer) collectEnqueuedPageTokens(ctx context.Context, phase string, op
 			phase, len(spawn.GetPageTokens()), maxEnqueuePageTokensPerResponse)
 	}
 	spawned := make([]Action, 0, len(spawn.GetPageTokens()))
+	totalTokenBytes := 0
 	for _, tok := range spawn.GetPageTokens() {
 		if tok == "" {
 			// An empty token would spawn a PLANNER call, not a page —
@@ -125,6 +126,15 @@ func (s *syncer) collectEnqueuedPageTokens(ctx context.Context, phase string, op
 			return nil, fmt.Errorf(
 				"%s: EnqueuePageTokens page token is %d bytes (max %d)",
 				phase, len(tok), maxEnqueuedPageTokenBytes)
+		}
+		totalTokenBytes += len(tok)
+		if totalTokenBytes > maxEnqueuedPageTokenTotalBytes {
+			// The per-item caps alone admit ~1GiB of tokens per legal
+			// response, all persisted into every checkpoint until the
+			// actions drain — bound the aggregate too.
+			return nil, fmt.Errorf(
+				"%s: EnqueuePageTokens carries more than %d total page-token bytes; shrink the tokens or chain additional spawns across pages",
+				phase, maxEnqueuedPageTokenTotalBytes)
 		}
 		spawned = append(spawned, Action{
 			Op:             op,

@@ -673,6 +673,241 @@ func TestSourceCache_PartialPreviousSyncDegradesToCold(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------
+// Replay-compatibility key: exact match or cold.
+// ---------------------------------------------------------------------
+
+// TestSourceCache_CompatKeyGate pins the replay-compatibility key: replay
+// is permitted ONLY when the previous artifact's recorded key matches the
+// current run's key byte-exactly on every component. Each subtest changes
+// exactly one component between two otherwise-identical syncs and
+// requires zero lookup hits; the control run (identical key) must hit.
+// Compatibility is never inferred from versions — the gate compares
+// explicit declarations.
+func TestSourceCache_CompatKeyGate(t *testing.T) {
+	newFixtureConnector := func(ctx context.Context, t *testing.T) *sourceCacheMockConnector {
+		t.Helper()
+		group, ent, alice, _ := sourceCacheTestFixtures(t)
+		mc := newSourceCacheMockConnector()
+		mc.AddResource(ctx, group)
+		mc.AddResource(ctx, alice)
+		mc.entDB[group.GetId().GetResource()] = []*v2.Entitlement{ent}
+		mc.grantDB[group.GetId().GetResource()] = []*v2.Grant{gt.NewGrant(group, "member", alice)}
+		mc.etagByResource[group.GetId().GetResource()] = `W/"etag-v1"`
+		return mc
+	}
+
+	t.Run("control: identical key replays", func(t *testing.T) {
+		ctx, err := logging.Init(t.Context())
+		require.NoError(t, err)
+		tmpDir := t.TempDir()
+		mc := newFixtureConnector(ctx, t)
+		mc.cacheGeneration = "gen-1"
+		mc.configFingerprint = "cfg-abc"
+
+		sync1 := filepath.Join(tmpDir, "sync1.c1z")
+		runSourceCacheSync(ctx, t, mc, sync1, "", tmpDir)
+		runSourceCacheSync(ctx, t, mc, filepath.Join(tmpDir, "sync2.c1z"), sync1, tmpDir)
+		require.Positive(t, mc.lookupHits, "an exactly-matching compatibility key must permit replay")
+	})
+
+	t.Run("connector cache-generation change degrades to cold", func(t *testing.T) {
+		ctx, err := logging.Init(t.Context())
+		require.NoError(t, err)
+		tmpDir := t.TempDir()
+		mc := newFixtureConnector(ctx, t)
+		mc.cacheGeneration = "gen-1"
+
+		sync1 := filepath.Join(tmpDir, "sync1.c1z")
+		runSourceCacheSync(ctx, t, mc, sync1, "", tmpDir)
+		mc.cacheGeneration = "gen-2" // connector changed its cache semantics
+		missesBefore := mc.lookupMisses
+		runSourceCacheSync(ctx, t, mc, filepath.Join(tmpDir, "sync2.c1z"), sync1, tmpDir)
+		require.Zero(t, mc.lookupHits, "a cache-generation bump must refuse the prior artifact")
+		require.Greater(t, mc.lookupMisses, missesBefore, "sanity: lookups must have missed, not been skipped")
+	})
+
+	t.Run("connector config fingerprint change degrades to cold", func(t *testing.T) {
+		ctx, err := logging.Init(t.Context())
+		require.NoError(t, err)
+		tmpDir := t.TempDir()
+		mc := newFixtureConnector(ctx, t)
+		mc.configFingerprint = "cfg-abc"
+
+		sync1 := filepath.Join(tmpDir, "sync1.c1z")
+		runSourceCacheSync(ctx, t, mc, sync1, "", tmpDir)
+		mc.configFingerprint = "cfg-def" // permissions/config changed what upstream is visible
+		missesBefore := mc.lookupMisses
+		runSourceCacheSync(ctx, t, mc, filepath.Join(tmpDir, "sync2.c1z"), sync1, tmpDir)
+		require.Zero(t, mc.lookupHits, "a config-fingerprint change must refuse the prior artifact")
+		require.Greater(t, mc.lookupMisses, missesBefore)
+	})
+
+	t.Run("sync-selection change degrades to cold", func(t *testing.T) {
+		ctx, err := logging.Init(t.Context())
+		require.NoError(t, err)
+		tmpDir := t.TempDir()
+		mc := newFixtureConnector(ctx, t)
+
+		sync1 := filepath.Join(tmpDir, "sync1.c1z")
+		runSourceCacheSync(ctx, t, mc, sync1, "", tmpDir)
+		// Same connector, same config — but the SDK-side selection now
+		// names the types explicitly, changing the selection fingerprint.
+		missesBefore := mc.lookupMisses
+		runSourceCacheSync(ctx, t, mc, filepath.Join(tmpDir, "sync2.c1z"), sync1, tmpDir,
+			WithSyncResourceTypes([]string{groupResourceType.GetId(), userResourceType.GetId()}))
+		require.Zero(t, mc.lookupHits, "a sync-selection change must refuse the prior artifact")
+		require.Greater(t, mc.lookupMisses, missesBefore)
+	})
+
+	t.Run("pre-key artifact degrades to cold", func(t *testing.T) {
+		ctx, err := logging.Init(t.Context())
+		require.NoError(t, err)
+		tmpDir := t.TempDir()
+
+		// Hand-build a FULL previous sync with a valid-looking manifest
+		// over stamped rows but NO compatibility record — the shape every
+		// artifact written by a pre-key SDK has.
+		group, ent, alice, _ := sourceCacheTestFixtures(t)
+		g1 := gt.NewGrant(group, "member", alice)
+		grantsScope := grantScopeForResource(group.GetId().GetResource())
+		sync1 := filepath.Join(tmpDir, "prekey-prev.c1z")
+		prevStore, err := dotc1z.NewStore(ctx, sync1,
+			dotc1z.WithEngine(c1zstore.EnginePebble),
+			dotc1z.WithTmpDir(tmpDir),
+		)
+		require.NoError(t, err)
+		_, isNew, err := prevStore.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		require.True(t, isNew)
+		require.NoError(t, prevStore.PutResourceTypes(ctx, groupResourceType, userResourceType))
+		require.NoError(t, prevStore.PutResources(ctx, group, alice))
+		require.NoError(t, prevStore.PutEntitlements(ctx, ent))
+		require.NoError(t, prevStore.PutGrants(sourcecache.WithScope(ctx, grantsScope), g1))
+		scPrev, ok := any(prevStore).(dotc1z.SourceCacheStore)
+		require.True(t, ok)
+		require.NoError(t, scPrev.PutSourceCacheEntry(ctx, sourcecache.RowKindGrants, grantsScope, `W/"etag-v1"`))
+		_, found, err := scPrev.GetSourceCacheCompat(ctx)
+		require.NoError(t, err)
+		require.False(t, found, "fixture: the hand-built artifact must carry NO compat record, or this test proves nothing")
+		require.NoError(t, prevStore.EndSync(ctx))
+		require.NoError(t, prevStore.Close(ctx))
+
+		mc := newFixtureConnector(ctx, t)
+		missesBefore := mc.lookupMisses
+		runSourceCacheSync(ctx, t, mc, filepath.Join(tmpDir, "sync2.c1z"), sync1, tmpDir)
+		require.Zero(t, mc.lookupHits, "an artifact without a compatibility key must never serve replay")
+		require.Greater(t, mc.lookupMisses, missesBefore)
+	})
+}
+
+// ---------------------------------------------------------------------
+// SQLite artifacts must not replay (engine non-goal).
+// ---------------------------------------------------------------------
+
+// TestSourceCache_SQLitePreviousSyncDegradesToCold pins the READ-side
+// engine gate: SQLite replay is an explicit non-goal, so a SQLite
+// previous-sync c1z — even a complete, finished full sync — must degrade
+// to a cold sync (every lookup misses; the file opens fine but is not a
+// dotc1z.SourceCacheStore). The current sync's OUTPUT store is Pebble,
+// so the write side stays enabled: this isolates exactly the
+// "previous-sync store engine does not support source cache" arm of
+// configureSourceCache.
+func TestSourceCache_SQLitePreviousSyncDegradesToCold(t *testing.T) {
+	ctx, err := logging.Init(t.Context())
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+
+	group, ent, alice, _ := sourceCacheTestFixtures(t)
+	g1 := gt.NewGrant(group, "member", alice)
+
+	// A complete SQLITE previous sync (default engine).
+	sync1 := filepath.Join(tmpDir, "sqlite-prev.c1z")
+	prevStore, err := dotc1z.NewStore(ctx, sync1,
+		dotc1z.WithEngine(c1zstore.EngineSQLite),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	_, isNew, err := prevStore.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.True(t, isNew)
+	require.NoError(t, prevStore.PutResourceTypes(ctx, groupResourceType, userResourceType))
+	require.NoError(t, prevStore.PutResources(ctx, group, alice))
+	require.NoError(t, prevStore.PutEntitlements(ctx, ent))
+	require.NoError(t, prevStore.PutGrants(ctx, g1))
+	_, isSourceCacheStore := any(prevStore).(dotc1z.SourceCacheStore)
+	require.False(t, isSourceCacheStore,
+		"fixture: the SQLite store must NOT implement SourceCacheStore, or this test proves nothing")
+	require.NoError(t, prevStore.EndSync(ctx))
+	require.NoError(t, prevStore.Close(ctx))
+
+	mc := newSourceCacheMockConnector()
+	mc.AddResource(ctx, group)
+	mc.AddResource(ctx, alice)
+	mc.entDB[group.GetId().GetResource()] = []*v2.Entitlement{ent}
+	mc.grantDB[group.GetId().GetResource()] = []*v2.Grant{g1}
+	mc.etagByResource[group.GetId().GetResource()] = `W/"etag-v1"`
+
+	sync2 := filepath.Join(tmpDir, "sync2.c1z")
+	missesBefore := mc.lookupMisses
+	runSourceCacheSync(ctx, t, mc, sync2, sync1, tmpDir)
+	require.Zero(t, mc.lookupHits,
+		"a SQLite previous sync must never produce a source-cache lookup hit")
+	require.Greater(t, mc.lookupMisses, missesBefore,
+		"sanity: the connector must have looked up and missed (no-op lookup installed)")
+}
+
+// TestSourceCache_SQLiteOutputStoreDegradesToCold pins the WRITE-side
+// engine gate: when the CURRENT sync's output store is SQLite, source
+// cache disables entirely — the connector's scope annotations are
+// ignored (not an error), replay would be a hard error, and the sync
+// completes cold. This is the exact shape of the default-engine CLI
+// footgun (--previous-sync-c1z without --storage-engine pebble), which
+// must degrade loudly-but-safely rather than fail or silently corrupt.
+func TestSourceCache_SQLiteOutputStoreDegradesToCold(t *testing.T) {
+	ctx, err := logging.Init(t.Context())
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+
+	group, ent, alice, _ := sourceCacheTestFixtures(t)
+	g1 := gt.NewGrant(group, "member", alice)
+
+	// A valid PEBBLE previous sync: eligible on its own, but the write
+	// side's engine gate must disable the whole feature first.
+	mc := newSourceCacheMockConnector()
+	mc.AddResource(ctx, group)
+	mc.AddResource(ctx, alice)
+	mc.entDB[group.GetId().GetResource()] = []*v2.Entitlement{ent}
+	mc.grantDB[group.GetId().GetResource()] = []*v2.Grant{g1}
+	mc.etagByResource[group.GetId().GetResource()] = `W/"etag-v1"`
+	sync1 := filepath.Join(tmpDir, "pebble-prev.c1z")
+	runSourceCacheSync(ctx, t, mc, sync1, "", tmpDir)
+
+	// Warm attempt into a SQLITE output store: the connector still emits
+	// SourceCacheRecord annotations on its fresh pages (it declared the
+	// capability and fetched fresh after every miss) — they must be
+	// ignored without error.
+	sqliteOut, err := dotc1z.NewStore(ctx, filepath.Join(tmpDir, "sqlite-out.c1z"),
+		dotc1z.WithEngine(c1zstore.EngineSQLite),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	missesBefore := mc.lookupMisses
+	syncer, err := NewSyncer(ctx, mc,
+		WithConnectorStore(sqliteOut),
+		WithTmpDir(tmpDir),
+		WithPreviousSyncC1ZPath(sync1),
+	)
+	require.NoError(t, err)
+	require.NoError(t, syncer.Sync(ctx),
+		"a SQLite output store must degrade source cache to cold, never fail the sync")
+	require.NoError(t, syncer.Close(ctx))
+	require.Zero(t, mc.lookupHits,
+		"with source cache disabled the connector must never see a lookup hit")
+	require.Greater(t, mc.lookupMisses, missesBefore,
+		"sanity: the connector must have looked up and missed (no-op lookup installed)")
+}
+
+// ---------------------------------------------------------------------
 // Compacted previous syncs must not replay.
 // ---------------------------------------------------------------------
 
