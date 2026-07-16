@@ -409,7 +409,16 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// provenance and diff markers when a sync re-ended after expansion
 	// or resume.
 	existing.SetEndedAt(timestamppb.Now())
+	if e.testEndSyncStampHook != nil {
+		if err := e.testEndSyncStampHook(); err != nil {
+			return err
+		}
+	}
 	if err := e.PutSyncRunRecord(ctx, existing); err != nil {
+		// The in-memory stamp above needs no rollback: `existing` is a
+		// local copy unmarshalled by this EndSync call, unreachable once
+		// this error returns; a retried EndSync reloads the (unstamped)
+		// stored record. Pinned by the endsync-stamp-commit harness row.
 		return err
 	}
 	e.clearCurrentSync()

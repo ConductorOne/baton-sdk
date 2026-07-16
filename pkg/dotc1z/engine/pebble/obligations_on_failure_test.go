@@ -167,6 +167,34 @@ func TestFailedMutationPathsFireObligations(t *testing.T) {
 			},
 		},
 		{
+			// H1 residual: endSyncFinalize stamps the in-memory record
+			// (existing.SetEndedAt) BEFORE PutSyncRunRecord commits it. If
+			// that commit fails, the stamp must leak nowhere — the stored
+			// record stays unstamped and the sync stays discoverable as
+			// unfinished. Safe today because `existing` is a local copy
+			// unmarshalled per EndSync call; this row keeps it safe against
+			// a future record cache.
+			name: "endsync-stamp-commit-failure",
+			run: func(t *testing.T, ctx context.Context, cur, prev *Adapter, _ string) error {
+				e := cur.PebbleEngine()
+				require.NoError(t, cur.PutGrants(ctx, mkV2Grant("g1", "group:g1:member", "user", "alice")))
+				e.testEndSyncStampHook = func() error { return injected }
+				t.Cleanup(func() { e.testEndSyncStampHook = nil })
+				return cur.EndSync(ctx)
+			},
+			obligations: func(t *testing.T, e *Engine, syncID string) {
+				rec, err := e.GetSyncRunRecord(context.Background(), syncID)
+				require.NoError(t, err)
+				require.Nil(t, rec.GetEndedAt(),
+					"a failed stamp commit must not surface ended_at; the in-memory stamp on the local record must be unreachable")
+				unfinished, err := e.LatestUnfinishedSyncRecord(context.Background(), nil)
+				require.NoError(t, err)
+				require.NotNil(t, unfinished,
+					"the sync must stay discoverable as unfinished after a failed stamp commit")
+				require.Equal(t, syncID, unfinished.GetSyncId())
+			},
+		},
+		{
 			// I7's drop arm: entitlements under one resource. Obligation:
 			// the bare-id keyspace note (observable via the fresh flag —
 			// the delete mutated the keyspace, so the flag must be gone).

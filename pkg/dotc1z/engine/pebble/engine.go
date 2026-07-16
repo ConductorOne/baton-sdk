@@ -104,6 +104,18 @@ type Engine struct {
 	// crash could surface a partially-durable artifact as finished.
 	testEndSyncFlushHook func() error
 
+	// testEndSyncStampHook, when non-nil, runs in endSyncFinalize after
+	// the in-memory ended_at stamp but before PutSyncRunRecord commits
+	// it — the in-process analog of the stamp's commit failing (H1
+	// residual). Tests use it to pin that a failed stamp commit leaks
+	// nothing: the stored record stays unstamped, the sync stays
+	// discoverable as unfinished, and a retried EndSync converges. The
+	// stamped in-memory record is a local, freshly-unmarshalled copy
+	// owned by the EndSync call (GetSyncRunRecord never returns a shared
+	// or cached record), so the mutation is unreachable once the error
+	// returns; the hook exists to keep that true against future caching.
+	testEndSyncStampHook func() error
+
 	// testDropChunkHook, when non-nil, runs after every chunked
 	// dangling-reference drop batch commit (ingest_repair.go). Test-only:
 	// deterministic crash injection at the exact seam between a committed
