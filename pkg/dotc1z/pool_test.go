@@ -341,7 +341,12 @@ func TestPoolGrowsFromDecoder(t *testing.T) {
 
 	// Now the decoder pool should have a decoder.
 	dec2, fromPool2 := getDecoder()
-	require.True(t, fromPool2, "NewDecoder.Close should have returned decoder to pool")
+	if !raceEnabled {
+		// See TestEncoderPool/TestDecoderPool: sync.Pool randomly
+		// discards Puts under -race; reuse is only deterministic
+		// without it.
+		require.True(t, fromPool2, "NewDecoder.Close should have returned decoder to pool")
+	}
 	putDecoder(dec2)
 }
 
