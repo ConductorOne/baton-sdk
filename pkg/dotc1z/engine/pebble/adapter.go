@@ -327,7 +327,9 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 }
 
 // endSyncFinalize runs the sealed tail of EndSync: the deferred index
-// build, the ended_at stamp, the stats sidecar, and the durability flush.
+// build, the stats sidecar, the durability flush, and — strictly last —
+// the ended_at stamp (the stamp is the finished verdict; it must never
+// precede the flush that makes the sync's data durable).
 // Runs with the engine SEALED (see EndSync) — every write below goes
 // through an AllowSealed path. Split out so EndSync can unseal on failure.
 func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord) error {
@@ -365,22 +367,13 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			return fmt.Errorf("EndSync: repair grant digests: %w", err)
 		}
 	}
-	// Mutate the loaded record rather than rebuilding it field-by-field —
-	// a rebuild drops every field it doesn't name (supports_diff,
-	// linked_sync_id, compacted), which erased compaction provenance and
-	// diff markers when a sync re-ended after expansion or resume.
-	existing.SetEndedAt(timestamppb.Now())
-	if err := e.PutSyncRunRecord(ctx, existing); err != nil {
-		return err
-	}
 	// Populate the stats sidecar BEFORE the durability flush. Stats
 	// is engine-meta keyspace; the EndFreshSync flush below covers
-	// the WAL fsync for both the sync_run record and the stats key.
-	// Failures here are non-fatal — Stats() falls back to legacy
-	// iteration on a missing sidecar, and the on-Open migration
-	// framework will backfill next time the file opens. We log a
-	// warning so the failure is visible in production telemetry but
-	// don't fail the sync end on stats-sidecar trouble.
+	// the WAL fsync for the stats key. Failures here are non-fatal —
+	// Stats() falls back to legacy iteration on a missing sidecar, and
+	// the on-Open migration framework will backfill next time the file
+	// opens. We log a warning so the failure is visible in production
+	// telemetry but don't fail the sync end on stats-sidecar trouble.
 	if err := e.PersistSyncStats(ctx, existing.GetSyncId()); err != nil {
 		ctxzap.Extract(ctx).Warn("pebble: persist sync stats sidecar failed; Stats() will fall back to O(N) iteration until the next Open backfills it",
 			zap.String("sync_id", existing.GetSyncId()),
@@ -389,8 +382,38 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	}
 	// Single flush + WAL fsync at sync end. This is the durability
 	// boundary — counterpart to MarkFreshSync at StartNewSync. After
-	// this returns, all writes from the sync are on disk.
-	return e.EndFreshSync(ctx)
+	// this returns, all writes from the sync are on disk. The sync stays
+	// BOUND across the flush (FlushForEndSync, not EndFreshSync) so a
+	// failed ended_at stamp below leaves the engine retryable in-process.
+	if e.testEndSyncFlushHook != nil {
+		if err := e.testEndSyncFlushHook(); err != nil {
+			return err
+		}
+	}
+	if err := e.FlushForEndSync(ctx); err != nil {
+		return err
+	}
+	// Stamp ended_at strictly AFTER the durability flush: the stamp is
+	// what makes the sync FINISHED (LatestUnfinishedSyncRecord skips
+	// stamped records), so it must never precede the flush that makes
+	// the sync's NoSync writes durable. A stamp committed ahead of a
+	// failed flush would orphan the unfinished work — resume starts a
+	// NEW sync instead of resuming — and, across a crash, could surface
+	// a partially-durable artifact as a FINISHED sync to replay/uplift
+	// consumers. The stamp's own commit is fsynced (PutSyncRunRecord
+	// writes with the engine's configured durability), so a crash after
+	// this line keeps the finished verdict and a crash before it keeps
+	// resumability. Mutate the loaded record rather than rebuilding it
+	// field-by-field — a rebuild drops every field it doesn't name
+	// (supports_diff, linked_sync_id, compacted), which erased compaction
+	// provenance and diff markers when a sync re-ended after expansion
+	// or resume.
+	existing.SetEndedAt(timestamppb.Now())
+	if err := e.PutSyncRunRecord(ctx, existing); err != nil {
+		return err
+	}
+	e.clearCurrentSync()
+	return nil
 }
 
 // === writes ===

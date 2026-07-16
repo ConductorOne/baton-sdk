@@ -147,8 +147,13 @@ type syncer struct {
 	// childSchedule is the monotone record backing invariant I4;
 	// resourcesPhaseRanHere gates I4 to processes that actually ran the
 	// resources phase; failFastInvariants promotes every invariant
-	// verdict from its default handling (warn, drop, or repair) to hard
-	// sync failure (tests and the equivalence harness set it).
+	// verdict to a hard, plainly-attributed sync failure — tolerated
+	// warns fail, drop arms fail before dropping, repair arms are
+	// skipped so the underlying bug is named — and enables I4 (skipped
+	// entirely in default mode). Tests and the equivalence harness set
+	// it; production default follows the per-invariant policy in
+	// ingest_invariants.go (drop/warn/repair/fail with the warm-cold
+	// ErrReplayIntegrity ladder on FAIL-class verdicts).
 	childSchedule         childScheduleSet
 	resourcesPhaseRanHere bool
 	failFastInvariants    bool
@@ -3454,10 +3459,15 @@ func WithStorageEngine(engine c1zstore.Engine) SyncOpt {
 	}
 }
 
-// WithFailFastInvariants promotes check-only ingestion invariants
-// (see ingest_invariants.go) from warn-with-log to hard sync failure.
-// Tests and the replay-equivalence harness enable it; production default
-// stays warn-and-drop until the predicates have a clean release behind them.
+// WithFailFastInvariants promotes every ingestion-invariant verdict
+// (see ingest_invariants.go) to a hard, plainly-attributed sync
+// failure: tolerated warns fail, drop arms fail before dropping, repair
+// arms are skipped so the underlying bug is named, and I4 (skipped in
+// default mode) runs. Tests and the replay-equivalence harness enable
+// it; production default follows the per-invariant policy — drops with
+// aggregated warnings for disabled-type danglings, warm repair for I3,
+// hard failure (with the warm/cold ErrReplayIntegrity ladder) for
+// enabled-type danglings, I5, and I6.
 func WithFailFastInvariants() SyncOpt {
 	return func(s *syncer) {
 		s.failFastInvariants = true

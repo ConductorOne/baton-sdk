@@ -95,6 +95,19 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 	// sync; the wipe is the first step of leaving the sealed state. The
 	// engine stays sealed until MarkFreshSync unseals it right after.
 	return e.withWriteAllowSealed(func() error {
+		// Flush first so the excises apply DIRECTLY to the manifest.
+		// Pebble downgrades an excise whose span overlaps unflushed
+		// memtable data to a flushable ingest — queued behind the
+		// memtable, taking effect only at the next flush — which defeats
+		// this method's immediate-reclaim contract (a short replacement
+		// sync could hard-link the prior sync's dead SSTs into the saved
+		// envelope). The sync-run record ({v3, typeSyncRun}) lives INSIDE
+		// the excised record span and EndSync stamps it AFTER its
+		// durability flush, so a just-ended sync always has exactly that
+		// key unflushed here.
+		if err := e.db.Flush(); err != nil {
+			return fmt.Errorf("ResetForNewSync: pre-excise flush: %w", err)
+		}
 		for _, span := range spans {
 			if err := e.db.Excise(ctx, span); err != nil {
 				return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)

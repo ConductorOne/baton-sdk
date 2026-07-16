@@ -21,7 +21,9 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
+	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
@@ -123,6 +125,91 @@ func TestExclusionGroupVerdictRidesWarmColdLadder(t *testing.T) {
 	err = s.validateStoredExclusionGroups(ctx)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrReplayIntegrity, "a warm verdict must ride the discard-and-retry-cold ladder")
+
+	require.NoError(t, cur.Close(ctx))
+}
+
+// TestFailFastPromotesI3UnannotatedWarn pins the fail-fast contract for
+// I3's tolerated arm: production WARNS on grants referencing a
+// never-synced entitlement resource without InsertResourceGrants
+// (tolerated connector behavior), but fail-fast mode — the harness's
+// whole mechanism for catching engineered violations — must promote
+// that warn to a hard failure, or the harness silently passes connector
+// shapes production would flag.
+func TestFailFastPromotesI3UnannotatedWarn(t *testing.T) {
+	ctx, err := logging.Init(t.Context())
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+
+	repo, err := rs.NewResource("Repo r1", equivRepoRT, "r1")
+	require.NoError(t, err)
+	principal := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+	}.Build()
+	g := grant.NewGrant(repo, "admin", principal.GetId())
+
+	// The tolerated shape: a grant whose entitlement RESOURCE has no row
+	// and no InsertResourceGrants annotation.
+	cur := newRepairTestStore(ctx, t, filepath.Join(tmpDir, "cur.c1z"), tmpDir)
+	_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, cur.PutGrants(ctx, g))
+
+	// Default mode: warn only, no error (production tolerance).
+	s := &syncer{store: cur, syncType: connectorstore.SyncTypeFull}
+	require.NoError(t, s.checkGrantResourceReferences(ctx),
+		"default mode tolerates unannotated danglings with a warning")
+
+	// Fail-fast: the warn must become a named failure.
+	s.failFastInvariants = true
+	err = s.checkGrantResourceReferences(ctx)
+	require.Error(t, err, "fail-fast must promote the tolerated warn to a hard failure")
+	require.Contains(t, err.Error(), "ingest invariant I3")
+	require.NotErrorIs(t, err, ErrReplayIntegrity, "fail-fast verdicts are plain, matching I7-I9")
+
+	require.NoError(t, cur.Close(ctx))
+}
+
+// TestPartialSyncSkipsStoredInvariants pins the partial-sync gate for
+// I5 and I6, matching I3/I7/I8/I9: a partial sync writes a deliberate
+// subset, so store-derived verdicts computed over it are not
+// evaluable — a partial must neither hard-fail on exclusion-group
+// evidence nor on orphan-scope evidence while the referential arms are
+// inert.
+func TestPartialSyncSkipsStoredInvariants(t *testing.T) {
+	ctx, err := logging.Init(t.Context())
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+
+	group := v2.EntitlementExclusionGroup_builder{ExclusionGroupId: "eg-1", IsDefault: true}.Build()
+	res := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+	}.Build()
+	ent1 := v2.Entitlement_builder{Id: "group:g1:member", Resource: res, Annotations: annotations.New(group)}.Build()
+	ent2 := v2.Entitlement_builder{Id: "group:g1:owner", Resource: res, Annotations: annotations.New(group)}.Build()
+
+	cur := newRepairTestStore(ctx, t, filepath.Join(tmpDir, "cur.c1z"), tmpDir)
+	_, err = cur.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	require.NoError(t, err)
+	require.NoError(t, cur.PutEntitlements(ctx, ent1, ent2))
+	// An orphan scope shape: stamped rows, no manifest entry.
+	repo, err := rs.NewResource("Repo r1", equivRepoRT, "r1")
+	require.NoError(t, err)
+	principal := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+	}.Build()
+	require.NoError(t, cur.PutGrants(sourcecache.WithScope(ctx, "scope-partial"), grant.NewGrant(repo, "admin", principal.GetId())))
+
+	s := &syncer{store: cur, syncType: connectorstore.SyncTypePartial}
+	require.NoError(t, s.validateStoredExclusionGroups(ctx),
+		"I5 must not run on a partial sync (subset store; referential arms are inert too)")
+	require.NoError(t, s.checkSourceCacheScopeConsistency(ctx),
+		"I6 must not run on a partial sync")
+
+	// The same evidence on a FULL sync still fails both.
+	s.syncType = connectorstore.SyncTypeFull
+	require.Error(t, s.validateStoredExclusionGroups(ctx))
+	require.Error(t, s.checkSourceCacheScopeConsistency(ctx))
 
 	require.NoError(t, cur.Close(ctx))
 }

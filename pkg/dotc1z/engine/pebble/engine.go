@@ -96,6 +96,14 @@ type Engine struct {
 	// as one sorted SST at EndSync — see BuildDeferredGrantIndexes).
 	deferredIdxPending atomic.Bool
 
+	// testEndSyncFlushHook, when non-nil, runs in endSyncFinalize
+	// immediately before the EndFreshSync durability flush — the
+	// in-process analog of the flush failing. Tests use it to pin the
+	// seal-failure contract: a sync whose finalize failed must remain
+	// UNFINISHED (no ended_at), or a resume would start a new sync and a
+	// crash could surface a partially-durable artifact as finished.
+	testEndSyncFlushHook func() error
+
 	// testDropChunkHook, when non-nil, runs after every chunked
 	// dangling-reference drop batch commit (ingest_repair.go). Test-only:
 	// deterministic crash injection at the exact seam between a committed
@@ -532,6 +540,19 @@ func (e *Engine) takeFreshEntitlementsEmpty() bool {
 // closing check and writeWG: Close tears e.db down after writeWG.Wait,
 // and a bare-mutex EndFreshSync racing Close would flush a nil db.
 func (e *Engine) EndFreshSync(ctx context.Context) error {
+	if err := e.FlushForEndSync(ctx); err != nil {
+		return err
+	}
+	e.clearCurrentSync()
+	return nil
+}
+
+// FlushForEndSync is EndFreshSync's durability flush WITHOUT the
+// current-sync unbind: endSyncFinalize flushes first, stamps ended_at
+// second, and unbinds last — so a failed stamp leaves the sync bound
+// (and fresh) for an in-process retry, and a failed flush never follows
+// a committed stamp (see the ordering contract in endSyncFinalize).
+func (e *Engine) FlushForEndSync(ctx context.Context) error {
 	// AllowSealed: this is the last step of EndSync's sealed finalize
 	// window (see Adapter.EndSync).
 	return e.withWriteAllowSealed(func() error {
@@ -539,7 +560,6 @@ func (e *Engine) EndFreshSync(ctx context.Context) error {
 		wasFresh := e.freshSync
 		e.currentSyncMu.RUnlock()
 		if !wasFresh {
-			e.clearCurrentSync()
 			return nil
 		}
 		// Flush the memtable (turns NoSync-buffered writes into on-disk
@@ -550,7 +570,6 @@ func (e *Engine) EndFreshSync(ctx context.Context) error {
 		if err := e.db.LogData(nil, pebble.Sync); err != nil {
 			return fmt.Errorf("EndFreshSync: fsync WAL: %w", err)
 		}
-		e.clearCurrentSync()
 		return nil
 	})
 }

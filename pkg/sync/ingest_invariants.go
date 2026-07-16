@@ -309,7 +309,16 @@ func (s *syncer) checkGrantResourceReferences(ctx context.Context) error {
 				rt, rid, ErrReplayIntegrity)
 		}
 		// Tolerated today: connectors emitting grants for unlisted
-		// resources without InsertResourceGrants. Visible, not fatal.
+		// resources without InsertResourceGrants. Visible, not fatal —
+		// except under fail-fast, whose contract is that every tolerated
+		// warn becomes a named failure (the harness must catch connector
+		// shapes production only logs).
+		if s.failFastInvariants {
+			return fmt.Errorf(
+				"ingest invariant I3 violated: grants reference resource %s/%s which was never synced "+
+					"(no InsertResourceGrants annotation — tolerated with a warning in production, promoted under fail-fast)",
+				rt, rid)
+		}
 		l.Warn("ingest invariant I3: grants reference a resource that was never synced",
 			zap.String("resource_type_id", rt),
 			zap.String("resource_id", rid),
@@ -484,6 +493,14 @@ func (t *exclusionGroupTracker) record(ent *v2.Entitlement) error {
 // while a cold failure is attributed plainly to the connector. Store IO
 // errors stay plain — they are not replay-implicated.
 func (s *syncer) validateStoredExclusionGroups(ctx context.Context) error {
+	if s.syncType != connectorstore.SyncTypeFull {
+		// Store-derived verdicts are only evaluable over a COMPLETE
+		// keyspace; a partial sync writes a deliberate subset (the
+		// referential invariants I3/I7-I9 gate identically). Partial
+		// syncs keep the page-level streaming validation
+		// (validateEntitlementExclusionGroups).
+		return nil
+	}
 	tracker := &exclusionGroupTracker{}
 	pageToken := ""
 	for {
@@ -907,6 +924,14 @@ func (s *syncer) checkGrantPrincipalReferences(ctx context.Context) error {
 // lost manifest write or a stamp leak — and the damage is deferred: THIS
 // sync reads clean, the NEXT sync replays from the damaged state.
 func (s *syncer) checkSourceCacheScopeConsistency(ctx context.Context) error {
+	if s.syncType != connectorstore.SyncTypeFull {
+		// Partial syncs never replay and never enable the source-cache
+		// write side (configureSourceCache degrades on non-full syncs),
+		// so scope/manifest evidence in a partial store is inherited
+		// state this sync neither produced nor will serve replay from —
+		// same gate as the referential invariants.
+		return nil
+	}
 	if s.onlyExpandGrants {
 		// Expansion-only runs ingest no pages, so scope/manifest state
 		// was settled (and I6-checked) by whoever produced the store.
