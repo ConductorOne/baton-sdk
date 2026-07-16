@@ -158,6 +158,8 @@ type syncer struct {
 	syncID                              string
 	skipEGForResourceType               syncMap[string, bool]
 	skipEntitlementsForResourceType     syncMap[string, bool]
+	scheduledResourceTypes              syncMap[string, bool]
+	ingestFilterStats                   ingestFilterStats
 	skipEntitlementsAndGrants           bool
 	skipGrants                          bool
 	resourceTypeTraits                  syncMap[string, []v2.ResourceType_Trait]
@@ -871,6 +873,8 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return s.returnSyncError(l, span, err)
 	}
 
+	s.logIngestFilterSummary(ctx)
+
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
 	s.state.ClearEntitlementGraph(ctx)
 	s.state.ClearExclusionGroupTracking(ctx)
@@ -1558,15 +1562,21 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	if err != nil {
 		return err
 	}
-	if err := s.validateEntitlementExclusionGroups(resp.GetList()); err != nil {
+	// Filter before exclusion-group validation: a dropped entitlement must not
+	// mutate exclusion-group state or fail the sync as if it had been ingested.
+	entitlements, err := s.filterFreshEntitlements(ctx, resp.GetList())
+	if err != nil {
+		return fmt.Errorf("sync-entitlements: filtering disabled-type references: %w", err)
+	}
+	if err := s.validateEntitlementExclusionGroups(entitlements); err != nil {
 		return err
 	}
-	err = s.store.PutEntitlements(ctx, resp.GetList()...)
+	err = s.store.PutEntitlements(ctx, entitlements...)
 	if err != nil {
 		return err
 	}
 
-	s.handleProgress(ctx, action, len(resp.GetList()))
+	s.handleProgress(ctx, action, len(entitlements))
 	if resp.GetNextPageToken() == "" {
 		s.counts.AddEntitlementsProgress(resourceID.ResourceType, 1)
 		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
@@ -2085,6 +2095,33 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 			}
 			g.SetAnnotations(append(annos, insertAny))
 		}
+
+		// Collect grant-discovered resources before fresh-ingest filtering:
+		// a resource of a scheduled type is a legitimate discovery (uplift
+		// creates an AppResource for it) even when the discovering grant is
+		// dropped for an unscheduled principal type. Resources of unscheduled
+		// types are skipped — uplift can't resolve their type, so the row
+		// would be dead data.
+		for _, g := range grants {
+			resource := g.GetEntitlement().GetResource()
+			ok, err := s.filterFreshGrantResource(ctx, resource)
+			if err != nil {
+				return fmt.Errorf("sync-grants-for-resource: filtering grant-discovered resource: %w", err)
+			}
+			if !ok {
+				continue
+			}
+			bid, err := bid.MakeBid(resource)
+			if err != nil {
+				return err
+			}
+			resourcesToInsertMap[bid] = resource
+		}
+	}
+
+	grants, err = s.filterFreshGrants(ctx, grants)
+	if err != nil {
+		return fmt.Errorf("sync-grants-for-resource: filtering disabled-type references: %w", err)
 	}
 
 	for _, grant := range grants {
@@ -2094,15 +2131,6 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		}
 		if grantAnnos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 			s.state.SetHasExternalResourcesGrants()
-		}
-
-		if insertResourceGrants {
-			resource := grant.GetEntitlement().GetResource()
-			bid, err := bid.MakeBid(resource)
-			if err != nil {
-				return err
-			}
-			resourcesToInsertMap[bid] = resource
 		}
 
 		if !s.state.ShouldFetchRelatedResources() {
