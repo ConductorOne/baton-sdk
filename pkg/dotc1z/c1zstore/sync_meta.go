@@ -31,9 +31,20 @@ type SyncMeta interface {
 	LatestFinishedSyncOfAnyType(ctx context.Context) (*SyncRun, error)
 
 	// Stats returns a map of table-name to row-count for the given sync.
-	// If syncID is empty, the latest sync of the given type is used.
+	// If syncID is empty, the latest finished sync of the given type is
+	// used (NotFound when none exists). An explicit syncID may name an
+	// in-progress sync; in that case the returned counts reflect whatever
+	// has been written so far.
 	// Mirrors the existing *C1File.Stats signature exactly.
+	// Use StatsV2 for new code.
 	Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error)
+
+	// StatsV2 returns structured stats for the given sync.
+	// If syncID is empty, the latest finished sync of the given type is
+	// used (NotFound when none exists). An explicit syncID may name an
+	// in-progress sync; in that case the returned counts reflect whatever
+	// has been written so far.
+	StatsV2(ctx context.Context, syncType connectorstore.SyncType, syncID string) (*reader_v2.SyncStats, error)
 
 	// RecalculateStats recomputes the cached stats for the given sync from
 	// the underlying records and persists them, discarding any previously

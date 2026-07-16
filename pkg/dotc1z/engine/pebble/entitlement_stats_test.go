@@ -110,6 +110,7 @@ func TestSyncStatsFromRecordMapsEntitlementsByResourceType(t *testing.T) {
 		Resources:                       3,
 		Entitlements:                    3,
 		Grants:                          5,
+		Assets:                          7,
 		ResourcesByResourceType:         map[string]int64{"group": 1, "user": 2},
 		EntitlementsByResourceType:      map[string]int64{"group": 2, "user": 1},
 		GrantsByEntitlementResourceType: map[string]int64{"group": 5},
@@ -118,6 +119,7 @@ func TestSyncStatsFromRecordMapsEntitlementsByResourceType(t *testing.T) {
 	got := SyncStatsFromRecord(rec)
 	require.NotNil(t, got)
 	require.Equal(t, int64(3), got.GetEntitlements())
+	require.Equal(t, int64(7), got.GetAssets())
 	require.Equal(t, map[string]int64{"group": 2, "user": 1}, got.GetEntitlementsByResourceType())
 	require.Equal(t, map[string]int64{"group": 1, "user": 2}, got.GetResourcesByResourceType())
 	require.Equal(t, map[string]int64{"group": 5}, got.GetGrantsByResourceType(), "grants aliased from by-entitlement-RT")

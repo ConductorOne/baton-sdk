@@ -208,6 +208,7 @@ type SyncStats struct {
 	ResourcesByResourceType    map[string]int64       `protobuf:"bytes,5,rep,name=resources_by_resource_type,json=resourcesByResourceType,proto3" json:"resources_by_resource_type,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	GrantsByResourceType       map[string]int64       `protobuf:"bytes,6,rep,name=grants_by_resource_type,json=grantsByResourceType,proto3" json:"grants_by_resource_type,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	EntitlementsByResourceType map[string]int64       `protobuf:"bytes,7,rep,name=entitlements_by_resource_type,json=entitlementsByResourceType,proto3" json:"entitlements_by_resource_type,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	Assets                     int64                  `protobuf:"varint,8,opt,name=assets,proto3" json:"assets,omitempty"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
@@ -286,6 +287,13 @@ func (x *SyncStats) GetEntitlementsByResourceType() map[string]int64 {
 	return nil
 }
 
+func (x *SyncStats) GetAssets() int64 {
+	if x != nil {
+		return x.Assets
+	}
+	return 0
+}
+
 func (x *SyncStats) SetResourceTypes(v int64) {
 	x.ResourceTypes = v
 }
@@ -314,6 +322,10 @@ func (x *SyncStats) SetEntitlementsByResourceType(v map[string]int64) {
 	x.EntitlementsByResourceType = v
 }
 
+func (x *SyncStats) SetAssets(v int64) {
+	x.Assets = v
+}
+
 type SyncStats_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -324,6 +336,7 @@ type SyncStats_builder struct {
 	ResourcesByResourceType    map[string]int64
 	GrantsByResourceType       map[string]int64
 	EntitlementsByResourceType map[string]int64
+	Assets                     int64
 }
 
 func (b0 SyncStats_builder) Build() *SyncStats {
@@ -337,6 +350,7 @@ func (b0 SyncStats_builder) Build() *SyncStats {
 	x.ResourcesByResourceType = b.ResourcesByResourceType
 	x.GrantsByResourceType = b.GrantsByResourceType
 	x.EntitlementsByResourceType = b.EntitlementsByResourceType
+	x.Assets = b.Assets
 	return m0
 }
 
@@ -830,7 +844,7 @@ const file_c1_reader_v2_sync_proto_rawDesc = "" +
 	"sync_token\x18\x04 \x01(\tR\tsyncToken\x12\x1b\n" +
 	"\tsync_type\x18\x05 \x01(\tR\bsyncType\x12$\n" +
 	"\x0eparent_sync_id\x18\x06 \x01(\tR\fparentSyncId\x12-\n" +
-	"\x05stats\x18\a \x01(\v2\x17.c1.reader.v2.SyncStatsR\x05stats\"\xc9\x05\n" +
+	"\x05stats\x18\a \x01(\v2\x17.c1.reader.v2.SyncStatsR\x05stats\"\xe1\x05\n" +
 	"\tSyncStats\x12%\n" +
 	"\x0eresource_types\x18\x01 \x01(\x03R\rresourceTypes\x12\x1c\n" +
 	"\tresources\x18\x02 \x01(\x03R\tresources\x12\"\n" +
@@ -838,7 +852,8 @@ const file_c1_reader_v2_sync_proto_rawDesc = "" +
 	"\x06grants\x18\x04 \x01(\x03R\x06grants\x12q\n" +
 	"\x1aresources_by_resource_type\x18\x05 \x03(\v24.c1.reader.v2.SyncStats.ResourcesByResourceTypeEntryR\x17resourcesByResourceType\x12h\n" +
 	"\x17grants_by_resource_type\x18\x06 \x03(\v21.c1.reader.v2.SyncStats.GrantsByResourceTypeEntryR\x14grantsByResourceType\x12z\n" +
-	"\x1dentitlements_by_resource_type\x18\a \x03(\v27.c1.reader.v2.SyncStats.EntitlementsByResourceTypeEntryR\x1aentitlementsByResourceType\x1aJ\n" +
+	"\x1dentitlements_by_resource_type\x18\a \x03(\v27.c1.reader.v2.SyncStats.EntitlementsByResourceTypeEntryR\x1aentitlementsByResourceType\x12\x16\n" +
+	"\x06assets\x18\b \x01(\x03R\x06assets\x1aJ\n" +
 	"\x1cResourcesByResourceTypeEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aG\n" +

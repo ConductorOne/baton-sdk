@@ -264,6 +264,8 @@ func (m *SyncStats) validate(all bool) error {
 
 	// no validation rules for EntitlementsByResourceType
 
+	// no validation rules for Assets
+
 	if len(errors) > 0 {
 		return SyncStatsMultiError(errors)
 	}

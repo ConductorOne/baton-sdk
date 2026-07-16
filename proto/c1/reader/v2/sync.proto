@@ -26,6 +26,7 @@ message SyncStats {
   map<string, int64> resources_by_resource_type = 5;
   map<string, int64> grants_by_resource_type = 6;
   map<string, int64> entitlements_by_resource_type = 7;
+  int64 assets = 8;
 }
 
 service SyncsReaderService {
