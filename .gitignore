@@ -9,6 +9,8 @@
 *.dylib
 build/
 *.c1z
+# Frozen test fixtures are the exception (version-skew corpus etc.).
+!pkg/sync/testdata/*.c1z
 *.db
 *.csv
 *.xlsx

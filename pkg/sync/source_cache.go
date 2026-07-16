@@ -286,24 +286,15 @@ func replayCompatMismatchReason(ctx context.Context, current sourcecache.CompatK
 	return current.MismatchReason(prevKey)
 }
 
-// previousSyncReplayUnusableReason inspects the previous-sync reader's
-// newest finished run record against the replay-source predicate
-// (c1zstore.SyncRun.UsableAsReplaySource) and returns a human-readable
-// reason when it fails, or "" when the sync qualifies. A reader without a
-// SyncMeta surface degrades to "" — the manifest-based guards still
-// apply — but a readable record is authoritative.
-func previousSyncReplayUnusableReason(ctx context.Context, reader connectorstore.Reader) (string, error) {
-	metaHolder, ok := reader.(interface{ SyncMeta() c1zstore.SyncMeta })
-	if !ok {
-		return "", nil
-	}
-	run, err := metaHolder.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
-	if err != nil {
-		return "", err
-	}
+// ReplaySourceRunUnusableReason evaluates the sync-run metadata gate on
+// one finished-run record: "" when the run qualifies as a replay source,
+// or a human-readable reason. Exported as the single source of truth for
+// the gate — the syncer's read-side setup and the `baton source-cache`
+// audit command both consume it, so the two can never drift.
+func ReplaySourceRunUnusableReason(run *c1zstore.SyncRun) string {
 	switch {
 	case run == nil:
-		return "previous-sync c1z has no finished sync run", nil
+		return "previous-sync c1z has no finished sync run"
 	case run.UsableAsReplaySource():
 		// The record can lie by omission: a compacted artifact produced
 		// by an SDK that predates the run record's compacted flag carries
@@ -316,14 +307,32 @@ func previousSyncReplayUnusableReason(ctx context.Context, reader connectorstore
 		// artifact cannot omit. A token that fails to parse proves
 		// nothing either way and is ignored (the primary gates stand).
 		if comp, tokenErr := CompactionStatsFromToken(run.SyncToken); tokenErr == nil && comp != nil {
-			return "previous sync's token carries compaction provenance; the artifact is a merge no upstream validator describes (produced by a pre-compacted-flag compactor)", nil
+			return "previous sync's token carries compaction provenance; the artifact is a merge no upstream validator describes (produced by a pre-compacted-flag compactor)"
 		}
-		return "", nil
+		return ""
 	case run.Compacted:
-		return "previous sync is a compaction artifact; upstream validators do not describe its merged contents", nil
+		return "previous sync is a compaction artifact; upstream validators do not describe its merged contents"
 	default:
-		return fmt.Sprintf("previous sync is type %q, not a full sync; its rows do not cover the scopes any validator vouches for", run.Type), nil
+		return fmt.Sprintf("previous sync is type %q, not a full sync; its rows do not cover the scopes any validator vouches for", run.Type)
 	}
+}
+
+// previousSyncReplayUnusableReason inspects the previous-sync reader's
+// newest finished run record against the replay-source predicate
+// (ReplaySourceRunUnusableReason) and returns a human-readable reason
+// when it fails, or "" when the sync qualifies. A reader without a
+// SyncMeta surface degrades to "" — the manifest-based guards still
+// apply — but a readable record is authoritative.
+func previousSyncReplayUnusableReason(ctx context.Context, reader connectorstore.Reader) (string, error) {
+	metaHolder, ok := reader.(interface{ SyncMeta() c1zstore.SyncMeta })
+	if !ok {
+		return "", nil
+	}
+	run, err := metaHolder.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+	if err != nil {
+		return "", err
+	}
+	return ReplaySourceRunUnusableReason(run), nil
 }
 
 // clearSourceCacheLookup detaches the per-sync lookup so a late RPC from

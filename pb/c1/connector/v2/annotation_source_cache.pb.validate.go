@@ -59,6 +59,36 @@ func (m *SourceCacheCapability) validate(all bool) error {
 
 	// no validation rules for Mode
 
+	if m.GetCacheGeneration() != "" {
+
+		if len(m.GetCacheGeneration()) > 256 {
+			err := SourceCacheCapabilityValidationError{
+				field:  "CacheGeneration",
+				reason: "value length must be at most 256 bytes",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if m.GetConfigFingerprint() != "" {
+
+		if len(m.GetConfigFingerprint()) > 256 {
+			err := SourceCacheCapabilityValidationError{
+				field:  "ConfigFingerprint",
+				reason: "value length must be at most 256 bytes",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return SourceCacheCapabilityMultiError(errors)
 	}

@@ -71,10 +71,31 @@ func (x SourceCacheCapability_Mode) Number() protoreflect.EnumNumber {
 // annotations to opt in to source-cache replay. Absent or any mode other
 // than MODE_READ_WRITE means all source-cache annotations are ignored.
 type SourceCacheCapability struct {
-	state         protoimpl.MessageState     `protogen:"hybrid.v1"`
-	Mode          SourceCacheCapability_Mode `protobuf:"varint,1,opt,name=mode,proto3,enum=c1.connector.v2.SourceCacheCapability_Mode" json:"mode,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState     `protogen:"hybrid.v1"`
+	Mode  SourceCacheCapability_Mode `protobuf:"varint,1,opt,name=mode,proto3,enum=c1.connector.v2.SourceCacheCapability_Mode" json:"mode,omitempty"`
+	// cache_generation is the connector's replay-compatibility generation:
+	// bump it whenever the connector changes how it computes scopes,
+	// validators, or rows in a way that makes a PRIOR artifact's cached
+	// rows unsafe to replay (schema of emitted rows, scope partitioning,
+	// id construction). The SDK never interprets the value — replay is
+	// permitted only when the previous artifact recorded a byte-identical
+	// generation (any mismatch runs the sync cold). Never derive this from
+	// a semver: compatibility is an explicit declaration, not an
+	// inference. Empty is a valid (constant) generation.
+	CacheGeneration string `protobuf:"bytes,2,opt,name=cache_generation,json=cacheGeneration,proto3" json:"cache_generation,omitempty"`
+	// config_fingerprint is an opaque connector-computed digest of every
+	// configuration and permission input that changes what upstream data
+	// the connector CAN see (credentials scope, tenant/org selection,
+	// API-permission grants, include/exclude config). Replay is permitted
+	// only when the previous artifact recorded a byte-identical
+	// fingerprint: a config change means cached scopes may cover a
+	// different universe, and replaying them would resurrect rows the new
+	// configuration can no longer observe (or hide rows it now can).
+	// Empty means "connector declares no config sensitivity" and matches
+	// only empty.
+	ConfigFingerprint string `protobuf:"bytes,3,opt,name=config_fingerprint,json=configFingerprint,proto3" json:"config_fingerprint,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SourceCacheCapability) Reset() {
@@ -109,14 +130,57 @@ func (x *SourceCacheCapability) GetMode() SourceCacheCapability_Mode {
 	return SourceCacheCapability_MODE_UNSPECIFIED
 }
 
+func (x *SourceCacheCapability) GetCacheGeneration() string {
+	if x != nil {
+		return x.CacheGeneration
+	}
+	return ""
+}
+
+func (x *SourceCacheCapability) GetConfigFingerprint() string {
+	if x != nil {
+		return x.ConfigFingerprint
+	}
+	return ""
+}
+
 func (x *SourceCacheCapability) SetMode(v SourceCacheCapability_Mode) {
 	x.Mode = v
+}
+
+func (x *SourceCacheCapability) SetCacheGeneration(v string) {
+	x.CacheGeneration = v
+}
+
+func (x *SourceCacheCapability) SetConfigFingerprint(v string) {
+	x.ConfigFingerprint = v
 }
 
 type SourceCacheCapability_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Mode SourceCacheCapability_Mode
+	// cache_generation is the connector's replay-compatibility generation:
+	// bump it whenever the connector changes how it computes scopes,
+	// validators, or rows in a way that makes a PRIOR artifact's cached
+	// rows unsafe to replay (schema of emitted rows, scope partitioning,
+	// id construction). The SDK never interprets the value — replay is
+	// permitted only when the previous artifact recorded a byte-identical
+	// generation (any mismatch runs the sync cold). Never derive this from
+	// a semver: compatibility is an explicit declaration, not an
+	// inference. Empty is a valid (constant) generation.
+	CacheGeneration string
+	// config_fingerprint is an opaque connector-computed digest of every
+	// configuration and permission input that changes what upstream data
+	// the connector CAN see (credentials scope, tenant/org selection,
+	// API-permission grants, include/exclude config). Replay is permitted
+	// only when the previous artifact recorded a byte-identical
+	// fingerprint: a config change means cached scopes may cover a
+	// different universe, and replaying them would resurrect rows the new
+	// configuration can no longer observe (or hide rows it now can).
+	// Empty means "connector declares no config sensitivity" and matches
+	// only empty.
+	ConfigFingerprint string
 }
 
 func (b0 SourceCacheCapability_builder) Build() *SourceCacheCapability {
@@ -124,6 +188,8 @@ func (b0 SourceCacheCapability_builder) Build() *SourceCacheCapability {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.Mode = b.Mode
+	x.CacheGeneration = b.CacheGeneration
+	x.ConfigFingerprint = b.ConfigFingerprint
 	return m0
 }
 
@@ -837,9 +903,11 @@ var File_c1_connector_v2_annotation_source_cache_proto protoreflect.FileDescript
 
 const file_c1_connector_v2_annotation_source_cache_proto_rawDesc = "" +
 	"\n" +
-	"-c1/connector/v2/annotation_source_cache.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"\x9e\x01\n" +
+	"-c1/connector/v2/annotation_source_cache.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"\x92\x02\n" +
 	"\x15SourceCacheCapability\x12?\n" +
-	"\x04mode\x18\x01 \x01(\x0e2+.c1.connector.v2.SourceCacheCapability.ModeR\x04mode\"D\n" +
+	"\x04mode\x18\x01 \x01(\x0e2+.c1.connector.v2.SourceCacheCapability.ModeR\x04mode\x126\n" +
+	"\x10cache_generation\x18\x02 \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x0fcacheGeneration\x12:\n" +
+	"\x12config_fingerprint\x18\x03 \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x11configFingerprint\"D\n" +
 	"\x04Mode\x12\x14\n" +
 	"\x10MODE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rMODE_DISABLED\x10\x01\x12\x13\n" +

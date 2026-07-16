@@ -65,9 +65,12 @@ const (
 // SyncGrantsOp for a type-scoped type. Type-scoped grant enumeration is
 // left to a full grants phase.
 //
-// ROUTING MARKER ONLY: TypeScopedGrants is absent from the ingestion-
-// invariant side-effect coverage map — it routes ListGrants; it does not
-// imply post-ingest repair beyond ordinary grant handling.
+// ROUTING MARKER: TypeScopedGrants routes ListGrants; it implies no
+// repair machinery of its own. It IS listed in the ingestion-invariant
+// side-effect coverage map, covered by invariant I8 (grant→entitlement
+// referential integrity): independently-fresh type scopes can strand
+// grant references against a refreshed entitlement set, and the
+// post-collection check is what catches that.
 type TypeScopedGrants struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	unknownFields protoimpl.UnknownFields

@@ -9,6 +9,7 @@ package expand
 // exists to report.
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -45,4 +46,36 @@ func TestDroppedEdgeStatsExamplesDedupeAcrossRepeats(t *testing.T) {
 	defer s.mu.Unlock()
 	require.Equal(t, int64(6), s.sourceMissing, "repeat drops of one id still count their edges")
 	require.Equal(t, []string{"ent-repeat"}, s.examples, "examples list one entry per distinct id")
+}
+
+// TestTopologicalSourceMissingRecordedOnDropStats pins the topological
+// reduce's SOURCE-missing path onto the aggregate: a graph edge whose
+// source entitlement has no row must complete (drop-don't-fail), be
+// counted on DroppedEdgeStats, and not fail the run — the migration
+// that moved the destination-side to the aggregate had left this path
+// as a per-edge Warn invisible to LogSummary.
+func TestTopologicalSourceMissingRecordedOnDropStats(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+
+	group := makeResource("group", "org")
+	source := makeEntitlement("ent:source", group)
+	dest := makeEntitlement("ent:dest", group)
+	// The DESTINATION row exists; the SOURCE row deliberately does not.
+	store.AddEntitlement(dest)
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(source.GetId())
+	graph.AddEntitlementID(dest.GetId())
+	require.NoError(t, graph.AddEdge(ctx, source.GetId(), dest.GetId(), false, nil))
+
+	e := NewExpander(store, graph)
+	stats := &DroppedEdgeStats{}
+	e.SetDropStats(stats)
+	require.NoError(t, e.RunTopologicalMergeStreaming(ctx), "a missing source must complete, not error")
+
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+	require.Equal(t, int64(1), stats.sourceMissing, "the dropped source edge must land on the aggregate")
+	require.Contains(t, stats.seen, source.GetId())
 }

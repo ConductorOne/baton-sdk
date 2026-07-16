@@ -96,6 +96,78 @@ func TestRetireSpareIfStillImplicated(t *testing.T) {
 	})
 }
 
+// TestRetireImplicatedSpare_RequiresOpenedSpare pins the retirement
+// gate: only a sync that actually opened the spare may retire it. An
+// operator-supplied --previous-sync-c1z wins selection over the spare,
+// so a replay-integrity failure on the operator's file must leave the
+// never-opened spare on disk — before the gate, any warm failure with a
+// spare path configured deleted the spare unconditionally (and, with no
+// opened identity recorded, would also delete a concurrent promotion).
+func TestRetireImplicatedSpare_RequiresOpenedSpare(t *testing.T) {
+	ctx, err := logging.Init(context.Background())
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+	sparePath := filepath.Join(tmpDir, "baton-previous-sync-test.c1z")
+	writeSpareC1Z(ctx, t, sparePath, tmpDir)
+
+	h := &fullSyncTaskHandler{
+		task:                  fullSyncTask(t, "pebble"),
+		previousSyncSparePath: sparePath,
+		previousSyncC1ZPath:   filepath.Join(tmpDir, "operator.c1z"), // operator path configured too
+		// openedSpare deliberately false: the operator path won selection.
+	}
+	h.retireImplicatedSpare(ctx)
+	require.FileExists(t, sparePath,
+		"a warm failure on the operator's previous file must not retire the SDK spare it never opened")
+
+	// The same handler after actually opening the spare retires it.
+	h2 := &fullSyncTaskHandler{task: fullSyncTask(t, "pebble"), previousSyncSparePath: sparePath}
+	openPath := h2.openSpareForReplay(ctx)
+	require.NotEmpty(t, openPath)
+	h2.retireImplicatedSpare(ctx)
+	h2.releaseSpareSnapshot(ctx)
+	require.NoFileExists(t, sparePath, "an opened, unrotated spare is implicated and must be retired")
+}
+
+// TestOpenSpareForReplay_PinSurvivesConcurrentPromotion pins the
+// selection/open race fix: the task-private hardlink freezes the exact
+// inode the sync replays from, so a promotion landing between selection
+// and open can neither swap the file under the sync nor desync the
+// recorded identity — retirement then correctly preserves the fresh
+// promotion while the sync read the implicated artifact throughout.
+func TestOpenSpareForReplay_PinSurvivesConcurrentPromotion(t *testing.T) {
+	ctx, err := logging.Init(context.Background())
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+	sparePath := filepath.Join(tmpDir, "baton-previous-sync-test.c1z")
+	implicatedID := writeSpareC1Z(ctx, t, sparePath, tmpDir)
+
+	h := &fullSyncTaskHandler{task: fullSyncTask(t, "pebble"), previousSyncSparePath: sparePath}
+	openPath := h.openSpareForReplay(ctx)
+	require.NotEmpty(t, openPath)
+	require.NotEqual(t, sparePath, openPath, "selection must pin a task-private link, not the shared slot")
+	require.Equal(t, implicatedID, h.openedSpareSyncID)
+
+	// Concurrent task promotes a FRESH spare onto the shared slot after
+	// selection but before/during this sync's reads.
+	freshPath := filepath.Join(tmpDir, "fresh.c1z")
+	freshID := writeSpareC1Z(ctx, t, freshPath, tmpDir)
+	require.NoError(t, os.Rename(freshPath, sparePath))
+
+	// The pinned inode still serves the artifact this sync selected.
+	require.Equal(t, implicatedID, c1zSyncIDBestEffort(openPath),
+		"the pinned link must keep serving the selected artifact across a promotion")
+
+	// Warm failure: retirement preserves the fresh promotion (identity
+	// mismatch) — and the implicated artifact dies with the pin release.
+	h.retireImplicatedSpare(ctx)
+	require.FileExists(t, sparePath)
+	require.Equal(t, freshID, c1zSyncIDBestEffort(sparePath),
+		"the concurrently promoted spare is not implicated and must survive")
+	h.releaseSpareSnapshot(ctx)
+	require.NoFileExists(t, openPath, "the task-private pin must be cleaned up")
+}
+
 // TestSpareRetentionEligibility pins the engine gate on spare rotation:
 // only Pebble artifacts can serve source-cache replay (SQLite replay is
 // an explicit non-goal), so a keep-previous-sync-c1z opt-in running on

@@ -327,4 +327,51 @@ message SourceCacheEntryRecord {
   string cache_validator = 3;
 
   google.protobuf.Timestamp discovered_at = 4;
+
+  // Set when the dangling-reference drops (ingestion invariants I7/I8/I9,
+  // pkg/sync/ingest_invariants.go) deleted rows stamped with this scope:
+  // the artifact no longer holds the full row set the validator vouches
+  // for, so a future sync must not 304-replay it. Lookups treat an
+  // invalidated entry as a miss (the scope re-fetches cold and converges
+  // with a cold sync); the entry itself is kept so the scope's surviving
+  // stamped rows do not read as an I6 orphan (lost manifest write).
+  bool invalidated = 5;
+}
+
+// SourceCacheCompatRecord is the sync's replay-compatibility key: the
+// exact conditions under which this artifact's source-cache manifest was
+// recorded. A future sync may replay from this artifact ONLY when its
+// own key matches byte-exactly on every component; an absent, unreadable,
+// or mismatched record degrades that sync to cold (no-op lookup).
+// Compatibility is never inferred from versions — each component is an
+// explicit declaration by its owner.
+//
+// One record per sync, written when the write side of the source cache
+// enables (before any manifest entry), cleared by compaction folds with
+// the manifest.
+message SourceCacheCompatRecord {
+  option (table) = {
+    name: "source_cache_compat"
+    primary_key: ["id"]
+  };
+
+  // Fixed singleton id ("compat"); present so the record satisfies the
+  // table shape.
+  string id = 1;
+
+  // Connector-declared components (SourceCacheCapability annotations):
+  // the connector's cache generation and configuration/permission
+  // fingerprint.
+  string connector_cache_generation = 2;
+  string connector_config_fingerprint = 3;
+
+  // SDK materialization-policy generation: bumped when the SDK changes
+  // how response rows or their side effects materialize into the store
+  // in a replay-visible way (sourcecache.MaterializationPolicyGeneration).
+  string sdk_materialization_generation = 4;
+
+  // SDK sync-selection fingerprint: digest of the sync-shaping inputs
+  // (enabled resource types, skip flags) — a selection change means the
+  // prior artifact's scopes cover a different row universe.
+  string sync_selection_fingerprint = 5;
 }

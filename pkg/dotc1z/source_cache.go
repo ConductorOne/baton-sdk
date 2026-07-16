@@ -92,6 +92,11 @@ type SourceCacheInspector interface {
 	SourceCacheOrphanScopes(ctx context.Context) (map[string][]string, error)
 	// LookupSourceCacheEntry: see SourceCacheStore.
 	LookupSourceCacheEntry(ctx context.Context, kind sourcecache.RowKind, scopeKey string) (sourcecache.Entry, bool, error)
+	// GetSourceCacheCompat: see SourceCacheStore. Tooling uses key
+	// PRESENCE (the offline-decidable half of the compat gate — a key's
+	// exact match depends on the next run's connector declarations, which
+	// no offline audit can know; an ABSENT key can never match anything).
+	GetSourceCacheCompat(ctx context.Context) (sourcecache.CompatKey, bool, error)
 }
 
 var _ SourceCacheInspector = (*pebbleStore)(nil)

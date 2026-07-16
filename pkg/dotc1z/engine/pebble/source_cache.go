@@ -30,7 +30,9 @@ import (
 // replayBatchRows bounds how many rows accumulate in one pebble.Batch
 // before an intermediate commit. Replay of a delta-query collection can
 // be the whole previous row set, so the batch must not grow unbounded.
-const replayBatchRows = 10_000
+// A var (not const) so tests can shrink it to exercise the
+// partial-commit failure windows deterministically.
+var replayBatchRows = 10_000
 
 // ReplayedParentResource identifies one replayed resource whose
 // annotations carry ChildResourceType — the syncer must schedule child
@@ -880,6 +882,37 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
+		// Consumed in a defer keyed on rows whose commit LANDED, not on
+		// success: a replay that fails after an intermediate commit
+		// (large scope, error or cancellation mid-copy) has already
+		// populated the keyspace, and while the failing action unwinds,
+		// concurrently draining workers can still write — a first
+		// PutGrantRecords taking the empty-keyspace fast path over
+		// partially replayed identities would skip index cleanup.
+		//
+		// clearedRows counts pre-clear deletes the same way: the
+		// pre-clear commits intermediate batches too, so a pre-clear
+		// that fails partway has already mutated the keyspace.
+		// Registered BEFORE the pre-clear so its partial-failure path is
+		// covered.
+		//
+		// sawRelatedResource: InsertResourceGrants copies write resource
+		// rows too, so the resources empty-keyspace fast path must also
+		// be disarmed. Related copies always ride a batch that carries
+		// at least their own grant row, so committedRows > 0 covers
+		// "any batch that may hold a resource write landed".
+		committedRows := 0
+		clearedRows := int64(0)
+		sawRelatedResource := false
+		defer func() {
+			if committedRows > 0 || clearedRows > 0 {
+				_ = e.takeFreshGrantsEmpty()
+				if sawRelatedResource {
+					_ = e.takeFreshResourcesEmpty()
+				}
+			}
+		}()
+
 		// Resume idempotency: drop any destination rows a crashed earlier
 		// attempt already committed under this scope (replay copy and/or
 		// overlay rows), so the copy below is the scope's first writer
@@ -893,6 +926,7 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 				return e.deleteGrantIndexesRaw(batch, "", val)
 			},
 		)
+		clearedRows = cleared
 		if err != nil {
 			return fmt.Errorf("source cache replay: pre-clear grants scope %q: %w", scopeKey, err)
 		}
@@ -914,30 +948,6 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 		batch := e.db.NewBatch()
 		defer func() { _ = batch.Close() }()
 		rowsInBatch := 0
-
-		// Consumed in a defer keyed on rows whose commit LANDED, not on
-		// success: a replay that fails after an intermediate commit
-		// (large scope, error or cancellation mid-copy) has already
-		// populated the keyspace, and while the failing action unwinds,
-		// concurrently draining workers can still write — a first
-		// PutGrantRecords taking the empty-keyspace fast path over
-		// partially replayed identities would skip index cleanup.
-		//
-		// sawRelatedResource: InsertResourceGrants copies write resource
-		// rows too, so the resources empty-keyspace fast path must also
-		// be disarmed. Related copies always ride a batch that carries
-		// at least their own grant row, so committedRows > 0 covers
-		// "any batch that may hold a resource write landed".
-		committedRows := 0
-		sawRelatedResource := false
-		defer func() {
-			if committedRows > 0 {
-				_ = e.takeFreshGrantsEmpty()
-				if sawRelatedResource {
-					_ = e.takeFreshResourcesEmpty()
-				}
-			}
-		}()
 		// relatedCopied dedupes InsertResourceGrants resource copies:
 		// many grants in one scope typically reference few resources.
 		var relatedCopied map[string]struct{}
@@ -1192,9 +1202,28 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
+		// Keyed on rows whose commit LANDED, not on success (see the
+		// grants replay): a partial replay has already mutated the
+		// entitlement keyspace, so the bare-id lookup map must be
+		// invalidated and the empty-keyspace fast path disarmed even when
+		// the replay itself fails — draining workers can still resolve
+		// tombstones and write entitlements while the failure unwinds.
+		// Pre-clear deletes mutate the keyspace the same way, so they
+		// arm the invalidation too — registered BEFORE the pre-clear so
+		// a pre-clear that commits a batch and then fails is covered
+		// (clearedRows is assigned even on the error path).
+		committedRows := 0
+		clearedRows := int64(0)
+		defer func() {
+			if committedRows > 0 || clearedRows > 0 {
+				e.noteEntitlementKeyspaceWrite()
+				_ = e.takeFreshEntitlementsEmpty()
+			}
+		}()
+
 		// Resume idempotency: see the grants replay. The entitlement
 		// bare-id lookup map is invalidated for the deletes exactly as
-		// for the copies (the defer below keys on either landing).
+		// for the copies (the defer above keys on either landing).
 		cleared, err := e.clearReplayScopeRowsLocked(ctx, scopeKey, prefix, primaryHeader,
 			scanEntitlementSourceScopeRaw,
 			func(batch *pebble.Batch, priKey []byte, val []byte) error {
@@ -1203,6 +1232,7 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 				return nil
 			},
 		)
+		clearedRows = cleared
 		if err != nil {
 			return fmt.Errorf("source cache replay: pre-clear entitlements scope %q: %w", scopeKey, err)
 		}
@@ -1224,22 +1254,6 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 		batch := e.db.NewBatch()
 		defer func() { _ = batch.Close() }()
 		rowsInBatch := 0
-
-		// Keyed on rows whose commit LANDED, not on success (see the
-		// grants replay): a partial replay has already mutated the
-		// entitlement keyspace, so the bare-id lookup map must be
-		// invalidated and the empty-keyspace fast path disarmed even when
-		// the replay itself fails — draining workers can still resolve
-		// tombstones and write entitlements while the failure unwinds.
-		// Pre-clear deletes mutate the keyspace the same way, so they
-		// arm the invalidation too.
-		committedRows := 0
-		defer func() {
-			if committedRows > 0 || res.ResumedRowsCleared > 0 {
-				e.noteEntitlementKeyspaceWrite()
-				_ = e.takeFreshEntitlementsEmpty()
-			}
-		}()
 
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
@@ -1353,6 +1367,18 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
+		// Keyed on rows whose commit LANDED, not on success — see the
+		// grants replay for rationale. Registered BEFORE the pre-clear
+		// and keyed on its deletes too (clearedRows is assigned even on
+		// the error path).
+		committedRows := 0
+		clearedRows := int64(0)
+		defer func() {
+			if committedRows > 0 || clearedRows > 0 {
+				_ = e.takeFreshResourcesEmpty()
+			}
+		}()
+
 		// Resume idempotency: see the grants replay.
 		cleared, err := e.clearReplayScopeRowsLocked(ctx, scopeKey, prefix, primaryHeader,
 			func(val []byte) (string, error) {
@@ -1367,6 +1393,7 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 				return e.deleteResourceIndexesRaw(batch, rt, rid, val)
 			},
 		)
+		clearedRows = cleared
 		if err != nil {
 			return fmt.Errorf("source cache replay: pre-clear resources scope %q: %w", scopeKey, err)
 		}
@@ -1388,15 +1415,6 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 		batch := e.db.NewBatch()
 		defer func() { _ = batch.Close() }()
 		rowsInBatch := 0
-
-		// Keyed on rows whose commit LANDED, not on success — see the
-		// grants replay for rationale.
-		committedRows := 0
-		defer func() {
-			if committedRows > 0 {
-				_ = e.takeFreshResourcesEmpty()
-			}
-		}()
 
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {

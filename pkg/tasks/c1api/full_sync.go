@@ -71,6 +71,13 @@ type fullSyncTaskHandler struct {
 	// task manager; nil in tests that don't exercise rotation.
 	spareMu *stdsync.Mutex
 
+	// openedSpare reports that THIS task selected the SDK spare as its
+	// replay source. Retirement is gated on it: a replay-integrity
+	// failure may only retire the spare when the spare was actually
+	// opened — an operator-supplied --previous-sync-c1z takes precedence
+	// over the spare, and a failure on the operator's file must never
+	// delete an SDK spare that sat unopened on disk.
+	openedSpare bool
 	// openedSpareSyncID records the sync id of the spare THIS task
 	// actually opened as its replay source (read at open time, before
 	// any concurrent rotation can swap the file). Retirement compares it
@@ -78,6 +85,10 @@ type fullSyncTaskHandler struct {
 	// failing sync may only retire the artifact that failed it, never a
 	// newer spare promoted underneath it.
 	openedSpareSyncID string
+	// openedSparePrivatePath is the task-private hardlink pinning the
+	// exact inode this sync replays from (see openSpareForReplay).
+	// Removed when the sync finishes.
+	openedSparePrivatePath string
 }
 
 // previousSyncSparePrefix is the fixed filename prefix of the retained
@@ -209,6 +220,80 @@ func (c *fullSyncTaskHandler) withSpareLock(fn func()) {
 	fn()
 }
 
+// openSpareForReplay selects the SDK spare as this task's replay source
+// and returns the path the syncer should open, or "" when no spare is
+// on disk. Under the spare lock it captures the spare's sync id AND pins
+// the exact inode with a task-private hardlink; the syncer opens the
+// link, so a concurrent promotion (an os.Rename onto the shared slot)
+// can neither swap the file between identity capture and open nor
+// desync the recorded id from what the sync actually read. Without the
+// pin, a promotion in that gap would make a later replay-integrity
+// retirement compare the WRONG id and preserve the implicated artifact.
+//
+// The link lives next to the spare (same directory, task-digest suffix
+// — constant shape, never caller-influenced) and is removed by
+// releaseSpareSnapshot when the sync finishes. A failed link degrades
+// to opening the shared path directly: the tiny selection/open race
+// returns, costing at worst one preserved-implicated-spare cycle that
+// the next successful rotation heals.
+func (c *fullSyncTaskHandler) openSpareForReplay(ctx context.Context) string {
+	l := ctxzap.Extract(ctx)
+	openPath := ""
+	c.withSpareLock(func() {
+		if !fileExists(c.previousSyncSparePath) {
+			return
+		}
+		taskDigest := sha256.Sum256([]byte(c.task.GetId()))
+		private := fmt.Sprintf("%s.open-%x", c.previousSyncSparePath, taskDigest[:8])
+		_ = os.Remove(private) // stale link from a crashed run of this task id
+		if linkErr := os.Link(c.previousSyncSparePath, private); linkErr == nil {
+			c.openedSparePrivatePath = private
+			openPath = private
+		} else {
+			l.Warn("failed to pin previous-sync spare with a task-private link; opening the shared path directly",
+				zap.String("spare_path", c.previousSyncSparePath), zap.Error(linkErr))
+			openPath = c.previousSyncSparePath
+		}
+		// Read the id from the path the sync will actually open: with
+		// the pin this is race-free; without it, the same best-effort
+		// semantics as before.
+		c.openedSpareSyncID = c1zSyncIDBestEffort(openPath)
+		c.openedSpare = true
+	})
+	return openPath
+}
+
+// releaseSpareSnapshot removes the task-private hardlink created by
+// openSpareForReplay. Safe to call when none was created.
+func (c *fullSyncTaskHandler) releaseSpareSnapshot(ctx context.Context) {
+	if c.openedSparePrivatePath == "" {
+		return
+	}
+	if err := os.Remove(c.openedSparePrivatePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		ctxzap.Extract(ctx).Warn("failed to remove task-private spare link", zap.Error(err),
+			zap.String("path", c.openedSparePrivatePath))
+	}
+	c.openedSparePrivatePath = ""
+}
+
+// retireImplicatedSpare handles the spare side of a replay-integrity
+// failure. Gated on openedSpare: only a sync that actually replayed
+// from the spare may retire it — a failure on an operator-supplied
+// previous file (which wins selection over the spare) must leave the
+// unopened spare in place, and a sync that ran cold has nothing to
+// retire.
+func (c *fullSyncTaskHandler) retireImplicatedSpare(ctx context.Context) {
+	if !c.openedSpare || c.previousSyncSparePath == "" {
+		return
+	}
+	// Under the spare lock, and only the exact artifact this sync
+	// opened — a concurrent task's freshly promoted spare is not
+	// implicated and must survive.
+	c.withSpareLock(func() {
+		retireSpareIfStillImplicated(ctx, c.previousSyncSparePath, c.openedSpareSyncID)
+	})
+}
+
 // resolveStorageEngine returns the engine this task's sync writes:
 // runner config wins, then the task's own engine, then "" (the SDK
 // default — SQLite).
@@ -290,15 +375,13 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 			zap.String("previous_sync_id", c1zSyncIDBestEffort(c.previousSyncC1ZPath)))
 		syncOpts = append(syncOpts, sdkSync.WithPreviousSyncC1ZPath(c.previousSyncC1ZPath))
 	case c.previousSyncSparePath != "":
-		if fileExists(c.previousSyncSparePath) {
-			// Record which artifact THIS sync replays from, so a
-			// replay-integrity retirement can never remove a fresh spare
-			// a concurrent task promoted mid-sync.
-			c.openedSpareSyncID = c1zSyncIDBestEffort(c.previousSyncSparePath)
+		if openPath := c.openSpareForReplay(ctx); openPath != "" {
+			defer c.releaseSpareSnapshot(ctx)
 			l.Info("previous-sync spare found; source-cache replay enabled for this sync",
 				zap.String("spare_path", c.previousSyncSparePath),
+				zap.String("open_path", openPath),
 				zap.String("spare_sync_id", c.openedSpareSyncID))
-			syncOpts = append(syncOpts, sdkSync.WithOptionalPreviousSyncC1ZPath(c.previousSyncSparePath))
+			syncOpts = append(syncOpts, sdkSync.WithOptionalPreviousSyncC1ZPath(openPath))
 		} else {
 			l.Info("no previous-sync spare on disk; source-cache replay inactive for this sync (expected on the first sync after enabling, or after a failed rotation)",
 				zap.String("spare_path", c.previousSyncSparePath))
@@ -366,14 +449,7 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		if rmErr := os.Remove(c1zPath); rmErr != nil && !os.IsNotExist(rmErr) {
 			return errors.Join(err, rmErr)
 		}
-		if c.previousSyncSparePath != "" {
-			// Under the spare lock, and only the exact artifact this sync
-			// opened — a concurrent task's freshly promoted spare is not
-			// implicated and must survive.
-			c.withSpareLock(func() {
-				retireSpareIfStillImplicated(ctx, c.previousSyncSparePath, c.openedSpareSyncID)
-			})
-		}
+		c.retireImplicatedSpare(ctx)
 		err = runSync(append(slices.Clone(syncOpts), sdkSync.WithoutPreviousSync()))
 	}
 	if err != nil {

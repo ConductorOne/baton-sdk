@@ -1770,8 +1770,16 @@ type SourceCacheEntryRecord struct {
 	// Opaque upstream validator: HTTP ETag, delta token, etc.
 	CacheValidator string                 `protobuf:"bytes,3,opt,name=cache_validator,json=cacheValidator,proto3" json:"cache_validator,omitempty"`
 	DiscoveredAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=discovered_at,json=discoveredAt,proto3" json:"discovered_at,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Set when the dangling-reference drops (ingestion invariants I7/I8/I9,
+	// pkg/sync/ingest_invariants.go) deleted rows stamped with this scope:
+	// the artifact no longer holds the full row set the validator vouches
+	// for, so a future sync must not 304-replay it. Lookups treat an
+	// invalidated entry as a miss (the scope re-fetches cold and converges
+	// with a cold sync); the entry itself is kept so the scope's surviving
+	// stamped rows do not read as an I6 orphan (lost manifest write).
+	Invalidated   bool `protobuf:"varint,5,opt,name=invalidated,proto3" json:"invalidated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SourceCacheEntryRecord) Reset() {
@@ -1827,6 +1835,13 @@ func (x *SourceCacheEntryRecord) GetDiscoveredAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *SourceCacheEntryRecord) GetInvalidated() bool {
+	if x != nil {
+		return x.Invalidated
+	}
+	return false
+}
+
 func (x *SourceCacheEntryRecord) SetRowKind(v string) {
 	x.RowKind = v
 }
@@ -1841,6 +1856,10 @@ func (x *SourceCacheEntryRecord) SetCacheValidator(v string) {
 
 func (x *SourceCacheEntryRecord) SetDiscoveredAt(v *timestamppb.Timestamp) {
 	x.DiscoveredAt = v
+}
+
+func (x *SourceCacheEntryRecord) SetInvalidated(v bool) {
+	x.Invalidated = v
 }
 
 func (x *SourceCacheEntryRecord) HasDiscoveredAt() bool {
@@ -1866,6 +1885,14 @@ type SourceCacheEntryRecord_builder struct {
 	// Opaque upstream validator: HTTP ETag, delta token, etc.
 	CacheValidator string
 	DiscoveredAt   *timestamppb.Timestamp
+	// Set when the dangling-reference drops (ingestion invariants I7/I8/I9,
+	// pkg/sync/ingest_invariants.go) deleted rows stamped with this scope:
+	// the artifact no longer holds the full row set the validator vouches
+	// for, so a future sync must not 304-replay it. Lookups treat an
+	// invalidated entry as a miss (the scope re-fetches cold and converges
+	// with a cold sync); the entry itself is kept so the scope's surviving
+	// stamped rows do not read as an I6 orphan (lost manifest write).
+	Invalidated bool
 }
 
 func (b0 SourceCacheEntryRecord_builder) Build() *SourceCacheEntryRecord {
@@ -1876,6 +1903,153 @@ func (b0 SourceCacheEntryRecord_builder) Build() *SourceCacheEntryRecord {
 	x.ScopeKey = b.ScopeKey
 	x.CacheValidator = b.CacheValidator
 	x.DiscoveredAt = b.DiscoveredAt
+	x.Invalidated = b.Invalidated
+	return m0
+}
+
+// SourceCacheCompatRecord is the sync's replay-compatibility key: the
+// exact conditions under which this artifact's source-cache manifest was
+// recorded. A future sync may replay from this artifact ONLY when its
+// own key matches byte-exactly on every component; an absent, unreadable,
+// or mismatched record degrades that sync to cold (no-op lookup).
+// Compatibility is never inferred from versions — each component is an
+// explicit declaration by its owner.
+//
+// One record per sync, written when the write side of the source cache
+// enables (before any manifest entry), cleared by compaction folds with
+// the manifest.
+type SourceCacheCompatRecord struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Fixed singleton id ("compat"); present so the record satisfies the
+	// table shape.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Connector-declared components (SourceCacheCapability annotations):
+	// the connector's cache generation and configuration/permission
+	// fingerprint.
+	ConnectorCacheGeneration   string `protobuf:"bytes,2,opt,name=connector_cache_generation,json=connectorCacheGeneration,proto3" json:"connector_cache_generation,omitempty"`
+	ConnectorConfigFingerprint string `protobuf:"bytes,3,opt,name=connector_config_fingerprint,json=connectorConfigFingerprint,proto3" json:"connector_config_fingerprint,omitempty"`
+	// SDK materialization-policy generation: bumped when the SDK changes
+	// how response rows or their side effects materialize into the store
+	// in a replay-visible way (sourcecache.MaterializationPolicyGeneration).
+	SdkMaterializationGeneration string `protobuf:"bytes,4,opt,name=sdk_materialization_generation,json=sdkMaterializationGeneration,proto3" json:"sdk_materialization_generation,omitempty"`
+	// SDK sync-selection fingerprint: digest of the sync-shaping inputs
+	// (enabled resource types, skip flags) — a selection change means the
+	// prior artifact's scopes cover a different row universe.
+	SyncSelectionFingerprint string `protobuf:"bytes,5,opt,name=sync_selection_fingerprint,json=syncSelectionFingerprint,proto3" json:"sync_selection_fingerprint,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *SourceCacheCompatRecord) Reset() {
+	*x = SourceCacheCompatRecord{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceCacheCompatRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceCacheCompatRecord) ProtoMessage() {}
+
+func (x *SourceCacheCompatRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *SourceCacheCompatRecord) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SourceCacheCompatRecord) GetConnectorCacheGeneration() string {
+	if x != nil {
+		return x.ConnectorCacheGeneration
+	}
+	return ""
+}
+
+func (x *SourceCacheCompatRecord) GetConnectorConfigFingerprint() string {
+	if x != nil {
+		return x.ConnectorConfigFingerprint
+	}
+	return ""
+}
+
+func (x *SourceCacheCompatRecord) GetSdkMaterializationGeneration() string {
+	if x != nil {
+		return x.SdkMaterializationGeneration
+	}
+	return ""
+}
+
+func (x *SourceCacheCompatRecord) GetSyncSelectionFingerprint() string {
+	if x != nil {
+		return x.SyncSelectionFingerprint
+	}
+	return ""
+}
+
+func (x *SourceCacheCompatRecord) SetId(v string) {
+	x.Id = v
+}
+
+func (x *SourceCacheCompatRecord) SetConnectorCacheGeneration(v string) {
+	x.ConnectorCacheGeneration = v
+}
+
+func (x *SourceCacheCompatRecord) SetConnectorConfigFingerprint(v string) {
+	x.ConnectorConfigFingerprint = v
+}
+
+func (x *SourceCacheCompatRecord) SetSdkMaterializationGeneration(v string) {
+	x.SdkMaterializationGeneration = v
+}
+
+func (x *SourceCacheCompatRecord) SetSyncSelectionFingerprint(v string) {
+	x.SyncSelectionFingerprint = v
+}
+
+type SourceCacheCompatRecord_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Fixed singleton id ("compat"); present so the record satisfies the
+	// table shape.
+	Id string
+	// Connector-declared components (SourceCacheCapability annotations):
+	// the connector's cache generation and configuration/permission
+	// fingerprint.
+	ConnectorCacheGeneration   string
+	ConnectorConfigFingerprint string
+	// SDK materialization-policy generation: bumped when the SDK changes
+	// how response rows or their side effects materialize into the store
+	// in a replay-visible way (sourcecache.MaterializationPolicyGeneration).
+	SdkMaterializationGeneration string
+	// SDK sync-selection fingerprint: digest of the sync-shaping inputs
+	// (enabled resource types, skip flags) — a selection change means the
+	// prior artifact's scopes cover a different row universe.
+	SyncSelectionFingerprint string
+}
+
+func (b0 SourceCacheCompatRecord_builder) Build() *SourceCacheCompatRecord {
+	m0 := &SourceCacheCompatRecord{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Id = b.Id
+	x.ConnectorCacheGeneration = b.ConnectorCacheGeneration
+	x.ConnectorConfigFingerprint = b.ConnectorConfigFingerprint
+	x.SdkMaterializationGeneration = b.SdkMaterializationGeneration
+	x.SyncSelectionFingerprint = b.SyncSelectionFingerprint
 	return m0
 }
 
@@ -1999,13 +2173,21 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x03 \x01(\fR\x05value:\x1c\x82\xf9+\x18\n" +
-	"\bsessions\x12\async_id\x12\x03key\"\xeb\x01\n" +
+	"\bsessions\x12\async_id\x12\x03key\"\x8d\x02\n" +
 	"\x16SourceCacheEntryRecord\x12\x19\n" +
 	"\brow_kind\x18\x01 \x01(\tR\arowKind\x12\x1b\n" +
 	"\tscope_key\x18\x02 \x01(\tR\bscopeKey\x12'\n" +
 	"\x0fcache_validator\x18\x03 \x01(\tR\x0ecacheValidator\x12?\n" +
-	"\rdiscovered_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:/\x82\xf9++\n" +
-	"\x14source_cache_entries\x12\brow_kind\x12\tscope_key*\xae\x01\n" +
+	"\rdiscovered_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12 \n" +
+	"\vinvalidated\x18\x05 \x01(\bR\vinvalidated:/\x82\xf9++\n" +
+	"\x14source_cache_entries\x12\brow_kind\x12\tscope_key\"\xcc\x02\n" +
+	"\x17SourceCacheCompatRecord\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12<\n" +
+	"\x1aconnector_cache_generation\x18\x02 \x01(\tR\x18connectorCacheGeneration\x12@\n" +
+	"\x1cconnector_config_fingerprint\x18\x03 \x01(\tR\x1aconnectorConfigFingerprint\x12D\n" +
+	"\x1esdk_materialization_generation\x18\x04 \x01(\tR\x1csdkMaterializationGeneration\x12<\n" +
+	"\x1async_selection_fingerprint\x18\x05 \x01(\tR\x18syncSelectionFingerprint:\x1d\x82\xf9+\x19\n" +
+	"\x13source_cache_compat\x12\x02id*\xae\x01\n" +
 	"\bSyncType\x12\x19\n" +
 	"\x15SYNC_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSYNC_TYPE_FULL\x10\x01\x12\x15\n" +
@@ -2015,54 +2197,55 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
 var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_c1_storage_v3_records_proto_goTypes = []any{
-	(SyncType)(0),                  // 0: c1.storage.v3.SyncType
-	(*GrantExpandableRecord)(nil),  // 1: c1.storage.v3.GrantExpandableRecord
-	(*GrantSourceRecord)(nil),      // 2: c1.storage.v3.GrantSourceRecord
-	(*ResourceTypeRecord)(nil),     // 3: c1.storage.v3.ResourceTypeRecord
-	(*ResourceRecord)(nil),         // 4: c1.storage.v3.ResourceRecord
-	(*EntitlementRecord)(nil),      // 5: c1.storage.v3.EntitlementRecord
-	(*GrantRecord)(nil),            // 6: c1.storage.v3.GrantRecord
-	(*AssetRecord)(nil),            // 7: c1.storage.v3.AssetRecord
-	(*SyncRunRecord)(nil),          // 8: c1.storage.v3.SyncRunRecord
-	(*SyncStatsRecord)(nil),        // 9: c1.storage.v3.SyncStatsRecord
-	(*SessionRecord)(nil),          // 10: c1.storage.v3.SessionRecord
-	(*SourceCacheEntryRecord)(nil), // 11: c1.storage.v3.SourceCacheEntryRecord
-	nil,                            // 12: c1.storage.v3.GrantRecord.SourcesEntry
-	nil,                            // 13: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	nil,                            // 14: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	nil,                            // 15: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	(*anypb.Any)(nil),              // 16: google.protobuf.Any
-	(*timestamppb.Timestamp)(nil),  // 17: google.protobuf.Timestamp
-	(*ResourceRef)(nil),            // 18: c1.storage.v3.ResourceRef
-	(*EntitlementRef)(nil),         // 19: c1.storage.v3.EntitlementRef
-	(*PrincipalRef)(nil),           // 20: c1.storage.v3.PrincipalRef
+	(SyncType)(0),                   // 0: c1.storage.v3.SyncType
+	(*GrantExpandableRecord)(nil),   // 1: c1.storage.v3.GrantExpandableRecord
+	(*GrantSourceRecord)(nil),       // 2: c1.storage.v3.GrantSourceRecord
+	(*ResourceTypeRecord)(nil),      // 3: c1.storage.v3.ResourceTypeRecord
+	(*ResourceRecord)(nil),          // 4: c1.storage.v3.ResourceRecord
+	(*EntitlementRecord)(nil),       // 5: c1.storage.v3.EntitlementRecord
+	(*GrantRecord)(nil),             // 6: c1.storage.v3.GrantRecord
+	(*AssetRecord)(nil),             // 7: c1.storage.v3.AssetRecord
+	(*SyncRunRecord)(nil),           // 8: c1.storage.v3.SyncRunRecord
+	(*SyncStatsRecord)(nil),         // 9: c1.storage.v3.SyncStatsRecord
+	(*SessionRecord)(nil),           // 10: c1.storage.v3.SessionRecord
+	(*SourceCacheEntryRecord)(nil),  // 11: c1.storage.v3.SourceCacheEntryRecord
+	(*SourceCacheCompatRecord)(nil), // 12: c1.storage.v3.SourceCacheCompatRecord
+	nil,                             // 13: c1.storage.v3.GrantRecord.SourcesEntry
+	nil,                             // 14: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	nil,                             // 15: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	nil,                             // 16: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	(*anypb.Any)(nil),               // 17: google.protobuf.Any
+	(*timestamppb.Timestamp)(nil),   // 18: google.protobuf.Timestamp
+	(*ResourceRef)(nil),             // 19: c1.storage.v3.ResourceRef
+	(*EntitlementRef)(nil),          // 20: c1.storage.v3.EntitlementRef
+	(*PrincipalRef)(nil),            // 21: c1.storage.v3.PrincipalRef
 }
 var file_c1_storage_v3_records_proto_depIdxs = []int32{
-	16, // 0: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
-	17, // 1: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	18, // 2: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
-	16, // 3: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
-	17, // 4: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	18, // 5: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
-	16, // 6: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
-	17, // 7: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	19, // 8: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
-	20, // 9: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
-	17, // 10: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	17, // 0: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
+	18, // 1: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	19, // 2: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
+	17, // 3: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
+	18, // 4: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	19, // 5: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
+	17, // 6: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
+	18, // 7: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	20, // 8: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
+	21, // 9: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
+	18, // 10: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	1,  // 11: c1.storage.v3.GrantRecord.expansion:type_name -> c1.storage.v3.GrantExpandableRecord
-	16, // 12: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
-	12, // 13: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
-	17, // 14: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	17, // 12: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
+	13, // 13: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
+	18, // 14: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	0,  // 15: c1.storage.v3.SyncRunRecord.type:type_name -> c1.storage.v3.SyncType
-	17, // 16: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
-	17, // 17: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
-	13, // 18: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	14, // 19: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	15, // 20: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	17, // 21: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
-	17, // 22: c1.storage.v3.SourceCacheEntryRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	18, // 16: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
+	18, // 17: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
+	14, // 18: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	15, // 19: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	16, // 20: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	18, // 21: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
+	18, // 22: c1.storage.v3.SourceCacheEntryRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	2,  // 23: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
 	24, // [24:24] is the sub-list for method output_type
 	24, // [24:24] is the sub-list for method input_type
@@ -2084,7 +2267,7 @@ func file_c1_storage_v3_records_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_storage_v3_records_proto_rawDesc), len(file_c1_storage_v3_records_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

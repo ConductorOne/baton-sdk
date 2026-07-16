@@ -70,11 +70,12 @@ const (
 // leaves type-scoped entitlement enumeration to a full entitlements
 // phase.
 //
-// ROUTING MARKER ONLY: TypeScopedEntitlements is not a stream-coupled
-// side-effect annotation. It is absent from the ingestion-invariant
-// side-effect coverage map for the same reason as TypeScopedGrants —
-// it routes the ListEntitlements call; it does not imply post-ingest
-// repair or validation beyond ordinary entitlement handling.
+// ROUTING MARKER: TypeScopedEntitlements routes the ListEntitlements
+// call; it implies no repair machinery of its own. It IS listed in the
+// ingestion-invariant side-effect coverage map, covered by invariant I7
+// (entitlement→resource referential integrity): type-granularity scopes
+// can carry entitlement rows for resources that vanished between
+// enumerations, and the post-collection check is what catches that.
 type TypeScopedEntitlements struct {
 	state         protoimpl.MessageState `protogen:"opaque.v1"`
 	unknownFields protoimpl.UnknownFields

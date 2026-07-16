@@ -65,6 +65,35 @@ message SourceCacheCapability {
     MODE_READ_WRITE = 2;
   }
   Mode mode = 1;
+
+  // cache_generation is the connector's replay-compatibility generation:
+  // bump it whenever the connector changes how it computes scopes,
+  // validators, or rows in a way that makes a PRIOR artifact's cached
+  // rows unsafe to replay (schema of emitted rows, scope partitioning,
+  // id construction). The SDK never interprets the value — replay is
+  // permitted only when the previous artifact recorded a byte-identical
+  // generation (any mismatch runs the sync cold). Never derive this from
+  // a semver: compatibility is an explicit declaration, not an
+  // inference. Empty is a valid (constant) generation.
+  string cache_generation = 2 [(validate.rules).string = {
+    ignore_empty: true
+    max_bytes: 256
+  }];
+
+  // config_fingerprint is an opaque connector-computed digest of every
+  // configuration and permission input that changes what upstream data
+  // the connector CAN see (credentials scope, tenant/org selection,
+  // API-permission grants, include/exclude config). Replay is permitted
+  // only when the previous artifact recorded a byte-identical
+  // fingerprint: a config change means cached scopes may cover a
+  // different universe, and replaying them would resurrect rows the new
+  // configuration can no longer observe (or hide rows it now can).
+  // Empty means "connector declares no config sensitivity" and matches
+  // only empty.
+  string config_fingerprint = 3 [(validate.rules).string = {
+    ignore_empty: true
+    max_bytes: 256
+  }];
 }
 
 // SourceCacheRecord is attached to a list-response page whose rows were

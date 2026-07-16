@@ -70,19 +70,30 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 //     are evidence that no external resource file was configured, not
 //     bad data (the match op deletes carriers when it runs).
 //
-// I7/I8/I9 violations are connector-attributable bad data. The
-// platform's ingestion provably discards such rows (grants that resolve
-// no principal or entitlement are skipped at uplift; grants under a
-// missing entitlement are never even read), so by DEFAULT the
-// syncer DROPS the rows and emits one aggregated warning per invariant
-// (total dropped, distinct dangling refs, capped id examples — never
-// per-row logs; the expansion path's per-edge warnings produce millions
-// of lines a week in production). FAIL-FAST mode (tests, the harness)
-// hard-fails so engineered violations are named. Deliberately NOT
-// ErrReplayIntegrity: a dishonest validator makes the warm run fail but
-// the cold run CLEAN, so the cold-retry ladder would never re-attribute
-// to the connector and every sync would pay warm-fail-plus-retry
-// forever.
+// I7/I8/I9 verdicts split on whether the referent's resource TYPE was
+// synced (docs/tasks/dangling-reference-drops.md):
+//
+//   - DISABLED-TYPE danglings (type never synced — a config gap) are
+//     DROPPED with one aggregated warning per invariant (total dropped,
+//     distinct dangling refs, capped id examples — never per-row logs;
+//     the expansion path's per-edge warnings produce millions of lines
+//     a week in production). The platform's ingestion provably discards
+//     such rows anyway. The DROP arm is deliberately NOT
+//     ErrReplayIntegrity: a dishonest validator makes the warm run fail
+//     but the cold run CLEAN, so the cold-retry ladder would never
+//     re-attribute to the connector and every sync would pay
+//     warm-fail-plus-retry forever.
+//   - ENABLED-TYPE danglings (type IS synced) FAIL the sync — never
+//     sealed away. A WARM sync's failure wraps ErrReplayIntegrity so
+//     the runners discard the output and retry cold; a COLD sync with
+//     the same evidence fails plainly, attributed to the connector
+//     (see unexpectedDanglingError). The compaction expand pass
+//     (onlyExpandGrants) is exempt from the FAIL arm: keep-newer merges
+//     manufacture dangling refs by design, and its drops are attributed
+//     separately in the warning.
+//
+// FAIL-FAST mode (tests, the harness) hard-fails every dangling so
+// engineered violations are named.
 //
 // Evidence is monotone (existence bits, set-union scheduling records),
 // so parallel workers and mixed stream/replay arrival orders yield
@@ -98,6 +109,8 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -504,19 +517,28 @@ type danglingTypeProbe struct {
 	known map[string]bool
 }
 
-func (p *danglingTypeProbe) typeExists(ctx context.Context, resourceTypeID string) bool {
+func (p *danglingTypeProbe) typeExists(ctx context.Context, resourceTypeID string) (bool, error) {
 	if v, ok := p.known[resourceTypeID]; ok {
-		return v
-	}
-	if p.known == nil {
-		p.known = map[string]bool{}
+		return v, nil
 	}
 	_, err := p.s.store.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
 		ResourceTypeId: resourceTypeID,
 	}.Build())
+	if err != nil && status.Code(err) != codes.NotFound {
+		// A read failure is NOT "type never synced": that verdict picks
+		// the DROP arm, so an IO error or canceled context here would
+		// seal a sanitized artifact where policy demands a loud failure.
+		// Propagate, and memoize nothing — only definitive answers may
+		// be cached (a memoized transient error would poison every later
+		// reference to the type).
+		return false, fmt.Errorf("resource-type probe for %q: %w", resourceTypeID, err)
+	}
+	if p.known == nil {
+		p.known = map[string]bool{}
+	}
 	exists := err == nil
 	p.known[resourceTypeID] = exists
-	return exists
+	return exists, nil
 }
 
 // unexpectedDanglingError renders the ENABLED-TYPE dangling verdict of
@@ -542,25 +564,31 @@ func (s *syncer) unexpectedDanglingError(format string, args ...any) error {
 	return err
 }
 
-// danglingAttribution renders the config-gap vs bug split for the
-// aggregated warnings.
-func danglingAttribution(unsyncedTypeCount, missingRowCount int) string {
+// danglingAttribution renders the attribution split for the aggregated
+// drop warnings. The drop arm only ever sees two shapes: references
+// into never-synced types (config gaps, any mode) and enabled-type
+// references reached under the compaction expand pass (keep-newer
+// merges manufacture dangling refs no input contained — by design, not
+// a connector bug; enabled-type danglings in a NORMAL sync take the
+// FAIL arm and never reach a warning).
+func danglingAttribution(unsyncedTypeCount, mergeManufacturedCount int) string {
 	switch {
-	case unsyncedTypeCount > 0 && missingRowCount == 0:
+	case mergeManufacturedCount == 0:
 		return "referenced resource type(s) never synced — likely disabled on the connector (config gap), not a code bug"
-	case unsyncedTypeCount == 0 && missingRowCount > 0:
-		return "referenced type(s) ARE synced but the rows are missing — check the connector's magic-id construction"
+	case unsyncedTypeCount == 0:
+		return "references target SYNCED types, dropped during the compaction expand pass — keep-newer merges manufacture these by design; not a connector bug"
 	default:
-		return "mixed: some references target never-synced types (config gap), some target missing rows in synced types (magic-id bug)"
+		return "mixed: some references target never-synced types (config gap), some are compaction-merge-manufactured (expand pass)"
 	}
 }
 
 // checkEntitlementResourceReferences is invariant I7: every distinct
 // resource referenced by an entitlement row must exist as a resource
 // row. One seek per distinct resource among entitlements — bounded by
-// the entitlement count. Default mode DROPS the dangling entitlement
-// rows (uplift skips them anyway — see the header) and warns once with
-// aggregates; fail-fast mode hard-fails. Never ErrReplayIntegrity.
+// the entitlement count. Default mode DROPS disabled-type danglings
+// (uplift skips them anyway — see the header) and warns once with
+// aggregates; enabled-type danglings FAIL (warm → ErrReplayIntegrity;
+// see unexpectedDanglingError); fail-fast mode hard-fails everything.
 func (s *syncer) checkEntitlementResourceReferences(ctx context.Context) error {
 	if s.syncType != connectorstore.SyncTypeFull {
 		return nil
@@ -570,7 +598,7 @@ func (s *syncer) checkEntitlementResourceReferences(ctx context.Context) error {
 		return nil // engine without the inspection surface
 	}
 	probe := &danglingTypeProbe{s: s}
-	danglingResources, unsyncedType, missingRow := 0, 0, 0
+	danglingResources, unsyncedType, mergeManufactured := 0, 0, 0
 	var droppedRows int64
 	var resourceExamples, entIDExamples []string
 	err := facts.ForEachDistinctEntitlementResource(ctx, func(rt, rid string) error {
@@ -581,13 +609,17 @@ func (s *syncer) checkEntitlementResourceReferences(ctx context.Context) error {
 		if exists {
 			return nil
 		}
+		typeSynced, probeErr := probe.typeExists(ctx, rt)
+		if probeErr != nil {
+			return fmt.Errorf("ingest invariant I7: %w", probeErr)
+		}
 		if s.failFastInvariants {
 			return fmt.Errorf(
 				"ingest invariant I7 violated: entitlements reference resource %s/%s but no resource row exists "+
 					"(resource type synced: %t — false means a config gap, true a magic-id construction bug)",
-				rt, rid, probe.typeExists(ctx, rt))
+				rt, rid, typeSynced)
 		}
-		if !s.onlyExpandGrants && probe.typeExists(ctx, rt) {
+		if !s.onlyExpandGrants && typeSynced {
 			// Enabled-type dangling: the referent's type IS synced, so the
 			// missing row is unexpected — never sealed away (replay
 			// policy; see unexpectedDanglingError). The compaction
@@ -604,8 +636,11 @@ func (s *syncer) checkEntitlementResourceReferences(ctx context.Context) error {
 		}
 		danglingResources++
 		droppedRows += n
-		if probe.typeExists(ctx, rt) {
-			missingRow++
+		if typeSynced {
+			// Reachable only under onlyExpandGrants (a normal sync FAILs
+			// enabled-type danglings above): a keep-newer merge
+			// manufactured this gap, not a connector bug.
+			mergeManufactured++
 		} else {
 			unsyncedType++
 		}
@@ -623,8 +658,8 @@ func (s *syncer) checkEntitlementResourceReferences(ctx context.Context) error {
 			zap.Int64("dropped_entitlements", droppedRows),
 			zap.Int("dangling_resources", danglingResources),
 			zap.Int("refs_into_unsynced_types", unsyncedType),
-			zap.Int("refs_missing_rows_in_synced_types", missingRow),
-			zap.String("attribution", danglingAttribution(unsyncedType, missingRow)),
+			zap.Int("refs_manufactured_by_compaction_merge", mergeManufactured),
+			zap.String("attribution", danglingAttribution(unsyncedType, mergeManufactured)),
 			zap.Strings("resource_examples", resourceExamples),
 			zap.Strings("entitlement_id_examples", entIDExamples),
 		)
@@ -648,10 +683,11 @@ func (s *syncer) checkEntitlementResourceReferences(ctx context.Context) error {
 // resource- or entitlement-level exemption would let one IRG grant
 // launder every dangling reference that shares its resource.
 //
-// Default mode DROPS the dangling grants (uplift reads grants BY
+// Default mode DROPS disabled-type danglings (uplift reads grants BY
 // entitlement, so rows under a missing entitlement are never even read
-// platform-side) and warns once with aggregates; fail-fast mode
-// hard-fails. Never ErrReplayIntegrity (see the header).
+// platform-side) and warns once with aggregates; enabled-type danglings
+// FAIL (warm → ErrReplayIntegrity; see unexpectedDanglingError and the
+// header); fail-fast mode hard-fails everything.
 func (s *syncer) checkGrantEntitlementReferences(ctx context.Context) error {
 	if s.syncType != connectorstore.SyncTypeFull {
 		return nil
@@ -661,10 +697,14 @@ func (s *syncer) checkGrantEntitlementReferences(ctx context.Context) error {
 		return nil // engine without the inspection surface
 	}
 	probe := &danglingTypeProbe{s: s}
-	danglingEnts, unsyncedType, missingRow := 0, 0, 0
+	danglingEnts, unsyncedType, mergeManufactured := 0, 0, 0
 	var droppedRows, insertFactKept int64
 	var entIDExamples []string
 	err := facts.ForEachDanglingGrantEntitlement(ctx, func(entitlementID, rt, rid string) error {
+		typeSynced, probeErr := probe.typeExists(ctx, rt)
+		if probeErr != nil {
+			return fmt.Errorf("ingest invariant I8: %w", probeErr)
+		}
 		if s.failFastInvariants {
 			allCarry, err := facts.GrantsForEntitlementAllCarryInsertFact(ctx, entitlementID, rt, rid)
 			if err != nil {
@@ -677,9 +717,9 @@ func (s *syncer) checkGrantEntitlementReferences(ctx context.Context) error {
 				"ingest invariant I8 violated: grants without InsertResourceGrants reference entitlement %q (resource %s/%s) but no entitlement row exists "+
 					"(resource type synced: %t — false means a config gap, true a magic-id construction bug "+
 					"or a grants scope replayed against a refreshed entitlement set)",
-				entitlementID, rt, rid, probe.typeExists(ctx, rt))
+				entitlementID, rt, rid, typeSynced)
 		}
-		if !s.onlyExpandGrants && probe.typeExists(ctx, rt) {
+		if !s.onlyExpandGrants && typeSynced {
 			// Enabled-type dangling (replay policy; see I7's twin arm).
 			// The per-grant IRG exemption still applies: an entitlement
 			// whose grants ALL carry InsertResourceGrants is the
@@ -706,8 +746,9 @@ func (s *syncer) checkGrantEntitlementReferences(ctx context.Context) error {
 		}
 		danglingEnts++
 		droppedRows += n
-		if probe.typeExists(ctx, rt) {
-			missingRow++
+		if typeSynced {
+			// Only reachable under onlyExpandGrants — see I7's twin arm.
+			mergeManufactured++
 		} else {
 			unsyncedType++
 		}
@@ -725,8 +766,8 @@ func (s *syncer) checkGrantEntitlementReferences(ctx context.Context) error {
 			zap.Int("dangling_entitlements", danglingEnts),
 			zap.Int64("insert_resource_grants_kept", insertFactKept),
 			zap.Int("refs_into_unsynced_types", unsyncedType),
-			zap.Int("refs_missing_rows_in_synced_types", missingRow),
-			zap.String("attribution", danglingAttribution(unsyncedType, missingRow)),
+			zap.Int("refs_manufactured_by_compaction_merge", mergeManufactured),
+			zap.String("attribution", danglingAttribution(unsyncedType, mergeManufactured)),
 			zap.Strings("entitlement_id_examples", entIDExamples),
 		)
 	}
@@ -746,9 +787,10 @@ func (s *syncer) checkGrantEntitlementReferences(ctx context.Context) error {
 // are evidence of a config gap, not bad data, and dropping them would
 // make a misconfigured deployment look clean.
 //
-// Default mode DROPS the dangling grants (uplift skips grants whose
+// Default mode DROPS disabled-type danglings (uplift skips grants whose
 // principal resolves no platform object) and warns once with
-// aggregates; fail-fast mode hard-fails. Never ErrReplayIntegrity.
+// aggregates; enabled-type danglings FAIL (warm → ErrReplayIntegrity;
+// see unexpectedDanglingError); fail-fast mode hard-fails everything.
 func (s *syncer) checkGrantPrincipalReferences(ctx context.Context) error {
 	if s.syncType != connectorstore.SyncTypeFull {
 		return nil
@@ -761,7 +803,7 @@ func (s *syncer) checkGrantPrincipalReferences(ctx context.Context) error {
 		return fmt.Errorf("ingest invariant I9: ensuring grant indexes: %w", err)
 	}
 	probe := &danglingTypeProbe{s: s}
-	danglingPrincipals, unsyncedType, missingRow := 0, 0, 0
+	danglingPrincipals, unsyncedType, mergeManufactured := 0, 0, 0
 	var droppedRows, matchCarriersKept int64
 	var principalExamples []string
 	// matchCarriersKept counts GRANTS uniformly: fully-annotated
@@ -772,14 +814,18 @@ func (s *syncer) checkGrantPrincipalReferences(ctx context.Context) error {
 			matchCarriersKept += carrierGrants
 			return nil
 		}
+		typeSynced, probeErr := probe.typeExists(ctx, rt)
+		if probeErr != nil {
+			return fmt.Errorf("ingest invariant I9: %w", probeErr)
+		}
 		if s.failFastInvariants {
 			return fmt.Errorf(
 				"ingest invariant I9 violated: grants reference principal %s/%s but no resource row exists "+
 					"(resource type synced: %t — false means a config gap, true means the connector "+
 					"emitted grants for a principal it never synced)",
-				rt, rid, probe.typeExists(ctx, rt))
+				rt, rid, typeSynced)
 		}
-		if !s.onlyExpandGrants && probe.typeExists(ctx, rt) {
+		if !s.onlyExpandGrants && typeSynced {
 			// Enabled-type dangling (replay policy; see I7's twin arm).
 			// Mixed populations land here too: exempt carriers were
 			// already excluded above (matchAnnotatedOnly), so a plain
@@ -796,8 +842,9 @@ func (s *syncer) checkGrantPrincipalReferences(ctx context.Context) error {
 		danglingPrincipals++
 		droppedRows += deleted
 		matchCarriersKept += skipped
-		if probe.typeExists(ctx, rt) {
-			missingRow++
+		if typeSynced {
+			// Only reachable under onlyExpandGrants — see I7's twin arm.
+			mergeManufactured++
 		} else {
 			unsyncedType++
 		}
@@ -815,8 +862,8 @@ func (s *syncer) checkGrantPrincipalReferences(ctx context.Context) error {
 			zap.Int64("dropped_grants", droppedRows),
 			zap.Int("dangling_principals", danglingPrincipals),
 			zap.Int("refs_into_unsynced_types", unsyncedType),
-			zap.Int("refs_missing_rows_in_synced_types", missingRow),
-			zap.String("attribution", danglingAttribution(unsyncedType, missingRow)),
+			zap.Int("refs_manufactured_by_compaction_merge", mergeManufactured),
+			zap.String("attribution", danglingAttribution(unsyncedType, mergeManufactured)),
 			zap.Strings("principal_examples", principalExamples),
 		)
 	}
