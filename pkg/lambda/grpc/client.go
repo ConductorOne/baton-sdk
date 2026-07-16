@@ -23,20 +23,51 @@ import (
 type lambdaTransport struct {
 	lambdaClient *lambda.Client
 	functionName string
+
+	// wireFramesEnabled gates the v2 dual-encoded wire frame (see wire.go).
+	// It defaults to false: some deployed lambda connectors predate the
+	// DiscardUnknown behavior the frame relies on and unmarshal transport
+	// JSON with strict protojson, so an unrecognized top-level "v"/"frame"
+	// pair fails their request decode outright rather than being ignored.
+	// Callers that know every target connector is on an SDK new enough to
+	// tolerate (or read) the frame can opt in with WithWireFrames.
+	wireFramesEnabled bool
+}
+
+// LambdaTransportOption configures a lambdaTransport constructed by
+// NewLambdaClientTransport.
+type LambdaTransportOption func(*lambdaTransport)
+
+// WithWireFrames opts a transport into the v2 dual-encoded wire frame,
+// which preserves annotation types the invoker's process cannot resolve.
+// Only enable this for connectors confirmed to run an SDK build that
+// tolerates unknown transport JSON fields (see wireFramesEnabled) — an
+// older connector will fail to decode the request entirely.
+func WithWireFrames(enabled bool) LambdaTransportOption {
+	return func(l *lambdaTransport) {
+		l.wireFramesEnabled = enabled
+	}
 }
 
 func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Response, error) {
-	payload, frameOnly, err := req.marshalPayload()
+	var payload []byte
+	var err error
+	if l.wireFramesEnabled {
+		var frameOnly error
+		payload, frameOnly, err = req.marshalPayload()
+		if frameOnly != nil {
+			ctxzap.Extract(ctx).Warn(
+				"lambda_transport: request has no legacy encoding, sending v2 frame only; a connector on a pre-frame SDK cannot process this call",
+				zap.String("method", req.Method()),
+				zap.String("function_name", l.functionName),
+				zap.NamedError("legacy_encoding_error", frameOnly),
+			)
+		}
+	} else {
+		payload, err = req.marshalLegacy()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("lambda_transport: failed to marshal frame: %w", err)
-	}
-	if frameOnly != nil {
-		ctxzap.Extract(ctx).Warn(
-			"lambda_transport: request has no legacy encoding, sending v2 frame only; a connector on a pre-frame SDK cannot process this call",
-			zap.String("method", req.Method()),
-			zap.String("function_name", l.functionName),
-			zap.NamedError("legacy_encoding_error", frameOnly),
-		)
 	}
 
 	input := &lambda.InvokeInput{
@@ -99,11 +130,15 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 }
 
 // NewLambdaClientTransport returns a new client transport that invokes a lambda function.
-func NewLambdaClientTransport(ctx context.Context, client *lambda.Client, functionName string) (ClientTransport, error) {
-	return &lambdaTransport{
+func NewLambdaClientTransport(ctx context.Context, client *lambda.Client, functionName string, opts ...LambdaTransportOption) (ClientTransport, error) {
+	l := &lambdaTransport{
 		lambdaClient: client,
 		functionName: functionName,
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(l)
+	}
+	return l, nil
 }
 
 type ClientTransport interface {

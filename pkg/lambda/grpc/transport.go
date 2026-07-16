@@ -244,6 +244,17 @@ func (f *Request) marshalPayload() ([]byte, error, error) {
 	return dual, nil, nil
 }
 
+// marshalLegacy encodes the request as plain protojson, with no v2 wire
+// frame fields spliced in. This is the pre-frame encoding every deployed
+// lambda connector can decode, including ones built before DiscardUnknown
+// was added to the transport unmarshal path — those decode transport JSON
+// with strict protojson and fail outright on an unrecognized top-level
+// field, so they cannot tolerate the dual-encoded payload marshalPayload
+// produces.
+func (f *Request) marshalLegacy() ([]byte, error) {
+	return protojson.Marshal(f.msg)
+}
+
 func (f *Request) Method() string {
 	return f.msg.GetMethod()
 }
