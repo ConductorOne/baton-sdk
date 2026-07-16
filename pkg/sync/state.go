@@ -105,6 +105,18 @@ func PrepareExpansionReplayToken(stateStr string) (string, error) {
 	return st.Marshal()
 }
 
+// GraphFromToken parses a sync token and returns its persisted entitlement
+// graph, for running an incremental expansion against a prior sync's graph.
+// Returns nil if the token carried no graph (e.g. a sync without
+// WithPreserveEntitlementGraph).
+func GraphFromToken(stateStr string) (*expand.EntitlementGraph, error) {
+	st := newState()
+	if err := st.Unmarshal(stateStr); err != nil {
+		return nil, err
+	}
+	return st.entitlementGraph, nil
+}
+
 // ActionOp represents a sync operation.
 type ActionOp uint8
 

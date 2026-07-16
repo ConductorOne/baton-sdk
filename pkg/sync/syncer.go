@@ -155,6 +155,7 @@ type syncer struct {
 	targetedSyncResources               []*v2.Resource
 	onlyExpandGrants                    bool
 	dontExpandGrants                    bool
+	preserveEntitlementGraph            bool
 	syncID                              string
 	skipEGForResourceType               syncMap[string, bool]
 	skipEntitlementsForResourceType     syncMap[string, bool]
@@ -180,6 +181,14 @@ var _ Syncer = (*syncer)(nil)
 // a single narrow interface without knowing about C1ZStore.
 type expanderStoreAdapter struct {
 	store c1zstore.Store
+}
+
+// NewExpanderStore adapts a c1zstore.Store into an expand.ExpanderStore,
+// bridging engine differences (Pebble exposes StoreExpandedGrants on its
+// Grants() sub-store, SQLite at top level). Use this instead of type-asserting
+// the store, which is unsafe for Pebble.
+func NewExpanderStore(store c1zstore.Store) expand.ExpanderStore {
+	return expanderStoreAdapter{store: store}
 }
 
 func (a expanderStoreAdapter) GetEntitlement(ctx context.Context, req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
@@ -876,7 +885,11 @@ func (s *syncer) Sync(ctx context.Context) error {
 	s.logIngestFilterSummary(ctx)
 
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
-	s.state.ClearEntitlementGraph(ctx)
+	// preserveEntitlementGraph keeps the graph in the final token so a later
+	// incremental expansion can reload it instead of rebuilding from scratch.
+	if !s.preserveEntitlementGraph {
+		s.state.ClearEntitlementGraph(ctx)
+	}
 	s.state.ClearExclusionGroupTracking(ctx)
 
 	err = s.Checkpoint(ctx, true)
@@ -3172,6 +3185,15 @@ func WithSyncResourceTypes(resourceTypeIDs []string) SyncOpt {
 func WithOnlyExpandGrants() SyncOpt {
 	return func(s *syncer) {
 		s.onlyExpandGrants = true
+	}
+}
+
+// WithPreserveEntitlementGraph keeps the entitlement graph in the final sync
+// token instead of clearing it at sync end, so a later incremental expansion
+// can reload it rather than rebuilding it from scratch.
+func WithPreserveEntitlementGraph() SyncOpt {
+	return func(s *syncer) {
+		s.preserveEntitlementGraph = true
 	}
 }
 
