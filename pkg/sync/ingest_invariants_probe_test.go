@@ -14,7 +14,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -78,6 +80,49 @@ func TestDanglingTypeProbeErrorFailsInsteadOfDropping(t *testing.T) {
 	// Same seam for I8: a grant whose entitlement has no row.
 	err = s.checkGrantEntitlementReferences(ctx)
 	require.NoError(t, err, "no dangling grants planted; I8 must pass without probing")
+
+	require.NoError(t, cur.Close(ctx))
+}
+
+// TestExclusionGroupVerdictRidesWarmColdLadder pins I5's membership in
+// the warm/cold ErrReplayIntegrity ladder: replayed stale entitlement
+// rows can manufacture warm-only exclusion-group conflicts (a stale
+// group member beside a fresh one), so a warm verdict must carry the
+// sentinel (runners discard + retry cold) while a cold verdict is
+// attributed plainly to the connector — the same classification as
+// I3/I6/enabled I7–I9.
+func TestExclusionGroupVerdictRidesWarmColdLadder(t *testing.T) {
+	ctx, err := logging.Init(t.Context())
+	require.NoError(t, err)
+	tmpDir := t.TempDir()
+
+	group := v2.EntitlementExclusionGroup_builder{ExclusionGroupId: "eg-1", IsDefault: true}.Build()
+	res := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+	}.Build()
+	// Two defaults in one group: an I5 violation however the rows arrived.
+	ent1 := v2.Entitlement_builder{Id: "group:g1:member", Resource: res, Annotations: annotations.New(group)}.Build()
+	ent2 := v2.Entitlement_builder{Id: "group:g1:owner", Resource: res, Annotations: annotations.New(group)}.Build()
+
+	cur := newRepairTestStore(ctx, t, filepath.Join(tmpDir, "cur.c1z"), tmpDir)
+	_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, cur.PutEntitlements(ctx, ent1, ent2))
+
+	s := &syncer{store: cur, syncType: connectorstore.SyncTypeFull}
+
+	// Cold: plain connector attribution, no sentinel.
+	err = s.validateStoredExclusionGroups(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ingest invariant I5")
+	require.Contains(t, err.Error(), "multiple default entitlements")
+	require.NotErrorIs(t, err, ErrReplayIntegrity, "a cold verdict is terminal, not a replay fault")
+
+	// Warm: the same evidence may be replay-carried staleness.
+	s.sourceCache.prev = struct{ dotc1z.SourceCacheStore }{}
+	err = s.validateStoredExclusionGroups(ctx)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrReplayIntegrity, "a warm verdict must ride the discard-and-retry-cold ladder")
 
 	require.NoError(t, cur.Close(ctx))
 }

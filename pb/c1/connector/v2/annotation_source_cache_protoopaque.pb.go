@@ -428,6 +428,14 @@ type SourceCacheReplay_builder struct {
 	// SourceCacheRecord with the same scope_key) contains changed rows to
 	// upsert on top of the replayed base. When false the response must
 	// contain no rows for this scope.
+	//
+	// TRANSITIONAL: the SDK currently tolerates rows on a non-overlay
+	// replay page — it warns and upserts them with overlay semantics —
+	// while the model is validated against real providers. Do not rely on
+	// this: the tolerance will become a hard error, because a connector
+	// that fetched fresh rows and still attached a replay annotation keeps
+	// resurrecting the replayed base every sync (upstream deletions never
+	// propagate).
 	Overlay bool
 	// Public canonical IDs (grant/entitlement IDs, or resource BIDs for
 	// RowKindResources) to delete from the current sync after the replay

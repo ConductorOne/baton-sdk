@@ -328,6 +328,35 @@ const dirtyCrashRound = 2
 // through round 1's dirty→clean replay, where a lost invalidation would
 // 304 the sanitized subsets.
 func TestSourceCache_DirtyHaltAtInvariantSeam(t *testing.T) {
+	runDirtyHaltAtStage(t, "ingest-invariants-complete")
+}
+
+// TestSourceCache_DirtyHaltSweepInsideInvariantPass sweeps every seam
+// INSIDE the invariant pass (the stage hooks in runIngestionInvariants):
+// halt after each invariant's drops/repairs committed, resume the same
+// file, and require the resumed output to equal a cold sync. This is
+// what pins the stop-point matrix from the crash review — "I7's drops
+// committed, I8 never ran" converges via the drop cascade on re-run;
+// "deferred index built, marker cleared, I9 never scanned" re-scans
+// without repeating the O(grants) build — instead of arguing those
+// recoveries from code structure.
+func TestSourceCache_DirtyHaltSweepInsideInvariantPass(t *testing.T) {
+	stages := []string{
+		"invariants-I5-complete",
+		"invariants-I6-complete",
+		"invariants-I7-complete",
+		"invariants-I3-complete",
+		"invariants-I8-complete",
+		"invariants-I9-indexes-ensured",
+	}
+	for _, stage := range stages {
+		t.Run(stage, func(t *testing.T) {
+			runDirtyHaltAtStage(t, stage)
+		})
+	}
+}
+
+func runDirtyHaltAtStage(t *testing.T, stage string) {
 	ctx, err := logging.Init(t.Context())
 	require.NoError(t, err)
 	tmpDir := t.TempDir()
@@ -338,7 +367,7 @@ func TestSourceCache_DirtyHaltAtInvariantSeam(t *testing.T) {
 	var warmClient types.ConnectorClient = warmConn
 	var coldClient types.ConnectorClient = coldConn
 
-	halt := &haltOnce{stage: "ingest-invariants-complete"}
+	halt := &haltOnce{stage: stage}
 	hookOpt := func(s *syncer) { s.testSourceCacheHaltHook = halt.hook }
 
 	// Round 0: the warm leg crashes at the seam, then resumes the SAME
@@ -346,7 +375,7 @@ func TestSourceCache_DirtyHaltAtInvariantSeam(t *testing.T) {
 	warm0 := filepath.Join(tmpDir, "warm-r0.c1z")
 	haltErr := runEquivSyncMode(ctx, t, warmClient, warm0, "", tmpDir, false, hookOpt)
 	require.Error(t, haltErr, "the armed halt must crash the dirty sync at the invariant seam")
-	require.Contains(t, haltErr.Error(), "injected halt at ingest-invariants-complete")
+	require.Contains(t, haltErr.Error(), "injected halt at "+stage)
 	require.NoError(t, runEquivSyncMode(ctx, t, warmClient, warm0, "", tmpDir, false, hookOpt),
 		"resume after the invariant-seam halt must complete (drops must be idempotent over already-dropped state)")
 

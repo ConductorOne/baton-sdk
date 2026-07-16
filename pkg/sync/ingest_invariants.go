@@ -476,6 +476,13 @@ func (t *exclusionGroupTracker) record(ent *v2.Entitlement) error {
 // sole exclusion-group validation: it covers fresh, replayed, and
 // generated (static) entitlements uniformly, on every engine, regardless
 // of how rows arrived.
+//
+// Verdicts ride the warm/cold ladder like the other FAIL-class
+// invariants (I3/I6/enabled I7–I9): replayed stale entitlement rows can
+// manufacture warm-only conflicts (a stale group member beside a fresh
+// one), so a warm failure wraps ErrReplayIntegrity for discard+cold
+// while a cold failure is attributed plainly to the connector. Store IO
+// errors stay plain — they are not replay-implicated.
 func (s *syncer) validateStoredExclusionGroups(ctx context.Context) error {
 	tracker := &exclusionGroupTracker{}
 	pageToken := ""
@@ -489,7 +496,7 @@ func (s *syncer) validateStoredExclusionGroups(ctx context.Context) error {
 		}
 		for _, ent := range resp.GetList() {
 			if err := tracker.record(ent); err != nil {
-				return err
+				return s.wrapWarmReplayIntegrity(fmt.Errorf("ingest invariant I5 violated: %w", err))
 			}
 		}
 		if pageToken = resp.GetNextPageToken(); pageToken == "" {
@@ -557,7 +564,16 @@ func (p *danglingTypeProbe) typeExists(ctx context.Context, resourceTypeID strin
 // consistent with one aggregated warning, and their scopes' manifest
 // entries are invalidated so a later type-enable re-fetches them cold.
 func (s *syncer) unexpectedDanglingError(format string, args ...any) error {
-	err := fmt.Errorf(format, args...)
+	return s.wrapWarmReplayIntegrity(fmt.Errorf(format, args...))
+}
+
+// wrapWarmReplayIntegrity classifies a FAIL-class invariant verdict for
+// the cold-retry ladder: on a WARM sync the evidence may be
+// replay-carried staleness, so the error wraps ErrReplayIntegrity and
+// the runners discard the output and retry cold; the same evidence on a
+// COLD sync is terminal and attributed plainly. Only VERDICTS ride the
+// ladder — store IO errors are not replay-implicated and stay plain.
+func (s *syncer) wrapWarmReplayIntegrity(err error) error {
 	if s.sourceCache.prev != nil {
 		return fmt.Errorf("%w (warm sync: discard the output and retry cold): %w", err, ErrReplayIntegrity)
 	}
@@ -802,6 +818,14 @@ func (s *syncer) checkGrantPrincipalReferences(ctx context.Context) error {
 	if err := facts.EnsureGrantIndexes(ctx); err != nil {
 		return fmt.Errorf("ingest invariant I9: ensuring grant indexes: %w", err)
 	}
+	if s.testSourceCacheHaltHook != nil {
+		// Seam between the deferred index build (marker durably cleared)
+		// and I9's scan/drops: a crash here must resume without EndSync
+		// repeating the O(grants) rebuild and with I9 re-scanning cleanly.
+		if err := s.testSourceCacheHaltHook("invariants-I9-indexes-ensured", ""); err != nil {
+			return err
+		}
+	}
 	probe := &danglingTypeProbe{s: s}
 	danglingPrincipals, unsyncedType, mergeManufactured := 0, 0, 0
 	var droppedRows, matchCarriersKept int64
@@ -932,10 +956,27 @@ func (s *syncer) checkSourceCacheScopeConsistency(ctx context.Context) error {
 // re-reaches this point re-evaluates with the same verdict (drops
 // already applied leave nothing dangling on re-run).
 func (s *syncer) runIngestionInvariants(ctx context.Context) error {
+	// halt fires the test-only seam hook between invariants, so the
+	// crash sweep (TestSourceCache_DirtyHaltSweepInsideInvariantPass)
+	// can pin resume convergence at every mid-pass stop point — e.g.
+	// "I7's drops committed, I8 never ran" must converge on re-run via
+	// the drop cascade. Nil-guarded no-op in production.
+	halt := func(stage string) error {
+		if s.testSourceCacheHaltHook == nil {
+			return nil
+		}
+		return s.testSourceCacheHaltHook(stage, "")
+	}
 	if err := s.validateStoredExclusionGroups(ctx); err != nil {
 		return err
 	}
+	if err := halt("invariants-I5-complete"); err != nil {
+		return err
+	}
 	if err := s.checkSourceCacheScopeConsistency(ctx); err != nil {
+		return err
+	}
+	if err := halt("invariants-I6-complete"); err != nil {
 		return err
 	}
 	if err := s.checkChildScheduling(ctx); err != nil {
@@ -944,10 +985,19 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 	if err := s.checkEntitlementResourceReferences(ctx); err != nil {
 		return err
 	}
+	if err := halt("invariants-I7-complete"); err != nil {
+		return err
+	}
 	if err := s.checkGrantResourceReferences(ctx); err != nil {
 		return err
 	}
+	if err := halt("invariants-I3-complete"); err != nil {
+		return err
+	}
 	if err := s.checkGrantEntitlementReferences(ctx); err != nil {
+		return err
+	}
+	if err := halt("invariants-I8-complete"); err != nil {
 		return err
 	}
 	return s.checkGrantPrincipalReferences(ctx)

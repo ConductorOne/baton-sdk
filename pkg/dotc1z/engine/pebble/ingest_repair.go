@@ -21,6 +21,8 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
@@ -63,6 +65,11 @@ func (e *Engine) EnsureGrantIndexes(ctx context.Context) error {
 // (the mixed-principal path reports its own per-grant skip count).
 // Value reads happen only for dangling principals, never on the
 // healthy path.
+//
+// A principal whose index entries are ALL orphans (no primary rows) is
+// never visited: it has no grants to judge, so it is healed in place —
+// the orphan index keys are deleted — instead of being vacuously
+// classified as match-annotated-only.
 func (e *Engine) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(principalRT, principalID string, matchAnnotatedOnly bool, carrierGrants int64) error) error {
 	prefix := []byte{versionV3, typeIndex, idxGrantByPrincipal}
 	prefix = codec.AppendTupleSeparator(prefix)
@@ -74,6 +81,14 @@ func (e *Engine) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(p
 		return err
 	}
 	defer iter.Close()
+
+	// Healed-orphan aggregation: one Warn per sweep (the house shape —
+	// never per-principal logs; a systematic writer bug could strand
+	// entries for thousands of principals). Orphans are always a bug
+	// signal, so the aggregate must be visible at default level.
+	var healedEntries int64
+	healedPrincipals := 0
+	var healedExamples []string
 
 	for valid := iter.First(); valid; {
 		if err := ctx.Err(); err != nil {
@@ -99,14 +114,101 @@ func (e *Engine) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(p
 			if err != nil {
 				return err
 			}
-			if err := visit(rt, rid, matchOnly, carrierGrants); err != nil {
-				return err
+			switch {
+			case matchOnly && carrierGrants == 0:
+				// Every index entry under this principal is an orphan
+				// (no primary row): there are no grants to judge, so
+				// neither the match-carrier exemption nor the fail/drop
+				// arms apply — the "all match-annotated" verdict was
+				// vacuous. Heal the index garbage instead, mirroring the
+				// replay pre-clear's treatment of orphan scope-index
+				// entries, so a writer bug that strands by_principal
+				// entries is scrubbed rather than vacuously exempted on
+				// every future sweep.
+				healed, err := e.healOrphanPrincipalIndexEntries(ctx, rt, rid)
+				if err != nil {
+					return err
+				}
+				if healed > 0 {
+					healedEntries += healed
+					healedPrincipals++
+					if len(healedExamples) < maxHealedOrphanExamples {
+						healedExamples = append(healedExamples, rt+"/"+rid)
+					}
+				}
+			default:
+				if err := visit(rt, rid, matchOnly, carrierGrants); err != nil {
+					return err
+				}
 			}
 		}
 		// Skip every remaining grant of this principal.
 		valid = iter.SeekGE(upperBoundOf(encodeGrantByPrincipalPrefix(rt, rid)))
 	}
-	return iter.Error()
+	if err := iter.Error(); err != nil {
+		return err
+	}
+	if healedEntries > 0 {
+		ctxzap.Extract(ctx).Warn("HEALED orphan by_principal index entries (index keys with no grant row — evidence of a writer bug, not connector data)",
+			zap.Int64("healed_entries", healedEntries),
+			zap.Int("principals", healedPrincipals),
+			zap.Strings("principal_examples", healedExamples),
+		)
+	}
+	return nil
+}
+
+// maxHealedOrphanExamples caps the principal examples on the aggregated
+// healed-orphan warning, matching the dangling-reference warnings' shape.
+const maxHealedOrphanExamples = 25
+
+// healOrphanPrincipalIndexEntries deletes by_principal index entries
+// whose primary grant row does not exist, for one principal. Identities
+// are re-collected and re-probed under the write lock, so an entry whose
+// row appeared since the caller's read scan is kept. Returns the number
+// of entries healed.
+func (e *Engine) healOrphanPrincipalIndexEntries(ctx context.Context, principalRT, principalID string) (int64, error) {
+	var healed int64
+	err := e.withWrite(func() error {
+		ids, err := e.grantIdentitiesForPrincipal(ctx, principalRT, principalID)
+		if err != nil {
+			return err
+		}
+		batch := e.db.NewBatch()
+		defer batch.Close()
+		for _, id := range ids {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			_, closer, getErr := e.db.Get(encodeGrantIdentityKey(id))
+			switch {
+			case errors.Is(getErr, pebble.ErrNotFound):
+				if err := batch.Delete(encodeGrantByPrincipalIdentityIndexKey(id), nil); err != nil {
+					return err
+				}
+				healed++
+			case getErr != nil:
+				return getErr
+			default:
+				closer.Close()
+			}
+		}
+		if healed == 0 {
+			return nil
+		}
+		return batch.Commit(e.dropWriteOpts())
+	})
+	if err != nil {
+		return 0, err
+	}
+	if healed > 0 {
+		ctxzap.Extract(ctx).Debug("healed orphan by_principal index entries",
+			zap.String("principal_resource_type_id", principalRT),
+			zap.String("principal_resource_id", principalID),
+			zap.Int64("healed", healed),
+		)
+	}
+	return healed, nil
 }
 
 // grantsForPrincipalAllMatchAnnotated reports whether every grant under
@@ -415,6 +517,15 @@ func (e *Engine) DeleteGrantsForPrincipal(ctx context.Context, principalRT, prin
 
 		b := e.newDropBatcher(ctx)
 		defer b.close()
+		// Keyed on commits that LANDED, not on success: committed drop
+		// chunks make any stashed deferred-grant stats stale even when a
+		// later chunk errors, so the sidecar must recount rather than
+		// report rows that were durably dropped.
+		defer func() {
+			if b.committedRows > 0 {
+				e.invalidateDeferredGrantStats()
+			}
+		}()
 
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
@@ -448,7 +559,16 @@ func (e *Engine) DeleteGrantsForPrincipal(ctx context.Context, principalRT, prin
 			val, closer, getErr := e.db.Get(priKey)
 			if getErr != nil {
 				if errors.Is(getErr, pebble.ErrNotFound) {
-					continue // index entry without a row; tolerated
+					// Orphan index entry (no row): heal it in the same
+					// batch pass, mirroring the replay pre-clear, so the
+					// drop doesn't leave index garbage behind.
+					if err := b.batch.Delete(iter.Key(), nil); err != nil {
+						return err
+					}
+					if err := b.rotate(); err != nil {
+						return err
+					}
+					continue
 				}
 				return getErr
 			}
@@ -476,9 +596,6 @@ func (e *Engine) DeleteGrantsForPrincipal(ctx context.Context, principalRT, prin
 	})
 	if err != nil {
 		return 0, 0, err
-	}
-	if deleted > 0 {
-		e.invalidateDeferredGrantStats()
 	}
 	return deleted, skipped, nil
 }
@@ -514,6 +631,13 @@ func (e *Engine) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, 
 
 		b := e.newDropBatcher(ctx)
 		defer b.close()
+		// Keyed on commits that LANDED, not on success — see
+		// DeleteGrantsForPrincipal's twin defer.
+		defer func() {
+			if b.committedRows > 0 {
+				e.invalidateDeferredGrantStats()
+			}
+		}()
 
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
@@ -546,9 +670,6 @@ func (e *Engine) DeleteGrantsForEntitlement(ctx context.Context, entitlementID, 
 	})
 	if err != nil {
 		return 0, 0, err
-	}
-	if deleted > 0 {
-		e.invalidateDeferredGrantStats()
 	}
 	return deleted, skipped, nil
 }
