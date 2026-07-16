@@ -200,19 +200,20 @@ type syncer struct {
 	// event (seed/dequeue/commit/abort/done) for post-hoc verification
 	// of the queue contract. Nil in production: one pointer check per
 	// queue operation.
-	testQueueAudit        *queueAudit
-	connector             types.ConnectorClient
-	state                 State
-	runDuration           time.Duration
-	transitionHandler     func(s Action)
-	progressHandler       func(p *Progress)
-	tmpDir                string
-	storageEngine         c1zstore.Engine
-	skipFullSync          bool
-	lastCheckPointTime    time.Time
-	counts                *progresslog.ProgressLog
-	targetedSyncResources []*v2.Resource
-	onlyExpandGrants      bool
+	testQueueAudit           *queueAudit
+	connector                types.ConnectorClient
+	state                    State
+	runDuration              time.Duration
+	transitionHandler        func(s Action)
+	progressHandler          func(p *Progress)
+	tmpDir                   string
+	storageEngine            c1zstore.Engine
+	skipFullSync             bool
+	lastCheckPointTime       time.Time
+	counts                   *progresslog.ProgressLog
+	targetedSyncResources    []*v2.Resource
+	onlyExpandGrants         bool
+	preserveEntitlementGraph bool
 	// compactionMergedStore marks the store as a pre-sealed artifact
 	// this process did not collect (WithCompactionMergedStore — the
 	// compactor's keep-newer merge and rollback-expansion's replay):
@@ -261,6 +262,14 @@ var _ Syncer = (*syncer)(nil)
 // a single narrow interface without knowing about C1ZStore.
 type expanderStoreAdapter struct {
 	store c1zstore.Store
+}
+
+// NewExpanderStore adapts a c1zstore.Store into an expand.ExpanderStore,
+// bridging engine differences (Pebble exposes StoreExpandedGrants on its
+// Grants() sub-store, SQLite at top level). Use this instead of type-asserting
+// the store, which is unsafe for Pebble.
+func NewExpanderStore(store c1zstore.Store) expand.ExpanderStore {
+	return expanderStoreAdapter{store: store}
 }
 
 func (a expanderStoreAdapter) GetEntitlement(ctx context.Context, req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
@@ -1049,7 +1058,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 	}
 
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
-	s.state.ClearEntitlementGraph(ctx)
+	// preserveEntitlementGraph keeps the graph in the final token so a later
+	// incremental expansion can reload it instead of rebuilding from scratch.
+	if !s.preserveEntitlementGraph {
+		s.state.ClearEntitlementGraph(ctx)
+	}
+	s.state.ClearExclusionGroupTracking(ctx)
 
 	err = s.Checkpoint(ctx, true)
 	if err != nil {
@@ -3887,6 +3901,15 @@ func WithOnlyExpandGrants() SyncOpt {
 func WithCompactionMergedStore() SyncOpt {
 	return func(s *syncer) {
 		s.compactionMergedStore = true
+	}
+}
+
+// WithPreserveEntitlementGraph keeps the entitlement graph in the final sync
+// token instead of clearing it at sync end, so a later incremental expansion
+// can reload it rather than rebuilding it from scratch.
+func WithPreserveEntitlementGraph() SyncOpt {
+	return func(s *syncer) {
+		s.preserveEntitlementGraph = true
 	}
 }
 
