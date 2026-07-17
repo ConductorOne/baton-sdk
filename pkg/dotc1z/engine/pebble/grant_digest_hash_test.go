@@ -13,7 +13,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // The seal-time digest build never decodes anything: the hash-index key
@@ -69,8 +69,8 @@ func TestGrantDigestSpliceMatchesEncode(t *testing.T) {
 			val, err := marshalRecord(rec)
 			require.NoError(t, err)
 
-			sep4, ok := keys.SplitGrantPrimaryKey(priKey)
-			require.True(t, ok, "keys.SplitGrantPrimaryKey")
+			sep4, ok := rawdb.SplitGrantPrimaryKey(priKey)
+			require.True(t, ok, "rawdb.SplitGrantPrimaryKey")
 
 			// The partition region of the primary key is exactly the
 			// encoded entitlement identity tail.
@@ -98,7 +98,7 @@ func TestGrantDigestSpliceMatchesEncode(t *testing.T) {
 
 			// Index key splice == reference built entirely from encoders.
 			idxKey := appendGrantHashIndexKeyFromPrimary(nil, priKey, sep4, wantBH64)
-			ref := keys.GrantHashIndexEntitlementPrefix(string(partition))
+			ref := rawdb.GrantHashIndexEntitlementPrefix(string(partition))
 			ref = append(ref, principalBucketHash(tc.prt, tc.pid)...)
 			ref = codec.AppendTupleStrings(ref, tc.prt, tc.pid)
 			require.Equal(t, ref, idxKey, "index key: splice vs encode")
@@ -281,7 +281,7 @@ func TestGrantDigestPartitionPrefixFree(t *testing.T) {
 	}
 	prefixes := make([][]byte, len(ids))
 	for i, id := range ids {
-		prefixes[i] = keys.GrantHashIndexEntitlementPrefix(digestPartitionForEntitlement(id))
+		prefixes[i] = rawdb.GrantHashIndexEntitlementPrefix(digestPartitionForEntitlement(id))
 	}
 	for i := range prefixes {
 		for j := range prefixes {

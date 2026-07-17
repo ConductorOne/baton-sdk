@@ -10,7 +10,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // Store-level Cleanup behavior (retention policy, dirty bit, env
@@ -117,7 +117,7 @@ func TestSyncScopedRangesCoverEveryWrittenIndex(t *testing.T) {
 	}
 	written = append(written,
 		writtenKey{idxResourceByParent, "resource_by_parent",
-			keys.EncodeResourceByParentIndexKey("folder", "root", "doc", "d1")},
+			rawdb.EncodeResourceByParentIndexKey("folder", "root", "doc", "d1")},
 	)
 
 	covered := func(k []byte) bool {

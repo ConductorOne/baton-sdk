@@ -11,7 +11,6 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
@@ -260,7 +259,7 @@ func ResourceIndexKeys(r *v3.ResourceRecord) [][]byte {
 	if parent == nil || parent.GetResourceId() == "" {
 		return nil
 	}
-	return [][]byte{keys.EncodeResourceByParentIndexKey(parent.GetResourceTypeId(), parent.GetResourceId(), r.GetResourceTypeId(), r.GetResourceId())}
+	return [][]byte{rawdb.EncodeResourceByParentIndexKey(parent.GetResourceTypeId(), parent.GetResourceId(), r.GetResourceTypeId(), r.GetResourceId())}
 }
 
 func ForEachResourceIndexKey(r *v3.ResourceRecord, yield func([]byte) error) error {
@@ -268,14 +267,14 @@ func ForEachResourceIndexKey(r *v3.ResourceRecord, yield func([]byte) error) err
 	if parent == nil || parent.GetResourceId() == "" {
 		return nil
 	}
-	return yield(keys.EncodeResourceByParentIndexKey(parent.GetResourceTypeId(), parent.GetResourceId(), r.GetResourceTypeId(), r.GetResourceId()))
+	return yield(rawdb.EncodeResourceByParentIndexKey(parent.GetResourceTypeId(), parent.GetResourceId(), r.GetResourceTypeId(), r.GetResourceId()))
 }
 
 func ForEachResourceIndexKeyRaw(parentRT string, parentID string, resourceTypeID string, resourceID string, yield func([]byte) error) error {
 	if parentID == "" {
 		return nil
 	}
-	return yield(keys.EncodeResourceByParentIndexKey(parentRT, parentID, resourceTypeID, resourceID))
+	return yield(rawdb.EncodeResourceByParentIndexKey(parentRT, parentID, resourceTypeID, resourceID))
 }
 
 // Byte-slice appenders let merge/overlay code build index keys from borrowed

@@ -13,7 +13,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // putEnt writes an entitlement record whose external_id is the
@@ -91,7 +91,7 @@ func sealGrantDigests(t testing.TB, e *Engine) {
 // partitions and digested indexes) — i.e. everything callers of this
 // helper actually assert shapes about (root-only, root+leaves, ...).
 // It excludes the whole-file grant-digest global root (see
-// keys.GlobalGrantDigestNodeKey): that node lives in the same typeDigest
+// rawdb.GlobalGrantDigestNodeKey): that node lives in the same typeDigest
 // keyspace but is a single fold-of-everything summary the seal build
 // writes once per file, not a per-partition node, so counting it here
 // would throw off every existing "N nodes for this one entitlement"
@@ -153,7 +153,7 @@ func countKeyRangeTest(t testing.TB, e *Engine, lo, hi []byte) int {
 // partition.
 func entHashIndexRowCount(t testing.TB, e *Engine, entID string) int {
 	t.Helper()
-	prefix := keys.GrantHashIndexEntitlementPrefix(testEntPartition(entID))
+	prefix := rawdb.GrantHashIndexEntitlementPrefix(testEntPartition(entID))
 	return countKeyRangeTest(t, e, prefix, upperBoundOf(prefix))
 }
 
@@ -944,7 +944,7 @@ func TestHashIndexIsHashOrdered(t *testing.T) {
 	}
 	seedEntitlement(t, e, "ent-A", grants)
 
-	entPrefix := keys.GrantHashIndexEntitlementPrefix(testEntPartition("ent-A"))
+	entPrefix := rawdb.GrantHashIndexEntitlementPrefix(testEntPartition("ent-A"))
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: entPrefix, UpperBound: upperBoundOf(entPrefix)})
 	if err != nil {
 		t.Fatal(err)
@@ -1324,7 +1324,7 @@ func TestSealRebuildDropsStaleIndexRows(t *testing.T) {
 	}
 	sealGrantDigests(t, e)
 
-	entPrefix := keys.GrantHashIndexEntitlementPrefix(testEntPartition("ent-A"))
+	entPrefix := rawdb.GrantHashIndexEntitlementPrefix(testEntPartition("ent-A"))
 	principals := map[string]bool{}
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: entPrefix, UpperBound: upperBoundOf(entPrefix)})
 	if err != nil {

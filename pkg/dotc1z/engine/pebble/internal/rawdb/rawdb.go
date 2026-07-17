@@ -37,8 +37,6 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/vfs"
-
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 )
 
 // DB owns the raw pebble handle. Construct via Open; the pebble.DB is
@@ -50,7 +48,7 @@ type DB struct {
 	// Every SST this package stages for ingest MUST be created on it.
 	fs vfs.FS
 	// deferredIdxPending mirrors the durable deferred-index marker
-	// (keys.DeferredIdxPendingKey): grant writes that skipped the
+	// (DeferredIdxPendingKey): grant writes that skipped the
 	// inline by_principal index owe a rebuild at EndSync. The flag and
 	// the durable key must never disagree — armed flag + absent key
 	// means an in-process EndSync rebuilds while a crash+resume
@@ -170,7 +168,7 @@ func (d *DB) armDeferredMarkerDurably() error {
 			return err
 		}
 	}
-	return d.set(keys.DeferredIdxPendingKey(), nil, pebble.Sync)
+	return d.set(DeferredIdxPendingKey(), nil, pebble.Sync)
 }
 
 // ClearDeferredGrantIndexMarker drops both halves of the marker after
@@ -187,7 +185,7 @@ func (d *DB) ClearDeferredGrantIndexMarker() error {
 			return err
 		}
 	}
-	if err := d.delete(keys.DeferredIdxPendingKey(), pebble.Sync); err != nil {
+	if err := d.delete(DeferredIdxPendingKey(), pebble.Sync); err != nil {
 		return err
 	}
 	d.deferredIdxPending.Store(false)
@@ -199,7 +197,7 @@ func (d *DB) ClearDeferredGrantIndexMarker() error {
 // process may have deferred by_principal writes and been interrupted
 // before the EndSync rebuild.
 func (d *DB) RestoreDeferredIdxPending() error {
-	_, closer, err := d.db.Get(keys.DeferredIdxPendingKey())
+	_, closer, err := d.db.Get(DeferredIdxPendingKey())
 	switch {
 	case err == nil:
 		closer.Close()
@@ -224,7 +222,7 @@ func (d *DB) SetGrantDigestsPresent(present bool) { d.grantDigestsPresent.Store(
 // ProbeGrantDigestsPresent initializes the presence flag with one
 // bounded seek over the digest keyspace (the Open-time probe).
 func (d *DB) ProbeGrantDigestsPresent() error {
-	lo, hi := keys.DigestKeyspaceBounds()
+	lo, hi := DigestKeyspaceBounds()
 	iter, err := d.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	if err != nil {
 		return err

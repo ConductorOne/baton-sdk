@@ -21,7 +21,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
@@ -271,7 +271,7 @@ func TestDeferredMarkerArmFailureRollsBackCAS(t *testing.T) {
 
 	// THE CONTRACT: flag rolled back, durable key absent — in agreement.
 	require.False(t, e.db.DeferredIdxPending(), "failed arm must roll the CAS back")
-	_, closer, getErr := e.db.Get(keys.DeferredIdxPendingKey())
+	_, closer, getErr := e.db.Get(rawdb.DeferredIdxPendingKey())
 	require.ErrorIs(t, getErr, pebble.ErrNotFound, "no durable marker may exist after a failed arm")
 	if getErr == nil {
 		closer.Close()
@@ -285,7 +285,7 @@ func TestDeferredMarkerArmFailureRollsBackCAS(t *testing.T) {
 	e.db.SetDeferredMarkerTestHooks(nil, nil)
 	require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")}))
 	require.True(t, e.db.DeferredIdxPending())
-	_, closer, getErr = e.db.Get(keys.DeferredIdxPendingKey())
+	_, closer, getErr = e.db.Get(rawdb.DeferredIdxPendingKey())
 	require.NoError(t, getErr, "the retried arm must persist the durable marker")
 	closer.Close()
 
@@ -329,7 +329,7 @@ func TestDeferredMarkerClearFailureKeepsAgreement(t *testing.T) {
 
 	// THE CONTRACT: both halves still armed, in agreement.
 	require.True(t, e.db.DeferredIdxPending(), "failed clear must leave the flag armed")
-	_, closer, getErr := e.db.Get(keys.DeferredIdxPendingKey())
+	_, closer, getErr := e.db.Get(rawdb.DeferredIdxPendingKey())
 	require.NoError(t, getErr, "failed clear must leave the durable key present")
 	closer.Close()
 
@@ -338,7 +338,7 @@ func TestDeferredMarkerClearFailureKeepsAgreement(t *testing.T) {
 	e.db.SetDeferredMarkerTestHooks(nil, nil)
 	require.NoError(t, a.EndSync(ctx))
 	require.False(t, e.db.DeferredIdxPending())
-	_, _, getErr = e.db.Get(keys.DeferredIdxPendingKey())
+	_, _, getErr = e.db.Get(rawdb.DeferredIdxPendingKey())
 	require.ErrorIs(t, getErr, pebble.ErrNotFound)
 	n := 0
 	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool {

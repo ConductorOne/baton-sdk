@@ -29,7 +29,7 @@ func encodeIDIndexFormatKey() []byte {
 	return codec.AppendTupleStrings(buf, "grant_entitlement_id_format")
 }
 
-// The deferred-index rebuild marker (keys.DeferredIdxPendingKey) and
+// The deferred-index rebuild marker (rawdb.DeferredIdxPendingKey) and
 // its arm/clear/restore contract moved to rawdb, which owns the
 // deferred-index crash state (see rawdb.ArmDeferredGrantIndex).
 

@@ -2,7 +2,7 @@ package pebble
 
 import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // Key layout convention.
@@ -56,30 +56,30 @@ import (
 // formats directly); aliased here so the engine's encoders read
 // naturally. See internal/keys for the per-byte docs.
 const (
-	versionV3 = keys.VersionV3
+	versionV3 = rawdb.VersionV3
 
-	typeResourceType = keys.TypeResourceType
-	typeResource     = keys.TypeResource
-	typeEntitlement  = keys.TypeEntitlement
-	typeGrant        = keys.TypeGrant
-	typeAsset        = keys.TypeAsset
-	typeSyncRun      = keys.TypeSyncRun
-	typeIndex        = keys.TypeIndex
-	typeCounter      = keys.TypeCounter
-	typeSession      = keys.TypeSession
-	typeDigest       = keys.TypeDigest
-	typeEngineMeta   = keys.TypeEngineMeta
+	typeResourceType = rawdb.TypeResourceType
+	typeResource     = rawdb.TypeResource
+	typeEntitlement  = rawdb.TypeEntitlement
+	typeGrant        = rawdb.TypeGrant
+	typeAsset        = rawdb.TypeAsset
+	typeSyncRun      = rawdb.TypeSyncRun
+	typeIndex        = rawdb.TypeIndex
+	typeCounter      = rawdb.TypeCounter
+	typeSession      = rawdb.TypeSession
+	typeDigest       = rawdb.TypeDigest
+	typeEngineMeta   = rawdb.TypeEngineMeta
 )
 
 const (
-	idxResourceByParent                = keys.IdxResourceByParent
-	idxEntitlementByResource           = keys.IdxEntitlementByResource
-	idxGrantByEntitlement              = keys.IdxGrantByEntitlement
-	idxGrantByPrincipal                = keys.IdxGrantByPrincipal
-	idxGrantByNeedsExpansion           = keys.IdxGrantByNeedsExpansion
-	idxGrantByPrincipalResourceType    = keys.IdxGrantByPrincipalResourceType
-	idxGrantByEntitlementResource      = keys.IdxGrantByEntitlementResource
-	idxGrantByEntitlementPrincipalHash = keys.IdxGrantByEntitlementPrincipalHash
+	idxResourceByParent                = rawdb.IdxResourceByParent
+	idxEntitlementByResource           = rawdb.IdxEntitlementByResource
+	idxGrantByEntitlement              = rawdb.IdxGrantByEntitlement
+	idxGrantByPrincipal                = rawdb.IdxGrantByPrincipal
+	idxGrantByNeedsExpansion           = rawdb.IdxGrantByNeedsExpansion
+	idxGrantByPrincipalResourceType    = rawdb.IdxGrantByPrincipalResourceType
+	idxGrantByEntitlementResource      = rawdb.IdxGrantByEntitlementResource
+	idxGrantByEntitlementPrincipalHash = rawdb.IdxGrantByEntitlementPrincipalHash
 )
 
 // --- Grant ---
@@ -329,7 +329,7 @@ func GrantByEntPrincHashUpperBound() []byte {
 // fold-to-coarser-width merge is a single contiguous scan of this
 // range. See digest.go for the node value framing.
 func encodeDigestNodeKey(indexID byte, partition string, level byte, bucketPrefix []byte) []byte {
-	buf := keys.DigestPartitionPrefix(indexID, partition)
+	buf := rawdb.DigestPartitionPrefix(indexID, partition)
 	buf = append(buf, level)
 	return append(buf, bucketPrefix...)
 }

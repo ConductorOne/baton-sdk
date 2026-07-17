@@ -17,7 +17,6 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
@@ -67,7 +66,7 @@ type grantHashRowScratch struct {
 //
 // key/value are only borrowed (the sorter copies before returning).
 func appendGrantHashIndexRow(sorter *spillSorter, primaryKey, value []byte, s *grantHashRowScratch) error {
-	sep4, ok := keys.SplitGrantPrimaryKey(primaryKey)
+	sep4, ok := rawdb.SplitGrantPrimaryKey(primaryKey)
 	if !ok {
 		// The caller skips rows that already failed the by_principal
 		// splice; reaching here means the two splitters disagree.
@@ -295,7 +294,7 @@ func (f *grantDigestFold) finish() error {
 	if err := f.closePartition(); err != nil {
 		return err
 	}
-	if err := f.batch.Set(keys.GlobalGrantDigestNodeKey(), packDigestLeaf(f.globalTotal, f.globalXor[:])); err != nil {
+	if err := f.batch.Set(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(f.globalTotal, f.globalXor[:])); err != nil {
 		return err
 	}
 	f.nodes++
@@ -489,7 +488,7 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 		// Zero grants still means the digest WAS built (present-means-
 		// exact — an absent global root would tell a manifest reader to
 		// recalculate instead of trusting "nothing to diff").
-		if err := e.db.DigestSet(keys.GlobalGrantDigestNodeKey(), packDigestLeaf(0, zeroDigest[:]), opts); err != nil {
+		if err := e.db.DigestSet(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(0, zeroDigest[:]), opts); err != nil {
 			return err
 		}
 		e.db.SetGrantDigestsPresent(true)
@@ -687,7 +686,7 @@ func (e *Engine) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
 	var scanned, droppedMalformedKeys int64
 	var scratch grantHashRowScratch
 	for iter.First(); iter.Valid(); iter.Next() {
-		if _, ok := keys.SplitGrantPrimaryKey(iter.Key()); !ok {
+		if _, ok := rawdb.SplitGrantPrimaryKey(iter.Key()); !ok {
 			// Same key-layout-drift/corruption case the deferred pass
 			// counts; such rows cannot be represented in the digests.
 			droppedMalformedKeys++

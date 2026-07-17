@@ -21,7 +21,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // Adapter wraps an *Engine and implements connectorstore.Writer
@@ -811,7 +811,7 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 	// them on the next call.
 	cursorFor := func(rec *v3.ResourceRecord) string {
 		if useParent {
-			return encodeCursor(keys.EncodeResourceByParentIndexKey(
+			return encodeCursor(rawdb.EncodeResourceByParentIndexKey(
 				parent.GetResourceType(), parent.GetResource(),
 				rec.GetResourceTypeId(), rec.GetResourceId(),
 			))

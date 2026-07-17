@@ -41,16 +41,14 @@ package rawdb
 
 import (
 	"fmt"
-
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 )
 
 // Family prefixes for the keyspace assertions.
 var (
-	grantPrimaryPrefix        = []byte{keys.VersionV3, keys.TypeGrant}
-	resourcePrimaryPrefix     = []byte{keys.VersionV3, keys.TypeResource}
-	entitlementPrimaryPrefix  = []byte{keys.VersionV3, keys.TypeEntitlement}
-	resourceTypePrimaryPrefix = []byte{keys.VersionV3, keys.TypeResourceType}
+	grantPrimaryPrefix        = []byte{VersionV3, TypeGrant}
+	resourcePrimaryPrefix     = []byte{VersionV3, TypeResource}
+	entitlementPrimaryPrefix  = []byte{VersionV3, TypeEntitlement}
+	resourceTypePrimaryPrefix = []byte{VersionV3, TypeResourceType}
 )
 
 func assertFamily(op string, key, prefix []byte) error {
@@ -76,7 +74,7 @@ func (rb *RecordBatch) StageGrantPutInline(key, val []byte, hadOldVal, needsExpa
 	if err := assertFamily("StageGrantPutInline", key, grantPrimaryPrefix); err != nil {
 		return err
 	}
-	sep4, ok := keys.SplitGrantPrimaryKey(key)
+	sep4, ok := SplitGrantPrimaryKey(key)
 	if !ok {
 		return fmt.Errorf("rawdb.StageGrantPutInline: grant key %x did not decode as a 6-segment identity", key)
 	}
@@ -118,7 +116,7 @@ func (rb *RecordBatch) StageGrantDelete(key []byte) error {
 	if err := assertFamily("StageGrantDelete", key, grantPrimaryPrefix); err != nil {
 		return err
 	}
-	sep4, ok := keys.SplitGrantPrimaryKey(key)
+	sep4, ok := SplitGrantPrimaryKey(key)
 	if !ok {
 		return fmt.Errorf("rawdb.StageGrantDelete: grant key %x did not decode as a 6-segment identity", key)
 	}
@@ -146,7 +144,7 @@ func (rb *RecordBatch) StageGrantPutDeferred(key, val []byte, hadOldVal, needsEx
 	if err := assertFamily("StageGrantPutDeferred", key, grantPrimaryPrefix); err != nil {
 		return err
 	}
-	sep4, ok := keys.SplitGrantPrimaryKey(key)
+	sep4, ok := SplitGrantPrimaryKey(key)
 	if !ok {
 		return fmt.Errorf("rawdb.StageGrantPutDeferred: grant key %x did not decode as a 6-segment identity", key)
 	}
@@ -170,7 +168,7 @@ func (rb *RecordBatch) StageGrantPutDeferred(key, val []byte, hadOldVal, needsEx
 }
 
 func (rb *RecordBatch) setByPrincipalKey(key []byte) error {
-	idx, ok := keys.AppendGrantByPrincipalKeyFromPrimary(rb.scratch[:0], key)
+	idx, ok := AppendGrantByPrincipalKeyFromPrimary(rb.scratch[:0], key)
 	rb.scratch = idx
 	if !ok {
 		return fmt.Errorf("rawdb: grant key %x did not decode as a 6-segment identity", key)
@@ -179,7 +177,7 @@ func (rb *RecordBatch) setByPrincipalKey(key []byte) error {
 }
 
 func (rb *RecordBatch) deleteByPrincipalKey(key []byte) error {
-	idx, ok := keys.AppendGrantByPrincipalKeyFromPrimary(rb.scratch[:0], key)
+	idx, ok := AppendGrantByPrincipalKeyFromPrimary(rb.scratch[:0], key)
 	rb.scratch = idx
 	if !ok {
 		return fmt.Errorf("rawdb: grant key %x did not decode as a 6-segment identity", key)
@@ -188,7 +186,7 @@ func (rb *RecordBatch) deleteByPrincipalKey(key []byte) error {
 }
 
 func (rb *RecordBatch) setNeedsExpansionKey(key []byte) error {
-	idx, ok := keys.AppendGrantByNeedsExpansionKeyFromPrimary(rb.scratch[:0], key)
+	idx, ok := AppendGrantByNeedsExpansionKeyFromPrimary(rb.scratch[:0], key)
 	rb.scratch = idx
 	if !ok {
 		return fmt.Errorf("rawdb: grant key %x did not decode as a 6-segment identity", key)
@@ -197,7 +195,7 @@ func (rb *RecordBatch) setNeedsExpansionKey(key []byte) error {
 }
 
 func (rb *RecordBatch) deleteNeedsExpansionKey(key []byte) error {
-	idx, ok := keys.AppendGrantByNeedsExpansionKeyFromPrimary(rb.scratch[:0], key)
+	idx, ok := AppendGrantByNeedsExpansionKeyFromPrimary(rb.scratch[:0], key)
 	rb.scratch = idx
 	if !ok {
 		return fmt.Errorf("rawdb: grant key %x did not decode as a 6-segment identity", key)
@@ -221,16 +219,16 @@ func (rb *RecordBatch) stageGrantDigestInvalidation(primaryKey []byte, sep4 int)
 	if !rb.db.grantDigestsPresent.Load() {
 		return nil
 	}
-	partition := string(primaryKey[keys.GrantPrimaryKeyPrefixLen:sep4])
-	lo := keys.DigestPartitionPrefix(keys.IdxGrantByEntitlementPrincipalHash, partition)
-	if err := rb.core.b.DeleteRange(lo, keys.UpperBound(lo), nil); err != nil {
+	partition := string(primaryKey[GrantPrimaryKeyPrefixLen:sep4])
+	lo := DigestPartitionPrefix(IdxGrantByEntitlementPrincipalHash, partition)
+	if err := rb.core.b.DeleteRange(lo, UpperBound(lo), nil); err != nil {
 		return err
 	}
-	if err := rb.core.b.Delete(keys.GlobalGrantDigestNodeKey(), nil); err != nil {
+	if err := rb.core.b.Delete(GlobalGrantDigestNodeKey(), nil); err != nil {
 		return err
 	}
-	hlo := keys.GrantHashIndexEntitlementPrefix(partition)
-	return rb.core.b.DeleteRange(hlo, keys.UpperBound(hlo), nil)
+	hlo := GrantHashIndexEntitlementPrefix(partition)
+	return rb.core.b.DeleteRange(hlo, UpperBound(hlo), nil)
 }
 
 // === resource staging ===
@@ -254,14 +252,14 @@ func (rb *RecordBatch) StageResourcePut(key, val, oldVal []byte, childRT, childI
 	if err := rb.core.b.Set(key, val, nil); err != nil {
 		return err
 	}
-	parentRT, parentID, err := keys.ScanResourceParentRaw(val)
+	parentRT, parentID, err := ScanResourceParentRaw(val)
 	if err != nil {
 		return err
 	}
 	if parentID == "" {
 		return nil
 	}
-	return rb.core.b.Set(keys.EncodeResourceByParentIndexKey(parentRT, parentID, childRT, childID), nil, nil)
+	return rb.core.b.Set(EncodeResourceByParentIndexKey(parentRT, parentID, childRT, childID), nil, nil)
 }
 
 // StageResourceDelete stages one resource row's removal plus its
@@ -277,14 +275,14 @@ func (rb *RecordBatch) StageResourceDelete(key, oldVal []byte, childRT, childID 
 }
 
 func (rb *RecordBatch) stageResourceParentDelete(oldVal []byte, childRT, childID string) error {
-	parentRT, parentID, err := keys.ScanResourceParentRaw(oldVal)
+	parentRT, parentID, err := ScanResourceParentRaw(oldVal)
 	if err != nil {
 		return err
 	}
 	if parentID == "" {
 		return nil
 	}
-	return rb.core.b.Delete(keys.EncodeResourceByParentIndexKey(parentRT, parentID, childRT, childID), nil)
+	return rb.core.b.Delete(EncodeResourceByParentIndexKey(parentRT, parentID, childRT, childID), nil)
 }
 
 // === entitlement / resource-type staging ===

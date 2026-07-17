@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 const (
@@ -177,7 +177,7 @@ func scanGrantEntitlementResourceTypeRaw(value []byte) ([]byte, error) {
 		if n < 0 {
 			return nil, protowire.ParseError(n)
 		}
-		if err := keys.ScanResourceRefRawBytes(msg, func(fnum protowire.Number, val []byte) {
+		if err := rawdb.ScanResourceRefRawBytes(msg, func(fnum protowire.Number, val []byte) {
 			if fnum == 1 {
 				entRT = val
 			}
@@ -274,7 +274,7 @@ func scanEntitlementResourceTypeRaw(value []byte) ([]byte, error) {
 		if n < 0 {
 			return nil, protowire.ParseError(n)
 		}
-		if err := keys.ScanResourceRefRawBytes(msg, func(fnum protowire.Number, val []byte) {
+		if err := rawdb.ScanResourceRefRawBytes(msg, func(fnum protowire.Number, val []byte) {
 			if fnum == 1 {
 				rt = val
 			}
@@ -310,7 +310,7 @@ func scanEntitlementResourceRaw(value []byte) (string, string, error) {
 			return "", "", protowire.ParseError(n)
 		}
 		var err error
-		rt, id, err = keys.ScanResourceRefRaw(msg)
+		rt, id, err = rawdb.ScanResourceRefRaw(msg)
 		if err != nil {
 			return "", "", err
 		}
@@ -347,7 +347,7 @@ func scanEntitlementIdentityFieldsRaw(value []byte) (string, string, string, err
 				return "", "", "", protowire.ParseError(n)
 			}
 			var err error
-			rt, id, err = keys.ScanResourceRefRaw(msg)
+			rt, id, err = rawdb.ScanResourceRefRaw(msg)
 			if err != nil {
 				return "", "", "", err
 			}
@@ -456,7 +456,7 @@ func scanGrantNeedsExpansionRaw(value []byte) (bool, error) {
 
 func scanEntitlementRefRaw(value []byte) (string, string, string, error) {
 	var rt, rid, eid []byte
-	err := keys.ScanResourceRefRawBytes(value, func(num protowire.Number, val []byte) {
+	err := rawdb.ScanResourceRefRawBytes(value, func(num protowire.Number, val []byte) {
 		switch num {
 		case 1:
 			rt = val
@@ -472,7 +472,7 @@ func scanEntitlementRefRaw(value []byte) (string, string, string, error) {
 
 func scanPrincipalRefRaw(value []byte) (string, string, error) {
 	var rt, id []byte
-	err := keys.ScanResourceRefRawBytes(value, func(num protowire.Number, val []byte) {
+	err := rawdb.ScanResourceRefRawBytes(value, func(num protowire.Number, val []byte) {
 		switch num {
 		case 1:
 			rt = val

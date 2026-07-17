@@ -1,19 +1,14 @@
-// Package keys holds the v3 keyspace ABI shared by the engine package
-// and internal/rawdb: the type/index discriminator bytes, the grant
-// primary-key splices, the resource value scanners, and the digest
-// invalidation key builders. It exists so rawdb's typed record ops can
-// DERIVE their obligations directly instead of having the engine
-// inject derivation closures at Open (the pre-2.5 RecordDerivers
-// shape) — rawdb owns what a record mutation must stage together, and
-// this package owns the byte formats both sides agree on.
-//
-// Everything here is a pure function over bytes/strings: no engine
-// state, no pebble handles. The full key-layout convention (header
-// shapes, tuple encoding, prefix pairing) is documented in the engine
-// package's keys.go, which re-exports these discriminators for its own
-// encoders; the byte formats are an on-disk ABI shared with every v3
-// c1z file. See the codec package for the escape rules.
-package keys
+// The v3 keyspace ABI the choke point enforces: the type/index
+// discriminator bytes, the grant primary-key splices, the resource
+// value scanners, and the digest invalidation key builders. The typed
+// record ops derive their obligations from these directly; the engine
+// package imports them for its own encoders and read paths. Everything
+// here is a pure function over bytes/strings: no engine state, no
+// pebble handles. The full key-layout convention (header shapes,
+// tuple encoding, prefix pairing) is documented in the engine
+// package's keys.go; the byte formats are an on-disk ABI shared with
+// every v3 c1z file. See the codec package for the escape rules.
+package rawdb
 
 import (
 	"bytes"

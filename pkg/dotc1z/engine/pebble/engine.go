@@ -243,7 +243,7 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		return nil, err
 	}
 	// Restore the durable deferred-index marker (see
-	// keys.DeferredIdxPendingKey): a prior process may have deferred
+	// rawdb.DeferredIdxPendingKey): a prior process may have deferred
 	// by_principal writes and been interrupted before the EndSync
 	// rebuild (rawdb owns the marker's crash contract).
 	if err := e.db.RestoreDeferredIdxPending(); err != nil {

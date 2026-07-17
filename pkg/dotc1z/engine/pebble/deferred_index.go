@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // deferredIndexSpillChunkBytes is the spill-chunk arena size for the deferred
@@ -379,7 +379,7 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 				rebuildScanErr = err
 			}
 		}
-		idxKey, ok := keys.AppendGrantByPrincipalKeyFromPrimary(idxKeyScratch[:0], iter.Key())
+		idxKey, ok := rawdb.AppendGrantByPrincipalKeyFromPrimary(idxKeyScratch[:0], iter.Key())
 		idxKeyScratch = idxKey
 		if !ok {
 			// Only possible on key-layout drift or corruption: every grant
