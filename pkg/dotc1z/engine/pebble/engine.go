@@ -634,28 +634,49 @@ func (e *Engine) DBDir() string {
 // database directory. This is the Pebble equivalent of C1File's SQLite
 // DBSizeProvider capability: it reports the uncompressed working set on disk,
 // including WAL/log, MANIFEST, OPTIONS, and SST files currently present.
+//
+// Walks through the engine FS, not the host FS (review follow-up): a
+// WithVFS engine's DB dir lives on the injected filesystem, where a
+// host filepath.WalkDir either errors or measures an unrelated
+// directory. On the default FS this is the same walk it always was.
 func (e *Engine) CurrentDBSizeBytes() (int64, error) {
 	if e.dbDir == "" {
 		return 0, errors.New("pebble engine: db dir is empty")
 	}
-	var total int64
-	if err := filepath.WalkDir(e.dbDir, func(path string, d fs.DirEntry, err error) error {
+	pfs := e.fs()
+	var walk func(dir string) (int64, error)
+	walk = func(dir string) (int64, error) {
+		names, err := pfs.List(dir)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		if d.IsDir() {
-			return nil
+		var total int64
+		for _, name := range names {
+			path := pfs.PathJoin(dir, name)
+			info, err := pfs.Stat(path)
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					// Compaction can remove files mid-walk; skip.
+					continue
+				}
+				return 0, fmt.Errorf("stat %s: %w", path, err)
+			}
+			switch {
+			case info.IsDir():
+				sub, err := walk(path)
+				if err != nil {
+					return 0, err
+				}
+				total += sub
+			case info.Mode().IsRegular():
+				total += info.Size()
+			}
 		}
-		info, err := d.Info()
-		if err != nil {
-			return fmt.Errorf("stat %s: %w", path, err)
-		}
-		if info.Mode().IsRegular() {
-			total += info.Size()
-		}
-		return nil
-	}); err != nil {
-		if os.IsNotExist(err) {
+		return total, nil
+	}
+	total, err := walk(e.dbDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			return 0, fmt.Errorf("pebble engine: db dir missing: %w", err)
 		}
 		return 0, err
