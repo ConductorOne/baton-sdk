@@ -55,6 +55,7 @@ var allowedOSFileIO = map[string]map[string]string{
 	"engine.go": {
 		"MkdirTemp": "prepareStagingDir mints the unique host-side staging dir; the engine-FS mirror is created right after via fs.MkdirAll",
 		"RemoveAll": "prepareStagingDir failure path + removeStagingDir host-side half; the engine-FS half is removed via fs.RemoveAll",
+		"Lstat":     "CurrentDBSizeBytes no-follow stat on the default FS (vfs.FS has no Lstat; symlinks must be skipped, not traversed)",
 	},
 	"bulk_import.go": {
 		"Create": "writeSortedSpillChunk: spill-chunk scratch is engine-private; only readSpillEntry reads it back, never the DB",

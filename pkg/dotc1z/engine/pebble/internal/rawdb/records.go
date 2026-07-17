@@ -6,10 +6,8 @@ package rawdb
 // prior-row index cleanup, or the deferred-index crash marker — dies
 // here: RecordBatch exposes no generic staging, and each Stage* op
 // computes and stages everything its mutation owes in the same call,
-// deriving directly from the shared keyspace ABI (internal/keys).
-// (Pre-2.5 this derivation arrived as engine-injected closures
-// (RecordDerivers) because rawdb could not import its parent package;
-// the keys extraction dissolved that inversion.)
+// deriving directly from the keyspace ABI this package owns
+// (keyspace.go).
 //
 // Grant index maintenance runs TWO REGIMES, and the ops mirror them
 // (unifying them behind a flag was considered and rejected — the

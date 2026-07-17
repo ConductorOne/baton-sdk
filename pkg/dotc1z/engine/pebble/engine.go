@@ -644,6 +644,19 @@ func (e *Engine) CurrentDBSizeBytes() (int64, error) {
 		return 0, errors.New("pebble engine: db dir is empty")
 	}
 	pfs := e.fs()
+	// No-follow stat, matching main's filepath.WalkDir semantics: a
+	// symlink inside the DB dir must be skipped, not traversed (a link
+	// to a foreign directory would count files outside the DB; a
+	// self-link would loop). vfs.FS has no Lstat, so the default FS
+	// uses os.Lstat directly (allowlisted); MemFS cannot represent
+	// symlinks, so Stat is equivalent there (review finding, 2.5
+	// round).
+	stat := func(path string) (os.FileInfo, error) {
+		if pfs == vfs.Default {
+			return os.Lstat(path)
+		}
+		return pfs.Stat(path)
+	}
 	var walk func(dir string) (int64, error)
 	walk = func(dir string) (int64, error) {
 		names, err := pfs.List(dir)
@@ -653,7 +666,7 @@ func (e *Engine) CurrentDBSizeBytes() (int64, error) {
 		var total int64
 		for _, name := range names {
 			path := pfs.PathJoin(dir, name)
-			info, err := pfs.Stat(path)
+			info, err := stat(path)
 			if err != nil {
 				if errors.Is(err, fs.ErrNotExist) {
 					// Compaction can remove files mid-walk; skip.

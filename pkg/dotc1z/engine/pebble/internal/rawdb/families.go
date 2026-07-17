@@ -68,14 +68,14 @@ func (b *batch) Close() error { return b.b.Close() }
 // Clients: the Put*Records paths, the expanded/synthesized grant
 // writers, the IfNewer partial-sync paths, and delete paths.
 //
-// Phase 2b: RecordBatch exposes NO generic staging. The only way to
-// stage a record mutation is a typed Stage* operation (records.go)
-// that derives and stages everything the row owes in the same call —
-// the forgotten-obligation bug class (primary landed, index entry or
+// RecordBatch exposes NO generic staging. The only way to stage a
+// record mutation is a typed Stage* operation (records.go) that
+// derives and stages everything the row owes in the same call — the
+// forgotten-obligation bug class (primary landed, index entry or
 // digest invalidation forgotten) is unexpressible. The compactor's
 // keep-newer fold, which legitimately stages raw keys it did not
-// encode, uses FoldBatch instead (records.go) via the Engine.DB
-// exemption surface.
+// encode, uses FoldBatch instead (records.go) via the Engine merge
+// surface (the engine package's merge_surface.go).
 type RecordBatch struct {
 	// core is deliberately NOT embedded: embedding would promote the
 	// generic Set/Delete/DeleteRange onto the exported surface.
