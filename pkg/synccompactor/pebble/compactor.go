@@ -89,7 +89,8 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 	}
 
 	// This function writes the base keyspace through the engine's merge
-	// surface (a closed engine surfaces ErrEngineClosing per call);
+	// surface (a closed engine surfaces ErrEngineClosing from the
+	// error-returning ops, and an explicit panic from NewFoldBatch);
 	// invalidate the engine's bare-id lookup state on the way out (even on
 	// error — earlier buckets may already have been replaced).
 	defer c.base.InvalidateBareIDLookups()

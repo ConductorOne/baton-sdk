@@ -317,28 +317,43 @@ func TestSeamsArmedOnlyInTests(t *testing.T) {
 // Set/Delete/Commit over record keyspaces, obligations handled by the
 // fold contract instead of derivation) plus the bulk range/ingest ops
 // promoted from the old DB() handle. Whitespace-tolerant like the
-// UnsafeForTesting signal.
-var mergeSurfaceWriteUse = regexp.MustCompile(`\.(\n\s*)?(NewFoldBatch|DropKeyRange|IngestSSTs|ReplaceRangeWithSSTs)\b`)
+// UnsafeForTesting signal. dbQualifiedMergeWriteUse matches the same
+// ops reached through a `.db` field selector — the engine's OWN
+// rawdb-handle calls (digest drops, session clears, deferred-index
+// ingest, all under the write barrier), which are legitimate and are
+// blanked out of a file before the fence scan so the fence still
+// catches an Engine-method use like `e.NewFoldBatch()` in engine
+// production code (review finding, 2.5 round: a root-"." blanket
+// exemption silently weakened this fence vs its pre-2.5 form).
+var (
+	mergeSurfaceWriteUse     = regexp.MustCompile(`\.(\n\s*)?(NewFoldBatch|DropKeyRange|IngestSSTs|ReplaceRangeWithSSTs)\b`)
+	dbQualifiedMergeWriteUse = regexp.MustCompile(`\.db\.(NewFoldBatch|DropKeyRange|IngestSSTs|ReplaceRangeWithSSTs)\b`)
+)
 
 // TestMergeSurfaceWritesOnlyInCompactor fences the raw write conduits
 // the Engine merge surface carries. Their only sanctioned production
 // clients are the fold compactor (pkg/synccompactor/pebble), rawdb
-// itself, and THIS package's engine internals (which reach the same
-// ops through e.db — legitimately: digest drops, session clears,
-// deferred-index ingest all ride them under the write barrier). A use
-// appearing in the store layer or any other package is a caller
+// itself (definitions + internal use), merge_surface.go (the
+// delegating definitions), and the engine package's own `.db`
+// rawdb-handle calls. Any other use — an Engine-method call in engine
+// production code, the store layer, other packages — is a caller
 // routing around the typed Stage* obligations (review finding, delta
 // round: the exemption surface must not quietly become a second
 // engine write path).
 func TestMergeSurfaceWritesOnlyInCompactor(t *testing.T) {
+	sep := string(filepath.Separator)
 	walkClientTreeProductionGoFiles(t, func(root, path string, src []byte) {
-		if root == "." {
-			return // engine package + internal/: the ops' home
+		if root == "." && (filepath.Clean(path) == "merge_surface.go" ||
+			strings.HasPrefix(filepath.Clean(path), filepath.Clean("internal/rawdb")+sep)) {
+			return // the ops' definitions
 		}
 		if root == "../../../synccompactor" && strings.Contains(filepath.ToSlash(filepath.Clean(path)), "/pebble/") {
 			return // the sanctioned fold-compactor client
 		}
-		require.Falsef(t, mergeSurfaceWriteUse.Match(src),
+		// Blank the engine's legitimate `.db.<op>` rawdb calls, then
+		// scan what remains.
+		scrubbed := dbQualifiedMergeWriteUse.ReplaceAll(src, nil)
+		require.Falsef(t, mergeSurfaceWriteUse.Match(scrubbed),
 			"%s uses an Engine merge-surface write op outside the fold compactor. These bypass typed "+
 				"record staging by contract; record writes anywhere else go through the engine's typed APIs.", path)
 	})

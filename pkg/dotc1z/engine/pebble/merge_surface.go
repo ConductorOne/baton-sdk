@@ -88,10 +88,16 @@ func (e *Engine) ReplaceRangeWithSSTs(ctx context.Context, paths []string, span 
 
 // NewFoldBatch mints the compactor's generic staged batch (the one
 // sanctioned raw record-write conduit; see the fold-family doc in
-// rawdb and the meta-test fence). Returns nil after Close.
+// rawdb and the meta-test fence). Panics with an explicit message
+// after Close: unlike the error-returning ops above, callers stage
+// into the batch without a per-call error path, so a nil return would
+// only defer the crash to an anonymous nil deref at the first Set —
+// and a closed engine here means the compactor's call-ordering fence
+// (merge completes before save/Close) was violated, which is a
+// programming error, not a runtime condition to handle.
 func (e *Engine) NewFoldBatch() *FoldBatch {
 	if e.db == nil {
-		return nil
+		panic("pebble engine: NewFoldBatch on a closed engine — the fold must complete before the engine closes")
 	}
 	return e.db.NewFoldBatch()
 }
@@ -99,7 +105,11 @@ func (e *Engine) NewFoldBatch() *FoldBatch {
 // UnsafeForTesting returns the raw *pebble.DB — the single raw escape
 // hatch through the choke point, for test fixtures constructing states
 // the production API cannot express. Panics outside `go test`
-// (testing.Testing(), enforced inside rawdb) and after Close.
+// (testing.Testing(), enforced inside rawdb) and, explicitly, after
+// Close.
 func (e *Engine) UnsafeForTesting() *pebble.DB {
+	if e.db == nil {
+		panic("pebble engine: UnsafeForTesting on a closed engine")
+	}
 	return e.db.UnsafeForTesting()
 }
