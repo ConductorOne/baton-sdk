@@ -244,7 +244,7 @@ func TestGrantDigestIncludesExpandedGrants(t *testing.T) {
 	if err := e.PutExpandedGrantRecords(ctx, []*v3.GrantRecord{exp}); err != nil {
 		t.Fatalf("PutExpandedGrantRecords: %v", err)
 	}
-	if !e.deferredIdxPending.Load() {
+	if !e.db.DeferredIdxPending() {
 		t.Fatal("expected the expansion write to arm the deferred-index marker")
 	}
 	if err := a.EndSync(ctx); err != nil {
@@ -727,7 +727,7 @@ func TestGrantDigestZeroGrantRootsAtEndSync(t *testing.T) {
 	if err := e.PutGrantRecords(ctx, makeGrant("", "g1", "ent-with", "alice")); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
-	if e.deferredIdxPending.Load() {
+	if e.db.DeferredIdxPending() {
 		t.Fatal("inline grant writes must not arm the deferred marker (precondition for this test)")
 	}
 	if err := a.EndSync(ctx); err != nil {

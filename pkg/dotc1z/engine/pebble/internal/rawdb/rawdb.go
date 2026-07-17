@@ -30,11 +30,15 @@ package rawdb
 
 import (
 	"context"
+	"errors"
 	"io"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/vfs"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 )
 
 // DB owns the raw pebble handle. Construct via Open; the pebble.DB is
@@ -45,12 +49,36 @@ type DB struct {
 	// (pebble.Options.FS resolved: the WithVFS override or vfs.Default).
 	// Every SST this package stages for ingest MUST be created on it.
 	fs vfs.FS
-	// derivers are the engine-injected key-format functions the typed
-	// record ops (records.go) derive obligations with. Wired once via
-	// SetRecordDerivers at engine Open.
-	derivers *RecordDerivers
 	// merge is the pre-built narrowed view MergeView() hands out.
 	merge MergeView
+
+	// deferredIdxPending mirrors the durable deferred-index marker
+	// (keys.DeferredIdxPendingKey): grant writes that skipped the
+	// inline by_principal index owe a rebuild at EndSync. The flag and
+	// the durable key must never disagree — armed flag + absent key
+	// means an in-process EndSync rebuilds while a crash+resume
+	// silently skips the rebuild; cleared flag + present key forces a
+	// spurious rebuild at the next open. ArmDeferredGrantIndex and
+	// ClearDeferredGrantIndexMarker maintain the agreement on both
+	// edges (durable half first; rollback/abort on failure), and
+	// RestoreDeferredIdxPending re-arms from the key at Open.
+	deferredIdxPending atomic.Bool
+
+	// grantDigestsPresent reports whether the digest keyspace holds
+	// any nodes — the gate for the record ops' digest-invalidation
+	// obligation (present-means-exact: mutations on a digest-armed
+	// file must tombstone their partition; on a digest-free file the
+	// tombstones would be pure LSM bloat). Probed at Open
+	// (ProbeGrantDigestsPresent), set true by the engine's seal-time
+	// build, cleared by the engine's drop/reset paths.
+	grantDigestsPresent atomic.Bool
+
+	// testArmDeferredMarkerHook / testClearDeferredMarkerHook run
+	// before the marker's durable commit / delete — the in-process
+	// analogs of those writes failing. Installed only via
+	// SetDeferredMarkerTestHooks (testing-gated).
+	testArmDeferredMarkerHook   func() error
+	testClearDeferredMarkerHook func() error
 }
 
 // Open opens the pebble database at dir. opts is consumed by
@@ -164,6 +192,118 @@ func (v *MergeView) NewFoldBatch() *FoldBatch { return v.db.NewFoldBatch() }
 // UnsafeForTesting delegates to DB.UnsafeForTesting — same
 // testing.Testing() runtime gate, same meta-test source fence.
 func (v *MergeView) UnsafeForTesting() *pebble.DB { return v.db.UnsafeForTesting() }
+
+// === deferred-index marker + digest-presence state ===
+//
+// Write-side crash-contract state lives ON the choke point: the
+// deferred marker's arm/clear are themselves durable writes with
+// ordering obligations, and the digests-present flag gates an
+// obligation the typed record ops stage. (Pre-2.5 these lived on the
+// engine and arrived as injected closures.)
+
+// DeferredIdxPending reports whether a deferred by_principal rebuild
+// is owed (see the field doc).
+func (d *DB) DeferredIdxPending() bool { return d.deferredIdxPending.Load() }
+
+// ArmDeferredGrantIndex durably arms the deferred-index rebuild
+// marker: CAS on the in-memory flag (repeat calls are one atomic
+// load — the deferred write paths call this per record), then the
+// fsync'd meta key. On a failed durable write the CAS rolls back so
+// the flag and the key never disagree (armed flag + absent key = an
+// in-process EndSync rebuilds while a crash+resume silently skips
+// it). Called by StageGrantPutDeferred and by the engine's synth-layer
+// ingest path.
+func (d *DB) ArmDeferredGrantIndex() error {
+	if !d.deferredIdxPending.CompareAndSwap(false, true) {
+		return nil
+	}
+	if err := d.armDeferredMarkerDurably(); err != nil {
+		d.deferredIdxPending.Store(false)
+		return err
+	}
+	return nil
+}
+
+func (d *DB) armDeferredMarkerDurably() error {
+	if d.testArmDeferredMarkerHook != nil {
+		if err := d.testArmDeferredMarkerHook(); err != nil {
+			return err
+		}
+	}
+	return d.set(keys.DeferredIdxPendingKey(), nil, pebble.Sync)
+}
+
+// ClearDeferredGrantIndexMarker drops both halves of the marker after
+// a successful rebuild. Durable delete FIRST, flag second — the same
+// agreement contract as the arm side: a failed delete leaves BOTH
+// armed, so the retried EndSync re-runs the (idempotent) rebuild and
+// retries the clear, never the flag-cleared/key-present split that
+// skipped the retry's rebuild and left a stale key forcing a spurious
+// rebuild at the next open. The caller owns the write barrier (the
+// engine runs this inside EndSync's sealed finalize window).
+func (d *DB) ClearDeferredGrantIndexMarker() error {
+	if d.testClearDeferredMarkerHook != nil {
+		if err := d.testClearDeferredMarkerHook(); err != nil {
+			return err
+		}
+	}
+	if err := d.delete(keys.DeferredIdxPendingKey(), pebble.Sync); err != nil {
+		return err
+	}
+	d.deferredIdxPending.Store(false)
+	return nil
+}
+
+// RestoreDeferredIdxPending re-arms the in-memory flag from the
+// durable marker — the Open-time half of the crash contract: a prior
+// process may have deferred by_principal writes and been interrupted
+// before the EndSync rebuild.
+func (d *DB) RestoreDeferredIdxPending() error {
+	_, closer, err := d.db.Get(keys.DeferredIdxPendingKey())
+	switch {
+	case err == nil:
+		closer.Close()
+		d.deferredIdxPending.Store(true)
+		return nil
+	case errors.Is(err, pebble.ErrNotFound):
+		return nil
+	default:
+		return err
+	}
+}
+
+// GrantDigestsPresent reports whether digest state exists (the record
+// ops' invalidation gate).
+func (d *DB) GrantDigestsPresent() bool { return d.grantDigestsPresent.Load() }
+
+// SetGrantDigestsPresent flips the presence flag. The engine owns the
+// transitions: true after a completed seal-time build, false on the
+// drop/reset paths (whose durable deletes ride their own batches).
+func (d *DB) SetGrantDigestsPresent(present bool) { d.grantDigestsPresent.Store(present) }
+
+// ProbeGrantDigestsPresent initializes the presence flag with one
+// bounded seek over the digest keyspace (the Open-time probe).
+func (d *DB) ProbeGrantDigestsPresent() error {
+	lo, hi := keys.DigestKeyspaceBounds()
+	iter, err := d.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	d.grantDigestsPresent.Store(iter.First())
+	return iter.Error()
+}
+
+// SetDeferredMarkerTestHooks installs failure-injection hooks for the
+// marker's durable arm/clear. Test-only, same runtime gate as
+// UnsafeForTesting; pass nil to uninstall.
+func (d *DB) SetDeferredMarkerTestHooks(armHook, clearHook func() error) {
+	if !testing.Testing() {
+		panic("rawdb.SetDeferredMarkerTestHooks: called outside a test binary")
+	}
+	d.testArmDeferredMarkerHook = armHook
+	d.testClearDeferredMarkerHook = clearHook
+}
 
 // === lifecycle operations (write-class, engine-lifecycle-named) ===
 

@@ -45,7 +45,7 @@ func TestDeferredIndexPendingSurvivesReopen(t *testing.T) {
 		}.Build())
 	}
 	require.NoError(t, a.Grants().StoreExpandedGrants(ctx, grants...))
-	require.True(t, e.deferredIdxPending.Load(), "expanded writes must arm the deferred index flag")
+	require.True(t, e.db.DeferredIdxPending(), "expanded writes must arm the deferred index flag")
 	require.NoError(t, e.Close())
 
 	// Process B: reopen, resume the same sync, write NOTHING (the idempotent
@@ -53,7 +53,7 @@ func TestDeferredIndexPendingSurvivesReopen(t *testing.T) {
 	e2, err := Open(ctx, dir)
 	require.NoError(t, err)
 	defer e2.Close()
-	require.True(t, e2.deferredIdxPending.Load(), "the pending marker must survive the reopen")
+	require.True(t, e2.db.DeferredIdxPending(), "the pending marker must survive the reopen")
 
 	a2 := NewAdapter(e2)
 	require.NoError(t, a2.SetCurrentSync(ctx, syncID))
@@ -74,5 +74,5 @@ func TestDeferredIndexPendingSurvivesReopen(t *testing.T) {
 	e3, err := Open(ctx, dir)
 	require.NoError(t, err)
 	defer e3.Close()
-	require.False(t, e3.deferredIdxPending.Load(), "a successful rebuild must clear the durable marker")
+	require.False(t, e3.db.DeferredIdxPending(), "a successful rebuild must clear the durable marker")
 }

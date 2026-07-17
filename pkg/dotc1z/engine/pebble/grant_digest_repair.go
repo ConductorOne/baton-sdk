@@ -103,7 +103,7 @@ func isGrantDigestRootKey(key []byte) bool {
 // an O(file) rebuild. No-op when partitions is empty or no digest has
 // ever been built for this file.
 func (e *Engine) InvalidateGrantDigestPartitions(ctx context.Context, partitions []string) error {
-	if len(partitions) == 0 || !e.grantDigestsPresent.Load() {
+	if len(partitions) == 0 || !e.db.GrantDigestsPresent() {
 		return nil
 	}
 	return e.withWrite(func() error {
@@ -201,7 +201,7 @@ func (e *Engine) RepairMissingGrantDigests(ctx context.Context) error {
 			return fmt.Errorf("RepairMissingGrantDigests: drop digest state left by an interrupted build: %w", err)
 		}
 	}
-	if !e.grantDigestsPresent.Load() {
+	if !e.db.GrantDigestsPresent() {
 		return e.BuildGrantDigests(ctx)
 	}
 	err := e.repairMissingGrantDigestsAttempt(ctx)
@@ -536,7 +536,7 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 	if err := digestBatch.Commit(opts); err != nil {
 		return err
 	}
-	e.grantDigestsPresent.Store(true)
+	e.db.SetGrantDigestsPresent(true)
 	return nil
 }
 
@@ -586,6 +586,6 @@ func (e *Engine) recomputeGrantDigestGlobalRootLocked(ctx context.Context) error
 	if err := e.db.DigestSet(keys.GlobalGrantDigestNodeKey(), packDigestLeaf(total, xor[:]), opts); err != nil {
 		return err
 	}
-	e.grantDigestsPresent.Store(true)
+	e.db.SetGrantDigestsPresent(true)
 	return nil
 }

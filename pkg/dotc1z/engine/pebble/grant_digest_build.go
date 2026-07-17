@@ -492,7 +492,7 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 		if err := e.db.DigestSet(keys.GlobalGrantDigestNodeKey(), packDigestLeaf(0, zeroDigest[:]), opts); err != nil {
 			return err
 		}
-		e.grantDigestsPresent.Store(true)
+		e.db.SetGrantDigestsPresent(true)
 		return e.clearGrantDigestBuildPending()
 	}
 
@@ -531,7 +531,7 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 	if err := e.writeMissingEntitlementDigestRoots(ctx, opts); err != nil {
 		return err
 	}
-	e.grantDigestsPresent.Store(true)
+	e.db.SetGrantDigestsPresent(true)
 	// The digest state is complete: consume the crash marker. Its
 	// fsync'd delete also makes every NoSync node batch above durable
 	// (WAL prefix ordering), so "marker absent" always means "complete
@@ -729,7 +729,7 @@ func (e *Engine) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
 // LAST — WAL prefix ordering makes the (possibly NoSync) tombstones
 // above durable before the marker's absence is.
 func (e *Engine) dropAllGrantDigestStateLocked() error {
-	e.grantDigestsPresent.Store(false)
+	e.db.SetGrantDigestsPresent(false)
 	opts := writeOpts(e.opts.durability)
 	if e.IsFreshSync() {
 		opts = pebble.NoSync

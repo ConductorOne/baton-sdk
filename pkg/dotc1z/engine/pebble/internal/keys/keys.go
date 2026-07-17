@@ -320,3 +320,26 @@ func GrantHashIndexEntitlementPrefix(partition string) []byte {
 // (codec.KeyUpperBound re-exported for range builders here and in
 // rawdb).
 func UpperBound(prefix []byte) []byte { return codec.KeyUpperBound(prefix) }
+
+// === engine-meta markers owned by rawdb ===
+
+// DeferredIdxPendingKey is the durable marker that grant writes have
+// skipped the inline by_principal index and a deferred rebuild is
+// owed. The in-memory flag alone cannot survive a process restart: a
+// sync interrupted after its expansion writes and resumed in a fresh
+// process would otherwise write nothing (idempotent re-run), never
+// re-arm the flag, and EndSync would skip the rebuild — saving a
+// "finished" c1z whose by_principal index misses every
+// deferred-written grant.
+func DeferredIdxPendingKey() []byte {
+	buf := make([]byte, 0, 2+len("deferred_grant_idx_pending"))
+	buf = append(buf, VersionV3, TypeEngineMeta)
+	return codec.AppendTupleStrings(buf, "deferred_grant_idx_pending")
+}
+
+// DigestKeyspaceBounds bounds the entire digest keyspace (all digested
+// indexes) — the presence-probe range for the digests-present flag.
+func DigestKeyspaceBounds() ([]byte, []byte) {
+	lo := []byte{VersionV3, TypeDigest}
+	return lo, UpperBound(lo)
+}

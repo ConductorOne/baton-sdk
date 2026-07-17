@@ -461,7 +461,7 @@ func (e *Engine) buildPartitionDigestAtWidth(ctx context.Context, spec digestInd
 		if err := batch.Commit(opts); err != nil {
 			return err
 		}
-		e.grantDigestsPresent.Store(true)
+		e.db.SetGrantDigestsPresent(true)
 		return nil
 	})
 }

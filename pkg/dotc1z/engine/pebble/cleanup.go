@@ -98,7 +98,7 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 		}
 		// The record-type span above covers typeDigest and the hash
 		// index too; disarm the mutation-path digest invalidation.
-		e.grantDigestsPresent.Store(false)
+		e.db.SetGrantDigestsPresent(false)
 		// The digest-build crash marker lives in the preserved
 		// engine-meta range, but the excise just removed everything it
 		// was guarding against trusting — consume it (only reachable

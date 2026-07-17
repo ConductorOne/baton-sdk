@@ -341,7 +341,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// full grant scan also accumulates the grant portion of the stats via
 	// stashDeferredGrantStats, letting PersistSyncStats skip a second
 	// O(grants) pass over the keyspace).
-	if e.deferredIdxPending.Load() {
+	if e.db.DeferredIdxPending() {
 		if err := e.BuildDeferredGrantIndexes(ctx); err != nil {
 			return fmt.Errorf("EndSync: build deferred grant indexes: %w", err)
 		}

@@ -14,7 +14,6 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // Grant instantiation of the digest core (digest.go): the per-
@@ -460,7 +459,7 @@ func (e *Engine) IterateGrantsByEntitlementBucket(ctx context.Context, id entitl
 // successful seal recalculates them.
 func (e *Engine) DropAllGrantDigests(ctx context.Context) error {
 	return e.withWrite(func() error {
-		e.grantDigestsPresent.Store(false)
+		e.db.SetGrantDigestsPresent(false)
 		return e.db.DropKeyRange(DigestLowerBound(), DigestUpperBound(), writeOpts(e.opts.durability))
 	})
 }
@@ -477,7 +476,7 @@ func (e *Engine) DropAllGrantDigests(ctx context.Context) error {
 // them), so this must never be collapsed into one span.
 func (e *Engine) DropAllGrantDigestState(ctx context.Context) error {
 	return e.withWrite(func() error {
-		e.grantDigestsPresent.Store(false)
+		e.db.SetGrantDigestsPresent(false)
 		opts := writeOpts(e.opts.durability)
 		if err := e.db.DropKeyRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
 			return err
@@ -486,70 +485,10 @@ func (e *Engine) DropAllGrantDigestState(ctx context.Context) error {
 	})
 }
 
-// stageGrantDigestInvalidation stages the post-seal invalidation for
-// one entitlement into batch: DeleteRange over the entitlement's
-// digest partition (present-means-exact — a mutated partition's digest
-// must read as missing, see digest.go) AND over its hash-index range
-// (the index is derived at seal and is equally stale after a
-// mutation). v1 never updates either in place.
-//
-// Gated on grantDigestsPresent so the ordinary sync paths pay nothing:
-// during a fresh sync both keyspaces are empty by construction
-// (ResetForNewSync wiped them; only the seal build writes them), and a
-// resumed unfinished sync never built them — emitting two range
-// tombstones per record there (e.g. PutExpandedGrantRecords over
-// millions of grants) would bloat the LSM for no reason. The flag is
-// true only when digests actually exist: probed once at Open, set by
-// the seal build, cleared by ResetForNewSync and the Drop* paths.
-// stageGrantDigestInvalidationFromPrimaryKey is the KEY-DERIVED form
-// wired into rawdb's typed record ops (RecordDerivers): the partition
-// is the entitlement region of the grant primary key, a plain
-// sub-slice (see keys.SplitGrantPrimaryKey) that is byte-identical to
-// digestPartitionForEntitlement of the decoded identity — the key IS
-// the identity encoding. Same armed gate as the identity form.
-func (e *Engine) stageGrantDigestInvalidationFromPrimaryKey(st rawdb.Stager, primaryKey []byte) error {
-	if !e.grantDigestsPresent.Load() {
-		return nil
-	}
-	sep4, ok := keys.SplitGrantPrimaryKey(primaryKey)
-	if !ok {
-		// Fail closed: a record that reached a typed op already carried
-		// a well-formed identity key; swallowing would leave a
-		// stale-but-present digest (violates present-means-exact).
-		return fmt.Errorf("digest invalidation: grant key %x did not decode as a 6-segment identity", primaryKey)
-	}
-	return stageGrantDigestInvalidationForPartition(st, string(primaryKey[grantPrimaryKeyPrefixLen:sep4]))
-}
-
-func stageGrantDigestInvalidationForPartition(batch rawdb.Stager, partition string) error {
-	if err := dropPartitionDigest(batch, grantDigestSpec, partition); err != nil {
-		return err
-	}
-	// The whole-file root is the fold of every partition's root; once
-	// one partition's digest is invalidated the aggregate is stale too,
-	// so it must drop alongside it rather than linger looking present
-	// (present-means-exact — digest.go).
-	if err := batch.Delete(keys.GlobalGrantDigestNodeKey()); err != nil {
-		return err
-	}
-	lo := keys.GrantHashIndexEntitlementPrefix(partition)
-	return batch.DeleteRange(lo, upperBoundOf(lo))
-}
-
-// probeGrantDigestsPresent initializes the digests-present flag at
-// Open: one bounded seek over the digest keyspace. Present digests on
-// a reopened sealed file arm the mutation-path invalidation
-// (stageGrantDigestInvalidation); absent digests keep those paths
-// tombstone-free.
-func (e *Engine) probeGrantDigestsPresent() error {
-	iter, err := e.db.NewIter(&pebble.IterOptions{
-		LowerBound: DigestLowerBound(),
-		UpperBound: DigestUpperBound(),
-	})
-	if err != nil {
-		return err
-	}
-	defer iter.Close()
-	e.grantDigestsPresent.Store(iter.First())
-	return iter.Error()
-}
+// The per-record digest-invalidation obligation (partition nodes +
+// whole-file root + hash-index range, present-means-exact) lives in
+// rawdb itself (RecordBatch.stageGrantDigestInvalidation), KEY-DERIVED
+// from the grant primary key and gated on the digests-present flag.
+// The engine-side batch form for callers that invalidate MANY named
+// partitions at once is InvalidateGrantDigestPartitions (repair /
+// compaction), which hoists the global-root delete out of the loop.

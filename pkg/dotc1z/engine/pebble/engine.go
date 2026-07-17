@@ -17,7 +17,6 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
@@ -89,18 +88,11 @@ type Engine struct {
 	deferredGrantStatsMu sync.Mutex
 	deferredGrantStats   *deferredGrantStats
 
-	// deferredIdxPending is set by grant writes that skipped the inline
-	// by_principal index write (all of them: the index family is scattered
-	// relative to the entitlement-first write order, so it is always built
-	// as one sorted SST at EndSync — see BuildDeferredGrantIndexes).
-	deferredIdxPending atomic.Bool
-
-	// grantDigestsPresent reports whether the digest keyspace holds any
-	// nodes — i.e. whether a grant mutation must invalidate the touched
-	// entitlement's digest + hash-index ranges
-	// (stageGrantDigestInvalidation). Probed once at Open, set by the
-	// seal-time build, cleared by ResetForNewSync and the Drop* paths.
-	grantDigestsPresent atomic.Bool
+	// The deferred-index rebuild flag and the digests-present flag live
+	// ON rawdb (e.db.DeferredIdxPending / e.db.GrantDigestsPresent):
+	// they are write-side crash-contract state the choke point's typed
+	// record ops consume directly (the deferred regime arms the marker;
+	// the digest-invalidation obligation gates on presence).
 
 	// grantDigestBuildPending mirrors the durable digest-build marker
 	// (encodeGrantDigestBuildPendingKey): true between a digest build's
@@ -237,32 +229,6 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
 		e.compactionScheduler = s
 	}
-	// Wire the record derivers: the key-format functions rawdb's typed
-	// record ops (StageGrant*/StageResource*/...) derive their
-	// obligations with. rawdb owns the composition — WHAT a record
-	// mutation must stage together, unforgettable by construction — and
-	// these closures own the byte formats (this package's keyspace ABI,
-	// pinned by its splice tests) plus the engine-state gates (digest
-	// armed probe, deferred-marker crash contract).
-	if err := db.SetRecordDerivers(rawdb.RecordDerivers{
-		GrantKeyValid: func(primaryKey []byte) bool {
-			_, ok := keys.SplitGrantPrimaryKey(primaryKey)
-			return ok
-		},
-		GrantByPrincipalKey:          keys.AppendGrantByPrincipalKeyFromPrimary,
-		GrantNeedsExpansionKey:       keys.AppendGrantByNeedsExpansionKeyFromPrimary,
-		StageGrantDigestInvalidation: e.stageGrantDigestInvalidationFromPrimaryKey,
-		ArmDeferredGrantIndex:        e.markDeferredIdxPending,
-		ResourceParent:               keys.ScanResourceParentRaw,
-		ResourceByParentKey:          keys.EncodeResourceByParentIndexKey,
-		GrantPrimaryPrefix:           []byte{versionV3, typeGrant},
-		ResourcePrimaryPrefix:        []byte{versionV3, typeResource},
-		EntitlementPrimaryPrefix:     []byte{versionV3, typeEntitlement},
-		ResourceTypePrimaryPrefix:    []byte{versionV3, typeResourceType},
-	}); err != nil {
-		_ = e.Close()
-		return nil, err
-	}
 	// Enforce the single-sync key-layout contract before touching any
 	// keys: reject an old multi-sync-layout file (which the current
 	// encoders would silently mis-decode) and stamp a fresh writable
@@ -277,12 +243,10 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		return nil, err
 	}
 	// Restore the durable deferred-index marker (see
-	// encodeDeferredIdxPendingKey): a prior process may have deferred
-	// by_principal writes and been interrupted before the EndSync rebuild.
-	if _, closer, err := e.db.Get(encodeDeferredIdxPendingKey()); err == nil {
-		closer.Close()
-		e.deferredIdxPending.Store(true)
-	} else if !errors.Is(err, pebble.ErrNotFound) {
+	// keys.DeferredIdxPendingKey): a prior process may have deferred
+	// by_principal writes and been interrupted before the EndSync
+	// rebuild (rawdb owns the marker's crash contract).
+	if err := e.db.RestoreDeferredIdxPending(); err != nil {
 		_ = e.Close()
 		return nil, err
 	}
@@ -310,8 +274,9 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		return nil, err
 	}
 	// Arm the mutation-path digest invalidation iff the file actually
-	// holds digest nodes (one bounded seek; see grant_digest.go).
-	if err := e.probeGrantDigestsPresent(); err != nil {
+	// holds digest nodes (one bounded seek; rawdb owns the flag its
+	// record ops gate on).
+	if err := e.db.ProbeGrantDigestsPresent(); err != nil {
 		_ = e.Close()
 		return nil, err
 	}

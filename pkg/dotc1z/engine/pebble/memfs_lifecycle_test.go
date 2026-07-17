@@ -42,7 +42,7 @@ func TestEngineLifecycleOverPureMemFS(t *testing.T) {
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, w.write(ctx, a))
-	require.True(t, e.deferredIdxPending.Load(),
+	require.True(t, e.db.DeferredIdxPending(),
 		"the workload must arm the deferred rebuild so EndSync exercises SST staging over the MemFS")
 	require.NoError(t, a.EndSync(ctx))
 	w.verifyComplete(ctx, t, e, syncID, true, true, "sealed engine over MemFS")

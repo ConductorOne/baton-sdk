@@ -82,20 +82,11 @@ type RecordBatch struct {
 	core    batch
 	db      *DB
 	scratch []byte
-	// stager is the batch's one Stager view, pre-built so the grant
-	// Stage* ops can pass &rb.stager to the digest-invalidation
-	// deriver without a per-op heap allocation (an inline
-	// &recordStager{rb} escapes through the indirect func-field call
-	// even when the deriver immediately no-ops on digest-absent
-	// syncs — one 8-byte alloc per staged grant on the bulk path).
-	stager recordStager
 }
 
 // NewRecordBatch mints a batch for record-keyspace mutations.
 func (d *DB) NewRecordBatch() *RecordBatch {
-	rb := &RecordBatch{core: batch{b: d.newBatch()}, db: d}
-	rb.stager.rb = rb
-	return rb
+	return &RecordBatch{core: batch{b: d.newBatch()}, db: d}
 }
 
 // Commit applies the staged writes with the given write options.

@@ -21,6 +21,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
@@ -68,7 +69,7 @@ func TestPutSynthesizedGrantRecordsObligations(t *testing.T) {
 		testGrantRecord("ent-A", "alice"),
 		testGrantRecord("ent-A", "bob"),
 	}))
-	require.True(t, e.deferredIdxPending.Load(), "synthesized puts must arm the deferred rebuild marker")
+	require.True(t, e.db.DeferredIdxPending(), "synthesized puts must arm the deferred rebuild marker")
 	require.Equal(t, 0, countKeys(t, e, encodeGrantByNeedsExpansionPrefix()),
 		"synthesized grants are never expandable")
 
@@ -111,7 +112,7 @@ func TestPutSynthesizedGrantContributionsBatchObligations(t *testing.T) {
 	// Through the exported dispatcher so its counter bookkeeping and the
 	// batch body are both exercised.
 	require.NoError(t, e.PutSynthesizedGrantContributions(ctx, records))
-	require.True(t, e.deferredIdxPending.Load(), "contributions must arm the deferred rebuild marker")
+	require.True(t, e.db.DeferredIdxPending(), "contributions must arm the deferred rebuild marker")
 
 	require.NoError(t, a.EndSync(ctx))
 	n := 0
@@ -148,10 +149,10 @@ func TestUnsafePutUniqueGrantRecordsObligations(t *testing.T) {
 	// absent (StartNewSync excised it), so a present flag means the
 	// freshness contract itself broke — the guard must refuse rather
 	// than silently tombstone a trusted import's digest keyspace.
-	e.grantDigestsPresent.Store(true)
+	e.db.SetGrantDigestsPresent(true)
 	require.ErrorContains(t, e.UnsafePutUniqueGrantRecords(ctx, testGrantRecord("ent-C", "carol")),
 		"digest state present on a fresh sync")
-	e.grantDigestsPresent.Store(false)
+	e.db.SetGrantDigestsPresent(false)
 
 	// Non-fresh syncs are refused (SetCurrentSync clears freshness).
 	require.NoError(t, a.EndSync(ctx))
@@ -261,7 +262,7 @@ func TestDeferredMarkerArmFailureRollsBackCAS(t *testing.T) {
 	e := a.PebbleEngine()
 
 	injected := errNoRetryArmFailure
-	e.test.armDeferredMarkerHook = func() error { return injected }
+	e.db.SetDeferredMarkerTestHooks(func() error { return injected }, nil)
 
 	// The deferred-regime write must FAIL when the marker can't arm —
 	// committing deferred rows without the durable marker is the lie.
@@ -269,8 +270,8 @@ func TestDeferredMarkerArmFailureRollsBackCAS(t *testing.T) {
 	require.ErrorIs(t, err, injected, "deferred write must surface the arm failure")
 
 	// THE CONTRACT: flag rolled back, durable key absent — in agreement.
-	require.False(t, e.deferredIdxPending.Load(), "failed arm must roll the CAS back")
-	_, closer, getErr := e.db.Get(encodeDeferredIdxPendingKey())
+	require.False(t, e.db.DeferredIdxPending(), "failed arm must roll the CAS back")
+	_, closer, getErr := e.db.Get(keys.DeferredIdxPendingKey())
 	require.ErrorIs(t, getErr, pebble.ErrNotFound, "no durable marker may exist after a failed arm")
 	if getErr == nil {
 		closer.Close()
@@ -281,10 +282,10 @@ func TestDeferredMarkerArmFailureRollsBackCAS(t *testing.T) {
 
 	// Retry converges: with the fault gone, the same write arms the
 	// marker durably and lands.
-	e.test.armDeferredMarkerHook = nil
+	e.db.SetDeferredMarkerTestHooks(nil, nil)
 	require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")}))
-	require.True(t, e.deferredIdxPending.Load())
-	_, closer, getErr = e.db.Get(encodeDeferredIdxPendingKey())
+	require.True(t, e.db.DeferredIdxPending())
+	_, closer, getErr = e.db.Get(keys.DeferredIdxPendingKey())
 	require.NoError(t, getErr, "the retried arm must persist the durable marker")
 	closer.Close()
 
@@ -319,25 +320,25 @@ func TestDeferredMarkerClearFailureKeepsAgreement(t *testing.T) {
 
 	// Deferred-regime write arms the marker.
 	require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")}))
-	require.True(t, e.deferredIdxPending.Load())
+	require.True(t, e.db.DeferredIdxPending())
 
 	injected := errors.New("injected deferred-marker clear failure")
-	e.test.clearDeferredMarkerHook = func() error { return injected }
+	e.db.SetDeferredMarkerTestHooks(nil, func() error { return injected })
 	err = a.EndSync(ctx)
 	require.ErrorIs(t, err, injected, "a failed marker clear must fail EndSync")
 
 	// THE CONTRACT: both halves still armed, in agreement.
-	require.True(t, e.deferredIdxPending.Load(), "failed clear must leave the flag armed")
-	_, closer, getErr := e.db.Get(encodeDeferredIdxPendingKey())
+	require.True(t, e.db.DeferredIdxPending(), "failed clear must leave the flag armed")
+	_, closer, getErr := e.db.Get(keys.DeferredIdxPendingKey())
 	require.NoError(t, getErr, "failed clear must leave the durable key present")
 	closer.Close()
 
 	// Retry converges: rebuild re-runs (idempotent), clear succeeds,
 	// both halves disarm, and the index serves the rows.
-	e.test.clearDeferredMarkerHook = nil
+	e.db.SetDeferredMarkerTestHooks(nil, nil)
 	require.NoError(t, a.EndSync(ctx))
-	require.False(t, e.deferredIdxPending.Load())
-	_, _, getErr = e.db.Get(encodeDeferredIdxPendingKey())
+	require.False(t, e.db.DeferredIdxPending())
+	_, _, getErr = e.db.Get(keys.DeferredIdxPendingKey())
 	require.ErrorIs(t, getErr, pebble.ErrNotFound)
 	n := 0
 	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool {

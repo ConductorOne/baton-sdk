@@ -179,7 +179,7 @@ func testGrantDigestBuildCrash(t *testing.T, arm func(*Engine), assertPoisoned f
 	require.False(t, rawKeyPresent(t, e2, encodeGrantDigestBuildPendingKey()))
 	require.Zero(t, countKeyRangeTest(t, e2, DigestLowerBound(), DigestUpperBound()),
 		"reopen must drop every digest node the crashed build committed")
-	require.False(t, e2.grantDigestsPresent.Load())
+	require.False(t, e2.db.GrantDigestsPresent())
 
 	// Resume the sync and rerun EndSync — the standalone build runs
 	// again, from scratch.
