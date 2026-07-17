@@ -23,6 +23,7 @@ type State interface {
 	NextPage(ctx context.Context, actionID string, pageToken string) error
 	EntitlementGraph(ctx context.Context) *expand.EntitlementGraph
 	ClearEntitlementGraph(ctx context.Context)
+	ClearEntitlementGraphTransientState(ctx context.Context)
 	Current() *Action
 	GetAction(id string) *Action
 	PeekMatchingActions(ctx context.Context, op ActionOp) []*Action
@@ -94,6 +95,12 @@ func PrepareExpansionReplayToken(stateStr string) (string, error) {
 		return "", err
 	}
 	st.SetNeedsExpansion()
+	// Clear any preserved entitlement graph. A graph preserved by
+	// WithPreserveEntitlementGraph has Loaded=true with every edge already
+	// marked expanded, so a replayed sync would skip graph loading and the
+	// expander would report done immediately — the replay would silently
+	// no-op. Clearing it makes the replay rebuild the graph from scratch.
+	st.ClearEntitlementGraph(context.Background())
 	if st.Current() == nil {
 		// A finished sync deserializes with no action map, so seed one before
 		// queuing the InitOp that drives the resumed run.
@@ -779,6 +786,16 @@ func (st *state) EntitlementGraph(ctx context.Context) *expand.EntitlementGraph 
 // ClearEntitlementGraph clears the entitlement graph. This is meant to make the final sync token less confusing.
 func (st *state) ClearEntitlementGraph(ctx context.Context) {
 	st.entitlementGraph = nil
+}
+
+// ClearEntitlementGraphTransientState strips a preserved graph's expansion
+// working state before the final checkpoint. A no-op when no graph was built —
+// deliberately NOT EntitlementGraph(ctx), which would allocate an empty graph
+// into the final token where prior behavior serialized none.
+func (st *state) ClearEntitlementGraphTransientState(_ context.Context) {
+	if st.entitlementGraph != nil {
+		st.entitlementGraph.ClearTransientState()
+	}
 }
 
 func (st *state) GetCompletedActionsCount() uint64 {

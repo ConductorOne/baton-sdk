@@ -886,8 +886,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
 	// preserveEntitlementGraph keeps the graph in the final token so a later
-	// incremental expansion can reload it instead of rebuilding from scratch.
-	if !s.preserveEntitlementGraph {
+	// incremental expansion can reload it instead of rebuilding from scratch —
+	// but strip its transient working state (action queue, expansion plan,
+	// metrics) first, which a reload doesn't need and which bloats the token.
+	if s.preserveEntitlementGraph {
+		s.state.ClearEntitlementGraphTransientState(ctx)
+	} else {
 		s.state.ClearEntitlementGraph(ctx)
 	}
 	s.state.ClearExclusionGroupTracking(ctx)

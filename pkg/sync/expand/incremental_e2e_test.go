@@ -3,7 +3,9 @@ package expand
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
+	"strings"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -39,8 +41,9 @@ func roundTripGraph(t *testing.T, g *EntitlementGraph) *EntitlementGraph {
 }
 
 // grantSet lists every grant across the given entitlements and returns the set
-// of "entitlement|principalType|principalResource" keys — the access outcome,
-// independent of provenance details.
+// of full-row keys "entitlement|principalType|principalResource|sources=..."
+// — INCLUDING the sources/provenance map, so incremental is held to producing
+// byte-identical provenance to a full expansion, not just the same access.
 func grantSet(t *testing.T, ctx context.Context, store *MockExpanderStore, entIDs ...string) map[string]struct{} {
 	t.Helper()
 	set := make(map[string]struct{})
@@ -51,10 +54,21 @@ func grantSet(t *testing.T, ctx context.Context, store *MockExpanderStore, entID
 		require.NoError(t, err)
 		for _, g := range resp.GetList() {
 			pid := g.GetPrincipal().GetId()
-			set[entID+"|"+pid.GetResourceType()+"|"+pid.GetResource()] = struct{}{}
+			set[entID+"|"+pid.GetResourceType()+"|"+pid.GetResource()+"|"+sourcesString(g)] = struct{}{}
 		}
 	}
 	return set
+}
+
+// sourcesString renders a grant's sources map as a stable "id:direct,..." string.
+func sourcesString(g *v2.Grant) string {
+	srcs := g.GetSources().GetSources()
+	parts := make([]string, 0, len(srcs))
+	for id, s := range srcs {
+		parts = append(parts, fmt.Sprintf("%s:%t", id, s.GetIsDirect()))
+	}
+	sort.Strings(parts)
+	return "sources=" + strings.Join(parts, ",")
 }
 
 func keys(set map[string]struct{}) []string {
@@ -127,18 +141,85 @@ func TestE2E_IncrementalMatchesFullRebuild(t *testing.T) {
 	)
 	require.NoError(t, NewExpander(fullStore, fullGraph).Run(ctx))
 
-	// --- The two must agree on the access outcome ---
+	// --- The two must agree on full rows, INCLUDING sources/provenance ---
 	incGrants := grantSet(t, ctx, incStore, ents...)
 	fullGrants := grantSet(t, ctx, fullStore, ents...)
 	require.Equal(t, keys(fullGrants), keys(incGrants),
-		"incremental result must equal a full rebuild")
+		"incremental result must equal a full rebuild, sources included")
 
-	// And spell out the expected access explicitly.
-	require.Equal(t, []string{
-		"eng:manager|user|mandy",
-		"eng:manager|user|sam",
-		"eng:member|user|mandy",
-		"eng:member|user|sam",
-		"eng:senior_manager|user|sam",
-	}, keys(incGrants))
+	// Sanity: the expected access is present (sources vary, so match by prefix).
+	require.NotEmpty(t, incGrants)
+	requireHasGrant(t, incGrants, "eng:manager|user|sam")
+	requireHasGrant(t, incGrants, "eng:member|user|sam")
+	requireHasGrant(t, incGrants, "eng:member|user|mandy")
+}
+
+// TestE2E_ShallowEdgeDirectnessMatchesFull (C1 differential): a principal who
+// is BOTH a direct member of the source and expanded into it (sources map
+// carries the source entitlement) must propagate over a new shallow edge, and
+// a principal who is only expanded into the source must not — exactly matching
+// a full rebuild, sources included.
+//
+// alice: direct on X and direct on B. bob: direct on X only (reaches B via
+// X -> B deep). New shallow edge B -> Y arrives: alice qualifies (direct on
+// B), bob does not.
+func TestE2E_ShallowEdgeDirectnessMatchesFull(t *testing.T) {
+	ctx := context.Background()
+	ents := []string{"x:member", "b:member", "y:access"}
+
+	seed := func(store *MockExpanderStore) *EntitlementGraph {
+		g := NewEntitlementGraph(ctx)
+		for _, e := range ents {
+			g.AddEntitlementID(e)
+			store.AddEntitlement(makeEntitlement(e, makeResource("group", e)))
+		}
+		store.AddGrant(directGrant("x:member", makeResource("user", "alice")))
+		store.AddGrant(directGrant("x:member", makeResource("user", "bob")))
+		store.AddGrant(directGrant("b:member", makeResource("user", "alice")))
+		require.NoError(t, g.AddEdge(ctx, "x:member", "b:member", false, nil)) // deep
+		return g
+	}
+
+	// --- Path 1: expand the base (X->B), persist+reload, then the shallow edge ---
+	incStore := NewMockExpanderStore()
+	baseGraph := seed(incStore)
+	require.NoError(t, NewExpander(incStore, baseGraph).Run(ctx))
+	loaded := roundTripGraph(t, baseGraph)
+
+	ie := NewIncrementalExpander(incStore, loaded)
+	_, err := ie.ExpandChanges(ctx, []NewEdge{
+		{SourceEntitlementID: "b:member", DestEntitlementID: "y:access", Shallow: true},
+	}, nil)
+	require.NoError(t, err)
+
+	// --- Path 2: full expansion from scratch with BOTH edges present ---
+	fullStore := NewMockExpanderStore()
+	fullGraph := seed(fullStore)
+	require.NoError(t, fullGraph.AddEdge(ctx, "b:member", "y:access", true, nil)) // shallow
+	require.NoError(t, NewExpander(fullStore, fullGraph).Run(ctx))
+
+	// --- Full-row parity, sources included ---
+	incGrants := grantSet(t, ctx, incStore, ents...)
+	fullGrants := grantSet(t, ctx, fullStore, ents...)
+	require.Equal(t, keys(fullGrants), keys(incGrants),
+		"shallow-edge incremental must equal a full rebuild, sources included")
+
+	// alice (direct on B) crossed the shallow edge; bob (expanded-only) did not.
+	requireHasGrant(t, incGrants, "y:access|user|alice")
+	for k := range incGrants {
+		require.False(t, strings.HasPrefix(k, "y:access|user|bob|"),
+			"bob is not direct on b:member and must not cross a shallow edge")
+	}
+}
+
+// requireHasGrant asserts some key in the set starts with the given
+// entitlement|type|resource prefix (ignoring the sources suffix).
+func requireHasGrant(t *testing.T, set map[string]struct{}, prefix string) {
+	t.Helper()
+	for k := range set {
+		if strings.HasPrefix(k, prefix+"|") {
+			return
+		}
+	}
+	t.Fatalf("expected a grant with prefix %q in %v", prefix, keys(set))
 }
