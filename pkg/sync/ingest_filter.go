@@ -51,8 +51,46 @@ func (s *syncer) scheduledResourceTypeExists(ctx context.Context, resourceTypeID
 		return false, fmt.Errorf("fresh-ingest resource-type probe for %q: %w", resourceTypeID, err)
 	}
 	exists := err == nil
+	if !exists {
+		// The external-resource phase runs after entitlement and grant
+		// collection and copies user/group resource types (and their
+		// resources) from the external c1z into this sync. A reference that
+		// is dangling at collection time can therefore resolve by the time
+		// uplift reads the store, so it must not be dropped.
+		exists, err = s.externalResourceTypeWillBeCopied(ctx, resourceTypeID)
+		if err != nil {
+			return false, err
+		}
+	}
 	s.scheduledResourceTypes.Store(resourceTypeID, exists)
 	return exists, nil
+}
+
+// externalResourceTypeWillBeCopied reports whether the later external-resource
+// phase will copy resourceTypeID into this sync: an external reader is
+// configured and the type exists there carrying a user or group trait — the
+// only kinds SyncExternalResourcesUsersAndGroups and
+// SyncExternalResourcesWithGrantToEntitlement copy.
+func (s *syncer) externalResourceTypeWillBeCopied(ctx context.Context, resourceTypeID string) (bool, error) {
+	if s.externalResourceReader == nil {
+		return false, nil
+	}
+	resp, err := s.externalResourceReader.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
+		ResourceTypeId: resourceTypeID,
+	}.Build())
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return false, nil
+		}
+		// A read failure must never be converted into a drop verdict.
+		return false, fmt.Errorf("fresh-ingest external resource-type probe for %q: %w", resourceTypeID, err)
+	}
+	for _, trait := range resp.GetResourceType().GetTraits() {
+		if trait == v2.ResourceType_TRAIT_USER || trait == v2.ResourceType_TRAIT_GROUP {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *syncer) filterFreshEntitlements(
@@ -64,7 +102,16 @@ func (s *syncer) filterFreshEntitlements(
 	}
 	out := make([]*v2.Entitlement, 0, len(entitlements))
 	for _, entitlement := range entitlements {
-		if entitlement == nil || entitlement.GetResource().GetId() == nil {
+		// A literal nil entry carries nothing to store or validate; engines
+		// skip nil writes inconsistently (pebble silently, sqlite not at
+		// all), so drop it here.
+		if entitlement == nil {
+			continue
+		}
+		// A missing resource ref is malformed-but-present data, not evidence
+		// of a disabled type. Keep it on the normal write path so existing
+		// validation reports it.
+		if entitlement.GetResource().GetId() == nil {
 			out = append(out, entitlement)
 			continue
 		}
@@ -156,7 +203,15 @@ func (s *syncer) filterFreshGrants(ctx context.Context, grants []*v2.Grant) ([]*
 	}
 	out := make([]*v2.Grant, 0, len(grants))
 	for _, grant := range grants {
-		if grant == nil || grant.GetEntitlement().GetResource().GetId() == nil || grant.GetPrincipal().GetId() == nil {
+		// A literal nil entry carries nothing to store or validate; drop it
+		// rather than relying on engine-dependent nil handling at write time.
+		if grant == nil {
+			continue
+		}
+		// Missing refs are malformed-but-present data, not evidence of a
+		// disabled type. Keep them on the normal write path so existing
+		// validation reports them.
+		if grant.GetEntitlement().GetResource().GetId() == nil || grant.GetPrincipal().GetId() == nil {
 			out = append(out, grant)
 			continue
 		}
