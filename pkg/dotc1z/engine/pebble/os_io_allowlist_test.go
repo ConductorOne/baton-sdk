@@ -94,6 +94,31 @@ func TestOSFileIOCallsAreAllowlisted(t *testing.T) {
 	for _, pkg := range pkgs {
 		for path, f := range pkg.Files {
 			base := path[strings.LastIndex(path, "/")+1:]
+			// Resolve the local name(s) the "os" import is bound to in
+			// THIS file — an aliased import (stdos "os") must not slip
+			// past the registry, and a dot-import would make os calls
+			// indistinguishable from package-local ones, so it is
+			// rejected outright.
+			osNames := map[string]bool{}
+			for _, imp := range f.Imports {
+				if imp.Path.Value != `"os"` {
+					continue
+				}
+				switch {
+				case imp.Name == nil:
+					osNames["os"] = true
+				case imp.Name.Name == ".":
+					require.Failf(t, "dot-import of os",
+						"%s dot-imports \"os\", which defeats this registry; use a named import", base)
+				case imp.Name.Name == "_":
+					// blank import: no callable name.
+				default:
+					osNames[imp.Name.Name] = true
+				}
+			}
+			if len(osNames) == 0 {
+				continue
+			}
 			ast.Inspect(f, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
 				if !ok {
@@ -104,7 +129,7 @@ func TestOSFileIOCallsAreAllowlisted(t *testing.T) {
 					return true
 				}
 				ident, ok := sel.X.(*ast.Ident)
-				if !ok || ident.Name != "os" || !osFileIOFuncs[sel.Sel.Name] {
+				if !ok || !osNames[ident.Name] || !osFileIOFuncs[sel.Sel.Name] {
 					return true
 				}
 				if found[base] == nil {

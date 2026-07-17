@@ -821,10 +821,16 @@ func copyReadOnlyDBDir(pfs vfs.FS, srcDir, destDir string) error {
 //
 // pfs is the engine FS (Engine.fs()) — db.Checkpoint wrote the
 // checkpoint through it, so the WALs to truncate live there, not
-// necessarily on the host filesystem. vfs has no Truncate, so the
-// truncation is a Create (same open-existing-with-O_TRUNC semantics
-// as os.Create on the default FS; permissions of an existing file are
-// untouched by O_CREATE|O_TRUNC).
+// necessarily on the host filesystem. vfs has no Truncate, and
+// vfs.Default.Create is REMOVE-then-recreate (not O_TRUNC — see its
+// hard-link rationale), so "Create the WAL path directly" could
+// unlink a WAL and then fail the recreate, which is exactly the
+// delete-changes-the-discovered-file-set hazard the truncate-not-
+// delete policy above exists to avoid. Instead the zero-byte
+// replacement is built at a side name and Rename'd over the WAL:
+// the original survives every failure before the rename, and the
+// rename replaces the path atomically on both the default FS and
+// MemFS.
 func truncateCheckpointWALs(pfs vfs.FS, destDir string) error {
 	names, err := pfs.List(destDir)
 	if err != nil {
@@ -841,11 +847,17 @@ func truncateCheckpointWALs(pfs vfs.FS, destDir string) error {
 			}
 			continue
 		}
-		f, err := pfs.Create(path, vfs.WriteCategoryUnspecified)
+		tmp := path + ".trunc"
+		f, err := pfs.Create(tmp, vfs.WriteCategoryUnspecified)
 		if err != nil {
 			return err
 		}
 		if err := f.Close(); err != nil {
+			_ = pfs.Remove(tmp)
+			return err
+		}
+		if err := pfs.Rename(tmp, path); err != nil {
+			_ = pfs.Remove(tmp)
 			return err
 		}
 	}
