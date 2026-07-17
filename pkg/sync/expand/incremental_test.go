@@ -2,6 +2,7 @@ package expand
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -25,10 +26,10 @@ func buildExpandedChain(t *testing.T, ctx context.Context, store *MockExpanderSt
 	store.AddGrant(directGrant(ents[0], makeResource("user", rootMember)))
 	for i := 0; i+1 < len(ents); i++ {
 		require.NoError(t, g.AddEdge(ctx, ents[i], ents[i+1], false, nil))
-		g.MarkEdgeExpanded(ents[i], ents[i+1])
-		// Downstream already has the root member (expanded), with a source.
-		store.AddGrant(expandedGrantWithSource(ents[i+1], makeResource("user", rootMember), ents[i]))
 	}
+	// Run the real expander so the base carries realistic expanded grants and
+	// provenance (sources maps), not hand-seeded approximations.
+	require.NoError(t, NewExpander(store, g).Run(ctx))
 	return g
 }
 
@@ -259,6 +260,79 @@ func TestIncremental_ChunkedFlush(t *testing.T) {
 	for i := 0; i < n; i++ {
 		require.Contains(t, got, "u"+itoa(i))
 	}
+}
+
+// TestIncremental_ShallowEdgeDirectness (C1): a principal who is direct on the
+// source but whose grant also carries a sources map must still count as direct
+// on a shallow edge. The naive "no sources == direct" check would drop them;
+// the correct predicate (sources empty OR the source entitlement is recorded)
+// keeps them.
+func TestIncremental_ShallowEdgeDirectness(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+
+	g := NewEntitlementGraph(ctx)
+	g.AddEntitlementID("group-b:member")
+	g.AddEntitlementID("y:access")
+	store.AddEntitlement(makeEntitlement("group-b:member", makeResource("group", "b")))
+	store.AddEntitlement(makeEntitlement("y:access", makeResource("app", "y")))
+	// alice is a direct member of B, but her grant records B in its sources map
+	// (IsDirect) — so len(sources) != 0 even though she IS direct on B.
+	store.AddGrant(expandedGrantWithSource("group-b:member", makeResource("user", "alice"), "group-b:member"))
+
+	ie := NewIncrementalExpander(store, g)
+	// New SHALLOW edge B -> Y: only direct members of B should propagate.
+	res, err := ie.ExpandChanges(ctx, []NewEdge{
+		{SourceEntitlementID: "group-b:member", DestEntitlementID: "y:access", Shallow: true},
+	}, nil)
+	require.NoError(t, err)
+
+	// alice is direct on B, so she must reach Y over the shallow edge.
+	require.Contains(t, principalsOn(t, ctx, store, "y:access"), "alice",
+		"a direct member with a non-empty sources map must propagate over a shallow edge")
+	require.Equal(t, 1, res.GrantsWritten)
+}
+
+// TestIncremental_PreservedGraphTokenSize (#12) measures the serialized size of
+// a large nested-groups graph and confirms ClearTransientState shrinks it. It's
+// a measurement (logged), plus a guard that stripping never grows the token.
+func TestIncremental_PreservedGraphTokenSize(t *testing.T) {
+	ctx := context.Background()
+	g := NewEntitlementGraph(ctx)
+
+	// A wide, shallow nested-groups graph: 5000 groups each feeding a common
+	// downstream entitlement (fan-in), plus a chain spine (depth).
+	const groups = 5000
+	g.AddEntitlementID("downstream:access")
+	for i := 0; i < groups; i++ {
+		src := "group:" + itoa(i) + ":member"
+		g.AddEntitlementID(src)
+		require.NoError(t, g.AddEdge(ctx, src, "downstream:access", false, nil))
+		g.MarkEdgeExpanded(src, "downstream:access")
+	}
+	// Simulate leftover transient state a real run would carry.
+	g.Actions = []*EntitlementGraphAction{{SourceEntitlementID: "group:0:member"}}
+	g.ExpansionMetrics = &EntitlementGraphMetrics{Algorithm: "topological_projection"}
+
+	full, err := json.Marshal(g)
+	require.NoError(t, err)
+
+	g.ClearTransientState()
+	stripped, err := json.Marshal(g)
+	require.NoError(t, err)
+
+	t.Logf("preserved-graph token: %d nodes, full=%d bytes, stripped=%d bytes",
+		groups+1, len(full), len(stripped))
+	require.LessOrEqual(t, len(stripped), len(full), "stripping transient state must not grow the token")
+	require.Nil(t, g.Actions)
+	require.Nil(t, g.ExpansionPlan)
+	require.Nil(t, g.ExpansionMetrics)
+
+	// The stripped graph still round-trips and is usable.
+	loaded, err := g.Clone()
+	require.NoError(t, err)
+	require.NotNil(t, loaded.GetNode("downstream:access"))
+	require.Len(t, loaded.Edges, groups)
 }
 
 // TestIncremental_CycleFallback: a new edge that closes a cycle must return
