@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/vfs"
 )
 
 // SDKPebbleFormat is the on-disk format version this SDK release
@@ -50,6 +51,24 @@ type Options struct {
 	// The write paths never maintain either inline, so this gates only
 	// the fused derivation at EndSync. See WithGrantDigestIndex.
 	grantDigestIndex bool
+
+	// vfs, when non-nil, overrides the filesystem the engine (and the
+	// pebble.DB under it) performs its IO through. nil leaves
+	// pebble.Options.FS nil, so pebble's EnsureDefaults applies its own
+	// default (disk-health-wrapped vfs.Default) exactly as before this
+	// option existed — production callers are unchanged. See WithVFS.
+	vfs vfs.FS
+
+	// pebbleLogger, when non-nil, replaces discardPebbleLogger as the
+	// pebble.Options.Logger. Test-only (unexported, set by in-package
+	// tests via an inline Option): fault-injection tests need a Fatalf
+	// that does NOT os.Exit(1) — pebble treats a failed WAL commit as
+	// fatal (db.go commitWrite), and a process exit would kill the
+	// whole test binary where the intent is to observe the "crash" and
+	// assert on what durably survived it. The sweep installs a gate
+	// that parks the goroutine and signals the harness on injected
+	// engines, and a fail-fast panicking logger on clean ones.
+	pebbleLogger pebble.Logger
 }
 
 // Option is a functional option passed to Open.
@@ -93,6 +112,23 @@ func WithSlowQueryThreshold(d time.Duration) Option {
 	return func(o *Options) { o.slowQueryThreshold = d }
 }
 
+// WithVFS overrides the filesystem the engine performs its IO through.
+// This covers the pebble.DB itself (pebble.Options.FS) and the engine's
+// own SST staging (the deferred index build, digest build, bulk import,
+// synth layer, id-index migration — everything created through
+// newBulkSSTWriter and later handed to Ingest/IngestAndExcise), plus
+// the read-only checkpoint clone. Spill-chunk scratch files are NOT
+// routed through it: they are written and read back exclusively by
+// engine code (never by the pebble.DB), so they stay on the host OS
+// filesystem regardless of the engine FS.
+//
+// Intended for tests: fault injection (vfs/errorfs) and crash
+// simulation (vfs.NewCrashableMem). Production callers never set it;
+// nil (the default) means vfs.Default, matching pebble's own default.
+func WithVFS(fs vfs.FS) Option {
+	return func(o *Options) { o.vfs = fs }
+}
+
 // newPebbleOptions builds the *pebble.Options for the Engine. The
 // returned struct is consumed once at pebble.Open; the caller does
 // not retain a reference.
@@ -130,6 +166,13 @@ func newPebbleOptions(o *Options) *pebble.Options {
 		Comparer:   pebble.DefaultComparer,
 		ReadOnly:   o.readOnly,
 		Logger:     discardPebbleLogger{},
+		// nil FS gets pebble's own EnsureDefaults treatment
+		// (disk-health-wrapped vfs.Default), so the no-override case is
+		// byte-identical to before WithVFS existed.
+		FS: o.vfs,
+	}
+	if o.pebbleLogger != nil {
+		opts.Logger = o.pebbleLogger
 	}
 	// Pausable variant of pebble's default ConcurrencyLimitScheduler so the
 	// engine can suppress automatic compactions during the EndSync-to-close

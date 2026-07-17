@@ -531,7 +531,7 @@ func (e *Engine) takeSynthLayer() *synthGrantLayerSession {
 // initSynthLayerSession lazily allocates the session's temp dir, first
 // sorter, and background merge+ingest worker on the first Add.
 func (e *Engine) initSynthLayerSession(ctx context.Context, s *synthGrantLayerSession) error {
-	dir, err := os.MkdirTemp("", "pebble-synth-grant-layer-")
+	dir, err := e.prepareStagingDir("", "pebble-synth-grant-layer-")
 	if err != nil {
 		return fmt.Errorf("synth grant layer: mkdir temp: %w", err)
 	}
@@ -579,7 +579,7 @@ func (e *Engine) initSynthLayerSession(ctx context.Context, s *synthGrantLayerSe
 // discard it from the snapshot. checkpointMu is that barrier.
 func (e *Engine) ingestSynthLayerSegment(ctx context.Context, dir string, seg synthLayerSegment) error {
 	sstPath := filepath.Join(dir, seg.name+".sst")
-	if err := mergeSortedSpillChunksToSST(ctx, sstPath, seg.name, seg.chunks); err != nil {
+	if err := mergeSortedSpillChunksToSST(ctx, e.fs(), sstPath, seg.name, seg.chunks); err != nil {
 		return err
 	}
 	for _, chunk := range seg.chunks {
@@ -670,7 +670,7 @@ func (e *Engine) FinishSynthesizedGrantLayer(ctx context.Context) error {
 			return nil
 		}
 		if s.dir != "" {
-			defer os.RemoveAll(s.dir)
+			defer e.removeStagingDir(s.dir)
 		}
 		if s.sorter == nil {
 			return nil
@@ -714,7 +714,7 @@ func (e *Engine) AbortSynthesizedGrantLayer(ctx context.Context) error {
 		s.segWG.Wait()
 	}
 	if s.dir != "" {
-		_ = os.RemoveAll(s.dir)
+		e.removeStagingDir(s.dir)
 	}
 	return nil
 }

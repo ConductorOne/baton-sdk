@@ -670,6 +670,46 @@ func (e *Engine) InvalidateBareIDLookups() { e.noteEntitlementKeyspaceWrite() }
 // migration (see migratedOnOpen).
 func (e *Engine) MigratedOnOpen() bool { return e.migratedOnOpen }
 
+// fs returns the filesystem the engine performs its own IO through:
+// the WithVFS override when set, vfs.Default otherwise. This must be
+// the same FS the pebble.DB reads from — the staged SSTs the engine
+// hands to Ingest/IngestAndExcise are resolved through the DB's FS.
+func (e *Engine) fs() vfs.FS {
+	if e.opts.vfs != nil {
+		return e.opts.vfs
+	}
+	return vfs.Default
+}
+
+// prepareStagingDir mints a unique staging directory via os.MkdirTemp
+// and mirrors it onto the engine FS. SST files staged for ingest are
+// created through e.fs() (the pebble.DB resolves ingest paths through
+// that FS), while spill-chunk scratch is plain OS IO — so the directory
+// must exist on both. On the default FS the MkdirAll is a no-op.
+//
+// Portability note: mirroring a host temp path onto a MemFS assumes
+// "/" separators (MemFS only splits on "/"). WithVFS with a MemFS is a
+// test-only configuration and the tests are unix-only; a Windows port
+// would need to stage under fs.PathJoin'd relative paths instead.
+func (e *Engine) prepareStagingDir(tmpDir, pattern string) (string, error) {
+	dir, err := os.MkdirTemp(tmpDir, pattern)
+	if err != nil {
+		return "", err
+	}
+	if err := e.fs().MkdirAll(dir, 0o755); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
+}
+
+// removeStagingDir removes a staging directory from both filesystems
+// it exists on (see prepareStagingDir). Cleanup-path best effort.
+func (e *Engine) removeStagingDir(dir string) {
+	_ = e.fs().RemoveAll(dir)
+	_ = os.RemoveAll(dir)
+}
+
 // CheckpointTo writes a self-contained Pebble directory snapshot to
 // destDir. destDir must not exist yet. Pebble creates it and
 // hard-links SSTs where possible.
@@ -715,7 +755,7 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	}
 
 	if e.opts.readOnly {
-		return copyReadOnlyDBDir(e.dbDir, destDir)
+		return copyReadOnlyDBDir(e.fs(), e.dbDir, destDir)
 	}
 
 	if err := e.db.Flush(); err != nil {
@@ -724,7 +764,7 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	if err := e.db.Checkpoint(destDir); err != nil {
 		return fmt.Errorf("checkpoint db %s: %w", destDir, err)
 	}
-	if err := truncateCheckpointWALs(destDir); err != nil {
+	if err := truncateCheckpointWALs(e.fs(), destDir); err != nil {
 		return fmt.Errorf("checkpoint truncate WALs: %w", err)
 	}
 
@@ -733,14 +773,15 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 
 // copyReadOnlyDBDir clones a read-only Pebble directory tree into
 // destDir. destDir must not exist yet, matching db.Checkpoint's
-// contract.
-func copyReadOnlyDBDir(srcDir, destDir string) error {
-	if _, err := os.Stat(destDir); err == nil {
+// contract. pfs is the engine FS (Engine.fs()) — the source tree was
+// written through it and the clone must land where the destination
+// open will look.
+func copyReadOnlyDBDir(pfs vfs.FS, srcDir, destDir string) error {
+	if _, err := pfs.Stat(destDir); err == nil {
 		return &os.PathError{Op: "checkpoint", Path: destDir, Err: fs.ErrExist}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	pfs := vfs.Default
 	// Skip LOCK: the source engine holds an exclusive lock on it (on
 	// Windows the same process cannot reopen it for read). The clone
 	// gets a fresh LOCK when Pebble opens destDir.
@@ -777,16 +818,46 @@ func copyReadOnlyDBDir(srcDir, destDir string) error {
 // (replay reads a clean EOF), whereas deleting the file would change
 // the file set pebble's open sequence discovers and validates against
 // the manifest's minUnflushedLogNum.
-func truncateCheckpointWALs(destDir string) error {
-	entries, err := os.ReadDir(destDir)
+//
+// pfs is the engine FS (Engine.fs()) — db.Checkpoint wrote the
+// checkpoint through it, so the WALs to truncate live there, not
+// necessarily on the host filesystem. vfs has no Truncate, and
+// vfs.Default.Create is REMOVE-then-recreate (not O_TRUNC — see its
+// hard-link rationale), so "Create the WAL path directly" could
+// unlink a WAL and then fail the recreate, which is exactly the
+// delete-changes-the-discovered-file-set hazard the truncate-not-
+// delete policy above exists to avoid. Instead the zero-byte
+// replacement is built at a side name and Rename'd over the WAL:
+// the original survives every failure before the rename, and the
+// rename replaces the path atomically on both the default FS and
+// MemFS.
+func truncateCheckpointWALs(pfs vfs.FS, destDir string) error {
+	names, err := pfs.List(destDir)
 	if err != nil {
 		return err
 	}
-	for _, ent := range entries {
-		if ent.IsDir() || filepath.Ext(ent.Name()) != ".log" {
+	for _, name := range names {
+		if filepath.Ext(name) != ".log" {
 			continue
 		}
-		if err := os.Truncate(filepath.Join(destDir, ent.Name()), 0); err != nil {
+		path := pfs.PathJoin(destDir, name)
+		if info, err := pfs.Stat(path); err != nil || info.IsDir() {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		tmp := path + ".trunc"
+		f, err := pfs.Create(tmp, vfs.WriteCategoryUnspecified)
+		if err != nil {
+			return err
+		}
+		if err := f.Close(); err != nil {
+			_ = pfs.Remove(tmp)
+			return err
+		}
+		if err := pfs.Rename(tmp, path); err != nil {
+			_ = pfs.Remove(tmp)
 			return err
 		}
 	}

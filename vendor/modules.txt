@@ -321,6 +321,7 @@ github.com/cockroachdb/pebble/v2/sstable/valblk
 github.com/cockroachdb/pebble/v2/sstable/virtual
 github.com/cockroachdb/pebble/v2/vfs
 github.com/cockroachdb/pebble/v2/vfs/atomicfs
+github.com/cockroachdb/pebble/v2/vfs/errorfs
 github.com/cockroachdb/pebble/v2/wal
 # github.com/cockroachdb/redact v1.1.5
 ## explicit; go 1.14
