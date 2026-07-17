@@ -5,13 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/vfs"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 
@@ -116,6 +116,7 @@ type rebuildBatch struct {
 // and flushed in ~8MiB batches over a small bounded channel: the scan blocks
 // when the writer falls more than a few batches behind. Single producer.
 type grantRebuildTee struct {
+	fs  vfs.FS
 	dir string
 
 	// Scan-thread state: the arena being filled.
@@ -137,8 +138,9 @@ type grantRebuildTee struct {
 	err error
 }
 
-func newGrantRebuildTee(dir string) *grantRebuildTee {
+func newGrantRebuildTee(fs vfs.FS, dir string) *grantRebuildTee {
 	t := &grantRebuildTee{
+		fs:   fs,
 		dir:  dir,
 		ch:   make(chan rebuildBatch, 4),
 		done: make(chan struct{}),
@@ -187,7 +189,7 @@ func (t *grantRebuildTee) run() {
 func (t *grantRebuildTee) writeBatch(b rebuildBatch) error {
 	for _, v := range b.views {
 		if t.writer == nil {
-			w, err := newBulkSSTWriter(t.dir, fmt.Sprintf("grant-rebuild-%03d", t.seq))
+			w, err := newBulkSSTWriter(t.fs, t.dir, fmt.Sprintf("grant-rebuild-%03d", t.seq))
 			if err != nil {
 				return err
 			}
@@ -331,11 +333,11 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 	}
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
-	dir, err := os.MkdirTemp("", "pebble-deferred-idx-")
+	dir, err := e.prepareStagingDir("", "pebble-deferred-idx-")
 	if err != nil {
 		return fmt.Errorf("BuildDeferredGrantIndexes: mkdir temp: %w", err)
 	}
-	defer os.RemoveAll(dir)
+	defer e.removeStagingDir(dir)
 
 	sorters := min(4, max(2, runtime.GOMAXPROCS(0)/2))
 	sem := make(chan struct{}, sorters)
@@ -378,7 +380,7 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 	var totalKeys int64
 	grantsByEntRTPtr := map[string]*int64{}
 
-	rebuild := newGrantRebuildTee(dir)
+	rebuild := newGrantRebuildTee(e.fs(), dir)
 	rebuildFinished := false
 	defer func() {
 		if !rebuildFinished {
@@ -557,7 +559,7 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 			zap.Duration("scan", scanDone.Sub(start)),
 		)
 		sstPath := filepath.Join(dir, fmt.Sprintf("index-%02x.sst", idxGrantByPrincipal))
-		if err := mergeSortedSpillChunksToSST(ctx, sstPath, fmt.Sprintf("index-%02x", idxGrantByPrincipal), chunks); err != nil {
+		if err := mergeSortedSpillChunksToSST(ctx, e.fs(), sstPath, fmt.Sprintf("index-%02x", idxGrantByPrincipal), chunks); err != nil {
 			return err
 		}
 		mergeDone := time.Now()

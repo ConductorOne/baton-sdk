@@ -670,6 +670,41 @@ func (e *Engine) InvalidateBareIDLookups() { e.noteEntitlementKeyspaceWrite() }
 // migration (see migratedOnOpen).
 func (e *Engine) MigratedOnOpen() bool { return e.migratedOnOpen }
 
+// fs returns the filesystem the engine performs its own IO through:
+// the WithVFS override when set, vfs.Default otherwise. This must be
+// the same FS the pebble.DB reads from — the staged SSTs the engine
+// hands to Ingest/IngestAndExcise are resolved through the DB's FS.
+func (e *Engine) fs() vfs.FS {
+	if e.opts.vfs != nil {
+		return e.opts.vfs
+	}
+	return vfs.Default
+}
+
+// prepareStagingDir mints a unique staging directory via os.MkdirTemp
+// and mirrors it onto the engine FS. SST files staged for ingest are
+// created through e.fs() (the pebble.DB resolves ingest paths through
+// that FS), while spill-chunk scratch is plain OS IO — so the directory
+// must exist on both. On the default FS the MkdirAll is a no-op.
+func (e *Engine) prepareStagingDir(tmpDir, pattern string) (string, error) {
+	dir, err := os.MkdirTemp(tmpDir, pattern)
+	if err != nil {
+		return "", err
+	}
+	if err := e.fs().MkdirAll(dir, 0o755); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
+}
+
+// removeStagingDir removes a staging directory from both filesystems
+// it exists on (see prepareStagingDir). Cleanup-path best effort.
+func (e *Engine) removeStagingDir(dir string) {
+	_ = e.fs().RemoveAll(dir)
+	_ = os.RemoveAll(dir)
+}
+
 // CheckpointTo writes a self-contained Pebble directory snapshot to
 // destDir. destDir must not exist yet. Pebble creates it and
 // hard-links SSTs where possible.
@@ -715,7 +750,7 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	}
 
 	if e.opts.readOnly {
-		return copyReadOnlyDBDir(e.dbDir, destDir)
+		return copyReadOnlyDBDir(e.fs(), e.dbDir, destDir)
 	}
 
 	if err := e.db.Flush(); err != nil {
@@ -733,14 +768,15 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 
 // copyReadOnlyDBDir clones a read-only Pebble directory tree into
 // destDir. destDir must not exist yet, matching db.Checkpoint's
-// contract.
-func copyReadOnlyDBDir(srcDir, destDir string) error {
-	if _, err := os.Stat(destDir); err == nil {
+// contract. pfs is the engine FS (Engine.fs()) — the source tree was
+// written through it and the clone must land where the destination
+// open will look.
+func copyReadOnlyDBDir(pfs vfs.FS, srcDir, destDir string) error {
+	if _, err := pfs.Stat(destDir); err == nil {
 		return &os.PathError{Op: "checkpoint", Path: destDir, Err: fs.ErrExist}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	pfs := vfs.Default
 	// Skip LOCK: the source engine holds an exclusive lock on it (on
 	// Windows the same process cannot reopen it for read). The clone
 	// gets a fresh LOCK when Pebble opens destDir.

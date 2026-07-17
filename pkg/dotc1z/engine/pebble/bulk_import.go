@@ -73,9 +73,13 @@ type bulkSSTWriter struct {
 	count int
 }
 
-func newBulkSSTWriter(dir, name string) (*bulkSSTWriter, error) {
+// newBulkSSTWriter creates an SST staging file on fs. fs must be the
+// engine FS (Engine.fs()): the finished SST is handed to the pebble.DB's
+// Ingest/IngestAndExcise, which resolves the path through the DB's own
+// filesystem — creating it anywhere else breaks WithVFS engines.
+func newBulkSSTWriter(fs vfs.FS, dir, name string) (*bulkSSTWriter, error) {
 	path := filepath.Join(dir, name+".sst")
-	file, err := vfs.Default.Create(path, vfs.WriteCategoryUnspecified)
+	file, err := fs.Create(path, vfs.WriteCategoryUnspecified)
 	if err != nil {
 		return nil, fmt.Errorf("bulk sync import: create %q: %w", path, err)
 	}
@@ -211,7 +215,7 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 	if cur := e.currentSyncBytes(); !bytes.Equal(cur, idBytes) {
 		return nil, fmt.Errorf("StartBulkSyncImport: sync %s is not the engine's current sync", syncID)
 	}
-	dir, err := os.MkdirTemp(tmpDir, "pebble-bulk-import-")
+	dir, err := e.prepareStagingDir(tmpDir, "pebble-bulk-import-")
 	if err != nil {
 		return nil, fmt.Errorf("StartBulkSyncImport: mkdir temp: %w", err)
 	}
@@ -236,7 +240,7 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 		{&b.resourceTypes, "resource-types"},
 		{&b.resources, "resources"},
 	} {
-		sw, err := newBulkSSTWriter(dir, w.name)
+		sw, err := newBulkSSTWriter(e.fs(), dir, w.name)
 		if err != nil {
 			b.Abort()
 			return nil, err
@@ -645,9 +649,9 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 			sstPath := filepath.Join(b.dir, u.name+".sst")
 			var err error
 			if u.resolve != nil {
-				_, err = mergeSpillChunksToSSTResolvingDuplicates(ctx, sstPath, u.name, chunks, u.resolve)
+				_, err = mergeSpillChunksToSSTResolvingDuplicates(ctx, b.e.fs(), sstPath, u.name, chunks, u.resolve)
 			} else {
-				err = mergeSortedSpillChunksToSST(ctx, sstPath, u.name, chunks)
+				err = mergeSortedSpillChunksToSST(ctx, b.e.fs(), sstPath, u.name, chunks)
 			}
 			if err != nil {
 				results[slot].err = err
@@ -763,7 +767,7 @@ func (b *BulkSyncImport) teardown() {
 			w.abort()
 		}
 	}
-	_ = os.RemoveAll(b.dir)
+	b.e.removeStagingDir(b.dir)
 }
 
 // --- spill sorter: unordered (key[,value]) → background chunk sort →
@@ -1111,8 +1115,9 @@ func readSpillEntry(r io.Reader, key, val *[]byte, lenBuf *[4]byte) (bool, error
 
 // mergeSortedSpillChunksToSST heap-merges the sorted chunk files into a
 // single SST. Duplicate keys are corruption (the importer requires
-// globally unique tuples) and fail the merge.
-func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chunks []string) error {
+// globally unique tuples) and fail the merge. fs is the engine FS the
+// SST is created on (chunk files are plain OS scratch — see spillSorter).
+func mergeSortedSpillChunksToSST(ctx context.Context, fs vfs.FS, sstPath, name string, chunks []string) error {
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
 	readers := make([]*os.File, 0, len(chunks))
@@ -1142,7 +1147,7 @@ func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chun
 		}
 	}
 
-	writer, err := newBulkSSTWriter(filepath.Dir(sstPath), name)
+	writer, err := newBulkSSTWriter(fs, filepath.Dir(sstPath), name)
 	if err != nil {
 		return err
 	}
@@ -1150,7 +1155,7 @@ func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chun
 	defer func() {
 		_ = writer.finish()
 		if !success {
-			_ = os.Remove(sstPath)
+			_ = fs.Remove(sstPath)
 		}
 	}()
 	var last []byte
@@ -1222,6 +1227,7 @@ func mergeSortedSpillChunksToSST(ctx context.Context, sstPath, name string, chun
 // resolved.
 func mergeSpillChunksToSSTResolvingDuplicates(
 	ctx context.Context,
+	fs vfs.FS,
 	sstPath, name string,
 	chunks []string,
 	resolve func(key []byte, values [][]byte) ([]byte, error),
@@ -1255,7 +1261,7 @@ func mergeSpillChunksToSSTResolvingDuplicates(
 		}
 	}
 
-	writer, err := newBulkSSTWriter(filepath.Dir(sstPath), name)
+	writer, err := newBulkSSTWriter(fs, filepath.Dir(sstPath), name)
 	if err != nil {
 		return 0, err
 	}
@@ -1263,7 +1269,7 @@ func mergeSpillChunksToSSTResolvingDuplicates(
 	defer func() {
 		_ = writer.finish()
 		if !success {
-			_ = os.Remove(sstPath)
+			_ = fs.Remove(sstPath)
 		}
 	}()
 

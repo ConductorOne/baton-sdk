@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/vfs"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
@@ -339,7 +340,7 @@ func splitGrantHashIndexKey(key []byte) ([]byte, uint16, bool) {
 // fold. Same merge shape as mergeSortedSpillChunksToSST; duplicate
 // keys are corruption here too — (entitlement, principal) is the grant
 // primary identity, so the sorter sees exactly one row per grant.
-func mergeGrantHashChunksToSST(ctx context.Context, sstPath, name string, chunks []string, fold *grantDigestFold) error {
+func mergeGrantHashChunksToSST(ctx context.Context, fs vfs.FS, sstPath, name string, chunks []string, fold *grantDigestFold) error {
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
 	readers := make([]*os.File, 0, len(chunks))
@@ -369,7 +370,7 @@ func mergeGrantHashChunksToSST(ctx context.Context, sstPath, name string, chunks
 		}
 	}
 
-	writer, err := newBulkSSTWriter(filepath.Dir(sstPath), name)
+	writer, err := newBulkSSTWriter(fs, filepath.Dir(sstPath), name)
 	if err != nil {
 		return err
 	}
@@ -377,7 +378,7 @@ func mergeGrantHashChunksToSST(ctx context.Context, sstPath, name string, chunks
 	defer func() {
 		_ = writer.finish()
 		if !success {
-			_ = os.Remove(sstPath)
+			_ = fs.Remove(sstPath)
 		}
 	}()
 	var last []byte
@@ -498,7 +499,7 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 	}
 	defer fold.abort()
 	sstPath := filepath.Join(dir, fmt.Sprintf("index-%02x.sst", idxGrantByEntitlementPrincipalHash))
-	if err := mergeGrantHashChunksToSST(ctx, sstPath, fmt.Sprintf("index-%02x", idxGrantByEntitlementPrincipalHash), chunks, fold); err != nil {
+	if err := mergeGrantHashChunksToSST(ctx, e.fs(), sstPath, fmt.Sprintf("index-%02x", idxGrantByEntitlementPrincipalHash), chunks, fold); err != nil {
 		return err
 	}
 	if err := fold.finish(); err != nil {
@@ -653,11 +654,11 @@ func (e *Engine) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	dir, err := os.MkdirTemp("", "pebble-grant-digest-")
+	dir, err := e.prepareStagingDir("", "pebble-grant-digest-")
 	if err != nil {
 		return fmt.Errorf("BuildGrantDigests: mkdir temp: %w", err)
 	}
-	defer os.RemoveAll(dir)
+	defer e.removeStagingDir(dir)
 
 	sorters := min(4, max(2, runtime.GOMAXPROCS(0)/2))
 	sem := make(chan struct{}, sorters)
