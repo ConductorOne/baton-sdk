@@ -370,12 +370,24 @@ func runInjected(base *vfs.MemFS, inj *failFromInjector, e *Engine, gate *fatalG
 	return res
 }
 
+// crashImageOutcome names which arm of the reopen dichotomy a crash
+// image landed in — reported by the sweeps so the injection coverage
+// is visible in the test log, not just implied by a green run.
+type crashImageOutcome string
+
+const (
+	outcomeFinishedComplete   crashImageOutcome = "finished-and-complete"
+	outcomeUnfinishedResumed  crashImageOutcome = "unfinished-resumed-to-completion"
+	outcomeNoSyncRunRestarted crashImageOutcome = "no-sync-run-restarted"
+)
+
 // verifyCrashImage opens a clean engine over the crash clone and
-// asserts the reopen dichotomy, resuming when unfinished.
+// asserts the reopen dichotomy, resuming when unfinished. Returns the
+// outcome arm for the caller's coverage accounting.
 // replayPages selects the resume model: false = the pages were already
 // durable before the window (EndSync sweep), true = replay them (whole
 // sync soak).
-func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image *vfs.MemFS, cache *pebble.Cache, syncID string, replayPages bool, label string) {
+func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image *vfs.MemFS, cache *pebble.Cache, syncID string, replayPages bool, label string) crashImageOutcome {
 	t.Helper()
 	e, err := Open(ctx, "sweep-db", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger())
 	require.NoErrorf(t, err, "%s: the crash image must reopen", label)
@@ -392,6 +404,7 @@ func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image 
 		// before the stamp — a finished-but-incomplete image is the lying
 		// artifact this harness exists to catch.
 		w.verifyComplete(ctx, t, e, syncID, label+" (finished image)")
+		return outcomeFinishedComplete
 	case recErr == nil:
 		// (a) unfinished: must be discoverable and resume to completion.
 		unfinished, err := e.LatestUnfinishedSyncRecord(ctx, nil)
@@ -406,6 +419,7 @@ func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image 
 		}
 		require.NoErrorf(t, a.EndSync(ctx), "%s: resumed EndSync must converge", label)
 		w.verifyComplete(ctx, t, e, syncID, label+" (resumed image)")
+		return outcomeUnfinishedResumed
 	default:
 		// (c) the record never became durable. Legal only when the crash
 		// predates the sync-run record's fsync — possible in the whole-sync
@@ -418,6 +432,7 @@ func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image 
 		require.NoErrorf(t, w.write(ctx, a), "%s: restart page write", label)
 		require.NoErrorf(t, a.EndSync(ctx), "%s: restart EndSync", label)
 		w.verifyComplete(ctx, t, e, newID, label+" (restarted image)")
+		return outcomeNoSyncRunRestarted
 	}
 }
 
@@ -456,7 +471,8 @@ func TestErrorFSEndSyncWindowSweep(t *testing.T) {
 
 	const maxK = 5000
 	covered := false
-	var k int64
+	var k, injectedRuns, fatalRuns int64
+	outcomes := map[crashImageOutcome]int64{}
 	for k = 0; !covered; k++ {
 		require.Less(t, k, int64(maxK), "EndSync window exceeded %d write ops; sweep runaway", maxK)
 
@@ -473,6 +489,12 @@ func TestErrorFSEndSyncWindowSweep(t *testing.T) {
 		res := runInjected(stepFS, inj, e, gate, k, func() error {
 			return a.EndSync(ctx)
 		})
+		if res.injected > 0 {
+			injectedRuns++
+		}
+		if res.fatal {
+			fatalRuns++
+		}
 
 		label := fmt.Sprintf("k=%d", k)
 		if res.err == nil {
@@ -480,14 +502,26 @@ func TestErrorFSEndSyncWindowSweep(t *testing.T) {
 			// last write op of the window — coverage proven. (A nonzero
 			// injected count with a green run means the injection only hit
 			// post-completion background work; verify and keep sweeping.)
-			verifyCrashImage(ctx, t, w, res.image, cache, syncID, false, label+" (clean run)")
+			outcomes[verifyCrashImage(ctx, t, w, res.image, cache, syncID, false, label+" (clean run)")]++
 			covered = res.injected == 0
 			continue
 		}
 		require.Greaterf(t, res.injected, int64(0), "k=%d: EndSync failed with the injector armed but nothing injected: %v", k, res.err)
-		verifyCrashImage(ctx, t, w, res.image, cache, syncID, false, label)
+		outcomes[verifyCrashImage(ctx, t, w, res.image, cache, syncID, false, label)]++
 	}
-	t.Logf("EndSync window covered: %d write-op failure points swept", k-1)
+	// The coverage evidence, not just a green run: every k below the
+	// terminator must have injected a fault, and both arms of the reopen
+	// dichotomy must be populated (all-finished would mean the injections
+	// never landed before the durability boundary; all-unfinished would
+	// mean the window's tail — post-stamp failures — was never reached).
+	require.Equalf(t, k-1, injectedRuns,
+		"every failure point below the terminator must inject (swept %d, injected %d)", k-1, injectedRuns)
+	require.Positivef(t, outcomes[outcomeUnfinishedResumed],
+		"no injection landed before the finished verdict; the sweep isn't reaching the window's body: %v", outcomes)
+	require.Positivef(t, outcomes[outcomeFinishedComplete],
+		"no injection landed after the finished verdict; the sweep isn't reaching the window's tail: %v", outcomes)
+	t.Logf("EndSync window covered: %d write-op failure points, all injected (%d pebble-fatal); crash-image outcomes: %v",
+		k-1, fatalRuns, outcomes)
 }
 
 // TestErrorFSWholeSyncRandomSweepSoak randomizes the failure point
