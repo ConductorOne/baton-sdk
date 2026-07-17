@@ -29,6 +29,7 @@ import (
 )
 
 func TestEngineLifecycleOverPureMemFS(t *testing.T) {
+	skipOnWindowsMemFS(t)
 	ctx := context.Background()
 	w := defaultSweepWorkload()
 	memFS := vfs.NewMem()

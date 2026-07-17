@@ -67,6 +67,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -80,6 +81,19 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
+
+// skipOnWindowsMemFS skips MemFS-backed tests on Windows: the engine
+// mirrors os.MkdirTemp staging paths onto the engine FS
+// (prepareStagingDir), and MemFS only understands "/" separators —
+// backslash host paths would collapse into flat names with undefined
+// semantics. WithVFS+MemFS is a test-only configuration; see the
+// portability note on prepareStagingDir.
+func skipOnWindowsMemFS(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("MemFS-backed engine tests assume '/' path separators; see prepareStagingDir portability note")
+	}
+}
 
 // failFromInjector injects errorfs.ErrInjected into the k-th
 // write-class op after arming — and, unless failOnce is set, every
@@ -498,6 +512,7 @@ func buildSweepBaseline(ctx context.Context, t *testing.T, w sweepWorkload, cach
 // completes without injecting anything — proof the whole window was
 // covered.
 func TestErrorFSEndSyncWindowSweep(t *testing.T) {
+	skipOnWindowsMemFS(t)
 	ctx := context.Background()
 	w := defaultSweepWorkload()
 	cache := pebble.NewCache(8 << 20)
@@ -564,6 +579,7 @@ func TestErrorFSEndSyncWindowSweep(t *testing.T) {
 // across the whole sync (open → pages → EndSync) with the strictest
 // crash image (no unsynced survival). Env-gated like the other soaks.
 func TestErrorFSWholeSyncRandomSweepSoak(t *testing.T) {
+	skipOnWindowsMemFS(t)
 	if os.Getenv("BATON_SOAK") == "" {
 		t.Skip("set BATON_SOAK=1 to run the whole-sync errorfs sweep")
 	}

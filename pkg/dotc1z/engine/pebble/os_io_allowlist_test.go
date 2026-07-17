@@ -31,6 +31,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -93,7 +94,7 @@ func TestOSFileIOCallsAreAllowlisted(t *testing.T) {
 	found := map[string]map[string][]string{}
 	for _, pkg := range pkgs {
 		for path, f := range pkg.Files {
-			base := path[strings.LastIndex(path, "/")+1:]
+			base := filepath.Base(path)
 			// Resolve the local name(s) the "os" import is bound to in
 			// THIS file — an aliased import (stdos "os") must not slip
 			// past the registry, and a dot-import would make os calls
