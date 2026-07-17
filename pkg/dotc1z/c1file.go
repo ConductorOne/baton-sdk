@@ -1201,15 +1201,32 @@ func (c *C1File) RecalculateStats(ctx context.Context, syncId string) error {
 	return err
 }
 
+func (c *C1File) StatsV2(ctx context.Context, syncType connectorstore.SyncType, syncId string) (*reader_v2.SyncStats, error) {
+	ctx, span := tracer.Start(ctx, "C1File.StatsV2")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	_, stats, err := c.stats(ctx, syncType, syncId, false)
+	return stats, err
+}
+
 func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, syncId string, forceRefresh bool) (*reader_v2.SyncRun, *reader_v2.SyncStats, error) {
 	ctx, span := tracer.Start(ctx, "C1File.Stats")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if syncId == "" {
+		// Empty syncID resolves to the latest finished sync of the
+		// requested type — never an in-progress current sync.
 		syncId, err = c.LatestSyncID(ctx, syncType)
 		if err != nil {
 			return nil, nil, err
+		}
+		if syncId == "" {
+			if syncType == connectorstore.SyncTypeAny || syncType == "" {
+				return nil, nil, status.Error(codes.NotFound, "no finished sync found")
+			}
+			return nil, nil, status.Errorf(codes.NotFound, "no finished sync of type '%s' found", syncType)
 		}
 	}
 
@@ -1244,6 +1261,7 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 		Resources:                  0,
 		Entitlements:               0,
 		Grants:                     0,
+		Assets:                     0,
 		ResourcesByResourceType:    make(map[string]int64),
 		GrantsByResourceType:       make(map[string]int64),
 		EntitlementsByResourceType: make(map[string]int64),
@@ -1314,6 +1332,17 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 		}
 	}
 
+	assetCount, err := c.countBySync(ctx, assets.Name(), syncId)
+	if err != nil {
+		return nil, nil, fmt.Errorf("count assets: %w", err)
+	}
+	stats.Assets = assetCount
+
+	// Lift timing / call stats from the syncer token into the stats we
+	// are about to cache. Older count-only caches are left as-is on
+	// the fast path above.
+	c1zstore.ApplySyncTokenStats(stats, sync.SyncToken)
+
 	// If sync is ended and c1z is not read-only, save stats to the database.
 	if sync.EndedAt != nil && !c.readOnly {
 		statsJSON, err := json.Marshal(stats)
@@ -1363,6 +1392,24 @@ func (c *C1File) grantStats(ctx context.Context, syncType connectorstore.SyncTyp
 	}
 
 	return statsMap, nil
+}
+
+// countBySync returns the number of rows in tableName for syncID.
+func (c *C1File) countBySync(ctx context.Context, tableName string, syncID string) (int64, error) {
+	q := c.db.From(tableName).
+		Where(goqu.C("sync_id").Eq(syncID)).
+		Select(goqu.COUNT("*"))
+
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return 0, err
+	}
+
+	var n int64
+	if err := c.db.QueryRowContext(ctx, query, args...).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // countBySyncAndResourceType issues a single GROUP BY query that returns

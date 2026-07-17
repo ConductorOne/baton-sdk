@@ -208,6 +208,10 @@ type SyncStats struct {
 	xxx_hidden_ResourcesByResourceType    map[string]int64       `protobuf:"bytes,5,rep,name=resources_by_resource_type,json=resourcesByResourceType,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	xxx_hidden_GrantsByResourceType       map[string]int64       `protobuf:"bytes,6,rep,name=grants_by_resource_type,json=grantsByResourceType,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	xxx_hidden_EntitlementsByResourceType map[string]int64       `protobuf:"bytes,7,rep,name=entitlements_by_resource_type,json=entitlementsByResourceType,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	xxx_hidden_Assets                     int64                  `protobuf:"varint,8,opt,name=assets,proto3"`
+	xxx_hidden_StepDurationsMs            map[string]int64       `protobuf:"bytes,9,rep,name=step_durations_ms,json=stepDurationsMs,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	xxx_hidden_ConnectorCallStats         map[string]*CallStat   `protobuf:"bytes,10,rep,name=connector_call_stats,json=connectorCallStats,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	xxx_hidden_SessionStoreStats          map[string]*CallStat   `protobuf:"bytes,11,rep,name=session_store_stats,json=sessionStoreStats,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields                         protoimpl.UnknownFields
 	sizeCache                             protoimpl.SizeCache
 }
@@ -286,6 +290,34 @@ func (x *SyncStats) GetEntitlementsByResourceType() map[string]int64 {
 	return nil
 }
 
+func (x *SyncStats) GetAssets() int64 {
+	if x != nil {
+		return x.xxx_hidden_Assets
+	}
+	return 0
+}
+
+func (x *SyncStats) GetStepDurationsMs() map[string]int64 {
+	if x != nil {
+		return x.xxx_hidden_StepDurationsMs
+	}
+	return nil
+}
+
+func (x *SyncStats) GetConnectorCallStats() map[string]*CallStat {
+	if x != nil {
+		return x.xxx_hidden_ConnectorCallStats
+	}
+	return nil
+}
+
+func (x *SyncStats) GetSessionStoreStats() map[string]*CallStat {
+	if x != nil {
+		return x.xxx_hidden_SessionStoreStats
+	}
+	return nil
+}
+
 func (x *SyncStats) SetResourceTypes(v int64) {
 	x.xxx_hidden_ResourceTypes = v
 }
@@ -314,6 +346,22 @@ func (x *SyncStats) SetEntitlementsByResourceType(v map[string]int64) {
 	x.xxx_hidden_EntitlementsByResourceType = v
 }
 
+func (x *SyncStats) SetAssets(v int64) {
+	x.xxx_hidden_Assets = v
+}
+
+func (x *SyncStats) SetStepDurationsMs(v map[string]int64) {
+	x.xxx_hidden_StepDurationsMs = v
+}
+
+func (x *SyncStats) SetConnectorCallStats(v map[string]*CallStat) {
+	x.xxx_hidden_ConnectorCallStats = v
+}
+
+func (x *SyncStats) SetSessionStoreStats(v map[string]*CallStat) {
+	x.xxx_hidden_SessionStoreStats = v
+}
+
 type SyncStats_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -324,6 +372,14 @@ type SyncStats_builder struct {
 	ResourcesByResourceType    map[string]int64
 	GrantsByResourceType       map[string]int64
 	EntitlementsByResourceType map[string]int64
+	Assets                     int64
+	// Timing / call stats lifted from the syncer token at EndSync.
+	// Keys match the sync-token JSON fields (e.g. "rate_limit_wait",
+	// "list-grants", "get"). Compacted syncs fold partial timings into
+	// the token's top-level maps at compaction time.
+	StepDurationsMs    map[string]int64
+	ConnectorCallStats map[string]*CallStat
+	SessionStoreStats  map[string]*CallStat
 }
 
 func (b0 SyncStats_builder) Build() *SyncStats {
@@ -337,6 +393,127 @@ func (b0 SyncStats_builder) Build() *SyncStats {
 	x.xxx_hidden_ResourcesByResourceType = b.ResourcesByResourceType
 	x.xxx_hidden_GrantsByResourceType = b.GrantsByResourceType
 	x.xxx_hidden_EntitlementsByResourceType = b.EntitlementsByResourceType
+	x.xxx_hidden_Assets = b.Assets
+	x.xxx_hidden_StepDurationsMs = b.StepDurationsMs
+	x.xxx_hidden_ConnectorCallStats = b.ConnectorCallStats
+	x.xxx_hidden_SessionStoreStats = b.SessionStoreStats
+	return m0
+}
+
+// CallStat is a cumulative latency / outcome counter for one named
+// operation (a connector RPC method or a session-store op). Errors and
+// Timeouts are populated for session-store stats; connector call stats
+// leave them at zero.
+type CallStat struct {
+	state               protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Count    int64                  `protobuf:"varint,1,opt,name=count,proto3"`
+	xxx_hidden_TotalMs  int64                  `protobuf:"varint,2,opt,name=total_ms,json=totalMs,proto3"`
+	xxx_hidden_MaxMs    int64                  `protobuf:"varint,3,opt,name=max_ms,json=maxMs,proto3"`
+	xxx_hidden_Errors   int64                  `protobuf:"varint,4,opt,name=errors,proto3"`
+	xxx_hidden_Timeouts int64                  `protobuf:"varint,5,opt,name=timeouts,proto3"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *CallStat) Reset() {
+	*x = CallStat{}
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CallStat) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CallStat) ProtoMessage() {}
+
+func (x *CallStat) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CallStat) GetCount() int64 {
+	if x != nil {
+		return x.xxx_hidden_Count
+	}
+	return 0
+}
+
+func (x *CallStat) GetTotalMs() int64 {
+	if x != nil {
+		return x.xxx_hidden_TotalMs
+	}
+	return 0
+}
+
+func (x *CallStat) GetMaxMs() int64 {
+	if x != nil {
+		return x.xxx_hidden_MaxMs
+	}
+	return 0
+}
+
+func (x *CallStat) GetErrors() int64 {
+	if x != nil {
+		return x.xxx_hidden_Errors
+	}
+	return 0
+}
+
+func (x *CallStat) GetTimeouts() int64 {
+	if x != nil {
+		return x.xxx_hidden_Timeouts
+	}
+	return 0
+}
+
+func (x *CallStat) SetCount(v int64) {
+	x.xxx_hidden_Count = v
+}
+
+func (x *CallStat) SetTotalMs(v int64) {
+	x.xxx_hidden_TotalMs = v
+}
+
+func (x *CallStat) SetMaxMs(v int64) {
+	x.xxx_hidden_MaxMs = v
+}
+
+func (x *CallStat) SetErrors(v int64) {
+	x.xxx_hidden_Errors = v
+}
+
+func (x *CallStat) SetTimeouts(v int64) {
+	x.xxx_hidden_Timeouts = v
+}
+
+type CallStat_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Count    int64
+	TotalMs  int64
+	MaxMs    int64
+	Errors   int64
+	Timeouts int64
+}
+
+func (b0 CallStat_builder) Build() *CallStat {
+	m0 := &CallStat{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Count = b.Count
+	x.xxx_hidden_TotalMs = b.TotalMs
+	x.xxx_hidden_MaxMs = b.MaxMs
+	x.xxx_hidden_Errors = b.Errors
+	x.xxx_hidden_Timeouts = b.Timeouts
 	return m0
 }
 
@@ -350,7 +527,7 @@ type SyncsReaderServiceGetSyncRequest struct {
 
 func (x *SyncsReaderServiceGetSyncRequest) Reset() {
 	*x = SyncsReaderServiceGetSyncRequest{}
-	mi := &file_c1_reader_v2_sync_proto_msgTypes[2]
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -362,7 +539,7 @@ func (x *SyncsReaderServiceGetSyncRequest) String() string {
 func (*SyncsReaderServiceGetSyncRequest) ProtoMessage() {}
 
 func (x *SyncsReaderServiceGetSyncRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_reader_v2_sync_proto_msgTypes[2]
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -423,7 +600,7 @@ type SyncsReaderServiceGetSyncResponse struct {
 
 func (x *SyncsReaderServiceGetSyncResponse) Reset() {
 	*x = SyncsReaderServiceGetSyncResponse{}
-	mi := &file_c1_reader_v2_sync_proto_msgTypes[3]
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -435,7 +612,7 @@ func (x *SyncsReaderServiceGetSyncResponse) String() string {
 func (*SyncsReaderServiceGetSyncResponse) ProtoMessage() {}
 
 func (x *SyncsReaderServiceGetSyncResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_reader_v2_sync_proto_msgTypes[3]
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -508,7 +685,7 @@ type SyncsReaderServiceListSyncsRequest struct {
 
 func (x *SyncsReaderServiceListSyncsRequest) Reset() {
 	*x = SyncsReaderServiceListSyncsRequest{}
-	mi := &file_c1_reader_v2_sync_proto_msgTypes[4]
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -520,7 +697,7 @@ func (x *SyncsReaderServiceListSyncsRequest) String() string {
 func (*SyncsReaderServiceListSyncsRequest) ProtoMessage() {}
 
 func (x *SyncsReaderServiceListSyncsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_reader_v2_sync_proto_msgTypes[4]
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -595,7 +772,7 @@ type SyncsReaderServiceListSyncsResponse struct {
 
 func (x *SyncsReaderServiceListSyncsResponse) Reset() {
 	*x = SyncsReaderServiceListSyncsResponse{}
-	mi := &file_c1_reader_v2_sync_proto_msgTypes[5]
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -607,7 +784,7 @@ func (x *SyncsReaderServiceListSyncsResponse) String() string {
 func (*SyncsReaderServiceListSyncsResponse) ProtoMessage() {}
 
 func (x *SyncsReaderServiceListSyncsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_reader_v2_sync_proto_msgTypes[5]
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -683,7 +860,7 @@ type SyncsReaderServiceGetLatestFinishedSyncRequest struct {
 
 func (x *SyncsReaderServiceGetLatestFinishedSyncRequest) Reset() {
 	*x = SyncsReaderServiceGetLatestFinishedSyncRequest{}
-	mi := &file_c1_reader_v2_sync_proto_msgTypes[6]
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -695,7 +872,7 @@ func (x *SyncsReaderServiceGetLatestFinishedSyncRequest) String() string {
 func (*SyncsReaderServiceGetLatestFinishedSyncRequest) ProtoMessage() {}
 
 func (x *SyncsReaderServiceGetLatestFinishedSyncRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_reader_v2_sync_proto_msgTypes[6]
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -756,7 +933,7 @@ type SyncsReaderServiceGetLatestFinishedSyncResponse struct {
 
 func (x *SyncsReaderServiceGetLatestFinishedSyncResponse) Reset() {
 	*x = SyncsReaderServiceGetLatestFinishedSyncResponse{}
-	mi := &file_c1_reader_v2_sync_proto_msgTypes[7]
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -768,7 +945,7 @@ func (x *SyncsReaderServiceGetLatestFinishedSyncResponse) String() string {
 func (*SyncsReaderServiceGetLatestFinishedSyncResponse) ProtoMessage() {}
 
 func (x *SyncsReaderServiceGetLatestFinishedSyncResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_reader_v2_sync_proto_msgTypes[7]
+	mi := &file_c1_reader_v2_sync_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -844,7 +1021,7 @@ const file_c1_reader_v2_sync_proto_rawDesc = "" +
 	"sync_token\x18\x04 \x01(\tR\tsyncToken\x12\x1b\n" +
 	"\tsync_type\x18\x05 \x01(\tR\bsyncType\x12$\n" +
 	"\x0eparent_sync_id\x18\x06 \x01(\tR\fparentSyncId\x12-\n" +
-	"\x05stats\x18\a \x01(\v2\x17.c1.reader.v2.SyncStatsR\x05stats\"\xc9\x05\n" +
+	"\x05stats\x18\a \x01(\v2\x17.c1.reader.v2.SyncStatsR\x05stats\"\xff\t\n" +
 	"\tSyncStats\x12%\n" +
 	"\x0eresource_types\x18\x01 \x01(\x03R\rresourceTypes\x12\x1c\n" +
 	"\tresources\x18\x02 \x01(\x03R\tresources\x12\"\n" +
@@ -852,7 +1029,12 @@ const file_c1_reader_v2_sync_proto_rawDesc = "" +
 	"\x06grants\x18\x04 \x01(\x03R\x06grants\x12q\n" +
 	"\x1aresources_by_resource_type\x18\x05 \x03(\v24.c1.reader.v2.SyncStats.ResourcesByResourceTypeEntryR\x17resourcesByResourceType\x12h\n" +
 	"\x17grants_by_resource_type\x18\x06 \x03(\v21.c1.reader.v2.SyncStats.GrantsByResourceTypeEntryR\x14grantsByResourceType\x12z\n" +
-	"\x1dentitlements_by_resource_type\x18\a \x03(\v27.c1.reader.v2.SyncStats.EntitlementsByResourceTypeEntryR\x1aentitlementsByResourceType\x1aJ\n" +
+	"\x1dentitlements_by_resource_type\x18\a \x03(\v27.c1.reader.v2.SyncStats.EntitlementsByResourceTypeEntryR\x1aentitlementsByResourceType\x12\x16\n" +
+	"\x06assets\x18\b \x01(\x03R\x06assets\x12X\n" +
+	"\x11step_durations_ms\x18\t \x03(\v2,.c1.reader.v2.SyncStats.StepDurationsMsEntryR\x0fstepDurationsMs\x12a\n" +
+	"\x14connector_call_stats\x18\n" +
+	" \x03(\v2/.c1.reader.v2.SyncStats.ConnectorCallStatsEntryR\x12connectorCallStats\x12^\n" +
+	"\x13session_store_stats\x18\v \x03(\v2..c1.reader.v2.SyncStats.SessionStoreStatsEntryR\x11sessionStoreStats\x1aJ\n" +
 	"\x1cResourcesByResourceTypeEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aG\n" +
@@ -861,7 +1043,22 @@ const file_c1_reader_v2_sync_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aM\n" +
 	"\x1fEntitlementsByResourceTypeEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"s\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aB\n" +
+	"\x14StepDurationsMsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1a]\n" +
+	"\x17ConnectorCallStatsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
+	"\x05value\x18\x02 \x01(\v2\x16.c1.reader.v2.CallStatR\x05value:\x028\x01\x1a\\\n" +
+	"\x16SessionStoreStatsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
+	"\x05value\x18\x02 \x01(\v2\x16.c1.reader.v2.CallStatR\x05value:\x028\x01\"\x86\x01\n" +
+	"\bCallStat\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\x03R\x05count\x12\x19\n" +
+	"\btotal_ms\x18\x02 \x01(\x03R\atotalMs\x12\x15\n" +
+	"\x06max_ms\x18\x03 \x01(\x03R\x05maxMs\x12\x16\n" +
+	"\x06errors\x18\x04 \x01(\x03R\x06errors\x12\x1a\n" +
+	"\btimeouts\x18\x05 \x01(\x03R\btimeouts\"s\n" +
 	" SyncsReaderServiceGetSyncRequest\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x86\x01\n" +
@@ -891,49 +1088,58 @@ const file_c1_reader_v2_sync_proto_rawDesc = "" +
 	"\tListSyncs\x120.c1.reader.v2.SyncsReaderServiceListSyncsRequest\x1a1.c1.reader.v2.SyncsReaderServiceListSyncsResponse\x12\x94\x01\n" +
 	"\x15GetLatestFinishedSync\x12<.c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncRequest\x1a=.c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponseB3Z1github.com/conductorone/baton-sdk/pb/c1/reader/v2b\x06proto3"
 
-var file_c1_reader_v2_sync_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_c1_reader_v2_sync_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_c1_reader_v2_sync_proto_goTypes = []any{
 	(*SyncRun)(nil),                                         // 0: c1.reader.v2.SyncRun
 	(*SyncStats)(nil),                                       // 1: c1.reader.v2.SyncStats
-	(*SyncsReaderServiceGetSyncRequest)(nil),                // 2: c1.reader.v2.SyncsReaderServiceGetSyncRequest
-	(*SyncsReaderServiceGetSyncResponse)(nil),               // 3: c1.reader.v2.SyncsReaderServiceGetSyncResponse
-	(*SyncsReaderServiceListSyncsRequest)(nil),              // 4: c1.reader.v2.SyncsReaderServiceListSyncsRequest
-	(*SyncsReaderServiceListSyncsResponse)(nil),             // 5: c1.reader.v2.SyncsReaderServiceListSyncsResponse
-	(*SyncsReaderServiceGetLatestFinishedSyncRequest)(nil),  // 6: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncRequest
-	(*SyncsReaderServiceGetLatestFinishedSyncResponse)(nil), // 7: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse
-	nil,                           // 8: c1.reader.v2.SyncStats.ResourcesByResourceTypeEntry
-	nil,                           // 9: c1.reader.v2.SyncStats.GrantsByResourceTypeEntry
-	nil,                           // 10: c1.reader.v2.SyncStats.EntitlementsByResourceTypeEntry
-	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
-	(*anypb.Any)(nil),             // 12: google.protobuf.Any
+	(*CallStat)(nil),                                        // 2: c1.reader.v2.CallStat
+	(*SyncsReaderServiceGetSyncRequest)(nil),                // 3: c1.reader.v2.SyncsReaderServiceGetSyncRequest
+	(*SyncsReaderServiceGetSyncResponse)(nil),               // 4: c1.reader.v2.SyncsReaderServiceGetSyncResponse
+	(*SyncsReaderServiceListSyncsRequest)(nil),              // 5: c1.reader.v2.SyncsReaderServiceListSyncsRequest
+	(*SyncsReaderServiceListSyncsResponse)(nil),             // 6: c1.reader.v2.SyncsReaderServiceListSyncsResponse
+	(*SyncsReaderServiceGetLatestFinishedSyncRequest)(nil),  // 7: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncRequest
+	(*SyncsReaderServiceGetLatestFinishedSyncResponse)(nil), // 8: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse
+	nil,                           // 9: c1.reader.v2.SyncStats.ResourcesByResourceTypeEntry
+	nil,                           // 10: c1.reader.v2.SyncStats.GrantsByResourceTypeEntry
+	nil,                           // 11: c1.reader.v2.SyncStats.EntitlementsByResourceTypeEntry
+	nil,                           // 12: c1.reader.v2.SyncStats.StepDurationsMsEntry
+	nil,                           // 13: c1.reader.v2.SyncStats.ConnectorCallStatsEntry
+	nil,                           // 14: c1.reader.v2.SyncStats.SessionStoreStatsEntry
+	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
+	(*anypb.Any)(nil),             // 16: google.protobuf.Any
 }
 var file_c1_reader_v2_sync_proto_depIdxs = []int32{
-	11, // 0: c1.reader.v2.SyncRun.started_at:type_name -> google.protobuf.Timestamp
-	11, // 1: c1.reader.v2.SyncRun.ended_at:type_name -> google.protobuf.Timestamp
+	15, // 0: c1.reader.v2.SyncRun.started_at:type_name -> google.protobuf.Timestamp
+	15, // 1: c1.reader.v2.SyncRun.ended_at:type_name -> google.protobuf.Timestamp
 	1,  // 2: c1.reader.v2.SyncRun.stats:type_name -> c1.reader.v2.SyncStats
-	8,  // 3: c1.reader.v2.SyncStats.resources_by_resource_type:type_name -> c1.reader.v2.SyncStats.ResourcesByResourceTypeEntry
-	9,  // 4: c1.reader.v2.SyncStats.grants_by_resource_type:type_name -> c1.reader.v2.SyncStats.GrantsByResourceTypeEntry
-	10, // 5: c1.reader.v2.SyncStats.entitlements_by_resource_type:type_name -> c1.reader.v2.SyncStats.EntitlementsByResourceTypeEntry
-	12, // 6: c1.reader.v2.SyncsReaderServiceGetSyncRequest.annotations:type_name -> google.protobuf.Any
-	0,  // 7: c1.reader.v2.SyncsReaderServiceGetSyncResponse.sync:type_name -> c1.reader.v2.SyncRun
-	12, // 8: c1.reader.v2.SyncsReaderServiceGetSyncResponse.annotations:type_name -> google.protobuf.Any
-	12, // 9: c1.reader.v2.SyncsReaderServiceListSyncsRequest.annotations:type_name -> google.protobuf.Any
-	0,  // 10: c1.reader.v2.SyncsReaderServiceListSyncsResponse.syncs:type_name -> c1.reader.v2.SyncRun
-	12, // 11: c1.reader.v2.SyncsReaderServiceListSyncsResponse.annotations:type_name -> google.protobuf.Any
-	12, // 12: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncRequest.annotations:type_name -> google.protobuf.Any
-	0,  // 13: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse.sync:type_name -> c1.reader.v2.SyncRun
-	12, // 14: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse.annotations:type_name -> google.protobuf.Any
-	2,  // 15: c1.reader.v2.SyncsReaderService.GetSync:input_type -> c1.reader.v2.SyncsReaderServiceGetSyncRequest
-	4,  // 16: c1.reader.v2.SyncsReaderService.ListSyncs:input_type -> c1.reader.v2.SyncsReaderServiceListSyncsRequest
-	6,  // 17: c1.reader.v2.SyncsReaderService.GetLatestFinishedSync:input_type -> c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncRequest
-	3,  // 18: c1.reader.v2.SyncsReaderService.GetSync:output_type -> c1.reader.v2.SyncsReaderServiceGetSyncResponse
-	5,  // 19: c1.reader.v2.SyncsReaderService.ListSyncs:output_type -> c1.reader.v2.SyncsReaderServiceListSyncsResponse
-	7,  // 20: c1.reader.v2.SyncsReaderService.GetLatestFinishedSync:output_type -> c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse
-	18, // [18:21] is the sub-list for method output_type
-	15, // [15:18] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	9,  // 3: c1.reader.v2.SyncStats.resources_by_resource_type:type_name -> c1.reader.v2.SyncStats.ResourcesByResourceTypeEntry
+	10, // 4: c1.reader.v2.SyncStats.grants_by_resource_type:type_name -> c1.reader.v2.SyncStats.GrantsByResourceTypeEntry
+	11, // 5: c1.reader.v2.SyncStats.entitlements_by_resource_type:type_name -> c1.reader.v2.SyncStats.EntitlementsByResourceTypeEntry
+	12, // 6: c1.reader.v2.SyncStats.step_durations_ms:type_name -> c1.reader.v2.SyncStats.StepDurationsMsEntry
+	13, // 7: c1.reader.v2.SyncStats.connector_call_stats:type_name -> c1.reader.v2.SyncStats.ConnectorCallStatsEntry
+	14, // 8: c1.reader.v2.SyncStats.session_store_stats:type_name -> c1.reader.v2.SyncStats.SessionStoreStatsEntry
+	16, // 9: c1.reader.v2.SyncsReaderServiceGetSyncRequest.annotations:type_name -> google.protobuf.Any
+	0,  // 10: c1.reader.v2.SyncsReaderServiceGetSyncResponse.sync:type_name -> c1.reader.v2.SyncRun
+	16, // 11: c1.reader.v2.SyncsReaderServiceGetSyncResponse.annotations:type_name -> google.protobuf.Any
+	16, // 12: c1.reader.v2.SyncsReaderServiceListSyncsRequest.annotations:type_name -> google.protobuf.Any
+	0,  // 13: c1.reader.v2.SyncsReaderServiceListSyncsResponse.syncs:type_name -> c1.reader.v2.SyncRun
+	16, // 14: c1.reader.v2.SyncsReaderServiceListSyncsResponse.annotations:type_name -> google.protobuf.Any
+	16, // 15: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncRequest.annotations:type_name -> google.protobuf.Any
+	0,  // 16: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse.sync:type_name -> c1.reader.v2.SyncRun
+	16, // 17: c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse.annotations:type_name -> google.protobuf.Any
+	2,  // 18: c1.reader.v2.SyncStats.ConnectorCallStatsEntry.value:type_name -> c1.reader.v2.CallStat
+	2,  // 19: c1.reader.v2.SyncStats.SessionStoreStatsEntry.value:type_name -> c1.reader.v2.CallStat
+	3,  // 20: c1.reader.v2.SyncsReaderService.GetSync:input_type -> c1.reader.v2.SyncsReaderServiceGetSyncRequest
+	5,  // 21: c1.reader.v2.SyncsReaderService.ListSyncs:input_type -> c1.reader.v2.SyncsReaderServiceListSyncsRequest
+	7,  // 22: c1.reader.v2.SyncsReaderService.GetLatestFinishedSync:input_type -> c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncRequest
+	4,  // 23: c1.reader.v2.SyncsReaderService.GetSync:output_type -> c1.reader.v2.SyncsReaderServiceGetSyncResponse
+	6,  // 24: c1.reader.v2.SyncsReaderService.ListSyncs:output_type -> c1.reader.v2.SyncsReaderServiceListSyncsResponse
+	8,  // 25: c1.reader.v2.SyncsReaderService.GetLatestFinishedSync:output_type -> c1.reader.v2.SyncsReaderServiceGetLatestFinishedSyncResponse
+	23, // [23:26] is the sub-list for method output_type
+	20, // [20:23] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_c1_reader_v2_sync_proto_init() }
@@ -947,7 +1153,7 @@ func file_c1_reader_v2_sync_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_reader_v2_sync_proto_rawDesc), len(file_c1_reader_v2_sync_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

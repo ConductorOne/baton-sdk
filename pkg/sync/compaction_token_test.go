@@ -50,10 +50,11 @@ func TestBuildCompactedTokenFold(t *testing.T) {
 
 	st := newState()
 	require.NoError(t, st.Unmarshal(token))
-	// The base token's resume state and stats survive the rewrite.
+	// Resume state survives; timings are base + partials.
 	require.True(t, st.ShouldSkipGrants())
-	require.EqualValues(t, (90 * time.Minute).Milliseconds(), st.StepDurations()["list-grants"])
-	require.EqualValues(t, 1, st.ConnectorCallStats()["list-grants"].Count)
+	require.EqualValues(t, (98 * time.Minute).Milliseconds(), st.StepDurations()["list-grants"])
+	require.EqualValues(t, time.Minute.Milliseconds(), st.StepDurations()["rate_limit_wait"])
+	require.EqualValues(t, 3, st.ConnectorCallStats()["list-grants"].Count)
 
 	comp, err := CompactionStatsFromToken(token)
 	require.NoError(t, err)
@@ -64,15 +65,6 @@ func TestBuildCompactedTokenFold(t *testing.T) {
 	require.Equal(t, []string{"p1", "p2"}, comp.PartialSyncIDs)
 	require.EqualValues(t, 2, comp.PartialCount)
 	require.Equal(t, &CompactionRecordCounts{Output: 100, Added: 10, Replaced: 5, Carried: 85}, comp.RecordCounts["grants"])
-
-	agg := comp.PartialsAggregate
-	require.NotNil(t, agg)
-	require.EqualValues(t, 2, agg.Executions)
-	require.EqualValues(t, (8 * time.Minute).Milliseconds(), agg.StepDurationsMs["list-grants"])
-	require.EqualValues(t, time.Minute.Milliseconds(), agg.StepDurationsMs["rate_limit_wait"])
-	require.EqualValues(t, 2, agg.ConnectorCallStats["list-grants"].Count)
-	require.EqualValues(t, 4000, agg.ConnectorCallStats["list-grants"].TotalMs)
-	require.EqualValues(t, 3000, agg.ConnectorCallStats["list-grants"].MaxMs)
 }
 
 func TestBuildCompactedTokenChainedFoldPreservesOriginalAttribution(t *testing.T) {
@@ -98,17 +90,18 @@ func TestBuildCompactedTokenChainedFoldPreservesOriginalAttribution(t *testing.T
 	})
 	require.NoError(t, err)
 
+	st := newState()
+	require.NoError(t, st.Unmarshal(second))
+	// Top-level timings accumulate across chained folds.
+	require.EqualValues(t, (13 * time.Minute).Milliseconds(), st.StepDurations()["list-resources"])
+
 	comp, err := CompactionStatsFromToken(second)
 	require.NoError(t, err)
 	require.NotNil(t, comp)
-	// Timing stats still describe the original collection run.
 	require.Equal(t, "original-sync", comp.StatsSyncID)
-	// The immediate base of the second fold is the first fold's output.
 	require.Equal(t, "first-fold-output", comp.BaseSyncID)
 	require.Equal(t, []string{"p1", "p2", "p3"}, comp.PartialSyncIDs)
 	require.EqualValues(t, 3, comp.PartialCount)
-	require.EqualValues(t, 3, comp.PartialsAggregate.Executions)
-	require.EqualValues(t, (3 * time.Minute).Milliseconds(), comp.PartialsAggregate.StepDurationsMs["list-resources"])
 }
 
 func TestBuildCompactedTokenEmptyBase(t *testing.T) {
@@ -132,7 +125,6 @@ func TestBuildCompactedTokenEmptyBase(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, comp)
 	require.Equal(t, "overlay", comp.Mode)
-	require.Nil(t, comp.PartialsAggregate)
 	require.EqualValues(t, 42, comp.RecordCounts["grants"].Output)
 	require.Zero(t, comp.RecordCounts["grants"].Added)
 }
@@ -164,9 +156,12 @@ func TestBuildCompactedTokenIgnoresUnparseablePartials(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	st := newState()
+	require.NoError(t, st.Unmarshal(token))
+	require.Empty(t, st.StepDurations())
+
 	comp, err := CompactionStatsFromToken(token)
 	require.NoError(t, err)
-	require.Nil(t, comp.PartialsAggregate)
 	require.EqualValues(t, 2, comp.PartialCount)
 }
 

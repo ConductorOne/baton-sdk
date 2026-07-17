@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
@@ -258,16 +259,30 @@ func (e *Engine) takeDeferredGrantStats(syncID string) *deferredGrantStats {
 // syncID. Exposed for the EndFreshSync caller and the on-Open
 // migration backfill. If a caller-computed record was stashed for
 // this sync (StashComputedSyncStats), it is persisted instead of
-// re-scanning the keyspaces.
+// re-scanning the keyspaces. Timing / call stats from the syncer's
+// token on the sync_run record are overlaid before write.
 func (e *Engine) PersistSyncStats(ctx context.Context, syncID string) error {
 	if rec := e.takeStashedSyncStats(syncID); rec != nil {
+		e.applyTokenStatsFromSyncRun(ctx, syncID, rec)
 		return e.PersistComputedSyncStats(ctx, syncID, rec)
 	}
 	rec, err := e.computeSyncStats(ctx, syncID)
 	if err != nil {
 		return err
 	}
+	e.applyTokenStatsFromSyncRun(ctx, syncID, rec)
 	return e.writeSyncStats(ctx, rec)
+}
+
+// applyTokenStatsFromSyncRun loads the sync_run's sync_token and lifts
+// step_durations_ms / connector_call_stats / session_store_stats into
+// rec. Failures are ignored — row counts remain usable without them.
+func (e *Engine) applyTokenStatsFromSyncRun(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) {
+	sr, err := e.GetSyncRunRecord(ctx, syncID)
+	if err != nil || sr == nil {
+		return
+	}
+	c1zstore.ApplySyncTokenStatsRecord(rec, sr.GetSyncToken())
 }
 
 // StashComputedSyncStats registers a caller-computed stats record to be

@@ -26,6 +26,27 @@ message SyncStats {
   map<string, int64> resources_by_resource_type = 5;
   map<string, int64> grants_by_resource_type = 6;
   map<string, int64> entitlements_by_resource_type = 7;
+  int64 assets = 8;
+
+  // Timing / call stats lifted from the syncer token at EndSync.
+  // Keys match the sync-token JSON fields (e.g. "rate_limit_wait",
+  // "list-grants", "get"). Compacted syncs fold partial timings into
+  // the token's top-level maps at compaction time.
+  map<string, int64> step_durations_ms = 9;
+  map<string, CallStat> connector_call_stats = 10;
+  map<string, CallStat> session_store_stats = 11;
+}
+
+// CallStat is a cumulative latency / outcome counter for one named
+// operation (a connector RPC method or a session-store op). Errors and
+// Timeouts are populated for session-store stats; connector call stats
+// leave them at zero.
+message CallStat {
+  int64 count = 1;
+  int64 total_ms = 2;
+  int64 max_ms = 3;
+  int64 errors = 4;
+  int64 timeouts = 5;
 }
 
 service SyncsReaderService {

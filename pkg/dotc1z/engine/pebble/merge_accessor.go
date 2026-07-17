@@ -78,8 +78,7 @@ func ReadSyncStatsRecord(ctx context.Context, e *Engine, syncID string) (*v3.Syn
 
 // SyncStatsFromRecord converts the engine-internal stats sidecar shape
 // into the public reader stats type used by C1ZStore APIs and compactor
-// planning. The public type intentionally has no assets field, so assets
-// remain available only on the sidecar record.
+// planning.
 func SyncStatsFromRecord(stats *v3.SyncStatsRecord) *reader_v2.SyncStats {
 	if stats == nil {
 		return nil
@@ -89,10 +88,34 @@ func SyncStatsFromRecord(stats *v3.SyncStatsRecord) *reader_v2.SyncStats {
 		Resources:                  stats.GetResources(),
 		Entitlements:               stats.GetEntitlements(),
 		Grants:                     stats.GetGrants(),
+		Assets:                     stats.GetAssets(),
 		ResourcesByResourceType:    stats.GetResourcesByResourceType(),
 		EntitlementsByResourceType: stats.GetEntitlementsByResourceType(),
 		GrantsByResourceType:       stats.GetGrantsByEntitlementResourceType(),
+		StepDurationsMs:            stats.GetStepDurationsMs(),
+		ConnectorCallStats:         storageCallStatsToReader(stats.GetConnectorCallStats()),
+		SessionStoreStats:          storageCallStatsToReader(stats.GetSessionStoreStats()),
 	}.Build()
+}
+
+func storageCallStatsToReader(in map[string]*v3.CallStat) map[string]*reader_v2.CallStat {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]*reader_v2.CallStat, len(in))
+	for k, v := range in {
+		if v == nil {
+			continue
+		}
+		out[k] = reader_v2.CallStat_builder{
+			Count:    v.GetCount(),
+			TotalMs:  v.GetTotalMs(),
+			MaxMs:    v.GetMaxMs(),
+			Errors:   v.GetErrors(),
+			Timeouts: v.GetTimeouts(),
+		}.Build()
+	}
+	return out
 }
 
 func CachedSyncStats(ctx context.Context, e *Engine, syncID string) (*reader_v2.SyncStats, bool, error) {

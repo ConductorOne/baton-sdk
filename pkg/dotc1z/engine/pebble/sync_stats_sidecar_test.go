@@ -121,9 +121,9 @@ func TestSyncStatsSidecarFallback(t *testing.T) {
 	// The Adapter.statsFromIteration helper still produces correct
 	// counts. We exercise it directly to avoid the Stats() fast-path.
 	a := &Adapter{engine: e}
-	got, err := a.statsFromIteration(ctx)
+	got, err := a.statsFromIteration(ctx, syncID)
 	require.NoErrorf(t, err, "statsFromIteration")
-	require.Equal(t, int64(1), got["grants"], "fallback grants")
+	require.Equal(t, int64(1), got.GetGrants(), "fallback grants")
 }
 
 var _ = v3.SyncStatsRecord{} // keep import used in test

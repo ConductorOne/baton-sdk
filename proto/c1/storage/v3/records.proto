@@ -244,7 +244,25 @@ message SyncStatsRecord {
   map<string, int64> grants_by_entitlement_resource_type = 8;
   // Per-resource-type entitlements counts: keyed by resource_type_id.
   map<string, int64> entitlements_by_resource_type = 9;
+
+  // Timing / call stats lifted from the syncer token at EndSync.
+  // Mirror of c1.reader.v2.SyncStats fields 9–11 (storage cannot import
+  // reader protos; CallStat is duplicated below). Compacted syncs fold
+  // partial timings into the token's top-level maps at compaction time.
+  map<string, int64> step_durations_ms = 10;
+  map<string, CallStat> connector_call_stats = 11;
+  map<string, CallStat> session_store_stats = 12;
+
   google.protobuf.Timestamp written_at = 100;
+}
+
+// CallStat mirrors c1.reader.v2.CallStat for the storage sidecar.
+message CallStat {
+  int64 count = 1;
+  int64 total_ms = 2;
+  int64 max_ms = 3;
+  int64 errors = 4;
+  int64 timeouts = 5;
 }
 
 message SessionRecord {

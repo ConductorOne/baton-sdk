@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -30,7 +32,8 @@ import (
 //   - PutResourceTypes / PutResources / PutEntitlements / PutGrants
 //     produce identical-cardinality reads on both backends.
 //   - All ListXById / ListGrantsForEntitlement / ListGrantsForResourceType /
-//     ListGrantsForEntitlements / Stats / GrantStats reads agree.
+//     ListGrantsForEntitlements / Stats / GrantStats reads agree, including
+//     Stats error codes for missing sync and wrong sync type.
 //   - Trait filter, principal-RT filter, bulk-by-id all match.
 //
 // Where data shapes differ by design (e.g. Pebble's stub
@@ -128,20 +131,115 @@ func TestCrossEngineParity(t *testing.T) {
 	// (it only emits per-RT counts); Pebble adds a "resources"
 	// total. That's a Pebble improvement, not a parity bug — we
 	// just assert on the keys both backends agree to populate.
+	//
+	// Error paths (wrong type / missing sync) must also agree on
+	// gRPC status codes — Pebble previously returned empty maps.
+	type statsReader interface {
+		Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error)
+	}
+	sqliteS, ok := pair.sqlite.(statsReader)
+	require.True(t, ok, "sqlite store does not implement Stats")
+	pebbleS, ok := pair.pebble.(statsReader)
+	require.True(t, ok, "pebble store does not implement Stats")
+
 	t.Run("Stats per-RT counts", func(t *testing.T) {
-		type statsReader interface {
-			Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error)
-		}
-		sqliteS, ok := pair.sqlite.(statsReader)
-		require.True(t, ok, "sqlite store does not implement Stats")
-		pebbleS, ok := pair.pebble.(statsReader)
-		require.True(t, ok, "pebble store does not implement Stats")
 		sm, err := sqliteS.Stats(ctx, connectorstore.SyncTypeAny, sqliteSync)
 		require.NoError(t, err)
 		pm, err := pebbleS.Stats(ctx, connectorstore.SyncTypeAny, pblSync)
 		require.NoError(t, err)
 		for _, k := range []string{"user", "group", "app", "resource_types", "entitlements", "grants"} {
 			require.Equal(t, sm[k], pm[k], "Stats[%q] divergence: sqlite=%d pebble=%d", k, sm[k], pm[k])
+		}
+	})
+
+	t.Run("Stats wrong sync type returns InvalidArgument", func(t *testing.T) {
+		sm, sqliteErr := sqliteS.Stats(ctx, connectorstore.SyncTypePartial, sqliteSync)
+		pm, pebbleErr := pebbleS.Stats(ctx, connectorstore.SyncTypePartial, pblSync)
+		require.Nil(t, sm)
+		require.Nil(t, pm)
+		require.Equal(t, codes.InvalidArgument, status.Code(sqliteErr),
+			"sqlite wrong-type: got %v (%v)", status.Code(sqliteErr), sqliteErr)
+		require.Equal(t, codes.InvalidArgument, status.Code(pebbleErr),
+			"pebble wrong-type: got %v (%v)", status.Code(pebbleErr), pebbleErr)
+		require.Equal(t, status.Code(sqliteErr), status.Code(pebbleErr))
+	})
+
+	t.Run("Stats missing sync returns NotFound", func(t *testing.T) {
+		const missingID = "sync_does_not_exist"
+		sm, sqliteErr := sqliteS.Stats(ctx, connectorstore.SyncTypeAny, missingID)
+		pm, pebbleErr := pebbleS.Stats(ctx, connectorstore.SyncTypeAny, missingID)
+		require.Nil(t, sm)
+		require.Nil(t, pm)
+		require.Equal(t, codes.NotFound, status.Code(sqliteErr),
+			"sqlite missing sync: got %v (%v)", status.Code(sqliteErr), sqliteErr)
+		require.Equal(t, codes.NotFound, status.Code(pebbleErr),
+			"pebble missing sync: got %v (%v)", status.Code(pebbleErr), pebbleErr)
+		require.Equal(t, status.Code(sqliteErr), status.Code(pebbleErr))
+	})
+
+	// Empty syncID must resolve to the latest finished sync of the
+	// requested type — not the in-progress current sync (Pebble's old
+	// behavior) and not "quietly empty" when no finished sync exists.
+	t.Run("Stats empty syncID uses latest finished sync", func(t *testing.T) {
+		smExplicit, err := sqliteS.Stats(ctx, connectorstore.SyncTypeFull, sqliteSync)
+		require.NoError(t, err)
+		smEmpty, err := sqliteS.Stats(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		require.Equal(t, smExplicit, smEmpty, "sqlite empty syncID must match explicit finished syncID")
+
+		pmExplicit, err := pebbleS.Stats(ctx, connectorstore.SyncTypeFull, pblSync)
+		require.NoError(t, err)
+		pmEmpty, err := pebbleS.Stats(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		require.Equal(t, pmExplicit, pmEmpty, "pebble empty syncID must match explicit finished syncID")
+	})
+
+	t.Run("Stats empty syncID with no finished sync returns NotFound", func(t *testing.T) {
+		for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+			t.Run(string(engine), func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), string(engine)+"-open.c1z")
+				store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(engine))
+				require.NoError(t, err)
+				defer func() { _ = store.Close(ctx) }()
+
+				_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+				require.NoError(t, err)
+
+				statsReader, ok := store.(statsReader)
+				require.True(t, ok)
+				got, err := statsReader.Stats(ctx, connectorstore.SyncTypeFull, "")
+				require.Nil(t, got)
+				require.Equal(t, codes.NotFound, status.Code(err),
+					"%s empty syncID with only an in-progress sync: got %v (%v)", engine, status.Code(err), err)
+			})
+		}
+	})
+
+	t.Run("Stats explicit in-progress syncID returns partial counts", func(t *testing.T) {
+		for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+			t.Run(string(engine), func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), string(engine)+"-partial.c1z")
+				store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(engine))
+				require.NoError(t, err)
+				defer func() { _ = store.Close(ctx) }()
+
+				syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+				require.NoError(t, err)
+				require.NoError(t, store.PutResourceTypes(ctx,
+					v2.ResourceType_builder{Id: "user"}.Build(),
+				))
+				require.NoError(t, store.PutResources(ctx,
+					v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build(),
+					v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build()}.Build(),
+				))
+
+				sr, ok := store.(statsReader)
+				require.True(t, ok)
+				got, err := sr.Stats(ctx, connectorstore.SyncTypeFull, syncID)
+				require.NoError(t, err)
+				require.Equal(t, int64(1), got["resource_types"])
+				require.Equal(t, int64(2), got["user"])
+			})
 		}
 	})
 

@@ -264,6 +264,102 @@ func (m *SyncStats) validate(all bool) error {
 
 	// no validation rules for EntitlementsByResourceType
 
+	// no validation rules for Assets
+
+	// no validation rules for StepDurationsMs
+
+	{
+		sorted_keys := make([]string, len(m.GetConnectorCallStats()))
+		i := 0
+		for key := range m.GetConnectorCallStats() {
+			sorted_keys[i] = key
+			i++
+		}
+		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
+		for _, key := range sorted_keys {
+			val := m.GetConnectorCallStats()[key]
+			_ = val
+
+			// no validation rules for ConnectorCallStats[key]
+
+			if all {
+				switch v := interface{}(val).(type) {
+				case interface{ ValidateAll() error }:
+					if err := v.ValidateAll(); err != nil {
+						errors = append(errors, SyncStatsValidationError{
+							field:  fmt.Sprintf("ConnectorCallStats[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				case interface{ Validate() error }:
+					if err := v.Validate(); err != nil {
+						errors = append(errors, SyncStatsValidationError{
+							field:  fmt.Sprintf("ConnectorCallStats[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				}
+			} else if v, ok := interface{}(val).(interface{ Validate() error }); ok {
+				if err := v.Validate(); err != nil {
+					return SyncStatsValidationError{
+						field:  fmt.Sprintf("ConnectorCallStats[%v]", key),
+						reason: "embedded message failed validation",
+						cause:  err,
+					}
+				}
+			}
+
+		}
+	}
+
+	{
+		sorted_keys := make([]string, len(m.GetSessionStoreStats()))
+		i := 0
+		for key := range m.GetSessionStoreStats() {
+			sorted_keys[i] = key
+			i++
+		}
+		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
+		for _, key := range sorted_keys {
+			val := m.GetSessionStoreStats()[key]
+			_ = val
+
+			// no validation rules for SessionStoreStats[key]
+
+			if all {
+				switch v := interface{}(val).(type) {
+				case interface{ ValidateAll() error }:
+					if err := v.ValidateAll(); err != nil {
+						errors = append(errors, SyncStatsValidationError{
+							field:  fmt.Sprintf("SessionStoreStats[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				case interface{ Validate() error }:
+					if err := v.Validate(); err != nil {
+						errors = append(errors, SyncStatsValidationError{
+							field:  fmt.Sprintf("SessionStoreStats[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				}
+			} else if v, ok := interface{}(val).(interface{ Validate() error }); ok {
+				if err := v.Validate(); err != nil {
+					return SyncStatsValidationError{
+						field:  fmt.Sprintf("SessionStoreStats[%v]", key),
+						reason: "embedded message failed validation",
+						cause:  err,
+					}
+				}
+			}
+
+		}
+	}
+
 	if len(errors) > 0 {
 		return SyncStatsMultiError(errors)
 	}
@@ -340,6 +436,115 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = SyncStatsValidationError{}
+
+// Validate checks the field values on CallStat with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *CallStat) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CallStat with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in CallStatMultiError, or nil
+// if none found.
+func (m *CallStat) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CallStat) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Count
+
+	// no validation rules for TotalMs
+
+	// no validation rules for MaxMs
+
+	// no validation rules for Errors
+
+	// no validation rules for Timeouts
+
+	if len(errors) > 0 {
+		return CallStatMultiError(errors)
+	}
+
+	return nil
+}
+
+// CallStatMultiError is an error wrapping multiple validation errors returned
+// by CallStat.ValidateAll() if the designated constraints aren't met.
+type CallStatMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CallStatMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CallStatMultiError) AllErrors() []error { return m }
+
+// CallStatValidationError is the validation error returned by
+// CallStat.Validate if the designated constraints aren't met.
+type CallStatValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CallStatValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CallStatValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CallStatValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CallStatValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CallStatValidationError) ErrorName() string { return "CallStatValidationError" }
+
+// Error satisfies the builtin error interface
+func (e CallStatValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCallStat.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CallStatValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CallStatValidationError{}
 
 // Validate checks the field values on SyncsReaderServiceGetSyncRequest with
 // the rules defined in the proto definition for this message. If any rules

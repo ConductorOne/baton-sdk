@@ -42,6 +42,7 @@ type State interface {
 	AddStepDuration(bucket string, duration time.Duration)
 	StepDurations() map[string]int64
 	RecordConnectorCall(method string, duration time.Duration)
+	MergeConnectorCallStat(method string, add ConnectorCallStat)
 	ConnectorCallStats() map[string]ConnectorCallStat
 	RecordSessionOp(op string, duration time.Duration, opErr error, timedOut bool)
 	MergeSessionStat(op string, add SessionStoreStat)
@@ -591,6 +592,27 @@ func (st *state) RecordSessionOp(op string, duration time.Duration, opErr error,
 		if timedOut {
 			stat.Timeouts++
 		}
+	}
+}
+
+// MergeConnectorCallStat folds pre-aggregated connector-call stats (e.g. a
+// compacted partial's totals) into method's cumulative counters.
+func (st *state) MergeConnectorCallStat(method string, add ConnectorCallStat) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	if st.connectorCallStats == nil {
+		st.connectorCallStats = make(map[string]*ConnectorCallStat)
+	}
+	stat := st.connectorCallStats[method]
+	if stat == nil {
+		stat = &ConnectorCallStat{}
+		st.connectorCallStats[method] = stat
+	}
+	stat.Count += add.Count
+	stat.TotalMs += add.TotalMs
+	if add.MaxMs > stat.MaxMs {
+		stat.MaxMs = add.MaxMs
 	}
 }
 

@@ -1,6 +1,9 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // maxCompactionPartialIDs caps how many partial sync ids a compacted token
 // stores. PartialCount keeps the true total so a capped list is detectable.
@@ -20,25 +23,19 @@ type CompactionRecordCounts struct {
 	Carried  int64 `json:"carried,omitempty"`
 }
 
-// CompactionAggregate sums timing stats across the partial syncs merged into
-// a compacted output. The values describe a population of Executions distinct
-// sync runs — never one execution — and accumulate across chained folds.
-type CompactionAggregate struct {
-	Executions         int64                         `json:"executions"`
-	StepDurationsMs    map[string]int64              `json:"step_durations_ms,omitempty"`
-	ConnectorCallStats map[string]*ConnectorCallStat `json:"connector_call_stats,omitempty"`
-}
-
 // CompactionTokenStats is the compaction provenance section of a compacted
-// sync token. Its presence re-attributes the token's top-level timing stats:
-// they describe StatsSyncID's collection run, not the compacted artifact.
+// sync token. Timing stats for merged partials are folded into the token's
+// top-level step_durations_ms / connector_call_stats / session_store_stats
+// (approximate combined view); this section carries identity / record-count
+// provenance only.
 type CompactionTokenStats struct {
 	// Mode is the compaction strategy that produced this artifact
 	// (fold / overlay / kway).
 	Mode string `json:"mode"`
-	// StatsSyncID is the sync whose execution the token's top-level
-	// step_durations_ms / connector_call_stats describe. It is carried
-	// unchanged across chained folds so the attribution stays truthful.
+	// StatsSyncID is the original collection sync at the root of a fold
+	// chain. Carried unchanged across chained folds. Top-level timings are
+	// the approximate sum of that sync plus merged partials — not solely
+	// this sync's execution.
 	StatsSyncID string `json:"stats_sync_id,omitempty"`
 	// BaseSyncID is the immediate base input of this compaction run (the id
 	// the artifact carried before the rename).
@@ -51,9 +48,6 @@ type CompactionTokenStats struct {
 	// RecordCounts is keyed by record type (resource_types, resources,
 	// entitlements, grants).
 	RecordCounts map[string]*CompactionRecordCounts `json:"record_counts,omitempty"`
-	// PartialsAggregate sums the merged partials' timing stats; nil when no
-	// partial carried stats.
-	PartialsAggregate *CompactionAggregate `json:"partials_aggregate,omitempty"`
 }
 
 // CompactionTokenInput carries one compaction run's provenance into
@@ -62,19 +56,21 @@ type CompactionTokenInput struct {
 	Mode           string
 	BaseSyncID     string
 	PartialSyncIDs []string
-	// PartialTokens are the partials' marshalled sync tokens, used for the
-	// timing aggregate. Entries may be empty or unparseable (e.g. converted
-	// sqlite inputs carry no token); those contribute no stats.
+	// PartialTokens are the partials' marshalled sync tokens. Their timing
+	// stats are folded into the compacted token's top-level maps. Entries
+	// may be empty or unparseable (e.g. converted sqlite inputs carry no
+	// token); those contribute no stats.
 	PartialTokens []string
 	RecordCounts  map[string]CompactionRecordCounts
 }
 
 // BuildCompactedToken rewrites a compacted output's sync token with a
-// compaction provenance section. baseToken is the base input's token ("" for
-// rebuild outputs, which start empty); its resume state, skip flags, and
-// timing stats are preserved. Chained compactions accumulate: the original
-// StatsSyncID, the uncapped partial count, and the partials aggregate carry
-// forward from an existing compaction section.
+// compaction provenance section and folds each partial's timing stats into
+// the top-level maps. baseToken is the base input's token ("" for rebuild
+// outputs, which start empty); its resume state, skip flags, and timing
+// stats are preserved as the starting point. Chained compactions accumulate:
+// the original StatsSyncID, the uncapped partial count, and already-folded
+// top-level timings carry forward; new partials are added on top.
 func BuildCompactedToken(baseToken string, in CompactionTokenInput) (string, error) {
 	st := newState()
 	if baseToken != "" {
@@ -99,9 +95,6 @@ func BuildCompactedToken(baseToken string, in CompactionTokenInput) (string, err
 		}
 		comp.PartialCount = prior.PartialCount
 		comp.PartialSyncIDs = append(comp.PartialSyncIDs, prior.PartialSyncIDs...)
-		if prior.PartialsAggregate != nil {
-			comp.PartialsAggregate = prior.PartialsAggregate
-		}
 	}
 
 	comp.PartialCount += int64(len(in.PartialSyncIDs))
@@ -113,7 +106,7 @@ func BuildCompactedToken(baseToken string, in CompactionTokenInput) (string, err
 	}
 
 	for _, token := range in.PartialTokens {
-		aggregatePartialToken(comp, token)
+		foldPartialTimings(st, token)
 	}
 
 	if len(in.RecordCounts) > 0 {
@@ -128,10 +121,11 @@ func BuildCompactedToken(baseToken string, in CompactionTokenInput) (string, err
 	return st.Marshal()
 }
 
-// aggregatePartialToken folds one partial's timing stats into the aggregate.
-// Unparseable or stat-less tokens contribute nothing; parse errors are not
-// surfaced because provenance must never fail a compaction.
-func aggregatePartialToken(comp *CompactionTokenStats, token string) {
+// foldPartialTimings adds one partial's timing stats into the compacted
+// token's top-level maps. Unparseable or stat-less tokens contribute
+// nothing; parse errors are not surfaced because provenance must never
+// fail a compaction.
+func foldPartialTimings(st *state, token string) {
 	if token == "" {
 		return
 	}
@@ -139,37 +133,17 @@ func aggregatePartialToken(comp *CompactionTokenStats, token string) {
 	if err := partial.Unmarshal(token); err != nil {
 		return
 	}
-	durations := partial.StepDurations()
-	calls := partial.ConnectorCallStats()
-	if len(durations) == 0 && len(calls) == 0 {
-		return
-	}
-
-	if comp.PartialsAggregate == nil {
-		comp.PartialsAggregate = &CompactionAggregate{}
-	}
-	agg := comp.PartialsAggregate
-	agg.Executions++
-	if len(durations) > 0 && agg.StepDurationsMs == nil {
-		agg.StepDurationsMs = make(map[string]int64, len(durations))
-	}
-	for bucket, ms := range durations {
-		agg.StepDurationsMs[bucket] += ms
-	}
-	if len(calls) > 0 && agg.ConnectorCallStats == nil {
-		agg.ConnectorCallStats = make(map[string]*ConnectorCallStat, len(calls))
-	}
-	for method, stat := range calls {
-		merged := agg.ConnectorCallStats[method]
-		if merged == nil {
-			merged = &ConnectorCallStat{}
-			agg.ConnectorCallStats[method] = merged
+	for bucket, ms := range partial.StepDurations() {
+		if ms == 0 {
+			continue
 		}
-		merged.Count += stat.Count
-		merged.TotalMs += stat.TotalMs
-		if stat.MaxMs > merged.MaxMs {
-			merged.MaxMs = stat.MaxMs
-		}
+		st.AddStepDuration(bucket, time.Duration(ms)*time.Millisecond)
+	}
+	for method, stat := range partial.ConnectorCallStats() {
+		st.MergeConnectorCallStat(method, stat)
+	}
+	for op, stat := range partial.SessionStoreStats() {
+		st.MergeSessionStat(op, stat)
 	}
 }
 

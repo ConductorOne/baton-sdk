@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/cockroachdb/pebble/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -84,6 +85,11 @@ func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.S
 // sidecar (O(1)) when present and falls back to iteration when not.
 func (s pebbleSyncMeta) Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
 	return s.a.Stats(ctx, syncType, syncID)
+}
+
+// StatsV2 implements SyncMeta. Signature matches *C1File.StatsV2 exactly.
+func (s pebbleSyncMeta) StatsV2(ctx context.Context, syncType connectorstore.SyncType, syncID string) (*reader_v2.SyncStats, error) {
+	return s.a.StatsV2(ctx, syncType, syncID)
 }
 
 // RecalculateStats recomputes the stats sidecar for syncID from the

@@ -448,18 +448,9 @@ func (a *Adapter) GetSync(ctx context.Context, req *reader_v2.SyncsReaderService
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
 
-	stats, _, err := CachedSyncStats(ctx, a.engine, req.GetSyncId())
+	stats, err := a.syncStatsForRun(ctx, rec)
 	if err != nil {
-		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
-	}
-
-	if stats == nil {
-		computedStats, err := a.engine.computeSyncStats(ctx, req.GetSyncId())
-		if err != nil {
-			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
-		}
-
-		stats = SyncStatsFromRecord(computedStats)
+		return nil, err
 	}
 
 	return reader_v2.SyncsReaderServiceGetSyncResponse_builder{
@@ -507,7 +498,7 @@ func (a *Adapter) ListSyncs(ctx context.Context, req *reader_v2.SyncsReaderServi
 		}
 		lastKey = append(lastKey[:0], iter.Key()...)
 
-		stats, _, err := CachedSyncStats(ctx, a.engine, r.GetSyncId())
+		stats, err := a.syncStatsForRun(ctx, r)
 		if err != nil {
 			return nil, err
 		}
@@ -544,23 +535,36 @@ func (a *Adapter) GetLatestFinishedSync(ctx context.Context, req *reader_v2.Sync
 		return reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse_builder{}.Build(), nil
 	}
 
-	stats, _, err := CachedSyncStats(ctx, a.engine, latest.GetSyncId())
+	stats, err := a.syncStatsForRun(ctx, latest)
 	if err != nil {
-		return reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse_builder{}.Build(), err
-	}
-
-	if stats == nil {
-		computedStats, err := a.engine.computeSyncStats(ctx, latest.GetSyncId())
-		if err != nil {
-			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
-		}
-
-		stats = SyncStatsFromRecord(computedStats)
+		return nil, err
 	}
 
 	return reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse_builder{
 		Sync: v3SyncRunToV2(latest, stats),
 	}.Build(), nil
+}
+
+// syncStatsForRun returns SyncStats for a sync_run, preferring the
+// sidecar and falling back to computeSyncStats. Token timings are
+// present only when EndSync persisted them into the sidecar; older
+// count-only caches and iteration fallbacks return counts alone.
+func (a *Adapter) syncStatsForRun(ctx context.Context, rec *v3.SyncRunRecord) (*reader_v2.SyncStats, error) {
+	if rec == nil {
+		return nil, nil
+	}
+	stats, _, err := CachedSyncStats(ctx, a.engine, rec.GetSyncId())
+	if err != nil {
+		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+	}
+	if stats != nil {
+		return stats, nil
+	}
+	computedStats, err := a.engine.computeSyncStats(ctx, rec.GetSyncId())
+	if err != nil {
+		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+	}
+	return SyncStatsFromRecord(computedStats), nil
 }
 
 // syncTypeFilterFromString returns a predicate that matches sync_runs

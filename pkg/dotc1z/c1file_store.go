@@ -7,6 +7,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
@@ -297,6 +298,11 @@ func (s c1FileSyncMeta) LatestFinishedSyncOfAnyType(ctx context.Context) (*c1zst
 // Stats implements SyncMeta. Signature matches *C1File.Stats exactly.
 func (s c1FileSyncMeta) Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
 	return s.c.Stats(ctx, syncType, syncID)
+}
+
+// StatsV2 implements SyncMeta. Signature matches *C1File.StatsV2 exactly.
+func (s c1FileSyncMeta) StatsV2(ctx context.Context, syncType connectorstore.SyncType, syncID string) (*reader_v2.SyncStats, error) {
+	return s.c.StatsV2(ctx, syncType, syncID)
 }
 
 // RecalculateStats implements SyncMeta. Thin passthrough to
