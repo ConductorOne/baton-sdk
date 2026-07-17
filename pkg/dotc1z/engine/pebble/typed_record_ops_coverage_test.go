@@ -144,11 +144,73 @@ func TestUnsafePutUniqueGrantRecordsObligations(t *testing.T) {
 	require.Equal(t, 2, countKeys(t, e, GrantByPrincipalLowerBound()),
 		"inline regime must write by_principal for every row")
 
+	// Digest-present refusal: on a fresh sync digest state is provably
+	// absent (StartNewSync excised it), so a present flag means the
+	// freshness contract itself broke — the guard must refuse rather
+	// than silently tombstone a trusted import's digest keyspace.
+	e.grantDigestsPresent.Store(true)
+	require.ErrorContains(t, e.UnsafePutUniqueGrantRecords(ctx, testGrantRecord("ent-C", "carol")),
+		"digest state present on a fresh sync")
+	e.grantDigestsPresent.Store(false)
+
 	// Non-fresh syncs are refused (SetCurrentSync clears freshness).
 	require.NoError(t, a.EndSync(ctx))
 	require.NoError(t, a.SetCurrentSync(ctx, syncID))
 	require.ErrorContains(t, e.UnsafePutUniqueGrantRecords(ctx, testGrantRecord("ent-C", "carol")),
 		"sync is not fresh")
+}
+
+// TestGrantDeleteMalformedValueStillCleansObligations pins the
+// key-derived cleanup contract that motivated the 2b delete-path
+// tightening: a grant whose stored VALUE is garbage (unmarshalable
+// legacy row) but whose KEY is well-formed must still get full index
+// cleanup and digest invalidation on delete. The pre-2b path derived
+// cleanup from the prior value and silently SKIPPED both when the
+// value's identity fields were missing — deleting the primary while
+// leaving a stale-but-present digest (a present-means-exact hole) and
+// orphan index rows. Key-derived cleanup cannot be skipped.
+func TestGrantDeleteMalformedValueStillCleansObligations(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	e := a.PebbleEngine()
+
+	// A healthy grant first, sealed so digests exist; rebind for the
+	// post-seal mutation (the partial-sync shape where digests are
+	// present and the delete's invalidation obligation is live).
+	require.NoError(t, e.PutGrantRecords(ctx, testGrantRecord("ent-A", "alice")))
+	require.NoError(t, a.EndSync(ctx))
+	require.NoError(t, a.SetCurrentSync(ctx, syncID))
+	_, ok, err := e.GetGrantDigestGlobalRoot(ctx)
+	require.NoError(t, err)
+	require.True(t, ok, "seal must build digests")
+
+	// Corrupt the stored VALUE in place (key untouched) — the malformed
+	// legacy-row shape the old value-derived cleanup choked on.
+	id := grantIdentity{
+		entitlement:     entitlementIdentityFromParts("app", "github", canonicalTestEntID("ent-A")),
+		principalTypeID: "user",
+		principalID:     "alice",
+	}
+	key := encodeGrantIdentityKey(id)
+	require.NoError(t, e.db.UnsafeForTesting().Set(key, []byte("\xff not a proto"), pebble.Sync))
+
+	// Delete via structural refs (DeleteGrantByIdentityRefs encodes the
+	// key from the record's refs; it never unmarshals the stored
+	// value). Both index families and the digest root must be cleaned
+	// even though the value is garbage.
+	rec := testGrantRecord("ent-A", "alice")
+	require.NoError(t, e.DeleteGrantByIdentityRefs(ctx, rec))
+
+	_, closer, err := e.db.Get(key)
+	require.ErrorIs(t, err, pebble.ErrNotFound, "primary must be gone")
+	_ = closer
+	require.Equal(t, 0, countKeys(t, e, GrantByPrincipalLowerBound()), "by_principal must be cleaned from the key alone")
+	require.Equal(t, 0, countKeys(t, e, encodeGrantByNeedsExpansionPrefix()), "needs_expansion must be cleaned from the key alone")
+	_, ok, err = e.GetGrantDigestGlobalRoot(ctx)
+	require.NoError(t, err)
+	require.False(t, ok, "digest must read as invalidated, never stale-but-present over a deleted row")
 }
 
 // TestDeleteResourceRecordObligations covers the exported delete path
@@ -226,8 +288,10 @@ func TestDeferredMarkerArmFailureRollsBackCAS(t *testing.T) {
 	require.NoError(t, getErr, "the retried arm must persist the durable marker")
 	closer.Close()
 
-	// The marker survives a reopen (the durable half is the point) and
-	// the resumed EndSync rebuilds the index.
+	// Same-process EndSync consumes the armed marker and rebuilds the
+	// index. (The crash side of the contract — the durable key
+	// re-arming the flag on a REOPEN — is pinned by the errorfs sweep's
+	// resume arm, not here; this test stays in-process.)
 	require.NoError(t, a.EndSync(ctx))
 	n := 0
 	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool {

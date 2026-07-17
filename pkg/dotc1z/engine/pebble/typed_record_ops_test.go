@@ -86,6 +86,10 @@ func TestTypedRecordOpsRejectWrongFamilyAndMalformedKeys(t *testing.T) {
 			"outside this op's keyspace family", "entitlement key must not stage as a grant")
 		require.ErrorContains(t, rb.StageResourceTypeDelete(grantKey),
 			"outside this op's keyspace family")
+		require.ErrorContains(t, rb.StageResourcePut(grantKey, []byte("v"), nil, "group", "g1"),
+			"outside this op's keyspace family", "grant key must not stage as a resource")
+		require.ErrorContains(t, rb.StageResourceDelete(entKey, nil, "group", "g1"),
+			"outside this op's keyspace family", "entitlement key must not stage as a resource delete")
 	})
 
 	t.Run("malformed grant key", func(t *testing.T) {

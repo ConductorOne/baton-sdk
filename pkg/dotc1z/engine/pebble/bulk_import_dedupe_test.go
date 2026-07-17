@@ -25,6 +25,25 @@ func startBulkImport(t *testing.T, ctx context.Context) (*Adapter, *BulkSyncImpo
 	return store, b
 }
 
+// TestBulkImportAbortAfterEngineClose pins the retained-handle teardown
+// contract: a BulkSyncImport whose engine has already Closed must still
+// Abort cleanly (and Finish must fail, not crash). Regression guard for
+// the external parity review's finding — Engine.fs() read through e.db,
+// which Close nils, so Abort's staging-dir teardown nil-panicked; fs()
+// now serves the Open-time resolvedFS snapshot, which outlives db.
+func TestBulkImportAbortAfterEngineClose(t *testing.T) {
+	ctx := context.Background()
+	store, b := startBulkImport(t, ctx)
+	require.NoError(t, b.AddResourceTypes(ctx, v2.ResourceType_builder{Id: "app"}.Build()))
+
+	require.NoError(t, store.PebbleEngine().Close())
+	require.NotPanics(t, b.Abort, "Abort after engine Close must tear down staging dirs, not panic")
+
+	// And the other retained-handle shape: Finish after Abort/Close is
+	// an ordinary error.
+	require.Error(t, b.Finish(ctx))
+}
+
 // TestBulkImportEntitlementIdentityOrderDivergesFromExternalID pins the fix
 // for the AddEntitlements ordering bug: the converter feeds entitlements in
 // external-id string order, which does NOT match structural-identity tuple

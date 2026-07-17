@@ -202,6 +202,18 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 
 	pebbleOpts := newPebbleOptions(o)
 
+	// DELIBERATE ASYMMETRY (do not "fix"): rawdb gets the UNWRAPPED FS
+	// (o.vfs, nil → vfs.Default), while pebble.Open internally wraps
+	// its clone of pebbleOpts.FS with disk-health middleware. So the
+	// DB's own IO is health-monitored but engine-managed IO through
+	// fs() (staged SSTs, checkpoint WAL cleanup) is not — exactly
+	// main's split, where staging was plain os.* (pinned in PR-1
+	// review: "only pebble's own IO gets the disk-health wrap").
+	// Passing the wrapped FS here would put staging writes under
+	// pebble's stall escalation (Logger.Fatalf on slow disks) — a
+	// production behavior change, not a cleanup. Both objects sit on
+	// the same underlying filesystem, so files interoperate; the
+	// MemFS lifecycle test pins that.
 	db, err := rawdb.Open(dir, pebbleOpts, o.vfs)
 	if err != nil {
 		// pebble.Open failure path: we minted a Cache (when no shared
@@ -219,6 +231,7 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		dbDir:      dir,
 		opts:       o,
 		pebbleOpts: pebbleOpts,
+		resolvedFS: db.FS(),
 	}
 	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
 		e.compactionScheduler = s

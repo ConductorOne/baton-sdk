@@ -167,7 +167,7 @@ func (rb *RecordBatch) StageGrantPutInline(key, val []byte, hadOldVal, needsExpa
 			return err
 		}
 	}
-	return d.StageGrantDigestInvalidation(&recordStager{rb}, key)
+	return d.StageGrantDigestInvalidation(&rb.stager, key)
 }
 
 // StageGrantDelete stages one grant row's removal (INLINE regime:
@@ -199,7 +199,7 @@ func (rb *RecordBatch) StageGrantDelete(key []byte) error {
 	if err := rb.core.b.Delete(key, nil); err != nil {
 		return err
 	}
-	return d.StageGrantDigestInvalidation(&recordStager{rb}, key)
+	return d.StageGrantDigestInvalidation(&rb.stager, key)
 }
 
 // StageGrantPutDeferred stages one grant row in the DEFERRED index
@@ -234,7 +234,7 @@ func (rb *RecordBatch) StageGrantPutDeferred(key, val []byte, hadOldVal, needsEx
 			return err
 		}
 	}
-	return d.StageGrantDigestInvalidation(&recordStager{rb}, key)
+	return d.StageGrantDigestInvalidation(&rb.stager, key)
 }
 
 func (rb *RecordBatch) setGrantIndexKey(derive func(dst, primaryKey []byte) ([]byte, bool), key []byte) error {
