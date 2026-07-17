@@ -276,9 +276,35 @@ func (w sweepWorkload) write(ctx context.Context, a *Adapter) error {
 	return a.Grants().StoreExpandedGrants(ctx, expanded...)
 }
 
-// verifyComplete is the content oracle: every workload row is readable
-// through the primary keyspaces AND the by_principal index on a
-// finished store.
+// expectedGrantIDs is the exact external-id set the workload implies:
+// perPrinc connector grants plus one expanded grant per principal.
+func (w sweepWorkload) expectedGrantIDs() []string {
+	var ids []string
+	for _, p := range w.principals {
+		for i := 0; i < w.perPrinc; i++ {
+			ids = append(ids, canonicalTestGrantID(fmt.Sprintf("ent-%02d", i), "user", p))
+		}
+		ids = append(ids, canonicalTestGrantID(sweepExpandedEnt, "user", p))
+	}
+	return ids
+}
+
+// expectedEntIDsPerPrincipal is the exact entitlement-id set every
+// principal's by_principal slice must serve.
+func (w sweepWorkload) expectedEntIDsPerPrincipal() []string {
+	var ids []string
+	for i := 0; i < w.perPrinc; i++ {
+		ids = append(ids, canonicalTestEntID(fmt.Sprintf("ent-%02d", i)))
+	}
+	return append(ids, canonicalTestEntID(sweepExpandedEnt))
+}
+
+// verifyComplete is the content oracle: the EXACT workload row sets —
+// not just counts — are readable through the primary keyspaces AND the
+// by_principal index on a finished store. Set equality is what makes
+// "resumes to completion" mean CORRECT completion: a resume that
+// duplicated, dropped, or cross-wired rows while keeping counts
+// plausible fails here.
 func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engine, syncID string, label string) {
 	t.Helper()
 	rec, err := e.GetSyncRunRecord(ctx, syncID)
@@ -290,7 +316,11 @@ func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engi
 
 	resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoErrorf(t, err, "%s: ListGrants", label)
-	require.Lenf(t, resp.GetList(), len(w.principals)*(w.perPrinc+1), "%s: grant count", label)
+	gotGrantIDs := make([]string, 0, len(resp.GetList()))
+	for _, g := range resp.GetList() {
+		gotGrantIDs = append(gotGrantIDs, g.GetId())
+	}
+	require.ElementsMatchf(t, w.expectedGrantIDs(), gotGrantIDs, "%s: grant id set", label)
 
 	rresp, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{}.Build())
 	require.NoErrorf(t, err, "%s: ListResources", label)
@@ -301,14 +331,20 @@ func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engi
 	require.Lenf(t, eresp.GetList(), w.perPrinc+1, "%s: entitlement count", label)
 
 	// The by_principal index is rebuilt inside the EndSync window — the
-	// exact artifact a torn deferred build would corrupt or lose.
+	// exact artifact a torn deferred build would corrupt or lose. Each
+	// principal's slice must serve exactly its entitlement set, with
+	// records whose refs actually point at the principal being asked
+	// about (a cross-wired index entry fails the principal check).
+	wantEnts := w.expectedEntIDsPerPrincipal()
 	for _, p := range w.principals {
-		n := 0
-		require.NoErrorf(t, e.IterateGrantsByPrincipal(ctx, "user", p, func(*v3.GrantRecord) bool {
-			n++
+		var gotEnts []string
+		require.NoErrorf(t, e.IterateGrantsByPrincipal(ctx, "user", p, func(r *v3.GrantRecord) bool {
+			require.Equalf(t, "user", r.GetPrincipal().GetResourceTypeId(), "%s: %s index row principal type", label, p)
+			require.Equalf(t, p, r.GetPrincipal().GetResourceId(), "%s: %s index row principal id", label, p)
+			gotEnts = append(gotEnts, r.GetEntitlement().GetEntitlementId())
 			return true
 		}), "%s: IterateGrantsByPrincipal(%s)", label, p)
-		require.Equalf(t, w.perPrinc+1, n, "%s: by_principal must serve %s", label, p)
+		require.ElementsMatchf(t, wantEnts, gotEnts, "%s: by_principal entitlement set for %s", label, p)
 	}
 }
 
