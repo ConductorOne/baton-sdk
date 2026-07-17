@@ -15,28 +15,13 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
-// FoldBatch and MergeDB are exported aliases for the choke point's
-// fold-exempt batch and the narrowed compactor handle (internal/
-// rawdb). The synccompactor/pebble package — the choke point's one
-// sanctioned external client, via Engine.DB() — needs to NAME these
-// types in struct fields and signatures, which the internal-package
-// import fence forbids; an alias is referable without the import.
-//
-// MergeDB (= rawdb.MergeView) carries reads, LSM stats, the bulk
-// range/ingest ops, and the fold-exempt batch — and nothing else:
-// typed record staging (NewRecordBatch) and the session/meta/digest
-// write families are not on it, so the documented DB() exemption
-// cannot quietly grow into a second engine write path that bypasses
-// the lifecycle barrier. It is deliberately a CONCRETE struct, not an
-// interface over *rawdb.DB — an interface's dynamic type would let a
-// caller recover the omitted write families with a structural type
-// assertion (review finding, delta round). UnsafeForTesting stays
-// reachable for test fixtures; its testing.Testing() runtime gate
-// makes it inert in production.
-type (
-	FoldBatch = rawdb.FoldBatch
-	MergeDB   = rawdb.MergeView
-)
+// FoldBatch is an exported alias for the choke point's fold-exempt
+// batch (internal/rawdb). The synccompactor/pebble package — the
+// choke point's one sanctioned external client, via the Engine's
+// merge surface (merge_surface.go) — needs to NAME the type in struct
+// fields, which the internal-package import fence forbids; an alias
+// is referable without the import.
+type FoldBatch = rawdb.FoldBatch
 
 // engineAccessor is implemented by *Adapter and by pkg/dotc1z's Pebble
 // store wrapper (which embeds *Adapter and overrides the method with a

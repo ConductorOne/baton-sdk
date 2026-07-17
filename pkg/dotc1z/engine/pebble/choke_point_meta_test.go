@@ -214,17 +214,18 @@ func walkClientTreeProductionGoFiles(t *testing.T, visit func(root, path string,
 // SOURCE so a production call site can't even ship dormant.
 func TestUnsafeForTestingOnlyInTests(t *testing.T) {
 	walkClientTreeProductionGoFiles(t, func(root, path string, src []byte) {
-		// The definition and its MergeView delegation are exempt — by
-		// EXACT path under this package's root only, so a spoofed
-		// nested .../internal/rawdb/ tree elsewhere cannot smuggle a
-		// production call site past the check (review finding, round 1
-		// of PR 2).
-		if root == "." && filepath.Clean(path) == filepath.Clean("internal/rawdb/rawdb.go") {
+		// The definition (rawdb.go) and the Engine merge surface's
+		// delegation (merge_surface.go) are exempt — by EXACT path
+		// under this package's root only, so a spoofed nested tree
+		// elsewhere cannot smuggle a production call site past the
+		// check (review finding, round 1 of PR 2).
+		if root == "." && (filepath.Clean(path) == filepath.Clean("internal/rawdb/rawdb.go") ||
+			filepath.Clean(path) == "merge_surface.go") {
 			return
 		}
 		// The signal is USE-shaped — a selector (`x.UnsafeForTesting`),
 		// whitespace-tolerant so gofmt's multi-line chains
-		// (`eng.DB().\n\tUnsafeForTesting()`) still match (review
+		// (`eng.\n\tUnsafeForTesting()`) still match (review
 		// finding, delta round). Covers direct calls, method values,
 		// and method expressions ((*T).UnsafeForTesting); a bare
 		// method DECLARATION doesn't match — a declaration grants
@@ -243,14 +244,11 @@ func TestUnsafeForTestingOnlyInTests(t *testing.T) {
 // Selector-use signals for the source fences below: a dot immediately
 // followed by the name (`x.UnsafeForTesting`), or a dot at the end of
 // a line with the name on the gofmt continuation line
-// (`eng.DB().\n\tUnsafeForTesting()`). Deliberately NOT `\.\s*`: that
+// (`eng.\n\tUnsafeForTesting()`). Deliberately NOT `\.\s*`: that
 // would also match prose in doc comments ("... delta round).
 // UnsafeForTesting stays ..."), and a same-line space between dot and
 // selector isn't a form gofmt'd code can take.
-var (
-	unsafeForTestingUse = regexp.MustCompile(`\.(\n\s*)?UnsafeForTesting\b`)
-	newFoldBatchUse     = regexp.MustCompile(`\.(\n\s*)?NewFoldBatch\b`)
-)
+var unsafeForTestingUse = regexp.MustCompile(`\.(\n\s*)?UnsafeForTesting\b`)
 
 // TestSeamsArmedOnlyInTests forbids ARMING the Engine's test-seam
 // field (Engine.test / testSeams, test_seams.go) outside _test.go
@@ -314,26 +312,34 @@ func TestSeamsArmedOnlyInTests(t *testing.T) {
 	}
 }
 
-// TestFoldBatchOnlyInCompactor fences the one raw record-write conduit
-// the narrowed DB() handle carries: NewFoldBatch (generic Set/Delete/
-// Commit over record keyspaces, obligations handled by the fold
-// contract instead of derivation). Its only sanctioned production
-// clients are the fold compactor (pkg/synccompactor/pebble) and rawdb
-// itself; a NewFoldBatch call appearing anywhere else is a caller
+// mergeSurfaceWriteUse are the selector signals for the Engine merge
+// surface's raw write ops (merge_surface.go): NewFoldBatch (generic
+// Set/Delete/Commit over record keyspaces, obligations handled by the
+// fold contract instead of derivation) plus the bulk range/ingest ops
+// promoted from the old DB() handle. Whitespace-tolerant like the
+// UnsafeForTesting signal.
+var mergeSurfaceWriteUse = regexp.MustCompile(`\.(\n\s*)?(NewFoldBatch|DropKeyRange|IngestSSTs|ReplaceRangeWithSSTs)\b`)
+
+// TestMergeSurfaceWritesOnlyInCompactor fences the raw write conduits
+// the Engine merge surface carries. Their only sanctioned production
+// clients are the fold compactor (pkg/synccompactor/pebble), rawdb
+// itself, and THIS package's engine internals (which reach the same
+// ops through e.db — legitimately: digest drops, session clears,
+// deferred-index ingest all ride them under the write barrier). A use
+// appearing in the store layer or any other package is a caller
 // routing around the typed Stage* obligations (review finding, delta
-// round: the DB() handle must not quietly become a second engine
-// write path).
-func TestFoldBatchOnlyInCompactor(t *testing.T) {
-	sep := string(filepath.Separator)
+// round: the exemption surface must not quietly become a second
+// engine write path).
+func TestMergeSurfaceWritesOnlyInCompactor(t *testing.T) {
 	walkClientTreeProductionGoFiles(t, func(root, path string, src []byte) {
-		if root == "." && strings.HasPrefix(filepath.Clean(path), filepath.Clean("internal/rawdb")+sep) {
-			return // the definition + MergeView delegation
+		if root == "." {
+			return // engine package + internal/: the ops' home
 		}
 		if root == "../../../synccompactor" && strings.Contains(filepath.ToSlash(filepath.Clean(path)), "/pebble/") {
 			return // the sanctioned fold-compactor client
 		}
-		require.Falsef(t, newFoldBatchUse.Match(src),
-			"%s uses NewFoldBatch outside the fold compactor. FoldBatch bypasses typed record staging "+
-				"by contract; record writes anywhere else go through a RecordBatch Stage* operation.", path)
+		require.Falsef(t, mergeSurfaceWriteUse.Match(src),
+			"%s uses an Engine merge-surface write op outside the fold compactor. These bypass typed "+
+				"record staging by contract; record writes anywhere else go through the engine's typed APIs.", path)
 	})
 }

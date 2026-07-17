@@ -49,9 +49,6 @@ type DB struct {
 	// (pebble.Options.FS resolved: the WithVFS override or vfs.Default).
 	// Every SST this package stages for ingest MUST be created on it.
 	fs vfs.FS
-	// merge is the pre-built narrowed view MergeView() hands out.
-	merge MergeView
-
 	// deferredIdxPending mirrors the durable deferred-index marker
 	// (keys.DeferredIdxPendingKey): grant writes that skipped the
 	// inline by_principal index owe a rebuild at EndSync. The flag and
@@ -93,9 +90,7 @@ func Open(dir string, opts *pebble.Options, fs vfs.FS) (*DB, error) {
 	if fs == nil {
 		fs = vfs.Default
 	}
-	d := &DB{db: db, fs: fs}
-	d.merge = MergeView{db: d}
-	return d, nil
+	return &DB{db: db, fs: fs}, nil
 }
 
 // Close closes the underlying pebble.DB. The engine's teardown
@@ -137,61 +132,6 @@ func (d *DB) UnsafeForTesting() *pebble.DB {
 	}
 	return d.db
 }
-
-// === the compactor's narrowed view ===
-
-// MergeView is the CONCRETE handle Engine.DB() hands the
-// synccompactor: reads, LSM stats, the bulk range/ingest ops, and the
-// fold-exempt batch — and nothing else. It must stay a concrete
-// struct, not an interface over *DB: Go interfaces are structural, so
-// an interface whose dynamic type is *DB would let any caller recover
-// the omitted write families with a type assertion
-// (`h.(interface{ MetaSet(...) error })`) — no internal-package import
-// required (review finding, delta round). A struct with only these
-// methods gives an assertion nothing to recover.
-//
-// NewFoldBatch is the one deliberate raw-write conduit here: the fold
-// compactor rewrites record keyspaces wholesale, with its obligations
-// handled by contract (digest state dropped, markers handled at the
-// store layer) rather than derivation. Its use is fenced to
-// pkg/synccompactor/pebble by meta-test.
-type MergeView struct {
-	db *DB
-}
-
-// MergeView returns the narrowed handle. Stable identity per DB (the
-// engine returns it to external callers on every DB() call).
-func (d *DB) MergeView() *MergeView { return &d.merge }
-
-func (v *MergeView) Get(key []byte) ([]byte, io.Closer, error) { return v.db.Get(key) }
-
-func (v *MergeView) NewIter(o *pebble.IterOptions) (*pebble.Iterator, error) {
-	return v.db.NewIter(o)
-}
-
-func (v *MergeView) Metrics() *pebble.Metrics { return v.db.Metrics() }
-
-func (v *MergeView) EstimateDiskUsage(start, end []byte) (uint64, error) {
-	return v.db.EstimateDiskUsage(start, end)
-}
-
-func (v *MergeView) DropKeyRange(start, end []byte, o *pebble.WriteOptions) error {
-	return v.db.DropKeyRange(start, end, o)
-}
-
-func (v *MergeView) IngestSSTs(ctx context.Context, paths []string) error {
-	return v.db.IngestSSTs(ctx, paths)
-}
-
-func (v *MergeView) ReplaceRangeWithSSTs(ctx context.Context, paths []string, span pebble.KeyRange) error {
-	return v.db.ReplaceRangeWithSSTs(ctx, paths, span)
-}
-
-func (v *MergeView) NewFoldBatch() *FoldBatch { return v.db.NewFoldBatch() }
-
-// UnsafeForTesting delegates to DB.UnsafeForTesting — same
-// testing.Testing() runtime gate, same meta-test source fence.
-func (v *MergeView) UnsafeForTesting() *pebble.DB { return v.db.UnsafeForTesting() }
 
 // === deferred-index marker + digest-presence state ===
 //

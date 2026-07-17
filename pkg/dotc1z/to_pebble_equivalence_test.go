@@ -182,7 +182,7 @@ func dumpSyncKeyspace(ctx context.Context, t *testing.T, path, tmpDir string) ma
 	eng, ok := enginepkg.AsEngine(store)
 	require.True(t, ok)
 
-	iter, err := eng.DB().NewIter(nil)
+	iter, err := eng.NewIter(nil)
 	require.NoError(t, err)
 	defer iter.Close()
 

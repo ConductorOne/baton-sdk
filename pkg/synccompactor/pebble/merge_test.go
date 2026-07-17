@@ -296,7 +296,7 @@ func sumBucketRawBytes(t *testing.T, eng *enginepkg.Engine, bucket bucketSpec) i
 	ranges := append([][2][]byte{{lo, hi}}, bucketIndexRanges(bucket)...)
 	var total int64
 	for _, r := range ranges {
-		iter, err := eng.DB().NewIter(&cpebble.IterOptions{LowerBound: r[0], UpperBound: r[1]})
+		iter, err := eng.NewIter(&cpebble.IterOptions{LowerBound: r[0], UpperBound: r[1]})
 		require.NoError(t, err)
 		for iter.First(); iter.Valid(); iter.Next() {
 			total += int64(len(iter.Key())) + int64(len(iter.Value()))

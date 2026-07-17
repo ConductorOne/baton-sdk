@@ -663,34 +663,10 @@ func (e *Engine) CurrentDBSizeBytes() (int64, error) {
 	return total, nil
 }
 
-// DB returns the engine's rawdb handle — the write choke point's
-// EXPLICIT EXEMPTION SURFACE. Exported for the synccompactor/pebble
-// package, whose merge/fold/overlay machinery writes the record
-// keyspaces outside the engine's writeMu barrier (fenced by call
-// ordering: the merge completes before the store's save/CheckpointTo
-// runs — see the checkpointMu inventory). The handle is *MergeDB
-// (= rawdb.MergeView) — deliberately NARROWER than *rawdb.DB: it
-// carries only the reads, bulk range ops, and the FoldBatch
-// constructor (the compactor's raw record-write conduit, fenced to
-// pkg/synccompactor/pebble by meta-test), so an external caller
-// cannot reach typed record staging
-// (NewRecordBatch) or session/meta/digest writes outside the engine's
-// lifecycle barrier — not even by type assertion, since the concrete
-// view has nothing more to recover. The raw *pebble.DB stays
-// unreachable (UnsafeForTesting is runtime-gated to tests). Callers
-// must respect the engine's lifecycle; returns nil after Close.
-// Callers that write the entitlement keyspace through this handle
-// (ingests, excises) must call InvalidateBareIDLookups afterwards.
-func (e *Engine) DB() *MergeDB {
-	if e.db == nil {
-		return nil
-	}
-	return e.db.MergeView()
-}
-
 // InvalidateBareIDLookups invalidates the lazily built bare-id lookup
-// state (see lookup.go). Engine write paths call this internally; it is
-// exported for callers that mutate the keyspace through DB() directly.
+// state (see lookup.go). Engine write paths call this internally; it
+// is exported for callers that mutate the entitlement keyspace through
+// the merge surface (merge_surface.go) directly.
 func (e *Engine) InvalidateBareIDLookups() { e.noteEntitlementKeyspaceWrite() }
 
 // MigratedOnOpen reports whether this Open ran the in-place id-index

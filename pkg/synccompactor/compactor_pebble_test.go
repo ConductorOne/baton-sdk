@@ -94,7 +94,7 @@ func countPebbleAssets(t *testing.T, ctx context.Context, path string) int {
 	defer w.Close(ctx)
 	eng, ok := enginepkg.AsEngine(w)
 	require.True(t, ok, "store at %s is not a pebble engine", path)
-	it, err := eng.DB().NewIter(&pebble.IterOptions{
+	it, err := eng.NewIter(&pebble.IterOptions{
 		LowerBound: enginepkg.AssetLowerBound(),
 		UpperBound: enginepkg.AssetUpperBound(),
 	})
@@ -1253,7 +1253,7 @@ func deletePebbleStatsSidecar(t testing.TB, ctx context.Context, path string) {
 	require.NoError(t, err)
 	eng, ok := enginepkg.AsEngine(w)
 	require.True(t, ok)
-	iter, err := eng.DB().NewIter(&pebble.IterOptions{
+	iter, err := eng.NewIter(&pebble.IterOptions{
 		LowerBound: enginepkg.SyncStatsSidecarLowerBound(),
 		UpperBound: enginepkg.SyncStatsSidecarUpperBound(),
 	})
@@ -1265,7 +1265,7 @@ func deletePebbleStatsSidecar(t testing.TB, ctx context.Context, path string) {
 	require.NoError(t, iter.Error())
 	require.NoError(t, iter.Close())
 	for _, key := range keys {
-		require.NoError(t, eng.DB().UnsafeForTesting().Delete(key, nil))
+		require.NoError(t, eng.UnsafeForTesting().Delete(key, nil))
 	}
 	require.NoError(t, w.Close(ctx))
 }

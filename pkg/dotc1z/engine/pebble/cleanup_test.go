@@ -66,14 +66,14 @@ func TestResetForNewSyncReclaimsDiskImmediately(t *testing.T) {
 
 	dataLo := []byte{versionV3, typeResourceType}
 	dataHi := []byte{versionV3, typeEngineMeta}
-	before, err := e.DB().EstimateDiskUsage(dataLo, dataHi)
+	before, err := e.EstimateDiskUsage(dataLo, dataHi)
 	require.NoErrorf(t, err, "EstimateDiskUsage (before)")
 	require.NotZero(t, before, "sanity: expected non-zero on-disk usage for the finished sync's data span")
 
 	// Replacement sync: StartNewSync excises the prior sync's data.
 	_, err = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoErrorf(t, err, "StartNewSync (replacement)")
-	after, err := e.DB().EstimateDiskUsage(dataLo, dataHi)
+	after, err := e.EstimateDiskUsage(dataLo, dataHi)
 	require.NoErrorf(t, err, "EstimateDiskUsage (after)")
 	// The excise drops fully-covered SSTs from the manifest, so the
 	// data span's estimated usage collapses to (near) zero immediately

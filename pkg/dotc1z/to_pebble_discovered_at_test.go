@@ -64,7 +64,7 @@ func TestToPebblePreservesDiscoveredAt(t *testing.T) {
 	eng, ok := pebble.AsEngine(dest)
 	require.True(t, ok)
 
-	iter, err := eng.DB().NewIter(nil)
+	iter, err := eng.NewIter(nil)
 	require.NoError(t, err)
 	defer iter.Close()
 

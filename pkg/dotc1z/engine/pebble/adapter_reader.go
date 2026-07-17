@@ -473,7 +473,7 @@ func (a *Adapter) ListSyncs(ctx context.Context, req *reader_v2.SyncsReaderServi
 	if err != nil {
 		return nil, err
 	}
-	iter, err := a.engine.DB().NewIter(&pebble.IterOptions{
+	iter, err := a.engine.NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,
 	})
