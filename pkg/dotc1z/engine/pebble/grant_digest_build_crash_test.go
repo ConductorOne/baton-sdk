@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 )
 
 // Crash-window tests for the grant digest build's durable pending
@@ -103,7 +104,7 @@ func TestGrantDigestBuildCrashMidMerge(t *testing.T) {
 			// global root only rides fold.finish()'s final batch.
 			require.NotZero(t, countKeyRangeTest(t, e, DigestLowerBound(), DigestUpperBound()),
 				"mid-merge kill must leave committed digest nodes behind")
-			require.False(t, rawKeyPresent(t, e, globalGrantDigestNodeKey()),
+			require.False(t, rawKeyPresent(t, e, keys.GlobalGrantDigestNodeKey()),
 				"the global root must not be durable before fold.finish()")
 		},
 	)
@@ -125,7 +126,7 @@ func TestGrantDigestBuildCrashPostFinish(t *testing.T) {
 			}
 		},
 		func(t *testing.T, e *Engine) {
-			require.True(t, rawKeyPresent(t, e, globalGrantDigestNodeKey()),
+			require.True(t, rawKeyPresent(t, e, keys.GlobalGrantDigestNodeKey()),
 				"post-finish kill must leave the global root durable")
 		},
 	)

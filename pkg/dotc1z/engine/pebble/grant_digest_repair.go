@@ -10,6 +10,8 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 )
 
 // Targeted repair of the grant hash index + digests: heal exactly the
@@ -40,7 +42,7 @@ import (
 // InvalidateGrantDigestPartitions). ok is false for a key that does
 // not parse as a 6-segment grant identity.
 func GrantPartitionFromPrimaryKey(key []byte) (string, bool) {
-	sep4, ok := splitGrantPrimaryKey(key)
+	sep4, ok := keys.SplitGrantPrimaryKey(key)
 	if !ok {
 		return "", false
 	}
@@ -66,9 +68,9 @@ func grantPrimaryEntitlementBoundsFromPartition(partition string) ([]byte, []byt
 // specifically — the unit recomputeGrantDigestGlobalRootLocked folds
 // into the whole-file root. The global root's own key uses
 // digestLevelGlobalRoot, a different level value, so it never matches
-// here by construction (globalGrantDigestNodeKey). Finding the level
+// here by construction (keys.GlobalGrantDigestNodeKey). Finding the level
 // byte by scanning for the next bare 0x00 after indexID is safe
-// because the partition region is TUPLE-ESCAPED (encodeDigestPartitionPrefix),
+// because the partition region is TUPLE-ESCAPED (keys.DigestPartitionPrefix),
 // unlike the hash-index key's raw splice — a bare 0x00 there can only
 // be the separator ending it, never embedded partition data.
 func isGrantDigestRootKey(key []byte) bool {
@@ -111,12 +113,12 @@ func (e *Engine) InvalidateGrantDigestPartitions(ctx context.Context, partitions
 			if err := dropPartitionDigest(batch, grantDigestSpec, partition); err != nil {
 				return err
 			}
-			lo := encodeGrantByEntPrincHashEntPrefix(partition)
+			lo := keys.GrantHashIndexEntitlementPrefix(partition)
 			if err := batch.DeleteRange(lo, upperBoundOf(lo)); err != nil {
 				return err
 			}
 		}
-		if err := batch.Delete(globalGrantDigestNodeKey()); err != nil {
+		if err := batch.Delete(keys.GlobalGrantDigestNodeKey()); err != nil {
 			return err
 		}
 		opts := writeOpts(e.opts.durability)
@@ -434,7 +436,7 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 	// loop rotates `hiBatch` on flush.
 	hiBatch := e.db.NewDigestBatch()
 	defer func() { hiBatch.Close() }()
-	hiLower := encodeGrantByEntPrincHashEntPrefix(partition)
+	hiLower := keys.GrantHashIndexEntitlementPrefix(partition)
 	if err := hiBatch.DeleteRange(hiLower, upperBoundOf(hiLower)); err != nil {
 		return err
 	}
@@ -452,7 +454,7 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 			return err
 		}
 		key, value := iter.Key(), iter.Value()
-		sep4, ok := splitGrantPrimaryKey(key)
+		sep4, ok := keys.SplitGrantPrimaryKey(key)
 		if !ok {
 			// Same key-layout-drift/corruption case the build paths
 			// count: such rows cannot be represented in the digests.
@@ -517,7 +519,7 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 	}
 	digestBatch := e.db.NewDigestBatch()
 	defer digestBatch.Close()
-	digestLower := encodeDigestPartitionPrefix(grantDigestSpec.indexID, partition)
+	digestLower := keys.DigestPartitionPrefix(grantDigestSpec.indexID, partition)
 	if err := digestBatch.DeleteRange(digestLower, upperBoundOf(digestLower)); err != nil {
 		return err
 	}
@@ -581,7 +583,7 @@ func (e *Engine) recomputeGrantDigestGlobalRootLocked(ctx context.Context) error
 	if e.IsFreshSync() {
 		opts = pebble.NoSync
 	}
-	if err := e.db.DigestSet(globalGrantDigestNodeKey(), packDigestLeaf(total, xor[:]), opts); err != nil {
+	if err := e.db.DigestSet(keys.GlobalGrantDigestNodeKey(), packDigestLeaf(total, xor[:]), opts); err != nil {
 		return err
 	}
 	e.grantDigestsPresent.Store(true)

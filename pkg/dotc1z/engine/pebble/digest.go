@@ -9,6 +9,7 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
@@ -418,13 +419,13 @@ func (e *Engine) foldPartitionNodes(ctx context.Context, spec digestIndexSpec, p
 // Test-only today (no production caller). If a future production path
 // reuses this for the grant digest specifically, it MUST also either
 // invalidate or recompute the whole-file global root
-// (globalGrantDigestNodeKey) alongside it:
+// (keys.GlobalGrantDigestNodeKey) alongside it:
 // RepairMissingGrantDigests's fast path trusts the global root's mere
 // presence to mean every partition is present and correct, and this
 // function rewrites one partition's content without touching that
 // root at all.
 func (e *Engine) buildPartitionDigestAtWidth(ctx context.Context, spec digestIndexSpec, partition string, widthBits int) error {
-	nodeLower := encodeDigestPartitionPrefix(spec.indexID, partition)
+	nodeLower := keys.DigestPartitionPrefix(spec.indexID, partition)
 	nodeUpper := upperBoundOf(nodeLower)
 
 	return e.withWrite(func() error {
@@ -754,6 +755,6 @@ func (e *Engine) dirtyPartitionBuckets(ctx context.Context, spec digestIndexSpec
 // under the present-means-exact contract, a mutated partition's digest
 // is simply MISSING until the next seal-time build recalculates it.
 func dropPartitionDigest(batch rawdb.Stager, spec digestIndexSpec, partition string) error {
-	lo := encodeDigestPartitionPrefix(spec.indexID, partition)
+	lo := keys.DigestPartitionPrefix(spec.indexID, partition)
 	return batch.DeleteRange(lo, upperBoundOf(lo))
 }

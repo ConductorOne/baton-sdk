@@ -353,7 +353,7 @@ func TestRepairMissingGrantDigestsCountsMalformedKeys(t *testing.T) {
 	sealGrantDigests(t, e)
 
 	// A key inside ent-a's primary range with SEVEN tuple segments —
-	// the key-layout-drift/corruption shape splitGrantPrimaryKey
+	// the key-layout-drift/corruption shape keys.SplitGrantPrimaryKey
 	// rejects (a well-formed grant identity has exactly six).
 	partition := testEntPartition("ent-a")
 	lower, _ := grantPrimaryEntitlementBoundsFromPartition(partition)

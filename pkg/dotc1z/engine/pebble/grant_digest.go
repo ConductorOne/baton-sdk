@@ -13,6 +13,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
@@ -39,13 +40,13 @@ import (
 // framing, while letting the seal-time build run allocation-free.
 
 // grantDigestSpec wires the grant hash index into the digest core. The
-// index's key layout (see encodeGrantByEntPrincHashEntPrefix) satisfies
+// index's key layout (see keys.GrantHashIndexEntitlementPrefix) satisfies
 // the digestIndexSpec shape contract: partition prefix, then the raw
 // digestBucketHashLen-byte bucket hash, then the principal tail; the
 // value is the grant content hash.
 var grantDigestSpec = digestIndexSpec{
 	indexID:         idxGrantByEntitlementPrincipalHash,
-	partitionPrefix: encodeGrantByEntPrincHashEntPrefix,
+	partitionPrefix: keys.GrantHashIndexEntitlementPrefix,
 }
 
 // GrantDigestABIVersion is the version of the content-hash / bucket-hash
@@ -61,8 +62,9 @@ var grantDigestSpec = digestIndexSpec{
 // can check a stored root's abi_version before comparing.
 const GrantDigestABIVersion uint32 = 1
 
-// digestLevelGlobalRoot is the node-key level for the whole-file grant
-// digest root (see globalGrantDigestNodeKey): the XOR fold of every
+// The whole-file grant digest root's node-key level lives in
+// internal/keys (keys.DigestLevelGlobalRoot, consumed by
+// keys.GlobalGrantDigestNodeKey): the XOR fold of every
 // per-entitlement root's digest, plus the total grant count, across
 // the whole sync. It is NOT part of the generic digest.go core (which
 // only knows about per-partition roots/leaves at digestLevelRoot /
@@ -70,16 +72,6 @@ const GrantDigestABIVersion uint32 = 1
 // specific manifest need, so a level value the core never produces
 // keeps the global node's key disjoint from every per-partition node
 // regardless of what any entitlement's partition bytes happen to be.
-const digestLevelGlobalRoot byte = 2
-
-// globalGrantDigestNodeKey returns the storage key for the whole-file
-// grant digest root: a level-digestLevelGlobalRoot node under an empty
-// partition. Its value is packed exactly like a leaf (packDigestLeaf /
-// unpackDigestLeaf: count(8 BE) || digest(hashLen)) — there is no
-// bucket-width concept for a whole-sync aggregate.
-func globalGrantDigestNodeKey() []byte {
-	return encodeDigestNodeKey(grantDigestSpec.indexID, "", digestLevelGlobalRoot, nil)
-}
 
 // digestPartitionForEntitlement returns the digest partition for an
 // entitlement identity: its encoded primary-key tail as a string (see
@@ -289,47 +281,12 @@ func sortByteSlices(s [][]byte) {
 
 // grantPrimaryKeyPrefixLen is the byte length of the grant primary-key
 // header: versionV3 | typeGrant | separator.
-const grantPrimaryKeyPrefixLen = 3
+const grantPrimaryKeyPrefixLen = keys.GrantPrimaryKeyPrefixLen
 
 // grantHashIndexKeyPrefixLen is the byte length of the hash-index key
 // header: versionV3 | typeIndex | idxGrantByEntitlementPrincipalHash |
 // separator.
 const grantHashIndexKeyPrefixLen = 4
-
-// splitGrantPrimaryKey locates the partition/principal boundary of a
-// grant primary key: the byte offset of the 4th tuple separator in the
-// key (the one that ends the entitlement's 4 identity segments). It
-// also validates the overall 6-segment shape, exactly like
-// appendGrantByPrincipalKeyFromPrimary. Returns ok=false for keys that
-// are not well-formed 6-segment grant identities.
-//
-// With the returned sep4 in hand every region is a plain sub-slice:
-//
-//	partition          = key[grantPrimaryKeyPrefixLen:sep4]
-//	principal segments = key[sep4+1:]
-func splitGrantPrimaryKey(primaryKey []byte) (int, bool) {
-	if len(primaryKey) < grantPrimaryKeyPrefixLen ||
-		primaryKey[0] != versionV3 || primaryKey[1] != typeGrant || primaryKey[2] != 0 {
-		return 0, false
-	}
-	sep4 := 0
-	off := grantPrimaryKeyPrefixLen
-	for i := range 5 {
-		sep := bytes.IndexByte(primaryKey[off:], 0)
-		if sep < 0 {
-			return 0, false
-		}
-		off += sep
-		if i == 3 {
-			sep4 = off
-		}
-		off++
-	}
-	if bytes.IndexByte(primaryKey[off:], 0) >= 0 {
-		return 0, false
-	}
-	return sep4, true
-}
 
 // appendGrantHashIndexKeyFromPrimary builds the
 // by_entitlement_principal_hash index key by SPLICING a grant primary
@@ -340,9 +297,9 @@ func splitGrantPrimaryKey(primaryKey []byte) (int, bool) {
 //
 // The segments are already escaped and the tuple encoding is
 // canonical, so the raw byte splice is byte-identical to
-// decode + re-encode (same trick as appendGrantByPrincipalKeyFromPrimary,
+// decode + re-encode (same trick as keys.AppendGrantByPrincipalKeyFromPrimary,
 // pinned by TestGrantDigestSpliceMatchesEncode). sep4 must come from
-// splitGrantPrimaryKey on the same key.
+// keys.SplitGrantPrimaryKey on the same key.
 func appendGrantHashIndexKeyFromPrimary(dst, primaryKey []byte, sep4 int, bucketHash64 uint64) []byte {
 	var bh [8]byte
 	binary.BigEndian.PutUint64(bh[:], bucketHash64)
@@ -358,7 +315,7 @@ func appendGrantHashIndexKeyFromPrimary(dst, primaryKey []byte, sep4 int, bucket
 // hash-index entries. The hash bytes may contain 0x00, so the 4th
 // separator is found by counting separators from the LEFT (the walk
 // never crosses the hash region — see the positional-decoding note on
-// encodeGrantByEntPrincHashEntPrefix).
+// keys.GrantHashIndexEntitlementPrefix).
 func grantPrimaryKeyFromHashIndexKey(dst, idxKey []byte) ([]byte, bool) {
 	if len(idxKey) < grantHashIndexKeyPrefixLen ||
 		idxKey[0] != versionV3 || idxKey[1] != typeIndex ||
@@ -413,7 +370,7 @@ func (e *Engine) GetGrantDigestGlobalRoot(ctx context.Context) (DigestRoot, bool
 		// hash index that was never ingested.
 		return DigestRoot{}, false, nil
 	}
-	val, closer, err := e.db.Get(globalGrantDigestNodeKey())
+	val, closer, err := e.db.Get(keys.GlobalGrantDigestNodeKey())
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return DigestRoot{}, false, nil
@@ -547,14 +504,14 @@ func (e *Engine) DropAllGrantDigestState(ctx context.Context) error {
 // stageGrantDigestInvalidationFromPrimaryKey is the KEY-DERIVED form
 // wired into rawdb's typed record ops (RecordDerivers): the partition
 // is the entitlement region of the grant primary key, a plain
-// sub-slice (see splitGrantPrimaryKey) that is byte-identical to
+// sub-slice (see keys.SplitGrantPrimaryKey) that is byte-identical to
 // digestPartitionForEntitlement of the decoded identity — the key IS
 // the identity encoding. Same armed gate as the identity form.
 func (e *Engine) stageGrantDigestInvalidationFromPrimaryKey(st rawdb.Stager, primaryKey []byte) error {
 	if !e.grantDigestsPresent.Load() {
 		return nil
 	}
-	sep4, ok := splitGrantPrimaryKey(primaryKey)
+	sep4, ok := keys.SplitGrantPrimaryKey(primaryKey)
 	if !ok {
 		// Fail closed: a record that reached a typed op already carried
 		// a well-formed identity key; swallowing would leave a
@@ -572,10 +529,10 @@ func stageGrantDigestInvalidationForPartition(batch rawdb.Stager, partition stri
 	// one partition's digest is invalidated the aggregate is stale too,
 	// so it must drop alongside it rather than linger looking present
 	// (present-means-exact — digest.go).
-	if err := batch.Delete(globalGrantDigestNodeKey()); err != nil {
+	if err := batch.Delete(keys.GlobalGrantDigestNodeKey()); err != nil {
 		return err
 	}
-	lo := encodeGrantByEntPrincHashEntPrefix(partition)
+	lo := keys.GrantHashIndexEntitlementPrefix(partition)
 	return batch.DeleteRange(lo, upperBoundOf(lo))
 }
 

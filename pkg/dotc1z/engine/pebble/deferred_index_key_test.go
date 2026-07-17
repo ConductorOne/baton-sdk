@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 )
 
 // TestAppendGrantByPrincipalKeyFromPrimary pins the raw-splice fast path to
@@ -45,13 +47,13 @@ func TestAppendGrantByPrincipalKeyFromPrimary(t *testing.T) {
 		require.True(t, ok, "%+v: decodeGrantIdentityKey failed", id)
 		want := encodeGrantByPrincipalIdentityIndexKey(decoded)
 
-		got, ok := appendGrantByPrincipalKeyFromPrimary(nil, primary)
+		got, ok := keys.AppendGrantByPrincipalKeyFromPrimary(nil, primary)
 		require.True(t, ok, "%+v: splice failed", id)
 		require.Equal(t, want, got, "%+v: spliced index key diverged from decode+re-encode", id)
 
 		// Scratch reuse must not change the output.
 		scratch := make([]byte, 0, 256)
-		got2, ok := appendGrantByPrincipalKeyFromPrimary(scratch[:0], primary)
+		got2, ok := keys.AppendGrantByPrincipalKeyFromPrimary(scratch[:0], primary)
 		require.True(t, ok)
 		require.Equal(t, want, got2)
 	}
@@ -99,7 +101,7 @@ func TestAppendGrantByPrincipalKeyFromPrimaryRejectsMalformed(t *testing.T) {
 		encodeGrantPrimaryEntitlementResourcePrefix("rt", "rid"),
 	}
 	for _, key := range cases {
-		_, ok := appendGrantByPrincipalKeyFromPrimary(nil, key)
+		_, ok := keys.AppendGrantByPrincipalKeyFromPrimary(nil, key)
 		require.Falsef(t, ok, "key %x: expected splice to reject malformed input", key)
 	}
 }

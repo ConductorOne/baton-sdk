@@ -17,6 +17,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/keys"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
@@ -245,15 +246,15 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	// armed probe, deferred-marker crash contract).
 	if err := db.SetRecordDerivers(rawdb.RecordDerivers{
 		GrantKeyValid: func(primaryKey []byte) bool {
-			_, ok := splitGrantPrimaryKey(primaryKey)
+			_, ok := keys.SplitGrantPrimaryKey(primaryKey)
 			return ok
 		},
-		GrantByPrincipalKey:          appendGrantByPrincipalKeyFromPrimary,
-		GrantNeedsExpansionKey:       appendGrantByNeedsExpansionKeyFromPrimary,
+		GrantByPrincipalKey:          keys.AppendGrantByPrincipalKeyFromPrimary,
+		GrantNeedsExpansionKey:       keys.AppendGrantByNeedsExpansionKeyFromPrimary,
 		StageGrantDigestInvalidation: e.stageGrantDigestInvalidationFromPrimaryKey,
 		ArmDeferredGrantIndex:        e.markDeferredIdxPending,
-		ResourceParent:               scanResourceParentRaw,
-		ResourceByParentKey:          encodeResourceByParentIndexKey,
+		ResourceParent:               keys.ScanResourceParentRaw,
+		ResourceByParentKey:          keys.EncodeResourceByParentIndexKey,
 		GrantPrimaryPrefix:           []byte{versionV3, typeGrant},
 		ResourcePrimaryPrefix:        []byte{versionV3, typeResource},
 		EntitlementPrimaryPrefix:     []byte{versionV3, typeEntitlement},
