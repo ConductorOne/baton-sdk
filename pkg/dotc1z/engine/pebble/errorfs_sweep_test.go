@@ -45,8 +45,8 @@ package pebble
 // default CI and is exhaustive — injection arms when EndSync is called
 // and k self-calibrates upward until an armed run completes without
 // injecting anything, which proves the window was covered end-to-end.
-// The whole-sync randomized sweep (seeded, mixed unsynced-survival
-// rates) is env-gated behind BATON_SOAK.
+// The whole-sync randomized sweep (seeded failure points, strict
+// zero-unsynced-survival crash images) is env-gated behind BATON_SOAK.
 //
 // Out of scope for this harness:
 //   - The v3 envelope save (os-level IO in the dotc1z store layer's
@@ -170,6 +170,22 @@ func (g *fatalGate) err() error {
 
 func withFatalGate(g *fatalGate) Option {
 	return func(o *Options) { o.pebbleLogger = g }
+}
+
+// panicOnFatalLogger is for the sweep's NON-injected engines (baseline
+// build, crash-image verification): no failure is expected there, so a
+// pebble fatal is a genuine test failure and must fail FAST, not park.
+// A panic on the test goroutine fails the test with a stack; on a
+// background goroutine it kills the binary with the same stack —
+// either beats a parked gate nobody selects on (a CI hang).
+type panicOnFatalLogger struct{ discardPebbleLogger }
+
+func (panicOnFatalLogger) Fatalf(format string, args ...interface{}) {
+	panic(fmt.Sprintf("pebble fatal on a non-injected sweep engine: "+format, args...))
+}
+
+func withPanicOnFatalLogger() Option {
+	return func(o *Options) { o.pebbleLogger = panicOnFatalLogger{} }
 }
 
 // sweepWorkload is the fixed mini-sync the sweeps write and verify.
@@ -323,13 +339,22 @@ func runInjected(base *vfs.MemFS, inj *failFromInjector, e *Engine, gate *fatalG
 		res.fatal = true
 		res.err = gate.err()
 	}
+	// Snapshot the injection count the moment the body resolves — it
+	// answers "did the body's window inject?", which the window sweep's
+	// termination condition depends on; later background injections
+	// must not pollute it.
 	res.injected = inj.injected.Load()
-	inj.disarm()
-	// The crash image: only fsynced state survives. Cut before Close so
-	// post-failure healing writes can't reach it. (CrashClone blocks FS
-	// mutations for the copy, so the image is an atomic cut even with
-	// engine goroutines still running.)
+	// The crash image: only fsynced state survives. Cut while the
+	// injector is STILL ARMED and before Close — a background goroutine
+	// completing a write in a disarm-to-clone gap would heal state the
+	// image must not contain. Background injections in the read-to-clone
+	// gap only make the image more crashed, never healed — the safe
+	// direction. (CrashClone blocks FS mutations for the copy, so the
+	// image is an atomic cut even with engine goroutines still running;
+	// the clone runs on the base MemFS, not through the errorfs wrapper,
+	// so arming doesn't affect the cut itself.)
 	res.image = base.CrashClone(vfs.CrashCloneCfg{})
+	inj.disarm()
 	if res.fatal {
 		return res
 	}
@@ -352,7 +377,7 @@ func runInjected(base *vfs.MemFS, inj *failFromInjector, e *Engine, gate *fatalG
 // sync soak).
 func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image *vfs.MemFS, cache *pebble.Cache, syncID string, replayPages bool, label string) {
 	t.Helper()
-	e, err := Open(ctx, "sweep-db", WithVFS(image), WithSharedCache(cache), withFatalGate(newFatalGate()))
+	e, err := Open(ctx, "sweep-db", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger())
 	require.NoErrorf(t, err, "%s: the crash image must reopen", label)
 	defer func() { _ = e.Close() }()
 
@@ -403,7 +428,7 @@ func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image 
 func buildSweepBaseline(ctx context.Context, t *testing.T, w sweepWorkload, cache *pebble.Cache) (*vfs.MemFS, string) {
 	t.Helper()
 	fs := vfs.NewCrashableMem()
-	e, err := Open(ctx, "sweep-db", WithVFS(fs), WithSharedCache(cache), withFatalGate(newFatalGate()))
+	e, err := Open(ctx, "sweep-db", WithVFS(fs), WithSharedCache(cache), withPanicOnFatalLogger())
 	require.NoError(t, err)
 	a := NewAdapter(e)
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -539,7 +564,7 @@ func TestErrorFSWholeSyncRandomSweepSoak(t *testing.T) {
 // still opens and supports a fresh, complete sync.
 func verifyEmptyImageRestarts(ctx context.Context, t *testing.T, w sweepWorkload, image *vfs.MemFS, cache *pebble.Cache, label string) {
 	t.Helper()
-	e, err := Open(ctx, "sweep-db", WithVFS(image), WithSharedCache(cache), withFatalGate(newFatalGate()))
+	e, err := Open(ctx, "sweep-db", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger())
 	require.NoErrorf(t, err, "%s: empty crash image must reopen", label)
 	defer func() { _ = e.Close() }()
 	a := NewAdapter(e)

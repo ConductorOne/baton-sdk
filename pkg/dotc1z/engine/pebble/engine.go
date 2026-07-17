@@ -686,6 +686,11 @@ func (e *Engine) fs() vfs.FS {
 // created through e.fs() (the pebble.DB resolves ingest paths through
 // that FS), while spill-chunk scratch is plain OS IO — so the directory
 // must exist on both. On the default FS the MkdirAll is a no-op.
+//
+// Portability note: mirroring a host temp path onto a MemFS assumes
+// "/" separators (MemFS only splits on "/"). WithVFS with a MemFS is a
+// test-only configuration and the tests are unix-only; a Windows port
+// would need to stage under fs.PathJoin'd relative paths instead.
 func (e *Engine) prepareStagingDir(tmpDir, pattern string) (string, error) {
 	dir, err := os.MkdirTemp(tmpDir, pattern)
 	if err != nil {
@@ -759,7 +764,7 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	if err := e.db.Checkpoint(destDir); err != nil {
 		return fmt.Errorf("checkpoint db %s: %w", destDir, err)
 	}
-	if err := truncateCheckpointWALs(destDir); err != nil {
+	if err := truncateCheckpointWALs(e.fs(), destDir); err != nil {
 		return fmt.Errorf("checkpoint truncate WALs: %w", err)
 	}
 
@@ -813,16 +818,34 @@ func copyReadOnlyDBDir(pfs vfs.FS, srcDir, destDir string) error {
 // (replay reads a clean EOF), whereas deleting the file would change
 // the file set pebble's open sequence discovers and validates against
 // the manifest's minUnflushedLogNum.
-func truncateCheckpointWALs(destDir string) error {
-	entries, err := os.ReadDir(destDir)
+//
+// pfs is the engine FS (Engine.fs()) — db.Checkpoint wrote the
+// checkpoint through it, so the WALs to truncate live there, not
+// necessarily on the host filesystem. vfs has no Truncate, so the
+// truncation is a Create (same open-existing-with-O_TRUNC semantics
+// as os.Create on the default FS; permissions of an existing file are
+// untouched by O_CREATE|O_TRUNC).
+func truncateCheckpointWALs(pfs vfs.FS, destDir string) error {
+	names, err := pfs.List(destDir)
 	if err != nil {
 		return err
 	}
-	for _, ent := range entries {
-		if ent.IsDir() || filepath.Ext(ent.Name()) != ".log" {
+	for _, name := range names {
+		if filepath.Ext(name) != ".log" {
 			continue
 		}
-		if err := os.Truncate(filepath.Join(destDir, ent.Name()), 0); err != nil {
+		path := pfs.PathJoin(destDir, name)
+		if info, err := pfs.Stat(path); err != nil || info.IsDir() {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		f, err := pfs.Create(path, vfs.WriteCategoryUnspecified)
+		if err != nil {
+			return err
+		}
+		if err := f.Close(); err != nil {
 			return err
 		}
 	}

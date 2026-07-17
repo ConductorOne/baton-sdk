@@ -389,7 +389,9 @@ func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, fs vfs.FS, sstPa
 		return err
 	}
 	if w.path != sstPath {
-		if err := os.Rename(w.path, sstPath); err != nil {
+		// Engine FS, not os: the writer created this SST through fs and
+		// the pebble.DB will read it at IngestAndExcise through fs.
+		if err := fs.Rename(w.path, sstPath); err != nil {
 			return err
 		}
 	}

@@ -53,18 +53,21 @@ type Options struct {
 	grantDigestIndex bool
 
 	// vfs, when non-nil, overrides the filesystem the engine (and the
-	// pebble.DB under it) performs its IO through. nil means vfs.Default,
-	// which is also what pebble's EnsureDefaults picks — production
-	// callers are unchanged. See WithVFS.
+	// pebble.DB under it) performs its IO through. nil leaves
+	// pebble.Options.FS nil, so pebble's EnsureDefaults applies its own
+	// default (disk-health-wrapped vfs.Default) exactly as before this
+	// option existed — production callers are unchanged. See WithVFS.
 	vfs vfs.FS
 
 	// pebbleLogger, when non-nil, replaces discardPebbleLogger as the
 	// pebble.Options.Logger. Test-only (unexported, set by in-package
 	// tests via an inline Option): fault-injection tests need a Fatalf
-	// that panics recoverably instead of os.Exit(1) — pebble treats a
-	// failed WAL commit as fatal (db.go commitWrite), and a process
-	// exit would kill the whole test binary where the intent is to
-	// observe the "crash" and assert on what durably survived it.
+	// that does NOT os.Exit(1) — pebble treats a failed WAL commit as
+	// fatal (db.go commitWrite), and a process exit would kill the
+	// whole test binary where the intent is to observe the "crash" and
+	// assert on what durably survived it. The sweep installs a gate
+	// that parks the goroutine and signals the harness on injected
+	// engines, and a fail-fast panicking logger on clean ones.
 	pebbleLogger pebble.Logger
 }
 
@@ -163,8 +166,9 @@ func newPebbleOptions(o *Options) *pebble.Options {
 		Comparer:   pebble.DefaultComparer,
 		ReadOnly:   o.readOnly,
 		Logger:     discardPebbleLogger{},
-		// nil FS means pebble's EnsureDefaults picks vfs.Default, so the
-		// no-override case is byte-identical to before WithVFS existed.
+		// nil FS gets pebble's own EnsureDefaults treatment
+		// (disk-health-wrapped vfs.Default), so the no-override case is
+		// byte-identical to before WithVFS existed.
 		FS: o.vfs,
 	}
 	if o.pebbleLogger != nil {
