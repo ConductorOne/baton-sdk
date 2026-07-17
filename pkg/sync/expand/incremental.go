@@ -2,16 +2,73 @@ package expand
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+// ClearTransientState drops the graph's expansion working state — the action
+// queue, the projection plan, and metrics — which a persisted graph doesn't
+// need for a later reload and which can bloat the sync token. The structural
+// graph (nodes, edges, mappings) is untouched.
+func (g *EntitlementGraph) ClearTransientState() {
+	g.Actions = nil
+	g.ExpansionPlan = nil
+	g.ExpansionMetrics = nil
+}
+
+// Clone returns a deep copy of the graph. Incremental expansion mutates the
+// graph (adds edges), so callers that keep the base graph across retries must
+// pass a clone — otherwise a failed run leaves the never-expanded edges in the
+// caller's graph, and a retry would treat them as already present and finish
+// with an unexpanded artifact.
+func (g *EntitlementGraph) Clone() (*EntitlementGraph, error) {
+	data, err := json.Marshal(g)
+	if err != nil {
+		return nil, fmt.Errorf("clone entitlement graph: %w", err)
+	}
+	out := &EntitlementGraph{}
+	if err := json.Unmarshal(data, out); err != nil {
+		return nil, fmt.Errorf("clone entitlement graph: %w", err)
+	}
+	// json leaves absent maps nil; reinit so the clone is immediately usable.
+	if out.Nodes == nil {
+		out.Nodes = map[int]Node{}
+	}
+	if out.EntitlementsToNodes == nil {
+		out.EntitlementsToNodes = map[string]int{}
+	}
+	if out.SourcesToDestinations == nil {
+		out.SourcesToDestinations = map[int]map[int]int{}
+	}
+	if out.DestinationsToSources == nil {
+		out.DestinationsToSources = map[int]map[int]int{}
+	}
+	if out.Edges == nil {
+		out.Edges = map[int]Edge{}
+	}
+	return out, nil
+}
 
 // ErrIncrementalFallback means a new edge closed a cycle; the caller should
 // re-run a full expansion, which handles cycles correctly.
 var ErrIncrementalFallback = errors.New("incremental expansion: change introduces a cycle, fall back to full expansion")
+
+// ErrIncrementalRevocationDecline means the change is revocation-shaped (an
+// existing edge's spec narrowed — shallow-ified, filter tightened, or a source
+// dropped), which incremental expansion cannot apply without removing grants.
+// The caller declines to full expansion. This is the named hook a future
+// tombstone/deletion stage flips from "decline" to "apply deletions".
+var ErrIncrementalRevocationDecline = errors.New("incremental expansion: revocation-shaped change, fall back to full expansion")
 
 // NewEdge is one edge to fold in: members of Source also get Destination.
 type NewEdge struct {
@@ -46,14 +103,21 @@ func NewIncrementalExpander(store ExpanderStore, graph *EntitlementGraph) *Incre
 // ExpandChanges recomputes grants for only the subgraph affected by a set of
 // changes. Both kinds seed the walk: newEdges (new expandable relationships,
 // added to the graph here) via their destinations, and changedEntitlementIDs
-// (entitlements whose membership changed, e.g. a new group member) via their
-// own node. The second kind is essential — a new member adds no edge, so
-// seeding only from newEdges would silently drop it.
+// (entitlements whose membership changed) via their own node. The second kind
+// is essential — a membership change adds no edge, so seeding only from
+// newEdges would silently drop it.
+//
+// changedEntitlementIDs is direction-neutral: it names entitlements whose
+// membership changed in EITHER direction (added or removed). Whether a removal
+// is actually applied is a WRITE-behavior concern, not a seed concern — today
+// this method only adds grants (never removes), so callers decline
+// revocation-shaped changes to full expansion. When a future stage learns to
+// apply deletions, removed-membership entitlements flow through this same
+// parameter with no signature change.
 //
 // The walk reads current membership from the store, so changed members
 // (already merged in) propagate without being passed in. Returns
-// ErrIncrementalFallback if a new edge closes a cycle. Additions only: the
-// caller must fall back to full expansion for change sets with revocations.
+// ErrIncrementalFallback if a new edge closes a cycle.
 func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []NewEdge, changedEntitlementIDs []string) (*IncrementalResult, error) {
 	if len(newEdges) == 0 && len(changedEntitlementIDs) == 0 {
 		return &IncrementalResult{}, nil
@@ -98,6 +162,9 @@ func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []New
 
 	result := &IncrementalResult{}
 	for _, nodeID := range order {
+		if err := ctx.Err(); err != nil {
+			return nil, err // cancelled / run-duration exceeded
+		}
 		if _, ok := affected[nodeID]; !ok {
 			continue
 		}
@@ -152,19 +219,71 @@ func (ie *IncrementalExpander) recomputeDestination(ctx context.Context, nodeID 
 		return 0, err
 	}
 	if destEnt == nil {
+		// Dangling ref: skip-with-warn, matching the full evaluator (don't
+		// error into a fallback).
+		ctxzap.Extract(ctx).Warn("incremental expansion: destination entitlement not in store; skipping",
+			zap.String("entitlement_id", destEntitlementID))
 		return 0, nil
 	}
 
-	existing, err := ie.principalKeySet(ctx, destEntitlementID, nil)
-	if err != nil {
-		return 0, err
+	// 1. Accumulate, per principal, the union of sources contributed by all
+	// incoming edges. Streaming reads keep only one source page live, but the
+	// contribution map holds one entry per distinct principal across ALL
+	// sources feeding this destination — the same worst-case fan-in footprint
+	// the full expander's per-destination reduce carries.
+	contrib := make(map[string]*principalContribution)
+	for sourceNodeID, edgeID := range ie.graph.DestinationsToSources[nodeID] {
+		edge, ok := ie.graph.Edges[edgeID]
+		if !ok {
+			continue
+		}
+		sourceNode, ok := ie.graph.Nodes[sourceNodeID]
+		if !ok {
+			continue
+		}
+		for _, sourceEntitlementID := range sourceNode.EntitlementIDs {
+			// The store's read path requires a full entitlement record (with
+			// resource refs), not a bare id — fetch it. A dangling ref (source
+			// not in the store) is skipped-with-warn, matching the full evaluator.
+			sourceEnt, err := ie.getEntitlement(ctx, sourceEntitlementID)
+			if err != nil {
+				return 0, err
+			}
+			if sourceEnt == nil {
+				ctxzap.Extract(ctx).Warn("incremental expansion: source entitlement not in store; skipping",
+					zap.String("entitlement_id", sourceEntitlementID))
+				continue
+			}
+			perGrantErr := ie.forEachGrant(ctx, sourceEnt, edge.ResourceTypeIDs, func(sourceGrant *v2.Grant) error {
+				// Directness is relative to the source entitlement (matches the
+				// full expander): a plain direct grant or one whose sources map
+				// records this entitlement counts as direct.
+				isSourceDirect := isGrantDirectOnEntitlement(sourceGrant, sourceEntitlementID)
+				if edge.IsShallow && !isSourceDirect {
+					return nil
+				}
+				principal := sourceGrant.GetPrincipal()
+				pid := principal.GetId()
+				key := pid.GetResourceType() + "\x00" + pid.GetResource()
+				pc := contrib[key]
+				if pc == nil {
+					pc = &principalContribution{principal: principal}
+					contrib[key] = pc
+				}
+				pc.addSource(sourceEntitlementID, isSourceDirect)
+				return nil
+			})
+			if perGrantErr != nil {
+				return 0, perGrantErr
+			}
+		}
+	}
+	if len(contrib) == 0 {
+		return 0, nil
 	}
 
-	// added dedups principals across source edges; keys only, lives for the destination.
-	added := make(map[string]struct{})
 	buf := make([]*v2.Grant, 0, incrementalFlushChunk)
 	written := 0
-
 	flush := func() error {
 		if len(buf) == 0 {
 			return nil
@@ -177,43 +296,48 @@ func (ie *IncrementalExpander) recomputeDestination(ctx context.Context, nodeID 
 		return nil
 	}
 
-	for sourceNodeID, edgeID := range ie.graph.DestinationsToSources[nodeID] {
-		edge, ok := ie.graph.Edges[edgeID]
-		if !ok {
-			continue
+	// 2. Merge contributions into the destination's existing grants (union the
+	// sources map, upgrade direct-ness), streaming one page at a time. Only a
+	// grant that actually changed is rewritten; matched principals leave contrib.
+	mergeErr := ie.forEachGrant(ctx, destEnt, nil, func(g *v2.Grant) error {
+		pid := g.GetPrincipal().GetId()
+		key := pid.GetResourceType() + "\x00" + pid.GetResource()
+		pc := contrib[key]
+		if pc == nil {
+			return nil
 		}
-		sourceNode, ok := ie.graph.Nodes[sourceNodeID]
-		if !ok {
-			continue
+		delete(contrib, key)
+		updated := mergeContributionIntoExistingGrant(g, destEntitlementID, pc.sources)
+		if updated == nil {
+			return nil // already had these sources — no write
 		}
-		for _, sourceEntitlementID := range sourceNode.EntitlementIDs {
-			// Stream the source a page at a time (never materialize a whale).
-			perGrantErr := ie.forEachGrant(ctx, sourceEntitlementID, edge.ResourceTypeIDs, func(sourceGrant *v2.Grant) error {
-				isSourceDirect := isDirectGrant(sourceGrant)
-				if edge.IsShallow && !isSourceDirect {
-					return nil
-				}
-				pid := sourceGrant.GetPrincipal().GetId()
-				key := pid.GetResourceType() + "\x00" + pid.GetResource()
-				if _, ok := existing[key]; ok {
-					return nil
-				}
-				if _, ok := added[key]; ok {
-					return nil
-				}
-				grant, err := newExpandedGrant(destEnt, sourceGrant.GetPrincipal(), sourceEntitlementID, isSourceDirect)
-				if err != nil {
-					return fmt.Errorf("incremental expansion: build grant on %s: %w", destEntitlementID, err)
-				}
-				buf = append(buf, grant)
-				added[key] = struct{}{}
-				if len(buf) >= incrementalFlushChunk {
-					return flush()
-				}
-				return nil
-			})
-			if perGrantErr != nil {
-				return 0, perGrantErr
+		buf = append(buf, updated)
+		if len(buf) >= incrementalFlushChunk {
+			return flush()
+		}
+		return nil
+	})
+	if mergeErr != nil {
+		return 0, mergeErr
+	}
+
+	// 3. Whatever is left in contrib are brand-new principals. Sort for
+	// deterministic (byte-stable) output.
+	newKeys := make([]string, 0, len(contrib))
+	for key := range contrib {
+		newKeys = append(newKeys, key)
+	}
+	sort.Strings(newKeys)
+	for _, key := range newKeys {
+		pc := contrib[key]
+		grant, err := newExpandedGrantWithSources(destEnt, pc.principal, pc.sources)
+		if err != nil {
+			return 0, fmt.Errorf("incremental expansion: build grant on %s: %w", destEntitlementID, err)
+		}
+		buf = append(buf, grant)
+		if len(buf) >= incrementalFlushChunk {
+			if err := flush(); err != nil {
+				return 0, err
 			}
 		}
 	}
@@ -224,11 +348,37 @@ func (ie *IncrementalExpander) recomputeDestination(ctx context.Context, nodeID 
 	return written, nil
 }
 
+// principalContribution accumulates the source entitlements contributing one
+// principal to a destination. sources is a small slice (fan-in is tiny), deduped
+// by entitlement id with direct-ness upgraded to true if any contribution is direct.
+type principalContribution struct {
+	principal *v2.Resource
+	sources   batonGrant.Sources
+}
+
+func (pc *principalContribution) addSource(entitlementID string, isDirect bool) {
+	for i := range pc.sources {
+		if pc.sources[i].EntitlementID == entitlementID {
+			if isDirect && !pc.sources[i].IsDirect {
+				pc.sources[i].IsDirect = true
+			}
+			return
+		}
+	}
+	pc.sources = append(pc.sources, batonGrant.Source{EntitlementID: entitlementID, IsDirect: isDirect})
+}
+
+// getEntitlement fetches an entitlement, returning (nil, nil) for a dangling
+// ref (NotFound) so callers skip it — matching the full evaluator, which treats
+// NotFound as skip rather than a hard error.
 func (ie *IncrementalExpander) getEntitlement(ctx context.Context, entitlementID string) (*v2.Entitlement, error) {
 	resp, err := ie.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: entitlementID,
 	}.Build())
 	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("incremental expansion: get entitlement %s: %w", entitlementID, err)
 	}
 	if resp == nil {
@@ -238,17 +388,19 @@ func (ie *IncrementalExpander) getEntitlement(ctx context.Context, entitlementID
 }
 
 // forEachGrant streams an entitlement's grants (filtered by resourceTypeIDs)
-// one page at a time, invoking fn per grant — never materializing the whole set.
-func (ie *IncrementalExpander) forEachGrant(ctx context.Context, entitlementID string, resourceTypeIDs []string, fn func(*v2.Grant) error) error {
+// one page at a time, invoking fn per grant — never materializing the whole
+// set. entitlement must be a full record (with resource refs); the store's read
+// path rejects bare-id entitlements.
+func (ie *IncrementalExpander) forEachGrant(ctx context.Context, entitlement *v2.Entitlement, resourceTypeIDs []string, fn func(*v2.Grant) error) error {
 	pageToken := ""
 	for {
 		resp, err := ie.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-			Entitlement:              v2.Entitlement_builder{Id: entitlementID}.Build(),
+			Entitlement:              entitlement,
 			PrincipalResourceTypeIds: resourceTypeIDs,
 			PageToken:                pageToken,
 		}.Build())
 		if err != nil {
-			return fmt.Errorf("incremental expansion: list grants for %s: %w", entitlementID, err)
+			return fmt.Errorf("incremental expansion: list grants for %s: %w", entitlement.GetId(), err)
 		}
 		for _, g := range resp.GetList() {
 			if err := fn(g); err != nil {
@@ -260,46 +412,4 @@ func (ie *IncrementalExpander) forEachGrant(ctx context.Context, entitlementID s
 			return nil
 		}
 	}
-}
-
-// principalKeySet returns the principal keys already granted on an entitlement
-// (the diff baseline), using the keys-only fast path when available and
-// streaming either way — never materializing the grants.
-func (ie *IncrementalExpander) principalKeySet(ctx context.Context, entitlementID string, resourceTypeIDs []string) (map[string]struct{}, error) {
-	set := make(map[string]struct{})
-
-	if lister, ok := ie.store.(entitlementGrantPrincipalKeyLister); ok {
-		ent := v2.Entitlement_builder{Id: entitlementID}.Build()
-		pageToken := ""
-		for {
-			keys, next, err := lister.ListGrantPrincipalKeysForEntitlement(ctx, ent, pageToken, 0)
-			if err != nil {
-				return nil, fmt.Errorf("incremental expansion: list principal keys for %s: %w", entitlementID, err)
-			}
-			for _, k := range keys {
-				set[k] = struct{}{}
-			}
-			if next == "" {
-				return set, nil
-			}
-			pageToken = next
-		}
-	}
-
-	// Fallback: stream grants and extract keys, holding one page at a time.
-	err := ie.forEachGrant(ctx, entitlementID, resourceTypeIDs, func(g *v2.Grant) error {
-		pid := g.GetPrincipal().GetId()
-		set[pid.GetResourceType()+"\x00"+pid.GetResource()] = struct{}{}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return set, nil
-}
-
-// isDirectGrant reports whether a grant is a direct membership (no expansion
-// sources) rather than one produced by a prior expansion.
-func isDirectGrant(g *v2.Grant) bool {
-	return len(g.GetSources().GetSources()) == 0
 }
