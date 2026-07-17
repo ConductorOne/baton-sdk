@@ -206,7 +206,7 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 	return stats, nil
 }
 
-func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *pebble.DB, bucket bucketSpec) (FoldStats, error) {
+func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *enginepkg.MergeDB, bucket bucketSpec) (FoldStats, error) {
 	var stats FoldStats
 	lower, upper := bucket.syncRange()
 	iter, err := src.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
@@ -216,18 +216,18 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *peb
 	defer func() { _ = iter.Close() }()
 
 	destDB := dest.DB()
-	batch := destDB.NewBatch()
+	batch := destDB.NewFoldBatch()
 	defer func() { _ = batch.Close() }()
 	pending := 0
 	var scratch rawIndexScratch
 	// The closures see batch by reference, so flush's reassignment
 	// routes subsequent index writes to the fresh batch.
-	setIndexKey := func(key []byte) error { return batch.Set(key, nil, nil) }
+	setIndexKey := func(key []byte) error { return batch.Set(key, nil) }
 	// Each deleted index key is an incumbent's stale index entry: dead
 	// weight in the spliced base frames, counted toward FoldStats.
 	delIndexKey := func(key []byte) error {
 		stats.DeadBytes += int64(len(key))
-		return batch.Delete(key, nil)
+		return batch.Delete(key)
 	}
 	flush := func() error {
 		if batch.Empty() {
@@ -239,7 +239,7 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *peb
 			return err
 		}
 		_ = batch.Close()
-		batch = destDB.NewBatch()
+		batch = destDB.NewFoldBatch()
 		pending = 0
 		return nil
 	}
@@ -289,7 +289,7 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *peb
 		default:
 			return stats, fmt.Errorf("get incumbent: %w", getErr)
 		}
-		if err := batch.Set(key, value, nil); err != nil {
+		if err := batch.Set(key, value); err != nil {
 			return stats, err
 		}
 		if bucket.id == runBucketGrants {

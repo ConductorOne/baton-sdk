@@ -23,7 +23,7 @@ func (e *Engine) PutAssetRecord(ctx context.Context, r *v3.AssetRecord) error {
 		if err != nil {
 			return err
 		}
-		return e.db.Set(encodeAssetKey(r.GetExternalId()), val, writeOpts(e.opts.durability))
+		return e.db.MetaSet(encodeAssetKey(r.GetExternalId()), val, writeOpts(e.opts.durability))
 	})
 }
 
@@ -42,7 +42,7 @@ func (e *Engine) GetAssetRecord(ctx context.Context, externalID string) (*v3.Ass
 
 func (e *Engine) DeleteAssetRecord(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
-		return e.db.Delete(encodeAssetKey(externalID), writeOpts(e.opts.durability))
+		return e.db.MetaDelete(encodeAssetKey(externalID), writeOpts(e.opts.durability))
 	})
 }
 

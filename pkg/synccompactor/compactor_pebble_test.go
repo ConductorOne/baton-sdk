@@ -1265,7 +1265,7 @@ func deletePebbleStatsSidecar(t testing.TB, ctx context.Context, path string) {
 	require.NoError(t, iter.Error())
 	require.NoError(t, iter.Close())
 	for _, key := range keys {
-		require.NoError(t, eng.DB().Delete(key, nil))
+		require.NoError(t, eng.DB().UnsafeForTesting().Delete(key, nil))
 	}
 	require.NoError(t, w.Close(ctx))
 }

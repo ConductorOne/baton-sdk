@@ -3,7 +3,6 @@ package codec
 import (
 	"sync"
 
-	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -32,14 +31,12 @@ type Codec interface {
 	// as the registered codec; mismatches return ErrCodecTypeMismatch.
 	DecodeValue(b []byte, dst proto.Message) error
 
-	// WriteIndexes appends all secondary-index entries for msg to
-	// batch. Called inside a pebble.Batch alongside the primary write.
-	WriteIndexes(batch *pebble.Batch, msg proto.Message) error
-
-	// DeleteIndexes appends index-entry deletions for msg to batch.
-	// Called during overwrite (after reading the previous value) and
-	// during explicit Delete. Same atomicity as WriteIndexes.
-	DeleteIndexes(batch *pebble.Batch, msg proto.Message) error
+	// NOTE: the interface once carried WriteIndexes/DeleteIndexes
+	// methods taking a raw pebble batch. They were vestigial (the only
+	// implementer returned ErrReflectMissingTable; no caller existed)
+	// and were removed when the write choke point (internal/rawdb)
+	// made raw batches unmintable outside rawdb — index staging is a
+	// rawdb family obligation now, not a codec concern.
 }
 
 // registry holds the codecs registered by generated init() functions.

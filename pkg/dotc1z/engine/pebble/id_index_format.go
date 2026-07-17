@@ -87,7 +87,7 @@ func (e *Engine) readIDIndexFormat() (uint32, error) {
 func (e *Engine) writeIDIndexFormat(version uint32) error {
 	var buf [4]byte
 	binary.BigEndian.PutUint32(buf[:], version)
-	return e.db.Set(encodeIDIndexFormatKey(), buf[:], pebble.Sync)
+	return e.db.MetaSet(encodeIDIndexFormatKey(), buf[:], pebble.Sync)
 }
 
 func (e *Engine) verifyOrStampIDIndexFormat(ctx context.Context) error {

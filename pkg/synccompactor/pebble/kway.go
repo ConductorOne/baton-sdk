@@ -752,7 +752,7 @@ func materializeSourceBucketToPebble(
 	}
 	primarySuccess = true
 	defer func() { _ = os.Remove(primaryPath) }()
-	if err := dest.DB().Ingest(ctx, []string{primaryPath}); err != nil {
+	if err := dest.DB().IngestSSTs(ctx, []string{primaryPath}); err != nil {
 		return fmt.Errorf("ingest direct primary %s: %w", bucket.name, err)
 	}
 	dest.InvalidateBareIDLookups()
@@ -1260,7 +1260,7 @@ func materializeRunFileBucket(ctx context.Context, dest *enginepkg.Engine, tmpDi
 	}
 	primarySuccess = true
 	defer func() { _ = os.Remove(primaryPath) }()
-	if err := dest.DB().Ingest(ctx, []string{primaryPath}); err != nil {
+	if err := dest.DB().IngestSSTs(ctx, []string{primaryPath}); err != nil {
 		return fmt.Errorf("ingest primary %s: %w", bucket.name, err)
 	}
 	dest.InvalidateBareIDLookups()
@@ -1381,7 +1381,7 @@ func (w *indexRunWriter) closeSortAndIngest(ctx context.Context, dest *enginepkg
 		return err
 	}
 	defer func() { _ = os.Remove(sstPath) }()
-	if err := dest.DB().Ingest(ctx, []string{sstPath}); err != nil {
+	if err := dest.DB().IngestSSTs(ctx, []string{sstPath}); err != nil {
 		return fmt.Errorf("ingest index %s: %w", w.name, err)
 	}
 	dest.InvalidateBareIDLookups()

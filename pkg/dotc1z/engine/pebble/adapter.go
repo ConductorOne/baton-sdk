@@ -378,23 +378,40 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	if err := e.PutSyncRunRecord(ctx, updated); err != nil {
 		return err
 	}
+	if e.test.endSyncPreFlushHook != nil {
+		e.test.endSyncPreFlushHook()
+	}
 	// Populate the stats sidecar BEFORE the durability flush. Stats
-	// is engine-meta keyspace; the EndFreshSync flush below covers
-	// the WAL fsync for both the sync_run record and the stats key.
-	// Failures here are non-fatal — Stats() falls back to legacy
-	// iteration on a missing sidecar, and the on-Open migration
-	// framework will backfill next time the file opens. We log a
-	// warning so the failure is visible in production telemetry but
-	// don't fail the sync end on stats-sidecar trouble.
+	// is engine-meta keyspace, committed pebble.Sync in
+	// writeSyncStats; the EndFreshSync flush below then bounds reopen
+	// WAL-replay cost for everything. Failures here are non-fatal — Stats() falls back to legacy
+	// O(N) iteration on a missing sidecar. NOTE: there is currently
+	// no on-Open backfill (the indexMigrations registry is
+	// intentionally empty), so a missing sidecar stays missing and
+	// every Stats() call pays the iteration cost. We log a warning so
+	// the failure is visible in production telemetry but don't fail
+	// the sync end on stats-sidecar trouble.
 	if err := e.PersistSyncStats(ctx, existing.GetSyncId()); err != nil {
-		ctxzap.Extract(ctx).Warn("pebble: persist sync stats sidecar failed; Stats() will fall back to O(N) iteration until the next Open backfills it",
+		ctxzap.Extract(ctx).Warn("pebble: persist sync stats sidecar failed; Stats() will fall back to O(N) iteration for this file",
 			zap.String("sync_id", existing.GetSyncId()),
 			zap.Error(err),
 		)
 	}
-	// Single flush + WAL fsync at sync end. This is the durability
-	// boundary — counterpart to MarkFreshSync at StartNewSync. After
-	// this returns, all writes from the sync are on disk.
+	// Single flush + WAL fsync at sync end. This is the counterpart to
+	// MarkFreshSync at StartNewSync; after it returns all of the sync's
+	// writes are SST-durable and the WAL is fsynced. Note the ordering
+	// above is CRASH-SAFE even though the pages were NoSync: every
+	// pebble.Sync commit in the finalize sequence (marker clears, the
+	// ended_at stamp, the stats key) rides pebble's sequential WAL, so
+	// each fsync also hardens every earlier NoSync page commit — a
+	// crash image can hold the finished verdict only if it also holds
+	// the pages. Pinned by TestEndSyncStampDurabilityCarriesPages
+	// (isolated: the stamp is the ONLY Sync between the pages and the
+	// crash cut) and TestEndSyncStampWindowImageComplete (the full
+	// default workload at the same cut). This flush's job is bounding
+	// reopen WAL-replay cost and hardening the NoSync case
+	// (WithDurability(DurabilityNoSync)), where the stamp itself was
+	// not synced.
 	return e.EndFreshSync(ctx)
 }
 

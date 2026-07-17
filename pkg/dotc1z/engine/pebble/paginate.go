@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // DefaultPageSize matches the SQLite c1file's maxPageSize (10000).
@@ -98,7 +99,7 @@ func rangeAfter(prefix, cursor []byte) ([]byte, []byte, error) {
 // starting strictly after the last returned row.
 func iteratePrimaryPageWithKey[T proto.Message](
 	ctx context.Context,
-	db *pebble.DB,
+	db *rawdb.DB,
 	prefix, cursor []byte,
 	limit int,
 	newT func() T,
@@ -148,7 +149,7 @@ func iteratePrimaryPageWithKey[T proto.Message](
 
 func iterateGrantPrimaryPage(
 	ctx context.Context,
-	db *pebble.DB,
+	db *rawdb.DB,
 	prefix, cursor []byte,
 	limit int,
 ) ([]*v3.GrantRecord, string, error) {
@@ -195,7 +196,7 @@ func iterateGrantPrimaryPage(
 	return out, nextCursor, nil
 }
 
-func getGrantByIdentity(ctx context.Context, db *pebble.DB, id grantIdentity) (*v3.GrantRecord, error) {
+func getGrantByIdentity(ctx context.Context, db *rawdb.DB, id grantIdentity) (*v3.GrantRecord, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

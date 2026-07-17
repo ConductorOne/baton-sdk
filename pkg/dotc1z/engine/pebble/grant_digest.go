@@ -13,6 +13,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // Grant instantiation of the digest core (digest.go): the per-
@@ -503,7 +504,7 @@ func (e *Engine) IterateGrantsByEntitlementBucket(ctx context.Context, id entitl
 func (e *Engine) DropAllGrantDigests(ctx context.Context) error {
 	return e.withWrite(func() error {
 		e.grantDigestsPresent.Store(false)
-		return e.db.DeleteRange(DigestLowerBound(), DigestUpperBound(), writeOpts(e.opts.durability))
+		return e.db.DropKeyRange(DigestLowerBound(), DigestUpperBound(), writeOpts(e.opts.durability))
 	})
 }
 
@@ -521,10 +522,10 @@ func (e *Engine) DropAllGrantDigestState(ctx context.Context) error {
 	return e.withWrite(func() error {
 		e.grantDigestsPresent.Store(false)
 		opts := writeOpts(e.opts.durability)
-		if err := e.db.DeleteRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
+		if err := e.db.DropKeyRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
 			return err
 		}
-		return e.db.DeleteRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), opts)
+		return e.db.DropKeyRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), opts)
 	})
 }
 
@@ -543,11 +544,27 @@ func (e *Engine) DropAllGrantDigestState(ctx context.Context) error {
 // millions of grants) would bloat the LSM for no reason. The flag is
 // true only when digests actually exist: probed once at Open, set by
 // the seal build, cleared by ResetForNewSync and the Drop* paths.
-func (e *Engine) stageGrantDigestInvalidation(batch *pebble.Batch, id entitlementIdentity) error {
+// stageGrantDigestInvalidationFromPrimaryKey is the KEY-DERIVED form
+// wired into rawdb's typed record ops (RecordDerivers): the partition
+// is the entitlement region of the grant primary key, a plain
+// sub-slice (see splitGrantPrimaryKey) that is byte-identical to
+// digestPartitionForEntitlement of the decoded identity — the key IS
+// the identity encoding. Same armed gate as the identity form.
+func (e *Engine) stageGrantDigestInvalidationFromPrimaryKey(st rawdb.Stager, primaryKey []byte) error {
 	if !e.grantDigestsPresent.Load() {
 		return nil
 	}
-	partition := digestPartitionForEntitlement(id)
+	sep4, ok := splitGrantPrimaryKey(primaryKey)
+	if !ok {
+		// Fail closed: a record that reached a typed op already carried
+		// a well-formed identity key; swallowing would leave a
+		// stale-but-present digest (violates present-means-exact).
+		return fmt.Errorf("digest invalidation: grant key %x did not decode as a 6-segment identity", primaryKey)
+	}
+	return stageGrantDigestInvalidationForPartition(st, string(primaryKey[grantPrimaryKeyPrefixLen:sep4]))
+}
+
+func stageGrantDigestInvalidationForPartition(batch rawdb.Stager, partition string) error {
 	if err := dropPartitionDigest(batch, grantDigestSpec, partition); err != nil {
 		return err
 	}
@@ -555,11 +572,11 @@ func (e *Engine) stageGrantDigestInvalidation(batch *pebble.Batch, id entitlemen
 	// one partition's digest is invalidated the aggregate is stale too,
 	// so it must drop alongside it rather than linger looking present
 	// (present-means-exact — digest.go).
-	if err := batch.Delete(globalGrantDigestNodeKey(), nil); err != nil {
+	if err := batch.Delete(globalGrantDigestNodeKey()); err != nil {
 		return err
 	}
 	lo := encodeGrantByEntPrincHashEntPrefix(partition)
-	return batch.DeleteRange(lo, upperBoundOf(lo), nil)
+	return batch.DeleteRange(lo, upperBoundOf(lo))
 }
 
 // probeGrantDigestsPresent initializes the digests-present flag at

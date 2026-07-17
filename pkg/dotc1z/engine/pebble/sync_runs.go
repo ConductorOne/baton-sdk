@@ -38,7 +38,7 @@ func (e *Engine) PutSyncRunRecord(ctx context.Context, r *v3.SyncRunRecord) erro
 		if err != nil {
 			return err
 		}
-		return e.db.Set(encodeSyncRunKey(), val, writeOpts(e.opts.durability))
+		return e.db.MetaSet(encodeSyncRunKey(), val, writeOpts(e.opts.durability))
 	})
 }
 
@@ -92,7 +92,7 @@ func (e *Engine) DeleteSyncRunRecord(ctx context.Context, syncID string) error {
 		if stored.GetSyncId() != syncID {
 			return nil
 		}
-		return e.db.Delete(encodeSyncRunKey(), writeOpts(e.opts.durability))
+		return e.db.MetaDelete(encodeSyncRunKey(), writeOpts(e.opts.durability))
 	})
 }
 

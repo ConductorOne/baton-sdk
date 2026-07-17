@@ -11,6 +11,30 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
+)
+
+// FoldBatch and MergeDB are exported aliases for the choke point's
+// fold-exempt batch and the narrowed compactor handle (internal/
+// rawdb). The synccompactor/pebble package — the choke point's one
+// sanctioned external client, via Engine.DB() — needs to NAME these
+// types in struct fields and signatures, which the internal-package
+// import fence forbids; an alias is referable without the import.
+//
+// MergeDB (= rawdb.MergeView) carries reads, LSM stats, the bulk
+// range/ingest ops, and the fold-exempt batch — and nothing else:
+// typed record staging (NewRecordBatch) and the session/meta/digest
+// write families are not on it, so the documented DB() exemption
+// cannot quietly grow into a second engine write path that bypasses
+// the lifecycle barrier. It is deliberately a CONCRETE struct, not an
+// interface over *rawdb.DB — an interface's dynamic type would let a
+// caller recover the omitted write families with a structural type
+// assertion (review finding, delta round). UnsafeForTesting stays
+// reachable for test fixtures; its testing.Testing() runtime gate
+// makes it inert in production.
+type (
+	FoldBatch = rawdb.FoldBatch
+	MergeDB   = rawdb.MergeView
 )
 
 // engineAccessor is implemented by *Adapter and by pkg/dotc1z's Pebble

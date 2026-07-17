@@ -111,7 +111,7 @@ func cloneSync(
 			Start: []byte{versionV3, typeCounter},
 			End:   upperBoundOf([]byte{versionV3, typeSession}),
 		}
-		if err := dest.db.Excise(ctx, span); err != nil {
+		if err := dest.db.ExciseRange(ctx, span); err != nil {
 			return fmt.Errorf("excise [%x, %x): %w", span.Start, span.End, err)
 		}
 		return nil

@@ -31,7 +31,7 @@ func TestGrantReadArenaReconcileAbsent(t *testing.T) {
 	}.Build()
 	val, err := marshalRecord(r)
 	require.NoError(t, err)
-	require.NoError(t, e.db.Set(encodeGrantIdentityKey(grantIdentity{
+	require.NoError(t, e.db.UnsafeForTesting().Set(encodeGrantIdentityKey(grantIdentity{
 		entitlement:     entitlementIdentityFromParts("app", "github", "ent-A"),
 		principalTypeID: "user",
 		principalID:     "alice",

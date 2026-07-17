@@ -90,8 +90,8 @@ func TestSyncStatsSidecarBackfillOnOpen(t *testing.T) {
 	require.NoErrorf(t, e.PersistSyncStats(ctx, syncID), "PersistSyncStats")
 	// Surgically delete the sidecar and the migration's applied-version
 	// stamp so the next Open's migrator re-runs.
-	require.NoError(t, e.db.Delete(encodeSyncStatsKey(), nil))
-	require.NoError(t, e.db.Delete(encodeIndexAppliedKey("sync_stats_sidecar"), nil))
+	require.NoError(t, e.db.UnsafeForTesting().Delete(encodeSyncStatsKey(), nil))
+	require.NoError(t, e.db.UnsafeForTesting().Delete(encodeIndexAppliedKey("sync_stats_sidecar"), nil))
 	require.NoErrorf(t, e.Close(), "Close")
 
 	// Re-open. The migration framework should backfill the sidecar.

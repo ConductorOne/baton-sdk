@@ -85,7 +85,7 @@ func (e *Engine) verifyOrStampKeyspaceVersion(ctx context.Context) error {
 func (e *Engine) stampKeyspaceVersion() error {
 	var buf [4]byte
 	binary.BigEndian.PutUint32(buf[:], keyspaceVersion)
-	return e.db.Set(encodeKeyspaceVersionKey(), buf[:], pebble.Sync)
+	return e.db.MetaSet(encodeKeyspaceVersionKey(), buf[:], pebble.Sync)
 }
 
 // isKeyspaceEmpty reports whether the DB holds any v3 key at all (data,

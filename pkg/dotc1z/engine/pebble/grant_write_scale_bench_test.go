@@ -95,7 +95,7 @@ func benchmarkGrantWriteScale(b *testing.B, putUnique, grantIndex bool) {
 				require.NoError(b, e.PutGrantRecords(ctx, recs...))
 			}
 		}
-		require.NoError(b, e.db.Flush())
+		require.NoError(b, e.db.FlushMemtables())
 
 		b.StopTimer()
 		require.NoError(b, e.Close())

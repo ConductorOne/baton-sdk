@@ -11,6 +11,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // Sync-stats sidecar. Populated by EndFreshSync (one full pass
@@ -26,8 +27,10 @@ import (
 //
 // Older c1z files (or files written by a pre-sidecar SDK) will be
 // missing this key. Stats() falls back to the legacy iterate-and-
-// count path in that case, and the on-Open migration framework
-// backfills the sidecar on writable opens so the next call is fast.
+// count path in that case. There is currently no on-Open backfill —
+// the indexMigrations registry is intentionally empty (see
+// TestSyncStatsSidecarBackfillOnOpen's skip note) — so a missing
+// sidecar stays missing until a migration is registered.
 
 // encodeSyncStatsKey returns the engine-meta key for the single
 // sync's SyncStatsRecord. The file holds one sync, so this is a fixed
@@ -91,15 +94,16 @@ func (e *Engine) writeSyncStats(ctx context.Context, rec *v3.SyncStatsRecord) er
 	// Flush→Checkpoint window (a WAL-only record landing mid-window would
 	// be truncated out of the saved snapshot).
 	return e.withWriteAllowSealed(func() error {
-		return e.db.Set(encodeSyncStatsKey(), val, pebble.Sync)
+		return e.db.MetaSet(encodeSyncStatsKey(), val, pebble.Sync)
 	})
 }
 
 // computeSyncStats does one full pass over the per-record-type
 // keyspaces for syncID and builds a SyncStatsRecord. This is the
-// O(N) work the sidecar is designed to avoid on read — only the
-// EndFreshSync write path and the on-Open migration backfill
-// invoke it.
+// O(N) work the sidecar is designed to avoid on read — only
+// PersistSyncStats (EndSync's sidecar write, when no stashed record
+// exists) invokes it. There is no on-Open backfill caller: the
+// indexMigrations registry is intentionally empty.
 //
 // This intentionally scans raw Pebble key/value ranges instead of using
 // Iterate*BySync. Counting keys and shallow-scanning only the grant grouping
@@ -314,7 +318,7 @@ func (e *Engine) PersistComputedSyncStats(ctx context.Context, syncID string, re
 	return e.writeSyncStats(ctx, rec)
 }
 
-func countKeyRange(ctx context.Context, db *pebble.DB, lower []byte, upper []byte, visit func(key []byte, value []byte) error) (int64, error) {
+func countKeyRange(ctx context.Context, db *rawdb.DB, lower []byte, upper []byte, visit func(key []byte, value []byte) error) (int64, error) {
 	iter, err := db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return 0, err

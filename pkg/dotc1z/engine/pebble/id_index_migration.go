@@ -95,7 +95,7 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 		{GrantByPrincipalResourceTypeLowerBound(), GrantByPrincipalResourceTypeUpperBound()},
 		{GrantByEntitlementResourceLowerBound(), GrantByEntitlementResourceUpperBound()},
 	} {
-		if err := e.db.DeleteRange(r[0], r[1], pebble.Sync); err != nil {
+		if err := e.db.DropKeyRange(r[0], r[1], pebble.Sync); err != nil {
 			return fmt.Errorf("id-index migration: delete dropped range: %w", err)
 		}
 	}
@@ -258,9 +258,9 @@ func finalizeMigrationSorter(ctx context.Context, fs vfs.FS, dir, name string, s
 
 func (e *Engine) replaceRangeWithSST(ctx context.Context, lower, upper []byte, path string) error {
 	if path == "" {
-		return e.db.DeleteRange(lower, upper, pebble.Sync)
+		return e.db.DropKeyRange(lower, upper, pebble.Sync)
 	}
-	_, err := e.db.IngestAndExcise(ctx, []string{path}, nil, nil, pebble.KeyRange{Start: lower, End: upper})
+	err := e.db.ReplaceRangeWithSSTs(ctx, []string{path}, pebble.KeyRange{Start: lower, End: upper})
 	return err
 }
 

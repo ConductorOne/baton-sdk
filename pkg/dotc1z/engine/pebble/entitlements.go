@@ -31,7 +31,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
-		priBatch := e.db.NewBatch()
+		priBatch := e.db.NewRecordBatch()
 		defer priBatch.Close()
 
 		fresh := e.IsFreshSync()
@@ -72,7 +72,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 			if err != nil {
 				return err
 			}
-			if err := priBatch.Set(key, val, nil); err != nil {
+			if err := priBatch.StageEntitlementPut(key, val); err != nil {
 				return err
 			}
 		}
@@ -120,9 +120,9 @@ func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string)
 			return err
 		}
 		key := encodeEntitlementIdentityKey(id)
-		batch := e.db.NewBatch()
+		batch := e.db.NewRecordBatch()
 		defer batch.Close()
-		if err := batch.Delete(key, nil); err != nil {
+		if err := batch.StageEntitlementDelete(key); err != nil {
 			return err
 		}
 		if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
