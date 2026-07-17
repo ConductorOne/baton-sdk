@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/cockroachdb/pebble/v2"
 
@@ -20,8 +21,9 @@ func (e *Engine) PutResourceRecord(ctx context.Context, r *v3.ResourceRecord) er
 	return e.PutResourceRecords(ctx, r)
 }
 
-// PutResourceRecords writes N resources in two pebble.Batches —
-// primary keys in one, by_parent index keys in the other. Mirrors
+// PutResourceRecords writes N resources through a single RecordBatch —
+// StageResourcePut derives the by_parent index obligations inside
+// rawdb, so primary and index land in one atomic commit. Mirrors
 // the PutGrantRecords pattern (RFC §3a Tier-B/C):
 //   - within-call dedup pre-pass keyed by (rt, res_id) drops earlier
 //     occurrences of repeated resources;
@@ -37,10 +39,8 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
-		priBatch := e.db.NewBatch()
-		defer priBatch.Close()
-		idxBatch := e.db.NewBatch()
-		defer idxBatch.Close()
+		batch := e.db.NewRecordBatch()
+		defer batch.Close()
 
 		fresh := e.IsFreshSync()
 		skipGet := e.takeFreshResourcesEmpty()
@@ -73,25 +73,29 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 			if err != nil {
 				return err
 			}
+			var oldVal []byte
+			var oldCloser io.Closer
 			if !skipGet {
-				oldVal, closer, getErr := e.db.Get(key)
+				got, closer, getErr := e.db.Get(key)
 				switch {
 				case getErr == nil:
-					if err := e.deleteResourceIndexesRaw(idxBatch, r.GetResourceTypeId(), r.GetResourceId(), oldVal); err != nil {
-						closer.Close()
-						return err
-					}
-					closer.Close()
+					// The prior VALUE is genuinely needed here (unlike
+					// grants): the by_parent cleanup key depends on the old
+					// parent ref, which only the old bytes carry.
+					oldVal, oldCloser = got, closer
 				case errors.Is(getErr, pebble.ErrNotFound):
 					// no prior — write unconditionally
 				default:
 					return fmt.Errorf("PutResourceRecords: get old: %w", getErr)
 				}
 			}
-			if err := priBatch.Set(key, val, nil); err != nil {
-				return err
+			// One typed op stages the row and its by_parent obligations
+			// (old entry cleanup from oldVal, new entry from val).
+			err = batch.StageResourcePut(key, val, oldVal, r.GetResourceTypeId(), r.GetResourceId())
+			if oldCloser != nil {
+				_ = oldCloser.Close()
 			}
-			if err := e.writeResourceIndexes(idxBatch, r); err != nil {
+			if err != nil {
 				return err
 			}
 		}
@@ -99,14 +103,10 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 		if fresh {
 			opts = pebble.NoSync
 		}
-		// One atomic commit: folding the index batch into the primary batch
-		// closes the durability gap where the primary commit landed but the
-		// index commit failed — a divergence that would persist in the saved
-		// artifact if the caller shipped it anyway.
-		if err := priBatch.Apply(idxBatch, nil); err != nil {
-			return err
-		}
-		return priBatch.Commit(opts)
+		// One atomic commit: rows and their index obligations ride the
+		// same batch, so a primary commit landing without its index
+		// entries is unexpressible.
+		return batch.Commit(opts)
 	})
 }
 
@@ -128,7 +128,7 @@ func (e *Engine) DeleteResourceRecord(ctx context.Context, resourceTypeID, resou
 	return e.withWrite(func() error {
 		key := encodeResourceKey(resourceTypeID, resourceID)
 
-		batch := e.db.NewBatch()
+		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 
 		oldVal, closer, err := e.db.Get(key)
@@ -138,28 +138,15 @@ func (e *Engine) DeleteResourceRecord(ctx context.Context, resourceTypeID, resou
 			}
 			return err
 		}
-		if err := e.deleteResourceIndexesRaw(batch, resourceTypeID, resourceID, oldVal); err != nil {
-			closer.Close()
-			return err
-		}
+		// The typed op stages the row's removal plus its by_parent
+		// cleanup derived from the prior value.
+		stageErr := batch.StageResourceDelete(key, oldVal, resourceTypeID, resourceID)
 		closer.Close()
-		if err := batch.Delete(key, nil); err != nil {
-			return err
+		if stageErr != nil {
+			return stageErr
 		}
 		return batch.Commit(writeOpts(e.opts.durability))
 	})
-}
-
-func (e *Engine) writeResourceIndexes(batch *pebble.Batch, r *v3.ResourceRecord) error {
-	parent := r.GetParent()
-	if parent == nil || parent.GetResourceId() == "" {
-		return nil
-	}
-	k := encodeResourceByParentIndexKey(
-		parent.GetResourceTypeId(), parent.GetResourceId(),
-		r.GetResourceTypeId(), r.GetResourceId(),
-	)
-	return batch.Set(k, nil, nil)
 }
 
 func (e *Engine) IterateResources(ctx context.Context, yield func(*v3.ResourceRecord) bool) error {

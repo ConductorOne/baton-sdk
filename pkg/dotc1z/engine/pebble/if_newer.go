@@ -38,14 +38,15 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
-		batch := e.db.NewBatch()
+		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 		// No inline hash-index or digest maintenance here: both are
 		// derived at seal time (the fused deferred pass). But IfNewer is
 		// the partial-sync path — it mutates a CLONED sealed file whose
-		// digests are built — so the index write/delete helpers below
-		// stage the touched entitlements' digest invalidation
-		// (stageGrantDigestInvalidation) whenever digests are present.
+		// digests are built — so StageGrantPutInline's derivers stage
+		// the touched entitlements' digest invalidation whenever
+		// digests are present (StageGrantDigestInvalidation deriver,
+		// records.go).
 		written := 0
 		for _, r := range records {
 			if r == nil {
@@ -56,6 +57,7 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 				return err
 			}
 			key := encodeGrantIdentityKey(id)
+			hadOld := false
 			oldVal, closer, getErr := e.db.Get(key)
 			switch {
 			case getErr == nil:
@@ -68,10 +70,7 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 					closer.Close()
 					continue
 				}
-				if err := e.deleteGrantIndexesRaw(batch, r.GetExternalId(), oldVal); err != nil {
-					closer.Close()
-					return err
-				}
+				hadOld = true
 				closer.Close()
 			case errors.Is(getErr, pebble.ErrNotFound):
 				// no existing record — write unconditionally
@@ -82,10 +81,10 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 			if err != nil {
 				return err
 			}
-			if err := batch.Set(key, val, nil); err != nil {
-				return err
-			}
-			if err := e.writeGrantIndexes(batch, r); err != nil {
+			// Inline regime: the typed op stages the row plus prior-row
+			// index cleanup, both index entries, and digest invalidation
+			// (this IS the partial-sync path the invalidation exists for).
+			if err := batch.StageGrantPutInline(key, val, hadOld, r.GetNeedsExpansion()); err != nil {
 				return err
 			}
 			written++
@@ -107,7 +106,7 @@ func (e *Engine) PutResourceRecordsIfNewer(ctx context.Context, records ...*v3.R
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
-		batch := e.db.NewBatch()
+		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 		written := 0
 		for _, r := range records {
@@ -127,11 +126,19 @@ func (e *Engine) PutResourceRecordsIfNewer(ctx context.Context, records ...*v3.R
 					closer.Close()
 					continue
 				}
-				if err := e.deleteResourceIndexesRaw(batch, r.GetResourceTypeId(), r.GetResourceId(), oldVal); err != nil {
+				val, err := marshalRecord(r)
+				if err != nil {
 					closer.Close()
 					return err
 				}
+				// Typed op consumes the prior value for by_parent cleanup.
+				err = batch.StageResourcePut(key, val, oldVal, r.GetResourceTypeId(), r.GetResourceId())
 				closer.Close()
+				if err != nil {
+					return err
+				}
+				written++
+				continue
 			case errors.Is(getErr, pebble.ErrNotFound):
 			default:
 				return fmt.Errorf("PutResourceRecordsIfNewer: get: %w", getErr)
@@ -140,10 +147,7 @@ func (e *Engine) PutResourceRecordsIfNewer(ctx context.Context, records ...*v3.R
 			if err != nil {
 				return err
 			}
-			if err := batch.Set(key, val, nil); err != nil {
-				return err
-			}
-			if err := e.writeResourceIndexes(batch, r); err != nil {
+			if err := batch.StageResourcePut(key, val, nil, r.GetResourceTypeId(), r.GetResourceId()); err != nil {
 				return err
 			}
 			written++
@@ -164,7 +168,7 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
-		batch := e.db.NewBatch()
+		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 		written := 0
 		for _, r := range records {
@@ -197,7 +201,7 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 			if err != nil {
 				return err
 			}
-			if err := batch.Set(key, val, nil); err != nil {
+			if err := batch.StageEntitlementPut(key, val); err != nil {
 				return err
 			}
 			written++
@@ -222,7 +226,7 @@ func (e *Engine) PutResourceTypeRecordsIfNewer(ctx context.Context, records ...*
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
-		batch := e.db.NewBatch()
+		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 		written := 0
 		for _, r := range records {
@@ -250,7 +254,7 @@ func (e *Engine) PutResourceTypeRecordsIfNewer(ctx context.Context, records ...*
 			if err != nil {
 				return err
 			}
-			if err := batch.Set(key, val, nil); err != nil {
+			if err := batch.StageResourceTypePut(key, val); err != nil {
 				return err
 			}
 			written++

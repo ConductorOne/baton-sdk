@@ -355,14 +355,14 @@ func overlayRestartBucket(ctx context.Context, dest *enginepkg.Engine, bucket bu
 		return err
 	}
 	writer.discard()
-	b := dest.DB().NewBatch()
+	b := dest.DB().NewFoldBatch()
 	defer func() { _ = b.Close() }()
 	lo, hi := bucket.syncRange()
-	if err := b.DeleteRange(lo, hi, nil); err != nil {
+	if err := b.DeleteRange(lo, hi); err != nil {
 		return err
 	}
 	for _, r := range bucketIndexRanges(bucket) {
-		if err := b.DeleteRange(r[0], r[1], nil); err != nil {
+		if err := b.DeleteRange(r[0], r[1]); err != nil {
 			return err
 		}
 	}
@@ -1141,7 +1141,7 @@ func overlayMaterializeWholeSourceBucketSST(
 	primarySuccess = true
 	defer func() { _ = os.Remove(primaryPath) }()
 	if wrotePrimary {
-		if err := dest.DB().Ingest(ctx, []string{primaryPath}); err != nil {
+		if err := dest.DB().IngestSSTs(ctx, []string{primaryPath}); err != nil {
 			return fmt.Errorf("overlay merge: ingest whole primary %s: %w", bucket.name, err)
 		}
 		dest.InvalidateBareIDLookups()
@@ -1234,7 +1234,7 @@ func overlayCopySourceIndexesSST(
 	if !wrote {
 		return nil
 	}
-	if err := dest.DB().Ingest(ctx, []string{sstPath}); err != nil {
+	if err := dest.DB().IngestSSTs(ctx, []string{sstPath}); err != nil {
 		return fmt.Errorf("overlay merge: ingest whole index %s: %w", bucket.name, err)
 	}
 	dest.InvalidateBareIDLookups()
@@ -1613,8 +1613,8 @@ type overlayBucketRawWriter struct {
 	dest      *enginepkg.Engine
 	bucket    bucketSpec
 	chunkSize int
-	primary   *cpebble.Batch
-	index     *cpebble.Batch
+	primary   *enginepkg.FoldBatch
+	index     *enginepkg.FoldBatch
 	count     int
 	scratch   rawIndexScratch
 	stats     *mergeStatsAccumulator
@@ -1634,14 +1634,14 @@ func newOverlayBucketRawWriter(dest *enginepkg.Engine, bucket bucketSpec, stats 
 		dest:      dest,
 		bucket:    bucket,
 		chunkSize: chunkSize,
-		primary:   dest.DB().NewBatch(),
-		index:     dest.DB().NewBatch(),
+		primary:   dest.DB().NewFoldBatch(),
+		index:     dest.DB().NewFoldBatch(),
 		stats:     stats,
 	}
 }
 
 func (w *overlayBucketRawWriter) addRaw(ctx context.Context, bucket bucketSpec, destKey []byte, destLower []byte, value []byte) error {
-	if err := w.primary.Set(destKey, value, nil); err != nil {
+	if err := w.primary.Set(destKey, value); err != nil {
 		return err
 	}
 	// Every addRaw call is a winner (the seen-set dedupe happens before
@@ -1656,7 +1656,7 @@ func (w *overlayBucketRawWriter) addRaw(ctx context.Context, bucket bucketSpec, 
 		return nil
 	}
 	if err := forEachIndexKeyFromRaw(bucket, destKey, destLower, value, &w.scratch, w.stats, func(key []byte) error {
-		return w.index.Set(key, nil, nil)
+		return w.index.Set(key, nil)
 	}); err != nil {
 		return err
 	}
@@ -1700,7 +1700,7 @@ func (w *overlayBucketRawWriter) replaceRaw(ctx context.Context, bucket bucketSp
 	// batch ops apply in order, so the Set below wins.
 	if bucket.forEachIndexKey != nil {
 		if err := forEachIndexKeyFromRaw(bucket, destKey, destLower, oldVal, &w.scratch, nil, func(key []byte) error {
-			return w.index.Delete(key, nil)
+			return w.index.Delete(key)
 		}); err != nil {
 			closer.Close()
 			return err
@@ -1733,12 +1733,12 @@ func (w *overlayBucketRawWriter) replaceRaw(ctx context.Context, bucket bucketSp
 		w.stats.regroupEntitlement(oldRT, newRT)
 	}
 	closer.Close()
-	if err := w.primary.Set(destKey, value, nil); err != nil {
+	if err := w.primary.Set(destKey, value); err != nil {
 		return err
 	}
 	if bucket.forEachIndexKey != nil {
 		if err := forEachIndexKeyFromRaw(bucket, destKey, destLower, value, &w.scratch, nil, func(key []byte) error {
-			return w.index.Set(key, nil, nil)
+			return w.index.Set(key, nil)
 		}); err != nil {
 			return err
 		}
@@ -1764,8 +1764,8 @@ func (w *overlayBucketRawWriter) flush(ctx context.Context) error {
 	if err := w.index.Commit(opts); err != nil {
 		return err
 	}
-	w.primary = w.dest.DB().NewBatch()
-	w.index = w.dest.DB().NewBatch()
+	w.primary = w.dest.DB().NewFoldBatch()
+	w.index = w.dest.DB().NewFoldBatch()
 	w.count = 0
 	return nil
 }
@@ -1797,7 +1797,7 @@ func (w *overlayBucketRawWriter) discard() {
 	if w.index != nil {
 		_ = w.index.Close()
 	}
-	w.primary = w.dest.DB().NewBatch()
-	w.index = w.dest.DB().NewBatch()
+	w.primary = w.dest.DB().NewFoldBatch()
+	w.index = w.dest.DB().NewFoldBatch()
 	w.count = 0
 }

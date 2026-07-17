@@ -23,7 +23,7 @@ import (
 // index — the silent skip-entitlements-at-uplift failure mode.
 //
 // The kill is simulated by driving the REAL standalone build to a
-// sentinel error at a named point (testDigestBuildHook), bypassing
+// sentinel error at a named point (the digestBuildHook seam), bypassing
 // BuildGrantDigests's in-process drop handler — exactly a process
 // death's durable footprint (a clean Close then persists everything
 // committed, the maximal state a WAL replay could resurrect).
@@ -85,9 +85,9 @@ func TestGrantDigestBuildCrashMidMerge(t *testing.T) {
 			// Commit (and fire the hook) on every partition close so a
 			// small dataset exercises the mid-merge commit path; die
 			// after the first committed batch.
-			e.testDigestNodeFlushBytes = 1
+			e.test.digestNodeFlushBytes = 1
 			fired := 0
-			e.testDigestBuildHook = func(stage string) error {
+			e.test.digestBuildHook = func(stage string) error {
 				if stage != "node-batch-committed" {
 					return nil
 				}
@@ -117,7 +117,7 @@ func TestGrantDigestBuildCrashMidMerge(t *testing.T) {
 func TestGrantDigestBuildCrashPostFinish(t *testing.T) {
 	testGrantDigestBuildCrash(t,
 		func(e *Engine) {
-			e.testDigestBuildHook = func(stage string) error {
+			e.test.digestBuildHook = func(stage string) error {
 				if stage == "post-finish" {
 					return errDigestBuildKilled
 				}

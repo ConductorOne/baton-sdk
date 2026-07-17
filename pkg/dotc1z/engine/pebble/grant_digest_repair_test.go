@@ -62,7 +62,7 @@ func TestRepairMissingGrantDigestsLeavesGlobalRootMissingOnPartialFailure(t *tes
 	if badKey == nil {
 		t.Fatal("could not find ent-bad's grant primary key")
 	}
-	if err := e.db.Set(badKey, []byte{0xFF, 0xFF, 0xFF}, pebble.NoSync); err != nil {
+	if err := e.db.UnsafeForTesting().Set(badKey, []byte{0xFF, 0xFF, 0xFF}, pebble.NoSync); err != nil {
 		t.Fatalf("corrupt ent-bad grant value: %v", err)
 	}
 
@@ -358,7 +358,7 @@ func TestRepairMissingGrantDigestsCountsMalformedKeys(t *testing.T) {
 	partition := testEntPartition("ent-a")
 	lower, _ := grantPrimaryEntitlementBoundsFromPartition(partition)
 	malformed := append(append([]byte(nil), lower...), 'p', 0, 'q', 0, 'r')
-	if err := e.db.Set(malformed, []byte("junk"), pebble.NoSync); err != nil {
+	if err := e.db.UnsafeForTesting().Set(malformed, []byte("junk"), pebble.NoSync); err != nil {
 		t.Fatalf("inject malformed key: %v", err)
 	}
 
@@ -424,7 +424,7 @@ func TestRepairStreamsPartitionInBoundedBatches(t *testing.T) {
 	wantHash := dumpKeyRangeTest(t, e, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound())
 
 	// Rotate the repair's hash-index batch on every Set.
-	e.testDigestNodeFlushBytes = 1
+	e.test.digestNodeFlushBytes = 1
 
 	partition := testEntPartition("ent-big")
 	if err := e.InvalidateGrantDigestPartitions(ctx, []string{partition}); err != nil {

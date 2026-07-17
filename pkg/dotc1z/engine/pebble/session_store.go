@@ -282,7 +282,7 @@ func (e *Engine) SessionSet(ctx context.Context, key string, value []byte, opt .
 	// WRITES to the session keyspace after EndSync (connector Cleanup
 	// clears sessions post-sync so they don't ship in the saved c1z).
 	return e.withWriteAllowSealed(func() error {
-		return e.db.Set(keyBytes, val, writeOpts(e.opts.durability))
+		return e.db.SessionSet(keyBytes, val, writeOpts(e.opts.durability))
 	})
 }
 
@@ -294,7 +294,7 @@ func (e *Engine) SessionSetMany(ctx context.Context, values map[string][]byte, o
 
 	// See SessionSet for why the barrier is required and why AllowSealed.
 	return e.withWriteAllowSealed(func() error {
-		batch := e.db.NewBatch()
+		batch := e.db.NewSessionBatch()
 		defer batch.Close()
 
 		for key, value := range values {
@@ -308,7 +308,7 @@ func (e *Engine) SessionSetMany(ctx context.Context, values map[string][]byte, o
 			if err != nil {
 				return fmt.Errorf("error marshalling session record: %w", err)
 			}
-			if err := batch.Set(keyBytes, val, nil); err != nil {
+			if err := batch.Set(keyBytes, val); err != nil {
 				return fmt.Errorf("error setting session record: %w", err)
 			}
 		}
@@ -328,7 +328,7 @@ func (e *Engine) SessionDelete(ctx context.Context, key string, opt ...sessions.
 	keyBytes := encodeSessionKey(bag.SyncID, bag.Prefix+key)
 	// See SessionSet for why the barrier is required and why AllowSealed.
 	return e.withWriteAllowSealed(func() error {
-		return e.db.Delete(keyBytes, writeOpts(e.opts.durability))
+		return e.db.SessionDelete(keyBytes, writeOpts(e.opts.durability))
 	})
 }
 
@@ -341,7 +341,7 @@ func (e *Engine) SessionClear(ctx context.Context, opt ...sessions.SessionStoreO
 	if bag.Prefix == "" {
 		// See SessionSet for why the barrier is required and why AllowSealed.
 		return e.withWriteAllowSealed(func() error {
-			return e.db.DeleteRange(syncPrefix, upperBoundOf(syncPrefix), writeOpts(e.opts.durability))
+			return e.db.SessionClearRange(syncPrefix, upperBoundOf(syncPrefix), writeOpts(e.opts.durability))
 		})
 	}
 
@@ -357,7 +357,7 @@ func (e *Engine) SessionClear(ctx context.Context, opt ...sessions.SessionStoreO
 		}
 		defer iter.Close()
 
-		batch := e.db.NewBatch()
+		batch := e.db.NewSessionBatch()
 		defer batch.Close()
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
@@ -373,7 +373,7 @@ func (e *Engine) SessionClear(ctx context.Context, opt ...sessions.SessionStoreO
 			if !strings.HasPrefix(r.GetKey(), bag.Prefix) {
 				break
 			}
-			if err := batch.Delete(iter.Key(), nil); err != nil {
+			if err := batch.Delete(iter.Key()); err != nil {
 				return err
 			}
 		}

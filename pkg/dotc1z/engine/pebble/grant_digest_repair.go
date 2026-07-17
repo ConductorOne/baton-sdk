@@ -105,18 +105,18 @@ func (e *Engine) InvalidateGrantDigestPartitions(ctx context.Context, partitions
 		return nil
 	}
 	return e.withWrite(func() error {
-		batch := e.db.NewBatch()
+		batch := e.db.NewDigestBatch()
 		defer batch.Close()
 		for _, partition := range partitions {
 			if err := dropPartitionDigest(batch, grantDigestSpec, partition); err != nil {
 				return err
 			}
 			lo := encodeGrantByEntPrincHashEntPrefix(partition)
-			if err := batch.DeleteRange(lo, upperBoundOf(lo), nil); err != nil {
+			if err := batch.DeleteRange(lo, upperBoundOf(lo)); err != nil {
 				return err
 			}
 		}
-		if err := batch.Delete(globalGrantDigestNodeKey(), nil); err != nil {
+		if err := batch.Delete(globalGrantDigestNodeKey()); err != nil {
 			return err
 		}
 		opts := writeOpts(e.opts.durability)
@@ -424,18 +424,18 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 		opts = pebble.NoSync
 	}
 	flushBytes := digestNodeBatchFlushBytes
-	if e.testDigestNodeFlushBytes > 0 {
-		flushBytes = e.testDigestNodeFlushBytes
+	if e.test.digestNodeFlushBytes > 0 {
+		flushBytes = e.test.digestNodeFlushBytes
 	}
 
 	// Pass 1: replace the hash-index range with the freshly-derived
 	// rows (a clean DeleteRange first: nothing may assume what, if
 	// anything, was left there). Closure defer, not a bound one: the
 	// loop rotates `hiBatch` on flush.
-	hiBatch := e.db.NewBatch()
+	hiBatch := e.db.NewDigestBatch()
 	defer func() { hiBatch.Close() }()
 	hiLower := encodeGrantByEntPrincHashEntPrefix(partition)
-	if err := hiBatch.DeleteRange(hiLower, upperBoundOf(hiLower), nil); err != nil {
+	if err := hiBatch.DeleteRange(hiLower, upperBoundOf(hiLower)); err != nil {
 		return err
 	}
 
@@ -473,7 +473,7 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 		bh64 := grantPrincipalBucketHash64(key[sep4+1:])
 		scratch.keyBuf = appendGrantHashIndexKeyFromPrimary(scratch.keyBuf[:0], key, sep4, bh64)
 		binary.BigEndian.PutUint64(chb[:], ch64)
-		if err := hiBatch.Set(scratch.keyBuf, chb[:], nil); err != nil {
+		if err := hiBatch.Set(scratch.keyBuf, chb[:]); err != nil {
 			_ = iter.Close()
 			return err
 		}
@@ -484,7 +484,7 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 				return err
 			}
 			hiBatch.Close()
-			hiBatch = e.db.NewBatch()
+			hiBatch = e.db.NewDigestBatch()
 		}
 	}
 	if err := iter.Error(); err != nil {
@@ -515,19 +515,19 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 	if err != nil {
 		return err
 	}
-	digestBatch := e.db.NewBatch()
+	digestBatch := e.db.NewDigestBatch()
 	defer digestBatch.Close()
 	digestLower := encodeDigestPartitionPrefix(grantDigestSpec.indexID, partition)
-	if err := digestBatch.DeleteRange(digestLower, upperBoundOf(digestLower), nil); err != nil {
+	if err := digestBatch.DeleteRange(digestLower, upperBoundOf(digestLower)); err != nil {
 		return err
 	}
 	rootKey := encodeDigestNodeKey(grantDigestSpec.indexID, partition, digestLevelRoot, nil)
-	if err := digestBatch.Set(rootKey, rootVal, nil); err != nil {
+	if err := digestBatch.Set(rootKey, rootVal); err != nil {
 		return err
 	}
 	for i := range leaves {
 		leafKey := encodeDigestNodeKey(grantDigestSpec.indexID, partition, digestLevelLeaf, leaves[i].prefix[:])
-		if err := digestBatch.Set(leafKey, leaves[i].val, nil); err != nil {
+		if err := digestBatch.Set(leafKey, leaves[i].val); err != nil {
 			return err
 		}
 	}
@@ -581,7 +581,7 @@ func (e *Engine) recomputeGrantDigestGlobalRootLocked(ctx context.Context) error
 	if e.IsFreshSync() {
 		opts = pebble.NoSync
 	}
-	if err := e.db.Set(globalGrantDigestNodeKey(), packDigestLeaf(total, xor[:]), opts); err != nil {
+	if err := e.db.DigestSet(globalGrantDigestNodeKey(), packDigestLeaf(total, xor[:]), opts); err != nil {
 		return err
 	}
 	e.grantDigestsPresent.Store(true)

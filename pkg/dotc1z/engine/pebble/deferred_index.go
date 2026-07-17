@@ -86,6 +86,22 @@ func appendGrantByPrincipalKeyFromPrimary(dst, primaryKey []byte) ([]byte, bool)
 	return dst, true
 }
 
+// appendGrantByNeedsExpansionKeyFromPrimary builds the
+// by_needs_expansion index key directly from a primary grant key: the
+// primary's separator+tail IS the index key's tail, byte-identical
+// (pinned by TestNeedsExpansionKeyHeaderSpliceFromPrimary), so the
+// splice is a header swap. Validates the same 6-segment shape as the
+// by_principal splice so a malformed key cannot silently produce a
+// malformed index entry. Wired into rawdb's typed record ops
+// (RecordDerivers.GrantNeedsExpansionKey).
+func appendGrantByNeedsExpansionKeyFromPrimary(dst, primaryKey []byte) ([]byte, bool) {
+	if _, ok := splitGrantPrimaryKey(primaryKey); !ok {
+		return dst, false
+	}
+	dst = append(dst, versionV3, typeIndex, idxGrantByNeedsExpansion)
+	return append(dst, primaryKey[2:]...), true
+}
+
 // deferredGrantStats carries the grant-keyspace stats accumulated during the
 // BuildDeferredGrantIndexes scan: the same numbers computeSyncStats derives
 // from its own full grant scan. Fusing them into the index scan removes a
@@ -525,7 +541,7 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 			zap.Int64("rows_rebuilt", rebuilt.rows),
 		)
 	case len(rebuilt.files) > 0:
-		if _, err := e.db.IngestAndExcise(ctx, rebuilt.files, nil, nil, pebble.KeyRange{
+		if err := e.db.ReplaceRangeWithSSTs(ctx, rebuilt.files, pebble.KeyRange{
 			Start: GrantLowerBound(),
 			End:   GrantUpperBound(),
 		}); err != nil {
@@ -564,7 +580,7 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 		}
 		mergeDone := time.Now()
 
-		_, err = e.db.IngestAndExcise(ctx, []string{sstPath}, nil, nil, pebble.KeyRange{
+		err = e.db.ReplaceRangeWithSSTs(ctx, []string{sstPath}, pebble.KeyRange{
 			Start: GrantByPrincipalLowerBound(),
 			End:   GrantByPrincipalUpperBound(),
 		})

@@ -5,7 +5,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -109,41 +108,11 @@ func rawTimestampNanos(value []byte) (int64, error) {
 	return seconds*int64(time.Second) + int64(nanos), nil
 }
 
-func (e *Engine) deleteResourceIndexesRaw(batch *pebble.Batch, resourceTypeID string, resourceID string, value []byte) error {
-	parentRT, parentID, err := scanResourceParentRaw(value)
-	if err != nil {
-		return err
-	}
-	if parentID == "" {
-		return nil
-	}
-	return batch.Delete(encodeResourceByParentIndexKey(parentRT, parentID, resourceTypeID, resourceID), nil)
-}
-
-func (e *Engine) deleteGrantIndexesRaw(batch *pebble.Batch, externalID string, value []byte) error {
-	entRT, entRID, entID, principalRT, principalID, _, err := scanGrantIndexFieldsRaw(value)
-	if err != nil {
-		return err
-	}
-	if entID == "" || entRT == "" || entRID == "" || principalRT == "" || principalID == "" {
-		return nil
-	}
-	id := grantIdentity{
-		entitlement:     entitlementIdentityFromParts(entRT, entRID, entID),
-		principalTypeID: principalRT,
-		principalID:     principalID,
-	}
-	if err := batch.Delete(encodeGrantByPrincipalIdentityIndexKey(id), nil); err != nil {
-		return err
-	}
-	// Post-seal mutation of a grant invalidates the touched entitlement's
-	// digest + hash-index state (no-op unless digests exist — see
-	// stageGrantDigestInvalidation).
-	if err := e.stageGrantDigestInvalidation(batch, id.entitlement); err != nil {
-		return err
-	}
-	return batch.Delete(encodeGrantByNeedsExpansionIdentityIndexKey(id), nil)
-}
+// NOTE (2b): deleteResourceIndexesRaw / deleteGrantIndexesRaw are GONE.
+// Prior-row index cleanup is an obligation of rawdb's typed record ops
+// (StageGrantPutInline/StageGrantDelete derive cleanup keys from the
+// primary key; StageResourcePut/StageResourceDelete consume the prior
+// value through the ResourceParent deriver).
 
 // scanGrantExternalIDRaw extracts only the stored external_id (field 2)
 // from a marshaled GrantRecord. Used by the bare-id grant lookup to check

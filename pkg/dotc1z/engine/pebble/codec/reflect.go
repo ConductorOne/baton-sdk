@@ -3,7 +3,6 @@ package codec
 import (
 	"fmt"
 
-	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -62,12 +61,4 @@ func (c *ReflectCodec) DecodeValue(b []byte, dst proto.Message) error {
 			ErrCodecTypeMismatch, c.md.FullName(), dst.ProtoReflect().Descriptor().FullName())
 	}
 	return proto.Unmarshal(b, dst)
-}
-
-func (c *ReflectCodec) WriteIndexes(batch *pebble.Batch, msg proto.Message) error {
-	return ErrReflectMissingTable
-}
-
-func (c *ReflectCodec) DeleteIndexes(batch *pebble.Batch, msg proto.Message) error {
-	return ErrReflectMissingTable
 }

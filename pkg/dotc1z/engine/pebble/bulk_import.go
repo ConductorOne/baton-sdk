@@ -690,7 +690,7 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		return nil
 	}
 	err := b.e.withWrite(func() error {
-		if err := b.e.db.Ingest(ctx, paths); err != nil {
+		if err := b.e.db.IngestSSTs(ctx, paths); err != nil {
 			return fmt.Errorf("bulk sync import: ingest: %w", err)
 		}
 		b.e.noteEntitlementKeyspaceWrite()

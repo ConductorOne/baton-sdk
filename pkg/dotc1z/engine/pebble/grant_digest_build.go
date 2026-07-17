@@ -16,6 +16,8 @@ import (
 	"github.com/cockroachdb/pebble/v2/vfs"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // Seal-time construction of the by_entitlement_principal_hash index and
@@ -98,7 +100,7 @@ const digestNodeBatchFlushBytes = 4 << 20
 // batch becoming durable ahead of the marker would reopen exactly the
 // trust-a-crashed-build window the marker closes.
 func (e *Engine) markGrantDigestBuildPending() error {
-	if err := e.db.Set(encodeGrantDigestBuildPendingKey(), nil, pebble.Sync); err != nil {
+	if err := e.db.MetaSet(encodeGrantDigestBuildPendingKey(), nil, pebble.Sync); err != nil {
 		return fmt.Errorf("arm grant digest build marker: %w", err)
 	}
 	e.grantDigestBuildPending.Store(true)
@@ -114,7 +116,7 @@ func (e *Engine) markGrantDigestBuildPending() error {
 // marker's absence therefore certifies COMPLETE digest state on disk,
 // never a lucky partial one.
 func (e *Engine) clearGrantDigestBuildPending() error {
-	if err := e.db.Delete(encodeGrantDigestBuildPendingKey(), pebble.Sync); err != nil {
+	if err := e.db.MetaDelete(encodeGrantDigestBuildPendingKey(), pebble.Sync); err != nil {
 		return fmt.Errorf("clear grant digest build marker: %w", err)
 	}
 	e.grantDigestBuildPending.Store(false)
@@ -152,7 +154,7 @@ type grantDigestFold struct {
 	globalXor   [hashLen]byte
 	globalTotal int64
 
-	batch      *pebble.Batch
+	batch      *rawdb.DigestBatch
 	partitions int64
 	nodes      int64
 }
@@ -165,8 +167,8 @@ func newGrantDigestFold(e *Engine) (*grantDigestFold, error) {
 		opts = pebble.NoSync
 	}
 	flushBytes := digestNodeBatchFlushBytes
-	if e.testDigestNodeFlushBytes > 0 {
-		flushBytes = e.testDigestNodeFlushBytes
+	if e.test.digestNodeFlushBytes > 0 {
+		flushBytes = e.test.digestNodeFlushBytes
 	}
 	f := &grantDigestFold{
 		e:          e,
@@ -174,13 +176,13 @@ func newGrantDigestFold(e *Engine) (*grantDigestFold, error) {
 		flushBytes: flushBytes,
 		counts:     make([]int64, 1<<digestMaxWidthBits),
 		xors:       make([][hashLen]byte, 1<<digestMaxWidthBits),
-		batch:      e.db.NewBatch(),
+		batch:      e.db.NewDigestBatch(),
 	}
 	// The build only Sets nodes: clear every prior digest first so a
 	// reseal can't leave stale partitions (dropped entitlements, width
 	// changes) for the comparison merge scan to read. Leads the first
 	// batch; in-batch ordering keeps the new nodes on top.
-	if err := f.batch.DeleteRange(DigestLowerBound(), DigestUpperBound(), nil); err != nil {
+	if err := f.batch.DeleteRange(DigestLowerBound(), DigestUpperBound()); err != nil {
 		f.abort()
 		return nil, err
 	}
@@ -223,7 +225,7 @@ func (f *grantDigestFold) closePartition() error {
 	partition := string(f.partition)
 	width := chooseDigestWidth(f.total)
 	rootKey := encodeDigestNodeKey(grantDigestSpec.indexID, partition, digestLevelRoot, nil)
-	if err := f.batch.Set(rootKey, packDigestRoot(width, f.total, f.rootXor[:]), nil); err != nil {
+	if err := f.batch.Set(rootKey, packDigestRoot(width, f.total, f.rootXor[:])); err != nil {
 		return err
 	}
 	f.nodes++
@@ -245,7 +247,7 @@ func (f *grantDigestFold) closePartition() error {
 			var prefix [digestLeafPrefixLen]byte
 			binary.BigEndian.PutUint16(prefix[:], leafIdx<<shift)
 			leafKey := encodeDigestNodeKey(grantDigestSpec.indexID, partition, digestLevelLeaf, prefix[:])
-			if err := f.batch.Set(leafKey, packDigestLeaf(count, digest[:]), nil); err != nil {
+			if err := f.batch.Set(leafKey, packDigestLeaf(count, digest[:])); err != nil {
 				return err
 			}
 			f.nodes++
@@ -268,12 +270,12 @@ func (f *grantDigestFold) closePartition() error {
 			return err
 		}
 		f.batch.Close()
-		f.batch = f.e.db.NewBatch()
-		if f.e.testDigestBuildHook != nil {
+		f.batch = f.e.db.NewDigestBatch()
+		if f.e.test.digestBuildHook != nil {
 			// Crash-window seam: digest-node batches are now committed
 			// (durable under WAL replay) while the hash-index ingest has
 			// not run. See grant_digest_build_crash_test.go.
-			if err := f.e.testDigestBuildHook("node-batch-committed"); err != nil {
+			if err := f.e.test.digestBuildHook("node-batch-committed"); err != nil {
 				return err
 			}
 		}
@@ -292,7 +294,7 @@ func (f *grantDigestFold) finish() error {
 	if err := f.closePartition(); err != nil {
 		return err
 	}
-	if err := f.batch.Set(globalGrantDigestNodeKey(), packDigestLeaf(f.globalTotal, f.globalXor[:]), nil); err != nil {
+	if err := f.batch.Set(globalGrantDigestNodeKey(), packDigestLeaf(f.globalTotal, f.globalXor[:])); err != nil {
 		return err
 	}
 	f.nodes++
@@ -474,10 +476,10 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 		// No grants at all — pebble rejects an empty SST, so clear any
 		// stale state directly, then give every entitlement its
 		// {count: 0} root (the "empty vs. never built" distinction).
-		if err := e.db.DeleteRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
+		if err := e.db.DropKeyRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
 			return err
 		}
-		if err := e.db.DeleteRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), opts); err != nil {
+		if err := e.db.DropKeyRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), opts); err != nil {
 			return err
 		}
 		if err := e.writeMissingEntitlementDigestRoots(ctx, opts); err != nil {
@@ -486,7 +488,7 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 		// Zero grants still means the digest WAS built (present-means-
 		// exact — an absent global root would tell a manifest reader to
 		// recalculate instead of trusting "nothing to diff").
-		if err := e.db.Set(globalGrantDigestNodeKey(), packDigestLeaf(0, zeroDigest[:]), opts); err != nil {
+		if err := e.db.DigestSet(globalGrantDigestNodeKey(), packDigestLeaf(0, zeroDigest[:]), opts); err != nil {
 			return err
 		}
 		e.grantDigestsPresent.Store(true)
@@ -506,17 +508,17 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 		return err
 	}
 	mergeDone := time.Now()
-	if e.testDigestBuildHook != nil {
+	if e.test.digestBuildHook != nil {
 		// Crash-window seam: every digest node INCLUDING the global root
 		// is committed, the ingest has not run. See
 		// grant_digest_build_crash_test.go.
-		if err := e.testDigestBuildHook("post-finish"); err != nil {
+		if err := e.test.digestBuildHook("post-finish"); err != nil {
 			return err
 		}
 	}
 
 	// Atomically replace the whole hash-index range with the merged SST.
-	if _, err := e.db.IngestAndExcise(ctx, []string{sstPath}, nil, nil, pebble.KeyRange{
+	if err := e.db.ReplaceRangeWithSSTs(ctx, []string{sstPath}, pebble.KeyRange{
 		Start: GrantByEntPrincHashLowerBound(),
 		End:   GrantByEntPrincHashUpperBound(),
 	}); err != nil {
@@ -564,7 +566,7 @@ func (e *Engine) writeMissingEntitlementDigestRoots(ctx context.Context, opts *p
 		return err
 	}
 	defer iter.Close()
-	batch := e.db.NewBatch()
+	batch := e.db.NewDigestBatch()
 	// Closure, not a bare defer: the loop rotates `batch` on flush and a
 	// receiver-bound defer would double-Close the first batch.
 	defer func() { batch.Close() }()
@@ -591,7 +593,7 @@ func (e *Engine) writeMissingEntitlementDigestRoots(ctx context.Context, opts *p
 		} else if !errors.Is(err, pebble.ErrNotFound) {
 			return err
 		}
-		if err := batch.Set(rootKey, emptyRoot, nil); err != nil {
+		if err := batch.Set(rootKey, emptyRoot); err != nil {
 			return err
 		}
 		if batch.Len() >= digestNodeBatchFlushBytes {
@@ -599,7 +601,7 @@ func (e *Engine) writeMissingEntitlementDigestRoots(ctx context.Context, opts *p
 				return err
 			}
 			batch.Close()
-			batch = e.db.NewBatch()
+			batch = e.db.NewDigestBatch()
 		}
 	}
 	if err := iter.Error(); err != nil {
@@ -731,10 +733,10 @@ func (e *Engine) dropAllGrantDigestStateLocked() error {
 	if e.IsFreshSync() {
 		opts = pebble.NoSync
 	}
-	if err := e.db.DeleteRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
+	if err := e.db.DropKeyRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
 		return err
 	}
-	if err := e.db.DeleteRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), opts); err != nil {
+	if err := e.db.DropKeyRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), opts); err != nil {
 		return err
 	}
 	return e.clearGrantDigestBuildPending()

@@ -45,7 +45,7 @@ func TestEngineLifecycleOverPureMemFS(t *testing.T) {
 	require.True(t, e.deferredIdxPending.Load(),
 		"the workload must arm the deferred rebuild so EndSync exercises SST staging over the MemFS")
 	require.NoError(t, a.EndSync(ctx))
-	w.verifyComplete(ctx, t, e, syncID, "sealed engine over MemFS")
+	w.verifyComplete(ctx, t, e, syncID, true, true, "sealed engine over MemFS")
 
 	// Writable checkpoint: cut it through the engine FS and reopen it
 	// as its own engine over the same MemFS. Covers db.Checkpoint +
@@ -53,7 +53,7 @@ func TestEngineLifecycleOverPureMemFS(t *testing.T) {
 	require.NoError(t, e.CheckpointTo(ctx, "memfs-checkpoint"))
 	ce, err := Open(ctx, "memfs-checkpoint", WithVFS(memFS))
 	require.NoError(t, err, "the checkpoint must be complete and openable on the engine FS")
-	w.verifyComplete(ctx, t, ce, syncID, "checkpoint reopened over MemFS")
+	w.verifyComplete(ctx, t, ce, syncID, true, true, "checkpoint reopened over MemFS")
 	require.NoError(t, ce.Close())
 	require.NoError(t, e.Close())
 
@@ -62,5 +62,5 @@ func TestEngineLifecycleOverPureMemFS(t *testing.T) {
 	e2, err := Open(ctx, "memfs-db", WithVFS(memFS))
 	require.NoError(t, err)
 	defer func() { _ = e2.Close() }()
-	w.verifyComplete(ctx, t, e2, syncID, "primary reopened over MemFS")
+	w.verifyComplete(ctx, t, e2, syncID, true, true, "primary reopened over MemFS")
 }

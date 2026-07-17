@@ -28,9 +28,6 @@ package pebble
 import (
 	"fmt"
 	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -84,62 +81,56 @@ var allowedOSFileIO = map[string]map[string]string{
 }
 
 func TestOSFileIOCallsAreAllowlisted(t *testing.T) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
-	require.NoError(t, err)
+	fset, files := parseProductionDir(t, ".")
 
 	// found: file -> os func -> positions.
 	found := map[string]map[string][]string{}
-	for _, pkg := range pkgs {
-		for path, f := range pkg.Files {
-			base := filepath.Base(path)
-			// Resolve the local name(s) the "os" import is bound to in
-			// THIS file — an aliased import (stdos "os") must not slip
-			// past the registry, and a dot-import would make os calls
-			// indistinguishable from package-local ones, so it is
-			// rejected outright.
-			osNames := map[string]bool{}
-			for _, imp := range f.Imports {
-				if imp.Path.Value != `"os"` {
-					continue
-				}
-				switch {
-				case imp.Name == nil:
-					osNames["os"] = true
-				case imp.Name.Name == ".":
-					require.Failf(t, "dot-import of os",
-						"%s dot-imports \"os\", which defeats this registry; use a named import", base)
-				case imp.Name.Name == "_":
-					// blank import: no callable name.
-				default:
-					osNames[imp.Name.Name] = true
-				}
-			}
-			if len(osNames) == 0 {
+	for path, f := range files {
+		base := filepath.Base(path)
+		// Resolve the local name(s) the "os" import is bound to in
+		// THIS file — an aliased import (stdos "os") must not slip
+		// past the registry, and a dot-import would make os calls
+		// indistinguishable from package-local ones, so it is
+		// rejected outright.
+		osNames := map[string]bool{}
+		for _, imp := range f.Imports {
+			if imp.Path.Value != `"os"` {
 				continue
 			}
-			ast.Inspect(f, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				sel, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok {
-					return true
-				}
-				ident, ok := sel.X.(*ast.Ident)
-				if !ok || !osNames[ident.Name] || !osFileIOFuncs[sel.Sel.Name] {
-					return true
-				}
-				if found[base] == nil {
-					found[base] = map[string][]string{}
-				}
-				found[base][sel.Sel.Name] = append(found[base][sel.Sel.Name], fset.Position(call.Pos()).String())
-				return true
-			})
+			switch {
+			case imp.Name == nil:
+				osNames["os"] = true
+			case imp.Name.Name == ".":
+				require.Failf(t, "dot-import of os",
+					"%s dot-imports \"os\", which defeats this registry; use a named import", base)
+			case imp.Name.Name == "_":
+				// blank import: no callable name.
+			default:
+				osNames[imp.Name.Name] = true
+			}
 		}
+		if len(osNames) == 0 {
+			continue
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			ident, ok := sel.X.(*ast.Ident)
+			if !ok || !osNames[ident.Name] || !osFileIOFuncs[sel.Sel.Name] {
+				return true
+			}
+			if found[base] == nil {
+				found[base] = map[string][]string{}
+			}
+			found[base][sel.Sel.Name] = append(found[base][sel.Sel.Name], fset.Position(call.Pos()).String())
+			return true
+		})
 	}
 
 	// Every found call must be registered.

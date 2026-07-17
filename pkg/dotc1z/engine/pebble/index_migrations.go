@@ -141,5 +141,5 @@ func (e *Engine) readAppliedIndexVersion(name string) (uint32, error) {
 func (e *Engine) writeAppliedIndexVersion(name string, version uint32) error {
 	var buf [4]byte
 	binary.BigEndian.PutUint32(buf[:], version)
-	return e.db.Set(encodeIndexAppliedKey(name), buf[:], pebble.Sync)
+	return e.db.MetaSet(encodeIndexAppliedKey(name), buf[:], pebble.Sync)
 }

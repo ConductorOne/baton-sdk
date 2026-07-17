@@ -8,6 +8,8 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // Bucketed XOR set digests over bucket-hash indexes.
@@ -431,22 +433,22 @@ func (e *Engine) buildPartitionDigestAtWidth(ctx context.Context, spec digestInd
 			return err
 		}
 
-		batch := e.db.NewBatch()
+		batch := e.db.NewDigestBatch()
 		defer batch.Close()
 
 		// Clear any prior build (see function comment). In-batch
 		// ordering makes this safe: the Sets below land after the
 		// tombstone and survive it.
-		if err := batch.DeleteRange(nodeLower, nodeUpper, nil); err != nil {
+		if err := batch.DeleteRange(nodeLower, nodeUpper); err != nil {
 			return err
 		}
 		rootKey := encodeDigestNodeKey(spec.indexID, partition, digestLevelRoot, nil)
-		if err := batch.Set(rootKey, rootVal, nil); err != nil {
+		if err := batch.Set(rootKey, rootVal); err != nil {
 			return err
 		}
 		for i := range leaves {
 			key := encodeDigestNodeKey(spec.indexID, partition, digestLevelLeaf, leaves[i].prefix[:])
-			if err := batch.Set(key, leaves[i].val, nil); err != nil {
+			if err := batch.Set(key, leaves[i].val); err != nil {
 				return err
 			}
 		}
@@ -751,7 +753,7 @@ func (e *Engine) dirtyPartitionBuckets(ctx context.Context, spec digestIndexSpec
 // holding a built digest use this instead of updating nodes in place:
 // under the present-means-exact contract, a mutated partition's digest
 // is simply MISSING until the next seal-time build recalculates it.
-func dropPartitionDigest(batch *pebble.Batch, spec digestIndexSpec, partition string) error {
+func dropPartitionDigest(batch rawdb.Stager, spec digestIndexSpec, partition string) error {
 	lo := encodeDigestPartitionPrefix(spec.indexID, partition)
-	return batch.DeleteRange(lo, upperBoundOf(lo), nil)
+	return batch.DeleteRange(lo, upperBoundOf(lo))
 }

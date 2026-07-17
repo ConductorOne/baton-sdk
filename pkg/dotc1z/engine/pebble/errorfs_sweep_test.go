@@ -319,7 +319,21 @@ func (w sweepWorkload) expectedEntIDsPerPrincipal() []string {
 // "resumes to completion" mean CORRECT completion: a resume that
 // duplicated, dropped, or cross-wired rows while keeping counts
 // plausible fails here.
-func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engine, syncID string, label string) {
+//
+// requireDigests / requireStats: whether the optional-artifact legs
+// (verifyDigests / verifyStatsSidecar) must find their artifact
+// PRESENT — true whenever the finishing EndSync ran without injection
+// (resumed/restarted/uninjected images), false for images whose
+// EndSync completed under an armed injector. Production policy is
+// technically weaker — EndSync downgrades a digest build failure to a
+// loud full drop and a stats write failure to a warning, and still
+// finishes — but on this harness's clean engines (MemFS, no injector)
+// a soft failure of either has no legitimate cause, so the oracle
+// deliberately fails CLOSED rather than shrugging it off. Split into
+// two flags because the stamp-window tests cut their crash image
+// AFTER the digest build but BEFORE the stats write — digests owed,
+// stats structurally absent.
+func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engine, syncID string, requireDigests, requireStats bool, label string) {
 	t.Helper()
 	rec, err := e.GetSyncRunRecord(ctx, syncID)
 	require.NoErrorf(t, err, "%s: sync run record must exist", label)
@@ -360,6 +374,137 @@ func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engi
 		}), "%s: IterateGrantsByPrincipal(%s)", label, p)
 		require.ElementsMatchf(t, wantEnts, gotEnts, "%s: by_principal entitlement set for %s", label, p)
 	}
+
+	w.verifyDigests(ctx, t, e, requireDigests, label)
+	w.verifyStatsSidecar(ctx, t, e, syncID, requireStats, label)
+}
+
+// verifyStatsSidecar is the stats leg of the content oracle, closing
+// the sweep's last artifact blind spot (a torn or missing sidecar
+// previously passed verifyComplete). Same optional-artifact policy as
+// digests: PersistSyncStats failures are downgraded to a warning by
+// design, so an image whose finishing EndSync ran under injection may
+// legally lack the sidecar — but a PRESENT sidecar must be EXACT,
+// matching an independent O(N) recount of the image's keyspaces, and
+// an uninjected finish has no legitimate reason to lack it.
+func (w sweepWorkload) verifyStatsSidecar(ctx context.Context, t *testing.T, e *Engine, syncID string, requirePresent bool, label string) {
+	t.Helper()
+	stored, err := e.readSyncStats(ctx, syncID)
+	require.NoErrorf(t, err, "%s: stats sidecar must read cleanly (torn sidecar)", label)
+	if stored == nil {
+		require.Falsef(t, requirePresent,
+			"%s: stats sidecar absent on an image whose finishing EndSync ran uninjected — PersistSyncStats cannot legitimately have failed", label)
+		t.Logf("%s: stats sidecar absent (legal under injection)", label)
+		return
+	}
+	recount, err := e.computeSyncStats(ctx, syncID)
+	require.NoErrorf(t, err, "%s: recount for stats oracle", label)
+	require.Equalf(t, recount.GetGrants(), stored.GetGrants(), "%s: sidecar grants vs recount", label)
+	require.Equalf(t, recount.GetEntitlements(), stored.GetEntitlements(), "%s: sidecar entitlements vs recount", label)
+	require.Equalf(t, recount.GetResources(), stored.GetResources(), "%s: sidecar resources vs recount", label)
+	require.Equalf(t, recount.GetResourceTypes(), stored.GetResourceTypes(), "%s: sidecar resource_types vs recount", label)
+	require.Equalf(t, recount.GetResourcesByResourceType(), stored.GetResourcesByResourceType(), "%s: sidecar resources-by-rt vs recount", label)
+	require.Equalf(t, recount.GetGrantsByEntitlementResourceType(), stored.GetGrantsByEntitlementResourceType(), "%s: sidecar grants-by-ent-rt vs recount", label)
+}
+
+// verifyDigests is the digest half of the content oracle: on a
+// FINISHED store the seal-time build must have left every digest
+// artifact present AND exact. Three independently derived
+// representations have to agree, per entitlement:
+//
+//  1. the fold of content hashes recomputed from the PRIMARY grant
+//     records (ground truth — touches no digest state at all);
+//  2. the stored per-entitlement digest root (present-means-exact);
+//  3. the on-demand fold of the grant hash index
+//     (ComputeEntitlementBucketDigest) — pinning the index itself,
+//     which lives and dies with the digest nodes.
+//
+// Then the stored whole-file global root must equal the XOR/count fold
+// of the entitlement roots. A crash image whose resume produced
+// primaries without digests, digests without the hash index, or roots
+// over torn index ranges fails one of these legs; verifying rows alone
+// would have called such an image complete (review finding, edge/
+// resume round).
+//
+// Digests are an OPTIONAL artifact with a present-means-exact
+// contract: a mid-seal build failure is downgraded to a loud full
+// drop and EndSync still finishes (see RepairMissingGrantDigests), so
+// a finished injected image may legitimately carry NO digest state.
+// The oracle therefore branches on the global root: absent → every
+// entitlement root must be absent too (the safe "recalculate" state —
+// a partial presence would lie to the repair fast path); present →
+// the full three-way triangulation. Presence is still hard-required
+// where it must hold: clean-run and resumed images end with an
+// uninjected digest build. The one thing this can never accept is
+// present-but-wrong — the digest lie.
+func (w sweepWorkload) verifyDigests(ctx context.Context, t *testing.T, e *Engine, requireDigests bool, label string) {
+	t.Helper()
+
+	groot, gok, err := e.GetGrantDigestGlobalRoot(ctx)
+	require.NoErrorf(t, err, "%s: GetGrantDigestGlobalRoot", label)
+	if !gok {
+		require.Falsef(t, requireDigests, "%s: digest state absent on an image whose finishing EndSync ran uninjected — the build cannot legally have dropped", label)
+		// Consistent absence: no entitlement root may survive a drop.
+		for _, entID := range w.expectedEntIDsPerPrincipal() {
+			id := entitlementIdentityFromParts("app", "github", entID)
+			_, ok, err := e.GetEntitlementDigestRoot(ctx, id)
+			require.NoErrorf(t, err, "%s: GetEntitlementDigestRoot(%s)", label, entID)
+			require.Falsef(t, ok, "%s: global digest root absent but %s kept a root — partial digest state lies to the repair fast path", label, entID)
+		}
+		t.Logf("%s: digest state absent (legal drop); consistency verified", label)
+		return
+	}
+
+	type fold struct {
+		xor   [hashLen]byte
+		count int64
+	}
+	primary := map[string]*fold{}
+	require.NoErrorf(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+		h, err := grantContentHashForRecord(r)
+		require.NoErrorf(t, err, "%s: content hash for %s", label, r.GetExternalId())
+		gid, err := grantIdentityFromRecord(r)
+		require.NoErrorf(t, err, "%s: identity for %s", label, r.GetExternalId())
+		part := digestPartitionForEntitlement(gid.entitlement)
+		f := primary[part]
+		if f == nil {
+			f = &fold{}
+			primary[part] = f
+		}
+		xorInto(f.xor[:], h)
+		f.count++
+		return true
+	}), "%s: IterateGrants for digest oracle", label)
+
+	var globalXor [hashLen]byte
+	var globalCount int64
+	for _, entID := range w.expectedEntIDsPerPrincipal() {
+		id := entitlementIdentityFromParts("app", "github", entID)
+		part := digestPartitionForEntitlement(id)
+
+		root, ok, err := e.GetEntitlementDigestRoot(ctx, id)
+		require.NoErrorf(t, err, "%s: GetEntitlementDigestRoot(%s)", label, entID)
+		require.Truef(t, ok, "%s: finished store must have a digest root for %s (present-means-exact)", label, entID)
+
+		pf := primary[part]
+		require.NotNilf(t, pf, "%s: no primary grants found for %s", label, entID)
+		require.Equalf(t, pf.count, root.Count, "%s: stored root count vs primary fold for %s", label, entID)
+		require.Equalf(t, pf.xor[:], root.Hash, "%s: stored root hash vs primary fold for %s", label, entID)
+
+		idxHash, idxCount, err := e.ComputeEntitlementBucketDigest(ctx, id, DigestBucket{})
+		require.NoErrorf(t, err, "%s: ComputeEntitlementBucketDigest(%s)", label, entID)
+		require.Equalf(t, root.Count, idxCount, "%s: hash-index fold count vs stored root for %s", label, entID)
+		require.Equalf(t, root.Hash, idxHash, "%s: hash-index fold hash vs stored root for %s", label, entID)
+
+		xorInto(globalXor[:], root.Hash)
+		globalCount += root.Count
+	}
+	// Every grant-bearing partition must have been one of the expected
+	// entitlements — an unexpected partition means cross-wired identity.
+	require.Lenf(t, primary, len(w.expectedEntIDsPerPrincipal()), "%s: grant-bearing partition set", label)
+
+	require.Equalf(t, globalCount, groot.Count, "%s: global root count vs entitlement-root fold", label)
+	require.Equalf(t, globalXor[:], groot.Hash, "%s: global root hash vs entitlement-root fold", label)
 }
 
 // crashStepResult reports how one injected run surfaced its failure.
@@ -437,7 +582,14 @@ const (
 // replayPages selects the resume model: false = the pages were already
 // durable before the window (EndSync sweep), true = replay them (whole
 // sync soak).
-func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image *vfs.MemFS, cache *pebble.Cache, syncID string, replayPages bool, label string) crashImageOutcome {
+// injected: whether the run that produced the image injected any
+// fault. A finished image from an UNINJECTED run must carry digest
+// state (its EndSync had no legitimate reason to loud-drop); a
+// finished image from an injected run may legally lack it (review
+// finding, external parity round: the finished arm used to pass
+// requireDigests=false unconditionally, letting a clean-run image
+// with silently missing digests through).
+func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image *vfs.MemFS, cache *pebble.Cache, syncID string, replayPages bool, injected bool, label string) crashImageOutcome {
 	t.Helper()
 	e, err := Open(ctx, "sweep-db", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger())
 	require.NoErrorf(t, err, "%s: the crash image must reopen", label)
@@ -453,7 +605,7 @@ func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image 
 		// (b) finished: everything the sync wrote must have been durable
 		// before the stamp — a finished-but-incomplete image is the lying
 		// artifact this harness exists to catch.
-		w.verifyComplete(ctx, t, e, syncID, label+" (finished image)")
+		w.verifyComplete(ctx, t, e, syncID, !injected, !injected, label+" (finished image)")
 		return outcomeFinishedComplete
 	case recErr == nil:
 		// (a) unfinished: must be discoverable and resume to completion.
@@ -468,7 +620,7 @@ func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image 
 			require.NoErrorf(t, w.write(ctx, a), "%s: resume page replay", label)
 		}
 		require.NoErrorf(t, a.EndSync(ctx), "%s: resumed EndSync must converge", label)
-		w.verifyComplete(ctx, t, e, syncID, label+" (resumed image)")
+		w.verifyComplete(ctx, t, e, syncID, true, true, label+" (resumed image)")
 		return outcomeUnfinishedResumed
 	default:
 		// (c) the record never became durable. Legal only when the crash
@@ -481,7 +633,7 @@ func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image 
 		require.NoErrorf(t, err, "%s: restart after empty image", label)
 		require.NoErrorf(t, w.write(ctx, a), "%s: restart page write", label)
 		require.NoErrorf(t, a.EndSync(ctx), "%s: restart EndSync", label)
-		w.verifyComplete(ctx, t, e, newID, label+" (restarted image)")
+		w.verifyComplete(ctx, t, e, newID, true, true, label+" (restarted image)")
 		return outcomeNoSyncRunRestarted
 	}
 }
@@ -553,12 +705,12 @@ func TestErrorFSEndSyncWindowSweep(t *testing.T) {
 			// last write op of the window — coverage proven. (A nonzero
 			// injected count with a green run means the injection only hit
 			// post-completion background work; verify and keep sweeping.)
-			outcomes[verifyCrashImage(ctx, t, w, res.image, cache, syncID, false, label+" (clean run)")]++
+			outcomes[verifyCrashImage(ctx, t, w, res.image, cache, syncID, false, res.injected > 0, label+" (clean run)")]++
 			covered = res.injected == 0
 			continue
 		}
 		require.Greaterf(t, res.injected, int64(0), "k=%d: EndSync failed with the injector armed but nothing injected: %v", k, res.err)
-		outcomes[verifyCrashImage(ctx, t, w, res.image, cache, syncID, false, label)]++
+		outcomes[verifyCrashImage(ctx, t, w, res.image, cache, syncID, false, true, label)]++
 	}
 	// The coverage evidence, not just a green run: every k below the
 	// terminator must have injected a fault, and both arms of the reopen
@@ -632,7 +784,7 @@ func TestErrorFSWholeSyncRandomSweepSoak(t *testing.T) {
 				// artifact was flushed, so the strict crash image must
 				// verify complete.
 				require.NotEmpty(t, syncID)
-				verifyCrashImage(ctx, t, w, res.image, cache, syncID, true, label+" (clean run)")
+				verifyCrashImage(ctx, t, w, res.image, cache, syncID, true, res.injected > 0, label+" (clean run)")
 				return
 			}
 			if syncID == "" {
@@ -641,9 +793,140 @@ func TestErrorFSWholeSyncRandomSweepSoak(t *testing.T) {
 				verifyEmptyImageRestarts(ctx, t, w, res.image, cache, label+" (pre-sync)")
 				return
 			}
-			verifyCrashImage(ctx, t, w, res.image, cache, syncID, true, label)
+			verifyCrashImage(ctx, t, w, res.image, cache, syncID, true, true, label)
 		})
 	}
+}
+
+// TestEndSyncStampDurabilityCarriesPages pins the WAL-prefix-
+// durability mechanism ITSELF: the finished stamp's pebble.Sync
+// commit must harden every earlier NoSync page commit (sequential
+// WAL). Isolation is the point — the default workload's EndSync
+// performs OTHER Sync commits before the stamp (digest-pending
+// marker arm/clear, deferred-marker clear), any of which would
+// harden the pages and make the pin vacuous (review finding, delta
+// round). So this variant strips them all: digests disabled, plain
+// inline grants only (no deferred marker), pages committed NoSync
+// with no clean close — leaving the ended_at stamp as the ONLY Sync
+// between the pages and the crash cut, which the endSyncPreFlushHook seam
+// takes immediately after the stamp (before the stats key's own
+// Sync). A strict image (UnsyncedDataPercent=0) that reads finished
+// but lost rows means the stamp's durability stopped carrying the
+// pages — the finished-but-incomplete lying artifact.
+func TestEndSyncStampDurabilityCarriesPages(t *testing.T) {
+	skipOnWindowsMemFS(t)
+	ctx := context.Background()
+	cache := pebble.NewCache(8 << 20)
+	defer cache.Unref()
+
+	fs := vfs.NewCrashableMem()
+	e, err := Open(ctx, "sweep-db",
+		WithVFS(fs), WithSharedCache(cache), withPanicOnFatalLogger(),
+		WithGrantDigestIndex(false))
+	require.NoError(t, err)
+	a := NewAdapter(e)
+	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	// Inline-only pages: PutGrants writes by_principal inline and never
+	// arms the deferred marker, so endSyncFinalize runs NO marker
+	// clears and (digests off) no digest build — nothing Syncs between
+	// these NoSync commits and the stamp.
+	principals := []string{"alice", "bob", "carol"}
+	require.NoError(t, a.PutResourceTypes(ctx,
+		v2.ResourceType_builder{Id: "app"}.Build(),
+		v2.ResourceType_builder{Id: "user"}.Build()))
+	require.NoError(t, a.PutEntitlements(ctx, v2.Entitlement_builder{
+		Id: canonicalTestEntID("ent-00"),
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build(),
+		}.Build(),
+	}.Build()))
+	var gs []*v2.Grant
+	for _, p := range principals {
+		gs = append(gs, mkV2Grant("", "ent-00", "user", p))
+	}
+	require.NoError(t, a.PutGrants(ctx, gs...))
+	require.False(t, e.deferredIdxPending.Load(), "inline-only pages must not arm the deferred marker (isolation precondition)")
+
+	var image *vfs.MemFS
+	e.test.endSyncPreFlushHook = func() {
+		// The stamp is the only Sync since the pages; cut here.
+		image = fs.CrashClone(vfs.CrashCloneCfg{})
+	}
+	require.NoError(t, a.EndSync(ctx))
+	require.NotNil(t, image, "pre-flush hook must have fired")
+	require.NoError(t, e.Close())
+
+	ve, err := Open(ctx, "sweep-db", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger(), WithGrantDigestIndex(false))
+	require.NoError(t, err, "stamp-window crash image must reopen")
+	defer func() { _ = ve.Close() }()
+	rec, err := ve.GetSyncRunRecord(ctx, syncID)
+	require.NoError(t, err, "the Sync-committed stamp must be in the crash image")
+	require.NotNil(t, rec.GetEndedAt(), "the image must read as finished")
+
+	va := NewAdapter(ve)
+	require.NoError(t, va.SetCurrentSync(ctx, syncID))
+	resp, err := va.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	var wantIDs []string
+	for _, p := range principals {
+		wantIDs = append(wantIDs, canonicalTestGrantID("ent-00", "user", p))
+	}
+	gotIDs := make([]string, 0, len(resp.GetList()))
+	for _, g := range resp.GetList() {
+		gotIDs = append(gotIDs, g.GetId())
+	}
+	require.ElementsMatch(t, wantIDs, gotIDs,
+		"finished image lost NoSync page rows: the stamp's Sync no longer carries earlier commits (WAL prefix durability broken)")
+	for _, p := range principals {
+		n := 0
+		require.NoError(t, ve.IterateGrantsByPrincipal(ctx, "user", p, func(*v3.GrantRecord) bool {
+			n++
+			return true
+		}))
+		require.Equalf(t, 1, n, "by_principal for %s in the stamp-window image", p)
+	}
+}
+
+// TestEndSyncStampWindowImageComplete is the full-default-workload
+// companion: it cuts a strict crash image at the same post-stamp
+// hook and requires dichotomy conformance — the image reads finished,
+// so it must be content-complete, digests included. Unlike the
+// isolated variant above it makes NO claim about WHICH Sync hardened
+// the pages (the default EndSync has marker Syncs before the stamp);
+// it pins the caller-visible contract at this window for the
+// deferred+digest path.
+func TestEndSyncStampWindowImageComplete(t *testing.T) {
+	skipOnWindowsMemFS(t)
+	ctx := context.Background()
+	w := defaultSweepWorkload()
+	cache := pebble.NewCache(8 << 20)
+	defer cache.Unref()
+
+	fs := vfs.NewCrashableMem()
+	e, err := Open(ctx, "sweep-db", WithVFS(fs), WithSharedCache(cache), withPanicOnFatalLogger())
+	require.NoError(t, err)
+	a := NewAdapter(e)
+	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, w.write(ctx, a))
+
+	var image *vfs.MemFS
+	e.test.endSyncPreFlushHook = func() {
+		image = fs.CrashClone(vfs.CrashCloneCfg{})
+	}
+	require.NoError(t, a.EndSync(ctx))
+	require.NotNil(t, image, "pre-flush hook must have fired")
+	require.NoError(t, e.Close())
+
+	ve, err := Open(ctx, "sweep-db", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger())
+	require.NoError(t, err, "stamp-window crash image must reopen")
+	defer func() { _ = ve.Close() }()
+	rec, err := ve.GetSyncRunRecord(ctx, syncID)
+	require.NoError(t, err, "the Sync-committed stamp must be in the crash image")
+	require.NotNil(t, rec.GetEndedAt(), "the image must read as finished")
+	w.verifyComplete(ctx, t, ve, syncID, true, false, "stamp-window image")
 }
 
 // verifyEmptyImageRestarts asserts a crash image with no sync at all
@@ -658,5 +941,5 @@ func verifyEmptyImageRestarts(ctx context.Context, t *testing.T, w sweepWorkload
 	require.NoErrorf(t, err, "%s: restart", label)
 	require.NoErrorf(t, w.write(ctx, a), "%s: restart write", label)
 	require.NoErrorf(t, a.EndSync(ctx), "%s: restart EndSync", label)
-	w.verifyComplete(ctx, t, e, syncID, label+" (restarted)")
+	w.verifyComplete(ctx, t, e, syncID, true, true, label+" (restarted)")
 }

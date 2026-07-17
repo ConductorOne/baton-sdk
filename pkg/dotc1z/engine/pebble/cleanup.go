@@ -92,7 +92,7 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 	// engine stays sealed until MarkFreshSync unseals it right after.
 	return e.withWriteAllowSealed(func() error {
 		for _, span := range spans {
-			if err := e.db.Excise(ctx, span); err != nil {
+			if err := e.db.ExciseRange(ctx, span); err != nil {
 				return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)
 			}
 		}
@@ -206,10 +206,10 @@ func (e *Engine) Flush(ctx context.Context) error {
 	if e.closing.Load() {
 		return ErrEngineClosing
 	}
-	if err := e.db.Flush(); err != nil {
+	if err := e.db.FlushMemtables(); err != nil {
 		return fmt.Errorf("engine: flush: %w", err)
 	}
-	if err := e.db.LogData(nil, pebble.Sync); err != nil {
+	if err := e.db.WALSyncPoint(); err != nil {
 		return fmt.Errorf("engine: fsync WAL: %w", err)
 	}
 	return nil

@@ -64,8 +64,8 @@ func TestApplyIndexMigrationsBackfillsNeedsExpansion(t *testing.T) {
 	// version so the next Open sees an old c1z that needs
 	// migration.
 	idxKey := encodeGrantByNeedsExpansionIndexKey("g-pending")
-	require.NoErrorf(t, e.db.Delete(idxKey, pebble.Sync), "delete idx key")
-	require.NoErrorf(t, e.db.Delete(encodeIndexAppliedKey("grant_needs_expansion"), pebble.Sync), "delete applied-version key")
+	require.NoErrorf(t, e.db.UnsafeForTesting().Delete(idxKey, pebble.Sync), "delete idx key")
+	require.NoErrorf(t, e.db.UnsafeForTesting().Delete(encodeIndexAppliedKey("grant_needs_expansion"), pebble.Sync), "delete applied-version key")
 	// Sanity: pre-migration walk finds nothing.
 	pre := 0
 	require.NoErrorf(t, e.IterateGrantsByNeedsExpansion(ctx, func(*v3.GrantRecord) bool {
