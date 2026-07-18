@@ -56,6 +56,9 @@ type FoldStats struct {
 	// (Engine.InvalidateGrantDigestPartitions +
 	// Engine.RepairMissingGrantDigests), instead of the whole file.
 	TouchedGrantPartitions map[string]struct{}
+	// GrantEntitlementIDs: distinct entitlement ids of applied grant records
+	// (no-ops excluded). Seeds incremental expansion without re-reading inputs.
+	GrantEntitlementIDs map[string]struct{}
 }
 
 func (s *FoldStats) Add(o FoldStats) {
@@ -74,6 +77,24 @@ func (s *FoldStats) Add(o FoldStats) {
 		}
 		s.TouchedGrantPartitions[p] = struct{}{}
 	}
+	for id := range o.GrantEntitlementIDs {
+		s.noteGrantEntitlementID([]byte(id))
+	}
+}
+
+// noteGrantEntitlementID records one applied grant's entitlement id;
+// read-before-insert keeps repeats allocation-free.
+func (s *FoldStats) noteGrantEntitlementID(id []byte) {
+	if len(id) == 0 {
+		return
+	}
+	if _, ok := s.GrantEntitlementIDs[string(id)]; ok {
+		return
+	}
+	if s.GrantEntitlementIDs == nil {
+		s.GrantEntitlementIDs = make(map[string]struct{})
+	}
+	s.GrantEntitlementIDs[string(id)] = struct{}{}
 }
 
 func (s *FoldStats) bumpAdded(bucket string, n int64) {
@@ -292,6 +313,9 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *eng
 		if err := batch.Set(key, value); err != nil {
 			return stats, err
 		}
+		// Applied grant (skips continued above): count it toward the
+		// digest-repair signal and collect its entitlement id for
+		// incremental expansion — both during the read the fold already does.
 		if bucket.id == runBucketGrants {
 			stats.GrantWrites++
 			if partition, ok := enginepkg.GrantPartitionFromPrimaryKey(key); ok {
@@ -300,6 +324,11 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *eng
 				}
 				stats.TouchedGrantPartitions[partition] = struct{}{}
 			}
+			_, _, entID, _, _, _, scanErr := scanGrantIndexFieldsBytes(value)
+			if scanErr != nil {
+				return stats, scanErr
+			}
+			stats.noteGrantEntitlementID(entID)
 		}
 		if err := forEachIndexKeyFromRaw(bucket, key, lower, value, &scratch, nil, setIndexKey); err != nil {
 			return stats, err

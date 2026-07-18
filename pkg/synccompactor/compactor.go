@@ -56,6 +56,9 @@ type Compactor struct {
 	// handled expansion (vs falling back to full). Read by tests to prove the
 	// fast path ran rather than silently falling back.
 	incrementalExpansionRan bool
+	// foldChangedEntitlementIDs: changed-entitlement set collected by the
+	// Pebble fold; nil when no fold ran (derive fallback).
+	foldChangedEntitlementIDs map[string]struct{}
 	// engine selects the storage engine for the compacted output.
 	// Empty means EngineSQLite (the default; behavior is unchanged and
 	// the output is byte-identical to the pre-engine-option compactor).
@@ -689,7 +692,7 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 
 	// Changed entitlements are derived from the applied increments (their
 	// grants' entitlement ids), not supplied by the caller — trust the data.
-	changedEntitlementIDs, err := c.deriveChangedEntitlementIDs(walkCtx)
+	changedEntitlementIDs, err := c.changedEntitlementIDs(walkCtx)
 	if err != nil {
 		if endErr := c.restoreEndedSync(ctx); endErr != nil {
 			return false, endErr
@@ -756,10 +759,24 @@ func (c *Compactor) finishIncrementalExpansion(ctx context.Context) (bool, error
 	return true, nil
 }
 
-// deriveChangedEntitlementIDs returns the distinct entitlement ids touched by
-// the applied increments (entries[1:]; entries[0] is the base). These seed the
-// incremental walk so a new member on an already-expanded entitlement — which
-// adds no edge — still propagates. Derived from the data, not the caller.
+// changedEntitlementIDs returns the entitlement ids whose grants changed in
+// the applied increments, seeding the incremental walk. The fold collects
+// them during its merge (no re-read, no-ops excluded); rebuild-mode
+// compactions fall back to deriveChangedEntitlementIDs.
+func (c *Compactor) changedEntitlementIDs(ctx context.Context) ([]string, error) {
+	if c.foldChangedEntitlementIDs != nil {
+		out := make([]string, 0, len(c.foldChangedEntitlementIDs))
+		for id := range c.foldChangedEntitlementIDs {
+			out = append(out, id)
+		}
+		sort.Strings(out)
+		return out, nil
+	}
+	return c.deriveChangedEntitlementIDs(ctx)
+}
+
+// deriveChangedEntitlementIDs is the no-fold fallback: re-open each increment
+// (entries[1:]) and collect its grants' entitlement ids.
 func (c *Compactor) deriveChangedEntitlementIDs(ctx context.Context) ([]string, error) {
 	if len(c.entries) < 2 {
 		return nil, nil
@@ -885,7 +902,8 @@ func classifyEdgeSpecChange(base *expand.Edge, cur expand.NewEdge) edgeSpecChang
 // compareResourceTypeFilter compares two principal-type filters where an empty
 // filter means "all types" (the widest). Returns whether the current filter is
 // wider and/or narrower than the base.
-func compareResourceTypeFilter(base, cur []string) (widened, narrowed bool) {
+func compareResourceTypeFilter(base, cur []string) (bool, bool) {
+	var widened, narrowed bool
 	baseAll := len(base) == 0
 	curAll := len(cur) == 0
 	switch {
