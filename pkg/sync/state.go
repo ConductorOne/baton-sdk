@@ -428,6 +428,21 @@ func (st *state) Unmarshal(input string) error {
 		st.currentActionID = token.CurrentActionID
 		st.needsExpansion = token.NeedsExpansion
 		st.entitlementGraph = token.EntitlementGraph
+		if st.entitlementGraph == nil {
+			// A graph-less token cannot resume a grant-expansion pagination:
+			// the page token indexes a load the (now absent) graph was
+			// accumulating, and continuing from it against a fresh graph would
+			// silently drop the edges from earlier pages. Marshal already
+			// normalizes this, but tolerate tokens from writers that did not.
+			// Tokens carrying an inline graph (written by older SDKs) keep
+			// their page token and resume exactly as before.
+			for id, a := range st.actions {
+				if a.Op == SyncGrantExpansionOp && a.PageToken != "" {
+					a.PageToken = ""
+					st.actions[id] = a
+				}
+			}
+		}
 		st.hasExternalResourceGrants = token.HasExternalResourceGrants
 		st.shouldSkipEntitlementsAndGrants = token.ShouldSkipEntitlementsAndGrants
 		st.shouldSkipGrants = token.ShouldSkipGrants
@@ -484,16 +499,50 @@ func (st *state) Unmarshal(input string) error {
 }
 
 // Marshal returns a string encoding of the state object. This is useful for datastores to checkpoint the current state.
+//
+// The entitlement graph is deliberately NOT serialized. It is a projection of
+// data already in the store (loadEntitlementGraph rebuilds it from
+// PendingExpansionPage, with no connector calls), and for large tenants its
+// JSON encoding multiplied the checkpoint's memory footprint several times
+// over — json map encoding + the string copy + the store's record/compression/
+// batch copies each cost O(graph) live at once, which OOM-killed sync workers
+// mid-checkpoint. A crash mid-expansion now re-runs the load and expansion
+// phases from the store on resume (the same replay property
+// PrepareExpansionReplayToken relies on) instead of resuming them from the
+// token.
+//
+// Because a resumed reader gets no graph, any in-flight SyncGrantExpansionOp
+// action is serialized with its PageToken blanked: the page token indexes a
+// pagination the graph was accumulating, and resuming from it with an empty
+// graph would silently drop the edges from earlier pages. Blanking it at
+// marshal time (rather than only fixing it up at Unmarshal) keeps tokens
+// safe for OLDER readers too — an old SDK resuming a graph-less token starts
+// a fresh graph and must restart the load from the first page. Only the
+// serialized copy is normalized; the live state keeps its page token.
 func (st *state) Marshal() (string, error) {
 	st.mtx.RLock()
 	defer st.mtx.RUnlock()
 
+	actions := st.actions
+	for _, action := range st.actions {
+		if action.Op == SyncGrantExpansionOp && action.PageToken != "" {
+			actions = make(map[string]Action, len(st.actions))
+			for id, a := range st.actions {
+				if a.Op == SyncGrantExpansionOp {
+					a.PageToken = ""
+				}
+				actions[id] = a
+			}
+			break
+		}
+	}
+
 	data, err := json.Marshal(serializedTokenV1{
-		ActionsMap:                      st.actions,
+		ActionsMap:                      actions,
 		ActionOrder:                     st.actionOrder,
 		CurrentActionID:                 st.currentActionID,
 		NeedsExpansion:                  st.needsExpansion,
-		EntitlementGraph:                st.entitlementGraph,
+		EntitlementGraph:                nil, // never serialized; see doc comment above
 		HasExternalResourceGrants:       st.hasExternalResourceGrants,
 		ShouldFetchRelatedResources:     st.shouldFetchRelatedResources,
 		ShouldSkipEntitlementsAndGrants: st.shouldSkipEntitlementsAndGrants,
