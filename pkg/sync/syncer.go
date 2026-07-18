@@ -191,6 +191,30 @@ func NewExpanderStore(store c1zstore.Store) expand.ExpanderStore {
 	return expanderStoreAdapter{store: store}
 }
 
+// persistEntitlementGraphToStore moves the preserved graph from the sync token
+// into the c1z sidecar when the store supports it, keeping the token skinny.
+// On any failure the graph stays in the token (GraphFromToken still works).
+func (s *syncer) persistEntitlementGraphToStore(ctx context.Context, syncID string) {
+	g := s.state.PeekEntitlementGraph()
+	if g == nil {
+		return
+	}
+	gs, ok := s.store.(EntitlementGraphStore)
+	if !ok {
+		return // no sidecar support (SQLite): graph stays in the token
+	}
+	data, err := expand.MarshalGraphBlob(syncID, g)
+	if err != nil {
+		ctxzap.Extract(ctx).Warn("preserve entitlement graph: marshal failed; keeping graph in token", zap.Error(err))
+		return
+	}
+	if err := gs.PutEntitlementGraphBlob(ctx, data); err != nil {
+		ctxzap.Extract(ctx).Warn("preserve entitlement graph: sidecar write failed; keeping graph in token", zap.Error(err))
+		return
+	}
+	s.state.ClearEntitlementGraph(ctx)
+}
+
 func (a expanderStoreAdapter) GetEntitlement(ctx context.Context, req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
 	return a.store.GetEntitlement(ctx, req)
 }
@@ -885,12 +909,13 @@ func (s *syncer) Sync(ctx context.Context) error {
 	s.logIngestFilterSummary(ctx)
 
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
-	// preserveEntitlementGraph keeps the graph in the final token so a later
-	// incremental expansion can reload it instead of rebuilding from scratch —
-	// but strip its transient working state (action queue, expansion plan,
-	// metrics) first, which a reload doesn't need and which bloats the token.
+	// preserveEntitlementGraph keeps the graph for a later incremental
+	// expansion: written to the c1z sidecar when the store supports it (token
+	// stays skinny — a whale graph is megabytes), else kept in the final token.
+	// Transient working state is stripped either way; a reload rebuilds it.
 	if s.preserveEntitlementGraph {
 		s.state.ClearEntitlementGraphTransientState(ctx)
+		s.persistEntitlementGraphToStore(ctx, syncID)
 	} else {
 		s.state.ClearEntitlementGraph(ctx)
 	}

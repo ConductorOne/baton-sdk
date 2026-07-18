@@ -702,6 +702,7 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 
 	if len(newEdges) == 0 && len(changedEntitlementIDs) == 0 {
 		// Nothing changed relative to the base — its grants were already merged in.
+		c.persistGraphSidecar(ctx, base, newSyncId)
 		return c.finishIncrementalExpansion(ctx)
 	}
 
@@ -720,7 +721,25 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 	ctxzap.Extract(ctx).Info("incremental grant expansion complete",
 		zap.Int("entitlements_walked", len(res.EntitlementsWalked)),
 		zap.Int("grants_written", res.GrantsWritten))
+	c.persistGraphSidecar(ctx, base, newSyncId)
 	return c.finishIncrementalExpansion(ctx)
+}
+
+// persistGraphSidecar writes the post-expansion graph into the compacted c1z
+// so the artifact carries its own base graph for the next incremental run.
+// Best-effort: on failure the next run just falls back to full expansion.
+func (c *Compactor) persistGraphSidecar(ctx context.Context, g *expand.EntitlementGraph, syncID string) {
+	gs, ok := c.compactedC1z.(sync.EntitlementGraphStore)
+	if !ok {
+		return
+	}
+	data, err := expand.MarshalGraphBlob(syncID, g)
+	if err == nil {
+		err = gs.PutEntitlementGraphBlob(ctx, data)
+	}
+	if err != nil {
+		ctxzap.Extract(ctx).Warn("incremental expansion: persist graph sidecar failed", zap.Error(err))
+	}
 }
 
 // restoreEndedSync returns the compacted sync to the ended state the full path
@@ -990,6 +1009,18 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 		sync.WithTmpDir(c.tmpDir),
 		sync.WithSyncID(newSyncId),
 		sync.WithOnlyExpandGrants(),
+	}
+
+	// Keep the artifact's graph sidecar coherent with this full expansion:
+	// opted-in compactions preserve a fresh graph (so the incremental chain
+	// heals after a fallback); otherwise drop any sidecar inherited from a
+	// fold-copied base.
+	if c.incrementalBaseGraph != nil {
+		syncOpts = append(syncOpts, sync.WithPreserveEntitlementGraph())
+	} else if gs, ok := c.compactedC1z.(sync.EntitlementGraphStore); ok {
+		if err := gs.DeleteEntitlementGraphBlob(ctx); err != nil {
+			l.Warn("expandGrants: delete inherited graph sidecar failed", zap.Error(err))
+		}
 	}
 
 	compactionDuration := time.Since(compactionStart)

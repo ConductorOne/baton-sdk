@@ -40,23 +40,28 @@ func (g *EntitlementGraph) Clone() (*EntitlementGraph, error) {
 	if err := json.Unmarshal(data, out); err != nil {
 		return nil, fmt.Errorf("clone entitlement graph: %w", err)
 	}
-	// json leaves absent maps nil; reinit so the clone is immediately usable.
-	if out.Nodes == nil {
-		out.Nodes = map[int]Node{}
-	}
-	if out.EntitlementsToNodes == nil {
-		out.EntitlementsToNodes = map[string]int{}
-	}
-	if out.SourcesToDestinations == nil {
-		out.SourcesToDestinations = map[int]map[int]int{}
-	}
-	if out.DestinationsToSources == nil {
-		out.DestinationsToSources = map[int]map[int]int{}
-	}
-	if out.Edges == nil {
-		out.Edges = map[int]Edge{}
-	}
+	out.reinitMaps()
 	return out, nil
+}
+
+// reinitMaps replaces nil maps (json leaves absent maps nil) so a
+// deserialized graph is immediately usable.
+func (g *EntitlementGraph) reinitMaps() {
+	if g.Nodes == nil {
+		g.Nodes = map[int]Node{}
+	}
+	if g.EntitlementsToNodes == nil {
+		g.EntitlementsToNodes = map[string]int{}
+	}
+	if g.SourcesToDestinations == nil {
+		g.SourcesToDestinations = map[int]map[int]int{}
+	}
+	if g.DestinationsToSources == nil {
+		g.DestinationsToSources = map[int]map[int]int{}
+	}
+	if g.Edges == nil {
+		g.Edges = map[int]Edge{}
+	}
 }
 
 // ErrIncrementalFallback means a new edge closed a cycle; the caller should

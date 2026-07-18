@@ -20,6 +20,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
@@ -751,4 +752,73 @@ func TestCompactor_IncrementalNewMemberRebuildFallsBackToDerive(t *testing.T) {
 	fullGrants := grantOutcome(t, ctx, fullOut.FilePath, fullOut.SyncID)
 	require.Equal(t, fullGrants, incGrants, "derive-fallback incremental must equal full expansion")
 	hasGrant(t, incGrants, "ent-c|user|bob")
+}
+
+// artifactGraph loads the graph sidecar from a compacted artifact.
+func artifactGraph(t *testing.T, ctx context.Context, path, syncID string) *expand.EntitlementGraph {
+	t.Helper()
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	defer store.Close(ctx)
+	g, err := sdksync.GraphFromStore(ctx, store, syncID)
+	require.NoError(t, err)
+	return g
+}
+
+// TestCompactor_ArtifactCarriesGraphSidecar: the compacted artifact self-carries
+// its post-expansion graph for the next incremental run — on the incremental
+// path (updated clone), on the decline->full path (fresh graph via preserve),
+// and not at all when incremental wasn't requested.
+func TestCompactor_ArtifactCarriesGraphSidecar(t *testing.T) {
+	ctx := context.Background()
+
+	// (a) Incremental success: sidecar = base graph + the increment's new edge.
+	entries := buildIncrementalFixtures(t, ctx, t.TempDir()) // increment adds ent-a -> ent-b
+	cInc, cleanupInc, err := NewCompactor(ctx, t.TempDir(), entries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(c1zstore.EnginePebble),
+		WithIncrementalExpansion(baseGraphForFixtures(t, ctx)), // ent-b -> ent-c
+	)
+	require.NoError(t, err)
+	defer func() { _ = cleanupInc() }()
+	incOut, err := cInc.Compact(ctx)
+	require.NoError(t, err)
+	require.True(t, cInc.incrementalExpansionRan)
+
+	g := artifactGraph(t, ctx, incOut.FilePath, incOut.SyncID)
+	require.NotNil(t, g, "incremental artifact must carry its graph sidecar")
+	require.NotNil(t, g.GetNode("ent-a"), "sidecar graph must include the increment's new edge source")
+	require.Len(t, g.Edges, 2, "base edge + folded-in new edge")
+
+	// (b) Decline -> full (narrowed edge) with incremental requested: the full
+	// path preserves a fresh graph so the chain heals after the fallback.
+	declEntries := buildSpecChangeFixtures(t, ctx, t.TempDir(), false, true) // deep -> shallow
+	cDecl, cleanupDecl, err := NewCompactor(ctx, t.TempDir(), declEntries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(c1zstore.EnginePebble),
+		WithIncrementalExpansion(specChangeBaseGraph(t, ctx, false)),
+	)
+	require.NoError(t, err)
+	defer func() { _ = cleanupDecl() }()
+	declOut, err := cDecl.Compact(ctx)
+	require.NoError(t, err)
+	require.False(t, cDecl.incrementalExpansionRan, "narrowed edge must decline to full")
+
+	g = artifactGraph(t, ctx, declOut.FilePath, declOut.SyncID)
+	require.NotNil(t, g, "declined-to-full artifact must still carry a fresh graph sidecar")
+	require.NotNil(t, g.GetNode("ent-b"))
+
+	// (c) Incremental not requested: no sidecar.
+	plainEntries := buildIncrementalFixtures(t, ctx, t.TempDir())
+	cPlain, cleanupPlain, err := NewCompactor(ctx, t.TempDir(), plainEntries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(c1zstore.EnginePebble),
+	)
+	require.NoError(t, err)
+	defer func() { _ = cleanupPlain() }()
+	plainOut, err := cPlain.Compact(ctx)
+	require.NoError(t, err)
+
+	g = artifactGraph(t, ctx, plainOut.FilePath, plainOut.SyncID)
+	require.Nil(t, g, "artifact without incremental opt-in must carry no graph sidecar")
 }
