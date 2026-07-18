@@ -389,10 +389,15 @@ func TestSyncTokenV0FromC1Z(t *testing.T) {
 }
 
 // buildLoadedGraphState returns a state mid-grant-expansion: a populated
-// entitlement graph and a SyncGrantExpansionOp action paginating the load.
+// entitlement graph and a SyncGrantExpansionOp action paginating the load,
+// stacked on a non-expansion action whose own pagination must survive the
+// checkpoint normalization untouched.
 func buildLoadedGraphState(t *testing.T, ctx context.Context, pageToken string) *state {
 	t.Helper()
 	st := newState()
+
+	st.PushAction(ctx, Action{Op: SyncGrantsOp})
+	require.NoError(t, st.NextPage(ctx, st.Current().ID, "grants-p9"))
 
 	st.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
 	if pageToken != "" {
@@ -428,9 +433,18 @@ func TestSyncerTokenOmitsEntitlementGraph(t *testing.T) {
 	var raw serializedTokenV1
 	require.NoError(t, json.Unmarshal([]byte(tokenString), &raw))
 	require.Nil(t, raw.EntitlementGraph)
+	// The normalized copy blanks ONLY expansion pagination: other actions keep
+	// theirs, and no map entries are dropped.
+	require.Len(t, raw.ActionsMap, 2)
+	require.Len(t, raw.ActionOrder, 2)
 	for _, a := range raw.ActionsMap {
-		if a.Op == SyncGrantExpansionOp {
+		switch a.Op {
+		case SyncGrantExpansionOp:
 			require.Empty(t, a.PageToken, "serialized expansion action must restart the load")
+		case SyncGrantsOp:
+			require.Equal(t, "grants-p9", a.PageToken, "non-expansion pagination must survive")
+		default:
+			t.Fatalf("unexpected action op in serialized token: %v", a.Op)
 		}
 	}
 
@@ -439,13 +453,20 @@ func TestSyncerTokenOmitsEntitlementGraph(t *testing.T) {
 	require.NotNil(t, st.entitlementGraph)
 	require.Equal(t, "page37", st.Current().PageToken)
 
-	// A resumed state starts expansion over: fresh graph, first page.
+	// A resumed state starts expansion over: fresh graph, first page — with
+	// the rest of the action stack intact.
 	resumed := newState()
 	require.NoError(t, resumed.Unmarshal(tokenString))
 	require.Nil(t, resumed.entitlementGraph)
 	require.Equal(t, SyncGrantExpansionOp, resumed.Current().Op)
 	require.Empty(t, resumed.Current().PageToken)
 	require.False(t, resumed.EntitlementGraph(ctx).Loaded)
+	require.Len(t, resumed.actions, 2)
+	for _, a := range resumed.actions {
+		if a.Op == SyncGrantsOp {
+			require.Equal(t, "grants-p9", a.PageToken)
+		}
+	}
 }
 
 // Tokens written by older SDKs carry the graph inline. They must decode and
@@ -480,6 +501,47 @@ func TestSyncerTokenLegacyInlineGraphStillDecodes(t *testing.T) {
 	require.Equal(t, st.entitlementGraph.NextEdgeID, restored.NextEdgeID)
 	// With the graph present, the pagination is still valid and must survive.
 	require.Equal(t, "page37", resumed.Current().PageToken)
+
+	// The upgrade chain: the next checkpoint after resuming a legacy token
+	// must write the new format — graph omitted AND the in-flight expansion
+	// pagination blanked (a graph-less token carrying the page token would be
+	// exactly the orphan shape Unmarshal defends against) — while the live
+	// resumed state keeps both and continues unaffected.
+	out, err := resumed.Marshal()
+	require.NoError(t, err)
+	var reserialized serializedTokenV1
+	require.NoError(t, json.Unmarshal([]byte(out), &reserialized))
+	require.Nil(t, reserialized.EntitlementGraph)
+	for _, a := range reserialized.ActionsMap {
+		if a.Op == SyncGrantExpansionOp {
+			require.Empty(t, a.PageToken)
+		}
+	}
+	require.NotNil(t, resumed.entitlementGraph)
+	require.Equal(t, "page37", resumed.Current().PageToken)
+}
+
+// The defensive blanking also applies to tokens decoded through the V0
+// fallback: a graph-less V0 token cannot resume expansion pagination either,
+// while other actions keep theirs.
+func TestSyncerTokenV0OrphanExpansionPageTokenBlanked(t *testing.T) {
+	legacy, err := json.Marshal(serializedTokenV0{
+		Actions:       []Action{{Op: SyncGrantsOp, PageToken: "grants-p9"}},
+		CurrentAction: &Action{Op: SyncGrantExpansionOp, PageToken: "page37"},
+	})
+	require.NoError(t, err)
+
+	resumed := newState()
+	require.NoError(t, resumed.Unmarshal(string(legacy)))
+	require.Nil(t, resumed.entitlementGraph)
+	require.Equal(t, SyncGrantExpansionOp, resumed.Current().Op)
+	require.Empty(t, resumed.Current().PageToken)
+	require.Len(t, resumed.actions, 2)
+	for _, a := range resumed.actions {
+		if a.Op == SyncGrantsOp {
+			require.Equal(t, "grants-p9", a.PageToken)
+		}
+	}
 }
 
 // A graph-less token whose expansion action still carries a page token (a
