@@ -674,3 +674,81 @@ func TestCompactor_IncrementalDegradesGracefullyOnSQLite(t *testing.T) {
 	hasGrant(t, grants, "ent-c|user|sam")
 	hasGrant(t, grants, "ent-c|user|mandy")
 }
+
+// TestCompactor_IncrementalNewMemberFoldCollectsChangedEnts: fold mode
+// collects the changed-entitlement set during the merge (no re-read) and
+// still matches full expansion.
+func TestCompactor_IncrementalNewMemberFoldCollectsChangedEnts(t *testing.T) {
+	ctx := context.Background()
+
+	incEntries := buildNewMemberFixtures(t, ctx, t.TempDir())
+	cInc, cleanupInc, err := NewCompactor(ctx, t.TempDir(), incEntries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(c1zstore.EnginePebble),
+		WithPebbleCompactorMode(PebbleCompactorModeFold),
+		WithIncrementalExpansion(baseGraphForFixtures(t, ctx)),
+	)
+	require.NoError(t, err)
+	defer func() { _ = cleanupInc() }()
+	incOut, err := cInc.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, incOut)
+	require.True(t, cInc.incrementalExpansionRan, "incremental path must have run, not fallen back to full")
+
+	require.NotNil(t, cInc.foldChangedEntitlementIDs, "fold mode must hand its collected set to expansion")
+	require.Contains(t, cInc.foldChangedEntitlementIDs, "ent-b",
+		"bob's new membership grant on ent-b was applied by the fold")
+
+	fullEntries := buildNewMemberFixtures(t, ctx, t.TempDir())
+	cFull, cleanupFull, err := NewCompactor(ctx, t.TempDir(), fullEntries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(c1zstore.EnginePebble),
+		WithPebbleCompactorMode(PebbleCompactorModeFold),
+	)
+	require.NoError(t, err)
+	defer func() { _ = cleanupFull() }()
+	fullOut, err := cFull.Compact(ctx)
+	require.NoError(t, err)
+
+	incGrants := grantOutcome(t, ctx, incOut.FilePath, incOut.SyncID)
+	fullGrants := grantOutcome(t, ctx, fullOut.FilePath, fullOut.SyncID)
+	require.Equal(t, fullGrants, incGrants, "fold-collected incremental must equal full expansion")
+	hasGrant(t, incGrants, "ent-c|user|bob")
+}
+
+// TestCompactor_IncrementalNewMemberRebuildFallsBackToDerive: no fold ->
+// derive fallback; the fast path still runs and matches full.
+func TestCompactor_IncrementalNewMemberRebuildFallsBackToDerive(t *testing.T) {
+	ctx := context.Background()
+
+	incEntries := buildNewMemberFixtures(t, ctx, t.TempDir())
+	cInc, cleanupInc, err := NewCompactor(ctx, t.TempDir(), incEntries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(c1zstore.EnginePebble),
+		WithPebbleCompactorMode(PebbleCompactorModeOverlay),
+		WithIncrementalExpansion(baseGraphForFixtures(t, ctx)),
+	)
+	require.NoError(t, err)
+	defer func() { _ = cleanupInc() }()
+	incOut, err := cInc.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, incOut)
+	require.True(t, cInc.incrementalExpansionRan, "incremental path must have run, not fallen back to full")
+	require.Nil(t, cInc.foldChangedEntitlementIDs, "no fold ran, so the derive fallback must have been used")
+
+	fullEntries := buildNewMemberFixtures(t, ctx, t.TempDir())
+	cFull, cleanupFull, err := NewCompactor(ctx, t.TempDir(), fullEntries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(c1zstore.EnginePebble),
+		WithPebbleCompactorMode(PebbleCompactorModeOverlay),
+	)
+	require.NoError(t, err)
+	defer func() { _ = cleanupFull() }()
+	fullOut, err := cFull.Compact(ctx)
+	require.NoError(t, err)
+
+	incGrants := grantOutcome(t, ctx, incOut.FilePath, incOut.SyncID)
+	fullGrants := grantOutcome(t, ctx, fullOut.FilePath, fullOut.SyncID)
+	require.Equal(t, fullGrants, incGrants, "derive-fallback incremental must equal full expansion")
+	hasGrant(t, incGrants, "ent-c|user|bob")
+}
