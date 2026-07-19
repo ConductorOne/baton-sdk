@@ -59,8 +59,8 @@ func TestCompactBasicRoundtrip(t *testing.T) {
 	dst, _ := newEngine(t, "dst")
 
 	syncID := ksuid.New().String()
-	require.NoError(t, src.SetCurrentSync(syncID))
-	require.NoError(t, dst.SetCurrentSync(syncID))
+	require.NoError(t, src.SetCurrentSync(ctx, syncID))
+	require.NoError(t, dst.SetCurrentSync(ctx, syncID))
 
 	// 200 grants in source under syncID.
 	for i := 0; i < 200; i++ {
@@ -82,8 +82,8 @@ func TestCompactReplacesExisting(t *testing.T) {
 	dst, _ := newEngine(t, "dst")
 
 	syncID := ksuid.New().String()
-	require.NoError(t, src.SetCurrentSync(syncID))
-	require.NoError(t, dst.SetCurrentSync(syncID))
+	require.NoError(t, src.SetCurrentSync(ctx, syncID))
+	require.NoError(t, dst.SetCurrentSync(ctx, syncID))
 
 	// Seed dst with 500 stale grants under syncID.
 	for i := 0; i < 500; i++ {
@@ -131,7 +131,7 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 
 	syncID := ksuid.New().String()
 	for _, e := range []*enginepkg.Engine{src, dst} {
-		require.NoError(t, e.SetCurrentSync(syncID))
+		require.NoError(t, e.SetCurrentSync(ctx, syncID))
 	}
 
 	require.NoError(t, dst.PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
@@ -230,14 +230,14 @@ func TestCompactReplacesDestData(t *testing.T) {
 	syncID := ksuid.New().String()
 
 	// dst starts with 100 grants that the compaction must replace.
-	require.NoError(t, dst.SetCurrentSync(syncID))
+	require.NoError(t, dst.SetCurrentSync(ctx, syncID))
 	for i := 0; i < 100; i++ {
 		r := grant(syncID, ksuid.New().String(), "ent-old", ksuid.New().String())
 		require.NoError(t, dst.PutGrantRecord(ctx, r))
 	}
 
 	// src has 25 (different) grants.
-	require.NoError(t, src.SetCurrentSync(syncID))
+	require.NoError(t, src.SetCurrentSync(ctx, syncID))
 	for i := 0; i < 25; i++ {
 		r := grant(syncID, ksuid.New().String(), "ent-new", ksuid.New().String())
 		require.NoError(t, src.PutGrantRecord(ctx, r))
@@ -258,7 +258,7 @@ func TestCompactEmptySource(t *testing.T) {
 	dst, _ := newEngine(t, "dst")
 
 	syncID := ksuid.New().String()
-	require.NoError(t, dst.SetCurrentSync(syncID))
+	require.NoError(t, dst.SetCurrentSync(ctx, syncID))
 	// Seed dst with grants we expect to be wiped.
 	for i := 0; i < 20; i++ {
 		r := grant(syncID, ksuid.New().String(), "ent", ksuid.New().String())

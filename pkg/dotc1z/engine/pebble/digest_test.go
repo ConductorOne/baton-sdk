@@ -523,7 +523,7 @@ func seedEntitlement(t testing.TB, e *Engine, entID string, grants []*v3.GrantRe
 	t.Helper()
 	ctx := context.Background()
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, entID)
@@ -552,7 +552,7 @@ func seedEntitlementAtWidth(t testing.TB, e *Engine, entID string, grants []*v3.
 	t.Helper()
 	ctx := context.Background()
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, entID)
@@ -1022,7 +1022,7 @@ func TestFusedFoldMatchesPartitionRebuild(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	counts := map[string]int64{"ent-big": 600, "ent-small": 10, "ent-zero": 0}
@@ -1266,7 +1266,7 @@ func TestDigestPutInvalidatesOnlyTouchedPartition(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, "ent-A")
@@ -1365,7 +1365,7 @@ func TestGrantDigestSpillMerge(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	// One big entitlement that will span many tiny runs, plus small
@@ -1496,7 +1496,7 @@ func TestDigestMissingRootWholeDirty(t *testing.T) {
 	// B holds the same grants but never builds a digest.
 	eb, _ := newTestEngine(t)
 	syncB := ksuid.New().String()
-	if err := eb.SetCurrentSync(syncB); err != nil {
+	if err := eb.bindCurrentSync(syncB); err != nil {
 		t.Fatal(err)
 	}
 	putEnt(t, eb, ctx, "ent-A")

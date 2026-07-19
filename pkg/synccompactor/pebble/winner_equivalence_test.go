@@ -104,7 +104,7 @@ func buildEngineSource(t *testing.T, ctx context.Context, name string, rs record
 	t.Helper()
 	eng, _ := newEngine(t, name)
 	syncID := ksuid.New().String()
-	require.NoError(t, eng.SetCurrentSync(syncID))
+	require.NoError(t, eng.SetCurrentSync(ctx, syncID))
 	populateEngine(t, ctx, eng, rs)
 	return SourceSync{Engine: eng, SyncID: syncID}
 }

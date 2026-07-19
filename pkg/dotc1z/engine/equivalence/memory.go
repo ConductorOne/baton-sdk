@@ -27,7 +27,7 @@ func NewMemoryRef() *MemoryRef {
 	return &MemoryRef{bySync: map[string]map[string]*v3.GrantRecord{}}
 }
 
-func (m *MemoryRef) SetCurrentSync(syncID string) error {
+func (m *MemoryRef) SetCurrentSync(ctx context.Context, syncID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.currentSync = syncID

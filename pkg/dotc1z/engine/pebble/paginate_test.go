@@ -269,7 +269,7 @@ func TestPaginationClampedPageSize(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 	const total = 50
 	for i := 0; i < total; i++ {
 		r := &v3.GrantRecord{}

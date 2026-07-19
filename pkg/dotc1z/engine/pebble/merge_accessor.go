@@ -22,31 +22,31 @@ import (
 // is referable without the import.
 type FoldBatch = rawdb.FoldBatch
 
-// engineAccessor is implemented by *Adapter and by pkg/dotc1z's Pebble
-// store wrapper (which embeds *Adapter and overrides the method with a
-// nil-safe version).
+// engineAccessor is implemented by *Engine itself and by pkg/dotc1z's
+// Pebble store wrapper (which embeds *Engine and overrides the method
+// with a nil-safe version).
 type engineAccessor interface {
 	PebbleEngine() *Engine
 }
 
-// PebbleEngine returns the underlying *Engine. Nil-safe so AsEngine can
-// probe arbitrary writers.
-func (a *Adapter) PebbleEngine() *Engine {
-	if a == nil {
+// PebbleEngine returns the engine. Nil-safe so AsEngine can probe
+// arbitrary writers.
+func (e *Engine) PebbleEngine() *Engine {
+	if e == nil {
 		return nil
 	}
-	return a.engine
+	return e
 }
 
 // AsEngine recovers the underlying *Engine from a connectorstore.Writer
 // produced by dotc1z.NewStore for the Pebble engine. NewStore returns a
-// wrapper that embeds *Adapter; a bare *Adapter is also accepted for
-// callers that construct one directly. Returns (nil, false) for any
+// wrapper that embeds *Engine; a bare *Engine is also accepted for
+// callers that hold one directly. Returns (nil, false) for any
 // non-Pebble store, so a caller can branch on the engine without
 // importing internal types.
 func AsEngine(w connectorstore.Writer) (*Engine, bool) {
-	if a, ok := w.(engineAccessor); ok {
-		if e := a.PebbleEngine(); e != nil {
+	if acc, ok := w.(engineAccessor); ok {
+		if e := acc.PebbleEngine(); e != nil {
 			return e, true
 		}
 	}
@@ -197,17 +197,15 @@ func MarkStoreDirty(w connectorstore.Writer) bool {
 // owns a parent temp directory and wants one bulk cleanup after closing many
 // read-only source stores.
 func CloseEngineOnly(w connectorstore.Writer) error {
-	switch s := w.(type) {
-	case engineOnlyCloser:
+	if s, ok := w.(engineOnlyCloser); ok {
 		return s.CloseEngineOnly()
-	case *Adapter:
-		if s == nil || s.engine == nil {
-			return nil
-		}
-		return s.engine.Close()
-	default:
-		return nil
 	}
+	// A bare *Engine (no store wrapper) closes directly — there is no
+	// temp-dir teardown to skip.
+	if e, ok := AsEngine(w); ok {
+		return e.Close()
+	}
+	return nil
 }
 
 // NormalizeForFixtureSave flushes and compacts one sync in a Pebble

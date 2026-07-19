@@ -221,7 +221,7 @@ func TestGrantContentHashMissingIdentity(t *testing.T) {
 func TestGrantDigestAccumulatorMatchesSealedRoots(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
-	require.NoError(t, e.SetCurrentSync(ksuid.New().String()))
+	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
 
 	entGrants := map[string][]*v2.Grant{
 		"ent-a": {

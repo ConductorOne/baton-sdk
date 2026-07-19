@@ -15,6 +15,8 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"google.golang.org/protobuf/proto"
 
+	v2pb "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
@@ -36,6 +38,29 @@ type Engine struct {
 	dbDir      string
 	opts       *Options
 	pebbleOpts *pebble.Options
+
+	// Embedded Unimplemented stubs for the gRPC service surfaces the
+	// engine's connectorstore face (adapter.go / adapter_reader.go)
+	// implements partially. Each implemented method overrides the
+	// stub. GrantsReaderServiceServer is deliberately NOT stubbed: the
+	// engine implements it in full, and adapter_reader.go asserts the
+	// complete contract — re-adding the stub would make that assertion
+	// vacuous.
+	v2pb.UnimplementedResourceTypesServiceServer
+	reader_v2.UnimplementedResourceTypesReaderServiceServer
+	v2pb.UnimplementedResourcesServiceServer
+	reader_v2.UnimplementedResourcesReaderServiceServer
+	v2pb.UnimplementedEntitlementsServiceServer
+	reader_v2.UnimplementedEntitlementsReaderServiceServer
+	v2pb.UnimplementedGrantsServiceServer
+	reader_v2.UnimplementedSyncsReaderServiceServer
+
+	// lifecycleMu serializes the sync-lifecycle transitions
+	// (StartNewSync/ResumeSync/SetCurrentSync/CheckpointSync/EndSync),
+	// whose bodies are read-check-write sequences over the sync-run
+	// record + the currentSync binding. Formerly the Adapter layer's
+	// mutex; the record writes themselves ride the write barrier.
+	lifecycleMu sync.Mutex
 	// resolvedFS is rawdb's Open-time FS resolution (WithVFS override
 	// or vfs.Default), snapshotted so fs() stays valid after Close
 	// nils db — see fs().
@@ -341,7 +366,7 @@ func (e *Engine) Close() error {
 // use this value. Clears the freshSync flag — a bare SetCurrentSync
 // is conservative (treats the sync as resumable, so writes keep
 // fsync + read-before-write).
-func (e *Engine) SetCurrentSync(syncID string) error {
+func (e *Engine) bindCurrentSync(syncID string) error {
 	idBytes, err := codec.EncodeSyncID(syncID)
 	if err != nil {
 		return err
@@ -532,6 +557,19 @@ func (e *Engine) currentSyncBytes() []byte {
 	out := make([]byte, len(e.currentSync))
 	copy(out, e.currentSync)
 	return out
+}
+
+// CurrentSyncID returns the bound sync's id string, or "" when no sync
+// is bound. THE single source of truth for "which sync is open" — the
+// old Adapter-level syncRunState cache that shadowed it was deleted
+// (PR 2.6): lifecycle readers decode this binding, and everything else
+// about the open sync (step token, type, parent) is read from the
+// durable SyncRunRecord on demand, exactly like the SQLite engine's
+// row-backed reads.
+func (e *Engine) CurrentSyncID() string {
+	e.currentSyncMu.RLock()
+	defer e.currentSyncMu.RUnlock()
+	return codec.DecodeSyncID(e.currentSync)
 }
 
 // requireCurrentSync returns ErrNoCurrentSync unless a sync is bound

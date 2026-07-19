@@ -55,7 +55,7 @@ func TestSidecarEntitlementsByResourceType(t *testing.T) {
 	require.Equal(t, int64(3), stats.GetEntitlements(), "entitlements total")
 	require.Equal(t, map[string]int64{"group": 2, "user": 1}, stats.GetEntitlementsByResourceType())
 
-	_ = store.Close(ctx)
+	_ = store.Close()
 }
 
 // TestBulkImportComputedStatsEntitlementsByResourceType exercises the

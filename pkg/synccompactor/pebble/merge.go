@@ -144,7 +144,7 @@ func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync
 	if destSyncID == "" {
 		return stats, errors.New("synccompactor/pebble.MergeInto: destSyncID is required")
 	}
-	if err := dest.SetCurrentSync(destSyncID); err != nil {
+	if err := dest.SetCurrentSync(ctx, destSyncID); err != nil {
 		return stats, fmt.Errorf("synccompactor/pebble.MergeInto: bind dest sync: %w", err)
 	}
 	// Folds write the dest keyspace through the raw DB handle; invalidate

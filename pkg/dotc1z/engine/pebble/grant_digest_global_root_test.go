@@ -20,7 +20,7 @@ func TestGrantDigestGlobalRootMatchesFold(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	counts := map[string]int64{"ent-a": 5, "ent-b": 3, "ent-zero": 0}
@@ -72,7 +72,7 @@ func TestGrantDigestGlobalRootEmptySync(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	sealGrantDigests(t, e)
@@ -170,7 +170,7 @@ func TestManifestGrantDigestRootAbsentWithoutDigests(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t, WithGrantDigestIndex(false))
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, "ent-A")

@@ -72,7 +72,7 @@ type Result struct {
 // same reference must produce the same Result.
 func RunWorkload(ctx context.Context, ref Reference, w Workload) (*Result, error) {
 	if cs, ok := ref.(currentSyncSetter); ok {
-		if err := cs.SetCurrentSync(w.SyncID); err != nil {
+		if err := cs.SetCurrentSync(ctx, w.SyncID); err != nil {
 			return nil, fmt.Errorf("equivalence: SetCurrentSync: %w", err)
 		}
 	}
@@ -248,9 +248,13 @@ type deleter interface {
 // currentSyncSetter is an optional capability — references that track
 // a "current sync" (like the Pebble engine) implement it so empty-
 // syncID reads route correctly. References that don't need it (like
-// the in-memory map) simply omit it.
+// the in-memory map) simply omit it. The signature MUST match
+// pebble.Engine.SetCurrentSync exactly: this is a structural probe,
+// so a signature drift doesn't fail the build — it silently stops
+// matching and every pebble workload dies with "no current sync"
+// (which is exactly how the PR 2.6 ctx-parameter addition surfaced).
 type currentSyncSetter interface {
-	SetCurrentSync(syncID string) error
+	SetCurrentSync(ctx context.Context, syncID string) error
 }
 
 // ErrNotImplemented is returned by reference adapters that don't

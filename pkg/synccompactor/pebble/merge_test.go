@@ -46,10 +46,10 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 	newer := time.Unix(2000, 0).UTC()
 
 	// src1 (applied first): shared key @older + a unique key.
-	require.NoError(t, src1.SetCurrentSync(syncA))
+	require.NoError(t, src1.SetCurrentSync(ctx, syncA))
 	require.NoError(t, src1.PutGrantRecords(ctx, grantAt(syncA, "g-shared", older), grantAt(syncA, "g-only1", older)))
 	// src2 (applied second): shared key @newer (must win) + a unique key.
-	require.NoError(t, src2.SetCurrentSync(syncB))
+	require.NoError(t, src2.SetCurrentSync(ctx, syncB))
 	require.NoError(t, src2.PutGrantRecords(ctx, grantAt(syncB, "g-shared", newer), grantAt(syncB, "g-only2", newer)))
 
 	// No SetCurrentSync here: MergeInto must bind the dest engine to
@@ -103,7 +103,7 @@ func TestMergeIntoGrantWritesTracksActualChanges(t *testing.T) {
 	destSync := ksuid.New().String()
 	at := time.Unix(1000, 0).UTC()
 
-	require.NoError(t, src.SetCurrentSync(syncID))
+	require.NoError(t, src.SetCurrentSync(ctx, syncID))
 	require.NoError(t, src.PutGrantRecords(ctx, grantAt(syncID, "g1", at)))
 
 	// First merge: a genuinely new grant is admitted.
@@ -122,7 +122,7 @@ func TestMergeIntoGrantWritesTracksActualChanges(t *testing.T) {
 	// A source with no grants at all contributes zero grant writes.
 	empty, _ := newEngine(t, "gw-empty-src")
 	emptySyncID := ksuid.New().String()
-	require.NoError(t, empty.SetCurrentSync(emptySyncID))
+	require.NoError(t, empty.SetCurrentSync(ctx, emptySyncID))
 	stats3, err := MergeInto(ctx, dst, []SourceSync{{Engine: empty, SyncID: emptySyncID}}, destSync)
 	require.NoError(t, err)
 	require.Zero(t, stats3.GrantWrites, "a source with no grants contributes zero grant writes")
@@ -130,7 +130,7 @@ func TestMergeIntoGrantWritesTracksActualChanges(t *testing.T) {
 	// A genuinely newer record on the same identity DOES count.
 	newer := time.Unix(2000, 0).UTC()
 	src2, _ := newEngine(t, "gw-src2")
-	require.NoError(t, src2.SetCurrentSync(syncID))
+	require.NoError(t, src2.SetCurrentSync(ctx, syncID))
 	require.NoError(t, src2.PutGrantRecords(ctx, grantAt(syncID, "g1", newer)))
 	stats4, err := MergeInto(ctx, dst, []SourceSync{{Engine: src2, SyncID: syncID}}, destSync)
 	require.NoError(t, err)
@@ -157,9 +157,9 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 	g2 := grantAt(syncB, "g-tie", tie)
 	g2.SetExternalId("from-src2")
 
-	_ = src1.SetCurrentSync(syncA)
+	_ = src1.SetCurrentSync(ctx, syncA)
 	require.NoError(t, src1.PutGrantRecords(ctx, g1))
-	_ = src2.SetCurrentSync(syncB)
+	_ = src2.SetCurrentSync(ctx, syncB)
 	require.NoError(t, src2.PutGrantRecords(ctx, g2))
 	// src1 applied first → incumbent wins the tie. MergeInto binds the
 	// dest sync itself.
@@ -203,7 +203,7 @@ func seedBase(t *testing.T, ctx context.Context, name string, rs recordSet) (*en
 	t.Helper()
 	dest, _ := newEngine(t, name)
 	destSync := ksuid.New().String()
-	require.NoError(t, dest.SetCurrentSync(destSync))
+	require.NoError(t, dest.SetCurrentSync(ctx, destSync))
 	populateEngine(t, ctx, dest, rs)
 	return dest, destSync
 }

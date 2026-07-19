@@ -98,7 +98,7 @@ func TestEngineCurrentDBSizeBytes(t *testing.T) {
 	require.Equal(t, want, initial, "CurrentDBSizeBytes initial")
 
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 	for i := 0; i < 50; i++ {
 		err := e.PutGrantRecord(ctx, makeGrant(syncID, ksuid.New().String(), "github-read", ksuid.New().String()))
 		require.NoError(t, err, "PutGrantRecord")
@@ -116,7 +116,7 @@ func TestPutGetGrantRecord(t *testing.T) {
 	e, _ := newTestEngine(t)
 
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	// Custom stored external id: addressable only by identity, not by the
 	// concat id string (which no longer equals the stored public id).
@@ -141,7 +141,7 @@ func TestIterateGrantsBySync(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	const n = 100
 	for i := 0; i < n; i++ {
@@ -166,7 +166,7 @@ func TestIterateByEntitlement(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	// 5 grants on entitlement A, 3 on entitlement B.
 	for i := 0; i < 5; i++ {
@@ -197,7 +197,7 @@ func TestIterateByPrincipal(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	const alicePrincipal = "alice"
 	const bobPrincipal = "bob"
@@ -231,7 +231,7 @@ func TestDeleteGrantRecord(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	r := makeGrant(syncID, canonicalTestGrantID("ent-X", "user", "user-X"), "ent-X", "user-X")
 	require.NoError(t, e.PutGrantRecord(ctx, r))
@@ -255,7 +255,7 @@ func TestCheckpointToReadOnly(t *testing.T) {
 	ctx := context.Background()
 	e, dir := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 	r := makeGrant(syncID, canonicalTestGrantID("e1", "user", "p1"), "e1", "p1")
 	require.NoError(t, e.PutGrantRecord(ctx, r))
 	require.NoError(t, e.Close())
@@ -281,7 +281,7 @@ func TestCheckpointTo(t *testing.T) {
 	ctx := context.Background()
 	e, dir := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	r := makeGrant(syncID, canonicalTestGrantID("e1", "user", "p1"), "e1", "p1")
 	require.NoError(t, e.PutGrantRecord(ctx, r))
@@ -307,7 +307,7 @@ func TestSaveDoesNotCloseOnError(t *testing.T) {
 	ctx := context.Background()
 	e, dir := newTestEngine(t)
 	syncID := ksuid.New().String()
-	err := e.SetCurrentSync(syncID)
+	err := e.bindCurrentSync(syncID)
 	require.NoError(t, err)
 
 	err = e.Save(ctx, filepath.Join(dir, "out.c1z3"))
@@ -322,7 +322,7 @@ func TestConcurrentGrantOverwriteIndexes(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	err := e.SetCurrentSync(syncID)
+	err := e.bindCurrentSync(syncID)
 	require.NoError(t, err)
 
 	const writes = 64
@@ -364,7 +364,7 @@ func TestEmptySyncIDFallsBackToCurrent(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	// Put with explicit sync id...
 	sdkID := canonicalTestGrantID("e1", "user", "p1")

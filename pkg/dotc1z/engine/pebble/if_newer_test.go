@@ -102,7 +102,7 @@ func grantsByPrincipal(t *testing.T, ctx context.Context, e *Engine, principal s
 func TestPutGrantRecordsIfNewerSkipsStale(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
-	require.NoError(t, e.SetCurrentSync(ksuid.New().String()))
+	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
 
 	older := time.Unix(1000, 0).UTC()
 	newer := time.Unix(2000, 0).UTC()
@@ -148,7 +148,7 @@ func TestPutGrantRecordsIfNewerSkipsStale(t *testing.T) {
 func TestPutRecordsIfNewerRejectsOlderAllTypes(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
-	require.NoError(t, e.SetCurrentSync(ksuid.New().String()))
+	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
 
 	older := time.Unix(1000, 0).UTC()
 	newer := time.Unix(2000, 0).UTC()

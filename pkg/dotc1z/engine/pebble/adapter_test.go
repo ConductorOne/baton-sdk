@@ -127,13 +127,13 @@ func TestAdapterEndSyncClearsEngineCurrentSync(t *testing.T) {
 	// record write must now fail rather than land an orphan record with
 	// no sync run. The seal check fires first — it is the explicit
 	// post-EndSync state; ErrNoCurrentSync would catch it anyway.
-	err = a.engine.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-B", "bob"))
+	err = a.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-B", "bob"))
 	require.ErrorIs(t, err, ErrEngineSealed, "direct engine write after EndSync: got %v, want ErrEngineSealed", err)
 
 	// Reads do NOT gate on the bound sync: the finished sync's data
 	// persists and stays readable through the engine after EndSync.
 	count := 0
-	err = a.engine.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
+	err = a.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
 		count++
 		return true
 	})
@@ -246,8 +246,10 @@ func TestAdapterResumeSync(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, a.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")))
 	require.NoError(t, a.CheckpointSync(ctx, "step-7"), "CheckpointSync")
-	// Simulate restart by zeroing in-memory state.
-	a.current = syncRunState{}
+	// Simulate restart by clearing the engine's bound sync (the only
+	// in-memory lifecycle state post-2.6; the step token lives on the
+	// durable SyncRunRecord).
+	a.clearCurrentSync()
 
 	// Resume.
 	id2, err := a.ResumeSync(ctx, connectorstore.SyncTypeFull, id1)

@@ -42,7 +42,7 @@ func lookupTestGrant(externalID, entRT, entRID, entID, principalRT, principalID 
 func TestBareIDEntitlementLookupExactlyOne(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
-	require.NoError(t, e.SetCurrentSync(ksuid.New().String()))
+	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
 
 	require.NoError(t, e.PutEntitlementRecords(ctx,
 		lookupTestEnt("app", "github", "opaque-ent"),
@@ -88,7 +88,7 @@ func TestBareIDEntitlementLookupExactlyOne(t *testing.T) {
 func TestBareIDEntitlementLookupInvalidation(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
-	require.NoError(t, e.SetCurrentSync(ksuid.New().String()))
+	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
 
 	require.NoError(t, e.PutEntitlementRecords(ctx, lookupTestEnt("app", "github", "first")))
 	_, err := e.GetEntitlementRecord(ctx, "first")
@@ -114,7 +114,7 @@ func TestBareIDEntitlementLookupInvalidation(t *testing.T) {
 func TestBareIDGrantLookupExactlyOne(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
-	require.NoError(t, e.SetCurrentSync(ksuid.New().String()))
+	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
 
 	require.NoError(t, e.PutEntitlementRecords(ctx,
 		lookupTestEnt("app", "github", "opaque-ent"),
@@ -189,7 +189,7 @@ func TestBareIDGrantLookupExactlyOne(t *testing.T) {
 func TestDeleteGrantByIdentityRefsIsExact(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
-	require.NoError(t, e.SetCurrentSync(ksuid.New().String()))
+	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
 
 	shared := "app:github:read:user:alice"
 	a := lookupTestGrant(shared, "app", "github", "app:github:read", "user", "alice")
