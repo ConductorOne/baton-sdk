@@ -167,6 +167,7 @@ type syncer struct {
 	injectSyncIDAnnotation              bool
 	setSessionStore                     sessions.SetSessionStore
 	syncResourceTypes                   []string
+	minCheckpointInterval               time.Duration
 	workerCount                         int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
 	metricsHandler                      metrics.Handler
 	syncIdentity                        uotel.SyncIdentity
@@ -350,11 +351,15 @@ func (a expanderStoreAdapter) GrantsForEntitlementPrincipalSorted() bool {
 	return ok && store.GrantsForEntitlementPrincipalSorted()
 }
 
-const minCheckpointInterval = 10 * time.Second
+const defaultMinCheckpointInterval = 10 * time.Second
 
 // Checkpoint marshals the current state and stores it.
 func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
-	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < minCheckpointInterval {
+	interval := s.minCheckpointInterval
+	if interval == 0 {
+		interval = defaultMinCheckpointInterval
+	}
+	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < interval {
 		return nil
 	}
 	start := time.Now()
@@ -3032,6 +3037,18 @@ func WithRunDuration(d time.Duration) SyncOpt {
 	return func(s *syncer) {
 		if d > 0 {
 			s.runDuration = d
+		}
+	}
+}
+
+// WithMinCheckpointInterval sets the minimum time between non-forced
+// checkpoints. Checkpoints compress and persist the c1z file; for large
+// tenants this dominates CPU. Higher values reduce checkpoint overhead at
+// the cost of more lost work on a hard crash. Default 10s.
+func WithMinCheckpointInterval(d time.Duration) SyncOpt {
+	return func(s *syncer) {
+		if d > 0 {
+			s.minCheckpointInterval = d
 		}
 	}
 }
