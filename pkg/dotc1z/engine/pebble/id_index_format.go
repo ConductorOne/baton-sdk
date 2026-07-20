@@ -29,18 +29,9 @@ func encodeIDIndexFormatKey() []byte {
 	return codec.AppendTupleStrings(buf, "grant_entitlement_id_format")
 }
 
-// encodeDeferredIdxPendingKey is the durable marker that grant writes have
-// skipped the inline by_principal index and a deferred rebuild is owed. The
-// in-memory deferredIdxPending flag alone cannot survive a process restart:
-// a sync interrupted after its expansion writes and resumed in a fresh
-// process would otherwise write nothing (idempotent re-run), never re-arm
-// the flag, and EndSync would skip the rebuild — saving a "finished" c1z
-// whose by_principal index misses every deferred-written grant.
-func encodeDeferredIdxPendingKey() []byte {
-	buf := make([]byte, 0, 2+len("deferred_grant_idx_pending"))
-	buf = append(buf, versionV3, typeEngineMeta)
-	return codec.AppendTupleStrings(buf, "deferred_grant_idx_pending")
-}
+// The deferred-index rebuild marker (rawdb.DeferredIdxPendingKey) and
+// its arm/clear/restore contract moved to rawdb, which owns the
+// deferred-index crash state (see rawdb.ArmDeferredGrantIndex).
 
 // encodeGrantDigestBuildPendingKey is the durable marker that a grant
 // digest build is mid-flight: armed (fsync'd) before the build's first

@@ -20,16 +20,8 @@ type testSeams struct {
 	digestBuildHook      func(stage string) error
 	digestNodeFlushBytes int
 
-	// armDeferredMarkerHook / clearDeferredMarkerHook, when non-nil,
-	// run before the deferred-index marker's durable commit / delete —
-	// the in-process analogs of those writes failing. Tests use them
-	// to pin the flag/key-agreement contract on both edges: the
-	// in-memory flag and the durable key must never disagree (armed
-	// flag + absent key = in-process EndSync rebuilds while a
-	// crash+resume silently skips the rebuild; cleared flag + present
-	// key = spurious rebuild on the next open).
-	armDeferredMarkerHook   func() error
-	clearDeferredMarkerHook func() error
+	// The deferred-marker arm/clear failure hooks moved to rawdb with
+	// the marker itself (rawdb.SetDeferredMarkerTestHooks).
 
 	// endSyncPreFlushHook, when non-nil, runs inside endSyncFinalize
 	// IMMEDIATELY after the ended_at stamp commits — before the stats

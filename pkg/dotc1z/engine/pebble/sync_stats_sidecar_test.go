@@ -57,7 +57,7 @@ func TestSyncStatsSidecarRoundtrip(t *testing.T) {
 	require.Equal(t, int64(2), m["resource_types"], "Stats resource_types")
 	require.Equal(t, int64(2), m["user"], "Stats user count")
 	require.Equal(t, int64(1), m["group"], "Stats group count")
-	_ = store.Close(ctx)
+	_ = store.Close()
 }
 
 // TestSyncStatsSidecarBackfillOnOpen exercises the migration path:
@@ -118,10 +118,9 @@ func TestSyncStatsSidecarFallback(t *testing.T) {
 	require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g1", "ent", "u1")))
 	// Don't call PersistSyncStats — leaves the sidecar missing.
 
-	// The Adapter.statsFromIteration helper still produces correct
-	// counts. We exercise it directly to avoid the Stats() fast-path.
-	a := &Adapter{engine: e}
-	got, err := a.statsFromIteration(ctx, syncID)
+	// The statsFromIteration helper still produces correct counts.
+	// Exercise it directly to avoid the Stats() fast-path.
+	got, err := e.statsFromIteration(ctx, syncID)
 	require.NoErrorf(t, err, "statsFromIteration")
 	require.Equal(t, int64(1), got.GetGrants(), "fallback grants")
 }

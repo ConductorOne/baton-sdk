@@ -15,6 +15,8 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"google.golang.org/protobuf/proto"
 
+	v2pb "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
@@ -36,6 +38,29 @@ type Engine struct {
 	dbDir      string
 	opts       *Options
 	pebbleOpts *pebble.Options
+
+	// Embedded Unimplemented stubs for the gRPC service surfaces the
+	// engine's connectorstore face (adapter.go / adapter_reader.go)
+	// implements partially. Each implemented method overrides the
+	// stub. GrantsReaderServiceServer is deliberately NOT stubbed: the
+	// engine implements it in full, and adapter_reader.go asserts the
+	// complete contract — re-adding the stub would make that assertion
+	// vacuous.
+	v2pb.UnimplementedResourceTypesServiceServer
+	reader_v2.UnimplementedResourceTypesReaderServiceServer
+	v2pb.UnimplementedResourcesServiceServer
+	reader_v2.UnimplementedResourcesReaderServiceServer
+	v2pb.UnimplementedEntitlementsServiceServer
+	reader_v2.UnimplementedEntitlementsReaderServiceServer
+	v2pb.UnimplementedGrantsServiceServer
+	reader_v2.UnimplementedSyncsReaderServiceServer
+
+	// lifecycleMu serializes the sync-lifecycle transitions
+	// (StartNewSync/ResumeSync/SetCurrentSync/CheckpointSync/EndSync),
+	// whose bodies are read-check-write sequences over the sync-run
+	// record + the currentSync binding. Formerly the Adapter layer's
+	// mutex; the record writes themselves ride the write barrier.
+	lifecycleMu sync.Mutex
 	// resolvedFS is rawdb's Open-time FS resolution (WithVFS override
 	// or vfs.Default), snapshotted so fs() stays valid after Close
 	// nils db — see fs().
@@ -88,18 +113,11 @@ type Engine struct {
 	deferredGrantStatsMu sync.Mutex
 	deferredGrantStats   *deferredGrantStats
 
-	// deferredIdxPending is set by grant writes that skipped the inline
-	// by_principal index write (all of them: the index family is scattered
-	// relative to the entitlement-first write order, so it is always built
-	// as one sorted SST at EndSync — see BuildDeferredGrantIndexes).
-	deferredIdxPending atomic.Bool
-
-	// grantDigestsPresent reports whether the digest keyspace holds any
-	// nodes — i.e. whether a grant mutation must invalidate the touched
-	// entitlement's digest + hash-index ranges
-	// (stageGrantDigestInvalidation). Probed once at Open, set by the
-	// seal-time build, cleared by ResetForNewSync and the Drop* paths.
-	grantDigestsPresent atomic.Bool
+	// The deferred-index rebuild flag and the digests-present flag live
+	// ON rawdb (e.db.DeferredIdxPending / e.db.GrantDigestsPresent):
+	// they are write-side crash-contract state the choke point's typed
+	// record ops consume directly (the deferred regime arms the marker;
+	// the digest-invalidation obligation gates on presence).
 
 	// grantDigestBuildPending mirrors the durable digest-build marker
 	// (encodeGrantDigestBuildPendingKey): true between a digest build's
@@ -236,32 +254,6 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
 		e.compactionScheduler = s
 	}
-	// Wire the record derivers: the key-format functions rawdb's typed
-	// record ops (StageGrant*/StageResource*/...) derive their
-	// obligations with. rawdb owns the composition — WHAT a record
-	// mutation must stage together, unforgettable by construction — and
-	// these closures own the byte formats (this package's keyspace ABI,
-	// pinned by its splice tests) plus the engine-state gates (digest
-	// armed probe, deferred-marker crash contract).
-	if err := db.SetRecordDerivers(rawdb.RecordDerivers{
-		GrantKeyValid: func(primaryKey []byte) bool {
-			_, ok := splitGrantPrimaryKey(primaryKey)
-			return ok
-		},
-		GrantByPrincipalKey:          appendGrantByPrincipalKeyFromPrimary,
-		GrantNeedsExpansionKey:       appendGrantByNeedsExpansionKeyFromPrimary,
-		StageGrantDigestInvalidation: e.stageGrantDigestInvalidationFromPrimaryKey,
-		ArmDeferredGrantIndex:        e.markDeferredIdxPending,
-		ResourceParent:               scanResourceParentRaw,
-		ResourceByParentKey:          encodeResourceByParentIndexKey,
-		GrantPrimaryPrefix:           []byte{versionV3, typeGrant},
-		ResourcePrimaryPrefix:        []byte{versionV3, typeResource},
-		EntitlementPrimaryPrefix:     []byte{versionV3, typeEntitlement},
-		ResourceTypePrimaryPrefix:    []byte{versionV3, typeResourceType},
-	}); err != nil {
-		_ = e.Close()
-		return nil, err
-	}
 	// Enforce the single-sync key-layout contract before touching any
 	// keys: reject an old multi-sync-layout file (which the current
 	// encoders would silently mis-decode) and stamp a fresh writable
@@ -276,12 +268,10 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		return nil, err
 	}
 	// Restore the durable deferred-index marker (see
-	// encodeDeferredIdxPendingKey): a prior process may have deferred
-	// by_principal writes and been interrupted before the EndSync rebuild.
-	if _, closer, err := e.db.Get(encodeDeferredIdxPendingKey()); err == nil {
-		closer.Close()
-		e.deferredIdxPending.Store(true)
-	} else if !errors.Is(err, pebble.ErrNotFound) {
+	// rawdb.DeferredIdxPendingKey): a prior process may have deferred
+	// by_principal writes and been interrupted before the EndSync
+	// rebuild (rawdb owns the marker's crash contract).
+	if err := e.db.RestoreDeferredIdxPending(); err != nil {
 		_ = e.Close()
 		return nil, err
 	}
@@ -309,8 +299,9 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		return nil, err
 	}
 	// Arm the mutation-path digest invalidation iff the file actually
-	// holds digest nodes (one bounded seek; see grant_digest.go).
-	if err := e.probeGrantDigestsPresent(); err != nil {
+	// holds digest nodes (one bounded seek; rawdb owns the flag its
+	// record ops gate on).
+	if err := e.db.ProbeGrantDigestsPresent(); err != nil {
 		_ = e.Close()
 		return nil, err
 	}
@@ -375,7 +366,7 @@ func (e *Engine) Close() error {
 // use this value. Clears the freshSync flag — a bare SetCurrentSync
 // is conservative (treats the sync as resumable, so writes keep
 // fsync + read-before-write).
-func (e *Engine) SetCurrentSync(syncID string) error {
+func (e *Engine) bindCurrentSync(syncID string) error {
 	idBytes, err := codec.EncodeSyncID(syncID)
 	if err != nil {
 		return err
@@ -568,6 +559,19 @@ func (e *Engine) currentSyncBytes() []byte {
 	return out
 }
 
+// CurrentSyncID returns the bound sync's id string, or "" when no sync
+// is bound. THE single source of truth for "which sync is open" — the
+// old Adapter-level syncRunState cache that shadowed it was deleted
+// (PR 2.6): lifecycle readers decode this binding, and everything else
+// about the open sync (step token, type, parent) is read from the
+// durable SyncRunRecord on demand, exactly like the SQLite engine's
+// row-backed reads.
+func (e *Engine) CurrentSyncID() string {
+	e.currentSyncMu.RLock()
+	defer e.currentSyncMu.RUnlock()
+	return codec.DecodeSyncID(e.currentSync)
+}
+
 // requireCurrentSync returns ErrNoCurrentSync unless a sync is bound
 // (StartNewSync/SetCurrentSync, cleared by EndSync). Record writes
 // gate on this so data never lands without a sync-run record — the
@@ -668,28 +672,62 @@ func (e *Engine) DBDir() string {
 // database directory. This is the Pebble equivalent of C1File's SQLite
 // DBSizeProvider capability: it reports the uncompressed working set on disk,
 // including WAL/log, MANIFEST, OPTIONS, and SST files currently present.
+//
+// Walks through the engine FS, not the host FS (review follow-up): a
+// WithVFS engine's DB dir lives on the injected filesystem, where a
+// host filepath.WalkDir either errors or measures an unrelated
+// directory. On the default FS this is the same walk it always was.
 func (e *Engine) CurrentDBSizeBytes() (int64, error) {
 	if e.dbDir == "" {
 		return 0, errors.New("pebble engine: db dir is empty")
 	}
-	var total int64
-	if err := filepath.WalkDir(e.dbDir, func(path string, d fs.DirEntry, err error) error {
+	pfs := e.fs()
+	// No-follow stat, matching main's filepath.WalkDir semantics: a
+	// symlink inside the DB dir must be skipped, not traversed (a link
+	// to a foreign directory would count files outside the DB; a
+	// self-link would loop). vfs.FS has no Lstat, so the default FS
+	// uses os.Lstat directly (allowlisted); MemFS cannot represent
+	// symlinks, so Stat is equivalent there (review finding, 2.5
+	// round).
+	stat := func(path string) (os.FileInfo, error) {
+		if pfs == vfs.Default {
+			return os.Lstat(path)
+		}
+		return pfs.Stat(path)
+	}
+	var walk func(dir string) (int64, error)
+	walk = func(dir string) (int64, error) {
+		names, err := pfs.List(dir)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		if d.IsDir() {
-			return nil
+		var total int64
+		for _, name := range names {
+			path := pfs.PathJoin(dir, name)
+			info, err := stat(path)
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					// Compaction can remove files mid-walk; skip.
+					continue
+				}
+				return 0, fmt.Errorf("stat %s: %w", path, err)
+			}
+			switch {
+			case info.IsDir():
+				sub, err := walk(path)
+				if err != nil {
+					return 0, err
+				}
+				total += sub
+			case info.Mode().IsRegular():
+				total += info.Size()
+			}
 		}
-		info, err := d.Info()
-		if err != nil {
-			return fmt.Errorf("stat %s: %w", path, err)
-		}
-		if info.Mode().IsRegular() {
-			total += info.Size()
-		}
-		return nil
-	}); err != nil {
-		if os.IsNotExist(err) {
+		return total, nil
+	}
+	total, err := walk(e.dbDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			return 0, fmt.Errorf("pebble engine: db dir missing: %w", err)
 		}
 		return 0, err
@@ -697,34 +735,10 @@ func (e *Engine) CurrentDBSizeBytes() (int64, error) {
 	return total, nil
 }
 
-// DB returns the engine's rawdb handle — the write choke point's
-// EXPLICIT EXEMPTION SURFACE. Exported for the synccompactor/pebble
-// package, whose merge/fold/overlay machinery writes the record
-// keyspaces outside the engine's writeMu barrier (fenced by call
-// ordering: the merge completes before the store's save/CheckpointTo
-// runs — see the checkpointMu inventory). The handle is *MergeDB
-// (= rawdb.MergeView) — deliberately NARROWER than *rawdb.DB: it
-// carries only the reads, bulk range ops, and the FoldBatch
-// constructor (the compactor's raw record-write conduit, fenced to
-// pkg/synccompactor/pebble by meta-test), so an external caller
-// cannot reach typed record staging
-// (NewRecordBatch) or session/meta/digest writes outside the engine's
-// lifecycle barrier — not even by type assertion, since the concrete
-// view has nothing more to recover. The raw *pebble.DB stays
-// unreachable (UnsafeForTesting is runtime-gated to tests). Callers
-// must respect the engine's lifecycle; returns nil after Close.
-// Callers that write the entitlement keyspace through this handle
-// (ingests, excises) must call InvalidateBareIDLookups afterwards.
-func (e *Engine) DB() *MergeDB {
-	if e.db == nil {
-		return nil
-	}
-	return e.db.MergeView()
-}
-
 // InvalidateBareIDLookups invalidates the lazily built bare-id lookup
-// state (see lookup.go). Engine write paths call this internally; it is
-// exported for callers that mutate the keyspace through DB() directly.
+// state (see lookup.go). Engine write paths call this internally; it
+// is exported for callers that mutate the entitlement keyspace through
+// the merge surface (merge_surface.go) directly.
 func (e *Engine) InvalidateBareIDLookups() { e.noteEntitlementKeyspaceWrite() }
 
 // MigratedOnOpen reports whether this Open ran the in-place id-index

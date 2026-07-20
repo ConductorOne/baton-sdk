@@ -1,7 +1,6 @@
 package pebble
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +15,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // deferredIndexSpillChunkBytes is the spill-chunk arena size for the deferred
@@ -39,68 +39,6 @@ import (
 // freelist sized to the sort concurrency, so retained (idle) arenas
 // are capped at the same order.
 const deferredIndexSpillChunkBytes = 128 << 20
-
-// appendGrantByPrincipalKeyFromPrimary builds the by_principal index key
-// directly from a primary grant key by permuting its tuple segments, into
-// dst. The primary tail is ent_rt|ent_rid|ent_kind|ent_name|p_rt|p_id and the
-// index tail is p_rt|p_id|ent_rt|ent_rid|ent_kind|ent_name — the segments are
-// already escaped, and the tuple escaping is canonical, so splicing the raw
-// bytes is byte-identical to decode + re-encode
-// (encodeGrantByPrincipalIdentityIndexKey ∘ decodeGrantIdentityKey) while
-// skipping six string allocations and a fresh key buffer per row. That
-// decode/re-encode pair was ~7GB of allocations per whale deferred build.
-// Returns ok=false for keys that do not have exactly six segments.
-//
-// Pinned against the decode+re-encode path by
-// TestAppendGrantByPrincipalKeyFromPrimary.
-func appendGrantByPrincipalKeyFromPrimary(dst, primaryKey []byte) ([]byte, bool) {
-	const prefixLen = 3 // versionV3 | typeGrant | separator
-	if len(primaryKey) < prefixLen || primaryKey[0] != versionV3 || primaryKey[1] != typeGrant || primaryKey[2] != 0 {
-		return dst, false
-	}
-	tail := primaryKey[prefixLen:]
-	// Split into exactly six escaped segments on bare separator bytes (the
-	// escape rules guarantee segments contain no bare 0x00).
-	var segs [6][]byte
-	rest := tail
-	for i := 0; i < 5; i++ {
-		sep := bytes.IndexByte(rest, 0)
-		if sep < 0 {
-			return dst, false
-		}
-		segs[i] = rest[:sep] // #nosec G602 -- false positive: IndexByte returned >= 0 above, so sep < len(rest).
-		rest = rest[sep+1:]
-	}
-	if bytes.IndexByte(rest, 0) >= 0 {
-		return dst, false
-	}
-	segs[5] = rest
-
-	dst = append(dst, versionV3, typeIndex, idxGrantByPrincipal, 0)
-	for i, idx := range [6]int{4, 5, 0, 1, 2, 3} { // p_rt, p_id, ent_rt, ent_rid, ent_kind, ent_name
-		if i > 0 {
-			dst = append(dst, 0)
-		}
-		dst = append(dst, segs[idx]...)
-	}
-	return dst, true
-}
-
-// appendGrantByNeedsExpansionKeyFromPrimary builds the
-// by_needs_expansion index key directly from a primary grant key: the
-// primary's separator+tail IS the index key's tail, byte-identical
-// (pinned by TestNeedsExpansionKeyHeaderSpliceFromPrimary), so the
-// splice is a header swap. Validates the same 6-segment shape as the
-// by_principal splice so a malformed key cannot silently produce a
-// malformed index entry. Wired into rawdb's typed record ops
-// (RecordDerivers.GrantNeedsExpansionKey).
-func appendGrantByNeedsExpansionKeyFromPrimary(dst, primaryKey []byte) ([]byte, bool) {
-	if _, ok := splitGrantPrimaryKey(primaryKey); !ok {
-		return dst, false
-	}
-	dst = append(dst, versionV3, typeIndex, idxGrantByNeedsExpansion)
-	return append(dst, primaryKey[2:]...), true
-}
 
 // deferredGrantStats carries the grant-keyspace stats accumulated during the
 // BuildDeferredGrantIndexes scan: the same numbers computeSyncStats derives
@@ -441,7 +379,7 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 				rebuildScanErr = err
 			}
 		}
-		idxKey, ok := appendGrantByPrincipalKeyFromPrimary(idxKeyScratch[:0], iter.Key())
+		idxKey, ok := rawdb.AppendGrantByPrincipalKeyFromPrimary(idxKeyScratch[:0], iter.Key())
 		idxKeyScratch = idxKey
 		if !ok {
 			// Only possible on key-layout drift or corruption: every grant

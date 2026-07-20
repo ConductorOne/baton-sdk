@@ -242,7 +242,7 @@ func assertIndexesMatchDerived(t *testing.T, ctx context.Context, dest *enginepk
 	var stored [][]byte
 	for _, bucket := range allBuckets() {
 		for _, r := range bucketIndexRanges(bucket) {
-			iter, err := dest.DB().NewIter(&cpebble.IterOptions{LowerBound: r[0], UpperBound: r[1]})
+			iter, err := dest.NewIter(&cpebble.IterOptions{LowerBound: r[0], UpperBound: r[1]})
 			require.NoError(t, err)
 			for iter.First(); iter.Valid(); iter.Next() {
 				stored = append(stored, append([]byte(nil), iter.Key()...))

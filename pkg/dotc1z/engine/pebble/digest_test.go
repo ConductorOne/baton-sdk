@@ -13,6 +13,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // putEnt writes an entitlement record whose external_id is the
@@ -90,7 +91,7 @@ func sealGrantDigests(t testing.TB, e *Engine) {
 // partitions and digested indexes) — i.e. everything callers of this
 // helper actually assert shapes about (root-only, root+leaves, ...).
 // It excludes the whole-file grant-digest global root (see
-// globalGrantDigestNodeKey): that node lives in the same typeDigest
+// rawdb.GlobalGrantDigestNodeKey): that node lives in the same typeDigest
 // keyspace but is a single fold-of-everything summary the seal build
 // writes once per file, not a per-partition node, so counting it here
 // would throw off every existing "N nodes for this one entitlement"
@@ -152,7 +153,7 @@ func countKeyRangeTest(t testing.TB, e *Engine, lo, hi []byte) int {
 // partition.
 func entHashIndexRowCount(t testing.TB, e *Engine, entID string) int {
 	t.Helper()
-	prefix := encodeGrantByEntPrincHashEntPrefix(testEntPartition(entID))
+	prefix := rawdb.GrantHashIndexEntitlementPrefix(testEntPartition(entID))
 	return countKeyRangeTest(t, e, prefix, upperBoundOf(prefix))
 }
 
@@ -243,7 +244,7 @@ func TestGrantDigestIncludesExpandedGrants(t *testing.T) {
 	if err := e.PutExpandedGrantRecords(ctx, []*v3.GrantRecord{exp}); err != nil {
 		t.Fatalf("PutExpandedGrantRecords: %v", err)
 	}
-	if !e.deferredIdxPending.Load() {
+	if !e.db.DeferredIdxPending() {
 		t.Fatal("expected the expansion write to arm the deferred-index marker")
 	}
 	if err := a.EndSync(ctx); err != nil {
@@ -522,7 +523,7 @@ func seedEntitlement(t testing.TB, e *Engine, entID string, grants []*v3.GrantRe
 	t.Helper()
 	ctx := context.Background()
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, entID)
@@ -551,7 +552,7 @@ func seedEntitlementAtWidth(t testing.TB, e *Engine, entID string, grants []*v3.
 	t.Helper()
 	ctx := context.Background()
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, entID)
@@ -726,7 +727,7 @@ func TestGrantDigestZeroGrantRootsAtEndSync(t *testing.T) {
 	if err := e.PutGrantRecords(ctx, makeGrant("", "g1", "ent-with", "alice")); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
-	if e.deferredIdxPending.Load() {
+	if e.db.DeferredIdxPending() {
 		t.Fatal("inline grant writes must not arm the deferred marker (precondition for this test)")
 	}
 	if err := a.EndSync(ctx); err != nil {
@@ -943,7 +944,7 @@ func TestHashIndexIsHashOrdered(t *testing.T) {
 	}
 	seedEntitlement(t, e, "ent-A", grants)
 
-	entPrefix := encodeGrantByEntPrincHashEntPrefix(testEntPartition("ent-A"))
+	entPrefix := rawdb.GrantHashIndexEntitlementPrefix(testEntPartition("ent-A"))
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: entPrefix, UpperBound: upperBoundOf(entPrefix)})
 	if err != nil {
 		t.Fatal(err)
@@ -1021,7 +1022,7 @@ func TestFusedFoldMatchesPartitionRebuild(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	counts := map[string]int64{"ent-big": 600, "ent-small": 10, "ent-zero": 0}
@@ -1265,7 +1266,7 @@ func TestDigestPutInvalidatesOnlyTouchedPartition(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, "ent-A")
@@ -1323,7 +1324,7 @@ func TestSealRebuildDropsStaleIndexRows(t *testing.T) {
 	}
 	sealGrantDigests(t, e)
 
-	entPrefix := encodeGrantByEntPrincHashEntPrefix(testEntPartition("ent-A"))
+	entPrefix := rawdb.GrantHashIndexEntitlementPrefix(testEntPartition("ent-A"))
 	principals := map[string]bool{}
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: entPrefix, UpperBound: upperBoundOf(entPrefix)})
 	if err != nil {
@@ -1364,7 +1365,7 @@ func TestGrantDigestSpillMerge(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	// One big entitlement that will span many tiny runs, plus small
@@ -1495,7 +1496,7 @@ func TestDigestMissingRootWholeDirty(t *testing.T) {
 	// B holds the same grants but never builds a digest.
 	eb, _ := newTestEngine(t)
 	syncB := ksuid.New().String()
-	if err := eb.SetCurrentSync(syncB); err != nil {
+	if err := eb.bindCurrentSync(syncB); err != nil {
 		t.Fatal(err)
 	}
 	putEnt(t, eb, ctx, "ent-A")

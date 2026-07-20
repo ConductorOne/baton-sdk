@@ -74,7 +74,7 @@ func TestPebbleSingleSyncReplaces(t *testing.T) {
 	}
 
 	rs := store.(*pebbleStore)
-	ids := listSyncIDs(t, ctx, rs.engine)
+	ids := listSyncIDs(t, ctx, rs.Engine)
 	require.Len(t, ids, 1, "sync_run count = %d, want 1 (single-sync contract); ids=%v", len(ids), ids)
 	require.Equal(t, lastID, ids[0], "retained sync_id = %q, want most recent %q", ids[0], lastID)
 }
@@ -94,20 +94,20 @@ func TestPebbleSecondSyncWipesPriorData(t *testing.T) {
 	newSyncID := runOneSync(t, ctx, store, "new")
 
 	rs := store.(*pebbleStore)
-	ids := listSyncIDs(t, ctx, rs.engine)
+	ids := listSyncIDs(t, ctx, rs.Engine)
 	require.Len(t, ids, 1)
 	require.Equal(t, newSyncID, ids[0], "post-replace sync IDs = %v, want [%s]", ids, newSyncID)
 
 	// Old sync's grants must be gone from the primary keyspace.
 	for _, ext := range []string{"old-g1", "old-g2"} {
-		_, err := rs.engine.GetGrantRecord(ctx, ext)
+		_, err := rs.GetGrantRecord(ctx, ext)
 		require.Error(t, err, "grant %s from the replaced sync still present", ext)
 	}
 
 	// Old sync's by-principal index entries must be gone too — a missing
 	// wipe range would leak index keys the primary delete caught.
 	count := 0
-	err := rs.engine.IterateGrantsByPrincipal(ctx, "user", "old-alice", func(*v3.GrantRecord) bool {
+	err := rs.IterateGrantsByPrincipal(ctx, "user", "old-alice", func(*v3.GrantRecord) bool {
 		count++
 		return true
 	})
@@ -115,7 +115,7 @@ func TestPebbleSecondSyncWipesPriorData(t *testing.T) {
 	require.Zero(t, count, "by-principal index still has %d entries from the replaced sync", count)
 
 	// New sync's grants must remain readable.
-	_, err = rs.engine.GetGrantRecord(ctx, mkV2GrantID("ent", "user", "new-alice"))
+	_, err = rs.GetGrantRecord(ctx, mkV2GrantID("ent", "user", "new-alice"))
 	require.NoError(t, err, "GetGrantRecord on current sync: %v", err)
 }
 
@@ -136,7 +136,7 @@ func TestPebbleCleanupIsNoOp(t *testing.T) {
 	err := rs.Cleanup(ctx)
 	require.NoError(t, err, "Cleanup: %v", err)
 	require.False(t, rs.dirty, "Cleanup marked the store dirty; expected a no-op")
-	ids := listSyncIDs(t, ctx, rs.engine)
+	ids := listSyncIDs(t, ctx, rs.Engine)
 	require.Len(t, ids, 1)
 	require.Equal(t, syncID, ids[0], "post-Cleanup sync IDs = %v, want [%s]", ids, syncID)
 }

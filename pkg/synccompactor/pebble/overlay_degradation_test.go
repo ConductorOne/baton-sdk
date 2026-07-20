@@ -92,7 +92,7 @@ func dumpDestSyncContents(t *testing.T, e *enginepkg.Engine) map[string]string {
 		lo, hi := bucket.syncRange()
 		ranges := append([][2][]byte{{lo, hi}}, bucketIndexRanges(bucket)...)
 		for _, r := range ranges {
-			iter, err := e.DB().NewIter(&cpebble.IterOptions{LowerBound: r[0], UpperBound: r[1]})
+			iter, err := e.NewIter(&cpebble.IterOptions{LowerBound: r[0], UpperBound: r[1]})
 			require.NoError(t, err)
 			for iter.First(); iter.Valid(); iter.Next() {
 				out[string(iter.Key())] = string(iter.Value())

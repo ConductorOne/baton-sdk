@@ -355,7 +355,7 @@ func overlayRestartBucket(ctx context.Context, dest *enginepkg.Engine, bucket bu
 		return err
 	}
 	writer.discard()
-	b := dest.DB().NewFoldBatch()
+	b := dest.NewFoldBatch()
 	defer func() { _ = b.Close() }()
 	lo, hi := bucket.syncRange()
 	if err := b.DeleteRange(lo, hi); err != nil {
@@ -943,7 +943,7 @@ func overlaySinglePassBucket(
 	hardLimit int64,
 ) error {
 	lower, upper := bucket.syncRange()
-	iter, err := source.DB().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	iter, err := source.NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return err
 	}
@@ -1021,7 +1021,7 @@ func overlayWholeSourceWorthIt(ctx context.Context, source sourceHandle, bucket 
 		}
 	}
 	lower, upper := bucket.syncRange()
-	iter, err := source.engine.DB().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	iter, err := source.engine.NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return false, err
 	}
@@ -1069,7 +1069,7 @@ func overlayMaterializeWholeSourceBucketSST(
 	stats *mergeStatsAccumulator,
 ) error {
 	lower, upper := bucket.syncRange()
-	iter, err := source.DB().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	iter, err := source.NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return err
 	}
@@ -1141,7 +1141,7 @@ func overlayMaterializeWholeSourceBucketSST(
 	primarySuccess = true
 	defer func() { _ = os.Remove(primaryPath) }()
 	if wrotePrimary {
-		if err := dest.DB().IngestSSTs(ctx, []string{primaryPath}); err != nil {
+		if err := dest.IngestSSTs(ctx, []string{primaryPath}); err != nil {
 			return fmt.Errorf("overlay merge: ingest whole primary %s: %w", bucket.name, err)
 		}
 		dest.InvalidateBareIDLookups()
@@ -1234,7 +1234,7 @@ func overlayCopySourceIndexesSST(
 	if !wrote {
 		return nil
 	}
-	if err := dest.DB().IngestSSTs(ctx, []string{sstPath}); err != nil {
+	if err := dest.IngestSSTs(ctx, []string{sstPath}); err != nil {
 		return fmt.Errorf("overlay merge: ingest whole index %s: %w", bucket.name, err)
 	}
 	dest.InvalidateBareIDLookups()
@@ -1251,7 +1251,7 @@ func copyIndexRangeFiltered(
 	w *sstBuilder,
 	wrote *bool,
 ) error {
-	iter, err := source.DB().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	iter, err := source.NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return err
 	}
@@ -1634,8 +1634,8 @@ func newOverlayBucketRawWriter(dest *enginepkg.Engine, bucket bucketSpec, stats 
 		dest:      dest,
 		bucket:    bucket,
 		chunkSize: chunkSize,
-		primary:   dest.DB().NewFoldBatch(),
-		index:     dest.DB().NewFoldBatch(),
+		primary:   dest.NewFoldBatch(),
+		index:     dest.NewFoldBatch(),
 		stats:     stats,
 	}
 }
@@ -1684,7 +1684,7 @@ func (w *overlayBucketRawWriter) replaceRaw(ctx context.Context, bucket bucketSp
 	if err := w.flush(ctx); err != nil {
 		return err
 	}
-	oldVal, closer, err := w.dest.DB().Get(destKey)
+	oldVal, closer, err := w.dest.Get(destKey)
 	if err != nil {
 		if errors.Is(err, cpebble.ErrNotFound) {
 			// Seen-set hash collision: the admitted record was a different
@@ -1764,8 +1764,8 @@ func (w *overlayBucketRawWriter) flush(ctx context.Context) error {
 	if err := w.index.Commit(opts); err != nil {
 		return err
 	}
-	w.primary = w.dest.DB().NewFoldBatch()
-	w.index = w.dest.DB().NewFoldBatch()
+	w.primary = w.dest.NewFoldBatch()
+	w.index = w.dest.NewFoldBatch()
 	w.count = 0
 	return nil
 }
@@ -1797,7 +1797,7 @@ func (w *overlayBucketRawWriter) discard() {
 	if w.index != nil {
 		_ = w.index.Close()
 	}
-	w.primary = w.dest.DB().NewFoldBatch()
-	w.index = w.dest.DB().NewFoldBatch()
+	w.primary = w.dest.NewFoldBatch()
+	w.index = w.dest.NewFoldBatch()
 	w.count = 0
 }

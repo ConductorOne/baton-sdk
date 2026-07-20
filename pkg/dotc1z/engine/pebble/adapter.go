@@ -21,74 +21,58 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
-// Adapter wraps an *Engine and implements connectorstore.Writer
-// (which embeds connectorstore.Reader) — the surface C1 + the syncer
-// call against the v3 Pebble engine. Translates v2 wire types ↔ v3
-// record types via translate_v2.go and routes Put/Get/List into the
-// engine's per-record-type methods.
+// This file is the Engine's connectorstore face: the sync lifecycle
+// (StartNewSync/ResumeSync/CheckpointSync/EndSync) and the v2
+// writer/reader surface C1 + the syncer call. It translates v2 wire
+// types ↔ v3 record types via translate_v2.go and routes Put/Get/List
+// into the per-record-type methods. Historically this was a separate
+// Adapter type wrapping the Engine; PR 2.6 dissolved that layer — the
+// Engine implements the surface directly, and the only sync-lifecycle
+// state is the engine's own currentSync binding plus the durable
+// SyncRunRecord (read on demand, like the SQLite engine's row-backed
+// reads). Adapter survives as a type alias for compatibility.
+
+// Adapter is the Engine, by its historical name. The wrapping type
+// dissolved when the layer collapsed; the alias keeps existing
+// constructors and fixtures compiling. New code should use *Engine
+// directly.
 //
-// The adapter implements the common connectorstore writer and reader
-// paths directly. gRPC methods outside that surface fall through to
-// the embedded UnimplementedXxxServer stubs.
-//
-// Adapter is goroutine-safe modulo Close — concurrent reads + writes
-// are fine, but caller must serialize Close against other calls.
-type Adapter struct {
-	engine *Engine
+// DELIBERATE BREAK vs the old wrapper: a bare Adapter/Engine is NOT a
+// connectorstore.Writer anymore. The old type carried Close(ctx); the
+// Engine's teardown is Close() (no ctx), and a Go alias cannot carry
+// both signatures. The supported Writer — before and after — is the
+// pkg/dotc1z store (dotc1z.NewStore with the Pebble engine), whose
+// Close(ctx) owns the envelope save the bare engine never performed;
+// a bare handle "closing" a c1z without saving it was a trap, not a
+// contract. Every other Writer method remains on the Engine, so code
+// holding a concrete *Adapter compiles untouched except Close(ctx)
+// call sites, which drop the ctx.
+type Adapter = Engine
 
-	// embedded Unimplemented stubs for the gRPC service surfaces we
-	// implement partially. Each implemented method overrides the stub.
-	// GrantsReaderServiceServer is deliberately NOT stubbed: the Adapter
-	// implements it in full, and adapter_reader.go asserts the complete
-	// contract — re-adding the stub would make that assertion vacuous.
-	v2.UnimplementedResourceTypesServiceServer
-	reader_v2.UnimplementedResourceTypesReaderServiceServer
-	v2.UnimplementedResourcesServiceServer
-	reader_v2.UnimplementedResourcesReaderServiceServer
-	v2.UnimplementedEntitlementsServiceServer
-	reader_v2.UnimplementedEntitlementsReaderServiceServer
-	v2.UnimplementedGrantsServiceServer
-	reader_v2.UnimplementedSyncsReaderServiceServer
+// NewAdapter is a compatibility constructor from the dissolved-layer
+// era: the "adapter" IS the engine now.
+func NewAdapter(e *Engine) *Adapter { return e }
 
-	mu      sync.Mutex
-	current syncRunState
-}
-
-// syncRunState tracks the currently-open sync. The connectorstore
-// interface treats sync IDs as opaque strings; we store the full
-// SyncRunRecord shape so EndSync / CheckpointSync can update the
-// sync_runs record.
-type syncRunState struct {
-	syncID    string
-	syncType  v3.SyncType
-	parentID  string
-	step      string
-	startedAt time.Time
-}
-
-// NewAdapter wraps an Engine. The engine must remain alive for the
-// lifetime of the adapter.
-func NewAdapter(e *Engine) *Adapter {
-	return &Adapter{engine: e}
-}
-
-// Compile-time checks for the full Writer interface and the optional
-// connectorstore capabilities that SQLite's *C1File also exposes.
+// Compile-time checks for the optional connectorstore capabilities
+// that SQLite's *C1File also exposes. (The full connectorstore.Writer
+// contract is asserted on pkg/dotc1z's store via c1zstore.Store — see
+// the Adapter alias doc for why the bare engine is deliberately not a
+// Writer.)
 var (
-	_ connectorstore.Writer                       = (*Adapter)(nil)
-	_ connectorstore.LatestFinishedSyncIDFetcher  = (*Adapter)(nil)
-	_ connectorstore.DBSizeProvider               = (*Adapter)(nil)
-	_ connectorstore.EntitlementGrantDigestReader = (*Adapter)(nil)
+	_ connectorstore.LatestFinishedSyncIDFetcher  = (*Engine)(nil)
+	_ connectorstore.DBSizeProvider               = (*Engine)(nil)
+	_ connectorstore.EntitlementGrantDigestReader = (*Engine)(nil)
 )
 
 // === sync lifecycle ===
 
 // StartNewSync creates a new sync_run record under a freshly-minted
 // sync_id. Returns the new sync_id.
-func (a *Adapter) StartNewSync(ctx context.Context, syncType connectorstore.SyncType, parentSyncID string) (string, error) {
-	return a.startNewSync(ctx, syncType, "", parentSyncID)
+func (e *Engine) StartNewSync(ctx context.Context, syncType connectorstore.SyncType, parentSyncID string) (string, error) {
+	return e.startNewSync(ctx, syncType, "", parentSyncID)
 }
 
 // StartNewSyncWithID is StartNewSync but adopts the caller-supplied
@@ -96,22 +80,22 @@ func (a *Adapter) StartNewSync(ctx context.Context, syncType connectorstore.Sync
 // (e.g. ToPebble) that must preserve the source sync's identity so the
 // produced file's sync_id matches the snapshot it was derived from.
 // syncID must be non-empty.
-func (a *Adapter) StartNewSyncWithID(ctx context.Context, syncType connectorstore.SyncType, syncID, parentSyncID string) (string, error) {
+func (e *Engine) StartNewSyncWithID(ctx context.Context, syncType connectorstore.SyncType, syncID, parentSyncID string) (string, error) {
 	if syncID == "" {
 		return "", errors.New("StartNewSyncWithID: empty syncID")
 	}
-	return a.startNewSync(ctx, syncType, syncID, parentSyncID)
+	return e.startNewSync(ctx, syncType, syncID, parentSyncID)
 }
 
 // startNewSync opens a new sync. An empty syncID mints a fresh ksuid;
 // a non-empty syncID is adopted verbatim (the single-sync file holds
 // exactly one sync, so any prior data is wiped first regardless).
-func (a *Adapter) startNewSync(ctx context.Context, syncType connectorstore.SyncType, syncID, parentSyncID string) (string, error) {
+func (e *Engine) startNewSync(ctx context.Context, syncType connectorstore.SyncType, syncID, parentSyncID string) (string, error) {
 	if syncID == "" {
 		syncID = ksuid.New().String()
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
 	// Single-sync contract: a v3 Pebble c1z holds exactly one sync.
 	// Keys carry no sync_id, so if a prior sync's data is present we
 	// must wipe it before starting — otherwise records the new sync
@@ -120,66 +104,50 @@ func (a *Adapter) startNewSync(ctx context.Context, syncType connectorstore.Sync
 	// MarkFreshSync skip-Get fast path depends on. A fresh engine
 	// (the common ToPebble/compaction case) has no sync-run and skips
 	// the wipe.
-	if existed, err := a.engine.hasSyncRun(); err != nil {
+	if existed, err := e.hasSyncRun(); err != nil {
 		return "", err
 	} else if existed {
-		if err := a.engine.ResetForNewSync(ctx); err != nil {
+		if err := e.ResetForNewSync(ctx); err != nil {
 			return "", err
 		}
 	}
 	// MarkFreshSync flips the engine into the perf-fast write path:
 	// pebble.NoSync per commit, skip read-before-write index cleanup.
 	// EndSync calls EndFreshSync to flush + fsync once at the end.
-	if err := a.engine.MarkFreshSync(syncID); err != nil {
+	if err := e.MarkFreshSync(syncID); err != nil {
 		return "", err
-	}
-	a.current = syncRunState{
-		syncID:    syncID,
-		syncType:  v2SyncTypeToV3(syncType),
-		parentID:  parentSyncID,
-		startedAt: time.Now(),
 	}
 	rec := v3.SyncRunRecord_builder{
 		SyncId:       syncID,
-		Type:         a.current.syncType,
+		Type:         v2SyncTypeToV3(syncType),
 		ParentSyncId: parentSyncID,
-		StartedAt:    timestamppb.New(a.current.startedAt),
+		StartedAt:    timestamppb.New(time.Now()),
 	}.Build()
-	if err := a.engine.PutSyncRunRecord(ctx, rec); err != nil {
-		a.current = syncRunState{}
-		a.engine.clearCurrentSync()
+	if err := e.PutSyncRunRecord(ctx, rec); err != nil {
+		e.clearCurrentSync()
 		return "", err
 	}
 	return syncID, nil
 }
 
 // ResumeSync attaches to an existing sync_run by id. Returns the
-// caller-provided id if it matches an existing record.
-func (a *Adapter) ResumeSync(ctx context.Context, syncType connectorstore.SyncType, syncID string) (string, error) {
+// caller-provided id if it matches an existing record. The persisted
+// checkpoint token needs no rehydration step: CurrentSyncStep reads
+// the SyncRunRecord on demand, so a resumed sync reports the on-disk
+// SyncToken by construction (the pre-2.6 Adapter cached it and had to
+// reload carefully — a stale/empty cache made the syncer's FSM restart
+// from InitOp every activity window).
+func (e *Engine) ResumeSync(ctx context.Context, syncType connectorstore.SyncType, syncID string) (string, error) {
 	if syncID == "" {
-		return "", errors.New("adapter.ResumeSync: empty syncID")
+		return "", errors.New("pebble.ResumeSync: empty syncID")
 	}
-	existing, err := a.engine.GetSyncRunRecord(ctx, syncID)
-	if err != nil {
+	if _, err := e.GetSyncRunRecord(ctx, syncID); err != nil {
 		return "", c1zstore.AdaptNotFound(fmt.Errorf("ResumeSync: lookup: %w", err), pebble.ErrNotFound)
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if err := a.engine.SetCurrentSync(syncID); err != nil {
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
+	if err := e.bindCurrentSync(syncID); err != nil {
 		return "", err
-	}
-	a.current = syncRunState{
-		syncID:   syncID,
-		syncType: existing.GetType(),
-		parentID: existing.GetParentSyncId(),
-		// Load the persisted checkpoint token back into the in-memory
-		// cache. CurrentSyncStep reads a.current.step directly, so
-		// omitting this makes a resumed sync report step "" and the
-		// syncer's state.Unmarshal("") restarts the FSM from InitOp —
-		// i.e. a full sync every activity window. CheckpointSync/EndSync
-		// round-trip SyncToken via the SyncRunRecord; resume must too.
-		step:      existing.GetSyncToken(),
-		startedAt: existing.GetStartedAt().AsTime(),
 	}
 	return syncID, nil
 }
@@ -202,77 +170,76 @@ func (a *Adapter) ResumeSync(ctx context.Context, syncType connectorstore.SyncTy
 //     exceeding one window never finished.
 //
 // Only when nothing is resumable do we start a new sync.
-func (a *Adapter) StartOrResumeSync(ctx context.Context, syncType connectorstore.SyncType, syncID string) (string, bool, error) {
+func (e *Engine) StartOrResumeSync(ctx context.Context, syncType connectorstore.SyncType, syncID string) (string, bool, error) {
 	if syncID != "" {
-		if _, err := a.engine.GetSyncRunRecord(ctx, syncID); err == nil {
-			id, err := a.ResumeSync(ctx, syncType, syncID)
+		if _, err := e.GetSyncRunRecord(ctx, syncID); err == nil {
+			id, err := e.ResumeSync(ctx, syncType, syncID)
 			return id, false, err
 		}
-	} else if rec, err := a.engine.LatestUnfinishedSyncRecord(ctx, syncTypeFilterFromConnectorstore(syncType)); err != nil {
+	} else if rec, err := e.LatestUnfinishedSyncRecord(ctx, syncTypeFilterFromConnectorstore(syncType)); err != nil {
 		return "", false, err
 	} else if rec != nil {
-		id, err := a.ResumeSync(ctx, syncType, rec.GetSyncId())
+		id, err := e.ResumeSync(ctx, syncType, rec.GetSyncId())
 		return id, false, err
 	}
-	id, err := a.StartNewSync(ctx, syncType, "")
+	id, err := e.StartNewSync(ctx, syncType, "")
 	return id, true, err
 }
 
 // SetCurrentSync rebinds the engine's current sync without creating a
 // new SyncRunRecord. Used by callers that previously called
-// StartNewSync/ResumeSync.
-func (a *Adapter) SetCurrentSync(ctx context.Context, syncID string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if err := a.engine.SetCurrentSync(syncID); err != nil {
+// StartNewSync/ResumeSync. A missing record is legal (the legitimate
+// "no checkpoint yet" case — CurrentSyncStep will report ""); any
+// other read failure propagates rather than silently binding a sync
+// whose step can't be read (SQLite's SetCurrentSync likewise returns
+// its getSync error).
+func (e *Engine) SetCurrentSync(ctx context.Context, syncID string) error {
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
+	if _, err := e.GetSyncRunRecord(ctx, syncID); err != nil && !errors.Is(err, pebble.ErrNotFound) {
 		return err
 	}
-	// Rehydrate the in-memory cache from the persisted record so
-	// CurrentSyncStep reflects the on-disk SyncToken after a rebind —
-	// the same reason ResumeSync loads step. SQLite's CurrentSyncStep
-	// re-reads the sync_runs row on every call and so is immune; Pebble
-	// caches a.current.step, so a rebind that doesn't refresh it would
-	// report a stale (or empty) step and reset the FSM.
-	rec, err := a.engine.GetSyncRunRecord(ctx, syncID)
-	if err != nil {
-		// A genuine miss (no record under this id) is the legitimate
-		// "no checkpoint yet" case: bind the id with an empty step.
-		// Any OTHER error is a real read failure — propagate it rather
-		// than silently leaving step "" and resetting the FSM to a full
-		// re-sync (the failure class this whole path exists to avoid).
-		// SQLite's SetCurrentSync likewise returns its getSync error.
-		if errors.Is(err, pebble.ErrNotFound) {
-			a.current = syncRunState{syncID: syncID}
-			return nil
-		}
-		return err
-	}
-	a.current = syncRunState{
-		syncID:    syncID,
-		syncType:  rec.GetType(),
-		parentID:  rec.GetParentSyncId(),
-		step:      rec.GetSyncToken(),
-		startedAt: rec.GetStartedAt().AsTime(),
-	}
-	return nil
+	return e.bindCurrentSync(syncID)
 }
 
-// CurrentSyncStep returns the current sync's step string, or "".
-func (a *Adapter) CurrentSyncStep(ctx context.Context) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.current.step, nil
+// CurrentSyncStep returns the current sync's step string, or "". Read
+// from the durable SyncRunRecord on every call, exactly like SQLite's
+// CurrentSyncStep re-reads the sync_runs row — there is no in-memory
+// step cache to go stale (the old Adapter cached it and grew
+// rehydration logic at every rebind to compensate).
+//
+// Holds lifecycleMu so the id read and the record read are one
+// snapshot with respect to the lifecycle transitions — without it, an
+// interleaved EndSync/SetCurrentSync between the two reads could
+// return a token for a sync the engine is no longer bound to (the old
+// Adapter's mutex gave the same guarantee over its cache; review
+// finding, final round).
+func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
+	syncID := e.CurrentSyncID()
+	if syncID == "" {
+		return "", nil
+	}
+	rec, err := e.GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	return rec.GetSyncToken(), nil
 }
 
 // CheckpointSync persists a step token to the open sync's record.
-func (a *Adapter) CheckpointSync(ctx context.Context, syncToken string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.current.syncID == "" {
+func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
+	syncID := e.CurrentSyncID()
+	if syncID == "" {
 		return errors.New("CheckpointSync: no open sync")
 	}
-	a.current.step = syncToken
-	existing, err := a.engine.GetSyncRunRecord(ctx, a.current.syncID)
+	existing, err := e.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return err
 	}
@@ -284,19 +251,22 @@ func (a *Adapter) CheckpointSync(ctx context.Context, syncToken string) error {
 		EndedAt:      existing.GetEndedAt(),
 		SyncToken:    syncToken,
 	}.Build()
-	return a.engine.PutSyncRunRecord(ctx, updated)
+	return e.PutSyncRunRecord(ctx, updated)
 }
 
 // EndSync stamps the open sync_run's ended_at and detaches it. After
-// EndSync, the adapter has no current sync; SetCurrentSync or
-// StartNewSync are required for further writes.
-func (a *Adapter) EndSync(ctx context.Context) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.current.syncID == "" {
+// EndSync, the engine has no current sync; SetCurrentSync or
+// StartNewSync are required for further writes. The binding itself is
+// cleared inside the finalize tail (EndFreshSync), so success leaves
+// no lifecycle state to reset here.
+func (e *Engine) EndSync(ctx context.Context) error {
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
+	syncID := e.CurrentSyncID()
+	if syncID == "" {
 		return errors.New("EndSync: no open sync")
 	}
-	existing, err := a.engine.GetSyncRunRecord(ctx, a.current.syncID)
+	existing, err := e.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return err
 	}
@@ -315,16 +285,15 @@ func (a *Adapter) EndSync(ctx context.Context) error {
 	// from by_principal, in the saved artifact. Finalize's own steps run
 	// on AllowSealed paths; sync-run metadata stamps remain allowed.
 	// Sealing also pauses compactions for the EndSync-to-close window.
-	a.engine.seal()
-	if err := a.engine.endSyncFinalize(ctx, existing); err != nil {
+	e.seal()
+	if err := e.endSyncFinalize(ctx, existing); err != nil {
 		// On failure the sync stays bound and the caller may keep writing
 		// (or retry EndSync later): leave the sealed state and resume
 		// compactions, or L0 would accumulate until pebble stalls writes at
 		// L0StopWritesThreshold with nothing left to resume the scheduler.
-		a.engine.unseal()
+		e.unseal()
 		return err
 	}
-	a.current = syncRunState{}
 	return nil
 }
 
@@ -340,7 +309,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// full grant scan also accumulates the grant portion of the stats via
 	// stashDeferredGrantStats, letting PersistSyncStats skip a second
 	// O(grants) pass over the keyspace).
-	if e.deferredIdxPending.Load() {
+	if e.db.DeferredIdxPending() {
 		if err := e.BuildDeferredGrantIndexes(ctx); err != nil {
 			return fmt.Errorf("EndSync: build deferred grant indexes: %w", err)
 		}
@@ -433,13 +402,13 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 // read+arena-private-write access patterns. Each worker writes to a
 // disjoint range of the records slice and uses its own arena, so no
 // shared mutable state across workers.
-func (a *Adapter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
-	syncID := a.currentSyncID()
+func (e *Engine) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
+	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
 	records := translateGrants(syncID, grants)
-	if err := a.engine.PutGrantRecords(ctx, records...); err != nil {
+	if err := e.PutGrantRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutGrants: %w", err)
 	}
 	return nil
@@ -451,13 +420,13 @@ func (a *Adapter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 // sync must be fresh, and the caller MUST guarantee each external_id appears at
 // most once across the whole sync (not just within this batch). Live connector
 // writes should use PutGrants.
-func (a *Adapter) UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.Grant) error {
-	syncID := a.currentSyncID()
+func (e *Engine) UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.Grant) error {
+	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
 	records := translateGrants(syncID, grants)
-	if err := a.engine.UnsafePutUniqueGrantRecords(ctx, records...); err != nil {
+	if err := e.UnsafePutUniqueGrantRecords(ctx, records...); err != nil {
 		return fmt.Errorf("UnsafePutUniqueGrants: %w", err)
 	}
 	return nil
@@ -555,8 +524,8 @@ func translateGrantsSerial(syncID string, grants []*v2.Grant, discoveredAt []*ti
 
 // PutResourceTypes writes a batch of resource types in a single
 // Pebble batch.
-func (a *Adapter) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType) error {
-	syncID := a.currentSyncID()
+func (e *Engine) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType) error {
+	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -575,15 +544,15 @@ func (a *Adapter) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType)
 		}
 		records = append(records, rec)
 	}
-	if err := a.engine.PutResourceTypeRecords(ctx, records...); err != nil {
+	if err := e.PutResourceTypeRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutResourceTypes: %w", err)
 	}
 	return nil
 }
 
 // PutResources writes a batch of resources in a single Pebble batch.
-func (a *Adapter) PutResources(ctx context.Context, resources ...*v2.Resource) error {
-	syncID := a.currentSyncID()
+func (e *Engine) PutResources(ctx context.Context, resources ...*v2.Resource) error {
+	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -602,15 +571,15 @@ func (a *Adapter) PutResources(ctx context.Context, resources ...*v2.Resource) e
 		}
 		records = append(records, rec)
 	}
-	if err := a.engine.PutResourceRecords(ctx, records...); err != nil {
+	if err := e.PutResourceRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutResources: %w", err)
 	}
 	return nil
 }
 
 // PutEntitlements writes a batch of entitlements in a single Pebble batch.
-func (a *Adapter) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
-	syncID := a.currentSyncID()
+func (e *Engine) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
+	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -629,7 +598,7 @@ func (a *Adapter) PutEntitlements(ctx context.Context, entitlements ...*v2.Entit
 		}
 		records = append(records, rec)
 	}
-	if err := a.engine.PutEntitlementRecords(ctx, records...); err != nil {
+	if err := e.PutEntitlementRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutEntitlements: %w", err)
 	}
 	return nil
@@ -638,12 +607,12 @@ func (a *Adapter) PutEntitlements(ctx context.Context, entitlements ...*v2.Entit
 // DeleteGrant removes a grant by its raw public id, resolved through the
 // bare-id lookup edge. Callers holding the full grant should prefer
 // DeleteGrantByRefs, which needs no id-string resolution.
-func (a *Adapter) DeleteGrant(ctx context.Context, grantID string) error {
-	syncID := a.currentSyncID()
+func (e *Engine) DeleteGrant(ctx context.Context, grantID string) error {
+	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
-	return a.engine.DeleteGrantRecord(ctx, grantID)
+	return e.DeleteGrantRecord(ctx, grantID)
 }
 
 // DeleteGrantByRefs removes a grant addressed by the structured refs of the
@@ -653,8 +622,8 @@ func (a *Adapter) DeleteGrant(ctx context.Context, grantID string) error {
 // interactive/CLI edges (see lookup.go). A grant whose refs cannot derive
 // an identity could not have been stored in the first place, so there is
 // nothing a string could correctly address here.
-func (a *Adapter) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
-	syncID := a.currentSyncID()
+func (e *Engine) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
+	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -662,15 +631,15 @@ func (a *Adapter) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error 
 	if _, err := grantIdentityFromRecord(rec); err != nil {
 		return fmt.Errorf("DeleteGrantByRefs: grant %q: %w", grant.GetId(), err)
 	}
-	return a.engine.DeleteGrantByIdentityRefs(ctx, rec)
+	return e.DeleteGrantByIdentityRefs(ctx, rec)
 }
 
 // PutAsset writes a single asset row. assetRef carries the
 // (resource_type, resource_id) pair we use as the external_id —
 // joined with a "/" separator since the engine's AssetRecord PK is
 // (sync_id, external_id).
-func (a *Adapter) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
-	syncID := a.currentSyncID()
+func (e *Engine) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
+	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -688,41 +657,37 @@ func (a *Adapter) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentTy
 		Data:         data,
 		DiscoveredAt: timestamppb.Now(),
 	}.Build()
-	return a.engine.PutAssetRecord(ctx, rec)
+	return e.PutAssetRecord(ctx, rec)
 }
 
-// Cleanup on the bare Adapter is a no-op. The real Pebble
+// Cleanup on the bare Engine is a no-op. The real Pebble
 // retention policy lives on pkg/dotc1z's Pebble store wrapper
 // (pebble_store.go) — it needs access to caller-supplied options
 // (SyncLimit, SkipCleanup) that the engine itself doesn't track,
 // plus the dirty-flag plumbing on the wrapper.
 //
 // Callers that open through dotc1z.NewStore(..., WithEngine(EnginePebble))
-// get the real Cleanup; callers that build a bare Adapter (unit
-// tests, embedding) silently get retention=disabled. The method is
-// kept on the Adapter only to satisfy the connectorstore.Writer
-// interface contract regardless of how the adapter was constructed.
-func (a *Adapter) Cleanup(ctx context.Context) error { return nil }
-
-// Close shuts down the engine. After Close, all methods return errors.
-func (a *Adapter) Close(ctx context.Context) error {
-	return a.engine.Close()
-}
+// get the real Cleanup; callers that use a bare Engine (unit tests,
+// embedding) silently get retention=disabled. Kept so the engine
+// serves the writer-shaped call sites that predate the layer collapse
+// (the bare engine is deliberately NOT a full connectorstore.Writer —
+// see the Adapter alias doc).
+func (e *Engine) Cleanup(ctx context.Context) error { return nil }
 
 // === GetAsset ===
 
 // GetAsset returns the (content_type, data-reader) for the given
 // asset. The returned reader is backed by a bytes.Reader over the
 // fully-materialized blob.
-func (a *Adapter) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequest) (string, io.Reader, error) {
-	syncID := a.currentSyncID()
+func (e *Engine) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequest) (string, io.Reader, error) {
+	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return "", nil, ErrNoCurrentSync
 	}
 	if req == nil || req.GetAsset() == nil {
 		return "", nil, errors.New("GetAsset: nil request")
 	}
-	rec, err := a.engine.GetAssetRecord(ctx, req.GetAsset().GetId())
+	rec, err := e.GetAssetRecord(ctx, req.GetAsset().GetId())
 	if err != nil {
 		return "", nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -746,8 +711,8 @@ func (a *Adapter) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequ
 //     grants.resource_id / resource_type_id (the entitlement's
 //     resource columns). Callers who want to filter by principal
 //     should use ListGrantsForPrincipal instead.
-func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
-	syncID, err := a.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
+func (e *Engine) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
+	syncID, err := e.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -759,10 +724,10 @@ func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrant
 	var records []*v3.GrantRecord
 	var nextCursor string
 	if r := req.GetResource(); r != nil && r.GetId() != nil {
-		records, nextCursor, err = a.engine.PaginateGrantsByEntitlementResource(ctx,
+		records, nextCursor, err = e.PaginateGrantsByEntitlementResource(ctx,
 			r.GetId().GetResourceType(), r.GetId().GetResource(), cursor, limit)
 	} else {
-		records, nextCursor, err = a.engine.PaginateGrants(ctx, cursor, limit)
+		records, nextCursor, err = e.PaginateGrants(ctx, cursor, limit)
 	}
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -787,8 +752,8 @@ func (a *Adapter) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrant
 // only resource_type_id is set, we still iterate the full primary
 // range and post-filter — adding a by_resource_type index is a
 // future-work item if this path becomes hot.
-func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
-	syncID, err := a.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
+func (e *Engine) ListResources(ctx context.Context, req *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
+	syncID, err := e.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -810,7 +775,7 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 	// them on the next call.
 	cursorFor := func(rec *v3.ResourceRecord) string {
 		if useParent {
-			return encodeCursor(encodeResourceByParentIndexKey(
+			return encodeCursor(rawdb.EncodeResourceByParentIndexKey(
 				parent.GetResourceType(), parent.GetResource(),
 				rec.GetResourceTypeId(), rec.GetResourceId(),
 			))
@@ -835,10 +800,10 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 		var records []*v3.ResourceRecord
 		var err error
 		if useParent {
-			records, nextCursor, err = a.engine.PaginateResourcesByParent(ctx,
+			records, nextCursor, err = e.PaginateResourcesByParent(ctx,
 				parent.GetResourceType(), parent.GetResource(), cursor, fetchLimit)
 		} else {
-			records, nextCursor, err = a.engine.PaginateResources(ctx, cursor, fetchLimit)
+			records, nextCursor, err = e.PaginateResources(ctx, cursor, fetchLimit)
 		}
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -875,8 +840,8 @@ func (a *Adapter) ListResources(ctx context.Context, req *v2.ResourcesServiceLis
 
 // ListResourceTypes returns up to page_size resource_types. Pagination
 // matches SQLite (see ListGrants).
-func (a *Adapter) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesServiceListResourceTypesRequest) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
-	syncID, err := a.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
+func (e *Engine) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesServiceListResourceTypesRequest) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
+	syncID, err := e.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -884,7 +849,7 @@ func (a *Adapter) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesSe
 		return nil, ErrNoCurrentSync
 	}
 	limit := clampPageSize(req.GetPageSize())
-	records, nextCursor, err := a.engine.PaginateResourceTypes(ctx, req.GetPageToken(), limit)
+	records, nextCursor, err := e.PaginateResourceTypes(ctx, req.GetPageToken(), limit)
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -901,8 +866,8 @@ func (a *Adapter) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesSe
 // ListEntitlements returns up to page_size entitlements, optionally
 // filtered by Resource (resource_type_id, resource_id). Pagination
 // matches SQLite (see ListGrants).
-func (a *Adapter) ListEntitlements(ctx context.Context, req *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
-	syncID, err := a.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
+func (e *Engine) ListEntitlements(ctx context.Context, req *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
+	syncID, err := e.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -914,10 +879,10 @@ func (a *Adapter) ListEntitlements(ctx context.Context, req *v2.EntitlementsServ
 	var records []*v3.EntitlementRecord
 	var nextCursor string
 	if r := req.GetResource(); r != nil && r.GetId() != nil {
-		records, nextCursor, err = a.engine.PaginateEntitlementsByResource(ctx,
+		records, nextCursor, err = e.PaginateEntitlementsByResource(ctx,
 			r.GetId().GetResourceType(), r.GetId().GetResource(), cursor, limit)
 	} else {
-		records, nextCursor, err = a.engine.PaginateEntitlements(ctx, cursor, limit)
+		records, nextCursor, err = e.PaginateEntitlements(ctx, cursor, limit)
 	}
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -936,7 +901,7 @@ func (a *Adapter) ListEntitlements(ctx context.Context, req *v2.EntitlementsServ
 // ListEntitlements that some connectors expose for static (compile-
 // time-known) entitlements. C1File returns an empty list; the
 // Pebble adapter mirrors that contract.
-func (a *Adapter) ListStaticEntitlements(
+func (e *Engine) ListStaticEntitlements(
 	_ context.Context,
 	_ *v2.EntitlementsServiceListStaticEntitlementsRequest,
 ) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
@@ -949,12 +914,12 @@ func (a *Adapter) ListStaticEntitlements(
 // === reader_v2 surface ===
 
 // GetGrant fetches a single grant by ID.
-func (a *Adapter) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
-	syncID := a.currentSyncID()
+func (e *Engine) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
+	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
-	rec, err := a.engine.GetGrantRecord(ctx, req.GetGrantId())
+	rec, err := e.GetGrantRecord(ctx, req.GetGrantId())
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -967,8 +932,8 @@ func (a *Adapter) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServi
 // the given type. Implements connectorstore.LatestFinishedSyncIDFetcher.
 // Delegates to Engine.LatestFinishedSyncRecord; see that method for
 // the predicate + tiebreaker contract.
-func (a *Adapter) LatestFinishedSyncID(ctx context.Context, syncType connectorstore.SyncType) (string, error) {
-	latest, err := a.engine.LatestFinishedSyncRecord(ctx, syncTypeFilterFromConnectorstore(syncType))
+func (e *Engine) LatestFinishedSyncID(ctx context.Context, syncType connectorstore.SyncType) (string, error) {
+	latest, err := e.LatestFinishedSyncRecord(ctx, syncTypeFilterFromConnectorstore(syncType))
 	if err != nil {
 		return "", err
 	}
@@ -990,17 +955,9 @@ func syncTypeFilterFromConnectorstore(t connectorstore.SyncType) func(v3.SyncTyp
 	return func(got v3.SyncType) bool { return got == want }
 }
 
-// CurrentDBSizeBytes returns the current uncompressed Pebble working-set size
-// on disk. Implements connectorstore.DBSizeProvider for progress logging
-// parity with the SQLite-backed *dotc1z.C1File.
-func (a *Adapter) CurrentDBSizeBytes() (int64, error) {
-	return a.engine.CurrentDBSizeBytes()
-}
-
-// Metadata describes the storage backing this adapter. The Pebble
-// adapter always reports the v3 format; PayloadEncoding is set by
-// the writer at envelope time and is not directly visible on the
-// Adapter itself — pkg/dotc1z's Pebble store wrapper
+// Metadata describes the storage backing this engine. Always reports
+// the v3 format; PayloadEncoding is set by the writer at envelope time
+// and is not directly visible here — pkg/dotc1z's Pebble store wrapper
 // (pebble_store.go) overrides this method to fill PayloadEncoding
 // from its configured value.
 //
@@ -1009,7 +966,7 @@ func (a *Adapter) CurrentDBSizeBytes() (int64, error) {
 // import would cycle. The values match c1zstore.EnginePebble.String()
 // and dotc1z.C1ZFormatV3.String() — see connectorstore.StoreMetadata
 // docs for the canonical value list.
-func (a *Adapter) Metadata() connectorstore.StoreMetadata {
+func (e *Engine) Metadata() connectorstore.StoreMetadata {
 	return connectorstore.StoreMetadata{
 		Engine: "pebble",
 		Format: "v3",
@@ -1017,21 +974,6 @@ func (a *Adapter) Metadata() connectorstore.StoreMetadata {
 }
 
 // === helpers ===
-
-// currentSyncID returns the adapter's current sync id under the
-// adapter's lock.
-func (a *Adapter) currentSyncID() string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.current.syncID
-}
-
-// CurrentSyncID returns the adapter's current sync id, or "" when no
-// sync is active. Used by pkg/dotc1z's Pebble store to drive the
-// retention policy at Cleanup.
-func (a *Adapter) CurrentSyncID() string {
-	return a.currentSyncID()
-}
 
 // resolveActiveSync picks the sync_id a List* read should scope to.
 //
@@ -1047,11 +989,11 @@ func (a *Adapter) CurrentSyncID() string {
 // Returns ("", nil) when no sync resolves. A malformed SyncDetails
 // annotation surfaces as a non-nil error so callers don't silently
 // fall through to the wrong sync.
-func (a *Adapter) resolveActiveSync(ctx context.Context, reqSyncID string, annos []*anypb.Any) (string, error) {
+func (e *Engine) resolveActiveSync(ctx context.Context, reqSyncID string, annos []*anypb.Any) (string, error) {
 	if reqSyncID != "" {
 		return reqSyncID, nil
 	}
-	return a.resolveActiveSyncForReader(ctx, annos)
+	return e.resolveActiveSyncForReader(ctx, annos)
 }
 
 // v2SyncTypeToV3 maps the connectorstore.SyncType string to the v3

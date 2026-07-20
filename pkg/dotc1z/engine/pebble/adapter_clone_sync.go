@@ -46,7 +46,7 @@ import (
 // clone_sync.go).
 func cloneSync(
 	ctx context.Context,
-	a *Adapter,
+	e *Engine,
 	encoding c1zstore.PayloadEncoding,
 	outPath, syncID string,
 	opts ...c1zstore.CloneSyncOption,
@@ -59,7 +59,7 @@ func cloneSync(
 
 	resolved := syncID
 	if resolved == "" {
-		latest, err := a.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
+		latest, err := e.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
 		if err != nil {
 			return err
 		}
@@ -69,7 +69,7 @@ func cloneSync(
 		resolved = latest
 	}
 
-	srcRun, err := a.engine.GetSyncRunRecord(ctx, resolved)
+	srcRun, err := e.GetSyncRunRecord(ctx, resolved)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return status.Errorf(codes.NotFound, "clone-sync: sync %q not found", resolved)
@@ -92,7 +92,7 @@ func cloneSync(
 	}()
 	checkpointDir := filepath.Join(cloneTmp, "checkpoint")
 
-	if err := a.engine.CheckpointTo(ctx, checkpointDir); err != nil {
+	if err := e.CheckpointTo(ctx, checkpointDir); err != nil {
 		return fmt.Errorf("clone-sync: checkpoint source: %w", err)
 	}
 

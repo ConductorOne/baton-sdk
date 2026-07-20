@@ -24,12 +24,12 @@ import (
 // idxGrantByNeedsExpansion index. The *Page methods walk that index and
 // return real expandable rows (see TestExpansionAnnotationRoundtrip and
 // the live PendingExpansion path).
-func (a *Adapter) Grants() c1zstore.GrantStore {
-	return pebbleGrantStore{a: a}
+func (e *Engine) Grants() c1zstore.GrantStore {
+	return pebbleGrantStore{e: e}
 }
 
 type pebbleGrantStore struct {
-	a *Adapter
+	e *Engine
 }
 
 var expandedGrantImmutableAnnotationAny = func() *anypb.Any {
@@ -62,7 +62,7 @@ var expandedGrantImmutableAnnotationAny = func() *anypb.Any {
 // Caught by TestStoreExpandedGrantsPreservesExpansion and the
 // SQLite conformance test of the same name.
 func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
-	syncID := g.a.currentSyncID()
+	syncID := g.e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -84,7 +84,7 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 	// PutExpandedGrantRecords stamps/preserves it. The returned pointers alias
 	// the arena, which outlives this call's use of `merged`.
 	merged := g.translateExpanded(syncID, grants)
-	return g.a.engine.PutExpandedGrantRecords(ctx, merged)
+	return g.e.PutExpandedGrantRecords(ctx, merged)
 }
 
 // StoreNewExpandedGrants is the fast path for synthesized expanded grants. The
@@ -92,7 +92,7 @@ func (g pebbleGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 // can skip the read-before-write Get used to preserve side-state and clean stale
 // indexes for updates.
 func (g pebbleGrantStore) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
-	syncID := g.a.currentSyncID()
+	syncID := g.e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -100,7 +100,7 @@ func (g pebbleGrantStore) StoreNewExpandedGrants(ctx context.Context, grants ...
 		return nil
 	}
 	merged := g.translateExpanded(syncID, grants)
-	return g.a.engine.PutSynthesizedGrantRecords(ctx, merged)
+	return g.e.PutSynthesizedGrantRecords(ctx, merged)
 }
 
 // appendSynthesizedGrantRecords translates one destination's synthesized
@@ -141,7 +141,7 @@ func appendSynthesizedGrantRecords(records []synthesizedGrantRecord, dest *v2.En
 }
 
 func (g pebbleGrantStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
-	if g.a.currentSyncID() == "" {
+	if g.e.CurrentSyncID() == "" {
 		return ErrNoCurrentSync
 	}
 	if len(principals) == 0 {
@@ -159,7 +159,7 @@ func (g pebbleGrantStore) StoreNewExpandedGrantContributions(ctx context.Context
 	if err != nil {
 		return err
 	}
-	return g.a.engine.PutSynthesizedGrantContributions(ctx, records)
+	return g.e.PutSynthesizedGrantContributions(ctx, records)
 }
 
 // BeginExpandedGrantLayer opens a layer-scoped synthesized-grant layer session
@@ -167,10 +167,10 @@ func (g pebbleGrantStore) StoreNewExpandedGrantContributions(ctx context.Context
 // by_principal index is not deferred); callers fall back to
 // StoreNewExpandedGrantContributions.
 func (g pebbleGrantStore) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
-	if g.a.currentSyncID() == "" {
+	if g.e.CurrentSyncID() == "" {
 		return false, ErrNoCurrentSync
 	}
-	return g.a.engine.BeginSynthesizedGrantLayer(ctx)
+	return g.e.BeginSynthesizedGrantLayer(ctx)
 }
 
 // AddExpandedGrantLayerContributions streams one destination's synthesized
@@ -192,15 +192,15 @@ func (g pebbleGrantStore) AddExpandedGrantLayerContributions(ctx context.Context
 	if err != nil {
 		return err
 	}
-	return g.a.engine.AddSynthesizedGrantLayerContributions(ctx, records)
+	return g.e.AddSynthesizedGrantLayerContributions(ctx, records)
 }
 
 func (g pebbleGrantStore) FinishExpandedGrantLayer(ctx context.Context) error {
-	return g.a.engine.FinishSynthesizedGrantLayer(ctx)
+	return g.e.FinishSynthesizedGrantLayer(ctx)
 }
 
 func (g pebbleGrantStore) AbortExpandedGrantLayer(ctx context.Context) error {
-	return g.a.engine.AbortSynthesizedGrantLayer(ctx)
+	return g.e.AbortSynthesizedGrantLayer(ctx)
 }
 
 func (g pebbleGrantStore) translateExpanded(syncID string, grants []*v2.Grant) []*v3.GrantRecord {
@@ -238,11 +238,11 @@ func (g pebbleGrantStore) translateExpanded(syncID string, grants []*v2.Grant) [
 // index scan (e.g. partial overwrite) is skipped — same orphan
 // semantic as the by_entitlement / by_principal indexes.
 func (g pebbleGrantStore) PendingExpansionPage(ctx context.Context, pageToken string) ([]c1zstore.PendingExpansion, string, error) {
-	syncID := g.a.currentSyncID()
+	syncID := g.e.CurrentSyncID()
 	if syncID == "" {
 		return nil, "", ErrNoCurrentSync
 	}
-	records, next, err := g.a.engine.PaginateGrantsByNeedsExpansion(ctx, pageToken, DefaultPageSize)
+	records, next, err := g.e.PaginateGrantsByNeedsExpansion(ctx, pageToken, DefaultPageSize)
 	if err != nil {
 		return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -307,11 +307,11 @@ func (g pebbleGrantStore) PendingExpansion(ctx context.Context) iter.Seq2[c1zsto
 // processGrantsWithExternalPrincipals and c1's fileClientWrapper —
 // behave identically across engines.
 func (g pebbleGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken string) ([]c1zstore.GrantAnnotation, string, error) {
-	syncID := g.a.currentSyncID()
+	syncID := g.e.CurrentSyncID()
 	if syncID == "" {
 		return nil, "", ErrNoCurrentSync
 	}
-	records, next, err := g.a.engine.PaginateGrants(ctx, pageToken, DefaultPageSize)
+	records, next, err := g.e.PaginateGrants(ctx, pageToken, DefaultPageSize)
 	if err != nil {
 		return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -350,13 +350,13 @@ func (g pebbleGrantStore) ListWithAnnotationsForResourcePage(
 		return nil, "", errors.New("ListWithAnnotationsForResourcePage: nil resource")
 	}
 	if syncID == "" {
-		syncID = g.a.currentSyncID()
+		syncID = g.e.CurrentSyncID()
 	}
 	if syncID == "" {
 		return nil, "", ErrNoCurrentSync
 	}
 	limit := clampPageSize(pageSize)
-	records, next, err := g.a.engine.PaginateGrantsByEntitlementResource(ctx,
+	records, next, err := g.e.PaginateGrantsByEntitlementResource(ctx,
 		resource.GetId().GetResourceType(), resource.GetId().GetResource(),
 		pageToken, limit)
 	if err != nil {

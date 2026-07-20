@@ -16,7 +16,7 @@ func TestPutGetResourceType(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	r := v3.ResourceTypeRecord_builder{
 		ExternalId:   "user",
@@ -34,7 +34,7 @@ func TestIterateResourceTypesBySync(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 	for i := 0; i < 20; i++ {
 		r := v3.ResourceTypeRecord_builder{
 			ExternalId:  ksuid.New().String(),
@@ -54,7 +54,7 @@ func TestResourceWithParentIndex(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	parent := v3.ResourceRecord_builder{
 		ResourceTypeId: "group",
@@ -105,7 +105,7 @@ func TestEntitlementByResourceIndex(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	// 4 entitlements on group/admins, 2 on group/devs.
 	for i := 0; i < 4; i++ {
@@ -147,7 +147,7 @@ func TestAssetRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	payload := []byte("PNGfakebytes\x00\x01\x02")
 	r := v3.AssetRecord_builder{

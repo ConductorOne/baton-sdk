@@ -25,7 +25,7 @@ func TestRepairMissingGrantDigestsLeavesGlobalRootMissingOnPartialFailure(t *tes
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, "ent-good")
@@ -93,7 +93,7 @@ func TestRepairMissingGrantDigestsHealsOnlyInvalidatedPartition(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	counts := map[string]int64{"ent-a": 5, "ent-b": 600, "ent-c": 3}
@@ -152,7 +152,7 @@ func TestRepairMissingGrantDigestsRediscoversInvalidatedOrphan(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, "ent-real")
@@ -192,7 +192,7 @@ func TestRepairMissingGrantDigestsRediscoversZeroGrantEntitlement(t *testing.T) 
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, "ent-empty")
@@ -235,7 +235,7 @@ func TestRepairMissingGrantDigestsFallsBackWhenNeverBuilt(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, "ent-A")
@@ -340,7 +340,7 @@ func TestRepairMissingGrantDigestsCountsMalformedKeys(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, "ent-a")
@@ -353,7 +353,7 @@ func TestRepairMissingGrantDigestsCountsMalformedKeys(t *testing.T) {
 	sealGrantDigests(t, e)
 
 	// A key inside ent-a's primary range with SEVEN tuple segments —
-	// the key-layout-drift/corruption shape splitGrantPrimaryKey
+	// the key-layout-drift/corruption shape rawdb.SplitGrantPrimaryKey
 	// rejects (a well-formed grant identity has exactly six).
 	partition := testEntPartition("ent-a")
 	lower, _ := grantPrimaryEntitlementBoundsFromPartition(partition)
@@ -406,7 +406,7 @@ func TestRepairStreamsPartitionInBoundedBatches(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	if err := e.SetCurrentSync(syncID); err != nil {
+	if err := e.bindCurrentSync(syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	for entID, n := range map[string]int{"ent-big": 700, "ent-small": 2} {

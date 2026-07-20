@@ -144,7 +144,7 @@ func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync
 	if destSyncID == "" {
 		return stats, errors.New("synccompactor/pebble.MergeInto: destSyncID is required")
 	}
-	if err := dest.SetCurrentSync(destSyncID); err != nil {
+	if err := dest.SetCurrentSync(ctx, destSyncID); err != nil {
 		return stats, fmt.Errorf("synccompactor/pebble.MergeInto: bind dest sync: %w", err)
 	}
 	// Folds write the dest keyspace through the raw DB handle; invalidate
@@ -192,12 +192,8 @@ const mergeRawFlushRecords = 32768
 //     ordering ("never overwrite an incumbent, always fill a hole").
 func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, destSyncID string) (FoldStats, error) {
 	var stats FoldStats
-	srcDB := s.Engine.DB()
-	if srcDB == nil {
-		return stats, errors.New("source engine has no DB (closed?)")
-	}
 	for _, bucket := range allBuckets() {
-		bucketStats, err := mergeBucketRawIfNewer(ctx, dest, srcDB, bucket)
+		bucketStats, err := mergeBucketRawIfNewer(ctx, dest, s.Engine, bucket)
 		stats.Add(bucketStats)
 		if err != nil {
 			return stats, fmt.Errorf("merge %s: %w", bucket.name, err)
@@ -206,7 +202,7 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 	return stats, nil
 }
 
-func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *enginepkg.MergeDB, bucket bucketSpec) (FoldStats, error) {
+func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *enginepkg.Engine, bucket bucketSpec) (FoldStats, error) {
 	var stats FoldStats
 	lower, upper := bucket.syncRange()
 	iter, err := src.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
@@ -215,8 +211,7 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *eng
 	}
 	defer func() { _ = iter.Close() }()
 
-	destDB := dest.DB()
-	batch := destDB.NewFoldBatch()
+	batch := dest.NewFoldBatch()
 	defer func() { _ = batch.Close() }()
 	pending := 0
 	var scratch rawIndexScratch
@@ -239,7 +234,7 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *eng
 			return err
 		}
 		_ = batch.Close()
-		batch = destDB.NewFoldBatch()
+		batch = dest.NewFoldBatch()
 		pending = 0
 		return nil
 	}
@@ -252,7 +247,7 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *eng
 		// Point-read the committed incumbent. Safe against the pending
 		// batch: a sync holds one record per key, so no key repeats
 		// within this loop, and earlier sources were fully flushed.
-		oldVal, closer, getErr := destDB.Get(key)
+		oldVal, closer, getErr := dest.Get(key)
 		switch {
 		case getErr == nil:
 			if bytes.Equal(oldVal, value) {

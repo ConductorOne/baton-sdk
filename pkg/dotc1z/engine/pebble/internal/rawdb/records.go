@@ -1,12 +1,13 @@
 package rawdb
 
-// Phase 2b: typed record-keyspace staging with obligation derivation
-// FOLDED INTO the ops. The forgotten-obligation bug class — a caller
-// staging a primary row and forgetting its index entries, digest
-// invalidation, prior-row index cleanup, or the deferred-index crash
-// marker — dies here: RecordBatch exposes no generic staging, and each
-// Stage* op computes and stages everything its mutation owes in the
-// same call.
+// Typed record-keyspace staging with obligation derivation FOLDED INTO
+// the ops. The forgotten-obligation bug class — a caller staging a
+// primary row and forgetting its index entries, digest invalidation,
+// prior-row index cleanup, or the deferred-index crash marker — dies
+// here: RecordBatch exposes no generic staging, and each Stage* op
+// computes and stages everything its mutation owes in the same call,
+// deriving directly from the keyspace ABI this package owns
+// (keyspace.go).
 //
 // Grant index maintenance runs TWO REGIMES, and the ops mirror them
 // (unifying them behind a flag was considered and rejected — the
@@ -17,12 +18,11 @@ package rawdb
 //     cleans BOTH; digest invalidation when digests are present. The
 //     PutGrantRecords and IfNewer paths, and post-seal deletes.
 //   - DEFERRED (StageGrantPutDeferred): the durable deferred-index
-//     marker is armed FIRST (via the engine-injected arm function —
-//     CAS-cheap per record, crash-contract-ordered before the batch
-//     can commit), only by_needs_expansion is written inline, and
-//     overwrite cleanup deliberately skips by_principal (the whole
-//     family is excised and rebuilt at seal). The expanded/synth
-//     grant writers.
+//     marker is armed FIRST (ArmDeferredGrantIndex — CAS-cheap per
+//     record, crash-contract-ordered before the batch can commit),
+//     only by_needs_expansion is written inline, and overwrite cleanup
+//     deliberately skips by_principal (the whole family is excised and
+//     rebuilt at seal). The expanded/synth grant writers.
 //
 // The derivation contract is BYTE-LEVEL and KEY-DERIVED: index keys
 // come from the encoded grant primary key by splice (by_principal:
@@ -31,10 +31,7 @@ package rawdb
 // so key-derived and value-derived obligations are identical by
 // construction, and the splices are pinned against decode+re-encode
 // by the engine's TestAppendGrantByPrincipalKeyFromPrimary /
-// TestNeedsExpansionKeyHeaderSpliceFromPrimary. The engine injects
-// the splice/scan functions once at Open (RecordDerivers): rawdb owns
-// the COMPOSITION (what must be staged together, unforgettable), the
-// engine owns the byte formats (its keyspace ABI).
+// TestNeedsExpansionKeyHeaderSpliceFromPrimary.
 //
 // Every op asserts its key's family prefix — a Stage* call with a key
 // from the wrong keyspace fails loudly rather than landing where it
@@ -42,84 +39,15 @@ package rawdb
 
 import (
 	"fmt"
-
-	"github.com/cockroachdb/pebble/v2"
 )
 
-// RecordDerivers are the engine-injected functions the typed record
-// ops derive obligations with. Append-shaped functions write into dst
-// and return it (scratch reuse; the batch owns the scratch).
-type RecordDerivers struct {
-	// GrantKeyValid reports whether a grant primary key decodes as a
-	// 6-segment identity. Run unconditionally by every grant op: the
-	// splices validate implicitly, but obligation paths are
-	// conditional (a deferred put with needsExpansion=false and
-	// digests unarmed runs no splice at all), and a malformed key must
-	// never stage regardless of which obligations happen to fire.
-	GrantKeyValid func(primaryKey []byte) bool
-	// GrantByPrincipalKey appends the by_principal index key derived
-	// from a grant primary key (segment permutation). ok=false means
-	// the key did not decode as a 6-segment grant identity.
-	GrantByPrincipalKey func(dst, primaryKey []byte) ([]byte, bool)
-	// GrantNeedsExpansionKey appends the by_needs_expansion index key
-	// derived from a grant primary key (header swap).
-	GrantNeedsExpansionKey func(dst, primaryKey []byte) ([]byte, bool)
-	// StageGrantDigestInvalidation stages the digest invalidation a
-	// grant mutation owes for its entitlement partition when digest
-	// state exists (present-means-exact). Must internally no-op when
-	// digests are not armed — the armed probe is engine state.
-	StageGrantDigestInvalidation func(st Stager, grantPrimaryKey []byte) error
-	// ArmDeferredGrantIndex durably arms the deferred by_principal
-	// rebuild marker (CAS + fsync'd meta key; rollback on failure).
-	// Called by the DEFERRED regime before staging, per record —
-	// the engine's CAS makes repeat calls one atomic load.
-	ArmDeferredGrantIndex func() error
-
-	// ResourceParent scans a marshaled ResourceRecord value for its
-	// parent ref ("", "" = no parent, no index entry owed).
-	ResourceParent func(value []byte) (parentRT, parentID string, err error)
-	// ResourceByParentKey builds the by_parent index key.
-	ResourceByParentKey func(parentRT, parentID, childRT, childID string) []byte
-
-	// Family prefixes for the keyspace assertions.
-	GrantPrimaryPrefix        []byte
-	ResourcePrimaryPrefix     []byte
-	EntitlementPrimaryPrefix  []byte
-	ResourceTypePrimaryPrefix []byte
-}
-
-func (d *RecordDerivers) complete() error {
-	switch {
-	case d.GrantKeyValid == nil, d.GrantByPrincipalKey == nil, d.GrantNeedsExpansionKey == nil,
-		d.StageGrantDigestInvalidation == nil, d.ArmDeferredGrantIndex == nil,
-		d.ResourceParent == nil, d.ResourceByParentKey == nil:
-		return fmt.Errorf("rawdb: RecordDerivers incomplete: every derivation function is load-bearing")
-	case len(d.GrantPrimaryPrefix) == 0, len(d.ResourcePrimaryPrefix) == 0,
-		len(d.EntitlementPrimaryPrefix) == 0, len(d.ResourceTypePrimaryPrefix) == 0:
-		return fmt.Errorf("rawdb: RecordDerivers incomplete: family prefixes required for keyspace assertions")
-	}
-	return nil
-}
-
-// SetRecordDerivers wires the engine's derivation functions. Must be
-// called exactly once, at engine Open, before any record staging.
-func (d *DB) SetRecordDerivers(rd RecordDerivers) error {
-	if err := rd.complete(); err != nil {
-		return err
-	}
-	if d.derivers != nil {
-		return fmt.Errorf("rawdb: RecordDerivers already set")
-	}
-	d.derivers = &rd
-	return nil
-}
-
-func (d *DB) mustDerivers() *RecordDerivers {
-	if d.derivers == nil {
-		panic("rawdb: record staging before SetRecordDerivers — the engine must wire derivers at Open")
-	}
-	return d.derivers
-}
+// Family prefixes for the keyspace assertions.
+var (
+	grantPrimaryPrefix        = []byte{VersionV3, TypeGrant}
+	resourcePrimaryPrefix     = []byte{VersionV3, TypeResource}
+	entitlementPrimaryPrefix  = []byte{VersionV3, TypeEntitlement}
+	resourceTypePrimaryPrefix = []byte{VersionV3, TypeResourceType}
+)
 
 func assertFamily(op string, key, prefix []byte) error {
 	if len(key) < len(prefix) || string(key[:len(prefix)]) != string(prefix) {
@@ -141,33 +69,33 @@ func assertFamily(op string, key, prefix []byte) error {
 // Contrast StageResourcePut, which takes the prior VALUE bytes —
 // resource index keys derive from the value (parent ref), not the key.
 func (rb *RecordBatch) StageGrantPutInline(key, val []byte, hadOldVal, needsExpansion bool) error {
-	d := rb.db.mustDerivers()
-	if err := assertFamily("StageGrantPutInline", key, d.GrantPrimaryPrefix); err != nil {
+	if err := assertFamily("StageGrantPutInline", key, grantPrimaryPrefix); err != nil {
 		return err
 	}
-	if !d.GrantKeyValid(key) {
+	sep4, ok := SplitGrantPrimaryKey(key)
+	if !ok {
 		return fmt.Errorf("rawdb.StageGrantPutInline: grant key %x did not decode as a 6-segment identity", key)
 	}
 	if hadOldVal {
-		if err := rb.deleteGrantIndexKey(d.GrantByPrincipalKey, key); err != nil {
+		if err := rb.deleteByPrincipalKey(key); err != nil {
 			return err
 		}
-		if err := rb.deleteGrantIndexKey(d.GrantNeedsExpansionKey, key); err != nil {
+		if err := rb.deleteNeedsExpansionKey(key); err != nil {
 			return err
 		}
 	}
 	if err := rb.core.b.Set(key, val, nil); err != nil {
 		return err
 	}
-	if err := rb.setGrantIndexKey(d.GrantByPrincipalKey, key); err != nil {
+	if err := rb.setByPrincipalKey(key); err != nil {
 		return err
 	}
 	if needsExpansion {
-		if err := rb.setGrantIndexKey(d.GrantNeedsExpansionKey, key); err != nil {
+		if err := rb.setNeedsExpansionKey(key); err != nil {
 			return err
 		}
 	}
-	return d.StageGrantDigestInvalidation(&rb.stager, key)
+	return rb.stageGrantDigestInvalidation(key, sep4)
 }
 
 // StageGrantDelete stages one grant row's removal (INLINE regime:
@@ -183,23 +111,23 @@ func (rb *RecordBatch) StageGrantPutInline(key, val []byte, hadOldVal, needsExpa
 // cleanup cannot be skipped; tombstones on absent index keys are
 // harmless.
 func (rb *RecordBatch) StageGrantDelete(key []byte) error {
-	d := rb.db.mustDerivers()
-	if err := assertFamily("StageGrantDelete", key, d.GrantPrimaryPrefix); err != nil {
+	if err := assertFamily("StageGrantDelete", key, grantPrimaryPrefix); err != nil {
 		return err
 	}
-	if !d.GrantKeyValid(key) {
+	sep4, ok := SplitGrantPrimaryKey(key)
+	if !ok {
 		return fmt.Errorf("rawdb.StageGrantDelete: grant key %x did not decode as a 6-segment identity", key)
 	}
-	if err := rb.deleteGrantIndexKey(d.GrantByPrincipalKey, key); err != nil {
+	if err := rb.deleteByPrincipalKey(key); err != nil {
 		return err
 	}
-	if err := rb.deleteGrantIndexKey(d.GrantNeedsExpansionKey, key); err != nil {
+	if err := rb.deleteNeedsExpansionKey(key); err != nil {
 		return err
 	}
 	if err := rb.core.b.Delete(key, nil); err != nil {
 		return err
 	}
-	return d.StageGrantDigestInvalidation(&rb.stager, key)
+	return rb.stageGrantDigestInvalidation(key, sep4)
 }
 
 // StageGrantPutDeferred stages one grant row in the DEFERRED index
@@ -211,18 +139,18 @@ func (rb *RecordBatch) StageGrantDelete(key []byte) error {
 // invalidation is staged. hadOldVal selects overwrite cleanup of the
 // needs_expansion entry.
 func (rb *RecordBatch) StageGrantPutDeferred(key, val []byte, hadOldVal, needsExpansion bool) error {
-	d := rb.db.mustDerivers()
-	if err := assertFamily("StageGrantPutDeferred", key, d.GrantPrimaryPrefix); err != nil {
+	if err := assertFamily("StageGrantPutDeferred", key, grantPrimaryPrefix); err != nil {
 		return err
 	}
-	if !d.GrantKeyValid(key) {
+	sep4, ok := SplitGrantPrimaryKey(key)
+	if !ok {
 		return fmt.Errorf("rawdb.StageGrantPutDeferred: grant key %x did not decode as a 6-segment identity", key)
 	}
-	if err := d.ArmDeferredGrantIndex(); err != nil {
+	if err := rb.db.ArmDeferredGrantIndex(); err != nil {
 		return err
 	}
 	if hadOldVal {
-		if err := rb.deleteGrantIndexKey(d.GrantNeedsExpansionKey, key); err != nil {
+		if err := rb.deleteNeedsExpansionKey(key); err != nil {
 			return err
 		}
 	}
@@ -230,15 +158,15 @@ func (rb *RecordBatch) StageGrantPutDeferred(key, val []byte, hadOldVal, needsEx
 		return err
 	}
 	if needsExpansion {
-		if err := rb.setGrantIndexKey(d.GrantNeedsExpansionKey, key); err != nil {
+		if err := rb.setNeedsExpansionKey(key); err != nil {
 			return err
 		}
 	}
-	return d.StageGrantDigestInvalidation(&rb.stager, key)
+	return rb.stageGrantDigestInvalidation(key, sep4)
 }
 
-func (rb *RecordBatch) setGrantIndexKey(derive func(dst, primaryKey []byte) ([]byte, bool), key []byte) error {
-	idx, ok := derive(rb.scratch[:0], key)
+func (rb *RecordBatch) setByPrincipalKey(key []byte) error {
+	idx, ok := AppendGrantByPrincipalKeyFromPrimary(rb.scratch[:0], key)
 	rb.scratch = idx
 	if !ok {
 		return fmt.Errorf("rawdb: grant key %x did not decode as a 6-segment identity", key)
@@ -246,8 +174,8 @@ func (rb *RecordBatch) setGrantIndexKey(derive func(dst, primaryKey []byte) ([]b
 	return rb.core.b.Set(idx, nil, nil)
 }
 
-func (rb *RecordBatch) deleteGrantIndexKey(derive func(dst, primaryKey []byte) ([]byte, bool), key []byte) error {
-	idx, ok := derive(rb.scratch[:0], key)
+func (rb *RecordBatch) deleteByPrincipalKey(key []byte) error {
+	idx, ok := AppendGrantByPrincipalKeyFromPrimary(rb.scratch[:0], key)
 	rb.scratch = idx
 	if !ok {
 		return fmt.Errorf("rawdb: grant key %x did not decode as a 6-segment identity", key)
@@ -255,15 +183,50 @@ func (rb *RecordBatch) deleteGrantIndexKey(derive func(dst, primaryKey []byte) (
 	return rb.core.b.Delete(idx, nil)
 }
 
-// recordStager adapts RecordBatch's internal staging to the Stager
-// interface for the injected digest-invalidation composer, WITHOUT
-// exporting generic staging on RecordBatch itself.
-type recordStager struct{ rb *RecordBatch }
+func (rb *RecordBatch) setNeedsExpansionKey(key []byte) error {
+	idx, ok := AppendGrantByNeedsExpansionKeyFromPrimary(rb.scratch[:0], key)
+	rb.scratch = idx
+	if !ok {
+		return fmt.Errorf("rawdb: grant key %x did not decode as a 6-segment identity", key)
+	}
+	return rb.core.b.Set(idx, nil, nil)
+}
 
-func (s *recordStager) Set(key, val []byte) error { return s.rb.core.b.Set(key, val, nil) }
-func (s *recordStager) Delete(key []byte) error   { return s.rb.core.b.Delete(key, nil) }
-func (s *recordStager) DeleteRange(a, b []byte) error {
-	return s.rb.core.b.DeleteRange(a, b, nil)
+func (rb *RecordBatch) deleteNeedsExpansionKey(key []byte) error {
+	idx, ok := AppendGrantByNeedsExpansionKeyFromPrimary(rb.scratch[:0], key)
+	rb.scratch = idx
+	if !ok {
+		return fmt.Errorf("rawdb: grant key %x did not decode as a 6-segment identity", key)
+	}
+	return rb.core.b.Delete(idx, nil)
+}
+
+// stageGrantDigestInvalidation stages the post-seal digest
+// invalidation a grant mutation owes for its entitlement partition,
+// when digest state exists (present-means-exact — a mutated
+// partition's digest must read as missing, never stale-but-present):
+// DeleteRange over the partition's digest nodes, the whole-file global
+// root (the fold of every partition root is stale once any partition
+// is), and the partition's hash-index range. Gated on the
+// digests-present flag so ordinary sync paths pay nothing — during a
+// fresh sync both keyspaces are empty by construction, and emitting
+// tombstones per record there would bloat the LSM for no reason. The
+// partition is the entitlement region of the grant primary key, a
+// plain sub-slice (sep4 from SplitGrantPrimaryKey on the same key).
+func (rb *RecordBatch) stageGrantDigestInvalidation(primaryKey []byte, sep4 int) error {
+	if !rb.db.grantDigestsPresent.Load() {
+		return nil
+	}
+	partition := string(primaryKey[GrantPrimaryKeyPrefixLen:sep4])
+	lo := DigestPartitionPrefix(IdxGrantByEntitlementPrincipalHash, partition)
+	if err := rb.core.b.DeleteRange(lo, UpperBound(lo), nil); err != nil {
+		return err
+	}
+	if err := rb.core.b.Delete(GlobalGrantDigestNodeKey(), nil); err != nil {
+		return err
+	}
+	hlo := GrantHashIndexEntitlementPrefix(partition)
+	return rb.core.b.DeleteRange(hlo, UpperBound(hlo), nil)
 }
 
 // === resource staging ===
@@ -276,50 +239,48 @@ func (s *recordStager) DeleteRange(a, b []byte) error {
 // StageGrantPutInline, which takes only an existence bool — grant
 // index keys derive from the primary key, not the value.
 func (rb *RecordBatch) StageResourcePut(key, val, oldVal []byte, childRT, childID string) error {
-	d := rb.db.mustDerivers()
-	if err := assertFamily("StageResourcePut", key, d.ResourcePrimaryPrefix); err != nil {
+	if err := assertFamily("StageResourcePut", key, resourcePrimaryPrefix); err != nil {
 		return err
 	}
 	if oldVal != nil {
-		if err := rb.stageResourceParentDelete(d, oldVal, childRT, childID); err != nil {
+		if err := rb.stageResourceParentDelete(oldVal, childRT, childID); err != nil {
 			return err
 		}
 	}
 	if err := rb.core.b.Set(key, val, nil); err != nil {
 		return err
 	}
-	parentRT, parentID, err := d.ResourceParent(val)
+	parentRT, parentID, err := ScanResourceParentRaw(val)
 	if err != nil {
 		return err
 	}
 	if parentID == "" {
 		return nil
 	}
-	return rb.core.b.Set(d.ResourceByParentKey(parentRT, parentID, childRT, childID), nil, nil)
+	return rb.core.b.Set(EncodeResourceByParentIndexKey(parentRT, parentID, childRT, childID), nil, nil)
 }
 
 // StageResourceDelete stages one resource row's removal plus its
 // by_parent index cleanup (from the prior value).
 func (rb *RecordBatch) StageResourceDelete(key, oldVal []byte, childRT, childID string) error {
-	d := rb.db.mustDerivers()
-	if err := assertFamily("StageResourceDelete", key, d.ResourcePrimaryPrefix); err != nil {
+	if err := assertFamily("StageResourceDelete", key, resourcePrimaryPrefix); err != nil {
 		return err
 	}
-	if err := rb.stageResourceParentDelete(d, oldVal, childRT, childID); err != nil {
+	if err := rb.stageResourceParentDelete(oldVal, childRT, childID); err != nil {
 		return err
 	}
 	return rb.core.b.Delete(key, nil)
 }
 
-func (rb *RecordBatch) stageResourceParentDelete(d *RecordDerivers, oldVal []byte, childRT, childID string) error {
-	parentRT, parentID, err := d.ResourceParent(oldVal)
+func (rb *RecordBatch) stageResourceParentDelete(oldVal []byte, childRT, childID string) error {
+	parentRT, parentID, err := ScanResourceParentRaw(oldVal)
 	if err != nil {
 		return err
 	}
 	if parentID == "" {
 		return nil
 	}
-	return rb.core.b.Delete(d.ResourceByParentKey(parentRT, parentID, childRT, childID), nil)
+	return rb.core.b.Delete(EncodeResourceByParentIndexKey(parentRT, parentID, childRT, childID), nil)
 }
 
 // === entitlement / resource-type staging ===
@@ -332,8 +293,7 @@ func (rb *RecordBatch) stageResourceParentDelete(d *RecordDerivers, oldVal []byt
 
 // StageEntitlementPut stages one entitlement row.
 func (rb *RecordBatch) StageEntitlementPut(key, val []byte) error {
-	d := rb.db.mustDerivers()
-	if err := assertFamily("StageEntitlementPut", key, d.EntitlementPrimaryPrefix); err != nil {
+	if err := assertFamily("StageEntitlementPut", key, entitlementPrimaryPrefix); err != nil {
 		return err
 	}
 	return rb.core.b.Set(key, val, nil)
@@ -341,8 +301,7 @@ func (rb *RecordBatch) StageEntitlementPut(key, val []byte) error {
 
 // StageEntitlementDelete stages one entitlement row's removal.
 func (rb *RecordBatch) StageEntitlementDelete(key []byte) error {
-	d := rb.db.mustDerivers()
-	if err := assertFamily("StageEntitlementDelete", key, d.EntitlementPrimaryPrefix); err != nil {
+	if err := assertFamily("StageEntitlementDelete", key, entitlementPrimaryPrefix); err != nil {
 		return err
 	}
 	return rb.core.b.Delete(key, nil)
@@ -350,8 +309,7 @@ func (rb *RecordBatch) StageEntitlementDelete(key []byte) error {
 
 // StageResourceTypePut stages one resource-type row.
 func (rb *RecordBatch) StageResourceTypePut(key, val []byte) error {
-	d := rb.db.mustDerivers()
-	if err := assertFamily("StageResourceTypePut", key, d.ResourceTypePrimaryPrefix); err != nil {
+	if err := assertFamily("StageResourceTypePut", key, resourceTypePrimaryPrefix); err != nil {
 		return err
 	}
 	return rb.core.b.Set(key, val, nil)
@@ -359,8 +317,7 @@ func (rb *RecordBatch) StageResourceTypePut(key, val []byte) error {
 
 // StageResourceTypeDelete stages one resource-type row's removal.
 func (rb *RecordBatch) StageResourceTypeDelete(key []byte) error {
-	d := rb.db.mustDerivers()
-	if err := assertFamily("StageResourceTypeDelete", key, d.ResourceTypePrimaryPrefix); err != nil {
+	if err := assertFamily("StageResourceTypeDelete", key, resourceTypePrimaryPrefix); err != nil {
 		return err
 	}
 	return rb.core.b.Delete(key, nil)
@@ -373,9 +330,9 @@ func (rb *RecordBatch) StageResourceTypeDelete(key []byte) error {
 // files and deletes incumbents' stale entries, with keys derived by
 // the synccompactor's own splice helpers (or borrowed byte-exact from
 // the sources). Generic by design — and confined by design: FoldBatch
-// is reachable only through Engine.DB() (the documented exemption
-// surface), and the engine package's meta-test forbids raw-write
-// signals in engine production code.
+// is reachable only through the engine's documented exemption surface,
+// and the engine package's meta-test fences its production use to the
+// fold compactor.
 type FoldBatch struct {
 	batch
 }
@@ -384,6 +341,3 @@ type FoldBatch struct {
 // keep-newer fold and overlay writers. Engine production code must
 // not use it; see the choke-point meta-tests.
 func (d *DB) NewFoldBatch() *FoldBatch { return &FoldBatch{batch{b: d.newBatch()}} }
-
-var _ Stager = (*recordStager)(nil)
-var _ = pebble.Sync

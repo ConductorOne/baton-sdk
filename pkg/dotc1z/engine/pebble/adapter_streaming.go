@@ -13,14 +13,14 @@ import (
 
 // StreamGrants yields grants for syncID, optionally narrowed by
 // opts. Implements connectorstore.StreamingReader.
-func (a *Adapter) StreamGrants(
+func (e *Engine) StreamGrants(
 	ctx context.Context,
 	syncID string,
 	opts connectorstore.StreamGrantsOptions,
 ) iter.Seq2[*v2.Grant, error] {
 	return func(yield func(*v2.Grant, error) bool) {
 		if syncID == "" {
-			resolved, err := a.resolveActiveSyncForReader(ctx, nil)
+			resolved, err := e.resolveActiveSyncForReader(ctx, nil)
 			if err != nil {
 				yield(nil, err)
 				return
@@ -52,11 +52,11 @@ func (a *Adapter) StreamGrants(
 		var err error
 		switch {
 		case opts.EntitlementID != "":
-			err = a.engine.IterateGrantsByEntitlement(ctx, opts.EntitlementID, cb)
+			err = e.IterateGrantsByEntitlement(ctx, opts.EntitlementID, cb)
 		case opts.PrincipalResourceType != "" && opts.PrincipalResourceID == "":
-			err = a.engine.IterateGrantsByPrincipalResourceType(ctx, opts.PrincipalResourceType, cb)
+			err = e.IterateGrantsByPrincipalResourceType(ctx, opts.PrincipalResourceType, cb)
 		default:
-			err = a.engine.IterateGrants(ctx, cb)
+			err = e.IterateGrants(ctx, cb)
 		}
 		if iterErr != nil {
 			yield(nil, iterErr)
@@ -70,14 +70,14 @@ func (a *Adapter) StreamGrants(
 
 // StreamResources yields resources for syncID, optionally narrowed
 // by resource_type. Implements connectorstore.StreamingReader.
-func (a *Adapter) StreamResources(
+func (e *Engine) StreamResources(
 	ctx context.Context,
 	syncID string,
 	opts connectorstore.StreamResourcesOptions,
 ) iter.Seq2[*v2.Resource, error] {
 	return func(yield func(*v2.Resource, error) bool) {
 		if syncID == "" {
-			resolved, err := a.resolveActiveSyncForReader(ctx, nil)
+			resolved, err := e.resolveActiveSyncForReader(ctx, nil)
 			if err != nil {
 				yield(nil, err)
 				return
@@ -89,7 +89,7 @@ func (a *Adapter) StreamResources(
 			return
 		}
 		var iterErr error
-		err := a.engine.IterateResources(ctx, func(rec *v3.ResourceRecord) bool {
+		err := e.IterateResources(ctx, func(rec *v3.ResourceRecord) bool {
 			if err := ctx.Err(); err != nil {
 				iterErr = err
 				return false
@@ -111,13 +111,13 @@ func (a *Adapter) StreamResources(
 
 // StreamEntitlements yields all entitlements for syncID.
 // Implements connectorstore.StreamingReader.
-func (a *Adapter) StreamEntitlements(
+func (e *Engine) StreamEntitlements(
 	ctx context.Context,
 	syncID string,
 ) iter.Seq2[*v2.Entitlement, error] {
 	return func(yield func(*v2.Entitlement, error) bool) {
 		if syncID == "" {
-			resolved, err := a.resolveActiveSyncForReader(ctx, nil)
+			resolved, err := e.resolveActiveSyncForReader(ctx, nil)
 			if err != nil {
 				yield(nil, err)
 				return
@@ -129,7 +129,7 @@ func (a *Adapter) StreamEntitlements(
 			return
 		}
 		var iterErr error
-		err := a.engine.IterateEntitlements(ctx, func(rec *v3.EntitlementRecord) bool {
+		err := e.IterateEntitlements(ctx, func(rec *v3.EntitlementRecord) bool {
 			if err := ctx.Err(); err != nil {
 				iterErr = err
 				return false

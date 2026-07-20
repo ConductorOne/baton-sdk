@@ -651,7 +651,7 @@ func buildSweepBaseline(ctx context.Context, t *testing.T, w sweepWorkload, cach
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, w.write(ctx, a))
-	require.True(t, e.deferredIdxPending.Load(), "grant writes must arm the deferred index rebuild")
+	require.True(t, e.db.DeferredIdxPending(), "grant writes must arm the deferred index rebuild")
 	require.NoError(t, e.Close())
 	return fs, syncID
 }
@@ -847,7 +847,7 @@ func TestEndSyncStampDurabilityCarriesPages(t *testing.T) {
 		gs = append(gs, mkV2Grant("", "ent-00", "user", p))
 	}
 	require.NoError(t, a.PutGrants(ctx, gs...))
-	require.False(t, e.deferredIdxPending.Load(), "inline-only pages must not arm the deferred marker (isolation precondition)")
+	require.False(t, e.db.DeferredIdxPending(), "inline-only pages must not arm the deferred marker (isolation precondition)")
 
 	var image *vfs.MemFS
 	e.test.endSyncPreFlushHook = func() {

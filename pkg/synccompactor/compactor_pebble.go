@@ -1014,7 +1014,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 	// along as consequences (see Engine.SetCurrentSync / Engine.seal). An
 	// exported ResumeCompactions-style escape hatch would let callers write
 	// on a sealed engine again, recreating the very hang this fixes.
-	if err := destEng.SetCurrentSync(newSyncId); err != nil {
+	if err := destEng.SetCurrentSync(ctx, newSyncId); err != nil {
 		return fmt.Errorf("compactPebble: bind dest sync: %w", err)
 	}
 

@@ -154,7 +154,7 @@ func BenchmarkPebbleAdapterWriteGrant(b *testing.B) {
 	// timing through Close captures the hardening cost. Unlike the
 	// dotc1z store's Close, the bare adapter's Close is engine-only (no
 	// c1z compression/save), so it stays a clean write+flush measurement.
-	if err := a.Close(ctx); err != nil {
+	if err := a.Close(); err != nil {
 		b.Fatalf("Close: %v", err)
 	}
 	b.StopTimer()

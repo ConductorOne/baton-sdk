@@ -14,6 +14,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // capturingCore/newCapturingLogger let a test observe the zap messages
@@ -147,7 +148,7 @@ func TestEndSyncSecondCallTakesTargetedRepairPath(t *testing.T) {
 	// ent-B's digest nodes must be byte-identical to what the FIRST
 	// seal produced — proof the targeted repair never touched it.
 	afterSecondSeal := dumpDigestNodes(t, e)
-	entBPrefix := encodeDigestPartitionPrefix(grantDigestSpec.indexID, testEntPartition("ent-B"))
+	entBPrefix := rawdb.DigestPartitionPrefix(grantDigestSpec.indexID, testEntPartition("ent-B"))
 	for k, v := range afterFirstSeal {
 		if !bytesHasPrefix(k, entBPrefix) {
 			continue

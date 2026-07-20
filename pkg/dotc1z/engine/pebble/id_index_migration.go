@@ -14,6 +14,7 @@ import (
 	"github.com/cockroachdb/pebble/v2/vfs"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
@@ -363,7 +364,7 @@ func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, fs vfs.FS, sstPa
 		// permutation; by_needs_expansion shares the primary's exact tail
 		// (header swap only). Only the flag needs a value read, via a
 		// single-field shallow scan.
-		idxKey, ok := appendGrantByPrincipalKeyFromPrimary(idxKeyScratch[:0], key)
+		idxKey, ok := rawdb.AppendGrantByPrincipalKeyFromPrimary(idxKeyScratch[:0], key)
 		idxKeyScratch = idxKey
 		if !ok {
 			return fmt.Errorf("id-index migration: grant primary key %x did not decode as a 6-segment identity", key)

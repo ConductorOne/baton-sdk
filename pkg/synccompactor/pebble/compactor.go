@@ -88,15 +88,9 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 		return errors.New("synccompactor/pebble.Compact: syncID is required")
 	}
 
-	srcDB := source.DB()
-	if srcDB == nil {
-		return errors.New("synccompactor/pebble.Compact: source engine has no DB (closed?)")
-	}
-	dstDB := c.base.DB()
-	if dstDB == nil {
-		return errors.New("synccompactor/pebble.Compact: base engine has no DB (closed?)")
-	}
-	// This function writes the base keyspace through the raw DB handle;
+	// This function writes the base keyspace through the engine's merge
+	// surface (a closed engine surfaces ErrEngineClosing from the
+	// error-returning ops, and an explicit panic from NewFoldBatch);
 	// invalidate the engine's bare-id lookup state on the way out (even on
 	// error — earlier buckets may already have been replaced).
 	defer c.base.InvalidateBareIDLookups()
@@ -128,7 +122,7 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		iter, err := srcDB.NewIter(&pebble.IterOptions{
+		iter, err := source.NewIter(&pebble.IterOptions{
 			LowerBound: plan.lower,
 			UpperBound: plan.upper,
 		})
@@ -154,7 +148,7 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 			// with zero SSTs (the ingest must reference at least one
 			// file), so we fall back to a RangeDelete + Flush.
 			_ = os.Remove(sstPath)
-			if err := dstDB.DropKeyRange(plan.lower, plan.upper, pebble.Sync); err != nil {
+			if err := c.base.DropKeyRange(plan.lower, plan.upper, pebble.Sync); err != nil {
 				return fmt.Errorf("compact: excise-only DeleteRange for %s: %w", plan.name, err)
 			}
 			continue
@@ -186,7 +180,7 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := dstDB.ReplaceRangeWithSSTs(ctx, []string{p.sstPath}, p.exciseSpan); err != nil {
+		if err := c.base.ReplaceRangeWithSSTs(ctx, []string{p.sstPath}, p.exciseSpan); err != nil {
 			return fmt.Errorf("compact: IngestAndExcise: %w", err)
 		}
 	}

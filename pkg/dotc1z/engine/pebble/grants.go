@@ -597,7 +597,7 @@ func (e *Engine) AddSynthesizedGrantLayerContributions(ctx context.Context, reco
 			// (cheap) rebuild at EndSync. The reverse order could leave an
 			// initialized session whose later Adds skip this block, ingesting
 			// rows with the rebuild unarmed.
-			if err := e.markDeferredIdxPending(); err != nil {
+			if err := e.db.ArmDeferredGrantIndex(); err != nil {
 				return err
 			}
 			if err := e.initSynthLayerSession(ctx, s); err != nil {
@@ -770,7 +770,7 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 		// invalidation is a no-op. If digests ever read as present here,
 		// the freshness contract itself is broken — refuse rather than
 		// silently tombstone the digest keyspace of a trusted import.
-		if e.grantDigestsPresent.Load() {
+		if e.db.GrantDigestsPresent() {
 			return errors.New("UnsafePutUniqueGrantRecords: digest state present on a fresh sync; freshness contract violated")
 		}
 		// Consume the fresh-grants-empty bit: the keyspace is no longer
@@ -976,77 +976,23 @@ func grantIndexKeys(r *v3.GrantRecord) [][]byte {
 // marker through the Open-wired RecordDerivers — a caller can no
 // longer stage a grant row and forget what it owes.
 
-// markDeferredIdxPending arms the deferred by_principal rebuild, durably.
-// The atomic flag serves in-process checks; the engine-meta marker survives
-// a process restart so a resumed sync still runs the rebuild at EndSync
-// even when the resume itself writes nothing (see
-// encodeDeferredIdxPendingKey). The CAS keeps the durable write to one per
-// arming, off the per-record hot path.
-func (e *Engine) markDeferredIdxPending() error {
-	if !e.deferredIdxPending.CompareAndSwap(false, true) {
-		return nil
-	}
-	if err := e.armDeferredMarkerDurably(); err != nil {
-		// Roll the CAS back so a retried write attempts the durable marker
-		// again. Leaving the flag armed with no durable key would make the
-		// in-process EndSync build the index (flag true) while a
-		// crash+resume silently skipped it (key absent) — exactly the
-		// divergence the durable marker exists to close.
-		e.deferredIdxPending.Store(false)
-		return fmt.Errorf("arm deferred index marker: %w", err)
-	}
-	return nil
-}
+// The deferred-marker arm/clear contract (CAS + durable key agreement
+// on both edges) lives on rawdb (ArmDeferredGrantIndex /
+// ClearDeferredGrantIndexMarker): the marker is write-side crash
+// state the typed record ops consume directly.
 
-// armDeferredMarkerDurably commits the deferred-index marker's durable
-// half. Split out solely so tests can inject a commit failure
-// (the armDeferredMarkerHook seam) and pin the CAS rollback above — the
-// flag and the durable key must never disagree.
-func (e *Engine) armDeferredMarkerDurably() error {
-	if e.test.armDeferredMarkerHook != nil {
-		if err := e.test.armDeferredMarkerHook(); err != nil {
-			return err
-		}
-	}
-	return e.db.MetaSet(encodeDeferredIdxPendingKey(), nil, pebble.Sync)
-}
-
-// clearDeferredIdxPending drops both forms of the marker after a successful
-// rebuild. Runs under the write barrier so the flag reset and durable
-// delete can't interleave with a concurrent writer's markDeferredIdxPending
-// (which would leave the atomic flag armed but the durable marker deleted,
-// or vice versa).
-//
-// Durable delete FIRST, flag second — the same flag/key-agreement
-// contract as the arm side (markDeferredIdxPending). The old order
-// cleared the flag before the delete, so a failed delete left flag
-// false + key present: a retried EndSync then skipped the (idempotent)
-// rebuild and sealed fine, but the stale key forced a spurious rebuild
-// on the next open. With delete-first, a failure leaves BOTH armed —
-// the retried EndSync re-runs the rebuild and retries the clear.
-// (Review finding, edge/resume round.)
+// clearDeferredIdxPending drops both forms of the marker after a
+// successful rebuild, under the engine write barrier so the clear
+// can't interleave with a concurrent writer's arm (which would leave
+// the atomic flag armed but the durable marker deleted, or vice
+// versa). Ordering and failure semantics live in rawdb's
+// ClearDeferredGrantIndexMarker.
 func (e *Engine) clearDeferredIdxPending() error {
 	// AllowSealed: runs inside EndSync's sealed finalize window, right
 	// after the deferred build (see Adapter.EndSync).
 	return e.withWriteAllowSealed(func() error {
-		if err := e.clearDeferredMarkerDurably(); err != nil {
-			return err
-		}
-		e.deferredIdxPending.Store(false)
-		return nil
+		return e.db.ClearDeferredGrantIndexMarker()
 	})
-}
-
-// clearDeferredMarkerDurably commits the marker's durable delete.
-// Split out for test failure injection (the clearDeferredMarkerHook seam),
-// mirroring armDeferredMarkerDurably.
-func (e *Engine) clearDeferredMarkerDurably() error {
-	if e.test.clearDeferredMarkerHook != nil {
-		if err := e.test.clearDeferredMarkerHook(); err != nil {
-			return err
-		}
-	}
-	return e.db.MetaDelete(encodeDeferredIdxPendingKey(), pebble.Sync)
 }
 
 // IterateGrants iterates all grants in primary-key order. yield returns

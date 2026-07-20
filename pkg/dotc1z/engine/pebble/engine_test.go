@@ -3,6 +3,7 @@ package pebble
 import (
 	"context"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -28,6 +29,17 @@ func newTestEngine(t testing.TB, opts ...Option) (*Engine, string) {
 	return e, dir
 }
 
+// regularFileSizeUnder is the independent oracle for
+// CurrentDBSizeBytes: a walk-and-sum over regular files. It MUST stat
+// through os.Lstat — the same mechanism production uses — not
+// WalkDir's DirEntry.Info: on Windows the two read different size
+// views of a file with an open write handle (DirEntry.Info comes from
+// FindFirstFile directory metadata; Lstat's GetFileAttributesEx fast
+// path lags it), and pebble's active WAL is exactly such a file, so a
+// mixed-mechanism comparison diverges by however much WAL the sync
+// appended (caught by Windows CI). Same-mechanism sides make the
+// comparison OS-independent while still independently checking the
+// recursion, the regular-file filter, and the summing.
 func regularFileSizeUnder(t *testing.T, dir string) int64 {
 	t.Helper()
 	var total int64
@@ -38,7 +50,7 @@ func regularFileSizeUnder(t *testing.T, dir string) int64 {
 		if d.IsDir() {
 			return nil
 		}
-		info, err := d.Info()
+		info, err := os.Lstat(path)
 		if err != nil {
 			return err
 		}
@@ -98,7 +110,7 @@ func TestEngineCurrentDBSizeBytes(t *testing.T) {
 	require.Equal(t, want, initial, "CurrentDBSizeBytes initial")
 
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 	for i := 0; i < 50; i++ {
 		err := e.PutGrantRecord(ctx, makeGrant(syncID, ksuid.New().String(), "github-read", ksuid.New().String()))
 		require.NoError(t, err, "PutGrantRecord")
@@ -116,7 +128,7 @@ func TestPutGetGrantRecord(t *testing.T) {
 	e, _ := newTestEngine(t)
 
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	// Custom stored external id: addressable only by identity, not by the
 	// concat id string (which no longer equals the stored public id).
@@ -141,7 +153,7 @@ func TestIterateGrantsBySync(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	const n = 100
 	for i := 0; i < n; i++ {
@@ -166,7 +178,7 @@ func TestIterateByEntitlement(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	// 5 grants on entitlement A, 3 on entitlement B.
 	for i := 0; i < 5; i++ {
@@ -197,7 +209,7 @@ func TestIterateByPrincipal(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	const alicePrincipal = "alice"
 	const bobPrincipal = "bob"
@@ -231,7 +243,7 @@ func TestDeleteGrantRecord(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	r := makeGrant(syncID, canonicalTestGrantID("ent-X", "user", "user-X"), "ent-X", "user-X")
 	require.NoError(t, e.PutGrantRecord(ctx, r))
@@ -255,7 +267,7 @@ func TestCheckpointToReadOnly(t *testing.T) {
 	ctx := context.Background()
 	e, dir := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 	r := makeGrant(syncID, canonicalTestGrantID("e1", "user", "p1"), "e1", "p1")
 	require.NoError(t, e.PutGrantRecord(ctx, r))
 	require.NoError(t, e.Close())
@@ -281,7 +293,7 @@ func TestCheckpointTo(t *testing.T) {
 	ctx := context.Background()
 	e, dir := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	r := makeGrant(syncID, canonicalTestGrantID("e1", "user", "p1"), "e1", "p1")
 	require.NoError(t, e.PutGrantRecord(ctx, r))
@@ -307,7 +319,7 @@ func TestSaveDoesNotCloseOnError(t *testing.T) {
 	ctx := context.Background()
 	e, dir := newTestEngine(t)
 	syncID := ksuid.New().String()
-	err := e.SetCurrentSync(syncID)
+	err := e.bindCurrentSync(syncID)
 	require.NoError(t, err)
 
 	err = e.Save(ctx, filepath.Join(dir, "out.c1z3"))
@@ -322,7 +334,7 @@ func TestConcurrentGrantOverwriteIndexes(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	err := e.SetCurrentSync(syncID)
+	err := e.bindCurrentSync(syncID)
 	require.NoError(t, err)
 
 	const writes = 64
@@ -364,7 +376,7 @@ func TestEmptySyncIDFallsBackToCurrent(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
-	require.NoError(t, e.SetCurrentSync(syncID))
+	require.NoError(t, e.bindCurrentSync(syncID))
 
 	// Put with explicit sync id...
 	sdkID := canonicalTestGrantID("e1", "user", "p1")

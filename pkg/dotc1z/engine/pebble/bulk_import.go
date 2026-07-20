@@ -27,6 +27,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // ErrBulkImportOutOfOrder is returned by BulkSyncImport's ordered add
@@ -454,7 +455,7 @@ func (b *BulkSyncImport) AddResourcesWithDiscoveredAt(ctx context.Context, resou
 		}
 		b.resourcesByRT[rec.GetResourceTypeId()]++
 		if parent := rec.GetParent(); parent != nil && parent.GetResourceId() != "" {
-			k := encodeResourceByParentIndexKey(
+			k := rawdb.EncodeResourceByParentIndexKey(
 				parent.GetResourceTypeId(), parent.GetResourceId(),
 				rec.GetResourceTypeId(), rec.GetResourceId(),
 			)

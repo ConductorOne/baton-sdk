@@ -66,7 +66,7 @@ type grantHashRowScratch struct {
 //
 // key/value are only borrowed (the sorter copies before returning).
 func appendGrantHashIndexRow(sorter *spillSorter, primaryKey, value []byte, s *grantHashRowScratch) error {
-	sep4, ok := splitGrantPrimaryKey(primaryKey)
+	sep4, ok := rawdb.SplitGrantPrimaryKey(primaryKey)
 	if !ok {
 		// The caller skips rows that already failed the by_principal
 		// splice; reaching here means the two splitters disagree.
@@ -294,7 +294,7 @@ func (f *grantDigestFold) finish() error {
 	if err := f.closePartition(); err != nil {
 		return err
 	}
-	if err := f.batch.Set(globalGrantDigestNodeKey(), packDigestLeaf(f.globalTotal, f.globalXor[:])); err != nil {
+	if err := f.batch.Set(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(f.globalTotal, f.globalXor[:])); err != nil {
 		return err
 	}
 	f.nodes++
@@ -488,10 +488,10 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 		// Zero grants still means the digest WAS built (present-means-
 		// exact — an absent global root would tell a manifest reader to
 		// recalculate instead of trusting "nothing to diff").
-		if err := e.db.DigestSet(globalGrantDigestNodeKey(), packDigestLeaf(0, zeroDigest[:]), opts); err != nil {
+		if err := e.db.DigestSet(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(0, zeroDigest[:]), opts); err != nil {
 			return err
 		}
-		e.grantDigestsPresent.Store(true)
+		e.db.SetGrantDigestsPresent(true)
 		return e.clearGrantDigestBuildPending()
 	}
 
@@ -530,7 +530,7 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 	if err := e.writeMissingEntitlementDigestRoots(ctx, opts); err != nil {
 		return err
 	}
-	e.grantDigestsPresent.Store(true)
+	e.db.SetGrantDigestsPresent(true)
 	// The digest state is complete: consume the crash marker. Its
 	// fsync'd delete also makes every NoSync node batch above durable
 	// (WAL prefix ordering), so "marker absent" always means "complete
@@ -686,7 +686,7 @@ func (e *Engine) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
 	var scanned, droppedMalformedKeys int64
 	var scratch grantHashRowScratch
 	for iter.First(); iter.Valid(); iter.Next() {
-		if _, ok := splitGrantPrimaryKey(iter.Key()); !ok {
+		if _, ok := rawdb.SplitGrantPrimaryKey(iter.Key()); !ok {
 			// Same key-layout-drift/corruption case the deferred pass
 			// counts; such rows cannot be represented in the digests.
 			droppedMalformedKeys++
@@ -728,7 +728,7 @@ func (e *Engine) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
 // LAST — WAL prefix ordering makes the (possibly NoSync) tombstones
 // above durable before the marker's absence is.
 func (e *Engine) dropAllGrantDigestStateLocked() error {
-	e.grantDigestsPresent.Store(false)
+	e.db.SetGrantDigestsPresent(false)
 	opts := writeOpts(e.opts.durability)
 	if e.IsFreshSync() {
 		opts = pebble.NoSync

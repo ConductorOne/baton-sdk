@@ -10,6 +10,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // Store-level Cleanup behavior (retention policy, dirty bit, env
@@ -65,14 +66,14 @@ func TestResetForNewSyncReclaimsDiskImmediately(t *testing.T) {
 
 	dataLo := []byte{versionV3, typeResourceType}
 	dataHi := []byte{versionV3, typeEngineMeta}
-	before, err := e.DB().EstimateDiskUsage(dataLo, dataHi)
+	before, err := e.EstimateDiskUsage(dataLo, dataHi)
 	require.NoErrorf(t, err, "EstimateDiskUsage (before)")
 	require.NotZero(t, before, "sanity: expected non-zero on-disk usage for the finished sync's data span")
 
 	// Replacement sync: StartNewSync excises the prior sync's data.
 	_, err = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoErrorf(t, err, "StartNewSync (replacement)")
-	after, err := e.DB().EstimateDiskUsage(dataLo, dataHi)
+	after, err := e.EstimateDiskUsage(dataLo, dataHi)
 	require.NoErrorf(t, err, "EstimateDiskUsage (after)")
 	// The excise drops fully-covered SSTs from the manifest, so the
 	// data span's estimated usage collapses to (near) zero immediately
@@ -116,7 +117,7 @@ func TestSyncScopedRangesCoverEveryWrittenIndex(t *testing.T) {
 	}
 	written = append(written,
 		writtenKey{idxResourceByParent, "resource_by_parent",
-			encodeResourceByParentIndexKey("folder", "root", "doc", "d1")},
+			rawdb.EncodeResourceByParentIndexKey("folder", "root", "doc", "d1")},
 	)
 
 	covered := func(k []byte) bool {

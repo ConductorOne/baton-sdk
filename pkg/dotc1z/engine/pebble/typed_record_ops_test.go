@@ -18,6 +18,7 @@ import (
 	v2pb "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // TestAppendGrantByNeedsExpansionKeyFromPrimary pins the deriver
@@ -40,7 +41,7 @@ func TestAppendGrantByNeedsExpansionKeyFromPrimary(t *testing.T) {
 	}
 	for _, id := range ids {
 		primary := encodeGrantIdentityKey(id)
-		got, ok := appendGrantByNeedsExpansionKeyFromPrimary(nil, primary)
+		got, ok := rawdb.AppendGrantByNeedsExpansionKeyFromPrimary(nil, primary)
 		require.True(t, ok, "well-formed primary must splice")
 		require.Equal(t, encodeGrantByNeedsExpansionIdentityIndexKey(id), got, "identity %+v", id)
 	}
@@ -52,7 +53,7 @@ func TestAppendGrantByNeedsExpansionKeyFromPrimary(t *testing.T) {
 		{versionV3, typeGrant, 0, 'a', 0, 'b'}, // two segments
 		{versionV3, typeEntitlement, 0, 'a', 0, 'b', 0, 'c', 0, 'd', 0, 'e', 0, 'f'}, // wrong family
 	} {
-		_, ok := appendGrantByNeedsExpansionKeyFromPrimary(nil, malformed)
+		_, ok := rawdb.AppendGrantByNeedsExpansionKeyFromPrimary(nil, malformed)
 		require.False(t, ok, "malformed key %x must be rejected", malformed)
 	}
 }

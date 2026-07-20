@@ -42,10 +42,17 @@ func TestEngineLifecycleOverPureMemFS(t *testing.T) {
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, w.write(ctx, a))
-	require.True(t, e.deferredIdxPending.Load(),
+	require.True(t, e.db.DeferredIdxPending(),
 		"the workload must arm the deferred rebuild so EndSync exercises SST staging over the MemFS")
 	require.NoError(t, a.EndSync(ctx))
 	w.verifyComplete(ctx, t, e, syncID, true, true, "sealed engine over MemFS")
+
+	// The DB-size walk must ride the engine FS too: over a pure MemFS
+	// a host-FS walk would error ("db dir missing") or measure an
+	// unrelated host directory (review follow-up, PR 1 round).
+	size, err := e.CurrentDBSizeBytes()
+	require.NoError(t, err, "CurrentDBSizeBytes must walk the engine FS")
+	require.Positive(t, size, "a sealed sync must have bytes on the engine FS")
 
 	// Writable checkpoint: cut it through the engine FS and reopen it
 	// as its own engine over the same MemFS. Covers db.Checkpoint +

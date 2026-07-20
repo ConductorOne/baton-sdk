@@ -113,7 +113,7 @@ func TestPebbleGrantStorePendingExpansionPage(t *testing.T) {
 		}.Build(),
 		NeedsExpansion: true,
 	}.Build()
-	require.NoErrorf(t, a.engine.PutGrantRecord(ctx, rec), "PutGrantRecord")
+	require.NoErrorf(t, a.PutGrantRecord(ctx, rec), "PutGrantRecord")
 
 	rows, _, err := a.Grants().PendingExpansionPage(ctx, "")
 	require.NoErrorf(t, err, "PendingExpansionPage")

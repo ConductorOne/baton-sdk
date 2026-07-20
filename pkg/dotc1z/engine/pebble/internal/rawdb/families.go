@@ -68,34 +68,25 @@ func (b *batch) Close() error { return b.b.Close() }
 // Clients: the Put*Records paths, the expanded/synthesized grant
 // writers, the IfNewer partial-sync paths, and delete paths.
 //
-// Phase 2b: RecordBatch exposes NO generic staging. The only way to
-// stage a record mutation is a typed Stage* operation (records.go)
-// that derives and stages everything the row owes in the same call —
-// the forgotten-obligation bug class (primary landed, index entry or
+// RecordBatch exposes NO generic staging. The only way to stage a
+// record mutation is a typed Stage* operation (records.go) that
+// derives and stages everything the row owes in the same call — the
+// forgotten-obligation bug class (primary landed, index entry or
 // digest invalidation forgotten) is unexpressible. The compactor's
 // keep-newer fold, which legitimately stages raw keys it did not
-// encode, uses FoldBatch instead (records.go) via the Engine.DB
-// exemption surface.
+// encode, uses FoldBatch instead (records.go) via the Engine merge
+// surface (the engine package's merge_surface.go).
 type RecordBatch struct {
 	// core is deliberately NOT embedded: embedding would promote the
 	// generic Set/Delete/DeleteRange onto the exported surface.
 	core    batch
 	db      *DB
 	scratch []byte
-	// stager is the batch's one Stager view, pre-built so the grant
-	// Stage* ops can pass &rb.stager to the digest-invalidation
-	// deriver without a per-op heap allocation (an inline
-	// &recordStager{rb} escapes through the indirect func-field call
-	// even when the deriver immediately no-ops on digest-absent
-	// syncs — one 8-byte alloc per staged grant on the bulk path).
-	stager recordStager
 }
 
 // NewRecordBatch mints a batch for record-keyspace mutations.
 func (d *DB) NewRecordBatch() *RecordBatch {
-	rb := &RecordBatch{core: batch{b: d.newBatch()}, db: d}
-	rb.stager.rb = rb
-	return rb
+	return &RecordBatch{core: batch{b: d.newBatch()}, db: d}
 }
 
 // Commit applies the staged writes with the given write options.
