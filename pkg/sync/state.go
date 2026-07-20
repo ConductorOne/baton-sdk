@@ -47,28 +47,6 @@ type State interface {
 	RecordSessionOp(op string, duration time.Duration, opErr error, timedOut bool)
 	MergeSessionStat(op string, add SessionStoreStat)
 	SessionStoreStats() map[string]SessionStoreStat
-	// CheckAndSetExclusionGroupResourceType records that exclusionGroupID is
-	// used on resourceTypeID. If the group was already recorded against a
-	// different resource type, the prior value is returned with conflict=true
-	// and the map is not modified. Otherwise the map is updated (if needed)
-	// and ("", false) is returned. The existing return value is meaningful
-	// only when conflict is true.
-	CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) (existing string, conflict bool)
-	// CheckAndSetExclusionGroupDefault records that entitlementID is the
-	// default entitlement for exclusionGroupID. If the group already has a
-	// recorded default that is not entitlementID, the prior value is returned
-	// with conflict=true and the map is not modified. Otherwise the map is
-	// updated (if needed) and ("", false) is returned. The existing return
-	// value is meaningful only when conflict is true.
-	CheckAndSetExclusionGroupDefault(exclusionGroupID, entitlementID string) (existing string, conflict bool)
-	// IncrementExclusionGroupCount increments the running count of entitlements
-	// observed for exclusionGroupID and returns the new count. The count is
-	// global per exclusion group id (across all resources) and survives resume.
-	IncrementExclusionGroupCount(exclusionGroupID string) uint32
-	// ClearExclusionGroupTracking drops the exclusion group bookkeeping maps so
-	// they don't bloat the token of a completed sync, mirroring
-	// ClearEntitlementGraph.
-	ClearExclusionGroupTracking(ctx context.Context)
 }
 
 func NeedsExpansion(stateStr string) (bool, error) {
@@ -228,9 +206,6 @@ type state struct {
 	shouldSkipEntitlementsAndGrants bool
 	shouldSkipGrants                bool
 	completedActionsCount           uint64
-	exclusionGroupResourceTypes     map[string]string
-	exclusionGroupDefaults          map[string]string
-	exclusionGroupCounts            map[string]uint32
 	stepDurationsMs                 map[string]int64
 	connectorCallStats              map[string]*ConnectorCallStat
 	sessionStoreStats               map[string]*SessionStoreStat
@@ -276,39 +251,38 @@ type serializedTokenV0 struct {
 // serializedTokenV1 is used to serialize the token to JSON. This separate object is used to avoid having exported fields
 // on the object used externally. We should interface this, probably.
 type serializedTokenV1 struct {
-	ActionsMap                      map[string]Action             `json:"actions_map,omitempty"`
-	ActionOrder                     []string                      `json:"action_order,omitempty"`
-	CurrentActionID                 uint64                        `json:"current_action_id,omitempty"`
-	NeedsExpansion                  bool                          `json:"needs_expansion,omitempty"`
-	EntitlementGraph                *expand.EntitlementGraph      `json:"entitlement_graph,omitempty"`
-	HasExternalResourceGrants       bool                          `json:"has_external_resource_grants,omitempty"`
-	ShouldFetchRelatedResources     bool                          `json:"should_fetch_related_resources,omitempty"`
-	ShouldSkipEntitlementsAndGrants bool                          `json:"should_skip_entitlements_and_grants,omitempty"`
-	ShouldSkipGrants                bool                          `json:"should_skip_grants,omitempty"`
-	CompletedActionsCount           uint64                        `json:"completed_actions_count,omitempty"`
-	ExclusionGroupResourceTypes     map[string]string             `json:"exclusion_group_resource_types,omitempty"`
-	ExclusionGroupDefaults          map[string]string             `json:"exclusion_group_defaults,omitempty"`
-	ExclusionGroupCounts            map[string]uint32             `json:"exclusion_group_counts,omitempty"`
-	StepDurationsMs                 map[string]int64              `json:"step_durations_ms,omitempty"`
-	ConnectorCallStats              map[string]*ConnectorCallStat `json:"connector_call_stats,omitempty"`
-	SessionStoreStats               map[string]*SessionStoreStat  `json:"session_store_stats,omitempty"`
-	Compaction                      *CompactionTokenStats         `json:"compaction,omitempty"`
-	Version                         uint64                        `json:"version"`
+	ActionsMap                      map[string]Action        `json:"actions_map,omitempty"`
+	ActionOrder                     []string                 `json:"action_order,omitempty"`
+	CurrentActionID                 uint64                   `json:"current_action_id,omitempty"`
+	NeedsExpansion                  bool                     `json:"needs_expansion,omitempty"`
+	EntitlementGraph                *expand.EntitlementGraph `json:"entitlement_graph,omitempty"`
+	HasExternalResourceGrants       bool                     `json:"has_external_resource_grants,omitempty"`
+	ShouldFetchRelatedResources     bool                     `json:"should_fetch_related_resources,omitempty"`
+	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants,omitempty"`
+	ShouldSkipGrants                bool                     `json:"should_skip_grants,omitempty"`
+	CompletedActionsCount           uint64                   `json:"completed_actions_count,omitempty"`
+	// Exclusion-group tracking maps (exclusion_group_resource_types,
+	// exclusion_group_defaults, exclusion_group_counts) were removed
+	// when the streaming exclusion-group validation was replaced by
+	// ingestion invariant I5 over the stored keyspace: old tokens
+	// carrying them still parse (unknown JSON fields are ignored).
+	StepDurationsMs    map[string]int64              `json:"step_durations_ms,omitempty"`
+	ConnectorCallStats map[string]*ConnectorCallStat `json:"connector_call_stats,omitempty"`
+	SessionStoreStats  map[string]*SessionStoreStat  `json:"session_store_stats,omitempty"`
+	Compaction         *CompactionTokenStats         `json:"compaction,omitempty"`
+	Version            uint64                        `json:"version"`
 }
 
 func newState() *state {
 	return &state{
-		actions:                     make(map[string]Action),
-		actionOrder:                 []string{},
-		currentActionID:             0,
-		entitlementGraph:            nil,
-		needsExpansion:              false,
-		exclusionGroupResourceTypes: make(map[string]string),
-		exclusionGroupDefaults:      make(map[string]string),
-		exclusionGroupCounts:        make(map[string]uint32),
-		stepDurationsMs:             make(map[string]int64),
-		connectorCallStats:          make(map[string]*ConnectorCallStat),
-		sessionStoreStats:           make(map[string]*SessionStoreStat),
+		actions:            make(map[string]Action),
+		actionOrder:        []string{},
+		currentActionID:    0,
+		entitlementGraph:   nil,
+		needsExpansion:     false,
+		stepDurationsMs:    make(map[string]int64),
+		connectorCallStats: make(map[string]*ConnectorCallStat),
+		sessionStoreStats:  make(map[string]*SessionStoreStat),
 	}
 }
 
@@ -433,18 +407,6 @@ func (st *state) Unmarshal(input string) error {
 		st.shouldSkipGrants = token.ShouldSkipGrants
 		st.shouldFetchRelatedResources = token.ShouldFetchRelatedResources
 		st.completedActionsCount = token.CompletedActionsCount
-		st.exclusionGroupResourceTypes = token.ExclusionGroupResourceTypes
-		if st.exclusionGroupResourceTypes == nil {
-			st.exclusionGroupResourceTypes = make(map[string]string)
-		}
-		st.exclusionGroupDefaults = token.ExclusionGroupDefaults
-		if st.exclusionGroupDefaults == nil {
-			st.exclusionGroupDefaults = make(map[string]string)
-		}
-		st.exclusionGroupCounts = token.ExclusionGroupCounts
-		if st.exclusionGroupCounts == nil {
-			st.exclusionGroupCounts = make(map[string]uint32)
-		}
 		st.stepDurationsMs = token.StepDurationsMs
 		if st.stepDurationsMs == nil {
 			st.stepDurationsMs = make(map[string]int64)
@@ -471,9 +433,6 @@ func (st *state) Unmarshal(input string) error {
 		st.actions[actionID] = Action{Op: InitOp, ID: actionID}
 		st.actionOrder = append(st.actionOrder, actionID)
 		st.completedActionsCount = 0
-		st.exclusionGroupResourceTypes = make(map[string]string)
-		st.exclusionGroupDefaults = make(map[string]string)
-		st.exclusionGroupCounts = make(map[string]uint32)
 		st.stepDurationsMs = make(map[string]int64)
 		st.connectorCallStats = make(map[string]*ConnectorCallStat)
 		st.sessionStoreStats = make(map[string]*SessionStoreStat)
@@ -499,9 +458,6 @@ func (st *state) Marshal() (string, error) {
 		ShouldSkipEntitlementsAndGrants: st.shouldSkipEntitlementsAndGrants,
 		ShouldSkipGrants:                st.shouldSkipGrants,
 		CompletedActionsCount:           st.completedActionsCount,
-		ExclusionGroupResourceTypes:     st.exclusionGroupResourceTypes,
-		ExclusionGroupDefaults:          st.exclusionGroupDefaults,
-		ExclusionGroupCounts:            st.exclusionGroupCounts,
 		StepDurationsMs:                 st.stepDurationsMs,
 		ConnectorCallStats:              st.connectorCallStats,
 		SessionStoreStats:               st.sessionStoreStats,
@@ -773,60 +729,4 @@ func (st *state) GetCompletedActionsCount() uint64 {
 	st.mtx.RLock()
 	defer st.mtx.RUnlock()
 	return st.completedActionsCount
-}
-
-func (st *state) CheckAndSetExclusionGroupResourceType(exclusionGroupID, resourceTypeID string) (string, bool) {
-	st.mtx.Lock()
-	defer st.mtx.Unlock()
-
-	if st.exclusionGroupResourceTypes == nil {
-		st.exclusionGroupResourceTypes = make(map[string]string)
-	}
-	if existing, ok := st.exclusionGroupResourceTypes[exclusionGroupID]; ok {
-		if existing != resourceTypeID {
-			return existing, true
-		}
-		return "", false
-	}
-	st.exclusionGroupResourceTypes[exclusionGroupID] = resourceTypeID
-	return "", false
-}
-
-func (st *state) CheckAndSetExclusionGroupDefault(exclusionGroupID, entitlementID string) (string, bool) {
-	st.mtx.Lock()
-	defer st.mtx.Unlock()
-
-	if st.exclusionGroupDefaults == nil {
-		st.exclusionGroupDefaults = make(map[string]string)
-	}
-	if existing, ok := st.exclusionGroupDefaults[exclusionGroupID]; ok {
-		if existing != entitlementID {
-			return existing, true
-		}
-		return "", false
-	}
-	st.exclusionGroupDefaults[exclusionGroupID] = entitlementID
-	return "", false
-}
-
-func (st *state) IncrementExclusionGroupCount(exclusionGroupID string) uint32 {
-	st.mtx.Lock()
-	defer st.mtx.Unlock()
-
-	if st.exclusionGroupCounts == nil {
-		st.exclusionGroupCounts = make(map[string]uint32)
-	}
-	st.exclusionGroupCounts[exclusionGroupID]++
-	return st.exclusionGroupCounts[exclusionGroupID]
-}
-
-// ClearExclusionGroupTracking drops the exclusion group bookkeeping maps. This
-// is meant to keep the final sync token small, mirroring ClearEntitlementGraph.
-func (st *state) ClearExclusionGroupTracking(ctx context.Context) {
-	st.mtx.Lock()
-	defer st.mtx.Unlock()
-
-	st.exclusionGroupResourceTypes = nil
-	st.exclusionGroupDefaults = nil
-	st.exclusionGroupCounts = nil
 }

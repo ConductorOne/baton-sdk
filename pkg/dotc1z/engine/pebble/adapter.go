@@ -344,6 +344,11 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 		EndedAt:      timestamppb.Now(),
 		SyncToken:    existing.GetSyncToken(),
 	}.Build()
+	if e.test.endSyncStampHook != nil {
+		if err := e.test.endSyncStampHook(); err != nil {
+			return err
+		}
+	}
 	if err := e.PutSyncRunRecord(ctx, updated); err != nil {
 		return err
 	}

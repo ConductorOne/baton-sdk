@@ -165,6 +165,29 @@ func (rb *RecordBatch) StageGrantPutDeferred(key, val []byte, hadOldVal, needsEx
 	return rb.stageGrantDigestInvalidation(key, sep4)
 }
 
+// StageGrantOrphanIndexHeal stages the removal of ONE orphan
+// by_principal index entry — an index key whose grant primary row does
+// not exist (a stranded write, never legitimate state). It takes the
+// grant PRIMARY key the orphan entry derives from, and derives the
+// index key with the same splice every maintained write uses, so the
+// heal and the writers can never disagree about the bytes.
+//
+// Deliberately a distinct op rather than a flavor of StageGrantDelete:
+// the primary row is ABSENT, so there is no primary delete to stage
+// and no digest invalidation owed (digests fold primary rows; removing
+// index garbage changes no partition content). Callers must verify the
+// primary row's absence under the write lock before staging — healing
+// a live row's index entry would orphan the row from its own index.
+func (rb *RecordBatch) StageGrantOrphanIndexHeal(primaryKey []byte) error {
+	if err := assertFamily("StageGrantOrphanIndexHeal", primaryKey, grantPrimaryPrefix); err != nil {
+		return err
+	}
+	if _, ok := SplitGrantPrimaryKey(primaryKey); !ok {
+		return fmt.Errorf("rawdb.StageGrantOrphanIndexHeal: grant key %x did not decode as a 6-segment identity", primaryKey)
+	}
+	return rb.deleteByPrincipalKey(primaryKey)
+}
+
 func (rb *RecordBatch) setByPrincipalKey(key []byte) error {
 	idx, ok := AppendGrantByPrincipalKeyFromPrimary(rb.scratch[:0], key)
 	rb.scratch = idx
