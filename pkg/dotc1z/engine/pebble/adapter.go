@@ -36,8 +36,20 @@ import (
 // reads). Adapter survives as a type alias for compatibility.
 
 // Adapter is the Engine, by its historical name. The wrapping type
-// dissolved in PR 2.6; the alias keeps the many existing constructors
-// and fixtures compiling. New code should use *Engine directly.
+// dissolved when the layer collapsed; the alias keeps existing
+// constructors and fixtures compiling. New code should use *Engine
+// directly.
+//
+// DELIBERATE BREAK vs the old wrapper: a bare Adapter/Engine is NOT a
+// connectorstore.Writer anymore. The old type carried Close(ctx); the
+// Engine's teardown is Close() (no ctx), and a Go alias cannot carry
+// both signatures. The supported Writer — before and after — is the
+// pkg/dotc1z store (dotc1z.NewStore with the Pebble engine), whose
+// Close(ctx) owns the envelope save the bare engine never performed;
+// a bare handle "closing" a c1z without saving it was a trap, not a
+// contract. Every other Writer method remains on the Engine, so code
+// holding a concrete *Adapter compiles untouched except Close(ctx)
+// call sites, which drop the ctx.
 type Adapter = Engine
 
 // NewAdapter is a compatibility constructor from the dissolved-layer
@@ -45,10 +57,10 @@ type Adapter = Engine
 func NewAdapter(e *Engine) *Adapter { return e }
 
 // Compile-time checks for the optional connectorstore capabilities
-// that SQLite's *C1File also exposes. (connectorstore.Writer's
-// Close(ctx) lives on pkg/dotc1z's pebbleStore, which owns envelope
-// save; the Engine's Close() is the storage teardown. The full Writer
-// contract is asserted on the store via c1zstore.Store.)
+// that SQLite's *C1File also exposes. (The full connectorstore.Writer
+// contract is asserted on pkg/dotc1z's store via c1zstore.Store — see
+// the Adapter alias doc for why the bare engine is deliberately not a
+// Writer.)
 var (
 	_ connectorstore.LatestFinishedSyncIDFetcher  = (*Engine)(nil)
 	_ connectorstore.DBSizeProvider               = (*Engine)(nil)
@@ -193,9 +205,18 @@ func (e *Engine) SetCurrentSync(ctx context.Context, syncID string) error {
 // CurrentSyncStep returns the current sync's step string, or "". Read
 // from the durable SyncRunRecord on every call, exactly like SQLite's
 // CurrentSyncStep re-reads the sync_runs row — there is no in-memory
-// step cache to go stale (the pre-2.6 Adapter cached it and grew
+// step cache to go stale (the old Adapter cached it and grew
 // rehydration logic at every rebind to compensate).
+//
+// Holds lifecycleMu so the id read and the record read are one
+// snapshot with respect to the lifecycle transitions — without it, an
+// interleaved EndSync/SetCurrentSync between the two reads could
+// return a token for a sync the engine is no longer bound to (the old
+// Adapter's mutex gave the same guarantee over its cache; review
+// finding, final round).
 func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
 	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return "", nil
@@ -647,9 +668,10 @@ func (e *Engine) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentTyp
 //
 // Callers that open through dotc1z.NewStore(..., WithEngine(EnginePebble))
 // get the real Cleanup; callers that use a bare Engine (unit tests,
-// embedding) silently get retention=disabled. The method exists so the
-// engine satisfies the connectorstore.Writer surface regardless of how
-// it was constructed.
+// embedding) silently get retention=disabled. Kept so the engine
+// serves the writer-shaped call sites that predate the layer collapse
+// (the bare engine is deliberately NOT a full connectorstore.Writer —
+// see the Adapter alias doc).
 func (e *Engine) Cleanup(ctx context.Context) error { return nil }
 
 // === GetAsset ===
