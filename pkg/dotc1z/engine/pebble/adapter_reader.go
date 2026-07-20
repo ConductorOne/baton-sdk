@@ -30,6 +30,60 @@ var _ reader_v2.GrantsReaderServiceServer = (*Adapter)(nil)
 // the engine, then returns a v2-shaped response (via the translation
 // layer in translate_v2.go).
 
+// hydrateEntitlementResource swaps the identity-only Resource stub that
+// V3EntitlementToV2 produces for the full resource stored under the same
+// sync, so the Pebble reader returns entitlements shaped exactly like the
+// SQLite engine does.
+//
+// Connectors emit an entitlement carrying its full Resource (id +
+// annotations + profile). The SQLite engine round-tripped that whole proto,
+// so readers saw entitlement.Resource.Annotations intact. The Pebble engine
+// normalizes the entitlement's resource to an id-only ref on write
+// (V2EntitlementToV3) and rebuilds only the id on read, so downstream
+// consumers that read connector metadata off entitlement.Resource — most
+// importantly the connector RawId annotation, which uplift uses to populate
+// raw_baton_id and to merge match_baton_id placeholder entitlements — get
+// nothing once a connector switches from SQLite to Pebble. Rehydrating here
+// keeps the two engines' reader output identical.
+//
+// A resource not present under this sync (targeted/partial syncs can
+// reference resources they didn't write) leaves the id-only stub in place
+// rather than failing the entitlement read. The optional cache dedupes
+// lookups when many entitlements share one resource.
+func (e *Engine) hydrateEntitlementResource(ctx context.Context, ent *v2.Entitlement, cache map[string]*v2.Resource) {
+	if ent == nil {
+		return
+	}
+	rid := ent.GetResource().GetId()
+	rt, id := rid.GetResourceType(), rid.GetResource()
+	if rt == "" || id == "" {
+		return
+	}
+	cacheKey := rt + "\x00" + id
+	if cache != nil {
+		if full, ok := cache[cacheKey]; ok {
+			if full != nil {
+				ent.SetResource(full)
+			}
+			return
+		}
+	}
+	rec, err := e.GetResourceRecord(ctx, rt, id)
+	if err != nil {
+		// Not found under this sync: keep the id-only stub. A missing
+		// resource must never turn into a failed entitlement read.
+		if cache != nil {
+			cache[cacheKey] = nil
+		}
+		return
+	}
+	full := V3ResourceToV2(rec)
+	ent.SetResource(full)
+	if cache != nil {
+		cache[cacheKey] = full
+	}
+}
+
 // GetEntitlement fetches a single entitlement by ID. Implements
 // reader_v2.EntitlementsReaderServiceServer.
 func (e *Engine) GetEntitlement(ctx context.Context, req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
@@ -45,8 +99,10 @@ func (e *Engine) GetEntitlement(ctx context.Context, req *reader_v2.Entitlements
 	if err != nil {
 		return nil, err
 	}
+	ent := V3EntitlementToV2(rec)
+	e.hydrateEntitlementResource(ctx, ent, nil)
 	return reader_v2.EntitlementsReaderServiceGetEntitlementResponse_builder{
-		Entitlement: V3EntitlementToV2(rec),
+		Entitlement: ent,
 	}.Build(), nil
 }
 
@@ -150,6 +206,7 @@ func (e *Engine) ListEntitlementsByIds(
 	}
 	ids := req.GetEntitlementIds()
 	out := make([]*v2.Entitlement, 0, len(ids))
+	resCache := make(map[string]*v2.Resource)
 	for _, id := range ids {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -164,7 +221,9 @@ func (e *Engine) ListEntitlementsByIds(
 			}
 			return nil, err
 		}
-		out = append(out, V3EntitlementToV2(rec))
+		ent := V3EntitlementToV2(rec)
+		e.hydrateEntitlementResource(ctx, ent, resCache)
+		out = append(out, ent)
 	}
 	return reader_v2.EntitlementsReaderServiceListEntitlementsByIdsResponse_builder{
 		List: out,

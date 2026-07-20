@@ -129,12 +129,15 @@ func (e *Engine) StreamEntitlements(
 			return
 		}
 		var iterErr error
+		resCache := make(map[string]*v2.Resource)
 		err := e.IterateEntitlements(ctx, func(rec *v3.EntitlementRecord) bool {
 			if err := ctx.Err(); err != nil {
 				iterErr = err
 				return false
 			}
-			return yield(V3EntitlementToV2(rec), nil)
+			ent := V3EntitlementToV2(rec)
+			e.hydrateEntitlementResource(ctx, ent, resCache)
+			return yield(ent, nil)
 		})
 		if iterErr != nil {
 			yield(nil, iterErr)

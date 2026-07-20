@@ -888,8 +888,11 @@ func (e *Engine) ListEntitlements(ctx context.Context, req *v2.EntitlementsServi
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
 	out := make([]*v2.Entitlement, 0, len(records))
+	resCache := make(map[string]*v2.Resource)
 	for _, rec := range records {
-		out = append(out, V3EntitlementToV2(rec))
+		ent := V3EntitlementToV2(rec)
+		e.hydrateEntitlementResource(ctx, ent, resCache)
+		out = append(out, ent)
 	}
 	return v2.EntitlementsServiceListEntitlementsResponse_builder{
 		List:          out,
