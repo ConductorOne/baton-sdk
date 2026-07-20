@@ -315,6 +315,13 @@ func TestAdapterCurrentDBSizeBytes(t *testing.T) {
 	for i := 0; i < 25; i++ {
 		require.NoError(t, a.PutGrants(ctx, mkV2Grant(ksuid.New().String(), "ent", "user", ksuid.New().String())), "PutGrants")
 	}
+	// Quiesce the WAL before sampling: NoSync commits hand records to
+	// pebble's LogWriter, whose flush loop appends to the file
+	// ASYNCHRONOUSLY — without a sync point the on-disk size keeps
+	// growing between the two samples below and the equality is a race
+	// (flaked on slow Windows CI). LogData(nil, Sync) drains and fsyncs
+	// the buffer, making the size stable for both reads.
+	require.NoError(t, e.db.WALSyncPoint(), "quiesce WAL before size sampling")
 
 	after, err := a.CurrentDBSizeBytes()
 	require.NoError(t, err, "CurrentDBSizeBytes after writes")

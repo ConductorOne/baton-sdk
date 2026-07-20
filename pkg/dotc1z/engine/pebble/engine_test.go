@@ -3,6 +3,7 @@ package pebble
 import (
 	"context"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -28,6 +29,17 @@ func newTestEngine(t testing.TB, opts ...Option) (*Engine, string) {
 	return e, dir
 }
 
+// regularFileSizeUnder is the independent oracle for
+// CurrentDBSizeBytes: a walk-and-sum over regular files. It MUST stat
+// through os.Lstat — the same mechanism production uses — not
+// WalkDir's DirEntry.Info: on Windows the two read different size
+// views of a file with an open write handle (DirEntry.Info comes from
+// FindFirstFile directory metadata; Lstat's GetFileAttributesEx fast
+// path lags it), and pebble's active WAL is exactly such a file, so a
+// mixed-mechanism comparison diverges by however much WAL the sync
+// appended (caught by Windows CI). Same-mechanism sides make the
+// comparison OS-independent while still independently checking the
+// recursion, the regular-file filter, and the summing.
 func regularFileSizeUnder(t *testing.T, dir string) int64 {
 	t.Helper()
 	var total int64
@@ -38,7 +50,7 @@ func regularFileSizeUnder(t *testing.T, dir string) int64 {
 		if d.IsDir() {
 			return nil
 		}
-		info, err := d.Info()
+		info, err := os.Lstat(path)
 		if err != nil {
 			return err
 		}
