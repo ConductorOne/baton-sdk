@@ -126,6 +126,16 @@ message ResourceRecord {
   // into `annotations` as Any (the v2 connector contract — see
   // pkg/types/resource/user_trait.go). The annotations field above
   // round-trips them lossless; no extra field is needed.
+
+  // Source-cache scope stamp (see annotation_source_cache.proto).
+  // Empty for rows not produced under a source-cache scope.
+  // NOTE: the replay reference branch declared this as field 9; it moved
+  // to 12 when profile/status/created_at (9-11) landed on main first.
+  // No artifact was ever written with the old number.
+  string source_scope_key = 12 [(index) = {
+    name: "by_source_scope"
+    partial: "source_scope_key != ''"
+  }];
 }
 
 message EntitlementRecord {
@@ -165,6 +175,13 @@ message EntitlementRecord {
   // resource_types table when needed. Consumed by
   // pkg/sync/syncer.go's principal-type narrowing.
   repeated string grantable_to_resource_type_ids = 10;
+
+  // Source-cache scope stamp (see annotation_source_cache.proto).
+  // Empty for rows not produced under a source-cache scope.
+  string source_scope_key = 11 [(index) = {
+    name: "by_source_scope"
+    partial: "source_scope_key != ''"
+  }];
 }
 
 message GrantRecord {
@@ -211,6 +228,16 @@ message GrantRecord {
   // map<source_entitlement_id, GrantSourceRecord> — same wire shape as
   // c1.connector.v2.GrantSources.sources.
   map<string, GrantSourceRecord> sources = 9;
+
+  // Source-cache scope stamp (see annotation_source_cache.proto).
+  // Empty for rows not produced under a source-cache scope — notably
+  // expander-derived grants, which are recreated by expansion each sync
+  // and never replayed. StoreExpandedGrants preserves this field on
+  // rewrites of existing rows, exactly like expansion/needs_expansion.
+  string source_scope_key = 10 [(index) = {
+    name: "by_source_scope"
+    partial: "source_scope_key != ''"
+  }];
 }
 
 message AssetRecord {
@@ -243,6 +270,21 @@ message SyncRunRecord {
   string sync_token = 6;
   bool supports_diff = 7;
   string linked_sync_id = 8;
+
+  // compacted marks a sync produced by compaction (fold or rebuild)
+  // rather than by a real connector run. Compacted artifacts are
+  // keep-newer UPSERT merges — base rows a newer input deleted survive —
+  // so no input sync's upstream validators (source-cache validators) describe
+  // their contents.
+  //
+  // "Can this sync be used as a source-cache replay source?" is the
+  // predicate c1zstore.SyncRun.UsableAsReplaySource: type == FULL and
+  // !compacted. The syncer enforces it — feeding a compacted or
+  // partial/derived sync to WithPreviousSyncC1ZPath degrades to a cold
+  // (full-fetch) sync. Orchestrators deciding which artifact to
+  // materialize as the previous sync should apply the same predicate
+  // instead of guessing from provenance.
+  bool compacted = 9;
 }
 
 // SyncStatsRecord is the engine-internal sidecar populated at
@@ -300,4 +342,80 @@ message SessionRecord {
   string sync_id = 1;
   string key = 2;
   bytes value = 3;
+}
+
+// SourceCacheEntryRecord is the per-scope manifest entry for source-cache
+// replay (see c1/connector/v2/annotation_source_cache.proto). One entry
+// per (row_kind, scope_key), written for every freshly fetched scope —
+// including zero-row responses — and rewritten on replay with the scope's
+// current validator. The previous sync's entries (read from the previous
+// c1z) are the lookup surface connectors revalidate against.
+message SourceCacheEntryRecord {
+  option (table) = {
+    name: "source_cache_entries"
+    primary_key: [
+      "row_kind",
+      "scope_key"
+    ]
+  };
+
+  // Row kind partition: "resources", "entitlements", or "grants"
+  // (pkg/sourcecache.RowKind values).
+  string row_kind = 1;
+
+  // Connector-computed stable scope identifier (conventionally lowercase
+  // hex when hashed via sourcecache.HashScope; any byte-stable string).
+  string scope_key = 2;
+
+  // Opaque upstream validator: HTTP ETag, delta token, etc.
+  string cache_validator = 3;
+
+  google.protobuf.Timestamp discovered_at = 4;
+
+  // Set when the dangling-reference drops (ingestion invariants I7/I8/I9,
+  // pkg/sync/ingest_invariants.go) deleted rows stamped with this scope:
+  // the artifact no longer holds the full row set the validator vouches
+  // for, so a future sync must not 304-replay it. Lookups treat an
+  // invalidated entry as a miss (the scope re-fetches cold and converges
+  // with a cold sync); the entry itself is kept so the scope's surviving
+  // stamped rows do not read as an I6 orphan (lost manifest write).
+  bool invalidated = 5;
+}
+
+// SourceCacheCompatRecord is the sync's replay-compatibility key: the
+// exact conditions under which this artifact's source-cache manifest was
+// recorded. A future sync may replay from this artifact ONLY when its
+// own key matches byte-exactly on every component; an absent, unreadable,
+// or mismatched record degrades that sync to cold (no-op lookup).
+// Compatibility is never inferred from versions — each component is an
+// explicit declaration by its owner.
+//
+// One record per sync, written when the write side of the source cache
+// enables (before any manifest entry), cleared by compaction folds with
+// the manifest.
+message SourceCacheCompatRecord {
+  option (table) = {
+    name: "source_cache_compat"
+    primary_key: ["id"]
+  };
+
+  // Fixed singleton id ("compat"); present so the record satisfies the
+  // table shape.
+  string id = 1;
+
+  // Connector-declared components (SourceCacheCapability annotations):
+  // the connector's cache generation and configuration/permission
+  // fingerprint.
+  string connector_cache_generation = 2;
+  string connector_config_fingerprint = 3;
+
+  // SDK materialization-policy generation: bumped when the SDK changes
+  // how response rows or their side effects materialize into the store
+  // in a replay-visible way (sourcecache.MaterializationPolicyGeneration).
+  string sdk_materialization_generation = 4;
+
+  // SDK sync-selection fingerprint: digest of the sync-shaping inputs
+  // (enabled resource types, skip flags) — a selection change means the
+  // prior artifact's scopes cover a different row universe.
+  string sync_selection_fingerprint = 5;
 }

@@ -127,6 +127,8 @@ message EventFeedMetadata {
   }];
   repeated EventType supported_event_types = 2 [(validate.rules).repeated = {
     unique: true
-    items: {enum: {defined_only: true}}
+    items: {
+      enum: {defined_only: true}
+    }
   }];
 }
