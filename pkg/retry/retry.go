@@ -141,16 +141,20 @@ func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
 	}
 
 	l.Warn("retrying operation", zap.Error(err), zap.Duration("wait", wait))
-	if r.onWait != nil {
-		r.onWait(ctx, wait, rateLimited)
-	}
 
-	for {
-		select {
-		case <-time.After(wait):
-			return true
-		case <-ctx.Done():
-			return false
+	// Report actual slept time after the fact: a cancelled context cuts the
+	// sleep short and must not inflate wait stats with the planned duration.
+	waitStart := time.Now()
+	select {
+	case <-time.After(wait):
+		if r.onWait != nil {
+			r.onWait(ctx, wait, rateLimited)
 		}
+		return true
+	case <-ctx.Done():
+		if r.onWait != nil {
+			r.onWait(ctx, time.Since(waitStart), rateLimited)
+		}
+		return false
 	}
 }

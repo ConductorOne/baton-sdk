@@ -483,6 +483,11 @@ func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 		zap.Uint64("completed_actions", s.state.GetCompletedActionsCount()),
 		zap.Int("worker_count", s.workerCount),
 	}
+	// Prefer identity from WithSyncIdentity so dashboards can group by
+	// catalog_name (platform context often has catalog_id but not the name).
+	if s.syncIdentity.CatalogName != "" {
+		fields = append(fields, zap.String("catalog_name", s.syncIdentity.CatalogName))
+	}
 	if len(waits) > 0 {
 		fields = append(fields, zap.Any("sync_step_wait_ms", waits))
 	}
@@ -732,6 +737,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	// Rate-limit gates below the syncer (the SDK client interceptor, the
+	// hosted connector manager) sleep before issuing requests. Those sleeps
+	// are invisible to the retryer, so have them report here to land in the
+	// rate_limit_wait bucket alongside retry backoff.
+	ctx = s.withRateLimitWaitObserver(ctx)
 
 	if s.skipFullSync {
 		return s.SkipSync(ctx)

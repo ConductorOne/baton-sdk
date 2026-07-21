@@ -83,6 +83,35 @@ func TestRetryWithRateLimitData(t *testing.T) {
 	require.Less(t, elapsed, 2*time.Second, "should wait approximately 1 second")
 }
 
+func TestRetryOnWaitReportsElapsedOnCancel(t *testing.T) {
+	var gotWait time.Duration
+	var calls int
+	retryer := NewRetryer(t.Context(), RetryConfig{
+		InitialDelay: 10 * time.Second,
+		MaxDelay:     10 * time.Second,
+		OnWait: func(ctx context.Context, wait time.Duration, rateLimited bool) {
+			calls++
+			gotWait = wait
+		},
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	require.False(t, retryer.ShouldWaitAndRetry(ctx, status.Error(codes.Unavailable, "recoverable error")))
+	elapsed := time.Since(start)
+
+	require.Equal(t, 1, calls)
+	// The reported wait must reflect actual slept time, not the planned 10s.
+	require.Less(t, gotWait, time.Second)
+	require.GreaterOrEqual(t, gotWait, 50*time.Millisecond)
+	require.Less(t, elapsed, time.Second)
+}
+
 func TestRetryOnWait(t *testing.T) {
 	tests := []struct {
 		name            string

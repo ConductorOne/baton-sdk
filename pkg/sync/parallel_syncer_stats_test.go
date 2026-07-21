@@ -8,6 +8,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/stretchr/testify/require"
 )
@@ -26,6 +27,36 @@ func TestRecordRetryWaitWithResourceType(t *testing.T) {
 	require.EqualValues(t, 2000, durations["retry_wait:rt1"])
 	require.EqualValues(t, 3000, durations["rate_limit_wait"])
 	require.EqualValues(t, 3000, durations["rate_limit_wait:rt1"])
+}
+
+func TestWaitObserverRecordsRateLimitWait(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+
+	ctx := s.withRateLimitWaitObserver(t.Context())
+	// Simulate a rate-limit gate (SDK interceptor / hosted manager) sleeping
+	// before a request, attributed to a resource type.
+	ratelimit.ObserveWait(retry.WithWaitLabel(ctx, "repository"), 30*time.Second)
+	ratelimit.ObserveWait(ctx, 10*time.Second)
+
+	durations := s.state.StepDurations()
+	require.EqualValues(t, 40000, durations["rate_limit_wait"])
+	require.EqualValues(t, 30000, durations["rate_limit_wait:repository"])
+}
+
+func TestWaitObserverDisabledWithoutStats(t *testing.T) {
+	s := &syncer{
+		recordStats: false,
+		state:       newState(),
+	}
+
+	ctx := s.withRateLimitWaitObserver(t.Context())
+	// The observer is installed regardless (recordStats is only decided
+	// after store load), but reports are dropped when stats are off.
+	ratelimit.ObserveWait(ctx, time.Second)
+	require.Empty(t, s.state.StepDurations())
 }
 
 func TestRecordRetryWaitWithoutResourceType(t *testing.T) {

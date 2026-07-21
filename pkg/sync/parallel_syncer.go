@@ -8,6 +8,7 @@ import (
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -34,6 +35,20 @@ func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLi
 	if label, ok := retry.WaitLabelFromContext(ctx); ok {
 		s.state.AddStepDuration(bucket+":"+label, wait)
 	}
+}
+
+// withRateLimitWaitObserver subscribes the syncer to rate-limit gate sleeps
+// that happen below it (SDK client interceptor, hosted connector manager) so
+// they are accounted in rate_limit_wait. The recordStats check happens at
+// report time because the flag is only decided after the store is loaded,
+// which is after the observer must already be on the context.
+func (s *syncer) withRateLimitWaitObserver(ctx context.Context) context.Context {
+	return ratelimit.WithWaitObserver(ctx, func(ctx context.Context, wait time.Duration) {
+		if !s.recordStats {
+			return
+		}
+		s.recordRetryWait(ctx, wait, true)
+	})
 }
 
 func (s *syncer) parallelSync(
