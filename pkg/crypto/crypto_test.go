@@ -264,10 +264,12 @@ func TestConvertCredentialOptionsMachineCredArms(t *testing.T) {
 	})
 
 	t.Run("keypair", func(t *testing.T) {
+		ttl := durationpb.New(90 * 24 * time.Hour)
 		opts := v2.CredentialOptions_builder{
 			Keypair: v2.CredentialOptions_Keypair_builder{
 				Algorithm: "RSA",
 				Bits:      4096,
+				Ttl:       ttl,
 			}.Build(),
 		}.Build()
 		localOpts, err := ConvertCredentialOptions(ctx, nil, opts, nil)
@@ -275,6 +277,7 @@ func TestConvertCredentialOptionsMachineCredArms(t *testing.T) {
 		require.Equal(t, v2.LocalCredentialOptions_Keypair_case, localOpts.WhichOptions())
 		require.Equal(t, "RSA", localOpts.GetKeypair().GetAlgorithm())
 		require.Equal(t, int32(4096), localOpts.GetKeypair().GetBits())
+		require.Equal(t, ttl.GetSeconds(), localOpts.GetKeypair().GetTtl().GetSeconds())
 	})
 
 	t.Run("token", func(t *testing.T) {

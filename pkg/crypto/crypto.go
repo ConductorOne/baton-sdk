@@ -115,6 +115,7 @@ func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey
 		localOpts.SetKeypair(v2.LocalCredentialOptions_Keypair_builder{
 			Algorithm: opts.GetKeypair().GetAlgorithm(),
 			Bits:      opts.GetKeypair().GetBits(),
+			Ttl:       opts.GetKeypair().GetTtl(),
 		}.Build())
 	case v2.CredentialOptions_Token_case:
 		localOpts.SetToken(v2.LocalCredentialOptions_Token_builder{

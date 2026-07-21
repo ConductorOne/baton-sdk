@@ -4850,7 +4850,10 @@ type CredentialOptions_Keypair struct {
 	Algorithm string `protobuf:"bytes,1,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
 	// Key size in bits where applicable (e.g. 2048/4096 for RSA). Ignored by
 	// algorithms with a fixed size (e.g. ED25519).
-	Bits          int32 `protobuf:"varint,2,opt,name=bits,proto3" json:"bits,omitempty"`
+	Bits int32 `protobuf:"varint,2,opt,name=bits,proto3" json:"bits,omitempty"`
+	// Optional lifetime for the registered key. Unset means the platform
+	// default. Connectors may reject sub-granularity values they cannot honor.
+	Ttl           *durationpb.Duration `protobuf:"bytes,3,opt,name=ttl,proto3" json:"ttl,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4894,12 +4897,34 @@ func (x *CredentialOptions_Keypair) GetBits() int32 {
 	return 0
 }
 
+func (x *CredentialOptions_Keypair) GetTtl() *durationpb.Duration {
+	if x != nil {
+		return x.Ttl
+	}
+	return nil
+}
+
 func (x *CredentialOptions_Keypair) SetAlgorithm(v string) {
 	x.Algorithm = v
 }
 
 func (x *CredentialOptions_Keypair) SetBits(v int32) {
 	x.Bits = v
+}
+
+func (x *CredentialOptions_Keypair) SetTtl(v *durationpb.Duration) {
+	x.Ttl = v
+}
+
+func (x *CredentialOptions_Keypair) HasTtl() bool {
+	if x == nil {
+		return false
+	}
+	return x.Ttl != nil
+}
+
+func (x *CredentialOptions_Keypair) ClearTtl() {
+	x.Ttl = nil
 }
 
 type CredentialOptions_Keypair_builder struct {
@@ -4910,6 +4935,9 @@ type CredentialOptions_Keypair_builder struct {
 	// Key size in bits where applicable (e.g. 2048/4096 for RSA). Ignored by
 	// algorithms with a fixed size (e.g. ED25519).
 	Bits int32
+	// Optional lifetime for the registered key. Unset means the platform
+	// default. Connectors may reject sub-granularity values they cannot honor.
+	Ttl *durationpb.Duration
 }
 
 func (b0 CredentialOptions_Keypair_builder) Build() *CredentialOptions_Keypair {
@@ -4918,6 +4946,7 @@ func (b0 CredentialOptions_Keypair_builder) Build() *CredentialOptions_Keypair {
 	_, _ = b, x
 	x.Algorithm = b.Algorithm
 	x.Bits = b.Bits
+	x.Ttl = b.Ttl
 	return m0
 }
 
@@ -5420,6 +5449,7 @@ type LocalCredentialOptions_Keypair struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	Algorithm     string                 `protobuf:"bytes,1,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
 	Bits          int32                  `protobuf:"varint,2,opt,name=bits,proto3" json:"bits,omitempty"`
+	Ttl           *durationpb.Duration   `protobuf:"bytes,3,opt,name=ttl,proto3" json:"ttl,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5463,6 +5493,13 @@ func (x *LocalCredentialOptions_Keypair) GetBits() int32 {
 	return 0
 }
 
+func (x *LocalCredentialOptions_Keypair) GetTtl() *durationpb.Duration {
+	if x != nil {
+		return x.Ttl
+	}
+	return nil
+}
+
 func (x *LocalCredentialOptions_Keypair) SetAlgorithm(v string) {
 	x.Algorithm = v
 }
@@ -5471,11 +5508,27 @@ func (x *LocalCredentialOptions_Keypair) SetBits(v int32) {
 	x.Bits = v
 }
 
+func (x *LocalCredentialOptions_Keypair) SetTtl(v *durationpb.Duration) {
+	x.Ttl = v
+}
+
+func (x *LocalCredentialOptions_Keypair) HasTtl() bool {
+	if x == nil {
+		return false
+	}
+	return x.Ttl != nil
+}
+
+func (x *LocalCredentialOptions_Keypair) ClearTtl() {
+	x.Ttl = nil
+}
+
 type LocalCredentialOptions_Keypair_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Algorithm string
 	Bits      int32
+	Ttl       *durationpb.Duration
 }
 
 func (b0 LocalCredentialOptions_Keypair_builder) Build() *LocalCredentialOptions_Keypair {
@@ -5484,6 +5537,7 @@ func (b0 LocalCredentialOptions_Keypair_builder) Build() *LocalCredentialOptions
 	_, _ = b, x
 	x.Algorithm = b.Algorithm
 	x.Bits = b.Bits
+	x.Ttl = b.Ttl
 	return m0
 }
 
@@ -6252,7 +6306,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x05Email\x12!\n" +
 	"\aaddress\x18\x01 \x01(\tB\a\xfaB\x04r\x02`\x01R\aaddress\x12\x1d\n" +
 	"\n" +
-	"is_primary\x18\x02 \x01(\bR\tisPrimary\"\xac\n" +
+	"is_primary\x18\x02 \x01(\bR\tisPrimary\"\xd9\n" +
 	"\n" +
 	"\x11CredentialOptions\x12\\\n" +
 	"\x0frandom_password\x18d \x01(\v21.c1.connector.v2.CredentialOptions.RandomPasswordH\x00R\x0erandomPassword\x12P\n" +
@@ -6276,17 +6330,18 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x13encrypted_passwords\x18\x01 \x03(\v2\x1e.c1.connector.v2.EncryptedDataB\b\xfaB\x05\x92\x01\x02\b\x01R\x12encryptedPasswords\x1aM\n" +
 	"\x06ApiKey\x12\x16\n" +
 	"\x06scopes\x18\x01 \x03(\tR\x06scopes\x12+\n" +
-	"\x03ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\x1a;\n" +
+	"\x03ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\x1ah\n" +
 	"\aKeypair\x12\x1c\n" +
 	"\talgorithm\x18\x01 \x01(\tR\talgorithm\x12\x12\n" +
-	"\x04bits\x18\x02 \x01(\x05R\x04bits\x1ah\n" +
+	"\x04bits\x18\x02 \x01(\x05R\x04bits\x12+\n" +
+	"\x03ttl\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\x1ah\n" +
 	"\x05Token\x12\x16\n" +
 	"\x06scopes\x18\x01 \x03(\tR\x06scopes\x12+\n" +
 	"\x03ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\x12\x1a\n" +
 	"\baudience\x18\x03 \x01(\tR\baudience\x1a;\n" +
 	"\fClientSecret\x12+\n" +
 	"\x03ttl\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x03ttlB\t\n" +
-	"\aoptions\"\xad\n" +
+	"\aoptions\"\xda\n" +
 	"\n" +
 	"\x16LocalCredentialOptions\x12a\n" +
 	"\x0frandom_password\x18d \x01(\v26.c1.connector.v2.LocalCredentialOptions.RandomPasswordH\x00R\x0erandomPassword\x12U\n" +
@@ -6310,10 +6365,11 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x12plaintext_password\x18\x01 \x01(\tR\x11plaintextPassword\x1aM\n" +
 	"\x06ApiKey\x12\x16\n" +
 	"\x06scopes\x18\x01 \x03(\tR\x06scopes\x12+\n" +
-	"\x03ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\x1a;\n" +
+	"\x03ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\x1ah\n" +
 	"\aKeypair\x12\x1c\n" +
 	"\talgorithm\x18\x01 \x01(\tR\talgorithm\x12\x12\n" +
-	"\x04bits\x18\x02 \x01(\x05R\x04bits\x1ah\n" +
+	"\x04bits\x18\x02 \x01(\x05R\x04bits\x12+\n" +
+	"\x03ttl\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\x1ah\n" +
 	"\x05Token\x12\x16\n" +
 	"\x06scopes\x18\x01 \x03(\tR\x06scopes\x12+\n" +
 	"\x03ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\x12\x1a\n" +
@@ -6610,40 +6666,42 @@ var file_c1_connector_v2_resource_proto_depIdxs = []int32{
 	19,  // 77: c1.connector.v2.CredentialOptions.RandomPassword.constraints:type_name -> c1.connector.v2.PasswordConstraint
 	22,  // 78: c1.connector.v2.CredentialOptions.EncryptedPassword.encrypted_passwords:type_name -> c1.connector.v2.EncryptedData
 	60,  // 79: c1.connector.v2.CredentialOptions.ApiKey.ttl:type_name -> google.protobuf.Duration
-	60,  // 80: c1.connector.v2.CredentialOptions.Token.ttl:type_name -> google.protobuf.Duration
-	60,  // 81: c1.connector.v2.CredentialOptions.ClientSecret.ttl:type_name -> google.protobuf.Duration
-	19,  // 82: c1.connector.v2.LocalCredentialOptions.RandomPassword.constraints:type_name -> c1.connector.v2.PasswordConstraint
-	60,  // 83: c1.connector.v2.LocalCredentialOptions.ApiKey.ttl:type_name -> google.protobuf.Duration
-	60,  // 84: c1.connector.v2.LocalCredentialOptions.Token.ttl:type_name -> google.protobuf.Duration
-	60,  // 85: c1.connector.v2.LocalCredentialOptions.ClientSecret.ttl:type_name -> google.protobuf.Duration
-	26,  // 86: c1.connector.v2.CreateAccountResponse.SuccessResult.resource:type_name -> c1.connector.v2.Resource
-	59,  // 87: c1.connector.v2.CreateAccountResponse.SuccessResult.invitation_expires_at:type_name -> google.protobuf.Timestamp
-	26,  // 88: c1.connector.v2.CreateAccountResponse.ActionRequiredResult.resource:type_name -> c1.connector.v2.Resource
-	26,  // 89: c1.connector.v2.CreateAccountResponse.AlreadyExistsResult.resource:type_name -> c1.connector.v2.Resource
-	26,  // 90: c1.connector.v2.CreateAccountResponse.InProgressResult.resource:type_name -> c1.connector.v2.Resource
-	4,   // 91: c1.connector.v2.ResourceTypesService.ListResourceTypes:input_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesRequest
-	28,  // 92: c1.connector.v2.ResourcesService.ListResources:input_type -> c1.connector.v2.ResourcesServiceListResourcesRequest
-	30,  // 93: c1.connector.v2.ResourceGetterService.GetResource:input_type -> c1.connector.v2.ResourceGetterServiceGetResourceRequest
-	6,   // 94: c1.connector.v2.ResourceManagerService.CreateResource:input_type -> c1.connector.v2.CreateResourceRequest
-	8,   // 95: c1.connector.v2.ResourceManagerService.DeleteResource:input_type -> c1.connector.v2.DeleteResourceRequest
-	10,  // 96: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:input_type -> c1.connector.v2.DeleteResourceV2Request
-	12,  // 97: c1.connector.v2.CredentialManagerService.RotateCredential:input_type -> c1.connector.v2.RotateCredentialRequest
-	14,  // 98: c1.connector.v2.CredentialManagerService.IssueCredential:input_type -> c1.connector.v2.IssueCredentialRequest
-	20,  // 99: c1.connector.v2.AccountManagerService.CreateAccount:input_type -> c1.connector.v2.CreateAccountRequest
-	5,   // 100: c1.connector.v2.ResourceTypesService.ListResourceTypes:output_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesResponse
-	29,  // 101: c1.connector.v2.ResourcesService.ListResources:output_type -> c1.connector.v2.ResourcesServiceListResourcesResponse
-	31,  // 102: c1.connector.v2.ResourceGetterService.GetResource:output_type -> c1.connector.v2.ResourceGetterServiceGetResourceResponse
-	7,   // 103: c1.connector.v2.ResourceManagerService.CreateResource:output_type -> c1.connector.v2.CreateResourceResponse
-	9,   // 104: c1.connector.v2.ResourceManagerService.DeleteResource:output_type -> c1.connector.v2.DeleteResourceResponse
-	11,  // 105: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:output_type -> c1.connector.v2.DeleteResourceV2Response
-	13,  // 106: c1.connector.v2.CredentialManagerService.RotateCredential:output_type -> c1.connector.v2.RotateCredentialResponse
-	15,  // 107: c1.connector.v2.CredentialManagerService.IssueCredential:output_type -> c1.connector.v2.IssueCredentialResponse
-	21,  // 108: c1.connector.v2.AccountManagerService.CreateAccount:output_type -> c1.connector.v2.CreateAccountResponse
-	100, // [100:109] is the sub-list for method output_type
-	91,  // [91:100] is the sub-list for method input_type
-	91,  // [91:91] is the sub-list for extension type_name
-	91,  // [91:91] is the sub-list for extension extendee
-	0,   // [0:91] is the sub-list for field type_name
+	60,  // 80: c1.connector.v2.CredentialOptions.Keypair.ttl:type_name -> google.protobuf.Duration
+	60,  // 81: c1.connector.v2.CredentialOptions.Token.ttl:type_name -> google.protobuf.Duration
+	60,  // 82: c1.connector.v2.CredentialOptions.ClientSecret.ttl:type_name -> google.protobuf.Duration
+	19,  // 83: c1.connector.v2.LocalCredentialOptions.RandomPassword.constraints:type_name -> c1.connector.v2.PasswordConstraint
+	60,  // 84: c1.connector.v2.LocalCredentialOptions.ApiKey.ttl:type_name -> google.protobuf.Duration
+	60,  // 85: c1.connector.v2.LocalCredentialOptions.Keypair.ttl:type_name -> google.protobuf.Duration
+	60,  // 86: c1.connector.v2.LocalCredentialOptions.Token.ttl:type_name -> google.protobuf.Duration
+	60,  // 87: c1.connector.v2.LocalCredentialOptions.ClientSecret.ttl:type_name -> google.protobuf.Duration
+	26,  // 88: c1.connector.v2.CreateAccountResponse.SuccessResult.resource:type_name -> c1.connector.v2.Resource
+	59,  // 89: c1.connector.v2.CreateAccountResponse.SuccessResult.invitation_expires_at:type_name -> google.protobuf.Timestamp
+	26,  // 90: c1.connector.v2.CreateAccountResponse.ActionRequiredResult.resource:type_name -> c1.connector.v2.Resource
+	26,  // 91: c1.connector.v2.CreateAccountResponse.AlreadyExistsResult.resource:type_name -> c1.connector.v2.Resource
+	26,  // 92: c1.connector.v2.CreateAccountResponse.InProgressResult.resource:type_name -> c1.connector.v2.Resource
+	4,   // 93: c1.connector.v2.ResourceTypesService.ListResourceTypes:input_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesRequest
+	28,  // 94: c1.connector.v2.ResourcesService.ListResources:input_type -> c1.connector.v2.ResourcesServiceListResourcesRequest
+	30,  // 95: c1.connector.v2.ResourceGetterService.GetResource:input_type -> c1.connector.v2.ResourceGetterServiceGetResourceRequest
+	6,   // 96: c1.connector.v2.ResourceManagerService.CreateResource:input_type -> c1.connector.v2.CreateResourceRequest
+	8,   // 97: c1.connector.v2.ResourceManagerService.DeleteResource:input_type -> c1.connector.v2.DeleteResourceRequest
+	10,  // 98: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:input_type -> c1.connector.v2.DeleteResourceV2Request
+	12,  // 99: c1.connector.v2.CredentialManagerService.RotateCredential:input_type -> c1.connector.v2.RotateCredentialRequest
+	14,  // 100: c1.connector.v2.CredentialManagerService.IssueCredential:input_type -> c1.connector.v2.IssueCredentialRequest
+	20,  // 101: c1.connector.v2.AccountManagerService.CreateAccount:input_type -> c1.connector.v2.CreateAccountRequest
+	5,   // 102: c1.connector.v2.ResourceTypesService.ListResourceTypes:output_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesResponse
+	29,  // 103: c1.connector.v2.ResourcesService.ListResources:output_type -> c1.connector.v2.ResourcesServiceListResourcesResponse
+	31,  // 104: c1.connector.v2.ResourceGetterService.GetResource:output_type -> c1.connector.v2.ResourceGetterServiceGetResourceResponse
+	7,   // 105: c1.connector.v2.ResourceManagerService.CreateResource:output_type -> c1.connector.v2.CreateResourceResponse
+	9,   // 106: c1.connector.v2.ResourceManagerService.DeleteResource:output_type -> c1.connector.v2.DeleteResourceResponse
+	11,  // 107: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:output_type -> c1.connector.v2.DeleteResourceV2Response
+	13,  // 108: c1.connector.v2.CredentialManagerService.RotateCredential:output_type -> c1.connector.v2.RotateCredentialResponse
+	15,  // 109: c1.connector.v2.CredentialManagerService.IssueCredential:output_type -> c1.connector.v2.IssueCredentialResponse
+	21,  // 110: c1.connector.v2.AccountManagerService.CreateAccount:output_type -> c1.connector.v2.CreateAccountResponse
+	102, // [102:111] is the sub-list for method output_type
+	93,  // [93:102] is the sub-list for method input_type
+	93,  // [93:93] is the sub-list for extension type_name
+	93,  // [93:93] is the sub-list for extension extendee
+	0,   // [0:93] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_resource_proto_init() }

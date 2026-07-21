@@ -229,6 +229,9 @@ message CredentialOptions {
     // Key size in bits where applicable (e.g. 2048/4096 for RSA). Ignored by
     // algorithms with a fixed size (e.g. ED25519).
     int32 bits = 2;
+    // Optional lifetime for the registered key. Unset means the platform
+    // default. Connectors may reject sub-granularity values they cannot honor.
+    google.protobuf.Duration ttl = 3;
   }
   // Token requests that the connector mint a bearer/access token for the
   // identity. The connector returns the token as PlaintextData, encrypted by
@@ -289,6 +292,7 @@ message LocalCredentialOptions {
   message Keypair {
     string algorithm = 1;
     int32 bits = 2;
+    google.protobuf.Duration ttl = 3;
   }
   // Decrypted mirror of CredentialOptions.Token.
   message Token {
