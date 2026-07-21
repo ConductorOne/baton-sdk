@@ -21,6 +21,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	unsafe "unsafe"
@@ -89,6 +90,129 @@ func (x SyncType) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
+type StatusRecord_ResourceStatus int32
+
+const (
+	StatusRecord_RESOURCE_STATUS_UNSPECIFIED StatusRecord_ResourceStatus = 0
+	StatusRecord_RESOURCE_STATUS_ENABLED     StatusRecord_ResourceStatus = 1
+	StatusRecord_RESOURCE_STATUS_DISABLED    StatusRecord_ResourceStatus = 2
+	StatusRecord_RESOURCE_STATUS_DELETED     StatusRecord_ResourceStatus = 3
+)
+
+// Enum value maps for StatusRecord_ResourceStatus.
+var (
+	StatusRecord_ResourceStatus_name = map[int32]string{
+		0: "RESOURCE_STATUS_UNSPECIFIED",
+		1: "RESOURCE_STATUS_ENABLED",
+		2: "RESOURCE_STATUS_DISABLED",
+		3: "RESOURCE_STATUS_DELETED",
+	}
+	StatusRecord_ResourceStatus_value = map[string]int32{
+		"RESOURCE_STATUS_UNSPECIFIED": 0,
+		"RESOURCE_STATUS_ENABLED":     1,
+		"RESOURCE_STATUS_DISABLED":    2,
+		"RESOURCE_STATUS_DELETED":     3,
+	}
+)
+
+func (x StatusRecord_ResourceStatus) Enum() *StatusRecord_ResourceStatus {
+	p := new(StatusRecord_ResourceStatus)
+	*p = x
+	return p
+}
+
+func (x StatusRecord_ResourceStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (StatusRecord_ResourceStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_storage_v3_records_proto_enumTypes[1].Descriptor()
+}
+
+func (StatusRecord_ResourceStatus) Type() protoreflect.EnumType {
+	return &file_c1_storage_v3_records_proto_enumTypes[1]
+}
+
+func (x StatusRecord_ResourceStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// StatusRecord mirrors c1.connector.v2.Status. Field numbers and
+// enum values match v2 to keep translation cheap; changes to v2
+// require an explicit mirror update here (no automatic propagation).
+type StatusRecord struct {
+	state  protoimpl.MessageState      `protogen:"hybrid.v1"`
+	Status StatusRecord_ResourceStatus `protobuf:"varint,1,opt,name=status,proto3,enum=c1.storage.v3.StatusRecord_ResourceStatus" json:"status,omitempty"`
+	// Status details, such as "locked by admin" or "deleted by user X".
+	Details       string `protobuf:"bytes,2,opt,name=details,proto3" json:"details,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StatusRecord) Reset() {
+	*x = StatusRecord{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StatusRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StatusRecord) ProtoMessage() {}
+
+func (x *StatusRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *StatusRecord) GetStatus() StatusRecord_ResourceStatus {
+	if x != nil {
+		return x.Status
+	}
+	return StatusRecord_RESOURCE_STATUS_UNSPECIFIED
+}
+
+func (x *StatusRecord) GetDetails() string {
+	if x != nil {
+		return x.Details
+	}
+	return ""
+}
+
+func (x *StatusRecord) SetStatus(v StatusRecord_ResourceStatus) {
+	x.Status = v
+}
+
+func (x *StatusRecord) SetDetails(v string) {
+	x.Details = v
+}
+
+type StatusRecord_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Status StatusRecord_ResourceStatus
+	// Status details, such as "locked by admin" or "deleted by user X".
+	Details string
+}
+
+func (b0 StatusRecord_builder) Build() *StatusRecord {
+	m0 := &StatusRecord{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Status = b.Status
+	x.Details = b.Details
+	return m0
+}
+
 // GrantExpandableRecord mirrors c1.connector.v2.GrantExpandable.
 // Field numbers must match v2; drift detection via CI lint.
 type GrantExpandableRecord struct {
@@ -102,7 +226,7 @@ type GrantExpandableRecord struct {
 
 func (x *GrantExpandableRecord) Reset() {
 	*x = GrantExpandableRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[0]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -114,7 +238,7 @@ func (x *GrantExpandableRecord) String() string {
 func (*GrantExpandableRecord) ProtoMessage() {}
 
 func (x *GrantExpandableRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[0]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -194,7 +318,7 @@ type GrantSourceRecord struct {
 
 func (x *GrantSourceRecord) Reset() {
 	*x = GrantSourceRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[1]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -206,7 +330,7 @@ func (x *GrantSourceRecord) String() string {
 func (*GrantSourceRecord) ProtoMessage() {}
 
 func (x *GrantSourceRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[1]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -304,7 +428,7 @@ type ResourceTypeRecord struct {
 
 func (x *ResourceTypeRecord) Reset() {
 	*x = ResourceTypeRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[2]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -316,7 +440,7 @@ func (x *ResourceTypeRecord) String() string {
 func (*ResourceTypeRecord) ProtoMessage() {}
 
 func (x *ResourceTypeRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[2]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -455,13 +579,19 @@ type ResourceRecord struct {
 	Parent         *ResourceRef           `protobuf:"bytes,6,opt,name=parent,proto3" json:"parent,omitempty"`
 	Annotations    []*anypb.Any           `protobuf:"bytes,7,rep,name=annotations,proto3" json:"annotations,omitempty"`
 	DiscoveredAt   *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=discovered_at,json=discoveredAt,proto3" json:"discovered_at,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Profile of the resource. This is a free-form JSON object that can be used to store any additional metadata about the resource.
+	Profile *structpb.Struct `protobuf:"bytes,9,opt,name=profile,proto3" json:"profile,omitempty"`
+	// Status of the resource.
+	Status *StatusRecord `protobuf:"bytes,10,opt,name=status,proto3" json:"status,omitempty"`
+	// Creation time of the resource, not the record in the c1z file.
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResourceRecord) Reset() {
 	*x = ResourceRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[3]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -473,7 +603,7 @@ func (x *ResourceRecord) String() string {
 func (*ResourceRecord) ProtoMessage() {}
 
 func (x *ResourceRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[3]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -533,6 +663,27 @@ func (x *ResourceRecord) GetDiscoveredAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ResourceRecord) GetProfile() *structpb.Struct {
+	if x != nil {
+		return x.Profile
+	}
+	return nil
+}
+
+func (x *ResourceRecord) GetStatus() *StatusRecord {
+	if x != nil {
+		return x.Status
+	}
+	return nil
+}
+
+func (x *ResourceRecord) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
 func (x *ResourceRecord) SetResourceTypeId(v string) {
 	x.ResourceTypeId = v
 }
@@ -561,6 +712,18 @@ func (x *ResourceRecord) SetDiscoveredAt(v *timestamppb.Timestamp) {
 	x.DiscoveredAt = v
 }
 
+func (x *ResourceRecord) SetProfile(v *structpb.Struct) {
+	x.Profile = v
+}
+
+func (x *ResourceRecord) SetStatus(v *StatusRecord) {
+	x.Status = v
+}
+
+func (x *ResourceRecord) SetCreatedAt(v *timestamppb.Timestamp) {
+	x.CreatedAt = v
+}
+
 func (x *ResourceRecord) HasParent() bool {
 	if x == nil {
 		return false
@@ -575,12 +738,45 @@ func (x *ResourceRecord) HasDiscoveredAt() bool {
 	return x.DiscoveredAt != nil
 }
 
+func (x *ResourceRecord) HasProfile() bool {
+	if x == nil {
+		return false
+	}
+	return x.Profile != nil
+}
+
+func (x *ResourceRecord) HasStatus() bool {
+	if x == nil {
+		return false
+	}
+	return x.Status != nil
+}
+
+func (x *ResourceRecord) HasCreatedAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.CreatedAt != nil
+}
+
 func (x *ResourceRecord) ClearParent() {
 	x.Parent = nil
 }
 
 func (x *ResourceRecord) ClearDiscoveredAt() {
 	x.DiscoveredAt = nil
+}
+
+func (x *ResourceRecord) ClearProfile() {
+	x.Profile = nil
+}
+
+func (x *ResourceRecord) ClearStatus() {
+	x.Status = nil
+}
+
+func (x *ResourceRecord) ClearCreatedAt() {
+	x.CreatedAt = nil
 }
 
 type ResourceRecord_builder struct {
@@ -593,6 +789,12 @@ type ResourceRecord_builder struct {
 	Parent         *ResourceRef
 	Annotations    []*anypb.Any
 	DiscoveredAt   *timestamppb.Timestamp
+	// Profile of the resource. This is a free-form JSON object that can be used to store any additional metadata about the resource.
+	Profile *structpb.Struct
+	// Status of the resource.
+	Status *StatusRecord
+	// Creation time of the resource, not the record in the c1z file.
+	CreatedAt *timestamppb.Timestamp
 }
 
 func (b0 ResourceRecord_builder) Build() *ResourceRecord {
@@ -606,6 +808,9 @@ func (b0 ResourceRecord_builder) Build() *ResourceRecord {
 	x.Parent = b.Parent
 	x.Annotations = b.Annotations
 	x.DiscoveredAt = b.DiscoveredAt
+	x.Profile = b.Profile
+	x.Status = b.Status
+	x.CreatedAt = b.CreatedAt
 	return m0
 }
 
@@ -638,7 +843,7 @@ type EntitlementRecord struct {
 
 func (x *EntitlementRecord) Reset() {
 	*x = EntitlementRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[4]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -650,7 +855,7 @@ func (x *EntitlementRecord) String() string {
 func (*EntitlementRecord) ProtoMessage() {}
 
 func (x *EntitlementRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[4]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -853,7 +1058,7 @@ type GrantRecord struct {
 
 func (x *GrantRecord) Reset() {
 	*x = GrantRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[5]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -865,7 +1070,7 @@ func (x *GrantRecord) String() string {
 func (*GrantRecord) ProtoMessage() {}
 
 func (x *GrantRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[5]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1062,7 +1267,7 @@ type AssetRecord struct {
 
 func (x *AssetRecord) Reset() {
 	*x = AssetRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[6]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1074,7 +1279,7 @@ func (x *AssetRecord) String() string {
 func (*AssetRecord) ProtoMessage() {}
 
 func (x *AssetRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[6]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1192,7 +1397,7 @@ type SyncRunRecord struct {
 
 func (x *SyncRunRecord) Reset() {
 	*x = SyncRunRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[7]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1204,7 +1409,7 @@ func (x *SyncRunRecord) String() string {
 func (*SyncRunRecord) ProtoMessage() {}
 
 func (x *SyncRunRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[7]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1390,7 +1595,7 @@ type SyncStatsRecord struct {
 
 func (x *SyncStatsRecord) Reset() {
 	*x = SyncStatsRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[8]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1402,7 +1607,7 @@ func (x *SyncStatsRecord) String() string {
 func (*SyncStatsRecord) ProtoMessage() {}
 
 func (x *SyncStatsRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[8]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1629,7 +1834,7 @@ type CallStat struct {
 
 func (x *CallStat) Reset() {
 	*x = CallStat{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[9]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1641,7 +1846,7 @@ func (x *CallStat) String() string {
 func (*CallStat) ProtoMessage() {}
 
 func (x *CallStat) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[9]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1740,7 +1945,7 @@ type SessionRecord struct {
 
 func (x *SessionRecord) Reset() {
 	*x = SessionRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1752,7 +1957,7 @@ func (x *SessionRecord) String() string {
 func (*SessionRecord) ProtoMessage() {}
 
 func (x *SessionRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1821,7 +2026,15 @@ var File_c1_storage_v3_records_proto protoreflect.FileDescriptor
 
 const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\n" +
-	"\x1bc1/storage/v3/records.proto\x12\rc1.storage.v3\x1a\x1bc1/storage/v3/options.proto\x1a\x18c1/storage/v3/refs.proto\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x86\x01\n" +
+	"\x1bc1/storage/v3/records.proto\x12\rc1.storage.v3\x1a\x1bc1/storage/v3/options.proto\x1a\x18c1/storage/v3/refs.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf8\x01\n" +
+	"\fStatusRecord\x12B\n" +
+	"\x06status\x18\x01 \x01(\x0e2*.c1.storage.v3.StatusRecord.ResourceStatusR\x06status\x12\x18\n" +
+	"\adetails\x18\x02 \x01(\tR\adetails\"\x89\x01\n" +
+	"\x0eResourceStatus\x12\x1f\n" +
+	"\x1bRESOURCE_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17RESOURCE_STATUS_ENABLED\x10\x01\x12\x1c\n" +
+	"\x18RESOURCE_STATUS_DISABLED\x10\x02\x12\x1b\n" +
+	"\x17RESOURCE_STATUS_DELETED\x10\x03\"\x86\x01\n" +
 	"\x15GrantExpandableRecord\x12'\n" +
 	"\x0fentitlement_ids\x18\x01 \x03(\tR\x0eentitlementIds\x12\x18\n" +
 	"\ashallow\x18\x02 \x01(\bR\ashallow\x12*\n" +
@@ -1841,7 +2054,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\rdiscovered_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12 \n" +
 	"\vdescription\x18\a \x01(\tR\vdescription\x12-\n" +
 	"\x12sourced_externally\x18\b \x01(\bR\x11sourcedExternally:!\x82\xf9+\x1d\n" +
-	"\x0eresource_types\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xbc\x03\n" +
+	"\x0eresource_types\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xdf\x04\n" +
 	"\x0eResourceRecord\x12(\n" +
 	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
@@ -1851,7 +2064,12 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x06parent\x18\x06 \x01(\v2\x1a.c1.storage.v3.ResourceRefB.\x8a\xf9+*\n" +
 	"\tby_parent\x1a\x10resource_type_id\x1a\vresource_idR\x06parent\x126\n" +
 	"\vannotations\x18\a \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12?\n" +
-	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:.\x82\xf9+*\n" +
+	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x121\n" +
+	"\aprofile\x18\t \x01(\v2\x17.google.protobuf.StructR\aprofile\x123\n" +
+	"\x06status\x18\n" +
+	" \x01(\v2\x1b.c1.storage.v3.StatusRecordR\x06status\x129\n" +
+	"\n" +
+	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt:.\x82\xf9+*\n" +
 	"\tresources\x12\x10resource_type_id\x12\vresource_idJ\x04\b\x01\x10\x02R\async_id\"\xfe\x03\n" +
 	"\x11EntitlementRecord\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +
@@ -1957,68 +2175,75 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x19SYNC_TYPE_PARTIAL_UPSERTS\x10\x04\x12\x1f\n" +
 	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
-var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_c1_storage_v3_records_proto_goTypes = []any{
-	(SyncType)(0),                 // 0: c1.storage.v3.SyncType
-	(*GrantExpandableRecord)(nil), // 1: c1.storage.v3.GrantExpandableRecord
-	(*GrantSourceRecord)(nil),     // 2: c1.storage.v3.GrantSourceRecord
-	(*ResourceTypeRecord)(nil),    // 3: c1.storage.v3.ResourceTypeRecord
-	(*ResourceRecord)(nil),        // 4: c1.storage.v3.ResourceRecord
-	(*EntitlementRecord)(nil),     // 5: c1.storage.v3.EntitlementRecord
-	(*GrantRecord)(nil),           // 6: c1.storage.v3.GrantRecord
-	(*AssetRecord)(nil),           // 7: c1.storage.v3.AssetRecord
-	(*SyncRunRecord)(nil),         // 8: c1.storage.v3.SyncRunRecord
-	(*SyncStatsRecord)(nil),       // 9: c1.storage.v3.SyncStatsRecord
-	(*CallStat)(nil),              // 10: c1.storage.v3.CallStat
-	(*SessionRecord)(nil),         // 11: c1.storage.v3.SessionRecord
-	nil,                           // 12: c1.storage.v3.GrantRecord.SourcesEntry
-	nil,                           // 13: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	nil,                           // 14: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	nil,                           // 15: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	nil,                           // 16: c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
-	nil,                           // 17: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
-	nil,                           // 18: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
-	(*anypb.Any)(nil),             // 19: google.protobuf.Any
-	(*timestamppb.Timestamp)(nil), // 20: google.protobuf.Timestamp
-	(*ResourceRef)(nil),           // 21: c1.storage.v3.ResourceRef
-	(*EntitlementRef)(nil),        // 22: c1.storage.v3.EntitlementRef
-	(*PrincipalRef)(nil),          // 23: c1.storage.v3.PrincipalRef
+	(SyncType)(0),                    // 0: c1.storage.v3.SyncType
+	(StatusRecord_ResourceStatus)(0), // 1: c1.storage.v3.StatusRecord.ResourceStatus
+	(*StatusRecord)(nil),             // 2: c1.storage.v3.StatusRecord
+	(*GrantExpandableRecord)(nil),    // 3: c1.storage.v3.GrantExpandableRecord
+	(*GrantSourceRecord)(nil),        // 4: c1.storage.v3.GrantSourceRecord
+	(*ResourceTypeRecord)(nil),       // 5: c1.storage.v3.ResourceTypeRecord
+	(*ResourceRecord)(nil),           // 6: c1.storage.v3.ResourceRecord
+	(*EntitlementRecord)(nil),        // 7: c1.storage.v3.EntitlementRecord
+	(*GrantRecord)(nil),              // 8: c1.storage.v3.GrantRecord
+	(*AssetRecord)(nil),              // 9: c1.storage.v3.AssetRecord
+	(*SyncRunRecord)(nil),            // 10: c1.storage.v3.SyncRunRecord
+	(*SyncStatsRecord)(nil),          // 11: c1.storage.v3.SyncStatsRecord
+	(*CallStat)(nil),                 // 12: c1.storage.v3.CallStat
+	(*SessionRecord)(nil),            // 13: c1.storage.v3.SessionRecord
+	nil,                              // 14: c1.storage.v3.GrantRecord.SourcesEntry
+	nil,                              // 15: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	nil,                              // 16: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	nil,                              // 17: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	nil,                              // 18: c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
+	nil,                              // 19: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
+	nil,                              // 20: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
+	(*anypb.Any)(nil),                // 21: google.protobuf.Any
+	(*timestamppb.Timestamp)(nil),    // 22: google.protobuf.Timestamp
+	(*ResourceRef)(nil),              // 23: c1.storage.v3.ResourceRef
+	(*structpb.Struct)(nil),          // 24: google.protobuf.Struct
+	(*EntitlementRef)(nil),           // 25: c1.storage.v3.EntitlementRef
+	(*PrincipalRef)(nil),             // 26: c1.storage.v3.PrincipalRef
 }
 var file_c1_storage_v3_records_proto_depIdxs = []int32{
-	19, // 0: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
-	20, // 1: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	21, // 2: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
-	19, // 3: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
-	20, // 4: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	21, // 5: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
-	19, // 6: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
-	20, // 7: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	22, // 8: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
-	23, // 9: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
-	20, // 10: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	1,  // 11: c1.storage.v3.GrantRecord.expansion:type_name -> c1.storage.v3.GrantExpandableRecord
-	19, // 12: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
-	12, // 13: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
-	20, // 14: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	0,  // 15: c1.storage.v3.SyncRunRecord.type:type_name -> c1.storage.v3.SyncType
-	20, // 16: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
-	20, // 17: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
-	13, // 18: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	14, // 19: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	15, // 20: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	16, // 21: c1.storage.v3.SyncStatsRecord.step_durations_ms:type_name -> c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
-	17, // 22: c1.storage.v3.SyncStatsRecord.connector_call_stats:type_name -> c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
-	18, // 23: c1.storage.v3.SyncStatsRecord.session_store_stats:type_name -> c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
-	20, // 24: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
-	2,  // 25: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
-	10, // 26: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry.value:type_name -> c1.storage.v3.CallStat
-	10, // 27: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry.value:type_name -> c1.storage.v3.CallStat
-	28, // [28:28] is the sub-list for method output_type
-	28, // [28:28] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	1,  // 0: c1.storage.v3.StatusRecord.status:type_name -> c1.storage.v3.StatusRecord.ResourceStatus
+	21, // 1: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
+	22, // 2: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	23, // 3: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
+	21, // 4: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
+	22, // 5: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	24, // 6: c1.storage.v3.ResourceRecord.profile:type_name -> google.protobuf.Struct
+	2,  // 7: c1.storage.v3.ResourceRecord.status:type_name -> c1.storage.v3.StatusRecord
+	22, // 8: c1.storage.v3.ResourceRecord.created_at:type_name -> google.protobuf.Timestamp
+	23, // 9: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
+	21, // 10: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
+	22, // 11: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	25, // 12: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
+	26, // 13: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
+	22, // 14: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	3,  // 15: c1.storage.v3.GrantRecord.expansion:type_name -> c1.storage.v3.GrantExpandableRecord
+	21, // 16: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
+	14, // 17: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
+	22, // 18: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	0,  // 19: c1.storage.v3.SyncRunRecord.type:type_name -> c1.storage.v3.SyncType
+	22, // 20: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
+	22, // 21: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
+	15, // 22: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	16, // 23: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	17, // 24: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	18, // 25: c1.storage.v3.SyncStatsRecord.step_durations_ms:type_name -> c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
+	19, // 26: c1.storage.v3.SyncStatsRecord.connector_call_stats:type_name -> c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
+	20, // 27: c1.storage.v3.SyncStatsRecord.session_store_stats:type_name -> c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
+	22, // 28: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
+	4,  // 29: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
+	12, // 30: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry.value:type_name -> c1.storage.v3.CallStat
+	12, // 31: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry.value:type_name -> c1.storage.v3.CallStat
+	32, // [32:32] is the sub-list for method output_type
+	32, // [32:32] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_c1_storage_v3_records_proto_init() }
@@ -2033,8 +2258,8 @@ func file_c1_storage_v3_records_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_storage_v3_records_proto_rawDesc), len(file_c1_storage_v3_records_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   18,
+			NumEnums:      2,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
