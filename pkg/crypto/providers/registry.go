@@ -81,10 +81,14 @@ func GetEncryptorForConfig(ctx context.Context, conf *v2.EncryptionConfig) (Encr
 	return GetEncryptor(providerName)
 }
 
-// GetEncryptionProviderForConfig returns the encryption provider for the given config.
+// GetEncryptionProviderForConfig returns the full encryption provider for the given config.
 // If the config specifies a provider, we will fetch it directly by name and return an error if it's not found.
 // If the config contains a non-nil well-known configuration (like JWKPublicKeyConfig), we will return the provider for that by name.
 // If we can't find a provider, we return an ErrEncryptionProviderNotRegistered.
+//
+// Deprecated: use GetEncryptorForConfig for encryption. This legacy resolver
+// returns only providers that also implement decryption and key generation, so
+// it cannot resolve encryption-only configurations such as age recipients.
 func GetEncryptionProviderForConfig(ctx context.Context, conf *v2.EncryptionConfig) (EncryptionProvider, error) {
 	providerName := normalizeProviderName(conf.GetProvider())
 

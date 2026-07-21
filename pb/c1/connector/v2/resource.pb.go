@@ -2363,14 +2363,21 @@ type EncryptedData struct {
 	state    protoimpl.MessageState `protogen:"hybrid.v1"`
 	Provider string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
 	// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
-	KeyId          string   `protobuf:"bytes,2,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
-	Name           string   `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Description    string   `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
-	Schema         string   `protobuf:"bytes,5,opt,name=schema,proto3" json:"schema,omitempty"`                                       // optional
-	EncryptedBytes []byte   `protobuf:"bytes,6,opt,name=encrypted_bytes,json=encryptedBytes,proto3" json:"encrypted_bytes,omitempty"` // if 'schema' is set, this should be JSON.
-	KeyIds         []string `protobuf:"bytes,7,rep,name=key_ids,json=keyIds,proto3" json:"key_ids,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	KeyId       string `protobuf:"bytes,2,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	Name        string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Description string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	Schema      string `protobuf:"bytes,5,opt,name=schema,proto3" json:"schema,omitempty"` // optional
+	// Provider-specific ciphertext. Consumers must select decoding and
+	// decryption using provider; they must not infer the encoding from schema or
+	// whether these bytes are valid text. baton/jwk/v1 stores standard-base64
+	// text, while baton/age/v1 stores a standard binary age file. If schema is
+	// set, it describes the plaintext represented after decryption.
+	EncryptedBytes []byte `protobuf:"bytes,6,opt,name=encrypted_bytes,json=encryptedBytes,proto3" json:"encrypted_bytes,omitempty"`
+	// Provider-specific identifiers for correlating ciphertext with its
+	// recipient key material. These values are identifiers, not credentials.
+	KeyIds        []string `protobuf:"bytes,7,rep,name=key_ids,json=keyIds,proto3" json:"key_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *EncryptedData) Reset() {
@@ -2485,12 +2492,19 @@ type EncryptedData_builder struct {
 
 	Provider string
 	// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
-	KeyId          string
-	Name           string
-	Description    string
-	Schema         string
+	KeyId       string
+	Name        string
+	Description string
+	Schema      string
+	// Provider-specific ciphertext. Consumers must select decoding and
+	// decryption using provider; they must not infer the encoding from schema or
+	// whether these bytes are valid text. baton/jwk/v1 stores standard-base64
+	// text, while baton/age/v1 stores a standard binary age file. If schema is
+	// set, it describes the plaintext represented after decryption.
 	EncryptedBytes []byte
-	KeyIds         []string
+	// Provider-specific identifiers for correlating ciphertext with its
+	// recipient key material. These values are identifiers, not credentials.
+	KeyIds []string
 }
 
 func (b0 EncryptedData_builder) Build() *EncryptedData {
@@ -4827,7 +4841,10 @@ func (b0 EncryptionConfig_JWKPublicKeyConfig_builder) Build() *EncryptionConfig_
 // The corresponding private identity must never be included in this message.
 // Both X25519 (age1...) and hybrid post-quantum (age1pq1...) recipients are
 // supported by the configured age provider. EncryptedData.encrypted_bytes
-// contains a standard binary age file when this config is used.
+// contains a standard binary age file when this config is used. The provider
+// sets EncryptedData.key_ids to one lowercase hexadecimal SHA-256 digest of
+// the UTF-8 canonical recipient string. It leaves the deprecated
+// EncryptedData.key_id empty.
 type EncryptionConfig_AgeRecipientConfig struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	Recipient     string                 `protobuf:"bytes,1,opt,name=recipient,proto3" json:"recipient,omitempty"`

@@ -35,3 +35,29 @@ func TestGetEncryptorForConfigRejectsUnknownExplicitProvider(t *testing.T) {
 	_, err := GetEncryptorForConfig(context.Background(), config)
 	require.ErrorIs(t, err, ErrEncryptionProviderNotRegistered)
 }
+
+func TestConfigResolversRespectProviderCapabilities(t *testing.T) {
+	identity, err := filippoage.GenerateX25519Identity()
+	require.NoError(t, err)
+	ageConfig := v2.EncryptionConfig_builder{
+		AgeRecipientConfig: v2.EncryptionConfig_AgeRecipientConfig_builder{
+			Recipient: identity.Recipient().String(),
+		}.Build(),
+	}.Build()
+
+	_, err = GetEncryptorForConfig(context.Background(), ageConfig)
+	require.NoError(t, err)
+	_, err = GetEncryptionProviderForConfig(context.Background(), ageConfig)
+	require.ErrorIs(t, err, ErrEncryptionProviderNotRegistered)
+
+	jwkConfig := v2.EncryptionConfig_builder{
+		JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
+			PubKey: []byte(`{"kty":"OKP","crv":"Ed25519","x":"11qYAYLefZ1kphVG3Gd5FDp1D-7BqQ3wQp4N_8BfW8o"}`),
+		}.Build(),
+	}.Build()
+
+	_, err = GetEncryptorForConfig(context.Background(), jwkConfig)
+	require.NoError(t, err)
+	_, err = GetEncryptionProviderForConfig(context.Background(), jwkConfig)
+	require.NoError(t, err)
+}

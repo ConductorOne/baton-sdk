@@ -2471,12 +2471,19 @@ type EncryptedData_builder struct {
 
 	Provider string
 	// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
-	KeyId          string
-	Name           string
-	Description    string
-	Schema         string
+	KeyId       string
+	Name        string
+	Description string
+	Schema      string
+	// Provider-specific ciphertext. Consumers must select decoding and
+	// decryption using provider; they must not infer the encoding from schema or
+	// whether these bytes are valid text. baton/jwk/v1 stores standard-base64
+	// text, while baton/age/v1 stores a standard binary age file. If schema is
+	// set, it describes the plaintext represented after decryption.
 	EncryptedBytes []byte
-	KeyIds         []string
+	// Provider-specific identifiers for correlating ciphertext with its
+	// recipient key material. These values are identifiers, not credentials.
+	KeyIds []string
 }
 
 func (b0 EncryptedData_builder) Build() *EncryptedData {
@@ -4796,7 +4803,10 @@ func (b0 EncryptionConfig_JWKPublicKeyConfig_builder) Build() *EncryptionConfig_
 // The corresponding private identity must never be included in this message.
 // Both X25519 (age1...) and hybrid post-quantum (age1pq1...) recipients are
 // supported by the configured age provider. EncryptedData.encrypted_bytes
-// contains a standard binary age file when this config is used.
+// contains a standard binary age file when this config is used. The provider
+// sets EncryptedData.key_ids to one lowercase hexadecimal SHA-256 digest of
+// the UTF-8 canonical recipient string. It leaves the deprecated
+// EncryptedData.key_id empty.
 type EncryptionConfig_AgeRecipientConfig struct {
 	state                protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Recipient string                 `protobuf:"bytes,1,opt,name=recipient,proto3"`

@@ -51,6 +51,7 @@ func TestRecipientEncryptionProviderInteroperability(t *testing.T) {
 			require.Equal(t, input.GetDescription(), encrypted.GetDescription())
 			require.Equal(t, input.GetSchema(), encrypted.GetSchema())
 			require.NotEqual(t, plaintext, encrypted.GetEncryptedBytes())
+			require.Empty(t, encrypted.GetKeyId())
 
 			keyID := sha256.Sum256([]byte(recipientText))
 			require.Equal(t, []string{hex.EncodeToString(keyID[:])}, encrypted.GetKeyIds())
