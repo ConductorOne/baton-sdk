@@ -42,7 +42,9 @@ message ResourceType {
   }
   repeated Trait traits = 3 [(validate.rules).repeated = {
     unique: true
-    items: {enum: {defined_only: true}}
+    items: {
+      enum: {defined_only: true}
+    }
   }];
   repeated google.protobuf.Any annotations = 4;
   string description = 5 [(validate.rules).string = {
