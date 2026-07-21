@@ -347,6 +347,32 @@ func V2ResourceToV3(syncID string, r *v2.Resource) *v3.ResourceRecord {
 		Description:    r.GetDescription(),
 		Parent:         parent,
 		Annotations:    r.GetAnnotations(),
+		CreatedAt:      r.GetCreatedAt(),
+		Profile:        r.GetProfile(),
+		Status:         v2StatusToV3(r.GetStatus()),
+	}.Build()
+}
+
+// v2StatusToV3 maps v2.Status → the v3-owned StatusRecord mirror.
+// Enum values match by construction, so the cast is lossless.
+func v2StatusToV3(s *v2.Status) *v3.StatusRecord {
+	if s == nil {
+		return nil
+	}
+	return v3.StatusRecord_builder{
+		Status:  v3.StatusRecord_ResourceStatus(s.GetStatus()),
+		Details: s.GetDetails(),
+	}.Build()
+}
+
+// v3StatusToV2 reverses v2StatusToV3.
+func v3StatusToV2(s *v3.StatusRecord) *v2.Status {
+	if s == nil {
+		return nil
+	}
+	return v2.Status_builder{
+		Status:  v2.Status_ResourceStatus(s.GetStatus()),
+		Details: s.GetDetails(),
 	}.Build()
 }
 
@@ -372,6 +398,9 @@ func V3ResourceToV2(r *v3.ResourceRecord) *v2.Resource {
 		DisplayName:      r.GetDisplayName(),
 		Description:      r.GetDescription(),
 		Annotations:      r.GetAnnotations(),
+		Profile:          r.GetProfile(),
+		Status:           v3StatusToV2(r.GetStatus()),
+		CreatedAt:        r.GetCreatedAt(),
 	}.Build()
 }
 

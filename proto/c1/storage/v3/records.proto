@@ -14,6 +14,7 @@ package c1.storage.v3;
 import "c1/storage/v3/options.proto";
 import "c1/storage/v3/refs.proto";
 import "google/protobuf/any.proto";
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/storage/v3";
@@ -28,6 +29,21 @@ enum SyncType {
   SYNC_TYPE_RESOURCES_ONLY = 3;
   SYNC_TYPE_PARTIAL_UPSERTS = 4;
   SYNC_TYPE_PARTIAL_DELETIONS = 5;
+}
+
+// StatusRecord mirrors c1.connector.v2.Status. Field numbers and
+// enum values match v2 to keep translation cheap; changes to v2
+// require an explicit mirror update here (no automatic propagation).
+message StatusRecord {
+  enum ResourceStatus {
+    RESOURCE_STATUS_UNSPECIFIED = 0;
+    RESOURCE_STATUS_ENABLED = 1;
+    RESOURCE_STATUS_DISABLED = 2;
+    RESOURCE_STATUS_DELETED = 3;
+  }
+  ResourceStatus status = 1;
+  // Status details, such as "locked by admin" or "deleted by user X".
+  string details = 2;
 }
 
 // GrantExpandableRecord mirrors c1.connector.v2.GrantExpandable.
@@ -97,6 +113,13 @@ message ResourceRecord {
   }];
   repeated google.protobuf.Any annotations = 7;
   google.protobuf.Timestamp discovered_at = 8;
+
+  // Profile of the resource. This is a free-form JSON object that can be used to store any additional metadata about the resource.
+  google.protobuf.Struct profile = 9;
+  // Status of the resource.
+  StatusRecord status = 10;
+  // Creation time of the resource, not the record in the c1z file.
+  google.protobuf.Timestamp created_at = 11;
 
   // NOTE on v2.Resource traits: connector-level traits (UserTrait,
   // GroupTrait, AppTrait, RoleTrait, SecretTrait, etc.) are packed
