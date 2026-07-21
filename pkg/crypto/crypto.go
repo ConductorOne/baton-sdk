@@ -122,6 +122,10 @@ func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey
 			Ttl:      opts.GetToken().GetTtl(),
 			Audience: opts.GetToken().GetAudience(),
 		}.Build())
+	case v2.CredentialOptions_ClientSecret_case:
+		localOpts.SetClientSecret(v2.LocalCredentialOptions_ClientSecret_builder{
+			Ttl: opts.GetClientSecret().GetTtl(),
+		}.Build())
 	case v2.CredentialOptions_EncryptedPassword_case:
 	default:
 		return nil, status.Error(codes.InvalidArgument, "invalid credential options")

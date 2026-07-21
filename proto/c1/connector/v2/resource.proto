@@ -243,6 +243,13 @@ message CredentialOptions {
     // Optional intended audience for the token (e.g. an OAuth resource URL).
     string audience = 3;
   }
+  // ClientSecret requests an OAuth/OIDC client secret for an existing
+  // application or service-principal identity. A client secret is a durable
+  // credential used to obtain tokens; it is not itself a bearer token.
+  message ClientSecret {
+    // Optional lifetime. Unset means the platform default.
+    google.protobuf.Duration ttl = 1;
+  }
   oneof options {
     RandomPassword random_password = 100;
     NoPassword no_password = 101;
@@ -251,6 +258,7 @@ message CredentialOptions {
     ApiKey api_key = 104;
     Keypair keypair = 105;
     Token token = 106;
+    ClientSecret client_secret = 107;
   }
   bool force_change_at_next_login = 1;
 }
@@ -288,6 +296,10 @@ message LocalCredentialOptions {
     google.protobuf.Duration ttl = 2;
     string audience = 3;
   }
+  // Decrypted mirror of CredentialOptions.ClientSecret.
+  message ClientSecret {
+    google.protobuf.Duration ttl = 1;
+  }
   oneof options {
     RandomPassword random_password = 100;
     NoPassword no_password = 101;
@@ -296,6 +308,7 @@ message LocalCredentialOptions {
     ApiKey api_key = 104;
     Keypair keypair = 105;
     Token token = 106;
+    ClientSecret client_secret = 107;
   }
   bool force_change_at_next_login = 1;
 }

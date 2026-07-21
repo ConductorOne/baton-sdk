@@ -85,6 +85,8 @@ enum CapabilityDetailCredentialOption {
   CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR = 6;
   // Mirrors CredentialOptions.Token.
   CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN = 7;
+  // Mirrors CredentialOptions.ClientSecret.
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET = 8;
 }
 
 message CredentialDetails {

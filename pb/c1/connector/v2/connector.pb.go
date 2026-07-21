@@ -121,6 +121,8 @@ const (
 	CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR CapabilityDetailCredentialOption = 6
 	// Mirrors CredentialOptions.Token.
 	CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN CapabilityDetailCredentialOption = 7
+	// Mirrors CredentialOptions.ClientSecret.
+	CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET CapabilityDetailCredentialOption = 8
 )
 
 // Enum value maps for CapabilityDetailCredentialOption.
@@ -134,6 +136,7 @@ var (
 		5: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY",
 		6: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR",
 		7: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN",
+		8: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET",
 	}
 	CapabilityDetailCredentialOption_value = map[string]int32{
 		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED":        0,
@@ -144,6 +147,7 @@ var (
 		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY":            5,
 		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR":            6,
 		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN":              7,
+		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET":      8,
 	}
 )
 
@@ -2413,7 +2417,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x18CAPABILITY_TARGETED_SYNC\x10\v\x12\x1c\n" +
 	"\x18CAPABILITY_EVENT_FEED_V2\x10\f\x12)\n" +
 	"%CAPABILITY_SERVICE_MODE_TARGETED_SYNC\x10\r\x12\x1f\n" +
-	"\x1bCAPABILITY_CREDENTIAL_ISSUE\x10\x0e*\xbf\x03\n" +
+	"\x1bCAPABILITY_CREDENTIAL_ISSUE\x10\x0e*\xf6\x03\n" +
 	" CapabilityDetailCredentialOption\x123\n" +
 	"/CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED\x10\x00\x123\n" +
 	"/CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD\x10\x01\x127\n" +
@@ -2422,7 +2426,8 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"6CAPABILITY_DETAIL_CREDENTIAL_OPTION_ENCRYPTED_PASSWORD\x10\x04\x12/\n" +
 	"+CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY\x10\x05\x12/\n" +
 	"+CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR\x10\x06\x12-\n" +
-	")CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN\x10\a2\xeb\x02\n" +
+	")CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN\x10\a\x125\n" +
+	"1CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET\x10\b2\xeb\x02\n" +
 	"\x10ConnectorService\x12x\n" +
 	"\vGetMetadata\x123.c1.connector.v2.ConnectorServiceGetMetadataRequest\x1a4.c1.connector.v2.ConnectorServiceGetMetadataResponse\x12o\n" +
 	"\bValidate\x120.c1.connector.v2.ConnectorServiceValidateRequest\x1a1.c1.connector.v2.ConnectorServiceValidateResponse\x12l\n" +

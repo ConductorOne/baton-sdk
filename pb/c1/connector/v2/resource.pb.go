@@ -1527,6 +1527,7 @@ type CredentialOptions struct {
 	//	*CredentialOptions_ApiKey_
 	//	*CredentialOptions_Keypair_
 	//	*CredentialOptions_Token_
+	//	*CredentialOptions_ClientSecret_
 	Options                isCredentialOptions_Options `protobuf_oneof:"options"`
 	ForceChangeAtNextLogin bool                        `protobuf:"varint,1,opt,name=force_change_at_next_login,json=forceChangeAtNextLogin,proto3" json:"force_change_at_next_login,omitempty"`
 	unknownFields          protoimpl.UnknownFields
@@ -1628,6 +1629,15 @@ func (x *CredentialOptions) GetToken() *CredentialOptions_Token {
 	return nil
 }
 
+func (x *CredentialOptions) GetClientSecret() *CredentialOptions_ClientSecret {
+	if x != nil {
+		if x, ok := x.Options.(*CredentialOptions_ClientSecret_); ok {
+			return x.ClientSecret
+		}
+	}
+	return nil
+}
+
 func (x *CredentialOptions) GetForceChangeAtNextLogin() bool {
 	if x != nil {
 		return x.ForceChangeAtNextLogin
@@ -1689,6 +1699,14 @@ func (x *CredentialOptions) SetToken(v *CredentialOptions_Token) {
 		return
 	}
 	x.Options = &CredentialOptions_Token_{v}
+}
+
+func (x *CredentialOptions) SetClientSecret(v *CredentialOptions_ClientSecret) {
+	if v == nil {
+		x.Options = nil
+		return
+	}
+	x.Options = &CredentialOptions_ClientSecret_{v}
 }
 
 func (x *CredentialOptions) SetForceChangeAtNextLogin(v bool) {
@@ -1758,6 +1776,14 @@ func (x *CredentialOptions) HasToken() bool {
 	return ok
 }
 
+func (x *CredentialOptions) HasClientSecret() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Options.(*CredentialOptions_ClientSecret_)
+	return ok
+}
+
 func (x *CredentialOptions) ClearOptions() {
 	x.Options = nil
 }
@@ -1804,6 +1830,12 @@ func (x *CredentialOptions) ClearToken() {
 	}
 }
 
+func (x *CredentialOptions) ClearClientSecret() {
+	if _, ok := x.Options.(*CredentialOptions_ClientSecret_); ok {
+		x.Options = nil
+	}
+}
+
 const CredentialOptions_Options_not_set_case case_CredentialOptions_Options = 0
 const CredentialOptions_RandomPassword_case case_CredentialOptions_Options = 100
 const CredentialOptions_NoPassword_case case_CredentialOptions_Options = 101
@@ -1812,6 +1844,7 @@ const CredentialOptions_EncryptedPassword_case case_CredentialOptions_Options = 
 const CredentialOptions_ApiKey_case case_CredentialOptions_Options = 104
 const CredentialOptions_Keypair_case case_CredentialOptions_Options = 105
 const CredentialOptions_Token_case case_CredentialOptions_Options = 106
+const CredentialOptions_ClientSecret_case case_CredentialOptions_Options = 107
 
 func (x *CredentialOptions) WhichOptions() case_CredentialOptions_Options {
 	if x == nil {
@@ -1832,6 +1865,8 @@ func (x *CredentialOptions) WhichOptions() case_CredentialOptions_Options {
 		return CredentialOptions_Keypair_case
 	case *CredentialOptions_Token_:
 		return CredentialOptions_Token_case
+	case *CredentialOptions_ClientSecret_:
+		return CredentialOptions_ClientSecret_case
 	default:
 		return CredentialOptions_Options_not_set_case
 	}
@@ -1848,6 +1883,7 @@ type CredentialOptions_builder struct {
 	ApiKey            *CredentialOptions_ApiKey
 	Keypair           *CredentialOptions_Keypair
 	Token             *CredentialOptions_Token
+	ClientSecret      *CredentialOptions_ClientSecret
 	// -- end of Options
 	ForceChangeAtNextLogin bool
 }
@@ -1876,6 +1912,9 @@ func (b0 CredentialOptions_builder) Build() *CredentialOptions {
 	}
 	if b.Token != nil {
 		x.Options = &CredentialOptions_Token_{b.Token}
+	}
+	if b.ClientSecret != nil {
+		x.Options = &CredentialOptions_ClientSecret_{b.ClientSecret}
 	}
 	x.ForceChangeAtNextLogin = b.ForceChangeAtNextLogin
 	return m0
@@ -1923,6 +1962,10 @@ type CredentialOptions_Token_ struct {
 	Token *CredentialOptions_Token `protobuf:"bytes,106,opt,name=token,proto3,oneof"`
 }
 
+type CredentialOptions_ClientSecret_ struct {
+	ClientSecret *CredentialOptions_ClientSecret `protobuf:"bytes,107,opt,name=client_secret,json=clientSecret,proto3,oneof"`
+}
+
 func (*CredentialOptions_RandomPassword_) isCredentialOptions_Options() {}
 
 func (*CredentialOptions_NoPassword_) isCredentialOptions_Options() {}
@@ -1937,6 +1980,8 @@ func (*CredentialOptions_Keypair_) isCredentialOptions_Options() {}
 
 func (*CredentialOptions_Token_) isCredentialOptions_Options() {}
 
+func (*CredentialOptions_ClientSecret_) isCredentialOptions_Options() {}
+
 // Do not use this in any RPC or any message that is in an RPC.
 type LocalCredentialOptions struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
@@ -1949,6 +1994,7 @@ type LocalCredentialOptions struct {
 	//	*LocalCredentialOptions_ApiKey_
 	//	*LocalCredentialOptions_Keypair_
 	//	*LocalCredentialOptions_Token_
+	//	*LocalCredentialOptions_ClientSecret_
 	Options                isLocalCredentialOptions_Options `protobuf_oneof:"options"`
 	ForceChangeAtNextLogin bool                             `protobuf:"varint,1,opt,name=force_change_at_next_login,json=forceChangeAtNextLogin,proto3" json:"force_change_at_next_login,omitempty"`
 	unknownFields          protoimpl.UnknownFields
@@ -2050,6 +2096,15 @@ func (x *LocalCredentialOptions) GetToken() *LocalCredentialOptions_Token {
 	return nil
 }
 
+func (x *LocalCredentialOptions) GetClientSecret() *LocalCredentialOptions_ClientSecret {
+	if x != nil {
+		if x, ok := x.Options.(*LocalCredentialOptions_ClientSecret_); ok {
+			return x.ClientSecret
+		}
+	}
+	return nil
+}
+
 func (x *LocalCredentialOptions) GetForceChangeAtNextLogin() bool {
 	if x != nil {
 		return x.ForceChangeAtNextLogin
@@ -2111,6 +2166,14 @@ func (x *LocalCredentialOptions) SetToken(v *LocalCredentialOptions_Token) {
 		return
 	}
 	x.Options = &LocalCredentialOptions_Token_{v}
+}
+
+func (x *LocalCredentialOptions) SetClientSecret(v *LocalCredentialOptions_ClientSecret) {
+	if v == nil {
+		x.Options = nil
+		return
+	}
+	x.Options = &LocalCredentialOptions_ClientSecret_{v}
 }
 
 func (x *LocalCredentialOptions) SetForceChangeAtNextLogin(v bool) {
@@ -2180,6 +2243,14 @@ func (x *LocalCredentialOptions) HasToken() bool {
 	return ok
 }
 
+func (x *LocalCredentialOptions) HasClientSecret() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Options.(*LocalCredentialOptions_ClientSecret_)
+	return ok
+}
+
 func (x *LocalCredentialOptions) ClearOptions() {
 	x.Options = nil
 }
@@ -2226,6 +2297,12 @@ func (x *LocalCredentialOptions) ClearToken() {
 	}
 }
 
+func (x *LocalCredentialOptions) ClearClientSecret() {
+	if _, ok := x.Options.(*LocalCredentialOptions_ClientSecret_); ok {
+		x.Options = nil
+	}
+}
+
 const LocalCredentialOptions_Options_not_set_case case_LocalCredentialOptions_Options = 0
 const LocalCredentialOptions_RandomPassword_case case_LocalCredentialOptions_Options = 100
 const LocalCredentialOptions_NoPassword_case case_LocalCredentialOptions_Options = 101
@@ -2234,6 +2311,7 @@ const LocalCredentialOptions_PlaintextPassword_case case_LocalCredentialOptions_
 const LocalCredentialOptions_ApiKey_case case_LocalCredentialOptions_Options = 104
 const LocalCredentialOptions_Keypair_case case_LocalCredentialOptions_Options = 105
 const LocalCredentialOptions_Token_case case_LocalCredentialOptions_Options = 106
+const LocalCredentialOptions_ClientSecret_case case_LocalCredentialOptions_Options = 107
 
 func (x *LocalCredentialOptions) WhichOptions() case_LocalCredentialOptions_Options {
 	if x == nil {
@@ -2254,6 +2332,8 @@ func (x *LocalCredentialOptions) WhichOptions() case_LocalCredentialOptions_Opti
 		return LocalCredentialOptions_Keypair_case
 	case *LocalCredentialOptions_Token_:
 		return LocalCredentialOptions_Token_case
+	case *LocalCredentialOptions_ClientSecret_:
+		return LocalCredentialOptions_ClientSecret_case
 	default:
 		return LocalCredentialOptions_Options_not_set_case
 	}
@@ -2270,6 +2350,7 @@ type LocalCredentialOptions_builder struct {
 	ApiKey            *LocalCredentialOptions_ApiKey
 	Keypair           *LocalCredentialOptions_Keypair
 	Token             *LocalCredentialOptions_Token
+	ClientSecret      *LocalCredentialOptions_ClientSecret
 	// -- end of Options
 	ForceChangeAtNextLogin bool
 }
@@ -2298,6 +2379,9 @@ func (b0 LocalCredentialOptions_builder) Build() *LocalCredentialOptions {
 	}
 	if b.Token != nil {
 		x.Options = &LocalCredentialOptions_Token_{b.Token}
+	}
+	if b.ClientSecret != nil {
+		x.Options = &LocalCredentialOptions_ClientSecret_{b.ClientSecret}
 	}
 	x.ForceChangeAtNextLogin = b.ForceChangeAtNextLogin
 	return m0
@@ -2345,6 +2429,10 @@ type LocalCredentialOptions_Token_ struct {
 	Token *LocalCredentialOptions_Token `protobuf:"bytes,106,opt,name=token,proto3,oneof"`
 }
 
+type LocalCredentialOptions_ClientSecret_ struct {
+	ClientSecret *LocalCredentialOptions_ClientSecret `protobuf:"bytes,107,opt,name=client_secret,json=clientSecret,proto3,oneof"`
+}
+
 func (*LocalCredentialOptions_RandomPassword_) isLocalCredentialOptions_Options() {}
 
 func (*LocalCredentialOptions_NoPassword_) isLocalCredentialOptions_Options() {}
@@ -2358,6 +2446,8 @@ func (*LocalCredentialOptions_ApiKey_) isLocalCredentialOptions_Options() {}
 func (*LocalCredentialOptions_Keypair_) isLocalCredentialOptions_Options() {}
 
 func (*LocalCredentialOptions_Token_) isLocalCredentialOptions_Options() {}
+
+func (*LocalCredentialOptions_ClientSecret_) isLocalCredentialOptions_Options() {}
 
 type PasswordConstraint struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
@@ -4940,6 +5030,79 @@ func (b0 CredentialOptions_Token_builder) Build() *CredentialOptions_Token {
 	return m0
 }
 
+// ClientSecret requests an OAuth/OIDC client secret for an existing
+// application or service-principal identity. A client secret is a durable
+// credential used to obtain tokens; it is not itself a bearer token.
+type CredentialOptions_ClientSecret struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Optional lifetime. Unset means the platform default.
+	Ttl           *durationpb.Duration `protobuf:"bytes,1,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CredentialOptions_ClientSecret) Reset() {
+	*x = CredentialOptions_ClientSecret{}
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CredentialOptions_ClientSecret) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CredentialOptions_ClientSecret) ProtoMessage() {}
+
+func (x *CredentialOptions_ClientSecret) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CredentialOptions_ClientSecret) GetTtl() *durationpb.Duration {
+	if x != nil {
+		return x.Ttl
+	}
+	return nil
+}
+
+func (x *CredentialOptions_ClientSecret) SetTtl(v *durationpb.Duration) {
+	x.Ttl = v
+}
+
+func (x *CredentialOptions_ClientSecret) HasTtl() bool {
+	if x == nil {
+		return false
+	}
+	return x.Ttl != nil
+}
+
+func (x *CredentialOptions_ClientSecret) ClearTtl() {
+	x.Ttl = nil
+}
+
+type CredentialOptions_ClientSecret_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Optional lifetime. Unset means the platform default.
+	Ttl *durationpb.Duration
+}
+
+func (b0 CredentialOptions_ClientSecret_builder) Build() *CredentialOptions_ClientSecret {
+	m0 := &CredentialOptions_ClientSecret{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Ttl = b.Ttl
+	return m0
+}
+
 type LocalCredentialOptions_RandomPassword struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	Length        int64                  `protobuf:"varint,1,opt,name=length,proto3" json:"length,omitempty"`
@@ -4950,7 +5113,7 @@ type LocalCredentialOptions_RandomPassword struct {
 
 func (x *LocalCredentialOptions_RandomPassword) Reset() {
 	*x = LocalCredentialOptions_RandomPassword{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[38]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4962,7 +5125,7 @@ func (x *LocalCredentialOptions_RandomPassword) String() string {
 func (*LocalCredentialOptions_RandomPassword) ProtoMessage() {}
 
 func (x *LocalCredentialOptions_RandomPassword) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[38]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5019,7 +5182,7 @@ type LocalCredentialOptions_NoPassword struct {
 
 func (x *LocalCredentialOptions_NoPassword) Reset() {
 	*x = LocalCredentialOptions_NoPassword{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[39]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5031,7 +5194,7 @@ func (x *LocalCredentialOptions_NoPassword) String() string {
 func (*LocalCredentialOptions_NoPassword) ProtoMessage() {}
 
 func (x *LocalCredentialOptions_NoPassword) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[39]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5063,7 +5226,7 @@ type LocalCredentialOptions_SSO struct {
 
 func (x *LocalCredentialOptions_SSO) Reset() {
 	*x = LocalCredentialOptions_SSO{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[40]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5075,7 +5238,7 @@ func (x *LocalCredentialOptions_SSO) String() string {
 func (*LocalCredentialOptions_SSO) ProtoMessage() {}
 
 func (x *LocalCredentialOptions_SSO) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[40]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5120,7 +5283,7 @@ type LocalCredentialOptions_PlaintextPassword struct {
 
 func (x *LocalCredentialOptions_PlaintextPassword) Reset() {
 	*x = LocalCredentialOptions_PlaintextPassword{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[41]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5132,7 +5295,7 @@ func (x *LocalCredentialOptions_PlaintextPassword) String() string {
 func (*LocalCredentialOptions_PlaintextPassword) ProtoMessage() {}
 
 func (x *LocalCredentialOptions_PlaintextPassword) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[41]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5180,7 +5343,7 @@ type LocalCredentialOptions_ApiKey struct {
 
 func (x *LocalCredentialOptions_ApiKey) Reset() {
 	*x = LocalCredentialOptions_ApiKey{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[42]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5192,7 +5355,7 @@ func (x *LocalCredentialOptions_ApiKey) String() string {
 func (*LocalCredentialOptions_ApiKey) ProtoMessage() {}
 
 func (x *LocalCredentialOptions_ApiKey) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[42]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5263,7 +5426,7 @@ type LocalCredentialOptions_Keypair struct {
 
 func (x *LocalCredentialOptions_Keypair) Reset() {
 	*x = LocalCredentialOptions_Keypair{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[43]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5275,7 +5438,7 @@ func (x *LocalCredentialOptions_Keypair) String() string {
 func (*LocalCredentialOptions_Keypair) ProtoMessage() {}
 
 func (x *LocalCredentialOptions_Keypair) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[43]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5336,7 +5499,7 @@ type LocalCredentialOptions_Token struct {
 
 func (x *LocalCredentialOptions_Token) Reset() {
 	*x = LocalCredentialOptions_Token{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[44]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5348,7 +5511,7 @@ func (x *LocalCredentialOptions_Token) String() string {
 func (*LocalCredentialOptions_Token) ProtoMessage() {}
 
 func (x *LocalCredentialOptions_Token) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[44]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5421,6 +5584,75 @@ func (b0 LocalCredentialOptions_Token_builder) Build() *LocalCredentialOptions_T
 	return m0
 }
 
+// Decrypted mirror of CredentialOptions.ClientSecret.
+type LocalCredentialOptions_ClientSecret struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Ttl           *durationpb.Duration   `protobuf:"bytes,1,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LocalCredentialOptions_ClientSecret) Reset() {
+	*x = LocalCredentialOptions_ClientSecret{}
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocalCredentialOptions_ClientSecret) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocalCredentialOptions_ClientSecret) ProtoMessage() {}
+
+func (x *LocalCredentialOptions_ClientSecret) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *LocalCredentialOptions_ClientSecret) GetTtl() *durationpb.Duration {
+	if x != nil {
+		return x.Ttl
+	}
+	return nil
+}
+
+func (x *LocalCredentialOptions_ClientSecret) SetTtl(v *durationpb.Duration) {
+	x.Ttl = v
+}
+
+func (x *LocalCredentialOptions_ClientSecret) HasTtl() bool {
+	if x == nil {
+		return false
+	}
+	return x.Ttl != nil
+}
+
+func (x *LocalCredentialOptions_ClientSecret) ClearTtl() {
+	x.Ttl = nil
+}
+
+type LocalCredentialOptions_ClientSecret_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Ttl *durationpb.Duration
+}
+
+func (b0 LocalCredentialOptions_ClientSecret_builder) Build() *LocalCredentialOptions_ClientSecret {
+	m0 := &LocalCredentialOptions_ClientSecret{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Ttl = b.Ttl
+	return m0
+}
+
 type CreateAccountResponse_SuccessResult struct {
 	state                 protoimpl.MessageState `protogen:"hybrid.v1"`
 	Resource              *Resource              `protobuf:"bytes,1,opt,name=resource,proto3" json:"resource,omitempty"`
@@ -5441,7 +5673,7 @@ type CreateAccountResponse_SuccessResult struct {
 
 func (x *CreateAccountResponse_SuccessResult) Reset() {
 	*x = CreateAccountResponse_SuccessResult{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[45]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5453,7 +5685,7 @@ func (x *CreateAccountResponse_SuccessResult) String() string {
 func (*CreateAccountResponse_SuccessResult) ProtoMessage() {}
 
 func (x *CreateAccountResponse_SuccessResult) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[45]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5557,7 +5789,7 @@ type CreateAccountResponse_ActionRequiredResult struct {
 
 func (x *CreateAccountResponse_ActionRequiredResult) Reset() {
 	*x = CreateAccountResponse_ActionRequiredResult{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[46]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5569,7 +5801,7 @@ func (x *CreateAccountResponse_ActionRequiredResult) String() string {
 func (*CreateAccountResponse_ActionRequiredResult) ProtoMessage() {}
 
 func (x *CreateAccountResponse_ActionRequiredResult) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[46]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5652,7 +5884,7 @@ type CreateAccountResponse_AlreadyExistsResult struct {
 
 func (x *CreateAccountResponse_AlreadyExistsResult) Reset() {
 	*x = CreateAccountResponse_AlreadyExistsResult{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[47]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5664,7 +5896,7 @@ func (x *CreateAccountResponse_AlreadyExistsResult) String() string {
 func (*CreateAccountResponse_AlreadyExistsResult) ProtoMessage() {}
 
 func (x *CreateAccountResponse_AlreadyExistsResult) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[47]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5734,7 +5966,7 @@ type CreateAccountResponse_InProgressResult struct {
 
 func (x *CreateAccountResponse_InProgressResult) Reset() {
 	*x = CreateAccountResponse_InProgressResult{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[48]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5746,7 +5978,7 @@ func (x *CreateAccountResponse_InProgressResult) String() string {
 func (*CreateAccountResponse_InProgressResult) ProtoMessage() {}
 
 func (x *CreateAccountResponse_InProgressResult) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[48]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5815,7 +6047,7 @@ type EncryptionConfig_JWKPublicKeyConfig struct {
 
 func (x *EncryptionConfig_JWKPublicKeyConfig) Reset() {
 	*x = EncryptionConfig_JWKPublicKeyConfig{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[49]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5827,7 +6059,7 @@ func (x *EncryptionConfig_JWKPublicKeyConfig) String() string {
 func (*EncryptionConfig_JWKPublicKeyConfig) ProtoMessage() {}
 
 func (x *EncryptionConfig_JWKPublicKeyConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[49]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5883,7 +6115,7 @@ type EncryptionConfig_AgeRecipientConfig struct {
 
 func (x *EncryptionConfig_AgeRecipientConfig) Reset() {
 	*x = EncryptionConfig_AgeRecipientConfig{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[50]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5895,7 +6127,7 @@ func (x *EncryptionConfig_AgeRecipientConfig) String() string {
 func (*EncryptionConfig_AgeRecipientConfig) ProtoMessage() {}
 
 func (x *EncryptionConfig_AgeRecipientConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[50]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6020,7 +6252,8 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x05Email\x12!\n" +
 	"\aaddress\x18\x01 \x01(\tB\a\xfaB\x04r\x02`\x01R\aaddress\x12\x1d\n" +
 	"\n" +
-	"is_primary\x18\x02 \x01(\bR\tisPrimary\"\x97\t\n" +
+	"is_primary\x18\x02 \x01(\bR\tisPrimary\"\xac\n" +
+	"\n" +
 	"\x11CredentialOptions\x12\\\n" +
 	"\x0frandom_password\x18d \x01(\v21.c1.connector.v2.CredentialOptions.RandomPasswordH\x00R\x0erandomPassword\x12P\n" +
 	"\vno_password\x18e \x01(\v2-.c1.connector.v2.CredentialOptions.NoPasswordH\x00R\n" +
@@ -6029,7 +6262,8 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x12encrypted_password\x18g \x01(\v24.c1.connector.v2.CredentialOptions.EncryptedPasswordH\x00R\x11encryptedPassword\x12D\n" +
 	"\aapi_key\x18h \x01(\v2).c1.connector.v2.CredentialOptions.ApiKeyH\x00R\x06apiKey\x12F\n" +
 	"\akeypair\x18i \x01(\v2*.c1.connector.v2.CredentialOptions.KeypairH\x00R\akeypair\x12@\n" +
-	"\x05token\x18j \x01(\v2(.c1.connector.v2.CredentialOptions.TokenH\x00R\x05token\x12:\n" +
+	"\x05token\x18j \x01(\v2(.c1.connector.v2.CredentialOptions.TokenH\x00R\x05token\x12V\n" +
+	"\rclient_secret\x18k \x01(\v2/.c1.connector.v2.CredentialOptions.ClientSecretH\x00R\fclientSecret\x12:\n" +
 	"\x1aforce_change_at_next_login\x18\x01 \x01(\bR\x16forceChangeAtNextLogin\x1az\n" +
 	"\x0eRandomPassword\x12!\n" +
 	"\x06length\x18\x01 \x01(\x03B\t\xfaB\x06\"\x04\x18@(\bR\x06length\x12E\n" +
@@ -6049,8 +6283,11 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x05Token\x12\x16\n" +
 	"\x06scopes\x18\x01 \x03(\tR\x06scopes\x12+\n" +
 	"\x03ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\x12\x1a\n" +
-	"\baudience\x18\x03 \x01(\tR\baudienceB\t\n" +
-	"\aoptions\"\x93\t\n" +
+	"\baudience\x18\x03 \x01(\tR\baudience\x1a;\n" +
+	"\fClientSecret\x12+\n" +
+	"\x03ttl\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x03ttlB\t\n" +
+	"\aoptions\"\xad\n" +
+	"\n" +
 	"\x16LocalCredentialOptions\x12a\n" +
 	"\x0frandom_password\x18d \x01(\v26.c1.connector.v2.LocalCredentialOptions.RandomPasswordH\x00R\x0erandomPassword\x12U\n" +
 	"\vno_password\x18e \x01(\v22.c1.connector.v2.LocalCredentialOptions.NoPasswordH\x00R\n" +
@@ -6059,7 +6296,8 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x12plaintext_password\x18g \x01(\v29.c1.connector.v2.LocalCredentialOptions.PlaintextPasswordH\x00R\x11plaintextPassword\x12I\n" +
 	"\aapi_key\x18h \x01(\v2..c1.connector.v2.LocalCredentialOptions.ApiKeyH\x00R\x06apiKey\x12K\n" +
 	"\akeypair\x18i \x01(\v2/.c1.connector.v2.LocalCredentialOptions.KeypairH\x00R\akeypair\x12E\n" +
-	"\x05token\x18j \x01(\v2-.c1.connector.v2.LocalCredentialOptions.TokenH\x00R\x05token\x12:\n" +
+	"\x05token\x18j \x01(\v2-.c1.connector.v2.LocalCredentialOptions.TokenH\x00R\x05token\x12[\n" +
+	"\rclient_secret\x18k \x01(\v24.c1.connector.v2.LocalCredentialOptions.ClientSecretH\x00R\fclientSecret\x12:\n" +
 	"\x1aforce_change_at_next_login\x18\x01 \x01(\bR\x16forceChangeAtNextLogin\x1az\n" +
 	"\x0eRandomPassword\x12!\n" +
 	"\x06length\x18\x01 \x01(\x03B\t\xfaB\x06\"\x04\x18@(\bR\x06length\x12E\n" +
@@ -6079,7 +6317,9 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x05Token\x12\x16\n" +
 	"\x06scopes\x18\x01 \x03(\tR\x06scopes\x12+\n" +
 	"\x03ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\x12\x1a\n" +
-	"\baudience\x18\x03 \x01(\tR\baudienceB\t\n" +
+	"\baudience\x18\x03 \x01(\tR\baudience\x1a;\n" +
+	"\fClientSecret\x12+\n" +
+	"\x03ttl\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x03ttlB\t\n" +
 	"\aoptions\"L\n" +
 	"\x12PasswordConstraint\x12\x19\n" +
 	"\bchar_set\x18\x01 \x01(\tR\acharSet\x12\x1b\n" +
@@ -6225,7 +6465,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\rCreateAccount\x12%.c1.connector.v2.CreateAccountRequest\x1a&.c1.connector.v2.CreateAccountResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_resource_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_c1_connector_v2_resource_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
+var file_c1_connector_v2_resource_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
 var file_c1_connector_v2_resource_proto_goTypes = []any{
 	(ResourceType_Trait)(0),                               // 0: c1.connector.v2.ResourceType.Trait
 	(Resource_CreationSource)(0),                          // 1: c1.connector.v2.Resource.CreationSource
@@ -6268,136 +6508,142 @@ var file_c1_connector_v2_resource_proto_goTypes = []any{
 	(*CredentialOptions_ApiKey)(nil),                      // 38: c1.connector.v2.CredentialOptions.ApiKey
 	(*CredentialOptions_Keypair)(nil),                     // 39: c1.connector.v2.CredentialOptions.Keypair
 	(*CredentialOptions_Token)(nil),                       // 40: c1.connector.v2.CredentialOptions.Token
-	(*LocalCredentialOptions_RandomPassword)(nil),         // 41: c1.connector.v2.LocalCredentialOptions.RandomPassword
-	(*LocalCredentialOptions_NoPassword)(nil),             // 42: c1.connector.v2.LocalCredentialOptions.NoPassword
-	(*LocalCredentialOptions_SSO)(nil),                    // 43: c1.connector.v2.LocalCredentialOptions.SSO
-	(*LocalCredentialOptions_PlaintextPassword)(nil),      // 44: c1.connector.v2.LocalCredentialOptions.PlaintextPassword
-	(*LocalCredentialOptions_ApiKey)(nil),                 // 45: c1.connector.v2.LocalCredentialOptions.ApiKey
-	(*LocalCredentialOptions_Keypair)(nil),                // 46: c1.connector.v2.LocalCredentialOptions.Keypair
-	(*LocalCredentialOptions_Token)(nil),                  // 47: c1.connector.v2.LocalCredentialOptions.Token
-	(*CreateAccountResponse_SuccessResult)(nil),           // 48: c1.connector.v2.CreateAccountResponse.SuccessResult
-	(*CreateAccountResponse_ActionRequiredResult)(nil),    // 49: c1.connector.v2.CreateAccountResponse.ActionRequiredResult
-	(*CreateAccountResponse_AlreadyExistsResult)(nil),     // 50: c1.connector.v2.CreateAccountResponse.AlreadyExistsResult
-	(*CreateAccountResponse_InProgressResult)(nil),        // 51: c1.connector.v2.CreateAccountResponse.InProgressResult
-	(*EncryptionConfig_JWKPublicKeyConfig)(nil),           // 52: c1.connector.v2.EncryptionConfig.JWKPublicKeyConfig
-	(*EncryptionConfig_AgeRecipientConfig)(nil),           // 53: c1.connector.v2.EncryptionConfig.AgeRecipientConfig
-	(*anypb.Any)(nil),                                     // 54: google.protobuf.Any
-	(*structpb.Struct)(nil),                               // 55: google.protobuf.Struct
-	(*AssetRef)(nil),                                      // 56: c1.connector.v2.AssetRef
-	(*timestamppb.Timestamp)(nil),                         // 57: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),                           // 58: google.protobuf.Duration
+	(*CredentialOptions_ClientSecret)(nil),                // 41: c1.connector.v2.CredentialOptions.ClientSecret
+	(*LocalCredentialOptions_RandomPassword)(nil),         // 42: c1.connector.v2.LocalCredentialOptions.RandomPassword
+	(*LocalCredentialOptions_NoPassword)(nil),             // 43: c1.connector.v2.LocalCredentialOptions.NoPassword
+	(*LocalCredentialOptions_SSO)(nil),                    // 44: c1.connector.v2.LocalCredentialOptions.SSO
+	(*LocalCredentialOptions_PlaintextPassword)(nil),      // 45: c1.connector.v2.LocalCredentialOptions.PlaintextPassword
+	(*LocalCredentialOptions_ApiKey)(nil),                 // 46: c1.connector.v2.LocalCredentialOptions.ApiKey
+	(*LocalCredentialOptions_Keypair)(nil),                // 47: c1.connector.v2.LocalCredentialOptions.Keypair
+	(*LocalCredentialOptions_Token)(nil),                  // 48: c1.connector.v2.LocalCredentialOptions.Token
+	(*LocalCredentialOptions_ClientSecret)(nil),           // 49: c1.connector.v2.LocalCredentialOptions.ClientSecret
+	(*CreateAccountResponse_SuccessResult)(nil),           // 50: c1.connector.v2.CreateAccountResponse.SuccessResult
+	(*CreateAccountResponse_ActionRequiredResult)(nil),    // 51: c1.connector.v2.CreateAccountResponse.ActionRequiredResult
+	(*CreateAccountResponse_AlreadyExistsResult)(nil),     // 52: c1.connector.v2.CreateAccountResponse.AlreadyExistsResult
+	(*CreateAccountResponse_InProgressResult)(nil),        // 53: c1.connector.v2.CreateAccountResponse.InProgressResult
+	(*EncryptionConfig_JWKPublicKeyConfig)(nil),           // 54: c1.connector.v2.EncryptionConfig.JWKPublicKeyConfig
+	(*EncryptionConfig_AgeRecipientConfig)(nil),           // 55: c1.connector.v2.EncryptionConfig.AgeRecipientConfig
+	(*anypb.Any)(nil),                                     // 56: google.protobuf.Any
+	(*structpb.Struct)(nil),                               // 57: google.protobuf.Struct
+	(*AssetRef)(nil),                                      // 58: c1.connector.v2.AssetRef
+	(*timestamppb.Timestamp)(nil),                         // 59: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),                           // 60: google.protobuf.Duration
 }
 var file_c1_connector_v2_resource_proto_depIdxs = []int32{
-	0,  // 0: c1.connector.v2.ResourceType.traits:type_name -> c1.connector.v2.ResourceType.Trait
-	54, // 1: c1.connector.v2.ResourceType.annotations:type_name -> google.protobuf.Any
-	26, // 2: c1.connector.v2.ResourceTypesServiceListResourceTypesRequest.parent:type_name -> c1.connector.v2.Resource
-	54, // 3: c1.connector.v2.ResourceTypesServiceListResourceTypesRequest.annotations:type_name -> google.protobuf.Any
-	3,  // 4: c1.connector.v2.ResourceTypesServiceListResourceTypesResponse.list:type_name -> c1.connector.v2.ResourceType
-	54, // 5: c1.connector.v2.ResourceTypesServiceListResourceTypesResponse.annotations:type_name -> google.protobuf.Any
-	26, // 6: c1.connector.v2.CreateResourceRequest.resource:type_name -> c1.connector.v2.Resource
-	26, // 7: c1.connector.v2.CreateResourceResponse.created:type_name -> c1.connector.v2.Resource
-	54, // 8: c1.connector.v2.CreateResourceResponse.annotations:type_name -> google.protobuf.Any
-	25, // 9: c1.connector.v2.DeleteResourceRequest.resource_id:type_name -> c1.connector.v2.ResourceId
-	25, // 10: c1.connector.v2.DeleteResourceRequest.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	54, // 11: c1.connector.v2.DeleteResourceResponse.annotations:type_name -> google.protobuf.Any
-	25, // 12: c1.connector.v2.DeleteResourceV2Request.resource_id:type_name -> c1.connector.v2.ResourceId
-	25, // 13: c1.connector.v2.DeleteResourceV2Request.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	54, // 14: c1.connector.v2.DeleteResourceV2Response.annotations:type_name -> google.protobuf.Any
-	25, // 15: c1.connector.v2.RotateCredentialRequest.resource_id:type_name -> c1.connector.v2.ResourceId
-	17, // 16: c1.connector.v2.RotateCredentialRequest.credential_options:type_name -> c1.connector.v2.CredentialOptions
-	24, // 17: c1.connector.v2.RotateCredentialRequest.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
-	22, // 18: c1.connector.v2.RotateCredentialResponse.encrypted_data:type_name -> c1.connector.v2.EncryptedData
-	25, // 19: c1.connector.v2.RotateCredentialResponse.resource_id:type_name -> c1.connector.v2.ResourceId
-	54, // 20: c1.connector.v2.RotateCredentialResponse.annotations:type_name -> google.protobuf.Any
-	25, // 21: c1.connector.v2.IssueCredentialRequest.identity_id:type_name -> c1.connector.v2.ResourceId
-	17, // 22: c1.connector.v2.IssueCredentialRequest.credential_options:type_name -> c1.connector.v2.CredentialOptions
-	24, // 23: c1.connector.v2.IssueCredentialRequest.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
-	26, // 24: c1.connector.v2.IssueCredentialResponse.secret:type_name -> c1.connector.v2.Resource
-	22, // 25: c1.connector.v2.IssueCredentialResponse.encrypted_data:type_name -> c1.connector.v2.EncryptedData
-	54, // 26: c1.connector.v2.IssueCredentialResponse.annotations:type_name -> google.protobuf.Any
-	33, // 27: c1.connector.v2.AccountInfo.emails:type_name -> c1.connector.v2.AccountInfo.Email
-	55, // 28: c1.connector.v2.AccountInfo.profile:type_name -> google.protobuf.Struct
-	34, // 29: c1.connector.v2.CredentialOptions.random_password:type_name -> c1.connector.v2.CredentialOptions.RandomPassword
-	35, // 30: c1.connector.v2.CredentialOptions.no_password:type_name -> c1.connector.v2.CredentialOptions.NoPassword
-	36, // 31: c1.connector.v2.CredentialOptions.sso:type_name -> c1.connector.v2.CredentialOptions.SSO
-	37, // 32: c1.connector.v2.CredentialOptions.encrypted_password:type_name -> c1.connector.v2.CredentialOptions.EncryptedPassword
-	38, // 33: c1.connector.v2.CredentialOptions.api_key:type_name -> c1.connector.v2.CredentialOptions.ApiKey
-	39, // 34: c1.connector.v2.CredentialOptions.keypair:type_name -> c1.connector.v2.CredentialOptions.Keypair
-	40, // 35: c1.connector.v2.CredentialOptions.token:type_name -> c1.connector.v2.CredentialOptions.Token
-	41, // 36: c1.connector.v2.LocalCredentialOptions.random_password:type_name -> c1.connector.v2.LocalCredentialOptions.RandomPassword
-	42, // 37: c1.connector.v2.LocalCredentialOptions.no_password:type_name -> c1.connector.v2.LocalCredentialOptions.NoPassword
-	43, // 38: c1.connector.v2.LocalCredentialOptions.sso:type_name -> c1.connector.v2.LocalCredentialOptions.SSO
-	44, // 39: c1.connector.v2.LocalCredentialOptions.plaintext_password:type_name -> c1.connector.v2.LocalCredentialOptions.PlaintextPassword
-	45, // 40: c1.connector.v2.LocalCredentialOptions.api_key:type_name -> c1.connector.v2.LocalCredentialOptions.ApiKey
-	46, // 41: c1.connector.v2.LocalCredentialOptions.keypair:type_name -> c1.connector.v2.LocalCredentialOptions.Keypair
-	47, // 42: c1.connector.v2.LocalCredentialOptions.token:type_name -> c1.connector.v2.LocalCredentialOptions.Token
-	16, // 43: c1.connector.v2.CreateAccountRequest.account_info:type_name -> c1.connector.v2.AccountInfo
-	17, // 44: c1.connector.v2.CreateAccountRequest.credential_options:type_name -> c1.connector.v2.CredentialOptions
-	24, // 45: c1.connector.v2.CreateAccountRequest.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
-	48, // 46: c1.connector.v2.CreateAccountResponse.success:type_name -> c1.connector.v2.CreateAccountResponse.SuccessResult
-	49, // 47: c1.connector.v2.CreateAccountResponse.action_required:type_name -> c1.connector.v2.CreateAccountResponse.ActionRequiredResult
-	50, // 48: c1.connector.v2.CreateAccountResponse.already_exists:type_name -> c1.connector.v2.CreateAccountResponse.AlreadyExistsResult
-	51, // 49: c1.connector.v2.CreateAccountResponse.in_progress:type_name -> c1.connector.v2.CreateAccountResponse.InProgressResult
-	22, // 50: c1.connector.v2.CreateAccountResponse.encrypted_data:type_name -> c1.connector.v2.EncryptedData
-	54, // 51: c1.connector.v2.CreateAccountResponse.annotations:type_name -> google.protobuf.Any
-	26, // 52: c1.connector.v2.EncryptionConfig.principal:type_name -> c1.connector.v2.Resource
-	52, // 53: c1.connector.v2.EncryptionConfig.jwk_public_key_config:type_name -> c1.connector.v2.EncryptionConfig.JWKPublicKeyConfig
-	53, // 54: c1.connector.v2.EncryptionConfig.age_recipient_config:type_name -> c1.connector.v2.EncryptionConfig.AgeRecipientConfig
-	25, // 55: c1.connector.v2.Resource.id:type_name -> c1.connector.v2.ResourceId
-	25, // 56: c1.connector.v2.Resource.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	54, // 57: c1.connector.v2.Resource.annotations:type_name -> google.protobuf.Any
-	32, // 58: c1.connector.v2.Resource.external_id:type_name -> c1.connector.v2.ExternalId
-	1,  // 59: c1.connector.v2.Resource.creation_source:type_name -> c1.connector.v2.Resource.CreationSource
-	55, // 60: c1.connector.v2.Resource.profile:type_name -> google.protobuf.Struct
-	56, // 61: c1.connector.v2.Resource.icon:type_name -> c1.connector.v2.AssetRef
-	27, // 62: c1.connector.v2.Resource.status:type_name -> c1.connector.v2.Status
-	57, // 63: c1.connector.v2.Resource.created_at:type_name -> google.protobuf.Timestamp
-	2,  // 64: c1.connector.v2.Status.status:type_name -> c1.connector.v2.Status.ResourceStatus
-	25, // 65: c1.connector.v2.ResourcesServiceListResourcesRequest.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	54, // 66: c1.connector.v2.ResourcesServiceListResourcesRequest.annotations:type_name -> google.protobuf.Any
-	0,  // 67: c1.connector.v2.ResourcesServiceListResourcesRequest.trait:type_name -> c1.connector.v2.ResourceType.Trait
-	26, // 68: c1.connector.v2.ResourcesServiceListResourcesResponse.list:type_name -> c1.connector.v2.Resource
-	54, // 69: c1.connector.v2.ResourcesServiceListResourcesResponse.annotations:type_name -> google.protobuf.Any
-	25, // 70: c1.connector.v2.ResourceGetterServiceGetResourceRequest.resource_id:type_name -> c1.connector.v2.ResourceId
-	25, // 71: c1.connector.v2.ResourceGetterServiceGetResourceRequest.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	54, // 72: c1.connector.v2.ResourceGetterServiceGetResourceRequest.annotations:type_name -> google.protobuf.Any
-	26, // 73: c1.connector.v2.ResourceGetterServiceGetResourceResponse.resource:type_name -> c1.connector.v2.Resource
-	54, // 74: c1.connector.v2.ResourceGetterServiceGetResourceResponse.annotations:type_name -> google.protobuf.Any
-	19, // 75: c1.connector.v2.CredentialOptions.RandomPassword.constraints:type_name -> c1.connector.v2.PasswordConstraint
-	22, // 76: c1.connector.v2.CredentialOptions.EncryptedPassword.encrypted_passwords:type_name -> c1.connector.v2.EncryptedData
-	58, // 77: c1.connector.v2.CredentialOptions.ApiKey.ttl:type_name -> google.protobuf.Duration
-	58, // 78: c1.connector.v2.CredentialOptions.Token.ttl:type_name -> google.protobuf.Duration
-	19, // 79: c1.connector.v2.LocalCredentialOptions.RandomPassword.constraints:type_name -> c1.connector.v2.PasswordConstraint
-	58, // 80: c1.connector.v2.LocalCredentialOptions.ApiKey.ttl:type_name -> google.protobuf.Duration
-	58, // 81: c1.connector.v2.LocalCredentialOptions.Token.ttl:type_name -> google.protobuf.Duration
-	26, // 82: c1.connector.v2.CreateAccountResponse.SuccessResult.resource:type_name -> c1.connector.v2.Resource
-	57, // 83: c1.connector.v2.CreateAccountResponse.SuccessResult.invitation_expires_at:type_name -> google.protobuf.Timestamp
-	26, // 84: c1.connector.v2.CreateAccountResponse.ActionRequiredResult.resource:type_name -> c1.connector.v2.Resource
-	26, // 85: c1.connector.v2.CreateAccountResponse.AlreadyExistsResult.resource:type_name -> c1.connector.v2.Resource
-	26, // 86: c1.connector.v2.CreateAccountResponse.InProgressResult.resource:type_name -> c1.connector.v2.Resource
-	4,  // 87: c1.connector.v2.ResourceTypesService.ListResourceTypes:input_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesRequest
-	28, // 88: c1.connector.v2.ResourcesService.ListResources:input_type -> c1.connector.v2.ResourcesServiceListResourcesRequest
-	30, // 89: c1.connector.v2.ResourceGetterService.GetResource:input_type -> c1.connector.v2.ResourceGetterServiceGetResourceRequest
-	6,  // 90: c1.connector.v2.ResourceManagerService.CreateResource:input_type -> c1.connector.v2.CreateResourceRequest
-	8,  // 91: c1.connector.v2.ResourceManagerService.DeleteResource:input_type -> c1.connector.v2.DeleteResourceRequest
-	10, // 92: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:input_type -> c1.connector.v2.DeleteResourceV2Request
-	12, // 93: c1.connector.v2.CredentialManagerService.RotateCredential:input_type -> c1.connector.v2.RotateCredentialRequest
-	14, // 94: c1.connector.v2.CredentialManagerService.IssueCredential:input_type -> c1.connector.v2.IssueCredentialRequest
-	20, // 95: c1.connector.v2.AccountManagerService.CreateAccount:input_type -> c1.connector.v2.CreateAccountRequest
-	5,  // 96: c1.connector.v2.ResourceTypesService.ListResourceTypes:output_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesResponse
-	29, // 97: c1.connector.v2.ResourcesService.ListResources:output_type -> c1.connector.v2.ResourcesServiceListResourcesResponse
-	31, // 98: c1.connector.v2.ResourceGetterService.GetResource:output_type -> c1.connector.v2.ResourceGetterServiceGetResourceResponse
-	7,  // 99: c1.connector.v2.ResourceManagerService.CreateResource:output_type -> c1.connector.v2.CreateResourceResponse
-	9,  // 100: c1.connector.v2.ResourceManagerService.DeleteResource:output_type -> c1.connector.v2.DeleteResourceResponse
-	11, // 101: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:output_type -> c1.connector.v2.DeleteResourceV2Response
-	13, // 102: c1.connector.v2.CredentialManagerService.RotateCredential:output_type -> c1.connector.v2.RotateCredentialResponse
-	15, // 103: c1.connector.v2.CredentialManagerService.IssueCredential:output_type -> c1.connector.v2.IssueCredentialResponse
-	21, // 104: c1.connector.v2.AccountManagerService.CreateAccount:output_type -> c1.connector.v2.CreateAccountResponse
-	96, // [96:105] is the sub-list for method output_type
-	87, // [87:96] is the sub-list for method input_type
-	87, // [87:87] is the sub-list for extension type_name
-	87, // [87:87] is the sub-list for extension extendee
-	0,  // [0:87] is the sub-list for field type_name
+	0,   // 0: c1.connector.v2.ResourceType.traits:type_name -> c1.connector.v2.ResourceType.Trait
+	56,  // 1: c1.connector.v2.ResourceType.annotations:type_name -> google.protobuf.Any
+	26,  // 2: c1.connector.v2.ResourceTypesServiceListResourceTypesRequest.parent:type_name -> c1.connector.v2.Resource
+	56,  // 3: c1.connector.v2.ResourceTypesServiceListResourceTypesRequest.annotations:type_name -> google.protobuf.Any
+	3,   // 4: c1.connector.v2.ResourceTypesServiceListResourceTypesResponse.list:type_name -> c1.connector.v2.ResourceType
+	56,  // 5: c1.connector.v2.ResourceTypesServiceListResourceTypesResponse.annotations:type_name -> google.protobuf.Any
+	26,  // 6: c1.connector.v2.CreateResourceRequest.resource:type_name -> c1.connector.v2.Resource
+	26,  // 7: c1.connector.v2.CreateResourceResponse.created:type_name -> c1.connector.v2.Resource
+	56,  // 8: c1.connector.v2.CreateResourceResponse.annotations:type_name -> google.protobuf.Any
+	25,  // 9: c1.connector.v2.DeleteResourceRequest.resource_id:type_name -> c1.connector.v2.ResourceId
+	25,  // 10: c1.connector.v2.DeleteResourceRequest.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	56,  // 11: c1.connector.v2.DeleteResourceResponse.annotations:type_name -> google.protobuf.Any
+	25,  // 12: c1.connector.v2.DeleteResourceV2Request.resource_id:type_name -> c1.connector.v2.ResourceId
+	25,  // 13: c1.connector.v2.DeleteResourceV2Request.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	56,  // 14: c1.connector.v2.DeleteResourceV2Response.annotations:type_name -> google.protobuf.Any
+	25,  // 15: c1.connector.v2.RotateCredentialRequest.resource_id:type_name -> c1.connector.v2.ResourceId
+	17,  // 16: c1.connector.v2.RotateCredentialRequest.credential_options:type_name -> c1.connector.v2.CredentialOptions
+	24,  // 17: c1.connector.v2.RotateCredentialRequest.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
+	22,  // 18: c1.connector.v2.RotateCredentialResponse.encrypted_data:type_name -> c1.connector.v2.EncryptedData
+	25,  // 19: c1.connector.v2.RotateCredentialResponse.resource_id:type_name -> c1.connector.v2.ResourceId
+	56,  // 20: c1.connector.v2.RotateCredentialResponse.annotations:type_name -> google.protobuf.Any
+	25,  // 21: c1.connector.v2.IssueCredentialRequest.identity_id:type_name -> c1.connector.v2.ResourceId
+	17,  // 22: c1.connector.v2.IssueCredentialRequest.credential_options:type_name -> c1.connector.v2.CredentialOptions
+	24,  // 23: c1.connector.v2.IssueCredentialRequest.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
+	26,  // 24: c1.connector.v2.IssueCredentialResponse.secret:type_name -> c1.connector.v2.Resource
+	22,  // 25: c1.connector.v2.IssueCredentialResponse.encrypted_data:type_name -> c1.connector.v2.EncryptedData
+	56,  // 26: c1.connector.v2.IssueCredentialResponse.annotations:type_name -> google.protobuf.Any
+	33,  // 27: c1.connector.v2.AccountInfo.emails:type_name -> c1.connector.v2.AccountInfo.Email
+	57,  // 28: c1.connector.v2.AccountInfo.profile:type_name -> google.protobuf.Struct
+	34,  // 29: c1.connector.v2.CredentialOptions.random_password:type_name -> c1.connector.v2.CredentialOptions.RandomPassword
+	35,  // 30: c1.connector.v2.CredentialOptions.no_password:type_name -> c1.connector.v2.CredentialOptions.NoPassword
+	36,  // 31: c1.connector.v2.CredentialOptions.sso:type_name -> c1.connector.v2.CredentialOptions.SSO
+	37,  // 32: c1.connector.v2.CredentialOptions.encrypted_password:type_name -> c1.connector.v2.CredentialOptions.EncryptedPassword
+	38,  // 33: c1.connector.v2.CredentialOptions.api_key:type_name -> c1.connector.v2.CredentialOptions.ApiKey
+	39,  // 34: c1.connector.v2.CredentialOptions.keypair:type_name -> c1.connector.v2.CredentialOptions.Keypair
+	40,  // 35: c1.connector.v2.CredentialOptions.token:type_name -> c1.connector.v2.CredentialOptions.Token
+	41,  // 36: c1.connector.v2.CredentialOptions.client_secret:type_name -> c1.connector.v2.CredentialOptions.ClientSecret
+	42,  // 37: c1.connector.v2.LocalCredentialOptions.random_password:type_name -> c1.connector.v2.LocalCredentialOptions.RandomPassword
+	43,  // 38: c1.connector.v2.LocalCredentialOptions.no_password:type_name -> c1.connector.v2.LocalCredentialOptions.NoPassword
+	44,  // 39: c1.connector.v2.LocalCredentialOptions.sso:type_name -> c1.connector.v2.LocalCredentialOptions.SSO
+	45,  // 40: c1.connector.v2.LocalCredentialOptions.plaintext_password:type_name -> c1.connector.v2.LocalCredentialOptions.PlaintextPassword
+	46,  // 41: c1.connector.v2.LocalCredentialOptions.api_key:type_name -> c1.connector.v2.LocalCredentialOptions.ApiKey
+	47,  // 42: c1.connector.v2.LocalCredentialOptions.keypair:type_name -> c1.connector.v2.LocalCredentialOptions.Keypair
+	48,  // 43: c1.connector.v2.LocalCredentialOptions.token:type_name -> c1.connector.v2.LocalCredentialOptions.Token
+	49,  // 44: c1.connector.v2.LocalCredentialOptions.client_secret:type_name -> c1.connector.v2.LocalCredentialOptions.ClientSecret
+	16,  // 45: c1.connector.v2.CreateAccountRequest.account_info:type_name -> c1.connector.v2.AccountInfo
+	17,  // 46: c1.connector.v2.CreateAccountRequest.credential_options:type_name -> c1.connector.v2.CredentialOptions
+	24,  // 47: c1.connector.v2.CreateAccountRequest.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
+	50,  // 48: c1.connector.v2.CreateAccountResponse.success:type_name -> c1.connector.v2.CreateAccountResponse.SuccessResult
+	51,  // 49: c1.connector.v2.CreateAccountResponse.action_required:type_name -> c1.connector.v2.CreateAccountResponse.ActionRequiredResult
+	52,  // 50: c1.connector.v2.CreateAccountResponse.already_exists:type_name -> c1.connector.v2.CreateAccountResponse.AlreadyExistsResult
+	53,  // 51: c1.connector.v2.CreateAccountResponse.in_progress:type_name -> c1.connector.v2.CreateAccountResponse.InProgressResult
+	22,  // 52: c1.connector.v2.CreateAccountResponse.encrypted_data:type_name -> c1.connector.v2.EncryptedData
+	56,  // 53: c1.connector.v2.CreateAccountResponse.annotations:type_name -> google.protobuf.Any
+	26,  // 54: c1.connector.v2.EncryptionConfig.principal:type_name -> c1.connector.v2.Resource
+	54,  // 55: c1.connector.v2.EncryptionConfig.jwk_public_key_config:type_name -> c1.connector.v2.EncryptionConfig.JWKPublicKeyConfig
+	55,  // 56: c1.connector.v2.EncryptionConfig.age_recipient_config:type_name -> c1.connector.v2.EncryptionConfig.AgeRecipientConfig
+	25,  // 57: c1.connector.v2.Resource.id:type_name -> c1.connector.v2.ResourceId
+	25,  // 58: c1.connector.v2.Resource.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	56,  // 59: c1.connector.v2.Resource.annotations:type_name -> google.protobuf.Any
+	32,  // 60: c1.connector.v2.Resource.external_id:type_name -> c1.connector.v2.ExternalId
+	1,   // 61: c1.connector.v2.Resource.creation_source:type_name -> c1.connector.v2.Resource.CreationSource
+	57,  // 62: c1.connector.v2.Resource.profile:type_name -> google.protobuf.Struct
+	58,  // 63: c1.connector.v2.Resource.icon:type_name -> c1.connector.v2.AssetRef
+	27,  // 64: c1.connector.v2.Resource.status:type_name -> c1.connector.v2.Status
+	59,  // 65: c1.connector.v2.Resource.created_at:type_name -> google.protobuf.Timestamp
+	2,   // 66: c1.connector.v2.Status.status:type_name -> c1.connector.v2.Status.ResourceStatus
+	25,  // 67: c1.connector.v2.ResourcesServiceListResourcesRequest.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	56,  // 68: c1.connector.v2.ResourcesServiceListResourcesRequest.annotations:type_name -> google.protobuf.Any
+	0,   // 69: c1.connector.v2.ResourcesServiceListResourcesRequest.trait:type_name -> c1.connector.v2.ResourceType.Trait
+	26,  // 70: c1.connector.v2.ResourcesServiceListResourcesResponse.list:type_name -> c1.connector.v2.Resource
+	56,  // 71: c1.connector.v2.ResourcesServiceListResourcesResponse.annotations:type_name -> google.protobuf.Any
+	25,  // 72: c1.connector.v2.ResourceGetterServiceGetResourceRequest.resource_id:type_name -> c1.connector.v2.ResourceId
+	25,  // 73: c1.connector.v2.ResourceGetterServiceGetResourceRequest.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	56,  // 74: c1.connector.v2.ResourceGetterServiceGetResourceRequest.annotations:type_name -> google.protobuf.Any
+	26,  // 75: c1.connector.v2.ResourceGetterServiceGetResourceResponse.resource:type_name -> c1.connector.v2.Resource
+	56,  // 76: c1.connector.v2.ResourceGetterServiceGetResourceResponse.annotations:type_name -> google.protobuf.Any
+	19,  // 77: c1.connector.v2.CredentialOptions.RandomPassword.constraints:type_name -> c1.connector.v2.PasswordConstraint
+	22,  // 78: c1.connector.v2.CredentialOptions.EncryptedPassword.encrypted_passwords:type_name -> c1.connector.v2.EncryptedData
+	60,  // 79: c1.connector.v2.CredentialOptions.ApiKey.ttl:type_name -> google.protobuf.Duration
+	60,  // 80: c1.connector.v2.CredentialOptions.Token.ttl:type_name -> google.protobuf.Duration
+	60,  // 81: c1.connector.v2.CredentialOptions.ClientSecret.ttl:type_name -> google.protobuf.Duration
+	19,  // 82: c1.connector.v2.LocalCredentialOptions.RandomPassword.constraints:type_name -> c1.connector.v2.PasswordConstraint
+	60,  // 83: c1.connector.v2.LocalCredentialOptions.ApiKey.ttl:type_name -> google.protobuf.Duration
+	60,  // 84: c1.connector.v2.LocalCredentialOptions.Token.ttl:type_name -> google.protobuf.Duration
+	60,  // 85: c1.connector.v2.LocalCredentialOptions.ClientSecret.ttl:type_name -> google.protobuf.Duration
+	26,  // 86: c1.connector.v2.CreateAccountResponse.SuccessResult.resource:type_name -> c1.connector.v2.Resource
+	59,  // 87: c1.connector.v2.CreateAccountResponse.SuccessResult.invitation_expires_at:type_name -> google.protobuf.Timestamp
+	26,  // 88: c1.connector.v2.CreateAccountResponse.ActionRequiredResult.resource:type_name -> c1.connector.v2.Resource
+	26,  // 89: c1.connector.v2.CreateAccountResponse.AlreadyExistsResult.resource:type_name -> c1.connector.v2.Resource
+	26,  // 90: c1.connector.v2.CreateAccountResponse.InProgressResult.resource:type_name -> c1.connector.v2.Resource
+	4,   // 91: c1.connector.v2.ResourceTypesService.ListResourceTypes:input_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesRequest
+	28,  // 92: c1.connector.v2.ResourcesService.ListResources:input_type -> c1.connector.v2.ResourcesServiceListResourcesRequest
+	30,  // 93: c1.connector.v2.ResourceGetterService.GetResource:input_type -> c1.connector.v2.ResourceGetterServiceGetResourceRequest
+	6,   // 94: c1.connector.v2.ResourceManagerService.CreateResource:input_type -> c1.connector.v2.CreateResourceRequest
+	8,   // 95: c1.connector.v2.ResourceManagerService.DeleteResource:input_type -> c1.connector.v2.DeleteResourceRequest
+	10,  // 96: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:input_type -> c1.connector.v2.DeleteResourceV2Request
+	12,  // 97: c1.connector.v2.CredentialManagerService.RotateCredential:input_type -> c1.connector.v2.RotateCredentialRequest
+	14,  // 98: c1.connector.v2.CredentialManagerService.IssueCredential:input_type -> c1.connector.v2.IssueCredentialRequest
+	20,  // 99: c1.connector.v2.AccountManagerService.CreateAccount:input_type -> c1.connector.v2.CreateAccountRequest
+	5,   // 100: c1.connector.v2.ResourceTypesService.ListResourceTypes:output_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesResponse
+	29,  // 101: c1.connector.v2.ResourcesService.ListResources:output_type -> c1.connector.v2.ResourcesServiceListResourcesResponse
+	31,  // 102: c1.connector.v2.ResourceGetterService.GetResource:output_type -> c1.connector.v2.ResourceGetterServiceGetResourceResponse
+	7,   // 103: c1.connector.v2.ResourceManagerService.CreateResource:output_type -> c1.connector.v2.CreateResourceResponse
+	9,   // 104: c1.connector.v2.ResourceManagerService.DeleteResource:output_type -> c1.connector.v2.DeleteResourceResponse
+	11,  // 105: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:output_type -> c1.connector.v2.DeleteResourceV2Response
+	13,  // 106: c1.connector.v2.CredentialManagerService.RotateCredential:output_type -> c1.connector.v2.RotateCredentialResponse
+	15,  // 107: c1.connector.v2.CredentialManagerService.IssueCredential:output_type -> c1.connector.v2.IssueCredentialResponse
+	21,  // 108: c1.connector.v2.AccountManagerService.CreateAccount:output_type -> c1.connector.v2.CreateAccountResponse
+	100, // [100:109] is the sub-list for method output_type
+	91,  // [91:100] is the sub-list for method input_type
+	91,  // [91:91] is the sub-list for extension type_name
+	91,  // [91:91] is the sub-list for extension extendee
+	0,   // [0:91] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_resource_proto_init() }
@@ -6414,6 +6660,7 @@ func file_c1_connector_v2_resource_proto_init() {
 		(*CredentialOptions_ApiKey_)(nil),
 		(*CredentialOptions_Keypair_)(nil),
 		(*CredentialOptions_Token_)(nil),
+		(*CredentialOptions_ClientSecret_)(nil),
 	}
 	file_c1_connector_v2_resource_proto_msgTypes[15].OneofWrappers = []any{
 		(*LocalCredentialOptions_RandomPassword_)(nil),
@@ -6423,6 +6670,7 @@ func file_c1_connector_v2_resource_proto_init() {
 		(*LocalCredentialOptions_ApiKey_)(nil),
 		(*LocalCredentialOptions_Keypair_)(nil),
 		(*LocalCredentialOptions_Token_)(nil),
+		(*LocalCredentialOptions_ClientSecret_)(nil),
 	}
 	file_c1_connector_v2_resource_proto_msgTypes[18].OneofWrappers = []any{
 		(*CreateAccountResponse_Success)(nil),
@@ -6440,7 +6688,7 @@ func file_c1_connector_v2_resource_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_resource_proto_rawDesc), len(file_c1_connector_v2_resource_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   51,
+			NumMessages:   53,
 			NumExtensions: 0,
 			NumServices:   7,
 		},

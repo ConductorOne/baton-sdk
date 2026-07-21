@@ -290,4 +290,15 @@ func TestConvertCredentialOptionsMachineCredArms(t *testing.T) {
 		require.Equal(t, []string{"api"}, localOpts.GetToken().GetScopes())
 		require.Equal(t, "https://example.test", localOpts.GetToken().GetAudience())
 	})
+
+	t.Run("client secret", func(t *testing.T) {
+		ttl := durationpb.New(24 * time.Hour)
+		opts := v2.CredentialOptions_builder{
+			ClientSecret: v2.CredentialOptions_ClientSecret_builder{Ttl: ttl}.Build(),
+		}.Build()
+		localOpts, err := ConvertCredentialOptions(ctx, nil, opts, nil)
+		require.NoError(t, err)
+		require.Equal(t, v2.LocalCredentialOptions_ClientSecret_case, localOpts.WhichOptions())
+		require.Equal(t, ttl.GetSeconds(), localOpts.GetClientSecret().GetTtl().GetSeconds())
+	})
 }
