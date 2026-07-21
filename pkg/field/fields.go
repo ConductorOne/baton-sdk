@@ -63,9 +63,18 @@ type SchemaField struct {
 	FieldName    string
 	Required     bool
 	DefaultValue any
-	Description  string
-	ExportTarget ExportTarget
-	HelpURL      string
+	// SuggestedValue is a default that is only surfaced in the exported config
+	// schema (i.e. pre-populated in the c1 GUI when configuring a new
+	// connector). Unlike DefaultValue, it is NOT registered as the CLI/runtime
+	// flag default, so it is never injected into the connector config when the
+	// field is left unset. This lets a connector suggest a value in the UI
+	// without changing behavior for existing connectors whose stored config
+	// omits the field. When set (non-nil), it takes precedence over
+	// DefaultValue for schema export only.
+	SuggestedValue any
+	Description    string
+	ExportTarget   ExportTarget
+	HelpURL        string
 
 	Variant         Variant
 	Rules           FieldRule
@@ -179,6 +188,22 @@ func GetDefaultValue[T SchemaTypes](s SchemaField) (*T, error) {
 		return nil, ErrWrongValueType
 	}
 	return &value, nil
+}
+
+// GetExportedDefaultValue returns the value used to populate the default in the
+// exported config schema (and thus the c1 GUI). It prefers SuggestedValue when
+// set (non-nil), otherwise falls back to DefaultValue. This is used only by the
+// schema export path; the CLI/runtime flag default always comes from
+// GetDefaultValue.
+func GetExportedDefaultValue[T SchemaTypes](s SchemaField) (*T, error) {
+	if s.SuggestedValue != nil {
+		value, ok := s.SuggestedValue.(T)
+		if !ok {
+			return nil, ErrWrongValueType
+		}
+		return &value, nil
+	}
+	return GetDefaultValue[T](s)
 }
 
 func BoolField(name string, optional ...fieldOption) SchemaField {
