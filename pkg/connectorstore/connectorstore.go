@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 )
@@ -234,6 +236,41 @@ type DBSizeProvider interface {
 // Pebble adapter, whose ListGrants already carries it) need not implement it.
 type ExpansionGrantLister interface {
 	ListGrantsWithExpansion(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error)
+}
+
+// GrantDiscoveredAtReader is an optional Reader capability that returns
+// a grant's stored discovered_at — the time the connector actually
+// observed the grant. It is stamped once when the grant is first
+// written and carried forward unchanged across re-syncs and expander
+// rewrites (never refreshed to now()), so it is a durable per-entry
+// observation timestamp, not a freshness signal recomputed on read.
+//
+// The value is stored in the c1z but stripped by the v2.Grant
+// translation (V3GrantToV2 populates only identity/annotations/sources),
+// so v2.Grant has no field to carry it. This capability is the
+// additive, contract-preserving way to read it back without touching
+// the connector API.
+//
+// It is engine-specific: only the Pebble (v3) engine records and
+// serves discovered_at through this surface, so callers MUST type-assert
+// and fall back when the assertion fails. Other readers (the legacy
+// SQLite engine, gRPC-backed readers) do not implement it — a failed
+// assertion means "discovered_at unavailable from this store", which
+// callers must treat as "unknown", never as an error.
+//
+// Grants are addressed by the same id GetGrant accepts — the stored
+// external id, or the legacy reconstructed principal/entitlement concat;
+// see reader_v2.GrantsReaderServiceGetGrantRequest.GrantId.
+//
+// found is false when no grant resolves for grantID under the reader's
+// active sync (an unknown or unresolvable id). A nil error with
+// found=false means "no such grant", not an error; an AMBIGUOUS id
+// (a lossy concat that could match more than one grant) is an error,
+// never a guess. found can be true with a nil timestamp for a grant
+// whose discovered_at was never stamped (legacy data) — callers must
+// treat a nil timestamp as "unknown", not epoch zero.
+type GrantDiscoveredAtReader interface {
+	GetGrantDiscoveredAt(ctx context.Context, grantID string) (discoveredAt *timestamppb.Timestamp, found bool, err error)
 }
 
 // GrantUpsertMode controls how grant conflicts are resolved during upsert.
