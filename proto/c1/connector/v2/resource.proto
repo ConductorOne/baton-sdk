@@ -272,7 +272,14 @@ message EncryptedData {
   string name = 3;
   string description = 4;
   string schema = 5; // optional
-  bytes encrypted_bytes = 6; // if 'schema' is set, this should be JSON.
+  // Provider-specific ciphertext. Consumers must select decoding and
+  // decryption using provider; they must not infer the encoding from schema or
+  // whether these bytes are valid text. baton/jwk/v1 stores standard-base64
+  // text, while baton/age/v1 stores a standard binary age file. If schema is
+  // set, it describes the plaintext represented after decryption.
+  bytes encrypted_bytes = 6;
+  // Provider-specific identifiers for correlating ciphertext with its
+  // recipient key material. These values are identifiers, not credentials.
   repeated string key_ids = 7;
 }
 
@@ -292,8 +299,24 @@ message EncryptionConfig {
     bytes pub_key = 1;
   }
 
+  // AgeRecipientConfig encrypts data directly to a standard age recipient.
+  // The corresponding private identity must never be included in this message.
+  // Both X25519 (age1...) and hybrid post-quantum (age1pq1...) recipients are
+  // supported by the configured age provider. EncryptedData.encrypted_bytes
+  // contains a standard binary age file when this config is used. The provider
+  // sets EncryptedData.key_ids to one lowercase hexadecimal SHA-256 digest of
+  // the UTF-8 canonical recipient string. It leaves the deprecated
+  // EncryptedData.key_id empty.
+  message AgeRecipientConfig {
+    string recipient = 1 [(validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 4096
+    }];
+  }
+
   oneof config {
     JWKPublicKeyConfig jwk_public_key_config = 100;
+    AgeRecipientConfig age_recipient_config = 101;
   }
 }
 
