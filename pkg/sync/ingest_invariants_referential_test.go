@@ -199,6 +199,42 @@ func TestIngestInvariantI9DanglingPrincipals(t *testing.T) {
 	require.NoError(t, pass.checkGrantPrincipalReferences(ctx))
 }
 
+// TestIngestInvariantI9SeesDeferredRegimeGrants pins the
+// EnsureGrantIndexes leg of I9: expansion-written grants
+// (StoreExpandedGrants, the DEFERRED index regime) have no by_principal
+// entries until the deferred build runs, so a dangling principal
+// written through that path is invisible to the scan unless the pass
+// forces the build first. Without the build-and-clear branch, this
+// violation would silently pass.
+func TestIngestInvariantI9SeesDeferredRegimeGrants(t *testing.T) {
+	ctx := context.Background()
+	store, pass := newPebbleInvariantStore(ctx, t)
+
+	repo, err := rs.NewResource("Repo r1", invariantRepoRT, "r1")
+	require.NoError(t, err)
+	ent := et.NewAssignmentEntitlement(repo, "admin")
+	ghost := v2.ResourceId_builder{ResourceType: "user", Resource: "ghost"}.Build()
+
+	require.NoError(t, store.PutResourceTypes(ctx, invariantRepoRT))
+	require.NoError(t, store.PutResources(ctx, repo))
+	require.NoError(t, store.PutEntitlements(ctx, ent))
+	// The deferred regime: by_principal is NOT maintained inline here.
+	require.NoError(t, store.Grants().StoreExpandedGrants(ctx, grant.NewGrant(repo, "admin", ghost)))
+
+	pass.p.FailFast = true
+	err = pass.checkGrantPrincipalReferences(ctx)
+	require.Error(t, err, "the pass must force the deferred index build or the scan misses expansion-written grants")
+	require.Contains(t, err.Error(), "ingest invariant I9")
+	require.Contains(t, err.Error(), "user/ghost")
+
+	// The build ran and the marker cleared: a re-run takes the
+	// no-pending fast path and still sees the same violation.
+	require.NoError(t, pass.facts.EnsureGrantIndexes(ctx))
+	err = pass.checkGrantPrincipalReferences(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "user/ghost")
+}
+
 func TestIngestInvariantI9ExemptsExternalMatchCarriers(t *testing.T) {
 	ctx := context.Background()
 	store, pass := newPebbleInvariantStore(ctx, t)
@@ -285,12 +321,14 @@ func TestIngestInvariantI3GrantResourceReferences(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "InsertResourceGrants")
 
-	// The compaction expand pass is exempt from the annotated hard arm
-	// in default mode: keep-newer merges can strand an annotated grant
-	// whose resource row lost the merge.
-	pass.p.OnlyExpandGrants = true
+	// The compaction MERGE is exempt from the annotated hard arm in
+	// default mode: keep-newer merges can strand an annotated grant
+	// whose resource row lost the merge. (Expansion-only alone does NOT
+	// exempt — rollback-expansion replays a single non-merged artifact
+	// and keeps full strictness.)
+	pass.p.CompactionMerge = true
 	require.NoError(t, pass.checkGrantResourceReferences(ctx))
-	pass.p.OnlyExpandGrants = false
+	pass.p.CompactionMerge = false
 
 	// Healing the reference (putting the resource row) clears every arm.
 	require.NoError(t, store.PutResources(ctx, repo))

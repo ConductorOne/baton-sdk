@@ -88,10 +88,25 @@ func (e *Engine) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(p
 	// Healed-orphan aggregation: one Warn per sweep (the house shape —
 	// never per-principal logs; a systematic writer bug could strand
 	// entries for thousands of principals). Orphans are always a bug
-	// signal, so the aggregate must be visible at default level.
+	// signal, so the aggregate must be visible at default level — and
+	// it fires on EVERY exit path: heals commit durably as the scan
+	// goes, so an error/cancellation after the first heal must not
+	// suppress the only report those heals will ever get (a resumed
+	// scan finds them already healed and says nothing).
 	var healedEntries int64
 	healedPrincipals := 0
 	var healedExamples []string
+	scanComplete := false
+	defer func() {
+		if healedEntries > 0 {
+			ctxzap.Extract(ctx).Warn("HEALED orphan by_principal index entries (index keys with no grant row — evidence of a writer bug, not connector data)",
+				zap.Int64("healed_entries", healedEntries),
+				zap.Int("principals", healedPrincipals),
+				zap.Strings("principal_examples", healedExamples),
+				zap.Bool("scan_complete", scanComplete),
+			)
+		}
+	}()
 
 	for valid := iter.First(); valid; {
 		if err := ctx.Err(); err != nil {
@@ -149,13 +164,7 @@ func (e *Engine) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(p
 	if err := iter.Error(); err != nil {
 		return err
 	}
-	if healedEntries > 0 {
-		ctxzap.Extract(ctx).Warn("HEALED orphan by_principal index entries (index keys with no grant row — evidence of a writer bug, not connector data)",
-			zap.Int64("healed_entries", healedEntries),
-			zap.Int("principals", healedPrincipals),
-			zap.Strings("principal_examples", healedExamples),
-		)
-	}
+	scanComplete = true
 	return nil
 }
 
@@ -226,14 +235,17 @@ func (e *Engine) healOrphanPrincipalIndexEntries(ctx context.Context, principalR
 
 // grantsForPrincipalAllMatchAnnotated reports whether every grant under
 // the principal carries an ExternalResourceMatch* annotation, and how
-// many grant rows that is (valid only when the bool is true — the walk
-// stops at the first non-annotated grant). Reserved for dangling
-// principals (reads row values).
+// many carrier grants there are. The count is valid in BOTH outcomes:
+// mixed populations (annotated carriers beside plain grants) report
+// their carriers too, so the syncer's per-GRANT carrier totals don't
+// silently lose the mixed case — the full walk is acceptable because
+// this probe runs only for DANGLING principals (reads row values).
 func (e *Engine) grantsForPrincipalAllMatchAnnotated(ctx context.Context, principalRT, principalID string) (bool, int64, error) {
 	ids, err := e.grantIdentitiesForPrincipal(ctx, principalRT, principalID)
 	if err != nil {
 		return false, 0, err
 	}
+	allCarry := true
 	var carrierGrants int64
 	for _, id := range ids {
 		if err := ctx.Err(); err != nil {
@@ -246,12 +258,13 @@ func (e *Engine) grantsForPrincipalAllMatchAnnotated(ctx context.Context, princi
 			}
 			return false, 0, err
 		}
-		if !grantRecordHasExternalMatch(rec.GetAnnotations()) {
-			return false, 0, nil
+		if grantRecordHasExternalMatch(rec.GetAnnotations()) {
+			carrierGrants++
+		} else {
+			allCarry = false
 		}
-		carrierGrants++
 	}
-	return true, carrierGrants, nil
+	return allCarry, carrierGrants, nil
 }
 
 // grantIdentitiesForPrincipal collects the grant identities under one

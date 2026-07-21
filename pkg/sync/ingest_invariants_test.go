@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -166,6 +167,109 @@ func TestIngestInvariantVerdictTable(t *testing.T) {
 		"the whole-pass seam fires last")
 }
 
+// TestInvariantVerdictsCarryNonRetryableSentinel pins the retry
+// classification (round-4 finding): a DATA VERDICT is deterministic on
+// an immutable dataset — the c1api runner maps it to its non-retryable
+// class via errors.Is(err, ErrIngestInvariantViolated) — while the
+// pass's IO failures must NOT carry the sentinel (they stay
+// retryable). The wrapper must also leave the operator-facing message
+// untouched.
+func TestInvariantVerdictsCarryNonRetryableSentinel(t *testing.T) {
+	ctx := context.Background()
+
+	// A verdict: I5 conflict on a connector-produced store.
+	store, syncID := newInvariantTestStore(ctx, t)
+	newEnt := func(rt *v2.ResourceType, resourceID, slug string, opts ...et.EntitlementOption) *v2.Entitlement {
+		r, err := rs.NewResource(resourceID, rt, resourceID)
+		require.NoError(t, err)
+		return et.NewPermissionEntitlement(r, slug, opts...)
+	}
+	require.NoError(t, store.PutEntitlements(ctx,
+		newEnt(userResourceType, "user1", "viewer", et.WithExclusionGroupDefault("role", 1)),
+		newEnt(userResourceType, "user2", "editor", et.WithExclusionGroupDefault("role", 2)),
+	))
+	err := RunIngestInvariants(ctx, store, IngestInvariantsPolicy{
+		ActiveSyncID: syncID,
+		SyncType:     connectorstore.SyncTypeFull,
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrIngestInvariantViolated,
+		"a data verdict must carry the non-retryable sentinel for the runners")
+	require.Contains(t, err.Error(), "ingest invariant I5 violated",
+		"the sentinel wrapper must not alter the operator-facing message")
+
+	// NOT a verdict: the pass's own config error carries no sentinel.
+	err = RunIngestInvariants(ctx, store, IngestInvariantsPolicy{ActiveSyncID: syncID})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrIngestInvariantViolated,
+		"config/IO failures are retryable and must not carry the verdict sentinel")
+
+	// Nil store: loud error, no panic (round-4 finding).
+	err = RunIngestInvariants(ctx, nil, IngestInvariantsPolicy{
+		ActiveSyncID: syncID,
+		SyncType:     connectorstore.SyncTypeFull,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "store is required")
+}
+
+// TestRunIngestInvariantsRejectsZeroSyncType pins the fail-closed gate
+// on the exported API (round-4 finding): connectorstore's zero value is
+// SyncTypeAny (""), which would silently skip every full-keyspace
+// invariant and hand the caller a green pass that validated almost
+// nothing.
+func TestRunIngestInvariantsRejectsZeroSyncType(t *testing.T) {
+	ctx := context.Background()
+	store, syncID := newInvariantTestStore(ctx, t)
+	err := RunIngestInvariants(ctx, store, IngestInvariantsPolicy{
+		ActiveSyncID: syncID,
+		FailFast:     true,
+	})
+	require.Error(t, err, "a zero SyncType must be rejected, not silently narrowed to I5-only")
+	require.Contains(t, err.Error(), "SyncType is required")
+}
+
+// TestExclusionGroupTrackerSeesEveryAnnotation pins the multi-annotation
+// shapes (round-4 finding): Pick-first hid any EntitlementExclusionGroup
+// annotation after the first, so a second annotation's is_default or
+// membership escaped validation.
+func TestExclusionGroupTrackerSeesEveryAnnotation(t *testing.T) {
+	newEnt := func(t *testing.T, resourceID, slug string, egs ...*v2.EntitlementExclusionGroup) *v2.Entitlement {
+		t.Helper()
+		r, err := rs.NewResource(resourceID, userResourceType, resourceID)
+		require.NoError(t, err)
+		ent := et.NewPermissionEntitlement(r, slug)
+		annos := make([]*anypb.Any, 0, len(egs))
+		for _, eg := range egs {
+			a, err := anypb.New(eg)
+			require.NoError(t, err)
+			annos = append(annos, a)
+		}
+		ent.SetAnnotations(annos)
+		return ent
+	}
+	eg := func(id string, isDefault bool) *v2.EntitlementExclusionGroup {
+		return v2.EntitlementExclusionGroup_builder{ExclusionGroupId: id, IsDefault: isDefault}.Build()
+	}
+
+	t.Run("cross-group second annotation is validated", func(t *testing.T) {
+		tr := &exclusionGroupTracker{}
+		// entA's SECOND annotation carries g2's default; entB defaults g2 too.
+		require.NoError(t, tr.record(newEnt(t, "u1", "viewer", eg("g1", false), eg("g2", true))))
+		err := tr.record(newEnt(t, "u2", "editor", eg("g2", true)))
+		require.Error(t, err, "g2's double default hides behind Pick-first without the full walk")
+		require.Contains(t, err.Error(), "is_default")
+	})
+
+	t.Run("same-group default on second annotation is validated", func(t *testing.T) {
+		tr := &exclusionGroupTracker{}
+		require.NoError(t, tr.record(newEnt(t, "u1", "viewer", eg("g1", false), eg("g1", true))))
+		err := tr.record(newEnt(t, "u2", "editor", eg("g1", true)))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "is_default")
+	})
+}
+
 // newInvariantTestStore opens a fresh SQLite-backed C1File with an open
 // full sync, for driving RunIngestInvariants directly.
 func newInvariantTestStore(ctx context.Context, t *testing.T) (*dotc1z.C1File, string) {
@@ -246,9 +350,9 @@ func TestIngestInvariantI5StoredValidation(t *testing.T) {
 			newEnt(userResourceType, "user2", "editor", et.WithExclusionGroupDefault("role", 2)),
 		))
 		policy := IngestInvariantsPolicy{
-			ActiveSyncID:     syncID,
-			SyncType:         connectorstore.SyncTypeFull,
-			OnlyExpandGrants: true,
+			ActiveSyncID:    syncID,
+			SyncType:        connectorstore.SyncTypeFull,
+			CompactionMerge: true,
 		}
 		require.NoError(t, RunIngestInvariants(ctx, store, policy),
 			"merge-manufactured conflicts must aggregate into a warning on the expand pass, not fail the seal")

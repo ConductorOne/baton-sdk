@@ -308,6 +308,13 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		if removeErr := os.Remove(c1zPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			l.Error("failed to remove temp file after sync failure", zap.Error(removeErr), zap.String("path", c1zPath))
 		}
+		// Ingestion-invariant DATA VERDICTS are deterministic on the
+		// connector's dataset: retrying re-fails identically, so mark
+		// them non-retryable. The pass's IO failures don't carry the
+		// sentinel and stay retryable.
+		if errors.Is(err, sdkSync.ErrIngestInvariantViolated) {
+			err = errors.Join(err, ErrTaskNonRetryable)
+		}
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 

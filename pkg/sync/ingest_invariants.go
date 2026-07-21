@@ -90,6 +90,7 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	stdsync "sync"
@@ -98,13 +99,37 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/anypb"
 
+	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 )
+
+// ErrIngestInvariantViolated classifies DATA VERDICTS — the store's
+// content violates an invariant — as distinct from the pass's own IO
+// failures (listing errors, probe errors, cancellation). A verdict is
+// deterministic on an immutable dataset: retrying it re-fails forever,
+// so runners map it to their non-retryable failure class
+// (pkg/tasks/c1api wraps it with ErrTaskNonRetryable), while IO
+// failures stay retryable. Test with errors.Is.
+var ErrIngestInvariantViolated = errors.New("ingest invariant violated")
+
+// invariantVerdictError carries the sentinel WITHOUT altering the
+// verdict's message (operator-facing text and the error-string
+// assertions in the suites stay byte-identical).
+type invariantVerdictError struct{ err error }
+
+func (e *invariantVerdictError) Error() string { return e.err.Error() }
+
+func (e *invariantVerdictError) Unwrap() []error {
+	return []error{e.err, ErrIngestInvariantViolated}
+}
+
+// invariantVerdict marks err as a data verdict.
+func invariantVerdict(err error) error { return &invariantVerdictError{err: err} }
 
 // sideEffectAnnotationCoverage is the enumerated coupling between
 // connector annotations that imply syncer side effects and the mechanism
@@ -193,12 +218,17 @@ type IngestInvariantsPolicy struct {
 	// entirely in default mode) runs. Tests and equivalence harnesses
 	// set it.
 	FailFast bool
-	// OnlyExpandGrants marks an expansion-only pass over a store this
-	// process did not ingest (the compaction expand path): keep-newer
-	// merges manufacture dangling references by design, so verdicts
-	// that would blame the connector are attributed to the merge
-	// instead.
-	OnlyExpandGrants bool
+	// CompactionMerge marks a pass over a store produced by the
+	// compactor's keep-newer MERGE: the key union can manufacture
+	// shapes no single input contained (dangling references, stranded
+	// InsertResourceGrants rows, exclusion-group conflicts), so
+	// verdicts that would blame the connector are attributed to the
+	// merge and hard arms soften to aggregated warnings. Set ONLY by
+	// the compactor's expand pass (WithCompactionMergedStore) —
+	// deliberately NOT by every expansion-only run: rollback-expansion
+	// replays a single non-merged artifact, where a conflict is real
+	// connector/artifact evidence and must keep failing the seal.
+	CompactionMerge bool
 
 	// I4 evidence: only a process that ran the resources phase can
 	// supply the in-memory scheduled set, so only the syncer sets these.
@@ -359,6 +389,16 @@ func ingestInvariantHaltStages() []string {
 // store-level function so store-producing pipelines without a syncer
 // (the compactor's expand pass) can enforce the same contract.
 func RunIngestInvariants(ctx context.Context, store connectorstore.Reader, policy IngestInvariantsPolicy) error {
+	// Fail closed on a zero SyncType: connectorstore's zero value is
+	// SyncTypeAny (""), which is not SyncTypeFull — a caller omitting
+	// the field would silently skip every full-keyspace invariant and
+	// read a green pass that validated almost nothing.
+	if store == nil {
+		return fmt.Errorf("ingest invariants: store is required")
+	}
+	if policy.SyncType == "" {
+		return fmt.Errorf("ingest invariants: policy.SyncType is required (the zero value would silently skip the full-keyspace invariants; pass the sync's actual type)")
+	}
 	pass := &ingestInvariantsPass{store: store, p: &policy}
 	if facts, ok := store.(dotc1z.IngestInvariantStore); ok {
 		pass.facts = facts
@@ -406,7 +446,7 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 		ActiveSyncID:      s.getActiveSyncID(),
 		SyncType:          s.syncType,
 		FailFast:          s.failFastInvariants,
-		OnlyExpandGrants:  s.onlyExpandGrants,
+		CompactionMerge:   s.compactionMergedStore,
 		childSchedule:     &s.childSchedule,
 		resourcesPhaseRan: s.resourcesPhaseRanHere,
 		syncResourceTypes: s.syncResourceTypes,
@@ -434,16 +474,46 @@ type exclusionGroupState struct {
 	count          uint32
 }
 
+// exclusionGroupViolation is the typed verdict record returns: it
+// carries the offending group id so the warn-only aggregation can
+// count LOGICAL conflicts (distinct groups) instead of violating rows —
+// an oversized group would otherwise report one "conflict" per excess
+// row and crowd every example slot with near-identical strings.
+type exclusionGroupViolation struct {
+	groupID string
+	err     error
+}
+
+func (v *exclusionGroupViolation) Error() string { return v.err.Error() }
+func (v *exclusionGroupViolation) Unwrap() error { return v.err }
+
 func (t *exclusionGroupTracker) record(ent *v2.Entitlement) error {
-	eg := &v2.EntitlementExclusionGroup{}
-	annos := annotations.Annotations(ent.GetAnnotations())
-	ok, err := annos.Pick(eg)
-	if err != nil {
-		return fmt.Errorf("parsing exclusion group on %q: %w", ent.GetId(), err)
+	// Every EntitlementExclusionGroup annotation counts, not just the
+	// first (Pick-first would let a second annotation carry an unseen
+	// is_default or a cross-type membership — a hostile/malformed
+	// connector shape, but one the stored keyspace faithfully holds
+	// and the validator must therefore judge).
+	for _, a := range ent.GetAnnotations() {
+		if !a.MessageIs((*v2.EntitlementExclusionGroup)(nil)) {
+			continue
+		}
+		eg := &v2.EntitlementExclusionGroup{}
+		if err := a.UnmarshalTo(eg); err != nil {
+			return fmt.Errorf("parsing exclusion group on %q: %w", ent.GetId(), err)
+		}
+		if eg.GetExclusionGroupId() == "" {
+			continue
+		}
+		if err := t.recordMembership(ent, eg); err != nil {
+			return err
+		}
 	}
-	if !ok || eg.GetExclusionGroupId() == "" {
-		return nil
-	}
+	return nil
+}
+
+// recordMembership applies the three group rules to one (entitlement,
+// exclusion-group annotation) membership.
+func (t *exclusionGroupTracker) recordMembership(ent *v2.Entitlement, eg *v2.EntitlementExclusionGroup) error {
 	groupID := eg.GetExclusionGroupId()
 	if t.groups == nil {
 		t.groups = map[string]*exclusionGroupState{}
@@ -457,23 +527,26 @@ func (t *exclusionGroupTracker) record(ent *v2.Entitlement) error {
 	if st.resourceTypeID == "" {
 		st.resourceTypeID = rt
 	} else if st.resourceTypeID != rt {
-		return fmt.Errorf("exclusion group %q is used on multiple resource types (%q and %q); "+
-			"exclusion groups may span resources but must be scoped to a single resource type",
-			groupID, st.resourceTypeID, rt)
+		return &exclusionGroupViolation{groupID: groupID, err: fmt.Errorf(
+			"exclusion group %q is used on multiple resource types (%q and %q); "+
+				"exclusion groups may span resources but must be scoped to a single resource type",
+			groupID, st.resourceTypeID, rt)}
 	}
 	if eg.GetIsDefault() {
 		if st.defaultEntID != "" && st.defaultEntID != ent.GetId() {
-			return fmt.Errorf("exclusion group %q has multiple default entitlements (%q and %q); "+
-				"at most one entitlement per exclusion group may set is_default=true",
-				groupID, st.defaultEntID, ent.GetId())
+			return &exclusionGroupViolation{groupID: groupID, err: fmt.Errorf(
+				"exclusion group %q has multiple default entitlements (%q and %q); "+
+					"at most one entitlement per exclusion group may set is_default=true",
+				groupID, st.defaultEntID, ent.GetId())}
 		}
 		st.defaultEntID = ent.GetId()
 	}
 	st.count++
 	if st.count > maxEntitlementsPerExclusionGroup {
-		return fmt.Errorf("exclusion group %q has too many entitlements (%d); "+
-			"at most %d entitlements are allowed per exclusion group",
-			groupID, st.count, maxEntitlementsPerExclusionGroup)
+		return &exclusionGroupViolation{groupID: groupID, err: fmt.Errorf(
+			"exclusion group %q has too many entitlements (%d); "+
+				"at most %d entitlements are allowed per exclusion group",
+			groupID, st.count, maxEntitlementsPerExclusionGroup)}
 	}
 	return nil
 }
@@ -487,7 +560,7 @@ func (t *exclusionGroupTracker) record(ent *v2.Entitlement) error {
 // connector-produced store is a hard failure (a conflicting artifact
 // must not seal).
 //
-// The compaction expand pass (OnlyExpandGrants) is the exception: it
+// The compaction expand pass (CompactionMerge) is the exception: it
 // runs over a keep-newer MERGE of individually-valid syncs, and the
 // key union can manufacture conflicts no input contained — a default
 // moved from E1 to E2 keeps both rows' is_default, a group grown
@@ -499,9 +572,14 @@ func (t *exclusionGroupTracker) record(ent *v2.Entitlement) error {
 func (pass *ingestInvariantsPass) checkStoredExclusionGroups(ctx context.Context) error {
 	// warnOnly: merge-manufactured conflicts are expected shapes on the
 	// expand pass, not seal-blockers.
-	warnOnly := pass.p.OnlyExpandGrants && !pass.p.FailFast
+	warnOnly := pass.p.CompactionMerge && !pass.p.FailFast
 	tracker := &exclusionGroupTracker{}
-	violations := 0
+	// Conflicts are counted per GROUP, not per violating row: one
+	// oversized group re-errors on every excess row, and per-row
+	// counting would report it as dozens of "conflicts" while crowding
+	// the example slots with near-identical strings. The first error
+	// per group is the example.
+	conflictGroups := map[string]bool{}
 	var examples []string
 	pageToken := ""
 	for {
@@ -515,9 +593,17 @@ func (pass *ingestInvariantsPass) checkStoredExclusionGroups(ctx context.Context
 		for _, ent := range resp.GetList() {
 			if err := tracker.record(ent); err != nil {
 				if !warnOnly {
-					return fmt.Errorf("ingest invariant I5 violated: %w", err)
+					return invariantVerdict(fmt.Errorf("ingest invariant I5 violated: %w", err))
 				}
-				violations++
+				key := err.Error()
+				var viol *exclusionGroupViolation
+				if errors.As(err, &viol) {
+					key = viol.groupID
+				}
+				if conflictGroups[key] {
+					continue
+				}
+				conflictGroups[key] = true
 				if len(examples) < maxDanglingIDExamples {
 					examples = append(examples, err.Error())
 				}
@@ -527,10 +613,10 @@ func (pass *ingestInvariantsPass) checkStoredExclusionGroups(ctx context.Context
 			break
 		}
 	}
-	if violations > 0 {
+	if len(conflictGroups) > 0 {
 		ctxzap.Extract(ctx).Warn("ingest invariant I5: exclusion-group conflicts on the compaction expand pass (keep-newer merges manufacture these by design; not a connector bug)",
-			zap.Int("conflicts", violations),
-			zap.Strings("examples", examples),
+			zap.Int("conflict_groups", len(conflictGroups)),
+			zap.Strings("group_examples", examples),
 		)
 	}
 	return nil
@@ -597,9 +683,9 @@ func (pass *ingestInvariantsPass) checkChildScheduling(ctx context.Context) erro
 		// Sorted so the error text is byte-stable regardless of store
 		// iteration order (the verdict already is).
 		sort.Strings(violations)
-		return fmt.Errorf(
+		return invariantVerdict(fmt.Errorf(
 			"ingest invariant I4 violated: %d child resource sync(s) were never scheduled: %v",
-			len(violations), violations)
+			len(violations), violations))
 	}
 	return nil
 }
@@ -619,7 +705,29 @@ const maxDanglingIDExamples = 25
 // produced (a magic-id BUG).
 type danglingTypeProbe struct {
 	store connectorstore.Reader
-	known map[string]bool
+	// syncScope carries the pass's ActiveSyncID as a SyncDetails
+	// annotation (GetResourceType has no ActiveSyncId field), scoping
+	// the probe like every other read in the pass: without it, the
+	// pebble adapter falls back to current-sync resolution, which can
+	// fail on an unbound store (external callers, corrupted metadata)
+	// while the sibling ListEntitlements/-Resources reads — which DO
+	// carry the id — succeed.
+	syncScope []*anypb.Any
+	known     map[string]bool
+}
+
+// newTypeProbe builds the pass's memoizing resource-type probe, scoped
+// to the pass's sync.
+func (pass *ingestInvariantsPass) newTypeProbe() (*danglingTypeProbe, error) {
+	p := &danglingTypeProbe{store: pass.store}
+	if pass.p.ActiveSyncID != "" {
+		sd, err := anypb.New(c1zpb.SyncDetails_builder{Id: pass.p.ActiveSyncID}.Build())
+		if err != nil {
+			return nil, fmt.Errorf("type probe: encoding sync scope: %w", err)
+		}
+		p.syncScope = []*anypb.Any{sd}
+	}
+	return p, nil
 }
 
 func (p *danglingTypeProbe) typeExists(ctx context.Context, resourceTypeID string) (bool, error) {
@@ -628,6 +736,7 @@ func (p *danglingTypeProbe) typeExists(ctx context.Context, resourceTypeID strin
 	}
 	_, err := p.store.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
 		ResourceTypeId: resourceTypeID,
+		Annotations:    p.syncScope,
 	}.Build())
 	if err != nil && status.Code(err) != codes.NotFound {
 		// A read failure is NOT "type never synced": that verdict picks
@@ -649,17 +758,17 @@ func (p *danglingTypeProbe) typeExists(ctx context.Context, resourceTypeID strin
 // danglingAttribution renders the attribution split for the aggregated
 // dangling-reference warnings: references into never-synced types are
 // config gaps; references into SYNCED types are connector data bugs —
-// unless the pass runs over a compaction merge (onlyExpandGrants),
+// unless the pass runs over a compaction merge (CompactionMerge),
 // where keep-newer merges manufacture them by design.
-func danglingAttribution(unsyncedTypeCount, syncedTypeCount int, onlyExpandGrants bool) string {
+func danglingAttribution(unsyncedTypeCount, syncedTypeCount int, compactionMerge bool) string {
 	switch {
 	case syncedTypeCount == 0:
 		return "referenced resource type(s) never synced — likely disabled on the connector (config gap), not a code bug"
-	case unsyncedTypeCount == 0 && onlyExpandGrants:
+	case unsyncedTypeCount == 0 && compactionMerge:
 		return "references target SYNCED types under the compaction expand pass — keep-newer merges manufacture these by design; not a connector bug"
 	case unsyncedTypeCount == 0:
 		return "references target SYNCED types — likely a connector magic-id construction bug, or rows emitted for referents the enumeration never produced"
-	case onlyExpandGrants:
+	case compactionMerge:
 		return "mixed: some references target never-synced types (config gap), some target synced types under the compaction expand pass (keep-newer merges manufacture these by design)"
 	default:
 		return "mixed: some references target never-synced types (config gap), some target synced types (likely connector data bugs)"
@@ -676,7 +785,7 @@ func danglingAttribution(unsyncedTypeCount, syncedTypeCount int, onlyExpandGrant
 // (no ListResources call ever returns them; the machinery materializes
 // the row in the same page handling), so a missing row means the
 // machinery lost it or the connector's own data destroyed it. The
-// compaction expand pass (onlyExpandGrants) is exempt from the hard arm
+// compaction expand pass (CompactionMerge) is exempt from the hard arm
 // in default mode: keep-newer merges can strand an annotated grant
 // whose resource row lost the merge, by design — those aggregate into
 // the warning instead.
@@ -689,8 +798,11 @@ func (pass *ingestInvariantsPass) checkGrantResourceReferences(ctx context.Conte
 	danglingResources, unsyncedType, syncedType := 0, 0, 0
 	var annotatedMergeStranded int
 	var resourceExamples []string
-	probe := &danglingTypeProbe{store: pass.store}
-	err := pass.facts.ForEachDistinctGrantEntitlementResource(ctx, func(rt, rid string) error {
+	probe, err := pass.newTypeProbe()
+	if err != nil {
+		return err
+	}
+	err = pass.facts.ForEachDistinctGrantEntitlementResource(ctx, func(rt, rid string) error {
 		exists, err := pass.facts.HasResourceRecord(ctx, rt, rid)
 		if err != nil {
 			return fmt.Errorf("ingest invariant I3: probing resource %s/%s: %w", rt, rid, err)
@@ -703,7 +815,7 @@ func (pass *ingestInvariantsPass) checkGrantResourceReferences(ctx context.Conte
 			return fmt.Errorf("ingest invariant I3: probing grant annotations for %s/%s: %w", rt, rid, err)
 		}
 		if annotated {
-			if pass.p.OnlyExpandGrants && !pass.p.FailFast {
+			if pass.p.CompactionMerge && !pass.p.FailFast {
 				// A keep-newer merge stranded a machinery-owned grant:
 				// the input that won the grant row lost the resource
 				// row. Manufactured by the merge, not evidence of a
@@ -716,11 +828,11 @@ func (pass *ingestInvariantsPass) checkGrantResourceReferences(ctx context.Conte
 				}
 				return nil
 			}
-			return fmt.Errorf(
+			return invariantVerdict(fmt.Errorf(
 				"ingest invariant I3 violated: grants reference resource %s/%s via InsertResourceGrants "+
 					"but no resource row exists — the related-resource machinery lost the row or the "+
 					"connector's own data is inconsistent (check for anything deleting grant-inserted resources)",
-				rt, rid)
+				rt, rid))
 		}
 		// Tolerated today: connectors emitting grants for unlisted
 		// resources without InsertResourceGrants. Visible, not fatal —
@@ -728,10 +840,10 @@ func (pass *ingestInvariantsPass) checkGrantResourceReferences(ctx context.Conte
 		// warn becomes a named failure (harnesses must catch connector
 		// shapes production only logs).
 		if pass.p.FailFast {
-			return fmt.Errorf(
+			return invariantVerdict(fmt.Errorf(
 				"ingest invariant I3 violated: grants reference resource %s/%s which was never synced "+
 					"(no InsertResourceGrants annotation — tolerated with a warning in production, promoted under fail-fast)",
-				rt, rid)
+				rt, rid))
 		}
 		typeSynced, probeErr := probe.typeExists(ctx, rt)
 		if probeErr != nil {
@@ -757,7 +869,7 @@ func (pass *ingestInvariantsPass) checkGrantResourceReferences(ctx context.Conte
 			zap.Int("refs_into_unsynced_types", unsyncedType),
 			zap.Int("refs_under_synced_types", syncedType),
 			zap.Int("insert_resource_grants_merge_stranded", annotatedMergeStranded),
-			zap.String("attribution", danglingAttribution(unsyncedType, syncedType, pass.p.OnlyExpandGrants)),
+			zap.String("attribution", danglingAttribution(unsyncedType, syncedType, pass.p.CompactionMerge)),
 			zap.Strings("resource_examples", resourceExamples),
 		)
 	}
@@ -771,10 +883,13 @@ func (pass *ingestInvariantsPass) checkGrantResourceReferences(ctx context.Conte
 // one warning with the type-synced attribution split; fail-fast mode
 // hard-fails the first one.
 func (pass *ingestInvariantsPass) checkEntitlementResourceReferences(ctx context.Context) error {
-	probe := &danglingTypeProbe{store: pass.store}
+	probe, err := pass.newTypeProbe()
+	if err != nil {
+		return err
+	}
 	danglingResources, unsyncedType, syncedType := 0, 0, 0
 	var resourceExamples []string
-	err := pass.facts.ForEachDistinctEntitlementResource(ctx, func(rt, rid string) error {
+	err = pass.facts.ForEachDistinctEntitlementResource(ctx, func(rt, rid string) error {
 		exists, err := pass.facts.HasResourceRecord(ctx, rt, rid)
 		if err != nil {
 			return fmt.Errorf("ingest invariant I7: probing resource %s/%s: %w", rt, rid, err)
@@ -787,10 +902,10 @@ func (pass *ingestInvariantsPass) checkEntitlementResourceReferences(ctx context
 			return fmt.Errorf("ingest invariant I7: %w", probeErr)
 		}
 		if pass.p.FailFast {
-			return fmt.Errorf(
+			return invariantVerdict(fmt.Errorf(
 				"ingest invariant I7 violated: entitlements reference resource %s/%s but no resource row exists "+
 					"(resource type synced: %t — false means a config gap, true a magic-id construction bug)",
-				rt, rid, typeSynced)
+				rt, rid, typeSynced))
 		}
 		danglingResources++
 		if typeSynced {
@@ -811,7 +926,7 @@ func (pass *ingestInvariantsPass) checkEntitlementResourceReferences(ctx context
 			zap.Int("dangling_resources", danglingResources),
 			zap.Int("refs_into_unsynced_types", unsyncedType),
 			zap.Int("refs_under_synced_types", syncedType),
-			zap.String("attribution", danglingAttribution(unsyncedType, syncedType, pass.p.OnlyExpandGrants)),
+			zap.String("attribution", danglingAttribution(unsyncedType, syncedType, pass.p.CompactionMerge)),
 			zap.Strings("resource_examples", resourceExamples),
 		)
 	}
@@ -838,10 +953,13 @@ func (pass *ingestInvariantsPass) checkEntitlementResourceReferences(ctx context
 // type-synced attribution split; fail-fast mode hard-fails the first
 // non-exempt one.
 func (pass *ingestInvariantsPass) checkGrantEntitlementReferences(ctx context.Context) error {
-	probe := &danglingTypeProbe{store: pass.store}
+	probe, err := pass.newTypeProbe()
+	if err != nil {
+		return err
+	}
 	danglingEnts, unsyncedType, syncedType := 0, 0, 0
 	var entIDExamples []string
-	err := pass.facts.ForEachDanglingGrantEntitlement(ctx, func(entitlementID, rt, rid string) error {
+	err = pass.facts.ForEachDanglingGrantEntitlement(ctx, func(entitlementID, rt, rid string) error {
 		allCarry, err := pass.facts.GrantsForEntitlementAllCarryInsertFact(ctx, entitlementID, rt, rid)
 		if err != nil {
 			return fmt.Errorf("ingest invariant I8: probing grant annotations for entitlement %q: %w", entitlementID, err)
@@ -854,10 +972,10 @@ func (pass *ingestInvariantsPass) checkGrantEntitlementReferences(ctx context.Co
 			return fmt.Errorf("ingest invariant I8: %w", probeErr)
 		}
 		if pass.p.FailFast {
-			return fmt.Errorf(
+			return invariantVerdict(fmt.Errorf(
 				"ingest invariant I8 violated: grants without InsertResourceGrants reference entitlement %q (resource %s/%s) but no entitlement row exists "+
 					"(resource type synced: %t — false means a config gap, true a magic-id construction bug)",
-				entitlementID, rt, rid, typeSynced)
+				entitlementID, rt, rid, typeSynced))
 		}
 		danglingEnts++
 		if typeSynced {
@@ -878,7 +996,7 @@ func (pass *ingestInvariantsPass) checkGrantEntitlementReferences(ctx context.Co
 			zap.Int("dangling_entitlements", danglingEnts),
 			zap.Int("refs_into_unsynced_types", unsyncedType),
 			zap.Int("refs_under_synced_types", syncedType),
-			zap.String("attribution", danglingAttribution(unsyncedType, syncedType, pass.p.OnlyExpandGrants)),
+			zap.String("attribution", danglingAttribution(unsyncedType, syncedType, pass.p.CompactionMerge)),
 			zap.Strings("entitlement_id_examples", entIDExamples),
 		)
 	}
@@ -908,13 +1026,20 @@ func (pass *ingestInvariantsPass) checkGrantPrincipalReferences(ctx context.Cont
 	if err := pass.haltAt(haltStageI9IndexesEnsured); err != nil {
 		return err
 	}
-	probe := &danglingTypeProbe{store: pass.store}
+	probe, err := pass.newTypeProbe()
+	if err != nil {
+		return err
+	}
 	danglingPrincipals, unsyncedType, syncedType := 0, 0, 0
 	var matchCarriersKept int64
 	var principalExamples []string
-	err := pass.facts.ForEachDanglingGrantPrincipal(ctx, func(rt, rid string, matchAnnotatedOnly bool, carrierGrants int64) error {
+	err = pass.facts.ForEachDanglingGrantPrincipal(ctx, func(rt, rid string, matchAnnotatedOnly bool, carrierGrants int64) error {
+		// Carrier grants are counted per GRANT in both shapes: a fully
+		// annotated principal is exempt outright, and a MIXED population
+		// still reports its carriers (the plain grants are what make the
+		// principal a violation, not the carriers beside them).
+		matchCarriersKept += carrierGrants
 		if matchAnnotatedOnly {
-			matchCarriersKept += carrierGrants
 			return nil
 		}
 		typeSynced, probeErr := probe.typeExists(ctx, rt)
@@ -922,11 +1047,11 @@ func (pass *ingestInvariantsPass) checkGrantPrincipalReferences(ctx context.Cont
 			return fmt.Errorf("ingest invariant I9: %w", probeErr)
 		}
 		if pass.p.FailFast {
-			return fmt.Errorf(
+			return invariantVerdict(fmt.Errorf(
 				"ingest invariant I9 violated: grants reference principal %s/%s but no resource row exists "+
 					"(resource type synced: %t — false means a config gap, true means the connector "+
 					"emitted grants for a principal it never synced)",
-				rt, rid, typeSynced)
+				rt, rid, typeSynced))
 		}
 		danglingPrincipals++
 		if typeSynced {
@@ -948,7 +1073,7 @@ func (pass *ingestInvariantsPass) checkGrantPrincipalReferences(ctx context.Cont
 			zap.Int("dangling_principals", danglingPrincipals),
 			zap.Int("refs_into_unsynced_types", unsyncedType),
 			zap.Int("refs_under_synced_types", syncedType),
-			zap.String("attribution", danglingAttribution(unsyncedType, syncedType, pass.p.OnlyExpandGrants)),
+			zap.String("attribution", danglingAttribution(unsyncedType, syncedType, pass.p.CompactionMerge)),
 			zap.Strings("principal_examples", principalExamples),
 		)
 	}

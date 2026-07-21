@@ -163,19 +163,26 @@ type syncer struct {
 	// returning an error fails the sync at exactly that boundary. The
 	// halt sweep uses it to prove crash/resume equivalence at every
 	// ordering-sensitive point. Nil in production: one pointer check.
-	testIngestHaltHook              func(stage string) error
-	connector                       types.ConnectorClient
-	state                           State
-	runDuration                     time.Duration
-	transitionHandler               func(s Action)
-	progressHandler                 func(p *Progress)
-	tmpDir                          string
-	storageEngine                   c1zstore.Engine
-	skipFullSync                    bool
-	lastCheckPointTime              time.Time
-	counts                          *progresslog.ProgressLog
-	targetedSyncResources           []*v2.Resource
-	onlyExpandGrants                bool
+	testIngestHaltHook    func(stage string) error
+	connector             types.ConnectorClient
+	state                 State
+	runDuration           time.Duration
+	transitionHandler     func(s Action)
+	progressHandler       func(p *Progress)
+	tmpDir                string
+	storageEngine         c1zstore.Engine
+	skipFullSync          bool
+	lastCheckPointTime    time.Time
+	counts                *progresslog.ProgressLog
+	targetedSyncResources []*v2.Resource
+	onlyExpandGrants      bool
+	// compactionMergedStore marks the store as a compactor keep-newer
+	// merge (WithCompactionMergedStore): invariant verdicts attribute
+	// merge-manufactured shapes to the merge and soften hard arms to
+	// aggregated warnings. Distinct from onlyExpandGrants — every
+	// merge-expand run sets both, but rollback-expansion's replay sets
+	// only onlyExpandGrants and keeps full invariant strictness.
+	compactionMergedStore           bool
 	dontExpandGrants                bool
 	syncID                          string
 	skipEGForResourceType           syncMap[string, bool]
@@ -3259,6 +3266,22 @@ func WithSyncResourceTypes(resourceTypeIDs []string) SyncOpt {
 func WithOnlyExpandGrants() SyncOpt {
 	return func(s *syncer) {
 		s.onlyExpandGrants = true
+	}
+}
+
+// WithCompactionMergedStore marks the store under this sync as a
+// compactor keep-newer merge. The ingestion invariants
+// (ingest_invariants.go) then attribute merge-manufactured shapes —
+// dangling references, stranded InsertResourceGrants rows,
+// exclusion-group conflicts unioned from different input generations —
+// to the merge instead of the connector, and soften the corresponding
+// hard arms to aggregated warnings (fail-fast still promotes). Set by
+// the compactor's expand pass ONLY: an expansion-only run over a
+// single non-merged artifact (rollback-expansion's replay) must keep
+// full strictness, because there a conflict is real evidence.
+func WithCompactionMergedStore() SyncOpt {
+	return func(s *syncer) {
+		s.compactionMergedStore = true
 	}
 }
 

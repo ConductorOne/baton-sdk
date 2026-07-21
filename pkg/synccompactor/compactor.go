@@ -582,6 +582,11 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 		sync.WithTmpDir(c.tmpDir),
 		sync.WithSyncID(newSyncId),
 		sync.WithOnlyExpandGrants(),
+		// The store is a keep-newer merge: invariant verdicts must
+		// attribute merge-manufactured shapes to the merge, not the
+		// connector, and must not fail the seal over them. Wiring
+		// pinned by TestCompactionExpandToleratesMergeManufacturedExclusionConflicts.
+		sync.WithCompactionMergedStore(),
 	}
 
 	compactionDuration := time.Since(compactionStart)
