@@ -12,12 +12,12 @@ import (
 func TestObserveWaitReportsToObserver(t *testing.T) {
 	var gotWait time.Duration
 	var calls int
-	ctx := WithWaitObserver(t.Context(), func(ctx context.Context, wait time.Duration) {
-		gotWait = wait
+	ctx := WithWaitObserver(t.Context(), func(ctx context.Context, ev WaitEvent) {
+		gotWait = ev.Duration
 		calls++
 	})
 
-	ObserveWait(ctx, 5*time.Second)
+	ObserveWait(ctx, WaitEvent{Duration: 5 * time.Second})
 
 	require.Equal(t, 1, calls)
 	require.Equal(t, 5*time.Second, gotWait)
@@ -25,7 +25,7 @@ func TestObserveWaitReportsToObserver(t *testing.T) {
 
 func TestObserveWaitWithoutObserverIsNoOp(t *testing.T) {
 	require.NotPanics(t, func() {
-		ObserveWait(t.Context(), time.Second)
+		ObserveWait(t.Context(), WaitEvent{Duration: time.Second})
 	})
 }
 

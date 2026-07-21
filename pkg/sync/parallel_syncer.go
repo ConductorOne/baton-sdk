@@ -43,11 +43,11 @@ func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLi
 // report time because the flag is only decided after the store is loaded,
 // which is after the observer must already be on the context.
 func (s *syncer) withRateLimitWaitObserver(ctx context.Context) context.Context {
-	return ratelimit.WithWaitObserver(ctx, func(ctx context.Context, wait time.Duration) {
+	return ratelimit.WithWaitObserver(ctx, func(ctx context.Context, ev ratelimit.WaitEvent) {
 		if !s.recordStats {
 			return
 		}
-		s.recordRetryWait(ctx, wait, true)
+		s.recordRetryWait(ctx, ev.Duration, true)
 	})
 }
 

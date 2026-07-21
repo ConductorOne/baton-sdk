@@ -38,8 +38,8 @@ func TestWaitObserverRecordsRateLimitWait(t *testing.T) {
 	ctx := s.withRateLimitWaitObserver(t.Context())
 	// Simulate a rate-limit gate (SDK interceptor / hosted manager) sleeping
 	// before a request, attributed to a resource type.
-	ratelimit.ObserveWait(retry.WithWaitLabel(ctx, "repository"), 30*time.Second)
-	ratelimit.ObserveWait(ctx, 10*time.Second)
+	ratelimit.ObserveWait(retry.WithWaitLabel(ctx, "repository"), ratelimit.WaitEvent{Duration: 30 * time.Second})
+	ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: 10 * time.Second})
 
 	durations := s.state.StepDurations()
 	require.EqualValues(t, 40000, durations["rate_limit_wait"])
@@ -55,7 +55,7 @@ func TestWaitObserverDisabledWithoutStats(t *testing.T) {
 	ctx := s.withRateLimitWaitObserver(t.Context())
 	// The observer is installed regardless (recordStats is only decided
 	// after store load), but reports are dropped when stats are off.
-	ratelimit.ObserveWait(ctx, time.Second)
+	ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: time.Second})
 	require.Empty(t, s.state.StepDurations())
 }
 

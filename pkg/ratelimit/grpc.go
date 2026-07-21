@@ -184,10 +184,10 @@ func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimi
 				// Overlimit -- wait up to maxRatelimitWait before trying the request again or the request is cancelled.
 				select {
 				case <-time.After(d):
-					ObserveWait(waitCtx, d)
+					ObserveWait(waitCtx, WaitEvent{Duration: d})
 					continue
 				case <-ctx.Done():
-					ObserveWait(waitCtx, time.Since(waitStart))
+					ObserveWait(waitCtx, WaitEvent{Duration: time.Since(waitStart)})
 					return status.FromContextError(ctx.Err()).Err()
 				}
 

@@ -37,7 +37,7 @@ type gateSimConnector struct {
 
 func (g *gateSimConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
 	resourceType := in.GetResource().GetId().GetResourceType()
-	ratelimit.ObserveWait(retry.WithWaitLabel(ctx, resourceType), g.gateWait)
+	ratelimit.ObserveWait(retry.WithWaitLabel(ctx, resourceType), ratelimit.WaitEvent{Duration: g.gateWait})
 	g.gateCalls++
 	resp, err := g.mockConnector.ListGrants(ctx, in, opts...)
 	if err != nil {
