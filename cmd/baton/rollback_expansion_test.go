@@ -205,6 +205,90 @@ func TestRollbackExpansionReplayRederives(t *testing.T) {
 	requireGrantPresence(t, ctx, outPath, syncID, "group:g1:member:user:alice", true)
 }
 
+// buildMergedConflictC1Z writes a finished, expansion-marked c1z carrying
+// the exact shape a compactor keep-newer merge legitimately seals: two
+// entitlements in one exclusion group BOTH marked is_default (the group
+// default moved between input syncs and the union kept both rows). This
+// is a hard I5 conflict for a strict invariant pass. It also carries an
+// expandable nesting grant so a replay has real expansion work to do.
+func buildMergedConflictC1Z(t *testing.T, ctx context.Context, path string) string {
+	t.Helper()
+	f, err := dotc1z.NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	require.NoError(t, f.PutResourceTypes(ctx,
+		v2.ResourceType_builder{Id: "group", DisplayName: "Group", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP}}.Build(),
+		v2.ResourceType_builder{Id: "user", DisplayName: "User", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build(),
+	))
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(), DisplayName: "G2"}.Build()
+	alice := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(), DisplayName: "Alice"}.Build()
+	require.NoError(t, f.PutResources(ctx, g1, g2, alice))
+
+	defaultAnno := func() *anypb.Any {
+		a, err := anypb.New(v2.EntitlementExclusionGroup_builder{ExclusionGroupId: "eg-1", IsDefault: true}.Build())
+		require.NoError(t, err)
+		return a
+	}
+	g1Member := v2.Entitlement_builder{
+		Id: "group:g1:member", DisplayName: "g1 member", Resource: g1, Slug: "member",
+		Annotations: []*anypb.Any{defaultAnno()},
+	}.Build()
+	g2Member := v2.Entitlement_builder{
+		Id: "group:g2:member", DisplayName: "g2 member", Resource: g2, Slug: "member",
+		Annotations: []*anypb.Any{defaultAnno()},
+	}.Build()
+	require.NoError(t, f.PutEntitlements(ctx, g1Member, g2Member))
+
+	expandableAnno, err := anypb.New(v2.GrantExpandable_builder{EntitlementIds: []string{"group:g2:member"}}.Build())
+	require.NoError(t, err)
+	nesting := v2.Grant_builder{
+		Id:          "group:g1:member:group:g2",
+		Entitlement: g1Member,
+		Principal:   g2,
+		Annotations: []*anypb.Any{expandableAnno},
+	}.Build()
+	aliceG2 := v2.Grant_builder{
+		Id:          "group:g2:member:user:alice",
+		Entitlement: g2Member,
+		Principal:   alice,
+	}.Build()
+	require.NoError(t, f.PutGrants(ctx, nesting, aliceG2))
+
+	require.NoError(t, f.SetSupportsDiff(ctx, syncID))
+	require.NoError(t, f.EndSync(ctx))
+	require.NoError(t, f.Close(ctx))
+	return syncID
+}
+
+// TestRollbackExpansionReplayToleratesMergedConflicts is the round-5
+// regression guard: rollback-expansion's inputs include compaction-merged
+// artifacts, and the compactor legitimately seals keep-newer unions that
+// hold I5 exclusion-group conflicts (two is_default rows in one group —
+// see TestCompactionExpandToleratesMergeManufacturedExclusionConflicts).
+// A replay that runs the invariant pass at full strictness hard-fails I5
+// AFTER RollbackExpandedGrants already mutated the output, bricking the
+// recovery tool and leaving the file rolled-back-but-unexpanded. The
+// replay syncer must soften to attributed warnings
+// (WithCompactionMergedStore) and complete.
+func TestRollbackExpansionReplayToleratesMergedConflicts(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	inPath := filepath.Join(tmp, "src.c1z")
+	outPath := filepath.Join(tmp, "out.c1z")
+	syncID := buildMergedConflictC1Z(t, ctx, inPath)
+
+	require.NoError(t, runRollback(ctx, inPath, "--out", outPath, "--sync-id", syncID, "--replay"),
+		"replay over a compaction-merged artifact must warn on the sealed conflict, not hard-fail I5")
+	require.FileExists(t, outPath)
+
+	// The replay actually expanded: alice's membership in g2 propagated
+	// through the expandable nesting grant into g1.
+	requireGrantPresence(t, ctx, outPath, syncID, "group:g1:member:user:alice", true)
+}
+
 // buildSyntheticExpandedC1Z writes a finished, expansion-marked c1z whose
 // grants carry hand-set Sources maps, so each rollback classification case
 // is exercised in isolation without driving the real expander:

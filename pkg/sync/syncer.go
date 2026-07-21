@@ -176,12 +176,13 @@ type syncer struct {
 	counts                *progresslog.ProgressLog
 	targetedSyncResources []*v2.Resource
 	onlyExpandGrants      bool
-	// compactionMergedStore marks the store as a compactor keep-newer
-	// merge (WithCompactionMergedStore): invariant verdicts attribute
-	// merge-manufactured shapes to the merge and soften hard arms to
-	// aggregated warnings. Distinct from onlyExpandGrants — every
-	// merge-expand run sets both, but rollback-expansion's replay sets
-	// only onlyExpandGrants and keeps full invariant strictness.
+	// compactionMergedStore marks the store as a pre-sealed artifact
+	// this process did not collect (WithCompactionMergedStore — the
+	// compactor's keep-newer merge and rollback-expansion's replay):
+	// invariant verdicts attribute merge-manufactured shapes to the
+	// merge and soften hard arms to aggregated warnings. Distinct from
+	// onlyExpandGrants, which changes WHAT syncs and carries no
+	// invariant policy on its own.
 	compactionMergedStore           bool
 	dontExpandGrants                bool
 	syncID                          string
@@ -3270,15 +3271,17 @@ func WithOnlyExpandGrants() SyncOpt {
 }
 
 // WithCompactionMergedStore marks the store under this sync as a
-// compactor keep-newer merge. The ingestion invariants
+// pre-sealed artifact this process did not collect — the compactor's
+// keep-newer merge, or rollback-expansion's replay over an existing
+// c1z (whose inputs include such merges). The ingestion invariants
 // (ingest_invariants.go) then attribute merge-manufactured shapes —
 // dangling references, stranded InsertResourceGrants rows,
 // exclusion-group conflicts unioned from different input generations —
 // to the merge instead of the connector, and soften the corresponding
-// hard arms to aggregated warnings (fail-fast still promotes). Set by
-// the compactor's expand pass ONLY: an expansion-only run over a
-// single non-merged artifact (rollback-expansion's replay) must keep
-// full strictness, because there a conflict is real evidence.
+// hard arms to aggregated warnings (fail-fast still promotes). The
+// hard arms exist to stop a NEW collection from sealing bad data;
+// passes over already-sealed artifacts observe and attribute instead.
+// A normal connector sync must never set this.
 func WithCompactionMergedStore() SyncOpt {
 	return func(s *syncer) {
 		s.compactionMergedStore = true

@@ -218,16 +218,17 @@ type IngestInvariantsPolicy struct {
 	// entirely in default mode) runs. Tests and equivalence harnesses
 	// set it.
 	FailFast bool
-	// CompactionMerge marks a pass over a store produced by the
-	// compactor's keep-newer MERGE: the key union can manufacture
-	// shapes no single input contained (dangling references, stranded
-	// InsertResourceGrants rows, exclusion-group conflicts), so
-	// verdicts that would blame the connector are attributed to the
-	// merge and hard arms soften to aggregated warnings. Set ONLY by
-	// the compactor's expand pass (WithCompactionMergedStore) —
-	// deliberately NOT by every expansion-only run: rollback-expansion
-	// replays a single non-merged artifact, where a conflict is real
-	// connector/artifact evidence and must keep failing the seal.
+	// CompactionMerge marks a pass over a PRE-SEALED artifact this
+	// process did not collect — the compactor's keep-newer merge
+	// (whose key union manufactures shapes no single input contained:
+	// dangling references, stranded InsertResourceGrants rows,
+	// exclusion-group conflicts) and rollback-expansion's replay
+	// (whose inputs include such merged artifacts). Verdicts that
+	// would blame the connector are attributed to the merge and hard
+	// arms soften to aggregated warnings: the hard arms exist to stop
+	// a NEW collection from sealing bad data, not to re-adjudicate an
+	// artifact that already sealed. A normal connector sync must never
+	// set this.
 	CompactionMerge bool
 
 	// I4 evidence: only a process that ran the resources phase can
@@ -297,8 +298,12 @@ type ingestInvariant struct {
 	check func(pass *ingestInvariantsPass, ctx context.Context) error
 }
 
-// ingestInvariants is the verdict table, in evaluation order: cheapest
-// and most behavior-critical first. The relative order of the
+// ingestInvariants is the verdict table, in evaluation order: the
+// hard-fail class (I5) runs first — behavior-criticality, not cost,
+// orders the table (I5's full entitlement listing is mechanically the
+// most expensive read here; it goes first so a seal-blocking verdict
+// surfaces before the cheaper warn-class scans spend their seeks).
+// The relative order of the
 // referential family (I7, I3, I8, I9) is load-bearing for the future
 // drop arms (I7 dropping dangling entitlements orphans their grants,
 // which I8 then catches; I9 runs last over whatever grants survive) —
@@ -389,13 +394,13 @@ func ingestInvariantHaltStages() []string {
 // store-level function so store-producing pipelines without a syncer
 // (the compactor's expand pass) can enforce the same contract.
 func RunIngestInvariants(ctx context.Context, store connectorstore.Reader, policy IngestInvariantsPolicy) error {
+	if store == nil {
+		return fmt.Errorf("ingest invariants: store is required")
+	}
 	// Fail closed on a zero SyncType: connectorstore's zero value is
 	// SyncTypeAny (""), which is not SyncTypeFull — a caller omitting
 	// the field would silently skip every full-keyspace invariant and
 	// read a green pass that validated almost nothing.
-	if store == nil {
-		return fmt.Errorf("ingest invariants: store is required")
-	}
 	if policy.SyncType == "" {
 		return fmt.Errorf("ingest invariants: policy.SyncType is required (the zero value would silently skip the full-keyspace invariants; pass the sync's actual type)")
 	}
@@ -488,11 +493,17 @@ func (v *exclusionGroupViolation) Error() string { return v.err.Error() }
 func (v *exclusionGroupViolation) Unwrap() error { return v.err }
 
 func (t *exclusionGroupTracker) record(ent *v2.Entitlement) error {
-	// Every EntitlementExclusionGroup annotation counts, not just the
-	// first (Pick-first would let a second annotation carry an unseen
-	// is_default or a cross-type membership — a hostile/malformed
-	// connector shape, but one the stored keyspace faithfully holds
-	// and the validator must therefore judge).
+	// Every EntitlementExclusionGroup annotation is JUDGED, not just
+	// the first (Pick-first would let a second annotation carry an
+	// unseen is_default or a cross-type membership — a hostile or
+	// malformed connector shape, but one the stored keyspace
+	// faithfully holds and the validator must therefore see). The
+	// member CAP, however, counts DISTINCT ENTITLEMENTS per group —
+	// exactly what its error message claims — so duplicate annotations
+	// naming the same group on one entitlement validate their rules
+	// without inflating the count (one entitlement with 51 copies of
+	// the same annotation is degenerate data, not a 51-member group).
+	var counted map[string]bool
 	for _, a := range ent.GetAnnotations() {
 		if !a.MessageIs((*v2.EntitlementExclusionGroup)(nil)) {
 			continue
@@ -501,19 +512,26 @@ func (t *exclusionGroupTracker) record(ent *v2.Entitlement) error {
 		if err := a.UnmarshalTo(eg); err != nil {
 			return fmt.Errorf("parsing exclusion group on %q: %w", ent.GetId(), err)
 		}
-		if eg.GetExclusionGroupId() == "" {
+		groupID := eg.GetExclusionGroupId()
+		if groupID == "" {
 			continue
 		}
-		if err := t.recordMembership(ent, eg); err != nil {
+		if counted == nil {
+			counted = map[string]bool{}
+		}
+		if err := t.recordMembership(ent, eg, counted[groupID]); err != nil {
 			return err
 		}
+		counted[groupID] = true
 	}
 	return nil
 }
 
-// recordMembership applies the three group rules to one (entitlement,
-// exclusion-group annotation) membership.
-func (t *exclusionGroupTracker) recordMembership(ent *v2.Entitlement, eg *v2.EntitlementExclusionGroup) error {
+// recordMembership applies the group rules to one (entitlement,
+// exclusion-group annotation) membership. alreadyCounted suppresses
+// the cap increment for repeat annotations of the same group on the
+// same entitlement; the type and default rules always apply.
+func (t *exclusionGroupTracker) recordMembership(ent *v2.Entitlement, eg *v2.EntitlementExclusionGroup, alreadyCounted bool) error {
 	groupID := eg.GetExclusionGroupId()
 	if t.groups == nil {
 		t.groups = map[string]*exclusionGroupState{}
@@ -540,6 +558,9 @@ func (t *exclusionGroupTracker) recordMembership(ent *v2.Entitlement, eg *v2.Ent
 				groupID, st.defaultEntID, ent.GetId())}
 		}
 		st.defaultEntID = ent.GetId()
+	}
+	if alreadyCounted {
+		return nil
 	}
 	st.count++
 	if st.count > maxEntitlementsPerExclusionGroup {
@@ -580,6 +601,7 @@ func (pass *ingestInvariantsPass) checkStoredExclusionGroups(ctx context.Context
 	// the example slots with near-identical strings. The first error
 	// per group is the example.
 	conflictGroups := map[string]bool{}
+	corruptAnnotations := 0
 	var examples []string
 	pageToken := ""
 	for {
@@ -592,18 +614,35 @@ func (pass *ingestInvariantsPass) checkStoredExclusionGroups(ctx context.Context
 		}
 		for _, ent := range resp.GetList() {
 			if err := tracker.record(ent); err != nil {
+				// Every arm of I5 — typed group violations AND corrupt
+				// (undecodable) annotations — follows the pass semantics:
+				// a NEW collection hard-fails the seal with the
+				// non-retryable sentinel (both are deterministic stored
+				// bytes; retrying cannot fix either), while a pass over a
+				// pre-sealed artifact (compactor merge, rollback replay)
+				// observes and attributes. A corrupt annotation is not
+				// merge-MANUFACTURED, but on a pre-sealed pass the bytes
+				// already sealed once and failing here — after the merge
+				// or the rollback mutation — punishes the wrong actor
+				// with no operator escape.
 				if !warnOnly {
 					return invariantVerdict(fmt.Errorf("ingest invariant I5 violated: %w", err))
 				}
-				key := err.Error()
 				var viol *exclusionGroupViolation
-				if errors.As(err, &viol) {
-					key = viol.groupID
-				}
-				if conflictGroups[key] {
+				if !errors.As(err, &viol) {
+					// Corrupt annotation: counted separately from group
+					// conflicts (it is artifact damage, not a group
+					// shape), one example per row.
+					corruptAnnotations++
+					if len(examples) < maxDanglingIDExamples {
+						examples = append(examples, err.Error())
+					}
 					continue
 				}
-				conflictGroups[key] = true
+				if conflictGroups[viol.groupID] {
+					continue
+				}
+				conflictGroups[viol.groupID] = true
 				if len(examples) < maxDanglingIDExamples {
 					examples = append(examples, err.Error())
 				}
@@ -613,9 +652,10 @@ func (pass *ingestInvariantsPass) checkStoredExclusionGroups(ctx context.Context
 			break
 		}
 	}
-	if len(conflictGroups) > 0 {
+	if len(conflictGroups) > 0 || corruptAnnotations > 0 {
 		ctxzap.Extract(ctx).Warn("ingest invariant I5: exclusion-group conflicts on the compaction expand pass (keep-newer merges manufacture these by design; not a connector bug)",
 			zap.Int("conflict_groups", len(conflictGroups)),
+			zap.Int("corrupt_annotations", corruptAnnotations),
 			zap.Strings("group_examples", examples),
 		)
 	}

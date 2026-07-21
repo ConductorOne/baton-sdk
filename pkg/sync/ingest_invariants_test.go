@@ -268,6 +268,67 @@ func TestExclusionGroupTrackerSeesEveryAnnotation(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "is_default")
 	})
+
+	t.Run("corrupt annotation follows the pass semantics", func(t *testing.T) {
+		// Round-5 delta review: a corrupt annotation is deterministic
+		// stored bytes, so on a NEW collection it must be a hard,
+		// NON-RETRYABLE verdict (retrying cannot fix bytes) — while a
+		// pass over a pre-sealed artifact observes and attributes,
+		// exactly like every other I5 arm.
+		buildStore := func(t *testing.T) (*dotc1z.C1File, string) {
+			store, syncID := newInvariantTestStore(t.Context(), t)
+			r, err := rs.NewResource("user1", userResourceType, "user1")
+			require.NoError(t, err)
+			ent := et.NewPermissionEntitlement(r, "viewer")
+			ent.SetAnnotations([]*anypb.Any{{
+				TypeUrl: "type.googleapis.com/c1.connector.v2.EntitlementExclusionGroup",
+				Value:   []byte{0xFF, 0xFF}, // undecodable
+			}})
+			require.NoError(t, store.PutEntitlements(t.Context(), ent))
+			return store, syncID
+		}
+
+		store, syncID := buildStore(t)
+		err := RunIngestInvariants(t.Context(), store, IngestInvariantsPolicy{
+			ActiveSyncID: syncID,
+			SyncType:     connectorstore.SyncTypeFull,
+		})
+		require.Error(t, err, "a new collection must not seal data it could not judge")
+		require.Contains(t, err.Error(), "parsing exclusion group")
+		require.ErrorIs(t, err, ErrIngestInvariantViolated,
+			"corrupt stored bytes are deterministic; the verdict must carry the non-retryable sentinel")
+
+		store, syncID = buildStore(t)
+		err = RunIngestInvariants(t.Context(), store, IngestInvariantsPolicy{
+			ActiveSyncID:    syncID,
+			SyncType:        connectorstore.SyncTypeFull,
+			CompactionMerge: true,
+		})
+		require.NoError(t, err,
+			"a pass over a pre-sealed artifact must warn-and-attribute, not brick the merge/replay post-mutation")
+	})
+
+	t.Run("duplicate annotations count the entitlement once toward the cap", func(t *testing.T) {
+		// Round-5 finding: the cap's message says ENTITLEMENTS, so one
+		// entitlement carrying 51 copies of the same group annotation is
+		// degenerate data, not a 51-member group — it must not trip the
+		// cap alone (main's Pick-first counted it once; parity kept).
+		tr := &exclusionGroupTracker{}
+		egs := make([]*v2.EntitlementExclusionGroup, 0, maxEntitlementsPerExclusionGroup+1)
+		for i := 0; i < maxEntitlementsPerExclusionGroup+1; i++ {
+			egs = append(egs, eg("g1", false))
+		}
+		require.NoError(t, tr.record(newEnt(t, "u1", "viewer", egs...)),
+			"duplicate same-group annotations on one entitlement must count once")
+
+		// Distinct entitlements still trip the cap (rule intact).
+		var err error
+		for i := 0; err == nil && i < maxEntitlementsPerExclusionGroup+1; i++ {
+			err = tr.record(newEnt(t, fmt.Sprintf("u%03d", i+2), "member", eg("g1", false)))
+		}
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "too many entitlements")
+	})
 }
 
 // newInvariantTestStore opens a fresh SQLite-backed C1File with an open
