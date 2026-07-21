@@ -265,10 +265,18 @@ func TestRetryWithHTTPResponse(t *testing.T) {
 				Header:     tt.headers,
 			}
 
+			// Start the clock BEFORE building the error: rate-limit cases
+			// mint their ResetAt deadline inside buildRateLimitFn, and the
+			// retryer sleeps time.Until(deadline) — strictly less than the
+			// nominal window by the time it's computed. Measuring from
+			// after the mint made elapsed structurally undershoot the
+			// minimum bound (e.g. 999.93ms vs 1s on Windows' coarse
+			// timer). From before the mint, elapsed >= deadline - start
+			// holds by monotonic sleep semantics on every platform.
+			startTime := time.Now()
 			err := tt.buildRateLimitFn(resp)
 			require.NotNil(t, err)
 
-			startTime := time.Now()
 			shouldRetry := retryer.ShouldWaitAndRetry(ctx, err)
 			elapsed := time.Since(startTime)
 

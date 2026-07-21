@@ -234,6 +234,30 @@ func TestIngestInvariantI5StoredValidation(t *testing.T) {
 		require.Contains(t, err.Error(), "is_default")
 	})
 
+	t.Run("compaction expand pass warns instead of failing", func(t *testing.T) {
+		// A keep-newer merge of two individually-valid syncs can union
+		// entitlement generations into conflicts no input contained
+		// (e.g. a moved default keeps both is_default rows). The expand
+		// pass must not reject the merge's own artifact; fail-fast
+		// still promotes.
+		store, syncID := newInvariantTestStore(ctx, t)
+		require.NoError(t, store.PutEntitlements(ctx,
+			newEnt(userResourceType, "user1", "viewer", et.WithExclusionGroupDefault("role", 1)),
+			newEnt(userResourceType, "user2", "editor", et.WithExclusionGroupDefault("role", 2)),
+		))
+		policy := IngestInvariantsPolicy{
+			ActiveSyncID:     syncID,
+			SyncType:         connectorstore.SyncTypeFull,
+			OnlyExpandGrants: true,
+		}
+		require.NoError(t, RunIngestInvariants(ctx, store, policy),
+			"merge-manufactured conflicts must aggregate into a warning on the expand pass, not fail the seal")
+		policy.FailFast = true
+		err := RunIngestInvariants(ctx, store, policy)
+		require.Error(t, err, "fail-fast promotes the expand pass's tolerated warning")
+		require.Contains(t, err.Error(), "ingest invariant I5 violated")
+	})
+
 	t.Run("I5 runs on partial syncs too", func(t *testing.T) {
 		store, err := dotc1z.NewC1ZFile(ctx, filepath.Join(t.TempDir(), "partial.c1z"))
 		require.NoError(t, err)

@@ -27,7 +27,20 @@ import (
 // writes; the dangling-principal scan (I9) needs it complete. This is
 // the SAME build EndSync would run, so the marker must clear here or
 // EndSync repeats the whole O(grants) scan/build a second time.
+//
+// CALLER CONTRACT — WRITE QUIESCENCE REQUIRED: unlike EndSync, which
+// seals the engine before its rebuild so a straggler writer blocked on
+// writeMu cannot commit between the rebuild and the marker clear, this
+// method cannot seal (the invariant pass's own heal still needs the
+// write path). A deferred grant write racing this call could land
+// after the rebuild and before the clear — present in the primary
+// keyspace, permanently absent from by_principal. The syncer's
+// post-collection seam guarantees quiescence (parallelSync has
+// drained); any new caller must guarantee the same or use EndSync.
 func (e *Engine) EnsureGrantIndexes(ctx context.Context) error {
+	if e.db == nil {
+		return ErrEngineClosing
+	}
 	if !e.db.DeferredIdxPending() {
 		return nil
 	}
@@ -58,6 +71,9 @@ func (e *Engine) EnsureGrantIndexes(ctx context.Context) error {
 // the orphan index keys are deleted — instead of being vacuously
 // classified as match-annotated-only.
 func (e *Engine) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(principalRT, principalID string, matchAnnotatedOnly bool, carrierGrants int64) error) error {
+	if e.db == nil {
+		return ErrEngineClosing
+	}
 	prefix := []byte{versionV3, typeIndex, idxGrantByPrincipal}
 	prefix = codec.AppendTupleSeparator(prefix)
 	iter, err := e.db.NewIter(&pebble.IterOptions{

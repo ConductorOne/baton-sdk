@@ -72,6 +72,32 @@ func TestDanglingPrincipalSweepHealsAllOrphanIndexEntries(t *testing.T) {
 	require.Zero(t, visited)
 }
 
+// TestIngestScanSurfaceAfterCloseReturnsClosing pins the lifecycle
+// contract on the invariant scan surface: a retained handle used after
+// Close must get ErrEngineClosing, never a nil-map/nil-pointer panic —
+// the same per-call guard the promoted merge surface carries.
+func TestIngestScanSurfaceAfterCloseReturnsClosing(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	e := a.PebbleEngine()
+	require.NoError(t, e.Close())
+
+	visit2 := func(string, string) error { return nil }
+	require.ErrorIs(t, e.ForEachDistinctGrantEntitlementResource(ctx, visit2), ErrEngineClosing)
+	require.ErrorIs(t, e.ForEachDistinctEntitlementResource(ctx, visit2), ErrEngineClosing)
+	require.ErrorIs(t, e.ForEachDanglingGrantEntitlement(ctx, func(string, string, string) error { return nil }), ErrEngineClosing)
+	require.ErrorIs(t, e.EnsureGrantIndexes(ctx), ErrEngineClosing)
+	require.ErrorIs(t, e.ForEachDanglingGrantPrincipal(ctx, func(string, string, bool, int64) error { return nil }), ErrEngineClosing)
+	_, err = e.HasResourceRecord(ctx, "user", "alice")
+	require.ErrorIs(t, err, ErrEngineClosing)
+	_, err = e.GrantsForEntResourceCarryInsertFact(ctx, "group", "g1")
+	require.ErrorIs(t, err, ErrEngineClosing)
+	_, err = e.GrantsForEntitlementAllCarryInsertFact(ctx, "group:g1:member", "group", "g1")
+	require.ErrorIs(t, err, ErrEngineClosing)
+}
+
 // TestDanglingPrincipalSweepKeepsMixedPopulations pins the boundary of
 // the heal: a dangling principal with REAL grant rows is visited (its
 // verdict belongs to the syncer's policy arms), and its live index

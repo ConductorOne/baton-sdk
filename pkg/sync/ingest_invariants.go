@@ -278,9 +278,12 @@ var ingestInvariants = []ingestInvariant{
 	{
 		id:                 "I5",
 		runsOnAllSyncTypes: true,
-		failFastPromotes:   false, // every I5 verdict is already a hard failure
-		haltStage:          "invariants-I5-complete",
-		check:              (*ingestInvariantsPass).checkStoredExclusionGroups,
+		// Hard failure on connector-produced stores; the compaction
+		// expand pass aggregates merge-manufactured conflicts into a
+		// warning, which fail-fast promotes back to a failure.
+		failFastPromotes: true,
+		haltStage:        "invariants-I5-complete",
+		check:            (*ingestInvariantsPass).checkStoredExclusionGroups,
 	},
 	{
 		id:               "I4",
@@ -360,13 +363,20 @@ func RunIngestInvariants(ctx context.Context, store connectorstore.Reader, polic
 	if facts, ok := store.(dotc1z.IngestInvariantStore); ok {
 		pass.facts = facts
 	}
+	var skippedNoStore []string
 	for i := range ingestInvariants {
 		inv := &ingestInvariants[i]
 		if !inv.runsOnAllSyncTypes && policy.SyncType != connectorstore.SyncTypeFull {
 			continue
 		}
 		if inv.requiresStore && pass.facts == nil {
-			continue // engine without the inspection surface
+			// Engine without the inspection surface (SQLite): the
+			// referential invariants degrade by design, but the
+			// downgrade must be visible — a sealed artifact that was
+			// never referentially validated should not be
+			// indistinguishable from one that passed.
+			skippedNoStore = append(skippedNoStore, inv.id)
+			continue
 		}
 		if inv.failFastOnly && !policy.FailFast {
 			continue
@@ -379,6 +389,11 @@ func RunIngestInvariants(ctx context.Context, store connectorstore.Reader, polic
 				return err
 			}
 		}
+	}
+	if len(skippedNoStore) > 0 {
+		ctxzap.Extract(ctx).Info("ingest invariants: store engine lacks the inspection surface; referential invariants were not evaluated",
+			zap.Strings("skipped_invariants", skippedNoStore),
+		)
 	}
 	return nil
 }
@@ -468,10 +483,26 @@ func (t *exclusionGroupTracker) record(ent *v2.Entitlement) error {
 // the sole exclusion-group validation: it covers fresh and generated
 // (static) entitlements uniformly, on every engine, regardless of how
 // rows arrived — the page-level streaming validator it replaced could
-// not see rows a non-stream ingestion path wrote. Every verdict is a
-// hard failure in every mode (a conflicting artifact must not seal).
+// not see rows a non-stream ingestion path wrote. A verdict on a
+// connector-produced store is a hard failure (a conflicting artifact
+// must not seal).
+//
+// The compaction expand pass (OnlyExpandGrants) is the exception: it
+// runs over a keep-newer MERGE of individually-valid syncs, and the
+// key union can manufacture conflicts no input contained — a default
+// moved from E1 to E2 keeps both rows' is_default, a group grown
+// across generations exceeds the member cap, a group id reused on a
+// new resource type collides with retained old rows. Failing would
+// reject an artifact the merge produced by design (the same class
+// I3/I7/I8/I9 exempt), so expand-only runs aggregate into one warning
+// instead. Fail-fast still hard-fails everything.
 func (pass *ingestInvariantsPass) checkStoredExclusionGroups(ctx context.Context) error {
+	// warnOnly: merge-manufactured conflicts are expected shapes on the
+	// expand pass, not seal-blockers.
+	warnOnly := pass.p.OnlyExpandGrants && !pass.p.FailFast
 	tracker := &exclusionGroupTracker{}
+	violations := 0
+	var examples []string
 	pageToken := ""
 	for {
 		resp, err := pass.store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
@@ -483,12 +514,24 @@ func (pass *ingestInvariantsPass) checkStoredExclusionGroups(ctx context.Context
 		}
 		for _, ent := range resp.GetList() {
 			if err := tracker.record(ent); err != nil {
-				return fmt.Errorf("ingest invariant I5 violated: %w", err)
+				if !warnOnly {
+					return fmt.Errorf("ingest invariant I5 violated: %w", err)
+				}
+				violations++
+				if len(examples) < maxDanglingIDExamples {
+					examples = append(examples, err.Error())
+				}
 			}
 		}
 		if pageToken = resp.GetNextPageToken(); pageToken == "" {
 			break
 		}
+	}
+	if violations > 0 {
+		ctxzap.Extract(ctx).Warn("ingest invariant I5: exclusion-group conflicts on the compaction expand pass (keep-newer merges manufacture these by design; not a connector bug)",
+			zap.Int("conflicts", violations),
+			zap.Strings("examples", examples),
+		)
 	}
 	return nil
 }
@@ -616,6 +659,8 @@ func danglingAttribution(unsyncedTypeCount, syncedTypeCount int, onlyExpandGrant
 		return "references target SYNCED types under the compaction expand pass — keep-newer merges manufacture these by design; not a connector bug"
 	case unsyncedTypeCount == 0:
 		return "references target SYNCED types — likely a connector magic-id construction bug, or rows emitted for referents the enumeration never produced"
+	case onlyExpandGrants:
+		return "mixed: some references target never-synced types (config gap), some target synced types under the compaction expand pass (keep-newer merges manufacture these by design)"
 	default:
 		return "mixed: some references target never-synced types (config gap), some target synced types (likely connector data bugs)"
 	}
