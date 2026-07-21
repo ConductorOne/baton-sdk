@@ -290,8 +290,21 @@ message EncryptionConfig {
     bytes pub_key = 1;
   }
 
+  // AgeRecipientConfig encrypts data directly to a standard age recipient.
+  // The corresponding private identity must never be included in this message.
+  // Both X25519 (age1...) and hybrid post-quantum (age1pq1...) recipients are
+  // supported by the configured age provider. EncryptedData.encrypted_bytes
+  // contains a standard binary age file when this config is used.
+  message AgeRecipientConfig {
+    string recipient = 1 [(validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 4096
+    }];
+  }
+
   oneof config {
     JWKPublicKeyConfig jwk_public_key_config = 100;
+    AgeRecipientConfig age_recipient_config = 101;
   }
 }
 

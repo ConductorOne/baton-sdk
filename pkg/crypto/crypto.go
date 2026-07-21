@@ -39,7 +39,7 @@ func (pkem *EncryptionManager) Encrypt(ctx context.Context, cred *v2.PlaintextDa
 	encryptedDatas := make([]*v2.EncryptedData, 0, len(pkem.configs))
 
 	for _, config := range pkem.configs {
-		provider, err := providers.GetEncryptionProviderForConfig(ctx, config)
+		provider, err := providers.GetEncryptorForConfig(ctx, config)
 		if err != nil {
 			return nil, err
 		}
