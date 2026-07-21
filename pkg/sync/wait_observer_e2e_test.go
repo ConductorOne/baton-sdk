@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -17,23 +18,35 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/retry"
 )
 
-// gateSimConnector simulates the hosted connector manager's rate-limit gate:
-// it reports a sleep via ratelimit.ObserveWait from *inside* a connector call,
-// using only the context the syncer passed in. This proves end-to-end that the
-// observer installed at the top of Syncer.Sync survives the syncer's action
-// loop and call plumbing to reach gate code, mirroring the prod topology where
-// c1's ConnectorWrapper.ratelimitDo receives the syncer's context in-process.
+// gateSimConnector simulates the two connector-side rate-limit wait sources:
+//   - the hosted connector manager's gate, which reports a sleep via
+//     ratelimit.ObserveWait from *inside* a connector call using only the
+//     context the syncer passed in (proving the observer installed at the top
+//     of Syncer.Sync survives the syncer's action loop and call plumbing,
+//     mirroring prod where c1's ConnectorWrapper.ratelimitDo receives the
+//     syncer's context in-process), and
+//   - a connector that slept in its own process (client-side prevention /
+//     in-SDK backoff) and reports it via a RateLimitWaitReport response
+//     annotation, which works across process/lambda boundaries.
 type gateSimConnector struct {
 	*mockConnector
-	gateWait  time.Duration
-	gateCalls int
+	gateWait     time.Duration
+	annotationMs int64
+	gateCalls    int
 }
 
 func (g *gateSimConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
 	resourceType := in.GetResource().GetId().GetResourceType()
 	ratelimit.ObserveWait(retry.WithWaitLabel(ctx, resourceType), g.gateWait)
 	g.gateCalls++
-	return g.mockConnector.ListGrants(ctx, in, opts...)
+	resp, err := g.mockConnector.ListGrants(ctx, in, opts...)
+	if err != nil {
+		return nil, err
+	}
+	var annos annotations.Annotations = resp.GetAnnotations()
+	annos.WithRateLimitWaitReport(g.annotationMs)
+	resp.SetAnnotations(annos)
+	return resp, nil
 }
 
 func TestRateLimitGateWaitsReachSyncStats(t *testing.T) {
@@ -54,7 +67,7 @@ func TestRateLimitGateWaitsReachSyncStats(t *testing.T) {
 	require.NoError(t, err)
 	_ = mc.AddGroupMember(ctx, group1, u1)
 
-	gc := &gateSimConnector{mockConnector: mc, gateWait: 250 * time.Millisecond}
+	gc := &gateSimConnector{mockConnector: mc, gateWait: 250 * time.Millisecond, annotationMs: 100}
 
 	syncer, err := NewSyncer(ctx, gc,
 		WithConnectorStore(store),
@@ -75,9 +88,11 @@ func TestRateLimitGateWaitsReachSyncStats(t *testing.T) {
 
 	durations := completedState.StepDurations()
 	require.Positive(t, gc.gateCalls, "sync should have listed grants")
-	expectedMs := int64(gc.gateCalls) * gc.gateWait.Milliseconds()
+	// Both sources must land: observer-reported gate sleeps plus
+	// annotation-reported in-connector sleeps.
+	expectedMs := int64(gc.gateCalls) * (gc.gateWait.Milliseconds() + gc.annotationMs)
 	require.EqualValues(t, expectedMs, durations["rate_limit_wait"],
-		"every gate-reported wait must land in rate_limit_wait")
+		"every gate-reported and annotation-reported wait must land in rate_limit_wait")
 
 	// Attribution: labeled sub-buckets must decompose the flat total.
 	var labeledMs int64

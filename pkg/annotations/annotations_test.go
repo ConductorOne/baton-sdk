@@ -95,6 +95,32 @@ func TestAnnotations_WithRateLimiting(t *testing.T) {
 	require.True(t, ok)
 }
 
+func TestAnnotations_WithRateLimitWaitReport(t *testing.T) {
+	var annos Annotations
+
+	// Non-positive waits are no-ops.
+	annos.WithRateLimitWaitReport(0)
+	annos.WithRateLimitWaitReport(-5)
+	require.Len(t, annos, 0)
+
+	annos.WithRateLimitWaitReport(1500)
+	require.Len(t, annos, 1)
+
+	report := &v2.RateLimitWaitReport{}
+	ok, err := annos.Pick(report)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.EqualValues(t, 1500, report.GetWaitMs())
+
+	// Update replaces rather than appends: a second report overwrites.
+	annos.WithRateLimitWaitReport(2000)
+	require.Len(t, annos, 1)
+	ok, err = annos.Pick(report)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.EqualValues(t, 2000, report.GetWaitMs())
+}
+
 func TestAnnotations_ContainAny(t *testing.T) {
 	var annos Annotations
 

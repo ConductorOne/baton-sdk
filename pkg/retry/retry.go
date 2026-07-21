@@ -29,7 +29,11 @@ type RetryConfig struct {
 	MaxAttempts  uint          // 0 means no limit (which is also the default).
 	InitialDelay time.Duration // Default is 1 second.
 	MaxDelay     time.Duration // Default is 60 seconds. 0 means no limit.
-	OnWait       func(ctx context.Context, wait time.Duration, rateLimited bool)
+	// OnWait is invoked after each retry wait completes, with the duration
+	// actually slept. If the context is cancelled mid-wait, it fires with the
+	// elapsed portion only (not the planned backoff). Note: prior to this
+	// contract it fired before the wait with the full planned duration.
+	OnWait func(ctx context.Context, wait time.Duration, rateLimited bool)
 }
 
 type waitLabelKey struct{}

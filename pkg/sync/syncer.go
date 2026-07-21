@@ -554,6 +554,33 @@ func (s *syncer) recordSessionUsage(annos []*anypb.Any) {
 	}
 }
 
+// recordConnectorWaitReport folds a connector-reported RateLimitWaitReport
+// response annotation into rate_limit_wait. This surfaces sleeps that happen
+// inside the connector process (client-side rate-limit prevention, in-SDK 429
+// backoff) which the syncer cannot observe directly — including across
+// process/lambda boundaries where context-based observers don't reach.
+// Attributed to the action's resource type like retry and gate waits.
+func (s *syncer) recordConnectorWaitReport(annos []*anypb.Any, resourceTypeID string) {
+	if !s.recordStats || len(annos) == 0 || s.state == nil {
+		return
+	}
+	report := &v2.RateLimitWaitReport{}
+	respAnnos := annotations.Annotations(annos)
+	ok, err := respAnnos.Pick(report)
+	if err != nil || !ok {
+		return
+	}
+	waitMs := report.GetWaitMs()
+	if waitMs <= 0 {
+		return
+	}
+	wait := time.Duration(waitMs) * time.Millisecond
+	s.state.AddStepDuration("rate_limit_wait", wait)
+	if resourceTypeID != "" {
+		s.state.AddStepDuration("rate_limit_wait:"+resourceTypeID, wait)
+	}
+}
+
 func (s *syncer) returnSyncError(l *zap.Logger, span trace.Span, err error) error {
 	if err == nil || !s.recordStats || s.state == nil || errors.Is(err, ErrSyncNotComplete) {
 		return err
@@ -1300,6 +1327,7 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 	resp, err := s.connector.ListResources(ctx, req)
 	s.observeConnectorCall(ctx, "list-resources", start, action.ResourceTypeID, action.ResourceID)
 	s.recordSessionUsage(resp.GetAnnotations())
+	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
 		return err
 	}
@@ -1570,6 +1598,7 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	}.Build())
 	s.observeConnectorCall(ctx, "list-entitlements", start, action.ResourceTypeID, action.ResourceID)
 	s.recordSessionUsage(resp.GetAnnotations())
+	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
 		return err
 	}
@@ -1636,6 +1665,7 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 	}.Build())
 	s.observeConnectorCall(ctx, "list-static-entitlements", start, action.ResourceTypeID, action.ResourceID)
 	s.recordSessionUsage(resp.GetAnnotations())
+	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
 		// Ignore prefixError if we're calling a lambda with an old version of baton-sdk.
 		if strings.Contains(err.Error(), `unable to resolve \"type.googleapis.com/c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest\": \"not found\"","errorType":"prefixError"`) {
@@ -2073,6 +2103,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 	}.Build())
 	s.observeConnectorCall(ctx, "list-grants", start, action.ResourceTypeID, action.ResourceID)
 	s.recordSessionUsage(resp.GetAnnotations())
+	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
 		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", err)
 	}

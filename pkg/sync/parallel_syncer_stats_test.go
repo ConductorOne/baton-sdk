@@ -59,6 +59,32 @@ func TestWaitObserverDisabledWithoutStats(t *testing.T) {
 	require.Empty(t, s.state.StepDurations())
 }
 
+func TestRecordConnectorWaitReport(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+
+	var annos annotations.Annotations
+	annos.WithRateLimitWaitReport(1500)
+
+	s.recordConnectorWaitReport(annos, "repository")
+	s.recordConnectorWaitReport(annos, "")
+
+	durations := s.state.StepDurations()
+	require.EqualValues(t, 3000, durations["rate_limit_wait"])
+	require.EqualValues(t, 1500, durations["rate_limit_wait:repository"])
+
+	// Responses without the annotation, zero waits, and disabled stats are no-ops.
+	s.recordConnectorWaitReport(annotations.Annotations{}, "repository")
+	var zeroAnnos annotations.Annotations
+	zeroAnnos.WithRateLimitWaitReport(0)
+	require.Empty(t, zeroAnnos)
+	s.recordStats = false
+	s.recordConnectorWaitReport(annos, "repository")
+	require.EqualValues(t, 3000, s.state.StepDurations()["rate_limit_wait"])
+}
+
 func TestRecordRetryWaitWithoutResourceType(t *testing.T) {
 	s := &syncer{
 		recordStats: true,

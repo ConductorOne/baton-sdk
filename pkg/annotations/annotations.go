@@ -124,6 +124,19 @@ func (a *Annotations) WithRateLimiting(rateLimit *v2.RateLimitDescription) *Anno
 	return a
 }
 
+// WithRateLimitWaitReport reports time the connector spent sleeping on rate
+// limits (client-side prevention, in-SDK backoff) while serving this response.
+// The syncer folds it into the rate_limit_wait sync stat. No-op if waitMs <= 0.
+func (a *Annotations) WithRateLimitWaitReport(waitMs int64) *Annotations {
+	if waitMs <= 0 {
+		return a
+	}
+	report := &v2.RateLimitWaitReport{}
+	report.SetWaitMs(waitMs)
+	a.Update(report)
+	return a
+}
+
 // NOTE: the store is the only usage of this.
 func GetSyncIdFromAnnotations(annos Annotations) (string, error) {
 	if len(annos) == 0 {
