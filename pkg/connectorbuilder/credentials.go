@@ -118,6 +118,14 @@ type CredentialIssuer interface {
 	CredentialIssuerLimited
 }
 
+// CredentialIssuerV2 is the ResourceSyncerV2 variant implemented by modern
+// connectors. It advertises the same issuance contract without forcing a V2
+// syncer to also implement the legacy pagination interface.
+type CredentialIssuerV2 interface {
+	ResourceSyncerV2
+	CredentialIssuerLimited
+}
+
 type CredentialIssuerLimited interface {
 	// Issue mints a new credential for identityId and returns the newly created
 	// secret resource alongside the plaintext material. The builder encrypts the
