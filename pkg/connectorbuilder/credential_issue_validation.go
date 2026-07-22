@@ -31,6 +31,24 @@ func credentialOptionKind(options *v2.LocalCredentialOptions) v2.CapabilityDetai
 	}
 }
 
+func credentialOptionKindFromRequest(options *v2.CredentialOptions) v2.CapabilityDetailCredentialOption {
+	if options == nil {
+		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED
+	}
+	switch options.WhichOptions() {
+	case v2.CredentialOptions_ApiKey_case:
+		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY
+	case v2.CredentialOptions_Keypair_case:
+		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR
+	case v2.CredentialOptions_Token_case:
+		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN
+	case v2.CredentialOptions_ClientSecret_case:
+		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET
+	default:
+		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED
+	}
+}
+
 func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.CredentialDetailsCredentialIssue) error {
 	kind := credentialOptionKind(input.CredentialOptions)
 	if kind == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
@@ -218,6 +236,8 @@ func validateCredentialParameterConstraints(schema *configv1.Configuration, valu
 					}
 				}
 			}
+		case configv1.ConstraintKind_CONSTRAINT_KIND_UNSPECIFIED:
+			return fmt.Errorf("connector parameter constraint kind must be specified")
 		}
 	}
 	return nil

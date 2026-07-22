@@ -109,6 +109,68 @@ func (x Capability) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
+type CapabilityDetailCredentialOption int32
+
+const (
+	CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED        CapabilityDetailCredentialOption = 0
+	CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD        CapabilityDetailCredentialOption = 1
+	CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD    CapabilityDetailCredentialOption = 2
+	CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_SSO                CapabilityDetailCredentialOption = 3
+	CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_ENCRYPTED_PASSWORD CapabilityDetailCredentialOption = 4
+	CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY            CapabilityDetailCredentialOption = 5
+	CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR            CapabilityDetailCredentialOption = 6
+	CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN              CapabilityDetailCredentialOption = 7
+	CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET      CapabilityDetailCredentialOption = 8
+)
+
+// Enum value maps for CapabilityDetailCredentialOption.
+var (
+	CapabilityDetailCredentialOption_name = map[int32]string{
+		0: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED",
+		1: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD",
+		2: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD",
+		3: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_SSO",
+		4: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_ENCRYPTED_PASSWORD",
+		5: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY",
+		6: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR",
+		7: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN",
+		8: "CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET",
+	}
+	CapabilityDetailCredentialOption_value = map[string]int32{
+		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED":        0,
+		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD":        1,
+		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD":    2,
+		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_SSO":                3,
+		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_ENCRYPTED_PASSWORD": 4,
+		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY":            5,
+		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR":            6,
+		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN":              7,
+		"CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET":      8,
+	}
+)
+
+func (x CapabilityDetailCredentialOption) Enum() *CapabilityDetailCredentialOption {
+	p := new(CapabilityDetailCredentialOption)
+	*p = x
+	return p
+}
+
+func (x CapabilityDetailCredentialOption) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CapabilityDetailCredentialOption) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_connector_v2_connector_proto_enumTypes[1].Descriptor()
+}
+
+func (CapabilityDetailCredentialOption) Type() protoreflect.EnumType {
+	return &file_c1_connector_v2_connector_proto_enumTypes[1]
+}
+
+func (x CapabilityDetailCredentialOption) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
 type ConnectorServiceCleanupRequest struct {
 	state                   protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Annotations  *[]*anypb.Any          `protobuf:"bytes,1,rep,name=annotations,proto3"`
@@ -2672,102 +2734,112 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x18CAPABILITY_TARGETED_SYNC\x10\v\x12\x1c\n" +
 	"\x18CAPABILITY_EVENT_FEED_V2\x10\f\x12)\n" +
 	"%CAPABILITY_SERVICE_MODE_TARGETED_SYNC\x10\r\x12\x1f\n" +
-	"\x1bCAPABILITY_CREDENTIAL_ISSUE\x10\x0e2\xeb\x02\n" +
+	"\x1bCAPABILITY_CREDENTIAL_ISSUE\x10\x0e*\xf6\x03\n" +
+	" CapabilityDetailCredentialOption\x123\n" +
+	"/CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED\x10\x00\x123\n" +
+	"/CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD\x10\x01\x127\n" +
+	"3CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD\x10\x02\x12+\n" +
+	"'CAPABILITY_DETAIL_CREDENTIAL_OPTION_SSO\x10\x03\x12:\n" +
+	"6CAPABILITY_DETAIL_CREDENTIAL_OPTION_ENCRYPTED_PASSWORD\x10\x04\x12/\n" +
+	"+CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY\x10\x05\x12/\n" +
+	"+CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR\x10\x06\x12-\n" +
+	")CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN\x10\a\x125\n" +
+	"1CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET\x10\b2\xeb\x02\n" +
 	"\x10ConnectorService\x12x\n" +
 	"\vGetMetadata\x123.c1.connector.v2.ConnectorServiceGetMetadataRequest\x1a4.c1.connector.v2.ConnectorServiceGetMetadataResponse\x12o\n" +
 	"\bValidate\x120.c1.connector.v2.ConnectorServiceValidateRequest\x1a1.c1.connector.v2.ConnectorServiceValidateResponse\x12l\n" +
 	"\aCleanup\x12/.c1.connector.v2.ConnectorServiceCleanupRequest\x1a0.c1.connector.v2.ConnectorServiceCleanupResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_connector_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_c1_connector_v2_connector_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_c1_connector_v2_connector_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_c1_connector_v2_connector_proto_goTypes = []any{
 	(Capability)(0),                                        // 0: c1.connector.v2.Capability
-	(*ConnectorServiceCleanupRequest)(nil),                 // 1: c1.connector.v2.ConnectorServiceCleanupRequest
-	(*ConnectorServiceCleanupResponse)(nil),                // 2: c1.connector.v2.ConnectorServiceCleanupResponse
-	(*ConnectorMetadata)(nil),                              // 3: c1.connector.v2.ConnectorMetadata
-	(*CredentialDetails)(nil),                              // 4: c1.connector.v2.CredentialDetails
-	(*CredentialDetailsAccountProvisioning)(nil),           // 5: c1.connector.v2.CredentialDetailsAccountProvisioning
-	(*CredentialDetailsCredentialRotation)(nil),            // 6: c1.connector.v2.CredentialDetailsCredentialRotation
-	(*CredentialDetailsCredentialIssue)(nil),               // 7: c1.connector.v2.CredentialDetailsCredentialIssue
-	(*CredentialIssueOptionDescriptor)(nil),                // 8: c1.connector.v2.CredentialIssueOptionDescriptor
-	(*IssuanceLifetimeCapability)(nil),                     // 9: c1.connector.v2.IssuanceLifetimeCapability
-	(*ConnectorCapabilities)(nil),                          // 10: c1.connector.v2.ConnectorCapabilities
-	(*CapabilityPermission)(nil),                           // 11: c1.connector.v2.CapabilityPermission
-	(*CapabilityPermissions)(nil),                          // 12: c1.connector.v2.CapabilityPermissions
-	(*OptInRequired)(nil),                                  // 13: c1.connector.v2.OptInRequired
-	(*SkipSyncAnomalyDetection)(nil),                       // 14: c1.connector.v2.SkipSyncAnomalyDetection
-	(*ResourceTypeCapability)(nil),                         // 15: c1.connector.v2.ResourceTypeCapability
-	(*ConnectorServiceGetMetadataRequest)(nil),             // 16: c1.connector.v2.ConnectorServiceGetMetadataRequest
-	(*ConnectorServiceGetMetadataResponse)(nil),            // 17: c1.connector.v2.ConnectorServiceGetMetadataResponse
-	(*ConnectorServiceValidateRequest)(nil),                // 18: c1.connector.v2.ConnectorServiceValidateRequest
-	(*ConnectorServiceValidateResponse)(nil),               // 19: c1.connector.v2.ConnectorServiceValidateResponse
-	(*ConnectorAccountCreationSchema)(nil),                 // 20: c1.connector.v2.ConnectorAccountCreationSchema
-	nil,                                                    // 21: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
-	(*ConnectorAccountCreationSchema_Field)(nil),           // 22: c1.connector.v2.ConnectorAccountCreationSchema.Field
-	(*ConnectorAccountCreationSchema_StringField)(nil),     // 23: c1.connector.v2.ConnectorAccountCreationSchema.StringField
-	(*ConnectorAccountCreationSchema_BoolField)(nil),       // 24: c1.connector.v2.ConnectorAccountCreationSchema.BoolField
-	(*ConnectorAccountCreationSchema_StringListField)(nil), // 25: c1.connector.v2.ConnectorAccountCreationSchema.StringListField
-	(*ConnectorAccountCreationSchema_IntField)(nil),        // 26: c1.connector.v2.ConnectorAccountCreationSchema.IntField
-	(*ConnectorAccountCreationSchema_MapField)(nil),        // 27: c1.connector.v2.ConnectorAccountCreationSchema.MapField
-	nil,                                   // 28: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
-	(*anypb.Any)(nil),                     // 29: google.protobuf.Any
-	(*AssetRef)(nil),                      // 30: c1.connector.v2.AssetRef
-	(*structpb.Struct)(nil),               // 31: google.protobuf.Struct
-	(CapabilityDetailCredentialOption)(0), // 32: c1.connector.v2.CapabilityDetailCredentialOption
-	(*KeyGenerationProfile)(nil),          // 33: c1.connector.v2.KeyGenerationProfile
-	(*v1.Configuration)(nil),              // 34: c1.config.v1.Configuration
-	(*durationpb.Duration)(nil),           // 35: google.protobuf.Duration
-	(*ResourceType)(nil),                  // 36: c1.connector.v2.ResourceType
+	(CapabilityDetailCredentialOption)(0),                  // 1: c1.connector.v2.CapabilityDetailCredentialOption
+	(*ConnectorServiceCleanupRequest)(nil),                 // 2: c1.connector.v2.ConnectorServiceCleanupRequest
+	(*ConnectorServiceCleanupResponse)(nil),                // 3: c1.connector.v2.ConnectorServiceCleanupResponse
+	(*ConnectorMetadata)(nil),                              // 4: c1.connector.v2.ConnectorMetadata
+	(*CredentialDetails)(nil),                              // 5: c1.connector.v2.CredentialDetails
+	(*CredentialDetailsAccountProvisioning)(nil),           // 6: c1.connector.v2.CredentialDetailsAccountProvisioning
+	(*CredentialDetailsCredentialRotation)(nil),            // 7: c1.connector.v2.CredentialDetailsCredentialRotation
+	(*CredentialDetailsCredentialIssue)(nil),               // 8: c1.connector.v2.CredentialDetailsCredentialIssue
+	(*CredentialIssueOptionDescriptor)(nil),                // 9: c1.connector.v2.CredentialIssueOptionDescriptor
+	(*IssuanceLifetimeCapability)(nil),                     // 10: c1.connector.v2.IssuanceLifetimeCapability
+	(*ConnectorCapabilities)(nil),                          // 11: c1.connector.v2.ConnectorCapabilities
+	(*CapabilityPermission)(nil),                           // 12: c1.connector.v2.CapabilityPermission
+	(*CapabilityPermissions)(nil),                          // 13: c1.connector.v2.CapabilityPermissions
+	(*OptInRequired)(nil),                                  // 14: c1.connector.v2.OptInRequired
+	(*SkipSyncAnomalyDetection)(nil),                       // 15: c1.connector.v2.SkipSyncAnomalyDetection
+	(*ResourceTypeCapability)(nil),                         // 16: c1.connector.v2.ResourceTypeCapability
+	(*ConnectorServiceGetMetadataRequest)(nil),             // 17: c1.connector.v2.ConnectorServiceGetMetadataRequest
+	(*ConnectorServiceGetMetadataResponse)(nil),            // 18: c1.connector.v2.ConnectorServiceGetMetadataResponse
+	(*ConnectorServiceValidateRequest)(nil),                // 19: c1.connector.v2.ConnectorServiceValidateRequest
+	(*ConnectorServiceValidateResponse)(nil),               // 20: c1.connector.v2.ConnectorServiceValidateResponse
+	(*ConnectorAccountCreationSchema)(nil),                 // 21: c1.connector.v2.ConnectorAccountCreationSchema
+	nil,                                                    // 22: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
+	(*ConnectorAccountCreationSchema_Field)(nil),           // 23: c1.connector.v2.ConnectorAccountCreationSchema.Field
+	(*ConnectorAccountCreationSchema_StringField)(nil),     // 24: c1.connector.v2.ConnectorAccountCreationSchema.StringField
+	(*ConnectorAccountCreationSchema_BoolField)(nil),       // 25: c1.connector.v2.ConnectorAccountCreationSchema.BoolField
+	(*ConnectorAccountCreationSchema_StringListField)(nil), // 26: c1.connector.v2.ConnectorAccountCreationSchema.StringListField
+	(*ConnectorAccountCreationSchema_IntField)(nil),        // 27: c1.connector.v2.ConnectorAccountCreationSchema.IntField
+	(*ConnectorAccountCreationSchema_MapField)(nil),        // 28: c1.connector.v2.ConnectorAccountCreationSchema.MapField
+	nil,                          // 29: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
+	(*anypb.Any)(nil),            // 30: google.protobuf.Any
+	(*AssetRef)(nil),             // 31: c1.connector.v2.AssetRef
+	(*structpb.Struct)(nil),      // 32: google.protobuf.Struct
+	(*KeyGenerationProfile)(nil), // 33: c1.connector.v2.KeyGenerationProfile
+	(*v1.Configuration)(nil),     // 34: c1.config.v1.Configuration
+	(*durationpb.Duration)(nil),  // 35: google.protobuf.Duration
+	(*ResourceType)(nil),         // 36: c1.connector.v2.ResourceType
 }
 var file_c1_connector_v2_connector_proto_depIdxs = []int32{
-	29, // 0: c1.connector.v2.ConnectorServiceCleanupRequest.annotations:type_name -> google.protobuf.Any
-	29, // 1: c1.connector.v2.ConnectorServiceCleanupResponse.annotations:type_name -> google.protobuf.Any
-	30, // 2: c1.connector.v2.ConnectorMetadata.icon:type_name -> c1.connector.v2.AssetRef
-	30, // 3: c1.connector.v2.ConnectorMetadata.logo:type_name -> c1.connector.v2.AssetRef
-	31, // 4: c1.connector.v2.ConnectorMetadata.profile:type_name -> google.protobuf.Struct
-	29, // 5: c1.connector.v2.ConnectorMetadata.annotations:type_name -> google.protobuf.Any
-	10, // 6: c1.connector.v2.ConnectorMetadata.capabilities:type_name -> c1.connector.v2.ConnectorCapabilities
-	20, // 7: c1.connector.v2.ConnectorMetadata.account_creation_schema:type_name -> c1.connector.v2.ConnectorAccountCreationSchema
-	5,  // 8: c1.connector.v2.CredentialDetails.capability_account_provisioning:type_name -> c1.connector.v2.CredentialDetailsAccountProvisioning
-	6,  // 9: c1.connector.v2.CredentialDetails.capability_credential_rotation:type_name -> c1.connector.v2.CredentialDetailsCredentialRotation
-	7,  // 10: c1.connector.v2.CredentialDetails.capability_credential_issue:type_name -> c1.connector.v2.CredentialDetailsCredentialIssue
-	32, // 11: c1.connector.v2.CredentialDetailsAccountProvisioning.supported_credential_options:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	32, // 12: c1.connector.v2.CredentialDetailsAccountProvisioning.preferred_credential_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	32, // 13: c1.connector.v2.CredentialDetailsCredentialRotation.supported_credential_options:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	32, // 14: c1.connector.v2.CredentialDetailsCredentialRotation.preferred_credential_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	8,  // 15: c1.connector.v2.CredentialDetailsCredentialIssue.options:type_name -> c1.connector.v2.CredentialIssueOptionDescriptor
-	32, // 16: c1.connector.v2.CredentialDetailsCredentialIssue.preferred_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	32, // 17: c1.connector.v2.CredentialIssueOptionDescriptor.option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	30, // 0: c1.connector.v2.ConnectorServiceCleanupRequest.annotations:type_name -> google.protobuf.Any
+	30, // 1: c1.connector.v2.ConnectorServiceCleanupResponse.annotations:type_name -> google.protobuf.Any
+	31, // 2: c1.connector.v2.ConnectorMetadata.icon:type_name -> c1.connector.v2.AssetRef
+	31, // 3: c1.connector.v2.ConnectorMetadata.logo:type_name -> c1.connector.v2.AssetRef
+	32, // 4: c1.connector.v2.ConnectorMetadata.profile:type_name -> google.protobuf.Struct
+	30, // 5: c1.connector.v2.ConnectorMetadata.annotations:type_name -> google.protobuf.Any
+	11, // 6: c1.connector.v2.ConnectorMetadata.capabilities:type_name -> c1.connector.v2.ConnectorCapabilities
+	21, // 7: c1.connector.v2.ConnectorMetadata.account_creation_schema:type_name -> c1.connector.v2.ConnectorAccountCreationSchema
+	6,  // 8: c1.connector.v2.CredentialDetails.capability_account_provisioning:type_name -> c1.connector.v2.CredentialDetailsAccountProvisioning
+	7,  // 9: c1.connector.v2.CredentialDetails.capability_credential_rotation:type_name -> c1.connector.v2.CredentialDetailsCredentialRotation
+	8,  // 10: c1.connector.v2.CredentialDetails.capability_credential_issue:type_name -> c1.connector.v2.CredentialDetailsCredentialIssue
+	1,  // 11: c1.connector.v2.CredentialDetailsAccountProvisioning.supported_credential_options:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	1,  // 12: c1.connector.v2.CredentialDetailsAccountProvisioning.preferred_credential_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	1,  // 13: c1.connector.v2.CredentialDetailsCredentialRotation.supported_credential_options:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	1,  // 14: c1.connector.v2.CredentialDetailsCredentialRotation.preferred_credential_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	9,  // 15: c1.connector.v2.CredentialDetailsCredentialIssue.options:type_name -> c1.connector.v2.CredentialIssueOptionDescriptor
+	1,  // 16: c1.connector.v2.CredentialDetailsCredentialIssue.preferred_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	1,  // 17: c1.connector.v2.CredentialIssueOptionDescriptor.option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
 	33, // 18: c1.connector.v2.CredentialIssueOptionDescriptor.key_profiles:type_name -> c1.connector.v2.KeyGenerationProfile
-	9,  // 19: c1.connector.v2.CredentialIssueOptionDescriptor.lifetime:type_name -> c1.connector.v2.IssuanceLifetimeCapability
+	10, // 19: c1.connector.v2.CredentialIssueOptionDescriptor.lifetime:type_name -> c1.connector.v2.IssuanceLifetimeCapability
 	34, // 20: c1.connector.v2.CredentialIssueOptionDescriptor.connector_parameters:type_name -> c1.config.v1.Configuration
 	35, // 21: c1.connector.v2.IssuanceLifetimeCapability.min:type_name -> google.protobuf.Duration
 	35, // 22: c1.connector.v2.IssuanceLifetimeCapability.max:type_name -> google.protobuf.Duration
 	35, // 23: c1.connector.v2.IssuanceLifetimeCapability.granularity:type_name -> google.protobuf.Duration
-	15, // 24: c1.connector.v2.ConnectorCapabilities.resource_type_capabilities:type_name -> c1.connector.v2.ResourceTypeCapability
+	16, // 24: c1.connector.v2.ConnectorCapabilities.resource_type_capabilities:type_name -> c1.connector.v2.ResourceTypeCapability
 	0,  // 25: c1.connector.v2.ConnectorCapabilities.connector_capabilities:type_name -> c1.connector.v2.Capability
-	4,  // 26: c1.connector.v2.ConnectorCapabilities.credential_details:type_name -> c1.connector.v2.CredentialDetails
-	11, // 27: c1.connector.v2.CapabilityPermissions.permissions:type_name -> c1.connector.v2.CapabilityPermission
+	5,  // 26: c1.connector.v2.ConnectorCapabilities.credential_details:type_name -> c1.connector.v2.CredentialDetails
+	12, // 27: c1.connector.v2.CapabilityPermissions.permissions:type_name -> c1.connector.v2.CapabilityPermission
 	36, // 28: c1.connector.v2.ResourceTypeCapability.resource_type:type_name -> c1.connector.v2.ResourceType
 	0,  // 29: c1.connector.v2.ResourceTypeCapability.capabilities:type_name -> c1.connector.v2.Capability
-	12, // 30: c1.connector.v2.ResourceTypeCapability.permissions:type_name -> c1.connector.v2.CapabilityPermissions
-	3,  // 31: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
-	29, // 32: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
-	21, // 33: c1.connector.v2.ConnectorAccountCreationSchema.field_map:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
-	22, // 34: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
-	23, // 35: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringField
-	24, // 36: c1.connector.v2.ConnectorAccountCreationSchema.Field.bool_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.BoolField
-	25, // 37: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_list_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringListField
-	26, // 38: c1.connector.v2.ConnectorAccountCreationSchema.Field.int_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.IntField
-	27, // 39: c1.connector.v2.ConnectorAccountCreationSchema.Field.map_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField
-	28, // 40: c1.connector.v2.ConnectorAccountCreationSchema.MapField.default_value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
-	22, // 41: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
-	16, // 42: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
-	18, // 43: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
-	1,  // 44: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
-	17, // 45: c1.connector.v2.ConnectorService.GetMetadata:output_type -> c1.connector.v2.ConnectorServiceGetMetadataResponse
-	19, // 46: c1.connector.v2.ConnectorService.Validate:output_type -> c1.connector.v2.ConnectorServiceValidateResponse
-	2,  // 47: c1.connector.v2.ConnectorService.Cleanup:output_type -> c1.connector.v2.ConnectorServiceCleanupResponse
+	13, // 30: c1.connector.v2.ResourceTypeCapability.permissions:type_name -> c1.connector.v2.CapabilityPermissions
+	4,  // 31: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
+	30, // 32: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
+	22, // 33: c1.connector.v2.ConnectorAccountCreationSchema.field_map:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
+	23, // 34: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
+	24, // 35: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringField
+	25, // 36: c1.connector.v2.ConnectorAccountCreationSchema.Field.bool_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.BoolField
+	26, // 37: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_list_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringListField
+	27, // 38: c1.connector.v2.ConnectorAccountCreationSchema.Field.int_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.IntField
+	28, // 39: c1.connector.v2.ConnectorAccountCreationSchema.Field.map_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField
+	29, // 40: c1.connector.v2.ConnectorAccountCreationSchema.MapField.default_value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
+	23, // 41: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
+	17, // 42: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
+	19, // 43: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
+	2,  // 44: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
+	18, // 45: c1.connector.v2.ConnectorService.GetMetadata:output_type -> c1.connector.v2.ConnectorServiceGetMetadataResponse
+	20, // 46: c1.connector.v2.ConnectorService.Validate:output_type -> c1.connector.v2.ConnectorServiceValidateResponse
+	3,  // 47: c1.connector.v2.ConnectorService.Cleanup:output_type -> c1.connector.v2.ConnectorServiceCleanupResponse
 	45, // [45:48] is the sub-list for method output_type
 	42, // [42:45] is the sub-list for method input_type
 	42, // [42:42] is the sub-list for extension type_name
@@ -2797,7 +2869,7 @@ func file_c1_connector_v2_connector_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_connector_proto_rawDesc), len(file_c1_connector_v2_connector_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,

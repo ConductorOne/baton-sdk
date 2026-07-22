@@ -81,6 +81,18 @@ message CredentialDetails {
   CredentialDetailsCredentialIssue capability_credential_issue = 3;
 }
 
+enum CapabilityDetailCredentialOption {
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED = 0;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD = 1;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD = 2;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_SSO = 3;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_ENCRYPTED_PASSWORD = 4;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY = 5;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR = 6;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN = 7;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET = 8;
+}
+
 message CredentialDetailsAccountProvisioning {
   repeated CapabilityDetailCredentialOption supported_credential_options = 1;
   CapabilityDetailCredentialOption preferred_credential_option = 2;

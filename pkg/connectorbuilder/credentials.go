@@ -287,7 +287,7 @@ func (b *builder) GetCredentialIssueEligibility(ctx context.Context, request *v2
 			Explanation: "connector does not provide a dynamic eligibility check",
 		}.Build(), nil
 	}
-	response, err := provider.GetCredentialIssueEligibility(ctx, request.GetIdentityId(), request.GetOption())
+	response, err := provider.GetCredentialIssueEligibility(ctx, request.GetIdentityId(), credentialOptionKindFromRequest(request.GetCredentialOptions()))
 	if err != nil {
 		return nil, err
 	}
