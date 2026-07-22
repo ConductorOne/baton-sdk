@@ -231,7 +231,7 @@ func (c *C1File) RollbackExpansion(ctx context.Context, syncID string, dryRun bo
 		return nil, err
 	}
 
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 	// The cached view sync run carries the now-stale stats; drop it so the
 	// next Stats()/GetSync recomputes against the rolled-back rows.
 	c.invalidateCachedViewSyncRun()

@@ -218,6 +218,11 @@ type syncer struct {
 	metricsHandler                        metrics.Handler
 	syncIdentity                          uotel.SyncIdentity
 	recordStats                           bool
+	// parallelActionEnqueuer admits actions spawned by an in-flight list
+	// response into the active worker pool. Access only through the helper
+	// methods in parallel_syncer.go.
+	parallelEnqueueMu      native_sync.RWMutex
+	parallelActionEnqueuer func(*Action)
 
 	// Watermark for the rate_limit_wait_wall bucket: the latest instant
 	// already counted as rate-limit-blocked wall time, plus the
@@ -666,6 +671,16 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 	}
 }
 
+func collectionProgressIncrement(action *Action, itemCount int, hasNextPage bool) (int, bool) {
+	if action.TypeScoped {
+		return itemCount, true
+	}
+	if !hasNextPage && !action.Spawned {
+		return 1, false
+	}
+	return 0, false
+}
+
 // maxEntitlementsPerExclusionGroup caps how many entitlements may share a
 // single exclusion_group_id. Phase 1 limit. Enforced by ingestion
 // invariant I5 over the STORED entitlement keyspace post-collection
@@ -685,7 +700,13 @@ func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nex
 	}
 
 	for _, a := range childActions {
-		s.state.PushAction(ctx, a)
+		var pushed *Action
+		if st, ok := s.state.(*state); ok {
+			pushed = st.pushAction(ctx, a)
+		} else {
+			s.state.PushAction(ctx, a)
+		}
+		s.enqueueParallelAction(pushed)
 	}
 
 	if nextPageToken == "" {
@@ -1636,7 +1657,7 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 				return fmt.Errorf("sync-entitlements: error listing type-scoped resource types: %w", err)
 			}
 			for _, rtID := range typeScoped {
-				actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceTypeID: rtID})
+				actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceTypeID: rtID, TypeScoped: true})
 			}
 		}
 
@@ -1688,7 +1709,7 @@ func (s *syncer) typeScopedEntitlementsResourceTypes(ctx context.Context) ([]str
 // syncEntitlementsForResource fetches the entitlements for a specific resource from the connector.
 // No span here: only call site is SyncEntitlements, which already owns a span.
 func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action) error {
-	typeScoped := action.ResourceID == ""
+	typeScoped := action.TypeScoped
 	resourceID := v2.ResourceId_builder{
 		ResourceType: action.ResourceTypeID,
 		Resource:     action.ResourceID,
@@ -1735,12 +1756,12 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	}
 
 	s.handleProgress(ctx, action, len(entitlements))
-	if typeScoped {
+	progressIncrement, countOnly := collectionProgressIncrement(action, len(entitlements), resp.GetNextPageToken() != "")
+	if countOnly {
 		s.counts.SetEntitlementsCountOnly(resourceID.GetResourceType())
-		s.counts.AddEntitlementsProgress(resourceID.GetResourceType(), len(entitlements))
-		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
-	} else if resp.GetNextPageToken() == "" && !action.Spawned {
-		s.counts.AddEntitlementsProgress(resourceID.ResourceType, 1)
+	}
+	if progressIncrement > 0 || countOnly {
+		s.counts.AddEntitlementsProgress(resourceID.GetResourceType(), progressIncrement)
 		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
 	}
 
@@ -2181,7 +2202,7 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 				return fmt.Errorf("sync-grants: error listing type-scoped resource types: %w", err)
 			}
 			for _, rtID := range typeScoped {
-				actions = append(actions, Action{Op: SyncGrantsOp, ResourceTypeID: rtID})
+				actions = append(actions, Action{Op: SyncGrantsOp, ResourceTypeID: rtID, TypeScoped: true})
 			}
 		}
 
@@ -2233,7 +2254,7 @@ func (s *syncer) typeScopedGrantsResourceTypes(ctx context.Context) ([]string, e
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
 // No span here: only call site is SyncGrants, which already owns a span.
 func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) error {
-	typeScoped := action.ResourceID == ""
+	typeScoped := action.TypeScoped
 	resourceID := v2.ResourceId_builder{
 		ResourceType: action.ResourceTypeID,
 		Resource:     action.ResourceID,
@@ -2381,12 +2402,12 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 
 	s.handleProgress(ctx, action, len(grants))
 
-	if typeScoped {
+	progressIncrement, countOnly := collectionProgressIncrement(action, len(grants), resp.GetNextPageToken() != "")
+	if countOnly {
 		s.counts.SetGrantsCountOnly(resourceID.GetResourceType())
-		s.counts.AddGrantsProgress(resourceID.GetResourceType(), len(grants))
-		s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
-	} else if resp.GetNextPageToken() == "" && !action.Spawned {
-		s.counts.AddGrantsProgress(resourceID.GetResourceType(), 1)
+	}
+	if progressIncrement > 0 || countOnly {
+		s.counts.AddGrantsProgress(resourceID.GetResourceType(), progressIncrement)
 		s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
 	}
 

@@ -193,6 +193,11 @@ type Action struct {
 	// Progress accounting counts only the origin action for per-resource
 	// phases. The marker is checkpointed so resume preserves that rule.
 	Spawned bool `json:"spawned,omitempty"`
+	// TypeScoped distinguishes whole-type grant/entitlement cursors from
+	// per-resource actions. Do not infer this from an empty ResourceID:
+	// malformed connector resources with empty ids can exist in old stores
+	// and must retain the pre-type-scoped per-resource behavior.
+	TypeScoped bool `json:"type_scoped,omitempty"`
 }
 
 var _ State = &state{}
@@ -618,6 +623,13 @@ func makeActionID(id uint64) string {
 
 // PushAction adds a new action to the stack.
 func (st *state) PushAction(ctx context.Context, action Action) {
+	st.pushAction(ctx, action)
+}
+
+// pushAction adds an action and returns the checkpointed copy, including its
+// assigned ID. The scheduler uses that copy to admit spawned work without
+// changing the exported State interface.
+func (st *state) pushAction(ctx context.Context, action Action) *Action {
 	st.mtx.Lock()
 	defer st.mtx.Unlock()
 
@@ -634,6 +646,7 @@ func (st *state) PushAction(ctx context.Context, action Action) {
 	st.actions[action.ID] = action
 	st.actionOrder = append(st.actionOrder, action.ID)
 	ctxzap.Extract(ctx).Debug("pushed action", zap.Any("action", action))
+	return &action
 }
 
 // FinishAction pops the current action from the state.

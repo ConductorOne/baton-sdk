@@ -608,7 +608,7 @@ func (c *C1File) CheckpointSync(ctx context.Context, syncToken string) error {
 		return err
 	}
 
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 
 	return nil
 }
@@ -797,7 +797,7 @@ func (c *C1File) insertSyncRunWithLink(ctx context.Context, syncID string, syncT
 	if err != nil {
 		return err
 	}
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 	return nil
 }
 
@@ -852,7 +852,7 @@ func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 	if err != nil {
 		return err
 	}
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 
 	// Run stats to generate and save the cached stats.
 	_, _, statsErr := c.stats(ctx, connectorstore.SyncTypeAny, syncID, true)
@@ -893,7 +893,7 @@ func (c *C1File) SetSupportsDiff(ctx context.Context, syncID string) error {
 	if err != nil {
 		return err
 	}
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 
 	return nil
 }
@@ -1016,7 +1016,7 @@ func (c *C1File) SetSyncLink(ctx context.Context, syncID string, linkedSyncID st
 	if err != nil {
 		return err
 	}
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 
 	return nil
 }
@@ -1106,7 +1106,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		l.Debug("vacuum complete")
 	}
 
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 
 	// If DB is open in WAL mode, truncate the WAL.
 	var journalMode string
@@ -1201,7 +1201,7 @@ func (c *C1File) DeleteSyncRun(ctx context.Context, syncID string) error {
 	deleted += rowsDeleted
 
 	l.Debug("deleted sync run", zap.String("sync_id", syncID), zap.Int64("rows", deleted))
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 
 	return nil
 }
@@ -1239,7 +1239,7 @@ func (c *C1File) Vacuum(ctx context.Context) error {
 		}
 	}
 
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 
 	return nil
 }

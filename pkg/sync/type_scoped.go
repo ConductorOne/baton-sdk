@@ -82,6 +82,15 @@ func typeScopedRequestStub(resourceTypeID string, marker proto.Message) (*v2.Res
 // ordinary checkpointed actions. Empty and oversized tokens fail loudly.
 func (s *syncer) collectEnqueuedPageTokens(ctx context.Context, phase string, op ActionOp, action *Action, respAnnos annotations.Annotations) ([]Action, error) {
 	spawn := &v2.EnqueuePageTokens{}
+	spawnAnnotations := 0
+	for _, annotation := range respAnnos {
+		if annotation.MessageIs(spawn) {
+			spawnAnnotations++
+		}
+	}
+	if spawnAnnotations > 1 {
+		return nil, fmt.Errorf("%s: response carried multiple EnqueuePageTokens annotations", phase)
+	}
 	hasSpawn, err := respAnnos.Pick(spawn)
 	if err != nil {
 		return nil, fmt.Errorf("%s: error parsing enqueue-page-tokens annotation: %w", phase, err)
@@ -118,6 +127,7 @@ func (s *syncer) collectEnqueuedPageTokens(ctx context.Context, phase string, op
 			ResourceID:     action.ResourceID,
 			PageToken:      tok,
 			Spawned:        true,
+			TypeScoped:     action.TypeScoped,
 		})
 	}
 

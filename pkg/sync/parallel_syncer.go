@@ -159,7 +159,7 @@ func (s *syncer) parallelSync(
 		// If we have more than 10 warnings and more than 10% of actions ended in a warning, exit the sync.
 		if len(warnings) > 10 {
 			completedActionsCount := s.state.GetCompletedActionsCount()
-			if completedActionsCount > 0 && float64(len(warnings))/float64(completedActionsCount) > 0.1 {
+			if tooManyWarnings(len(warnings), completedActionsCount) {
 				return warnings, fmt.Errorf("%w: warnings: %v completed actions: %d", ErrTooManyWarnings, warnings, completedActionsCount)
 			}
 		}
@@ -412,9 +412,105 @@ func (s *syncer) parallelSync(
 	return warnings, nil
 }
 
+func tooManyWarnings(warningCount int, completedActionsCount uint64) bool {
+	return warningCount > 10 &&
+		completedActionsCount > 0 &&
+		float64(warningCount)/float64(completedActionsCount) > 0.1
+}
+
 type workerResult struct {
 	warning error
 	err     error
+}
+
+// parallelActionQueue is a dynamically extensible worker queue. outstanding
+// counts queued plus in-flight actions, so workers stop only after the whole
+// fan-out drains. An in-flight action may enqueue siblings before completing;
+// therefore outstanding cannot transiently reach zero between parent and child.
+type parallelActionQueue struct {
+	mu          native_sync.Mutex
+	cond        *native_sync.Cond
+	actions     []*Action
+	head        int
+	outstanding int
+	aborted     bool
+}
+
+func newParallelActionQueue(actions []*Action) *parallelActionQueue {
+	q := &parallelActionQueue{
+		actions:     append([]*Action(nil), actions...),
+		outstanding: len(actions),
+	}
+	q.cond = native_sync.NewCond(&q.mu)
+	return q
+}
+
+func (q *parallelActionQueue) enqueue(action *Action) {
+	if action == nil {
+		return
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.aborted {
+		return
+	}
+	q.actions = append(q.actions, action)
+	q.outstanding++
+	q.cond.Signal()
+}
+
+func (q *parallelActionQueue) next() (*Action, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for !q.aborted && q.head == len(q.actions) && q.outstanding > 0 {
+		q.cond.Wait()
+	}
+	if q.aborted || q.outstanding == 0 {
+		return nil, false
+	}
+	action := q.actions[q.head]
+	q.actions[q.head] = nil
+	q.head++
+	if q.head == len(q.actions) {
+		q.actions = nil
+		q.head = 0
+	} else if q.head >= 1024 && q.head*2 >= len(q.actions) {
+		copy(q.actions, q.actions[q.head:])
+		q.actions = q.actions[:len(q.actions)-q.head]
+		q.head = 0
+	}
+	return action, true
+}
+
+func (q *parallelActionQueue) done() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.outstanding--
+	if q.outstanding == 0 {
+		q.cond.Broadcast()
+	}
+}
+
+func (q *parallelActionQueue) abort() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.aborted = true
+	q.cond.Broadcast()
+}
+
+func (s *syncer) setParallelActionEnqueuer(enqueue func(*Action)) {
+	s.parallelEnqueueMu.Lock()
+	defer s.parallelEnqueueMu.Unlock()
+	s.parallelActionEnqueuer = enqueue
+}
+
+func (s *syncer) enqueueParallelAction(action *Action) {
+	s.parallelEnqueueMu.RLock()
+	enqueue := s.parallelActionEnqueuer
+	s.parallelEnqueueMu.RUnlock()
+	if enqueue != nil {
+		enqueue(action)
+	}
 }
 
 func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actions []*Action, f func(ctx context.Context, action *Action) error) ([]error, error) {
@@ -425,8 +521,10 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	// its own linked-root span, so this stays a handful of spans per sync rather
 	// than one per resource/grant.
 	op := ""
+	batchOp := UnknownOp
 	if len(actions) > 0 {
-		op = actions[0].Op.String()
+		batchOp = actions[0].Op
+		op = batchOp.String()
 	}
 	ctx, span := tracer.Start(ctx, "syncer.syncParallel")
 	span.SetAttributes(
@@ -441,23 +539,40 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	actionCh := make(chan *Action, len(actions))
-	for _, a := range actions {
-		actionCh <- a
-	}
-	close(actionCh)
+	queue := newParallelActionQueue(actions)
+	s.setParallelActionEnqueuer(func(action *Action) {
+		if action.Op == batchOp {
+			queue.enqueue(action)
+		}
+	})
+	defer s.setParallelActionEnqueuer(nil)
 
-	resultCh := make(chan workerResult, len(actions))
+	var resultsMu native_sync.Mutex
+	var warnings []error
+	var errs []error
 
 	var wg native_sync.WaitGroup
 	for i := 0; i < s.workerCount; i++ {
 		wg.Go(func() {
-			for action := range actionCh {
+			for {
+				action, ok := queue.next()
+				if !ok {
+					return
+				}
 				r := s.syncOneAction(ctx, l, retryer, action, f)
-				resultCh <- r
+				resultsMu.Lock()
+				if r.warning != nil {
+					warnings = append(warnings, r.warning)
+				}
+				if r.err != nil {
+					errs = append(errs, r.err)
+				}
+				resultsMu.Unlock()
+				queue.done()
 				if r.err != nil {
 					l.Error("cancelling context due to error in action", zap.Any("action", action), zap.Error(r.err))
 					cancel(fmt.Errorf("cancelling context due to error in action %v: %w", action, r.err))
+					queue.abort()
 					return
 				}
 			}
@@ -465,18 +580,6 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	}
 
 	wg.Wait()
-	close(resultCh)
-
-	var warnings []error
-	var errs []error
-	for r := range resultCh {
-		if r.warning != nil {
-			warnings = append(warnings, r.warning)
-		}
-		if r.err != nil {
-			errs = append(errs, r.err)
-		}
-	}
 
 	batchErr = errors.Join(errs...)
 	return warnings, batchErr
