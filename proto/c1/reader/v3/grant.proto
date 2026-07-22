@@ -1,0 +1,155 @@
+syntax = "proto3";
+
+package c1.reader.v3;
+
+import "c1/connector/v2/entitlement.proto";
+import "c1/connector/v2/resource.proto";
+import "c1/storage/v3/records.proto";
+import "google/protobuf/any.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/reader/v3";
+
+// GrantsReaderService mirrors c1.reader.v2.GrantsReaderService's RPCs and
+// request shapes, but responses carry the rich c1.storage.v3.GrantRecord
+// instead of the lossy c1.connector.v2.Grant (which drops discovered_at).
+service GrantsReaderService {
+  rpc GetGrant(GrantsReaderServiceGetGrantRequest) returns (GrantsReaderServiceGetGrantResponse);
+  rpc ListGrantsForEntitlement(GrantsReaderServiceListGrantsForEntitlementRequest) returns (GrantsReaderServiceListGrantsForEntitlementResponse);
+  rpc ListGrantsForResourceType(GrantsReaderServiceListGrantsForResourceTypeRequest) returns (GrantsReaderServiceListGrantsForResourceTypeResponse);
+  // ListGrantsForEntitlements walks grants for up to 128 entitlements
+  // in a single RPC. Page boundaries land between entitlements so
+  // the cursor only needs to encode (entitlement_index, intra_cursor).
+  rpc ListGrantsForEntitlements(GrantsReaderServiceListGrantsForEntitlementsRequest) returns (GrantsReaderServiceListGrantsForEntitlementsResponse);
+  // ListGrantsForPrincipal returns all grants where the given principal_id
+  // is the principal. The optional entitlement field narrows results to a
+  // single entitlement. This is now a first-class RPC required by all
+  // GrantsReaderServiceServer implementations.
+  rpc ListGrantsForPrincipal(GrantsReaderServiceListGrantsForPrincipalRequest) returns (GrantsReaderServiceListGrantsForPrincipalResponse);
+}
+
+message GrantsReaderServiceGetGrantRequest {
+  string grant_id = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+  repeated google.protobuf.Any annotations = 2;
+}
+
+message GrantsReaderServiceGetGrantResponse {
+  c1.storage.v3.GrantRecord grant = 1;
+}
+
+message GrantsReaderServiceListGrantsForEntitlementRequest {
+  c1.connector.v2.Entitlement entitlement = 1 [(validate.rules).message = {required: true}];
+  c1.connector.v2.ResourceId principal_id = 5 [
+    (validate.rules).message = {required: false},
+    deprecated = true
+  ];
+  repeated string principal_resource_type_ids = 6 [deprecated = true];
+
+  uint32 page_size = 2 [(validate.rules).uint32 = {
+    ignore_empty: true
+    lte: 250
+  }];
+  string page_token = 3 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 2048
+  }];
+  repeated google.protobuf.Any annotations = 4;
+}
+
+message GrantsReaderServiceListGrantsForEntitlementResponse {
+  repeated c1.storage.v3.GrantRecord list = 1;
+  string next_page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 2048
+  }];
+}
+
+message GrantsReaderServiceListGrantsForResourceTypeRequest {
+  string resource_type_id = 1 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 2048
+  }];
+  uint32 page_size = 2 [(validate.rules).uint32 = {
+    ignore_empty: true
+    lte: 250
+  }];
+  string page_token = 3 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 2048
+  }];
+  repeated google.protobuf.Any annotations = 4;
+}
+
+message GrantsReaderServiceListGrantsForResourceTypeResponse {
+  repeated c1.storage.v3.GrantRecord list = 1;
+  string next_page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 2048
+  }];
+}
+
+message GrantsReaderServiceListGrantsForEntitlementsRequest {
+  // The entitlements (by id) to fetch grants for. Server caps at
+  // 128 to bound per-RPC work; clients should chunk above that.
+  repeated c1.connector.v2.Entitlement entitlements = 1 [(validate.rules).repeated = {max_items: 128}];
+
+  uint32 page_size = 10 [(validate.rules).uint32 = {
+    ignore_empty: true
+    lte: 1024
+  }];
+  // Cursor encoding: base64(varint entitlement_index, varint
+  // intra_cursor_len, intra_cursor_bytes, list_checksum_bytes).
+  // The list_checksum stamps the entitlement list shape; mismatch
+  // means the caller changed the input between pages and we
+  // restart from the beginning rather than silently mis-paginate.
+  string page_token = 11 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 4096
+  }];
+  repeated google.protobuf.Any annotations = 100;
+}
+
+message GrantsReaderServiceListGrantsForEntitlementsResponse {
+  // Grants from all requested entitlements, in the order the server
+  // visited them. Caller groups by GrantRecord.Entitlement.EntitlementId.
+  repeated c1.storage.v3.GrantRecord list = 1;
+  string next_page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 4096
+  }];
+}
+
+message GrantsReaderServiceListGrantsForPrincipalRequest {
+  c1.connector.v2.ResourceId principal_id = 1 [(validate.rules).message = {required: true}];
+  // Optional: narrow results to grants on this entitlement.
+  c1.connector.v2.Entitlement entitlement = 2;
+  uint32 page_size = 3 [(validate.rules).uint32 = {
+    ignore_empty: true
+    lte: 250
+  }];
+  string page_token = 4 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 2048
+  }];
+  repeated google.protobuf.Any annotations = 5;
+}
+
+message GrantsReaderServiceListGrantsForPrincipalResponse {
+  repeated c1.storage.v3.GrantRecord list = 1;
+  string next_page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 2048
+  }];
+}
