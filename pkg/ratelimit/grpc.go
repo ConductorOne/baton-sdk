@@ -88,6 +88,17 @@ func getRatelimitDescriptors(ctx context.Context, method string, in interface{},
 	return ret
 }
 
+// resourceTypeFromDescriptors returns the connector resource type descriptor
+// value, if present, for attributing rate-limit waits.
+func resourceTypeFromDescriptors(descriptors *ratelimitV1.RateLimitDescriptors) string {
+	for _, e := range descriptors.GetEntries() {
+		if e.GetKey() == descriptorKeyConnectorResourceType {
+			return e.GetValue()
+		}
+	}
+	return ""
+}
+
 // UnaryInterceptor returns a new unary server interceptors that adds zap.Logger to the context.
 func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimitDescriptors_Entry) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
@@ -163,11 +174,19 @@ func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimi
 
 				l.Info("ratelimit overlimit - waiting", zap.String("method", method), zap.Duration("wait_period", d))
 
+				// Report actual slept time after the fact: a cancelled
+				// context cuts the sleep short and must not inflate
+				// rate_limit_wait with the planned duration.
+				waitCtx := WithWaitLabel(ctx, resourceTypeFromDescriptors(rlDescriptors))
+				waitStart := time.Now()
+
 				// Overlimit -- wait up to maxRatelimitWait before trying the request again or the request is cancelled.
 				select {
 				case <-time.After(d):
+					ObserveWait(waitCtx, WaitEvent{Duration: d})
 					continue
 				case <-ctx.Done():
+					ObserveWait(waitCtx, WaitEvent{Duration: time.Since(waitStart)})
 					return status.FromContextError(ctx.Err()).Err()
 				}
 

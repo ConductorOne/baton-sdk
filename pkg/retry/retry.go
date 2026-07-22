@@ -7,6 +7,7 @@ import (
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
@@ -22,30 +23,12 @@ type Retryer struct {
 	maxAttempts  uint
 	initialDelay time.Duration
 	maxDelay     time.Duration
-	onWait       func(ctx context.Context, wait time.Duration, rateLimited bool)
 }
 
 type RetryConfig struct {
 	MaxAttempts  uint          // 0 means no limit (which is also the default).
 	InitialDelay time.Duration // Default is 1 second.
 	MaxDelay     time.Duration // Default is 60 seconds. 0 means no limit.
-	OnWait       func(ctx context.Context, wait time.Duration, rateLimited bool)
-}
-
-type waitLabelKey struct{}
-
-// WithWaitLabel attaches a bounded attribution label to retry waits.
-func WithWaitLabel(ctx context.Context, label string) context.Context {
-	if label == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, waitLabelKey{}, label)
-}
-
-// WaitLabelFromContext returns the retry-wait attribution label, if present.
-func WaitLabelFromContext(ctx context.Context) (string, bool) {
-	label, ok := ctx.Value(waitLabelKey{}).(string)
-	return label, ok && label != ""
 }
 
 func NewRetryer(ctx context.Context, config RetryConfig) *Retryer {
@@ -54,7 +37,6 @@ func NewRetryer(ctx context.Context, config RetryConfig) *Retryer {
 		maxAttempts:  config.MaxAttempts,
 		initialDelay: config.InitialDelay,
 		maxDelay:     config.MaxDelay,
-		onWait:       config.OnWait,
 	}
 	if r.initialDelay == 0 {
 		r.initialDelay = time.Second
@@ -141,16 +123,20 @@ func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
 	}
 
 	l.Warn("retrying operation", zap.Error(err), zap.Duration("wait", wait))
-	if r.onWait != nil {
-		r.onWait(ctx, wait, rateLimited)
-	}
 
-	for {
-		select {
-		case <-time.After(wait):
-			return true
-		case <-ctx.Done():
-			return false
-		}
+	// Report actual slept time after the fact via the context wait observer
+	// (the same channel the rate-limit gates use — one reporting mechanism
+	// for every in-process sleep site): a cancelled context cuts the sleep
+	// short and must not inflate wait stats with the planned duration.
+	// Contexts without an observer (e.g. connectorbuilder's connector-side
+	// retryers) make this a no-op.
+	waitStart := time.Now()
+	select {
+	case <-time.After(wait):
+		ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: wait, Retry: !rateLimited})
+		return true
+	case <-ctx.Done():
+		ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: time.Since(waitStart), Retry: !rateLimited})
+		return false
 	}
 }

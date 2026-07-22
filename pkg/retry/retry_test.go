@@ -8,6 +8,7 @@ import (
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -83,6 +84,35 @@ func TestRetryWithRateLimitData(t *testing.T) {
 	require.Less(t, elapsed, 2*time.Second, "should wait approximately 1 second")
 }
 
+func TestRetryOnWaitReportsElapsedOnCancel(t *testing.T) {
+	var gotWait time.Duration
+	var calls int
+	retryer := NewRetryer(t.Context(), RetryConfig{
+		InitialDelay: 10 * time.Second,
+		MaxDelay:     10 * time.Second,
+	})
+
+	observed := ratelimit.WithWaitObserver(t.Context(), func(ctx context.Context, ev ratelimit.WaitEvent) {
+		calls++
+		gotWait = ev.Duration
+	})
+	ctx, cancel := context.WithCancel(observed)
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	require.False(t, retryer.ShouldWaitAndRetry(ctx, status.Error(codes.Unavailable, "recoverable error")))
+	elapsed := time.Since(start)
+
+	require.Equal(t, 1, calls)
+	// The reported wait must reflect actual slept time, not the planned 10s.
+	require.Less(t, gotWait, time.Second)
+	require.GreaterOrEqual(t, gotWait, 50*time.Millisecond)
+	require.Less(t, elapsed, time.Second)
+}
+
 func TestRetryOnWait(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -119,15 +149,15 @@ func TestRetryOnWait(t *testing.T) {
 			retryer := NewRetryer(t.Context(), RetryConfig{
 				InitialDelay: time.Millisecond,
 				MaxDelay:     time.Millisecond,
-				OnWait: func(ctx context.Context, wait time.Duration, rateLimited bool) {
-					calls++
-					gotWait = wait
-					gotRateLimited = rateLimited
-					gotLabel, _ = WaitLabelFromContext(ctx)
-				},
 			})
 
-			ctx := WithWaitLabel(t.Context(), "project")
+			ctx := ratelimit.WithWaitObserver(t.Context(), func(ctx context.Context, ev ratelimit.WaitEvent) {
+				calls++
+				gotWait = ev.Duration
+				gotRateLimited = !ev.Retry
+				gotLabel, _ = ratelimit.WaitLabelFromContext(ctx)
+			})
+			ctx = ratelimit.WithWaitLabel(ctx, "project")
 			require.True(t, retryer.ShouldWaitAndRetry(ctx, tt.err(t)))
 			require.Equal(t, 1, calls)
 			require.Equal(t, time.Millisecond, gotWait)
@@ -135,19 +165,6 @@ func TestRetryOnWait(t *testing.T) {
 			require.Equal(t, "project", gotLabel)
 		})
 	}
-}
-
-func TestWaitLabelContext(t *testing.T) {
-	ctx := t.Context()
-	_, ok := WaitLabelFromContext(ctx)
-	require.False(t, ok)
-
-	labeled := WithWaitLabel(ctx, "project")
-	label, ok := WaitLabelFromContext(labeled)
-	require.True(t, ok)
-	require.Equal(t, "project", label)
-
-	require.Same(t, ctx, WithWaitLabel(ctx, ""))
 }
 
 func TestRetryWithHTTPResponse(t *testing.T) {

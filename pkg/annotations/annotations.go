@@ -124,6 +124,23 @@ func (a *Annotations) WithRateLimiting(rateLimit *v2.RateLimitDescription) *Anno
 	return a
 }
 
+// WithRateLimitWaitReport reports time this connector spent sleeping on rate
+// limits internally while serving the request — e.g. its API client's own
+// client-side throttling or HTTP 429 backoff. Those sleeps happen inside the
+// connector process, invisible to the syncer (which may be across a gRPC or
+// lambda boundary); this annotation is how they reach the rate_limit_wait
+// sync stat. Waits in the syncer process report via ratelimit.ObserveWait
+// instead and must not be double-reported here. No-op if waitMs <= 0.
+func (a *Annotations) WithRateLimitWaitReport(waitMs int64) *Annotations {
+	if waitMs <= 0 {
+		return a
+	}
+	report := &v2.RateLimitWaitReport{}
+	report.SetWaitMs(waitMs)
+	a.Update(report)
+	return a
+}
+
 // NOTE: the store is the only usage of this.
 func GetSyncIdFromAnnotations(annos Annotations) (string, error) {
 	if len(annos) == 0 {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -19,21 +20,113 @@ import (
 func (s *syncer) timedShouldWaitAndRetry(ctx context.Context, op ActionOp, resourceTypeID string, retryer *retry.Retryer, err error) bool {
 	var shouldRetry bool
 	_ = s.timedStep(op, func() error {
-		shouldRetry = retryer.ShouldWaitAndRetry(retry.WithWaitLabel(ctx, resourceTypeID), err)
+		shouldRetry = retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, resourceTypeID), err)
 		return nil
 	})
 	return shouldRetry
 }
 
+// recordRetryWait accumulates one completed wait into the cumulative buckets.
+// retry_wait / rate_limit_wait are worker-seconds: parallel workers each
+// report their full sleep, so the totals can exceed wall-clock sync time
+// (divide by worker_count for a utilization view). The per-resource-type
+// sub-buckets decompose the flat totals. rate_limit_wait_wall is the
+// wall-clock companion; see recordRateLimitWallInterval.
 func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLimited bool) {
+	// The wait observer is installed at the top of Sync, before the state
+	// token exists; a gate wait during the initial Validate call must be
+	// dropped, not dereference a nil state.
+	if s.state == nil {
+		return
+	}
 	bucket := "retry_wait"
 	if rateLimited {
 		bucket = "rate_limit_wait"
 	}
 	s.state.AddStepDuration(bucket, wait)
-	if label, ok := retry.WaitLabelFromContext(ctx); ok {
+	if label, ok := ratelimit.WaitLabelFromContext(ctx); ok {
 		s.state.AddStepDuration(bucket+":"+label, wait)
 	}
+	if rateLimited {
+		s.recordRateLimitWallInterval(wait)
+	}
+}
+
+// recordRateLimitWallInterval folds one completed rate-limit wait into
+// rate_limit_wait_wall: wall-clock time with at least one worker blocked on a
+// rate limit. Unlike the cumulative rate_limit_wait (worker-seconds, can
+// exceed wall-clock under parallelism), this bucket is bounded by sync
+// duration.
+//
+// Every reporter fires immediately after its wait ends — syncer-process
+// sleeps exactly, connector-reported annotation waits approximately (at
+// response receipt) — so each event is the interval [now-wait, now] and
+// events arrive ordered by end time. Merging overlaps therefore reduces to a
+// watermark: count only the part of the interval past the last covered
+// instant. The watermark is in-memory only; across checkpoint/resume the
+// first event after resume counts in full, which can only under-merge (never
+// double-count) because the bucket itself persists in the token.
+//
+// Known bias: an annotation wait is end-anchored at response receipt, but the
+// connector's sleep ended earlier in the RPC (marshal + transport + any
+// post-sleep work follow it). The claimed interval shifts late by that
+// amount, so under parallelism the merge can count wall time past another
+// worker's watermark that was not actually blocked — an over-count bounded by
+// the post-sleep RPC latency of that one report. The bucket stays bounded by
+// elapsed sync time regardless.
+func (s *syncer) recordRateLimitWallInterval(wait time.Duration) {
+	if wait <= 0 || s.state == nil {
+		return
+	}
+	s.rlWallMu.Lock()
+	end := time.Now()
+	start := end.Add(-wait)
+	if start.Before(s.rlWallCoveredUntil) {
+		start = s.rlWallCoveredUntil
+	}
+	if !end.After(start) {
+		s.rlWallMu.Unlock()
+		return
+	}
+	s.rlWallCoveredUntil = end
+	// The state bucket accumulates whole milliseconds per call, so carry the
+	// sub-millisecond remainder locally: overlapping parallel waits contribute
+	// many tiny past-the-watermark slivers that would otherwise all truncate
+	// to zero and systematically undercount the bucket.
+	delta := end.Sub(start) + s.rlWallCarry
+	whole := delta.Truncate(time.Millisecond)
+	s.rlWallCarry = delta - whole
+	// Flush outside rlWallMu: additions commute, and this keeps the wall
+	// lock from nesting the state mutex.
+	s.rlWallMu.Unlock()
+	if whole > 0 {
+		s.state.AddStepDuration("rate_limit_wait_wall", whole)
+	}
+}
+
+// withRateLimitWaitObserver subscribes the syncer to every in-process sleep
+// that happens below it: rate-limit gate sleeps (SDK client interceptor,
+// hosted connector manager) land in rate_limit_wait, and the retryer's
+// backoff sleeps land in retry_wait or rate_limit_wait per the event's Retry
+// flag. This context observer is the single reporting channel for in-process
+// waits (connector-process sleeps arrive separately, via the
+// RateLimitWaitReport response annotation). The recordStats check happens at
+// report time because the flag is only decided after the store is loaded,
+// which is after the observer must already be on the context.
+func (s *syncer) withRateLimitWaitObserver(ctx context.Context) context.Context {
+	// Start the wall watermark at the top of the run: an end-anchored
+	// interval (notably a connector-reported wait) must not count wall
+	// time from before this sync process started waiting.
+	s.rlWallMu.Lock()
+	s.rlWallCoveredUntil = time.Now()
+	s.rlWallCarry = 0
+	s.rlWallMu.Unlock()
+	return ratelimit.WithWaitObserver(ctx, func(ctx context.Context, ev ratelimit.WaitEvent) {
+		if !s.recordStats {
+			return
+		}
+		s.recordRetryWait(ctx, ev.Duration, !ev.Retry)
+	})
 }
 
 func (s *syncer) parallelSync(
@@ -43,15 +136,12 @@ func (s *syncer) parallelSync(
 ) ([]error, error) {
 	l := ctxzap.Extract(ctx)
 
-	var onWait func(context.Context, time.Duration, bool)
-	if s.recordStats {
-		onWait = s.recordRetryWait
-	}
+	// Retry backoff sleeps report through the context wait observer
+	// installed at the top of Sync, like every other in-process sleep site.
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
 		MaxAttempts:  0,
 		InitialDelay: 1 * time.Second,
 		MaxDelay:     0,
-		OnWait:       onWait,
 	})
 
 	var warnings []error
@@ -311,7 +401,7 @@ func (s *syncer) parallelSync(
 			}
 
 			err = s.SyncGrantExpansion(ctx, stateAction)
-			if !retryer.ShouldWaitAndRetry(retry.WithWaitLabel(ctx, stateAction.ResourceTypeID), err) {
+			if !retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, stateAction.ResourceTypeID), err) {
 				return warnings, err
 			}
 			continue
@@ -403,7 +493,7 @@ func (s *syncer) syncOneAction(ctx context.Context, l *zap.Logger, retryer *retr
 			return workerResult{warning: err}
 		}
 		if err != nil {
-			if retryer.ShouldWaitAndRetry(retry.WithWaitLabel(ctx, action.ResourceTypeID), err) {
+			if retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, action.ResourceTypeID), err) {
 				continue
 			}
 
