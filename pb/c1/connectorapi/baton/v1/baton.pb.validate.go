@@ -1006,6 +1006,47 @@ func (m *Task) validate(all bool) error {
 			}
 		}
 
+	case *Task_IssueCredential:
+		if v == nil {
+			err := TaskValidationError{
+				field:  "TaskType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetIssueCredential()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "IssueCredential",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "IssueCredential",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetIssueCredential()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TaskValidationError{
+					field:  "IssueCredential",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	default:
 		_ = v // ensures v is used
 	}
@@ -5633,6 +5674,229 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = Task_RotateCredentialsTaskValidationError{}
+
+// Validate checks the field values on Task_IssueCredentialTask with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *Task_IssueCredentialTask) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Task_IssueCredentialTask with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// Task_IssueCredentialTaskMultiError, or nil if none found.
+func (m *Task_IssueCredentialTask) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Task_IssueCredentialTask) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetIdentityId()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, Task_IssueCredentialTaskValidationError{
+					field:  "IdentityId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, Task_IssueCredentialTaskValidationError{
+					field:  "IdentityId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetIdentityId()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return Task_IssueCredentialTaskValidationError{
+				field:  "IdentityId",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetCredentialOptions()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, Task_IssueCredentialTaskValidationError{
+					field:  "CredentialOptions",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, Task_IssueCredentialTaskValidationError{
+					field:  "CredentialOptions",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetCredentialOptions()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return Task_IssueCredentialTaskValidationError{
+				field:  "CredentialOptions",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	for idx, item := range m.GetEncryptionConfigs() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, Task_IssueCredentialTaskValidationError{
+						field:  fmt.Sprintf("EncryptionConfigs[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, Task_IssueCredentialTaskValidationError{
+						field:  fmt.Sprintf("EncryptionConfigs[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return Task_IssueCredentialTaskValidationError{
+					field:  fmt.Sprintf("EncryptionConfigs[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if all {
+		switch v := interface{}(m.GetExpiresAt()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, Task_IssueCredentialTaskValidationError{
+					field:  "ExpiresAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, Task_IssueCredentialTaskValidationError{
+					field:  "ExpiresAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetExpiresAt()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return Task_IssueCredentialTaskValidationError{
+				field:  "ExpiresAt",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return Task_IssueCredentialTaskMultiError(errors)
+	}
+
+	return nil
+}
+
+// Task_IssueCredentialTaskMultiError is an error wrapping multiple validation
+// errors returned by Task_IssueCredentialTask.ValidateAll() if the designated
+// constraints aren't met.
+type Task_IssueCredentialTaskMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m Task_IssueCredentialTaskMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m Task_IssueCredentialTaskMultiError) AllErrors() []error { return m }
+
+// Task_IssueCredentialTaskValidationError is the validation error returned by
+// Task_IssueCredentialTask.Validate if the designated constraints aren't met.
+type Task_IssueCredentialTaskValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e Task_IssueCredentialTaskValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e Task_IssueCredentialTaskValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e Task_IssueCredentialTaskValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e Task_IssueCredentialTaskValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e Task_IssueCredentialTaskValidationError) ErrorName() string {
+	return "Task_IssueCredentialTaskValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e Task_IssueCredentialTaskValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTask_IssueCredentialTask.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = Task_IssueCredentialTaskValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = Task_IssueCredentialTaskValidationError{}
 
 // Validate checks the field values on Task_CreateTicketTask with the rules
 // defined in the proto definition for this message. If any rules are

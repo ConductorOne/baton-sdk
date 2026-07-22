@@ -4,7 +4,6 @@ package c1.connector.v2;
 
 import "c1/connector/v2/asset.proto";
 import "google/protobuf/any.proto";
-import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
@@ -111,7 +110,6 @@ service CredentialManagerService {
   // additional, distinct secret, so an identity can hold multiple coexisting
   // keys (e.g. cloud service-account key #1 and #2).
   rpc IssueCredential(IssueCredentialRequest) returns (IssueCredentialResponse);
-  rpc GetCredentialIssueEligibility(GetCredentialIssueEligibilityRequest) returns (GetCredentialIssueEligibilityResponse);
 }
 
 service AccountManagerService {
@@ -160,40 +158,31 @@ message RotateCredentialResponse {
 message IssueCredentialRequest {
   // The existing identity (e.g. service account) to mint the credential for.
   ResourceId identity_id = 1;
-  // What kind of credential to mint (api_key / keypair / token / ...). Reuses
-  // the shared CredentialOptions arms.
-  CredentialOptions credential_options = 2;
+  // What kind of credential to mint (api_key / keypair / token / ...).
+  // Issuance has its own option type so it cannot accidentally expand account
+  // creation or password rotation.
+  CredentialIssueOptions credential_options = 2;
   // Public keys the connector encrypts the returned material against.
   repeated EncryptionConfig encryption_configs = 3;
-  string operation_id = 4 [(validate.rules).string = {
+  // Stable correlation identifier. This does not by itself guarantee provider
+  // idempotency; callers must not blindly retry an ambiguous issuance.
+  string request_id = 4 [(validate.rules).string = {
     min_bytes: 1
     max_bytes: 128
     pattern: "^[A-Za-z0-9_-]+$"
   }];
-  google.protobuf.Struct connector_parameters = 5;
-  CredentialIssuanceConstraints issuance_constraints = 6;
+  // Optional absolute expiry requested by the caller. Absolute time avoids
+  // extending a credential merely because an approved task waited in queue.
+  google.protobuf.Timestamp expires_at = 5;
 }
 
-message CredentialIssuanceConstraints {
-  google.protobuf.Duration lifetime = 1;
-}
-
-message GetCredentialIssueEligibilityRequest {
-  ResourceId identity_id = 1;
-  CredentialOptions credential_options = 2;
-}
-
-message GetCredentialIssueEligibilityResponse {
-  enum Status {
-    STATUS_UNSPECIFIED = 0;
-    STATUS_ELIGIBLE = 1;
-    STATUS_INELIGIBLE = 2;
-    STATUS_UNKNOWN = 3;
-  }
-  Status status = 1;
-  string reason_code = 2;
-  string explanation = 3;
-  repeated google.protobuf.Any annotations = 4;
+enum CredentialResourceMode {
+  CREDENTIAL_RESOURCE_MODE_UNSPECIFIED = 0;
+  // The credential is expected to appear in subsequent resource syncs.
+  CREDENTIAL_RESOURCE_MODE_DISCOVERABLE = 1;
+  // The provider cannot enumerate the credential after issuance. The returned
+  // Resource remains its stable handle for audit and provider deletion/expiry.
+  CREDENTIAL_RESOURCE_MODE_VIRTUAL = 2;
 }
 
 message IssueCredentialResponse {
@@ -205,6 +194,8 @@ message IssueCredentialResponse {
   // EncryptionConfigs via the same fan-out as CreateAccount/RotateCredential.
   repeated EncryptedData encrypted_data = 2;
   repeated google.protobuf.Any annotations = 3;
+  CredentialResourceMode resource_mode = 4;
+  string request_id = 5;
 }
 
 message AccountInfo {
@@ -233,6 +224,28 @@ message KeyGenerationProfile {
   }
 }
 
+// CredentialIssueOptions are intentionally separate from CredentialOptions:
+// adding issuance-only arms must not expand account creation or rotation.
+message CredentialIssueOptions {
+  message ApiKey {
+    repeated string scopes = 1;
+  }
+  message Keypair {
+    KeyGenerationProfile profile = 1;
+  }
+  message Token {
+    repeated string scopes = 1;
+    repeated string audiences = 2;
+  }
+  message ClientSecret {}
+  oneof options {
+    ApiKey api_key = 100;
+    Keypair keypair = 101;
+    Token token = 102;
+    ClientSecret client_secret = 103;
+  }
+}
+
 message CredentialOptions {
   message RandomPassword {
     int64 length = 1 [(validate.rules).int64 = {
@@ -248,45 +261,11 @@ message CredentialOptions {
   message EncryptedPassword {
     repeated EncryptedData encrypted_passwords = 1 [(validate.rules).repeated = {min_items: 1}];
   }
-  // ApiKey requests that the connector mint an API key for the identity. The
-  // connector returns the key material as PlaintextData, which the builder
-  // encrypts per EncryptionConfig before it leaves the connector — the arm
-  // itself carries no secret on the request.
-  message ApiKey {
-    // Scopes/permissions to attach to the minted key. Connector-defined
-    // vocabulary; an empty list means the connector's default scope.
-    repeated string scopes = 1;
-  }
-  // Keypair requests CLIENT-SIDE key generation: the connector generates the
-  // keypair locally, registers the public key with the platform, and returns
-  // the PRIVATE material as PlaintextData. The platform never sees the private
-  // key (mirrors the Snowflake key-pair auth pattern).
-  message Keypair {
-    KeyGenerationProfile profile = 1;
-  }
-  // Token requests that the connector mint a bearer/access token for the
-  // identity. The connector returns the token as PlaintextData, encrypted by
-  // the builder before leaving the connector.
-  message Token {
-    // Scopes to attach to the token. Connector-defined vocabulary; empty means
-    // the connector's default scope.
-    repeated string scopes = 1;
-    // Optional intended audience for the token (e.g. an OAuth resource URL).
-    string audience = 2;
-  }
-  // ClientSecret requests an OAuth/OIDC client secret for an existing
-  // application or service-principal identity. A client secret is a durable
-  // credential used to obtain tokens; it is not itself a bearer token.
-  message ClientSecret {}
   oneof options {
     RandomPassword random_password = 100;
     NoPassword no_password = 101;
     SSO sso = 102;
     EncryptedPassword encrypted_password = 103;
-    ApiKey api_key = 104;
-    Keypair keypair = 105;
-    Token token = 106;
-    ClientSecret client_secret = 107;
   }
   bool force_change_at_next_login = 1;
 }
@@ -307,31 +286,11 @@ message LocalCredentialOptions {
   message PlaintextPassword {
     string plaintext_password = 1;
   }
-  // Decrypted mirror of CredentialOptions.ApiKey. Carries no secret payload on
-  // the request, so it passes through ConvertCredentialOptions unchanged.
-  message ApiKey {
-    repeated string scopes = 1;
-  }
-  // Decrypted mirror of CredentialOptions.Keypair (client-side generation).
-  message Keypair {
-    KeyGenerationProfile profile = 1;
-  }
-  // Decrypted mirror of CredentialOptions.Token.
-  message Token {
-    repeated string scopes = 1;
-    string audience = 2;
-  }
-  // Decrypted mirror of CredentialOptions.ClientSecret.
-  message ClientSecret {}
   oneof options {
     RandomPassword random_password = 100;
     NoPassword no_password = 101;
     SSO sso = 102;
     PlaintextPassword plaintext_password = 103;
-    ApiKey api_key = 104;
-    Keypair keypair = 105;
-    Token token = 106;
-    ClientSecret client_secret = 107;
   }
   bool force_change_at_next_login = 1;
 }

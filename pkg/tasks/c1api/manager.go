@@ -449,6 +449,8 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		handler = newDeleteResourceTaskHandler(task, tHelpers)
 	case taskTypes.RotateCredentialsType:
 		handler = newRotateCredentialsTaskHandler(task, tHelpers)
+	case taskTypes.IssueCredentialType:
+		handler = newIssueCredentialTaskHandler(task, tHelpers)
 	case taskTypes.CreateTicketType:
 		handler = newCreateTicketTaskHandler(task, tHelpers)
 	case taskTypes.ListTicketSchemasType:

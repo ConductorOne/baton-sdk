@@ -9,7 +9,6 @@
 package v2
 
 import (
-	v1 "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -533,7 +532,6 @@ type CredentialDetails struct {
 	state                                    protoimpl.MessageState                `protogen:"opaque.v1"`
 	xxx_hidden_CapabilityAccountProvisioning *CredentialDetailsAccountProvisioning `protobuf:"bytes,1,opt,name=capability_account_provisioning,json=capabilityAccountProvisioning,proto3"`
 	xxx_hidden_CapabilityCredentialRotation  *CredentialDetailsCredentialRotation  `protobuf:"bytes,2,opt,name=capability_credential_rotation,json=capabilityCredentialRotation,proto3"`
-	xxx_hidden_CapabilityCredentialIssue     *CredentialDetailsCredentialIssue     `protobuf:"bytes,3,opt,name=capability_credential_issue,json=capabilityCredentialIssue,proto3"`
 	unknownFields                            protoimpl.UnknownFields
 	sizeCache                                protoimpl.SizeCache
 }
@@ -577,23 +575,12 @@ func (x *CredentialDetails) GetCapabilityCredentialRotation() *CredentialDetails
 	return nil
 }
 
-func (x *CredentialDetails) GetCapabilityCredentialIssue() *CredentialDetailsCredentialIssue {
-	if x != nil {
-		return x.xxx_hidden_CapabilityCredentialIssue
-	}
-	return nil
-}
-
 func (x *CredentialDetails) SetCapabilityAccountProvisioning(v *CredentialDetailsAccountProvisioning) {
 	x.xxx_hidden_CapabilityAccountProvisioning = v
 }
 
 func (x *CredentialDetails) SetCapabilityCredentialRotation(v *CredentialDetailsCredentialRotation) {
 	x.xxx_hidden_CapabilityCredentialRotation = v
-}
-
-func (x *CredentialDetails) SetCapabilityCredentialIssue(v *CredentialDetailsCredentialIssue) {
-	x.xxx_hidden_CapabilityCredentialIssue = v
 }
 
 func (x *CredentialDetails) HasCapabilityAccountProvisioning() bool {
@@ -610,13 +597,6 @@ func (x *CredentialDetails) HasCapabilityCredentialRotation() bool {
 	return x.xxx_hidden_CapabilityCredentialRotation != nil
 }
 
-func (x *CredentialDetails) HasCapabilityCredentialIssue() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_CapabilityCredentialIssue != nil
-}
-
 func (x *CredentialDetails) ClearCapabilityAccountProvisioning() {
 	x.xxx_hidden_CapabilityAccountProvisioning = nil
 }
@@ -625,16 +605,11 @@ func (x *CredentialDetails) ClearCapabilityCredentialRotation() {
 	x.xxx_hidden_CapabilityCredentialRotation = nil
 }
 
-func (x *CredentialDetails) ClearCapabilityCredentialIssue() {
-	x.xxx_hidden_CapabilityCredentialIssue = nil
-}
-
 type CredentialDetails_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	CapabilityAccountProvisioning *CredentialDetailsAccountProvisioning
 	CapabilityCredentialRotation  *CredentialDetailsCredentialRotation
-	CapabilityCredentialIssue     *CredentialDetailsCredentialIssue
 }
 
 func (b0 CredentialDetails_builder) Build() *CredentialDetails {
@@ -643,7 +618,6 @@ func (b0 CredentialDetails_builder) Build() *CredentialDetails {
 	_, _ = b, x
 	x.xxx_hidden_CapabilityAccountProvisioning = b.CapabilityAccountProvisioning
 	x.xxx_hidden_CapabilityCredentialRotation = b.CapabilityCredentialRotation
-	x.xxx_hidden_CapabilityCredentialIssue = b.CapabilityCredentialIssue
 	return m0
 }
 
@@ -865,16 +839,18 @@ func (b0 CredentialDetailsCredentialIssue_builder) Build() *CredentialDetailsCre
 }
 
 type CredentialIssueOptionDescriptor struct {
-	state                          protoimpl.MessageState           `protogen:"opaque.v1"`
-	xxx_hidden_Option              CapabilityDetailCredentialOption `protobuf:"varint,1,opt,name=option,proto3,enum=c1.connector.v2.CapabilityDetailCredentialOption"`
-	xxx_hidden_KeyProfiles         *[]*KeyGenerationProfile         `protobuf:"bytes,2,rep,name=key_profiles,json=keyProfiles,proto3"`
-	xxx_hidden_Lifetime            *IssuanceLifetimeCapability      `protobuf:"bytes,3,opt,name=lifetime,proto3"`
-	xxx_hidden_Scopes              []string                         `protobuf:"bytes,4,rep,name=scopes,proto3"`
-	xxx_hidden_CustomScopesAllowed bool                             `protobuf:"varint,5,opt,name=custom_scopes_allowed,json=customScopesAllowed,proto3"`
-	xxx_hidden_AudienceSupported   bool                             `protobuf:"varint,6,opt,name=audience_supported,json=audienceSupported,proto3"`
-	xxx_hidden_ConnectorParameters *v1.Configuration                `protobuf:"bytes,7,opt,name=connector_parameters,json=connectorParameters,proto3"`
-	unknownFields                  protoimpl.UnknownFields
-	sizeCache                      protoimpl.SizeCache
+	state                             protoimpl.MessageState           `protogen:"opaque.v1"`
+	xxx_hidden_Option                 CapabilityDetailCredentialOption `protobuf:"varint,1,opt,name=option,proto3,enum=c1.connector.v2.CapabilityDetailCredentialOption"`
+	xxx_hidden_KeyProfiles            *[]*KeyGenerationProfile         `protobuf:"bytes,2,rep,name=key_profiles,json=keyProfiles,proto3"`
+	xxx_hidden_Expiry                 *IssuanceExpiryCapability        `protobuf:"bytes,3,opt,name=expiry,proto3"`
+	xxx_hidden_Scopes                 []string                         `protobuf:"bytes,4,rep,name=scopes,proto3"`
+	xxx_hidden_CustomScopesAllowed    bool                             `protobuf:"varint,5,opt,name=custom_scopes_allowed,json=customScopesAllowed,proto3"`
+	xxx_hidden_CustomAudiencesAllowed bool                             `protobuf:"varint,6,opt,name=custom_audiences_allowed,json=customAudiencesAllowed,proto3"`
+	xxx_hidden_Audiences              []string                         `protobuf:"bytes,7,rep,name=audiences,proto3"`
+	xxx_hidden_ResourceMode           CredentialResourceMode           `protobuf:"varint,8,opt,name=resource_mode,json=resourceMode,proto3,enum=c1.connector.v2.CredentialResourceMode"`
+	xxx_hidden_SecretResourceTypeId   string                           `protobuf:"bytes,9,opt,name=secret_resource_type_id,json=secretResourceTypeId,proto3"`
+	unknownFields                     protoimpl.UnknownFields
+	sizeCache                         protoimpl.SizeCache
 }
 
 func (x *CredentialIssueOptionDescriptor) Reset() {
@@ -918,9 +894,9 @@ func (x *CredentialIssueOptionDescriptor) GetKeyProfiles() []*KeyGenerationProfi
 	return nil
 }
 
-func (x *CredentialIssueOptionDescriptor) GetLifetime() *IssuanceLifetimeCapability {
+func (x *CredentialIssueOptionDescriptor) GetExpiry() *IssuanceExpiryCapability {
 	if x != nil {
-		return x.xxx_hidden_Lifetime
+		return x.xxx_hidden_Expiry
 	}
 	return nil
 }
@@ -939,18 +915,32 @@ func (x *CredentialIssueOptionDescriptor) GetCustomScopesAllowed() bool {
 	return false
 }
 
-func (x *CredentialIssueOptionDescriptor) GetAudienceSupported() bool {
+func (x *CredentialIssueOptionDescriptor) GetCustomAudiencesAllowed() bool {
 	if x != nil {
-		return x.xxx_hidden_AudienceSupported
+		return x.xxx_hidden_CustomAudiencesAllowed
 	}
 	return false
 }
 
-func (x *CredentialIssueOptionDescriptor) GetConnectorParameters() *v1.Configuration {
+func (x *CredentialIssueOptionDescriptor) GetAudiences() []string {
 	if x != nil {
-		return x.xxx_hidden_ConnectorParameters
+		return x.xxx_hidden_Audiences
 	}
 	return nil
+}
+
+func (x *CredentialIssueOptionDescriptor) GetResourceMode() CredentialResourceMode {
+	if x != nil {
+		return x.xxx_hidden_ResourceMode
+	}
+	return CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_UNSPECIFIED
+}
+
+func (x *CredentialIssueOptionDescriptor) GetSecretResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_SecretResourceTypeId
+	}
+	return ""
 }
 
 func (x *CredentialIssueOptionDescriptor) SetOption(v CapabilityDetailCredentialOption) {
@@ -961,8 +951,8 @@ func (x *CredentialIssueOptionDescriptor) SetKeyProfiles(v []*KeyGenerationProfi
 	x.xxx_hidden_KeyProfiles = &v
 }
 
-func (x *CredentialIssueOptionDescriptor) SetLifetime(v *IssuanceLifetimeCapability) {
-	x.xxx_hidden_Lifetime = v
+func (x *CredentialIssueOptionDescriptor) SetExpiry(v *IssuanceExpiryCapability) {
+	x.xxx_hidden_Expiry = v
 }
 
 func (x *CredentialIssueOptionDescriptor) SetScopes(v []string) {
@@ -973,46 +963,48 @@ func (x *CredentialIssueOptionDescriptor) SetCustomScopesAllowed(v bool) {
 	x.xxx_hidden_CustomScopesAllowed = v
 }
 
-func (x *CredentialIssueOptionDescriptor) SetAudienceSupported(v bool) {
-	x.xxx_hidden_AudienceSupported = v
+func (x *CredentialIssueOptionDescriptor) SetCustomAudiencesAllowed(v bool) {
+	x.xxx_hidden_CustomAudiencesAllowed = v
 }
 
-func (x *CredentialIssueOptionDescriptor) SetConnectorParameters(v *v1.Configuration) {
-	x.xxx_hidden_ConnectorParameters = v
+func (x *CredentialIssueOptionDescriptor) SetAudiences(v []string) {
+	x.xxx_hidden_Audiences = v
 }
 
-func (x *CredentialIssueOptionDescriptor) HasLifetime() bool {
+func (x *CredentialIssueOptionDescriptor) SetResourceMode(v CredentialResourceMode) {
+	x.xxx_hidden_ResourceMode = v
+}
+
+func (x *CredentialIssueOptionDescriptor) SetSecretResourceTypeId(v string) {
+	x.xxx_hidden_SecretResourceTypeId = v
+}
+
+func (x *CredentialIssueOptionDescriptor) HasExpiry() bool {
 	if x == nil {
 		return false
 	}
-	return x.xxx_hidden_Lifetime != nil
+	return x.xxx_hidden_Expiry != nil
 }
 
-func (x *CredentialIssueOptionDescriptor) HasConnectorParameters() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_ConnectorParameters != nil
-}
-
-func (x *CredentialIssueOptionDescriptor) ClearLifetime() {
-	x.xxx_hidden_Lifetime = nil
-}
-
-func (x *CredentialIssueOptionDescriptor) ClearConnectorParameters() {
-	x.xxx_hidden_ConnectorParameters = nil
+func (x *CredentialIssueOptionDescriptor) ClearExpiry() {
+	x.xxx_hidden_Expiry = nil
 }
 
 type CredentialIssueOptionDescriptor_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Option              CapabilityDetailCredentialOption
-	KeyProfiles         []*KeyGenerationProfile
-	Lifetime            *IssuanceLifetimeCapability
-	Scopes              []string
-	CustomScopesAllowed bool
-	AudienceSupported   bool
-	ConnectorParameters *v1.Configuration
+	Option                 CapabilityDetailCredentialOption
+	KeyProfiles            []*KeyGenerationProfile
+	Expiry                 *IssuanceExpiryCapability
+	Scopes                 []string
+	CustomScopesAllowed    bool
+	CustomAudiencesAllowed bool
+	Audiences              []string
+	ResourceMode           CredentialResourceMode
+	// Resource type returned by IssueCredential. It must be registered with a
+	// ResourceDeleterV2 so every issued credential has a provider revoke path,
+	// including virtual credentials that cannot be listed later.
+	SecretResourceTypeId string
 }
 
 func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOptionDescriptor {
@@ -1021,37 +1013,38 @@ func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOption
 	_, _ = b, x
 	x.xxx_hidden_Option = b.Option
 	x.xxx_hidden_KeyProfiles = &b.KeyProfiles
-	x.xxx_hidden_Lifetime = b.Lifetime
+	x.xxx_hidden_Expiry = b.Expiry
 	x.xxx_hidden_Scopes = b.Scopes
 	x.xxx_hidden_CustomScopesAllowed = b.CustomScopesAllowed
-	x.xxx_hidden_AudienceSupported = b.AudienceSupported
-	x.xxx_hidden_ConnectorParameters = b.ConnectorParameters
+	x.xxx_hidden_CustomAudiencesAllowed = b.CustomAudiencesAllowed
+	x.xxx_hidden_Audiences = b.Audiences
+	x.xxx_hidden_ResourceMode = b.ResourceMode
+	x.xxx_hidden_SecretResourceTypeId = b.SecretResourceTypeId
 	return m0
 }
 
-type IssuanceLifetimeCapability struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Min         *durationpb.Duration   `protobuf:"bytes,1,opt,name=min,proto3"`
-	xxx_hidden_Max         *durationpb.Duration   `protobuf:"bytes,2,opt,name=max,proto3"`
-	xxx_hidden_Granularity *durationpb.Duration   `protobuf:"bytes,3,opt,name=granularity,proto3"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+type IssuanceExpiryCapability struct {
+	state          protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Min *durationpb.Duration   `protobuf:"bytes,1,opt,name=min,proto3"`
+	xxx_hidden_Max *durationpb.Duration   `protobuf:"bytes,2,opt,name=max,proto3"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
-func (x *IssuanceLifetimeCapability) Reset() {
-	*x = IssuanceLifetimeCapability{}
+func (x *IssuanceExpiryCapability) Reset() {
+	*x = IssuanceExpiryCapability{}
 	mi := &file_c1_connector_v2_connector_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *IssuanceLifetimeCapability) String() string {
+func (x *IssuanceExpiryCapability) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*IssuanceLifetimeCapability) ProtoMessage() {}
+func (*IssuanceExpiryCapability) ProtoMessage() {}
 
-func (x *IssuanceLifetimeCapability) ProtoReflect() protoreflect.Message {
+func (x *IssuanceExpiryCapability) ProtoReflect() protoreflect.Message {
 	mi := &file_c1_connector_v2_connector_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1063,87 +1056,63 @@ func (x *IssuanceLifetimeCapability) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *IssuanceLifetimeCapability) GetMin() *durationpb.Duration {
+func (x *IssuanceExpiryCapability) GetMin() *durationpb.Duration {
 	if x != nil {
 		return x.xxx_hidden_Min
 	}
 	return nil
 }
 
-func (x *IssuanceLifetimeCapability) GetMax() *durationpb.Duration {
+func (x *IssuanceExpiryCapability) GetMax() *durationpb.Duration {
 	if x != nil {
 		return x.xxx_hidden_Max
 	}
 	return nil
 }
 
-func (x *IssuanceLifetimeCapability) GetGranularity() *durationpb.Duration {
-	if x != nil {
-		return x.xxx_hidden_Granularity
-	}
-	return nil
-}
-
-func (x *IssuanceLifetimeCapability) SetMin(v *durationpb.Duration) {
+func (x *IssuanceExpiryCapability) SetMin(v *durationpb.Duration) {
 	x.xxx_hidden_Min = v
 }
 
-func (x *IssuanceLifetimeCapability) SetMax(v *durationpb.Duration) {
+func (x *IssuanceExpiryCapability) SetMax(v *durationpb.Duration) {
 	x.xxx_hidden_Max = v
 }
 
-func (x *IssuanceLifetimeCapability) SetGranularity(v *durationpb.Duration) {
-	x.xxx_hidden_Granularity = v
-}
-
-func (x *IssuanceLifetimeCapability) HasMin() bool {
+func (x *IssuanceExpiryCapability) HasMin() bool {
 	if x == nil {
 		return false
 	}
 	return x.xxx_hidden_Min != nil
 }
 
-func (x *IssuanceLifetimeCapability) HasMax() bool {
+func (x *IssuanceExpiryCapability) HasMax() bool {
 	if x == nil {
 		return false
 	}
 	return x.xxx_hidden_Max != nil
 }
 
-func (x *IssuanceLifetimeCapability) HasGranularity() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_Granularity != nil
-}
-
-func (x *IssuanceLifetimeCapability) ClearMin() {
+func (x *IssuanceExpiryCapability) ClearMin() {
 	x.xxx_hidden_Min = nil
 }
 
-func (x *IssuanceLifetimeCapability) ClearMax() {
+func (x *IssuanceExpiryCapability) ClearMax() {
 	x.xxx_hidden_Max = nil
 }
 
-func (x *IssuanceLifetimeCapability) ClearGranularity() {
-	x.xxx_hidden_Granularity = nil
-}
-
-type IssuanceLifetimeCapability_builder struct {
+type IssuanceExpiryCapability_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Min         *durationpb.Duration
-	Max         *durationpb.Duration
-	Granularity *durationpb.Duration
+	Min *durationpb.Duration
+	Max *durationpb.Duration
 }
 
-func (b0 IssuanceLifetimeCapability_builder) Build() *IssuanceLifetimeCapability {
-	m0 := &IssuanceLifetimeCapability{}
+func (b0 IssuanceExpiryCapability_builder) Build() *IssuanceExpiryCapability {
+	m0 := &IssuanceExpiryCapability{}
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Min = b.Min
 	x.xxx_hidden_Max = b.Max
-	x.xxx_hidden_Granularity = b.Granularity
 	return m0
 }
 
@@ -1452,12 +1421,13 @@ func (b0 SkipSyncAnomalyDetection_builder) Build() *SkipSyncAnomalyDetection {
 }
 
 type ResourceTypeCapability struct {
-	state                               protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ResourceType             *ResourceType          `protobuf:"bytes,1,opt,name=resource_type,json=resourceType,proto3"`
-	xxx_hidden_Capabilities             []Capability           `protobuf:"varint,2,rep,packed,name=capabilities,proto3,enum=c1.connector.v2.Capability"`
-	xxx_hidden_Permissions              *CapabilityPermissions `protobuf:"bytes,3,opt,name=permissions,proto3"`
-	xxx_hidden_OptInRequired            bool                   `protobuf:"varint,4,opt,name=opt_in_required,json=optInRequired,proto3"`
-	xxx_hidden_SkipSyncAnomalyDetection bool                   `protobuf:"varint,5,opt,name=skip_sync_anomaly_detection,json=skipSyncAnomalyDetection,proto3"`
+	state                               protoimpl.MessageState            `protogen:"opaque.v1"`
+	xxx_hidden_ResourceType             *ResourceType                     `protobuf:"bytes,1,opt,name=resource_type,json=resourceType,proto3"`
+	xxx_hidden_Capabilities             []Capability                      `protobuf:"varint,2,rep,packed,name=capabilities,proto3,enum=c1.connector.v2.Capability"`
+	xxx_hidden_Permissions              *CapabilityPermissions            `protobuf:"bytes,3,opt,name=permissions,proto3"`
+	xxx_hidden_OptInRequired            bool                              `protobuf:"varint,4,opt,name=opt_in_required,json=optInRequired,proto3"`
+	xxx_hidden_SkipSyncAnomalyDetection bool                              `protobuf:"varint,5,opt,name=skip_sync_anomaly_detection,json=skipSyncAnomalyDetection,proto3"`
+	xxx_hidden_CredentialIssue          *CredentialDetailsCredentialIssue `protobuf:"bytes,6,opt,name=credential_issue,json=credentialIssue,proto3"`
 	unknownFields                       protoimpl.UnknownFields
 	sizeCache                           protoimpl.SizeCache
 }
@@ -1522,6 +1492,13 @@ func (x *ResourceTypeCapability) GetSkipSyncAnomalyDetection() bool {
 	return false
 }
 
+func (x *ResourceTypeCapability) GetCredentialIssue() *CredentialDetailsCredentialIssue {
+	if x != nil {
+		return x.xxx_hidden_CredentialIssue
+	}
+	return nil
+}
+
 func (x *ResourceTypeCapability) SetResourceType(v *ResourceType) {
 	x.xxx_hidden_ResourceType = v
 }
@@ -1542,6 +1519,10 @@ func (x *ResourceTypeCapability) SetSkipSyncAnomalyDetection(v bool) {
 	x.xxx_hidden_SkipSyncAnomalyDetection = v
 }
 
+func (x *ResourceTypeCapability) SetCredentialIssue(v *CredentialDetailsCredentialIssue) {
+	x.xxx_hidden_CredentialIssue = v
+}
+
 func (x *ResourceTypeCapability) HasResourceType() bool {
 	if x == nil {
 		return false
@@ -1556,12 +1537,23 @@ func (x *ResourceTypeCapability) HasPermissions() bool {
 	return x.xxx_hidden_Permissions != nil
 }
 
+func (x *ResourceTypeCapability) HasCredentialIssue() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_CredentialIssue != nil
+}
+
 func (x *ResourceTypeCapability) ClearResourceType() {
 	x.xxx_hidden_ResourceType = nil
 }
 
 func (x *ResourceTypeCapability) ClearPermissions() {
 	x.xxx_hidden_Permissions = nil
+}
+
+func (x *ResourceTypeCapability) ClearCredentialIssue() {
+	x.xxx_hidden_CredentialIssue = nil
 }
 
 type ResourceTypeCapability_builder struct {
@@ -1572,6 +1564,7 @@ type ResourceTypeCapability_builder struct {
 	Permissions              *CapabilityPermissions
 	OptInRequired            bool
 	SkipSyncAnomalyDetection bool
+	CredentialIssue          *CredentialDetailsCredentialIssue
 }
 
 func (b0 ResourceTypeCapability_builder) Build() *ResourceTypeCapability {
@@ -1583,6 +1576,7 @@ func (b0 ResourceTypeCapability_builder) Build() *ResourceTypeCapability {
 	x.xxx_hidden_Permissions = b.Permissions
 	x.xxx_hidden_OptInRequired = b.OptInRequired
 	x.xxx_hidden_SkipSyncAnomalyDetection = b.SkipSyncAnomalyDetection
+	x.xxx_hidden_CredentialIssue = b.CredentialIssue
 	return m0
 }
 
@@ -2610,7 +2604,7 @@ var File_c1_connector_v2_connector_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\n" +
-	"\x1fc1/connector/v2/connector.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19c1/config/v1/config.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\x8d\x01\n" +
+	"\x1fc1/connector/v2/connector.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\x8d\x01\n" +
 	"\x1eConnectorServiceCleanupRequest\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x123\n" +
 	"\x0eactive_sync_id\x18\x02 \x01(\tB\r\xfaB\n" +
@@ -2628,11 +2622,10 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\vdescription\x18\a \x01(\tB\r\xfaB\n" +
 	"r\b \x01(\x80 \xd0\x01\x01R\vdescription\x12J\n" +
 	"\fcapabilities\x18\b \x01(\v2&.c1.connector.v2.ConnectorCapabilitiesR\fcapabilities\x12g\n" +
-	"\x17account_creation_schema\x18\t \x01(\v2/.c1.connector.v2.ConnectorAccountCreationSchemaR\x15accountCreationSchema\"\x81\x03\n" +
+	"\x17account_creation_schema\x18\t \x01(\v2/.c1.connector.v2.ConnectorAccountCreationSchemaR\x15accountCreationSchema\"\x8e\x02\n" +
 	"\x11CredentialDetails\x12}\n" +
 	"\x1fcapability_account_provisioning\x18\x01 \x01(\v25.c1.connector.v2.CredentialDetailsAccountProvisioningR\x1dcapabilityAccountProvisioning\x12z\n" +
-	"\x1ecapability_credential_rotation\x18\x02 \x01(\v24.c1.connector.v2.CredentialDetailsCredentialRotationR\x1ccapabilityCredentialRotation\x12q\n" +
-	"\x1bcapability_credential_issue\x18\x03 \x01(\v21.c1.connector.v2.CredentialDetailsCredentialIssueR\x19capabilityCredentialIssue\"\x8e\x02\n" +
+	"\x1ecapability_credential_rotation\x18\x02 \x01(\v24.c1.connector.v2.CredentialDetailsCredentialRotationR\x1ccapabilityCredentialRotation\"\x8e\x02\n" +
 	"$CredentialDetailsAccountProvisioning\x12s\n" +
 	"\x1csupported_credential_options\x18\x01 \x03(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x1asupportedCredentialOptions\x12q\n" +
 	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\x8d\x02\n" +
@@ -2641,19 +2634,21 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\xcc\x01\n" +
 	" CredentialDetailsCredentialIssue\x12J\n" +
 	"\aoptions\x18\x01 \x03(\v20.c1.connector.v2.CredentialIssueOptionDescriptorR\aoptions\x12\\\n" +
-	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xca\x03\n" +
+	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xae\x04\n" +
 	"\x1fCredentialIssueOptionDescriptor\x12I\n" +
 	"\x06option\x18\x01 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x06option\x12H\n" +
-	"\fkey_profiles\x18\x02 \x03(\v2%.c1.connector.v2.KeyGenerationProfileR\vkeyProfiles\x12G\n" +
-	"\blifetime\x18\x03 \x01(\v2+.c1.connector.v2.IssuanceLifetimeCapabilityR\blifetime\x12\x16\n" +
+	"\fkey_profiles\x18\x02 \x03(\v2%.c1.connector.v2.KeyGenerationProfileR\vkeyProfiles\x12A\n" +
+	"\x06expiry\x18\x03 \x01(\v2).c1.connector.v2.IssuanceExpiryCapabilityR\x06expiry\x12\x16\n" +
 	"\x06scopes\x18\x04 \x03(\tR\x06scopes\x122\n" +
-	"\x15custom_scopes_allowed\x18\x05 \x01(\bR\x13customScopesAllowed\x12-\n" +
-	"\x12audience_supported\x18\x06 \x01(\bR\x11audienceSupported\x12N\n" +
-	"\x14connector_parameters\x18\a \x01(\v2\x1b.c1.config.v1.ConfigurationR\x13connectorParameters\"\xb3\x01\n" +
-	"\x1aIssuanceLifetimeCapability\x12+\n" +
+	"\x15custom_scopes_allowed\x18\x05 \x01(\bR\x13customScopesAllowed\x128\n" +
+	"\x18custom_audiences_allowed\x18\x06 \x01(\bR\x16customAudiencesAllowed\x12\x1c\n" +
+	"\taudiences\x18\a \x03(\tR\taudiences\x12L\n" +
+	"\rresource_mode\x18\b \x01(\x0e2'.c1.connector.v2.CredentialResourceModeR\fresourceMode\x12A\n" +
+	"\x17secret_resource_type_id\x18\t \x01(\tB\n" +
+	"\xfaB\ar\x05 \x01(\x80\bR\x14secretResourceTypeId\"t\n" +
+	"\x18IssuanceExpiryCapability\x12+\n" +
 	"\x03min\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x03min\x12+\n" +
-	"\x03max\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03max\x12;\n" +
-	"\vgranularity\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\vgranularity\"\xa5\x02\n" +
+	"\x03max\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03max\"\xa5\x02\n" +
 	"\x15ConnectorCapabilities\x12e\n" +
 	"\x1aresource_type_capabilities\x18\x01 \x03(\v2'.c1.connector.v2.ResourceTypeCapabilityR\x18resourceTypeCapabilities\x12R\n" +
 	"\x16connector_capabilities\x18\x02 \x03(\x0e2\x1b.c1.connector.v2.CapabilityR\x15connectorCapabilities\x12Q\n" +
@@ -2665,13 +2660,14 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x15CapabilityPermissions\x12G\n" +
 	"\vpermissions\x18\x01 \x03(\v2%.c1.connector.v2.CapabilityPermissionR\vpermissions\"\x0f\n" +
 	"\rOptInRequired\"\x1a\n" +
-	"\x18SkipSyncAnomalyDetection\"\xce\x02\n" +
+	"\x18SkipSyncAnomalyDetection\"\xac\x03\n" +
 	"\x16ResourceTypeCapability\x12B\n" +
 	"\rresource_type\x18\x01 \x01(\v2\x1d.c1.connector.v2.ResourceTypeR\fresourceType\x12?\n" +
 	"\fcapabilities\x18\x02 \x03(\x0e2\x1b.c1.connector.v2.CapabilityR\fcapabilities\x12H\n" +
 	"\vpermissions\x18\x03 \x01(\v2&.c1.connector.v2.CapabilityPermissionsR\vpermissions\x12&\n" +
 	"\x0fopt_in_required\x18\x04 \x01(\bR\roptInRequired\x12=\n" +
-	"\x1bskip_sync_anomaly_detection\x18\x05 \x01(\bR\x18skipSyncAnomalyDetection\"$\n" +
+	"\x1bskip_sync_anomaly_detection\x18\x05 \x01(\bR\x18skipSyncAnomalyDetection\x12\\\n" +
+	"\x10credential_issue\x18\x06 \x01(\v21.c1.connector.v2.CredentialDetailsCredentialIssueR\x0fcredentialIssue\"$\n" +
 	"\"ConnectorServiceGetMetadataRequest\"e\n" +
 	"#ConnectorServiceGetMetadataResponse\x12>\n" +
 	"\bmetadata\x18\x01 \x01(\v2\".c1.connector.v2.ConnectorMetadataR\bmetadata\"!\n" +
@@ -2763,7 +2759,7 @@ var file_c1_connector_v2_connector_proto_goTypes = []any{
 	(*CredentialDetailsCredentialRotation)(nil),            // 7: c1.connector.v2.CredentialDetailsCredentialRotation
 	(*CredentialDetailsCredentialIssue)(nil),               // 8: c1.connector.v2.CredentialDetailsCredentialIssue
 	(*CredentialIssueOptionDescriptor)(nil),                // 9: c1.connector.v2.CredentialIssueOptionDescriptor
-	(*IssuanceLifetimeCapability)(nil),                     // 10: c1.connector.v2.IssuanceLifetimeCapability
+	(*IssuanceExpiryCapability)(nil),                       // 10: c1.connector.v2.IssuanceExpiryCapability
 	(*ConnectorCapabilities)(nil),                          // 11: c1.connector.v2.ConnectorCapabilities
 	(*CapabilityPermission)(nil),                           // 12: c1.connector.v2.CapabilityPermission
 	(*CapabilityPermissions)(nil),                          // 13: c1.connector.v2.CapabilityPermissions
@@ -2787,7 +2783,7 @@ var file_c1_connector_v2_connector_proto_goTypes = []any{
 	(*AssetRef)(nil),             // 31: c1.connector.v2.AssetRef
 	(*structpb.Struct)(nil),      // 32: google.protobuf.Struct
 	(*KeyGenerationProfile)(nil), // 33: c1.connector.v2.KeyGenerationProfile
-	(*v1.Configuration)(nil),     // 34: c1.config.v1.Configuration
+	(CredentialResourceMode)(0),  // 34: c1.connector.v2.CredentialResourceMode
 	(*durationpb.Duration)(nil),  // 35: google.protobuf.Duration
 	(*ResourceType)(nil),         // 36: c1.connector.v2.ResourceType
 }
@@ -2802,49 +2798,48 @@ var file_c1_connector_v2_connector_proto_depIdxs = []int32{
 	21, // 7: c1.connector.v2.ConnectorMetadata.account_creation_schema:type_name -> c1.connector.v2.ConnectorAccountCreationSchema
 	6,  // 8: c1.connector.v2.CredentialDetails.capability_account_provisioning:type_name -> c1.connector.v2.CredentialDetailsAccountProvisioning
 	7,  // 9: c1.connector.v2.CredentialDetails.capability_credential_rotation:type_name -> c1.connector.v2.CredentialDetailsCredentialRotation
-	8,  // 10: c1.connector.v2.CredentialDetails.capability_credential_issue:type_name -> c1.connector.v2.CredentialDetailsCredentialIssue
-	1,  // 11: c1.connector.v2.CredentialDetailsAccountProvisioning.supported_credential_options:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	1,  // 12: c1.connector.v2.CredentialDetailsAccountProvisioning.preferred_credential_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	1,  // 13: c1.connector.v2.CredentialDetailsCredentialRotation.supported_credential_options:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	1,  // 14: c1.connector.v2.CredentialDetailsCredentialRotation.preferred_credential_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	9,  // 15: c1.connector.v2.CredentialDetailsCredentialIssue.options:type_name -> c1.connector.v2.CredentialIssueOptionDescriptor
-	1,  // 16: c1.connector.v2.CredentialDetailsCredentialIssue.preferred_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	1,  // 17: c1.connector.v2.CredentialIssueOptionDescriptor.option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	33, // 18: c1.connector.v2.CredentialIssueOptionDescriptor.key_profiles:type_name -> c1.connector.v2.KeyGenerationProfile
-	10, // 19: c1.connector.v2.CredentialIssueOptionDescriptor.lifetime:type_name -> c1.connector.v2.IssuanceLifetimeCapability
-	34, // 20: c1.connector.v2.CredentialIssueOptionDescriptor.connector_parameters:type_name -> c1.config.v1.Configuration
-	35, // 21: c1.connector.v2.IssuanceLifetimeCapability.min:type_name -> google.protobuf.Duration
-	35, // 22: c1.connector.v2.IssuanceLifetimeCapability.max:type_name -> google.protobuf.Duration
-	35, // 23: c1.connector.v2.IssuanceLifetimeCapability.granularity:type_name -> google.protobuf.Duration
-	16, // 24: c1.connector.v2.ConnectorCapabilities.resource_type_capabilities:type_name -> c1.connector.v2.ResourceTypeCapability
-	0,  // 25: c1.connector.v2.ConnectorCapabilities.connector_capabilities:type_name -> c1.connector.v2.Capability
-	5,  // 26: c1.connector.v2.ConnectorCapabilities.credential_details:type_name -> c1.connector.v2.CredentialDetails
-	12, // 27: c1.connector.v2.CapabilityPermissions.permissions:type_name -> c1.connector.v2.CapabilityPermission
-	36, // 28: c1.connector.v2.ResourceTypeCapability.resource_type:type_name -> c1.connector.v2.ResourceType
-	0,  // 29: c1.connector.v2.ResourceTypeCapability.capabilities:type_name -> c1.connector.v2.Capability
-	13, // 30: c1.connector.v2.ResourceTypeCapability.permissions:type_name -> c1.connector.v2.CapabilityPermissions
-	4,  // 31: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
-	30, // 32: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
-	22, // 33: c1.connector.v2.ConnectorAccountCreationSchema.field_map:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
-	23, // 34: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
-	24, // 35: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringField
-	25, // 36: c1.connector.v2.ConnectorAccountCreationSchema.Field.bool_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.BoolField
-	26, // 37: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_list_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringListField
-	27, // 38: c1.connector.v2.ConnectorAccountCreationSchema.Field.int_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.IntField
-	28, // 39: c1.connector.v2.ConnectorAccountCreationSchema.Field.map_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField
-	29, // 40: c1.connector.v2.ConnectorAccountCreationSchema.MapField.default_value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
-	23, // 41: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
-	17, // 42: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
-	19, // 43: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
-	2,  // 44: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
-	18, // 45: c1.connector.v2.ConnectorService.GetMetadata:output_type -> c1.connector.v2.ConnectorServiceGetMetadataResponse
-	20, // 46: c1.connector.v2.ConnectorService.Validate:output_type -> c1.connector.v2.ConnectorServiceValidateResponse
-	3,  // 47: c1.connector.v2.ConnectorService.Cleanup:output_type -> c1.connector.v2.ConnectorServiceCleanupResponse
-	45, // [45:48] is the sub-list for method output_type
-	42, // [42:45] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	1,  // 10: c1.connector.v2.CredentialDetailsAccountProvisioning.supported_credential_options:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	1,  // 11: c1.connector.v2.CredentialDetailsAccountProvisioning.preferred_credential_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	1,  // 12: c1.connector.v2.CredentialDetailsCredentialRotation.supported_credential_options:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	1,  // 13: c1.connector.v2.CredentialDetailsCredentialRotation.preferred_credential_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	9,  // 14: c1.connector.v2.CredentialDetailsCredentialIssue.options:type_name -> c1.connector.v2.CredentialIssueOptionDescriptor
+	1,  // 15: c1.connector.v2.CredentialDetailsCredentialIssue.preferred_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	1,  // 16: c1.connector.v2.CredentialIssueOptionDescriptor.option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	33, // 17: c1.connector.v2.CredentialIssueOptionDescriptor.key_profiles:type_name -> c1.connector.v2.KeyGenerationProfile
+	10, // 18: c1.connector.v2.CredentialIssueOptionDescriptor.expiry:type_name -> c1.connector.v2.IssuanceExpiryCapability
+	34, // 19: c1.connector.v2.CredentialIssueOptionDescriptor.resource_mode:type_name -> c1.connector.v2.CredentialResourceMode
+	35, // 20: c1.connector.v2.IssuanceExpiryCapability.min:type_name -> google.protobuf.Duration
+	35, // 21: c1.connector.v2.IssuanceExpiryCapability.max:type_name -> google.protobuf.Duration
+	16, // 22: c1.connector.v2.ConnectorCapabilities.resource_type_capabilities:type_name -> c1.connector.v2.ResourceTypeCapability
+	0,  // 23: c1.connector.v2.ConnectorCapabilities.connector_capabilities:type_name -> c1.connector.v2.Capability
+	5,  // 24: c1.connector.v2.ConnectorCapabilities.credential_details:type_name -> c1.connector.v2.CredentialDetails
+	12, // 25: c1.connector.v2.CapabilityPermissions.permissions:type_name -> c1.connector.v2.CapabilityPermission
+	36, // 26: c1.connector.v2.ResourceTypeCapability.resource_type:type_name -> c1.connector.v2.ResourceType
+	0,  // 27: c1.connector.v2.ResourceTypeCapability.capabilities:type_name -> c1.connector.v2.Capability
+	13, // 28: c1.connector.v2.ResourceTypeCapability.permissions:type_name -> c1.connector.v2.CapabilityPermissions
+	8,  // 29: c1.connector.v2.ResourceTypeCapability.credential_issue:type_name -> c1.connector.v2.CredentialDetailsCredentialIssue
+	4,  // 30: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
+	30, // 31: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
+	22, // 32: c1.connector.v2.ConnectorAccountCreationSchema.field_map:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
+	23, // 33: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
+	24, // 34: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringField
+	25, // 35: c1.connector.v2.ConnectorAccountCreationSchema.Field.bool_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.BoolField
+	26, // 36: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_list_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringListField
+	27, // 37: c1.connector.v2.ConnectorAccountCreationSchema.Field.int_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.IntField
+	28, // 38: c1.connector.v2.ConnectorAccountCreationSchema.Field.map_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField
+	29, // 39: c1.connector.v2.ConnectorAccountCreationSchema.MapField.default_value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
+	23, // 40: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
+	17, // 41: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
+	19, // 42: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
+	2,  // 43: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
+	18, // 44: c1.connector.v2.ConnectorService.GetMetadata:output_type -> c1.connector.v2.ConnectorServiceGetMetadataResponse
+	20, // 45: c1.connector.v2.ConnectorService.Validate:output_type -> c1.connector.v2.ConnectorServiceValidateResponse
+	3,  // 46: c1.connector.v2.ConnectorService.Cleanup:output_type -> c1.connector.v2.ConnectorServiceCleanupResponse
+	44, // [44:47] is the sub-list for method output_type
+	41, // [41:44] is the sub-list for method input_type
+	41, // [41:41] is the sub-list for extension type_name
+	41, // [41:41] is the sub-list for extension extendee
+	0,  // [0:41] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_connector_proto_init() }

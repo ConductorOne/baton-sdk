@@ -128,6 +128,13 @@ message Task {
     repeated connector.v2.EncryptionConfig encryption_configs = 3;
   }
 
+  message IssueCredentialTask {
+    connector.v2.ResourceId identity_id = 1;
+    connector.v2.CredentialIssueOptions credential_options = 2;
+    repeated connector.v2.EncryptionConfig encryption_configs = 3;
+    google.protobuf.Timestamp expires_at = 4;
+  }
+
   message CreateTicketTask {
     connector.v2.TicketRequest ticket_request = 1;
     connector.v2.TicketSchema ticket_schema = 2;
@@ -219,6 +226,7 @@ message Task {
     CompactSyncs compact_syncs = 120;
     ListEventFeedsTask list_event_feeds = 121;
     ListEventsTask list_events = 122;
+    IssueCredentialTask issue_credential = 123;
   }
   bool debug = 3;
 }

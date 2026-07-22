@@ -758,35 +758,6 @@ func (m *CredentialDetails) validate(all bool) error {
 		}
 	}
 
-	if all {
-		switch v := interface{}(m.GetCapabilityCredentialIssue()).(type) {
-		case interface{ ValidateAll() error }:
-			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, CredentialDetailsValidationError{
-					field:  "CapabilityCredentialIssue",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		case interface{ Validate() error }:
-			if err := v.Validate(); err != nil {
-				errors = append(errors, CredentialDetailsValidationError{
-					field:  "CapabilityCredentialIssue",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		}
-	} else if v, ok := interface{}(m.GetCapabilityCredentialIssue()).(interface{ Validate() error }); ok {
-		if err := v.Validate(); err != nil {
-			return CredentialDetailsValidationError{
-				field:  "CapabilityCredentialIssue",
-				reason: "embedded message failed validation",
-				cause:  err,
-			}
-		}
-	}
-
 	if len(errors) > 0 {
 		return CredentialDetailsMultiError(errors)
 	}
@@ -1281,11 +1252,11 @@ func (m *CredentialIssueOptionDescriptor) validate(all bool) error {
 	}
 
 	if all {
-		switch v := interface{}(m.GetLifetime()).(type) {
+		switch v := interface{}(m.GetExpiry()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, CredentialIssueOptionDescriptorValidationError{
-					field:  "Lifetime",
+					field:  "Expiry",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -1293,16 +1264,16 @@ func (m *CredentialIssueOptionDescriptor) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, CredentialIssueOptionDescriptorValidationError{
-					field:  "Lifetime",
+					field:  "Expiry",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetLifetime()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetExpiry()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return CredentialIssueOptionDescriptorValidationError{
-				field:  "Lifetime",
+				field:  "Expiry",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -1311,35 +1282,19 @@ func (m *CredentialIssueOptionDescriptor) validate(all bool) error {
 
 	// no validation rules for CustomScopesAllowed
 
-	// no validation rules for AudienceSupported
+	// no validation rules for CustomAudiencesAllowed
 
-	if all {
-		switch v := interface{}(m.GetConnectorParameters()).(type) {
-		case interface{ ValidateAll() error }:
-			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, CredentialIssueOptionDescriptorValidationError{
-					field:  "ConnectorParameters",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		case interface{ Validate() error }:
-			if err := v.Validate(); err != nil {
-				errors = append(errors, CredentialIssueOptionDescriptorValidationError{
-					field:  "ConnectorParameters",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
+	// no validation rules for ResourceMode
+
+	if l := len(m.GetSecretResourceTypeId()); l < 1 || l > 1024 {
+		err := CredentialIssueOptionDescriptorValidationError{
+			field:  "SecretResourceTypeId",
+			reason: "value length must be between 1 and 1024 bytes, inclusive",
 		}
-	} else if v, ok := interface{}(m.GetConnectorParameters()).(interface{ Validate() error }); ok {
-		if err := v.Validate(); err != nil {
-			return CredentialIssueOptionDescriptorValidationError{
-				field:  "ConnectorParameters",
-				reason: "embedded message failed validation",
-				cause:  err,
-			}
+		if !all {
+			return err
 		}
+		errors = append(errors, err)
 	}
 
 	if len(errors) > 0 {
@@ -1423,22 +1378,22 @@ var _ interface {
 	ErrorName() string
 } = CredentialIssueOptionDescriptorValidationError{}
 
-// Validate checks the field values on IssuanceLifetimeCapability with the
-// rules defined in the proto definition for this message. If any rules are
+// Validate checks the field values on IssuanceExpiryCapability with the rules
+// defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
-func (m *IssuanceLifetimeCapability) Validate() error {
+func (m *IssuanceExpiryCapability) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on IssuanceLifetimeCapability with the
+// ValidateAll checks the field values on IssuanceExpiryCapability with the
 // rules defined in the proto definition for this message. If any rules are
 // violated, the result is a list of violation errors wrapped in
-// IssuanceLifetimeCapabilityMultiError, or nil if none found.
-func (m *IssuanceLifetimeCapability) ValidateAll() error {
+// IssuanceExpiryCapabilityMultiError, or nil if none found.
+func (m *IssuanceExpiryCapability) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *IssuanceLifetimeCapability) validate(all bool) error {
+func (m *IssuanceExpiryCapability) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -1449,7 +1404,7 @@ func (m *IssuanceLifetimeCapability) validate(all bool) error {
 		switch v := interface{}(m.GetMin()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, IssuanceLifetimeCapabilityValidationError{
+				errors = append(errors, IssuanceExpiryCapabilityValidationError{
 					field:  "Min",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1457,7 +1412,7 @@ func (m *IssuanceLifetimeCapability) validate(all bool) error {
 			}
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
-				errors = append(errors, IssuanceLifetimeCapabilityValidationError{
+				errors = append(errors, IssuanceExpiryCapabilityValidationError{
 					field:  "Min",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1466,7 +1421,7 @@ func (m *IssuanceLifetimeCapability) validate(all bool) error {
 		}
 	} else if v, ok := interface{}(m.GetMin()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
-			return IssuanceLifetimeCapabilityValidationError{
+			return IssuanceExpiryCapabilityValidationError{
 				field:  "Min",
 				reason: "embedded message failed validation",
 				cause:  err,
@@ -1478,7 +1433,7 @@ func (m *IssuanceLifetimeCapability) validate(all bool) error {
 		switch v := interface{}(m.GetMax()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, IssuanceLifetimeCapabilityValidationError{
+				errors = append(errors, IssuanceExpiryCapabilityValidationError{
 					field:  "Max",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1486,7 +1441,7 @@ func (m *IssuanceLifetimeCapability) validate(all bool) error {
 			}
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
-				errors = append(errors, IssuanceLifetimeCapabilityValidationError{
+				errors = append(errors, IssuanceExpiryCapabilityValidationError{
 					field:  "Max",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1495,7 +1450,7 @@ func (m *IssuanceLifetimeCapability) validate(all bool) error {
 		}
 	} else if v, ok := interface{}(m.GetMax()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
-			return IssuanceLifetimeCapabilityValidationError{
+			return IssuanceExpiryCapabilityValidationError{
 				field:  "Max",
 				reason: "embedded message failed validation",
 				cause:  err,
@@ -1503,49 +1458,20 @@ func (m *IssuanceLifetimeCapability) validate(all bool) error {
 		}
 	}
 
-	if all {
-		switch v := interface{}(m.GetGranularity()).(type) {
-		case interface{ ValidateAll() error }:
-			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, IssuanceLifetimeCapabilityValidationError{
-					field:  "Granularity",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		case interface{ Validate() error }:
-			if err := v.Validate(); err != nil {
-				errors = append(errors, IssuanceLifetimeCapabilityValidationError{
-					field:  "Granularity",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		}
-	} else if v, ok := interface{}(m.GetGranularity()).(interface{ Validate() error }); ok {
-		if err := v.Validate(); err != nil {
-			return IssuanceLifetimeCapabilityValidationError{
-				field:  "Granularity",
-				reason: "embedded message failed validation",
-				cause:  err,
-			}
-		}
-	}
-
 	if len(errors) > 0 {
-		return IssuanceLifetimeCapabilityMultiError(errors)
+		return IssuanceExpiryCapabilityMultiError(errors)
 	}
 
 	return nil
 }
 
-// IssuanceLifetimeCapabilityMultiError is an error wrapping multiple
-// validation errors returned by IssuanceLifetimeCapability.ValidateAll() if
-// the designated constraints aren't met.
-type IssuanceLifetimeCapabilityMultiError []error
+// IssuanceExpiryCapabilityMultiError is an error wrapping multiple validation
+// errors returned by IssuanceExpiryCapability.ValidateAll() if the designated
+// constraints aren't met.
+type IssuanceExpiryCapabilityMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m IssuanceLifetimeCapabilityMultiError) Error() string {
+func (m IssuanceExpiryCapabilityMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -1554,11 +1480,11 @@ func (m IssuanceLifetimeCapabilityMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m IssuanceLifetimeCapabilityMultiError) AllErrors() []error { return m }
+func (m IssuanceExpiryCapabilityMultiError) AllErrors() []error { return m }
 
-// IssuanceLifetimeCapabilityValidationError is the validation error returned
-// by IssuanceLifetimeCapability.Validate if the designated constraints aren't met.
-type IssuanceLifetimeCapabilityValidationError struct {
+// IssuanceExpiryCapabilityValidationError is the validation error returned by
+// IssuanceExpiryCapability.Validate if the designated constraints aren't met.
+type IssuanceExpiryCapabilityValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -1566,24 +1492,24 @@ type IssuanceLifetimeCapabilityValidationError struct {
 }
 
 // Field function returns field value.
-func (e IssuanceLifetimeCapabilityValidationError) Field() string { return e.field }
+func (e IssuanceExpiryCapabilityValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e IssuanceLifetimeCapabilityValidationError) Reason() string { return e.reason }
+func (e IssuanceExpiryCapabilityValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e IssuanceLifetimeCapabilityValidationError) Cause() error { return e.cause }
+func (e IssuanceExpiryCapabilityValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e IssuanceLifetimeCapabilityValidationError) Key() bool { return e.key }
+func (e IssuanceExpiryCapabilityValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e IssuanceLifetimeCapabilityValidationError) ErrorName() string {
-	return "IssuanceLifetimeCapabilityValidationError"
+func (e IssuanceExpiryCapabilityValidationError) ErrorName() string {
+	return "IssuanceExpiryCapabilityValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e IssuanceLifetimeCapabilityValidationError) Error() string {
+func (e IssuanceExpiryCapabilityValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -1595,14 +1521,14 @@ func (e IssuanceLifetimeCapabilityValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sIssuanceLifetimeCapability.%s: %s%s",
+		"invalid %sIssuanceExpiryCapability.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = IssuanceLifetimeCapabilityValidationError{}
+var _ error = IssuanceExpiryCapabilityValidationError{}
 
 var _ interface {
 	Field() string
@@ -1610,7 +1536,7 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = IssuanceLifetimeCapabilityValidationError{}
+} = IssuanceExpiryCapabilityValidationError{}
 
 // Validate checks the field values on ConnectorCapabilities with the rules
 // defined in the proto definition for this message. If any rules are
@@ -2302,6 +2228,35 @@ func (m *ResourceTypeCapability) validate(all bool) error {
 	// no validation rules for OptInRequired
 
 	// no validation rules for SkipSyncAnomalyDetection
+
+	if all {
+		switch v := interface{}(m.GetCredentialIssue()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ResourceTypeCapabilityValidationError{
+					field:  "CredentialIssue",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ResourceTypeCapabilityValidationError{
+					field:  "CredentialIssue",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetCredentialIssue()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ResourceTypeCapabilityValidationError{
+				field:  "CredentialIssue",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
 
 	if len(errors) > 0 {
 		return ResourceTypeCapabilityMultiError(errors)

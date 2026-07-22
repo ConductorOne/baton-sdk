@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // CredentialManager extends ResourceSyncer to add capabilities for managing credentials.
@@ -143,23 +143,17 @@ type CredentialIssuerLimited interface {
 // request structured lets the SDK add portable constraints without repeatedly
 // breaking every connector implementation.
 type CredentialIssueInput struct {
-	IdentityID          *v2.ResourceId
-	CredentialOptions   *v2.LocalCredentialOptions
-	IssuanceConstraints *v2.CredentialIssuanceConstraints
-	ConnectorParameters *structpb.Struct
-	OperationID         string
+	IdentityID        *v2.ResourceId
+	CredentialOptions *v2.CredentialIssueOptions
+	ExpiresAt         *timestamppb.Timestamp
+	RequestID         string
 }
 
 type CredentialIssueOutput struct {
 	Secret        *v2.Resource
 	PlaintextData []*v2.PlaintextData
 	Annotations   annotations.Annotations
-}
-
-// CredentialIssueEligibilityProvider is optional. Connectors implement it
-// when eligibility cannot be inferred from the advertised capability alone.
-type CredentialIssueEligibilityProvider interface {
-	GetCredentialIssueEligibility(ctx context.Context, identityID *v2.ResourceId, option v2.CapabilityDetailCredentialOption) (*v2.GetCredentialIssueEligibilityResponse, error)
+	ResourceMode  v2.CredentialResourceMode
 }
 
 func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredentialRequest) (*v2.IssueCredentialResponse, error) {
@@ -170,6 +164,11 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 	start := b.nowFunc()
 	tt := tasks.IssueCredentialType
 	l := ctxzap.Extract(ctx)
+	if request == nil || request.GetIdentityId() == nil {
+		err = status.Error(codes.InvalidArgument, "identity id is required")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
 	rt := request.GetIdentityId().GetResourceType()
 	issuer, ok := b.credentialIssuers[rt]
 	if !ok {
@@ -184,34 +183,28 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		return nil, err
 	}
 
-	opts, err := crypto.ConvertCredentialOptions(ctx, b.clientSecret, request.GetCredentialOptions(), request.GetEncryptionConfigs())
-	if err != nil {
-		l.Error("error: converting credential options failed", zap.Error(err))
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
-	}
-
-	// Validate encryption before the connector mutates the provider. Credential
-	// issuance is generally not reversible and plaintext must never be stranded.
-	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	// Validate recipients before asking the connector to mutate the provider.
+	// A later transport or encryption failure can still be ambiguous, so service
+	// task execution deliberately does not retry issuance automatically.
+	err = crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
+	pkem, _ := crypto.NewEncryptionManager(nil, request.GetEncryptionConfigs())
 	details, _, err := issuer.IssueCapabilityDetails(ctx)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: get credential issuance capability details: %w", err)
 	}
 	input := &CredentialIssueInput{
-		IdentityID:          request.GetIdentityId(),
-		CredentialOptions:   opts,
-		IssuanceConstraints: request.GetIssuanceConstraints(),
-		ConnectorParameters: request.GetConnectorParameters(),
-		OperationID:         request.GetOperationId(),
+		IdentityID:        request.GetIdentityId(),
+		CredentialOptions: request.GetCredentialOptions(),
+		ExpiresAt:         request.GetExpiresAt(),
+		RequestID:         request.GetRequestId(),
 	}
-	err = validateCredentialIssueInput(input, details)
+	descriptor, err := validateCredentialIssueInput(input, details, b.nowFunc())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.InvalidArgument, "invalid credential issuance request: %v", err)
@@ -223,7 +216,7 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: issue credential for identity failed: %w", err)
 	}
-	err = validateCredentialIssueOutput(request.GetIdentityId(), output)
+	err = validateCredentialIssueOutput(request.GetIdentityId(), request.GetExpiresAt(), output, descriptor)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance output: %v", err)
@@ -245,10 +238,12 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		Secret:        output.Secret,
 		EncryptedData: encryptedDatas,
 		Annotations:   output.Annotations,
+		ResourceMode:  output.ResourceMode,
+		RequestId:     request.GetRequestId(),
 	}.Build(), nil
 }
 
-func validateCredentialIssueOutput(identityID *v2.ResourceId, output *CredentialIssueOutput) error {
+func validateCredentialIssueOutput(identityID *v2.ResourceId, requestedExpiresAt *timestamppb.Timestamp, output *CredentialIssueOutput, descriptor *v2.CredentialIssueOptionDescriptor) error {
 	if output == nil || output.Secret == nil || output.Secret.GetId() == nil {
 		return fmt.Errorf("secret resource and id are required")
 	}
@@ -265,7 +260,24 @@ func validateCredentialIssueOutput(identityID *v2.ResourceId, output *Credential
 		return fmt.Errorf("secret resource must carry SecretTrait")
 	}
 	if !proto.Equal(trait.GetIdentityId(), identityID) {
-		return fmt.Errorf("secret trait identity_id does not match request")
+		return fmt.Errorf("secret trait identity_id does not match authenticating principal")
+	}
+	if requestedExpiresAt != nil {
+		if trait.GetExpiresAt() == nil {
+			return fmt.Errorf("secret trait expires_at is required when expiry was requested")
+		}
+		if err := trait.GetExpiresAt().CheckValid(); err != nil {
+			return fmt.Errorf("secret trait expires_at is invalid: %w", err)
+		}
+		if trait.GetExpiresAt().AsTime().After(requestedExpiresAt.AsTime()) {
+			return fmt.Errorf("secret trait expires_at exceeds requested expiry")
+		}
+	}
+	if output.ResourceMode == v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_UNSPECIFIED || output.ResourceMode != descriptor.GetResourceMode() {
+		return fmt.Errorf("credential resource mode does not match advertised capability")
+	}
+	if output.Secret.GetId().GetResourceType() != descriptor.GetSecretResourceTypeId() {
+		return fmt.Errorf("secret resource type does not match advertised capability")
 	}
 	if len(output.PlaintextData) == 0 {
 		return fmt.Errorf("at least one plaintext value is required")
@@ -281,29 +293,6 @@ func validateCredentialIssueOutput(identityID *v2.ResourceId, output *Credential
 		names[value.GetName()] = struct{}{}
 	}
 	return nil
-}
-
-func (b *builder) GetCredentialIssueEligibility(ctx context.Context, request *v2.GetCredentialIssueEligibilityRequest) (*v2.GetCredentialIssueEligibilityResponse, error) {
-	issuer, ok := b.credentialIssuers[request.GetIdentityId().GetResourceType()]
-	if !ok {
-		return nil, status.Error(codes.Unimplemented, "resource type does not have credential issuer configured")
-	}
-	provider, ok := issuer.(CredentialIssueEligibilityProvider)
-	if !ok {
-		return v2.GetCredentialIssueEligibilityResponse_builder{
-			Status:      v2.GetCredentialIssueEligibilityResponse_STATUS_UNKNOWN,
-			ReasonCode:  "not_implemented",
-			Explanation: "connector does not provide a dynamic eligibility check",
-		}.Build(), nil
-	}
-	response, err := provider.GetCredentialIssueEligibility(ctx, request.GetIdentityId(), credentialOptionKindFromRequest(request.GetCredentialOptions()))
-	if err != nil {
-		return nil, err
-	}
-	if response == nil || response.GetStatus() == v2.GetCredentialIssueEligibilityResponse_STATUS_UNSPECIFIED {
-		return nil, status.Error(codes.Internal, "connector returned invalid credential issuance eligibility")
-	}
-	return response, nil
 }
 
 func (b *builder) addCredentialIssuer(_ context.Context, typeId string, in interface{}) error {

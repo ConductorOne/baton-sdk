@@ -2,57 +2,45 @@ package connectorbuilder
 
 import (
 	"fmt"
-	"math"
+	"regexp"
 	"slices"
 	"strings"
+	"time"
 
-	configv1 "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/field"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func credentialOptionKind(options *v2.LocalCredentialOptions) v2.CapabilityDetailCredentialOption {
+var credentialIssueRequestIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+func credentialIssueOptionKind(options *v2.CredentialIssueOptions) v2.CapabilityDetailCredentialOption {
 	if options == nil {
 		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED
 	}
 	switch options.WhichOptions() {
-	case v2.LocalCredentialOptions_ApiKey_case:
+	case v2.CredentialIssueOptions_ApiKey_case:
 		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY
-	case v2.LocalCredentialOptions_Keypair_case:
+	case v2.CredentialIssueOptions_Keypair_case:
 		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR
-	case v2.LocalCredentialOptions_Token_case:
+	case v2.CredentialIssueOptions_Token_case:
 		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN
-	case v2.LocalCredentialOptions_ClientSecret_case:
+	case v2.CredentialIssueOptions_ClientSecret_case:
 		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET
 	default:
 		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED
 	}
 }
 
-func credentialOptionKindFromRequest(options *v2.CredentialOptions) v2.CapabilityDetailCredentialOption {
-	if options == nil {
-		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED
+func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.CredentialDetailsCredentialIssue, now time.Time) (*v2.CredentialIssueOptionDescriptor, error) {
+	if input == nil || input.IdentityID == nil {
+		return nil, fmt.Errorf("identity id is required")
 	}
-	switch options.WhichOptions() {
-	case v2.CredentialOptions_ApiKey_case:
-		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY
-	case v2.CredentialOptions_Keypair_case:
-		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR
-	case v2.CredentialOptions_Token_case:
-		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN
-	case v2.CredentialOptions_ClientSecret_case:
-		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET
-	default:
-		return v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED
+	if len(input.RequestID) == 0 || len(input.RequestID) > 128 || !credentialIssueRequestIDPattern.MatchString(input.RequestID) {
+		return nil, fmt.Errorf("request id must be 1..128 characters containing only letters, digits, underscore, or hyphen")
 	}
-}
-
-func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.CredentialDetailsCredentialIssue) error {
-	kind := credentialOptionKind(input.CredentialOptions)
+	kind := credentialIssueOptionKind(input.CredentialOptions)
 	if kind == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
-		return fmt.Errorf("unsupported credential option")
+		return nil, fmt.Errorf("unsupported credential option")
 	}
 	var descriptor *v2.CredentialIssueOptionDescriptor
 	for _, candidate := range details.GetOptions() {
@@ -62,183 +50,96 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 		}
 	}
 	if descriptor == nil {
-		return fmt.Errorf("credential option %s is not advertised by connector", kind)
+		return nil, fmt.Errorf("credential option %s is not advertised by connector", kind)
+	}
+	if descriptor.GetResourceMode() == v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_UNSPECIFIED {
+		return nil, fmt.Errorf("credential resource mode must be advertised")
 	}
 	if keypair := input.CredentialOptions.GetKeypair(); keypair != nil {
-		if keypair.GetProfile() == nil || !slices.ContainsFunc(descriptor.GetKeyProfiles(), func(profile *v2.KeyGenerationProfile) bool {
+		if err := validateKeyGenerationProfile(keypair.GetProfile()); err != nil {
+			return nil, err
+		}
+		if !slices.ContainsFunc(descriptor.GetKeyProfiles(), func(profile *v2.KeyGenerationProfile) bool {
 			return proto.Equal(profile, keypair.GetProfile())
 		}) {
-			return fmt.Errorf("requested key generation profile is not advertised by connector")
+			return nil, fmt.Errorf("requested key generation profile is not advertised by connector")
 		}
 	}
-	if apiKey := input.CredentialOptions.GetApiKey(); apiKey != nil && !descriptor.GetCustomScopesAllowed() {
-		for _, scope := range apiKey.GetScopes() {
-			if !slices.Contains(descriptor.GetScopes(), scope) {
-				return fmt.Errorf("scope %q is not advertised by connector", scope)
-			}
+	if apiKey := input.CredentialOptions.GetApiKey(); apiKey != nil {
+		if err := validateRequestedValues("scope", apiKey.GetScopes(), descriptor.GetScopes(), descriptor.GetCustomScopesAllowed()); err != nil {
+			return nil, err
 		}
 	}
 	if token := input.CredentialOptions.GetToken(); token != nil {
-		if token.GetAudience() != "" && !descriptor.GetAudienceSupported() {
-			return fmt.Errorf("connector does not support token audience")
+		if err := validateRequestedValues("scope", token.GetScopes(), descriptor.GetScopes(), descriptor.GetCustomScopesAllowed()); err != nil {
+			return nil, err
 		}
-		if !descriptor.GetCustomScopesAllowed() {
-			for _, scope := range token.GetScopes() {
-				if !slices.Contains(descriptor.GetScopes(), scope) {
-					return fmt.Errorf("scope %q is not advertised by connector", scope)
-				}
-			}
+		if err := validateRequestedValues("audience", token.GetAudiences(), descriptor.GetAudiences(), descriptor.GetCustomAudiencesAllowed()); err != nil {
+			return nil, err
 		}
 	}
-	if constraints := input.IssuanceConstraints; constraints != nil && constraints.GetLifetime() != nil {
-		if err := constraints.GetLifetime().CheckValid(); err != nil || constraints.GetLifetime().AsDuration() <= 0 {
-			return fmt.Errorf("issuance lifetime must be a valid positive duration")
+	if input.ExpiresAt != nil {
+		if err := input.ExpiresAt.CheckValid(); err != nil {
+			return nil, fmt.Errorf("expires_at must be valid: %w", err)
 		}
-		capability := descriptor.GetLifetime()
+		remaining := input.ExpiresAt.AsTime().Sub(now)
+		if remaining <= 0 {
+			return nil, fmt.Errorf("expires_at must be in the future")
+		}
+		capability := descriptor.GetExpiry()
 		if capability == nil {
-			return fmt.Errorf("connector does not support a caller-selected issuance lifetime")
+			return nil, fmt.Errorf("connector does not support caller-selected expiry")
 		}
-		requested := constraints.GetLifetime().AsDuration()
-		if capability.GetMin() != nil && requested < capability.GetMin().AsDuration() {
-			return fmt.Errorf("issuance lifetime is below connector minimum")
+		if capability.GetMin() != nil && remaining < capability.GetMin().AsDuration() {
+			return nil, fmt.Errorf("requested expiry is below connector minimum")
 		}
-		if capability.GetMax() != nil && requested > capability.GetMax().AsDuration() {
-			return fmt.Errorf("issuance lifetime exceeds connector maximum")
-		}
-		if capability.GetGranularity() != nil {
-			granularity := capability.GetGranularity().AsDuration()
-			if granularity <= 0 || requested%granularity != 0 {
-				return fmt.Errorf("issuance lifetime does not match connector granularity")
-			}
+		if capability.GetMax() != nil && remaining > capability.GetMax().AsDuration() {
+			return nil, fmt.Errorf("requested expiry exceeds connector maximum")
 		}
 	}
-	return validateCredentialConnectorParameters(descriptor.GetConnectorParameters(), input.ConnectorParameters)
+	return descriptor, nil
 }
 
-func validateCredentialConnectorParameters(schema *configv1.Configuration, values *structpb.Struct) error {
-	provided := map[string]*structpb.Value{}
-	if values != nil {
-		provided = values.GetFields()
-	}
-	if schema == nil {
-		if len(provided) != 0 {
-			return fmt.Errorf("connector parameters are not supported")
+func validateRequestedValues(kind string, requested []string, advertised []string, customAllowed bool) error {
+	seen := make(map[string]struct{}, len(requested))
+	for _, value := range requested {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%s must not be empty", kind)
 		}
-		return nil
-	}
-	fields := make(map[string]*configv1.Field, len(schema.GetFields()))
-	for _, definition := range schema.GetFields() {
-		if definition.GetIsSecret() {
-			return fmt.Errorf("connector parameter %q must not be secret", definition.GetName())
+		if _, ok := seen[value]; ok {
+			return fmt.Errorf("duplicate %s %q", kind, value)
 		}
-		fields[definition.GetName()] = definition
-	}
-	for name := range provided {
-		if _, ok := fields[name]; !ok {
-			return fmt.Errorf("unknown connector parameter %q", name)
+		seen[value] = struct{}{}
+		if !customAllowed && !slices.Contains(advertised, value) {
+			return fmt.Errorf("%s %q is not advertised by connector", kind, value)
 		}
 	}
-	for name, definition := range fields {
-		value, present := provided[name]
-		if definition.GetIsRequired() && (!present || value.GetKind() == nil || value.GetNullValue() == structpb.NullValue_NULL_VALUE) {
-			return fmt.Errorf("connector parameter %q is required", name)
-		}
-		if !present || value.GetKind() == nil || value.GetNullValue() == structpb.NullValue_NULL_VALUE {
-			continue
-		}
-		switch definition.WhichField() {
-		case configv1.Field_StringField_case:
-			if _, ok := value.GetKind().(*structpb.Value_StringValue); !ok {
-				return fmt.Errorf("connector parameter %q must be a string", name)
-			}
-			if err := field.ValidateStringRules(definition.GetStringField().GetRules(), value.GetStringValue(), name); err != nil {
-				return err
-			}
-		case configv1.Field_IntField_case:
-			number, ok := value.GetKind().(*structpb.Value_NumberValue)
-			if !ok || math.Trunc(number.NumberValue) != number.NumberValue || number.NumberValue > math.MaxInt || number.NumberValue < math.MinInt {
-				return fmt.Errorf("connector parameter %q must be an integer", name)
-			}
-			if err := field.ValidateIntRules(definition.GetIntField().GetRules(), int(number.NumberValue), name); err != nil {
-				return err
-			}
-		case configv1.Field_BoolField_case:
-			if _, ok := value.GetKind().(*structpb.Value_BoolValue); !ok {
-				return fmt.Errorf("connector parameter %q must be a boolean", name)
-			}
-			if err := field.ValidateBoolRules(definition.GetBoolField().GetRules(), value.GetBoolValue(), name); err != nil {
-				return err
-			}
-		case configv1.Field_StringSliceField_case:
-			list, ok := value.GetKind().(*structpb.Value_ListValue)
-			if !ok {
-				return fmt.Errorf("connector parameter %q must be a string list", name)
-			}
-			items := make([]string, 0, len(list.ListValue.GetValues()))
-			for _, item := range list.ListValue.GetValues() {
-				if _, ok := item.GetKind().(*structpb.Value_StringValue); !ok {
-					return fmt.Errorf("connector parameter %q must contain only strings", name)
-				}
-				items = append(items, item.GetStringValue())
-			}
-			if err := field.ValidateRepeatedStringRules(definition.GetStringSliceField().GetRules(), items, name); err != nil {
-				return err
-			}
-		case configv1.Field_StringMapField_case:
-			object, ok := value.GetKind().(*structpb.Value_StructValue)
-			if !ok {
-				return fmt.Errorf("connector parameter %q must be an object", name)
-			}
-			plain := make(map[string]any, len(object.StructValue.GetFields()))
-			for key, item := range object.StructValue.GetFields() {
-				plain[key] = item.AsInterface()
-			}
-			if err := field.ValidateStringMapRules(definition.GetStringMapField().GetRules(), plain, name); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("connector parameter %q uses unsupported input type", name)
-		}
-	}
-	return validateCredentialParameterConstraints(schema, provided)
+	return nil
 }
 
-func validateCredentialParameterConstraints(schema *configv1.Configuration, values map[string]*structpb.Value) error {
-	present := func(name string) bool {
-		value, ok := values[name]
-		return ok && value.GetKind() != nil && value.GetNullValue() != structpb.NullValue_NULL_VALUE && strings.TrimSpace(fmt.Sprint(value.AsInterface())) != ""
+func validateKeyGenerationProfile(profile *v2.KeyGenerationProfile) error {
+	if profile == nil {
+		return fmt.Errorf("key generation profile is required")
 	}
-	for _, constraint := range schema.GetConstraints() {
-		count := 0
-		for _, name := range constraint.GetFieldNames() {
-			if present(name) {
-				count++
-			}
+	switch profile.GetKty() {
+	case "RSA":
+		if !profile.HasRsaModulusBits() || profile.HasCrv() {
+			return fmt.Errorf("RSA profile requires rsa_modulus_bits and no curve")
 		}
-		switch constraint.GetKind() {
-		case configv1.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER:
-			if count != 0 && count != len(constraint.GetFieldNames()) {
-				return fmt.Errorf("connector parameters %v must be provided together", constraint.GetFieldNames())
-			}
-		case configv1.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE:
-			if count == 0 {
-				return fmt.Errorf("at least one of connector parameters %v is required", constraint.GetFieldNames())
-			}
-		case configv1.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE:
-			if count > 1 {
-				return fmt.Errorf("connector parameters %v are mutually exclusive", constraint.GetFieldNames())
-			}
-		case configv1.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON:
-			if count > 0 {
-				for _, secondary := range constraint.GetSecondaryFieldNames() {
-					if !present(secondary) {
-						return fmt.Errorf("connector parameter %q requires %q", constraint.GetFieldNames()[0], secondary)
-					}
-				}
-			}
-		case configv1.ConstraintKind_CONSTRAINT_KIND_UNSPECIFIED:
-			return fmt.Errorf("connector parameter constraint kind must be specified")
+		bits := profile.GetRsaModulusBits()
+		if bits < 2048 || bits > 16384 || bits%256 != 0 {
+			return fmt.Errorf("RSA modulus bits must be 2048..16384 in 256-bit increments")
 		}
+	case "EC":
+		if !profile.HasCrv() || profile.HasRsaModulusBits() || !slices.Contains([]string{"P-256", "P-384", "P-521"}, profile.GetCrv()) {
+			return fmt.Errorf("EC profile requires a recognized P-256, P-384, or P-521 curve")
+		}
+	case "OKP":
+		if !profile.HasCrv() || profile.HasRsaModulusBits() || !slices.Contains([]string{"Ed25519", "Ed448", "X25519", "X448"}, profile.GetCrv()) {
+			return fmt.Errorf("OKP profile requires a recognized curve")
+		}
+	default:
+		return fmt.Errorf("unsupported JWK key type %q", profile.GetKty())
 	}
 	return nil
 }

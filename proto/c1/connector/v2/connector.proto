@@ -4,7 +4,6 @@ package c1.connector.v2;
 
 import "c1/connector/v2/asset.proto";
 import "c1/connector/v2/resource.proto";
-import "c1/config/v1/config.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
@@ -78,7 +77,6 @@ enum Capability {
 message CredentialDetails {
   CredentialDetailsAccountProvisioning capability_account_provisioning = 1;
   CredentialDetailsCredentialRotation capability_credential_rotation = 2;
-  CredentialDetailsCredentialIssue capability_credential_issue = 3;
 }
 
 enum CapabilityDetailCredentialOption {
@@ -113,17 +111,24 @@ message CredentialDetailsCredentialIssue {
 message CredentialIssueOptionDescriptor {
   CapabilityDetailCredentialOption option = 1;
   repeated KeyGenerationProfile key_profiles = 2;
-  IssuanceLifetimeCapability lifetime = 3;
+  IssuanceExpiryCapability expiry = 3;
   repeated string scopes = 4;
   bool custom_scopes_allowed = 5;
-  bool audience_supported = 6;
-  c1.config.v1.Configuration connector_parameters = 7;
+  bool custom_audiences_allowed = 6;
+  repeated string audiences = 7;
+  CredentialResourceMode resource_mode = 8;
+  // Resource type returned by IssueCredential. It must be registered with a
+  // ResourceDeleterV2 so every issued credential has a provider revoke path,
+  // including virtual credentials that cannot be listed later.
+  string secret_resource_type_id = 9 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
 }
 
-message IssuanceLifetimeCapability {
+message IssuanceExpiryCapability {
   google.protobuf.Duration min = 1;
   google.protobuf.Duration max = 2;
-  google.protobuf.Duration granularity = 3;
 }
 
 message ConnectorCapabilities {
@@ -154,6 +159,7 @@ message ResourceTypeCapability {
   CapabilityPermissions permissions = 3;
   bool opt_in_required = 4;
   bool skip_sync_anomaly_detection = 5;
+  CredentialDetailsCredentialIssue credential_issue = 6;
 }
 
 message ConnectorServiceGetMetadataRequest {}
