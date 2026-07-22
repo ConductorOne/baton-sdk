@@ -155,6 +155,7 @@ type syncer struct {
 	targetedSyncResources               []*v2.Resource
 	onlyExpandGrants                    bool
 	dontExpandGrants                    bool
+	preserveEntitlementGraph            bool
 	syncID                              string
 	skipEGForResourceType               syncMap[string, bool]
 	skipEntitlementsForResourceType     syncMap[string, bool]
@@ -188,6 +189,38 @@ var _ Syncer = (*syncer)(nil)
 // a single narrow interface without knowing about C1ZStore.
 type expanderStoreAdapter struct {
 	store c1zstore.Store
+}
+
+// NewExpanderStore adapts a c1zstore.Store into an expand.ExpanderStore,
+// bridging engine differences (Pebble exposes StoreExpandedGrants on its
+// Grants() sub-store, SQLite at top level). Use this instead of type-asserting
+// the store, which is unsafe for Pebble.
+func NewExpanderStore(store c1zstore.Store) expand.ExpanderStore {
+	return expanderStoreAdapter{store: store}
+}
+
+// persistEntitlementGraphToStore moves the preserved graph from the sync token
+// into the c1z sidecar when the store supports it, keeping the token skinny.
+// On any failure the graph stays in the token (GraphFromToken still works).
+func (s *syncer) persistEntitlementGraphToStore(ctx context.Context, syncID string) {
+	g := s.state.PeekEntitlementGraph()
+	if g == nil {
+		return
+	}
+	gs, ok := s.store.(EntitlementGraphStore)
+	if !ok {
+		return // no sidecar support (SQLite): graph stays in the token
+	}
+	data, err := expand.MarshalGraphBlob(syncID, g)
+	if err != nil {
+		ctxzap.Extract(ctx).Warn("preserve entitlement graph: marshal failed; keeping graph in token", zap.Error(err))
+		return
+	}
+	if err := gs.PutEntitlementGraphBlob(ctx, data); err != nil {
+		ctxzap.Extract(ctx).Warn("preserve entitlement graph: sidecar write failed; keeping graph in token", zap.Error(err))
+		return
+	}
+	s.state.ClearEntitlementGraph(ctx)
 }
 
 func (a expanderStoreAdapter) GetEntitlement(ctx context.Context, req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
@@ -930,7 +963,16 @@ func (s *syncer) Sync(ctx context.Context) error {
 	s.logIngestFilterSummary(ctx)
 
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
-	s.state.ClearEntitlementGraph(ctx)
+	// preserveEntitlementGraph keeps the graph for a later incremental
+	// expansion: written to the c1z sidecar when the store supports it (token
+	// stays skinny — a whale graph is megabytes), else kept in the final token.
+	// Transient working state is stripped either way; a reload rebuilds it.
+	if s.preserveEntitlementGraph {
+		s.state.ClearEntitlementGraphTransientState(ctx)
+		s.persistEntitlementGraphToStore(ctx, syncID)
+	} else {
+		s.state.ClearEntitlementGraph(ctx)
+	}
 	s.state.ClearExclusionGroupTracking(ctx)
 
 	err = s.Checkpoint(ctx, true)
@@ -3233,6 +3275,15 @@ func WithSyncResourceTypes(resourceTypeIDs []string) SyncOpt {
 func WithOnlyExpandGrants() SyncOpt {
 	return func(s *syncer) {
 		s.onlyExpandGrants = true
+	}
+}
+
+// WithPreserveEntitlementGraph keeps the entitlement graph in the final sync
+// token instead of clearing it at sync end, so a later incremental expansion
+// can reload it rather than rebuilding it from scratch.
+func WithPreserveEntitlementGraph() SyncOpt {
+	return func(s *syncer) {
+		s.preserveEntitlementGraph = true
 	}
 }
 
