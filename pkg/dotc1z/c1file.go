@@ -512,6 +512,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	if err != nil {
 		return nil, err
 	}
+	// Ensure c1z decompression honors caller cancellation. Prepended so an
+	// explicit WithDecoderOptions(WithContext(...)) from the caller still wins.
+	options.decoderOptions = append([]DecoderOption{WithContext(ctx)}, options.decoderOptions...)
 
 	if options.engine == c1zstore.EnginePebble && !options.readOnly {
 		err = fmt.Errorf(
