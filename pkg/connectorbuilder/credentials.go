@@ -178,6 +178,11 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
+	if len(request.GetEncryptionConfigs()) == 0 {
+		err = status.Error(codes.InvalidArgument, "at least one encryption config is required for credential issuance")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
 
 	opts, err := crypto.ConvertCredentialOptions(ctx, b.clientSecret, request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
@@ -196,6 +201,7 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 	}
 	details, _, err := issuer.IssueCapabilityDetails(ctx)
 	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: get credential issuance capability details: %w", err)
 	}
 	input := &CredentialIssueInput{
@@ -205,7 +211,9 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		ConnectorParameters: request.GetConnectorParameters(),
 		OperationID:         request.GetOperationId(),
 	}
-	if err := validateCredentialIssueInput(input, details); err != nil {
+	err = validateCredentialIssueInput(input, details)
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.InvalidArgument, "invalid credential issuance request: %v", err)
 	}
 
