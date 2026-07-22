@@ -128,5 +128,11 @@ func TestRateLimitGateWaitsReachSyncStats(t *testing.T) {
 	}
 	require.EqualValues(t, grantsMs, labeledMs)
 
+	// The wall-clock bucket merges overlapping end-anchored intervals, so it
+	// must be positive but can never exceed the cumulative worker-seconds.
+	wallMs := durations["rate_limit_wait_wall"]
+	require.Positive(t, wallMs)
+	require.LessOrEqual(t, wallMs, grantsMs+rtMs)
+
 	require.NoError(t, syncer.Close(ctx))
 }

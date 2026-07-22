@@ -26,6 +26,12 @@ func (s *syncer) timedShouldWaitAndRetry(ctx context.Context, op ActionOp, resou
 	return shouldRetry
 }
 
+// recordRetryWait accumulates one completed wait into the cumulative buckets.
+// retry_wait / rate_limit_wait are worker-seconds: parallel workers each
+// report their full sleep, so the totals can exceed wall-clock sync time
+// (divide by worker_count for a utilization view). The per-resource-type
+// sub-buckets decompose the flat totals. rate_limit_wait_wall is the
+// wall-clock companion; see recordRateLimitWallInterval.
 func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLimited bool) {
 	// The wait observer is installed at the top of Sync, before the state
 	// token exists; a gate wait during the initial Validate call must be
@@ -41,6 +47,40 @@ func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLi
 	if label, ok := ratelimit.WaitLabelFromContext(ctx); ok {
 		s.state.AddStepDuration(bucket+":"+label, wait)
 	}
+	if rateLimited {
+		s.recordRateLimitWallInterval(wait)
+	}
+}
+
+// recordRateLimitWallInterval folds one completed rate-limit wait into
+// rate_limit_wait_wall: wall-clock time with at least one worker blocked on a
+// rate limit. Unlike the cumulative rate_limit_wait (worker-seconds, can
+// exceed wall-clock under parallelism), this bucket is bounded by sync
+// duration.
+//
+// Every reporter fires immediately after its wait ends — syncer-process
+// sleeps exactly, connector-reported annotation waits approximately (at
+// response receipt) — so each event is the interval [now-wait, now] and
+// events arrive ordered by end time. Merging overlaps therefore reduces to a
+// watermark: count only the part of the interval past the last covered
+// instant. The watermark is in-memory only; across checkpoint/resume the
+// first event after resume counts in full, which can only under-merge (never
+// double-count) because the bucket itself persists in the token.
+func (s *syncer) recordRateLimitWallInterval(wait time.Duration) {
+	if wait <= 0 || s.state == nil {
+		return
+	}
+	s.rlWallMu.Lock()
+	defer s.rlWallMu.Unlock()
+	end := time.Now()
+	start := end.Add(-wait)
+	if start.Before(s.rlWallCoveredUntil) {
+		start = s.rlWallCoveredUntil
+	}
+	if end.After(start) {
+		s.state.AddStepDuration("rate_limit_wait_wall", end.Sub(start))
+		s.rlWallCoveredUntil = end
+	}
 }
 
 // withRateLimitWaitObserver subscribes the syncer to every in-process sleep
@@ -53,6 +93,12 @@ func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLi
 // report time because the flag is only decided after the store is loaded,
 // which is after the observer must already be on the context.
 func (s *syncer) withRateLimitWaitObserver(ctx context.Context) context.Context {
+	// Start the wall watermark at the top of the run: an end-anchored
+	// interval (notably a connector-reported wait) must not count wall
+	// time from before this sync process started waiting.
+	s.rlWallMu.Lock()
+	s.rlWallCoveredUntil = time.Now()
+	s.rlWallMu.Unlock()
 	return ratelimit.WithWaitObserver(ctx, func(ctx context.Context, ev ratelimit.WaitEvent) {
 		if !s.recordStats {
 			return

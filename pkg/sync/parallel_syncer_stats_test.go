@@ -140,6 +140,55 @@ func TestRecordConnectorWaitReport(t *testing.T) {
 	require.EqualValues(t, 3000, s.state.StepDurations()["rate_limit_wait"])
 }
 
+// TestRecordConnectorWaitReportClampsOverflow: the annotation crosses a
+// process boundary, so a buggy connector can send a wait_ms whose
+// millisecond-to-Duration conversion overflows negative and would subtract
+// from the buckets. The syncer clamps to 24h per response.
+func TestRecordConnectorWaitReportClampsOverflow(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+
+	report := &v2.RateLimitWaitReport{}
+	report.SetWaitMs(9_223_372_036_855) // time.Duration(v) * time.Millisecond overflows negative
+	var annos annotations.Annotations
+	annos.Update(report)
+
+	s.recordConnectorWaitReport(annos, "repository")
+
+	durations := s.state.StepDurations()
+	const dayMs = int64(24 * 60 * 60 * 1000)
+	require.EqualValues(t, dayMs, durations["rate_limit_wait"])
+	require.EqualValues(t, dayMs, durations["rate_limit_wait:repository"])
+}
+
+// TestRateLimitWallIntervalMergesOverlap: rate_limit_wait sums worker-seconds,
+// but rate_limit_wait_wall merges end-anchored intervals via the watermark, so
+// two overlapping sleeps count wall time once.
+func TestRateLimitWallIntervalMergesOverlap(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+
+	// Two 10s waits reported back-to-back: intervals [now-10s, now] overlap
+	// almost entirely, so wall time is ~10s while cumulative would be 20s.
+	s.recordRateLimitWallInterval(10 * time.Second)
+	s.recordRateLimitWallInterval(10 * time.Second)
+
+	wallMs := s.state.StepDurations()["rate_limit_wait_wall"]
+	require.GreaterOrEqual(t, wallMs, int64(10_000))
+	require.Less(t, wallMs, int64(10_500), "overlapping waits must merge, not sum")
+
+	// Non-positive waits and nil state are no-ops.
+	s.recordRateLimitWallInterval(0)
+	s.recordRateLimitWallInterval(-time.Second)
+	require.Equal(t, wallMs, s.state.StepDurations()["rate_limit_wait_wall"])
+	stateless := &syncer{recordStats: true}
+	require.NotPanics(t, func() { stateless.recordRateLimitWallInterval(time.Second) })
+}
+
 func TestRecordRetryWaitWithoutResourceType(t *testing.T) {
 	s := &syncer{
 		recordStats: true,

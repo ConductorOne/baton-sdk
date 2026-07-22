@@ -171,6 +171,12 @@ type syncer struct {
 	metricsHandler                      metrics.Handler
 	syncIdentity                        uotel.SyncIdentity
 	recordStats                         bool
+
+	// Watermark for the rate_limit_wait_wall bucket: the latest instant
+	// already counted as rate-limit-blocked wall time. Guarded by
+	// rlWallMu; see recordRateLimitWallInterval.
+	rlWallMu           native_sync.Mutex
+	rlWallCoveredUntil time.Time
 }
 
 var _ Syncer = (*syncer)(nil)
@@ -449,7 +455,7 @@ func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 		key := strings.ReplaceAll(bucket, "-", "_")
 		attrs = append(attrs, attribute.Int64("sync.step."+key+".duration_ms", stepDurations[bucket]))
 	}
-	for _, waitBucket := range []string{"checkpoint", "rate_limit_wait", "retry_wait"} {
+	for _, waitBucket := range []string{"checkpoint", "rate_limit_wait", "retry_wait", "rate_limit_wait_wall"} {
 		key := strings.ReplaceAll(waitBucket, "-", "_")
 		attrs = append(attrs, attribute.Int64("sync.step."+key+".duration_ms", stepDurations[waitBucket]))
 	}
@@ -574,11 +580,19 @@ func (s *syncer) recordConnectorWaitReport(annos []*anypb.Any, resourceTypeID st
 	if waitMs <= 0 {
 		return
 	}
+	// The report crosses a process boundary; a buggy connector can send
+	// anything. Clamp to a day per response so a garbage value can't
+	// overflow time.Duration and subtract from the buckets.
+	const maxWaitReportMs = int64(24 * time.Hour / time.Millisecond)
+	if waitMs > maxWaitReportMs {
+		waitMs = maxWaitReportMs
+	}
 	wait := time.Duration(waitMs) * time.Millisecond
 	s.state.AddStepDuration("rate_limit_wait", wait)
 	if resourceTypeID != "" {
 		s.state.AddStepDuration("rate_limit_wait:"+resourceTypeID, wait)
 	}
+	s.recordRateLimitWallInterval(wait)
 }
 
 func (s *syncer) returnSyncError(l *zap.Logger, span trace.Span, err error) error {
