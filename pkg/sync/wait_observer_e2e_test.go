@@ -56,6 +56,11 @@ func (g *gateSimConnector) ListResourceTypes(
 
 func (g *gateSimConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
 	resourceType := in.GetResource().GetId().GetResourceType()
+	// Really sleep, then report — like the prod gate. The wall bucket only
+	// counts real elapsed time past its watermark, so a claimed-but-not-slept
+	// wait would leave rate_limit_wait_wall at whatever the test's incidental
+	// runtime happens to be.
+	time.Sleep(g.gateWait)
 	ratelimit.ObserveWait(ratelimit.WithWaitLabel(ctx, resourceType), ratelimit.WaitEvent{Duration: g.gateWait})
 	g.gateCalls++
 	resp, err := g.mockConnector.ListGrants(ctx, in, opts...)
@@ -86,7 +91,7 @@ func TestRateLimitGateWaitsReachSyncStats(t *testing.T) {
 	require.NoError(t, err)
 	_ = mc.AddGroupMember(ctx, group1, u1)
 
-	gc := &gateSimConnector{mockConnector: mc, gateWait: 250 * time.Millisecond, annotationMs: 100}
+	gc := &gateSimConnector{mockConnector: mc, gateWait: 25 * time.Millisecond, annotationMs: 100}
 
 	syncer, err := NewSyncer(ctx, gc,
 		WithConnectorStore(store),
@@ -127,10 +132,12 @@ func TestRateLimitGateWaitsReachSyncStats(t *testing.T) {
 	}
 	require.EqualValues(t, grantsMs, labeledMs)
 
-	// The wall-clock bucket merges overlapping end-anchored intervals, so it
-	// must be positive but can never exceed the cumulative worker-seconds.
+	// The wall-clock bucket merges overlapping end-anchored intervals. The
+	// gate sleeps were real and sequential, so each one's interval lies fully
+	// past the watermark and the bucket must cover at least their sum; it can
+	// never exceed the cumulative worker-seconds.
 	wallMs := durations["rate_limit_wait_wall"]
-	require.Positive(t, wallMs)
+	require.GreaterOrEqual(t, wallMs, int64(gc.gateCalls)*gc.gateWait.Milliseconds())
 	require.LessOrEqual(t, wallMs, grantsMs+rtMs)
 
 	require.NoError(t, syncer.Close(ctx))

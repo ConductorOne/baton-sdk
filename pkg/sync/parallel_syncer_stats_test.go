@@ -197,6 +197,26 @@ func TestRateLimitWallIntervalMergesOverlap(t *testing.T) {
 	require.NotPanics(t, func() { stateless.recordRateLimitWallInterval(time.Second) })
 }
 
+// TestRateLimitWallIntervalCarriesSubMillisecond: the state bucket only
+// accumulates whole milliseconds per call, so sub-millisecond slivers past the
+// watermark (the common case for overlapping parallel waits) must be carried
+// across calls instead of each truncating to zero.
+func TestRateLimitWallIntervalCarriesSubMillisecond(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+
+	// Rewind the watermark ~500µs before each report so every event
+	// contributes a sliver that alone truncates to 0ms. Ten of them must sum
+	// to at least 5ms minus the (<1ms) unflushed carry.
+	for range 10 {
+		s.rlWallCoveredUntil = time.Now().Add(-500 * time.Microsecond)
+		s.recordRateLimitWallInterval(time.Hour)
+	}
+	require.GreaterOrEqual(t, s.state.StepDurations()["rate_limit_wait_wall"], int64(4))
+}
+
 func TestRecordRetryWaitWithoutResourceType(t *testing.T) {
 	s := &syncer{
 		recordStats: true,

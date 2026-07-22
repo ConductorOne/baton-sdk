@@ -85,9 +85,19 @@ func (s *syncer) recordRateLimitWallInterval(wait time.Duration) {
 	if start.Before(s.rlWallCoveredUntil) {
 		start = s.rlWallCoveredUntil
 	}
-	if end.After(start) {
-		s.state.AddStepDuration("rate_limit_wait_wall", end.Sub(start))
-		s.rlWallCoveredUntil = end
+	if !end.After(start) {
+		return
+	}
+	s.rlWallCoveredUntil = end
+	// The state bucket accumulates whole milliseconds per call, so carry the
+	// sub-millisecond remainder locally: overlapping parallel waits contribute
+	// many tiny past-the-watermark slivers that would otherwise all truncate
+	// to zero and systematically undercount the bucket.
+	delta := end.Sub(start) + s.rlWallCarry
+	whole := delta.Truncate(time.Millisecond)
+	s.rlWallCarry = delta - whole
+	if whole > 0 {
+		s.state.AddStepDuration("rate_limit_wait_wall", whole)
 	}
 }
 
@@ -106,6 +116,7 @@ func (s *syncer) withRateLimitWaitObserver(ctx context.Context) context.Context 
 	// time from before this sync process started waiting.
 	s.rlWallMu.Lock()
 	s.rlWallCoveredUntil = time.Now()
+	s.rlWallCarry = 0
 	s.rlWallMu.Unlock()
 	return ratelimit.WithWaitObserver(ctx, func(ctx context.Context, ev ratelimit.WaitEvent) {
 		if !s.recordStats {

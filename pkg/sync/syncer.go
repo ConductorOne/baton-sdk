@@ -173,10 +173,12 @@ type syncer struct {
 	recordStats                         bool
 
 	// Watermark for the rate_limit_wait_wall bucket: the latest instant
-	// already counted as rate-limit-blocked wall time. Guarded by
-	// rlWallMu; see recordRateLimitWallInterval.
+	// already counted as rate-limit-blocked wall time, plus the
+	// sub-millisecond remainder not yet flushed to the state bucket.
+	// Guarded by rlWallMu; see recordRateLimitWallInterval.
 	rlWallMu           native_sync.Mutex
 	rlWallCoveredUntil time.Time
+	rlWallCarry        time.Duration
 }
 
 var _ Syncer = (*syncer)(nil)
