@@ -11,6 +11,9 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestRecordRetryWaitWithResourceType(t *testing.T) {
@@ -27,6 +30,42 @@ func TestRecordRetryWaitWithResourceType(t *testing.T) {
 	require.EqualValues(t, 2000, durations["retry_wait:rt1"])
 	require.EqualValues(t, 3000, durations["rate_limit_wait"])
 	require.EqualValues(t, 3000, durations["rate_limit_wait:rt1"])
+}
+
+// TestRetryerReportsThroughWaitObserver pins the retryer's reporting channel:
+// backoff sleeps reach sync stats via the context wait observer (the OnWait
+// callback is gone), with the event's Retry flag routing plain backoff to
+// retry_wait and rate-limited backoff to rate_limit_wait.
+func TestRetryerReportsThroughWaitObserver(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+	ctx := s.withRateLimitWaitObserver(t.Context())
+	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
+		InitialDelay: time.Millisecond,
+		MaxDelay:     time.Millisecond,
+	})
+
+	// Plain transient error: linear backoff, lands in retry_wait.
+	require.True(t, retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, "rt1"),
+		status.Error(codes.Unavailable, "transient")))
+
+	// Rate-limited error: RateLimitDescription in the error details, lands
+	// in rate_limit_wait. The reset must still be in the future when the
+	// retryer evaluates it; MaxDelay clamps the actual sleep to 1ms.
+	st, err := status.New(codes.Unavailable, "rate limited").WithDetails(&v2.RateLimitDescription{
+		Remaining: 0,
+		ResetAt:   timestamppb.New(time.Now().Add(30 * time.Second)),
+	})
+	require.NoError(t, err)
+	require.True(t, retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, "rt1"), st.Err()))
+
+	durations := s.state.StepDurations()
+	require.Positive(t, durations["retry_wait"])
+	require.Positive(t, durations["retry_wait:rt1"])
+	require.Positive(t, durations["rate_limit_wait"])
+	require.Positive(t, durations["rate_limit_wait:rt1"])
 }
 
 func TestWaitObserverRecordsRateLimitWait(t *testing.T) {

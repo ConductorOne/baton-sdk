@@ -9,7 +9,6 @@ import (
 	connectorV2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -178,7 +177,7 @@ func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimi
 				// Report actual slept time after the fact: a cancelled
 				// context cuts the sleep short and must not inflate
 				// rate_limit_wait with the planned duration.
-				waitCtx := retry.WithWaitLabel(ctx, resourceTypeFromDescriptors(rlDescriptors))
+				waitCtx := WithWaitLabel(ctx, resourceTypeFromDescriptors(rlDescriptors))
 				waitStart := time.Now()
 
 				// Overlimit -- wait up to maxRatelimitWait before trying the request again or the request is cancelled.

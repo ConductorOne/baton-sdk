@@ -20,7 +20,7 @@ import (
 func (s *syncer) timedShouldWaitAndRetry(ctx context.Context, op ActionOp, resourceTypeID string, retryer *retry.Retryer, err error) bool {
 	var shouldRetry bool
 	_ = s.timedStep(op, func() error {
-		shouldRetry = retryer.ShouldWaitAndRetry(retry.WithWaitLabel(ctx, resourceTypeID), err)
+		shouldRetry = retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, resourceTypeID), err)
 		return nil
 	})
 	return shouldRetry
@@ -38,14 +38,18 @@ func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLi
 		bucket = "rate_limit_wait"
 	}
 	s.state.AddStepDuration(bucket, wait)
-	if label, ok := retry.WaitLabelFromContext(ctx); ok {
+	if label, ok := ratelimit.WaitLabelFromContext(ctx); ok {
 		s.state.AddStepDuration(bucket+":"+label, wait)
 	}
 }
 
-// withRateLimitWaitObserver subscribes the syncer to rate-limit gate sleeps
-// that happen below it (SDK client interceptor, hosted connector manager) so
-// they are accounted in rate_limit_wait. The recordStats check happens at
+// withRateLimitWaitObserver subscribes the syncer to every in-process sleep
+// that happens below it: rate-limit gate sleeps (SDK client interceptor,
+// hosted connector manager) land in rate_limit_wait, and the retryer's
+// backoff sleeps land in retry_wait or rate_limit_wait per the event's Retry
+// flag. This context observer is the single reporting channel for in-process
+// waits (connector-process sleeps arrive separately, via the
+// RateLimitWaitReport response annotation). The recordStats check happens at
 // report time because the flag is only decided after the store is loaded,
 // which is after the observer must already be on the context.
 func (s *syncer) withRateLimitWaitObserver(ctx context.Context) context.Context {
@@ -53,7 +57,7 @@ func (s *syncer) withRateLimitWaitObserver(ctx context.Context) context.Context 
 		if !s.recordStats {
 			return
 		}
-		s.recordRetryWait(ctx, ev.Duration, true)
+		s.recordRetryWait(ctx, ev.Duration, !ev.Retry)
 	})
 }
 
@@ -64,15 +68,12 @@ func (s *syncer) parallelSync(
 ) ([]error, error) {
 	l := ctxzap.Extract(ctx)
 
-	var onWait func(context.Context, time.Duration, bool)
-	if s.recordStats {
-		onWait = s.recordRetryWait
-	}
+	// Retry backoff sleeps report through the context wait observer
+	// installed at the top of Sync, like every other in-process sleep site.
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
 		MaxAttempts:  0,
 		InitialDelay: 1 * time.Second,
 		MaxDelay:     0,
-		OnWait:       onWait,
 	})
 
 	var warnings []error
@@ -332,7 +333,7 @@ func (s *syncer) parallelSync(
 			}
 
 			err = s.SyncGrantExpansion(ctx, stateAction)
-			if !retryer.ShouldWaitAndRetry(retry.WithWaitLabel(ctx, stateAction.ResourceTypeID), err) {
+			if !retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, stateAction.ResourceTypeID), err) {
 				return warnings, err
 			}
 			continue
@@ -424,7 +425,7 @@ func (s *syncer) syncOneAction(ctx context.Context, l *zap.Logger, retryer *retr
 			return workerResult{warning: err}
 		}
 		if err != nil {
-			if retryer.ShouldWaitAndRetry(retry.WithWaitLabel(ctx, action.ResourceTypeID), err) {
+			if retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, action.ResourceTypeID), err) {
 				continue
 			}
 
