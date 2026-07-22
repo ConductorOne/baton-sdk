@@ -137,6 +137,15 @@ type entitlementGrantPrincipalKeyLister interface {
 type Expander struct {
 	store ExpanderStore
 	graph *EntitlementGraph
+	// dropStats, when set, aggregates dropped-edge reporting for the
+	// whole sync (the syncer owns it across step-wise Expander
+	// reconstruction). Nil is safe: recording no-ops.
+	dropStats *DroppedEdgeStats
+}
+
+// SetDropStats installs the sync-scoped dropped-edge aggregator.
+func (e *Expander) SetDropStats(s *DroppedEdgeStats) {
+	e.dropStats = s
 }
 
 // NewExpander creates a new Expander with the given store and graph.
@@ -419,7 +428,12 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 			// drop them all and complete the action. Mirrors the inline handling
 			// of missing destinations below. (MarkEdgeExpanded no-ops on deleted
 			// edges, so returning "" here completes the action cleanly.)
-			l.Warn("runAction: source entitlement not found, dropping batch edges",
+			// Per-edge logging is Debug: production measured millions of
+			// these a week; the aggregate warning (DroppedEdgeStats) is
+			// the per-sync report. The batch shares one source, but every
+			// destination edge drops — count them all.
+			e.dropStats.RecordSourceMissingEdges(action.SourceEntitlementID, len(dests))
+			l.Debug("runAction: source entitlement not found, dropping batch edges",
 				zap.String("source_entitlement_id", action.SourceEntitlementID))
 			for _, d := range dests {
 				_ = e.graph.DeleteEdge(ctx, action.SourceEntitlementID, d.EntitlementID)
@@ -453,8 +467,9 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				// A single missing descendant drops only its own edge; the rest
-				// of the batch still expands.
-				l.Warn("runAction: descendant entitlement not found, dropping edge",
+				// of the batch still expands. Debug + aggregate, as above.
+				e.dropStats.RecordDestinationMissing(d.EntitlementID)
+				l.Debug("runAction: descendant entitlement not found, dropping edge",
 					zap.String("descendant_entitlement_id", d.EntitlementID))
 				_ = e.graph.DeleteEdge(ctx, action.SourceEntitlementID, d.EntitlementID)
 				continue

@@ -142,35 +142,65 @@ type syncer struct {
 	store                               c1zstore.Store
 	externalResourceReader              connectorstore.Reader
 	previousSyncReader                  connectorstore.Reader
-	connector                           types.ConnectorClient
-	state                               State
-	runDuration                         time.Duration
-	transitionHandler                   func(s Action)
-	progressHandler                     func(p *Progress)
-	tmpDir                              string
-	storageEngine                       c1zstore.Engine
-	skipFullSync                        bool
-	lastCheckPointTime                  time.Time
-	counts                              *progresslog.ProgressLog
-	targetedSyncResources               []*v2.Resource
-	onlyExpandGrants                    bool
-	dontExpandGrants                    bool
-	syncID                              string
-	skipEGForResourceType               syncMap[string, bool]
-	skipEntitlementsForResourceType     syncMap[string, bool]
-	scheduledResourceTypes              syncMap[string, bool]
-	ingestFilterStats                   ingestFilterStats
-	skipEntitlementsAndGrants           bool
-	skipGrants                          bool
-	resourceTypeTraits                  syncMap[string, []v2.ResourceType_Trait]
-	syncType                            connectorstore.SyncType
-	injectSyncIDAnnotation              bool
-	setSessionStore                     sessions.SetSessionStore
-	syncResourceTypes                   []string
-	workerCount                         int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
-	metricsHandler                      metrics.Handler
-	syncIdentity                        uotel.SyncIdentity
-	recordStats                         bool
+	// Ingestion-invariant state (see ingest_invariants.go):
+	// childSchedule is the monotone record backing invariant I4;
+	// resourcesPhaseRanHere gates I4 to processes that actually ran the
+	// resources phase; failFastInvariants promotes every invariant
+	// verdict to a hard, plainly-attributed sync failure — tolerated
+	// warns fail — and enables I4 (skipped entirely in default mode).
+	// Tests and equivalence harnesses set it; production default
+	// follows the per-invariant policy in the verdict table
+	// (ingestInvariants).
+	childSchedule         childScheduleSet
+	resourcesPhaseRanHere bool
+	failFastInvariants    bool
+	// expandDropStats aggregates expansion edges dropped over missing
+	// entitlements across the whole sync (see expand.DroppedEdgeStats);
+	// summarized once when expansion completes.
+	expandDropStats *expand.DroppedEdgeStats
+	// testIngestHaltHook, when non-nil, fires at named seams of the
+	// ingestion-invariant pass (see ingestInvariantHaltStages);
+	// returning an error fails the sync at exactly that boundary. The
+	// halt sweep uses it to prove crash/resume equivalence at every
+	// ordering-sensitive point. Nil in production: one pointer check.
+	testIngestHaltHook    func(stage string) error
+	connector             types.ConnectorClient
+	state                 State
+	runDuration           time.Duration
+	transitionHandler     func(s Action)
+	progressHandler       func(p *Progress)
+	tmpDir                string
+	storageEngine         c1zstore.Engine
+	skipFullSync          bool
+	lastCheckPointTime    time.Time
+	counts                *progresslog.ProgressLog
+	targetedSyncResources []*v2.Resource
+	onlyExpandGrants      bool
+	// compactionMergedStore marks the store as a pre-sealed artifact
+	// this process did not collect (WithCompactionMergedStore — the
+	// compactor's keep-newer merge and rollback-expansion's replay):
+	// invariant verdicts attribute merge-manufactured shapes to the
+	// merge and soften hard arms to aggregated warnings. Distinct from
+	// onlyExpandGrants, which changes WHAT syncs and carries no
+	// invariant policy on its own.
+	compactionMergedStore           bool
+	dontExpandGrants                bool
+	syncID                          string
+	skipEGForResourceType           syncMap[string, bool]
+	skipEntitlementsForResourceType syncMap[string, bool]
+	scheduledResourceTypes          syncMap[string, bool]
+	ingestFilterStats               ingestFilterStats
+	skipEntitlementsAndGrants       bool
+	skipGrants                      bool
+	resourceTypeTraits              syncMap[string, []v2.ResourceType_Trait]
+	syncType                        connectorstore.SyncType
+	injectSyncIDAnnotation          bool
+	setSessionStore                 sessions.SetSessionStore
+	syncResourceTypes               []string
+	workerCount                     int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
+	metricsHandler                  metrics.Handler
+	syncIdentity                    uotel.SyncIdentity
+	recordStats                     bool
 
 	// Watermark for the rate_limit_wait_wall bucket: the latest instant
 	// already counted as rate-limit-blocked wall time, plus the
@@ -620,62 +650,11 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 }
 
 // maxEntitlementsPerExclusionGroup caps how many entitlements may share a
-// single exclusion_group_id. Phase 1 limit.
+// single exclusion_group_id. Phase 1 limit. Enforced by ingestion
+// invariant I5 over the STORED entitlement keyspace post-collection
+// (ingest_invariants.go) — the former page-level streaming validation
+// could not see rows a non-stream ingestion path wrote.
 const maxEntitlementsPerExclusionGroup = 50
-
-// recordEntitlementExclusionGroup enforces the invariants on an exclusion
-// group membership: a given exclusion_group_id must stay within one resource
-// type, a group may have at most one entitlement marked is_default, and a group
-// may contain at most maxEntitlementsPerExclusionGroup entitlements. Empty
-// group ids are treated as "no exclusion group" and skipped.
-func (s *syncer) recordEntitlementExclusionGroup(eg *v2.EntitlementExclusionGroup, entitlementID, resourceTypeID string) error {
-	groupID := eg.GetExclusionGroupId()
-	if groupID == "" {
-		return nil
-	}
-	if existing, conflict := s.state.CheckAndSetExclusionGroupResourceType(groupID, resourceTypeID); conflict {
-		return fmt.Errorf("exclusion group %q is used on multiple resource types (%q and %q); "+
-			"exclusion groups may span resources but must be scoped to a single resource type",
-			groupID, existing, resourceTypeID)
-	}
-	if eg.GetIsDefault() {
-		if existing, conflict := s.state.CheckAndSetExclusionGroupDefault(groupID, entitlementID); conflict {
-			return fmt.Errorf("exclusion group %q has multiple default entitlements (%q and %q); "+
-				"at most one entitlement per exclusion group may set is_default=true",
-				groupID, existing, entitlementID)
-		}
-	}
-	if count := s.state.IncrementExclusionGroupCount(groupID); count > maxEntitlementsPerExclusionGroup {
-		return fmt.Errorf("exclusion group %q has too many entitlements (%d); "+
-			"at most %d entitlements are allowed per exclusion group",
-			groupID, count, maxEntitlementsPerExclusionGroup)
-	}
-	return nil
-}
-
-// validateEntitlementExclusionGroups picks the exclusion group annotation off
-// each entitlement (if present) and forwards to recordEntitlementExclusionGroup.
-// Use this on lists of entitlements that may independently carry exclusion
-// group annotations (e.g., the dynamic ListEntitlements path); callers that
-// already have the annotation in hand should call recordEntitlementExclusionGroup
-// directly to avoid the per-entitlement Pick.
-func (s *syncer) validateEntitlementExclusionGroups(ents []*v2.Entitlement) error {
-	for _, ent := range ents {
-		eg := &v2.EntitlementExclusionGroup{}
-		entAnnos := annotations.Annotations(ent.GetAnnotations())
-		ok, err := entAnnos.Pick(eg)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			continue
-		}
-		if err := s.recordEntitlementExclusionGroup(eg, ent.GetId(), ent.GetResource().GetId().GetResourceType()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // nextPageOrFinishAction updates the action with the next page token, or if there is no next page, finishes the action.
 // It also pushes any child actions before updating/finishing the action.
@@ -929,9 +908,25 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	s.logIngestFilterSummary(ctx)
 
+	// Post-collection ingestion invariants (ingest_invariants.go): every
+	// ingestion path has finished writing, so the store-derived
+	// definitions of the sync's side effects are checkable. Runs before
+	// EndSync so a violating sync is never sealed as complete.
+	if err := s.runIngestionInvariants(ctx); err != nil {
+		return s.returnSyncError(l, span, err)
+	}
+	if s.testIngestHaltHook != nil {
+		// The seam AFTER the invariant pass and BEFORE the
+		// checkpoint/EndSync below: a resumed sync re-runs the whole
+		// invariant pass over the same state, so every check must be
+		// idempotent.
+		if err := s.testIngestHaltHook(haltStageInvariantsComplete); err != nil {
+			return s.returnSyncError(l, span, err)
+		}
+	}
+
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
 	s.state.ClearEntitlementGraph(ctx)
-	s.state.ClearExclusionGroupTracking(ctx)
 
 	err = s.Checkpoint(ctx, true)
 	if err != nil {
@@ -1147,11 +1142,7 @@ func (s *syncer) hasChildResources(resource *v2.Resource) bool {
 // At sync scale (100k+ resources per trace) the span overhead and trace bloat
 // outweighed any debugging value.
 func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error {
-	syncResourceTypeMap := make(map[string]bool)
-	for _, rt := range s.syncResourceTypes {
-		syncResourceTypeMap[rt] = true
-	}
-
+	var childTypeIDs []string
 	for _, a := range parent.GetAnnotations() {
 		if a.MessageIs((*v2.ChildResourceType)(nil)) {
 			crt := &v2.ChildResourceType{}
@@ -1159,22 +1150,39 @@ func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error
 			if err != nil {
 				return err
 			}
-			if len(s.syncResourceTypes) > 0 {
-				if shouldSync := syncResourceTypeMap[crt.GetResourceTypeId()]; !shouldSync {
-					continue
-				}
-			}
-			childAction := Action{
-				Op:                   SyncResourcesOp,
-				ResourceTypeID:       crt.GetResourceTypeId(),
-				ParentResourceID:     parent.GetId().GetResource(),
-				ParentResourceTypeID: parent.GetId().GetResourceType(),
-			}
-			s.state.PushAction(ctx, childAction)
+			childTypeIDs = append(childTypeIDs, crt.GetResourceTypeId())
 		}
 	}
-
+	s.pushChildResourceActions(ctx, childTypeIDs, parent.GetId().GetResourceType(), parent.GetId().GetResource())
 	return nil
+}
+
+// pushChildResourceActions queues child resource syncs for one parent,
+// honoring the sync's resource-type filter. Factored out of
+// getSubResources so any ingestion path that discovers a parent
+// resource can schedule its children through the same evidence-recorded
+// seam.
+func (s *syncer) pushChildResourceActions(ctx context.Context, childTypeIDs []string, parentTypeID, parentID string) {
+	for _, childTypeID := range childTypeIDs {
+		if len(s.syncResourceTypes) > 0 && !slices.Contains(s.syncResourceTypes, childTypeID) {
+			continue
+		}
+		// Monotone evidence for ingestion invariant I4 (see
+		// ingest_invariants.go), doubling as the per-sync scheduling
+		// dedupe: a parent discovered more than once in one sync
+		// schedules its children exactly once. In-memory, so a resumed
+		// process re-schedules — the existing at-least-once semantic,
+		// just not N-times-per-sync.
+		if !s.childSchedule.recordIfNew(childTypeID, parentTypeID, parentID) {
+			continue
+		}
+		s.state.PushAction(ctx, Action{
+			Op:                   SyncResourcesOp,
+			ResourceTypeID:       childTypeID,
+			ParentResourceID:     parentID,
+			ParentResourceTypeID: parentTypeID,
+		})
+	}
 }
 
 func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
@@ -1297,6 +1305,10 @@ func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
 		if action.PageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing resources...")
 			s.handleInitialActionForStep(ctx, *action)
+			// Ingestion invariant I4 is only verifiable when the
+			// resources phase started in THIS process (the scheduled
+			// set is in-memory); see ingest_invariants.go.
+			s.resourcesPhaseRanHere = true
 		}
 
 		resp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
@@ -1621,14 +1633,13 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	if err != nil {
 		return err
 	}
-	// Filter before exclusion-group validation: a dropped entitlement must not
-	// mutate exclusion-group state or fail the sync as if it had been ingested.
+	// Filter before the put: a dropped entitlement must never be
+	// ingested (exclusion-group validation happens post-collection over
+	// the STORED keyspace — ingestion invariant I5 — so filtered rows
+	// are invisible to it by construction).
 	entitlements, err := s.filterFreshEntitlements(ctx, resp.GetList())
 	if err != nil {
 		return fmt.Errorf("sync-entitlements: filtering disabled-type references: %w", err)
-	}
-	if err := s.validateEntitlementExclusionGroups(entitlements); err != nil {
-		return err
 	}
 	err = s.store.PutEntitlements(ctx, entitlements...)
 	if err != nil {
@@ -1735,11 +1746,6 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 				}
 
 				entID := entitlement.NewEntitlementID(resource, ent.GetSlug())
-				if hasExclusionGroup {
-					if err := s.recordEntitlementExclusionGroup(exclusionGroup, entID, resource.GetId().GetResourceType()); err != nil {
-						return err
-					}
-				}
 
 				entitlements = append(entitlements, &v2.Entitlement{
 					Resource:    resource,
@@ -1976,6 +1982,13 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, action *Action, graph
 				// Only skip not-found entitlements; propagate other errors
 				// to avoid silently dropping edges and yielding incorrect expansions.
 				if status.Code(err) == codes.NotFound {
+					// Counted on the same sync-wide aggregate as the
+					// expander's drops (this seam was previously
+					// Debug-only — invisible in production).
+					if s.expandDropStats == nil {
+						s.expandDropStats = &expand.DroppedEdgeStats{}
+					}
+					s.expandDropStats.RecordSourceMissing(srcEntitlementID)
 					l.Debug("source entitlement not found, skipping edge",
 						zap.String("src_entitlement_id", srcEntitlementID),
 						zap.String("dst_entitlement_id", dstEntitlementID),
@@ -2951,7 +2964,11 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context, action *Action
 	// The expander needs Reader methods (on s.store) plus StoreExpandedGrants
 	// (on s.store.Grants()). An inline adapter composes them so expand
 	// stays decoupled from C1ZStore.
+	if s.expandDropStats == nil {
+		s.expandDropStats = &expand.DroppedEdgeStats{}
+	}
 	expander := expand.NewExpander(expanderStoreAdapter{s.store}, graph)
+	expander.SetDropStats(s.expandDropStats)
 	err = expander.RunSingleStep(ctx)
 	if err != nil {
 		l.Error("expandGrantsForEntitlements: error during expansion", zap.Error(err))
@@ -2965,6 +2982,9 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context, action *Action
 
 	if expander.IsDone(ctx) {
 		l.Debug("expandGrantsForEntitlements: graph is expanded")
+		// The sync's one aggregated dropped-edge report (totals +
+		// distinct-id examples) — per-edge drops log at Debug only.
+		s.expandDropStats.LogSummary(ctx)
 		s.state.FinishAction(ctx, action)
 	}
 
@@ -3147,6 +3167,20 @@ func WithStorageEngine(engine c1zstore.Engine) SyncOpt {
 	}
 }
 
+// WithFailFastInvariants promotes every ingestion-invariant verdict
+// (see ingest_invariants.go) to a hard, plainly-attributed sync
+// failure: tolerated warns fail, and I4 (skipped in default mode)
+// runs. Tests and equivalence harnesses enable it; production default
+// follows the per-invariant policy in the verdict table
+// (ingestInvariants) — aggregated warnings with attribution for
+// dangling references, hard failure for I5 and I3's
+// InsertResourceGrants arm.
+func WithFailFastInvariants() SyncOpt {
+	return func(s *syncer) {
+		s.failFastInvariants = true
+	}
+}
+
 // WithSkipFullSync skips syncing entirely.
 func WithSkipFullSync() SyncOpt {
 	return func(s *syncer) {
@@ -3233,6 +3267,24 @@ func WithSyncResourceTypes(resourceTypeIDs []string) SyncOpt {
 func WithOnlyExpandGrants() SyncOpt {
 	return func(s *syncer) {
 		s.onlyExpandGrants = true
+	}
+}
+
+// WithCompactionMergedStore marks the store under this sync as a
+// pre-sealed artifact this process did not collect — the compactor's
+// keep-newer merge, or rollback-expansion's replay over an existing
+// c1z (whose inputs include such merges). The ingestion invariants
+// (ingest_invariants.go) then attribute merge-manufactured shapes —
+// dangling references, stranded InsertResourceGrants rows,
+// exclusion-group conflicts unioned from different input generations —
+// to the merge instead of the connector, and soften the corresponding
+// hard arms to aggregated warnings (fail-fast still promotes). The
+// hard arms exist to stop a NEW collection from sealing bad data;
+// passes over already-sealed artifacts observe and attribute instead.
+// A normal connector sync must never set this.
+func WithCompactionMergedStore() SyncOpt {
+	return func(s *syncer) {
+		s.compactionMergedStore = true
 	}
 }
 

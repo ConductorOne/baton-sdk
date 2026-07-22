@@ -287,6 +287,11 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 			}
 		}
 
+		if e.test.recordCommitHook != nil {
+			if err := e.test.recordCommitHook(); err != nil {
+				return err
+			}
+		}
 		// One atomic commit: rows and their obligations ride the same
 		// batch, so a primary commit landing without its index entries
 		// is unexpressible.
@@ -334,6 +339,11 @@ func (e *Engine) PutSynthesizedGrantRecords(ctx context.Context, records []*v3.G
 			// Deferred regime; the caller guarantees brand-new identities,
 			// so there is no prior row to clean (hadOldVal=false).
 			if err := batch.StageGrantPutDeferred(keyScratch, val, false, r.GetNeedsExpansion()); err != nil {
+				return err
+			}
+		}
+		if e.test.recordCommitHook != nil {
+			if err := e.test.recordCommitHook(); err != nil {
 				return err
 			}
 		}
@@ -732,6 +742,11 @@ func (e *Engine) putSynthesizedGrantContributionsBatch(ctx context.Context, reco
 			// Deferred regime: synthesized grants are brand-new (no prior
 			// row) and never expandable (needsExpansion=false).
 			if err := batch.StageGrantPutDeferred(keyScratch, val, false, false); err != nil {
+				return err
+			}
+		}
+		if e.test.recordCommitHook != nil {
+			if err := e.test.recordCommitHook(); err != nil {
 				return err
 			}
 		}

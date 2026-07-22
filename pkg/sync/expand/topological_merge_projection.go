@@ -162,9 +162,13 @@ func (e *Expander) mergeDestinationStreams(
 		for _, sourceID := range sortedCopy(sourceNode.EntitlementIDs) {
 			sourceEntitlement := entitlements[sourceID]
 			if sourceEntitlement == nil {
-				// Drop-don't-fail, but loudly (see the destination-side
-				// warning in driveTopologicalLayer).
-				ctxzap.Extract(ctx).Warn("topological expansion: source entitlement not in store; its contributions are skipped",
+				// Drop-don't-fail, recorded on the sync-wide aggregate
+				// (one warning per sync — see DroppedEdgeStats and the
+				// destination-side twin in driveTopologicalLayer);
+				// per-edge logging stays at Debug so a large dangling
+				// family can't flood the logs.
+				e.dropStats.RecordSourceMissing(sourceID)
+				ctxzap.Extract(ctx).Debug("topological expansion: source entitlement not in store; its contributions are skipped",
 					zap.String("entitlement_id", sourceID))
 				continue
 			}
