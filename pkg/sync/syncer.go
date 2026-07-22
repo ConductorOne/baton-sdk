@@ -1021,6 +1021,7 @@ func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.Resou
 				ActiveSyncId: s.getActiveSyncID(),
 			}.Build())
 			s.observeConnectorCall(ctx, "list-resource-types", start, "", "")
+			s.recordConnectorWaitReport(resp.GetAnnotations(), "")
 			if err != nil {
 				_ = yield(nil, err)
 				return
@@ -1057,6 +1058,7 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 		ActiveSyncId: s.getActiveSyncID(),
 	}.Build())
 	s.observeConnectorCall(ctx, "list-resource-types", start, action.ResourceTypeID, action.ResourceID)
+	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
 		return err
 	}
@@ -1173,6 +1175,7 @@ func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.Re
 		}.Build(),
 	)
 	s.observeConnectorCall(ctx, "get-resource", start, resourceID.GetResourceType(), resourceID.GetResource())
+	s.recordConnectorWaitReport(resourceResp.GetAnnotations(), resourceID.GetResourceType())
 	if err == nil {
 		return resourceResp.GetResource(), nil
 	}

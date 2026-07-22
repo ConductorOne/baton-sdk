@@ -33,6 +33,26 @@ type gateSimConnector struct {
 	gateWait     time.Duration
 	annotationMs int64
 	gateCalls    int
+	rtCalls      int
+}
+
+// ListResourceTypes attaches a RateLimitWaitReport with no resource-type
+// attribution, covering the syncer's wiring on the list-resource-types path
+// (which has no action resource type, so the report lands unlabeled).
+func (g *gateSimConnector) ListResourceTypes(
+	ctx context.Context,
+	in *v2.ResourceTypesServiceListResourceTypesRequest,
+	opts ...grpc.CallOption,
+) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
+	resp, err := g.mockConnector.ListResourceTypes(ctx, in, opts...)
+	if err != nil {
+		return nil, err
+	}
+	g.rtCalls++
+	var annos annotations.Annotations = resp.GetAnnotations()
+	annos.WithRateLimitWaitReport(g.annotationMs)
+	resp.SetAnnotations(annos)
+	return resp, nil
 }
 
 func (g *gateSimConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
@@ -88,20 +108,25 @@ func TestRateLimitGateWaitsReachSyncStats(t *testing.T) {
 
 	durations := completedState.StepDurations()
 	require.Positive(t, gc.gateCalls, "sync should have listed grants")
-	// Both sources must land: observer-reported gate sleeps plus
-	// annotation-reported in-connector sleeps.
-	expectedMs := int64(gc.gateCalls) * (gc.gateWait.Milliseconds() + gc.annotationMs)
-	require.EqualValues(t, expectedMs, durations["rate_limit_wait"],
+	require.Positive(t, gc.rtCalls, "sync should have listed resource types")
+	// All three sources must land: observer-reported gate sleeps,
+	// annotation-reported in-connector sleeps on grants, and unlabeled
+	// annotation reports on list-resource-types.
+	grantsMs := int64(gc.gateCalls) * (gc.gateWait.Milliseconds() + gc.annotationMs)
+	rtMs := int64(gc.rtCalls) * gc.annotationMs
+	require.EqualValues(t, grantsMs+rtMs, durations["rate_limit_wait"],
 		"every gate-reported and annotation-reported wait must land in rate_limit_wait")
 
-	// Attribution: labeled sub-buckets must decompose the flat total.
+	// Attribution: labeled sub-buckets must decompose the labeled portion of
+	// the flat total; list-resource-types reports carry no resource type and
+	// stay unlabeled.
 	var labeledMs int64
 	for bucket, ms := range durations {
 		if bucket != "rate_limit_wait" && len(bucket) > len("rate_limit_wait:") && bucket[:len("rate_limit_wait:")] == "rate_limit_wait:" {
 			labeledMs += ms
 		}
 	}
-	require.EqualValues(t, expectedMs, labeledMs)
+	require.EqualValues(t, grantsMs, labeledMs)
 
 	require.NoError(t, syncer.Close(ctx))
 }

@@ -59,6 +59,22 @@ func TestWaitObserverDisabledWithoutStats(t *testing.T) {
 	require.Empty(t, s.state.StepDurations())
 }
 
+// TestWaitObserverBeforeStateExists covers the window at the top of Sync:
+// the observer is installed (and recordStats may already be true) before the
+// state token is loaded. A gate wait during the initial Validate call must be
+// dropped, not panic on a nil state.
+func TestWaitObserverBeforeStateExists(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       nil,
+	}
+
+	ctx := s.withRateLimitWaitObserver(t.Context())
+	require.NotPanics(t, func() {
+		ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: time.Second})
+	})
+}
+
 func TestRecordConnectorWaitReport(t *testing.T) {
 	s := &syncer{
 		recordStats: true,

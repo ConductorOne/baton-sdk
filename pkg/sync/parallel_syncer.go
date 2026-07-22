@@ -27,6 +27,12 @@ func (s *syncer) timedShouldWaitAndRetry(ctx context.Context, op ActionOp, resou
 }
 
 func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLimited bool) {
+	// The wait observer is installed at the top of Sync, before the state
+	// token exists; a gate wait during the initial Validate call must be
+	// dropped, not dereference a nil state.
+	if s.state == nil {
+		return
+	}
 	bucket := "retry_wait"
 	if rateLimited {
 		bucket = "rate_limit_wait"
