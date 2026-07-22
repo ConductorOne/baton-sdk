@@ -285,6 +285,20 @@ message SyncRunRecord {
   // materialize as the previous sync should apply the same predicate
   // instead of guessing from provenance.
   bool compacted = 9;
+
+  // Persisted proof that the post-collection ingestion-invariant pass
+  // completed successfully before this sync was sealed. Empty generation
+  // means the artifact predates verification metadata (or was produced by a
+  // path that did not run the pass). Coverage names only checks that actually
+  // ran; engines without the inspection surface therefore record a subset
+  // rather than claiming full verification.
+  string ingest_invariant_generation = 10;
+  repeated string ingest_invariant_coverage = 11;
+
+  // "connector" applies the ordinary connector-ingest verdict policy;
+  // "compaction_merge" applies the policy for a pre-sealed keep-newer merge.
+  // Empty when ingest_invariant_generation is empty.
+  string ingest_invariant_mode = 12;
 }
 
 // SyncStatsRecord is the engine-internal sidecar populated at

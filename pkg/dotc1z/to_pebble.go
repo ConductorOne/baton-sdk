@@ -246,14 +246,21 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	if err = dest.EndSync(ctx); err != nil {
 		return nil, fmt.Errorf("to-pebble: end destination sync: %w", err)
 	}
-	if sync.EndedAt != nil {
+	if sync.EndedAt != nil || sync.IsVerified() {
 		rec, err := destEng.GetSyncRunRecord(ctx, destSyncID)
 		if err != nil {
 			return nil, fmt.Errorf("to-pebble: load destination sync metadata: %w", err)
 		}
-		rec.SetEndedAt(timestamppb.New(*sync.EndedAt))
+		if sync.EndedAt != nil {
+			rec.SetEndedAt(timestamppb.New(*sync.EndedAt))
+		}
+		if sync.IsVerified() {
+			rec.SetIngestInvariantGeneration(sync.Generation)
+			rec.SetIngestInvariantCoverage(append([]string(nil), sync.Coverage...))
+			rec.SetIngestInvariantMode(string(sync.Mode))
+		}
 		if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
-			return nil, fmt.Errorf("to-pebble: preserve source ended_at: %w", err)
+			return nil, fmt.Errorf("to-pebble: preserve source sync metadata: %w", err)
 		}
 	}
 	endSyncDur := time.Since(endSyncStart)

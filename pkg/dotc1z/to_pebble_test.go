@@ -67,6 +67,14 @@ func TestToPebbleRoundTrip(t *testing.T) {
 	assetData := []byte("hello-asset-bytes")
 	require.NoError(t, src.PutAsset(ctx, v2.AssetRef_builder{Id: "asset-1"}.Build(), "text/plain", assetData))
 
+	wantVerification := c1zstore.IngestInvariantVerification{
+		Generation: "test-generation",
+		Coverage:   []string{"I5"},
+		Mode:       c1zstore.IngestInvariantVerificationModeConnector,
+	}
+	verificationWriter, ok := src.SyncMeta().(c1zstore.IngestInvariantVerificationWriter)
+	require.True(t, ok)
+	require.NoError(t, verificationWriter.MarkIngestInvariantsVerified(ctx, syncID, wantVerification))
 	require.NoError(t, src.EndSync(ctx))
 
 	// Convert the finished sync into a new Pebble .c1z.
@@ -88,6 +96,10 @@ func TestToPebbleRoundTrip(t *testing.T) {
 	dst, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(dir))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, dst.Close(ctx)) }()
+	dstRun, err := dst.SyncMeta().LatestFullSync(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, dstRun)
+	require.Equal(t, wantVerification, dstRun.IngestInvariantVerification)
 	require.NoError(t, dst.SetCurrentSync(ctx, stats.DestSyncID))
 
 	rtResp, err := dst.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())

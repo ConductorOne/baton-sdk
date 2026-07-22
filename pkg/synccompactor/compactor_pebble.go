@@ -680,6 +680,12 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	baseRec.SetSyncId(newSyncID)
 	baseRec.SetParentSyncId("")
 	baseRec.SetType(unionType)
+	// The fold mutated the inherited base keyspace. Never publish the base
+	// artifact's pre-fold verification as proof of the merged output; a later
+	// expansion/invariant pass will write a fresh marker when one runs.
+	baseRec.SetIngestInvariantGeneration("")
+	baseRec.SetIngestInvariantCoverage(nil)
+	baseRec.SetIngestInvariantMode("")
 	if !maxEnded.IsZero() {
 		baseRec.SetEndedAt(timestamppb.New(maxEnded))
 	}

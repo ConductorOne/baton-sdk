@@ -38,6 +38,20 @@ func grantDiscoveredAt(t *testing.T, ctx context.Context, path, syncID, grantID 
 	return rec.GetDiscoveredAt().AsTime()
 }
 
+func markFoldInputVerified(t *testing.T, ctx context.Context, path, syncID string) {
+	t.Helper()
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	writer, ok := store.SyncMeta().(c1zstore.IngestInvariantVerificationWriter)
+	require.True(t, ok)
+	require.NoError(t, writer.MarkIngestInvariantsVerified(ctx, syncID, c1zstore.IngestInvariantVerification{
+		Generation: "test-generation",
+		Coverage:   []string{"I5", "I7", "I3", "I8", "I9"},
+		Mode:       c1zstore.IngestInvariantVerificationModeConnector,
+	}))
+	require.NoError(t, store.Close(ctx))
+}
+
 // TestCompactPebbleFoldMintsFreshSync covers the in-place fold strategy
 // (BATON_EXPERIMENTAL_PEBBLE_COMPACTOR=fold): the compacted output is a
 // copy of the base input into which the partials' winners are folded
@@ -55,6 +69,7 @@ func TestCompactPebbleFoldMintsFreshSync(t *testing.T) {
 	// strictly newer discovered_at and must win the fold.
 	baseSyncID := buildPebbleInput(t, ctx, basePath, connectorstore.SyncTypeFull, "g-shared", "g-base-only")
 	partialSyncID := buildPebbleInput(t, ctx, partialPath, connectorstore.SyncTypePartial, "g-shared", "g-partial-only")
+	markFoldInputVerified(t, ctx, basePath, baseSyncID)
 
 	t.Setenv("BATON_EXPERIMENTAL_PEBBLE_COMPACTOR", "fold")
 	c, cleanup, err := NewCompactor(ctx, t.TempDir(), []*CompactableSync{
@@ -110,6 +125,9 @@ func TestCompactPebbleFoldMintsFreshSync(t *testing.T) {
 	rec, err := statsEng.GetSyncRunRecord(ctx, out.SyncID)
 	require.NoError(t, err)
 	require.Empty(t, rec.GetParentSyncId(), "folded sync must not carry a parent link to the overwritten base sync")
+	require.Empty(t, rec.GetIngestInvariantGeneration(), "folded sync must not inherit the base verification generation")
+	require.Empty(t, rec.GetIngestInvariantCoverage(), "folded sync must not inherit the base verification coverage")
+	require.Empty(t, rec.GetIngestInvariantMode(), "folded sync must not inherit the base verification mode")
 	stats, err := enginepkg.ReadSyncStatsRecord(ctx, statsEng, out.SyncID)
 	require.NoError(t, err)
 	require.NotNil(t, stats)
