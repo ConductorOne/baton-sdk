@@ -157,6 +157,8 @@ var sideEffectAnnotationCoverage = map[string]string{
 	"c1.connector.v2.InsertResourceGrants":      "I3: grant→resource referential check post-collection",
 	"c1.connector.v2.ChildResourceType":         "I4: scheduled-set completeness check post-collection",
 	"c1.connector.v2.EntitlementExclusionGroup": "I5: stored-keyspace validation post-collection",
+	"c1.connector.v2.TypeScopedEntitlements":    "I7: entitlement→resource referential check post-collection",
+	"c1.connector.v2.TypeScopedGrants":          "I8: grant→entitlement referential check post-collection",
 }
 
 // childScheduleSet is the monotone record of scheduled child-resource

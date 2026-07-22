@@ -32,15 +32,17 @@ const (
 )
 
 type ProgressLog struct {
-	resourceTypes        int
-	resources            map[string]int
-	entitlementsProgress map[string]int
-	lastEntitlementLog   map[string]time.Time
-	grantsProgress       map[string]int
-	lastGrantLog         map[string]time.Time
-	mu                   sync.RWMutex
-	l                    *zap.Logger
-	maxLogFrequency      time.Duration
+	resourceTypes         int
+	resources             map[string]int
+	entitlementsProgress  map[string]int
+	lastEntitlementLog    map[string]time.Time
+	entitlementsCountOnly map[string]bool
+	grantsProgress        map[string]int
+	lastGrantLog          map[string]time.Time
+	grantsCountOnly       map[string]bool
+	mu                    sync.RWMutex
+	l                     *zap.Logger
+	maxLogFrequency       time.Duration
 
 	// Optional cross-step db-size tracking for LogExpandProgress. Populated
 	// via WithDBSizeProvider at construction time or SetDBSizeProvider after
@@ -145,15 +147,17 @@ func (p *ProgressLog) SetDBSizeProvider(provider connectorstore.DBSizeProvider) 
 
 func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 	p := &ProgressLog{
-		resources:            make(map[string]int),
-		entitlementsProgress: make(map[string]int),
-		lastEntitlementLog:   make(map[string]time.Time),
-		grantsProgress:       make(map[string]int),
-		lastGrantLog:         make(map[string]time.Time),
-		l:                    ctxzap.Extract(ctx),
-		maxLogFrequency:      defaultMaxLogFrequency,
-		mu:                   sync.RWMutex{},
-		metricsHandler:       metrics.NewNoOpHandler(ctx),
+		resources:             make(map[string]int),
+		entitlementsProgress:  make(map[string]int),
+		lastEntitlementLog:    make(map[string]time.Time),
+		entitlementsCountOnly: make(map[string]bool),
+		grantsProgress:        make(map[string]int),
+		lastGrantLog:          make(map[string]time.Time),
+		grantsCountOnly:       make(map[string]bool),
+		l:                     ctxzap.Extract(ctx),
+		maxLogFrequency:       defaultMaxLogFrequency,
+		mu:                    sync.RWMutex{},
+		metricsHandler:        metrics.NewNoOpHandler(ctx),
 	}
 	for _, o := range opts {
 		o(p)
@@ -202,14 +206,16 @@ func (p *ProgressLog) LogResourcesProgress(ctx context.Context, resourceType str
 func (p *ProgressLog) LogEntitlementsProgress(ctx context.Context, resourceType string) {
 	var entitlementsProgress, resources int
 	var lastLogTime time.Time
+	var countOnly bool
 
 	p.mu.RLock()
 	entitlementsProgress = p.entitlementsProgress[resourceType]
 	resources = p.resources[resourceType]
 	lastLogTime = p.lastEntitlementLog[resourceType]
+	countOnly = p.entitlementsCountOnly[resourceType]
 	p.mu.RUnlock()
 
-	if resources == 0 {
+	if resources == 0 || countOnly {
 		// if resuming sync, resource counts will be zero, so don't calculate percentage. just log every 10 seconds.
 		if time.Since(lastLogTime) > p.maxLogFrequency {
 			p.l.Info("Syncing entitlements",
@@ -256,17 +262,31 @@ func (p *ProgressLog) LogEntitlementsProgress(ctx context.Context, resourceType 
 	}
 }
 
+func (p *ProgressLog) SetEntitlementsCountOnly(resourceType string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.entitlementsCountOnly[resourceType] = true
+}
+
+func (p *ProgressLog) EntitlementsProgress(resourceType string) int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.entitlementsProgress[resourceType]
+}
+
 func (p *ProgressLog) LogGrantsProgress(ctx context.Context, resourceType string) {
 	var grantsProgress, resources int
 	var lastLogTime time.Time
+	var countOnly bool
 
 	p.mu.RLock()
 	grantsProgress = p.grantsProgress[resourceType]
 	resources = p.resources[resourceType]
 	lastLogTime = p.lastGrantLog[resourceType]
+	countOnly = p.grantsCountOnly[resourceType]
 	p.mu.RUnlock()
 
-	if resources == 0 {
+	if resources == 0 || countOnly {
 		// if resuming sync, resource counts will be zero, so don't calculate percentage. just log every 10 seconds.
 		if time.Since(lastLogTime) > p.maxLogFrequency {
 			p.l.Info("Syncing grants",
@@ -311,6 +331,18 @@ func (p *ProgressLog) LogGrantsProgress(ctx context.Context, resourceType string
 		p.lastGrantLog[resourceType] = time.Now()
 		p.mu.Unlock()
 	}
+}
+
+func (p *ProgressLog) SetGrantsCountOnly(resourceType string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.grantsCountOnly[resourceType] = true
+}
+
+func (p *ProgressLog) GrantsProgress(resourceType string) int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.grantsProgress[resourceType]
 }
 
 // LogExpandProgress emits an Info-level "Expanding grants" log at most once

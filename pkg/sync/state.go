@@ -189,6 +189,10 @@ type Action struct {
 	ResourceID           string   `json:"resource_id,omitempty"`
 	ParentResourceTypeID string   `json:"parent_resource_type_id,omitempty"`
 	ParentResourceID     string   `json:"parent_resource_id,omitempty"`
+	// Spawned marks a sibling cursor enqueued by EnqueuePageTokens.
+	// Progress accounting counts only the origin action for per-resource
+	// phases. The marker is checkpointed so resume preserves that rule.
+	Spawned bool `json:"spawned,omitempty"`
 }
 
 var _ State = &state{}

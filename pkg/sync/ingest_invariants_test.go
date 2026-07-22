@@ -60,8 +60,6 @@ func TestPushChildResourceActionsDedupesPerSync(t *testing.T) {
 // sideEffectAnnotationCoverage — and the invariant behind it — fails
 // here instead of in review round eleven.
 func TestIngestInvariantAnnotationCoverage(t *testing.T) {
-	// TypeScopedEntitlements and TypeScopedGrants join this list (mapped
-	// to I7/I8) when the type-scoped listing protos land.
 	sideEffectAnnotations := []proto.Message{
 		&v2.GrantExpandable{},
 		&v2.ExternalResourceMatch{},
@@ -70,6 +68,8 @@ func TestIngestInvariantAnnotationCoverage(t *testing.T) {
 		&v2.InsertResourceGrants{},
 		&v2.ChildResourceType{},
 		&v2.EntitlementExclusionGroup{},
+		&v2.TypeScopedEntitlements{},
+		&v2.TypeScopedGrants{},
 	}
 	for _, msg := range sideEffectAnnotations {
 		name := string(msg.ProtoReflect().Descriptor().FullName())

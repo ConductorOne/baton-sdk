@@ -198,24 +198,26 @@ type syncer struct {
 	// merge and soften hard arms to aggregated warnings. Distinct from
 	// onlyExpandGrants, which changes WHAT syncs and carries no
 	// invariant policy on its own.
-	compactionMergedStore           bool
-	dontExpandGrants                bool
-	syncID                          string
-	skipEGForResourceType           syncMap[string, bool]
-	skipEntitlementsForResourceType syncMap[string, bool]
-	scheduledResourceTypes          syncMap[string, bool]
-	ingestFilterStats               ingestFilterStats
-	skipEntitlementsAndGrants       bool
-	skipGrants                      bool
-	resourceTypeTraits              syncMap[string, []v2.ResourceType_Trait]
-	syncType                        connectorstore.SyncType
-	injectSyncIDAnnotation          bool
-	setSessionStore                 sessions.SetSessionStore
-	syncResourceTypes               []string
-	workerCount                     int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
-	metricsHandler                  metrics.Handler
-	syncIdentity                    uotel.SyncIdentity
-	recordStats                     bool
+	compactionMergedStore                 bool
+	dontExpandGrants                      bool
+	syncID                                string
+	skipEGForResourceType                 syncMap[string, bool]
+	skipEntitlementsForResourceType       syncMap[string, bool]
+	typeScopedGrantsForResourceType       syncMap[string, bool]
+	typeScopedEntitlementsForResourceType syncMap[string, bool]
+	scheduledResourceTypes                syncMap[string, bool]
+	ingestFilterStats                     ingestFilterStats
+	skipEntitlementsAndGrants             bool
+	skipGrants                            bool
+	resourceTypeTraits                    syncMap[string, []v2.ResourceType_Trait]
+	syncType                              connectorstore.SyncType
+	injectSyncIDAnnotation                bool
+	setSessionStore                       sessions.SetSessionStore
+	syncResourceTypes                     []string
+	workerCount                           int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
+	metricsHandler                        metrics.Handler
+	syncIdentity                          uotel.SyncIdentity
+	recordStats                           bool
 
 	// Watermark for the rate_limit_wait_wall bucket: the latest instant
 	// already counted as rate-limit-blocked wall time, plus the
@@ -1308,11 +1310,17 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 		return err
 	}
 	if !shouldSkipGrants {
-		s.state.PushAction(ctx, Action{
-			Op:             SyncGrantsOp,
-			ResourceTypeID: resourceTypeID,
-			ResourceID:     resourceID,
-		})
+		typeScopedGrants, err := s.resourceTypeHasTypeScopedGrants(ctx, resourceTypeID)
+		if err != nil {
+			return err
+		}
+		if !typeScopedGrants {
+			s.state.PushAction(ctx, Action{
+				Op:             SyncGrantsOp,
+				ResourceTypeID: resourceTypeID,
+				ResourceID:     resourceID,
+			})
+		}
 	}
 
 	shouldSkipEnts, err := s.shouldSkipEntitlements(ctx, resource)
@@ -1321,11 +1329,17 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 	}
 
 	if !shouldSkipEnts {
-		s.state.PushAction(ctx, Action{
-			Op:             SyncEntitlementsOp,
-			ResourceTypeID: resourceTypeID,
-			ResourceID:     resourceID,
-		})
+		typeScopedEnts, err := s.resourceTypeHasTypeScopedEntitlements(ctx, resourceTypeID)
+		if err != nil {
+			return err
+		}
+		if !typeScopedEnts {
+			s.state.PushAction(ctx, Action{
+				Op:             SyncEntitlementsOp,
+				ResourceTypeID: resourceTypeID,
+				ResourceID:     resourceID,
+			})
+		}
 	}
 
 	err = s.getSubResources(ctx, resource)
@@ -1601,8 +1615,8 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bo
 	return skipEntitlements, nil
 }
 
-// SyncEntitlements fetches the entitlements from the connector. It first lists each resource from the datastore,
-// and pushes an action to fetch the entitlements for each resource.
+// SyncEntitlements fetches entitlements. Annotated resource types receive one
+// type-scoped action instead of a per-resource fan-out.
 func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -1610,11 +1624,20 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" && action.ResourceID == "" {
+		actions := make([]Action, 0)
 		pageToken := action.PageToken
 
 		if pageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing entitlements...")
 			s.handleInitialActionForStep(ctx, *action)
+
+			typeScoped, err := s.typeScopedEntitlementsResourceTypes(ctx)
+			if err != nil {
+				return fmt.Errorf("sync-entitlements: error listing type-scoped resource types: %w", err)
+			}
+			for _, rtID := range typeScoped {
+				actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceTypeID: rtID})
+			}
 		}
 
 		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
@@ -1625,13 +1648,19 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 			return err
 		}
 
-		actions := make([]Action, 0)
 		for _, r := range resp.GetList() {
 			shouldSkipEntitlements, err := s.shouldSkipEntitlements(ctx, r)
 			if err != nil {
 				return err
 			}
 			if shouldSkipEntitlements {
+				continue
+			}
+			typeScoped, err := s.resourceTypeHasTypeScopedEntitlements(ctx, r.GetId().GetResourceType())
+			if err != nil {
+				return err
+			}
+			if typeScoped {
 				continue
 			}
 			actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
@@ -1648,27 +1677,43 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 	return nil
 }
 
+func (s *syncer) resourceTypeHasTypeScopedEntitlements(ctx context.Context, resourceTypeID string) (bool, error) {
+	return s.resourceTypeCarries(ctx, resourceTypeID, &v2.TypeScopedEntitlements{}, &s.typeScopedEntitlementsForResourceType)
+}
+
+func (s *syncer) typeScopedEntitlementsResourceTypes(ctx context.Context) ([]string, error) {
+	return s.resourceTypesCarrying(ctx, &v2.TypeScopedEntitlements{}, &s.typeScopedEntitlementsForResourceType)
+}
+
 // syncEntitlementsForResource fetches the entitlements for a specific resource from the connector.
 // No span here: only call site is SyncEntitlements, which already owns a span.
 func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action) error {
+	typeScoped := action.ResourceID == ""
 	resourceID := v2.ResourceId_builder{
 		ResourceType: action.ResourceTypeID,
 		Resource:     action.ResourceID,
 	}.Build()
-	resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
-		ResourceId: resourceID,
-	}.Build())
-	if err != nil {
-		return err
-	}
 
-	resource := resourceResponse.GetResource()
+	var resource *v2.Resource
+	var reqAnnos annotations.Annotations
+	if typeScoped {
+		resource, reqAnnos = typeScopedRequestStub(action.ResourceTypeID, &v2.TypeScopedEntitlements{})
+	} else {
+		resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: resourceID,
+		}.Build())
+		if err != nil {
+			return err
+		}
+		resource = resourceResponse.GetResource()
+	}
 
 	start := time.Now()
 	resp, err := s.connector.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 		Resource:     resource,
 		PageToken:    action.PageToken,
 		ActiveSyncId: s.getActiveSyncID(),
+		Annotations:  reqAnnos,
 	}.Build())
 	s.observeConnectorCall(ctx, "list-entitlements", start, action.ResourceTypeID, action.ResourceID)
 	s.recordSessionUsage(resp.GetAnnotations())
@@ -1690,12 +1735,20 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	}
 
 	s.handleProgress(ctx, action, len(entitlements))
-	if resp.GetNextPageToken() == "" {
+	if typeScoped {
+		s.counts.SetEntitlementsCountOnly(resourceID.GetResourceType())
+		s.counts.AddEntitlementsProgress(resourceID.GetResourceType(), len(entitlements))
+		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
+	} else if resp.GetNextPageToken() == "" && !action.Spawned {
 		s.counts.AddEntitlementsProgress(resourceID.ResourceType, 1)
 		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
 	}
 
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
+	spawned, err := s.collectEnqueuedPageTokens(ctx, "sync-entitlements", SyncEntitlementsOp, action, annotations.Annotations(resp.GetAnnotations()))
+	if err != nil {
+		return err
+	}
+	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), spawned...)
 }
 
 func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) error {
@@ -2109,8 +2162,8 @@ func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.En
 	return graph.FixCyclesFromComponents(ctx, comps)
 }
 
-// SyncGrants fetches the grants for each resource from the connector. It iterates each resource
-// from the datastore, and pushes a new action to sync the grants for each individual resource.
+// SyncGrants fetches grants. Annotated resource types receive one type-scoped
+// action instead of a per-resource fan-out.
 func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrants")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -2118,9 +2171,18 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" && action.ResourceID == "" {
+		actions := make([]Action, 0)
 		if action.PageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing grants...")
 			s.handleInitialActionForStep(ctx, *action)
+
+			typeScoped, err := s.typeScopedGrantsResourceTypes(ctx)
+			if err != nil {
+				return fmt.Errorf("sync-grants: error listing type-scoped resource types: %w", err)
+			}
+			for _, rtID := range typeScoped {
+				actions = append(actions, Action{Op: SyncGrantsOp, ResourceTypeID: rtID})
+			}
 		}
 
 		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
@@ -2131,7 +2193,6 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 			return fmt.Errorf("sync-grants: error listing resources: %w", err)
 		}
 
-		actions := make([]Action, 0)
 		for _, r := range resp.GetList() {
 			shouldSkip, err := s.shouldSkipGrants(ctx, r)
 			if err != nil {
@@ -2139,6 +2200,13 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 			}
 
 			if shouldSkip {
+				continue
+			}
+			typeScoped, err := s.resourceTypeHasTypeScopedGrants(ctx, r.GetId().GetResourceType())
+			if err != nil {
+				return err
+			}
+			if typeScoped {
 				continue
 			}
 			actions = append(actions, Action{Op: SyncGrantsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
@@ -2154,27 +2222,43 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	return nil
 }
 
+func (s *syncer) resourceTypeHasTypeScopedGrants(ctx context.Context, resourceTypeID string) (bool, error) {
+	return s.resourceTypeCarries(ctx, resourceTypeID, &v2.TypeScopedGrants{}, &s.typeScopedGrantsForResourceType)
+}
+
+func (s *syncer) typeScopedGrantsResourceTypes(ctx context.Context) ([]string, error) {
+	return s.resourceTypesCarrying(ctx, &v2.TypeScopedGrants{}, &s.typeScopedGrantsForResourceType)
+}
+
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
 // No span here: only call site is SyncGrants, which already owns a span.
 func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) error {
+	typeScoped := action.ResourceID == ""
 	resourceID := v2.ResourceId_builder{
 		ResourceType: action.ResourceTypeID,
 		Resource:     action.ResourceID,
 	}.Build()
-	resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
-		ResourceId: resourceID,
-	}.Build())
-	if err != nil {
-		return fmt.Errorf("sync-grants-for-resource: error getting resource: %w", err)
-	}
 
-	resource := resourceResponse.GetResource()
+	var resource *v2.Resource
+	var reqAnnos annotations.Annotations
+	if typeScoped {
+		resource, reqAnnos = typeScopedRequestStub(action.ResourceTypeID, &v2.TypeScopedGrants{})
+	} else {
+		resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: resourceID,
+		}.Build())
+		if err != nil {
+			return fmt.Errorf("sync-grants-for-resource: error getting resource: %w", err)
+		}
+		resource = resourceResponse.GetResource()
+	}
 
 	start := time.Now()
 	resp, err := s.connector.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 		Resource:     resource,
 		PageToken:    action.PageToken,
 		ActiveSyncId: s.getActiveSyncID(),
+		Annotations:  reqAnnos,
 	}.Build())
 	s.observeConnectorCall(ctx, "list-grants", start, action.ResourceTypeID, action.ResourceID)
 	s.recordSessionUsage(resp.GetAnnotations())
@@ -2297,12 +2381,20 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 
 	s.handleProgress(ctx, action, len(grants))
 
-	if resp.GetNextPageToken() == "" {
+	if typeScoped {
+		s.counts.SetGrantsCountOnly(resourceID.GetResourceType())
+		s.counts.AddGrantsProgress(resourceID.GetResourceType(), len(grants))
+		s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
+	} else if resp.GetNextPageToken() == "" && !action.Spawned {
 		s.counts.AddGrantsProgress(resourceID.GetResourceType(), 1)
 		s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
 	}
 
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
+	spawned, err := s.collectEnqueuedPageTokens(ctx, "sync-grants-for-resource", SyncGrantsOp, action, respAnnos)
+	if err != nil {
+		return err
+	}
+	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), spawned...)
 }
 
 func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) error {
