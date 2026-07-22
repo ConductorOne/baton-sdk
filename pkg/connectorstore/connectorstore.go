@@ -236,6 +236,27 @@ type ExpansionGrantLister interface {
 	ListGrantsWithExpansion(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error)
 }
 
+// DiscoveredAtGrantLister is an optional capability for stores that
+// record a per-grant discovered_at timestamp (the Pebble engine stores
+// it on the grant record; see dotc1z/engine/pebble). The default
+// ListGrantsForEntitlement drops discovered_at because v2.Grant has no
+// field for it. ListGrantsForEntitlementWithDiscoveredAt is the opt-in
+// paginated read that carries each grant's stored discovered_at back as
+// a v2.GrantDiscoveredAt annotation on the returned grant, while keeping
+// ListGrantsForEntitlement's resumable page-cursor semantics unchanged.
+// Grants with no recorded discovered_at carry no annotation.
+//
+// Discovered by type assertion; callers fall back to the plain
+// ListGrantsForEntitlement when the assertion fails. Only the Pebble
+// engine implements it — the deprecated SQLite engine and gRPC-backed
+// readers do not.
+type DiscoveredAtGrantLister interface {
+	ListGrantsForEntitlementWithDiscoveredAt(
+		ctx context.Context,
+		request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
+	) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error)
+}
+
 // GrantUpsertMode controls how grant conflicts are resolved during upsert.
 type GrantUpsertMode int
 

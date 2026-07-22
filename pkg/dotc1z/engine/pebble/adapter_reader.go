@@ -190,6 +190,34 @@ func (e *Engine) ListGrantsForEntitlement(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+	return e.listGrantsForEntitlement(ctx, req, false)
+}
+
+// ListGrantsForEntitlementWithDiscoveredAt is the opt-in variant of
+// ListGrantsForEntitlement that carries each grant's stored
+// discovered_at back as a v2.GrantDiscoveredAt annotation on the
+// returned grant. Grants with no recorded discovered_at carry no
+// annotation. All pagination / filtering semantics are identical to
+// ListGrantsForEntitlement. Implements
+// connectorstore.DiscoveredAtGrantLister.
+func (e *Engine) ListGrantsForEntitlementWithDiscoveredAt(
+	ctx context.Context,
+	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+	return e.listGrantsForEntitlement(ctx, req, true)
+}
+
+// listGrantsForEntitlement is the shared paginated implementation behind
+// ListGrantsForEntitlement (includeDiscoveredAt=false, byte-for-byte the
+// legacy output) and ListGrantsForEntitlementWithDiscoveredAt
+// (includeDiscoveredAt=true, each grant annotated with its stored
+// discovered_at via v2.GrantDiscoveredAt). The only behavioral
+// difference is the per-grant annotation append in grantForOutput.
+func (e *Engine) listGrantsForEntitlement(
+	ctx context.Context,
+	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
+	includeDiscoveredAt bool,
+) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
 	syncID, err := e.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
@@ -272,7 +300,7 @@ func (e *Engine) ListGrantsForEntitlement(
 					continue
 				}
 			}
-			out = append(out, V3GrantToV2(rec))
+			out = append(out, grantForOutput(rec, includeDiscoveredAt))
 			if len(out) == limit {
 				nextCursor = cursorFor(rec)
 				brokeEarly = true
@@ -291,6 +319,30 @@ func (e *Engine) ListGrantsForEntitlement(
 		List:          out,
 		NextPageToken: nextCursor,
 	}.Build(), nil
+}
+
+// grantForOutput hydrates a v2.Grant from the record. When
+// includeDiscoveredAt is true and the record carries a discovered_at,
+// it appends a v2.GrantDiscoveredAt annotation to the grant. With
+// includeDiscoveredAt false (or a nil discovered_at) the output is
+// byte-for-byte identical to V3GrantToV2(rec). Mirrors the expansion
+// annotation re-attach idiom in translate_v2.go's V3GrantToV2.
+func grantForOutput(rec *v3.GrantRecord, includeDiscoveredAt bool) *v2.Grant {
+	grant := V3GrantToV2(rec)
+	if !includeDiscoveredAt {
+		return grant
+	}
+	discoveredAt := rec.GetDiscoveredAt()
+	if discoveredAt == nil {
+		return grant
+	}
+	annotation := v2.GrantDiscoveredAt_builder{DiscoveredAt: discoveredAt}.Build()
+	a, err := anypb.New(annotation)
+	if err != nil {
+		return grant
+	}
+	grant.SetAnnotations(append(grant.GetAnnotations(), a))
+	return grant
 }
 
 // ListGrantPrincipalKeysForEntitlement returns the compact principal keys used

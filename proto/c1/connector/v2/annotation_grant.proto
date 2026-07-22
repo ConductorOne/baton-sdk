@@ -3,6 +3,7 @@ syntax = "proto3";
 package c1.connector.v2;
 
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
@@ -18,6 +19,14 @@ message GrantExpandable {
   }];
   bool shallow = 2;
   repeated string resource_type_ids = 3;
+}
+
+// GrantDiscoveredAt carries the timestamp at which a grant was first
+// discovered during sync. Attached as an annotation on a v2.Grant by
+// the opt-in DiscoveredAtGrantLister read path; absent when the grant
+// has no recorded discovered_at.
+message GrantDiscoveredAt {
+  google.protobuf.Timestamp discovered_at = 1;
 }
 
 // Grant cannot be updated or revoked. For example, membership in an "all users" group.
