@@ -132,6 +132,10 @@ func (n *emptyConnector) IssueCredential(ctx context.Context, request *v2.IssueC
 	return nil, status.Errorf(codes.Unimplemented, "empty connector")
 }
 
+func (n *emptyConnector) GetCredentialIssueEligibility(ctx context.Context, request *v2.GetCredentialIssueEligibilityRequest, opts ...grpc.CallOption) (*v2.GetCredentialIssueEligibilityResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "empty connector")
+}
+
 func (n *emptyConnector) CreateResource(ctx context.Context, request *v2.CreateResourceRequest, opts ...grpc.CallOption) (*v2.CreateResourceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "empty connector")
 }

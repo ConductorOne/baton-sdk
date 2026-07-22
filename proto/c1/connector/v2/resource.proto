@@ -111,6 +111,7 @@ service CredentialManagerService {
   // additional, distinct secret, so an identity can hold multiple coexisting
   // keys (e.g. cloud service-account key #1 and #2).
   rpc IssueCredential(IssueCredentialRequest) returns (IssueCredentialResponse);
+  rpc GetCredentialIssueEligibility(GetCredentialIssueEligibilityRequest) returns (GetCredentialIssueEligibilityResponse);
 }
 
 service AccountManagerService {
@@ -164,6 +165,35 @@ message IssueCredentialRequest {
   CredentialOptions credential_options = 2;
   // Public keys the connector encrypts the returned material against.
   repeated EncryptionConfig encryption_configs = 3;
+  string operation_id = 4 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 128
+    pattern: "^[A-Za-z0-9_-]+$"
+  }];
+  google.protobuf.Struct connector_parameters = 5;
+  CredentialIssuanceConstraints issuance_constraints = 6;
+}
+
+message CredentialIssuanceConstraints {
+  google.protobuf.Duration lifetime = 1;
+}
+
+message GetCredentialIssueEligibilityRequest {
+  ResourceId identity_id = 1;
+  CapabilityDetailCredentialOption option = 2;
+}
+
+message GetCredentialIssueEligibilityResponse {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_ELIGIBLE = 1;
+    STATUS_INELIGIBLE = 2;
+    STATUS_UNKNOWN = 3;
+  }
+  Status status = 1;
+  string reason_code = 2;
+  string explanation = 3;
+  repeated google.protobuf.Any annotations = 4;
 }
 
 message IssueCredentialResponse {
@@ -192,6 +222,29 @@ message AccountInfo {
   google.protobuf.Struct profile = 4;
 }
 
+enum CapabilityDetailCredentialOption {
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED = 0;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD = 1;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD = 2;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_SSO = 3;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_ENCRYPTED_PASSWORD = 4;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY = 5;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR = 6;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN = 7;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET = 8;
+}
+
+message KeyGenerationProfile {
+  string kty = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 32
+  }];
+  oneof parameters {
+    uint32 rsa_modulus_bits = 2;
+    string crv = 3 [(validate.rules).string = {max_bytes: 64}];
+  }
+}
+
 message CredentialOptions {
   message RandomPassword {
     int64 length = 1 [(validate.rules).int64 = {
@@ -215,23 +268,13 @@ message CredentialOptions {
     // Scopes/permissions to attach to the minted key. Connector-defined
     // vocabulary; an empty list means the connector's default scope.
     repeated string scopes = 1;
-    // Optional lifetime for the key. Unset means the platform default (often
-    // non-expiring). Construct with durationpb.New(d).
-    google.protobuf.Duration ttl = 2;
   }
   // Keypair requests CLIENT-SIDE key generation: the connector generates the
   // keypair locally, registers the public key with the platform, and returns
   // the PRIVATE material as PlaintextData. The platform never sees the private
   // key (mirrors the Snowflake key-pair auth pattern).
   message Keypair {
-    // Key algorithm, e.g. "RSA" or "ED25519". Connector-defined vocabulary.
-    string algorithm = 1;
-    // Key size in bits where applicable (e.g. 2048/4096 for RSA). Ignored by
-    // algorithms with a fixed size (e.g. ED25519).
-    int32 bits = 2;
-    // Optional lifetime for the registered key. Unset means the platform
-    // default. Connectors may reject sub-granularity values they cannot honor.
-    google.protobuf.Duration ttl = 3;
+    KeyGenerationProfile profile = 1;
   }
   // Token requests that the connector mint a bearer/access token for the
   // identity. The connector returns the token as PlaintextData, encrypted by
@@ -240,19 +283,13 @@ message CredentialOptions {
     // Scopes to attach to the token. Connector-defined vocabulary; empty means
     // the connector's default scope.
     repeated string scopes = 1;
-    // Optional lifetime for the token. Unset means the platform default.
-    // Construct with durationpb.New(d).
-    google.protobuf.Duration ttl = 2;
     // Optional intended audience for the token (e.g. an OAuth resource URL).
-    string audience = 3;
+    string audience = 2;
   }
   // ClientSecret requests an OAuth/OIDC client secret for an existing
   // application or service-principal identity. A client secret is a durable
   // credential used to obtain tokens; it is not itself a bearer token.
-  message ClientSecret {
-    // Optional lifetime. Unset means the platform default.
-    google.protobuf.Duration ttl = 1;
-  }
+  message ClientSecret {}
   oneof options {
     RandomPassword random_password = 100;
     NoPassword no_password = 101;
@@ -286,24 +323,18 @@ message LocalCredentialOptions {
   // the request, so it passes through ConvertCredentialOptions unchanged.
   message ApiKey {
     repeated string scopes = 1;
-    google.protobuf.Duration ttl = 2;
   }
   // Decrypted mirror of CredentialOptions.Keypair (client-side generation).
   message Keypair {
-    string algorithm = 1;
-    int32 bits = 2;
-    google.protobuf.Duration ttl = 3;
+    KeyGenerationProfile profile = 1;
   }
   // Decrypted mirror of CredentialOptions.Token.
   message Token {
     repeated string scopes = 1;
-    google.protobuf.Duration ttl = 2;
-    string audience = 3;
+    string audience = 2;
   }
   // Decrypted mirror of CredentialOptions.ClientSecret.
-  message ClientSecret {
-    google.protobuf.Duration ttl = 1;
-  }
+  message ClientSecret {}
   oneof options {
     RandomPassword random_password = 100;
     NoPassword no_password = 101;

@@ -39,6 +39,22 @@ func unmarshalJWK(jwkBytes []byte) (*jose.JSONWebKey, error) {
 
 type JWKEncryptionProvider struct{}
 
+func (j *JWKEncryptionProvider) ValidateConfig(_ context.Context, conf *v2.EncryptionConfig) error {
+	if conf == nil || conf.GetJwkPublicKeyConfig() == nil {
+		return status.Error(codes.InvalidArgument, "jwk: public key configuration is required")
+	}
+	key, err := unmarshalJWK(conf.GetJwkPublicKeyConfig().GetPubKey())
+	if err != nil {
+		return err
+	}
+	switch key.Public().Key.(type) {
+	case ed25519.PublicKey, *ecdsa.PublicKey, *rsa.PublicKey:
+		return nil
+	default:
+		return ErrJWKUnsupportedKeyType
+	}
+}
+
 func (j *JWKEncryptionProvider) GenerateKey(ctx context.Context) (*v2.EncryptionConfig, *jose.JSONWebKey, error) {
 	_, privKey, err := ed25519.GenerateKey(nil)
 	if err != nil {

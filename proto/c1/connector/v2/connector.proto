@@ -4,7 +4,9 @@ package c1.connector.v2;
 
 import "c1/connector/v2/asset.proto";
 import "c1/connector/v2/resource.proto";
+import "c1/config/v1/config.proto";
 import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "validate/validate.proto";
 
@@ -73,22 +75,6 @@ enum Capability {
   CAPABILITY_CREDENTIAL_ISSUE = 14;
 }
 
-enum CapabilityDetailCredentialOption {
-  CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED = 0;
-  CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD = 1;
-  CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD = 2;
-  CAPABILITY_DETAIL_CREDENTIAL_OPTION_SSO = 3;
-  CAPABILITY_DETAIL_CREDENTIAL_OPTION_ENCRYPTED_PASSWORD = 4;
-  // Mirrors CredentialOptions.ApiKey.
-  CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY = 5;
-  // Mirrors CredentialOptions.Keypair (client-side key generation).
-  CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR = 6;
-  // Mirrors CredentialOptions.Token.
-  CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN = 7;
-  // Mirrors CredentialOptions.ClientSecret.
-  CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET = 8;
-}
-
 message CredentialDetails {
   CredentialDetailsAccountProvisioning capability_account_provisioning = 1;
   CredentialDetailsCredentialRotation capability_credential_rotation = 2;
@@ -108,8 +94,24 @@ message CredentialDetailsCredentialRotation {
 // Advertises which credential options CredentialManagerService.IssueCredential
 // supports for this identity type.
 message CredentialDetailsCredentialIssue {
-  repeated CapabilityDetailCredentialOption supported_credential_options = 1;
-  CapabilityDetailCredentialOption preferred_credential_option = 2;
+  repeated CredentialIssueOptionDescriptor options = 1;
+  CapabilityDetailCredentialOption preferred_option = 2;
+}
+
+message CredentialIssueOptionDescriptor {
+  CapabilityDetailCredentialOption option = 1;
+  repeated KeyGenerationProfile key_profiles = 2;
+  IssuanceLifetimeCapability lifetime = 3;
+  repeated string scopes = 4;
+  bool custom_scopes_allowed = 5;
+  bool audience_supported = 6;
+  c1.config.v1.Configuration connector_parameters = 7;
+}
+
+message IssuanceLifetimeCapability {
+  google.protobuf.Duration min = 1;
+  google.protobuf.Duration max = 2;
+  google.protobuf.Duration granularity = 3;
 }
 
 message ConnectorCapabilities {

@@ -55,6 +55,20 @@ func (pkem *EncryptionManager) Encrypt(ctx context.Context, cred *v2.PlaintextDa
 }
 
 func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (*EncryptionManager, error) {
+	for i, config := range ec {
+		if config == nil {
+			return nil, status.Errorf(codes.InvalidArgument, "encryption config %d is empty", i)
+		}
+		provider, err := providers.GetEncryptorForConfig(context.Background(), config)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid encryption config %d: %v", i, err)
+		}
+		if validator, ok := provider.(providers.EncryptionConfigValidator); ok {
+			if err := validator.ValidateConfig(context.Background(), config); err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "invalid encryption config %d: %v", i, err)
+			}
+		}
+	}
 	em := &EncryptionManager{
 		opts:    co,
 		configs: ec,
@@ -109,24 +123,18 @@ func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey
 	case v2.CredentialOptions_ApiKey_case:
 		localOpts.SetApiKey(v2.LocalCredentialOptions_ApiKey_builder{
 			Scopes: opts.GetApiKey().GetScopes(),
-			Ttl:    opts.GetApiKey().GetTtl(),
 		}.Build())
 	case v2.CredentialOptions_Keypair_case:
 		localOpts.SetKeypair(v2.LocalCredentialOptions_Keypair_builder{
-			Algorithm: opts.GetKeypair().GetAlgorithm(),
-			Bits:      opts.GetKeypair().GetBits(),
-			Ttl:       opts.GetKeypair().GetTtl(),
+			Profile: opts.GetKeypair().GetProfile(),
 		}.Build())
 	case v2.CredentialOptions_Token_case:
 		localOpts.SetToken(v2.LocalCredentialOptions_Token_builder{
 			Scopes:   opts.GetToken().GetScopes(),
-			Ttl:      opts.GetToken().GetTtl(),
 			Audience: opts.GetToken().GetAudience(),
 		}.Build())
 	case v2.CredentialOptions_ClientSecret_case:
-		localOpts.SetClientSecret(v2.LocalCredentialOptions_ClientSecret_builder{
-			Ttl: opts.GetClientSecret().GetTtl(),
-		}.Build())
+		localOpts.SetClientSecret(&v2.LocalCredentialOptions_ClientSecret{})
 	case v2.CredentialOptions_EncryptedPassword_case:
 	default:
 		return nil, status.Error(codes.InvalidArgument, "invalid credential options")

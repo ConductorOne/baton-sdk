@@ -9,12 +9,10 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"testing"
-	"time"
 
 	filippoage "filippo.io/age"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/durationpb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
@@ -249,35 +247,30 @@ func TestConvertCredentialOptionsMachineCredArms(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("api_key", func(t *testing.T) {
-		ttl := durationpb.New(time.Hour)
 		opts := v2.CredentialOptions_builder{
 			ApiKey: v2.CredentialOptions_ApiKey_builder{
 				Scopes: []string{"read", "write"},
-				Ttl:    ttl,
 			}.Build(),
 		}.Build()
 		localOpts, err := ConvertCredentialOptions(ctx, nil, opts, nil)
 		require.NoError(t, err)
 		require.Equal(t, v2.LocalCredentialOptions_ApiKey_case, localOpts.WhichOptions())
 		require.Equal(t, []string{"read", "write"}, localOpts.GetApiKey().GetScopes())
-		require.Equal(t, ttl.GetSeconds(), localOpts.GetApiKey().GetTtl().GetSeconds())
 	})
 
 	t.Run("keypair", func(t *testing.T) {
-		ttl := durationpb.New(90 * 24 * time.Hour)
+		bits := uint32(4096)
+		profile := v2.KeyGenerationProfile_builder{Kty: "RSA", RsaModulusBits: &bits}.Build()
 		opts := v2.CredentialOptions_builder{
 			Keypair: v2.CredentialOptions_Keypair_builder{
-				Algorithm: "RSA",
-				Bits:      4096,
-				Ttl:       ttl,
+				Profile: profile,
 			}.Build(),
 		}.Build()
 		localOpts, err := ConvertCredentialOptions(ctx, nil, opts, nil)
 		require.NoError(t, err)
 		require.Equal(t, v2.LocalCredentialOptions_Keypair_case, localOpts.WhichOptions())
-		require.Equal(t, "RSA", localOpts.GetKeypair().GetAlgorithm())
-		require.Equal(t, int32(4096), localOpts.GetKeypair().GetBits())
-		require.Equal(t, ttl.GetSeconds(), localOpts.GetKeypair().GetTtl().GetSeconds())
+		require.Equal(t, "RSA", localOpts.GetKeypair().GetProfile().GetKty())
+		require.Equal(t, uint32(4096), localOpts.GetKeypair().GetProfile().GetRsaModulusBits())
 	})
 
 	t.Run("token", func(t *testing.T) {
@@ -295,13 +288,11 @@ func TestConvertCredentialOptionsMachineCredArms(t *testing.T) {
 	})
 
 	t.Run("client secret", func(t *testing.T) {
-		ttl := durationpb.New(24 * time.Hour)
 		opts := v2.CredentialOptions_builder{
-			ClientSecret: v2.CredentialOptions_ClientSecret_builder{Ttl: ttl}.Build(),
+			ClientSecret: &v2.CredentialOptions_ClientSecret{},
 		}.Build()
 		localOpts, err := ConvertCredentialOptions(ctx, nil, opts, nil)
 		require.NoError(t, err)
 		require.Equal(t, v2.LocalCredentialOptions_ClientSecret_case, localOpts.WhichOptions())
-		require.Equal(t, ttl.GetSeconds(), localOpts.GetClientSecret().GetTtl().GetSeconds())
 	})
 }

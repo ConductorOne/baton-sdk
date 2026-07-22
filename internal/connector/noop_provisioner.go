@@ -38,6 +38,10 @@ func (n *noopProvisioner) IssueCredential(ctx context.Context, request *v2.Issue
 	return nil, status.Error(codes.FailedPrecondition, "provisioning is not enabled")
 }
 
+func (n *noopProvisioner) GetCredentialIssueEligibility(ctx context.Context, request *v2.GetCredentialIssueEligibilityRequest) (*v2.GetCredentialIssueEligibilityResponse, error) {
+	return nil, status.Error(codes.FailedPrecondition, "provisioning is not enabled")
+}
+
 func (n *noopProvisioner) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (*v2.CreateAccountResponse, error) {
 	return nil, status.Error(codes.FailedPrecondition, "provisioning is not enabled")
 }

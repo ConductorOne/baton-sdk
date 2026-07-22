@@ -12,6 +12,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
+	resource "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
 // testCredentialIssuer implements CredentialIssuer. Issue mints a new secret
@@ -21,6 +22,7 @@ type testCredentialIssuer struct {
 	ResourceSyncer
 	lastIdentityID *v2.ResourceId
 	lastOptions    *v2.LocalCredentialOptions
+	lastInput      *CredentialIssueInput
 }
 
 func newTestCredentialIssuer(resourceType string) *testCredentialIssuer {
@@ -31,19 +33,21 @@ func newTestCredentialIssuer(resourceType string) *testCredentialIssuer {
 
 func (t *testCredentialIssuer) Issue(
 	ctx context.Context,
-	identityID *v2.ResourceId,
-	credentialOptions *v2.LocalCredentialOptions,
-) (*v2.Resource, []*v2.PlaintextData, annotations.Annotations, error) {
-	t.lastIdentityID = identityID
-	t.lastOptions = credentialOptions
+	input *CredentialIssueInput,
+) (*CredentialIssueOutput, error) {
+	t.lastInput = input
+	t.lastIdentityID = input.IdentityID
+	t.lastOptions = input.CredentialOptions
 
-	secret := v2.Resource_builder{
-		Id: v2.ResourceId_builder{
-			ResourceType: "secret",
-			Resource:     "issued-key-1",
-		}.Build(),
-		DisplayName: "Issued key for " + identityID.GetResource(),
-	}.Build()
+	secret, err := resource.NewSecretResource(
+		"Issued key for "+input.IdentityID.GetResource(),
+		v2.ResourceType_builder{Id: "secret"}.Build(),
+		"issued-key-1",
+		[]resource.SecretTraitOption{resource.WithSecretIdentityID(input.IdentityID)},
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	plaintexts := []*v2.PlaintextData{
 		v2.PlaintextData_builder{
@@ -58,16 +62,19 @@ func (t *testCredentialIssuer) Issue(
 		}.Build(),
 	}
 
-	return secret, plaintexts, annotations.Annotations{}, nil
+	return &CredentialIssueOutput{Secret: secret, PlaintextData: plaintexts}, nil
 }
 
 func (t *testCredentialIssuer) IssueCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialIssue, annotations.Annotations, error) {
 	return v2.CredentialDetailsCredentialIssue_builder{
-		SupportedCredentialOptions: []v2.CapabilityDetailCredentialOption{
-			v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
-			v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN,
+		Options: []*v2.CredentialIssueOptionDescriptor{
+			v2.CredentialIssueOptionDescriptor_builder{
+				Option: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+				Scopes: []string{"read", "write"},
+			}.Build(),
+			v2.CredentialIssueOptionDescriptor_builder{Option: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN}.Build(),
 		},
-		PreferredCredentialOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+		PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
 	}.Build(), annotations.Annotations{}, nil
 }
 
@@ -172,8 +179,7 @@ func TestIssueCredentialCapabilityAdvertisement(t *testing.T) {
 	require.NotNil(t, issueDetails)
 	require.Equal(t,
 		v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
-		issueDetails.GetPreferredCredentialOption(),
+		issueDetails.GetPreferredOption(),
 	)
-	require.Contains(t, issueDetails.GetSupportedCredentialOptions(),
-		v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN)
+	require.Equal(t, v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN, issueDetails.GetOptions()[1].GetOption())
 }

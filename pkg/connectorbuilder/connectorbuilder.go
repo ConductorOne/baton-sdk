@@ -498,11 +498,21 @@ func validateCapabilityDetails(_ context.Context, credDetails *v2.CredentialDeta
 	}
 
 	if credDetails.HasCapabilityCredentialIssue() {
-		// Ensure that the preferred option is included and is part of the supported options
-		if credDetails.GetCapabilityCredentialIssue().GetPreferredCredentialOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
+		issue := credDetails.GetCapabilityCredentialIssue()
+		if issue.GetPreferredOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
 			return status.Error(codes.InvalidArgument, "error: preferred credential issue option is not set")
 		}
-		if !slices.Contains(credDetails.GetCapabilityCredentialIssue().GetSupportedCredentialOptions(), credDetails.GetCapabilityCredentialIssue().GetPreferredCredentialOption()) {
+		seen := make(map[v2.CapabilityDetailCredentialOption]struct{}, len(issue.GetOptions()))
+		for _, descriptor := range issue.GetOptions() {
+			if descriptor == nil || descriptor.GetOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
+				return status.Error(codes.InvalidArgument, "error: credential issue option descriptor is invalid")
+			}
+			if _, exists := seen[descriptor.GetOption()]; exists {
+				return status.Errorf(codes.InvalidArgument, "error: duplicate credential issue option %s", descriptor.GetOption())
+			}
+			seen[descriptor.GetOption()] = struct{}{}
+		}
+		if _, ok := seen[issue.GetPreferredOption()]; !ok {
 			return status.Error(codes.InvalidArgument, "error: preferred credential issue option is not part of the supported options")
 		}
 	}
