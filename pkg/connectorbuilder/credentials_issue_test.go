@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"testing"
 
 	"github.com/go-jose/go-jose/v4"
@@ -20,9 +21,11 @@ import (
 // and its id), exercising the builder's PlaintextData -> Encrypt fan-out.
 type testCredentialIssuer struct {
 	ResourceSyncer
-	lastIdentityID *v2.ResourceId
-	lastOptions    *v2.LocalCredentialOptions
-	lastInput      *CredentialIssueInput
+	lastIdentityID    *v2.ResourceId
+	lastOptions       *v2.LocalCredentialOptions
+	lastInput         *CredentialIssueInput
+	capabilityDetails *v2.CredentialDetailsCredentialIssue
+	capabilityError   error
 }
 
 func newTestCredentialIssuer(resourceType string) *testCredentialIssuer {
@@ -66,6 +69,12 @@ func (t *testCredentialIssuer) Issue(
 }
 
 func (t *testCredentialIssuer) IssueCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialIssue, annotations.Annotations, error) {
+	if t.capabilityError != nil {
+		return nil, nil, t.capabilityError
+	}
+	if t.capabilityDetails != nil {
+		return t.capabilityDetails, nil, nil
+	}
 	return v2.CredentialDetailsCredentialIssue_builder{
 		Options: []*v2.CredentialIssueOptionDescriptor{
 			v2.CredentialIssueOptionDescriptor_builder{
@@ -76,6 +85,45 @@ func (t *testCredentialIssuer) IssueCapabilityDetails(ctx context.Context) (*v2.
 		},
 		PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
 	}.Build(), annotations.Annotations{}, nil
+}
+
+func TestIssueCredentialFailsBeforeProviderMutation(t *testing.T) {
+	ctx := context.Background()
+	identityID := v2.ResourceId_builder{
+		ResourceType: "service_account",
+		Resource:     "sa-1",
+	}.Build()
+	options := v2.CredentialOptions_builder{
+		ApiKey: &v2.CredentialOptions_ApiKey{},
+	}.Build()
+
+	t.Run("missing encryption configuration", func(t *testing.T) {
+		issuer := newTestCredentialIssuer("service_account")
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{issuer}))
+		require.NoError(t, err)
+
+		_, err = connector.IssueCredential(ctx, v2.IssueCredentialRequest_builder{
+			IdentityId:        identityID,
+			CredentialOptions: options,
+		}.Build())
+		require.ErrorContains(t, err, "at least one encryption config is required")
+		require.Nil(t, issuer.lastInput, "connector must not mint a credential without a delivery path")
+	})
+
+	t.Run("capability lookup failure", func(t *testing.T) {
+		issuer := newTestCredentialIssuer("service_account")
+		issuer.capabilityError = errors.New("capability unavailable")
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{issuer}))
+		require.NoError(t, err)
+
+		_, err = connector.IssueCredential(ctx, v2.IssueCredentialRequest_builder{
+			IdentityId:        identityID,
+			CredentialOptions: options,
+			EncryptionConfigs: []*v2.EncryptionConfig{newIssueEncryptionConfig(t)},
+		}.Build())
+		require.ErrorContains(t, err, "capability unavailable")
+		require.Nil(t, issuer.lastInput, "connector must not mint a credential when preflight fails")
+	})
 }
 
 // newIssueEncryptionConfig builds a JWK EncryptionConfig from a fresh RSA key so

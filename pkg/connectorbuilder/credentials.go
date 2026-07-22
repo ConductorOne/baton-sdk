@@ -223,7 +223,8 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: issue credential for identity failed: %w", err)
 	}
-	if err := validateCredentialIssueOutput(request.GetIdentityId(), output); err != nil {
+	err = validateCredentialIssueOutput(request.GetIdentityId(), output)
+	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance output: %v", err)
 	}
