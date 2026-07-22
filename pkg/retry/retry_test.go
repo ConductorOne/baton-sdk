@@ -155,9 +155,9 @@ func TestRetryOnWait(t *testing.T) {
 				calls++
 				gotWait = ev.Duration
 				gotRateLimited = !ev.Retry
-				gotLabel, _ = WaitLabelFromContext(ctx)
+				gotLabel, _ = ratelimit.WaitLabelFromContext(ctx)
 			})
-			ctx = WithWaitLabel(ctx, "project")
+			ctx = ratelimit.WithWaitLabel(ctx, "project")
 			require.True(t, retryer.ShouldWaitAndRetry(ctx, tt.err(t)))
 			require.Equal(t, 1, calls)
 			require.Equal(t, time.Millisecond, gotWait)
@@ -165,19 +165,6 @@ func TestRetryOnWait(t *testing.T) {
 			require.Equal(t, "project", gotLabel)
 		})
 	}
-}
-
-func TestWaitLabelContext(t *testing.T) {
-	ctx := t.Context()
-	_, ok := WaitLabelFromContext(ctx)
-	require.False(t, ok)
-
-	labeled := WithWaitLabel(ctx, "project")
-	label, ok := WaitLabelFromContext(labeled)
-	require.True(t, ok)
-	require.Equal(t, "project", label)
-
-	require.Same(t, ctx, WithWaitLabel(ctx, ""))
 }
 
 func TestRetryWithHTTPResponse(t *testing.T) {

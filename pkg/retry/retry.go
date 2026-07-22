@@ -31,23 +31,6 @@ type RetryConfig struct {
 	MaxDelay     time.Duration // Default is 60 seconds. 0 means no limit.
 }
 
-// WithWaitLabel attaches a bounded attribution label to retry waits. The
-// label moved to pkg/ratelimit alongside the wait observer (one reporting
-// channel for every sleep site); this re-export keeps existing callers
-// compiling.
-//
-// Deprecated: use ratelimit.WithWaitLabel.
-func WithWaitLabel(ctx context.Context, label string) context.Context {
-	return ratelimit.WithWaitLabel(ctx, label)
-}
-
-// WaitLabelFromContext returns the retry-wait attribution label, if present.
-//
-// Deprecated: use ratelimit.WaitLabelFromContext.
-func WaitLabelFromContext(ctx context.Context) (string, bool) {
-	return ratelimit.WaitLabelFromContext(ctx)
-}
-
 func NewRetryer(ctx context.Context, config RetryConfig) *Retryer {
 	r := &Retryer{
 		attempts:     0,

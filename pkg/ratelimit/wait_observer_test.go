@@ -34,6 +34,19 @@ func TestWithWaitObserverNilFn(t *testing.T) {
 	require.Equal(t, t.Context(), ctx)
 }
 
+func TestWaitLabelContext(t *testing.T) {
+	ctx := t.Context()
+	_, ok := WaitLabelFromContext(ctx)
+	require.False(t, ok)
+
+	labeled := WithWaitLabel(ctx, "project")
+	label, ok := WaitLabelFromContext(labeled)
+	require.True(t, ok)
+	require.Equal(t, "project", label)
+
+	require.Same(t, ctx, WithWaitLabel(ctx, ""))
+}
+
 func TestResourceTypeFromDescriptors(t *testing.T) {
 	descriptors := ratelimitV1.RateLimitDescriptors_builder{
 		Entries: []*ratelimitV1.RateLimitDescriptors_Entry{

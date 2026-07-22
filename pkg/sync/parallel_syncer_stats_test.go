@@ -22,8 +22,8 @@ func TestRecordRetryWaitWithResourceType(t *testing.T) {
 		state:       newState(),
 	}
 
-	s.recordRetryWait(retry.WithWaitLabel(t.Context(), "rt1"), 2*time.Second, false)
-	s.recordRetryWait(retry.WithWaitLabel(t.Context(), "rt1"), 3*time.Second, true)
+	s.recordRetryWait(ratelimit.WithWaitLabel(t.Context(), "rt1"), 2*time.Second, false)
+	s.recordRetryWait(ratelimit.WithWaitLabel(t.Context(), "rt1"), 3*time.Second, true)
 
 	durations := s.state.StepDurations()
 	require.EqualValues(t, 2000, durations["retry_wait"])
@@ -77,7 +77,7 @@ func TestWaitObserverRecordsRateLimitWait(t *testing.T) {
 	ctx := s.withRateLimitWaitObserver(t.Context())
 	// Simulate a rate-limit gate (SDK interceptor / hosted manager) sleeping
 	// before a request, attributed to a resource type.
-	ratelimit.ObserveWait(retry.WithWaitLabel(ctx, "repository"), ratelimit.WaitEvent{Duration: 30 * time.Second})
+	ratelimit.ObserveWait(ratelimit.WithWaitLabel(ctx, "repository"), ratelimit.WaitEvent{Duration: 30 * time.Second})
 	ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: 10 * time.Second})
 
 	durations := s.state.StepDurations()
@@ -289,7 +289,7 @@ func TestStatsRecordingConcurrentWithMarshal(t *testing.T) {
 			for i := 0; i < iterations; i++ {
 				s.state.AddStepDuration("list-grants", time.Millisecond)
 				s.state.RecordConnectorCall("list-grants", 2*time.Millisecond)
-				s.recordRetryWait(retry.WithWaitLabel(t.Context(), "rt1"), time.Millisecond, i%2 == 0)
+				s.recordRetryWait(ratelimit.WithWaitLabel(t.Context(), "rt1"), time.Millisecond, i%2 == 0)
 			}
 		})
 	}

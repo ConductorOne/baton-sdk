@@ -15,7 +15,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/ratelimit"
-	"github.com/conductorone/baton-sdk/pkg/retry"
 )
 
 // gateSimConnector simulates the two connector-side rate-limit wait sources:
@@ -57,7 +56,7 @@ func (g *gateSimConnector) ListResourceTypes(
 
 func (g *gateSimConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
 	resourceType := in.GetResource().GetId().GetResourceType()
-	ratelimit.ObserveWait(retry.WithWaitLabel(ctx, resourceType), ratelimit.WaitEvent{Duration: g.gateWait})
+	ratelimit.ObserveWait(ratelimit.WithWaitLabel(ctx, resourceType), ratelimit.WaitEvent{Duration: g.gateWait})
 	g.gateCalls++
 	resp, err := g.mockConnector.ListGrants(ctx, in, opts...)
 	if err != nil {
