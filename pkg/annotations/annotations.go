@@ -124,9 +124,13 @@ func (a *Annotations) WithRateLimiting(rateLimit *v2.RateLimitDescription) *Anno
 	return a
 }
 
-// WithRateLimitWaitReport reports time the connector spent sleeping on rate
-// limits (client-side prevention, in-SDK backoff) while serving this response.
-// The syncer folds it into the rate_limit_wait sync stat. No-op if waitMs <= 0.
+// WithRateLimitWaitReport reports time this connector spent sleeping on rate
+// limits internally while serving the request — e.g. its API client's own
+// client-side throttling or HTTP 429 backoff. Those sleeps happen inside the
+// connector process, invisible to the syncer (which may be across a gRPC or
+// lambda boundary); this annotation is how they reach the rate_limit_wait
+// sync stat. Waits in the syncer process report via ratelimit.ObserveWait
+// instead and must not be double-reported here. No-op if waitMs <= 0.
 func (a *Annotations) WithRateLimitWaitReport(waitMs int64) *Annotations {
 	if waitMs <= 0 {
 		return a
