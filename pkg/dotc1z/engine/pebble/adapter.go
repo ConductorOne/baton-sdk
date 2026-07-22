@@ -65,6 +65,7 @@ var (
 	_ connectorstore.LatestFinishedSyncIDFetcher  = (*Engine)(nil)
 	_ connectorstore.DBSizeProvider               = (*Engine)(nil)
 	_ connectorstore.EntitlementGrantDigestReader = (*Engine)(nil)
+	_ connectorstore.GrantDiscoveredAtReader      = (*Engine)(nil)
 )
 
 // === sync lifecycle ===
