@@ -169,7 +169,7 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 	switch f.Variant {
 	case IntVariant:
 		intField := v1_conf.IntField_builder{Rules: f.Rules.i}.Build()
-		d, err := GetDefaultValue[int](f)
+		d, err := GetExportedDefaultValue[int](f)
 		if err != nil {
 			return nil, err
 		}
@@ -181,7 +181,7 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 
 	case BoolVariant:
 		boolField := v1_conf.BoolField_builder{Rules: f.Rules.b}.Build()
-		d, err := GetDefaultValue[bool](f)
+		d, err := GetExportedDefaultValue[bool](f)
 		if err != nil {
 			return nil, err
 		}
@@ -191,7 +191,7 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 		field.SetBoolField(proto.ValueOrDefault(boolField))
 	case StringSliceVariant:
 		stringSliceField := v1_conf.StringSliceField_builder{Rules: f.Rules.ss}.Build()
-		d, err := GetDefaultValue[[]string](f)
+		d, err := GetExportedDefaultValue[[]string](f)
 		if err != nil {
 			return nil, err
 		}
@@ -201,7 +201,7 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 		field.SetStringSliceField(proto.ValueOrDefault(stringSliceField))
 	case StringMapVariant:
 		stringMapField := v1_conf.StringMapField_builder{Rules: f.Rules.sm}.Build()
-		d, err := GetDefaultValue[map[string]any](f)
+		d, err := GetExportedDefaultValue[map[string]any](f)
 		if err != nil {
 			return nil, err
 		}
@@ -225,7 +225,7 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 		field.SetStringMapField(proto.ValueOrDefault(stringMapField))
 	case StringVariant:
 		stringField := v1_conf.StringField_builder{Rules: f.Rules.s}.Build()
-		d, err := GetDefaultValue[string](f)
+		d, err := GetExportedDefaultValue[string](f)
 		if err != nil {
 			return nil, err
 		}

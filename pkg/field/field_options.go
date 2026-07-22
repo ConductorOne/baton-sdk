@@ -82,6 +82,25 @@ func WithDefaultValueFunc(f func() any) fieldOption {
 	}
 }
 
+// WithSuggestedValue sets a value that is only surfaced in the exported config
+// schema, i.e. pre-populated in the c1 GUI when configuring a NEW connector.
+//
+// Unlike WithDefaultValue, the suggested value is NOT registered as the
+// CLI/runtime flag default, so it is never injected into the connector config
+// when the field is left unset. Use this when you want the GUI to suggest a
+// value without changing behavior for existing connectors whose stored config
+// omits the field (those continue to see the field's zero value at runtime).
+//
+// When both are set, WithSuggestedValue wins for schema export while
+// WithDefaultValue continues to govern the CLI/runtime flag default.
+func WithSuggestedValue(value any) fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.SuggestedValue = value
+
+		return o
+	}
+}
+
 // WithHidden sets whether the field is hidden or not.
 // Hidden fields will not be shown in the GUI config or CLI help.
 func WithHidden(hidden bool) fieldOption {

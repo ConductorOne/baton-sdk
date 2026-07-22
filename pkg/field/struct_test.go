@@ -140,3 +140,43 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 	require.NoError(t, err, "Failed to normalize json")
 	require.Equal(t, n1, n2, "Expected JSON: \n%s\n\n but got: \n%s\n", n1, n2)
 }
+
+func TestSuggestedValue(t *testing.T) {
+	// A field configured with WithSuggestedValue should export the suggested
+	// value as the schema default (so the GUI pre-populates it) while leaving
+	// the runtime/flag default (DefaultValue) at the type's zero value.
+	suggested := StringSliceField("noun", WithSuggestedValue([]string{"space"}))
+
+	require.Empty(t, suggested.DefaultValue, "SuggestedValue must leave the runtime DefaultValue at its zero value")
+
+	// Runtime/flag default path: unchanged, so nothing gets injected at runtime.
+	runtimeDefault, err := GetDefaultValue[[]string](suggested)
+	require.NoError(t, err)
+	require.Empty(t, *runtimeDefault, "runtime default should be empty for a suggested-only field")
+
+	// Schema-export path: should surface the suggested value.
+	exported, err := GetExportedDefaultValue[[]string](suggested)
+	require.NoError(t, err)
+	require.Equal(t, []string{"space"}, *exported)
+
+	v1, err := schemaFieldToV1(suggested)
+	require.NoError(t, err)
+	require.Equal(t, []string{"space"}, v1.GetStringSliceField().GetDefaultValue())
+}
+
+func TestSuggestedValuePrecedence(t *testing.T) {
+	// When both are set, WithSuggestedValue wins for schema export while
+	// WithDefaultValue continues to govern the CLI/runtime flag default.
+	both := StringSliceField("noun",
+		WithDefaultValue([]string{"runtime"}),
+		WithSuggestedValue([]string{"suggested"}),
+	)
+
+	runtimeDefault, err := GetDefaultValue[[]string](both)
+	require.NoError(t, err)
+	require.Equal(t, []string{"runtime"}, *runtimeDefault)
+
+	exported, err := GetExportedDefaultValue[[]string](both)
+	require.NoError(t, err)
+	require.Equal(t, []string{"suggested"}, *exported)
+}
