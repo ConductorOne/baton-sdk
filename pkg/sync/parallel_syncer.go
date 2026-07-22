@@ -79,13 +79,13 @@ func (s *syncer) recordRateLimitWallInterval(wait time.Duration) {
 		return
 	}
 	s.rlWallMu.Lock()
-	defer s.rlWallMu.Unlock()
 	end := time.Now()
 	start := end.Add(-wait)
 	if start.Before(s.rlWallCoveredUntil) {
 		start = s.rlWallCoveredUntil
 	}
 	if !end.After(start) {
+		s.rlWallMu.Unlock()
 		return
 	}
 	s.rlWallCoveredUntil = end
@@ -96,6 +96,9 @@ func (s *syncer) recordRateLimitWallInterval(wait time.Duration) {
 	delta := end.Sub(start) + s.rlWallCarry
 	whole := delta.Truncate(time.Millisecond)
 	s.rlWallCarry = delta - whole
+	// Flush outside rlWallMu: additions commute, and this keeps the wall
+	// lock from nesting the state mutex.
+	s.rlWallMu.Unlock()
 	if whole > 0 {
 		s.state.AddStepDuration("rate_limit_wait_wall", whole)
 	}
