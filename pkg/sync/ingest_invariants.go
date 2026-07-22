@@ -475,9 +475,16 @@ func runIngestInvariants(
 // runIngestionInvariants is the syncer's call into the pass: policy
 // from syncer state, evidence from the in-memory schedule set, halt
 // hook from the test seam.
+//
+// A successful pass does NOT write the verification marker here — it
+// only records the pending verification on the syncer. The marker is
+// persisted by persistIngestInvariantVerification AFTER EndSync, so a
+// crash anywhere between this pass and the seal leaves the sync
+// unverified (fail-closed) instead of claiming verification over an
+// unfinished artifact the resume machinery will rewrite.
 func (s *syncer) runIngestionInvariants(ctx context.Context) error {
-	verificationWriter, canPersistVerification := s.store.SyncMeta().(c1zstore.IngestInvariantVerificationWriter)
-	if canPersistVerification {
+	s.pendingInvariantVerification = nil
+	if verificationWriter, ok := s.store.SyncMeta().(c1zstore.IngestInvariantVerificationWriter); ok {
 		// Invalidate any proof inherited from an earlier pass before
 		// re-evaluating. A failed rerun must leave the sync unverified.
 		if err := verificationWriter.ClearIngestInvariantVerification(ctx, s.syncID); err != nil {
@@ -509,18 +516,37 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 	case policy.FailFast:
 		mode = c1zstore.IngestInvariantVerificationModeConnectorFailFast
 	}
-	if !canPersistVerification {
+	s.pendingInvariantVerification = &c1zstore.IngestInvariantVerification{
+		Generation: IngestInvariantGeneration,
+		Coverage:   coverage,
+		Mode:       mode,
+	}
+	return nil
+}
+
+// persistIngestInvariantVerification writes the verification marker the last
+// successful runIngestionInvariants staged. Called AFTER EndSync: the marker
+// must only ever be readable on a sealed sync, so a crash before the seal
+// leaves the artifact unverified rather than claiming verification over data
+// a resume is free to rewrite. Both built-in writers accept metadata stamps
+// on a sealed sync (SQLite updates by sync_id; Pebble's PutSyncRunRecord is
+// an AllowSealed path). The inverse crash window — sealed but not yet marked
+// — reads as an unverified legacy artifact: fail-closed.
+func (s *syncer) persistIngestInvariantVerification(ctx context.Context) error {
+	if s.pendingInvariantVerification == nil {
+		return errors.New("ingest invariants: no staged verification to persist")
+	}
+	verification := *s.pendingInvariantVerification
+	s.pendingInvariantVerification = nil
+	verificationWriter, ok := s.store.SyncMeta().(c1zstore.IngestInvariantVerificationWriter)
+	if !ok {
 		// SyncMeta predates verification metadata and is implemented outside
 		// this repository. Preserve its established behavior; the absent
 		// marker truthfully distinguishes it from built-in verified stores.
 		ctxzap.Extract(ctx).Warn("ingest invariants: store cannot persist verification metadata")
 		return nil
 	}
-	return verificationWriter.MarkIngestInvariantsVerified(ctx, s.syncID, c1zstore.IngestInvariantVerification{
-		Generation: IngestInvariantGeneration,
-		Coverage:   coverage,
-		Mode:       mode,
-	})
+	return verificationWriter.MarkIngestInvariantsVerified(ctx, s.syncID, verification)
 }
 
 // exclusionGroupTracker is the pure validation core behind invariant I5:

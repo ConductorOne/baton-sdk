@@ -163,19 +163,26 @@ type syncer struct {
 	// returning an error fails the sync at exactly that boundary. The
 	// halt sweep uses it to prove crash/resume equivalence at every
 	// ordering-sensitive point. Nil in production: one pointer check.
-	testIngestHaltHook    func(stage string) error
-	connector             types.ConnectorClient
-	state                 State
-	runDuration           time.Duration
-	transitionHandler     func(s Action)
-	progressHandler       func(p *Progress)
-	tmpDir                string
-	storageEngine         c1zstore.Engine
-	skipFullSync          bool
-	lastCheckPointTime    time.Time
-	counts                *progresslog.ProgressLog
-	targetedSyncResources []*v2.Resource
-	onlyExpandGrants      bool
+	testIngestHaltHook func(stage string) error
+	// pendingInvariantVerification is the verification a successful
+	// runIngestionInvariants staged, awaiting persistence by
+	// persistIngestInvariantVerification AFTER EndSync. Deferring the
+	// write keeps the marker off unfinished syncs: a crash before the
+	// seal leaves the artifact unverified instead of claiming
+	// verification over data a resume will rewrite.
+	pendingInvariantVerification *c1zstore.IngestInvariantVerification
+	connector                    types.ConnectorClient
+	state                        State
+	runDuration                  time.Duration
+	transitionHandler            func(s Action)
+	progressHandler              func(p *Progress)
+	tmpDir                       string
+	storageEngine                c1zstore.Engine
+	skipFullSync                 bool
+	lastCheckPointTime           time.Time
+	counts                       *progresslog.ProgressLog
+	targetedSyncResources        []*v2.Resource
+	onlyExpandGrants             bool
 	// compactionMergedStore marks the store as a pre-sealed artifact
 	// this process did not collect (WithCompactionMergedStore — the
 	// compactor's keep-newer merge and rollback-expansion's replay):
@@ -945,6 +952,14 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	err = s.store.EndSync(ctx)
 	if err != nil {
+		return s.returnSyncError(l, span, err)
+	}
+
+	// The sync is sealed: publish the verification the invariant pass
+	// staged. Marking only after EndSync keeps the marker off unfinished
+	// syncs; a crash in the sealed-but-unmarked window reads as an
+	// unverified legacy artifact (fail-closed).
+	if err := s.persistIngestInvariantVerification(ctx); err != nil {
 		return s.returnSyncError(l, span, err)
 	}
 

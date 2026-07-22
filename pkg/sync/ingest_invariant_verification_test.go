@@ -2,6 +2,7 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -92,6 +93,9 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 			// preserve provenance while updating the sync token.
 			require.NoError(t, store.CheckpointSync(ctx, "after-verification"))
 			require.NoError(t, store.EndSync(ctx))
+			// Production ordering: the marker is persisted only after the
+			// seal, so a crash before EndSync leaves the sync unverified.
+			require.NoError(t, s.persistIngestInvariantVerification(ctx))
 			require.NoError(t, store.Close(ctx))
 
 			store, err = dotc1z.NewStore(ctx, path,
@@ -106,6 +110,86 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 			require.Equal(t, IngestInvariantGeneration, run.Generation)
 			require.Equal(t, tc.want, run.Coverage)
 			require.Equal(t, tc.wantMode, run.Mode)
+		})
+	}
+}
+
+// TestCrashBetweenInvariantPassAndSealLeavesNoMarker pins the marker's core
+// promise: verification provenance must never be readable on an UNFINISHED
+// sync. The seam between the invariant pass and the final checkpoint/EndSync
+// is a real crash window (haltStageInvariantsComplete). A marker persisted
+// before the seal would claim "verified" over a sync the resume machinery is
+// about to rewrite wholesale (resume pushes InitOp and re-collects), and any
+// consumer reading the crash image meanwhile would trust data that never
+// sealed. The marker must therefore be written only after EndSync: a crash
+// anywhere before the seal leaves the sync unverified (fail-closed).
+func TestCrashBetweenInvariantPassAndSealLeavesNoMarker(t *testing.T) {
+	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+		t.Run(string(engine), func(t *testing.T) {
+			ctx := context.Background()
+			tempDir := t.TempDir()
+			c1zPath := filepath.Join(tempDir, "marker-crash.c1z")
+
+			mc := newMockConnector()
+			mc.rtDB = append(mc.rtDB, userResourceType, groupResourceType)
+			user, err := rs.NewUserResource("user1", userResourceType, "user1", nil)
+			require.NoError(t, err)
+			mc.AddResource(ctx, user)
+			group, _, err := mc.AddGroup(ctx, "group1")
+			require.NoError(t, err)
+			mc.AddGroupMember(ctx, group, user)
+
+			errCrash := errors.New("injected crash after invariant pass, before seal")
+			crashed, err := NewSyncer(ctx, mc,
+				WithC1ZPath(c1zPath),
+				WithTmpDir(tempDir),
+				WithStorageEngine(engine),
+			)
+			require.NoError(t, err)
+			crashed.(*syncer).testIngestHaltHook = func(stage string) error {
+				if stage == haltStageInvariantsComplete {
+					return errCrash
+				}
+				return nil
+			}
+			require.ErrorIs(t, crashed.Sync(ctx), errCrash)
+			require.NoError(t, crashed.Close(ctx))
+
+			// The crash image: exactly one unfinished sync, and it must
+			// read as UNVERIFIED.
+			store, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithEngine(engine), dotc1z.WithTmpDir(tempDir))
+			require.NoError(t, err)
+			lister, ok := store.(interface {
+				ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error)
+			})
+			require.True(t, ok)
+			runs, _, err := lister.ListSyncRuns(ctx, "", 100)
+			require.NoError(t, err)
+			require.Len(t, runs, 1, "the crash image must hold exactly the one aborted sync")
+			require.Nil(t, runs[0].EndedAt, "the aborted sync must be unfinished")
+			require.False(t, runs[0].IsVerified(),
+				"an unfinished sync must never carry verification provenance")
+			require.NoError(t, store.Close(ctx))
+
+			// The resume seals the sync and the marker lands with it —
+			// the production mark point still fires end to end.
+			resumed, err := NewSyncer(ctx, mc,
+				WithC1ZPath(c1zPath),
+				WithTmpDir(tempDir),
+				WithStorageEngine(engine),
+			)
+			require.NoError(t, err)
+			require.NoError(t, resumed.Sync(ctx))
+			require.NoError(t, resumed.Close(ctx))
+
+			store, err = dotc1z.NewStore(ctx, c1zPath, dotc1z.WithEngine(engine), dotc1z.WithTmpDir(tempDir))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, store.Close(ctx)) }()
+			run, err := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, run, "the resumed sync must have sealed")
+			require.True(t, run.IsVerified(), "the sealed sync must carry the verification marker")
+			require.Equal(t, IngestInvariantGeneration, run.Generation)
 		})
 	}
 }
