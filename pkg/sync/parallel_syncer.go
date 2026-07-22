@@ -66,6 +66,14 @@ func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLi
 // instant. The watermark is in-memory only; across checkpoint/resume the
 // first event after resume counts in full, which can only under-merge (never
 // double-count) because the bucket itself persists in the token.
+//
+// Known bias: an annotation wait is end-anchored at response receipt, but the
+// connector's sleep ended earlier in the RPC (marshal + transport + any
+// post-sleep work follow it). The claimed interval shifts late by that
+// amount, so under parallelism the merge can count wall time past another
+// worker's watermark that was not actually blocked — an over-count bounded by
+// the post-sleep RPC latency of that one report. The bucket stays bounded by
+// elapsed sync time regardless.
 func (s *syncer) recordRateLimitWallInterval(wait time.Duration) {
 	if wait <= 0 || s.state == nil {
 		return

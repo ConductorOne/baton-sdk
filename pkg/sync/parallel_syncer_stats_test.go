@@ -161,6 +161,9 @@ func TestRecordConnectorWaitReportClampsOverflow(t *testing.T) {
 	const dayMs = int64(24 * 60 * 60 * 1000)
 	require.EqualValues(t, dayMs, durations["rate_limit_wait"])
 	require.EqualValues(t, dayMs, durations["rate_limit_wait:repository"])
+	// The clamped value also feeds the wall bucket; with a zero watermark
+	// (no prior events) the full clamped interval counts.
+	require.EqualValues(t, dayMs, durations["rate_limit_wait_wall"])
 }
 
 // TestRateLimitWallIntervalMergesOverlap: rate_limit_wait sums worker-seconds,
@@ -174,12 +177,17 @@ func TestRateLimitWallIntervalMergesOverlap(t *testing.T) {
 
 	// Two 10s waits reported back-to-back: intervals [now-10s, now] overlap
 	// almost entirely, so wall time is ~10s while cumulative would be 20s.
+	// The second event contributes only the inter-call gap, so bound the
+	// assertion by the measured gap instead of a fixed slack that a slow CI
+	// machine could blow through.
+	callsStart := time.Now()
 	s.recordRateLimitWallInterval(10 * time.Second)
 	s.recordRateLimitWallInterval(10 * time.Second)
+	elapsedMs := time.Since(callsStart).Milliseconds()
 
 	wallMs := s.state.StepDurations()["rate_limit_wait_wall"]
 	require.GreaterOrEqual(t, wallMs, int64(10_000))
-	require.Less(t, wallMs, int64(10_500), "overlapping waits must merge, not sum")
+	require.LessOrEqual(t, wallMs, 10_000+elapsedMs+1, "overlapping waits must merge, not sum")
 
 	// Non-positive waits and nil state are no-ops.
 	s.recordRateLimitWallInterval(0)
