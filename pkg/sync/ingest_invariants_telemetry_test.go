@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -136,6 +137,42 @@ func TestIngestInvariantI9WarnTelemetry(t *testing.T) {
 	require.EqualValues(t, 1, fieldInt(t, warn, "refs_under_synced_types"),
 		"the ghost principal's type row exists, so attribution is the synced-type flavor")
 	require.EqualValues(t, 0, fieldInt(t, warn, "refs_into_unsynced_types"))
+}
+
+// TestIngestInvariantI5CorruptOnlyWarnTelemetry pins the corrupt-only
+// aggregate on the softened (pre-sealed artifact) pass: the warning is
+// the ENTIRE production verdict for artifact damage there, so it must
+// fire with the corrupt count even when no group conflicts exist, and
+// its copy must attribute damage — not claim the merge "manufactures
+// these by design", which is only true of group conflicts.
+func TestIngestInvariantI5CorruptOnlyWarnTelemetry(t *testing.T) {
+	ctx := context.Background()
+	store, syncID := newInvariantTestStore(ctx, t)
+
+	r, err := rs.NewResource("user1", userResourceType, "user1")
+	require.NoError(t, err)
+	ent := et.NewPermissionEntitlement(r, "viewer")
+	ent.SetAnnotations([]*anypb.Any{{
+		TypeUrl: "type.googleapis.com/c1.connector.v2.EntitlementExclusionGroup",
+		Value:   []byte{0xFF, 0xFF}, // undecodable
+	}})
+	require.NoError(t, store.PutEntitlements(ctx, ent))
+
+	core, entries := newCaptureCore()
+	lctx := ctxzap.ToContext(ctx, zap.New(core))
+
+	require.NoError(t, RunIngestInvariants(lctx, store, IngestInvariantsPolicy{
+		ActiveSyncID:    syncID,
+		SyncType:        connectorstore.SyncTypeFull,
+		CompactionMerge: true,
+	}))
+
+	warn := findEntry(entries(), zapcore.WarnLevel, "corrupt exclusion-group annotations")
+	require.NotNil(t, warn, "the corrupt-only aggregate is the production verdict on the softened pass and must fire")
+	require.EqualValues(t, 1, fieldInt(t, warn, "corrupt_annotations"))
+	require.EqualValues(t, 0, fieldInt(t, warn, "conflict_groups"))
+	require.Nil(t, findEntry(entries(), zapcore.WarnLevel, "manufacture these by design"),
+		"artifact damage must not be attributed to merge manufacture")
 }
 
 // TestIngestInvariantSkipLogTelemetry pins the degradation-visibility

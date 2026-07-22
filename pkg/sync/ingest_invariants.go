@@ -653,7 +653,16 @@ func (pass *ingestInvariantsPass) checkStoredExclusionGroups(ctx context.Context
 		}
 	}
 	if len(conflictGroups) > 0 || corruptAnnotations > 0 {
-		ctxzap.Extract(ctx).Warn("ingest invariant I5: exclusion-group conflicts on the compaction expand pass (keep-newer merges manufacture these by design; not a connector bug)",
+		// The attribution differs by what was found: group conflicts are
+		// merge-manufactured by design, but corrupt annotations are
+		// artifact damage the merge merely carried — saying "manufactured
+		// by design" about damage would misdirect the reader.
+		msg := "ingest invariant I5: exclusion-group conflicts on the compaction expand pass (keep-newer merges manufacture these by design; not a connector bug)"
+		if len(conflictGroups) == 0 {
+			msg = "ingest invariant I5: corrupt exclusion-group annotations on a pre-sealed artifact " +
+				"(artifact damage carried by the merge/replay input, not merge-manufactured; the rows could not be judged)"
+		}
+		ctxzap.Extract(ctx).Warn(msg,
 			zap.Int("conflict_groups", len(conflictGroups)),
 			zap.Int("corrupt_annotations", corruptAnnotations),
 			zap.Strings("group_examples", examples),
