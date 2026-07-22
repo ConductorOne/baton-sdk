@@ -63,7 +63,7 @@ func runDumpDB(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	dbFile, err := dotc1z.NewC1ZFileDecoder(f)
+	dbFile, err := dotc1z.NewC1ZFileDecoder(f, dotc1z.WithContext(cmd.Context()))
 	if err != nil {
 		return err
 	}
