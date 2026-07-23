@@ -2255,9 +2255,8 @@ type IntField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	// rules
-	DefaultValue int64
-	Rules        *Int64Rules
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+	DefaultValue   int64
+	Rules          *Int64Rules
 	SuggestedValue int64
 }
 
@@ -2352,9 +2351,8 @@ func (x *BoolField) ClearRules() {
 type BoolField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	DefaultValue bool
-	Rules        *BoolRules
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+	DefaultValue   bool
+	Rules          *BoolRules
 	SuggestedValue bool
 }
 
@@ -2449,9 +2447,8 @@ func (x *StringSliceField) ClearRules() {
 type StringSliceField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	DefaultValue []string
-	Rules        *RepeatedStringRules
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+	DefaultValue   []string
+	Rules          *RepeatedStringRules
 	SuggestedValue []string
 }
 
@@ -2546,9 +2543,8 @@ func (x *StringMapField) ClearRules() {
 type StringMapField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	DefaultValue map[string]*anypb.Any
-	Rules        *StringMapRules
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+	DefaultValue   map[string]*anypb.Any
+	Rules          *StringMapRules
 	SuggestedValue map[string]*anypb.Any
 }
 
@@ -2772,8 +2768,7 @@ type StringField_builder struct {
 	// only used for FileUpload atm, oneofs are evil
 	AllowedExtensions []string
 	Options           []*StringFieldOption
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
-	SuggestedValue string
+	SuggestedValue    string
 }
 
 func (b0 StringField_builder) Build() *StringField {

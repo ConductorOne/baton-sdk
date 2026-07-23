@@ -2180,10 +2180,9 @@ func (b0 ResourceIdSliceField_builder) Build() *ResourceIdSliceField {
 type IntField struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// rules
-	DefaultValue int64       `protobuf:"varint,1,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
-	Rules        *Int64Rules `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
-	SuggestedValue int64 `protobuf:"varint,3,opt,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty"`
+	DefaultValue   int64       `protobuf:"varint,1,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
+	Rules          *Int64Rules `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
+	SuggestedValue int64       `protobuf:"varint,3,opt,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2261,9 +2260,8 @@ type IntField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	// rules
-	DefaultValue int64
-	Rules        *Int64Rules
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+	DefaultValue   int64
+	Rules          *Int64Rules
 	SuggestedValue int64
 }
 
@@ -2278,11 +2276,10 @@ func (b0 IntField_builder) Build() *IntField {
 }
 
 type BoolField struct {
-	state        protoimpl.MessageState `protogen:"hybrid.v1"`
-	DefaultValue bool                   `protobuf:"varint,1,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
-	Rules        *BoolRules             `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
-	SuggestedValue bool `protobuf:"varint,3,opt,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty"`
+	state          protoimpl.MessageState `protogen:"hybrid.v1"`
+	DefaultValue   bool                   `protobuf:"varint,1,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
+	Rules          *BoolRules             `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
+	SuggestedValue bool                   `protobuf:"varint,3,opt,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2359,9 +2356,8 @@ func (x *BoolField) ClearRules() {
 type BoolField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	DefaultValue bool
-	Rules        *BoolRules
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+	DefaultValue   bool
+	Rules          *BoolRules
 	SuggestedValue bool
 }
 
@@ -2376,11 +2372,10 @@ func (b0 BoolField_builder) Build() *BoolField {
 }
 
 type StringSliceField struct {
-	state        protoimpl.MessageState `protogen:"hybrid.v1"`
-	DefaultValue []string               `protobuf:"bytes,1,rep,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
-	Rules        *RepeatedStringRules   `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
-	SuggestedValue []string `protobuf:"bytes,3,rep,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty"`
+	state          protoimpl.MessageState `protogen:"hybrid.v1"`
+	DefaultValue   []string               `protobuf:"bytes,1,rep,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
+	Rules          *RepeatedStringRules   `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
+	SuggestedValue []string               `protobuf:"bytes,3,rep,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2457,9 +2452,8 @@ func (x *StringSliceField) ClearRules() {
 type StringSliceField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	DefaultValue []string
-	Rules        *RepeatedStringRules
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+	DefaultValue   []string
+	Rules          *RepeatedStringRules
 	SuggestedValue []string
 }
 
@@ -2474,11 +2468,10 @@ func (b0 StringSliceField_builder) Build() *StringSliceField {
 }
 
 type StringMapField struct {
-	state        protoimpl.MessageState `protogen:"hybrid.v1"`
-	DefaultValue map[string]*anypb.Any  `protobuf:"bytes,1,rep,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Rules        *StringMapRules        `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
-	SuggestedValue map[string]*anypb.Any `protobuf:"bytes,3,rep,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state          protoimpl.MessageState `protogen:"hybrid.v1"`
+	DefaultValue   map[string]*anypb.Any  `protobuf:"bytes,1,rep,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Rules          *StringMapRules        `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
+	SuggestedValue map[string]*anypb.Any  `protobuf:"bytes,3,rep,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2555,9 +2548,8 @@ func (x *StringMapField) ClearRules() {
 type StringMapField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	DefaultValue map[string]*anypb.Any
-	Rules        *StringMapRules
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+	DefaultValue   map[string]*anypb.Any
+	Rules          *StringMapRules
 	SuggestedValue map[string]*anypb.Any
 }
 
@@ -2664,10 +2656,9 @@ type StringField struct {
 	// only used for FileUpload atm, oneofs are evil
 	AllowedExtensions []string             `protobuf:"bytes,4,rep,name=allowed_extensions,json=allowedExtensions,proto3" json:"allowed_extensions,omitempty"`
 	Options           []*StringFieldOption `protobuf:"bytes,5,rep,name=options,proto3" json:"options,omitempty"`
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
-	SuggestedValue string `protobuf:"bytes,6,opt,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	SuggestedValue    string               `protobuf:"bytes,6,opt,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *StringField) Reset() {
@@ -2781,8 +2772,7 @@ type StringField_builder struct {
 	// only used for FileUpload atm, oneofs are evil
 	AllowedExtensions []string
 	Options           []*StringFieldOption
-	// suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
-	SuggestedValue string
+	SuggestedValue    string
 }
 
 func (b0 StringField_builder) Build() *StringField {
