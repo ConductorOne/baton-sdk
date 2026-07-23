@@ -126,7 +126,7 @@ func (c *blockingValidateConnector) Validate(
 	select {
 	case <-ctx.Done():
 		return nil, context.Cause(ctx)
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		return nil, errors.New("test safety stop: SkipSync ignored run duration")
 	}
 }
@@ -818,7 +818,10 @@ func TestSkipSyncHonorsRunDuration(t *testing.T) {
 		WithC1ZPath(filepath.Join(tmpDir, "skip-run-duration.c1z")),
 		WithTmpDir(tmpDir),
 		WithSkipFullSync(),
-		WithRunDuration(50*time.Millisecond),
+		// Generous enough that store setup finishes before expiry even
+		// under -race slowdown; the blocked Validate is what must be
+		// cancelled by the run duration.
+		WithRunDuration(500*time.Millisecond),
 	)
 	require.NoError(t, err)
 
@@ -826,6 +829,6 @@ func TestSkipSyncHonorsRunDuration(t *testing.T) {
 	err = s.Sync(ctx)
 	require.ErrorIs(t, err, ErrSyncNotComplete)
 	require.True(t, connector.blocked.Load())
-	require.Less(t, time.Since(started), 500*time.Millisecond)
+	require.Less(t, time.Since(started), 3*time.Second)
 	require.NoError(t, s.Close(ctx))
 }

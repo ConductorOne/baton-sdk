@@ -778,43 +778,67 @@ func (st *state) NextPage(ctx context.Context, actionID string, pageToken string
 	return nil
 }
 
+// The boolean flag accessors below take st.mtx because parallel workers set
+// them concurrently mid-batch (e.g. every grant carrying an expandable
+// annotation calls SetNeedsExpansion from its worker goroutine).
+
 func (st *state) NeedsExpansion() bool {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
 	return st.needsExpansion
 }
 
 func (st *state) SetNeedsExpansion() {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
 	st.needsExpansion = true
 }
 
 func (st *state) HasExternalResourcesGrants() bool {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
 	return st.hasExternalResourceGrants
 }
 
 func (st *state) SetHasExternalResourcesGrants() {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
 	st.hasExternalResourceGrants = true
 }
 
 func (st *state) ShouldFetchRelatedResources() bool {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
 	return st.shouldFetchRelatedResources
 }
 
 func (st *state) SetShouldFetchRelatedResources() {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
 	st.shouldFetchRelatedResources = true
 }
 
 func (st *state) ShouldSkipEntitlementsAndGrants() bool {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
 	return st.shouldSkipEntitlementsAndGrants
 }
 
 func (st *state) SetShouldSkipEntitlementsAndGrants() {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
 	st.shouldSkipEntitlementsAndGrants = true
 }
 
 func (st *state) ShouldSkipGrants() bool {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
 	return st.shouldSkipGrants
 }
 
 func (st *state) SetShouldSkipGrants() {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
 	st.shouldSkipGrants = true
 }
 
