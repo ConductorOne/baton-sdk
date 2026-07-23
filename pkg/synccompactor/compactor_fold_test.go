@@ -50,6 +50,19 @@ func markFoldInputVerified(t *testing.T, ctx context.Context, path, syncID strin
 		Mode:       c1zstore.IngestInvariantVerificationModeConnector,
 	}))
 	require.NoError(t, store.Close(ctx))
+
+	// Reopen and prove the marker actually landed in the saved file —
+	// without this, the fold's "must not inherit" assertions would pass
+	// vacuously against an input that was never marked (a standalone
+	// metadata stamp used to miss the pebble store's dirty bit and be
+	// dropped at Close).
+	store, err = dotc1z.NewStore(ctx, path, dotc1z.WithTmpDir(t.TempDir()), dotc1z.WithReadOnly(true))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close(ctx)) }()
+	run, err := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, run)
+	require.True(t, run.IsVerified(), "the fold input's marker must persist across close/reopen")
 }
 
 // TestCompactPebbleFoldMintsFreshSync covers the in-place fold strategy

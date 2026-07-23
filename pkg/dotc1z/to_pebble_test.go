@@ -74,8 +74,9 @@ func TestToPebbleRoundTrip(t *testing.T) {
 	}
 	verificationWriter, ok := src.SyncMeta().(c1zstore.IngestInvariantVerificationWriter)
 	require.True(t, ok)
-	require.NoError(t, verificationWriter.MarkIngestInvariantsVerified(ctx, syncID, wantVerification))
+	// Production ordering: the marker is only writable on a sealed sync.
 	require.NoError(t, src.EndSync(ctx))
+	require.NoError(t, verificationWriter.MarkIngestInvariantsVerified(ctx, syncID, wantVerification))
 
 	// Convert the finished sync into a new Pebble .c1z.
 	outPath := filepath.Join(dir, "out.c1z")

@@ -246,14 +246,16 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	if err = dest.EndSync(ctx); err != nil {
 		return nil, fmt.Errorf("to-pebble: end destination sync: %w", err)
 	}
-	if sync.EndedAt != nil || sync.IsVerified() {
+	if sync.EndedAt != nil {
 		rec, err := destEng.GetSyncRunRecord(ctx, destSyncID)
 		if err != nil {
 			return nil, fmt.Errorf("to-pebble: load destination sync metadata: %w", err)
 		}
-		if sync.EndedAt != nil {
-			rec.SetEndedAt(timestamppb.New(*sync.EndedAt))
-		}
+		rec.SetEndedAt(timestamppb.New(*sync.EndedAt))
+		// Verification provenance only rides along with a FINISHED source:
+		// a marker on an unfinished source (impossible through the writer
+		// API, but representable in a hand-edited file) must not convert
+		// into a sealed, verified destination.
 		if sync.IsVerified() {
 			rec.SetIngestInvariantGeneration(sync.Generation)
 			rec.SetIngestInvariantCoverage(append([]string(nil), sync.Coverage...))

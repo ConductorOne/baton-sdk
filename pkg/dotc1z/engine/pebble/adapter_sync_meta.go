@@ -70,6 +70,12 @@ func (s pebbleSyncMeta) MarkIngestInvariantsVerified(
 	if err != nil {
 		return c1zstore.AdaptNotFound(fmt.Errorf("MarkIngestInvariantsVerified: get: %w", err), pebble.ErrNotFound)
 	}
+	// The marker is only ever valid on a sealed sync: an unfinished sync's
+	// data is still mutable, so a verified-but-unfinished record would be a
+	// lie the moment the next write lands. Callers mark AFTER EndSync.
+	if r.GetEndedAt() == nil {
+		return fmt.Errorf("MarkIngestInvariantsVerified: sync %s is not finished", syncID)
+	}
 	r.SetIngestInvariantGeneration(verification.Generation)
 	r.SetIngestInvariantCoverage(append([]string(nil), verification.Coverage...))
 	r.SetIngestInvariantMode(string(verification.Mode))

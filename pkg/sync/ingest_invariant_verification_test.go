@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -194,6 +196,96 @@ func TestCrashBetweenInvariantPassAndSealLeavesNoMarker(t *testing.T) {
 	}
 }
 
+// grantFailingConnector fails ListGrants on demand so a re-collection
+// can be aborted mid-flight, after resource/entitlement writes have
+// already mutated the store.
+type grantFailingConnector struct {
+	*mockConnector
+	failGrants bool
+}
+
+func (c *grantFailingConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
+	if c.failGrants {
+		return nil, errors.New("injected connector failure during re-collection")
+	}
+	return c.mockConnector.ListGrants(ctx, in, opts...)
+}
+
+// TestRebindingSealedSyncClearsStaleVerification pins the rebind
+// hazard: WithSyncID can bind an already-sealed, VERIFIED sync (the
+// compactor's expansion pass does exactly this; a reused syncer can
+// too) and re-collection then rewrites the data the marker vouched
+// for. The stale proof must be invalidated at sync start, before any
+// collection write — a run that aborts mid-collection must leave the
+// sync unverified, not verified-over-rewritten-data.
+func TestRebindingSealedSyncClearsStaleVerification(t *testing.T) {
+	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+		t.Run(string(engine), func(t *testing.T) {
+			ctx := context.Background()
+			tempDir := t.TempDir()
+			c1zPath := filepath.Join(tempDir, "rebind.c1z")
+
+			mc := newMockConnector()
+			mc.rtDB = append(mc.rtDB, userResourceType, groupResourceType)
+			user, err := rs.NewUserResource("user1", userResourceType, "user1", nil)
+			require.NoError(t, err)
+			mc.AddResource(ctx, user)
+			group, _, err := mc.AddGroup(ctx, "group1")
+			require.NoError(t, err)
+			mc.AddGroupMember(ctx, group, user)
+			conn := &grantFailingConnector{mockConnector: mc}
+
+			// Run 1: a clean sync seals and marks.
+			first, err := NewSyncer(ctx, conn,
+				WithC1ZPath(c1zPath), WithTmpDir(tempDir), WithStorageEngine(engine))
+			require.NoError(t, err)
+			require.NoError(t, first.Sync(ctx))
+			require.NoError(t, first.Close(ctx))
+
+			sealedID := func() string {
+				store, err := dotc1z.NewStore(ctx, c1zPath,
+					dotc1z.WithEngine(engine), dotc1z.WithTmpDir(tempDir))
+				require.NoError(t, err)
+				defer func() { require.NoError(t, store.Close(ctx)) }()
+				run, err := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+				require.NoError(t, err)
+				require.NotNil(t, run)
+				require.True(t, run.IsVerified(), "run 1 must have sealed verified (precondition)")
+				return run.ID
+			}()
+
+			// Run 2: rebind the sealed sync and abort mid-collection,
+			// after the store has already been rewritten under the marker.
+			conn.failGrants = true
+			second, err := NewSyncer(ctx, conn,
+				WithC1ZPath(c1zPath), WithTmpDir(tempDir), WithStorageEngine(engine),
+				WithSyncID(sealedID))
+			require.NoError(t, err)
+			require.Error(t, second.Sync(ctx), "the rebound run must abort at the injected failure")
+			require.NoError(t, second.Close(ctx))
+
+			store, err := dotc1z.NewStore(ctx, c1zPath,
+				dotc1z.WithEngine(engine), dotc1z.WithTmpDir(tempDir))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, store.Close(ctx)) }()
+			lister, ok := store.(interface {
+				ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error)
+			})
+			require.True(t, ok)
+			runs, _, err := lister.ListSyncRuns(ctx, "", 100)
+			require.NoError(t, err)
+			require.NotEmpty(t, runs)
+			for _, run := range runs {
+				if run.ID != sealedID {
+					continue
+				}
+				require.False(t, run.IsVerified(),
+					"a sealed sync whose data was rewritten by a rebound run must not still read as verified")
+			}
+		})
+	}
+}
+
 func TestFailedIngestInvariantPassDoesNotWriteVerification(t *testing.T) {
 	ctx := context.Background()
 	store, syncID := newInvariantTestStore(ctx, t)
@@ -207,7 +299,10 @@ func TestFailedIngestInvariantPassDoesNotWriteVerification(t *testing.T) {
 		et.NewPermissionEntitlement(r2, "admin", et.WithExclusionGroupDefault("role", 2)),
 	))
 
-	s := &syncer{store: store, syncID: syncID, syncType: connectorstore.SyncTypeFull}
+	// The stale-marker shape the pass-start clear exists for: a sealed,
+	// MARKED sync rebound for a re-run (the writer refuses unfinished
+	// syncs, so this is the only way a marker can pre-exist the pass).
+	require.NoError(t, store.EndSync(ctx))
 	verificationWriter, ok := store.SyncMeta().(c1zstore.IngestInvariantVerificationWriter)
 	require.True(t, ok)
 	require.NoError(t, verificationWriter.MarkIngestInvariantsVerified(ctx, syncID, c1zstore.IngestInvariantVerification{
@@ -215,11 +310,14 @@ func TestFailedIngestInvariantPassDoesNotWriteVerification(t *testing.T) {
 		Coverage:   []string{"I5"},
 		Mode:       c1zstore.IngestInvariantVerificationModeConnector,
 	}))
+	require.NoError(t, store.SetCurrentSync(ctx, syncID))
+
+	s := &syncer{store: store, syncID: syncID, syncType: connectorstore.SyncTypeFull}
 	require.Error(t, s.runIngestionInvariants(ctx))
 
-	// Seal manually to make the absence observable. Production returns before
-	// EndSync on this error, so a violating run is never published.
-	require.NoError(t, store.EndSync(ctx))
+	// The failed pass must have invalidated the inherited proof, and no
+	// new verification may have been staged.
+	require.Nil(t, s.pendingInvariantVerification)
 	run, err := store.SyncMeta().LatestFullSync(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, run)

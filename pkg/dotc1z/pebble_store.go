@@ -16,6 +16,7 @@ import (
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -273,6 +274,66 @@ func (f pebbleStoreFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, ap
 		return "", err
 	}
 	return diffSyncID, f.store.markDirty(nil)
+}
+
+// SyncMeta overrides the Adapter-level SyncMeta so the MUTATING
+// metadata methods flip the store's dirty bit — Close only saves the
+// envelope when dirty, so a standalone metadata stamp on a reopened
+// c1z (e.g. MarkIngestInvariantsVerified after the engine sealed)
+// would otherwise be silently dropped with the discarded temp dir.
+// Same pattern as Grants() and FileOps(); the production Sync() path
+// never noticed because EndSync sets dirty right before the stamps.
+func (s *pebbleStore) SyncMeta() c1zstore.SyncMeta {
+	return pebbleStoreSyncMeta{inner: s.Engine.SyncMeta(), store: s}
+}
+
+type pebbleStoreSyncMeta struct {
+	inner c1zstore.SyncMeta
+	store *pebbleStore
+}
+
+// The engine-level SyncMeta implements the verification writer; the
+// dirty-marking wrapper must keep exposing it.
+var _ c1zstore.IngestInvariantVerificationWriter = pebbleStoreSyncMeta{}
+
+func (m pebbleStoreSyncMeta) MarkSyncSupportsDiff(ctx context.Context, syncID string) error {
+	return m.store.markDirty(m.inner.MarkSyncSupportsDiff(ctx, syncID))
+}
+
+func (m pebbleStoreSyncMeta) MarkIngestInvariantsVerified(ctx context.Context, syncID string, verification c1zstore.IngestInvariantVerification) error {
+	w, ok := m.inner.(c1zstore.IngestInvariantVerificationWriter)
+	if !ok {
+		return errors.New("pebble sync meta: engine SyncMeta does not implement IngestInvariantVerificationWriter")
+	}
+	return m.store.markDirty(w.MarkIngestInvariantsVerified(ctx, syncID, verification))
+}
+
+func (m pebbleStoreSyncMeta) ClearIngestInvariantVerification(ctx context.Context, syncID string) error {
+	w, ok := m.inner.(c1zstore.IngestInvariantVerificationWriter)
+	if !ok {
+		return errors.New("pebble sync meta: engine SyncMeta does not implement IngestInvariantVerificationWriter")
+	}
+	return m.store.markDirty(w.ClearIngestInvariantVerification(ctx, syncID))
+}
+
+func (m pebbleStoreSyncMeta) RecalculateStats(ctx context.Context, syncID string) error {
+	return m.store.markDirty(m.inner.RecalculateStats(ctx, syncID))
+}
+
+func (m pebbleStoreSyncMeta) LatestFullSync(ctx context.Context) (*c1zstore.SyncRun, error) {
+	return m.inner.LatestFullSync(ctx)
+}
+
+func (m pebbleStoreSyncMeta) LatestFinishedSyncOfAnyType(ctx context.Context) (*c1zstore.SyncRun, error) {
+	return m.inner.LatestFinishedSyncOfAnyType(ctx)
+}
+
+func (m pebbleStoreSyncMeta) Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
+	return m.inner.Stats(ctx, syncType, syncID)
+}
+
+func (m pebbleStoreSyncMeta) StatsV2(ctx context.Context, syncType connectorstore.SyncType, syncID string) (*reader_v2.SyncStats, error) {
+	return m.inner.StatsV2(ctx, syncType, syncID)
 }
 
 // Metadata extends the embedded Adapter's Metadata with this store's

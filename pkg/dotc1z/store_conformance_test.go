@@ -258,8 +258,12 @@ func testIngestInvariantVerificationMigratesAndPersists(t *testing.T) {
 	}
 	verificationWriter, ok := c1f.SyncMeta().(c1zstore.IngestInvariantVerificationWriter)
 	require.True(t, ok)
-	require.NoError(t, verificationWriter.MarkIngestInvariantsVerified(ctx, syncID, want))
+	// The marker is only writable on a sealed sync: marking the open sync
+	// must be refused, and succeed once EndSync stamps ended_at.
+	require.Error(t, verificationWriter.MarkIngestInvariantsVerified(ctx, syncID, want),
+		"marking an unfinished sync must be refused")
 	require.NoError(t, c1f.EndSync(ctx))
+	require.NoError(t, verificationWriter.MarkIngestInvariantsVerified(ctx, syncID, want))
 	require.NoError(t, c1f.Close(ctx))
 
 	c1f, err = NewC1ZFile(ctx, path)

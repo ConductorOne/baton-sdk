@@ -924,6 +924,10 @@ func (c *C1File) markIngestInvariantsVerified(
 		"ingest_invariant_mode":       string(verification.Mode),
 	})
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
+	// The marker is only ever valid on a sealed sync: an unfinished sync's
+	// data is still mutable, so a verified-but-unfinished row would be a
+	// lie the moment the next write lands. Callers mark AFTER EndSync.
+	q = q.Where(goqu.C("ended_at").IsNotNull())
 
 	query, args, err := q.ToSQL()
 	if err != nil {
@@ -938,7 +942,8 @@ func (c *C1File) markIngestInvariantsVerified(
 		return err
 	}
 	if rows == 0 {
-		return c1zstore.AdaptNotFound(sql.ErrNoRows)
+		return status.Errorf(codes.FailedPrecondition,
+			"mark ingest invariants verified: sync %s not found or not finished", syncID)
 	}
 	c.dbUpdated = true
 	c.invalidateCachedViewSyncRun()
