@@ -156,7 +156,11 @@ func TestSyncParallelDrainsMultipleSpawnedCursors(t *testing.T) {
 	require.Nil(t, st.Current())
 }
 
-func TestSyncParallelRejectsCyclicSpawnedCursor(t *testing.T) {
+func TestSyncParallelBreaksCyclicSpawnedCursorIdempotently(t *testing.T) {
+	// A cursor that re-mentions its own identity (the tightest cycle) is
+	// skipped, not fatal: the identical work is scheduled exactly once,
+	// so failing would wedge the sync deterministically — while skipping
+	// terminates the cycle with the batch fully drained.
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
 	origin := st.pushAction(ctx, Action{
@@ -171,7 +175,7 @@ func TestSyncParallelRejectsCyclicSpawnedCursor(t *testing.T) {
 	f := func(ctx context.Context, action *Action) error {
 		calls++
 		if calls > 3 {
-			return errors.New("test safety stop: cyclic cursor was accepted")
+			return errors.New("test safety stop: cyclic cursor spawned unbounded copies")
 		}
 		return s.nextPageOrFinishAction(ctx, action, "", Action{
 			Op:             SyncGrantsOp,
@@ -183,8 +187,9 @@ func TestSyncParallelRejectsCyclicSpawnedCursor(t *testing.T) {
 	}
 
 	_, err := s.syncParallel(ctx, newTestRetryer(ctx), []*Action{origin}, f)
-	require.ErrorContains(t, err, "duplicate or cyclic spawned cursor")
-	require.LessOrEqual(t, calls, 2)
+	require.NoError(t, err)
+	require.Equal(t, 1, calls, "the cycle must be broken at admission, not by re-running the cursor")
+	require.Nil(t, st.Current(), "the batch must drain completely")
 }
 
 func TestParallelActionKeyDoesNotRetainCursorStrings(t *testing.T) {
@@ -198,6 +203,10 @@ func TestParallelActionKeyDoesNotRetainCursorStrings(t *testing.T) {
 }
 
 func TestFailedSiblingAdmissionDoesNotAdvanceParentCursor(t *testing.T) {
+	// A WITHIN-CALL duplicate (the same cursor twice in one response) is
+	// a genuine connector protocol violation and stays fatal — and the
+	// rejection must be atomic: the parent's cursor must not advance and
+	// nothing may be admitted.
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
 	origin := st.pushAction(ctx, Action{
@@ -208,7 +217,12 @@ func TestFailedSiblingAdmissionDoesNotAdvanceParentCursor(t *testing.T) {
 	})
 	s := &syncer{state: st, workerCount: 1}
 
+	calls := 0
 	f := func(ctx context.Context, action *Action) error {
+		calls++
+		if calls > 1 {
+			return errors.New("test safety stop: duplicate within one response was accepted")
+		}
 		return s.nextPageOrFinishAction(
 			ctx,
 			action,
@@ -217,14 +231,14 @@ func TestFailedSiblingAdmissionDoesNotAdvanceParentCursor(t *testing.T) {
 				Op:             SyncGrantsOp,
 				ResourceTypeID: action.ResourceTypeID,
 				ResourceID:     action.ResourceID,
-				PageToken:      "unique-child",
+				PageToken:      "dup-child",
 				Spawned:        true,
 			},
 			Action{
 				Op:             SyncGrantsOp,
 				ResourceTypeID: action.ResourceTypeID,
 				ResourceID:     action.ResourceID,
-				PageToken:      "origin",
+				PageToken:      "dup-child",
 				Spawned:        true,
 			},
 		)
@@ -237,6 +251,52 @@ func TestFailedSiblingAdmissionDoesNotAdvanceParentCursor(t *testing.T) {
 	require.Equal(t, "origin", persisted.PageToken)
 	require.Equal(t, []string{origin.ID}, st.actionOrder)
 	require.Len(t, st.PeekMatchingActions(ctx, SyncGrantsOp), 1)
+}
+
+func TestContinuationReconvergenceFinishesParent(t *testing.T) {
+	// A parent whose NEXT PAGE TOKEN re-converges on an identity already
+	// scheduled in the batch (e.g. a resumed cursor persisted with that
+	// exact token, re-mentioned because the API's answers shifted across
+	// a crash) must FINISH instead of erroring: the action owning that
+	// identity performs exactly the work the continuation would have.
+	// Pre-fix this was fatal, and deterministically so on every retry —
+	// a permanently wedged sync.
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	walker := st.pushAction(ctx, Action{
+		Op:             SyncGrantsOp,
+		ResourceTypeID: "group",
+		ResourceID:     "group-1",
+		PageToken:      "walker",
+	})
+	holder := st.pushAction(ctx, Action{
+		Op:             SyncGrantsOp,
+		ResourceTypeID: "group",
+		ResourceID:     "group-1",
+		PageToken:      "held-token",
+		Spawned:        true,
+	})
+	s := &syncer{state: st, workerCount: 1}
+
+	processed := map[string]int{}
+	f := func(ctx context.Context, action *Action) error {
+		processed[action.PageToken]++
+		if action.PageToken == "walker" {
+			// The connector's answer says "continue at held-token" —
+			// which the sibling seed already owns.
+			return s.nextPageOrFinishAction(ctx, action, "held-token")
+		}
+		s.state.FinishAction(ctx, action)
+		return nil
+	}
+
+	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), []*Action{walker, holder}, f)
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, map[string]int{"walker": 1, "held-token": 1}, processed,
+		"the held token must be walked exactly once, by its owner")
+	require.Nil(t, st.GetAction(walker.ID), "the re-converged parent must finish, not continue")
+	require.Nil(t, st.Current(), "the batch must drain completely")
 }
 
 func TestSpawnedCursorCannotCollideWithParentContinuation(t *testing.T) {
@@ -277,10 +337,10 @@ func TestAbortedQueueRejectsInFlightTransitionWithoutStateMutation(t *testing.T)
 	queue.abort()
 	committed := false
 
-	err := queue.transition(SyncGrantsOp, nil, "", []Action{{
+	err := queue.transition(t.Context(), SyncGrantsOp, nil, "", []Action{{
 		Op:        SyncGrantsOp,
 		PageToken: "child",
-	}}, func() ([]*Action, error) {
+	}}, func(string, []Action) ([]*Action, error) {
 		committed = true
 		return []*Action{{Op: SyncGrantsOp, PageToken: "child"}}, nil
 	})
@@ -298,10 +358,10 @@ func TestParallelActionQueueRejectsCursorLimitBeforeCommit(t *testing.T) {
 		queue.seen[key] = struct{}{}
 	}
 	committed := false
-	err := queue.transition(SyncGrantsOp, nil, "", []Action{{
+	err := queue.transition(t.Context(), SyncGrantsOp, nil, "", []Action{{
 		Op:        SyncGrantsOp,
 		PageToken: "over-limit",
-	}}, func() ([]*Action, error) {
+	}}, func(string, []Action) ([]*Action, error) {
 		committed = true
 		return nil, nil
 	})

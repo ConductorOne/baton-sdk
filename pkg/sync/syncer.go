@@ -179,18 +179,33 @@ type syncer struct {
 	// seal leaves the artifact unverified instead of claiming
 	// verification over data a resume will rewrite.
 	pendingInvariantVerification *c1zstore.IngestInvariantVerification
-	connector                    types.ConnectorClient
-	state                        State
-	runDuration                  time.Duration
-	transitionHandler            func(s Action)
-	progressHandler              func(p *Progress)
-	tmpDir                       string
-	storageEngine                c1zstore.Engine
-	skipFullSync                 bool
-	lastCheckPointTime           time.Time
-	counts                       *progresslog.ProgressLog
-	targetedSyncResources        []*v2.Resource
-	onlyExpandGrants             bool
+	// checkpointInterval throttles non-forced checkpoints (default
+	// minCheckpointInterval). The checkpoint-cut verification harness
+	// sets it to zero so every loop-top checkpoint durably commits,
+	// making each one an enumerable crash-cut point.
+	checkpointInterval time.Duration
+	// testCheckpointHook, when non-nil, observes every durably written
+	// checkpoint token. The cut harness uses it to count checkpoints
+	// and to simulate a crash immediately after a chosen one. Nil in
+	// production: one pointer check.
+	testCheckpointHook func(token string)
+	// testQueueAudit, when non-nil, records every parallelActionQueue
+	// event (seed/dequeue/commit/abort/done) for post-hoc verification
+	// of the queue contract. Nil in production: one pointer check per
+	// queue operation.
+	testQueueAudit        *queueAudit
+	connector             types.ConnectorClient
+	state                 State
+	runDuration           time.Duration
+	transitionHandler     func(s Action)
+	progressHandler       func(p *Progress)
+	tmpDir                string
+	storageEngine         c1zstore.Engine
+	skipFullSync          bool
+	lastCheckPointTime    time.Time
+	counts                *progresslog.ProgressLog
+	targetedSyncResources []*v2.Resource
+	onlyExpandGrants      bool
 	// compactionMergedStore marks the store as a pre-sealed artifact
 	// this process did not collect (WithCompactionMergedStore — the
 	// compactor's keep-newer merge and rollback-expansion's replay):
@@ -413,7 +428,7 @@ const minCheckpointInterval = 10 * time.Second
 
 // Checkpoint marshals the current state and stores it.
 func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
-	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < minCheckpointInterval {
+	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < s.checkpointInterval {
 		return nil
 	}
 	start := time.Now()
@@ -434,6 +449,9 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	err = s.store.CheckpointSync(ctx, checkpoint)
 	if err != nil {
 		return err
+	}
+	if s.testCheckpointHook != nil {
+		s.testCheckpointHook(checkpoint)
 	}
 
 	return nil
@@ -3652,9 +3670,10 @@ func WithSyncIdentity(id uotel.SyncIdentity) SyncOpt {
 // NewSyncer returns a new syncer object.
 func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
 	s := &syncer{
-		connector:   c,
-		syncType:    connectorstore.SyncTypeFull,
-		workerCount: 1,
+		connector:          c,
+		syncType:           connectorstore.SyncTypeFull,
+		workerCount:        1,
+		checkpointInterval: minCheckpointInterval,
 	}
 
 	for _, o := range opts {

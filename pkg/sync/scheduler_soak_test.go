@@ -335,6 +335,10 @@ func runSchedulerSoak(t *testing.T, seed int64) {
 		WithWorkerCount(workers),
 	)
 	require.NoError(t, err)
+	// Every soak execution doubles as a queue-contract check: the audit
+	// records each scheduler event and verifyQueueAudit replays the log
+	// against the exactly-once/dedup/abort/accounting properties.
+	audit := attachQueueAudit(t, s)
 
 	// Each poisoned cursor fails at most once ever, so the sync needs at
 	// most one resume per poisoned cursor. With workers > 1 a single
@@ -395,4 +399,5 @@ func runSchedulerSoak(t *testing.T, seed int64) {
 
 	require.NoError(t, s.Close(ctx))
 	require.Zero(t, connector.perResourceCalls, "type-scoped types must never receive per-resource calls")
+	verifyQueueAudit(t, audit)
 }

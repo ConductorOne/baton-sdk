@@ -473,6 +473,10 @@ type parallelActionQueue struct {
 	outstanding int
 	aborted     bool
 	seen        map[parallelActionKey]struct{}
+	// audit, when non-nil, records every queue event for the post-hoc
+	// contract checker (queue_audit.go). Nil in production.
+	audit      *queueAudit
+	auditBatch int
 }
 
 type parallelActionKey [sha256.Size]byte
@@ -516,42 +520,96 @@ func newParallelActionQueue(actions []*Action) *parallelActionQueue {
 	return q
 }
 
+// attachAudit enrolls the queue with the test audit recorder and records
+// the batch-start event with the seeded actions. Called before workers
+// start; no-op when audit is nil (production).
+func (q *parallelActionQueue) attachAudit(audit *queueAudit, batchOp ActionOp, batch int) {
+	if audit == nil {
+		return
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.audit = audit
+	q.auditBatch = batch
+	ev := queueAuditEvent{kind: auditBatchStart, batch: batch, op: batchOp}
+	for _, action := range q.actions {
+		if action == nil {
+			continue
+		}
+		ev.actionIDs = append(ev.actionIDs, action.ID)
+		ev.keys = append(ev.keys, makeParallelActionKey(action))
+	}
+	audit.record(ev)
+}
+
+// transition atomically validates and commits a parent's pagination plus
+// its spawned children, then admits the same-op children to the queue.
+// commit receives the EFFECTIVE continuation and the ADMITTED children
+// only: an identity already seeded or admitted earlier in this batch is
+// handled idempotently rather than fatally, because connectors
+// legitimately re-converge on a cursor that is already scheduled
+// (DAG-shaped shard discovery, cyclic discovery graphs, or post-crash
+// answers that shifted under a resumed checkpoint) and a hard error here
+// is deterministic on every retry — it would wedge the sync permanently.
+// Concretely:
+//   - a CHILD whose identity is already scheduled is skipped (the
+//     identical work is admitted exactly once);
+//   - a CONTINUATION whose identity is already scheduled finishes the
+//     parent instead (the action owning that identity performs exactly
+//     the work the continuation would have — the tail is not lost);
+//   - the same cursor twice within ONE commit stays a loud failure: same
+//     call, same answer — a genuine connector protocol violation.
 func (q *parallelActionQueue) transition(
+	ctx context.Context,
 	batchOp ActionOp,
 	parent *Action,
 	nextPageToken string,
 	childActions []Action,
-	commit func() ([]*Action, error),
+	commit func(nextPageToken string, children []Action) ([]*Action, error),
 ) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.aborted {
+		q.audit.record(queueAuditEvent{kind: auditReject, batch: q.auditBatch, postAbort: true})
 		return context.Canceled
 	}
 
+	effectiveNext := nextPageToken
 	keys := make(map[parallelActionKey]struct{}, len(childActions)+1)
 	if nextPageToken != "" && parent != nil && parent.Op == batchOp {
 		continuedParent := *parent
 		continuedParent.PageToken = nextPageToken
 		key := makeParallelActionKey(&continuedParent)
 		if _, ok := q.seen[key]; ok {
-			return fmt.Errorf(
-				"duplicate or cyclic spawned cursor for op %s, resource type %q, resource %q, page token %q",
-				parent.Op.String(),
-				parent.ResourceTypeID,
-				parent.ResourceID,
-				nextPageToken,
+			// Re-convergence: the continuation's identity is already
+			// scheduled in this batch (a resumed cursor holding this
+			// exact token, or a cyclic continuation that already walked
+			// it). Finish the parent — see the function comment.
+			effectiveNext = ""
+			ctxzap.Extract(ctx).Warn(
+				"parallel scheduler: parent continuation re-converged on an already-scheduled cursor; finishing parent",
+				zap.String("op", batchOp.String()),
+				zap.String("resource_type_id", parent.ResourceTypeID),
+				zap.String("resource_id", parent.ResourceID),
 			)
+		} else {
+			keys[key] = struct{}{}
 		}
-		keys[key] = struct{}{}
 	}
+	admitted := make([]Action, 0, len(childActions))
+	skipped := 0
 	for i := range childActions {
 		child := &childActions[i]
 		if child.Op != batchOp {
+			admitted = append(admitted, *child)
 			continue
 		}
 		key := makeParallelActionKey(child)
-		if _, ok := q.seen[key]; ok {
+		if _, ok := keys[key]; ok {
+			// The same cursor twice within one commit (or a child
+			// identical to the parent's own continuation): a protocol
+			// violation by the connector — fail loudly.
+			q.audit.record(queueAuditEvent{kind: auditReject, batch: q.auditBatch})
 			return fmt.Errorf(
 				"duplicate or cyclic spawned cursor for op %s, resource type %q, resource %q, page token %q",
 				child.Op.String(),
@@ -560,34 +618,48 @@ func (q *parallelActionQueue) transition(
 				child.PageToken,
 			)
 		}
-		if _, ok := keys[key]; ok {
-			return fmt.Errorf(
-				"duplicate or cyclic spawned cursor for op %s, resource type %q, resource %q, page token %q",
-				child.Op.String(),
-				child.ResourceTypeID,
-				child.ResourceID,
-				child.PageToken,
-			)
+		if _, ok := q.seen[key]; ok {
+			// Already seeded or admitted earlier in this batch: the
+			// identical work is scheduled exactly once already. Skip
+			// idempotently — see the function comment for why this must
+			// not be an error.
+			skipped++
+			continue
 		}
 		keys[key] = struct{}{}
+		admitted = append(admitted, *child)
+	}
+	if skipped > 0 {
+		ctxzap.Extract(ctx).Warn("parallel scheduler: skipped re-mentioned spawned cursors already scheduled in this batch",
+			zap.Int("skipped_cursors", skipped),
+			zap.String("op", batchOp.String()),
+		)
 	}
 	if len(q.seen)+len(keys) > maxSpawnedCursorsPerBatch {
+		q.audit.record(queueAuditEvent{kind: auditReject, batch: q.auditBatch})
 		return fmt.Errorf("spawned cursor batch exceeded the maximum of %d unique cursors", maxSpawnedCursorsPerBatch)
 	}
 
-	pushed, err := commit()
+	pushed, err := commit(effectiveNext, admitted)
 	if err != nil {
+		q.audit.record(queueAuditEvent{kind: auditReject, batch: q.auditBatch})
 		return err
 	}
 	for key := range keys {
 		q.seen[key] = struct{}{}
 	}
+	commitEv := queueAuditEvent{kind: auditCommit, batch: q.auditBatch}
 	for _, action := range pushed {
 		if action != nil && action.Op == batchOp {
+			if q.audit != nil {
+				commitEv.actionIDs = append(commitEv.actionIDs, action.ID)
+				commitEv.keys = append(commitEv.keys, makeParallelActionKey(action))
+			}
 			q.actions = append(q.actions, action)
 			q.outstanding++
 		}
 	}
+	q.audit.record(commitEv)
 	q.cond.Broadcast()
 	return nil
 }
@@ -604,6 +676,7 @@ func (q *parallelActionQueue) next() (*Action, bool) {
 	action := q.actions[q.head]
 	q.actions[q.head] = nil
 	q.head++
+	q.audit.record(queueAuditEvent{kind: auditDequeue, batch: q.auditBatch, actionIDs: []string{action.ID}})
 	if q.head == len(q.actions) {
 		q.actions = nil
 		q.head = 0
@@ -619,6 +692,7 @@ func (q *parallelActionQueue) done() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.outstanding--
+	q.audit.record(queueAuditEvent{kind: auditDone, batch: q.auditBatch})
 	if q.outstanding == 0 {
 		q.cond.Broadcast()
 	}
@@ -628,6 +702,7 @@ func (q *parallelActionQueue) abort() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.aborted = true
+	q.audit.record(queueAuditEvent{kind: auditAbort, batch: q.auditBatch})
 	q.cond.Broadcast()
 }
 
@@ -666,14 +741,17 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	defer cancel(nil)
 
 	queue := newParallelActionQueue(actions)
+	if s.testQueueAudit != nil {
+		queue.attachAudit(s.testQueueAudit, batchOp, s.testQueueAudit.newBatch())
+	}
 	s.setParallelActionTransitioner(func(
 		transitionCtx context.Context,
 		parent *Action,
 		nextPageToken string,
 		childActions []Action,
 	) error {
-		return queue.transition(batchOp, parent, nextPageToken, childActions, func() ([]*Action, error) {
-			return s.transitionActionState(transitionCtx, parent, nextPageToken, childActions)
+		return queue.transition(transitionCtx, batchOp, parent, nextPageToken, childActions, func(effectiveNext string, children []Action) ([]*Action, error) {
+			return s.transitionActionState(transitionCtx, parent, effectiveNext, children)
 		})
 	})
 	defer s.setParallelActionTransitioner(nil)
@@ -713,6 +791,9 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	wg.Wait()
 
 	batchErr = errors.Join(errs...)
+	if s.testQueueAudit != nil {
+		s.testQueueAudit.record(queueAuditEvent{kind: auditBatchEnd, batch: queue.auditBatch, clean: batchErr == nil})
+	}
 	return warnings, batchErr
 }
 

@@ -251,6 +251,25 @@ type state struct {
 	// that completes the sync. Guarded by st.mtx; bounded by the number
 	// of in-flight spawned actions (entries are deleted on finish).
 	spawnedInFlight map[string]Action
+	// spawnedAdmitted maps the identity digest (op, resource type,
+	// resource, page token, type-scope) of every spawned cursor admitted
+	// in THIS PROCESS to its action ID. It is the termination and
+	// idempotency guard for re-mentioned spawns: connectors legitimately
+	// re-mention a cursor another response already spawned (DAG-shaped
+	// shard discovery, or post-crash answers that shifted under a
+	// resumed checkpoint). The parallel queue's own dedup set is scoped
+	// to ONE batch, so an identity that completed in an earlier batch is
+	// invisible to it — without this process-lifetime set, two cursors
+	// mentioning each other across batch boundaries would re-admit each
+	// other forever. transitionAction skips a spawned child whose
+	// identity is already here. Entries are deliberately NEVER pruned on
+	// finish — a completed spawn must stay skippable or cycles resume.
+	// Not serialized: after a crash the set rebuilds from the surviving
+	// stack (Unmarshal), so a re-mention of work completed before the
+	// crash is redone once, idempotently, and the set re-accumulates —
+	// cycles still terminate. Guarded by st.mtx; bounded by total
+	// spawned admissions in the process (32-byte keys).
+	spawnedAdmitted map[parallelActionKey]string
 }
 
 // ConnectorCallStat contains cumulative latency statistics for one connector method.
@@ -321,6 +340,7 @@ func newState() *state {
 		connectorCallStats: make(map[string]*ConnectorCallStat),
 		sessionStoreStats:  make(map[string]*SessionStoreStat),
 		spawnedInFlight:    make(map[string]Action),
+		spawnedAdmitted:    make(map[parallelActionKey]string),
 	}
 }
 
@@ -461,8 +481,12 @@ func (st *state) Unmarshal(input string) error {
 		// Rebuild the I10 drain-evidence set from the checkpointed
 		// actions: a spawned cursor restored from a token was admitted
 		// by a previous process and must still drain in the process
-		// that completes the sync.
+		// that completes the sync. The re-mention guard set rebuilds
+		// from the same scan: only surviving identities are known —
+		// crash amnesia means completed spawns are re-doable, which is
+		// idempotent and re-accumulates the set.
 		st.spawnedInFlight = make(map[string]Action)
+		st.spawnedAdmitted = make(map[parallelActionKey]string)
 		for _, action := range st.actions {
 			st.recordSpawnedAdmissionLocked(action)
 		}
@@ -484,6 +508,7 @@ func (st *state) Unmarshal(input string) error {
 		st.sessionStoreStats = make(map[string]*SessionStoreStat)
 		st.compaction = nil
 		st.spawnedInFlight = make(map[string]Action)
+		st.spawnedAdmitted = make(map[parallelActionKey]string)
 	}
 
 	return nil
@@ -732,7 +757,7 @@ func (st *state) pushAction(ctx context.Context, action Action) *Action {
 }
 
 // recordSpawnedAdmissionLocked enrolls a spawned cursor in the I10
-// drain-evidence set. Caller holds st.mtx.
+// drain-evidence set and the re-mention guard index. Caller holds st.mtx.
 func (st *state) recordSpawnedAdmissionLocked(action Action) {
 	if !action.Spawned {
 		return
@@ -741,6 +766,10 @@ func (st *state) recordSpawnedAdmissionLocked(action Action) {
 		st.spawnedInFlight = make(map[string]Action)
 	}
 	st.spawnedInFlight[action.ID] = action
+	if st.spawnedAdmitted == nil {
+		st.spawnedAdmitted = make(map[parallelActionKey]string)
+	}
+	st.spawnedAdmitted[makeParallelActionKey(&action)] = action.ID
 }
 
 func (st *state) markTypeScopedPlanned(actionID string) {
@@ -776,6 +805,24 @@ func (st *state) transitionAction(
 
 	pushed := make([]*Action, 0, len(childActions))
 	for _, child := range childActions {
+		// Re-mention guard: a spawned child whose identity was already
+		// admitted in this process is the same work, already scheduled
+		// or done. Re-admitting it duplicates work at best; at worst it
+		// never terminates (mutual mentions re-admitting each other
+		// across batch boundaries, where the queue's per-batch dedup
+		// cannot see them). Skip it, loudly.
+		if child.Spawned {
+			if priorID, dup := st.spawnedAdmitted[makeParallelActionKey(&child)]; dup {
+				ctxzap.Extract(ctx).Warn(
+					"skipping re-mentioned spawned cursor: identical work was already admitted this sync",
+					zap.String("existing_action_id", priorID),
+					zap.String("op", child.Op.String()),
+					zap.String("resource_type_id", child.ResourceTypeID),
+					zap.String("resource_id", child.ResourceID),
+				)
+				continue
+			}
+		}
 		child.ID = makeActionID(st.currentActionID)
 		st.currentActionID++
 		if _, ok := st.actions[child.ID]; ok {
