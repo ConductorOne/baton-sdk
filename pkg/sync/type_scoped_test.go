@@ -91,11 +91,20 @@ type resumableTypeScopedConnector struct {
 
 type blockingTypeScopedGrantConnector struct {
 	*mockConnector
+	reached   atomic.Bool
+	cancelled atomic.Bool
 }
 
+// blockingRootListResourcesStore blocks the FIRST root ListResources call
+// until its context dies. Deadline-presence on the context is NOT a valid
+// oracle here: parallelSync deliberately derives workerCtx from the
+// parent (no deadline) and propagates expiry manually via
+// context.AfterFunc(runCtx), preserving the DeadlineExceeded cause. The
+// proof that expiry can interrupt root planner IO is cancellation itself.
 type blockingRootListResourcesStore struct {
 	c1zstore.Store
-	blocked atomic.Bool
+	reached   atomic.Bool
+	cancelled atomic.Bool
 }
 
 type countingTargetConnector struct {
@@ -114,7 +123,8 @@ func (c *countingTargetConnector) GetResource(
 
 type blockingValidateConnector struct {
 	*mockConnector
-	blocked atomic.Bool
+	blocked   atomic.Bool
+	cancelled atomic.Bool
 }
 
 func (c *blockingValidateConnector) Validate(
@@ -125,25 +135,33 @@ func (c *blockingValidateConnector) Validate(
 	c.blocked.Store(true)
 	select {
 	case <-ctx.Done():
+		c.cancelled.Store(true)
 		return nil, context.Cause(ctx)
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
+		// Only guards an outright hang if cancellation is broken; must
+		// exceed the test's run duration by a wide margin so slow CI
+		// runners never race it.
 		return nil, errors.New("test safety stop: SkipSync ignored run duration")
 	}
 }
 
 func (s *blockingRootListResourcesStore) ListResources(
 	ctx context.Context,
-	_ *v2.ResourcesServiceListResourcesRequest,
+	req *v2.ResourcesServiceListResourcesRequest,
 ) (*v2.ResourcesServiceListResourcesResponse, error) {
-	if s.blocked.CompareAndSwap(false, true) {
+	if s.reached.CompareAndSwap(false, true) {
 		select {
 		case <-ctx.Done():
+			s.cancelled.Store(true)
 			return nil, context.Cause(ctx)
-		case <-time.After(2 * time.Second):
+		case <-time.After(30 * time.Second):
+			// Only guards an outright hang if cancellation is broken;
+			// must exceed the test's run duration by a wide margin so
+			// slow CI runners never race it.
 			return nil, errors.New("test safety stop: root planner ignored run duration")
 		}
 	}
-	return v2.ResourcesServiceListResourcesResponse_builder{}.Build(), nil
+	return s.Store.ListResources(ctx, req)
 }
 
 func (c *blockingTypeScopedGrantConnector) ListGrants(
@@ -162,10 +180,15 @@ func (c *blockingTypeScopedGrantConnector) ListGrants(
 			}.Build()),
 		}.Build(), nil
 	}
+	c.reached.Store(true)
 	select {
 	case <-ctx.Done():
+		c.cancelled.Store(true)
 		return nil, context.Cause(ctx)
-	case <-time.After(time.Second):
+	case <-time.After(30 * time.Second):
+		// Only guards an outright hang if cancellation is broken; must
+		// exceed the test's run duration by a wide margin so slow CI
+		// runners never race it.
 		return nil, errors.New("test safety stop: active batch ignored run duration")
 	}
 }
@@ -747,6 +770,15 @@ func TestTypeScopedFanoutResumesAfterStoredCursorFailure(t *testing.T) {
 }
 
 func TestRunDurationCancelsActiveSpawnedCursorBatch(t *testing.T) {
+	// The REAL run-duration timer must fire while a spawned cursor's
+	// connector call is in flight, cancel that call via its context (not
+	// wait it out), and surface ErrSyncNotComplete. The duration is
+	// deliberately generous: it must not expire before setup reaches the
+	// grants batch on a slow CI runner, or the test never exercises the
+	// in-flight call at all — the previous 50ms raced setup and was
+	// vacuous whenever it lost (and its 500ms wall bound failed on
+	// Windows FS latency). reached/cancelled make the claim mechanical;
+	// the wall bound only guards outright hangs.
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	resourceType := v2.ResourceType_builder{
@@ -761,17 +793,31 @@ func TestRunDurationCancelsActiveSpawnedCursorBatch(t *testing.T) {
 		WithC1ZPath(filepath.Join(tmpDir, "run-duration.c1z")),
 		WithTmpDir(tmpDir),
 		WithWorkerCount(2),
-		WithRunDuration(50*time.Millisecond),
+		WithRunDuration(8*time.Second),
 	)
 	require.NoError(t, err)
 	started := time.Now()
 	err = s.Sync(ctx)
 	require.ErrorIs(t, err, ErrSyncNotComplete)
-	require.Less(t, time.Since(started), 500*time.Millisecond)
+	require.True(t, connector.reached.Load(),
+		"run duration expired before the spawned-cursor batch was reached; the duration must comfortably exceed setup time")
+	require.True(t, connector.cancelled.Load(),
+		"the in-flight spawned cursor call was not cancelled by the run-duration deadline")
+	require.Less(t, time.Since(started), time.Minute)
 	require.NoError(t, s.Close(ctx))
 }
 
 func TestRunDurationCancelsRootPlannerIO(t *testing.T) {
+	// Root planning steps (entitlements/grants planning, not the
+	// parallel batch workers) are a separate call-site family: both
+	// receive workerCtx today, but a regression could rewire one family
+	// without the other. The real run-duration timer must expire while
+	// the first root store ListResources is blocked and cancel it via
+	// context.AfterFunc propagation (workerCtx carries no deadline by
+	// design, so cancellation is the only valid oracle). The duration is
+	// deliberately generous: it must not expire before setup reaches the
+	// root call on a slow CI runner — the previous 300ms raced setup and
+	// failed on Windows, where setup was slower than the whole deadline.
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	resourceType := v2.ResourceType_builder{
@@ -798,19 +844,28 @@ func TestRunDurationCancelsRootPlannerIO(t *testing.T) {
 		WithConnectorStore(store),
 		WithTmpDir(tmpDir),
 		WithWorkerCount(2),
-		WithRunDuration(300*time.Millisecond),
+		WithRunDuration(8*time.Second),
 	)
 	require.NoError(t, err)
 
 	started := time.Now()
 	err = s.Sync(ctx)
 	require.ErrorIs(t, err, ErrSyncNotComplete)
-	require.True(t, store.blocked.Load())
-	require.Less(t, time.Since(started), time.Second)
+	require.True(t, store.reached.Load(),
+		"run duration expired before root planner IO was reached; the duration must comfortably exceed setup time")
+	require.True(t, store.cancelled.Load(),
+		"the blocked root planner IO was not cancelled by the run-duration expiry")
+	require.Less(t, time.Since(started), time.Minute)
 	require.NoError(t, s.Close(ctx))
 }
 
 func TestSkipSyncHonorsRunDuration(t *testing.T) {
+	// Same shape as the spawned-cursor test above, for the SkipFullSync
+	// path: the real timer must expire while Validate is blocked and
+	// cancel it via context. The duration must comfortably exceed store
+	// setup on slow CI runners or the deadline fires before Validate is
+	// reached and the test asserts nothing; the wall bound only guards
+	// outright hangs.
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	connector := &blockingValidateConnector{mockConnector: newMockConnector()}
@@ -818,17 +873,17 @@ func TestSkipSyncHonorsRunDuration(t *testing.T) {
 		WithC1ZPath(filepath.Join(tmpDir, "skip-run-duration.c1z")),
 		WithTmpDir(tmpDir),
 		WithSkipFullSync(),
-		// Generous enough that store setup finishes before expiry even
-		// under -race slowdown; the blocked Validate is what must be
-		// cancelled by the run duration.
-		WithRunDuration(500*time.Millisecond),
+		WithRunDuration(5*time.Second),
 	)
 	require.NoError(t, err)
 
 	started := time.Now()
 	err = s.Sync(ctx)
 	require.ErrorIs(t, err, ErrSyncNotComplete)
-	require.True(t, connector.blocked.Load())
-	require.Less(t, time.Since(started), 3*time.Second)
+	require.True(t, connector.blocked.Load(),
+		"run duration expired before Validate was reached; the duration must comfortably exceed setup time")
+	require.True(t, connector.cancelled.Load(),
+		"the blocked Validate call was not cancelled by the run-duration deadline")
+	require.Less(t, time.Since(started), time.Minute)
 	require.NoError(t, s.Close(ctx))
 }
