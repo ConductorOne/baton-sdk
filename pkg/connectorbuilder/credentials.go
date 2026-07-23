@@ -192,7 +192,12 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
-	pkem, _ := crypto.NewEncryptionManager(nil, request.GetEncryptionConfigs())
+	pkem, err := crypto.NewEncryptionManager(nil, request.GetEncryptionConfigs())
+	if err != nil {
+		l.Error("error: initializing encryption manager failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, fmt.Errorf("error: initializing encryption manager failed: %w", err)
+	}
 	details, _, err := issuer.IssueCapabilityDetails(ctx)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
