@@ -47,6 +47,12 @@ const (
 	lambdaConnectorConfigVersionHeader = "x-baton-connector-config-version"
 	lambdaConnectorDrainTimeout        = 30 * time.Second
 	lambdaConnectorCloseTimeout        = 10 * time.Second
+
+	// Served-policy envelope contract versions this SDK understands. An
+	// envelope outside these resolves to a governed-with-no-hosts (deny-all)
+	// policy rather than being read.
+	servedPolicyEnvelopeVersion = 1
+	egressSectionSchemaVersion  = 1
 )
 
 type lambdaConnectorGeneration struct {
@@ -393,6 +399,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				}),
 				SelectedAuthMethod:  authMethodStr,
 				SyncResourceTypeIDs: effectiveConfig.GetStringSlice("sync-resource-types"),
+				EgressPolicy:        egressPolicyFromResponse(config),
 			}
 
 			if hasOauthField(schemaFields) {
@@ -482,10 +489,51 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 }
 
 func lambdaConnectorConfigVersion(config *v1.GetConnectorConfigResponse) string {
-	if config == nil || config.GetLastUpdated() == nil {
+	if config == nil {
+		return ""
+	}
+	// Prefer the server-stamped durable config-version handle: it is the same
+	// value the invoker sends back in the config-version header, so a warm
+	// generation's version matches the requested version and does not force a
+	// spurious reload. Older servers omit it; fall back to last_updated.
+	if config.HasConfigVersion() {
+		return config.GetConfigVersion()
+	}
+	if config.GetLastUpdated() == nil {
 		return ""
 	}
 	return config.GetLastUpdated().AsTime().UTC().Format(time.RFC3339Nano)
+}
+
+// egressPolicyFromResponse projects the connector-facing egress policy from the
+// response's served-policy envelope, or nil when no envelope is present. A
+// present envelope is Governed even when it fails a binding, version, or
+// section check — such an envelope resolves to governed-with-no-hosts so the
+// connector fails closed (deny-all) rather than serving unenforced. The
+// config-version binding (the envelope's config_version must be non-empty and
+// equal to the response's) is the one cross-field check the SDK is uniquely
+// positioned to make; deeper content validation is the connector's.
+func egressPolicyFromResponse(config *v1.GetConnectorConfigResponse) *EgressPolicy {
+	if config == nil || !config.HasServedPolicyEnvelope() {
+		return nil
+	}
+	env := config.GetServedPolicyEnvelope()
+	policy := &EgressPolicy{Governed: true}
+
+	if env.GetEnvelopeVersion() != servedPolicyEnvelopeVersion {
+		return policy
+	}
+	cv := env.GetConfigVersion()
+	if cv == "" || cv != config.GetConfigVersion() {
+		return policy
+	}
+	egress := env.GetEgress()
+	if egress == nil || egress.GetSchemaVersion() != egressSectionSchemaVersion {
+		return policy
+	}
+	policy.AllowedHosts = egress.GetAllowedHosts()
+	policy.HTTPSOnly = egress.GetHttpsOnly()
+	return policy
 }
 
 func lambdaLogLevelConfigFromViper(v *viper.Viper) (lambdaLogLevelConfig, error) {

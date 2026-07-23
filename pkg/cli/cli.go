@@ -24,6 +24,29 @@ type RunTimeOpts struct {
 	TokenSource         oauth2.TokenSource
 	SelectedAuthMethod  string
 	SyncResourceTypeIDs []string
+	// EgressPolicy carries the server-computed egress policy delivered on the
+	// connector-config response, when one is present. It is nil for connectors
+	// served without a policy envelope; the connector decides how (and whether)
+	// to enforce it.
+	EgressPolicy *EgressPolicy
+}
+
+// EgressPolicy is the connector-facing projection of a served-policy envelope's
+// egress section: the fields a connector runtime needs to enforce egress,
+// extracted after the SDK verified the envelope's binding to this response.
+// The envelope's digests, versions, and capability section are not surfaced —
+// they are the SDK's contract to verify, not the connector's.
+type EgressPolicy struct {
+	// Governed is true when the response carried a served-policy envelope. A
+	// governed connector enforces its allowlist even when AllowedHosts is empty
+	// (an empty governed allowlist is deny-all), and a malformed or unsupported
+	// envelope resolves to governed-with-no-hosts so enforcement fails closed.
+	Governed bool
+	// AllowedHosts is the effective per-instance egress allowlist (canonical
+	// hostnames). Empty under Governed is a valid deny-all policy.
+	AllowedHosts []string
+	// HTTPSOnly reports whether the runtime must refuse non-https egress.
+	HTTPSOnly bool
 }
 
 // GetConnectorFunc is a function type that creates a connector instance.
