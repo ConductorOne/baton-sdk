@@ -143,8 +143,9 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 
 func TestSuggestedValue(t *testing.T) {
 	// A field configured with WithSuggestedValue should export the suggested
-	// value as the schema default (so the GUI pre-populates it) while leaving
-	// the runtime/flag default (DefaultValue) at the type's zero value.
+	// value in the distinct suggested_value field (so the GUI pre-populates it)
+	// while leaving the schema default_value empty. The runtime/flag default
+	// (DefaultValue) also stays at the type's zero value.
 	suggested := StringSliceField("noun", WithSuggestedValue([]string{"space"}))
 
 	require.Empty(t, suggested.DefaultValue, "SuggestedValue must leave the runtime DefaultValue at its zero value")
@@ -154,14 +155,23 @@ func TestSuggestedValue(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, *runtimeDefault, "runtime default should be empty for a suggested-only field")
 
-	// Schema-export path: should surface the suggested value.
-	exported, err := GetExportedDefaultValue[[]string](suggested)
-	require.NoError(t, err)
-	require.Equal(t, []string{"space"}, *exported)
-
 	v1, err := schemaFieldToV1(suggested)
 	require.NoError(t, err)
-	require.Equal(t, []string{"space"}, v1.GetStringSliceField().GetDefaultValue())
+	// suggested_value carries the suggestion; default_value stays empty (no
+	// longer folded together).
+	require.Empty(t, v1.GetStringSliceField().GetDefaultValue(), "default_value must be empty for a suggested-only field")
+	require.Equal(t, []string{"space"}, v1.GetStringSliceField().GetSuggestedValue())
+}
+
+func TestDefaultValueOnlyExport(t *testing.T) {
+	// A field built with WithDefaultValue exports default_value populated and
+	// suggested_value empty.
+	def := StringSliceField("noun", WithDefaultValue([]string{"runtime"}))
+
+	v1, err := schemaFieldToV1(def)
+	require.NoError(t, err)
+	require.Equal(t, []string{"runtime"}, v1.GetStringSliceField().GetDefaultValue())
+	require.Empty(t, v1.GetStringSliceField().GetSuggestedValue(), "suggested_value must be empty for a default-only field")
 }
 
 func TestSuggestedValuePrecedence(t *testing.T) {

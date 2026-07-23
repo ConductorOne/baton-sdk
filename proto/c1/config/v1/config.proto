@@ -141,21 +141,29 @@ message IntField {
   // rules
   int64 default_value = 1;
   optional Int64Rules rules = 2;
+  // suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+  int64 suggested_value = 3;
 }
 
 message BoolField {
   bool default_value = 1;
   optional BoolRules rules = 2;
+  // suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+  bool suggested_value = 3;
 }
 
 message StringSliceField {
   repeated string default_value = 1;
   optional RepeatedStringRules rules = 2;
+  // suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+  repeated string suggested_value = 3;
 }
 
 message StringMapField {
   map<string, google.protobuf.Any> default_value = 1;
   optional StringMapRules rules = 2;
+  // suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+  map<string, google.protobuf.Any> suggested_value = 3;
 }
 
 enum StringFieldType {
@@ -180,4 +188,6 @@ message StringField {
   // only used for FileUpload atm, oneofs are evil
   repeated string allowed_extensions = 4;
   repeated StringFieldOption options = 5;
+  // suggested_value pre-populates the c1 GUI for new connectors but is NOT injected into resolved config
+  string suggested_value = 6;
 }

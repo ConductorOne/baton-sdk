@@ -206,6 +206,21 @@ func GetExportedDefaultValue[T SchemaTypes](s SchemaField) (*T, error) {
 	return GetDefaultValue[T](s)
 }
 
+// GetSuggestedValue returns the SuggestedValue type-asserted to T, or nil when
+// no suggested value is set. It populates the exported schema's suggested_value
+// field, which pre-populates the c1 GUI without being injected into resolved
+// config.
+func GetSuggestedValue[T SchemaTypes](s SchemaField) (*T, error) {
+	if s.SuggestedValue == nil {
+		return nil, nil
+	}
+	value, ok := s.SuggestedValue.(T)
+	if !ok {
+		return nil, ErrWrongValueType
+	}
+	return &value, nil
+}
+
 func BoolField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:       name,
