@@ -2,6 +2,7 @@ package uhttp
 
 import (
 	"encoding/xml"
+	"maps"
 	"strings"
 )
 
@@ -23,14 +24,53 @@ func (x *xmlMap) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 
 // attrMap converts xml.Attr entries into a map[string]any keyed by the
 // attribute's local name (namespace prefixes are dropped), badgerfish-style.
-// Returns nil if there are no attributes.
+// Returns nil if there are no (application-level) attributes.
+//
+// Two adjustments are made before keys are assigned:
+//
+//   - Namespace-declaration pseudo-attributes are dropped entirely. Go's
+//     encoding/xml decoder surfaces both the bare default-namespace form
+//     (xmlns="uri", decoded as Attr{Name:{Space:"", Local:"xmlns"}, Value: uri})
+//     and the prefixed form (xmlns:foo="uri", decoded as
+//     Attr{Name:{Space:"xmlns", Local:"foo"}, Value: uri}) as ordinary
+//     attributes. Neither represents application data, and virtually every
+//     namespaced XML/SOAP document declares one on its root element even when
+//     it carries no real attributes, so counting them would spuriously add an
+//     "@attributes" key to otherwise-unaffected elements. Genuine namespaced
+//     attributes (e.g. xsi:type) are unaffected by this filter: the decoder
+//     resolves their Name.Space to the namespace URI itself, never to the
+//     literal string "xmlns".
+//   - If, after filtering, two or more attributes share the same local name
+//     but come from different namespaces (a realistic SOAP/WS-* pattern, e.g.
+//     xsi:type alongside a custom-namespace "type"), keying purely by local
+//     name would silently drop all but the last one. When such a collision is
+//     detected, only the colliding entries are disambiguated by qualifying
+//     their key with their namespace ("<namespace>:<local>"); attributes with
+//     a unique local name keep their bare local-name key.
 func attrMap(attrs []xml.Attr) map[string]any {
-	if len(attrs) == 0 {
+	filtered := make([]xml.Attr, 0, len(attrs))
+	for _, a := range attrs {
+		if a.Name.Space == "xmlns" || a.Name.Local == "xmlns" {
+			continue
+		}
+		filtered = append(filtered, a)
+	}
+	if len(filtered) == 0 {
 		return nil
 	}
-	m := make(map[string]any, len(attrs))
-	for _, a := range attrs {
-		m[a.Name.Local] = a.Value
+
+	localCount := make(map[string]int, len(filtered))
+	for _, a := range filtered {
+		localCount[a.Name.Local]++
+	}
+
+	m := make(map[string]any, len(filtered))
+	for _, a := range filtered {
+		key := a.Name.Local
+		if localCount[key] > 1 && a.Name.Space != "" {
+			key = a.Name.Space + ":" + a.Name.Local
+		}
+		m[key] = a.Value
 	}
 	return m
 }
@@ -55,8 +95,10 @@ func attrMap(attrs []xml.Attr) map[string]any {
 //     since the container itself has no single map to attach "@attributes"
 //     to, the attribute map is added to every entry in the slice.
 //
-// Elements with no attributes are completely unaffected: behavior is
-// byte-for-byte identical to before attribute support was added.
+// Elements with no application-level attributes are completely unaffected:
+// behavior is byte-for-byte identical to before attribute support was added.
+// This includes elements that carry only namespace declarations (xmlns="..."
+// or xmlns:prefix="...") and no other attributes -- see attrMap.
 func unmarshalXMLElement(d *xml.Decoder, attrs []xml.Attr) (any, error) {
 	type entry struct {
 		key   string
@@ -110,7 +152,12 @@ func unmarshalXMLElement(d *xml.Decoder, attrs []xml.Attr) (any, error) {
 				for _, e := range entries {
 					m := map[string]any{e.key: e.value}
 					if selfAttrs != nil {
-						m["@attributes"] = selfAttrs
+						// Clone per entry so each sibling map owns an
+						// independent "@attributes" map; without this, all
+						// entries would alias the same underlying map and a
+						// mutation to one sibling's attributes would silently
+						// appear on every other sibling.
+						m["@attributes"] = maps.Clone(selfAttrs)
 					}
 					result = append(result, m)
 				}

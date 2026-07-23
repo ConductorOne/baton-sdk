@@ -95,9 +95,11 @@ func TestXMLMap_UnmarshalXML(t *testing.T) {
 	})
 
 	t.Run("should use the local name for a namespace-prefixed attribute", func(t *testing.T) {
-		// The xmlns:xsi declaration lives on <response>, so it becomes an
-		// attribute of the root element itself (Go's encoding/xml surfaces
-		// namespace declarations as ordinary Attr entries, keyed by prefix).
+		// The xmlns:xsi declaration lives on <response>, but it is a
+		// namespace-declaration pseudo-attribute, not application data, so it
+		// is filtered out of the root's @attributes (see attrMap) -- the root
+		// element ends up with no @attributes at all here, since it carries
+		// no other attributes.
 		// The attribute under test is xsi:type on <name>, which must be
 		// captured using its local name "type", not the namespace-qualified
 		// form.
@@ -106,10 +108,87 @@ func TestXMLMap_UnmarshalXML(t *testing.T) {
 		err := xml.Unmarshal([]byte(xmlResponse), xmlMap)
 		require.NoError(t, err)
 		require.Equal(t, map[string]any{
-			"@attributes": map[string]any{"xsi": "http://www.w3.org/2001/XMLSchema-instance"},
 			"name": map[string]any{
 				"#text":       "John",
 				"@attributes": map[string]any{"type": "string"},
+			},
+		}, xmlMap.data)
+	})
+
+	t.Run("should not treat a bare default-namespace declaration as an attribute", func(t *testing.T) {
+		// A bare `xmlns="..."` default-namespace declaration on the root is
+		// extremely common in real-world namespaced XML/SOAP documents, even
+		// when the element carries no application-level attributes. It must
+		// not cause a spurious "@attributes" key to appear, preserving the
+		// byte-for-byte no-attribute invariant for ordinary namespaced XML.
+		xmlResponse := `<?xml version="1.0" encoding="UTF-8"?><response xmlns="urn:example"><name>John</name></response>`
+		xmlMap := &xmlMap{}
+		err := xml.Unmarshal([]byte(xmlResponse), xmlMap)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"name": "John"}, xmlMap.data)
+	})
+
+	t.Run("should disambiguate same-local-name attributes from different namespaces instead of dropping one", func(t *testing.T) {
+		// Two attributes with the same local name ("id") but different
+		// namespaces on the same element is a realistic SOAP/WS-* pattern.
+		// Keying purely by local name would silently overwrite one with the
+		// other; both must be preserved via namespace-qualified keys.
+		xmlResponse := `<?xml version="1.0" encoding="UTF-8"?><response xmlns:a="urn:a" xmlns:b="urn:b"><elem a:id="1" b:id="2">text</elem></response>`
+		xmlMap := &xmlMap{}
+		err := xml.Unmarshal([]byte(xmlResponse), xmlMap)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{
+			"elem": map[string]any{
+				"#text": "text",
+				"@attributes": map[string]any{
+					"urn:a:id": "1",
+					"urn:b:id": "2",
+				},
+			},
+		}, xmlMap.data)
+	})
+
+	t.Run("should give each duplicate-sibling entry an independent @attributes map", func(t *testing.T) {
+		xmlResponse := `<?xml version="1.0" encoding="UTF-8"?><response><items count="2"><item>a</item><item>b</item></items></response>`
+		xmlMap := &xmlMap{}
+		err := xml.Unmarshal([]byte(xmlResponse), xmlMap)
+		require.NoError(t, err)
+
+		items, ok := xmlMap.data.(map[string]any)["items"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, items, 2)
+
+		firstAttrs, ok := items[0]["@attributes"].(map[string]any)
+		require.True(t, ok)
+		secondAttrs, ok := items[1]["@attributes"].(map[string]any)
+		require.True(t, ok)
+
+		// Mutating one sibling's @attributes map must not affect the other's.
+		firstAttrs["count"] = "mutated"
+		require.Equal(t, "2", secondAttrs["count"])
+	})
+
+	t.Run("should discard stray text alongside child elements regardless of attributes (pre-existing behavior)", func(t *testing.T) {
+		xmlResponse := `<?xml version="1.0" encoding="UTF-8"?><response><person id="1">prefix<name>John</name></person></response>`
+		xmlMap := &xmlMap{}
+		err := xml.Unmarshal([]byte(xmlResponse), xmlMap)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{
+			"person": map[string]any{
+				"name":        "John",
+				"@attributes": map[string]any{"id": "1"},
+			},
+		}, xmlMap.data)
+	})
+
+	t.Run("should treat a self-closing attributed tag the same as an explicit open/close pair", func(t *testing.T) {
+		xmlResponse := `<?xml version="1.0" encoding="UTF-8"?><response><flag enabled="true"/></response>`
+		xmlMap := &xmlMap{}
+		err := xml.Unmarshal([]byte(xmlResponse), xmlMap)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{
+			"flag": map[string]any{
+				"@attributes": map[string]any{"enabled": "true"},
 			},
 		}, xmlMap.data)
 	})
