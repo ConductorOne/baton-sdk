@@ -683,6 +683,56 @@ func TestSpawnedCursorsResumeAfterPartialCompletion(t *testing.T) {
 	require.Nil(t, resumed.Current())
 }
 
+// Checkpoint tokens carrying type-scoped or spawned markers must be stamped
+// with StateTokenVersionTypeScoped: an older SDK's parser silently drops the
+// marker fields and dead-ends the cursors against store pagination, sealing
+// the sync as complete with missing data. The version bump makes the old
+// parser fall back to V0 (empty action state), restarting collection from
+// Init instead — redone work, never silent loss. Plain tokens keep version 1
+// so downgrades resume seamlessly.
+func TestCheckpointVersionStampsTypeScopedTokens(t *testing.T) {
+	ctx := t.Context()
+
+	plain := newEmptySchedulerState(t)
+	plain.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "g1"})
+	plainToken, err := plain.Marshal()
+	require.NoError(t, err)
+	require.Contains(t, plainToken, `"version":1`)
+
+	scoped := newEmptySchedulerState(t)
+	scoped.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", TypeScoped: true})
+	scopedToken, err := scoped.Marshal()
+	require.NoError(t, err)
+	require.Contains(t, scopedToken, `"version":2`)
+
+	spawned := newEmptySchedulerState(t)
+	spawned.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "g1", PageToken: "p", Spawned: true})
+	spawnedToken, err := spawned.Marshal()
+	require.NoError(t, err)
+	require.Contains(t, spawnedToken, `"version":2`)
+
+	planned := newEmptySchedulerState(t)
+	planned.PushAction(ctx, Action{Op: SyncGrantsOp, TypeScopedPlanned: true})
+	plannedToken, err := planned.Marshal()
+	require.NoError(t, err)
+	require.Contains(t, plannedToken, `"version":2`)
+
+	// This SDK accepts both versions losslessly.
+	resumedScoped := newState()
+	require.NoError(t, resumedScoped.Unmarshal(scopedToken))
+	require.True(t, resumedScoped.Current().TypeScoped)
+	resumedPlain := newState()
+	require.NoError(t, resumedPlain.Unmarshal(plainToken))
+	require.NotNil(t, resumedPlain.Current())
+
+	// An older SDK rejects version 2 and reparses via the V0 format, which
+	// carries no actions_map — the state comes back empty and the old
+	// syncer restarts collection from Init.
+	v0Fallback, err := unmarshalTokenV0(scopedToken)
+	require.NoError(t, err)
+	require.Empty(t, v0Fallback.ActionsMap)
+}
+
 func TestOriginContinuationAndSiblingsResumeExactlyOnce(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)

@@ -18,6 +18,16 @@ import (
 // If you make a breaking change to the state token, you must increment this version.
 const StateTokenVersion = 1
 
+// StateTokenVersionTypeScoped marks checkpoints whose action state carries
+// type-scoped or spawned-cursor markers. Older SDKs cannot interpret those
+// actions: their JSON parser silently drops the marker fields, and the
+// resulting actions dead-end against store pagination, sealing the sync as
+// complete while missing every pending cursor's data. Version 2 defeats
+// that: an older SDK fails the version check, falls back to the V0 parser,
+// gets an empty action state, and restarts collection from Init inside the
+// same sync run — redone work instead of silent data loss.
+const StateTokenVersionTypeScoped = 2
+
 type State interface {
 	PushAction(ctx context.Context, action Action)
 	FinishAction(ctx context.Context, action *Action)
@@ -397,7 +407,7 @@ func (st *state) Unmarshal(input string) error {
 
 	if input != "" {
 		err := json.Unmarshal([]byte(input), &token)
-		if err != nil || token.Version != StateTokenVersion {
+		if err != nil || (token.Version != StateTokenVersion && token.Version != StateTokenVersionTypeScoped) {
 			// Fall back to old serialized token format.
 			token, err = unmarshalTokenV0(input)
 			if err != nil {
@@ -461,6 +471,17 @@ func (st *state) Marshal() (string, error) {
 	st.mtx.RLock()
 	defer st.mtx.RUnlock()
 
+	// Stamp the type-scoped version only when the token actually carries
+	// markers an older parser would misinterpret; plain tokens keep
+	// version 1 so downgrades resume seamlessly.
+	version := uint64(StateTokenVersion)
+	for _, action := range st.actions {
+		if action.TypeScoped || action.Spawned || action.TypeScopedPlanned {
+			version = StateTokenVersionTypeScoped
+			break
+		}
+	}
+
 	data, err := json.Marshal(serializedTokenV1{
 		ActionsMap:                      st.actions,
 		ActionOrder:                     st.actionOrder,
@@ -476,7 +497,7 @@ func (st *state) Marshal() (string, error) {
 		ConnectorCallStats:              st.connectorCallStats,
 		SessionStoreStats:               st.sessionStoreStats,
 		Compaction:                      st.compaction,
-		Version:                         1,
+		Version:                         version,
 	})
 	if err != nil {
 		return "", err
