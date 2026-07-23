@@ -20,8 +20,14 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// lambdaInvoker is the subset of *lambda.Client that the transport needs. It
+// exists so RoundTrip can be unit-tested against a fake invoker.
+type lambdaInvoker interface {
+	Invoke(ctx context.Context, params *lambda.InvokeInput, optFns ...func(*lambda.Options)) (*lambda.InvokeOutput, error)
+}
+
 type lambdaTransport struct {
-	lambdaClient *lambda.Client
+	lambdaClient lambdaInvoker
 	functionName string
 }
 
@@ -78,11 +84,16 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 		}
 		// If a third case is ever added to this, put the logic in its own function and add some test cases.
 
+		// The function was invoked but its own code returned an error (vs. an
+		// infra/invoke failure above). That's a caller/function-state fault, not a
+		// server fault: code it FailedPrecondition so it doesn't surface as a
+		// gRPC Unknown (which otel counts as a 5xx).
 		if filteredLogs != "" {
-			return nil, fmt.Errorf("%s", filteredLogs)
+			return nil, status.Errorf(codes.FailedPrecondition, "%s", filteredLogs)
 		}
 
-		return nil, fmt.Errorf(
+		return nil, status.Errorf(
+			codes.FailedPrecondition,
 			"lambda_transport: function returned error: %s; status code: %d",
 			*invokeResp.FunctionError,
 			invokeResp.StatusCode,
