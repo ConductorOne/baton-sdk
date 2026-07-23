@@ -521,6 +521,24 @@ func NewResource(name string, resourceType *v2.ResourceType, objectID interface{
 	return resource, nil
 }
 
+// ResourceDoesNotExistAnnotations returns the annotations a ResourceDeleter
+// (or ResourceDeleterV2) should return, together with a nil error, when the
+// provider authoritatively reports that the addressed resource is already
+// absent. This is the resource-plane analog of returning GrantAlreadyRevoked
+// from Revoke: it tells callers the desired end state (resource absent)
+// already holds, so a delete retried after a crash or lost response can be
+// treated as a success rather than a failure.
+//
+// Only return this when the provider authoritatively confirms the addressed
+// resource is gone; a NotFound that could instead indicate a malformed or
+// wrong resourceId/parentResourceID/tenant must be surfaced as an error
+// instead. See the godoc on ResourceDeleterLimited.Delete and
+// ResourceDeleterV2Limited.Delete in pkg/connectorbuilder for the full
+// contract.
+func ResourceDoesNotExistAnnotations() annotations.Annotations {
+	return annotations.New(&v2.ResourceDoesNotExist{})
+}
+
 // NewUserResource returns a new resource instance with a configured user trait.
 // The trait is configured with the provided email address and profile and status set to enabled.
 func NewUserResource(
