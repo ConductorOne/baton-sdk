@@ -4,15 +4,47 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+type legacyPaginatedCheckpointStore struct {
+	c1zstore.Store
+	resourceType     *v2.ResourceType
+	nextPageToken    string
+	listResourcesErr error
+}
+
+func (s *legacyPaginatedCheckpointStore) ListResourceTypes(
+	context.Context,
+	*v2.ResourceTypesServiceListResourceTypesRequest,
+) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
+	return v2.ResourceTypesServiceListResourceTypesResponse_builder{
+		List: []*v2.ResourceType{s.resourceType},
+	}.Build(), nil
+}
+
+func (s *legacyPaginatedCheckpointStore) ListResources(
+	context.Context,
+	*v2.ResourcesServiceListResourcesRequest,
+) (*v2.ResourcesServiceListResourcesResponse, error) {
+	if s.listResourcesErr != nil {
+		return nil, s.listResourcesErr
+	}
+	return v2.ResourcesServiceListResourcesResponse_builder{
+		NextPageToken: s.nextPageToken,
+	}.Build(), nil
+}
 
 func newEmptySchedulerState(t *testing.T) *state {
 	t.Helper()
@@ -121,6 +153,352 @@ func TestSyncParallelDrainsMultipleSpawnedCursors(t *testing.T) {
 	require.Empty(t, warnings)
 	require.Equal(t, map[string]int{"": 1, "a": 1, "b": 1, "c": 1}, processed)
 	require.Nil(t, st.Current())
+}
+
+func TestSyncParallelRejectsCyclicSpawnedCursor(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	origin := st.pushAction(ctx, Action{
+		Op:             SyncGrantsOp,
+		ResourceTypeID: "group",
+		ResourceID:     "group-1",
+		PageToken:      "loop",
+	})
+	s := &syncer{state: st, workerCount: 1}
+
+	calls := 0
+	f := func(ctx context.Context, action *Action) error {
+		calls++
+		if calls > 3 {
+			return errors.New("test safety stop: cyclic cursor was accepted")
+		}
+		return s.nextPageOrFinishAction(ctx, action, "", Action{
+			Op:             SyncGrantsOp,
+			ResourceTypeID: action.ResourceTypeID,
+			ResourceID:     action.ResourceID,
+			PageToken:      "loop",
+			Spawned:        true,
+		})
+	}
+
+	_, err := s.syncParallel(ctx, newTestRetryer(ctx), []*Action{origin}, f)
+	require.ErrorContains(t, err, "duplicate or cyclic spawned cursor")
+	require.LessOrEqual(t, calls, 2)
+}
+
+func TestParallelActionKeyDoesNotRetainCursorStrings(t *testing.T) {
+	key := makeParallelActionKey(&Action{
+		Op:             SyncGrantsOp,
+		ResourceTypeID: "group",
+		ResourceID:     "group-1",
+		PageToken:      string(make([]byte, maxEnqueuedPageTokenBytes)),
+	})
+	require.LessOrEqual(t, reflect.TypeOf(key).Size(), uintptr(32))
+}
+
+func TestFailedSiblingAdmissionDoesNotAdvanceParentCursor(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	origin := st.pushAction(ctx, Action{
+		Op:             SyncGrantsOp,
+		ResourceTypeID: "group",
+		ResourceID:     "group-1",
+		PageToken:      "origin",
+	})
+	s := &syncer{state: st, workerCount: 1}
+
+	f := func(ctx context.Context, action *Action) error {
+		return s.nextPageOrFinishAction(
+			ctx,
+			action,
+			"next",
+			Action{
+				Op:             SyncGrantsOp,
+				ResourceTypeID: action.ResourceTypeID,
+				ResourceID:     action.ResourceID,
+				PageToken:      "unique-child",
+				Spawned:        true,
+			},
+			Action{
+				Op:             SyncGrantsOp,
+				ResourceTypeID: action.ResourceTypeID,
+				ResourceID:     action.ResourceID,
+				PageToken:      "origin",
+				Spawned:        true,
+			},
+		)
+	}
+
+	_, err := s.syncParallel(ctx, newTestRetryer(ctx), []*Action{origin}, f)
+	require.ErrorContains(t, err, "duplicate or cyclic spawned cursor")
+	persisted := st.GetAction(origin.ID)
+	require.NotNil(t, persisted)
+	require.Equal(t, "origin", persisted.PageToken)
+	require.Equal(t, []string{origin.ID}, st.actionOrder)
+	require.Len(t, st.PeekMatchingActions(ctx, SyncGrantsOp), 1)
+}
+
+func TestSpawnedCursorCannotCollideWithParentContinuation(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	origin := st.pushAction(ctx, Action{
+		Op:             SyncGrantsOp,
+		ResourceTypeID: "group",
+		ResourceID:     "group-1",
+		PageToken:      "current",
+	})
+	s := &syncer{state: st, workerCount: 1}
+
+	calls := 0
+	f := func(ctx context.Context, action *Action) error {
+		calls++
+		if calls > 1 {
+			return errors.New("test safety stop: parent/spawn collision was accepted")
+		}
+		return s.nextPageOrFinishAction(ctx, action, "same-next-token", Action{
+			Op:             SyncGrantsOp,
+			ResourceTypeID: action.ResourceTypeID,
+			ResourceID:     action.ResourceID,
+			PageToken:      "same-next-token",
+			Spawned:        true,
+		})
+	}
+
+	_, err := s.syncParallel(ctx, newTestRetryer(ctx), []*Action{origin}, f)
+	require.ErrorContains(t, err, "duplicate or cyclic spawned cursor")
+	require.Equal(t, 1, calls)
+	require.Equal(t, "current", st.GetAction(origin.ID).PageToken)
+	require.Equal(t, []string{origin.ID}, st.actionOrder)
+}
+
+func TestAbortedQueueRejectsInFlightTransitionWithoutStateMutation(t *testing.T) {
+	queue := newParallelActionQueue(nil)
+	queue.abort()
+	committed := false
+
+	err := queue.transition(SyncGrantsOp, nil, "", []Action{{
+		Op:        SyncGrantsOp,
+		PageToken: "child",
+	}}, func() ([]*Action, error) {
+		committed = true
+		return []*Action{{Op: SyncGrantsOp, PageToken: "child"}}, nil
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, committed)
+	require.Zero(t, queue.outstanding)
+	require.Empty(t, queue.actions)
+}
+
+func TestNextPageOrFinishActionStateTransitions(t *testing.T) {
+	child := Action{
+		Op:             SyncGrantsOp,
+		ResourceTypeID: "group",
+		ResourceID:     "group-1",
+		PageToken:      "child",
+		Spawned:        true,
+	}
+	tests := []struct {
+		name             string
+		nextPageToken    string
+		children         []Action
+		wantParent       bool
+		wantParentToken  string
+		wantCurrentToken string
+		wantActions      int
+	}{
+		{
+			name:            "continuation keeps parent",
+			nextPageToken:   "next",
+			wantParent:      true,
+			wantParentToken: "next",
+			wantActions:     1,
+		},
+		{
+			name:             "continuation commits child and keeps parent",
+			nextPageToken:    "next",
+			children:         []Action{child},
+			wantParent:       true,
+			wantParentToken:  "next",
+			wantCurrentToken: "child",
+			wantActions:      2,
+		},
+		{
+			name:        "final page removes parent",
+			wantActions: 0,
+		},
+		{
+			name:             "final page commits child then removes parent",
+			children:         []Action{child},
+			wantCurrentToken: "child",
+			wantActions:      1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			st := newEmptySchedulerState(t)
+			parent := st.pushAction(ctx, Action{
+				Op:             SyncGrantsOp,
+				ResourceTypeID: "group",
+				ResourceID:     "group-1",
+				PageToken:      "current",
+			})
+			s := &syncer{state: st}
+
+			require.NoError(t, s.nextPageOrFinishAction(ctx, parent, tt.nextPageToken, tt.children...))
+			require.Len(t, st.actions, tt.wantActions)
+			persistedParent := st.GetAction(parent.ID)
+			if tt.wantParent {
+				require.NotNil(t, persistedParent)
+				require.Equal(t, tt.wantParentToken, persistedParent.PageToken)
+			} else {
+				require.Nil(t, persistedParent)
+			}
+			if tt.wantCurrentToken == "" {
+				if tt.wantActions == 0 {
+					require.Nil(t, st.Current())
+				} else {
+					require.Equal(t, parent.ID, st.Current().ID)
+				}
+			} else {
+				require.NotNil(t, st.Current())
+				require.Equal(t, tt.wantCurrentToken, st.Current().PageToken)
+				require.NotEqual(t, parent.ID, st.Current().ID)
+			}
+		})
+	}
+}
+
+func TestTransitionActionValidationFailureIsAtomic(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	parent := st.pushAction(ctx, Action{
+		Op:         SyncGrantsOp,
+		ResourceID: "group-1",
+		PageToken:  "current",
+	})
+	beforeOrder := append([]string(nil), st.actionOrder...)
+	beforeCompleted := st.GetCompletedActionsCount()
+
+	_, err := st.transitionAction(ctx, parent, "next", []Action{
+		{Op: SyncGrantsOp, ResourceID: "group-1", PageToken: "valid"},
+		{ID: "already-assigned", Op: SyncGrantsOp, ResourceID: "group-1", PageToken: "invalid"},
+	})
+	require.ErrorContains(t, err, "action ID must be empty")
+	require.Equal(t, beforeOrder, st.actionOrder)
+	require.Equal(t, beforeCompleted, st.GetCompletedActionsCount())
+	require.Len(t, st.actions, 1)
+	persisted := st.GetAction(parent.ID)
+	require.NotNil(t, persisted)
+	require.Equal(t, "current", persisted.PageToken)
+}
+
+func TestLegacyPaginatedCheckpointPlansTypeScopedCollection(t *testing.T) {
+	tests := []struct {
+		name       string
+		op         ActionOp
+		annotation *v2.ResourceType
+		sync       func(*syncer, context.Context, *Action) error
+	}{
+		{
+			name: "entitlements",
+			op:   SyncEntitlementsOp,
+			annotation: v2.ResourceType_builder{
+				Id:          "group",
+				DisplayName: "Group",
+				Annotations: annotations.New(&v2.TypeScopedEntitlements{}),
+			}.Build(),
+			sync: (*syncer).SyncEntitlements,
+		},
+		{
+			name: "grants",
+			op:   SyncGrantsOp,
+			annotation: v2.ResourceType_builder{
+				Id:          "group",
+				DisplayName: "Group",
+				Annotations: annotations.New(&v2.TypeScopedGrants{}),
+			}.Build(),
+			sync: (*syncer).SyncGrants,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			st := newEmptySchedulerState(t)
+			root := st.pushAction(ctx, Action{Op: tt.op, PageToken: "legacy-page-2"})
+			s := &syncer{
+				state: st,
+				store: &legacyPaginatedCheckpointStore{resourceType: tt.annotation},
+			}
+
+			require.NoError(t, tt.sync(s, ctx, root))
+			planned := st.Current()
+			require.NotNil(t, planned)
+			require.Equal(t, tt.op, planned.Op)
+			require.Equal(t, "group", planned.ResourceTypeID)
+			require.True(t, planned.TypeScoped)
+		})
+	}
+}
+
+func TestTypeScopedPlanningFailureDoesNotCommitMarker(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	root := st.pushAction(ctx, Action{Op: SyncGrantsOp, PageToken: "legacy-page-2"})
+	store := &legacyPaginatedCheckpointStore{
+		resourceType: v2.ResourceType_builder{
+			Id:          "group",
+			DisplayName: "Group",
+			Annotations: annotations.New(&v2.TypeScopedGrants{}),
+		}.Build(),
+		listResourcesErr: errors.New("injected list-resources failure"),
+	}
+	s := &syncer{state: st, store: store}
+
+	require.ErrorContains(t, s.SyncGrants(ctx, root), "injected list-resources failure")
+	persisted := st.GetAction(root.ID)
+	require.NotNil(t, persisted)
+	require.False(t, persisted.TypeScopedPlanned)
+
+	store.listResourcesErr = nil
+	require.NoError(t, s.SyncGrants(ctx, persisted))
+	planned := st.Current()
+	require.NotNil(t, planned)
+	require.True(t, planned.TypeScoped)
+	require.Equal(t, "group", planned.ResourceTypeID)
+}
+
+func TestTypeScopedPlanningMarkerSurvivesCheckpoint(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	root := st.pushAction(ctx, Action{Op: SyncGrantsOp, PageToken: "legacy-page-2"})
+	store := &legacyPaginatedCheckpointStore{
+		resourceType: v2.ResourceType_builder{
+			Id:          "group",
+			DisplayName: "Group",
+			Annotations: annotations.New(&v2.TypeScopedGrants{}),
+		}.Build(),
+		nextPageToken: "page-3",
+	}
+	s := &syncer{state: st, store: store}
+
+	require.NoError(t, s.SyncGrants(ctx, root))
+	planned := st.Current()
+	require.NotNil(t, planned)
+	require.True(t, planned.TypeScoped)
+	st.FinishAction(ctx, planned)
+	resumedRoot := st.Current()
+	require.NotNil(t, resumedRoot)
+	require.True(t, resumedRoot.TypeScopedPlanned)
+	require.Equal(t, "page-3", resumedRoot.PageToken)
+
+	token, err := st.Marshal()
+	require.NoError(t, err)
+	resumed := newState()
+	require.NoError(t, resumed.Unmarshal(token))
+	require.True(t, resumed.Current().TypeScopedPlanned)
 }
 
 func TestSyncParallelErrorAbortsQueuedWorkAndCancelsPeer(t *testing.T) {

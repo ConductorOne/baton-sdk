@@ -218,11 +218,10 @@ type syncer struct {
 	metricsHandler                        metrics.Handler
 	syncIdentity                          uotel.SyncIdentity
 	recordStats                           bool
-	// parallelActionEnqueuer admits actions spawned by an in-flight list
-	// response into the active worker pool. Access only through the helper
-	// methods in parallel_syncer.go.
-	parallelEnqueueMu      native_sync.RWMutex
-	parallelActionEnqueuer func(*Action)
+	// parallelActionTransitioner atomically commits parent pagination and
+	// spawned work to state and the active worker pool.
+	parallelTransitionMu       native_sync.RWMutex
+	parallelActionTransitioner func(context.Context, *Action, string, []Action) error
 
 	// Watermark for the rate_limit_wait_wall bucket: the latest instant
 	// already counted as rate-limit-blocked wall time, plus the
@@ -681,6 +680,13 @@ func collectionProgressIncrement(action *Action, itemCount int, hasNextPage bool
 	return 0, false
 }
 
+func (s *syncer) markTypeScopedPlanned(action *Action) {
+	action.TypeScopedPlanned = true
+	if st, ok := s.state.(*state); ok {
+		st.markTypeScopedPlanned(action.ID)
+	}
+}
+
 // maxEntitlementsPerExclusionGroup caps how many entitlements may share a
 // single exclusion_group_id. Phase 1 limit. Enforced by ingestion
 // invariant I5 over the STORED entitlement keyspace post-collection
@@ -692,28 +698,38 @@ const maxEntitlementsPerExclusionGroup = 50
 // It also pushes any child actions before updating/finishing the action.
 // This is useful for pagination, and for actions that create other actions.
 func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nextPageToken string, childActions ...Action) error {
+	s.parallelTransitionMu.RLock()
+	transitioner := s.parallelActionTransitioner
+	s.parallelTransitionMu.RUnlock()
+	if transitioner != nil {
+		return transitioner(ctx, action, nextPageToken, childActions)
+	}
+
+	_, err := s.transitionActionState(ctx, action, nextPageToken, childActions)
+	return err
+}
+
+func (s *syncer) transitionActionState(
+	ctx context.Context,
+	action *Action,
+	nextPageToken string,
+	childActions []Action,
+) ([]*Action, error) {
+	if st, ok := s.state.(*state); ok {
+		return st.transitionAction(ctx, action, nextPageToken, childActions)
+	}
 	if nextPageToken != "" {
-		err := s.state.NextPage(ctx, action.ID, nextPageToken)
-		if err != nil {
-			return err
+		if err := s.state.NextPage(ctx, action.ID, nextPageToken); err != nil {
+			return nil, err
 		}
 	}
-
-	for _, a := range childActions {
-		var pushed *Action
-		if st, ok := s.state.(*state); ok {
-			pushed = st.pushAction(ctx, a)
-		} else {
-			s.state.PushAction(ctx, a)
-		}
-		s.enqueueParallelAction(pushed)
+	for _, child := range childActions {
+		s.state.PushAction(ctx, child)
 	}
-
 	if nextPageToken == "" {
 		s.state.FinishAction(ctx, action)
 	}
-
-	return nil
+	return nil, nil
 }
 
 func isWarning(ctx context.Context, err error) bool {
@@ -1208,19 +1224,37 @@ func (s *syncer) hasChildResources(resource *v2.Resource) bool {
 // At sync scale (100k+ resources per trace) the span overhead and trace bloat
 // outweighed any debugging value.
 func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error {
+	actions, err := s.subResourceActions(parent)
+	if err != nil {
+		return err
+	}
+	for _, action := range actions {
+		s.state.PushAction(ctx, action)
+	}
+	return nil
+}
+
+func (s *syncer) subResourceActions(parent *v2.Resource) ([]Action, error) {
+	childTypeIDs, err := childResourceTypeIDs(parent)
+	if err != nil {
+		return nil, err
+	}
+	return s.childResourceActions(childTypeIDs, parent.GetId().GetResourceType(), parent.GetId().GetResource()), nil
+}
+
+func childResourceTypeIDs(parent *v2.Resource) ([]string, error) {
 	var childTypeIDs []string
 	for _, a := range parent.GetAnnotations() {
 		if a.MessageIs((*v2.ChildResourceType)(nil)) {
 			crt := &v2.ChildResourceType{}
 			err := a.UnmarshalTo(crt)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			childTypeIDs = append(childTypeIDs, crt.GetResourceTypeId())
 		}
 	}
-	s.pushChildResourceActions(ctx, childTypeIDs, parent.GetId().GetResourceType(), parent.GetId().GetResource())
-	return nil
+	return childTypeIDs, nil
 }
 
 // pushChildResourceActions queues child resource syncs for one parent,
@@ -1229,6 +1263,13 @@ func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error
 // resource can schedule its children through the same evidence-recorded
 // seam.
 func (s *syncer) pushChildResourceActions(ctx context.Context, childTypeIDs []string, parentTypeID, parentID string) {
+	for _, action := range s.childResourceActions(childTypeIDs, parentTypeID, parentID) {
+		s.state.PushAction(ctx, action)
+	}
+}
+
+func (s *syncer) childResourceActions(childTypeIDs []string, parentTypeID, parentID string) []Action {
+	var actions []Action
 	for _, childTypeID := range childTypeIDs {
 		if len(s.syncResourceTypes) > 0 && !slices.Contains(s.syncResourceTypes, childTypeID) {
 			continue
@@ -1242,13 +1283,33 @@ func (s *syncer) pushChildResourceActions(ctx context.Context, childTypeIDs []st
 		if !s.childSchedule.recordIfNew(childTypeID, parentTypeID, parentID) {
 			continue
 		}
-		s.state.PushAction(ctx, Action{
+		actions = append(actions, Action{
 			Op:                   SyncResourcesOp,
 			ResourceTypeID:       childTypeID,
 			ParentResourceID:     parentID,
 			ParentResourceTypeID: parentTypeID,
 		})
 	}
+	return actions
+}
+
+func (s *syncer) pendingChildResourceActions(childTypeIDs []string, parentTypeID, parentID string) []Action {
+	var actions []Action
+	for _, childTypeID := range childTypeIDs {
+		if len(s.syncResourceTypes) > 0 && !slices.Contains(s.syncResourceTypes, childTypeID) {
+			continue
+		}
+		if s.childSchedule.has(childTypeID, parentTypeID, parentID) {
+			continue
+		}
+		actions = append(actions, Action{
+			Op:                   SyncResourcesOp,
+			ResourceTypeID:       childTypeID,
+			ParentResourceID:     parentID,
+			ParentResourceTypeID: parentTypeID,
+		})
+	}
+	return actions
 }
 
 func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
@@ -1313,8 +1374,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 
 	// If getResource encounters not found or unimplemented, it returns a nil resource and nil error.
 	if resource == nil {
-		s.state.FinishAction(ctx, action)
-		return nil
+		return s.nextPageOrFinishAction(ctx, action, "")
 	}
 
 	// Save our resource in the DB
@@ -1322,9 +1382,8 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 		return err
 	}
 
-	s.state.FinishAction(ctx, action)
-
 	// Actions happen in reverse order. We want to sync child resources, then entitlements, then grants
+	var followupActions []Action
 
 	shouldSkipGrants, err := s.shouldSkipGrants(ctx, resource)
 	if err != nil {
@@ -1336,7 +1395,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 			return err
 		}
 		if !typeScopedGrants {
-			s.state.PushAction(ctx, Action{
+			followupActions = append(followupActions, Action{
 				Op:             SyncGrantsOp,
 				ResourceTypeID: resourceTypeID,
 				ResourceID:     resourceID,
@@ -1355,7 +1414,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 			return err
 		}
 		if !typeScopedEnts {
-			s.state.PushAction(ctx, Action{
+			followupActions = append(followupActions, Action{
 				Op:             SyncEntitlementsOp,
 				ResourceTypeID: resourceTypeID,
 				ResourceID:     resourceID,
@@ -1363,11 +1422,19 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 		}
 	}
 
-	err = s.getSubResources(ctx, resource)
+	childTypeIDs, err := childResourceTypeIDs(resource)
 	if err != nil {
 		return err
 	}
+	childActions := s.pendingChildResourceActions(childTypeIDs, resourceTypeID, resourceID)
+	followupActions = append(followupActions, childActions...)
 
+	if err := s.nextPageOrFinishAction(ctx, action, "", followupActions...); err != nil {
+		return err
+	}
+	for _, childAction := range childActions {
+		s.childSchedule.recordIfNew(childAction.ResourceTypeID, childAction.ParentResourceTypeID, childAction.ParentResourceID)
+	}
 	return nil
 }
 
@@ -1647,11 +1714,14 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 	if action.ResourceTypeID == "" && action.ResourceID == "" {
 		actions := make([]Action, 0)
 		pageToken := action.PageToken
+		plannedTypeScoped := false
 
 		if pageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing entitlements...")
 			s.handleInitialActionForStep(ctx, *action)
+		}
 
+		if !action.TypeScopedPlanned {
 			typeScoped, err := s.typeScopedEntitlementsResourceTypes(ctx)
 			if err != nil {
 				return fmt.Errorf("sync-entitlements: error listing type-scoped resource types: %w", err)
@@ -1659,6 +1729,7 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 			for _, rtID := range typeScoped {
 				actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceTypeID: rtID, TypeScoped: true})
 			}
+			plannedTypeScoped = true
 		}
 
 		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
@@ -1687,7 +1758,13 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 			actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 		}
 
-		return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...)
+		if err := s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...); err != nil {
+			return err
+		}
+		if plannedTypeScoped {
+			s.markTypeScopedPlanned(action)
+		}
+		return nil
 	}
 
 	err = s.syncEntitlementsForResource(ctx, action)
@@ -2193,10 +2270,13 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 
 	if action.ResourceTypeID == "" && action.ResourceID == "" {
 		actions := make([]Action, 0)
+		plannedTypeScoped := false
 		if action.PageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing grants...")
 			s.handleInitialActionForStep(ctx, *action)
+		}
 
+		if !action.TypeScopedPlanned {
 			typeScoped, err := s.typeScopedGrantsResourceTypes(ctx)
 			if err != nil {
 				return fmt.Errorf("sync-grants: error listing type-scoped resource types: %w", err)
@@ -2204,6 +2284,7 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 			for _, rtID := range typeScoped {
 				actions = append(actions, Action{Op: SyncGrantsOp, ResourceTypeID: rtID, TypeScoped: true})
 			}
+			plannedTypeScoped = true
 		}
 
 		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
@@ -2233,7 +2314,13 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 			actions = append(actions, Action{Op: SyncGrantsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 		}
 
-		return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...)
+		if err := s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...); err != nil {
+			return err
+		}
+		if plannedTypeScoped {
+			s.markTypeScopedPlanned(action)
+		}
+		return nil
 	}
 	err = s.syncGrantsForResource(ctx, action)
 	if err != nil {

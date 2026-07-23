@@ -2,6 +2,7 @@ package sync //nolint:revive,nolintlint // backwards-compatible package name
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -86,6 +87,54 @@ type resumableTypeScopedConnector struct {
 	*coldTypeScopedConnector
 	failGrantToken string
 	failedOnce     bool
+}
+
+type blockingTypeScopedGrantConnector struct {
+	*mockConnector
+}
+
+type blockingRootListResourcesStore struct {
+	c1zstore.Store
+	blocked atomic.Bool
+}
+
+func (s *blockingRootListResourcesStore) ListResources(
+	ctx context.Context,
+	_ *v2.ResourcesServiceListResourcesRequest,
+) (*v2.ResourcesServiceListResourcesResponse, error) {
+	if s.blocked.CompareAndSwap(false, true) {
+		select {
+		case <-ctx.Done():
+			return nil, context.Cause(ctx)
+		case <-time.After(2 * time.Second):
+			return nil, errors.New("test safety stop: root planner ignored run duration")
+		}
+	}
+	return v2.ResourcesServiceListResourcesResponse_builder{}.Build(), nil
+}
+
+func (c *blockingTypeScopedGrantConnector) ListGrants(
+	ctx context.Context,
+	in *v2.GrantsServiceListGrantsRequest,
+	_ ...grpc.CallOption,
+) (*v2.GrantsServiceListGrantsResponse, error) {
+	reqAnnos := annotations.Annotations(in.GetAnnotations())
+	if !reqAnnos.Contains(&v2.TypeScopedGrants{}) {
+		return v2.GrantsServiceListGrantsResponse_builder{}.Build(), nil
+	}
+	if in.GetPageToken() == "" {
+		return v2.GrantsServiceListGrantsResponse_builder{
+			Annotations: annotations.New(v2.EnqueuePageTokens_builder{
+				PageTokens: []string{"slow"},
+			}.Build()),
+		}.Build(), nil
+	}
+	select {
+	case <-ctx.Done():
+		return nil, context.Cause(ctx)
+	case <-time.After(time.Second):
+		return nil, errors.New("test safety stop: active batch ignored run duration")
+	}
 }
 
 func (c *resumableTypeScopedConnector) ListGrants(
@@ -428,6 +477,53 @@ func TestTargetedSyncSkipsPerResourceCallsForTypeScopedType(t *testing.T) {
 	require.Zero(t, connector.grantCalls)
 }
 
+func TestTargetedResourceSchedulingFailureLeavesParentAndNoFollowups(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	resourceType := v2.ResourceType_builder{
+		Id:          "group",
+		DisplayName: "Group",
+	}.Build()
+	malformedChildType, err := anypb.New(&v2.ChildResourceType{})
+	require.NoError(t, err)
+	malformedChildType.Value = []byte{0xff}
+	resource := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: "group",
+			Resource:     "group-1",
+		}.Build(),
+		DisplayName: "Group 1",
+		Annotations: []*anypb.Any{malformedChildType},
+	}.Build()
+	connector := newMockConnector()
+	connector.rtDB = append(connector.rtDB, resourceType)
+	connector.resourceDB["group"] = append(connector.resourceDB["group"], resource)
+
+	s, err := NewSyncer(ctx, connector,
+		WithC1ZPath(filepath.Join(tmpDir, "targeted-transition.c1z")),
+		WithTmpDir(tmpDir),
+		WithTargetedSyncResources([]*v2.Resource{resource}),
+		WithWorkerCount(2),
+	)
+	require.NoError(t, err)
+	require.Error(t, s.Sync(ctx))
+
+	internalState := s.(*syncer).state.(*state)
+	var targetedActions, followupActions int
+	for _, action := range internalState.actions {
+		switch action.Op {
+		case SyncTargetedResourceOp:
+			targetedActions++
+			require.Equal(t, "group-1", action.ResourceID)
+		case SyncEntitlementsOp, SyncGrantsOp, SyncResourcesOp:
+			followupActions++
+		}
+	}
+	require.Equal(t, 1, targetedActions)
+	require.Zero(t, followupActions)
+	require.NoError(t, s.Close(ctx))
+}
+
 func TestTypeScopedColdCollectionEndToEnd(t *testing.T) {
 	for _, workers := range []int{1, 4} {
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
@@ -584,4 +680,68 @@ func TestTypeScopedFanoutResumesAfterStoredCursorFailure(t *testing.T) {
 	require.Len(t, grantResp.GetList(), 2)
 	require.NoError(t, s.Close(ctx))
 	require.True(t, connector.failedOnce)
+}
+
+func TestRunDurationCancelsActiveSpawnedCursorBatch(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	resourceType := v2.ResourceType_builder{
+		Id:          "group",
+		DisplayName: "Group",
+		Annotations: annotations.New(&v2.TypeScopedGrants{}),
+	}.Build()
+	connector := &blockingTypeScopedGrantConnector{mockConnector: newMockConnector()}
+	connector.rtDB = append(connector.rtDB, resourceType)
+
+	s, err := NewSyncer(ctx, connector,
+		WithC1ZPath(filepath.Join(tmpDir, "run-duration.c1z")),
+		WithTmpDir(tmpDir),
+		WithWorkerCount(2),
+		WithRunDuration(50*time.Millisecond),
+	)
+	require.NoError(t, err)
+	started := time.Now()
+	err = s.Sync(ctx)
+	require.ErrorIs(t, err, ErrSyncNotComplete)
+	require.Less(t, time.Since(started), 500*time.Millisecond)
+	require.NoError(t, s.Close(ctx))
+}
+
+func TestRunDurationCancelsRootPlannerIO(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	resourceType := v2.ResourceType_builder{
+		Id:          "group",
+		DisplayName: "Group",
+	}.Build()
+	resource := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: "group",
+			Resource:     "group-1",
+		}.Build(),
+		DisplayName: "Group 1",
+	}.Build()
+	connector := newMockConnector()
+	connector.rtDB = append(connector.rtDB, resourceType)
+	connector.resourceDB["group"] = append(connector.resourceDB["group"], resource)
+
+	baseStore, err := dotc1z.NewStore(ctx, filepath.Join(tmpDir, "root-run-duration.c1z"),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	store := &blockingRootListResourcesStore{Store: baseStore}
+	s, err := NewSyncer(ctx, connector,
+		WithConnectorStore(store),
+		WithTmpDir(tmpDir),
+		WithWorkerCount(2),
+		WithRunDuration(300*time.Millisecond),
+	)
+	require.NoError(t, err)
+
+	started := time.Now()
+	err = s.Sync(ctx)
+	require.ErrorIs(t, err, ErrSyncNotComplete)
+	require.True(t, store.blocked.Load())
+	require.Less(t, time.Since(started), time.Second)
+	require.NoError(t, s.Close(ctx))
 }

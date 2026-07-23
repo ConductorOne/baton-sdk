@@ -2,6 +2,8 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	native_sync "sync"
@@ -135,6 +137,14 @@ func (s *syncer) parallelSync(
 	targetedResources []*v2.Resource,
 ) ([]error, error) {
 	l := ctxzap.Extract(ctx)
+	workerCtx, cancelWorkers := context.WithCancelCause(ctx)
+	stopWorkers := context.AfterFunc(runCtx, func() {
+		cancelWorkers(context.Cause(runCtx))
+	})
+	defer func() {
+		stopWorkers()
+		cancelWorkers(nil)
+	}()
 
 	// Retry backoff sleeps report through the context wait observer
 	// installed at the top of Sync, like every other in-process sleep site.
@@ -252,49 +262,49 @@ func (s *syncer) parallelSync(
 
 		case SyncResourceTypesOp:
 			err = s.timedStep(SyncResourceTypesOp, func() error {
-				return s.SyncResourceTypes(ctx, stateAction)
+				return s.SyncResourceTypes(workerCtx, stateAction)
 			})
-			if !s.timedShouldWaitAndRetry(ctx, SyncResourceTypesOp, stateAction.ResourceTypeID, retryer, err) {
-				return warnings, err
+			if !s.timedShouldWaitAndRetry(workerCtx, SyncResourceTypesOp, stateAction.ResourceTypeID, retryer, err) {
+				return s.handleOperationError(ctx, runCtx, warnings, err)
 			}
 			continue
 
 		case SyncResourcesOp:
 			if stateAction.ResourceTypeID == "" && stateAction.ResourceID == "" {
 				err = s.timedStep(SyncResourcesOp, func() error {
-					return s.SyncResources(ctx, stateAction)
+					return s.SyncResources(workerCtx, stateAction)
 				})
-				if !s.timedShouldWaitAndRetry(ctx, SyncResourcesOp, stateAction.ResourceTypeID, retryer, err) {
-					return warnings, err
+				if !s.timedShouldWaitAndRetry(workerCtx, SyncResourcesOp, stateAction.ResourceTypeID, retryer, err) {
+					return s.handleOperationError(ctx, runCtx, warnings, err)
 				}
 				continue
 			}
 			resourceActions := s.state.PeekMatchingActions(ctx, SyncResourcesOp)
 			err = s.timedStep(SyncResourcesOp, func() error {
-				w, syncErr := s.syncParallel(ctx, retryer, resourceActions, s.SyncResources)
+				w, syncErr := s.syncParallel(workerCtx, retryer, resourceActions, s.SyncResources)
 				warnings = append(warnings, w...)
 				return syncErr
 			})
 			if err != nil {
-				return warnings, err
+				return s.handleOperationError(ctx, runCtx, warnings, err)
 			}
 			continue
 
 		case SyncTargetedResourceOp:
 			targetedResourceActions := s.state.PeekMatchingActions(ctx, SyncTargetedResourceOp)
 			err = s.timedStep(SyncTargetedResourceOp, func() error {
-				w, syncErr := s.syncParallel(ctx, retryer, targetedResourceActions, s.SyncTargetedResource)
+				w, syncErr := s.syncParallel(workerCtx, retryer, targetedResourceActions, s.SyncTargetedResource)
 				warnings = append(warnings, w...)
 				return syncErr
 			})
 			if err != nil {
-				return warnings, err
+				return s.handleOperationError(ctx, runCtx, warnings, err)
 			}
 			continue
 
 		case SyncStaticEntitlementsOp:
 			err = s.timedStep(SyncStaticEntitlementsOp, func() error {
-				return s.SyncStaticEntitlements(ctx, stateAction)
+				return s.SyncStaticEntitlements(workerCtx, stateAction)
 			})
 			if isWarning(ctx, err) {
 				l.Warn("skipping sync static entitlements action", zap.Any("stateAction", stateAction), zap.Error(err))
@@ -302,14 +312,14 @@ func (s *syncer) parallelSync(
 				s.state.FinishAction(ctx, stateAction)
 				continue
 			}
-			if !s.timedShouldWaitAndRetry(ctx, SyncStaticEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
-				return warnings, err
+			if !s.timedShouldWaitAndRetry(workerCtx, SyncStaticEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
+				return s.handleOperationError(ctx, runCtx, warnings, err)
 			}
 			continue
 		case SyncEntitlementsOp:
 			if stateAction.ResourceTypeID == "" && stateAction.ResourceID == "" {
 				err = s.timedStep(SyncEntitlementsOp, func() error {
-					return s.SyncEntitlements(ctx, stateAction)
+					return s.SyncEntitlements(workerCtx, stateAction)
 				})
 				if isWarning(ctx, err) {
 					l.Warn("skipping sync entitlement action", zap.Any("stateAction", stateAction), zap.Error(err))
@@ -317,26 +327,26 @@ func (s *syncer) parallelSync(
 					s.state.FinishAction(ctx, stateAction)
 					continue
 				}
-				if !s.timedShouldWaitAndRetry(ctx, SyncEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
-					return warnings, err
+				if !s.timedShouldWaitAndRetry(workerCtx, SyncEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
+					return s.handleOperationError(ctx, runCtx, warnings, err)
 				}
 				continue
 			}
 			entitlementActions := s.state.PeekMatchingActions(ctx, SyncEntitlementsOp)
 			err = s.timedStep(SyncEntitlementsOp, func() error {
-				w, syncErr := s.syncParallel(ctx, retryer, entitlementActions, s.SyncEntitlements)
+				w, syncErr := s.syncParallel(workerCtx, retryer, entitlementActions, s.SyncEntitlements)
 				warnings = append(warnings, w...)
 				return syncErr
 			})
 			if err != nil {
-				return warnings, err
+				return s.handleOperationError(ctx, runCtx, warnings, err)
 			}
 			continue
 
 		case SyncGrantsOp:
 			if stateAction.ResourceTypeID == "" && stateAction.ResourceID == "" {
 				err = s.timedStep(SyncGrantsOp, func() error {
-					return s.SyncGrants(ctx, stateAction)
+					return s.SyncGrants(workerCtx, stateAction)
 				})
 				if isWarning(ctx, err) {
 					l.Warn("skipping sync grant action", zap.Any("stateAction", stateAction), zap.Error(err))
@@ -344,37 +354,37 @@ func (s *syncer) parallelSync(
 					s.state.FinishAction(ctx, stateAction)
 					continue
 				}
-				if !s.timedShouldWaitAndRetry(ctx, SyncGrantsOp, stateAction.ResourceTypeID, retryer, err) {
-					return warnings, err
+				if !s.timedShouldWaitAndRetry(workerCtx, SyncGrantsOp, stateAction.ResourceTypeID, retryer, err) {
+					return s.handleOperationError(ctx, runCtx, warnings, err)
 				}
 				continue
 			}
 
 			grantActions := s.state.PeekMatchingActions(ctx, SyncGrantsOp)
 			err = s.timedStep(SyncGrantsOp, func() error {
-				w, syncErr := s.syncParallel(ctx, retryer, grantActions, s.SyncGrants)
+				w, syncErr := s.syncParallel(workerCtx, retryer, grantActions, s.SyncGrants)
 				warnings = append(warnings, w...)
 				return syncErr
 			})
 			if err != nil {
-				return warnings, err
+				return s.handleOperationError(ctx, runCtx, warnings, err)
 			}
 			continue
 
 		case SyncExternalResourcesOp:
 			err = s.timedStep(SyncExternalResourcesOp, func() error {
-				return s.SyncExternalResources(ctx, stateAction)
+				return s.SyncExternalResources(workerCtx, stateAction)
 			})
-			if !s.timedShouldWaitAndRetry(ctx, SyncExternalResourcesOp, stateAction.ResourceTypeID, retryer, err) {
-				return warnings, err
+			if !s.timedShouldWaitAndRetry(workerCtx, SyncExternalResourcesOp, stateAction.ResourceTypeID, retryer, err) {
+				return s.handleOperationError(ctx, runCtx, warnings, err)
 			}
 			continue
 		case SyncAssetsOp:
 			err = s.timedStep(SyncAssetsOp, func() error {
-				return s.SyncAssets(ctx, stateAction)
+				return s.SyncAssets(workerCtx, stateAction)
 			})
-			if !s.timedShouldWaitAndRetry(ctx, SyncAssetsOp, stateAction.ResourceTypeID, retryer, err) {
-				return warnings, err
+			if !s.timedShouldWaitAndRetry(workerCtx, SyncAssetsOp, stateAction.ResourceTypeID, retryer, err) {
+				return s.handleOperationError(ctx, runCtx, warnings, err)
 			}
 			continue
 
@@ -400,9 +410,9 @@ func (s *syncer) parallelSync(
 				continue
 			}
 
-			err = s.SyncGrantExpansion(ctx, stateAction)
-			if !retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, stateAction.ResourceTypeID), err) {
-				return warnings, err
+			err = s.SyncGrantExpansion(workerCtx, stateAction)
+			if !retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(workerCtx, stateAction.ResourceTypeID), err) {
+				return s.handleOperationError(ctx, runCtx, warnings, err)
 			}
 			continue
 		default:
@@ -410,6 +420,19 @@ func (s *syncer) parallelSync(
 		}
 	}
 	return warnings, nil
+}
+
+func (s *syncer) handleOperationError(
+	ctx context.Context,
+	runCtx context.Context,
+	warnings []error,
+	batchErr error,
+) ([]error, error) {
+	if !errors.Is(context.Cause(runCtx), context.DeadlineExceeded) {
+		return warnings, batchErr
+	}
+	checkpointErr := s.Checkpoint(ctx, true)
+	return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
 }
 
 func tooManyWarnings(warningCount int, completedActionsCount uint64) bool {
@@ -423,40 +446,138 @@ type workerResult struct {
 	err     error
 }
 
+const maxSpawnedCursorsPerBatch = 100_000
+
 // parallelActionQueue is a dynamically extensible worker queue. outstanding
 // counts queued plus in-flight actions, so workers stop only after the whole
 // fan-out drains. An in-flight action may enqueue siblings before completing;
 // therefore outstanding cannot transiently reach zero between parent and child.
 type parallelActionQueue struct {
+	// mu guards every field below, including the fixed-size cursor digest set.
 	mu          native_sync.Mutex
 	cond        *native_sync.Cond
 	actions     []*Action
 	head        int
 	outstanding int
 	aborted     bool
+	seen        map[parallelActionKey]struct{}
+}
+
+type parallelActionKey [sha256.Size]byte
+
+func makeParallelActionKey(action *Action) parallelActionKey {
+	hasher := sha256.New()
+	header := [2]byte{byte(action.Op)}
+	if action.TypeScoped {
+		header[1] = 1
+	}
+	_, _ = hasher.Write(header[:])
+	for _, value := range []string{
+		action.ResourceTypeID,
+		action.ResourceID,
+		action.ParentResourceTypeID,
+		action.ParentResourceID,
+		action.PageToken,
+	} {
+		var length [8]byte
+		binary.BigEndian.PutUint64(length[:], uint64(len(value)))
+		_, _ = hasher.Write(length[:])
+		_, _ = hasher.Write([]byte(value))
+	}
+	var key parallelActionKey
+	hasher.Sum(key[:0])
+	return key
 }
 
 func newParallelActionQueue(actions []*Action) *parallelActionQueue {
 	q := &parallelActionQueue{
 		actions:     append([]*Action(nil), actions...),
 		outstanding: len(actions),
+		seen:        make(map[parallelActionKey]struct{}, len(actions)),
+	}
+	for _, action := range actions {
+		if action != nil {
+			q.seen[makeParallelActionKey(action)] = struct{}{}
+		}
 	}
 	q.cond = native_sync.NewCond(&q.mu)
 	return q
 }
 
-func (q *parallelActionQueue) enqueue(action *Action) {
-	if action == nil {
-		return
-	}
+func (q *parallelActionQueue) transition(
+	batchOp ActionOp,
+	parent *Action,
+	nextPageToken string,
+	childActions []Action,
+	commit func() ([]*Action, error),
+) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.aborted {
-		return
+		return context.Canceled
 	}
-	q.actions = append(q.actions, action)
-	q.outstanding++
-	q.cond.Signal()
+
+	keys := make(map[parallelActionKey]struct{}, len(childActions)+1)
+	if nextPageToken != "" && parent != nil && parent.Op == batchOp {
+		continuedParent := *parent
+		continuedParent.PageToken = nextPageToken
+		key := makeParallelActionKey(&continuedParent)
+		if _, ok := q.seen[key]; ok {
+			return fmt.Errorf(
+				"duplicate or cyclic spawned cursor for op %s, resource type %q, resource %q, page token %q",
+				parent.Op.String(),
+				parent.ResourceTypeID,
+				parent.ResourceID,
+				nextPageToken,
+			)
+		}
+		keys[key] = struct{}{}
+	}
+	for i := range childActions {
+		child := &childActions[i]
+		if child.Op != batchOp {
+			continue
+		}
+		key := makeParallelActionKey(child)
+		if _, ok := q.seen[key]; ok {
+			return fmt.Errorf(
+				"duplicate or cyclic spawned cursor for op %s, resource type %q, resource %q, page token %q",
+				child.Op.String(),
+				child.ResourceTypeID,
+				child.ResourceID,
+				child.PageToken,
+			)
+		}
+		if _, ok := keys[key]; ok {
+			return fmt.Errorf(
+				"duplicate or cyclic spawned cursor for op %s, resource type %q, resource %q, page token %q",
+				child.Op.String(),
+				child.ResourceTypeID,
+				child.ResourceID,
+				child.PageToken,
+			)
+		}
+		keys[key] = struct{}{}
+	}
+	if len(q.seen)+len(keys) > maxSpawnedCursorsPerBatch {
+		return fmt.Errorf("spawned cursor batch exceeded the maximum of %d unique cursors", maxSpawnedCursorsPerBatch)
+	}
+
+	pushed, err := commit()
+	if err != nil {
+		return err
+	}
+	for key := range keys {
+		q.seen[key] = struct{}{}
+	}
+	for _, action := range pushed {
+		if action != nil && action.Op == batchOp {
+			q.actions = append(q.actions, action)
+			q.outstanding++
+		}
+	}
+	q.cond.Broadcast()
+	return nil
 }
 
 func (q *parallelActionQueue) next() (*Action, bool) {
@@ -498,19 +619,12 @@ func (q *parallelActionQueue) abort() {
 	q.cond.Broadcast()
 }
 
-func (s *syncer) setParallelActionEnqueuer(enqueue func(*Action)) {
-	s.parallelEnqueueMu.Lock()
-	defer s.parallelEnqueueMu.Unlock()
-	s.parallelActionEnqueuer = enqueue
-}
-
-func (s *syncer) enqueueParallelAction(action *Action) {
-	s.parallelEnqueueMu.RLock()
-	enqueue := s.parallelActionEnqueuer
-	s.parallelEnqueueMu.RUnlock()
-	if enqueue != nil {
-		enqueue(action)
-	}
+func (s *syncer) setParallelActionTransitioner(
+	transition func(context.Context, *Action, string, []Action) error,
+) {
+	s.parallelTransitionMu.Lock()
+	defer s.parallelTransitionMu.Unlock()
+	s.parallelActionTransitioner = transition
 }
 
 func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actions []*Action, f func(ctx context.Context, action *Action) error) ([]error, error) {
@@ -540,12 +654,17 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	defer cancel(nil)
 
 	queue := newParallelActionQueue(actions)
-	s.setParallelActionEnqueuer(func(action *Action) {
-		if action.Op == batchOp {
-			queue.enqueue(action)
-		}
+	s.setParallelActionTransitioner(func(
+		transitionCtx context.Context,
+		parent *Action,
+		nextPageToken string,
+		childActions []Action,
+	) error {
+		return queue.transition(batchOp, parent, nextPageToken, childActions, func() ([]*Action, error) {
+			return s.transitionActionState(transitionCtx, parent, nextPageToken, childActions)
+		})
 	})
-	defer s.setParallelActionEnqueuer(nil)
+	defer s.setParallelActionTransitioner(nil)
 
 	var resultsMu native_sync.Mutex
 	var warnings []error

@@ -3,6 +3,7 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -198,6 +199,10 @@ type Action struct {
 	// malformed connector resources with empty ids can exist in old stores
 	// and must retain the pre-type-scoped per-resource behavior.
 	TypeScoped bool `json:"type_scoped,omitempty"`
+	// TypeScopedPlanned records that a root entitlement/grant action has
+	// already scheduled whole-type collection. Legacy checkpoints omit it,
+	// causing an upgraded syncer to plan type-scoped work once on resume.
+	TypeScopedPlanned bool `json:"type_scoped_planned,omitempty"`
 }
 
 var _ State = &state{}
@@ -647,6 +652,69 @@ func (st *state) pushAction(ctx context.Context, action Action) *Action {
 	st.actionOrder = append(st.actionOrder, action.ID)
 	ctxzap.Extract(ctx).Debug("pushed action", zap.Any("action", action))
 	return &action
+}
+
+func (st *state) markTypeScopedPlanned(actionID string) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+	action, ok := st.actions[actionID]
+	if !ok {
+		return
+	}
+	action.TypeScopedPlanned = true
+	st.actions[actionID] = action
+}
+
+func (st *state) transitionAction(
+	ctx context.Context,
+	parent *Action,
+	nextPageToken string,
+	childActions []Action,
+) ([]*Action, error) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+	if parent == nil {
+		return nil, errors.New("parent action cannot be nil")
+	}
+	if _, ok := st.actions[parent.ID]; !ok {
+		return nil, fmt.Errorf("action ID %s does not exist", parent.ID)
+	}
+	for _, child := range childActions {
+		if child.ID != "" {
+			return nil, errors.New("action ID must be empty for new actions")
+		}
+	}
+
+	pushed := make([]*Action, 0, len(childActions))
+	for _, child := range childActions {
+		child.ID = makeActionID(st.currentActionID)
+		st.currentActionID++
+		if _, ok := st.actions[child.ID]; ok {
+			panic(fmt.Sprintf("action ID for new action %s already exists", child.ID))
+		}
+		st.actions[child.ID] = child
+		st.actionOrder = append(st.actionOrder, child.ID)
+		childCopy := child
+		pushed = append(pushed, &childCopy)
+		ctxzap.Extract(ctx).Debug("pushed action", zap.Any("action", child))
+	}
+
+	if nextPageToken != "" {
+		updated := st.actions[parent.ID]
+		updated.PageToken = nextPageToken
+		st.actions[parent.ID] = updated
+		return pushed, nil
+	}
+
+	index, ok := slices.BinarySearch(st.actionOrder, parent.ID)
+	if !ok {
+		panic(fmt.Sprintf("action ID %s does not exist in action order", parent.ID))
+	}
+	st.actionOrder = slices.Delete(st.actionOrder, index, index+1)
+	delete(st.actions, parent.ID)
+	st.completedActionsCount++
+	ctxzap.Extract(ctx).Debug("finishing action", zap.Any("action", parent))
+	return pushed, nil
 }
 
 // FinishAction pops the current action from the state.
