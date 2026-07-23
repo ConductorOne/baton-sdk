@@ -7,6 +7,7 @@ import (
 var xmlContentTypes []string = []string{
 	"text/xml",
 	"application/xml",
+	"application/soap+xml",
 }
 
 func IsJSONContentType(contentType string) bool {
