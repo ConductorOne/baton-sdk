@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package c1.connectorapi.baton.v1;
+
+option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
+
+// ServedPolicyEnvelope is the server-computed policy object delivered on the
+// connector-config response. It is never connector-authored and is distinct
+// from any author-editable runtime policy file: the server assembles it per
+// response from the connector revision's sealed records and the same config
+// read the response returns.
+//
+// The envelope is optional on the response: connectors without sealed policy
+// records are served without one. Runtimes that require an envelope treat
+// absence, an unparseable envelope, an unsupported version, a missing
+// section, or any binding mismatch below as deny-all. A bad section poisons
+// the whole envelope; there are no partial installs.
+//
+// Every digest field is lowercase hex with its algorithm bound to a version
+// field — envelope_version, except the egress rules digest, which binds to
+// the egress section's own schema_version; version 1 means sha256. Algorithm
+// changes arrive as version bumps, never as in-band negotiation.
+message ServedPolicyEnvelope {
+  // Envelope structure version. Unsupported => envelope invalid. Bumped only
+  // for changes to the envelope itself; each section versions independently.
+  uint32 envelope_version = 1;
+
+  // The connector revision both sections bind to. Must identify the same
+  // revision as the bundle this response serves.
+  string revision_id = 2;
+
+  // The revision's recorded integrity-root digest (lowercase hex; algorithm
+  // bound by envelope_version, v1 = sha256), copied from the sealed revision
+  // record — never recomputed at serve. Must match the served bundle's
+  // revision.
+  string revision_root_digest = 3;
+
+  // Version handle of the durable config record used both for the config in
+  // this same response and as the input to the egress computation. The
+  // response must carry a stamped, non-empty config_version equal to this
+  // value — absent or empty on either side invalidates the envelope. The
+  // runtime drops cached policy state when it changes.
+  string config_version = 4;
+
+  // Instance-dynamic section, computed fresh for this response. Always
+  // present — an empty allowed_hosts list is a valid deny-all egress policy,
+  // not an absence.
+  EgressSection egress = 5;
+}
+
+// EgressSection is the per-instance egress allowlist computed at serve from
+// the revision's sealed derivation rules and the instance's resolved config.
+// Deliberately not on the wire: the hard denylist (private ranges,
+// link-local, metadata endpoints, loopback, platform-internal hosts), which
+// is compiled into the runtime and overrides allowed_hosts, and any
+// mode/disable switch — the payload cannot weaken enforcement.
+message EgressSection {
+  // Section contract version. Unsupported => whole envelope invalid.
+  uint32 schema_version = 1;
+
+  // Digest (lowercase hex; algorithm bound by schema_version, v1 = sha256) of
+  // the canonical byte form of the sealed egress derivation rules the serving
+  // layer verified against the revision's recorded digest set and then used
+  // as the computation input for allowed_hosts. Ties every served host list
+  // back to revision-sealed rules.
+  string recorded_egress_derivation_digest = 2;
+
+  // Scheme gate input; constant true in v1.
+  bool https_only = 3;
+
+  // The effective per-instance allowlist. Canonical entry form: lowercase,
+  // IDNA A-label, no trailing dot, no scheme, path, or port. An empty,
+  // wildcard, or IP-literal entry invalidates the whole envelope in v1. An
+  // empty list is a valid deny-all egress policy. Runtimes check the
+  // resolved hostname against this set after the compiled hard denylist.
+  repeated string allowed_hosts = 4;
+}
