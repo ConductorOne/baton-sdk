@@ -70,6 +70,7 @@ func TestIngestInvariantAnnotationCoverage(t *testing.T) {
 		&v2.EntitlementExclusionGroup{},
 		&v2.TypeScopedEntitlements{},
 		&v2.TypeScopedGrants{},
+		&v2.EnqueuePageTokens{},
 	}
 	for _, msg := range sideEffectAnnotations {
 		name := string(msg.ProtoReflect().Descriptor().FullName())
@@ -90,7 +91,7 @@ func TestIngestInvariantAnnotationCoverage(t *testing.T) {
 var ingestInvariantExclusions = map[string]string{
 	"I1": "expansion arming rides the response loop (SetNeedsExpansion) + needs_expansion persistence; store-derived probe arrives with replay",
 	"I2": "external-match arming rides the response loop (SetHasExternalResourcesGrants); store-derived existence-bit repair arrives with replay",
-	"I6": "source-cache scope consistency has no subject until replay state exists; arrives with replay",
+	"I6": "source-cache scope consistency has no subject until replay state exists; arrives with replay (type-scoped listings' whole-type scopes join its subject then)",
 }
 
 // TestIngestInvariantVerdictTable is the completeness meta-test for the
@@ -483,6 +484,170 @@ func TestIngestInvariantI4ChildScheduling(t *testing.T) {
 	// A process that resumed past the resources phase cannot verify the
 	// predicate; the check declines instead of false-positives.
 	require.NoError(t, RunIngestInvariants(ctx, store, policy(&childScheduleSet{}, true, false)))
+}
+
+// TestSpawnedCursorDrainEvidence pins the I10 evidence mechanics at
+// every state-mutation funnel: admission enrolls (PushAction and
+// transitionAction children), only the two legitimate finish paths
+// drain (FinishAction and transitionAction's finish branch), and the
+// set is rebuilt from the checkpoint on resume. The last subtest is the
+// point of the invariant: a cursor dropped from the stack WITHOUT
+// finishing stays on the evidence — silent omission becomes observable.
+func TestSpawnedCursorDrainEvidence(t *testing.T) {
+	ctx := t.Context()
+
+	t.Run("admission and FinishAction drain", func(t *testing.T) {
+		st := newEmptySchedulerState(t)
+		require.Empty(t, st.UndrainedSpawnedCursors())
+
+		st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "spawn-a", Spawned: true, TypeScoped: true})
+		require.Len(t, st.UndrainedSpawnedCursors(), 1)
+
+		// Non-spawned actions never enroll.
+		st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "g1"})
+		require.Len(t, st.UndrainedSpawnedCursors(), 1)
+
+		// Finishing the plain action leaves the spawned evidence alone;
+		// finishing the spawned cursor drains it.
+		st.FinishAction(ctx, st.Current())
+		require.Len(t, st.UndrainedSpawnedCursors(), 1)
+		st.FinishAction(ctx, st.Current())
+		require.Empty(t, st.UndrainedSpawnedCursors())
+	})
+
+	t.Run("transitionAction commit and finish branch", func(t *testing.T) {
+		st := newEmptySchedulerState(t)
+		parent := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", TypeScoped: true, PageToken: "p1"})
+
+		pushed, err := st.transitionAction(ctx, parent, "p2", []Action{
+			{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "spawn-1", Spawned: true, TypeScoped: true},
+			{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "spawn-2", Spawned: true, TypeScoped: true},
+		})
+		require.NoError(t, err)
+		require.Len(t, pushed, 2)
+		require.Len(t, st.UndrainedSpawnedCursors(), 2)
+
+		// A spawned cursor advancing its own pagination stays enrolled
+		// (it has not completed); finishing it drains it.
+		_, err = st.transitionAction(ctx, pushed[0], "spawn-1-page-2", nil)
+		require.NoError(t, err)
+		require.Len(t, st.UndrainedSpawnedCursors(), 2)
+		_, err = st.transitionAction(ctx, pushed[0], "", nil)
+		require.NoError(t, err)
+		require.Len(t, st.UndrainedSpawnedCursors(), 1)
+		_, err = st.transitionAction(ctx, pushed[1], "", nil)
+		require.NoError(t, err)
+		require.Empty(t, st.UndrainedSpawnedCursors())
+	})
+
+	t.Run("evidence survives checkpoint resume", func(t *testing.T) {
+		st := newEmptySchedulerState(t)
+		st.PushAction(ctx, Action{Op: SyncEntitlementsOp, ResourceTypeID: "group", PageToken: "spawn-resume", Spawned: true, TypeScoped: true})
+		token, err := st.Marshal()
+		require.NoError(t, err)
+
+		resumed := newState()
+		require.NoError(t, resumed.Unmarshal(token))
+		undrained := resumed.UndrainedSpawnedCursors()
+		require.Len(t, undrained, 1,
+			"a spawned cursor admitted by a previous process must still drain in the process that completes the sync")
+		require.Contains(t, undrained[0], "spawn-resume")
+
+		resumed.FinishAction(ctx, resumed.Current())
+		require.Empty(t, resumed.UndrainedSpawnedCursors())
+	})
+
+	t.Run("a silent drop stays on the evidence", func(t *testing.T) {
+		st := newEmptySchedulerState(t)
+		spawned := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "dropped", Spawned: true, TypeScoped: true})
+
+		// Simulate the bug class I10 exists for: the action vanishes
+		// from the stack without going through a finish path. The
+		// stack looks clean; the evidence does not.
+		st.mtx.Lock()
+		delete(st.actions, spawned.ID)
+		st.actionOrder = st.actionOrder[:len(st.actionOrder)-1]
+		st.mtx.Unlock()
+		require.Nil(t, st.Current(), "the stack is empty — structurally indistinguishable from a completed sync")
+
+		undrained := st.UndrainedSpawnedCursors()
+		require.Len(t, undrained, 1)
+		require.Contains(t, undrained[0], `token="dropped"`)
+	})
+
+	t.Run("oversized tokens are excerpted on the verdict", func(t *testing.T) {
+		st := newEmptySchedulerState(t)
+		big := strings.Repeat("x", 4096)
+		st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: big, Spawned: true, TypeScoped: true})
+		undrained := st.UndrainedSpawnedCursors()
+		require.Len(t, undrained, 1)
+		require.Less(t, len(undrained[0]), 512, "verdict lines must not carry megabyte tokens")
+		require.Contains(t, undrained[0], "(4096 bytes)")
+	})
+}
+
+// TestIngestInvariantI10SpawnedCursorDrain drives I10 through
+// RunIngestInvariants: an undrained spawned cursor is a hard,
+// non-retryable verdict in EVERY mode (silent data loss must not seal),
+// draining satisfies it, and callers with no scheduler evidence (the
+// compactor's expand pass) skip instead of false-positiving.
+func TestIngestInvariantI10SpawnedCursorDrain(t *testing.T) {
+	ctx := context.Background()
+	store, syncID := newInvariantTestStore(ctx, t)
+
+	st := newEmptySchedulerState(t)
+	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "lost-cursor", Spawned: true, TypeScoped: true})
+
+	policy := IngestInvariantsPolicy{
+		ActiveSyncID:     syncID,
+		SyncType:         connectorstore.SyncTypeFull,
+		undrainedSpawned: st.UndrainedSpawnedCursors,
+	}
+
+	// Default mode: hard failure carrying the non-retryable sentinel and
+	// naming the lost cursor.
+	err := RunIngestInvariants(ctx, store, policy)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrIngestInvariantViolated)
+	require.Contains(t, err.Error(), "ingest invariant I10 violated")
+	require.Contains(t, err.Error(), "lost-cursor")
+
+	// Partial syncs run I10 too: targeted syncs schedule spawned
+	// cursors as well, and the evidence is engine- and type-independent.
+	partialPolicy := policy
+	partialPolicy.SyncType = connectorstore.SyncTypePartial
+	err = RunIngestInvariants(ctx, store, partialPolicy)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ingest invariant I10 violated")
+
+	// Draining the cursor satisfies the invariant.
+	st.FinishAction(ctx, st.Current())
+	require.NoError(t, RunIngestInvariants(ctx, store, policy))
+
+	// No scheduler evidence: the predicate has no subject; skip.
+	policy.undrainedSpawned = nil
+	require.NoError(t, RunIngestInvariants(ctx, store, policy))
+}
+
+// TestSyncerWiresSpawnDrainEvidenceIntoInvariants pins the syncer seam
+// for I10: runIngestionInvariants must hand the live state's evidence
+// to the pass — the check existing means nothing if the policy plumbing
+// drops it.
+func TestSyncerWiresSpawnDrainEvidenceIntoInvariants(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newInvariantTestStore(ctx, t)
+
+	st := newEmptySchedulerState(t)
+	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "wired", Spawned: true, TypeScoped: true})
+
+	s := &syncer{state: st, store: store, syncType: connectorstore.SyncTypeFull}
+	err := s.runIngestionInvariants(ctx)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrIngestInvariantViolated)
+	require.Contains(t, err.Error(), "ingest invariant I10 violated")
+
+	st.FinishAction(ctx, st.Current())
+	require.NoError(t, s.runIngestionInvariants(ctx))
 }
 
 // TestSyncFailsOnStoredExclusionGroupConflict pins the syncer seam:

@@ -56,6 +56,20 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 //     ExternalResourceMatch* annotations — unprocessed match carriers
 //     are evidence that no external resource file was configured, not
 //     bad data (the match op deletes carriers when it runs).
+//   - I10 spawned-cursor drain completeness: every sibling cursor a
+//     connector enqueued via EnqueuePageTokens that was admitted to
+//     the action schedule must complete through a legitimate finish
+//     path before the sync quiesces. A dropped cursor is the failure
+//     mode the referential family CANNOT see — it produces ABSENCE
+//     (missing rows with perfect referential integrity), i.e. silent
+//     data loss. Evidence is the state's spawned-in-flight set,
+//     maintained at the state-mutation funnels (admission records,
+//     finish deletes) and rebuilt from the checkpoint on resume, so
+//     the check survives crash/resume. Hard failure in every mode
+//     (a residual entry at quiesce is definitionally a scheduler bug,
+//     never connector data); costs one in-memory map read. Skipped
+//     only for callers with no scheduler evidence (store-level
+//     pipelines like the compactor, which never schedule cursors).
 //
 // I7/I8/I9 verdicts are aggregated warnings in default mode, split by
 // whether the referent's resource TYPE was synced:
@@ -149,6 +163,8 @@ func invariantVerdict(err error) error { return &invariantVerdictError{err: err}
 // TypeScopedGrants) land, they register here against I7 and I8
 // respectively — type-granularity scopes are exactly the shapes those
 // referential checks exist for.
+//
+//nolint:gosec // G101 false positive: "PageTokens" is an annotation name, not a credential.
 var sideEffectAnnotationCoverage = map[string]string{
 	"c1.connector.v2.GrantExpandable":           "I1: response-loop expansion arming (SetNeedsExpansion) + needs_expansion column persistence; store-derived probe arrives with replay",
 	"c1.connector.v2.ExternalResourceMatch":     "I2: response-loop match arming (SetHasExternalResourcesGrants); store-derived existence-bit repair arrives with replay",
@@ -159,6 +175,7 @@ var sideEffectAnnotationCoverage = map[string]string{
 	"c1.connector.v2.EntitlementExclusionGroup": "I5: stored-keyspace validation post-collection",
 	"c1.connector.v2.TypeScopedEntitlements":    "I7: entitlement→resource referential check post-collection",
 	"c1.connector.v2.TypeScopedGrants":          "I8: grant→entitlement referential check post-collection",
+	"c1.connector.v2.EnqueuePageTokens":         "I10: spawned-cursor drain completeness check at sync quiesce",
 }
 
 // childScheduleSet is the monotone record of scheduled child-resource
@@ -239,6 +256,13 @@ type IngestInvariantsPolicy struct {
 	childSchedule     *childScheduleSet
 	resourcesPhaseRan bool
 	syncResourceTypes []string
+
+	// I10 evidence: the sync state's spawned-cursor drain read
+	// (state.UndrainedSpawnedCursors), evaluated at check time. Only a
+	// caller that runs the scheduler can supply it; nil skips the check
+	// (a store-level pipeline never schedules cursors, so the predicate
+	// has no subject).
+	undrainedSpawned func() []string
 
 	// halt, when non-nil, fires at named seams of the pass (see
 	// ingestInvariantHaltStages); returning an error fails the sync at
@@ -326,6 +350,18 @@ var ingestInvariants = []ingestInvariant{
 		failFastPromotes: true,
 		haltStage:        "invariants-I5-complete",
 		check:            (*ingestInvariantsPass).checkStoredExclusionGroups,
+	},
+	{
+		// I10 sits early: it is the cheapest check here (one in-memory
+		// map read) and its verdict is hard-fail class — a scheduler
+		// that lost an admitted cursor must block the seal before the
+		// expensive referential scans spend their seeks. Runs on every
+		// sync type: targeted and partial syncs schedule spawned
+		// cursors too, and the evidence is engine-independent.
+		id:                 "I10",
+		runsOnAllSyncTypes: true,
+		failFastPromotes:   true,
+		check:              (*ingestInvariantsPass).checkSpawnedCursorDrain,
 	},
 	{
 		id:                       "I4",
@@ -467,11 +503,64 @@ func runIngestInvariants(
 		coverage = append(coverage, inv.id)
 	}
 	if len(skippedNoStore) > 0 {
-		ctxzap.Extract(ctx).Info("ingest invariants: store engine lacks the inspection surface; referential invariants were not evaluated",
-			zap.Strings("skipped_invariants", skippedNoStore),
-		)
+		logSkippedReferentialInvariants(ctx, store, policy.ActiveSyncID, skippedNoStore)
 	}
 	return coverage, nil
+}
+
+// logSkippedReferentialInvariants makes the SQLite degradation visible.
+// The level depends on exposure: when the store carries TYPE-SCOPED
+// listing annotations, the skipped checks include exactly the ones the
+// annotation registry promises for that feature (I7/I8 — whole-type
+// listings are the shape referential mistakes hide in), so the line
+// escalates to a warning. Plain stores keep the informational line.
+// A failed probe also warns: unknown exposure must not read quieter
+// than known-benign.
+func logSkippedReferentialInvariants(ctx context.Context, store connectorstore.Reader, activeSyncID string, skipped []string) {
+	l := ctxzap.Extract(ctx)
+	typeScoped, err := storeCarriesTypeScopedTypes(ctx, store, activeSyncID)
+	switch {
+	case err != nil:
+		l.Warn("ingest invariants: store engine lacks the inspection surface; referential invariants were not evaluated (type-scoped exposure unknown: probe failed)",
+			zap.Strings("skipped_invariants", skipped),
+			zap.Error(err),
+		)
+	case typeScoped:
+		l.Warn("ingest invariants: store engine lacks the inspection surface; referential invariants were not evaluated, "+
+			"and the store carries TYPE-SCOPED listing annotations whose registered checks (I7/I8) are among them",
+			zap.Strings("skipped_invariants", skipped),
+		)
+	default:
+		l.Info("ingest invariants: store engine lacks the inspection surface; referential invariants were not evaluated",
+			zap.Strings("skipped_invariants", skipped),
+		)
+	}
+}
+
+// storeCarriesTypeScopedTypes reports whether any stored resource type
+// carries a type-scoped listing annotation (TypeScopedEntitlements or
+// TypeScopedGrants).
+func storeCarriesTypeScopedTypes(ctx context.Context, store connectorstore.Reader, activeSyncID string) (bool, error) {
+	pageToken := ""
+	for {
+		resp, err := store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+			PageToken:    pageToken,
+			ActiveSyncId: activeSyncID,
+		}.Build())
+		if err != nil {
+			return false, fmt.Errorf("listing resource types: %w", err)
+		}
+		for _, rt := range resp.GetList() {
+			for _, a := range rt.GetAnnotations() {
+				if a.MessageIs((*v2.TypeScopedEntitlements)(nil)) || a.MessageIs((*v2.TypeScopedGrants)(nil)) {
+					return true, nil
+				}
+			}
+		}
+		if pageToken = resp.GetNextPageToken(); pageToken == "" {
+			return false, nil
+		}
+	}
 }
 
 // runIngestionInvariants is the syncer's call into the pass: policy
@@ -501,6 +590,9 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 		childSchedule:     &s.childSchedule,
 		resourcesPhaseRan: s.resourcesPhaseRanHere,
 		syncResourceTypes: s.syncResourceTypes,
+	}
+	if st, ok := s.state.(*state); ok {
+		policy.undrainedSpawned = st.UndrainedSpawnedCursors
 	}
 	if s.testIngestHaltHook != nil {
 		policy.halt = s.testIngestHaltHook
@@ -826,6 +918,31 @@ func (pass *ingestInvariantsPass) checkChildScheduling(ctx context.Context) erro
 			len(violations), violations))
 	}
 	return nil
+}
+
+// checkSpawnedCursorDrain is invariant I10: every spawned sibling
+// cursor (EnqueuePageTokens) admitted to the action schedule must have
+// completed through a legitimate finish path by the time the sync
+// quiesces. A residual entry is definitionally a scheduler bug — an
+// admitted cursor was lost without doing its work — and its consequence
+// is silent data loss the referential invariants cannot see (missing
+// rows dangle nothing). Hard failure in every mode; the check reads one
+// in-memory map. Callers with no scheduler evidence (the compactor's
+// expand pass) skip: they never schedule cursors, so the predicate has
+// no subject.
+func (pass *ingestInvariantsPass) checkSpawnedCursorDrain(ctx context.Context) error {
+	if pass.p.undrainedSpawned == nil {
+		return nil
+	}
+	undrained := pass.p.undrainedSpawned()
+	if len(undrained) == 0 {
+		return nil
+	}
+	// Already sorted by action ID (state.UndrainedSpawnedCursors); the
+	// verdict text is byte-stable.
+	return invariantVerdict(fmt.Errorf(
+		"ingest invariant I10 violated: %d spawned page-token cursor(s) were admitted to the schedule but never drained (scheduler bug — the sync is missing their data): %v",
+		len(undrained), undrained))
 }
 
 // maxDanglingIDExamples caps the id samples carried on the aggregated

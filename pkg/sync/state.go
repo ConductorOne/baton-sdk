@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sort"
 	"sync"
 	"time"
 
@@ -238,6 +239,18 @@ type state struct {
 	// state so Unmarshal→Marshal round trips (e.g. expansion replay
 	// tokens) preserve it.
 	compaction *CompactionTokenStats
+	// spawnedInFlight is the evidence set behind ingest invariant I10:
+	// every spawned sibling cursor (EnqueuePageTokens) admitted to the
+	// stack, keyed by action ID, removed only by the two legitimate
+	// completion paths (FinishAction and transitionAction's finish
+	// branch). A silent drop — any code path that loses an admitted
+	// action without finishing it — leaves its entry behind, and the
+	// invariant pass names it at sync quiesce. Unmarshal rebuilds the
+	// set from the checkpointed actions, so the evidence survives
+	// resume: a restored spawned cursor must still drain in the process
+	// that completes the sync. Guarded by st.mtx; bounded by the number
+	// of in-flight spawned actions (entries are deleted on finish).
+	spawnedInFlight map[string]Action
 }
 
 // ConnectorCallStat contains cumulative latency statistics for one connector method.
@@ -307,6 +320,7 @@ func newState() *state {
 		stepDurationsMs:    make(map[string]int64),
 		connectorCallStats: make(map[string]*ConnectorCallStat),
 		sessionStoreStats:  make(map[string]*SessionStoreStat),
+		spawnedInFlight:    make(map[string]Action),
 	}
 }
 
@@ -444,6 +458,14 @@ func (st *state) Unmarshal(input string) error {
 			st.sessionStoreStats = make(map[string]*SessionStoreStat)
 		}
 		st.compaction = token.Compaction
+		// Rebuild the I10 drain-evidence set from the checkpointed
+		// actions: a spawned cursor restored from a token was admitted
+		// by a previous process and must still drain in the process
+		// that completes the sync.
+		st.spawnedInFlight = make(map[string]Action)
+		for _, action := range st.actions {
+			st.recordSpawnedAdmissionLocked(action)
+		}
 	} else {
 		st.actions = make(map[string]Action)
 		st.actionOrder = []string{}
@@ -461,9 +483,42 @@ func (st *state) Unmarshal(input string) error {
 		st.connectorCallStats = make(map[string]*ConnectorCallStat)
 		st.sessionStoreStats = make(map[string]*SessionStoreStat)
 		st.compaction = nil
+		st.spawnedInFlight = make(map[string]Action)
 	}
 
 	return nil
+}
+
+// maxUndrainedTokenChars caps the page-token excerpt carried on I10
+// verdict lines (spawned tokens can be up to 1 MiB).
+const maxUndrainedTokenChars = 64
+
+// UndrainedSpawnedCursors describes every spawned cursor that was
+// admitted to the action stack but never completed through a legitimate
+// finish path — the I10 evidence read. Empty on a healthy state. Sorted
+// by action ID so verdicts are byte-stable.
+func (st *state) UndrainedSpawnedCursors() []string {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
+	if len(st.spawnedInFlight) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(st.spawnedInFlight))
+	for id := range st.spawnedInFlight {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		action := st.spawnedInFlight[id]
+		token := action.PageToken
+		if len(token) > maxUndrainedTokenChars {
+			token = fmt.Sprintf("%s… (%d bytes)", token[:maxUndrainedTokenChars], len(action.PageToken))
+		}
+		out = append(out, fmt.Sprintf("action %s %s %s/%s token=%q",
+			id, action.Op.String(), action.ResourceTypeID, action.ResourceID, token))
+	}
+	return out
 }
 
 // Marshal returns a string encoding of the state object. This is useful for datastores to checkpoint the current state.
@@ -671,8 +726,21 @@ func (st *state) pushAction(ctx context.Context, action Action) *Action {
 	}
 	st.actions[action.ID] = action
 	st.actionOrder = append(st.actionOrder, action.ID)
+	st.recordSpawnedAdmissionLocked(action)
 	ctxzap.Extract(ctx).Debug("pushed action", zap.Any("action", action))
 	return &action
+}
+
+// recordSpawnedAdmissionLocked enrolls a spawned cursor in the I10
+// drain-evidence set. Caller holds st.mtx.
+func (st *state) recordSpawnedAdmissionLocked(action Action) {
+	if !action.Spawned {
+		return
+	}
+	if st.spawnedInFlight == nil {
+		st.spawnedInFlight = make(map[string]Action)
+	}
+	st.spawnedInFlight[action.ID] = action
 }
 
 func (st *state) markTypeScopedPlanned(actionID string) {
@@ -715,6 +783,7 @@ func (st *state) transitionAction(
 		}
 		st.actions[child.ID] = child
 		st.actionOrder = append(st.actionOrder, child.ID)
+		st.recordSpawnedAdmissionLocked(child)
 		childCopy := child
 		pushed = append(pushed, &childCopy)
 		ctxzap.Extract(ctx).Debug("pushed action", zap.Any("action", child))
@@ -733,6 +802,7 @@ func (st *state) transitionAction(
 	}
 	st.actionOrder = slices.Delete(st.actionOrder, index, index+1)
 	delete(st.actions, parent.ID)
+	delete(st.spawnedInFlight, parent.ID)
 	st.completedActionsCount++
 	ctxzap.Extract(ctx).Debug("finishing action", zap.Any("action", parent))
 	return pushed, nil
@@ -757,6 +827,7 @@ func (st *state) FinishAction(ctx context.Context, action *Action) {
 	}
 	st.actionOrder = slices.Delete(st.actionOrder, index, index+1)
 	delete(st.actions, action.ID)
+	delete(st.spawnedInFlight, action.ID)
 	st.completedActionsCount++
 	ctxzap.Extract(ctx).Debug("finishing action", zap.Any("action", action))
 }
