@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -149,4 +150,75 @@ func TestInvokeExpiredDeadlineReturnsDeadlineExceeded(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
 	require.False(t, transport.called)
+}
+
+// TestServerHandlerAppliesGrpcTimeoutEndToEnd locks in the full server timeout
+// path, which was dead code before the len(v) > 0 fix in TimeoutForRequest: a
+// request carrying a grpc-timeout header must yield a handler context with a
+// deadline, and a handler that blocks past it must produce a DeadlineExceeded
+// status response.
+func TestServerHandlerAppliesGrpcTimeoutEndToEnd(t *testing.T) {
+	s := NewServer(nil)
+
+	var handlerHadDeadline bool
+	var handlerDeadline time.Time
+
+	// The handler returns immediately when no deadline is set. When a deadline
+	// is present it blocks until cancellation, so a completed response proves
+	// the timeout was never applied.
+	sd := &grpc.ServiceDesc{
+		ServiceName: "test.TimeoutService",
+		HandlerType: (*any)(nil),
+		Methods: []grpc.MethodDesc{{
+			MethodName: "Wait",
+			Handler: func(_ any, ctx context.Context, dec func(any) error, _ grpc.UnaryServerInterceptor) (any, error) {
+				if err := dec(&structpb.Struct{}); err != nil {
+					return nil, err
+				}
+				handlerDeadline, handlerHadDeadline = ctx.Deadline()
+				if !handlerHadDeadline {
+					return &structpb.Struct{}, nil
+				}
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(10 * time.Second):
+					return nil, status.Error(codes.Internal, "handler context was never cancelled")
+				}
+			},
+		}},
+	}
+	s.RegisterService(sd, &struct{}{})
+
+	t.Run("grpc-timeout cancels the handler and returns DeadlineExceeded", func(t *testing.T) {
+		handlerHadDeadline = false
+		req, err := NewRequest("/test.TimeoutService/Wait", &structpb.Struct{}, metadata.Pairs("grpc-timeout", "50m")) // 50ms
+		require.NoError(t, err)
+
+		start := time.Now()
+		resp, err := s.Handler(context.Background(), req)
+		require.NoError(t, err)
+
+		st, err := resp.Status()
+		require.NoError(t, err)
+		require.Equal(t, codes.DeadlineExceeded, st.Code())
+
+		require.True(t, handlerHadDeadline, "handler context must carry the propagated deadline")
+		require.WithinDuration(t, start.Add(50*time.Millisecond), handlerDeadline, time.Second)
+		require.Less(t, time.Since(start), 5*time.Second, "handler must be cancelled by the timeout, not run to completion")
+	})
+
+	t.Run("no grpc-timeout leaves the handler context without a deadline", func(t *testing.T) {
+		handlerHadDeadline = false
+		req, err := NewRequest("/test.TimeoutService/Wait", &structpb.Struct{}, metadata.MD{})
+		require.NoError(t, err)
+
+		resp, err := s.Handler(context.Background(), req)
+		require.NoError(t, err)
+
+		st, err := resp.Status()
+		require.NoError(t, err)
+		require.Equal(t, codes.OK, st.Code())
+		require.False(t, handlerHadDeadline)
+	})
 }
