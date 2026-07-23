@@ -42,31 +42,10 @@ message ServedPolicyEnvelope {
   // runtime drops cached policy state when it changes.
   string config_version = 4;
 
-  // Revision-static section; byte-identical across instances of a revision.
-  CapabilitySection capabilities = 5;
-
   // Instance-dynamic section, computed fresh for this response. Always
   // present — an empty allowed_hosts list is a valid deny-all egress policy,
   // not an absence.
-  EgressSection egress = 6;
-}
-
-// CapabilitySection carries the recorded capability manifest verbatim.
-message CapabilitySection {
-  // Canonical recorded bytes of the capability manifest, embedded unmodified
-  // after the serving layer re-verified them against the revision's recorded
-  // digest. Empty means no capability manifest is recorded for this revision:
-  // capability enforcement is not yet active and transport dispatch is
-  // governed by the egress section alone. Non-empty bytes that fail to
-  // parse, carry an unsupported inner version, or mismatch the recorded
-  // digest invalidate the whole envelope.
-  bytes manifest_bytes = 1;
-
-  // Record-time digest (lowercase hex; algorithm bound by envelope_version,
-  // v1 = sha256) over manifest_bytes, copied from the sealed revision record —
-  // never recomputed from the fetched bytes. Empty exactly when
-  // manifest_bytes is empty.
-  string recorded_manifest_digest = 2;
+  EgressSection egress = 5;
 }
 
 // EgressSection is the per-instance egress allowlist computed at serve from

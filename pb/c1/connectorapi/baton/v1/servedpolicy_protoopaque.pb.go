@@ -44,8 +44,7 @@ type ServedPolicyEnvelope struct {
 	xxx_hidden_RevisionId         string                 `protobuf:"bytes,2,opt,name=revision_id,json=revisionId,proto3"`
 	xxx_hidden_RevisionRootDigest string                 `protobuf:"bytes,3,opt,name=revision_root_digest,json=revisionRootDigest,proto3"`
 	xxx_hidden_ConfigVersion      string                 `protobuf:"bytes,4,opt,name=config_version,json=configVersion,proto3"`
-	xxx_hidden_Capabilities       *CapabilitySection     `protobuf:"bytes,5,opt,name=capabilities,proto3"`
-	xxx_hidden_Egress             *EgressSection         `protobuf:"bytes,6,opt,name=egress,proto3"`
+	xxx_hidden_Egress             *EgressSection         `protobuf:"bytes,5,opt,name=egress,proto3"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -103,13 +102,6 @@ func (x *ServedPolicyEnvelope) GetConfigVersion() string {
 	return ""
 }
 
-func (x *ServedPolicyEnvelope) GetCapabilities() *CapabilitySection {
-	if x != nil {
-		return x.xxx_hidden_Capabilities
-	}
-	return nil
-}
-
 func (x *ServedPolicyEnvelope) GetEgress() *EgressSection {
 	if x != nil {
 		return x.xxx_hidden_Egress
@@ -133,19 +125,8 @@ func (x *ServedPolicyEnvelope) SetConfigVersion(v string) {
 	x.xxx_hidden_ConfigVersion = v
 }
 
-func (x *ServedPolicyEnvelope) SetCapabilities(v *CapabilitySection) {
-	x.xxx_hidden_Capabilities = v
-}
-
 func (x *ServedPolicyEnvelope) SetEgress(v *EgressSection) {
 	x.xxx_hidden_Egress = v
-}
-
-func (x *ServedPolicyEnvelope) HasCapabilities() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_Capabilities != nil
 }
 
 func (x *ServedPolicyEnvelope) HasEgress() bool {
@@ -153,10 +134,6 @@ func (x *ServedPolicyEnvelope) HasEgress() bool {
 		return false
 	}
 	return x.xxx_hidden_Egress != nil
-}
-
-func (x *ServedPolicyEnvelope) ClearCapabilities() {
-	x.xxx_hidden_Capabilities = nil
 }
 
 func (x *ServedPolicyEnvelope) ClearEgress() {
@@ -183,8 +160,6 @@ type ServedPolicyEnvelope_builder struct {
 	// value — absent or empty on either side invalidates the envelope. The
 	// runtime drops cached policy state when it changes.
 	ConfigVersion string
-	// Revision-static section; byte-identical across instances of a revision.
-	Capabilities *CapabilitySection
 	// Instance-dynamic section, computed fresh for this response. Always
 	// present — an empty allowed_hosts list is a valid deny-all egress policy,
 	// not an absence.
@@ -199,94 +174,7 @@ func (b0 ServedPolicyEnvelope_builder) Build() *ServedPolicyEnvelope {
 	x.xxx_hidden_RevisionId = b.RevisionId
 	x.xxx_hidden_RevisionRootDigest = b.RevisionRootDigest
 	x.xxx_hidden_ConfigVersion = b.ConfigVersion
-	x.xxx_hidden_Capabilities = b.Capabilities
 	x.xxx_hidden_Egress = b.Egress
-	return m0
-}
-
-// CapabilitySection carries the recorded capability manifest verbatim.
-type CapabilitySection struct {
-	state                             protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ManifestBytes          []byte                 `protobuf:"bytes,1,opt,name=manifest_bytes,json=manifestBytes,proto3"`
-	xxx_hidden_RecordedManifestDigest string                 `protobuf:"bytes,2,opt,name=recorded_manifest_digest,json=recordedManifestDigest,proto3"`
-	unknownFields                     protoimpl.UnknownFields
-	sizeCache                         protoimpl.SizeCache
-}
-
-func (x *CapabilitySection) Reset() {
-	*x = CapabilitySection{}
-	mi := &file_c1_connectorapi_baton_v1_servedpolicy_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *CapabilitySection) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*CapabilitySection) ProtoMessage() {}
-
-func (x *CapabilitySection) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_servedpolicy_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *CapabilitySection) GetManifestBytes() []byte {
-	if x != nil {
-		return x.xxx_hidden_ManifestBytes
-	}
-	return nil
-}
-
-func (x *CapabilitySection) GetRecordedManifestDigest() string {
-	if x != nil {
-		return x.xxx_hidden_RecordedManifestDigest
-	}
-	return ""
-}
-
-func (x *CapabilitySection) SetManifestBytes(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_ManifestBytes = v
-}
-
-func (x *CapabilitySection) SetRecordedManifestDigest(v string) {
-	x.xxx_hidden_RecordedManifestDigest = v
-}
-
-type CapabilitySection_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	// Canonical recorded bytes of the capability manifest, embedded unmodified
-	// after the serving layer re-verified them against the revision's recorded
-	// digest. Empty means no capability manifest is recorded for this revision:
-	// capability enforcement is not yet active and transport dispatch is
-	// governed by the egress section alone. Non-empty bytes that fail to
-	// parse, carry an unsupported inner version, or mismatch the recorded
-	// digest invalidate the whole envelope.
-	ManifestBytes []byte
-	// Record-time digest (lowercase hex; algorithm bound by envelope_version,
-	// v1 = sha256) over manifest_bytes, copied from the sealed revision record —
-	// never recomputed from the fetched bytes. Empty exactly when
-	// manifest_bytes is empty.
-	RecordedManifestDigest string
-}
-
-func (b0 CapabilitySection_builder) Build() *CapabilitySection {
-	m0 := &CapabilitySection{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.xxx_hidden_ManifestBytes = b.ManifestBytes
-	x.xxx_hidden_RecordedManifestDigest = b.RecordedManifestDigest
 	return m0
 }
 
@@ -308,7 +196,7 @@ type EgressSection struct {
 
 func (x *EgressSection) Reset() {
 	*x = EgressSection{}
-	mi := &file_c1_connectorapi_baton_v1_servedpolicy_proto_msgTypes[2]
+	mi := &file_c1_connectorapi_baton_v1_servedpolicy_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -320,7 +208,7 @@ func (x *EgressSection) String() string {
 func (*EgressSection) ProtoMessage() {}
 
 func (x *EgressSection) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_servedpolicy_proto_msgTypes[2]
+	mi := &file_c1_connectorapi_baton_v1_servedpolicy_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -411,18 +299,14 @@ var File_c1_connectorapi_baton_v1_servedpolicy_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_servedpolicy_proto_rawDesc = "" +
 	"\n" +
-	"+c1/connectorapi/baton/v1/servedpolicy.proto\x12\x18c1.connectorapi.baton.v1\"\xcd\x02\n" +
+	"+c1/connectorapi/baton/v1/servedpolicy.proto\x12\x18c1.connectorapi.baton.v1\"\xfc\x01\n" +
 	"\x14ServedPolicyEnvelope\x12)\n" +
 	"\x10envelope_version\x18\x01 \x01(\rR\x0fenvelopeVersion\x12\x1f\n" +
 	"\vrevision_id\x18\x02 \x01(\tR\n" +
 	"revisionId\x120\n" +
 	"\x14revision_root_digest\x18\x03 \x01(\tR\x12revisionRootDigest\x12%\n" +
-	"\x0econfig_version\x18\x04 \x01(\tR\rconfigVersion\x12O\n" +
-	"\fcapabilities\x18\x05 \x01(\v2+.c1.connectorapi.baton.v1.CapabilitySectionR\fcapabilities\x12?\n" +
-	"\x06egress\x18\x06 \x01(\v2'.c1.connectorapi.baton.v1.EgressSectionR\x06egress\"t\n" +
-	"\x11CapabilitySection\x12%\n" +
-	"\x0emanifest_bytes\x18\x01 \x01(\fR\rmanifestBytes\x128\n" +
-	"\x18recorded_manifest_digest\x18\x02 \x01(\tR\x16recordedManifestDigest\"\xc5\x01\n" +
+	"\x0econfig_version\x18\x04 \x01(\tR\rconfigVersion\x12?\n" +
+	"\x06egress\x18\x05 \x01(\v2'.c1.connectorapi.baton.v1.EgressSectionR\x06egress\"\xc5\x01\n" +
 	"\rEgressSection\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12I\n" +
 	"!recorded_egress_derivation_digest\x18\x02 \x01(\tR\x1erecordedEgressDerivationDigest\x12\x1d\n" +
@@ -430,20 +314,18 @@ const file_c1_connectorapi_baton_v1_servedpolicy_proto_rawDesc = "" +
 	"https_only\x18\x03 \x01(\bR\thttpsOnly\x12#\n" +
 	"\rallowed_hosts\x18\x04 \x03(\tR\fallowedHostsB7Z5gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1b\x06proto3"
 
-var file_c1_connectorapi_baton_v1_servedpolicy_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_c1_connectorapi_baton_v1_servedpolicy_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_c1_connectorapi_baton_v1_servedpolicy_proto_goTypes = []any{
 	(*ServedPolicyEnvelope)(nil), // 0: c1.connectorapi.baton.v1.ServedPolicyEnvelope
-	(*CapabilitySection)(nil),    // 1: c1.connectorapi.baton.v1.CapabilitySection
-	(*EgressSection)(nil),        // 2: c1.connectorapi.baton.v1.EgressSection
+	(*EgressSection)(nil),        // 1: c1.connectorapi.baton.v1.EgressSection
 }
 var file_c1_connectorapi_baton_v1_servedpolicy_proto_depIdxs = []int32{
-	1, // 0: c1.connectorapi.baton.v1.ServedPolicyEnvelope.capabilities:type_name -> c1.connectorapi.baton.v1.CapabilitySection
-	2, // 1: c1.connectorapi.baton.v1.ServedPolicyEnvelope.egress:type_name -> c1.connectorapi.baton.v1.EgressSection
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	1, // 0: c1.connectorapi.baton.v1.ServedPolicyEnvelope.egress:type_name -> c1.connectorapi.baton.v1.EgressSection
+	1, // [1:1] is the sub-list for method output_type
+	1, // [1:1] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_c1_connectorapi_baton_v1_servedpolicy_proto_init() }
@@ -457,7 +339,7 @@ func file_c1_connectorapi_baton_v1_servedpolicy_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connectorapi_baton_v1_servedpolicy_proto_rawDesc), len(file_c1_connectorapi_baton_v1_servedpolicy_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
