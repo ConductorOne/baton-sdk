@@ -62,6 +62,26 @@ func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (
 	return em, nil
 }
 
+// ValidateEncryptionConfigs validates recipients before an irreversible
+// credential issuance without changing create/rotate compatibility.
+func ValidateEncryptionConfigs(ec []*v2.EncryptionConfig) error {
+	for i, config := range ec {
+		if config == nil {
+			return status.Errorf(codes.InvalidArgument, "encryption config %d is empty", i)
+		}
+		provider, err := providers.GetEncryptorForConfig(context.Background(), config)
+		if err != nil {
+			return status.Errorf(codes.InvalidArgument, "invalid encryption config %d: %v", i, err)
+		}
+		if validator, ok := provider.(providers.EncryptionConfigValidator); ok {
+			if err := validator.ValidateConfig(context.Background(), config); err != nil {
+				return status.Errorf(codes.InvalidArgument, "invalid encryption config %d: %v", i, err)
+			}
+		}
+	}
+	return nil
+}
+
 func decryptPassword(ctx context.Context, encryptedPassword *v2.EncryptedData, decryptionConfig *providers.DecryptionConfig) (string, error) {
 	if decryptionConfig == nil {
 		return "", ErrInvalidCredentialOptions

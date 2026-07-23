@@ -48,6 +48,8 @@ func Is(task *v1.Task, target taskTypes.TaskType) bool {
 		return actualType == v1.Task_DeleteResource_case
 	case taskTypes.RotateCredentialsType:
 		return actualType == v1.Task_RotateCredentials_case
+	case taskTypes.IssueCredentialType:
+		return actualType == v1.Task_IssueCredential_case
 	case taskTypes.CreateTicketType:
 		return actualType == v1.Task_CreateTicketTask_case
 	case taskTypes.ListTicketSchemasType:
@@ -103,6 +105,8 @@ func GetType(task *v1.Task) taskTypes.TaskType {
 		return taskTypes.DeleteResourceType
 	case v1.Task_RotateCredentials_case:
 		return taskTypes.RotateCredentialsType
+	case v1.Task_IssueCredential_case:
+		return taskTypes.IssueCredentialType
 	case v1.Task_CreateTicketTask_case:
 		return taskTypes.CreateTicketType
 	case v1.Task_ListTicketSchemas_case:

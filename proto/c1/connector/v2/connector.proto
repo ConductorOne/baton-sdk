@@ -5,6 +5,7 @@ package c1.connector.v2;
 import "c1/connector/v2/asset.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "validate/validate.proto";
 
@@ -68,6 +69,14 @@ enum Capability {
   CAPABILITY_TARGETED_SYNC = 11;
   CAPABILITY_EVENT_FEED_V2 = 12;
   CAPABILITY_SERVICE_MODE_TARGETED_SYNC = 13;
+  // The connector can mint new credentials for an existing identity via
+  // CredentialManagerService.IssueCredential.
+  CAPABILITY_CREDENTIAL_ISSUE = 14;
+}
+
+message CredentialDetails {
+  CredentialDetailsAccountProvisioning capability_account_provisioning = 1;
+  CredentialDetailsCredentialRotation capability_credential_rotation = 2;
 }
 
 enum CapabilityDetailCredentialOption {
@@ -76,11 +85,10 @@ enum CapabilityDetailCredentialOption {
   CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD = 2;
   CAPABILITY_DETAIL_CREDENTIAL_OPTION_SSO = 3;
   CAPABILITY_DETAIL_CREDENTIAL_OPTION_ENCRYPTED_PASSWORD = 4;
-}
-
-message CredentialDetails {
-  CredentialDetailsAccountProvisioning capability_account_provisioning = 1;
-  CredentialDetailsCredentialRotation capability_credential_rotation = 2;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY = 5;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR = 6;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN = 7;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET = 8;
 }
 
 message CredentialDetailsAccountProvisioning {
@@ -91,6 +99,36 @@ message CredentialDetailsAccountProvisioning {
 message CredentialDetailsCredentialRotation {
   repeated CapabilityDetailCredentialOption supported_credential_options = 1;
   CapabilityDetailCredentialOption preferred_credential_option = 2;
+}
+
+// Advertises which credential options CredentialManagerService.IssueCredential
+// supports for this identity type.
+message CredentialDetailsCredentialIssue {
+  repeated CredentialIssueOptionDescriptor options = 1;
+  CapabilityDetailCredentialOption preferred_option = 2;
+}
+
+message CredentialIssueOptionDescriptor {
+  CapabilityDetailCredentialOption option = 1;
+  repeated KeyGenerationProfile key_profiles = 2;
+  IssuanceExpiryCapability expiry = 3;
+  repeated string scopes = 4;
+  bool custom_scopes_allowed = 5;
+  bool custom_audiences_allowed = 6;
+  repeated string audiences = 7;
+  CredentialResourceMode resource_mode = 8;
+  // Resource type returned by IssueCredential. It must be registered with a
+  // ResourceDeleterV2 so every issued credential has a provider revoke path,
+  // including virtual credentials that cannot be listed later.
+  string secret_resource_type_id = 9 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+}
+
+message IssuanceExpiryCapability {
+  google.protobuf.Duration min = 1;
+  google.protobuf.Duration max = 2;
 }
 
 message ConnectorCapabilities {
@@ -121,6 +159,7 @@ message ResourceTypeCapability {
   CapabilityPermissions permissions = 3;
   bool opt_in_required = 4;
   bool skip_sync_anomaly_detection = 5;
+  CredentialDetailsCredentialIssue credential_issue = 6;
 }
 
 message ConnectorServiceGetMetadataRequest {}

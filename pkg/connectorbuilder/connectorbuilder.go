@@ -86,6 +86,7 @@ type builder struct {
 	resourceDeleters        map[string]ResourceDeleterV2Limited
 	resourceTargetedSyncers map[string]ResourceTargetedSyncerLimited
 	credentialManagers      map[string]CredentialManagerLimited
+	credentialIssuers       map[string]CredentialIssuerLimited
 	eventFeeds              map[string]EventFeed
 	accountManagers         map[string]AccountManagerLimited
 	actionManager           ActionManager // Unified action manager for all actions
@@ -125,6 +126,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		resourceDeleters:        make(map[string]ResourceDeleterV2Limited),
 		resourceTargetedSyncers: make(map[string]ResourceTargetedSyncerLimited),
 		credentialManagers:      make(map[string]CredentialManagerLimited),
+		credentialIssuers:       make(map[string]CredentialIssuerLimited),
 		eventFeeds:              make(map[string]EventFeed),
 		accountManagers:         make(map[string]AccountManagerLimited),
 		actionManager:           actionMgr,
@@ -187,6 +189,10 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		}
 
 		if err := b.addCredentialManager(ctx, rType, rs); err != nil {
+			return err
+		}
+
+		if err := b.addCredentialIssuer(ctx, rType, rs); err != nil {
 			return err
 		}
 
@@ -406,6 +412,10 @@ func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 			caps = append(caps, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
 		}
 
+		if _, exists := b.credentialIssuers[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_CREDENTIAL_ISSUE)
+		}
+
 		// Extend the capabilities with the resource type specificcapabilities
 		for _, cap := range caps {
 			connectorCaps[cap] = struct{}{}
@@ -418,6 +428,24 @@ func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 		if err != nil {
 			return nil, err
 		}
+		var issueDetails *v2.CredentialDetailsCredentialIssue
+		if issuer, exists := b.credentialIssuers[resourceTypeID]; exists {
+			issueDetails, _, err = issuer.IssueCapabilityDetails(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("error: getting credential issuance details for %s: %w", resourceTypeID, err)
+			}
+			if err := validateCredentialIssueCapabilityDetails(issueDetails); err != nil {
+				return nil, fmt.Errorf("error: validating credential issuance details for %s: %w", resourceTypeID, err)
+			}
+			for _, descriptor := range issueDetails.GetOptions() {
+				secretType := descriptor.GetSecretResourceTypeId()
+				_, managerDeletes := b.resourceManagers[secretType]
+				_, deleterExists := b.resourceDeleters[secretType]
+				if !managerDeletes && !deleterExists {
+					return nil, fmt.Errorf("credential issue option %s returns secret resource type %q without ResourceDeleterV2", descriptor.GetOption(), secretType)
+				}
+			}
+		}
 
 		resourceTypeCapabilities = append(resourceTypeCapabilities, v2.ResourceTypeCapability_builder{
 			ResourceType:             rb.ResourceType(ctx),
@@ -425,6 +453,7 @@ func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 			Permissions:              p,
 			OptInRequired:            annos.Contains(&v2.OptInRequired{}),
 			SkipSyncAnomalyDetection: annos.Contains(&v2.SkipSyncAnomalyDetection{}),
+			CredentialIssue:          issueDetails,
 		}.Build())
 	}
 
@@ -487,6 +516,96 @@ func validateCapabilityDetails(_ context.Context, credDetails *v2.CredentialDeta
 		}
 	}
 
+	return nil
+}
+
+func validateCredentialIssueCapabilityDetails(issue *v2.CredentialDetailsCredentialIssue) error {
+	if issue == nil || issue.GetPreferredOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
+		return status.Error(codes.InvalidArgument, "preferred credential issue option is not set")
+	}
+	seen := make(map[v2.CapabilityDetailCredentialOption]struct{}, len(issue.GetOptions()))
+	for _, descriptor := range issue.GetOptions() {
+		if descriptor == nil || descriptor.GetOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
+			return status.Error(codes.InvalidArgument, "credential issue option descriptor is invalid")
+		}
+		if descriptor.GetResourceMode() == v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_UNSPECIFIED {
+			return status.Error(codes.InvalidArgument, "credential issue resource mode is not set")
+		}
+		if descriptor.GetSecretResourceTypeId() == "" {
+			return status.Error(codes.InvalidArgument, "credential issue secret resource type is not set")
+		}
+		if err := validateCredentialIssueDescriptorShape(descriptor); err != nil {
+			return status.Errorf(codes.InvalidArgument, "invalid credential issue option %s: %v", descriptor.GetOption(), err)
+		}
+		for _, profile := range descriptor.GetKeyProfiles() {
+			if err := validateKeyGenerationProfile(profile); err != nil {
+				return status.Errorf(codes.InvalidArgument, "invalid credential issue key profile: %v", err)
+			}
+		}
+		if err := validateIssuanceExpiryCapability(descriptor.GetExpiry()); err != nil {
+			return status.Errorf(codes.InvalidArgument, "invalid credential issue expiry capability: %v", err)
+		}
+		if _, exists := seen[descriptor.GetOption()]; exists {
+			return status.Errorf(codes.InvalidArgument, "duplicate credential issue option %s", descriptor.GetOption())
+		}
+		seen[descriptor.GetOption()] = struct{}{}
+	}
+	if _, ok := seen[issue.GetPreferredOption()]; !ok {
+		return status.Error(codes.InvalidArgument, "preferred credential issue option is not part of the supported options")
+	}
+	return nil
+}
+
+func validateCredentialIssueDescriptorShape(descriptor *v2.CredentialIssueOptionDescriptor) error {
+	hasScopes := len(descriptor.GetScopes()) != 0 || descriptor.GetCustomScopesAllowed()
+	hasAudiences := len(descriptor.GetAudiences()) != 0 || descriptor.GetCustomAudiencesAllowed()
+	hasKeyProfiles := len(descriptor.GetKeyProfiles()) != 0
+	switch descriptor.GetOption() {
+	case v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY:
+		if hasKeyProfiles || hasAudiences {
+			return fmt.Errorf("API key options may only advertise scopes and expiry")
+		}
+	case v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_KEYPAIR:
+		if !hasKeyProfiles {
+			return fmt.Errorf("keypair options must advertise at least one key profile")
+		}
+		if hasScopes || hasAudiences {
+			return fmt.Errorf("keypair options may only advertise key profiles and expiry")
+		}
+	case v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN:
+		if hasKeyProfiles {
+			return fmt.Errorf("token options may only advertise scopes, audiences, and expiry")
+		}
+	case v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_CLIENT_SECRET:
+		if hasKeyProfiles || hasScopes || hasAudiences {
+			return fmt.Errorf("client secret options may only advertise expiry")
+		}
+	default:
+		return fmt.Errorf("unsupported issuance option")
+	}
+	return nil
+}
+
+func validateIssuanceExpiryCapability(capability *v2.IssuanceExpiryCapability) error {
+	if capability == nil {
+		return nil
+	}
+	var minDuration, maxDuration time.Duration
+	if capability.GetMin() != nil {
+		if err := capability.GetMin().CheckValid(); err != nil || capability.GetMin().AsDuration() <= 0 {
+			return fmt.Errorf("minimum must be a valid positive duration")
+		}
+		minDuration = capability.GetMin().AsDuration()
+	}
+	if capability.GetMax() != nil {
+		if err := capability.GetMax().CheckValid(); err != nil || capability.GetMax().AsDuration() <= 0 {
+			return fmt.Errorf("maximum must be a valid positive duration")
+		}
+		maxDuration = capability.GetMax().AsDuration()
+	}
+	if minDuration != 0 && maxDuration != 0 && minDuration > maxDuration {
+		return fmt.Errorf("minimum must not exceed maximum")
+	}
 	return nil
 }
 

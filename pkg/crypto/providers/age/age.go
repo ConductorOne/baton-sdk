@@ -19,6 +19,11 @@ const EncryptionProviderAge = "baton/age/v1"
 
 type RecipientEncryptionProvider struct{}
 
+func (p *RecipientEncryptionProvider) ValidateConfig(_ context.Context, conf *v2.EncryptionConfig) error {
+	_, _, err := recipientFromConfig(conf)
+	return err
+}
+
 func (p *RecipientEncryptionProvider) Encrypt(_ context.Context, conf *v2.EncryptionConfig, plaintext *v2.PlaintextData) (*v2.EncryptedData, error) {
 	recipientText, recipient, err := recipientFromConfig(conf)
 	if err != nil {

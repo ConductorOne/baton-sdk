@@ -27,6 +27,14 @@ type EncryptionProvider interface {
 	GenerateKey(ctx context.Context) (*v2.EncryptionConfig, *jose.JSONWebKey, error)
 }
 
+// EncryptionConfigValidator is implemented by providers that can validate all
+// provider-specific configuration without encrypting data. Builders use it
+// before invoking a connector so a bad encryption key cannot strand a newly
+// created credential in the provider.
+type EncryptionConfigValidator interface {
+	ValidateConfig(ctx context.Context, conf *v2.EncryptionConfig) error
+}
+
 type DecryptionConfig struct {
 	Provider   string
 	PrivateKey *jose.JSONWebKey
