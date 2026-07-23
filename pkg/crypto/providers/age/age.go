@@ -17,6 +17,24 @@ import (
 
 const EncryptionProviderAge = "baton/age/v1"
 
+// KeyIDForRecipient derives the EncryptedData.key_ids entry for an age recipient.
+//
+// It returns the lowercase hexadecimal SHA-256 digest of the UTF-8 canonical
+// recipient string. This is the single source of truth for the key-ID
+// derivation convention: producers set EncryptedData.key_ids to this value, and
+// consumers that need to correlate ciphertext with recipient key material must
+// call this function rather than reimplementing the derivation. Because both the
+// SDK and its consumers import this package, the contract is enforced by shared
+// code instead of by prose that can drift.
+//
+// The recipient must be the canonical recipient string (no surrounding
+// whitespace, exactly one recipient); callers that accept untrusted input should
+// validate it the same way Encrypt does before deriving a key ID.
+func KeyIDForRecipient(recipient string) string {
+	digest := sha256.Sum256([]byte(recipient))
+	return hex.EncodeToString(digest[:])
+}
+
 type RecipientEncryptionProvider struct{}
 
 func (p *RecipientEncryptionProvider) ValidateConfig(_ context.Context, conf *v2.EncryptionConfig) error {
@@ -42,14 +60,13 @@ func (p *RecipientEncryptionProvider) Encrypt(_ context.Context, conf *v2.Encryp
 		return nil, fmt.Errorf("age: failed to finalize encryption: %w", err)
 	}
 
-	keyID := sha256.Sum256([]byte(recipientText))
 	return v2.EncryptedData_builder{
 		Provider:       EncryptionProviderAge,
 		Name:           plaintext.GetName(),
 		Description:    plaintext.GetDescription(),
 		Schema:         plaintext.GetSchema(),
 		EncryptedBytes: ciphertext.Bytes(),
-		KeyIds:         []string{hex.EncodeToString(keyID[:])},
+		KeyIds:         []string{KeyIDForRecipient(recipientText)},
 	}.Build(), nil
 }
 

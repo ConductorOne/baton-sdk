@@ -1,0 +1,7 @@
+{
+  "description": "Deterministic fixture for the baton/age/v1 key-ID and decrypt contract. Consumers (e.g. the platform) can vendor fixture.age + this identity and assert their decrypt path and key-ID derivation against the checked-in values. The identity is a throwaway key generated solely for this fixture; it protects nothing.",
+  "identity": "AGE-SECRET-KEY-1YQ87THN2Y5VHZSRMW4EMYW65GEJVE7D9E2MWQ6FN0Y5DMTN68VJQSSV4CS",
+  "recipient": "age10lm6u85rp9fpwkvgp9dmkygrkg5eh75pkshmsf0p6933a67lhvqsh5mqrv",
+  "plaintext": "baton-sdk age key-id fixture plaintext",
+  "key_id": "b589fd3d85a1c7b6aa558fcbd1dc220a8c7674784d580a1fbdb73ab07c747349"
+}
