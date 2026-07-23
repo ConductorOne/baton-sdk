@@ -868,6 +868,13 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	// Validate any targeted resource IDs before starting a sync.
 	targetedResources := []*v2.Resource{}
+	type targetedResourceKey struct {
+		resourceTypeID       string
+		resourceID           string
+		parentResourceTypeID string
+		parentResourceID     string
+	}
+	seenTargetedResources := make(map[targetedResourceKey]struct{}, len(s.targetedSyncResources))
 	for _, r := range s.targetedSyncResources {
 		if len(s.syncResourceTypes) > 0 {
 			if _, ok := syncResourceTypeMap[r.GetId().GetResourceType()]; !ok {
@@ -875,6 +882,16 @@ func (s *syncer) Sync(ctx context.Context) error {
 			}
 		}
 
+		key := targetedResourceKey{
+			resourceTypeID:       r.GetId().GetResourceType(),
+			resourceID:           r.GetId().GetResource(),
+			parentResourceTypeID: r.GetParentResourceId().GetResourceType(),
+			parentResourceID:     r.GetParentResourceId().GetResource(),
+		}
+		if _, ok := seenTargetedResources[key]; ok {
+			continue
+		}
+		seenTargetedResources[key] = struct{}{}
 		targetedResources = append(targetedResources, r)
 	}
 
@@ -1058,45 +1075,50 @@ func (s *syncer) Sync(ctx context.Context) error {
 	return nil
 }
 
-func (s *syncer) SkipSync(ctx context.Context) error {
+func (s *syncer) SkipSync(ctx context.Context) (err error) {
 	ctx, span := tracer.Start(ctx, "syncer.SkipSync")
 	uotel.SetSyncIdentityAttrs(ctx, span)
-	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 	l.Info("skipping sync")
 
+	runCtx := ctx
 	var runCanc context.CancelFunc
 	if s.runDuration > 0 {
-		_, runCanc = context.WithTimeout(ctx, s.runDuration)
+		runCtx, runCanc = context.WithTimeout(ctx, s.runDuration)
 	}
 	if runCanc != nil {
 		defer runCanc()
 	}
+	defer func() {
+		if errors.Is(context.Cause(runCtx), context.DeadlineExceeded) {
+			err = errors.Join(err, ErrSyncNotComplete)
+		}
+	}()
 
-	err = s.loadStore(ctx)
+	err = s.loadStore(runCtx)
 	if err != nil {
 		return err
 	}
 
-	_, err = s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
+	_, err = s.connector.Validate(runCtx, &v2.ConnectorServiceValidateRequest{})
 	if err != nil {
 		return err
 	}
 
 	// TODO: Create a new sync type for empty syncs.
-	_, err = s.store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	_, err = s.store.StartNewSync(runCtx, connectorstore.SyncTypeFull, "")
 	if err != nil {
 		return err
 	}
 
-	err = s.store.EndSync(ctx)
+	err = s.store.EndSync(runCtx)
 	if err != nil {
 		return err
 	}
 
-	err = s.store.Cleanup(ctx)
+	err = s.store.Cleanup(runCtx)
 	if err != nil {
 		return err
 	}
@@ -1390,6 +1412,11 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 		return err
 	}
 	if !shouldSkipGrants {
+		// INTENTIONAL: no per-resource grants action for type-scoped
+		// types, and no type-scoped replacement either. Targeted sync
+		// syncs the resource (and children) only; whole-type grant
+		// enumeration is left to a full grants phase. See the TARGETED
+		// SYNC contract in annotation_type_scoped_grants.proto.
 		typeScopedGrants, err := s.resourceTypeHasTypeScopedGrants(ctx, resourceTypeID)
 		if err != nil {
 			return err
@@ -1409,6 +1436,10 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 	}
 
 	if !shouldSkipEnts {
+		// INTENTIONAL: same as grants above — type-scoped entitlement
+		// enumeration is deferred to a full entitlements phase. See the
+		// TARGETED SYNC contract in
+		// annotation_type_scoped_entitlements.proto.
 		typeScopedEnts, err := s.resourceTypeHasTypeScopedEntitlements(ctx, resourceTypeID)
 		if err != nil {
 			return err

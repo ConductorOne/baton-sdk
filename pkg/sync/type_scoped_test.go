@@ -98,6 +98,39 @@ type blockingRootListResourcesStore struct {
 	blocked atomic.Bool
 }
 
+type countingTargetConnector struct {
+	*mockConnector
+	getResourceCalls atomic.Int64
+}
+
+func (c *countingTargetConnector) GetResource(
+	ctx context.Context,
+	in *v2.ResourceGetterServiceGetResourceRequest,
+	opts ...grpc.CallOption,
+) (*v2.ResourceGetterServiceGetResourceResponse, error) {
+	c.getResourceCalls.Add(1)
+	return c.mockConnector.GetResource(ctx, in, opts...)
+}
+
+type blockingValidateConnector struct {
+	*mockConnector
+	blocked atomic.Bool
+}
+
+func (c *blockingValidateConnector) Validate(
+	ctx context.Context,
+	_ *v2.ConnectorServiceValidateRequest,
+	_ ...grpc.CallOption,
+) (*v2.ConnectorServiceValidateResponse, error) {
+	c.blocked.Store(true)
+	select {
+	case <-ctx.Done():
+		return nil, context.Cause(ctx)
+	case <-time.After(time.Second):
+		return nil, errors.New("test safety stop: SkipSync ignored run duration")
+	}
+}
+
 func (s *blockingRootListResourcesStore) ListResources(
 	ctx context.Context,
 	_ *v2.ResourcesServiceListResourcesRequest,
@@ -517,11 +550,42 @@ func TestTargetedResourceSchedulingFailureLeavesParentAndNoFollowups(t *testing.
 			require.Equal(t, "group-1", action.ResourceID)
 		case SyncEntitlementsOp, SyncGrantsOp, SyncResourcesOp:
 			followupActions++
+		default:
 		}
 	}
 	require.Equal(t, 1, targetedActions)
 	require.Zero(t, followupActions)
 	require.NoError(t, s.Close(ctx))
+}
+
+func TestDuplicateTargetedResourcesAreScheduledOnce(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	resourceType := v2.ResourceType_builder{
+		Id:          "group",
+		DisplayName: "Group",
+	}.Build()
+	resource := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: "group",
+			Resource:     "group-1",
+		}.Build(),
+		DisplayName: "Group 1",
+	}.Build()
+	connector := &countingTargetConnector{mockConnector: newMockConnector()}
+	connector.rtDB = append(connector.rtDB, resourceType)
+	connector.resourceDB["group"] = append(connector.resourceDB["group"], resource)
+
+	s, err := NewSyncer(ctx, connector,
+		WithC1ZPath(filepath.Join(tmpDir, "duplicate-targets.c1z")),
+		WithTmpDir(tmpDir),
+		WithTargetedSyncResources([]*v2.Resource{resource, resource}),
+		WithWorkerCount(2),
+	)
+	require.NoError(t, err)
+	require.NoError(t, s.Sync(ctx))
+	require.NoError(t, s.Close(ctx))
+	require.EqualValues(t, 1, connector.getResourceCalls.Load())
 }
 
 func TestTypeScopedColdCollectionEndToEnd(t *testing.T) {
@@ -743,5 +807,25 @@ func TestRunDurationCancelsRootPlannerIO(t *testing.T) {
 	require.ErrorIs(t, err, ErrSyncNotComplete)
 	require.True(t, store.blocked.Load())
 	require.Less(t, time.Since(started), time.Second)
+	require.NoError(t, s.Close(ctx))
+}
+
+func TestSkipSyncHonorsRunDuration(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	connector := &blockingValidateConnector{mockConnector: newMockConnector()}
+	s, err := NewSyncer(ctx, connector,
+		WithC1ZPath(filepath.Join(tmpDir, "skip-run-duration.c1z")),
+		WithTmpDir(tmpDir),
+		WithSkipFullSync(),
+		WithRunDuration(50*time.Millisecond),
+	)
+	require.NoError(t, err)
+
+	started := time.Now()
+	err = s.Sync(ctx)
+	require.ErrorIs(t, err, ErrSyncNotComplete)
+	require.True(t, connector.blocked.Load())
+	require.Less(t, time.Since(started), 500*time.Millisecond)
 	require.NoError(t, s.Close(ctx))
 }

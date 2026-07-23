@@ -431,6 +431,18 @@ func (s *syncer) handleOperationError(
 	if !errors.Is(context.Cause(runCtx), context.DeadlineExceeded) {
 		return warnings, batchErr
 	}
+	// The run duration expired. The operation error is usually just the
+	// resulting cancellation, but a genuine connector/store failure can
+	// land in the same window — log it so expiry never masks a real bug.
+	// The sync resumes from the checkpoint, so the work is retried either
+	// way; only ErrSyncNotComplete is surfaced to keep the resumable
+	// contract for callers.
+	if batchErr != nil && !errors.Is(batchErr, context.Canceled) && !errors.Is(batchErr, context.DeadlineExceeded) {
+		ctxzap.Extract(ctx).Error(
+			"sync operation failed while run duration expired; exiting early for resume",
+			zap.Error(batchErr),
+		)
+	}
 	checkpointErr := s.Checkpoint(ctx, true)
 	return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
 }

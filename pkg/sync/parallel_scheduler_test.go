@@ -2,6 +2,7 @@ package sync //nolint:revive,nolintlint // backwards-compatible package name
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"reflect"
@@ -287,6 +288,26 @@ func TestAbortedQueueRejectsInFlightTransitionWithoutStateMutation(t *testing.T)
 	require.False(t, committed)
 	require.Zero(t, queue.outstanding)
 	require.Empty(t, queue.actions)
+}
+
+func TestParallelActionQueueRejectsCursorLimitBeforeCommit(t *testing.T) {
+	queue := newParallelActionQueue(nil)
+	for i := 0; i < maxSpawnedCursorsPerBatch; i++ {
+		var key parallelActionKey
+		binary.BigEndian.PutUint64(key[:8], uint64(i))
+		queue.seen[key] = struct{}{}
+	}
+	committed := false
+	err := queue.transition(SyncGrantsOp, nil, "", []Action{{
+		Op:        SyncGrantsOp,
+		PageToken: "over-limit",
+	}}, func() ([]*Action, error) {
+		committed = true
+		return nil, nil
+	})
+	require.ErrorContains(t, err, "exceeded the maximum")
+	require.False(t, committed)
+	require.Len(t, queue.seen, maxSpawnedCursorsPerBatch)
 }
 
 func TestNextPageOrFinishActionStateTransitions(t *testing.T) {
@@ -659,5 +680,44 @@ func TestSpawnedCursorsResumeAfterPartialCompletion(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, warnings)
 	require.ElementsMatch(t, []string{"a", "b"}, processed)
+	require.Nil(t, resumed.Current())
+}
+
+func TestOriginContinuationAndSiblingsResumeExactlyOnce(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	origin := st.pushAction(ctx, Action{
+		Op:             SyncGrantsOp,
+		ResourceTypeID: "group",
+		ResourceID:     "group-1",
+		PageToken:      "origin-current",
+	})
+	_, err := st.transitionAction(ctx, origin, "origin-next", []Action{
+		{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "group-1", PageToken: "sibling-a", Spawned: true},
+		{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "group-1", PageToken: "sibling-b", Spawned: true},
+	})
+	require.NoError(t, err)
+	st.FinishAction(ctx, st.Current())
+
+	token, err := st.Marshal()
+	require.NoError(t, err)
+	resumed := newState()
+	require.NoError(t, resumed.Unmarshal(token))
+	s := &syncer{state: resumed, workerCount: 2}
+
+	var mu sync.Mutex
+	processed := make(map[string]int)
+	f := func(ctx context.Context, action *Action) error {
+		mu.Lock()
+		processed[action.PageToken]++
+		mu.Unlock()
+		s.state.FinishAction(ctx, action)
+		return nil
+	}
+
+	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), resumed.PeekMatchingActions(ctx, SyncGrantsOp), f)
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, map[string]int{"origin-next": 1, "sibling-a": 1}, processed)
 	require.Nil(t, resumed.Current())
 }

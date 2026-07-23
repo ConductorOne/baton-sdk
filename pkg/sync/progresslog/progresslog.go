@@ -268,12 +268,6 @@ func (p *ProgressLog) SetEntitlementsCountOnly(resourceType string) {
 	p.entitlementsCountOnly[resourceType] = true
 }
 
-func (p *ProgressLog) EntitlementsProgress(resourceType string) int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.entitlementsProgress[resourceType]
-}
-
 func (p *ProgressLog) LogGrantsProgress(ctx context.Context, resourceType string) {
 	var grantsProgress, resources int
 	var lastLogTime time.Time
@@ -337,12 +331,6 @@ func (p *ProgressLog) SetGrantsCountOnly(resourceType string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.grantsCountOnly[resourceType] = true
-}
-
-func (p *ProgressLog) GrantsProgress(resourceType string) int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.grantsProgress[resourceType]
 }
 
 // LogExpandProgress emits an Info-level "Expanding grants" log at most once
