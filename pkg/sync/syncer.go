@@ -79,6 +79,8 @@ var connectorCallMethods = []string{
 
 // IsSyncPreservable returns true if the error returned by Sync() means that the sync artifact is useful.
 // This either means that there was no error, or that the error is recoverable (we can resume the sync and possibly succeed next time).
+// Timeouts (context.DeadlineExceeded or codes.DeadlineExceeded, e.g. an AWS Lambda hard timeout) are
+// preservable because the sync can resume from the checkpoint.
 func IsSyncPreservable(err error) bool {
 	if err == nil {
 		return true
@@ -87,6 +89,11 @@ func IsSyncPreservable(err error) bool {
 	// ErrTooManyWarnings means we hit too many warnings.
 	// Both are recoverable errors.
 	if errors.Is(err, ErrSyncNotComplete) || errors.Is(err, ErrTooManyWarnings) {
+		return true
+	}
+	// A wrapped bare context deadline error carries no gRPC status
+	// (status.FromError does not map context.DeadlineExceeded), so check it explicitly.
+	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 	statusErr, ok := status.FromError(err)
@@ -101,7 +108,8 @@ func IsSyncPreservable(err error) bool {
 		codes.FailedPrecondition,
 		codes.Aborted,
 		codes.Unavailable,
-		codes.Unauthenticated:
+		codes.Unauthenticated,
+		codes.DeadlineExceeded:
 		return true
 	default:
 		return false
