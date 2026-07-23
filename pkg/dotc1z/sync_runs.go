@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -880,6 +882,11 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		return nil
 	}
 
+	if c.cleanupRebuild || CleanupRebuildByEnv() {
+		err = c.cleanupByRebuild(ctx)
+		return err
+	}
+
 	err = c.validateDb(ctx)
 	if err != nil {
 		return err
@@ -978,6 +985,174 @@ func (c *C1File) deleteFromTable(ctx context.Context, tableName string, syncID s
 		}
 	}
 	return deleted, nil
+}
+
+// cleanupByRebuild implements the rebuild cleanup strategy: rather than
+// deleting old syncs' rows in place and VACUUMing, it copies the kept syncs
+// into a fresh database and repoints this C1File at it. Cost scales with the
+// kept set, not the deleted set, and the result is compact in one step — no
+// VACUUM. The discarded old database file is removed.
+//
+// The per-table copy is one INSERT..SELECT (an unbounded transaction). The
+// kept set is O(syncLimit) syncs (default 2), so this is small in the case
+// this strategy targets; raising syncLimit substantially, or keeping a very
+// large sync, makes the copy a correspondingly large transaction.
+//
+// Keep selection matches the in-place path (SelectSyncsToDelete); only the
+// mechanism differs.
+func (c *C1File) cleanupByRebuild(ctx context.Context) error {
+	l := ctxzap.Extract(ctx)
+
+	if err := c.validateDb(ctx); err != nil {
+		return err
+	}
+
+	var candidates []SyncRun
+	pageToken := ""
+	for {
+		runs, nextPageToken, err := c.ListSyncRuns(ctx, pageToken, 100)
+		if err != nil {
+			return wrapSqliteInterruptError(err)
+		}
+		for _, sr := range runs {
+			candidates = append(candidates, *sr)
+		}
+		if nextPageToken == "" {
+			break
+		}
+		pageToken = nextPageToken
+	}
+
+	syncLimit := ResolveCleanupSyncLimit(c.syncLimit, c.currentSyncID != "")
+	toDelete := SelectSyncsToDelete(candidates, c.currentSyncID, syncLimit)
+	if len(toDelete) == 0 {
+		l.Debug("cleanup-rebuild: nothing to delete, skipping rebuild",
+			zap.Int("candidate_count", len(candidates)), zap.Int("sync_limit", syncLimit))
+		return nil
+	}
+	deleteSet := make(map[string]struct{}, len(toDelete))
+	for _, id := range toDelete {
+		deleteSet[id] = struct{}{}
+	}
+	keepIDs := make([]string, 0, len(candidates))
+	for _, sr := range candidates {
+		if _, drop := deleteSet[sr.ID]; !drop {
+			keepIDs = append(keepIDs, sr.ID)
+		}
+	}
+	if len(keepIDs) == 0 {
+		// Defensive: never rebuild to an empty c1z. SelectSyncsToDelete always
+		// retains the current + most-recent syncs, so this should be unreachable.
+		l.Warn("cleanup-rebuild: empty keep set, skipping rebuild", zap.Int("candidate_count", len(candidates)))
+		return nil
+	}
+
+	// Build a fresh, schema-complete database and copy the kept syncs into it.
+	tmpDir, err := os.MkdirTemp(c.tempDir, "c1zrebuild")
+	if err != nil {
+		return err
+	}
+	rebuilt := false
+	defer func() {
+		// On failure (rebuilt == false) drop the half-built db; on success the
+		// db has been adopted as c.dbFilePath and must NOT be removed here.
+		if !rebuilt {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}()
+	newPath := filepath.Join(tmpDir, "db")
+
+	initFile, err := NewC1File(ctx, newPath)
+	if err != nil {
+		return err
+	}
+	if err := initFile.rawDb.Close(); err != nil {
+		return err
+	}
+	initFile.rawDb = nil
+	initFile.db = nil
+
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(keepIDs)), ",")
+	args := make([]interface{}, len(keepIDs))
+	for i, id := range keepIDs {
+		args[i] = id
+	}
+
+	conn, err := c.rawDb.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`ATTACH '%s' AS rebuild`, newPath)); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	for _, t := range allTableDescriptors {
+		columns, err := cloneTableColumns(ctx, conn, t.Name())
+		if err != nil {
+			_ = conn.Close()
+			return fmt.Errorf("cleanup-rebuild: error reading columns for %s: %w", t.Name(), err)
+		}
+		quoted := make([]string, len(columns))
+		for i, col := range columns {
+			quoted[i] = quoteIdentifier(col)
+		}
+		colList := strings.Join(quoted, ", ")
+		//nolint:gosec // table names are from hardcoded list; column names are validated
+		q := fmt.Sprintf("INSERT INTO rebuild.%s (%s) SELECT %s FROM %s WHERE sync_id IN (%s)",
+			t.Name(), colList, colList, t.Name(), placeholders)
+		if _, err := conn.ExecContext(ctx, q, args...); err != nil {
+			_ = conn.Close()
+			return fmt.Errorf("cleanup-rebuild: error copying %s: %w", t.Name(), err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, "DETACH rebuild"); err != nil {
+		l.Error("cleanup-rebuild: error detaching rebuild database", zap.Error(err))
+	}
+	_ = conn.Close()
+
+	// Repoint this C1File at the compact database. Close the old handle first
+	// so no connection holds the old file, then open the new one. On any error
+	// before the new handle is wired up, nil out rawDb/db so a later Close()
+	// takes the safe nil path instead of double-closing / removing the original
+	// backing dir.
+	oldPath := c.dbFilePath
+	if err := c.rawDb.Close(); err != nil {
+		c.rawDb = nil
+		c.db = nil
+		return err
+	}
+	newRaw, err := sql.Open("sqlite", newPath)
+	if err != nil {
+		c.rawDb = nil
+		c.db = nil
+		return err
+	}
+	newRaw.SetMaxOpenConns(1)
+	c.rawDb = newRaw
+	c.db = goqu.New("sqlite3", newRaw)
+	c.dbFilePath = newPath
+	// The new db is now the live one: keep its tmpDir (set rebuilt before init
+	// so a pragma failure below doesn't delete the adopted db out from under us).
+	rebuilt = true
+	c.dbUpdated = true
+	c.invalidateCachedViewSyncRun()
+
+	// Re-run init on the new handle so the session pragmas (locking_mode,
+	// synchronous, journal_mode, caller pragmas) match a normally-opened
+	// C1File. InitTables is idempotent — the schema already exists.
+	if err := c.init(ctx); err != nil {
+		return err
+	}
+
+	// Remove the old database and its now-empty temp dir (same as finalize's
+	// cleanupDbDir). Best-effort — the new db is already adopted.
+	if cleanupErr := cleanupDbDir(oldPath, nil); cleanupErr != nil {
+		l.Warn("cleanup-rebuild: error removing old database dir", zap.Error(cleanupErr))
+	}
+
+	l.Info("cleanup-rebuild: rebuilt c1z keeping recent syncs",
+		zap.Int("kept", len(keepIDs)), zap.Int("dropped", len(toDelete)))
+	return nil
 }
 
 // DeleteSyncRun removes all the objects with a given syncID from the database.
