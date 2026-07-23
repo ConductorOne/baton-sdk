@@ -175,8 +175,8 @@ func TestDefaultValueOnlyExport(t *testing.T) {
 }
 
 func TestSuggestedValuePrecedence(t *testing.T) {
-	// When both are set, WithSuggestedValue wins for schema export while
-	// WithDefaultValue continues to govern the CLI/runtime flag default.
+	// When both are set, WithDefaultValue governs the CLI/runtime flag default
+	// while WithSuggestedValue is exported separately into suggested_value.
 	both := StringSliceField("noun",
 		WithDefaultValue([]string{"runtime"}),
 		WithSuggestedValue([]string{"suggested"}),
@@ -186,7 +186,8 @@ func TestSuggestedValuePrecedence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"runtime"}, *runtimeDefault)
 
-	exported, err := GetExportedDefaultValue[[]string](both)
+	v1, err := schemaFieldToV1(both)
 	require.NoError(t, err)
-	require.Equal(t, []string{"suggested"}, *exported)
+	require.Equal(t, []string{"runtime"}, v1.GetStringSliceField().GetDefaultValue())
+	require.Equal(t, []string{"suggested"}, v1.GetStringSliceField().GetSuggestedValue())
 }

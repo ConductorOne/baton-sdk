@@ -190,22 +190,6 @@ func GetDefaultValue[T SchemaTypes](s SchemaField) (*T, error) {
 	return &value, nil
 }
 
-// GetExportedDefaultValue returns the value used to populate the default in the
-// exported config schema (and thus the c1 GUI). It prefers SuggestedValue when
-// set (non-nil), otherwise falls back to DefaultValue. This is used only by the
-// schema export path; the CLI/runtime flag default always comes from
-// GetDefaultValue.
-func GetExportedDefaultValue[T SchemaTypes](s SchemaField) (*T, error) {
-	if s.SuggestedValue != nil {
-		value, ok := s.SuggestedValue.(T)
-		if !ok {
-			return nil, ErrWrongValueType
-		}
-		return &value, nil
-	}
-	return GetDefaultValue[T](s)
-}
-
 // GetSuggestedValue returns the SuggestedValue type-asserted to T, or nil when
 // no suggested value is set. It populates the exported schema's suggested_value
 // field, which pre-populates the c1 GUI without being injected into resolved
