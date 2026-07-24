@@ -242,6 +242,35 @@ func TestSyncerTokenNextPage(t *testing.T) {
 	compareSyncerState(t, op2, *st.Current())
 }
 
+func TestPeekMatchingActionsCapsBatchesAndDrainsRemainder(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	for range maxPeekActionsCount + 5 {
+		st.PushAction(ctx, Action{Op: SyncGrantsOp})
+	}
+
+	firstBatch := st.PeekMatchingActions(ctx, SyncGrantsOp)
+	require.Len(t, firstBatch, maxPeekActionsCount)
+	for _, action := range firstBatch {
+		st.FinishAction(ctx, action)
+	}
+
+	require.Len(t, st.PeekMatchingActions(ctx, SyncGrantsOp), 5)
+}
+
+func TestPeekMatchingActionsStopsAtDifferentOperation(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	st.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "first"})
+	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "second"})
+
+	actions := st.PeekMatchingActions(ctx, SyncGrantsOp)
+	require.Len(t, actions, 2)
+	require.Equal(t, "second", actions[0].ResourceID)
+	require.Equal(t, "first", actions[1].ResourceID)
+}
+
 func TestSyncerTokenUnmarshalBackwardsCompatible(t *testing.T) {
 	initOp := Action{Op: InitOp}
 	syncResourcesOp := Action{Op: SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"}

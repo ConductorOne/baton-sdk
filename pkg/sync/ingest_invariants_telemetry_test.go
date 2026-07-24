@@ -19,6 +19,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -200,4 +201,45 @@ func TestIngestInvariantSkipLogTelemetry(t *testing.T) {
 		}
 	}
 	require.True(t, hasField, "the skip line must name the invariants that did not run")
+	require.Nil(t, findEntry(entries(), zapcore.WarnLevel, "referential invariants were not evaluated"),
+		"a store with no type-scoped exposure keeps the informational level")
+}
+
+// TestIngestInvariantSkipLogEscalatesForTypeScopedStores pins the
+// exposure-dependent level of the degradation line: the annotation
+// registry promises I7/I8 for the type-scoped listing annotations, and
+// on an engine without the inspection surface those exact checks are
+// the ones skipped — a connector relying on the promised guard must see
+// a WARNING, not an info line indistinguishable from benign downgrade.
+func TestIngestInvariantSkipLogEscalatesForTypeScopedStores(t *testing.T) {
+	ctx := context.Background()
+	store, syncID := newInvariantTestStore(ctx, t) // SQLite-backed
+
+	scoped := v2.ResourceType_builder{
+		Id:          "group",
+		DisplayName: "Group",
+		Annotations: annotations.New(&v2.TypeScopedGrants{}),
+	}.Build()
+	require.NoError(t, store.PutResourceTypes(ctx, scoped))
+
+	core, entries := newCaptureCore()
+	lctx := ctxzap.ToContext(ctx, zap.New(core))
+
+	require.NoError(t, RunIngestInvariants(lctx, store, IngestInvariantsPolicy{
+		ActiveSyncID: syncID,
+		SyncType:     connectorstore.SyncTypeFull,
+	}))
+
+	warn := findEntry(entries(), zapcore.WarnLevel, "TYPE-SCOPED listing annotations")
+	require.NotNil(t, warn,
+		"skipping I7/I8 on a store that carries the annotations they were promised for must escalate to a warning")
+	var skipped bool
+	for _, f := range warn.fields {
+		if f.Key == "skipped_invariants" {
+			skipped = true
+		}
+	}
+	require.True(t, skipped, "the escalated line must still name the invariants that did not run")
+	require.Nil(t, findEntry(entries(), zapcore.InfoLevel, "referential invariants were not evaluated"),
+		"the verdict is one line at one level, not both")
 }

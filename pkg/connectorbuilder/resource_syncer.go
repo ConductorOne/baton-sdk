@@ -61,6 +61,14 @@ type ResourceSyncerV2Limited interface {
 	Grants(ctx context.Context, resource *v2.Resource, opts resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error)
 }
 
+type TypeScopedGrantsSyncer interface {
+	GrantsForResourceType(ctx context.Context, resourceTypeID string, opts resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error)
+}
+
+type TypeScopedEntitlementsSyncer interface {
+	EntitlementsForResourceType(ctx context.Context, resourceTypeID string, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error)
+}
+
 type StaticEntitlementSyncerV2 interface {
 	StaticEntitlements(ctx context.Context, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error)
 }
@@ -258,9 +266,15 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 
 	start := b.nowFunc()
 	tt := tasks.ListEntitlementsType
-	rb, ok := b.resourceSyncers[request.GetResource().GetId().GetResourceType()]
+	if request.GetResource() == nil {
+		err = status.Error(codes.InvalidArgument, "error: list entitlements requires a resource")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+	rid := request.GetResource().GetId()
+	rb, ok := b.resourceSyncers[rid.GetResourceType()]
 	if !ok {
-		err = status.Errorf(codes.NotFound, "error: list entitlements with unknown resource type %s", request.GetResource().GetId().GetResourceType())
+		err = status.Errorf(codes.NotFound, "error: list entitlements with unknown resource type %s", rid.GetResourceType())
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -270,7 +284,21 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 		Token: request.GetPageToken(),
 	}
 	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId())}
-	out, retOptions, err := rb.Entitlements(ctx, request.GetResource(), opts)
+	var out []*v2.Entitlement
+	var retOptions *resource.SyncOpResults
+	reqAnnos := annotations.Annotations(request.GetAnnotations())
+	if reqAnnos.Contains(&v2.TypeScopedEntitlements{}) {
+		ts, ok := rb.(TypeScopedEntitlementsSyncer)
+		if !ok {
+			err = status.Errorf(codes.InvalidArgument,
+				"error: type-scoped list entitlements for resource type %s, but its syncer does not implement TypeScopedEntitlementsSyncer", rid.GetResourceType())
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
+		out, retOptions, err = ts.EntitlementsForResourceType(ctx, rid.GetResourceType(), opts)
+	} else {
+		out, retOptions, err = rb.Entitlements(ctx, request.GetResource(), opts)
+	}
 	if retOptions == nil {
 		retOptions = &resource.SyncOpResults{}
 	}
@@ -328,7 +356,21 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 		Token: request.GetPageToken(),
 	}
 	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId())}
-	out, retOptions, err := rb.Grants(ctx, request.GetResource(), opts)
+	var out []*v2.Grant
+	var retOptions *resource.SyncOpResults
+	reqAnnos := annotations.Annotations(request.GetAnnotations())
+	if reqAnnos.Contains(&v2.TypeScopedGrants{}) {
+		ts, ok := rb.(TypeScopedGrantsSyncer)
+		if !ok {
+			err = status.Errorf(codes.InvalidArgument,
+				"error: type-scoped list grants for resource type %s, but its syncer does not implement TypeScopedGrantsSyncer", rid.GetResourceType())
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
+		out, retOptions, err = ts.GrantsForResourceType(ctx, rid.GetResourceType(), opts)
+	} else {
+		out, retOptions, err = rb.Grants(ctx, request.GetResource(), opts)
+	}
 	if retOptions == nil {
 		retOptions = &resource.SyncOpResults{}
 	}
@@ -356,7 +398,29 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 }
 
 func newResourceSyncerV1toV2(rb ResourceSyncer) ResourceSyncerV2 {
-	return &resourceSyncerV1toV2{rb: rb}
+	base := &resourceSyncerV1toV2{rb: rb}
+	tsg, hasTSG := rb.(TypeScopedGrantsSyncer)
+	tse, hasTSE := rb.(TypeScopedEntitlementsSyncer)
+	switch {
+	case hasTSG && hasTSE:
+		return &struct {
+			*resourceSyncerV1toV2
+			TypeScopedGrantsSyncer
+			TypeScopedEntitlementsSyncer
+		}{base, tsg, tse}
+	case hasTSG:
+		return &struct {
+			*resourceSyncerV1toV2
+			TypeScopedGrantsSyncer
+		}{base, tsg}
+	case hasTSE:
+		return &struct {
+			*resourceSyncerV1toV2
+			TypeScopedEntitlementsSyncer
+		}{base, tse}
+	default:
+		return base
+	}
 }
 
 type resourceSyncerV1toV2 struct {
@@ -397,6 +461,25 @@ func (rw *resourceSyncerV1toV2) Grants(ctx context.Context, r *v2.Resource, opts
 	grants, pageToken, annos, err := rw.rb.Grants(ctx, r, &opts.PageToken)
 	ret := &resource.SyncOpResults{NextPageToken: pageToken, Annotations: annos}
 	return grants, ret, err
+}
+
+func validateTypeScopedRegistration(rType *v2.ResourceType, in any) error {
+	rtAnnos := annotations.Annotations(rType.GetAnnotations())
+	if rtAnnos.Contains(&v2.TypeScopedGrants{}) {
+		if _, ok := in.(TypeScopedGrantsSyncer); !ok {
+			return fmt.Errorf(
+				"resource type %s carries the TypeScopedGrants annotation but its syncer does not implement TypeScopedGrantsSyncer",
+				rType.GetId())
+		}
+	}
+	if rtAnnos.Contains(&v2.TypeScopedEntitlements{}) {
+		if _, ok := in.(TypeScopedEntitlementsSyncer); !ok {
+			return fmt.Errorf(
+				"resource type %s carries the TypeScopedEntitlements annotation but its syncer does not implement TypeScopedEntitlementsSyncer",
+				rType.GetId())
+		}
+	}
+	return nil
 }
 
 func (b *builder) addTargetedSyncer(_ context.Context, typeId string, in any) error {
