@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "c1/connector/v2/resource.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// ResourceDeleted is attached by a connector to a Grant or Revoke response when
+// the operation caused a resource to be deleted in the downstream system as a
+// side effect, e.g. revoking a principal's last role causes the downstream app
+// to delete the underlying account.
+message ResourceDeleted {
+  // The resource that was deleted as a side effect of the operation.
+  ResourceId resource_id = 1 [(validate.rules).message = {required: true}];
+}
