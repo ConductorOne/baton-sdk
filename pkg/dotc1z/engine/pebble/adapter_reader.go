@@ -7,6 +7,7 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -683,6 +684,33 @@ func (e *Engine) digestEntitlementIdentity(ctx context.Context, ent *v2.Entitlem
 		return entitlementIdentity{}, false, err
 	}
 	return id, true, nil
+}
+
+// GetGrantDiscoveredAt implements connectorstore.GrantDiscoveredAtReader.
+// It returns the discovered_at stored on the grant addressed by grantID
+// — the value stamped when the grant was first written and preserved
+// across re-syncs and expander rewrites, NEVER a fresh now(). It reads
+// the same GrantRecord GetGrant serves (grant keys carry no sync scope,
+// so no active-sync binding is required) and returns the record's
+// DiscoveredAt verbatim.
+//
+// found is false when no grant resolves for grantID (unknown or
+// unresolvable id); an ambiguous concat id stays an error, matching the
+// GetGrant resolution contract — a lossy string never guesses which
+// grant to answer with. A found grant that was never stamped returns a
+// nil timestamp with found=true.
+func (e *Engine) GetGrantDiscoveredAt(ctx context.Context, grantID string) (*timestamppb.Timestamp, bool, error) {
+	rec, err := e.GetGrantRecord(ctx, grantID)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	if rec == nil {
+		return nil, false, nil
+	}
+	return rec.GetDiscoveredAt(), true, nil
 }
 
 // GetEntitlementGrantDigest implements connectorstore.EntitlementGrantDigestReader.
