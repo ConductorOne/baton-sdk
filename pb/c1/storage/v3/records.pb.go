@@ -1470,9 +1470,21 @@ type SyncRunRecord struct {
 	// (full-fetch) sync. Orchestrators deciding which artifact to
 	// materialize as the previous sync should apply the same predicate
 	// instead of guessing from provenance.
-	Compacted     bool `protobuf:"varint,9,opt,name=compacted,proto3" json:"compacted,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Compacted bool `protobuf:"varint,9,opt,name=compacted,proto3" json:"compacted,omitempty"`
+	// Persisted proof that the post-collection ingestion-invariant pass
+	// completed successfully before this sync was sealed. Empty generation
+	// means the artifact predates verification metadata (or was produced by a
+	// path that did not run the pass). Coverage names only checks that actually
+	// ran; engines without the inspection surface therefore record a subset
+	// rather than claiming full verification.
+	IngestInvariantGeneration string   `protobuf:"bytes,10,opt,name=ingest_invariant_generation,json=ingestInvariantGeneration,proto3" json:"ingest_invariant_generation,omitempty"`
+	IngestInvariantCoverage   []string `protobuf:"bytes,11,rep,name=ingest_invariant_coverage,json=ingestInvariantCoverage,proto3" json:"ingest_invariant_coverage,omitempty"`
+	// "connector" applies the ordinary connector-ingest verdict policy;
+	// "compaction_merge" applies the policy for a pre-sealed keep-newer merge.
+	// Empty when ingest_invariant_generation is empty.
+	IngestInvariantMode string `protobuf:"bytes,12,opt,name=ingest_invariant_mode,json=ingestInvariantMode,proto3" json:"ingest_invariant_mode,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *SyncRunRecord) Reset() {
@@ -1563,6 +1575,27 @@ func (x *SyncRunRecord) GetCompacted() bool {
 	return false
 }
 
+func (x *SyncRunRecord) GetIngestInvariantGeneration() string {
+	if x != nil {
+		return x.IngestInvariantGeneration
+	}
+	return ""
+}
+
+func (x *SyncRunRecord) GetIngestInvariantCoverage() []string {
+	if x != nil {
+		return x.IngestInvariantCoverage
+	}
+	return nil
+}
+
+func (x *SyncRunRecord) GetIngestInvariantMode() string {
+	if x != nil {
+		return x.IngestInvariantMode
+	}
+	return ""
+}
+
 func (x *SyncRunRecord) SetSyncId(v string) {
 	x.SyncId = v
 }
@@ -1597,6 +1630,18 @@ func (x *SyncRunRecord) SetLinkedSyncId(v string) {
 
 func (x *SyncRunRecord) SetCompacted(v bool) {
 	x.Compacted = v
+}
+
+func (x *SyncRunRecord) SetIngestInvariantGeneration(v string) {
+	x.IngestInvariantGeneration = v
+}
+
+func (x *SyncRunRecord) SetIngestInvariantCoverage(v []string) {
+	x.IngestInvariantCoverage = v
+}
+
+func (x *SyncRunRecord) SetIngestInvariantMode(v string) {
+	x.IngestInvariantMode = v
 }
 
 func (x *SyncRunRecord) HasStartedAt() bool {
@@ -1646,6 +1691,18 @@ type SyncRunRecord_builder struct {
 	// materialize as the previous sync should apply the same predicate
 	// instead of guessing from provenance.
 	Compacted bool
+	// Persisted proof that the post-collection ingestion-invariant pass
+	// completed successfully before this sync was sealed. Empty generation
+	// means the artifact predates verification metadata (or was produced by a
+	// path that did not run the pass). Coverage names only checks that actually
+	// ran; engines without the inspection surface therefore record a subset
+	// rather than claiming full verification.
+	IngestInvariantGeneration string
+	IngestInvariantCoverage   []string
+	// "connector" applies the ordinary connector-ingest verdict policy;
+	// "compaction_merge" applies the policy for a pre-sealed keep-newer merge.
+	// Empty when ingest_invariant_generation is empty.
+	IngestInvariantMode string
 }
 
 func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
@@ -1661,6 +1718,9 @@ func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
 	x.SupportsDiff = b.SupportsDiff
 	x.LinkedSyncId = b.LinkedSyncId
 	x.Compacted = b.Compacted
+	x.IngestInvariantGeneration = b.IngestInvariantGeneration
+	x.IngestInvariantCoverage = b.IngestInvariantCoverage
+	x.IngestInvariantMode = b.IngestInvariantMode
 	return m0
 }
 
@@ -2522,7 +2582,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12\x12\n" +
 	"\x04data\x18\x04 \x01(\fR\x04data\x12?\n" +
 	"\rdiscovered_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:\"\x82\xf9+\x1e\n" +
-	"\x06assets\x12\async_id\x12\vexternal_id\"\x8f\x03\n" +
+	"\x06assets\x12\async_id\x12\vexternal_id\"\xbf\x04\n" +
 	"\rSyncRunRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12+\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x17.c1.storage.v3.SyncTypeR\x04type\x12$\n" +
@@ -2534,7 +2594,11 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"sync_token\x18\x06 \x01(\tR\tsyncToken\x12#\n" +
 	"\rsupports_diff\x18\a \x01(\bR\fsupportsDiff\x12$\n" +
 	"\x0elinked_sync_id\x18\b \x01(\tR\flinkedSyncId\x12\x1c\n" +
-	"\tcompacted\x18\t \x01(\bR\tcompacted:\x18\x82\xf9+\x14\n" +
+	"\tcompacted\x18\t \x01(\bR\tcompacted\x12>\n" +
+	"\x1bingest_invariant_generation\x18\n" +
+	" \x01(\tR\x19ingestInvariantGeneration\x12:\n" +
+	"\x19ingest_invariant_coverage\x18\v \x03(\tR\x17ingestInvariantCoverage\x122\n" +
+	"\x15ingest_invariant_mode\x18\f \x01(\tR\x13ingestInvariantMode:\x18\x82\xf9+\x14\n" +
 	"\tsync_runs\x12\async_id\"\xb4\v\n" +
 	"\x0fSyncStatsRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12%\n" +

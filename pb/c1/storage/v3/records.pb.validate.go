@@ -1551,6 +1551,10 @@ func (m *SyncRunRecord) validate(all bool) error {
 
 	// no validation rules for Compacted
 
+	// no validation rules for IngestInvariantGeneration
+
+	// no validation rules for IngestInvariantMode
+
 	if len(errors) > 0 {
 		return SyncRunRecordMultiError(errors)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"google.golang.org/protobuf/types/known/anypb"
@@ -243,14 +244,10 @@ func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 	if err != nil {
 		return err
 	}
-	updated := v3.SyncRunRecord_builder{
-		SyncId:       existing.GetSyncId(),
-		Type:         existing.GetType(),
-		ParentSyncId: existing.GetParentSyncId(),
-		StartedAt:    existing.GetStartedAt(),
-		EndedAt:      existing.GetEndedAt(),
-		SyncToken:    syncToken,
-	}.Build()
+	// Clone-and-mutate so lifecycle updates preserve every metadata field,
+	// including fields introduced after this code was written.
+	updated := proto.Clone(existing).(*v3.SyncRunRecord)
+	updated.SetSyncToken(syncToken)
 	return e.PutSyncRunRecord(ctx, updated)
 }
 
@@ -336,14 +333,9 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			return fmt.Errorf("EndSync: repair grant digests: %w", err)
 		}
 	}
-	updated := v3.SyncRunRecord_builder{
-		SyncId:       existing.GetSyncId(),
-		Type:         existing.GetType(),
-		ParentSyncId: existing.GetParentSyncId(),
-		StartedAt:    existing.GetStartedAt(),
-		EndedAt:      timestamppb.Now(),
-		SyncToken:    existing.GetSyncToken(),
-	}.Build()
+	// Preserve all provenance fields while adding the lifecycle stamp.
+	updated := proto.Clone(existing).(*v3.SyncRunRecord)
+	updated.SetEndedAt(timestamppb.Now())
 	if e.test.endSyncStampHook != nil {
 		if err := e.test.endSyncStampHook(); err != nil {
 			return err

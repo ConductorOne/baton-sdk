@@ -171,19 +171,26 @@ type syncer struct {
 	// returning an error fails the sync at exactly that boundary. The
 	// halt sweep uses it to prove crash/resume equivalence at every
 	// ordering-sensitive point. Nil in production: one pointer check.
-	testIngestHaltHook    func(stage string) error
-	connector             types.ConnectorClient
-	state                 State
-	runDuration           time.Duration
-	transitionHandler     func(s Action)
-	progressHandler       func(p *Progress)
-	tmpDir                string
-	storageEngine         c1zstore.Engine
-	skipFullSync          bool
-	lastCheckPointTime    time.Time
-	counts                *progresslog.ProgressLog
-	targetedSyncResources []*v2.Resource
-	onlyExpandGrants      bool
+	testIngestHaltHook func(stage string) error
+	// pendingInvariantVerification is the verification a successful
+	// runIngestionInvariants staged, awaiting persistence by
+	// persistIngestInvariantVerification AFTER EndSync. Deferring the
+	// write keeps the marker off unfinished syncs: a crash before the
+	// seal leaves the artifact unverified instead of claiming
+	// verification over data a resume will rewrite.
+	pendingInvariantVerification *c1zstore.IngestInvariantVerification
+	connector                    types.ConnectorClient
+	state                        State
+	runDuration                  time.Duration
+	transitionHandler            func(s Action)
+	progressHandler              func(p *Progress)
+	tmpDir                       string
+	storageEngine                c1zstore.Engine
+	skipFullSync                 bool
+	lastCheckPointTime           time.Time
+	counts                       *progresslog.ProgressLog
+	targetedSyncResources        []*v2.Resource
+	onlyExpandGrants             bool
 	// compactionMergedStore marks the store as a pre-sealed artifact
 	// this process did not collect (WithCompactionMergedStore — the
 	// compactor's keep-newer merge and rollback-expansion's replay):
@@ -853,6 +860,20 @@ func (s *syncer) Sync(ctx context.Context) error {
 		l.Debug("resuming previous sync", zap.String("sync_id", syncID))
 	}
 
+	// Every run that reaches collection rewrites sync-scoped data, so no
+	// prior verification may survive into the window where the store is
+	// being mutated. New syncs carry no marker (no-op); the case that
+	// matters is a rebound, already-sealed sync (WithSyncID — e.g. the
+	// compactor's expansion pass, or a reused syncer): without this, its
+	// stale marker would read as verified while collection rewrites the
+	// data underneath it. The invariant pass re-stages and the marker is
+	// re-persisted after EndSync.
+	if w, ok := s.store.SyncMeta().(c1zstore.IngestInvariantVerificationWriter); ok {
+		if err := w.ClearIngestInvariantVerification(ctx, syncID); err != nil {
+			return s.returnSyncError(l, span, fmt.Errorf("clear prior ingest invariant verification: %w", err))
+		}
+	}
+
 	currentStep, err := s.store.CurrentSyncStep(ctx)
 	if err != nil {
 		return err
@@ -954,6 +975,20 @@ func (s *syncer) Sync(ctx context.Context) error {
 	err = s.store.EndSync(ctx)
 	if err != nil {
 		return s.returnSyncError(l, span, err)
+	}
+
+	// The sync is sealed: publish the verification the invariant pass
+	// staged. Marking only after EndSync keeps the marker off unfinished
+	// syncs; a crash in the sealed-but-unmarked window reads as an
+	// unverified legacy artifact (fail-closed).
+	//
+	// Log-only on failure: EndSync was the last mutation allowed to fail
+	// the sync. The artifact is complete and an absent marker is safe by
+	// design, while a returned error here would read as a FAILED sync —
+	// IsSyncPreservable callers would discard a finished artifact and a
+	// retry would re-collect from scratch over it.
+	if err := s.persistIngestInvariantVerification(ctx); err != nil {
+		l.Warn("failed to persist ingest invariant verification; the sealed sync remains unverified", zap.Error(err))
 	}
 
 	if s.recordStats {

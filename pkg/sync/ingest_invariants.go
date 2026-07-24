@@ -106,6 +106,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // ErrIngestInvariantViolated classifies DATA VERDICTS — the store's
@@ -281,6 +282,10 @@ type ingestInvariant struct {
 	// full-resource-scan cost is a bad trade for a default-mode
 	// warning).
 	failFastOnly bool
+	// requiresScheduleEvidence: the check only runs when this process
+	// retained evidence from the resources phase. Keeping this applicability
+	// gate here makes persisted coverage reflect checks that truly ran.
+	requiresScheduleEvidence bool
 	// failFastPromotes: under FailFast the check's tolerated
 	// warn-verdicts become hard failures. Enforced by the fail-fast
 	// test suite; documented here so the matrix is one artifact.
@@ -321,10 +326,11 @@ var ingestInvariants = []ingestInvariant{
 		check:            (*ingestInvariantsPass).checkStoredExclusionGroups,
 	},
 	{
-		id:               "I4",
-		failFastOnly:     true,
-		failFastPromotes: true, // the whole check exists only under fail-fast
-		check:            (*ingestInvariantsPass).checkChildScheduling,
+		id:                       "I4",
+		failFastOnly:             true,
+		requiresScheduleEvidence: true,
+		failFastPromotes:         true, // the whole check exists only under fail-fast
+		check:                    (*ingestInvariantsPass).checkChildScheduling,
 	},
 	{
 		id:               "I7",
@@ -366,6 +372,12 @@ const haltStageI9IndexesEnsured = "invariants-I9-indexes-ensured"
 // entire pass over the same state, so every check must be idempotent.
 const haltStageInvariantsComplete = "ingest-invariants-complete"
 
+// IngestInvariantGeneration identifies the verification contract persisted in
+// sync metadata. Increment it whenever the meaning of a covered invariant
+// changes such that an older successful pass is not equivalent to the current
+// one.
+const IngestInvariantGeneration = "1"
+
 // ingestInvariantHaltStages enumerates every halt seam the pass can
 // fire, in firing order — the halt sweep iterates this list, so a new
 // stage is swept by construction, and the meta-test pins
@@ -394,21 +406,34 @@ func ingestInvariantHaltStages() []string {
 // store-level function so store-producing pipelines without a syncer
 // (the compactor's expand pass) can enforce the same contract.
 func RunIngestInvariants(ctx context.Context, store connectorstore.Reader, policy IngestInvariantsPolicy) error {
+	_, err := runIngestInvariants(ctx, store, policy)
+	return err
+}
+
+// runIngestInvariants returns the IDs of checks that actually completed. The
+// public wrapper intentionally retains its existing error-only API; the syncer
+// consumes the coverage to persist verification provenance.
+func runIngestInvariants(
+	ctx context.Context,
+	store connectorstore.Reader,
+	policy IngestInvariantsPolicy,
+) ([]string, error) {
 	if store == nil {
-		return fmt.Errorf("ingest invariants: store is required")
+		return nil, fmt.Errorf("ingest invariants: store is required")
 	}
 	// Fail closed on a zero SyncType: connectorstore's zero value is
 	// SyncTypeAny (""), which is not SyncTypeFull — a caller omitting
 	// the field would silently skip every full-keyspace invariant and
 	// read a green pass that validated almost nothing.
 	if policy.SyncType == "" {
-		return fmt.Errorf("ingest invariants: policy.SyncType is required (the zero value would silently skip the full-keyspace invariants; pass the sync's actual type)")
+		return nil, fmt.Errorf("ingest invariants: policy.SyncType is required (the zero value would silently skip the full-keyspace invariants; pass the sync's actual type)")
 	}
 	pass := &ingestInvariantsPass{store: store, p: &policy}
 	if facts, ok := store.(dotc1z.IngestInvariantStore); ok {
 		pass.facts = facts
 	}
 	var skippedNoStore []string
+	coverage := make([]string, 0, len(ingestInvariants))
 	for i := range ingestInvariants {
 		inv := &ingestInvariants[i]
 		if !inv.runsOnAllSyncTypes && policy.SyncType != connectorstore.SyncTypeFull {
@@ -426,27 +451,46 @@ func RunIngestInvariants(ctx context.Context, store connectorstore.Reader, polic
 		if inv.failFastOnly && !policy.FailFast {
 			continue
 		}
+		if inv.requiresScheduleEvidence && (!policy.resourcesPhaseRan || policy.childSchedule == nil) {
+			continue
+		}
 		if err := inv.check(pass, ctx); err != nil {
-			return err
+			return nil, err
 		}
 		if inv.haltStage != "" {
 			if err := pass.haltAt(inv.haltStage); err != nil {
-				return err
+				return nil, err
 			}
 		}
+		coverage = append(coverage, inv.id)
 	}
 	if len(skippedNoStore) > 0 {
 		ctxzap.Extract(ctx).Info("ingest invariants: store engine lacks the inspection surface; referential invariants were not evaluated",
 			zap.Strings("skipped_invariants", skippedNoStore),
 		)
 	}
-	return nil
+	return coverage, nil
 }
 
 // runIngestionInvariants is the syncer's call into the pass: policy
 // from syncer state, evidence from the in-memory schedule set, halt
 // hook from the test seam.
+//
+// A successful pass does NOT write the verification marker here — it
+// only records the pending verification on the syncer. The marker is
+// persisted by persistIngestInvariantVerification AFTER EndSync, so a
+// crash anywhere between this pass and the seal leaves the sync
+// unverified (fail-closed) instead of claiming verification over an
+// unfinished artifact the resume machinery will rewrite.
 func (s *syncer) runIngestionInvariants(ctx context.Context) error {
+	s.pendingInvariantVerification = nil
+	if verificationWriter, ok := s.store.SyncMeta().(c1zstore.IngestInvariantVerificationWriter); ok {
+		// Invalidate any proof inherited from an earlier pass before
+		// re-evaluating. A failed rerun must leave the sync unverified.
+		if err := verificationWriter.ClearIngestInvariantVerification(ctx, s.syncID); err != nil {
+			return fmt.Errorf("ingest invariants: clear prior verification: %w", err)
+		}
+	}
 	policy := IngestInvariantsPolicy{
 		ActiveSyncID:      s.getActiveSyncID(),
 		SyncType:          s.syncType,
@@ -459,7 +503,50 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 	if s.testIngestHaltHook != nil {
 		policy.halt = s.testIngestHaltHook
 	}
-	return RunIngestInvariants(ctx, s.store, policy)
+	coverage, err := runIngestInvariants(ctx, s.store, policy)
+	if err != nil {
+		return err
+	}
+	mode := c1zstore.IngestInvariantVerificationModeConnector
+	switch {
+	case policy.CompactionMerge && policy.FailFast:
+		mode = c1zstore.IngestInvariantVerificationModeCompactionMergeFailFast
+	case policy.CompactionMerge:
+		mode = c1zstore.IngestInvariantVerificationModeCompactionMerge
+	case policy.FailFast:
+		mode = c1zstore.IngestInvariantVerificationModeConnectorFailFast
+	}
+	s.pendingInvariantVerification = &c1zstore.IngestInvariantVerification{
+		Generation: IngestInvariantGeneration,
+		Coverage:   coverage,
+		Mode:       mode,
+	}
+	return nil
+}
+
+// persistIngestInvariantVerification writes the verification marker the last
+// successful runIngestionInvariants staged. Called AFTER EndSync: the marker
+// must only ever be readable on a sealed sync, so a crash before the seal
+// leaves the artifact unverified rather than claiming verification over data
+// a resume is free to rewrite. Both built-in writers accept metadata stamps
+// on a sealed sync (SQLite updates by sync_id; Pebble's PutSyncRunRecord is
+// an AllowSealed path). The inverse crash window — sealed but not yet marked
+// — reads as an unverified legacy artifact: fail-closed.
+func (s *syncer) persistIngestInvariantVerification(ctx context.Context) error {
+	if s.pendingInvariantVerification == nil {
+		return errors.New("ingest invariants: no staged verification to persist")
+	}
+	verification := *s.pendingInvariantVerification
+	s.pendingInvariantVerification = nil
+	verificationWriter, ok := s.store.SyncMeta().(c1zstore.IngestInvariantVerificationWriter)
+	if !ok {
+		// SyncMeta predates verification metadata and is implemented outside
+		// this repository. Preserve its established behavior; the absent
+		// marker truthfully distinguishes it from built-in verified stores.
+		ctxzap.Extract(ctx).Warn("ingest invariants: store cannot persist verification metadata")
+		return nil
+	}
+	return verificationWriter.MarkIngestInvariantsVerified(ctx, s.syncID, verification)
 }
 
 // exclusionGroupTracker is the pure validation core behind invariant I5:

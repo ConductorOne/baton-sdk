@@ -49,7 +49,10 @@ create table if not exists %s (
     linked_sync_id text not null default '',
     supports_diff integer not null default 0,
     grants_backfilled integer not null default 0,
-		stats text
+		stats text,
+    ingest_invariant_generation text not null default '',
+    ingest_invariant_coverage text not null default '',
+    ingest_invariant_mode text not null default ''
 );
 create unique index if not exists %s on %s (sync_id);`
 
@@ -148,7 +151,50 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) (bool
 		migrated = true
 	}
 
+	for _, column := range []struct {
+		name string
+		ddl  string
+	}{
+		{name: "ingest_invariant_generation", ddl: "text not null default ''"},
+		{name: "ingest_invariant_coverage", ddl: "text not null default ''"},
+		{name: "ingest_invariant_mode", ddl: "text not null default ''"},
+	} {
+		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column %s %s", r.Name(), column.name, column.ddl))
+		if err != nil {
+			if !isAlreadyExistsError(err) {
+				return false, err
+			}
+		} else {
+			migrated = true
+		}
+	}
+
 	return migrated, nil
+}
+
+func parseIngestInvariantVerification(
+	generation string,
+	coverageJSON string,
+	mode string,
+) c1zstore.IngestInvariantVerification {
+	if generation == "" {
+		return c1zstore.IngestInvariantVerification{}
+	}
+	var coverage []string
+	if err := json.Unmarshal([]byte(coverageJSON), &coverage); err != nil {
+		// Malformed provenance must fail closed: expose it as unverified so a
+		// future compaction consumer cannot trust a partial/corrupt marker.
+		return c1zstore.IngestInvariantVerification{}
+	}
+	verification := c1zstore.IngestInvariantVerification{
+		Generation: generation,
+		Coverage:   coverage,
+		Mode:       c1zstore.IngestInvariantVerificationMode(mode),
+	}
+	if !verification.IsVerified() {
+		return c1zstore.IngestInvariantVerification{}
+	}
+	return verification
 }
 
 // getCachedViewSyncRun returns the cached sync run for read operations.
@@ -202,7 +248,12 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 	oneWeekAgo := time.Now().AddDate(0, 0, -7)
 	ret := &c1zstore.SyncRun{}
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff", "stats")
+	q = q.Select(
+		"sync_id", "started_at", "ended_at", "sync_token", "sync_type",
+		"parent_sync_id", "linked_sync_id", "supports_diff",
+		"ingest_invariant_generation", "ingest_invariant_coverage", "ingest_invariant_mode",
+		"stats",
+	)
 	q = q.Where(goqu.C("ended_at").IsNull())
 	q = q.Where(goqu.C("started_at").Gte(oneWeekAgo))
 	q = q.Order(goqu.C("started_at").Desc())
@@ -218,7 +269,12 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 
 	row := c.db.QueryRowContext(ctx, query, args...)
 	statsBytes := &[]byte{}
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff, &statsBytes)
+	var generation, coverageJSON, mode string
+	err = row.Scan(
+		&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type,
+		&ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff,
+		&generation, &coverageJSON, &mode, &statsBytes,
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -227,6 +283,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 	}
 
 	ret.Stats = parseStats(ctx, statsBytes)
+	ret.IngestInvariantVerification = parseIngestInvariantVerification(generation, coverageJSON, mode)
 
 	return ret, nil
 }
@@ -248,7 +305,12 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 
 	ret := &c1zstore.SyncRun{}
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff", "stats")
+	q = q.Select(
+		"sync_id", "started_at", "ended_at", "sync_token", "sync_type",
+		"parent_sync_id", "linked_sync_id", "supports_diff",
+		"ingest_invariant_generation", "ingest_invariant_coverage", "ingest_invariant_mode",
+		"stats",
+	)
 	q = q.Where(goqu.C("ended_at").IsNotNull())
 	if syncType != connectorstore.SyncTypeAny {
 		q = q.Where(goqu.C("sync_type").Eq(syncType))
@@ -271,7 +333,12 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 
 	row := c.db.QueryRowContext(ctx, query, args...)
 	statsBytes := &[]byte{}
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff, &statsBytes)
+	var generation, coverageJSON, mode string
+	err = row.Scan(
+		&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type,
+		&ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff,
+		&generation, &coverageJSON, &mode, &statsBytes,
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -280,6 +347,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 	}
 
 	ret.Stats = parseStats(ctx, statsBytes)
+	ret.IngestInvariantVerification = parseIngestInvariantVerification(generation, coverageJSON, mode)
 
 	return ret, nil
 }
@@ -312,7 +380,12 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 	}
 
 	q := c.db.From(syncRuns.Name()).Prepared(true)
-	q = q.Select("id", "sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff", "stats")
+	q = q.Select(
+		"id", "sync_id", "started_at", "ended_at", "sync_token", "sync_type",
+		"parent_sync_id", "linked_sync_id", "supports_diff",
+		"ingest_invariant_generation", "ingest_invariant_coverage", "ingest_invariant_mode",
+		"stats",
+	)
 
 	if pageToken != "" {
 		q = q.Where(goqu.C("id").Gte(pageToken))
@@ -348,12 +421,18 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 		statsBytes := &[]byte{}
 		rowId := 0
 		data := &c1zstore.SyncRun{}
-		err := rows.Scan(&rowId, &data.ID, &data.StartedAt, &data.EndedAt, &data.SyncToken, &data.Type, &data.ParentSyncID, &data.LinkedSyncID, &data.SupportsDiff, &statsBytes)
+		var generation, coverageJSON, mode string
+		err := rows.Scan(
+			&rowId, &data.ID, &data.StartedAt, &data.EndedAt, &data.SyncToken, &data.Type,
+			&data.ParentSyncID, &data.LinkedSyncID, &data.SupportsDiff,
+			&generation, &coverageJSON, &mode, &statsBytes,
+		)
 		if err != nil {
 			return nil, "", err
 		}
 
 		data.Stats = parseStats(ctx, statsBytes)
+		data.IngestInvariantVerification = parseIngestInvariantVerification(generation, coverageJSON, mode)
 		lastRow = rowId
 		ret = append(ret, data)
 	}
@@ -445,7 +524,12 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*c1zstore.SyncRun,
 	ret := &c1zstore.SyncRun{}
 
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff", "stats")
+	q = q.Select(
+		"sync_id", "started_at", "ended_at", "sync_token", "sync_type",
+		"parent_sync_id", "linked_sync_id", "supports_diff",
+		"ingest_invariant_generation", "ingest_invariant_coverage", "ingest_invariant_mode",
+		"stats",
+	)
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
 
 	query, args, err := q.ToSQL()
@@ -454,12 +538,18 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*c1zstore.SyncRun,
 	}
 	row := c.db.QueryRowContext(ctx, query, args...)
 	var statsBytes *[]byte
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff, &statsBytes)
+	var generation, coverageJSON, mode string
+	err = row.Scan(
+		&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type,
+		&ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff,
+		&generation, &coverageJSON, &mode, &statsBytes,
+	)
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err)
 	}
 
 	ret.Stats = parseStats(ctx, statsBytes)
+	ret.IngestInvariantVerification = parseIngestInvariantVerification(generation, coverageJSON, mode)
 
 	return ret, nil
 }
@@ -805,6 +895,92 @@ func (c *C1File) SetSupportsDiff(ctx context.Context, syncID string) error {
 	}
 	c.dbUpdated = true
 
+	return nil
+}
+
+func (c *C1File) markIngestInvariantsVerified(
+	ctx context.Context,
+	syncID string,
+	verification c1zstore.IngestInvariantVerification,
+) error {
+	if c.readOnly {
+		return ErrReadOnly
+	}
+	if syncID == "" {
+		return status.Error(codes.InvalidArgument, "sync id is required")
+	}
+	if !verification.IsVerified() {
+		return status.Error(codes.InvalidArgument, "ingest invariant verification is incomplete")
+	}
+	coverage, err := json.Marshal(verification.Coverage)
+	if err != nil {
+		return fmt.Errorf("marshal ingest invariant coverage: %w", err)
+	}
+
+	q := c.db.Update(syncRuns.Name())
+	q = q.Set(goqu.Record{
+		"ingest_invariant_generation": verification.Generation,
+		"ingest_invariant_coverage":   string(coverage),
+		"ingest_invariant_mode":       string(verification.Mode),
+	})
+	q = q.Where(goqu.C("sync_id").Eq(syncID))
+	// The marker is only ever valid on a sealed sync: an unfinished sync's
+	// data is still mutable, so a verified-but-unfinished row would be a
+	// lie the moment the next write lands. Callers mark AFTER EndSync.
+	q = q.Where(goqu.C("ended_at").IsNotNull())
+
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return err
+	}
+	result, err := c.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return status.Errorf(codes.FailedPrecondition,
+			"mark ingest invariants verified: sync %s not found or not finished", syncID)
+	}
+	c.dbUpdated = true
+	c.invalidateCachedViewSyncRun()
+	return nil
+}
+
+func (c *C1File) clearIngestInvariantVerification(ctx context.Context, syncID string) error {
+	if c.readOnly {
+		return ErrReadOnly
+	}
+	if syncID == "" {
+		return status.Error(codes.InvalidArgument, "sync id is required")
+	}
+	q := c.db.Update(syncRuns.Name())
+	q = q.Set(goqu.Record{
+		"ingest_invariant_generation": "",
+		"ingest_invariant_coverage":   "",
+		"ingest_invariant_mode":       "",
+	})
+	q = q.Where(goqu.C("sync_id").Eq(syncID))
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return err
+	}
+	result, err := c.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return c1zstore.AdaptNotFound(sql.ErrNoRows)
+	}
+	c.dbUpdated = true
+	c.invalidateCachedViewSyncRun()
 	return nil
 }
 

@@ -53,6 +53,15 @@ type SyncMeta interface {
 	RecalculateStats(ctx context.Context, syncID string) error
 }
 
+// IngestInvariantVerificationWriter is the additive sync-metadata capability
+// implemented by stores that can persist invariant provenance. It is separate
+// from SyncMeta so adding the marker does not break third-party SyncMeta
+// implementations at compile time.
+type IngestInvariantVerificationWriter interface {
+	MarkIngestInvariantsVerified(ctx context.Context, syncID string, verification IngestInvariantVerification) error
+	ClearIngestInvariantVerification(ctx context.Context, syncID string) error
+}
+
 // SyncRun is the exported shape of a sync run. The fields match the
 // sync_runs schema.
 //
@@ -69,4 +78,42 @@ type SyncRun struct {
 	LinkedSyncID string
 	SupportsDiff bool
 	Stats        *reader_v2.SyncStats
+	IngestInvariantVerification
 }
+
+// IngestInvariantVerification is persisted provenance for a successful
+// post-collection invariant pass. Generation identifies the verifier
+// contract, Coverage lists the invariant IDs that actually ran, and Mode
+// identifies the verdict policy used. Generation == "" means unverified.
+type IngestInvariantVerification struct {
+	Generation string
+	Coverage   []string
+	Mode       IngestInvariantVerificationMode
+}
+
+// IsVerified reports whether the provenance marker is complete and uses a
+// known verdict mode. It says the recorded pass completed; callers must still
+// compare Generation and required Coverage with their own contract.
+func (v IngestInvariantVerification) IsVerified() bool {
+	if v.Generation == "" || len(v.Coverage) == 0 {
+		return false
+	}
+	switch v.Mode {
+	case IngestInvariantVerificationModeConnector,
+		IngestInvariantVerificationModeConnectorFailFast,
+		IngestInvariantVerificationModeCompactionMerge,
+		IngestInvariantVerificationModeCompactionMergeFailFast:
+		return true
+	default:
+		return false
+	}
+}
+
+type IngestInvariantVerificationMode string
+
+const (
+	IngestInvariantVerificationModeConnector               IngestInvariantVerificationMode = "connector"
+	IngestInvariantVerificationModeConnectorFailFast       IngestInvariantVerificationMode = "connector_fail_fast"
+	IngestInvariantVerificationModeCompactionMerge         IngestInvariantVerificationMode = "compaction_merge"
+	IngestInvariantVerificationModeCompactionMergeFailFast IngestInvariantVerificationMode = "compaction_merge_fail_fast"
+)
