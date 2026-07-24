@@ -259,17 +259,20 @@ func TestResumeAcrossChangedAnswersTerminates(t *testing.T) {
 		"no expiry checkpoint carried a spawned in-flight cursor; the sweep is not reaching the changed-answer state shape")
 }
 
-// flakyOnceConnector fails the FIRST type-scoped grants call for one
-// token with a retryable gRPC code, then serves normally.
-type flakyOnceConnector struct {
+// spawnedErrorOnceConnector fails the FIRST type-scoped grants call for one
+// spawned token with the configured error, then serves normally. It drives
+// the end-to-end error-category matrix below through the real connector,
+// scheduler, state, checkpoint, and store seams.
+type spawnedErrorOnceConnector struct {
 	*soakConnector
 	mu    native_sync.Mutex
 	token string
+	err   error
 	fired bool
 	hits  int
 }
 
-func (c *flakyOnceConnector) ListGrants(
+func (c *spawnedErrorOnceConnector) ListGrants(
 	ctx context.Context,
 	in *v2.GrantsServiceListGrantsRequest,
 	opts ...grpc.CallOption,
@@ -282,58 +285,192 @@ func (c *flakyOnceConnector) ListGrants(
 		c.hits++
 		c.mu.Unlock()
 		if !fired {
-			return nil, status.Error(codes.Unavailable, "injected transient unavailability")
+			return nil, c.err
 		}
 	}
 	return c.soakConnector.ListGrants(ctx, in, opts...)
 }
 
-// TestParallelWorkerRetriesUnavailableInPlace pins the in-batch retry
-// path: a retryable failure (codes.Unavailable) on a spawned cursor must
-// retry IN PLACE — same worker, same action, no batch abort, no resume —
-// and the failed attempt must contribute nothing (its spawns were never
-// committed). One Sync call completes with the exact payload set.
-func TestParallelWorkerRetriesUnavailableInPlace(t *testing.T) {
+// storedGrantEntitlementIDs returns the exact entitlement IDs referenced by
+// grants in the sealed store. It is the category matrix's absence oracle:
+// warning/drop must omit precisely the warned cursor and its undiscovered
+// descendants; retry and resume must produce the complete topology.
+func storedGrantEntitlementIDs(t *testing.T, c1zPath, tmpDir string) map[string]struct{} {
+	t.Helper()
 	ctx := t.Context()
-	tmpDir := t.TempDir()
-	base, expectedEntIDs, userID := buildTopoFixture(t, map[string]*soakTypeTopology{
-		"groupU": {
-			plannerChildren: []string{"u1", "u2"},
-			nodes: map[string]*soakNode{
-				// u2 — the flaky cursor — spawns u3, so the retry must
-				// also prove the failed attempt admitted nothing.
-				"u1": {},
-				"u2": {children: []string{"u3"}},
-				"u3": {},
-			},
-			tokens:         []string{"u1", "u2", "u3"},
-			poisonedEnts:   map[string]bool{},
-			poisonedGrants: map[string]bool{},
-		},
-	})
-	connector := &flakyOnceConnector{soakConnector: base, token: "u2"}
-
-	path := filepath.Join(tmpDir, "flaky.c1z")
-	store, err := dotc1z.NewStore(ctx, path,
+	store, err := dotc1z.NewStore(ctx, c1zPath,
 		dotc1z.WithEngine(c1zstore.EnginePebble),
 		dotc1z.WithTmpDir(tmpDir),
+		dotc1z.WithReadOnly(true),
 	)
 	require.NoError(t, err)
-	s, err := NewSyncer(ctx, connector,
-		WithConnectorStore(store),
-		WithTmpDir(tmpDir),
-		WithWorkerCount(3),
-	)
-	require.NoError(t, err)
-	audit := attachQueueAudit(t, s)
+	defer func() { require.NoError(t, store.Close(ctx)) }()
 
-	require.NoError(t, s.Sync(ctx), "a retryable failure must be absorbed in place, not fail the sync")
-	require.NoError(t, s.Close(ctx))
-	verifyQueueAudit(t, audit)
+	out := make(map[string]struct{})
+	pageToken := ""
+	for {
+		resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		require.NoError(t, err)
+		for _, grant := range resp.GetList() {
+			out[grant.GetEntitlement().GetId()] = struct{}{}
+		}
+		if pageToken = resp.GetNextPageToken(); pageToken == "" {
+			return out
+		}
+	}
+}
 
-	connector.mu.Lock()
-	hits := connector.hits
-	connector.mu.Unlock()
-	require.GreaterOrEqual(t, hits, 2, "the flaky cursor must have been retried after the injected failure")
-	verifyCutStore(t, path, tmpDir, expectedEntIDs, userID)
+// TestSpawnedCursorErrorCategoriesEndToEnd maps every connector-error
+// disposition that changes scheduler behavior to its state and store
+// contract:
+//
+//   - NotFound is warn-and-drop: the action is legitimately finished, its
+//     undiscovered descendants never run, and the sync seals that exact
+//     subset without leaving I10 evidence.
+//   - Unavailable is retryable: the SAME spawned action retries in place;
+//     the failed attempt admits no children and one Sync produces the exact
+//     complete store.
+//   - InvalidArgument is fatal: the first process aborts with the spawned
+//     action still enrolled in I10. A fresh syncer/store handle then resumes
+//     the durable checkpoint and produces the exact complete store.
+//
+// Real context cancellation is a fourth exit category, already exercised at
+// the connector seam by TestRunDurationCancelsActiveSpawnedCursorBatch and
+// across forced-checkpoint resume by TestCheckpointCutEnumeration's expiry
+// cuts; duplicating its multi-second timer here would add runtime, not space.
+func TestSpawnedCursorErrorCategoriesEndToEnd(t *testing.T) {
+	tests := []struct {
+		name            string
+		injected        error
+		wantFirstError  bool
+		wantRetry       bool
+		wantColdResume  bool
+		wantDroppedWork bool
+	}{
+		{
+			name:            "warning drops action and undiscovered descendants",
+			injected:        status.Error(codes.NotFound, "spawned resource disappeared"),
+			wantDroppedWork: true,
+		},
+		{
+			name:      "retryable retries same action in place",
+			injected:  status.Error(codes.Unavailable, "injected transient unavailability"),
+			wantRetry: true,
+		},
+		{
+			name:           "fatal survives cold resume",
+			injected:       status.Error(codes.InvalidArgument, "injected permanent protocol failure"),
+			wantFirstError: true,
+			wantColdResume: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			tmpDir := t.TempDir()
+			const typeID = "groupE"
+			base, expectedEntIDs, userID := buildTopoFixture(t, map[string]*soakTypeTopology{
+				typeID: {
+					plannerChildren: []string{"e1", "e2"},
+					nodes: map[string]*soakNode{
+						"e1": {},
+						// The injected e2 call would discover e3 on
+						// success. Its absence proves a failed attempt
+						// never committed children.
+						"e2": {children: []string{"e3"}},
+						"e3": {},
+					},
+					tokens:         []string{"e1", "e2", "e3"},
+					poisonedEnts:   map[string]bool{},
+					poisonedGrants: map[string]bool{},
+				},
+			})
+			connector := &spawnedErrorOnceConnector{
+				soakConnector: base,
+				token:         "e2",
+				err:           tc.injected,
+			}
+			path := filepath.Join(tmpDir, "error-category.c1z")
+			store, err := dotc1z.NewStore(ctx, path,
+				dotc1z.WithEngine(c1zstore.EnginePebble),
+				dotc1z.WithTmpDir(tmpDir),
+			)
+			require.NoError(t, err)
+			s, err := NewSyncer(ctx, connector,
+				WithConnectorStore(store),
+				WithTmpDir(tmpDir),
+				// One worker makes the first-process state
+				// deterministic without bypassing the parallel queue.
+				WithWorkerCount(1),
+			)
+			require.NoError(t, err)
+			audit := attachQueueAudit(t, s)
+
+			firstErr := s.Sync(ctx)
+			if tc.wantFirstError {
+				require.Error(t, firstErr)
+				require.ErrorContains(t, firstErr, "injected permanent protocol failure")
+			} else {
+				require.NoError(t, firstErr)
+			}
+			verifyQueueAudit(t, audit)
+
+			impl, ok := s.(*syncer)
+			require.True(t, ok)
+			state, ok := impl.state.(*state)
+			require.True(t, ok)
+			undrained := state.UndrainedSpawnedCursors()
+			if tc.wantColdResume {
+				require.NotEmpty(t, undrained, "fatal spawned action must remain enrolled for resume")
+				require.Contains(t, fmt.Sprint(undrained), `token="e2"`)
+			} else {
+				require.Empty(t, undrained, "handled spawned action must discharge I10 evidence")
+			}
+
+			connector.mu.Lock()
+			firstProcessHits := connector.hits
+			connector.mu.Unlock()
+			if tc.wantRetry {
+				require.GreaterOrEqual(t, firstProcessHits, 2,
+					"retryable cursor must retry in the first process")
+			} else {
+				require.Equal(t, 1, firstProcessHits,
+					"non-retry category must not retry in the first process")
+			}
+
+			require.NoError(t, s.Close(ctx))
+			if tc.wantColdResume {
+				// New handle + new syncer: no in-memory state from the
+				// failed process can satisfy the assertion.
+				resumeStore, err := dotc1z.NewStore(ctx, path,
+					dotc1z.WithEngine(c1zstore.EnginePebble),
+					dotc1z.WithTmpDir(tmpDir),
+				)
+				require.NoError(t, err)
+				resumed, err := NewSyncer(ctx, connector,
+					WithConnectorStore(resumeStore),
+					WithTmpDir(tmpDir),
+					WithWorkerCount(3),
+				)
+				require.NoError(t, err)
+				resumeAudit := attachQueueAudit(t, resumed)
+				require.NoError(t, resumed.Sync(ctx))
+				require.NoError(t, resumed.Close(ctx))
+				verifyQueueAudit(t, resumeAudit)
+			}
+
+			if tc.wantDroppedWork {
+				want := map[string]struct{}{
+					base.grantsByTok[typeID]["e1"].GetEntitlement().GetId(): {},
+				}
+				require.Equal(t, want, storedGrantEntitlementIDs(t, path, tmpDir),
+					"warn-and-drop must omit exactly the failed cursor and its undiscovered descendants")
+				return
+			}
+			verifyCutStore(t, path, tmpDir, expectedEntIDs, userID)
+		})
+	}
 }

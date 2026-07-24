@@ -39,6 +39,14 @@ protofmt:
 test:
 	go test -tags=baton_lambda_support -v ./...
 
+# Two-artifact checkpoint compatibility matrix: builds the harness against
+# HEAD and a pinned past release, and exchanges mid-flight checkpoints in
+# both directions. See cmd/baton-compat-harness. Override the old release
+# with BATON_COMPAT_OLD_REF=<tag>.
+.PHONY: compat-check
+compat-check:
+	BATON_COMPAT=1 go test -v -count=1 -run TestCheckpointCompatAcrossSDKVersions ./cmd/baton-compat-harness
+
 .PHONY: pkg/sdk/version.go
 pkg/sdk/version.go:
 	echo $(VERSION)
