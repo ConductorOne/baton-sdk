@@ -7,10 +7,8 @@ import (
 	"testing"
 	"time"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/stretchr/testify/require"
 )
 
@@ -387,102 +385,182 @@ func TestSyncTokenV0FromC1Z(t *testing.T) {
 	}, tokenV1)
 }
 
-func TestSyncerTokenEntitlementGraphMarshalUnmarshal(t *testing.T) {
-	ctx := t.Context()
+// buildLoadedGraphState returns a state mid-grant-expansion: a populated
+// entitlement graph and a SyncGrantExpansionOp action paginating the load,
+// stacked on a non-expansion action whose own pagination must survive the
+// checkpoint normalization untouched.
+func buildLoadedGraphState(t *testing.T, ctx context.Context, pageToken string) *state {
+	t.Helper()
 	st := newState()
 
-	// Push an action to initialize the state
-	op1 := Action{Op: SyncGrantExpansionOp}
-	st.PushAction(ctx, op1)
+	st.PushAction(ctx, Action{Op: SyncGrantsOp})
+	require.NoError(t, st.NextPage(ctx, st.Current().ID, "grants-p9"))
 
-	// Get the entitlement graph from state
-	graph := st.EntitlementGraph(ctx)
-	require.NotNil(t, graph)
-
-	// Create some test entitlements and add them to the graph
-	entitlement1 := &v2.Entitlement{Id: "ent1"}
-	entitlement2 := &v2.Entitlement{Id: "ent2"}
-	entitlement3 := &v2.Entitlement{Id: "ent3"}
-
-	graph.AddEntitlementID(entitlement1.GetId())
-	graph.AddEntitlementID(entitlement2.GetId())
-	graph.AddEntitlementID(entitlement3.GetId())
-
-	// Add edges between entitlements
-	err := graph.AddEdge(ctx, "ent1", "ent2", false, []string{"user"})
-	require.NoError(t, err)
-	err = graph.AddEdge(ctx, "ent2", "ent3", true, []string{"group"})
-	require.NoError(t, err)
-
-	// Add some actions to the graph
-	graph.Actions = []*expand.EntitlementGraphAction{
-		{
-			SourceEntitlementID:     "ent1",
-			DescendantEntitlementID: "ent2",
-			Shallow:                 false,
-			ResourceTypeIDs:         []string{"user"},
-			PageToken:               "page1",
-		},
-		{
-			SourceEntitlementID:     "ent2",
-			DescendantEntitlementID: "ent3",
-			Shallow:                 true,
-			ResourceTypeIDs:         []string{"group", "role"},
-			PageToken:               "",
-		},
+	st.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
+	if pageToken != "" {
+		require.NoError(t, st.NextPage(ctx, st.Current().ID, pageToken))
 	}
 
-	// Set some graph state
+	graph := st.EntitlementGraph(ctx)
+	require.NotNil(t, graph)
+	graph.AddEntitlementID("ent1")
+	graph.AddEntitlementID("ent2")
+	graph.AddEntitlementID("ent3")
+	require.NoError(t, graph.AddEdge(ctx, "ent1", "ent2", false, []string{"user"}))
+	require.NoError(t, graph.AddEdge(ctx, "ent2", "ent3", true, []string{"group"}))
 	graph.Depth = 5
-	graph.Loaded = true
-	graph.HasNoCycles = true
+	return st
+}
 
-	// Marshal the state
+// The entitlement graph is a projection of store data and is deliberately
+// omitted from checkpoints (see state.Marshal). A resumed state must instead
+// restart the expansion load from the first page, so the serialized expansion
+// action's page token is blanked while the live state keeps paginating.
+func TestSyncerTokenOmitsEntitlementGraph(t *testing.T) {
+	ctx := t.Context()
+	st := buildLoadedGraphState(t, ctx, "page37")
+
 	tokenString, err := st.Marshal()
 	require.NoError(t, err)
 	require.NotEmpty(t, tokenString)
 
-	// Create a new state and unmarshal
-	newState := newState()
-	err = newState.Unmarshal(tokenString)
+	// The serialized token carries neither the graph nor the pagination that
+	// was accumulating into it.
+	require.NotContains(t, tokenString, `"entitlement_graph"`)
+	var raw serializedTokenV1
+	require.NoError(t, json.Unmarshal([]byte(tokenString), &raw))
+	require.Nil(t, raw.EntitlementGraph)
+	// The normalized copy blanks ONLY expansion pagination: other actions keep
+	// theirs, and no map entries are dropped.
+	require.Len(t, raw.ActionsMap, 2)
+	require.Len(t, raw.ActionOrder, 2)
+	for _, a := range raw.ActionsMap {
+		switch a.Op {
+		case SyncGrantExpansionOp:
+			require.Empty(t, a.PageToken, "serialized expansion action must restart the load")
+		case SyncGrantsOp:
+			require.Equal(t, "grants-p9", a.PageToken, "non-expansion pagination must survive")
+		default:
+			t.Fatalf("unexpected action op in serialized token: %v", a.Op)
+		}
+	}
+
+	// Marshal must not mutate the live state: the in-process sync keeps its
+	// graph and continues from its current page.
+	require.NotNil(t, st.entitlementGraph)
+	require.Equal(t, "page37", st.Current().PageToken)
+
+	// A resumed state starts expansion over: fresh graph, first page — with
+	// the rest of the action stack intact.
+	resumed := newState()
+	require.NoError(t, resumed.Unmarshal(tokenString))
+	require.Nil(t, resumed.entitlementGraph)
+	require.Equal(t, SyncGrantExpansionOp, resumed.Current().Op)
+	require.Empty(t, resumed.Current().PageToken)
+	require.False(t, resumed.EntitlementGraph(ctx).Loaded)
+	require.Len(t, resumed.actions, 2)
+	for _, a := range resumed.actions {
+		if a.Op == SyncGrantsOp {
+			require.Equal(t, "grants-p9", a.PageToken)
+		}
+	}
+}
+
+// Tokens written by older SDKs carry the graph inline. They must decode and
+// resume exactly as before: graph restored, pagination preserved.
+func TestSyncerTokenLegacyInlineGraphStillDecodes(t *testing.T) {
+	ctx := t.Context()
+	st := buildLoadedGraphState(t, ctx, "page37")
+	st.entitlementGraph.Loaded = true
+	st.entitlementGraph.HasNoCycles = true
+
+	// Serialize the way pre-omission SDKs did: graph inline, page token kept.
+	legacy, err := json.Marshal(serializedTokenV1{
+		ActionsMap:       st.actions,
+		ActionOrder:      st.actionOrder,
+		CurrentActionID:  st.currentActionID,
+		EntitlementGraph: st.entitlementGraph,
+		Version:          1,
+	})
 	require.NoError(t, err)
 
-	// Verify the action was restored
-	compareSyncerState(t, op1, *newState.Current())
+	resumed := newState()
+	require.NoError(t, resumed.Unmarshal(string(legacy)))
 
-	// Get the entitlement graph from the new state
-	restoredGraph := newState.entitlementGraph
-	require.NotNil(t, restoredGraph, "entitlement graph should be restored")
+	restored := resumed.entitlementGraph
+	require.NotNil(t, restored, "inline graph must be restored")
+	require.Len(t, restored.Nodes, 3)
+	require.Len(t, restored.Edges, 2)
+	require.Equal(t, 5, restored.Depth)
+	require.True(t, restored.Loaded)
+	require.True(t, restored.HasNoCycles)
+	require.Equal(t, st.entitlementGraph.NextNodeID, restored.NextNodeID)
+	require.Equal(t, st.entitlementGraph.NextEdgeID, restored.NextEdgeID)
+	// With the graph present, the pagination is still valid and must survive.
+	require.Equal(t, "page37", resumed.Current().PageToken)
 
-	// Verify nodes were restored
-	require.Len(t, restoredGraph.Nodes, 3)
-	require.NotNil(t, restoredGraph.GetNode("ent1"))
-	require.NotNil(t, restoredGraph.GetNode("ent2"))
-	require.NotNil(t, restoredGraph.GetNode("ent3"))
+	// The upgrade chain: the next checkpoint after resuming a legacy token
+	// must write the new format — graph omitted AND the in-flight expansion
+	// pagination blanked (a graph-less token carrying the page token would be
+	// exactly the orphan shape Unmarshal defends against) — while the live
+	// resumed state keeps both and continues unaffected.
+	out, err := resumed.Marshal()
+	require.NoError(t, err)
+	var reserialized serializedTokenV1
+	require.NoError(t, json.Unmarshal([]byte(out), &reserialized))
+	require.Nil(t, reserialized.EntitlementGraph)
+	for _, a := range reserialized.ActionsMap {
+		if a.Op == SyncGrantExpansionOp {
+			require.Empty(t, a.PageToken)
+		}
+	}
+	require.NotNil(t, resumed.entitlementGraph)
+	require.Equal(t, "page37", resumed.Current().PageToken)
+}
 
-	// Verify edges were restored
-	require.Len(t, restoredGraph.Edges, 2)
+// The defensive blanking also applies to tokens decoded through the V0
+// fallback: a graph-less V0 token cannot resume expansion pagination either,
+// while other actions keep theirs.
+func TestSyncerTokenV0OrphanExpansionPageTokenBlanked(t *testing.T) {
+	legacy, err := json.Marshal(serializedTokenV0{
+		Actions:       []Action{{Op: SyncGrantsOp, PageToken: "grants-p9"}},
+		CurrentAction: &Action{Op: SyncGrantExpansionOp, PageToken: "page37"},
+	})
+	require.NoError(t, err)
 
-	// Verify actions were restored
-	require.Len(t, restoredGraph.Actions, 2)
-	require.Equal(t, "ent1", restoredGraph.Actions[0].SourceEntitlementID)
-	require.Equal(t, "ent2", restoredGraph.Actions[0].DescendantEntitlementID)
-	require.Equal(t, false, restoredGraph.Actions[0].Shallow)
-	require.Equal(t, []string{"user"}, restoredGraph.Actions[0].ResourceTypeIDs)
-	require.Equal(t, "page1", restoredGraph.Actions[0].PageToken)
+	resumed := newState()
+	require.NoError(t, resumed.Unmarshal(string(legacy)))
+	require.Nil(t, resumed.entitlementGraph)
+	require.Equal(t, SyncGrantExpansionOp, resumed.Current().Op)
+	require.Empty(t, resumed.Current().PageToken)
+	require.Len(t, resumed.actions, 2)
+	for _, a := range resumed.actions {
+		if a.Op == SyncGrantsOp {
+			require.Equal(t, "grants-p9", a.PageToken)
+		}
+	}
+}
 
-	require.Equal(t, "ent2", restoredGraph.Actions[1].SourceEntitlementID)
-	require.Equal(t, "ent3", restoredGraph.Actions[1].DescendantEntitlementID)
-	require.Equal(t, true, restoredGraph.Actions[1].Shallow)
-	require.Equal(t, []string{"group", "role"}, restoredGraph.Actions[1].ResourceTypeIDs)
-	require.Equal(t, "", restoredGraph.Actions[1].PageToken)
+// A graph-less token whose expansion action still carries a page token (a
+// writer that did not normalize) cannot safely resume that pagination —
+// Unmarshal must blank it so the load restarts from the first page.
+func TestSyncerTokenUnmarshalBlanksOrphanExpansionPageToken(t *testing.T) {
+	ctx := t.Context()
+	st := newState()
+	st.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
+	require.NoError(t, st.NextPage(ctx, st.Current().ID, "page37"))
 
-	// Verify graph state was restored
-	require.Equal(t, 5, restoredGraph.Depth)
-	require.Equal(t, true, restoredGraph.Loaded)
-	require.Equal(t, true, restoredGraph.HasNoCycles)
+	orphan, err := json.Marshal(serializedTokenV1{
+		ActionsMap:      st.actions,
+		ActionOrder:     st.actionOrder,
+		CurrentActionID: st.currentActionID,
+		Version:         1,
+	})
+	require.NoError(t, err)
 
-	// Verify NextNodeID and NextEdgeID were restored
-	require.Equal(t, graph.NextNodeID, restoredGraph.NextNodeID)
-	require.Equal(t, graph.NextEdgeID, restoredGraph.NextEdgeID)
+	resumed := newState()
+	require.NoError(t, resumed.Unmarshal(string(orphan)))
+	require.Nil(t, resumed.entitlementGraph)
+	require.Equal(t, SyncGrantExpansionOp, resumed.Current().Op)
+	require.Empty(t, resumed.Current().PageToken)
 }
