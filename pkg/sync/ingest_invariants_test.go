@@ -635,12 +635,14 @@ func TestIngestInvariantI10SpawnedCursorDrain(t *testing.T) {
 // drops it.
 func TestSyncerWiresSpawnDrainEvidenceIntoInvariants(t *testing.T) {
 	ctx := context.Background()
-	store, _ := newInvariantTestStore(ctx, t)
+	// The syncer needs the active sync's ID: runIngestionInvariants clears
+	// any prior verification marker for that sync before re-evaluating.
+	store, syncID := newInvariantTestStore(ctx, t)
 
 	st := newEmptySchedulerState(t)
 	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "wired", Spawned: true, TypeScoped: true})
 
-	s := &syncer{state: st, store: store, syncType: connectorstore.SyncTypeFull}
+	s := &syncer{state: st, store: store, syncID: syncID, syncType: connectorstore.SyncTypeFull}
 	err := s.runIngestionInvariants(ctx)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrIngestInvariantViolated)

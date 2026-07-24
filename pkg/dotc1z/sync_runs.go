@@ -945,7 +945,7 @@ func (c *C1File) markIngestInvariantsVerified(
 		return status.Errorf(codes.FailedPrecondition,
 			"mark ingest invariants verified: sync %s not found or not finished", syncID)
 	}
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 	c.invalidateCachedViewSyncRun()
 	return nil
 }
@@ -979,7 +979,7 @@ func (c *C1File) clearIngestInvariantVerification(ctx context.Context, syncID st
 	if rows == 0 {
 		return c1zstore.AdaptNotFound(sql.ErrNoRows)
 	}
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 	c.invalidateCachedViewSyncRun()
 	return nil
 }
