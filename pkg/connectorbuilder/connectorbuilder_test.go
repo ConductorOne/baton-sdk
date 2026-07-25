@@ -1607,6 +1607,22 @@ func TestGetCapabilities(t *testing.T) {
 		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_SYNC)
 		require.Len(t, caps.GetResourceTypeCapabilities(), 1)
 		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.False(t, caps.GetResourceTypeCapabilities()[0].GetDeprecated())
+	})
+
+	t.Run("DeprecatedResourceType", func(t *testing.T) {
+		resourceSyncer := newTestResourceSyncer("test-resource")
+		resourceSyncer.ResourceType(ctx).SetAnnotations(annotations.New(&v2.Deprecated{}))
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{resourceSyncer}))
+		require.NoError(t, err)
+
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := builder.GetCapabilities(ctx)
+		require.NoError(t, err)
+		require.Len(t, caps.GetResourceTypeCapabilities(), 1)
+		require.True(t, caps.GetResourceTypeCapabilities()[0].GetDeprecated())
 	})
 
 	t.Run("ResourceTargetedSyncer", func(t *testing.T) {
