@@ -294,3 +294,92 @@ func TestDeleteSyncRunBatching(t *testing.T) {
 		require.Positivef(t, b, "%s: syncB rows should survive", tbl)
 	}
 }
+
+// TestCleanupByRebuild verifies the rebuild cleanup strategy: it keeps exactly
+// the policy-selected syncs (compacting into a fresh db) and drops the rest,
+// leaving the kept data intact and the db valid.
+func TestCleanupByRebuild(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	testFilePath := filepath.Join(tmpDir, "test.c1z")
+
+	f, err := dotc1z.NewC1ZFile(ctx, testFilePath, dotc1z.WithCleanupRebuild(true), dotc1z.WithSyncLimit(2))
+	require.NoError(t, err)
+
+	// Record each sync's grant count before cleanup so we can prove survivors
+	// are byte-identical afterward (no data loss in the rebuild copy).
+	preGrants := map[string]int64{}
+	for range 5 {
+		id, err := c1ztest.CreateTestSync(ctx, t, f, c1ztest.C1ZCounts{
+			ResourceTypeCount: 3, ResourceCount: 10, UserCount: 10, EntitlementCount: 10, GrantCount: 25,
+		})
+		require.NoError(t, err)
+		stats, err := f.Stats(ctx, connectorstore.SyncTypeAny, id)
+		require.NoError(t, err)
+		preGrants[id] = stats["grants"]
+	}
+
+	require.NoError(t, f.Cleanup(ctx))
+
+	// Only syncLimit syncs survive the rebuild.
+	syncs, _, err := f.ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+	require.Len(t, syncs, 2)
+
+	// Each survivor's data is intact and readable through the repointed db, and
+	// its grant count is unchanged from before cleanup.
+	for _, sync := range syncs {
+		stats, err := f.Stats(ctx, connectorstore.SyncTypeAny, sync.ID)
+		require.NoError(t, err)
+		require.Equal(t, int64(3), stats["resource_types"])
+		require.Equal(t, int64(10), stats["entitlements"])
+		require.Equal(t, preGrants[sync.ID], stats["grants"], "sync %s grant count changed after rebuild", sync.ID)
+	}
+
+	// The repointed database is valid.
+	var integ string
+	require.NoError(t, f.RawDB().QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integ))
+	require.Equal(t, "ok", integ)
+
+	require.NoError(t, f.Close(ctx))
+
+	// Reopen from disk: the repoint changed dbFilePath, so this proves Close →
+	// saveC1z compressed the rebuilt db into a valid c1z that round-trips.
+	reopened, err := dotc1z.NewC1ZFile(ctx, testFilePath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reopened.Close(ctx) })
+	roundTrip, _, err := reopened.ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+	require.Len(t, roundTrip, 2, "rebuilt c1z should contain exactly syncLimit syncs after round-trip")
+	for _, sync := range roundTrip {
+		stats, err := reopened.Stats(ctx, connectorstore.SyncTypeAny, sync.ID)
+		require.NoError(t, err)
+		require.Equal(t, preGrants[sync.ID], stats["grants"], "sync %s grants changed after round-trip", sync.ID)
+	}
+}
+
+// TestCleanupByRebuildNoop covers the early-return path: with fewer syncs than
+// the limit there is nothing to delete, so rebuild is skipped and the single
+// sync is left intact and readable.
+func TestCleanupByRebuildNoop(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	testFilePath := filepath.Join(tmpDir, "test.c1z")
+
+	f, err := dotc1z.NewC1ZFile(ctx, testFilePath, dotc1z.WithCleanupRebuild(true), dotc1z.WithSyncLimit(2))
+	require.NoError(t, err)
+
+	syncID, err := c1ztest.CreateTestSync(ctx, t, f, c1ztest.C1ZCounts{
+		ResourceTypeCount: 3, ResourceCount: 10, UserCount: 10, EntitlementCount: 10, GrantCount: 25,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, f.Cleanup(ctx))
+
+	syncs, _, err := f.ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+	require.Len(t, syncs, 1)
+	require.Equal(t, syncID, syncs[0].ID)
+
+	require.NoError(t, f.Close(ctx))
+}
