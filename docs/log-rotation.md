@@ -25,7 +25,7 @@ no other behavior change.
 ```yaml
 log-path:
   - /var/log/baton/baton.log
-log-max-size-mb: 100    # rotate once the file exceeds 100MB; 0 disables rotation (default)
+log-max-size-mb: 100    # whole integer MB; rotate once the file exceeds 100MB. 0 disables (default), minimum 1 (= 1MB)
 log-max-backups: 5      # keep the 5 newest rotated files; 0 keeps none
 ```
 

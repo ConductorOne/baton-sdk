@@ -92,8 +92,8 @@ var (
 	logOutputPathField = StringSliceField("log-path", WithDescription("The file path to write logs to"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	logMaxSizeMBField  = IntField("log-max-size-mb",
 		WithDefaultValue(0),
-		WithDescription("Max size in MB of the log file before rotation; 0 disables rotation (default). "+
-			"Windows service connectors typically set this in config.yaml."),
+		WithDescription("Max size in whole MB of the log file before rotation; 0 disables rotation (default), "+
+			"minimum 1 (= 1 MB) when enabled. Windows service connectors typically set this in config.yaml."),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
 	logMaxBackupsField = IntField("log-max-backups",

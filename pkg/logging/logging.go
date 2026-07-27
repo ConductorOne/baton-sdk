@@ -197,18 +197,18 @@ func initFromConfig(ctx context.Context, zc zap.Config, maxSizeMB, maxBackups in
 	activeLevel = &zc.Level
 	activeLevelMu.Unlock()
 
-	// Swap in the new rotators before closing the previous ones: the new logger
-	// is already built and about to become the global logger, so there is no
-	// window where a live logger references a closed writer.
 	activeRotatorsMu.Lock()
 	prevRotators := activeRotators
 	activeRotators = rotators
 	activeRotatorsMu.Unlock()
+
+	zap.ReplaceGlobals(l)
+
+	// Close the previous rotators only after the new logger has replaced the
+	// global one, so no still-installed logger can write to a closed handle.
 	for _, c := range prevRotators {
 		_ = c.Close()
 	}
-
-	zap.ReplaceGlobals(l)
 
 	l.Debug("Logger created!", zap.String("log_level", zc.Level.String()))
 

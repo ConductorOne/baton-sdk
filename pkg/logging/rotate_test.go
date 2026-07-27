@@ -52,6 +52,17 @@ func TestRotatingWriter_NoRotationWhenDisabled(t *testing.T) {
 	require.Equal(t, len(payload)*10, len(data))
 }
 
+func TestNewRotatingWriter_ClampsSizeToFloor(t *testing.T) {
+	t.Parallel()
+
+	// A sub-floor size (here 0 MB) must clamp up to minRotationBytes rather than
+	// leaving a tiny/zero threshold that would rotate on nearly every write.
+	w, err := newRotatingWriter(filepath.Join(t.TempDir(), "baton.log"), 0, 3)
+	require.NoError(t, err)
+	defer func() { _ = w.Close() }()
+	require.Equal(t, minRotationBytes, w.maxBytes)
+}
+
 func TestRotatingWriter_RotatesPastMaxBytes(t *testing.T) {
 	t.Parallel()
 
