@@ -148,9 +148,6 @@ func MakeMainCommand[T field.Configurable](
 
 		rotateMaxSizeMB := v.GetInt("log-max-size-mb")
 		rotateMaxBackups := v.GetInt("log-max-backups")
-		if rotateMaxSizeMB > 0 {
-			logOpts = append(logOpts, logging.WithRotation(rotateMaxSizeMB, rotateMaxBackups))
-		}
 
 		loggerCtx := ctx
 		if v.GetBool(field.LogEventLogFieldName) {

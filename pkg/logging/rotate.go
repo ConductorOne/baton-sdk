@@ -5,12 +5,20 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"go.uber.org/zap/zapcore"
 )
+
+// backupSuffixRe matches the "<timestamp>" suffix (and optional ".<n>"
+// same-millisecond disambiguator) that rotate() appends after the log path, so
+// prune() only ever deletes files this writer created - never a sibling like
+// "baton.log.lock" or another tool's "baton.log.<something>".
+var backupSuffixRe = regexp.MustCompile(`^\d{8}T\d{6}\.\d{3}Z(\.\d+)?$`)
 
 // rotatingWriter is a zapcore.WriteSyncer that bounds a log file's size by
 // rotating it once it grows past maxBytes, keeping at most maxBackups
@@ -136,8 +144,22 @@ func (w *rotatingWriter) rotate() error {
 // maxBackups<=0 means keep none - every rotation clears prior history.
 // Callers must hold w.mu.
 func (w *rotatingWriter) prune() {
-	matches, err := filepath.Glob(w.path + ".*")
-	if err != nil || len(matches) == 0 {
+	candidates, err := filepath.Glob(w.path + ".*")
+	if err != nil || len(candidates) == 0 {
+		return
+	}
+
+	// Keep only files whose suffix is one this writer's rotate() produced, so a
+	// prefix-sharing sibling (baton.log.lock, another tool's file) is never
+	// deleted.
+	prefix := w.path + "."
+	var matches []string
+	for _, c := range candidates {
+		if backupSuffixRe.MatchString(strings.TrimPrefix(c, prefix)) {
+			matches = append(matches, c)
+		}
+	}
+	if len(matches) == 0 {
 		return
 	}
 

@@ -193,10 +193,12 @@ func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option)
 			// On Windows, stdout/stderr on services goes nowhere. Log to a file by default.
 			defaultLoggingOpts = append(defaultLoggingOpts, logging.WithOutputPaths([]string{filepath.Join(getConfigDir(name), "baton.log")}))
 		}
-		if hasRotation && rotation.maxSizeMB > 0 {
-			defaultLoggingOpts = append(defaultLoggingOpts, logging.WithRotation(rotation.maxSizeMB, rotation.maxBackups))
-		}
 		loggingOpts = append(defaultLoggingOpts, loggingOpts...)
+	}
+
+	rotateMaxSizeMB, rotateMaxBackups := 0, 0
+	if hasRotation {
+		rotateMaxSizeMB, rotateMaxBackups = rotation.maxSizeMB, rotation.maxBackups
 	}
 
 	if logToEventLog {
@@ -207,12 +209,12 @@ func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option)
 
 		// Put the event log on the context so we can reuse it in runService.
 		ctx = context.WithValue(ctx, eventLogKey{}, elog)
-		return logging.InitWithCore(ctx, func(cfg zap.Config) zapcore.Core {
+		return logging.InitWithCoreAndRotation(ctx, func(cfg zap.Config) zapcore.Core {
 			return newEventLogCore(elog, cfg)
-		}, loggingOpts...)
+		}, rotateMaxSizeMB, rotateMaxBackups, loggingOpts...)
 	}
 
-	return logging.Init(ctx, loggingOpts...)
+	return logging.InitWithRotation(ctx, rotateMaxSizeMB, rotateMaxBackups, loggingOpts...)
 }
 
 func startCmd(name string) *cobra.Command {
