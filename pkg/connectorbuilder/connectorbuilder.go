@@ -454,6 +454,7 @@ func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 			OptInRequired:            annos.Contains(&v2.OptInRequired{}),
 			SkipSyncAnomalyDetection: annos.Contains(&v2.SkipSyncAnomalyDetection{}),
 			CredentialIssue:          issueDetails,
+			Deprecated:               annos.Contains(&v2.Deprecated{}),
 		}.Build())
 	}
 

@@ -147,6 +147,10 @@ message CapabilityPermissions {
 
 message OptInRequired {}
 
+// Deprecated marks a resource type that existing connector installations may
+// continue syncing but new installations should not enable.
+message Deprecated {}
+
 // SkipSyncAnomalyDetection marks a resource type whose counts can legitimately
 // decrease between syncs (e.g. invitations that disappear once accepted). When
 // present on a ResourceType, sync anomaly detection ignores data drops for that
@@ -160,6 +164,7 @@ message ResourceTypeCapability {
   bool opt_in_required = 4;
   bool skip_sync_anomaly_detection = 5;
   CredentialDetailsCredentialIssue credential_issue = 6;
+  bool deprecated = 7;
 }
 
 message ConnectorServiceGetMetadataRequest {}
