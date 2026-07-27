@@ -178,6 +178,11 @@ type eventLogKey struct{}
 
 func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option) (context.Context, error) {
 	logToEventLog, _ := ctx.Value(eventLogEnabledKey{}).(bool)
+	// Only relevant to the service's own default baton.log below; relayed
+	// via the context (rather than read from viper directly) because this
+	// function is also called from batonService.Execute, which only has
+	// the context to work with. See logRotationContextKey in commands.go.
+	rotation, hasRotation := ctx.Value(logRotationContextKey{}).(logRotationSettings)
 
 	if isService() {
 		defaultLoggingOpts := []logging.Option{
@@ -187,6 +192,9 @@ func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option)
 		if !logToEventLog {
 			// On Windows, stdout/stderr on services goes nowhere. Log to a file by default.
 			defaultLoggingOpts = append(defaultLoggingOpts, logging.WithOutputPaths([]string{filepath.Join(getConfigDir(name), "baton.log")}))
+		}
+		if hasRotation && rotation.maxSizeMB > 0 {
+			defaultLoggingOpts = append(defaultLoggingOpts, logging.WithRotation(rotation.maxSizeMB, rotation.maxBackups))
 		}
 		loggingOpts = append(defaultLoggingOpts, loggingOpts...)
 	}

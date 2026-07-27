@@ -1,0 +1,181 @@
+package logging
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"sync"
+	"time"
+
+	"go.uber.org/zap/zapcore"
+)
+
+// rotatingWriter is a zapcore.WriteSyncer that bounds a log file's size by
+// rotating it once it grows past maxBytes, keeping at most maxBackups
+// rotated copies around.
+//
+// It is deliberately minimal compared to third-party rotators: no
+// compression, no age-based retention, no background goroutines. Sync()
+// calls f.Sync() on the active file, which gives callers a real durability
+// guarantee (this is the property lumberjack lacks).
+//
+// Windows-safe by construction: rotate() closes the active handle, renames
+// the now-closed file out of the way, and only then opens a fresh file at
+// the original path. It never removes/recreates the active path while a
+// handle to it might still be open.
+type rotatingWriter struct {
+	mu         sync.Mutex
+	path       string
+	maxBytes   int64
+	maxBackups int
+	f          *os.File
+	size       int64
+}
+
+var (
+	_ zapcore.WriteSyncer = (*rotatingWriter)(nil)
+	_ io.Closer           = (*rotatingWriter)(nil)
+)
+
+// newRotatingWriter opens (creating if necessary) the log file at path and
+// returns a rotatingWriter that rotates it once it grows past maxSizeMB,
+// retaining maxBackups rotated files (<=0 keeps none).
+func newRotatingWriter(path string, maxSizeMB, maxBackups int) (*rotatingWriter, error) {
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create log directory %q: %w", dir, err)
+		}
+	}
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open log file %q: %w", path, err)
+	}
+
+	fi, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("failed to stat log file %q: %w", path, err)
+	}
+
+	return &rotatingWriter{
+		path:       path,
+		maxBytes:   int64(maxSizeMB) * 1024 * 1024,
+		maxBackups: maxBackups,
+		f:          f,
+		size:       fi.Size(),
+	}, nil
+}
+
+// Write implements zapcore.WriteSyncer / io.Writer. It rotates the file
+// first if the incoming write would push it past maxBytes.
+func (w *rotatingWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.size > 0 && w.size+int64(len(p)) > w.maxBytes {
+		if err := w.rotate(); err != nil {
+			return 0, err
+		}
+	}
+
+	n, err := w.f.Write(p)
+	w.size += int64(n)
+	if err != nil {
+		return n, fmt.Errorf("failed to write to log file %q: %w", w.path, err)
+	}
+	return n, nil
+}
+
+// rotate closes the active file, renames it aside with a UTC timestamp
+// suffix, and reopens a fresh file at the original path. Callers must hold
+// w.mu.
+func (w *rotatingWriter) rotate() error {
+	if err := w.f.Sync(); err != nil {
+		return fmt.Errorf("failed to sync log file %q before rotation: %w", w.path, err)
+	}
+	if err := w.f.Close(); err != nil {
+		return fmt.Errorf("failed to close log file %q before rotation: %w", w.path, err)
+	}
+
+	backupPath := w.path + "." + time.Now().UTC().Format("20060102T150405.000Z")
+	// Two rotations inside the same millisecond (e.g. a fast log burst)
+	// would otherwise collide on the same backup name and silently
+	// clobber the earlier one. Disambiguate with a numeric suffix so no
+	// backup is ever overwritten.
+	if _, statErr := os.Stat(backupPath); statErr == nil {
+		base := backupPath
+		for i := 1; ; i++ {
+			candidate := fmt.Sprintf("%s.%d", base, i)
+			if _, statErr := os.Stat(candidate); os.IsNotExist(statErr) {
+				backupPath = candidate
+				break
+			}
+		}
+	}
+	if err := os.Rename(w.path, backupPath); err != nil {
+		return fmt.Errorf("failed to rotate log file %q: %w", w.path, err)
+	}
+
+	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to reopen log file %q after rotation: %w", w.path, err)
+	}
+	w.f = f
+	w.size = 0
+
+	w.prune()
+
+	return nil
+}
+
+// prune deletes rotated backups beyond maxBackups, keeping the newest ones.
+// maxBackups<=0 means keep none - every rotation clears prior history.
+// Callers must hold w.mu.
+func (w *rotatingWriter) prune() {
+	matches, err := filepath.Glob(w.path + ".*")
+	if err != nil || len(matches) == 0 {
+		return
+	}
+
+	// The timestamp suffix (20060102T150405.000Z) sorts lexically in the
+	// same order as chronologically, so a plain string sort is sufficient.
+	sort.Strings(matches)
+
+	keep := w.maxBackups
+	if keep < 0 {
+		keep = 0
+	}
+	if len(matches) <= keep {
+		return
+	}
+
+	for _, stale := range matches[:len(matches)-keep] {
+		_ = os.Remove(stale)
+	}
+}
+
+// Sync flushes the active file to stable storage.
+func (w *rotatingWriter) Sync() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.f.Sync()
+}
+
+// Close syncs and closes the active file handle.
+func (w *rotatingWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	syncErr := w.f.Sync()
+	closeErr := w.f.Close()
+	if syncErr != nil {
+		return fmt.Errorf("failed to sync log file %q on close: %w", w.path, syncErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("failed to close log file %q: %w", w.path, closeErr)
+	}
+	return nil
+}
