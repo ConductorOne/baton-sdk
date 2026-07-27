@@ -110,7 +110,10 @@ bad it sounds:
 - **Silent + durable is HIGH**, and it compounds: every day undetected, more
   artifacts carry the defect, so detection latency converts escape into
   consequence — a format defect's migration bill grows with time-to-detection.
-- **Any version-pair dependence is HIGH** (the class review cannot see at all).
+- **Version-pair dependence that affects correctness, liveness, or durable meaning
+  is HIGH** (the class review cannot see at all). Ordinary additive protobuf
+  evolution that passes compatibility checks is not HIGH merely because old and new
+  binaries see different field sets.
 - **Remediation rung ≥ 4 is HIGH regardless of escape score**, and flips the
   defense from detection to prevention: golden artifact corpus for formats
   (old artifacts in testdata opened by the new SDK; new artifacts opened by a
@@ -122,17 +125,16 @@ bad it sounds:
 
 **Cost contracts.** On a short declared list of hot paths — grant expansion,
 compaction, the per-checkpoint loop, anything that runs at artifact-open time —
-performance is a correctness property, because budgets convert latency into
-failure (deadline cascades into the retry/preservability machinery) and fixed
-memory converts peak-RSS into an OOM crash loop (same artifact, same ceiling,
-same kill: livelock). Doubling time or peak memory there is a breakage, not a
-cost. The reviewable object is the **cost curve** (state the big-O delta in
-grants/entitlements/graph size — "fine at fixture scale" is not a claim), and
-the enforcement is a whale-scale benchmark gate, ratcheted against main
-(allocations are deterministic where CI wall-clock is noisy; the killer is
-accretion — nobody ships a 2×, five people ship 15%s). A cost contract without
-a benchmark is dead prose; the benchmark is also what keeps this path list from
-rotting — it is the registration.
+performance is a correctness property when a change alters executed work, because
+budgets convert latency into failure (deadline cascades into the
+retry/preservability machinery) and fixed memory converts peak-RSS into an OOM crash
+loop (same artifact, same ceiling, same kill: livelock). The reviewable object is the
+**cost curve** (state the big-O delta in grants/entitlements/graph size — "fine at
+fixture scale" is not a claim), and the enforcement is a whale-scale benchmark gate,
+ratcheted against main (allocations are deterministic where CI wall-clock is noisy;
+the killer is accretion — nobody ships a 2×, five people ship 15%s). If a stage
+introduces no runtime path or cost-curve change, state that instead; do not fabricate
+a benchmark. A claimed cost contract without a benchmark is dead prose.
 
 **Migrations are the intersection class**: they run once per artifact at open
 time, inside someone else's deadline, at whale scale, on data written by past
@@ -171,6 +173,31 @@ plan; instruments close it.
 
 Policy, stated up front:
 
+A change meets the **step-up criteria** when §2 rates it HIGH or it meets the
+silent/combinatorial/no-single-run-oracle criterion. For changes that meet the
+step-up criteria:
+
+- Open a draft PR containing the verification plan before implementation begins.
+- Record amendments to the plan when the design or intended behavior changes.
+- The plan may span **staged PRs**. Each PR names the stage, the claims it introduces,
+  the criteria due in that stage, and the criteria deliberately deferred until a
+  later stage has an executable subject. Closure is scoped to the current stage;
+  deferred criteria limit whole-plan closure but are not current-stage gaps.
+- Map every criterion due in the current stage to an executable repository artifact
+  and evidence that it ran and held at the claimed coverage level, or record the
+  explicit gap and resulting limit on that stage's closure.
+- For each artifact, state whether it provides bounded closure or measured sampling;
+  never claim closure from sampling.
+- Match evidence to the layer introduced. A schema-only stage closes schema
+  obligations (lint, compatibility, generation, descriptors, and wire shape); it
+  does not add speculative runtime validators merely to manufacture executable
+  evidence. Producer/consumer semantics become due in the first stage that
+  implements or relies on them. If the schema itself encodes validation, that
+  validation is a current-stage claim and must be tested now.
+- Do not add a standalone prose copy of the plan to the repository.
+- After merge, tests, harnesses, and benchmarks are the enduring enforcement
+  mechanism.
+
 - **Stopping rule: budget two, at most three review rounds**, then switch
   instruments. Review coverage is unmeasurable, so the budget is an economic
   cutoff, not an epistemic one; "the last round was clean" measures the reviewers
@@ -192,7 +219,8 @@ Four classes review is structurally blind to, and where to send them:
   that instantiates *both* artifacts and compares counted results against ground
   truth, in both directions.
 - **Emergent schedule properties** — data races, lost wakeups, livelocks.
-  Instruments: `-race` on the full suite as a hard gate (it found in minutes what
+  Instruments: `-race` on affected packages as the minimum, with the full suite as a
+  hard gate for shared scheduler/storage changes or in CI (it found in minutes what
   every review round missed); randomized soak (topology + failure injection, many
   seeds) under race; bounded-exhaustive interleaving harnesses for small lock-based
   objects. Review still owns the *logic-level* concurrency bugs (abort-path commits,
@@ -202,7 +230,9 @@ Four classes review is structurally blind to, and where to send them:
   every path a reviewer read looked complete.) Instruments: positive-evidence
   runtime invariants (enroll at admission, reconcile at quiesce — §4 rung 3);
   contract-coverage mapping (every behavioral sentence in a proto/doc contract maps
-  to a test that fails if the sentence is false).
+  to a test that fails if the sentence is false once a producer or consumer claims
+  to implement that behavior; schema-only stages record that obligation as
+  deferred).
 - **Error-path properties** — code that runs only when the environment fails.
   Review reads it; nothing executes it, because ordinary tests run over an
   implicitly cooperative environment (disks persist, RPCs return, deadlines never
@@ -256,12 +286,14 @@ reconciliation ledgers (§4 rung 3) make a slice of the silent class loud in
 operation, but liveness failures and anything they don't ledger stay invisible —
 the verification harness is the only instrument for the rest.
 
-## 3. The seven mandatory passes
+## 3. Seven risk-routed review passes
 
-Every non-trivial change gets each of these as a distinct pass. Separate,
-separately-prompted reviewer agents per pass work well (see §6). Check §2's routing
-first: if the change's risk concentrates in a multi-artifact, schedule, absence, or
-error-path class, build the harness before spending review rounds.
+Treat these passes as a menu selected from the current stage's claims and §2 risk
+triage. HIGH changes with broad behavioral impact get the full set; narrow changes
+get only the passes whose failure models they can activate. Record why omitted
+passes are out of scope. Separate, separately-prompted reviewer agents per selected
+pass work well (see §6). If risk concentrates in a multi-artifact, schedule, absence,
+or error-path class, build the harness before spending review rounds.
 
 ### Pass 1: Edge cases
 
@@ -282,12 +314,13 @@ resumer is a different process on a different machine with a cold cache — poss
 different SDK version. If correctness depends on anything the previous process knew
 but didn't persist, it's broken.
 
-Reading can only *ask* these questions; §2's harnesses answer them. Mechanize the
+Reading can only *ask* these questions; §2's harnesses answer them. When the current
+stage changes durable state, stop points, or resume semantics, mechanize the
 stop-point sweep: hook the checkpoint call, capture every token a deterministic sync
 writes, resume a fresh process from each one, and assert the final store matches the
-uninterrupted run — every checkpoint the sync ever writes becomes a tested cut
-point. Resume each token twice (double-apply), and resume under a different worker
-count (schedule-independence). The cross-version cell needs the two-artifact harness.
+uninterrupted run. Resume each token twice (double-apply), and resume under a
+different worker count when scheduling is relevant. A correctness-relevant
+cross-version cell needs the two-artifact harness.
 
 ### Pass 3: Systematic permutation coverage
 
@@ -371,10 +404,12 @@ sync token re-marshals everything embedded in state every ~10 seconds for the sy
 lifetime. Session-store access inside per-resource/per-grant loops is a network storm
 in prod (§5.6).
 
-On cost-contract paths (§2: expansion, compaction, per-checkpoint loop,
-artifact-open-time work), this pass has a deliverable, not just a look: state the
-cost-curve delta in grants/entitlements/graph size, and point at the benchmark that
-enforces it. "No benchmark exists" is itself the finding.
+When the current stage changes executed work on a cost-contract path (§2: expansion,
+compaction, per-checkpoint loop, artifact-open-time work), this pass has a
+deliverable, not just a look: state the cost-curve delta in
+grants/entitlements/graph size, and point at the benchmark that enforces it. For a
+stage with no runtime or cost-curve change, record that disposition; no benchmark is
+required.
 
 ### Pass 7: Concurrency
 
@@ -395,14 +430,14 @@ proportionate:
      capabilities fail silently forever after a rename (#774). Every implementation
      needs a compile-time check (`var _ Iface = (*Impl)(nil)`) or a test that the
      production store satisfies it.
-   - Version/generation fields in every serialized envelope, with both obligations
-     that make the field real: **writers bump** on any reader-visible semantic
-     change (enforce with a schema-fingerprint test that fails on field-set drift,
-     forcing an explicit bump-or-exempt decision), and **readers fail closed** on
-     unknown versions — degrading to redone work, never a silent partial parse.
-     Conditional stamping (bump only when the new markers are actually present)
-     keeps downgrades seamless on plain data. Evidence: the cross-version data-loss
-     bug shipped *with* a version field present; nobody bumped it, and JSON
+   - Explicit version/generation fields in opaque durable envelopes whose semantics
+     can change independently of their wire shape, with both obligations that make
+     the field real: **writers bump** on a reader-visible semantic reinterpretation,
+     and **readers fail closed** on unknown versions — degrading to redone work,
+     never a silent partial parse. Standard protobuf messages follow protobuf
+     compatibility rules; an additive field does not require a parallel semantic
+     version unless its absence changes correctness. Evidence: the cross-version
+     data-loss bug shipped *with* a version field present; nobody bumped it, and JSON
      zero-fill parsed the new fields away without error.
    - A single stored-state descriptor (key range + cleanup policy declared once) that
      all cleanup paths iterate, making "forgot to register" impossible rather than
@@ -422,12 +457,15 @@ proportionate:
    Differential testing beats hand-written cases when the space is combinatorial.
    (Pebble-vs-SQLite equivalence is a *sunsetting* oracle: keep existing tests while
    both engines live; build nothing new on it.)
-3. **One validator over many point tests.** An artifact fsck — sealed-c1z
+3. **One validator over many point tests, when production owns the invariant.** A
+   validator needs a stable production seam and an actual caller; do not add an
+   unused runtime validator to a schema-only stage. An artifact fsck — sealed-c1z
    self-description checked at the end of every producing test — retires a bug
    *category*. Include a leak check: every key/record in a store is owned by the live
    sync or explicitly allowlisted. Cheap variant: run the suite once with the noop
    session store; any failure is a source-of-truth violation hiding in the cache
-   layer.
+   layer. When no production seam exists yet, use a test-only oracle or defer the
+   runtime obligation to the stage that introduces its owner.
    - **Positive-evidence variant for completeness** (the absence class from §2): an
      evidence set maintained at the state-mutation funnels — enroll on admission,
      delete only on legitimate completion, rebuild from the checkpoint on resume —
@@ -441,7 +479,9 @@ proportionate:
 4. **Integration tests** that exercise the real store/engine lifecycle — resume, seal,
    fold, *reuse* — not mocks. Single-sync fresh-store tests are structurally blind to
    the orphan class.
-5. **Unit tests** (last resort, for logic-dense pure functions).
+5. **Unit tests** for logic-dense pure functions. They are the right-sized instrument
+   for local logic, but cannot by themselves establish lifecycle, cross-artifact, or
+   deployment-boundary properties.
 
 ## 5. Bug patterns, organized by principle (the "we've been burned" list)
 
@@ -537,8 +577,11 @@ is one stored-state descriptor that all surfaces iterate (§4 rung 1).
 
 ### 5.5 Bytes crossing a boundary are hostile
 
-Anything serialized across a process, version, or service boundary gets a version, a
-fail-closed reader, and a round-trip test.
+Opaque durable formats whose meaning can change across a process, version, or
+service boundary need an explicit semantic version, a fail-closed reader, and a
+round-trip test. Standard protobuf evolution uses its own compatibility contract:
+lint/breaking checks and unknown-field-safe additive changes. Add an envelope version
+only when wire compatibility alone cannot preserve meaning.
 
 - Go JSON zero-fills silently: unversioned structs parse wrong data after a rename —
   and versioned ones parse *new fields* away just as silently unless writers bump
@@ -548,11 +591,13 @@ fail-closed reader, and a round-trip test.
   envelopes, tolerate absence, never trust shape.
 - Cursors must be self-contained: a page token encodes everything a cold-started
   process needs; the connector doesn't "remember."
-- If producer and consumer share a module, a convention specified in prose is a
-  finding: export one function both sides call, collapsing the contract to "call
-  this" — greppable, and it cannot drift. (Age branch: `key_ids =
+- Once producer and consumer implementations exist in one module, a shared
+  executable convention should normally have one owner both sides call, collapsing
+  the contract to "call this" — greppable, and it cannot drift. Do not create that
+  owner speculatively in a schema-only stage. (Age branch: `key_ids =
   hex(sha256(recipient))` lives in a proto comment while the consumer imports this
-  repo.) Prose is the fallback only when no code can be shared across the seam.
+  repo.) Prose remains appropriate for staged contracts and seams where code cannot
+  be shared.
 
 ### 5.6 Distribution invalidates local intuitions
 
@@ -696,16 +741,25 @@ errorfs sweep (#1015; `pkg/dotc1z/engine/pebble/errorfs_sweep_test.go`).
 - Route first (§2): review is one instrument among several, and its budget is two to
   three rounds. Multi-artifact, schedule, absence, and error-path risks get
   harnesses, not more reviewers.
+- For a step-up change, enforce §2's draft-PR-before-implementation rule and require
+  criterion-to-instrument-to-evidence traceability before merge. For a staged plan,
+  first separate criteria due now from criteria whose executable subject arrives in
+  a named later stage. Check that each current-stage artifact exists, asserts the
+  stated criterion, ran successfully, and supports the claimed coverage level.
+  Report an unmapped current-stage criterion as a blocking or confidence-limiting
+  gap; do not demand speculative implementation for a genuinely deferred
+  criterion. A plan reconstructed from the finished diff is not preregistration.
 - If the change touches a subsystem meeting §2's silent/combinatorial/no-oracle
   criterion, ask for the property list and the verification harness — their absence
   is the finding. Do not accept review rounds as a substitute; no number of them
   constitutes coverage there.
-- Run the seven passes as **parallel, separately-prompted agents** — and assign
-  passes across *different models*, not just different prompts: on identical
-  prompts, different models found nearly disjoint bug sets. Each agent reads the
-  surrounding unchanged code (not just the diff), cites file:line, and discards
-  anything unverifiable. Then **verify every finding against the code before
-  accepting it** — severity re-grading in both directions is normal.
+- Run the **selected** passes independently. For HIGH changes receiving the full
+  pass set, parallel separately-prompted agents across different models provide
+  useful decorrelation; narrow stages may combine closely related passes when their
+  risk disposition is recorded. Each reviewer reads the surrounding unchanged code
+  (not just the diff), cites file:line, and discards anything unverifiable. Then
+  **verify every finding against the code before accepting it** — severity
+  re-grading in both directions is normal.
 - **Slice this document when spawning pass agents; do not paste it whole.** Pass
   agents receive no context except their prompt, so the orchestrator inlines the
   relevant sections verbatim. Feeding all ~50 checkable items to every agent
@@ -733,13 +787,19 @@ errorfs sweep (#1015; `pkg/dotc1z/engine/pebble/errorfs_sweep_test.go`).
   cryptographic — is named in the PR description with a reason. A 3,000-line vendor
   diff nobody mentions is a finding (age branch: ~75% of the diff was a vendored age
   upgrade pulling in new post-quantum primitives).
-- **Failing test first** for every confirmed bug: write the test, watch it fail for
-  the right reason, then fix. (Empirically load-bearing on the fan-out branch: fix
-  rounds stopped regressing the moment this became mandatory.)
+- **Failing evidence first** for every confirmed bug when a practical executable
+  reproducer exists: write the test, watch it fail for the right reason, then fix.
+  Schema, documentation, generation, and build defects may instead use the
+  corresponding lint, compatibility check, static reproducer, or generated diff;
+  record why a runtime regression test is not the right instrument. (Empirically
+  load-bearing on the fan-out branch: fix rounds stopped regressing when test-first
+  became mandatory for its runtime bugs.)
 - Contracts check on any exported API touched: doc comments match actual behavior;
   functions whose names promise purity (Marshal, Get, Read) don't mutate arguments.
-  For proto contracts, map every behavioral sentence to the test that would fail if
-  it were false — unmapped sentences are the absence class (§2).
+  For proto contracts, map every behavioral sentence implemented or relied on in
+  the current stage to the test that would fail if it were false. In a schema-only
+  stage, require schema evidence and record runtime semantics against the first
+  producer/consumer stage; do not invent an unused runtime validator.
 - End reviews with: a coverage-vs-gap table, a confidence statement, and — for each
   finding — which rung of the §4 ladder would have caught it mechanically. If a
   finding has no mechanical catcher, that's a gap in this document: add it.
