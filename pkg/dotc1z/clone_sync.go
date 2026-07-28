@@ -357,7 +357,7 @@ func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, s
 	if err != nil {
 		return err
 	}
-	outFile.dbUpdated = true
+	outFile.dbUpdated.Store(true)
 	outFile.outputFilePath = outPath
 	err = outFile.Close(ctx)
 	if err != nil {

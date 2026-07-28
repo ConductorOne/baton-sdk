@@ -33,21 +33,21 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 			name:     "SQLite records its engine-independent I5 coverage",
 			engine:   c1zstore.EngineSQLite,
 			syncType: connectorstore.SyncTypeFull,
-			want:     []string{"I5"},
+			want:     []string{"I5", "I10"},
 			wantMode: c1zstore.IngestInvariantVerificationModeConnector,
 		},
 		{
 			name:     "Pebble full records the referential family",
 			engine:   c1zstore.EnginePebble,
 			syncType: connectorstore.SyncTypeFull,
-			want:     []string{"I5", "I7", "I3", "I8", "I9"},
+			want:     []string{"I5", "I10", "I7", "I3", "I8", "I9"},
 			wantMode: c1zstore.IngestInvariantVerificationModeConnector,
 		},
 		{
 			name:     "Pebble partial records only all-sync-type checks",
 			engine:   c1zstore.EnginePebble,
 			syncType: connectorstore.SyncTypePartial,
-			want:     []string{"I5"},
+			want:     []string{"I5", "I10"},
 			wantMode: c1zstore.IngestInvariantVerificationModeConnector,
 		},
 		{
@@ -56,7 +56,7 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 			syncType:  connectorstore.SyncTypeFull,
 			failFast:  true,
 			resources: true,
-			want:      []string{"I5", "I4"},
+			want:      []string{"I5", "I10", "I4"},
 			wantMode:  c1zstore.IngestInvariantVerificationModeConnectorFailFast,
 		},
 		{
@@ -64,7 +64,7 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 			engine:     c1zstore.EnginePebble,
 			syncType:   connectorstore.SyncTypeFull,
 			compaction: true,
-			want:       []string{"I5", "I7", "I3", "I8", "I9"},
+			want:       []string{"I5", "I10", "I7", "I3", "I8", "I9"},
 			wantMode:   c1zstore.IngestInvariantVerificationModeCompactionMerge,
 		},
 	}

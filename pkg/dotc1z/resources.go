@@ -131,6 +131,6 @@ func (c *C1File) putResourcesInternal(ctx context.Context, f resourcePutFunc, re
 	if err != nil {
 		return err
 	}
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 	return nil
 }

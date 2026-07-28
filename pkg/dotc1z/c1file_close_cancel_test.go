@@ -138,7 +138,7 @@ func TestC1FileCloseReadOnlyButDirtyClosesRawDb(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, f2.rawDb)
 	// Force the readonly+dbUpdated cheap-path branch.
-	f2.dbUpdated = true
+	f2.dbUpdated.Store(true)
 
 	err = f2.Close(openCtx)
 	require.ErrorIs(t, err, ErrReadOnly)

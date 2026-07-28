@@ -202,6 +202,9 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	if cb, ok := in.(ConnectorBuilder); ok {
 		for _, rb := range cb.ResourceSyncers(ctx) {
 			rType := rb.ResourceType(ctx)
+			if err := validateTypeScopedRegistration(rType, rb); err != nil {
+				return nil, err
+			}
 			if err := addResourceType(ctx, rType.GetId(), rb); err != nil {
 				return nil, err
 			}
@@ -212,6 +215,9 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	if cb2, ok := in.(ConnectorBuilderV2); ok {
 		for _, rb := range cb2.ResourceSyncers(ctx) {
 			rType := rb.ResourceType(ctx)
+			if err := validateTypeScopedRegistration(rType, rb); err != nil {
+				return nil, err
+			}
 			if err := addResourceType(ctx, rType.GetId(), rb); err != nil {
 				return nil, err
 			}

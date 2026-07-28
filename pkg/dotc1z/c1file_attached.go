@@ -346,7 +346,7 @@ func (c *C1FileAttached) GenerateSyncDiffFromFile(ctx context.Context, oldSyncID
 		return "", "", fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	committed = true
-	c.file.dbUpdated = true
+	c.file.dbUpdated.Store(true)
 
 	return upsertsSyncID, deletionsSyncID, nil
 }

@@ -104,7 +104,7 @@ func (c *C1File) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentTyp
 		return err
 	}
 
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 
 	return nil
 }
