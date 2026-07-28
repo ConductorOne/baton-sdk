@@ -424,6 +424,59 @@ func TestWrapper_WithGenericResponse(t *testing.T) {
 		}, respBody)
 	})
 
+	t.Run("should marshal an XML response with attributes on a container root element", func(t *testing.T) {
+		// The root <response> element itself carries an attribute, so the
+		// map it decodes to gains an "@attributes" key alongside its
+		// children. WithGenericResponse only requires xm.data to be a
+		// map[string]any, which this still is, so it succeeds as before.
+		exampleResponse := `<?xml version="1.0" encoding="UTF-8"?><response id="7"><items><item><name>John</name><age>30</age></item></items></response>`
+		header := http.Header{}
+		header.Add("Content-Type", "application/xml")
+		resp := WrapperResponse{
+			Header:     header,
+			StatusCode: http.StatusOK,
+		}
+		resp.Body = bytes.NewBufferString(exampleResponse).Bytes()
+		var respBody map[string]any
+		err := WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{
+			"@attributes": map[string]any{"id": "7"},
+			"items": map[string]any{
+				"item": map[string]any{"name": "John", "age": "30"},
+			},
+		}, respBody)
+	})
+
+	t.Run("should succeed for an attributed leaf root element (intentional behavior change)", func(t *testing.T) {
+		// Before attribute support was added, a root element with no
+		// children and no attributes decoded to a bare string, and
+		// WithGenericResponse rejected that shape with an "unsupported XML
+		// structure: string" error. Now that the root carries an attribute,
+		// unmarshalXMLElement promotes it to
+		// map[string]any{"#text": ..., "@attributes": ...} instead of a bare
+		// string, so WithGenericResponse's `xm.data.(map[string]any)` type
+		// assertion succeeds and the call now returns successfully where it
+		// previously errored. This is a deliberate, if incidental,
+		// consequence of adding attribute support at uhttp's only real
+		// xmlMap call site, not a bug.
+		exampleResponse := `<?xml version="1.0" encoding="UTF-8"?><response foo="bar">hello</response>`
+		header := http.Header{}
+		header.Add("Content-Type", "application/xml")
+		resp := WrapperResponse{
+			Header:     header,
+			StatusCode: http.StatusOK,
+		}
+		resp.Body = bytes.NewBufferString(exampleResponse).Bytes()
+		var respBody map[string]any
+		err := WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{
+			"#text":       "hello",
+			"@attributes": map[string]any{"foo": "bar"},
+		}, respBody)
+	})
+
 	t.Run("should return an error when the response is not JSON or XML", func(t *testing.T) {
 		header := http.Header{}
 		header.Add("Content-Type", "text/yaml")
