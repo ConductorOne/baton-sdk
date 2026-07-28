@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/bid"
@@ -138,7 +139,7 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 	}
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		for range sigChan {
 			cancel(ErrSigTerm)

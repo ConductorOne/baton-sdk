@@ -176,23 +176,28 @@ func (s *syncer) parallelSync(
 		select {
 		case <-runCtx.Done():
 			err = context.Cause(runCtx)
-			switch {
-			case errors.Is(err, context.DeadlineExceeded):
+			if errors.Is(err, context.DeadlineExceeded) {
 				if s.recordStats {
 					l.Info("sync run duration has expired, exiting sync early", s.syncSummaryFields(trace.SpanFromContext(ctx))...)
 				} else {
 					l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", s.syncID))
 				}
-				// It would be nice to remove this once we're more confident in the checkpointing logic.
-				checkpointErr := s.Checkpoint(ctx, true)
-				if checkpointErr != nil {
-					l.Error("error checkpointing before exiting sync", zap.Error(checkpointErr))
-				}
-				return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
-			default:
-				l.Error("sync context cancelled", zap.String("sync_id", s.syncID), zap.Error(err))
-				return warnings, err
+			} else {
+				// Any other cancellation (e.g. SIGTERM/SIGINT via connectorrunner.ErrSigTerm) is just as
+				// resumable as a deadline timeout, so it gets the same forced checkpoint and treatment below.
+				l.Info("sync context cancelled, exiting sync early", zap.String("sync_id", s.syncID), zap.Error(err))
 			}
+			// ctx itself may already be Done here (e.g. a SIGTERM-driven cancellation
+			// cancels ctx directly, not just runCtx's derived deadline), so this
+			// checkpoint must run on a context that survives that cancellation —
+			// same pattern as the other finalize/cleanup writes in this codebase
+			// (c1file.go, clone_sync.go, syncer.go) that must complete after ctx is done.
+			// It would be nice to remove this once we're more confident in the checkpointing logic.
+			checkpointErr := s.Checkpoint(context.WithoutCancel(ctx), true)
+			if checkpointErr != nil {
+				l.Error("error checkpointing before exiting sync", zap.Error(checkpointErr))
+			}
+			return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
 		default:
 		}
 
