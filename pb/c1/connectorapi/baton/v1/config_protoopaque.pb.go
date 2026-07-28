@@ -81,11 +81,15 @@ func (b0 GetConnectorConfigRequest_builder) Build() *GetConnectorConfigRequest {
 }
 
 type GetConnectorConfigResponse struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Config      []byte                 `protobuf:"bytes,1,opt,name=config,proto3"`
-	xxx_hidden_LastUpdated *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=last_updated,json=lastUpdated,proto3"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Config               []byte                 `protobuf:"bytes,1,opt,name=config,proto3"`
+	xxx_hidden_LastUpdated          *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=last_updated,json=lastUpdated,proto3"`
+	xxx_hidden_ConfigVersion        *string                `protobuf:"bytes,3,opt,name=config_version,json=configVersion,proto3,oneof"`
+	xxx_hidden_ServedPolicyEnvelope *ServedPolicyEnvelope  `protobuf:"bytes,4,opt,name=served_policy_envelope,json=servedPolicyEnvelope,proto3"`
+	XXX_raceDetectHookData          protoimpl.RaceDetectHookData
+	XXX_presence                    [1]uint32
+	unknownFields                   protoimpl.UnknownFields
+	sizeCache                       protoimpl.SizeCache
 }
 
 func (x *GetConnectorConfigResponse) Reset() {
@@ -127,6 +131,23 @@ func (x *GetConnectorConfigResponse) GetLastUpdated() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *GetConnectorConfigResponse) GetConfigVersion() string {
+	if x != nil {
+		if x.xxx_hidden_ConfigVersion != nil {
+			return *x.xxx_hidden_ConfigVersion
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *GetConnectorConfigResponse) GetServedPolicyEnvelope() *ServedPolicyEnvelope {
+	if x != nil {
+		return x.xxx_hidden_ServedPolicyEnvelope
+	}
+	return nil
+}
+
 func (x *GetConnectorConfigResponse) SetConfig(v []byte) {
 	if v == nil {
 		v = []byte{}
@@ -138,6 +159,15 @@ func (x *GetConnectorConfigResponse) SetLastUpdated(v *timestamppb.Timestamp) {
 	x.xxx_hidden_LastUpdated = v
 }
 
+func (x *GetConnectorConfigResponse) SetConfigVersion(v string) {
+	x.xxx_hidden_ConfigVersion = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 4)
+}
+
+func (x *GetConnectorConfigResponse) SetServedPolicyEnvelope(v *ServedPolicyEnvelope) {
+	x.xxx_hidden_ServedPolicyEnvelope = v
+}
+
 func (x *GetConnectorConfigResponse) HasLastUpdated() bool {
 	if x == nil {
 		return false
@@ -145,8 +175,31 @@ func (x *GetConnectorConfigResponse) HasLastUpdated() bool {
 	return x.xxx_hidden_LastUpdated != nil
 }
 
+func (x *GetConnectorConfigResponse) HasConfigVersion() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *GetConnectorConfigResponse) HasServedPolicyEnvelope() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_ServedPolicyEnvelope != nil
+}
+
 func (x *GetConnectorConfigResponse) ClearLastUpdated() {
 	x.xxx_hidden_LastUpdated = nil
+}
+
+func (x *GetConnectorConfigResponse) ClearConfigVersion() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_ConfigVersion = nil
+}
+
+func (x *GetConnectorConfigResponse) ClearServedPolicyEnvelope() {
+	x.xxx_hidden_ServedPolicyEnvelope = nil
 }
 
 type GetConnectorConfigResponse_builder struct {
@@ -154,6 +207,16 @@ type GetConnectorConfigResponse_builder struct {
 
 	Config      []byte
 	LastUpdated *timestamppb.Timestamp
+	// Version handle of the durable config record this response was assembled
+	// from. When the envelope is present this must be stamped, non-empty, and
+	// equal to ServedPolicyEnvelope.config_version. Explicit presence
+	// distinguishes a server that does not stamp versions from one that
+	// stamped an empty handle.
+	ConfigVersion *string
+	// Server-computed policy envelope for connector revisions that carry
+	// sealed policy records. Absent for connectors without them; runtimes that
+	// require an envelope treat absence as deny-all.
+	ServedPolicyEnvelope *ServedPolicyEnvelope
 }
 
 func (b0 GetConnectorConfigResponse_builder) Build() *GetConnectorConfigResponse {
@@ -162,6 +225,11 @@ func (b0 GetConnectorConfigResponse_builder) Build() *GetConnectorConfigResponse
 	_, _ = b, x
 	x.xxx_hidden_Config = b.Config
 	x.xxx_hidden_LastUpdated = b.LastUpdated
+	if b.ConfigVersion != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 4)
+		x.xxx_hidden_ConfigVersion = b.ConfigVersion
+	}
+	x.xxx_hidden_ServedPolicyEnvelope = b.ServedPolicyEnvelope
 	return m0
 }
 
@@ -447,12 +515,15 @@ var File_c1_connectorapi_baton_v1_config_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"%c1/connectorapi/baton/v1/config.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"H\n" +
+	"%c1/connectorapi/baton/v1/config.proto\x12\x18c1.connectorapi.baton.v1\x1a+c1/connectorapi/baton/v1/servedpolicy.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"H\n" +
 	"\x19GetConnectorConfigRequest\x12+\n" +
-	"\x11requested_version\x18\x01 \x01(\tR\x10requestedVersion\"s\n" +
+	"\x11requested_version\x18\x01 \x01(\tR\x10requestedVersion\"\x98\x02\n" +
 	"\x1aGetConnectorConfigResponse\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12=\n" +
-	"\flast_updated\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\vlastUpdated\"6\n" +
+	"\flast_updated\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\vlastUpdated\x12*\n" +
+	"\x0econfig_version\x18\x03 \x01(\tH\x00R\rconfigVersion\x88\x01\x01\x12d\n" +
+	"\x16served_policy_envelope\x18\x04 \x01(\v2..c1.connectorapi.baton.v1.ServedPolicyEnvelopeR\x14servedPolicyEnvelopeB\x11\n" +
+	"\x0f_config_version\"6\n" +
 	"\fSignedHeader\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x03(\tR\x05value\"\xb2\x01\n" +
@@ -477,19 +548,21 @@ var file_c1_connectorapi_baton_v1_config_proto_goTypes = []any{
 	(*GetConnectorOauthTokenRequest)(nil),          // 4: c1.connectorapi.baton.v1.GetConnectorOauthTokenRequest
 	(*GetConnectorOauthTokenResponse)(nil),         // 5: c1.connectorapi.baton.v1.GetConnectorOauthTokenResponse
 	(*timestamppb.Timestamp)(nil),                  // 6: google.protobuf.Timestamp
+	(*ServedPolicyEnvelope)(nil),                   // 7: c1.connectorapi.baton.v1.ServedPolicyEnvelope
 }
 var file_c1_connectorapi_baton_v1_config_proto_depIdxs = []int32{
 	6, // 0: c1.connectorapi.baton.v1.GetConnectorConfigResponse.last_updated:type_name -> google.protobuf.Timestamp
-	2, // 1: c1.connectorapi.baton.v1.Sigv4SignedRequestSTSGetCallerIdentity.headers:type_name -> c1.connectorapi.baton.v1.SignedHeader
-	0, // 2: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorConfig:input_type -> c1.connectorapi.baton.v1.GetConnectorConfigRequest
-	4, // 3: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorOauthToken:input_type -> c1.connectorapi.baton.v1.GetConnectorOauthTokenRequest
-	1, // 4: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorConfig:output_type -> c1.connectorapi.baton.v1.GetConnectorConfigResponse
-	5, // 5: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorOauthToken:output_type -> c1.connectorapi.baton.v1.GetConnectorOauthTokenResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	7, // 1: c1.connectorapi.baton.v1.GetConnectorConfigResponse.served_policy_envelope:type_name -> c1.connectorapi.baton.v1.ServedPolicyEnvelope
+	2, // 2: c1.connectorapi.baton.v1.Sigv4SignedRequestSTSGetCallerIdentity.headers:type_name -> c1.connectorapi.baton.v1.SignedHeader
+	0, // 3: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorConfig:input_type -> c1.connectorapi.baton.v1.GetConnectorConfigRequest
+	4, // 4: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorOauthToken:input_type -> c1.connectorapi.baton.v1.GetConnectorOauthTokenRequest
+	1, // 5: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorConfig:output_type -> c1.connectorapi.baton.v1.GetConnectorConfigResponse
+	5, // 6: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorOauthToken:output_type -> c1.connectorapi.baton.v1.GetConnectorOauthTokenResponse
+	5, // [5:7] is the sub-list for method output_type
+	3, // [3:5] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_c1_connectorapi_baton_v1_config_proto_init() }
@@ -497,6 +570,8 @@ func file_c1_connectorapi_baton_v1_config_proto_init() {
 	if File_c1_connectorapi_baton_v1_config_proto != nil {
 		return
 	}
+	file_c1_connectorapi_baton_v1_servedpolicy_proto_init()
+	file_c1_connectorapi_baton_v1_config_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
