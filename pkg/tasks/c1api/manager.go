@@ -65,6 +65,7 @@ type c1ApiTaskManager struct {
 	skipFullSync                        bool
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
+	externalResourceTraits              []v2.ResourceType_Trait
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
 	workerCount                         int
@@ -429,6 +430,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 			c.skipFullSync,
 			c.externalResourceC1Z,
 			c.externalResourceEntitlementIdFilter,
+			c.externalResourceTraits,
 			c.targetedSyncResources,
 			c.syncResourceTypeIDs,
 			c.workerCount,
@@ -499,6 +501,7 @@ func NewC1TaskManager(
 	skipFullSync bool,
 	externalC1Z string,
 	externalResourceEntitlementIdFilter string,
+	externalResourceTraits []v2.ResourceType_Trait,
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 	workerCount int,
@@ -527,6 +530,7 @@ func NewC1TaskManager(
 		skipFullSync:                        skipFullSync,
 		externalResourceC1Z:                 externalC1Z,
 		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
+		externalResourceTraits:              externalResourceTraits,
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
 		workerCount:                         workerCount,

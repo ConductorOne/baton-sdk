@@ -36,6 +36,12 @@ var userResourceType = v2.ResourceType_builder{
 	Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
 	Annotations: annotations.New(&v2.SkipEntitlementsAndGrants{}),
 }.Build()
+var appResourceType = v2.ResourceType_builder{
+	Id:          "app",
+	DisplayName: "App",
+	Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_APP},
+	Annotations: annotations.New(&v2.SkipEntitlementsAndGrants{}),
+}.Build()
 
 // syncModes defines the syncer configurations to test.
 // Each test will run once with sequential mode (workerCount=0) and once with parallel mode (workerCount=2).
@@ -1358,6 +1364,146 @@ func TestExternalResourceGroupProfileMatch(t *testing.T) {
 		// This is the key verification - if the group wasn't matched, it wouldn't be synced
 		require.NotNil(t, syncedExternalGroup, "External group should have been synced, proving group profile matching worked")
 		require.Equal(t, "ext_123", profileVal, "External group profile should have correct external_id value, proving matching worked")
+	})
+}
+
+// TestExternalResourceMatchAllAppTrait proves out CE-975: a connector that
+// opts in via WithExternalResourceTraits(TRAIT_APP) can match grants against
+// TRAIT_APP principals synced from another connector's external c1z, exactly
+// like TestExternalResourceMatchAll does for TRAIT_USER by default.
+func TestExternalResourceMatchAllAppTrait(t *testing.T) {
+	runWithSyncModes(t, func(t *testing.T, extraOpts []SyncOpt) {
+		ctx := t.Context()
+
+		tempDir, err := os.MkdirTemp("", "baton-external-match-all-app-test")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		internalMc := newMockConnector()
+		internalMc.rtDB = append(internalMc.rtDB, userResourceType, groupResourceType, appResourceType)
+
+		externalMc := newMockConnector()
+		externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType, appResourceType)
+
+		externalApp, err := rs.NewAppResource("Service Principal", appResourceType, "ext_app_1", nil)
+		require.NoError(t, err)
+		externalMc.AddResource(ctx, externalApp)
+
+		internalGroup, internalGroupEnt, err := internalMc.AddGroup(ctx, "internal_group")
+		require.NoError(t, err)
+		internalMc.grantDB[internalGroup.GetId().GetResource()] = []*v2.Grant{
+			gt.NewGrant(
+				internalGroup,
+				"member",
+				v2.ResourceId_builder{
+					ResourceType: appResourceType.GetId(),
+					Resource:     "placeholder",
+				}.Build(),
+				gt.WithAnnotation(v2.ExternalResourceMatchAll_builder{
+					ResourceType: v2.ResourceType_TRAIT_APP,
+				}.Build()),
+			),
+		}
+
+		externalC1zpath := filepath.Join(tempDir, "external.c1z")
+		externalOpts := append([]SyncOpt{WithC1ZPath(externalC1zpath), WithTmpDir(tempDir)}, extraOpts...)
+		externalSyncer, err := NewSyncer(ctx, externalMc, externalOpts...)
+		require.NoError(t, err)
+		require.NoError(t, externalSyncer.Sync(ctx))
+		require.NoError(t, externalSyncer.Close(ctx))
+
+		internalC1zpath := filepath.Join(tempDir, "internal.c1z")
+		internalOpts := append([]SyncOpt{
+			WithC1ZPath(internalC1zpath),
+			WithTmpDir(tempDir),
+			WithExternalResourceC1ZPath(externalC1zpath),
+			WithExternalResourceTraits(v2.ResourceType_TRAIT_APP),
+		}, extraOpts...)
+		internalSyncer, err := NewSyncer(ctx, internalMc, internalOpts...)
+		require.NoError(t, err)
+		require.NoError(t, internalSyncer.Sync(ctx))
+		require.NoError(t, internalSyncer.Close(ctx))
+
+		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		require.NoError(t, err)
+
+		grants, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+			Entitlement: internalGroupEnt,
+		}.Build())
+		require.NoError(t, err)
+		require.Len(t, grants.GetList(), 1, "should have matched the external app principal")
+		require.Equal(t, appResourceType.GetId(), grants.GetList()[0].GetPrincipal().GetId().GetResourceType())
+		require.Equal(t, externalApp.GetId().GetResource(), grants.GetList()[0].GetPrincipal().GetId().GetResource())
+	})
+}
+
+// TestExternalResourceAppTraitNotMatchedByDefault proves the flip side of
+// CE-975: without opting in via WithExternalResourceTraits, TRAIT_APP
+// principals are neither synced from the external source nor matched, and
+// the unmatched ExternalResourceMatchAll grant is simply dropped (matching
+// existing behavior for any grant that finds no matching principal).
+func TestExternalResourceAppTraitNotMatchedByDefault(t *testing.T) {
+	runWithSyncModes(t, func(t *testing.T, extraOpts []SyncOpt) {
+		ctx := t.Context()
+
+		tempDir, err := os.MkdirTemp("", "baton-external-app-trait-default-test")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		internalMc := newMockConnector()
+		internalMc.rtDB = append(internalMc.rtDB, userResourceType, groupResourceType, appResourceType)
+
+		externalMc := newMockConnector()
+		externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType, appResourceType)
+
+		externalApp, err := rs.NewAppResource("Service Principal", appResourceType, "ext_app_1", nil)
+		require.NoError(t, err)
+		externalMc.AddResource(ctx, externalApp)
+
+		internalGroup, internalGroupEnt, err := internalMc.AddGroup(ctx, "internal_group")
+		require.NoError(t, err)
+		internalMc.grantDB[internalGroup.GetId().GetResource()] = []*v2.Grant{
+			gt.NewGrant(
+				internalGroup,
+				"member",
+				v2.ResourceId_builder{
+					ResourceType: appResourceType.GetId(),
+					Resource:     "placeholder",
+				}.Build(),
+				gt.WithAnnotation(v2.ExternalResourceMatchAll_builder{
+					ResourceType: v2.ResourceType_TRAIT_APP,
+				}.Build()),
+			),
+		}
+
+		externalC1zpath := filepath.Join(tempDir, "external.c1z")
+		externalOpts := append([]SyncOpt{WithC1ZPath(externalC1zpath), WithTmpDir(tempDir)}, extraOpts...)
+		externalSyncer, err := NewSyncer(ctx, externalMc, externalOpts...)
+		require.NoError(t, err)
+		require.NoError(t, externalSyncer.Sync(ctx))
+		require.NoError(t, externalSyncer.Close(ctx))
+
+		// Deliberately omit WithExternalResourceTraits: TRAIT_APP stays out
+		// of the default USER/GROUP matching pool.
+		internalC1zpath := filepath.Join(tempDir, "internal.c1z")
+		internalOpts := append([]SyncOpt{
+			WithC1ZPath(internalC1zpath),
+			WithTmpDir(tempDir),
+			WithExternalResourceC1ZPath(externalC1zpath),
+		}, extraOpts...)
+		internalSyncer, err := NewSyncer(ctx, internalMc, internalOpts...)
+		require.NoError(t, err)
+		require.NoError(t, internalSyncer.Sync(ctx))
+		require.NoError(t, internalSyncer.Close(ctx))
+
+		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		require.NoError(t, err)
+
+		grants, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+			Entitlement: internalGroupEnt,
+		}.Build())
+		require.NoError(t, err)
+		require.Empty(t, grants.GetList(), "TRAIT_APP principals should not be matched without WithExternalResourceTraits")
 	})
 }
 

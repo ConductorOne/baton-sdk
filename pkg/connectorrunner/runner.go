@@ -427,6 +427,7 @@ type runnerConfig struct {
 	targetedSyncResourceIDs               []string
 	externalResourceC1Z                   string
 	externalResourceEntitlementIdFilter   string
+	externalResourceTraits                []v2.ResourceType_Trait
 	keepPreviousSyncC1ZCapable            bool
 	keepPreviousSyncC1ZEnabled            bool
 	skipEntitlementsAndGrants             bool
@@ -767,6 +768,19 @@ func WithExternalResourceEntitlementFilter(entitlementId string) Option {
 	}
 }
 
+// WithExternalResourceTraits adds resource type traits, beyond the
+// always-eligible TRAIT_USER and TRAIT_GROUP, that the External Identity
+// Matcher should sync and match against from the external resource c1z (see
+// WithExternalResourceC1Z). For example, a connector matching grants
+// against service-principal identities synced by another connector as
+// TRAIT_APP would pass that trait here.
+func WithExternalResourceTraits(traits ...v2.ResourceType_Trait) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.externalResourceTraits = append(cfg.externalResourceTraits, traits...)
+		return nil
+	}
+}
+
 // WithKeepPreviousSyncC1Z is the connector AUTHOR's build-time
 // declaration that this connector supports ETag replay in service
 // mode: after each successful upload the runner retains the uploaded
@@ -1082,6 +1096,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				local.WithTmpDir(cfg.tempDir),
 				local.WithExternalResourceC1Z(cfg.externalResourceC1Z),
 				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
+				local.WithExternalResourceTraits(cfg.externalResourceTraits),
 				local.WithTargetedSyncResources(resources),
 				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
 				local.WithSkipGrants(cfg.skipGrants),
@@ -1124,6 +1139,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		cfg.skipFullSync,
 		cfg.externalResourceC1Z,
 		cfg.externalResourceEntitlementIdFilter,
+		cfg.externalResourceTraits,
 		resources,
 		cfg.syncResourceTypeIDs,
 		cfg.workerCount,

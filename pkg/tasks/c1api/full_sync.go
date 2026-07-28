@@ -53,6 +53,7 @@ type fullSyncTaskHandler struct {
 	skipFullSync                        bool
 	externalResourceC1ZPath             string
 	externalResourceEntitlementIdFilter string
+	externalResourceTraits              []v2.ResourceType_Trait
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
 	workerCount                         int
@@ -200,6 +201,10 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 
 	if c.externalResourceC1ZPath != "" {
 		syncOpts = append(syncOpts, sdkSync.WithExternalResourceC1ZPath(c.externalResourceC1ZPath))
+	}
+
+	if len(c.externalResourceTraits) > 0 {
+		syncOpts = append(syncOpts, sdkSync.WithExternalResourceTraits(c.externalResourceTraits...))
 	}
 
 	// ETag replay (opt-in): feed the spare retained from the last
@@ -370,6 +375,7 @@ func newFullSyncTaskHandler(
 	skipFullSync bool,
 	externalResourceC1ZPath string,
 	externalResourceEntitlementIdFilter string,
+	externalResourceTraits []v2.ResourceType_Trait,
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 	workerCount int,
@@ -382,6 +388,7 @@ func newFullSyncTaskHandler(
 		skipFullSync:                        skipFullSync,
 		externalResourceC1ZPath:             externalResourceC1ZPath,
 		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
+		externalResourceTraits:              externalResourceTraits,
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
 		workerCount:                         workerCount,

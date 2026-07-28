@@ -145,11 +145,17 @@ type syncer struct {
 	c1zPath                             string
 	externalResourceC1ZPath             string
 	externalResourceEntitlementIdFilter string
-	previousSyncC1ZPath                 string
-	previousSyncC1ZPathOptional         bool
-	store                               c1zstore.Store
-	externalResourceReader              connectorstore.Reader
-	previousSyncReader                  connectorstore.Reader
+	// externalResourceTraits are additional resource type traits, beyond the
+	// always-eligible TRAIT_USER/TRAIT_GROUP, that this connector wants
+	// synced from the external resource source and made available to the
+	// External Identity Matcher (see externalMatchTraits, set via
+	// WithExternalResourceTraits).
+	externalResourceTraits      []v2.ResourceType_Trait
+	previousSyncC1ZPath         string
+	previousSyncC1ZPathOptional bool
+	store                       c1zstore.Store
+	externalResourceReader      connectorstore.Reader
+	previousSyncReader          connectorstore.Reader
 	// Ingestion-invariant state (see ingest_invariants.go):
 	// childSchedule is the monotone record backing invariant I4;
 	// resourcesPhaseRanHere gates I4 to processes that actually ran the
@@ -1467,6 +1473,25 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
 }
 
+// resourceTraitMessage returns the trait-specific annotation message for a
+// ResourceType_Trait, or nil for traits with no corresponding message.
+func resourceTraitMessage(t v2.ResourceType_Trait) proto.Message {
+	switch t {
+	case v2.ResourceType_TRAIT_APP:
+		return &v2.AppTrait{}
+	case v2.ResourceType_TRAIT_GROUP:
+		return &v2.GroupTrait{}
+	case v2.ResourceType_TRAIT_USER:
+		return &v2.UserTrait{}
+	case v2.ResourceType_TRAIT_ROLE:
+		return &v2.RoleTrait{}
+	case v2.ResourceType_TRAIT_SECRET:
+		return &v2.SecretTrait{}
+	default:
+		return nil
+	}
+}
+
 // No span here: this is called per-resource, but only does I/O on the
 // first time a resource type is seen (cached afterward). The wrapped
 // C1File.GetResourceType call is itself spanned, so we still see the
@@ -1485,21 +1510,7 @@ func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) err
 	}
 
 	for _, t := range resourceTypeTraits {
-		var trait proto.Message
-		switch t {
-		case v2.ResourceType_TRAIT_APP:
-			trait = &v2.AppTrait{}
-		case v2.ResourceType_TRAIT_GROUP:
-			trait = &v2.GroupTrait{}
-		case v2.ResourceType_TRAIT_USER:
-			trait = &v2.UserTrait{}
-		case v2.ResourceType_TRAIT_ROLE:
-			trait = &v2.RoleTrait{}
-		case v2.ResourceType_TRAIT_SECRET:
-			trait = &v2.SecretTrait{}
-		default:
-		}
-
+		trait := resourceTraitMessage(t)
 		if trait != nil {
 			annos := annotations.Annotations(r.GetAnnotations())
 			if !annos.Contains(trait) {
@@ -2329,6 +2340,28 @@ func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) erro
 	return nil
 }
 
+// defaultExternalMatchTraits are always eligible for external-resource sync
+// and matching, regardless of configuration.
+var defaultExternalMatchTraits = []v2.ResourceType_Trait{
+	v2.ResourceType_TRAIT_USER,
+	v2.ResourceType_TRAIT_GROUP,
+}
+
+// externalMatchTraits returns the set of resource type traits the External
+// Identity Matcher should sync and match against: the always-on
+// TRAIT_USER/TRAIT_GROUP, plus any traits a connector opted into via
+// WithExternalResourceTraits (e.g. TRAIT_APP).
+func (s *syncer) externalMatchTraits() map[v2.ResourceType_Trait]bool {
+	traits := make(map[v2.ResourceType_Trait]bool, len(defaultExternalMatchTraits)+len(s.externalResourceTraits))
+	for _, t := range defaultExternalMatchTraits {
+		traits[t] = true
+	}
+	for _, t := range s.externalResourceTraits {
+		traits[t] = true
+	}
+	return traits
+}
+
 func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context, entitlementId string) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncExternalResourcesWithGrantToEntitlement")
 	var err error
@@ -2359,17 +2392,20 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		}
 	}
 
+	matchTraits := s.externalMatchTraits()
 	resourceTypes := make([]*v2.ResourceType, 0)
 	for _, resourceTypeId := range resourceTypeIDs.ToSlice() {
 		resourceTypeResp, err := s.externalResourceReader.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{ResourceTypeId: resourceTypeId}.Build())
 		if err != nil {
 			return err
 		}
-		// Should we error or skip if this is not user or group?
+		// Skip resource types whose traits aren't eligible for external
+		// matching (TRAIT_USER/TRAIT_GROUP by default, plus anything added
+		// via WithExternalResourceTraits).
 		for _, t := range resourceTypeResp.GetResourceType().GetTraits() {
-			if t == v2.ResourceType_TRAIT_USER || t == v2.ResourceType_TRAIT_GROUP {
+			if matchTraits[t] {
 				resourceTypes = append(resourceTypes, resourceTypeResp.GetResourceType())
-				continue
+				break
 			}
 		}
 
@@ -2480,24 +2516,25 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 		return err
 	}
 
-	userAndGroupResourceTypes := make([]*v2.ResourceType, 0)
+	matchTraits := s.externalMatchTraits()
+	matchableResourceTypes := make([]*v2.ResourceType, 0)
 	ents := make([]*v2.Entitlement, 0)
 	principals := make([]*v2.Resource, 0)
 	for _, rt := range resourceTypes {
 		for _, t := range rt.GetTraits() {
-			if t == v2.ResourceType_TRAIT_USER || t == v2.ResourceType_TRAIT_GROUP {
-				userAndGroupResourceTypes = append(userAndGroupResourceTypes, rt)
-				continue
+			if matchTraits[t] {
+				matchableResourceTypes = append(matchableResourceTypes, rt)
+				break
 			}
 		}
 	}
 
-	err = s.store.PutResourceTypes(ctx, userAndGroupResourceTypes...)
+	err = s.store.PutResourceTypes(ctx, matchableResourceTypes...)
 	if err != nil {
 		return err
 	}
 
-	for _, rt := range userAndGroupResourceTypes {
+	for _, rt := range matchableResourceTypes {
 		rtAnnos := annotations.Annotations(rt.GetAnnotations())
 		skipEntitlements := rtAnnos.Contains(&v2.SkipEntitlementsAndGrants{})
 		skipEGForResourceType[rt.GetId()] = skipEntitlements
@@ -2564,7 +2601,7 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 	}
 
 	l.Info("Synced external resources",
-		zap.Int("resource_type_count", len(userAndGroupResourceTypes)),
+		zap.Int("resource_type_count", len(matchableResourceTypes)),
 		zap.Int("resource_count", principalsCount),
 		zap.Int("entitlement_count", entsCount),
 		zap.Int("grant_count", grantsForEntsCount),
@@ -2675,6 +2712,63 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 	return resourceTypes, nil
 }
 
+// matchProfileAndExpand implements the generic external-resource key/val
+// profile match originally written for TRAIT_GROUP, now shared by GROUP and
+// any additional trait configured via WithExternalResourceTraits (e.g.
+// TRAIT_APP). It returns a nil grant (and nil error) when the principal's
+// profile doesn't match key/value, or when the source grant carries no
+// GrantExpandable annotation to remap — matching pre-existing GROUP
+// behavior, where a key/val match only produces a grant for expandable
+// entitlements.
+func (s *syncer) matchProfileAndExpand(
+	ctx context.Context,
+	l *zap.Logger,
+	grant *v2.Grant,
+	principal *v2.Resource,
+	key, value string,
+	expandableAnno *v2.GrantExpandable,
+	expandableEntitlementsResourceMap map[string][]string,
+) (*v2.Grant, error) {
+	profileVal, ok := resource.GetProfileStringValue(resource.GetProfile(principal), key)
+	if !ok || !strings.EqualFold(profileVal, value) {
+		return nil, nil
+	}
+	if expandableAnno == nil {
+		return nil, nil
+	}
+
+	groupPrincipalBID, err := bid.MakeBid(grant.GetPrincipal())
+	if err != nil {
+		l.Error("error making group principal bid", zap.Error(err), zap.Any("grant.Principal", grant.GetPrincipal()))
+		return nil, nil
+	}
+
+	newExpandableEntitlementIDs := make([]string, 0)
+	for _, slug := range expandableEntitlementsResourceMap[groupPrincipalBID] {
+		newExpandableEntId := entitlement.NewEntitlementID(principal, slug)
+		_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
+		if err != nil {
+			if status.Code(err) == codes.NotFound {
+				l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
+				continue
+			}
+			return nil, err
+		}
+		newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
+	}
+
+	newGrant := newGrantForExternalPrincipal(grant, principal)
+	newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
+	newExpandableAnno := v2.GrantExpandable_builder{
+		EntitlementIds:  newExpandableEntitlementIDs,
+		Shallow:         expandableAnno.GetShallow(),
+		ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
+	}.Build()
+	newGrantAnnos.Update(newExpandableAnno)
+	newGrant.SetAnnotations(newGrantAnnos)
+	return newGrant, nil
+}
+
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
 	var err error
@@ -2686,8 +2780,8 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 	l := ctxzap.Extract(ctx)
 
-	groupPrincipals := make([]*v2.Resource, 0)
-	userPrincipals := make([]*v2.Resource, 0)
+	matchTraits := s.externalMatchTraits()
+	principalsByTrait := make(map[v2.ResourceType_Trait][]*v2.Resource, len(matchTraits))
 	principalMap := make(map[string]*v2.Resource)
 
 	for _, principal := range principals {
@@ -2696,11 +2790,11 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if !rAnnos.Contains(batonID) {
 			continue
 		}
-		if rAnnos.Contains(&v2.UserTrait{}) {
-			userPrincipals = append(userPrincipals, principal)
-		}
-		if rAnnos.Contains(&v2.GroupTrait{}) {
-			groupPrincipals = append(groupPrincipals, principal)
+		for trait := range matchTraits {
+			traitMsg := resourceTraitMessage(trait)
+			if traitMsg != nil && rAnnos.Contains(traitMsg) {
+				principalsByTrait[trait] = append(principalsByTrait[trait], principal)
+			}
 		}
 		principalID := principal.GetId().GetResource()
 		if principalID == "" {
@@ -2730,16 +2824,11 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			return err
 		}
 		if matchResourceMatchAllAnno != nil {
-			var processPrincipals []*v2.Resource
-			switch matchResourceMatchAllAnno.GetResourceType() {
-			case v2.ResourceType_TRAIT_USER:
-				processPrincipals = userPrincipals
-			case v2.ResourceType_TRAIT_GROUP:
-				processPrincipals = groupPrincipals
-			default:
-				l.Error("unexpected external resource type trait", zap.Any("trait", matchResourceMatchAllAnno.GetResourceType()))
+			trait := matchResourceMatchAllAnno.GetResourceType()
+			if !matchTraits[trait] {
+				l.Error("unexpected external resource type trait", zap.Any("trait", trait))
 			}
-			for _, principal := range processPrincipals {
+			for _, principal := range principalsByTrait[trait] {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
 				expandedGrants = append(expandedGrants, newGrant)
 			}
@@ -2829,9 +2918,10 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		}
 
 		if matchExternalResource != nil {
-			switch matchExternalResource.GetResourceType() {
-			case v2.ResourceType_TRAIT_USER:
-				for _, userPrincipal := range userPrincipals {
+			trait := matchExternalResource.GetResourceType()
+			switch {
+			case trait == v2.ResourceType_TRAIT_USER:
+				for _, userPrincipal := range principalsByTrait[v2.ResourceType_TRAIT_USER] {
 					userTrait, err := resource.GetUserTrait(userPrincipal)
 					if err != nil {
 						l.Error("error getting user trait", zap.Any("userPrincipal", userPrincipal))
@@ -2851,48 +2941,25 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						expandedGrants = append(expandedGrants, newGrant)
 					}
 				}
-			case v2.ResourceType_TRAIT_GROUP:
-				for _, groupPrincipal := range groupPrincipals {
-					profileVal, ok := resource.GetProfileStringValue(resource.GetProfile(groupPrincipal), matchExternalResource.GetKey())
-					if ok && strings.EqualFold(profileVal, matchExternalResource.GetValue()) {
-						newGrant := newGrantForExternalPrincipal(grant, groupPrincipal)
-						newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
-
-						newExpandableEntitlementIDs := make([]string, 0)
-						if expandableAnno != nil {
-							groupPrincipalBID, err := bid.MakeBid(grant.GetPrincipal())
-							if err != nil {
-								l.Error("error making group principal bid", zap.Error(err), zap.Any("grant.Principal", grant.GetPrincipal()))
-								continue
-							}
-
-							principalEntitlementSlugs := expandableEntitlementsResourceMap[groupPrincipalBID]
-							for _, slug := range principalEntitlementSlugs {
-								newExpandableEntId := entitlement.NewEntitlementID(groupPrincipal, slug)
-								_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
-								if err != nil {
-									if status.Code(err) == codes.NotFound {
-										l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
-										continue
-									}
-									return err
-								}
-								newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
-							}
-
-							newExpandableAnno := v2.GrantExpandable_builder{
-								EntitlementIds:  newExpandableEntitlementIDs,
-								Shallow:         expandableAnno.GetShallow(),
-								ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
-							}.Build()
-							newGrantAnnos.Update(newExpandableAnno)
-							newGrant.SetAnnotations(newGrantAnnos)
-							expandedGrants = append(expandedGrants, newGrant)
-						}
+			case matchTraits[trait]:
+				// Generic profile match, shared by TRAIT_GROUP and any
+				// additional trait opted into via WithExternalResourceTraits
+				// (e.g. TRAIT_APP).
+				for _, principal := range principalsByTrait[trait] {
+					newGrant, err := s.matchProfileAndExpand(
+						ctx, l, grant, principal,
+						matchExternalResource.GetKey(), matchExternalResource.GetValue(),
+						expandableAnno, expandableEntitlementsResourceMap,
+					)
+					if err != nil {
+						return err
+					}
+					if newGrant != nil {
+						expandedGrants = append(expandedGrants, newGrant)
 					}
 				}
 			default:
-				l.Error("unexpected external resource type trait", zap.Any("trait", matchExternalResource.GetResourceType()))
+				l.Error("unexpected external resource type trait", zap.Any("trait", trait))
 			}
 
 			// We still want to delete the grant even if there are no matches
@@ -3277,6 +3344,20 @@ func WithOptionalPreviousSyncC1ZPath(path string) SyncOpt {
 func WithExternalResourceEntitlementIdFilter(entitlementId string) SyncOpt {
 	return func(s *syncer) {
 		s.externalResourceEntitlementIdFilter = entitlementId
+	}
+}
+
+// WithExternalResourceTraits adds resource type traits, beyond the
+// always-eligible TRAIT_USER and TRAIT_GROUP, that the External Identity
+// Matcher should sync from the external resource source and consider when
+// matching grants (e.g. ExternalResourceMatch / ExternalResourceMatchAll
+// annotations). Connectors opt into this when their principals live in a
+// separate identity-source connector under a trait other than user/group —
+// for example an Azure connector matching service-principal role
+// assignments against TRAIT_APP resources synced by baton-microsoft-entra.
+func WithExternalResourceTraits(traits ...v2.ResourceType_Trait) SyncOpt {
+	return func(s *syncer) {
+		s.externalResourceTraits = append(s.externalResourceTraits, traits...)
 	}
 }
 
