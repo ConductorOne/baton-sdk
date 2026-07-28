@@ -36,10 +36,6 @@ var DefaultRelationships = []SchemaFieldRelationship{
 		[]SchemaField{externalResourceC1ZField},
 	),
 	FieldsDependentOn(
-		[]SchemaField{externalResourceTraitsField},
-		[]SchemaField{externalResourceC1ZField},
-	),
-	FieldsDependentOn(
 		[]SchemaField{skipGrants},
 		[]SchemaField{targetedSyncResourceIDs},
 	),

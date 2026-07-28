@@ -268,11 +268,6 @@ var (
 		WithDescription("The entitlement that external users, groups must have access to sync external baton resources"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
-	externalResourceTraitsField = StringSliceField("external-resource-traits",
-		WithDescription("Additional resource type traits (e.g. \"app\"), beyond the always-eligible user and group traits, "+
-			"to sync and match from the external resource c1z"),
-		WithPersistent(true),
-		WithExportTarget(ExportTargetNone))
 
 	// KeepPreviousSyncC1ZField is the CUSTOMER's runtime half of the
 	// service-mode ETag-replay opt-in: keep the last successfully
@@ -437,7 +432,6 @@ var DefaultFields = append([]SchemaField{
 	skipGrants,
 	externalResourceC1ZField,
 	externalResourceEntitlementIdFilter,
-	externalResourceTraitsField,
 	KeepPreviousSyncC1ZField,
 	diffSyncsField,
 	diffSyncsBaseSyncField,
