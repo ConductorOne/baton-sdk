@@ -27,7 +27,7 @@ message ServedPolicyEnvelope {
 
   // The connector revision both sections bind to. Must identify the same
   // revision as the bundle this response serves.
-  string revision_id = 2;
+  string connector_revision_id = 2;
 
   // The revision's recorded integrity-root digest (lowercase hex; algorithm
   // bound by envelope_version, v1 = sha256), copied from the sealed revision

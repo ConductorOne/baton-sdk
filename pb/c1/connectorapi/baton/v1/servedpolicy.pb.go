@@ -45,7 +45,7 @@ type ServedPolicyEnvelope struct {
 	EnvelopeVersion uint32 `protobuf:"varint,1,opt,name=envelope_version,json=envelopeVersion,proto3" json:"envelope_version,omitempty"`
 	// The connector revision both sections bind to. Must identify the same
 	// revision as the bundle this response serves.
-	RevisionId string `protobuf:"bytes,2,opt,name=revision_id,json=revisionId,proto3" json:"revision_id,omitempty"`
+	ConnectorRevisionId string `protobuf:"bytes,2,opt,name=connector_revision_id,json=connectorRevisionId,proto3" json:"connector_revision_id,omitempty"`
 	// The revision's recorded integrity-root digest (lowercase hex; algorithm
 	// bound by envelope_version, v1 = sha256), copied from the sealed revision
 	// record — never recomputed at serve. Must match the served bundle's
@@ -97,9 +97,9 @@ func (x *ServedPolicyEnvelope) GetEnvelopeVersion() uint32 {
 	return 0
 }
 
-func (x *ServedPolicyEnvelope) GetRevisionId() string {
+func (x *ServedPolicyEnvelope) GetConnectorRevisionId() string {
 	if x != nil {
-		return x.RevisionId
+		return x.ConnectorRevisionId
 	}
 	return ""
 }
@@ -129,8 +129,8 @@ func (x *ServedPolicyEnvelope) SetEnvelopeVersion(v uint32) {
 	x.EnvelopeVersion = v
 }
 
-func (x *ServedPolicyEnvelope) SetRevisionId(v string) {
-	x.RevisionId = v
+func (x *ServedPolicyEnvelope) SetConnectorRevisionId(v string) {
+	x.ConnectorRevisionId = v
 }
 
 func (x *ServedPolicyEnvelope) SetRevisionRootDigest(v string) {
@@ -164,7 +164,7 @@ type ServedPolicyEnvelope_builder struct {
 	EnvelopeVersion uint32
 	// The connector revision both sections bind to. Must identify the same
 	// revision as the bundle this response serves.
-	RevisionId string
+	ConnectorRevisionId string
 	// The revision's recorded integrity-root digest (lowercase hex; algorithm
 	// bound by envelope_version, v1 = sha256), copied from the sealed revision
 	// record — never recomputed at serve. Must match the served bundle's
@@ -187,7 +187,7 @@ func (b0 ServedPolicyEnvelope_builder) Build() *ServedPolicyEnvelope {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.EnvelopeVersion = b.EnvelopeVersion
-	x.RevisionId = b.RevisionId
+	x.ConnectorRevisionId = b.ConnectorRevisionId
 	x.RevisionRootDigest = b.RevisionRootDigest
 	x.ConfigVersion = b.ConfigVersion
 	x.Egress = b.Egress
@@ -327,11 +327,10 @@ var File_c1_connectorapi_baton_v1_servedpolicy_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_servedpolicy_proto_rawDesc = "" +
 	"\n" +
-	"+c1/connectorapi/baton/v1/servedpolicy.proto\x12\x18c1.connectorapi.baton.v1\"\xfc\x01\n" +
+	"+c1/connectorapi/baton/v1/servedpolicy.proto\x12\x18c1.connectorapi.baton.v1\"\x8f\x02\n" +
 	"\x14ServedPolicyEnvelope\x12)\n" +
-	"\x10envelope_version\x18\x01 \x01(\rR\x0fenvelopeVersion\x12\x1f\n" +
-	"\vrevision_id\x18\x02 \x01(\tR\n" +
-	"revisionId\x120\n" +
+	"\x10envelope_version\x18\x01 \x01(\rR\x0fenvelopeVersion\x122\n" +
+	"\x15connector_revision_id\x18\x02 \x01(\tR\x13connectorRevisionId\x120\n" +
 	"\x14revision_root_digest\x18\x03 \x01(\tR\x12revisionRootDigest\x12%\n" +
 	"\x0econfig_version\x18\x04 \x01(\tR\rconfigVersion\x12?\n" +
 	"\x06egress\x18\x05 \x01(\v2'.c1.connectorapi.baton.v1.EgressSectionR\x06egress\"\xc5\x01\n" +

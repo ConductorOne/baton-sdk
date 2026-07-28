@@ -59,7 +59,7 @@ func (m *ServedPolicyEnvelope) validate(all bool) error {
 
 	// no validation rules for EnvelopeVersion
 
-	// no validation rules for RevisionId
+	// no validation rules for ConnectorRevisionId
 
 	// no validation rules for RevisionRootDigest
 

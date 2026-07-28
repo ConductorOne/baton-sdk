@@ -39,14 +39,14 @@ const (
 // the egress section's own schema_version; version 1 means sha256. Algorithm
 // changes arrive as version bumps, never as in-band negotiation.
 type ServedPolicyEnvelope struct {
-	state                         protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_EnvelopeVersion    uint32                 `protobuf:"varint,1,opt,name=envelope_version,json=envelopeVersion,proto3"`
-	xxx_hidden_RevisionId         string                 `protobuf:"bytes,2,opt,name=revision_id,json=revisionId,proto3"`
-	xxx_hidden_RevisionRootDigest string                 `protobuf:"bytes,3,opt,name=revision_root_digest,json=revisionRootDigest,proto3"`
-	xxx_hidden_ConfigVersion      string                 `protobuf:"bytes,4,opt,name=config_version,json=configVersion,proto3"`
-	xxx_hidden_Egress             *EgressSection         `protobuf:"bytes,5,opt,name=egress,proto3"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	state                          protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_EnvelopeVersion     uint32                 `protobuf:"varint,1,opt,name=envelope_version,json=envelopeVersion,proto3"`
+	xxx_hidden_ConnectorRevisionId string                 `protobuf:"bytes,2,opt,name=connector_revision_id,json=connectorRevisionId,proto3"`
+	xxx_hidden_RevisionRootDigest  string                 `protobuf:"bytes,3,opt,name=revision_root_digest,json=revisionRootDigest,proto3"`
+	xxx_hidden_ConfigVersion       string                 `protobuf:"bytes,4,opt,name=config_version,json=configVersion,proto3"`
+	xxx_hidden_Egress              *EgressSection         `protobuf:"bytes,5,opt,name=egress,proto3"`
+	unknownFields                  protoimpl.UnknownFields
+	sizeCache                      protoimpl.SizeCache
 }
 
 func (x *ServedPolicyEnvelope) Reset() {
@@ -81,9 +81,9 @@ func (x *ServedPolicyEnvelope) GetEnvelopeVersion() uint32 {
 	return 0
 }
 
-func (x *ServedPolicyEnvelope) GetRevisionId() string {
+func (x *ServedPolicyEnvelope) GetConnectorRevisionId() string {
 	if x != nil {
-		return x.xxx_hidden_RevisionId
+		return x.xxx_hidden_ConnectorRevisionId
 	}
 	return ""
 }
@@ -113,8 +113,8 @@ func (x *ServedPolicyEnvelope) SetEnvelopeVersion(v uint32) {
 	x.xxx_hidden_EnvelopeVersion = v
 }
 
-func (x *ServedPolicyEnvelope) SetRevisionId(v string) {
-	x.xxx_hidden_RevisionId = v
+func (x *ServedPolicyEnvelope) SetConnectorRevisionId(v string) {
+	x.xxx_hidden_ConnectorRevisionId = v
 }
 
 func (x *ServedPolicyEnvelope) SetRevisionRootDigest(v string) {
@@ -148,7 +148,7 @@ type ServedPolicyEnvelope_builder struct {
 	EnvelopeVersion uint32
 	// The connector revision both sections bind to. Must identify the same
 	// revision as the bundle this response serves.
-	RevisionId string
+	ConnectorRevisionId string
 	// The revision's recorded integrity-root digest (lowercase hex; algorithm
 	// bound by envelope_version, v1 = sha256), copied from the sealed revision
 	// record — never recomputed at serve. Must match the served bundle's
@@ -171,7 +171,7 @@ func (b0 ServedPolicyEnvelope_builder) Build() *ServedPolicyEnvelope {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_EnvelopeVersion = b.EnvelopeVersion
-	x.xxx_hidden_RevisionId = b.RevisionId
+	x.xxx_hidden_ConnectorRevisionId = b.ConnectorRevisionId
 	x.xxx_hidden_RevisionRootDigest = b.RevisionRootDigest
 	x.xxx_hidden_ConfigVersion = b.ConfigVersion
 	x.xxx_hidden_Egress = b.Egress
@@ -299,11 +299,10 @@ var File_c1_connectorapi_baton_v1_servedpolicy_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_servedpolicy_proto_rawDesc = "" +
 	"\n" +
-	"+c1/connectorapi/baton/v1/servedpolicy.proto\x12\x18c1.connectorapi.baton.v1\"\xfc\x01\n" +
+	"+c1/connectorapi/baton/v1/servedpolicy.proto\x12\x18c1.connectorapi.baton.v1\"\x8f\x02\n" +
 	"\x14ServedPolicyEnvelope\x12)\n" +
-	"\x10envelope_version\x18\x01 \x01(\rR\x0fenvelopeVersion\x12\x1f\n" +
-	"\vrevision_id\x18\x02 \x01(\tR\n" +
-	"revisionId\x120\n" +
+	"\x10envelope_version\x18\x01 \x01(\rR\x0fenvelopeVersion\x122\n" +
+	"\x15connector_revision_id\x18\x02 \x01(\tR\x13connectorRevisionId\x120\n" +
 	"\x14revision_root_digest\x18\x03 \x01(\tR\x12revisionRootDigest\x12%\n" +
 	"\x0econfig_version\x18\x04 \x01(\tR\rconfigVersion\x12?\n" +
 	"\x06egress\x18\x05 \x01(\v2'.c1.connectorapi.baton.v1.EgressSectionR\x06egress\"\xc5\x01\n" +
