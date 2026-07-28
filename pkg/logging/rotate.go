@@ -66,7 +66,7 @@ func newRotatingWriter(path string, maxSizeMB, maxBackups int) (*rotatingWriter,
 		}
 	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file %q: %w", path, err)
 	}
@@ -141,13 +141,13 @@ func (w *rotatingWriter) rotate() error {
 		// The old handle is already closed. Reopen the original path so logging
 		// keeps working instead of wedging every future Write on a
 		// permanently-closed handle; still report the rotation failure.
-		if f, reopenErr := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); reopenErr == nil {
+		if f, reopenErr := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); reopenErr == nil {
 			w.f = f
 		}
 		return fmt.Errorf("failed to rotate log file %q: %w", w.path, err)
 	}
 
-	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to reopen log file %q after rotation: %w", w.path, err)
 	}
