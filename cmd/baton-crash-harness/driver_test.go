@@ -4,7 +4,7 @@
 // keeps the tag-gated harness binary from rotting against HEAD.
 //
 // TestCrashResumeRealConnector is the instrument itself, gated behind
-// BATON_DEMO_CRASH=1 (run via `make demo-crash-check`). It composes real
+// BATON_DEMO_CRASH=1 (run via `make crash-check`). It composes real
 // processes into a production-shaped sync history:
 //
 //   - budget-bounded sessions (-run-duration-ms): the session
@@ -113,7 +113,7 @@ func TestCrashHarnessBuildsAgainstHead(t *testing.T) {
 
 func TestCrashResumeRealConnector(t *testing.T) {
 	if os.Getenv("BATON_DEMO_CRASH") == "" {
-		t.Skip("real-binary crash/resume instrument; set BATON_DEMO_CRASH=1 (or run `make demo-crash-check`)")
+		t.Skip("real-binary crash/resume instrument; set BATON_DEMO_CRASH=1 (or run `make crash-check`)")
 	}
 	if runtime.GOOS == "windows" {
 		t.Skip("the interruption schedule relies on unix signal semantics")

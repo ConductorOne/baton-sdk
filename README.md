@@ -124,6 +124,12 @@ Use "baton [command] --help" for more information about a command.
 
 To build changes to any protocol buffers, run `make protogen` - this requires an installation of `buf` in `$PATH`.
 
+## Testing
+
+Run `make help` to see the available test and confidence suites. See
+[docs/TESTING.md](./docs/TESTING.md) for the distinction between CI,
+pre-release, nightly, benchmark, and production-scale checks.
+
 ## Learn more about Baton
 
 The [Baton documentation site contains more documentation and example use cases](https://www.conductorone.com/docs/baton/intro/).
