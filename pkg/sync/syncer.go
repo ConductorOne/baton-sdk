@@ -1771,9 +1771,10 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 		}
 
 		if !action.TypeScopedPlanned {
-			typeScoped, err := s.typeScopedEntitlementsResourceTypes(ctx)
-			if err != nil {
-				return fmt.Errorf("sync-entitlements: error listing type-scoped resource types: %w", err)
+			typeScoped, typeScopedErr := s.typeScopedEntitlementsResourceTypes(ctx)
+			if typeScopedErr != nil {
+				err = fmt.Errorf("sync-entitlements: error listing type-scoped resource types: %w", typeScopedErr)
+				return err
 			}
 			for _, rtID := range typeScoped {
 				actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceTypeID: rtID, TypeScoped: true})
@@ -1781,24 +1782,27 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 			plannedTypeScoped = true
 		}
 
-		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		resp, listResourcesErr := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 			PageToken:    pageToken,
 			ActiveSyncId: s.getActiveSyncID(),
 		}.Build())
-		if err != nil {
+		if listResourcesErr != nil {
+			err = listResourcesErr
 			return err
 		}
 
 		for _, r := range resp.GetList() {
-			shouldSkipEntitlements, err := s.shouldSkipEntitlements(ctx, r)
-			if err != nil {
+			shouldSkipEntitlements, shouldSkipErr := s.shouldSkipEntitlements(ctx, r)
+			if shouldSkipErr != nil {
+				err = shouldSkipErr
 				return err
 			}
 			if shouldSkipEntitlements {
 				continue
 			}
-			typeScoped, err := s.resourceTypeHasTypeScopedEntitlements(ctx, r.GetId().GetResourceType())
-			if err != nil {
+			typeScoped, typeScopedErr := s.resourceTypeHasTypeScopedEntitlements(ctx, r.GetId().GetResourceType())
+			if typeScopedErr != nil {
+				err = typeScopedErr
 				return err
 			}
 			if typeScoped {
@@ -1807,7 +1811,8 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 			actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 		}
 
-		if err := s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...); err != nil {
+		if nextPageErr := s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...); nextPageErr != nil {
+			err = nextPageErr
 			return err
 		}
 		if plannedTypeScoped {
@@ -2326,9 +2331,10 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 		}
 
 		if !action.TypeScopedPlanned {
-			typeScoped, err := s.typeScopedGrantsResourceTypes(ctx)
-			if err != nil {
-				return fmt.Errorf("sync-grants: error listing type-scoped resource types: %w", err)
+			typeScoped, typeScopedErr := s.typeScopedGrantsResourceTypes(ctx)
+			if typeScopedErr != nil {
+				err = fmt.Errorf("sync-grants: error listing type-scoped resource types: %w", typeScopedErr)
+				return err
 			}
 			for _, rtID := range typeScoped {
 				actions = append(actions, Action{Op: SyncGrantsOp, ResourceTypeID: rtID, TypeScoped: true})
@@ -2336,25 +2342,28 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 			plannedTypeScoped = true
 		}
 
-		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		resp, listResourcesErr := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 			PageToken:    action.PageToken,
 			ActiveSyncId: s.getActiveSyncID(),
 		}.Build())
-		if err != nil {
-			return fmt.Errorf("sync-grants: error listing resources: %w", err)
+		if listResourcesErr != nil {
+			err = fmt.Errorf("sync-grants: error listing resources: %w", listResourcesErr)
+			return err
 		}
 
 		for _, r := range resp.GetList() {
-			shouldSkip, err := s.shouldSkipGrants(ctx, r)
-			if err != nil {
+			shouldSkip, shouldSkipErr := s.shouldSkipGrants(ctx, r)
+			if shouldSkipErr != nil {
+				err = shouldSkipErr
 				return err
 			}
 
 			if shouldSkip {
 				continue
 			}
-			typeScoped, err := s.resourceTypeHasTypeScopedGrants(ctx, r.GetId().GetResourceType())
-			if err != nil {
+			typeScoped, typeScopedErr := s.resourceTypeHasTypeScopedGrants(ctx, r.GetId().GetResourceType())
+			if typeScopedErr != nil {
+				err = typeScopedErr
 				return err
 			}
 			if typeScoped {
@@ -2363,7 +2372,8 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 			actions = append(actions, Action{Op: SyncGrantsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 		}
 
-		if err := s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...); err != nil {
+		if nextPageErr := s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...); nextPageErr != nil {
+			err = nextPageErr
 			return err
 		}
 		if plannedTypeScoped {
