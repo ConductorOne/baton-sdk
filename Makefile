@@ -47,6 +47,14 @@ test:
 compat-check:
 	BATON_COMPAT=1 go test -v -count=1 -run TestCheckpointCompatAcrossSDKVersions ./cmd/baton-compat-harness
 
+# Real-binary interruption instrument: builds a demo-style connector from
+# this tree as a real CLI binary, SIGINTs and SIGKILLs it mid-sync, and
+# requires resumed syncs to seal a store content-identical to an
+# uninterrupted baseline. See cmd/baton-crash-harness.
+.PHONY: demo-crash-check
+demo-crash-check:
+	BATON_DEMO_CRASH=1 go test -v -count=1 -timeout=30m -run TestCrashResumeRealConnector ./cmd/baton-crash-harness
+
 .PHONY: pkg/sdk/version.go
 pkg/sdk/version.go:
 	echo $(VERSION)
