@@ -137,6 +137,19 @@ func (d *DB) MetaSet(key, val []byte, o *pebble.WriteOptions) error { return d.s
 // MetaDelete removes one engine-meta / fixed-key row.
 func (d *DB) MetaDelete(key []byte, o *pebble.WriteOptions) error { return d.delete(key, o) }
 
+// === source-cache manifest family ===
+
+// SourceCacheSet writes one manifest or compatibility record. Row-copy
+// mutations use RecordBatch because their scope-index obligations belong to
+// the record family.
+func (d *DB) SourceCacheSet(key, val []byte, o *pebble.WriteOptions) error {
+	return d.set(key, val, o)
+}
+
+func (d *DB) SourceCacheDelete(key []byte, o *pebble.WriteOptions) error {
+	return d.delete(key, o)
+}
+
 // === digest family: build / repair ===
 //
 // The seal-time digest build and the post-seal repair pass are the

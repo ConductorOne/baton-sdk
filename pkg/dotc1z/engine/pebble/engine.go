@@ -88,8 +88,9 @@ type Engine struct {
 	// call only" — subsequent calls in the same fresh sync must
 	// still read-before-write to clean up cross-call duplicate index
 	// entries.
-	freshGrantsEmpty    bool
-	freshResourcesEmpty bool
+	freshGrantsEmpty       bool
+	freshEntitlementsEmpty bool
+	freshResourcesEmpty    bool
 
 	// writeWG tracks in-flight writes. Incremented at the start of
 	// every Writer method, decremented in defer.
@@ -453,6 +454,7 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 	e.currentSync = idBytes
 	e.freshSync = true
 	e.freshGrantsEmpty = true
+	e.freshEntitlementsEmpty = true
 	e.freshResourcesEmpty = true
 	e.currentSyncMu.Unlock()
 	// A fresh sync writes heavily; leave the sealed state and resume
@@ -470,6 +472,7 @@ func (e *Engine) clearCurrentSync() {
 	e.currentSync = nil
 	e.freshSync = false
 	e.freshGrantsEmpty = false
+	e.freshEntitlementsEmpty = false
 	e.freshResourcesEmpty = false
 	e.currentSyncMu.Unlock()
 }
@@ -512,6 +515,16 @@ func (e *Engine) takeFreshResourcesEmpty() bool {
 		return false
 	}
 	e.freshResourcesEmpty = false
+	return true
+}
+
+func (e *Engine) takeFreshEntitlementsEmpty() bool {
+	e.currentSyncMu.Lock()
+	defer e.currentSyncMu.Unlock()
+	if !e.freshEntitlementsEmpty {
+		return false
+	}
+	e.freshEntitlementsEmpty = false
 	return true
 }
 

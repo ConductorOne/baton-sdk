@@ -57,7 +57,6 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 				return err
 			}
 			key := encodeGrantIdentityKey(id)
-			hadOld := false
 			oldVal, closer, getErr := e.db.Get(key)
 			switch {
 			case getErr == nil:
@@ -70,8 +69,6 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 					closer.Close()
 					continue
 				}
-				hadOld = true
-				closer.Close()
 			case errors.Is(getErr, pebble.ErrNotFound):
 				// no existing record — write unconditionally
 			default:
@@ -84,8 +81,18 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 			// Inline regime: the typed op stages the row plus prior-row
 			// index cleanup, both index entries, and digest invalidation
 			// (this IS the partial-sync path the invalidation exists for).
-			if err := batch.StageGrantPutInline(key, val, hadOld, r.GetNeedsExpansion()); err != nil {
+			var priorVal []byte
+			if getErr == nil {
+				priorVal = oldVal
+			}
+			if err := batch.StageGrantPutInline(key, val, priorVal, r.GetNeedsExpansion()); err != nil {
+				if closer != nil {
+					closer.Close()
+				}
 				return err
+			}
+			if closer != nil {
+				closer.Close()
 			}
 			written++
 		}
@@ -192,7 +199,18 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 					closer.Close()
 					continue
 				}
+				val, err := marshalRecord(r)
+				if err != nil {
+					closer.Close()
+					return err
+				}
+				err = batch.StageEntitlementPut(key, val, oldVal)
 				closer.Close()
+				if err != nil {
+					return err
+				}
+				written++
+				continue
 			case errors.Is(getErr, pebble.ErrNotFound):
 			default:
 				return fmt.Errorf("PutEntitlementRecordsIfNewer: get: %w", getErr)
@@ -201,7 +219,7 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 			if err != nil {
 				return err
 			}
-			if err := batch.StageEntitlementPut(key, val); err != nil {
+			if err := batch.StageEntitlementPut(key, val, nil); err != nil {
 				return err
 			}
 			written++

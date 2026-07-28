@@ -35,6 +35,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		defer priBatch.Close()
 
 		fresh := e.IsFreshSync()
+		skipGet := e.takeFreshEntitlementsEmpty()
 
 		type dedupKey struct {
 			id entitlementIdentity
@@ -72,7 +73,23 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 			if err != nil {
 				return err
 			}
-			if err := priBatch.StageEntitlementPut(key, val); err != nil {
+			if skipGet {
+				if err := priBatch.StageEntitlementPut(key, val, nil); err != nil {
+					return err
+				}
+				continue
+			}
+			oldVal, closer, getErr := e.db.Get(key)
+			switch {
+			case getErr == nil:
+				err = priBatch.StageEntitlementPut(key, val, oldVal)
+				closer.Close()
+			case errors.Is(getErr, pebble.ErrNotFound):
+				err = priBatch.StageEntitlementPut(key, val, nil)
+			default:
+				return fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
+			}
+			if err != nil {
 				return err
 			}
 		}
@@ -120,11 +137,20 @@ func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string)
 			return err
 		}
 		key := encodeEntitlementIdentityKey(id)
+		oldVal, closer, getErr := e.db.Get(key)
+		if errors.Is(getErr, pebble.ErrNotFound) {
+			return nil
+		}
+		if getErr != nil {
+			return getErr
+		}
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
-		if err := batch.StageEntitlementDelete(key); err != nil {
+		if err := batch.StageEntitlementDelete(key, oldVal); err != nil {
+			closer.Close()
 			return err
 		}
+		closer.Close()
 		if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
 			return err
 		}
