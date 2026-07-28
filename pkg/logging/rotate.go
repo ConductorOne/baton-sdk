@@ -66,6 +66,12 @@ func newRotatingWriter(path string, maxSizeMB, maxBackups int) (*rotatingWriter,
 		}
 	}
 
+	// 0600 keeps the log owner-only because these files can carry PII/tokens.
+	// The mode is enforced on non-Windows (subject to umask). On Windows - the
+	// primary target for file logging - os.OpenFile only honors the read-only
+	// bit, so 0600 vs 0666 is functionally identical there; access is governed
+	// by the directory ACLs the connector sets, not this mode. (Same mode is
+	// reused at the two reopen sites in rotate().)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file %q: %w", path, err)
