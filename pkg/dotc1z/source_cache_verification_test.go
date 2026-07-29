@@ -1,7 +1,11 @@
 package dotc1z
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -94,6 +98,61 @@ func TestVerificationPureReplayReplacesOccupiedScope(t *testing.T) {
 	require.NoError(t, err, "neighbor scope must remain unchanged")
 }
 
+func TestVerificationPureReplayReplacesOccupiedScopeResourcesAndEntitlements(t *testing.T) {
+	t.Run("resources", func(t *testing.T) {
+		prev := newSourceCacheVerificationStore(t)
+		source := v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "source"}.Build(),
+		}.Build()
+		require.NoError(t, prev.store.PutResources(sourcecache.WithScope(t.Context(), "scope-a"), source))
+		require.NoError(t, prev.cache.PutSourceCacheEntry(t.Context(), sourcecache.RowKindResources, "scope-a", "validator-a"))
+
+		cur := newSourceCacheVerificationStore(t)
+		obsolete := v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "obsolete"}.Build(),
+		}.Build()
+		decoy := v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "decoy"}.Build(),
+		}.Build()
+		require.NoError(t, cur.store.PutResources(sourcecache.WithScope(t.Context(), "scope-a"), obsolete))
+		require.NoError(t, cur.store.PutResources(sourcecache.WithScope(t.Context(), "scope-b"), decoy))
+
+		_, err := cur.cache.ReplaySourceCache(t.Context(), prev.store, sourcecache.RowKindResources, "scope-a")
+		require.NoError(t, err)
+		_, err = cur.engine.GetResourceRecord(t.Context(), "user", "source")
+		require.NoError(t, err)
+		_, err = cur.engine.GetResourceRecord(t.Context(), "user", "obsolete")
+		require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
+		_, err = cur.engine.GetResourceRecord(t.Context(), "user", "decoy")
+		require.NoError(t, err)
+	})
+
+	t.Run("entitlements", func(t *testing.T) {
+		resource := v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+		}.Build()
+		prev := newSourceCacheVerificationStore(t)
+		source := v2.Entitlement_builder{Id: "source", Resource: resource}.Build()
+		require.NoError(t, prev.store.PutEntitlements(sourcecache.WithScope(t.Context(), "scope-a"), source))
+		require.NoError(t, prev.cache.PutSourceCacheEntry(t.Context(), sourcecache.RowKindEntitlements, "scope-a", "validator-a"))
+
+		cur := newSourceCacheVerificationStore(t)
+		obsolete := v2.Entitlement_builder{Id: "obsolete", Resource: resource}.Build()
+		decoy := v2.Entitlement_builder{Id: "decoy", Resource: resource}.Build()
+		require.NoError(t, cur.store.PutEntitlements(sourcecache.WithScope(t.Context(), "scope-a"), obsolete))
+		require.NoError(t, cur.store.PutEntitlements(sourcecache.WithScope(t.Context(), "scope-b"), decoy))
+
+		_, err := cur.cache.ReplaySourceCache(t.Context(), prev.store, sourcecache.RowKindEntitlements, "scope-a")
+		require.NoError(t, err)
+		_, err = cur.engine.GetEntitlementRecord(t.Context(), "source")
+		require.NoError(t, err)
+		_, err = cur.engine.GetEntitlementRecord(t.Context(), "obsolete")
+		require.Error(t, err)
+		_, err = cur.engine.GetEntitlementRecord(t.Context(), "decoy")
+		require.NoError(t, err)
+	})
+}
+
 // C39: scope identity includes row kind. A manifest hit for resources does
 // not authorize a grants replay using the same scope bytes.
 func TestVerificationWrongKindScopeDoesNotReplayAsEmptySuccess(t *testing.T) {
@@ -134,6 +193,10 @@ func TestVerificationInvalidatedManifestLookupMisses(t *testing.T) {
 	entry, found, err := s.cache.LookupSourceCacheEntry(t.Context(), sourcecache.RowKindGrants, "scope-a")
 	require.NoError(t, err)
 	require.False(t, found, "invalidated manifest must be exposed as a lookup miss; got %+v", entry)
+
+	cur := newSourceCacheVerificationStore(t)
+	_, err = cur.cache.ReplaySourceCache(t.Context(), s.store, sourcecache.RowKindGrants, "scope-a")
+	require.ErrorContains(t, err, "invalidated")
 }
 
 // C41: prefix-neighbor scopes must not alias in either indexes or replay.
@@ -306,6 +369,9 @@ func TestVerificationReplaySourceSurvivesReadOnlyReopen(t *testing.T) {
 	require.NoError(t, cache.PutSourceCacheEntry(ctx, sourcecache.RowKindGrants, "scope-a", "validator-a"))
 	require.NoError(t, first.EndSync(ctx))
 	require.NoError(t, first.Close(ctx))
+	beforeBytes, err := os.ReadFile(path)
+	require.NoError(t, err)
+	beforeDigest := sha256.Sum256(beforeBytes)
 
 	reopened, err := NewStore(ctx, path, WithReadOnly(true))
 	require.NoError(t, err)
@@ -323,6 +389,9 @@ func TestVerificationReplaySourceSurvivesReadOnlyReopen(t *testing.T) {
 	require.Equal(t, int64(1), res.Rows)
 	_, err = cur.engine.GetGrantRecord(ctx, grant.GetId())
 	require.NoError(t, err)
+	afterBytes, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, beforeDigest, sha256.Sum256(afterBytes), "replay changed the source c1z artifact bytes")
 }
 
 // C20/C35: SQLite exposes no partial source-cache capability, and passing it
@@ -340,4 +409,215 @@ func TestVerificationUnsupportedSourceFailsClosed(t *testing.T) {
 	cur := newSourceCacheVerificationStore(t)
 	_, err = cur.cache.ReplaySourceCache(ctx, previous, sourcecache.RowKindGrants, "scope-a")
 	require.ErrorContains(t, err, "not a pebble store")
+}
+
+// C05: manifests are exact (kind, scope) cells. Overwriting one cell must not
+// disturb neighboring scopes or kinds, and zero-row scopes remain durable.
+func TestVerificationManifestPartitionAndOverwriteMatrix(t *testing.T) {
+	s := newSourceCacheVerificationStore(t)
+	kinds := []sourcecache.RowKind{
+		sourcecache.RowKindResources,
+		sourcecache.RowKindEntitlements,
+		sourcecache.RowKindGrants,
+	}
+	for _, kind := range kinds {
+		require.NoError(t, s.cache.PutSourceCacheEntry(t.Context(), kind, "scope-a", "validator-a1"))
+		require.NoError(t, s.cache.PutSourceCacheEntry(t.Context(), kind, "scope-b", "validator-b"))
+	}
+	for _, kind := range kinds {
+		require.NoError(t, s.cache.PutSourceCacheEntry(t.Context(), kind, "scope-a", "validator-a2"))
+		for _, cell := range []struct {
+			scope, validator string
+		}{
+			{"scope-a", "validator-a2"},
+			{"scope-b", "validator-b"},
+		} {
+			entry, found, err := s.cache.LookupSourceCacheEntry(t.Context(), kind, cell.scope)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, cell.validator, entry.CacheValidator)
+		}
+	}
+}
+
+// C28: tuple-hostile and byte-distinct scopes remain independently
+// addressable through stamping, manifest lookup, and replay.
+func TestVerificationHostileScopeEncodingCorpus(t *testing.T) {
+	scopes := []string{
+		"a\x00b",
+		"é",
+		"e\u0301",
+		strings.Repeat("x", 256),
+	}
+	prev := newSourceCacheVerificationStore(t)
+	grants := make([]*v2.Grant, len(scopes))
+	for i, scope := range scopes {
+		grants[i] = putVerificationGrant(t, prev, scope, fmt.Sprintf("member-%d", i), fmt.Sprintf("user-%d", i))
+		require.NoError(t, prev.cache.PutSourceCacheEntry(t.Context(), sourcecache.RowKindGrants, scope, fmt.Sprintf("validator-%d", i)))
+	}
+	for i, scope := range scopes {
+		cur := newSourceCacheVerificationStore(t)
+		res, err := cur.cache.ReplaySourceCache(t.Context(), prev.store, sourcecache.RowKindGrants, scope)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), res.Rows)
+		_, err = cur.engine.GetGrantRecord(t.Context(), grants[i].GetId())
+		require.NoError(t, err)
+		for j, decoy := range grants {
+			if i == j {
+				continue
+			}
+			_, err = cur.engine.GetGrantRecord(t.Context(), decoy.GetId())
+			require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
+		}
+	}
+}
+
+// C37: a whole-sync Pebble clone preserves the complete replay source and can
+// be reopened read-only for a future hop.
+func TestVerificationClonePreservesReplaySource(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "source.c1z")
+	source, err := NewStore(ctx, sourcePath, WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	syncID, err := source.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	cache, ok := source.(SourceCacheStore)
+	require.True(t, ok)
+	grant := mkV2Grant("", "member", "user", "alice")
+	require.NoError(t, source.PutGrants(sourcecache.WithScope(ctx, "scope-a"), grant))
+	require.NoError(t, cache.PutSourceCacheEntry(ctx, sourcecache.RowKindGrants, "scope-a", "validator-a"))
+	require.NoError(t, source.EndSync(ctx))
+	require.NoError(t, source.Close(ctx))
+
+	source, err = NewStore(ctx, sourcePath, WithReadOnly(true))
+	require.NoError(t, err)
+	clonePath := filepath.Join(dir, "clone.c1z")
+	require.NoError(t, source.FileOps().CloneSync(ctx, clonePath, syncID))
+	require.NoError(t, source.Close(ctx))
+
+	clone, err := NewStore(ctx, clonePath, WithReadOnly(true))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, clone.Close(ctx)) })
+	cloneCache, ok := clone.(SourceCacheStore)
+	require.True(t, ok)
+	entry, found, err := cloneCache.LookupSourceCacheEntry(ctx, sourcecache.RowKindGrants, "scope-a")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "validator-a", entry.CacheValidator)
+
+	cur := newSourceCacheVerificationStore(t)
+	res, err := cur.cache.ReplaySourceCache(ctx, clone, sourcecache.RowKindGrants, "scope-a")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), res.Rows)
+	_, err = cur.engine.GetGrantRecord(ctx, grant.GetId())
+	require.NoError(t, err)
+}
+
+// C15/C17: canonical tombstones delete the selected row and remain harmless
+// when duplicated, repeated, or aimed at an absent canonical identity.
+func TestVerificationCanonicalTombstoneIdempotencyMatrix(t *testing.T) {
+	t.Run("resources", func(t *testing.T) {
+		s := newSourceCacheVerificationStore(t)
+		target := v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "target"}.Build(),
+		}.Build()
+		survivor := v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "survivor"}.Build(),
+		}.Build()
+		absent := v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "absent"}.Build(),
+		}.Build()
+		require.NoError(t, s.store.PutResources(sourcecache.WithScope(t.Context(), "scope-a"), target, survivor))
+		targetID, err := bid.MakeResourceBid(target)
+		require.NoError(t, err)
+		absentID, err := bid.MakeResourceBid(absent)
+		require.NoError(t, err)
+		ids := []string{targetID, targetID, absentID}
+		require.NoError(t, s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindResources, ids))
+		require.NoError(t, s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindResources, ids))
+		_, err = s.engine.GetResourceRecord(t.Context(), "user", "target")
+		require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
+		_, err = s.engine.GetResourceRecord(t.Context(), "user", "survivor")
+		require.NoError(t, err)
+	})
+
+	t.Run("entitlements", func(t *testing.T) {
+		s := newSourceCacheVerificationStore(t)
+		resource := v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+		}.Build()
+		target := v2.Entitlement_builder{Id: "target", Resource: resource}.Build()
+		survivor := v2.Entitlement_builder{Id: "survivor", Resource: resource}.Build()
+		require.NoError(t, s.store.PutEntitlements(sourcecache.WithScope(t.Context(), "scope-a"), target, survivor))
+		ids := []string{"target", "target", "absent"}
+		require.NoError(t, s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindEntitlements, ids))
+		require.NoError(t, s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindEntitlements, ids))
+		_, err := s.engine.GetEntitlementRecord(t.Context(), "target")
+		require.Error(t, err)
+		_, err = s.engine.GetEntitlementRecord(t.Context(), "survivor")
+		require.NoError(t, err)
+	})
+
+	t.Run("grants", func(t *testing.T) {
+		s := newSourceCacheVerificationStore(t)
+		target := putVerificationGrant(t, s, "scope-a", "target", "alice")
+		survivor := putVerificationGrant(t, s, "scope-a", "survivor", "bob")
+		absent := mkV2Grant("", "absent", "user", "ghost")
+		ids := []string{target.GetId(), target.GetId(), absent.GetId()}
+		require.NoError(t, s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindGrants, ids))
+		require.NoError(t, s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindGrants, ids))
+		_, err := s.engine.GetGrantRecord(t.Context(), target.GetId())
+		require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
+		_, err = s.engine.GetGrantRecord(t.Context(), survivor.GetId())
+		require.NoError(t, err)
+	})
+}
+
+// C29/C36: the storage-level page harness applies upserts before both
+// tombstone classes. Canonical and principal selectors compose as a union, and
+// later pages deterministically re-add or remove rows.
+func TestVerificationGrantOverlayTombstoneOrderingModel(t *testing.T) {
+	s := newSourceCacheVerificationStore(t)
+	canonicalTarget := putVerificationGrant(t, s, "scope-a", "canonical", "alice")
+	principalTarget := putVerificationGrant(t, s, "scope-a", "principal", "bob")
+	survivor := putVerificationGrant(t, s, "scope-a", "survivor", "carol")
+
+	// Same-page model: overlay first, then canonical + principal tombstones.
+	require.NoError(t, s.store.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), canonicalTarget))
+	require.NoError(t, s.cache.DeleteSourceCacheRows(
+		t.Context(),
+		sourcecache.RowKindGrants,
+		[]string{canonicalTarget.GetId()},
+	))
+	deleted, err := s.cache.DeleteSourceCacheRowsInScope(
+		t.Context(),
+		sourcecache.RowKindGrants,
+		"scope-a",
+		[]string{"bob"},
+	)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleted)
+	_, err = s.engine.GetGrantRecord(t.Context(), canonicalTarget.GetId())
+	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
+	_, err = s.engine.GetGrantRecord(t.Context(), principalTarget.GetId())
+	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
+	_, err = s.engine.GetGrantRecord(t.Context(), survivor.GetId())
+	require.NoError(t, err)
+
+	// A later page may re-add a tombstoned identity.
+	require.NoError(t, s.store.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), canonicalTarget))
+	_, err = s.engine.GetGrantRecord(t.Context(), canonicalTarget.GetId())
+	require.NoError(t, err)
+
+	// A still-later tombstone wins again.
+	require.NoError(t, s.cache.DeleteSourceCacheRows(
+		t.Context(),
+		sourcecache.RowKindGrants,
+		[]string{canonicalTarget.GetId()},
+	))
+	_, err = s.engine.GetGrantRecord(t.Context(), canonicalTarget.GetId())
+	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
+	_, err = s.engine.GetGrantRecord(t.Context(), survivor.GetId())
+	require.NoError(t, err)
 }

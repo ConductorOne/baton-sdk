@@ -49,6 +49,19 @@ type testSeams struct {
 	// post-arm obligation and no hook.
 	recordCommitHook func() error
 
+	// sourceCacheReplayCommitHook runs immediately before each bounded replay
+	// batch commit. It provides deterministic high-water telemetry and a
+	// per-chunk failure seam without changing the replay iterator.
+	sourceCacheReplayCommitHook func(kind string, rows int, final bool) error
+
+	// sourceCacheReplayReadHook runs before each source index row is consumed.
+	// It supplies deterministic source-iteration errors at exact row cuts.
+	sourceCacheReplayReadHook func(kind string, row int) error
+
+	// sourceCacheManifestWriteHook runs immediately before a manifest entry is
+	// committed, after the value has been constructed.
+	sourceCacheManifestWriteHook func() error
+
 	// endSyncStampHook, when non-nil, runs immediately before the
 	// ended_at stamp's PutSyncRunRecord commit in endSyncFinalize —
 	// the in-process analog of the stamp commit failing. The

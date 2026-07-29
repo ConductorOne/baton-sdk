@@ -1,15 +1,18 @@
 package pebble
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2pb "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -183,9 +186,9 @@ func TestVerificationSourceScopeMutationTransitions(t *testing.T) {
 	}
 }
 
-// C02/C04 include structurally addressable rows whose stored value is
-// malformed. Grant deletion already promises key-derived cleanup in this
-// case; adding source-scope ownership must not reintroduce an orphan index.
+// C02/C04: if a corrupt grant value makes its source scope unknowable, the
+// key-derived identity still permits a bounded-memory family scan that removes
+// every matching source index with the primary.
 func TestVerificationMalformedGrantDeleteCleansSourceScopeIndex(t *testing.T) {
 	ctx := t.Context()
 	a := newAdapter(t)
@@ -293,10 +296,11 @@ func TestVerificationReplayMatchesDirectTypedMaterialization(t *testing.T) {
 	}
 }
 
-// C13: overlay replacement is keyed by connector identity, not merely by the
-// storage tuple. If an entitlement keeps its public ID while its resource
-// reference changes, the replayed structural identity is obsolete.
-func TestVerificationEntitlementOverlayReplacesPriorStructuralIdentity(t *testing.T) {
+// C13: entitlement identity is structural. The same public external ID on two
+// resources is two legal identities (and intentionally makes bare-ID lookup
+// ambiguous), so replay+overlay must match direct materialization by preserving
+// both rows.
+func TestVerificationEntitlementOverlayPreservesDistinctStructuralIdentities(t *testing.T) {
 	ctx := t.Context()
 	prev := newAdapter(t)
 	_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -331,9 +335,13 @@ func TestVerificationEntitlementOverlayReplacesPriorStructuralIdentity(t *testin
 		rows = append(rows, rec)
 		return true
 	}))
-	require.Len(t, rows, 1, "overlay left both old and replacement structural identities")
-	require.Equal(t, "new", rows[0].GetResource().GetResourceId())
-	require.Equal(t, 1, countKeys(t, cur.PebbleEngine(), EntitlementBySourceScopeLowerBound()))
+	require.Len(t, rows, 2)
+	resourceIDs := []string{
+		rows[0].GetResource().GetResourceId(),
+		rows[1].GetResource().GetResourceId(),
+	}
+	require.ElementsMatch(t, []string{"old", "new"}, resourceIDs)
+	require.Equal(t, 2, countKeys(t, cur.PebbleEngine(), EntitlementBySourceScopeLowerBound()))
 }
 
 // C18: replacing a completed sync must remove every source-cache-owned
@@ -389,27 +397,37 @@ func TestVerificationResetRemovesSourceCacheFamilies(t *testing.T) {
 // legitimate zero-row scope. Replay must detect the inconsistent source rather
 // than silently publishing an empty result.
 func TestVerificationReplayRejectsMissingSourceScopeIndex(t *testing.T) {
-	ctx := t.Context()
-	prev := newAdapter(t)
-	_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-	grant := scGrant("member", "alice", false)
-	require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, "scope-a"), grant))
-	require.NoError(t, prev.PebbleEngine().PutSourceCacheEntry(ctx, string(sourcecache.RowKindGrants), "scope-a", "validator-a"))
-	rec, err := prev.PebbleEngine().GetGrantRecord(ctx, grant.GetId())
-	require.NoError(t, err)
-	id, err := grantIdentityFromRecord(rec)
-	require.NoError(t, err)
-	indexKey := encodeGrantBySourceScopeIndexKey("scope-a", id)
-	require.NoError(t, prev.PebbleEngine().db.UnsafeForTesting().Delete(indexKey, pebble.Sync))
+	for _, kind := range []sourcecache.RowKind{
+		sourcecache.RowKindResources,
+		sourcecache.RowKindEntitlements,
+		sourcecache.RowKindGrants,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			ctx := t.Context()
+			prev := newAdapter(t)
+			_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			driver := newSourceScopeMutationDriver(t, prev, kind)
+			require.NoError(t, driver.put(ctx, "scope-a"))
 
-	cur := newAdapter(t)
-	_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-	_, err = cur.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), "scope-a")
-	require.Error(t, err, "stamped primary without its source index must fail source-integrity preflight")
-	_, getErr := cur.PebbleEngine().GetGrantRecord(ctx, grant.GetId())
-	require.ErrorIs(t, getErr, pebble.ErrNotFound)
+			iter, err := prev.PebbleEngine().db.NewIter(&pebble.IterOptions{
+				LowerBound: driver.indexLo,
+				UpperBound: upperBoundOf(driver.indexLo),
+			})
+			require.NoError(t, err)
+			require.True(t, iter.First())
+			indexKey := append([]byte(nil), iter.Key()...)
+			require.NoError(t, iter.Close())
+			require.NoError(t, prev.PebbleEngine().db.UnsafeForTesting().Delete(indexKey, pebble.Sync))
+
+			cur := newAdapter(t)
+			_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			_, err = driver.replay(ctx, cur.PebbleEngine(), prev.PebbleEngine(), "scope-a")
+			require.Error(t, err, "stamped primary without its source index must fail source-integrity preflight")
+			require.Zero(t, countKeys(t, cur.PebbleEngine(), driver.indexLo))
+		})
+	}
 }
 
 // C03: primary and source-scope ownership are one batch obligation. A failed
@@ -622,4 +640,276 @@ func TestVerificationSourceScopeAuditorMutationAdequacy(t *testing.T) {
 		require.NoError(t, a.PebbleEngine().db.UnsafeForTesting().Set(primaryKey, []byte("\xff"), pebble.Sync))
 		require.Error(t, auditSourceScopeBiconditional(a.PebbleEngine()))
 	})
+}
+
+// C38: exact stats agree with replayed primaries both before seal (iteration
+// fallback) and after seal (persisted sidecar).
+func TestVerificationReplayStatsCoherence(t *testing.T) {
+	ctx := t.Context()
+	prev := newAdapter(t)
+	_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	resource := v2pb.Resource_builder{
+		Id: v2pb.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+	}.Build()
+	entResource := v2pb.Resource_builder{
+		Id: v2pb.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+	}.Build()
+	entitlement := v2pb.Entitlement_builder{Id: "group:g1:member", Resource: entResource}.Build()
+	require.NoError(t, prev.PutResources(sourcecache.WithScope(ctx, "scope-a"), resource))
+	require.NoError(t, prev.PutEntitlements(sourcecache.WithScope(ctx, "scope-a"), entitlement))
+	require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, "scope-a"), scGrant("member", "alice", false)))
+
+	cur := newAdapter(t)
+	syncID, err := cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	_, err = cur.PebbleEngine().ReplaySourceCacheResources(ctx, prev.PebbleEngine(), "scope-a")
+	require.NoError(t, err)
+	_, err = cur.PebbleEngine().ReplaySourceCacheEntitlements(ctx, prev.PebbleEngine(), "scope-a")
+	require.NoError(t, err)
+	_, err = cur.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), "scope-a")
+	require.NoError(t, err)
+
+	assertStats := func(label string) {
+		t.Helper()
+		stats, err := cur.PebbleEngine().Stats(ctx, connectorstore.SyncTypeAny, syncID)
+		require.NoError(t, err, label)
+		require.Equal(t, int64(1), stats["resources"], label)
+		require.Equal(t, int64(1), stats["entitlements"], label)
+		require.Equal(t, int64(1), stats["grants"], label)
+	}
+	assertStats("before seal")
+	require.NoError(t, cur.EndSync(ctx))
+	assertStats("after seal")
+}
+
+// C10 all-kind first/final-batch failure symmetry: no row or index from the
+// rejected batch may land, and the exact retry must converge.
+func TestVerificationReplayCommitFailureRetryAllKinds(t *testing.T) {
+	injected := errors.New("verification replay commit failure")
+	for _, kind := range []sourcecache.RowKind{
+		sourcecache.RowKindResources,
+		sourcecache.RowKindEntitlements,
+		sourcecache.RowKindGrants,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			ctx := t.Context()
+			prev := newAdapter(t)
+			_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			driver := newSourceScopeMutationDriver(t, prev, kind)
+			require.NoError(t, driver.put(ctx, "scope-a"))
+
+			cur := newAdapter(t)
+			_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			cur.PebbleEngine().test.sourceCacheReplayCommitHook = func(_ string, _ int, _ bool) error {
+				return injected
+			}
+			_, err = driver.replay(ctx, cur.PebbleEngine(), prev.PebbleEngine(), "scope-a")
+			require.ErrorIs(t, err, injected)
+			require.Zero(t, countKeys(t, cur.PebbleEngine(), driver.indexLo))
+
+			cur.PebbleEngine().test.sourceCacheReplayCommitHook = nil
+			res, err := driver.replay(ctx, cur.PebbleEngine(), prev.PebbleEngine(), "scope-a")
+			require.NoError(t, err)
+			require.Equal(t, int64(1), res.Rows)
+			require.Equal(t, 1, countKeys(t, cur.PebbleEngine(), driver.indexLo))
+			require.NoError(t, auditSourceScopeBiconditional(cur.PebbleEngine()))
+		})
+	}
+}
+
+// C10/C25: failure of the terminal manifest write must not publish a false
+// validator claim over the already-materialized scope; retry writes exactly
+// that claim without disturbing rows or indexes.
+func TestVerificationManifestFailureDoesNotPublishClaim(t *testing.T) {
+	ctx := t.Context()
+	prev := newAdapter(t)
+	_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	grant := scGrant("member", "alice", false)
+	require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, "scope-a"), grant))
+
+	cur := newAdapter(t)
+	_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	res, err := cur.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), "scope-a")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), res.Rows)
+
+	injected := errors.New("verification manifest write failure")
+	cur.PebbleEngine().test.sourceCacheManifestWriteHook = func() error { return injected }
+	err = cur.PebbleEngine().PutSourceCacheEntry(ctx, string(sourcecache.RowKindGrants), "scope-a", "validator-a")
+	require.ErrorIs(t, err, injected)
+	_, err = cur.PebbleEngine().GetSourceCacheEntry(ctx, string(sourcecache.RowKindGrants), "scope-a")
+	require.ErrorIs(t, err, pebble.ErrNotFound)
+	require.NoError(t, auditSourceScopeBiconditional(cur.PebbleEngine()))
+
+	cur.PebbleEngine().test.sourceCacheManifestWriteHook = nil
+	require.NoError(t, cur.PebbleEngine().PutSourceCacheEntry(ctx, string(sourcecache.RowKindGrants), "scope-a", "validator-a"))
+	entry, err := cur.PebbleEngine().GetSourceCacheEntry(ctx, string(sourcecache.RowKindGrants), "scope-a")
+	require.NoError(t, err)
+	require.Equal(t, "validator-a", entry.GetCacheValidator())
+	require.NoError(t, auditSourceScopeBiconditional(cur.PebbleEngine()))
+}
+
+// C02 conditional/newer variants must apply the same source-scope transition
+// policy as ordinary typed puts, while rejected older writes preserve the
+// incumbent stamp and index.
+func TestVerificationIfNewerSourceScopeTransitions(t *testing.T) {
+	ctx := t.Context()
+	older := timestamppb.New(time.Unix(100, 0))
+	newer := timestamppb.New(time.Unix(200, 0))
+
+	t.Run("resources", func(t *testing.T) {
+		a := newAdapter(t)
+		_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		build := func(scope string, discoveredAt *timestamppb.Timestamp) *v3.ResourceRecord {
+			return v3.ResourceRecord_builder{
+				ResourceTypeId: "user", ResourceId: "alice",
+				SourceScopeKey: scope, DiscoveredAt: discoveredAt,
+			}.Build()
+		}
+		require.NoError(t, a.PebbleEngine().PutResourceRecords(ctx, build("scope-a", older)))
+		require.NoError(t, a.PebbleEngine().PutResourceRecordsIfNewer(ctx, build("scope-b", newer)))
+		require.NoError(t, a.PebbleEngine().PutResourceRecordsIfNewer(ctx, build("scope-c", older)))
+		rec, err := a.PebbleEngine().GetResourceRecord(ctx, "user", "alice")
+		require.NoError(t, err)
+		require.Equal(t, "scope-b", rec.GetSourceScopeKey())
+		require.Equal(t, 1, countKeys(t, a.PebbleEngine(), ResourceBySourceScopeLowerBound()))
+		require.NoError(t, auditSourceScopeBiconditional(a.PebbleEngine()))
+	})
+
+	t.Run("entitlements", func(t *testing.T) {
+		a := newAdapter(t)
+		_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		build := func(scope string, discoveredAt *timestamppb.Timestamp) *v3.EntitlementRecord {
+			return v3.EntitlementRecord_builder{
+				ExternalId: "group:g1:member",
+				Resource: v3.ResourceRef_builder{
+					ResourceTypeId: "group", ResourceId: "g1",
+				}.Build(),
+				SourceScopeKey: scope, DiscoveredAt: discoveredAt,
+			}.Build()
+		}
+		require.NoError(t, a.PebbleEngine().PutEntitlementRecords(ctx, build("scope-a", older)))
+		require.NoError(t, a.PebbleEngine().PutEntitlementRecordsIfNewer(ctx, build("scope-b", newer)))
+		require.NoError(t, a.PebbleEngine().PutEntitlementRecordsIfNewer(ctx, build("scope-c", older)))
+		rec, err := a.PebbleEngine().GetEntitlementRecord(ctx, "group:g1:member")
+		require.NoError(t, err)
+		require.Equal(t, "scope-b", rec.GetSourceScopeKey())
+		require.Equal(t, 1, countKeys(t, a.PebbleEngine(), EntitlementBySourceScopeLowerBound()))
+		require.NoError(t, auditSourceScopeBiconditional(a.PebbleEngine()))
+	})
+
+	t.Run("grants", func(t *testing.T) {
+		a := newAdapter(t)
+		_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		build := func(scope string, discoveredAt *timestamppb.Timestamp) *v3.GrantRecord {
+			return v3.GrantRecord_builder{
+				ExternalId: "grant-1",
+				Entitlement: v3.EntitlementRef_builder{
+					ResourceTypeId: "group", ResourceId: "g1", EntitlementId: "member",
+				}.Build(),
+				Principal: v3.PrincipalRef_builder{
+					ResourceTypeId: "user", ResourceId: "alice",
+				}.Build(),
+				SourceScopeKey: scope, DiscoveredAt: discoveredAt,
+			}.Build()
+		}
+		require.NoError(t, a.PebbleEngine().PutGrantRecords(ctx, build("scope-a", older)))
+		require.NoError(t, a.PebbleEngine().PutGrantRecordsIfNewer(ctx, build("scope-b", newer)))
+		require.NoError(t, a.PebbleEngine().PutGrantRecordsIfNewer(ctx, build("scope-c", older)))
+		var records []*v3.GrantRecord
+		require.NoError(t, a.PebbleEngine().IterateGrants(ctx, func(rec *v3.GrantRecord) bool {
+			records = append(records, rec)
+			return true
+		}))
+		require.Len(t, records, 1)
+		require.Equal(t, "scope-b", records[0].GetSourceScopeKey())
+		require.Equal(t, 1, countKeys(t, a.PebbleEngine(), GrantBySourceScopeLowerBound()))
+		require.NoError(t, auditSourceScopeBiconditional(a.PebbleEngine()))
+	})
+}
+
+// C23/C26/C27/C33 all-kind symmetry: replay preserves the exact encoded row
+// (including discovered_at), read/cancel failures are residue-free and
+// retryable, and a replayed artifact with its terminal manifest is a valid
+// second-hop source.
+func TestVerificationAllKindReplayMetadataFailureAndForwardSymmetry(t *testing.T) {
+	for _, kind := range []sourcecache.RowKind{
+		sourcecache.RowKindResources,
+		sourcecache.RowKindEntitlements,
+		sourcecache.RowKindGrants,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			ctx := t.Context()
+			prev := newAdapter(t)
+			_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			driver := newSourceScopeMutationDriver(t, prev, kind)
+			require.NoError(t, driver.put(ctx, "scope-a"))
+			require.NoError(t, prev.PebbleEngine().PutSourceCacheEntry(ctx, string(kind), "scope-a", "validator-a"))
+
+			var family sourceScopeAuditFamily
+			for _, candidate := range sourceScopeAuditFamilies() {
+				if candidate.name == string(kind) {
+					family = candidate
+					break
+				}
+			}
+			require.NotEmpty(t, family.name)
+			sourceIter, err := prev.PebbleEngine().db.NewIter(&pebble.IterOptions{
+				LowerBound: family.primaryLo,
+				UpperBound: family.primaryHi,
+			})
+			require.NoError(t, err)
+			require.True(t, sourceIter.First())
+			sourceValue := append([]byte(nil), sourceIter.Value()...)
+			require.NoError(t, sourceIter.Close())
+
+			readFailed := newAdapter(t)
+			_, err = readFailed.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			injected := errors.New("verification all-kind source read failure")
+			readFailed.PebbleEngine().test.sourceCacheReplayReadHook = func(_ string, _ int) error { return injected }
+			_, err = driver.replay(ctx, readFailed.PebbleEngine(), prev.PebbleEngine(), "scope-a")
+			require.ErrorIs(t, err, injected)
+			require.Zero(t, countKeys(t, readFailed.PebbleEngine(), driver.indexLo))
+
+			cancelCtx, cancel := context.WithCancel(ctx)
+			cancel()
+			_, err = driver.replay(cancelCtx, readFailed.PebbleEngine(), prev.PebbleEngine(), "scope-a")
+			require.ErrorIs(t, err, context.Canceled)
+			require.Zero(t, countKeys(t, readFailed.PebbleEngine(), driver.indexLo))
+
+			readFailed.PebbleEngine().test.sourceCacheReplayReadHook = nil
+			res, err := driver.replay(ctx, readFailed.PebbleEngine(), prev.PebbleEngine(), "scope-a")
+			require.NoError(t, err)
+			require.Equal(t, int64(1), res.Rows)
+			require.NoError(t, readFailed.PebbleEngine().PutSourceCacheEntry(ctx, string(kind), "scope-a", "validator-a"))
+
+			replayedIter, err := readFailed.PebbleEngine().db.NewIter(&pebble.IterOptions{
+				LowerBound: family.primaryLo,
+				UpperBound: family.primaryHi,
+			})
+			require.NoError(t, err)
+			require.True(t, replayedIter.First())
+			require.True(t, bytes.Equal(sourceValue, replayedIter.Value()), "replay changed encoded %s metadata", kind)
+			require.NoError(t, replayedIter.Close())
+
+			next := newAdapter(t)
+			_, err = next.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			res, err = driver.replay(ctx, next.PebbleEngine(), readFailed.PebbleEngine(), "scope-a")
+			require.NoError(t, err)
+			require.Equal(t, int64(1), res.Rows)
+			require.Equal(t, 1, countKeys(t, next.PebbleEngine(), driver.indexLo))
+			require.NoError(t, auditSourceScopeBiconditional(next.PebbleEngine()))
+		})
+	}
 }

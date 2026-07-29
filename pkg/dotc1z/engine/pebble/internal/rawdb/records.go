@@ -38,9 +38,13 @@ package rawdb
 // doesn't belong.
 
 import (
+	"bytes"
 	"fmt"
 
+	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/encoding/protowire"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // Family prefixes for the keyspace assertions.
@@ -123,6 +127,7 @@ func (rb *RecordBatch) StageGrantDelete(key, oldVal []byte) error {
 	if !ok {
 		return fmt.Errorf("rawdb.StageGrantDelete: grant key %x did not decode as a 6-segment identity", key)
 	}
+	oldScope, scopeErr := ScanSourceScopeKeyRaw(oldVal, 10)
 	if err := rb.deleteByPrincipalKey(key); err != nil {
 		return err
 	}
@@ -132,10 +137,11 @@ func (rb *RecordBatch) StageGrantDelete(key, oldVal []byte) error {
 	if err := rb.core.b.Delete(key, nil); err != nil {
 		return err
 	}
-	// A malformed legacy grant value must not block key-derived cleanup.
-	// The source-scope key is value-derived, so clean it when readable and
-	// otherwise preserve the pre-existing fail-open delete contract.
-	if oldScope, err := ScanSourceScopeKeyRaw(oldVal, 10); err == nil && oldScope != "" {
+	if scopeErr != nil {
+		if err := rb.deleteAllSourceScopeKeysForPrimary(key); err != nil {
+			return err
+		}
+	} else if oldScope != "" {
 		if err := rb.deleteSourceScopeKey(key, oldScope); err != nil {
 			return err
 		}
@@ -413,6 +419,53 @@ func (rb *RecordBatch) deleteSourceScopeKey(key []byte, scopeKey string) error {
 		return fmt.Errorf("rawdb: cannot derive source-scope index from key %x", key)
 	}
 	return rb.core.b.Delete(indexKey, nil)
+}
+
+// deleteAllSourceScopeKeysForPrimary is the bounded-memory corruption fallback
+// for a malformed value whose source_scope_key cannot be decoded. The primary
+// key still gives the exact identity tail, so scan the one source-index family
+// and remove every matching tail in the same batch as the primary deletion.
+// Healthy deletes stay on the O(1) value-derived path.
+func (rb *RecordBatch) deleteAllSourceScopeKeysForPrimary(primaryKey []byte) error {
+	if len(primaryKey) < 3 {
+		return fmt.Errorf("rawdb: malformed primary key %x", primaryKey)
+	}
+	var indexID byte
+	switch primaryKey[1] {
+	case TypeGrant:
+		indexID = IdxGrantBySourceScope
+	case TypeEntitlement:
+		indexID = IdxEntitlementBySourceScope
+	case TypeResource:
+		indexID = IdxResourceBySourceScope
+	default:
+		return fmt.Errorf("rawdb: primary key %x has no source-scope family", primaryKey)
+	}
+	lo := []byte{VersionV3, TypeIndex, indexID}
+	iter, err := rb.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: UpperBound(lo)})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	identityTail := primaryKey[3:]
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		if len(key) < 5 || key[3] != 0 {
+			continue
+		}
+		_, next, ok := codec.DecodeTupleStringAlias(key[4:], 0)
+		if !ok {
+			continue
+		}
+		tailOffset := 4 + next + 1
+		if tailOffset > len(key) || !bytes.Equal(key[tailOffset:], identityTail) {
+			continue
+		}
+		if err := rb.core.b.Delete(key, nil); err != nil {
+			return err
+		}
+	}
+	return iter.Error()
 }
 
 // StageResourceTypePut stages one resource-type row.

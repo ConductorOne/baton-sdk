@@ -56,6 +56,9 @@ type SourceCacheReplayResult struct {
 // Zero-row scopes still get entries — the validator must survive to the
 // next sync even when the scope produced no rows.
 func (e *Engine) PutSourceCacheEntry(ctx context.Context, rowKind, scopeKey, cacheValidator string) error {
+	if cacheValidator == "" {
+		return errors.New("source cache manifest: cache validator is required")
+	}
 	return e.withWrite(func() error {
 		if err := e.requireCurrentSync(); err != nil {
 			return err
@@ -72,6 +75,11 @@ func (e *Engine) PutSourceCacheEntry(ctx context.Context, rowKind, scopeKey, cac
 		opts := writeOpts(e.opts.durability)
 		if e.IsFreshSync() {
 			opts = pebble.NoSync
+		}
+		if e.test.sourceCacheManifestWriteHook != nil {
+			if err := e.test.sourceCacheManifestWriteHook(); err != nil {
+				return err
+			}
 		}
 		return e.db.SourceCacheSet(encodeSourceCacheEntryKey(rowKind, scopeKey), val, opts)
 	})
@@ -472,6 +480,204 @@ func replayPrimaryFromIndexKey(indexKey, indexPrefix []byte, primaryHeader [2]by
 	return append(key, tail...), nil
 }
 
+// validateReplaySourceScope proves the target scope's primary↔index
+// biconditional before the destination is mutated. The index-to-primary pass is
+// scope-bounded. Detecting a stamped primary whose index is absent requires a
+// bounded-memory scan of the row-kind primary family because the manifest does
+// not currently persist a row count or scope digest.
+func validateReplaySourceScope(
+	ctx context.Context,
+	prev *Engine,
+	rowKind string,
+	recordType byte,
+	scopeField protowire.Number,
+	scopeKey string,
+	indexPrefix []byte,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	primaryPrefix := []byte{versionV3, recordType}
+	primaries, err := prev.db.NewIter(&pebble.IterOptions{
+		LowerBound: primaryPrefix,
+		UpperBound: upperBoundOf(primaryPrefix),
+	})
+	if err != nil {
+		return fmt.Errorf("source cache replay: preflight %s primaries: %w", rowKind, err)
+	}
+	var scanned int
+	for primaries.First(); primaries.Valid(); primaries.Next() {
+		scanned++
+		if scanned&0x3FF == 0 {
+			if err := ctx.Err(); err != nil {
+				primaries.Close()
+				return err
+			}
+		}
+		stamp, err := rawdb.ScanSourceScopeKeyRaw(primaries.Value(), scopeField)
+		if err != nil {
+			primaries.Close()
+			return fmt.Errorf("source cache replay: preflight %s primary %x: %w", rowKind, primaries.Key(), err)
+		}
+		if stamp != scopeKey {
+			continue
+		}
+		indexKey, ok := rawdb.AppendBySourceScopeKeyFromPrimary(nil, primaries.Key(), scopeKey)
+		if !ok {
+			primaries.Close()
+			return fmt.Errorf("source cache replay: preflight %s primary %x cannot derive source index", rowKind, primaries.Key())
+		}
+		_, closer, err := prev.db.Get(indexKey)
+		if err != nil {
+			primaries.Close()
+			return fmt.Errorf("source cache replay: preflight %s primary %x missing source index: %w", rowKind, primaries.Key(), err)
+		}
+		closer.Close()
+	}
+	if err := primaries.Error(); err != nil {
+		primaries.Close()
+		return fmt.Errorf("source cache replay: preflight %s primaries: %w", rowKind, err)
+	}
+	if err := primaries.Close(); err != nil {
+		return err
+	}
+
+	indexes, err := prev.db.NewIter(&pebble.IterOptions{
+		LowerBound: indexPrefix,
+		UpperBound: upperBoundOf(indexPrefix),
+	})
+	if err != nil {
+		return fmt.Errorf("source cache replay: preflight %s indexes: %w", rowKind, err)
+	}
+	defer indexes.Close()
+	primaryHeader := [2]byte{versionV3, recordType}
+	scanned = 0
+	for indexes.First(); indexes.Valid(); indexes.Next() {
+		scanned++
+		if scanned&0x3FF == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		primaryKey, err := replayPrimaryFromIndexKey(indexes.Key(), indexPrefix, primaryHeader)
+		if err != nil {
+			return err
+		}
+		value, closer, err := prev.db.Get(primaryKey)
+		if err != nil {
+			return fmt.Errorf("source cache replay: preflight %s index %x has no primary: %w", rowKind, indexes.Key(), err)
+		}
+		stamp, scanErr := rawdb.ScanSourceScopeKeyRaw(value, scopeField)
+		closer.Close()
+		if scanErr != nil {
+			return fmt.Errorf("source cache replay: preflight %s indexed primary %x: %w", rowKind, primaryKey, scanErr)
+		}
+		if stamp != scopeKey {
+			return fmt.Errorf(
+				"source cache replay: preflight %s index scope %q resolves to primary stamped %q",
+				rowKind,
+				scopeKey,
+				stamp,
+			)
+		}
+	}
+	if err := indexes.Error(); err != nil {
+		return fmt.Errorf("source cache replay: preflight %s indexes: %w", rowKind, err)
+	}
+	return nil
+}
+
+// clearReplayDestinationScopeLocked gives pure replay replacement semantics:
+// the destination target partition is removed before the source partition is
+// copied. The caller holds the engine write barrier. Deletes are committed in
+// the same bounded row batches as replay, so interruption followed by retry
+// converges without retaining destination-only rows.
+func (e *Engine) clearReplayDestinationScopeLocked(
+	ctx context.Context,
+	rowKind string,
+	recordType byte,
+	indexPrefix []byte,
+	opts *pebble.WriteOptions,
+) (int, error) {
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: indexPrefix,
+		UpperBound: upperBoundOf(indexPrefix),
+	})
+	if err != nil {
+		return 0, err
+	}
+	defer iter.Close()
+	primaryHeader := [2]byte{versionV3, recordType}
+	batch := e.db.NewRecordBatch()
+	defer func() { _ = batch.Close() }()
+	rowsInBatch := 0
+	deleted := 0
+	commit := func() error {
+		if rowsInBatch == 0 {
+			return nil
+		}
+		if err := batch.Commit(opts); err != nil {
+			return err
+		}
+		_ = batch.Close()
+		batch = e.db.NewRecordBatch()
+		rowsInBatch = 0
+		return nil
+	}
+
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return deleted, err
+		}
+		indexKey := append([]byte(nil), iter.Key()...)
+		primaryKey, err := replayPrimaryFromIndexKey(indexKey, indexPrefix, primaryHeader)
+		if err != nil {
+			return deleted, err
+		}
+		value, closer, err := e.db.Get(primaryKey)
+		if errors.Is(err, pebble.ErrNotFound) {
+			if err := batch.StageSourceScopeOrphanIndexDelete(indexKey); err != nil {
+				return deleted, err
+			}
+		} else if err != nil {
+			return deleted, err
+		} else {
+			switch recordType {
+			case typeGrant:
+				err = batch.StageGrantDelete(primaryKey, value)
+			case typeEntitlement:
+				err = batch.StageEntitlementDelete(primaryKey, value)
+			case typeResource:
+				var resourceTypeID, resourceID string
+				resourceTypeID, resourceID, err = decodeResourcePrimaryTail(primaryKey)
+				if err == nil {
+					err = batch.StageResourceDelete(primaryKey, value, resourceTypeID, resourceID)
+				}
+			default:
+				err = fmt.Errorf("source cache replay: clear destination: invalid row kind %q", rowKind)
+			}
+			closer.Close()
+			if err != nil {
+				return deleted, err
+			}
+			deleted++
+		}
+		rowsInBatch++
+		if rowsInBatch >= replayBatchRows {
+			if err := commit(); err != nil {
+				return deleted, err
+			}
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return deleted, err
+	}
+	if err := commit(); err != nil {
+		return deleted, err
+	}
+	return deleted, nil
+}
+
 // ReplaySourceCacheGrants copies every grant stamped with scopeKey from
 // prev into the receiver: raw primary copy plus index synthesis from the
 // raw value (principal, needs_expansion, source-scope families). Mirrors
@@ -481,6 +687,9 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 	var res SourceCacheReplayResult
 	prefix := encodeGrantBySourceScopePrefix(scopeKey)
 	primaryHeader := [2]byte{versionV3, typeGrant}
+	if err := validateReplaySourceScope(ctx, prev, "grants", typeGrant, 10, scopeKey, prefix); err != nil {
+		return SourceCacheReplayResult{}, err
+	}
 
 	err := e.withWrite(func() error {
 		if err := e.requireCurrentSync(); err != nil {
@@ -498,6 +707,13 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 		opts := writeOpts(e.opts.durability)
 		if e.IsFreshSync() {
 			opts = pebble.NoSync
+		}
+		deleted, err := e.clearReplayDestinationScopeLocked(ctx, "grants", typeGrant, prefix, opts)
+		if err != nil {
+			return err
+		}
+		if deleted > 0 {
+			_ = e.takeFreshGrantsEmpty()
 		}
 		batch := e.db.NewRecordBatch()
 		defer func() { _ = batch.Close() }()
@@ -517,10 +733,17 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 			}
 		}()
 
+		sourceRow := 0
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			if e.test.sourceCacheReplayReadHook != nil {
+				if err := e.test.sourceCacheReplayReadHook("grants", sourceRow); err != nil {
+					return err
+				}
+			}
+			sourceRow++
 			priKey, err := replayPrimaryFromIndexKey(iter.Key(), prefix, primaryHeader)
 			if err != nil {
 				return err
@@ -613,6 +836,11 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 			res.Rows++
 			rowsInBatch++
 			if rowsInBatch >= replayBatchRows {
+				if e.test.sourceCacheReplayCommitHook != nil {
+					if err := e.test.sourceCacheReplayCommitHook("grants", rowsInBatch, false); err != nil {
+						return err
+					}
+				}
 				if err := batch.Commit(opts); err != nil {
 					return err
 				}
@@ -624,6 +852,11 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 		}
 		if err := iter.Error(); err != nil {
 			return err
+		}
+		if e.test.sourceCacheReplayCommitHook != nil {
+			if err := e.test.sourceCacheReplayCommitHook("grants", rowsInBatch, true); err != nil {
+				return err
+			}
 		}
 		if err := batch.Commit(opts); err != nil {
 			return err
@@ -648,6 +881,9 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 	var res SourceCacheReplayResult
 	prefix := encodeEntitlementBySourceScopePrefix(scopeKey)
 	primaryHeader := [2]byte{versionV3, typeEntitlement}
+	if err := validateReplaySourceScope(ctx, prev, "entitlements", typeEntitlement, 11, scopeKey, prefix); err != nil {
+		return SourceCacheReplayResult{}, err
+	}
 
 	err := e.withWrite(func() error {
 		if err := e.requireCurrentSync(); err != nil {
@@ -665,6 +901,14 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 		opts := writeOpts(e.opts.durability)
 		if e.IsFreshSync() {
 			opts = pebble.NoSync
+		}
+		deleted, err := e.clearReplayDestinationScopeLocked(ctx, "entitlements", typeEntitlement, prefix, opts)
+		if err != nil {
+			return err
+		}
+		if deleted > 0 {
+			e.noteEntitlementKeyspaceWrite()
+			_ = e.takeFreshEntitlementsEmpty()
 		}
 		batch := e.db.NewRecordBatch()
 		defer func() { _ = batch.Close() }()
@@ -684,10 +928,17 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 			}
 		}()
 
+		sourceRow := 0
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			if e.test.sourceCacheReplayReadHook != nil {
+				if err := e.test.sourceCacheReplayReadHook("entitlements", sourceRow); err != nil {
+					return err
+				}
+			}
+			sourceRow++
 			priKey, err := replayPrimaryFromIndexKey(iter.Key(), prefix, primaryHeader)
 			if err != nil {
 				return err
@@ -735,6 +986,11 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 			res.Rows++
 			rowsInBatch++
 			if rowsInBatch >= replayBatchRows {
+				if e.test.sourceCacheReplayCommitHook != nil {
+					if err := e.test.sourceCacheReplayCommitHook("entitlements", rowsInBatch, false); err != nil {
+						return err
+					}
+				}
 				if err := batch.Commit(opts); err != nil {
 					return err
 				}
@@ -746,6 +1002,11 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 		}
 		if err := iter.Error(); err != nil {
 			return err
+		}
+		if e.test.sourceCacheReplayCommitHook != nil {
+			if err := e.test.sourceCacheReplayCommitHook("entitlements", rowsInBatch, true); err != nil {
+				return err
+			}
 		}
 		if err := batch.Commit(opts); err != nil {
 			return err
@@ -774,6 +1035,9 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 	var res SourceCacheReplayResult
 	prefix := encodeResourceBySourceScopePrefix(scopeKey)
 	primaryHeader := [2]byte{versionV3, typeResource}
+	if err := validateReplaySourceScope(ctx, prev, "resources", typeResource, 12, scopeKey, prefix); err != nil {
+		return SourceCacheReplayResult{}, err
+	}
 
 	err := e.withWrite(func() error {
 		if err := e.requireCurrentSync(); err != nil {
@@ -792,6 +1056,13 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 		if e.IsFreshSync() {
 			opts = pebble.NoSync
 		}
+		deleted, err := e.clearReplayDestinationScopeLocked(ctx, "resources", typeResource, prefix, opts)
+		if err != nil {
+			return err
+		}
+		if deleted > 0 {
+			_ = e.takeFreshResourcesEmpty()
+		}
 		batch := e.db.NewRecordBatch()
 		defer func() { _ = batch.Close() }()
 		rowsInBatch := 0
@@ -805,10 +1076,17 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 			}
 		}()
 
+		sourceRow := 0
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			if e.test.sourceCacheReplayReadHook != nil {
+				if err := e.test.sourceCacheReplayReadHook("resources", sourceRow); err != nil {
+					return err
+				}
+			}
+			sourceRow++
 			priKey, err := replayPrimaryFromIndexKey(iter.Key(), prefix, primaryHeader)
 			if err != nil {
 				return err
@@ -863,6 +1141,11 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 			res.Rows++
 			rowsInBatch++
 			if rowsInBatch >= replayBatchRows {
+				if e.test.sourceCacheReplayCommitHook != nil {
+					if err := e.test.sourceCacheReplayCommitHook("resources", rowsInBatch, false); err != nil {
+						return err
+					}
+				}
 				if err := batch.Commit(opts); err != nil {
 					return err
 				}
@@ -874,6 +1157,11 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 		}
 		if err := iter.Error(); err != nil {
 			return err
+		}
+		if e.test.sourceCacheReplayCommitHook != nil {
+			if err := e.test.sourceCacheReplayCommitHook("resources", rowsInBatch, true); err != nil {
+				return err
+			}
 		}
 		if err := batch.Commit(opts); err != nil {
 			return err

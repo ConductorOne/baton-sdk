@@ -164,13 +164,11 @@ func TestSourceCacheReplayIsIdempotent(t *testing.T) {
 	require.Equal(t, 2, seen)
 }
 
-// TestSourceCacheReplayIgnoresStaleIndexEntries pins the stale-index
-// defense: an index entry whose target row is stamped with a DIFFERENT
-// scope (left behind by a path that replaced rows without cleaning the
-// index — e.g. a fold compaction predating the source-cache bucket plans)
-// must not be copied. Replaying it would inject rows upstream never
-// returned for the queried scope.
-func TestSourceCacheReplayIgnoresStaleIndexEntries(t *testing.T) {
+// TestSourceCacheReplayRejectsStaleIndexEntries pins source-integrity
+// preflight: an index entry whose target row is stamped with a DIFFERENT scope
+// must fail before destination mutation. Silently skipping it can turn a
+// promised populated scope into an indistinguishable successful empty replay.
+func TestSourceCacheReplayRejectsStaleIndexEntries(t *testing.T) {
 	ctx := context.Background()
 
 	prev := newAdapter(t)
@@ -191,16 +189,14 @@ func TestSourceCacheReplayIgnoresStaleIndexEntries(t *testing.T) {
 	_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	res, err := cur.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), scopeA)
-	require.NoError(t, err)
-	require.Zero(t, res.Rows, "a row stamped with a different scope must not be replayed via a stale index entry")
-	require.Equal(t, int64(1), res.StaleSkipped,
-		"the skipped stale entry must be reported — it is the syncer's only way to tell 'legitimately empty scope' from 'scope contents clobbered without index cleanup'")
+	_, err = cur.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), scopeA)
+	require.ErrorContains(t, err, "preflight",
+		"a stale source index must fail closed before any destination mutation")
 	_, err = cur.PebbleEngine().GetGrantRecord(ctx, g.GetId())
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
 	// The genuine scope still replays, with no staleness reported.
-	res, err = cur.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), scopeB)
+	res, err := cur.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), scopeB)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), res.Rows)
 	require.Zero(t, res.StaleSkipped)

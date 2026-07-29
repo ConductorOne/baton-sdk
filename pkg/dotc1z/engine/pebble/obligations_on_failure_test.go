@@ -38,9 +38,12 @@ import (
 // and non-func knobs are out of scope: they inject observation points,
 // not failures. Enforced by TestFailureSeamsAreExercised.
 var seamFailureCases = map[string][]string{
-	"digestBuildHook":  {"TestGrantDigestBuildCrashMidMerge", "TestGrantDigestBuildCrashPostFinish"},
-	"recordCommitHook": {"TestFailedMutationPathsFireObligations"},
-	"endSyncStampHook": {"TestFailedMutationPathsFireObligations"},
+	"digestBuildHook":              {"TestGrantDigestBuildCrashMidMerge", "TestGrantDigestBuildCrashPostFinish"},
+	"recordCommitHook":             {"TestFailedMutationPathsFireObligations"},
+	"sourceCacheReplayCommitHook":  {"TestVerificationReplayBatchBoundAndInterruptedRetry"},
+	"sourceCacheReplayReadHook":    {"TestVerificationReplayBatchBoundAndInterruptedRetry"},
+	"sourceCacheManifestWriteHook": {"TestVerificationManifestFailureDoesNotPublishClaim"},
+	"endSyncStampHook":             {"TestFailedMutationPathsFireObligations"},
 }
 
 // rawdbHookFailureCases covers the failure seams that live ON THE
