@@ -2,10 +2,9 @@
 
 Plan: [`plan.md`](plan.md)
 
-Evidence revision: current uncommitted working tree; record the final commit SHA
-before review.
+Verified implementation and instrument revision: `9f70c297`.
 
-Current working-tree change orders: CO-003a and CO-005 through CO-008.
+Included change orders: CO-003a and CO-005 through CO-008.
 
 ## Signoff scope
 
