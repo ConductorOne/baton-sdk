@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	native_sync "sync"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -964,6 +965,136 @@ func TestExternalResourceMatchAll(t *testing.T) {
 		// Verify both external users have grants
 		require.True(t, principalIDs[externalUser1.GetId().GetResource()], "Should have grant for ext_user_1")
 		require.True(t, principalIDs[externalUser2.GetId().GetResource()], "Should have grant for ext_user_2")
+	})
+}
+
+// countingGrantPutStore wraps a c1zstore.Store and records each PutGrants
+// call's batch, so tests can assert on processGrantsWithExternalPrincipals's
+// flush behavior without reaching into its internal buffer state.
+type countingGrantPutStore struct {
+	c1zstore.Store
+	mu         native_sync.Mutex
+	putBatches [][]*v2.Grant
+}
+
+func (c *countingGrantPutStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
+	batch := make([]*v2.Grant, len(grants))
+	copy(batch, grants)
+	c.mu.Lock()
+	c.putBatches = append(c.putBatches, batch)
+	c.mu.Unlock()
+	return c.Store.PutGrants(ctx, grants...)
+}
+
+// TestExternalResourceMatchAllBatchedFlush proves processGrantsWithExternalPrincipals
+// flushes expanded grants in bounded batches instead of accumulating the full
+// fan-out (one grant per matched principal) in memory before a single write.
+// It exercises a principal count spanning multiple flush batches and checks
+// both that no single PutGrants call exceeds the batch size and that the
+// final grant set is unaffected by how the writes were chunked.
+func TestExternalResourceMatchAllBatchedFlush(t *testing.T) {
+	runWithSyncModes(t, func(t *testing.T, extraOpts []SyncOpt) {
+		ctx := t.Context()
+
+		tempDir, err := os.MkdirTemp("", "baton-external-match-all-batch-test")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		internalMc := newMockConnector()
+		internalMc.rtDB = append(internalMc.rtDB, userResourceType, groupResourceType)
+
+		externalMc := newMockConnector()
+		externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType)
+
+		// Span three flush batches so the test can't pass by accident with
+		// a single call that happens to be under the cap.
+		const userCount = 2*externalGrantFlushBatchSize + 200
+
+		externalUserIDs := make(map[string]bool, userCount)
+		for i := 0; i < userCount; i++ {
+			u, err := externalMc.AddUserProfile(ctx, fmt.Sprintf("ext_user_%d", i), map[string]any{})
+			require.NoError(t, err)
+			externalUserIDs[u.GetId().GetResource()] = true
+		}
+
+		// Create internal group with ExternalResourceMatchAll grant
+		internalGroup, internalGroupEnt, err := internalMc.AddGroup(ctx, "internal_group")
+		require.NoError(t, err)
+		internalMc.grantDB[internalGroup.GetId().GetResource()] = []*v2.Grant{
+			gt.NewGrant(
+				internalGroup,
+				"member",
+				v2.ResourceId_builder{
+					ResourceType: userResourceType.GetId(),
+					Resource:     "placeholder",
+				}.Build(),
+				gt.WithAnnotation(v2.ExternalResourceMatchAll_builder{
+					ResourceType: v2.ResourceType_TRAIT_USER,
+				}.Build()),
+			),
+		}
+
+		// Sync external resources first
+		externalC1zpath := filepath.Join(tempDir, "external.c1z")
+		externalOpts := append([]SyncOpt{WithC1ZPath(externalC1zpath), WithTmpDir(tempDir)}, extraOpts...)
+		externalSyncer, err := NewSyncer(ctx, externalMc, externalOpts...)
+		require.NoError(t, err)
+		require.NoError(t, externalSyncer.Sync(ctx))
+		require.NoError(t, externalSyncer.Close(ctx))
+
+		// Sync internal with external reference, through a store wrapper
+		// that records every PutGrants call.
+		internalC1zpath := filepath.Join(tempDir, "internal.c1z")
+		rawStore, err := dotc1z.NewStore(ctx, internalC1zpath, dotc1z.WithTmpDir(tempDir))
+		require.NoError(t, err)
+		counting := &countingGrantPutStore{Store: rawStore}
+
+		internalOpts := append([]SyncOpt{WithConnectorStore(counting), WithTmpDir(tempDir), WithExternalResourceC1ZPath(externalC1zpath)}, extraOpts...)
+		internalSyncer, err := NewSyncer(ctx, internalMc, internalOpts...)
+		require.NoError(t, err)
+		require.NoError(t, internalSyncer.Sync(ctx))
+		require.NoError(t, internalSyncer.Close(ctx))
+
+		var totalMatchedGrants int
+		callsOverBatchSize := 0
+		callsWithMatchedGrants := 0
+		for _, batch := range counting.putBatches {
+			if len(batch) > externalGrantFlushBatchSize {
+				callsOverBatchSize++
+			}
+			matched := 0
+			for _, g := range batch {
+				if externalUserIDs[g.GetPrincipal().GetId().GetResource()] {
+					matched++
+				}
+			}
+			if matched > 0 {
+				callsWithMatchedGrants++
+			}
+			totalMatchedGrants += matched
+		}
+		require.Zero(t, callsOverBatchSize, "no PutGrants call should exceed the flush batch size")
+		require.Greater(t, callsWithMatchedGrants, 1, "expanded grants should be written across more than one PutGrants call")
+		require.Equal(t, userCount, totalMatchedGrants, "every external user should have been granted exactly once across the batched writes")
+
+		// Confirm the final grant set is exactly what the unbatched
+		// implementation would have produced: one grant per external user,
+		// no duplicates, placeholder gone.
+		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		require.NoError(t, err)
+		grants, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+			Entitlement: internalGroupEnt,
+		}.Build())
+		require.NoError(t, err)
+		require.Len(t, grants.GetList(), userCount, "should have created exactly one grant per external user, no more, no less")
+		seen := make(map[string]bool, userCount)
+		for _, grant := range grants.GetList() {
+			principalID := grant.GetPrincipal().GetId().GetResource()
+			require.True(t, externalUserIDs[principalID], "grant principal should be one of the external users")
+			require.False(t, seen[principalID], "should not have duplicate grants for the same principal")
+			seen[principalID] = true
+		}
+		require.NoError(t, store.Close(ctx))
 	})
 }
 
