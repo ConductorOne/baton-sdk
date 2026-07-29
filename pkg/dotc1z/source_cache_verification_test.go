@@ -261,6 +261,69 @@ func TestVerificationReplayFromSelfRejected(t *testing.T) {
 	require.Error(t, err, "replay from the destination store itself must fail before mutation")
 }
 
+func writeVerificationReplayArtifact(t *testing.T, path, principal string) {
+	t.Helper()
+	ctx := t.Context()
+	store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	cache, ok := store.(SourceCacheStore)
+	require.True(t, ok)
+	grant := mkV2Grant("", "member", "user", principal)
+	require.NoError(t, store.PutGrants(sourcecache.WithScope(ctx, "scope-a"), grant))
+	require.NoError(t, cache.PutSourceCacheEntry(ctx, sourcecache.RowKindGrants, "scope-a", "validator-a"))
+	require.NoError(t, store.EndSync(ctx))
+	require.NoError(t, store.Close(ctx))
+}
+
+// C43: two independently opened stores can still refer to the same c1z file.
+// Reject both the exact path and a filesystem alias before replay, then prove
+// the rejected call did not poison a subsequent replay from a distinct source.
+func TestVerificationReplayFromSameArtifactPathRejected(t *testing.T) {
+	for _, aliased := range []bool{false, true} {
+		name := "exact-path"
+		if aliased {
+			name = "symlink"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			dir := t.TempDir()
+			path := filepath.Join(dir, "shared.c1z")
+			writeVerificationReplayArtifact(t, path, "alice")
+
+			previousPath := path
+			if aliased {
+				previousPath = filepath.Join(dir, "shared-alias.c1z")
+				require.NoError(t, os.Symlink(path, previousPath))
+			}
+
+			current, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, current.Close(ctx)) })
+			_, err = current.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			currentCache, ok := current.(SourceCacheStore)
+			require.True(t, ok)
+
+			previous, err := NewStore(ctx, previousPath, WithReadOnly(true))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, previous.Close(ctx)) })
+			_, err = currentCache.ReplaySourceCache(ctx, previous, sourcecache.RowKindGrants, "scope-a")
+			require.ErrorContains(t, err, "same artifact")
+
+			distinctPath := filepath.Join(dir, "distinct.c1z")
+			writeVerificationReplayArtifact(t, distinctPath, "bob")
+			distinct, err := NewStore(ctx, distinctPath, WithReadOnly(true))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, distinct.Close(ctx)) })
+			res, err := currentCache.ReplaySourceCache(ctx, distinct, sourcecache.RowKindGrants, "scope-a")
+			require.NoError(t, err)
+			require.Equal(t, int64(1), res.Rows)
+		})
+	}
+}
+
 // C23/C26: a successful replay is a read-only operation on its source and
 // preserves row metadata exactly.
 func TestVerificationReplayPreservesSourceAndTimestamps(t *testing.T) {
@@ -409,6 +472,16 @@ func TestVerificationUnsupportedSourceFailsClosed(t *testing.T) {
 	cur := newSourceCacheVerificationStore(t)
 	_, err = cur.cache.ReplaySourceCache(ctx, previous, sourcecache.RowKindGrants, "scope-a")
 	require.ErrorContains(t, err, "not a pebble store")
+}
+
+// C35: a corrupt envelope is rejected while opening the previous artifact, so
+// it can never degrade into an empty or partially replayable source.
+func TestVerificationCorruptSourceEnvelopeFailsClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "corrupt.c1z")
+	require.NoError(t, os.WriteFile(path, []byte("not a c1z envelope"), 0o600))
+	previous, err := NewStore(t.Context(), path, WithReadOnly(true))
+	require.Error(t, err)
+	require.Nil(t, previous)
 }
 
 // C05: manifests are exact (kind, scope) cells. Overwriting one cell must not

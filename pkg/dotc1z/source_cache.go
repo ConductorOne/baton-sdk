@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	cdbpebble "github.com/cockroachdb/pebble/v2"
 
@@ -80,6 +82,21 @@ func sourceCacheEngine(store any) (*pebble.Engine, bool) {
 	return e, e != nil
 }
 
+func sameSourceCacheArtifact(current *pebbleStore, previous connectorstore.Reader) bool {
+	prev, ok := previous.(*pebbleStore)
+	if !ok {
+		return false
+	}
+	currentPath, currentErr := filepath.Abs(current.outputFilePath)
+	previousPath, previousErr := filepath.Abs(prev.outputFilePath)
+	if currentErr == nil && previousErr == nil && filepath.Clean(currentPath) == filepath.Clean(previousPath) {
+		return true
+	}
+	currentInfo, currentErr := os.Stat(current.outputFilePath)
+	previousInfo, previousErr := os.Stat(prev.outputFilePath)
+	return currentErr == nil && previousErr == nil && os.SameFile(currentInfo, previousInfo)
+}
+
 func (s *pebbleStore) LookupSourceCacheEntry(ctx context.Context, kind sourcecache.RowKind, scopeKey string) (sourcecache.Entry, bool, error) {
 	if err := sourcecache.ValidateRowKind(kind); err != nil {
 		return sourcecache.Entry{}, false, err
@@ -119,6 +136,9 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 	}
 	if err := sourcecache.ValidateScopeKey(scopeKey); err != nil {
 		return SourceCacheReplayResult{}, err
+	}
+	if sameSourceCacheArtifact(s, prev) {
+		return SourceCacheReplayResult{}, errors.New("source cache replay: previous and current stores use the same artifact")
 	}
 	prevEngine, ok := sourceCacheEngine(prev)
 	if !ok {

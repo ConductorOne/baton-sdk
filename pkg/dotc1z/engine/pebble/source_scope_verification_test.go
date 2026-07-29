@@ -393,39 +393,103 @@ func TestVerificationResetRemovesSourceCacheFamilies(t *testing.T) {
 	}
 }
 
-// C32: a completed manifest plus stamped primary but no source index is not a
-// legitimate zero-row scope. Replay must detect the inconsistent source rather
-// than silently publishing an empty result.
-func TestVerificationReplayRejectsMissingSourceScopeIndex(t *testing.T) {
+// C22/C32: every primary↔source-index corruption class must make source
+// preflight fail before destination mutation. The corrupt source itself must
+// remain byte-for-byte untouched by the rejected replay attempt.
+func TestVerificationReplayRejectsCorruptSourceMatrix(t *testing.T) {
 	for _, kind := range []sourcecache.RowKind{
 		sourcecache.RowKindResources,
 		sourcecache.RowKindEntitlements,
 		sourcecache.RowKindGrants,
 	} {
 		t.Run(string(kind), func(t *testing.T) {
-			ctx := t.Context()
-			prev := newAdapter(t)
-			_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-			require.NoError(t, err)
-			driver := newSourceScopeMutationDriver(t, prev, kind)
-			require.NoError(t, driver.put(ctx, "scope-a"))
+			for _, corruption := range []struct {
+				name        string
+				replayScope string
+				apply       func(t *testing.T, e *Engine, primaryKey, indexKey []byte)
+			}{
+				{
+					name:        "missing-index",
+					replayScope: "scope-a",
+					apply: func(t *testing.T, e *Engine, _, indexKey []byte) {
+						require.NoError(t, e.db.UnsafeForTesting().Delete(indexKey, pebble.Sync))
+					},
+				},
+				{
+					name:        "orphan-index",
+					replayScope: "scope-a",
+					apply: func(t *testing.T, e *Engine, primaryKey, _ []byte) {
+						require.NoError(t, e.db.UnsafeForTesting().Delete(primaryKey, pebble.Sync))
+					},
+				},
+				{
+					name:        "wrong-scope-index",
+					replayScope: "scope-b",
+					apply: func(t *testing.T, e *Engine, primaryKey, _ []byte) {
+						wrongIndex, ok := rawdb.AppendBySourceScopeKeyFromPrimary(nil, primaryKey, "scope-b")
+						require.True(t, ok)
+						require.NoError(t, e.db.UnsafeForTesting().Set(wrongIndex, nil, pebble.Sync))
+					},
+				},
+				{
+					name:        "malformed-primary",
+					replayScope: "scope-a",
+					apply: func(t *testing.T, e *Engine, primaryKey, _ []byte) {
+						require.NoError(t, e.db.UnsafeForTesting().Set(primaryKey, []byte("\xff"), pebble.Sync))
+					},
+				},
+			} {
+				t.Run(corruption.name, func(t *testing.T) {
+					ctx := t.Context()
+					prev := newAdapter(t)
+					_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+					require.NoError(t, err)
+					driver := newSourceScopeMutationDriver(t, prev, kind)
+					require.NoError(t, driver.put(ctx, "scope-a"))
 
-			iter, err := prev.PebbleEngine().db.NewIter(&pebble.IterOptions{
-				LowerBound: driver.indexLo,
-				UpperBound: upperBoundOf(driver.indexLo),
-			})
-			require.NoError(t, err)
-			require.True(t, iter.First())
-			indexKey := append([]byte(nil), iter.Key()...)
-			require.NoError(t, iter.Close())
-			require.NoError(t, prev.PebbleEngine().db.UnsafeForTesting().Delete(indexKey, pebble.Sync))
+					var family sourceScopeAuditFamily
+					for _, candidate := range sourceScopeAuditFamilies() {
+						if candidate.name == string(kind) {
+							family = candidate
+							break
+						}
+					}
+					require.NotEmpty(t, family.name)
+					primaries, err := prev.PebbleEngine().db.NewIter(&pebble.IterOptions{
+						LowerBound: family.primaryLo, UpperBound: family.primaryHi,
+					})
+					require.NoError(t, err)
+					require.True(t, primaries.First())
+					primaryKey := append([]byte(nil), primaries.Key()...)
+					require.NoError(t, primaries.Close())
+					indexes, err := prev.PebbleEngine().db.NewIter(&pebble.IterOptions{
+						LowerBound: family.indexLo, UpperBound: family.indexHi,
+					})
+					require.NoError(t, err)
+					require.True(t, indexes.First())
+					indexKey := append([]byte(nil), indexes.Key()...)
+					require.NoError(t, indexes.Close())
+					corruption.apply(t, prev.PebbleEngine(), primaryKey, indexKey)
 
-			cur := newAdapter(t)
-			_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-			require.NoError(t, err)
-			_, err = driver.replay(ctx, cur.PebbleEngine(), prev.PebbleEngine(), "scope-a")
-			require.Error(t, err, "stamped primary without its source index must fail source-integrity preflight")
-			require.Zero(t, countKeys(t, cur.PebbleEngine(), driver.indexLo))
+					sourcePrimaries := countKeys(t, prev.PebbleEngine(), family.primaryLo)
+					sourceIndexes := countKeys(t, prev.PebbleEngine(), family.indexLo)
+					cur := newAdapter(t)
+					_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+					require.NoError(t, err)
+					curDriver := newSourceScopeMutationDriver(t, cur, kind)
+					require.NoError(t, curDriver.put(ctx, "scope-decoy"))
+
+					_, err = driver.replay(ctx, cur.PebbleEngine(), prev.PebbleEngine(), corruption.replayScope)
+					require.ErrorContains(t, err, "preflight")
+					scope, readErr := curDriver.readScope(ctx)
+					require.NoError(t, readErr)
+					require.Equal(t, "scope-decoy", scope)
+					require.Equal(t, 1, countKeys(t, cur.PebbleEngine(), curDriver.indexLo))
+					require.NoError(t, auditSourceScopeBiconditional(cur.PebbleEngine()))
+					require.Equal(t, sourcePrimaries, countKeys(t, prev.PebbleEngine(), family.primaryLo))
+					require.Equal(t, sourceIndexes, countKeys(t, prev.PebbleEngine(), family.indexLo))
+				})
+			}
 		})
 	}
 }
