@@ -133,6 +133,7 @@ func TestPebble_ExternalResourceMatchID_RemappingSkipped(t *testing.T) {
 		WithConnectorStore(internalStore),
 		WithTmpDir(tempDir),
 		WithExternalResourceC1ZPath(externalC1zpath),
+		WithExternalResourceTraits(v2.ResourceType_TRAIT_USER, v2.ResourceType_TRAIT_GROUP),
 		WithDontExpandGrants(),
 	)
 	require.NoError(t, err)

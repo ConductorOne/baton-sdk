@@ -358,6 +358,7 @@ func TestFreshIngestFilterExternalMatchResolvesUnknownPrincipalType(t *testing.T
 			WithC1ZPath(internalC1zPath),
 			WithTmpDir(tempDir),
 			WithExternalResourceC1ZPath(externalC1zPath),
+			WithExternalResourceTraits(v2.ResourceType_TRAIT_USER, v2.ResourceType_TRAIT_GROUP),
 		}, extraOpts...)
 		internalSyncer, err := NewSyncer(ctx, internalMc, internalOpts...)
 		require.NoError(t, err)

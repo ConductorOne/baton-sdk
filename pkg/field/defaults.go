@@ -269,9 +269,10 @@ var (
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
 	externalResourceTraitsField = StringSliceField("external-resource-traits",
-		WithDescription("Additional resource type traits (e.g. \"app\"), beyond the always-eligible user and group traits, "+
-			"to sync and match from the external resource c1z"),
+		WithDescription("Resource type traits (e.g. \"user\", \"group\", \"app\") to sync and match from the external resource c1z. "+
+			"Defaults to user and group; passing this flag replaces the full set rather than adding to it."),
 		WithPersistent(true),
+		WithDefaultValue([]string{"user", "group"}),
 		WithExportTarget(ExportTargetNone))
 
 	// KeepPreviousSyncC1ZField is the CUSTOMER's runtime half of the
