@@ -3428,7 +3428,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 		grantsScanned++
 		if grantsScanned%externalMatchProgressLogInterval == 0 {
-			l.Info("matching grants against external principals: progress",
+			l.Debug("matching grants against external principals: progress",
 				zap.Int("grants_scanned", grantsScanned),
 				zap.Int("expanded_grants", len(expandedGrants)),
 				zap.Int("grants_to_delete", len(grantsToDelete)),
@@ -3600,7 +3600,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		}
 	}
 
-	l.Info("matched grants against external principals",
+	l.Debug("matched grants against external principals",
 		zap.Int("grants_scanned", grantsScanned),
 		zap.Int("expanded_grants", len(expandedGrants)),
 		zap.Int("grants_to_delete", len(grantsToDelete)),
