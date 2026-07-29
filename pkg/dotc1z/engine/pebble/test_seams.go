@@ -58,6 +58,12 @@ type testSeams struct {
 	// It supplies deterministic source-iteration errors at exact row cuts.
 	sourceCacheReplayReadHook func(kind string, row int) error
 
+	// sourceCacheDeleteCommitHook runs before each bounded scoped-tombstone
+	// commit. sourceCacheDeleteBatchRows lowers the production batch limit so
+	// tests can exercise interrupted multi-batch retry without whale fixtures.
+	sourceCacheDeleteCommitHook func(kind string, rows int, final bool) error
+	sourceCacheDeleteBatchRows  int
+
 	// sourceCacheManifestWriteHook runs immediately before a manifest entry is
 	// committed, after the value has been constructed.
 	sourceCacheManifestWriteHook func() error

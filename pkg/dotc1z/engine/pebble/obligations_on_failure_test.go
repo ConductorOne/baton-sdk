@@ -42,6 +42,7 @@ var seamFailureCases = map[string][]string{
 	"recordCommitHook":             {"TestFailedMutationPathsFireObligations"},
 	"sourceCacheReplayCommitHook":  {"TestVerificationReplayBatchBoundAndInterruptedRetry"},
 	"sourceCacheReplayReadHook":    {"TestVerificationReplayBatchBoundAndInterruptedRetry"},
+	"sourceCacheDeleteCommitHook":  {"TestVerificationScopedDeleteBatchBoundAndInterruptedRetry"},
 	"sourceCacheManifestWriteHook": {"TestVerificationManifestFailureDoesNotPublishClaim"},
 	"endSyncStampHook":             {"TestFailedMutationPathsFireObligations"},
 }

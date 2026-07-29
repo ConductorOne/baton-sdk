@@ -124,6 +124,68 @@ func (e *Engine) DeleteGrantRecordBounded(ctx context.Context, externalID string
 	})
 }
 
+type sourceCacheDeleteBatch struct {
+	engine           *Engine
+	batch            *rawdb.RecordBatch
+	opts             *pebble.WriteOptions
+	kind             string
+	limit            int
+	operations       int
+	pendingDeleted   int64
+	committedDeleted int64
+}
+
+func newSourceCacheDeleteBatch(e *Engine, kind string, opts *pebble.WriteOptions) *sourceCacheDeleteBatch {
+	limit := replayBatchRows
+	if e.test.sourceCacheDeleteBatchRows > 0 {
+		limit = e.test.sourceCacheDeleteBatchRows
+	}
+	return &sourceCacheDeleteBatch{
+		engine: e,
+		batch:  e.db.NewRecordBatch(),
+		opts:   opts,
+		kind:   kind,
+		limit:  limit,
+	}
+}
+
+func (b *sourceCacheDeleteBatch) staged(rowDeleted bool) error {
+	b.operations++
+	if rowDeleted {
+		b.pendingDeleted++
+	}
+	if b.operations < b.limit {
+		return nil
+	}
+	return b.commit(false)
+}
+
+func (b *sourceCacheDeleteBatch) commit(final bool) error {
+	if b.operations == 0 {
+		return nil
+	}
+	if b.engine.test.sourceCacheDeleteCommitHook != nil {
+		if err := b.engine.test.sourceCacheDeleteCommitHook(b.kind, b.operations, final); err != nil {
+			return err
+		}
+	}
+	if err := b.batch.Commit(b.opts); err != nil {
+		return err
+	}
+	b.committedDeleted += b.pendingDeleted
+	_ = b.batch.Close()
+	b.operations = 0
+	b.pendingDeleted = 0
+	if !final {
+		b.batch = b.engine.db.NewRecordBatch()
+	}
+	return nil
+}
+
+func (b *sourceCacheDeleteBatch) close() {
+	_ = b.batch.Close()
+}
+
 // DeleteGrantsByPrincipalsInScope deletes every grant row in the CURRENT
 // store stamped with scopeKey whose principal id is in principalIDs —
 // the engine side of principal-scoped delta tombstones
@@ -139,7 +201,9 @@ func (e *Engine) DeleteGrantRecordBounded(ctx context.Context, externalID string
 // by_principal state mid-sync.
 //
 // Complexity: O(scope size) tuple-walks per call regardless of tombstone
-// count — callers batch a page's tombstones into one call.
+// count — callers batch a page's tombstones into one call. Deletes commit in
+// bounded chunks; an error returns the count from chunks that already landed,
+// and retry converges because deletion is idempotent.
 func (e *Engine) DeleteGrantsByPrincipalsInScope(ctx context.Context, scopeKey string, principalIDs map[string]struct{}) (int64, error) {
 	if len(principalIDs) == 0 {
 		return 0, nil
@@ -164,8 +228,9 @@ func (e *Engine) DeleteGrantsByPrincipalsInScope(ctx context.Context, scopeKey s
 		if e.IsFreshSync() {
 			opts = pebble.NoSync
 		}
-		batch := e.db.NewRecordBatch()
-		defer func() { _ = batch.Close() }()
+		deletes := newSourceCacheDeleteBatch(e, "grant-principals", opts)
+		defer deletes.close()
+		defer func() { deleted = deletes.committedDeleted }()
 
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
@@ -190,7 +255,10 @@ func (e *Engine) DeleteGrantsByPrincipalsInScope(ctx context.Context, scopeKey s
 			priKey = append(priKey, tail...)
 			oldVal, closer, getErr := e.db.Get(priKey)
 			if errors.Is(getErr, pebble.ErrNotFound) {
-				if err := batch.StageSourceScopeOrphanIndexDelete(key); err != nil {
+				if err := deletes.batch.StageSourceScopeOrphanIndexDelete(key); err != nil {
+					return err
+				}
+				if err := deletes.staged(false); err != nil {
 					return err
 				}
 				continue
@@ -198,23 +266,22 @@ func (e *Engine) DeleteGrantsByPrincipalsInScope(ctx context.Context, scopeKey s
 			if getErr != nil {
 				return getErr
 			}
-			if err := batch.StageGrantDelete(priKey, oldVal); err != nil {
+			if err := deletes.batch.StageGrantDelete(priKey, oldVal); err != nil {
 				closer.Close()
 				return err
 			}
 			closer.Close()
-			deleted++
+			if err := deletes.staged(true); err != nil {
+				return err
+			}
 		}
 		if err := iter.Error(); err != nil {
 			return err
 		}
-		if err := batch.Commit(opts); err != nil {
-			return err
-		}
-		return nil
+		return deletes.commit(true)
 	})
 	if err != nil {
-		return 0, err
+		return deleted, err
 	}
 	return deleted, nil
 }
@@ -225,7 +292,8 @@ func (e *Engine) DeleteGrantsByPrincipalsInScope(ctx context.Context, scopeKey s
 // index, loading each candidate's primary row to compare the stored id —
 // bounded by the scope's row count, never the whole keyspace. This is the
 // tombstone path for connectors with custom grant ids whose scopes span
-// multiple resources (so principal-scoped deletes would over-delete).
+// multiple resources (so principal-scoped deletes would over-delete). Deletes
+// commit in bounded chunks and report committed progress on error.
 func (e *Engine) DeleteGrantsByExternalIDsInScope(ctx context.Context, scopeKey string, ids map[string]struct{}) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
@@ -250,8 +318,9 @@ func (e *Engine) DeleteGrantsByExternalIDsInScope(ctx context.Context, scopeKey 
 		if e.IsFreshSync() {
 			opts = pebble.NoSync
 		}
-		batch := e.db.NewRecordBatch()
-		defer func() { _ = batch.Close() }()
+		deletes := newSourceCacheDeleteBatch(e, "grant-external-ids", opts)
+		defer deletes.close()
+		defer func() { deleted = deletes.committedDeleted }()
 
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
@@ -272,7 +341,10 @@ func (e *Engine) DeleteGrantsByExternalIDsInScope(ctx context.Context, scopeKey 
 			val, closer, err := e.db.Get(priKey)
 			if err != nil {
 				if errors.Is(err, pebble.ErrNotFound) {
-					if err := batch.StageSourceScopeOrphanIndexDelete(key); err != nil {
+					if err := deletes.batch.StageSourceScopeOrphanIndexDelete(key); err != nil {
+						return err
+					}
+					if err := deletes.staged(false); err != nil {
 						return err
 					}
 					continue
@@ -289,30 +361,30 @@ func (e *Engine) DeleteGrantsByExternalIDsInScope(ctx context.Context, scopeKey 
 				closer.Close()
 				continue
 			}
-			if err := batch.StageGrantDelete(priKey, val); err != nil {
+			if err := deletes.batch.StageGrantDelete(priKey, val); err != nil {
 				closer.Close()
 				return err
 			}
 			closer.Close()
-			deleted++
+			if err := deletes.staged(true); err != nil {
+				return err
+			}
 		}
 		if err := iter.Error(); err != nil {
 			return err
 		}
-		if err := batch.Commit(opts); err != nil {
-			return err
-		}
-		return nil
+		return deletes.commit(true)
 	})
 	if err != nil {
-		return 0, err
+		return deleted, err
 	}
 	return deleted, nil
 }
 
 // DeleteResourcesByIDsInScope deletes every resource row in the CURRENT
 // store stamped with scopeKey whose resource id is in resourceIDs (any
-// resource type) — principal-scoped tombstones for RowKindResources.
+// resource type) — principal-scoped tombstones for RowKindResources. Deletes
+// commit in bounded chunks and report committed progress on error.
 func (e *Engine) DeleteResourcesByIDsInScope(ctx context.Context, scopeKey string, resourceIDs map[string]struct{}) (int64, error) {
 	if len(resourceIDs) == 0 {
 		return 0, nil
@@ -337,8 +409,9 @@ func (e *Engine) DeleteResourcesByIDsInScope(ctx context.Context, scopeKey strin
 		if e.IsFreshSync() {
 			opts = pebble.NoSync
 		}
-		batch := e.db.NewRecordBatch()
-		defer func() { _ = batch.Close() }()
+		deletes := newSourceCacheDeleteBatch(e, "resources", opts)
+		defer deletes.close()
+		defer func() { deleted = deletes.committedDeleted }()
 
 		for iter.First(); iter.Valid(); iter.Next() {
 			if err := ctx.Err(); err != nil {
@@ -365,30 +438,30 @@ func (e *Engine) DeleteResourcesByIDsInScope(ctx context.Context, scopeKey strin
 			priKey = append(priKey, tail...)
 			rowDeleted := false
 			if val, closer, getErr := e.db.Get(priKey); getErr == nil {
-				err := batch.StageResourceDelete(priKey, val, rt, rid)
+				err := deletes.batch.StageResourceDelete(priKey, val, rt, rid)
 				closer.Close()
 				if err != nil {
 					return err
 				}
 				rowDeleted = true
 			} else if errors.Is(getErr, pebble.ErrNotFound) {
-				if err := batch.StageSourceScopeOrphanIndexDelete(key); err != nil {
+				if err := deletes.batch.StageSourceScopeOrphanIndexDelete(key); err != nil {
 					return err
 				}
 			} else {
 				return getErr
 			}
-			if rowDeleted {
-				deleted++
+			if err := deletes.staged(rowDeleted); err != nil {
+				return err
 			}
 		}
 		if err := iter.Error(); err != nil {
 			return err
 		}
-		return batch.Commit(opts)
+		return deletes.commit(true)
 	})
 	if err != nil {
-		return 0, err
+		return deleted, err
 	}
 	return deleted, nil
 }

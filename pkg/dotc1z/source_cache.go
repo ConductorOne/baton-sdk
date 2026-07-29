@@ -56,7 +56,9 @@ type SourceCacheStore interface {
 	// bare object id — grants by principal id (no principal type, no
 	// canonical-id reconstruction), resources by resource id (any type).
 	// One index scan of the scope per call; a page's tombstones are
-	// batched into one call. Ids with no matching rows are no-ops.
+	// batched into one call. Deletes commit in bounded chunks; on error,
+	// the returned count reports rows already committed and retry converges.
+	// Ids with no matching rows are no-ops.
 	// Not supported for entitlements.
 	DeleteSourceCacheRowsInScope(ctx context.Context, kind sourcecache.RowKind, scopeKey string, ids []string) (int64, error)
 
@@ -64,7 +66,8 @@ type SourceCacheStore interface {
 	// scopeKey whose STORED grant id is in ids — works for
 	// connector-custom grant-id shapes that the global bounded delete
 	// cannot resolve, and stays bounded by the scope's row count. Ids with
-	// no matching rows are no-ops.
+	// no matching rows are no-ops. Deletes commit in bounded chunks; on
+	// error, the returned count reports rows already committed.
 	DeleteSourceCacheGrantsByIDInScope(ctx context.Context, scopeKey string, ids []string) (int64, error)
 }
 
@@ -244,11 +247,11 @@ func (s *pebbleStore) DeleteSourceCacheGrantsByIDInScope(ctx context.Context, sc
 		idSet[id] = struct{}{}
 	}
 	deleted, err := s.DeleteGrantsByExternalIDsInScope(ctx, scopeKey, idSet)
-	if err != nil {
-		return 0, fmt.Errorf("source cache grant-id delete for scope %q: %w", scopeKey, err)
-	}
 	if deleted > 0 {
 		s.MarkDirty()
+	}
+	if err != nil {
+		return deleted, fmt.Errorf("source cache grant-id delete for scope %q: %w", scopeKey, err)
 	}
 	return deleted, nil
 }
@@ -277,11 +280,11 @@ func (s *pebbleStore) DeleteSourceCacheRowsInScope(ctx context.Context, kind sou
 	case sourcecache.RowKindEntitlements:
 		return 0, fmt.Errorf("source cache scoped delete: not supported for entitlements")
 	}
-	if err != nil {
-		return 0, fmt.Errorf("source cache scoped delete for scope %q: %w", scopeKey, err)
-	}
 	if deleted > 0 {
 		s.MarkDirty()
+	}
+	if err != nil {
+		return deleted, fmt.Errorf("source cache scoped delete for scope %q: %w", scopeKey, err)
 	}
 	return deleted, nil
 }
