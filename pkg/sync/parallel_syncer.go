@@ -161,6 +161,19 @@ func (s *syncer) parallelSync(
 			break
 		}
 
+		// Checked before the throttled checkpoint below: that checkpoint runs
+		// on the raw ctx, which may already be Done (a SIGTERM-driven
+		// cancellation cancels ctx itself, not just runCtx's derived
+		// deadline) -- checking cancellation first means a cancelled ctx
+		// never gets a chance to fail that write and return a raw,
+		// non-resumable error before this iteration reaches
+		// handleOperationError.
+		select {
+		case <-runCtx.Done():
+			return s.handleOperationError(ctx, runCtx, warnings, nil)
+		default:
+		}
+
 		err := s.Checkpoint(ctx, false)
 		if err != nil {
 			return warnings, err
@@ -172,33 +185,6 @@ func (s *syncer) parallelSync(
 			if tooManyWarnings(len(warnings), completedActionsCount) {
 				return warnings, fmt.Errorf("%w: warnings: %v completed actions: %d", ErrTooManyWarnings, warnings, completedActionsCount)
 			}
-		}
-		select {
-		case <-runCtx.Done():
-			err = context.Cause(runCtx)
-			if errors.Is(err, context.DeadlineExceeded) {
-				if s.recordStats {
-					l.Info("sync run duration has expired, exiting sync early", s.syncSummaryFields(trace.SpanFromContext(ctx))...)
-				} else {
-					l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", s.syncID))
-				}
-			} else {
-				// Any other cancellation (e.g. SIGTERM/SIGINT via connectorrunner.ErrSigTerm) is just as
-				// resumable as a deadline timeout, so it gets the same forced checkpoint and treatment below.
-				l.Info("sync context cancelled, exiting sync early", zap.String("sync_id", s.syncID), zap.Error(err))
-			}
-			// ctx itself may already be Done here (e.g. a SIGTERM-driven cancellation
-			// cancels ctx directly, not just runCtx's derived deadline), so this
-			// checkpoint must run on a context that survives that cancellation —
-			// same pattern as the other finalize/cleanup writes in this codebase
-			// (c1file.go, clone_sync.go, syncer.go) that must complete after ctx is done.
-			// It would be nice to remove this once we're more confident in the checkpointing logic.
-			checkpointErr := s.Checkpoint(context.WithoutCancel(ctx), true)
-			if checkpointErr != nil {
-				l.Error("error checkpointing before exiting sync", zap.Error(checkpointErr))
-			}
-			return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
-		default:
 		}
 
 		switch stateAction.Op {
@@ -405,7 +391,7 @@ func (s *syncer) parallelSync(
 				}
 				if err := s.store.SyncMeta().MarkSyncSupportsDiff(ctx, s.syncID); err != nil {
 					l.Error("failed to set supports_diff marker", zap.Error(err))
-					return warnings, err
+					return s.handleOperationError(ctx, runCtx, warnings, err)
 				}
 			}
 
@@ -427,29 +413,78 @@ func (s *syncer) parallelSync(
 	return warnings, nil
 }
 
+// forcedCheckpointTimeout bounds the detached (context.WithoutCancel) context
+// used for the forced checkpoint write below. This runs precisely during an
+// orchestrator's termination grace period, so it must stay well short of a
+// typical grace period (Kubernetes defaults to 30s) — unlike
+// dotc1z.FinalizeTimeout, which bounds the much heavier WAL
+// checkpoint+save+upload tail, this is a single small state write.
+const forcedCheckpointTimeout = 15 * time.Second
+
+// handleOperationError checks whether runCtx has been cancelled — by a
+// deadline timeout, a SIGTERM/SIGINT shutdown (connectorrunner.ErrSigTerm),
+// a server-directed task cancellation, a heartbeat failure, or any other
+// cause — and if so treats it uniformly as resumable: force a checkpoint so
+// the next resume picks up from here instead of restarting, and return an
+// error that both IsSyncPreservable recognizes (via ErrSyncNotComplete) and
+// still lets a caller distinguish *why* via errors.Is(err, cause).
+//
+// batchErr is the error an in-flight operation returned (nil when called
+// from the top-of-loop check, where cancellation was observed between
+// actions rather than surfaced by a connector call). If runCtx was not
+// actually cancelled, batchErr is a genuine, unrelated operation error and
+// is returned unchanged — this function only special-cases cancellation.
 func (s *syncer) handleOperationError(
 	ctx context.Context,
 	runCtx context.Context,
 	warnings []error,
 	batchErr error,
 ) ([]error, error) {
-	if !errors.Is(context.Cause(runCtx), context.DeadlineExceeded) {
+	cause := context.Cause(runCtx)
+	if cause == nil {
 		return warnings, batchErr
 	}
-	// The run duration expired. The operation error is usually just the
-	// resulting cancellation, but a genuine connector/store failure can
-	// land in the same window — log it so expiry never masks a real bug.
-	// The sync resumes from the checkpoint, so the work is retried either
-	// way; only ErrSyncNotComplete is surfaced to keep the resumable
-	// contract for callers.
+	// The operation error is usually just the resulting cancellation, but a
+	// genuine connector/store failure can land in the same window — log it
+	// so cancellation never masks a real bug. The sync resumes from the
+	// checkpoint, so the work is retried either way; only ErrSyncNotComplete
+	// (plus cause) is surfaced to keep the resumable contract for callers.
 	if batchErr != nil && !errors.Is(batchErr, context.Canceled) && !errors.Is(batchErr, context.DeadlineExceeded) {
 		ctxzap.Extract(ctx).Error(
-			"sync operation failed while run duration expired; exiting early for resume",
+			"sync operation failed while the sync was being cancelled; exiting early for resume",
 			zap.Error(batchErr),
+			zap.NamedError("cancel_cause", cause),
 		)
 	}
-	checkpointErr := s.Checkpoint(ctx, true)
-	return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
+	l := ctxzap.Extract(ctx)
+	if errors.Is(cause, context.DeadlineExceeded) {
+		if s.recordStats {
+			l.Info("sync run duration has expired, exiting sync early", s.syncSummaryFields(trace.SpanFromContext(ctx))...)
+		} else {
+			l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", s.syncID))
+		}
+	} else {
+		l.Info("sync context cancelled, exiting sync early", zap.String("sync_id", s.syncID), zap.Error(cause))
+	}
+	// ctx itself may already be Done here (e.g. a SIGTERM-driven cancellation
+	// cancels ctx directly, not just runCtx's derived deadline), so this
+	// checkpoint must run on a context that survives that cancellation —
+	// same pattern as the other finalize/cleanup writes in this codebase
+	// (c1file.go, clone_sync.go, syncer.go) — but still bounded, so a wedged
+	// store write during the grace period doesn't just burn the whole window
+	// before getting SIGKILLed anyway.
+	// It would be nice to remove this once we're more confident in the checkpointing logic.
+	cpCtx, cpCancel := context.WithTimeout(context.WithoutCancel(ctx), forcedCheckpointTimeout)
+	defer cpCancel()
+	checkpointErr := s.Checkpoint(cpCtx, true)
+	if checkpointErr != nil {
+		l.Error("error checkpointing before exiting sync", zap.Error(checkpointErr))
+	}
+	// cause is joined in (not just logged) so a caller with more context —
+	// e.g. pkg/tasks/c1api distinguishing ErrTaskCancelled from a plain
+	// shutdown — can still inspect errors.Is(err, cause) instead of losing it
+	// behind ErrSyncNotComplete.
+	return warnings, errors.Join(checkpointErr, ErrSyncNotComplete, cause)
 }
 
 func tooManyWarnings(warningCount int, completedActionsCount uint64) bool {
