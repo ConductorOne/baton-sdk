@@ -53,6 +53,9 @@ var rawdbHookFailureCases = map[string][]string{
 		"TestDeferredMarkerArmFailureRollsBackCAS",
 		"TestDeferredMarkerClearFailureKeepsAgreement",
 	},
+	"SetRecordCommitTestHook": {
+		"TestVerificationSourceScopeMutationAtomicity",
+	},
 }
 
 // TestFailureSeamsAreExercised is the completeness meta-test for the

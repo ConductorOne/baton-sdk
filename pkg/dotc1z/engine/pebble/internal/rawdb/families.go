@@ -90,7 +90,14 @@ func (d *DB) NewRecordBatch() *RecordBatch {
 }
 
 // Commit applies the staged writes with the given write options.
-func (rb *RecordBatch) Commit(o *pebble.WriteOptions) error { return rb.core.Commit(o) }
+func (rb *RecordBatch) Commit(o *pebble.WriteOptions) error {
+	if rb.db.testRecordCommitHook != nil {
+		if err := rb.db.testRecordCommitHook(); err != nil {
+			return err
+		}
+	}
+	return rb.core.Commit(o)
+}
 
 // Close releases the batch. Safe after Commit.
 func (rb *RecordBatch) Close() error { return rb.core.Close() }

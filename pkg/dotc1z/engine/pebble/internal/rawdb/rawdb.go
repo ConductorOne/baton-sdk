@@ -74,6 +74,7 @@ type DB struct {
 	// SetDeferredMarkerTestHooks (testing-gated).
 	testArmDeferredMarkerHook   func() error
 	testClearDeferredMarkerHook func() error
+	testRecordCommitHook        func() error
 }
 
 // Open opens the pebble database at dir. opts is consumed by
@@ -241,6 +242,18 @@ func (d *DB) SetDeferredMarkerTestHooks(armHook, clearHook func() error) {
 	}
 	d.testArmDeferredMarkerHook = armHook
 	d.testClearDeferredMarkerHook = clearHook
+}
+
+// SetRecordCommitTestHook installs a failure immediately before every typed
+// RecordBatch commit. It lets obligation tests cover ordinary resource,
+// entitlement, and grant mutation paths through their shared choke point
+// instead of adding incomplete engine-path-specific seams. Test-only; pass nil
+// to uninstall.
+func (d *DB) SetRecordCommitTestHook(hook func() error) {
+	if !testing.Testing() {
+		panic("rawdb.SetRecordCommitTestHook: called outside a test binary")
+	}
+	d.testRecordCommitHook = hook
 }
 
 // === lifecycle operations (write-class, engine-lifecycle-named) ===
