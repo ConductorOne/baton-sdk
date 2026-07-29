@@ -2934,6 +2934,12 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 	return resourceTypes, nil
 }
 
+// externalMatchProgressLogInterval is how many grants the external-principal
+// match scan processes between progress logs. The scan can cover every grant in
+// the store, and without progress output a slow one is indistinguishable from a
+// hang.
+const externalMatchProgressLogInterval = 100_000
+
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
 	var err error
@@ -2969,12 +2975,40 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		principalMap[principalID] = principal
 	}
 
+	// Index the principals once. Matching each grant against every principal
+	// is O(grants x principals) proto unmarshals, which on large tenants runs
+	// for hours and never finishes inside the sync deadline.
+	userIndex := newExternalUserPrincipalIndex(userPrincipals, l)
+	groupIndex := newExternalPrincipalIndex(groupPrincipals)
+
+	l.Info("matching grants against external principals",
+		zap.Int("user_principals", len(userPrincipals)),
+		zap.Int("group_principals", len(groupPrincipals)),
+	)
+
 	grantsToDelete := make([]*v2.Grant, 0)
 	expandedGrants := make([]*v2.Grant, 0)
+	grantsScanned := 0
 
 	for ga, err := range s.store.Grants().ListWithAnnotations(ctx) {
 		if err != nil {
 			return err
+		}
+
+		// This scan can cover every grant in the store. Without a cancellation
+		// check it keeps running after the sync deadline has passed, so an
+		// abandoned attempt competes with its own replacement.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+
+		grantsScanned++
+		if grantsScanned%externalMatchProgressLogInterval == 0 {
+			l.Info("matching grants against external principals: progress",
+				zap.Int("grants_scanned", grantsScanned),
+				zap.Int("expanded_grants", len(expandedGrants)),
+				zap.Int("grants_to_delete", len(grantsToDelete)),
+			)
 		}
 
 		grant := ga.Grant
@@ -3090,64 +3124,60 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if matchExternalResource != nil {
 			switch matchExternalResource.GetResourceType() {
 			case v2.ResourceType_TRAIT_USER:
-				for _, userPrincipal := range userPrincipals {
-					userTrait, err := resource.GetUserTrait(userPrincipal)
-					if err != nil {
-						l.Error("error getting user trait", zap.Any("userPrincipal", userPrincipal))
-						continue
-					}
-					if matchExternalResource.GetKey() == "email" {
-						if userTraitContainsEmail(userTrait.GetEmails(), matchExternalResource.GetValue()) {
-							newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
-							expandedGrants = append(expandedGrants, newGrant)
-							// continue to next principal since we found an email match
-							continue
-						}
-					}
-					profileVal, ok := resource.GetProfileStringValue(resource.GetProfile(userPrincipal), matchExternalResource.GetKey())
-					if ok && strings.EqualFold(profileVal, matchExternalResource.GetValue()) {
-						newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
-						expandedGrants = append(expandedGrants, newGrant)
-					}
+				matchKey := matchExternalResource.GetKey()
+				matchValue := matchExternalResource.GetValue()
+				// A user matches on its profile value for the key, or -- when
+				// the key is "email" -- on a user-trait email address. Merging
+				// the two ascending position sets preserves principal order and
+				// emits at most one grant per user, as the per-principal scan
+				// this replaces did.
+				positions := userIndex.matchProfile(matchKey, matchValue)
+				if matchKey == "email" {
+					positions = mergePositions(userIndex.matchUserTraitEmail(matchValue), positions)
+				}
+				for _, i := range positions {
+					newGrant := newGrantForExternalPrincipal(grant, userIndex.principalAt(i))
+					expandedGrants = append(expandedGrants, newGrant)
 				}
 			case v2.ResourceType_TRAIT_GROUP:
-				for _, groupPrincipal := range groupPrincipals {
-					profileVal, ok := resource.GetProfileStringValue(resource.GetProfile(groupPrincipal), matchExternalResource.GetKey())
-					if ok && strings.EqualFold(profileVal, matchExternalResource.GetValue()) {
+				// A group key/value match only yields a grant when the source
+				// grant carries expandable entitlements to remap, so without the
+				// annotation there is nothing to scan for.
+				if expandableAnno != nil {
+					for _, i := range groupIndex.matchProfile(matchExternalResource.GetKey(), matchExternalResource.GetValue()) {
+						groupPrincipal := groupIndex.principalAt(i)
 						newGrant := newGrantForExternalPrincipal(grant, groupPrincipal)
 						newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
 
 						newExpandableEntitlementIDs := make([]string, 0)
-						if expandableAnno != nil {
-							groupPrincipalBID, err := bid.MakeBid(grant.GetPrincipal())
-							if err != nil {
-								l.Error("error making group principal bid", zap.Error(err), zap.Any("grant.Principal", grant.GetPrincipal()))
-								continue
-							}
-
-							principalEntitlementSlugs := expandableEntitlementsResourceMap[groupPrincipalBID]
-							for _, slug := range principalEntitlementSlugs {
-								newExpandableEntId := entitlement.NewEntitlementID(groupPrincipal, slug)
-								_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
-								if err != nil {
-									if status.Code(err) == codes.NotFound {
-										l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
-										continue
-									}
-									return err
-								}
-								newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
-							}
-
-							newExpandableAnno := v2.GrantExpandable_builder{
-								EntitlementIds:  newExpandableEntitlementIDs,
-								Shallow:         expandableAnno.GetShallow(),
-								ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
-							}.Build()
-							newGrantAnnos.Update(newExpandableAnno)
-							newGrant.SetAnnotations(newGrantAnnos)
-							expandedGrants = append(expandedGrants, newGrant)
+						groupPrincipalBID, err := bid.MakeBid(grant.GetPrincipal())
+						if err != nil {
+							l.Error("error making group principal bid", zap.Error(err), zap.Any("grant.Principal", grant.GetPrincipal()))
+							continue
 						}
+
+						principalEntitlementSlugs := expandableEntitlementsResourceMap[groupPrincipalBID]
+						for _, slug := range principalEntitlementSlugs {
+							newExpandableEntId := entitlement.NewEntitlementID(groupPrincipal, slug)
+							_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
+							if err != nil {
+								if status.Code(err) == codes.NotFound {
+									l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
+									continue
+								}
+								return err
+							}
+							newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
+						}
+
+						newExpandableAnno := v2.GrantExpandable_builder{
+							EntitlementIds:  newExpandableEntitlementIDs,
+							Shallow:         expandableAnno.GetShallow(),
+							ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
+						}.Build()
+						newGrantAnnos.Update(newExpandableAnno)
+						newGrant.SetAnnotations(newGrantAnnos)
+						expandedGrants = append(expandedGrants, newGrant)
 					}
 				}
 			default:
@@ -3158,6 +3188,12 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			grantsToDelete = append(grantsToDelete, grant)
 		}
 	}
+
+	l.Info("matched grants against external principals",
+		zap.Int("grants_scanned", grantsScanned),
+		zap.Int("expanded_grants", len(expandedGrants)),
+		zap.Int("grants_to_delete", len(grantsToDelete)),
+	)
 
 	newGrantIDs := mapset.NewSet[string]()
 	for _, ng := range expandedGrants {
@@ -3174,6 +3210,11 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	// stores keyed by structural identity cannot always resolve them.
 	refsDeleter, _ := s.store.(grantByRefsDeleter)
 	for _, grantToDelete := range grantsToDelete {
+		// One store round-trip per grant, so this loop is also long enough to
+		// outlive a cancelled sync.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if newGrantIDs.ContainsOne(grantToDelete.GetId()) {
 			continue
 		}
