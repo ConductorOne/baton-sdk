@@ -1092,8 +1092,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 	} else {
 		s.state.ClearEntitlementGraph(ctx)
 	}
-	s.state.ClearExclusionGroupTracking(ctx)
-
 	err = s.Checkpoint(ctx, true)
 	if err != nil {
 		return s.returnSyncError(l, span, err)

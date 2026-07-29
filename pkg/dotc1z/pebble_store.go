@@ -502,15 +502,15 @@ func (s *pebbleStore) PutAsset(ctx context.Context, assetRef *v2.AssetRef, conte
 // expose the entitlement-graph sidecar (see pkg/sync's EntitlementGraphStore).
 // The blob format is owned by pkg/sync/expand; the store treats it as opaque.
 func (s *pebbleStore) PutEntitlementGraphBlob(ctx context.Context, data []byte) error {
-	return s.markDirty(s.engine.PutEntitlementGraphSidecar(ctx, data))
+	return s.markDirty(s.Engine.PutEntitlementGraphSidecar(ctx, data))
 }
 
 func (s *pebbleStore) GetEntitlementGraphBlob(ctx context.Context) ([]byte, error) {
-	return s.engine.GetEntitlementGraphSidecar(ctx)
+	return s.Engine.GetEntitlementGraphSidecar(ctx)
 }
 
 func (s *pebbleStore) DeleteEntitlementGraphBlob(ctx context.Context) error {
-	return s.markDirty(s.engine.DeleteEntitlementGraphSidecar(ctx))
+	return s.markDirty(s.Engine.DeleteEntitlementGraphSidecar(ctx))
 }
 
 // SetSupportsDiff marks the given sync as diff-capable, matching the
