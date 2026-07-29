@@ -2594,6 +2594,8 @@ func (m *IntField) validate(all bool) error {
 
 	// no validation rules for DefaultValue
 
+	// no validation rules for SuggestedValue
+
 	if m.Rules != nil {
 
 		if all {
@@ -2727,6 +2729,8 @@ func (m *BoolField) validate(all bool) error {
 	var errors []error
 
 	// no validation rules for DefaultValue
+
+	// no validation rules for SuggestedValue
 
 	if m.Rules != nil {
 
@@ -3039,6 +3043,52 @@ func (m *StringMapField) validate(all bool) error {
 		}
 	}
 
+	{
+		sorted_keys := make([]string, len(m.GetSuggestedValue()))
+		i := 0
+		for key := range m.GetSuggestedValue() {
+			sorted_keys[i] = key
+			i++
+		}
+		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
+		for _, key := range sorted_keys {
+			val := m.GetSuggestedValue()[key]
+			_ = val
+
+			// no validation rules for SuggestedValue[key]
+
+			if all {
+				switch v := interface{}(val).(type) {
+				case interface{ ValidateAll() error }:
+					if err := v.ValidateAll(); err != nil {
+						errors = append(errors, StringMapFieldValidationError{
+							field:  fmt.Sprintf("SuggestedValue[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				case interface{ Validate() error }:
+					if err := v.Validate(); err != nil {
+						errors = append(errors, StringMapFieldValidationError{
+							field:  fmt.Sprintf("SuggestedValue[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				}
+			} else if v, ok := interface{}(val).(interface{ Validate() error }); ok {
+				if err := v.Validate(); err != nil {
+					return StringMapFieldValidationError{
+						field:  fmt.Sprintf("SuggestedValue[%v]", key),
+						reason: "embedded message failed validation",
+						cause:  err,
+					}
+				}
+			}
+
+		}
+	}
+
 	if m.Rules != nil {
 
 		if all {
@@ -3317,6 +3367,8 @@ func (m *StringField) validate(all bool) error {
 		}
 
 	}
+
+	// no validation rules for SuggestedValue
 
 	if m.Rules != nil {
 

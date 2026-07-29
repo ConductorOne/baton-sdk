@@ -79,6 +79,8 @@ var connectorCallMethods = []string{
 
 // IsSyncPreservable returns true if the error returned by Sync() means that the sync artifact is useful.
 // This either means that there was no error, or that the error is recoverable (we can resume the sync and possibly succeed next time).
+// Timeouts (context.DeadlineExceeded or codes.DeadlineExceeded, e.g. an AWS Lambda hard timeout) are
+// preservable because the sync can resume from the checkpoint.
 func IsSyncPreservable(err error) bool {
 	if err == nil {
 		return true
@@ -87,6 +89,11 @@ func IsSyncPreservable(err error) bool {
 	// ErrTooManyWarnings means we hit too many warnings.
 	// Both are recoverable errors.
 	if errors.Is(err, ErrSyncNotComplete) || errors.Is(err, ErrTooManyWarnings) {
+		return true
+	}
+	// A wrapped bare context deadline error carries no gRPC status
+	// (status.FromError does not map context.DeadlineExceeded), so check it explicitly.
+	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 	statusErr, ok := status.FromError(err)
@@ -101,7 +108,8 @@ func IsSyncPreservable(err error) bool {
 		codes.FailedPrecondition,
 		codes.Aborted,
 		codes.Unavailable,
-		codes.Unauthenticated:
+		codes.Unauthenticated,
+		codes.DeadlineExceeded:
 		return true
 	default:
 		return false
@@ -142,36 +150,102 @@ type syncer struct {
 	store                               c1zstore.Store
 	externalResourceReader              connectorstore.Reader
 	previousSyncReader                  connectorstore.Reader
-	connector                           types.ConnectorClient
-	state                               State
-	runDuration                         time.Duration
-	transitionHandler                   func(s Action)
-	progressHandler                     func(p *Progress)
-	tmpDir                              string
-	storageEngine                       c1zstore.Engine
-	skipFullSync                        bool
-	lastCheckPointTime                  time.Time
-	counts                              *progresslog.ProgressLog
-	targetedSyncResources               []*v2.Resource
-	onlyExpandGrants                    bool
-	dontExpandGrants                    bool
-	checkpointEntitlementGraph          bool
-	syncID                              string
-	skipEGForResourceType               syncMap[string, bool]
-	skipEntitlementsForResourceType     syncMap[string, bool]
-	scheduledResourceTypes              syncMap[string, bool]
-	ingestFilterStats                   ingestFilterStats
-	skipEntitlementsAndGrants           bool
-	skipGrants                          bool
-	resourceTypeTraits                  syncMap[string, []v2.ResourceType_Trait]
-	syncType                            connectorstore.SyncType
-	injectSyncIDAnnotation              bool
-	setSessionStore                     sessions.SetSessionStore
-	syncResourceTypes                   []string
-	workerCount                         int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
-	metricsHandler                      metrics.Handler
-	syncIdentity                        uotel.SyncIdentity
-	recordStats                         bool
+	// Ingestion-invariant state (see ingest_invariants.go):
+	// childSchedule is the monotone record backing invariant I4;
+	// resourcesPhaseRanHere gates I4 to processes that actually ran the
+	// resources phase; failFastInvariants promotes every invariant
+	// verdict to a hard, plainly-attributed sync failure — tolerated
+	// warns fail — and enables I4 (skipped entirely in default mode).
+	// Tests and equivalence harnesses set it; production default
+	// follows the per-invariant policy in the verdict table
+	// (ingestInvariants).
+	childSchedule         childScheduleSet
+	resourcesPhaseRanHere bool
+	failFastInvariants    bool
+	// expandDropStats aggregates expansion edges dropped over missing
+	// entitlements across the whole sync (see expand.DroppedEdgeStats);
+	// summarized once when expansion completes.
+	expandDropStats *expand.DroppedEdgeStats
+	// testIngestHaltHook, when non-nil, fires at named seams of the
+	// ingestion-invariant pass (see ingestInvariantHaltStages);
+	// returning an error fails the sync at exactly that boundary. The
+	// halt sweep uses it to prove crash/resume equivalence at every
+	// ordering-sensitive point. Nil in production: one pointer check.
+	testIngestHaltHook func(stage string) error
+	// pendingInvariantVerification is the verification a successful
+	// runIngestionInvariants staged, awaiting persistence by
+	// persistIngestInvariantVerification AFTER EndSync. Deferring the
+	// write keeps the marker off unfinished syncs: a crash before the
+	// seal leaves the artifact unverified instead of claiming
+	// verification over data a resume will rewrite.
+	pendingInvariantVerification *c1zstore.IngestInvariantVerification
+	// checkpointInterval throttles non-forced checkpoints (default
+	// minCheckpointInterval). The checkpoint-cut verification harness
+	// sets it to zero so every loop-top checkpoint durably commits,
+	// making each one an enumerable crash-cut point.
+	checkpointInterval time.Duration
+	// testCheckpointHook, when non-nil, observes every durably written
+	// checkpoint token. The cut harness uses it to count checkpoints
+	// and to simulate a crash immediately after a chosen one. Nil in
+	// production: one pointer check.
+	testCheckpointHook func(token string)
+	// testQueueAudit, when non-nil, records every parallelActionQueue
+	// event (seed/dequeue/commit/abort/done) for post-hoc verification
+	// of the queue contract. Nil in production: one pointer check per
+	// queue operation.
+	testQueueAudit        *queueAudit
+	connector             types.ConnectorClient
+	state                 State
+	runDuration           time.Duration
+	transitionHandler     func(s Action)
+	progressHandler       func(p *Progress)
+	tmpDir                string
+	storageEngine         c1zstore.Engine
+	skipFullSync          bool
+	lastCheckPointTime    time.Time
+	counts                *progresslog.ProgressLog
+	targetedSyncResources []*v2.Resource
+	onlyExpandGrants      bool
+	// compactionMergedStore marks the store as a pre-sealed artifact
+	// this process did not collect (WithCompactionMergedStore — the
+	// compactor's keep-newer merge and rollback-expansion's replay):
+	// invariant verdicts attribute merge-manufactured shapes to the
+	// merge and soften hard arms to aggregated warnings. Distinct from
+	// onlyExpandGrants, which changes WHAT syncs and carries no
+	// invariant policy on its own.
+	compactionMergedStore                 bool
+	dontExpandGrants                      bool
+	checkpointEntitlementGraph            bool
+	syncID                                string
+	skipEGForResourceType                 syncMap[string, bool]
+	skipEntitlementsForResourceType       syncMap[string, bool]
+	typeScopedGrantsForResourceType       syncMap[string, bool]
+	typeScopedEntitlementsForResourceType syncMap[string, bool]
+	scheduledResourceTypes                syncMap[string, bool]
+	ingestFilterStats                     ingestFilterStats
+	skipEntitlementsAndGrants             bool
+	skipGrants                            bool
+	resourceTypeTraits                    syncMap[string, []v2.ResourceType_Trait]
+	syncType                              connectorstore.SyncType
+	injectSyncIDAnnotation                bool
+	setSessionStore                       sessions.SetSessionStore
+	syncResourceTypes                     []string
+	workerCount                           int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
+	metricsHandler                        metrics.Handler
+	syncIdentity                          uotel.SyncIdentity
+	recordStats                           bool
+	// parallelActionTransitioner atomically commits parent pagination and
+	// spawned work to state and the active worker pool.
+	parallelTransitionMu       native_sync.RWMutex
+	parallelActionTransitioner func(context.Context, *Action, string, []Action) error
+
+	// Watermark for the rate_limit_wait_wall bucket: the latest instant
+	// already counted as rate-limit-blocked wall time, plus the
+	// sub-millisecond remainder not yet flushed to the state bucket.
+	// Guarded by rlWallMu; see recordRateLimitWallInterval.
+	rlWallMu           native_sync.Mutex
+	rlWallCoveredUntil time.Time
+	rlWallCarry        time.Duration
 }
 
 var _ Syncer = (*syncer)(nil)
@@ -355,7 +429,7 @@ const minCheckpointInterval = 10 * time.Second
 
 // Checkpoint marshals the current state and stores it.
 func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
-	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < minCheckpointInterval {
+	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < s.checkpointInterval {
 		return nil
 	}
 	start := time.Now()
@@ -376,6 +450,9 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	err = s.store.CheckpointSync(ctx, checkpoint)
 	if err != nil {
 		return err
+	}
+	if s.testCheckpointHook != nil {
+		s.testCheckpointHook(checkpoint)
 	}
 
 	return nil
@@ -450,7 +527,7 @@ func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 		key := strings.ReplaceAll(bucket, "-", "_")
 		attrs = append(attrs, attribute.Int64("sync.step."+key+".duration_ms", stepDurations[bucket]))
 	}
-	for _, waitBucket := range []string{"checkpoint", "rate_limit_wait", "retry_wait"} {
+	for _, waitBucket := range []string{"checkpoint", "rate_limit_wait", "retry_wait", "rate_limit_wait_wall"} {
 		key := strings.ReplaceAll(waitBucket, "-", "_")
 		attrs = append(attrs, attribute.Int64("sync.step."+key+".duration_ms", stepDurations[waitBucket]))
 	}
@@ -483,6 +560,11 @@ func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 		zap.Any("connector_call_stats", flatCalls),
 		zap.Uint64("completed_actions", s.state.GetCompletedActionsCount()),
 		zap.Int("worker_count", s.workerCount),
+	}
+	// Prefer identity from WithSyncIdentity so dashboards can group by
+	// catalog_name (platform context often has catalog_id but not the name).
+	if s.syncIdentity.CatalogName != "" {
+		fields = append(fields, zap.String("catalog_name", s.syncIdentity.CatalogName))
 	}
 	if len(waits) > 0 {
 		fields = append(fields, zap.Any("sync_step_wait_ms", waits))
@@ -550,6 +632,41 @@ func (s *syncer) recordSessionUsage(annos []*anypb.Any) {
 	}
 }
 
+// recordConnectorWaitReport folds a connector-reported RateLimitWaitReport
+// response annotation into rate_limit_wait. This surfaces sleeps that happen
+// inside the connector process (client-side rate-limit prevention, in-SDK 429
+// backoff) which the syncer cannot observe directly — including across
+// process/lambda boundaries where context-based observers don't reach.
+// Attributed to the action's resource type like retry and gate waits.
+func (s *syncer) recordConnectorWaitReport(annos []*anypb.Any, resourceTypeID string) {
+	if !s.recordStats || len(annos) == 0 || s.state == nil {
+		return
+	}
+	report := &v2.RateLimitWaitReport{}
+	respAnnos := annotations.Annotations(annos)
+	ok, err := respAnnos.Pick(report)
+	if err != nil || !ok {
+		return
+	}
+	waitMs := report.GetWaitMs()
+	if waitMs <= 0 {
+		return
+	}
+	// The report crosses a process boundary; a buggy connector can send
+	// anything. Clamp to a day per response so a garbage value can't
+	// overflow time.Duration and subtract from the buckets.
+	const maxWaitReportMs = int64(24 * time.Hour / time.Millisecond)
+	if waitMs > maxWaitReportMs {
+		waitMs = maxWaitReportMs
+	}
+	wait := time.Duration(waitMs) * time.Millisecond
+	s.state.AddStepDuration("rate_limit_wait", wait)
+	if resourceTypeID != "" {
+		s.state.AddStepDuration("rate_limit_wait:"+resourceTypeID, wait)
+	}
+	s.recordRateLimitWallInterval(wait)
+}
+
 func (s *syncer) returnSyncError(l *zap.Logger, span trace.Span, err error) error {
 	if err == nil || !s.recordStats || s.state == nil || errors.Is(err, ErrSyncNotComplete) {
 		return err
@@ -572,84 +689,66 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 	}
 }
 
+func collectionProgressIncrement(action *Action, itemCount int, hasNextPage bool) (int, bool) {
+	if action.TypeScoped {
+		return itemCount, true
+	}
+	if !hasNextPage && !action.Spawned {
+		return 1, false
+	}
+	return 0, false
+}
+
+func (s *syncer) markTypeScopedPlanned(action *Action) {
+	action.TypeScopedPlanned = true
+	if st, ok := s.state.(*state); ok {
+		st.markTypeScopedPlanned(action.ID)
+	}
+}
+
 // maxEntitlementsPerExclusionGroup caps how many entitlements may share a
-// single exclusion_group_id. Phase 1 limit.
+// single exclusion_group_id. Phase 1 limit. Enforced by ingestion
+// invariant I5 over the STORED entitlement keyspace post-collection
+// (ingest_invariants.go) — the former page-level streaming validation
+// could not see rows a non-stream ingestion path wrote.
 const maxEntitlementsPerExclusionGroup = 50
-
-// recordEntitlementExclusionGroup enforces the invariants on an exclusion
-// group membership: a given exclusion_group_id must stay within one resource
-// type, a group may have at most one entitlement marked is_default, and a group
-// may contain at most maxEntitlementsPerExclusionGroup entitlements. Empty
-// group ids are treated as "no exclusion group" and skipped.
-func (s *syncer) recordEntitlementExclusionGroup(eg *v2.EntitlementExclusionGroup, entitlementID, resourceTypeID string) error {
-	groupID := eg.GetExclusionGroupId()
-	if groupID == "" {
-		return nil
-	}
-	if existing, conflict := s.state.CheckAndSetExclusionGroupResourceType(groupID, resourceTypeID); conflict {
-		return fmt.Errorf("exclusion group %q is used on multiple resource types (%q and %q); "+
-			"exclusion groups may span resources but must be scoped to a single resource type",
-			groupID, existing, resourceTypeID)
-	}
-	if eg.GetIsDefault() {
-		if existing, conflict := s.state.CheckAndSetExclusionGroupDefault(groupID, entitlementID); conflict {
-			return fmt.Errorf("exclusion group %q has multiple default entitlements (%q and %q); "+
-				"at most one entitlement per exclusion group may set is_default=true",
-				groupID, existing, entitlementID)
-		}
-	}
-	if count := s.state.IncrementExclusionGroupCount(groupID); count > maxEntitlementsPerExclusionGroup {
-		return fmt.Errorf("exclusion group %q has too many entitlements (%d); "+
-			"at most %d entitlements are allowed per exclusion group",
-			groupID, count, maxEntitlementsPerExclusionGroup)
-	}
-	return nil
-}
-
-// validateEntitlementExclusionGroups picks the exclusion group annotation off
-// each entitlement (if present) and forwards to recordEntitlementExclusionGroup.
-// Use this on lists of entitlements that may independently carry exclusion
-// group annotations (e.g., the dynamic ListEntitlements path); callers that
-// already have the annotation in hand should call recordEntitlementExclusionGroup
-// directly to avoid the per-entitlement Pick.
-func (s *syncer) validateEntitlementExclusionGroups(ents []*v2.Entitlement) error {
-	for _, ent := range ents {
-		eg := &v2.EntitlementExclusionGroup{}
-		entAnnos := annotations.Annotations(ent.GetAnnotations())
-		ok, err := entAnnos.Pick(eg)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			continue
-		}
-		if err := s.recordEntitlementExclusionGroup(eg, ent.GetId(), ent.GetResource().GetId().GetResourceType()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // nextPageOrFinishAction updates the action with the next page token, or if there is no next page, finishes the action.
 // It also pushes any child actions before updating/finishing the action.
 // This is useful for pagination, and for actions that create other actions.
 func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nextPageToken string, childActions ...Action) error {
+	s.parallelTransitionMu.RLock()
+	transitioner := s.parallelActionTransitioner
+	s.parallelTransitionMu.RUnlock()
+	if transitioner != nil {
+		return transitioner(ctx, action, nextPageToken, childActions)
+	}
+
+	_, err := s.transitionActionState(ctx, action, nextPageToken, childActions)
+	return err
+}
+
+func (s *syncer) transitionActionState(
+	ctx context.Context,
+	action *Action,
+	nextPageToken string,
+	childActions []Action,
+) ([]*Action, error) {
+	if st, ok := s.state.(*state); ok {
+		return st.transitionAction(ctx, action, nextPageToken, childActions)
+	}
 	if nextPageToken != "" {
-		err := s.state.NextPage(ctx, action.ID, nextPageToken)
-		if err != nil {
-			return err
+		if err := s.state.NextPage(ctx, action.ID, nextPageToken); err != nil {
+			return nil, err
 		}
 	}
-
-	for _, a := range childActions {
-		s.state.PushAction(ctx, a)
+	for _, child := range childActions {
+		s.state.PushAction(ctx, child)
 	}
-
 	if nextPageToken == "" {
 		s.state.FinishAction(ctx, action)
 	}
-
-	return nil
+	return nil, nil
 }
 
 func isWarning(ctx context.Context, err error) bool {
@@ -734,6 +833,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
+	// Rate-limit gates below the syncer (the SDK client interceptor, the
+	// hosted connector manager) sleep before issuing requests. Those sleeps
+	// are invisible to the retryer, so have them report here to land in the
+	// rate_limit_wait bucket alongside retry backoff.
+	ctx = s.withRateLimitWaitObserver(ctx)
+
 	if s.skipFullSync {
 		return s.SkipSync(ctx)
 	}
@@ -782,6 +887,13 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	// Validate any targeted resource IDs before starting a sync.
 	targetedResources := []*v2.Resource{}
+	type targetedResourceKey struct {
+		resourceTypeID       string
+		resourceID           string
+		parentResourceTypeID string
+		parentResourceID     string
+	}
+	seenTargetedResources := make(map[targetedResourceKey]struct{}, len(s.targetedSyncResources))
 	for _, r := range s.targetedSyncResources {
 		if len(s.syncResourceTypes) > 0 {
 			if _, ok := syncResourceTypeMap[r.GetId().GetResourceType()]; !ok {
@@ -789,6 +901,16 @@ func (s *syncer) Sync(ctx context.Context) error {
 			}
 		}
 
+		key := targetedResourceKey{
+			resourceTypeID:       r.GetId().GetResourceType(),
+			resourceID:           r.GetId().GetResource(),
+			parentResourceTypeID: r.GetParentResourceId().GetResourceType(),
+			parentResourceID:     r.GetParentResourceId().GetResource(),
+		}
+		if _, ok := seenTargetedResources[key]; ok {
+			continue
+		}
+		seenTargetedResources[key] = struct{}{}
 		targetedResources = append(targetedResources, r)
 	}
 
@@ -811,6 +933,20 @@ func (s *syncer) Sync(ctx context.Context) error {
 		l.Debug("beginning new sync", zap.String("sync_id", syncID))
 	} else {
 		l.Debug("resuming previous sync", zap.String("sync_id", syncID))
+	}
+
+	// Every run that reaches collection rewrites sync-scoped data, so no
+	// prior verification may survive into the window where the store is
+	// being mutated. New syncs carry no marker (no-op); the case that
+	// matters is a rebound, already-sealed sync (WithSyncID — e.g. the
+	// compactor's expansion pass, or a reused syncer): without this, its
+	// stale marker would read as verified while collection rewrites the
+	// data underneath it. The invariant pass re-stages and the marker is
+	// re-persisted after EndSync.
+	if w, ok := s.store.SyncMeta().(c1zstore.IngestInvariantVerificationWriter); ok {
+		if err := w.ClearIngestInvariantVerification(ctx, syncID); err != nil {
+			return s.returnSyncError(l, span, fmt.Errorf("clear prior ingest invariant verification: %w", err))
+		}
 	}
 
 	currentStep, err := s.store.CurrentSyncStep(ctx)
@@ -876,9 +1012,25 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	s.logIngestFilterSummary(ctx)
 
+	// Post-collection ingestion invariants (ingest_invariants.go): every
+	// ingestion path has finished writing, so the store-derived
+	// definitions of the sync's side effects are checkable. Runs before
+	// EndSync so a violating sync is never sealed as complete.
+	if err := s.runIngestionInvariants(ctx); err != nil {
+		return s.returnSyncError(l, span, err)
+	}
+	if s.testIngestHaltHook != nil {
+		// The seam AFTER the invariant pass and BEFORE the
+		// checkpoint/EndSync below: a resumed sync re-runs the whole
+		// invariant pass over the same state, so every check must be
+		// idempotent.
+		if err := s.testIngestHaltHook(haltStageInvariantsComplete); err != nil {
+			return s.returnSyncError(l, span, err)
+		}
+	}
+
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
 	s.state.ClearEntitlementGraph(ctx)
-	s.state.ClearExclusionGroupTracking(ctx)
 
 	err = s.Checkpoint(ctx, true)
 	if err != nil {
@@ -898,6 +1050,20 @@ func (s *syncer) Sync(ctx context.Context) error {
 	err = s.store.EndSync(ctx)
 	if err != nil {
 		return s.returnSyncError(l, span, err)
+	}
+
+	// The sync is sealed: publish the verification the invariant pass
+	// staged. Marking only after EndSync keeps the marker off unfinished
+	// syncs; a crash in the sealed-but-unmarked window reads as an
+	// unverified legacy artifact (fail-closed).
+	//
+	// Log-only on failure: EndSync was the last mutation allowed to fail
+	// the sync. The artifact is complete and an absent marker is safe by
+	// design, while a returned error here would read as a FAILED sync —
+	// IsSyncPreservable callers would discard a finished artifact and a
+	// retry would re-collect from scratch over it.
+	if err := s.persistIngestInvariantVerification(ctx); err != nil {
+		l.Warn("failed to persist ingest invariant verification; the sealed sync remains unverified", zap.Error(err))
 	}
 
 	if s.recordStats {
@@ -928,45 +1094,50 @@ func (s *syncer) Sync(ctx context.Context) error {
 	return nil
 }
 
-func (s *syncer) SkipSync(ctx context.Context) error {
+func (s *syncer) SkipSync(ctx context.Context) (err error) {
 	ctx, span := tracer.Start(ctx, "syncer.SkipSync")
 	uotel.SetSyncIdentityAttrs(ctx, span)
-	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 	l.Info("skipping sync")
 
+	runCtx := ctx
 	var runCanc context.CancelFunc
 	if s.runDuration > 0 {
-		_, runCanc = context.WithTimeout(ctx, s.runDuration)
+		runCtx, runCanc = context.WithTimeout(ctx, s.runDuration)
 	}
 	if runCanc != nil {
 		defer runCanc()
 	}
+	defer func() {
+		if errors.Is(context.Cause(runCtx), context.DeadlineExceeded) {
+			err = errors.Join(err, ErrSyncNotComplete)
+		}
+	}()
 
-	err = s.loadStore(ctx)
+	err = s.loadStore(runCtx)
 	if err != nil {
 		return err
 	}
 
-	_, err = s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
+	_, err = s.connector.Validate(runCtx, &v2.ConnectorServiceValidateRequest{})
 	if err != nil {
 		return err
 	}
 
 	// TODO: Create a new sync type for empty syncs.
-	_, err = s.store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	_, err = s.store.StartNewSync(runCtx, connectorstore.SyncTypeFull, "")
 	if err != nil {
 		return err
 	}
 
-	err = s.store.EndSync(ctx)
+	err = s.store.EndSync(runCtx)
 	if err != nil {
 		return err
 	}
 
-	err = s.store.Cleanup(ctx)
+	err = s.store.Cleanup(runCtx)
 	if err != nil {
 		return err
 	}
@@ -984,6 +1155,7 @@ func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.Resou
 				ActiveSyncId: s.getActiveSyncID(),
 			}.Build())
 			s.observeConnectorCall(ctx, "list-resource-types", start, "", "")
+			s.recordConnectorWaitReport(resp.GetAnnotations(), "")
 			if err != nil {
 				_ = yield(nil, err)
 				return
@@ -1020,6 +1192,7 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 		ActiveSyncId: s.getActiveSyncID(),
 	}.Build())
 	s.observeConnectorCall(ctx, "list-resource-types", start, action.ResourceTypeID, action.ResourceID)
+	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
 		return err
 	}
@@ -1092,34 +1265,92 @@ func (s *syncer) hasChildResources(resource *v2.Resource) bool {
 // At sync scale (100k+ resources per trace) the span overhead and trace bloat
 // outweighed any debugging value.
 func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error {
-	syncResourceTypeMap := make(map[string]bool)
-	for _, rt := range s.syncResourceTypes {
-		syncResourceTypeMap[rt] = true
+	actions, err := s.subResourceActions(parent)
+	if err != nil {
+		return err
 	}
+	for _, action := range actions {
+		s.state.PushAction(ctx, action)
+	}
+	return nil
+}
 
+func (s *syncer) subResourceActions(parent *v2.Resource) ([]Action, error) {
+	childTypeIDs, err := childResourceTypeIDs(parent)
+	if err != nil {
+		return nil, err
+	}
+	return s.childResourceActions(childTypeIDs, parent.GetId().GetResourceType(), parent.GetId().GetResource()), nil
+}
+
+func childResourceTypeIDs(parent *v2.Resource) ([]string, error) {
+	var childTypeIDs []string
 	for _, a := range parent.GetAnnotations() {
 		if a.MessageIs((*v2.ChildResourceType)(nil)) {
 			crt := &v2.ChildResourceType{}
 			err := a.UnmarshalTo(crt)
 			if err != nil {
-				return err
+				return nil, err
 			}
-			if len(s.syncResourceTypes) > 0 {
-				if shouldSync := syncResourceTypeMap[crt.GetResourceTypeId()]; !shouldSync {
-					continue
-				}
-			}
-			childAction := Action{
-				Op:                   SyncResourcesOp,
-				ResourceTypeID:       crt.GetResourceTypeId(),
-				ParentResourceID:     parent.GetId().GetResource(),
-				ParentResourceTypeID: parent.GetId().GetResourceType(),
-			}
-			s.state.PushAction(ctx, childAction)
+			childTypeIDs = append(childTypeIDs, crt.GetResourceTypeId())
 		}
 	}
+	return childTypeIDs, nil
+}
 
-	return nil
+// pushChildResourceActions queues child resource syncs for one parent,
+// honoring the sync's resource-type filter. Factored out of
+// getSubResources so any ingestion path that discovers a parent
+// resource can schedule its children through the same evidence-recorded
+// seam.
+func (s *syncer) pushChildResourceActions(ctx context.Context, childTypeIDs []string, parentTypeID, parentID string) {
+	for _, action := range s.childResourceActions(childTypeIDs, parentTypeID, parentID) {
+		s.state.PushAction(ctx, action)
+	}
+}
+
+func (s *syncer) childResourceActions(childTypeIDs []string, parentTypeID, parentID string) []Action {
+	var actions []Action
+	for _, childTypeID := range childTypeIDs {
+		if len(s.syncResourceTypes) > 0 && !slices.Contains(s.syncResourceTypes, childTypeID) {
+			continue
+		}
+		// Monotone evidence for ingestion invariant I4 (see
+		// ingest_invariants.go), doubling as the per-sync scheduling
+		// dedupe: a parent discovered more than once in one sync
+		// schedules its children exactly once. In-memory, so a resumed
+		// process re-schedules — the existing at-least-once semantic,
+		// just not N-times-per-sync.
+		if !s.childSchedule.recordIfNew(childTypeID, parentTypeID, parentID) {
+			continue
+		}
+		actions = append(actions, Action{
+			Op:                   SyncResourcesOp,
+			ResourceTypeID:       childTypeID,
+			ParentResourceID:     parentID,
+			ParentResourceTypeID: parentTypeID,
+		})
+	}
+	return actions
+}
+
+func (s *syncer) pendingChildResourceActions(childTypeIDs []string, parentTypeID, parentID string) []Action {
+	var actions []Action
+	for _, childTypeID := range childTypeIDs {
+		if len(s.syncResourceTypes) > 0 && !slices.Contains(s.syncResourceTypes, childTypeID) {
+			continue
+		}
+		if s.childSchedule.has(childTypeID, parentTypeID, parentID) {
+			continue
+		}
+		actions = append(actions, Action{
+			Op:                   SyncResourcesOp,
+			ResourceTypeID:       childTypeID,
+			ParentResourceID:     parentID,
+			ParentResourceTypeID: parentTypeID,
+		})
+	}
+	return actions
 }
 
 func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
@@ -1136,6 +1367,7 @@ func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.Re
 		}.Build(),
 	)
 	s.observeConnectorCall(ctx, "get-resource", start, resourceID.GetResourceType(), resourceID.GetResource())
+	s.recordConnectorWaitReport(resourceResp.GetAnnotations(), resourceID.GetResourceType())
 	if err == nil {
 		return resourceResp.GetResource(), nil
 	}
@@ -1183,8 +1415,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 
 	// If getResource encounters not found or unimplemented, it returns a nil resource and nil error.
 	if resource == nil {
-		s.state.FinishAction(ctx, action)
-		return nil
+		return s.nextPageOrFinishAction(ctx, action, "")
 	}
 
 	// Save our resource in the DB
@@ -1192,20 +1423,30 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 		return err
 	}
 
-	s.state.FinishAction(ctx, action)
-
 	// Actions happen in reverse order. We want to sync child resources, then entitlements, then grants
+	var followupActions []Action
 
 	shouldSkipGrants, err := s.shouldSkipGrants(ctx, resource)
 	if err != nil {
 		return err
 	}
 	if !shouldSkipGrants {
-		s.state.PushAction(ctx, Action{
-			Op:             SyncGrantsOp,
-			ResourceTypeID: resourceTypeID,
-			ResourceID:     resourceID,
-		})
+		// INTENTIONAL: no per-resource grants action for type-scoped
+		// types, and no type-scoped replacement either. Targeted sync
+		// syncs the resource (and children) only; whole-type grant
+		// enumeration is left to a full grants phase. See the TARGETED
+		// SYNC contract in annotation_type_scoped_grants.proto.
+		typeScopedGrants, err := s.resourceTypeHasTypeScopedGrants(ctx, resourceTypeID)
+		if err != nil {
+			return err
+		}
+		if !typeScopedGrants {
+			followupActions = append(followupActions, Action{
+				Op:             SyncGrantsOp,
+				ResourceTypeID: resourceTypeID,
+				ResourceID:     resourceID,
+			})
+		}
 	}
 
 	shouldSkipEnts, err := s.shouldSkipEntitlements(ctx, resource)
@@ -1214,18 +1455,36 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 	}
 
 	if !shouldSkipEnts {
-		s.state.PushAction(ctx, Action{
-			Op:             SyncEntitlementsOp,
-			ResourceTypeID: resourceTypeID,
-			ResourceID:     resourceID,
-		})
+		// INTENTIONAL: same as grants above — type-scoped entitlement
+		// enumeration is deferred to a full entitlements phase. See the
+		// TARGETED SYNC contract in
+		// annotation_type_scoped_entitlements.proto.
+		typeScopedEnts, err := s.resourceTypeHasTypeScopedEntitlements(ctx, resourceTypeID)
+		if err != nil {
+			return err
+		}
+		if !typeScopedEnts {
+			followupActions = append(followupActions, Action{
+				Op:             SyncEntitlementsOp,
+				ResourceTypeID: resourceTypeID,
+				ResourceID:     resourceID,
+			})
+		}
 	}
 
-	err = s.getSubResources(ctx, resource)
+	childTypeIDs, err := childResourceTypeIDs(resource)
 	if err != nil {
 		return err
 	}
+	childActions := s.pendingChildResourceActions(childTypeIDs, resourceTypeID, resourceID)
+	followupActions = append(followupActions, childActions...)
 
+	if err := s.nextPageOrFinishAction(ctx, action, "", followupActions...); err != nil {
+		return err
+	}
+	for _, childAction := range childActions {
+		s.childSchedule.recordIfNew(childAction.ResourceTypeID, childAction.ParentResourceTypeID, childAction.ParentResourceID)
+	}
 	return nil
 }
 
@@ -1241,6 +1500,10 @@ func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
 		if action.PageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing resources...")
 			s.handleInitialActionForStep(ctx, *action)
+			// Ingestion invariant I4 is only verifiable when the
+			// resources phase started in THIS process (the scheduled
+			// set is in-memory); see ingest_invariants.go.
+			s.resourcesPhaseRanHere = true
 		}
 
 		resp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
@@ -1290,6 +1553,7 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 	resp, err := s.connector.ListResources(ctx, req)
 	s.observeConnectorCall(ctx, "list-resources", start, action.ResourceTypeID, action.ResourceID)
 	s.recordSessionUsage(resp.GetAnnotations())
+	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
 		return err
 	}
@@ -1489,8 +1753,8 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bo
 	return skipEntitlements, nil
 }
 
-// SyncEntitlements fetches the entitlements from the connector. It first lists each resource from the datastore,
-// and pushes an action to fetch the entitlements for each resource.
+// SyncEntitlements fetches entitlements. Annotated resource types receive one
+// type-scoped action instead of a per-resource fan-out.
 func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -1498,34 +1762,64 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" && action.ResourceID == "" {
+		actions := make([]Action, 0)
 		pageToken := action.PageToken
+		plannedTypeScoped := false
 
 		if pageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing entitlements...")
 			s.handleInitialActionForStep(ctx, *action)
 		}
 
-		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		if !action.TypeScopedPlanned {
+			typeScoped, typeScopedErr := s.typeScopedEntitlementsResourceTypes(ctx)
+			if typeScopedErr != nil {
+				err = fmt.Errorf("sync-entitlements: error listing type-scoped resource types: %w", typeScopedErr)
+				return err
+			}
+			for _, rtID := range typeScoped {
+				actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceTypeID: rtID, TypeScoped: true})
+			}
+			plannedTypeScoped = true
+		}
+
+		resp, listResourcesErr := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 			PageToken:    pageToken,
 			ActiveSyncId: s.getActiveSyncID(),
 		}.Build())
-		if err != nil {
+		if listResourcesErr != nil {
+			err = listResourcesErr
 			return err
 		}
 
-		actions := make([]Action, 0)
 		for _, r := range resp.GetList() {
-			shouldSkipEntitlements, err := s.shouldSkipEntitlements(ctx, r)
-			if err != nil {
+			shouldSkipEntitlements, shouldSkipErr := s.shouldSkipEntitlements(ctx, r)
+			if shouldSkipErr != nil {
+				err = shouldSkipErr
 				return err
 			}
 			if shouldSkipEntitlements {
 				continue
 			}
+			typeScoped, typeScopedErr := s.resourceTypeHasTypeScopedEntitlements(ctx, r.GetId().GetResourceType())
+			if typeScopedErr != nil {
+				err = typeScopedErr
+				return err
+			}
+			if typeScoped {
+				continue
+			}
 			actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 		}
 
-		return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...)
+		if nextPageErr := s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...); nextPageErr != nil {
+			err = nextPageErr
+			return err
+		}
+		if plannedTypeScoped {
+			s.markTypeScopedPlanned(action)
+		}
+		return nil
 	}
 
 	err = s.syncEntitlementsForResource(ctx, action)
@@ -1536,41 +1830,57 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 	return nil
 }
 
+func (s *syncer) resourceTypeHasTypeScopedEntitlements(ctx context.Context, resourceTypeID string) (bool, error) {
+	return s.resourceTypeCarries(ctx, resourceTypeID, &v2.TypeScopedEntitlements{}, &s.typeScopedEntitlementsForResourceType)
+}
+
+func (s *syncer) typeScopedEntitlementsResourceTypes(ctx context.Context) ([]string, error) {
+	return s.resourceTypesCarrying(ctx, &v2.TypeScopedEntitlements{}, &s.typeScopedEntitlementsForResourceType)
+}
+
 // syncEntitlementsForResource fetches the entitlements for a specific resource from the connector.
 // No span here: only call site is SyncEntitlements, which already owns a span.
 func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action) error {
+	typeScoped := action.TypeScoped
 	resourceID := v2.ResourceId_builder{
 		ResourceType: action.ResourceTypeID,
 		Resource:     action.ResourceID,
 	}.Build()
-	resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
-		ResourceId: resourceID,
-	}.Build())
-	if err != nil {
-		return err
-	}
 
-	resource := resourceResponse.GetResource()
+	var resource *v2.Resource
+	var reqAnnos annotations.Annotations
+	if typeScoped {
+		resource, reqAnnos = typeScopedRequestStub(action.ResourceTypeID, &v2.TypeScopedEntitlements{})
+	} else {
+		resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: resourceID,
+		}.Build())
+		if err != nil {
+			return err
+		}
+		resource = resourceResponse.GetResource()
+	}
 
 	start := time.Now()
 	resp, err := s.connector.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 		Resource:     resource,
 		PageToken:    action.PageToken,
 		ActiveSyncId: s.getActiveSyncID(),
+		Annotations:  reqAnnos,
 	}.Build())
 	s.observeConnectorCall(ctx, "list-entitlements", start, action.ResourceTypeID, action.ResourceID)
 	s.recordSessionUsage(resp.GetAnnotations())
+	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
 		return err
 	}
-	// Filter before exclusion-group validation: a dropped entitlement must not
-	// mutate exclusion-group state or fail the sync as if it had been ingested.
+	// Filter before the put: a dropped entitlement must never be
+	// ingested (exclusion-group validation happens post-collection over
+	// the STORED keyspace — ingestion invariant I5 — so filtered rows
+	// are invisible to it by construction).
 	entitlements, err := s.filterFreshEntitlements(ctx, resp.GetList())
 	if err != nil {
 		return fmt.Errorf("sync-entitlements: filtering disabled-type references: %w", err)
-	}
-	if err := s.validateEntitlementExclusionGroups(entitlements); err != nil {
-		return err
 	}
 	err = s.store.PutEntitlements(ctx, entitlements...)
 	if err != nil {
@@ -1578,12 +1888,20 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	}
 
 	s.handleProgress(ctx, action, len(entitlements))
-	if resp.GetNextPageToken() == "" {
-		s.counts.AddEntitlementsProgress(resourceID.ResourceType, 1)
+	progressIncrement, countOnly := collectionProgressIncrement(action, len(entitlements), resp.GetNextPageToken() != "")
+	if countOnly {
+		s.counts.SetEntitlementsCountOnly(resourceID.GetResourceType())
+	}
+	if progressIncrement > 0 || countOnly {
+		s.counts.AddEntitlementsProgress(resourceID.GetResourceType(), progressIncrement)
 		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
 	}
 
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
+	spawned, err := s.collectEnqueuedPageTokens(ctx, "sync-entitlements", SyncEntitlementsOp, action, annotations.Annotations(resp.GetAnnotations()))
+	if err != nil {
+		return err
+	}
+	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), spawned...)
 }
 
 func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) error {
@@ -1626,6 +1944,7 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 	}.Build())
 	s.observeConnectorCall(ctx, "list-static-entitlements", start, action.ResourceTypeID, action.ResourceID)
 	s.recordSessionUsage(resp.GetAnnotations())
+	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
 		// Ignore prefixError if we're calling a lambda with an old version of baton-sdk.
 		if strings.Contains(err.Error(), `unable to resolve \"type.googleapis.com/c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest\": \"not found\"","errorType":"prefixError"`) {
@@ -1676,11 +1995,6 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 				}
 
 				entID := entitlement.NewEntitlementID(resource, ent.GetSlug())
-				if hasExclusionGroup {
-					if err := s.recordEntitlementExclusionGroup(exclusionGroup, entID, resource.GetId().GetResourceType()); err != nil {
-						return err
-					}
-				}
 
 				entitlements = append(entitlements, &v2.Entitlement{
 					Resource:    resource,
@@ -1917,6 +2231,13 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, action *Action, graph
 				// Only skip not-found entitlements; propagate other errors
 				// to avoid silently dropping edges and yielding incorrect expansions.
 				if status.Code(err) == codes.NotFound {
+					// Counted on the same sync-wide aggregate as the
+					// expander's drops (this seam was previously
+					// Debug-only — invisible in production).
+					if s.expandDropStats == nil {
+						s.expandDropStats = &expand.DroppedEdgeStats{}
+					}
+					s.expandDropStats.RecordSourceMissing(srcEntitlementID)
 					l.Debug("source entitlement not found, skipping edge",
 						zap.String("src_entitlement_id", srcEntitlementID),
 						zap.String("dst_entitlement_id", dstEntitlementID),
@@ -1994,8 +2315,8 @@ func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.En
 	return graph.FixCyclesFromComponents(ctx, comps)
 }
 
-// SyncGrants fetches the grants for each resource from the connector. It iterates each resource
-// from the datastore, and pushes a new action to sync the grants for each individual resource.
+// SyncGrants fetches grants. Annotated resource types receive one type-scoped
+// action instead of a per-resource fan-out.
 func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrants")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -2003,33 +2324,63 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" && action.ResourceID == "" {
+		actions := make([]Action, 0)
+		plannedTypeScoped := false
 		if action.PageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing grants...")
 			s.handleInitialActionForStep(ctx, *action)
 		}
 
-		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		if !action.TypeScopedPlanned {
+			typeScoped, typeScopedErr := s.typeScopedGrantsResourceTypes(ctx)
+			if typeScopedErr != nil {
+				err = fmt.Errorf("sync-grants: error listing type-scoped resource types: %w", typeScopedErr)
+				return err
+			}
+			for _, rtID := range typeScoped {
+				actions = append(actions, Action{Op: SyncGrantsOp, ResourceTypeID: rtID, TypeScoped: true})
+			}
+			plannedTypeScoped = true
+		}
+
+		resp, listResourcesErr := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 			PageToken:    action.PageToken,
 			ActiveSyncId: s.getActiveSyncID(),
 		}.Build())
-		if err != nil {
-			return fmt.Errorf("sync-grants: error listing resources: %w", err)
+		if listResourcesErr != nil {
+			err = fmt.Errorf("sync-grants: error listing resources: %w", listResourcesErr)
+			return err
 		}
 
-		actions := make([]Action, 0)
 		for _, r := range resp.GetList() {
-			shouldSkip, err := s.shouldSkipGrants(ctx, r)
-			if err != nil {
+			shouldSkip, shouldSkipErr := s.shouldSkipGrants(ctx, r)
+			if shouldSkipErr != nil {
+				err = shouldSkipErr
 				return err
 			}
 
 			if shouldSkip {
 				continue
 			}
+			typeScoped, typeScopedErr := s.resourceTypeHasTypeScopedGrants(ctx, r.GetId().GetResourceType())
+			if typeScopedErr != nil {
+				err = typeScopedErr
+				return err
+			}
+			if typeScoped {
+				continue
+			}
 			actions = append(actions, Action{Op: SyncGrantsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 		}
 
-		return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...)
+		if nextPageErr := s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...); nextPageErr != nil {
+			err = nextPageErr
+			return err
+		}
+		if plannedTypeScoped {
+			s.markTypeScopedPlanned(action)
+		}
+		return nil
 	}
 	err = s.syncGrantsForResource(ctx, action)
 	if err != nil {
@@ -2039,30 +2390,47 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	return nil
 }
 
+func (s *syncer) resourceTypeHasTypeScopedGrants(ctx context.Context, resourceTypeID string) (bool, error) {
+	return s.resourceTypeCarries(ctx, resourceTypeID, &v2.TypeScopedGrants{}, &s.typeScopedGrantsForResourceType)
+}
+
+func (s *syncer) typeScopedGrantsResourceTypes(ctx context.Context) ([]string, error) {
+	return s.resourceTypesCarrying(ctx, &v2.TypeScopedGrants{}, &s.typeScopedGrantsForResourceType)
+}
+
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
 // No span here: only call site is SyncGrants, which already owns a span.
 func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) error {
+	typeScoped := action.TypeScoped
 	resourceID := v2.ResourceId_builder{
 		ResourceType: action.ResourceTypeID,
 		Resource:     action.ResourceID,
 	}.Build()
-	resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
-		ResourceId: resourceID,
-	}.Build())
-	if err != nil {
-		return fmt.Errorf("sync-grants-for-resource: error getting resource: %w", err)
-	}
 
-	resource := resourceResponse.GetResource()
+	var resource *v2.Resource
+	var reqAnnos annotations.Annotations
+	if typeScoped {
+		resource, reqAnnos = typeScopedRequestStub(action.ResourceTypeID, &v2.TypeScopedGrants{})
+	} else {
+		resourceResponse, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: resourceID,
+		}.Build())
+		if err != nil {
+			return fmt.Errorf("sync-grants-for-resource: error getting resource: %w", err)
+		}
+		resource = resourceResponse.GetResource()
+	}
 
 	start := time.Now()
 	resp, err := s.connector.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 		Resource:     resource,
 		PageToken:    action.PageToken,
 		ActiveSyncId: s.getActiveSyncID(),
+		Annotations:  reqAnnos,
 	}.Build())
 	s.observeConnectorCall(ctx, "list-grants", start, action.ResourceTypeID, action.ResourceID)
 	s.recordSessionUsage(resp.GetAnnotations())
+	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
 		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", err)
 	}
@@ -2181,12 +2549,20 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 
 	s.handleProgress(ctx, action, len(grants))
 
-	if resp.GetNextPageToken() == "" {
-		s.counts.AddGrantsProgress(resourceID.GetResourceType(), 1)
+	progressIncrement, countOnly := collectionProgressIncrement(action, len(grants), resp.GetNextPageToken() != "")
+	if countOnly {
+		s.counts.SetGrantsCountOnly(resourceID.GetResourceType())
+	}
+	if progressIncrement > 0 || countOnly {
+		s.counts.AddGrantsProgress(resourceID.GetResourceType(), progressIncrement)
 		s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
 	}
 
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
+	spawned, err := s.collectEnqueuedPageTokens(ctx, "sync-grants-for-resource", SyncGrantsOp, action, respAnnos)
+	if err != nil {
+		return err
+	}
+	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), spawned...)
 }
 
 func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) error {
@@ -2891,7 +3267,11 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context, action *Action
 	// The expander needs Reader methods (on s.store) plus StoreExpandedGrants
 	// (on s.store.Grants()). An inline adapter composes them so expand
 	// stays decoupled from C1ZStore.
+	if s.expandDropStats == nil {
+		s.expandDropStats = &expand.DroppedEdgeStats{}
+	}
 	expander := expand.NewExpander(expanderStoreAdapter{s.store}, graph)
+	expander.SetDropStats(s.expandDropStats)
 	err = expander.RunSingleStep(ctx)
 	if err != nil {
 		l.Error("expandGrantsForEntitlements: error during expansion", zap.Error(err))
@@ -2905,6 +3285,9 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context, action *Action
 
 	if expander.IsDone(ctx) {
 		l.Debug("expandGrantsForEntitlements: graph is expanded")
+		// The sync's one aggregated dropped-edge report (totals +
+		// distinct-id examples) — per-edge drops log at Debug only.
+		s.expandDropStats.LogSummary(ctx)
 		s.state.FinishAction(ctx, action)
 	}
 
@@ -3087,6 +3470,20 @@ func WithStorageEngine(engine c1zstore.Engine) SyncOpt {
 	}
 }
 
+// WithFailFastInvariants promotes every ingestion-invariant verdict
+// (see ingest_invariants.go) to a hard, plainly-attributed sync
+// failure: tolerated warns fail, and I4 (skipped in default mode)
+// runs. Tests and equivalence harnesses enable it; production default
+// follows the per-invariant policy in the verdict table
+// (ingestInvariants) — aggregated warnings with attribution for
+// dangling references, hard failure for I5 and I3's
+// InsertResourceGrants arm.
+func WithFailFastInvariants() SyncOpt {
+	return func(s *syncer) {
+		s.failFastInvariants = true
+	}
+}
+
 // WithSkipFullSync skips syncing entirely.
 func WithSkipFullSync() SyncOpt {
 	return func(s *syncer) {
@@ -3173,6 +3570,24 @@ func WithSyncResourceTypes(resourceTypeIDs []string) SyncOpt {
 func WithOnlyExpandGrants() SyncOpt {
 	return func(s *syncer) {
 		s.onlyExpandGrants = true
+	}
+}
+
+// WithCompactionMergedStore marks the store under this sync as a
+// pre-sealed artifact this process did not collect — the compactor's
+// keep-newer merge, or rollback-expansion's replay over an existing
+// c1z (whose inputs include such merges). The ingestion invariants
+// (ingest_invariants.go) then attribute merge-manufactured shapes —
+// dangling references, stranded InsertResourceGrants rows,
+// exclusion-group conflicts unioned from different input generations —
+// to the merge instead of the connector, and soften the corresponding
+// hard arms to aggregated warnings (fail-fast still promotes). The
+// hard arms exist to stop a NEW collection from sealing bad data;
+// passes over already-sealed artifacts observe and attribute instead.
+// A normal connector sync must never set this.
+func WithCompactionMergedStore() SyncOpt {
+	return func(s *syncer) {
+		s.compactionMergedStore = true
 	}
 }
 
@@ -3283,9 +3698,10 @@ func WithSyncIdentity(id uotel.SyncIdentity) SyncOpt {
 // NewSyncer returns a new syncer object.
 func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
 	s := &syncer{
-		connector:   c,
-		syncType:    connectorstore.SyncTypeFull,
-		workerCount: 1,
+		connector:          c,
+		syncType:           connectorstore.SyncTypeFull,
+		workerCount:        1,
+		checkpointInterval: minCheckpointInterval,
 	}
 
 	for _, o := range opts {

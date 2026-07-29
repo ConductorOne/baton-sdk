@@ -157,6 +157,9 @@ func NewStore(ctx context.Context, outputFilePath string, opts ...C1ZOption) (c1
 	if err != nil {
 		return nil, err
 	}
+	// Ensure c1z decompression honors caller cancellation. Prepended so an
+	// explicit WithDecoderOptions(WithContext(...)) from the caller still wins.
+	options.decoderOptions = append([]DecoderOption{WithContext(ctx)}, options.decoderOptions...)
 	driver, err := selectStoreDriver(ctx, outputFilePath, options)
 	if err != nil {
 		return nil, err

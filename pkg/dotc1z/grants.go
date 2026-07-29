@@ -514,7 +514,7 @@ func (c *C1File) upsertGrants(ctx context.Context, opts grantUpsertOptions, bulk
 		return err
 	}
 
-	c.dbUpdated = true
+	c.dbUpdated.Store(true)
 	return nil
 }
 

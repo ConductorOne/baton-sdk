@@ -140,3 +140,54 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 	require.NoError(t, err, "Failed to normalize json")
 	require.Equal(t, n1, n2, "Expected JSON: \n%s\n\n but got: \n%s\n", n1, n2)
 }
+
+func TestSuggestedValue(t *testing.T) {
+	// A field configured with WithSuggestedValue should export the suggested
+	// value in the distinct suggested_value field (so the GUI pre-populates it)
+	// while leaving the schema default_value empty. The runtime/flag default
+	// (DefaultValue) also stays at the type's zero value.
+	suggested := StringSliceField("noun", WithSuggestedValue([]string{"space"}))
+
+	require.Empty(t, suggested.DefaultValue, "SuggestedValue must leave the runtime DefaultValue at its zero value")
+
+	// Runtime/flag default path: unchanged, so nothing gets injected at runtime.
+	runtimeDefault, err := GetDefaultValue[[]string](suggested)
+	require.NoError(t, err)
+	require.Empty(t, *runtimeDefault, "runtime default should be empty for a suggested-only field")
+
+	v1, err := schemaFieldToV1(suggested)
+	require.NoError(t, err)
+	// suggested_value carries the suggestion; default_value stays empty (no
+	// longer folded together).
+	require.Empty(t, v1.GetStringSliceField().GetDefaultValue(), "default_value must be empty for a suggested-only field")
+	require.Equal(t, []string{"space"}, v1.GetStringSliceField().GetSuggestedValue())
+}
+
+func TestDefaultValueOnlyExport(t *testing.T) {
+	// A field built with WithDefaultValue exports default_value populated and
+	// suggested_value empty.
+	def := StringSliceField("noun", WithDefaultValue([]string{"runtime"}))
+
+	v1, err := schemaFieldToV1(def)
+	require.NoError(t, err)
+	require.Equal(t, []string{"runtime"}, v1.GetStringSliceField().GetDefaultValue())
+	require.Empty(t, v1.GetStringSliceField().GetSuggestedValue(), "suggested_value must be empty for a default-only field")
+}
+
+func TestSuggestedValuePrecedence(t *testing.T) {
+	// When both are set, WithDefaultValue governs the CLI/runtime flag default
+	// while WithSuggestedValue is exported separately into suggested_value.
+	both := StringSliceField("noun",
+		WithDefaultValue([]string{"runtime"}),
+		WithSuggestedValue([]string{"suggested"}),
+	)
+
+	runtimeDefault, err := GetDefaultValue[[]string](both)
+	require.NoError(t, err)
+	require.Equal(t, []string{"runtime"}, *runtimeDefault)
+
+	v1, err := schemaFieldToV1(both)
+	require.NoError(t, err)
+	require.Equal(t, []string{"runtime"}, v1.GetStringSliceField().GetDefaultValue())
+	require.Equal(t, []string{"suggested"}, v1.GetStringSliceField().GetSuggestedValue())
+}

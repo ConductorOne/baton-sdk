@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -121,9 +122,18 @@ func (c *clientConn) Invoke(ctx context.Context, method string, args any, reply 
 		return status.Errorf(codes.Unknown, "args and reply must satisfy proto.Message")
 	}
 
-	// TODO(morgabra): Should we do some of this stuff? (e.g. detect ctx deadline and set grpc-timeout, etc?)
-	// https://github.com/grpc/grpc-go/blob/9dc22c029c2592b5b6235d9ef6f14d62ecd6a509/internal/transport/http2_client.go#L541
 	md, _ := metadata.FromOutgoingContext(ctx)
+
+	// Propagate the context deadline to the server via the grpc-timeout header,
+	// mirroring grpc-go's HTTP/2 transport behavior.
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout := time.Until(deadline)
+		if timeout <= 0 {
+			return status.Errorf(codes.DeadlineExceeded, "context deadline exceeded before invoking method %s", method)
+		}
+		md = md.Copy()
+		md.Set("grpc-timeout", encodeTimeout(timeout))
+	}
 
 	treq, err := NewRequest(method, req, md)
 	if err != nil {

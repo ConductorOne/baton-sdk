@@ -2021,87 +2021,78 @@ func TestSyncGrants_DoesNotPropagateAnnotationWhenAbsent(t *testing.T) {
 	}
 }
 
-func TestValidateEntitlementExclusionGroups(t *testing.T) {
+// TestExclusionGroupTracker exercises the pure validation core behind
+// ingestion invariant I5 (ingest_invariants.go): one resource type per
+// group, one default per group, size cap. It replaced the page-level
+// streaming validator, so the error-text assertions here pin the
+// messages connectors and operators already know.
+func TestExclusionGroupTracker(t *testing.T) {
 	newEntitlement := func(t *testing.T, rt *v2.ResourceType, resourceID, slug string, opts ...et.EntitlementOption) *v2.Entitlement {
 		t.Helper()
 		r, err := rs.NewResource(resourceID, rt, resourceID)
 		require.NoError(t, err)
 		return et.NewPermissionEntitlement(r, slug, opts...)
 	}
-
-	t.Run("empty input is a no-op", func(t *testing.T) {
-		s := &syncer{state: newState()}
-		require.NoError(t, s.validateEntitlementExclusionGroups(nil))
-	})
+	record := func(tr *exclusionGroupTracker, ents ...*v2.Entitlement) error {
+		for _, ent := range ents {
+			if err := tr.record(ent); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 
 	t.Run("entitlements without exclusion group annotation pass", func(t *testing.T) {
-		s := &syncer{state: newState()}
-		ents := []*v2.Entitlement{
+		tr := &exclusionGroupTracker{}
+		require.NoError(t, record(tr,
 			newEntitlement(t, userResourceType, "user1", "member"),
 			newEntitlement(t, groupResourceType, "group1", "admin"),
-		}
-		require.NoError(t, s.validateEntitlementExclusionGroups(ents))
+		))
 	})
 
 	t.Run("shared group id within one resource type passes", func(t *testing.T) {
-		s := &syncer{state: newState()}
-		ents := []*v2.Entitlement{
+		tr := &exclusionGroupTracker{}
+		require.NoError(t, record(tr,
 			newEntitlement(t, userResourceType, "user1", "viewer", et.WithExclusionGroup("role")),
 			newEntitlement(t, userResourceType, "user2", "editor", et.WithExclusionGroup("role")),
 			newEntitlement(t, userResourceType, "user3", "owner", et.WithExclusionGroup("role")),
-		}
-		require.NoError(t, s.validateEntitlementExclusionGroups(ents))
+		))
 	})
 
 	t.Run("distinct group ids across resource types are independent", func(t *testing.T) {
-		s := &syncer{state: newState()}
-		ents := []*v2.Entitlement{
+		tr := &exclusionGroupTracker{}
+		require.NoError(t, record(tr,
 			newEntitlement(t, userResourceType, "user1", "viewer", et.WithExclusionGroup("user-role")),
 			newEntitlement(t, groupResourceType, "group1", "admin", et.WithExclusionGroup("group-role")),
-		}
-		require.NoError(t, s.validateEntitlementExclusionGroups(ents))
+		))
 	})
 
 	t.Run("same group id on two resource types fails", func(t *testing.T) {
-		s := &syncer{state: newState()}
-		ents := []*v2.Entitlement{
+		tr := &exclusionGroupTracker{}
+		err := record(tr,
 			newEntitlement(t, userResourceType, "user1", "viewer", et.WithExclusionGroup("role")),
 			newEntitlement(t, groupResourceType, "group1", "admin", et.WithExclusionGroup("role")),
-		}
-		err := s.validateEntitlementExclusionGroups(ents)
+		)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `"role"`)
 		require.Contains(t, err.Error(), `"user"`)
 		require.Contains(t, err.Error(), `"group"`)
 	})
 
-	t.Run("cross-resource-type conflict is detected across separate batches via persisted state", func(t *testing.T) {
-		s := &syncer{state: newState()}
-		require.NoError(t, s.validateEntitlementExclusionGroups([]*v2.Entitlement{
-			newEntitlement(t, userResourceType, "user1", "viewer", et.WithExclusionGroup("role")),
-		}))
-		err := s.validateEntitlementExclusionGroups([]*v2.Entitlement{
-			newEntitlement(t, groupResourceType, "group1", "admin", et.WithExclusionGroup("role")),
-		})
-		require.Error(t, err)
-		require.Contains(t, err.Error(), `"role"`)
-	})
-
 	t.Run("single default per group passes", func(t *testing.T) {
-		s := &syncer{state: newState()}
-		ents := []*v2.Entitlement{
+		tr := &exclusionGroupTracker{}
+		require.NoError(t, record(tr,
 			newEntitlement(t, userResourceType, "user1", "viewer", et.WithExclusionGroupDefault("role", 1)),
 			newEntitlement(t, userResourceType, "user2", "editor", et.WithExclusionGroupOrder("role", 2)),
 			newEntitlement(t, userResourceType, "user3", "owner", et.WithExclusionGroupOrder("role", 3)),
-		}
-		require.NoError(t, s.validateEntitlementExclusionGroups(ents))
+		))
 	})
 
 	t.Run("two defaults in the same group fail", func(t *testing.T) {
-		s := &syncer{state: newState()}
+		tr := &exclusionGroupTracker{}
 		viewer := newEntitlement(t, userResourceType, "user1", "viewer", et.WithExclusionGroupDefault("role", 1))
 		editor := newEntitlement(t, userResourceType, "user2", "editor", et.WithExclusionGroupDefault("role", 2))
-		err := s.validateEntitlementExclusionGroups([]*v2.Entitlement{viewer, editor})
+		err := record(tr, viewer, editor)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `"role"`)
 		require.Contains(t, err.Error(), viewer.GetId())
@@ -2109,61 +2100,39 @@ func TestValidateEntitlementExclusionGroups(t *testing.T) {
 		require.Contains(t, err.Error(), "is_default")
 	})
 
-	t.Run("default conflict is detected across separate batches via persisted state", func(t *testing.T) {
-		s := &syncer{state: newState()}
+	t.Run("re-recording the same default is idempotent", func(t *testing.T) {
+		tr := &exclusionGroupTracker{}
 		viewer := newEntitlement(t, userResourceType, "user1", "viewer", et.WithExclusionGroupDefault("role", 1))
-		require.NoError(t, s.validateEntitlementExclusionGroups([]*v2.Entitlement{viewer}))
-		editor := newEntitlement(t, userResourceType, "user2", "editor", et.WithExclusionGroupDefault("role", 2))
-		err := s.validateEntitlementExclusionGroups([]*v2.Entitlement{editor})
-		require.Error(t, err)
-		require.Contains(t, err.Error(), viewer.GetId())
-		require.Contains(t, err.Error(), editor.GetId())
+		require.NoError(t, record(tr, viewer))
+		require.NoError(t, tr.record(viewer))
 	})
 
 	t.Run("defaults in different groups are independent", func(t *testing.T) {
-		s := &syncer{state: newState()}
-		ents := []*v2.Entitlement{
+		tr := &exclusionGroupTracker{}
+		require.NoError(t, record(tr,
 			newEntitlement(t, userResourceType, "user1", "viewer", et.WithExclusionGroupDefault("role-a", 1)),
 			newEntitlement(t, userResourceType, "user2", "admin", et.WithExclusionGroupDefault("role-b", 1)),
-		}
-		require.NoError(t, s.validateEntitlementExclusionGroups(ents))
+		))
 	})
 
 	t.Run("group at the cap passes", func(t *testing.T) {
-		s := &syncer{state: newState()}
-		ents := make([]*v2.Entitlement, 0, maxEntitlementsPerExclusionGroup)
+		tr := &exclusionGroupTracker{}
 		for i := 0; i < maxEntitlementsPerExclusionGroup; i++ {
-			ents = append(ents, newEntitlement(t, userResourceType, fmt.Sprintf("user%d", i), "member", et.WithExclusionGroup("role")))
+			require.NoError(t, tr.record(newEntitlement(t, userResourceType, fmt.Sprintf("user%d", i), "member", et.WithExclusionGroup("role"))))
 		}
-		require.NoError(t, s.validateEntitlementExclusionGroups(ents))
 	})
 
 	t.Run("group over the cap fails", func(t *testing.T) {
-		s := &syncer{state: newState()}
-		ents := make([]*v2.Entitlement, 0, maxEntitlementsPerExclusionGroup+1)
+		tr := &exclusionGroupTracker{}
+		var err error
 		for i := 0; i < maxEntitlementsPerExclusionGroup+1; i++ {
-			ents = append(ents, newEntitlement(t, userResourceType, fmt.Sprintf("user%d", i), "member", et.WithExclusionGroup("role")))
+			err = tr.record(newEntitlement(t, userResourceType, fmt.Sprintf("user%d", i), "member", et.WithExclusionGroup("role")))
+			if err != nil {
+				break
+			}
 		}
-		err := s.validateEntitlementExclusionGroups(ents)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `"role"`)
-		require.Contains(t, err.Error(), "too many entitlements")
-	})
-
-	t.Run("cap is enforced across separate batches via persisted state", func(t *testing.T) {
-		s := &syncer{state: newState()}
-		// First batch fills the group exactly to the cap.
-		first := make([]*v2.Entitlement, 0, maxEntitlementsPerExclusionGroup)
-		for i := 0; i < maxEntitlementsPerExclusionGroup; i++ {
-			first = append(first, newEntitlement(t, userResourceType, fmt.Sprintf("user%d", i), "member", et.WithExclusionGroup("role")))
-		}
-		require.NoError(t, s.validateEntitlementExclusionGroups(first))
-
-		// A later batch adding one more member to the same group pushes it over.
-		err := s.validateEntitlementExclusionGroups([]*v2.Entitlement{
-			newEntitlement(t, userResourceType, "extra", "member", et.WithExclusionGroup("role")),
-		})
-		require.Error(t, err)
 		require.Contains(t, err.Error(), "too many entitlements")
 	})
 }

@@ -18,11 +18,12 @@ import (
 // wrapper structs satisfy each sub-interface. These assertions catch
 // signature drift at build time rather than at the first runtime call.
 var (
-	_ c1zstore.Store      = (*C1File)(nil)
-	_ c1zstore.GrantStore = c1FileGrantStore{}
-	_ c1zstore.SyncMeta   = c1FileSyncMeta{}
-	_ c1zstore.FileOps    = c1FileFileOps{}
-	_ SessionStore        = c1FileSessionStore{}
+	_ c1zstore.Store                             = (*C1File)(nil)
+	_ c1zstore.GrantStore                        = c1FileGrantStore{}
+	_ c1zstore.SyncMeta                          = c1FileSyncMeta{}
+	_ c1zstore.IngestInvariantVerificationWriter = c1FileSyncMeta{}
+	_ c1zstore.FileOps                           = c1FileFileOps{}
+	_ SessionStore                               = c1FileSessionStore{}
 )
 
 // Grants returns the grant-store slice of this c1z.
@@ -273,6 +274,18 @@ type c1FileSyncMeta struct{ c *C1File }
 // MarkSyncSupportsDiff implements SyncMeta. Thin rename over SetSupportsDiff.
 func (s c1FileSyncMeta) MarkSyncSupportsDiff(ctx context.Context, syncID string) error {
 	return s.c.SetSupportsDiff(ctx, syncID)
+}
+
+func (s c1FileSyncMeta) MarkIngestInvariantsVerified(
+	ctx context.Context,
+	syncID string,
+	verification c1zstore.IngestInvariantVerification,
+) error {
+	return s.c.markIngestInvariantsVerified(ctx, syncID, verification)
+}
+
+func (s c1FileSyncMeta) ClearIngestInvariantVerification(ctx context.Context, syncID string) error {
+	return s.c.clearIngestInvariantVerification(ctx, syncID)
 }
 
 // LatestFullSync implements SyncMeta. Returns the most-recent finished

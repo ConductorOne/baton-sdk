@@ -176,6 +176,13 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 		if d != nil {
 			intField.SetDefaultValue(int64(*d))
 		}
+		s, err := GetSuggestedValue[int](f)
+		if err != nil {
+			return nil, err
+		}
+		if s != nil {
+			intField.SetSuggestedValue(int64(*s))
+		}
 
 		field.SetIntField(proto.ValueOrDefault(intField))
 
@@ -188,6 +195,13 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 		if d != nil {
 			boolField.SetDefaultValue(*d)
 		}
+		s, err := GetSuggestedValue[bool](f)
+		if err != nil {
+			return nil, err
+		}
+		if s != nil {
+			boolField.SetSuggestedValue(*s)
+		}
 		field.SetBoolField(proto.ValueOrDefault(boolField))
 	case StringSliceVariant:
 		stringSliceField := v1_conf.StringSliceField_builder{Rules: f.Rules.ss}.Build()
@@ -198,6 +212,13 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 		if d != nil {
 			stringSliceField.SetDefaultValue(*d)
 		}
+		s, err := GetSuggestedValue[[]string](f)
+		if err != nil {
+			return nil, err
+		}
+		if s != nil {
+			stringSliceField.SetSuggestedValue(*s)
+		}
 		field.SetStringSliceField(proto.ValueOrDefault(stringSliceField))
 	case StringMapVariant:
 		stringMapField := v1_conf.StringMapField_builder{Rules: f.Rules.sm}.Build()
@@ -206,21 +227,22 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 			return nil, err
 		}
 		if d != nil {
-			// Convert map[string]any to map[string]*anypb.Any
-			anyMap := make(map[string]*anypb.Any)
-			for k, v := range *d {
-				// Convert the value to a structpb.Value
-				value, err := structpb.NewValue(v)
-				if err != nil {
-					return nil, fmt.Errorf("failed to convert map value to structpb.Value: %w", err)
-				}
-				anyValue, err := anypb.New(value)
-				if err != nil {
-					return nil, fmt.Errorf("failed to convert structpb.Value to Any: %w", err)
-				}
-				anyMap[k] = anyValue
+			anyMap, err := anyMapFromStringMap(*d)
+			if err != nil {
+				return nil, err
 			}
 			stringMapField.SetDefaultValue(anyMap)
+		}
+		s, err := GetSuggestedValue[map[string]any](f)
+		if err != nil {
+			return nil, err
+		}
+		if s != nil {
+			anyMap, err := anyMapFromStringMap(*s)
+			if err != nil {
+				return nil, err
+			}
+			stringMapField.SetSuggestedValue(anyMap)
 		}
 		field.SetStringMapField(proto.ValueOrDefault(stringMapField))
 	case StringVariant:
@@ -231,6 +253,13 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 		}
 		if d != nil {
 			stringField.SetDefaultValue(*d)
+		}
+		sv, err := GetSuggestedValue[string](f)
+		if err != nil {
+			return nil, err
+		}
+		if sv != nil {
+			stringField.SetSuggestedValue(*sv)
 		}
 
 		switch f.ConnectorConfig.FieldType {
@@ -255,4 +284,20 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 	}
 
 	return field, nil
+}
+
+func anyMapFromStringMap(m map[string]any) (map[string]*anypb.Any, error) {
+	anyMap := make(map[string]*anypb.Any, len(m))
+	for k, v := range m {
+		value, err := structpb.NewValue(v)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert map value to structpb.Value: %w", err)
+		}
+		anyValue, err := anypb.New(value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert structpb.Value to Any: %w", err)
+		}
+		anyMap[k] = anyValue
+	}
+	return anyMap, nil
 }

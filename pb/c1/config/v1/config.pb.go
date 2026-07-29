@@ -2180,10 +2180,11 @@ func (b0 ResourceIdSliceField_builder) Build() *ResourceIdSliceField {
 type IntField struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// rules
-	DefaultValue  int64       `protobuf:"varint,1,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
-	Rules         *Int64Rules `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	DefaultValue   int64       `protobuf:"varint,1,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
+	Rules          *Int64Rules `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
+	SuggestedValue int64       `protobuf:"varint,3,opt,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *IntField) Reset() {
@@ -2225,12 +2226,23 @@ func (x *IntField) GetRules() *Int64Rules {
 	return nil
 }
 
+func (x *IntField) GetSuggestedValue() int64 {
+	if x != nil {
+		return x.SuggestedValue
+	}
+	return 0
+}
+
 func (x *IntField) SetDefaultValue(v int64) {
 	x.DefaultValue = v
 }
 
 func (x *IntField) SetRules(v *Int64Rules) {
 	x.Rules = v
+}
+
+func (x *IntField) SetSuggestedValue(v int64) {
+	x.SuggestedValue = v
 }
 
 func (x *IntField) HasRules() bool {
@@ -2248,8 +2260,9 @@ type IntField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	// rules
-	DefaultValue int64
-	Rules        *Int64Rules
+	DefaultValue   int64
+	Rules          *Int64Rules
+	SuggestedValue int64
 }
 
 func (b0 IntField_builder) Build() *IntField {
@@ -2258,15 +2271,17 @@ func (b0 IntField_builder) Build() *IntField {
 	_, _ = b, x
 	x.DefaultValue = b.DefaultValue
 	x.Rules = b.Rules
+	x.SuggestedValue = b.SuggestedValue
 	return m0
 }
 
 type BoolField struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	DefaultValue  bool                   `protobuf:"varint,1,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
-	Rules         *BoolRules             `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"hybrid.v1"`
+	DefaultValue   bool                   `protobuf:"varint,1,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
+	Rules          *BoolRules             `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
+	SuggestedValue bool                   `protobuf:"varint,3,opt,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *BoolField) Reset() {
@@ -2308,12 +2323,23 @@ func (x *BoolField) GetRules() *BoolRules {
 	return nil
 }
 
+func (x *BoolField) GetSuggestedValue() bool {
+	if x != nil {
+		return x.SuggestedValue
+	}
+	return false
+}
+
 func (x *BoolField) SetDefaultValue(v bool) {
 	x.DefaultValue = v
 }
 
 func (x *BoolField) SetRules(v *BoolRules) {
 	x.Rules = v
+}
+
+func (x *BoolField) SetSuggestedValue(v bool) {
+	x.SuggestedValue = v
 }
 
 func (x *BoolField) HasRules() bool {
@@ -2330,8 +2356,9 @@ func (x *BoolField) ClearRules() {
 type BoolField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	DefaultValue bool
-	Rules        *BoolRules
+	DefaultValue   bool
+	Rules          *BoolRules
+	SuggestedValue bool
 }
 
 func (b0 BoolField_builder) Build() *BoolField {
@@ -2340,15 +2367,17 @@ func (b0 BoolField_builder) Build() *BoolField {
 	_, _ = b, x
 	x.DefaultValue = b.DefaultValue
 	x.Rules = b.Rules
+	x.SuggestedValue = b.SuggestedValue
 	return m0
 }
 
 type StringSliceField struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	DefaultValue  []string               `protobuf:"bytes,1,rep,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
-	Rules         *RepeatedStringRules   `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"hybrid.v1"`
+	DefaultValue   []string               `protobuf:"bytes,1,rep,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
+	Rules          *RepeatedStringRules   `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
+	SuggestedValue []string               `protobuf:"bytes,3,rep,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *StringSliceField) Reset() {
@@ -2390,12 +2419,23 @@ func (x *StringSliceField) GetRules() *RepeatedStringRules {
 	return nil
 }
 
+func (x *StringSliceField) GetSuggestedValue() []string {
+	if x != nil {
+		return x.SuggestedValue
+	}
+	return nil
+}
+
 func (x *StringSliceField) SetDefaultValue(v []string) {
 	x.DefaultValue = v
 }
 
 func (x *StringSliceField) SetRules(v *RepeatedStringRules) {
 	x.Rules = v
+}
+
+func (x *StringSliceField) SetSuggestedValue(v []string) {
+	x.SuggestedValue = v
 }
 
 func (x *StringSliceField) HasRules() bool {
@@ -2412,8 +2452,9 @@ func (x *StringSliceField) ClearRules() {
 type StringSliceField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	DefaultValue []string
-	Rules        *RepeatedStringRules
+	DefaultValue   []string
+	Rules          *RepeatedStringRules
+	SuggestedValue []string
 }
 
 func (b0 StringSliceField_builder) Build() *StringSliceField {
@@ -2422,15 +2463,17 @@ func (b0 StringSliceField_builder) Build() *StringSliceField {
 	_, _ = b, x
 	x.DefaultValue = b.DefaultValue
 	x.Rules = b.Rules
+	x.SuggestedValue = b.SuggestedValue
 	return m0
 }
 
 type StringMapField struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	DefaultValue  map[string]*anypb.Any  `protobuf:"bytes,1,rep,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Rules         *StringMapRules        `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"hybrid.v1"`
+	DefaultValue   map[string]*anypb.Any  `protobuf:"bytes,1,rep,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Rules          *StringMapRules        `protobuf:"bytes,2,opt,name=rules,proto3,oneof" json:"rules,omitempty"`
+	SuggestedValue map[string]*anypb.Any  `protobuf:"bytes,3,rep,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *StringMapField) Reset() {
@@ -2472,12 +2515,23 @@ func (x *StringMapField) GetRules() *StringMapRules {
 	return nil
 }
 
+func (x *StringMapField) GetSuggestedValue() map[string]*anypb.Any {
+	if x != nil {
+		return x.SuggestedValue
+	}
+	return nil
+}
+
 func (x *StringMapField) SetDefaultValue(v map[string]*anypb.Any) {
 	x.DefaultValue = v
 }
 
 func (x *StringMapField) SetRules(v *StringMapRules) {
 	x.Rules = v
+}
+
+func (x *StringMapField) SetSuggestedValue(v map[string]*anypb.Any) {
+	x.SuggestedValue = v
 }
 
 func (x *StringMapField) HasRules() bool {
@@ -2494,8 +2548,9 @@ func (x *StringMapField) ClearRules() {
 type StringMapField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	DefaultValue map[string]*anypb.Any
-	Rules        *StringMapRules
+	DefaultValue   map[string]*anypb.Any
+	Rules          *StringMapRules
+	SuggestedValue map[string]*anypb.Any
 }
 
 func (b0 StringMapField_builder) Build() *StringMapField {
@@ -2504,6 +2559,7 @@ func (b0 StringMapField_builder) Build() *StringMapField {
 	_, _ = b, x
 	x.DefaultValue = b.DefaultValue
 	x.Rules = b.Rules
+	x.SuggestedValue = b.SuggestedValue
 	return m0
 }
 
@@ -2600,6 +2656,7 @@ type StringField struct {
 	// only used for FileUpload atm, oneofs are evil
 	AllowedExtensions []string             `protobuf:"bytes,4,rep,name=allowed_extensions,json=allowedExtensions,proto3" json:"allowed_extensions,omitempty"`
 	Options           []*StringFieldOption `protobuf:"bytes,5,rep,name=options,proto3" json:"options,omitempty"`
+	SuggestedValue    string               `protobuf:"bytes,6,opt,name=suggested_value,json=suggestedValue,proto3" json:"suggested_value,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2664,6 +2721,13 @@ func (x *StringField) GetOptions() []*StringFieldOption {
 	return nil
 }
 
+func (x *StringField) GetSuggestedValue() string {
+	if x != nil {
+		return x.SuggestedValue
+	}
+	return ""
+}
+
 func (x *StringField) SetDefaultValue(v string) {
 	x.DefaultValue = v
 }
@@ -2682,6 +2746,10 @@ func (x *StringField) SetAllowedExtensions(v []string) {
 
 func (x *StringField) SetOptions(v []*StringFieldOption) {
 	x.Options = v
+}
+
+func (x *StringField) SetSuggestedValue(v string) {
+	x.SuggestedValue = v
 }
 
 func (x *StringField) HasRules() bool {
@@ -2704,6 +2772,7 @@ type StringField_builder struct {
 	// only used for FileUpload atm, oneofs are evil
 	AllowedExtensions []string
 	Options           []*StringFieldOption
+	SuggestedValue    string
 }
 
 func (b0 StringField_builder) Build() *StringField {
@@ -2715,6 +2784,7 @@ func (b0 StringField_builder) Build() *StringField {
 	x.Type = b.Type
 	x.AllowedExtensions = b.AllowedExtensions
 	x.Options = b.Options
+	x.SuggestedValue = b.SuggestedValue
 	return m0
 }
 
@@ -2817,36 +2887,44 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x14ResourceIdSliceField\x12B\n" +
 	"\rdefault_value\x18\x01 \x03(\v2\x1d.c1.config.v1.ResourceIdFieldR\fdefaultValue\x12@\n" +
 	"\x05rules\x18\x02 \x01(\v2%.c1.config.v1.RepeatedResourceIdRulesH\x00R\x05rules\x88\x01\x01B\b\n" +
-	"\x06_rules\"n\n" +
+	"\x06_rules\"\x97\x01\n" +
 	"\bIntField\x12#\n" +
 	"\rdefault_value\x18\x01 \x01(\x03R\fdefaultValue\x123\n" +
-	"\x05rules\x18\x02 \x01(\v2\x18.c1.config.v1.Int64RulesH\x00R\x05rules\x88\x01\x01B\b\n" +
-	"\x06_rules\"n\n" +
+	"\x05rules\x18\x02 \x01(\v2\x18.c1.config.v1.Int64RulesH\x00R\x05rules\x88\x01\x01\x12'\n" +
+	"\x0fsuggested_value\x18\x03 \x01(\x03R\x0esuggestedValueB\b\n" +
+	"\x06_rules\"\x97\x01\n" +
 	"\tBoolField\x12#\n" +
 	"\rdefault_value\x18\x01 \x01(\bR\fdefaultValue\x122\n" +
-	"\x05rules\x18\x02 \x01(\v2\x17.c1.config.v1.BoolRulesH\x00R\x05rules\x88\x01\x01B\b\n" +
-	"\x06_rules\"\x7f\n" +
+	"\x05rules\x18\x02 \x01(\v2\x17.c1.config.v1.BoolRulesH\x00R\x05rules\x88\x01\x01\x12'\n" +
+	"\x0fsuggested_value\x18\x03 \x01(\bR\x0esuggestedValueB\b\n" +
+	"\x06_rules\"\xa8\x01\n" +
 	"\x10StringSliceField\x12#\n" +
 	"\rdefault_value\x18\x01 \x03(\tR\fdefaultValue\x12<\n" +
-	"\x05rules\x18\x02 \x01(\v2!.c1.config.v1.RepeatedStringRulesH\x00R\x05rules\x88\x01\x01B\b\n" +
-	"\x06_rules\"\xff\x01\n" +
+	"\x05rules\x18\x02 \x01(\v2!.c1.config.v1.RepeatedStringRulesH\x00R\x05rules\x88\x01\x01\x12'\n" +
+	"\x0fsuggested_value\x18\x03 \x03(\tR\x0esuggestedValueB\b\n" +
+	"\x06_rules\"\xb3\x03\n" +
 	"\x0eStringMapField\x12S\n" +
 	"\rdefault_value\x18\x01 \x03(\v2..c1.config.v1.StringMapField.DefaultValueEntryR\fdefaultValue\x127\n" +
-	"\x05rules\x18\x02 \x01(\v2\x1c.c1.config.v1.StringMapRulesH\x00R\x05rules\x88\x01\x01\x1aU\n" +
+	"\x05rules\x18\x02 \x01(\v2\x1c.c1.config.v1.StringMapRulesH\x00R\x05rules\x88\x01\x01\x12Y\n" +
+	"\x0fsuggested_value\x18\x03 \x03(\v20.c1.config.v1.StringMapField.SuggestedValueEntryR\x0esuggestedValue\x1aU\n" +
 	"\x11DefaultValueEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
+	"\x05value\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05value:\x028\x01\x1aW\n" +
+	"\x13SuggestedValueEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
 	"\x05value\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05value:\x028\x01B\b\n" +
 	"\x06_rules\"`\n" +
 	"\x11StringFieldOption\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\x12!\n" +
-	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\"\x8f\x02\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\"\xb8\x02\n" +
 	"\vStringField\x12#\n" +
 	"\rdefault_value\x18\x01 \x01(\tR\fdefaultValue\x124\n" +
 	"\x05rules\x18\x02 \x01(\v2\x19.c1.config.v1.StringRulesH\x00R\x05rules\x88\x01\x01\x121\n" +
 	"\x04type\x18\x03 \x01(\x0e2\x1d.c1.config.v1.StringFieldTypeR\x04type\x12-\n" +
 	"\x12allowed_extensions\x18\x04 \x03(\tR\x11allowedExtensions\x129\n" +
-	"\aoptions\x18\x05 \x03(\v2\x1f.c1.config.v1.StringFieldOptionR\aoptionsB\b\n" +
+	"\aoptions\x18\x05 \x03(\v2\x1f.c1.config.v1.StringFieldOptionR\aoptions\x12'\n" +
+	"\x0fsuggested_value\x18\x06 \x01(\tR\x0esuggestedValueB\b\n" +
 	"\x06_rules*\xc4\x01\n" +
 	"\x0eConstraintKind\x12\x1f\n" +
 	"\x1bCONSTRAINT_KIND_UNSPECIFIED\x10\x00\x12%\n" +
@@ -2862,7 +2940,7 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x1dSTRING_FIELD_TYPE_FILE_UPLOAD\x10\x04B3Z1github.com/conductorone/baton-sdk/pb/c1/config/v1b\x06proto3"
 
 var file_c1_config_v1_config_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_c1_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_c1_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_c1_config_v1_config_proto_goTypes = []any{
 	(ConstraintKind)(0),             // 0: c1.config.v1.ConstraintKind
 	(StringFieldType)(0),            // 1: c1.config.v1.StringFieldType
@@ -2888,14 +2966,15 @@ var file_c1_config_v1_config_proto_goTypes = []any{
 	(*StringFieldOption)(nil),       // 21: c1.config.v1.StringFieldOption
 	(*StringField)(nil),             // 22: c1.config.v1.StringField
 	nil,                             // 23: c1.config.v1.StringMapField.DefaultValueEntry
-	(*anypb.Any)(nil),               // 24: google.protobuf.Any
-	(*ResourceIDRules)(nil),         // 25: c1.config.v1.ResourceIDRules
-	(*RepeatedResourceIdRules)(nil), // 26: c1.config.v1.RepeatedResourceIdRules
-	(*Int64Rules)(nil),              // 27: c1.config.v1.Int64Rules
-	(*BoolRules)(nil),               // 28: c1.config.v1.BoolRules
-	(*RepeatedStringRules)(nil),     // 29: c1.config.v1.RepeatedStringRules
-	(*StringMapRules)(nil),          // 30: c1.config.v1.StringMapRules
-	(*StringRules)(nil),             // 31: c1.config.v1.StringRules
+	nil,                             // 24: c1.config.v1.StringMapField.SuggestedValueEntry
+	(*anypb.Any)(nil),               // 25: google.protobuf.Any
+	(*ResourceIDRules)(nil),         // 26: c1.config.v1.ResourceIDRules
+	(*RepeatedResourceIdRules)(nil), // 27: c1.config.v1.RepeatedResourceIdRules
+	(*Int64Rules)(nil),              // 28: c1.config.v1.Int64Rules
+	(*BoolRules)(nil),               // 29: c1.config.v1.BoolRules
+	(*RepeatedStringRules)(nil),     // 30: c1.config.v1.RepeatedStringRules
+	(*StringMapRules)(nil),          // 31: c1.config.v1.StringMapRules
+	(*StringRules)(nil),             // 32: c1.config.v1.StringRules
 }
 var file_c1_config_v1_config_proto_depIdxs = []int32{
 	5,  // 0: c1.config.v1.Configuration.fields:type_name -> c1.config.v1.Field
@@ -2915,7 +2994,7 @@ var file_c1_config_v1_config_proto_depIdxs = []int32{
 	14, // 14: c1.config.v1.Field.grant_slice_field:type_name -> c1.config.v1.GrantSliceField
 	7,  // 15: c1.config.v1.Resource.resource_id:type_name -> c1.config.v1.ResourceId
 	7,  // 16: c1.config.v1.Resource.parent_resource_id:type_name -> c1.config.v1.ResourceId
-	24, // 17: c1.config.v1.Resource.annotations:type_name -> google.protobuf.Any
+	25, // 17: c1.config.v1.Resource.annotations:type_name -> google.protobuf.Any
 	6,  // 18: c1.config.v1.ResourceField.default_value:type_name -> c1.config.v1.Resource
 	6,  // 19: c1.config.v1.ResourceSliceField.default_value:type_name -> c1.config.v1.Resource
 	10, // 20: c1.config.v1.EntitlementSliceField.default_value:type_name -> c1.config.v1.Entitlement
@@ -2923,23 +3002,25 @@ var file_c1_config_v1_config_proto_depIdxs = []int32{
 	6,  // 22: c1.config.v1.Grant.principal:type_name -> c1.config.v1.Resource
 	13, // 23: c1.config.v1.GrantSliceField.default_value:type_name -> c1.config.v1.Grant
 	7,  // 24: c1.config.v1.ResourceIdField.default_value:type_name -> c1.config.v1.ResourceId
-	25, // 25: c1.config.v1.ResourceIdField.rules:type_name -> c1.config.v1.ResourceIDRules
+	26, // 25: c1.config.v1.ResourceIdField.rules:type_name -> c1.config.v1.ResourceIDRules
 	15, // 26: c1.config.v1.ResourceIdSliceField.default_value:type_name -> c1.config.v1.ResourceIdField
-	26, // 27: c1.config.v1.ResourceIdSliceField.rules:type_name -> c1.config.v1.RepeatedResourceIdRules
-	27, // 28: c1.config.v1.IntField.rules:type_name -> c1.config.v1.Int64Rules
-	28, // 29: c1.config.v1.BoolField.rules:type_name -> c1.config.v1.BoolRules
-	29, // 30: c1.config.v1.StringSliceField.rules:type_name -> c1.config.v1.RepeatedStringRules
+	27, // 27: c1.config.v1.ResourceIdSliceField.rules:type_name -> c1.config.v1.RepeatedResourceIdRules
+	28, // 28: c1.config.v1.IntField.rules:type_name -> c1.config.v1.Int64Rules
+	29, // 29: c1.config.v1.BoolField.rules:type_name -> c1.config.v1.BoolRules
+	30, // 30: c1.config.v1.StringSliceField.rules:type_name -> c1.config.v1.RepeatedStringRules
 	23, // 31: c1.config.v1.StringMapField.default_value:type_name -> c1.config.v1.StringMapField.DefaultValueEntry
-	30, // 32: c1.config.v1.StringMapField.rules:type_name -> c1.config.v1.StringMapRules
-	31, // 33: c1.config.v1.StringField.rules:type_name -> c1.config.v1.StringRules
-	1,  // 34: c1.config.v1.StringField.type:type_name -> c1.config.v1.StringFieldType
-	21, // 35: c1.config.v1.StringField.options:type_name -> c1.config.v1.StringFieldOption
-	24, // 36: c1.config.v1.StringMapField.DefaultValueEntry.value:type_name -> google.protobuf.Any
-	37, // [37:37] is the sub-list for method output_type
-	37, // [37:37] is the sub-list for method input_type
-	37, // [37:37] is the sub-list for extension type_name
-	37, // [37:37] is the sub-list for extension extendee
-	0,  // [0:37] is the sub-list for field type_name
+	31, // 32: c1.config.v1.StringMapField.rules:type_name -> c1.config.v1.StringMapRules
+	24, // 33: c1.config.v1.StringMapField.suggested_value:type_name -> c1.config.v1.StringMapField.SuggestedValueEntry
+	32, // 34: c1.config.v1.StringField.rules:type_name -> c1.config.v1.StringRules
+	1,  // 35: c1.config.v1.StringField.type:type_name -> c1.config.v1.StringFieldType
+	21, // 36: c1.config.v1.StringField.options:type_name -> c1.config.v1.StringFieldOption
+	25, // 37: c1.config.v1.StringMapField.DefaultValueEntry.value:type_name -> google.protobuf.Any
+	25, // 38: c1.config.v1.StringMapField.SuggestedValueEntry.value:type_name -> google.protobuf.Any
+	39, // [39:39] is the sub-list for method output_type
+	39, // [39:39] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_c1_config_v1_config_proto_init() }
@@ -2974,7 +3055,7 @@ func file_c1_config_v1_config_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_config_v1_config_proto_rawDesc), len(file_c1_config_v1_config_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   22,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

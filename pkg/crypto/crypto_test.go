@@ -1,6 +1,7 @@
 package crypto //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -9,6 +10,7 @@ import (
 	"crypto/rsa"
 	"testing"
 
+	filippoage "filippo.io/age"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/require"
 
@@ -16,6 +18,34 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 )
+
+func TestEncryptionManagerEncryptsToAgeRecipient(t *testing.T) {
+	identity, err := filippoage.GenerateHybridIdentity()
+	require.NoError(t, err)
+	manager, err := NewEncryptionManager(nil, []*v2.EncryptionConfig{
+		v2.EncryptionConfig_builder{
+			AgeRecipientConfig: v2.EncryptionConfig_AgeRecipientConfig_builder{
+				Recipient: identity.Recipient().String(),
+			}.Build(),
+		}.Build(),
+	})
+	require.NoError(t, err)
+
+	plaintext := v2.PlaintextData_builder{
+		Name:  "api-key",
+		Bytes: []byte("connector-created-credential"),
+	}.Build()
+	encrypted, err := manager.Encrypt(context.Background(), plaintext)
+	require.NoError(t, err)
+	require.Len(t, encrypted, 1)
+
+	reader, err := filippoage.Decrypt(bytes.NewReader(encrypted[0].GetEncryptedBytes()), identity)
+	require.NoError(t, err)
+	var decrypted bytes.Buffer
+	_, err = decrypted.ReadFrom(reader)
+	require.NoError(t, err)
+	require.Equal(t, plaintext.GetBytes(), decrypted.Bytes())
+}
 
 func marshalJWK(t *testing.T, privKey interface{}) (*v2.EncryptionConfig, *jose.JSONWebKey) {
 	privJWK := &jose.JSONWebKey{Key: privKey}

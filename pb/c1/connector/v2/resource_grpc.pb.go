@@ -558,6 +558,7 @@ var ResourceDeleterService_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	CredentialManagerService_RotateCredential_FullMethodName = "/c1.connector.v2.CredentialManagerService/RotateCredential"
+	CredentialManagerService_IssueCredential_FullMethodName  = "/c1.connector.v2.CredentialManagerService/IssueCredential"
 )
 
 // CredentialManagerServiceClient is the client API for CredentialManagerService service.
@@ -565,6 +566,13 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type CredentialManagerServiceClient interface {
 	RotateCredential(ctx context.Context, in *RotateCredentialRequest, opts ...grpc.CallOption) (*RotateCredentialResponse, error)
+	// IssueCredential mints a NEW credential (key/token) for an EXISTING
+	// identity, returning the new secret as a first-class Resource plus the
+	// encrypted material. Unlike RotateCredential — which replaces the single
+	// credential on a resource in place — IssueCredential models minting an
+	// additional, distinct secret, so an identity can hold multiple coexisting
+	// keys (e.g. cloud service-account key #1 and #2).
+	IssueCredential(ctx context.Context, in *IssueCredentialRequest, opts ...grpc.CallOption) (*IssueCredentialResponse, error)
 }
 
 type credentialManagerServiceClient struct {
@@ -585,11 +593,28 @@ func (c *credentialManagerServiceClient) RotateCredential(ctx context.Context, i
 	return out, nil
 }
 
+func (c *credentialManagerServiceClient) IssueCredential(ctx context.Context, in *IssueCredentialRequest, opts ...grpc.CallOption) (*IssueCredentialResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IssueCredentialResponse)
+	err := c.cc.Invoke(ctx, CredentialManagerService_IssueCredential_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CredentialManagerServiceServer is the server API for CredentialManagerService service.
 // All implementations should embed UnimplementedCredentialManagerServiceServer
 // for forward compatibility.
 type CredentialManagerServiceServer interface {
 	RotateCredential(context.Context, *RotateCredentialRequest) (*RotateCredentialResponse, error)
+	// IssueCredential mints a NEW credential (key/token) for an EXISTING
+	// identity, returning the new secret as a first-class Resource plus the
+	// encrypted material. Unlike RotateCredential — which replaces the single
+	// credential on a resource in place — IssueCredential models minting an
+	// additional, distinct secret, so an identity can hold multiple coexisting
+	// keys (e.g. cloud service-account key #1 and #2).
+	IssueCredential(context.Context, *IssueCredentialRequest) (*IssueCredentialResponse, error)
 }
 
 // UnimplementedCredentialManagerServiceServer should be embedded to have
@@ -601,6 +626,9 @@ type UnimplementedCredentialManagerServiceServer struct{}
 
 func (UnimplementedCredentialManagerServiceServer) RotateCredential(context.Context, *RotateCredentialRequest) (*RotateCredentialResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RotateCredential not implemented")
+}
+func (UnimplementedCredentialManagerServiceServer) IssueCredential(context.Context, *IssueCredentialRequest) (*IssueCredentialResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method IssueCredential not implemented")
 }
 func (UnimplementedCredentialManagerServiceServer) testEmbeddedByValue() {}
 
@@ -640,6 +668,24 @@ func _CredentialManagerService_RotateCredential_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CredentialManagerService_IssueCredential_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IssueCredentialRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CredentialManagerServiceServer).IssueCredential(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CredentialManagerService_IssueCredential_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CredentialManagerServiceServer).IssueCredential(ctx, req.(*IssueCredentialRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CredentialManagerService_ServiceDesc is the grpc.ServiceDesc for CredentialManagerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -650,6 +696,10 @@ var CredentialManagerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RotateCredential",
 			Handler:    _CredentialManagerService_RotateCredential_Handler,
+		},
+		{
+			MethodName: "IssueCredential",
+			Handler:    _CredentialManagerService_IssueCredential_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

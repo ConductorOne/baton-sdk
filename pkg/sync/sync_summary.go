@@ -15,7 +15,7 @@ const sessionStatsLogMinTotalMs = 50
 
 func isWaitStepBucket(bucket string) bool {
 	switch {
-	case bucket == "rate_limit_wait", bucket == "retry_wait":
+	case bucket == "rate_limit_wait", bucket == "retry_wait", bucket == "rate_limit_wait_wall":
 		return true
 	case strings.HasPrefix(bucket, "rate_limit_wait:"), strings.HasPrefix(bucket, "retry_wait:"):
 		return true

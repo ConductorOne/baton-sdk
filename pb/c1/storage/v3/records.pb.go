@@ -21,6 +21,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	unsafe "unsafe"
@@ -89,6 +90,129 @@ func (x SyncType) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
+type StatusRecord_ResourceStatus int32
+
+const (
+	StatusRecord_RESOURCE_STATUS_UNSPECIFIED StatusRecord_ResourceStatus = 0
+	StatusRecord_RESOURCE_STATUS_ENABLED     StatusRecord_ResourceStatus = 1
+	StatusRecord_RESOURCE_STATUS_DISABLED    StatusRecord_ResourceStatus = 2
+	StatusRecord_RESOURCE_STATUS_DELETED     StatusRecord_ResourceStatus = 3
+)
+
+// Enum value maps for StatusRecord_ResourceStatus.
+var (
+	StatusRecord_ResourceStatus_name = map[int32]string{
+		0: "RESOURCE_STATUS_UNSPECIFIED",
+		1: "RESOURCE_STATUS_ENABLED",
+		2: "RESOURCE_STATUS_DISABLED",
+		3: "RESOURCE_STATUS_DELETED",
+	}
+	StatusRecord_ResourceStatus_value = map[string]int32{
+		"RESOURCE_STATUS_UNSPECIFIED": 0,
+		"RESOURCE_STATUS_ENABLED":     1,
+		"RESOURCE_STATUS_DISABLED":    2,
+		"RESOURCE_STATUS_DELETED":     3,
+	}
+)
+
+func (x StatusRecord_ResourceStatus) Enum() *StatusRecord_ResourceStatus {
+	p := new(StatusRecord_ResourceStatus)
+	*p = x
+	return p
+}
+
+func (x StatusRecord_ResourceStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (StatusRecord_ResourceStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_storage_v3_records_proto_enumTypes[1].Descriptor()
+}
+
+func (StatusRecord_ResourceStatus) Type() protoreflect.EnumType {
+	return &file_c1_storage_v3_records_proto_enumTypes[1]
+}
+
+func (x StatusRecord_ResourceStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// StatusRecord mirrors c1.connector.v2.Status. Field numbers and
+// enum values match v2 to keep translation cheap; changes to v2
+// require an explicit mirror update here (no automatic propagation).
+type StatusRecord struct {
+	state  protoimpl.MessageState      `protogen:"hybrid.v1"`
+	Status StatusRecord_ResourceStatus `protobuf:"varint,1,opt,name=status,proto3,enum=c1.storage.v3.StatusRecord_ResourceStatus" json:"status,omitempty"`
+	// Status details, such as "locked by admin" or "deleted by user X".
+	Details       string `protobuf:"bytes,2,opt,name=details,proto3" json:"details,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StatusRecord) Reset() {
+	*x = StatusRecord{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StatusRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StatusRecord) ProtoMessage() {}
+
+func (x *StatusRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *StatusRecord) GetStatus() StatusRecord_ResourceStatus {
+	if x != nil {
+		return x.Status
+	}
+	return StatusRecord_RESOURCE_STATUS_UNSPECIFIED
+}
+
+func (x *StatusRecord) GetDetails() string {
+	if x != nil {
+		return x.Details
+	}
+	return ""
+}
+
+func (x *StatusRecord) SetStatus(v StatusRecord_ResourceStatus) {
+	x.Status = v
+}
+
+func (x *StatusRecord) SetDetails(v string) {
+	x.Details = v
+}
+
+type StatusRecord_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Status StatusRecord_ResourceStatus
+	// Status details, such as "locked by admin" or "deleted by user X".
+	Details string
+}
+
+func (b0 StatusRecord_builder) Build() *StatusRecord {
+	m0 := &StatusRecord{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Status = b.Status
+	x.Details = b.Details
+	return m0
+}
+
 // GrantExpandableRecord mirrors c1.connector.v2.GrantExpandable.
 // Field numbers must match v2; drift detection via CI lint.
 type GrantExpandableRecord struct {
@@ -102,7 +226,7 @@ type GrantExpandableRecord struct {
 
 func (x *GrantExpandableRecord) Reset() {
 	*x = GrantExpandableRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[0]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -114,7 +238,7 @@ func (x *GrantExpandableRecord) String() string {
 func (*GrantExpandableRecord) ProtoMessage() {}
 
 func (x *GrantExpandableRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[0]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -194,7 +318,7 @@ type GrantSourceRecord struct {
 
 func (x *GrantSourceRecord) Reset() {
 	*x = GrantSourceRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[1]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -206,7 +330,7 @@ func (x *GrantSourceRecord) String() string {
 func (*GrantSourceRecord) ProtoMessage() {}
 
 func (x *GrantSourceRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[1]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -304,7 +428,7 @@ type ResourceTypeRecord struct {
 
 func (x *ResourceTypeRecord) Reset() {
 	*x = ResourceTypeRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[2]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -316,7 +440,7 @@ func (x *ResourceTypeRecord) String() string {
 func (*ResourceTypeRecord) ProtoMessage() {}
 
 func (x *ResourceTypeRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[2]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -455,13 +579,25 @@ type ResourceRecord struct {
 	Parent         *ResourceRef           `protobuf:"bytes,6,opt,name=parent,proto3" json:"parent,omitempty"`
 	Annotations    []*anypb.Any           `protobuf:"bytes,7,rep,name=annotations,proto3" json:"annotations,omitempty"`
 	DiscoveredAt   *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=discovered_at,json=discoveredAt,proto3" json:"discovered_at,omitempty"`
+	// Profile of the resource. This is a free-form JSON object that can be used to store any additional metadata about the resource.
+	Profile *structpb.Struct `protobuf:"bytes,9,opt,name=profile,proto3" json:"profile,omitempty"`
+	// Status of the resource.
+	Status *StatusRecord `protobuf:"bytes,10,opt,name=status,proto3" json:"status,omitempty"`
+	// Creation time of the resource, not the record in the c1z file.
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// Source-cache scope stamp (see annotation_source_cache.proto).
+	// Empty for rows not produced under a source-cache scope.
+	// NOTE: the replay reference branch declared this as field 9; it moved
+	// to 12 when profile/status/created_at (9-11) landed on main first.
+	// No artifact was ever written with the old number.
+	SourceScopeKey string `protobuf:"bytes,12,opt,name=source_scope_key,json=sourceScopeKey,proto3" json:"source_scope_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ResourceRecord) Reset() {
 	*x = ResourceRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[3]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -473,7 +609,7 @@ func (x *ResourceRecord) String() string {
 func (*ResourceRecord) ProtoMessage() {}
 
 func (x *ResourceRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[3]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -533,6 +669,34 @@ func (x *ResourceRecord) GetDiscoveredAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ResourceRecord) GetProfile() *structpb.Struct {
+	if x != nil {
+		return x.Profile
+	}
+	return nil
+}
+
+func (x *ResourceRecord) GetStatus() *StatusRecord {
+	if x != nil {
+		return x.Status
+	}
+	return nil
+}
+
+func (x *ResourceRecord) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *ResourceRecord) GetSourceScopeKey() string {
+	if x != nil {
+		return x.SourceScopeKey
+	}
+	return ""
+}
+
 func (x *ResourceRecord) SetResourceTypeId(v string) {
 	x.ResourceTypeId = v
 }
@@ -561,6 +725,22 @@ func (x *ResourceRecord) SetDiscoveredAt(v *timestamppb.Timestamp) {
 	x.DiscoveredAt = v
 }
 
+func (x *ResourceRecord) SetProfile(v *structpb.Struct) {
+	x.Profile = v
+}
+
+func (x *ResourceRecord) SetStatus(v *StatusRecord) {
+	x.Status = v
+}
+
+func (x *ResourceRecord) SetCreatedAt(v *timestamppb.Timestamp) {
+	x.CreatedAt = v
+}
+
+func (x *ResourceRecord) SetSourceScopeKey(v string) {
+	x.SourceScopeKey = v
+}
+
 func (x *ResourceRecord) HasParent() bool {
 	if x == nil {
 		return false
@@ -575,12 +755,45 @@ func (x *ResourceRecord) HasDiscoveredAt() bool {
 	return x.DiscoveredAt != nil
 }
 
+func (x *ResourceRecord) HasProfile() bool {
+	if x == nil {
+		return false
+	}
+	return x.Profile != nil
+}
+
+func (x *ResourceRecord) HasStatus() bool {
+	if x == nil {
+		return false
+	}
+	return x.Status != nil
+}
+
+func (x *ResourceRecord) HasCreatedAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.CreatedAt != nil
+}
+
 func (x *ResourceRecord) ClearParent() {
 	x.Parent = nil
 }
 
 func (x *ResourceRecord) ClearDiscoveredAt() {
 	x.DiscoveredAt = nil
+}
+
+func (x *ResourceRecord) ClearProfile() {
+	x.Profile = nil
+}
+
+func (x *ResourceRecord) ClearStatus() {
+	x.Status = nil
+}
+
+func (x *ResourceRecord) ClearCreatedAt() {
+	x.CreatedAt = nil
 }
 
 type ResourceRecord_builder struct {
@@ -593,6 +806,18 @@ type ResourceRecord_builder struct {
 	Parent         *ResourceRef
 	Annotations    []*anypb.Any
 	DiscoveredAt   *timestamppb.Timestamp
+	// Profile of the resource. This is a free-form JSON object that can be used to store any additional metadata about the resource.
+	Profile *structpb.Struct
+	// Status of the resource.
+	Status *StatusRecord
+	// Creation time of the resource, not the record in the c1z file.
+	CreatedAt *timestamppb.Timestamp
+	// Source-cache scope stamp (see annotation_source_cache.proto).
+	// Empty for rows not produced under a source-cache scope.
+	// NOTE: the replay reference branch declared this as field 9; it moved
+	// to 12 when profile/status/created_at (9-11) landed on main first.
+	// No artifact was ever written with the old number.
+	SourceScopeKey string
 }
 
 func (b0 ResourceRecord_builder) Build() *ResourceRecord {
@@ -606,6 +831,10 @@ func (b0 ResourceRecord_builder) Build() *ResourceRecord {
 	x.Parent = b.Parent
 	x.Annotations = b.Annotations
 	x.DiscoveredAt = b.DiscoveredAt
+	x.Profile = b.Profile
+	x.Status = b.Status
+	x.CreatedAt = b.CreatedAt
+	x.SourceScopeKey = b.SourceScopeKey
 	return m0
 }
 
@@ -632,13 +861,16 @@ type EntitlementRecord struct {
 	// resource_types table when needed. Consumed by
 	// pkg/sync/syncer.go's principal-type narrowing.
 	GrantableToResourceTypeIds []string `protobuf:"bytes,10,rep,name=grantable_to_resource_type_ids,json=grantableToResourceTypeIds,proto3" json:"grantable_to_resource_type_ids,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	// Source-cache scope stamp (see annotation_source_cache.proto).
+	// Empty for rows not produced under a source-cache scope.
+	SourceScopeKey string `protobuf:"bytes,11,opt,name=source_scope_key,json=sourceScopeKey,proto3" json:"source_scope_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *EntitlementRecord) Reset() {
 	*x = EntitlementRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[4]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -650,7 +882,7 @@ func (x *EntitlementRecord) String() string {
 func (*EntitlementRecord) ProtoMessage() {}
 
 func (x *EntitlementRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[4]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -724,6 +956,13 @@ func (x *EntitlementRecord) GetGrantableToResourceTypeIds() []string {
 	return nil
 }
 
+func (x *EntitlementRecord) GetSourceScopeKey() string {
+	if x != nil {
+		return x.SourceScopeKey
+	}
+	return ""
+}
+
 func (x *EntitlementRecord) SetExternalId(v string) {
 	x.ExternalId = v
 }
@@ -758,6 +997,10 @@ func (x *EntitlementRecord) SetSlug(v string) {
 
 func (x *EntitlementRecord) SetGrantableToResourceTypeIds(v []string) {
 	x.GrantableToResourceTypeIds = v
+}
+
+func (x *EntitlementRecord) SetSourceScopeKey(v string) {
+	x.SourceScopeKey = v
 }
 
 func (x *EntitlementRecord) HasResource() bool {
@@ -806,6 +1049,9 @@ type EntitlementRecord_builder struct {
 	// resource_types table when needed. Consumed by
 	// pkg/sync/syncer.go's principal-type narrowing.
 	GrantableToResourceTypeIds []string
+	// Source-cache scope stamp (see annotation_source_cache.proto).
+	// Empty for rows not produced under a source-cache scope.
+	SourceScopeKey string
 }
 
 func (b0 EntitlementRecord_builder) Build() *EntitlementRecord {
@@ -821,6 +1067,7 @@ func (b0 EntitlementRecord_builder) Build() *EntitlementRecord {
 	x.DiscoveredAt = b.DiscoveredAt
 	x.Slug = b.Slug
 	x.GrantableToResourceTypeIds = b.GrantableToResourceTypeIds
+	x.SourceScopeKey = b.SourceScopeKey
 	return m0
 }
 
@@ -846,14 +1093,20 @@ type GrantRecord struct {
 	Annotations    []*anypb.Any           `protobuf:"bytes,8,rep,name=annotations,proto3" json:"annotations,omitempty"`
 	// map<source_entitlement_id, GrantSourceRecord> — same wire shape as
 	// c1.connector.v2.GrantSources.sources.
-	Sources       map[string]*GrantSourceRecord `protobuf:"bytes,9,rep,name=sources,proto3" json:"sources,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Sources map[string]*GrantSourceRecord `protobuf:"bytes,9,rep,name=sources,proto3" json:"sources,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Source-cache scope stamp (see annotation_source_cache.proto).
+	// Empty for rows not produced under a source-cache scope — notably
+	// expander-derived grants, which are recreated by expansion each sync
+	// and never replayed. StoreExpandedGrants preserves this field on
+	// rewrites of existing rows, exactly like expansion/needs_expansion.
+	SourceScopeKey string `protobuf:"bytes,10,opt,name=source_scope_key,json=sourceScopeKey,proto3" json:"source_scope_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GrantRecord) Reset() {
 	*x = GrantRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[5]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -865,7 +1118,7 @@ func (x *GrantRecord) String() string {
 func (*GrantRecord) ProtoMessage() {}
 
 func (x *GrantRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[5]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -932,6 +1185,13 @@ func (x *GrantRecord) GetSources() map[string]*GrantSourceRecord {
 	return nil
 }
 
+func (x *GrantRecord) GetSourceScopeKey() string {
+	if x != nil {
+		return x.SourceScopeKey
+	}
+	return ""
+}
+
 func (x *GrantRecord) SetExternalId(v string) {
 	x.ExternalId = v
 }
@@ -962,6 +1222,10 @@ func (x *GrantRecord) SetAnnotations(v []*anypb.Any) {
 
 func (x *GrantRecord) SetSources(v map[string]*GrantSourceRecord) {
 	x.Sources = v
+}
+
+func (x *GrantRecord) SetSourceScopeKey(v string) {
+	x.SourceScopeKey = v
 }
 
 func (x *GrantRecord) HasEntitlement() bool {
@@ -1032,6 +1296,12 @@ type GrantRecord_builder struct {
 	// map<source_entitlement_id, GrantSourceRecord> — same wire shape as
 	// c1.connector.v2.GrantSources.sources.
 	Sources map[string]*GrantSourceRecord
+	// Source-cache scope stamp (see annotation_source_cache.proto).
+	// Empty for rows not produced under a source-cache scope — notably
+	// expander-derived grants, which are recreated by expansion each sync
+	// and never replayed. StoreExpandedGrants preserves this field on
+	// rewrites of existing rows, exactly like expansion/needs_expansion.
+	SourceScopeKey string
 }
 
 func (b0 GrantRecord_builder) Build() *GrantRecord {
@@ -1046,6 +1316,7 @@ func (b0 GrantRecord_builder) Build() *GrantRecord {
 	x.NeedsExpansion = b.NeedsExpansion
 	x.Annotations = b.Annotations
 	x.Sources = b.Sources
+	x.SourceScopeKey = b.SourceScopeKey
 	return m0
 }
 
@@ -1062,7 +1333,7 @@ type AssetRecord struct {
 
 func (x *AssetRecord) Reset() {
 	*x = AssetRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[6]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1074,7 +1345,7 @@ func (x *AssetRecord) String() string {
 func (*AssetRecord) ProtoMessage() {}
 
 func (x *AssetRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[6]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1177,22 +1448,48 @@ func (b0 AssetRecord_builder) Build() *AssetRecord {
 }
 
 type SyncRunRecord struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	SyncId        string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
-	Type          SyncType               `protobuf:"varint,2,opt,name=type,proto3,enum=c1.storage.v3.SyncType" json:"type,omitempty"`
-	ParentSyncId  string                 `protobuf:"bytes,3,opt,name=parent_sync_id,json=parentSyncId,proto3" json:"parent_sync_id,omitempty"`
-	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	EndedAt       *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
-	SyncToken     string                 `protobuf:"bytes,6,opt,name=sync_token,json=syncToken,proto3" json:"sync_token,omitempty"`
-	SupportsDiff  bool                   `protobuf:"varint,7,opt,name=supports_diff,json=supportsDiff,proto3" json:"supports_diff,omitempty"`
-	LinkedSyncId  string                 `protobuf:"bytes,8,opt,name=linked_sync_id,json=linkedSyncId,proto3" json:"linked_sync_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"hybrid.v1"`
+	SyncId       string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
+	Type         SyncType               `protobuf:"varint,2,opt,name=type,proto3,enum=c1.storage.v3.SyncType" json:"type,omitempty"`
+	ParentSyncId string                 `protobuf:"bytes,3,opt,name=parent_sync_id,json=parentSyncId,proto3" json:"parent_sync_id,omitempty"`
+	StartedAt    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	EndedAt      *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	SyncToken    string                 `protobuf:"bytes,6,opt,name=sync_token,json=syncToken,proto3" json:"sync_token,omitempty"`
+	SupportsDiff bool                   `protobuf:"varint,7,opt,name=supports_diff,json=supportsDiff,proto3" json:"supports_diff,omitempty"`
+	LinkedSyncId string                 `protobuf:"bytes,8,opt,name=linked_sync_id,json=linkedSyncId,proto3" json:"linked_sync_id,omitempty"`
+	// compacted marks a sync produced by compaction (fold or rebuild)
+	// rather than by a real connector run. Compacted artifacts are
+	// keep-newer UPSERT merges — base rows a newer input deleted survive —
+	// so no input sync's upstream validators (source-cache validators) describe
+	// their contents.
+	//
+	// "Can this sync be used as a source-cache replay source?" is the
+	// predicate c1zstore.SyncRun.UsableAsReplaySource: type == FULL and
+	// !compacted. The syncer enforces it — feeding a compacted or
+	// partial/derived sync to WithPreviousSyncC1ZPath degrades to a cold
+	// (full-fetch) sync. Orchestrators deciding which artifact to
+	// materialize as the previous sync should apply the same predicate
+	// instead of guessing from provenance.
+	Compacted bool `protobuf:"varint,9,opt,name=compacted,proto3" json:"compacted,omitempty"`
+	// Persisted proof that the post-collection ingestion-invariant pass
+	// completed successfully before this sync was sealed. Empty generation
+	// means the artifact predates verification metadata (or was produced by a
+	// path that did not run the pass). Coverage names only checks that actually
+	// ran; engines without the inspection surface therefore record a subset
+	// rather than claiming full verification.
+	IngestInvariantGeneration string   `protobuf:"bytes,10,opt,name=ingest_invariant_generation,json=ingestInvariantGeneration,proto3" json:"ingest_invariant_generation,omitempty"`
+	IngestInvariantCoverage   []string `protobuf:"bytes,11,rep,name=ingest_invariant_coverage,json=ingestInvariantCoverage,proto3" json:"ingest_invariant_coverage,omitempty"`
+	// "connector" applies the ordinary connector-ingest verdict policy;
+	// "compaction_merge" applies the policy for a pre-sealed keep-newer merge.
+	// Empty when ingest_invariant_generation is empty.
+	IngestInvariantMode string `protobuf:"bytes,12,opt,name=ingest_invariant_mode,json=ingestInvariantMode,proto3" json:"ingest_invariant_mode,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *SyncRunRecord) Reset() {
 	*x = SyncRunRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[7]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1204,7 +1501,7 @@ func (x *SyncRunRecord) String() string {
 func (*SyncRunRecord) ProtoMessage() {}
 
 func (x *SyncRunRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[7]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1271,6 +1568,34 @@ func (x *SyncRunRecord) GetLinkedSyncId() string {
 	return ""
 }
 
+func (x *SyncRunRecord) GetCompacted() bool {
+	if x != nil {
+		return x.Compacted
+	}
+	return false
+}
+
+func (x *SyncRunRecord) GetIngestInvariantGeneration() string {
+	if x != nil {
+		return x.IngestInvariantGeneration
+	}
+	return ""
+}
+
+func (x *SyncRunRecord) GetIngestInvariantCoverage() []string {
+	if x != nil {
+		return x.IngestInvariantCoverage
+	}
+	return nil
+}
+
+func (x *SyncRunRecord) GetIngestInvariantMode() string {
+	if x != nil {
+		return x.IngestInvariantMode
+	}
+	return ""
+}
+
 func (x *SyncRunRecord) SetSyncId(v string) {
 	x.SyncId = v
 }
@@ -1301,6 +1626,22 @@ func (x *SyncRunRecord) SetSupportsDiff(v bool) {
 
 func (x *SyncRunRecord) SetLinkedSyncId(v string) {
 	x.LinkedSyncId = v
+}
+
+func (x *SyncRunRecord) SetCompacted(v bool) {
+	x.Compacted = v
+}
+
+func (x *SyncRunRecord) SetIngestInvariantGeneration(v string) {
+	x.IngestInvariantGeneration = v
+}
+
+func (x *SyncRunRecord) SetIngestInvariantCoverage(v []string) {
+	x.IngestInvariantCoverage = v
+}
+
+func (x *SyncRunRecord) SetIngestInvariantMode(v string) {
+	x.IngestInvariantMode = v
 }
 
 func (x *SyncRunRecord) HasStartedAt() bool {
@@ -1336,6 +1677,32 @@ type SyncRunRecord_builder struct {
 	SyncToken    string
 	SupportsDiff bool
 	LinkedSyncId string
+	// compacted marks a sync produced by compaction (fold or rebuild)
+	// rather than by a real connector run. Compacted artifacts are
+	// keep-newer UPSERT merges — base rows a newer input deleted survive —
+	// so no input sync's upstream validators (source-cache validators) describe
+	// their contents.
+	//
+	// "Can this sync be used as a source-cache replay source?" is the
+	// predicate c1zstore.SyncRun.UsableAsReplaySource: type == FULL and
+	// !compacted. The syncer enforces it — feeding a compacted or
+	// partial/derived sync to WithPreviousSyncC1ZPath degrades to a cold
+	// (full-fetch) sync. Orchestrators deciding which artifact to
+	// materialize as the previous sync should apply the same predicate
+	// instead of guessing from provenance.
+	Compacted bool
+	// Persisted proof that the post-collection ingestion-invariant pass
+	// completed successfully before this sync was sealed. Empty generation
+	// means the artifact predates verification metadata (or was produced by a
+	// path that did not run the pass). Coverage names only checks that actually
+	// ran; engines without the inspection surface therefore record a subset
+	// rather than claiming full verification.
+	IngestInvariantGeneration string
+	IngestInvariantCoverage   []string
+	// "connector" applies the ordinary connector-ingest verdict policy;
+	// "compaction_merge" applies the policy for a pre-sealed keep-newer merge.
+	// Empty when ingest_invariant_generation is empty.
+	IngestInvariantMode string
 }
 
 func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
@@ -1350,6 +1717,10 @@ func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
 	x.SyncToken = b.SyncToken
 	x.SupportsDiff = b.SupportsDiff
 	x.LinkedSyncId = b.LinkedSyncId
+	x.Compacted = b.Compacted
+	x.IngestInvariantGeneration = b.IngestInvariantGeneration
+	x.IngestInvariantCoverage = b.IngestInvariantCoverage
+	x.IngestInvariantMode = b.IngestInvariantMode
 	return m0
 }
 
@@ -1390,7 +1761,7 @@ type SyncStatsRecord struct {
 
 func (x *SyncStatsRecord) Reset() {
 	*x = SyncStatsRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[8]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1402,7 +1773,7 @@ func (x *SyncStatsRecord) String() string {
 func (*SyncStatsRecord) ProtoMessage() {}
 
 func (x *SyncStatsRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[8]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1629,7 +2000,7 @@ type CallStat struct {
 
 func (x *CallStat) Reset() {
 	*x = CallStat{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[9]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1641,7 +2012,7 @@ func (x *CallStat) String() string {
 func (*CallStat) ProtoMessage() {}
 
 func (x *CallStat) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[9]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1740,7 +2111,7 @@ type SessionRecord struct {
 
 func (x *SessionRecord) Reset() {
 	*x = SessionRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1752,7 +2123,7 @@ func (x *SessionRecord) String() string {
 func (*SessionRecord) ProtoMessage() {}
 
 func (x *SessionRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1817,11 +2188,319 @@ func (b0 SessionRecord_builder) Build() *SessionRecord {
 	return m0
 }
 
+// SourceCacheEntryRecord is the per-scope manifest entry for source-cache
+// replay (see c1/connector/v2/annotation_source_cache.proto). One entry
+// per (row_kind, scope_key), written for every freshly fetched scope —
+// including zero-row responses — and rewritten on replay with the scope's
+// current validator. The previous sync's entries (read from the previous
+// c1z) are the lookup surface connectors revalidate against.
+type SourceCacheEntryRecord struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Row kind partition: "resources", "entitlements", or "grants"
+	// (pkg/sourcecache.RowKind values).
+	RowKind string `protobuf:"bytes,1,opt,name=row_kind,json=rowKind,proto3" json:"row_kind,omitempty"`
+	// Connector-computed stable scope identifier (conventionally lowercase
+	// hex when hashed via sourcecache.HashScope; any byte-stable string).
+	ScopeKey string `protobuf:"bytes,2,opt,name=scope_key,json=scopeKey,proto3" json:"scope_key,omitempty"`
+	// Opaque upstream validator: HTTP ETag, delta token, etc.
+	CacheValidator string                 `protobuf:"bytes,3,opt,name=cache_validator,json=cacheValidator,proto3" json:"cache_validator,omitempty"`
+	DiscoveredAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=discovered_at,json=discoveredAt,proto3" json:"discovered_at,omitempty"`
+	// Set when the dangling-reference drops (ingestion invariants I7/I8/I9,
+	// pkg/sync/ingest_invariants.go) deleted rows stamped with this scope:
+	// the artifact no longer holds the full row set the validator vouches
+	// for, so a future sync must not 304-replay it. Lookups treat an
+	// invalidated entry as a miss (the scope re-fetches cold and converges
+	// with a cold sync); the entry itself is kept so the scope's surviving
+	// stamped rows do not read as an I6 orphan (lost manifest write).
+	Invalidated   bool `protobuf:"varint,5,opt,name=invalidated,proto3" json:"invalidated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SourceCacheEntryRecord) Reset() {
+	*x = SourceCacheEntryRecord{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceCacheEntryRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceCacheEntryRecord) ProtoMessage() {}
+
+func (x *SourceCacheEntryRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *SourceCacheEntryRecord) GetRowKind() string {
+	if x != nil {
+		return x.RowKind
+	}
+	return ""
+}
+
+func (x *SourceCacheEntryRecord) GetScopeKey() string {
+	if x != nil {
+		return x.ScopeKey
+	}
+	return ""
+}
+
+func (x *SourceCacheEntryRecord) GetCacheValidator() string {
+	if x != nil {
+		return x.CacheValidator
+	}
+	return ""
+}
+
+func (x *SourceCacheEntryRecord) GetDiscoveredAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.DiscoveredAt
+	}
+	return nil
+}
+
+func (x *SourceCacheEntryRecord) GetInvalidated() bool {
+	if x != nil {
+		return x.Invalidated
+	}
+	return false
+}
+
+func (x *SourceCacheEntryRecord) SetRowKind(v string) {
+	x.RowKind = v
+}
+
+func (x *SourceCacheEntryRecord) SetScopeKey(v string) {
+	x.ScopeKey = v
+}
+
+func (x *SourceCacheEntryRecord) SetCacheValidator(v string) {
+	x.CacheValidator = v
+}
+
+func (x *SourceCacheEntryRecord) SetDiscoveredAt(v *timestamppb.Timestamp) {
+	x.DiscoveredAt = v
+}
+
+func (x *SourceCacheEntryRecord) SetInvalidated(v bool) {
+	x.Invalidated = v
+}
+
+func (x *SourceCacheEntryRecord) HasDiscoveredAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.DiscoveredAt != nil
+}
+
+func (x *SourceCacheEntryRecord) ClearDiscoveredAt() {
+	x.DiscoveredAt = nil
+}
+
+type SourceCacheEntryRecord_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Row kind partition: "resources", "entitlements", or "grants"
+	// (pkg/sourcecache.RowKind values).
+	RowKind string
+	// Connector-computed stable scope identifier (conventionally lowercase
+	// hex when hashed via sourcecache.HashScope; any byte-stable string).
+	ScopeKey string
+	// Opaque upstream validator: HTTP ETag, delta token, etc.
+	CacheValidator string
+	DiscoveredAt   *timestamppb.Timestamp
+	// Set when the dangling-reference drops (ingestion invariants I7/I8/I9,
+	// pkg/sync/ingest_invariants.go) deleted rows stamped with this scope:
+	// the artifact no longer holds the full row set the validator vouches
+	// for, so a future sync must not 304-replay it. Lookups treat an
+	// invalidated entry as a miss (the scope re-fetches cold and converges
+	// with a cold sync); the entry itself is kept so the scope's surviving
+	// stamped rows do not read as an I6 orphan (lost manifest write).
+	Invalidated bool
+}
+
+func (b0 SourceCacheEntryRecord_builder) Build() *SourceCacheEntryRecord {
+	m0 := &SourceCacheEntryRecord{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.RowKind = b.RowKind
+	x.ScopeKey = b.ScopeKey
+	x.CacheValidator = b.CacheValidator
+	x.DiscoveredAt = b.DiscoveredAt
+	x.Invalidated = b.Invalidated
+	return m0
+}
+
+// SourceCacheCompatRecord is the sync's replay-compatibility key: the
+// exact conditions under which this artifact's source-cache manifest was
+// recorded. A future sync may replay from this artifact ONLY when its
+// own key matches byte-exactly on every component; an absent, unreadable,
+// or mismatched record degrades that sync to cold (no-op lookup).
+// Compatibility is never inferred from versions — each component is an
+// explicit declaration by its owner.
+//
+// One record per sync, written when the write side of the source cache
+// enables (before any manifest entry), cleared by compaction folds with
+// the manifest.
+type SourceCacheCompatRecord struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Fixed singleton id ("compat"); present so the record satisfies the
+	// table shape.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Connector-declared components (SourceCacheCapability annotations):
+	// the connector's cache generation and configuration/permission
+	// fingerprint.
+	ConnectorCacheGeneration   string `protobuf:"bytes,2,opt,name=connector_cache_generation,json=connectorCacheGeneration,proto3" json:"connector_cache_generation,omitempty"`
+	ConnectorConfigFingerprint string `protobuf:"bytes,3,opt,name=connector_config_fingerprint,json=connectorConfigFingerprint,proto3" json:"connector_config_fingerprint,omitempty"`
+	// SDK materialization-policy generation: bumped when the SDK changes
+	// how response rows or their side effects materialize into the store
+	// in a replay-visible way (sourcecache.MaterializationPolicyGeneration).
+	SdkMaterializationGeneration string `protobuf:"bytes,4,opt,name=sdk_materialization_generation,json=sdkMaterializationGeneration,proto3" json:"sdk_materialization_generation,omitempty"`
+	// SDK sync-selection fingerprint: digest of the sync-shaping inputs
+	// (enabled resource types, skip flags) — a selection change means the
+	// prior artifact's scopes cover a different row universe.
+	SyncSelectionFingerprint string `protobuf:"bytes,5,opt,name=sync_selection_fingerprint,json=syncSelectionFingerprint,proto3" json:"sync_selection_fingerprint,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *SourceCacheCompatRecord) Reset() {
+	*x = SourceCacheCompatRecord{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceCacheCompatRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceCacheCompatRecord) ProtoMessage() {}
+
+func (x *SourceCacheCompatRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *SourceCacheCompatRecord) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SourceCacheCompatRecord) GetConnectorCacheGeneration() string {
+	if x != nil {
+		return x.ConnectorCacheGeneration
+	}
+	return ""
+}
+
+func (x *SourceCacheCompatRecord) GetConnectorConfigFingerprint() string {
+	if x != nil {
+		return x.ConnectorConfigFingerprint
+	}
+	return ""
+}
+
+func (x *SourceCacheCompatRecord) GetSdkMaterializationGeneration() string {
+	if x != nil {
+		return x.SdkMaterializationGeneration
+	}
+	return ""
+}
+
+func (x *SourceCacheCompatRecord) GetSyncSelectionFingerprint() string {
+	if x != nil {
+		return x.SyncSelectionFingerprint
+	}
+	return ""
+}
+
+func (x *SourceCacheCompatRecord) SetId(v string) {
+	x.Id = v
+}
+
+func (x *SourceCacheCompatRecord) SetConnectorCacheGeneration(v string) {
+	x.ConnectorCacheGeneration = v
+}
+
+func (x *SourceCacheCompatRecord) SetConnectorConfigFingerprint(v string) {
+	x.ConnectorConfigFingerprint = v
+}
+
+func (x *SourceCacheCompatRecord) SetSdkMaterializationGeneration(v string) {
+	x.SdkMaterializationGeneration = v
+}
+
+func (x *SourceCacheCompatRecord) SetSyncSelectionFingerprint(v string) {
+	x.SyncSelectionFingerprint = v
+}
+
+type SourceCacheCompatRecord_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Fixed singleton id ("compat"); present so the record satisfies the
+	// table shape.
+	Id string
+	// Connector-declared components (SourceCacheCapability annotations):
+	// the connector's cache generation and configuration/permission
+	// fingerprint.
+	ConnectorCacheGeneration   string
+	ConnectorConfigFingerprint string
+	// SDK materialization-policy generation: bumped when the SDK changes
+	// how response rows or their side effects materialize into the store
+	// in a replay-visible way (sourcecache.MaterializationPolicyGeneration).
+	SdkMaterializationGeneration string
+	// SDK sync-selection fingerprint: digest of the sync-shaping inputs
+	// (enabled resource types, skip flags) — a selection change means the
+	// prior artifact's scopes cover a different row universe.
+	SyncSelectionFingerprint string
+}
+
+func (b0 SourceCacheCompatRecord_builder) Build() *SourceCacheCompatRecord {
+	m0 := &SourceCacheCompatRecord{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Id = b.Id
+	x.ConnectorCacheGeneration = b.ConnectorCacheGeneration
+	x.ConnectorConfigFingerprint = b.ConnectorConfigFingerprint
+	x.SdkMaterializationGeneration = b.SdkMaterializationGeneration
+	x.SyncSelectionFingerprint = b.SyncSelectionFingerprint
+	return m0
+}
+
 var File_c1_storage_v3_records_proto protoreflect.FileDescriptor
 
 const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\n" +
-	"\x1bc1/storage/v3/records.proto\x12\rc1.storage.v3\x1a\x1bc1/storage/v3/options.proto\x1a\x18c1/storage/v3/refs.proto\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x86\x01\n" +
+	"\x1bc1/storage/v3/records.proto\x12\rc1.storage.v3\x1a\x1bc1/storage/v3/options.proto\x1a\x18c1/storage/v3/refs.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf8\x01\n" +
+	"\fStatusRecord\x12B\n" +
+	"\x06status\x18\x01 \x01(\x0e2*.c1.storage.v3.StatusRecord.ResourceStatusR\x06status\x12\x18\n" +
+	"\adetails\x18\x02 \x01(\tR\adetails\"\x89\x01\n" +
+	"\x0eResourceStatus\x12\x1f\n" +
+	"\x1bRESOURCE_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17RESOURCE_STATUS_ENABLED\x10\x01\x12\x1c\n" +
+	"\x18RESOURCE_STATUS_DISABLED\x10\x02\x12\x1b\n" +
+	"\x17RESOURCE_STATUS_DELETED\x10\x03\"\x86\x01\n" +
 	"\x15GrantExpandableRecord\x12'\n" +
 	"\x0fentitlement_ids\x18\x01 \x03(\tR\x0eentitlementIds\x12\x18\n" +
 	"\ashallow\x18\x02 \x01(\bR\ashallow\x12*\n" +
@@ -1841,7 +2520,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\rdiscovered_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12 \n" +
 	"\vdescription\x18\a \x01(\tR\vdescription\x12-\n" +
 	"\x12sourced_externally\x18\b \x01(\bR\x11sourcedExternally:!\x82\xf9+\x1d\n" +
-	"\x0eresource_types\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xbc\x03\n" +
+	"\x0eresource_types\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xb8\x05\n" +
 	"\x0eResourceRecord\x12(\n" +
 	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
@@ -1851,8 +2530,15 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x06parent\x18\x06 \x01(\v2\x1a.c1.storage.v3.ResourceRefB.\x8a\xf9+*\n" +
 	"\tby_parent\x1a\x10resource_type_id\x1a\vresource_idR\x06parent\x126\n" +
 	"\vannotations\x18\a \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12?\n" +
-	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:.\x82\xf9+*\n" +
-	"\tresources\x12\x10resource_type_id\x12\vresource_idJ\x04\b\x01\x10\x02R\async_id\"\xfe\x03\n" +
+	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x121\n" +
+	"\aprofile\x18\t \x01(\v2\x17.google.protobuf.StructR\aprofile\x123\n" +
+	"\x06status\x18\n" +
+	" \x01(\v2\x1b.c1.storage.v3.StatusRecordR\x06status\x129\n" +
+	"\n" +
+	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12W\n" +
+	"\x10source_scope_key\x18\f \x01(\tB-\x8a\xf9+)\n" +
+	"\x0fby_source_scope\"\x16source_scope_key != ''R\x0esourceScopeKey:.\x82\xf9+*\n" +
+	"\tresources\x12\x10resource_type_id\x12\vresource_idJ\x04\b\x01\x10\x02R\async_id\"\xd7\x04\n" +
 	"\x11EntitlementRecord\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +
 	"externalId\x12h\n" +
@@ -1865,8 +2551,10 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\rdiscovered_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12\x12\n" +
 	"\x04slug\x18\t \x01(\tR\x04slug\x12B\n" +
 	"\x1egrantable_to_resource_type_ids\x18\n" +
-	" \x03(\tR\x1agrantableToResourceTypeIds:\x1f\x82\xf9+\x1b\n" +
-	"\fentitlements\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\x9a\x06\n" +
+	" \x03(\tR\x1agrantableToResourceTypeIds\x12W\n" +
+	"\x10source_scope_key\x18\v \x01(\tB-\x8a\xf9+)\n" +
+	"\x0fby_source_scope\"\x16source_scope_key != ''R\x0esourceScopeKey:\x1f\x82\xf9+\x1b\n" +
+	"\fentitlements\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xf3\x06\n" +
 	"\vGrantRecord\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +
 	"externalId\x12\x98\x01\n" +
@@ -1879,7 +2567,10 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x0fneeds_expansion\x18\a \x01(\bB0\x8a\xf9+,\n" +
 	"\x12by_needs_expansion\"\x16needs_expansion = trueR\x0eneedsExpansion\x126\n" +
 	"\vannotations\x18\b \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12A\n" +
-	"\asources\x18\t \x03(\v2'.c1.storage.v3.GrantRecord.SourcesEntryR\asources\x1a\\\n" +
+	"\asources\x18\t \x03(\v2'.c1.storage.v3.GrantRecord.SourcesEntryR\asources\x12W\n" +
+	"\x10source_scope_key\x18\n" +
+	" \x01(\tB-\x8a\xf9+)\n" +
+	"\x0fby_source_scope\"\x16source_scope_key != ''R\x0esourceScopeKey\x1a\\\n" +
 	"\fSourcesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x126\n" +
 	"\x05value\x18\x02 \x01(\v2 .c1.storage.v3.GrantSourceRecordR\x05value:\x028\x01:\x19\x82\xf9+\x15\n" +
@@ -1891,7 +2582,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12\x12\n" +
 	"\x04data\x18\x04 \x01(\fR\x04data\x12?\n" +
 	"\rdiscovered_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:\"\x82\xf9+\x1e\n" +
-	"\x06assets\x12\async_id\x12\vexternal_id\"\xf1\x02\n" +
+	"\x06assets\x12\async_id\x12\vexternal_id\"\xbf\x04\n" +
 	"\rSyncRunRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12+\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x17.c1.storage.v3.SyncTypeR\x04type\x12$\n" +
@@ -1902,7 +2593,12 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\n" +
 	"sync_token\x18\x06 \x01(\tR\tsyncToken\x12#\n" +
 	"\rsupports_diff\x18\a \x01(\bR\fsupportsDiff\x12$\n" +
-	"\x0elinked_sync_id\x18\b \x01(\tR\flinkedSyncId:\x18\x82\xf9+\x14\n" +
+	"\x0elinked_sync_id\x18\b \x01(\tR\flinkedSyncId\x12\x1c\n" +
+	"\tcompacted\x18\t \x01(\bR\tcompacted\x12>\n" +
+	"\x1bingest_invariant_generation\x18\n" +
+	" \x01(\tR\x19ingestInvariantGeneration\x12:\n" +
+	"\x19ingest_invariant_coverage\x18\v \x03(\tR\x17ingestInvariantCoverage\x122\n" +
+	"\x15ingest_invariant_mode\x18\f \x01(\tR\x13ingestInvariantMode:\x18\x82\xf9+\x14\n" +
 	"\tsync_runs\x12\async_id\"\xb4\v\n" +
 	"\x0fSyncStatsRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12%\n" +
@@ -1948,7 +2644,21 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x03 \x01(\fR\x05value:\x1c\x82\xf9+\x18\n" +
-	"\bsessions\x12\async_id\x12\x03key*\xae\x01\n" +
+	"\bsessions\x12\async_id\x12\x03key\"\x8d\x02\n" +
+	"\x16SourceCacheEntryRecord\x12\x19\n" +
+	"\brow_kind\x18\x01 \x01(\tR\arowKind\x12\x1b\n" +
+	"\tscope_key\x18\x02 \x01(\tR\bscopeKey\x12'\n" +
+	"\x0fcache_validator\x18\x03 \x01(\tR\x0ecacheValidator\x12?\n" +
+	"\rdiscovered_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12 \n" +
+	"\vinvalidated\x18\x05 \x01(\bR\vinvalidated:/\x82\xf9++\n" +
+	"\x14source_cache_entries\x12\brow_kind\x12\tscope_key\"\xcc\x02\n" +
+	"\x17SourceCacheCompatRecord\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12<\n" +
+	"\x1aconnector_cache_generation\x18\x02 \x01(\tR\x18connectorCacheGeneration\x12@\n" +
+	"\x1cconnector_config_fingerprint\x18\x03 \x01(\tR\x1aconnectorConfigFingerprint\x12D\n" +
+	"\x1esdk_materialization_generation\x18\x04 \x01(\tR\x1csdkMaterializationGeneration\x12<\n" +
+	"\x1async_selection_fingerprint\x18\x05 \x01(\tR\x18syncSelectionFingerprint:\x1d\x82\xf9+\x19\n" +
+	"\x13source_cache_compat\x12\x02id*\xae\x01\n" +
 	"\bSyncType\x12\x19\n" +
 	"\x15SYNC_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSYNC_TYPE_FULL\x10\x01\x12\x15\n" +
@@ -1957,68 +2667,78 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x19SYNC_TYPE_PARTIAL_UPSERTS\x10\x04\x12\x1f\n" +
 	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
-var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_c1_storage_v3_records_proto_goTypes = []any{
-	(SyncType)(0),                 // 0: c1.storage.v3.SyncType
-	(*GrantExpandableRecord)(nil), // 1: c1.storage.v3.GrantExpandableRecord
-	(*GrantSourceRecord)(nil),     // 2: c1.storage.v3.GrantSourceRecord
-	(*ResourceTypeRecord)(nil),    // 3: c1.storage.v3.ResourceTypeRecord
-	(*ResourceRecord)(nil),        // 4: c1.storage.v3.ResourceRecord
-	(*EntitlementRecord)(nil),     // 5: c1.storage.v3.EntitlementRecord
-	(*GrantRecord)(nil),           // 6: c1.storage.v3.GrantRecord
-	(*AssetRecord)(nil),           // 7: c1.storage.v3.AssetRecord
-	(*SyncRunRecord)(nil),         // 8: c1.storage.v3.SyncRunRecord
-	(*SyncStatsRecord)(nil),       // 9: c1.storage.v3.SyncStatsRecord
-	(*CallStat)(nil),              // 10: c1.storage.v3.CallStat
-	(*SessionRecord)(nil),         // 11: c1.storage.v3.SessionRecord
-	nil,                           // 12: c1.storage.v3.GrantRecord.SourcesEntry
-	nil,                           // 13: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	nil,                           // 14: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	nil,                           // 15: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	nil,                           // 16: c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
-	nil,                           // 17: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
-	nil,                           // 18: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
-	(*anypb.Any)(nil),             // 19: google.protobuf.Any
-	(*timestamppb.Timestamp)(nil), // 20: google.protobuf.Timestamp
-	(*ResourceRef)(nil),           // 21: c1.storage.v3.ResourceRef
-	(*EntitlementRef)(nil),        // 22: c1.storage.v3.EntitlementRef
-	(*PrincipalRef)(nil),          // 23: c1.storage.v3.PrincipalRef
+	(SyncType)(0),                    // 0: c1.storage.v3.SyncType
+	(StatusRecord_ResourceStatus)(0), // 1: c1.storage.v3.StatusRecord.ResourceStatus
+	(*StatusRecord)(nil),             // 2: c1.storage.v3.StatusRecord
+	(*GrantExpandableRecord)(nil),    // 3: c1.storage.v3.GrantExpandableRecord
+	(*GrantSourceRecord)(nil),        // 4: c1.storage.v3.GrantSourceRecord
+	(*ResourceTypeRecord)(nil),       // 5: c1.storage.v3.ResourceTypeRecord
+	(*ResourceRecord)(nil),           // 6: c1.storage.v3.ResourceRecord
+	(*EntitlementRecord)(nil),        // 7: c1.storage.v3.EntitlementRecord
+	(*GrantRecord)(nil),              // 8: c1.storage.v3.GrantRecord
+	(*AssetRecord)(nil),              // 9: c1.storage.v3.AssetRecord
+	(*SyncRunRecord)(nil),            // 10: c1.storage.v3.SyncRunRecord
+	(*SyncStatsRecord)(nil),          // 11: c1.storage.v3.SyncStatsRecord
+	(*CallStat)(nil),                 // 12: c1.storage.v3.CallStat
+	(*SessionRecord)(nil),            // 13: c1.storage.v3.SessionRecord
+	(*SourceCacheEntryRecord)(nil),   // 14: c1.storage.v3.SourceCacheEntryRecord
+	(*SourceCacheCompatRecord)(nil),  // 15: c1.storage.v3.SourceCacheCompatRecord
+	nil,                              // 16: c1.storage.v3.GrantRecord.SourcesEntry
+	nil,                              // 17: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	nil,                              // 18: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	nil,                              // 19: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	nil,                              // 20: c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
+	nil,                              // 21: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
+	nil,                              // 22: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
+	(*anypb.Any)(nil),                // 23: google.protobuf.Any
+	(*timestamppb.Timestamp)(nil),    // 24: google.protobuf.Timestamp
+	(*ResourceRef)(nil),              // 25: c1.storage.v3.ResourceRef
+	(*structpb.Struct)(nil),          // 26: google.protobuf.Struct
+	(*EntitlementRef)(nil),           // 27: c1.storage.v3.EntitlementRef
+	(*PrincipalRef)(nil),             // 28: c1.storage.v3.PrincipalRef
 }
 var file_c1_storage_v3_records_proto_depIdxs = []int32{
-	19, // 0: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
-	20, // 1: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	21, // 2: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
-	19, // 3: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
-	20, // 4: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	21, // 5: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
-	19, // 6: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
-	20, // 7: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	22, // 8: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
-	23, // 9: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
-	20, // 10: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	1,  // 11: c1.storage.v3.GrantRecord.expansion:type_name -> c1.storage.v3.GrantExpandableRecord
-	19, // 12: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
-	12, // 13: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
-	20, // 14: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	0,  // 15: c1.storage.v3.SyncRunRecord.type:type_name -> c1.storage.v3.SyncType
-	20, // 16: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
-	20, // 17: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
-	13, // 18: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	14, // 19: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	15, // 20: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	16, // 21: c1.storage.v3.SyncStatsRecord.step_durations_ms:type_name -> c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
-	17, // 22: c1.storage.v3.SyncStatsRecord.connector_call_stats:type_name -> c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
-	18, // 23: c1.storage.v3.SyncStatsRecord.session_store_stats:type_name -> c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
-	20, // 24: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
-	2,  // 25: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
-	10, // 26: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry.value:type_name -> c1.storage.v3.CallStat
-	10, // 27: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry.value:type_name -> c1.storage.v3.CallStat
-	28, // [28:28] is the sub-list for method output_type
-	28, // [28:28] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	1,  // 0: c1.storage.v3.StatusRecord.status:type_name -> c1.storage.v3.StatusRecord.ResourceStatus
+	23, // 1: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
+	24, // 2: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	25, // 3: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
+	23, // 4: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
+	24, // 5: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	26, // 6: c1.storage.v3.ResourceRecord.profile:type_name -> google.protobuf.Struct
+	2,  // 7: c1.storage.v3.ResourceRecord.status:type_name -> c1.storage.v3.StatusRecord
+	24, // 8: c1.storage.v3.ResourceRecord.created_at:type_name -> google.protobuf.Timestamp
+	25, // 9: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
+	23, // 10: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
+	24, // 11: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	27, // 12: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
+	28, // 13: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
+	24, // 14: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	3,  // 15: c1.storage.v3.GrantRecord.expansion:type_name -> c1.storage.v3.GrantExpandableRecord
+	23, // 16: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
+	16, // 17: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
+	24, // 18: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	0,  // 19: c1.storage.v3.SyncRunRecord.type:type_name -> c1.storage.v3.SyncType
+	24, // 20: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
+	24, // 21: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
+	17, // 22: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	18, // 23: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	19, // 24: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	20, // 25: c1.storage.v3.SyncStatsRecord.step_durations_ms:type_name -> c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
+	21, // 26: c1.storage.v3.SyncStatsRecord.connector_call_stats:type_name -> c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
+	22, // 27: c1.storage.v3.SyncStatsRecord.session_store_stats:type_name -> c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
+	24, // 28: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
+	24, // 29: c1.storage.v3.SourceCacheEntryRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	4,  // 30: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
+	12, // 31: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry.value:type_name -> c1.storage.v3.CallStat
+	12, // 32: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry.value:type_name -> c1.storage.v3.CallStat
+	33, // [33:33] is the sub-list for method output_type
+	33, // [33:33] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_c1_storage_v3_records_proto_init() }
@@ -2033,8 +2753,8 @@ func file_c1_storage_v3_records_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_storage_v3_records_proto_rawDesc), len(file_c1_storage_v3_records_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   18,
+			NumEnums:      2,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

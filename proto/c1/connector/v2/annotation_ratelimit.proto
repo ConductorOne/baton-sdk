@@ -18,3 +18,12 @@ message RateLimitDescription {
   int64 remaining = 3;
   google.protobuf.Timestamp reset_at = 4;
 }
+
+// RateLimitWaitReport is a response annotation a connector attaches to report
+// time it spent sleeping on rate limits (client-side prevention, in-SDK 429
+// backoff) while serving the request. Those sleeps happen inside the connector
+// process where the syncer cannot observe them; the syncer folds this report
+// into the rate_limit_wait sync stat.
+message RateLimitWaitReport {
+  int64 wait_ms = 1;
+}

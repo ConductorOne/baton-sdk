@@ -252,8 +252,17 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 			return nil, fmt.Errorf("to-pebble: load destination sync metadata: %w", err)
 		}
 		rec.SetEndedAt(timestamppb.New(*sync.EndedAt))
+		// Verification provenance only rides along with a FINISHED source:
+		// a marker on an unfinished source (impossible through the writer
+		// API, but representable in a hand-edited file) must not convert
+		// into a sealed, verified destination.
+		if sync.IsVerified() {
+			rec.SetIngestInvariantGeneration(sync.Generation)
+			rec.SetIngestInvariantCoverage(append([]string(nil), sync.Coverage...))
+			rec.SetIngestInvariantMode(string(sync.Mode))
+		}
 		if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
-			return nil, fmt.Errorf("to-pebble: preserve source ended_at: %w", err)
+			return nil, fmt.Errorf("to-pebble: preserve source sync metadata: %w", err)
 		}
 	}
 	endSyncDur := time.Since(endSyncStart)

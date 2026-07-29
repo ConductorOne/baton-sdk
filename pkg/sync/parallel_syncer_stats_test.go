@@ -8,8 +8,12 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestRecordRetryWaitWithResourceType(t *testing.T) {
@@ -18,14 +22,199 @@ func TestRecordRetryWaitWithResourceType(t *testing.T) {
 		state:       newState(),
 	}
 
-	s.recordRetryWait(retry.WithWaitLabel(t.Context(), "rt1"), 2*time.Second, false)
-	s.recordRetryWait(retry.WithWaitLabel(t.Context(), "rt1"), 3*time.Second, true)
+	s.recordRetryWait(ratelimit.WithWaitLabel(t.Context(), "rt1"), 2*time.Second, false)
+	s.recordRetryWait(ratelimit.WithWaitLabel(t.Context(), "rt1"), 3*time.Second, true)
 
 	durations := s.state.StepDurations()
 	require.EqualValues(t, 2000, durations["retry_wait"])
 	require.EqualValues(t, 2000, durations["retry_wait:rt1"])
 	require.EqualValues(t, 3000, durations["rate_limit_wait"])
 	require.EqualValues(t, 3000, durations["rate_limit_wait:rt1"])
+}
+
+// TestRetryerReportsThroughWaitObserver pins the retryer's reporting channel:
+// backoff sleeps reach sync stats via the context wait observer (the OnWait
+// callback is gone), with the event's Retry flag routing plain backoff to
+// retry_wait and rate-limited backoff to rate_limit_wait.
+func TestRetryerReportsThroughWaitObserver(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+	ctx := s.withRateLimitWaitObserver(t.Context())
+	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
+		InitialDelay: time.Millisecond,
+		MaxDelay:     time.Millisecond,
+	})
+
+	// Plain transient error: linear backoff, lands in retry_wait.
+	require.True(t, retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, "rt1"),
+		status.Error(codes.Unavailable, "transient")))
+
+	// Rate-limited error: RateLimitDescription in the error details, lands
+	// in rate_limit_wait. The reset must still be in the future when the
+	// retryer evaluates it; MaxDelay clamps the actual sleep to 1ms.
+	st, err := status.New(codes.Unavailable, "rate limited").WithDetails(&v2.RateLimitDescription{
+		Remaining: 0,
+		ResetAt:   timestamppb.New(time.Now().Add(30 * time.Second)),
+	})
+	require.NoError(t, err)
+	require.True(t, retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, "rt1"), st.Err()))
+
+	durations := s.state.StepDurations()
+	require.Positive(t, durations["retry_wait"])
+	require.Positive(t, durations["retry_wait:rt1"])
+	require.Positive(t, durations["rate_limit_wait"])
+	require.Positive(t, durations["rate_limit_wait:rt1"])
+}
+
+func TestWaitObserverRecordsRateLimitWait(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+
+	ctx := s.withRateLimitWaitObserver(t.Context())
+	// Simulate a rate-limit gate (SDK interceptor / hosted manager) sleeping
+	// before a request, attributed to a resource type.
+	ratelimit.ObserveWait(ratelimit.WithWaitLabel(ctx, "repository"), ratelimit.WaitEvent{Duration: 30 * time.Second})
+	ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: 10 * time.Second})
+
+	durations := s.state.StepDurations()
+	require.EqualValues(t, 40000, durations["rate_limit_wait"])
+	require.EqualValues(t, 30000, durations["rate_limit_wait:repository"])
+}
+
+func TestWaitObserverDisabledWithoutStats(t *testing.T) {
+	s := &syncer{
+		recordStats: false,
+		state:       newState(),
+	}
+
+	ctx := s.withRateLimitWaitObserver(t.Context())
+	// The observer is installed regardless (recordStats is only decided
+	// after store load), but reports are dropped when stats are off.
+	ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: time.Second})
+	require.Empty(t, s.state.StepDurations())
+}
+
+// TestWaitObserverBeforeStateExists covers the window at the top of Sync:
+// the observer is installed (and recordStats may already be true) before the
+// state token is loaded. A gate wait during the initial Validate call must be
+// dropped, not panic on a nil state.
+func TestWaitObserverBeforeStateExists(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       nil,
+	}
+
+	ctx := s.withRateLimitWaitObserver(t.Context())
+	require.NotPanics(t, func() {
+		ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: time.Second})
+	})
+}
+
+func TestRecordConnectorWaitReport(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+
+	var annos annotations.Annotations
+	annos.WithRateLimitWaitReport(1500)
+
+	s.recordConnectorWaitReport(annos, "repository")
+	s.recordConnectorWaitReport(annos, "")
+
+	durations := s.state.StepDurations()
+	require.EqualValues(t, 3000, durations["rate_limit_wait"])
+	require.EqualValues(t, 1500, durations["rate_limit_wait:repository"])
+
+	// Responses without the annotation, zero waits, and disabled stats are no-ops.
+	s.recordConnectorWaitReport(annotations.Annotations{}, "repository")
+	var zeroAnnos annotations.Annotations
+	zeroAnnos.WithRateLimitWaitReport(0)
+	require.Empty(t, zeroAnnos)
+	s.recordStats = false
+	s.recordConnectorWaitReport(annos, "repository")
+	require.EqualValues(t, 3000, s.state.StepDurations()["rate_limit_wait"])
+}
+
+// TestRecordConnectorWaitReportClampsOverflow: the annotation crosses a
+// process boundary, so a buggy connector can send a wait_ms whose
+// millisecond-to-Duration conversion overflows negative and would subtract
+// from the buckets. The syncer clamps to 24h per response.
+func TestRecordConnectorWaitReportClampsOverflow(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+
+	report := &v2.RateLimitWaitReport{}
+	report.SetWaitMs(9_223_372_036_855) // time.Duration(v) * time.Millisecond overflows negative
+	var annos annotations.Annotations
+	annos.Update(report)
+
+	s.recordConnectorWaitReport(annos, "repository")
+
+	durations := s.state.StepDurations()
+	const dayMs = int64(24 * 60 * 60 * 1000)
+	require.EqualValues(t, dayMs, durations["rate_limit_wait"])
+	require.EqualValues(t, dayMs, durations["rate_limit_wait:repository"])
+	// The clamped value also feeds the wall bucket; with a zero watermark
+	// (no prior events) the full clamped interval counts.
+	require.EqualValues(t, dayMs, durations["rate_limit_wait_wall"])
+}
+
+// TestRateLimitWallIntervalMergesOverlap: rate_limit_wait sums worker-seconds,
+// but rate_limit_wait_wall merges end-anchored intervals via the watermark, so
+// two overlapping sleeps count wall time once.
+func TestRateLimitWallIntervalMergesOverlap(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+
+	// Two 10s waits reported back-to-back: intervals [now-10s, now] overlap
+	// almost entirely, so wall time is ~10s while cumulative would be 20s.
+	// The second event contributes only the inter-call gap, so bound the
+	// assertion by the measured gap instead of a fixed slack that a slow CI
+	// machine could blow through.
+	callsStart := time.Now()
+	s.recordRateLimitWallInterval(10 * time.Second)
+	s.recordRateLimitWallInterval(10 * time.Second)
+	elapsedMs := time.Since(callsStart).Milliseconds()
+
+	wallMs := s.state.StepDurations()["rate_limit_wait_wall"]
+	require.GreaterOrEqual(t, wallMs, int64(10_000))
+	require.LessOrEqual(t, wallMs, 10_000+elapsedMs+1, "overlapping waits must merge, not sum")
+
+	// Non-positive waits and nil state are no-ops.
+	s.recordRateLimitWallInterval(0)
+	s.recordRateLimitWallInterval(-time.Second)
+	require.Equal(t, wallMs, s.state.StepDurations()["rate_limit_wait_wall"])
+	stateless := &syncer{recordStats: true}
+	require.NotPanics(t, func() { stateless.recordRateLimitWallInterval(time.Second) })
+}
+
+// TestRateLimitWallIntervalCarriesSubMillisecond: the state bucket only
+// accumulates whole milliseconds per call, so sub-millisecond slivers past the
+// watermark (the common case for overlapping parallel waits) must be carried
+// across calls instead of each truncating to zero.
+func TestRateLimitWallIntervalCarriesSubMillisecond(t *testing.T) {
+	s := &syncer{
+		recordStats: true,
+		state:       newState(),
+	}
+
+	// Rewind the watermark ~500µs before each report so every event
+	// contributes a sliver that alone truncates to 0ms. Ten of them must sum
+	// to at least 5ms minus the (<1ms) unflushed carry.
+	for range 10 {
+		s.rlWallCoveredUntil = time.Now().Add(-500 * time.Microsecond)
+		s.recordRateLimitWallInterval(time.Hour)
+	}
+	require.GreaterOrEqual(t, s.state.StepDurations()["rate_limit_wait_wall"], int64(4))
 }
 
 func TestRecordRetryWaitWithoutResourceType(t *testing.T) {
@@ -120,7 +309,7 @@ func TestStatsRecordingConcurrentWithMarshal(t *testing.T) {
 			for i := 0; i < iterations; i++ {
 				s.state.AddStepDuration("list-grants", time.Millisecond)
 				s.state.RecordConnectorCall("list-grants", 2*time.Millisecond)
-				s.recordRetryWait(retry.WithWaitLabel(t.Context(), "rt1"), time.Millisecond, i%2 == 0)
+				s.recordRetryWait(ratelimit.WithWaitLabel(t.Context(), "rt1"), time.Millisecond, i%2 == 0)
 			}
 		})
 	}

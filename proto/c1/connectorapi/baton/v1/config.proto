@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package c1.connectorapi.baton.v1;
 
+import "c1/connectorapi/baton/v1/servedpolicy.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
@@ -18,6 +19,16 @@ message GetConnectorConfigRequest {
 message GetConnectorConfigResponse {
   bytes config = 1;
   google.protobuf.Timestamp last_updated = 2;
+  // Version handle of the durable config record this response was assembled
+  // from. When the envelope is present this must be stamped, non-empty, and
+  // equal to ServedPolicyEnvelope.config_version. Explicit presence
+  // distinguishes a server that does not stamp versions from one that
+  // stamped an empty handle.
+  optional string config_version = 3;
+  // Server-computed policy envelope for connector revisions that carry
+  // sealed policy records. Absent for connectors without them; runtimes that
+  // require an envelope treat absence as deny-all.
+  ServedPolicyEnvelope served_policy_envelope = 4;
 }
 
 message SignedHeader {

@@ -38,4 +38,22 @@ type testSeams struct {
 	// delta round: the original post-stats placement made that
 	// attribution vacuous).
 	endSyncPreFlushHook func()
+
+	// recordCommitHook, when non-nil, runs immediately before a
+	// DEFERRED-regime RecordBatch commit — the in-process analog of
+	// that commit failing AFTER StageGrantPutDeferred already armed
+	// the durable deferred-index marker. The obligations harness pins
+	// the resulting state: marker armed (flag AND key — agreement
+	// holds), zero rows committed, retry converges, sealed index
+	// complete. Inline-regime commits arm nothing, so they carry no
+	// post-arm obligation and no hook.
+	recordCommitHook func() error
+
+	// endSyncStampHook, when non-nil, runs immediately before the
+	// ended_at stamp's PutSyncRunRecord commit in endSyncFinalize —
+	// the in-process analog of the stamp commit failing. The
+	// obligations harness pins that a failed stamp leaks nowhere: the
+	// stored record stays unstamped and the sync stays discoverable
+	// as unfinished (resumable).
+	endSyncStampHook func() error
 }

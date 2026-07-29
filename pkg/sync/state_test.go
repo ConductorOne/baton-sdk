@@ -201,8 +201,7 @@ func TestSyncerTokenUnmarshalEmptyString(t *testing.T) {
 func TestPrepareExpansionReplayTokenPreservesState(t *testing.T) {
 	st := newState()
 	st.SetShouldSkipGrants()
-	_, conflict := st.CheckAndSetExclusionGroupResourceType("grp", "user")
-	require.False(t, conflict, "unexpected conflict seeding exclusion group")
+	st.AddStepDuration("checkpoint", time.Millisecond)
 	require.False(t, st.NeedsExpansion())
 
 	token, err := st.Marshal()
@@ -218,9 +217,7 @@ func TestPrepareExpansionReplayTokenPreservesState(t *testing.T) {
 	require.True(t, got.NeedsExpansion(), "expansion must be re-flagged")
 	// The rest of the token must survive rather than be cleared.
 	require.True(t, got.ShouldSkipGrants(), "skip-grants flag must be preserved")
-	existing, conflict := got.CheckAndSetExclusionGroupResourceType("grp", "group")
-	require.True(t, conflict, "preserved exclusion-group mapping must still conflict")
-	require.Equal(t, "user", existing)
+	require.EqualValues(t, 1, got.StepDurations()["checkpoint"], "preserved step durations must survive the rewrite")
 	// A finished token has no current action, so an InitOp is queued to drive
 	// the resumed run.
 	require.NotNil(t, got.Current())
@@ -241,6 +238,35 @@ func TestSyncerTokenNextPage(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, st.actions, 1)
 	compareSyncerState(t, op2, *st.Current())
+}
+
+func TestPeekMatchingActionsCapsBatchesAndDrainsRemainder(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	for range maxPeekActionsCount + 5 {
+		st.PushAction(ctx, Action{Op: SyncGrantsOp})
+	}
+
+	firstBatch := st.PeekMatchingActions(ctx, SyncGrantsOp)
+	require.Len(t, firstBatch, maxPeekActionsCount)
+	for _, action := range firstBatch {
+		st.FinishAction(ctx, action)
+	}
+
+	require.Len(t, st.PeekMatchingActions(ctx, SyncGrantsOp), 5)
+}
+
+func TestPeekMatchingActionsStopsAtDifferentOperation(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	st.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "first"})
+	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "second"})
+
+	actions := st.PeekMatchingActions(ctx, SyncGrantsOp)
+	require.Len(t, actions, 2)
+	require.Equal(t, "second", actions[0].ResourceID)
+	require.Equal(t, "first", actions[1].ResourceID)
 }
 
 func TestSyncerTokenUnmarshalBackwardsCompatible(t *testing.T) {
@@ -506,6 +532,38 @@ func TestSyncerTokenIncludesEntitlementGraphWhenEnabled(t *testing.T) {
 	require.False(t, newState().checkpointEntitlementGraph)
 }
 
+// Graph omission rewrites the serialized actions map, and the type-scoped
+// version stamp is computed from it. The rewrite must not drop the markers that
+// drive the stamp: a token that lands on version 1 while carrying them is
+// silently misparsed by an older SDK.
+func TestSyncerTokenVersionStampSurvivesGraphOmission(t *testing.T) {
+	ctx := t.Context()
+	st := buildLoadedGraphState(t, ctx, "page37")
+
+	// A type-scoped marker alongside the in-flight expansion that triggers
+	// the actions-map rewrite.
+	for id, a := range st.actions {
+		if a.Op == SyncGrantsOp {
+			a.TypeScoped = true
+			st.actions[id] = a
+		}
+	}
+
+	tokenString, err := st.Marshal()
+	require.NoError(t, err)
+
+	var raw serializedTokenV1
+	require.NoError(t, json.Unmarshal([]byte(tokenString), &raw))
+	require.Nil(t, raw.EntitlementGraph, "graph still omitted")
+	require.EqualValues(t, StateTokenVersionTypeScoped, raw.Version,
+		"type-scoped marker must still stamp version 2 through the rewrite")
+	for _, a := range raw.ActionsMap {
+		if a.Op == SyncGrantsOp {
+			require.True(t, a.TypeScoped, "rewrite must preserve non-PageToken action fields")
+		}
+	}
+}
+
 // The SyncOpt must actually reach the state that writes checkpoints; without
 // this the knob is inert and the OOM escape hatch does not exist.
 func TestWithEntitlementGraphInCheckpointsReachesState(t *testing.T) {
@@ -616,188 +674,4 @@ func TestSyncerTokenUnmarshalBlanksOrphanExpansionPageToken(t *testing.T) {
 	require.Nil(t, resumed.entitlementGraph)
 	require.Equal(t, SyncGrantExpansionOp, resumed.Current().Op)
 	require.Empty(t, resumed.Current().PageToken)
-}
-
-func TestCheckAndSetExclusionGroupResourceType(t *testing.T) {
-	st := newState()
-
-	// First write for a group records the resource type and reports no conflict.
-	existing, conflict := st.CheckAndSetExclusionGroupResourceType("group-a", "user")
-	require.False(t, conflict)
-	require.Empty(t, existing)
-
-	// Re-recording the same (group, resource type) pair is idempotent and not a conflict.
-	existing, conflict = st.CheckAndSetExclusionGroupResourceType("group-a", "user")
-	require.False(t, conflict)
-	require.Empty(t, existing)
-
-	// A different group on a different resource type is independent and not a conflict.
-	existing, conflict = st.CheckAndSetExclusionGroupResourceType("group-b", "team")
-	require.False(t, conflict)
-	require.Empty(t, existing)
-
-	// Reusing an existing group id on a different resource type is a conflict, and
-	// the originally-recorded resource type is returned.
-	existing, conflict = st.CheckAndSetExclusionGroupResourceType("group-a", "team")
-	require.True(t, conflict)
-	require.Equal(t, "user", existing)
-
-	// Conflicting attempt must not have rewritten the map; the original mapping holds.
-	existing, conflict = st.CheckAndSetExclusionGroupResourceType("group-a", "user")
-	require.False(t, conflict)
-	require.Empty(t, existing)
-}
-
-func TestSyncerTokenExclusionGroupResourceTypesRoundTrip(t *testing.T) {
-	st := newState()
-
-	// Seed the map.
-	_, conflict := st.CheckAndSetExclusionGroupResourceType("group-a", "user")
-	require.False(t, conflict)
-	_, conflict = st.CheckAndSetExclusionGroupResourceType("group-b", "team")
-	require.False(t, conflict)
-
-	tokenString, err := st.Marshal()
-	require.NoError(t, err)
-
-	restored := newState()
-	require.NoError(t, restored.Unmarshal(tokenString))
-
-	// Reusing a group id on the same resource type should still not conflict after resume.
-	existing, conflict := restored.CheckAndSetExclusionGroupResourceType("group-a", "user")
-	require.False(t, conflict)
-	require.Empty(t, existing)
-
-	// And reusing across resource types should conflict — proving the map crossed Marshal/Unmarshal.
-	existing, conflict = restored.CheckAndSetExclusionGroupResourceType("group-a", "team")
-	require.True(t, conflict)
-	require.Equal(t, "user", existing)
-}
-
-func TestSyncerTokenUnmarshalEmptyStringInitsExclusionGroupMap(t *testing.T) {
-	st := newState()
-	require.NoError(t, st.Unmarshal(""))
-
-	// A fresh-but-unmarshalled state must accept writes without panicking on a nil map.
-	existing, conflict := st.CheckAndSetExclusionGroupResourceType("group-a", "user")
-	require.False(t, conflict)
-	require.Empty(t, existing)
-
-	existing, conflict = st.CheckAndSetExclusionGroupDefault("group-a", "user:user1:admin")
-	require.False(t, conflict)
-	require.Empty(t, existing)
-}
-
-func TestCheckAndSetExclusionGroupDefault(t *testing.T) {
-	st := newState()
-
-	// First default for a group is recorded with no conflict.
-	existing, conflict := st.CheckAndSetExclusionGroupDefault("role", "user:user1:admin")
-	require.False(t, conflict)
-	require.Empty(t, existing)
-
-	// Re-recording the same (group, entitlement) pair is idempotent.
-	existing, conflict = st.CheckAndSetExclusionGroupDefault("role", "user:user1:admin")
-	require.False(t, conflict)
-	require.Empty(t, existing)
-
-	// A default in a different group is independent.
-	existing, conflict = st.CheckAndSetExclusionGroupDefault("other", "user:user2:owner")
-	require.False(t, conflict)
-	require.Empty(t, existing)
-
-	// A second, different default in the same group is a conflict; the original is returned.
-	existing, conflict = st.CheckAndSetExclusionGroupDefault("role", "user:user2:editor")
-	require.True(t, conflict)
-	require.Equal(t, "user:user1:admin", existing)
-
-	// Conflicting attempt must not have rewritten the map.
-	existing, conflict = st.CheckAndSetExclusionGroupDefault("role", "user:user1:admin")
-	require.False(t, conflict)
-	require.Empty(t, existing)
-}
-
-func TestSyncerTokenExclusionGroupDefaultsRoundTrip(t *testing.T) {
-	st := newState()
-
-	_, conflict := st.CheckAndSetExclusionGroupDefault("role-a", "user:user1:admin")
-	require.False(t, conflict)
-	_, conflict = st.CheckAndSetExclusionGroupDefault("role-b", "team:team1:lead")
-	require.False(t, conflict)
-
-	tokenString, err := st.Marshal()
-	require.NoError(t, err)
-
-	restored := newState()
-	require.NoError(t, restored.Unmarshal(tokenString))
-
-	// Re-recording the same default is idempotent.
-	existing, conflict := restored.CheckAndSetExclusionGroupDefault("role-a", "user:user1:admin")
-	require.False(t, conflict)
-	require.Empty(t, existing)
-
-	// A conflicting default after resume is correctly rejected — proving the
-	// map crossed Marshal/Unmarshal.
-	existing, conflict = restored.CheckAndSetExclusionGroupDefault("role-a", "user:user2:editor")
-	require.True(t, conflict)
-	require.Equal(t, "user:user1:admin", existing)
-}
-
-func TestIncrementExclusionGroupCount(t *testing.T) {
-	st := newState()
-
-	require.Equal(t, uint32(1), st.IncrementExclusionGroupCount("role"))
-	require.Equal(t, uint32(2), st.IncrementExclusionGroupCount("role"))
-	require.Equal(t, uint32(3), st.IncrementExclusionGroupCount("role"))
-
-	// Counts are independent per group.
-	require.Equal(t, uint32(1), st.IncrementExclusionGroupCount("other"))
-	require.Equal(t, uint32(4), st.IncrementExclusionGroupCount("role"))
-}
-
-func TestSyncerTokenExclusionGroupCountsRoundTrip(t *testing.T) {
-	st := newState()
-
-	st.IncrementExclusionGroupCount("role")
-	st.IncrementExclusionGroupCount("role")
-	st.IncrementExclusionGroupCount("other")
-
-	tokenString, err := st.Marshal()
-	require.NoError(t, err)
-
-	restored := newState()
-	require.NoError(t, restored.Unmarshal(tokenString))
-
-	// Counts resume where they left off — the next increment continues from the
-	// persisted value rather than starting over.
-	require.Equal(t, uint32(3), restored.IncrementExclusionGroupCount("role"))
-	require.Equal(t, uint32(2), restored.IncrementExclusionGroupCount("other"))
-}
-
-func TestClearExclusionGroupTracking(t *testing.T) {
-	ctx := t.Context()
-	st := newState()
-
-	_, conflict := st.CheckAndSetExclusionGroupResourceType("role", "user")
-	require.False(t, conflict)
-	_, conflict = st.CheckAndSetExclusionGroupDefault("role", "user:user1:admin")
-	require.False(t, conflict)
-	st.IncrementExclusionGroupCount("role")
-
-	tokenBefore, err := st.Marshal()
-	require.NoError(t, err)
-	require.Contains(t, tokenBefore, "exclusion_group")
-
-	st.ClearExclusionGroupTracking(ctx)
-
-	tokenAfter, err := st.Marshal()
-	require.NoError(t, err)
-	// The omitempty maps drop out of the serialized token once cleared.
-	require.NotContains(t, tokenAfter, "exclusion_group")
-
-	// After clearing, tracking starts fresh without panicking on nil maps.
-	require.Equal(t, uint32(1), st.IncrementExclusionGroupCount("role"))
-	existing, conflict := st.CheckAndSetExclusionGroupResourceType("role", "team")
-	require.False(t, conflict)
-	require.Empty(t, existing)
 }

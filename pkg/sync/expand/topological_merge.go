@@ -399,9 +399,14 @@ func (e *Expander) driveTopologicalLayer(
 			destEntitlement := entitlements[destID]
 			if destEntitlement == nil {
 				// Same drop-don't-fail policy as the legacy expander's
-				// missing-descendant handling, but say so: silently zeroing
-				// a subtree of expansion is undiagnosable in production.
-				ctxzap.Extract(ctx).Warn("topological expansion: destination entitlement not in store; skipping its reduction",
+				// missing-descendant handling. Recorded on the sync-wide
+				// aggregate (one warning per sync with distinct-id
+				// examples); per-edge logging stays at Debug so a large
+				// dangling family can't flood the logs. Skipping this
+				// destination skips its ENTIRE reduction — every incoming
+				// edge — so the total counts each one.
+				e.dropStats.RecordDestinationMissingEdges(destID, len(incoming))
+				ctxzap.Extract(ctx).Debug("topological expansion: destination entitlement not in store; skipping its reduction",
 					zap.String("entitlement_id", destID))
 				continue
 			}

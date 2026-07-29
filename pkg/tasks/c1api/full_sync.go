@@ -33,6 +33,20 @@ type fullSyncHelpers interface {
 	TempDir() string
 }
 
+// classifySyncError applies the task-manager retry policy to a failed
+// sync's error. Ingestion-invariant DATA VERDICTS are deterministic on
+// the connector's dataset: retrying re-fails identically, so they are
+// marked non-retryable. The pass's IO failures don't carry the sentinel
+// and stay retryable. Kept as a standalone function so the mapping is
+// testable at this layer (the manager consumes ErrTaskNonRetryable via
+// errors.Is when finishing the task).
+func classifySyncError(err error) error {
+	if errors.Is(err, sdkSync.ErrIngestInvariantViolated) {
+		err = errors.Join(err, ErrTaskNonRetryable)
+	}
+	return err
+}
+
 type fullSyncTaskHandler struct {
 	task                                *v1.Task
 	helpers                             fullSyncHelpers
@@ -308,7 +322,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		if removeErr := os.Remove(c1zPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			l.Error("failed to remove temp file after sync failure", zap.Error(removeErr), zap.String("path", c1zPath))
 		}
-		return c.helpers.FinishTask(ctx, nil, nil, err)
+		return c.helpers.FinishTask(ctx, nil, nil, classifySyncError(err))
 	}
 
 	c1zF, err := os.Open(c1zPath)

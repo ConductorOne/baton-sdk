@@ -318,6 +318,17 @@ func replayExpansion(ctx context.Context, store *dotc1z.C1File, syncID string) e
 		sync.WithConnectorStore(store),
 		sync.WithSyncID(syncID),
 		sync.WithOnlyExpandGrants(),
+		// Replay inputs include compaction-merged artifacts, whose
+		// keep-newer unions can hold invariant conflicts the compactor
+		// legitimately sealed (merge-manufactured exclusion-group
+		// defaults, for example). A recovery tool must not hard-fail
+		// mid-replay — after RollbackExpandedGrants already mutated the
+		// store — over a shape the artifact was allowed to seal with:
+		// soften to the same attributed warnings the compactor's own
+		// expand pass gets. The artifact already passed (or predates)
+		// seal-time validation once; re-adjudicating it here only
+		// bricks the tool.
+		sync.WithCompactionMergedStore(),
 		sync.WithTmpDir(tmpDir),
 	)
 	if err != nil {

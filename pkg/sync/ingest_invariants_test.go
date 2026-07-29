@@ -1,0 +1,745 @@
+package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
+	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
+)
+
+// TestPushChildResourceActionsDedupesPerSync pins the per-sync child
+// scheduling dedupe: a parent discovered by several ingestion paths in
+// one sync must schedule each (childType, parent) pair exactly once —
+// a duplicate would double the child-listing connector work. The
+// dedupe rides the I4 evidence set (childScheduleSet.recordIfNew), so
+// the evidence stays complete for every pair regardless of which
+// discovery scheduled.
+func TestPushChildResourceActionsDedupesPerSync(t *testing.T) {
+	ctx := context.Background()
+	s := &syncer{state: newState()}
+
+	countActions := func() int {
+		st, ok := s.state.(*state)
+		require.True(t, ok)
+		return len(st.actions)
+	}
+
+	s.pushChildResourceActions(ctx, []string{"project", "repo"}, "org", "org0")
+	require.Equal(t, 2, countActions())
+
+	// Second discovery of the same parent: no new actions.
+	s.pushChildResourceActions(ctx, []string{"project", "repo"}, "org", "org0")
+	require.Equal(t, 2, countActions())
+
+	// A different parent still schedules.
+	s.pushChildResourceActions(ctx, []string{"project"}, "org", "org1")
+	require.Equal(t, 3, countActions())
+
+	// The I4 evidence is intact for every recorded pair.
+	require.True(t, s.childSchedule.has("project", "org", "org0"))
+	require.True(t, s.childSchedule.has("repo", "org", "org0"))
+	require.True(t, s.childSchedule.has("project", "org", "org1"))
+}
+
+// TestIngestInvariantAnnotationCoverage is the completeness meta-test for
+// the ingestion-invariant registry: every connector annotation known to
+// imply a syncer side effect must map to the mechanism that guarantees it
+// regardless of ingestion path (stream today, or whatever comes next).
+// Adding a new side-effect-implying annotation without extending
+// sideEffectAnnotationCoverage — and the invariant behind it — fails
+// here instead of in review round eleven.
+func TestIngestInvariantAnnotationCoverage(t *testing.T) {
+	sideEffectAnnotations := []proto.Message{
+		&v2.GrantExpandable{},
+		&v2.ExternalResourceMatch{},
+		&v2.ExternalResourceMatchAll{},
+		&v2.ExternalResourceMatchID{},
+		&v2.InsertResourceGrants{},
+		&v2.ChildResourceType{},
+		&v2.EntitlementExclusionGroup{},
+		&v2.TypeScopedEntitlements{},
+		&v2.TypeScopedGrants{},
+		&v2.EnqueuePageTokens{},
+	}
+	for _, msg := range sideEffectAnnotations {
+		name := string(msg.ProtoReflect().Descriptor().FullName())
+		require.Contains(t, sideEffectAnnotationCoverage, name,
+			"side-effect-implying annotation %s has no registered ingestion invariant", name)
+	}
+	require.Len(t, sideEffectAnnotationCoverage, len(sideEffectAnnotations),
+		"coverage map and the enumerated annotation set drifted; update both together")
+}
+
+// ingestInvariantExclusions documents the invariant ids that the
+// annotation registry references but the verdict table deliberately
+// does NOT carry: their mechanisms are still stream-coupled (correct
+// while the response loop is the only ingestion path) and their
+// store-derived replacements land with source-cache replay. Removing an
+// entry here without adding the table row fails the verdict-table
+// meta-test.
+var ingestInvariantExclusions = map[string]string{
+	"I1": "expansion arming rides the response loop (SetNeedsExpansion) + needs_expansion persistence; store-derived probe arrives with replay",
+	"I2": "external-match arming rides the response loop (SetHasExternalResourcesGrants); store-derived existence-bit repair arrives with replay",
+	"I6": "source-cache scope consistency has no subject until replay state exists; arrives with replay (type-scoped listings' whole-type scopes join its subject then)",
+}
+
+// TestIngestInvariantVerdictTable is the completeness meta-test for the
+// verdict table: the table (not check-internal if-branches) is the
+// policy matrix, so every hole must be visible here.
+func TestIngestInvariantVerdictTable(t *testing.T) {
+	byID := map[string]*ingestInvariant{}
+	order := make([]string, 0, len(ingestInvariants))
+	for i := range ingestInvariants {
+		inv := &ingestInvariants[i]
+		require.NotContainsf(t, byID, inv.id, "duplicate verdict-table row %s", inv.id)
+		require.NotNilf(t, inv.check, "verdict-table row %s has no check", inv.id)
+		byID[inv.id] = inv
+		order = append(order, inv.id)
+	}
+
+	// Every invariant the annotation registry names is either a table
+	// row or a documented exclusion — and never both.
+	for anno, mechanism := range sideEffectAnnotationCoverage {
+		id, _, ok := strings.Cut(mechanism, ":")
+		require.Truef(t, ok, "registry entry for %s does not lead with an invariant id: %q", anno, mechanism)
+		_, inTable := byID[id]
+		_, excluded := ingestInvariantExclusions[id]
+		require.Truef(t, inTable || excluded,
+			"registry entry for %s names %s, which is neither a verdict-table row nor a documented exclusion", anno, id)
+		require.Falsef(t, inTable && excluded,
+			"%s is both a verdict-table row and a documented exclusion; remove one", id)
+	}
+
+	// The replay ladder does not exist yet: no row may pre-enable it.
+	for _, inv := range ingestInvariants {
+		require.Falsef(t, inv.ridesReplayLadder,
+			"row %s sets ridesReplayLadder, but the ErrReplayIntegrity ladder arrives with replay", inv.id)
+	}
+
+	// A fail-fast-only check trivially promotes under fail-fast; the
+	// fields must agree so the matrix reads honestly.
+	for _, inv := range ingestInvariants {
+		if inv.failFastOnly {
+			require.Truef(t, inv.failFastPromotes, "row %s is failFastOnly but not failFastPromotes", inv.id)
+		}
+	}
+
+	// The referential family order is load-bearing for the future drop
+	// cascade (I7 drops orphan entitlements whose grants I8 then
+	// catches; I9 runs last): pin it while the checks are read-only so
+	// the drop flip cannot reorder verdicts.
+	idx := map[string]int{}
+	for i, id := range order {
+		idx[id] = i
+	}
+	require.Less(t, idx["I7"], idx["I3"], "I7 must run before I3")
+	require.Less(t, idx["I3"], idx["I8"], "I3 must run before I8")
+	require.Less(t, idx["I8"], idx["I9"], "I8 must run before I9")
+	require.Equal(t, "I5", order[0], "I5 (cheapest, hard-fail class) runs first")
+
+	// Halt stages: unique, and every declared stage is enumerated by
+	// ingestInvariantHaltStages (the halt sweep iterates that list, so
+	// enumeration is coverage).
+	stages := ingestInvariantHaltStages()
+	seen := map[string]bool{}
+	for _, st := range stages {
+		require.NotEmpty(t, st)
+		require.Falsef(t, seen[st], "duplicate halt stage %q", st)
+		seen[st] = true
+	}
+	for _, inv := range ingestInvariants {
+		if inv.haltStage != "" {
+			require.Truef(t, seen[inv.haltStage], "row %s halt stage %q missing from ingestInvariantHaltStages", inv.id, inv.haltStage)
+		}
+	}
+	require.True(t, seen[haltStageI9IndexesEnsured])
+	require.Equal(t, haltStageInvariantsComplete, stages[len(stages)-1],
+		"the whole-pass seam fires last")
+}
+
+// TestInvariantVerdictsCarryNonRetryableSentinel pins the retry
+// classification (round-4 finding): a DATA VERDICT is deterministic on
+// an immutable dataset — the c1api runner maps it to its non-retryable
+// class via errors.Is(err, ErrIngestInvariantViolated) — while the
+// pass's IO failures must NOT carry the sentinel (they stay
+// retryable). The wrapper must also leave the operator-facing message
+// untouched.
+func TestInvariantVerdictsCarryNonRetryableSentinel(t *testing.T) {
+	ctx := context.Background()
+
+	// A verdict: I5 conflict on a connector-produced store.
+	store, syncID := newInvariantTestStore(ctx, t)
+	newEnt := func(rt *v2.ResourceType, resourceID, slug string, opts ...et.EntitlementOption) *v2.Entitlement {
+		r, err := rs.NewResource(resourceID, rt, resourceID)
+		require.NoError(t, err)
+		return et.NewPermissionEntitlement(r, slug, opts...)
+	}
+	require.NoError(t, store.PutEntitlements(ctx,
+		newEnt(userResourceType, "user1", "viewer", et.WithExclusionGroupDefault("role", 1)),
+		newEnt(userResourceType, "user2", "editor", et.WithExclusionGroupDefault("role", 2)),
+	))
+	err := RunIngestInvariants(ctx, store, IngestInvariantsPolicy{
+		ActiveSyncID: syncID,
+		SyncType:     connectorstore.SyncTypeFull,
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrIngestInvariantViolated,
+		"a data verdict must carry the non-retryable sentinel for the runners")
+	require.Contains(t, err.Error(), "ingest invariant I5 violated",
+		"the sentinel wrapper must not alter the operator-facing message")
+
+	// NOT a verdict: the pass's own config error carries no sentinel.
+	err = RunIngestInvariants(ctx, store, IngestInvariantsPolicy{ActiveSyncID: syncID})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrIngestInvariantViolated,
+		"config/IO failures are retryable and must not carry the verdict sentinel")
+
+	// Nil store: loud error, no panic (round-4 finding).
+	err = RunIngestInvariants(ctx, nil, IngestInvariantsPolicy{
+		ActiveSyncID: syncID,
+		SyncType:     connectorstore.SyncTypeFull,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "store is required")
+}
+
+// TestRunIngestInvariantsRejectsZeroSyncType pins the fail-closed gate
+// on the exported API (round-4 finding): connectorstore's zero value is
+// SyncTypeAny (""), which would silently skip every full-keyspace
+// invariant and hand the caller a green pass that validated almost
+// nothing.
+func TestRunIngestInvariantsRejectsZeroSyncType(t *testing.T) {
+	ctx := context.Background()
+	store, syncID := newInvariantTestStore(ctx, t)
+	err := RunIngestInvariants(ctx, store, IngestInvariantsPolicy{
+		ActiveSyncID: syncID,
+		FailFast:     true,
+	})
+	require.Error(t, err, "a zero SyncType must be rejected, not silently narrowed to I5-only")
+	require.Contains(t, err.Error(), "SyncType is required")
+}
+
+// TestExclusionGroupTrackerSeesEveryAnnotation pins the multi-annotation
+// shapes (round-4 finding): Pick-first hid any EntitlementExclusionGroup
+// annotation after the first, so a second annotation's is_default or
+// membership escaped validation.
+func TestExclusionGroupTrackerSeesEveryAnnotation(t *testing.T) {
+	newEnt := func(t *testing.T, resourceID, slug string, egs ...*v2.EntitlementExclusionGroup) *v2.Entitlement {
+		t.Helper()
+		r, err := rs.NewResource(resourceID, userResourceType, resourceID)
+		require.NoError(t, err)
+		ent := et.NewPermissionEntitlement(r, slug)
+		annos := make([]*anypb.Any, 0, len(egs))
+		for _, eg := range egs {
+			a, err := anypb.New(eg)
+			require.NoError(t, err)
+			annos = append(annos, a)
+		}
+		ent.SetAnnotations(annos)
+		return ent
+	}
+	eg := func(id string, isDefault bool) *v2.EntitlementExclusionGroup {
+		return v2.EntitlementExclusionGroup_builder{ExclusionGroupId: id, IsDefault: isDefault}.Build()
+	}
+
+	t.Run("cross-group second annotation is validated", func(t *testing.T) {
+		tr := &exclusionGroupTracker{}
+		// entA's SECOND annotation carries g2's default; entB defaults g2 too.
+		require.NoError(t, tr.record(newEnt(t, "u1", "viewer", eg("g1", false), eg("g2", true))))
+		err := tr.record(newEnt(t, "u2", "editor", eg("g2", true)))
+		require.Error(t, err, "g2's double default hides behind Pick-first without the full walk")
+		require.Contains(t, err.Error(), "is_default")
+	})
+
+	t.Run("same-group default on second annotation is validated", func(t *testing.T) {
+		tr := &exclusionGroupTracker{}
+		require.NoError(t, tr.record(newEnt(t, "u1", "viewer", eg("g1", false), eg("g1", true))))
+		err := tr.record(newEnt(t, "u2", "editor", eg("g1", true)))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "is_default")
+	})
+
+	t.Run("corrupt annotation follows the pass semantics", func(t *testing.T) {
+		// Round-5 delta review: a corrupt annotation is deterministic
+		// stored bytes, so on a NEW collection it must be a hard,
+		// NON-RETRYABLE verdict (retrying cannot fix bytes) — while a
+		// pass over a pre-sealed artifact observes and attributes,
+		// exactly like every other I5 arm.
+		buildStore := func(t *testing.T) (*dotc1z.C1File, string) {
+			store, syncID := newInvariantTestStore(t.Context(), t)
+			r, err := rs.NewResource("user1", userResourceType, "user1")
+			require.NoError(t, err)
+			ent := et.NewPermissionEntitlement(r, "viewer")
+			ent.SetAnnotations([]*anypb.Any{{
+				TypeUrl: "type.googleapis.com/c1.connector.v2.EntitlementExclusionGroup",
+				Value:   []byte{0xFF, 0xFF}, // undecodable
+			}})
+			require.NoError(t, store.PutEntitlements(t.Context(), ent))
+			return store, syncID
+		}
+
+		store, syncID := buildStore(t)
+		err := RunIngestInvariants(t.Context(), store, IngestInvariantsPolicy{
+			ActiveSyncID: syncID,
+			SyncType:     connectorstore.SyncTypeFull,
+		})
+		require.Error(t, err, "a new collection must not seal data it could not judge")
+		require.Contains(t, err.Error(), "parsing exclusion group")
+		require.ErrorIs(t, err, ErrIngestInvariantViolated,
+			"corrupt stored bytes are deterministic; the verdict must carry the non-retryable sentinel")
+
+		store, syncID = buildStore(t)
+		err = RunIngestInvariants(t.Context(), store, IngestInvariantsPolicy{
+			ActiveSyncID:    syncID,
+			SyncType:        connectorstore.SyncTypeFull,
+			CompactionMerge: true,
+		})
+		require.NoError(t, err,
+			"a pass over a pre-sealed artifact must warn-and-attribute, not brick the merge/replay post-mutation")
+	})
+
+	t.Run("duplicate annotations count the entitlement once toward the cap", func(t *testing.T) {
+		// Round-5 finding: the cap's message says ENTITLEMENTS, so one
+		// entitlement carrying 51 copies of the same group annotation is
+		// degenerate data, not a 51-member group — it must not trip the
+		// cap alone (main's Pick-first counted it once; parity kept).
+		tr := &exclusionGroupTracker{}
+		egs := make([]*v2.EntitlementExclusionGroup, 0, maxEntitlementsPerExclusionGroup+1)
+		for i := 0; i < maxEntitlementsPerExclusionGroup+1; i++ {
+			egs = append(egs, eg("g1", false))
+		}
+		require.NoError(t, tr.record(newEnt(t, "u1", "viewer", egs...)),
+			"duplicate same-group annotations on one entitlement must count once")
+
+		// Distinct entitlements still trip the cap (rule intact).
+		var err error
+		for i := 0; err == nil && i < maxEntitlementsPerExclusionGroup+1; i++ {
+			err = tr.record(newEnt(t, fmt.Sprintf("u%03d", i+2), "member", eg("g1", false)))
+		}
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "too many entitlements")
+	})
+}
+
+// newInvariantTestStore opens a fresh SQLite-backed C1File with an open
+// full sync, for driving RunIngestInvariants directly.
+func newInvariantTestStore(ctx context.Context, t *testing.T) (*dotc1z.C1File, string) {
+	t.Helper()
+	tempDir := t.TempDir()
+	store, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tempDir, "invariants.c1z"), dotc1z.WithTmpDir(tempDir))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close(ctx) })
+	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	return store, syncID
+}
+
+// TestIngestInvariantI5StoredValidation drives I5 through
+// RunIngestInvariants over a real store: conflicts must fail the pass
+// in every mode, clean keyspaces must pass, and — the reason the
+// streaming validator was retired — the verdict must not depend on how
+// rows arrived or which sync type wrote them.
+func TestIngestInvariantI5StoredValidation(t *testing.T) {
+	ctx := context.Background()
+
+	newEnt := func(rt *v2.ResourceType, resourceID, slug string, opts ...et.EntitlementOption) *v2.Entitlement {
+		r, err := rs.NewResource(resourceID, rt, resourceID)
+		require.NoError(t, err)
+		return et.NewPermissionEntitlement(r, slug, opts...)
+	}
+
+	t.Run("clean keyspace passes", func(t *testing.T) {
+		store, syncID := newInvariantTestStore(ctx, t)
+		require.NoError(t, store.PutEntitlements(ctx,
+			newEnt(userResourceType, "user1", "viewer", et.WithExclusionGroup("user-role")),
+			newEnt(groupResourceType, "group1", "admin", et.WithExclusionGroup("group-role")),
+		))
+		require.NoError(t, RunIngestInvariants(ctx, store, IngestInvariantsPolicy{
+			ActiveSyncID: syncID,
+			SyncType:     connectorstore.SyncTypeFull,
+		}))
+	})
+
+	t.Run("cross-resource-type group conflict fails", func(t *testing.T) {
+		store, syncID := newInvariantTestStore(ctx, t)
+		require.NoError(t, store.PutEntitlements(ctx,
+			newEnt(userResourceType, "user1", "viewer", et.WithExclusionGroup("role")),
+			newEnt(groupResourceType, "group1", "admin", et.WithExclusionGroup("role")),
+		))
+		err := RunIngestInvariants(ctx, store, IngestInvariantsPolicy{
+			ActiveSyncID: syncID,
+			SyncType:     connectorstore.SyncTypeFull,
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "ingest invariant I5 violated")
+		require.Contains(t, err.Error(), `"role"`)
+	})
+
+	t.Run("duplicate defaults fail", func(t *testing.T) {
+		store, syncID := newInvariantTestStore(ctx, t)
+		require.NoError(t, store.PutEntitlements(ctx,
+			newEnt(userResourceType, "user1", "viewer", et.WithExclusionGroupDefault("role", 1)),
+			newEnt(userResourceType, "user2", "editor", et.WithExclusionGroupDefault("role", 2)),
+		))
+		err := RunIngestInvariants(ctx, store, IngestInvariantsPolicy{
+			ActiveSyncID: syncID,
+			SyncType:     connectorstore.SyncTypeFull,
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "is_default")
+	})
+
+	t.Run("compaction expand pass warns instead of failing", func(t *testing.T) {
+		// A keep-newer merge of two individually-valid syncs can union
+		// entitlement generations into conflicts no input contained
+		// (e.g. a moved default keeps both is_default rows). The expand
+		// pass must not reject the merge's own artifact; fail-fast
+		// still promotes.
+		store, syncID := newInvariantTestStore(ctx, t)
+		require.NoError(t, store.PutEntitlements(ctx,
+			newEnt(userResourceType, "user1", "viewer", et.WithExclusionGroupDefault("role", 1)),
+			newEnt(userResourceType, "user2", "editor", et.WithExclusionGroupDefault("role", 2)),
+		))
+		policy := IngestInvariantsPolicy{
+			ActiveSyncID:    syncID,
+			SyncType:        connectorstore.SyncTypeFull,
+			CompactionMerge: true,
+		}
+		require.NoError(t, RunIngestInvariants(ctx, store, policy),
+			"merge-manufactured conflicts must aggregate into a warning on the expand pass, not fail the seal")
+		policy.FailFast = true
+		err := RunIngestInvariants(ctx, store, policy)
+		require.Error(t, err, "fail-fast promotes the expand pass's tolerated warning")
+		require.Contains(t, err.Error(), "ingest invariant I5 violated")
+	})
+
+	t.Run("I5 runs on partial syncs too", func(t *testing.T) {
+		store, err := dotc1z.NewC1ZFile(ctx, filepath.Join(t.TempDir(), "partial.c1z"))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = store.Close(ctx) })
+		syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+		require.NoError(t, err)
+		require.NoError(t, store.PutEntitlements(ctx,
+			newEnt(userResourceType, "user1", "viewer", et.WithExclusionGroup("role")),
+			newEnt(groupResourceType, "group1", "admin", et.WithExclusionGroup("role")),
+		))
+		err = RunIngestInvariants(ctx, store, IngestInvariantsPolicy{
+			ActiveSyncID: syncID,
+			SyncType:     connectorstore.SyncTypePartial,
+		})
+		require.Error(t, err, "a partial store holding both conflicting rows is valid evidence")
+		require.Contains(t, err.Error(), "ingest invariant I5 violated")
+	})
+}
+
+// TestIngestInvariantI4ChildScheduling drives I4 through
+// RunIngestInvariants: a stored resource carrying ChildResourceType
+// whose (childType, parent) pair was never recorded on the schedule set
+// must fail under fail-fast, and must be skipped entirely in default
+// mode and on processes that did not run the resources phase.
+func TestIngestInvariantI4ChildScheduling(t *testing.T) {
+	ctx := context.Background()
+	store, syncID := newInvariantTestStore(ctx, t)
+
+	parent, err := rs.NewResource("org0", groupResourceType, "org0",
+		rs.WithAnnotation(v2.ChildResourceType_builder{ResourceTypeId: "project"}.Build()))
+	require.NoError(t, err)
+	require.NoError(t, store.PutResources(ctx, parent))
+
+	policy := func(schedule *childScheduleSet, failFast, phaseRan bool) IngestInvariantsPolicy {
+		return IngestInvariantsPolicy{
+			ActiveSyncID:      syncID,
+			SyncType:          connectorstore.SyncTypeFull,
+			FailFast:          failFast,
+			childSchedule:     schedule,
+			resourcesPhaseRan: phaseRan,
+		}
+	}
+
+	// Unscheduled pair under fail-fast: violation.
+	err = RunIngestInvariants(ctx, store, policy(&childScheduleSet{}, true, true))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ingest invariant I4 violated")
+	require.Contains(t, err.Error(), "project under group/org0")
+
+	// Recording the pair satisfies the invariant.
+	scheduled := &childScheduleSet{}
+	require.True(t, scheduled.recordIfNew("project", "group", "org0"))
+	require.NoError(t, RunIngestInvariants(ctx, store, policy(scheduled, true, true)))
+
+	// Default mode skips I4 entirely (failFastOnly row).
+	require.NoError(t, RunIngestInvariants(ctx, store, policy(&childScheduleSet{}, false, true)))
+
+	// A process that resumed past the resources phase cannot verify the
+	// predicate; the check declines instead of false-positives.
+	require.NoError(t, RunIngestInvariants(ctx, store, policy(&childScheduleSet{}, true, false)))
+}
+
+// TestSpawnedCursorDrainEvidence pins the I10 evidence mechanics at
+// every state-mutation funnel: admission enrolls (PushAction and
+// transitionAction children), only the two legitimate finish paths
+// drain (FinishAction and transitionAction's finish branch), and the
+// set is rebuilt from the checkpoint on resume. The last subtest is the
+// point of the invariant: a cursor dropped from the stack WITHOUT
+// finishing stays on the evidence — silent omission becomes observable.
+func TestSpawnedCursorDrainEvidence(t *testing.T) {
+	ctx := t.Context()
+
+	t.Run("admission and FinishAction drain", func(t *testing.T) {
+		st := newEmptySchedulerState(t)
+		require.Empty(t, st.UndrainedSpawnedCursors())
+
+		st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "spawn-a", Spawned: true, TypeScoped: true})
+		require.Len(t, st.UndrainedSpawnedCursors(), 1)
+
+		// Non-spawned actions never enroll.
+		st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "g1"})
+		require.Len(t, st.UndrainedSpawnedCursors(), 1)
+
+		// Finishing the plain action leaves the spawned evidence alone;
+		// finishing the spawned cursor drains it.
+		st.FinishAction(ctx, st.Current())
+		require.Len(t, st.UndrainedSpawnedCursors(), 1)
+		st.FinishAction(ctx, st.Current())
+		require.Empty(t, st.UndrainedSpawnedCursors())
+	})
+
+	t.Run("transitionAction commit and finish branch", func(t *testing.T) {
+		st := newEmptySchedulerState(t)
+		parent := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", TypeScoped: true, PageToken: "p1"})
+
+		pushed, err := st.transitionAction(ctx, parent, "p2", []Action{
+			{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "spawn-1", Spawned: true, TypeScoped: true},
+			{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "spawn-2", Spawned: true, TypeScoped: true},
+		})
+		require.NoError(t, err)
+		require.Len(t, pushed, 2)
+		require.Len(t, st.UndrainedSpawnedCursors(), 2)
+
+		// A spawned cursor advancing its own pagination stays enrolled
+		// (it has not completed); finishing it drains it.
+		_, err = st.transitionAction(ctx, pushed[0], "spawn-1-page-2", nil)
+		require.NoError(t, err)
+		require.Len(t, st.UndrainedSpawnedCursors(), 2)
+		_, err = st.transitionAction(ctx, pushed[0], "", nil)
+		require.NoError(t, err)
+		require.Len(t, st.UndrainedSpawnedCursors(), 1)
+		_, err = st.transitionAction(ctx, pushed[1], "", nil)
+		require.NoError(t, err)
+		require.Empty(t, st.UndrainedSpawnedCursors())
+	})
+
+	t.Run("evidence survives checkpoint resume", func(t *testing.T) {
+		st := newEmptySchedulerState(t)
+		st.PushAction(ctx, Action{Op: SyncEntitlementsOp, ResourceTypeID: "group", PageToken: "spawn-resume", Spawned: true, TypeScoped: true})
+		token, err := st.Marshal()
+		require.NoError(t, err)
+
+		resumed := newState()
+		require.NoError(t, resumed.Unmarshal(token))
+		undrained := resumed.UndrainedSpawnedCursors()
+		require.Len(t, undrained, 1,
+			"a spawned cursor admitted by a previous process must still drain in the process that completes the sync")
+		require.Contains(t, undrained[0], "spawn-resume")
+
+		resumed.FinishAction(ctx, resumed.Current())
+		require.Empty(t, resumed.UndrainedSpawnedCursors())
+	})
+
+	t.Run("a silent drop stays on the evidence", func(t *testing.T) {
+		st := newEmptySchedulerState(t)
+		spawned := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "dropped", Spawned: true, TypeScoped: true})
+
+		// Simulate the bug class I10 exists for: the action vanishes
+		// from the stack without going through a finish path. The
+		// stack looks clean; the evidence does not.
+		st.mtx.Lock()
+		delete(st.actions, spawned.ID)
+		st.actionOrder = st.actionOrder[:len(st.actionOrder)-1]
+		st.mtx.Unlock()
+		require.Nil(t, st.Current(), "the stack is empty — structurally indistinguishable from a completed sync")
+
+		undrained := st.UndrainedSpawnedCursors()
+		require.Len(t, undrained, 1)
+		require.Contains(t, undrained[0], `token="dropped"`)
+	})
+
+	t.Run("oversized tokens are excerpted on the verdict", func(t *testing.T) {
+		st := newEmptySchedulerState(t)
+		big := strings.Repeat("x", 4096)
+		st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: big, Spawned: true, TypeScoped: true})
+		undrained := st.UndrainedSpawnedCursors()
+		require.Len(t, undrained, 1)
+		require.Less(t, len(undrained[0]), 512, "verdict lines must not carry megabyte tokens")
+		require.Contains(t, undrained[0], "(4096 bytes)")
+	})
+}
+
+// TestIngestInvariantI10SpawnedCursorDrain drives I10 through
+// RunIngestInvariants: an undrained spawned cursor is a hard,
+// non-retryable verdict in EVERY mode (silent data loss must not seal),
+// draining satisfies it, and callers with no scheduler evidence (the
+// compactor's expand pass) skip instead of false-positiving.
+func TestIngestInvariantI10SpawnedCursorDrain(t *testing.T) {
+	ctx := context.Background()
+	store, syncID := newInvariantTestStore(ctx, t)
+
+	st := newEmptySchedulerState(t)
+	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "lost-cursor", Spawned: true, TypeScoped: true})
+
+	policy := IngestInvariantsPolicy{
+		ActiveSyncID:     syncID,
+		SyncType:         connectorstore.SyncTypeFull,
+		undrainedSpawned: st.UndrainedSpawnedCursors,
+	}
+
+	// Default mode: hard failure carrying the non-retryable sentinel and
+	// naming the lost cursor.
+	err := RunIngestInvariants(ctx, store, policy)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrIngestInvariantViolated)
+	require.Contains(t, err.Error(), "ingest invariant I10 violated")
+	require.Contains(t, err.Error(), "lost-cursor")
+
+	// Partial syncs run I10 too: targeted syncs schedule spawned
+	// cursors as well, and the evidence is engine- and type-independent.
+	partialPolicy := policy
+	partialPolicy.SyncType = connectorstore.SyncTypePartial
+	err = RunIngestInvariants(ctx, store, partialPolicy)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ingest invariant I10 violated")
+
+	// Draining the cursor satisfies the invariant.
+	st.FinishAction(ctx, st.Current())
+	require.NoError(t, RunIngestInvariants(ctx, store, policy))
+
+	// No scheduler evidence: the predicate has no subject; skip.
+	policy.undrainedSpawned = nil
+	require.NoError(t, RunIngestInvariants(ctx, store, policy))
+}
+
+// TestSyncerWiresSpawnDrainEvidenceIntoInvariants pins the syncer seam
+// for I10: runIngestionInvariants must hand the live state's evidence
+// to the pass — the check existing means nothing if the policy plumbing
+// drops it.
+func TestSyncerWiresSpawnDrainEvidenceIntoInvariants(t *testing.T) {
+	ctx := context.Background()
+	// The syncer needs the active sync's ID: runIngestionInvariants clears
+	// any prior verification marker for that sync before re-evaluating.
+	store, syncID := newInvariantTestStore(ctx, t)
+
+	st := newEmptySchedulerState(t)
+	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "wired", Spawned: true, TypeScoped: true})
+
+	s := &syncer{state: st, store: store, syncID: syncID, syncType: connectorstore.SyncTypeFull}
+	err := s.runIngestionInvariants(ctx)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrIngestInvariantViolated)
+	require.Contains(t, err.Error(), "ingest invariant I10 violated")
+
+	st.FinishAction(ctx, st.Current())
+	require.NoError(t, s.runIngestionInvariants(ctx))
+}
+
+// TestSyncFailsOnStoredExclusionGroupConflict pins the syncer seam:
+// the invariant pass runs after collection and a violating store is
+// never sealed as complete. The conflict is only observable POST-
+// collection (two entitlements on different resource types share a
+// group id, emitted on different pages), which is exactly the shape
+// the retired streaming validator handled and the stored validation
+// must keep catching.
+func TestSyncFailsOnStoredExclusionGroupConflict(t *testing.T) {
+	// A second entitlement-bearing resource type (the shared
+	// userResourceType fixture skips entitlements at the type level, so
+	// it can never carry the conflicting row).
+	projectResourceType := v2.ResourceType_builder{
+		Id:          "project",
+		DisplayName: "Project",
+	}.Build()
+
+	runWithSyncModes(t, func(t *testing.T, extraOpts []SyncOpt) {
+		ctx := t.Context()
+		tempDir := t.TempDir()
+
+		mc := newMockConnector()
+		mc.rtDB = append(mc.rtDB, projectResourceType, groupResourceType)
+
+		project, err := rs.NewResource("project1", projectResourceType, "project1")
+		require.NoError(t, err)
+		mc.AddResource(ctx, project)
+		group, _, err := mc.AddGroup(ctx, "group1")
+		require.NoError(t, err)
+
+		// Same exclusion group id on two resource types: an I5 conflict.
+		mc.entDB["project1"] = append(mc.entDB["project1"],
+			et.NewPermissionEntitlement(project, "viewer", et.WithExclusionGroup("shared-role")))
+		mc.entDB["group1"] = append(mc.entDB["group1"],
+			et.NewPermissionEntitlement(group, "admin", et.WithExclusionGroup("shared-role")))
+
+		opts := append([]SyncOpt{
+			WithC1ZPath(filepath.Join(tempDir, "i5-conflict.c1z")),
+			WithTmpDir(tempDir),
+		}, extraOpts...)
+		syncer, err := NewSyncer(ctx, mc, opts...)
+		require.NoError(t, err)
+
+		err = syncer.Sync(ctx)
+		require.Error(t, err, "a sync with an exclusion-group conflict must not seal")
+		require.Contains(t, err.Error(), "ingest invariant I5 violated")
+		require.Contains(t, err.Error(), `"shared-role"`)
+		require.NoError(t, syncer.Close(ctx))
+	})
+}
+
+// TestIngestInvariantHaltHook pins the halt-hook plumbing end to end
+// over a real store: a nil-returning hook observes only declared
+// stages, and an erroring hook fails the pass at exactly its stage.
+// (The per-stage crash/resume sweep rides the pebble-backed suite; this
+// is the engine-agnostic wiring test.)
+func TestIngestInvariantHaltHook(t *testing.T) {
+	ctx := context.Background()
+	store, syncID := newInvariantTestStore(ctx, t)
+
+	declared := map[string]bool{}
+	for _, st := range ingestInvariantHaltStages() {
+		declared[st] = true
+	}
+
+	var observed []string
+	base := IngestInvariantsPolicy{
+		ActiveSyncID: syncID,
+		SyncType:     connectorstore.SyncTypeFull,
+	}
+	pol := base
+	pol.halt = func(stage string) error {
+		require.Truef(t, declared[stage], "pass fired undeclared halt stage %q", stage)
+		observed = append(observed, stage)
+		return nil
+	}
+	require.NoError(t, RunIngestInvariants(ctx, store, pol))
+	require.Contains(t, observed, "invariants-I5-complete",
+		"I5 runs on every engine, so its stage must fire even without the pebble inspection surface")
+
+	// An erroring hook stops the pass with the hook's error.
+	pol = base
+	pol.halt = func(stage string) error {
+		if stage == "invariants-I5-complete" {
+			return fmt.Errorf("halt at %s", stage)
+		}
+		return nil
+	}
+	err := RunIngestInvariants(ctx, store, pol)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "halt at invariants-I5-complete")
+}

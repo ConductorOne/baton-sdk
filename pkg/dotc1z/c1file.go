@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -49,7 +50,7 @@ type C1File struct {
 	viewSyncID         string
 	outputFilePath     string
 	dbFilePath         string
-	dbUpdated          bool
+	dbUpdated          atomic.Bool
 	tempDir            string
 	pragmas            []pragma
 	readOnly           bool
@@ -512,6 +513,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	if err != nil {
 		return nil, err
 	}
+	// Ensure c1z decompression honors caller cancellation. Prepended so an
+	// explicit WithDecoderOptions(WithContext(...)) from the caller still wins.
+	options.decoderOptions = append([]DecoderOption{WithContext(ctx)}, options.decoderOptions...)
 
 	if options.engine == c1zstore.EnginePebble && !options.readOnly {
 		err = fmt.Errorf(
@@ -624,7 +628,7 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 
 	span.SetAttributes(
 		attribute.Bool("read_only", c.readOnly),
-		attribute.Bool("db_updated", c.dbUpdated),
+		attribute.Bool("db_updated", c.dbUpdated.Load()),
 		attribute.String("db_path", c.dbFilePath),
 	)
 
@@ -635,13 +639,13 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 	// open) before returning so a misuse like opening read-only and
 	// then dirtying via an attached-db mutation still releases the
 	// SQLite handle and any FDs/goroutines it owns.
-	if !c.dbUpdated || c.readOnly {
+	if !c.dbUpdated.Load() || c.readOnly {
 		if c.rawDb != nil {
 			if err := c.closeRawDB(ctx); err != nil {
 				return cleanupDbDir(c.dbFilePath, err)
 			}
 		}
-		if c.dbUpdated && c.readOnly {
+		if c.dbUpdated.Load() && c.readOnly {
 			c.closed = true
 			return cleanupDbDir(c.dbFilePath, ErrReadOnly)
 		}
@@ -1360,7 +1364,7 @@ func (c *C1File) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 		if err != nil {
 			return nil, nil, fmt.Errorf("c1file-stats: error saving stats: %w", err)
 		}
-		c.dbUpdated = true
+		c.dbUpdated.Store(true)
 	}
 
 	return &reader_v2.SyncRun{

@@ -4,8 +4,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
 
 func TestV2GrantRoundtrip(t *testing.T) {
@@ -53,16 +56,37 @@ func TestV2ResourceRoundtrip(t *testing.T) {
 		}.Build(),
 		DisplayName: "Alice",
 		Description: "Senior eng",
+		Profile: &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"email": structpb.NewStringValue("alice@example.com"),
+			},
+		},
+		Status: &v2.Status{
+			Status:  v2.Status_RESOURCE_STATUS_ENABLED,
+			Details: "unlocked by admin",
+		},
+		CreatedAt: &timestamppb.Timestamp{
+			Seconds: 1716393600,
+			Nanos:   0,
+		},
 	}.Build()
 
 	v3rec := V2ResourceToV3("sync-1", original)
 	require.Equal(t, "alice", v3rec.GetResourceId(), "resource_id")
 	require.Equal(t, "group", v3rec.GetParent().GetResourceTypeId(), "parent rt")
+	require.Equal(t, "alice@example.com", v3rec.GetProfile().GetFields()["email"].GetStringValue(), "profile email")
+	require.Equal(t, v3.StatusRecord_RESOURCE_STATUS_ENABLED, v3rec.GetStatus().GetStatus(), "status")
+	require.Equal(t, "unlocked by admin", v3rec.GetStatus().GetDetails(), "status details")
+	require.Equal(t, int64(1716393600), v3rec.GetCreatedAt().GetSeconds(), "created_at")
 
 	back := V3ResourceToV2(v3rec)
 	require.Equal(t, "alice", back.GetId().GetResource(), "roundtrip resource")
 	require.Equal(t, "engineers", back.GetParentResourceId().GetResource(), "roundtrip parent")
 	require.Equal(t, "Alice", back.GetDisplayName(), "roundtrip display_name")
+	require.Equal(t, "alice@example.com", back.GetProfile().GetFields()["email"].GetStringValue(), "roundtrip profile email")
+	require.Equal(t, v2.Status_RESOURCE_STATUS_ENABLED, back.GetStatus().GetStatus(), "roundtrip status")
+	require.Equal(t, "unlocked by admin", back.GetStatus().GetDetails(), "roundtrip status details")
+	require.Equal(t, int64(1716393600), back.GetCreatedAt().GetSeconds(), "roundtrip created_at")
 }
 
 func TestV2ResourceTypeRoundtrip(t *testing.T) {

@@ -24,6 +24,8 @@ func (tt TaskType) String() string {
 		return "delete_resource"
 	case RotateCredentialsType:
 		return "rotate_credential"
+	case IssueCredentialType:
+		return "issue_credential"
 	case CreateTicketType:
 		return "create_ticket"
 	case ListTicketSchemasType:
@@ -104,4 +106,5 @@ const (
 	ActionStatusType
 	CreateSyncDiff
 	ListStaticEntitlementsType
+	IssueCredentialType
 )

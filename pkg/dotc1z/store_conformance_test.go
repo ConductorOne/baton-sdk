@@ -27,6 +27,7 @@ func TestC1ZStoreConformance(t *testing.T) {
 	t.Run("Grants/ListWithAnnotations yields nil for non-expandable", testListWithAnnotationsNilForNonExpandable)
 	t.Run("Grants/ListWithAnnotations yields annotation for expandable", testListWithAnnotationsAnnotationPopulated)
 	t.Run("SyncMeta/MarkSyncSupportsDiff persists across reopen", testMarkSyncSupportsDiffPersists)
+	t.Run("SyncMeta/invariant verification migrates and persists", testIngestInvariantVerificationMigratesAndPersists)
 	t.Run("SyncMeta/LatestFullSync returns nil when no runs", testLatestFullSyncEmptyReturnsNil)
 	t.Run("SyncMeta/LatestFullSync ignores in-progress and non-full", testLatestFullSyncIgnoresInProgressAndPartial)
 	t.Run("SyncMeta/LatestFinishedSyncOfAnyType includes diff types", testLatestFinishedSyncOfAnyTypeIncludesDiff)
@@ -222,6 +223,56 @@ func testMarkSyncSupportsDiffPersists(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, run)
 	require.True(t, run.SupportsDiff)
+}
+
+func testIngestInvariantVerificationMigratesAndPersists(t *testing.T) {
+	ctx := context.Background()
+	tmp, err := os.CreateTemp("", "test-invariant-verification-*.c1z")
+	require.NoError(t, err)
+	require.NoError(t, tmp.Close())
+	path := tmp.Name()
+	defer func() { _ = os.Remove(path) }()
+
+	c1f, err := NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	// Simulate a file created before verification metadata existed. Reopen
+	// must add every column before the marker can be written.
+	for _, column := range []string{
+		"ingest_invariant_generation",
+		"ingest_invariant_coverage",
+		"ingest_invariant_mode",
+	} {
+		_, err = c1f.db.ExecContext(ctx, "ALTER TABLE v1_sync_runs DROP COLUMN "+column)
+		require.NoError(t, err)
+	}
+	require.NoError(t, c1f.Close(ctx))
+
+	c1f, err = NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	syncID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	want := c1zstore.IngestInvariantVerification{
+		Generation: "test-generation",
+		Coverage:   []string{"I5"},
+		Mode:       c1zstore.IngestInvariantVerificationModeConnector,
+	}
+	verificationWriter, ok := c1f.SyncMeta().(c1zstore.IngestInvariantVerificationWriter)
+	require.True(t, ok)
+	// The marker is only writable on a sealed sync: marking the open sync
+	// must be refused, and succeed once EndSync stamps ended_at.
+	require.Error(t, verificationWriter.MarkIngestInvariantsVerified(ctx, syncID, want),
+		"marking an unfinished sync must be refused")
+	require.NoError(t, c1f.EndSync(ctx))
+	require.NoError(t, verificationWriter.MarkIngestInvariantsVerified(ctx, syncID, want))
+	require.NoError(t, c1f.Close(ctx))
+
+	c1f, err = NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	defer func() { _ = c1f.Close(ctx) }()
+	run, err := c1f.SyncMeta().LatestFullSync(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, run)
+	require.Equal(t, want, run.IngestInvariantVerification)
 }
 
 func testLatestFullSyncEmptyReturnsNil(t *testing.T) {

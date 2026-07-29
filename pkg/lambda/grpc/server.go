@@ -226,7 +226,7 @@ func PeerForRequest(req *Request) *peer.Peer {
 
 func TimeoutForRequest(req *Request) (time.Duration, bool, error) {
 	v := req.Headers().Get("grpc-timeout")
-	if len(v) > 1 {
+	if len(v) > 0 {
 		to, err := decodeTimeout(v[0])
 		if err != nil {
 			return 0, false, status.Errorf(codes.Internal, "malformed grpc-timeout: %v", err)

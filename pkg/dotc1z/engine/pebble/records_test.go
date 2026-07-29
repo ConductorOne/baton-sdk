@@ -3,12 +3,15 @@ package pebble
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/segmentio/ksuid"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
 
@@ -99,6 +102,51 @@ func TestResourceWithParentIndex(t *testing.T) {
 		return true
 	}))
 	require.Equal(t, 9, total, "IterateResourcesBySync")
+}
+
+// TestResourceProfileStatusCreatedAtPersistence verifies profile,
+// status, and created_at survive the full v2 write path (Adapter
+// PutResources → v3 record marshaled into Pebble) and hydrate back
+// out on read. The translate-only round trip is covered in
+// translate_v2_test.go; this pins the on-disk persistence.
+func TestResourceProfileStatusCreatedAtPersistence(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID := ksuid.New().String()
+	require.NoError(t, e.bindCurrentSync(syncID))
+
+	created := timestamppb.New(time.Unix(1716393600, 0))
+	res := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: "user",
+			Resource:     "alice",
+		}.Build(),
+		DisplayName: "Alice",
+		Profile: &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"email": structpb.NewStringValue("alice@example.com"),
+			},
+		},
+		Status: &v2.Status{
+			Status:  v2.Status_RESOURCE_STATUS_DISABLED,
+			Details: "locked by admin",
+		},
+		CreatedAt: created,
+	}.Build()
+	require.NoError(t, e.PutResources(ctx, res))
+
+	rec, err := e.GetResourceRecord(ctx, "user", "alice")
+	require.NoError(t, err, "GetResourceRecord")
+	require.Equal(t, "alice@example.com", rec.GetProfile().GetFields()["email"].GetStringValue(), "stored profile")
+	require.Equal(t, v3.StatusRecord_RESOURCE_STATUS_DISABLED, rec.GetStatus().GetStatus(), "stored status")
+	require.Equal(t, "locked by admin", rec.GetStatus().GetDetails(), "stored status details")
+	require.Equal(t, int64(1716393600), rec.GetCreatedAt().GetSeconds(), "stored created_at")
+
+	back := V3ResourceToV2(rec)
+	require.Equal(t, "alice@example.com", back.GetProfile().GetFields()["email"].GetStringValue(), "hydrated profile")
+	require.Equal(t, v2.Status_RESOURCE_STATUS_DISABLED, back.GetStatus().GetStatus(), "hydrated status")
+	require.Equal(t, "locked by admin", back.GetStatus().GetDetails(), "hydrated status details")
+	require.Equal(t, created.GetSeconds(), back.GetCreatedAt().GetSeconds(), "hydrated created_at")
 }
 
 func TestEntitlementByResourceIndex(t *testing.T) {

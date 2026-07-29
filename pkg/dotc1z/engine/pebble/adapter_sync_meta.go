@@ -26,6 +26,8 @@ type pebbleSyncMeta struct {
 	e *Engine
 }
 
+var _ c1zstore.IngestInvariantVerificationWriter = pebbleSyncMeta{}
+
 // MarkSyncSupportsDiff sets supports_diff = true on the named sync's
 // run record. Used by pkg/sync.parallelSyncer after graph
 // construction to signal that the sync has SQL-layer grant metadata
@@ -47,6 +49,55 @@ func (s pebbleSyncMeta) MarkSyncSupportsDiff(ctx context.Context, syncID string)
 	r.SetSupportsDiff(true)
 	if err := s.e.PutSyncRunRecord(ctx, r); err != nil {
 		return fmt.Errorf("MarkSyncSupportsDiff: put: %w", err)
+	}
+	return nil
+}
+
+// MarkIngestInvariantsVerified persists the successful invariant pass on the
+// sync-run record. Rewriting the same marker after crash/resume is idempotent.
+func (s pebbleSyncMeta) MarkIngestInvariantsVerified(
+	ctx context.Context,
+	syncID string,
+	verification c1zstore.IngestInvariantVerification,
+) error {
+	if syncID == "" {
+		return errors.New("MarkIngestInvariantsVerified: empty syncID")
+	}
+	if !verification.IsVerified() {
+		return errors.New("MarkIngestInvariantsVerified: incomplete verification")
+	}
+	r, err := s.e.GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		return c1zstore.AdaptNotFound(fmt.Errorf("MarkIngestInvariantsVerified: get: %w", err), pebble.ErrNotFound)
+	}
+	// The marker is only ever valid on a sealed sync: an unfinished sync's
+	// data is still mutable, so a verified-but-unfinished record would be a
+	// lie the moment the next write lands. Callers mark AFTER EndSync.
+	if r.GetEndedAt() == nil {
+		return fmt.Errorf("MarkIngestInvariantsVerified: sync %s is not finished", syncID)
+	}
+	r.SetIngestInvariantGeneration(verification.Generation)
+	r.SetIngestInvariantCoverage(append([]string(nil), verification.Coverage...))
+	r.SetIngestInvariantMode(string(verification.Mode))
+	if err := s.e.PutSyncRunRecord(ctx, r); err != nil {
+		return fmt.Errorf("MarkIngestInvariantsVerified: put: %w", err)
+	}
+	return nil
+}
+
+func (s pebbleSyncMeta) ClearIngestInvariantVerification(ctx context.Context, syncID string) error {
+	if syncID == "" {
+		return errors.New("ClearIngestInvariantVerification: empty syncID")
+	}
+	r, err := s.e.GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		return c1zstore.AdaptNotFound(fmt.Errorf("ClearIngestInvariantVerification: get: %w", err), pebble.ErrNotFound)
+	}
+	r.SetIngestInvariantGeneration("")
+	r.SetIngestInvariantCoverage(nil)
+	r.SetIngestInvariantMode("")
+	if err := s.e.PutSyncRunRecord(ctx, r); err != nil {
+		return fmt.Errorf("ClearIngestInvariantVerification: put: %w", err)
 	}
 	return nil
 }
@@ -114,13 +165,22 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) *c1zstore.SyncRun {
 	if r == nil {
 		return nil
 	}
+	verification := c1zstore.IngestInvariantVerification{
+		Generation: r.GetIngestInvariantGeneration(),
+		Coverage:   append([]string(nil), r.GetIngestInvariantCoverage()...),
+		Mode:       c1zstore.IngestInvariantVerificationMode(r.GetIngestInvariantMode()),
+	}
+	if !verification.IsVerified() {
+		verification = c1zstore.IngestInvariantVerification{}
+	}
 	out := &c1zstore.SyncRun{
-		ID:           r.GetSyncId(),
-		Type:         syncTypeV3ToConnectorstore(r.GetType()),
-		SyncToken:    r.GetSyncToken(),
-		ParentSyncID: r.GetParentSyncId(),
-		LinkedSyncID: r.GetLinkedSyncId(),
-		SupportsDiff: r.GetSupportsDiff(),
+		ID:                          r.GetSyncId(),
+		Type:                        syncTypeV3ToConnectorstore(r.GetType()),
+		SyncToken:                   r.GetSyncToken(),
+		ParentSyncID:                r.GetParentSyncId(),
+		LinkedSyncID:                r.GetLinkedSyncId(),
+		SupportsDiff:                r.GetSupportsDiff(),
+		IngestInvariantVerification: verification,
 	}
 	if t := r.GetStartedAt(); t != nil {
 		tt := t.AsTime()
@@ -148,13 +208,22 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) *c1zstore.SyncRun {
 func (e *Engine) sortedSyncRuns(ctx context.Context) ([]c1zstore.SyncRun, error) {
 	var out []c1zstore.SyncRun
 	err := e.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
+		verification := c1zstore.IngestInvariantVerification{
+			Generation: r.GetIngestInvariantGeneration(),
+			Coverage:   append([]string(nil), r.GetIngestInvariantCoverage()...),
+			Mode:       c1zstore.IngestInvariantVerificationMode(r.GetIngestInvariantMode()),
+		}
+		if !verification.IsVerified() {
+			verification = c1zstore.IngestInvariantVerification{}
+		}
 		cand := c1zstore.SyncRun{
-			ID:           r.GetSyncId(),
-			Type:         syncTypeV3ToConnectorstore(r.GetType()),
-			SyncToken:    r.GetSyncToken(),
-			ParentSyncID: r.GetParentSyncId(),
-			SupportsDiff: r.GetSupportsDiff(),
-			LinkedSyncID: r.GetLinkedSyncId(),
+			ID:                          r.GetSyncId(),
+			Type:                        syncTypeV3ToConnectorstore(r.GetType()),
+			SyncToken:                   r.GetSyncToken(),
+			ParentSyncID:                r.GetParentSyncId(),
+			SupportsDiff:                r.GetSupportsDiff(),
+			LinkedSyncID:                r.GetLinkedSyncId(),
+			IngestInvariantVerification: verification,
 		}
 		if t := r.GetStartedAt(); t != nil {
 			tt := t.AsTime()
