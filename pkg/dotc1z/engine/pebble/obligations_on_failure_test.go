@@ -38,9 +38,12 @@ import (
 // and non-func knobs are out of scope: they inject observation points,
 // not failures. Enforced by TestFailureSeamsAreExercised.
 var seamFailureCases = map[string][]string{
-	"digestBuildHook":              {"TestGrantDigestBuildCrashMidMerge", "TestGrantDigestBuildCrashPostFinish"},
-	"recordCommitHook":             {"TestFailedMutationPathsFireObligations"},
-	"sourceCacheReplayCommitHook":  {"TestVerificationReplayBatchBoundAndInterruptedRetry"},
+	"digestBuildHook":             {"TestGrantDigestBuildCrashMidMerge", "TestGrantDigestBuildCrashPostFinish"},
+	"recordCommitHook":            {"TestFailedMutationPathsFireObligations"},
+	"sourceCacheReplayCommitHook": {"TestVerificationReplayBatchBoundAndInterruptedRetry"},
+	"sourceCacheReplayClearCommitHook": {
+		"TestVerificationReplayClearCommittedPrefixDisarmsFastPath",
+	},
 	"sourceCacheReplayReadHook":    {"TestVerificationReplayBatchBoundAndInterruptedRetry"},
 	"sourceCacheDeleteCommitHook":  {"TestVerificationScopedDeleteBatchBoundAndInterruptedRetry"},
 	"sourceCacheManifestWriteHook": {"TestVerificationManifestFailureDoesNotPublishClaim"},

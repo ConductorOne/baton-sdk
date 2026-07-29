@@ -376,6 +376,7 @@ func (e *Engine) bindCurrentSync(syncID string) error {
 	e.currentSync = idBytes
 	e.freshSync = false
 	e.freshGrantsEmpty = false
+	e.freshEntitlementsEmpty = false
 	e.freshResourcesEmpty = false
 	e.currentSyncMu.Unlock()
 	// Binding a sync means more writes are coming; leave the sealed state

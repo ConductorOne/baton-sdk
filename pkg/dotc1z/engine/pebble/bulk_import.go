@@ -700,6 +700,7 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		// Put*Records calls in this sync must take their read-before-write
 		// paths so overwrites of imported identities clean up index entries.
 		_ = b.e.takeFreshGrantsEmpty()
+		_ = b.e.takeFreshEntitlementsEmpty()
 		_ = b.e.takeFreshResourcesEmpty()
 		return nil
 	})

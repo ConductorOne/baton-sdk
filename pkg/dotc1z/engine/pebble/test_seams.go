@@ -55,6 +55,11 @@ type testSeams struct {
 	sourceCacheReplayCommitHook func(kind string, rows int, final bool) error
 	sourceCacheReplayBatchRows  int
 
+	// sourceCacheReplayClearCommitHook runs immediately before each bounded
+	// destination-clear batch commit. Replacement clear and replay copy are
+	// distinct commit loops and therefore require distinct failure seams.
+	sourceCacheReplayClearCommitHook func(kind string, rows int, final bool) error
+
 	// sourceCacheReplayReadHook runs before each source index row is consumed.
 	// It supplies deterministic source-iteration errors at exact row cuts.
 	sourceCacheReplayReadHook func(kind string, row int) error

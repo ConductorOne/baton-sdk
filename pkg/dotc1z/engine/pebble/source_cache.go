@@ -746,17 +746,25 @@ func (e *Engine) clearReplayDestinationScopeLocked(
 	batch := e.db.NewRecordBatch()
 	defer func() { _ = batch.Close() }()
 	rowsInBatch := 0
+	deletedInBatch := 0
 	deleted := 0
-	commit := func() error {
+	commit := func(final bool) error {
 		if rowsInBatch == 0 {
 			return nil
+		}
+		if e.test.sourceCacheReplayClearCommitHook != nil {
+			if err := e.test.sourceCacheReplayClearCommitHook(rowKind, rowsInBatch, final); err != nil {
+				return err
+			}
 		}
 		if err := batch.Commit(opts); err != nil {
 			return err
 		}
+		deleted += deletedInBatch
 		_ = batch.Close()
 		batch = e.db.NewRecordBatch()
 		rowsInBatch = 0
+		deletedInBatch = 0
 		return nil
 	}
 
@@ -796,11 +804,11 @@ func (e *Engine) clearReplayDestinationScopeLocked(
 			if err != nil {
 				return deleted, err
 			}
-			deleted++
+			deletedInBatch++
 		}
 		rowsInBatch++
-		if rowsInBatch >= replayBatchRows {
-			if err := commit(); err != nil {
+		if rowsInBatch >= e.sourceCacheReplayBatchLimit() {
+			if err := commit(false); err != nil {
 				return deleted, err
 			}
 		}
@@ -808,7 +816,7 @@ func (e *Engine) clearReplayDestinationScopeLocked(
 	if err := iter.Error(); err != nil {
 		return deleted, err
 	}
-	if err := commit(); err != nil {
+	if err := commit(true); err != nil {
 		return deleted, err
 	}
 	return deleted, nil
@@ -845,11 +853,11 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 			opts = pebble.NoSync
 		}
 		deleted, err := e.clearReplayDestinationScopeLocked(ctx, "grants", typeGrant, prefix, opts)
-		if err != nil {
-			return err
-		}
 		if deleted > 0 {
 			_ = e.takeFreshGrantsEmpty()
+		}
+		if err != nil {
+			return err
 		}
 		batch := e.db.NewRecordBatch()
 		defer func() { _ = batch.Close() }()
@@ -1042,12 +1050,12 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 			opts = pebble.NoSync
 		}
 		deleted, err := e.clearReplayDestinationScopeLocked(ctx, "entitlements", typeEntitlement, prefix, opts)
-		if err != nil {
-			return err
-		}
 		if deleted > 0 {
 			e.noteEntitlementKeyspaceWrite()
 			_ = e.takeFreshEntitlementsEmpty()
+		}
+		if err != nil {
+			return err
 		}
 		batch := e.db.NewRecordBatch()
 		defer func() { _ = batch.Close() }()
@@ -1199,11 +1207,11 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 			opts = pebble.NoSync
 		}
 		deleted, err := e.clearReplayDestinationScopeLocked(ctx, "resources", typeResource, prefix, opts)
-		if err != nil {
-			return err
-		}
 		if deleted > 0 {
 			_ = e.takeFreshResourcesEmpty()
+		}
+		if err != nil {
+			return err
 		}
 		batch := e.db.NewRecordBatch()
 		defer func() { _ = batch.Close() }()
