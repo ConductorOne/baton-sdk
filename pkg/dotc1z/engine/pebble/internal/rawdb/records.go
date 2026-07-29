@@ -329,11 +329,25 @@ func (rb *RecordBatch) StageResourceDelete(key, oldVal []byte, childRT, childID 
 	if err := assertFamily("StageResourceDelete", key, resourcePrimaryPrefix); err != nil {
 		return err
 	}
-	if err := rb.stageResourceParentDelete(oldVal, childRT, childID); err != nil {
-		return err
+	parentRT, parentID, parentErr := ScanResourceParentRaw(oldVal)
+	if parentErr != nil {
+		if err := rb.deleteAllResourceParentKeysForChild(childRT, childID); err != nil {
+			return err
+		}
+	} else if parentID != "" {
+		if err := rb.core.b.Delete(EncodeResourceByParentIndexKey(parentRT, parentID, childRT, childID), nil); err != nil {
+			return err
+		}
 	}
-	if err := rb.stageSourceScopeDelete(key, oldVal, 12); err != nil {
-		return err
+	oldScope, scopeErr := ScanSourceScopeKeyRaw(oldVal, 12)
+	if scopeErr != nil {
+		if err := rb.deleteAllSourceScopeKeysForPrimary(key); err != nil {
+			return err
+		}
+	} else if oldScope != "" {
+		if err := rb.deleteSourceScopeKey(key, oldScope); err != nil {
+			return err
+		}
 	}
 	return rb.core.b.Delete(key, nil)
 }
@@ -347,6 +361,39 @@ func (rb *RecordBatch) stageResourceParentDelete(oldVal []byte, childRT, childID
 		return nil
 	}
 	return rb.core.b.Delete(EncodeResourceByParentIndexKey(parentRT, parentID, childRT, childID), nil)
+}
+
+func (rb *RecordBatch) deleteAllResourceParentKeysForChild(childRT, childID string) error {
+	lo := []byte{VersionV3, TypeIndex, IdxResourceByParent}
+	iter, err := rb.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: UpperBound(lo)})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	childTail := codec.AppendTupleStrings(nil, childRT, childID)
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		if len(key) < 5 || key[3] != 0 {
+			continue
+		}
+		_, parentRTNext, ok := codec.DecodeTupleStringAlias(key[4:], 0)
+		if !ok {
+			continue
+		}
+		parentIDOffset := 4 + parentRTNext + 1
+		_, parentIDNext, ok := codec.DecodeTupleStringAlias(key[parentIDOffset:], 0)
+		if !ok {
+			continue
+		}
+		childOffset := parentIDOffset + parentIDNext + 1
+		if childOffset > len(key) || !bytes.Equal(key[childOffset:], childTail) {
+			continue
+		}
+		if err := rb.core.b.Delete(key, nil); err != nil {
+			return err
+		}
+	}
+	return iter.Error()
 }
 
 // === entitlement / resource-type staging ===
@@ -373,8 +420,15 @@ func (rb *RecordBatch) StageEntitlementDelete(key, oldVal []byte) error {
 	if err := assertFamily("StageEntitlementDelete", key, entitlementPrimaryPrefix); err != nil {
 		return err
 	}
-	if err := rb.stageSourceScopeDelete(key, oldVal, 11); err != nil {
-		return err
+	oldScope, scopeErr := ScanSourceScopeKeyRaw(oldVal, 11)
+	if scopeErr != nil {
+		if err := rb.deleteAllSourceScopeKeysForPrimary(key); err != nil {
+			return err
+		}
+	} else if oldScope != "" {
+		if err := rb.deleteSourceScopeKey(key, oldScope); err != nil {
+			return err
+		}
 	}
 	return rb.core.b.Delete(key, nil)
 }
@@ -402,14 +456,6 @@ func (rb *RecordBatch) stageSourceScopeChange(key, val, oldVal []byte, field pro
 		return fmt.Errorf("rawdb: cannot derive source-scope index from key %x", key)
 	}
 	return rb.core.b.Set(indexKey, nil, nil)
-}
-
-func (rb *RecordBatch) stageSourceScopeDelete(key, oldVal []byte, field protowire.Number) error {
-	oldScope, err := ScanSourceScopeKeyRaw(oldVal, field)
-	if err != nil || oldScope == "" {
-		return err
-	}
-	return rb.deleteSourceScopeKey(key, oldScope)
 }
 
 func (rb *RecordBatch) deleteSourceScopeKey(key []byte, scopeKey string) error {

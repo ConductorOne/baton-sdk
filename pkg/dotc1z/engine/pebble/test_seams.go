@@ -53,6 +53,7 @@ type testSeams struct {
 	// batch commit. It provides deterministic high-water telemetry and a
 	// per-chunk failure seam without changing the replay iterator.
 	sourceCacheReplayCommitHook func(kind string, rows int, final bool) error
+	sourceCacheReplayBatchRows  int
 
 	// sourceCacheReplayReadHook runs before each source index row is consumed.
 	// It supplies deterministic source-iteration errors at exact row cuts.

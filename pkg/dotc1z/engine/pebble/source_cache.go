@@ -33,6 +33,13 @@ import (
 // be the whole previous row set, so the batch must not grow unbounded.
 const replayBatchRows = 10_000
 
+func (e *Engine) sourceCacheReplayBatchLimit() int {
+	if e.test.sourceCacheReplayBatchRows > 0 {
+		return e.test.sourceCacheReplayBatchRows
+	}
+	return replayBatchRows
+}
+
 // SourceCacheReplayResult reports what one scope's replay copied.
 type SourceCacheReplayResult struct {
 	Rows int64
@@ -121,6 +128,56 @@ func (e *Engine) DeleteGrantRecordBounded(ctx context.Context, externalID string
 			return err
 		}
 		return e.deleteGrantByIdentityLocked(id)
+	})
+}
+
+// DeleteGrantRecordsBounded validates every canonical public id before staging
+// any tombstone, then commits the resolved deletes atomically. Resolution keeps
+// DeleteGrantRecordBounded's candidate-only contract: missing or connector-custom
+// ids are no-ops, while an ambiguous id rejects the entire request.
+func (e *Engine) DeleteGrantRecordsBounded(ctx context.Context, externalIDs []string) error {
+	return e.withWrite(func() error {
+		identities := make([]grantIdentity, 0, len(externalIDs))
+		seen := make(map[grantIdentity]struct{}, len(externalIDs))
+		for _, externalID := range externalIDs {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			id, err := e.resolveGrantIdentityByCandidates(ctx, externalID)
+			if err != nil {
+				if errors.Is(err, pebble.ErrNotFound) {
+					continue
+				}
+				return err
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			identities = append(identities, id)
+		}
+		if len(identities) == 0 {
+			return nil
+		}
+
+		batch := e.db.NewRecordBatch()
+		defer func() { _ = batch.Close() }()
+		for _, id := range identities {
+			key := encodeGrantIdentityKey(id)
+			oldVal, closer, err := e.db.Get(key)
+			if errors.Is(err, pebble.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if err := batch.StageGrantDelete(key, oldVal); err != nil {
+				_ = closer.Close()
+				return err
+			}
+			_ = closer.Close()
+		}
+		return batch.Commit(writeOpts(e.opts.durability))
 	})
 }
 
@@ -914,7 +971,7 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 			}
 			res.Rows++
 			rowsInBatch++
-			if rowsInBatch >= replayBatchRows {
+			if rowsInBatch >= e.sourceCacheReplayBatchLimit() {
 				if e.test.sourceCacheReplayCommitHook != nil {
 					if err := e.test.sourceCacheReplayCommitHook("grants", rowsInBatch, false); err != nil {
 						return err
@@ -930,6 +987,9 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 			}
 		}
 		if err := iter.Error(); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if e.test.sourceCacheReplayCommitHook != nil {
@@ -1064,7 +1124,7 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 			closer.Close()
 			res.Rows++
 			rowsInBatch++
-			if rowsInBatch >= replayBatchRows {
+			if rowsInBatch >= e.sourceCacheReplayBatchLimit() {
 				if e.test.sourceCacheReplayCommitHook != nil {
 					if err := e.test.sourceCacheReplayCommitHook("entitlements", rowsInBatch, false); err != nil {
 						return err
@@ -1080,6 +1140,9 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 			}
 		}
 		if err := iter.Error(); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if e.test.sourceCacheReplayCommitHook != nil {
@@ -1219,7 +1282,7 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 			closer.Close()
 			res.Rows++
 			rowsInBatch++
-			if rowsInBatch >= replayBatchRows {
+			if rowsInBatch >= e.sourceCacheReplayBatchLimit() {
 				if e.test.sourceCacheReplayCommitHook != nil {
 					if err := e.test.sourceCacheReplayCommitHook("resources", rowsInBatch, false); err != nil {
 						return err
@@ -1235,6 +1298,9 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 			}
 		}
 		if err := iter.Error(); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if e.test.sourceCacheReplayCommitHook != nil {

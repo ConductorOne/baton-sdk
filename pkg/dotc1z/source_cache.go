@@ -19,6 +19,12 @@ import (
 // SourceCacheReplayResult reports what one scope's replay copied.
 type SourceCacheReplayResult = pebble.SourceCacheReplayResult
 
+type sourceCacheStoreTestSeams struct {
+	// afterEngineReplay injects a wrapper-level error after the engine has
+	// committed replay work.
+	afterEngineReplay func() error
+}
+
 // SourceCacheStore is the optional store capability backing source-cache
 // replay (see proto/c1/connector/v2/annotation_source_cache.proto). It is
 // implemented ONLY by the Pebble engine; the syncer type-asserts for it and
@@ -168,6 +174,11 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 	if entry.GetCacheValidator() == "" {
 		return SourceCacheReplayResult{}, fmt.Errorf("source cache replay: manifest for row kind %q and scope %q has no validator", kind, scopeKey)
 	}
+	// Replay is replacement, not append: the engine may clear destination rows
+	// or commit one or more bounded chunks before returning zero rows or an error.
+	// Mark conservatively before crossing that mutation boundary so Close always
+	// persists any committed progress.
+	s.MarkDirty()
 	var res SourceCacheReplayResult
 	switch kind {
 	case sourcecache.RowKindResources:
@@ -182,8 +193,10 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 	if err != nil {
 		return SourceCacheReplayResult{}, err
 	}
-	if res.Rows > 0 {
-		s.MarkDirty()
+	if s.sourceCacheTest.afterEngineReplay != nil {
+		if err := s.sourceCacheTest.afterEngineReplay(); err != nil {
+			return SourceCacheReplayResult{}, err
+		}
 	}
 	return res, nil
 }
@@ -200,6 +213,9 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecache.RowKind, ids []string) error {
 	if err := sourcecache.ValidateRowKind(kind); err != nil {
 		return err
+	}
+	if len(ids) == 0 {
+		return nil
 	}
 	if kind == sourcecache.RowKindResources {
 		resources := make([]*v2.Resource, len(ids))
@@ -218,19 +234,17 @@ func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecach
 		}
 		return nil
 	}
-	for _, id := range ids {
-		switch kind {
-		case sourcecache.RowKindGrants:
-			if err := s.markDirty(s.DeleteGrantRecordBounded(ctx, id)); err != nil {
-				return fmt.Errorf("source cache delete grant %q: %w", id, err)
-			}
-		case sourcecache.RowKindEntitlements:
-			if err := s.markDirty(s.DeleteEntitlementRecord(ctx, id)); err != nil {
-				return fmt.Errorf("source cache delete entitlement %q: %w", id, err)
-			}
-		case sourcecache.RowKindResources:
-			return errors.New("source cache delete resource: internal dispatch error")
+	switch kind {
+	case sourcecache.RowKindGrants:
+		if err := s.markDirty(s.DeleteGrantRecordsBounded(ctx, ids)); err != nil {
+			return fmt.Errorf("source cache delete grants: %w", err)
 		}
+	case sourcecache.RowKindEntitlements:
+		if err := s.markDirty(s.DeleteEntitlementRecords(ctx, ids)); err != nil {
+			return fmt.Errorf("source cache delete entitlements: %w", err)
+		}
+	case sourcecache.RowKindResources:
+		return errors.New("source cache delete resource: internal dispatch error")
 	}
 	return nil
 }

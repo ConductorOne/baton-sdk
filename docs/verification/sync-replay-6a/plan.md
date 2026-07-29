@@ -572,8 +572,27 @@ supplements:
 - Source: current source-integrity preflight is bounded-memory but scans all
   primaries of a row kind for every replayed scope.
 - PR placement: separate stacked follow-up PR based on Phase 6a.
+- Status: open action item; Phase 6a correctness closure remains valid, but
+  many-scope replay performance is not closed until this change order has
+  evidence.
+- Action: add an optional primary-derived `row_count` to each sealed
+  `(row_kind, scope_key)` manifest entry. Fuse count collection into EndSync's
+  existing primary scans where available, cover deferred/stashed scan paths,
+  and clear counts before a completed sync is rebound for mutation.
+- Replay contract: when `row_count` is present, retain scoped
+  index→primary/stamp validation and require its cardinality to equal the
+  sealed count before destination mutation; when absent, preserve the current
+  full primary↔index preflight for legacy artifacts. Count zero means a proven
+  empty scope, not unknown.
 - Verification delta: optional sealed manifest row counts, legacy fallback,
   rebind invalidation, counted corruption checks, and many-scope benchmarks.
+- Closure gate: all three row kinds prove primary-derived count reconciliation,
+  zero-row and second-hop behavior, missing/orphan/wrong-scope/malformed-source
+  rejection in counted and legacy modes, failure/retry without a false count,
+  read-only reopen/clone preservation, and stale-count removal on rebind. A
+  fixed-total-row benchmark varying the number of replayed scopes must compare
+  counted and legacy manifests and demonstrate removal of the O(S·N) primary
+  scan; the independent biconditional auditor remains count-unaware.
 
 ### CO-003a — Pooled batch ownership correction
 
@@ -588,3 +607,64 @@ supplements:
 - Verification delta:
   `TestVerificationScopedDeleteBatchFinalCloseOwnership` asserts that final commit
   clears ownership and repeated deferred cleanup cannot touch the pooled object.
+
+### CO-005 — Public replay persistence-lifecycle correction
+
+- Type: correction.
+- Source: focused implementation-obligation review found that the public replay
+  wrapper marked the store dirty only after a successful replay reporting one or
+  more copied rows. Replacement can commit destination clearing with zero copied
+  rows, or commit clearing/bounded copy chunks before a later error.
+- Contract delta: no new external behavior. Once manifest authorization succeeds,
+  the public wrapper marks dirty before crossing the engine mutation boundary so
+  `Close` persists every committed prefix.
+- Verification delta: a resumed occupied destination is replayed from a valid
+  zero-row source and through an injected failure after committed clearing. Both
+  cases require dirty state and verify the exact durable result after close/reopen.
+
+### CO-006 — Timestamp-oracle correction
+
+- Type: correction.
+- Source: C26/O11 described a current manifest timestamp as both “supplied/written”
+  and never a wall-clock value, but the Phase 6a manifest API supplies only a
+  validator; the engine assigns `discovered_at` at the current manifest write.
+- Resolution: source rows use an explicit source sentinel and replay preserves it
+  byte-for-byte. A normal current overlay uses an explicit overlay sentinel.
+  A current manifest write must fall within the before/after bounds of that write,
+  differ from both row sentinels, and survive reopen unchanged. This corrects an
+  unrepresentable oracle cell; it does not add a product behavior.
+- Verification delta: all three row kinds exercise source replay, colliding current
+  overlay, retry replacement, current manifest publication, and hard reopen with
+  the three independently observable timestamp provenances.
+
+### CO-007 — Page-ordering ownership clarification
+
+- Type: clarification.
+- Source: CO-001 assigns overlay/tombstone invocation to the caller, while C29's
+  page-order claim requires a component that owns page scheduling. No in-scope
+  Phase 6a component owns that ordering decision; syncer orchestration is deferred.
+- Resolution: C29 is deferred to the orchestration phase and cannot be closed by
+  directly invoking storage methods in a chosen order. C36 remains in scope for
+  storage composition: overlapping canonical/principal selectors form a
+  duplicate-safe union, and later explicit calls deterministically re-add or
+  remove identities.
+- Verification delta: the storage test includes a row matched by both selector
+  classes and explicitly disclaims page-order closure. Future C29 evidence must
+  invoke the orchestration owner.
+
+### CO-008 — Opaque row-ID validity clarification
+
+- Type: clarification.
+- Source: C28 grouped empty/oversized/malformed “inputs” without distinguishing
+  source-cache-owned scope/selector validation from the base typed writers' opaque
+  connector row IDs.
+- Resolution: Phase 6a validates row kind, scope key, and structured resource BID
+  selectors. Representable connector row-ID strings remain opaque storage data,
+  including empty, embedded-NUL, normalization-neighbor, and long values; Phase 6a
+  must preserve and isolate them rather than invent a new base-row validity policy.
+  Invalid UTF-8 is not representable in protobuf string fields. Malformed resource
+  BIDs and structurally ambiguous entitlement/grant selectors retain their loud,
+  residue-free C42 dispositions.
+- Verification delta: all row kinds replay and tombstone the representable hostile
+  ID corpus byte-exactly with neighbor survival; invalid UTF-8 is executable
+  unrepresentability evidence.

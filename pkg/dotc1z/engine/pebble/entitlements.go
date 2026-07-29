@@ -172,10 +172,71 @@ func (e *Engine) DeleteEntitlementRecordByIdentity(
 		key := encodeEntitlementIdentityKey(
 			entitlementIdentityFromParts(resourceTypeID, resourceID, externalID),
 		)
+		oldVal, closer, err := e.db.Get(key)
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		defer closer.Close()
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
-		if err := batch.StageEntitlementDelete(key); err != nil {
+		if err := batch.StageEntitlementDelete(key, oldVal); err != nil {
 			return err
+		}
+		if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
+			return err
+		}
+		e.noteEntitlementKeyspaceWrite()
+		return nil
+	})
+}
+
+// DeleteEntitlementRecords validates every public id before staging any
+// tombstone, then commits the resolved deletes atomically. Missing ids are
+// no-ops; an ambiguous id rejects the entire request.
+func (e *Engine) DeleteEntitlementRecords(ctx context.Context, externalIDs []string) error {
+	return e.withWrite(func() error {
+		identities := make([]entitlementIdentity, 0, len(externalIDs))
+		seen := make(map[entitlementIdentity]struct{}, len(externalIDs))
+		for _, externalID := range externalIDs {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			id, err := e.resolveEntitlementIdentityByExternalID(ctx, externalID)
+			if err != nil {
+				if errors.Is(err, pebble.ErrNotFound) {
+					continue
+				}
+				return err
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			identities = append(identities, id)
+		}
+		if len(identities) == 0 {
+			return nil
+		}
+
+		batch := e.db.NewRecordBatch()
+		defer func() { _ = batch.Close() }()
+		for _, id := range identities {
+			key := encodeEntitlementIdentityKey(id)
+			oldVal, closer, err := e.db.Get(key)
+			if errors.Is(err, pebble.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if err := batch.StageEntitlementDelete(key, oldVal); err != nil {
+				_ = closer.Close()
+				return err
+			}
+			_ = closer.Close()
 		}
 		if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
 			return err

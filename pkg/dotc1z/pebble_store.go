@@ -228,6 +228,8 @@ type pebbleStore struct {
 	closeMu sync.Mutex
 	closed  bool
 	dirty   bool
+
+	sourceCacheTest sourceCacheStoreTestSeams
 }
 
 // Compile-time guard: a Pebble store satisfies the full C1ZStore
