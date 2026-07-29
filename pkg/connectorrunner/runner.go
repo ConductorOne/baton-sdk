@@ -768,19 +768,12 @@ func WithExternalResourceEntitlementFilter(entitlementId string) Option {
 	}
 }
 
-// WithExternalResourceTraits is the connector AUTHOR's build-time
-// declaration of which resource type traits, beyond the always-eligible
-// TRAIT_USER and TRAIT_GROUP, the External Identity Matcher should sync and
-// match against from the external resource c1z (see WithExternalResourceC1Z
-// / WithExternalResourceEntitlementFilter, which are runtime/deployment
-// details and so are also exposed as CLI flags). Which traits a connector
-// matches against is not a deployment concern — it's fixed by which
-// ExternalResourceMatch* annotations the connector's own Grants()
-// implementation emits — so this is passed directly from the connector's
-// main.go (e.g. cli.MakeMainCommand(..., WithExternalResourceTraits(...))),
-// not surfaced as a customer-facing flag. For example, a connector matching
-// grants against service-principal identities synced by another connector
-// as TRAIT_APP would pass that trait here.
+// WithExternalResourceTraits adds resource type traits, beyond the
+// always-eligible TRAIT_USER and TRAIT_GROUP, that the External Identity
+// Matcher should sync and match against from the external resource c1z (see
+// WithExternalResourceC1Z). For example, a connector matching grants
+// against service-principal identities synced by another connector as
+// TRAIT_APP would pass that trait here.
 func WithExternalResourceTraits(traits ...v2.ResourceType_Trait) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.externalResourceTraits = append(cfg.externalResourceTraits, traits...)

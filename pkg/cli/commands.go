@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
@@ -408,6 +409,14 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithExternalResourceEntitlementFilter(externalResourceEntitlementIdFilter))
 		}
 
+		if traitNames := v.GetStringSlice("external-resource-traits"); len(traitNames) > 0 {
+			traits, err := parseResourceTraits(traitNames)
+			if err != nil {
+				return err
+			}
+			opts = append(opts, connectorrunner.WithExternalResourceTraits(traits...))
+		}
+
 		// The customer's runtime half of the ETag-replay opt-in
 		// (--keep-previous-sync-c1z / BATON_KEEP_PREVIOUS_SYNC_C1Z).
 		// Only takes effect on connectors whose author also declared the
@@ -474,6 +483,28 @@ func MakeMainCommand[T field.Configurable](
 
 		return nil
 	}
+}
+
+// parseResourceTraits maps --external-resource-traits flag values to
+// ResourceType_Trait enum values. Accepts either the bare trait name
+// ("app", case-insensitive) or the canonical proto enum name ("TRAIT_APP").
+func parseResourceTraits(names []string) ([]v2.ResourceType_Trait, error) {
+	traits := make([]v2.ResourceType_Trait, 0, len(names))
+	for _, name := range names {
+		key := strings.ToUpper(strings.TrimSpace(name))
+		if key == "" {
+			continue
+		}
+		if !strings.HasPrefix(key, "TRAIT_") {
+			key = "TRAIT_" + key
+		}
+		val, ok := v2.ResourceType_Trait_value[key]
+		if !ok {
+			return nil, fmt.Errorf("unknown external resource trait %q", name)
+		}
+		traits = append(traits, v2.ResourceType_Trait(val))
+	}
+	return traits, nil
 }
 
 func initOtel(ctx context.Context, name string, v *viper.Viper, initialLogFields map[string]interface{}) (context.Context, func(context.Context) error, error) {
