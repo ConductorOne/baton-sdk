@@ -239,6 +239,26 @@ type state struct {
 	// state so Unmarshal→Marshal round trips (e.g. expansion replay
 	// tokens) preserve it.
 	compaction *CompactionTokenStats
+	// checkpointEntitlementGraph opts back in to serializing the graph
+	// inline. Off by default because the encoding is what OOM-kills workers
+	// on large tenants; on, it trades that risk for cross-restart expansion
+	// progress. See Marshal.
+	checkpointEntitlementGraph bool
+}
+
+// stateOpt configures a state at construction. Not part of the State
+// interface: these are process-level knobs from SyncOpt, not token contents,
+// so they must not survive an Unmarshal from a token written elsewhere.
+type stateOpt func(*state)
+
+// withCheckpointEntitlementGraph serializes the entitlement graph into every
+// checkpoint, restoring the behavior from before it was dropped. Escape hatch
+// for a tenant whose expansion cannot finish within one worker lifetime; costs
+// O(graph) memory per checkpoint, which is what the default avoids.
+func withCheckpointEntitlementGraph(enabled bool) stateOpt {
+	return func(st *state) {
+		st.checkpointEntitlementGraph = enabled
+	}
 }
 
 // ConnectorCallStat contains cumulative latency statistics for one connector method.
@@ -296,8 +316,8 @@ type serializedTokenV1 struct {
 	Version                         uint64                        `json:"version"`
 }
 
-func newState() *state {
-	return &state{
+func newState(opts ...stateOpt) *state {
+	st := &state{
 		actions:                     make(map[string]Action),
 		actionOrder:                 []string{},
 		currentActionID:             0,
@@ -310,6 +330,10 @@ func newState() *state {
 		connectorCallStats:          make(map[string]*ConnectorCallStat),
 		sessionStoreStats:           make(map[string]*SessionStoreStat),
 	}
+	for _, opt := range opts {
+		opt(st)
+	}
+	return st
 }
 
 // Current returns nil if there is no current action. Otherwise it returns a pointer to a copy of the current state.
@@ -500,7 +524,7 @@ func (st *state) Unmarshal(input string) error {
 
 // Marshal returns a string encoding of the state object. This is useful for datastores to checkpoint the current state.
 //
-// The entitlement graph is deliberately NOT serialized. It is a projection of
+// By default the entitlement graph is NOT serialized. It is a projection of
 // data already in the store (loadEntitlementGraph rebuilds it from
 // PendingExpansionPage, with no connector calls), and for large tenants its
 // JSON encoding multiplied the checkpoint's memory footprint several times
@@ -519,21 +543,30 @@ func (st *state) Unmarshal(input string) error {
 // safe for OLDER readers too — an old SDK resuming a graph-less token starts
 // a fresh graph and must restart the load from the first page. Only the
 // serialized copy is normalized; the live state keeps its page token.
+//
+// WithEntitlementGraphInCheckpoints restores the old inline-graph behavior. The
+// graph and the expansion page token then travel together, as they must: the
+// token is only resumable by a reader that also got the graph it indexes.
 func (st *state) Marshal() (string, error) {
 	st.mtx.RLock()
 	defer st.mtx.RUnlock()
 
 	actions := st.actions
-	for _, action := range st.actions {
-		if action.Op == SyncGrantExpansionOp && action.PageToken != "" {
-			actions = make(map[string]Action, len(st.actions))
-			for id, a := range st.actions {
-				if a.Op == SyncGrantExpansionOp {
-					a.PageToken = ""
+	graph := st.entitlementGraph
+
+	if !st.checkpointEntitlementGraph {
+		graph = nil
+		for _, action := range st.actions {
+			if action.Op == SyncGrantExpansionOp && action.PageToken != "" {
+				actions = make(map[string]Action, len(st.actions))
+				for id, a := range st.actions {
+					if a.Op == SyncGrantExpansionOp {
+						a.PageToken = ""
+					}
+					actions[id] = a
 				}
-				actions[id] = a
+				break
 			}
-			break
 		}
 	}
 
@@ -542,7 +575,7 @@ func (st *state) Marshal() (string, error) {
 		ActionOrder:                     st.actionOrder,
 		CurrentActionID:                 st.currentActionID,
 		NeedsExpansion:                  st.needsExpansion,
-		EntitlementGraph:                nil, // never serialized; see doc comment above
+		EntitlementGraph:                graph,
 		HasExternalResourceGrants:       st.hasExternalResourceGrants,
 		ShouldFetchRelatedResources:     st.shouldFetchRelatedResources,
 		ShouldSkipEntitlementsAndGrants: st.shouldSkipEntitlementsAndGrants,

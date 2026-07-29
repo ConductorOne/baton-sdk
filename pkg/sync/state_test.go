@@ -392,9 +392,9 @@ func TestSyncTokenV0FromC1Z(t *testing.T) {
 // entitlement graph and a SyncGrantExpansionOp action paginating the load,
 // stacked on a non-expansion action whose own pagination must survive the
 // checkpoint normalization untouched.
-func buildLoadedGraphState(t *testing.T, ctx context.Context, pageToken string) *state {
+func buildLoadedGraphState(t *testing.T, ctx context.Context, pageToken string, opts ...stateOpt) *state {
 	t.Helper()
-	st := newState()
+	st := newState(opts...)
 
 	st.PushAction(ctx, Action{Op: SyncGrantsOp})
 	require.NoError(t, st.NextPage(ctx, st.Current().ID, "grants-p9"))
@@ -467,6 +467,56 @@ func TestSyncerTokenOmitsEntitlementGraph(t *testing.T) {
 			require.Equal(t, "grants-p9", a.PageToken)
 		}
 	}
+}
+
+// WithEntitlementGraphInCheckpoints is the escape hatch for a tenant whose
+// expansion cannot finish within one worker lifetime. With it on, the graph and
+// the expansion pagination both stay in the token, so a resume continues the
+// load where it left off instead of restarting it.
+func TestSyncerTokenIncludesEntitlementGraphWhenEnabled(t *testing.T) {
+	ctx := t.Context()
+	st := buildLoadedGraphState(t, ctx, "page37", withCheckpointEntitlementGraph(true))
+
+	tokenString, err := st.Marshal()
+	require.NoError(t, err)
+	require.Contains(t, tokenString, `"entitlement_graph"`)
+
+	var raw serializedTokenV1
+	require.NoError(t, json.Unmarshal([]byte(tokenString), &raw))
+	require.NotNil(t, raw.EntitlementGraph)
+	// The graph and the page token that indexes it must travel together — a
+	// preserved page token against a dropped graph silently loses edges.
+	for _, a := range raw.ActionsMap {
+		if a.Op == SyncGrantExpansionOp {
+			require.Equal(t, "page37", a.PageToken, "expansion pagination must survive when the graph does")
+		}
+	}
+
+	// A resumed reader continues the load rather than restarting it, with the
+	// graph's contents intact.
+	resumed := newState()
+	require.NoError(t, resumed.Unmarshal(tokenString))
+	require.NotNil(t, resumed.entitlementGraph)
+	require.Equal(t, SyncGrantExpansionOp, resumed.Current().Op)
+	require.Equal(t, "page37", resumed.Current().PageToken)
+	require.Equal(t, 5, resumed.entitlementGraph.Depth)
+	require.Len(t, resumed.entitlementGraph.Nodes, len(st.entitlementGraph.Nodes))
+
+	// Default stays off, so one syncer's opt-in cannot leak into another's state.
+	require.False(t, newState().checkpointEntitlementGraph)
+}
+
+// The SyncOpt must actually reach the state that writes checkpoints; without
+// this the knob is inert and the OOM escape hatch does not exist.
+func TestWithEntitlementGraphInCheckpointsReachesState(t *testing.T) {
+	s := &syncer{}
+	require.False(t, s.checkpointEntitlementGraph)
+
+	WithEntitlementGraphInCheckpoints(true)(s)
+	require.True(t, s.checkpointEntitlementGraph)
+
+	st := newState(withCheckpointEntitlementGraph(s.checkpointEntitlementGraph))
+	require.True(t, st.checkpointEntitlementGraph)
 }
 
 // Tokens written by older SDKs carry the graph inline. They must decode and
