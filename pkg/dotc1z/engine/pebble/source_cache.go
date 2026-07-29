@@ -174,6 +174,7 @@ func (b *sourceCacheDeleteBatch) commit(final bool) error {
 	}
 	b.committedDeleted += b.pendingDeleted
 	_ = b.batch.Close()
+	b.batch = nil
 	b.operations = 0
 	b.pendingDeleted = 0
 	if !final {
@@ -183,7 +184,11 @@ func (b *sourceCacheDeleteBatch) commit(final bool) error {
 }
 
 func (b *sourceCacheDeleteBatch) close() {
+	if b.batch == nil {
+		return
+	}
 	_ = b.batch.Close()
+	b.batch = nil
 }
 
 // DeleteGrantsByPrincipalsInScope deletes every grant row in the CURRENT

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	cockroachpebble "github.com/cockroachdb/pebble/v2"
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -132,4 +133,32 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 			require.NoError(t, auditSourceScopeBiconditional(a.PebbleEngine()))
 		})
 	}
+}
+
+// A Pebble batch returns to a process-global pool when closed. The helper must
+// relinquish its pointer immediately after the final commit so deferred cleanup
+// cannot close a batch that another engine has since acquired from that pool.
+func TestVerificationScopedDeleteBatchFinalCloseOwnership(t *testing.T) {
+	ctx := t.Context()
+	a := newAdapter(t)
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	grant := scGrant("member", "alice", false)
+	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-a"), grant))
+	rec, err := a.PebbleEngine().GetGrantRecord(ctx, grant.GetId())
+	require.NoError(t, err)
+	id, err := grantIdentityFromRecord(rec)
+	require.NoError(t, err)
+
+	deletes := newSourceCacheDeleteBatch(a.PebbleEngine(), "ownership", cockroachpebble.NoSync)
+	require.NoError(t, deletes.batch.StageSourceScopeOrphanIndexDelete(
+		encodeGrantBySourceScopeIndexKey("scope-a", id),
+	))
+	require.NoError(t, deletes.staged(false))
+	require.NoError(t, deletes.commit(true))
+	require.Nil(t, deletes.batch, "final commit must relinquish ownership of the pooled batch")
+
+	require.NotPanics(t, deletes.close)
+	require.Nil(t, deletes.batch)
+	require.NotPanics(t, deletes.close, "deferred cleanup must be idempotent after final commit")
 }

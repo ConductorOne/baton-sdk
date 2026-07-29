@@ -574,3 +574,17 @@ supplements:
 - PR placement: separate stacked follow-up PR based on Phase 6a.
 - Verification delta: optional sealed manifest row counts, legacy fallback,
   rebind invalidation, counted corruption checks, and many-scope benchmarks.
+
+### CO-003a — Pooled batch ownership correction
+
+- Type: correction to CO-003.
+- Source: focused review of the new bounded-delete helper found that its final
+  commit closed a Pebble batch but retained the pointer for deferred cleanup.
+  Pebble returns closed batches to a process-global pool, so a second close could
+  act on a batch another goroutine had acquired.
+- Contract delta: the helper owns either one live batch or nil. Every close
+  relinquishes the pointer immediately, and deferred cleanup is nil-safe and
+  idempotent.
+- Verification delta:
+  `TestVerificationScopedDeleteBatchFinalCloseOwnership` asserts that final commit
+  clears ownership and repeated deferred cleanup cannot touch the pooled object.

@@ -2,7 +2,9 @@
 
 Plan: [`plan.md`](plan.md)
 
-Branch evidence revision: `257eccd6`
+Committed evidence baseline: `d4d0906b`
+
+Current working-tree change order: CO-003a pooled batch ownership correction.
 
 ## Signoff scope
 
@@ -29,7 +31,8 @@ this stage.
 - C10–C12 — verified by all-kind replay commit failure/retry, terminal-manifest
   failure, the 10,001-row chunk/error/cancel/read-failure hard-reopen test,
   deterministic batch high-water telemetry, bounded scoped-tombstone retry, and
-  the 1k/10k/100k benchmark. Benchmark results are measured sampling.
+  final-close ownership validation for Pebble’s process-global batch pool, plus the
+  1k/10k/100k benchmark. Benchmark results are measured sampling.
 - C13–C14 — verified by direct typed-materialization differential, distinct
   entitlement structural identities, and grant source/expansion side-state
   regressions.
@@ -109,6 +112,14 @@ go test ./pkg/sync -count=1
 The same repository-wide suite had passed before CO-003, and CO-003 does not touch
 `pkg/sync`.
 
+CO-003a evidence passed without committing the working tree:
+
+```text
+make lint
+go test ./pkg/dotc1z/engine/pebble -run '^TestVerificationScopedDeleteBatch(BoundAndInterruptedRetry|FinalCloseOwnership)$' -count=1
+go test -race ./pkg/dotc1z/engine/pebble -run '^TestVerificationScopedDeleteBatch(BoundAndInterruptedRetry|FinalCloseOwnership)$' -count=1
+```
+
 ## Performance evidence
 
 The replay benchmark sampled 1,000, 10,000, and 100,000-row scopes. Time and
@@ -128,3 +139,6 @@ replacement, and scoped-tombstone batch bounds.
   found and drove correction of 21 issues.
 - A post-closure review found unbounded scoped tombstone batches; CO-003 added the
   bounded implementation and interrupted-retry evidence.
+- Focused review of CO-003 then found a stale pointer retained after returning the
+  final Pebble batch to its process-global pool. CO-003a makes ownership
+  nil-or-exclusive and adds an explicit final-close lifecycle assertion.
