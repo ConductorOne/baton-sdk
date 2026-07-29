@@ -33,7 +33,10 @@ func (r engineV3Grants) GetGrant(
 	ctx context.Context,
 	req *reader_v3.GrantsReaderServiceGetGrantRequest,
 ) (*reader_v3.GrantsReaderServiceGetGrantResponse, error) {
-	syncID := r.e.CurrentSyncID()
+	syncID, err := r.e.resolveActiveSyncForReader(ctx, req.GetAnnotations())
+	if err != nil {
+		return nil, err
+	}
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
@@ -88,12 +91,12 @@ func (r engineV3Grants) ListGrantsForEntitlement(
 	// post-filter break at len(out) == limit may leave matching records
 	// unconsumed in the engine page, and the engine's end-of-page cursor
 	// would skip them.
-	cursorFor := func(rec *v3.GrantRecord) string {
+	cursorFor := func(rec *v3.GrantRecord) (string, error) {
 		id, err := grantIdentityFromRecord(rec)
 		if err != nil {
-			return ""
+			return "", err
 		}
-		return encodeCursor(encodeGrantIdentityKey(id))
+		return encodeCursor(encodeGrantIdentityKey(id)), nil
 	}
 
 	out := make([]*v3.GrantRecord, 0, limit)
@@ -136,7 +139,10 @@ func (r engineV3Grants) ListGrantsForEntitlement(
 			}
 			out = append(out, rec)
 			if len(out) == limit {
-				nextCursor = cursorFor(rec)
+				nextCursor, err = cursorFor(rec)
+				if err != nil {
+					return nil, err
+				}
 				brokeEarly = true
 				break
 			}
