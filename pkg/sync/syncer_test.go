@@ -1252,6 +1252,105 @@ func TestExternalResourceEmailMatch(t *testing.T) {
 	})
 }
 
+// TestExternalResourceUserProfileMatch covers matching a user principal on a
+// profile key other than "email" -- the shape connectors use when they match on
+// a directory identifier such as userPrincipalName. Several external users are
+// present so the test also proves only the matching one receives a grant.
+func TestExternalResourceUserProfileMatch(t *testing.T) {
+	runWithSyncModes(t, func(t *testing.T, extraOpts []SyncOpt) {
+		ctx := t.Context()
+
+		tempDir, err := os.MkdirTemp("", "baton-external-user-profile-match-test")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		internalMc := newMockConnector()
+		internalMc.rtDB = append(internalMc.rtDB, userResourceType, groupResourceType)
+
+		externalMc := newMockConnector()
+		externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType)
+
+		// The matching user's UPN differs in case from the grant's value, so a
+		// match here also confirms the comparison stays case-insensitive.
+		externalUsers := []struct {
+			objectID string
+			upn      string
+		}{
+			{objectID: "ext_user_1", upn: "other@example.com"},
+			{objectID: "ext_user_2", upn: "Target@Example.com"},
+			{objectID: "ext_user_3", upn: "another@example.com"},
+		}
+		var matchedUser *v2.Resource
+		for _, u := range externalUsers {
+			externalUser, err := rs.NewUserResource(
+				u.objectID,
+				userResourceType,
+				u.objectID,
+				nil,
+				rs.WithResourceProfile(map[string]any{"userPrincipalName": u.upn}),
+			)
+			require.NoError(t, err)
+			externalMc.AddResource(ctx, externalUser)
+			if u.objectID == "ext_user_2" {
+				matchedUser = externalUser
+			}
+		}
+		require.NotNil(t, matchedUser)
+
+		internalGroup, internalGroupEnt, err := internalMc.AddGroup(ctx, "internal_group")
+		require.NoError(t, err)
+		internalMc.grantDB[internalGroup.GetId().GetResource()] = []*v2.Grant{
+			gt.NewGrant(
+				internalGroup,
+				"member",
+				// Placeholder principal, replaced by the matching external user.
+				v2.ResourceId_builder{
+					ResourceType: userResourceType.GetId(),
+					Resource:     "placeholder_user",
+				}.Build(),
+				gt.WithAnnotation(v2.ExternalResourceMatch_builder{
+					Key:          "userPrincipalName",
+					Value:        "target@example.com",
+					ResourceType: v2.ResourceType_TRAIT_USER,
+				}.Build()),
+			),
+		}
+
+		externalC1zpath := filepath.Join(tempDir, "external.c1z")
+		externalOpts := append([]SyncOpt{WithC1ZPath(externalC1zpath), WithTmpDir(tempDir)}, extraOpts...)
+		externalSyncer, err := NewSyncer(ctx, externalMc, externalOpts...)
+		require.NoError(t, err)
+		err = externalSyncer.Sync(ctx)
+		require.NoError(t, err)
+		err = externalSyncer.Close(ctx)
+		require.NoError(t, err)
+
+		internalC1zpath := filepath.Join(tempDir, "internal.c1z")
+		internalOpts := append([]SyncOpt{WithC1ZPath(internalC1zpath), WithTmpDir(tempDir), WithExternalResourceC1ZPath(externalC1zpath)}, extraOpts...)
+		internalSyncer, err := NewSyncer(ctx, internalMc, internalOpts...)
+		require.NoError(t, err)
+		err = internalSyncer.Sync(ctx)
+		require.NoError(t, err)
+		err = internalSyncer.Close(ctx)
+		require.NoError(t, err)
+
+		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		require.NoError(t, err)
+
+		grants, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+			Entitlement: internalGroupEnt,
+		}.Build())
+		require.NoError(t, err)
+		require.Len(t, grants.GetList(), 1, "only the external user whose userPrincipalName matches should be granted")
+
+		grant := grants.GetList()[0]
+		require.Equal(t, matchedUser.GetId().GetResource(), grant.GetPrincipal().GetId().GetResource())
+		require.Equal(t, internalGroupEnt.GetId(), grant.GetEntitlement().GetId())
+		require.NotEqual(t, "placeholder_user", grant.GetPrincipal().GetId().GetResource(),
+			"grant principal should not be the placeholder, proving profile matching ran")
+	})
+}
+
 func TestExternalResourceGroupProfileMatch(t *testing.T) {
 	runWithSyncModes(t, func(t *testing.T, extraOpts []SyncOpt) {
 		ctx := t.Context()

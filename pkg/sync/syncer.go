@@ -3028,6 +3028,12 @@ func (s *syncer) matchProfileAndExpand(
 	return newGrant, nil
 }
 
+// externalMatchProgressLogInterval is how many grants the external-principal
+// match scan processes between progress logs. The scan can cover every grant in
+// the store, and without progress output a slow one is indistinguishable from a
+// hang.
+const externalMatchProgressLogInterval = 100_000
+
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
 	var err error
@@ -3063,12 +3069,51 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		principalMap[principalID] = principal
 	}
 
+	// Index each trait's principals once. Matching each grant against every
+	// principal is O(grants x principals) proto unmarshals, which on large
+	// tenants runs for hours and never finishes inside the sync deadline.
+	// TRAIT_USER gets the user-trait-aware index so an "email" key can match a
+	// user-trait address as well as a profile field; every other opted-in trait
+	// matches on profile alone.
+	indexByTrait := make(map[v2.ResourceType_Trait]*externalPrincipalIndex, len(matchTraits))
+	principalCounts := make(map[string]int, len(matchTraits))
+	for trait := range matchTraits {
+		traitPrincipals := principalsByTrait[trait]
+		if trait == v2.ResourceType_TRAIT_USER {
+			indexByTrait[trait] = newExternalUserPrincipalIndex(traitPrincipals, l)
+		} else {
+			indexByTrait[trait] = newExternalPrincipalIndex(traitPrincipals)
+		}
+		principalCounts[trait.String()] = len(traitPrincipals)
+	}
+
+	l.Info("matching grants against external principals",
+		zap.Any("principals_by_trait", principalCounts),
+	)
+
 	grantsToDelete := make([]*v2.Grant, 0)
 	expandedGrants := make([]*v2.Grant, 0)
+	grantsScanned := 0
 
 	for ga, err := range s.store.Grants().ListWithAnnotations(ctx) {
 		if err != nil {
 			return err
+		}
+
+		// This scan can cover every grant in the store. Without a cancellation
+		// check it keeps running after the sync deadline has passed, so an
+		// abandoned attempt competes with its own replacement.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+
+		grantsScanned++
+		if grantsScanned%externalMatchProgressLogInterval == 0 {
+			l.Info("matching grants against external principals: progress",
+				zap.Int("grants_scanned", grantsScanned),
+				zap.Int("expanded_grants", len(expandedGrants)),
+				zap.Int("grants_to_delete", len(grantsToDelete)),
+			)
 		}
 
 		grant := ga.Grant
@@ -3178,36 +3223,47 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 		if matchExternalResource != nil {
 			trait := matchExternalResource.GetResourceType()
+			matchKey := matchExternalResource.GetKey()
+			matchValue := matchExternalResource.GetValue()
 			switch {
 			case trait == v2.ResourceType_TRAIT_USER:
-				for _, userPrincipal := range principalsByTrait[v2.ResourceType_TRAIT_USER] {
-					userTrait, err := resource.GetUserTrait(userPrincipal)
-					if err != nil {
-						l.Error("error getting user trait", zap.Any("userPrincipal", userPrincipal))
-						continue
-					}
-					if matchExternalResource.GetKey() == "email" {
-						if userTraitContainsEmail(userTrait.GetEmails(), matchExternalResource.GetValue()) {
-							newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
-							expandedGrants = append(expandedGrants, newGrant)
-							// continue to next principal since we found an email match
-							continue
-						}
-					}
-					profileVal, ok := resource.GetProfileStringValue(resource.GetProfile(userPrincipal), matchExternalResource.GetKey())
-					if ok && strings.EqualFold(profileVal, matchExternalResource.GetValue()) {
-						newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
-						expandedGrants = append(expandedGrants, newGrant)
-					}
+				// A user matches on its profile value for the key, or -- when
+				// the key is "email" -- on a user-trait email address. Merging
+				// the two ascending position sets preserves principal order and
+				// emits at most one grant per user, as the per-principal scan
+				// this replaces did.
+				idx := indexByTrait[v2.ResourceType_TRAIT_USER]
+				if idx == nil {
+					// A grant can carry a TRAIT_USER match even when USER is
+					// not among the configured match traits. The pre-index
+					// code scanned an empty slice here; match nothing.
+					break
+				}
+				positions := idx.matchProfile(matchKey, matchValue)
+				if matchKey == "email" {
+					positions = mergePositions(idx.matchUserTraitEmail(matchValue), positions)
+				}
+				for _, i := range positions {
+					newGrant := newGrantForExternalPrincipal(grant, idx.principalAt(i))
+					expandedGrants = append(expandedGrants, newGrant)
 				}
 			case matchTraits[trait]:
 				// Generic profile match, shared by TRAIT_GROUP and any
 				// additional trait opted into via WithExternalResourceTraits
-				// (e.g. TRAIT_APP).
-				for _, principal := range principalsByTrait[trait] {
+				// (e.g. TRAIT_APP). A key/val match only yields a grant for
+				// expandable entitlements, so without the annotation there is
+				// nothing to look up.
+				if expandableAnno == nil {
+					break
+				}
+				idx := indexByTrait[trait]
+				if idx == nil {
+					break
+				}
+				for _, i := range idx.matchProfile(matchKey, matchValue) {
 					newGrant, err := s.matchProfileAndExpand(
-						ctx, l, grant, principal,
-						matchExternalResource.GetKey(), matchExternalResource.GetValue(),
+						ctx, l, grant, idx.principalAt(i),
+						matchKey, matchValue,
 						expandableAnno, expandableEntitlementsResourceMap,
 					)
 					if err != nil {
@@ -3226,6 +3282,12 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		}
 	}
 
+	l.Info("matched grants against external principals",
+		zap.Int("grants_scanned", grantsScanned),
+		zap.Int("expanded_grants", len(expandedGrants)),
+		zap.Int("grants_to_delete", len(grantsToDelete)),
+	)
+
 	newGrantIDs := mapset.NewSet[string]()
 	for _, ng := range expandedGrants {
 		newGrantIDs.Add(ng.GetId())
@@ -3241,6 +3303,11 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	// stores keyed by structural identity cannot always resolve them.
 	refsDeleter, _ := s.store.(grantByRefsDeleter)
 	for _, grantToDelete := range grantsToDelete {
+		// One store round-trip per grant, so this loop is also long enough to
+		// outlive a cancelled sync.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if newGrantIDs.ContainsOne(grantToDelete.GetId()) {
 			continue
 		}
