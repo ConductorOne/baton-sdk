@@ -635,13 +635,14 @@ func (e *Engine) clearReplayDestinationScopeLocked(
 			return deleted, err
 		}
 		value, closer, err := e.db.Get(primaryKey)
-		if errors.Is(err, pebble.ErrNotFound) {
+		switch {
+		case errors.Is(err, pebble.ErrNotFound):
 			if err := batch.StageSourceScopeOrphanIndexDelete(indexKey); err != nil {
 				return deleted, err
 			}
-		} else if err != nil {
+		case err != nil:
 			return deleted, err
-		} else {
+		default:
 			switch recordType {
 			case typeGrant:
 				err = batch.StageGrantDelete(primaryKey, value)
@@ -821,13 +822,13 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 			}
 			if err := batch.StageGrantPutInline(priKey, writeVal, oldVal, needsExpansion); err != nil {
 				if oldCloser != nil {
-					oldCloser.Close()
+					_ = oldCloser.Close()
 				}
 				closer.Close()
 				return err
 			}
 			if oldCloser != nil {
-				oldCloser.Close()
+				_ = oldCloser.Close()
 			}
 			closer.Close()
 			if needsExpansion {
@@ -974,13 +975,13 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 			}
 			if err := batch.StageEntitlementPut(priKey, val, oldVal); err != nil {
 				if oldCloser != nil {
-					oldCloser.Close()
+					_ = oldCloser.Close()
 				}
 				closer.Close()
 				return err
 			}
 			if oldCloser != nil {
-				oldCloser.Close()
+				_ = oldCloser.Close()
 			}
 			closer.Close()
 			res.Rows++
@@ -1129,13 +1130,13 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 
 			if err := batch.StageResourcePut(priKey, val, oldVal, rt, rid); err != nil {
 				if oldCloser != nil {
-					oldCloser.Close()
+					_ = oldCloser.Close()
 				}
 				closer.Close()
 				return err
 			}
 			if oldCloser != nil {
-				oldCloser.Close()
+				_ = oldCloser.Close()
 			}
 			closer.Close()
 			res.Rows++

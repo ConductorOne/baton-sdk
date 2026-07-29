@@ -288,19 +288,9 @@ func encodeGrantBySourceScopePrefix(scopeKey string) []byte {
 	return prefix
 }
 
-func encodeEntitlementBySourceScopeIndexKey(scopeKey string, id entitlementIdentity) []byte {
-	key, _ := rawdb.AppendBySourceScopeKeyFromPrimary(nil, encodeEntitlementIdentityKey(id), scopeKey)
-	return key
-}
-
 func encodeEntitlementBySourceScopePrefix(scopeKey string) []byte {
 	prefix, _ := rawdb.SourceScopeIndexPrefix(typeEntitlement, scopeKey)
 	return prefix
-}
-
-func encodeResourceBySourceScopeIndexKey(scopeKey, resourceTypeID, resourceID string) []byte {
-	key, _ := rawdb.AppendBySourceScopeKeyFromPrimary(nil, encodeResourceKey(resourceTypeID, resourceID), scopeKey)
-	return key
 }
 
 func encodeResourceBySourceScopePrefix(scopeKey string) []byte {

@@ -104,7 +104,7 @@ func (s *pebbleStore) LookupSourceCacheEntry(ctx context.Context, kind sourcecac
 	if err := sourcecache.ValidateScopeKey(scopeKey); err != nil {
 		return sourcecache.Entry{}, false, err
 	}
-	rec, err := s.Engine.GetSourceCacheEntry(ctx, string(kind), scopeKey)
+	rec, err := s.GetSourceCacheEntry(ctx, string(kind), scopeKey)
 	if err != nil {
 		if errors.Is(err, cdbpebble.ErrNotFound) {
 			return sourcecache.Entry{}, false, nil
@@ -166,14 +166,13 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 		return SourceCacheReplayResult{}, fmt.Errorf("source cache replay: manifest for row kind %q and scope %q has no validator", kind, scopeKey)
 	}
 	var res SourceCacheReplayResult
-	err = nil
 	switch kind {
 	case sourcecache.RowKindResources:
-		res, err = s.Engine.ReplaySourceCacheResources(ctx, prevEngine, scopeKey)
+		res, err = s.ReplaySourceCacheResources(ctx, prevEngine, scopeKey)
 	case sourcecache.RowKindEntitlements:
-		res, err = s.Engine.ReplaySourceCacheEntitlements(ctx, prevEngine, scopeKey)
+		res, err = s.ReplaySourceCacheEntitlements(ctx, prevEngine, scopeKey)
 	case sourcecache.RowKindGrants:
-		res, err = s.Engine.ReplaySourceCacheGrants(ctx, prevEngine, scopeKey)
+		res, err = s.ReplaySourceCacheGrants(ctx, prevEngine, scopeKey)
 	default:
 		return SourceCacheReplayResult{}, fmt.Errorf("source cache replay: invalid row kind %q", kind)
 	}
@@ -210,7 +209,7 @@ func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecach
 		}
 		for i, r := range resources {
 			rid := r.GetId()
-			if err := s.markDirty(s.Engine.DeleteResourceRecord(ctx, rid.GetResourceType(), rid.GetResource())); err != nil {
+			if err := s.markDirty(s.DeleteResourceRecord(ctx, rid.GetResourceType(), rid.GetResource())); err != nil {
 				return fmt.Errorf("source cache delete resource %q: %w", ids[i], err)
 			}
 		}
@@ -219,13 +218,15 @@ func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecach
 	for _, id := range ids {
 		switch kind {
 		case sourcecache.RowKindGrants:
-			if err := s.markDirty(s.Engine.DeleteGrantRecordBounded(ctx, id)); err != nil {
+			if err := s.markDirty(s.DeleteGrantRecordBounded(ctx, id)); err != nil {
 				return fmt.Errorf("source cache delete grant %q: %w", id, err)
 			}
 		case sourcecache.RowKindEntitlements:
-			if err := s.markDirty(s.Engine.DeleteEntitlementRecord(ctx, id)); err != nil {
+			if err := s.markDirty(s.DeleteEntitlementRecord(ctx, id)); err != nil {
 				return fmt.Errorf("source cache delete entitlement %q: %w", id, err)
 			}
+		case sourcecache.RowKindResources:
+			return errors.New("source cache delete resource: internal dispatch error")
 		}
 	}
 	return nil
@@ -242,7 +243,7 @@ func (s *pebbleStore) DeleteSourceCacheGrantsByIDInScope(ctx context.Context, sc
 	for _, id := range ids {
 		idSet[id] = struct{}{}
 	}
-	deleted, err := s.Engine.DeleteGrantsByExternalIDsInScope(ctx, scopeKey, idSet)
+	deleted, err := s.DeleteGrantsByExternalIDsInScope(ctx, scopeKey, idSet)
 	if err != nil {
 		return 0, fmt.Errorf("source cache grant-id delete for scope %q: %w", scopeKey, err)
 	}
@@ -270,9 +271,9 @@ func (s *pebbleStore) DeleteSourceCacheRowsInScope(ctx context.Context, kind sou
 	var err error
 	switch kind {
 	case sourcecache.RowKindGrants:
-		deleted, err = s.Engine.DeleteGrantsByPrincipalsInScope(ctx, scopeKey, idSet)
+		deleted, err = s.DeleteGrantsByPrincipalsInScope(ctx, scopeKey, idSet)
 	case sourcecache.RowKindResources:
-		deleted, err = s.Engine.DeleteResourcesByIDsInScope(ctx, scopeKey, idSet)
+		deleted, err = s.DeleteResourcesByIDsInScope(ctx, scopeKey, idSet)
 	case sourcecache.RowKindEntitlements:
 		return 0, fmt.Errorf("source cache scoped delete: not supported for entitlements")
 	}
