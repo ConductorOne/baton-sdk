@@ -6,6 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
@@ -52,17 +55,27 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
+	page := 0
 	pageToken := m.cursor
 	for {
+		page++
+		start := time.Now()
 		resp, err := cc.ListEvents(ctx, v2.ListEventsRequest_builder{
 			PageSize:    EventsPerPageLocally,
 			Cursor:      pageToken,
 			StartAt:     task.GetEventFeed().GetStartAt(),
 			EventFeedId: m.feedId,
 		}.Build())
+		elapsed := time.Since(start)
 		if err != nil {
 			return err
 		}
+		ctxzap.Extract(ctx).Info("event feed page",
+			zap.Int("page", page),
+			zap.Int("events", len(resp.GetEvents())),
+			zap.Int64("duration_ms", elapsed.Milliseconds()),
+			zap.String("cursor", resp.GetCursor()),
+		)
 		for _, event := range resp.GetEvents() {
 			bytes, err := protojson.Marshal(event)
 			if err != nil {
