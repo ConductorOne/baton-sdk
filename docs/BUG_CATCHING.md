@@ -163,6 +163,12 @@ enumerates that space mechanically (never "we looked carefully"); **closure** is
 the sign-off — the model exhausted, every assertion held. Done is a measurement,
 not a feeling.
 
+Multiple models may contribute candidate criteria during plan creation. The
+orchestrator merges them, removes duplicates, resolves contradictions, assigns
+stable criterion IDs, runs a final contract-to-criteria completeness audit, and
+explicitly freezes the result before implementation inspection. Expansion during
+synthesis is useful; uncontrolled revision after the freeze is not.
+
 Review is sampling of the behavior space with no coverage model attached. After any
 number of rounds no one can state what fraction of the space was inspected, so
 "review converged" is not slow to reach — it is *undefined*. What review is for:
@@ -177,8 +183,28 @@ A change meets the **step-up criteria** when §2 rates it HIGH or it meets the
 silent/combinatorial/no-single-run-oracle criterion. For changes that meet the
 step-up criteria:
 
-- Open a draft PR containing the verification plan before implementation begins.
+- Commit the implementation-blind plan to the feature branch before implementation
+  inspection, under `docs/verification/<change>/plan.md`; keep the evidence record
+  beside it as `evidence.md`. The first plan commit is the frozen baseline, and the
+  draft PR links to these repository-relative files. Preserve both through merge so
+  local and remote reviewing agents receive the same versioned inputs.
 - Record amendments to the plan when the design or intended behavior changes.
+- Preserve the frozen plan as the baseline. Append post-freeze changes as versioned
+  change orders; never silently rewrite prior criteria or evidence:
+  - **Correction** — required to satisfy the original contract; belongs in the
+    current stage/PR.
+  - **Clarification** — resolves wording or enforcement ownership without changing
+    required behavior; append a boundary-resolution note.
+  - **Extension/optimization** — adds behavior, schema, lifecycle, or performance
+    machinery not required for original closure; use a separate staged PR and
+    verification addendum.
+  Each change order records its source, motivation, contract delta, owning boundary,
+  affected criteria, verification delta, and PR placement.
+- Re-route every change order through the risk model. A "small fix" that introduces
+  a new helper, resource owner, durable write, or retry boundary gets the focused
+  review passes and instrument delta for those new mechanics; inherited behavioral
+  evidence does not cover newly introduced implementation hazards. Update affected
+  criterion states before reporting closure.
 - The plan may span **staged PRs**. Each PR names the stage, the claims it introduces,
   the criteria due in that stage, and the criteria deliberately deferred until a
   later stage has an executable subject. Closure is scoped to the current stage;
@@ -186,6 +212,16 @@ step-up criteria:
 - Map every criterion due in the current stage to an executable repository artifact
   and evidence that it ran and held at the claimed coverage level, or record the
   explicit gap and resulting limit on that stage's closure.
+- Give each criterion its own closure entry; criterion ranges may summarize only
+  after the individual entries exist. The entry names the required and covered
+  cells, any reduction, the exact artifact and assertion, the tested layer, premise
+  assertion, oracle, instrument validation, evidence command/revision, and status.
+  One table-driven test may satisfy many entries; this does not require one file or
+  one test per criterion.
+- Map every required plan instrument to a concrete artifact and assertion. If the
+  instrument does not exist, every criterion that depends on it remains evidence
+  incomplete. Keep this ledger in Markdown or generated test cases by default;
+  build a framework only when repetition or drift justifies it.
 - For each artifact, state whether it provides bounded closure or measured sampling;
   never claim closure from sampling.
 - Match evidence to the layer introduced. A schema-only stage closes schema
@@ -194,8 +230,54 @@ step-up criteria:
   evidence. Producer/consumer semantics become due in the first stage that
   implements or relies on them. If the schema itself encodes validation, that
   validation is a current-stage claim and must be tested now.
-- Do not add a standalone prose copy of the plan to the repository.
-- After merge, tests, harnesses, and benchmarks are the enduring enforcement
+- For durable behavior, distinguish the applicable layers: typed/raw mutation,
+  engine operation, public capability, and close/reopen artifact. Test an obligation
+  at the layer that owns it and across the seam that could lose it; do not duplicate
+  identical pure logic at every layer.
+- An ordering test must invoke the component that owns the ordering decision. A test
+  that manually calls `put → delete → delete` proves only that storage operations
+  compose in that order; it cannot verify that an orchestrator chooses that order.
+  If the owner is deferred, mark the ordering criterion deferred and retain only the
+  narrower storage-composition claim.
+- During implementation-blind planning, enforcement ownership may be known from an
+  existing contract, assigned to an expected layer while the concrete API remains
+  unknown, or explicitly unresolved. Unresolved ownership blocks defect
+  classification; it does not block plan or oracle design, though it may block a
+  concrete instrument. Resolve it through a versioned boundary addendum after API
+  discovery; the addendum may locate enforcement, but must not weaken required
+  behavior merely to match the implementation.
+- After implementation inspection, append an **implementation-obligation addendum**
+  before classifying evidence. Inventory changed or current-stage-reachable
+  mechanics the behavioral contract could not name: acquired
+  closers/iterators/batches/locks and ownership transfers; dirty flags, caches,
+  counters, and sidecars; derived fast-path state (§5.11); partial-commit cuts; and
+  public wrappers around engine mutations. Assign each an invariant, failure
+  premise, oracle, and owning layer. This is implementation-derived coverage, not
+  permission to revise the frozen behavior. Group call sites only when inspection
+  confirms they share the relevant implementation choke point and obligations;
+  implementation divergence invalidates a symmetry reduction.
+- Track each current-stage criterion as exactly one of: **not assessed, evidence
+  incomplete, verified to stated coverage, failed, explicitly excluded, or deferred
+  to a named stage**. "Every criterion is accounted for" is not closure. Verification
+  requires an executable oracle, the claimed dimensions covered or explicitly
+  reduced, a validated instrument, and passing evidence commands.
+- A relevant implementation, instrument, fixture, or plan change returns affected
+  verified entries to **evidence incomplete** until their instruments rerun at the
+  recorded revision.
+- **Closure is a rate, not a checklist.** Hardware signs off on a flattened
+  bug-discovery curve, not a finished test list. Declaring closure for a step-up
+  change requires, beyond dispositioned criteria: the latest decorrelated
+  implementation read and the latest independent evidence audit each ran against
+  the *final* code and produced zero new findings, and — where a model-based or
+  randomized instrument exists — a clean soak at the final revision. Any post-fix
+  change restarts the clock (§6's per-change-order review budget). (Evidence:
+  sync-replay declared closure three times with a complete checklist each time;
+  each decorrelated read found new highs — the curve had not flattened.)
+- Record corrections, clarifications, extensions, and their evidence in normal Git
+  history and append the current change-order log to the committed plan. External
+  gists, PR comments, and attachments are supplemental, never the sole copy.
+- After merge, the committed plan preserves intent, scope, ownership, and evidence
+  provenance; tests, harnesses, and benchmarks remain the enduring enforcement
   mechanism.
 
 - **Stopping rule: budget two, at most three review rounds**, then switch
@@ -210,6 +292,35 @@ step-up criteria:
   rounds whose Pass 2 prompt *explicitly named the scenario*, and fell to a
   two-artifact harness in an afternoon, by counting rows. Reading cannot execute the
   other artifact.
+
+**Validate the instrument before trusting its verdict.** Both halves: the setup
+actually created the intended premise or fault, and the oracle fails on a planted
+representative violation. A red test may indicate a product defect, an invalid
+premise, an incorrect oracle, or unresolved boundary ownership — classify which
+before changing production code. Concretely: a rejection test asserts the expected
+error class and must not pass on an unexpected setup error; a fault test asserts
+the seam actually fired; a forbidden-mutation test seeds non-empty target state
+and compares complete before/after snapshots (an empty destination cannot detect
+clear-before-validation; key counts cannot detect value mutation). Assert
+postconditions at the plan's stated strength: a digest is not replaced by a key
+count, provenance is not replaced by proto equality, and durable state is not
+inferred from live state. Keep the oracle independent of the behavior under test:
+a filtered public lookup cannot prove malformed raw state was never stored when
+that same lookup intentionally hides it — inspect raw state or use a separately
+derived model. One planted violation per distinct oracle or failure mechanism is
+enough; do not mutation-test every cross-product cell unless it reaches a
+materially different path.
+
+**For durable mutations, the outer lifecycle is part of the instrument**:
+`invoke → inspect live state → close → reopen → inspect durable state`, through
+the public capability when it owns persistence. Cover success, zero-result
+success, failure before mutation, failure after every committed cut, and
+cancellation/retry where supported. Derive the commit sites from the
+implementation: every loop that commits is its own cut, not only the headline one
+(sync-replay: replacement ran a destructive clear loop before its copy loop; an
+error after a committed clear carried the same dirty/cache/fast-path obligations
+as one after a committed copy, and had no seam). Equivalent repeated chunks may
+share one representative cut; distinct commit sites may not.
 
 Four classes review is structurally blind to, and where to send them:
 
@@ -331,6 +442,25 @@ form the cross-product, and account for every cell: handled, collapsed by symmet
 excluded with a stated reason. **Bugs live in the cells nobody wrote down.** Reviewers
 should ask for the table, not read the if-branches and try to reconstruct it.
 
+- The coverage model names the full dimensions but need not instantiate a literal
+  Cartesian product when interactions are irrelevant or symmetric. Record the
+  reduction rule: symmetry, shared choke point, pairwise interaction,
+  representative failure mechanism, or unrepresentable API cell. Reduced or sampled
+  coverage must not be reported as bounded exhaustive closure.
+- A reduction must explain why the removed dimension cannot affect the property.
+  Never collapse result cardinality with mutation cardinality: zero emitted/copied
+  rows may still clear destination state, commit cleanup, advance metadata, or
+  require persistence. Cross boundary-sensitive dimensions before applying
+  symmetry. After implementation inspection, confirm the reduced cells use the same
+  relevant path; a kind-specific fallback, parser, cleanup, or wrapper invalidates
+  the reduction for that obligation.
+- When sibling families (per-kind flags, per-family indexes, per-type cleanup) each
+  owe the same obligation, enumerate family × lifecycle boundary mechanically. A
+  shared field group or similarly named methods are not a shared choke point —
+  compare the actual set/clear/consume call sites — and prefer a table or meta-test
+  that fails when a family or boundary is added without its row. (Evidence:
+  §5.11's entitlement miss — two of three siblings handled at every boundary, the
+  third identically named and skipped at all of them.)
 - Special case worth memorizing: when the update is computed as a delta between two
   snapshots, the delta must be complete over the domain's symmetry — whatever you do
   for "present now, absent before," consciously decide for "absent now, present
@@ -349,7 +479,7 @@ should ask for the table, not read the if-branches and try to reconstruct it.
   permutation coverage). Neither → the PR states the dimensions and disposes of each
   cell.
 - **Where the table lives**: cells this repo can execute become rows of one
-  table-driven test — the expected value *is* the disposition, and excluded cells
+  table-driven test — the expected value *is* the outcome, and excluded cells
   are skipped rows with a reason string, so the table cannot drift from behavior.
   Cells that require an artifact this repo cannot execute (an older SDK's
   behavior) become a comment on the seam itself — where the next editor of the
@@ -408,8 +538,13 @@ When the current stage changes executed work on a cost-contract path (§2: expan
 compaction, per-checkpoint loop, artifact-open-time work), this pass has a
 deliverable, not just a look: state the cost-curve delta in
 grants/entitlements/graph size, and point at the benchmark that enforces it. For a
-stage with no runtime or cost-curve change, record that disposition; no benchmark is
+stage with no runtime or cost-curve change, record that outcome; no benchmark is
 required.
+
+Inventory every operation that walks the affected domain, not only the feature's
+headline path. A bounded replay implementation does not establish bounded-memory
+behavior if replacement, tombstones, cleanup, or retry scans still build O(scope
+size) batches.
 
 ### Pass 7: Concurrency
 
@@ -423,7 +558,8 @@ races are the race detector's job, not yours.
 ## 4. The systematic-solutions ladder
 
 When a bug is found, don't just fix it — climb as high on this ladder as is
-proportionate:
+proportionate. (Whatever the rung, the resulting instrument must itself pass §2's
+validation: premise proven, oracle shown to fail on a planted violation.)
 
 1. **Type system / API shape** (best): make the invalid state unrepresentable.
    - Capability interfaces over type assertions — but note assertions on *optional*
@@ -457,6 +593,17 @@ proportionate:
    Differential testing beats hand-written cases when the space is combinatorial.
    (Pebble-vs-SQLite equivalence is a *sunsetting* oracle: keep existing tests while
    both engines live; build nothing new on it.)
+   - **The stateful form — an executable reference model — is the instrument for
+     lifecycle interleavings.** A small model (maps plus explicit
+     dirty/close/reopen/crash semantics) is the oracle; randomized operation
+     sequences interleaving mutations with close, reopen, and injected faults are
+     the generator; shrinking makes failures readable. This machine-discovers the
+     class reading keeps finding by hand — convention-coupled state across
+     lifecycle boundaries (§5.11, dirty-vs-Close races) — because the model owns
+     the lifecycle semantics directed tests never enumerate. Keep the model
+     maintained with the subsystem (§2: the harness is part of the subsystem).
+     External existence proof: Amazon S3's ShardStore validated an LSM storage
+     node exactly this way, run by ordinary engineers, not specialists.
 3. **One validator over many point tests, when production owns the invariant.** A
    validator needs a stable production seam and an actual caller; do not add an
    unused runtime validator to a schema-only stage. An artifact fsck — sealed-c1z
@@ -466,6 +613,16 @@ proportionate:
    session store; any failure is a source-of-truth violation hiding in the cache
    layer. When no production seam exists yet, use a test-only oracle or defer the
    runtime obligation to the stage that introduces its owner.
+   - **Ride-along variant when the test fixture owns the invariant**: bind the
+     checker to a shared fixture or choke point so every existing test evaluates
+     it for free — a resource-leak counter at the rawdb choke point asserted at
+     engine close; a proof-flag/keyspace consistency check after a test's
+     mutations. Hardware embeds assertions in the design and evaluates them in
+     every simulation; sanitizers are the software equivalent. The multiplier is
+     the point: the sync-replay closer leaks sat on error paths whose
+     fault-injection tests already existed — the missing half was the oracle. A
+     ride-along converts every present and future test into a detector for the
+     class, at zero per-test cost to authors.
    - **Positive-evidence variant for completeness** (the absence class from §2): an
      evidence set maintained at the state-mutation funnels — enroll on admission,
      delete only on legitimate completion, rebuild from the checkpoint on resume —
@@ -516,6 +673,15 @@ the same postconditions. Cancellation is an event that gets its own cell in Pass
   branch). All-or-nothing commit; a validation failure leaves prior state untouched.
 - Error returns structured so deferred cleanup actually runs (#854); panics
   recovered in background goroutines (#845).
+- Closing or releasing a pooled object transfers ownership. Clear or replace every
+  retained pointer immediately, make deferred cleanup nil-safe, and assert the
+  ownership state directly. A second `Close` that usually returns `ErrClosed` can
+  become a cross-goroutine race after the pool reissues the object.
+  Capture the quality mechanically: record acquire/transfer/release and all exits in
+  the implementation-obligation addendum; prefer a lexical helper that owns the
+  closer around a callback; inject failure after acquisition; and require active
+  resource counts to return to baseline. For pooled objects, assert the retained
+  pointer is nil immediately after release.
 
 ### 5.3 Classification is a contract: explicit, total, preserved, coherent
 
@@ -546,6 +712,12 @@ classifiers over one domain state their intended relationship, asserted in a tes
 - Type assertions are classifications too: an optional-capability assertion fails
   silently forever after a rename (#774: months). Compile-time
   `var _ Iface = (*Impl)(nil)` per implementation.
+- Result counts are classifications, not mutation evidence. `Rows == 0` does not
+  imply no durable write when an operation may replace, delete, clean, or commit a
+  prefix before failing. Mutating APIs should return explicit mutation information
+  (for example copied/deleted/committed counts plus `Mutated`) or conservatively
+  mark persistence dirty whenever any invoked path may have committed. Verification
+  independently compares the reported mutation status with before/after state.
 - Drift-prone shape: `(bool, error)` returns with sentinel taxonomies — callers
   reconstruct outcomes wrong. Prefer typed results.
 
@@ -732,12 +904,96 @@ errorfs sweep (#1015; `pkg/dotc1z/engine/pebble/errorfs_sweep_test.go`).
 - **Prove the instrument can see its faults** (DV's mutation adequacy): plant a
   known contract violation and watch the harness fail. A sweep that has never
   caught a planted bug is itself unverified code.
+- **Enumerate injection points mechanically, not from memory.** A hand-maintained
+  seam registry drifts exactly like §5.4's convention registries: the next commit
+  loop ships without a seam and its error path is dead code again. Prefer a
+  meta-test that derives the commit/write call sites from the code (AST scan or
+  choke-point registration) and fails when one lacks a registered seam and a
+  failure-obligation test — the house idiom is `seamFailureCases` +
+  `TestSeamsArmedOnlyInTests` in the pebble engine; SQLite's
+  OOM-injection-at-every-allocation is the fully generalized form.
 - Latency and deadline expiry are faults too: injecting them is the instrument for
   §5.7's dangling-deadline class — a budget no test can cause to fire bounds
   nothing.
 
+### 5.11 Derived state is a proof; every falsifying transition must invalidate it
+
+A cache, fast-path flag, or precomputed index (`keyspace_is_empty`, `skip_get`, a
+bare-id lookup map) is a stored claim about other state. It authorizes skipping
+work only while its premise holds. The failure mode when it goes stale is §2's
+worst cell — the next writer skips required reads or cleanup and produces
+well-formed wrong durable rows, silently.
+
+- Inventory the transitions that establish, consume, or falsify each proof from
+  the implementation's actual state machine, not from memory of the intended
+  lifecycle — fresh starts and resumes, bulk paths, resets, replays, and partial
+  failures all count if they can falsify the premise. Cross the inventory with
+  every sibling family that carries its own copy of the proof (Pass 3).
+- Invalidate at the falsifying commit, or conservatively before entering the
+  mutating boundary — never only in success-path code after a helper returns. A
+  failure that committed a prefix has already falsified the premise.
+- Durable key/value auditors cannot see a stale in-memory proof, so reopen-and-
+  inspect evidence is blind to this class. The oracle is a colliding write whose
+  correctness requires the slow path, issued after each falsifying transition,
+  with a premise assertion that the proof was armed beforehand — without that,
+  the test passes vacuously.
+- Evidence (sync-replay): grants and resources disarmed their empty-keyspace
+  proof at sync bind and bulk-import finish; entitlements — same field group,
+  same naming — did not, and a replay clear that failed after a committed batch
+  left the proof armed for all three kinds. All three misses survived the frozen
+  plan, its instruments, and two independent audits, and fell to a targeted
+  implementation read; the colliding-write oracle then reproduced each in one
+  round. The entitlement bare-id lookup map's write-invalidation is the same
+  class one layer up.
+
+### 5.12 A commit point is a contract — six answers per site
+
+A commit point is where staged work becomes durable: the one place where what
+the code believes and what the disk holds can split. It is where the sibling
+principles above concentrate, so audit each site against all six at once
+rather than rediscovering them one bug at a time. Every commit call site owes:
+
+1. **An executable failure.** Some instrument forces THIS commit to fail and
+   observes the aftermath. Each distinct commit loop is its own cut — a seam
+   on a sibling loop proves nothing here (§5.10; enforced mechanically by the
+   pebble engine's commit-point registry meta-test, which fails when a commit
+   site ships without a seam route or a written exclusion).
+2. **Failure re-converges derived state.** The batch is atomic; the flags,
+   proofs, markers, and caches ABOUT the keyspace are not. A failed commit
+   must invalidate every proof it may have falsified (§5.11).
+3. **Success reaches the checkpoint.** The dirty transition and the engine
+   mutation are one atom with respect to a concurrent Close; zero-result and
+   no-mutation are different facts and must not be conflated (§5.1, §5.11
+   evidence: replay marking dirty only on `Rows > 0`, orphan healing reporting
+   zero and being discarded at Close).
+4. **Partial progress is accounted and retryable.** Multi-chunk loops report
+   the committed prefix on error, and a retry over that prefix converges
+   without double-applying or skipping (Pass 2; the committed-prefix-retry
+   harness pins representative cuts).
+5. **The batch is released exactly once on every path** — success, failure,
+   early return (§5.2; enforced globally by the rawdb outstanding-batch ledger
+   asserted at Close. Evidence: the compactor's overlay flush committed and
+   re-minted without closing, leaking two pooled batches per flush for the
+   life of the fold path; the ledger found it on its first full-suite run).
+6. **The durability class is justified.** Every `NoSync` is correct only
+   because a named downstream fence (checkpoint, envelope save, WAL sync
+   point) fsyncs before anything depends on the write. This is the one
+   obligation on this list with no mechanical check — the justification lives
+   in comments at each site, and the in-process error seams are only a proxy
+   for the real event (a crash between the halves of an ordering contract),
+   which the errorfs sweep and crash-reopen tests carry for the paths they
+   visit.
+
 ## 6. Process guidance for AI-driven review
 
+- For step-up changes, use this sequence: frozen behavioral plan →
+  implementation-obligation addendum → instruments → mutation adequacy → execution
+  → structural-coverage triage → independent evidence audit → focused
+  implementation review → repository gates → signoff.
+- Keep the machinery proportional. The full closure packet and independent audit
+  are step-up controls, not requirements for a local low-risk fix. Prefer ordinary
+  Markdown, table-driven tests, and existing repository commands over a new
+  verification framework.
 - Route first (§2): review is one instrument among several, and its budget is two to
   three rounds. Multi-artifact, schedule, absence, and error-path risks get
   harnesses, not more reviewers.
@@ -749,6 +1005,26 @@ errorfs sweep (#1015; `pkg/dotc1z/engine/pebble/errorfs_sweep_test.go`).
   Report an unmapped current-stage criterion as a blocking or confidence-limiting
   gap; do not demand speculative implementation for a genuinely deferred
   criterion. A plan reconstructed from the finished diff is not preregistration.
+- Final signoff uses the repository's documented commands: lint,
+  generation/compatibility checks when applicable, targeted tests, required race
+  runs, and the broad regression suite. IDE diagnostics are supplemental; they do
+  not replace repository lint.
+- **Structural-coverage triage** (step-up changes, after instruments run): produce
+  a coverage profile over the changed packages and disposition every uncovered
+  branch in *changed* code as dead code (delete it), a missing obligation (extend
+  the addendum), or a missing instrument. Coverage is a gap detector, never a
+  target — the percentage proves nothing, but an uncovered changed branch is by
+  construction one of those three findings. (DO-178C's structural-coverage
+  analysis exists to catch exactly this class; the stale fast-path proofs and
+  dirty-marking misses all lived in branches no instrument executed.)
+- Before signoff, a reviewer independent of the instrument author audits every
+  **verified** closure entry against the frozen wording and implementation: confirm
+  the required instrument exists; name the exact premise and oracle assertions,
+  layer, instantiated dimensions, applicable close/reopen evidence, the shared or
+  criterion-local representative planted violation when required, and whether
+  coverage is exhaustive, reduced, or sampled. Grouped criterion ranges, test names,
+  comments, and key counts standing in for content integrity are not evidence.
+  Downgrade the status rather than rationalizing a weaker test after the fact.
 - If the change touches a subsystem meeting §2's silent/combinatorial/no-oracle
   criterion, ask for the property list and the verification harness — their absence
   is the finding. Do not accept review rounds as a substitute; no number of them
@@ -756,18 +1032,34 @@ errorfs sweep (#1015; `pkg/dotc1z/engine/pebble/errorfs_sweep_test.go`).
 - Run the **selected** passes independently. For HIGH changes receiving the full
   pass set, parallel separately-prompted agents across different models provide
   useful decorrelation; narrow stages may combine closely related passes when their
-  risk disposition is recorded. Each reviewer reads the surrounding unchanged code
+  risk assessment is recorded. Each reviewer reads the surrounding unchanged code
   (not just the diff), cites file:line, and discards anything unverifiable. Then
   **verify every finding against the code before accepting it** — severity
   re-grading in both directions is normal.
+- Verification does not replace focused implementation review. After instruments
+  pass, a reader decorrelated from both the implementer and the instrument author
+  reviews the implementation-obligation addendum's material: resource lifetime,
+  error exits, ownership transfer, result/mutation mismatches, derived fast-path
+  state (§5.11), and local hazards the behavioral oracle does not observe. Signoff
+  requires this read to yield zero new highs. A finding is a cheap falsification
+  of the closure claim, not merely a bug: affected criteria return to evidence
+  incomplete, the finding's class climbs the §4 ladder (recurrence rule), and the
+  read repeats on the fixed code — the review budget is per change order, because
+  each fix is new code with fresh hazards. A clean read is necessary, never
+  sufficient: it measures the reader as much as the code (§2's stopping rule;
+  the fan-out worst bug survived five rounds that named its scenario), so it
+  falsifies closure claims but never substitutes for coverage. (Evidence:
+  sync-replay — closure was declared three times and a decorrelated
+  implementation read produced new highs each time; every finding was
+  addendum-class material no behavioral criterion could name.)
 - **Slice this document when spawning pass agents; do not paste it whole.** Pass
   agents receive no context except their prompt, so the orchestrator inlines the
   relevant sections verbatim. Feeding all ~50 checkable items to every agent
   dilutes the ones it owns. The map (§1 goes to everyone; add §7 if the slice
   cites effort shorthand):
   - Pass 1 (edge cases): §1 + Pass 1 + §5.3
-  - Pass 2 (checkpoint/resume): §1 + Pass 2 + §5.1, §5.4, §5.5
-  - Pass 3 (permutations): §1 + Pass 3 + §5.2, §5.3
+  - Pass 2 (checkpoint/resume): §1 + Pass 2 + §5.1, §5.4, §5.5, §5.11
+  - Pass 3 (permutations): §1 + Pass 3 + §5.2, §5.3, §5.11
   - Pass 4 (errors/budgets): §1 + Pass 4 + §5.3, §5.7, §5.10
   - Pass 5 (invariant gating): §1 + Pass 5 + §5.9
   - Pass 6 (performance): §1 + Pass 6 + §5.6, §5.7
@@ -828,7 +1120,23 @@ Evidence bullets cite recurring efforts by shorthand. PR numbers resolve with
   the c1 host: retryable-timeout classification, preservable sync state, and the
   host-side rewrap that stripped gRPC status. Source of the cross-repo seam
   evidence; its contract tests live on the consumer side.
-- **Sync-replay effort** — the 15+-review-round record cited for non-convergence.
+- **Sync-replay effort** — multi-model implementation-blind plan synthesis broadened
+  the coverage model before freeze; repeated implementation review still supplied
+  no measurable closure. Verification instruments then found durable contract
+  defects and exposed the need to distinguish "criterion accounted for" from
+  "verified to stated coverage." A later independent plan-to-test audit found that
+  grouped criterion ranges hid a missing reconciler, weaker-than-planned oracles,
+  uncovered cross-product cells, layer mismatches, and a vacuously passing rejection
+  test—evidence for criterion-local closure entries and premise validation. After
+  closure was declared, a targeted implementation read found three stale
+  fast-path-proof misses that plan, instruments, and both audits had passed over —
+  the evidence behind §5.11. The closing instrument round (resource-leak ledger,
+  reference-model soak, commit-point registry, structural-coverage triage) then
+  found a compactor batch leak, silent since the overlay writer shipped, on its
+  first full-suite run, and two
+  leave-it-alone gaps (replay overwrite index cleanup, scoped tombstone
+  survivors) that 40+ directed verification tests had missed — the evidence
+  behind §5.12 and the §6 triage step.
 - **Age branch** — `paul.querna/age-recipient-encryption`, merged as #1021: age
   recipient encryption provider. The small-stateless counter-case: most passes
   route to N/A and the residual risk is all at repo boundaries.
