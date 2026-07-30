@@ -231,11 +231,16 @@ func MakeMainCommand[T field.Configurable](
 						v.GetString("revoke-grant"),
 					))
 			case v.GetBool("event-feed"):
+				eventFeedPageSize := v.GetInt("event-feed-page-size")
+				eventFeedPageSizeField := field.EventFeedPageSizeField
+				if _, err := field.ValidateField(&eventFeedPageSizeField, eventFeedPageSize); err != nil {
+					return err
+				}
 				opts = append(opts, connectorrunner.WithOnDemandEventStream(
 					v.GetString("event-feed-id"),
 					v.GetTime("event-feed-start-at"),
 					v.GetString("event-feed-cursor"),
-					uint32(v.GetInt("event-feed-page-size")), //nolint:gosec // bounded 1..1000 by field validation
+					uint32(eventFeedPageSize), //nolint:gosec // bounded 1..1000 by field validation above
 				))
 			case v.GetBool("list-event-feeds"):
 				opts = append(opts, connectorrunner.WithOnDemandListEventFeeds())

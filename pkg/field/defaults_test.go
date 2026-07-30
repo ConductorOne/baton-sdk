@@ -7,12 +7,12 @@ import (
 )
 
 func TestEventFeedPageSizeField_DefaultValue(t *testing.T) {
-	require.Equal(t, 100, eventFeedPageSizeField.DefaultValue)
+	require.Equal(t, 100, EventFeedPageSizeField.DefaultValue)
 }
 
 func TestEventFeedPageSizeField_Ruler(t *testing.T) {
 	run := func(value int) error {
-		return ValidateIntRules(eventFeedPageSizeField.Rules.i, value, eventFeedPageSizeField.FieldName)
+		return ValidateIntRules(EventFeedPageSizeField.Rules.i, value, EventFeedPageSizeField.FieldName)
 	}
 
 	t.Run("1 is accepted", func(t *testing.T) {

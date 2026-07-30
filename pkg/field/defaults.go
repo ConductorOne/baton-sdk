@@ -79,7 +79,7 @@ var (
 		WithDescription("The cursor to use for resuming the event feed from a specific point"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
-	eventFeedPageSizeField = IntField("event-feed-page-size",
+	EventFeedPageSizeField = IntField("event-feed-page-size",
 		WithDefaultValue(100),
 		WithHidden(true),
 		WithDescription("The page size to use when listing events (1-1000)"),
@@ -427,7 +427,7 @@ var DefaultFields = append([]SchemaField{
 	eventFeedIdField,
 	eventFeedStartAtField,
 	eventFeedCursorField,
-	eventFeedPageSizeField,
+	EventFeedPageSizeField,
 	listEventFeedsField,
 	fileField,
 	grantEntitlementField,
