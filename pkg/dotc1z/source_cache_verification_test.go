@@ -192,6 +192,11 @@ func newSourceCacheVerificationStore(t *testing.T) sourceCacheVerificationStore 
 	return sourceCacheVerificationStore{store: store, cache: cache, engine: engine}
 }
 
+func sealSourceCacheVerificationStore(t *testing.T, store sourceCacheVerificationStore) {
+	t.Helper()
+	require.NoError(t, store.store.EndSync(t.Context()))
+}
+
 func putVerificationGrant(t *testing.T, s sourceCacheVerificationStore, scope, entitlement, principal string) *v2.Grant {
 	t.Helper()
 	grant := mkV2Grant("", entitlement, "user", principal)
@@ -403,6 +408,7 @@ func TestVerificationPureReplayReplacesOccupiedScope(t *testing.T) {
 	prev := newSourceCacheVerificationStore(t)
 	copied := putVerificationGrant(t, prev, "scope-a", "member", "alice")
 	require.NoError(t, prev.cache.PutSourceCacheEntry(t.Context(), sourcecache.RowKindGrants, "scope-a", "validator-a"))
+	sealSourceCacheVerificationStore(t, prev)
 
 	cur := newSourceCacheVerificationStore(t)
 	obsolete := putVerificationGrant(t, cur, "scope-a", "owner", "bob")
@@ -438,6 +444,7 @@ func TestVerificationPureReplayReplacesOccupiedScopeResourcesAndEntitlements(t *
 		}.Build()
 		require.NoError(t, prev.store.PutResources(sourcecache.WithScope(t.Context(), "scope-a"), source))
 		require.NoError(t, prev.cache.PutSourceCacheEntry(t.Context(), sourcecache.RowKindResources, "scope-a", "validator-a"))
+		sealSourceCacheVerificationStore(t, prev)
 
 		cur := newSourceCacheVerificationStore(t)
 		obsolete := v2.Resource_builder{
@@ -483,6 +490,7 @@ func TestVerificationPureReplayReplacesOccupiedScopeResourcesAndEntitlements(t *
 		source := v2.Entitlement_builder{Id: "source", Resource: resource}.Build()
 		require.NoError(t, prev.store.PutEntitlements(sourcecache.WithScope(t.Context(), "scope-a"), source))
 		require.NoError(t, prev.cache.PutSourceCacheEntry(t.Context(), sourcecache.RowKindEntitlements, "scope-a", "validator-a"))
+		sealSourceCacheVerificationStore(t, prev)
 
 		cur := newSourceCacheVerificationStore(t)
 		obsolete := v2.Entitlement_builder{Id: "obsolete", Resource: resource}.Build()
@@ -731,6 +739,7 @@ func TestVerificationPrefixNeighborScopeIsolation(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, found)
 				require.Equal(t, "validator-neighbor", neighborEntry.CacheValidator)
+				sealSourceCacheVerificationStore(t, prev)
 
 				cur := newSourceCacheVerificationStore(t)
 				putSourceCacheVerificationRows(t, cur, kind, targetScope, 1, "obsolete")
@@ -1032,6 +1041,7 @@ func TestVerificationReplayPreservesSourceAndTimestamps(t *testing.T) {
 	require.NoError(t, err)
 	beforeEntry, err := prev.engine.GetSourceCacheEntry(t.Context(), string(sourcecache.RowKindGrants), "scope-a")
 	require.NoError(t, err)
+	sealSourceCacheVerificationStore(t, prev)
 
 	cur := newSourceCacheVerificationStore(t)
 	_, err = cur.cache.ReplaySourceCache(t.Context(), prev.store, sourcecache.RowKindGrants, "scope-a")
@@ -1073,6 +1083,7 @@ func TestVerificationReplayResultIsForwardCacheable(t *testing.T) {
 				first := newSourceCacheVerificationStore(t)
 				putSourceCacheVerificationRows(t, first, kind, "scope-a", scenario.sourceRows, "base")
 				require.NoError(t, first.cache.PutSourceCacheEntry(t.Context(), kind, "scope-a", "validator-a"))
+				sealSourceCacheVerificationStore(t, first)
 
 				second := newSourceCacheVerificationStore(t)
 				res, err := second.cache.ReplaySourceCache(t.Context(), first.store, kind, "scope-a")
@@ -1100,6 +1111,7 @@ func TestVerificationReplayResultIsForwardCacheable(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, found)
 				require.Equal(t, "validator-a", entry.CacheValidator)
+				sealSourceCacheVerificationStore(t, second)
 
 				direct := newSourceCacheVerificationStore(t)
 				if scenario.sourceRows > 0 && !scenario.tombstoneBase {
@@ -1133,6 +1145,7 @@ func TestVerificationConcurrentDuplicateReplay(t *testing.T) {
 	prev := newSourceCacheVerificationStore(t)
 	grant := putVerificationGrant(t, prev, "scope-a", "member", "alice")
 	require.NoError(t, prev.cache.PutSourceCacheEntry(t.Context(), sourcecache.RowKindGrants, "scope-a", "validator-a"))
+	sealSourceCacheVerificationStore(t, prev)
 	cur := newSourceCacheVerificationStore(t)
 
 	start := make(chan struct{})
@@ -1323,6 +1336,35 @@ func TestVerificationUnsupportedSourceFailsClosed(t *testing.T) {
 		"unsupported-source rejection mutated occupied destination")
 }
 
+func TestVerificationReplayRejectsUnfinishedSourceAllKinds(t *testing.T) {
+	for _, kind := range []sourcecache.RowKind{
+		sourcecache.RowKindResources,
+		sourcecache.RowKindEntitlements,
+		sourcecache.RowKindGrants,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			previous := newSourceCacheVerificationStore(t)
+			putSourceCacheVerificationRows(t, previous, kind, "scope-a", 2, "source")
+			require.NoError(t, previous.cache.PutSourceCacheEntry(t.Context(), kind, "scope-a", "validator"))
+
+			current := newSourceCacheVerificationStore(t)
+			putSourceCacheVerificationRows(t, current, kind, "scope-a", 1, "destination")
+			previousBefore := sourceCacheVerificationEngineDigest(t, previous.engine)
+			currentBefore := sourceCacheVerificationEngineDigest(t, current.engine)
+			enteredMutation := false
+			current.store.(*pebbleStore).sourceCacheTest.beforeEngineMutation = func() {
+				enteredMutation = true
+			}
+
+			_, err := current.cache.ReplaySourceCache(t.Context(), previous.store, kind, "scope-a")
+			require.ErrorContains(t, err, "not finished")
+			require.False(t, enteredMutation, "unfinished-source rejection entered destination mutation")
+			require.Equal(t, previousBefore, sourceCacheVerificationEngineDigest(t, previous.engine))
+			require.Equal(t, currentBefore, sourceCacheVerificationEngineDigest(t, current.engine))
+		})
+	}
+}
+
 // C35: a corrupt envelope is rejected while opening the previous artifact, so
 // it can never degrade into an empty or partially replayable source.
 func TestVerificationCorruptSourceEnvelopeFailsClosed(t *testing.T) {
@@ -1377,6 +1419,7 @@ func TestVerificationHostileScopeEncodingCorpus(t *testing.T) {
 		grants[i] = putVerificationGrant(t, prev, scope, fmt.Sprintf("member-%d", i), fmt.Sprintf("user-%d", i))
 		require.NoError(t, prev.cache.PutSourceCacheEntry(t.Context(), sourcecache.RowKindGrants, scope, fmt.Sprintf("validator-%d", i)))
 	}
+	sealSourceCacheVerificationStore(t, prev)
 	for i, scope := range scopes {
 		cur := newSourceCacheVerificationStore(t)
 		res, err := cur.cache.ReplaySourceCache(t.Context(), prev.store, sourcecache.RowKindGrants, scope)
@@ -1457,6 +1500,7 @@ func TestVerificationHostileIDEncodingCorpus(t *testing.T) {
 				require.NoError(t, prev.store.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), rows...))
 			}
 			require.NoError(t, prev.cache.PutSourceCacheEntry(t.Context(), kind, "scope-a", "validator-a"))
+			sealSourceCacheVerificationStore(t, prev)
 
 			cur := newSourceCacheVerificationStore(t)
 			res, err := cur.cache.ReplaySourceCache(t.Context(), prev.store, kind, "scope-a")
@@ -1979,6 +2023,7 @@ func FuzzVerificationScopeEncodingIsolation(f *testing.F) {
 			neighborScope,
 			"validator-neighbor",
 		))
+		sealSourceCacheVerificationStore(t, prev)
 
 		cur := newSourceCacheVerificationStore(t)
 		res, err := cur.cache.ReplaySourceCache(
@@ -2038,6 +2083,7 @@ func TestVerificationReplayOverwriteCleansForeignScopeIndex(t *testing.T) {
 			prev := newSourceCacheVerificationStore(t)
 			putSourceCacheVerificationRows(t, prev, kind, "scope-a", 1, "clash")
 			require.NoError(t, prev.cache.PutSourceCacheEntry(t.Context(), kind, "scope-a", "validator-a"))
+			sealSourceCacheVerificationStore(t, prev)
 
 			// The same identity (same prefix) already lives in the
 			// destination under scope-b.
@@ -2124,6 +2170,7 @@ func TestVerificationClosedStoreRejectsSourceCacheMutations(t *testing.T) {
 	ctx := t.Context()
 	prev := newSourceCacheVerificationStore(t)
 	require.NoError(t, prev.cache.PutSourceCacheEntry(ctx, sourcecache.RowKindGrants, "scope-a", "validator-a"))
+	sealSourceCacheVerificationStore(t, prev)
 
 	store, err := NewStore(ctx, t.TempDir()+"/closed.c1z", WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)

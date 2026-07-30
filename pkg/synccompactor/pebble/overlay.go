@@ -477,8 +477,7 @@ func MergeFilesIntoOverlay(ctx context.Context, dest *enginepkg.Engine, sources 
 		if err != nil {
 			return nil, err
 		}
-		if err := func() error {
-			defer chunk.closeAsync(rm)
+		workErr := func() error {
 			for _, source := range chunk.handles {
 				for bucketIdx, bucket := range overlayBuckets {
 					st := &states[bucketIdx]
@@ -631,7 +630,8 @@ func MergeFilesIntoOverlay(ctx context.Context, dest *enginepkg.Engine, sources 
 				kwayRunFiles = append(kwayRunFiles, run)
 			}
 			return nil
-		}(); err != nil {
+		}()
+		if err := errors.Join(workErr, chunk.closeAsync(rm)); err != nil {
 			return nil, err
 		}
 		chunkIdx++
@@ -731,16 +731,14 @@ func overlayBackfillRestartedChunks(
 		if err != nil {
 			return err
 		}
-		run, err := func() (runFile, error) {
-			defer chunk.closeAsync(rm)
-			return buildChunkRunFileFromHandles(
-				ctx,
-				tmpDir,
-				chunk.handles,
-				fmt.Sprintf("overlay-backfill-%04d", len(*kwayRunFiles)),
-				needed,
-			)
-		}()
+		run, buildErr := buildChunkRunFileFromHandles(
+			ctx,
+			tmpDir,
+			chunk.handles,
+			fmt.Sprintf("overlay-backfill-%04d", len(*kwayRunFiles)),
+			needed,
+		)
+		err = errors.Join(buildErr, chunk.closeAsync(rm))
 		if err != nil {
 			return err
 		}

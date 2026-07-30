@@ -4,11 +4,13 @@ package pebble
 // "enumerate injection points mechanically"). The seam registry in
 // obligations_on_failure_test.go enforces that every declared seam has
 // a failure test; this meta-test enforces the inverse direction: every
-// batch-commit call site in engine and compactor production code is either reachable by a
-// registered failure seam or carries an explicit exclusion with a
-// reason. A new commit loop cannot ship without deciding, in writing,
-// how its error path gets executed — the drift that left the replay
-// clear loop seamless (CO-009) becomes a compile-adjacent failure.
+// batch-commit call site in engine and compactor production code is assigned a
+// registered batch-family route or carries an explicit exclusion with a reason.
+// Route registration is drift prevention, not proof that every individual caller
+// executed its route; the seam registry is backed by representative failure tests.
+// A new commit loop cannot ship without deciding, in writing, how its error path
+// is covered — the drift that left the replay clear loop seamless (CO-009) becomes
+// a compile-adjacent failure.
 //
 // Keys are "file.go:EnclosingFunc" (closures attribute to their named
 // top-level function). Values are either seam names — which must be

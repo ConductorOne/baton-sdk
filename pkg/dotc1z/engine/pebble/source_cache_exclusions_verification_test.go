@@ -27,9 +27,6 @@ func TestVerificationPhase6aExecutableExclusions(t *testing.T) {
 	t.Run("source-eligibility-policy", func(t *testing.T) {
 		t.Skip("compacted/non-FULL source eligibility and compatibility gating are explicitly deferred beyond Phase 6a")
 	})
-	t.Run("C35-unsealed-source-policy", func(t *testing.T) {
-		t.Skip("SourceCacheStore accepts a Reader and exposes no sealed-state predicate; production previous-artifact lifecycle validation belongs to the deferred syncer/orchestration boundary")
-	})
 	t.Run("C37-generate-sync-diff", func(t *testing.T) {
 		t.Skip("GenerateSyncDiff creates a partial delta sync, not a standalone future full-sync replay source; partial-source eligibility remains deferred")
 	})

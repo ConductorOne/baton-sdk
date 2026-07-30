@@ -810,6 +810,34 @@ supplements:
   identity, committed-prefix accounting, O4, source immutability, and convergent
   retry.
 
+### CO-012 — Final independent-review lifecycle and evidence correction
+
+- Type: production correction plus verification-claim correction.
+- Source: the repeated independent final-code audits rejected signoff because the
+  public replay capability accepted an unfinished previous artifact, compactor
+  source-close errors were log-only, and several structural/commit-seam statements
+  exceeded what their instruments proved.
+- Contract delta: C35's unfinished-source cell is enforced at the public storage
+  capability. A previous Pebble artifact must contain a durably finished sync run
+  before destination mutation begins; the in-memory `IsSealed` flag is not evidence
+  because it intentionally resets on reopen. Compacted/non-FULL and compatibility
+  eligibility remain deferred.
+- Production delta: `ReplaySourceCache` validates durable finished state after
+  manifest authorization and before `beginSourceCacheMutation`. K-way chunk cleanup
+  joins every owned source-handle close error while still scheduling asynchronous
+  directory removal. Fold and rebuild source-store close errors join the operation
+  result and therefore prevent publication.
+- Verification delta:
+  `TestVerificationReplayRejectsUnfinishedSourceAllKinds` requires rejection before
+  engine mutation with unchanged occupied destination and source digests. Legitimate
+  public replay fixtures now finish their source syncs. Source-handle close tests
+  require all handles to close, preserve every error identity, and retain async
+  cleanup. C27's dedicated terminal-error cut is explicitly limited to the
+  all-kind source-copy loop; preflight, destination-clear, and scoped-delete loops
+  retain inline `Iterator.Error` checks without a claimed deterministic terminal
+  failure sweep. The batch-commit registry is drift prevention for missing
+  dispositions, not proof that every registered call site independently executed.
+
 ## Post-freeze implementation-obligation addendum
 
 This addendum was produced by a reader independent of the implementation and

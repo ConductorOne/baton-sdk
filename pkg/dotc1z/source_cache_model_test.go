@@ -317,6 +317,7 @@ func runSourceCacheModelSeed(t *testing.T, seed int64) {
 			h.srcModel.manifests[kind][scope] = validator
 		}
 	}
+	require.NoError(t, h.src.store.EndSync(ctx))
 	srcDigestBefore := sourceCacheVerificationEngineDigest(t, h.src.engine)
 
 	store, err := NewStore(ctx, h.path, WithEngine(c1zstore.EnginePebble))

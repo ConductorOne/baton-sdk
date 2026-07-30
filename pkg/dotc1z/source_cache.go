@@ -114,6 +114,17 @@ func sourceCacheEngine(store any) (*pebble.Engine, bool) {
 	return e, e != nil
 }
 
+func validateReplaySourceFinished(ctx context.Context, previous *pebble.Engine) error {
+	run, err := previous.LatestFinishedSyncRecord(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("source cache replay: read previous sync lifecycle: %w", err)
+	}
+	if run == nil {
+		return errors.New("source cache replay: previous artifact sync is not finished")
+	}
+	return nil
+}
+
 func sameSourceCacheArtifact(current *pebbleStore, previous connectorstore.Reader) bool {
 	prev, ok := previous.(*pebbleStore)
 	if !ok {
@@ -204,6 +215,9 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 	}
 	if entry.GetCacheValidator() == "" {
 		return SourceCacheReplayResult{}, fmt.Errorf("source cache replay: manifest for row kind %q and scope %q has no validator", kind, scopeKey)
+	}
+	if err := validateReplaySourceFinished(ctx, prevEngine); err != nil {
+		return SourceCacheReplayResult{}, err
 	}
 	// Replay is replacement, not append: the engine may clear destination rows
 	// or commit one or more bounded chunks before returning zero rows or an error.

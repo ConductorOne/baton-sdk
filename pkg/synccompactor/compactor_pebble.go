@@ -459,6 +459,13 @@ func selectSourceSyncFromManifest(path string) (manifestSourceSelection, bool) {
 //     sidecar is recomputed under it.
 //
 // Returns the fresh sync id.
+func joinSourceStoreCloseError(retErr, closeErr error, sourcePath string) error {
+	if closeErr == nil {
+		return retErr
+	}
+	return errors.Join(retErr, fmt.Errorf("close source store %s: %w", sourcePath, closeErr))
+}
+
 func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	l := ctxzap.Extract(ctx)
 	foldStart := time.Now()
@@ -527,18 +534,18 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		}
 		srcEng, ok := enginepkg.AsEngine(w)
 		if !ok {
-			_ = w.Close(ctx)
-			return "", fmt.Errorf("compactPebbleFold: input %s is not a pebble c1z", sourcePath)
+			err := fmt.Errorf("compactPebbleFold: input %s is not a pebble c1z", sourcePath)
+			return "", joinSourceStoreCloseError(err, w.Close(ctx), sourcePath)
 		}
 		if srcSyncID == "" {
 			rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 			if err != nil {
-				_ = w.Close(ctx)
-				return "", fmt.Errorf("compactPebbleFold: input %s: select compactable sync: %w", sourcePath, err)
+				err = fmt.Errorf("compactPebbleFold: input %s: select compactable sync: %w", sourcePath, err)
+				return "", joinSourceStoreCloseError(err, w.Close(ctx), sourcePath)
 			}
 			if rec == nil {
-				_ = w.Close(ctx)
-				return "", fmt.Errorf("compactPebbleFold: input %s has no finished compactable sync", sourcePath)
+				err := fmt.Errorf("compactPebbleFold: input %s has no finished compactable sync", sourcePath)
+				return "", joinSourceStoreCloseError(err, w.Close(ctx), sourcePath)
 			}
 			srcSyncID = rec.GetSyncId()
 			unionType = unionV3SyncType(unionType, rec.GetType())
@@ -551,11 +558,15 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 
 		mergeStats, mergeErr := mergepkg.MergeInto(ctx, destEng, []mergepkg.SourceSync{{Engine: srcEng, SyncID: srcSyncID}}, baseSyncID)
 		foldStats.Add(mergeStats)
-		if cerr := w.Close(ctx); cerr != nil {
-			l.Error("compactPebbleFold: error closing source store", zap.Error(cerr), zap.String("file", sourcePath))
+		closeErr := w.Close(ctx)
+		if closeErr != nil {
+			l.Error("compactPebbleFold: error closing source store", zap.Error(closeErr), zap.String("file", sourcePath))
 		}
 		if mergeErr != nil {
-			return "", fmt.Errorf("compactPebbleFold: merge %s: %w", sourcePath, mergeErr)
+			mergeErr = fmt.Errorf("compactPebbleFold: merge %s: %w", sourcePath, mergeErr)
+		}
+		if err := joinSourceStoreCloseError(mergeErr, closeErr, sourcePath); err != nil {
+			return "", err
 		}
 	}
 
@@ -1077,18 +1088,12 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 			continue
 		}
 
-		source, syncType, endedAt, err := func() (mergepkg.SourceFile, v3.SyncType, time.Time, error) {
+		w, err := dotc1z.NewStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
+		if err != nil {
+			return fmt.Errorf("compactPebble: open input %s: %w", sourcePath, err)
+		}
+		source, syncType, endedAt, selectErr := func() (mergepkg.SourceFile, v3.SyncType, time.Time, error) {
 			var zeroSource mergepkg.SourceFile
-			w, err := dotc1z.NewStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
-			if err != nil {
-				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: open input %s: %w", sourcePath, err)
-			}
-			defer func() {
-				if cerr := w.Close(ctx); cerr != nil {
-					l.Error("compactPebble: error closing source store", zap.Error(cerr), zap.String("file", sourcePath))
-				}
-			}()
-
 			srcEng, ok := enginepkg.AsEngine(w)
 			if !ok {
 				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s is not a pebble c1z", sourcePath)
@@ -1123,7 +1128,11 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 			}
 			return source, rec.GetType(), endedAt, nil
 		}()
-		if err != nil {
+		closeErr := w.Close(ctx)
+		if closeErr != nil {
+			l.Error("compactPebble: error closing source store", zap.Error(closeErr), zap.String("file", sourcePath))
+		}
+		if err := joinSourceStoreCloseError(selectErr, closeErr, sourcePath); err != nil {
 			return err
 		}
 

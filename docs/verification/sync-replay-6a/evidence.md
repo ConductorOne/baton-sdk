@@ -2,13 +2,13 @@
 
 Plan: [`plan.md`](plan.md)
 
-Closure-candidate implementation and instrument state:
-`097f064e2ad2c35017d87f43e3836ff474a6f503`. The final gates below were rerun
-against that committed SHA on 2026-07-30. Independent final-code evidence and
-implementation re-review remain required before repository signoff.
+Post-audit remediation state: current uncommitted working tree based on
+`85baeb25`. The final gates below passed against the superseded candidate
+`097f064e2ad2c35017d87f43e3836ff474a6f503`; every final gate and independent
+review must be repeated after CO-012 is committed.
 
-Included change orders: CO-003a, CO-005 through CO-010b, and CO-011 through
-CO-011c.
+Included change orders: CO-003, CO-003a, CO-005 through CO-010b, and CO-011
+through CO-012.
 
 ## Signoff scope
 
@@ -20,11 +20,11 @@ continuation/RPC behavior, invalidation policy, compacted/non-FULL eligibility,
 compactor integration, and post-replay ingest-invariant evaluation remain outside
 this stage.
 
-The prior final-code evidence audits reopened closure without finding a new
-source-cache product defect. Structural coverage and final-SHA gates now pass;
-repeated independent review remains outstanding. CO-011a's compactor ownership
-correction is included only with its runtime obligations and focused instruments
-documented in the plan addendum.
+The repeated final-code audits reopened closure. One found no new source-cache
+product defect; the other found that unfinished previous artifacts remained
+replayable despite C35. Both identified swallowed compactor source-close errors and
+evidence overclaims. CO-012 records the production and evidence correction; signoff
+remains open until its final-SHA gates and independent re-review pass.
 
 ## Criterion evidence
 
@@ -107,17 +107,19 @@ documented in the plan addendum.
 - C21 — **verified at its declared measured level**. Duplicate concurrent replay
   converges under the race command and matches a separately direct-materialized
   semantic row/manifest/index snapshot; no bounded schedule claim is made.
-- C22 — **verified for the in-scope catalog**. Biconditional and manifest
+- C22 — **verified for the planted mutants listed here, not the full deferred
+  catalog**. Biconditional and manifest
   reconcilers have physical planted violations; auxiliary validators reject
   timestamp swaps, over-limit batches, stale counters, premature manifests, source
   digest changes, and prefix-neighbor deletion. The source-cache model now retains
   basic row/manifest cell mutants and the batch-leak oracle retains one mutant per
-  family. The all-kind terminal-iterator hook retains the swallowed-error mutant,
-  and the descriptor differential retains a dirty-destination wrong-merge mutant.
+  family. The descriptor differential retains a dirty-destination wrong-merge
+  mutant.
   Corrupt-source and `invalidated=true` matrices plant physical rejected inputs;
   the terminal-manifest missing-owner mutant and two-hop replay own lost forward
-  stamps. CO-007 continues to defer wrong page order with C29.
-  CO-007 defers the wrong-page-order mutant with C29. CO-009 asserts the proof bit
+  stamps. The all-kind terminal-iterator failure cut is C27 behavioral evidence,
+  not a planted swallowed-error mutant. CO-007 defers wrong page order with C29.
+  CO-009 asserts the proof bit
   was armed before each lifecycle transition and uses a colliding-write O4 oracle;
   CO-010 plants physical orphan indexes and observes live and durable healing.
   CO-010a proves mutation lock ownership and that Close reached the competing lock
@@ -142,10 +144,12 @@ documented in the plan addendum.
 - C27 — **verified**. Production-size resources pin the real 10,000-row boundary,
   and every kind sweeps callback read failures and cancellation cuts before the
   first row, inside chunks, at boundaries, and before final commit. A dedicated
-  terminal-iterator seam executes at the production `Iterator.Error()` disposition,
-  after iteration and before final commit; every kind preserves the committed
-  prefix, O4, source snapshot, error identity, and convergent retry. CO-009
-  separately injects the destructive-clear loop after one landed batch.
+  terminal-iterator seam executes at the source-copy loop's production terminal
+  disposition, after iteration and before final commit; every kind preserves the
+  committed prefix, O4, source snapshot, error identity, and convergent retry.
+  Preflight, destructive-clear, and scoped-delete loops check `Iterator.Error`
+  inline but do not claim a dedicated deterministic terminal-error sweep. CO-009
+  separately injects a destructive-clear commit failure after one landed batch.
 - C28 — **verified at bounded corpus plus measured sampling**. The deterministic
   corpus covers empty, oversized, separator, prefix, embedded-NUL, Unicode,
   max-length, malformed-ID, duplicate-ID, and invalid-kind input. All kinds cover
@@ -173,11 +177,12 @@ documented in the plan addendum.
 - C34 — **explicitly excluded**. The storage capability cannot receive the
   transitional page annotation; ownership is assigned to deferred syncer
   orchestration.
-- C35 — **verified where representable; explicitly excluded elsewhere**. Unsupported
-  SQLite rejects against an occupied destination with an unchanged digest; corrupt
-  envelope and sealed read-only source cells fail/pass as declared. Unsealed,
-  compacted/non-FULL, and compatibility eligibility require the deferred lifecycle
-  owner and predicate.
+- C35 — **verified for supported format, durable finished state, and corrupt input;
+  explicitly excluded for deferred eligibility**. Unsupported SQLite and unfinished
+  all-kind Pebble sources reject before destination mutation with unchanged source
+  and occupied-destination digests; corrupt envelopes fail at open, and sealed
+  read-only sources replay. Compacted/non-FULL and compatibility eligibility remain
+  deferred.
 - C36 — **verified for storage composition, not ordering**. Grant and resource tests
   include canonical/principal overlap, selector-only matches, and survivors;
   entitlement principal selection is rejected by C42. C29 ordering is not claimed.
@@ -217,9 +222,6 @@ documented in the plan addendum.
 - `GenerateSyncDiff` produces a partial sync rather than a standalone full-sync
   replay source;
 - compacted/non-FULL and compatibility eligibility deferred;
-- unsealed-source policy deferred to the production previous-artifact lifecycle
-  owner.
-
 An exclusion is not a behavioral pass.
 
 ## Structural-coverage triage
@@ -242,9 +244,10 @@ than cited as a percentage. It produced four actionable findings:
   to a cold fetch.
 
 No finding is accepted solely because a line executed. Each item above has a
-behavioral oracle and risk disposition. The final profile and this ledger must be
-rerun against the final commit; until then structural-coverage closure remains
-open.
+behavioral oracle and risk disposition. The profile produced no additional
+actionable changed-branch finding beyond F1/F2/F3/F8 at the superseded candidate.
+CO-012 changes production branches, so the profile and ledger must be rerun at its
+final commit; structural-coverage closure is open until then.
 
 The closure-candidate profile rerun passed at 82.4% statements for
 `pkg/sourcecache`, 70.3% for `pkg/dotc1z/engine/pebble`, and 70.5% for
@@ -279,12 +282,18 @@ engine rejected it. CO-010b restores wrapper-owned input validation before dirty
 state or lifecycle checks. That focused re-review was against the pre-CO-011 code
 and is superseded for final signoff.
 
-Two independent final-code evidence audits found no new source-cache product
-correctness defect, but rejected closure because provenance and several instruments
-overclaimed their actual coverage. CO-011 through CO-011c record the newly exposed
-batch-ownership, compactor-lifecycle, commit-seam, and stateful-model obligations.
-The focused implementation-review gate remains open pending repeated independent
-review of the committed closure candidate.
+The first two independent final-code evidence audits found no new source-cache
+product correctness defect, but rejected closure because provenance and several
+instruments overclaimed their actual coverage. CO-011 through CO-011c record the
+newly exposed batch-ownership, compactor-lifecycle, commit-seam, and stateful-model
+obligations.
+
+The repeated audits then disagreed on severity but agreed signoff was not ready.
+One accepted with explicit limitations; the other rejected because the public
+primitive replayed unfinished sources. Both found source-store Close errors were
+discarded and structural/commit-point claims were too broad. CO-012 enforces durable
+finished-source state, propagates owned source-close errors, and narrows the claims.
+Independent review remains open until it examines the committed correction.
 
 The review also recorded these non-defect limits:
 
@@ -326,7 +335,16 @@ were 1,590,408 B / 5,058 allocs at 10k rows and 1,561,840 B / 5,061 allocs at
 go test ./pkg/synccompactor/pebble -run '^$' -bench '^BenchmarkCompactionFlow$' -benchtime=1x -benchmem -count=1
 ```
 
-The committed closure candidate
+CO-012's current working tree passed its focused lifecycle and affected compactor
+suites:
+
+```text
+go test ./pkg/dotc1z -run '^TestVerification' -count=1
+go test ./pkg/dotc1z -run '^Test(ModelRandomizedSourceCacheLifecycle|SourceCacheModelOracleMutationAdequacy|VerificationReplayRejectsUnfinishedSourceAllKinds)$' -count=1
+go test ./pkg/synccompactor/pebble ./pkg/synccompactor -count=1
+```
+
+The superseded committed closure candidate
 `097f064e2ad2c35017d87f43e3836ff474a6f503` passed the following final gates on
 2026-07-30:
 
@@ -345,8 +363,9 @@ model soak and serial-package repository suite both passed. These commands ran
 from a clean tracked tree; the unrelated untracked
 `digest-endsync-bench.txt` artifact was not part of the candidate.
 
-The current uncommitted working tree was rerun after CO-010b and the final clean
-implementation re-review on 2026-07-29. All of these commands passed:
+Historical pre-CO-011 evidence: the then-uncommitted working tree was rerun after
+CO-010b and the clean implementation re-review on 2026-07-29. All of these commands
+passed:
 
 ```text
 make lint
