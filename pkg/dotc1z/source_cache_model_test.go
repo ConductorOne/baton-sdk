@@ -15,11 +15,13 @@ package dotc1z
 // tests enumerate by hand — specifically the convention-coupled state
 // classes (dirty-vs-Close handoff, zero-result-but-mutated operations,
 // scope bleed) that reading kept finding one instance at a time. A
-// failure prints the seed; rerun with -run 'seed=N' to reproduce.
+// failure prints the seed; rerun with
+// -run '^TestModelRandomizedSourceCacheLifecycle/seed=N$' to reproduce.
 
 import (
 	"fmt"
 	"math/rand"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -213,6 +215,31 @@ func (h *sourceCacheModelHarness) storeRowKeys(kind sourcecache.RowKind, scope s
 	return keys
 }
 
+func validateSourceCacheModelCell(
+	wantRows map[string]modelRow,
+	gotRows map[string]struct{},
+	wantValidator string,
+	foundManifest bool,
+	gotValidator string,
+) error {
+	if len(gotRows) != len(wantRows) {
+		return fmt.Errorf("row count: got %d, want %d", len(gotRows), len(wantRows))
+	}
+	for key := range wantRows {
+		if _, ok := gotRows[key]; !ok {
+			return fmt.Errorf("missing row %q", key)
+		}
+	}
+	wantManifest := wantValidator != ""
+	if foundManifest != wantManifest {
+		return fmt.Errorf("manifest presence: got %t, want %t", foundManifest, wantManifest)
+	}
+	if foundManifest && gotValidator != wantValidator {
+		return fmt.Errorf("manifest validator: got %q, want %q", gotValidator, wantValidator)
+	}
+	return nil
+}
+
 // compare checks every (kind, scope) cell — including the never-touched
 // bleed scope — against the model: row sets and manifest state.
 func (h *sourceCacheModelHarness) compare(when string) {
@@ -233,10 +260,14 @@ func (h *sourceCacheModelHarness) compare(when string) {
 			entry, found, err := h.cache.LookupSourceCacheEntry(h.t.Context(), kind, scope)
 			require.NoError(h.t, err, "%s: %s/%s lookup", when, kind, scope)
 			wantValidator := h.model.manifests[kind][scope]
-			require.Equal(h.t, wantValidator != "", found, "%s: %s/%s manifest presence", when, kind, scope)
-			if found {
-				require.Equal(h.t, wantValidator, entry.CacheValidator, "%s: %s/%s validator", when, kind, scope)
-			}
+			require.NoError(
+				h.t,
+				validateSourceCacheModelCell(want, got, wantValidator, found, entry.CacheValidator),
+				"%s: %s/%s model mismatch",
+				when,
+				kind,
+				scope,
+			)
 		}
 	}
 }
@@ -267,7 +298,15 @@ func runSourceCacheModelSeed(t *testing.T, seed int64) {
 	// zero-row scope whose manifest makes it a valid empty replacement.
 	h.src = newSourceCacheVerificationStore(t)
 	for _, kind := range sourceCacheModelKinds {
-		for scope, n := range map[string]int{"scope-a": 3, "scope-ab": 2, "scope-b": 0} {
+		for _, fixture := range []struct {
+			scope string
+			rows  int
+		}{
+			{scope: "scope-a", rows: 3},
+			{scope: "scope-ab", rows: 2},
+			{scope: "scope-b", rows: 0},
+		} {
+			scope, n := fixture.scope, fixture.rows
 			if n > 0 {
 				for _, row := range h.buildRows(h.src.store, kind, scope, n) {
 					h.srcModel.scopeRows(kind, scope)[row.key] = row
@@ -295,12 +334,19 @@ func runSourceCacheModelSeed(t *testing.T, seed int64) {
 	}
 	// pickRows samples up to limit distinct existing rows from a scope.
 	pickRows := func(kind sourcecache.RowKind, scope string, limit int) []modelRow {
-		var out []modelRow
-		for _, row := range h.model.scopeRows(kind, scope) {
+		rows := h.model.scopeRows(kind, scope)
+		keys := make([]string, 0, len(rows))
+		for key := range rows {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		h.r.Shuffle(len(keys), func(i, j int) { keys[i], keys[j] = keys[j], keys[i] })
+		out := make([]modelRow, 0, min(limit, len(keys)))
+		for _, key := range keys {
 			if len(out) >= limit {
 				break
 			}
-			out = append(out, row)
+			out = append(out, rows[key])
 		}
 		return out
 	}
@@ -395,6 +441,36 @@ func runSourceCacheModelSeed(t *testing.T, seed int64) {
 	require.True(t, h.sawOccupiedCell, "non-vacuity: no compared cell ever held rows")
 	require.Equal(t, srcDigestBefore, sourceCacheVerificationEngineDigest(t, h.src.engine),
 		"replay source artifact must never be mutated")
+}
+
+func TestSourceCacheModelOracleMutationAdequacy(t *testing.T) {
+	wantRows := map[string]modelRow{"expected": {key: "expected"}}
+	validRows := map[string]struct{}{"expected": {}}
+	require.NoError(t, validateSourceCacheModelCell(wantRows, validRows, "validator", true, "validator"))
+
+	tests := []struct {
+		name          string
+		gotRows       map[string]struct{}
+		wantValidator string
+		foundManifest bool
+		gotValidator  string
+	}{
+		{name: "missing row", gotRows: map[string]struct{}{}, wantValidator: "validator", foundManifest: true, gotValidator: "validator"},
+		{name: "unexpected row", gotRows: map[string]struct{}{"expected": {}, "extra": {}}, wantValidator: "validator", foundManifest: true, gotValidator: "validator"},
+		{name: "missing manifest", gotRows: validRows, wantValidator: "validator", foundManifest: false},
+		{name: "wrong validator", gotRows: validRows, wantValidator: "validator", foundManifest: true, gotValidator: "wrong"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Error(t, validateSourceCacheModelCell(
+				wantRows,
+				tc.gotRows,
+				tc.wantValidator,
+				tc.foundManifest,
+				tc.gotValidator,
+			))
+		})
+	}
 }
 
 func TestModelRandomizedSourceCacheLifecycle(t *testing.T) {

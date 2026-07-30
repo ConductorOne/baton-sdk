@@ -2,20 +2,28 @@
 
 Plan: [`plan.md`](plan.md)
 
-Verified implementation and instrument state: current uncommitted working tree
-based on `1e8cc1b3`. Replace this line with the final commit SHA before repository
-signoff.
+Closure-candidate implementation and instrument state: current uncommitted working
+tree based on `93fb4150e1a063b6d79a6bb480d102d3fd2140f1`. Replace this line with
+the final commit SHA and rerun every final gate before repository signoff.
 
-Included change orders: CO-003a and CO-005 through CO-010b.
+Included change orders: CO-003a, CO-005 through CO-010b, and CO-011 through
+CO-011c.
 
 ## Signoff scope
 
-Phase 6a storage and dotc1z capability behavior is verified except where this
-record explicitly marks a criterion incomplete, excluded, sampled, or deferred.
+Phase 6a storage and dotc1z capability behavior is a closure candidate, not signed
+off. This record explicitly marks incomplete, excluded, sampled, and deferred
+criteria.
 Syncer/checkpoint orchestration, compatibility matching/gating, connector
 continuation/RPC behavior, invalidation policy, compacted/non-FULL eligibility,
 compactor integration, and post-replay ingest-invariant evaluation remain outside
 this stage.
+
+The final-code evidence audits reopened closure without finding a new source-cache
+product defect. Structural coverage disposition, final-SHA gates, and repeated
+independent review remain outstanding. CO-011a's compactor ownership correction is
+included only with its runtime obligations and focused instruments documented in
+the plan addendum.
 
 ## Criterion evidence
 
@@ -31,11 +39,12 @@ this stage.
 - C03 — **verified**. `TestVerificationSourceScopeMutationAtomicity` injects the
   shared typed-commit failure for fresh puts, moves, and deletes for all kinds and
   compares the incumbent row/index state.
-- C04 — **verified**. Typed-operation descriptor coverage, direct-materialization
-  index comparisons, grant expansion regressions, and all-kind malformed cleanup
-  cover the obligations actually owned by each row kind. O4 is independently
-  validated by `TestVerificationSourceScopeAuditorMutationAdequacy`; CO-009's
-  colliding writes prove stale fast-path state cannot bypass old-index cleanup.
+- C04 — **verified**. `TestVerificationDescriptorClosedReplayAndDirectMaterialization`
+  freezes the exact top-level field set for every D11 record, populates every field
+  with a non-default sentinel (no current exemptions), and requires byte-semantic
+  replay/direct equality plus every derived index key. Existing typed-operation,
+  malformed-cleanup, digest/expansion, and O4 mutation-adequacy tests own the
+  transition-specific obligations.
 - C05 — **verified**. `TestVerificationManifestPartitionAndOverwriteMatrix` covers
   all kind/scope overwrite cells; C25/C40 supply 0/1/many states. Row cardinality
   is reduced because manifest write uses one shared `(kind,scope)` choke point and
@@ -44,11 +53,16 @@ this stage.
   prefix-neighbor tests assert exact selected scope/kind sets and decoy survival.
 - C07 — **verified**. `TestVerificationReplayRejectsStampedRowsWithoutManifest`
   covers all kinds with occupied destinations and full before/after engine digests.
-- C08 — **verified** at the CO-002 reduced cells. Replay/direct primary and maintained
-  index families are compared for every kind; overlay identity cases separately
-  cover distinct and colliding entitlement identities.
-- C09 — **verified**. Sequential replay and tombstone retries converge, including
-  occupied replacement, duplicate/unknown tombstones, and interrupted-prefix retry.
+- C08 — **verified at the declared reduced P2 cells**. The descriptor-closed
+  differential compares every field, generated index key, index-backed query
+  projection, and normalized manifest semantics for all kinds after replay and
+  repeated overlay versus direct materialization. Existing occupied/decoy and
+  distinct/colliding entitlement identity tests own the remaining reduced P2
+  representatives.
+- C09 — **verified**. Replay and tombstone retries converge for the directed
+  occupied, duplicate/unknown, and interrupted-prefix cells. The descriptor-closed
+  differential applies representative all-kind overlays twice, compares them to
+  one direct application, and rejects stale changed index keys.
 - C10 — **verified**. Production-size resources exercise each 10,000-row boundary;
   `TestVerificationReplayCommittedPrefixRetryAllKinds` exercises a committed cut,
   hard reopen, and retry for every kind; manifest and public dirty-lifecycle
@@ -67,9 +81,11 @@ this stage.
   cases compare direct/replay outcomes and assert stale-index absence. CO-009
   plants an armed proof after occupied replacement, fails after a committed clear
   prefix, and requires the surviving colliding identity to clean its old index.
-- C14 — **verified** at descriptor-selected owned fields. Direct/replay encoded-row
-  comparisons and grant source/expansion tests cover the maintained side state;
-  timestamp provenance is handled by C26.
+- C14 — **verified**. The explicit D11 descriptor registry fails on an unclassified
+  schema field, populates every current field, and overlays all kinds while
+  preserving unchanged side state. Resource parent and grant expansion/index
+  changes exercise stale-index cleanup; entitlement overlay exercises non-indexed
+  payload replacement. Timestamp provenance remains independently owned by C26.
 - C15 — **verified**. Canonical tombstone success, duplicate, unknown, repeated, and
   mixed-rejection cells cover all row kinds with primary/index postconditions.
 - C16 — **verified**. Grant principal and resource-ID scoped selectors delete exact
@@ -93,8 +109,13 @@ this stage.
 - C22 — **verified for the in-scope catalog**. Biconditional and manifest
   reconcilers have physical planted violations; auxiliary validators reject
   timestamp swaps, over-limit batches, stale counters, premature manifests, source
-  digest changes, and prefix-neighbor deletion. Error, corruption, invalidation,
-  dirty-merge, and forward-stamp cases use actual injected or pre-fix red paths.
+  digest changes, and prefix-neighbor deletion. The source-cache model now retains
+  basic row/manifest cell mutants and the batch-leak oracle retains one mutant per
+  family. The all-kind terminal-iterator hook retains the swallowed-error mutant,
+  and the descriptor differential retains a dirty-destination wrong-merge mutant.
+  Corrupt-source and `invalidated=true` matrices plant physical rejected inputs;
+  the terminal-manifest missing-owner mutant and two-hop replay own lost forward
+  stamps. CO-007 continues to defer wrong page order with C29.
   CO-007 defers the wrong-page-order mutant with C29. CO-009 asserts the proof bit
   was armed before each lifecycle transition and uses a colliding-write O4 oracle;
   CO-010 plants physical orphan indexes and observes live and durable healing.
@@ -117,10 +138,12 @@ this stage.
   transitional empty validators are an executable orchestration exclusion.
 - C26 — **verified under CO-006**. Independent all-kind source, overlay, and current
   manifest-write sentinels are checked across replay, replacement retry, and reopen.
-- C27 — **verified**. Production-size resources pin the real 10,000-row boundary;
-  every kind additionally sweeps deterministic read-error and cancellation cuts
-  before the first row, inside chunks, at chunk boundaries, and before final commit,
-  preserving error identity, O4, source snapshots, and retry convergence. CO-009
+- C27 — **verified**. Production-size resources pin the real 10,000-row boundary,
+  and every kind sweeps callback read failures and cancellation cuts before the
+  first row, inside chunks, at boundaries, and before final commit. A dedicated
+  terminal-iterator seam executes at the production `Iterator.Error()` disposition,
+  after iteration and before final commit; every kind preserves the committed
+  prefix, O4, source snapshot, error identity, and convergent retry. CO-009
   separately injects the destructive-clear loop after one landed batch.
 - C28 — **verified at bounded corpus plus measured sampling**. The deterministic
   corpus covers empty, oversized, separator, prefix, embedded-NUL, Unicode,
@@ -198,6 +221,39 @@ this stage.
 
 An exclusion is not a behavioral pass.
 
+## Structural-coverage triage
+
+The closing profile was reviewed branch-by-branch over the Phase 6a delta rather
+than cited as a percentage. It produced four actionable findings:
+
+- F1, HIGH — same-identity replay overwrite from a foreign scope had no prior
+  caller. `TestVerificationReplayOverwriteCleansForeignScopeIndex` now covers all
+  kinds, verifies the old source-scope index is gone, and uses a stale-scope delete
+  as the behavioral over-delete oracle.
+- F2, HIGH — scoped grant-ID tombstones lacked a non-selected survivor.
+  `TestVerificationScopedGrantIDDeletePreservesNonTombstonedRows` pins exact subset
+  deletion, survivor preservation, returned committed count, and idempotence.
+- F3, MEDIUM — post-Close public source-cache mutations had no caller.
+  `TestVerificationClosedStoreRejectsSourceCacheMutations` covers every public
+  mutation and requires `ErrEngineClosing` before dirty marking/engine entry.
+- F8, LOW — disabled-source-cache `NoopLookup` had no caller.
+  `TestNoopLookupAlwaysMissesCleanly` requires a clean miss so connectors fall back
+  to a cold fetch.
+
+No finding is accepted solely because a line executed. Each item above has a
+behavioral oracle and risk disposition. The final profile and this ledger must be
+rerun against the final commit; until then structural-coverage closure remains
+open.
+
+The closure-candidate profile rerun passed at 82.4% statements for
+`pkg/sourcecache`, 70.3% for `pkg/dotc1z/engine/pebble`, and 70.5% for
+`pkg/dotc1z`. These percentages are navigation signals, not evidence:
+
+```text
+go test ./pkg/sourcecache ./pkg/dotc1z/engine/pebble ./pkg/dotc1z -coverprofile=/tmp/sync-replay-6a.cover -count=1
+go tool cover -func=/tmp/sync-replay-6a.cover
+```
+
 ## Independent implementation-obligation review
 
 A reader independent of the implementation and instrument author audited resource
@@ -219,8 +275,15 @@ entire handoff and adds a deterministic close-attempt/lock-ownership/reopen orac
 Re-review of CO-010a passed the zero-HIGH gate and found one LOW validation-order
 regression: an empty manifest validator entered the lifecycle boundary before the
 engine rejected it. CO-010b restores wrapper-owned input validation before dirty
-state or lifecycle checks. Final re-review found no remaining HIGH, MEDIUM, or LOW
-implementation findings and **passed the focused implementation-review gate**.
+state or lifecycle checks. That focused re-review was against the pre-CO-011 code
+and is superseded for final signoff.
+
+Two independent final-code evidence audits found no new source-cache product
+correctness defect, but rejected closure because provenance and several instruments
+overclaimed their actual coverage. CO-011 through CO-011c record the newly exposed
+batch-ownership, compactor-lifecycle, commit-seam, and stateful-model obligations.
+The focused implementation-review gate remains open until the incomplete criteria
+above are resolved or explicitly re-scoped and all gates are rerun at the final SHA.
 
 The review also recorded these non-defect limits:
 
@@ -232,7 +295,38 @@ The review also recorded these non-defect limits:
 
 ## Evidence commands
 
-The final feature evidence includes:
+The post-audit closure-candidate working tree passed the affected-package suites:
+
+```text
+go test ./pkg/sourcecache ./pkg/dotc1z/engine/pebble/internal/rawdb ./pkg/dotc1z/engine/pebble ./pkg/dotc1z ./pkg/synccompactor/pebble ./pkg/synccompactor -count=1
+```
+
+The corrected instruments passed focused runs:
+
+```text
+go test ./pkg/dotc1z/engine/pebble -run '^Test(CommitPointsHaveFailureSeams|FailureSeamsAreExercised|ResourceLeakRideAlongAdequacy|VerificationReplayCommittedPrefixRetryAllKinds|VerificationDescriptorClosedReplayAndDirectMaterialization)$' -count=1
+go test ./pkg/dotc1z -run '^Test(SourceCacheModelOracleMutationAdequacy|ModelRandomizedSourceCacheLifecycle)$' -count=1
+go test ./pkg/synccompactor/pebble -run '^Test(OverlayFoldBatchLifecycleFailureCuts|OverlayRestartCommitFailureReleasesBatches|MergeFoldCommitFailureRetryConvergesAndClosesCleanly)$' -count=1
+go test ./pkg/synccompactor -run '^TestJoinCompactorCloseError$' -count=1
+```
+
+The repository lint gate and race-enabled closure instruments passed:
+
+```text
+make lint
+go test -race ./pkg/dotc1z ./pkg/dotc1z/engine/pebble ./pkg/synccompactor/pebble -run '^Test(Verification|ModelRandomizedSourceCacheLifecycle|SourceCacheModelOracleMutationAdequacy|ResourceLeakRideAlongAdequacy|CommitPointsHaveFailureSeams|OverlayFoldBatchLifecycleFailureCuts|OverlayRestartCommitFailureReleasesBatches|MergeFoldCommitFailureRetryConvergesAndClosesCleanly)' -count=1
+```
+
+One-sample compactor measurements after family-batch accounting and close/remint
+were 1,590,408 B / 5,058 allocs at 10k rows and 1,561,840 B / 5,061 allocs at
+100k rows. This is measured allocation sampling, not a latency or regression proof:
+
+```text
+go test ./pkg/synccompactor/pebble -run '^$' -bench '^BenchmarkCompactionFlow$' -benchtime=1x -benchmem -count=1
+```
+
+Final race, repository-wide, structural-profile, and final-SHA gates are still
+required. The final feature evidence must include:
 
 ```text
 make lint

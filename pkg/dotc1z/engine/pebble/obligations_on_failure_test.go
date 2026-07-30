@@ -44,7 +44,10 @@ var seamFailureCases = map[string][]string{
 	"sourceCacheReplayClearCommitHook": {
 		"TestVerificationReplayClearCommittedPrefixDisarmsFastPath",
 	},
-	"sourceCacheReplayReadHook":    {"TestVerificationReplayBatchBoundAndInterruptedRetry"},
+	"sourceCacheReplayReadHook": {"TestVerificationReplayBatchBoundAndInterruptedRetry"},
+	"sourceCacheReplayIteratorErrorHook": {
+		"TestVerificationReplayCommittedPrefixRetryAllKinds",
+	},
 	"sourceCacheDeleteCommitHook":  {"TestVerificationScopedDeleteBatchBoundAndInterruptedRetry"},
 	"sourceCacheManifestWriteHook": {"TestVerificationManifestFailureDoesNotPublishClaim"},
 	"endSyncStampHook":             {"TestFailedMutationPathsFireObligations"},

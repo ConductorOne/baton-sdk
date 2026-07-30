@@ -278,6 +278,30 @@ func TestVerificationReplayCommittedPrefixRetryAllKinds(t *testing.T) {
 				})
 			}
 
+			t.Run("iterator-terminal-error", func(t *testing.T) {
+				dst := newAdapter(t)
+				_, err := dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+				require.NoError(t, err)
+				dst.PebbleEngine().test.sourceCacheReplayBatchRows = 2
+				injected := errors.New("verification all-kind iterator terminal error")
+				dst.PebbleEngine().test.sourceCacheReplayIteratorErrorHook = func(gotKind string) error {
+					require.Equal(t, string(kind), gotKind)
+					return injected
+				}
+				_, err = replay(ctx, dst.PebbleEngine())
+				require.ErrorIs(t, err, injected)
+				require.Equal(t, 2, countKeys(t, dst.PebbleEngine(), family.primaryLo),
+					"the final staged row must not commit after Iterator.Error")
+				require.NoError(t, auditSourceScopeBiconditional(dst.PebbleEngine()))
+				require.Equal(t, sourceBefore, dumpKeyRangeTest(t, prev.PebbleEngine(), nil, nil))
+
+				dst.PebbleEngine().test.sourceCacheReplayIteratorErrorHook = nil
+				res, err := replay(ctx, dst.PebbleEngine())
+				require.NoError(t, err)
+				require.Equal(t, int64(3), res.Rows)
+				require.Equal(t, 3, countKeys(t, dst.PebbleEngine(), family.primaryLo))
+			})
+
 			for cut := range 3 {
 				t.Run(fmt.Sprintf("cancel-cut-%d", cut), func(t *testing.T) {
 					dst := newAdapter(t)

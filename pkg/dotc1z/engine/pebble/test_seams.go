@@ -63,6 +63,11 @@ type testSeams struct {
 	// sourceCacheReplayReadHook runs before each source index row is consumed.
 	// It supplies deterministic source-iteration errors at exact row cuts.
 	sourceCacheReplayReadHook func(kind string, row int) error
+	// sourceCacheReplayIteratorErrorHook runs at the real Iterator.Error
+	// disposition after source iteration and before the final batch commit.
+	// It proves that an iterator terminal error cannot be swallowed or followed
+	// by publication of the final staged rows.
+	sourceCacheReplayIteratorErrorHook func(kind string) error
 
 	// sourceCacheDeleteCommitHook runs before each bounded scoped-tombstone
 	// commit. sourceCacheDeleteBatchRows lowers the production batch limit so

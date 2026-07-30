@@ -732,6 +732,84 @@ supplements:
   `TestVerificationEmptyValidatorDoesNotPublishManifest` asserts the empty-validator
   error, unchanged clean dirty state, and validation precedence after Close.
 
+### CO-011 — Closing-instrument and runtime-obligation expansion
+
+- Type: additive verification change order with production ride-along accounting.
+- Source: the post-CO-010b closing round applied the handbook's commit-point,
+  resource-leak, stateful-model, and structural-coverage instruments. Those
+  instruments exposed obligations not present in the prior addendum.
+- Contract delta: no source-cache API behavior changes. Every rawdb family batch
+  is an owned resource from mint until its first `Close`; `Engine.Close` reports
+  any outstanding record, session, digest, or fold batch while still closing the
+  underlying database. Batch `Close` is idempotent.
+- Verification delta: a mutation-adequacy suite plants leaks for every independent
+  family counter plus Pebble iterators/Get closers, checks clean and double-close
+  lifecycles, and turns every ordinary engine/compactor fixture into a ride-along
+  leak oracle. A deterministic source-cache reference model supplements the
+  directed matrix; it is measured exploration, not bounded closure.
+- Cost delta: accounting adds one atomic increment and decrement per batch
+  lifecycle, not per row. The asymptotic cost remains O(batches), and closing
+  committed overlay batches restores Pebble pooling instead of retaining every
+  completed chunk.
+
+### CO-011a — Overlay fold-batch ownership correction
+
+- Type: production correction found by CO-011's resource-leak oracle.
+- Source: `overlayBucketRawWriter.flush` committed each primary/index pair and
+  replaced both pointers without closing the committed batches. Pebble does not
+  release a batch on `Commit`, so every successful chunk leaked two pooled
+  batches until process exit.
+- Contract delta: a successful flush closes both committed batches before
+  reminting. Commit failures, cancellation, restart discard, and final cleanup
+  retain one clear owner and release it exactly once. An index-commit failure
+  after a primary commit makes the unpublished destination disposable; no caller
+  may publish that intermediate artifact.
+- Verification delta: the compactor's single `commitFoldBatch` choke point accepts
+  an explicit per-call failure argument used only by focused tests; production
+  passes `nil` and carries no mutable hook state. It exercises primary failure,
+  index failure after primary success, cancellation with pending writes, successful
+  close/remint, restart discard/remint, final cleanup, and merge failure/retry.
+  Every cut requires a clean destination `Close`.
+
+### CO-011b — Commit-seam reachability and model reproducibility correction
+
+- Type: verification-instrument correction.
+- Source: independent evidence audit found that the original commit-point
+  meta-test accepted a seam name without proving that the concrete batch type
+  invoked it, omitted synccompactor, and misrouted ordinary typed commits through
+  an engine-only hook. The randomized model also iterated maps while claiming
+  exact seed reproduction.
+- Contract delta: none.
+- Verification delta: typed record commits retain their rawdb pre-commit seam. The
+  registry scans engine/rawdb and synccompactor batch commits; compactor fold
+  commits reduce to one helper with an explicit test-only failure argument rather
+  than mutable engine/rawdb hook fields. Digest/session sites retain explicit
+  errorfs-backed follow-up dispositions. The model sorts every map-derived choice
+  before seeded shuffling and its row/manifest cell oracle has planted
+  missing/extra/wrong-state mutants.
+- Remaining limitation: this registry covers batch `Commit` calls. Direct
+  set/delete/ingest/excise/flush durability points remain governed by their
+  purpose-named rawdb choke points, errorfs/crash suites, and the explicit
+  obligations below; it must not be cited as enumeration of every durable write.
+
+### CO-011c — Descriptor closure and terminal-iterator error correction
+
+- Type: verification-instrument correction.
+- Source: independent evidence audit found that C04/C14 used representative
+  populated records without a schema-drift gate, C09 lacked an all-kind
+  overlay-twice differential, and C27 injected callback failures rather than the
+  terminal `Iterator.Error()` disposition.
+- Contract delta: none.
+- Verification delta:
+  `TestVerificationDescriptorClosedReplayAndDirectMaterialization` freezes every
+  top-level D11 field by descriptor name, has no current exemptions, fills every
+  field with a non-default sentinel, compares replay/direct and repeated-overlay
+  semantics for all kinds, verifies generated index keys, and rejects stale changed
+  keys. A separate replay iterator hook executes at the production terminal-error
+  check after iteration and before final commit; all kinds require exact error
+  identity, committed-prefix accounting, O4, source immutability, and convergent
+  retry.
+
 ## Post-freeze implementation-obligation addendum
 
 This addendum was produced by a reader independent of the implementation and
@@ -816,10 +894,41 @@ premise; oracle; and instrument or remaining boundary.
     output. Clone/copy tests require semantic equivalence, source immutability, and
     read-only replay. Fold barrier ordering and lookup invalidation remain with the
     explicitly deferred compactor integration owner.
+17. **Family-batch accounting (rawdb/Engine)** — every `NewRecordBatch`,
+    `NewSessionBatch`, `NewDigestBatch`, and `NewFoldBatch` increments exactly one
+    family counter; first `Close` decrements it even after commit failure; later
+    closes are no-ops. `DB.Close` joins the leak error with Pebble's close error so
+    teardown still occurs. Clean, double-close, and one planted leak per family are
+    the executable oracle.
+18. **Overlay/fold batch rotation (synccompactor)** — the current batch remains
+    exclusively owned through commit, cancellation, or error. Success closes before
+    remint; restart closes before remint; final cleanup closes the current handles.
+    The primary/index pair is not an atomic commit: failure of the second commit
+    abandons the unpublished destination artifact. Fold failure-cut tests and clean
+    destination Close own this obligation.
+19. **Compactor lifecycle error propagation (synccompactor)** — source/destination
+    close errors, including the family-batch leak signal, are correctness outcomes,
+    not log-only telemetry. Test and benchmark fixtures assert clean Close; the
+    top-level compactor joins deferred destination-close errors with its operation
+    result.
+20. **Commit-point dispositions (engine/rawdb/synccompactor)** — typed record
+    commits retain the rawdb seam; compactor fold commits reduce to one helper whose
+    explicit failure argument exercises exact ownership paths without mutable
+    production hook state. Digest/session batch commits are visible follow-up debt
+    with errorfs coverage, not exact-site claims. Direct writes, ingests, excises,
+    flushes, and durability fences require separate §5.12 dispositions; the batch
+    registry is not evidence for those sites.
+21. **Stateful-model scope (dotc1z tests)** — a printed seed must reproduce the same
+    choices independent of Go map order, every oracle dimension claimed by the
+    model needs a planted mutant, and probabilistic operation occurrence is measured
+    sampling. Directed tests continue to own failure cuts, exact index projections,
+    and bounded matrix closure.
 
 The initial independent review reported zero new HIGH findings. Its focused
 re-review of CO-010 found the HIGH handoff defect recorded by CO-010a; re-review of
 that correction passed the zero-HIGH gate and found the LOW validation-order issue
-recorded by CO-010b. The final re-review found no remaining HIGH, MEDIUM, or LOW
-implementation findings and passed the focused implementation-review gate. The
-listed deferred integration boundaries are not Phase 6a closure claims.
+recorded by CO-010b. The later final-code evidence audit superseded that provisional
+gate: it found no new source-cache product defect, but reopened closure because the
+evidence provenance, commit-seam claims, descriptor closure, iterator-error
+instrument, and structural-coverage disposition were incomplete. The listed
+deferred integration boundaries are not Phase 6a closure claims.

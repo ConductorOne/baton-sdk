@@ -40,6 +40,15 @@ func (e *Engine) sourceCacheReplayBatchLimit() int {
 	return replayBatchRows
 }
 
+func (e *Engine) sourceCacheReplayIteratorError(kind string, iter *pebble.Iterator) error {
+	if e.test.sourceCacheReplayIteratorErrorHook != nil {
+		if err := e.test.sourceCacheReplayIteratorErrorHook(kind); err != nil {
+			return err
+		}
+	}
+	return iter.Error()
+}
+
 // SourceCacheReplayResult reports what one scope's replay copied.
 type SourceCacheReplayResult struct {
 	Rows int64
@@ -994,7 +1003,7 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 				rowsInBatch = 0
 			}
 		}
-		if err := iter.Error(); err != nil {
+		if err := e.sourceCacheReplayIteratorError("grants", iter); err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
@@ -1147,7 +1156,7 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 				rowsInBatch = 0
 			}
 		}
-		if err := iter.Error(); err != nil {
+		if err := e.sourceCacheReplayIteratorError("entitlements", iter); err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
@@ -1305,7 +1314,7 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 				rowsInBatch = 0
 			}
 		}
-		if err := iter.Error(); err != nil {
+		if err := e.sourceCacheReplayIteratorError("resources", iter); err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {

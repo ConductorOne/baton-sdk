@@ -72,6 +72,22 @@ func TestResourceLeakRideAlongAdequacy(t *testing.T) {
 		require.ErrorContains(t, err, "record=1")
 	})
 
+	t.Run("planted-leaked-session-batch-fails-close", func(t *testing.T) {
+		e := openLeakProbeEngine(t)
+		_ = e.db.NewSessionBatch() // deliberately leaked
+		err := e.Close()
+		require.ErrorContains(t, err, "unreleased family batches")
+		require.ErrorContains(t, err, "session=1")
+	})
+
+	t.Run("planted-leaked-digest-batch-fails-close", func(t *testing.T) {
+		e := openLeakProbeEngine(t)
+		_ = e.db.NewDigestBatch() // deliberately leaked
+		err := e.Close()
+		require.ErrorContains(t, err, "unreleased family batches")
+		require.ErrorContains(t, err, "digest=1")
+	})
+
 	t.Run("planted-leaked-fold-batch-fails-close", func(t *testing.T) {
 		e := openLeakProbeEngine(t)
 		_ = e.db.NewFoldBatch() // deliberately leaked

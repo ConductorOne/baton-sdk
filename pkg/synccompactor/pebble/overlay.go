@@ -351,6 +351,17 @@ func bucketIndexCopySpecs(bucket bucketSpec) []indexFamilyCopySpec {
 // whole-source SST path ingested. Stats for the bucket are zeroed; the
 // blind kway materialization recounts from scratch.
 func overlayRestartBucket(ctx context.Context, dest *enginepkg.Engine, bucket bucketSpec, writer *overlayBucketRawWriter, stats *mergeStatsAccumulator) error {
+	return overlayRestartBucketWithCommitFailure(ctx, dest, bucket, writer, stats, nil)
+}
+
+func overlayRestartBucketWithCommitFailure(
+	ctx context.Context,
+	dest *enginepkg.Engine,
+	bucket bucketSpec,
+	writer *overlayBucketRawWriter,
+	stats *mergeStatsAccumulator,
+	beforeCommit foldCommitFailure,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -366,7 +377,7 @@ func overlayRestartBucket(ctx context.Context, dest *enginepkg.Engine, bucket bu
 			return err
 		}
 	}
-	if err := b.Commit(cpebble.NoSync); err != nil {
+	if err := commitFoldBatch(b, cpebble.NoSync, beforeCommit); err != nil {
 		return err
 	}
 	stats.resetBucket(bucket.id)
@@ -1751,6 +1762,10 @@ func (w *overlayBucketRawWriter) replaceRaw(ctx context.Context, bucket bucketSp
 }
 
 func (w *overlayBucketRawWriter) flush(ctx context.Context) error {
+	return w.flushWithCommitFailure(ctx, nil)
+}
+
+func (w *overlayBucketRawWriter) flushWithCommitFailure(ctx context.Context, beforeCommit foldCommitFailure) error {
 	if w == nil || w.count == 0 {
 		return nil
 	}
@@ -1758,10 +1773,10 @@ func (w *overlayBucketRawWriter) flush(ctx context.Context) error {
 		return err
 	}
 	opts := cpebble.NoSync
-	if err := w.primary.Commit(opts); err != nil {
+	if err := commitFoldBatch(w.primary, opts, beforeCommit); err != nil {
 		return err
 	}
-	if err := w.index.Commit(opts); err != nil {
+	if err := commitFoldBatch(w.index, opts, beforeCommit); err != nil {
 		return err
 	}
 	// Release the committed batches before minting replacements: Commit

@@ -4,7 +4,7 @@ package pebble
 // "enumerate injection points mechanically"). The seam registry in
 // obligations_on_failure_test.go enforces that every declared seam has
 // a failure test; this meta-test enforces the inverse direction: every
-// batch-commit call site in production code is either reachable by a
+// batch-commit call site in engine and compactor production code is either reachable by a
 // registered failure seam or carries an explicit exclusion with a
 // reason. A new commit loop cannot ship without deciding, in writing,
 // how its error path gets executed — the drift that left the replay
@@ -33,25 +33,25 @@ import (
 var commitPointRegistry = map[string][]string{
 	// Typed record mutations: every site commits a rawdb.RecordBatch,
 	// whose Commit passes the record-commit choke-point hook.
-	"entitlements.go:PutEntitlementRecords":            {"recordCommitHook"},
-	"entitlements.go:DeleteEntitlementRecord":          {"recordCommitHook"},
-	"entitlements.go:DeleteEntitlementRecords":         {"recordCommitHook"},
-	"grants.go:PutGrantRecords":                        {"recordCommitHook"},
-	"grants.go:PutExpandedGrantRecords":                {"recordCommitHook"},
-	"grants.go:PutSynthesizedGrantRecords":             {"recordCommitHook"},
-	"grants.go:putSynthesizedGrantContributionsBatch":  {"recordCommitHook"},
-	"grants.go:UnsafePutUniqueGrantRecords":            {"recordCommitHook"},
-	"grants.go:deleteGrantByIdentityLocked":            {"recordCommitHook"},
-	"resources.go:PutResourceRecords":                  {"recordCommitHook"},
-	"resources.go:DeleteResourceRecord":                {"recordCommitHook"},
-	"resource_types.go:PutResourceTypeRecords":         {"recordCommitHook"},
-	"resource_types.go:DeleteResourceTypeRecord":       {"recordCommitHook"},
-	"if_newer.go:PutResourceRecordsIfNewer":            {"recordCommitHook"},
-	"if_newer.go:PutResourceTypeRecordsIfNewer":        {"recordCommitHook"},
-	"if_newer.go:PutEntitlementRecordsIfNewer":         {"recordCommitHook"},
-	"if_newer.go:PutGrantRecordsIfNewer":               {"recordCommitHook"},
-	"ingest_repair.go:healOrphanPrincipalIndexEntries": {"recordCommitHook"},
-	"source_cache.go:DeleteGrantRecordsBounded":        {"recordCommitHook"},
+	"entitlements.go:PutEntitlementRecords":            {"SetRecordCommitTestHook"},
+	"entitlements.go:DeleteEntitlementRecord":          {"SetRecordCommitTestHook"},
+	"entitlements.go:DeleteEntitlementRecords":         {"SetRecordCommitTestHook"},
+	"grants.go:PutGrantRecords":                        {"SetRecordCommitTestHook"},
+	"grants.go:PutExpandedGrantRecords":                {"SetRecordCommitTestHook"},
+	"grants.go:PutSynthesizedGrantRecords":             {"SetRecordCommitTestHook"},
+	"grants.go:putSynthesizedGrantContributionsBatch":  {"SetRecordCommitTestHook"},
+	"grants.go:UnsafePutUniqueGrantRecords":            {"SetRecordCommitTestHook"},
+	"grants.go:deleteGrantByIdentityLocked":            {"SetRecordCommitTestHook"},
+	"resources.go:PutResourceRecords":                  {"SetRecordCommitTestHook"},
+	"resources.go:DeleteResourceRecord":                {"SetRecordCommitTestHook"},
+	"resource_types.go:PutResourceTypeRecords":         {"SetRecordCommitTestHook"},
+	"resource_types.go:DeleteResourceTypeRecord":       {"SetRecordCommitTestHook"},
+	"if_newer.go:PutResourceRecordsIfNewer":            {"SetRecordCommitTestHook"},
+	"if_newer.go:PutResourceTypeRecordsIfNewer":        {"SetRecordCommitTestHook"},
+	"if_newer.go:PutEntitlementRecordsIfNewer":         {"SetRecordCommitTestHook"},
+	"if_newer.go:PutGrantRecordsIfNewer":               {"SetRecordCommitTestHook"},
+	"ingest_repair.go:healOrphanPrincipalIndexEntries": {"SetRecordCommitTestHook"},
+	"source_cache.go:DeleteGrantRecordsBounded":        {"SetRecordCommitTestHook"},
 
 	// Source-cache replay/tombstone loops: dedicated per-loop seams
 	// (each distinct commit loop is its own cut — CO-009's lesson).
@@ -61,46 +61,58 @@ var commitPointRegistry = map[string][]string{
 	"source_cache.go:clearReplayDestinationScopeLocked": {"sourceCacheReplayClearCommitHook"},
 	"source_cache.go:commit":                            {"sourceCacheDeleteCommitHook"},
 
-	// Digest build: the build hook fires at the committed-node crash
-	// windows these loops create.
-	"digest.go:buildPartitionDigestAtWidth":                    {"digestBuildHook"},
-	"grant_digest_build.go:closePartition":                     {"digestBuildHook"},
-	"grant_digest_build.go:finish":                             {"digestBuildHook"},
-	"grant_digest_build.go:writeMissingEntitlementDigestRoots": {"digestBuildHook"},
-
-	// Digest repair: KNOWN GAP, carried visibly. The repair pass has no
-	// commit-failure seam; digest reads verify present-means-exact
-	// against invalidation markers that record batches stage
-	// atomically, and the errorfs sweep covers write-failure physics.
-	// A dedicated seam is the outstanding instrument.
+	// Digest and session commit points are explicit follow-up debt rather than
+	// mutable production test-hook state. Their write failures are covered by
+	// errorfs today, but not by exact per-site deterministic seams.
+	"digest.go:buildPartitionDigestAtWidth": {
+		"excluded: digest batch commit has no exact pre-commit seam; errorfs covers write failure; exact site injection remains follow-up debt",
+	},
+	"grant_digest_build.go:closePartition": {
+		"excluded: digest batch commit has no exact pre-commit seam; crash cuts are post-commit; exact site injection remains follow-up debt",
+	},
+	"grant_digest_build.go:finish": {
+		"excluded: digest batch commit has no exact pre-commit seam; crash cuts are post-commit; exact site injection remains follow-up debt",
+	},
+	"grant_digest_build.go:writeMissingEntitlementDigestRoots": {
+		"excluded: digest batch commit has no exact pre-commit seam; errorfs covers write failure; exact site injection remains follow-up debt",
+	},
 	"grant_digest_repair.go:InvalidateGrantDigestPartitions": {
-		"excluded: repair-pass digest commit has no failure seam; invalidation markers + errorfs sweep cover the mechanism; dedicated seam is a known gap",
+		"excluded: repair digest commit has no exact pre-commit seam; invalidation markers and errorfs cover the mechanism; exact site injection remains follow-up debt",
 	},
 	"grant_digest_repair.go:repairOneGrantDigestPartitionLocked": {
-		"excluded: repair-pass digest commit has no failure seam; invalidation markers + errorfs sweep cover the mechanism; dedicated seam is a known gap",
+		"excluded: repair digest commit has no exact pre-commit seam; invalidation markers and errorfs cover the mechanism; exact site injection remains follow-up debt",
 	},
-
-	// Session family: stages no cross-family obligations (no indexes,
-	// markers, digests, or fast-path proofs); a failed commit
-	// propagates its error and the errorfs sweep covers the physics.
 	"session_store.go:SessionSetMany": {
-		"excluded: session family carries no cross-family obligations; commit failure propagates; errorfs sweep covers write-failure physics",
+		"excluded: session batch carries no cross-family obligations; errorfs covers write failure; exact site injection remains follow-up debt",
 	},
 	"session_store.go:SessionClear": {
-		"excluded: session family carries no cross-family obligations; commit failure propagates; errorfs sweep covers write-failure physics",
+		"excluded: session batch carries no cross-family obligations; errorfs covers write failure; exact site injection remains follow-up debt",
+	},
+	"synccompactor/pebble/fold_commit.go:commitFoldBatch": {
+		"excluded: single compactor fold choke point accepts an explicit failure argument; overlay primary/index/restart and merge tests execute its exact error path without mutable engine hooks",
 	},
 
-	// The shared core delegate is itself the choke point the record
-	// hook wraps; routes are registered at the family call sites above.
-	"internal/rawdb/families.go:Commit": {
+	// RecordBatch.Commit is the typed structural route used above. The shared
+	// core delegate is intentionally seamless; generic family callers carry
+	// explicit dispositions at their call sites.
+	"internal/rawdb/families.go:batch.Commit": {
 		"excluded: shared core delegate is the choke point; family call sites above carry the routes",
 	},
+	"internal/rawdb/families.go:RecordBatch.Commit": {"SetRecordCommitTestHook"},
 }
 
 func TestCommitPointsHaveFailureSeams(t *testing.T) {
 	found := map[string]bool{}
-	for _, dir := range []string{".", "internal/rawdb"} {
-		entries, err := os.ReadDir(dir)
+	roots := []struct {
+		dir    string
+		prefix string
+	}{
+		{dir: "."},
+		{dir: "internal/rawdb", prefix: "internal/rawdb"},
+		{dir: "../../../synccompactor/pebble", prefix: "synccompactor/pebble"},
+	}
+	for _, root := range roots {
+		entries, err := os.ReadDir(root.dir)
 		require.NoError(t, err)
 		fset := token.NewFileSet()
 		for _, ent := range entries {
@@ -108,7 +120,7 @@ func TestCommitPointsHaveFailureSeams(t *testing.T) {
 			if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 				continue
 			}
-			path := filepath.Join(dir, name)
+			path := filepath.Join(root.dir, name)
 			f, err := parser.ParseFile(fset, path, nil, 0)
 			require.NoError(t, err, path)
 			for _, decl := range f.Decls {
@@ -125,7 +137,12 @@ func TestCommitPointsHaveFailureSeams(t *testing.T) {
 					if !ok || sel.Sel.Name != "Commit" {
 						return true
 					}
-					found[fmt.Sprintf("%s:%s", path, fd.Name.Name)] = true
+					displayPath := filepath.Join(root.prefix, name)
+					enclosing := fd.Name.Name
+					if root.prefix == "internal/rawdb" && fd.Recv != nil && len(fd.Recv.List) == 1 {
+						enclosing = receiverTypeName(fd.Recv.List[0].Type) + "." + enclosing
+					}
+					found[fmt.Sprintf("%s:%s", displayPath, enclosing)] = true
 					return true
 				})
 			}
@@ -160,5 +177,16 @@ func TestCommitPointsHaveFailureSeams(t *testing.T) {
 			require.Truef(t, engineSeam || rawdbHook,
 				"commit point %q routes to %q, which is neither a seamFailureCases key nor a rawdbHookFailureCases key", site, route)
 		}
+	}
+}
+
+func receiverTypeName(expr ast.Expr) string {
+	switch v := expr.(type) {
+	case *ast.Ident:
+		return v.Name
+	case *ast.StarExpr:
+		return receiverTypeName(v.X)
+	default:
+		return "unknown-receiver"
 	}
 }
