@@ -79,6 +79,15 @@ var (
 		WithDescription("The cursor to use for resuming the event feed from a specific point"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
+	eventFeedPageSizeField = IntField("event-feed-page-size",
+		WithDefaultValue(100),
+		WithHidden(true),
+		WithDescription("The page size to use when listing events (1-1000)"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+		WithInt(func(r *IntRuler) {
+			r.Gte(1).Lte(1000)
+		}))
 	listEventFeedsField = BoolField("list-event-feeds", WithHidden(true), WithDescription("List available event feeds"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	fileField = StringField("file", WithShortHand("f"), WithDefaultValue("sync.c1z"), WithDescription("The path to the c1z file to sync with"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
@@ -418,6 +427,7 @@ var DefaultFields = append([]SchemaField{
 	eventFeedIdField,
 	eventFeedStartAtField,
 	eventFeedCursorField,
+	eventFeedPageSizeField,
 	listEventFeedsField,
 	fileField,
 	grantEntitlementField,

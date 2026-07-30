@@ -21,13 +21,12 @@ import (
 )
 
 type localEventFeed struct {
-	o       sync.Once
-	feedId  string
-	startAt time.Time
-	cursor  string
+	o        sync.Once
+	feedId   string
+	startAt  time.Time
+	cursor   string
+	pageSize uint32
 }
-
-const EventsPerPageLocally = 100
 
 func (m *localEventFeed) GetTempDir() string {
 	return ""
@@ -61,7 +60,7 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 		page++
 		start := time.Now()
 		resp, err := cc.ListEvents(ctx, v2.ListEventsRequest_builder{
-			PageSize:    EventsPerPageLocally,
+			PageSize:    m.pageSize,
 			Cursor:      pageToken,
 			StartAt:     task.GetEventFeed().GetStartAt(),
 			EventFeedId: m.feedId,
@@ -94,10 +93,11 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 }
 
 // NewEventFeed returns a task manager that queues an event feed task.
-func NewEventFeed(ctx context.Context, feedId string, startAt time.Time, cursor string) tasks.Manager {
+func NewEventFeed(ctx context.Context, feedId string, startAt time.Time, cursor string, pageSize uint32) tasks.Manager {
 	return &localEventFeed{
-		feedId:  feedId,
-		startAt: startAt,
-		cursor:  cursor,
+		feedId:   feedId,
+		startAt:  startAt,
+		cursor:   cursor,
+		pageSize: pageSize,
 	}
 }

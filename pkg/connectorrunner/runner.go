@@ -381,9 +381,10 @@ type rotateCredentialsConfig struct {
 }
 
 type eventStreamConfig struct {
-	feedId  string
-	startAt time.Time
-	cursor  string
+	feedId   string
+	startAt  time.Time
+	cursor   string
+	pageSize uint32
 }
 
 type syncDifferConfig struct {
@@ -633,13 +634,14 @@ func WithOnDemandSync(c1zPath string) Option {
 	}
 }
 
-func WithOnDemandEventStream(feedId string, startAt time.Time, cursor string) Option {
+func WithOnDemandEventStream(feedId string, startAt time.Time, cursor string, pageSize uint32) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
 		cfg.eventFeedConfig = &eventStreamConfig{
-			feedId:  feedId,
-			startAt: startAt,
-			cursor:  cursor,
+			feedId:   feedId,
+			startAt:  startAt,
+			cursor:   cursor,
+			pageSize: pageSize,
 		}
 		return nil
 	}
@@ -1084,7 +1086,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
 
 		case cfg.eventFeedConfig != nil:
-			tm = local.NewEventFeed(ctx, cfg.eventFeedConfig.feedId, cfg.eventFeedConfig.startAt, cfg.eventFeedConfig.cursor)
+			tm = local.NewEventFeed(ctx, cfg.eventFeedConfig.feedId, cfg.eventFeedConfig.startAt, cfg.eventFeedConfig.cursor, cfg.eventFeedConfig.pageSize)
 		case cfg.listEventFeedsConfig != nil:
 			tm = local.NewListEventFeeds(ctx)
 		case cfg.createTicketConfig != nil:
