@@ -2,10 +2,10 @@
 
 Plan: [`plan.md`](plan.md)
 
-Post-audit remediation state: current uncommitted working tree based on
-`85baeb25`. The final gates below passed against the superseded candidate
-`097f064e2ad2c35017d87f43e3836ff474a6f503`; every final gate and independent
-review must be repeated after CO-012 is committed.
+Closure-candidate implementation and instrument state:
+`39afeebeee09ed76ff6d7ca435f544c5e36edc82`. The CO-012 final gates below were
+rerun against that committed SHA on 2026-07-30. Independent final-code evidence
+and implementation re-review remain required before repository signoff.
 
 Included change orders: CO-003, CO-003a, CO-005 through CO-010b, and CO-011
 through CO-012.
@@ -23,8 +23,8 @@ this stage.
 The repeated final-code audits reopened closure. One found no new source-cache
 product defect; the other found that unfinished previous artifacts remained
 replayable despite C35. Both identified swallowed compactor source-close errors and
-evidence overclaims. CO-012 records the production and evidence correction; signoff
-remains open until its final-SHA gates and independent re-review pass.
+evidence overclaims. CO-012 records the production and evidence correction; its
+final-SHA gates pass and independent re-review remains open.
 
 ## Criterion evidence
 
@@ -246,8 +246,10 @@ than cited as a percentage. It produced four actionable findings:
 No finding is accepted solely because a line executed. Each item above has a
 behavioral oracle and risk disposition. The profile produced no additional
 actionable changed-branch finding beyond F1/F2/F3/F8 at the superseded candidate.
-CO-012 changes production branches, so the profile and ledger must be rerun at its
-final commit; structural-coverage closure is open until then.
+The CO-012 profile rerun at `39afeebe` again reported 70.4% combined statements;
+the new durable-finished-source helper was 83.3% covered and its success plus
+unfinished rejection branches have behavioral tests. No additional uncovered
+changed branch was accepted without disposition.
 
 The closure-candidate profile rerun passed at 82.4% statements for
 `pkg/sourcecache`, 70.3% for `pkg/dotc1z/engine/pebble`, and 70.5% for
@@ -335,14 +337,29 @@ were 1,590,408 B / 5,058 allocs at 10k rows and 1,561,840 B / 5,061 allocs at
 go test ./pkg/synccompactor/pebble -run '^$' -bench '^BenchmarkCompactionFlow$' -benchtime=1x -benchmem -count=1
 ```
 
-CO-012's current working tree passed its focused lifecycle and affected compactor
-suites:
+CO-012's committed implementation `39afeebe` passed its focused lifecycle and
+affected compactor suites:
 
 ```text
 go test ./pkg/dotc1z -run '^TestVerification' -count=1
 go test ./pkg/dotc1z -run '^Test(ModelRandomizedSourceCacheLifecycle|SourceCacheModelOracleMutationAdequacy|VerificationReplayRejectsUnfinishedSourceAllKinds)$' -count=1
 go test ./pkg/synccompactor/pebble ./pkg/synccompactor -count=1
 ```
+
+It then passed the final lint, race, model-soak, structural-profile, and
+repository-wide gates:
+
+```text
+make lint
+go test -race ./pkg/dotc1z ./pkg/dotc1z/engine/pebble ./pkg/synccompactor/pebble ./pkg/synccompactor -run '^Test(Verification|ModelRandomizedSourceCacheLifecycle|SourceCacheModelOracleMutationAdequacy|ResourceLeakRideAlongAdequacy|CommitPointsHaveFailureSeams|OverlayFoldBatchLifecycleFailureCuts|OverlayRestartCommitFailureReleasesBatches|MergeFoldCommitFailureRetryConvergesAndClosesCleanly|CloseSourceHandlesJoinsErrors|SourceChunkCloseAsyncPropagatesCloseAndRemovesDirectory|Join.*CloseError)' -count=1
+go test -p 1 ./... -count=1
+go test ./pkg/dotc1z -run '^TestModelRandomizedSourceCacheLifecycle$' -count=20
+go test ./pkg/sourcecache ./pkg/dotc1z/engine/pebble ./pkg/dotc1z -coverprofile=/tmp/sync-replay-6a-co012.cover -count=1
+go tool cover -func=/tmp/sync-replay-6a-co012.cover
+```
+
+The final CO-012 profile reported 70.4% combined statement coverage. The serial
+repository gate, 20-run model soak, and all race instruments passed.
 
 The superseded committed closure candidate
 `097f064e2ad2c35017d87f43e3836ff474a6f503` passed the following final gates on
