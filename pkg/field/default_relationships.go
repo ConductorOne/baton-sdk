@@ -19,6 +19,7 @@ var DefaultRelationships = []SchemaFieldRelationship{
 		getTicketField,
 		ListTicketSchemasField,
 		bulkCreateTicketField,
+		listEventFeedsField,
 	),
 	FieldsMutuallyExclusive(
 		grantEntitlementField,
@@ -30,6 +31,7 @@ var DefaultRelationships = []SchemaFieldRelationship{
 		diffSyncsField,
 		compactSyncsField,
 		ListTicketSchemasField,
+		listEventFeedsField,
 	),
 	FieldsDependentOn(
 		[]SchemaField{externalResourceEntitlementIdFilter},

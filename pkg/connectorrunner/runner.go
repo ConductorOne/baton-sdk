@@ -333,6 +333,8 @@ type getTicketConfig struct {
 
 type listTicketSchemasConfig struct{}
 
+type listEventFeedsConfig struct{}
+
 type createTicketConfig struct {
 	templatePath string
 }
@@ -413,6 +415,7 @@ type runnerConfig struct {
 	createAccountConfig                   *createAccountConfig
 	invokeActionConfig                    *invokeActionConfig
 	listActionSchemasConfig               *listActionSchemasConfig
+	listEventFeedsConfig                  *listEventFeedsConfig
 	deleteResourceConfig                  *deleteResourceConfig
 	rotateCredentialsConfig               *rotateCredentialsConfig
 	createTicketConfig                    *createTicketConfig
@@ -737,6 +740,16 @@ func WithListTicketSchemas() Option {
 	}
 }
 
+// WithOnDemandListEventFeeds creates an option for listing the event feeds a
+// connector registers. Unlike most on-demand options, it requires no c1z file.
+func WithOnDemandListEventFeeds() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.listEventFeedsConfig = &listEventFeedsConfig{}
+		return nil
+	}
+}
+
 func WithGetTicket(ticketID string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
@@ -1036,7 +1049,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			cfg.listTicketSchemasConfig == nil &&
 			cfg.getTicketConfig == nil &&
 			cfg.bulkCreateTicketConfig == nil &&
-			cfg.listActionSchemasConfig == nil {
+			cfg.listActionSchemasConfig == nil &&
+			cfg.listEventFeedsConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -1071,6 +1085,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.eventFeedConfig != nil:
 			tm = local.NewEventFeed(ctx, cfg.eventFeedConfig.feedId, cfg.eventFeedConfig.startAt, cfg.eventFeedConfig.cursor)
+		case cfg.listEventFeedsConfig != nil:
+			tm = local.NewListEventFeeds(ctx)
 		case cfg.createTicketConfig != nil:
 			tm = local.NewTicket(ctx, cfg.createTicketConfig.templatePath)
 		case cfg.listTicketSchemasConfig != nil:
