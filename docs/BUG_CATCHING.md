@@ -125,16 +125,15 @@ bad it sounds:
 
 **Cost contracts.** On a short declared list of hot paths — grant expansion,
 compaction, the per-checkpoint loop, anything that runs at artifact-open time —
-performance is a correctness property when a change alters executed work, because
-budgets convert latency into failure (deadline cascades into the
-retry/preservability machinery) and fixed memory converts peak-RSS into an OOM crash
-loop (same artifact, same ceiling, same kill: livelock). The reviewable object is the
-**cost curve** (state the big-O delta in grants/entitlements/graph size — "fine at
-fixture scale" is not a claim), and the enforcement is a whale-scale benchmark gate,
-ratcheted against main (allocations are deterministic where CI wall-clock is noisy;
-the killer is accretion — nobody ships a 2×, five people ship 15%s). If a stage
-introduces no runtime path or cost-curve change, state that instead; do not fabricate
-a benchmark. A claimed cost contract without a benchmark is dead prose.
+performance is a correctness property when a change alters executed work:
+budgets convert latency into deadline cascades, and fixed memory converts
+peak-RSS into an OOM crash loop (same artifact, same ceiling, same kill:
+livelock). The reviewable object is the **cost curve** — state the big-O delta
+in grants/entitlements/graph size; "fine at fixture scale" is not a claim —
+enforced by a whale-scale benchmark ratcheted against main (allocations, not
+noisy CI wall-clock; the killer is accretion — nobody ships a 2×, five people
+ship 15%s). If a stage introduces no runtime path or cost-curve change, state
+that instead. A claimed cost contract without a benchmark is dead prose.
 
 **Migrations are the intersection class**: they run once per artifact at open
 time, inside someone else's deadline, at whale scale, on data written by past
@@ -183,102 +182,90 @@ A change meets the **step-up criteria** when §2 rates it HIGH or it meets the
 silent/combinatorial/no-single-run-oracle criterion. For changes that meet the
 step-up criteria:
 
-- Commit the implementation-blind plan to the feature branch before implementation
-  inspection, under `docs/verification/<change>/plan.md`; keep the evidence record
-  beside it as `evidence.md`. The first plan commit is the frozen baseline, and the
-  draft PR links to these repository-relative files. Preserve both through merge so
-  local and remote reviewing agents receive the same versioned inputs.
-- Record amendments to the plan when the design or intended behavior changes.
-- Preserve the frozen plan as the baseline. Append post-freeze changes as versioned
-  change orders; never silently rewrite prior criteria or evidence:
-  - **Correction** — required to satisfy the original contract; belongs in the
-    current stage/PR.
-  - **Clarification** — resolves wording or enforcement ownership without changing
-    required behavior; append a boundary-resolution note.
-  - **Extension/optimization** — adds behavior, schema, lifecycle, or performance
-    machinery not required for original closure; use a separate staged PR and
-    verification addendum.
-  Each change order records its source, motivation, contract delta, owning boundary,
-  affected criteria, verification delta, and PR placement.
-- Re-route every change order through the risk model. A "small fix" that introduces
-  a new helper, resource owner, durable write, or retry boundary gets the focused
-  review passes and instrument delta for those new mechanics; inherited behavioral
-  evidence does not cover newly introduced implementation hazards. Update affected
-  criterion states before reporting closure.
-- The plan may span **staged PRs**. Each PR names the stage, the claims it introduces,
-  the criteria due in that stage, and the criteria deliberately deferred until a
-  later stage has an executable subject. Closure is scoped to the current stage;
-  deferred criteria limit whole-plan closure but are not current-stage gaps.
-- Map every criterion due in the current stage to an executable repository artifact
-  and evidence that it ran and held at the claimed coverage level, or record the
-  explicit gap and resulting limit on that stage's closure.
-- Give each criterion its own closure entry; criterion ranges may summarize only
-  after the individual entries exist. The entry names the required and covered
-  cells, any reduction, the exact artifact and assertion, the tested layer, premise
-  assertion, oracle, instrument validation, evidence command/revision, and status.
-  One table-driven test may satisfy many entries; this does not require one file or
-  one test per criterion.
-- Map every required plan instrument to a concrete artifact and assertion. If the
-  instrument does not exist, every criterion that depends on it remains evidence
-  incomplete. Keep this ledger in Markdown or generated test cases by default;
-  build a framework only when repetition or drift justifies it.
-- For each artifact, state whether it provides bounded closure or measured sampling;
-  never claim closure from sampling.
-- Match evidence to the layer introduced. A schema-only stage closes schema
-  obligations (lint, compatibility, generation, descriptors, and wire shape); it
-  does not add speculative runtime validators merely to manufacture executable
-  evidence. Producer/consumer semantics become due in the first stage that
-  implements or relies on them. If the schema itself encodes validation, that
-  validation is a current-stage claim and must be tested now.
-- For durable behavior, distinguish the applicable layers: typed/raw mutation,
-  engine operation, public capability, and close/reopen artifact. Test an obligation
-  at the layer that owns it and across the seam that could lose it; do not duplicate
-  identical pure logic at every layer.
-- An ordering test must invoke the component that owns the ordering decision. A test
-  that manually calls `put → delete → delete` proves only that storage operations
-  compose in that order; it cannot verify that an orchestrator chooses that order.
-  If the owner is deferred, mark the ordering criterion deferred and retain only the
-  narrower storage-composition claim.
-- During implementation-blind planning, enforcement ownership may be known from an
-  existing contract, assigned to an expected layer while the concrete API remains
-  unknown, or explicitly unresolved. Unresolved ownership blocks defect
-  classification; it does not block plan or oracle design, though it may block a
-  concrete instrument. Resolve it through a versioned boundary addendum after API
-  discovery; the addendum may locate enforcement, but must not weaken required
-  behavior merely to match the implementation.
-- After implementation inspection, append an **implementation-obligation addendum**
-  before classifying evidence. Inventory changed or current-stage-reachable
-  mechanics the behavioral contract could not name: acquired
-  closers/iterators/batches/locks and ownership transfers; dirty flags, caches,
-  counters, and sidecars; derived fast-path state (§5.11); partial-commit cuts; and
-  public wrappers around engine mutations. Assign each an invariant, failure
-  premise, oracle, and owning layer. This is implementation-derived coverage, not
-  permission to revise the frozen behavior. Group call sites only when inspection
-  confirms they share the relevant implementation choke point and obligations;
-  implementation divergence invalidates a symmetry reduction.
-- Track each current-stage criterion as exactly one of: **not assessed, evidence
-  incomplete, verified to stated coverage, failed, explicitly excluded, or deferred
-  to a named stage**. "Every criterion is accounted for" is not closure. Verification
-  requires an executable oracle, the claimed dimensions covered or explicitly
-  reduced, a validated instrument, and passing evidence commands.
-- A relevant implementation, instrument, fixture, or plan change returns affected
-  verified entries to **evidence incomplete** until their instruments rerun at the
-  recorded revision.
+- Commit the implementation-blind plan to the feature branch before
+  implementation inspection, under `docs/verification/<change>/plan.md`, with
+  the evidence record beside it as `evidence.md`; the draft PR links both, and
+  both survive merge so local and remote reviewing agents receive the same
+  versioned inputs. The first plan commit is the frozen baseline. Post-freeze
+  changes append as versioned **change orders** — a *correction* (required by
+  the original contract; current stage/PR), a *clarification* (wording or
+  enforcement ownership, behavior unchanged; boundary-resolution note), or an
+  *extension/optimization* (behavior, schema, lifecycle, or performance
+  machinery beyond original closure; separate staged PR and addendum) — each
+  recording source, motivation, contract delta, owning boundary, affected
+  criteria, verification delta, and PR placement. Never silently rewrite prior
+  criteria or evidence: the change-order log lives in Git history and the
+  committed plan; gists, PR comments, and attachments are supplemental, never
+  the sole copy. After merge the plan preserves intent, scope, ownership, and
+  evidence provenance; tests, harnesses, and benchmarks remain the enduring
+  enforcement mechanism.
+- Re-route every change order through the risk model. A "small fix" that
+  introduces a new helper, resource owner, durable write, or retry boundary
+  gets the focused review passes and instrument delta for those new mechanics
+  — inherited behavioral evidence does not cover newly introduced hazards —
+  and affected criterion states update before closure is re-reported.
+- The plan may span **staged PRs**. Each names its stage, the claims it
+  introduces, the criteria due now, and the criteria deliberately deferred
+  until a later stage has an executable subject. Closure is scoped to the
+  current stage; deferred criteria limit whole-plan closure but are not
+  current-stage gaps.
+- Every criterion due in the current stage gets its own closure entry mapping
+  it to an executable repository artifact and evidence that it ran and held at
+  the claimed coverage level — or recording the explicit gap and the resulting
+  limit on that stage's closure. The entry names the required and covered
+  cells, any reduction, the exact artifact and assertion, the tested layer,
+  premise assertion, oracle, instrument validation, evidence command/revision,
+  and status; one table-driven test may satisfy many entries, and ranges may
+  summarize only after the individual entries exist. State whether each
+  artifact provides bounded closure or measured sampling — never claim closure
+  from sampling — and treat a required instrument that does not exist as
+  leaving every dependent criterion evidence incomplete. Keep the ledger in
+  Markdown or generated test cases; build a framework only when repetition or
+  drift justifies it.
+- Test each obligation at the layer that owns it and across the seam that
+  could lose it — typed/raw mutation, engine operation, public capability,
+  close/reopen artifact — without duplicating identical pure logic at every
+  layer. A schema-only stage closes schema obligations (lint, compatibility,
+  generation, descriptors, wire shape), not speculative runtime validators;
+  producer/consumer semantics come due in the first stage that implements or
+  relies on them, and validation the schema itself encodes is due now. An
+  ordering test must invoke the component that owns the ordering decision: a
+  hand-sequenced `put → delete → delete` proves storage composition, not that
+  an orchestrator chooses that order — if the owner is deferred, so is the
+  ordering criterion. Enforcement ownership may remain unresolved during blind
+  planning (it blocks defect classification, not plan or oracle design) and
+  resolves through a versioned boundary addendum after API discovery, which
+  may locate enforcement but never weakens required behavior to match the
+  implementation.
+- After implementation inspection, append an **implementation-obligation
+  addendum** before classifying evidence. Inventory changed or
+  current-stage-reachable mechanics the behavioral contract could not name:
+  acquired closers/iterators/batches/locks and ownership transfers; dirty
+  flags, caches, counters, and sidecars; derived fast-path state (§5.11);
+  partial-commit cuts; and public wrappers around engine mutations. Assign
+  each an invariant, failure premise, oracle, and owning layer. This is
+  implementation-derived coverage, not permission to revise the frozen
+  behavior. Group call sites only when inspection confirms they share the
+  relevant choke point and obligations; implementation divergence invalidates
+  a symmetry reduction.
+- Track each current-stage criterion as exactly one of: **not assessed,
+  evidence incomplete, verified to stated coverage, failed, explicitly
+  excluded, or deferred to a named stage**. "Every criterion is accounted for"
+  is not closure: verification requires an executable oracle, the claimed
+  dimensions covered or explicitly reduced, a validated instrument, and
+  passing evidence commands. A relevant implementation, instrument, fixture,
+  or plan change returns affected verified entries to evidence incomplete
+  until their instruments rerun at the recorded revision.
 - **Closure is a rate, not a checklist.** Hardware signs off on a flattened
-  bug-discovery curve, not a finished test list. Declaring closure for a step-up
-  change requires, beyond dispositioned criteria: the latest decorrelated
-  implementation read and the latest independent evidence audit each ran against
-  the *final* code and produced zero new findings, and — where a model-based or
-  randomized instrument exists — a clean soak at the final revision. Any post-fix
-  change restarts the clock (§6's per-change-order review budget). (Evidence:
-  sync-replay declared closure three times with a complete checklist each time;
-  each decorrelated read found new highs — the curve had not flattened.)
-- Record corrections, clarifications, extensions, and their evidence in normal Git
-  history and append the current change-order log to the committed plan. External
-  gists, PR comments, and attachments are supplemental, never the sole copy.
-- After merge, the committed plan preserves intent, scope, ownership, and evidence
-  provenance; tests, harnesses, and benchmarks remain the enduring enforcement
-  mechanism.
+  bug-discovery curve, not a finished test list. Declaring closure for a
+  step-up change requires, beyond dispositioned criteria: the latest
+  decorrelated implementation read and the latest independent evidence audit
+  each ran against the *final* code and produced zero new findings, and —
+  where a model-based or randomized instrument exists — a clean soak at the
+  final revision. Any post-fix change restarts the clock (§6's
+  per-change-order review budget). (Evidence: sync-replay declared closure
+  three times with a complete checklist each time; each decorrelated read
+  found new highs — the curve had not flattened.)
 
 - **Stopping rule: budget two, at most three review rounds**, then switch
   instruments. Review coverage is unmeasurable, so the budget is an economic
@@ -316,11 +303,11 @@ materially different path.
 the public capability when it owns persistence. Cover success, zero-result
 success, failure before mutation, failure after every committed cut, and
 cancellation/retry where supported. Derive the commit sites from the
-implementation: every loop that commits is its own cut, not only the headline one
-(sync-replay: replacement ran a destructive clear loop before its copy loop; an
-error after a committed clear carried the same dirty/cache/fast-path obligations
-as one after a committed copy, and had no seam). Equivalent repeated chunks may
-share one representative cut; distinct commit sites may not.
+implementation: every loop that commits is its own cut, not only the headline
+one, and each site owes §5.12's six answers (sync-replay: replacement ran a
+destructive clear loop before its copy loop, with the same dirty/cache/fast-path
+obligations and no seam). Equivalent repeated chunks may share one
+representative cut; distinct commit sites may not.
 
 Four classes review is structurally blind to, and where to send them:
 
@@ -986,6 +973,10 @@ rather than rediscovering them one bug at a time. Every commit call site owes:
 
 ## 6. Process guidance for AI-driven review
 
+- The operational index lives in `docs/REVIEW_CHECKLIST.md`: the routing rule,
+  the step-up pipeline, the pass and ladder lists, and the principle index on
+  one page. Load it in every review conversation and consult this handbook by
+  section (the slice map below). The checklist is derived, never authoritative.
 - For step-up changes, use this sequence: frozen behavioral plan →
   implementation-obligation addendum → instruments → mutation adequacy → execution
   → structural-coverage triage → independent evidence audit → focused
@@ -1102,6 +1093,14 @@ rather than rediscovering them one bug at a time. Every commit call site owes:
   days later in #1023 (resources, `profile`/`status`/`created_at`) and was
   point-fixed again; the descriptor-closure test that retires the class still does
   not exist (§5.4).
+- **This document has a growth budget.** It teaches stopping rules and gets one
+  itself. A new lesson first merges into the principle it instantiates —
+  strengthening the rule or replacing a weaker example — and may open a new
+  subsection only for a class no existing principle covers (§5's intro states
+  the same rule locally). When a lesson repeats §2 policy, tighten the existing
+  bullet rather than appending a sibling; prefer displacing the weakest example
+  over adding a fourth. Any change to the pipeline, the pass list, the ladder,
+  or the principle list updates `docs/REVIEW_CHECKLIST.md` in the same commit.
 
 ## 7. Case-name index
 
