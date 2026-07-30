@@ -1423,6 +1423,9 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 	if resource == nil {
 		return s.nextPageOrFinishAction(ctx, action, "")
 	}
+	if err := validateConnectorResource(resource); err != nil {
+		return err
+	}
 
 	// Save our resource in the DB
 	if err := s.store.PutResources(ctx, resource); err != nil {
@@ -1566,6 +1569,9 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 
 	bulkPutResoruces := []*v2.Resource{}
 	for _, r := range resp.GetList() {
+		if err := validateConnectorResource(r); err != nil {
+			return err
+		}
 		validatedResource := false
 
 		// Check if we've already synced this resource, skip it if we have
@@ -1642,6 +1648,17 @@ func resourceTraitMessage(t v2.ResourceType_Trait) proto.Message {
 	default:
 		return nil
 	}
+}
+
+func validateConnectorResource(resource *v2.Resource) error {
+	if resource == nil {
+		return status.Error(codes.Internal, "connector returned a nil resource")
+	}
+	resourceID := resource.GetId()
+	if resourceID == nil || resourceID.GetResourceType() == "" || resourceID.GetResource() == "" {
+		return status.Error(codes.Internal, "connector returned a resource with missing identity")
+	}
+	return nil
 }
 
 // No span here: this is called per-resource, but only does I/O on the

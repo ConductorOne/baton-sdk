@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -40,15 +41,15 @@ import (
 func mutualMentionTopo() map[string]*soakTypeTopology {
 	return map[string]*soakTypeTopology{
 		"groupW": {
-			plannerChildren: []string{"w1"},
-			nodes: map[string]*soakNode{
-				"w1": {children: []string{"w2", "w3"}},
-				"w2": {children: []string{"w3"}},
-				"w3": {children: []string{"w2"}},
+			Pages: map[string]chaosconnector.CursorPage{
+				"":   {Spawn: []string{"w1"}},
+				"w1": {Spawn: []string{"w2", "w3"}},
+				"w2": {Spawn: []string{"w3"}},
+				"w3": {Spawn: []string{"w2"}},
 			},
-			tokens:         []string{"w1", "w2", "w3"},
-			poisonedEnts:   map[string]bool{},
-			poisonedGrants: map[string]bool{},
+			Tokens:         []string{"w1", "w2", "w3"},
+			PoisonedFirst:  map[string]bool{},
+			PoisonedSecond: map[string]bool{},
 		},
 	}
 }
@@ -131,34 +132,33 @@ func TestStateSkipsReAdmittedSpawnIdentity(t *testing.T) {
 func rewiredCutTopologies() map[string]*soakTypeTopology {
 	return map[string]*soakTypeTopology{
 		"groupA": {
-			plannerChildren: []string{"a9", "a8"},
-			plannerNext:     "a7",
-			nodes: map[string]*soakNode{
-				"a9": {children: []string{"a0", "a1"}},
-				"a8": {next: "a2"},
-				"a7": {children: []string{"a3"}},
-				"a0": {next: "a4"},
-				"a1": {children: []string{"a5"}},
-				"a2": {next: "a6"},
+			Pages: map[string]chaosconnector.CursorPage{
+				"":   {Spawn: []string{"a9", "a8"}, Next: "a7"},
+				"a9": {Spawn: []string{"a0", "a1"}},
+				"a8": {Next: "a2"},
+				"a7": {Spawn: []string{"a3"}},
+				"a0": {Next: "a4"},
+				"a1": {Spawn: []string{"a5"}},
+				"a2": {Next: "a6"},
 				"a3": {}, "a4": {}, "a5": {}, "a6": {},
 			},
-			tokens:         []string{"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9"},
-			poisonedEnts:   map[string]bool{},
-			poisonedGrants: map[string]bool{},
+			Tokens:         []string{"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9"},
+			PoisonedFirst:  map[string]bool{},
+			PoisonedSecond: map[string]bool{},
 		},
 		"groupB": {
-			plannerChildren: []string{"b7", "b6"},
-			nodes: map[string]*soakNode{
-				"b7": {next: "b5"},
-				"b6": {children: []string{"b4", "b3"}},
-				"b5": {children: []string{"b2"}},
-				"b4": {next: "b1"},
-				"b3": {children: []string{"b0"}},
+			Pages: map[string]chaosconnector.CursorPage{
+				"":   {Spawn: []string{"b7", "b6"}},
+				"b7": {Next: "b5"},
+				"b6": {Spawn: []string{"b4", "b3"}},
+				"b5": {Spawn: []string{"b2"}},
+				"b4": {Next: "b1"},
+				"b3": {Spawn: []string{"b0"}},
 				"b2": {}, "b1": {}, "b0": {},
 			},
-			tokens:         []string{"b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7"},
-			poisonedEnts:   map[string]bool{},
-			poisonedGrants: map[string]bool{},
+			Tokens:         []string{"b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7"},
+			PoisonedFirst:  map[string]bool{},
+			PoisonedSecond: map[string]bool{},
 		},
 	}
 }
@@ -231,7 +231,7 @@ func verifyChangedAnswerStore(t *testing.T, c1zPath, tmpDir string, expectedEntI
 func TestResumeAcrossChangedAnswersTerminates(t *testing.T) {
 	tmpDir := t.TempDir()
 	base, expectedEntIDs, userID := buildCutFixture(t)
-	rewired := withTopos(base, rewiredCutTopologies())
+	rewired := withTopos(t, base, rewiredCutTopologies())
 
 	baselinePath := filepath.Join(tmpDir, "baseline.c1z")
 	baseline := runCutAttempt(t, base, baselinePath, tmpDir, cutSpec{workers: 4, cause: errInjectedCut})
@@ -374,18 +374,18 @@ func TestSpawnedCursorErrorCategoriesEndToEnd(t *testing.T) {
 			const typeID = "groupE"
 			base, expectedEntIDs, userID := buildTopoFixture(t, map[string]*soakTypeTopology{
 				typeID: {
-					plannerChildren: []string{"e1", "e2"},
-					nodes: map[string]*soakNode{
+					Pages: map[string]chaosconnector.CursorPage{
+						"":   {Spawn: []string{"e1", "e2"}},
 						"e1": {},
 						// The injected e2 call would discover e3 on
 						// success. Its absence proves a failed attempt
 						// never committed children.
-						"e2": {children: []string{"e3"}},
+						"e2": {Spawn: []string{"e3"}},
 						"e3": {},
 					},
-					tokens:         []string{"e1", "e2", "e3"},
-					poisonedEnts:   map[string]bool{},
-					poisonedGrants: map[string]bool{},
+					Tokens:         []string{"e1", "e2", "e3"},
+					PoisonedFirst:  map[string]bool{},
+					PoisonedSecond: map[string]bool{},
 				},
 			})
 			connector := &spawnedErrorOnceConnector{
