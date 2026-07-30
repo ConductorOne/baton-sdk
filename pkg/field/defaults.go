@@ -89,7 +89,7 @@ var (
 			r.Gte(1).Lte(1000)
 		}))
 	listEventFeedsField = BoolField("list-event-feeds", WithHidden(true), WithDescription("List available event feeds"), WithPersistent(true), WithExportTarget(ExportTargetNone))
-	fileField = StringField("file", WithShortHand("f"), WithDefaultValue("sync.c1z"), WithDescription("The path to the c1z file to sync with"),
+	fileField           = StringField("file", WithShortHand("f"), WithDefaultValue("sync.c1z"), WithDescription("The path to the c1z file to sync with"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	grantEntitlementField = StringField("grant-entitlement", WithHidden(true), WithDescription("The id of the entitlement to grant to the supplied principal"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
