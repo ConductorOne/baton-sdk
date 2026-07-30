@@ -2,9 +2,10 @@
 
 Plan: [`plan.md`](plan.md)
 
-Closure-candidate implementation and instrument state: current uncommitted working
-tree based on `93fb4150e1a063b6d79a6bb480d102d3fd2140f1`. Replace this line with
-the final commit SHA and rerun every final gate before repository signoff.
+Closure-candidate implementation and instrument state:
+`097f064e2ad2c35017d87f43e3836ff474a6f503`. The final gates below were rerun
+against that committed SHA on 2026-07-30. Independent final-code evidence and
+implementation re-review remain required before repository signoff.
 
 Included change orders: CO-003a, CO-005 through CO-010b, and CO-011 through
 CO-011c.
@@ -19,11 +20,11 @@ continuation/RPC behavior, invalidation policy, compacted/non-FULL eligibility,
 compactor integration, and post-replay ingest-invariant evaluation remain outside
 this stage.
 
-The final-code evidence audits reopened closure without finding a new source-cache
-product defect. Structural coverage disposition, final-SHA gates, and repeated
-independent review remain outstanding. CO-011a's compactor ownership correction is
-included only with its runtime obligations and focused instruments documented in
-the plan addendum.
+The prior final-code evidence audits reopened closure without finding a new
+source-cache product defect. Structural coverage and final-SHA gates now pass;
+repeated independent review remains outstanding. CO-011a's compactor ownership
+correction is included only with its runtime obligations and focused instruments
+documented in the plan addendum.
 
 ## Criterion evidence
 
@@ -282,8 +283,8 @@ Two independent final-code evidence audits found no new source-cache product
 correctness defect, but rejected closure because provenance and several instruments
 overclaimed their actual coverage. CO-011 through CO-011c record the newly exposed
 batch-ownership, compactor-lifecycle, commit-seam, and stateful-model obligations.
-The focused implementation-review gate remains open until the incomplete criteria
-above are resolved or explicitly re-scoped and all gates are rerun at the final SHA.
+The focused implementation-review gate remains open pending repeated independent
+review of the committed closure candidate.
 
 The review also recorded these non-defect limits:
 
@@ -325,15 +326,24 @@ were 1,590,408 B / 5,058 allocs at 10k rows and 1,561,840 B / 5,061 allocs at
 go test ./pkg/synccompactor/pebble -run '^$' -bench '^BenchmarkCompactionFlow$' -benchtime=1x -benchmem -count=1
 ```
 
-Final race, repository-wide, structural-profile, and final-SHA gates are still
-required. The final feature evidence must include:
+The committed closure candidate
+`097f064e2ad2c35017d87f43e3836ff474a6f503` passed the following final gates on
+2026-07-30:
 
 ```text
 make lint
-go test ./pkg/sourcecache ./pkg/dotc1z/engine/pebble ./pkg/dotc1z
-go test -race ./pkg/dotc1z ./pkg/dotc1z/engine/pebble -run '^TestVerification' -count=1
-go test ./...
+go test ./pkg/sourcecache ./pkg/dotc1z/engine/pebble/internal/rawdb ./pkg/dotc1z/engine/pebble ./pkg/dotc1z ./pkg/synccompactor/pebble ./pkg/synccompactor -count=1
+go test -race ./pkg/dotc1z ./pkg/dotc1z/engine/pebble ./pkg/synccompactor/pebble -run '^Test(Verification|ModelRandomizedSourceCacheLifecycle|SourceCacheModelOracleMutationAdequacy|ResourceLeakRideAlongAdequacy|CommitPointsHaveFailureSeams|OverlayFoldBatchLifecycleFailureCuts|OverlayRestartCommitFailureReleasesBatches|MergeFoldCommitFailureRetryConvergesAndClosesCleanly)' -count=1
+go test ./pkg/dotc1z -run '^TestModelRandomizedSourceCacheLifecycle$' -count=20
+go test ./pkg/sourcecache ./pkg/dotc1z/engine/pebble ./pkg/dotc1z -coverprofile=/tmp/sync-replay-6a-final.cover -count=1
+go tool cover -func=/tmp/sync-replay-6a-final.cover
+go test -p 1 ./... -count=1
 ```
+
+The structural profile reported 70.4% combined statement coverage. The 20-run
+model soak and serial-package repository suite both passed. These commands ran
+from a clean tracked tree; the unrelated untracked
+`digest-endsync-bench.txt` artifact was not part of the candidate.
 
 The current uncommitted working tree was rerun after CO-010b and the final clean
 implementation re-review on 2026-07-29. All of these commands passed:
