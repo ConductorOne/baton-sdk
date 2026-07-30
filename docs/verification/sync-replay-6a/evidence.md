@@ -8,7 +8,7 @@ rerun against that committed SHA on 2026-07-30. Independent final-code evidence
 and implementation re-review remain required before repository signoff.
 
 Included change orders: CO-003, CO-003a, CO-005 through CO-010b, and CO-011
-through CO-012.
+through CO-012a.
 
 ## Signoff scope
 
@@ -107,8 +107,8 @@ final-SHA gates pass and independent re-review remains open.
 - C21 — **verified at its declared measured level**. Duplicate concurrent replay
   converges under the race command and matches a separately direct-materialized
   semantic row/manifest/index snapshot; no bounded schedule claim is made.
-- C22 — **verified for the planted mutants listed here, not the full deferred
-  catalog**. Biconditional and manifest
+- C22 — **partial; verified for the planted mutants listed here, not the full
+  frozen catalog**. Biconditional and manifest
   reconcilers have physical planted violations; auxiliary validators reject
   timestamp swaps, over-limit batches, stale counters, premature manifests, source
   digest changes, and prefix-neighbor deletion. The source-cache model now retains
@@ -118,7 +118,8 @@ final-SHA gates pass and independent re-review remains open.
   Corrupt-source and `invalidated=true` matrices plant physical rejected inputs;
   the terminal-manifest missing-owner mutant and two-hop replay own lost forward
   stamps. The all-kind terminal-iterator failure cut is C27 behavioral evidence,
-  not a planted swallowed-error mutant. CO-007 defers wrong page order with C29.
+  not a planted swallowed-error mutant. That mutant remains incomplete here, and
+  CO-007 explicitly defers wrong page order with C29.
   CO-009 asserts the proof bit
   was armed before each lifecycle transition and uses a colliding-write O4 oracle;
   CO-010 plants physical orphan indexes and observes live and durable healing.
@@ -180,9 +181,11 @@ final-SHA gates pass and independent re-review remains open.
 - C35 — **verified for supported format, durable finished state, and corrupt input;
   explicitly excluded for deferred eligibility**. Unsupported SQLite and unfinished
   all-kind Pebble sources reject before destination mutation with unchanged source
-  and occupied-destination digests; corrupt envelopes fail at open, and sealed
-  read-only sources replay. Compacted/non-FULL and compatibility eligibility remain
-  deferred.
+  and occupied-destination digests; corrupt envelopes fail at open, and durably
+  finished (`ended_at`) read-only reopens replay. Live and reopened unfinished
+  sources are both rejected. This policy is enforced by the public
+  `SourceCacheStore` wrapper; direct engine replay primitives are lower-level and
+  bypass it. Compacted/non-FULL and compatibility eligibility remain deferred.
 - C36 — **verified for storage composition, not ordering**. Grant and resource tests
   include canonical/principal overlap, selector-only matches, and survivors;
   entitlement principal selection is rejected by C42. C29 ordering is not claimed.
@@ -248,8 +251,9 @@ behavioral oracle and risk disposition. The profile produced no additional
 actionable changed-branch finding beyond F1/F2/F3/F8 at the superseded candidate.
 The CO-012 profile rerun at `39afeebe` again reported 70.4% combined statements;
 the new durable-finished-source helper was 83.3% covered and its success plus
-unfinished rejection branches have behavioral tests. No additional uncovered
-changed branch was accepted without disposition.
+unfinished rejection branches have behavioral tests. The retained F1/F2/F3/F8
+ledger records the actionable findings from review; it is not a reproducible
+per-branch disposition inventory, and the percentage remains navigation only.
 
 The closure-candidate profile rerun passed at 82.4% statements for
 `pkg/sourcecache`, 70.3% for `pkg/dotc1z/engine/pebble`, and 70.5% for
@@ -295,7 +299,14 @@ One accepted with explicit limitations; the other rejected because the public
 primitive replayed unfinished sources. Both found source-store Close errors were
 discarded and structural/commit-point claims were too broad. CO-012 enforces durable
 finished-source state, propagates owned source-close errors, and narrows the claims.
-Independent review remains open until it examines the committed correction.
+Unit tests inject synthetic source-handle close failures and verify joined identity,
+complete handle traversal, and async cleanup. They do not inject an actual
+source-store close failure through every top-level fold/rebuild/overlay publication
+path; those paths are implementation-reviewed rather than end-to-end fault-proven.
+The re-review also found a completed-run ownership gap on source-close failure.
+CO-012a removes the unpublished run before returning the joined error and narrows
+C22 and structural-coverage claims to their reproducible evidence. Independent
+review remains open until it examines the committed correction.
 
 The review also recorded these non-defect limits:
 

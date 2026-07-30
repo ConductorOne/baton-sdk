@@ -344,6 +344,19 @@ func closeSourceHandles(handles []sourceHandle) error {
 	return retErr
 }
 
+func finishChunkRunFile(run runFile, buildErr, closeErr error) (runFile, error) {
+	retErr := errors.Join(buildErr, closeErr)
+	if retErr == nil {
+		return run, nil
+	}
+	if buildErr == nil && run.path != "" {
+		if removeErr := os.Remove(run.path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			retErr = errors.Join(retErr, fmt.Errorf("remove unpublished run file %s: %w", run.path, removeErr))
+		}
+	}
+	return runFile{}, retErr
+}
+
 func buildChunkRunFileFromSources(
 	ctx context.Context,
 	tmpDir string,
@@ -358,7 +371,7 @@ func buildChunkRunFileFromSources(
 		return runFile{}, err
 	}
 	run, buildErr := buildChunkRunFileFromHandles(ctx, tmpDir, chunk.handles, name, buckets)
-	return run, errors.Join(buildErr, chunk.closeAsync(rm))
+	return finishChunkRunFile(run, buildErr, chunk.closeAsync(rm))
 }
 
 func buildChunkRunFileFromHandles(

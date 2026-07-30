@@ -738,7 +738,7 @@ func overlayBackfillRestartedChunks(
 			fmt.Sprintf("overlay-backfill-%04d", len(*kwayRunFiles)),
 			needed,
 		)
-		err = errors.Join(buildErr, chunk.closeAsync(rm))
+		run, err = finishChunkRunFile(run, buildErr, chunk.closeAsync(rm))
 		if err != nil {
 			return err
 		}

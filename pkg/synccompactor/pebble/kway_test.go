@@ -247,6 +247,18 @@ func TestSourceChunkCloseAsyncPropagatesCloseAndRemovesDirectory(t *testing.T) {
 	require.Empty(t, chunk.handles, "closed handles must not be owned twice")
 }
 
+func TestFinishChunkRunFileRemovesUnpublishedRunAfterCloseFailure(t *testing.T) {
+	injected := errors.New("source close")
+	path := filepath.Join(t.TempDir(), "completed-run.bin")
+	require.NoError(t, os.WriteFile(path, []byte("complete"), 0o600))
+
+	run, err := finishChunkRunFile(runFile{path: path}, nil, injected)
+
+	require.ErrorIs(t, err, injected)
+	require.Empty(t, run.path)
+	require.NoFileExists(t, path, "a completed run cannot be orphaned when source close fails")
+}
+
 func grantPrincipalMap(t *testing.T, ctx context.Context, e *enginepkg.Engine, syncID string) map[string]string {
 	t.Helper()
 	out := map[string]string{}

@@ -835,8 +835,33 @@ supplements:
   cleanup. C27's dedicated terminal-error cut is explicitly limited to the
   all-kind source-copy loop; preflight, destination-clear, and scoped-delete loops
   retain inline `Iterator.Error` checks without a claimed deterministic terminal
-  failure sweep. The batch-commit registry is drift prevention for missing
-  dispositions, not proof that every registered call site independently executed.
+  failure sweep. C22 remains partial because this behavioral cut is not a planted
+  swallowed-error mutant and page ordering remains deferred with C29. The
+  batch-commit registry is drift prevention for missing dispositions, not proof
+  that every registered call site independently executed. Source-close unit tests
+  cover joined error identity and cleanup, while actual store-close failure through
+  every top-level publication path remains implementation-reviewed rather than
+  end-to-end fault-injected.
+
+### CO-012a — Close-error run-file ownership and evidence narrowing
+
+- Type: production ownership correction plus evidence correction.
+- Source: final independent re-review found that a completed k-way run file could
+  be returned with a later source-close error; callers discarded the run value and
+  therefore lost the path needed for direct cleanup.
+- Contract delta: none. A run file is unpublished until both build and owned-source
+  cleanup succeed. A close error removes a successfully built run before returning
+  the joined error.
+- Verification delta:
+  `TestFinishChunkRunFileRemovesUnpublishedRunAfterCloseFailure` plants the exact
+  build-success/close-failure cut and requires error identity plus filesystem
+  absence. C22 is explicitly partial rather than verified for its full frozen
+  mutant catalog; structural coverage is a navigation profile plus the named
+  F1/F2/F3/F8 ledger, not a complete per-branch disposition artifact. A separate
+  all-kind test closes unfinished sources, reopens them read-only, and proves the
+  durable `ended_at` guard rejects before destination mutation. Finished-source
+  enforcement belongs to the public `SourceCacheStore` capability; direct engine
+  replay primitives remain lower-level and bypass that wrapper policy.
 
 ## Post-freeze implementation-obligation addendum
 

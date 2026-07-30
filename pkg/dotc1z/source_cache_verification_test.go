@@ -1365,6 +1365,43 @@ func TestVerificationReplayRejectsUnfinishedSourceAllKinds(t *testing.T) {
 	}
 }
 
+func TestVerificationReplayRejectsReopenedUnfinishedSourceAllKinds(t *testing.T) {
+	for _, kind := range []sourcecache.RowKind{
+		sourcecache.RowKindResources,
+		sourcecache.RowKindEntitlements,
+		sourcecache.RowKindGrants,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			previous := newSourceCacheVerificationStore(t)
+			previousPath := previous.store.(*pebbleStore).outputFilePath
+			putSourceCacheVerificationRows(t, previous, kind, "scope-a", 2, "source")
+			require.NoError(t, previous.cache.PutSourceCacheEntry(t.Context(), kind, "scope-a", "validator"))
+			require.NoError(t, previous.store.Close(t.Context()), "close without EndSync")
+
+			reopened, err := NewStore(t.Context(), previousPath, WithReadOnly(true))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, reopened.Close(t.Context())) })
+			reopenedEngine, ok := enginepebble.AsEngine(reopened)
+			require.True(t, ok)
+
+			current := newSourceCacheVerificationStore(t)
+			putSourceCacheVerificationRows(t, current, kind, "scope-a", 1, "destination")
+			previousBefore := sourceCacheVerificationEngineDigest(t, reopenedEngine)
+			currentBefore := sourceCacheVerificationEngineDigest(t, current.engine)
+			enteredMutation := false
+			current.store.(*pebbleStore).sourceCacheTest.beforeEngineMutation = func() {
+				enteredMutation = true
+			}
+
+			_, err = current.cache.ReplaySourceCache(t.Context(), reopened, kind, "scope-a")
+			require.ErrorContains(t, err, "not finished")
+			require.False(t, enteredMutation, "reopened unfinished-source rejection entered destination mutation")
+			require.Equal(t, previousBefore, sourceCacheVerificationEngineDigest(t, reopenedEngine))
+			require.Equal(t, currentBefore, sourceCacheVerificationEngineDigest(t, current.engine))
+		})
+	}
+}
+
 // C35: a corrupt envelope is rejected while opening the previous artifact, so
 // it can never degrade into an empty or partially replayable source.
 func TestVerificationCorruptSourceEnvelopeFailsClosed(t *testing.T) {
