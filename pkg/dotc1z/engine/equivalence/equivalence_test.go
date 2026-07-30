@@ -17,7 +17,9 @@ func openPebble(t *testing.T) *enginepkg.Engine {
 	dir := filepath.Join(t.TempDir(), "engine")
 	e, err := enginepkg.Open(context.Background(), dir)
 	require.NoError(t, err, "Open pebble")
-	t.Cleanup(func() { _ = e.Close() })
+	// Ride-along leak oracle: Close reports leaked iterators, Get
+	// closers, and unreleased family batches.
+	t.Cleanup(func() { require.NoError(t, e.Close(), "engine Close must be clean") })
 	return e
 }
 

@@ -2014,3 +2014,137 @@ func TestVerificationPublicOracleMutationAdequacy(t *testing.T) {
 		require.Error(t, validateSourceCacheScopeCounts(1, 0, 1, 1))
 	})
 }
+
+// Coverage-triage finding F1 (HIGH): the replay copy loop's
+// same-identity overwrite arm — a destination row already exists at the
+// replayed identity under a DIFFERENT scope, and the prior value must
+// be threaded into the typed stage op so the old scope's
+// by_source_scope index entry is cleaned. No prior instrument reached
+// this branch in any kind; a regression leaves a stale foreign-scope
+// index entry that a later scoped delete or replay-replacement would
+// trust into a silent durable over-delete.
+func TestVerificationReplayOverwriteCleansForeignScopeIndex(t *testing.T) {
+	bySourceScopeBounds := map[sourcecache.RowKind][2][]byte{
+		sourcecache.RowKindResources:    {enginepebble.ResourceBySourceScopeLowerBound(), enginepebble.ResourceBySourceScopeUpperBound()},
+		sourcecache.RowKindEntitlements: {enginepebble.EntitlementBySourceScopeLowerBound(), enginepebble.EntitlementBySourceScopeUpperBound()},
+		sourcecache.RowKindGrants:       {enginepebble.GrantBySourceScopeLowerBound(), enginepebble.GrantBySourceScopeUpperBound()},
+	}
+	for _, kind := range []sourcecache.RowKind{
+		sourcecache.RowKindResources,
+		sourcecache.RowKindEntitlements,
+		sourcecache.RowKindGrants,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			prev := newSourceCacheVerificationStore(t)
+			putSourceCacheVerificationRows(t, prev, kind, "scope-a", 1, "clash")
+			require.NoError(t, prev.cache.PutSourceCacheEntry(t.Context(), kind, "scope-a", "validator-a"))
+
+			// The same identity (same prefix) already lives in the
+			// destination under scope-b.
+			cur := newSourceCacheVerificationStore(t)
+			putSourceCacheVerificationRows(t, cur, kind, "scope-b", 1, "clash")
+
+			res, err := cur.cache.ReplaySourceCache(t.Context(), prev.store, kind, "scope-a")
+			require.NoError(t, err)
+			require.Equal(t, int64(1), res.Rows)
+
+			require.Equal(t, 1, countSourceCacheVerificationRowsInScope(t, cur.engine, kind, "scope-a"),
+				"the replayed row must be stamped scope-a")
+			require.Zero(t, countSourceCacheVerificationRowsInScope(t, cur.engine, kind, "scope-b"),
+				"no row may keep the old scope-b stamp")
+
+			indexKeys := sourceCacheVerificationIndexKeys(t, cur.engine, bySourceScopeBounds[kind])
+			sawScopeA := false
+			for _, key := range indexKeys {
+				require.NotContains(t, key, "scope-b",
+					"the overwrite must clean the prior row's scope-b index entry")
+				if strings.Contains(key, "scope-a") {
+					sawScopeA = true
+				}
+			}
+			require.True(t, sawScopeA, "non-vacuity: the replayed row must own a scope-a index entry")
+
+			// Behavioral oracle: a scoped delete addressed at the stale
+			// scope must be a no-op — if the foreign-scope index entry
+			// survived, this is exactly the call that would over-delete.
+			switch kind {
+			case sourcecache.RowKindResources:
+				deleted, err := cur.cache.DeleteSourceCacheRowsInScope(t.Context(), kind, "scope-b", []string{"clash-0"})
+				require.NoError(t, err)
+				require.Zero(t, deleted, "scope-b delete must not reach the row now owned by scope-a")
+			case sourcecache.RowKindGrants:
+				deleted, err := cur.cache.DeleteSourceCacheRowsInScope(t.Context(), kind, "scope-b", []string{"clash-principal-0"})
+				require.NoError(t, err)
+				require.Zero(t, deleted, "scope-b delete must not reach the row now owned by scope-a")
+			case sourcecache.RowKindEntitlements:
+				// No scoped delete for entitlements; the index assertions
+				// above carry the obligation.
+			}
+			require.Equal(t, 1, countSourceCacheVerificationRowsInScope(t, cur.engine, kind, "scope-a"),
+				"the replayed row must survive a delete addressed at its stale scope")
+		})
+	}
+}
+
+// Coverage-triage finding F2 (HIGH): every prior scoped external-id
+// grant delete tombstoned the whole scope, so a regression that ignored
+// the id set and swept the scope would pass the suite. This pins the
+// survival half: rows whose stored id is NOT in the tombstone set must
+// remain, with the returned count reporting only real deletions.
+func TestVerificationScopedGrantIDDeletePreservesNonTombstonedRows(t *testing.T) {
+	s := newSourceCacheVerificationStore(t)
+	doomed := putVerificationGrant(t, s, "scope-a", "ent-doomed", "alice")
+	survivor := putVerificationGrant(t, s, "scope-a", "ent-survivor", "bob")
+	bystander := putVerificationGrant(t, s, "scope-a", "ent-bystander", "carol")
+
+	deleted, err := s.cache.DeleteSourceCacheGrantsByIDInScope(t.Context(), "scope-a", []string{doomed.GetId()})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleted)
+
+	_, err = s.engine.GetGrantRecord(t.Context(), doomed.GetId())
+	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
+	_, err = s.engine.GetGrantRecord(t.Context(), survivor.GetId())
+	require.NoError(t, err, "a non-tombstoned row must survive the scoped delete")
+	_, err = s.engine.GetGrantRecord(t.Context(), bystander.GetId())
+	require.NoError(t, err, "a non-tombstoned row must survive the scoped delete")
+	require.Equal(t, 2, countSourceCacheVerificationRowsInScope(t, s.engine, sourcecache.RowKindGrants, "scope-a"))
+
+	// Idempotence: repeating the tombstone finds nothing.
+	deleted, err = s.cache.DeleteSourceCacheGrantsByIDInScope(t.Context(), "scope-a", []string{doomed.GetId()})
+	require.NoError(t, err)
+	require.Zero(t, deleted)
+}
+
+// Coverage-triage finding F3 (MEDIUM): a mutation arriving AFTER Close
+// must be refused before it marks dirty and enters the engine — the
+// closed-store half of the dirty/checkpoint contract. Without it, a
+// caller could see a write succeed that the final checkpoint never
+// captured.
+func TestVerificationClosedStoreRejectsSourceCacheMutations(t *testing.T) {
+	ctx := t.Context()
+	prev := newSourceCacheVerificationStore(t)
+	require.NoError(t, prev.cache.PutSourceCacheEntry(ctx, sourcecache.RowKindGrants, "scope-a", "validator-a"))
+
+	store, err := NewStore(ctx, t.TempDir()+"/closed.c1z", WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	cache, ok := store.(SourceCacheStore)
+	require.True(t, ok)
+	require.NoError(t, store.Close(ctx))
+
+	err = cache.PutSourceCacheEntry(ctx, sourcecache.RowKindGrants, "scope-a", "validator-a")
+	require.ErrorIs(t, err, enginepebble.ErrEngineClosing, "PutSourceCacheEntry after Close")
+
+	_, err = cache.ReplaySourceCache(ctx, prev.store, sourcecache.RowKindGrants, "scope-a")
+	require.ErrorIs(t, err, enginepebble.ErrEngineClosing, "ReplaySourceCache after Close")
+
+	err = cache.DeleteSourceCacheRows(ctx, sourcecache.RowKindEntitlements, []string{"x"})
+	require.ErrorIs(t, err, enginepebble.ErrEngineClosing, "DeleteSourceCacheRows after Close")
+
+	_, err = cache.DeleteSourceCacheRowsInScope(ctx, sourcecache.RowKindResources, "scope-a", []string{"x"})
+	require.ErrorIs(t, err, enginepebble.ErrEngineClosing, "DeleteSourceCacheRowsInScope after Close")
+
+	_, err = cache.DeleteSourceCacheGrantsByIDInScope(ctx, "scope-a", []string{"x"})
+	require.ErrorIs(t, err, enginepebble.ErrEngineClosing, "DeleteSourceCacheGrantsByIDInScope after Close")
+}

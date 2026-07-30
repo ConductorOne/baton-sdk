@@ -547,4 +547,7 @@ type FoldBatch struct {
 // NewFoldBatch mints a generic staged batch for the compactor's
 // keep-newer fold and overlay writers. Engine production code must
 // not use it; see the choke-point meta-tests.
-func (d *DB) NewFoldBatch() *FoldBatch { return &FoldBatch{batch{b: d.newBatch()}} }
+func (d *DB) NewFoldBatch() *FoldBatch {
+	d.acct.fold.Add(1)
+	return &FoldBatch{batch{b: d.newBatch(), open: &d.acct.fold}}
+}

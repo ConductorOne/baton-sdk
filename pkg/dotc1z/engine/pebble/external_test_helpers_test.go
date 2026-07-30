@@ -21,7 +21,8 @@ func newAdapter(t testing.TB) *pebble.Adapter {
 	e, err := pebble.Open(context.Background(), dbDir)
 	require.NoError(t, err, "Open")
 	t.Cleanup(func() {
-		_ = e.Close()
+		// Ride-along leak oracle — see newTestEngine in engine_test.go.
+		require.NoError(t, e.Close(), "engine Close must be clean (leaked iterators/Get closers/batches are reported here)")
 	})
 	return pebble.NewAdapter(e)
 }

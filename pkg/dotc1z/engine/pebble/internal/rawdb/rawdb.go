@@ -31,6 +31,7 @@ package rawdb
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync/atomic"
 	"testing"
@@ -75,6 +76,33 @@ type DB struct {
 	testArmDeferredMarkerHook   func() error
 	testClearDeferredMarkerHook func() error
 	testRecordCommitHook        func() error
+
+	// acct is the ride-along resource ledger for family batches:
+	// every New*Batch increments its family counter and the batch's
+	// first Close decrements it, so Close can report an unreleased
+	// batch as a leak the same way pebble itself reports leaked
+	// iterators and Get closers (via readState/version refs). Pebble
+	// does not track batches, so this is the missing third of the
+	// resource-leak oracle.
+	acct batchAccounting
+}
+
+// batchAccounting counts outstanding (minted, not yet closed) family
+// batches. Always-on: the atomics are contention-free, and prod leak
+// visibility matches pebble's own iterator accounting.
+type batchAccounting struct {
+	record  atomic.Int64
+	session atomic.Int64
+	digest  atomic.Int64
+	fold    atomic.Int64
+}
+
+func (a *batchAccounting) leakError() error {
+	r, s, dg, f := a.record.Load(), a.session.Load(), a.digest.Load(), a.fold.Load()
+	if r == 0 && s == 0 && dg == 0 && f == 0 {
+		return nil
+	}
+	return fmt.Errorf("rawdb: unreleased family batches at Close: record=%d session=%d digest=%d fold=%d", r, s, dg, f)
 }
 
 // Open opens the pebble database at dir. opts is consumed by
@@ -93,8 +121,13 @@ func Open(dir string, opts *pebble.Options, fs vfs.FS) (*DB, error) {
 }
 
 // Close closes the underlying pebble.DB. The engine's teardown
-// ordering (write barrier, worker drain) is the caller's job.
-func (d *DB) Close() error { return d.db.Close() }
+// ordering (write barrier, worker drain) is the caller's job. Like
+// pebble's own Close (which reports leaked iterators and Get closers
+// through version refcounts), it reports any family batch minted but
+// never released — the DB still closes; the error names the leak.
+func (d *DB) Close() error {
+	return errors.Join(d.acct.leakError(), d.db.Close())
+}
 
 // FS returns the filesystem the DB's IO rides on. SSTs staged for
 // Ingest/IngestAndExcise must be created through it.

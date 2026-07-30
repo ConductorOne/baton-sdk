@@ -24,7 +24,11 @@ func newTestEngine(t testing.TB, opts ...Option) (*Engine, string) {
 	e, err := Open(context.Background(), dbDir, opts...)
 	require.NoError(t, err, "Open")
 	t.Cleanup(func() {
-		_ = e.Close()
+		// Ride-along leak oracle: Close reports leaked iterators and
+		// Get closers (pebble, via version refs) and unreleased family
+		// batches (rawdb accounting). Swallowing this error would
+		// discard the leak report of every test using this fixture.
+		require.NoError(t, e.Close(), "engine Close must be clean (leaked iterators/Get closers/batches are reported here)")
 	})
 	return e, dir
 }

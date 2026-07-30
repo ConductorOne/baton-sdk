@@ -1764,6 +1764,11 @@ func (w *overlayBucketRawWriter) flush(ctx context.Context) error {
 	if err := w.index.Commit(opts); err != nil {
 		return err
 	}
+	// Release the committed batches before minting replacements: Commit
+	// does not return the batch to pebble's pool, Close does. (On the
+	// error returns above, cleanup() closes whatever is still held.)
+	_ = w.primary.Close()
+	_ = w.index.Close()
 	w.primary = w.dest.NewFoldBatch()
 	w.index = w.dest.NewFoldBatch()
 	w.count = 0
