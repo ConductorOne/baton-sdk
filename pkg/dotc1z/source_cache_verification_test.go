@@ -1,6 +1,7 @@
 package dotc1z
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -368,6 +369,32 @@ func TestVerificationEmptyValidatorDoesNotPublishManifest(t *testing.T) {
 			require.Equal(t, "validator-old", entry.CacheValidator)
 		})
 	}
+
+	t.Run("rejection-does-not-dirty-clean-or-closed-store", func(t *testing.T) {
+		ctx := t.Context()
+		path := filepath.Join(t.TempDir(), "empty-validator.c1z")
+		store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+		require.NoError(t, err)
+		_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		require.NoError(t, store.Close(ctx))
+
+		store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+		require.NoError(t, err)
+		_, startedNew, err := store.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		require.False(t, startedNew)
+		ps := store.(*pebbleStore)
+		require.False(t, ps.dirty)
+		err = ps.PutSourceCacheEntry(ctx, sourcecache.RowKindResources, "scope-a", "")
+		require.ErrorContains(t, err, "cache validator is required")
+		require.False(t, ps.dirty, "input rejection must precede dirty transition")
+		require.NoError(t, ps.Close(ctx))
+
+		err = ps.PutSourceCacheEntry(ctx, sourcecache.RowKindResources, "scope-a", "")
+		require.ErrorContains(t, err, "cache validator is required",
+			"input validation must retain precedence after Close")
+	})
 }
 
 // C31: retry-partial and otherwise occupied destinations must converge to
@@ -1728,6 +1755,196 @@ func TestVerificationResourceCombinedTombstoneComposition(t *testing.T) {
 		enginepebble.ResourceBySourceScopeLowerBound(),
 		enginepebble.ResourceBySourceScopeUpperBound(),
 	))
+}
+
+func TestVerificationOrphanScopeIndexHealingPersistsAfterReopen(t *testing.T) {
+	type testCase struct {
+		name      string
+		kind      sourcecache.RowKind
+		primaryLo []byte
+		indexLo   []byte
+		indexHi   []byte
+		put       func(t *testing.T, s sourceCacheVerificationStore) []string
+		heal      func(ctx context.Context, cache SourceCacheStore, ids []string) (int64, error)
+	}
+	cases := []testCase{
+		{
+			name:      "resources-by-id",
+			kind:      sourcecache.RowKindResources,
+			primaryLo: enginepebble.ResourceLowerBound(),
+			indexLo:   enginepebble.ResourceBySourceScopeLowerBound(),
+			indexHi:   enginepebble.ResourceBySourceScopeUpperBound(),
+			put: func(t *testing.T, s sourceCacheVerificationStore) []string {
+				putSourceCacheVerificationRows(t, s, sourcecache.RowKindResources, "scope-a", 1, "orphan-resource")
+				return []string{"orphan-resource-0"}
+			},
+			heal: func(ctx context.Context, cache SourceCacheStore, ids []string) (int64, error) {
+				return cache.DeleteSourceCacheRowsInScope(ctx, sourcecache.RowKindResources, "scope-a", ids)
+			},
+		},
+		{
+			name:      "grants-by-principal",
+			kind:      sourcecache.RowKindGrants,
+			primaryLo: enginepebble.GrantLowerBound(),
+			indexLo:   enginepebble.GrantBySourceScopeLowerBound(),
+			indexHi:   enginepebble.GrantBySourceScopeUpperBound(),
+			put: func(t *testing.T, s sourceCacheVerificationStore) []string {
+				putVerificationGrant(t, s, "scope-a", "orphan-entitlement", "orphan-principal")
+				return []string{"orphan-principal"}
+			},
+			heal: func(ctx context.Context, cache SourceCacheStore, ids []string) (int64, error) {
+				return cache.DeleteSourceCacheRowsInScope(ctx, sourcecache.RowKindGrants, "scope-a", ids)
+			},
+		},
+		{
+			name:      "grants-by-external-id",
+			kind:      sourcecache.RowKindGrants,
+			primaryLo: enginepebble.GrantLowerBound(),
+			indexLo:   enginepebble.GrantBySourceScopeLowerBound(),
+			indexHi:   enginepebble.GrantBySourceScopeUpperBound(),
+			put: func(t *testing.T, s sourceCacheVerificationStore) []string {
+				grant := putVerificationGrant(t, s, "scope-a", "orphan-entitlement", "orphan-principal")
+				return []string{grant.GetId()}
+			},
+			heal: func(ctx context.Context, cache SourceCacheStore, ids []string) (int64, error) {
+				return cache.DeleteSourceCacheGrantsByIDInScope(ctx, "scope-a", ids)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			path := filepath.Join(t.TempDir(), "orphan-healing.c1z")
+			store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+			require.NoError(t, err)
+			_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			ps := store.(*pebbleStore)
+			engine, ok := enginepebble.AsEngine(store)
+			require.True(t, ok)
+			ids := tc.put(t, sourceCacheVerificationStore{
+				store:  store,
+				cache:  ps,
+				engine: engine,
+			})
+			require.NoError(t, store.Close(ctx))
+
+			resume := func() (*pebbleStore, *enginepebble.Engine) {
+				t.Helper()
+				resumed, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+				require.NoError(t, err)
+				_, startedNew, err := resumed.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, "")
+				require.NoError(t, err)
+				require.False(t, startedNew)
+				resumedEngine, ok := enginepebble.AsEngine(resumed)
+				require.True(t, ok)
+				return resumed.(*pebbleStore), resumedEngine
+			}
+
+			// Persist a corruption shape production typed writers cannot create:
+			// the source-scope index remains but its primary row is absent.
+			ps, engine = resume()
+			iter, err := engine.NewIter(&cockroachpebble.IterOptions{LowerBound: tc.primaryLo})
+			require.NoError(t, err)
+			require.True(t, iter.First())
+			primaryKey := append([]byte(nil), iter.Key()...)
+			require.True(t, bytes.HasPrefix(primaryKey, tc.primaryLo))
+			require.NoError(t, iter.Close())
+			require.NoError(t, engine.UnsafeForTesting().Delete(primaryKey, cockroachpebble.Sync))
+			ps.MarkDirty()
+			require.NoError(t, ps.Close(ctx))
+
+			// The public scoped delete heals the orphan while reporting zero
+			// primary-row deletions. That mutation must still survive Close.
+			ps, engine = resume()
+			require.Equal(t, 1, countSourceCacheVerificationKeys(t, engine, tc.indexLo, tc.indexHi))
+			deleted, err := tc.heal(ctx, ps, ids)
+			require.NoError(t, err)
+			require.Zero(t, deleted)
+			require.Zero(t, countSourceCacheVerificationKeys(t, engine, tc.indexLo, tc.indexHi),
+				"healing premise: orphan index was removed from live state")
+			require.NoError(t, ps.Close(ctx))
+
+			ps, engine = resume()
+			require.Zero(t, countSourceCacheVerificationKeys(t, engine, tc.indexLo, tc.indexHi),
+				"orphan-only healing must survive public Close/reopen")
+			require.NoError(t, ps.Close(ctx))
+		})
+	}
+}
+
+func TestVerificationSourceCacheMutationHandoffToConcurrentClose(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "mutation-close-handoff.c1z")
+	store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	ps := store.(*pebbleStore)
+	engine, ok := enginepebble.AsEngine(store)
+	require.True(t, ok)
+	putSourceCacheVerificationRows(t, sourceCacheVerificationStore{
+		store:  store,
+		cache:  ps,
+		engine: engine,
+	}, sourcecache.RowKindResources, "scope-a", 1, "handoff")
+	require.NoError(t, store.Close(ctx))
+
+	store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	_, startedNew, err := store.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.False(t, startedNew)
+	ps = store.(*pebbleStore)
+	mutationEntered := make(chan struct{})
+	releaseMutation := make(chan struct{})
+	closeAttempted := make(chan struct{})
+	ps.sourceCacheTest.beforeEngineMutation = func() {
+		close(mutationEntered)
+		<-releaseMutation
+	}
+	ps.sourceCacheTest.beforeCloseLock = func() {
+		close(closeAttempted)
+	}
+
+	deleteDone := make(chan error, 1)
+	go func() {
+		_, deleteErr := ps.DeleteSourceCacheRowsInScope(
+			context.Background(),
+			sourcecache.RowKindResources,
+			"scope-a",
+			[]string{"handoff-0"},
+		)
+		deleteDone <- deleteErr
+	}()
+	<-mutationEntered
+	if ps.closeMu.TryLock() {
+		ps.closeMu.Unlock()
+		close(releaseMutation)
+		t.Fatal("source-cache mutation did not own closeMu before entering the engine")
+	}
+
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- ps.Close(context.Background())
+	}()
+	<-closeAttempted
+	close(releaseMutation)
+	require.NoError(t, <-deleteDone)
+	require.NoError(t, <-closeDone)
+
+	reopened, err := NewStore(ctx, path, WithReadOnly(true))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, reopened.Close(ctx)) }()
+	reopenedEngine, ok := enginepebble.AsEngine(reopened)
+	require.True(t, ok)
+	require.Zero(t, countSourceCacheVerificationRowsInScope(
+		t,
+		reopenedEngine,
+		sourcecache.RowKindResources,
+		"scope-a",
+	), "Close checkpoint omitted a successful source-cache mutation")
 }
 
 // C28 measured supplement: arbitrary valid, byte-distinct scope strings must

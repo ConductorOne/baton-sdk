@@ -23,6 +23,14 @@ type sourceCacheStoreTestSeams struct {
 	// afterEngineReplay injects a wrapper-level error after the engine has
 	// committed replay work.
 	afterEngineReplay func() error
+
+	// beforeEngineMutation runs after the public wrapper owns closeMu and
+	// marks dirty, immediately before entering an engine mutation.
+	beforeEngineMutation func()
+
+	// beforeCloseLock runs immediately before Close attempts to acquire
+	// closeMu, allowing tests to prove it contends with an active wrapper.
+	beforeCloseLock func()
 }
 
 // SourceCacheStore is the optional store capability backing source-cache
@@ -78,6 +86,21 @@ type SourceCacheStore interface {
 }
 
 var _ SourceCacheStore = (*pebbleStore)(nil)
+
+func (s *pebbleStore) beginSourceCacheMutation() (func(), error) {
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return nil, pebble.ErrEngineClosing
+	}
+	// Hold closeMu until the engine call and dirty transition are complete.
+	// Close cannot checkpoint between these two halves of one public mutation.
+	s.dirty = true
+	if s.sourceCacheTest.beforeEngineMutation != nil {
+		s.sourceCacheTest.beforeEngineMutation()
+	}
+	return s.closeMu.Unlock, nil
+}
 
 // sourceCacheEngine recovers the Pebble engine from an arbitrary store,
 // nil-safe. Mirrors pebble.AsEngine but accepts any value so the syncer
@@ -136,7 +159,15 @@ func (s *pebbleStore) PutSourceCacheEntry(ctx context.Context, kind sourcecache.
 	if err := sourcecache.ValidateScopeKey(scopeKey); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.PutSourceCacheEntry(ctx, string(kind), scopeKey, cacheValidator))
+	if cacheValidator == "" {
+		return errors.New("source cache manifest: cache validator is required")
+	}
+	done, err := s.beginSourceCacheMutation()
+	if err != nil {
+		return err
+	}
+	defer done()
+	return s.Engine.PutSourceCacheEntry(ctx, string(kind), scopeKey, cacheValidator)
 }
 
 func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore.Reader, kind sourcecache.RowKind, scopeKey string) (SourceCacheReplayResult, error) {
@@ -176,9 +207,13 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 	}
 	// Replay is replacement, not append: the engine may clear destination rows
 	// or commit one or more bounded chunks before returning zero rows or an error.
-	// Mark conservatively before crossing that mutation boundary so Close always
-	// persists any committed progress.
-	s.MarkDirty()
+	// Serialize dirty marking and the engine mutation against Close so a checkpoint
+	// cannot cut between them.
+	done, err := s.beginSourceCacheMutation()
+	if err != nil {
+		return SourceCacheReplayResult{}, err
+	}
+	defer done()
 	var res SourceCacheReplayResult
 	switch kind {
 	case sourcecache.RowKindResources:
@@ -226,21 +261,31 @@ func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecach
 			}
 			resources[i] = r
 		}
+		done, err := s.beginSourceCacheMutation()
+		if err != nil {
+			return err
+		}
+		defer done()
 		for i, r := range resources {
 			rid := r.GetId()
-			if err := s.markDirty(s.DeleteResourceRecord(ctx, rid.GetResourceType(), rid.GetResource())); err != nil {
+			if err := s.DeleteResourceRecord(ctx, rid.GetResourceType(), rid.GetResource()); err != nil {
 				return fmt.Errorf("source cache delete resource %q: %w", ids[i], err)
 			}
 		}
 		return nil
 	}
+	done, err := s.beginSourceCacheMutation()
+	if err != nil {
+		return err
+	}
+	defer done()
 	switch kind {
 	case sourcecache.RowKindGrants:
-		if err := s.markDirty(s.DeleteGrantRecordsBounded(ctx, ids)); err != nil {
+		if err := s.DeleteGrantRecordsBounded(ctx, ids); err != nil {
 			return fmt.Errorf("source cache delete grants: %w", err)
 		}
 	case sourcecache.RowKindEntitlements:
-		if err := s.markDirty(s.DeleteEntitlementRecords(ctx, ids)); err != nil {
+		if err := s.DeleteEntitlementRecords(ctx, ids); err != nil {
 			return fmt.Errorf("source cache delete entitlements: %w", err)
 		}
 	case sourcecache.RowKindResources:
@@ -260,10 +305,12 @@ func (s *pebbleStore) DeleteSourceCacheGrantsByIDInScope(ctx context.Context, sc
 	for _, id := range ids {
 		idSet[id] = struct{}{}
 	}
-	deleted, err := s.DeleteGrantsByExternalIDsInScope(ctx, scopeKey, idSet)
-	if deleted > 0 {
-		s.MarkDirty()
+	done, err := s.beginSourceCacheMutation()
+	if err != nil {
+		return 0, err
 	}
+	defer done()
+	deleted, err := s.DeleteGrantsByExternalIDsInScope(ctx, scopeKey, idSet)
 	if err != nil {
 		return deleted, fmt.Errorf("source cache grant-id delete for scope %q: %w", scopeKey, err)
 	}
@@ -284,8 +331,17 @@ func (s *pebbleStore) DeleteSourceCacheRowsInScope(ctx context.Context, kind sou
 	for _, id := range ids {
 		idSet[id] = struct{}{}
 	}
+	if kind == sourcecache.RowKindEntitlements {
+		return 0, fmt.Errorf("source cache scoped delete: not supported for entitlements")
+	}
+	done, err := s.beginSourceCacheMutation()
+	if err != nil {
+		return 0, err
+	}
+	defer done()
 	var deleted int64
-	var err error
+	// A matching orphan scope index is a durable mutation even though no
+	// primary row contributes to the returned deletion count.
 	switch kind {
 	case sourcecache.RowKindGrants:
 		deleted, err = s.DeleteGrantsByPrincipalsInScope(ctx, scopeKey, idSet)
@@ -293,9 +349,6 @@ func (s *pebbleStore) DeleteSourceCacheRowsInScope(ctx context.Context, kind sou
 		deleted, err = s.DeleteResourcesByIDsInScope(ctx, scopeKey, idSet)
 	case sourcecache.RowKindEntitlements:
 		return 0, fmt.Errorf("source cache scoped delete: not supported for entitlements")
-	}
-	if deleted > 0 {
-		s.MarkDirty()
 	}
 	if err != nil {
 		return deleted, fmt.Errorf("source cache scoped delete for scope %q: %w", scopeKey, err)

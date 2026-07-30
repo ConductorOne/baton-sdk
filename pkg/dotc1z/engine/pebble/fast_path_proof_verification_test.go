@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -210,4 +211,56 @@ func TestVerificationReplayClearCommittedPrefixDisarmsFastPath(t *testing.T) {
 			require.False(t, armedAfterFailure, "committed clear did not consume %s fast-path proof", kind)
 		})
 	}
+}
+
+func TestVerificationReplayWriteBarrierDrainsBeforeClose(t *testing.T) {
+	ctx := t.Context()
+	prev := newAdapter(t)
+	_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	putFastPathProofRow(t, prev.PebbleEngine(), sourcecache.RowKindResources, "scope-a", "source", 0)
+
+	current := newAdapter(t)
+	_, err = current.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	enteredCommit := make(chan struct{})
+	releaseCommit := make(chan struct{})
+	current.PebbleEngine().test.sourceCacheReplayCommitHook = func(kind string, rows int, final bool) error {
+		if kind != string(sourcecache.RowKindResources) || rows != 1 || !final {
+			return fmt.Errorf("unexpected replay commit kind=%q rows=%d final=%t", kind, rows, final)
+		}
+		close(enteredCommit)
+		<-releaseCommit
+		return nil
+	}
+
+	replayDone := make(chan error, 1)
+	go func() {
+		_, replayErr := current.PebbleEngine().ReplaySourceCacheResources(
+			context.Background(),
+			prev.PebbleEngine(),
+			"scope-a",
+		)
+		replayDone <- replayErr
+	}()
+	select {
+	case <-enteredCommit:
+	case <-time.After(5 * time.Second):
+		t.Fatal("replay did not reach the commit barrier")
+	}
+
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- current.PebbleEngine().Close()
+	}()
+	select {
+	case closeErr := <-closeDone:
+		close(releaseCommit)
+		t.Fatalf("Close returned while replay still owned the write barrier: %v", closeErr)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releaseCommit)
+	require.NoError(t, <-replayDone)
+	require.NoError(t, <-closeDone)
 }

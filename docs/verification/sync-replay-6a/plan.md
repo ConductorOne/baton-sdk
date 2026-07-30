@@ -668,3 +668,158 @@ supplements:
 - Verification delta: all row kinds replay and tombstone the representable hostile
   ID corpus byte-exactly with neighbor survival; invalid UTF-8 is executable
   unrepresentability evidence.
+
+### CO-009 — Derived fast-path proof lifecycle correction
+
+- Type: correction.
+- Source: post-closure implementation review found that sync rebind and bulk-import
+  finish invalidated the resource/grant empty-keyspace proofs but not the
+  entitlement proof, while a destructive replay clear that failed after a
+  committed batch left the proof armed for every row kind.
+- Contract delta: no new external behavior. Derived state that authorizes
+  read-before-write omission is a proof: every transition that falsifies its
+  premise must consume it at the committed cut or conservatively before mutation.
+- Verification delta:
+  `TestVerificationBindCurrentSyncDisarmsAllFastPathProofs`,
+  `TestVerificationBulkImportFinishDisarmsAllFastPathProofs`, and
+  `TestVerificationReplayClearCommittedPrefixDisarmsFastPath` assert the armed
+  premise, all sibling kinds, distinct clear-loop commits, and a colliding write
+  whose old-index cleanup requires the slow path.
+
+### CO-010 — Orphan-only scoped-index healing persistence correction
+
+- Type: correction.
+- Source: the independent implementation-obligation review of CO-009 found that
+  scoped tombstone loops could commit deletion of orphan source-scope indexes
+  while reporting zero deleted primary rows. Public wrappers marked dirty only
+  for positive row counts, so `Close` discarded the healing.
+- Contract delta: no new row-deletion behavior. A public mutating boundary must
+  persist committed defensive cleanup even when its result count is zero.
+- Verification delta:
+  `TestVerificationOrphanScopeIndexHealingPersistsAfterReopen` creates the
+  otherwise-unrepresentable orphan state, exercises resource-ID, grant-principal,
+  and grant-external-ID public paths, proves live healing reports zero primary
+  deletions, and requires the healed index state after close/reopen.
+
+### CO-010a — Public mutation-to-close atomic handoff correction
+
+- Type: correction to CO-010 and the existing public replay dirty lifecycle.
+- Source: focused re-review of the CO-010 fix found that marking dirty before an
+  engine call was still not atomic with entering the engine writer barrier.
+  Concurrent `Close` could checkpoint after dirty marking but before the mutation
+  entered, then discard a later successful mutation.
+- Contract delta: every public source-cache mutation owns the store close mutex
+  from conservative dirty marking through completion of its engine call. `Close`
+  therefore checkpoint-saves either before the mutation starts or after it
+  completes, never between its persistence claim and facts.
+- Verification delta:
+  `TestVerificationSourceCacheMutationHandoffToConcurrentClose` blocks a public
+  mutation immediately before engine entry, proves it owns the close mutex, proves
+  `Close` has reached its lock attempt, then requires the successful mutation in
+  the reopened artifact. `TestVerificationReplayWriteBarrierDrainsBeforeClose`
+  separately pins the engine-level established-writer drain.
+
+### CO-010b — Manifest validation-order correction
+
+- Type: correction to CO-010a.
+- Source: focused re-review found that the new public mutation boundary marked a
+  clean store dirty before the engine rejected an empty manifest validator and
+  changed error precedence after Close.
+- Contract delta: validate all wrapper-owned inputs before entering the mutating
+  lifecycle boundary. Rejection does not dirty or rewrite an artifact and retains
+  its validation error independently of store lifecycle state.
+- Verification delta: the clean/closed-store cell in
+  `TestVerificationEmptyValidatorDoesNotPublishManifest` asserts the empty-validator
+  error, unchanged clean dirty state, and validation precedence after Close.
+
+## Post-freeze implementation-obligation addendum
+
+This addendum was produced by a reader independent of the implementation and
+instrument author. It records implementation-derived obligations the behavioral
+contract could not name. Each entry states mechanism/owner; invariant; failure
+premise; oracle; and instrument or remaining boundary.
+
+1. **Engine lifecycle barrier (Engine)** — every writer joins `writeWG`, serializes
+   through `writeMu`, rechecks closing/sealed state, and completes before DB/cache
+   teardown. Race close/checkpoint/seal against writes; require no post-seal commit,
+   panic, or retained DB use. Existing engine lifecycle tests cover the barrier;
+   `TestVerificationReplayWriteBarrierDrainsBeforeClose` additionally blocks replay
+   at its commit seam and requires `Close` to wait for the active writer.
+2. **Get closers and iterators (calling engine/rawdb method)** — every successful
+   acquisition closes on success, error, cancellation, malformed value, and early
+   yield. Reopen/race and injected malformed/cancel paths are the oracle. All-kind
+   malformed-delete, replay-cut, and hard-reopen tests found no remaining leak.
+3. **Typed record batches (rawdb)** — primary mutation, old-index cleanup, new
+   indexes, source-scope transition, and digest invalidation commit atomically.
+   Stage/commit failure must preserve the complete prior key snapshot and O4.
+   `TestVerificationSourceScopeMutationAtomicity` and typed-operation coverage own
+   this obligation.
+4. **Grant index regimes (rawdb/EndSync)** — inline writes maintain principal and
+   expansion indexes; deferred writes arm a durable rebuild marker before rows and
+   clear it only after rebuild. Marker/row/rebuild cuts require flag/key agreement
+   and complete sealed indexes; deferred-marker and failed-mutation tests cover it.
+5. **Malformed source-scope cleanup (rawdb)** — malformed old values trigger
+   identity-derived scans that remove all matching source indexes atomically.
+   `TestVerificationMalformedAllKindDeleteCleansSourceScopeIndex` requires primary
+   and stale-index absence.
+6. **Fresh-sync proof state (Engine)** — `MarkFreshSync` establishes each family
+   emptiness proof; first mutation and every falsifying lifecycle transition
+   consume it. The oracle is an armed-premise assertion followed by a colliding
+   write and O4. CO-009 supplies bind, bulk-finish, and committed-clear evidence.
+   Bind/bulk assert the proof state directly: bind has no other mutation, while
+   bulk input cannot represent a prior scoped obligation for a behavioral
+   collision. The committed-clear cell supplies the all-kind colliding-write
+   oracle for the shared proof-consumption mechanism.
+7. **Entitlement bare-ID cache (Engine)** — generation advances after every landed
+   entitlement mutation, so a racing rebuild from an older generation remains
+   stale. Lookup-invalidation tests cover writes and replay; fold callers remain
+   conventionally responsible and compactor integration is deferred.
+8. **Replay source preflight (replay Engine)** — prove the selected source
+   primary↔scope-index biconditional before any destination mutation and retain
+   source ownership of all closers/iterators. Corrupt-source matrices require
+   unchanged source and destination snapshots.
+9. **Destructive replay clear loop (Engine)** — bounded batches report only landed
+   deletions and invalidate family proof/cache state even if a later commit fails.
+   CO-009 covers every kind with a committed clear cut, colliding write, and retry;
+   public zero-row and failure persistence tests cover close/reopen representatives.
+   Public persistence is reduced across kinds because one wrapper marks dirty
+   before dispatch; the kind-specific engine loops remain all-kind evidence.
+10. **Replay copy loops (Engine)** — each family stages primary and maintained
+    indexes together; committed rows, not staged/result rows, control proof/cache
+    invalidation. Read, malformed, intermediate/final commit, and cancellation cuts
+    require O2/O4, source immutability, reopen durability, and convergent retry.
+11. **Scoped tombstone loops (Engine/public wrapper)** — batch ownership is
+    nil-or-exclusive, commits are bounded, result counts include only committed
+    primary deletes, and committed orphan cleanup still persists. Bounded-retry,
+    final-close ownership, and CO-010 close/reopen tests cover the obligation.
+12. **Manifest mutation and dirty lifecycle (public `pebbleStore`)** — public replay
+    and all source-cache mutations own `closeMu` from conservative dirty marking
+    through engine completion; terminal claims publish only after their owned
+    facts. CO-010a deterministically pins the pre-engine Close handoff. Zero-row
+    replacement, post-commit error, manifest failure, and hard-reopen tests cover
+    the remaining persistence cuts.
+13. **Bulk-import ownership (BulkSyncImport)** — Finish/Abort own SST writers,
+    sorters, shards, files, goroutines, and staging teardown; successful ingest
+    invalidates all affected proof/cache state. The bulk suite and abort-after-close
+    test cover representable data; scoped bulk input remains unrepresentable.
+14. **Reset/open/close/checkpoint (Engine/store)** — reset removes data/sidecars
+    while preserving engine-global metadata; open restores durable proof state;
+    close flushes before release; checkpoint orders flush, snapshot, then WAL
+    truncation. Reset, MemFS, errorfs, checkpoint-WAL, and close tests own this.
+15. **Sidecars, markers, and counters (Engine/rawdb)** — digest/build-pending and
+    deferred-index state are correctness proofs; computed stats are derived state.
+    Failure after establishment must yield fallback/missing-not-stale state and
+    marker agreement. Existing digest/marker crash tests cover correctness;
+    attempted-versus-committed expansion telemetry has no Phase 6a semantic effect.
+16. **Clone/copy/fold ownership (FileOps/synccompactor)** — clone owns checkpoint,
+    destination engine, temporary output, and rename; failure removes temporary
+    output. Clone/copy tests require semantic equivalence, source immutability, and
+    read-only replay. Fold barrier ordering and lookup invalidation remain with the
+    explicitly deferred compactor integration owner.
+
+The initial independent review reported zero new HIGH findings. Its focused
+re-review of CO-010 found the HIGH handoff defect recorded by CO-010a; re-review of
+that correction passed the zero-HIGH gate and found the LOW validation-order issue
+recorded by CO-010b. The final re-review found no remaining HIGH, MEDIUM, or LOW
+implementation findings and passed the focused implementation-review gate. The
+listed deferred integration boundaries are not Phase 6a closure claims.

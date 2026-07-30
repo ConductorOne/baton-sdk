@@ -747,6 +747,9 @@ func (g pebbleStoreGrants) ListWithAnnotations(ctx context.Context) iter.Seq2[c1
 }
 
 func (s *pebbleStore) Close(ctx context.Context) (retErr error) {
+	if s.sourceCacheTest.beforeCloseLock != nil {
+		s.sourceCacheTest.beforeCloseLock()
+	}
 	s.closeMu.Lock()
 	defer s.closeMu.Unlock()
 	if s.closed {
