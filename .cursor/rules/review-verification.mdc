@@ -1,0 +1,16 @@
+---
+description: Route reviews and verification work through the repository guidance
+alwaysApply: true
+---
+
+# Review and Verification
+
+For code review, verification planning, or correctness signoff:
+
+1. Read `docs/REVIEW_CHECKLIST.md` before beginning.
+2. Route the change using its risk model.
+3. For HIGH changes and silent/combinatorial/no-single-run-oracle subsystems,
+   read the applicable sections of `docs/BUG_CATCHING.md` and follow its
+   step-up process.
+4. Treat `docs/BUG_CATCHING.md` as authoritative if it differs from the
+   checklist.

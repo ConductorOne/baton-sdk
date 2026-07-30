@@ -64,6 +64,14 @@ This repository is **open source**. All issues, PRs, commit messages, and code c
 - Anonymized metrics: row counts, timing data, percentages, function names
 - Internal ticket IDs only (the ticket body is private)
 
+## Review and Verification Guidance
+
+Before code review, verification planning, or correctness signoff, read
+`docs/REVIEW_CHECKLIST.md` and route the change by its risk model. For HIGH
+changes and silent/combinatorial/no-single-run-oracle subsystems, read the
+applicable sections of `docs/BUG_CATCHING.md` and follow its step-up process.
+`BUG_CATCHING.md` is authoritative when the checklist and handbook differ.
+
 ## Dependencies & Tooling
 
 - **Go 1.25.2** with vendored dependencies (`vendor/`)
