@@ -3,6 +3,7 @@ package grpc
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -317,6 +318,53 @@ func parseLambdaErrorPayload(payload []byte) lambdaErrorPayload {
 	// unparseable payload just leaves the fields empty.
 	_ = json.Unmarshal(payload, &parsed)
 	return parsed
+}
+
+// ignoredLogPrefixes are tail-log lines the AWS platform writes itself. They
+// are bookkeeping, not diagnostic, so extractMeaningfulLogLines drops them.
+var ignoredLogPrefixes = []string{
+	"START RequestId:",
+	"END RequestId:",
+	"REPORT RequestId:",
+	"INIT_REPORT",
+	"RequestId:",
+	"Duration:",
+	"Billed Duration:",
+	"Memory Size:",
+	"Max Memory Used:",
+}
+
+// extractMeaningfulLogLines strips platform bookkeeping lines and structured
+// JSON log lines from a tail log, keeping whatever plain-text application
+// output remains. That remainder can carry connector output, so it must be
+// logged rather than returned to a customer; see LogSummary.
+func extractMeaningfulLogLines(raw string) string {
+	lines := strings.Split(raw, "\n")
+	var filtered []string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		if line == "" {
+			continue
+		}
+
+		if slices.ContainsFunc(ignoredLogPrefixes, func(prefix string) bool {
+			return strings.HasPrefix(line, prefix)
+		}) || strings.Contains(line, "Runtime.ExitError") {
+			continue
+		}
+
+		// Skip structured JSON log lines (zap logger output) - they are
+		// diagnostic context, not the actual error.
+		if strings.HasPrefix(line, "{") {
+			continue
+		}
+
+		filtered = append(filtered, line)
+	}
+
+	return strings.Join(filtered, "\n")
 }
 
 // classifyLambdaFailure builds the structured failure for an invoke that came

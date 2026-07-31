@@ -5,8 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -172,45 +170,4 @@ func NewClientConn(transport ClientTransport) grpc.ClientConnInterface {
 	return &clientConn{
 		t: transport,
 	}
-}
-
-var ignoredLogPrefixes = []string{
-	"START RequestId:",
-	"END RequestId:",
-	"REPORT RequestId:",
-	"INIT_REPORT",
-	"RequestId:",
-	"Duration:",
-	"Billed Duration:",
-	"Memory Size:",
-	"Max Memory Used:",
-}
-
-func extractMeaningfulLogLines(raw string) string {
-	lines := strings.Split(raw, "\n")
-	var filtered []string
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-
-		if line == "" {
-			continue
-		}
-
-		if slices.ContainsFunc(ignoredLogPrefixes, func(prefix string) bool {
-			return strings.HasPrefix(line, prefix)
-		}) || strings.Contains(line, "Runtime.ExitError") {
-			continue
-		}
-
-		// Skip structured JSON log lines (zap logger output) - they are
-		// diagnostic context, not the actual error.
-		if strings.HasPrefix(line, "{") {
-			continue
-		}
-
-		filtered = append(filtered, line)
-	}
-
-	return strings.Join(filtered, "\n")
 }
