@@ -181,6 +181,7 @@ func TestIngestFilterExternalPredictionMissCaughtAtSeam(t *testing.T) {
 		WithTmpDir(tempDir),
 		WithStorageEngine(c1zstore.EnginePebble),
 		WithExternalResourceC1ZPath(externalC1zPath),
+		WithExternalResourceTraits(v2.ResourceType_TRAIT_USER, v2.ResourceType_TRAIT_GROUP),
 	)
 	require.NoError(t, err)
 	require.NoError(t, internalSyncer.Sync(lctx), "a prediction miss is warn-only; it must not fail the sync")
