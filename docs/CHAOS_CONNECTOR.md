@@ -1,12 +1,20 @@
 # Internal chaos connector
 
-This document freezes the initial contract and verification plan for the
-SDK-owned adversarial connector. The connector is test infrastructure, not a
+The chaos connector is a deterministic adversarial environment for verifying
+SDK behavior in the face of poorly constructed connectors, buggy upstream
+APIs, and unreliable execution environments. It is test infrastructure, not a
 customer-facing example and not a source of unstructured randomness.
 
 Its purpose is to make connector behavior an explicit environment input:
 every injected behavior is reproducible, every required injection is observed,
 and every verdict is judged by a contract-specific oracle.
+
+It does not attempt to emulate arbitrary third-party APIs directly. Instead,
+it represents their SDK-visible consequences: malformed and inconsistent data,
+pagination defects, answer drift, transient and fatal errors, lost responses,
+concurrency, interruption, and replay. Environment adapters extend those
+deterministic scenarios to transport boundaries, persisted stores, and real
+process death.
 
 ## Boundaries
 
@@ -230,6 +238,15 @@ rows remain absent, hard-invalid rows cannot seal, retained dangling rows
 survive, and an interrupted response is replaced by the resume-time answer.
 Page-chain replay is at-least-once: a dropped row before the cut is observed
 and counted once in each attempt, while remaining absent from both artifacts.
+
+`ExternalPrincipalCorpus` composes two connector worlds: a sealed external
+user/group sync and an internal sync containing external-match grant carriers.
+It covers match-all, ID, email, user-profile, group-profile, misses, and
+expandable-entitlement remapping through both transports. Each case is also
+cut after rewritten grants are put but before its carrier is deleted, then
+resumed against the persisted checkpoint. A changed-external-answer case
+verifies replay converges to the principals visible at resume time. Its oracle
+checks multiplicity, unresolved carriers, expansion targets, and sealing.
 
 ### Stage 6: checkpoint and resume
 

@@ -3187,7 +3187,6 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if matchResourceMatchIDAnno != nil {
 			if principal, ok := principalMap[matchResourceMatchIDAnno.GetId()]; ok {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
-				expandedGrants = append(expandedGrants, newGrant)
 
 				newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
 
@@ -3220,8 +3219,8 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					}.Build()
 					newGrantAnnos.Update(newExpandableAnno)
 					newGrant.SetAnnotations(newGrantAnnos)
-					expandedGrants = append(expandedGrants, newGrant)
 				}
+				expandedGrants = append(expandedGrants, newGrant)
 			}
 
 			// We still want to delete the grant even if there are no matches
