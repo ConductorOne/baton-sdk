@@ -62,6 +62,30 @@ func assertFamily(op string, key, prefix []byte) error {
 	return nil
 }
 
+// StageSourceCacheReplayInvalidation removes validators that cannot describe a
+// compaction output. Rebuild compactions also drop all source-scope indexes;
+// fold compactions retain them to avoid rewriting the inherited base.
+func (rb *RecordBatch) StageSourceCacheReplayInvalidation(dropScopeIndexes bool) error {
+	lo, hi := SourceCacheEntryBounds()
+	if err := rb.core.DeleteRange(lo, hi); err != nil {
+		return err
+	}
+	if !dropScopeIndexes {
+		return nil
+	}
+	for _, indexID := range []byte{
+		IdxResourceBySourceScope,
+		IdxEntitlementBySourceScope,
+		IdxGrantBySourceScope,
+	} {
+		lo := []byte{VersionV3, TypeIndex, indexID}
+		if err := rb.core.DeleteRange(lo, UpperBound(lo)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // === grant staging ===
 
 // StageGrantPutInline stages one grant row in the INLINE index regime

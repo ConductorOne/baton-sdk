@@ -8,23 +8,75 @@ rerun against that committed SHA on 2026-07-30. Two independent final-code
 re-reviews accepted closure with the explicit limitations below.
 
 Included change orders: CO-003, CO-003a, CO-005 through CO-010b, and CO-011
-through CO-012a.
+through CO-013.
+
+CO-013 is implemented in the working tree as of 2026-07-31. It reopens branch
+closure until the remediation has a final committed SHA and independent
+implementation/evidence re-review. The CO-012a SHA and acceptance statements
+below remain the historical evidence for that superseded candidate.
 
 ## Signoff scope
 
-Phase 6a storage and dotc1z capability behavior is signed off with explicit
-limitations. This record marks incomplete, excluded, sampled, and deferred criteria
-rather than converting them into behavioral passes.
+The CO-012a candidate was signed off with explicit limitations. The current branch
+is not yet signed off because CO-013 changes production behavior after that review.
+This record marks incomplete, excluded, sampled, and deferred criteria rather than
+converting them into behavioral passes.
 Syncer/checkpoint orchestration, compatibility matching/gating, connector
-continuation/RPC behavior, invalidation policy, compacted/non-FULL eligibility,
-compactor integration, and post-replay ingest-invariant evaluation remain outside
-this stage.
+continuation/RPC behavior, and post-replay ingest-invariant evaluation remain
+outside this stage. CO-013 implements the previously deferred compacted/non-FULL
+source eligibility and compactor source-cache invalidation policy.
 
 The repeated final-code audits reopened closure, leading to CO-012 and CO-012a.
 The corrected implementation rejects unfinished sources, propagates owned
 source-close errors, removes unpublished run files on close failure, and narrows
 the evidence claims. Final gates pass and both independent re-reviews accepted the
 result with explicit limitations.
+
+## CO-013 remediation evidence
+
+The working-tree remediation:
+
+- releases grant `Get` closers on marshal failure through per-record immediate
+  defers, with invalid UTF-8 forcing both exact branches;
+- persists and exports the compacted marker, then rejects partial and compacted
+  sources in both syncer selection and public replay before destination mutation;
+- drops manifests only for fold and drops manifests plus source-scope indexes for
+  k-way/overlay, including a second finalization after grant expansion; and
+- projects the durable compacted bit into the v3 envelope's sync-run summary, so
+  `ReadManifestHeader` exposes it without payload unpack or zstd decode; and
+- registers the new typed-batch commit point and plants its exact failure,
+  requiring atomic preservation of manifests and indexes.
+
+The affected package suites and lint pass on the uncommitted CO-013 working tree.
+Commands used:
+
+```text
+go test ./pkg/dotc1z/engine/pebble ./pkg/dotc1z ./pkg/sync ./pkg/synccompactor/...
+go test ./pkg/dotc1z
+make lint
+```
+
+Fold's invalidation is one `NoSync` range tombstone and does not enumerate
+manifests or delete source-scope indexes. A five-sample, one-iteration comparison
+of the existing skewed 10-sync fold benchmark against detached HEAD used:
+
+```text
+go test ./pkg/synccompactor -run '^$' \
+  -bench '^BenchmarkCompactorSQLiteVsPebbleSkewed/syncs=10/pebble_fold$' \
+  -benchtime=1x -count=5 -benchmem
+```
+
+The working-tree median was 0.881 s and 42,719 allocs versus detached HEAD at
+1.115 s and 42,520 allocs. The one-iteration timing is noisy and is not claimed as
+a speedup; it shows no fold-time or allocation explosion, while the code shape
+proves invalidation cost is independent of base row count.
+
+The first combined command had one fixture-order failure in
+`TestVerificationInvalidatedManifestLookupMisses`: after eligibility moved before
+manifest authorization, that test's intentionally invalidated source also needed
+to be durably finished. The fixture was sealed, its focused test passed, and the
+full `pkg/dotc1z` suite then passed. All other packages in the combined command
+passed. Independent CO-013 re-review remains outstanding.
 
 ## Criterion evidence
 

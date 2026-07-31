@@ -116,6 +116,28 @@ func (e *Engine) GetSourceCacheEntry(ctx context.Context, rowKind, scopeKey stri
 	return rec, nil
 }
 
+// InvalidateSourceCacheReplayState removes upstream validators from a
+// compaction output. Rebuild compactions also drop the source-scope indexes
+// they synthesized while materializing winner rows; fold keeps those indexes
+// because rebuilding or deleting them record-by-record would defeat fold's
+// bounded-write design. Range tombstones make both forms O(1) in row count.
+func (e *Engine) InvalidateSourceCacheReplayState(ctx context.Context, dropScopeIndexes bool) error {
+	return e.withWriteAllowSealed(func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		batch := e.db.NewRecordBatch()
+		defer batch.Close()
+		if err := batch.StageSourceCacheReplayInvalidation(dropScopeIndexes); err != nil {
+			return err
+		}
+		// Compaction does not publish the artifact until Close checkpoints and
+		// fsyncs the engine. Match the fold batches' NoSync policy so this
+		// constant-size tombstone does not add a standalone fsync.
+		return batch.Commit(pebble.NoSync)
+	})
+}
+
 // DeleteGrantRecordBounded deletes a grant by canonical public id WITHOUT
 // the O(all grants) stored-external-id scan fallback that the interactive
 // DeleteGrantRecord path is allowed to take. Used by the source-cache

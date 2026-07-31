@@ -4023,6 +4023,31 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 		)
 		switch {
 		case err == nil:
+			run, metaErr := previousSyncStore.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+			if metaErr != nil {
+				closeErr := previousSyncStore.Close(ctx)
+				if s.previousSyncC1ZPathOptional {
+					ctxzap.Extract(ctx).Warn("previous-sync c1z metadata unusable; syncing without source-cache replay",
+						zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+						zap.Error(errors.Join(metaErr, closeErr)),
+					)
+					break
+				}
+				return nil, fmt.Errorf(
+					"error reading previous-sync c1z %q metadata: %w",
+					s.previousSyncC1ZPath,
+					errors.Join(metaErr, closeErr),
+				)
+			}
+			if run == nil || !run.UsableAsReplaySource() {
+				if closeErr := previousSyncStore.Close(ctx); closeErr != nil {
+					return nil, fmt.Errorf("error closing ineligible previous-sync c1z %q: %w", s.previousSyncC1ZPath, closeErr)
+				}
+				ctxzap.Extract(ctx).Warn("previous-sync c1z is not replay-eligible; syncing without source-cache replay",
+					zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+				)
+				break
+			}
 			s.previousSyncReader = previousSyncStore
 		case s.previousSyncC1ZPathOptional:
 			// Best-effort replay source (see WithOptionalPreviousSyncC1ZPath):

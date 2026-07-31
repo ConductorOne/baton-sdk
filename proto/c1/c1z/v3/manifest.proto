@@ -234,6 +234,9 @@ message SyncRunSummary {
   // unpacking the payload. Absent for syncs whose sidecar was never
   // written (e.g. interrupted syncs).
   c1.storage.v3.SyncStatsRecord stats = 6;
+  // Projection of SyncRunRecord.compacted. Header-only readers use this
+  // eligibility bit without unpacking or decompressing the Pebble payload.
+  bool compacted = 7;
 }
 
 // PebbleEngineConfig is the value placed inside C1ZManifestV3.engine_config

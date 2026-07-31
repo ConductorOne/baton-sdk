@@ -977,7 +977,10 @@ type SyncRunSummary struct {
 	// planning, tooling) get row counts from the envelope header without
 	// unpacking the payload. Absent for syncs whose sidecar was never
 	// written (e.g. interrupted syncs).
-	Stats         *v3.SyncStatsRecord `protobuf:"bytes,6,opt,name=stats,proto3" json:"stats,omitempty"`
+	Stats *v3.SyncStatsRecord `protobuf:"bytes,6,opt,name=stats,proto3" json:"stats,omitempty"`
+	// Projection of SyncRunRecord.compacted. Header-only readers use this
+	// eligibility bit without unpacking or decompressing the Pebble payload.
+	Compacted     bool `protobuf:"varint,7,opt,name=compacted,proto3" json:"compacted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1049,6 +1052,13 @@ func (x *SyncRunSummary) GetStats() *v3.SyncStatsRecord {
 	return nil
 }
 
+func (x *SyncRunSummary) GetCompacted() bool {
+	if x != nil {
+		return x.Compacted
+	}
+	return false
+}
+
 func (x *SyncRunSummary) SetSyncId(v string) {
 	x.SyncId = v
 }
@@ -1071,6 +1081,10 @@ func (x *SyncRunSummary) SetParentSyncId(v string) {
 
 func (x *SyncRunSummary) SetStats(v *v3.SyncStatsRecord) {
 	x.Stats = v
+}
+
+func (x *SyncRunSummary) SetCompacted(v bool) {
+	x.Compacted = v
 }
 
 func (x *SyncRunSummary) HasStartedAt() bool {
@@ -1120,6 +1134,9 @@ type SyncRunSummary_builder struct {
 	// unpacking the payload. Absent for syncs whose sidecar was never
 	// written (e.g. interrupted syncs).
 	Stats *v3.SyncStatsRecord
+	// Projection of SyncRunRecord.compacted. Header-only readers use this
+	// eligibility bit without unpacking or decompressing the Pebble payload.
+	Compacted bool
 }
 
 func (b0 SyncRunSummary_builder) Build() *SyncRunSummary {
@@ -1132,6 +1149,7 @@ func (b0 SyncRunSummary_builder) Build() *SyncRunSummary {
 	x.EndedAt = b.EndedAt
 	x.ParentSyncId = b.ParentSyncId
 	x.Stats = b.Stats
+	x.Compacted = b.Compacted
 	return m0
 }
 
@@ -1253,7 +1271,7 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\x0eRecordTypeInfo\x12*\n" +
 	"\x11message_full_name\x18\x01 \x01(\tR\x0fmessageFullName\x12%\n" +
 	"\x0eschema_version\x18\x02 \x01(\rR\rschemaVersion\x12'\n" +
-	"\x0festimated_count\x18\x03 \x01(\x03R\x0eestimatedCount\"\xa4\x02\n" +
+	"\x0festimated_count\x18\x03 \x01(\x03R\x0eestimatedCount\"\xc2\x02\n" +
 	"\x0eSyncRunSummary\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12+\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x17.c1.storage.v3.SyncTypeR\x04type\x129\n" +
@@ -1261,7 +1279,8 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"started_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x125\n" +
 	"\bended_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\aendedAt\x12$\n" +
 	"\x0eparent_sync_id\x18\x05 \x01(\tR\fparentSyncId\x124\n" +
-	"\x05stats\x18\x06 \x01(\v2\x1e.c1.storage.v3.SyncStatsRecordR\x05stats\"p\n" +
+	"\x05stats\x18\x06 \x01(\v2\x1e.c1.storage.v3.SyncStatsRecordR\x05stats\x12\x1c\n" +
+	"\tcompacted\x18\a \x01(\bR\tcompacted\"p\n" +
 	"\x12PebbleEngineConfig\x120\n" +
 	"\x14format_major_version\x18\x01 \x01(\rR\x12formatMajorVersion\x12(\n" +
 	"\x10cache_size_bytes\x18\x02 \x01(\x04R\x0ecacheSizeBytes*\x96\x01\n" +

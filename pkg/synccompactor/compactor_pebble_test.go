@@ -3,6 +3,7 @@ package synccompactor
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -23,6 +24,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
@@ -137,11 +140,29 @@ func latestEndedAt(t *testing.T, ctx context.Context, path string) time.Time {
 
 func verifyCompacted(t *testing.T, ctx context.Context, path, syncID string) (int, string) {
 	t.Helper()
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	manifest, err := formatv3.ReadManifestHeader(f)
+	require.NoError(t, f.Close())
+	require.NoError(t, err)
+	require.Len(t, manifest.GetSyncRuns(), 1)
+	require.True(t, manifest.GetSyncRuns()[0].GetCompacted(),
+		"header-only sync-run projection must expose compaction without unpacking the payload")
+
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer w.Close(ctx)
 
 	require.NoError(t, w.SetCurrentSync(ctx, syncID))
+	eng, ok := enginepkg.AsEngine(w)
+	require.True(t, ok)
+	runRecord, err := eng.GetSyncRunRecord(ctx, syncID)
+	require.NoError(t, err)
+	require.True(t, runRecord.GetCompacted(), "compaction output must carry its durable eligibility marker")
+	run, err := w.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+	require.NoError(t, err)
+	require.True(t, run.Compacted)
+	require.False(t, run.UsableAsReplaySource())
 
 	count := 0
 	pageToken := ""
@@ -204,6 +225,84 @@ func TestCompactPebbleEndToEnd(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 	require.Len(t, byResource.GetList(), 3, "compacted pebble output must materialize grant_by_entitlement_resource index")
+}
+
+func buildPebbleSourceCacheInput(t *testing.T, ctx context.Context, path string) string {
+	t.Helper()
+	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	syncID, err := w.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	scopeCtx := sourcecache.WithScope(ctx, "scope-a")
+	require.NoError(t, w.PutResourceTypes(scopeCtx, v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()))
+	require.NoError(t, w.PutResources(scopeCtx, v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+		DisplayName: "Alice",
+	}.Build()))
+	cache, ok := w.(dotc1z.SourceCacheStore)
+	require.True(t, ok)
+	require.NoError(t, cache.PutSourceCacheEntry(ctx, sourcecache.RowKindResources, "scope-a", "validator-a"))
+	require.NoError(t, w.EndSync(ctx))
+	require.NoError(t, w.Close(ctx))
+	return syncID
+}
+
+func countPebbleRange(t *testing.T, eng *enginepkg.Engine, lower, upper []byte) int {
+	t.Helper()
+	iter, err := eng.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, iter.Close()) }()
+	count := 0
+	for iter.First(); iter.Valid(); iter.Next() {
+		count++
+	}
+	require.NoError(t, iter.Error())
+	return count
+}
+
+func TestCompactPebbleInvalidatesSourceCacheReplayState(t *testing.T) {
+	for _, mode := range []PebbleCompactorMode{
+		PebbleCompactorModeFold,
+		PebbleCompactorModeKWay,
+		PebbleCompactorModeOverlay,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			ctx := t.Context()
+			inDir := t.TempDir()
+			basePath := filepath.Join(inDir, "base.c1z")
+			partialPath := filepath.Join(inDir, "partial.c1z")
+			baseID := buildPebbleSourceCacheInput(t, ctx, basePath)
+			partialID := buildPebbleInput(t, ctx, partialPath, connectorstore.SyncTypePartial)
+			c, cleanup, err := NewCompactor(
+				ctx,
+				t.TempDir(),
+				[]*CompactableSync{
+					{FilePath: basePath, SyncID: baseID},
+					{FilePath: partialPath, SyncID: partialID},
+				},
+				WithTmpDir(t.TempDir()),
+				WithEngine(c1zstore.EnginePebble),
+				WithPebbleCompactorMode(mode),
+			)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, cleanup()) }()
+			out, err := c.Compact(ctx)
+			require.NoError(t, err)
+
+			w, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithReadOnly(true))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, w.Close(ctx)) }()
+			eng, ok := enginepkg.AsEngine(w)
+			require.True(t, ok)
+			require.Zero(t, countPebbleRange(t, eng, enginepkg.SourceCacheEntryLowerBound(), enginepkg.SourceCacheEntryUpperBound()))
+			scopeIndexRows := countPebbleRange(t, eng, enginepkg.ResourceBySourceScopeLowerBound(), enginepkg.ResourceBySourceScopeUpperBound())
+			if mode == PebbleCompactorModeFold {
+				require.Equal(t, 1, scopeIndexRows, "fold keeps inherited scope indexes without publishing validators")
+			} else {
+				require.Zero(t, scopeIndexRows, "rebuild compaction omits source-scope indexes")
+			}
+		})
+	}
 }
 
 // requirePebbleOutput asserts the compacted output at path is a Pebble store.

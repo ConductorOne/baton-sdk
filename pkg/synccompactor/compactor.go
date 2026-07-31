@@ -14,6 +14,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor/attached"
@@ -620,6 +621,21 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 	if err := syncer.Sync(ctx); err != nil {
 		l.Error("error syncing with grant expansion", zap.Error(err))
 		return err
+	}
+	if c.resolvedEngine() == c1zstore.EnginePebble && c.pebbleMode != PebbleCompactorModeFold {
+		eng, ok := enginepkg.AsEngine(c.compactedC1z)
+		if !ok {
+			err := errors.New("invalidate expanded compaction source-cache state: compacted store is not a pebble engine")
+			return errors.Join(err, syncer.Close(ctx))
+		}
+		if err := eng.InvalidateSourceCacheReplayState(ctx, true); err != nil {
+			err = fmt.Errorf("invalidate expanded compaction source-cache state: %w", err)
+			return errors.Join(err, syncer.Close(ctx))
+		}
+		if !enginepkg.MarkStoreDirty(c.compactedC1z) {
+			err := errors.New("invalidate expanded compaction source-cache state: could not mark store dirty")
+			return errors.Join(err, syncer.Close(ctx))
+		}
 	}
 	if err := syncer.Close(ctx); err != nil {
 		l.Error("error closing syncer", zap.Error(err))

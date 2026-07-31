@@ -65,6 +65,7 @@ var rawdbHookFailureCases = map[string][]string{
 	},
 	"SetRecordCommitTestHook": {
 		"TestVerificationSourceScopeMutationAtomicity",
+		"TestInvalidateSourceCacheReplayStateCommitFailureIsAtomic",
 	},
 }
 

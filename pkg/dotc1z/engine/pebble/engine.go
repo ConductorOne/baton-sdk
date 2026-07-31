@@ -653,9 +653,9 @@ func (e *Engine) withWrite(fn func() error) error {
 
 // withWriteAllowSealed is withWrite without the sealed check. Reserved for
 // writes that are part of the sealed lifecycle itself: sync-run metadata
-// stamps on a finished sync (ended_at overrides, diff links, supports_diff)
-// and ResetForNewSync's wipe on the way into a new sync. Record-data writes
-// must use withWrite.
+// stamps on a finished sync (ended_at overrides, diff links, supports_diff),
+// compactor source-cache invalidation, and ResetForNewSync's wipe on the way
+// into a new sync. Record-data writes must use withWrite.
 func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	if err := e.checkWritableAllowSealed(); err != nil {
 		return err

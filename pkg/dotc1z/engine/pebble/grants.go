@@ -246,55 +246,51 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 			if dedup != nil && dedup[id] != i {
 				continue
 			}
-			ext := r.GetExternalId()
-			keyScratch = appendGrantIdentityKey(keyScratch[:0], id)
+			if err := func() error {
+				ext := r.GetExternalId()
+				keyScratch = appendGrantIdentityKey(keyScratch[:0], id)
 
-			oldVal, closer, getErr := e.db.Get(keyScratch)
-			switch {
-			case getErr == nil:
-				// Preserve the prior record's expansion side-state +
-				// discovered_at (StoreExpandedGrants contract). The prior
-				// value's index cleanup is the typed op's obligation.
-				prior.Reset()
-				if err := unmarshalRecord(oldVal, &prior); err != nil {
-					closer.Close()
-					return fmt.Errorf("PutExpandedGrantRecords: unmarshal prior %q: %w", ext, err)
+				oldVal, closer, getErr := e.db.Get(keyScratch)
+				switch {
+				case getErr == nil:
+					defer closer.Close()
+					// Preserve the prior record's expansion side-state +
+					// discovered_at (StoreExpandedGrants contract). The prior
+					// value's index cleanup is the typed op's obligation.
+					prior.Reset()
+					if err := unmarshalRecord(oldVal, &prior); err != nil {
+						return fmt.Errorf("PutExpandedGrantRecords: unmarshal prior %q: %w", ext, err)
+					}
+					r.SetExpansion(prior.GetExpansion())
+					r.SetNeedsExpansion(prior.GetNeedsExpansion())
+					r.SetDiscoveredAt(prior.GetDiscoveredAt())
+					r.SetSourceScopeKey(prior.GetSourceScopeKey())
+				case errors.Is(getErr, pebble.ErrNotFound):
+					// No prior record: discovered_at is stamped below unless the
+					// translation already carried one.
+				default:
+					return fmt.Errorf("PutExpandedGrantRecords: get old %q: %w", ext, getErr)
 				}
-				r.SetExpansion(prior.GetExpansion())
-				r.SetNeedsExpansion(prior.GetNeedsExpansion())
-				r.SetDiscoveredAt(prior.GetDiscoveredAt())
-				r.SetSourceScopeKey(prior.GetSourceScopeKey())
-			case errors.Is(getErr, pebble.ErrNotFound):
-				// No prior record: discovered_at is stamped below unless the
-				// translation already carried one.
-			default:
-				return fmt.Errorf("PutExpandedGrantRecords: get old %q: %w", ext, getErr)
-			}
-			if r.GetDiscoveredAt() == nil {
-				r.SetDiscoveredAt(now)
-			}
+				if r.GetDiscoveredAt() == nil {
+					r.SetDiscoveredAt(now)
+				}
 
-			val, err := marshalRecordAppend(valScratch[:0], r)
-			if err != nil {
-				return err
-			}
-			valScratch = val
-			// Deferred regime: arms the rebuild marker, cleans the prior
-			// needs_expansion entry (by_principal is excised+rebuilt at
-			// seal), stages row + conditional needs_expansion + digest
-			// invalidation.
-			var priorVal []byte
-			if getErr == nil {
-				priorVal = oldVal
-			}
-			if err := batch.StageGrantPutDeferred(keyScratch, val, priorVal, r.GetNeedsExpansion()); err != nil {
-				if closer != nil {
-					closer.Close()
+				val, err := marshalRecordAppend(valScratch[:0], r)
+				if err != nil {
+					return err
 				}
+				valScratch = val
+				// Deferred regime: arms the rebuild marker, cleans the prior
+				// needs_expansion entry (by_principal is excised+rebuilt at
+				// seal), stages row + conditional needs_expansion + digest
+				// invalidation.
+				var priorVal []byte
+				if getErr == nil {
+					priorVal = oldVal
+				}
+				return batch.StageGrantPutDeferred(keyScratch, val, priorVal, r.GetNeedsExpansion())
+			}(); err != nil {
 				return err
-			}
-			if closer != nil {
-				closer.Close()
 			}
 		}
 

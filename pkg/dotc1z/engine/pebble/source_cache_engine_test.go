@@ -2,6 +2,7 @@ package pebble
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -19,6 +20,30 @@ var (
 	scopeA = sourcecache.HashScope("https://example.test/teams/1/members?page=1")
 	scopeB = sourcecache.HashScope("https://example.test/teams/2/members?page=1")
 )
+
+func TestInvalidateSourceCacheReplayStateCommitFailureIsAtomic(t *testing.T) {
+	ctx := t.Context()
+	a := newAdapter(t)
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, scopeA), scGrant("member", "alice", false)))
+	require.NoError(t, a.PebbleEngine().PutSourceCacheEntry(ctx, string(sourcecache.RowKindGrants), scopeA, "validator"))
+	require.NoError(t, a.EndSync(ctx))
+
+	eng := a.PebbleEngine()
+	require.Equal(t, 1, countKeys(t, eng, SourceCacheEntryLowerBound()))
+	require.Equal(t, 1, countKeys(t, eng, GrantBySourceScopeLowerBound()))
+	injected := errors.New("source-cache invalidation commit failed")
+	eng.db.SetRecordCommitTestHook(func() error { return injected })
+	require.ErrorIs(t, eng.InvalidateSourceCacheReplayState(ctx, true), injected)
+	eng.db.SetRecordCommitTestHook(nil)
+	require.Equal(t, 1, countKeys(t, eng, SourceCacheEntryLowerBound()))
+	require.Equal(t, 1, countKeys(t, eng, GrantBySourceScopeLowerBound()))
+
+	require.NoError(t, eng.InvalidateSourceCacheReplayState(ctx, true))
+	require.Zero(t, countKeys(t, eng, SourceCacheEntryLowerBound()))
+	require.Zero(t, countKeys(t, eng, GrantBySourceScopeLowerBound()))
+}
 
 func scGrant(entName, principalID string, expandable bool) *v2.Grant {
 	// Public ids are the raw ":"-join (an external contract, never parsed

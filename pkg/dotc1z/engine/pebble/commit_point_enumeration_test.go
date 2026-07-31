@@ -54,6 +54,7 @@ var commitPointRegistry = map[string][]string{
 	"if_newer.go:PutGrantRecordsIfNewer":               {"SetRecordCommitTestHook"},
 	"ingest_repair.go:healOrphanPrincipalIndexEntries": {"SetRecordCommitTestHook"},
 	"source_cache.go:DeleteGrantRecordsBounded":        {"SetRecordCommitTestHook"},
+	"source_cache.go:InvalidateSourceCacheReplayState": {"SetRecordCommitTestHook"},
 
 	// Source-cache replay/tombstone loops: dedicated per-loop seams
 	// (each distinct commit loop is its own cut — CO-009's lesson).

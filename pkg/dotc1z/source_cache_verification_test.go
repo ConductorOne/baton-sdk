@@ -693,6 +693,7 @@ func TestVerificationInvalidatedManifestLookupMisses(t *testing.T) {
 				entry, found, err := s.cache.LookupSourceCacheEntry(t.Context(), kind, "scope-a")
 				require.NoError(t, err)
 				require.False(t, found, "invalidated manifest must be exposed as a lookup miss; got %+v", entry)
+				sealSourceCacheVerificationStore(t, s)
 
 				cur := newSourceCacheVerificationStore(t)
 				putSourceCacheVerificationRows(t, cur, kind, "scope-a", 1, "destination")
@@ -1362,6 +1363,62 @@ func TestVerificationReplayRejectsUnfinishedSourceAllKinds(t *testing.T) {
 			require.Equal(t, previousBefore, sourceCacheVerificationEngineDigest(t, previous.engine))
 			require.Equal(t, currentBefore, sourceCacheVerificationEngineDigest(t, current.engine))
 		})
+	}
+}
+
+func TestVerificationReplayRejectsIneligibleFinishedSourceAllKinds(t *testing.T) {
+	for _, policy := range []struct {
+		name      string
+		configure func(*v3.SyncRunRecord)
+		wantError string
+	}{
+		{
+			name: "compacted",
+			configure: func(run *v3.SyncRunRecord) {
+				run.SetCompacted(true)
+			},
+			wantError: "compacted artifacts are not replay-eligible",
+		},
+		{
+			name: "partial",
+			configure: func(run *v3.SyncRunRecord) {
+				run.SetType(v3.SyncType_SYNC_TYPE_PARTIAL)
+			},
+			wantError: "not replay-eligible",
+		},
+	} {
+		for _, kind := range []sourcecache.RowKind{
+			sourcecache.RowKindResources,
+			sourcecache.RowKindEntitlements,
+			sourcecache.RowKindGrants,
+		} {
+			t.Run(policy.name+"/"+string(kind), func(t *testing.T) {
+				previous := newSourceCacheVerificationStore(t)
+				putSourceCacheVerificationRows(t, previous, kind, "scope-a", 2, "source")
+				require.NoError(t, previous.cache.PutSourceCacheEntry(t.Context(), kind, "scope-a", "validator"))
+				sealSourceCacheVerificationStore(t, previous)
+				run, err := previous.engine.LatestFinishedSyncRecord(t.Context(), nil)
+				require.NoError(t, err)
+				require.NotNil(t, run)
+				policy.configure(run)
+				require.NoError(t, previous.engine.PutSyncRunRecord(t.Context(), run))
+
+				current := newSourceCacheVerificationStore(t)
+				putSourceCacheVerificationRows(t, current, kind, "scope-a", 1, "destination")
+				previousBefore := sourceCacheVerificationEngineDigest(t, previous.engine)
+				currentBefore := sourceCacheVerificationEngineDigest(t, current.engine)
+				enteredMutation := false
+				current.store.(*pebbleStore).sourceCacheTest.beforeEngineMutation = func() {
+					enteredMutation = true
+				}
+
+				_, err = current.cache.ReplaySourceCache(t.Context(), previous.store, kind, "scope-a")
+				require.ErrorContains(t, err, policy.wantError)
+				require.False(t, enteredMutation, "ineligible-source rejection entered destination mutation")
+				require.Equal(t, previousBefore, sourceCacheVerificationEngineDigest(t, previous.engine))
+				require.Equal(t, currentBefore, sourceCacheVerificationEngineDigest(t, current.engine))
+			})
+		}
 	}
 }
 

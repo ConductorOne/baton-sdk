@@ -10,6 +10,7 @@ import (
 	cdbpebble "github.com/cockroachdb/pebble/v2"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
@@ -114,13 +115,19 @@ func sourceCacheEngine(store any) (*pebble.Engine, bool) {
 	return e, e != nil
 }
 
-func validateReplaySourceFinished(ctx context.Context, previous *pebble.Engine) error {
+func validateReplaySourceEligible(ctx context.Context, previous *pebble.Engine) error {
 	run, err := previous.LatestFinishedSyncRecord(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("source cache replay: read previous sync lifecycle: %w", err)
 	}
 	if run == nil {
 		return errors.New("source cache replay: previous artifact sync is not finished")
+	}
+	if run.GetType() != v3.SyncType_SYNC_TYPE_FULL {
+		return fmt.Errorf("source cache replay: previous artifact sync type %s is not replay-eligible", run.GetType())
+	}
+	if run.GetCompacted() {
+		return errors.New("source cache replay: compacted artifacts are not replay-eligible")
 	}
 	return nil
 }
@@ -198,6 +205,9 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 	if prevEngine == s.Engine {
 		return SourceCacheReplayResult{}, errors.New("source cache replay: previous and current stores are the same")
 	}
+	if err := validateReplaySourceEligible(ctx, prevEngine); err != nil {
+		return SourceCacheReplayResult{}, err
+	}
 	entry, err := prevEngine.GetSourceCacheEntry(ctx, string(kind), scopeKey)
 	if err != nil {
 		if errors.Is(err, cdbpebble.ErrNotFound) {
@@ -215,9 +225,6 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 	}
 	if entry.GetCacheValidator() == "" {
 		return SourceCacheReplayResult{}, fmt.Errorf("source cache replay: manifest for row kind %q and scope %q has no validator", kind, scopeKey)
-	}
-	if err := validateReplaySourceFinished(ctx, prevEngine); err != nil {
-		return SourceCacheReplayResult{}, err
 	}
 	// Replay is replacement, not append: the engine may clear destination rows
 	// or commit one or more bounded chunks before returning zero rows or an error.

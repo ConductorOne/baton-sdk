@@ -863,6 +863,45 @@ supplements:
   enforcement belongs to the public `SourceCacheStore` capability; direct engine
   replay primitives remain lower-level and bypass that wrapper policy.
 
+### CO-013 — Compaction eligibility, cache invalidation, and Get-closer ownership
+
+- Type: production correctness correction plus deferred eligibility-policy
+  implementation.
+- Source: an independent post-closure implementation review found two concrete
+  obligations: compactors could preserve or synthesize source-cache state whose
+  validators did not describe the merged winners, and two grant overwrite paths
+  retained successful `Get` closers across protobuf marshaling without releasing
+  them when marshaling failed.
+- Contract delta: a replay source must be a finished FULL connector sync and must
+  not carry the durable `compacted` marker. Both syncer previous-artifact selection
+  and public replay enforce the same predicate before replay mutation.
+- Production delta: fold marks its output compacted and range-deletes only source
+  manifests, retaining inherited source-scope indexes to preserve fold's bounded
+  write cost. K-way and overlay mark outputs compacted and range-delete manifests
+  plus all three source-scope index families after winner materialization and
+  again after grant expansion, because expansion may restage grant indexes.
+  Range tombstones keep invalidation O(1) in output row count and commit with
+  `NoSync`, matching fold batches: artifact publication still waits for Close's
+  checkpoint/fsync, so invalidation adds no standalone fsync. The v3 envelope's
+  header-only `SyncRunSummary` projects `compacted`, allowing eligibility
+  introspection without payload unpack or zstd decode. Grant IfNewer and expanded-
+  grant overwrite loops now put each successful `Get` in a per-record function
+  with an immediate deferred close.
+- Verification delta:
+  `TestGrantMarshalFailureReleasesExistingRowCloser` reaches both marshal-failure
+  branches with invalid UTF-8 after an existing-row `Get`; the package-wide
+  `Engine.Close` oracle requires clean version references.
+  `TestCompactPebbleInvalidatesSourceCacheReplayState` exercises fold, k-way, and
+  overlay through grant expansion and checks the exact retained/dropped keyspaces
+  plus the durable compacted marker.
+  `TestVerificationReplayRejectsIneligibleFinishedSourceAllKinds` and
+  `TestPreviousSyncC1ZPathEnforcesReplayEligibility` cover direct public replay and
+  syncer selection. `TestInvalidateSourceCacheReplayStateCommitFailureIsAtomic`
+  plants the exact typed-batch commit failure and requires both manifest and index
+  families to remain unchanged. `TestManifestSyncRunProjection` and compactor
+  output checks require the compacted bit from `ReadManifestHeader`, which reads
+  no payload bytes.
+
 ## Post-freeze implementation-obligation addendum
 
 This addendum was produced by a reader independent of the implementation and

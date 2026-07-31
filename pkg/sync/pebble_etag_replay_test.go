@@ -15,6 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -385,4 +386,52 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 	)
 	require.Error(t, err, "explicit previous-sync c1z must surface open failures")
 	require.NoError(t, store.Close(ctx))
+}
+
+func TestPreviousSyncC1ZPathEnforcesReplayEligibility(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		syncType   connectorstore.SyncType
+		compacted  bool
+		wantReader bool
+	}{
+		{name: "full", syncType: connectorstore.SyncTypeFull, wantReader: true},
+		{name: "partial", syncType: connectorstore.SyncTypePartial},
+		{name: "compacted-full", syncType: connectorstore.SyncTypeFull, compacted: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			previousPath := filepath.Join(t.TempDir(), "previous.c1z")
+			previous, err := dotc1z.NewStore(ctx, previousPath, dotc1z.WithEngine(c1zstore.EnginePebble))
+			require.NoError(t, err)
+			syncID, err := previous.StartNewSync(ctx, tc.syncType, "")
+			require.NoError(t, err)
+			require.NoError(t, previous.EndSync(ctx))
+			if tc.compacted {
+				eng, ok := enginepkg.AsEngine(previous)
+				require.True(t, ok)
+				run, err := eng.GetSyncRunRecord(ctx, syncID)
+				require.NoError(t, err)
+				run.SetCompacted(true)
+				require.NoError(t, eng.PutSyncRunRecord(ctx, run))
+				require.True(t, enginepkg.MarkStoreDirty(previous))
+			}
+			require.NoError(t, previous.Close(ctx))
+
+			current, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "current.c1z"), dotc1z.WithEngine(c1zstore.EnginePebble))
+			require.NoError(t, err)
+			connector := newEtagObservingMockConnector("etag-v1")
+			got, err := NewSyncer(
+				ctx,
+				connector,
+				WithConnectorStore(current),
+				WithTmpDir(t.TempDir()),
+				WithPreviousSyncC1ZPath(previousPath),
+			)
+			require.NoError(t, err)
+			concrete := got.(*syncer)
+			require.Equal(t, tc.wantReader, concrete.previousSyncReader != nil)
+			require.NoError(t, got.Close(ctx))
+		})
+	}
 }

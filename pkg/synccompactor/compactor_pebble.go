@@ -570,6 +570,13 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		}
 	}
 
+	// A fold inherits its base's validators, but the merged winners no longer
+	// represent that connector snapshot. Drop only the small manifest keyspace;
+	// retaining the existing source-scope indexes avoids an O(base) rewrite.
+	if err := destEng.InvalidateSourceCacheReplayState(ctx, false); err != nil {
+		return "", fmt.Errorf("compactPebbleFold: invalidate source-cache replay state: %w", err)
+	}
+
 	// Record the bytes this fold shadowed in the base keyspace. The
 	// store inherited the base manifest's running fold_dead_bytes at
 	// open (the dest is a byte copy of the base), so adding the delta
@@ -691,6 +698,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	baseRec.SetSyncId(newSyncID)
 	baseRec.SetParentSyncId("")
 	baseRec.SetType(unionType)
+	baseRec.SetCompacted(true)
 	// The fold mutated the inherited base keyspace. Never publish the base
 	// artifact's pre-fold verification as proof of the merged output; a later
 	// expansion/invariant pass will write a fresh marker when one runs.
@@ -1189,6 +1197,13 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 		return fmt.Errorf("compactPebble: merge: %w", err)
 	}
 
+	// K-way and overlay materialize into a fresh store. They must not publish
+	// either inherited validators or source-scope indexes for their merged
+	// winners; range tombstones keep this independent of output row count.
+	if err := destEng.InvalidateSourceCacheReplayState(ctx, true); err != nil {
+		return fmt.Errorf("compactPebble: invalidate source-cache replay state: %w", err)
+	}
+
 	if err := rebuildCompactedGrantDigests(ctx, destEng); err != nil {
 		return fmt.Errorf("compactPebble: %w", err)
 	}
@@ -1201,6 +1216,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 		return fmt.Errorf("compactPebble: load dest sync_run: %w", err)
 	}
 	rec.SetType(unionType)
+	rec.SetCompacted(true)
 	if !maxEnded.IsZero() {
 		rec.SetEndedAt(timestamppb.New(maxEnded))
 	}
