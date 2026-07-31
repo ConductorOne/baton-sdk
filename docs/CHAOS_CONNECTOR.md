@@ -9,6 +9,10 @@ Its purpose is to make connector behavior an explicit environment input:
 every injected behavior is reproducible, every required injection is observed,
 and every verdict is judged by a contract-specific oracle.
 
+Connector-visible behavior should be expressible through this harness; every
+new or changed correctness obligation must identify executable evidence,
+whether owned here or by a more appropriate specialized instrument.
+
 It does not attempt to emulate arbitrary third-party APIs directly. Instead,
 it represents their SDK-visible consequences: malformed and inconsistent data,
 pagination defects, answer drift, transient and fatal errors, lost responses,
