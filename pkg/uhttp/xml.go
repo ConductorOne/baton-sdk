@@ -23,7 +23,7 @@ func (x *xmlMap) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 
 // unmarshalXMLElement reads tokens from the decoder for the current element
 // (after its start element has been consumed) until the matching end element.
-// It returns a map[string]any if there are child elements, a []map[string]any
+// It returns a map[string]any if there are child elements, a []any
 // if there are duplicate child element names, or a string if the element
 // contains only text.
 func unmarshalXMLElement(d *xml.Decoder) (any, error) {
@@ -67,7 +67,7 @@ func unmarshalXMLElement(d *xml.Decoder) (any, error) {
 				return text, nil
 			}
 			if hasDuplicates {
-				result := make([]map[string]any, 0, len(entries))
+				result := make([]any, 0, len(entries))
 				for _, e := range entries {
 					result = append(result, map[string]any{e.key: e.value})
 				}

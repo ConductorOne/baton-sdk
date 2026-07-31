@@ -27,12 +27,12 @@ func TestXMLMap_UnmarshalXML(t *testing.T) {
 		err := xml.Unmarshal([]byte(xmlResponse), xmlMap)
 		require.NoError(t, err)
 		require.Equal(t, map[string]any{
-			"items": []map[string]any{
-				{"item": map[string]any{
+			"items": []any{
+				map[string]any{"item": map[string]any{
 					"name": "John",
 					"age":  "30",
 				}},
-				{"item": map[string]any{
+				map[string]any{"item": map[string]any{
 					"name": "Jane",
 					"age":  "25",
 				}},

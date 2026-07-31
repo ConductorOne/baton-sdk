@@ -407,19 +407,39 @@ func TestWrapper_WithGenericResponse(t *testing.T) {
 		err := WithGenericResponse(&respBody)(&resp)
 		require.NoError(t, err)
 		require.Equal(t, map[string]any{
-			"items": []map[string]any{
-				{
+			"items": []any{
+				map[string]any{
 					"item": map[string]any{
 						"name": "John",
 						"age":  "30",
 					},
 				},
-				{
+				map[string]any{
 					"item": map[string]any{
 						"name": "Jane",
 						"age":  "25",
 					},
 				},
+			},
+		}, respBody)
+	})
+
+	t.Run("should marshal XML despite an incorrect content type", func(t *testing.T) {
+		exampleResponse := `<?xml version="1.0" encoding="UTF-8"?><SERVICE_RESPONSE><USER_LIST><USER><LOGIN>john@example.com</LOGIN></USER><USER><LOGIN>jane@example.com</LOGIN></USER></USER_LIST></SERVICE_RESPONSE>`
+		resp := WrapperResponse{
+			Header:     http.Header{"Content-Type": []string{"text/plain"}},
+			Body:       []byte(exampleResponse),
+			StatusCode: http.StatusOK,
+		}
+		var respBody map[string]any
+
+		err := WithAlwaysGenericXMLResponse(&respBody)(&resp)
+
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{
+			"USER_LIST": []any{
+				map[string]any{"USER": map[string]any{"LOGIN": "john@example.com"}},
+				map[string]any{"USER": map[string]any{"LOGIN": "jane@example.com"}},
 			},
 		}, respBody)
 	})

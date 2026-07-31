@@ -230,6 +230,25 @@ func WithAlwaysXMLResponse(response any) DoOption {
 	}
 }
 
+// WithAlwaysGenericXMLResponse ignores the response content type and unmarshals XML into a generic map.
+func WithAlwaysGenericXMLResponse(response *map[string]any) DoOption {
+	return func(resp *WrapperResponse) error {
+		if response == nil {
+			return status.Error(codes.InvalidArgument, "response is nil")
+		}
+
+		if resp.StatusCode == http.StatusNoContent {
+			return nil
+		}
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 && len(resp.Body) == 0 {
+			return nil
+		}
+
+		return withGenericXMLResponse(response, resp)
+	}
+}
+
 type ErrorResponse interface {
 	Message() string
 }
@@ -374,21 +393,24 @@ func WithGenericResponse(response *map[string]any) DoOption {
 		}
 
 		if IsXMLContentType(resp.Header.Get(ContentType)) {
-			var xm xmlMap
-			err = WithXMLResponse(&xm)(resp)
-			if err != nil {
-				return err
-			}
-			if vMap, ok := xm.data.(map[string]any); ok {
-				*response = vMap
-			} else {
-				return status.Errorf(codes.Internal, "unsupported XML structure: %T", xm.data)
-			}
-			return nil
+			return withGenericXMLResponse(response, resp)
 		}
 
 		return status.Error(codes.Unknown, fmt.Sprintf("unsupported content type: %s", resp.Header.Get(ContentType)))
 	}
+}
+
+func withGenericXMLResponse(response *map[string]any, resp *WrapperResponse) error {
+	var xm xmlMap
+	err := WithAlwaysXMLResponse(&xm)(resp)
+	if err != nil {
+		return err
+	}
+	if vMap, ok := xm.data.(map[string]any); ok {
+		*response = vMap
+		return nil
+	}
+	return status.Errorf(codes.Internal, "unsupported XML structure: %T", xm.data)
 }
 
 func WrapErrors(preferredCode codes.Code, statusMsg string, errs ...error) error {
