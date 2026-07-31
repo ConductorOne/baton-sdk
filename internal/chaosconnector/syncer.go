@@ -26,7 +26,7 @@ func (s *resourceSyncer) List(
 	_ *v2.ResourceId,
 	opts resource.SyncOpAttrs,
 ) ([]*v2.Resource, *resource.SyncOpResults, error) {
-	pages := s.run.Dataset().Resources[s.resourceType.GetId()]
+	pages := s.run.dataset().Resources[s.resourceType.GetId()]
 	return servePage(pages, opts.PageToken.Token)
 }
 
@@ -36,7 +36,7 @@ func (s *resourceSyncer) Entitlements(
 	opts resource.SyncOpAttrs,
 ) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
 	scope := target.GetId().GetResource()
-	return servePage(s.run.Dataset().Entitlements[scope], opts.PageToken.Token)
+	return servePage(s.run.dataset().Entitlements[scope], opts.PageToken.Token)
 }
 
 func (s *resourceSyncer) Grants(
@@ -45,14 +45,14 @@ func (s *resourceSyncer) Grants(
 	opts resource.SyncOpAttrs,
 ) ([]*v2.Grant, *resource.SyncOpResults, error) {
 	scope := target.GetId().GetResource()
-	return servePage(s.run.Dataset().Grants[scope], opts.PageToken.Token)
+	return servePage(s.run.dataset().Grants[scope], opts.PageToken.Token)
 }
 
 func (s *resourceSyncer) StaticEntitlements(
 	_ context.Context,
 	opts resource.SyncOpAttrs,
 ) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
-	return servePage(s.run.Dataset().StaticEntitlements[s.resourceType.GetId()], opts.PageToken.Token)
+	return servePage(s.run.dataset().StaticEntitlements[s.resourceType.GetId()], opts.PageToken.Token)
 }
 
 func (s *resourceSyncer) EntitlementsForResourceType(
@@ -60,7 +60,7 @@ func (s *resourceSyncer) EntitlementsForResourceType(
 	resourceTypeID string,
 	opts resource.SyncOpAttrs,
 ) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
-	return servePage(s.run.Dataset().Entitlements[resourceTypeID], opts.PageToken.Token)
+	return servePage(s.run.dataset().Entitlements[resourceTypeID], opts.PageToken.Token)
 }
 
 func (s *resourceSyncer) GrantsForResourceType(
@@ -68,7 +68,7 @@ func (s *resourceSyncer) GrantsForResourceType(
 	resourceTypeID string,
 	opts resource.SyncOpAttrs,
 ) ([]*v2.Grant, *resource.SyncOpResults, error) {
-	return servePage(s.run.Dataset().Grants[resourceTypeID], opts.PageToken.Token)
+	return servePage(s.run.dataset().Grants[resourceTypeID], opts.PageToken.Token)
 }
 
 func (s *resourceSyncer) Get(
@@ -76,7 +76,7 @@ func (s *resourceSyncer) Get(
 	resourceID *v2.ResourceId,
 	_ *v2.ResourceId,
 ) (*v2.Resource, annotations.Annotations, error) {
-	for _, pages := range s.run.Dataset().Resources {
+	for _, pages := range s.run.dataset().Resources {
 		for _, page := range pages {
 			for _, item := range page.List {
 				if item != nil && proto.Equal(item.GetId(), resourceID) {
@@ -109,7 +109,7 @@ func servePage[T proto.Message](pages Pages[T], token string) ([]T, *resource.Sy
 }
 
 func firstResource(run *Run, resourceTypeID string) (*v2.Resource, error) {
-	pages := run.Dataset().Resources[resourceTypeID]
+	pages := run.dataset().Resources[resourceTypeID]
 	for _, page := range pages {
 		for _, item := range page.List {
 			if item != nil {

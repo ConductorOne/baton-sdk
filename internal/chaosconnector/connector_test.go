@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -169,8 +171,8 @@ func TestFaultRuntimeIsSharedByBothAdapters(t *testing.T) {
 			run, err := NewRun(scenario, NewSchedule(Rule{
 				ID: "first-resources-call",
 				Match: Matcher{
-					Service: "ResourcesService",
-					Method:  "ListResources",
+					Service: ExactString("ResourcesService"),
+					Method:  ExactString("ListResources"),
 					Attempt: 1,
 					Phase:   PhaseBeforeCall,
 				},
@@ -205,6 +207,89 @@ func TestFaultRuntimeIsSharedByBothAdapters(t *testing.T) {
 			require.NoError(t, run.Runtime().VerifyRequired())
 		})
 	}
+}
+
+func TestFaultEffectsExecuteInDeclaredOrder(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		effects   []Effect
+		wantEpoch string
+	}{
+		{
+			name: "terminal error prevents later epoch change",
+			effects: []Effect{
+				{Kind: EffectError, Code: codes.Unavailable, Message: "stop"},
+				{Kind: EffectSetEpoch, Epoch: retryDriftEpoch},
+			},
+			wantEpoch: "initial",
+		},
+		{
+			name: "epoch change before terminal error is retained",
+			effects: []Effect{
+				{Kind: EffectSetEpoch, Epoch: retryDriftEpoch},
+				{Kind: EffectError, Code: codes.Unavailable, Message: "stop"},
+			},
+			wantEpoch: retryDriftEpoch,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			scenario, err := resourceContentDriftScenario()
+			require.NoError(t, err)
+			run, err := NewRun(scenario, NewSchedule(Rule{
+				ID: "ordered-effects",
+				Match: Matcher{
+					Method: ExactString("Validate"),
+					Phase:  PhaseBeforeCall,
+				},
+				Effects:  test.effects,
+				MinFires: 1,
+				MaxFires: 1,
+			}))
+			require.NoError(t, err)
+			builder, err := NewBuilder(run)
+			require.NoError(t, err)
+			server, err := builder.Server(ctx)
+			require.NoError(t, err)
+			client := NewDirectClient(ctx, server, run)
+
+			_, err = client.Validate(ctx, v2.ConnectorServiceValidateRequest_builder{}.Build())
+			require.Equal(t, codes.Unavailable, status.Code(err))
+			require.Equal(t, test.wantEpoch, run.Epoch())
+			require.NoError(t, run.Runtime().VerifyRequired())
+		})
+	}
+}
+
+func TestAfterDelegateEffectsDoNotMaskDelegateErrors(t *testing.T) {
+	ctx := t.Context()
+	scenario, err := NewFullScenario()
+	require.NoError(t, err)
+	run, err := NewRun(scenario, NewSchedule(Rule{
+		ID: "must-not-mask-delegate",
+		Match: Matcher{
+			Method: ExactString("GetResource"),
+			Phase:  PhaseAfterDelegate,
+		},
+		Effects:  []Effect{{Kind: EffectError, Code: codes.Internal, Message: "masked"}},
+		MinFires: 0,
+		MaxFires: 1,
+	}))
+	require.NoError(t, err)
+	builder, err := NewBuilder(run)
+	require.NoError(t, err)
+	server, err := builder.Server(ctx)
+	require.NoError(t, err)
+	client := NewDirectClient(ctx, server, run)
+
+	_, err = client.GetResource(ctx, v2.ResourceGetterServiceGetResourceRequest_builder{
+		ResourceId: v2.ResourceId_builder{
+			ResourceType: FullCapabilityResourceTypeID,
+			Resource:     "missing",
+		}.Build(),
+	}.Build())
+	require.Equal(t, codes.NotFound, status.Code(err))
+	require.Zero(t, run.Runtime().FireCounts()["must-not-mask-delegate"])
 }
 
 func TestConnectorSurfaceRegistryMatchesAggregateInterface(t *testing.T) {

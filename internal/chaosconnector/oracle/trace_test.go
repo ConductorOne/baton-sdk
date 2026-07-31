@@ -23,8 +23,8 @@ func TestTraceOracleRejectsPlantedControlViolation(t *testing.T) {
 	expectation := TraceExpectation{
 		Name: "retry happened",
 		Match: chaosconnector.Matcher{
-			Service: "ResourcesService",
-			Method:  "ListResources",
+			Service: chaosconnector.ExactString("ResourcesService"),
+			Method:  chaosconnector.ExactString("ListResources"),
 		},
 		Outcomes: []chaosconnector.Outcome{
 			chaosconnector.OutcomeReturned,

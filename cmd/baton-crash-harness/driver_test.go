@@ -81,6 +81,7 @@ var killFractions = []float64{0.35, 0.75, 1.05, 1.3}
 type cellConfig struct {
 	engine  string
 	workers int
+	mode    string
 	// budgetMs bounds each crash-loop session, mirroring production's
 	// budget-bounded connector tasks. Sized per cell so every history
 	// spans enough sessions to satisfy the vacuity quotas below: parallel
@@ -135,7 +136,7 @@ func TestCrashResumeRealConnector(t *testing.T) {
 			// deterministic, so the baseline is exact — this doubles as the
 			// vacuity guard on the dataset flags.
 			baselinePath := filepath.Join(cellTmp, "baseline.c1z")
-			res := runSession(t, bin, cell, cellTmp, baselinePath, 0, 0)
+			res := runSession(t, bin, cell, cellTmp, baselinePath, harnessPageDelayMs, 0, 0)
 			require.NoError(t, res.err, "baseline sync failed:\n%s", res.output)
 			require.True(t, res.result.Complete, "baseline must complete:\n%s", res.output)
 			baseline := snapshotStore(t, baselinePath, cellTmp)
@@ -158,7 +159,7 @@ func TestCrashResumeRealConnector(t *testing.T) {
 					frac := killFractions[(i/2)%len(killFractions)]
 					killAfter = time.Duration(frac * float64(cell.budgetMs) * float64(time.Millisecond))
 				}
-				res := runSession(t, bin, cell, cellTmp, crashPath, cell.budgetMs, killAfter)
+				res := runSession(t, bin, cell, cellTmp, crashPath, harnessPageDelayMs, cell.budgetMs, killAfter)
 				switch {
 				case res.killed:
 					killedSessions++
@@ -200,6 +201,52 @@ func TestCrashResumeRealConnector(t *testing.T) {
 	}
 }
 
+func TestChaosLifecycleRealProcessCalibration(t *testing.T) {
+	if os.Getenv("BATON_DEMO_CRASH") == "" {
+		t.Skip("real-binary chaos calibration; set BATON_DEMO_CRASH=1 (or run `make crash-check`)")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("the interruption schedule relies on unix signal semantics")
+	}
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "baton-crash-harness")
+	buildHarness(t, bin)
+	cell := cellConfig{
+		engine:  "pebble",
+		workers: 1,
+		mode:    "chaos-lifecycle-retain",
+	}
+	cellTmp := t.TempDir()
+
+	baselinePath := filepath.Join(cellTmp, "chaos-baseline.c1z")
+	baselineResult := runSession(t, bin, cell, cellTmp, baselinePath, 0, 0, 0)
+	require.NoError(t, baselineResult.err, "baseline chaos sync failed:\n%s", baselineResult.output)
+	require.True(t, baselineResult.result.Complete)
+	baseline := snapshotStore(t, baselinePath, cellTmp)
+	require.Contains(t, baseline.entitlements, "lifecycle-dangling")
+
+	crashPath := filepath.Join(cellTmp, "chaos-crash.c1z")
+	budgetResult := runSession(t, bin, cell, cellTmp, crashPath, 2000, 750, 0)
+	require.NoError(t, budgetResult.err, "budget session failed:\n%s", budgetResult.output)
+	require.True(t, budgetResult.result.NotComplete)
+	unfinished := snapshotStore(t, crashPath, cellTmp)
+	require.Positive(t, unfinished.unfinishedRuns)
+	require.Contains(t, unfinished.entitlements, "lifecycle-dangling",
+		"retained row did not land before the interrupted page")
+
+	killResult := runSession(t, bin, cell, cellTmp, crashPath, 2000, 0, 500*time.Millisecond)
+	require.True(t, killResult.killed, "SIGKILL did not land:\n%s", killResult.output)
+
+	finalResult := runSession(t, bin, cell, cellTmp, crashPath, 0, 0, 0)
+	require.NoError(t, finalResult.err, "final chaos resume failed:\n%s", finalResult.output)
+	require.True(t, finalResult.result.Complete)
+	final := snapshotStore(t, crashPath, cellTmp)
+	require.Zero(t, final.unfinishedRuns)
+	requireSameSet(t, "resources", baseline.resources, final.resources)
+	requireSameSet(t, "entitlements", baseline.entitlements, final.entitlements)
+	requireSameSet(t, "grants", baseline.grants, final.grants)
+}
+
 // sessionOutcome mirrors main.go's HARNESS_RESULT json (a distinct type so
 // the package also compiles when the crashharness build tag pulls in both
 // files, e.g. under the linter).
@@ -218,17 +265,30 @@ type runResult struct {
 
 // runSession executes one real sync session of the harness binary.
 // killAfter > 0 arms a SIGKILL; runDurationMs > 0 bounds the session budget.
-func runSession(t *testing.T, bin string, cell cellConfig, cellTmp, c1zPath string, runDurationMs int, killAfter time.Duration) runResult {
+func runSession(
+	t *testing.T,
+	bin string,
+	cell cellConfig,
+	cellTmp string,
+	c1zPath string,
+	pageDelayMs int,
+	runDurationMs int,
+	killAfter time.Duration,
+) runResult {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin,
+	args := []string{
 		"-c1z", c1zPath,
 		"-users", strconv.Itoa(harnessUsers),
 		"-groups", strconv.Itoa(harnessGroups),
-		"-page-delay-ms", strconv.Itoa(harnessPageDelayMs),
+		"-page-delay-ms", strconv.Itoa(pageDelayMs),
 		"-run-duration-ms", strconv.Itoa(runDurationMs),
-	)
+	}
+	if cell.mode != "" {
+		args = append(args, "-mode", cell.mode)
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = cellTmp
 	var out bytes.Buffer
 	cmd.Stdout = &out

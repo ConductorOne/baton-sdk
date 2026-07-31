@@ -57,27 +57,33 @@ func (o Operation) Key() string {
 	return o.LogicalKey() + "\x00" + strconv.Itoa(o.Attempt) + "\x00" + string(o.Phase)
 }
 
-// Matcher selects operations. Empty string fields and Attempt zero are
+// Matcher selects operations. Nil string pointers and Attempt zero are
 // wildcards. Domain and Phase are also wildcards when empty.
 type Matcher struct {
-	Domain       Domain `json:"domain,omitempty"`
-	Service      string `json:"service,omitempty"`
-	Method       string `json:"method,omitempty"`
-	ResourceType string `json:"resource_type,omitempty"`
-	Subject      string `json:"subject,omitempty"`
-	PageToken    string `json:"page_token,omitempty"`
-	Attempt      int    `json:"attempt,omitempty"`
-	Phase        Phase  `json:"phase,omitempty"`
+	Domain       Domain  `json:"domain,omitempty"`
+	Service      *string `json:"service,omitempty"`
+	Method       *string `json:"method,omitempty"`
+	ResourceType *string `json:"resource_type,omitempty"`
+	Subject      *string `json:"subject,omitempty"`
+	PageToken    *string `json:"page_token,omitempty"`
+	Attempt      int     `json:"attempt,omitempty"`
+	Phase        Phase   `json:"phase,omitempty"`
+}
+
+// ExactString creates an exact matcher value. A pointer distinguishes an
+// exact empty string (for example the root page token) from a wildcard.
+func ExactString(value string) *string {
+	return &value
 }
 
 // Matches reports whether the matcher selects op.
 func (m Matcher) Matches(op Operation) bool {
 	return (m.Domain == "" || m.Domain == op.Domain) &&
-		(m.Service == "" || m.Service == op.Service) &&
-		(m.Method == "" || m.Method == op.Method) &&
-		(m.ResourceType == "" || m.ResourceType == op.ResourceType) &&
-		(m.Subject == "" || m.Subject == op.Subject) &&
-		(m.PageToken == "" || m.PageToken == op.PageToken) &&
+		(m.Service == nil || *m.Service == op.Service) &&
+		(m.Method == nil || *m.Method == op.Method) &&
+		(m.ResourceType == nil || *m.ResourceType == op.ResourceType) &&
+		(m.Subject == nil || *m.Subject == op.Subject) &&
+		(m.PageToken == nil || *m.PageToken == op.PageToken) &&
 		(m.Attempt == 0 || m.Attempt == op.Attempt) &&
 		(m.Phase == "" || m.Phase == op.Phase)
 }

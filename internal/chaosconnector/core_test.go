@@ -14,13 +14,39 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
+func TestMatcherDistinguishesRootPageFromWildcard(t *testing.T) {
+	root := Operation{PageToken: ""}
+	child := Operation{PageToken: "child"}
+	require.True(t, (Matcher{}).Matches(root))
+	require.True(t, (Matcher{}).Matches(child))
+
+	rootOnly := Matcher{PageToken: ExactString("")}
+	require.True(t, rootOnly.Matches(root))
+	require.False(t, rootOnly.Matches(child))
+}
+
+func TestRunIsolatesScenarioAndDatasetViews(t *testing.T) {
+	scenario, err := NewFullScenario()
+	require.NoError(t, err)
+	run, err := NewRun(scenario, NewSchedule())
+	require.NoError(t, err)
+
+	scenario.Epochs[scenario.InitialEpoch].Resources[FullCapabilityResourceTypeID][""] =
+		Page[*v2.Resource]{}
+	require.Len(t, run.Dataset().Resources[FullCapabilityResourceTypeID][""].List, 1)
+
+	view := run.Dataset()
+	view.Resources[FullCapabilityResourceTypeID][""] = Page[*v2.Resource]{}
+	require.Len(t, run.Dataset().Resources[FullCapabilityResourceTypeID][""].List, 1)
+}
+
 func TestScheduleRoundTripAndRequiredRule(t *testing.T) {
 	schedule := NewSchedule(Rule{
 		ID: "resources-transient",
 		Match: Matcher{
 			Domain:  DomainConnector,
-			Service: "ResourcesService",
-			Method:  "ListResources",
+			Service: ExactString("ResourcesService"),
+			Method:  ExactString("ListResources"),
 			Attempt: 1,
 			Phase:   PhaseBeforeCall,
 		},
@@ -113,7 +139,7 @@ func TestBlockEffectUsesDeterministicBarrier(t *testing.T) {
 	schedule := NewSchedule(Rule{
 		ID: "barrier",
 		Match: Matcher{
-			Method: "ListEntitlements",
+			Method: ExactString("ListEntitlements"),
 			Phase:  PhaseBeforeCall,
 		},
 		Effects:  []Effect{{Kind: EffectBlock, Barrier: "release-entitlements"}},

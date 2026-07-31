@@ -150,3 +150,47 @@ func cloneMessages[T proto.Message](in []T) []T {
 	}
 	return out
 }
+
+func cloneScenario(scenario *Scenario) *Scenario {
+	if scenario == nil {
+		return nil
+	}
+	out := &Scenario{
+		Name:         scenario.Name,
+		Seed:         scenario.Seed,
+		InitialEpoch: scenario.InitialEpoch,
+		Epochs:       make(map[string]*Dataset, len(scenario.Epochs)),
+	}
+	for epoch, dataset := range scenario.Epochs {
+		out.Epochs[epoch] = cloneDataset(dataset)
+	}
+	return out
+}
+
+func cloneDataset(dataset *Dataset) *Dataset {
+	if dataset == nil {
+		return nil
+	}
+	return &Dataset{
+		ResourceTypes:      cloneMessages(dataset.ResourceTypes),
+		Resources:          clonePageMap(dataset.Resources),
+		StaticEntitlements: clonePageMap(dataset.StaticEntitlements),
+		Entitlements:       clonePageMap(dataset.Entitlements),
+		Grants:             clonePageMap(dataset.Grants),
+	}
+}
+
+func clonePageMap[T proto.Message](in map[string]Pages[T]) map[string]Pages[T] {
+	out := make(map[string]Pages[T], len(in))
+	for scope, pages := range in {
+		clonedPages := make(Pages[T], len(pages))
+		for token, page := range pages {
+			page.List = cloneMessages(page.List)
+			page.Spawn = append([]string(nil), page.Spawn...)
+			page.Annotations = cloneMessages(page.Annotations)
+			clonedPages[token] = page
+		}
+		out[scope] = clonedPages
+	}
+	return out
+}

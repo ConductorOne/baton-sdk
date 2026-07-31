@@ -34,23 +34,11 @@ func runReferentialCorpusCase(t *testing.T, corpusCase chaosconnector.Referentia
 	require.NoError(t, corpusCase.Apply(scenario))
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
 	require.NoError(t, err)
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	sdkSyncer, err := NewSyncer(
-		ctx,
-		chaosconnector.NewDirectClient(ctx, server, run),
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-		WithDontExpandGrants(),
-	)
-	require.NoError(t, err)
-	concreteSyncer, ok := sdkSyncer.(*syncer)
+	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
+	concreteSyncer, ok := harness.Syncer.(*syncer)
 	require.True(t, ok)
 
-	syncErr := sdkSyncer.Sync(ctx)
+	syncErr := harness.Syncer.Sync(ctx)
 	switch corpusCase.Policy {
 	case chaosconnector.DataPolicyFail, chaosconnector.DataPolicyRejectRPC:
 		require.Error(t, syncErr)
@@ -74,7 +62,7 @@ func runReferentialCorpusCase(t *testing.T, corpusCase chaosconnector.Referentia
 			require.EqualValues(t, 1, concreteSyncer.ingestFilterStats.grantsDropped.Load())
 		}
 	}
-	require.NoError(t, sdkSyncer.Close(t.Context()))
+	require.NoError(t, harness.Close(t.Context()))
 	require.NoError(t, run.Runtime().VerifyRequired())
 
 	store, err := dotc1z.NewStore(

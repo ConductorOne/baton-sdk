@@ -32,25 +32,10 @@ func TestChaosConnectorCleanSyncMatchesManifest(t *testing.T) {
 			require.NoError(t, err)
 			run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
 			require.NoError(t, err)
-			builder, err := chaosconnector.NewBuilder(run)
-			require.NoError(t, err)
-			server, err := builder.Server(ctx)
-			require.NoError(t, err)
-			client := chaosconnector.NewDirectClient(ctx, server, run)
-
-			syncer, err := NewSyncer(
-				ctx,
-				client,
-				WithC1ZPath(c1zPath),
-				WithTmpDir(tmpDir),
-				WithStorageEngine(c1zstore.EnginePebble),
-				WithWorkerCount(workers),
-				WithDontExpandGrants(),
+			harness := newChaosHarness(
+				t, ctx, run, c1zPath, tmpDir, chaosTransportDirect, WithWorkerCount(workers),
 			)
-			require.NoError(t, err)
-			require.NoError(t, syncer.Sync(ctx))
-			require.NoError(t, syncer.Close(ctx))
-			require.NoError(t, run.Runtime().VerifyRequired())
+			harness.SyncAndClose(t, ctx)
 
 			manifest, err := scenario.Manifest(scenario.InitialEpoch)
 			require.NoError(t, err)
@@ -80,26 +65,10 @@ func TestChaosConnectorGRPCSyncMatchesManifest(t *testing.T) {
 	require.NoError(t, err)
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
 	require.NoError(t, err)
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	client, err := chaosconnector.NewGRPCClient(ctx, server, run, false, false)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, client.Close()) }()
-
-	syncer, err := NewSyncer(
-		ctx,
-		client,
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-		WithWorkerCount(4),
-		WithDontExpandGrants(),
+	harness := newChaosHarness(
+		t, ctx, run, c1zPath, tmpDir, chaosTransportGRPC, WithWorkerCount(4),
 	)
-	require.NoError(t, err)
-	require.NoError(t, syncer.Sync(ctx))
-	require.NoError(t, syncer.Close(ctx))
+	harness.SyncAndClose(t, ctx)
 
 	manifest, err := scenario.Manifest(scenario.InitialEpoch)
 	require.NoError(t, err)
@@ -115,8 +84,8 @@ func TestChaosConnectorRetryableErrorConverges(t *testing.T) {
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
 		ID: "resources-unavailable-once",
 		Match: chaosconnector.Matcher{
-			Service: "ResourcesService",
-			Method:  "ListResources",
+			Service: chaosconnector.ExactString("ResourcesService"),
+			Method:  chaosconnector.ExactString("ListResources"),
 			Attempt: 1,
 			Phase:   chaosconnector.PhaseBeforeCall,
 		},
@@ -129,28 +98,14 @@ func TestChaosConnectorRetryableErrorConverges(t *testing.T) {
 		MaxFires: 1,
 	}))
 	require.NoError(t, err)
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	syncer, err := NewSyncer(
-		ctx,
-		chaosconnector.NewDirectClient(ctx, server, run),
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-		WithDontExpandGrants(),
-	)
-	require.NoError(t, err)
-	require.NoError(t, syncer.Sync(ctx))
-	require.NoError(t, syncer.Close(ctx))
-	require.NoError(t, run.Runtime().VerifyRequired())
+	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
+	harness.SyncAndClose(t, ctx)
 
 	require.NoError(t, chaosoracle.VerifyTrace(run.Trace().Events(), chaosoracle.TraceExpectation{
 		Name: "retryable ListResources retried",
 		Match: chaosconnector.Matcher{
-			Service: "ResourcesService",
-			Method:  "ListResources",
+			Service: chaosconnector.ExactString("ResourcesService"),
+			Method:  chaosconnector.ExactString("ListResources"),
 		},
 		Outcomes: []chaosconnector.Outcome{
 			chaosconnector.OutcomeReturned,
@@ -173,8 +128,8 @@ func TestChaosConnectorLostResponseConvergesWithoutDuplicateRows(t *testing.T) {
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
 		ID: "lose-entitlements-after-delegate",
 		Match: chaosconnector.Matcher{
-			Service: "EntitlementsService",
-			Method:  "ListEntitlements",
+			Service: chaosconnector.ExactString("EntitlementsService"),
+			Method:  chaosconnector.ExactString("ListEntitlements"),
 			Attempt: 1,
 			Phase:   chaosconnector.PhaseAfterDelegate,
 		},
@@ -183,28 +138,14 @@ func TestChaosConnectorLostResponseConvergesWithoutDuplicateRows(t *testing.T) {
 		MaxFires: 1,
 	}))
 	require.NoError(t, err)
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	syncer, err := NewSyncer(
-		ctx,
-		chaosconnector.NewDirectClient(ctx, server, run),
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-		WithDontExpandGrants(),
-	)
-	require.NoError(t, err)
-	require.NoError(t, syncer.Sync(ctx))
-	require.NoError(t, syncer.Close(ctx))
-	require.NoError(t, run.Runtime().VerifyRequired())
+	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
+	harness.SyncAndClose(t, ctx)
 
 	require.NoError(t, chaosoracle.VerifyTrace(run.Trace().Events(), chaosoracle.TraceExpectation{
 		Name: "lost entitlement response was retried",
 		Match: chaosconnector.Matcher{
-			Service: "EntitlementsService",
-			Method:  "ListEntitlements",
+			Service: chaosconnector.ExactString("EntitlementsService"),
+			Method:  chaosconnector.ExactString("ListEntitlements"),
 		},
 		Outcomes: []chaosconnector.Outcome{
 			chaosconnector.OutcomeReturned,
@@ -231,8 +172,8 @@ func TestChaosConnectorUnknownResponseDataIsIgnored(t *testing.T) {
 			run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
 				ID: "mutate-list-resources-" + mutation,
 				Match: chaosconnector.Matcher{
-					Service: "ResourcesService",
-					Method:  "ListResources",
+					Service: chaosconnector.ExactString("ResourcesService"),
+					Method:  chaosconnector.ExactString("ListResources"),
 					Attempt: 1,
 					Phase:   chaosconnector.PhaseBeforeResponse,
 				},
@@ -241,22 +182,8 @@ func TestChaosConnectorUnknownResponseDataIsIgnored(t *testing.T) {
 				MaxFires: 1,
 			}))
 			require.NoError(t, err)
-			builder, err := chaosconnector.NewBuilder(run)
-			require.NoError(t, err)
-			server, err := builder.Server(ctx)
-			require.NoError(t, err)
-			syncer, err := NewSyncer(
-				ctx,
-				chaosconnector.NewDirectClient(ctx, server, run),
-				WithC1ZPath(c1zPath),
-				WithTmpDir(tmpDir),
-				WithStorageEngine(c1zstore.EnginePebble),
-				WithDontExpandGrants(),
-			)
-			require.NoError(t, err)
-			require.NoError(t, syncer.Sync(ctx))
-			require.NoError(t, syncer.Close(ctx))
-			require.NoError(t, run.Runtime().VerifyRequired())
+			harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
+			harness.SyncAndClose(t, ctx)
 
 			manifest, err := scenario.Manifest(scenario.InitialEpoch)
 			require.NoError(t, err)
@@ -274,8 +201,8 @@ func TestChaosConnectorDuplicateResourceIsIdempotent(t *testing.T) {
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
 		ID: "duplicate-first-resource",
 		Match: chaosconnector.Matcher{
-			Service: "ResourcesService",
-			Method:  "ListResources",
+			Service: chaosconnector.ExactString("ResourcesService"),
+			Method:  chaosconnector.ExactString("ListResources"),
 			Attempt: 1,
 			Phase:   chaosconnector.PhaseBeforeResponse,
 		},
@@ -287,22 +214,8 @@ func TestChaosConnectorDuplicateResourceIsIdempotent(t *testing.T) {
 		MaxFires: 1,
 	}))
 	require.NoError(t, err)
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	syncer, err := NewSyncer(
-		ctx,
-		chaosconnector.NewDirectClient(ctx, server, run),
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-		WithDontExpandGrants(),
-	)
-	require.NoError(t, err)
-	require.NoError(t, syncer.Sync(ctx))
-	require.NoError(t, syncer.Close(ctx))
-	require.NoError(t, run.Runtime().VerifyRequired())
+	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
+	harness.SyncAndClose(t, ctx)
 
 	manifest, err := scenario.Manifest(scenario.InitialEpoch)
 	require.NoError(t, err)
@@ -318,8 +231,8 @@ func TestChaosConnectorEmptyResourceFailsWithoutSealing(t *testing.T) {
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
 		ID: "clear-first-resource",
 		Match: chaosconnector.Matcher{
-			Service: "ResourcesService",
-			Method:  "ListResources",
+			Service: chaosconnector.ExactString("ResourcesService"),
+			Method:  chaosconnector.ExactString("ListResources"),
 			Attempt: 1,
 			Phase:   chaosconnector.PhaseBeforeResponse,
 		},
@@ -331,23 +244,11 @@ func TestChaosConnectorEmptyResourceFailsWithoutSealing(t *testing.T) {
 		MaxFires: 1,
 	}))
 	require.NoError(t, err)
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	syncer, err := NewSyncer(
-		ctx,
-		chaosconnector.NewDirectClient(ctx, server, run),
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-		WithDontExpandGrants(),
-	)
-	require.NoError(t, err)
-	syncErr := syncer.Sync(ctx)
+	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
+	syncErr := harness.Syncer.Sync(ctx)
 	require.ErrorContains(t, syncErr, "resource with missing identity")
 	require.Equal(t, codes.Internal, status.Code(syncErr))
-	require.NoError(t, syncer.Close(ctx))
+	require.NoError(t, harness.Close(ctx))
 	require.NoError(t, run.Runtime().VerifyRequired())
 
 	store, err := dotc1z.NewStore(
@@ -373,8 +274,8 @@ func TestChaosConnectorEmptyResourceTypeFailsWithoutSealing(t *testing.T) {
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
 		ID: "clear-first-resource-type",
 		Match: chaosconnector.Matcher{
-			Service: "ResourceTypesService",
-			Method:  "ListResourceTypes",
+			Service: chaosconnector.ExactString("ResourceTypesService"),
+			Method:  chaosconnector.ExactString("ListResourceTypes"),
 			Attempt: 1,
 			Phase:   chaosconnector.PhaseBeforeResponse,
 		},
@@ -386,23 +287,11 @@ func TestChaosConnectorEmptyResourceTypeFailsWithoutSealing(t *testing.T) {
 		MaxFires: 1,
 	}))
 	require.NoError(t, err)
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	syncer, err := NewSyncer(
-		ctx,
-		chaosconnector.NewDirectClient(ctx, server, run),
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-		WithDontExpandGrants(),
-	)
-	require.NoError(t, err)
-	syncErr := syncer.Sync(ctx)
+	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
+	syncErr := harness.Syncer.Sync(ctx)
 	require.ErrorContains(t, syncErr, "resource type with missing identity")
 	require.Equal(t, codes.Internal, status.Code(syncErr))
-	require.NoError(t, syncer.Close(ctx))
+	require.NoError(t, harness.Close(ctx))
 	require.NoError(t, run.Runtime().VerifyRequired())
 
 	store, err := dotc1z.NewStore(
@@ -428,8 +317,8 @@ func TestChaosConnectorDuplicateEnqueueAnnotationFailsWithoutSealing(t *testing.
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
 		ID: "duplicate-root-enqueue-annotation",
 		Match: chaosconnector.Matcher{
-			Service: "EntitlementsService",
-			Method:  "ListEntitlements",
+			Service: chaosconnector.ExactString("EntitlementsService"),
+			Method:  chaosconnector.ExactString("ListEntitlements"),
 			Attempt: 1,
 			Phase:   chaosconnector.PhaseBeforeResponse,
 		},
@@ -441,23 +330,12 @@ func TestChaosConnectorDuplicateEnqueueAnnotationFailsWithoutSealing(t *testing.
 		MaxFires: 1,
 	}))
 	require.NoError(t, err)
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	syncer, err := NewSyncer(
-		ctx,
-		chaosconnector.NewDirectClient(ctx, server, run),
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-		WithWorkerCount(4),
-		WithDontExpandGrants(),
+	harness := newChaosHarness(
+		t, ctx, run, c1zPath, tmpDir, chaosTransportDirect, WithWorkerCount(4),
 	)
-	require.NoError(t, err)
-	syncErr := syncer.Sync(ctx)
+	syncErr := harness.Syncer.Sync(ctx)
 	require.ErrorContains(t, syncErr, "multiple EnqueuePageTokens annotations")
-	require.NoError(t, syncer.Close(ctx))
+	require.NoError(t, harness.Close(ctx))
 	require.NoError(t, run.Runtime().VerifyRequired())
 
 	store, err := dotc1z.NewStore(
@@ -510,22 +388,11 @@ func TestChaosConnectorCyclicPageTokensTerminateWithoutDuplicateRows(t *testing.
 
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
 	require.NoError(t, err)
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	syncer, err := NewSyncer(
-		ctx,
-		chaosconnector.NewDirectClient(ctx, server, run),
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-		WithWorkerCount(4),
-		WithSkipGrants(true),
+	harness := newChaosHarness(
+		t, ctx, run, c1zPath, tmpDir, chaosTransportDirect,
+		WithWorkerCount(4), WithSkipGrants(true),
 	)
-	require.NoError(t, err)
-	require.NoError(t, syncer.Sync(ctx))
-	require.NoError(t, syncer.Close(t.Context()))
+	harness.SyncAndClose(t, ctx)
 
 	manifest, err := scenario.Manifest(scenario.InitialEpoch)
 	require.NoError(t, err)
@@ -543,8 +410,8 @@ func TestChaosConnectorFatalErrorDoesNotSeal(t *testing.T) {
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
 		ID: "resources-fatal",
 		Match: chaosconnector.Matcher{
-			Service: "ResourcesService",
-			Method:  "ListResources",
+			Service: chaosconnector.ExactString("ResourcesService"),
+			Method:  chaosconnector.ExactString("ListResources"),
 			Phase:   chaosconnector.PhaseBeforeCall,
 		},
 		Effects: []chaosconnector.Effect{{
@@ -556,22 +423,11 @@ func TestChaosConnectorFatalErrorDoesNotSeal(t *testing.T) {
 		MaxFires: 1,
 	}))
 	require.NoError(t, err)
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	syncer, err := NewSyncer(
-		ctx,
-		chaosconnector.NewDirectClient(ctx, server, run),
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-	)
-	require.NoError(t, err)
-	syncErr := syncer.Sync(ctx)
+	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
+	syncErr := harness.Syncer.Sync(ctx)
 	require.Error(t, syncErr)
 	require.Equal(t, codes.InvalidArgument, status.Code(syncErr))
-	require.NoError(t, syncer.Close(ctx))
+	require.NoError(t, harness.Close(ctx))
 	require.NoError(t, run.Runtime().VerifyRequired())
 
 	store, err := dotc1z.NewStore(
@@ -608,9 +464,9 @@ func TestChaosConnectorWarnAndDropIsTaggedAndExact(t *testing.T) {
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
 		ID: "drop-spawned-entitlement-page",
 		Match: chaosconnector.Matcher{
-			Service:   "EntitlementsService",
-			Method:    "ListEntitlements",
-			PageToken: "dropped",
+			Service:   chaosconnector.ExactString("EntitlementsService"),
+			Method:    chaosconnector.ExactString("ListEntitlements"),
+			PageToken: chaosconnector.ExactString("dropped"),
 			Phase:     chaosconnector.PhaseBeforeCall,
 		},
 		Effects: []chaosconnector.Effect{{
@@ -622,22 +478,10 @@ func TestChaosConnectorWarnAndDropIsTaggedAndExact(t *testing.T) {
 		MaxFires: 1,
 	}))
 	require.NoError(t, err)
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	syncer, err := NewSyncer(
-		ctx,
-		chaosconnector.NewDirectClient(ctx, server, run),
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-		WithSkipGrants(true),
+	harness := newChaosHarness(
+		t, ctx, run, c1zPath, tmpDir, chaosTransportDirect, WithSkipGrants(true),
 	)
-	require.NoError(t, err)
-	require.NoError(t, syncer.Sync(ctx))
-	require.NoError(t, syncer.Close(ctx))
-	require.NoError(t, run.Runtime().VerifyRequired())
+	harness.SyncAndClose(t, ctx)
 
 	manifest, err := scenario.Manifest(scenario.InitialEpoch)
 	require.NoError(t, err)
@@ -666,22 +510,10 @@ func TestChaosConnectorMalformedEntitlementFailsCleanly(t *testing.T) {
 
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
 	require.NoError(t, err)
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	syncer, err := NewSyncer(
-		ctx,
-		chaosconnector.NewDirectClient(ctx, server, run),
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-		WithDontExpandGrants(),
-	)
-	require.NoError(t, err)
-	syncErr := syncer.Sync(ctx)
+	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
+	syncErr := harness.Syncer.Sync(ctx)
 	require.ErrorContains(t, syncErr, "missing resource")
-	require.NoError(t, syncer.Close(ctx))
+	require.NoError(t, harness.Close(ctx))
 	store, err := dotc1z.NewStore(
 		ctx,
 		c1zPath,
@@ -721,23 +553,10 @@ func TestChaosConnectorSeededFanoutWithRetries(t *testing.T) {
 			require.NoError(t, err)
 			run, err := chaosconnector.NewRun(scenario, chaosconnector.GeneratedRetrySchedule(scenario))
 			require.NoError(t, err)
-			builder, err := chaosconnector.NewBuilder(run)
-			require.NoError(t, err)
-			server, err := builder.Server(ctx)
-			require.NoError(t, err)
-			syncer, err := NewSyncer(
-				ctx,
-				chaosconnector.NewDirectClient(ctx, server, run),
-				WithC1ZPath(c1zPath),
-				WithTmpDir(tmpDir),
-				WithStorageEngine(c1zstore.EnginePebble),
-				WithWorkerCount(4),
-				WithDontExpandGrants(),
+			harness := newChaosHarness(
+				t, ctx, run, c1zPath, tmpDir, chaosTransportDirect, WithWorkerCount(4),
 			)
-			require.NoError(t, err)
-			require.NoError(t, syncer.Sync(ctx))
-			require.NoError(t, syncer.Close(ctx))
-			require.NoError(t, run.Runtime().VerifyRequired())
+			harness.SyncAndClose(t, ctx)
 
 			manifest, err := scenario.Manifest(scenario.InitialEpoch)
 			require.NoError(t, err)

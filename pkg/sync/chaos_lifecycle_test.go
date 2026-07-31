@@ -9,20 +9,24 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	chaosoracle "github.com/conductorone/baton-sdk/internal/chaosconnector/oracle"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 func TestChaosConnectorDataPolicyLifecycleCorpus(t *testing.T) {
-	for _, corpusCase := range chaosconnector.LifecycleCorpus() {
-		t.Run(corpusCase.Name, func(t *testing.T) {
-			runDataPolicyLifecycleCase(t, corpusCase)
+	for _, transport := range []chaosTransport{chaosTransportDirect, chaosTransportGRPC} {
+		t.Run(transport.String(), func(t *testing.T) {
+			for _, corpusCase := range chaosconnector.LifecycleCorpus() {
+				t.Run(corpusCase.Name, func(t *testing.T) {
+					runDataPolicyLifecycleCase(t, transport, corpusCase)
+				})
+			}
 		})
 	}
 }
 
-func runDataPolicyLifecycleCase(t *testing.T, corpusCase chaosconnector.LifecycleCase) {
+func runDataPolicyLifecycleCase(t *testing.T, transport chaosTransport, corpusCase chaosconnector.LifecycleCase) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
@@ -33,12 +37,13 @@ func runDataPolicyLifecycleCase(t *testing.T, corpusCase chaosconnector.Lifecycl
 	require.NoError(t, err)
 	initialRun, err := chaosconnector.NewRun(initialScenario, corpusCase.InterruptSchedule)
 	require.NoError(t, err)
-	initialSyncer := newLifecycleSyncer(t, ctx, initialRun, c1zPath, tmpDir)
-	initialConcrete, ok := initialSyncer.(*syncer)
+	initialHarness := newChaosHarness(
+		t, ctx, initialRun, c1zPath, tmpDir, transport, WithWorkerCount(1),
+	)
+	initialConcrete, ok := initialHarness.Syncer.(*syncer)
 	require.True(t, ok)
-	require.ErrorIs(t, initialSyncer.Sync(ctx), chaosconnector.ErrCrashRequested)
-	require.Equal(t, corpusCase.FirstEntitlementsDropped, initialConcrete.ingestFilterStats.entitlementsDropped.Load())
-	require.NoError(t, initialSyncer.Close(t.Context()))
+	require.ErrorIs(t, initialHarness.Syncer.Sync(ctx), chaosconnector.ErrCrashRequested)
+	require.NoError(t, initialHarness.Close(t.Context()))
 	require.NoError(t, initialRun.Runtime().VerifyRequired())
 	require.True(t, lifecycleTraceHas(
 		initialRun,
@@ -46,37 +51,47 @@ func runDataPolicyLifecycleCase(t *testing.T, corpusCase chaosconnector.Lifecycl
 		chaosconnector.OutcomeErrored,
 	), "initial attempt did not trace the interrupted page as errored")
 
-	firstSnapshot := readLifecycleSnapshot(t, c1zPath, tmpDir, corpusCase.Identity)
-	require.False(t, firstSnapshot.sealed, "interrupted attempt sealed")
-	require.Equal(t, corpusCase.FirstAttemptPresent, firstSnapshot.present)
-	if corpusCase.FirstAttemptPresent {
-		require.Equal(t, corpusCase.FinalDisplayName, firstSnapshot.displayName)
-	}
+	firstObservation := readLifecycleObservation(t, c1zPath, tmpDir, corpusCase.Identity)
+	firstObservation.Dropped = initialConcrete.ingestFilterStats.entitlementsDropped.Load()
+	require.NoError(t, chaosoracle.CompareLifecycle(
+		chaosoracle.LifecycleExpectation{
+			Sealed:      corpusCase.Initial.Sealed,
+			Present:     corpusCase.Initial.Present,
+			DisplayName: optionalExpectation(corpusCase.Initial.DisplayName),
+			Dropped:     corpusCase.Initial.EntitlementsDropped,
+		},
+		firstObservation,
+	))
 
 	resumeScenario, err := corpusCase.BuildResume()
 	require.NoError(t, err)
 	resumeRun, err := chaosconnector.NewRun(resumeScenario, chaosconnector.NewSchedule())
 	require.NoError(t, err)
-	resumeSyncer := newLifecycleSyncer(t, ctx, resumeRun, c1zPath, tmpDir)
-	resumeConcrete, ok := resumeSyncer.(*syncer)
+	resumeHarness := newChaosHarness(
+		t, ctx, resumeRun, c1zPath, tmpDir, transport, WithWorkerCount(1),
+	)
+	resumeConcrete, ok := resumeHarness.Syncer.(*syncer)
 	require.True(t, ok)
-	resumeErr := resumeSyncer.Sync(ctx)
-	if corpusCase.ResumeMustFail {
+	resumeErr := resumeHarness.Syncer.Sync(ctx)
+	if corpusCase.Resume.MustFail {
 		require.Error(t, resumeErr)
-		require.ErrorContains(t, resumeErr, corpusCase.ResumeErrorContains)
+		require.ErrorContains(t, resumeErr, corpusCase.Resume.ErrorContains)
 	} else {
 		require.NoError(t, resumeErr)
 	}
-	require.Equal(t, corpusCase.ResumeEntitlementsDropped,
-		resumeConcrete.ingestFilterStats.entitlementsDropped.Load())
-	require.NoError(t, resumeSyncer.Close(t.Context()))
+	require.NoError(t, resumeHarness.Close(t.Context()))
 
-	finalSnapshot := readLifecycleSnapshot(t, c1zPath, tmpDir, corpusCase.Identity)
-	require.Equal(t, !corpusCase.ResumeMustFail, finalSnapshot.sealed)
-	require.Equal(t, corpusCase.FinalPresent, finalSnapshot.present)
-	if corpusCase.FinalPresent {
-		require.Equal(t, corpusCase.FinalDisplayName, finalSnapshot.displayName)
-	}
+	finalObservation := readLifecycleObservation(t, c1zPath, tmpDir, corpusCase.Identity)
+	finalObservation.Dropped = resumeConcrete.ingestFilterStats.entitlementsDropped.Load()
+	require.NoError(t, chaosoracle.CompareLifecycle(
+		chaosoracle.LifecycleExpectation{
+			Sealed:      corpusCase.Resume.Sealed,
+			Present:     corpusCase.Resume.Present,
+			DisplayName: optionalExpectation(corpusCase.Resume.DisplayName),
+			Dropped:     corpusCase.Resume.EntitlementsDropped,
+		},
+		finalObservation,
+	))
 	require.True(t, lifecycleTraceHas(
 		resumeRun,
 		corpusCase.InterruptedPageToken,
@@ -85,38 +100,12 @@ func runDataPolicyLifecycleCase(t *testing.T, corpusCase chaosconnector.Lifecycl
 		"resume did not execute the interrupted page")
 }
 
-func newLifecycleSyncer(
+func readLifecycleObservation(
 	t *testing.T,
-	ctx context.Context,
-	run *chaosconnector.Run,
 	c1zPath string,
 	tmpDir string,
-) Syncer {
-	t.Helper()
-	builder, err := chaosconnector.NewBuilder(run)
-	require.NoError(t, err)
-	server, err := builder.Server(ctx)
-	require.NoError(t, err)
-	sdkSyncer, err := NewSyncer(
-		ctx,
-		chaosconnector.NewDirectClient(ctx, server, run),
-		WithC1ZPath(c1zPath),
-		WithTmpDir(tmpDir),
-		WithStorageEngine(c1zstore.EnginePebble),
-		WithDontExpandGrants(),
-		WithWorkerCount(1),
-	)
-	require.NoError(t, err)
-	return sdkSyncer
-}
-
-type lifecycleSnapshot struct {
-	sealed      bool
-	present     bool
-	displayName string
-}
-
-func readLifecycleSnapshot(t *testing.T, c1zPath, tmpDir, identity string) lifecycleSnapshot {
+	identity string,
+) chaosoracle.LifecycleObservation {
 	t.Helper()
 	store, err := dotc1z.NewStore(
 		t.Context(),
@@ -127,32 +116,9 @@ func readLifecycleSnapshot(t *testing.T, c1zPath, tmpDir, identity string) lifec
 	)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close(t.Context())) }()
-
-	latest, err := store.SyncMeta().LatestFullSync(t.Context())
+	observation, err := chaosoracle.ReadLifecycle(t.Context(), store, identity)
 	require.NoError(t, err)
-	out := lifecycleSnapshot{sealed: latest != nil}
-	if identity == "" {
-		return out
-	}
-
-	pageToken := ""
-	for {
-		response, listErr := store.ListEntitlements(t.Context(), v2.EntitlementsServiceListEntitlementsRequest_builder{
-			PageToken: pageToken,
-		}.Build())
-		require.NoError(t, listErr)
-		for _, entitlement := range response.GetList() {
-			if entitlement.GetId() == identity {
-				out.present = true
-				out.displayName = entitlement.GetDisplayName()
-				return out
-			}
-		}
-		pageToken = response.GetNextPageToken()
-		if pageToken == "" {
-			return out
-		}
-	}
+	return observation
 }
 
 func lifecycleTraceHas(run *chaosconnector.Run, pageToken string, outcome chaosconnector.Outcome) bool {

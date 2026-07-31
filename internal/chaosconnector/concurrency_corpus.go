@@ -10,13 +10,12 @@ import (
 // ConcurrentDuplicateCase forces one conflicting entitlement sibling response
 // to arrive last. The blocked token's value must be the final stored value.
 type ConcurrentDuplicateCase struct {
-	Name               string
-	BlockedToken       string
-	FirstToken         string
-	ExpectedName       string
-	ResumeExpectedName string
-	Schedule           Schedule
-	CrashSchedule      Schedule
+	Name          string
+	BlockedToken  string
+	FirstToken    string
+	ExpectedName  string
+	Schedule      Schedule
+	CrashSchedule Schedule
 }
 
 // ConcurrentDuplicateCorpus covers both completion orders.
@@ -57,18 +56,17 @@ func NewConcurrentDuplicateScenario() (*Scenario, error) {
 func newConcurrentDuplicateCase(blocked, first string) ConcurrentDuplicateCase {
 	barrier := "release-" + blocked
 	return ConcurrentDuplicateCase{
-		Name:               fmt.Sprintf("concurrent-duplicate/%s-completes-last", blocked),
-		BlockedToken:       blocked,
-		FirstToken:         first,
-		ExpectedName:       concurrentDuplicateDisplayName(blocked),
-		ResumeExpectedName: concurrentDuplicateDisplayName("right"),
+		Name:         fmt.Sprintf("concurrent-duplicate/%s-completes-last", blocked),
+		BlockedToken: blocked,
+		FirstToken:   first,
+		ExpectedName: concurrentDuplicateDisplayName(blocked),
 		Schedule: NewSchedule(Rule{
 			ID: "block-" + blocked,
 			Match: Matcher{
 				Domain:       DomainConnector,
-				Method:       "ListEntitlements",
-				ResourceType: FullCapabilityResourceTypeID,
-				PageToken:    blocked,
+				Method:       ExactString("ListEntitlements"),
+				ResourceType: ExactString(FullCapabilityResourceTypeID),
+				PageToken:    ExactString(blocked),
 				Phase:        PhaseAfterDelegate,
 			},
 			Effects:  []Effect{{Kind: EffectBlock, Barrier: barrier}},
@@ -79,9 +77,9 @@ func newConcurrentDuplicateCase(blocked, first string) ConcurrentDuplicateCase {
 			ID: "crash-" + blocked,
 			Match: Matcher{
 				Domain:       DomainConnector,
-				Method:       "ListEntitlements",
-				ResourceType: FullCapabilityResourceTypeID,
-				PageToken:    blocked,
+				Method:       ExactString("ListEntitlements"),
+				ResourceType: ExactString(FullCapabilityResourceTypeID),
+				PageToken:    ExactString(blocked),
 				Phase:        PhaseAfterDelegate,
 			},
 			Effects: []Effect{

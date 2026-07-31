@@ -4,23 +4,34 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
+const (
+	LifecycleDropCaseName   = "lifecycle/drop-does-not-resurrect"
+	LifecycleFailCaseName   = "lifecycle/hard-invalid-never-seals"
+	LifecycleRetainCaseName = "lifecycle/warn-retain-survives-resume"
+	LifecycleDriftCaseName  = "lifecycle/resume-uses-current-answer"
+)
+
 // LifecycleCase represents one data-policy equivalence class crossing an
 // interrupted attempt and a persisted resume.
+type LifecycleAttemptExpectation struct {
+	Sealed              bool
+	Present             bool
+	DisplayName         string
+	EntitlementsDropped int64
+	MustFail            bool
+	ErrorContains       string
+}
+
 type LifecycleCase struct {
-	Name                      string
-	Policy                    DataPolicy
-	BuildInitial              func() (*Scenario, error)
-	BuildResume               func() (*Scenario, error)
-	InterruptSchedule         Schedule
-	InterruptedPageToken      string
-	Identity                  string
-	FirstAttemptPresent       bool
-	FinalPresent              bool
-	FinalDisplayName          string
-	FirstEntitlementsDropped  int64
-	ResumeEntitlementsDropped int64
-	ResumeMustFail            bool
-	ResumeErrorContains       string
+	Name                 string
+	Policy               DataPolicy
+	BuildInitial         func() (*Scenario, error)
+	BuildResume          func() (*Scenario, error)
+	InterruptSchedule    Schedule
+	InterruptedPageToken string
+	Identity             string
+	Initial              LifecycleAttemptExpectation
+	Resume               LifecycleAttemptExpectation
 }
 
 // LifecycleCorpus covers each materially different data-policy outcome
@@ -28,53 +39,78 @@ type LifecycleCase struct {
 func LifecycleCorpus() []LifecycleCase {
 	return []LifecycleCase{
 		{
-			Name:                      "lifecycle/drop-does-not-resurrect",
-			Policy:                    DataPolicySkipReport,
-			BuildInitial:              dropLifecycleScenario,
-			BuildResume:               dropLifecycleScenario,
-			InterruptSchedule:         lifecycleCrashSchedule("cut"),
-			InterruptedPageToken:      "cut",
-			Identity:                  "lifecycle-unknown-type",
-			FirstAttemptPresent:       false,
-			FinalPresent:              false,
-			FirstEntitlementsDropped:  1,
-			ResumeEntitlementsDropped: 1,
+			Name:                 LifecycleDropCaseName,
+			Policy:               DataPolicySkipReport,
+			BuildInitial:         dropLifecycleScenario,
+			BuildResume:          dropLifecycleScenario,
+			InterruptSchedule:    lifecycleCrashSchedule("cut"),
+			InterruptedPageToken: "cut",
+			Identity:             "lifecycle-unknown-type",
+			Initial: LifecycleAttemptExpectation{
+				EntitlementsDropped: 1,
+			},
+			Resume: LifecycleAttemptExpectation{
+				Sealed:              true,
+				EntitlementsDropped: 1,
+			},
 		},
 		{
-			Name:                 "lifecycle/hard-invalid-never-seals",
+			Name:                 LifecycleFailCaseName,
 			Policy:               DataPolicyFail,
 			BuildInitial:         hardInvalidLifecycleScenario,
 			BuildResume:          hardInvalidLifecycleScenario,
 			InterruptSchedule:    lifecycleCrashSchedule("bad"),
 			InterruptedPageToken: "bad",
 			Identity:             "",
-			ResumeMustFail:       true,
-			ResumeErrorContains:  "entitlement with missing identity",
+			Resume: LifecycleAttemptExpectation{
+				MustFail:      true,
+				ErrorContains: "entitlement with missing identity",
+			},
 		},
 		{
-			Name:                 "lifecycle/warn-retain-survives-resume",
+			Name:                 LifecycleRetainCaseName,
 			Policy:               DataPolicyWarnRetain,
 			BuildInitial:         retainLifecycleScenario,
 			BuildResume:          retainLifecycleScenario,
 			InterruptSchedule:    lifecycleCrashSchedule("cut"),
 			InterruptedPageToken: "cut",
 			Identity:             "lifecycle-dangling",
-			FirstAttemptPresent:  true,
-			FinalPresent:         true,
-			FinalDisplayName:     "Lifecycle dangling entitlement",
+			Initial: LifecycleAttemptExpectation{
+				Present:     true,
+				DisplayName: "Lifecycle dangling entitlement",
+			},
+			Resume: LifecycleAttemptExpectation{
+				Sealed:      true,
+				Present:     true,
+				DisplayName: "Lifecycle dangling entitlement",
+			},
 		},
 		{
-			Name:                 "lifecycle/resume-uses-current-answer",
+			Name:                 LifecycleDriftCaseName,
 			Policy:               DataPolicyAccept,
 			BuildInitial:         func() (*Scenario, error) { return changedLifecycleScenario("Old interrupted answer") },
 			BuildResume:          func() (*Scenario, error) { return changedLifecycleScenario("Answer from resume") },
 			InterruptSchedule:    lifecycleCrashSchedule("changed"),
 			InterruptedPageToken: "changed",
 			Identity:             "lifecycle-changed-answer",
-			FinalPresent:         true,
-			FinalDisplayName:     "Answer from resume",
+			Resume: LifecycleAttemptExpectation{
+				Sealed:      true,
+				Present:     true,
+				DisplayName: "Answer from resume",
+			},
 		},
 	}
+}
+
+// LifecycleCaseByName resolves the same deterministic case registry for
+// in-process tests and real-process harnesses.
+func LifecycleCaseByName(name string) (LifecycleCase, bool) {
+	for _, corpusCase := range LifecycleCorpus() {
+		if corpusCase.Name == name {
+			return corpusCase, true
+		}
+	}
+	return LifecycleCase{}, false
 }
 
 func lifecycleCrashSchedule(pageToken string) Schedule {
@@ -82,9 +118,9 @@ func lifecycleCrashSchedule(pageToken string) Schedule {
 		ID: "interrupt-" + pageToken,
 		Match: Matcher{
 			Domain:       DomainConnector,
-			Method:       "ListEntitlements",
-			ResourceType: FullCapabilityResourceTypeID,
-			PageToken:    pageToken,
+			Method:       ExactString("ListEntitlements"),
+			ResourceType: ExactString(FullCapabilityResourceTypeID),
+			PageToken:    ExactString(pageToken),
 			Phase:        PhaseAfterDelegate,
 		},
 		Effects:  []Effect{{Kind: EffectCrash}},

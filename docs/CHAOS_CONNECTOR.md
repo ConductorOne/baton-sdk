@@ -132,8 +132,34 @@ violation demonstrating that the harness reports failure. A red result is
 classified as product defect, invalid premise, injector defect, oracle defect,
 or unresolved contract before production code changes.
 
+Identity, trace, semantic-content, and lifecycle oracles have explicit
+negative controls. The semantic and lifecycle integration tests call the same
+error-returning comparators calibrated by those controls rather than duplicating
+assertion logic. Lifecycle policy representatives run through both the direct
+and in-memory gRPC adapters. The tag-gated real-binary instrument also has a
+Pebble chaos mode that persists a retained dangling row, expires one process,
+SIGKILLs the next, and verifies a final process converges to the uninterrupted
+baseline.
+
+Sync tests use one typed harness owner for builder, transport, syncer, and
+cleanup wiring. The process instrument resolves the same named lifecycle-case
+registry rather than independently selecting or rebuilding policy fixtures.
+Execution remains deliberately separate: in-process tests provide precise cut
+control, while the real-binary driver provides OS-death semantics.
+
+Semantic observations exhaustively page the public store interface and reject
+unknown entity kinds. Optional expected fields use explicit pointers, allowing
+the oracle to distinguish “must be empty” from “not part of this assertion.”
+
 Seeds, schedules, and traces are emitted as replay artifacts. Seeded schedules
 are measured sampling, never closure.
+
+Matcher string fields are explicit optional values: nil is a wildcard and a
+pointer to `""` matches an actual empty value such as the root page token.
+Effects execute in their declared order, and after-delegate effects do not
+replace a real delegate error. Runs clone their scenarios on construction and
+return cloned public views so a corpus fixture cannot race or rewrite the
+active connector world.
 
 ## First verification stages
 

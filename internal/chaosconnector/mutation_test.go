@@ -18,8 +18,8 @@ func TestResponseMutationSchedule(t *testing.T) {
 	run, err := NewRun(scenario, NewSchedule(Rule{
 		ID: "unknown-response-annotation",
 		Match: Matcher{
-			Service: "ResourcesService",
-			Method:  "ListResources",
+			Service: ExactString("ResourcesService"),
+			Method:  ExactString("ListResources"),
 			Phase:   PhaseBeforeResponse,
 		},
 		Effects: []Effect{{

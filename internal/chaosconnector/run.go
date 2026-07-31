@@ -24,17 +24,18 @@ func NewRun(scenario *Scenario, schedule Schedule) (*Run, error) {
 	if err != nil {
 		return nil, err
 	}
+	isolated := cloneScenario(scenario)
 	return &Run{
-		scenario:  scenario,
+		scenario:  isolated,
 		runtime:   runtime,
 		mutations: NewMutationRegistry(),
-		epoch:     scenario.InitialEpoch,
+		epoch:     isolated.InitialEpoch,
 	}, nil
 }
 
-// Scenario returns the immutable scenario definition.
+// Scenario returns an isolated copy of the scenario definition.
 func (r *Run) Scenario() *Scenario {
-	return r.scenario
+	return cloneScenario(r.scenario)
 }
 
 // Runtime returns the run's fault runtime.
@@ -59,8 +60,12 @@ func (r *Run) Epoch() string {
 	return r.epoch
 }
 
-// Dataset returns the active dataset.
+// Dataset returns an isolated copy of the active dataset.
 func (r *Run) Dataset() *Dataset {
+	return cloneDataset(r.dataset())
+}
+
+func (r *Run) dataset() *Dataset {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.scenario.Epochs[r.epoch]

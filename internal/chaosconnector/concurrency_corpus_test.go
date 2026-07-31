@@ -20,7 +20,6 @@ func TestConcurrentDuplicateCorpusCoversBothOrders(t *testing.T) {
 	for _, corpusCase := range corpus {
 		require.NotEqual(t, corpusCase.BlockedToken, corpusCase.FirstToken)
 		require.NotEmpty(t, corpusCase.ExpectedName)
-		require.NotEmpty(t, corpusCase.ResumeExpectedName)
 		require.NoError(t, corpusCase.Schedule.Validate())
 		require.NoError(t, corpusCase.CrashSchedule.Validate())
 	}

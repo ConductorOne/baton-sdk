@@ -3,7 +3,6 @@ package chaosconnector
 import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/protobuf/proto"
 )
 
 const retryDriftEpoch = "retry-drift"
@@ -74,8 +73,8 @@ func retryDriftSchedule(method string) Schedule {
 		ID: "change-answer-after-lost-response",
 		Match: Matcher{
 			Domain:       DomainConnector,
-			Method:       method,
-			ResourceType: FullCapabilityResourceTypeID,
+			Method:       ExactString(method),
+			ResourceType: ExactString(FullCapabilityResourceTypeID),
 			Attempt:      1,
 			Phase:        PhaseAfterDelegate,
 		},
@@ -141,29 +140,4 @@ func scenarioWithChangedEpoch(change func(*Dataset)) (*Scenario, error) {
 	change(changed)
 	scenario.Epochs[retryDriftEpoch] = changed
 	return scenario, nil
-}
-
-func cloneDataset(dataset *Dataset) *Dataset {
-	return &Dataset{
-		ResourceTypes:      cloneMessages(dataset.ResourceTypes),
-		Resources:          clonePageMap(dataset.Resources),
-		StaticEntitlements: clonePageMap(dataset.StaticEntitlements),
-		Entitlements:       clonePageMap(dataset.Entitlements),
-		Grants:             clonePageMap(dataset.Grants),
-	}
-}
-
-func clonePageMap[T proto.Message](in map[string]Pages[T]) map[string]Pages[T] {
-	out := make(map[string]Pages[T], len(in))
-	for scope, pages := range in {
-		clonedPages := make(Pages[T], len(pages))
-		for token, page := range pages {
-			page.List = cloneMessages(page.List)
-			page.Spawn = append([]string(nil), page.Spawn...)
-			page.Annotations = cloneMessages(page.Annotations)
-			clonedPages[token] = page
-		}
-		out[scope] = clonedPages
-	}
-	return out
 }

@@ -151,9 +151,9 @@ func GeneratedRetrySchedule(scenario *Scenario) Schedule {
 		rules = append(rules, Rule{
 			ID: "generated-entitlement-retry-" + token,
 			Match: Matcher{
-				Service:   "EntitlementsService",
-				Method:    "ListEntitlements",
-				PageToken: token,
+				Service:   ExactString("EntitlementsService"),
+				Method:    ExactString("ListEntitlements"),
+				PageToken: ExactString(token),
 				Attempt:   1,
 				Phase:     PhaseBeforeCall,
 			},
@@ -172,9 +172,9 @@ func GeneratedRetrySchedule(scenario *Scenario) Schedule {
 			rules = append(rules, Rule{
 				ID: "generated-entitlement-retry-" + token,
 				Match: Matcher{
-					Service:   "EntitlementsService",
-					Method:    "ListEntitlements",
-					PageToken: token,
+					Service:   ExactString("EntitlementsService"),
+					Method:    ExactString("ListEntitlements"),
+					PageToken: ExactString(token),
 					Attempt:   1,
 					Phase:     PhaseBeforeCall,
 				},

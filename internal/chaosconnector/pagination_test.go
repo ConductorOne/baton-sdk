@@ -87,8 +87,8 @@ func TestEpochTransitionChangesRetryAnswerDeterministically(t *testing.T) {
 	run, err := NewRun(scenario, NewSchedule(Rule{
 		ID: "advance-epoch-after-first-call",
 		Match: Matcher{
-			Service: "ResourcesService",
-			Method:  "ListResources",
+			Service: ExactString("ResourcesService"),
+			Method:  ExactString("ListResources"),
 			Attempt: 1,
 			Phase:   PhaseAfterDelegate,
 		},

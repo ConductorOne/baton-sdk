@@ -43,7 +43,7 @@ func NewBuilder(run *Run, opts ...BuilderOption) (*Builder, error) {
 		opt(builder)
 	}
 	if builder.fullCapabilities {
-		dataset := run.Dataset()
+		dataset := run.dataset()
 		if !hasResourceType(dataset, FullCapabilityResourceTypeID) {
 			return nil, fmt.Errorf("chaosconnector: full capabilities require resource type %q", FullCapabilityResourceTypeID)
 		}
@@ -84,7 +84,7 @@ func (b *Builder) Validate(context.Context) (annotations.Annotations, error) {
 }
 
 func (b *Builder) ResourceSyncers(context.Context) []connectorbuilder.ResourceSyncerV2 {
-	dataset := b.run.Dataset()
+	dataset := b.run.dataset()
 	out := make([]connectorbuilder.ResourceSyncerV2, 0, len(dataset.ResourceTypes))
 	for _, resourceType := range dataset.ResourceTypes {
 		base := &resourceSyncer{
@@ -331,7 +331,7 @@ func (s *fullSyncer) Issue(
 	if input.ExpiresAt != nil {
 		traitOpts = append(traitOpts, rs.WithSecretExpiresAt(input.ExpiresAt.AsTime()))
 	}
-	secretType := findResourceType(s.run.Dataset(), IssuedSecretResourceTypeID)
+	secretType := findResourceType(s.run.dataset(), IssuedSecretResourceTypeID)
 	secret, err := rs.NewSecretResource("Issued Chaos Secret", secretType, input.RequestID, traitOpts)
 	if err != nil {
 		return nil, err

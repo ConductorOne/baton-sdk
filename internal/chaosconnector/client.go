@@ -162,13 +162,13 @@ func (c *faultConn) Invoke(
 	}
 
 	delegateErr := c.delegate.Invoke(ctx, method, args, reply, opts...)
-	if err := c.applyPhase(ctx, &op, PhaseAfterDelegate, nil); err != nil {
-		c.recordResult(op, err)
-		return err
-	}
 	if delegateErr != nil {
 		c.recordResult(op, delegateErr)
 		return delegateErr
+	}
+	if err := c.applyPhase(ctx, &op, PhaseAfterDelegate, nil); err != nil {
+		c.recordResult(op, err)
+		return err
 	}
 	response, _ := reply.(proto.Message)
 	if err := c.applyPhase(ctx, &op, PhaseBeforeResponse, response); err != nil {
@@ -207,19 +207,42 @@ func (c *faultConn) applyPhase(
 		for _, effect := range match.Effects {
 			switch effect.Kind {
 			case EffectSetEpoch:
-				if err := c.run.SetEpoch(effect.Epoch); err != nil {
+				err := c.run.SetEpoch(effect.Epoch)
+				c.recordStateEffect(*op, match.ID, effect, err)
+				if err != nil {
 					return err
 				}
 			case EffectMutate:
-				if err := c.run.Mutations().Apply(effect.Mutation, response); err != nil {
+				err := c.run.Mutations().Apply(effect.Mutation, response)
+				c.recordStateEffect(*op, match.ID, effect, err)
+				if err != nil {
 					return err
 				}
 			case EffectError, EffectDelay, EffectBlock, EffectCancel, EffectLoseResponse, EffectCrash:
-				// Control effects are applied together after state and response effects.
+				if err := c.run.Runtime().ApplyControlEffects(ctx, *op, []FiredRule{{
+					ID:      match.ID,
+					Effects: []Effect{effect},
+				}}); err != nil {
+					return err
+				}
 			}
 		}
 	}
-	return c.run.Runtime().ApplyControlEffects(ctx, *op, fired)
+	return nil
+}
+
+func (c *faultConn) recordStateEffect(op Operation, ruleID string, effect Effect, err error) {
+	event := TraceEvent{
+		Operation: op,
+		RuleID:    ruleID,
+		Effect:    effect.Kind,
+		Outcome:   OutcomeInjected,
+	}
+	if err != nil {
+		event.Outcome = OutcomeErrored
+		event.Error = err.Error()
+	}
+	c.run.Trace().Record(event)
 }
 
 func (c *faultConn) recordResult(op Operation, err error) {
