@@ -20,6 +20,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -4015,14 +4016,31 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 
 	if s.previousSyncC1ZPath != "" {
 		// Open the previous-sync c1z read-only and engine-agnostically
-		// (NewStore selects the engine from the file's magic byte), so a
-		// Pebble or SQLite prior run both work as a replay source.
+		// (NewStore selects the engine from the file's magic byte), then
+		// require Pebble: source-cache manifests and replay indexes are a
+		// Pebble capability, so SQLite artifacts are cold inputs.
 		previousSyncStore, err := dotc1z.NewStore(ctx, s.previousSyncC1ZPath,
 			dotc1z.WithReadOnly(true),
 			dotc1z.WithTmpDir(s.tmpDir),
 		)
 		switch {
 		case err == nil:
+			if _, ok := enginepkg.AsEngine(previousSyncStore); !ok {
+				if closeErr := previousSyncStore.Close(ctx); closeErr != nil {
+					if s.previousSyncC1ZPathOptional {
+						ctxzap.Extract(ctx).Warn("non-Pebble previous-sync c1z could not close cleanly; syncing without source-cache replay",
+							zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+							zap.Error(closeErr),
+						)
+						break
+					}
+					return nil, fmt.Errorf("error closing non-Pebble previous-sync c1z %q: %w", s.previousSyncC1ZPath, closeErr)
+				}
+				ctxzap.Extract(ctx).Warn("previous-sync c1z uses an engine that is not replay-eligible; syncing without source-cache replay",
+					zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+				)
+				break
+			}
 			run, metaErr := previousSyncStore.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
 			if metaErr != nil {
 				closeErr := previousSyncStore.Close(ctx)

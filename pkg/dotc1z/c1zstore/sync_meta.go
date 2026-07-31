@@ -85,7 +85,8 @@ type SyncRun struct {
 // UsableAsReplaySource reports whether this sync's upstream validators can
 // describe its contents. Compaction is a keep-newer merge rather than a
 // connector snapshot, so compacted and non-full syncs must be treated as cold
-// cache inputs.
+// cache inputs. This checks run metadata only; callers must separately require
+// a storage engine that implements source-cache replay.
 func (r SyncRun) UsableAsReplaySource() bool {
 	return r.Type == connectorstore.SyncTypeFull && !r.Compacted
 }

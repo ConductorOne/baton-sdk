@@ -391,23 +391,26 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 func TestPreviousSyncC1ZPathEnforcesReplayEligibility(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
+		engine     c1zstore.Engine
 		syncType   connectorstore.SyncType
 		compacted  bool
 		wantReader bool
 	}{
-		{name: "full", syncType: connectorstore.SyncTypeFull, wantReader: true},
-		{name: "partial", syncType: connectorstore.SyncTypePartial},
-		{name: "compacted-full", syncType: connectorstore.SyncTypeFull, compacted: true},
+		{name: "pebble-full", engine: c1zstore.EnginePebble, syncType: connectorstore.SyncTypeFull, wantReader: true},
+		{name: "pebble-partial", engine: c1zstore.EnginePebble, syncType: connectorstore.SyncTypePartial},
+		{name: "pebble-compacted-full", engine: c1zstore.EnginePebble, syncType: connectorstore.SyncTypeFull, compacted: true},
+		{name: "sqlite-full", engine: c1zstore.EngineSQLite, syncType: connectorstore.SyncTypeFull},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
 			previousPath := filepath.Join(t.TempDir(), "previous.c1z")
-			previous, err := dotc1z.NewStore(ctx, previousPath, dotc1z.WithEngine(c1zstore.EnginePebble))
+			previous, err := dotc1z.NewStore(ctx, previousPath, dotc1z.WithEngine(tc.engine))
 			require.NoError(t, err)
 			syncID, err := previous.StartNewSync(ctx, tc.syncType, "")
 			require.NoError(t, err)
 			require.NoError(t, previous.EndSync(ctx))
 			if tc.compacted {
+				require.Equal(t, c1zstore.EnginePebble, tc.engine)
 				eng, ok := enginepkg.AsEngine(previous)
 				require.True(t, ok)
 				run, err := eng.GetSyncRunRecord(ctx, syncID)
