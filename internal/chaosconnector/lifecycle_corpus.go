@@ -17,7 +17,7 @@ type LifecycleAttemptExpectation struct {
 	Sealed              bool
 	Present             bool
 	DisplayName         string
-	EntitlementsDropped int64
+	EntitlementsDropped uint64
 	MustFail            bool
 	ErrorContains       string
 }

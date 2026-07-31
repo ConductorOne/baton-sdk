@@ -15,6 +15,7 @@ type syncTokenTiming struct {
 	StepDurationsMs    map[string]int64          `json:"step_durations_ms,omitempty"`
 	ConnectorCallStats map[string]*tokenCallStat `json:"connector_call_stats,omitempty"`
 	SessionStoreStats  map[string]*tokenCallStat `json:"session_store_stats,omitempty"`
+	IngestQuality      *tokenIngestQuality       `json:"ingest_quality,omitempty"`
 }
 
 type tokenCallStat struct {
@@ -23,6 +24,16 @@ type tokenCallStat struct {
 	MaxMs    int64 `json:"max_ms"`
 	Errors   int64 `json:"errors,omitempty"`
 	Timeouts int64 `json:"timeouts,omitempty"`
+}
+
+type tokenIngestQuality struct {
+	SourceCacheReplayBlocked      bool   `json:"source_cache_replay_blocked,omitempty"`
+	EntitlementsDropped           uint64 `json:"entitlements_dropped,omitempty"`
+	GrantsDropped                 uint64 `json:"grants_dropped,omitempty"`
+	GrantResourcesDropped         uint64 `json:"grant_resources_dropped,omitempty"`
+	ExpansionResourceTypesDropped uint64 `json:"expansion_resource_types_dropped,omitempty"`
+	ExpansionsDropped             uint64 `json:"expansions_dropped,omitempty"`
+	ReasonFlags                   uint64 `json:"reason_flags,omitempty"`
 }
 
 // ApplySyncTokenStats overlays timing / call stats from a syncer token
@@ -67,6 +78,17 @@ func ApplySyncTokenStatsRecord(rec *v3.SyncStatsRecord, syncToken string) {
 	if sessions := toStorageCallStats(timing.SessionStoreStats); len(sessions) > 0 {
 		rec.SetSessionStoreStats(sessions)
 	}
+	if quality := toStorageIngestQuality(timing.IngestQuality); quality != nil {
+		rec.SetIngestQuality(quality)
+	}
+}
+
+// SourceCacheReplayEligible fails closed for legacy and compacted artifacts:
+// both omit ingest_quality. Only a quality-aware original sync that completed
+// without a replay-blocking ingestion defect is eligible.
+func SourceCacheReplayEligible(rec *v3.SyncStatsRecord) bool {
+	quality := rec.GetIngestQuality()
+	return quality != nil && !quality.GetSourceCacheReplayBlocked()
 }
 
 func parseSyncTokenTiming(syncToken string) (syncTokenTiming, bool) {
@@ -76,10 +98,26 @@ func parseSyncTokenTiming(syncToken string) (syncTokenTiming, bool) {
 	}
 	if len(timing.StepDurationsMs) == 0 &&
 		len(timing.ConnectorCallStats) == 0 &&
-		len(timing.SessionStoreStats) == 0 {
+		len(timing.SessionStoreStats) == 0 &&
+		timing.IngestQuality == nil {
 		return syncTokenTiming{}, false
 	}
 	return timing, true
+}
+
+func toStorageIngestQuality(in *tokenIngestQuality) *v3.IngestQualityStats {
+	if in == nil {
+		return nil
+	}
+	return v3.IngestQualityStats_builder{
+		SourceCacheReplayBlocked:      in.SourceCacheReplayBlocked,
+		EntitlementsDropped:           in.EntitlementsDropped,
+		GrantsDropped:                 in.GrantsDropped,
+		GrantResourcesDropped:         in.GrantResourcesDropped,
+		ExpansionResourceTypesDropped: in.ExpansionResourceTypesDropped,
+		ExpansionsDropped:             in.ExpansionsDropped,
+		ReasonFlags:                   in.ReasonFlags,
+	}.Build()
 }
 
 func toReaderCallStats(in map[string]*tokenCallStat) map[string]*reader_v2.CallStat {

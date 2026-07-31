@@ -2,6 +2,7 @@ package sync //nolint:revive,nolintlint // backwards-compatible package name
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -10,8 +11,10 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	chaosoracle "github.com/conductorone/baton-sdk/internal/chaosconnector/oracle"
+	storagev3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 )
 
 func TestChaosConnectorDataPolicyLifecycleCorpus(t *testing.T) {
@@ -42,6 +45,9 @@ func runDataPolicyLifecycleCase(t *testing.T, transport chaosTransport, corpusCa
 	)
 	initialConcrete, ok := initialHarness.Syncer.(*syncer)
 	require.True(t, ok)
+	// Persist every completed page so the drop case proves counters restore
+	// from the checkpoint instead of merely being reconstructed by replay.
+	initialConcrete.checkpointInterval = 0
 	require.ErrorIs(t, initialHarness.Syncer.Sync(ctx), chaosconnector.ErrCrashRequested)
 	require.NoError(t, initialHarness.Close(t.Context()))
 	require.NoError(t, initialRun.Runtime().VerifyRequired())
@@ -92,12 +98,43 @@ func runDataPolicyLifecycleCase(t *testing.T, transport chaosTransport, corpusCa
 		},
 		finalObservation,
 	))
+	quality := readLifecycleIngestQuality(t, c1zPath)
+	switch corpusCase.Policy {
+	case chaosconnector.DataPolicyFail:
+		require.Nil(t, quality, "failed sync must not publish ingest quality")
+	case chaosconnector.DataPolicyAccept:
+		require.NotNil(t, quality)
+		require.False(t, quality.GetSourceCacheReplayBlocked())
+	case chaosconnector.DataPolicySkipReport:
+		require.NotNil(t, quality)
+		require.True(t, quality.GetSourceCacheReplayBlocked())
+		require.Equal(t, corpusCase.Resume.EntitlementsDropped, quality.GetEntitlementsDropped())
+	case chaosconnector.DataPolicyWarnRetain:
+		require.NotNil(t, quality)
+		require.True(t, quality.GetSourceCacheReplayBlocked())
+		require.NotZero(t, quality.GetReasonFlags())
+	default:
+		require.Failf(t, "unexpected lifecycle policy", "policy %q has no quality expectation", corpusCase.Policy)
+	}
 	require.True(t, lifecycleTraceHas(
 		resumeRun,
 		corpusCase.InterruptedPageToken,
 		chaosconnector.OutcomeReturned,
 	),
 		"resume did not execute the interrupted page")
+}
+
+func readLifecycleIngestQuality(t *testing.T, c1zPath string) *storagev3.IngestQualityStats {
+	t.Helper()
+	f, err := os.Open(c1zPath)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, f.Close()) }()
+	manifest, err := formatv3.ReadManifestHeader(f)
+	require.NoError(t, err)
+	if len(manifest.GetSyncRuns()) == 0 || manifest.GetSyncRuns()[0].GetStats() == nil {
+		return nil
+	}
+	return manifest.GetSyncRuns()[0].GetStats().GetIngestQuality()
 }
 
 func readLifecycleObservation(

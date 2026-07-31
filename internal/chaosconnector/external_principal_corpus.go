@@ -133,10 +133,8 @@ func externalPrincipalSourceScenario() (*Scenario, error) {
 		"External User 1",
 		userType,
 		"external-user-1",
-		[]rs.UserTraitOption{
-			rs.WithEmail("target@example.com", true),
-			rs.WithUserProfile(map[string]any{"department": "engineering"}),
-		},
+		[]rs.UserTraitOption{rs.WithEmail("target@example.com", true)},
+		rs.WithResourceProfile(map[string]any{"department": "engineering"}),
 	)
 	if err != nil {
 		return nil, err
@@ -149,7 +147,8 @@ func externalPrincipalSourceScenario() (*Scenario, error) {
 		"External Group 1",
 		groupType,
 		"external-group-1",
-		[]rs.GroupTraitOption{rs.WithGroupProfile(map[string]any{"external_id": "group-123"})},
+		nil,
+		rs.WithResourceProfile(map[string]any{"external_id": "group-123"}),
 	)
 	if err != nil {
 		return nil, err

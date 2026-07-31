@@ -31,6 +31,18 @@ import (
 // then ends + closes it. Returns the sync id.
 func buildPebbleInput(t testing.TB, ctx context.Context, path string, st connectorstore.SyncType, grantIDs ...string) string {
 	t.Helper()
+	return buildPebbleInputWithQuality(t, ctx, path, st, "", grantIDs...)
+}
+
+func buildPebbleInputWithQuality(
+	t testing.TB,
+	ctx context.Context,
+	path string,
+	st connectorstore.SyncType,
+	qualityCheckpoint string,
+	grantIDs ...string,
+) string {
+	t.Helper()
 
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
@@ -79,6 +91,9 @@ func buildPebbleInput(t testing.TB, ctx context.Context, path string, st connect
 	// asserted on the compacted output (the merge must not copy it).
 	require.NoError(t, w.PutAsset(ctx, v2.AssetRef_builder{Id: "asset-1"}.Build(), "text/plain", []byte("payload")))
 
+	if qualityCheckpoint != "" {
+		require.NoError(t, w.CheckpointSync(ctx, qualityCheckpoint))
+	}
 	require.NoError(t, w.EndSync(ctx))
 	require.NoError(t, w.Close(ctx))
 	return syncID
@@ -1172,8 +1187,9 @@ func TestCompactPebbleStatsSidecarMatchesRecompute(t *testing.T) {
 			inDir := t.TempDir()
 			p1 := filepath.Join(inDir, "in1.c1z")
 			p2 := filepath.Join(inDir, "in2.c1z")
-			s1 := buildPebbleInput(t, ctx, p1, connectorstore.SyncTypePartial, "g-shared", "g-only1")
-			s2 := buildPebbleInput(t, ctx, p2, connectorstore.SyncTypePartial, "g-shared", "g-only2")
+			qualityCheckpoint := `{"version":1,"ingest_quality":{"source_cache_replay_blocked":true,"grants_dropped":7,"reason_flags":2}}`
+			s1 := buildPebbleInputWithQuality(t, ctx, p1, connectorstore.SyncTypePartial, qualityCheckpoint, "g-shared", "g-only1")
+			s2 := buildPebbleInputWithQuality(t, ctx, p2, connectorstore.SyncTypePartial, qualityCheckpoint, "g-shared", "g-only2")
 
 			c, cleanup, err := NewCompactor(ctx, t.TempDir(),
 				[]*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}},
@@ -1204,6 +1220,7 @@ func TestCompactPebbleStatsSidecarMatchesRecompute(t *testing.T) {
 			require.Equal(t, int64(0), stored.GetAssets(), "compaction drops assets")
 			require.Equal(t, map[string]int64{"group": 1, "user": 3}, stored.GetResourcesByResourceType())
 			require.Equal(t, map[string]int64{"group": 3}, stored.GetGrantsByEntitlementResourceType())
+			require.Nil(t, stored.GetIngestQuality(), "compaction must not inherit source ingestion quality")
 
 			require.NoError(t, eng.PersistSyncStats(ctx, out.SyncID))
 			recomputed, err := enginepkg.ReadSyncStatsRecord(ctx, eng, out.SyncID)
@@ -1216,6 +1233,7 @@ func TestCompactPebbleStatsSidecarMatchesRecompute(t *testing.T) {
 			require.Equal(t, recomputed.GetAssets(), stored.GetAssets())
 			require.Equal(t, recomputed.GetResourcesByResourceType(), stored.GetResourcesByResourceType())
 			require.Equal(t, recomputed.GetGrantsByEntitlementResourceType(), stored.GetGrantsByEntitlementResourceType())
+			require.Nil(t, recomputed.GetIngestQuality(), "recomputed compacted stats must remain replay-ineligible")
 		})
 	}
 }

@@ -250,6 +250,11 @@ type IngestInvariantsPolicy struct {
 	// artifact that already sealed. A normal connector sync must never
 	// set this.
 	CompactionMerge bool
+	// onRetainedInvalid marks a tolerated connector-data defect so the
+	// completed source artifact cannot be used for source-cache replay.
+	// Compaction callers leave it nil because ingestion quality does not
+	// compose through merges.
+	onRetainedInvalid func()
 
 	// I4 evidence: only a process that ran the resources phase can
 	// supply the in-memory scheduled set, so only the syncer sets these.
@@ -504,6 +509,9 @@ func runIngestInvariants(
 	}
 	if len(skippedNoStore) > 0 {
 		logSkippedReferentialInvariants(ctx, store, policy.ActiveSyncID, skippedNoStore)
+		if policy.onRetainedInvalid != nil && !policy.CompactionMerge {
+			policy.onRetainedInvalid()
+		}
 	}
 	return coverage, nil
 }
@@ -590,6 +598,9 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 		childSchedule:     &s.childSchedule,
 		resourcesPhaseRan: s.resourcesPhaseRanHere,
 		syncResourceTypes: s.syncResourceTypes,
+		onRetainedInvalid: func() {
+			s.ingestFilterStats.blockReplay(ingestQualityReasonRetainedInvalid)
+		},
 	}
 	if st, ok := s.state.(*state); ok {
 		policy.undrainedSpawned = st.UndrainedSpawnedCursors
@@ -1119,6 +1130,9 @@ func (pass *ingestInvariantsPass) checkGrantResourceReferences(ctx context.Conte
 		return err
 	}
 	if danglingResources > 0 {
+		if pass.p.onRetainedInvalid != nil && !pass.p.CompactionMerge {
+			pass.p.onRetainedInvalid()
+		}
 		ctxzap.Extract(ctx).Warn("ingest invariant I3: grants reference resources with no resource row",
 			zap.Int("dangling_resources", danglingResources),
 			zap.Int("refs_into_unsynced_types", unsyncedType),
@@ -1177,6 +1191,9 @@ func (pass *ingestInvariantsPass) checkEntitlementResourceReferences(ctx context
 		return err
 	}
 	if danglingResources > 0 {
+		if pass.p.onRetainedInvalid != nil && !pass.p.CompactionMerge {
+			pass.p.onRetainedInvalid()
+		}
 		ctxzap.Extract(ctx).Warn("ingest invariant I7: entitlements reference resources with no resource row",
 			zap.Int("dangling_resources", danglingResources),
 			zap.Int("refs_into_unsynced_types", unsyncedType),
@@ -1247,6 +1264,9 @@ func (pass *ingestInvariantsPass) checkGrantEntitlementReferences(ctx context.Co
 		return err
 	}
 	if danglingEnts > 0 {
+		if pass.p.onRetainedInvalid != nil && !pass.p.CompactionMerge {
+			pass.p.onRetainedInvalid()
+		}
 		ctxzap.Extract(ctx).Warn("ingest invariant I8: grants reference entitlements with no entitlement row",
 			zap.Int("dangling_entitlements", danglingEnts),
 			zap.Int("refs_into_unsynced_types", unsyncedType),
@@ -1324,6 +1344,9 @@ func (pass *ingestInvariantsPass) checkGrantPrincipalReferences(ctx context.Cont
 	}
 	l := ctxzap.Extract(ctx)
 	if danglingPrincipals > 0 {
+		if pass.p.onRetainedInvalid != nil && !pass.p.CompactionMerge {
+			pass.p.onRetainedInvalid()
+		}
 		l.Warn("ingest invariant I9: grants reference principals with no resource row",
 			zap.Int("dangling_principals", danglingPrincipals),
 			zap.Int("refs_into_unsynced_types", unsyncedType),
@@ -1333,6 +1356,9 @@ func (pass *ingestInvariantsPass) checkGrantPrincipalReferences(ctx context.Cont
 		)
 	}
 	if matchCarriersKept > 0 {
+		if pass.p.onRetainedInvalid != nil && !pass.p.CompactionMerge {
+			pass.p.onRetainedInvalid()
+		}
 		l.Warn("ingest invariant I9: kept unprocessed external-match carrier grants with dangling principals — was the external resource file configured?",
 			zap.Int64("match_carriers_kept", matchCarriersKept),
 		)

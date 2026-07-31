@@ -449,6 +449,7 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	s.lastCheckPointTime = time.Now()
+	s.state.SetIngestQuality(s.ingestFilterStats.snapshot())
 	checkpoint, err := s.state.Marshal()
 	if err != nil {
 		return err
@@ -966,6 +967,18 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return err
 	}
 	s.state = state
+	if newSync {
+		s.ingestFilterStats.markKnown()
+	} else {
+		quality := s.state.IngestQuality()
+		if quality == nil {
+			quality = &IngestQualityCheckpoint{
+				SourceCacheReplayBlocked: true,
+				ReasonFlags:              ingestQualityReasonUnknownPriorCheckpoint,
+			}
+		}
+		s.ingestFilterStats.restore(quality)
+	}
 	if !newSync {
 		currentAction := s.state.Current()
 		currentActionOp := ""

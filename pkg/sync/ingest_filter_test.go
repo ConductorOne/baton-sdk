@@ -134,8 +134,8 @@ func TestFreshIngestFilterMirrorsMachineryExemptions(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.Equal(t, []*v2.Grant{matchIDDisabledPrincipal, matchAllDisabledPrincipal, matchKeyDisabledPrincipal, good}, grants)
-			require.Equal(t, int64(1), s.ingestFilterStats.entitlementsDropped.Load())
-			require.Equal(t, int64(5), s.ingestFilterStats.grantsDropped.Load())
+			require.Equal(t, uint64(1), s.ingestFilterStats.entitlementsDropped.Load())
+			require.Equal(t, uint64(5), s.ingestFilterStats.grantsDropped.Load())
 		})
 	}
 }

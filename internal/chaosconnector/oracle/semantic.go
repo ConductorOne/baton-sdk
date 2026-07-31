@@ -162,7 +162,7 @@ type LifecycleExpectation struct {
 	Sealed      bool
 	Present     bool
 	DisplayName *string
-	Dropped     int64
+	Dropped     uint64
 }
 
 // LifecycleObservation is measured independently from the c1z and syncer
@@ -171,7 +171,7 @@ type LifecycleObservation struct {
 	Sealed      bool
 	Present     bool
 	DisplayName string
-	Dropped     int64
+	Dropped     uint64
 }
 
 type LifecycleStoreReader interface {
