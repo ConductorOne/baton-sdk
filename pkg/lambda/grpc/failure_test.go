@@ -147,7 +147,7 @@ func TestClassifyLambdaFailure(t *testing.T) {
 				"END RequestId: 595dc20a-caa6-455c-b6cb-182bc88397ed\n" + reportOOM + "\n",
 
 			wantClass:       FailureClassOOM,
-			wantCode:        codes.Unavailable,
+			wantCode:        codes.ResourceExhausted,
 			wantRequestID:   "595dc20a-caa6-455c-b6cb-182bc88397ed",
 			wantErrorType:   "Runtime.OutOfMemory",
 			wantMemorySize:  128,
@@ -169,7 +169,7 @@ func TestClassifyLambdaFailure(t *testing.T) {
 				"Memory Size: 128 MB\tMax Memory Used: 128 MB\tStatus: error\n",
 
 			wantClass:        FailureClassOOM,
-			wantCode:         codes.Unavailable,
+			wantCode:         codes.ResourceExhausted,
 			wantRequestID:    "abc-123",
 			wantErrorType:    "Runtime.ExitError",
 			wantMemorySize:   128,
@@ -356,7 +356,7 @@ func TestLambdaInvokeFailureIsRecoverable(t *testing.T) {
 	require.Equal(t, 126, failure.MaxMemoryUsedMB)
 	require.Equal(t, 98, failure.MemoryUtilizationPct())
 
-	require.Equal(t, codes.Unavailable, status.Code(err), "oom must map to Unavailable")
+	require.Equal(t, codes.ResourceExhausted, status.Code(err), "oom must map to ResourceExhausted")
 
 	timedOut := classifyLambdaFailure(
 		"Unhandled", 200,

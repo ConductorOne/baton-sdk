@@ -92,18 +92,19 @@ func (e *LambdaInvokeFailure) MemoryUtilizationPct() int {
 // Code returns the gRPC code this failure maps to.
 //
 // Timeouts stay codes.DeadlineExceeded because the sync framework relies on that
-// code to retry and checkpoint. An OOM is codes.Unavailable: a retry can land on
-// a fresh sandbox, but it will keep recurring until the function's memory is
-// raised, and Unavailable keeps the existing retry-and-checkpoint behaviour
-// instead of turning an OOM into a terminal failure. Anything we could not
-// classify keeps codes.Unknown, which is what the untyped errors this replaces
-// already produced.
+// code to retry and checkpoint. An OOM is codes.ResourceExhausted: retrying an
+// OOM lands on a fresh sandbox with the same memory ceiling, so it fails again
+// for the same reason every time until the connector or the Lambda memory
+// configuration changes. Retrying it is not useful work, so it is treated as
+// terminal rather than transient. Anything we could not classify keeps
+// codes.Unknown, which is what the untyped errors this replaces already
+// produced.
 func (e *LambdaInvokeFailure) Code() codes.Code {
 	switch e.FailureClass {
 	case FailureClassTimeout:
 		return codes.DeadlineExceeded
 	case FailureClassOOM:
-		return codes.Unavailable
+		return codes.ResourceExhausted
 	default:
 		return codes.Unknown
 	}
