@@ -457,13 +457,14 @@ func (s *syncer) handleOperationError(
 		)
 	}
 	l := ctxzap.Extract(ctx)
-	if errors.Is(cause, context.DeadlineExceeded) {
+	switch {
+	case errors.Is(cause, context.DeadlineExceeded):
 		if s.recordStats {
 			l.Info("sync run duration has expired, exiting sync early", s.syncSummaryFields(trace.SpanFromContext(ctx))...)
 		} else {
 			l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", s.syncID))
 		}
-	} else if s.recordStats {
+	case s.recordStats:
 		// Same per-step/per-resource-type/retry-wait fields as the deadline
 		// branch above — these are exactly the counters used to reconstruct
 		// a sync's timeline after the fact (see CXH-2121), so a
@@ -471,7 +472,7 @@ func (s *syncer) handleOperationError(
 		// than a deadline-expired one.
 		l.Info("sync context cancelled, exiting sync early",
 			append(s.syncSummaryFields(trace.SpanFromContext(ctx)), zap.NamedError("cancel_cause", cause))...)
-	} else {
+	default:
 		l.Info("sync context cancelled, exiting sync early", zap.String("sync_id", s.syncID), zap.Error(cause))
 	}
 	// ctx itself may already be Done here (e.g. a SIGTERM-driven cancellation
