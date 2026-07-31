@@ -405,6 +405,9 @@ func (rb *RecordBatch) deleteAllResourceParentKeysForChild(childRT, childID stri
 			continue
 		}
 		parentIDOffset := 4 + parentRTNext + 1
+		if parentIDOffset > len(key) {
+			continue
+		}
 		_, parentIDNext, ok := codec.DecodeTupleStringAlias(key[parentIDOffset:], 0)
 		if !ok {
 			continue

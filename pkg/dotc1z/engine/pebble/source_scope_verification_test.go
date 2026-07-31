@@ -267,6 +267,36 @@ func TestVerificationMalformedAllKindDeleteCleansSourceScopeIndex(t *testing.T) 
 	}
 }
 
+func TestVerificationTruncatedResourceParentIndexDoesNotPanicOnDelete(t *testing.T) {
+	ctx := t.Context()
+	a := newAdapter(t)
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	e := a.PebbleEngine()
+	driver := newSourceScopeMutationDriver(t, a, sourcecache.RowKindResources)
+	require.NoError(t, driver.put(ctx, "scope-a"))
+
+	primaries, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: []byte{versionV3, typeResource},
+		UpperBound: upperBoundOf([]byte{versionV3, typeResource}),
+	})
+	require.NoError(t, err)
+	require.True(t, primaries.First())
+	primaryKey := append([]byte(nil), primaries.Key()...)
+	require.NoError(t, primaries.Close())
+
+	// A valid terminal parent_rt tuple with no following separator used to
+	// produce parentIDOffset == len(key)+1 and panic during malformed-row repair.
+	malformedParentKey := append(ResourceByParentLowerBound(), 0)
+	malformedParentKey = codec.AppendTupleString(malformedParentKey, "team")
+	require.NoError(t, e.db.UnsafeForTesting().Set(malformedParentKey, nil, pebble.Sync))
+	require.NoError(t, e.db.UnsafeForTesting().Set(primaryKey, []byte("\xff not a proto"), pebble.Sync))
+
+	require.NoError(t, e.DeleteResourceRecord(ctx, "user", "alice"))
+	require.Equal(t, 1, countKeys(t, e, ResourceByParentLowerBound()),
+		"unidentifiable malformed index should be skipped without panicking")
+}
+
 // C08/C14 compare replay against the ordinary typed materialization path,
 // including representative pre-existing obligations for every row kind.
 func TestVerificationReplayMatchesDirectTypedMaterialization(t *testing.T) {
