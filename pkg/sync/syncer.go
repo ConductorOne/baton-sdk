@@ -1167,6 +1167,12 @@ func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.Resou
 				return
 			}
 			resourceTypes := resp.GetList()
+			for _, resourceType := range resourceTypes {
+				if err := validateConnectorResourceType(resourceType); err != nil {
+					_ = yield(nil, err)
+					return
+				}
+			}
 			if len(resourceTypes) > 0 {
 				if !yield(resourceTypes, err) {
 					return
@@ -1201,6 +1207,11 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
 		return err
+	}
+	for _, resourceType := range resp.GetList() {
+		if err := validateConnectorResourceType(resourceType); err != nil {
+			return err
+		}
 	}
 
 	var resourceTypes []*v2.ResourceType
@@ -1591,6 +1602,9 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 				// we can't tell if we already have synced those child resources.
 				// Those children may also have their own child resources,
 				// so we are conservative here and just re-sync this resource.
+				// Persist the latest observation even when no follow-up work is
+				// needed so duplicate semantics do not depend on page boundaries.
+				bulkPutResoruces = append(bulkPutResoruces, r)
 				continue
 			}
 		}
@@ -1657,6 +1671,29 @@ func validateConnectorResource(resource *v2.Resource) error {
 	resourceID := resource.GetId()
 	if resourceID == nil || resourceID.GetResourceType() == "" || resourceID.GetResource() == "" {
 		return status.Error(codes.Internal, "connector returned a resource with missing identity")
+	}
+	return nil
+}
+
+func validateConnectorEntitlement(entitlement *v2.Entitlement) error {
+	if entitlement == nil {
+		return status.Error(codes.Internal, "connector returned a nil entitlement")
+	}
+	if entitlement.GetId() == "" {
+		return status.Error(codes.Internal, "connector returned an entitlement with missing identity")
+	}
+	if err := validateConnectorResource(entitlement.GetResource()); err != nil {
+		return status.Error(codes.Internal, "connector returned an entitlement with missing resource identity")
+	}
+	return nil
+}
+
+func validateConnectorResourceType(resourceType *v2.ResourceType) error {
+	if resourceType == nil {
+		return status.Error(codes.Internal, "connector returned a nil resource type")
+	}
+	if resourceType.GetId() == "" {
+		return status.Error(codes.Internal, "connector returned a resource type with missing identity")
 	}
 	return nil
 }
@@ -1909,6 +1946,11 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	entitlements, err := s.filterFreshEntitlements(ctx, resp.GetList())
 	if err != nil {
 		return fmt.Errorf("sync-entitlements: filtering disabled-type references: %w", err)
+	}
+	for _, entitlement := range entitlements {
+		if err := validateConnectorEntitlement(entitlement); err != nil {
+			return err
+		}
 	}
 	err = s.store.PutEntitlements(ctx, entitlements...)
 	if err != nil {

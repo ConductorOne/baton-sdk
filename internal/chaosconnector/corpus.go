@@ -24,6 +24,7 @@ const (
 	DataPolicyAccept     DataPolicy = "accept"
 	DataPolicyNormalize  DataPolicy = "normalize"
 	DataPolicySkipReport DataPolicy = "skip-and-report"
+	DataPolicyWarnRetain DataPolicy = "warn-and-retain"
 	DataPolicyRejectRPC  DataPolicy = "reject-rpc"
 	DataPolicyFail       DataPolicy = "fail-operation"
 	DataPolicyUnresolved DataPolicy = "unresolved"
@@ -37,8 +38,8 @@ type CorpusCase struct {
 	Apply  func(*Scenario) error
 }
 
-// InitialDataCorpus records established policies and deliberately exposes
-// unresolved relational contracts rather than inventing test expectations.
+// InitialDataCorpus contains named representation cases that have not moved
+// into a generated relational or temporal corpus.
 func InitialDataCorpus() []CorpusCase {
 	return []CorpusCase{
 		{
@@ -57,21 +58,6 @@ func InitialDataCorpus() []CorpusCase {
 				entitlementPages[""] = entitlementPage
 				return nil
 			},
-		},
-		{
-			Name:   "grant-references-unserved-entitlement",
-			Class:  DataRelationallyInvalid,
-			Policy: DataPolicyUnresolved,
-		},
-		{
-			Name:   "duplicate-id-conflicting-content",
-			Class:  DataRelationallyInvalid,
-			Policy: DataPolicyUnresolved,
-		},
-		{
-			Name:   "identity-changes-between-retries",
-			Class:  DataTemporallyInconsistent,
-			Policy: DataPolicyUnresolved,
 		},
 	}
 }

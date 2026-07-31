@@ -364,6 +364,61 @@ func TestChaosConnectorEmptyResourceFailsWithoutSealing(t *testing.T) {
 	require.Nil(t, latest, "empty connector records must not seal a sync")
 }
 
+func TestChaosConnectorEmptyResourceTypeFailsWithoutSealing(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	c1zPath := filepath.Join(tmpDir, "chaos-empty-resource-type.c1z")
+	scenario, err := chaosconnector.NewFullScenario()
+	require.NoError(t, err)
+	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
+		ID: "clear-first-resource-type",
+		Match: chaosconnector.Matcher{
+			Service: "ResourceTypesService",
+			Method:  "ListResourceTypes",
+			Attempt: 1,
+			Phase:   chaosconnector.PhaseBeforeResponse,
+		},
+		Effects: []chaosconnector.Effect{{
+			Kind:     chaosconnector.EffectMutate,
+			Mutation: chaosconnector.MutationClearFirstItem,
+		}},
+		MinFires: 1,
+		MaxFires: 1,
+	}))
+	require.NoError(t, err)
+	builder, err := chaosconnector.NewBuilder(run)
+	require.NoError(t, err)
+	server, err := builder.Server(ctx)
+	require.NoError(t, err)
+	syncer, err := NewSyncer(
+		ctx,
+		chaosconnector.NewDirectClient(ctx, server, run),
+		WithC1ZPath(c1zPath),
+		WithTmpDir(tmpDir),
+		WithStorageEngine(c1zstore.EnginePebble),
+		WithDontExpandGrants(),
+	)
+	require.NoError(t, err)
+	syncErr := syncer.Sync(ctx)
+	require.ErrorContains(t, syncErr, "resource type with missing identity")
+	require.Equal(t, codes.Internal, status.Code(syncErr))
+	require.NoError(t, syncer.Close(ctx))
+	require.NoError(t, run.Runtime().VerifyRequired())
+
+	store, err := dotc1z.NewStore(
+		ctx,
+		c1zPath,
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithTmpDir(tmpDir),
+		dotc1z.WithReadOnly(true),
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close(ctx)) }()
+	latest, err := store.SyncMeta().LatestFullSync(ctx)
+	require.NoError(t, err)
+	require.Nil(t, latest, "an unkeyable resource type must not seal a sync")
+}
+
 func TestChaosConnectorDuplicateEnqueueAnnotationFailsWithoutSealing(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()

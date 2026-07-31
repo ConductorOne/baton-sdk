@@ -172,10 +172,38 @@ relationally inconsistent records use a written accept, normalize, skip,
 reject, or fail policy. Missing policy is a blocking finding, not an invitation
 for the test to invent one.
 
-The initial named corpus contains one executable malformed-entitlement policy
-and explicitly unresolved relational and temporal cases. `InitialDataCorpus`
-is the policy registry: a case cannot become a gating test until its expected
-treatment is no longer `unresolved`.
+`ReferentialCorpus` generates the closed resource-identity,
+entitlement-to-resource, and grant-entitlement-by-principal matrix. Its 77
+named cells each carry a policy and scenario mutator and run through the full
+sync lifecycle, drop counters, sealing check, and store-presence oracle. New
+reference shapes are added to the applicable path vocabulary and therefore
+expand the grant cross-product automatically. `InitialDataCorpus` remains the
+registry for non-referential representation, temporal, and legal-hostility
+cases; a case cannot become gating while its policy is `unresolved`.
+
+`SemanticCorpus` adds same-page and cross-page duplicate identities plus
+missing, unknown, self-cyclic, and mutually cyclic parent references. Duplicate
+tests assert canonical multiplicity and final content, making overwrite order
+independent of page boundaries. `TemporalCorpus` loses the first response,
+changes the scenario epoch, and verifies that resource, entitlement, and grant
+retries converge to the retry answer without retaining the unseen answer.
+
+`ConcurrentDuplicateCorpus` uses spawned entitlement cursors and barriers to
+force both conflicting-response completion orders. A live run retains the last
+completed write. Its crash/resume variant verifies that the complete spawned
+frontier is replayed; with one resume worker, stable spawn order determines the
+last write regardless of which sibling was interrupted before the crash.
+The harness proves that both conflicting values were observed, but the SDK
+does not yet emit exact entitlement/grant conflict counters: doing that would
+require either a read before every put or sync-wide identity state. Neither
+cost is introduced implicitly by these tests.
+
+`LifecycleCorpus` crosses one representative of each data policy with an
+interrupted entitlement page and persisted resume. It verifies that dropped
+rows remain absent, hard-invalid rows cannot seal, retained dangling rows
+survive, and an interrupted response is replaced by the resume-time answer.
+Page-chain replay is at-least-once: a dropped row before the cut is observed
+and counted once in each attempt, while remaining absent from both artifacts.
 
 ### Stage 6: checkpoint and resume
 
