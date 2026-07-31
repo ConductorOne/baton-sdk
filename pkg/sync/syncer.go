@@ -148,8 +148,9 @@ type syncer struct {
 	// externalResourceTraits are the resource type traits that this
 	// connector wants synced from the external resource source and made
 	// available to the External Identity Matcher (see externalMatchTraits,
-	// set via WithExternalResourceTraits). There is no implicit default:
-	// TRAIT_USER/TRAIT_GROUP must be included explicitly to be matched.
+	// set via WithExternalResourceTraits). When left empty the matcher
+	// falls back to TRAIT_USER/TRAIT_GROUP, preserving pre-CE-975 behavior
+	// for callers that never opt in.
 	externalResourceTraits      []v2.ResourceType_Trait
 	previousSyncC1ZPath         string
 	previousSyncC1ZPathOptional bool
@@ -2341,12 +2342,19 @@ func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) erro
 }
 
 // externalMatchTraits returns the set of resource type traits the External
-// Identity Matcher should sync and match against. There is no hardcoded
-// default here: TRAIT_USER/TRAIT_GROUP are only eligible if the caller
-// included them via WithExternalResourceTraits (the CLI's
-// --external-resource-traits flag defaults to "user,group", but direct
-// SyncOpt/programmatic callers must pass traits explicitly).
+// Identity Matcher should sync and match against. When no traits have been
+// configured via WithExternalResourceTraits the matcher falls back to
+// TRAIT_USER/TRAIT_GROUP, matching pre-CE-975 behavior for connectors that
+// never opt in. Passing any traits replaces the default entirely — a
+// caller that still wants user/group matching alongside a new trait must
+// list all three.
 func (s *syncer) externalMatchTraits() map[v2.ResourceType_Trait]bool {
+	if len(s.externalResourceTraits) == 0 {
+		return map[v2.ResourceType_Trait]bool{
+			v2.ResourceType_TRAIT_USER:  true,
+			v2.ResourceType_TRAIT_GROUP: true,
+		}
+	}
 	traits := make(map[v2.ResourceType_Trait]bool, len(s.externalResourceTraits))
 	for _, t := range s.externalResourceTraits {
 		traits[t] = true
@@ -3339,15 +3347,16 @@ func WithExternalResourceEntitlementIdFilter(entitlementId string) SyncOpt {
 	}
 }
 
-// WithExternalResourceTraits adds resource type traits that the External
+// WithExternalResourceTraits sets the resource type traits the External
 // Identity Matcher should sync from the external resource source and
 // consider when matching grants (e.g. ExternalResourceMatch /
-// ExternalResourceMatchAll annotations). There is no implicit default set
-// of traits — a caller that still wants TRAIT_USER/TRAIT_GROUP matched
-// must include them alongside whatever else it needs, for example an Azure
-// connector matching service-principal role assignments against TRAIT_APP
-// resources synced by baton-microsoft-entra while also keeping default
-// user/group matching would pass TRAIT_USER, TRAIT_GROUP, TRAIT_APP.
+// ExternalResourceMatchAll annotations). When not called, the matcher
+// falls back to TRAIT_USER/TRAIT_GROUP — the pre-CE-975 default — so
+// existing connectors keep working unchanged. Passing any traits replaces
+// that default entirely: an Azure connector matching service-principal
+// role assignments against TRAIT_APP resources synced by
+// baton-microsoft-entra while also keeping default user/group matching
+// would pass TRAIT_USER, TRAIT_GROUP, TRAIT_APP.
 func WithExternalResourceTraits(traits ...v2.ResourceType_Trait) SyncOpt {
 	return func(s *syncer) {
 		s.externalResourceTraits = append(s.externalResourceTraits, traits...)

@@ -768,15 +768,15 @@ func WithExternalResourceEntitlementFilter(entitlementId string) Option {
 	}
 }
 
-// WithExternalResourceTraits adds resource type traits that the External
+// WithExternalResourceTraits sets the resource type traits the External
 // Identity Matcher should sync and match against from the external
-// resource c1z (see WithExternalResourceC1Z). There is no hardcoded
-// default here — TRAIT_USER/TRAIT_GROUP are only matched if included
-// (the --external-resource-traits CLI flag defaults to "user,group", but a
-// direct call to this option must list every trait it wants, e.g. a
-// connector matching grants against service-principal identities synced by
-// another connector as TRAIT_APP would pass TRAIT_USER, TRAIT_GROUP,
-// TRAIT_APP here if it still needs default matching too).
+// resource c1z (see WithExternalResourceC1Z). When not called, the matcher
+// falls back to TRAIT_USER/TRAIT_GROUP — the pre-CE-975 default — so
+// existing runner callers keep working unchanged. Passing any traits
+// replaces the default entirely: a connector matching grants against
+// service-principal identities synced by another connector as TRAIT_APP
+// that still wants default user/group matching must pass TRAIT_USER,
+// TRAIT_GROUP, TRAIT_APP.
 func WithExternalResourceTraits(traits ...v2.ResourceType_Trait) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.externalResourceTraits = append(cfg.externalResourceTraits, traits...)

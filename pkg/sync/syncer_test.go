@@ -620,12 +620,7 @@ func TestExternalResourcePath(t *testing.T) {
 		require.NoError(t, err)
 
 		internalC1zpath := filepath.Join(tempDir, "internal.c1z")
-		internalOpts := append([]SyncOpt{
-			WithC1ZPath(internalC1zpath),
-			WithTmpDir(tempDir),
-			WithExternalResourceC1ZPath(externalC1zpath),
-			WithExternalResourceTraits(v2.ResourceType_TRAIT_USER, v2.ResourceType_TRAIT_GROUP),
-		}, extraOpts...)
+		internalOpts := append([]SyncOpt{WithC1ZPath(internalC1zpath), WithTmpDir(tempDir), WithExternalResourceC1ZPath(externalC1zpath)}, extraOpts...)
 		internalSyncer, err := NewSyncer(ctx, internalMc, internalOpts...)
 		require.NoError(t, err)
 		err = internalSyncer.Sync(ctx)
@@ -927,12 +922,7 @@ func TestExternalResourceMatchAll(t *testing.T) {
 
 		// Sync internal with external reference
 		internalC1zpath := filepath.Join(tempDir, "internal.c1z")
-		internalOpts := append([]SyncOpt{
-			WithC1ZPath(internalC1zpath),
-			WithTmpDir(tempDir),
-			WithExternalResourceC1ZPath(externalC1zpath),
-			WithExternalResourceTraits(v2.ResourceType_TRAIT_USER, v2.ResourceType_TRAIT_GROUP),
-		}, extraOpts...)
+		internalOpts := append([]SyncOpt{WithC1ZPath(internalC1zpath), WithTmpDir(tempDir), WithExternalResourceC1ZPath(externalC1zpath)}, extraOpts...)
 		internalSyncer, err := NewSyncer(ctx, internalMc, internalOpts...)
 		require.NoError(t, err)
 		err = internalSyncer.Sync(ctx)
@@ -1022,12 +1012,7 @@ func TestExternalResourceMatchID(t *testing.T) {
 
 		// Sync internal with external reference
 		internalC1zpath := filepath.Join(tempDir, "internal.c1z")
-		internalOpts := append([]SyncOpt{
-			WithC1ZPath(internalC1zpath),
-			WithTmpDir(tempDir),
-			WithExternalResourceC1ZPath(externalC1zpath),
-			WithExternalResourceTraits(v2.ResourceType_TRAIT_USER, v2.ResourceType_TRAIT_GROUP),
-		}, extraOpts...)
+		internalOpts := append([]SyncOpt{WithC1ZPath(internalC1zpath), WithTmpDir(tempDir), WithExternalResourceC1ZPath(externalC1zpath)}, extraOpts...)
 		internalSyncer, err := NewSyncer(ctx, internalMc, internalOpts...)
 		require.NoError(t, err)
 		err = internalSyncer.Sync(ctx)
@@ -1124,7 +1109,6 @@ func TestExternalResourceMatchIDWithExpandableRemapping(t *testing.T) {
 		WithC1ZPath(internalC1zpath),
 		WithTmpDir(tempDir),
 		WithExternalResourceC1ZPath(externalC1zpath),
-		WithExternalResourceTraits(v2.ResourceType_TRAIT_USER, v2.ResourceType_TRAIT_GROUP),
 		WithDontExpandGrants(),
 	)
 	require.NoError(t, err)
@@ -1237,12 +1221,7 @@ func TestExternalResourceEmailMatch(t *testing.T) {
 
 		// Sync internal with external reference
 		internalC1zpath := filepath.Join(tempDir, "internal.c1z")
-		internalOpts := append([]SyncOpt{
-			WithC1ZPath(internalC1zpath),
-			WithTmpDir(tempDir),
-			WithExternalResourceC1ZPath(externalC1zpath),
-			WithExternalResourceTraits(v2.ResourceType_TRAIT_USER, v2.ResourceType_TRAIT_GROUP),
-		}, extraOpts...)
+		internalOpts := append([]SyncOpt{WithC1ZPath(internalC1zpath), WithTmpDir(tempDir), WithExternalResourceC1ZPath(externalC1zpath)}, extraOpts...)
 		internalSyncer, err := NewSyncer(ctx, internalMc, internalOpts...)
 		require.NoError(t, err)
 		err = internalSyncer.Sync(ctx)
@@ -1334,12 +1313,7 @@ func TestExternalResourceGroupProfileMatch(t *testing.T) {
 
 		// Sync internal with external reference
 		internalC1zpath := filepath.Join(tempDir, "internal.c1z")
-		internalOpts := append([]SyncOpt{
-			WithC1ZPath(internalC1zpath),
-			WithTmpDir(tempDir),
-			WithExternalResourceC1ZPath(externalC1zpath),
-			WithExternalResourceTraits(v2.ResourceType_TRAIT_USER, v2.ResourceType_TRAIT_GROUP),
-		}, extraOpts...)
+		internalOpts := append([]SyncOpt{WithC1ZPath(internalC1zpath), WithTmpDir(tempDir), WithExternalResourceC1ZPath(externalC1zpath)}, extraOpts...)
 		internalSyncer, err := NewSyncer(ctx, internalMc, internalOpts...)
 		require.NoError(t, err)
 		err = internalSyncer.Sync(ctx)
