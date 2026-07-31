@@ -252,9 +252,9 @@ func (s *syncer) parallelSync(
 
 		case SyncResourceTypesOp:
 			err = s.timedStep(SyncResourceTypesOp, func() error {
-				return s.SyncResourceTypes(ctx, stateAction)
+				return s.SyncResourceTypes(runCtx, stateAction)
 			})
-			if !s.timedShouldWaitAndRetry(ctx, SyncResourceTypesOp, stateAction.ResourceTypeID, retryer, err) {
+			if !s.timedShouldWaitAndRetry(runCtx, SyncResourceTypesOp, stateAction.ResourceTypeID, retryer, err) {
 				return warnings, err
 			}
 			continue
@@ -262,16 +262,16 @@ func (s *syncer) parallelSync(
 		case SyncResourcesOp:
 			if stateAction.ResourceTypeID == "" && stateAction.ResourceID == "" {
 				err = s.timedStep(SyncResourcesOp, func() error {
-					return s.SyncResources(ctx, stateAction)
+					return s.SyncResources(runCtx, stateAction)
 				})
-				if !s.timedShouldWaitAndRetry(ctx, SyncResourcesOp, stateAction.ResourceTypeID, retryer, err) {
+				if !s.timedShouldWaitAndRetry(runCtx, SyncResourcesOp, stateAction.ResourceTypeID, retryer, err) {
 					return warnings, err
 				}
 				continue
 			}
 			resourceActions := s.state.PeekMatchingActions(ctx, SyncResourcesOp)
 			err = s.timedStep(SyncResourcesOp, func() error {
-				w, syncErr := s.syncParallel(ctx, retryer, resourceActions, s.SyncResources)
+				w, syncErr := s.syncParallel(runCtx, retryer, resourceActions, s.SyncResources)
 				warnings = append(warnings, w...)
 				return syncErr
 			})
@@ -283,7 +283,7 @@ func (s *syncer) parallelSync(
 		case SyncTargetedResourceOp:
 			targetedResourceActions := s.state.PeekMatchingActions(ctx, SyncTargetedResourceOp)
 			err = s.timedStep(SyncTargetedResourceOp, func() error {
-				w, syncErr := s.syncParallel(ctx, retryer, targetedResourceActions, s.SyncTargetedResource)
+				w, syncErr := s.syncParallel(runCtx, retryer, targetedResourceActions, s.SyncTargetedResource)
 				warnings = append(warnings, w...)
 				return syncErr
 			})
@@ -294,7 +294,7 @@ func (s *syncer) parallelSync(
 
 		case SyncStaticEntitlementsOp:
 			err = s.timedStep(SyncStaticEntitlementsOp, func() error {
-				return s.SyncStaticEntitlements(ctx, stateAction)
+				return s.SyncStaticEntitlements(runCtx, stateAction)
 			})
 			if isWarning(ctx, err) {
 				l.Warn("skipping sync static entitlements action", zap.Any("stateAction", stateAction), zap.Error(err))
@@ -302,14 +302,14 @@ func (s *syncer) parallelSync(
 				s.state.FinishAction(ctx, stateAction)
 				continue
 			}
-			if !s.timedShouldWaitAndRetry(ctx, SyncStaticEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
+			if !s.timedShouldWaitAndRetry(runCtx, SyncStaticEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
 				return warnings, err
 			}
 			continue
 		case SyncEntitlementsOp:
 			if stateAction.ResourceTypeID == "" && stateAction.ResourceID == "" {
 				err = s.timedStep(SyncEntitlementsOp, func() error {
-					return s.SyncEntitlements(ctx, stateAction)
+					return s.SyncEntitlements(runCtx, stateAction)
 				})
 				if isWarning(ctx, err) {
 					l.Warn("skipping sync entitlement action", zap.Any("stateAction", stateAction), zap.Error(err))
@@ -317,14 +317,14 @@ func (s *syncer) parallelSync(
 					s.state.FinishAction(ctx, stateAction)
 					continue
 				}
-				if !s.timedShouldWaitAndRetry(ctx, SyncEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
+				if !s.timedShouldWaitAndRetry(runCtx, SyncEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
 					return warnings, err
 				}
 				continue
 			}
 			entitlementActions := s.state.PeekMatchingActions(ctx, SyncEntitlementsOp)
 			err = s.timedStep(SyncEntitlementsOp, func() error {
-				w, syncErr := s.syncParallel(ctx, retryer, entitlementActions, s.SyncEntitlements)
+				w, syncErr := s.syncParallel(runCtx, retryer, entitlementActions, s.SyncEntitlements)
 				warnings = append(warnings, w...)
 				return syncErr
 			})
@@ -336,7 +336,7 @@ func (s *syncer) parallelSync(
 		case SyncGrantsOp:
 			if stateAction.ResourceTypeID == "" && stateAction.ResourceID == "" {
 				err = s.timedStep(SyncGrantsOp, func() error {
-					return s.SyncGrants(ctx, stateAction)
+					return s.SyncGrants(runCtx, stateAction)
 				})
 				if isWarning(ctx, err) {
 					l.Warn("skipping sync grant action", zap.Any("stateAction", stateAction), zap.Error(err))
@@ -344,7 +344,7 @@ func (s *syncer) parallelSync(
 					s.state.FinishAction(ctx, stateAction)
 					continue
 				}
-				if !s.timedShouldWaitAndRetry(ctx, SyncGrantsOp, stateAction.ResourceTypeID, retryer, err) {
+				if !s.timedShouldWaitAndRetry(runCtx, SyncGrantsOp, stateAction.ResourceTypeID, retryer, err) {
 					return warnings, err
 				}
 				continue
@@ -352,7 +352,7 @@ func (s *syncer) parallelSync(
 
 			grantActions := s.state.PeekMatchingActions(ctx, SyncGrantsOp)
 			err = s.timedStep(SyncGrantsOp, func() error {
-				w, syncErr := s.syncParallel(ctx, retryer, grantActions, s.SyncGrants)
+				w, syncErr := s.syncParallel(runCtx, retryer, grantActions, s.SyncGrants)
 				warnings = append(warnings, w...)
 				return syncErr
 			})
@@ -363,17 +363,17 @@ func (s *syncer) parallelSync(
 
 		case SyncExternalResourcesOp:
 			err = s.timedStep(SyncExternalResourcesOp, func() error {
-				return s.SyncExternalResources(ctx, stateAction)
+				return s.SyncExternalResources(runCtx, stateAction)
 			})
-			if !s.timedShouldWaitAndRetry(ctx, SyncExternalResourcesOp, stateAction.ResourceTypeID, retryer, err) {
+			if !s.timedShouldWaitAndRetry(runCtx, SyncExternalResourcesOp, stateAction.ResourceTypeID, retryer, err) {
 				return warnings, err
 			}
 			continue
 		case SyncAssetsOp:
 			err = s.timedStep(SyncAssetsOp, func() error {
-				return s.SyncAssets(ctx, stateAction)
+				return s.SyncAssets(runCtx, stateAction)
 			})
-			if !s.timedShouldWaitAndRetry(ctx, SyncAssetsOp, stateAction.ResourceTypeID, retryer, err) {
+			if !s.timedShouldWaitAndRetry(runCtx, SyncAssetsOp, stateAction.ResourceTypeID, retryer, err) {
 				return warnings, err
 			}
 			continue
@@ -400,8 +400,8 @@ func (s *syncer) parallelSync(
 				continue
 			}
 
-			err = s.SyncGrantExpansion(ctx, stateAction)
-			if !retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, stateAction.ResourceTypeID), err) {
+			err = s.SyncGrantExpansion(runCtx, stateAction)
+			if !retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(runCtx, stateAction.ResourceTypeID), err) {
 				return warnings, err
 			}
 			continue
