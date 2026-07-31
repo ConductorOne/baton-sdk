@@ -24,10 +24,10 @@ func TestVerificationPhase6aExecutableExclusions(t *testing.T) {
 	t.Run("C34-transitional-overlay-annotation", func(t *testing.T) {
 		t.Skip("overlay=false with emitted rows is a syncer annotation/orchestration shape; SourceCacheStore receives only replay, ordinary puts, and tombstone calls")
 	})
-	t.Run("source-eligibility-policy", func(t *testing.T) {
-		t.Skip("compacted/non-FULL source eligibility and compatibility gating are explicitly deferred beyond Phase 6a")
+	t.Run("source-compatibility-policy", func(t *testing.T) {
+		t.Skip("FULL/non-compacted eligibility is implemented by CO-013; cross-version compatibility matching remains deferred")
 	})
 	t.Run("C37-generate-sync-diff", func(t *testing.T) {
-		t.Skip("GenerateSyncDiff creates a partial delta sync, not a standalone future full-sync replay source; partial-source eligibility remains deferred")
+		t.Skip("GenerateSyncDiff creates a partial delta sync rather than a standalone source artifact; CO-013 separately verifies that non-FULL artifacts are replay-ineligible")
 	})
 }

@@ -47,6 +47,12 @@ func TestManifestSyncRunProjection(t *testing.T) {
 	syncRun.SetCompacted(true)
 	require.NoError(t, engine.PutSyncRunRecord(ctx, syncRun))
 	require.True(t, enginepkg.MarkStoreDirty(w))
+	listedRuns, nextPageToken, err := engine.ListSyncRuns(ctx, "", 0)
+	require.NoError(t, err)
+	require.Empty(t, nextPageToken)
+	require.Len(t, listedRuns, 1)
+	require.True(t, listedRuns[0].Compacted, "public sync-run listing must preserve compacted eligibility")
+	require.False(t, listedRuns[0].UsableAsReplaySource())
 	require.NoError(t, w.Close(ctx))
 
 	f, err := os.Open(path)

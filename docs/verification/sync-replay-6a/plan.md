@@ -45,6 +45,10 @@ plans, its first repository commit is not the freeze point.
   compactor integration, and post-replay ingest-invariant evaluation. Phase 6a
   must consume an already-invalidated entry as non-replayable, but must not invent
   invalidation or ingest-invariant policy.
+- CO-013 later changed the Phase 6a contract and supersedes the compacted/non-FULL
+  eligibility and compactor-invalidation portions of this historical frozen
+  boundary. Compatibility matching and the other listed orchestration remain
+  deferred.
 
 ## Frozen core: stage claims
 
@@ -886,7 +890,11 @@ supplements:
   header-only `SyncRunSummary` projects `compacted`, allowing eligibility
   introspection without payload unpack or zstd decode. Grant IfNewer and expanded-
   grant overwrite loops now put each successful `Get` in a per-record function
-  with an immediate deferred close.
+  with an immediate deferred close. Source-scope maintenance adds a point `Get`
+  to entitlement overwrites once the first-call fresh-sync proof is unavailable,
+  and grant/resource writes scan old/new protobuf values for scope transitions.
+  These are constant-factor connector-write costs, not complexity changes; CO-013
+  records them explicitly but does not claim a dedicated throughput benchmark.
 - Verification delta:
   `TestGrantMarshalFailureReleasesExistingRowCloser` reaches both marshal-failure
   branches with invalid UTF-8 after an existing-row `Get`; the package-wide

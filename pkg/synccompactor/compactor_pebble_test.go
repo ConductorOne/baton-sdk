@@ -20,6 +20,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	storage_v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -234,14 +235,66 @@ func buildPebbleSourceCacheInput(t *testing.T, ctx context.Context, path string)
 	syncID, err := w.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	scopeCtx := sourcecache.WithScope(ctx, "scope-a")
-	require.NoError(t, w.PutResourceTypes(scopeCtx, v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()))
-	require.NoError(t, w.PutResources(scopeCtx, v2.Resource_builder{
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	appRT := v2.ResourceType_builder{Id: "app", DisplayName: "App"}.Build()
+	require.NoError(t, w.PutResourceTypes(ctx, userRT, groupRT, appRT))
+	group := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+		DisplayName: "Group One",
+	}.Build()
+	app := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "app", Resource: "app1"}.Build(),
+		DisplayName: "App One",
+	}.Build()
+	alice := v2.Resource_builder{
 		Id:          v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 		DisplayName: "Alice",
-	}.Build()))
+	}.Build()
+	require.NoError(t, w.PutResources(ctx, group, app))
+	require.NoError(t, w.PutResources(scopeCtx, alice))
+	member := v2.Entitlement_builder{
+		Id:       "member",
+		Resource: group,
+		Purpose:  v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+	}.Build()
+	access := v2.Entitlement_builder{
+		Id:       "access",
+		Resource: app,
+		Purpose:  v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+	}.Build()
+	require.NoError(t, w.PutEntitlements(ctx, member))
+	require.NoError(t, w.PutEntitlements(scopeCtx, access))
+	membershipGrant := v2.Grant_builder{
+		Id:          batonGrant.NewGrantID(alice, member),
+		Principal:   alice,
+		Entitlement: member,
+	}.Build()
+	expandableGrant := v2.Grant_builder{
+		Id:          batonGrant.NewGrantID(group, access),
+		Principal:   group,
+		Entitlement: access,
+		Annotations: []*anypb.Any{mustAny(t, v2.GrantExpandable_builder{
+			EntitlementIds: []string{"member"},
+			Shallow:        true,
+		}.Build())},
+	}.Build()
+	directGrant := v2.Grant_builder{
+		Id:          batonGrant.NewGrantID(alice, access),
+		Principal:   alice,
+		Entitlement: access,
+	}.Build()
+	require.NoError(t, w.PutGrants(ctx, membershipGrant, expandableGrant))
+	require.NoError(t, w.PutGrants(scopeCtx, directGrant))
 	cache, ok := w.(dotc1z.SourceCacheStore)
 	require.True(t, ok)
-	require.NoError(t, cache.PutSourceCacheEntry(ctx, sourcecache.RowKindResources, "scope-a", "validator-a"))
+	for _, kind := range []sourcecache.RowKind{
+		sourcecache.RowKindResources,
+		sourcecache.RowKindEntitlements,
+		sourcecache.RowKindGrants,
+	} {
+		require.NoError(t, cache.PutSourceCacheEntry(ctx, kind, "scope-a", "validator-a"))
+	}
 	require.NoError(t, w.EndSync(ctx))
 	require.NoError(t, w.Close(ctx))
 	return syncID
@@ -294,12 +347,29 @@ func TestCompactPebbleInvalidatesSourceCacheReplayState(t *testing.T) {
 			defer func() { require.NoError(t, w.Close(ctx)) }()
 			eng, ok := enginepkg.AsEngine(w)
 			require.True(t, ok)
+			expandedCollision := false
+			require.NoError(t, eng.IterateGrants(ctx, func(record *storage_v3.GrantRecord) bool {
+				if record.GetEntitlement().GetEntitlementId() == "access" &&
+					record.GetPrincipal().GetResourceId() == "alice" {
+					require.NotEmpty(t, record.GetSources(),
+						"expansion must rewrite the preexisting scoped direct grant before final invalidation")
+					expandedCollision = true
+				}
+				return true
+			}))
+			require.True(t, expandedCollision, "expanded collision grant not found")
 			require.Zero(t, countPebbleRange(t, eng, enginepkg.SourceCacheEntryLowerBound(), enginepkg.SourceCacheEntryUpperBound()))
-			scopeIndexRows := countPebbleRange(t, eng, enginepkg.ResourceBySourceScopeLowerBound(), enginepkg.ResourceBySourceScopeUpperBound())
-			if mode == PebbleCompactorModeFold {
-				require.Equal(t, 1, scopeIndexRows, "fold keeps inherited scope indexes without publishing validators")
-			} else {
-				require.Zero(t, scopeIndexRows, "rebuild compaction omits source-scope indexes")
+			for _, bounds := range [][2][]byte{
+				{enginepkg.ResourceBySourceScopeLowerBound(), enginepkg.ResourceBySourceScopeUpperBound()},
+				{enginepkg.EntitlementBySourceScopeLowerBound(), enginepkg.EntitlementBySourceScopeUpperBound()},
+				{enginepkg.GrantBySourceScopeLowerBound(), enginepkg.GrantBySourceScopeUpperBound()},
+			} {
+				scopeIndexRows := countPebbleRange(t, eng, bounds[0], bounds[1])
+				if mode == PebbleCompactorModeFold {
+					require.Equal(t, 1, scopeIndexRows, "fold keeps inherited scope indexes without publishing validators")
+				} else {
+					require.Zero(t, scopeIndexRows, "rebuild compaction omits source-scope indexes after expansion")
+				}
 			}
 		})
 	}

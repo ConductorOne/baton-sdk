@@ -224,6 +224,7 @@ func (e *Engine) sortedSyncRuns(ctx context.Context) ([]c1zstore.SyncRun, error)
 			ParentSyncID:                r.GetParentSyncId(),
 			SupportsDiff:                r.GetSupportsDiff(),
 			LinkedSyncID:                r.GetLinkedSyncId(),
+			Compacted:                   r.GetCompacted(),
 			IngestInvariantVerification: verification,
 		}
 		if t := r.GetStartedAt(); t != nil {

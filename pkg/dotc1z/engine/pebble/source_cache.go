@@ -53,18 +53,17 @@ func (e *Engine) sourceCacheReplayIteratorError(kind string, iter *pebble.Iterat
 type SourceCacheReplayResult struct {
 	Rows int64
 	// NeedsExpansion is true when at least one copied grant row carried
-	// needs_expansion. The syncer must arm grant expansion in this case:
-	// replayed pages never pass GrantExpandable-annotated rows through
-	// the syncer's connector-response path, which is otherwise the only
-	// thing that enables the expansion phase.
+	// needs_expansion. Future syncer replay orchestration must consume this
+	// signal to arm grant expansion: replayed pages never pass
+	// GrantExpandable-annotated rows through the connector-response path.
 	NeedsExpansion bool
 	// StaleSkipped counts index entries under the scope that did NOT
 	// yield a copied row: the primary was missing, or its value stamp
 	// named a different scope. This is the discriminator between "scope
 	// legitimately empty" (index prefix empty, StaleSkipped == 0) and
 	// "scope's rows were clobbered without index cleanup" (index says
-	// rows existed, none survived the stamp check). The syncer fails a
-	// replay that copies zero rows while StaleSkipped > 0.
+	// rows existed, none survived the stamp check). Future syncer replay
+	// orchestration must fail a zero-row replay when StaleSkipped > 0.
 	StaleSkipped int64
 }
 

@@ -10,17 +10,22 @@ re-reviews accepted closure with the explicit limitations below.
 Included change orders: CO-003, CO-003a, CO-005 through CO-010b, and CO-011
 through CO-013.
 
-CO-013 is implemented in the working tree as of 2026-07-31. It reopens branch
-closure until the remediation has a final committed SHA and independent
-implementation/evidence re-review. The CO-012a SHA and acceptance statements
-below remain the historical evidence for that superseded candidate.
+CO-013 was committed at `c28887c9e4a4dacbc832f7ca605c38e778644ed8`.
+Final gates passed at that exact SHA on 2026-07-31, but three independent
+implementation/evidence audits returned two REJECT verdicts and one ACCEPT WITH
+EXPLICIT LIMITATIONS. They found a missing compacted projection in
+`ListSyncRuns`, a vacuous post-expansion grant-index fixture, and stale
+criterion/exclusion text. Those findings are corrected in the current working
+tree; closure remains open until that remediation has a final committed SHA,
+rerun gates, and independent re-review. The CO-012a acceptance statements below
+remain historical evidence for that superseded candidate.
 
 ## Signoff scope
 
 The CO-012a candidate was signed off with explicit limitations. The current branch
-is not yet signed off because CO-013 changes production behavior after that review.
-This record marks incomplete, excluded, sampled, and deferred criteria rather than
-converting them into behavioral passes.
+is not yet signed off because CO-013 and its post-audit remediation change
+production behavior after that review. This record marks incomplete, excluded,
+sampled, and deferred criteria rather than converting them into behavioral passes.
 Syncer/checkpoint orchestration, compatibility matching/gating, connector
 continuation/RPC behavior, and post-replay ingest-invariant evaluation remain
 outside this stage. CO-013 implements the previously deferred compacted/non-FULL
@@ -44,17 +49,27 @@ The working-tree remediation:
   k-way/overlay, including a second finalization after grant expansion; and
 - projects the durable compacted bit into the v3 envelope's sync-run summary, so
   `ReadManifestHeader` exposes it without payload unpack or zstd decode; and
+- preserves that bit in both public sync-run projections, so generic metadata
+  consumers cannot misclassify compacted FULL runs as replay-eligible; and
 - registers the new typed-batch commit point and plants its exact failure,
   requiring atomic preservation of manifests and indexes.
 
-The affected package suites and lint pass on the uncommitted CO-013 working tree.
-Commands used:
+The exact committed candidate `c28887c9` passed:
 
 ```text
-go test ./pkg/dotc1z/engine/pebble ./pkg/dotc1z ./pkg/sync ./pkg/synccompactor/...
-go test ./pkg/dotc1z
 make lint
+buf lint
+go test -race ./pkg/dotc1z ./pkg/dotc1z/engine/pebble ./pkg/synccompactor/pebble ./pkg/synccompactor -run '<closure instruments>' -count=1
+go test -p 1 ./... -count=1
+go test -timeout 30m ./pkg/dotc1z -run '^TestModelRandomizedSourceCacheLifecycle$' -count=20
+go test -timeout 30m ./pkg/sourcecache ./pkg/dotc1z/engine/pebble ./pkg/dotc1z -coverprofile=/tmp/sync-replay-6a-co013.cover -count=1
+go tool cover -func=/tmp/sync-replay-6a-co013.cover
 ```
+
+The profile reported 70.5% combined statement coverage. The first model-soak
+invocation shared the machine with the race and serial gates and hit Go's default
+10-minute process timeout while still progressing; the serial rerun with the
+30-minute closure allowance passed.
 
 Fold's invalidation is one `NoSync` range tombstone and does not enumerate
 manifests or delete source-scope indexes. A five-sample, one-iteration comparison
@@ -71,12 +86,13 @@ The working-tree median was 0.881 s and 42,719 allocs versus detached HEAD at
 a speedup; it shows no fold-time or allocation explosion, while the code shape
 proves invalidation cost is independent of base row count.
 
-The first combined command had one fixture-order failure in
-`TestVerificationInvalidatedManifestLookupMisses`: after eligibility moved before
-manifest authorization, that test's intentionally invalidated source also needed
-to be durably finished. The fixture was sealed, its focused test passed, and the
-full `pkg/dotc1z` suite then passed. All other packages in the combined command
-passed. Independent CO-013 re-review remains outstanding.
+Post-gate independent review found that the compaction invalidation test populated
+only the resource family, so it did not prove the second post-expansion
+invalidation removed a restaged grant scope index. The corrected fixture now
+contains scoped resource, entitlement, and expandable-grant rows and asserts all
+three source-scope index families after real expansion. The same remediation adds
+the missing `ListSyncRuns` compacted projection and reconciles C35/exclusions
+below. These post-review changes still require a committed SHA and fresh gates.
 
 ## Criterion evidence
 
@@ -230,14 +246,16 @@ passed. Independent CO-013 re-review remains outstanding.
 - C34 — **explicitly excluded**. The storage capability cannot receive the
   transitional page annotation; ownership is assigned to deferred syncer
   orchestration.
-- C35 — **verified for supported format, durable finished state, and corrupt input;
-  explicitly excluded for deferred eligibility**. Unsupported SQLite and unfinished
-  all-kind Pebble sources reject before destination mutation with unchanged source
-  and occupied-destination digests; corrupt envelopes fail at open, and durably
-  finished (`ended_at`) read-only reopens replay. Live and reopened unfinished
+- C35 — **verified for supported format, durable finished state, FULL/non-compacted
+  eligibility, and corrupt input; explicitly excluded for compatibility
+  matching**. Unsupported SQLite, unfinished, non-FULL, and compacted all-kind
+  Pebble sources reject before destination mutation with unchanged source and
+  occupied-destination digests; corrupt envelopes fail at open, and durably
+  finished (`ended_at`) read-only FULL sources replay. Live and reopened unfinished
   sources are both rejected. This policy is enforced by the public
-  `SourceCacheStore` wrapper; direct engine replay primitives are lower-level and
-  bypass it. Compacted/non-FULL and compatibility eligibility remain deferred.
+  `SourceCacheStore` wrapper and previous-artifact syncer selection; direct engine
+  replay primitives are lower-level and bypass it. Cross-version compatibility
+  matching remains deferred.
 - C36 — **verified for storage composition, not ordering**. Grant and resource tests
   include canonical/principal overlap, selector-only matches, and survivors;
   entitlement principal selection is rejected by C42. C29 ordering is not claimed.
@@ -276,7 +294,8 @@ passed. Independent CO-013 re-review remains outstanding.
 - page upsert/tombstone ordering owned by deferred syncer orchestration;
 - `GenerateSyncDiff` produces a partial sync rather than a standalone full-sync
   replay source;
-- compacted/non-FULL and compatibility eligibility deferred;
+- cross-version compatibility eligibility deferred; compacted/non-FULL rejection
+  is verified by CO-013;
 An exclusion is not a behavioral pass.
 
 ## Structural-coverage triage
