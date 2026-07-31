@@ -824,8 +824,9 @@ supplements:
 - Contract delta: C35's unfinished-source cell is enforced at the public storage
   capability. A previous Pebble artifact must contain a durably finished sync run
   before destination mutation begins; the in-memory `IsSealed` flag is not evidence
-  because it intentionally resets on reopen. Compacted/non-FULL and compatibility
-  eligibility remain deferred.
+  because it intentionally resets on reopen. At CO-012, compacted/non-FULL and
+  compatibility eligibility remained deferred; CO-013 supersedes the first two
+  cells while compatibility matching remains deferred.
 - Production delta: `ReplaySourceCache` validates durable finished state after
   manifest authorization and before `beginSourceCacheMutation`. K-way chunk cleanup
   joins every owned source-handle close error while still scheduling asynchronous

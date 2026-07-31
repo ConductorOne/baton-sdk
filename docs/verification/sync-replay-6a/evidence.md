@@ -10,22 +10,22 @@ re-reviews accepted closure with the explicit limitations below.
 Included change orders: CO-003, CO-003a, CO-005 through CO-010b, and CO-011
 through CO-013.
 
-CO-013 was committed at `c28887c9e4a4dacbc832f7ca605c38e778644ed8`.
-Final gates passed at that exact SHA on 2026-07-31, but three independent
+CO-013's final remediation is committed at
+`8f507e1606c92e87bbb4f3966a4600989df90809`. The predecessor `c28887c9` passed
+the broad final gates on 2026-07-31, after which three independent
 implementation/evidence audits returned two REJECT verdicts and one ACCEPT WITH
 EXPLICIT LIMITATIONS. They found a missing compacted projection in
 `ListSyncRuns`, a vacuous post-expansion grant-index fixture, and stale
-criterion/exclusion text. Those findings are corrected in the current working
-tree; closure remains open until that remediation has a final committed SHA,
-rerun gates, and independent re-review. The CO-012a acceptance statements below
-remain historical evidence for that superseded candidate.
+criterion/exclusion text. Commit `8f507e16` corrects those findings. Two fresh,
+independent focused reviews both returned ACCEPT WITH EXPLICIT LIMITATIONS, and
+the remediation's affected, lint, and race gates pass. Phase 6a is closed at
+`8f507e16` with the explicit limitations retained below.
 
 ## Signoff scope
 
-The CO-012a candidate was signed off with explicit limitations. The current branch
-is not yet signed off because CO-013 and its post-audit remediation change
-production behavior after that review. This record marks incomplete, excluded,
-sampled, and deferred criteria rather than converting them into behavioral passes.
+Phase 6a is signed off at `8f507e16` with explicit limitations. This record marks
+incomplete, excluded, sampled, and deferred criteria rather than converting them
+into behavioral passes.
 Syncer/checkpoint orchestration, compatibility matching/gating, connector
 continuation/RPC behavior, and post-replay ingest-invariant evaluation remain
 outside this stage. CO-013 implements the previously deferred compacted/non-FULL
@@ -92,7 +92,32 @@ invalidation removed a restaged grant scope index. The corrected fixture now
 contains scoped resource, entitlement, and expandable-grant rows and asserts all
 three source-scope index families after real expansion. The same remediation adds
 the missing `ListSyncRuns` compacted projection and reconciles C35/exclusions
-below. These post-review changes still require a committed SHA and fresh gates.
+below.
+
+The complete affected suites and lint passed against the tracked remediation
+content:
+
+```text
+go test ./pkg/dotc1z/engine/pebble ./pkg/sync ./pkg/synccompactor/...
+make lint
+```
+
+At exact commit `8f507e16`, the focused race gates also passed:
+
+```text
+go test -race ./pkg/dotc1z/engine/pebble \
+  -run '^(TestManifestSyncRunProjection|TestVerificationPhase6aExecutableExclusions)$' -count=1
+go test -race ./pkg/sync ./pkg/synccompactor \
+  -run '^(TestPreviousSyncC1ZPathEnforcesReplayEligibility|TestCompactPebbleInvalidatesSourceCacheReplayState)$' -count=1
+```
+
+The two independent focused re-reviews found no production regression. One
+accepted with no findings; the other retained LOW limitations that the
+post-expansion restage proof is contract-backed rather than observed between the
+expansion and final invalidation calls, and that this evidence-only signoff update
+must name the final SHA. The SHA is pinned above; the instrument proves a real
+expanded collision (`Sources` populated) and final absence of all three
+source-scope index families.
 
 ## Criterion evidence
 
