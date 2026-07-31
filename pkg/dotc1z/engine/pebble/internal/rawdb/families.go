@@ -212,6 +212,15 @@ func (d *DB) DropKeyRange(start, end []byte, o *pebble.WriteOptions) error {
 
 // === ingest family: deferred index build, digest build, bulk import,
 // synth-grant layer, id-index migration, compactor merges ===
+//
+// OBLIGATION: SST ingest bypasses the typed record ops, so it also
+// bypasses the sourceScopeMayExist arming they perform. Any caller
+// whose SSTs can contain by_source_scope index entries must re-probe
+// or arm the gate after a successful ingest (bulk import's Finish
+// does; the synth layer and rebuild compactors provably never emit
+// scope keys; fold arms at NewFoldBatch). Ingesting scope entries
+// behind an unarmed gate is the one unsound gate state — later
+// overwrites/deletes would skip index cleanup and orphan entries.
 
 // IngestSSTs ingests externally built SSTs (bulk import, synth-layer
 // segments, compactor merge output). Paths must live on DB.FS().

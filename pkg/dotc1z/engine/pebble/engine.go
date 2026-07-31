@@ -306,6 +306,17 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		_ = e.Close()
 		return nil, err
 	}
+	// Arm the mutation-path source-scope index obligations iff the file
+	// actually holds by_source_scope entries (bounded seeks, same
+	// contract as the digest probe): scope-free stores keep the exact
+	// pre-scope write cost. Runs BEFORE migrations so any migration
+	// staging typed record ops sees a derived gate, not the false
+	// default; a migration that backfills by_source_scope entries must
+	// itself re-probe or arm (see the indexMigrations registry doc).
+	if err := e.db.ProbeSourceScopeMayExist(); err != nil {
+		_ = e.Close()
+		return nil, err
+	}
 	// Run secondary-index migrations before returning. Migrations
 	// are skipped for read-only opens (the on-disk file is
 	// immutable, so we'd error out trying to backfill).

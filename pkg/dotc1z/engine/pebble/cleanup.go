@@ -103,6 +103,10 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 		// The record-type span above covers typeDigest and the hash
 		// index too; disarm the mutation-path digest invalidation.
 		e.db.SetGrantDigestsPresent(false)
+		// It also covers all three by_source_scope families; disarm the
+		// scope-obligation gate so the replacement sync starts on the
+		// unscoped fast path.
+		e.db.SetSourceScopeMayExist(false)
 		// The digest-build crash marker lives in the preserved
 		// engine-meta range, but the excise just removed everything it
 		// was guarding against trusting — consume it (only reachable

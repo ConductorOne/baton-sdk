@@ -583,6 +583,64 @@ many-scope O(S·N) cost.
 Deterministic tests, not the benchmark, establish the 10,000-operation replay,
 replacement, and scoped-tombstone batch bounds.
 
+### Ordinary-ingest cost audit and the source-scope obligation gate
+
+A post-closure algorithmic audit of the ORDINARY (unscoped) write paths found
+one material regression the replay-focused benchmarks had not covered:
+`PutEntitlementRecords` gained a per-row read-before-write whose only purpose
+is feeding the by_source_scope overwrite cleanup — a value-derived index
+obligation entitlements never had before. Grants and resources were measured
+unchanged: their prior-value reads predate this work (grant overwrite probe,
+resource by_parent cleanup) and the added scope field scans skip
+length-delimited payloads in O(1) per field header.
+
+A/B evidence (`scope_ingest_bench_test.go`, 200k rows in 10k batches, same
+bench file on both trees, interleaved runs on an M1 laptop):
+
+- Before the gate: entitlement ingest floor 735ms vs 505ms on main
+  (~+1µs/row, the added `db.Get`); grants and resources within noise.
+- After the gate: entitlement ingest 513–599ms interleaved against main's
+  516–585ms — the regression is eliminated; grants and resources remain
+  within noise. End-to-end sync-shape and full-syncer benchmarks show no
+  measurable branch delta.
+
+The fix is `rawdb.sourceScopeMayExist`, the same shape as the existing
+`grantDigestsPresent` gate: false certifies that no by_source_scope index
+entry exists, so record ops skip every obligation that exists to maintain
+entries (prior-value scope scans, delete-side cleanup, and the entitlement
+read-before-write). Transitions: probed at Open with bounded seeks over the
+three index families, armed inside `stageSourceScopeChange` the moment a
+stamped record is staged (self-healing; the new value is always scanned),
+armed unconditionally by `NewFoldBatch` (the fold copies borrowed scope-index
+keys the typed ops never see), disarmed only by `ResetForNewSync`'s family
+excision. Replay-state invalidation deliberately leaves the gate armed:
+stale-true only costs performance, false-with-entries is the one unsound
+state. Stamped primaries without entries (the rebuild-compaction output
+shape) correctly reopen unarmed — nothing the gate guards exists to maintain.
+
+Verification: `source_scope_gate_verification_test.go` pins the lifecycle
+(fresh-unarmed, unscoped-writes-stay-unarmed, stamped-write-arms per record
+kind, reset-disarms), the Open probe in both directions per kind, the fold
+surface (arm at mint plus end-to-end maintenance of an actually-borrowed
+entry), the bulk-import Finish re-probe, the post-invalidation write shapes,
+and a behavioral proof that the unarmed path never consults the prior value
+(a planted undecodable prior value is accepted unarmed and rejected armed).
+
+Two independent reviews of the gate change (Grok, Sol; no shared context)
+each returned zero reachable HIGH findings and converged on one MEDIUM
+latent hole: `BulkSyncImport.Finish` ingests SSTs whose grant index family
+set already includes by_source_scope (`grantIndexKeys` emits scope entries
+for stamped records), without arming the gate — today's v2 translators never
+stamp, so the state was unreachable in-tree, but the writer surface permits
+it. Remediation: Finish re-probes the gate inside the same write-barrier
+closure that burns the fresh-empty proofs; the arming obligation is
+documented on the rawdb ingest family and the index-migration registry
+(probe runs before migrations, so a scope-backfilling migration must arm or
+re-probe itself); the reviews' secondary finding — the test file's
+completeness overclaim — was corrected by scoping the header claim and
+adding the per-kind, fold borrowed-entry, and bulk-Finish transition tests
+above.
+
 ## Process corrections
 
 - The first completion report incorrectly treated “every criterion accounted for”
@@ -609,3 +667,10 @@ replacement, and scoped-tombstone batch bounds.
 - Re-review of CO-010a passed the zero-HIGH gate and found one LOW validation-order
   regression. CO-010b validates empty manifest validators before dirty/lifecycle
   entry and pins clean-state and post-Close error precedence.
+- Performance review had gated fold, replay, and compaction but not ORDINARY
+  ingest, which silently carried the new scope-index obligation cost on every
+  unscoped write. The ingest-cost audit above found and removed the entitlement
+  per-row read via the sourceScopeMayExist gate. Correction adopted: end-to-end
+  sync ingest benchmarks (per-family ingest plus the sync-shape and full-syncer
+  benches) are part of the critical performance path for any change that touches
+  record write obligations.

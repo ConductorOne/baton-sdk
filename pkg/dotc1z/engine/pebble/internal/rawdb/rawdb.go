@@ -69,6 +69,35 @@ type DB struct {
 	// build, cleared by the engine's drop/reset paths.
 	grantDigestsPresent atomic.Bool
 
+	// sourceScopeMayExist gates the record ops' source-scope index
+	// obligations, the same shape as grantDigestsPresent: false
+	// certifies that NO by_source_scope index entry exists in any of
+	// the three families, so overwrite/delete cleanup owes nothing and
+	// the prior-value scope scans (and the entitlement write path's
+	// read-before-write, whose only purpose is feeding them) can be
+	// skipped — the ordinary unscoped sync pays exactly the pre-scope
+	// write cost. Conservatively true is always safe; false with
+	// entries present is not.
+	//
+	// Transitions: probed at Open (ProbeSourceScopeMayExist), flipped
+	// true by stageSourceScopeChange the moment a stamped record is
+	// staged (self-healing — no caller coordination can be forgotten),
+	// armed unconditionally by NewFoldBatch (the fold compactor copies
+	// borrowed scope-index keys the typed ops never see), re-probed by
+	// bulk import's Finish after its SST ingest (grantIndexKeys emits
+	// scope entries for stamped records; see the ingest-family
+	// obligation in families.go), and cleared only by the engine's
+	// ResetForNewSync wipe, which excises the index families wholesale.
+	// Deliberately NOT cleared by replay-state invalidation: a failed
+	// invalidation commit after a clear would leave false-with-entries,
+	// and stale-true only costs perf.
+	//
+	// Stamped primary rows WITHOUT index entries (the post-invalidation
+	// state on rebuild-compacted stores) keep the flag false at open:
+	// that is sound because everything the flag gates exists to
+	// maintain index entries, and there are none to maintain.
+	sourceScopeMayExist atomic.Bool
+
 	// testArmDeferredMarkerHook / testClearDeferredMarkerHook run
 	// before the marker's durable commit / delete — the in-process
 	// analogs of those writes failing. Installed only via
@@ -264,6 +293,45 @@ func (d *DB) ProbeGrantDigestsPresent() error {
 	defer iter.Close()
 	d.grantDigestsPresent.Store(iter.First())
 	return iter.Error()
+}
+
+// SourceScopeMayExist reports whether any by_source_scope index entry
+// may exist (the record ops' scope-obligation gate; see the field doc).
+func (d *DB) SourceScopeMayExist() bool { return d.sourceScopeMayExist.Load() }
+
+// SetSourceScopeMayExist flips the scope-presence gate. The engine owns
+// the false transition (ResetForNewSync, after the index families are
+// excised); true transitions happen inside this package on staging.
+func (d *DB) SetSourceScopeMayExist(present bool) { d.sourceScopeMayExist.Store(present) }
+
+// ProbeSourceScopeMayExist initializes the scope-presence gate with one
+// bounded seek per by_source_scope family (the Open-time probe).
+func (d *DB) ProbeSourceScopeMayExist() error {
+	for _, indexID := range []byte{
+		IdxResourceBySourceScope,
+		IdxEntitlementBySourceScope,
+		IdxGrantBySourceScope,
+	} {
+		lo := []byte{VersionV3, TypeIndex, indexID}
+		iter, err := d.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: UpperBound(lo)})
+		if err != nil {
+			return err
+		}
+		found := iter.First()
+		if err := iter.Error(); err != nil {
+			iter.Close()
+			return err
+		}
+		if err := iter.Close(); err != nil {
+			return err
+		}
+		if found {
+			d.sourceScopeMayExist.Store(true)
+			return nil
+		}
+	}
+	d.sourceScopeMayExist.Store(false)
+	return nil
 }
 
 // SetDeferredMarkerTestHooks installs failure-injection hooks for the

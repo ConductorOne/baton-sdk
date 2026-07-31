@@ -20,9 +20,24 @@ func (e *Engine) PutEntitlementRecord(ctx context.Context, r *v3.EntitlementReco
 
 // PutEntitlementRecords writes N entitlements by structured primary key.
 // The identity key is a pure function of the record (it contains the raw
-// external id), so overwrites are idempotent and no read-before-write or
-// index cleanup is needed; a within-call dedup pre-pass keeps last-wins
-// semantics for same-identity duplicates in one batch.
+// external id), so overwrites are idempotent; a within-call dedup
+// pre-pass keeps last-wins semantics for same-identity duplicates in one
+// batch.
+//
+// Read-before-write exists ONLY for the by_source_scope obligation: an
+// overwrite that changes a row's scope stamp must clean the prior
+// entry, and entitlement scope entries are value-derived. The Get is
+// therefore skipped while rawdb's sourceScopeMayExist gate is unarmed:
+// the unarmed gate certifies no index entry exists to clean (the only
+// thing the prior value is fetched for), so an ordinary unscoped sync
+// pays no per-row read at all — the pre-scope write cost, exactly. A
+// stamped record still gets its index entry (stageSourceScopeChange
+// always scans the NEW value and arms the gate AT STAGING, before the
+// batch commits), so later records in the same call — and every call
+// after — take the Get path. Rows staged Get-free earlier in the
+// arming call are sound: the gate was unarmed when they staged, so no
+// committed index entry existed for their identities (db.Get cannot
+// see in-batch writes either way).
 func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.EntitlementRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -73,7 +88,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 			if err != nil {
 				return err
 			}
-			if skipGet {
+			if skipGet || !e.db.SourceScopeMayExist() {
 				if err := priBatch.StageEntitlementPut(key, val, nil); err != nil {
 					return err
 				}
