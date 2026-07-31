@@ -140,7 +140,7 @@ func TestCommitPointsHaveFailureSeams(t *testing.T) {
 					if !ok || sel.Sel.Name != "Commit" {
 						return true
 					}
-					displayPath := filepath.Join(root.prefix, name)
+					displayPath := filepath.ToSlash(filepath.Join(root.prefix, name))
 					enclosing := fd.Name.Name
 					if root.prefix == "internal/rawdb" && fd.Recv != nil && len(fd.Recv.List) == 1 {
 						enclosing = receiverTypeName(fd.Recv.List[0].Type) + "." + enclosing
