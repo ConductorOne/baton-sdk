@@ -711,7 +711,7 @@ github.com/quic-go/quic-go/quicvarint
 # github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec
 ## explicit; go 1.12
 github.com/remyoudompheng/bigfft
-# github.com/richardlehane/mscfb v1.0.6
+# github.com/richardlehane/mscfb v1.0.7
 ## explicit; go 1.18
 github.com/richardlehane/mscfb
 # github.com/richardlehane/msoleps v1.0.6
@@ -816,8 +816,8 @@ github.com/xo/terminfo
 # github.com/xuri/efp v0.0.1
 ## explicit; go 1.11
 github.com/xuri/efp
-# github.com/xuri/excelize/v2 v2.10.1
-## explicit; go 1.24.0
+# github.com/xuri/excelize/v2 v2.11.0
+## explicit; go 1.25.0
 github.com/xuri/excelize/v2
 # github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9
 ## explicit; go 1.15
@@ -1072,6 +1072,7 @@ golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
+golang.org/x/text/width
 # google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa
 ## explicit; go 1.25.0
 google.golang.org/genproto/googleapis/api/expr/v1alpha1
