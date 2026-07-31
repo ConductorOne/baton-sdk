@@ -6,6 +6,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	reader_v3 "github.com/conductorone/baton-sdk/pb/c1/reader/v3"
 )
 
 type SyncType string
@@ -234,6 +235,22 @@ type DBSizeProvider interface {
 // Pebble adapter, whose ListGrants already carries it) need not implement it.
 type ExpansionGrantLister interface {
 	ListGrantsWithExpansion(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error)
+}
+
+// V3GrantReader serves grants as the rich c1.storage.v3.GrantRecord rather
+// than the lossy v2.Grant downshift (which drops fields like discovered_at).
+// Optional and Pebble-only. Discover it via V3GrantReaderProvider, not by
+// asserting this interface on the store directly: its RPC names collide with
+// the required reader_v2 methods the store already carries, and Go has no
+// method overloading.
+type V3GrantReader interface {
+	reader_v3.GrantsReaderServiceServer
+}
+
+// V3GrantReaderProvider is the type-assertion entry point for V3GrantReader
+// (Pebble only); callers fall back to the v2 reader when it is absent.
+type V3GrantReaderProvider interface {
+	V3GrantReader() V3GrantReader
 }
 
 // GrantUpsertMode controls how grant conflicts are resolved during upsert.

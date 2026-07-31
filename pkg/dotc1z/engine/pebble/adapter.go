@@ -66,6 +66,7 @@ var (
 	_ connectorstore.LatestFinishedSyncIDFetcher  = (*Engine)(nil)
 	_ connectorstore.DBSizeProvider               = (*Engine)(nil)
 	_ connectorstore.EntitlementGrantDigestReader = (*Engine)(nil)
+	_ connectorstore.V3GrantReaderProvider        = (*Engine)(nil)
 )
 
 // === sync lifecycle ===
@@ -912,7 +913,15 @@ func (e *Engine) ListStaticEntitlements(
 
 // GetGrant fetches a single grant by ID.
 func (e *Engine) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
-	syncID := e.CurrentSyncID()
+	// Resolve the sync like the other grant readers (annotation → current
+	// binding → latest-finished record) rather than gating on the in-memory
+	// CurrentSyncID alone: a sealed c1z reopened without a re-bind still has
+	// its sync_id persisted in the SyncRunRecord, and this honors a
+	// request-annotation sync_id the way SQLite's GetGrant does.
+	syncID, err := e.resolveActiveSyncForReader(ctx, req.GetAnnotations())
+	if err != nil {
+		return nil, err
+	}
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}

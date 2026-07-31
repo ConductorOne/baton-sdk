@@ -226,12 +226,12 @@ func (e *Engine) ListGrantsForEntitlement(
 	// needed because a post-filter break at len(out) == limit may
 	// leave matching records unconsumed in the engine page, and
 	// the engine's end-of-page cursor would skip them.
-	cursorFor := func(rec *v3.GrantRecord) string {
+	cursorFor := func(rec *v3.GrantRecord) (string, error) {
 		id, err := grantIdentityFromRecord(rec)
 		if err != nil {
-			return ""
+			return "", err
 		}
-		return encodeCursor(encodeGrantIdentityKey(id))
+		return encodeCursor(encodeGrantIdentityKey(id)), nil
 	}
 
 	out := make([]*v2.Grant, 0, limit)
@@ -274,7 +274,10 @@ func (e *Engine) ListGrantsForEntitlement(
 			}
 			out = append(out, V3GrantToV2(rec))
 			if len(out) == limit {
-				nextCursor = cursorFor(rec)
+				nextCursor, err = cursorFor(rec)
+				if err != nil {
+					return nil, err
+				}
 				brokeEarly = true
 				break
 			}
