@@ -3,7 +3,7 @@
 Plan: [`plan.md`](plan.md)
 
 Closure-candidate implementation and instrument state:
-`39afeebeee09ed76ff6d7ca435f544c5e36edc82`. The CO-012 final gates below were
+`c913dbc174644d7bff10449597f57d6c8cbbdba3`. The CO-012a final gates below were
 rerun against that committed SHA on 2026-07-30. Independent final-code evidence
 and implementation re-review remain required before repository signoff.
 
@@ -249,7 +249,7 @@ than cited as a percentage. It produced four actionable findings:
 No finding is accepted solely because a line executed. Each item above has a
 behavioral oracle and risk disposition. The profile produced no additional
 actionable changed-branch finding beyond F1/F2/F3/F8 at the superseded candidate.
-The CO-012 profile rerun at `39afeebe` again reported 70.4% combined statements;
+The CO-012a profile rerun at `c913dbc1` again reported 70.4% combined statements;
 the new durable-finished-source helper was 83.3% covered and its success plus
 unfinished rejection branches have behavioral tests. The retained F1/F2/F3/F8
 ledger records the actionable findings from review; it is not a reproducible
@@ -348,7 +348,7 @@ were 1,590,408 B / 5,058 allocs at 10k rows and 1,561,840 B / 5,061 allocs at
 go test ./pkg/synccompactor/pebble -run '^$' -bench '^BenchmarkCompactionFlow$' -benchtime=1x -benchmem -count=1
 ```
 
-CO-012's committed implementation `39afeebe` passed its focused lifecycle and
+CO-012a's committed implementation `c913dbc1` passed its focused lifecycle and
 affected compactor suites:
 
 ```text
@@ -362,14 +362,14 @@ repository-wide gates:
 
 ```text
 make lint
-go test -race ./pkg/dotc1z ./pkg/dotc1z/engine/pebble ./pkg/synccompactor/pebble ./pkg/synccompactor -run '^Test(Verification|ModelRandomizedSourceCacheLifecycle|SourceCacheModelOracleMutationAdequacy|ResourceLeakRideAlongAdequacy|CommitPointsHaveFailureSeams|OverlayFoldBatchLifecycleFailureCuts|OverlayRestartCommitFailureReleasesBatches|MergeFoldCommitFailureRetryConvergesAndClosesCleanly|CloseSourceHandlesJoinsErrors|SourceChunkCloseAsyncPropagatesCloseAndRemovesDirectory|Join.*CloseError)' -count=1
+go test -race ./pkg/dotc1z ./pkg/dotc1z/engine/pebble ./pkg/synccompactor/pebble ./pkg/synccompactor -run '^Test(Verification|ModelRandomizedSourceCacheLifecycle|SourceCacheModelOracleMutationAdequacy|ResourceLeakRideAlongAdequacy|CommitPointsHaveFailureSeams|OverlayFoldBatchLifecycleFailureCuts|OverlayRestartCommitFailureReleasesBatches|MergeFoldCommitFailureRetryConvergesAndClosesCleanly|CloseSourceHandlesJoinsErrors|SourceChunkCloseAsyncPropagatesCloseAndRemovesDirectory|FinishChunkRunFileRemovesUnpublishedRunAfterCloseFailure|Join.*CloseError)' -count=1
 go test -p 1 ./... -count=1
 go test ./pkg/dotc1z -run '^TestModelRandomizedSourceCacheLifecycle$' -count=20
-go test ./pkg/sourcecache ./pkg/dotc1z/engine/pebble ./pkg/dotc1z -coverprofile=/tmp/sync-replay-6a-co012.cover -count=1
-go tool cover -func=/tmp/sync-replay-6a-co012.cover
+go test ./pkg/sourcecache ./pkg/dotc1z/engine/pebble ./pkg/dotc1z -coverprofile=/tmp/sync-replay-6a-co012a.cover -count=1
+go tool cover -func=/tmp/sync-replay-6a-co012a.cover
 ```
 
-The final CO-012 profile reported 70.4% combined statement coverage. The serial
+The final CO-012a profile reported 70.4% combined statement coverage. The serial
 repository gate, 20-run model soak, and all race instruments passed.
 
 The superseded committed closure candidate
