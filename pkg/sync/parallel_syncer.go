@@ -176,7 +176,7 @@ func (s *syncer) parallelSync(
 
 		err := s.Checkpoint(ctx, false)
 		if err != nil {
-			return warnings, err
+			return s.handleOperationError(ctx, runCtx, warnings, err)
 		}
 
 		// If we have more than 10 warnings and more than 10% of actions ended in a warning, exit the sync.
@@ -211,7 +211,7 @@ func (s *syncer) parallelSync(
 				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
 				err = s.Checkpoint(ctx, true)
 				if err != nil {
-					return warnings, err
+					return s.handleOperationError(ctx, runCtx, warnings, err)
 				}
 				// Don't do grant expansion or external resources in partial syncs, as we likely lack related resources/entitlements/grants
 				continue
@@ -229,7 +229,7 @@ func (s *syncer) parallelSync(
 				s.state.SetNeedsExpansion()
 				err = s.Checkpoint(ctx, true)
 				if err != nil {
-					return warnings, err
+					return s.handleOperationError(ctx, runCtx, warnings, err)
 				}
 				continue
 			}
@@ -247,7 +247,7 @@ func (s *syncer) parallelSync(
 
 			err = s.Checkpoint(ctx, true)
 			if err != nil {
-				return warnings, err
+				return s.handleOperationError(ctx, runCtx, warnings, err)
 			}
 			continue
 
@@ -463,6 +463,14 @@ func (s *syncer) handleOperationError(
 		} else {
 			l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", s.syncID))
 		}
+	} else if s.recordStats {
+		// Same per-step/per-resource-type/retry-wait fields as the deadline
+		// branch above — these are exactly the counters used to reconstruct
+		// a sync's timeline after the fact (see CXH-2121), so a
+		// SIGTERM-interrupted sync must not produce less diagnostic output
+		// than a deadline-expired one.
+		l.Info("sync context cancelled, exiting sync early",
+			append(s.syncSummaryFields(trace.SpanFromContext(ctx)), zap.NamedError("cancel_cause", cause))...)
 	} else {
 		l.Info("sync context cancelled, exiting sync early", zap.String("sync_id", s.syncID), zap.Error(cause))
 	}
@@ -480,11 +488,14 @@ func (s *syncer) handleOperationError(
 	if checkpointErr != nil {
 		l.Error("error checkpointing before exiting sync", zap.Error(checkpointErr))
 	}
-	// cause is joined in (not just logged) so a caller with more context —
-	// e.g. pkg/tasks/c1api distinguishing ErrTaskCancelled from a plain
-	// shutdown — can still inspect errors.Is(err, cause) instead of losing it
-	// behind ErrSyncNotComplete.
-	return warnings, errors.Join(checkpointErr, ErrSyncNotComplete, cause)
+	// cause and batchErr are joined in (not just logged) so a caller with
+	// more context — e.g. pkg/tasks/c1api distinguishing ErrTaskCancelled
+	// from a plain shutdown, or a retry loop that wants to know a genuine
+	// store/connector failure happened to land in the same window — can
+	// still inspect errors.Is(err, ...) instead of it being lost behind
+	// ErrSyncNotComplete. errors.Join drops nils, so this is a no-op when
+	// called from the top-of-loop check (batchErr is nil there).
+	return warnings, errors.Join(checkpointErr, ErrSyncNotComplete, cause, batchErr)
 }
 
 func tooManyWarnings(warningCount int, completedActionsCount uint64) bool {

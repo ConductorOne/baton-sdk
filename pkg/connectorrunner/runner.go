@@ -49,6 +49,42 @@ type connectorRunner struct {
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
 
+// shutdownDrainTimeout bounds how long run() waits, on cancellation, for
+// in-flight task goroutines to finish before returning. Each task goroutine
+// is untracked (dispatched via a bare `go func`) and Close() — called
+// immediately after Run() returns by every caller of this runner — tears
+// down the connector client via c.cw.Close() with no synchronization against
+// those goroutines. Without a drain, a SIGTERM can still race the very
+// checkpoint this package exists to protect: Run() returns as soon as ctx is
+// Done, Close() runs, and the in-flight sync's forced checkpoint write (see
+// sync/parallel_syncer.go's handleOperationError, bounded to 15s) can be torn
+// out from under it.
+//
+// This budget intentionally only targets that checkpoint write, not a full
+// c1z finalize: syncer.Close() (called by the task handler on every path,
+// including sync failure) bounds its own detached finalize by
+// dotc1z.FinalizeTimeout, which defaults to 1 hour — no realistic
+// termination grace period can wait that out, and this drain does not try
+// to. It only aims to let the smaller, higher-priority checkpoint write
+// complete before the connector client is torn down.
+const shutdownDrainTimeout = 25 * time.Second
+
+// drainInFlightTasks waits for every currently-held semaphore slot to be
+// released — i.e. every dispatched task goroutine (see the `go func(t
+// *v1.Task)` dispatch below) to return — bounded by shutdownDrainTimeout.
+// Called right before run() returns on cancellation, so the caller's
+// deferred Close() (which tears down the connector client) doesn't race an
+// in-flight sync that's still writing its forced checkpoint.
+func (c *connectorRunner) drainInFlightTasks(ctx context.Context, sem *semaphore.Weighted, l *zap.Logger) {
+	drainCtx, cancelDrain := context.WithTimeout(context.WithoutCancel(ctx), shutdownDrainTimeout)
+	defer cancelDrain()
+	if err := sem.Acquire(drainCtx, int64(c.taskConcurrency)); err != nil {
+		l.Warn("runner: shutdown drain timed out; in-flight tasks may not have finished checkpointing", zap.Error(err))
+		return
+	}
+	sem.Release(int64(c.taskConcurrency))
+}
+
 // setupPersistentLog ensures that a log file on disk is created,
 // when required by either the stored Manager or by a Task.
 // A log file created by a stored Manager persists for our entire run,
@@ -219,6 +255,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 	for !stopForLoop {
 		select {
 		case <-ctx.Done():
+			c.drainInFlightTasks(ctx, sem, l)
 			return c.handleContextCancel(ctx)
 		case <-time.After(nextCheckAfter):
 			l.Debug("runner: claiming worker")
@@ -226,6 +263,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 			err = sem.Acquire(ctx, 1)
 			if err != nil {
 				l.Error("runner: error acquiring semaphore to claim worker", zap.Error(err))
+				c.drainInFlightTasks(ctx, sem, l)
 				return c.handleContextCancel(ctx)
 			}
 			l.Debug("runner: worker claimed, checking for next task")

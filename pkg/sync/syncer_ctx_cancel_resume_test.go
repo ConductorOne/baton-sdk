@@ -143,10 +143,11 @@ func (c *cancelingListResourcesConnector) ListResources(
 // TestSyncResumesAfterMidActionCancellation covers a cancellation that lands
 // *inside* an in-flight action's connector call -- the shape a SIGTERM
 // actually takes for a long fanned-out batch (e.g. a grants sync spanning
-// hours), rather than the narrow window between actions. Before the
-// finishOnCancellation routing in parallelSync's per-op return points, this
-// error propagated raw (return warnings, err) with no forced checkpoint,
-// and IsSyncPreservable did not recognize it as resumable.
+// hours), rather than the narrow window between actions. Before
+// handleOperationError's guard was widened from context.DeadlineExceeded to
+// any runCtx cancellation cause, this error propagated raw (return warnings,
+// err) with no forced checkpoint, and IsSyncPreservable did not recognize it
+// as resumable.
 func TestSyncResumesAfterMidActionCancellation(t *testing.T) {
 	const resourceTypeCount = 10
 

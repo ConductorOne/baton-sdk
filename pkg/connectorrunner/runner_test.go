@@ -101,6 +101,58 @@ func TestRun_TaskConcurrencyCapsProcessing(t *testing.T) {
 	}
 }
 
+// TestRun_DrainsInFlightTaskBeforeReturningOnCancellation covers the gap
+// between catching SIGTERM and actually protecting an in-flight sync's
+// forced checkpoint: every task is dispatched to an untracked goroutine
+// (`go func(t *v1.Task)` in run()), and every caller of this runner closes
+// the connector client (Close -> c.cw.Close()) immediately after Run()
+// returns. Without draining, run() returns as soon as ctx is Done
+// regardless of what that goroutine is still doing -- including a
+// checkpoint write deliberately running on a context.WithoutCancel(ctx)
+// scope specifically so cancellation doesn't cut it off.
+//
+// detachedTaskManager's Process ignores ctx.Done() (mirroring that
+// detached-context write) and only returns when explicitly released, so
+// this test can assert run() actually waits for it instead of just
+// hoping the timing works out.
+func TestRun_DrainsInFlightTaskBeforeReturningOnCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(ErrSigTerm)
+
+	tm := newDetachedTaskManager()
+	runner := &connectorRunner{
+		cw:              noopClientWrapper{},
+		tasks:           tm,
+		taskConcurrency: 1,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runner.run(ctx)
+	}()
+
+	waitForStartedTasks(t, tm.started, 1)
+
+	cancel(ErrSigTerm)
+
+	select {
+	case <-errCh:
+		require.Fail(t, "run() returned before the in-flight task finished; the shutdown drain did not wait for it")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(tm.release)
+
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		require.Fail(t, "timed out waiting for runner to stop after releasing the in-flight task")
+	}
+}
+
 func waitForStartedTasks(t *testing.T, started <-chan struct{}, count int) {
 	t.Helper()
 	for range count {
@@ -230,6 +282,51 @@ func (m *blockingTaskManager) ShouldDebug() bool {
 }
 
 func (m *blockingTaskManager) GetTempDir() string {
+	return ""
+}
+
+// detachedTaskManager's Process deliberately does not select on ctx.Done()
+// -- it mirrors a sync's forced checkpoint write, which runs on a
+// context.WithoutCancel(ctx) scope specifically so the caller's cancellation
+// doesn't cut it off. It only returns once explicitly released.
+type detachedTaskManager struct {
+	nextCalls atomic.Int64
+	started   chan struct{}
+	release   chan struct{}
+}
+
+func newDetachedTaskManager() *detachedTaskManager {
+	return &detachedTaskManager{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+}
+
+func (m *detachedTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
+	if m.nextCalls.Add(1) > 1 {
+		return nil, time.Hour, nil
+	}
+	return v1.Task_builder{
+		Id:     "task-1",
+		Status: v1.Task_STATUS_PENDING,
+		Hello:  &v1.Task_HelloTask{},
+	}.Build(), 0, nil
+}
+
+func (m *detachedTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
+	m.started <- struct{}{}
+	<-m.release
+	return nil
+}
+
+func (m *detachedTaskManager) ShouldDebug() bool {
+	return false
+}
+
+func (m *detachedTaskManager) GetTempDir() string {
 	return ""
 }
 
