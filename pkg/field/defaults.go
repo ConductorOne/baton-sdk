@@ -82,11 +82,11 @@ var (
 	EventFeedPageSizeField = IntField("event-feed-page-size",
 		WithDefaultValue(100),
 		WithHidden(true),
-		WithDescription("The page size to use when listing events (1-1000)"),
+		WithDescription("The page size to use when listing events (0-1000; 0 lets the connector use its own default)"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 		WithInt(func(r *IntRuler) {
-			r.Gte(1).Lte(1000)
+			r.Gte(0).Lte(1000)
 		}))
 	listEventFeedsField = BoolField("list-event-feeds", WithHidden(true), WithDescription("List available event feeds"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	fileField           = StringField("file", WithShortHand("f"), WithDefaultValue("sync.c1z"), WithDescription("The path to the c1z file to sync with"),

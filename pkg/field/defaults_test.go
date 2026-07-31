@@ -15,6 +15,10 @@ func TestEventFeedPageSizeField_Ruler(t *testing.T) {
 		return ValidateIntRules(EventFeedPageSizeField.Rules.i, value, EventFeedPageSizeField.FieldName)
 	}
 
+	t.Run("0 is accepted (bypasses the ruler entirely; lets the connector use its own default)", func(t *testing.T) {
+		require.NoError(t, run(0))
+	})
+
 	t.Run("1 is accepted", func(t *testing.T) {
 		require.NoError(t, run(1))
 	})
@@ -29,6 +33,11 @@ func TestEventFeedPageSizeField_Ruler(t *testing.T) {
 
 	t.Run("1001 is rejected", func(t *testing.T) {
 		err := run(1001)
+		require.Error(t, err)
+	})
+
+	t.Run("negative values are still rejected", func(t *testing.T) {
+		err := run(-1)
 		require.Error(t, err)
 	})
 }
