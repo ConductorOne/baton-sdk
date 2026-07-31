@@ -259,6 +259,20 @@ func TestFinishChunkRunFileRemovesUnpublishedRunAfterCloseFailure(t *testing.T) 
 	require.NoFileExists(t, path, "a completed run cannot be orphaned when source close fails")
 }
 
+func TestFinishChunkRunFileJoinsRemovalFailure(t *testing.T) {
+	injected := errors.New("source close")
+	path := filepath.Join(t.TempDir(), "non-empty-run-path")
+	require.NoError(t, os.Mkdir(path, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(path, "child"), []byte("x"), 0o600))
+
+	run, err := finishChunkRunFile(runFile{path: path}, nil, injected)
+
+	require.ErrorIs(t, err, injected)
+	require.ErrorContains(t, err, "remove unpublished run file")
+	require.Empty(t, run.path)
+	require.DirExists(t, path, "failed removal must remain visible to outer temp-root cleanup")
+}
+
 func grantPrincipalMap(t *testing.T, ctx context.Context, e *enginepkg.Engine, syncID string) map[string]string {
 	t.Helper()
 	out := map[string]string{}

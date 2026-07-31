@@ -2,29 +2,29 @@
 
 Plan: [`plan.md`](plan.md)
 
-Closure-candidate implementation and instrument state:
+Closure implementation and instrument state:
 `c913dbc174644d7bff10449597f57d6c8cbbdba3`. The CO-012a final gates below were
-rerun against that committed SHA on 2026-07-30. Independent final-code evidence
-and implementation re-review remain required before repository signoff.
+rerun against that committed SHA on 2026-07-30. Two independent final-code
+re-reviews accepted closure with the explicit limitations below.
 
 Included change orders: CO-003, CO-003a, CO-005 through CO-010b, and CO-011
 through CO-012a.
 
 ## Signoff scope
 
-Phase 6a storage and dotc1z capability behavior is a closure candidate, not signed
-off. This record explicitly marks incomplete, excluded, sampled, and deferred
-criteria.
+Phase 6a storage and dotc1z capability behavior is signed off with explicit
+limitations. This record marks incomplete, excluded, sampled, and deferred criteria
+rather than converting them into behavioral passes.
 Syncer/checkpoint orchestration, compatibility matching/gating, connector
 continuation/RPC behavior, invalidation policy, compacted/non-FULL eligibility,
 compactor integration, and post-replay ingest-invariant evaluation remain outside
 this stage.
 
-The repeated final-code audits reopened closure. One found no new source-cache
-product defect; the other found that unfinished previous artifacts remained
-replayable despite C35. Both identified swallowed compactor source-close errors and
-evidence overclaims. CO-012 records the production and evidence correction; its
-final-SHA gates pass and independent re-review remains open.
+The repeated final-code audits reopened closure, leading to CO-012 and CO-012a.
+The corrected implementation rejects unfinished sources, propagates owned
+source-close errors, removes unpublished run files on close failure, and narrows
+the evidence claims. Final gates pass and both independent re-reviews accepted the
+result with explicit limitations.
 
 ## Criterion evidence
 
@@ -229,8 +229,8 @@ An exclusion is not a behavioral pass.
 
 ## Structural-coverage triage
 
-The closing profile was reviewed branch-by-branch over the Phase 6a delta rather
-than cited as a percentage. It produced four actionable findings:
+The closing profile was used as navigation for targeted review of the Phase 6a
+delta. The retained ledger records four actionable findings:
 
 - F1, HIGH — same-identity replay overwrite from a foreign scope had no prior
   caller. `TestVerificationReplayOverwriteCleansForeignScopeIndex` now covers all
@@ -305,11 +305,23 @@ source-store close failure through every top-level fold/rebuild/overlay publicat
 path; those paths are implementation-reviewed rather than end-to-end fault-proven.
 The re-review also found a completed-run ownership gap on source-close failure.
 CO-012a removes the unpublished run before returning the joined error and narrows
-C22 and structural-coverage claims to their reproducible evidence. Independent
-review remains open until it examines the committed correction.
+C22 and structural-coverage claims to their reproducible evidence. The final Grok
+and Sol re-reviews found no HIGH or MEDIUM correctness/signoff blocker and both
+returned **ACCEPT WITH EXPLICIT LIMITATIONS**. The remaining LOW test gap for run
+removal failure is covered by
+`TestFinishChunkRunFileJoinsRemovalFailure`.
 
 The review also recorded these non-defect limits:
 
+- C22 remains partial: no planted swallowed-terminal-error mutant and page order
+  remains deferred with C29;
+- actual source-store close failures are not end-to-end fault-injected through
+  every top-level publication path;
+- structural coverage is a navigation profile plus the named F1/F2/F3/F8 ledger,
+  not a reproducible per-branch disposition artifact;
+- finished-source enforcement belongs to the public `SourceCacheStore`; direct
+  engine replay primitives bypass that policy;
+- direct non-batch durability sites remain explicit follow-up debt;
 - fold barrier ordering and entitlement-cache invalidation belong to deferred
   compactor integration;
 - scoped rows/manifests remain unrepresentable through bulk input;
@@ -362,7 +374,7 @@ repository-wide gates:
 
 ```text
 make lint
-go test -race ./pkg/dotc1z ./pkg/dotc1z/engine/pebble ./pkg/synccompactor/pebble ./pkg/synccompactor -run '^Test(Verification|ModelRandomizedSourceCacheLifecycle|SourceCacheModelOracleMutationAdequacy|ResourceLeakRideAlongAdequacy|CommitPointsHaveFailureSeams|OverlayFoldBatchLifecycleFailureCuts|OverlayRestartCommitFailureReleasesBatches|MergeFoldCommitFailureRetryConvergesAndClosesCleanly|CloseSourceHandlesJoinsErrors|SourceChunkCloseAsyncPropagatesCloseAndRemovesDirectory|FinishChunkRunFileRemovesUnpublishedRunAfterCloseFailure|Join.*CloseError)' -count=1
+go test -race ./pkg/dotc1z ./pkg/dotc1z/engine/pebble ./pkg/synccompactor/pebble ./pkg/synccompactor -run '^Test(Verification|ModelRandomizedSourceCacheLifecycle|SourceCacheModelOracleMutationAdequacy|ResourceLeakRideAlongAdequacy|CommitPointsHaveFailureSeams|OverlayFoldBatchLifecycleFailureCuts|OverlayRestartCommitFailureReleasesBatches|MergeFoldCommitFailureRetryConvergesAndClosesCleanly|CloseSourceHandlesJoinsErrors|SourceChunkCloseAsyncPropagatesCloseAndRemovesDirectory|FinishChunkRunFile.*|Join.*CloseError)' -count=1
 go test -p 1 ./... -count=1
 go test ./pkg/dotc1z -run '^TestModelRandomizedSourceCacheLifecycle$' -count=20
 go test ./pkg/sourcecache ./pkg/dotc1z/engine/pebble ./pkg/dotc1z -coverprofile=/tmp/sync-replay-6a-co012a.cover -count=1
