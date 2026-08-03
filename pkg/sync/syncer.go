@@ -3047,10 +3047,9 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 // profile match originally written for TRAIT_GROUP, now shared by GROUP and
 // any additional trait configured via WithExternalResourceTraits (e.g.
 // TRAIT_APP). It returns a nil grant (and nil error) when the principal's
-// profile doesn't match key/value, or when the source grant carries no
-// GrantExpandable annotation to remap — matching pre-existing GROUP
-// behavior, where a key/val match only produces a grant for expandable
-// entitlements.
+// profile doesn't match key/value. GrantExpandable remapping is optional:
+// a matching non-expandable grant must still be rewritten to the external
+// principal.
 func (s *syncer) matchProfileAndExpand(
 	ctx context.Context,
 	l *zap.Logger,
@@ -3064,8 +3063,9 @@ func (s *syncer) matchProfileAndExpand(
 	if !ok || !strings.EqualFold(profileVal, value) {
 		return nil, nil
 	}
+	newGrant := newGrantForExternalPrincipal(grant, principal)
 	if expandableAnno == nil {
-		return nil, nil
+		return newGrant, nil
 	}
 
 	groupPrincipalBID, err := bid.MakeBid(grant.GetPrincipal())
@@ -3088,7 +3088,6 @@ func (s *syncer) matchProfileAndExpand(
 		newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
 	}
 
-	newGrant := newGrantForExternalPrincipal(grant, principal)
 	newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
 	newExpandableAnno := v2.GrantExpandable_builder{
 		EntitlementIds:  newExpandableEntitlementIDs,

@@ -226,11 +226,13 @@ independent of page boundaries. `TemporalCorpus` loses the first response,
 changes the scenario epoch, and verifies that resource, entitlement, and grant
 retries converge to the retry answer without retaining the unseen answer.
 
-`ConcurrentDuplicateCorpus` uses spawned entitlement cursors and barriers to
-force both conflicting-response completion orders. A live run retains the last
-completed write. Its crash/resume variant verifies that the complete spawned
-frontier is replayed; with one resume worker, stable spawn order determines the
-last write regardless of which sibling was interrupted before the crash.
+`ConcurrentDuplicateCorpus` uses spawned entitlement/grant cursors and
+independently scheduled resource-type roots with barriers to force both
+conflicting-response completion orders for resources, entitlements, and
+grants. A live run retains the last completed write. Its crash/resume variant
+verifies that the complete pending frontier is replayed; with one resume
+worker, stable action order determines the last write regardless of which
+sibling was interrupted before the crash.
 The harness proves that both conflicting values were observed, but the SDK
 does not yet emit exact entitlement/grant conflict counters: doing that would
 require either a read before every put or sync-wide identity state. Neither
@@ -251,6 +253,14 @@ cut after rewritten grants are put but before its carrier is deleted, then
 resumed against the persisted checkpoint. A changed-external-answer case
 verifies replay converges to the principals visible at resume time. Its oracle
 checks multiplicity, unresolved carriers, expansion targets, and sealing.
+
+One bounded combined-fault case loses the first entitlement response, pauses
+at a deterministic connector barrier, then fails the first subsequent
+write-class Pebble filesystem operation. It cuts a strict crash image before
+close, proves both fault domains fired, reopens the image as
+resumable-unfinished, and requires the same sync run to seal with exact
+manifest identities. This is coverage of that named ordering only, not closure
+over the connector-by-filesystem schedule product.
 
 ### Stage 6: checkpoint and resume
 
@@ -277,7 +287,8 @@ The first implementation does not claim:
 - asset streaming;
 - real subprocess or Lambda behavior;
 - malformed wire bytes, trailers, or connection resets;
-- combined connector and filesystem schedules;
+- combined connector and filesystem schedules other than the named
+  lost-entitlement-response/first-subsequent-write case;
 - raw `os.*` calls outside existing injectable seams;
 - closure over generated or seeded schedules;
 - capability-specific mutation semantics before an independent oracle exists.

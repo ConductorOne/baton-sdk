@@ -10,7 +10,6 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	chaosoracle "github.com/conductorone/baton-sdk/internal/chaosconnector/oracle"
-	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
@@ -125,7 +124,7 @@ func runConcurrentDuplicateCase(t *testing.T, corpusCase chaosconnector.Concurre
 	tmpDir := t.TempDir()
 	c1zPath := filepath.Join(tmpDir, "concurrent-duplicate.c1z")
 
-	scenario, err := chaosconnector.NewConcurrentDuplicateScenario()
+	scenario, err := chaosconnector.NewConcurrentDuplicateScenario(corpusCase.Entity)
 	require.NoError(t, err)
 	run, err := chaosconnector.NewRun(scenario, corpusCase.Schedule)
 	require.NoError(t, err)
@@ -145,7 +144,7 @@ func runConcurrentDuplicateCase(t *testing.T, corpusCase chaosconnector.Concurre
 		done <- harness.Syncer.Sync(ctx)
 	}()
 
-	waitForConcurrentEntitlement(t, ctx, concreteSyncer, run, corpusCase.FirstToken)
+	waitForConcurrentObservation(t, ctx, concreteSyncer, run, corpusCase, corpusCase.FirstToken)
 
 	run.Runtime().ReleaseBarrier("release-" + corpusCase.BlockedToken)
 	require.NoError(t, <-done)
@@ -161,12 +160,7 @@ func runConcurrentDuplicateCase(t *testing.T, corpusCase chaosconnector.Concurre
 	)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close(t.Context())) }()
-	assertSemanticExpectation(t, t.Context(), store, chaosconnector.SemanticExpectation{
-		Entity:            chaosconnector.ReferentialEntitlement,
-		CanonicalIdentity: "chaos-user:user-1:member",
-		Multiplicity:      1,
-		DisplayName:       corpusCase.ExpectedName,
-	})
+	assertSemanticExpectation(t, t.Context(), store, corpusCase.Expectation(corpusCase.BlockedToken))
 }
 
 func runConcurrentDuplicateResumeCase(t *testing.T, corpusCase chaosconnector.ConcurrentDuplicateCase) {
@@ -176,7 +170,7 @@ func runConcurrentDuplicateResumeCase(t *testing.T, corpusCase chaosconnector.Co
 	tmpDir := t.TempDir()
 	c1zPath := filepath.Join(tmpDir, "concurrent-duplicate-resume.c1z")
 
-	scenario, err := chaosconnector.NewConcurrentDuplicateScenario()
+	scenario, err := chaosconnector.NewConcurrentDuplicateScenario(corpusCase.Entity)
 	require.NoError(t, err)
 	firstRun, err := chaosconnector.NewRun(scenario, corpusCase.CrashSchedule)
 	require.NoError(t, err)
@@ -190,13 +184,13 @@ func runConcurrentDuplicateResumeCase(t *testing.T, corpusCase chaosconnector.Co
 	go func() {
 		done <- firstHarness.Syncer.Sync(ctx)
 	}()
-	waitForConcurrentEntitlement(t, ctx, concreteFirst, firstRun, corpusCase.FirstToken)
+	waitForConcurrentObservation(t, ctx, concreteFirst, firstRun, corpusCase, corpusCase.FirstToken)
 	firstRun.Runtime().ReleaseBarrier("release-" + corpusCase.BlockedToken)
 	require.ErrorIs(t, <-done, chaosconnector.ErrCrashRequested)
 	require.NoError(t, firstHarness.Close(t.Context()))
 	require.NoError(t, firstRun.Runtime().VerifyRequired())
 
-	resumeScenario, err := chaosconnector.NewConcurrentDuplicateScenario()
+	resumeScenario, err := chaosconnector.NewConcurrentDuplicateScenario(corpusCase.Entity)
 	require.NoError(t, err)
 	resumeRun, err := chaosconnector.NewRun(resumeScenario, chaosconnector.NewSchedule())
 	require.NoError(t, err)
@@ -208,10 +202,12 @@ func runConcurrentDuplicateResumeCase(t *testing.T, corpusCase chaosconnector.Co
 	resumedTokens := make(map[string]bool)
 	lastSibling := ""
 	for _, event := range resumeRun.Trace().Events() {
-		if event.Operation.Method == "ListEntitlements" && event.Outcome == chaosconnector.OutcomeReturned {
-			resumedTokens[event.Operation.PageToken] = true
-			if event.Operation.PageToken == "left" || event.Operation.PageToken == "right" {
-				lastSibling = event.Operation.PageToken
+		if event.Operation.Method == corpusCase.Method() && event.Outcome == chaosconnector.OutcomeReturned {
+			for _, token := range []string{"left", "right"} {
+				if corpusCase.OperationMatchesToken(event.Operation, token) {
+					resumedTokens[token] = true
+					lastSibling = token
+				}
 			}
 		}
 	}
@@ -228,26 +224,21 @@ func runConcurrentDuplicateResumeCase(t *testing.T, corpusCase chaosconnector.Co
 	)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close(t.Context())) }()
-	assertSemanticExpectation(t, t.Context(), store, chaosconnector.SemanticExpectation{
-		Entity:            chaosconnector.ReferentialEntitlement,
-		CanonicalIdentity: "chaos-user:user-1:member",
-		Multiplicity:      1,
-		DisplayName:       "Concurrent observation from " + lastSibling,
-	})
+	assertSemanticExpectation(t, t.Context(), store, corpusCase.Expectation(lastSibling))
 }
 
-func waitForConcurrentEntitlement(
+func waitForConcurrentObservation(
 	t *testing.T,
 	ctx context.Context,
 	concreteSyncer *syncer,
 	run *chaosconnector.Run,
+	corpusCase chaosconnector.ConcurrentDuplicateCase,
 	token string,
 ) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		for _, event := range run.Trace().Events() {
-			if event.Operation.Method == "ListEntitlements" &&
-				event.Operation.PageToken == token &&
+			if corpusCase.OperationMatchesToken(event.Operation, token) &&
 				event.Outcome == chaosconnector.OutcomeReturned {
 				return true
 			}
@@ -255,13 +246,23 @@ func waitForConcurrentEntitlement(
 		return false
 	}, 5*time.Second, 10*time.Millisecond, "unblocked sibling did not return")
 
-	expectedName := "Concurrent observation from " + token
+	expected := corpusCase.Expectation(token)
 	require.Eventually(t, func() bool {
-		response, err := concreteSyncer.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-			EntitlementId: "chaos-user:user-1:member",
-		}.Build())
-		return err == nil && response != nil && response.GetEntitlement() != nil &&
-			response.GetEntitlement().GetDisplayName() == expectedName
+		observation, err := chaosoracle.ReadSemantic(ctx, concreteSyncer.store, chaosoracle.SemanticTarget{
+			Entity:            oracleSemanticEntity(t, expected.Entity),
+			CanonicalIdentity: expected.CanonicalIdentity,
+		})
+		if err != nil {
+			return false
+		}
+		return chaosoracle.CompareSemantic(
+			chaosoracle.SemanticExpectation{
+				Multiplicity: expected.Multiplicity,
+				DisplayName:  optionalExpectation(expected.DisplayName),
+				ExternalID:   optionalExpectation(expected.ExternalID),
+			},
+			observation,
+		) == nil
 	}, 5*time.Second, 10*time.Millisecond, "unblocked sibling was not persisted")
 }
 
