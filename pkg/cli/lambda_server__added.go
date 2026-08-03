@@ -507,18 +507,18 @@ func lambdaConnectorConfigVersion(config *v1.GetConnectorConfigResponse) string 
 
 // egressPolicyFromResponse projects the connector-facing egress policy from the
 // response's served-policy envelope, or nil when no envelope is present. A
-// present envelope is Governed even when it fails a binding, version, or
-// section check — such an envelope resolves to governed-with-no-hosts so the
-// connector fails closed (deny-all) rather than serving unenforced. The
-// config-version binding (the envelope's config_version must be non-empty and
-// equal to the response's) is the one cross-field check the SDK is uniquely
-// positioned to make; deeper content validation is the connector's.
+// present envelope yields a non-nil policy even when it fails a binding,
+// version, or section check — such an envelope resolves to a present policy with
+// no hosts so the connector fails closed (deny-all) rather than serving
+// unenforced. The config-version binding (the envelope's config_version must be
+// non-empty and equal to the response's) is the one cross-field check the SDK is
+// uniquely positioned to make; deeper content validation is the connector's.
 func egressPolicyFromResponse(config *v1.GetConnectorConfigResponse) *EgressPolicy {
 	if config == nil || !config.HasServedPolicyEnvelope() {
 		return nil
 	}
 	env := config.GetServedPolicyEnvelope()
-	policy := &EgressPolicy{Governed: true}
+	policy := &EgressPolicy{}
 
 	if env.GetEnvelopeVersion() != servedPolicyEnvelopeVersion {
 		return policy

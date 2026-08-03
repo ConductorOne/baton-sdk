@@ -47,7 +47,6 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		t.Parallel()
 		p := egressPolicyFromResponse(newResp("cv-1", goodEnvelope("cv-1")))
 		require.NotNil(t, p)
-		require.True(t, p.Governed)
 		require.True(t, p.HTTPSOnly)
 		require.Equal(t, []string{"api.example.com"}, p.AllowedHosts)
 	})
@@ -57,7 +56,6 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		// Envelope config_version differs from the response's.
 		p := egressPolicyFromResponse(newResp("cv-1", goodEnvelope("cv-2")))
 		require.NotNil(t, p)
-		require.True(t, p.Governed)
 		require.Empty(t, p.AllowedHosts)
 	})
 
@@ -65,7 +63,6 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		t.Parallel()
 		p := egressPolicyFromResponse(newResp("", goodEnvelope("")))
 		require.NotNil(t, p)
-		require.True(t, p.Governed)
 		require.Empty(t, p.AllowedHosts)
 	})
 
@@ -75,7 +72,6 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		env.SetEnvelopeVersion(999)
 		p := egressPolicyFromResponse(newResp("cv-1", env))
 		require.NotNil(t, p)
-		require.True(t, p.Governed)
 		require.Empty(t, p.AllowedHosts)
 	})
 
@@ -85,7 +81,6 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		env.GetEgress().SetSchemaVersion(999)
 		p := egressPolicyFromResponse(newResp("cv-1", env))
 		require.NotNil(t, p)
-		require.True(t, p.Governed)
 		require.Empty(t, p.AllowedHosts)
 	})
 }

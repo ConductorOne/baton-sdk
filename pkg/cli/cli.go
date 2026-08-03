@@ -37,13 +37,9 @@ type RunTimeOpts struct {
 // The envelope's digests, versions, and capability section are not surfaced —
 // they are the SDK's contract to verify, not the connector's.
 type EgressPolicy struct {
-	// Governed is true when the response carried a served-policy envelope. A
-	// governed connector enforces its allowlist even when AllowedHosts is empty
-	// (an empty governed allowlist is deny-all), and a malformed or unsupported
-	// envelope resolves to governed-with-no-hosts so enforcement fails closed.
-	Governed bool
 	// AllowedHosts is the effective per-instance egress allowlist (canonical
-	// hostnames). Empty under Governed is a valid deny-all policy.
+	// hostnames). A non-nil *EgressPolicy with empty AllowedHosts is a valid
+	// deny-all policy.
 	AllowedHosts []string
 	// HTTPSOnly reports whether the runtime must refuse non-https egress.
 	HTTPSOnly bool
