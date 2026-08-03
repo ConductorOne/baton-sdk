@@ -460,6 +460,36 @@ func TestFreshIngestFilterInsertResourceGrantsResourceInserts(t *testing.T) {
 	require.Equal(t, "u1", surviving.GetPrincipal().GetId().GetResource())
 }
 
+func TestInsertResourceGrantsRejectsReservedBatonIDResource(t *testing.T) {
+	ctx := t.Context()
+	tempDir := t.TempDir()
+	c1zPath := filepath.Join(tempDir, "irg-reserved-ownership.c1z")
+	mc := newInsertResourceGrantsMockConnector(true)
+	mc.rtDB = append(mc.rtDB, v2.ResourceType_builder{Id: "shared_drive", DisplayName: "Shared Drive"}.Build())
+	group, _, err := mc.AddGroup(ctx, "g1")
+	require.NoError(t, err)
+	user, err := mc.AddUser(ctx, "u1")
+	require.NoError(t, err)
+	drive := ingestFilterResource("shared_drive", "d1")
+	drive.SetAnnotations(annotations.New(&v2.BatonID{}))
+	mc.grantDB[group.GetId().GetResource()] = []*v2.Grant{
+		gt.NewGrant(drive, "access", user.GetId()),
+	}
+
+	syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	require.ErrorContains(t, syncer.Sync(ctx), "SDK-reserved BatonID ownership annotation")
+	require.NoError(t, syncer.Close(ctx))
+
+	store, err := dotc1z.NewC1ZFile(ctx, c1zPath)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close(ctx)) }()
+	drives, err := store.ListResources(ctx,
+		v2.ResourcesServiceListResourcesRequest_builder{ResourceTypeId: "shared_drive"}.Build())
+	require.NoError(t, err)
+	require.Empty(t, drives.GetList(), "reserved ownership row must not reach storage through grant uplift")
+}
+
 // TestFreshIngestFilterRunsBeforeExclusionGroupValidation: an entitlement the
 // filter drops must not mutate exclusion-group state or fail the sync. Before
 // the ordering fix this sync failed with an "exclusion group used on multiple

@@ -43,7 +43,7 @@ func LifecycleCorpus() []LifecycleCase {
 			Policy:               DataPolicySkipReport,
 			BuildInitial:         dropLifecycleScenario,
 			BuildResume:          dropLifecycleScenario,
-			InterruptSchedule:    lifecycleCrashSchedule("cut"),
+			InterruptSchedule:    lifecycleInterruptSchedule("cut"),
 			InterruptedPageToken: "cut",
 			Identity:             "lifecycle-unknown-type",
 			Initial: LifecycleAttemptExpectation{
@@ -59,7 +59,7 @@ func LifecycleCorpus() []LifecycleCase {
 			Policy:               DataPolicyFail,
 			BuildInitial:         hardInvalidLifecycleScenario,
 			BuildResume:          hardInvalidLifecycleScenario,
-			InterruptSchedule:    lifecycleCrashSchedule("bad"),
+			InterruptSchedule:    lifecycleInterruptSchedule("bad"),
 			InterruptedPageToken: "bad",
 			Identity:             "",
 			Resume: LifecycleAttemptExpectation{
@@ -72,7 +72,7 @@ func LifecycleCorpus() []LifecycleCase {
 			Policy:               DataPolicyWarnRetain,
 			BuildInitial:         retainLifecycleScenario,
 			BuildResume:          retainLifecycleScenario,
-			InterruptSchedule:    lifecycleCrashSchedule("cut"),
+			InterruptSchedule:    lifecycleInterruptSchedule("cut"),
 			InterruptedPageToken: "cut",
 			Identity:             "lifecycle-dangling",
 			Initial: LifecycleAttemptExpectation{
@@ -90,7 +90,7 @@ func LifecycleCorpus() []LifecycleCase {
 			Policy:               DataPolicyAccept,
 			BuildInitial:         func() (*Scenario, error) { return changedLifecycleScenario("Old interrupted answer") },
 			BuildResume:          func() (*Scenario, error) { return changedLifecycleScenario("Answer from resume") },
-			InterruptSchedule:    lifecycleCrashSchedule("changed"),
+			InterruptSchedule:    lifecycleInterruptSchedule("changed"),
 			InterruptedPageToken: "changed",
 			Identity:             "lifecycle-changed-answer",
 			Resume: LifecycleAttemptExpectation{
@@ -113,7 +113,7 @@ func LifecycleCaseByName(name string) (LifecycleCase, bool) {
 	return LifecycleCase{}, false
 }
 
-func lifecycleCrashSchedule(pageToken string) Schedule {
+func lifecycleInterruptSchedule(pageToken string) Schedule {
 	return NewSchedule(Rule{
 		ID: "interrupt-" + pageToken,
 		Match: Matcher{

@@ -1452,7 +1452,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 	}
 
 	// Save our resource in the DB
-	if err := s.store.PutResources(ctx, resource); err != nil {
+	if err := s.putConnectorResources(ctx, resource); err != nil {
 		return err
 	}
 
@@ -1642,7 +1642,7 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 	}
 
 	if len(bulkPutResoruces) > 0 {
-		err = s.store.PutResources(ctx, bulkPutResoruces...)
+		err = s.putConnectorResources(ctx, bulkPutResoruces...)
 		if err != nil {
 			return err
 		}
@@ -1685,7 +1685,21 @@ func validateConnectorResource(resource *v2.Resource) error {
 	if resourceID == nil || resourceID.GetResourceType() == "" || resourceID.GetResource() == "" {
 		return status.Error(codes.Internal, "connector returned a resource with missing identity")
 	}
+	resourceAnnos := annotations.Annotations(resource.GetAnnotations())
+	if resourceAnnos.Contains(&v2.BatonID{}) {
+		return status.Error(codes.Internal,
+			"connector returned a resource with SDK-reserved BatonID ownership annotation")
+	}
 	return nil
+}
+
+func (s *syncer) putConnectorResources(ctx context.Context, resources ...*v2.Resource) error {
+	for _, resource := range resources {
+		if err := validateConnectorResource(resource); err != nil {
+			return err
+		}
+	}
+	return s.store.PutResources(ctx, resources...)
 }
 
 func validateConnectorEntitlement(entitlement *v2.Entitlement) error {
@@ -2608,7 +2622,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 			if resource == nil {
 				continue
 			}
-			if err := s.store.PutResources(ctx, resource); err != nil {
+			if err := s.putConnectorResources(ctx, resource); err != nil {
 				return err
 			}
 		}
@@ -2619,7 +2633,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		for _, resource := range resourcesToInsertMap {
 			resourcesToInsert = append(resourcesToInsert, resource)
 		}
-		err = s.store.PutResources(ctx, resourcesToInsert...)
+		err = s.putConnectorResources(ctx, resourcesToInsert...)
 		if err != nil {
 			return fmt.Errorf("sync-grants-for-resource: error putting resources: %w", err)
 		}
@@ -2772,6 +2786,10 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		principals = append(principals, resourceVal)
 	}
 
+	err = s.deleteStaleExternalPrincipals(ctx, principals)
+	if err != nil {
+		return err
+	}
 	err = s.store.PutResources(ctx, principals...)
 	if err != nil {
 		return err
@@ -2884,6 +2902,10 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 		}
 	}
 
+	err = s.deleteStaleExternalPrincipals(ctx, principals)
+	if err != nil {
+		return err
+	}
 	err = s.store.PutResources(ctx, principals...)
 	if err != nil {
 		return err
@@ -2964,6 +2986,125 @@ func (s *syncer) listExternalResourcesForResourceType(ctx context.Context, resou
 		}
 	}
 	return resources, nil
+}
+
+type resourceRecordDeleter interface {
+	DeleteResourceRecord(ctx context.Context, resourceTypeID, resourceID string) error
+}
+
+type entitlementRecordDeleter interface {
+	DeleteEntitlementByRefs(ctx context.Context, entitlement *v2.Entitlement) error
+}
+
+// deleteStaleExternalPrincipals reconciles principal rows copied by an earlier
+// attempt before writing the external source's current answer. Checkpoint
+// resume deliberately retains completed writes, so without this pass a
+// principal that disappears between attempts survives even though grants are
+// rewritten against the new source.
+func (s *syncer) deleteStaleExternalPrincipals(
+	ctx context.Context,
+	current []*v2.Resource,
+) error {
+	currentIDs := make(map[string]struct{}, len(current))
+	for _, principal := range current {
+		id := principal.GetId()
+		currentIDs[id.GetResourceType()+"\x00"+id.GetResource()] = struct{}{}
+	}
+
+	resourceDeleter, canDeleteResources := s.store.(resourceRecordDeleter)
+	entitlementDeleter, canDeleteEntitlements := s.store.(entitlementRecordDeleter)
+	grantDeleter, canDeleteGrants := s.store.(grantByRefsDeleter)
+	var staleIDs []*v2.ResourceId
+	pageToken := ""
+	for {
+		response, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return err
+		}
+		for _, candidate := range response.GetList() {
+			candidateAnnos := annotations.Annotations(candidate.GetAnnotations())
+			if !candidateAnnos.Contains(&v2.BatonID{}) {
+				continue
+			}
+			id := candidate.GetId()
+			if _, ok := currentIDs[id.GetResourceType()+"\x00"+id.GetResource()]; ok {
+				continue
+			}
+			staleIDs = append(staleIDs, id)
+		}
+		pageToken = response.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+	if len(staleIDs) == 0 {
+		return nil
+	}
+	if !canDeleteResources || !canDeleteEntitlements || !canDeleteGrants {
+		return errors.New("connector store cannot reconcile stale external principal dependencies")
+	}
+
+	staleKeys := make(map[string]struct{}, len(staleIDs))
+	for _, id := range staleIDs {
+		staleKeys[id.GetResourceType()+"\x00"+id.GetResource()] = struct{}{}
+	}
+	var staleGrants []*v2.Grant
+	for grantWithAnnotations, err := range s.store.Grants().ListWithAnnotations(ctx) {
+		if err != nil {
+			return err
+		}
+		grant := grantWithAnnotations.Grant
+		principalID := grant.GetPrincipal().GetId()
+		entitlementResourceID := grant.GetEntitlement().GetResource().GetId()
+		_, stalePrincipal := staleKeys[principalID.GetResourceType()+"\x00"+principalID.GetResource()]
+		_, staleEntitlement := staleKeys[entitlementResourceID.GetResourceType()+"\x00"+entitlementResourceID.GetResource()]
+		if stalePrincipal || staleEntitlement {
+			staleGrants = append(staleGrants, grant)
+		}
+	}
+
+	var staleEntitlements []*v2.Entitlement
+	pageToken = ""
+	for {
+		response, err := s.store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return err
+		}
+		for _, candidate := range response.GetList() {
+			resourceID := candidate.GetResource().GetId()
+			if _, stale := staleKeys[resourceID.GetResourceType()+"\x00"+resourceID.GetResource()]; !stale {
+				continue
+			}
+			staleEntitlements = append(staleEntitlements, candidate)
+		}
+		pageToken = response.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+
+	for _, grant := range staleGrants {
+		if err := grantDeleter.DeleteGrantByRefs(ctx, grant); err != nil {
+			return fmt.Errorf("delete grant for stale external principal: %w", err)
+		}
+	}
+	for _, entitlement := range staleEntitlements {
+		if err := entitlementDeleter.DeleteEntitlementByRefs(ctx, entitlement); err != nil {
+			return fmt.Errorf("delete entitlement for stale external principal %s: %w",
+				entitlement.GetId(), err)
+		}
+	}
+	for _, id := range staleIDs {
+		if err := resourceDeleter.DeleteResourceRecord(ctx, id.GetResourceType(), id.GetResource()); err != nil {
+			return fmt.Errorf("delete stale external principal %s/%s: %w",
+				id.GetResourceType(), id.GetResource(), err)
+		}
+	}
+	return nil
 }
 
 func (s *syncer) listExternalEntitlementsForResource(ctx context.Context, resource *v2.Resource) ([]*v2.Entitlement, error) {

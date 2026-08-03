@@ -111,14 +111,19 @@ errorfs-soak: ## Sweep whole-sync Pebble crash points using errorfs.
 	BATON_SOAK=1 go test -v -count=1 -timeout=30m -run TestErrorFSWholeSyncRandomSweepSoak ./pkg/dotc1z/engine/pebble
 
 .PHONY: chaos-check
-chaos-check: ## Run bounded internal chaos connector checks under race detection.
+chaos-check: ## Run bounded representative chaos checks under race detection.
 	go test -race -count=1 ./internal/chaosconnector/...
+	go test -race -count=1 -timeout=10m -run '^TestChaosConnector(LostResponseThenFilesystemFailureResumes|ResourcesAndEntitlementsFaultMatrix|ListGrantsFaultMatrix|ReservedBatonIDOwnershipIsRejected|MalformedKnownAnnotationFailsWithoutSealing|ClearedNextPageTokenSealsOnlyVisiblePrefix|CancellationTerminatesAndColdResumes|DataPolicyLifecycleCorpus|ExternalPrincipalResumeUsesCurrentExternalAnswer|ExternalPrincipalCleanupUsesOnePassPerKeyspace)$$' ./pkg/sync
+
+.PHONY: chaos-full-check
+chaos-full-check: ## Run every deterministic chaos corpus under race detection.
 	go test -race -count=1 -timeout=30m -run '^TestChaosConnector' ./pkg/sync
 
 .PHONY: chaos-soak
 chaos-soak: ## Run extended seeded chaos connector fanout schedules.
 	BATON_CHAOS_ITERATIONS=$(CHAOS_ITERATIONS) go test -race -v -count=1 -timeout=30m -run TestChaosConnectorSeededFanoutWithRetries ./pkg/sync
 
+# race-check already includes chaos-full-check's complete deterministic corpus.
 .PHONY: test-extra
 test-extra: race-check compat-check interrupt-check fuzz-smoke differential-check bench-smoke ## Run bounded confidence checks omitted from CI.
 

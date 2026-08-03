@@ -60,7 +60,7 @@ func ExpectedIdentities(manifest *chaosconnector.Manifest) IdentitySnapshot {
 		manifest.Entitlements...,
 	) {
 		if item != nil {
-			out.Entitlements = append(out.Entitlements, item.GetId())
+			out.Entitlements = append(out.Entitlements, entitlementKey(item))
 		}
 	}
 	for _, item := range manifest.Grants {
@@ -112,7 +112,7 @@ func ReadIdentities(ctx context.Context, reader StoreReader) (IdentitySnapshot, 
 			return response.GetList(), response.GetNextPageToken(), nil
 		},
 		func(item *v2.Entitlement) {
-			out.Entitlements = append(out.Entitlements, item.GetId())
+			out.Entitlements = append(out.Entitlements, entitlementKey(item))
 		},
 	); err != nil {
 		return out, fmt.Errorf("chaos oracle: list entitlements: %w", err)
@@ -320,5 +320,12 @@ func grantKey(grant *v2.Grant) string {
 	if grant == nil {
 		return "<nil>"
 	}
-	return grant.GetEntitlement().GetId() + "\x00" + resourceKey(grant.GetPrincipal().GetId())
+	return entitlementKey(grant.GetEntitlement()) + "\x00" + resourceKey(grant.GetPrincipal().GetId())
+}
+
+func entitlementKey(entitlement *v2.Entitlement) string {
+	if entitlement == nil {
+		return "<nil>"
+	}
+	return resourceKey(entitlement.GetResource().GetId()) + "\x00" + entitlement.GetId()
 }

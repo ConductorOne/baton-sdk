@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
 func TestIdentityOracleRejectsPlantedLossAndDuplication(t *testing.T) {
@@ -33,6 +34,32 @@ func TestIdentityOracleRejectsPlantedLossAndDuplication(t *testing.T) {
 		actual.Grants = append(append([]string(nil), expected.Grants...), expected.Grants[0])
 		require.ErrorContains(t, CompareIdentities(expected, actual), "grants mismatch")
 	})
+}
+
+func TestIdentityOracleScopesDuplicateEntitlementIDsByResource(t *testing.T) {
+	entitlementFor := func(resourceID string) *v2.Entitlement {
+		return v2.Entitlement_builder{
+			Id: "shared-public-id",
+			Resource: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
+					ResourceType: "group",
+					Resource:     resourceID,
+				}.Build(),
+			}.Build(),
+		}.Build()
+	}
+	left := entitlementFor("left")
+	right := entitlementFor("right")
+	require.NotEqual(t, entitlementKey(left), entitlementKey(right),
+		"the oracle must distinguish equal public IDs on different resources")
+
+	principal := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+	}.Build()
+	leftGrant := v2.Grant_builder{Entitlement: left, Principal: principal}.Build()
+	rightGrant := v2.Grant_builder{Entitlement: right, Principal: principal}.Build()
+	require.NotEqual(t, grantKey(leftGrant), grantKey(rightGrant),
+		"grant identity must retain the entitlement's resource scope")
 }
 
 func TestLogicalContentOracleRejectsPlantedMutation(t *testing.T) {

@@ -64,6 +64,7 @@ func KnownAnnotationPolicies() map[protoreflect.FullName]AnnotationPolicy {
 		policy("c1.connector.v2.ExternalResourceMatch", AnnotationIngestion, ObligationConsume, true, "grant"),
 		policy("c1.connector.v2.ExternalResourceMatchAll", AnnotationIngestion, ObligationConsume, true, "grant"),
 		policy("c1.connector.v2.ExternalResourceMatchID", AnnotationIngestion, ObligationConsume, true, "grant"),
+		policy("c1.connector.v2.BatonID", AnnotationIngestion, ObligationReject, true, "connector-resource"),
 		policy("c1.connector.v2.Aliases", AnnotationIngestion, ObligationConsume, true, "resource"),
 		policy("c1.connector.v2.EntitlementExclusionGroup", AnnotationIngestion, ObligationConsume, true, "entitlement"),
 		policy("c1.connector.v2.GrantAlreadyExists", AnnotationProvisioning, ObligationConsume, true, "grant-response"),

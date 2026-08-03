@@ -21,7 +21,7 @@ func TestConcurrentDuplicateCorpusCoversBothOrders(t *testing.T) {
 		require.NotEmpty(t, corpusCase.Method())
 		require.NotEmpty(t, corpusCase.Expectation(corpusCase.BlockedToken).CanonicalIdentity)
 		require.NoError(t, corpusCase.Schedule.Validate())
-		require.NoError(t, corpusCase.CrashSchedule.Validate())
+		require.NoError(t, corpusCase.InterruptSchedule.Validate())
 
 		scenario, err := NewConcurrentDuplicateScenario(corpusCase.Entity)
 		require.NoError(t, err)

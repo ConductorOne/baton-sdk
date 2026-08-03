@@ -186,7 +186,7 @@ func runConcurrentDuplicateResumeCase(t *testing.T, corpusCase chaosconnector.Co
 
 	scenario, err := chaosconnector.NewConcurrentDuplicateScenario(corpusCase.Entity)
 	require.NoError(t, err)
-	firstRun, err := chaosconnector.NewRun(scenario, corpusCase.CrashSchedule)
+	firstRun, err := chaosconnector.NewRun(scenario, corpusCase.InterruptSchedule)
 	require.NoError(t, err)
 	firstHarness := newChaosHarness(
 		t, ctx, firstRun, c1zPath, tmpDir, chaosTransportDirect, WithWorkerCount(2),
@@ -200,7 +200,7 @@ func runConcurrentDuplicateResumeCase(t *testing.T, corpusCase chaosconnector.Co
 	}()
 	waitForConcurrentObservation(t, ctx, concreteFirst, firstRun, corpusCase, corpusCase.FirstToken)
 	firstRun.Runtime().ReleaseBarrier("release-" + corpusCase.BlockedToken)
-	require.ErrorIs(t, <-done, chaosconnector.ErrCrashRequested)
+	require.ErrorIs(t, <-done, chaosconnector.ErrInterruptRequested)
 	require.NoError(t, firstHarness.Close(t.Context()))
 	require.NoError(t, firstRun.Runtime().VerifyRequired())
 

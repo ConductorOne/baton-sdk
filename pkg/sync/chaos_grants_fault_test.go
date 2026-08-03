@@ -17,15 +17,16 @@ import (
 )
 
 type grantFaultCase struct {
-	name         string
-	phase        chaosconnector.Phase
-	effect       chaosconnector.Effect
-	pageToken    string
-	prepare      func(*testing.T, *chaosconnector.Scenario)
-	wantCode     codes.Code
-	wantComplete bool
-	wantGrants   bool
-	wantRetry    bool
+	name           string
+	phase          chaosconnector.Phase
+	effect         chaosconnector.Effect
+	pageToken      string
+	prepare        func(*testing.T, *chaosconnector.Scenario)
+	wantCode       codes.Code
+	wantComplete   bool
+	wantGrants     bool
+	wantRetry      bool
+	wantColdResume bool
 }
 
 func TestChaosConnectorListGrantsFaultMatrix(t *testing.T) {
@@ -67,18 +68,19 @@ func TestChaosConnectorListGrantsFaultMatrix(t *testing.T) {
 			wantGrants:   false,
 		},
 		{
-			name:         "fatal",
-			phase:        chaosconnector.PhaseBeforeCall,
-			effect:       chaosconnector.Effect{Kind: chaosconnector.EffectError, Code: codes.InvalidArgument, Message: "injected fatal grant error"},
-			wantCode:     codes.InvalidArgument,
-			wantComplete: false,
-			wantGrants:   false,
+			name:           "fatal",
+			phase:          chaosconnector.PhaseBeforeCall,
+			effect:         chaosconnector.Effect{Kind: chaosconnector.EffectError, Code: codes.InvalidArgument, Message: "injected fatal grant error"},
+			wantCode:       codes.InvalidArgument,
+			wantComplete:   false,
+			wantGrants:     true,
+			wantColdResume: true,
 		},
 	}
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			for _, transport := range []chaosTransport{chaosTransportDirect, chaosTransportGRPC} {
+			for _, transport := range chaosFaultTransports() {
 				t.Run(transport.String(), func(t *testing.T) {
 					runGrantFaultCase(t, testCase, transport)
 				})
@@ -103,6 +105,15 @@ func runGrantFaultCase(t *testing.T, testCase grantFaultCase, transport chaosTra
 	expected := chaosoracle.ExpectedIdentities(manifest)
 	if !testCase.wantGrants {
 		expected.Grants = nil
+	}
+	var baseline chaosoracle.LogicalContentSnapshot
+	if testCase.wantColdResume {
+		baselinePath := filepath.Join(tmpDir, "chaos-grants-baseline.c1z")
+		baselineRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+		require.NoError(t, err)
+		baselineHarness := newChaosHarness(t, ctx, baselineRun, baselinePath, tmpDir, transport)
+		baselineHarness.SyncAndClose(t, ctx)
+		baseline = readChaosLogicalContent(t, ctx, baselinePath, tmpDir)
 	}
 
 	const ruleID = "list-grants-fault"
@@ -178,6 +189,25 @@ func runGrantFaultCase(t *testing.T, testCase grantFaultCase, transport chaosTra
 		Max: expectedCalls,
 	})
 	require.NoError(t, chaosoracle.VerifyTrace(run.Trace().Events(), expectations...))
+
+	if testCase.wantColdResume {
+		interruptedRuns := readChaosSyncRuns(t, ctx, c1zPath, tmpDir)
+		require.Len(t, interruptedRuns, 1)
+		require.Nil(t, interruptedRuns[0].EndedAt)
+		syncID := interruptedRuns[0].ID
+		resumeRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+		require.NoError(t, err)
+		resumeHarness := newChaosHarness(t, ctx, resumeRun, c1zPath, tmpDir, transport)
+		resumeHarness.SyncAndClose(t, ctx)
+		finalRuns := readChaosSyncRuns(t, ctx, c1zPath, tmpDir)
+		require.Len(t, finalRuns, 1)
+		require.Equal(t, syncID, finalRuns[0].ID)
+		require.NotNil(t, finalRuns[0].EndedAt)
+		actual := readChaosLogicalContent(t, ctx, c1zPath, tmpDir)
+		require.NoError(t, chaosoracle.CompareLogicalContent(baseline, actual))
+		assertChaosStoreMatches(t, c1zPath, tmpDir, expected)
+		return
+	}
 
 	store, err := dotc1z.NewStore(
 		ctx,

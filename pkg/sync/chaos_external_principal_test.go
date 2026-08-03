@@ -20,8 +20,12 @@ var errChaosExternalPrincipalCut = errors.New("chaos: external principal rewrite
 
 type chaosExternalPrincipalCutStore struct {
 	c1zstore.Store
-	failDeleteAt int64
-	deleteCalls  atomic.Int64
+	failDeleteAt      int64
+	deleteCalls       atomic.Int64
+	failEntitlementAt int64
+	entitlementCalls  atomic.Int64
+	failResourceAt    int64
+	resourceCalls     atomic.Int64
 }
 
 func (s *chaosExternalPrincipalCutStore) DeleteGrantByRefs(
@@ -36,6 +40,35 @@ func (s *chaosExternalPrincipalCutStore) DeleteGrantByRefs(
 		return errors.New("chaos: store lacks refs-based grant deletion")
 	}
 	return deleter.DeleteGrantByRefs(ctx, grant)
+}
+
+func (s *chaosExternalPrincipalCutStore) DeleteResourceRecord(
+	ctx context.Context,
+	resourceTypeID string,
+	resourceID string,
+) error {
+	if s.resourceCalls.Add(1) == s.failResourceAt {
+		return errChaosExternalPrincipalCut
+	}
+	deleter, ok := s.Store.(resourceRecordDeleter)
+	if !ok {
+		return errors.New("chaos: store lacks resource-record deletion")
+	}
+	return deleter.DeleteResourceRecord(ctx, resourceTypeID, resourceID)
+}
+
+func (s *chaosExternalPrincipalCutStore) DeleteEntitlementByRefs(
+	ctx context.Context,
+	entitlement *v2.Entitlement,
+) error {
+	if s.entitlementCalls.Add(1) == s.failEntitlementAt {
+		return errChaosExternalPrincipalCut
+	}
+	deleter, ok := s.Store.(entitlementRecordDeleter)
+	if !ok {
+		return errors.New("chaos: store lacks entitlement-record deletion")
+	}
+	return deleter.DeleteEntitlementByRefs(ctx, entitlement)
 }
 
 func TestChaosConnectorExternalPrincipalCorpus(t *testing.T) {
@@ -147,6 +180,13 @@ func TestChaosConnectorExternalPrincipalCorpusResumesAfterRewriteCut(t *testing.
 			externalScenario, internalScenario, err := corpusCase.Build()
 			require.NoError(t, err)
 			runExternalPrincipalSource(t, externalScenario, externalPath, tmpDir)
+			baselineContent := runExternalPrincipalInternalBaseline(
+				t,
+				internalScenario,
+				externalPath,
+				filepath.Join(tmpDir, "internal-baseline.c1z"),
+				tmpDir,
+			)
 
 			internalStore, err := dotc1z.NewStore(
 				ctx,
@@ -177,6 +217,10 @@ func TestChaosConnectorExternalPrincipalCorpusResumesAfterRewriteCut(t *testing.
 			)
 			require.ErrorIs(t, cutHarness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
 			require.NoError(t, cutHarness.Close(ctx))
+			interruptedRuns := readChaosSyncRuns(t, ctx, internalPath, tmpDir)
+			require.Len(t, interruptedRuns, 1)
+			require.Nil(t, interruptedRuns[0].EndedAt)
+			interruptedSyncID := interruptedRuns[0].ID
 
 			manifest, err := internalScenario.Manifest(internalScenario.InitialEpoch)
 			require.NoError(t, err)
@@ -217,6 +261,13 @@ func TestChaosConnectorExternalPrincipalCorpusResumesAfterRewriteCut(t *testing.
 				externalPrincipalExpectation(t, corpusCase, externalScenario),
 				final,
 			))
+			finalRuns := readChaosSyncRuns(t, ctx, internalPath, tmpDir)
+			require.Len(t, finalRuns, 1)
+			require.NotNil(t, finalRuns[0].EndedAt)
+			require.Equal(t, interruptedSyncID, finalRuns[0].ID)
+			finalContent := readChaosLogicalContent(t, ctx, internalPath, tmpDir)
+			require.NoError(t, chaosoracle.CompareLogicalContent(baselineContent, finalContent),
+				"resumed external-principal rewrite must equal uninterrupted execution")
 		})
 	}
 }
@@ -267,6 +318,7 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 	)
 	require.ErrorIs(t, cutHarness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
 	require.NoError(t, cutHarness.Close(ctx))
+	seedStaleExternalPrincipalDependencies(t, internalPath, tmpDir)
 
 	resumeExternal, _, err := corpusCase.Build()
 	require.NoError(t, err)
@@ -276,7 +328,29 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 	users.List = users.List[1:]
 	resumeDataset.Resources[chaosconnector.ExternalUserTypeID][""] = users
 	runExternalPrincipalSource(t, resumeExternal, resumeExternalPath, tmpDir)
+	baselineContent := runExternalPrincipalInternalBaseline(
+		t,
+		internalScenario,
+		resumeExternalPath,
+		filepath.Join(tmpDir, "internal-current-answer-baseline.c1z"),
+		tmpDir,
+	)
+	interruptedRuns := readChaosSyncRuns(t, ctx, internalPath, tmpDir)
+	require.Len(t, interruptedRuns, 1)
+	require.Nil(t, interruptedRuns[0].EndedAt)
+	interruptedSyncID := interruptedRuns[0].ID
 
+	resumeStore, err := dotc1z.NewStore(
+		ctx,
+		internalPath,
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	dependencyCutStore := &chaosExternalPrincipalCutStore{
+		Store:        resumeStore,
+		failDeleteAt: 2,
+	}
 	resumeRun, err := chaosconnector.NewRun(internalScenario, chaosconnector.NewSchedule())
 	require.NoError(t, err)
 	resumeHarness := newChaosHarness(
@@ -288,8 +362,43 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 		chaosTransportDirect,
 		WithWorkerCount(1),
 		WithExternalResourceC1ZPath(resumeExternalPath),
+		WithConnectorStore(dependencyCutStore),
 	)
-	resumeHarness.SyncAndClose(t, ctx)
+	require.ErrorIs(t, resumeHarness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
+	require.NoError(t, resumeHarness.Close(ctx))
+	require.Equal(t, int64(2), dependencyCutStore.deleteCalls.Load(),
+		"dependency cleanup cut must occur after a committed grant deletion")
+	partiallyCleanedRuns := readChaosSyncRuns(t, ctx, internalPath, tmpDir)
+	require.Len(t, partiallyCleanedRuns, 1)
+	require.Equal(t, interruptedSyncID, partiallyCleanedRuns[0].ID)
+	require.Nil(t, partiallyCleanedRuns[0].EndedAt)
+
+	entitlementCutStore := runExternalPrincipalCleanupCut(
+		t, internalScenario, internalPath, resumeExternalPath, tmpDir,
+		&chaosExternalPrincipalCutStore{failEntitlementAt: 2},
+	)
+	require.Equal(t, int64(2), entitlementCutStore.entitlementCalls.Load(),
+		"entitlement cleanup cut must occur after a committed entitlement deletion")
+	resourceCutStore := runExternalPrincipalCleanupCut(
+		t, internalScenario, internalPath, resumeExternalPath, tmpDir,
+		&chaosExternalPrincipalCutStore{failResourceAt: 1},
+	)
+	require.Equal(t, int64(1), resourceCutStore.resourceCalls.Load(),
+		"resource cleanup cut must fire before the stale principal deletion")
+
+	finalResumeRun, err := chaosconnector.NewRun(internalScenario, chaosconnector.NewSchedule())
+	require.NoError(t, err)
+	finalResumeHarness := newChaosHarness(
+		t,
+		ctx,
+		finalResumeRun,
+		internalPath,
+		tmpDir,
+		chaosTransportDirect,
+		WithWorkerCount(1),
+		WithExternalResourceC1ZPath(resumeExternalPath),
+	)
+	finalResumeHarness.SyncAndClose(t, ctx)
 
 	manifest, err := internalScenario.Manifest(internalScenario.InitialEpoch)
 	require.NoError(t, err)
@@ -307,6 +416,115 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 		},
 		final,
 	))
+	finalRuns := readChaosSyncRuns(t, ctx, internalPath, tmpDir)
+	require.Len(t, finalRuns, 1)
+	require.NotNil(t, finalRuns[0].EndedAt)
+	require.Equal(t, interruptedSyncID, finalRuns[0].ID)
+	finalContent := readChaosLogicalContent(t, ctx, internalPath, tmpDir)
+	require.NoError(t, chaosoracle.CompareLogicalContent(baselineContent, finalContent),
+		"resume against changed external data must equal a clean run against that data")
+}
+
+func runExternalPrincipalCleanupCut(
+	t *testing.T,
+	scenario *chaosconnector.Scenario,
+	internalPath string,
+	externalPath string,
+	tmpDir string,
+	cutStore *chaosExternalPrincipalCutStore,
+) *chaosExternalPrincipalCutStore {
+	t.Helper()
+	ctx := t.Context()
+	store, err := dotc1z.NewStore(
+		ctx,
+		internalPath,
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	cutStore.Store = store
+	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+	require.NoError(t, err)
+	harness := newChaosHarness(
+		t,
+		ctx,
+		run,
+		internalPath,
+		tmpDir,
+		chaosTransportDirect,
+		WithWorkerCount(1),
+		WithExternalResourceC1ZPath(externalPath),
+		WithConnectorStore(cutStore),
+	)
+	require.ErrorIs(t, harness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
+	require.NoError(t, harness.Close(ctx))
+	return cutStore
+}
+
+func seedStaleExternalPrincipalDependencies(t *testing.T, path string, tmpDir string) {
+	t.Helper()
+	ctx := t.Context()
+	store, err := dotc1z.NewStore(
+		ctx,
+		path,
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close(ctx)) }()
+	principal := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: chaosconnector.ExternalUserTypeID,
+			Resource:     "external-user-1",
+		}.Build(),
+		DisplayName: "Stale external principal",
+	}.Build()
+	staleEntitlement := v2.Entitlement_builder{
+		Id:          "stale-external-entitlement",
+		DisplayName: "Stale external entitlement",
+		Resource:    principal,
+	}.Build()
+	staleGrant := v2.Grant_builder{
+		Id:          "stale-external-grant",
+		Entitlement: staleEntitlement,
+		Principal:   principal,
+	}.Build()
+	secondEntitlement := v2.Entitlement_builder{
+		Id:          "stale-external-entitlement-2",
+		DisplayName: "Second stale external entitlement",
+		Resource:    principal,
+	}.Build()
+	secondGrant := v2.Grant_builder{
+		Id:          "stale-external-grant-2",
+		Entitlement: secondEntitlement,
+		Principal:   principal,
+	}.Build()
+	require.NoError(t, store.PutEntitlements(ctx, staleEntitlement, secondEntitlement))
+	require.NoError(t, store.PutGrants(ctx, staleGrant, secondGrant))
+}
+
+func runExternalPrincipalInternalBaseline(
+	t *testing.T,
+	scenario *chaosconnector.Scenario,
+	externalPath string,
+	internalPath string,
+	tmpDir string,
+) chaosoracle.LogicalContentSnapshot {
+	t.Helper()
+	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+	require.NoError(t, err)
+	harness := newChaosHarness(
+		t,
+		t.Context(),
+		run,
+		internalPath,
+		tmpDir,
+		chaosTransportDirect,
+		WithWorkerCount(1),
+		WithExternalResourceC1ZPath(externalPath),
+	)
+	harness.SyncAndClose(t, t.Context())
+	return readChaosLogicalContent(t, t.Context(), internalPath, tmpDir)
 }
 
 func runExternalPrincipalSource(

@@ -13,12 +13,12 @@ const concurrentParentResourceTypeID = "chaos-concurrent-parent"
 // ConcurrentDuplicateCase forces one conflicting sibling response to arrive
 // last. The blocked token's value must be the final stored value.
 type ConcurrentDuplicateCase struct {
-	Name          string
-	Entity        ReferentialEntity
-	BlockedToken  string
-	FirstToken    string
-	Schedule      Schedule
-	CrashSchedule Schedule
+	Name              string
+	Entity            ReferentialEntity
+	BlockedToken      string
+	FirstToken        string
+	Schedule          Schedule
+	InterruptSchedule Schedule
 }
 
 // ConcurrentDuplicateCorpus covers both completion orders for every canonical
@@ -128,8 +128,8 @@ func newConcurrentDuplicateCase(entity ReferentialEntity, blocked, first string)
 			MinFires: 1,
 			MaxFires: 1,
 		}),
-		CrashSchedule: NewSchedule(Rule{
-			ID:    "crash-" + blocked,
+		InterruptSchedule: NewSchedule(Rule{
+			ID:    "interrupt-" + blocked,
 			Match: match,
 			Effects: []Effect{
 				{Kind: EffectBlock, Barrier: barrier},
@@ -169,7 +169,8 @@ func (c ConcurrentDuplicateCase) Expectation(token string) SemanticExpectation {
 		expectation.CanonicalIdentity = "chaos-user:user-1:member"
 		expectation.DisplayName = concurrentDuplicateValue(c.Entity, token)
 	case ReferentialGrant:
-		expectation.CanonicalIdentity = "chaos-user:user-1:member\x00chaos-user\x00user-1"
+		expectation.CanonicalIdentity =
+			"chaos-user\x00user-1\x00chaos-user:user-1:member\x00chaos-user\x00user-1"
 		expectation.ExternalID = concurrentDuplicateValue(c.Entity, token)
 	}
 	return expectation

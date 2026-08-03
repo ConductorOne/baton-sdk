@@ -37,10 +37,13 @@ keys, or results produced by the connector under test. Store and trace auditors
 compare those independent expectations with observed behavior.
 
 The initial implementation is internal to this module. It exercises a real
-`connectorbuilder.ConnectorBuilderV2` through two adapters:
+`connectorbuilder.ConnectorBuilderV2` through three adapter modes:
 
 - a direct in-process client for fast exhaustive sweeps;
-- an in-process gRPC client for protobuf serialization and `Any` round trips.
+- an in-process gRPC client for clean-path protobuf serialization and `Any`
+  round trips;
+- an in-process gRPC server-fault mode where injected statuses and mutated
+  responses cross serialization before the SDK observes them.
 
 Subprocess execution is a later adapter over the same scenario and schedule
 formats.
@@ -69,6 +72,12 @@ The schedule format is versioned. Its first version supports:
 - loss of a response after the delegated operation completed;
 - response and annotation mutation;
 - deterministic scenario epoch transitions.
+
+The serialized `"crash"` effect is a cooperative in-process interruption. It
+returns `ErrInterruptRequested`; it is process-death evidence only when a
+process-capable harness translates it into termination. In-process tests that
+close the store afterward claim persisted interruption/resume, not crash
+durability.
 
 Process death, transport resets, and filesystem failures have reserved fault
 domains but are not claimed by the first implementation.
@@ -116,6 +125,9 @@ Unknown, malformed, duplicated, conflicting, misplaced, deprecated, and
 oversized annotations are separate coverage cells. Reflective mutation does not
 itself establish correctness: every mutation family needs a stated policy
 oracle.
+The mutation registry rejects any application whose before/after protobufs are
+equal, so a fired mutation rule is not accepted as evidence when the selected
+response made it a no-op.
 
 ## Oracle planes
 
@@ -162,6 +174,10 @@ control, while the real-binary driver provides OS-death semantics.
 Semantic observations exhaustively page the public store interface and reject
 unknown entity kinds. Optional expected fields use explicit pointers, allowing
 the oracle to distinguish “must be empty” from “not part of this assertion.”
+Identity snapshots key entitlements by resource type, resource ID, and public
+entitlement ID; grant identities include that structured entitlement identity
+plus the structured principal identity. Bare public IDs are never treated as
+globally unique by the oracle.
 
 Seeds, schedules, and traces are emitted as replay artifacts. Seeded schedules
 are measured sampling, never closure.
@@ -192,18 +208,24 @@ produce the exact canonical manifest.
 
 ### Stage 3: error obligations
 
-Resource, entitlement, and grant calls inject retryable, warn-and-drop, and
-fatal outcomes. Tests assert attempts and budgets, exact tagged omissions,
-error identity, sealing behavior, and cold-resume convergence where promised.
-The bounded `ListGrants` matrix runs retryable, lost-response,
-warn-and-drop, and fatal representatives through both direct and in-memory
-gRPC transports.
+Resource, entitlement, and grant calls inject retryable, lost-response,
+warn-and-drop, and fatal outcomes through direct, client-fault gRPC, and
+server-fault gRPC modes. Tests assert attempts and exact call budgets, exact
+omissions, error identity, sealing behavior, same-sync cold-resume convergence,
+and whole-store equivalence to an uninterrupted run where recovery is
+promised.
 
 ### Stage 4: pagination and liveness
 
 Repeated and cyclic tokens, empty pages with continuation, overlapping pages,
 duplicate spawned cursors, endless unique tokens, retry drift, and topology
 changes must terminate correctly or fail classified within budget.
+Blocked connector calls are also expired by a real context deadline, while an
+explicit connector cancellation covers the second cancellation source. Both
+must return within a wall-clock bound, leave no active call in the fault
+wrapper, leave one unfinished sync, and cold resume that same sync to manifest
+identity and whole-store equivalence. This is connector-call accounting, not a
+general proof that every process goroutine terminates.
 
 ### Stage 5: response policy
 
@@ -212,6 +234,16 @@ duplicated, conflicting, misplaced, and oversized inputs. Invalid and
 relationally inconsistent records use a written accept, normalize, skip,
 reject, or fail policy. Missing policy is a blocking finding, not an invitation
 for the test to invent one.
+
+The sync-level mutation representatives require malformed known control
+annotations to fail without sealing, a cleared continuation token to seal only
+the connector-visible prefix without requesting the hidden page, and list
+reordering to preserve complete logical content. Each mutation is targeted at
+a non-empty response where it can change behavior and runs through direct,
+client-fault gRPC, and server-fault gRPC modes.
+`BatonID` is an SDK-reserved ownership marker: primary connector resources that
+carry it are rejected before ingestion, preventing connector-controlled bytes
+from being mistaken for externally copied principals during reconciliation.
 
 `ReferentialCorpus` generates the closed resource-identity,
 entitlement-to-resource, and grant-entitlement-by-principal matrix. Its 77
@@ -235,10 +267,10 @@ retries converge to the retry answer without retaining the unseen answer.
 independent parent-scoped requests for the same child resource type, with
 barriers to force both conflicting-response completion orders for resources,
 entitlements, and grants. A live run retains the last completed write. Its
-crash/resume variant verifies that the complete pending frontier is replayed
+interruption/resume variant verifies that the complete pending frontier is replayed
 inside the same sync run; with one resume worker, stable action order
 determines the last write regardless of which sibling was interrupted before
-the crash. The complete connector-visible store is compared with an
+the persisted interruption. The complete connector-visible store is compared with an
 uninterrupted one-worker reference run, not only with the contested row.
 The harness proves that both conflicting values were observed, but the SDK
 does not yet emit exact entitlement/grant conflict counters: doing that would
@@ -251,6 +283,8 @@ rows remain absent, hard-invalid rows cannot seal, retained dangling rows
 survive, and an interrupted response is replaced by the resume-time answer.
 Page-chain replay is at-least-once: a dropped row before the cut is observed
 and counted once in each attempt, while remaining absent from both artifacts.
+Every successful resume must finish the original sync ID and match the complete
+logical content of an uninterrupted run against the resume-time scenario.
 
 `ExternalPrincipalCorpus` composes two connector worlds: a sealed external
 user/group sync and an internal sync containing external-match grant carriers.
@@ -259,7 +293,13 @@ expandable-entitlement remapping through both transports. Each case is also
 cut after rewritten grants are put but before its carrier is deleted, then
 resumed against the persisted checkpoint. A changed-external-answer case
 verifies replay converges to the principals visible at resume time. Its oracle
-checks multiplicity, unresolved carriers, expansion targets, and sealing.
+checks multiplicity, unresolved carriers, expansion targets, sealing, original
+sync identity, and whole-store equivalence to a clean run against the current
+external source.
+Cleanup walks each entity keyspace once, deletes dependent grants and
+entitlements by structured identity before the stale principal, and has
+separate durable cuts for every delete loop. A scale-contract test holds scan
+passes constant while fixture size grows from one to one thousand rows.
 
 One bounded combined-fault case loses the first entitlement response, proves
 that loss was observed, pauses the retry at a deterministic connector barrier,
@@ -300,6 +340,9 @@ The first implementation does not claim:
   lost-entitlement-response/first-subsequent-write case;
 - raw `os.*` calls outside existing injectable seams;
 - closure over generated or seeded schedules;
+- deletion of disappeared external resource-type rows: resource types do not
+  yet carry store-owned provenance, and deleting by a shared public type ID
+  could orphan primary-connector resources;
 - capability-specific mutation semantics before an independent oracle exists.
 
 An exclusion remains a coverage entry and must not silently disappear from the

@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
+	chaosoracle "github.com/conductorone/baton-sdk/internal/chaosconnector/oracle"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
@@ -17,6 +19,7 @@ type chaosTransport int
 const (
 	chaosTransportDirect chaosTransport = iota
 	chaosTransportGRPC
+	chaosTransportGRPCServerFault
 )
 
 func (t chaosTransport) String() string {
@@ -25,8 +28,18 @@ func (t chaosTransport) String() string {
 		return "direct"
 	case chaosTransportGRPC:
 		return "grpc"
+	case chaosTransportGRPCServerFault:
+		return "grpc-server-fault"
 	default:
 		return "unknown"
+	}
+}
+
+func chaosFaultTransports() []chaosTransport {
+	return []chaosTransport{
+		chaosTransportDirect,
+		chaosTransportGRPC,
+		chaosTransportGRPCServerFault,
 	}
 }
 
@@ -65,6 +78,11 @@ func newChaosHarness(
 		require.NoError(t, grpcErr)
 		client = grpcClient
 		closeAdapter = grpcClient.Close
+	case chaosTransportGRPCServerFault:
+		grpcClient, grpcErr := chaosconnector.NewGRPCServerFaultClient(ctx, server, run, false, false)
+		require.NoError(t, grpcErr)
+		client = grpcClient
+		closeAdapter = grpcClient.Close
 	default:
 		t.Fatalf("unknown chaos transport %d", transport)
 	}
@@ -93,4 +111,50 @@ func (h *chaosHarness) SyncAndClose(t *testing.T, ctx context.Context) {
 
 func (h *chaosHarness) Close(ctx context.Context) error {
 	return errors.Join(h.Syncer.Close(ctx), h.closeAdapter())
+}
+
+func readChaosLogicalContent(
+	t *testing.T,
+	ctx context.Context,
+	path string,
+	tmpDir string,
+) chaosoracle.LogicalContentSnapshot {
+	t.Helper()
+	store, err := dotc1z.NewStore(
+		ctx,
+		path,
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithTmpDir(tmpDir),
+		dotc1z.WithReadOnly(true),
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close(ctx)) }()
+	content, err := chaosoracle.ReadLogicalContent(ctx, store)
+	require.NoError(t, err)
+	return content
+}
+
+func readChaosSyncRuns(
+	t *testing.T,
+	ctx context.Context,
+	path string,
+	tmpDir string,
+) []*c1zstore.SyncRun {
+	t.Helper()
+	store, err := dotc1z.NewStore(
+		ctx,
+		path,
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithTmpDir(tmpDir),
+		dotc1z.WithReadOnly(true),
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close(ctx)) }()
+	lister, ok := store.(interface {
+		ListSyncRuns(context.Context, string, uint32) ([]*c1zstore.SyncRun, string, error)
+	})
+	require.True(t, ok)
+	runs, _, err := lister.ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+	return runs
 }

@@ -106,6 +106,18 @@ func TestBuiltInRepeatedMessageMutations(t *testing.T) {
 		require.Nil(t, response.GetList()[0].GetId())
 		require.Empty(t, response.GetList()[0].GetDisplayName())
 	})
+
+	t.Run("reject no-op reverse", func(t *testing.T) {
+		response := v2.ResourcesServiceListResourcesResponse_builder{
+			List: newResponse().GetList()[:1],
+		}.Build()
+		require.ErrorContains(t, registry.Apply(MutationReverseFirstList, response), "did not change")
+	})
+
+	t.Run("reject no-op clear continuation", func(t *testing.T) {
+		response := v2.ResourcesServiceListResourcesResponse_builder{}.Build()
+		require.ErrorContains(t, registry.Apply(MutationClearNextPageToken, response), "did not change")
+	})
 }
 
 func TestAnnotationRegistryEntriesResolve(t *testing.T) {

@@ -60,7 +60,7 @@ func TemporalCorpus() []TemporalCase {
 			Schedule: retryDriftSchedule("ListGrants"),
 			Expectation: SemanticExpectation{
 				Entity:            ReferentialGrant,
-				CanonicalIdentity: "chaos-user:user-1:member\x00chaos-user\x00user-1",
+				CanonicalIdentity: "chaos-user\x00user-1\x00chaos-user:user-1:member\x00chaos-user\x00user-1",
 				Multiplicity:      1,
 				ExternalID:        "grant-from-retry",
 			},

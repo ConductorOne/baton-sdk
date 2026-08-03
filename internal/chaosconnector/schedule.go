@@ -24,7 +24,10 @@ const (
 	EffectLoseResponse EffectKind = "lose-response"
 	EffectMutate       EffectKind = "mutate"
 	EffectSetEpoch     EffectKind = "set-epoch"
-	EffectCrash        EffectKind = "crash"
+	// EffectCrash is a cooperative in-process interruption. It returns
+	// ErrInterruptRequested; only process-capable harnesses may translate it
+	// into an actual hard crash.
+	EffectCrash EffectKind = "crash"
 )
 
 // Effect describes one replayable disturbance. Mutation names are resolved by
@@ -126,6 +129,28 @@ type Runtime struct {
 	attempts map[string]int
 	fires    map[string]int
 	barriers map[string]chan struct{}
+	active   int
+}
+
+func (r *Runtime) operationStarted() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.active++
+}
+
+func (r *Runtime) operationFinished() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.active--
+}
+
+// ActiveOperations reports connector calls still executing inside the fault
+// wrapper. Cancellation tests use it to distinguish bounded return from a
+// leaked blocked call.
+func (r *Runtime) ActiveOperations() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.active
 }
 
 // NewRuntime validates and arms a schedule.
@@ -219,7 +244,7 @@ func (r *Runtime) ApplyControlEffects(ctx context.Context, op Operation, fired [
 			case EffectCancel:
 				return context.Canceled
 			case EffectCrash:
-				return ErrCrashRequested
+				return ErrInterruptRequested
 			case EffectMutate, EffectSetEpoch:
 				// Response and scenario adapters own these effects.
 			}
@@ -284,5 +309,12 @@ func (r *Runtime) FireCounts() map[string]int {
 	return out
 }
 
-// ErrCrashRequested asks a process-capable harness to terminate the connector.
-var ErrCrashRequested = errors.New("chaosconnector: process crash requested")
+// ErrInterruptRequested asks the current run to stop at a deterministic seam.
+// It is not evidence of process-death durability unless a process harness
+// translates it into an OS-level termination.
+var ErrInterruptRequested = errors.New("chaosconnector: interruption requested")
+
+// ErrCrashRequested is retained for source compatibility.
+//
+// Deprecated: use ErrInterruptRequested.
+var ErrCrashRequested = ErrInterruptRequested

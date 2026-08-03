@@ -47,8 +47,36 @@ func NewGRPCClient(
 	provisioning bool,
 	ticketing bool,
 ) (*GRPCClient, error) {
+	return newGRPCClient(ctx, server, run, provisioning, ticketing, false)
+}
+
+// NewGRPCServerFaultClient applies the schedule inside a unary server
+// interceptor, so injected statuses and mutated responses cross gRPC
+// serialization before the SDK observes them.
+func NewGRPCServerFaultClient(
+	ctx context.Context,
+	server types.ConnectorServer,
+	run *Run,
+	provisioning bool,
+	ticketing bool,
+) (*GRPCClient, error) {
+	return newGRPCClient(ctx, server, run, provisioning, ticketing, true)
+}
+
+func newGRPCClient(
+	ctx context.Context,
+	server types.ConnectorServer,
+	run *Run,
+	provisioning bool,
+	ticketing bool,
+	serverFaults bool,
+) (*GRPCClient, error) {
 	listener := bufconn.Listen(1024 * 1024)
-	grpcServer := grpc.NewServer()
+	var serverOpts []grpc.ServerOption
+	if serverFaults {
+		serverOpts = append(serverOpts, grpc.UnaryInterceptor(serverFaultInterceptor(run)))
+	}
+	grpcServer := grpc.NewServer(serverOpts...)
 	connector.Register(ctx, grpcServer, server, &connector.RegisterOps{
 		ProvisioningEnabled: provisioning,
 		TicketingEnabled:    ticketing,
@@ -69,13 +97,50 @@ func NewGRPCClient(
 		_ = listener.Close()
 		return nil, fmt.Errorf("chaosconnector: create in-memory grpc client: %w", err)
 	}
-	faults := &faultConn{delegate: conn, run: run}
+	var clientConn grpc.ClientConnInterface = conn
+	if !serverFaults {
+		clientConn = &faultConn{delegate: conn, run: run}
+	}
 	return &GRPCClient{
-		ConnectorClient: connectorclient.NewConnectorClient(ctx, faults),
+		ConnectorClient: connectorclient.NewConnectorClient(ctx, clientConn),
 		conn:            conn,
 		server:          grpcServer,
 		listener:        listener,
 	}, nil
+}
+
+func serverFaultInterceptor(run *Run) grpc.UnaryServerInterceptor {
+	faults := &faultConn{run: run}
+	return func(
+		ctx context.Context,
+		req any,
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (any, error) {
+		run.Runtime().operationStarted()
+		defer run.Runtime().operationFinished()
+		op := run.Runtime().Begin(operationFromRequest(info.FullMethod, req))
+		if err := faults.applyPhase(ctx, &op, PhaseBeforeCall, nil); err != nil {
+			faults.recordResult(op, err)
+			return nil, err
+		}
+		response, err := handler(ctx, req)
+		if err != nil {
+			faults.recordResult(op, err)
+			return nil, err
+		}
+		if err := faults.applyPhase(ctx, &op, PhaseAfterDelegate, nil); err != nil {
+			faults.recordResult(op, err)
+			return nil, err
+		}
+		responseMessage, _ := response.(proto.Message)
+		if err := faults.applyPhase(ctx, &op, PhaseBeforeResponse, responseMessage); err != nil {
+			faults.recordResult(op, err)
+			return nil, err
+		}
+		faults.recordResult(op, nil)
+		return response, nil
+	}
 }
 
 // Close releases the in-memory gRPC transport.
@@ -155,6 +220,8 @@ func (c *faultConn) Invoke(
 	reply any,
 	opts ...grpc.CallOption,
 ) error {
+	c.run.Runtime().operationStarted()
+	defer c.run.Runtime().operationFinished()
 	op := c.run.Runtime().Begin(operationFromRequest(method, args))
 	if err := c.applyPhase(ctx, &op, PhaseBeforeCall, nil); err != nil {
 		c.recordResult(op, err)
@@ -185,6 +252,8 @@ func (c *faultConn) NewStream(
 	method string,
 	opts ...grpc.CallOption,
 ) (grpc.ClientStream, error) {
+	c.run.Runtime().operationStarted()
+	defer c.run.Runtime().operationFinished()
 	op := c.run.Runtime().Begin(operationFromRequest(method, nil))
 	if err := c.applyPhase(ctx, &op, PhaseBeforeCall, nil); err != nil {
 		c.recordResult(op, err)

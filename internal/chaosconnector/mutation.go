@@ -79,8 +79,12 @@ func (r *MutationRegistry) Apply(name string, response proto.Message) error {
 	if !ok {
 		return fmt.Errorf("chaosconnector: mutation %q is not registered", name)
 	}
+	before := proto.Clone(response)
 	if err := mutation(response); err != nil {
 		return fmt.Errorf("chaosconnector: apply mutation %q: %w", name, err)
+	}
+	if proto.Equal(before, response) {
+		return fmt.Errorf("chaosconnector: mutation %q did not change the response", name)
 	}
 	return nil
 }
