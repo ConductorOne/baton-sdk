@@ -2940,6 +2940,14 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 // hang.
 const externalMatchProgressLogInterval = 100_000
 
+// externalGrantFlushBatchSize bounds how many expanded grants
+// processGrantsWithExternalPrincipals holds in memory before writing them
+// out. A single ExternalResourceMatchAll grant fans out to one replacement
+// per matching principal, so without a cap the buffer can grow to the full
+// principal count (tens of thousands on large tenants) before a single
+// PutGrants call.
+const externalGrantFlushBatchSize = 500
+
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
 	var err error
@@ -2987,8 +2995,57 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	)
 
 	grantsToDelete := make([]*v2.Grant, 0)
-	expandedGrants := make([]*v2.Grant, 0)
 	grantsScanned := 0
+	newGrantIDs := mapset.NewSet[string]()
+	expandedGrantsTotal := 0
+	expandedGrantsBuf := make([]*v2.Grant, 0, externalGrantFlushBatchSize)
+
+	// flushExpandedGrants writes and clears the current batch. Called both
+	// mid-scan (once the buffer fills) and once more after the scan loop
+	// ends to flush any remainder.
+	flushExpandedGrants := func() error {
+		if len(expandedGrantsBuf) == 0 {
+			return nil
+		}
+		if err := s.store.PutGrants(ctx, expandedGrantsBuf...); err != nil {
+			return err
+		}
+		expandedGrantsBuf = expandedGrantsBuf[:0]
+		return nil
+	}
+
+	// bufferExpandedGrant records a replacement grant's id in newGrantIDs
+	// immediately (rather than in a second pass over a fully retained
+	// slice, so the delete-dedup check below never needs the complete
+	// expanded-grant set held in memory at once) and adds it to the
+	// pending buffer, without checking whether it's time to flush. Used
+	// directly (instead of appendExpandedGrant) where a grant's
+	// annotations may still be mutated in place after it's buffered — the
+	// buffer holds a pointer, so the mutation is reflected automatically,
+	// but a flush must not land in between and commit the pre-mutation
+	// state (see the MatchID branch below).
+	bufferExpandedGrant := func(g *v2.Grant) {
+		newGrantIDs.Add(g.GetId())
+		expandedGrantsBuf = append(expandedGrantsBuf, g)
+		expandedGrantsTotal++
+	}
+
+	// maybeFlushExpandedGrants flushes once the buffer reaches capacity.
+	maybeFlushExpandedGrants := func() error {
+		if len(expandedGrantsBuf) >= externalGrantFlushBatchSize {
+			return flushExpandedGrants()
+		}
+		return nil
+	}
+
+	// appendExpandedGrant buffers a replacement grant and flushes once the
+	// buffer is full. Safe wherever the grant is already in its final
+	// form — i.e. everywhere except the MatchID branch's in-place mutation
+	// sequence below.
+	appendExpandedGrant := func(g *v2.Grant) error {
+		bufferExpandedGrant(g)
+		return maybeFlushExpandedGrants()
+	}
 
 	for ga, err := range s.store.Grants().ListWithAnnotations(ctx) {
 		if err != nil {
@@ -3006,7 +3063,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if grantsScanned%externalMatchProgressLogInterval == 0 {
 			l.Debug("matching grants against external principals: progress",
 				zap.Int("grants_scanned", grantsScanned),
-				zap.Int("expanded_grants", len(expandedGrants)),
+				zap.Int("expanded_grants", expandedGrantsTotal),
 				zap.Int("grants_to_delete", len(grantsToDelete)),
 			)
 		}
@@ -3014,6 +3071,23 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		grant := ga.Grant
 		annos := annotations.Annotations(grant.GetAnnotations())
 		if !annos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
+			continue
+		}
+
+		// newGrantForExternalPrincipal copies the placeholder's annotations
+		// onto every replacement grant it builds, including whichever
+		// ExternalResourceMatch* annotation got it into this scan in the
+		// first place. Because mid-scan flushing (unlike the old
+		// single-write-at-the-end behavior) can commit a replacement grant
+		// before this same live, paginated scan reaches its key range, the
+		// scan can re-encounter a grant it wrote itself moments ago. Without
+		// this check that grant — now carrying a real principal instead of
+		// a placeholder — would be re-expanded as if it were still
+		// unresolved, redoing (and re-flushing) its entire fan-out.
+		// newGrantIDs is populated the instant a grant is buffered (see
+		// appendExpandedGrant), so this catches it regardless of whether
+		// the buffered write has physically flushed yet.
+		if newGrantIDs.ContainsOne(grant.GetId()) {
 			continue
 		}
 
@@ -3034,9 +3108,11 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			}
 			for _, principal := range processPrincipals {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
-				expandedGrants = append(expandedGrants, newGrant)
+				if err := appendExpandedGrant(newGrant); err != nil {
+					return err
+				}
 			}
-			grantsToDelete = append(grantsToDelete, grant)
+			grantsToDelete = append(grantsToDelete, minimalGrantForDelete(grant))
 			continue
 		}
 
@@ -3073,7 +3149,12 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if matchResourceMatchIDAnno != nil {
 			if principal, ok := principalMap[matchResourceMatchIDAnno.GetId()]; ok {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
-				expandedGrants = append(expandedGrants, newGrant)
+				// Buffer without flushing: newGrant may still be mutated in
+				// place below (GrantExpandable remapping). The buffer holds
+				// the pointer, so that mutation is reflected automatically —
+				// but flushing before it happens would commit the
+				// pre-mutation grant, missing its expansion annotation.
+				bufferExpandedGrant(newGrant)
 
 				newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
 
@@ -3105,14 +3186,24 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
 					}.Build()
 					newGrantAnnos.Update(newExpandableAnno)
+					// newGrant is the same pointer already sitting in the
+					// buffer from bufferExpandedGrant above; no second
+					// append is needed, it already reflects this mutation.
 					newGrant.SetAnnotations(newGrantAnnos)
-					expandedGrants = append(expandedGrants, newGrant)
+				}
+
+				// Now that newGrant is in its final form (mutated above, or
+				// left as buffered if expandableAnno was nil / bid.MakeBid
+				// failed and continue fired first), it's safe to check
+				// whether the buffer is due for a flush.
+				if err := maybeFlushExpandedGrants(); err != nil {
+					return err
 				}
 			}
 
 			// We still want to delete the grant even if there are no matches
 			// Since it does not correspond to any known user
-			grantsToDelete = append(grantsToDelete, grant)
+			grantsToDelete = append(grantsToDelete, minimalGrantForDelete(grant))
 		}
 
 		// Match by key/val
@@ -3137,7 +3228,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				}
 				for _, i := range positions {
 					newGrant := newGrantForExternalPrincipal(grant, userIndex.principalAt(i))
-					expandedGrants = append(expandedGrants, newGrant)
+					if err := appendExpandedGrant(newGrant); err != nil {
+						return err
+					}
 				}
 			case v2.ResourceType_TRAIT_GROUP:
 				// A group key/value match only yields a grant when the source
@@ -3177,7 +3270,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						}.Build()
 						newGrantAnnos.Update(newExpandableAnno)
 						newGrant.SetAnnotations(newGrantAnnos)
-						expandedGrants = append(expandedGrants, newGrant)
+						if err := appendExpandedGrant(newGrant); err != nil {
+							return err
+						}
 					}
 				}
 			default:
@@ -3185,23 +3280,22 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			}
 
 			// We still want to delete the grant even if there are no matches
-			grantsToDelete = append(grantsToDelete, grant)
+			grantsToDelete = append(grantsToDelete, minimalGrantForDelete(grant))
 		}
 	}
 
 	l.Debug("matched grants against external principals",
 		zap.Int("grants_scanned", grantsScanned),
-		zap.Int("expanded_grants", len(expandedGrants)),
+		zap.Int("expanded_grants", expandedGrantsTotal),
 		zap.Int("grants_to_delete", len(grantsToDelete)),
 	)
 
-	newGrantIDs := mapset.NewSet[string]()
-	for _, ng := range expandedGrants {
-		newGrantIDs.Add(ng.GetId())
-	}
-
-	err = s.store.PutGrants(ctx, expandedGrants...)
-	if err != nil {
+	// Final call is unconditional (unlike flushExpandedGrants' mid-scan
+	// flushes) to match the pre-batching behavior of always invoking
+	// PutGrants once at the end, even with zero grants: some store
+	// implementations (e.g. the Pebble engine) mark the store dirty as a
+	// side effect of any PutGrants call, empty or not.
+	if err := s.store.PutGrants(ctx, expandedGrantsBuf...); err != nil {
 		return err
 	}
 
@@ -3257,6 +3351,21 @@ func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.G
 		Annotations: grant.GetAnnotations(),
 	}.Build()
 	return newGrant
+}
+
+// minimalGrantForDelete strips a grant down to the fields DeleteGrantByRefs
+// (Entitlement + Principal) and the DeleteGrant id fallback actually need.
+// processGrantsWithExternalPrincipals holds one of these per pending delete
+// for the full scan (the newGrantIDs dedup check below can't run until the
+// scan completes), so dropping Sources/Annotations here — which can carry a
+// GrantExpandable entitlement-id list — meaningfully shrinks what stays
+// resident for tenants with a large number of externally-matched grants.
+func minimalGrantForDelete(grant *v2.Grant) *v2.Grant {
+	return v2.Grant_builder{
+		Id:          grant.GetId(),
+		Entitlement: grant.GetEntitlement(),
+		Principal:   grant.GetPrincipal(),
+	}.Build()
 }
 
 func GetExternalResourceMatchAllAnnotation(annos annotations.Annotations) (*v2.ExternalResourceMatchAll, error) {
