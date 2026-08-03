@@ -3043,7 +3043,13 @@ func (s *syncer) deleteStaleExternalPrincipals(
 		return nil
 	}
 	if !canDeleteResources || !canDeleteEntitlements || !canDeleteGrants {
-		return errors.New("connector store cannot reconcile stale external principal dependencies")
+		ctxzap.Extract(ctx).Warn(
+			"stale external principal reconciliation is unavailable for this storage engine",
+			zap.Bool("resource_delete_supported", canDeleteResources),
+			zap.Bool("entitlement_delete_supported", canDeleteEntitlements),
+			zap.Bool("grant_delete_supported", canDeleteGrants),
+		)
+		return nil
 	}
 
 	staleKeys := make(map[string]struct{}, len(staleIDs))

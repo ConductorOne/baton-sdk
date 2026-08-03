@@ -300,6 +300,11 @@ Cleanup walks each entity keyspace once, deletes dependent grants and
 entitlements by structured identity before the stale principal, and has
 separate durable cuts for every delete loop. A scale-contract test holds scan
 passes constant while fixture size grows from one to one thousand rows.
+SQLite does not expose the exact structured delete capabilities required by
+that cleanup. On the deprecated engine, resume logs a warning, skips stale-row
+reconciliation, continues ingesting the current external answer, and seals
+instead of hard-failing the sync; a dedicated regression test pins that
+degradation contract.
 
 One bounded combined-fault case loses the first entitlement response, proves
 that loss was observed, pauses the retry at a deterministic connector barrier,

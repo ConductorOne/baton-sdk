@@ -425,6 +425,114 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 		"resume against changed external data must equal a clean run against that data")
 }
 
+func TestChaosConnectorSQLiteExternalPrincipalResumeDegradesWithoutFailure(t *testing.T) {
+	var corpusCase chaosconnector.ExternalPrincipalCase
+	for _, candidate := range chaosconnector.ExternalPrincipalCorpus() {
+		if candidate.Name == "external-principal/id-match" {
+			corpusCase = candidate
+			break
+		}
+	}
+	require.NotEmpty(t, corpusCase.Name)
+
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	firstExternalPath := filepath.Join(tmpDir, "sqlite-external-first.c1z")
+	resumeExternalPath := filepath.Join(tmpDir, "sqlite-external-resume.c1z")
+	internalPath := filepath.Join(tmpDir, "sqlite-internal.c1z")
+	firstExternal, internalScenario, err := corpusCase.Build()
+	require.NoError(t, err)
+	runExternalPrincipalSource(t, firstExternal, firstExternalPath, tmpDir)
+
+	internalStore, err := dotc1z.NewStore(
+		ctx,
+		internalPath,
+		dotc1z.WithEngine(c1zstore.EngineSQLite),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	cutStore := &chaosExternalPrincipalCutStore{Store: internalStore, failDeleteAt: 1}
+	firstRun, err := chaosconnector.NewRun(internalScenario, chaosconnector.NewSchedule())
+	require.NoError(t, err)
+	firstHarness := newChaosHarness(
+		t, ctx, firstRun, internalPath, tmpDir, chaosTransportDirect,
+		WithWorkerCount(1),
+		WithExternalResourceC1ZPath(firstExternalPath),
+		WithConnectorStore(cutStore),
+	)
+	require.ErrorIs(t, firstHarness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
+	require.NoError(t, firstHarness.Close(ctx))
+
+	interruptedStore, err := dotc1z.NewStore(
+		ctx,
+		internalPath,
+		dotc1z.WithEngine(c1zstore.EngineSQLite),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	interruptedLister, ok := interruptedStore.(interface {
+		ListSyncRuns(context.Context, string, uint32) ([]*c1zstore.SyncRun, string, error)
+	})
+	require.True(t, ok)
+	interruptedRuns, _, err := interruptedLister.ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+	require.Len(t, interruptedRuns, 1)
+	require.Nil(t, interruptedRuns[0].EndedAt)
+	interruptedSyncID := interruptedRuns[0].ID
+	require.NoError(t, interruptedStore.Close(ctx))
+
+	resumeExternal, _, err := corpusCase.Build()
+	require.NoError(t, err)
+	resumeDataset := resumeExternal.Epochs[resumeExternal.InitialEpoch]
+	users := resumeDataset.Resources[chaosconnector.ExternalUserTypeID][""]
+	require.Len(t, users.List, 2)
+	users.List = users.List[1:]
+	resumeDataset.Resources[chaosconnector.ExternalUserTypeID][""] = users
+	runExternalPrincipalSource(t, resumeExternal, resumeExternalPath, tmpDir)
+
+	resumeRun, err := chaosconnector.NewRun(internalScenario, chaosconnector.NewSchedule())
+	require.NoError(t, err)
+	resumeHarness := newChaosHarness(
+		t, ctx, resumeRun, internalPath, tmpDir, chaosTransportDirect,
+		WithWorkerCount(1),
+		WithExternalResourceC1ZPath(resumeExternalPath),
+		WithStorageEngine(c1zstore.EngineSQLite),
+	)
+	resumeHarness.SyncAndClose(t, ctx)
+
+	finalStore, err := dotc1z.NewStore(
+		ctx,
+		internalPath,
+		dotc1z.WithEngine(c1zstore.EngineSQLite),
+		dotc1z.WithTmpDir(tmpDir),
+		dotc1z.WithReadOnly(true),
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, finalStore.Close(ctx)) }()
+	finalLister, ok := finalStore.(interface {
+		ListSyncRuns(context.Context, string, uint32) ([]*c1zstore.SyncRun, string, error)
+	})
+	require.True(t, ok)
+	finalRuns, _, err := finalLister.ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+	require.Len(t, finalRuns, 1)
+	require.Equal(t, interruptedSyncID, finalRuns[0].ID)
+	require.NotNil(t, finalRuns[0].EndedAt)
+	resources, err := finalStore.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{}.Build())
+	require.NoError(t, err)
+	var currentPrincipalPresent bool
+	for _, resource := range resources.GetList() {
+		id := resource.GetId()
+		if id.GetResourceType() == chaosconnector.ExternalUserTypeID &&
+			id.GetResource() == "external-user-2" {
+			currentPrincipalPresent = true
+			break
+		}
+	}
+	require.True(t, currentPrincipalPresent,
+		"SQLite degradation must still ingest the current external answer")
+}
+
 func runExternalPrincipalCleanupCut(
 	t *testing.T,
 	scenario *chaosconnector.Scenario,
