@@ -39,10 +39,6 @@ type externalPrincipalIndex struct {
 	// profiles[i] is the resolved profile for principals[i], or nil.
 	profiles []*structpb.Struct
 
-	// emails[i] holds the user-trait email addresses for principals[i]. It is
-	// only populated by newExternalUserPrincipalIndex.
-	emails [][]*v2.UserTrait_Email
-
 	// skip[i] excludes principals[i] from all key/value matching. The previous
 	// linear scan skipped a user principal outright when its user trait failed
 	// to unmarshal, including for non-email keys; this preserves that.
@@ -75,7 +71,6 @@ func newExternalPrincipalIndex(principals []*v2.Resource) *externalPrincipalInde
 // user trait is unmarshalled once here rather than once per candidate grant.
 func newExternalUserPrincipalIndex(principals []*v2.Resource, l *zap.Logger) *externalPrincipalIndex {
 	idx := newExternalPrincipalIndex(principals)
-	idx.emails = make([][]*v2.UserTrait_Email, len(principals))
 	idx.byEmail = make(map[string][]int, len(principals))
 
 	for i, p := range principals {
@@ -87,8 +82,7 @@ func newExternalUserPrincipalIndex(principals []*v2.Resource, l *zap.Logger) *ex
 			idx.skip[i] = true
 			continue
 		}
-		idx.emails[i] = userTrait.GetEmails()
-		for _, email := range idx.emails[i] {
+		for _, email := range userTrait.GetEmails() {
 			key := foldKey(email.GetAddress())
 			idx.byEmail[key] = append(idx.byEmail[key], i)
 		}
@@ -122,13 +116,14 @@ func (idx *externalPrincipalIndex) matchProfile(key, value string) []int {
 		idx.byProfileKey[key] = buckets
 	}
 
-	candidates := buckets[foldKey(value)]
+	folded := foldKey(value)
+	candidates := buckets[folded]
 	matches := make([]int, 0, len(candidates))
 	for _, i := range candidates {
-		// Re-confirm with EqualFold: the bucket is a prefilter, so a bucket
-		// collision can never manufacture a match the linear scan would not
-		// have made.
-		if v, ok := resource.GetProfileStringValue(idx.profiles[i], key); ok && strings.EqualFold(v, value) {
+		// Confirm through foldKey, the same normalization the buckets were
+		// built with, so bucketing and confirmation can never disagree about
+		// whether two values match.
+		if v, ok := resource.GetProfileStringValue(idx.profiles[i], key); ok && foldKey(v) == folded {
 			matches = append(matches, i)
 		}
 	}
@@ -137,6 +132,10 @@ func (idx *externalPrincipalIndex) matchProfile(key, value string) []int {
 
 // matchUserTraitEmail returns the ascending positions of user principals
 // carrying address among their user-trait emails.
+//
+// Buckets are keyed by foldKey(address) and looked up the same way, so a bucket
+// hit already is the match; there is no separate confirmation pass that could
+// disagree with the bucketing.
 func (idx *externalPrincipalIndex) matchUserTraitEmail(address string) []int {
 	candidates := idx.byEmail[foldKey(address)]
 	matches := make([]int, 0, len(candidates))
@@ -144,21 +143,34 @@ func (idx *externalPrincipalIndex) matchUserTraitEmail(address string) []int {
 		if idx.skip[i] {
 			continue
 		}
-		// Re-confirm for the same reason as matchProfile.
-		if userTraitContainsEmail(idx.emails[i], address) {
-			matches = append(matches, i)
+		// A principal is bucketed once per matching address, so a user with two
+		// addresses that fold alike appears twice -- and always adjacently,
+		// since positions are appended in ascending principal order. Collapse
+		// the repeat to keep the caller's one-grant-per-principal contract,
+		// which the linear scan held by moving to the next principal as soon as
+		// it found an email match.
+		if len(matches) > 0 && matches[len(matches)-1] == i {
+			continue
 		}
+		matches = append(matches, i)
 	}
 	return matches
 }
 
-// foldKey normalizes a value into a bucket key.
+// foldKey normalizes a value for case-insensitive comparison, and is the single
+// definition of "these two external match values are the same": two values match
+// when their foldKey outputs are equal. Bucket keys, bucket lookups, and every
+// confirmation pass all run through it, so the prefilter and the comparison can
+// never disagree.
 //
-// Buckets are only a prefilter — every lookup re-confirms candidates with
-// strings.EqualFold — so bucketing can only ever narrow the candidate set. It
-// assumes case-fold-equal values share a lowercase form, which holds for the
-// ASCII identifiers used as external match values (emails, user principal
-// names, login names).
+// strings.ToLower is a context-free lowercase mapping, not full Unicode case
+// folding, so the two differ on a small number of pairs — Greek sigma is the
+// usual example, where strings.EqualFold("ΣΤΕΦΑΝΟΣ", "στεφανος") is true but the
+// lowercase forms differ in the final letter. Values like that are treated as
+// distinct here. That is an accepted tradeoff for now: it keeps normalization
+// consistent everywhere rather than having bucketing and confirmation disagree,
+// which would silently drop matches. Nothing is restricted to ASCII — non-ASCII
+// values are lowercased and compared like any other.
 func foldKey(s string) string {
 	return strings.ToLower(s)
 }

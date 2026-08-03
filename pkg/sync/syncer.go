@@ -2988,8 +2988,14 @@ func (s *syncer) matchProfileAndExpand(
 	expandableAnno *v2.GrantExpandable,
 	expandableEntitlementsResourceMap map[string][]string,
 ) (*v2.Grant, error) {
+	// foldKey, not strings.EqualFold: callers reach this helper through
+	// externalPrincipalIndex.matchProfile, whose buckets are keyed by foldKey.
+	// The two disagree on a handful of values -- strings.ToLower("İ") is "i"
+	// but EqualFold("İ", "I") is false -- and an EqualFold check here would
+	// reject a principal the index had already matched, silently dropping the
+	// grant. See foldKey for why one normalization is used everywhere.
 	profileVal, ok := resource.GetProfileStringValue(resource.GetProfile(principal), key)
-	if !ok || !strings.EqualFold(profileVal, value) {
+	if !ok || foldKey(profileVal) != foldKey(value) {
 		return nil, nil
 	}
 	if expandableAnno == nil {
@@ -3322,12 +3328,6 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	}
 
 	return nil
-}
-
-func userTraitContainsEmail(emails []*v2.UserTrait_Email, address string) bool {
-	return slices.ContainsFunc(emails, func(e *v2.UserTrait_Email) bool {
-		return strings.EqualFold(e.GetAddress(), address)
-	})
 }
 
 // grantByRefsDeleter is the optional store fast path for deleting a grant
