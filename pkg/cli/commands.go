@@ -52,6 +52,21 @@ const (
 // value to redirect logging to the Windows event log.
 type eventLogEnabledKey struct{}
 
+// logRotationContextKey carries the configured --log-max-size-mb/
+// --log-max-backups values on the context, mirroring eventLogEnabledKey.
+// This is required because the Windows service re-initializes its logger
+// from batonService.Execute (see service_windows.go), which only has the
+// context to work with - not the original viper flags - so the settings
+// have to be relayed through it to apply rotation to the service's default
+// baton.log.
+type logRotationContextKey struct{}
+
+// logRotationSettings is the value stored under logRotationContextKey.
+type logRotationSettings struct {
+	maxSizeMB  int
+	maxBackups int
+}
+
 type ContrainstSetter func(*cobra.Command, field.Configuration) error
 
 // In one shot & service mode, the child process uses this client to connect to the session store server...
@@ -131,9 +146,19 @@ func MakeMainCommand[T field.Configurable](
 		if len(logPaths) > 0 {
 			logOpts = append(logOpts, logging.WithOutputPaths(logPaths))
 		}
+
+		rotateMaxSizeMB := v.GetInt("log-max-size-mb")
+		rotateMaxBackups := v.GetInt("log-max-backups")
+
 		loggerCtx := ctx
 		if v.GetBool(field.LogEventLogFieldName) {
 			loggerCtx = context.WithValue(loggerCtx, eventLogEnabledKey{}, true)
+		}
+		if rotateMaxSizeMB > 0 {
+			loggerCtx = context.WithValue(loggerCtx, logRotationContextKey{}, logRotationSettings{
+				maxSizeMB:  rotateMaxSizeMB,
+				maxBackups: rotateMaxBackups,
+			})
 		}
 		runCtx, err := initLogger(
 			loggerCtx,

@@ -178,6 +178,11 @@ type eventLogKey struct{}
 
 func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option) (context.Context, error) {
 	logToEventLog, _ := ctx.Value(eventLogEnabledKey{}).(bool)
+	// Only relevant to the service's own default baton.log below; relayed
+	// via the context (rather than read from viper directly) because this
+	// function is also called from batonService.Execute, which only has
+	// the context to work with. See logRotationContextKey in commands.go.
+	rotation, hasRotation := ctx.Value(logRotationContextKey{}).(logRotationSettings)
 
 	if isService() {
 		defaultLoggingOpts := []logging.Option{
@@ -191,6 +196,11 @@ func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option)
 		loggingOpts = append(defaultLoggingOpts, loggingOpts...)
 	}
 
+	rotateMaxSizeMB, rotateMaxBackups := 0, 0
+	if hasRotation {
+		rotateMaxSizeMB, rotateMaxBackups = rotation.maxSizeMB, rotation.maxBackups
+	}
+
 	if logToEventLog {
 		elog, err := eventlog.Open(name)
 		if err != nil {
@@ -199,12 +209,12 @@ func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option)
 
 		// Put the event log on the context so we can reuse it in runService.
 		ctx = context.WithValue(ctx, eventLogKey{}, elog)
-		return logging.InitWithCore(ctx, func(cfg zap.Config) zapcore.Core {
+		return logging.InitWithCoreAndRotation(ctx, func(cfg zap.Config) zapcore.Core {
 			return newEventLogCore(elog, cfg)
-		}, loggingOpts...)
+		}, rotateMaxSizeMB, rotateMaxBackups, loggingOpts...)
 	}
 
-	return logging.Init(ctx, loggingOpts...)
+	return logging.InitWithRotation(ctx, rotateMaxSizeMB, rotateMaxBackups, loggingOpts...)
 }
 
 func startCmd(name string) *cobra.Command {
