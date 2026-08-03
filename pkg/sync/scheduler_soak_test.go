@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -35,104 +36,14 @@ import (
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
-// soakNode is one cursor in the fan-out topology.
-type soakNode struct {
-	children []string // sibling cursors spawned via EnqueuePageTokens
-	next     string   // continuation cursor via NextPageToken ("" = final page)
-}
-
-// soakTypeTopology is the deterministic cursor graph for one resource type.
-// Every token is reachable exactly once (as a planner child, a node child,
-// or a node continuation), so the expected payload set is exact.
-type soakTypeTopology struct {
-	plannerChildren []string
-	plannerNext     string
-	nodes           map[string]*soakNode
-	tokens          []string // every payload-bearing token
-	poisonedEnts    map[string]bool
-	poisonedGrants  map[string]bool
-}
+type soakTypeTopology = chaosconnector.CursorGraph
 
 func buildSoakTopology(r *rand.Rand) *soakTypeTopology {
-	total := 8 + r.Intn(28)
-	topo := &soakTypeTopology{
-		nodes:          make(map[string]*soakNode, total),
-		poisonedEnts:   make(map[string]bool),
-		poisonedGrants: make(map[string]bool),
-	}
-	tokens := make([]string, total)
-	for i := range tokens {
-		tokens[i] = fmt.Sprintf("n%02d", i)
-		topo.nodes[tokens[i]] = &soakNode{}
-	}
-	topo.tokens = tokens
-
-	unattached := append([]string(nil), tokens...)
-	take := func() string {
-		tok := unattached[0]
-		unattached = unattached[1:]
-		return tok
-	}
-
-	// Planner spawns 1..4 siblings and sometimes has its own continuation.
-	k := 1 + r.Intn(4)
-	frontier := make([]string, 0, total)
-	for i := 0; i < k && len(unattached) > 0; i++ {
-		tok := take()
-		topo.plannerChildren = append(topo.plannerChildren, tok)
-		frontier = append(frontier, tok)
-	}
-	if r.Intn(3) == 0 && len(unattached) > 0 {
-		topo.plannerNext = take()
-		frontier = append(frontier, topo.plannerNext)
-	}
-
-	for len(unattached) > 0 {
-		// Pop a random frontier node to attach the next tokens to.
-		var ap string
-		if len(frontier) > 0 {
-			i := r.Intn(len(frontier))
-			ap = frontier[i]
-			frontier = append(frontier[:i], frontier[i+1:]...)
-		} else {
-			// Shouldn't happen (every attached token enters the frontier
-			// exactly once), but guarantee progress regardless.
-			ap = tokens[0]
-		}
-		node := topo.nodes[ap]
-		attached := false
-		if r.Intn(2) == 0 && len(unattached) > 0 {
-			node.next = take()
-			frontier = append(frontier, node.next)
-			attached = true
-		}
-		c := r.Intn(4)
-		for i := 0; i < c && len(unattached) > 0; i++ {
-			tok := take()
-			node.children = append(node.children, tok)
-			frontier = append(frontier, tok)
-			attached = true
-		}
-		if !attached && len(frontier) == 0 && len(unattached) > 0 && node.next == "" {
-			node.next = take()
-			frontier = append(frontier, node.next)
-		}
-	}
-
-	// Poison ~15% of cursors per phase, including the planner call ("").
-	for _, tok := range append([]string{""}, tokens...) {
-		if r.Intn(100) < 15 {
-			topo.poisonedEnts[tok] = true
-		}
-		if r.Intn(100) < 15 {
-			topo.poisonedGrants[tok] = true
-		}
-	}
-	return topo
+	return chaosconnector.GenerateCursorGraph(r, 8, 35, 15)
 }
 
-func (t *soakTypeTopology) poisonCount() int {
-	return len(t.poisonedEnts) + len(t.poisonedGrants)
+func soakPoisonCount(t *soakTypeTopology) int {
+	return len(t.PoisonedFirst) + len(t.PoisonedSecond)
 }
 
 // soakConnector serves the topology. Poisoned cursors fail exactly once
@@ -182,18 +93,14 @@ func (c *soakConnector) ListEntitlements(
 	resourceType := in.GetResource().GetId().GetResourceType()
 	topo := c.topos[resourceType]
 	token := in.GetPageToken()
-	if err := c.failOnce("ent", resourceType, token, topo.poisonedEnts); err != nil {
+	if err := c.failOnce("ent", resourceType, token, topo.PoisonedFirst); err != nil {
 		return nil, err
 	}
 	builder := v2.EntitlementsServiceListEntitlementsResponse_builder{}
-	var children []string
-	if token == "" {
-		children = topo.plannerChildren
-		builder.NextPageToken = topo.plannerNext
-	} else {
-		node := topo.nodes[token]
-		children = node.children
-		builder.NextPageToken = node.next
+	page := topo.Pages[token]
+	children := page.Spawn
+	builder.NextPageToken = page.Next
+	if token != "" {
 		builder.List = []*v2.Entitlement{c.entsByToken[resourceType][token]}
 	}
 	if len(children) > 0 {
@@ -217,18 +124,14 @@ func (c *soakConnector) ListGrants(
 	resourceType := in.GetResource().GetId().GetResourceType()
 	topo := c.topos[resourceType]
 	token := in.GetPageToken()
-	if err := c.failOnce("grant", resourceType, token, topo.poisonedGrants); err != nil {
+	if err := c.failOnce("grant", resourceType, token, topo.PoisonedSecond); err != nil {
 		return nil, err
 	}
 	builder := v2.GrantsServiceListGrantsResponse_builder{}
-	var children []string
-	if token == "" {
-		children = topo.plannerChildren
-		builder.NextPageToken = topo.plannerNext
-	} else {
-		node := topo.nodes[token]
-		children = node.children
-		builder.NextPageToken = node.next
+	page := topo.Pages[token]
+	children := page.Spawn
+	builder.NextPageToken = page.Next
+	if token != "" {
 		builder.List = []*v2.Grant{c.grantsByTok[resourceType][token]}
 	}
 	if len(children) > 0 {
@@ -308,10 +211,10 @@ func runSchedulerSoak(t *testing.T, seed int64) {
 
 		topo := buildSoakTopology(r)
 		connector.topos[typeID] = topo
-		totalPoisoned += topo.poisonCount()
-		connector.entsByToken[typeID] = make(map[string]*v2.Entitlement, len(topo.tokens))
-		connector.grantsByTok[typeID] = make(map[string]*v2.Grant, len(topo.tokens))
-		for i, token := range topo.tokens {
+		totalPoisoned += soakPoisonCount(topo)
+		connector.entsByToken[typeID] = make(map[string]*v2.Entitlement, len(topo.Tokens))
+		connector.grantsByTok[typeID] = make(map[string]*v2.Grant, len(topo.Tokens))
+		for i, token := range topo.Tokens {
 			res := resources[i%numResources]
 			slug := "m-" + token
 			ent := et.NewAssignmentEntitlement(res, slug, et.WithGrantableTo(userType))

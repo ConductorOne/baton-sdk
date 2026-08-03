@@ -515,3 +515,36 @@ func TestSyncerTokenEntitlementGraphMarshalUnmarshal(t *testing.T) {
 	require.Equal(t, graph.NextNodeID, restoredGraph.NextNodeID)
 	require.Equal(t, graph.NextEdgeID, restoredGraph.NextEdgeID)
 }
+
+func TestStateIngestQualityRoundTripPreservesCleanPresence(t *testing.T) {
+	for _, quality := range []*IngestQualityCheckpoint{
+		{},
+		{
+			SourceCacheReplayBlocked:      true,
+			EntitlementsDropped:           1,
+			GrantsDropped:                 2,
+			GrantResourcesDropped:         3,
+			ExpansionResourceTypesDropped: 4,
+			ExpansionsDropped:             5,
+			ReasonFlags:                   63,
+		},
+	} {
+		st := newState()
+		require.NoError(t, st.Unmarshal(""))
+		st.SetIngestQuality(quality)
+
+		token, err := st.Marshal()
+		require.NoError(t, err)
+		require.Contains(t, token, `"ingest_quality"`)
+
+		resumed := newState()
+		require.NoError(t, resumed.Unmarshal(token))
+		require.Equal(t, quality, resumed.IngestQuality())
+	}
+}
+
+func TestStateLegacyTokenLeavesIngestQualityUnknown(t *testing.T) {
+	st := newState()
+	require.NoError(t, st.Unmarshal(`{"version":1}`))
+	require.Nil(t, st.IngestQuality())
+}

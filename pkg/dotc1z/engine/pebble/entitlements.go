@@ -133,6 +133,32 @@ func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string)
 	})
 }
 
+// DeleteEntitlementRecordByIdentity deletes one exact structured identity.
+// Unlike the compatibility bare-ID delete, it remains unambiguous when two
+// resources expose the same entitlement ID and requires no global lookup.
+func (e *Engine) DeleteEntitlementRecordByIdentity(
+	ctx context.Context,
+	resourceTypeID string,
+	resourceID string,
+	externalID string,
+) error {
+	return e.withWrite(func() error {
+		key := encodeEntitlementIdentityKey(
+			entitlementIdentityFromParts(resourceTypeID, resourceID, externalID),
+		)
+		batch := e.db.NewRecordBatch()
+		defer batch.Close()
+		if err := batch.StageEntitlementDelete(key); err != nil {
+			return err
+		}
+		if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
+			return err
+		}
+		e.noteEntitlementKeyspaceWrite()
+		return nil
+	})
+}
+
 func (e *Engine) IterateEntitlements(ctx context.Context, yield func(*v3.EntitlementRecord) bool) error {
 	prefix := encodeEntitlementPrefix()
 	iter, err := e.db.NewIter(&pebble.IterOptions{

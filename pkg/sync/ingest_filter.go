@@ -24,11 +24,88 @@ import (
 )
 
 type ingestFilterStats struct {
-	entitlementsDropped   atomic.Int64
-	grantsDropped         atomic.Int64
-	grantResourcesDropped atomic.Int64
-	expansionTypesDropped atomic.Int64
-	expansionsDropped     atomic.Int64
+	entitlementsDropped   atomic.Uint64
+	grantsDropped         atomic.Uint64
+	grantResourcesDropped atomic.Uint64
+	expansionTypesDropped atomic.Uint64
+	expansionsDropped     atomic.Uint64
+	replayBlocked         atomic.Bool
+	reasonFlags           atomic.Uint64
+	known                 atomic.Bool
+}
+
+const (
+	ingestQualityReasonEntitlementDropped uint64 = 1 << iota
+	ingestQualityReasonGrantDropped
+	ingestQualityReasonGrantResourceDropped
+	ingestQualityReasonExpansionTypeDropped
+	ingestQualityReasonExpansionDropped
+	ingestQualityReasonRetainedInvalid
+	ingestQualityReasonUnknownPriorCheckpoint
+)
+
+func (s *ingestFilterStats) markKnown() {
+	s.restore(&IngestQualityCheckpoint{})
+}
+
+func (s *ingestFilterStats) blockReplay(reason uint64) {
+	s.known.Store(true)
+	s.replayBlocked.Store(true)
+	s.reasonFlags.Or(reason)
+}
+
+func (s *ingestFilterStats) dropEntitlement() {
+	s.entitlementsDropped.Add(1)
+	s.blockReplay(ingestQualityReasonEntitlementDropped)
+}
+
+func (s *ingestFilterStats) dropGrant() {
+	s.grantsDropped.Add(1)
+	s.blockReplay(ingestQualityReasonGrantDropped)
+}
+
+func (s *ingestFilterStats) dropGrantResource() {
+	s.grantResourcesDropped.Add(1)
+	s.blockReplay(ingestQualityReasonGrantResourceDropped)
+}
+
+func (s *ingestFilterStats) dropExpansionType() {
+	s.expansionTypesDropped.Add(1)
+	s.blockReplay(ingestQualityReasonExpansionTypeDropped)
+}
+
+func (s *ingestFilterStats) dropExpansion() {
+	s.expansionsDropped.Add(1)
+	s.blockReplay(ingestQualityReasonExpansionDropped)
+}
+
+func (s *ingestFilterStats) snapshot() *IngestQualityCheckpoint {
+	if !s.known.Load() {
+		return nil
+	}
+	return &IngestQualityCheckpoint{
+		SourceCacheReplayBlocked:      s.replayBlocked.Load(),
+		EntitlementsDropped:           s.entitlementsDropped.Load(),
+		GrantsDropped:                 s.grantsDropped.Load(),
+		GrantResourcesDropped:         s.grantResourcesDropped.Load(),
+		ExpansionResourceTypesDropped: s.expansionTypesDropped.Load(),
+		ExpansionsDropped:             s.expansionsDropped.Load(),
+		ReasonFlags:                   s.reasonFlags.Load(),
+	}
+}
+
+func (s *ingestFilterStats) restore(snapshot *IngestQualityCheckpoint) {
+	if snapshot == nil {
+		return
+	}
+	s.known.Store(true)
+	s.replayBlocked.Store(snapshot.SourceCacheReplayBlocked)
+	s.entitlementsDropped.Store(snapshot.EntitlementsDropped)
+	s.grantsDropped.Store(snapshot.GrantsDropped)
+	s.grantResourcesDropped.Store(snapshot.GrantResourcesDropped)
+	s.expansionTypesDropped.Store(snapshot.ExpansionResourceTypesDropped)
+	s.expansionsDropped.Store(snapshot.ExpansionsDropped)
+	s.reasonFlags.Store(snapshot.ReasonFlags)
 }
 
 // scheduledResourceTypeExists reads the store's resource-type keyspace rather
@@ -120,7 +197,7 @@ func (s *syncer) filterFreshEntitlements(
 			return nil, err
 		}
 		if !exists {
-			s.ingestFilterStats.entitlementsDropped.Add(1)
+			s.ingestFilterStats.dropEntitlement()
 			continue
 		}
 		out = append(out, entitlement)
@@ -170,7 +247,7 @@ func (s *syncer) filterGrantExpansionTypes(
 			filtered = append(filtered, resourceTypeID)
 			continue
 		}
-		s.ingestFilterStats.expansionTypesDropped.Add(1)
+		s.ingestFilterStats.dropExpansionType()
 	}
 	if len(filtered) == len(expandable.GetResourceTypeIds()) {
 		return grant, nil
@@ -190,7 +267,7 @@ func (s *syncer) filterGrantExpansionTypes(
 		}
 		rewritten = append(rewritten, encoded)
 	} else {
-		s.ingestFilterStats.expansionsDropped.Add(1)
+		s.ingestFilterStats.dropExpansion()
 	}
 	filteredGrant := proto.Clone(grant).(*v2.Grant)
 	filteredGrant.SetAnnotations(rewritten)
@@ -230,7 +307,7 @@ func (s *syncer) filterFreshGrants(ctx context.Context, grants []*v2.Grant) ([]*
 		// AppEntitlement, or binding is ever created — inserting the
 		// resource row alone does not resurrect the chain.
 		if !entitlementTypeExists {
-			s.ingestFilterStats.grantsDropped.Add(1)
+			s.ingestFilterStats.dropGrant()
 			continue
 		}
 
@@ -241,7 +318,7 @@ func (s *syncer) filterFreshGrants(ctx context.Context, grants []*v2.Grant) ([]*
 		// External match annotations own placeholder principals. This does
 		// not exempt the entitlement reference checked above.
 		if !principalTypeExists && !hasExternalResourceMatch(annos) {
-			s.ingestFilterStats.grantsDropped.Add(1)
+			s.ingestFilterStats.dropGrant()
 			continue
 		}
 
@@ -267,7 +344,7 @@ func (s *syncer) filterFreshGrantResource(ctx context.Context, resource *v2.Reso
 		return false, err
 	}
 	if !exists {
-		s.ingestFilterStats.grantResourcesDropped.Add(1)
+		s.ingestFilterStats.dropGrantResource()
 	}
 	return exists, nil
 }
@@ -283,10 +360,10 @@ func (s *syncer) logIngestFilterSummary(ctx context.Context) {
 	}
 	// One aggregate warning per sync: never log individual rows or refs.
 	ctxzap.Extract(ctx).Warn("fresh ingest filtered references into resource types not scheduled for this sync",
-		zap.Int64("entitlements_dropped", entitlements),
-		zap.Int64("grants_dropped", grants),
-		zap.Int64("grant_discovered_resources_dropped", grantResources),
-		zap.Int64("expansion_resource_types_dropped", expansionTypes),
-		zap.Int64("expansions_dropped", expansions),
+		zap.Uint64("entitlements_dropped", entitlements),
+		zap.Uint64("grants_dropped", grants),
+		zap.Uint64("grant_discovered_resources_dropped", grantResources),
+		zap.Uint64("expansion_resource_types_dropped", expansionTypes),
+		zap.Uint64("expansions_dropped", expansions),
 	)
 }

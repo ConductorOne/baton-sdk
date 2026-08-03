@@ -9,6 +9,7 @@ OUTPUT_PATH = ${BUILD_DIR}/baton
 FUZZ_TIME ?= 30s
 DIFFERENTIAL_TIME ?= 30s
 SOAK_ITERATIONS ?= 25
+CHAOS_ITERATIONS ?= 25
 NIGHTLY_FUZZ_TIME ?= 5m
 NIGHTLY_DIFFERENTIAL_TIME ?= 10m
 
@@ -109,6 +110,20 @@ scheduler-soak: ## Run randomized scheduler cases under race detection.
 errorfs-soak: ## Sweep whole-sync Pebble crash points using errorfs.
 	BATON_SOAK=1 go test -v -count=1 -timeout=30m -run TestErrorFSWholeSyncRandomSweepSoak ./pkg/dotc1z/engine/pebble
 
+.PHONY: chaos-check
+chaos-check: ## Run bounded representative chaos checks under race detection.
+	go test -race -count=1 ./internal/chaosconnector/...
+	go test -race -count=1 -timeout=10m -run '^TestChaosConnector(LostResponseThenFilesystemFailureResumes|ResourcesAndEntitlementsFaultMatrix|ListGrantsFaultMatrix|ReservedBatonIDOwnershipIsRejected|MalformedKnownAnnotationFailsWithoutSealing|ClearedNextPageTokenSealsOnlyVisiblePrefix|CancellationTerminatesAndColdResumes|DataPolicyLifecycleCorpus|ExternalPrincipalResumeUsesCurrentExternalAnswer|SQLiteExternalPrincipalResumeDegradesWithoutFailure|ExternalPrincipalCleanupUsesOnePassPerKeyspace)$$' ./pkg/sync
+
+.PHONY: chaos-full-check
+chaos-full-check: ## Run every deterministic chaos corpus under race detection.
+	go test -race -count=1 -timeout=30m -run '^TestChaosConnector' ./pkg/sync
+
+.PHONY: chaos-soak
+chaos-soak: ## Run extended seeded chaos connector fanout schedules.
+	BATON_CHAOS_ITERATIONS=$(CHAOS_ITERATIONS) go test -race -v -count=1 -timeout=30m -run TestChaosConnectorSeededFanoutWithRetries ./pkg/sync
+
+# race-check already includes chaos-full-check's complete deterministic corpus.
 .PHONY: test-extra
 test-extra: race-check compat-check interrupt-check fuzz-smoke differential-check bench-smoke ## Run bounded confidence checks omitted from CI.
 
@@ -116,6 +131,7 @@ test-extra: race-check compat-check interrupt-check fuzz-smoke differential-chec
 test-nightly: ## Run extended confidence, fuzz, scheduler, and errorfs checks.
 	$(MAKE) test-extra FUZZ_TIME=$(NIGHTLY_FUZZ_TIME) DIFFERENTIAL_TIME=$(NIGHTLY_DIFFERENTIAL_TIME)
 	$(MAKE) scheduler-soak
+	$(MAKE) chaos-soak
 	$(MAKE) errorfs-soak
 
 # Production-scale compactor experiments are deliberately excluded from

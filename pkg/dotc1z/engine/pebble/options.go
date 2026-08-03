@@ -129,6 +129,13 @@ func WithVFS(fs vfs.FS) Option {
 	return func(o *Options) { o.vfs = fs }
 }
 
+// WithLogger overrides Pebble's process-terminating default logger. It exists
+// for fault-injection harnesses that must observe Fatalf as a simulated process
+// crash; production callers should retain the default logger.
+func WithLogger(logger pebble.Logger) Option {
+	return func(o *Options) { o.pebbleLogger = logger }
+}
+
 // newPebbleOptions builds the *pebble.Options for the Engine. The
 // returned struct is consumed once at pebble.Open; the caller does
 // not retain a reference.

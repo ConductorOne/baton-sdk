@@ -449,6 +449,7 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	s.lastCheckPointTime = time.Now()
+	s.state.SetIngestQuality(s.ingestFilterStats.snapshot())
 	checkpoint, err := s.state.Marshal()
 	if err != nil {
 		return err
@@ -966,6 +967,18 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return err
 	}
 	s.state = state
+	if newSync {
+		s.ingestFilterStats.markKnown()
+	} else {
+		quality := s.state.IngestQuality()
+		if quality == nil {
+			quality = &IngestQualityCheckpoint{
+				SourceCacheReplayBlocked: true,
+				ReasonFlags:              ingestQualityReasonUnknownPriorCheckpoint,
+			}
+		}
+		s.ingestFilterStats.restore(quality)
+	}
 	if !newSync {
 		currentAction := s.state.Current()
 		currentActionOp := ""
@@ -1167,6 +1180,12 @@ func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.Resou
 				return
 			}
 			resourceTypes := resp.GetList()
+			for _, resourceType := range resourceTypes {
+				if err := validateConnectorResourceType(resourceType); err != nil {
+					_ = yield(nil, err)
+					return
+				}
+			}
 			if len(resourceTypes) > 0 {
 				if !yield(resourceTypes, err) {
 					return
@@ -1201,6 +1220,11 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
 		return err
+	}
+	for _, resourceType := range resp.GetList() {
+		if err := validateConnectorResourceType(resourceType); err != nil {
+			return err
+		}
 	}
 
 	var resourceTypes []*v2.ResourceType
@@ -1423,9 +1447,12 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 	if resource == nil {
 		return s.nextPageOrFinishAction(ctx, action, "")
 	}
+	if err := validateConnectorResource(resource); err != nil {
+		return err
+	}
 
 	// Save our resource in the DB
-	if err := s.store.PutResources(ctx, resource); err != nil {
+	if err := s.putConnectorResources(ctx, resource); err != nil {
 		return err
 	}
 
@@ -1566,6 +1593,9 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 
 	bulkPutResoruces := []*v2.Resource{}
 	for _, r := range resp.GetList() {
+		if err := validateConnectorResource(r); err != nil {
+			return err
+		}
 		validatedResource := false
 
 		// Check if we've already synced this resource, skip it if we have
@@ -1585,6 +1615,9 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 				// we can't tell if we already have synced those child resources.
 				// Those children may also have their own child resources,
 				// so we are conservative here and just re-sync this resource.
+				// Persist the latest observation even when no follow-up work is
+				// needed so duplicate semantics do not depend on page boundaries.
+				bulkPutResoruces = append(bulkPutResoruces, r)
 				continue
 			}
 		}
@@ -1609,7 +1642,7 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 	}
 
 	if len(bulkPutResoruces) > 0 {
-		err = s.store.PutResources(ctx, bulkPutResoruces...)
+		err = s.putConnectorResources(ctx, bulkPutResoruces...)
 		if err != nil {
 			return err
 		}
@@ -1642,6 +1675,54 @@ func resourceTraitMessage(t v2.ResourceType_Trait) proto.Message {
 	default:
 		return nil
 	}
+}
+
+func validateConnectorResource(resource *v2.Resource) error {
+	if resource == nil {
+		return status.Error(codes.Internal, "connector returned a nil resource")
+	}
+	resourceID := resource.GetId()
+	if resourceID == nil || resourceID.GetResourceType() == "" || resourceID.GetResource() == "" {
+		return status.Error(codes.Internal, "connector returned a resource with missing identity")
+	}
+	resourceAnnos := annotations.Annotations(resource.GetAnnotations())
+	if resourceAnnos.Contains(&v2.BatonID{}) {
+		return status.Error(codes.Internal,
+			"connector returned a resource with SDK-reserved BatonID ownership annotation")
+	}
+	return nil
+}
+
+func (s *syncer) putConnectorResources(ctx context.Context, resources ...*v2.Resource) error {
+	for _, resource := range resources {
+		if err := validateConnectorResource(resource); err != nil {
+			return err
+		}
+	}
+	return s.store.PutResources(ctx, resources...)
+}
+
+func validateConnectorEntitlement(entitlement *v2.Entitlement) error {
+	if entitlement == nil {
+		return status.Error(codes.Internal, "connector returned a nil entitlement")
+	}
+	if entitlement.GetId() == "" {
+		return status.Error(codes.Internal, "connector returned an entitlement with missing identity")
+	}
+	if err := validateConnectorResource(entitlement.GetResource()); err != nil {
+		return status.Error(codes.Internal, "connector returned an entitlement with missing resource identity")
+	}
+	return nil
+}
+
+func validateConnectorResourceType(resourceType *v2.ResourceType) error {
+	if resourceType == nil {
+		return status.Error(codes.Internal, "connector returned a nil resource type")
+	}
+	if resourceType.GetId() == "" {
+		return status.Error(codes.Internal, "connector returned a resource type with missing identity")
+	}
+	return nil
 }
 
 // No span here: this is called per-resource, but only does I/O on the
@@ -1892,6 +1973,11 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	entitlements, err := s.filterFreshEntitlements(ctx, resp.GetList())
 	if err != nil {
 		return fmt.Errorf("sync-entitlements: filtering disabled-type references: %w", err)
+	}
+	for _, entitlement := range entitlements {
+		if err := validateConnectorEntitlement(entitlement); err != nil {
+			return err
+		}
 	}
 	err = s.store.PutEntitlements(ctx, entitlements...)
 	if err != nil {
@@ -2536,7 +2622,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 			if resource == nil {
 				continue
 			}
-			if err := s.store.PutResources(ctx, resource); err != nil {
+			if err := s.putConnectorResources(ctx, resource); err != nil {
 				return err
 			}
 		}
@@ -2547,7 +2633,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		for _, resource := range resourcesToInsertMap {
 			resourcesToInsert = append(resourcesToInsert, resource)
 		}
-		err = s.store.PutResources(ctx, resourcesToInsert...)
+		err = s.putConnectorResources(ctx, resourcesToInsert...)
 		if err != nil {
 			return fmt.Errorf("sync-grants-for-resource: error putting resources: %w", err)
 		}
@@ -2700,6 +2786,10 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		principals = append(principals, resourceVal)
 	}
 
+	err = s.deleteStaleExternalPrincipals(ctx, principals)
+	if err != nil {
+		return err
+	}
 	err = s.store.PutResources(ctx, principals...)
 	if err != nil {
 		return err
@@ -2812,6 +2902,10 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 		}
 	}
 
+	err = s.deleteStaleExternalPrincipals(ctx, principals)
+	if err != nil {
+		return err
+	}
 	err = s.store.PutResources(ctx, principals...)
 	if err != nil {
 		return err
@@ -2892,6 +2986,131 @@ func (s *syncer) listExternalResourcesForResourceType(ctx context.Context, resou
 		}
 	}
 	return resources, nil
+}
+
+type resourceRecordDeleter interface {
+	DeleteResourceRecord(ctx context.Context, resourceTypeID, resourceID string) error
+}
+
+type entitlementRecordDeleter interface {
+	DeleteEntitlementByRefs(ctx context.Context, entitlement *v2.Entitlement) error
+}
+
+// deleteStaleExternalPrincipals reconciles principal rows copied by an earlier
+// attempt before writing the external source's current answer. Checkpoint
+// resume deliberately retains completed writes, so without this pass a
+// principal that disappears between attempts survives even though grants are
+// rewritten against the new source.
+func (s *syncer) deleteStaleExternalPrincipals(
+	ctx context.Context,
+	current []*v2.Resource,
+) error {
+	currentIDs := make(map[string]struct{}, len(current))
+	for _, principal := range current {
+		id := principal.GetId()
+		currentIDs[id.GetResourceType()+"\x00"+id.GetResource()] = struct{}{}
+	}
+
+	resourceDeleter, canDeleteResources := s.store.(resourceRecordDeleter)
+	entitlementDeleter, canDeleteEntitlements := s.store.(entitlementRecordDeleter)
+	grantDeleter, canDeleteGrants := s.store.(grantByRefsDeleter)
+	var staleIDs []*v2.ResourceId
+	pageToken := ""
+	for {
+		response, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return err
+		}
+		for _, candidate := range response.GetList() {
+			candidateAnnos := annotations.Annotations(candidate.GetAnnotations())
+			if !candidateAnnos.Contains(&v2.BatonID{}) {
+				continue
+			}
+			id := candidate.GetId()
+			if _, ok := currentIDs[id.GetResourceType()+"\x00"+id.GetResource()]; ok {
+				continue
+			}
+			staleIDs = append(staleIDs, id)
+		}
+		pageToken = response.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+	if len(staleIDs) == 0 {
+		return nil
+	}
+	if !canDeleteResources || !canDeleteEntitlements || !canDeleteGrants {
+		ctxzap.Extract(ctx).Warn(
+			"stale external principal reconciliation is unavailable for this storage engine",
+			zap.Bool("resource_delete_supported", canDeleteResources),
+			zap.Bool("entitlement_delete_supported", canDeleteEntitlements),
+			zap.Bool("grant_delete_supported", canDeleteGrants),
+		)
+		return nil
+	}
+
+	staleKeys := make(map[string]struct{}, len(staleIDs))
+	for _, id := range staleIDs {
+		staleKeys[id.GetResourceType()+"\x00"+id.GetResource()] = struct{}{}
+	}
+	var staleGrants []*v2.Grant
+	for grantWithAnnotations, err := range s.store.Grants().ListWithAnnotations(ctx) {
+		if err != nil {
+			return err
+		}
+		grant := grantWithAnnotations.Grant
+		principalID := grant.GetPrincipal().GetId()
+		entitlementResourceID := grant.GetEntitlement().GetResource().GetId()
+		_, stalePrincipal := staleKeys[principalID.GetResourceType()+"\x00"+principalID.GetResource()]
+		_, staleEntitlement := staleKeys[entitlementResourceID.GetResourceType()+"\x00"+entitlementResourceID.GetResource()]
+		if stalePrincipal || staleEntitlement {
+			staleGrants = append(staleGrants, grant)
+		}
+	}
+
+	var staleEntitlements []*v2.Entitlement
+	pageToken = ""
+	for {
+		response, err := s.store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return err
+		}
+		for _, candidate := range response.GetList() {
+			resourceID := candidate.GetResource().GetId()
+			if _, stale := staleKeys[resourceID.GetResourceType()+"\x00"+resourceID.GetResource()]; !stale {
+				continue
+			}
+			staleEntitlements = append(staleEntitlements, candidate)
+		}
+		pageToken = response.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+
+	for _, grant := range staleGrants {
+		if err := grantDeleter.DeleteGrantByRefs(ctx, grant); err != nil {
+			return fmt.Errorf("delete grant for stale external principal: %w", err)
+		}
+	}
+	for _, entitlement := range staleEntitlements {
+		if err := entitlementDeleter.DeleteEntitlementByRefs(ctx, entitlement); err != nil {
+			return fmt.Errorf("delete entitlement for stale external principal %s: %w",
+				entitlement.GetId(), err)
+		}
+	}
+	for _, id := range staleIDs {
+		if err := resourceDeleter.DeleteResourceRecord(ctx, id.GetResourceType(), id.GetResource()); err != nil {
+			return fmt.Errorf("delete stale external principal %s/%s: %w",
+				id.GetResourceType(), id.GetResource(), err)
+		}
+	}
+	return nil
 }
 
 func (s *syncer) listExternalEntitlementsForResource(ctx context.Context, resource *v2.Resource) ([]*v2.Entitlement, error) {
@@ -2975,10 +3194,9 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 // profile match originally written for TRAIT_GROUP, now shared by GROUP and
 // any additional trait configured via WithExternalResourceTraits (e.g.
 // TRAIT_APP). It returns a nil grant (and nil error) when the principal's
-// profile doesn't match key/value, or when the source grant carries no
-// GrantExpandable annotation to remap — matching pre-existing GROUP
-// behavior, where a key/val match only produces a grant for expandable
-// entitlements.
+// profile doesn't match key/value. GrantExpandable remapping is optional:
+// a matching non-expandable grant must still be rewritten to the external
+// principal.
 func (s *syncer) matchProfileAndExpand(
 	ctx context.Context,
 	l *zap.Logger,
@@ -2992,8 +3210,9 @@ func (s *syncer) matchProfileAndExpand(
 	if !ok || !strings.EqualFold(profileVal, value) {
 		return nil, nil
 	}
+	newGrant := newGrantForExternalPrincipal(grant, principal)
 	if expandableAnno == nil {
-		return nil, nil
+		return newGrant, nil
 	}
 
 	groupPrincipalBID, err := bid.MakeBid(grant.GetPrincipal())
@@ -3016,7 +3235,6 @@ func (s *syncer) matchProfileAndExpand(
 		newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
 	}
 
-	newGrant := newGrantForExternalPrincipal(grant, principal)
 	newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
 	newExpandableAnno := v2.GrantExpandable_builder{
 		EntitlementIds:  newExpandableEntitlementIDs,
@@ -3128,7 +3346,6 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if matchResourceMatchIDAnno != nil {
 			if principal, ok := principalMap[matchResourceMatchIDAnno.GetId()]; ok {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
-				expandedGrants = append(expandedGrants, newGrant)
 
 				newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
 
@@ -3161,8 +3378,8 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					}.Build()
 					newGrantAnnos.Update(newExpandableAnno)
 					newGrant.SetAnnotations(newGrantAnnos)
-					expandedGrants = append(expandedGrants, newGrant)
 				}
+				expandedGrants = append(expandedGrants, newGrant)
 			}
 
 			// We still want to delete the grant even if there are no matches

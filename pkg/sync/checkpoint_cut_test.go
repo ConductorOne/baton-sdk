@@ -43,6 +43,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -216,6 +217,7 @@ func buildTopoFixture(t *testing.T, topos map[string]*soakTypeTopology) (*soakCo
 
 	expectedEntIDs := make(map[string]struct{})
 	for typeID, topo := range topos {
+		require.NoError(t, topo.Validate(), "invalid shared cursor topology for %s", typeID)
 		groupType := v2.ResourceType_builder{
 			Id:          typeID,
 			DisplayName: typeID,
@@ -233,9 +235,9 @@ func buildTopoFixture(t *testing.T, topos map[string]*soakTypeTopology) (*soakCo
 			connector.resourceDB[typeID] = append(connector.resourceDB[typeID], res)
 		}
 
-		connector.entsByToken[typeID] = make(map[string]*v2.Entitlement, len(topo.tokens))
-		connector.grantsByTok[typeID] = make(map[string]*v2.Grant, len(topo.tokens))
-		for i, token := range topo.tokens {
+		connector.entsByToken[typeID] = make(map[string]*v2.Entitlement, len(topo.Tokens))
+		connector.grantsByTok[typeID] = make(map[string]*v2.Grant, len(topo.Tokens))
+		for i, token := range topo.Tokens {
 			res := resources[i%len(resources)]
 			slug := "m-" + token
 			ent := et.NewAssignmentEntitlement(res, slug, et.WithGrantableTo(userType))
@@ -250,7 +252,11 @@ func buildTopoFixture(t *testing.T, topos map[string]*soakTypeTopology) (*soakCo
 
 // withTopos clones the connector with alternate topologies over the same
 // token universe (shared payload maps) — "the API's answers changed".
-func withTopos(base *soakConnector, topos map[string]*soakTypeTopology) *soakConnector {
+func withTopos(t *testing.T, base *soakConnector, topos map[string]*soakTypeTopology) *soakConnector {
+	t.Helper()
+	for typeID, topo := range topos {
+		require.NoError(t, topo.Validate(), "invalid shared cursor topology for %s", typeID)
+	}
 	return &soakConnector{
 		mockConnector: base.mockConnector,
 		topos:         topos,
@@ -272,36 +278,35 @@ func buildCutFixture(t *testing.T) (*soakConnector, map[string]struct{}, string)
 		// Type A: wide — planner spawns two siblings and continues;
 		// spawned cursors spawn and continue in turn.
 		"groupA": {
-			plannerChildren: []string{"a0", "a1"},
-			plannerNext:     "a2",
-			nodes: map[string]*soakNode{
-				"a0": {children: []string{"a3", "a4"}, next: "a5"},
-				"a1": {next: "a6"},
-				"a2": {children: []string{"a7"}},
+			Pages: map[string]chaosconnector.CursorPage{
+				"":   {Spawn: []string{"a0", "a1"}, Next: "a2"},
+				"a0": {Spawn: []string{"a3", "a4"}, Next: "a5"},
+				"a1": {Next: "a6"},
+				"a2": {Spawn: []string{"a7"}},
 				"a3": {}, "a4": {},
-				"a5": {children: []string{"a8"}},
-				"a6": {next: "a9"},
+				"a5": {Spawn: []string{"a8"}},
+				"a6": {Next: "a9"},
 				"a7": {}, "a8": {}, "a9": {},
 			},
-			tokens:         []string{"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9"},
-			poisonedEnts:   map[string]bool{},
-			poisonedGrants: map[string]bool{},
+			Tokens:         []string{"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9"},
+			PoisonedFirst:  map[string]bool{},
+			PoisonedSecond: map[string]bool{},
 		},
 		// Type B: deep — a single spawned cursor heads a continuation
 		// chain that fans out near the bottom.
 		"groupB": {
-			plannerChildren: []string{"b0"},
-			nodes: map[string]*soakNode{
-				"b0": {next: "b1"},
-				"b1": {next: "b2"},
-				"b2": {children: []string{"b3", "b4", "b5"}},
-				"b3": {next: "b6"},
-				"b4": {children: []string{"b7"}},
+			Pages: map[string]chaosconnector.CursorPage{
+				"":   {Spawn: []string{"b0"}},
+				"b0": {Next: "b1"},
+				"b1": {Next: "b2"},
+				"b2": {Spawn: []string{"b3", "b4", "b5"}},
+				"b3": {Next: "b6"},
+				"b4": {Spawn: []string{"b7"}},
 				"b5": {}, "b6": {}, "b7": {},
 			},
-			tokens:         []string{"b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7"},
-			poisonedEnts:   map[string]bool{},
-			poisonedGrants: map[string]bool{},
+			Tokens:         []string{"b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7"},
+			PoisonedFirst:  map[string]bool{},
+			PoisonedSecond: map[string]bool{},
 		},
 	})
 }
