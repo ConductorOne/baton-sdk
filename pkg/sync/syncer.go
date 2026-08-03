@@ -3231,9 +3231,13 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	return nil
 }
 
+// userTraitContainsEmail reports whether any of the user's emails matches
+// address. Comparison goes through foldKey so it stays consistent with the
+// external-principal index's email buckets, which are keyed the same way.
 func userTraitContainsEmail(emails []*v2.UserTrait_Email, address string) bool {
+	folded := foldKey(address)
 	return slices.ContainsFunc(emails, func(e *v2.UserTrait_Email) bool {
-		return strings.EqualFold(e.GetAddress(), address)
+		return foldKey(e.GetAddress()) == folded
 	})
 }
 

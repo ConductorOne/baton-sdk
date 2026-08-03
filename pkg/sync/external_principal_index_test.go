@@ -159,6 +159,43 @@ func TestExternalPrincipalIndexSkipsUnreadableUserTrait(t *testing.T) {
 	require.Equal(t, []string{"readable"}, resolvedIDs(idx, idx.matchProfile("upn", "shared@example.com")))
 }
 
+// Bucketing and the confirmation pass both normalize through foldKey, so they
+// can never disagree about whether two values match. Nothing is restricted to
+// ASCII: non-ASCII values are lowercased and compared like any other. A
+// mismatch here would mean a real grant is silently dropped -- the candidate
+// would be filtered out by bucketing before confirmation ever runs.
+func TestExternalPrincipalIndexNonASCIIMatching(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		stored, query string
+	}{
+		{name: "ascii", stored: "UPPER@example.com", query: "upper@example.com"},
+		{name: "latin with diaeresis", stored: "Ann-Sofie.Ö", query: "ann-sofie.ö"},
+		{name: "cyrillic", stored: "ПЕТРОВ", query: "петров"},
+		{name: "greek accented", stored: "ΜΆΙΟΣ", query: "μάιοσ"},
+		{name: "cjk is caseless", stored: "山田太郎", query: "山田太郎"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := newExternalUserPrincipalIndex([]*v2.Resource{
+				testUserPrincipal(t, "user_a", map[string]any{"userPrincipalName": tc.stored}),
+			}, zap.NewNop())
+
+			require.Equal(t, []string{"user_a"}, resolvedIDs(idx, idx.matchProfile("userPrincipalName", tc.query)),
+				"stored %q should match query %q", tc.stored, tc.query)
+		})
+	}
+}
+
+// Emails go through the same normalization as profile values, so a non-ASCII
+// local part matches case-insensitively the same way.
+func TestExternalPrincipalIndexNonASCIIEmail(t *testing.T) {
+	idx := newExternalUserPrincipalIndex([]*v2.Resource{
+		testUserPrincipal(t, "user_a", nil, rs.WithEmail("ÄNNA@example.com", true)),
+	}, zap.NewNop())
+
+	require.Equal(t, []string{"user_a"}, resolvedIDs(idx, idx.matchUserTraitEmail("änna@example.com")))
+}
+
 func TestMergePositions(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

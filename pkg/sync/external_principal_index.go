@@ -122,13 +122,14 @@ func (idx *externalPrincipalIndex) matchProfile(key, value string) []int {
 		idx.byProfileKey[key] = buckets
 	}
 
-	candidates := buckets[foldKey(value)]
+	folded := foldKey(value)
+	candidates := buckets[folded]
 	matches := make([]int, 0, len(candidates))
 	for _, i := range candidates {
-		// Re-confirm with EqualFold: the bucket is a prefilter, so a bucket
-		// collision can never manufacture a match the linear scan would not
-		// have made.
-		if v, ok := resource.GetProfileStringValue(idx.profiles[i], key); ok && strings.EqualFold(v, value) {
+		// Confirm through foldKey, the same normalization the buckets were
+		// built with, so bucketing and confirmation can never disagree about
+		// whether two values match.
+		if v, ok := resource.GetProfileStringValue(idx.profiles[i], key); ok && foldKey(v) == folded {
 			matches = append(matches, i)
 		}
 	}
@@ -144,7 +145,7 @@ func (idx *externalPrincipalIndex) matchUserTraitEmail(address string) []int {
 		if idx.skip[i] {
 			continue
 		}
-		// Re-confirm for the same reason as matchProfile.
+		// Confirm through foldKey for the same reason as matchProfile.
 		if userTraitContainsEmail(idx.emails[i], address) {
 			matches = append(matches, i)
 		}
@@ -152,13 +153,20 @@ func (idx *externalPrincipalIndex) matchUserTraitEmail(address string) []int {
 	return matches
 }
 
-// foldKey normalizes a value into a bucket key.
+// foldKey normalizes a value for case-insensitive comparison, and is the single
+// definition of "these two external match values are the same": two values match
+// when their foldKey outputs are equal. Bucket keys, bucket lookups, and every
+// confirmation pass all run through it, so the prefilter and the comparison can
+// never disagree.
 //
-// Buckets are only a prefilter — every lookup re-confirms candidates with
-// strings.EqualFold — so bucketing can only ever narrow the candidate set. It
-// assumes case-fold-equal values share a lowercase form, which holds for the
-// ASCII identifiers used as external match values (emails, user principal
-// names, login names).
+// strings.ToLower is a context-free lowercase mapping, not full Unicode case
+// folding, so the two differ on a small number of pairs — Greek sigma is the
+// usual example, where strings.EqualFold("ΣΤΕΦΑΝΟΣ", "στεφανος") is true but the
+// lowercase forms differ in the final letter. Values like that are treated as
+// distinct here. That is an accepted tradeoff for now: it keeps normalization
+// consistent everywhere rather than having bucketing and confirmation disagree,
+// which would silently drop matches. Nothing is restricted to ASCII — non-ASCII
+// values are lowercased and compared like any other.
 func foldKey(s string) string {
 	return strings.ToLower(s)
 }
