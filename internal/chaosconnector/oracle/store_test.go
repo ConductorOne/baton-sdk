@@ -34,3 +34,17 @@ func TestIdentityOracleRejectsPlantedLossAndDuplication(t *testing.T) {
 		require.ErrorContains(t, CompareIdentities(expected, actual), "grants mismatch")
 	})
 }
+
+func TestLogicalContentOracleRejectsPlantedMutation(t *testing.T) {
+	expected := LogicalContentSnapshot{
+		ResourceTypes: []string{"type-content"},
+		Resources:     []string{"resource-before"},
+		Entitlements:  []string{"entitlement-content"},
+		Grants:        []string{"grant-content"},
+	}
+	actual := expected
+	actual.Resources = []string{"resource-after"}
+
+	require.ErrorContains(t, CompareLogicalContent(expected, actual), "resource content mismatch")
+	require.NoError(t, CompareLogicalContent(expected, expected))
+}

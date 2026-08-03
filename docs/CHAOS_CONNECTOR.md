@@ -195,6 +195,9 @@ produce the exact canonical manifest.
 Resource, entitlement, and grant calls inject retryable, warn-and-drop, and
 fatal outcomes. Tests assert attempts and budgets, exact tagged omissions,
 error identity, sealing behavior, and cold-resume convergence where promised.
+The bounded `ListGrants` matrix runs retryable, lost-response,
+warn-and-drop, and fatal representatives through both direct and in-memory
+gRPC transports.
 
 ### Stage 4: pagination and liveness
 
@@ -213,7 +216,8 @@ for the test to invent one.
 `ReferentialCorpus` generates the closed resource-identity,
 entitlement-to-resource, and grant-entitlement-by-principal matrix. Its 77
 named cells each carry a policy and scenario mutator and run through the full
-sync lifecycle, drop counters, sealing check, and store-presence oracle. New
+sync lifecycle over both transports, drop counters, sealing check, and
+store-presence oracle. New
 reference shapes are added to the applicable path vocabulary and therefore
 expand the grant cross-product automatically. `InitialDataCorpus` remains the
 registry for non-referential representation, temporal, and legal-hostility
@@ -222,17 +226,20 @@ cases; a case cannot become gating while its policy is `unresolved`.
 `SemanticCorpus` adds same-page and cross-page duplicate identities plus
 missing, unknown, self-cyclic, and mutually cyclic parent references. Duplicate
 tests assert canonical multiplicity and final content, making overwrite order
-independent of page boundaries. `TemporalCorpus` loses the first response,
+independent of page boundaries; every case runs through both transports.
+`TemporalCorpus` loses the first response,
 changes the scenario epoch, and verifies that resource, entitlement, and grant
 retries converge to the retry answer without retaining the unseen answer.
 
 `ConcurrentDuplicateCorpus` uses spawned entitlement/grant cursors and
-independently scheduled resource-type roots with barriers to force both
-conflicting-response completion orders for resources, entitlements, and
-grants. A live run retains the last completed write. Its crash/resume variant
-verifies that the complete pending frontier is replayed; with one resume
-worker, stable action order determines the last write regardless of which
-sibling was interrupted before the crash.
+independent parent-scoped requests for the same child resource type, with
+barriers to force both conflicting-response completion orders for resources,
+entitlements, and grants. A live run retains the last completed write. Its
+crash/resume variant verifies that the complete pending frontier is replayed
+inside the same sync run; with one resume worker, stable action order
+determines the last write regardless of which sibling was interrupted before
+the crash. The complete connector-visible store is compared with an
+uninterrupted one-worker reference run, not only with the contested row.
 The harness proves that both conflicting values were observed, but the SDK
 does not yet emit exact entitlement/grant conflict counters: doing that would
 require either a read before every put or sync-wide identity state. Neither
@@ -254,12 +261,14 @@ resumed against the persisted checkpoint. A changed-external-answer case
 verifies replay converges to the principals visible at resume time. Its oracle
 checks multiplicity, unresolved carriers, expansion targets, and sealing.
 
-One bounded combined-fault case loses the first entitlement response, pauses
-at a deterministic connector barrier, then fails the first subsequent
-write-class Pebble filesystem operation. It cuts a strict crash image before
-close, proves both fault domains fired, reopens the image as
+One bounded combined-fault case loses the first entitlement response, proves
+that loss was observed, pauses the retry at a deterministic connector barrier,
+then fails the first subsequent write-class Pebble filesystem operation. It
+cuts a strict crash image before close, proves both fault domains fired,
+reopens the image as
 resumable-unfinished, and requires the same sync run to seal with exact
-manifest identities. This is coverage of that named ordering only, not closure
+manifest identities and connector-visible content equivalent to an
+uninterrupted run. This is coverage of that named ordering only, not closure
 over the connector-by-filesystem schedule product.
 
 ### Stage 6: checkpoint and resume

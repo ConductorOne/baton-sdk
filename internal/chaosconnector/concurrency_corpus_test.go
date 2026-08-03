@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
 func TestConcurrentDuplicateCorpusCoversBothOrders(t *testing.T) {
@@ -24,6 +26,19 @@ func TestConcurrentDuplicateCorpusCoversBothOrders(t *testing.T) {
 		scenario, err := NewConcurrentDuplicateScenario(corpusCase.Entity)
 		require.NoError(t, err)
 		require.NoError(t, scenario.Validate())
+		if corpusCase.Entity == ReferentialResource {
+			dataset := scenario.Epochs[scenario.InitialEpoch]
+			for _, token := range []string{"left", "right"} {
+				parentID := v2.ResourceId_builder{
+					ResourceType: concurrentParentResourceTypeID,
+					Resource:     concurrentResourceParentID(token),
+				}.Build()
+				page := dataset.Resources[resourcePageScope(FullCapabilityResourceTypeID, parentID)][""]
+				require.Len(t, page.List, 1)
+				require.Equal(t, FullCapabilityResourceTypeID, page.List[0].GetId().GetResourceType(),
+					"parent-scoped response must match the requested child type")
+			}
+		}
 	}
 	for _, entity := range []ReferentialEntity{
 		ReferentialResource,

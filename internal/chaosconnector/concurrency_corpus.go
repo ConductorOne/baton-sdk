@@ -4,8 +4,11 @@ import (
 	"fmt"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"google.golang.org/protobuf/proto"
 )
+
+const concurrentParentResourceTypeID = "chaos-concurrent-parent"
 
 // ConcurrentDuplicateCase forces one conflicting sibling response to arrive
 // last. The blocked token's value must be the final stored value.
@@ -35,8 +38,8 @@ func ConcurrentDuplicateCorpus() []ConcurrentDuplicateCase {
 	return out
 }
 
-// NewConcurrentDuplicateScenario returns two spawned cursor pages carrying
-// conflicting observations of the same canonical row.
+// NewConcurrentDuplicateScenario returns two independently scheduled responses
+// carrying conflicting observations of the same canonical row.
 func NewConcurrentDuplicateScenario(entity ReferentialEntity) (*Scenario, error) {
 	scenario, err := NewFullScenario()
 	if err != nil {
@@ -50,15 +53,26 @@ func NewConcurrentDuplicateScenario(entity ReferentialEntity) (*Scenario, error)
 		left.SetDisplayName(concurrentDuplicateValue(entity, "left"))
 		right := proto.Clone(baseline).(*v2.Resource)
 		right.SetDisplayName(concurrentDuplicateValue(entity, "right"))
-		// Resource pagination is sequential. Use the two independently
-		// scheduled resource-type roots to create concurrent writers for the
-		// same canonical resource instead.
+		parentType := v2.ResourceType_builder{
+			Id:          concurrentParentResourceTypeID,
+			DisplayName: "Chaos Concurrent Parent",
+		}.Build()
+		leftParent := concurrentDuplicateParent("left", parentType)
+		rightParent := concurrentDuplicateParent("right", parentType)
+		dataset.ResourceTypes = append(dataset.ResourceTypes, parentType)
+		dataset.Resources[concurrentParentResourceTypeID] = Pages[*v2.Resource]{
+			"": {List: []*v2.Resource{leftParent, rightParent}},
+		}
+		// Resource pagination itself is sequential. Two valid parent-scoped
+		// requests for the same child type provide independent concurrent
+		// operations without returning a resource of the wrong requested type.
 		dataset.Resources[FullCapabilityResourceTypeID] = Pages[*v2.Resource]{
-			"": {List: []*v2.Resource{left}},
+			"": {},
 		}
-		dataset.Resources[IssuedSecretResourceTypeID] = Pages[*v2.Resource]{
-			"": {List: []*v2.Resource{right}},
-		}
+		dataset.Resources[resourcePageScope(FullCapabilityResourceTypeID, leftParent.GetId())] =
+			Pages[*v2.Resource]{"": {List: []*v2.Resource{left}}}
+		dataset.Resources[resourcePageScope(FullCapabilityResourceTypeID, rightParent.GetId())] =
+			Pages[*v2.Resource]{"": {List: []*v2.Resource{right}}}
 	case ReferentialEntitlement:
 		baseline := dataset.Entitlements[FullCapabilityResourceTypeID][""].List[0]
 		left := proto.Clone(baseline).(*v2.Entitlement)
@@ -98,7 +112,8 @@ func newConcurrentDuplicateCase(entity ReferentialEntity, blocked, first string)
 		Phase:        PhaseAfterDelegate,
 	}
 	if entity == ReferentialResource {
-		match.ResourceType = ExactString(concurrentResourceScope(blocked))
+		match.ResourceType = ExactString(FullCapabilityResourceTypeID)
+		match.Subject = ExactString(concurrentResourceParentID(blocked))
 		match.PageToken = ExactString("")
 	}
 	return ConcurrentDuplicateCase{
@@ -135,7 +150,8 @@ func (c ConcurrentDuplicateCase) OperationMatchesToken(operation Operation, toke
 		return false
 	}
 	if c.Entity == ReferentialResource {
-		return operation.ResourceType == concurrentResourceScope(token)
+		return operation.ResourceType == FullCapabilityResourceTypeID &&
+			operation.Subject == concurrentResourceParentID(token)
 	}
 	return operation.PageToken == token
 }
@@ -176,9 +192,19 @@ func concurrentDuplicateValue(entity ReferentialEntity, token string) string {
 	return fmt.Sprintf("concurrent-%s-observation-from-%s", entity, token)
 }
 
-func concurrentResourceScope(token string) string {
-	if token == "left" {
-		return FullCapabilityResourceTypeID
-	}
-	return IssuedSecretResourceTypeID
+func concurrentDuplicateParent(token string, resourceType *v2.ResourceType) *v2.Resource {
+	return v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceType.GetId(),
+			Resource:     concurrentResourceParentID(token),
+		}.Build(),
+		DisplayName: "Concurrent parent " + token,
+		Annotations: annotations.New(v2.ChildResourceType_builder{
+			ResourceTypeId: FullCapabilityResourceTypeID,
+		}.Build()),
+	}.Build()
+}
+
+func concurrentResourceParentID(token string) string {
+	return "concurrent-parent-" + token
 }

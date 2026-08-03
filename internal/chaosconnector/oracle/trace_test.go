@@ -31,6 +31,7 @@ func TestTraceOracleRejectsPlantedControlViolation(t *testing.T) {
 			chaosconnector.OutcomeErrored,
 		},
 		Min: 2,
+		Max: 2,
 	}
 	require.ErrorContains(t, VerifyTrace(events, expectation), "retry happened")
 
@@ -44,4 +45,15 @@ func TestTraceOracleRejectsPlantedControlViolation(t *testing.T) {
 		Outcome: chaosconnector.OutcomeReturned,
 	})
 	require.NoError(t, VerifyTrace(events, expectation))
+
+	events = append(events, chaosconnector.TraceEvent{
+		Operation: chaosconnector.Operation{
+			Domain:  chaosconnector.DomainConnector,
+			Service: "ResourcesService",
+			Method:  "ListResources",
+			Attempt: 3,
+		},
+		Outcome: chaosconnector.OutcomeReturned,
+	})
+	require.ErrorContains(t, VerifyTrace(events, expectation), "allows at most 2")
 }

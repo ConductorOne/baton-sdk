@@ -17,12 +17,20 @@ import (
 func TestChaosConnectorReferentialCorpus(t *testing.T) {
 	for _, corpusCase := range chaosconnector.ReferentialCorpus() {
 		t.Run(corpusCase.Name, func(t *testing.T) {
-			runReferentialCorpusCase(t, corpusCase)
+			for _, transport := range []chaosTransport{chaosTransportDirect, chaosTransportGRPC} {
+				t.Run(transport.String(), func(t *testing.T) {
+					runReferentialCorpusCase(t, corpusCase, transport)
+				})
+			}
 		})
 	}
 }
 
-func runReferentialCorpusCase(t *testing.T, corpusCase chaosconnector.ReferentialCase) {
+func runReferentialCorpusCase(
+	t *testing.T,
+	corpusCase chaosconnector.ReferentialCase,
+	transport chaosTransport,
+) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -34,7 +42,7 @@ func runReferentialCorpusCase(t *testing.T, corpusCase chaosconnector.Referentia
 	require.NoError(t, corpusCase.Apply(scenario))
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
 	require.NoError(t, err)
-	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
+	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, transport)
 	concreteSyncer, ok := harness.Syncer.(*syncer)
 	require.True(t, ok)
 

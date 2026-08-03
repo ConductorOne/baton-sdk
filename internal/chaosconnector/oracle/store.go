@@ -3,12 +3,14 @@ package oracle
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"google.golang.org/protobuf/proto"
 )
 
 // StoreReader is the raw read surface needed by the identity oracle.
@@ -23,6 +25,17 @@ type StoreReader interface {
 // sealed store. Content/provenance auditors remain separate so identity
 // equality is never misrepresented as full proto equality.
 type IdentitySnapshot struct {
+	ResourceTypes []string
+	Resources     []string
+	Entitlements  []string
+	Grants        []string
+}
+
+// LogicalContentSnapshot is the complete connector-visible store projection.
+// Deterministic protobuf bytes retain all fields, annotations, and unknown
+// fields while excluding sync-run metadata that legitimately differs between
+// an uninterrupted reference run and an interrupted/resumed run.
+type LogicalContentSnapshot struct {
 	ResourceTypes []string
 	Resources     []string
 	Entitlements  []string
@@ -126,6 +139,93 @@ func ReadIdentities(ctx context.Context, reader StoreReader) (IdentitySnapshot, 
 	return out, nil
 }
 
+// ReadLogicalContent exhaustively pages every public entity surface and
+// fingerprints complete protobuf messages. Sorting makes response order
+// irrelevant while preserving multiplicity.
+func ReadLogicalContent(ctx context.Context, reader StoreReader) (LogicalContentSnapshot, error) {
+	var out LogicalContentSnapshot
+	var fingerprintErr error
+
+	if err := pageRows(
+		func(token string) ([]*v2.ResourceType, string, error) {
+			response, listErr := reader.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+				PageToken: token,
+			}.Build())
+			if listErr != nil {
+				return nil, "", listErr
+			}
+			return response.GetList(), response.GetNextPageToken(), nil
+		},
+		func(item *v2.ResourceType) {
+			appendProtoFingerprint(&out.ResourceTypes, item, &fingerprintErr)
+		},
+	); err != nil {
+		return out, fmt.Errorf("chaos oracle: list resource type content: %w", err)
+	}
+	if fingerprintErr != nil {
+		return out, fmt.Errorf("chaos oracle: fingerprint resource type content: %w", fingerprintErr)
+	}
+	if err := pageRows(
+		func(token string) ([]*v2.Resource, string, error) {
+			response, listErr := reader.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+				PageToken: token,
+			}.Build())
+			if listErr != nil {
+				return nil, "", listErr
+			}
+			return response.GetList(), response.GetNextPageToken(), nil
+		},
+		func(item *v2.Resource) {
+			appendProtoFingerprint(&out.Resources, item, &fingerprintErr)
+		},
+	); err != nil {
+		return out, fmt.Errorf("chaos oracle: list resource content: %w", err)
+	}
+	if fingerprintErr != nil {
+		return out, fmt.Errorf("chaos oracle: fingerprint resource content: %w", fingerprintErr)
+	}
+	if err := pageRows(
+		func(token string) ([]*v2.Entitlement, string, error) {
+			response, listErr := reader.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+				PageToken: token,
+			}.Build())
+			if listErr != nil {
+				return nil, "", listErr
+			}
+			return response.GetList(), response.GetNextPageToken(), nil
+		},
+		func(item *v2.Entitlement) {
+			appendProtoFingerprint(&out.Entitlements, item, &fingerprintErr)
+		},
+	); err != nil {
+		return out, fmt.Errorf("chaos oracle: list entitlement content: %w", err)
+	}
+	if fingerprintErr != nil {
+		return out, fmt.Errorf("chaos oracle: fingerprint entitlement content: %w", fingerprintErr)
+	}
+	if err := pageRows(
+		func(token string) ([]*v2.Grant, string, error) {
+			response, listErr := reader.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+				PageToken: token,
+			}.Build())
+			if listErr != nil {
+				return nil, "", listErr
+			}
+			return response.GetList(), response.GetNextPageToken(), nil
+		},
+		func(item *v2.Grant) {
+			appendProtoFingerprint(&out.Grants, item, &fingerprintErr)
+		},
+	); err != nil {
+		return out, fmt.Errorf("chaos oracle: list grant content: %w", err)
+	}
+	if fingerprintErr != nil {
+		return out, fmt.Errorf("chaos oracle: fingerprint grant content: %w", fingerprintErr)
+	}
+	out.sort()
+	return out, nil
+}
+
 func pageRows[T any](
 	list func(string) ([]T, string, error),
 	consume func(T),
@@ -162,6 +262,16 @@ func CompareIdentities(expected, actual IdentitySnapshot) error {
 	)
 }
 
+// CompareLogicalContent asserts exact entity content and multiplicity.
+func CompareLogicalContent(expected, actual LogicalContentSnapshot) error {
+	return errors.Join(
+		compareSlice("resource type content", expected.ResourceTypes, actual.ResourceTypes),
+		compareSlice("resource content", expected.Resources, actual.Resources),
+		compareSlice("entitlement content", expected.Entitlements, actual.Entitlements),
+		compareSlice("grant content", expected.Grants, actual.Grants),
+	)
+}
+
 func compareSlice(name string, expected, actual []string) error {
 	if slices.Equal(expected, actual) {
 		return nil
@@ -174,6 +284,29 @@ func (s *IdentitySnapshot) sort() {
 	slices.Sort(s.Resources)
 	slices.Sort(s.Entitlements)
 	slices.Sort(s.Grants)
+}
+
+func (s *LogicalContentSnapshot) sort() {
+	slices.Sort(s.ResourceTypes)
+	slices.Sort(s.Resources)
+	slices.Sort(s.Entitlements)
+	slices.Sort(s.Grants)
+}
+
+func appendProtoFingerprint(out *[]string, message proto.Message, fingerprintErr *error) {
+	if *fingerprintErr != nil {
+		return
+	}
+	if message == nil {
+		*out = append(*out, "<nil>")
+		return
+	}
+	value, err := proto.MarshalOptions{Deterministic: true}.Marshal(message)
+	if err != nil {
+		*fingerprintErr = err
+		return
+	}
+	*out = append(*out, hex.EncodeToString(value))
 }
 
 func resourceKey(id *v2.ResourceId) string {

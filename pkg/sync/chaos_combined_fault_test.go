@@ -139,27 +139,41 @@ func TestChaosConnectorLostResponseThenFilesystemFailureResumes(t *testing.T) {
 	manifest, err := scenario.Manifest(scenario.InitialEpoch)
 	require.NoError(t, err)
 	expected := chaosoracle.ExpectedIdentities(manifest)
+	baselineContent := runCombinedFaultBaseline(t, ctx, scenario)
 
 	const (
-		ruleID  = "block-and-lose-first-entitlement-response"
-		barrier = "arm-filesystem-failure"
+		lostRuleID  = "lose-first-entitlement-response"
+		retryRuleID = "block-entitlement-retry"
+		barrier     = "arm-filesystem-failure"
 	)
-	schedule := chaosconnector.NewSchedule(chaosconnector.Rule{
-		ID: ruleID,
-		Match: chaosconnector.Matcher{
-			Domain:       chaosconnector.DomainConnector,
-			Method:       chaosconnector.ExactString("ListEntitlements"),
-			ResourceType: chaosconnector.ExactString(chaosconnector.FullCapabilityResourceTypeID),
-			Attempt:      1,
-			Phase:        chaosconnector.PhaseAfterDelegate,
+	schedule := chaosconnector.NewSchedule(
+		chaosconnector.Rule{
+			ID: lostRuleID,
+			Match: chaosconnector.Matcher{
+				Domain:       chaosconnector.DomainConnector,
+				Method:       chaosconnector.ExactString("ListEntitlements"),
+				ResourceType: chaosconnector.ExactString(chaosconnector.FullCapabilityResourceTypeID),
+				Attempt:      1,
+				Phase:        chaosconnector.PhaseAfterDelegate,
+			},
+			Effects:  []chaosconnector.Effect{{Kind: chaosconnector.EffectLoseResponse, Code: codes.Unavailable}},
+			MinFires: 1,
+			MaxFires: 1,
 		},
-		Effects: []chaosconnector.Effect{
-			{Kind: chaosconnector.EffectBlock, Barrier: barrier},
-			{Kind: chaosconnector.EffectLoseResponse, Code: codes.Unavailable},
+		chaosconnector.Rule{
+			ID: retryRuleID,
+			Match: chaosconnector.Matcher{
+				Domain:       chaosconnector.DomainConnector,
+				Method:       chaosconnector.ExactString("ListEntitlements"),
+				ResourceType: chaosconnector.ExactString(chaosconnector.FullCapabilityResourceTypeID),
+				Attempt:      2,
+				Phase:        chaosconnector.PhaseBeforeCall,
+			},
+			Effects:  []chaosconnector.Effect{{Kind: chaosconnector.EffectBlock, Barrier: barrier}},
+			MinFires: 1,
+			MaxFires: 1,
 		},
-		MinFires: 1,
-		MaxFires: 1,
-	})
+	)
 	run, err := chaosconnector.NewRun(scenario, schedule)
 	require.NoError(t, err)
 	client := newCombinedFaultClient(t, ctx, run)
@@ -187,8 +201,13 @@ func TestChaosConnectorLostResponseThenFilesystemFailureResumes(t *testing.T) {
 	go func() { done <- first.Sync(ctx) }()
 
 	require.Eventually(t, func() bool {
-		return run.Runtime().FireCounts()[ruleID] == 1
-	}, 5*time.Second, 10*time.Millisecond, "connector fault did not reach its deterministic barrier")
+		return run.Runtime().FireCounts()[retryRuleID] == 1
+	}, 5*time.Second, 10*time.Millisecond, "connector retry did not reach its deterministic barrier")
+	require.True(t, traceContainsEffect(
+		run.Trace().Events(),
+		lostRuleID,
+		chaosconnector.EffectLoseResponse,
+	), "first response loss must be observed before filesystem injection is armed")
 	injector.armed.Store(true)
 	run.Runtime().ReleaseBarrier(barrier)
 
@@ -240,7 +259,55 @@ func TestChaosConnectorLostResponseThenFilesystemFailureResumes(t *testing.T) {
 	actual, err := chaosoracle.ReadIdentities(ctx, recovered)
 	require.NoError(t, err)
 	require.NoError(t, chaosoracle.CompareIdentities(expected, actual))
+	resumedContent, err := chaosoracle.ReadLogicalContent(ctx, recovered)
+	require.NoError(t, err)
+	require.NoError(t, chaosoracle.CompareLogicalContent(baselineContent, resumedContent),
+		"recovered logical store must equal the uninterrupted reference")
 	require.NoError(t, resumed.Close(ctx))
+}
+
+func runCombinedFaultBaseline(
+	t *testing.T,
+	ctx context.Context,
+	scenario *chaosconnector.Scenario,
+) chaosoracle.LogicalContentSnapshot {
+	t.Helper()
+	engine, err := pebble.Open(ctx, "combined-fault-baseline-db", pebble.WithVFS(vfs.NewCrashableMem()))
+	require.NoError(t, err)
+	require.NoError(t, engine.InitCurrentSync(ctx))
+	store := &chaosPebbleStore{Engine: engine}
+	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+	require.NoError(t, err)
+	syncer, err := NewSyncer(
+		ctx,
+		newCombinedFaultClient(t, ctx, run),
+		WithConnectorStore(store),
+		WithDontExpandGrants(),
+	)
+	require.NoError(t, err)
+	require.NoError(t, syncer.Sync(ctx))
+	finished, err := engine.SyncMeta().LatestFullSync(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, finished)
+	content, err := chaosoracle.ReadLogicalContent(ctx, engine)
+	require.NoError(t, err)
+	require.NoError(t, syncer.Close(ctx))
+	return content
+}
+
+func traceContainsEffect(
+	events []chaosconnector.TraceEvent,
+	ruleID string,
+	effect chaosconnector.EffectKind,
+) bool {
+	for _, event := range events {
+		if event.RuleID == ruleID &&
+			event.Effect == effect &&
+			event.Outcome == chaosconnector.OutcomeInjected {
+			return true
+		}
+	}
+	return false
 }
 
 func newCombinedFaultClient(

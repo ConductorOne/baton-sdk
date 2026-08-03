@@ -23,10 +23,14 @@ func (s *resourceSyncer) ResourceType(context.Context) *v2.ResourceType {
 
 func (s *resourceSyncer) List(
 	_ context.Context,
-	_ *v2.ResourceId,
+	parent *v2.ResourceId,
 	opts resource.SyncOpAttrs,
 ) ([]*v2.Resource, *resource.SyncOpResults, error) {
-	pages := s.run.dataset().Resources[s.resourceType.GetId()]
+	resources := s.run.dataset().Resources
+	pages, ok := resources[resourcePageScope(s.resourceType.GetId(), parent)]
+	if !ok {
+		pages = resources[s.resourceType.GetId()]
+	}
 	return servePage(pages, opts.PageToken.Token)
 }
 
@@ -118,4 +122,11 @@ func firstResource(run *Run, resourceTypeID string) (*v2.Resource, error) {
 		}
 	}
 	return nil, fmt.Errorf("chaosconnector: resource type %q has no fixture resource", resourceTypeID)
+}
+
+func resourcePageScope(resourceTypeID string, parent *v2.ResourceId) string {
+	if parent == nil {
+		return resourceTypeID
+	}
+	return resourceTypeID + "\x00" + parent.GetResourceType() + "\x00" + parent.GetResource()
 }
