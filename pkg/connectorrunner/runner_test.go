@@ -153,6 +153,52 @@ func TestRun_DrainsInFlightTaskBeforeReturningOnCancellation(t *testing.T) {
 	}
 }
 
+// TestRun_DrainsInFlightTaskOnStopForLoopExit covers a second, distinct exit
+// path from run()'s loop: a dispatched task goroutine can set stopForLoop
+// (on a "grpc: the client connection is closing" error), which the loop only
+// notices at its next `for !stopForLoop` check -- falling straight to the
+// post-loop return with no select case, and therefore no drain call,
+// involved at all. The two `<-ctx.Done()`/semaphore-acquire-error returns
+// each called drainInFlightTasks directly; this third path did not, so with
+// taskConcurrency > 1 another task could still be mid-checkpoint-write when
+// run() returned. Now covered by a single deferred drain instead of a call
+// per return site.
+func TestRun_DrainsInFlightTaskOnStopForLoopExit(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(ErrSigTerm)
+
+	tm := newGRPCCloseTriggeringTaskManager()
+	runner := &connectorRunner{
+		cw:              noopClientWrapper{},
+		tasks:           tm,
+		taskConcurrency: 2,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runner.run(ctx)
+	}()
+
+	waitForStartedTasks(t, tm.started, 1)
+
+	select {
+	case <-errCh:
+		require.Fail(t, "run() returned before the blocking task finished; the stopForLoop exit bypassed the drain")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(tm.release)
+
+	select {
+	case err := <-errCh:
+		require.ErrorContains(t, err, "unable to communicate with gRPC server")
+	case <-time.After(time.Second):
+		require.Fail(t, "timed out waiting for runner to stop after releasing the blocking task")
+	}
+}
+
 func waitForStartedTasks(t *testing.T, started <-chan struct{}, count int) {
 	t.Helper()
 	for range count {
@@ -327,6 +373,58 @@ func (m *detachedTaskManager) ShouldDebug() bool {
 }
 
 func (m *detachedTaskManager) GetTempDir() string {
+	return ""
+}
+
+// grpcCloseTriggeringTaskManager dispatches two tasks: "blocking-task" mimics
+// an in-flight checkpoint write (blocks until released, ignoring ctx.Done()
+// same as detachedTaskManager), and "failing-task" returns immediately with
+// a "grpc: the client connection is closing" error -- the OTHER way run()'s
+// loop can exit besides context cancellation (see the stopForLoop check in
+// run()). Both are dispatched to their own goroutine when taskConcurrency
+// >= 2, so the failing task can trigger stopForLoop while the blocking task
+// is still in flight.
+type grpcCloseTriggeringTaskManager struct {
+	nextCalls atomic.Int64
+	started   chan struct{}
+	release   chan struct{}
+}
+
+func newGRPCCloseTriggeringTaskManager() *grpcCloseTriggeringTaskManager {
+	return &grpcCloseTriggeringTaskManager{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+}
+
+func (m *grpcCloseTriggeringTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
+	switch m.nextCalls.Add(1) {
+	case 1:
+		return v1.Task_builder{Id: "blocking-task", Status: v1.Task_STATUS_PENDING, Hello: &v1.Task_HelloTask{}}.Build(), 0, nil
+	case 2:
+		return v1.Task_builder{Id: "failing-task", Status: v1.Task_STATUS_PENDING, Hello: &v1.Task_HelloTask{}}.Build(), 0, nil
+	default:
+		return nil, time.Hour, nil
+	}
+}
+
+func (m *grpcCloseTriggeringTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
+	if task.GetId() == "failing-task" {
+		return errors.New("rpc error: grpc: the client connection is closing")
+	}
+	m.started <- struct{}{}
+	<-m.release
+	return nil
+}
+
+func (m *grpcCloseTriggeringTaskManager) ShouldDebug() bool {
+	return false
+}
+
+func (m *grpcCloseTriggeringTaskManager) GetTempDir() string {
 	return ""
 }
 

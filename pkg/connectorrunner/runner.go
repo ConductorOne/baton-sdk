@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -72,9 +73,16 @@ const shutdownDrainTimeout = 25 * time.Second
 // drainInFlightTasks waits for every currently-held semaphore slot to be
 // released — i.e. every dispatched task goroutine (see the `go func(t
 // *v1.Task)` dispatch below) to return — bounded by shutdownDrainTimeout.
-// Called right before run() returns on cancellation, so the caller's
-// deferred Close() (which tears down the connector client) doesn't race an
-// in-flight sync that's still writing its forced checkpoint.
+// Deferred once, right after sem is created, so it runs on every exit from
+// run() — including the cancellation-driven returns below, and the
+// stopForLoop exit further down, which falls out of the loop with no select
+// case involved at all. Covering every return this way, rather than one
+// call per return site, is deliberate: this loop has already had a return
+// path added without a matching drain call once (a task goroutine setting
+// stopForLoop bypassed it entirely), and a per-site call is exactly the
+// shape of bug that keeps recurring. Whichever return runs, the caller's
+// deferred Close() (which tears down the connector client) must not race
+// an in-flight sync that's still writing its forced checkpoint.
 func (c *connectorRunner) drainInFlightTasks(ctx context.Context, sem *semaphore.Weighted, l *zap.Logger) {
 	drainCtx, cancelDrain := context.WithTimeout(context.WithoutCancel(ctx), shutdownDrainTimeout)
 	defer cancelDrain()
@@ -247,15 +255,22 @@ func (c *connectorRunner) run(ctx context.Context) error {
 	}
 
 	sem := semaphore.NewWeighted(int64(c.taskConcurrency))
+	// Drain unconditionally on every exit from this function, not just the
+	// two cancellation-driven returns below: a dispatched task goroutine can
+	// also end this loop by setting stopForLoop (see the "grpc: the client
+	// connection is closing" check further down), which falls through to the
+	// post-loop return with no select case involved at all. A per-return-site
+	// call is exactly the shape of bug this already was once -- a defer here
+	// covers every current and future exit path from run() by construction.
+	defer c.drainInFlightTasks(ctx, sem, l)
 
 	nextCheckAfter := time.Second * 0
 	errCount := 0
-	stopForLoop := false
+	var stopForLoop atomic.Bool
 	var err error
-	for !stopForLoop {
+	for !stopForLoop.Load() {
 		select {
 		case <-ctx.Done():
-			c.drainInFlightTasks(ctx, sem, l)
 			return c.handleContextCancel(ctx)
 		case <-time.After(nextCheckAfter):
 			l.Debug("runner: claiming worker")
@@ -263,7 +278,6 @@ func (c *connectorRunner) run(ctx context.Context) error {
 			err = sem.Acquire(ctx, 1)
 			if err != nil {
 				l.Error("runner: error acquiring semaphore to claim worker", zap.Error(err))
-				c.drainInFlightTasks(ctx, sem, l)
 				return c.handleContextCancel(ctx)
 			}
 			l.Debug("runner: worker claimed, checking for next task")
@@ -320,7 +334,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 				err := c.processTask(ctx, t)
 				if err != nil {
 					if strings.Contains(err.Error(), "grpc: the client connection is closing") {
-						stopForLoop = true
+						stopForLoop.Store(true)
 					}
 					l.Error("runner: error processing task", zap.Error(err), zap.String("task_id", t.GetId()), zap.String("task_type", tasks.GetType(t).String()))
 					return
@@ -332,7 +346,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 		}
 	}
 
-	if stopForLoop {
+	if stopForLoop.Load() {
 		return fmt.Errorf("unable to communicate with gRPC server")
 	}
 
