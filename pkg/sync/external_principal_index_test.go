@@ -111,6 +111,23 @@ func TestExternalPrincipalIndexMatchUserTraitEmail(t *testing.T) {
 	})
 }
 
+// A user holding two addresses that fold to the same key is bucketed under that
+// key twice. It must still yield one position -- the linear scan this replaced
+// moved on to the next principal as soon as it found an email match, so it could
+// never emit two grants for one user.
+func TestExternalPrincipalIndexDuplicateFoldedEmails(t *testing.T) {
+	principals := []*v2.Resource{
+		testUserPrincipal(t, "dupe", nil,
+			rs.WithEmail("Dupe@example.com", true),
+			rs.WithEmail("DUPE@EXAMPLE.COM", false),
+		),
+		testUserPrincipal(t, "other", nil, rs.WithEmail("other@example.com", true)),
+	}
+	idx := newExternalUserPrincipalIndex(principals, zap.NewNop())
+
+	require.Equal(t, []string{"dupe"}, resolvedIDs(idx, idx.matchUserTraitEmail("dupe@example.com")))
+}
+
 // The "email" match key considers both a user-trait email address and a profile
 // field literally named "email". The union must stay in principal order and must
 // not emit a principal twice when it matches both ways.
@@ -157,6 +174,48 @@ func TestExternalPrincipalIndexSkipsUnreadableUserTrait(t *testing.T) {
 	idx := newExternalUserPrincipalIndex([]*v2.Resource{readable, noTrait}, zap.NewNop())
 	require.True(t, idx.skip[1], "principal with an unreadable user trait should be skipped")
 	require.Equal(t, []string{"readable"}, resolvedIDs(idx, idx.matchProfile("upn", "shared@example.com")))
+}
+
+// Bucketing and the confirmation pass both normalize through foldKey, so they
+// can never disagree about whether two values match. Nothing is restricted to
+// ASCII: non-ASCII values are lowercased and compared like any other. A
+// mismatch here would mean a real grant is silently dropped -- the candidate
+// would be filtered out by bucketing before confirmation ever runs.
+func TestExternalPrincipalIndexNonASCIIMatching(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		stored, query string
+	}{
+		{name: "ascii", stored: "UPPER@example.com", query: "upper@example.com"},
+		{name: "latin with diaeresis", stored: "Ann-Sofie.Ö", query: "ann-sofie.ö"},
+		{name: "cyrillic", stored: "ПЕТРОВ", query: "петров"},
+		{name: "greek accented", stored: "ΜΆΙΟΣ", query: "μάιοσ"},
+		{name: "cjk is caseless", stored: "山田太郎", query: "山田太郎"},
+		// strings.ToLower("İ") is "i", but strings.EqualFold("İ", "I") is
+		// false. Any comparison downstream of the index -- notably
+		// matchProfileAndExpand -- must fold the same way, or it will reject a
+		// principal the index matched and silently drop the grant.
+		{name: "turkish dotted capital i", stored: "İSTANBUL", query: "istanbul"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := newExternalUserPrincipalIndex([]*v2.Resource{
+				testUserPrincipal(t, "user_a", map[string]any{"userPrincipalName": tc.stored}),
+			}, zap.NewNop())
+
+			require.Equal(t, []string{"user_a"}, resolvedIDs(idx, idx.matchProfile("userPrincipalName", tc.query)),
+				"stored %q should match query %q", tc.stored, tc.query)
+		})
+	}
+}
+
+// Emails go through the same normalization as profile values, so a non-ASCII
+// local part matches case-insensitively the same way.
+func TestExternalPrincipalIndexNonASCIIEmail(t *testing.T) {
+	idx := newExternalUserPrincipalIndex([]*v2.Resource{
+		testUserPrincipal(t, "user_a", nil, rs.WithEmail("ÄNNA@example.com", true)),
+	}, zap.NewNop())
+
+	require.Equal(t, []string{"user_a"}, resolvedIDs(idx, idx.matchUserTraitEmail("änna@example.com")))
 }
 
 func TestMergePositions(t *testing.T) {
