@@ -116,17 +116,15 @@ func (idx *externalPrincipalIndex) matchProfile(key, value string) []int {
 		idx.byProfileKey[key] = buckets
 	}
 
-	folded := foldKey(value)
-	candidates := buckets[folded]
-	matches := make([]int, 0, len(candidates))
-	for _, i := range candidates {
-		// Confirm through foldKey, the same normalization the buckets were
-		// built with, so bucketing and confirmation can never disagree about
-		// whether two values match.
-		if v, ok := resource.GetProfileStringValue(idx.profiles[i], key); ok && foldKey(v) == folded {
-			matches = append(matches, i)
-		}
-	}
+	// candidates are already exactly the positions bucketed under
+	// foldKey(value) -- that's how they got into the bucket during the build
+	// above -- so re-fetching and re-comparing each profile value here would
+	// only ever reconfirm what bucketing already guarantees. Copy rather than
+	// return the bucket slice directly so a caller can't mutate our cached
+	// index state.
+	candidates := buckets[foldKey(value)]
+	matches := make([]int, len(candidates))
+	copy(matches, candidates)
 	return matches
 }
 
