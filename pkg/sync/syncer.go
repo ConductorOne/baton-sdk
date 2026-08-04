@@ -3192,31 +3192,23 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 }
 
 // matchProfileAndExpand implements the generic external-resource key/val
-// profile match originally written for TRAIT_GROUP, now shared by GROUP and
-// any additional trait configured via WithExternalResourceTraits (e.g.
-// TRAIT_APP). It returns a nil grant (and nil error) when the principal's
-// profile doesn't match key/value. GrantExpandable remapping is optional:
-// a matching non-expandable grant must still be rewritten to the external
-// principal.
+// expansion originally written for TRAIT_GROUP, now shared by GROUP and any
+// additional trait configured via WithExternalResourceTraits (e.g.
+// TRAIT_APP). The caller must have already confirmed principal matches the
+// grant's key/value pair via externalPrincipalIndex.matchProfile -- this
+// helper does not re-check the profile, so calling it with an unconfirmed
+// principal will unconditionally produce a grant for it. GrantExpandable
+// remapping is optional: a matching non-expandable grant must still be
+// rewritten to the external principal, just without a remapped
+// GrantExpandable annotation.
 func (s *syncer) matchProfileAndExpand(
 	ctx context.Context,
 	l *zap.Logger,
 	grant *v2.Grant,
 	principal *v2.Resource,
-	key, value string,
 	expandableAnno *v2.GrantExpandable,
 	expandableEntitlementsResourceMap map[string][]string,
 ) (*v2.Grant, error) {
-	// foldKey, not strings.EqualFold: callers reach this helper through
-	// externalPrincipalIndex.matchProfile, whose buckets are keyed by foldKey.
-	// The two disagree on a handful of values -- strings.ToLower("İ") is "i"
-	// but EqualFold("İ", "I") is false -- and an EqualFold check here would
-	// reject a principal the index had already matched, silently dropping the
-	// grant. See foldKey for why one normalization is used everywhere.
-	profileVal, ok := resource.GetProfileStringValue(resource.GetProfile(principal), key)
-	if !ok || foldKey(profileVal) != foldKey(value) {
-		return nil, nil
-	}
 	newGrant := newGrantForExternalPrincipal(grant, principal)
 	if expandableAnno == nil {
 		return newGrant, nil
@@ -3485,7 +3477,6 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				for _, i := range idx.matchProfile(matchKey, matchValue) {
 					newGrant, err := s.matchProfileAndExpand(
 						ctx, l, grant, idx.principalAt(i),
-						matchKey, matchValue,
 						expandableAnno, expandableEntitlementsResourceMap,
 					)
 					if err != nil {
