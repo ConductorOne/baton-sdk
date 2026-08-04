@@ -2,11 +2,44 @@ package expand
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestGraphBlobRejectsMissingAndUnknownVersions(t *testing.T) {
+	ctx := context.Background()
+	g := NewEntitlementGraph(ctx)
+	g.AddEntitlementID("ent-a")
+
+	legacy, err := json.Marshal(map[string]any{"sync_id": "sync-1", "graph": g})
+	require.NoError(t, err)
+	got, err := UnmarshalGraphBlob(legacy, "sync-1")
+	require.NoError(t, err)
+	require.Nil(t, got, "an unversioned graph must fall back to full expansion")
+
+	future, err := json.Marshal(map[string]any{"format_version": 999, "sync_id": "sync-1", "graph": g})
+	require.NoError(t, err)
+	got, err = UnmarshalGraphBlob(future, "sync-1")
+	require.NoError(t, err)
+	require.Nil(t, got, "an unknown graph version must fall back to full expansion")
+}
+
+func TestValidateCompletedRejectsInconsistentAdjacency(t *testing.T) {
+	ctx := context.Background()
+	g := NewEntitlementGraph(ctx)
+	g.AddEntitlementID("ent-a")
+	g.AddEntitlementID("ent-b")
+	require.NoError(t, g.AddEdge(ctx, "ent-a", "ent-b", false, nil))
+	g.Loaded = true
+	g.MarkExpansionComplete()
+	require.NoError(t, g.ValidateCompleted())
+
+	delete(g.SourcesToDestinations[g.GetNode("ent-a").Id], g.GetNode("ent-b").Id)
+	require.ErrorContains(t, g.ValidateCompleted(), "missing from source adjacency")
+}
 
 // TestGraphBlobRoundTrip: marshal/unmarshal preserves the graph; the sync-id
 // guard rejects a blob from a different sync.
@@ -74,6 +107,103 @@ func TestGraphBlobSizeAtScale(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, data)
 		t.Logf("nodes=%d edges=%d blob=%d bytes (%.0f B/node)", n, len(g.Edges), len(data), float64(len(data))/float64(n))
+	}
+}
+
+func BenchmarkGraphClone(b *testing.B) {
+	ctx := context.Background()
+	for _, n := range []int{1_000, 10_000, 100_000} {
+		b.Run(fmt.Sprintf("nodes=%d", n), func(b *testing.B) {
+			g := NewEntitlementGraph(ctx)
+			for i := 0; i < n; i++ {
+				g.AddEntitlementID(entName(i))
+			}
+			for i := 0; i+1 < n; i++ {
+				require.NoError(b, g.AddEdge(ctx, entName(i), entName(i+1), false, nil))
+			}
+			g.MarkExpansionComplete()
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				clone, err := g.Clone()
+				if err != nil {
+					b.Fatal(err)
+				}
+				if !clone.IsExpanded() {
+					b.Fatal("clone lost completion state")
+				}
+			}
+		})
+	}
+}
+
+func TestGraphCloneIsStructurallyIndependent(t *testing.T) {
+	ctx := context.Background()
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID("a")
+	graph.AddEntitlementID("b")
+	require.NoError(t, graph.AddEdge(ctx, "a", "b", false, []string{"user"}))
+	graph.Loaded = true
+	graph.MarkExpansionComplete()
+	graph.Actions = []*EntitlementGraphAction{{
+		SourceEntitlementID: "a",
+		Descendants:         []ActionDescendant{{EntitlementID: "b"}},
+		ResourceTypeIDs:     []string{"user"},
+	}}
+	graph.ExpansionPlan = &EntitlementGraphPlan{Order: []int{0, 1}, ProjectionSources: []string{"a"}}
+	graph.ExpansionMetrics = &EntitlementGraphMetrics{Algorithm: "test"}
+
+	clone, err := graph.Clone()
+	require.NoError(t, err)
+	clone.Nodes[graph.GetNode("a").Id] = Node{Id: 99, EntitlementIDs: []string{"changed"}}
+	clone.EntitlementsToNodes["a"] = 99
+	for edgeID, edge := range clone.Edges {
+		edge.ResourceTypeIDs[0] = "service"
+		clone.Edges[edgeID] = edge
+	}
+	clone.Actions[0].Descendants[0].EntitlementID = "changed"
+	clone.Actions[0].ResourceTypeIDs[0] = "service"
+	clone.ExpansionPlan.Order[0] = 99
+	clone.ExpansionPlan.ProjectionSources[0] = "changed"
+	clone.ExpansionMetrics.Algorithm = "changed"
+
+	require.Equal(t, "a", graph.Nodes[graph.GetNode("a").Id].EntitlementIDs[0])
+	require.Equal(t, graph.GetNode("a").Id, graph.EntitlementsToNodes["a"])
+	for _, edge := range graph.Edges {
+		require.Equal(t, []string{"user"}, edge.ResourceTypeIDs)
+	}
+	require.Equal(t, "b", graph.Actions[0].Descendants[0].EntitlementID)
+	require.Equal(t, []string{"user"}, graph.Actions[0].ResourceTypeIDs)
+	require.Equal(t, 0, graph.ExpansionPlan.Order[0])
+	require.Equal(t, "a", graph.ExpansionPlan.ProjectionSources[0])
+	require.Equal(t, "test", graph.ExpansionMetrics.Algorithm)
+}
+
+func BenchmarkMarshalGraphBlob(b *testing.B) {
+	ctx := context.Background()
+	for _, n := range []int{1_000, 10_000, 100_000} {
+		b.Run(fmt.Sprintf("nodes=%d", n), func(b *testing.B) {
+			g := NewEntitlementGraph(ctx)
+			for i := 0; i < n; i++ {
+				g.AddEntitlementID(entName(i))
+			}
+			for i := 0; i+1 < n; i++ {
+				require.NoError(b, g.AddEdge(ctx, entName(i), entName(i+1), false, nil))
+			}
+			g.Loaded = true
+			g.MarkExpansionComplete()
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				data, err := MarshalGraphBlob("benchmark-sync", g)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(data) == 0 {
+					b.Fatal("empty graph blob")
+				}
+			}
+		})
 	}
 }
 

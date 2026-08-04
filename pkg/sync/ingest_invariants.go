@@ -163,8 +163,7 @@ func invariantVerdict(err error) error { return &invariantVerdictError{err: err}
 // TypeScopedGrants) land, they register here against I7 and I8
 // respectively — type-granularity scopes are exactly the shapes those
 // referential checks exist for.
-//
-//nolint:gosec // G101 false positive: "PageTokens" is an annotation name, not a credential.
+// #nosec G101 -- "PageTokens" is an annotation name, not a credential.
 var sideEffectAnnotationCoverage = map[string]string{
 	"c1.connector.v2.GrantExpandable":           "I1: response-loop expansion arming (SetNeedsExpansion) + needs_expansion column persistence; store-derived probe arrives with replay",
 	"c1.connector.v2.ExternalResourceMatch":     "I2: response-loop match arming (SetHasExternalResourcesGrants); store-derived existence-bit repair arrives with replay",
