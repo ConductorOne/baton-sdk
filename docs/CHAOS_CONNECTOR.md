@@ -105,6 +105,28 @@ coverage registry must keep this exclusion visible.
 Every new connector RPC, response type, capability, and annotation-bearing
 field must be registered as supported or explicitly excluded with a reason.
 
+### Event feed pagination
+
+`EventFeedSpec` declares one feed as a flat, deterministic event log served
+page by page from `Dataset.EventFeeds`. Cursors are offsets, independently
+derived from `has_more` rather than conflated the way `Page[T].Next` is: a
+stable cursor with `has_more=false` is a legitimate caught-up response, and
+only `has_more=true` with a stuck cursor is a defect. `Builder.EventFeeds`
+enumerates every feed declared in the active dataset, sorted by id, so
+`ListEventFeeds` output is deterministic once a scenario declares more than
+one feed.
+
+A bridge test drives the real `pkg/tasks/local` event feed task manager
+against this connector over the direct and in-process gRPC adapters, using
+the harness's own trace as the cursor-chaining oracle rather than a
+hand-rolled fake. `tasks.Manager.Process` takes the connector client as a
+parameter, so no new harness machinery was needed to reach it.
+
+This covers page-size-honoring pagination, cursor chaining, `start_at`
+filtering, and rejection of an unknown or out-of-range cursor, for a single
+declared feed with no fault injection. See "Coverage claims and exclusions"
+for what remains open.
+
 ## Response and annotation model
 
 The complete protobuf response is connector-controlled input. Mutation support
@@ -348,7 +370,22 @@ The first implementation does not claim:
 - deletion of disappeared external resource-type rows: resource types do not
   yet carry store-owned provenance, and deleting by a shared public type ID
   could orphan primary-connector resources;
-- capability-specific mutation semantics before an independent oracle exists.
+- capability-specific mutation semantics before an independent oracle exists;
+- event feed fault injection: retryable and fatal errors, deadline expiry,
+  and lost responses mid-pagination (the class of defect that motivated
+  CE-1027) are not yet exercised for event feeds;
+- a multi-feed scenario: `Builder.EventFeeds` already enumerates every feed
+  a dataset declares, sorted by id, but no scenario or test yet declares
+  more than one, so that path and the `ListEventFeeds` ordering guarantee it
+  exists for are unexercised;
+- annotation-bearing event responses and event-specific response mutation
+  coverage: `EventFeedSpec` never populates `Event.annotations` or
+  `ListEventsResponse.annotations`, and the generic `next_page_token`
+  mutation representative does not generalize to the `cursor` field name
+  event feeds use;
+- an oracle for `pkg/tasks/local`'s per-page stderr log fields (`page`,
+  `events`, `duration_ms`, `cursor`): nothing in the harness observes log
+  output today.
 
 An exclusion remains a coverage entry and must not silently disappear from the
 registry.
