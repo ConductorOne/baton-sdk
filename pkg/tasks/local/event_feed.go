@@ -78,7 +78,8 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 	for {
 		page++
 		start := time.Now()
-		resp, err := cc.ListEvents(ctx, v2.ListEventsRequest_builder{
+		var resp *v2.ListEventsResponse
+		resp, err = cc.ListEvents(ctx, v2.ListEventsRequest_builder{
 			PageSize:    m.pageSize,
 			Cursor:      pageToken,
 			StartAt:     task.GetEventFeed().GetStartAt(),
@@ -86,6 +87,12 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 		}.Build())
 		elapsed := time.Since(start)
 		if err != nil {
+			ctxzap.Extract(ctx).Error("event feed page failed",
+				zap.Int("page", page),
+				zap.String("cursor", pageToken),
+				zap.Int64("duration_ms", elapsed.Milliseconds()),
+				zap.Error(err),
+			)
 			return err
 		}
 		ctxzap.Extract(ctx).Info("event feed page",
@@ -95,7 +102,8 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 			zap.String("cursor", resp.GetCursor()),
 		)
 		for _, event := range resp.GetEvents() {
-			bytes, err := protojson.Marshal(event)
+			var bytes []byte
+			bytes, err = protojson.Marshal(event)
 			if err != nil {
 				return err
 			}
