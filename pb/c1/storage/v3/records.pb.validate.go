@@ -1768,6 +1768,35 @@ func (m *SyncStatsRecord) validate(all bool) error {
 	}
 
 	if all {
+		switch v := interface{}(m.GetIngestQuality()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, SyncStatsRecordValidationError{
+					field:  "IngestQuality",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, SyncStatsRecordValidationError{
+					field:  "IngestQuality",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetIngestQuality()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return SyncStatsRecordValidationError{
+				field:  "IngestQuality",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
 		switch v := interface{}(m.GetWrittenAt()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
@@ -1873,6 +1902,122 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = SyncStatsRecordValidationError{}
+
+// Validate checks the field values on IngestQualityStats with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *IngestQualityStats) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on IngestQualityStats with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// IngestQualityStatsMultiError, or nil if none found.
+func (m *IngestQualityStats) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *IngestQualityStats) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for SourceCacheReplayBlocked
+
+	// no validation rules for EntitlementsDropped
+
+	// no validation rules for GrantsDropped
+
+	// no validation rules for GrantResourcesDropped
+
+	// no validation rules for ExpansionResourceTypesDropped
+
+	// no validation rules for ExpansionsDropped
+
+	// no validation rules for ReasonFlags
+
+	if len(errors) > 0 {
+		return IngestQualityStatsMultiError(errors)
+	}
+
+	return nil
+}
+
+// IngestQualityStatsMultiError is an error wrapping multiple validation errors
+// returned by IngestQualityStats.ValidateAll() if the designated constraints
+// aren't met.
+type IngestQualityStatsMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m IngestQualityStatsMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m IngestQualityStatsMultiError) AllErrors() []error { return m }
+
+// IngestQualityStatsValidationError is the validation error returned by
+// IngestQualityStats.Validate if the designated constraints aren't met.
+type IngestQualityStatsValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e IngestQualityStatsValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e IngestQualityStatsValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e IngestQualityStatsValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e IngestQualityStatsValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e IngestQualityStatsValidationError) ErrorName() string {
+	return "IngestQualityStatsValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e IngestQualityStatsValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sIngestQualityStats.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = IngestQualityStatsValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = IngestQualityStatsValidationError{}
 
 // Validate checks the field values on CallStat with the rules defined in the
 // proto definition for this message. If any rules are violated, the first

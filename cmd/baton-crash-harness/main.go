@@ -42,10 +42,12 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
+	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
+	"github.com/conductorone/baton-sdk/pkg/types"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -255,6 +257,7 @@ type harnessResult struct {
 
 func run() error {
 	c1zPath := flag.String("c1z", "", "path to the c1z file")
+	mode := flag.String("mode", "default", "connector scenario: default or chaos-lifecycle-retain")
 	users := flag.Int("users", 3000, "number of user resources to serve")
 	groups := flag.Int("groups", 150, "number of group resources to serve")
 	pageDelayMs := flag.Int("page-delay-ms", 0, "sleep per paginated connector call")
@@ -272,9 +275,55 @@ func run() error {
 	}
 	ctx = ctxzap.ToContext(ctx, logger)
 
-	connector, err := newCrashConnector(*users, *groups, time.Duration(*pageDelayMs)*time.Millisecond)
-	if err != nil {
-		return err
+	var connector types.ConnectorClient
+	switch *mode {
+	case "default":
+		connector, err = newCrashConnector(*users, *groups, time.Duration(*pageDelayMs)*time.Millisecond)
+		if err != nil {
+			return err
+		}
+	case "chaos-lifecycle-retain":
+		corpusCase, ok := chaosconnector.LifecycleCaseByName(chaosconnector.LifecycleRetainCaseName)
+		if !ok {
+			return errors.New("chaos lifecycle retain scenario is unavailable")
+		}
+		scenario, scenarioErr := corpusCase.BuildResume()
+		if scenarioErr != nil {
+			return scenarioErr
+		}
+		schedule := chaosconnector.NewSchedule()
+		if *pageDelayMs > 0 {
+			schedule = chaosconnector.NewSchedule(chaosconnector.Rule{
+				ID: "delay-resume-page",
+				Match: chaosconnector.Matcher{
+					Domain:       chaosconnector.DomainConnector,
+					Method:       chaosconnector.ExactString("ListEntitlements"),
+					ResourceType: chaosconnector.ExactString(chaosconnector.FullCapabilityResourceTypeID),
+					PageToken:    chaosconnector.ExactString("cut"),
+					Phase:        chaosconnector.PhaseBeforeCall,
+				},
+				Effects: []chaosconnector.Effect{{
+					Kind:  chaosconnector.EffectDelay,
+					Delay: int64(*pageDelayMs),
+				}},
+				MinFires: 1,
+			})
+		}
+		chaosRun, runErr := chaosconnector.NewRun(scenario, schedule)
+		if runErr != nil {
+			return runErr
+		}
+		builder, builderErr := chaosconnector.NewBuilder(chaosRun)
+		if builderErr != nil {
+			return builderErr
+		}
+		server, serverErr := builder.Server(ctx)
+		if serverErr != nil {
+			return serverErr
+		}
+		connector = chaosconnector.NewDirectClient(ctx, server, chaosRun)
+	default:
+		return fmt.Errorf("unknown mode %q", *mode)
 	}
 
 	opts := []sdksync.SyncOpt{

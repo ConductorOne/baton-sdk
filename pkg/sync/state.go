@@ -59,6 +59,8 @@ type State interface {
 	RecordSessionOp(op string, duration time.Duration, opErr error, timedOut bool)
 	MergeSessionStat(op string, add SessionStoreStat)
 	SessionStoreStats() map[string]SessionStoreStat
+	SetIngestQuality(quality *IngestQualityCheckpoint)
+	IngestQuality() *IngestQualityCheckpoint
 }
 
 func NeedsExpansion(stateStr string) (bool, error) {
@@ -234,6 +236,7 @@ type state struct {
 	stepDurationsMs                 map[string]int64
 	connectorCallStats              map[string]*ConnectorCallStat
 	sessionStoreStats               map[string]*SessionStoreStat
+	ingestQuality                   *IngestQualityCheckpoint
 	// compaction is provenance written by the sync compactor via
 	// BuildCompactedToken; the syncer itself never sets it. Kept on the
 	// state so Unmarshal→Marshal round trips (e.g. expansion replay
@@ -291,6 +294,18 @@ type SessionStoreStat struct {
 	MaxMs    int64 `json:"max_ms"`
 }
 
+// IngestQualityCheckpoint is the checkpointed connector-ingestion quality
+// summary. A nil value means legacy/unknown provenance, not a clean sync.
+type IngestQualityCheckpoint struct {
+	SourceCacheReplayBlocked      bool   `json:"source_cache_replay_blocked,omitempty"`
+	EntitlementsDropped           uint64 `json:"entitlements_dropped,omitempty"`
+	GrantsDropped                 uint64 `json:"grants_dropped,omitempty"`
+	GrantResourcesDropped         uint64 `json:"grant_resources_dropped,omitempty"`
+	ExpansionResourceTypesDropped uint64 `json:"expansion_resource_types_dropped,omitempty"`
+	ExpansionsDropped             uint64 `json:"expansions_dropped,omitempty"`
+	ReasonFlags                   uint64 `json:"reason_flags,omitempty"`
+}
+
 // Original serialized token format. Needed to parse/resume syncs started by older versions of baton-sdk.
 type serializedTokenV0 struct {
 	Actions                         []Action                 `json:"actions,omitempty"`
@@ -325,6 +340,7 @@ type serializedTokenV1 struct {
 	StepDurationsMs    map[string]int64              `json:"step_durations_ms,omitempty"`
 	ConnectorCallStats map[string]*ConnectorCallStat `json:"connector_call_stats,omitempty"`
 	SessionStoreStats  map[string]*SessionStoreStat  `json:"session_store_stats,omitempty"`
+	IngestQuality      *IngestQualityCheckpoint      `json:"ingest_quality,omitempty"`
 	Compaction         *CompactionTokenStats         `json:"compaction,omitempty"`
 	Version            uint64                        `json:"version"`
 }
@@ -477,6 +493,7 @@ func (st *state) Unmarshal(input string) error {
 		if st.sessionStoreStats == nil {
 			st.sessionStoreStats = make(map[string]*SessionStoreStat)
 		}
+		st.ingestQuality = cloneIngestQualityCheckpoint(token.IngestQuality)
 		st.compaction = token.Compaction
 		// Rebuild the I10 drain-evidence set from the checkpointed
 		// actions: a spawned cursor restored from a token was admitted
@@ -506,6 +523,7 @@ func (st *state) Unmarshal(input string) error {
 		st.stepDurationsMs = make(map[string]int64)
 		st.connectorCallStats = make(map[string]*ConnectorCallStat)
 		st.sessionStoreStats = make(map[string]*SessionStoreStat)
+		st.ingestQuality = nil
 		st.compaction = nil
 		st.spawnedInFlight = make(map[string]Action)
 		st.spawnedAdmitted = make(map[parallelActionKey]string)
@@ -576,6 +594,7 @@ func (st *state) Marshal() (string, error) {
 		StepDurationsMs:                 st.stepDurationsMs,
 		ConnectorCallStats:              st.connectorCallStats,
 		SessionStoreStats:               st.sessionStoreStats,
+		IngestQuality:                   cloneIngestQualityCheckpoint(st.ingestQuality),
 		Compaction:                      st.compaction,
 		Version:                         version,
 	})
@@ -721,6 +740,26 @@ func (st *state) SessionStoreStats() map[string]SessionStoreStat {
 		}
 	}
 	return out
+}
+
+func (st *state) SetIngestQuality(quality *IngestQualityCheckpoint) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+	st.ingestQuality = cloneIngestQualityCheckpoint(quality)
+}
+
+func (st *state) IngestQuality() *IngestQualityCheckpoint {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
+	return cloneIngestQualityCheckpoint(st.ingestQuality)
+}
+
+func cloneIngestQualityCheckpoint(in *IngestQualityCheckpoint) *IngestQualityCheckpoint {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
 }
 
 func makeActionID(id uint64) string {

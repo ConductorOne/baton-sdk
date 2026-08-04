@@ -331,8 +331,31 @@ message SyncStatsRecord {
   map<string, int64> step_durations_ms = 10;
   map<string, CallStat> connector_call_stats = 11;
   map<string, CallStat> session_store_stats = 12;
+  // Connector-ingestion quality for the original sync. Presence distinguishes
+  // a clean sync recorded by a quality-aware SDK from an older/unknown sync.
+  // Compacted syncs omit this field: source-cache replay is not supported for
+  // compacted artifacts and ingestion counters do not compose through merges.
+  IngestQualityStats ingest_quality = 13;
 
   google.protobuf.Timestamp written_at = 100;
+}
+
+message IngestQualityStats {
+  // Monotone within a sync. Replay consumers must also treat an absent
+  // IngestQualityStats message as ineligible (unknown legacy provenance).
+  bool source_cache_replay_blocked = 1;
+  uint64 entitlements_dropped = 2;
+  uint64 grants_dropped = 3;
+  uint64 grant_resources_dropped = 4;
+  uint64 expansion_resource_types_dropped = 5;
+  uint64 expansions_dropped = 6;
+  // Bitset of SDK-owned quality reasons. Bits 0..6 are entitlement dropped,
+  // grant dropped, grant-inserted resource dropped, expansion resource type
+  // dropped, expansion dropped, invalid row retained, and unknown prior
+  // checkpoint provenance, respectively.
+  // Counts remain useful diagnostics; reason flags carry replay eligibility
+  // even for warn-and-retain policies that do not drop a row.
+  uint64 reason_flags = 7;
 }
 
 // CallStat mirrors c1.reader.v2.CallStat for the storage sidecar.

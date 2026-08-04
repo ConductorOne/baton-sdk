@@ -1751,12 +1751,17 @@ type SyncStatsRecord struct {
 	// Mirror of c1.reader.v2.SyncStats fields 9–11 (storage cannot import
 	// reader protos; CallStat is duplicated below). Compacted syncs fold
 	// partial timings into the token's top-level maps at compaction time.
-	StepDurationsMs    map[string]int64       `protobuf:"bytes,10,rep,name=step_durations_ms,json=stepDurationsMs,proto3" json:"step_durations_ms,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
-	ConnectorCallStats map[string]*CallStat   `protobuf:"bytes,11,rep,name=connector_call_stats,json=connectorCallStats,proto3" json:"connector_call_stats,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	SessionStoreStats  map[string]*CallStat   `protobuf:"bytes,12,rep,name=session_store_stats,json=sessionStoreStats,proto3" json:"session_store_stats,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	WrittenAt          *timestamppb.Timestamp `protobuf:"bytes,100,opt,name=written_at,json=writtenAt,proto3" json:"written_at,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	StepDurationsMs    map[string]int64     `protobuf:"bytes,10,rep,name=step_durations_ms,json=stepDurationsMs,proto3" json:"step_durations_ms,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	ConnectorCallStats map[string]*CallStat `protobuf:"bytes,11,rep,name=connector_call_stats,json=connectorCallStats,proto3" json:"connector_call_stats,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	SessionStoreStats  map[string]*CallStat `protobuf:"bytes,12,rep,name=session_store_stats,json=sessionStoreStats,proto3" json:"session_store_stats,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Connector-ingestion quality for the original sync. Presence distinguishes
+	// a clean sync recorded by a quality-aware SDK from an older/unknown sync.
+	// Compacted syncs omit this field: source-cache replay is not supported for
+	// compacted artifacts and ingestion counters do not compose through merges.
+	IngestQuality *IngestQualityStats    `protobuf:"bytes,13,opt,name=ingest_quality,json=ingestQuality,proto3" json:"ingest_quality,omitempty"`
+	WrittenAt     *timestamppb.Timestamp `protobuf:"bytes,100,opt,name=written_at,json=writtenAt,proto3" json:"written_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SyncStatsRecord) Reset() {
@@ -1868,6 +1873,13 @@ func (x *SyncStatsRecord) GetSessionStoreStats() map[string]*CallStat {
 	return nil
 }
 
+func (x *SyncStatsRecord) GetIngestQuality() *IngestQualityStats {
+	if x != nil {
+		return x.IngestQuality
+	}
+	return nil
+}
+
 func (x *SyncStatsRecord) GetWrittenAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.WrittenAt
@@ -1923,8 +1935,19 @@ func (x *SyncStatsRecord) SetSessionStoreStats(v map[string]*CallStat) {
 	x.SessionStoreStats = v
 }
 
+func (x *SyncStatsRecord) SetIngestQuality(v *IngestQualityStats) {
+	x.IngestQuality = v
+}
+
 func (x *SyncStatsRecord) SetWrittenAt(v *timestamppb.Timestamp) {
 	x.WrittenAt = v
+}
+
+func (x *SyncStatsRecord) HasIngestQuality() bool {
+	if x == nil {
+		return false
+	}
+	return x.IngestQuality != nil
 }
 
 func (x *SyncStatsRecord) HasWrittenAt() bool {
@@ -1932,6 +1955,10 @@ func (x *SyncStatsRecord) HasWrittenAt() bool {
 		return false
 	}
 	return x.WrittenAt != nil
+}
+
+func (x *SyncStatsRecord) ClearIngestQuality() {
+	x.IngestQuality = nil
 }
 
 func (x *SyncStatsRecord) ClearWrittenAt() {
@@ -1963,7 +1990,12 @@ type SyncStatsRecord_builder struct {
 	StepDurationsMs    map[string]int64
 	ConnectorCallStats map[string]*CallStat
 	SessionStoreStats  map[string]*CallStat
-	WrittenAt          *timestamppb.Timestamp
+	// Connector-ingestion quality for the original sync. Presence distinguishes
+	// a clean sync recorded by a quality-aware SDK from an older/unknown sync.
+	// Compacted syncs omit this field: source-cache replay is not supported for
+	// compacted artifacts and ingestion counters do not compose through merges.
+	IngestQuality *IngestQualityStats
+	WrittenAt     *timestamppb.Timestamp
 }
 
 func (b0 SyncStatsRecord_builder) Build() *SyncStatsRecord {
@@ -1982,7 +2014,165 @@ func (b0 SyncStatsRecord_builder) Build() *SyncStatsRecord {
 	x.StepDurationsMs = b.StepDurationsMs
 	x.ConnectorCallStats = b.ConnectorCallStats
 	x.SessionStoreStats = b.SessionStoreStats
+	x.IngestQuality = b.IngestQuality
 	x.WrittenAt = b.WrittenAt
+	return m0
+}
+
+type IngestQualityStats struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Monotone within a sync. Replay consumers must also treat an absent
+	// IngestQualityStats message as ineligible (unknown legacy provenance).
+	SourceCacheReplayBlocked      bool   `protobuf:"varint,1,opt,name=source_cache_replay_blocked,json=sourceCacheReplayBlocked,proto3" json:"source_cache_replay_blocked,omitempty"`
+	EntitlementsDropped           uint64 `protobuf:"varint,2,opt,name=entitlements_dropped,json=entitlementsDropped,proto3" json:"entitlements_dropped,omitempty"`
+	GrantsDropped                 uint64 `protobuf:"varint,3,opt,name=grants_dropped,json=grantsDropped,proto3" json:"grants_dropped,omitempty"`
+	GrantResourcesDropped         uint64 `protobuf:"varint,4,opt,name=grant_resources_dropped,json=grantResourcesDropped,proto3" json:"grant_resources_dropped,omitempty"`
+	ExpansionResourceTypesDropped uint64 `protobuf:"varint,5,opt,name=expansion_resource_types_dropped,json=expansionResourceTypesDropped,proto3" json:"expansion_resource_types_dropped,omitempty"`
+	ExpansionsDropped             uint64 `protobuf:"varint,6,opt,name=expansions_dropped,json=expansionsDropped,proto3" json:"expansions_dropped,omitempty"`
+	// Bitset of SDK-owned quality reasons. Bits 0..6 are entitlement dropped,
+	// grant dropped, grant-inserted resource dropped, expansion resource type
+	// dropped, expansion dropped, invalid row retained, and unknown prior
+	// checkpoint provenance, respectively.
+	// Counts remain useful diagnostics; reason flags carry replay eligibility
+	// even for warn-and-retain policies that do not drop a row.
+	ReasonFlags   uint64 `protobuf:"varint,7,opt,name=reason_flags,json=reasonFlags,proto3" json:"reason_flags,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IngestQualityStats) Reset() {
+	*x = IngestQualityStats{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IngestQualityStats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IngestQualityStats) ProtoMessage() {}
+
+func (x *IngestQualityStats) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *IngestQualityStats) GetSourceCacheReplayBlocked() bool {
+	if x != nil {
+		return x.SourceCacheReplayBlocked
+	}
+	return false
+}
+
+func (x *IngestQualityStats) GetEntitlementsDropped() uint64 {
+	if x != nil {
+		return x.EntitlementsDropped
+	}
+	return 0
+}
+
+func (x *IngestQualityStats) GetGrantsDropped() uint64 {
+	if x != nil {
+		return x.GrantsDropped
+	}
+	return 0
+}
+
+func (x *IngestQualityStats) GetGrantResourcesDropped() uint64 {
+	if x != nil {
+		return x.GrantResourcesDropped
+	}
+	return 0
+}
+
+func (x *IngestQualityStats) GetExpansionResourceTypesDropped() uint64 {
+	if x != nil {
+		return x.ExpansionResourceTypesDropped
+	}
+	return 0
+}
+
+func (x *IngestQualityStats) GetExpansionsDropped() uint64 {
+	if x != nil {
+		return x.ExpansionsDropped
+	}
+	return 0
+}
+
+func (x *IngestQualityStats) GetReasonFlags() uint64 {
+	if x != nil {
+		return x.ReasonFlags
+	}
+	return 0
+}
+
+func (x *IngestQualityStats) SetSourceCacheReplayBlocked(v bool) {
+	x.SourceCacheReplayBlocked = v
+}
+
+func (x *IngestQualityStats) SetEntitlementsDropped(v uint64) {
+	x.EntitlementsDropped = v
+}
+
+func (x *IngestQualityStats) SetGrantsDropped(v uint64) {
+	x.GrantsDropped = v
+}
+
+func (x *IngestQualityStats) SetGrantResourcesDropped(v uint64) {
+	x.GrantResourcesDropped = v
+}
+
+func (x *IngestQualityStats) SetExpansionResourceTypesDropped(v uint64) {
+	x.ExpansionResourceTypesDropped = v
+}
+
+func (x *IngestQualityStats) SetExpansionsDropped(v uint64) {
+	x.ExpansionsDropped = v
+}
+
+func (x *IngestQualityStats) SetReasonFlags(v uint64) {
+	x.ReasonFlags = v
+}
+
+type IngestQualityStats_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Monotone within a sync. Replay consumers must also treat an absent
+	// IngestQualityStats message as ineligible (unknown legacy provenance).
+	SourceCacheReplayBlocked      bool
+	EntitlementsDropped           uint64
+	GrantsDropped                 uint64
+	GrantResourcesDropped         uint64
+	ExpansionResourceTypesDropped uint64
+	ExpansionsDropped             uint64
+	// Bitset of SDK-owned quality reasons. Bits 0..6 are entitlement dropped,
+	// grant dropped, grant-inserted resource dropped, expansion resource type
+	// dropped, expansion dropped, invalid row retained, and unknown prior
+	// checkpoint provenance, respectively.
+	// Counts remain useful diagnostics; reason flags carry replay eligibility
+	// even for warn-and-retain policies that do not drop a row.
+	ReasonFlags uint64
+}
+
+func (b0 IngestQualityStats_builder) Build() *IngestQualityStats {
+	m0 := &IngestQualityStats{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.SourceCacheReplayBlocked = b.SourceCacheReplayBlocked
+	x.EntitlementsDropped = b.EntitlementsDropped
+	x.GrantsDropped = b.GrantsDropped
+	x.GrantResourcesDropped = b.GrantResourcesDropped
+	x.ExpansionResourceTypesDropped = b.ExpansionResourceTypesDropped
+	x.ExpansionsDropped = b.ExpansionsDropped
+	x.ReasonFlags = b.ReasonFlags
 	return m0
 }
 
@@ -2000,7 +2190,7 @@ type CallStat struct {
 
 func (x *CallStat) Reset() {
 	*x = CallStat{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2012,7 +2202,7 @@ func (x *CallStat) String() string {
 func (*CallStat) ProtoMessage() {}
 
 func (x *CallStat) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2111,7 +2301,7 @@ type SessionRecord struct {
 
 func (x *SessionRecord) Reset() {
 	*x = SessionRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2123,7 +2313,7 @@ func (x *SessionRecord) String() string {
 func (*SessionRecord) ProtoMessage() {}
 
 func (x *SessionRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2219,7 +2409,7 @@ type SourceCacheEntryRecord struct {
 
 func (x *SourceCacheEntryRecord) Reset() {
 	*x = SourceCacheEntryRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[12]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2231,7 +2421,7 @@ func (x *SourceCacheEntryRecord) String() string {
 func (*SourceCacheEntryRecord) ProtoMessage() {}
 
 func (x *SourceCacheEntryRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[12]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2377,7 +2567,7 @@ type SourceCacheCompatRecord struct {
 
 func (x *SourceCacheCompatRecord) Reset() {
 	*x = SourceCacheCompatRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[13]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2389,7 +2579,7 @@ func (x *SourceCacheCompatRecord) String() string {
 func (*SourceCacheCompatRecord) ProtoMessage() {}
 
 func (x *SourceCacheCompatRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[13]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2599,7 +2789,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	" \x01(\tR\x19ingestInvariantGeneration\x12:\n" +
 	"\x19ingest_invariant_coverage\x18\v \x03(\tR\x17ingestInvariantCoverage\x122\n" +
 	"\x15ingest_invariant_mode\x18\f \x01(\tR\x13ingestInvariantMode:\x18\x82\xf9+\x14\n" +
-	"\tsync_runs\x12\async_id\"\xb4\v\n" +
+	"\tsync_runs\x12\async_id\"\xfe\v\n" +
 	"\x0fSyncStatsRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12%\n" +
 	"\x0eresource_types\x18\x02 \x01(\x03R\rresourceTypes\x12\x1c\n" +
@@ -2613,7 +2803,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x11step_durations_ms\x18\n" +
 	" \x03(\v23.c1.storage.v3.SyncStatsRecord.StepDurationsMsEntryR\x0fstepDurationsMs\x12h\n" +
 	"\x14connector_call_stats\x18\v \x03(\v26.c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntryR\x12connectorCallStats\x12e\n" +
-	"\x13session_store_stats\x18\f \x03(\v25.c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntryR\x11sessionStoreStats\x129\n" +
+	"\x13session_store_stats\x18\f \x03(\v25.c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntryR\x11sessionStoreStats\x12H\n" +
+	"\x0eingest_quality\x18\r \x01(\v2!.c1.storage.v3.IngestQualityStatsR\ringestQuality\x129\n" +
 	"\n" +
 	"written_at\x18d \x01(\v2\x1a.google.protobuf.TimestampR\twrittenAt\x1aJ\n" +
 	"\x1cResourcesByResourceTypeEntry\x12\x10\n" +
@@ -2633,7 +2824,15 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\x1a]\n" +
 	"\x16SessionStoreStatsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
-	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\"\x86\x01\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\"\x80\x03\n" +
+	"\x12IngestQualityStats\x12=\n" +
+	"\x1bsource_cache_replay_blocked\x18\x01 \x01(\bR\x18sourceCacheReplayBlocked\x121\n" +
+	"\x14entitlements_dropped\x18\x02 \x01(\x04R\x13entitlementsDropped\x12%\n" +
+	"\x0egrants_dropped\x18\x03 \x01(\x04R\rgrantsDropped\x126\n" +
+	"\x17grant_resources_dropped\x18\x04 \x01(\x04R\x15grantResourcesDropped\x12G\n" +
+	" expansion_resource_types_dropped\x18\x05 \x01(\x04R\x1dexpansionResourceTypesDropped\x12-\n" +
+	"\x12expansions_dropped\x18\x06 \x01(\x04R\x11expansionsDropped\x12!\n" +
+	"\freason_flags\x18\a \x01(\x04R\vreasonFlags\"\x86\x01\n" +
 	"\bCallStat\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\x03R\x05count\x12\x19\n" +
 	"\btotal_ms\x18\x02 \x01(\x03R\atotalMs\x12\x15\n" +
@@ -2668,7 +2867,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
 var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_c1_storage_v3_records_proto_goTypes = []any{
 	(SyncType)(0),                    // 0: c1.storage.v3.SyncType
 	(StatusRecord_ResourceStatus)(0), // 1: c1.storage.v3.StatusRecord.ResourceStatus
@@ -2682,63 +2881,65 @@ var file_c1_storage_v3_records_proto_goTypes = []any{
 	(*AssetRecord)(nil),              // 9: c1.storage.v3.AssetRecord
 	(*SyncRunRecord)(nil),            // 10: c1.storage.v3.SyncRunRecord
 	(*SyncStatsRecord)(nil),          // 11: c1.storage.v3.SyncStatsRecord
-	(*CallStat)(nil),                 // 12: c1.storage.v3.CallStat
-	(*SessionRecord)(nil),            // 13: c1.storage.v3.SessionRecord
-	(*SourceCacheEntryRecord)(nil),   // 14: c1.storage.v3.SourceCacheEntryRecord
-	(*SourceCacheCompatRecord)(nil),  // 15: c1.storage.v3.SourceCacheCompatRecord
-	nil,                              // 16: c1.storage.v3.GrantRecord.SourcesEntry
-	nil,                              // 17: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	nil,                              // 18: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	nil,                              // 19: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	nil,                              // 20: c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
-	nil,                              // 21: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
-	nil,                              // 22: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
-	(*anypb.Any)(nil),                // 23: google.protobuf.Any
-	(*timestamppb.Timestamp)(nil),    // 24: google.protobuf.Timestamp
-	(*ResourceRef)(nil),              // 25: c1.storage.v3.ResourceRef
-	(*structpb.Struct)(nil),          // 26: google.protobuf.Struct
-	(*EntitlementRef)(nil),           // 27: c1.storage.v3.EntitlementRef
-	(*PrincipalRef)(nil),             // 28: c1.storage.v3.PrincipalRef
+	(*IngestQualityStats)(nil),       // 12: c1.storage.v3.IngestQualityStats
+	(*CallStat)(nil),                 // 13: c1.storage.v3.CallStat
+	(*SessionRecord)(nil),            // 14: c1.storage.v3.SessionRecord
+	(*SourceCacheEntryRecord)(nil),   // 15: c1.storage.v3.SourceCacheEntryRecord
+	(*SourceCacheCompatRecord)(nil),  // 16: c1.storage.v3.SourceCacheCompatRecord
+	nil,                              // 17: c1.storage.v3.GrantRecord.SourcesEntry
+	nil,                              // 18: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	nil,                              // 19: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	nil,                              // 20: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	nil,                              // 21: c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
+	nil,                              // 22: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
+	nil,                              // 23: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
+	(*anypb.Any)(nil),                // 24: google.protobuf.Any
+	(*timestamppb.Timestamp)(nil),    // 25: google.protobuf.Timestamp
+	(*ResourceRef)(nil),              // 26: c1.storage.v3.ResourceRef
+	(*structpb.Struct)(nil),          // 27: google.protobuf.Struct
+	(*EntitlementRef)(nil),           // 28: c1.storage.v3.EntitlementRef
+	(*PrincipalRef)(nil),             // 29: c1.storage.v3.PrincipalRef
 }
 var file_c1_storage_v3_records_proto_depIdxs = []int32{
 	1,  // 0: c1.storage.v3.StatusRecord.status:type_name -> c1.storage.v3.StatusRecord.ResourceStatus
-	23, // 1: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
-	24, // 2: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	25, // 3: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
-	23, // 4: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
-	24, // 5: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	26, // 6: c1.storage.v3.ResourceRecord.profile:type_name -> google.protobuf.Struct
+	24, // 1: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
+	25, // 2: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	26, // 3: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
+	24, // 4: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
+	25, // 5: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	27, // 6: c1.storage.v3.ResourceRecord.profile:type_name -> google.protobuf.Struct
 	2,  // 7: c1.storage.v3.ResourceRecord.status:type_name -> c1.storage.v3.StatusRecord
-	24, // 8: c1.storage.v3.ResourceRecord.created_at:type_name -> google.protobuf.Timestamp
-	25, // 9: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
-	23, // 10: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
-	24, // 11: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	27, // 12: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
-	28, // 13: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
-	24, // 14: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	25, // 8: c1.storage.v3.ResourceRecord.created_at:type_name -> google.protobuf.Timestamp
+	26, // 9: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
+	24, // 10: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
+	25, // 11: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	28, // 12: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
+	29, // 13: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
+	25, // 14: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	3,  // 15: c1.storage.v3.GrantRecord.expansion:type_name -> c1.storage.v3.GrantExpandableRecord
-	23, // 16: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
-	16, // 17: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
-	24, // 18: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	24, // 16: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
+	17, // 17: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
+	25, // 18: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	0,  // 19: c1.storage.v3.SyncRunRecord.type:type_name -> c1.storage.v3.SyncType
-	24, // 20: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
-	24, // 21: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
-	17, // 22: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	18, // 23: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	19, // 24: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	20, // 25: c1.storage.v3.SyncStatsRecord.step_durations_ms:type_name -> c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
-	21, // 26: c1.storage.v3.SyncStatsRecord.connector_call_stats:type_name -> c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
-	22, // 27: c1.storage.v3.SyncStatsRecord.session_store_stats:type_name -> c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
-	24, // 28: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
-	24, // 29: c1.storage.v3.SourceCacheEntryRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	4,  // 30: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
-	12, // 31: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry.value:type_name -> c1.storage.v3.CallStat
-	12, // 32: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry.value:type_name -> c1.storage.v3.CallStat
-	33, // [33:33] is the sub-list for method output_type
-	33, // [33:33] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	25, // 20: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
+	25, // 21: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
+	18, // 22: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	19, // 23: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	20, // 24: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	21, // 25: c1.storage.v3.SyncStatsRecord.step_durations_ms:type_name -> c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
+	22, // 26: c1.storage.v3.SyncStatsRecord.connector_call_stats:type_name -> c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
+	23, // 27: c1.storage.v3.SyncStatsRecord.session_store_stats:type_name -> c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
+	12, // 28: c1.storage.v3.SyncStatsRecord.ingest_quality:type_name -> c1.storage.v3.IngestQualityStats
+	25, // 29: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
+	25, // 30: c1.storage.v3.SourceCacheEntryRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	4,  // 31: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
+	13, // 32: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry.value:type_name -> c1.storage.v3.CallStat
+	13, // 33: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry.value:type_name -> c1.storage.v3.CallStat
+	34, // [34:34] is the sub-list for method output_type
+	34, // [34:34] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_c1_storage_v3_records_proto_init() }
@@ -2754,7 +2955,7 @@ func file_c1_storage_v3_records_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_storage_v3_records_proto_rawDesc), len(file_c1_storage_v3_records_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   21,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -565,6 +565,24 @@ func (s *pebbleStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) er
 	return s.markDirty(s.Engine.DeleteGrantByRefs(ctx, grant))
 }
 
+// DeleteResourceRecord removes a resource and marks the envelope dirty so an
+// explicit reconciliation performed by the syncer is persisted on Close.
+func (s *pebbleStore) DeleteResourceRecord(ctx context.Context, resourceTypeID, resourceID string) error {
+	return s.markDirty(s.Engine.DeleteResourceRecord(ctx, resourceTypeID, resourceID))
+}
+
+// DeleteEntitlementByRefs removes one exact entitlement identity and preserves
+// the mutation when the envelope is closed.
+func (s *pebbleStore) DeleteEntitlementByRefs(ctx context.Context, entitlement *v2.Entitlement) error {
+	resourceID := entitlement.GetResource().GetId()
+	return s.markDirty(s.DeleteEntitlementRecordByIdentity(
+		ctx,
+		resourceID.GetResourceType(),
+		resourceID.GetResource(),
+		entitlement.GetId(),
+	))
+}
+
 // Grants overrides Adapter.Grants() so the returned GrantStore
 // routes StoreExpandedGrants through the pebbleStore's dirty-marking
 // path. The Adapter-level wrapper calls Adapter.PutGrants directly,

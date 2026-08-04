@@ -37,6 +37,7 @@ func TestManifestSyncRunProjection(t *testing.T) {
 	require.NoError(t, w.PutEntitlements(ctx, ent))
 	grant := v2.Grant_builder{Id: "grant-1", Entitlement: ent, Principal: user}.Build()
 	require.NoError(t, w.PutGrants(ctx, grant))
+	require.NoError(t, w.CheckpointSync(ctx, `{"version":1,"ingest_quality":{"source_cache_replay_blocked":true,"entitlements_dropped":2,"reason_flags":33}}`))
 	require.NoError(t, w.EndSync(ctx))
 	require.NoError(t, w.Close(ctx))
 
@@ -56,6 +57,11 @@ func TestManifestSyncRunProjection(t *testing.T) {
 	require.Equal(t, int64(2), stats.GetResources(), "stats resources")
 	require.Equal(t, int64(1), stats.GetEntitlements(), "stats entitlements")
 	require.Equal(t, int64(1), stats.GetGrants(), "stats grants")
+	quality := stats.GetIngestQuality()
+	require.NotNil(t, quality, "summary ingest quality is nil")
+	require.True(t, quality.GetSourceCacheReplayBlocked())
+	require.Equal(t, uint64(2), quality.GetEntitlementsDropped())
+	require.Equal(t, uint64(33), quality.GetReasonFlags())
 
 	// The engine-dispatch header path must surface the same projection.
 	_, err = f.Seek(0, 0)

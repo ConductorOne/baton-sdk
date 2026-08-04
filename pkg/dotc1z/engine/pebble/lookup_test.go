@@ -82,6 +82,26 @@ func TestBareIDEntitlementLookupExactlyOne(t *testing.T) {
 	require.Equal(t, 2, n, "ambiguous delete must not remove either row")
 }
 
+func TestDeleteEntitlementRecordByIdentityDisambiguatesSharedID(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
+	require.NoError(t, e.PutEntitlementRecords(ctx,
+		lookupTestEnt("group", "eng", "shared-id"),
+		lookupTestEnt("group", "sales", "shared-id"),
+	))
+
+	require.NoError(t, e.DeleteEntitlementRecordByIdentity(ctx, "group", "eng", "shared-id"))
+	var resources []string
+	require.NoError(t, e.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
+		if r.GetExternalId() == "shared-id" {
+			resources = append(resources, r.GetResource().GetResourceId())
+		}
+		return true
+	}))
+	require.Equal(t, []string{"sales"}, resources)
+}
+
 // TestBareIDEntitlementLookupInvalidation pins the generation-counter
 // invalidation: a lookup builds the map, a subsequent entitlement write
 // invalidates it, and the next lookup sees the new row.
