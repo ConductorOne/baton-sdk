@@ -684,6 +684,13 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// a lineage link would dangle, and the rebuild path's compacted
 	// output carries no parent either.
 	newSyncID := ksuid.New().String()
+	// The folded store is copied from the base, but the graph sidecar is
+	// stamped with that base sync ID and may no longer describe merged data.
+	// Drop it before publishing the fresh sync; a following expansion writes a
+	// new graph, while skip-expansion artifacts safely fall back next time.
+	if err := destEng.DeleteEntitlementGraphSidecar(ctx); err != nil {
+		return "", fmt.Errorf("compactPebbleFold: delete inherited entitlement graph: %w", err)
+	}
 	baseRec.SetSyncId(newSyncID)
 	baseRec.SetParentSyncId("")
 	baseRec.SetType(unionType)

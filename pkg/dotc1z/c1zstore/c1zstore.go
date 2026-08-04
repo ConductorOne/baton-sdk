@@ -61,3 +61,17 @@ type Store interface {
 
 	SessionStore() sessions.SessionStore
 }
+
+// GrantGenerationDigest binds derived metadata to the exact grant generation
+// stored in an artifact.
+type GrantGenerationDigest struct {
+	Hash       []byte
+	Count      int64
+	ABIVersion uint32
+}
+
+// GrantGenerationDigestReader is implemented by stores that persist an exact
+// whole-file grant digest at seal time.
+type GrantGenerationDigestReader interface {
+	GrantGenerationDigest(ctx context.Context) (GrantGenerationDigest, bool, error)
+}

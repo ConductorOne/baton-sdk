@@ -1,6 +1,7 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -143,7 +144,28 @@ func GraphFromStore(ctx context.Context, store c1zstore.Store, syncID string) (*
 	if data == nil {
 		return nil, nil
 	}
-	return expand.UnmarshalGraphBlob(data, syncID)
+	graph, boundDigest, err := expand.UnmarshalGraphBlobWithGrantDigest(data, syncID)
+	if err != nil || graph == nil {
+		return graph, err
+	}
+	if boundDigest == nil {
+		return nil, nil
+	}
+	digestReader, ok := store.(c1zstore.GrantGenerationDigestReader)
+	if !ok {
+		return nil, nil
+	}
+	currentDigest, found, err := digestReader.GrantGenerationDigest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !found ||
+		boundDigest.Count != currentDigest.Count ||
+		boundDigest.ABIVersion != currentDigest.ABIVersion ||
+		!bytes.Equal(boundDigest.Hash, currentDigest.Hash) {
+		return nil, nil
+	}
+	return graph, nil
 }
 
 // ActionOp represents a sync operation.
