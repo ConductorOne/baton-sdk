@@ -87,6 +87,36 @@ func TestEventFeedSpec_Serve_CursorReachedEndIsIdempotent(t *testing.T) {
 	require.Equal(t, caughtUpCursor, state.Cursor)
 }
 
+// TestEventFeedSpec_Serve_MakesProgressWheneverRequestedSizeIsPositive is a
+// regression test for a slicing bug found and fixed during development but
+// never captured as a permanent case: computing the page end as
+// offset+size-1 instead of offset+size left end == offset for every
+// pageSize-1 request, so the cursor never advanced while has_more stayed
+// true. Unlike the legitimate caught-up case in
+// TestEventFeedSpec_Serve_CursorReachedEndIsIdempotent (offset == len(Events),
+// has_more false), that bug produced a stuck cursor with has_more still
+// true -- which is exactly the shape pkg/tasks/local.Process's page loop has
+// no guard against (it loops until has_more is false), so the practical
+// blast radius of this specific bug class is an infinite loop in the local
+// runner, not merely a wrong answer.
+func TestEventFeedSpec_Serve_MakesProgressWheneverRequestedSizeIsPositive(t *testing.T) {
+	spec := EventFeedSpec{Events: testEvents(5)}
+
+	for offset := 0; offset < len(spec.Events); offset++ {
+		for _, size := range []uint32{1, 2, 3, 100} {
+			cursor := encodeEventCursor(offset)
+			_, state, err := spec.serve(cursor, size, nil)
+			require.NoError(t, err)
+
+			newOffset, ok := decodeEventCursor(state.Cursor)
+			require.True(t, ok)
+			require.Greaterf(t, newOffset, offset,
+				"serve must advance past offset %d for a positive page size %d; got cursor %q with has_more=%v",
+				offset, size, state.Cursor, state.HasMore)
+		}
+	}
+}
+
 func TestEventFeedSpec_Serve_UnknownCursorIsRejected(t *testing.T) {
 	spec := EventFeedSpec{Events: testEvents(2)}
 
