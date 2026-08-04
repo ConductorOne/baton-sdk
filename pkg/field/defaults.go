@@ -1,6 +1,7 @@
 package field
 
 import (
+	"math"
 	"os"
 	"time"
 
@@ -79,14 +80,26 @@ var (
 		WithDescription("The cursor to use for resuming the event feed from a specific point"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
+	// EventFeedPageSizeField is a manual-testing knob, so it deliberately
+	// imposes no policy ceiling -- the point is to be able to probe whatever
+	// page size a connector will actually accept. Note that
+	// ListEventsRequest.page_size carries its own `lte: 1000` proto
+	// validation, so values above 1000 are rejected at the RPC boundary
+	// rather than by this field. 0 is passed through as-is and lets the
+	// connector fall back to its own default.
+	//
+	// The only bound here is representability: page_size is a uint32 on the
+	// wire, so anything above math.MaxUint32 would silently truncate (e.g.
+	// 1<<32 would arrive as 0 and read as "use the default"). Reject those
+	// instead of quietly changing the caller's meaning.
 	EventFeedPageSizeField = IntField("event-feed-page-size",
 		WithDefaultValue(100),
 		WithHidden(true),
-		WithDescription("The page size to use when listing events (0-1000; 0 lets the connector use its own default)"),
+		WithDescription("The page size to use when listing events (0 lets the connector use its own default)"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 		WithInt(func(r *IntRuler) {
-			r.Gte(0).Lte(1000)
+			r.Gte(0).Lte(math.MaxUint32)
 		}))
 	listEventFeedsField = BoolField("list-event-feeds", WithHidden(true), WithDescription("List available event feeds"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	fileField           = StringField("file", WithShortHand("f"), WithDefaultValue("sync.c1z"), WithDescription("The path to the c1z file to sync with"),

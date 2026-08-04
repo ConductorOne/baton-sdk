@@ -240,7 +240,7 @@ func MakeMainCommand[T field.Configurable](
 					v.GetString("event-feed-id"),
 					v.GetTime("event-feed-start-at"),
 					v.GetString("event-feed-cursor"),
-					uint32(eventFeedPageSize), //nolint:gosec // bounded 1..1000 by field validation above
+					uint32(eventFeedPageSize), //nolint:gosec // bounded to 0..math.MaxUint32 by field validation above
 				))
 			case v.GetBool("list-event-feeds"):
 				opts = append(opts, connectorrunner.WithOnDemandListEventFeeds())
