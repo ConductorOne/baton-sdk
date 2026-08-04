@@ -3574,12 +3574,10 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			case matchTraits[trait]:
 				// Generic profile match, shared by TRAIT_GROUP and any
 				// additional trait opted into via WithExternalResourceTraits
-				// (e.g. TRAIT_APP). A key/val match only yields a grant for
-				// expandable entitlements, so without the annotation there is
-				// nothing to look up.
-				if expandableAnno == nil {
-					break
-				}
+				// (e.g. TRAIT_APP). A key/val match yields a grant whether or
+				// not the source grant is expandable: expandableAnno only
+				// controls whether the new grant also gets a remapped
+				// GrantExpandable annotation (see matchProfileAndExpand).
 				idx := indexByTrait[trait]
 				if idx == nil {
 					break
