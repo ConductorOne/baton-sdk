@@ -381,10 +381,9 @@ type rotateCredentialsConfig struct {
 }
 
 type eventStreamConfig struct {
-	feedId   string
-	startAt  time.Time
-	cursor   string
-	pageSize uint32
+	feedId  string
+	startAt time.Time
+	cursor  string
 }
 
 type syncDifferConfig struct {
@@ -412,6 +411,7 @@ type runnerConfig struct {
 	grantConfig                           *grantConfig
 	revokeConfig                          *revokeConfig
 	eventFeedConfig                       *eventStreamConfig
+	eventFeedPageSize                     *uint32 // nil means "use local.EventsPerPageLocally"
 	tempDir                               string
 	createAccountConfig                   *createAccountConfig
 	invokeActionConfig                    *invokeActionConfig
@@ -634,15 +634,25 @@ func WithOnDemandSync(c1zPath string) Option {
 	}
 }
 
-func WithOnDemandEventStream(feedId string, startAt time.Time, cursor string, pageSize uint32) Option {
+func WithOnDemandEventStream(feedId string, startAt time.Time, cursor string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
 		cfg.eventFeedConfig = &eventStreamConfig{
-			feedId:   feedId,
-			startAt:  startAt,
-			cursor:   cursor,
-			pageSize: pageSize,
+			feedId:  feedId,
+			startAt: startAt,
+			cursor:  cursor,
 		}
+		return nil
+	}
+}
+
+// WithEventFeedPageSize overrides the page size a local event feed run
+// requests. When unset, the run uses local.EventsPerPageLocally. A page size
+// of 0 is passed through to the connector as-is, letting it fall back to its
+// own default. Order-independent with respect to WithOnDemandEventStream.
+func WithEventFeedPageSize(pageSize uint32) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.eventFeedPageSize = &pageSize
 		return nil
 	}
 }
@@ -1086,7 +1096,11 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
 
 		case cfg.eventFeedConfig != nil:
-			tm = local.NewEventFeed(ctx, cfg.eventFeedConfig.feedId, cfg.eventFeedConfig.startAt, cfg.eventFeedConfig.cursor, cfg.eventFeedConfig.pageSize)
+			var feedOpts []local.EventFeedOption
+			if cfg.eventFeedPageSize != nil {
+				feedOpts = append(feedOpts, local.WithEventFeedPageSize(*cfg.eventFeedPageSize))
+			}
+			tm = local.NewEventFeed(ctx, cfg.eventFeedConfig.feedId, cfg.eventFeedConfig.startAt, cfg.eventFeedConfig.cursor, feedOpts...)
 		case cfg.listEventFeedsConfig != nil:
 			tm = local.NewListEventFeeds(ctx)
 		case cfg.createTicketConfig != nil:

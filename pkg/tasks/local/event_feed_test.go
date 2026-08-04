@@ -115,7 +115,7 @@ func TestEventFeed_Process_HonorsConfiguredPageSize(t *testing.T) {
 	}
 
 	const wantPageSize = 250
-	mgr := NewEventFeed(ctx, "usage_event_feed", time.Now(), "", wantPageSize)
+	mgr := NewEventFeed(ctx, "usage_event_feed", time.Now(), "", WithEventFeedPageSize(wantPageSize))
 	task, _, err := mgr.Next(ctx)
 	require.NoError(t, err)
 
@@ -154,7 +154,7 @@ func TestEventFeed_Process_LogsPerPageCursorCountAndDuration(t *testing.T) {
 		},
 	}
 
-	mgr := NewEventFeed(ctx, "usage_event_feed", time.Now(), "", 100)
+	mgr := NewEventFeed(ctx, "usage_event_feed", time.Now(), "")
 	task, _, err := mgr.Next(ctx)
 	require.NoError(t, err)
 	require.NoError(t, mgr.Process(ctx, task, cc))
@@ -178,4 +178,60 @@ func TestEventFeed_Process_LogsPerPageCursorCountAndDuration(t *testing.T) {
 		require.True(t, ok, "duration_ms should be an int64")
 		require.GreaterOrEqual(t, durMs, int64(0))
 	}
+}
+
+// singlePageClient answers every ListEvents with one empty, final page.
+type singlePageClient struct {
+	types.ConnectorClient
+	reqs []*v2.ListEventsRequest
+}
+
+func (f *singlePageClient) ListEvents(
+	_ context.Context,
+	req *v2.ListEventsRequest,
+	_ ...grpc.CallOption,
+) (*v2.ListEventsResponse, error) {
+	f.reqs = append(f.reqs, req)
+	return v2.ListEventsResponse_builder{HasMore: false}.Build(), nil
+}
+
+// TestEventFeed_PageSizeOptionDefaulting pins the behavior that keeps
+// NewEventFeed's old call shape working: with no EventFeedOption the run
+// requests EventsPerPageLocally, exactly as it did when the page size was a
+// hardcoded constant.
+func TestEventFeed_PageSizeOptionDefaulting(t *testing.T) {
+	ctx, _ := observedLogger(t)
+
+	t.Run("no option requests EventsPerPageLocally", func(t *testing.T) {
+		cc := &singlePageClient{}
+		mgr := NewEventFeed(ctx, "feed", time.Now(), "")
+		task, _, err := mgr.Next(ctx)
+		require.NoError(t, err)
+		require.NoError(t, mgr.Process(ctx, task, cc))
+
+		require.Len(t, cc.reqs, 1)
+		require.Equal(t, uint32(EventsPerPageLocally), cc.reqs[0].GetPageSize())
+	})
+
+	t.Run("explicit 0 is passed through so the connector can default", func(t *testing.T) {
+		cc := &singlePageClient{}
+		mgr := NewEventFeed(ctx, "feed", time.Now(), "", WithEventFeedPageSize(0))
+		task, _, err := mgr.Next(ctx)
+		require.NoError(t, err)
+		require.NoError(t, mgr.Process(ctx, task, cc))
+
+		require.Len(t, cc.reqs, 1)
+		require.Zero(t, cc.reqs[0].GetPageSize())
+	})
+
+	t.Run("last option wins", func(t *testing.T) {
+		cc := &singlePageClient{}
+		mgr := NewEventFeed(ctx, "feed", time.Now(), "", WithEventFeedPageSize(7), WithEventFeedPageSize(9))
+		task, _, err := mgr.Next(ctx)
+		require.NoError(t, err)
+		require.NoError(t, mgr.Process(ctx, task, cc))
+
+		require.Len(t, cc.reqs, 1)
+		require.Equal(t, uint32(9), cc.reqs[0].GetPageSize())
+	})
 }

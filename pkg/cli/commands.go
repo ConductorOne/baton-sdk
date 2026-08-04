@@ -236,12 +236,15 @@ func MakeMainCommand[T field.Configurable](
 				if _, err := field.ValidateField(&eventFeedPageSizeField, eventFeedPageSize); err != nil {
 					return err
 				}
-				opts = append(opts, connectorrunner.WithOnDemandEventStream(
-					v.GetString("event-feed-id"),
-					v.GetTime("event-feed-start-at"),
-					v.GetString("event-feed-cursor"),
-					uint32(eventFeedPageSize), //nolint:gosec // bounded to 0..math.MaxUint32 by field validation above
-				))
+				opts = append(opts,
+					connectorrunner.WithOnDemandEventStream(
+						v.GetString("event-feed-id"),
+						v.GetTime("event-feed-start-at"),
+						v.GetString("event-feed-cursor"),
+					),
+					//nolint:gosec // bounded to 0..math.MaxUint32 by field validation above
+					connectorrunner.WithEventFeedPageSize(uint32(eventFeedPageSize)),
+				)
 			case v.GetBool("list-event-feeds"):
 				opts = append(opts, connectorrunner.WithOnDemandListEventFeeds())
 			case v.GetString("create-account-profile") != "":
