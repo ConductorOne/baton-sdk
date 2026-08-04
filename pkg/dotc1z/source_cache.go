@@ -289,7 +289,7 @@ func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecach
 		defer done()
 		for i, r := range resources {
 			rid := r.GetId()
-			if err := s.DeleteResourceRecord(ctx, rid.GetResourceType(), rid.GetResource()); err != nil {
+			if err := s.Engine.DeleteResourceRecord(ctx, rid.GetResourceType(), rid.GetResource()); err != nil {
 				return fmt.Errorf("source cache delete resource %q: %w", ids[i], err)
 			}
 		}
