@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -208,51 +207,81 @@ func extractMeaningfulLogLines(raw string) string {
 }
 
 var (
-	lambdaMemorySizeRegex = regexp.MustCompile(`Memory Size:\s*(\d+)\s*MB`)
-	lambdaMaxMemUsedRegex = regexp.MustCompile(`Max Memory Used:\s*(\d+)\s*MB`)
+	lambdaReportErrorTypeRegex = regexp.MustCompile(`Error Type:[ \t]*(\S+)`)
+	lambdaReportStatusRegex    = regexp.MustCompile(`Status:[ \t]*(\S+)`)
 )
 
-// isLambdaOOM checks Lambda log output for signs of an out-of-memory crash.
-func isLambdaOOM(rawLog string) bool {
-	if strings.Contains(rawLog, "Runtime.ExitError") && strings.Contains(rawLog, "signal: killed") {
+// lambdaReportLine extracts the REPORT line from a Lambda log tail. AWS writes it
+// last, so it survives 4KB tail truncation even when earlier lines (including
+// START) are cut off. It carries AWS's own verdict on how the invoke ended.
+func lambdaReportLine(rawLog string) string {
+	report := ""
+	for _, line := range strings.Split(rawLog, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "REPORT RequestId:") {
+			report = line
+		}
+	}
+	return report
+}
+
+// isLambdaReportOOM reports whether the Lambda REPORT line's Error Type field
+// indicates an out-of-memory crash. This catches crashes under the memory
+// ceiling (e.g. 126MB used of a 128MB limit), which max-memory-used arithmetic
+// would miss.
+func isLambdaReportOOM(rawLog string) bool {
+	m := lambdaReportErrorTypeRegex.FindStringSubmatch(lambdaReportLine(rawLog))
+	return len(m) == 2 && strings.Contains(strings.ToLower(m[1]), "outofmemory")
+}
+
+// isLambdaReportTimeout reports whether the Lambda REPORT line's Status field
+// indicates AWS's platform-level timeout kill.
+func isLambdaReportTimeout(rawLog string) bool {
+	m := lambdaReportStatusRegex.FindStringSubmatch(lambdaReportLine(rawLog))
+	return len(m) == 2 && strings.EqualFold(m[1], "timeout")
+}
+
+// isLambdaOOM checks the Lambda REPORT line and, failing that, the invoke
+// payload for signs of an out-of-memory crash. The payload's "signal: killed"
+// is also what a timeout kill produces, so callers must rule out a timeout
+// before relying on this signal.
+func isLambdaOOM(rawLog string, payload string) bool {
+	if isLambdaReportOOM(rawLog) {
 		return true
 	}
 
-	sizeMatch := lambdaMemorySizeRegex.FindStringSubmatch(rawLog)
-	usedMatch := lambdaMaxMemUsedRegex.FindStringSubmatch(rawLog)
-	if len(sizeMatch) == 2 && len(usedMatch) == 2 {
-		memorySize, err1 := strconv.Atoi(sizeMatch[1])
-		maxUsed, err2 := strconv.Atoi(usedMatch[1])
-		if err1 == nil && err2 == nil && memorySize > 0 && maxUsed >= memorySize {
-			return true
-		}
+	if strings.Contains(payload, "Runtime.ExitError") && strings.Contains(payload, "signal: killed") {
+		return true
 	}
 
-	return false
+	return strings.Contains(rawLog, "Runtime.ExitError") && strings.Contains(rawLog, "signal: killed")
 }
 
 // classifyLambdaError determines the appropriate error type for a Lambda function error.
 func classifyLambdaError(functionError string, statusCode int32, payload []byte, rawLog string) error {
+	payloadStr := string(payload)
 	filteredLogs := extractMeaningfulLogLines(rawLog)
 
-	if strings.Contains(string(payload), "Task timed out after") {
+	if isLambdaReportOOM(rawLog) {
+		return status.Errorf(codes.ResourceExhausted, "lambda_transport: function ran out of memory: %s; logSummary: %s", functionError, filteredLogs)
+	}
+	if strings.Contains(payloadStr, "Task timed out after") {
 		return status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", functionError, filteredLogs)
 	}
-	if strings.Contains(rawLog, "context deadline exceeded") {
+	if isLambdaReportTimeout(rawLog) {
 		return status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", functionError, filteredLogs)
 	}
-
-	if isLambdaOOM(rawLog) {
+	if strings.Contains(filteredLogs, `\"error\":\"context deadline exceeded\"`) {
+		return status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", functionError, filteredLogs)
+	}
+	if isLambdaOOM(rawLog, payloadStr) {
 		return status.Errorf(codes.ResourceExhausted, "lambda_transport: function ran out of memory: %s; logSummary: %s", functionError, filteredLogs)
 	}
 
-	if filteredLogs != "" {
-		return fmt.Errorf("%s", filteredLogs)
-	}
-
 	return fmt.Errorf(
-		"lambda_transport: function returned error: %s; status code: %d",
+		"lambda_transport: function returned error: %s; status code: %d; logSummary: %s",
 		functionError,
 		statusCode,
+		filteredLogs,
 	)
 }
