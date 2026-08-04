@@ -354,7 +354,7 @@ func TestParallelActionQueueRejectsCursorLimitBeforeCommit(t *testing.T) {
 	queue := newParallelActionQueue(nil)
 	for i := 0; i < maxSpawnedCursorsPerBatch; i++ {
 		var key parallelActionKey
-		binary.BigEndian.PutUint64(key[:8], uint64(i))
+		binary.BigEndian.PutUint64(key[:8], uint64(i)) // #nosec G115 -- i starts at zero and is bounded by the cursor limit.
 		queue.seen[key] = struct{}{}
 	}
 	committed := false

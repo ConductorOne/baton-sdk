@@ -367,6 +367,23 @@ func TestIncremental_NoOp(t *testing.T) {
 	require.Equal(t, 0, res.GrantsWritten)
 }
 
+func TestIncremental_DenseAffectedGraphDeclinesBeforeWrites(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+	graph := NewEntitlementGraph(ctx)
+	for i := 0; i < incrementalDenseGraphMinNodes; i++ {
+		id := "dense:" + itoa(i)
+		graph.AddEntitlementID(id)
+		store.AddEntitlement(makeEntitlement(id, makeResource("group", id)))
+		if i > 0 {
+			require.NoError(t, graph.AddEdge(ctx, "dense:"+itoa(i-1), id, false, nil))
+		}
+	}
+
+	_, err := NewIncrementalExpander(store, graph).ExpandChanges(ctx, nil, []string{"dense:0"})
+	require.ErrorIs(t, err, ErrIncrementalDenseChangeDecline)
+}
+
 func itoa(i int) string {
 	if i == 0 {
 		return "0"

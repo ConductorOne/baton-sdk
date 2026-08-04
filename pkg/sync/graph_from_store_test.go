@@ -35,7 +35,12 @@ func TestGraphFromStore(t *testing.T) {
 	g.AddEntitlementID("ent-a")
 	g.AddEntitlementID("ent-b")
 	require.NoError(t, g.AddEdge(ctx, "ent-a", "ent-b", false, nil))
-	data, err := expand.MarshalGraphBlob(syncID, g)
+	digestReader, ok := store.(c1zstore.GrantGenerationDigestReader)
+	require.True(t, ok)
+	digest, found, err := digestReader.GrantGenerationDigest(ctx)
+	require.NoError(t, err)
+	require.True(t, found)
+	data, err := expand.MarshalGraphBlobWithGrantDigest(syncID, g, digest)
 	require.NoError(t, err)
 	gs, ok := store.(EntitlementGraphStore)
 	require.True(t, ok, "pebble store must implement EntitlementGraphStore")
@@ -49,6 +54,26 @@ func TestGraphFromStore(t *testing.T) {
 
 	// Wrong sync id -> nil (stale sidecar guard).
 	got, err = GraphFromStore(ctx, store, "some-other-sync")
+	require.NoError(t, err)
+	require.Nil(t, got)
+
+	// A structurally valid graph bound to a different grant generation must
+	// fail closed.
+	wrongDigest := digest
+	wrongDigest.Hash = append([]byte(nil), digest.Hash...)
+	wrongDigest.Hash[0] ^= 0xff
+	wrongData, err := expand.MarshalGraphBlobWithGrantDigest(syncID, g, wrongDigest)
+	require.NoError(t, err)
+	require.NoError(t, gs.PutEntitlementGraphBlob(ctx, wrongData))
+	got, err = GraphFromStore(ctx, store, syncID)
+	require.NoError(t, err)
+	require.Nil(t, got)
+
+	// Current-format but unbound blobs are also not reusable.
+	unboundData, err := expand.MarshalGraphBlob(syncID, g)
+	require.NoError(t, err)
+	require.NoError(t, gs.PutEntitlementGraphBlob(ctx, unboundData))
+	got, err = GraphFromStore(ctx, store, syncID)
 	require.NoError(t, err)
 	require.Nil(t, got)
 
