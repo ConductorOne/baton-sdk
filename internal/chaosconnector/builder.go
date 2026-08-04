@@ -3,6 +3,7 @@ package chaosconnector
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/actions"
@@ -11,6 +12,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -107,12 +110,24 @@ func (b *Builder) ResourceSyncers(context.Context) []connectorbuilder.ResourceSy
 	return out
 }
 
-// EventFeeds supplies one deterministic feed when full capabilities are armed.
+// EventFeeds supplies one feed instance per feed declared in the active
+// dataset, sorted by feed id so ListEventFeeds output is deterministic
+// (connectorbuilder.ListEventFeeds otherwise ranges a Go map).
 func (b *Builder) EventFeeds(context.Context) []connectorbuilder.EventFeed {
 	if !b.fullCapabilities {
 		return nil
 	}
-	return []connectorbuilder.EventFeed{&eventFeed{}}
+	dataset := b.run.dataset()
+	ids := make([]string, 0, len(dataset.EventFeeds))
+	for id := range dataset.EventFeeds {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	out := make([]connectorbuilder.EventFeed, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, &eventFeed{run: b.run, id: id})
+	}
+	return out
 }
 
 // GlobalActions registers one deterministic action.
@@ -199,21 +214,47 @@ func (b *Builder) BulkGetTickets(
 	return v2.TicketsServiceBulkGetTicketsResponse_builder{Tickets: out}.Build(), nil
 }
 
-type eventFeed struct{}
+// eventFeed serves one scenario-declared EventFeedSpec. Each instance is
+// bound to a single feed id; the run's active dataset (not a value captured
+// at construction time) is consulted on every call, so an epoch transition
+// that drops the feed surfaces as a clear error rather than stale data.
+type eventFeed struct {
+	run *Run
+	id  string
+}
+
+func (f *eventFeed) spec() (EventFeedSpec, error) {
+	spec, ok := f.run.dataset().EventFeeds[f.id]
+	if !ok {
+		return EventFeedSpec{}, status.Errorf(codes.Internal, "chaosconnector: event feed %q not declared in dataset", f.id)
+	}
+	return spec, nil
+}
 
 func (f *eventFeed) EventFeedMetadata(context.Context) *v2.EventFeedMetadata {
-	return v2.EventFeedMetadata_builder{
-		Id:                  "chaos-events",
-		SupportedEventTypes: []v2.EventType{v2.EventType_EVENT_TYPE_RESOURCE_CHANGE},
-	}.Build()
+	spec, err := f.spec()
+	if err != nil {
+		return v2.EventFeedMetadata_builder{Id: f.id}.Build()
+	}
+	return proto.Clone(spec.Metadata).(*v2.EventFeedMetadata)
 }
 
 func (f *eventFeed) ListEvents(
-	context.Context,
-	*timestamppb.Timestamp,
-	*pagination.StreamToken,
+	_ context.Context,
+	earliest *timestamppb.Timestamp,
+	tok *pagination.StreamToken,
 ) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error) {
-	return nil, &pagination.StreamState{}, nil, nil
+	spec, err := f.spec()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	size := max(tok.Size, 0)
+	//nolint:gosec // size is non-negative and originated from a uint32 page_size, so it fits back into uint32
+	events, state, err := spec.serve(tok.Cursor, uint32(size), earliest)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return events, state, nil, nil
 }
 
 type deletableSyncer struct {

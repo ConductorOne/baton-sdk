@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"math/rand"
 	"slices"
+	"time"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -17,7 +19,27 @@ import (
 const (
 	FullCapabilityResourceTypeID = "chaos-user"
 	IssuedSecretResourceTypeID   = "chaos-secret"
+
+	// ChaosEventFeedID is the single event feed declared by NewFullScenario.
+	ChaosEventFeedID = "chaos-events"
 )
+
+// chaosEventEpoch anchors the deterministic timestamps on NewFullScenario's
+// declared events. It is a fixed date, not time.Now(), so occurred_at values
+// (and any start_at filtering test built against them) stay reproducible.
+var chaosEventEpoch = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// newChaosEvent builds one deterministic resource-change event referencing
+// target, spaced index minutes after chaosEventEpoch.
+func newChaosEvent(target *v2.Resource, index int) *v2.Event {
+	return v2.Event_builder{
+		Id:         fmt.Sprintf("chaos-event-%02d", index),
+		OccurredAt: timestamppb.New(chaosEventEpoch.Add(time.Duration(index) * time.Minute)),
+		ResourceChangeEvent: v2.ResourceChangeEvent_builder{
+			ResourceId: target.GetId(),
+		}.Build(),
+	}.Build()
+}
 
 // NewFullScenario returns the small deterministic estate used to verify the
 // connector's complete capability skeleton.
@@ -70,6 +92,19 @@ func NewFullScenario() (*Scenario, error) {
 				Grants: map[string]Pages[*v2.Grant]{
 					FullCapabilityResourceTypeID: {
 						"": {List: []*v2.Grant{grant}},
+					},
+				},
+				EventFeeds: map[string]EventFeedSpec{
+					ChaosEventFeedID: {
+						Metadata: v2.EventFeedMetadata_builder{
+							Id:                  ChaosEventFeedID,
+							SupportedEventTypes: []v2.EventType{v2.EventType_EVENT_TYPE_RESOURCE_CHANGE},
+						}.Build(),
+						Events: []*v2.Event{
+							newChaosEvent(user, 0),
+							newChaosEvent(user, 1),
+							newChaosEvent(user, 2),
+						},
 					},
 				},
 			},

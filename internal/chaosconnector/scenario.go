@@ -31,6 +31,7 @@ type Dataset struct {
 	StaticEntitlements map[string]Pages[*v2.Entitlement]
 	Entitlements       map[string]Pages[*v2.Entitlement]
 	Grants             map[string]Pages[*v2.Grant]
+	EventFeeds         map[string]EventFeedSpec
 }
 
 // Scenario is an immutable deterministic connector world. Runtime state such
@@ -77,6 +78,11 @@ func (s *Scenario) Validate() error {
 			}
 			seenTypes[resourceType.GetId()] = struct{}{}
 		}
+		for id, spec := range dataset.EventFeeds {
+			if err := spec.validate(id); err != nil {
+				return fmt.Errorf("chaosconnector: epoch %q: %w", name, err)
+			}
+		}
 	}
 	return nil
 }
@@ -90,6 +96,10 @@ type Manifest struct {
 	StaticEntitlements []*v2.Entitlement
 	Entitlements       []*v2.Entitlement
 	Grants             []*v2.Grant
+	// Events is the declared per-feed event log, keyed by feed id. It is
+	// ground truth for page-size invariance: the events a full traversal
+	// observes must equal this set exactly once, regardless of page size.
+	Events map[string][]*v2.Event
 }
 
 // Manifest derives an isolated canonical inventory for one epoch. It includes
@@ -109,6 +119,10 @@ func (s *Scenario) Manifest(epoch string) (*Manifest, error) {
 	out.StaticEntitlements = flattenPages(dataset.StaticEntitlements)
 	out.Entitlements = flattenPages(dataset.Entitlements)
 	out.Grants = flattenPages(dataset.Grants)
+	out.Events = make(map[string][]*v2.Event, len(dataset.EventFeeds))
+	for id, spec := range dataset.EventFeeds {
+		out.Events[id] = cloneMessages(spec.Events)
+	}
 	return out, nil
 }
 
@@ -177,6 +191,7 @@ func cloneDataset(dataset *Dataset) *Dataset {
 		StaticEntitlements: clonePageMap(dataset.StaticEntitlements),
 		Entitlements:       clonePageMap(dataset.Entitlements),
 		Grants:             clonePageMap(dataset.Grants),
+		EventFeeds:         cloneEventFeeds(dataset.EventFeeds),
 	}
 }
 
