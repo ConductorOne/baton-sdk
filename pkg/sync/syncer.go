@@ -678,7 +678,8 @@ func (s *syncer) returnSyncError(l *zap.Logger, span trace.Span, err error) erro
 	if err == nil || !s.recordStats || s.state == nil || errors.Is(err, ErrSyncNotComplete) {
 		return err
 	}
-	l.Info("sync stats so far", s.syncSummaryFields(span)...)
+	fields := append(s.syncSummaryFields(span), zap.Error(err))
+	l.Error("sync stats so far", fields...)
 	return err
 }
 
