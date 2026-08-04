@@ -28,6 +28,19 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
+// referenceContainsEmail restates the syncer's deleted userTraitContainsEmail
+// helper. The reference model must not share code with the implementation it
+// checks, so this stays a local copy even though it is a few lines of
+// duplication.
+func referenceContainsEmail(emails []*v2.UserTrait_Email, address string) bool {
+	for _, email := range emails {
+		if strings.EqualFold(email.GetAddress(), address) {
+			return true
+		}
+	}
+	return false
+}
+
 // linearUserMatchPositions is a test-only reference model copied from the
 // phase-6a implementation. It deliberately does not share bucketing or merge
 // logic with externalPrincipalIndex.
@@ -38,7 +51,7 @@ func linearUserMatchPositions(principals []*v2.Resource, key, value string) []in
 		if err != nil {
 			continue
 		}
-		if key == "email" && userTraitContainsEmail(userTrait.GetEmails(), value) {
+		if key == "email" && referenceContainsEmail(userTrait.GetEmails(), value) {
 			matches = append(matches, i)
 			continue
 		}
@@ -94,10 +107,21 @@ func TestVerificationExternalPrincipalIndexMatchesPhase6AReference(t *testing.T)
 	}
 }
 
-func TestVerificationExternalPrincipalIndexRandomizedASCIIParity(t *testing.T) {
-	rng := rand.New(rand.NewSource(0xC1))
+func TestVerificationExternalPrincipalIndexRandomizedParity(t *testing.T) {
+	// A fixed seed is the point: a parity failure has to be replayable.
+	rng := rand.New(rand.NewSource(0xC1)) //nolint:gosec // deterministic fixture generator, not security-sensitive
 	keys := []string{"email", "upn", "login", "external_id"}
-	values := []string{"alpha@example.com", "BRAVO@example.com", "charlie", "DELTA", ""}
+	// The value set deliberately reaches past ASCII. ToLower and EqualFold
+	// agree on every ASCII pair, so an ASCII-only generator cannot observe the
+	// normalization divergences that motivated foldKey: Greek final sigma
+	// (EqualFold matches, ToLower does not) and the Turkish dotted capital I
+	// (ToLower matches, EqualFold does not).
+	values := []string{
+		"alpha@example.com", "BRAVO@example.com", "charlie", "DELTA", "",
+		"στεφανος", "ΣΤΕΦΑΝΟΣ", "Σ", "ς",
+		"İstanbul", "istanbul", "ı",
+		"ПЕТРОВ", "Ann-Sofie.Ö", "ß", "ẞ", "ſharp",
+	}
 
 	for topology := 0; topology < 200; topology++ {
 		principalCount := 1 + rng.Intn(20)
@@ -136,7 +160,7 @@ func TestVerificationExternalPrincipalIndexRandomizedASCIIParity(t *testing.T) {
 
 		for _, key := range keys {
 			for _, value := range values {
-				for _, query := range []string{value, strings.ToUpper(value)} {
+				for _, query := range []string{value, strings.ToUpper(value), strings.ToLower(value)} {
 					require.Equal(t,
 						linearUserMatchPositions(principals, key, query),
 						indexedUserMatchPositions(principals, key, query),
@@ -148,21 +172,32 @@ func TestVerificationExternalPrincipalIndexRandomizedASCIIParity(t *testing.T) {
 	}
 }
 
+// The two normalization divergences that ToLower bucketing produced, pinned
+// individually so a regression names itself instead of surfacing as one
+// randomized topology failure.
 func TestVerificationExternalPrincipalIndexUnicodeEqualFoldParity(t *testing.T) {
-	// EqualFold treats Greek sigma and final sigma as equal, while ToLower
-	// produces different bucket keys ("σ" and "ς"). The phase-6a scan therefore
-	// matches this pair and the index prefilter currently does not.
-	const stored = "Σ"
-	const query = "ς"
-	require.True(t, strings.EqualFold(stored, query), "test premise")
-
-	principals := []*v2.Resource{
-		testUserPrincipal(t, "unicode", map[string]any{"upn": stored}),
+	for _, tc := range []struct {
+		name          string
+		stored, query string
+	}{
+		// EqualFold treats medial and final sigma as equal, while ToLower
+		// produces different bucket keys ("σ" and "ς"). Bucketing on ToLower
+		// dropped a match the scan made.
+		{name: "greek final sigma", stored: "Σ", query: "ς"},
+		// ToLower("İ") is "i", but the two do not case-fold together.
+		// Bucketing on ToLower invented a match the scan never made.
+		{name: "turkish dotted capital i", stored: "İ", query: "i"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			principals := []*v2.Resource{
+				testUserPrincipal(t, "unicode", map[string]any{"upn": tc.stored}),
+			}
+			require.Equal(t,
+				linearUserMatchPositions(principals, "upn", tc.query),
+				indexedUserMatchPositions(principals, "upn", tc.query),
+			)
+		})
 	}
-	require.Equal(t,
-		linearUserMatchPositions(principals, "upn", query),
-		indexedUserMatchPositions(principals, "upn", query),
-	)
 }
 
 func TestVerificationExternalPrincipalIndexDeduplicatesRepeatedTraitEmail(t *testing.T) {
@@ -207,21 +242,6 @@ func (s *interruptingExternalMatchStore) DeleteGrantByRefs(ctx context.Context, 
 		return fmt.Errorf("verification premise: wrapped store lacks DeleteGrantByRefs")
 	}
 	return deleter.DeleteGrantByRefs(ctx, grant)
-}
-
-func externalMatchGrantIDs(ctx context.Context, store c1zstore.Store) ([]string, error) {
-	var ids []string
-	for ga, err := range store.Grants().ListWithAnnotations(ctx) {
-		if err != nil {
-			return nil, err
-		}
-		annos := annotations.Annotations(ga.Grant.GetAnnotations())
-		if annos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
-			ids = append(ids, ga.Grant.GetId())
-		}
-	}
-	slices.Sort(ids)
-	return ids, nil
 }
 
 func verificationPrincipals(t *testing.T) []*v2.Resource {

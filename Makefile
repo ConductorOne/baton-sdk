@@ -89,6 +89,10 @@ fuzz-smoke: ## Run each native Go fuzzer for FUZZ_TIME (default 30s).
 	go test -run '^$$' -fuzz '^FuzzCondenseFWBW_Cancellation$$' -fuzztime=$(FUZZ_TIME) ./pkg/sync/expand/scc
 	go test -run '^$$' -fuzz '^FuzzCondenseFWBW_FromBytes$$' -fuzztime=$(FUZZ_TIME) ./pkg/sync/expand/scc
 
+.PHONY: verification-check
+verification-check: ## Run reference-model parity instruments behind the verification tag.
+	go test -tags=verification -count=1 -timeout=30m -run '^TestVerification' ./...
+
 .PHONY: differential-check
 differential-check: ## Differential-fuzz SQLite and Pebble for DIFFERENTIAL_TIME.
 	BATON_EXPAND_FUZZ_DURATION=$(DIFFERENTIAL_TIME) go test -v -count=1 -timeout=30m -run '^TestFullPipelineDifferentialFuzz$$' ./pkg/sync/expand
@@ -125,7 +129,7 @@ chaos-soak: ## Run extended seeded chaos connector fanout schedules.
 
 # race-check already includes chaos-full-check's complete deterministic corpus.
 .PHONY: test-extra
-test-extra: race-check compat-check interrupt-check fuzz-smoke differential-check bench-smoke ## Run bounded confidence checks omitted from CI.
+test-extra: race-check compat-check interrupt-check verification-check fuzz-smoke differential-check bench-smoke ## Run bounded confidence checks omitted from CI.
 
 .PHONY: test-nightly
 test-nightly: ## Run extended confidence, fuzz, scheduler, and errorfs checks.

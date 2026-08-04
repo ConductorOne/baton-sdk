@@ -1,6 +1,7 @@
 package sync //nolint:revive,nolintlint // matches the existing package name
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -176,34 +177,80 @@ func TestExternalPrincipalIndexSkipsUnreadableUserTrait(t *testing.T) {
 	require.Equal(t, []string{"readable"}, resolvedIDs(idx, idx.matchProfile("upn", "shared@example.com")))
 }
 
-// Bucketing and the confirmation pass both normalize through foldKey, so they
-// can never disagree about whether two values match. Nothing is restricted to
-// ASCII: non-ASCII values are lowercased and compared like any other. A
-// mismatch here would mean a real grant is silently dropped -- the candidate
-// would be filtered out by bucketing before confirmation ever runs.
+// Bucketing decides matching outright -- there is no confirmation pass behind
+// it -- so foldKey has to agree with the strings.EqualFold comparison the linear
+// scan used, in both directions. A false negative silently drops a real grant;
+// a false positive silently grants a principal the scan never matched.
+//
+// Every case states its expectation and then pins it to EqualFold, so a case
+// added later cannot quietly encode a divergence.
 func TestExternalPrincipalIndexNonASCIIMatching(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
 		stored, query string
+		matches       bool
 	}{
-		{name: "ascii", stored: "UPPER@example.com", query: "upper@example.com"},
-		{name: "latin with diaeresis", stored: "Ann-Sofie.Ö", query: "ann-sofie.ö"},
-		{name: "cyrillic", stored: "ПЕТРОВ", query: "петров"},
-		{name: "greek accented", stored: "ΜΆΙΟΣ", query: "μάιοσ"},
-		{name: "cjk is caseless", stored: "山田太郎", query: "山田太郎"},
-		// strings.ToLower("İ") is "i", but strings.EqualFold("İ", "I") is
-		// false. Any comparison downstream of the index -- notably
-		// matchProfileAndExpand -- must fold the same way, or it will reject a
-		// principal the index matched and silently drop the grant.
-		{name: "turkish dotted capital i", stored: "İSTANBUL", query: "istanbul"},
+		{name: "ascii", stored: "UPPER@example.com", query: "upper@example.com", matches: true},
+		{name: "latin with diaeresis", stored: "Ann-Sofie.Ö", query: "ann-sofie.ö", matches: true},
+		{name: "cyrillic", stored: "ПЕТРОВ", query: "петров", matches: true},
+		{name: "greek accented", stored: "ΜΆΙΟΣ", query: "μάιοσ", matches: true},
+		{name: "cjk is caseless", stored: "山田太郎", query: "山田太郎", matches: true},
+		// Final sigma folds together with medial sigma, so this matches even
+		// though the two lowercase forms differ ("σ" vs "ς"). Bucketing on
+		// strings.ToLower would drop it.
+		{name: "greek final sigma", stored: "ΣΤΕΦΑΝΟΣ", query: "στεφανος", matches: true},
+		{name: "greek final sigma single rune", stored: "Σ", query: "ς", matches: true},
+		// The dotted capital I does not fold to "i", so this must not match
+		// even though strings.ToLower("İ") is "i". Bucketing on ToLower would
+		// manufacture a grant here.
+		{name: "turkish dotted capital i", stored: "İSTANBUL", query: "istanbul", matches: false},
+		// Case folding is per-rune, so it never expands "ß" to "ss".
+		{name: "sharp s does not expand", stored: "ß", query: "ss", matches: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.matches, strings.EqualFold(tc.stored, tc.query),
+				"premise: the index must agree with the EqualFold comparison it replaced")
+
 			idx := newExternalUserPrincipalIndex([]*v2.Resource{
 				testUserPrincipal(t, "user_a", map[string]any{"userPrincipalName": tc.stored}),
 			}, zap.NewNop())
 
-			require.Equal(t, []string{"user_a"}, resolvedIDs(idx, idx.matchProfile("userPrincipalName", tc.query)),
-				"stored %q should match query %q", tc.stored, tc.query)
+			expected := []string{}
+			if tc.matches {
+				expected = []string{"user_a"}
+			}
+			require.Equal(t, expected, resolvedIDs(idx, idx.matchProfile("userPrincipalName", tc.query)),
+				"stored %q vs query %q", tc.stored, tc.query)
+		})
+	}
+}
+
+// foldKey is the whole matching decision, so it must reproduce EqualFold's
+// equivalence classes exactly rather than approximate them.
+func TestFoldKeyAgreesWithEqualFold(t *testing.T) {
+	for _, tc := range []struct{ a, b string }{
+		{a: "", b: ""},
+		{a: "UPPER@example.com", b: "upper@example.com"},
+		{a: "Ann-Sofie.Ö", b: "ann-sofie.ö"},
+		{a: "ПЕТРОВ", b: "петров"},
+		{a: "ΜΆΙΟΣ", b: "μάιοσ"},
+		{a: "ΣΤΕΦΑΝΟΣ", b: "στεφανος"},
+		{a: "Σ", b: "ς"},
+		{a: "σ", b: "ς"},
+		{a: "İSTANBUL", b: "istanbul"},
+		{a: "İ", b: "i"},
+		{a: "ı", b: "i"},
+		{a: "K", b: "k"}, // KELVIN SIGN
+		{a: "ẞ", b: "ß"},
+		{a: "ß", b: "ss"},
+		{a: "ſ", b: "s"}, // LATIN SMALL LETTER LONG S
+		{a: "山田太郎", b: "山田太郎"},
+		{a: "abc", b: "abd"},
+		{a: "abc", b: "abcd"},
+	} {
+		t.Run(tc.a+"/"+tc.b, func(t *testing.T) {
+			require.Equal(t, strings.EqualFold(tc.a, tc.b), foldKey(tc.a) == foldKey(tc.b),
+				"foldKey(%q)=%q foldKey(%q)=%q", tc.a, foldKey(tc.a), tc.b, foldKey(tc.b))
 		})
 	}
 }
