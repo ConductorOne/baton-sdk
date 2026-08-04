@@ -2,7 +2,6 @@ package expand
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -26,22 +25,71 @@ func (g *EntitlementGraph) ClearTransientState() {
 	g.ExpansionMetrics = nil
 }
 
-// Clone returns a deep copy of the graph. Incremental expansion mutates the
-// graph (adds edges), so callers that keep the base graph across retries must
-// pass a clone — otherwise a failed run leaves the never-expanded edges in the
-// caller's graph, and a retry would treat them as already present and finish
-// with an unexpanded artifact.
+// Clone returns a structural deep copy of the graph. Incremental expansion
+// mutates the graph, so callers must not share maps or slices with the base.
+// This deliberately avoids a JSON round trip: graph cloning is paid on every
+// eligible incremental attempt and benchmark evidence showed serialization
+// dominated both CPU and allocation at whale scale.
 func (g *EntitlementGraph) Clone() (*EntitlementGraph, error) {
-	data, err := json.Marshal(g)
-	if err != nil {
-		return nil, fmt.Errorf("clone entitlement graph: %w", err)
+	if g == nil {
+		return nil, fmt.Errorf("clone entitlement graph: nil graph")
 	}
-	out := &EntitlementGraph{}
-	if err := json.Unmarshal(data, out); err != nil {
-		return nil, fmt.Errorf("clone entitlement graph: %w", err)
+	out := &EntitlementGraph{
+		NextNodeID:            g.NextNodeID,
+		NextEdgeID:            g.NextEdgeID,
+		Nodes:                 make(map[int]Node, len(g.Nodes)),
+		EntitlementsToNodes:   make(map[string]int, len(g.EntitlementsToNodes)),
+		SourcesToDestinations: cloneNestedIntMap(g.SourcesToDestinations),
+		DestinationsToSources: cloneNestedIntMap(g.DestinationsToSources),
+		Edges:                 make(map[int]Edge, len(g.Edges)),
+		Loaded:                g.Loaded,
+		Depth:                 g.Depth,
+		HasNoCycles:           g.HasNoCycles,
 	}
-	out.reinitMaps()
+	for id, node := range g.Nodes {
+		node.EntitlementIDs = append([]string(nil), node.EntitlementIDs...)
+		out.Nodes[id] = node
+	}
+	for entitlementID, nodeID := range g.EntitlementsToNodes {
+		out.EntitlementsToNodes[entitlementID] = nodeID
+	}
+	for id, edge := range g.Edges {
+		edge.ResourceTypeIDs = append([]string(nil), edge.ResourceTypeIDs...)
+		out.Edges[id] = edge
+	}
+	out.Actions = make([]*EntitlementGraphAction, len(g.Actions))
+	for i, action := range g.Actions {
+		if action == nil {
+			continue
+		}
+		actionCopy := *action
+		actionCopy.Descendants = append([]ActionDescendant(nil), action.Descendants...)
+		actionCopy.ResourceTypeIDs = append([]string(nil), action.ResourceTypeIDs...)
+		out.Actions[i] = &actionCopy
+	}
+	if g.ExpansionPlan != nil {
+		plan := *g.ExpansionPlan
+		plan.Order = append([]int(nil), g.ExpansionPlan.Order...)
+		plan.ProjectionSources = append([]string(nil), g.ExpansionPlan.ProjectionSources...)
+		out.ExpansionPlan = &plan
+	}
+	if g.ExpansionMetrics != nil {
+		metrics := *g.ExpansionMetrics
+		out.ExpansionMetrics = &metrics
+	}
 	return out, nil
+}
+
+func cloneNestedIntMap(source map[int]map[int]int) map[int]map[int]int {
+	out := make(map[int]map[int]int, len(source))
+	for outer, inner := range source {
+		innerCopy := make(map[int]int, len(inner))
+		for key, value := range inner {
+			innerCopy[key] = value
+		}
+		out[outer] = innerCopy
+	}
+	return out
 }
 
 // reinitMaps replaces nil maps (json leaves absent maps nil) so a
@@ -75,6 +123,15 @@ var ErrIncrementalFallback = errors.New("incremental expansion: change introduce
 // tombstone/deletion stage flips from "decline" to "apply deletions".
 var ErrIncrementalRevocationDecline = errors.New("incremental expansion: revocation-shaped change, fall back to full expansion")
 
+// ErrIncrementalDenseChangeDecline means the affected closure is large enough
+// that normal full expansion is the safer bounded-cost path.
+var ErrIncrementalDenseChangeDecline = errors.New("incremental expansion: dense affected graph, fall back to full expansion")
+
+const (
+	incrementalDenseGraphMinNodes = 1000
+	incrementalMaxAffectedPercent = 10
+)
+
 // NewEdge is one edge to fold in: members of Source also get Destination.
 type NewEdge struct {
 	SourceEntitlementID string
@@ -97,12 +154,17 @@ type IncrementalResult struct {
 // expanded), and store holds that expansion's grants. Additions only; a new
 // edge that closes a cycle returns ErrIncrementalFallback.
 type IncrementalExpander struct {
-	store ExpanderStore
-	graph *EntitlementGraph
+	store            ExpanderStore
+	graph            *EntitlementGraph
+	entitlementCache map[string]*v2.Entitlement
 }
 
 func NewIncrementalExpander(store ExpanderStore, graph *EntitlementGraph) *IncrementalExpander {
-	return &IncrementalExpander{store: store, graph: graph}
+	return &IncrementalExpander{
+		store:            store,
+		graph:            graph,
+		entitlementCache: make(map[string]*v2.Entitlement),
+	}
 }
 
 // ExpandChanges recomputes grants for only the subgraph affected by a set of
@@ -158,9 +220,15 @@ func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []New
 
 	// Only nodes forward-reachable from a seed are touched.
 	affected := ie.forwardReachable(seeds)
+	if len(ie.graph.Nodes) >= incrementalDenseGraphMinNodes &&
+		len(affected)*100 > len(ie.graph.Nodes)*incrementalMaxAffectedPercent {
+		return nil, ErrIncrementalDenseChangeDecline
+	}
 
-	// Topological order so each destination reads already-finalized parents.
-	order, err := topologicalNodeOrder(ie.graph)
+	// Topological order only the affected closure. Parents outside this set
+	// were finalized by the base expansion and are read from the store; sorting
+	// the untouched graph made K=1 work scale with total graph size.
+	order, err := topologicalAffectedNodeOrder(ie.graph, affected)
 	if err != nil {
 		return nil, fmt.Errorf("incremental expansion: topological order: %w", err)
 	}
@@ -186,7 +254,51 @@ func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []New
 			result.GrantsWritten += written
 		}
 	}
+	ie.graph.MarkExpansionComplete()
 	return result, nil
+}
+
+func topologicalAffectedNodeOrder(g *EntitlementGraph, affected map[int]struct{}) ([]int, error) {
+	inDegree := make(map[int]int, len(affected))
+	for nodeID := range affected {
+		if _, ok := g.Nodes[nodeID]; ok {
+			inDegree[nodeID] = 0
+		}
+	}
+	for sourceID := range inDegree {
+		for destinationID := range g.SourcesToDestinations[sourceID] {
+			if _, ok := inDegree[destinationID]; ok {
+				inDegree[destinationID]++
+			}
+		}
+	}
+	frontier := make([]int, 0, len(inDegree))
+	for nodeID, degree := range inDegree {
+		if degree == 0 {
+			frontier = append(frontier, nodeID)
+		}
+	}
+	sort.Ints(frontier)
+	order := make([]int, 0, len(inDegree))
+	for len(frontier) > 0 {
+		nodeID := frontier[0]
+		frontier = frontier[1:]
+		order = append(order, nodeID)
+		for childID := range g.SourcesToDestinations[nodeID] {
+			if _, ok := inDegree[childID]; !ok {
+				continue
+			}
+			inDegree[childID]--
+			if inDegree[childID] == 0 {
+				frontier = append(frontier, childID)
+				sort.Ints(frontier)
+			}
+		}
+	}
+	if len(order) != len(inDegree) {
+		return nil, fmt.Errorf("incremental expansion: affected graph contains a cycle or dangling edge")
+	}
+	return order, nil
 }
 
 func (ie *IncrementalExpander) forwardReachable(seeds map[int]struct{}) map[int]struct{} {
@@ -377,19 +489,26 @@ func (pc *principalContribution) addSource(entitlementID string, isDirect bool) 
 // ref (NotFound) so callers skip it — matching the full evaluator, which treats
 // NotFound as skip rather than a hard error.
 func (ie *IncrementalExpander) getEntitlement(ctx context.Context, entitlementID string) (*v2.Entitlement, error) {
+	if entitlement, ok := ie.entitlementCache[entitlementID]; ok {
+		return entitlement, nil
+	}
 	resp, err := ie.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: entitlementID,
 	}.Build())
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
+			ie.entitlementCache[entitlementID] = nil
 			return nil, nil
 		}
 		return nil, fmt.Errorf("incremental expansion: get entitlement %s: %w", entitlementID, err)
 	}
 	if resp == nil {
+		ie.entitlementCache[entitlementID] = nil
 		return nil, nil
 	}
-	return resp.GetEntitlement(), nil
+	entitlement := resp.GetEntitlement()
+	ie.entitlementCache[entitlementID] = entitlement
+	return entitlement, nil
 }
 
 // forEachGrant streams an entitlement's grants (filtered by resourceTypeIDs)
