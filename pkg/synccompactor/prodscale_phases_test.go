@@ -50,7 +50,9 @@ func TestProdScaleFoldPhases(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("phase open(unpack): %s", time.Since(start).Round(time.Millisecond))
 
-	require.True(t, enginepkg.MarkStoreDirty(w))
+	require.NoError(t, enginepkg.WithEngineMutation(ctx, w, func(context.Context, *enginepkg.Engine) error {
+		return nil
+	}))
 	start = time.Now()
 	require.NoError(t, w.Close(ctx))
 	t.Logf("phase save(close): %s", time.Since(start).Round(time.Millisecond))

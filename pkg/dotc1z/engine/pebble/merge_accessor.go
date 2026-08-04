@@ -153,43 +153,45 @@ type fixtureNormalizer interface {
 	NormalizeForFixtureSave(ctx context.Context, syncID string) error
 }
 
-type storeDirtyMarker interface {
-	MarkDirty()
+type guardedMutationRunner interface {
+	RunPebbleMutation(ctx context.Context, fn func(context.Context, *Engine) error) error
 }
 
-type foldDeadBytesAdder interface {
-	AddFoldDeadBytes(n int64)
+type guardedFoldMutationRunner interface {
+	RunPebbleFoldMutation(ctx context.Context, fn func(context.Context, *Engine) (int64, error)) error
 }
 
-// AddFoldDeadBytes bumps a registered store's cumulative fold-waste
-// counter (persisted as the envelope manifest's fold_dead_bytes at
-// save). Called by the fold compactor with the exact raw bytes its
-// merge shadowed in the base keyspace; the compactor's auto cutover
-// later reads the counter from the envelope header to force a rebuild
-// once waste crosses its threshold. Returns false when w is not a
-// registered Pebble store.
-func AddFoldDeadBytes(w connectorstore.Writer, n int64) bool {
-	s, ok := w.(foldDeadBytesAdder)
-	if !ok || s == nil {
-		return false
+// WithEngineMutation runs a direct engine mutation under the owning store's
+// admission guard. A bare *Engine has no envelope lifecycle to coordinate, so
+// it executes the callback directly and relies on the Engine's own write guard.
+func WithEngineMutation(ctx context.Context, target any, fn func(context.Context, *Engine) error) error {
+	if fn == nil {
+		return errors.New("pebble WithEngineMutation: nil callback")
 	}
-	s.AddFoldDeadBytes(n)
-	return true
+	if s, ok := target.(guardedMutationRunner); ok {
+		return s.RunPebbleMutation(ctx, fn)
+	}
+	if e, ok := target.(*Engine); ok && e != nil {
+		return fn(ctx, e)
+	}
+	return errors.New("pebble WithEngineMutation: target is not a pebble engine or store")
 }
 
-// MarkStoreDirty flips a registered store's dirty bit so Close drives
-// the save → checkpoint → envelope path. Engine-level writes (raw
-// batches, SST ingest, direct Put*Records) bypass the registered
-// store's markDirty wrappers; merge tooling that mutates the engine
-// directly calls this once so the mutations are persisted at Close.
-// Returns false when w is not a registered Pebble store.
-func MarkStoreDirty(w connectorstore.Writer) bool {
-	s, ok := w.(storeDirtyMarker)
-	if !ok || s == nil {
-		return false
+// WithEngineFoldMutation is the fold-specific guarded callback. The callback
+// returns the number of newly shadowed bytes; the store records that manifest
+// metadata before releasing admission, keeping it atomic with Close.
+func WithEngineFoldMutation(ctx context.Context, target any, fn func(context.Context, *Engine) (int64, error)) error {
+	if fn == nil {
+		return errors.New("pebble WithEngineFoldMutation: nil callback")
 	}
-	s.MarkDirty()
-	return true
+	if s, ok := target.(guardedFoldMutationRunner); ok {
+		return s.RunPebbleFoldMutation(ctx, fn)
+	}
+	if e, ok := target.(*Engine); ok && e != nil {
+		_, err := fn(ctx, e)
+		return err
+	}
+	return errors.New("pebble WithEngineFoldMutation: target is not a pebble engine or store")
 }
 
 // CloseEngineOnly closes the Pebble engine inside a registered store without

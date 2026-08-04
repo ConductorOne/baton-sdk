@@ -17,6 +17,8 @@ func TestMigrateC1ZOnly(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewStore(ctx, path)
 	require.NoError(t, err)
-	require.True(t, enginepebble.MarkStoreDirty(store))
+	require.NoError(t, enginepebble.WithEngineMutation(ctx, store, func(context.Context, *enginepebble.Engine) error {
+		return nil
+	}))
 	require.NoError(t, store.Close(ctx))
 }

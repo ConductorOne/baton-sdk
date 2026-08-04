@@ -238,7 +238,9 @@ func TestFoldWasteCarryForwardAndAutoCutover(t *testing.T) {
 	// from the source manifest at open and writes it back at save).
 	w, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)
-	require.True(t, enginepkg.MarkStoreDirty(w))
+	require.NoError(t, enginepkg.WithEngineMutation(ctx, w, func(context.Context, *enginepkg.Engine) error {
+		return nil
+	}))
 	require.NoError(t, w.Close(ctx))
 	require.Equal(t, dead, readFoldDeadBytes(t, out.FilePath),
 		"a non-fold save must carry the inherited fold_dead_bytes forward unchanged")
@@ -257,8 +259,9 @@ func TestFoldWasteCarryForwardAndAutoCutover(t *testing.T) {
 	// persisted by the same dirty-save path.
 	w, err = dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)
-	require.True(t, enginepkg.AddFoldDeadBytes(w, 1<<30))
-	require.True(t, enginepkg.MarkStoreDirty(w))
+	require.NoError(t, enginepkg.WithEngineFoldMutation(ctx, w, func(context.Context, *enginepkg.Engine) (int64, error) {
+		return 1 << 30, nil
+	}))
 	require.NoError(t, w.Close(ctx))
 	require.Equal(t, dead+1<<30, readFoldDeadBytes(t, out.FilePath))
 
