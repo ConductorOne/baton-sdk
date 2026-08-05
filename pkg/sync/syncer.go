@@ -222,6 +222,7 @@ type syncer struct {
 	// invariant policy on its own.
 	compactionMergedStore                 bool
 	dontExpandGrants                      bool
+	checkpointEntitlementGraph            bool
 	syncID                                string
 	skipEGForResourceType                 syncMap[string, bool]
 	skipEntitlementsForResourceType       syncMap[string, bool]
@@ -963,7 +964,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return err
 	}
 
-	state := newState()
+	state := newState(withCheckpointEntitlementGraph(s.checkpointEntitlementGraph))
 	err = state.Unmarshal(currentStep)
 	if err != nil {
 		return err
@@ -4027,6 +4028,23 @@ func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
 func WithSkipGrants(skip bool) SyncOpt {
 	return func(s *syncer) {
 		s.skipGrants = skip
+	}
+}
+
+// WithEntitlementGraphInCheckpoints serializes the entitlement graph into every
+// checkpoint token. Off by default: the graph is a projection of data already in
+// the store, and encoding it costs O(graph) memory several times over per
+// checkpoint, which OOM-kills workers on large tenants.
+//
+// Enable it to keep expansion progress across restarts. That matters only for a
+// tenant whose expansion cannot finish within one worker or activity lifetime —
+// without it, such a sync re-runs the load and expansion phases on every resume
+// and can fail to converge. Note the two failure modes trade off directly: the
+// tenants large enough to need cross-restart progress are the ones whose graph
+// is expensive enough to encode that checkpointing may OOM.
+func WithEntitlementGraphInCheckpoints(enabled bool) SyncOpt {
+	return func(s *syncer) {
+		s.checkpointEntitlementGraph = enabled
 	}
 }
 
