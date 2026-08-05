@@ -1939,6 +1939,12 @@ func (m *IngestQualityStats) validate(all bool) error {
 
 	// no validation rules for ReasonFlags
 
+	// no validation rules for InvalidResourceTypesObserved
+
+	// no validation rules for InvalidResourcesObserved
+
+	// no validation rules for InvalidEntitlementsObserved
+
 	if len(errors) > 0 {
 		return IngestQualityStatsMultiError(errors)
 	}

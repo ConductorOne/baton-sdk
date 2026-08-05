@@ -65,7 +65,11 @@ func runReferentialCorpusCase(
 			require.Zero(t, concreteSyncer.ingestFilterStats.entitlementsDropped.Load())
 			require.Zero(t, concreteSyncer.ingestFilterStats.grantsDropped.Load())
 		case chaosconnector.ReferentialEntitlement:
-			require.EqualValues(t, 1, concreteSyncer.ingestFilterStats.entitlementsDropped.Load())
+			if corpusCase.Reference == chaosconnector.ReferenceTypeUnknown {
+				require.EqualValues(t, 1, concreteSyncer.ingestFilterStats.entitlementsDropped.Load())
+			} else {
+				require.Zero(t, concreteSyncer.ingestFilterStats.entitlementsDropped.Load())
+			}
 		case chaosconnector.ReferentialGrant:
 			require.EqualValues(t, 1, concreteSyncer.ingestFilterStats.grantsDropped.Load())
 		}

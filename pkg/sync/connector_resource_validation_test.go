@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
@@ -16,42 +16,38 @@ func TestValidateConnectorResourceIdentity(t *testing.T) {
 	}.Build()
 
 	tests := []struct {
-		name        string
-		resource    *v2.Resource
-		errContains string
+		name     string
+		resource *v2.Resource
+		reason   string
 	}{
 		{name: "valid identity", resource: valid},
-		{name: "nil resource", errContains: "nil resource"},
+		{name: "nil resource", reason: connectorDataNil},
 		{
-			name:        "missing identity",
-			resource:    v2.Resource_builder{}.Build(),
-			errContains: "missing identity",
+			name:     "missing identity",
+			resource: v2.Resource_builder{}.Build(),
+			reason:   connectorDataMissingIdentity,
 		},
 		{
 			name: "missing resource type",
 			resource: v2.Resource_builder{
 				Id: v2.ResourceId_builder{Resource: "u1"}.Build(),
 			}.Build(),
-			errContains: "missing identity",
+			reason: connectorDataMissingIdentity,
 		},
 		{
 			name: "missing resource id",
 			resource: v2.Resource_builder{
 				Id: v2.ResourceId_builder{ResourceType: "user"}.Build(),
 			}.Build(),
-			errContains: "missing identity",
+			reason: connectorDataMissingIdentity,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateConnectorResource(test.resource)
-			if test.errContains == "" {
-				require.NoError(t, err)
-				return
-			}
-			require.Equal(t, codes.Internal, status.Code(err))
-			require.ErrorContains(t, err, test.errContains)
+			reason, err := validateConnectorResource(test.resource)
+			require.NoError(t, err)
+			require.Equal(t, test.reason, reason)
 		})
 	}
 }
@@ -63,7 +59,7 @@ func TestValidateConnectorEntitlementIdentity(t *testing.T) {
 	tests := []struct {
 		name        string
 		entitlement *v2.Entitlement
-		errContains string
+		reason      string
 	}{
 		{
 			name: "valid identity",
@@ -72,28 +68,24 @@ func TestValidateConnectorEntitlementIdentity(t *testing.T) {
 				Resource: validResource,
 			}.Build(),
 		},
-		{name: "nil entitlement", errContains: "nil entitlement"},
+		{name: "nil entitlement", reason: connectorDataNil},
 		{
 			name:        "missing entitlement id",
 			entitlement: v2.Entitlement_builder{Resource: validResource}.Build(),
-			errContains: "missing identity",
+			reason:      connectorDataMissingIdentity,
 		},
 		{
 			name:        "missing resource",
 			entitlement: v2.Entitlement_builder{Id: "member"}.Build(),
-			errContains: "missing resource identity",
+			reason:      connectorDataMissingResourceIdentity,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateConnectorEntitlement(test.entitlement)
-			if test.errContains == "" {
-				require.NoError(t, err)
-				return
-			}
-			require.Equal(t, codes.Internal, status.Code(err))
-			require.ErrorContains(t, err, test.errContains)
+			reason, err := validateConnectorEntitlement(test.entitlement)
+			require.NoError(t, err)
+			require.Equal(t, test.reason, reason)
 		})
 	}
 }
@@ -102,29 +94,75 @@ func TestValidateConnectorResourceTypeIdentity(t *testing.T) {
 	tests := []struct {
 		name         string
 		resourceType *v2.ResourceType
-		errContains  string
+		reason       string
 	}{
 		{
 			name:         "valid identity",
 			resourceType: v2.ResourceType_builder{Id: "user"}.Build(),
 		},
-		{name: "nil resource type", errContains: "nil resource type"},
+		{name: "nil resource type", reason: connectorDataNil},
 		{
 			name:         "missing identity",
 			resourceType: v2.ResourceType_builder{}.Build(),
-			errContains:  "missing identity",
+			reason:       connectorDataMissingIdentity,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateConnectorResourceType(test.resourceType)
-			if test.errContains == "" {
-				require.NoError(t, err)
-				return
-			}
-			require.Equal(t, codes.Internal, status.Code(err))
-			require.ErrorContains(t, err, test.errContains)
+			reason, err := validateConnectorResourceType(test.resourceType)
+			require.NoError(t, err)
+			require.Equal(t, test.reason, reason)
 		})
 	}
+}
+
+func TestInvalidConnectorDataSummaryReportsObservedCounts(t *testing.T) {
+	core, entries := newCaptureCore()
+	logger := zap.New(core)
+	s := &syncer{}
+
+	filtered, err := filterConnectorData(s, connectorDataResource,
+		[]*v2.Resource{nil, v2.Resource_builder{}.Build()},
+		validateConnectorResource,
+	)
+	require.NoError(t, err)
+	require.Empty(t, filtered)
+	s.logInvalidConnectorDataSummary(logger)
+
+	warning := findEntry(entries(), zapcore.WarnLevel, "connector returned invalid data; skipped records")
+	require.NotNil(t, warning)
+	require.EqualValues(t, 2, fieldInt(t, warning, "invalid_records_observed"))
+	require.EqualValues(t, 2, fieldInt(t, warning, "invalid_resources_observed"))
+}
+
+func BenchmarkFilterConnectorDataValidPage(b *testing.B) {
+	resource := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(),
+	}.Build()
+	resources := make([]*v2.Resource, 100)
+	for i := range resources {
+		resources[i] = resource
+	}
+	s := &syncer{}
+	b.Run("validation-only-baseline", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			for _, value := range resources {
+				reason, err := validateConnectorResource(value)
+				if err != nil || reason != "" {
+					b.Fatalf("unexpected validation result: reason=%q err=%v", reason, err)
+				}
+			}
+		}
+	})
+	b.Run("filter", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			filtered, err := filterConnectorData(s, connectorDataResource, resources, validateConnectorResource)
+			if err != nil || len(filtered) != len(resources) {
+				b.Fatalf("unexpected filter result: len=%d err=%v", len(filtered), err)
+			}
+		}
+	})
 }

@@ -277,10 +277,10 @@ does not yet emit exact entitlement/grant conflict counters: doing that would
 require either a read before every put or sync-wide identity state. Neither
 cost is introduced implicitly by these tests.
 
-`LifecycleCorpus` crosses one representative of each data policy with an
-interrupted entitlement page and persisted resume. It verifies that dropped
-rows remain absent, hard-invalid rows cannot seal, retained dangling rows
-survive, and an interrupted response is replaced by the resume-time answer.
+`LifecycleCorpus` crosses each materially different outcome with an interrupted
+entitlement page and persisted resume. It verifies that skipped rows remain
+absent, retained dangling rows survive, and an interrupted response is replaced
+by the resume-time answer.
 Page-chain replay is at-least-once: a dropped row before the cut is observed
 and counted once in each attempt, while remaining absent from both artifacts.
 Every successful resume must finish the original sync ID and match the complete

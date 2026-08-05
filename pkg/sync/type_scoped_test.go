@@ -477,7 +477,7 @@ func TestParallelActionQueueReleasesDequeuedStorage(t *testing.T) {
 	require.Zero(t, queue.outstanding)
 }
 
-func TestEmptyResourceIDFailsBeforePerResourceCalls(t *testing.T) {
+func TestEmptyResourceIDIsSkippedBeforePerResourceCalls(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	resourceType := v2.ResourceType_builder{
@@ -497,7 +497,7 @@ func TestEmptyResourceIDFailsBeforePerResourceCalls(t *testing.T) {
 		WithTmpDir(tmpDir),
 	)
 	require.NoError(t, err)
-	require.ErrorContains(t, s.Sync(ctx), "connector returned a resource with missing identity")
+	require.NoError(t, s.Sync(ctx))
 	require.NoError(t, s.Close(ctx))
 	require.Zero(t, connector.entitlementCalls)
 	require.Zero(t, connector.grantCalls)

@@ -1951,6 +1951,9 @@ type IngestQualityStats struct {
 	xxx_hidden_ExpansionResourceTypesDropped uint64                 `protobuf:"varint,5,opt,name=expansion_resource_types_dropped,json=expansionResourceTypesDropped,proto3"`
 	xxx_hidden_ExpansionsDropped             uint64                 `protobuf:"varint,6,opt,name=expansions_dropped,json=expansionsDropped,proto3"`
 	xxx_hidden_ReasonFlags                   uint64                 `protobuf:"varint,7,opt,name=reason_flags,json=reasonFlags,proto3"`
+	xxx_hidden_InvalidResourceTypesObserved  uint64                 `protobuf:"varint,8,opt,name=invalid_resource_types_observed,json=invalidResourceTypesObserved,proto3"`
+	xxx_hidden_InvalidResourcesObserved      uint64                 `protobuf:"varint,9,opt,name=invalid_resources_observed,json=invalidResourcesObserved,proto3"`
+	xxx_hidden_InvalidEntitlementsObserved   uint64                 `protobuf:"varint,10,opt,name=invalid_entitlements_observed,json=invalidEntitlementsObserved,proto3"`
 	unknownFields                            protoimpl.UnknownFields
 	sizeCache                                protoimpl.SizeCache
 }
@@ -2029,6 +2032,27 @@ func (x *IngestQualityStats) GetReasonFlags() uint64 {
 	return 0
 }
 
+func (x *IngestQualityStats) GetInvalidResourceTypesObserved() uint64 {
+	if x != nil {
+		return x.xxx_hidden_InvalidResourceTypesObserved
+	}
+	return 0
+}
+
+func (x *IngestQualityStats) GetInvalidResourcesObserved() uint64 {
+	if x != nil {
+		return x.xxx_hidden_InvalidResourcesObserved
+	}
+	return 0
+}
+
+func (x *IngestQualityStats) GetInvalidEntitlementsObserved() uint64 {
+	if x != nil {
+		return x.xxx_hidden_InvalidEntitlementsObserved
+	}
+	return 0
+}
+
 func (x *IngestQualityStats) SetSourceCacheReplayBlocked(v bool) {
 	x.xxx_hidden_SourceCacheReplayBlocked = v
 }
@@ -2057,6 +2081,18 @@ func (x *IngestQualityStats) SetReasonFlags(v uint64) {
 	x.xxx_hidden_ReasonFlags = v
 }
 
+func (x *IngestQualityStats) SetInvalidResourceTypesObserved(v uint64) {
+	x.xxx_hidden_InvalidResourceTypesObserved = v
+}
+
+func (x *IngestQualityStats) SetInvalidResourcesObserved(v uint64) {
+	x.xxx_hidden_InvalidResourcesObserved = v
+}
+
+func (x *IngestQualityStats) SetInvalidEntitlementsObserved(v uint64) {
+	x.xxx_hidden_InvalidEntitlementsObserved = v
+}
+
 type IngestQualityStats_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -2075,6 +2111,11 @@ type IngestQualityStats_builder struct {
 	// Counts remain useful diagnostics; reason flags carry replay eligibility
 	// even for warn-and-retain policies that do not drop a row.
 	ReasonFlags uint64
+	// Attempt-level observations. A retry or resumed page may observe the same
+	// malformed connector record again.
+	InvalidResourceTypesObserved uint64
+	InvalidResourcesObserved     uint64
+	InvalidEntitlementsObserved  uint64
 }
 
 func (b0 IngestQualityStats_builder) Build() *IngestQualityStats {
@@ -2088,6 +2129,9 @@ func (b0 IngestQualityStats_builder) Build() *IngestQualityStats {
 	x.xxx_hidden_ExpansionResourceTypesDropped = b.ExpansionResourceTypesDropped
 	x.xxx_hidden_ExpansionsDropped = b.ExpansionsDropped
 	x.xxx_hidden_ReasonFlags = b.ReasonFlags
+	x.xxx_hidden_InvalidResourceTypesObserved = b.InvalidResourceTypesObserved
+	x.xxx_hidden_InvalidResourcesObserved = b.InvalidResourcesObserved
+	x.xxx_hidden_InvalidEntitlementsObserved = b.InvalidEntitlementsObserved
 	return m0
 }
 
@@ -2716,7 +2760,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\x1a]\n" +
 	"\x16SessionStoreStatsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
-	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\"\x80\x03\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\"\xc9\x04\n" +
 	"\x12IngestQualityStats\x12=\n" +
 	"\x1bsource_cache_replay_blocked\x18\x01 \x01(\bR\x18sourceCacheReplayBlocked\x121\n" +
 	"\x14entitlements_dropped\x18\x02 \x01(\x04R\x13entitlementsDropped\x12%\n" +
@@ -2724,7 +2768,11 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x17grant_resources_dropped\x18\x04 \x01(\x04R\x15grantResourcesDropped\x12G\n" +
 	" expansion_resource_types_dropped\x18\x05 \x01(\x04R\x1dexpansionResourceTypesDropped\x12-\n" +
 	"\x12expansions_dropped\x18\x06 \x01(\x04R\x11expansionsDropped\x12!\n" +
-	"\freason_flags\x18\a \x01(\x04R\vreasonFlags\"\x86\x01\n" +
+	"\freason_flags\x18\a \x01(\x04R\vreasonFlags\x12E\n" +
+	"\x1finvalid_resource_types_observed\x18\b \x01(\x04R\x1cinvalidResourceTypesObserved\x12<\n" +
+	"\x1ainvalid_resources_observed\x18\t \x01(\x04R\x18invalidResourcesObserved\x12B\n" +
+	"\x1dinvalid_entitlements_observed\x18\n" +
+	" \x01(\x04R\x1binvalidEntitlementsObserved\"\x86\x01\n" +
 	"\bCallStat\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\x03R\x05count\x12\x19\n" +
 	"\btotal_ms\x18\x02 \x01(\x03R\atotalMs\x12\x15\n" +

@@ -8,7 +8,7 @@ import (
 
 func TestLifecycleCorpusCoversPolicyEquivalenceClasses(t *testing.T) {
 	corpus := LifecycleCorpus()
-	require.Len(t, corpus, 4)
+	require.Len(t, corpus, 3)
 
 	policies := make(map[DataPolicy]bool)
 	names := make(map[string]struct{}, len(corpus))
@@ -32,7 +32,6 @@ func TestLifecycleCorpusCoversPolicyEquivalenceClasses(t *testing.T) {
 	}
 
 	require.True(t, policies[DataPolicySkipReport])
-	require.True(t, policies[DataPolicyFail])
 	require.True(t, policies[DataPolicyWarnRetain])
 	require.True(t, policies[DataPolicyAccept])
 }

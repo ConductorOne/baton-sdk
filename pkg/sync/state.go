@@ -303,6 +303,9 @@ type IngestQualityCheckpoint struct {
 	GrantResourcesDropped         uint64 `json:"grant_resources_dropped,omitempty"`
 	ExpansionResourceTypesDropped uint64 `json:"expansion_resource_types_dropped,omitempty"`
 	ExpansionsDropped             uint64 `json:"expansions_dropped,omitempty"`
+	InvalidResourceTypesObserved  uint64 `json:"invalid_resource_types_observed,omitempty"`
+	InvalidResourcesObserved      uint64 `json:"invalid_resources_observed,omitempty"`
+	InvalidEntitlementsObserved   uint64 `json:"invalid_entitlements_observed,omitempty"`
 	ReasonFlags                   uint64 `json:"reason_flags,omitempty"`
 }
 

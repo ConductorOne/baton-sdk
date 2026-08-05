@@ -24,14 +24,17 @@ import (
 )
 
 type ingestFilterStats struct {
-	entitlementsDropped   atomic.Uint64
-	grantsDropped         atomic.Uint64
-	grantResourcesDropped atomic.Uint64
-	expansionTypesDropped atomic.Uint64
-	expansionsDropped     atomic.Uint64
-	replayBlocked         atomic.Bool
-	reasonFlags           atomic.Uint64
-	known                 atomic.Bool
+	entitlementsDropped          atomic.Uint64
+	grantsDropped                atomic.Uint64
+	grantResourcesDropped        atomic.Uint64
+	expansionTypesDropped        atomic.Uint64
+	expansionsDropped            atomic.Uint64
+	invalidResourceTypesObserved atomic.Uint64
+	invalidResourcesObserved     atomic.Uint64
+	invalidEntitlementsObserved  atomic.Uint64
+	replayBlocked                atomic.Bool
+	reasonFlags                  atomic.Uint64
+	known                        atomic.Bool
 }
 
 const (
@@ -90,6 +93,9 @@ func (s *ingestFilterStats) snapshot() *IngestQualityCheckpoint {
 		GrantResourcesDropped:         s.grantResourcesDropped.Load(),
 		ExpansionResourceTypesDropped: s.expansionTypesDropped.Load(),
 		ExpansionsDropped:             s.expansionsDropped.Load(),
+		InvalidResourceTypesObserved:  s.invalidResourceTypesObserved.Load(),
+		InvalidResourcesObserved:      s.invalidResourcesObserved.Load(),
+		InvalidEntitlementsObserved:   s.invalidEntitlementsObserved.Load(),
 		ReasonFlags:                   s.reasonFlags.Load(),
 	}
 }
@@ -105,6 +111,9 @@ func (s *ingestFilterStats) restore(snapshot *IngestQualityCheckpoint) {
 	s.grantResourcesDropped.Store(snapshot.GrantResourcesDropped)
 	s.expansionTypesDropped.Store(snapshot.ExpansionResourceTypesDropped)
 	s.expansionsDropped.Store(snapshot.ExpansionsDropped)
+	s.invalidResourceTypesObserved.Store(snapshot.InvalidResourceTypesObserved)
+	s.invalidResourcesObserved.Store(snapshot.InvalidResourcesObserved)
+	s.invalidEntitlementsObserved.Store(snapshot.InvalidEntitlementsObserved)
 	s.reasonFlags.Store(snapshot.ReasonFlags)
 }
 
@@ -179,10 +188,10 @@ func (s *syncer) filterFreshEntitlements(
 	}
 	out := make([]*v2.Entitlement, 0, len(entitlements))
 	for _, entitlement := range entitlements {
-		// A literal nil entry carries nothing to store or validate; engines
-		// skip nil writes inconsistently (pebble silently, sqlite not at
-		// all), so drop it here.
+		// Preserve nil for the connector-data filter so it can warn before
+		// dropping the record consistently across engines.
 		if entitlement == nil {
+			out = append(out, entitlement)
 			continue
 		}
 		// A missing resource ref is malformed-but-present data, not evidence
