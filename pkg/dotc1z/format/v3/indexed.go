@@ -208,11 +208,15 @@ func writeIndexedZstd(w io.Writer, payloadStart int64, manifestXXH64 uint64, dir
 	var srcFile *os.File
 	if reuse != nil && reuse.srcPath != "" {
 		f, err := os.Open(reuse.srcPath)
-		if err != nil {
+		if err == nil {
+			srcFile = f
+			defer srcFile.Close()
+		} else if !errors.Is(err, os.ErrNotExist) {
 			return stats, fmt.Errorf("c1z v3: open splice source: %w", err)
 		}
-		srcFile = f
-		defer srcFile.Close()
+		// Reuse is an optimization, not a durability dependency. The
+		// extracted payload is complete, so if its source envelope was
+		// removed while the store was open, encode every frame afresh.
 	}
 
 	// WithZeroFrames is pinned (it is the library default today, but
