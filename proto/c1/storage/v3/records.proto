@@ -356,6 +356,11 @@ message IngestQualityStats {
   // Counts remain useful diagnostics; reason flags carry replay eligibility
   // even for warn-and-retain policies that do not drop a row.
   uint64 reason_flags = 7;
+  // Attempt-level observations. A retry or resumed page may observe the same
+  // malformed connector record again.
+  uint64 invalid_resource_types_observed = 8;
+  uint64 invalid_resources_observed = 9;
+  uint64 invalid_entitlements_observed = 10;
 }
 
 // CallStat mirrors c1.reader.v2.CallStat for the storage sidecar.

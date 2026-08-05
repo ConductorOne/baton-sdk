@@ -852,6 +852,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	}
 
 	l := ctxzap.Extract(ctx)
+	defer s.logInvalidConnectorDataSummary(l)
 
 	runCtx := ctx
 	var runCanc context.CancelFunc
@@ -1180,12 +1181,10 @@ func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.Resou
 				_ = yield(nil, err)
 				return
 			}
-			resourceTypes := resp.GetList()
-			for _, resourceType := range resourceTypes {
-				if err := validateConnectorResourceType(resourceType); err != nil {
-					_ = yield(nil, err)
-					return
-				}
+			resourceTypes, err := filterConnectorData(s, connectorDataResourceType, resp.GetList(), validateConnectorResourceType)
+			if err != nil {
+				_ = yield(nil, err)
+				return
 			}
 			if len(resourceTypes) > 0 {
 				if !yield(resourceTypes, err) {
@@ -1222,10 +1221,9 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 	if err != nil {
 		return err
 	}
-	for _, resourceType := range resp.GetList() {
-		if err := validateConnectorResourceType(resourceType); err != nil {
-			return err
-		}
+	connectorResourceTypes, err := filterConnectorData(s, connectorDataResourceType, resp.GetList(), validateConnectorResourceType)
+	if err != nil {
+		return err
 	}
 
 	var resourceTypes []*v2.ResourceType
@@ -1234,13 +1232,13 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 		for _, rt := range s.syncResourceTypes {
 			syncResourceTypeMap[rt] = true
 		}
-		for _, rt := range resp.GetList() {
+		for _, rt := range connectorResourceTypes {
 			if shouldSync := syncResourceTypeMap[rt.GetId()]; shouldSync {
 				resourceTypes = append(resourceTypes, rt)
 			}
 		}
 	} else {
-		resourceTypes = resp.GetList()
+		resourceTypes = connectorResourceTypes
 	}
 
 	err = s.store.PutResourceTypes(ctx, resourceTypes...)
@@ -1448,9 +1446,14 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 	if resource == nil {
 		return s.nextPageOrFinishAction(ctx, action, "")
 	}
-	if err := validateConnectorResource(resource); err != nil {
+	resources, err := filterConnectorData(s, connectorDataResource, []*v2.Resource{resource}, validateConnectorResource)
+	if err != nil {
 		return err
 	}
+	if len(resources) == 0 {
+		return s.nextPageOrFinishAction(ctx, action, "")
+	}
+	resource = resources[0]
 
 	// Save our resource in the DB
 	if err := s.putConnectorResources(ctx, resource); err != nil {
@@ -1592,11 +1595,12 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 		return err
 	}
 
+	resources, err := filterConnectorData(s, connectorDataResource, resp.GetList(), validateConnectorResource)
+	if err != nil {
+		return err
+	}
 	bulkPutResoruces := []*v2.Resource{}
-	for _, r := range resp.GetList() {
-		if err := validateConnectorResource(r); err != nil {
-			return err
-		}
+	for _, r := range resources {
 		validatedResource := false
 
 		// Check if we've already synced this resource, skip it if we have
@@ -1678,52 +1682,127 @@ func resourceTraitMessage(t v2.ResourceType_Trait) proto.Message {
 	}
 }
 
-func validateConnectorResource(resource *v2.Resource) error {
-	if resource == nil {
-		return status.Error(codes.Internal, "connector returned a nil resource")
+const (
+	connectorDataResourceType            = "resource type"
+	connectorDataResource                = "resource"
+	connectorDataEntitlement             = "entitlement"
+	connectorDataNil                     = "nil record"
+	connectorDataMissingIdentity         = "missing identity"
+	connectorDataMissingResourceIdentity = "missing resource identity"
+)
+
+func (s *syncer) observeInvalidConnectorData(kind string) {
+	switch kind {
+	case connectorDataResourceType:
+		s.ingestFilterStats.invalidResourceTypesObserved.Add(1)
+	case connectorDataResource:
+		s.ingestFilterStats.invalidResourcesObserved.Add(1)
+	case connectorDataEntitlement:
+		s.ingestFilterStats.invalidEntitlementsObserved.Add(1)
+	default:
+		panic(fmt.Sprintf("unsupported connector data kind %q", kind))
 	}
-	resourceID := resource.GetId()
-	if resourceID == nil || resourceID.GetResourceType() == "" || resourceID.GetResource() == "" {
-		return status.Error(codes.Internal, "connector returned a resource with missing identity")
+}
+
+func (s *syncer) logInvalidConnectorDataSummary(l *zap.Logger) {
+	resourceTypes := s.ingestFilterStats.invalidResourceTypesObserved.Load()
+	resources := s.ingestFilterStats.invalidResourcesObserved.Load()
+	entitlements := s.ingestFilterStats.invalidEntitlementsObserved.Load()
+	total := resourceTypes + resources + entitlements
+	if total == 0 {
+		return
+	}
+	l.Warn("connector returned invalid data; skipped records",
+		zap.Uint64("invalid_records_observed", total),
+		zap.Uint64("invalid_resource_types_observed", resourceTypes),
+		zap.Uint64("invalid_resources_observed", resources),
+		zap.Uint64("invalid_entitlements_observed", entitlements),
+	)
+}
+
+type connectorDataRecord interface {
+	*v2.ResourceType | *v2.Resource | *v2.Entitlement
+}
+
+func filterConnectorData[T connectorDataRecord](
+	s *syncer,
+	kind string,
+	values []T,
+	validate func(T) (string, error),
+) ([]T, error) {
+	var out []T
+	for i, value := range values {
+		reason, err := validate(value)
+		if err != nil {
+			return nil, err
+		}
+		if reason == "" {
+			if out != nil {
+				out = append(out, value)
+			}
+			continue
+		}
+		if out == nil {
+			out = make([]T, 0, len(values)-1)
+			out = append(out, values[:i]...)
+		}
+		s.observeInvalidConnectorData(kind)
+	}
+	if out == nil {
+		return values, nil
+	}
+	return out, nil
+}
+
+func validateConnectorResource(resource *v2.Resource) (string, error) {
+	if resource == nil {
+		return connectorDataNil, nil
 	}
 	resourceAnnos := annotations.Annotations(resource.GetAnnotations())
 	if resourceAnnos.Contains(&v2.BatonID{}) {
-		return status.Error(codes.Internal,
+		return "", status.Error(codes.Internal,
 			"connector returned a resource with SDK-reserved BatonID ownership annotation")
 	}
-	return nil
+	resourceID := resource.GetId()
+	if resourceID == nil || resourceID.GetResourceType() == "" || resourceID.GetResource() == "" {
+		return connectorDataMissingIdentity, nil
+	}
+	return "", nil
 }
 
 func (s *syncer) putConnectorResources(ctx context.Context, resources ...*v2.Resource) error {
-	for _, resource := range resources {
-		if err := validateConnectorResource(resource); err != nil {
-			return err
-		}
+	resources, err := filterConnectorData(s, connectorDataResource, resources, validateConnectorResource)
+	if err != nil {
+		return err
 	}
 	return s.store.PutResources(ctx, resources...)
 }
 
-func validateConnectorEntitlement(entitlement *v2.Entitlement) error {
+func validateConnectorEntitlement(entitlement *v2.Entitlement) (string, error) {
 	if entitlement == nil {
-		return status.Error(codes.Internal, "connector returned a nil entitlement")
+		return connectorDataNil, nil
 	}
 	if entitlement.GetId() == "" {
-		return status.Error(codes.Internal, "connector returned an entitlement with missing identity")
+		return connectorDataMissingIdentity, nil
 	}
-	if err := validateConnectorResource(entitlement.GetResource()); err != nil {
-		return status.Error(codes.Internal, "connector returned an entitlement with missing resource identity")
+	reason, err := validateConnectorResource(entitlement.GetResource())
+	if err != nil {
+		return "", err
 	}
-	return nil
+	if reason != "" {
+		return connectorDataMissingResourceIdentity, nil
+	}
+	return "", nil
 }
 
-func validateConnectorResourceType(resourceType *v2.ResourceType) error {
+func validateConnectorResourceType(resourceType *v2.ResourceType) (string, error) {
 	if resourceType == nil {
-		return status.Error(codes.Internal, "connector returned a nil resource type")
+		return connectorDataNil, nil
 	}
 	if resourceType.GetId() == "" {
-		return status.Error(codes.Internal, "connector returned a resource type with missing identity")
+		return connectorDataMissingIdentity, nil
 	}
-	return nil
+	return "", nil
 }
 
 // No span here: this is called per-resource, but only does I/O on the
@@ -1975,10 +2054,9 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	if err != nil {
 		return fmt.Errorf("sync-entitlements: filtering disabled-type references: %w", err)
 	}
-	for _, entitlement := range entitlements {
-		if err := validateConnectorEntitlement(entitlement); err != nil {
-			return err
-		}
+	entitlements, err = filterConnectorData(s, connectorDataEntitlement, entitlements, validateConnectorEntitlement)
+	if err != nil {
+		return err
 	}
 	err = s.store.PutEntitlements(ctx, entitlements...)
 	if err != nil {
@@ -2569,13 +2647,29 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		// dropped for an unscheduled principal type. Resources of unscheduled
 		// types are skipped — uplift can't resolve their type, so the row
 		// would be dead data.
-		for _, g := range grants {
+		var validInsertGrants []*v2.Grant
+		for i, g := range grants {
 			resource := g.GetEntitlement().GetResource()
+			reason, err := validateConnectorResource(resource)
+			if err != nil {
+				return fmt.Errorf("sync-grants-for-resource: validating grant-discovered resource: %w", err)
+			}
+			if reason != "" {
+				s.observeInvalidConnectorData(connectorDataResource)
+				if validInsertGrants == nil {
+					validInsertGrants = make([]*v2.Grant, 0, len(grants)-1)
+					validInsertGrants = append(validInsertGrants, grants[:i]...)
+				}
+				continue
+			}
 			ok, err := s.filterFreshGrantResource(ctx, resource)
 			if err != nil {
 				return fmt.Errorf("sync-grants-for-resource: filtering grant-discovered resource: %w", err)
 			}
 			if !ok {
+				if validInsertGrants != nil {
+					validInsertGrants = append(validInsertGrants, g)
+				}
 				continue
 			}
 			bid, err := bid.MakeBid(resource)
@@ -2583,6 +2677,12 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 				return err
 			}
 			resourcesToInsertMap[bid] = resource
+			if validInsertGrants != nil {
+				validInsertGrants = append(validInsertGrants, g)
+			}
+		}
+		if validInsertGrants != nil {
+			grants = validInsertGrants
 		}
 	}
 

@@ -19,12 +19,17 @@ func TestApplySyncTokenStatsRecordPreservesIngestQualityPresence(t *testing.T) {
 			want:       &v3.IngestQualityStats{},
 		},
 		{
-			name:       "blocked",
-			checkpoint: `{"version":1,"ingest_quality":{"source_cache_replay_blocked":true,"grants_dropped":3,"reason_flags":2}}`,
+			name: "blocked",
+			checkpoint: `{"version":1,"ingest_quality":{"source_cache_replay_blocked":true,"grants_dropped":3,` +
+				`"invalid_resource_types_observed":4,"invalid_resources_observed":5,` +
+				`"invalid_entitlements_observed":6,"reason_flags":2}}`,
 			want: v3.IngestQualityStats_builder{
-				SourceCacheReplayBlocked: true,
-				GrantsDropped:            3,
-				ReasonFlags:              2,
+				SourceCacheReplayBlocked:     true,
+				GrantsDropped:                3,
+				InvalidResourceTypesObserved: 4,
+				InvalidResourcesObserved:     5,
+				InvalidEntitlementsObserved:  6,
+				ReasonFlags:                  2,
 			}.Build(),
 		},
 	} {

@@ -37,6 +37,15 @@ func TestPutConnectorResourcesRejectsReservedOwnership(t *testing.T) {
 	)
 	require.Zero(t, store.putCalls, "reserved marker must be rejected before any store write")
 
+	malformedReserved := v2.Resource_builder{
+		Annotations: annotations.New(&v2.BatonID{}),
+	}.Build()
+	require.ErrorContains(t,
+		syncer.putConnectorResources(t.Context(), malformedReserved),
+		"SDK-reserved BatonID ownership annotation",
+	)
+	require.Zero(t, store.putCalls, "reserved ownership must remain fatal even when identity is missing")
+
 	clean := v2.Resource_builder{
 		Id: v2.ResourceId_builder{
 			ResourceType: "user",

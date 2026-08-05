@@ -45,7 +45,7 @@ func InitialDataCorpus() []CorpusCase {
 		{
 			Name:   "entitlement-missing-resource",
 			Class:  DataRepresentationInvalid,
-			Policy: DataPolicyFail,
+			Policy: DataPolicySkipReport,
 			Apply: func(scenario *Scenario) error {
 				dataset, err := initialDataset(scenario)
 				if err != nil {

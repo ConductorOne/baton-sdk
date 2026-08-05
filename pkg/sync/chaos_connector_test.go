@@ -139,7 +139,7 @@ func TestChaosConnectorDuplicateResourceIsIdempotent(t *testing.T) {
 	assertChaosStoreMatches(t, c1zPath, tmpDir, chaosoracle.ExpectedIdentities(manifest))
 }
 
-func TestChaosConnectorEmptyResourceFailsWithoutSealing(t *testing.T) {
+func TestChaosConnectorEmptyResourceIsSkipped(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	c1zPath := filepath.Join(tmpDir, "chaos-empty-resource.c1z")
@@ -162,9 +162,7 @@ func TestChaosConnectorEmptyResourceFailsWithoutSealing(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
-	syncErr := harness.Syncer.Sync(ctx)
-	require.ErrorContains(t, syncErr, "resource with missing identity")
-	require.Equal(t, codes.Internal, status.Code(syncErr))
+	require.NoError(t, harness.Syncer.Sync(ctx))
 	require.NoError(t, harness.Close(ctx))
 	require.NoError(t, run.Runtime().VerifyRequired())
 
@@ -179,10 +177,10 @@ func TestChaosConnectorEmptyResourceFailsWithoutSealing(t *testing.T) {
 	defer func() { require.NoError(t, store.Close(ctx)) }()
 	latest, err := store.SyncMeta().LatestFullSync(ctx)
 	require.NoError(t, err)
-	require.Nil(t, latest, "empty connector records must not seal a sync")
+	require.NotNil(t, latest, "skipping an unkeyable resource must still seal the sync")
 }
 
-func TestChaosConnectorEmptyResourceTypeFailsWithoutSealing(t *testing.T) {
+func TestChaosConnectorEmptyResourceTypeIsSkipped(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	c1zPath := filepath.Join(tmpDir, "chaos-empty-resource-type.c1z")
@@ -205,9 +203,7 @@ func TestChaosConnectorEmptyResourceTypeFailsWithoutSealing(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
-	syncErr := harness.Syncer.Sync(ctx)
-	require.ErrorContains(t, syncErr, "resource type with missing identity")
-	require.Equal(t, codes.Internal, status.Code(syncErr))
+	require.NoError(t, harness.Syncer.Sync(ctx))
 	require.NoError(t, harness.Close(ctx))
 	require.NoError(t, run.Runtime().VerifyRequired())
 
@@ -222,7 +218,7 @@ func TestChaosConnectorEmptyResourceTypeFailsWithoutSealing(t *testing.T) {
 	defer func() { require.NoError(t, store.Close(ctx)) }()
 	latest, err := store.SyncMeta().LatestFullSync(ctx)
 	require.NoError(t, err)
-	require.Nil(t, latest, "an unkeyable resource type must not seal a sync")
+	require.NotNil(t, latest, "skipping an unkeyable resource type must still seal the sync")
 }
 
 func TestChaosConnectorDuplicateEnqueueAnnotationFailsWithoutSealing(t *testing.T) {
@@ -361,7 +357,7 @@ func TestChaosConnectorFatalErrorDoesNotSeal(t *testing.T) {
 	require.Nil(t, latest, "fatal connector error must not produce a sealed full sync")
 }
 
-func TestChaosConnectorMalformedEntitlementFailsCleanly(t *testing.T) {
+func TestChaosConnectorMalformedEntitlementIsSkipped(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	c1zPath := filepath.Join(tmpDir, "chaos-malformed-entitlement.c1z")
@@ -375,14 +371,13 @@ func TestChaosConnectorMalformedEntitlementFailsCleanly(t *testing.T) {
 		}
 	}
 	require.NotNil(t, corpusCase.Apply, "entitlement-missing-resource corpus case must exist")
-	require.Equal(t, chaosconnector.DataPolicyFail, corpusCase.Policy)
+	require.Equal(t, chaosconnector.DataPolicySkipReport, corpusCase.Policy)
 	require.NoError(t, corpusCase.Apply(scenario))
 
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
 	require.NoError(t, err)
 	harness := newChaosHarness(t, ctx, run, c1zPath, tmpDir, chaosTransportDirect)
-	syncErr := harness.Syncer.Sync(ctx)
-	require.ErrorContains(t, syncErr, "missing resource")
+	require.NoError(t, harness.Syncer.Sync(ctx))
 	require.NoError(t, harness.Close(ctx))
 	store, err := dotc1z.NewStore(
 		ctx,
@@ -395,7 +390,7 @@ func TestChaosConnectorMalformedEntitlementFailsCleanly(t *testing.T) {
 	defer func() { require.NoError(t, store.Close(ctx)) }()
 	latest, err := store.SyncMeta().LatestFullSync(ctx)
 	require.NoError(t, err)
-	require.Nil(t, latest, "malformed connector data must not seal")
+	require.NotNil(t, latest, "skipped malformed connector data must not prevent sealing")
 }
 
 func TestChaosConnectorSeededFanoutWithRetries(t *testing.T) {

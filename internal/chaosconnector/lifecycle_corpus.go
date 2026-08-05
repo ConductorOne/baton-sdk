@@ -6,7 +6,6 @@ import (
 
 const (
 	LifecycleDropCaseName   = "lifecycle/drop-does-not-resurrect"
-	LifecycleFailCaseName   = "lifecycle/hard-invalid-never-seals"
 	LifecycleRetainCaseName = "lifecycle/warn-retain-survives-resume"
 	LifecycleDriftCaseName  = "lifecycle/resume-uses-current-answer"
 )
@@ -52,19 +51,6 @@ func LifecycleCorpus() []LifecycleCase {
 			Resume: LifecycleAttemptExpectation{
 				Sealed:              true,
 				EntitlementsDropped: 1,
-			},
-		},
-		{
-			Name:                 LifecycleFailCaseName,
-			Policy:               DataPolicyFail,
-			BuildInitial:         hardInvalidLifecycleScenario,
-			BuildResume:          hardInvalidLifecycleScenario,
-			InterruptSchedule:    lifecycleInterruptSchedule("bad"),
-			InterruptedPageToken: "bad",
-			Identity:             "",
-			Resume: LifecycleAttemptExpectation{
-				MustFail:      true,
-				ErrorContains: "entitlement with missing identity",
 			},
 		},
 		{
@@ -141,19 +127,6 @@ func dropLifecycleScenario() (*Scenario, error) {
 		Resource:    resource,
 	}.Build()
 	setLifecycleEntitlementPages(dataset, []*v2.Entitlement{entitlement}, "cut", nil)
-	return scenario, nil
-}
-
-func hardInvalidLifecycleScenario() (*Scenario, error) {
-	scenario, dataset, err := newLifecycleScenario()
-	if err != nil {
-		return nil, err
-	}
-	malformed := v2.Entitlement_builder{
-		DisplayName: "Lifecycle missing identity",
-		Resource:    baselineResource(dataset),
-	}.Build()
-	setLifecycleEntitlementPages(dataset, nil, "bad", []*v2.Entitlement{malformed})
 	return scenario, nil
 }
 

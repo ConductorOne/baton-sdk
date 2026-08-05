@@ -68,7 +68,7 @@ func resourceReferentialCases() []ReferentialCase {
 			Name:      "resource/" + string(state),
 			Entity:    ReferentialResource,
 			Reference: state,
-			Policy:    DataPolicyFail,
+			Policy:    DataPolicySkipReport,
 			Apply: func(scenario *Scenario) error {
 				dataset, err := initialDataset(scenario)
 				if err != nil {
@@ -200,7 +200,7 @@ func grantReferentialCases() []ReferentialCase {
 func entitlementPolicy(state ReferenceShape) DataPolicy {
 	switch state {
 	case ReferenceCarrierNil:
-		return DataPolicyFail
+		return DataPolicySkipReport
 	case ReferenceTypeUnknown:
 		return DataPolicySkipReport
 	case ReferenceRowMissing:
@@ -209,7 +209,7 @@ func entitlementPolicy(state ReferenceShape) DataPolicy {
 		return DataPolicyAccept
 	case ReferenceExternalIDEmpty, ReferenceResourceNil, ReferenceIdentityNil,
 		ReferenceTypeEmpty, ReferenceObjectIDEmpty:
-		return DataPolicyFail
+		return DataPolicySkipReport
 	default:
 		return DataPolicyUnresolved
 	}

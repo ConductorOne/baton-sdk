@@ -490,6 +490,52 @@ func TestInsertResourceGrantsRejectsReservedBatonIDResource(t *testing.T) {
 	require.Empty(t, drives.GetList(), "reserved ownership row must not reach storage through grant uplift")
 }
 
+func TestInsertResourceGrantsSkipsUnkeyableDiscoveredResource(t *testing.T) {
+	ctx := t.Context()
+	tempDir := t.TempDir()
+	c1zPath := filepath.Join(tempDir, "irg-unkeyable-resource.c1z")
+	mc := newInsertResourceGrantsMockConnector(true)
+	mc.rtDB = append(mc.rtDB, v2.ResourceType_builder{Id: "shared_drive", DisplayName: "Shared Drive"}.Build())
+	group, _, err := mc.AddGroup(ctx, "g1")
+	require.NoError(t, err)
+	user, err := mc.AddUser(ctx, "u1")
+	require.NoError(t, err)
+	malformedDrive := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "shared_drive"}.Build(),
+	}.Build()
+	mc.grantDB[group.GetId().GetResource()] = []*v2.Grant{
+		v2.Grant_builder{
+			Id: "malformed-drive-access",
+			Entitlement: v2.Entitlement_builder{
+				Id:       "malformed-drive-access",
+				Resource: malformedDrive,
+			}.Build(),
+			Principal: user,
+		}.Build(),
+	}
+
+	syncerInstance, err := NewSyncer(ctx, mc,
+		WithC1ZPath(c1zPath),
+		WithTmpDir(tempDir),
+		WithStorageEngine(c1zstore.EnginePebble),
+	)
+	require.NoError(t, err)
+	require.NoError(t, syncerInstance.Sync(ctx))
+	require.NoError(t, syncerInstance.Close(ctx))
+
+	store, err := dotc1z.NewStore(ctx, c1zPath,
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithTmpDir(tempDir),
+		dotc1z.WithReadOnly(true),
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close(ctx)) }()
+	drives, err := store.ListResources(ctx,
+		v2.ResourcesServiceListResourcesRequest_builder{ResourceTypeId: "shared_drive"}.Build())
+	require.NoError(t, err)
+	require.Empty(t, drives.GetList(), "unkeyable grant-discovered resource must not reach storage")
+}
+
 // TestFreshIngestFilterRunsBeforeExclusionGroupValidation: an entitlement the
 // filter drops must not mutate exclusion-group state or fail the sync. Before
 // the ordering fix this sync failed with an "exclusion group used on multiple
@@ -529,11 +575,10 @@ func TestFreshIngestFilterRunsBeforeExclusionGroupValidation(t *testing.T) {
 	require.Contains(t, entIDs, scheduledEnt.GetId())
 }
 
-// TestFreshIngestFilterDropsNilEntries: literal nil entries carry nothing to
-// store or validate and are dropped, while malformed-but-present records
-// (missing refs) stay on the normal write path. Neither counts as a
-// disabled-type drop.
-func TestFreshIngestFilterDropsNilEntries(t *testing.T) {
+// TestFreshIngestFilterRoutesNilEntries: nil entitlements continue to connector
+// data validation so they are counted and reported; nil grants retain their
+// existing drop behavior. Neither counts as a disabled-type drop.
+func TestFreshIngestFilterRoutesNilEntries(t *testing.T) {
 	ctx, err := logging.Init(t.Context())
 	require.NoError(t, err)
 	store := newIngestFilterStore(ctx, t, c1zstore.EnginePebble)
@@ -547,7 +592,7 @@ func TestFreshIngestFilterDropsNilEntries(t *testing.T) {
 	goodEnt := ingestFilterEntitlement(ingestFilterResource("group", "g1"), "group:g1:member")
 	entitlements, err := s.filterFreshEntitlements(ctx, []*v2.Entitlement{nil, missingRefEnt, goodEnt})
 	require.NoError(t, err)
-	require.Equal(t, []*v2.Entitlement{missingRefEnt, goodEnt}, entitlements)
+	require.Equal(t, []*v2.Entitlement{nil, missingRefEnt, goodEnt}, entitlements)
 
 	missingRefGrant := v2.Grant_builder{Id: "no-refs"}.Build()
 	goodGrant := ingestFilterGrant("good", goodEnt, ingestFilterResource("group", "g2"))

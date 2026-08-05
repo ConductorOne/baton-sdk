@@ -526,6 +526,9 @@ func TestStateIngestQualityRoundTripPreservesCleanPresence(t *testing.T) {
 			GrantResourcesDropped:         3,
 			ExpansionResourceTypesDropped: 4,
 			ExpansionsDropped:             5,
+			InvalidResourceTypesObserved:  6,
+			InvalidResourcesObserved:      7,
+			InvalidEntitlementsObserved:   8,
 			ReasonFlags:                   63,
 		},
 	} {
