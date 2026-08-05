@@ -2,6 +2,7 @@ package uhttp
 
 import (
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
@@ -14,7 +15,7 @@ var urlTest = "https://jsonplaceholder.typicode.com/posts/1/comments"
 
 func TestDBCacheGettersAndSetters(t *testing.T) {
 	cli := &http.Client{}
-	fc, err := getDBCacheForTesting()
+	fc, err := getDBCacheForTesting(t)
 	require.Nil(t, err)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlTest, nil)
@@ -50,7 +51,7 @@ func TestDBCacheGettersAndSetters(t *testing.T) {
 }
 
 func TestDBCache(t *testing.T) {
-	fc, err := getDBCacheForTesting()
+	fc, err := getDBCacheForTesting(t)
 	require.Nil(t, err)
 
 	data := []byte("Testing 123")
@@ -65,7 +66,18 @@ func TestDBCache(t *testing.T) {
 	require.Equal(t, data, res)
 }
 
-func getDBCacheForTesting() (*DBCache, error) {
+func getDBCacheForTesting(t *testing.T) (*DBCache, error) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return nil, err
+	}
+
 	fc, err := NewDBCache(ctx, CacheConfig{
 		TTL: 3600 * time.Second,
 	})

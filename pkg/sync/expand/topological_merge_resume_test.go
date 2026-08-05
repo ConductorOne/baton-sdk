@@ -36,9 +36,9 @@ func TestTopologicalMergeResumeIdempotent(t *testing.T) {
 	}
 
 	interruptCases := append(parityCases(), cyclicCases()...)
-	if testing.Short() {
+	if testing.Short() || !fullTestSuite() {
 		// See TestTopologicalMergeLayerSessionInterruptResume: representative
-		// subset for slow (windows) CI; full matrix on long CI.
+		// subset for ordinary CI; full matrix in make test-full.
 		interruptCases = []sqliteParityCase{parityCases()[0], cyclicCases()[0]}
 	}
 	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
@@ -187,9 +187,9 @@ func TestTopologicalMergePartialInterruptResume(t *testing.T) {
 	}
 
 	interruptCases := append(parityCases(), cyclicCases()...)
-	if testing.Short() {
+	if testing.Short() || !fullTestSuite() {
 		// See TestTopologicalMergeLayerSessionInterruptResume: representative
-		// subset for slow (windows) CI; full matrix on long CI.
+		// subset for ordinary CI; full matrix in make test-full.
 		interruptCases = []sqliteParityCase{parityCases()[0], cyclicCases()[0]}
 	}
 	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {

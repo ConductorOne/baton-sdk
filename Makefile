@@ -51,8 +51,12 @@ protofmt: ## Format protobuf definitions.
 	buf format -w
 
 .PHONY: test
-test: ## Run the Go test suite used by CI.
-	go test -tags=baton_lambda_support -v ./...
+test: ## Run the ordinary Go test suite used by pull-request CI.
+	go test -tags=baton_lambda_support ./...
+
+.PHONY: test-full
+test-full: ## Run complete matrices and timing-sensitive soak iterations.
+	BATON_FULL_TESTS=1 BATON_CUT_SWEEP=full go test -tags=baton_lambda_support -count=1 -timeout=30m ./...
 
 # Two-artifact checkpoint compatibility matrix: builds the harness against
 # HEAD and a pinned past release, and exchanges mid-flight checkpoints in
@@ -82,7 +86,7 @@ interrupt-check: checkpoint-cut-check crash-check ## Run in-process cut and real
 
 .PHONY: race-check
 race-check: ## Run the complete Go suite with the race detector.
-	go test -race -tags=baton_lambda_support -count=1 -timeout=30m ./...
+	BATON_FULL_TESTS=1 BATON_CUT_SWEEP=full go test -race -tags=baton_lambda_support -count=1 -timeout=30m ./...
 
 .PHONY: fuzz-smoke
 fuzz-smoke: ## Run each native Go fuzzer for FUZZ_TIME (default 30s).
@@ -104,7 +108,7 @@ bench: ## Run curated checkpoint and medium full-sync benchmarks.
 
 .PHONY: scheduler-soak
 scheduler-soak: ## Run randomized scheduler cases under race detection.
-	BATON_SOAK_ITERATIONS=$(SOAK_ITERATIONS) go test -race -v -count=1 -timeout=30m -run TestSchedulerSoakRandomizedFanoutWithFailures ./pkg/sync
+	BATON_FULL_TESTS=1 BATON_SOAK_ITERATIONS=$(SOAK_ITERATIONS) go test -race -v -count=1 -timeout=30m -run TestSchedulerSoakRandomizedFanoutWithFailures ./pkg/sync
 
 .PHONY: errorfs-soak
 errorfs-soak: ## Sweep whole-sync Pebble crash points using errorfs.

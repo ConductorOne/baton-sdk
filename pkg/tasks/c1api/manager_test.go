@@ -134,12 +134,20 @@ func enableGetTasks(t *testing.T) {
 	t.Setenv(getTasksEnv, "true")
 }
 
+func bootstrapTestContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
+
 func TestBootstrapSucceedsOnFirstAttempt(t *testing.T) {
+	withFastBackoff(t)
 	sc := newFakeBatonServiceClient([]error{nil})
 	cc := &fakeConnectorClient{}
 	mgr := newTestManager(sc)
 
-	require.NoError(t, mgr.Bootstrap(context.Background(), cc))
+	require.NoError(t, mgr.Bootstrap(bootstrapTestContext(t), cc))
 	require.Equal(t, 1, sc.helloCalls)
 }
 
@@ -151,7 +159,7 @@ func TestBootstrapRetriesOnTransientFailure(t *testing.T) {
 	cc := &fakeConnectorClient{}
 	mgr := newTestManager(sc)
 
-	require.NoError(t, mgr.Bootstrap(context.Background(), cc))
+	require.NoError(t, mgr.Bootstrap(bootstrapTestContext(t), cc))
 	require.Equal(t, 3, sc.helloCalls, "expected 3 Hello calls (2 transient failures + success)")
 }
 
@@ -163,7 +171,7 @@ func TestBootstrapStopsOnNonRetryableError(t *testing.T) {
 	cc := &fakeConnectorClient{}
 	mgr := newTestManager(sc)
 
-	err := mgr.Bootstrap(context.Background(), cc)
+	err := mgr.Bootstrap(bootstrapTestContext(t), cc)
 	require.Error(t, err, "expected Bootstrap to return an error for non-retryable Hello failure")
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 	require.Equal(t, 1, sc.helloCalls, "expected exactly 1 Hello call (no retries on non-retryable)")
@@ -206,7 +214,7 @@ func TestBootstrapPropagatesGetMetadataError(t *testing.T) {
 	cc.metadataErr.Store(status.Error(codes.PermissionDenied, "no metadata"))
 	mgr := newTestManager(sc)
 
-	err := mgr.Bootstrap(context.Background(), cc)
+	err := mgr.Bootstrap(bootstrapTestContext(t), cc)
 	require.Error(t, err, "expected Bootstrap to return an error when GetMetadata fails")
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	require.Equal(t, 0, sc.helloCalls, "Hello should not be invoked when GetMetadata fails")

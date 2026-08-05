@@ -96,10 +96,10 @@ func TestTopologicalMergeLayerSessionInterruptResume(t *testing.T) {
 	// TestTopologicalMergePartialInterruptResume.
 	engine := c1zstore.EnginePebble
 	cases := append(parityCases(), cyclicCases()...)
-	if testing.Short() {
-		// Windows CI: one representative acyclic + one cyclic case per
+	if testing.Short() || !fullTestSuite() {
+		// Ordinary CI: one representative acyclic + one cyclic case per
 		// (algo, scenario) still exercises every layer-session code path;
-		// the full matrix runs on long (linux) CI.
+		// the full matrix runs in make test-full.
 		cases = []sqliteParityCase{parityCases()[0], cyclicCases()[0]}
 	}
 	for _, algo := range algos {
