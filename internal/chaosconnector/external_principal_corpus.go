@@ -1,6 +1,8 @@
 package chaosconnector
 
 import (
+	"fmt"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/bid"
@@ -15,6 +17,11 @@ const (
 	ExternalGroupTypeID   = "external-group"
 	InternalGroupTypeID   = "internal-group"
 	ExternalPlaceholderID = "external-placeholder"
+
+	// ExternalFoldUserID is the principal the case-folding cells add to the
+	// external world. It is deliberately separate from the standard principals
+	// so a fold expectation cannot be satisfied by one of them.
+	ExternalFoldUserID = "external-fold-user"
 )
 
 type ExternalMatchKind string
@@ -36,6 +43,11 @@ type ExternalPrincipalCase struct {
 	Value                string
 	ExpectedPrincipalIDs []string
 	Expandable           bool
+
+	// ExternalWorld optionally adds to or edits the external dataset for this
+	// case, for cases whose question cannot be asked of the standard world.
+	// Nil leaves that world untouched, which is the common case.
+	ExternalWorld func(*Dataset) error
 }
 
 func ExternalPrincipalCorpus() []ExternalPrincipalCase {
@@ -101,6 +113,54 @@ func ExternalPrincipalCorpus() []ExternalPrincipalCase {
 			Key:   "department",
 			Value: "finance",
 		},
+
+		// External matching compares with strings.EqualFold, which is Unicode
+		// simple case folding rather than lowercasing both sides. The two
+		// relations disagree in both directions, and each direction is a
+		// distinct access-correctness failure. The exhaustive pair table lives
+		// at the comparison seam in
+		// pkg/sync/external_match_folding_test.go; these cells carry
+		// representatives of both directions the rest of the way, so the value
+		// also has to survive a sealed external c1z and cross both transports
+		// before it is matched. Profile values travel as structpb.Struct and
+		// trait emails as v2.UserTrait_Email, so each encoding gets a witness.
+		{
+			// Medial and final sigma fold together while their lowercase forms
+			// differ, so folding by lowercasing would drop this grant.
+			Name:                 "external-principal/fold-profile-final-sigma",
+			Match:                ExternalMatchAttribute,
+			Trait:                v2.ResourceType_TRAIT_USER,
+			Key:                  "upn",
+			Value:                "στεφανος",
+			ExpectedPrincipalIDs: []string{ExternalFoldUserID},
+			ExternalWorld: withExternalUser(ExternalFoldUserID,
+				map[string]any{"upn": "ΣΤΕΦΑΝΟΣ"}),
+		},
+		{
+			// The dotted capital I lowercases to "i" but does not fold with it,
+			// so folding by lowercasing would manufacture a grant here. This is
+			// also the case a store-side NFKC-style normalization would break,
+			// by decomposing the stored value.
+			Name:  "external-principal/fold-profile-dotted-capital-i-miss",
+			Match: ExternalMatchAttribute,
+			Trait: v2.ResourceType_TRAIT_USER,
+			Key:   "upn",
+			Value: "istanbul",
+			ExternalWorld: withExternalUser(ExternalFoldUserID,
+				map[string]any{"upn": "İSTANBUL"}),
+		},
+		{
+			// Same fold as the first cell, reached through the user-trait email
+			// route rather than a profile field.
+			Name:                 "external-principal/fold-email-final-sigma",
+			Match:                ExternalMatchAttribute,
+			Trait:                v2.ResourceType_TRAIT_USER,
+			Key:                  "email",
+			Value:                "στεφανος@example.com",
+			ExpectedPrincipalIDs: []string{ExternalFoldUserID},
+			ExternalWorld: withExternalUser(ExternalFoldUserID, nil,
+				rs.WithEmail("ΣΤΕΦΑΝΟΣ@example.com", true)),
+		},
 	}
 }
 
@@ -109,11 +169,58 @@ func (c ExternalPrincipalCase) Build() (*Scenario, *Scenario, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	if c.ExternalWorld != nil {
+		// externalPrincipalSourceScenario builds a fresh world on every call,
+		// so a case can edit its own copy without reaching another case.
+		dataset, datasetErr := initialDataset(external)
+		if datasetErr != nil {
+			return nil, nil, datasetErr
+		}
+		if worldErr := c.ExternalWorld(dataset); worldErr != nil {
+			return nil, nil, worldErr
+		}
+	}
 	internal, err := c.internalCarrierScenario()
 	if err != nil {
 		return nil, nil, err
 	}
 	return external, internal, nil
+}
+
+// withExternalUser returns an ExternalWorld that appends one user principal to
+// the external world's first resource page.
+func withExternalUser(
+	objectID string,
+	profile map[string]any,
+	traitOpts ...rs.UserTraitOption,
+) func(*Dataset) error {
+	return func(dataset *Dataset) error {
+		userType, err := datasetResourceType(dataset, ExternalUserTypeID)
+		if err != nil {
+			return err
+		}
+		opts := make([]rs.ResourceOption, 0, 1)
+		if profile != nil {
+			opts = append(opts, rs.WithResourceProfile(profile))
+		}
+		user, err := rs.NewUserResource(objectID, userType, objectID, traitOpts, opts...)
+		if err != nil {
+			return err
+		}
+		page := dataset.Resources[ExternalUserTypeID][""]
+		page.List = append(page.List, user)
+		dataset.Resources[ExternalUserTypeID][""] = page
+		return nil
+	}
+}
+
+func datasetResourceType(dataset *Dataset, id string) (*v2.ResourceType, error) {
+	for _, resourceType := range dataset.ResourceTypes {
+		if resourceType.GetId() == id {
+			return resourceType, nil
+		}
+	}
+	return nil, fmt.Errorf("chaosconnector: external world has no resource type %q", id)
 }
 
 func externalPrincipalSourceScenario() (*Scenario, error) {
