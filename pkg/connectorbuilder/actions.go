@@ -201,12 +201,18 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 // registerLegacyAction wraps a legacy CustomActionManager action as an ActionHandler and registers it.
 func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, schema *v2.BatonActionSchema, legacyManager CustomActionManager) error {
 	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
-		// The legacy manager runs its own inline wait; pin it to the legacy
-		// one second so the detached handler context's one-hour deadline
-		// doesn't become the wait.
-		invokeCtx, cancel := actions.WithInlineWait(ctx, time.Second)
-		defer cancel()
-		_, _, resp, annos, err := legacyManager.InvokeAction(invokeCtx, schema.GetName(), "", args)
+		// Our own ActionManager treats a context deadline as its inline-wait
+		// budget, so pin it to the legacy one second or the detached handler
+		// context's one-hour deadline becomes the wait. Third-party managers
+		// treat the deadline as an execution cap and must keep the original
+		// context — a 2s cap would kill actions that legitimately run longer.
+		if _, ok := legacyManager.(*actions.ActionManager); ok {
+			invokeCtx, cancel := actions.WithInlineWait(ctx, time.Second)
+			defer cancel()
+			_, _, resp, annos, err := legacyManager.InvokeAction(invokeCtx, schema.GetName(), "", args)
+			return resp, annos, err
+		}
+		_, _, resp, annos, err := legacyManager.InvokeAction(ctx, schema.GetName(), "", args)
 		return resp, annos, err
 	}
 	return registry.Register(ctx, schema, handler)

@@ -102,8 +102,9 @@ func (oa *OutstandingAction) setResult(rv *structpb.Struct, annos annotations.An
 // version wait inline for wait before returning a still-running action's
 // status. Waits below a small floor are clamped up to it, so the context can
 // still carry the response. A parent deadline earlier than the derived one
-// keeps the shorter wait, and a server on an older SDK ignores the deadline
-// and waits its fixed one second.
+// keeps the shorter wait. A server on an older SDK always waits its fixed one
+// second and errors the action if the deadline fires before that, so waits
+// under one second are only safe against servers on this SDK version.
 func WithInlineWait(ctx context.Context, wait time.Duration) (context.Context, context.CancelFunc) {
 	if wait < minInlineWait {
 		wait = minInlineWait
@@ -506,6 +507,14 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 
 	oa := a.GetNewAction(name)
 
+	// A dead request must not run the action's side effects: reject an
+	// already-expired context before the handler is dispatched.
+	if err := ctx.Err(); err != nil {
+		oa.SetError(ctx, err)
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, err
+	}
+
 	done := make(chan struct{})
 
 	// The handler runs detached. Return its final result if it finishes within
@@ -534,14 +543,6 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 			oa.SetError(ctx, oaErr)
 		}
 	}()
-
-	// An already-expired context keeps its deterministic error return instead
-	// of racing the zero-length wait timer.
-	if err := ctx.Err(); err != nil {
-		oa.SetError(ctx, err)
-		id, st, rv, annos := oa.result()
-		return id, st, rv, annos, err
-	}
 
 	wait := time.NewTimer(inlineWait(ctx))
 	defer wait.Stop()
@@ -610,6 +611,15 @@ func (a *ActionManager) invokeResourceAction(
 	}
 
 	oa := a.GetNewAction(actionName)
+
+	// A dead request must not run the action's side effects: reject an
+	// already-expired context before the handler is dispatched.
+	if err := ctx.Err(); err != nil {
+		oa.SetError(ctx, err)
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, err
+	}
+
 	done := make(chan struct{})
 
 	// Invoke handler in goroutine
@@ -638,14 +648,6 @@ func (a *ActionManager) invokeResourceAction(
 			oa.SetError(ctx, oaErr)
 		}
 	}()
-
-	// An already-expired context keeps its deterministic error return instead
-	// of racing the zero-length wait timer.
-	if err := ctx.Err(); err != nil {
-		oa.SetError(ctx, err)
-		id, st, rv, annos := oa.result()
-		return id, st, rv, annos, err
-	}
 
 	// Wait for completion or the inline-wait bound
 	wait := time.NewTimer(inlineWait(ctx))

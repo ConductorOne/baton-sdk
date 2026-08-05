@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -714,13 +715,20 @@ func TestInvokeActionExpiredContextReturnsError(t *testing.T) {
 	defer cancel()
 	m := NewActionManager(ctx)
 
-	err := m.Register(t.Context(), testActionSchema, testActionHandler)
+	var handlerRan atomic.Bool
+	err := m.Register(t.Context(), testActionSchema, func(hctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+		handlerRan.Store(true)
+		return testActionHandler(hctx, args)
+	})
 	require.NoError(t, err)
 
-	// The error return is the deterministic contract; the status races the
-	// dispatched handler and is not asserted.
-	_, _, _, _, err = m.InvokeAction(ctx, "lock_account", "", testInput)
+	_, actionStatus, _, _, err := m.InvokeAction(ctx, "lock_account", "", testInput)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+
+	// The handler is never dispatched for a dead request.
+	time.Sleep(100 * time.Millisecond)
+	require.False(t, handlerRan.Load())
 }
 
 func TestCleanupOldActionsDuringConcurrentStatusWrites(t *testing.T) {
