@@ -35,6 +35,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/conductorone/baton-sdk/internal/testtier"
 )
 
 // stepPage is one connector response for a cursor: a continuation token
@@ -343,6 +345,7 @@ func exploreScenario(t *testing.T, sc *stepScenario) stepStats {
 }
 
 func TestParallelQueueExhaustiveInterleavings(t *testing.T) {
+	testtier.RequireExtra(t)
 	scenarios := []*stepScenario{
 		{
 			// Fan-out chain: the planner-ish seed spawns two, one spawns

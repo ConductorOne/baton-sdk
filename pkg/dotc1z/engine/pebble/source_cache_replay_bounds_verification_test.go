@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/conductorone/baton-sdk/internal/testtier"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
@@ -17,6 +18,7 @@ import (
 // C10/C12: the replay commit seam supplies deterministic evidence that live
 // batch cardinality is fixed, and lets retry be cut after one landed chunk.
 func TestVerificationReplayBatchBoundAndInterruptedRetry(t *testing.T) {
+	testtier.RequireExtra(t)
 	ctx := t.Context()
 	const rows = replayBatchRows + 1
 

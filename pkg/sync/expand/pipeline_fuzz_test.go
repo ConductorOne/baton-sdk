@@ -16,6 +16,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
+
+	"github.com/conductorone/baton-sdk/internal/testtier"
 )
 
 // ----------------------------------------------------------------------------
@@ -40,6 +42,7 @@ import (
 // ingest path, the deferred index build, the id-index format stamp, the
 // envelope save/reopen, and the bare-id lookup edge on a real reopened file.
 func TestFullPipelineDifferentialFuzz(t *testing.T) {
+	testtier.RequireExtra(t)
 	// Two full c1z lifecycles per seed (~0.7s); the expansion-only fuzzers
 	// are the wide net, this is the whole-pipeline depth check. Seed count
 	// comes from fuzzSeedRange (-short/BATON_EXPAND_FUZZ_SEEDS/_SEED_OFFSET);

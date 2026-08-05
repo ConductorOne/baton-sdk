@@ -77,6 +77,7 @@ import (
 	"github.com/cockroachdb/pebble/v2/vfs/errorfs"
 	"github.com/stretchr/testify/require"
 
+	"github.com/conductorone/baton-sdk/internal/testtier"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -694,6 +695,7 @@ func buildSweepBaseline(ctx context.Context, t *testing.T, w sweepWorkload, cach
 // completes without injecting anything — proof the whole window was
 // covered.
 func TestErrorFSEndSyncWindowSweep(t *testing.T) {
+	testtier.RequireExtra(t)
 	skipOnWindowsMemFS(t)
 	ctx := context.Background()
 	w := defaultSweepWorkload()

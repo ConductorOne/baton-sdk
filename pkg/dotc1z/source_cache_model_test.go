@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/conductorone/baton-sdk/internal/testtier"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/bid"
@@ -475,6 +476,7 @@ func TestSourceCacheModelOracleMutationAdequacy(t *testing.T) {
 }
 
 func TestModelRandomizedSourceCacheLifecycle(t *testing.T) {
+	testtier.RequireNightly(t)
 	seeds := 10
 	if testing.Short() {
 		seeds = 3

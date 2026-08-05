@@ -9,6 +9,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	chaosoracle "github.com/conductorone/baton-sdk/internal/chaosconnector/oracle"
+	"github.com/conductorone/baton-sdk/internal/testtier"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -72,6 +73,7 @@ func (s *chaosExternalPrincipalCutStore) DeleteEntitlementByRefs(
 }
 
 func TestChaosConnectorExternalPrincipalCorpus(t *testing.T) {
+	testtier.RequireNightly(t)
 	for _, corpusCase := range chaosconnector.ExternalPrincipalCorpus() {
 		for _, transport := range []chaosTransport{chaosTransportDirect, chaosTransportGRPC} {
 			t.Run(corpusCase.Name+"/"+transport.String(), func(t *testing.T) {
@@ -170,6 +172,7 @@ func TestChaosConnectorExternalPrincipalCorpus(t *testing.T) {
 }
 
 func TestChaosConnectorExternalPrincipalCorpusResumesAfterRewriteCut(t *testing.T) {
+	testtier.RequireNightly(t)
 	for _, corpusCase := range chaosconnector.ExternalPrincipalCorpus() {
 		t.Run(corpusCase.Name, func(t *testing.T) {
 			ctx := t.Context()

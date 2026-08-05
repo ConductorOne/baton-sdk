@@ -44,6 +44,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
+	"github.com/conductorone/baton-sdk/internal/testtier"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -487,6 +488,7 @@ func enumerateCutPoints(total, limit int) []int {
 }
 
 func TestCheckpointCutEnumeration(t *testing.T) {
+	testtier.RequireExtra(t)
 	tmpDir := t.TempDir()
 	base, expectedEntIDs, userID := buildCutFixture(t)
 
