@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -11,6 +12,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
+	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
@@ -135,7 +137,15 @@ func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 	if resourceTypeID := t.GetResourceTypeId(); resourceTypeID != "" {
 		reqBuilder.ResourceTypeId = resourceTypeID
 	}
-	resp, err := cc.InvokeAction(ctx, reqBuilder.Build())
+
+	// Pin the inline wait to its legacy one-second budget no matter what
+	// deadline the runner context carries: blocking longer risks the task
+	// heartbeat window, where the queue reclaims the task and re-runs the
+	// action.
+	invokeCtx, invokeDone := actions.WithInlineWait(ctx, time.Second)
+	defer invokeDone()
+
+	resp, err := cc.InvokeAction(invokeCtx, reqBuilder.Build())
 	if err != nil {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}

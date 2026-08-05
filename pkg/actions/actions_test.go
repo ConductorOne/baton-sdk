@@ -546,3 +546,147 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 		require.LessOrEqual(t, finalCount, initialCount+1, "goroutine leak detected after context cancellation")
 	})
 }
+
+// testBlockingActionHandler blocks until release is closed (or the handler
+// context ends), so tests control exactly when the action completes.
+func testBlockingActionHandler(release <-chan struct{}) ActionHandler {
+	return func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, nil, status.Error(codes.Canceled, "context canceled")
+		}
+		return &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"success": {Kind: &structpb.Value_BoolValue{BoolValue: true}},
+			},
+		}, nil, nil
+	}
+}
+
+func TestInvokeActionWaitsForCallerDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	m := NewActionManager(ctx)
+
+	release := make(chan struct{})
+	err := m.Register(ctx, testActionSchema, testBlockingActionHandler(release))
+	require.NoError(t, err)
+
+	// Complete the handler after the legacy 1s cutoff but well within the
+	// deadline-derived wait.
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		close(release)
+	}()
+
+	_, actionStatus, rv, _, err := m.InvokeAction(ctx, "lock_account", "", testInput)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.NotNil(t, rv)
+	success, ok := rv.Fields["success"].GetKind().(*structpb.Value_BoolValue)
+	require.True(t, ok)
+	require.True(t, success.BoolValue)
+}
+
+func TestInvokeActionReturnsRunningBeforeDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	m := NewActionManager(ctx)
+
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	err := m.Register(ctx, testActionSchema, testBlockingActionHandler(release))
+	require.NoError(t, err)
+
+	actionId, actionStatus, _, _, err := m.InvokeAction(ctx, "lock_account", "", testInput)
+	require.NoError(t, err)
+	require.NotEmpty(t, actionId)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, actionStatus)
+	// The inline wait (deadline minus margin) returned before the deadline.
+	require.NoError(t, ctx.Err())
+}
+
+func TestInvokeActionNoDeadlineKeepsShortWait(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	err := m.Register(ctx, testActionSchema, testBlockingActionHandler(release))
+	require.NoError(t, err)
+
+	start := time.Now()
+	_, actionStatus, _, _, err := m.InvokeAction(ctx, "lock_account", "", testInput)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, actionStatus)
+	require.GreaterOrEqual(t, elapsed, defaultInlineWait)
+	require.Less(t, elapsed, 10*time.Second)
+}
+
+func TestInvokeActionShortDeadlineReturnsImmediately(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	m := NewActionManager(ctx)
+
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	err := m.Register(ctx, testActionSchema, testBlockingActionHandler(release))
+	require.NoError(t, err)
+
+	actionId, actionStatus, _, _, err := m.InvokeAction(ctx, "lock_account", "", testInput)
+	require.NoError(t, err)
+	require.NotEmpty(t, actionId)
+	require.Contains(t, []v2.BatonActionStatus{
+		v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING,
+		v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING,
+	}, actionStatus)
+	require.NoError(t, ctx.Err())
+}
+
+func TestWithInlineWaitPinsObservedWait(t *testing.T) {
+	ctx, cancel := WithInlineWait(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	m := NewActionManager(ctx)
+
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	err := m.Register(ctx, testActionSchema, testBlockingActionHandler(release))
+	require.NoError(t, err)
+
+	start := time.Now()
+	_, actionStatus, _, _, err := m.InvokeAction(ctx, "lock_account", "", testInput)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, actionStatus)
+	// The observed wait is the requested one, and the return happened inside
+	// the margin, before the context expired.
+	require.GreaterOrEqual(t, elapsed, 400*time.Millisecond)
+	require.NoError(t, ctx.Err())
+}
+
+func TestInvokeResourceActionWaitsForCallerDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	m := NewActionManager(ctx)
+
+	registry, err := m.GetTypeRegistry(ctx, "user")
+	require.NoError(t, err)
+
+	release := make(chan struct{})
+	err = registry.Register(ctx, testActionSchema, testBlockingActionHandler(release))
+	require.NoError(t, err)
+
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		close(release)
+	}()
+
+	_, actionStatus, rv, _, err := m.InvokeAction(ctx, "lock_account", "user", testInput)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.NotNil(t, rv)
+}
