@@ -63,17 +63,18 @@ func (oa *OutstandingAction) SetStatus(ctx context.Context, status v2.BatonActio
 func (oa *OutstandingAction) setError(_ context.Context, err error) {
 	oa.Lock()
 	defer oa.Unlock()
-	if oa.Rv == nil {
-		oa.Rv = &structpb.Struct{}
+	// Rebuild rather than mutate: a concurrent caller may hold the previously
+	// published struct from a result() snapshot and be marshaling it.
+	fields := make(map[string]*structpb.Value, len(oa.Rv.GetFields())+1)
+	for k, v := range oa.Rv.GetFields() {
+		fields[k] = v
 	}
-	if oa.Rv.Fields == nil {
-		oa.Rv.Fields = make(map[string]*structpb.Value)
-	}
-	oa.Rv.Fields["error"] = &structpb.Value{
+	fields["error"] = &structpb.Value{
 		Kind: &structpb.Value_StringValue{
 			StringValue: err.Error(),
 		},
 	}
+	oa.Rv = &structpb.Struct{Fields: fields}
 	oa.Err = err
 }
 
@@ -97,26 +98,44 @@ func (oa *OutstandingAction) setResult(rv *structpb.Struct, annos annotations.An
 	oa.Annos = annos
 }
 
-// WithInlineWait returns a context whose deadline makes InvokeAction wait
-// inline for wait before returning a still-running action's status. The
-// response margin is added on top, so wait is the wait actually observed.
+// WithInlineWait returns a context whose deadline makes a server on this SDK
+// version wait inline for wait before returning a still-running action's
+// status. Waits below a small floor are clamped up to it, so the context can
+// still carry the response. A parent deadline earlier than the derived one
+// keeps the shorter wait, and a server on an older SDK ignores the deadline
+// and waits its fixed one second.
 func WithInlineWait(ctx context.Context, wait time.Duration) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, wait+inlineWaitMargin)
+	if wait < minInlineWait {
+		wait = minInlineWait
+	}
+	timeout := wait + inlineWaitMargin
+	if wait < inlineWaitMargin {
+		// Below the margin the server reserves half the remaining budget
+		// instead, so double the wait to make the derived wait come out exact.
+		timeout = 2 * wait
+	}
+	return context.WithTimeout(ctx, timeout)
 }
 
 // inlineWait is how long InvokeAction may block waiting for the handler:
 // the caller's deadline minus inlineWaitMargin when one is set, else
-// defaultInlineWait.
+// defaultInlineWait. For deadlines shorter than twice the margin, half the
+// remaining budget is reserved instead, so fast handlers keep a completion
+// window and the response still returns before the deadline.
 func inlineWait(ctx context.Context) time.Duration {
 	d, ok := ctx.Deadline()
 	if !ok {
 		return defaultInlineWait
 	}
-	w := time.Until(d) - inlineWaitMargin
-	if w < 0 {
+	remaining := time.Until(d)
+	if remaining <= 0 {
 		return 0
 	}
-	return w
+	margin := inlineWaitMargin
+	if half := remaining / 2; half < margin {
+		margin = half
+	}
+	return remaining - margin
 }
 
 const (
@@ -127,6 +146,10 @@ const (
 	// so a still-running action returns its status before the deadline expires.
 	defaultInlineWait = 1 * time.Second
 	inlineWaitMargin  = 1 * time.Second
+
+	// minInlineWait keeps WithInlineWait from minting an already-expired
+	// context for zero or negative waits.
+	minInlineWait = 100 * time.Millisecond
 )
 
 // ActionRegistry provides methods for registering actions.
@@ -208,8 +231,8 @@ func (a *ActionManager) CleanupOldActions(ctx context.Context) {
 	count := 0
 	// Delete the oldest actions
 	for i := 0; i < len(actionList)-maxOldActions; i++ {
-		action := actionList[i]
-		if action.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || action.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
+		_, actionStatus, _, _ := actionList[i].result()
+		if actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
 			count++
 			delete(a.actions, actionList[i].Id)
 		}
@@ -512,6 +535,14 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 		}
 	}()
 
+	// An already-expired context keeps its deterministic error return instead
+	// of racing the zero-length wait timer.
+	if err := ctx.Err(); err != nil {
+		oa.SetError(ctx, err)
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, err
+	}
+
 	wait := time.NewTimer(inlineWait(ctx))
 	defer wait.Stop()
 
@@ -607,6 +638,14 @@ func (a *ActionManager) invokeResourceAction(
 			oa.SetError(ctx, oaErr)
 		}
 	}()
+
+	// An already-expired context keeps its deterministic error return instead
+	// of racing the zero-length wait timer.
+	if err := ctx.Err(); err != nil {
+		oa.SetError(ctx, err)
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, err
+	}
 
 	// Wait for completion or the inline-wait bound
 	wait := time.NewTimer(inlineWait(ctx))

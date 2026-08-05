@@ -3,6 +3,7 @@ package connectorbuilder
 import (
 	"context"
 	"fmt"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/actions"
@@ -200,7 +201,12 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 // registerLegacyAction wraps a legacy CustomActionManager action as an ActionHandler and registers it.
 func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, schema *v2.BatonActionSchema, legacyManager CustomActionManager) error {
 	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
-		_, _, resp, annos, err := legacyManager.InvokeAction(ctx, schema.GetName(), "", args)
+		// The legacy manager runs its own inline wait; pin it to the legacy
+		// one second so the detached handler context's one-hour deadline
+		// doesn't become the wait.
+		invokeCtx, cancel := actions.WithInlineWait(ctx, time.Second)
+		defer cancel()
+		_, _, resp, annos, err := legacyManager.InvokeAction(invokeCtx, schema.GetName(), "", args)
 		return resp, annos, err
 	}
 	return registry.Register(ctx, schema, handler)

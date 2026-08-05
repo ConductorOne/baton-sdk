@@ -626,7 +626,7 @@ func TestInvokeActionNoDeadlineKeepsShortWait(t *testing.T) {
 	require.Less(t, elapsed, 10*time.Second)
 }
 
-func TestInvokeActionShortDeadlineReturnsImmediately(t *testing.T) {
+func TestInvokeActionShortDeadlineKeepsHalfBudget(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 	m := NewActionManager(ctx)
@@ -636,6 +636,7 @@ func TestInvokeActionShortDeadlineReturnsImmediately(t *testing.T) {
 	err := m.Register(ctx, testActionSchema, testBlockingActionHandler(release))
 	require.NoError(t, err)
 
+	// Sub-margin deadline: half the budget is the wait, half the margin.
 	actionId, actionStatus, _, _, err := m.InvokeAction(ctx, "lock_account", "", testInput)
 	require.NoError(t, err)
 	require.NotEmpty(t, actionId)
@@ -644,6 +645,22 @@ func TestInvokeActionShortDeadlineReturnsImmediately(t *testing.T) {
 		v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING,
 	}, actionStatus)
 	require.NoError(t, ctx.Err())
+}
+
+func TestInvokeActionFastHandlerCompletesUnderShortDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	m := NewActionManager(ctx)
+
+	err := m.Register(ctx, testActionSchema, testActionHandler)
+	require.NoError(t, err)
+
+	// A handler that finishes well inside the halved wait window must still
+	// return its real result, not an in-flight status.
+	_, actionStatus, rv, _, err := m.InvokeAction(ctx, "lock_account", "", testInput)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.NotNil(t, rv)
 }
 
 func TestWithInlineWaitPinsObservedWait(t *testing.T) {
@@ -665,7 +682,77 @@ func TestWithInlineWaitPinsObservedWait(t *testing.T) {
 	// The observed wait is the requested one, and the return happened inside
 	// the margin, before the context expired.
 	require.GreaterOrEqual(t, elapsed, 400*time.Millisecond)
+	require.Less(t, elapsed, 900*time.Millisecond)
 	require.NoError(t, ctx.Err())
+}
+
+func TestWithInlineWaitDerivesExactWait(t *testing.T) {
+	t.Run("below the margin", func(t *testing.T) {
+		ctx, cancel := WithInlineWait(t.Context(), 400*time.Millisecond)
+		defer cancel()
+		require.InDelta(t, float64(400*time.Millisecond), float64(inlineWait(ctx)), float64(50*time.Millisecond))
+	})
+
+	t.Run("at and above the margin", func(t *testing.T) {
+		ctx, cancel := WithInlineWait(t.Context(), 3*time.Second)
+		defer cancel()
+		require.InDelta(t, float64(3*time.Second), float64(inlineWait(ctx)), float64(50*time.Millisecond))
+	})
+
+	t.Run("zero and negative waits clamp to the floor", func(t *testing.T) {
+		for _, wait := range []time.Duration{0, -time.Second} {
+			ctx, cancel := WithInlineWait(t.Context(), wait)
+			require.NoError(t, ctx.Err())
+			require.InDelta(t, float64(minInlineWait), float64(inlineWait(ctx)), float64(50*time.Millisecond))
+			cancel()
+		}
+	})
+}
+
+func TestInvokeActionExpiredContextReturnsError(t *testing.T) {
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+	m := NewActionManager(ctx)
+
+	err := m.Register(t.Context(), testActionSchema, testActionHandler)
+	require.NoError(t, err)
+
+	// The error return is the deterministic contract; the status races the
+	// dispatched handler and is not asserted.
+	_, _, _, _, err = m.InvokeAction(ctx, "lock_account", "", testInput)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestCleanupOldActionsDuringConcurrentStatusWrites(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+
+	// The cleanup loop only visits the len(actions)-maxOldActions oldest
+	// entries, so the concurrent writer must target the first-created action.
+	oldest := m.GetNewAction("churn")
+	for i := 0; i < maxOldActions; i++ {
+		m.GetNewAction("churn")
+	}
+
+	stop := make(chan struct{})
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				oldest.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+			}
+		}
+	}()
+
+	// Fails under -race if cleanup reads action status without the lock.
+	m.CleanupOldActions(ctx)
+
+	close(stop)
+	<-writerDone
 }
 
 func TestInvokeResourceActionWaitsForCallerDeadline(t *testing.T) {
