@@ -583,20 +583,37 @@ func (rb *RecordBatch) StageResourceTypeDelete(key []byte) error {
 // fold compactor.
 type FoldBatch struct {
 	batch
+	db *DB
 }
 
 // NewFoldBatch mints a generic staged batch for the compactor's
 // keep-newer fold and overlay writers. Engine production code must
 // not use it; see the choke-point meta-tests.
 //
-// Minting arms sourceScopeMayExist unconditionally: the fold copies
-// borrowed keys the typed ops never see, which can include
-// by_source_scope entries (fold retains them; see
-// StageSourceCacheReplayInvalidation), and a false gate with entries
-// present is the one unsound state. Fold destinations are one-shot
-// stores, so the conservative arm costs nothing.
+// A fold destination inherited from a scoped base is already armed by
+// ProbeSourceScopeMayExist at Open. Rebuild paths start empty and must not pay
+// source-scope maintenance merely because they share this raw batch surface.
+// FoldBatch.Set therefore arms the gate only when a caller actually stages a
+// by_source_scope key.
 func (d *DB) NewFoldBatch() *FoldBatch {
-	d.sourceScopeMayExist.Store(true)
 	d.acct.fold.Add(1)
-	return &FoldBatch{batch{b: d.newBatch(), open: &d.acct.fold}}
+	return &FoldBatch{
+		batch: batch{b: d.newBatch(), open: &d.acct.fold},
+		db:    d,
+	}
+}
+
+// Set stages a raw compactor key and self-arms the source-scope obligation
+// gate exactly when the raw surface introduces an entry that typed record ops
+// cannot observe.
+func (b *FoldBatch) Set(key, val []byte) error {
+	if len(key) >= 3 &&
+		key[0] == VersionV3 &&
+		key[1] == TypeIndex {
+		switch key[2] {
+		case IdxResourceBySourceScope, IdxEntitlementBySourceScope, IdxGrantBySourceScope:
+			b.db.sourceScopeMayExist.Store(true)
+		}
+	}
+	return b.batch.Set(key, val)
 }

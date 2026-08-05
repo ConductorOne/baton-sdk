@@ -82,8 +82,8 @@ type DB struct {
 	// Transitions: probed at Open (ProbeSourceScopeMayExist), flipped
 	// true by stageSourceScopeChange the moment a stamped record is
 	// staged (self-healing — no caller coordination can be forgotten),
-	// armed unconditionally by NewFoldBatch (the fold compactor copies
-	// borrowed scope-index keys the typed ops never see), re-probed by
+	// armed by FoldBatch.Set when a raw compactor write actually stages
+	// a borrowed scope-index key the typed ops never see, re-probed by
 	// bulk import's Finish after its SST ingest (grantIndexKeys emits
 	// scope entries for stamped records; see the ingest-family
 	// obligation in families.go), and cleared only by the engine's

@@ -267,12 +267,13 @@ func TestVerificationSourceScopeGatePostInvalidationWrites(t *testing.T) {
 
 // TestVerificationFoldBatchArmsSourceScopeGate pins the fold exemption:
 // the fold compactor copies borrowed scope-index keys the typed ops
-// never see, so minting a fold batch must conservatively arm the gate —
-// false-with-entries is the one unsound state. The test then proves the
-// arm is load-bearing end to end: a scope entry actually copied through
-// the fold surface is cleaned up by a later typed overwrite, which only
-// happens because the armed gate makes the overwrite scan the prior
-// value.
+// never see, so staging a scope-index key through a fold batch must arm
+// the gate — false-with-entries is the one unsound state. Merely minting
+// the shared fold/rebuild batch must not opt a fresh rebuild destination
+// into scope maintenance. The test then proves the arm is load-bearing
+// end to end: a scope entry actually copied through the fold surface is
+// cleaned up by a later typed overwrite, which only happens because the
+// armed gate makes the overwrite scan the prior value.
 func TestVerificationFoldBatchArmsSourceScopeGate(t *testing.T) {
 	ctx := t.Context()
 	a := newAdapter(t)
@@ -305,9 +306,11 @@ func TestVerificationFoldBatchArmsSourceScopeGate(t *testing.T) {
 	val, err := marshalRecord(stamped)
 	require.NoError(t, err)
 	fb := e.NewFoldBatch()
-	require.True(t, e.db.SourceScopeMayExist(), "minting a fold batch must arm the gate")
+	require.False(t, e.db.SourceScopeMayExist(), "minting the raw compaction batch must not arm the gate")
 	require.NoError(t, fb.Set(encodeGrantIdentityKey(id), val))
+	require.False(t, e.db.SourceScopeMayExist(), "a stamped primary without an index must not arm the index-presence gate")
 	require.NoError(t, fb.Set(encodeGrantBySourceScopeIndexKey(scopeA, id), nil))
+	require.True(t, e.db.SourceScopeMayExist(), "staging a raw scope-index entry must arm the gate")
 	require.NoError(t, fb.Commit(pebble.NoSync))
 	require.NoError(t, fb.Close())
 	require.Equal(t, 1, countKeys(t, e, GrantBySourceScopeLowerBound()))
