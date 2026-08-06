@@ -16,9 +16,16 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
-// maxConsecutiveStatusErrors bounds how many status-check failures in a row
-// the legacy action poll loop tolerates before failing the action.
-const maxConsecutiveStatusErrors = 3
+const (
+	// maxConsecutiveStatusErrors bounds how many status-check failures in a
+	// row the legacy action poll loop tolerates before failing the action.
+	maxConsecutiveStatusErrors = 3
+
+	// The legacy status poll starts fast and backs off to a cap so a slow
+	// action doesn't drain a remote manager's rate-limit budget.
+	initialStatusPollInterval = time.Second
+	maxStatusPollInterval     = 30 * time.Second
+)
 
 // ActionManager defines the interface for managing actions in the connector builder.
 // This is the internal interface used by the builder for dispatch.
@@ -230,17 +237,21 @@ func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, 
 		// Poll to a terminal status so the outer result carries the action's
 		// real outcome. A few consecutive status-check failures are tolerated:
 		// one flaky remote lookup must not convert a succeeding action into a
-		// failure.
+		// failure. The interval backs off to a cap so a slow action doesn't
+		// drain a remote manager's rate-limit budget.
 		l := ctxzap.Extract(ctx)
 		statusErrs := 0
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
+		interval := initialStatusPollInterval
+		timer := time.NewTimer(interval)
+		defer timer.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return resp, annos, ctx.Err()
-			case <-ticker.C:
+			case <-timer.C:
 			}
+			interval = min(interval*2, maxStatusPollInterval)
+			timer.Reset(interval)
 
 			st, _, pollResp, pollAnnos, err := legacyManager.GetActionStatus(ctx, id)
 			if err != nil {
@@ -255,9 +266,21 @@ func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, 
 				continue
 			}
 			statusErrs = 0
-			resp, annos = pollResp, pollAnnos
-			if !isInFlightActionStatus(st) {
+
+			// An in-flight poll may carry no response; keep the last real one
+			// so the error exits above still return it.
+			if pollResp != nil {
+				resp, annos = pollResp, pollAnnos
+			}
+
+			switch {
+			case isInFlightActionStatus(st):
+			case st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE:
 				return resp, annos, nil
+			case st == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED:
+				return resp, annos, fmt.Errorf("legacy action %q failed", schema.GetName())
+			default:
+				return resp, annos, fmt.Errorf("legacy action %q returned unexpected status %s", schema.GetName(), st.String())
 			}
 		}
 	}

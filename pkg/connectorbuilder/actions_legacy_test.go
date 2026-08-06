@@ -98,6 +98,7 @@ func TestRegisterLegacyActionTracksInnerManagerToCompletion(t *testing.T) {
 type fakeAsyncThirdPartyActionManager struct {
 	schema      *v2.BatonActionSchema
 	rv          *structpb.Struct
+	finalStatus v2.BatonActionStatus
 	statusCalls atomic.Int32
 	gotID       atomic.Value
 }
@@ -123,7 +124,7 @@ func (f *fakeAsyncThirdPartyActionManager) GetActionStatus(_ context.Context, id
 	case 2:
 		return v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, "async", nil, nil, nil
 	default:
-		return v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, "async", f.rv, nil, nil
+		return f.finalStatus, "async", f.rv, nil, nil
 	}
 }
 
@@ -136,8 +137,9 @@ func TestRegisterLegacyActionPollsAsyncThirdPartyManager(t *testing.T) {
 	rv, err := structpb.NewStruct(map[string]any{"done": true})
 	require.NoError(t, err)
 	legacy := &fakeAsyncThirdPartyActionManager{
-		schema: v2.BatonActionSchema_builder{Name: "async_action"}.Build(),
-		rv:     rv,
+		schema:      v2.BatonActionSchema_builder{Name: "async_action"}.Build(),
+		rv:          rv,
+		finalStatus: v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE,
 	}
 
 	outer := actions.NewActionManager(ctx)
@@ -146,13 +148,36 @@ func TestRegisterLegacyActionPollsAsyncThirdPartyManager(t *testing.T) {
 	outerID, _, _, _, err := outer.InvokeAction(ctx, "async_action", "", &structpb.Struct{})
 	require.NoError(t, err)
 
+	// Backoff polls land at roughly 1s, 3s, and 7s.
 	require.Eventually(t, func() bool {
 		st, _, gotRv, _, err := outer.GetActionStatus(ctx, outerID)
 		return err == nil && st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE && gotRv != nil
-	}, 10*time.Second, 100*time.Millisecond)
+	}, 20*time.Second, 100*time.Millisecond)
 
 	require.Equal(t, "legacy-async-1", legacy.gotID.Load())
 	require.GreaterOrEqual(t, legacy.statusCalls.Load(), int32(3))
+}
+
+// A legacy action that polls to FAILED must mark the outer action FAILED,
+// never resolve it as a success.
+func TestRegisterLegacyActionPolledFailureFailsOuterAction(t *testing.T) {
+	ctx := t.Context()
+
+	legacy := &fakeAsyncThirdPartyActionManager{
+		schema:      v2.BatonActionSchema_builder{Name: "failing_action"}.Build(),
+		finalStatus: v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED,
+	}
+
+	outer := actions.NewActionManager(ctx)
+	require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy))
+
+	outerID, _, _, _, err := outer.InvokeAction(ctx, "failing_action", "", &structpb.Struct{})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		st, _, _, _, err := outer.GetActionStatus(ctx, outerID)
+		return err == nil && st == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
+	}, 20*time.Second, 100*time.Millisecond)
 }
 
 type fakeSyncNoStatusActionManager struct {
