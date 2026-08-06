@@ -469,7 +469,7 @@ func TestParallelActionQueueReleasesDequeuedStorage(t *testing.T) {
 		action, ok := queue.next()
 		require.True(t, ok)
 		require.NotNil(t, action)
-		queue.done()
+		queue.done(action)
 	}
 
 	require.Empty(t, queue.actions)

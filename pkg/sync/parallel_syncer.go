@@ -458,21 +458,35 @@ type workerResult struct {
 	err     error
 }
 
-const maxSpawnedCursorsPerBatch = 100_000
-
 // parallelActionQueue is a dynamically extensible worker queue. outstanding
 // counts queued plus in-flight actions, so workers stop only after the whole
 // fan-out drains. An in-flight action may enqueue siblings before completing;
 // therefore outstanding cannot transiently reach zero between parent and child.
 type parallelActionQueue struct {
-	// mu guards every field below, including the fixed-size cursor digest set.
+	// mu guards every field below, including the working-set identity maps.
 	mu          native_sync.Mutex
 	cond        *native_sync.Cond
 	actions     []*Action
 	head        int
 	outstanding int
 	aborted     bool
-	seen        map[parallelActionKey]struct{}
+	// live and identOf are two views of one WORKING SET: the identity
+	// digest of every outstanding (queued or in-flight) action at its
+	// current page token. live answers "is this identity scheduled right
+	// now?" (spawn dedup and continuation re-convergence); identOf finds
+	// an action's current identity so retirement — transition (finish or
+	// continuation swap) and done() — removes exactly the right entry
+	// even after pagination changed the action's token. Identities of
+	// retired actions are forgotten BY DESIGN (RFC 0007 phase 1): queue
+	// memory stays O(outstanding) instead of O(cumulative unique
+	// cursors), which is what broke >100k-cursor syncs. Consequences:
+	// a re-mention of finished work is re-admitted (idempotent duplicate
+	// work; spawned re-mentions are still skipped by the state layer's
+	// process-lifetime spawnedAdmitted guard), and a period ≥ 2
+	// continuation cycle spins until the run duration expires (phase 2
+	// restores prompt detection).
+	live    map[parallelActionKey]string
+	identOf map[string]parallelActionKey
 	// audit, when non-nil, records every queue event for the post-hoc
 	// contract checker (queue_audit.go). Nil in production.
 	audit      *queueAudit
@@ -509,11 +523,14 @@ func newParallelActionQueue(actions []*Action) *parallelActionQueue {
 	q := &parallelActionQueue{
 		actions:     append([]*Action(nil), actions...),
 		outstanding: len(actions),
-		seen:        make(map[parallelActionKey]struct{}, len(actions)),
+		live:        make(map[parallelActionKey]string, len(actions)),
+		identOf:     make(map[string]parallelActionKey, len(actions)),
 	}
 	for _, action := range actions {
 		if action != nil {
-			q.seen[makeParallelActionKey(action)] = struct{}{}
+			key := makeParallelActionKey(action)
+			q.live[key] = action.ID
+			q.identOf[action.ID] = key
 		}
 	}
 	q.cond = native_sync.NewCond(&q.mu)
@@ -545,20 +562,28 @@ func (q *parallelActionQueue) attachAudit(audit *queueAudit, batchOp ActionOp, b
 // transition atomically validates and commits a parent's pagination plus
 // its spawned children, then admits the same-op children to the queue.
 // commit receives the EFFECTIVE continuation and the ADMITTED children
-// only: an identity already seeded or admitted earlier in this batch is
+// only: an identity CURRENTLY OUTSTANDING (queued or in flight) is
 // handled idempotently rather than fatally, because connectors
 // legitimately re-converge on a cursor that is already scheduled
 // (DAG-shaped shard discovery, cyclic discovery graphs, or post-crash
 // answers that shifted under a resumed checkpoint) and a hard error here
 // is deterministic on every retry — it would wedge the sync permanently.
 // Concretely:
-//   - a CHILD whose identity is already scheduled is skipped (the
-//     identical work is admitted exactly once);
-//   - a CONTINUATION whose identity is already scheduled finishes the
-//     parent instead (the action owning that identity performs exactly
-//     the work the continuation would have — the tail is not lost);
+//   - a CHILD whose identity is currently outstanding is skipped (the
+//     identical work is scheduled exactly once);
+//   - a CONTINUATION whose identity is currently outstanding finishes
+//     the parent instead (the action owning that identity performs
+//     exactly the work the continuation would have — the tail is not
+//     lost); this also catches period-1 cycles, where the continuation
+//     is the parent's own live identity;
 //   - the same cursor twice within ONE commit stays a loud failure: same
 //     call, same answer — a genuine connector protocol violation.
+//
+// Dedup is scoped to the working set only (RFC 0007 phase 1): a mention
+// of an identity that already RETIRED is re-admitted and re-walked, not
+// remembered-and-skipped. On success the parent's pre-transition identity
+// retires here — swapped for the continuation's identity when one was
+// committed, simply removed when the parent finished.
 func (q *parallelActionQueue) transition(
 	ctx context.Context,
 	batchOp ActionOp,
@@ -576,24 +601,28 @@ func (q *parallelActionQueue) transition(
 
 	effectiveNext := nextPageToken
 	keys := make(map[parallelActionKey]struct{}, len(childActions)+1)
+	var continuationKey parallelActionKey
+	hasContinuation := false
 	if nextPageToken != "" && parent != nil && parent.Op == batchOp {
 		continuedParent := *parent
 		continuedParent.PageToken = nextPageToken
 		key := makeParallelActionKey(&continuedParent)
-		if _, ok := q.seen[key]; ok {
-			// Re-convergence: the continuation's identity is already
-			// scheduled in this batch (a resumed cursor holding this
-			// exact token, or a cyclic continuation that already walked
-			// it). Finish the parent — see the function comment.
+		if _, ok := q.live[key]; ok {
+			// Re-convergence: the continuation's identity is currently
+			// outstanding (a sibling cursor holding this exact token, or
+			// the parent's own identity — a period-1 cycle). Finish the
+			// parent — see the function comment.
 			effectiveNext = ""
 			ctxzap.Extract(ctx).Warn(
-				"parallel scheduler: parent continuation re-converged on an already-scheduled cursor; finishing parent",
+				"parallel scheduler: parent continuation re-converged on a currently-scheduled cursor; finishing parent",
 				zap.String("op", batchOp.String()),
 				zap.String("resource_type_id", parent.ResourceTypeID),
 				zap.String("resource_id", parent.ResourceID),
 			)
 		} else {
 			keys[key] = struct{}{}
+			continuationKey = key
+			hasContinuation = true
 		}
 	}
 	admitted := make([]Action, 0, len(childActions))
@@ -618,11 +647,10 @@ func (q *parallelActionQueue) transition(
 				child.PageToken,
 			)
 		}
-		if _, ok := q.seen[key]; ok {
-			// Already seeded or admitted earlier in this batch: the
-			// identical work is scheduled exactly once already. Skip
-			// idempotently — see the function comment for why this must
-			// not be an error.
+		if _, ok := q.live[key]; ok {
+			// Currently outstanding: the identical work is scheduled
+			// exactly once already. Skip idempotently — see the function
+			// comment for why this must not be an error.
 			skipped++
 			continue
 		}
@@ -630,14 +658,10 @@ func (q *parallelActionQueue) transition(
 		admitted = append(admitted, *child)
 	}
 	if skipped > 0 {
-		ctxzap.Extract(ctx).Warn("parallel scheduler: skipped re-mentioned spawned cursors already scheduled in this batch",
+		ctxzap.Extract(ctx).Warn("parallel scheduler: skipped re-mentioned spawned cursors currently scheduled in this batch",
 			zap.Int("skipped_cursors", skipped),
 			zap.String("op", batchOp.String()),
 		)
-	}
-	if len(q.seen)+len(keys) > maxSpawnedCursorsPerBatch {
-		q.audit.record(queueAuditEvent{kind: auditReject, batch: q.auditBatch})
-		return fmt.Errorf("spawned cursor batch exceeded the maximum of %d unique cursors", maxSpawnedCursorsPerBatch)
 	}
 
 	pushed, err := commit(effectiveNext, admitted)
@@ -645,15 +669,37 @@ func (q *parallelActionQueue) transition(
 		q.audit.record(queueAuditEvent{kind: auditReject, batch: q.auditBatch})
 		return err
 	}
-	for key := range keys {
-		q.seen[key] = struct{}{}
-	}
 	commitEv := queueAuditEvent{kind: auditCommit, batch: q.auditBatch}
+	if parent != nil && parent.Op == batchOp {
+		// The parent's pre-transition identity retires: on continuation
+		// it is swapped for the new token's identity, on finish it is
+		// removed. identOf (not a recomputed digest) is authoritative —
+		// the caller's parent copy may hold a stale token.
+		if oldKey, ok := q.identOf[parent.ID]; ok {
+			delete(q.live, oldKey)
+			delete(q.identOf, parent.ID)
+			if q.audit != nil {
+				commitEv.retiredKeys = append(commitEv.retiredKeys, oldKey)
+			}
+		}
+		if hasContinuation {
+			q.live[continuationKey] = parent.ID
+			q.identOf[parent.ID] = continuationKey
+			if q.audit != nil {
+				commitEv.continuationID = parent.ID
+				commitEv.continuationKey = continuationKey
+				commitEv.hasContinuation = true
+			}
+		}
+	}
 	for _, action := range pushed {
 		if action != nil && action.Op == batchOp {
+			key := makeParallelActionKey(action)
+			q.live[key] = action.ID
+			q.identOf[action.ID] = key
 			if q.audit != nil {
 				commitEv.actionIDs = append(commitEv.actionIDs, action.ID)
-				commitEv.keys = append(commitEv.keys, makeParallelActionKey(action))
+				commitEv.keys = append(commitEv.keys, key)
 			}
 			q.actions = append(q.actions, action)
 			q.outstanding++
@@ -688,11 +734,27 @@ func (q *parallelActionQueue) next() (*Action, bool) {
 	return action, true
 }
 
-func (q *parallelActionQueue) done() {
+// done retires one dequeued action: the worker finished processing it, so
+// its identity leaves the working set here if a transition has not already
+// retired it (the paths that finish an action in state WITHOUT a
+// transition, e.g. the warning skip, and the worker error path both land
+// here with the identity still live). identOf resolves the action's
+// CURRENT identity — the worker's pointer may hold a pre-pagination token.
+func (q *parallelActionQueue) done(action *Action) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	ev := queueAuditEvent{kind: auditDone, batch: q.auditBatch}
+	if action != nil {
+		if key, ok := q.identOf[action.ID]; ok {
+			delete(q.live, key)
+			delete(q.identOf, action.ID)
+		}
+		if q.audit != nil {
+			ev.actionIDs = []string{action.ID}
+		}
+	}
 	q.outstanding--
-	q.audit.record(queueAuditEvent{kind: auditDone, batch: q.auditBatch})
+	q.audit.record(ev)
 	if q.outstanding == 0 {
 		q.cond.Broadcast()
 	}
@@ -777,7 +839,7 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 					errs = append(errs, r.err)
 				}
 				resultsMu.Unlock()
-				queue.done()
+				queue.done(action)
 				if r.err != nil {
 					l.Error("cancelling context due to error in action", zap.Any("action", action), zap.Error(r.err))
 					cancel(fmt.Errorf("cancelling context due to error in action %v: %w", action, r.err))

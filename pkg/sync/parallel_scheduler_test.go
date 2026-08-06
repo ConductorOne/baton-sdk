@@ -2,7 +2,6 @@ package sync //nolint:revive,nolintlint // backwards-compatible package name
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"reflect"
@@ -351,23 +350,121 @@ func TestAbortedQueueRejectsInFlightTransitionWithoutStateMutation(t *testing.T)
 }
 
 func TestParallelActionQueueRejectsCursorLimitBeforeCommit(t *testing.T) {
-	queue := newParallelActionQueue(nil)
-	for i := 0; i < maxSpawnedCursorsPerBatch; i++ {
-		var key parallelActionKey
-		binary.BigEndian.PutUint64(key[:8], uint64(i))
-		queue.seen[key] = struct{}{}
+	t.Skip("the 100k cursor cap was removed (docs/rfcs/0007-scheduler-cursor-accounting.md, phase 1): " +
+		"it bounded CUMULATIVE unique cursors per batch, not concurrent width, so legitimate large fan-outs " +
+		"failed mid-sync; TestParallelActionQueueDrainsCumulativeCursorsBeyondFormerCap pins the replacement " +
+		"working-set behavior, and a width cap on OUTSTANDING actions arrives in phase 2")
+}
+
+// TestParallelActionQueueDrainsCumulativeCursorsBeyondFormerCap is the
+// incident regression for RFC 0007: one pagination chain whose CUMULATIVE
+// unique cursor count exceeds the former 100k batch-lifetime cap must
+// drain with a working set that never grows past the outstanding actions.
+// Pre-hotfix, the 100_001st unique cursor failed the batch with "spawned
+// cursor batch exceeded the maximum of 100000 unique cursors".
+func TestParallelActionQueueDrainsCumulativeCursorsBeyondFormerCap(t *testing.T) {
+	const cumulativeCursors = 100_001 // one past the former cap
+	parent := &Action{
+		ID:             "walker",
+		Op:             SyncGrantsOp,
+		ResourceTypeID: "group",
+		ResourceID:     "group-1",
+		PageToken:      "page-0",
 	}
-	committed := false
-	err := queue.transition(t.Context(), SyncGrantsOp, nil, "", []Action{{
-		Op:        SyncGrantsOp,
-		PageToken: "over-limit",
-	}}, func(string, []Action) ([]*Action, error) {
-		committed = true
-		return nil, nil
+	queue := newParallelActionQueue([]*Action{parent})
+	current := *parent
+	for i := 1; i <= cumulativeCursors; i++ {
+		next := ""
+		if i < cumulativeCursors {
+			next = fmt.Sprintf("page-%d", i)
+		}
+		err := queue.transition(t.Context(), SyncGrantsOp, &current, next, nil,
+			func(effectiveNext string, children []Action) ([]*Action, error) {
+				if effectiveNext != next {
+					return nil, fmt.Errorf("continuation rewritten to %q: every token is unique, nothing may re-converge", effectiveNext)
+				}
+				return nil, nil
+			})
+		if err != nil {
+			t.Fatalf("transition %d: the removed lifetime cap must not resurface: %v", i, err)
+		}
+		if len(queue.live) > 1 || len(queue.identOf) > 1 {
+			t.Fatalf("transition %d: working set grew past outstanding (live=%d identOf=%d): history is accumulating again",
+				i, len(queue.live), len(queue.identOf))
+		}
+		current.PageToken = next
+	}
+	require.Empty(t, queue.live, "the finished chain must leave no live identities")
+	require.Empty(t, queue.identOf)
+}
+
+// TestRetiredIdentityContinuationProceeds documents the accepted RFC 0007
+// phase 1 semantics: a continuation landing on the identity of RETIRED
+// work is re-admitted and re-walked (idempotent duplicate work), not
+// finished — the working set forgets retired identities, which is exactly
+// the memory the incident could not afford. Pre-hotfix, history lookback
+// finished the parent after "second" and never re-visited "first".
+func TestRetiredIdentityContinuationProceeds(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	origin := st.pushAction(ctx, Action{
+		Op:             SyncGrantsOp,
+		ResourceTypeID: "group",
+		ResourceID:     "group-1",
+		PageToken:      "first",
 	})
-	require.ErrorContains(t, err, "exceeded the maximum")
-	require.False(t, committed)
-	require.Len(t, queue.seen, maxSpawnedCursorsPerBatch)
+	s := &syncer{state: st, workerCount: 1}
+
+	visits := map[string]int{}
+	f := func(ctx context.Context, action *Action) error {
+		visits[action.PageToken]++
+		switch {
+		case action.PageToken == "first" && visits["first"] == 1:
+			return s.nextPageOrFinishAction(ctx, action, "second")
+		case action.PageToken == "second":
+			// "first" retired when the parent advanced past it; the
+			// continuation must proceed, not finish the parent.
+			return s.nextPageOrFinishAction(ctx, action, "first")
+		default:
+			return s.nextPageOrFinishAction(ctx, action, "")
+		}
+	}
+
+	_, err := s.syncParallel(ctx, newTestRetryer(ctx), []*Action{origin}, f)
+	require.NoError(t, err)
+	require.Equal(t, map[string]int{"first": 2, "second": 1}, visits,
+		"the retired token must be re-walked: phase 1 keeps no history")
+	require.Nil(t, st.Current(), "the batch must drain completely")
+}
+
+// TestSameTokenContinuationFinishesParent: a continuation returning the
+// parent's own CURRENT token is a period-1 cycle. The parent's identity is
+// live (it is the action running), so the working set catches it without
+// any history and finishes the parent instead of spinning.
+func TestSameTokenContinuationFinishesParent(t *testing.T) {
+	ctx := t.Context()
+	st := newEmptySchedulerState(t)
+	origin := st.pushAction(ctx, Action{
+		Op:             SyncGrantsOp,
+		ResourceTypeID: "group",
+		ResourceID:     "group-1",
+		PageToken:      "loop",
+	})
+	s := &syncer{state: st, workerCount: 1}
+
+	calls := 0
+	f := func(ctx context.Context, action *Action) error {
+		calls++
+		if calls > 1 {
+			return errors.New("test safety stop: period-1 continuation cycle was re-admitted")
+		}
+		return s.nextPageOrFinishAction(ctx, action, action.PageToken)
+	}
+
+	_, err := s.syncParallel(ctx, newTestRetryer(ctx), []*Action{origin}, f)
+	require.NoError(t, err)
+	require.Equal(t, 1, calls, "the period-1 cycle must be broken at the first transition")
+	require.Nil(t, st.Current(), "the batch must drain completely")
 }
 
 func TestNextPageOrFinishActionStateTransitions(t *testing.T) {

@@ -11,9 +11,10 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 //   - Every in-flight spawned cursor is an Action in state.actions, and
 //     Marshal re-serializes the whole map on EVERY checkpoint (default
 //     every ~10s for the sync's lifetime). Cost is O(width) in time and
-//     token bytes, where width is bounded only by maxSpawnedCursorsPerBatch
-//     (100k) — and each cursor's page token may itself be up to ~1 MiB, so
-//     the constant is connector-controlled. The benchmark reports
+//     token bytes. Width is UNBOUNDED at the queue since RFC 0007 phase 1
+//     removed the batch cursor cap (phase 2 plans a cap on OUTSTANDING
+//     actions) — and each cursor's page token may itself be up to ~1 MiB,
+//     so the constant is connector-controlled. The benchmark reports
 //     token-bytes alongside ns/op so a regression in either is visible.
 //   - Marshal also version-stamps by scanning every action for
 //     type-scoped/spawned markers: a second O(width) pass that exists only
@@ -34,9 +35,15 @@ import (
 	"testing"
 )
 
+// benchMaxFanoutWidth preserves the former maxSpawnedCursorsPerBatch cap
+// (removed by RFC 0007 phase 1 — the queue no longer bounds cumulative
+// cursors) as the largest fixture, keeping the cost curves comparable
+// across the removal until phase 2's width cap lands.
+const benchMaxFanoutWidth = 100_000
+
 // buildFanoutState models the checkpoint-visible state of a sync holding
-// `width` in-flight spawned type-scoped cursors (the worst case the batch
-// cap admits), plus the parent action that spawned them.
+// `width` in-flight spawned type-scoped cursors, plus the parent action
+// that spawned them.
 func buildFanoutState(b *testing.B, width int) *state {
 	b.Helper()
 	ctx := context.Background()
@@ -54,7 +61,7 @@ func buildFanoutState(b *testing.B, width int) *state {
 	return st
 }
 
-var checkpointFanoutWidths = []int{100, 1_000, 10_000, maxSpawnedCursorsPerBatch}
+var checkpointFanoutWidths = []int{100, 1_000, 10_000, benchMaxFanoutWidth}
 
 // BenchmarkCheckpointTokenMarshalFanout is the per-checkpoint serialization
 // cost at fan-out width: O(width) time and token bytes, paid every ~10s.
