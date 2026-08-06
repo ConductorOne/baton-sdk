@@ -249,6 +249,116 @@ func TestWrapper_WithXMLResponse(t *testing.T) {
 	})
 }
 
+func TestWrapper_WithAlwaysXMLResponse(t *testing.T) {
+	const userList = `<?xml version="1.0" encoding="UTF-8"?><SERVICE_RESPONSE><USER_LIST>` +
+		`<USER><LOGIN>john@example.com</LOGIN></USER>` +
+		`<USER><LOGIN>jane@example.com</LOGIN></USER>` +
+		`</USER_LIST></SERVICE_RESPONSE>`
+
+	newResp := func(body string, contentType string, statusCode int) WrapperResponse {
+		header := http.Header{}
+		if contentType != "" {
+			header.Add("Content-Type", contentType)
+		}
+		return WrapperResponse{
+			Header:     header,
+			Body:       []byte(body),
+			StatusCode: statusCode,
+		}
+	}
+
+	t.Run("should decode into a map despite a non-XML content type", func(t *testing.T) {
+		// encoding/xml cannot unmarshal into a map, so before this a *map[string]any
+		// target failed for every input with "unknown type map[string]interface {}".
+		resp := newResp(userList, "text/plain", http.StatusOK)
+		var respBody map[string]any
+
+		err := WithAlwaysXMLResponse(&respBody)(&resp)
+
+		require.NoError(t, err)
+		// The shape is whatever the existing xmlMap decoder produces: a container
+		// with repeated children becomes a []map[string]any of single-key maps.
+		// This change only makes the map target reachable; it does not reshape
+		// anything, so the generic path's output is unchanged.
+		require.Equal(t, map[string]any{
+			"USER_LIST": []map[string]any{
+				{"USER": map[string]any{"LOGIN": "john@example.com"}},
+				{"USER": map[string]any{"LOGIN": "jane@example.com"}},
+			},
+		}, respBody)
+	})
+
+	t.Run("should leave the typed struct path unchanged", func(t *testing.T) {
+		exampleResponse := example{Name: "John", Age: 30}
+		buf := new(bytes.Buffer)
+		require.NoError(t, xml.NewEncoder(buf).Encode(exampleResponse))
+		resp := newResp(buf.String(), "text/plain", http.StatusOK)
+
+		responseBody := example{}
+		err := WithAlwaysXMLResponse(&responseBody)(&resp)
+
+		require.NoError(t, err)
+		require.Equal(t, exampleResponse, responseBody)
+	})
+
+	t.Run("should error when a map target gets a document with only root text", func(t *testing.T) {
+		resp := newResp(`<?xml version="1.0" encoding="UTF-8"?><root>bare text</root>`, "text/plain", http.StatusOK)
+		var respBody map[string]any
+
+		err := WithAlwaysXMLResponse(&respBody)(&resp)
+
+		require.Error(t, err)
+		require.Equal(t, codes.Internal, status.Code(err))
+		require.Contains(t, err.Error(), "unsupported XML structure: string")
+	})
+
+	t.Run("should not decode a map target on 204", func(t *testing.T) {
+		resp := newResp("", "text/plain", http.StatusNoContent)
+		var respBody map[string]any
+
+		err := WithAlwaysXMLResponse(&respBody)(&resp)
+
+		require.NoError(t, err)
+		require.Nil(t, respBody)
+	})
+
+	t.Run("should not decode a map target on an empty 200 body", func(t *testing.T) {
+		resp := newResp("", "text/plain", http.StatusOK)
+		var respBody map[string]any
+
+		err := WithAlwaysXMLResponse(&respBody)(&resp)
+
+		require.NoError(t, err)
+		require.Nil(t, respBody)
+	})
+
+	t.Run("should error rather than panic on a typed-nil map target", func(t *testing.T) {
+		// (*map[string]any)(nil) gets past an `any == nil` check because the
+		// interface still carries a type, so the map branch is reached with a nil
+		// pointer. encoding/xml used to reject this with "nil pointer passed to
+		// Unmarshal"; assigning through it would panic.
+		resp := newResp(userList, "text/plain", http.StatusOK)
+
+		var respBody *map[string]any
+		err := WithAlwaysXMLResponse(respBody)(&resp)
+
+		require.Error(t, err)
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
+
+	t.Run("WithXMLResponse keeps rejecting map targets", func(t *testing.T) {
+		// Deliberately left alone: it is reached by WithResponse and by three
+		// connectors that pass typed structs, so its behavior is not widened here.
+		resp := newResp(userList, "application/xml", http.StatusOK)
+		var respBody map[string]any
+
+		err := WithXMLResponse(&respBody)(&resp)
+
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unknown type map[string]interface {}")
+	})
+}
+
 func TestWrapper_WithResponse(t *testing.T) {
 	exampleResponse := example{
 		Name: "John",
