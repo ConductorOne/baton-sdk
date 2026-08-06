@@ -15,7 +15,23 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
+	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
+	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 )
+
+func markFoldInputWithGraph(t *testing.T, ctx context.Context, path, syncID string) {
+	t.Helper()
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	gs, ok := store.(sdksync.EntitlementGraphStore)
+	require.True(t, ok)
+	g := expand.NewEntitlementGraph(ctx)
+	g.AddEntitlementID("ent-a")
+	data, err := expand.MarshalGraphBlob(syncID, g)
+	require.NoError(t, err)
+	require.NoError(t, gs.PutEntitlementGraphBlob(ctx, data))
+	require.NoError(t, store.Close(ctx))
+}
 
 // grantDiscoveredAt reads one grant's discovered_at from the Pebble c1z
 // at path, under syncID. Fixture grant ids are connector-custom (no concat
@@ -166,6 +182,34 @@ func TestCompactPebbleFoldMintsFreshSync(t *testing.T) {
 	// weight inside the spliced base frames — the manifest's waste
 	// counter must record them.
 	require.Positive(t, m.GetFoldDeadBytes(), "fold must record the overridden incumbent's bytes in fold_dead_bytes")
+}
+
+func TestCompactPebbleFoldDoesNotPublishStaleGraphSidecar(t *testing.T) {
+	ctx := context.Background()
+	basePath := filepath.Join(t.TempDir(), "base.c1z")
+	partialPath := filepath.Join(t.TempDir(), "partial.c1z")
+	baseSyncID := buildPebbleInput(t, ctx, basePath, connectorstore.SyncTypeFull, "g-base")
+	partialSyncID := buildPebbleInput(t, ctx, partialPath, connectorstore.SyncTypePartial, "g-partial")
+	markFoldInputWithGraph(t, ctx, basePath, baseSyncID)
+
+	c, cleanup, err := NewCompactor(ctx, t.TempDir(), []*CompactableSync{
+		{FilePath: basePath, SyncID: baseSyncID},
+		{FilePath: partialPath, SyncID: partialSyncID},
+	}, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble),
+		WithPebbleCompactorMode(PebbleCompactorModeFold), WithSkipGrantExpansion())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, cleanup()) }()
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+
+	store, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close(ctx)) }()
+	gs, ok := store.(sdksync.EntitlementGraphStore)
+	require.True(t, ok)
+	raw, err := gs.GetEntitlementGraphBlob(ctx)
+	require.NoError(t, err)
+	require.Nil(t, raw, "fold must delete an inherited graph stamped for the base sync")
 }
 
 // TestCompactPebbleFoldWasteAccumulates covers the fold-waste

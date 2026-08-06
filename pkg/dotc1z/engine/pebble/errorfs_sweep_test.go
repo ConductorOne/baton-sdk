@@ -65,7 +65,6 @@ package pebble
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"runtime"
 	"sync"
@@ -727,9 +726,10 @@ func TestErrorFSEndSyncWindowSweep(t *testing.T) {
 		k-1, fatalRuns, outcomes)
 }
 
-// TestErrorFSWholeSyncRandomSweepSoak randomizes the failure point
-// across the whole sync (open → pages → EndSync) with the strictest
-// crash image (no unsynced survival). Env-gated like the other soaks.
+// TestErrorFSWholeSyncRandomSweepSoak exhaustively advances the failure point
+// across the whole pre-EndSync write path. It stops only after one armed run
+// completes without an injection, proving every earlier write-class operation
+// was exercised. The historical name is kept for Makefile compatibility.
 func TestErrorFSWholeSyncRandomSweepSoak(t *testing.T) {
 	skipOnWindowsMemFS(t)
 	if os.Getenv("BATON_SOAK") == "" {
@@ -740,61 +740,67 @@ func TestErrorFSWholeSyncRandomSweepSoak(t *testing.T) {
 	cache := pebble.NewCache(8 << 20)
 	defer cache.Unref()
 
-	for seed := int64(1); seed <= 60; seed++ {
-		t.Run(fmt.Sprintf("seed=%d", seed), func(t *testing.T) {
-			rng := rand.New(rand.NewSource(seed)) //nolint:gosec // deterministic seeded sweep, not cryptography
-			k := int64(rng.Intn(400))
+	const maxK = 5000
+	var injectedRuns int64
+	for k := int64(0); ; k++ {
+		require.Less(t, k, int64(maxK), "whole-sync sweep exceeded %d write ops", maxK)
+		fs := vfs.NewCrashableMem()
+		inj := &failFromInjector{failOnce: true}
+		efs := errorfs.Wrap(fs, inj)
 
-			fs := vfs.NewCrashableMem()
-			inj := &failFromInjector{failOnce: true}
-			efs := errorfs.Wrap(fs, inj)
+		gate := newFatalGate()
+		e, err := Open(ctx, "sweep-db", WithVFS(efs), WithSharedCache(cache), withFatalGate(gate))
+		require.NoError(t, err, "open before arming")
+		a := NewAdapter(e)
 
-			gate := newFatalGate()
-			e, err := Open(ctx, "sweep-db", WithVFS(efs), WithSharedCache(cache), withFatalGate(gate))
-			require.NoError(t, err, "open before arming")
-			a := NewAdapter(e)
-
-			var syncID string
-			res := runInjected(fs, inj, e, gate, k, func() error {
-				var err error
-				syncID, err = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-				if err != nil {
-					return err
-				}
-				if err := w.write(ctx, a); err != nil {
-					return err
-				}
-				// Disarm before EndSync: the soak owns the OPEN + PAGES
-				// phase (undurable, memtable-resident state — the fresh-sync
-				// crash surface the window sweep's durable baseline can't
-				// reach). EndSync itself is the window sweep's territory —
-				// and with pages still in the memtable, EndSync's ingests
-				// take pebble's flushable-ingest path, where ANY injected
-				// failure is a raw panic(err) whose unwind faults the
-				// runtime (crash-only by design; not recoverable in-process;
-				// see the coverage-gap note in the file header).
-				inj.disarm()
-				return a.EndSync(ctx)
-			})
-
-			label := fmt.Sprintf("seed=%d k=%d", seed, k)
-			if res.err == nil {
-				// Failure point beyond the sync's op count (or only
-				// post-completion background work was hit): the finished
-				// artifact was flushed, so the strict crash image must
-				// verify complete.
-				require.NotEmpty(t, syncID)
-				verifyCrashImage(ctx, t, w, res.image, cache, syncID, true, res.injected > 0, label+" (clean run)")
-				return
+		var syncID string
+		res := runInjected(fs, inj, e, gate, k, func() error {
+			var err error
+			syncID, err = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			if err != nil {
+				return err
 			}
-			if syncID == "" {
-				// StartNewSync itself failed; the image owes nothing beyond
-				// reopening clean and supporting a fresh sync.
-				verifyEmptyImageRestarts(ctx, t, w, res.image, cache, label+" (pre-sync)")
-				return
+			if err := w.write(ctx, a); err != nil {
+				return err
 			}
-			verifyCrashImage(ctx, t, w, res.image, cache, syncID, true, true, label)
+			// Disarm before EndSync: the soak owns the OPEN + PAGES
+			// phase (undurable, memtable-resident state — the fresh-sync
+			// crash surface the window sweep's durable baseline can't
+			// reach). EndSync itself is the window sweep's territory —
+			// and with pages still in the memtable, EndSync's ingests
+			// take pebble's flushable-ingest path, where ANY injected
+			// failure is a raw panic(err) whose unwind faults the
+			// runtime (crash-only by design; not recoverable in-process;
+			// see the coverage-gap note in the file header).
+			inj.disarm()
+			return a.EndSync(ctx)
 		})
+
+		label := fmt.Sprintf("k=%d", k)
+		if res.err == nil {
+			// Failure point beyond the sync's op count (or only
+			// post-completion background work was hit): the finished
+			// artifact was flushed, so the strict crash image must
+			// verify complete.
+			require.NotEmpty(t, syncID)
+			verifyCrashImage(ctx, t, w, res.image, cache, syncID, true, res.injected > 0, label+" (clean run)")
+			if res.injected == 0 {
+				require.Equal(t, k, injectedRuns, "every earlier write point must inject")
+				t.Logf("whole pre-EndSync path covered: %d write-op failure points", injectedRuns)
+				break
+			}
+			injectedRuns++
+			continue
+		}
+		require.Positive(t, res.injected, "failed run must contain an injected write fault")
+		injectedRuns++
+		if syncID == "" {
+			// StartNewSync itself failed; the image owes nothing beyond
+			// reopening clean and supporting a fresh sync.
+			verifyEmptyImageRestarts(ctx, t, w, res.image, cache, label+" (pre-sync)")
+			continue
+		}
+		verifyCrashImage(ctx, t, w, res.image, cache, syncID, true, true, label)
 	}
 }
 

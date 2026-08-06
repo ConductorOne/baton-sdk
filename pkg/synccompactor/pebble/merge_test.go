@@ -347,3 +347,64 @@ func TestMergeIntoDeadBytesExactCount(t *testing.T) {
 		"dead bytes must equal the incumbent's primary key+value plus its index keys")
 	assertIndexesMatchDerived(t, ctx, dest)
 }
+
+// grantEnt builds a grant on a specific entitlement id.
+func grantEnt(externalID, entID, principal string, at time.Time) *v3.GrantRecord {
+	return v3.GrantRecord_builder{
+		ExternalId: externalID,
+		Entitlement: v3.EntitlementRef_builder{
+			ResourceTypeId: "app", ResourceId: "github", EntitlementId: entID,
+		}.Build(),
+		Principal:    v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: principal}.Build(),
+		DiscoveredAt: timestamppb.New(at),
+	}.Build()
+}
+
+// TestMergeIntoCollectsGrantEntitlementIDs: applied records (added/replacing)
+// contribute their entitlement id; no-ops (identical/older) don't.
+func TestMergeIntoCollectsGrantEntitlementIDs(t *testing.T) {
+	ctx := context.Background()
+	older := time.Unix(1000, 0).UTC()
+	newer := time.Unix(2000, 0).UTC()
+
+	// Base (= dest, fold semantics) holds three incumbents.
+	identical := grantEnt("g-same", "ent-same", "alice", older)
+	dest, destSync := seedBase(t, ctx, "entids-dest", recordSet{
+		gs: []*v3.GrantRecord{
+			identical, // resubmitted byte-identical
+			grantEnt("g-stale", "ent-stale", "bob", newer),     // src's copy is older
+			grantEnt("g-repl", "ent-replaced", "carol", older), // src's copy is newer
+		},
+	})
+
+	src := buildEngineSource(t, ctx, "entids-src", recordSet{
+		gs: []*v3.GrantRecord{
+			identical, // byte-identical no-op -> NOT collected
+			grantEnt("g-stale", "ent-stale", "bob", older),     // loses to incumbent -> NOT collected
+			grantEnt("g-repl", "ent-replaced", "carol", newer), // wins -> collected
+			grantEnt("g-new", "ent-added", "dave", newer),      // no incumbent -> collected
+		},
+	})
+
+	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync)
+	require.NoError(t, err)
+
+	got := make([]string, 0, len(stats.GrantEntitlementIDs))
+	for id := range stats.GrantEntitlementIDs {
+		got = append(got, id)
+	}
+	require.ElementsMatch(t, []string{"ent-replaced", "ent-added"}, got,
+		"only applied records contribute; identical/older no-ops must not")
+}
+
+// TestFoldStatsAddUnionsGrantEntitlementIDs: Add unions the sets.
+func TestFoldStatsAddUnionsGrantEntitlementIDs(t *testing.T) {
+	var total FoldStats
+	total.Add(FoldStats{GrantEntitlementIDs: map[string]struct{}{"a": {}, "b": {}}})
+	total.Add(FoldStats{GrantEntitlementIDs: map[string]struct{}{"b": {}, "c": {}}})
+	total.Add(FoldStats{}) // nil map: no-op
+	require.Len(t, total.GrantEntitlementIDs, 3)
+	for _, id := range []string{"a", "b", "c"} {
+		require.Contains(t, total.GrantEntitlementIDs, id)
+	}
+}
