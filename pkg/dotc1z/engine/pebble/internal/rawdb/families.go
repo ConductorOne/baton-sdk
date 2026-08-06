@@ -17,6 +17,7 @@ package rawdb
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/cockroachdb/pebble/v2"
 )
@@ -33,8 +34,14 @@ type Stager interface {
 }
 
 // batch is the shared staged-write core the family types embed.
+// open points at the owning DB's per-family outstanding-batch counter
+// (batchAccounting): minting increments it, the first Close decrements
+// it, and DB.Close reports any nonzero balance as a leak. Close also
+// nils the pebble handle so a second Close is a no-op instead of a
+// double release of a pooled object (§5.2 ownership transfer).
 type batch struct {
-	b *pebble.Batch
+	b    *pebble.Batch
+	open *atomic.Int64
 }
 
 // Set stages key → val.
@@ -58,8 +65,20 @@ func (b *batch) Len() int { return len(b.b.Repr()) }
 // Commit applies the staged writes with the given write options.
 func (b *batch) Commit(o *pebble.WriteOptions) error { return b.b.Commit(o) }
 
-// Close releases the batch. Safe after Commit.
-func (b *batch) Close() error { return b.b.Close() }
+// Close releases the batch. Safe after Commit, and idempotent: the
+// first call transfers ownership back to pebble's pool and nils the
+// handle; later calls return nil without touching the pooled object.
+func (b *batch) Close() error {
+	if b.b == nil {
+		return nil
+	}
+	err := b.b.Close()
+	b.b = nil
+	if b.open != nil {
+		b.open.Add(-1)
+	}
+	return err
+}
 
 // === record family: grants / entitlements / resources / resource types ===
 //
@@ -86,11 +105,19 @@ type RecordBatch struct {
 
 // NewRecordBatch mints a batch for record-keyspace mutations.
 func (d *DB) NewRecordBatch() *RecordBatch {
-	return &RecordBatch{core: batch{b: d.newBatch()}, db: d}
+	d.acct.record.Add(1)
+	return &RecordBatch{core: batch{b: d.newBatch(), open: &d.acct.record}, db: d}
 }
 
 // Commit applies the staged writes with the given write options.
-func (rb *RecordBatch) Commit(o *pebble.WriteOptions) error { return rb.core.Commit(o) }
+func (rb *RecordBatch) Commit(o *pebble.WriteOptions) error {
+	if rb.db.testRecordCommitHook != nil {
+		if err := rb.db.testRecordCommitHook(); err != nil {
+			return err
+		}
+	}
+	return rb.core.Commit(o)
+}
 
 // Close releases the batch. Safe after Commit.
 func (rb *RecordBatch) Close() error { return rb.core.Close() }
@@ -122,7 +149,10 @@ type SessionBatch struct {
 }
 
 // NewSessionBatch mints a batch for session-keyspace mutations.
-func (d *DB) NewSessionBatch() *SessionBatch { return &SessionBatch{batch{b: d.newBatch()}} }
+func (d *DB) NewSessionBatch() *SessionBatch {
+	d.acct.session.Add(1)
+	return &SessionBatch{batch{b: d.newBatch(), open: &d.acct.session}}
+}
 
 // === engine-meta family ===
 //
@@ -136,6 +166,19 @@ func (d *DB) MetaSet(key, val []byte, o *pebble.WriteOptions) error { return d.s
 
 // MetaDelete removes one engine-meta / fixed-key row.
 func (d *DB) MetaDelete(key []byte, o *pebble.WriteOptions) error { return d.delete(key, o) }
+
+// === source-cache manifest family ===
+
+// SourceCacheSet writes one manifest or compatibility record. Row-copy
+// mutations use RecordBatch because their scope-index obligations belong to
+// the record family.
+func (d *DB) SourceCacheSet(key, val []byte, o *pebble.WriteOptions) error {
+	return d.set(key, val, o)
+}
+
+func (d *DB) SourceCacheDelete(key []byte, o *pebble.WriteOptions) error {
+	return d.delete(key, o)
+}
 
 // === digest family: build / repair ===
 //
@@ -151,7 +194,10 @@ type DigestBatch struct {
 }
 
 // NewDigestBatch mints a batch for digest-keyspace writes.
-func (d *DB) NewDigestBatch() *DigestBatch { return &DigestBatch{batch{b: d.newBatch()}} }
+func (d *DB) NewDigestBatch() *DigestBatch {
+	d.acct.digest.Add(1)
+	return &DigestBatch{batch{b: d.newBatch(), open: &d.acct.digest}}
+}
 
 // DigestSet writes one digest node/root row outside a batch (the
 // global root stamp at the end of build/repair).
@@ -166,6 +212,15 @@ func (d *DB) DropKeyRange(start, end []byte, o *pebble.WriteOptions) error {
 
 // === ingest family: deferred index build, digest build, bulk import,
 // synth-grant layer, id-index migration, compactor merges ===
+//
+// OBLIGATION: SST ingest bypasses the typed record ops, so it also
+// bypasses the sourceScopeMayExist arming they perform. Any caller
+// whose SSTs can contain by_source_scope index entries must re-probe
+// or arm the gate after a successful ingest (bulk import's Finish
+// does; the synth layer and rebuild compactors provably never emit
+// scope keys; fold arms at NewFoldBatch). Ingesting scope entries
+// behind an unarmed gate is the one unsound gate state — later
+// overwrites/deletes would skip index cleanup and orphan entries.
 
 // IngestSSTs ingests externally built SSTs (bulk import, synth-layer
 // segments, compactor merge output). Paths must live on DB.FS().

@@ -1,3 +1,4 @@
 {
-    "go.buildTags": "baton_lambda_support"
+    "go.buildTags": "baton_lambda_support",
+    "git.ignoreLimitWarning": true
 }

@@ -38,9 +38,19 @@ import (
 // and non-func knobs are out of scope: they inject observation points,
 // not failures. Enforced by TestFailureSeamsAreExercised.
 var seamFailureCases = map[string][]string{
-	"digestBuildHook":  {"TestGrantDigestBuildCrashMidMerge", "TestGrantDigestBuildCrashPostFinish"},
-	"recordCommitHook": {"TestFailedMutationPathsFireObligations"},
-	"endSyncStampHook": {"TestFailedMutationPathsFireObligations"},
+	"digestBuildHook":             {"TestGrantDigestBuildCrashMidMerge", "TestGrantDigestBuildCrashPostFinish"},
+	"recordCommitHook":            {"TestFailedMutationPathsFireObligations"},
+	"sourceCacheReplayCommitHook": {"TestVerificationReplayBatchBoundAndInterruptedRetry"},
+	"sourceCacheReplayClearCommitHook": {
+		"TestVerificationReplayClearCommittedPrefixDisarmsFastPath",
+	},
+	"sourceCacheReplayReadHook": {"TestVerificationReplayBatchBoundAndInterruptedRetry"},
+	"sourceCacheReplayIteratorErrorHook": {
+		"TestVerificationReplayCommittedPrefixRetryAllKinds",
+	},
+	"sourceCacheDeleteCommitHook":  {"TestVerificationScopedDeleteBatchBoundAndInterruptedRetry"},
+	"sourceCacheManifestWriteHook": {"TestVerificationManifestFailureDoesNotPublishClaim"},
+	"endSyncStampHook":             {"TestFailedMutationPathsFireObligations"},
 }
 
 // rawdbHookFailureCases covers the failure seams that live ON THE
@@ -52,6 +62,10 @@ var rawdbHookFailureCases = map[string][]string{
 	"SetDeferredMarkerTestHooks": {
 		"TestDeferredMarkerArmFailureRollsBackCAS",
 		"TestDeferredMarkerClearFailureKeepsAgreement",
+	},
+	"SetRecordCommitTestHook": {
+		"TestVerificationSourceScopeMutationAtomicity",
+		"TestInvalidateSourceCacheReplayStateCommitFailureIsAtomic",
 	},
 }
 

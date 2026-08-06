@@ -82,7 +82,11 @@ func benchNewEngine(b *testing.B, name string) (*enginepkg.Engine, string) {
 	if err != nil {
 		b.Fatalf("Open %s: %v", name, err)
 	}
-	b.Cleanup(func() { _ = e.Close() })
+	b.Cleanup(func() {
+		if err := e.Close(); err != nil {
+			b.Errorf("Close %s (resource-leak oracle): %v", name, err)
+		}
+	})
 	return e, dir
 }
 

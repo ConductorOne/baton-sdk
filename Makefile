@@ -75,14 +75,14 @@ demo-crash-check: crash-check ## Deprecated alias for crash-check.
 
 .PHONY: checkpoint-cut-check
 checkpoint-cut-check: ## Resume from every durable checkpoint cut.
-	BATON_CUT_SWEEP=full go test -v -count=1 -timeout=30m -run TestCheckpointCutEnumeration ./pkg/sync
+	BATON_TEST_EXTRA=1 BATON_CUT_SWEEP=full go test -v -count=1 -timeout=30m -run TestCheckpointCutEnumeration ./pkg/sync
 
 .PHONY: interrupt-check
 interrupt-check: checkpoint-cut-check crash-check ## Run in-process cut and real-process interruption checks.
 
 .PHONY: race-check
-race-check: ## Run the complete Go suite with the race detector.
-	go test -race -tags=baton_lambda_support -count=1 -timeout=30m ./...
+race-check: ## Run ordinary and extra-tier Go tests with the race detector.
+	BATON_TEST_EXTRA=1 go test -race -tags=baton_lambda_support -count=1 -timeout=30m ./...
 
 .PHONY: fuzz-smoke
 fuzz-smoke: ## Run each native Go fuzzer for FUZZ_TIME (default 30s).
@@ -91,7 +91,7 @@ fuzz-smoke: ## Run each native Go fuzzer for FUZZ_TIME (default 30s).
 
 .PHONY: differential-check
 differential-check: ## Differential-fuzz SQLite and Pebble for DIFFERENTIAL_TIME.
-	BATON_EXPAND_FUZZ_DURATION=$(DIFFERENTIAL_TIME) go test -v -count=1 -timeout=30m -run '^TestFullPipelineDifferentialFuzz$$' ./pkg/sync/expand
+	BATON_TEST_EXTRA=1 BATON_EXPAND_FUZZ_DURATION=$(DIFFERENTIAL_TIME) go test -v -count=1 -timeout=30m -run '^TestFullPipelineDifferentialFuzz$$' ./pkg/sync/expand
 
 .PHONY: bench-smoke
 bench-smoke: ## Run the bounded checkpoint cost benchmarks once.
@@ -104,7 +104,7 @@ bench: ## Run curated checkpoint and medium full-sync benchmarks.
 
 .PHONY: scheduler-soak
 scheduler-soak: ## Run randomized scheduler cases under race detection.
-	BATON_SOAK_ITERATIONS=$(SOAK_ITERATIONS) go test -race -v -count=1 -timeout=30m -run TestSchedulerSoakRandomizedFanoutWithFailures ./pkg/sync
+	BATON_TEST_NIGHTLY=1 BATON_SOAK_ITERATIONS=$(SOAK_ITERATIONS) go test -race -v -count=1 -timeout=30m -run TestSchedulerSoakRandomizedFanoutWithFailures ./pkg/sync
 
 .PHONY: errorfs-soak
 errorfs-soak: ## Sweep whole-sync Pebble crash points using errorfs.
@@ -117,17 +117,19 @@ chaos-check: ## Run bounded representative chaos checks under race detection.
 
 .PHONY: chaos-full-check
 chaos-full-check: ## Run every deterministic chaos corpus under race detection.
-	go test -race -count=1 -timeout=30m -run '^TestChaosConnector' ./pkg/sync
+	BATON_TEST_NIGHTLY=1 go test -race -count=1 -timeout=30m -run '^TestChaosConnector' ./pkg/sync
 
 .PHONY: chaos-soak
 chaos-soak: ## Run extended seeded chaos connector fanout schedules.
 	BATON_CHAOS_ITERATIONS=$(CHAOS_ITERATIONS) go test -race -v -count=1 -timeout=30m -run TestChaosConnectorSeededFanoutWithRetries ./pkg/sync
 
-# race-check already includes chaos-full-check's complete deterministic corpus.
+# Full deterministic chaos corpora are reserved for test-nightly.
 .PHONY: test-extra
+test-extra: export BATON_TEST_EXTRA=1
 test-extra: race-check compat-check interrupt-check fuzz-smoke differential-check bench-smoke ## Run bounded confidence checks omitted from CI.
 
 .PHONY: test-nightly
+test-nightly: export BATON_TEST_NIGHTLY=1
 test-nightly: ## Run extended confidence, fuzz, scheduler, and errorfs checks.
 	$(MAKE) test-extra FUZZ_TIME=$(NIGHTLY_FUZZ_TIME) DIFFERENTIAL_TIME=$(NIGHTLY_DIFFERENTIAL_TIME)
 	$(MAKE) scheduler-soak

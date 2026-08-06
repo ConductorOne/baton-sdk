@@ -81,9 +81,9 @@ func TestTypedRecordOpsRejectWrongFamilyAndMalformedKeys(t *testing.T) {
 	t.Run("wrong family", func(t *testing.T) {
 		rb := e.db.NewRecordBatch()
 		defer rb.Close()
-		require.ErrorContains(t, rb.StageEntitlementPut(grantKey, []byte("v")),
+		require.ErrorContains(t, rb.StageEntitlementPut(grantKey, []byte("v"), nil),
 			"outside this op's keyspace family", "grant key must not stage as an entitlement")
-		require.ErrorContains(t, rb.StageGrantPutInline(entKey, []byte("v"), false, false),
+		require.ErrorContains(t, rb.StageGrantPutInline(entKey, []byte("v"), nil, false),
 			"outside this op's keyspace family", "entitlement key must not stage as a grant")
 		require.ErrorContains(t, rb.StageResourceTypeDelete(grantKey),
 			"outside this op's keyspace family")
@@ -98,11 +98,11 @@ func TestTypedRecordOpsRejectWrongFamilyAndMalformedKeys(t *testing.T) {
 		defer rb.Close()
 		// Family prefix right, segment structure wrong (2 segments, not 6).
 		malformed := []byte{versionV3, typeGrant, 0, 'a', 0, 'b'}
-		require.ErrorContains(t, rb.StageGrantPutInline(malformed, []byte("v"), false, false),
+		require.ErrorContains(t, rb.StageGrantPutInline(malformed, []byte("v"), nil, false),
 			"did not decode as a 6-segment identity")
-		require.ErrorContains(t, rb.StageGrantPutDeferred(malformed, []byte("v"), false, false),
+		require.ErrorContains(t, rb.StageGrantPutDeferred(malformed, []byte("v"), nil, false),
 			"did not decode as a 6-segment identity")
-		require.ErrorContains(t, rb.StageGrantDelete(malformed),
+		require.ErrorContains(t, rb.StageGrantDelete(malformed, nil),
 			"did not decode as a 6-segment identity")
 	})
 

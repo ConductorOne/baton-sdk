@@ -351,6 +351,17 @@ func bucketIndexCopySpecs(bucket bucketSpec) []indexFamilyCopySpec {
 // whole-source SST path ingested. Stats for the bucket are zeroed; the
 // blind kway materialization recounts from scratch.
 func overlayRestartBucket(ctx context.Context, dest *enginepkg.Engine, bucket bucketSpec, writer *overlayBucketRawWriter, stats *mergeStatsAccumulator) error {
+	return overlayRestartBucketWithCommitFailure(ctx, dest, bucket, writer, stats, nil)
+}
+
+func overlayRestartBucketWithCommitFailure(
+	ctx context.Context,
+	dest *enginepkg.Engine,
+	bucket bucketSpec,
+	writer *overlayBucketRawWriter,
+	stats *mergeStatsAccumulator,
+	beforeCommit foldCommitFailure,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -366,7 +377,7 @@ func overlayRestartBucket(ctx context.Context, dest *enginepkg.Engine, bucket bu
 			return err
 		}
 	}
-	if err := b.Commit(cpebble.NoSync); err != nil {
+	if err := commitFoldBatch(b, cpebble.NoSync, beforeCommit); err != nil {
 		return err
 	}
 	stats.resetBucket(bucket.id)
@@ -466,8 +477,7 @@ func MergeFilesIntoOverlay(ctx context.Context, dest *enginepkg.Engine, sources 
 		if err != nil {
 			return nil, err
 		}
-		if err := func() error {
-			defer chunk.closeAsync(rm)
+		workErr := func() error {
 			for _, source := range chunk.handles {
 				for bucketIdx, bucket := range overlayBuckets {
 					st := &states[bucketIdx]
@@ -620,7 +630,8 @@ func MergeFilesIntoOverlay(ctx context.Context, dest *enginepkg.Engine, sources 
 				kwayRunFiles = append(kwayRunFiles, run)
 			}
 			return nil
-		}(); err != nil {
+		}()
+		if err := errors.Join(workErr, chunk.closeAsync(rm)); err != nil {
 			return nil, err
 		}
 		chunkIdx++
@@ -720,16 +731,14 @@ func overlayBackfillRestartedChunks(
 		if err != nil {
 			return err
 		}
-		run, err := func() (runFile, error) {
-			defer chunk.closeAsync(rm)
-			return buildChunkRunFileFromHandles(
-				ctx,
-				tmpDir,
-				chunk.handles,
-				fmt.Sprintf("overlay-backfill-%04d", len(*kwayRunFiles)),
-				needed,
-			)
-		}()
+		run, buildErr := buildChunkRunFileFromHandles(
+			ctx,
+			tmpDir,
+			chunk.handles,
+			fmt.Sprintf("overlay-backfill-%04d", len(*kwayRunFiles)),
+			needed,
+		)
+		run, err = finishChunkRunFile(run, buildErr, chunk.closeAsync(rm))
 		if err != nil {
 			return err
 		}
@@ -1751,6 +1760,10 @@ func (w *overlayBucketRawWriter) replaceRaw(ctx context.Context, bucket bucketSp
 }
 
 func (w *overlayBucketRawWriter) flush(ctx context.Context) error {
+	return w.flushWithCommitFailure(ctx, nil)
+}
+
+func (w *overlayBucketRawWriter) flushWithCommitFailure(ctx context.Context, beforeCommit foldCommitFailure) error {
 	if w == nil || w.count == 0 {
 		return nil
 	}
@@ -1758,12 +1771,17 @@ func (w *overlayBucketRawWriter) flush(ctx context.Context) error {
 		return err
 	}
 	opts := cpebble.NoSync
-	if err := w.primary.Commit(opts); err != nil {
+	if err := commitFoldBatch(w.primary, opts, beforeCommit); err != nil {
 		return err
 	}
-	if err := w.index.Commit(opts); err != nil {
+	if err := commitFoldBatch(w.index, opts, beforeCommit); err != nil {
 		return err
 	}
+	// Release the committed batches before minting replacements: Commit
+	// does not return the batch to pebble's pool, Close does. (On the
+	// error returns above, cleanup() closes whatever is still held.)
+	_ = w.primary.Close()
+	_ = w.index.Close()
 	w.primary = w.dest.NewFoldBatch()
 	w.index = w.dest.NewFoldBatch()
 	w.count = 0

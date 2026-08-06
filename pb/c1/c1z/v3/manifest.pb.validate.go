@@ -887,6 +887,8 @@ func (m *SyncRunSummary) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for Compacted
+
 	if len(errors) > 0 {
 		return SyncRunSummaryMultiError(errors)
 	}

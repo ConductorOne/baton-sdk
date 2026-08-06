@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
+	"github.com/conductorone/baton-sdk/internal/testtier"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -155,6 +156,7 @@ func soakSeeds(t *testing.T) []int64 {
 }
 
 func TestSchedulerSoakRandomizedFanoutWithFailures(t *testing.T) {
+	testtier.RequireNightly(t)
 	for _, seed := range soakSeeds(t) {
 		t.Run(fmt.Sprintf("seed=%d", seed), func(t *testing.T) {
 			runSchedulerSoak(t, seed)

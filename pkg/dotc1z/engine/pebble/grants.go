@@ -129,25 +129,28 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 			if err != nil {
 				return err
 			}
-			hadOld := false
-			if !skipGet {
-				_, closer, getErr := e.db.Get(key)
-				switch {
-				case getErr == nil:
-					hadOld = true
-					closer.Close()
-				case errors.Is(getErr, pebble.ErrNotFound):
-					// no prior record — write unconditionally
-				default:
-					return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
-				}
-			}
 			// One typed op stages the row and everything it owes:
 			// prior-row index cleanup, by_principal, needs_expansion,
 			// digest invalidation. Index keys derive from the primary
-			// key (identity-encoded), so the prior VALUE is not needed
-			// for cleanup — the Get above reduces to an existence probe.
-			if err := batch.StageGrantPutInline(key, val, hadOld, r.GetNeedsExpansion()); err != nil {
+			// key (identity-encoded); the prior value is retained only
+			// long enough to clean a changed source-scope index entry.
+			if skipGet {
+				if err := batch.StageGrantPutInline(key, val, nil, r.GetNeedsExpansion()); err != nil {
+					return err
+				}
+				continue
+			}
+			oldVal, closer, getErr := e.db.Get(key)
+			switch {
+			case getErr == nil:
+				err = batch.StageGrantPutInline(key, val, oldVal, r.GetNeedsExpansion())
+				closer.Close()
+			case errors.Is(getErr, pebble.ErrNotFound):
+				err = batch.StageGrantPutInline(key, val, nil, r.GetNeedsExpansion())
+			default:
+				return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
+			}
+			if err != nil {
 				return err
 			}
 		}
@@ -243,46 +246,50 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 			if dedup != nil && dedup[id] != i {
 				continue
 			}
-			ext := r.GetExternalId()
-			keyScratch = appendGrantIdentityKey(keyScratch[:0], id)
+			if err := func() error {
+				ext := r.GetExternalId()
+				keyScratch = appendGrantIdentityKey(keyScratch[:0], id)
 
-			hadOld := false
-			oldVal, closer, getErr := e.db.Get(keyScratch)
-			switch {
-			case getErr == nil:
-				// Preserve the prior record's expansion side-state +
-				// discovered_at (StoreExpandedGrants contract). The prior
-				// value's index cleanup is the typed op's obligation.
-				hadOld = true
-				prior.Reset()
-				if err := unmarshalRecord(oldVal, &prior); err != nil {
-					closer.Close()
-					return fmt.Errorf("PutExpandedGrantRecords: unmarshal prior %q: %w", ext, err)
+				oldVal, closer, getErr := e.db.Get(keyScratch)
+				switch {
+				case getErr == nil:
+					defer closer.Close()
+					// Preserve the prior record's expansion side-state +
+					// discovered_at (StoreExpandedGrants contract). The prior
+					// value's index cleanup is the typed op's obligation.
+					prior.Reset()
+					if err := unmarshalRecord(oldVal, &prior); err != nil {
+						return fmt.Errorf("PutExpandedGrantRecords: unmarshal prior %q: %w", ext, err)
+					}
+					r.SetExpansion(prior.GetExpansion())
+					r.SetNeedsExpansion(prior.GetNeedsExpansion())
+					r.SetDiscoveredAt(prior.GetDiscoveredAt())
+					r.SetSourceScopeKey(prior.GetSourceScopeKey())
+				case errors.Is(getErr, pebble.ErrNotFound):
+					// No prior record: discovered_at is stamped below unless the
+					// translation already carried one.
+				default:
+					return fmt.Errorf("PutExpandedGrantRecords: get old %q: %w", ext, getErr)
 				}
-				r.SetExpansion(prior.GetExpansion())
-				r.SetNeedsExpansion(prior.GetNeedsExpansion())
-				r.SetDiscoveredAt(prior.GetDiscoveredAt())
-				closer.Close()
-			case errors.Is(getErr, pebble.ErrNotFound):
-				// No prior record: discovered_at is stamped below unless the
-				// translation already carried one.
-			default:
-				return fmt.Errorf("PutExpandedGrantRecords: get old %q: %w", ext, getErr)
-			}
-			if r.GetDiscoveredAt() == nil {
-				r.SetDiscoveredAt(now)
-			}
+				if r.GetDiscoveredAt() == nil {
+					r.SetDiscoveredAt(now)
+				}
 
-			val, err := marshalRecordAppend(valScratch[:0], r)
-			if err != nil {
-				return err
-			}
-			valScratch = val
-			// Deferred regime: arms the rebuild marker, cleans the prior
-			// needs_expansion entry (by_principal is excised+rebuilt at
-			// seal), stages row + conditional needs_expansion + digest
-			// invalidation.
-			if err := batch.StageGrantPutDeferred(keyScratch, val, hadOld, r.GetNeedsExpansion()); err != nil {
+				val, err := marshalRecordAppend(valScratch[:0], r)
+				if err != nil {
+					return err
+				}
+				valScratch = val
+				// Deferred regime: arms the rebuild marker, cleans the prior
+				// needs_expansion entry (by_principal is excised+rebuilt at
+				// seal), stages row + conditional needs_expansion + digest
+				// invalidation.
+				var priorVal []byte
+				if getErr == nil {
+					priorVal = oldVal
+				}
+				return batch.StageGrantPutDeferred(keyScratch, val, priorVal, r.GetNeedsExpansion())
+			}(); err != nil {
 				return err
 			}
 		}
@@ -338,7 +345,7 @@ func (e *Engine) PutSynthesizedGrantRecords(ctx context.Context, records []*v3.G
 			valScratch = val
 			// Deferred regime; the caller guarantees brand-new identities,
 			// so there is no prior row to clean (hadOldVal=false).
-			if err := batch.StageGrantPutDeferred(keyScratch, val, false, r.GetNeedsExpansion()); err != nil {
+			if err := batch.StageGrantPutDeferred(keyScratch, val, nil, r.GetNeedsExpansion()); err != nil {
 				return err
 			}
 		}
@@ -741,7 +748,7 @@ func (e *Engine) putSynthesizedGrantContributionsBatch(ctx context.Context, reco
 			valScratch = val
 			// Deferred regime: synthesized grants are brand-new (no prior
 			// row) and never expandable (needsExpansion=false).
-			if err := batch.StageGrantPutDeferred(keyScratch, val, false, false); err != nil {
+			if err := batch.StageGrantPutDeferred(keyScratch, val, nil, false); err != nil {
 				return err
 			}
 		}
@@ -875,7 +882,7 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 			// the typed op splices index keys from the primary key on the
 			// staging goroutine — cheaper than the encode-from-identity
 			// the parallel workers used to do, and unforgettable.
-			if err := batch.StageGrantPutInline(enc[i].priKey, enc[i].priVal, false, enc[i].needsExpansion); err != nil {
+			if err := batch.StageGrantPutInline(enc[i].priKey, enc[i].priVal, nil, enc[i].needsExpansion); err != nil {
 				return err
 			}
 		}
@@ -945,22 +952,20 @@ func (e *Engine) DeleteGrantByIdentityRefs(ctx context.Context, r *v3.GrantRecor
 func (e *Engine) deleteGrantByIdentityLocked(id grantIdentity) error {
 	key := encodeGrantIdentityKey(id)
 
-	// Existence probe only: delete of non-existent stays a no-op, and
-	// the typed op derives all cleanup keys from the primary key.
-	_, closer, err := e.db.Get(key)
+	oldVal, closer, err := e.db.Get(key)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return nil
 		}
 		return err
 	}
-	closer.Close()
-
 	batch := e.db.NewRecordBatch()
 	defer batch.Close()
-	if err := batch.StageGrantDelete(key); err != nil {
+	if err := batch.StageGrantDelete(key, oldVal); err != nil {
+		closer.Close()
 		return err
 	}
+	closer.Close()
 	return batch.Commit(writeOpts(e.opts.durability))
 }
 
@@ -973,10 +978,13 @@ func grantIndexKeys(r *v3.GrantRecord) [][]byte {
 	if err != nil {
 		return nil
 	}
-	keys := make([][]byte, 0, 2)
+	keys := make([][]byte, 0, 3)
 	keys = append(keys, encodeGrantByPrincipalIdentityIndexKey(id))
 	if r.GetNeedsExpansion() {
 		keys = append(keys, encodeGrantByNeedsExpansionIdentityIndexKey(id))
+	}
+	if scope := r.GetSourceScopeKey(); scope != "" {
+		keys = append(keys, encodeGrantBySourceScopeIndexKey(scope, id))
 	}
 	return keys
 }

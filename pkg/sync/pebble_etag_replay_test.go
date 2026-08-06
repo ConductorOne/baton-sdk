@@ -15,6 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -328,7 +329,7 @@ func TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward(t *testing.T) {
 // previous-sync c1z (the service-mode spare is a cache the handler
 // maintains automatically) must degrade to a sync without ETag replay,
 // never fail NewSyncer or the sync. The strict WithPreviousSyncC1ZPath
-// keeps surfacing the open failure.
+// keeps surfacing unusable-file failures.
 func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 	ctx := t.Context()
 	ctx, err := logging.Init(ctx)
@@ -383,6 +384,57 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 		WithTmpDir(tempDir),
 		WithPreviousSyncC1ZPath(corruptPath),
 	)
-	require.Error(t, err, "explicit previous-sync c1z must surface open failures")
+	require.Error(t, err, "explicit previous-sync c1z must surface unusable-file failures")
 	require.NoError(t, store.Close(ctx))
+}
+
+func TestPreviousSyncC1ZPathEnforcesReplayEligibility(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		engine     c1zstore.Engine
+		syncType   connectorstore.SyncType
+		compacted  bool
+		wantReader bool
+	}{
+		{name: "pebble-full", engine: c1zstore.EnginePebble, syncType: connectorstore.SyncTypeFull, wantReader: true},
+		{name: "pebble-partial", engine: c1zstore.EnginePebble, syncType: connectorstore.SyncTypePartial},
+		{name: "pebble-compacted-full", engine: c1zstore.EnginePebble, syncType: connectorstore.SyncTypeFull, compacted: true},
+		{name: "sqlite-full", engine: c1zstore.EngineSQLite, syncType: connectorstore.SyncTypeFull},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			previousPath := filepath.Join(t.TempDir(), "previous.c1z")
+			previous, err := dotc1z.NewStore(ctx, previousPath, dotc1z.WithEngine(tc.engine))
+			require.NoError(t, err)
+			syncID, err := previous.StartNewSync(ctx, tc.syncType, "")
+			require.NoError(t, err)
+			require.NoError(t, previous.EndSync(ctx))
+			if tc.compacted {
+				require.Equal(t, c1zstore.EnginePebble, tc.engine)
+				eng, ok := enginepkg.AsEngine(previous)
+				require.True(t, ok)
+				run, err := eng.GetSyncRunRecord(ctx, syncID)
+				require.NoError(t, err)
+				run.SetCompacted(true)
+				require.NoError(t, eng.PutSyncRunRecord(ctx, run))
+				require.True(t, enginepkg.MarkStoreDirty(previous))
+			}
+			require.NoError(t, previous.Close(ctx))
+
+			current, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "current.c1z"), dotc1z.WithEngine(c1zstore.EnginePebble))
+			require.NoError(t, err)
+			connector := newEtagObservingMockConnector("etag-v1")
+			got, err := NewSyncer(
+				ctx,
+				connector,
+				WithConnectorStore(current),
+				WithTmpDir(t.TempDir()),
+				WithPreviousSyncC1ZPath(previousPath),
+			)
+			require.NoError(t, err)
+			concrete := got.(*syncer)
+			require.Equal(t, tc.wantReader, concrete.previousSyncReader != nil)
+			require.NoError(t, got.Close(ctx))
+		})
+	}
 }

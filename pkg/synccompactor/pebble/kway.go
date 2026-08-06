@@ -228,11 +228,13 @@ type sourceChunk struct {
 	dir     string // chunk-scoped unpack dir; empty when no Path sources
 }
 
-func (c *sourceChunk) close() {
-	closeSourceHandles(c.handles)
+func (c *sourceChunk) close() error {
+	err := closeSourceHandles(c.handles)
+	c.handles = nil
 	if c.dir != "" {
 		_ = os.RemoveAll(c.dir)
 	}
+	return err
 }
 
 // closeAsync closes the chunk's engines synchronously (file locks and
@@ -240,9 +242,11 @@ func (c *sourceChunk) close() {
 // directory to rm, so the unlink storm of an unpacked Pebble tree
 // happens off the merge's critical path. Benchmarks on APFS showed
 // in-loop chunk deletion costing a measurable slice of merge time.
-func (c *sourceChunk) closeAsync(rm *asyncRemover) {
-	closeSourceHandles(c.handles)
+func (c *sourceChunk) closeAsync(rm *asyncRemover) error {
+	err := closeSourceHandles(c.handles)
+	c.handles = nil
 	rm.remove(c.dir)
+	return err
 }
 
 // asyncRemover deletes directory trees on background goroutines.
@@ -270,8 +274,7 @@ func (d *asyncRemover) wait() { d.wg.Wait() }
 func openSourceChunk(ctx context.Context, tmpDir string, sources []SourceFile, baseRank int) (*sourceChunk, error) {
 	chunk := &sourceChunk{handles: make([]sourceHandle, 0, len(sources))}
 	cleanupOnError := func(err error) error {
-		chunk.close()
-		return err
+		return errors.Join(err, chunk.close())
 	}
 	for i, source := range sources {
 		if source.Engine != nil {
@@ -311,8 +314,11 @@ func openSourceChunk(ctx context.Context, tmpDir string, sources []SourceFile, b
 		}
 		eng, ok := enginepkg.AsEngine(w)
 		if !ok {
-			_ = w.Close(ctx)
-			return nil, cleanupOnError(fmt.Errorf("kway merge: input is not pebble: %s", source.Path))
+			inputErr := fmt.Errorf("kway merge: input is not pebble: %s", source.Path)
+			if closeErr := w.Close(ctx); closeErr != nil {
+				inputErr = errors.Join(inputErr, fmt.Errorf("kway merge: close input %s: %w", source.Path, closeErr))
+			}
+			return nil, cleanupOnError(inputErr)
 		}
 		store := w
 		chunk.handles = append(chunk.handles, sourceHandle{
@@ -328,12 +334,27 @@ func openSourceChunk(ctx context.Context, tmpDir string, sources []SourceFile, b
 	return chunk, nil
 }
 
-func closeSourceHandles(handles []sourceHandle) {
+func closeSourceHandles(handles []sourceHandle) error {
+	var retErr error
 	for _, handle := range handles {
 		if handle.close != nil {
-			_ = handle.close()
+			retErr = errors.Join(retErr, handle.close())
 		}
 	}
+	return retErr
+}
+
+func finishChunkRunFile(run runFile, buildErr, closeErr error) (runFile, error) {
+	retErr := errors.Join(buildErr, closeErr)
+	if retErr == nil {
+		return run, nil
+	}
+	if buildErr == nil && run.path != "" {
+		if removeErr := os.Remove(run.path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			retErr = errors.Join(retErr, fmt.Errorf("remove unpublished run file %s: %w", run.path, removeErr))
+		}
+	}
+	return runFile{}, retErr
 }
 
 func buildChunkRunFileFromSources(
@@ -349,8 +370,8 @@ func buildChunkRunFileFromSources(
 	if err != nil {
 		return runFile{}, err
 	}
-	defer chunk.closeAsync(rm)
-	return buildChunkRunFileFromHandles(ctx, tmpDir, chunk.handles, name, buckets)
+	run, buildErr := buildChunkRunFileFromHandles(ctx, tmpDir, chunk.handles, name, buckets)
+	return finishChunkRunFile(run, buildErr, chunk.closeAsync(rm))
 }
 
 func buildChunkRunFileFromHandles(
@@ -403,13 +424,12 @@ func mergeSourceChunkToPebble(
 	if err != nil {
 		return err
 	}
-	defer chunk.closeAsync(rm)
 	for _, bucket := range buckets {
 		if err := materializeSourceBucketToPebble(ctx, dest, tmpDir, chunk.handles, bucket, stats); err != nil {
-			return err
+			return errors.Join(err, chunk.closeAsync(rm))
 		}
 	}
-	return nil
+	return chunk.closeAsync(rm)
 }
 
 type countingWriter struct {

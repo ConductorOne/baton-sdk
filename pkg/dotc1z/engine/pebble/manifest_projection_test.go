@@ -12,6 +12,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 )
 
@@ -39,6 +40,19 @@ func TestManifestSyncRunProjection(t *testing.T) {
 	require.NoError(t, w.PutGrants(ctx, grant))
 	require.NoError(t, w.CheckpointSync(ctx, `{"version":1,"ingest_quality":{"source_cache_replay_blocked":true,"entitlements_dropped":2,"reason_flags":33}}`))
 	require.NoError(t, w.EndSync(ctx))
+	engine, ok := enginepkg.AsEngine(w)
+	require.True(t, ok)
+	syncRun, err := engine.GetSyncRunRecord(ctx, syncID)
+	require.NoError(t, err)
+	syncRun.SetCompacted(true)
+	require.NoError(t, engine.PutSyncRunRecord(ctx, syncRun))
+	require.True(t, enginepkg.MarkStoreDirty(w))
+	listedRuns, nextPageToken, err := engine.ListSyncRuns(ctx, "", 0)
+	require.NoError(t, err)
+	require.Empty(t, nextPageToken)
+	require.Len(t, listedRuns, 1)
+	require.True(t, listedRuns[0].Compacted, "public sync-run listing must preserve compacted eligibility")
+	require.False(t, listedRuns[0].UsableAsReplaySource())
 	require.NoError(t, w.Close(ctx))
 
 	f, err := os.Open(path)
@@ -51,6 +65,7 @@ func TestManifestSyncRunProjection(t *testing.T) {
 	run := runs[0]
 	require.Equal(t, syncID, run.GetSyncId(), "summary sync_id")
 	require.NotNil(t, run.GetEndedAt(), "summary ended_at is nil for a finished sync")
+	require.True(t, run.GetCompacted(), "summary compacted marker")
 	stats := run.GetStats()
 	require.NotNil(t, stats, "summary stats is nil; expected stats sidecar projection")
 	require.Equal(t, int64(2), stats.GetResourceTypes(), "stats resource_types")
