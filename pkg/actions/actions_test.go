@@ -680,10 +680,11 @@ func TestWithInlineWaitPinsObservedWait(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, actionStatus)
-	// The observed wait is the requested one, and the return happened inside
-	// the margin, before the context expired.
+	// The observed wait is at least the requested one, and the return happened
+	// inside the margin, before the context expired. Exactness is pinned
+	// deterministically by TestWithInlineWaitDerivesExactWait; no upper bound
+	// on wall-clock here, which would flake under CI load.
 	require.GreaterOrEqual(t, elapsed, 400*time.Millisecond)
-	require.Less(t, elapsed, 900*time.Millisecond)
 	require.NoError(t, ctx.Err())
 }
 

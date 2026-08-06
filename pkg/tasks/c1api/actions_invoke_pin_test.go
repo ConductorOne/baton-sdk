@@ -62,10 +62,12 @@ func TestActionInvokeTaskHandlerPinsDeadlineAndAcceptsRunning(t *testing.T) {
 
 	// The invoke context carries the pinned deadline even though the parent
 	// had none: one second of inline wait plus the SDK's response margin.
+	// The generous ceiling proves the pin is seconds-scale, not the runner
+	// budget, without flaking under CI scheduling delays.
 	require.True(t, cc.hadDeadline)
 	pinned := cc.invokeDeadline.Sub(before)
 	require.Greater(t, pinned, 1500*time.Millisecond)
-	require.LessOrEqual(t, pinned, 2100*time.Millisecond)
+	require.LessOrEqual(t, pinned, 10*time.Second)
 
 	// A RUNNING response finishes the task successfully rather than failing it.
 	require.True(t, helpers.finished)

@@ -116,14 +116,20 @@ func (f *fakeAsyncThirdPartyActionManager) InvokeAction(_ context.Context, _ str
 
 func (f *fakeAsyncThirdPartyActionManager) GetActionStatus(_ context.Context, id string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error) {
 	f.gotID.Store(id)
-	if f.statusCalls.Add(1) == 1 {
+	switch f.statusCalls.Add(1) {
+	case 1:
+		// One transient lookup failure must not fail the action.
+		return v2.BatonActionStatus_BATON_ACTION_STATUS_UNKNOWN, "", nil, nil, context.DeadlineExceeded
+	case 2:
 		return v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, "async", nil, nil, nil
+	default:
+		return v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, "async", f.rv, nil, nil
 	}
-	return v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, "async", f.rv, nil, nil
 }
 
 // A third-party manager returning a non-terminal status gets polled to a
-// terminal one with the action id it returned.
+// terminal one with the action id it returned, riding through a transient
+// status-check failure.
 func TestRegisterLegacyActionPollsAsyncThirdPartyManager(t *testing.T) {
 	ctx := t.Context()
 
@@ -146,5 +152,51 @@ func TestRegisterLegacyActionPollsAsyncThirdPartyManager(t *testing.T) {
 	}, 10*time.Second, 100*time.Millisecond)
 
 	require.Equal(t, "legacy-async-1", legacy.gotID.Load())
-	require.GreaterOrEqual(t, legacy.statusCalls.Load(), int32(2))
+	require.GreaterOrEqual(t, legacy.statusCalls.Load(), int32(3))
+}
+
+type fakeSyncNoStatusActionManager struct {
+	schema      *v2.BatonActionSchema
+	rv          *structpb.Struct
+	statusCalls atomic.Int32
+}
+
+func (f *fakeSyncNoStatusActionManager) ListActionSchemas(_ context.Context, _ string) ([]*v2.BatonActionSchema, annotations.Annotations, error) {
+	return []*v2.BatonActionSchema{f.schema}, nil, nil
+}
+
+func (f *fakeSyncNoStatusActionManager) GetActionSchema(_ context.Context, _ string) (*v2.BatonActionSchema, annotations.Annotations, error) {
+	return f.schema, nil, nil
+}
+
+func (f *fakeSyncNoStatusActionManager) InvokeAction(_ context.Context, _ string, _ string, _ *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+	return "", v2.BatonActionStatus_BATON_ACTION_STATUS_UNSPECIFIED, f.rv, nil, nil
+}
+
+func (f *fakeSyncNoStatusActionManager) GetActionStatus(_ context.Context, _ string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error) {
+	f.statusCalls.Add(1)
+	return v2.BatonActionStatus_BATON_ACTION_STATUS_UNSPECIFIED, "", nil, nil, nil
+}
+
+// Legacy synchronous managers were never required to populate id or status;
+// a response with the zero status and no id must resolve the outer action
+// immediately, never enter the polling loop.
+func TestRegisterLegacyActionSyncManagerWithoutStatusResolves(t *testing.T) {
+	ctx := t.Context()
+
+	rv, err := structpb.NewStruct(map[string]any{"done": true})
+	require.NoError(t, err)
+	legacy := &fakeSyncNoStatusActionManager{
+		schema: v2.BatonActionSchema_builder{Name: "sync_action"}.Build(),
+		rv:     rv,
+	}
+
+	outer := actions.NewActionManager(ctx)
+	require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy))
+
+	_, outerStatus, outerRv, _, err := outer.InvokeAction(ctx, "sync_action", "", &structpb.Struct{})
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, outerStatus)
+	require.NotNil(t, outerRv)
+	require.Equal(t, int32(0), legacy.statusCalls.Load())
 }

@@ -5,13 +5,20 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+	"google.golang.org/protobuf/types/known/structpb"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
-	"google.golang.org/protobuf/types/known/structpb"
 )
+
+// maxConsecutiveStatusErrors bounds how many status-check failures in a row
+// the legacy action poll loop tolerates before failing the action.
+const maxConsecutiveStatusErrors = 3
 
 // ActionManager defines the interface for managing actions in the connector builder.
 // This is the internal interface used by the builder for dispatch.
@@ -211,13 +218,21 @@ func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, 
 		if err != nil {
 			return resp, annos, err
 		}
-		if isTerminalActionStatus(actionStatus) {
+
+		// Only an explicitly in-flight status with a usable id is worth
+		// polling. Legacy managers were never required to populate id or
+		// status — the wrapper used to discard both — so anything else
+		// resolves the outer action with the response, as it always did.
+		if id == "" || !isInFlightActionStatus(actionStatus) {
 			return resp, annos, nil
 		}
 
-		// A non-terminal inner status must not resolve the outer action: poll
-		// the legacy manager to a terminal status so the outer result carries
-		// the action's real outcome.
+		// Poll to a terminal status so the outer result carries the action's
+		// real outcome. A few consecutive status-check failures are tolerated:
+		// one flaky remote lookup must not convert a succeeding action into a
+		// failure.
+		l := ctxzap.Extract(ctx)
+		statusErrs := 0
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for {
@@ -226,11 +241,22 @@ func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, 
 				return resp, annos, ctx.Err()
 			case <-ticker.C:
 			}
-			actionStatus, _, resp, annos, err = legacyManager.GetActionStatus(ctx, id)
+
+			st, _, pollResp, pollAnnos, err := legacyManager.GetActionStatus(ctx, id)
 			if err != nil {
-				return resp, annos, err
+				statusErrs++
+				if statusErrs >= maxConsecutiveStatusErrors {
+					return resp, annos, err
+				}
+				l.Warn("legacy action status check failed, retrying",
+					zap.String("action", schema.GetName()),
+					zap.Int("consecutive_errors", statusErrs),
+					zap.Error(err))
+				continue
 			}
-			if isTerminalActionStatus(actionStatus) {
+			statusErrs = 0
+			resp, annos = pollResp, pollAnnos
+			if !isInFlightActionStatus(st) {
 				return resp, annos, nil
 			}
 		}
@@ -238,8 +264,8 @@ func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, 
 	return registry.Register(ctx, schema, handler)
 }
 
-func isTerminalActionStatus(s v2.BatonActionStatus) bool {
-	return s == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || s == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
+func isInFlightActionStatus(s v2.BatonActionStatus) bool {
+	return s == v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING || s == v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING
 }
 
 // addActionManager handles deprecated CustomActionManager and RegisterActionManagerLimited interfaces
