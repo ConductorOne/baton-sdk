@@ -5,8 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -65,28 +63,16 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 			}
 		}
 
-		filteredLogs := extractMeaningfulLogLines(logSummary)
-
-		// If payload contains "Task timed out after", return a retryable error.
-		// This means the lambda function timed out.
-		// Status code is 200 in this case, so we have to check the payload for a special string.
-		if strings.Contains(string(invokeResp.Payload), "Task timed out after") {
-			return nil, status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", *invokeResp.FunctionError, filteredLogs)
-		}
-		// If log summary contains \"error\":\"context deadline exceeded\", return a retryable error.
-		if strings.Contains(filteredLogs, `\"error\":\"context deadline exceeded\"`) {
-			return nil, status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", *invokeResp.FunctionError, filteredLogs)
-		}
-		// If a third case is ever added to this, put the logic in its own function and add some test cases.
-
-		if filteredLogs != "" {
-			return nil, fmt.Errorf("%s", filteredLogs)
-		}
-
-		return nil, fmt.Errorf(
-			"lambda_transport: function returned error: %s; status code: %d",
+		// Classify the failure from the data the invoke already returned: the
+		// tail log's REPORT line, the error payload, and FunctionError. This is
+		// what makes a platform out-of-memory or timeout kill identifiable
+		// without CloudWatch access, and it is returned as a typed error so
+		// callers can log the structured fields instead of scraping strings.
+		return nil, classifyLambdaFailure(
 			*invokeResp.FunctionError,
 			invokeResp.StatusCode,
+			invokeResp.Payload,
+			logSummary,
 		)
 	}
 
@@ -184,45 +170,4 @@ func NewClientConn(transport ClientTransport) grpc.ClientConnInterface {
 	return &clientConn{
 		t: transport,
 	}
-}
-
-var ignoredLogPrefixes = []string{
-	"START RequestId:",
-	"END RequestId:",
-	"REPORT RequestId:",
-	"INIT_REPORT",
-	"RequestId:",
-	"Duration:",
-	"Billed Duration:",
-	"Memory Size:",
-	"Max Memory Used:",
-}
-
-func extractMeaningfulLogLines(raw string) string {
-	lines := strings.Split(raw, "\n")
-	var filtered []string
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-
-		if line == "" {
-			continue
-		}
-
-		if slices.ContainsFunc(ignoredLogPrefixes, func(prefix string) bool {
-			return strings.HasPrefix(line, prefix)
-		}) || strings.Contains(line, "Runtime.ExitError") {
-			continue
-		}
-
-		// Skip structured JSON log lines (zap logger output) - they are
-		// diagnostic context, not the actual error.
-		if strings.HasPrefix(line, "{") {
-			continue
-		}
-
-		filtered = append(filtered, line)
-	}
-
-	return strings.Join(filtered, "\n")
 }
