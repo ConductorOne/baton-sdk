@@ -1,10 +1,10 @@
 import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Back } from "../../icons/icons";
-import { CircularProgress, Divider, InputAdornment, TextField, Typography, useTheme } from "@mui/material";
+import { CircularProgress, Divider, InputAdornment, TextField, Typography } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import { FixedSizeList } from "react-window";
-import InfiniteLoader from "react-window-infinite-loader";
+import { List, type RowComponentProps } from "react-window";
+import { useInfiniteLoader } from "react-window-infinite-loader";
 import pluralize from "pluralize";
 import { normalizeString } from "../../../common/helpers";
 import {
@@ -18,13 +18,51 @@ import { useResources } from "../../../context/resources";
 
 const ITEM_HEIGHT = 48;
 
+type SidebarRowProps = {
+  filteredResources: any[];
+  hasMore: boolean;
+  selectedResourceId: string | null;
+  onItemClick: (resource: any) => Promise<void>;
+};
+
+function SidebarRow({
+  index,
+  style,
+  filteredResources,
+  hasMore,
+  selectedResourceId,
+  onItemClick,
+}: RowComponentProps<SidebarRowProps>) {
+  if (hasMore && index >= filteredResources.length) {
+    return (
+      <div style={{ ...style, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <CircularProgress color="success" size={20} />
+      </div>
+    );
+  }
+
+  const resource = filteredResources[index];
+  return (
+    <div style={style}>
+      <ResourceLabel
+        disableGutters
+        selected={selectedResourceId === resource.resource.id.resource}
+        onClick={async () => await onItemClick(resource)}
+      >
+        <Typography color="inherit">
+          {resource.resource.display_name}
+        </Typography>
+      </ResourceLabel>
+    </div>
+  );
+}
+
 export const ResourcesSidebar = ({
   closeResourceList,
   resourceType,
   openTreeView,
 }) => {
   const { mappedResources, fetchResourcesByType, fetchResourcePage, getResourceCache, appendResources } = useResources();
-  const theme = useTheme();
   const [selectedResourceId, setSelectedResourceId] = React.useState(null);
   const [resources, setResources] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -65,7 +103,7 @@ export const ResourcesSidebar = ({
       .finally(() => setLoading(false));
   }, [resourceType, mappedResources, fetchResourcesByType, getResourceCache]);
 
-  const loadMoreItems = useCallback(async () => {
+  const loadMoreRows = useCallback(async () => {
     if (loadingMoreRef.current || !nextPageTokenRef.current) return;
     loadingMoreRef.current = true;
 
@@ -82,10 +120,10 @@ export const ResourcesSidebar = ({
     }
   }, [resourceType, fetchResourcePage, appendResources]);
 
-  const handleListItemClick = async (resource) => {
+  const handleListItemClick = useCallback(async (resource) => {
     setSelectedResourceId(resource.resource.id.resource);
     await openTreeView(resource);
-  };
+  }, [openTreeView]);
 
   const filteredResources = useMemo(() => {
     if (!searchQuery.trim()) return resources;
@@ -95,38 +133,23 @@ export const ResourcesSidebar = ({
     );
   }, [resources, searchQuery]);
 
-  const itemCount = hasMore ? filteredResources.length + 1 : filteredResources.length;
-  const isItemLoaded = (index: number) => !hasMore || index < filteredResources.length;
+  const rowCount = hasMore ? filteredResources.length + 1 : filteredResources.length;
+  const isRowLoaded = useCallback(
+    (index: number) => !hasMore || index < filteredResources.length,
+    [hasMore, filteredResources.length]
+  );
 
-  const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
-    if (!isItemLoaded(index)) {
-      return (
-        <div style={{ ...style, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <CircularProgress color="success" size={20} />
-        </div>
-      );
-    }
-
-    const resource = filteredResources[index];
-    return (
-      <div style={style}>
-        <ResourceLabel
-          disableGutters
-          selected={selectedResourceId === resource.resource.id.resource}
-          onClick={async () => await handleListItemClick(resource)}
-        >
-          <Typography color="inherit">
-            {resource.resource.display_name}
-          </Typography>
-        </ResourceLabel>
-      </div>
-    );
-  };
+  const onRowsRendered = useInfiniteLoader({
+    isRowLoaded,
+    loadMoreRows,
+    rowCount,
+    threshold: 10,
+  });
 
   return (
     <Fragment>
       {resourceType && (
-        <Sidebar theme={theme} variant="permanent">
+        <Sidebar variant="permanent">
           <SidebarHeader>
             <Typography variant="h5" color="inherit">
               {pluralize(normalizeString(resourceType, true))}
@@ -158,20 +181,22 @@ export const ResourcesSidebar = ({
                 opacity: 1,
               },
             }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ color: "rgba(255,255,255,0.4)", fontSize: 16 }} />
-                </InputAdornment>
-              ),
-              endAdornment: searchQuery ? (
-                <InputAdornment position="end">
-                  <ClearIcon
-                    sx={{ color: "rgba(255,255,255,0.4)", fontSize: 16, cursor: "pointer" }}
-                    onClick={() => setSearchQuery("")}
-                  />
-                </InputAdornment>
-              ) : null,
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ color: "rgba(255,255,255,0.4)", fontSize: 16 }} />
+                  </InputAdornment>
+                ),
+                endAdornment: searchQuery ? (
+                  <InputAdornment position="end">
+                    <ClearIcon
+                      sx={{ color: "rgba(255,255,255,0.4)", fontSize: 16, cursor: "pointer" }}
+                      onClick={() => setSearchQuery("")}
+                    />
+                  </InputAdornment>
+                ) : null,
+              },
             }}
           />
           {searchQuery && hasMore && (
@@ -182,26 +207,19 @@ export const ResourcesSidebar = ({
           {loading ? (
             <CircularProgress color="success" size={24} sx={{ m: 2, alignSelf: "center" }} />
           ) : resources.length > 0 ? (
-            <InfiniteLoader
-              isItemLoaded={isItemLoaded}
-              itemCount={itemCount}
-              loadMoreItems={loadMoreItems}
-              threshold={10}
-            >
-              {({ onItemsRendered, ref }) => (
-                <FixedSizeList
-                  height={window.innerHeight - 180}
-                  width="100%"
-                  itemCount={itemCount}
-                  itemSize={ITEM_HEIGHT}
-                  onItemsRendered={onItemsRendered}
-                  ref={ref}
-                  style={{ marginTop: 20 }}
-                >
-                  {Row}
-                </FixedSizeList>
-              )}
-            </InfiniteLoader>
+            <List
+              style={{ height: window.innerHeight - 180, width: "100%", marginTop: 20 }}
+              rowCount={rowCount}
+              rowHeight={ITEM_HEIGHT}
+              rowComponent={SidebarRow}
+              rowProps={{
+                filteredResources,
+                hasMore,
+                selectedResourceId,
+                onItemClick: handleListItemClick,
+              }}
+              onRowsRendered={onRowsRendered}
+            />
           ) : (
             <EmptyResourceLabel>
               No resources

@@ -1,6 +1,6 @@
 import { styled } from "@mui/material/styles";
 import { IconButton, Paper, Typography } from "@mui/material";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { colors } from "../../style/colors";
 
 export const ResourceDetailsPanel = styled(Paper)(({ theme }) => ({

@@ -13,7 +13,7 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import CodeIcon from "@mui/icons-material/Code";
-import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutlined";
 import { normalizeString } from "../../../common/helpers";
 
 export interface FilterState {
@@ -102,20 +102,22 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           value={filterState.textSearch}
           onChange={(e) => handleTextChange(e.target.value)}
           sx={{ minWidth: 200, flex: 1, maxWidth: 400 }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon sx={{ fontSize: 18 }} />
-              </InputAdornment>
-            ),
-            endAdornment: filterState.textSearch ? (
-              <InputAdornment position="end">
-                <ClearIcon
-                  sx={{ fontSize: 18, cursor: "pointer" }}
-                  onClick={() => handleTextChange("")}
-                />
-              </InputAdornment>
-            ) : null,
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 18 }} />
+                </InputAdornment>
+              ),
+              endAdornment: filterState.textSearch ? (
+                <InputAdornment position="end">
+                  <ClearIcon
+                    sx={{ fontSize: 18, cursor: "pointer" }}
+                    onClick={() => handleTextChange("")}
+                  />
+                </InputAdornment>
+              ) : null,
+            },
           }}
         />
         <TextField
@@ -124,15 +126,17 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           value={filterState.entitlementSearch}
           onChange={(e) => handleEntitlementChange(e.target.value)}
           sx={{ minWidth: 180, maxWidth: 300 }}
-          InputProps={{
-            endAdornment: filterState.entitlementSearch ? (
-              <InputAdornment position="end">
-                <ClearIcon
-                  sx={{ fontSize: 18, cursor: "pointer" }}
-                  onClick={() => handleEntitlementChange("")}
-                />
-              </InputAdornment>
-            ) : null,
+          slotProps={{
+            input: {
+              endAdornment: filterState.entitlementSearch ? (
+                <InputAdornment position="end">
+                  <ClearIcon
+                    sx={{ fontSize: 18, cursor: "pointer" }}
+                    onClick={() => handleEntitlementChange("")}
+                  />
+                </InputAdornment>
+              ) : null,
+            },
           }}
         />
         {typeOptions.length > 0 && (
@@ -174,8 +178,10 @@ export const FilterBar: React.FC<FilterBarProps> = ({
             error={!!celError}
             helperText={celError}
             disabled={celLoading}
-            InputProps={{
-              sx: { fontFamily: "monospace", fontSize: 13 },
+            slotProps={{
+              input: {
+                sx: { fontFamily: "monospace", fontSize: 13 },
+              },
             }}
           />
           <Button

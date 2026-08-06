@@ -10,9 +10,10 @@ export const themeModePalette = (mode) => ({
             paper: colors.white,
           },
           primary: {
-            main: colors.white,
-            dark: colors.gray600,
-            contrastText: colors.gray900,
+            main: colors.batonGreen600,
+            dark: colors.batonGreen700,
+            light: colors.batonGreen100,
+            contrastText: colors.white,
           },
           secondary: {
             main: colors.batonGreen600,
@@ -32,9 +33,10 @@ export const themeModePalette = (mode) => ({
             paper: colors.gray800,
           },
           primary: {
-            main: colors.gray800,
-            dark: colors.gray950,
-            contrastText: colors.gray50,
+            main: colors.batonGreen500,
+            dark: colors.batonGreen600,
+            light: colors.batonGreen200,
+            contrastText: colors.gray900,
           },
           secondary: {
             main: colors.batonGreen500,

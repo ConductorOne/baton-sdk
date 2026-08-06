@@ -17,7 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed frontend/*
+//go:embed all:frontend
 var frontend embed.FS
 
 type EmbededFS struct {

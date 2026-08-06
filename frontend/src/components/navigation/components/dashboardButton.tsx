@@ -1,7 +1,7 @@
 import React from "react";
 
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { IconWrapper, StyledLink } from "../styles";
 import { colors } from "../../../style/colors";
 

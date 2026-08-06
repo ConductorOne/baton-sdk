@@ -12,7 +12,7 @@ import {
   Typography,
   useTheme,
 } from "@mui/material";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useResources } from "../../../../context/resources";
 import pluralize from "pluralize";
 import { normalizeString } from "../../../../common/helpers";
@@ -83,7 +83,7 @@ export const Resources = () => {
   return (
     <Paper variant="outlined" sx={{ overflow: "hidden" }}>
       <Box sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
-        <Typography variant="subtitle1" fontWeight={600}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
           Resources
         </Typography>
       </Box>
@@ -130,9 +130,9 @@ export const Resources = () => {
             />
             <ListItemText
               primary={d.name}
-              primaryTypographyProps={{ variant: "body2", noWrap: true }}
+              slotProps={{ primary: { variant: "body2", noWrap: true } }}
             />
-            <Typography variant="body2" fontWeight={600} sx={{ ml: 1 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, ml: 1 }}>
               {d.value.toLocaleString()}
             </Typography>
           </ListItem>

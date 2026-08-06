@@ -10,14 +10,25 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "../pkg/explorer/frontend",
+    outDir: "../pkg/baton/explorer/frontend",
     emptyOutDir: true,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          react: ["react", "react-dom", "react-router-dom"],
-          mui: ["@mui/material", "@mui/icons-material"],
-          reactflow: ["reactflow"],
+        codeSplitting: {
+          groups: [
+            {
+              name: "react",
+              test: /node_modules\/(?:react|react-dom|react-router)\//,
+            },
+            {
+              name: "mui",
+              test: /node_modules\/@mui\//,
+            },
+            {
+              name: "reactflow",
+              test: /node_modules\/(?:reactflow|@reactflow)\//,
+            },
+          ],
         },
       },
     },
