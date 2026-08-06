@@ -5889,8 +5889,11 @@ func (b0 EncryptionConfig_JWKPublicKeyConfig_builder) Build() *EncryptionConfig_
 // supported by the configured age provider. EncryptedData.encrypted_bytes
 // contains a standard binary age file when this config is used. The provider
 // sets EncryptedData.key_ids to one lowercase hexadecimal SHA-256 digest of
-// the UTF-8 canonical recipient string. It leaves the deprecated
-// EncryptedData.key_id empty.
+// the UTF-8 canonical recipient string, and leaves the deprecated
+// EncryptedData.key_id empty. Rather than reimplement this derivation,
+// consumers written in Go should call
+// pkg/crypto/providers/age.KeyIDForRecipient, which is the single source of
+// truth for the convention.
 type EncryptionConfig_AgeRecipientConfig struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	Recipient     string                 `protobuf:"bytes,1,opt,name=recipient,proto3" json:"recipient,omitempty"`
