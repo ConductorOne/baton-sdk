@@ -5,12 +5,26 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+	"google.golang.org/protobuf/types/known/structpb"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
-	"google.golang.org/protobuf/types/known/structpb"
+)
+
+const (
+	// maxConsecutiveStatusErrors bounds how many status-check failures in a
+	// row the legacy action poll loop tolerates before failing the action.
+	maxConsecutiveStatusErrors = 3
+
+	// The legacy status poll starts fast and backs off to a cap so a slow
+	// action doesn't drain a remote manager's rate-limit budget.
+	initialStatusPollInterval = time.Second
+	maxStatusPollInterval     = 30 * time.Second
 )
 
 // ActionManager defines the interface for managing actions in the connector builder.
@@ -212,10 +226,77 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 // registerLegacyAction wraps a legacy CustomActionManager action as an ActionHandler and registers it.
 func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, schema *v2.BatonActionSchema, legacyManager CustomActionManager) error {
 	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
-		_, _, resp, annos, err := legacyManager.InvokeAction(ctx, schema.GetName(), "", args)
-		return resp, annos, err
+		// The inner call keeps the detached handler context; its one-hour
+		// deadline is the execution backstop for however long the legacy
+		// manager runs.
+		id, actionStatus, resp, annos, err := legacyManager.InvokeAction(ctx, schema.GetName(), "", args)
+		if err != nil {
+			return resp, annos, err
+		}
+
+		// Only an explicitly in-flight status with a usable id is worth
+		// polling. Legacy managers were never required to populate id or
+		// status — the wrapper used to discard both — so anything else
+		// resolves the outer action with the response, as it always did.
+		if id == "" || !isInFlightActionStatus(actionStatus) {
+			return resp, annos, nil
+		}
+
+		// Poll to a terminal status so the outer result carries the action's
+		// real outcome. A few consecutive status-check failures are tolerated:
+		// one flaky remote lookup must not convert a succeeding action into a
+		// failure. The interval backs off to a cap so a slow action doesn't
+		// drain a remote manager's rate-limit budget.
+		l := ctxzap.Extract(ctx)
+		statusErrs := 0
+		interval := initialStatusPollInterval
+		timer := time.NewTimer(interval)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return resp, annos, ctx.Err()
+			case <-timer.C:
+			}
+			interval = min(interval*2, maxStatusPollInterval)
+			timer.Reset(interval)
+
+			st, _, pollResp, pollAnnos, err := legacyManager.GetActionStatus(ctx, id)
+			if err != nil {
+				statusErrs++
+				if statusErrs >= maxConsecutiveStatusErrors {
+					return resp, annos, err
+				}
+				l.Warn("legacy action status check failed, retrying",
+					zap.String("action", schema.GetName()),
+					zap.Int("consecutive_errors", statusErrs),
+					zap.Error(err))
+				continue
+			}
+			statusErrs = 0
+
+			// An in-flight poll may carry no response; keep the last real one
+			// so the error exits above still return it.
+			if pollResp != nil {
+				resp, annos = pollResp, pollAnnos
+			}
+
+			switch {
+			case isInFlightActionStatus(st):
+			case st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE:
+				return resp, annos, nil
+			case st == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED:
+				return resp, annos, fmt.Errorf("legacy action %q failed", schema.GetName())
+			default:
+				return resp, annos, fmt.Errorf("legacy action %q returned unexpected status %s", schema.GetName(), st.String())
+			}
+		}
 	}
 	return registry.Register(ctx, schema, handler)
+}
+
+func isInFlightActionStatus(s v2.BatonActionStatus) bool {
+	return s == v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING || s == v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING
 }
 
 // addActionManager handles deprecated CustomActionManager and RegisterActionManagerLimited interfaces
