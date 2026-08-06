@@ -4,6 +4,7 @@ package c1.connector.v2;
 
 import "c1/config/v1/config.proto";
 import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
@@ -62,6 +63,10 @@ message InvokeActionRequest {
   repeated google.protobuf.Any annotations = 3;
   // Optional: if set, invokes a resource-scoped action
   string resource_type_id = 4;
+  // Optional: how long the server may block this call waiting for the action
+  // to finish before returning its in-flight status. Unset leaves the wait at
+  // the server's default.
+  google.protobuf.Duration inline_wait = 5;
 }
 
 message InvokeActionResponse {

@@ -845,3 +845,59 @@ func TestCancelledInvokeStatusErrorPairing(t *testing.T) {
 		}
 	}
 }
+
+// testBlockingActionHandler blocks until release is closed (or the handler
+// context ends), so tests control exactly when the action completes.
+func testBlockingActionHandler(release <-chan struct{}) ActionHandler {
+	return func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, nil, status.Error(codes.Canceled, "context canceled")
+		}
+		return &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"success": {Kind: &structpb.Value_BoolValue{BoolValue: true}},
+			},
+		}, nil, nil
+	}
+}
+
+func TestInvokeActionHonorsRequestedWait(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	require.NoError(t, m.Register(ctx, testActionSchema, testBlockingActionHandler(release)))
+
+	start := time.Now()
+	actionId, actionStatus, _, _, err := m.InvokeActionWithWait(ctx, "lock_account", "", testInput, 2*time.Second)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, actionId)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, actionStatus)
+	require.GreaterOrEqual(t, elapsed, 2*time.Second)
+}
+
+func TestInvokeActionCompletesWithinRequestedWait(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+
+	release := make(chan struct{})
+	require.NoError(t, m.Register(ctx, testActionSchema, testBlockingActionHandler(release)))
+
+	// Complete the handler after the default one-second wait would have
+	// expired but well inside the requested window.
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		close(release)
+	}()
+
+	_, actionStatus, rv, _, err := m.InvokeActionWithWait(ctx, "lock_account", "", testInput, 10*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.NotNil(t, rv)
+	require.True(t, rv.Fields["success"].GetBoolValue())
+}

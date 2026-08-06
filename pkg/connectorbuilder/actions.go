@@ -3,6 +3,7 @@ package connectorbuilder
 import (
 	"context"
 	"fmt"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/actions"
@@ -30,6 +31,17 @@ type ActionManager interface {
 		name string,
 		resourceTypeID string,
 		args *structpb.Struct,
+	) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error)
+
+	// InvokeActionWithWait is InvokeAction with an explicit bound on how long
+	// the call may block waiting for the handler; zero or negative keeps the
+	// manager's default.
+	InvokeActionWithWait(
+		ctx context.Context,
+		name string,
+		resourceTypeID string,
+		args *structpb.Struct,
+		inlineWait time.Duration,
 	) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error)
 
 	// GetActionStatus returns the status of an outstanding action.
@@ -154,7 +166,7 @@ func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequ
 
 	resourceTypeID := request.GetResourceTypeId()
 
-	id, actionStatus, resp, annos, err := b.actionManager.InvokeAction(ctx, request.GetName(), resourceTypeID, request.GetArgs())
+	id, actionStatus, resp, annos, err := b.actionManager.InvokeActionWithWait(ctx, request.GetName(), resourceTypeID, request.GetArgs(), request.GetInlineWait().AsDuration())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: invoking action failed: %w", err)
