@@ -86,7 +86,10 @@ type SyncRun struct {
 // describe its contents. Compaction is a keep-newer merge rather than a
 // connector snapshot, so compacted and non-full syncs must be treated as cold
 // cache inputs. This checks run metadata only; callers must separately require
-// a storage engine that implements source-cache replay.
+// a storage engine that implements source-cache replay and authoritatively
+// persists compaction provenance. SQLite currently does neither, so its
+// zero-value Compacted field is not evidence that an artifact was never
+// compacted.
 func (r SyncRun) UsableAsReplaySource() bool {
 	return r.Type == connectorstore.SyncTypeFull && !r.Compacted
 }

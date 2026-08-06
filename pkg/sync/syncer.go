@@ -3781,21 +3781,24 @@ func WithExternalResourceC1ZPath(path string) SyncOpt {
 	}
 }
 
-// WithPreviousSyncC1ZPath points ETag-replay at a separate c1z holding
-// the previous sync, instead of reading a previous sync from inside the
-// live store.
+// WithPreviousSyncC1ZPath registers a separate c1z holding the previous sync
+// for replay features.
 //
 // This is required for the single-sync v3 (Pebble) engine: a Pebble c1z
 // holds exactly one sync by contract, so there is no in-file "previous
-// sync" to replay from (StartNewSync replaces the prior sync). Supplying
-// the prior run's c1z here lets the syncer recover unchanged resources'
-// ETags and carry their grants forward across runs. When unset, replay
-// falls back to reading a previous sync from the live store (the SQLite
-// multi-sync behavior), so existing callers are unaffected.
+// sync" to replay from (StartNewSync replaces the prior sync). NewSyncer
+// currently validates and retains the eligible reader as orchestration
+// scaffolding; the ETag read/carry-forward path does not yet consume it.
 //
-// The file is opened read-only and engine-agnostically (the magic byte
-// selects SQLite or Pebble), so the previous-sync c1z may use either
-// engine.
+// The explicitly named file is strict: open, metadata-read, and close failures
+// are returned. A valid file whose run is simply ineligible warns and degrades
+// to a cold sync. Use WithOptionalPreviousSyncC1ZPath for cache-style inputs
+// where every unusable-file failure must degrade instead.
+//
+// The file is opened read-only and engine-agnostically so its format can be
+// diagnosed, but source-cache replay currently requires a Pebble artifact.
+// SQLite inputs are valid c1z files but are treated as cold inputs because they
+// do not carry the replay indexes and compaction provenance this gate requires.
 func WithPreviousSyncC1ZPath(path string) SyncOpt {
 	return func(s *syncer) {
 		s.previousSyncC1ZPath = path
@@ -3810,7 +3813,7 @@ func WithPreviousSyncC1ZPath(path string) SyncOpt {
 // caller maintains automatically (the service-mode previous-sync spare)
 // — a bad cache file must never fail a sync. Callers that name a
 // specific file deliberately should use WithPreviousSyncC1ZPath, which
-// surfaces open failures.
+// surfaces open, metadata-read, and close failures.
 func WithOptionalPreviousSyncC1ZPath(path string) SyncOpt {
 	return func(s *syncer) {
 		s.previousSyncC1ZPath = path

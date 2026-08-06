@@ -279,7 +279,13 @@ func encodeGrantByPrincipalResourceTypeIdentityPrefix(principalRT string) []byte
 // --- Source-cache scope indexes and manifest ---
 
 func encodeGrantBySourceScopeIndexKey(scopeKey string, id grantIdentity) []byte {
-	key, _ := rawdb.AppendBySourceScopeKeyFromPrimary(nil, encodeGrantIdentityKey(id), scopeKey)
+	// Callers only enter with a non-empty scope, and encodeGrantIdentityKey
+	// always emits the v3 grant-primary shape accepted by the raw helper.
+	// Therefore ok is an invariant here rather than recoverable input.
+	key, ok := rawdb.AppendBySourceScopeKeyFromPrimary(nil, encodeGrantIdentityKey(id), scopeKey)
+	if !ok {
+		panic("pebble: invalid grant source-scope index key invariant")
+	}
 	return key
 }
 

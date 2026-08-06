@@ -14,7 +14,7 @@ const (
 // nightly confidence suite explicitly enabled it.
 func RequireExtra(t testing.TB) {
 	t.Helper()
-	if os.Getenv(ExtraEnv) == "" && os.Getenv(NightlyEnv) == "" {
+	if !enabled(ExtraEnv) && !enabled(NightlyEnv) {
 		t.Skipf("set %s=1 or run the corresponding Make target", ExtraEnv)
 	}
 }
@@ -23,7 +23,11 @@ func RequireExtra(t testing.TB) {
 // nightly confidence suite explicitly enabled it.
 func RequireNightly(t testing.TB) {
 	t.Helper()
-	if os.Getenv(NightlyEnv) == "" {
+	if !enabled(NightlyEnv) {
 		t.Skipf("set %s=1 or run make test-nightly", NightlyEnv)
 	}
+}
+
+func enabled(name string) bool {
+	return os.Getenv(name) == "1"
 }

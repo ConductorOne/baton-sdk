@@ -329,7 +329,7 @@ func TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward(t *testing.T) {
 // previous-sync c1z (the service-mode spare is a cache the handler
 // maintains automatically) must degrade to a sync without ETag replay,
 // never fail NewSyncer or the sync. The strict WithPreviousSyncC1ZPath
-// keeps surfacing the open failure.
+// keeps surfacing unusable-file failures.
 func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 	ctx := t.Context()
 	ctx, err := logging.Init(ctx)
@@ -384,7 +384,7 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 		WithTmpDir(tempDir),
 		WithPreviousSyncC1ZPath(corruptPath),
 	)
-	require.Error(t, err, "explicit previous-sync c1z must surface open failures")
+	require.Error(t, err, "explicit previous-sync c1z must surface unusable-file failures")
 	require.NoError(t, store.Close(ctx))
 }
 

@@ -435,6 +435,17 @@ func selectSourceSyncFromManifest(path string) (manifestSourceSelection, bool) {
 	return sel, true
 }
 
+// joinSourceStoreCloseError keeps source-store Close errors as hard ownership
+// failures even after the source has been fully consumed. Downgrading them
+// would report success while hiding leaked Pebble resources or failed
+// temporary-artifact cleanup.
+func joinSourceStoreCloseError(retErr, closeErr error, sourcePath string) error {
+	if closeErr == nil {
+		return retErr
+	}
+	return errors.Join(retErr, fmt.Errorf("close source store %s: %w", sourcePath, closeErr))
+}
+
 // compactPebbleFold is the in-place fold strategy (auto-selected for
 // large-base + small-partial inputs, or forced via
 // BATON_EXPERIMENTAL_PEBBLE_COMPACTOR=fold): the dest store is a copy
@@ -459,13 +470,6 @@ func selectSourceSyncFromManifest(path string) (manifestSourceSelection, bool) {
 //     sidecar is recomputed under it.
 //
 // Returns the fresh sync id.
-func joinSourceStoreCloseError(retErr, closeErr error, sourcePath string) error {
-	if closeErr == nil {
-		return retErr
-	}
-	return errors.Join(retErr, fmt.Errorf("close source store %s: %w", sourcePath, closeErr))
-}
-
 func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	l := ctxzap.Extract(ctx)
 	foldStart := time.Now()

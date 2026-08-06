@@ -15,6 +15,18 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
+// The ordinary-CI half of the replay-bound proof: the default path resolves to
+// the production constant, while TestVerificationReplayCommittedPrefixRetryAllKinds
+// cheaply proves that the live replay loop honors the resolved limit. The
+// extra-tier 10,001-row fixture below retains direct production-scale evidence.
+func TestVerificationReplayProductionBatchLimitWiring(t *testing.T) {
+	e := &Engine{}
+	require.Equal(t, replayBatchRows, e.sourceCacheReplayBatchLimit())
+
+	e.test.sourceCacheReplayBatchRows = 2
+	require.Equal(t, 2, e.sourceCacheReplayBatchLimit())
+}
+
 // C10/C12: the replay commit seam supplies deterministic evidence that live
 // batch cardinality is fixed, and lets retry be cut after one landed chunk.
 func TestVerificationReplayBatchBoundAndInterruptedRetry(t *testing.T) {
@@ -137,9 +149,11 @@ func TestVerificationReplayBatchBoundAndInterruptedRetry(t *testing.T) {
 }
 
 // C10/C23/C27: every row kind exercises a real committed-prefix cut, hard
-// reopen, and convergent retry. The production 10,000-row bound remains pinned
-// by TestVerificationReplayBatchBoundAndInterruptedRetry; this matrix lowers
-// only the test seam to make row-kind closure cheap.
+// reopen, and convergent retry. TestVerificationReplayProductionBatchLimitWiring
+// pins the production default in ordinary CI; this matrix proves the live loop
+// honors that resolved limit while lowering only the test seam to keep
+// row-kind closure cheap. The extra-tier fixture above additionally exercises
+// the production cardinality directly.
 func TestVerificationReplayCommittedPrefixRetryAllKinds(t *testing.T) {
 	for _, kind := range []sourcecache.RowKind{
 		sourcecache.RowKindResources,

@@ -23,7 +23,8 @@ Long-running tests use two repository-wide opt-ins:
   it also satisfies extra-tier guards.
 
 The named Make targets set these variables. Direct `go test` invocations omit
-both tiers unless the caller explicitly sets the corresponding variable.
+both tiers unless the caller explicitly sets the corresponding variable to
+exactly `1`; values such as `0` and `false` leave the tier disabled.
 
 ## Bounded checks omitted from CI
 
