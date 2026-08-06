@@ -201,21 +201,45 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 // registerLegacyAction wraps a legacy CustomActionManager action as an ActionHandler and registers it.
 func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, schema *v2.BatonActionSchema, legacyManager CustomActionManager) error {
 	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
-		// Our own ActionManager treats a context deadline as its inline-wait
-		// budget, so pin it to the legacy one second or the detached handler
-		// context's one-hour deadline becomes the wait. Third-party managers
-		// treat the deadline as an execution cap and must keep the original
-		// context — a 2s cap would kill actions that legitimately run longer.
-		if _, ok := legacyManager.(*actions.ActionManager); ok {
-			invokeCtx, cancel := actions.WithInlineWait(ctx, time.Second)
-			defer cancel()
-			_, _, resp, annos, err := legacyManager.InvokeAction(invokeCtx, schema.GetName(), "", args)
+		// The inner call keeps the detached handler context: its one-hour
+		// deadline is the execution backstop for third-party managers, and a
+		// deadline-aware inner ActionManager treats it as an inline-wait
+		// budget and blocks until the action truly finishes. Pinning a short
+		// wait here would resolve the outer action as complete with an empty
+		// response while the inner handler is still running.
+		id, actionStatus, resp, annos, err := legacyManager.InvokeAction(ctx, schema.GetName(), "", args)
+		if err != nil {
 			return resp, annos, err
 		}
-		_, _, resp, annos, err := legacyManager.InvokeAction(ctx, schema.GetName(), "", args)
-		return resp, annos, err
+		if isTerminalActionStatus(actionStatus) {
+			return resp, annos, nil
+		}
+
+		// A non-terminal inner status must not resolve the outer action: poll
+		// the legacy manager to a terminal status so the outer result carries
+		// the action's real outcome.
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return resp, annos, ctx.Err()
+			case <-ticker.C:
+			}
+			actionStatus, _, resp, annos, err = legacyManager.GetActionStatus(ctx, id)
+			if err != nil {
+				return resp, annos, err
+			}
+			if isTerminalActionStatus(actionStatus) {
+				return resp, annos, nil
+			}
+		}
 	}
 	return registry.Register(ctx, schema, handler)
+}
+
+func isTerminalActionStatus(s v2.BatonActionStatus) bool {
+	return s == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || s == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
 }
 
 // addActionManager handles deprecated CustomActionManager and RegisterActionManagerLimited interfaces
