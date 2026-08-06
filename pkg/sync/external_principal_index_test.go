@@ -1,6 +1,7 @@
 package sync //nolint:revive,nolintlint // matches the existing package name
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -185,25 +186,37 @@ func TestExternalPrincipalIndexNonASCIIMatching(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
 		stored, query string
+		want          bool
 	}{
-		{name: "ascii", stored: "UPPER@example.com", query: "upper@example.com"},
-		{name: "latin with diaeresis", stored: "Ann-Sofie.Ö", query: "ann-sofie.ö"},
-		{name: "cyrillic", stored: "ПЕТРОВ", query: "петров"},
-		{name: "greek accented", stored: "ΜΆΙΟΣ", query: "μάιοσ"},
-		{name: "cjk is caseless", stored: "山田太郎", query: "山田太郎"},
-		// strings.ToLower("İ") is "i", but strings.EqualFold("İ", "I") is
-		// false. Any comparison downstream of the index -- notably
-		// matchProfileAndExpand -- must fold the same way, or it will reject a
-		// principal the index matched and silently drop the grant.
-		{name: "turkish dotted capital i", stored: "İSTANBUL", query: "istanbul"},
+		{name: "ascii", stored: "UPPER@example.com", query: "upper@example.com", want: true},
+		{name: "latin with diaeresis", stored: "Ann-Sofie.Ö", query: "ann-sofie.ö", want: true},
+		{name: "cyrillic", stored: "ПЕТРОВ", query: "петров", want: true},
+		{name: "greek accented", stored: "ΜΆΙΟΣ", query: "μάιοσ", want: true},
+		{name: "cjk is caseless", stored: "山田太郎", query: "山田太郎", want: true},
+		// Medial and final sigma fold together even though their lowercase
+		// forms differ, so bucketing has to follow the fold, not the lowercase.
+		{name: "greek final sigma", stored: "ΣΤΕΦΑΝΟΣ", query: "στεφανος", want: true},
+		// The mirror case: the dotted capital I lowercases to "i" but folds
+		// only with itself. Bucketing on lowercase would merge these and
+		// manufacture a grant, so they must stay in separate buckets.
+		{name: "turkish dotted capital i does not fold with i", stored: "İSTANBUL", query: "istanbul", want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// The index must agree with strings.EqualFold, the relation the
+			// folding contract tests pin at the syncer boundary.
+			require.Equal(t, tc.want, strings.EqualFold(tc.stored, tc.query),
+				"test case expectation must match strings.EqualFold")
+
 			idx := newExternalUserPrincipalIndex([]*v2.Resource{
 				testUserPrincipal(t, "user_a", map[string]any{"userPrincipalName": tc.stored}),
 			}, zap.NewNop())
 
-			require.Equal(t, []string{"user_a"}, resolvedIDs(idx, idx.matchProfile("userPrincipalName", tc.query)),
-				"stored %q should match query %q", tc.stored, tc.query)
+			got := resolvedIDs(idx, idx.matchProfile("userPrincipalName", tc.query))
+			if tc.want {
+				require.Equal(t, []string{"user_a"}, got, "stored %q should match query %q", tc.stored, tc.query)
+				return
+			}
+			require.Empty(t, got, "stored %q must not match query %q", tc.stored, tc.query)
 		})
 	}
 }

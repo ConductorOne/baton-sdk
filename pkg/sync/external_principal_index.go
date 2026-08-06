@@ -2,6 +2,7 @@ package sync //nolint:revive,nolintlint // matches the existing package name
 
 import (
 	"strings"
+	"unicode"
 
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -155,22 +156,49 @@ func (idx *externalPrincipalIndex) matchUserTraitEmail(address string) []int {
 	return matches
 }
 
-// foldKey normalizes a value for case-insensitive comparison, and is the single
-// definition of "these two external match values are the same": two values match
-// when their foldKey outputs are equal. Bucket keys, bucket lookups, and every
-// confirmation pass all run through it, so the prefilter and the comparison can
-// never disagree.
+// foldKey normalizes a value into a bucket key. Two values land in the same
+// bucket exactly when strings.EqualFold reports them equal, which is the
+// external-resource match relation pinned by the folding contract tests.
 //
-// strings.ToLower is a context-free lowercase mapping, not full Unicode case
-// folding, so the two differ on a small number of pairs — Greek sigma is the
-// usual example, where strings.EqualFold("ΣΤΕΦΑΝΟΣ", "στεφανος") is true but the
-// lowercase forms differ in the final letter. Values like that are treated as
-// distinct here. That is an accepted tradeoff for now: it keeps normalization
-// consistent everywhere rather than having bucketing and confirmation disagree,
-// which would silently drop matches. Nothing is restricted to ASCII — non-ASCII
-// values are lowercased and compared like any other.
+// strings.ToLower is deliberately not used. It is a context-free per-rune
+// lowercase mapping, not case folding, and the two relations disagree in both
+// directions -- each one an access-correctness failure:
+//
+//   - Medial and final sigma fold together, and long s folds with ordinary s,
+//     but their lowercase forms differ. Bucketing on ToLower would separate
+//     them, dropping a grant a principal should have.
+//   - The dotted capital I lowercases to "i" but does not fold with it.
+//     Bucketing on ToLower would merge them, manufacturing a grant a principal
+//     should not have.
+//
+// strings.EqualFold compares rune by rune over unicode.SimpleFold orbits, so
+// mapping each rune to its orbit's canonical representative makes bucket
+// equality exactly EqualFold equality: equal keys require the same rune count
+// and a shared orbit at every position, which is the same test EqualFold makes.
+// Bucketing therefore never has to be re-confirmed and can never disagree with
+// the contract.
 func foldKey(s string) string {
-	return strings.ToLower(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		b.WriteRune(foldRune(r))
+	}
+	return b.String()
+}
+
+// foldRune returns the canonical representative of r's simple-case-folding
+// orbit: the smallest rune reachable from r via unicode.SimpleFold, which
+// cycles through every rune that folds with it. Runes outside any orbit --
+// caseless scripts, and the Turkish dotted and dotless I, which deliberately
+// fold only with themselves -- are their own representative.
+func foldRune(r rune) rune {
+	lowest := r
+	for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+		if f < lowest {
+			lowest = f
+		}
+	}
+	return lowest
 }
 
 // mergePositions returns the ascending, deduplicated union of two ascending
