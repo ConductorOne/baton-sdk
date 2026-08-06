@@ -15,9 +15,12 @@ package sync //nolint:revive,nolintlint // backwards-compatible package name
 //   C2  admission before execution: nothing is dequeued that was never
 //       seeded or committed.
 //   C3  no commits after abort: an aborted batch admits nothing further.
-//   C4  dedup soundness: no two actions in one batch share an identity
-//       digest (re-verified from the recorded keys, independent of the
-//       queue's own seen set).
+//   C4  dedup soundness over the WORKING SET (RFC 0007 phase 1): no two
+//       CONCURRENTLY OUTSTANDING actions share an identity digest. The
+//       checker replays admissions, continuation swaps, and retirements
+//       (commit and done events) into its own live map, independent of
+//       the queue's. Identities of retired actions are legitimately
+//       reusable — batch-lifetime uniqueness is no longer the contract.
 //   C5  accounting: dones never exceed dequeues, and on any batch end
 //       they match (every taken action was returned).
 //
@@ -32,9 +35,12 @@ import (
 )
 
 type auditBatchState struct {
-	op        ActionOp
-	admitted  map[string]bool // actionID -> dequeued yet?
-	keys      map[parallelActionKey]string
+	op       ActionOp
+	admitted map[string]bool // actionID -> dequeued yet?
+	// liveKeys/identOf mirror the queue's working set: the identity each
+	// OUTSTANDING action currently bears (C4 liveness).
+	liveKeys  map[parallelActionKey]string
+	identOf   map[string]parallelActionKey
 	dequeues  int
 	dones     int
 	aborted   bool
@@ -60,10 +66,17 @@ func verifyQueueAudit(t *testing.T, audit *queueAudit) {
 			}
 			b.admitted[id] = false
 			key := keys[i]
-			if prev, ok := b.keys[key]; ok {
-				b.violatef("actions %s and %s share identity digest in batch %d (dedup unsound)", prev, id, batch)
+			if prev, ok := b.liveKeys[key]; ok {
+				b.violatef("actions %s and %s are concurrently live with one identity digest in batch %d (C4 dedup unsound)", prev, id, batch)
 			}
-			b.keys[key] = id
+			b.liveKeys[key] = id
+			b.identOf[id] = key
+		}
+	}
+	retire := func(b *auditBatchState, key parallelActionKey) {
+		if id, ok := b.liveKeys[key]; ok {
+			delete(b.liveKeys, key)
+			delete(b.identOf, id)
 		}
 	}
 
@@ -75,7 +88,8 @@ func verifyQueueAudit(t *testing.T, audit *queueAudit) {
 			b = &auditBatchState{
 				op:       ev.op,
 				admitted: map[string]bool{},
-				keys:     map[parallelActionKey]string{},
+				liveKeys: map[parallelActionKey]string{},
+				identOf:  map[string]parallelActionKey{},
 			}
 			batches[ev.batch] = b
 			admit(b, ev.batch, ev.actionIDs, ev.keys)
@@ -107,7 +121,23 @@ func verifyQueueAudit(t *testing.T, audit *queueAudit) {
 			if b.aborted {
 				b.violatef("transition committed after abort (C3)")
 			}
+			// Mirror the queue's order: admissions were validated
+			// against the live set BEFORE the parent's old identity
+			// retired, so check admissions first, then retire, then
+			// insert the continuation (whose key the queue also
+			// validated pre-retire — a hit there re-converges and never
+			// commits a continuation, so a live hit here is unsound).
 			admit(b, ev.batch, ev.actionIDs, ev.keys)
+			for _, key := range ev.retiredKeys {
+				retire(b, key)
+			}
+			if ev.hasContinuation {
+				if prev, ok := b.liveKeys[ev.continuationKey]; ok {
+					b.violatef("continuation of %s committed onto identity live for %s (C4: re-convergence must finish the parent)", ev.continuationID, prev)
+				}
+				b.liveKeys[ev.continuationKey] = ev.continuationID
+				b.identOf[ev.continuationID] = ev.continuationKey
+			}
 		case auditReject:
 			// Rejections mutate nothing; post-abort rejections are the
 			// REQUIRED behavior (the abort path returning cancellation
@@ -116,6 +146,14 @@ func verifyQueueAudit(t *testing.T, audit *queueAudit) {
 			b.dones++
 			if b.dones > b.dequeues {
 				b.violatef("done count %d exceeds dequeue count %d (C5)", b.dones, b.dequeues)
+			}
+			// The worker retired this action: its identity (already
+			// swapped/removed if a transition retired it first) leaves
+			// the live set.
+			if len(ev.actionIDs) == 1 {
+				if key, ok := b.identOf[ev.actionIDs[0]]; ok {
+					retire(b, key)
+				}
 			}
 		case auditAbort:
 			b.aborted = true

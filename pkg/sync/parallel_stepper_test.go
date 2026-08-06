@@ -87,10 +87,17 @@ type stepRun struct {
 	workers []*stepWorker
 	nextID  int
 	failed  bool // any worker took the failure path (batchErr != nil)
+	// spawnedAdmitted models state.transitionAction's process-lifetime
+	// re-mention guard, which the stepper's fake commit stands in for.
+	// The queue's working set forgets retired identities (RFC 0007
+	// phase 1), so termination of SPAWN cycles is owned by this state-
+	// layer guard — without modeling it, spawn-cycle scenarios would
+	// spin forever here, unlike production.
+	spawnedAdmitted map[string]bool
 }
 
 func newStepRun(sc *stepScenario) *stepRun {
-	r := &stepRun{sc: sc}
+	r := &stepRun{sc: sc, spawnedAdmitted: map[string]bool{}}
 	seeds := make([]*Action, 0, len(sc.seeds))
 	for _, tok := range sc.seeds {
 		r.nextID++
@@ -103,6 +110,8 @@ func newStepRun(sc *stepScenario) *stepRun {
 			Spawned:        true,
 			TypeScoped:     true,
 		})
+		// Seeds are spawned actions already admitted to state.
+		r.spawnedAdmitted[tok] = true
 	}
 	r.queue = newParallelActionQueue(seeds)
 	r.audit = &queueAudit{}
@@ -194,6 +203,13 @@ func (r *stepRun) step(t *testing.T, i int) {
 				pushed := make([]*Action, 0, len(admitted))
 				for j := range admitted {
 					child := admitted[j]
+					// state.transitionAction's re-mention guard: a
+					// spawned identity already admitted this process is
+					// skipped, not re-pushed (see stepRun.spawnedAdmitted).
+					if child.Spawned && r.spawnedAdmitted[child.PageToken] {
+						continue
+					}
+					r.spawnedAdmitted[child.PageToken] = true
 					r.nextID++
 					child.ID = fmt.Sprintf("c%03d", r.nextID)
 					pushed = append(pushed, &child)
@@ -212,11 +228,11 @@ func (r *stepRun) step(t *testing.T, i int) {
 			w.page++
 		}
 	case wFinished:
-		r.queue.done()
+		r.queue.done(w.action)
 		w.phase = wIdle
 		w.action = nil
 	case wFailed:
-		r.queue.done()
+		r.queue.done(w.action)
 		r.failed = true
 		w.phase = wFailedDone
 	case wFailedDone:
@@ -239,12 +255,17 @@ func (r *stepRun) signature() string {
 			pending = append(pending, action.PageToken)
 		}
 	}
-	seen := make([]string, 0, len(q.seen))
-	for k := range q.seen {
-		seen = append(seen, fmt.Sprintf("%x", k[:8]))
+	live := make([]string, 0, len(q.live))
+	for k := range q.live {
+		live = append(live, fmt.Sprintf("%x", k[:8]))
 	}
 	q.mu.Unlock()
-	sort.Strings(seen)
+	sort.Strings(live)
+	admittedSpawns := make([]string, 0, len(r.spawnedAdmitted))
+	for tok := range r.spawnedAdmitted {
+		admittedSpawns = append(admittedSpawns, tok)
+	}
+	sort.Strings(admittedSpawns)
 
 	ws := make([]string, 0, len(r.workers))
 	for _, w := range r.workers {
@@ -260,16 +281,19 @@ func (r *stepRun) signature() string {
 		}
 	}
 	sort.Strings(ws)
-	return strings.Join([]string{head, strings.Join(pending, ","), strings.Join(seen, ","), strings.Join(ws, ",")}, "|")
+	return strings.Join([]string{head, strings.Join(pending, ","), strings.Join(live, ","), strings.Join(admittedSpawns, ","), strings.Join(ws, ",")}, "|")
 }
 
 func (r *stepRun) sane(t *testing.T) {
 	q := r.queue
 	q.mu.Lock()
 	outstanding, head, actions := q.outstanding, q.head, len(q.actions)
+	liveLen, identLen := len(q.live), len(q.identOf)
 	q.mu.Unlock()
 	require.GreaterOrEqual(t, outstanding, 0, "outstanding went negative")
 	require.LessOrEqual(t, head, actions, "queue head ran past the buffer")
+	require.Equal(t, liveLen, identLen, "working-set views desynced: live and identOf must stay paired")
+	require.LessOrEqual(t, liveLen, outstanding, "working set grew past outstanding: an identity outlived its action")
 }
 
 type stepStats struct {
@@ -400,7 +424,11 @@ func TestParallelQueueExhaustiveInterleavings(t *testing.T) {
 		{
 			// Re-mention: A re-mentions seed B (skip, admitted once) and
 			// spawns fresh C; the mutual pair B<->C also re-mention each
-			// other — the cycle must terminate in every schedule.
+			// other — the cycle must terminate in every schedule. When
+			// the re-mentioned identity is still outstanding the queue's
+			// working set skips it; when it already retired, the modeled
+			// state-layer spawnedAdmitted guard does (RFC 0007 phase 1:
+			// the queue keeps no history).
 			name:    "re-mention-and-cycle",
 			seeds:   []string{"A", "B"},
 			workers: 2,
@@ -413,13 +441,17 @@ func TestParallelQueueExhaustiveInterleavings(t *testing.T) {
 		},
 		{
 			// Continuation re-convergence: A's next page token is seed
-			// H's identity. In every schedule A must finish (not error,
-			// not walk H's pages itself) and H must run exactly once.
+			// H's identity. In schedules where H is still outstanding, A
+			// must finish (re-convergence: the tail is H's to walk); in
+			// schedules where H already retired, A legitimately continues
+			// and walks the tail itself (RFC 0007 phase 1 duplicate-work
+			// semantics — hence A's second, final page). H runs exactly
+			// once as an action in every schedule.
 			name:    "continuation-reconvergence",
 			seeds:   []string{"A", "H"},
 			workers: 2,
 			behaviors: map[string]stepBehavior{
-				"A": {pages: []stepPage{{next: "H", children: []string{"C"}}}},
+				"A": {pages: []stepPage{{next: "H", children: []string{"C"}}, {}}},
 				"H": {pages: []stepPage{{children: []string{"D"}}}},
 			},
 			cleanReachable: true,

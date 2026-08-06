@@ -40,12 +40,16 @@ const (
 	auditDequeue
 	// auditCommit: a transition's commit ran and succeeded; carries the
 	// action IDs and identity keys of the same-op children admitted to
-	// this batch's queue.
+	// this batch's queue, the identity keys the transition retired from
+	// the working set, and the parent's continuation identity when one
+	// was committed.
 	auditCommit
-	// auditReject: a transition was refused before commit (duplicate,
-	// cap, or post-abort refusal); no state was mutated.
+	// auditReject: a transition was refused before commit (duplicate or
+	// post-abort refusal); no state was mutated.
 	auditReject
-	// auditDone: a worker finished processing a dequeued action.
+	// auditDone: a worker finished processing a dequeued action
+	// (actionID); the action's identity leaves the working set no later
+	// than this event.
 	auditDone
 	// auditAbort: the batch was aborted.
 	auditAbort
@@ -59,12 +63,22 @@ type queueAuditEvent struct {
 	batch int
 	op    ActionOp
 	// actionIDs: seeded IDs (auditBatchStart), enqueued child IDs
-	// (auditCommit), or the single dequeued ID (auditDequeue).
+	// (auditCommit), the single dequeued ID (auditDequeue), or the
+	// single retired ID (auditDone).
 	actionIDs []string
 	// keys are the queue identity digests matching actionIDs
 	// (auditBatchStart, auditCommit); the checker re-verifies dedup
-	// soundness independently of the queue's own seen set.
+	// soundness independently of the queue's own working set.
 	keys []parallelActionKey
+	// retiredKeys are the identity digests a transition removed from the
+	// working set (auditCommit): the parent's pre-transition identity.
+	retiredKeys []parallelActionKey
+	// continuationKey/continuationID record the parent's post-transition
+	// identity when the commit carried a continuation (auditCommit);
+	// hasContinuation distinguishes "no continuation" from a zero key.
+	continuationKey parallelActionKey
+	continuationID  string
+	hasContinuation bool
 	// clean marks a batch end without worker error (auditBatchEnd).
 	clean bool
 	// postAbort marks a reject that happened after the batch aborted
