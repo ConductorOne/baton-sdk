@@ -91,15 +91,30 @@ What remains, deliberately:
 Consequences, accepted: re-convergent continuations re-walk pages
 (idempotent duplicate work); continuation cycles of ANY period spin until
 the budget; queue memory is zero per-identity (strictly less than main).
+Diagnosability gap, accepted for the hotfix: nothing logs while a cyclic
+continuation chain burns the budget (the state layer still warns on every
+skipped spawned re-mention), so a stuck-cycle sync looks like a slow sync
+until expiry. Phase 2 item 4 restores prompt, logged cycle termination.
 
 ### Mechanical notes
 
 - Deleted from `transition()`: the seen-set seeding, the re-convergence
   finish, the re-mention skip, and the cap rejection, with the RFC named
-  in the function's doc comment. The constant stays as a benchmark
-  fixture only.
-- Skipped with a reference to this RFC (they pin the removed behaviors):
-  `TestParallelActionQueueRejectsCursorLimitBeforeCommit` (the cap),
+  in the function's doc comment. The `maxSpawnedCursorsPerBatch` constant
+  is deleted outright; the checkpoint cost benchmark keeps its own local
+  width fixture at the same scale.
+- The audit contract's C4 (dedup soundness: no two admissions in one batch
+  share an identity digest) is dropped, along with the identity-key
+  plumbing in the audit events: the queue no longer guarantees it —
+  non-spawned duplicate identities across commits are permitted idempotent
+  re-runs, and spawned duplicates are skipped by the state layer before
+  they reach the queue. Keeping the check would make every audited heavy
+  test fail on behavior this phase deliberately allows. Returns with
+  phase 2's working set.
+- `TestParallelActionQueueRejectsCursorLimitBeforeCommit` is deleted (it
+  pinned the removed cap; phase 2's bound on outstanding actions is a
+  different property that gets its own test). Skipped with a reference to
+  this RFC (they pin behaviors phase 2 restores):
   `TestSyncParallelBreaksCyclicSpawnedCursorIdempotently` (queue-level
   spawn-cycle break; the state layer still terminates it one re-run
   later), `TestContinuationReconvergenceFinishesParent` (re-convergence

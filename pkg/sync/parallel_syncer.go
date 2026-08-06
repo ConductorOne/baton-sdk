@@ -458,12 +458,6 @@ type workerResult struct {
 	err     error
 }
 
-// maxSpawnedCursorsPerBatch is NO LONGER ENFORCED (see transition()'s doc
-// comment and docs/rfcs/0007-scheduler-cursor-accounting.md, phase 1). It
-// remains only as a fixture for the checkpoint cost benchmarks until
-// phase 2 introduces a true width bound.
-const maxSpawnedCursorsPerBatch = 100_000
-
 // parallelActionQueue is a dynamically extensible worker queue. outstanding
 // counts queued plus in-flight actions, so workers stop only after the whole
 // fan-out drains. An in-flight action may enqueue siblings before completing;
@@ -543,7 +537,6 @@ func (q *parallelActionQueue) attachAudit(audit *queueAudit, batchOp ActionOp, b
 			continue
 		}
 		ev.actionIDs = append(ev.actionIDs, action.ID)
-		ev.keys = append(ev.keys, makeParallelActionKey(action))
 	}
 	audit.record(ev)
 }
@@ -625,7 +618,6 @@ func (q *parallelActionQueue) transition(
 		if action != nil && action.Op == batchOp {
 			if q.audit != nil {
 				commitEv.actionIDs = append(commitEv.actionIDs, action.ID)
-				commitEv.keys = append(commitEv.keys, makeParallelActionKey(action))
 			}
 			q.actions = append(q.actions, action)
 			q.outstanding++

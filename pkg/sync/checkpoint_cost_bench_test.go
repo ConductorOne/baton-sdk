@@ -11,10 +11,11 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 //   - Every in-flight spawned cursor is an Action in state.actions, and
 //     Marshal re-serializes the whole map on EVERY checkpoint (default
 //     every ~10s for the sync's lifetime). Cost is O(width) in time and
-//     token bytes, where width is bounded only by maxSpawnedCursorsPerBatch
-//     (100k) — and each cursor's page token may itself be up to ~1 MiB, so
-//     the constant is connector-controlled. The benchmark reports
-//     token-bytes alongside ns/op so a regression in either is visible.
+//     token bytes, where width is UNBOUNDED and connector-controlled: the
+//     batch cursor cap was removed by RFC 0007 phase 1, and a bound on
+//     outstanding actions returns with phase 2. Each cursor's page token
+//     may itself be up to ~1 MiB. The benchmark reports token-bytes
+//     alongside ns/op so a regression in either is visible.
 //   - Marshal also version-stamps by scanning every action for
 //     type-scoped/spawned markers: a second O(width) pass that exists only
 //     on this branch. It is measured by the same benchmark.
@@ -35,8 +36,8 @@ import (
 )
 
 // buildFanoutState models the checkpoint-visible state of a sync holding
-// `width` in-flight spawned type-scoped cursors (the worst case the batch
-// cap admits), plus the parent action that spawned them.
+// `width` in-flight spawned type-scoped cursors, plus the parent action
+// that spawned them.
 func buildFanoutState(b *testing.B, width int) *state {
 	b.Helper()
 	ctx := context.Background()
@@ -54,7 +55,12 @@ func buildFanoutState(b *testing.B, width int) *state {
 	return st
 }
 
-var checkpointFanoutWidths = []int{100, 1_000, 10_000, maxSpawnedCursorsPerBatch}
+// benchFanoutWidthCeiling is a benchmark fixture only — the scale where the
+// incident fired and where phase 2's planned bound on outstanding actions
+// will sit. Nothing enforces it (RFC 0007 phase 1 removed the batch cap).
+const benchFanoutWidthCeiling = 100_000
+
+var checkpointFanoutWidths = []int{100, 1_000, 10_000, benchFanoutWidthCeiling}
 
 // BenchmarkCheckpointTokenMarshalFanout is the per-checkpoint serialization
 // cost at fan-out width: O(width) time and token bytes, paid every ~10s.

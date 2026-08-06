@@ -23,9 +23,9 @@ package sync //nolint:revive,nolintlint // backwards-compatible package name
 // every worker exited — a stuck node is the outstanding-accounting bug
 // class) and queue sanity (outstanding never negative). At every terminal
 // it runs the full Option D audit contract (verifyQueueAudit): exactly-
-// once, admission-before-execution, no-commit-after-abort, dedup
-// soundness, accounting, and full drain on clean completion. Silent
-// violations in ANY schedule of the scenario space fail the test.
+// once, admission-before-execution, no-commit-after-abort, accounting,
+// and full drain on clean completion. Silent violations in ANY schedule
+// of the scenario space fail the test.
 
 import (
 	"context"

@@ -359,12 +359,12 @@ func TestAbortedQueueRejectsInFlightTransitionWithoutStateMutation(t *testing.T)
 	require.Empty(t, queue.actions)
 }
 
-func TestParallelActionQueueRejectsCursorLimitBeforeCommit(t *testing.T) {
-	t.Skip("the batch-lifetime cursor cap and the seen set it measured were removed " +
-		"(docs/rfcs/0007-scheduler-cursor-accounting.md, phase 1): the cap bounded CUMULATIVE " +
-		"unique cursors per batch, not in-flight width, so legitimate large fan-outs failed " +
-		"deterministically mid-sync; phase 2 reintroduces a bound on OUTSTANDING actions")
-}
+// TestParallelActionQueueRejectsCursorLimitBeforeCommit was deleted with the
+// batch-lifetime cursor cap it pinned (RFC 0007 phase 1,
+// docs/rfcs/0007-scheduler-cursor-accounting.md): the cap bounded CUMULATIVE
+// unique cursors per batch, not in-flight width, so legitimate large fan-outs
+// failed deterministically mid-sync. Phase 2's bound on OUTSTANDING actions
+// is a different property and gets its own test.
 
 func TestNextPageOrFinishActionStateTransitions(t *testing.T) {
 	child := Action{
