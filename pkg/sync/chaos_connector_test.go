@@ -266,6 +266,11 @@ func TestChaosConnectorDuplicateEnqueueAnnotationFailsWithoutSealing(t *testing.
 }
 
 func TestChaosConnectorCyclicPageTokensTerminateWithoutDuplicateRows(t *testing.T) {
+	t.Skip("pinned seen-set cycle termination, removed by RFC 0007 phase 1 " +
+		"(docs/rfcs/0007-scheduler-cursor-accounting.md): the queue keeps no identity history, " +
+		"so a period-2 continuation cycle spins until the run-duration budget — the " +
+		"pre-identity-machinery posture. Prompt termination returns with phase 2 (working set + " +
+		"Brent's cycle detection), which re-enables this test")
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	tmpDir := t.TempDir()

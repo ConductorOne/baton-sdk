@@ -239,12 +239,7 @@ func (r *stepRun) signature() string {
 			pending = append(pending, action.PageToken)
 		}
 	}
-	seen := make([]string, 0, len(q.seen))
-	for k := range q.seen {
-		seen = append(seen, fmt.Sprintf("%x", k[:8]))
-	}
 	q.mu.Unlock()
-	sort.Strings(seen)
 
 	ws := make([]string, 0, len(r.workers))
 	for _, w := range r.workers {
@@ -260,7 +255,7 @@ func (r *stepRun) signature() string {
 		}
 	}
 	sort.Strings(ws)
-	return strings.Join([]string{head, strings.Join(pending, ","), strings.Join(seen, ","), strings.Join(ws, ",")}, "|")
+	return strings.Join([]string{head, strings.Join(pending, ","), strings.Join(ws, ",")}, "|")
 }
 
 func (r *stepRun) sane(t *testing.T) {
@@ -397,33 +392,15 @@ func TestParallelQueueExhaustiveInterleavings(t *testing.T) {
 			},
 			cleanReachable: false,
 		},
-		{
-			// Re-mention: A re-mentions seed B (skip, admitted once) and
-			// spawns fresh C; the mutual pair B<->C also re-mention each
-			// other — the cycle must terminate in every schedule.
-			name:    "re-mention-and-cycle",
-			seeds:   []string{"A", "B"},
-			workers: 2,
-			behaviors: map[string]stepBehavior{
-				"A": {pages: []stepPage{{children: []string{"B", "C"}}}},
-				"B": {pages: []stepPage{{children: []string{"C"}}}},
-				"C": {pages: []stepPage{{children: []string{"B"}}}},
-			},
-			cleanReachable: true,
-		},
-		{
-			// Continuation re-convergence: A's next page token is seed
-			// H's identity. In every schedule A must finish (not error,
-			// not walk H's pages itself) and H must run exactly once.
-			name:    "continuation-reconvergence",
-			seeds:   []string{"A", "H"},
-			workers: 2,
-			behaviors: map[string]stepBehavior{
-				"A": {pages: []stepPage{{next: "H", children: []string{"C"}}}},
-				"H": {pages: []stepPage{{children: []string{"D"}}}},
-			},
-			cleanReachable: true,
-		},
+		// The "re-mention-and-cycle" and "continuation-reconvergence"
+		// scenarios were removed with the queue's seen set (RFC 0007
+		// phase 1, docs/rfcs/0007-scheduler-cursor-accounting.md): both
+		// pinned seen-set dedup/re-convergence, and the stepper's fake
+		// commit has no state layer, so without that set a spawn cycle
+		// spins forever here (in production state.transitionAction's
+		// spawnedAdmitted guard breaks it) and a re-converging
+		// continuation legitimately re-walks pages. They return with
+		// phase 2's working set.
 		{
 			// Three workers over the widest scenario: more concurrent
 			// windows between dequeue, commit, done, and abort.
