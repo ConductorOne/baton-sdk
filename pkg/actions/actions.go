@@ -127,6 +127,26 @@ func (oa *OutstandingAction) setCancelled(ctx context.Context, err error) {
 	}
 }
 
+// isProvisional reports whether the action's FAILED status is a provisional
+// cancellation mark that the handler's late outcome may still replace.
+func (oa *OutstandingAction) isProvisional() bool {
+	oa.Lock()
+	defer oa.Unlock()
+	return oa.cancelled
+}
+
+// evictable reports whether the action has reached a state cleanup may
+// remove: terminal, and not a provisional cancellation whose record can
+// still improve.
+func (oa *OutstandingAction) evictable() bool {
+	oa.Lock()
+	defer oa.Unlock()
+	if oa.cancelled {
+		return false
+	}
+	return oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
+}
+
 // Result returns the action's identity and current outcome. The snapshot is
 // internally consistent; the returned message and annotations are owned by
 // the action and must not be modified.
@@ -177,6 +197,9 @@ func (oa *OutstandingAction) setOutcome(ctx context.Context, rv *structpb.Struct
 	if oa.cancelled {
 		// Deliberate cross-terminal replacement: the cancellation was a
 		// transport event, not the action's outcome.
+		ctxzap.Extract(ctx).Debug("replacing provisional cancellation with handler outcome",
+			zap.String("action_id", oa.Id),
+			zap.String("action_name", oa.Name))
 		oa.cancelled = false
 		oa.Status = v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE
 		oa.Rv = rv
@@ -272,8 +295,7 @@ func (a *ActionManager) CleanupOldActions(ctx context.Context) {
 	count := 0
 	// Delete the oldest actions
 	for i := 0; i < len(actionList)-maxOldActions; i++ {
-		_, actionStatus, _, _ := actionList[i].result()
-		if actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
+		if actionList[i].evictable() {
 			count++
 			delete(a.actions, actionList[i].Id)
 		}

@@ -738,3 +738,110 @@ func TestPublishedOutcomeIsIsolatedFromHandler(t *testing.T) {
 	close(stop)
 	<-writerDone
 }
+
+func TestCleanupRetainsProvisionallyCancelledActions(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+
+	// Two terminal actions old enough for cleanup to visit: one provisional
+	// cancellation whose handler may still publish, one real failure.
+	provisional := m.GetNewAction("cancelled")
+	provisional.StartedAt = time.Now().Add(-2 * time.Hour)
+	provisional.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+	provisional.setCancelled(ctx, context.Canceled)
+
+	failed := m.GetNewAction("failed")
+	failed.StartedAt = time.Now().Add(-time.Hour)
+	failed.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+	failed.SetError(ctx, fmt.Errorf("real failure"))
+
+	for i := 0; i < maxOldActions; i++ {
+		m.GetNewAction("churn")
+	}
+
+	m.CleanupOldActions(ctx)
+
+	// The real failure is evictable; the provisional record must survive so
+	// the handler's late outcome stays observable.
+	_, _, _, _, err := m.GetActionStatus(ctx, failed.Id)
+	require.Error(t, err)
+
+	actionStatus, _, _, _, err := m.GetActionStatus(ctx, provisional.Id)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+
+	rv, err := structpb.NewStruct(map[string]any{"success": true})
+	require.NoError(t, err)
+	provisional.setOutcome(ctx, rv, nil, nil)
+
+	actionStatus, _, gotRv, _, err := m.GetActionStatus(ctx, provisional.Id)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.True(t, gotRv.Fields["success"].GetBoolValue())
+}
+
+func TestPanicAfterCancelIsFinal(t *testing.T) {
+	ctx := t.Context()
+	oa := NewOutstandingAction("id", "cancelled-then-panicked")
+	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+	oa.setCancelled(ctx, context.Canceled)
+
+	// The recovery path reports a panic through SetError: a real handler
+	// failure that replaces the provisional mark and becomes final.
+	oa.SetError(ctx, fmt.Errorf("panic in action handler: boom"))
+	require.False(t, oa.isProvisional())
+
+	rv, err := structpb.NewStruct(map[string]any{"success": true})
+	require.NoError(t, err)
+	oa.setOutcome(ctx, rv, nil, nil)
+
+	_, actionStatus, gotRv, _ := oa.Result()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Equal(t, "panic in action handler: boom", gotRv.Fields["error"].GetStringValue())
+	require.Nil(t, gotRv.Fields["success"])
+}
+
+func TestCancelAfterCompletionIsRejected(t *testing.T) {
+	ctx := t.Context()
+	oa := NewOutstandingAction("id", "completed")
+	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+
+	rv, err := structpb.NewStruct(map[string]any{"success": true})
+	require.NoError(t, err)
+	oa.setOutcome(ctx, rv, nil, nil)
+
+	oa.setCancelled(ctx, context.Canceled)
+
+	// COMPLETE is truly terminal: the cancellation neither marks the action
+	// provisional nor touches the published outcome.
+	require.False(t, oa.isProvisional())
+	_, actionStatus, gotRv, _ := oa.Result()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.True(t, gotRv.Fields["success"].GetBoolValue())
+	require.Nil(t, gotRv.Fields["error"])
+}
+
+func TestCancelledInvokeStatusErrorPairing(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+	require.NoError(t, m.Register(ctx, testActionSchema, testActionHandler))
+
+	// The handler succeeds instantly while each request is cancelled
+	// concurrently, sampling the invoke select race from both sides. The
+	// orderings can't be forced individually, but every interleaving must
+	// satisfy the pairing contract: a cancellation error only ever
+	// accompanies FAILED, and an errorless return is never FAILED (RUNNING
+	// is tolerated only for a pathological scheduler stall past the inline
+	// wait).
+	for i := 0; i < 200; i++ {
+		invokeCtx, cancel := context.WithCancel(ctx)
+		go cancel()
+		_, actionStatus, _, _, err := m.InvokeAction(invokeCtx, "lock_account", "", testInput)
+		if err != nil {
+			require.ErrorIs(t, err, context.Canceled)
+			require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+		} else {
+			require.NotEqual(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+		}
+	}
+}
