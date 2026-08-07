@@ -217,10 +217,26 @@ func WithXMLResponse(response any) DoOption {
 }
 
 // Ignore content type header and always try to parse the response as XML.
+//
+// A *map[string]any target is decoded through the generic xmlMap decoder, since
+// encoding/xml cannot unmarshal into a map and would fail for every input. Any
+// other target keeps going straight to xml.Unmarshal, so callers passing a typed
+// struct are unaffected.
 func WithAlwaysXMLResponse(response any) DoOption {
 	return func(resp *WrapperResponse) error {
 		if response == nil && len(resp.Body) == 0 {
 			return nil
+		}
+		if genericResponse, ok := response.(*map[string]any); ok {
+			// Scoped to the map target so the struct path below keeps its exact
+			// existing behavior, including for 204 and empty bodies.
+			if resp.StatusCode == http.StatusNoContent {
+				return nil
+			}
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 && len(resp.Body) == 0 {
+				return nil
+			}
+			return unmarshalXMLToMap(genericResponse, resp)
 		}
 		err := xml.Unmarshal(resp.Body, response)
 		if err != nil {
@@ -228,6 +244,32 @@ func WithAlwaysXMLResponse(response any) DoOption {
 		}
 		return nil
 	}
+}
+
+// unmarshalXMLToMap decodes an XML body into a generic map via the xmlMap decoder.
+// encoding/xml cannot unmarshal into a map directly, so any caller wanting an
+// arbitrary XML document as a map has to route through xmlMap.
+func unmarshalXMLToMap(response *map[string]any, resp *WrapperResponse) error {
+	// A typed-nil target, e.g. WithAlwaysXMLResponse((*map[string]any)(nil)), gets
+	// past an `any == nil` check because the interface still carries a type. Guard
+	// here rather than at each call site so assigning through it cannot panic.
+	// encoding/xml rejected this with "nil pointer passed to Unmarshal".
+	if response == nil {
+		return status.Error(codes.InvalidArgument, "response is nil")
+	}
+
+	var xm xmlMap
+	if err := xml.Unmarshal(resp.Body, &xm); err != nil {
+		return fmt.Errorf("failed to unmarshal xml response: %w. status code: %d", err, resp.StatusCode)
+	}
+	vMap, ok := xm.data.(map[string]any)
+	if !ok {
+		// A document whose root holds only text decodes to a string, which has no
+		// sensible map representation.
+		return status.Errorf(codes.Internal, "unsupported XML structure: %T", xm.data)
+	}
+	*response = vMap
+	return nil
 }
 
 type ErrorResponse interface {
@@ -374,17 +416,7 @@ func WithGenericResponse(response *map[string]any) DoOption {
 		}
 
 		if IsXMLContentType(resp.Header.Get(ContentType)) {
-			var xm xmlMap
-			err = WithXMLResponse(&xm)(resp)
-			if err != nil {
-				return err
-			}
-			if vMap, ok := xm.data.(map[string]any); ok {
-				*response = vMap
-			} else {
-				return status.Errorf(codes.Internal, "unsupported XML structure: %T", xm.data)
-			}
-			return nil
+			return unmarshalXMLToMap(response, resp)
 		}
 
 		return status.Error(codes.Unknown, fmt.Sprintf("unsupported content type: %s", resp.Header.Get(ContentType)))
