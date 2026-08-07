@@ -65,11 +65,13 @@ jobs:
     # The go-test job runs without -race, and chaos-check's race coverage
     # reaches only ./internal/chaosconnector/... and a named subset of
     # pkg/sync. Everything else was ungated, which is how live races in
-    # pkg/actions and pkg/dotc1z reached main. This job closes that gap.
-    # It is the slowest job in the workflow; it runs in parallel with the
-    # others, so it delays the overall verdict but not per-job feedback.
+    # pkg/actions and pkg/dotc1z reached main.
+    #
+    # This is the bounded sweep, not the full one: a full instrumented
+    # ./... is ~145 minutes of work and far too slow to gate a PR. The
+    # complete sweep runs nightly in race.yaml.
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -77,8 +79,8 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
-      - name: Run the full suite under race detection
-        run: make race-check
+      - name: Run bounded race coverage
+        run: make race-check-pr
   baton-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 15

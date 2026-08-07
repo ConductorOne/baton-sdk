@@ -1,0 +1,24 @@
+name: nightly race
+
+# The complete instrumented suite is ~145 minutes of work, so it cannot gate
+# a pull request; ci.yaml runs the bounded race-check-pr subset instead. This
+# workflow covers what that subset skips — pkg/sync, pkg/dotc1z, the
+# compactor, and the harnesses — once a day, plus on demand.
+on:
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+jobs:
+  race-check-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - name: Run the full suite under race detection
+        run: make race-check

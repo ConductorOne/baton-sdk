@@ -86,6 +86,24 @@ race-check: ## Run the complete Go suite with the race detector.
 	# bound was close enough to trip on a slower runner.
 	go test -race -tags=baton_lambda_support -count=1 -timeout=45m ./...
 
+# Packages whose instrumented runtime dominates a full race sweep: each is
+# minutes to tens of minutes, and together they are ~97% of its wall clock.
+# race-check-pr skips them so it stays a viable per-PR gate; the nightly
+# race workflow runs the complete sweep. Keep this list short — every entry
+# is coverage that moves from per-PR to next-morning.
+RACE_PR_SKIP := pkg/sync|pkg/sync/expand|pkg/dotc1z|pkg/synccompactor|pkg/synccompactor/pebble|pkg/dotc1z/engine/pebble|pkg/c1zsanitize|cmd/baton-crash-harness|cmd/baton-compat-harness
+
+.PHONY: race-check-pr
+race-check-pr: ## Bounded race coverage sized for pull-request CI.
+	go test -race -tags=baton_lambda_support -count=1 -timeout=15m \
+		$$(go list ./... | grep -vE '^github.com/conductorone/baton-sdk/($(RACE_PR_SKIP))$$')
+	# The skipped packages still get their concurrency-specific tests, which
+	# are the ones that actually exercise shared state across goroutines.
+	# TestC1ZConcurrentClose in particular is the oracle for the C1File
+	# close-vs-write race, and is worth its ~2 minutes on every PR.
+	go test -race -tags=baton_lambda_support -count=1 -timeout=15m -run 'Concurrent' \
+		./pkg/dotc1z/ ./pkg/sync/... ./pkg/synccompactor/... ./pkg/c1zsanitize/...
+
 .PHONY: fuzz-smoke
 fuzz-smoke: ## Run each native Go fuzzer for FUZZ_TIME (default 30s).
 	go test -run '^$$' -fuzz '^FuzzCondenseFWBW_Cancellation$$' -fuzztime=$(FUZZ_TIME) ./pkg/sync/expand/scc
