@@ -462,11 +462,16 @@ func selectSourceSyncFromManifest(path string) (manifestSourceSelection, bool) {
 func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	l := ctxzap.Extract(ctx)
 	foldStart := time.Now()
-	destEng, ok := enginepkg.AsEngine(c.compactedC1z)
+	// Read the base sync through the store's own surface rather than pulling
+	// a raw engine out of the shared destination; AsEngine on the dest is
+	// reserved for nothing — only single-owner source files use it.
+	destReader, ok := c.compactedC1z.(interface {
+		LatestFinishedSyncRecord(ctx context.Context, typeOK func(v3.SyncType) bool) (*v3.SyncRunRecord, error)
+	})
 	if !ok {
 		return "", errors.New("compactPebbleFold: compacted store is not a pebble engine")
 	}
-	baseRec, err := destEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
+	baseRec, err := destReader.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 	if err != nil {
 		return "", fmt.Errorf("compactPebbleFold: select base sync: %w", err)
 	}

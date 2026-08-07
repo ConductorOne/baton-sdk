@@ -4,6 +4,7 @@ import (
 	"context"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	storage_v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
@@ -49,5 +50,12 @@ var (
 	// grants instead of principal keys.
 	_ interface {
 		ListGrantPrincipalKeysForEntitlement(context.Context, *v2.Entitlement, string, uint32) ([]string, string, error)
+	} = (*pebbleStore)(nil)
+
+	// pkg/synccompactor/compactor_pebble.go: the fold compactor's base-sync
+	// read on the shared destination store. Losing it fails the fold loudly
+	// ("not a pebble engine"), but the assertion belongs here all the same.
+	_ interface {
+		LatestFinishedSyncRecord(ctx context.Context, typeOK func(storage_v3.SyncType) bool) (*storage_v3.SyncRunRecord, error)
 	} = (*pebbleStore)(nil)
 )

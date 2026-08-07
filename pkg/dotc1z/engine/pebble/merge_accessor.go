@@ -27,11 +27,16 @@ type FoldBatch = rawdb.FoldBatch
 // declares its own nil-safe version of this method.
 //
 // Note what this hands out: the raw engine, with no admission check and no
-// dirty tracking. That is deliberate for the merge paths, which need engine
-// internals the store does not expose, but it means AsEngine is a way around
-// the store's mutation gate. Today every caller uses it for reads only. Route
-// writes through WithEngineMutation / WithEngineFoldMutation below instead;
-// a bare AsEngine mutation is invisible to the store's admission state.
+// dirty tracking. That is deliberate for the merge paths, which consume
+// concrete engines (SourceSync, k-way source handles with raw iterators) that
+// the store surface cannot express. It also means AsEngine is a way around
+// the store's mutation gate, so its use is bounded by an ownership rule:
+// extract engines only from single-owner source files the caller opened and
+// will close itself, never from a shared destination store. The dest reads
+// through the store's own surface (e.g. LatestFinishedSyncRecord), and dest
+// writes go through WithEngineMutation / WithEngineFoldMutation below, whose
+// callback parameter is the guarded grant of mutation access. A bare AsEngine
+// mutation is invisible to the store's admission state.
 type engineAccessor interface {
 	PebbleEngine() *Engine
 }

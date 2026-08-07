@@ -7,6 +7,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
@@ -214,4 +215,13 @@ func (s *pebbleStore) StreamResources(
 
 func (s *pebbleStore) StreamEntitlements(ctx context.Context, syncID string) iter.Seq2[*v2.Entitlement, error] {
 	return s.Engine.StreamEntitlements(ctx, syncID)
+}
+
+// LatestFinishedSyncRecord exists so the fold compactor can pick its base
+// sync without extracting a raw engine from the destination store. Source
+// files still go through pebble.AsEngine — the merge pipeline consumes
+// concrete engines — but the shared destination should never have an
+// unguarded handle pulled out of it for the sake of one read.
+func (s *pebbleStore) LatestFinishedSyncRecord(ctx context.Context, typeOK func(v3.SyncType) bool) (*v3.SyncRunRecord, error) {
+	return s.Engine.LatestFinishedSyncRecord(ctx, typeOK)
 }
