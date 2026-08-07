@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -576,7 +577,13 @@ func TestCleanupOldActionsDuringConcurrentStatusWrites(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				oldest.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+				// Write the status under the lock directly: lifecycle
+				// transitions are single-shot, so no public API writes the
+				// status repeatedly, and the instrument needs a sustained
+				// locked writer to race cleanup's read against.
+				oldest.Lock()
+				oldest.Status = v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING
+				oldest.Unlock()
 				if first {
 					close(started)
 					first = false
@@ -599,4 +606,109 @@ func TestCleanupOldActionsDuringConcurrentStatusWrites(t *testing.T) {
 	id, actionStatus, _, _ := oldest.Result()
 	require.Equal(t, oldest.Id, id)
 	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, actionStatus)
+}
+
+func TestOutstandingActionLifecycleTransitions(t *testing.T) {
+	const (
+		pending  = v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING
+		running  = v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING
+		complete = v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE
+		failed   = v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
+	)
+	cases := []struct {
+		name string
+		from v2.BatonActionStatus
+		to   v2.BatonActionStatus
+		want v2.BatonActionStatus
+	}{
+		{"pending to running", pending, running, running},
+		{"pending to complete", pending, complete, complete},
+		{"pending to failed", pending, failed, failed},
+		{"running to complete", running, complete, complete},
+		{"running to failed", running, failed, failed},
+		{"running to running rejected", running, running, running},
+		{"complete rejects running", complete, running, complete},
+		{"complete rejects failed", complete, failed, complete},
+		{"failed rejects complete", failed, complete, failed},
+		{"failed rejects running", failed, running, failed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			oa := NewOutstandingAction("id", "lifecycle")
+			oa.Status = tc.from
+			oa.SetStatus(t.Context(), tc.to)
+			_, actionStatus, _, _ := oa.Result()
+			require.Equal(t, tc.want, actionStatus)
+		})
+	}
+}
+
+func TestLateCompletionAfterCancelStaysFailed(t *testing.T) {
+	ctx := t.Context()
+	oa := NewOutstandingAction("id", "cancelled")
+	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+	oa.SetError(ctx, context.Canceled)
+
+	rv, err := structpb.NewStruct(map[string]any{"success": true})
+	require.NoError(t, err)
+	oa.setOutcome(ctx, rv, nil, nil)
+
+	_, actionStatus, gotRv, _ := oa.Result()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Equal(t, context.Canceled.Error(), gotRv.Fields["error"].GetStringValue())
+	require.Nil(t, gotRv.Fields["success"])
+}
+
+func TestLateFailureAfterCancelReplacesError(t *testing.T) {
+	ctx := t.Context()
+	oa := NewOutstandingAction("id", "cancelled")
+	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+	oa.SetError(ctx, context.Canceled)
+
+	oa.setOutcome(ctx, nil, nil, fmt.Errorf("upstream rejected the request"))
+
+	_, actionStatus, gotRv, _ := oa.Result()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Equal(t, "upstream rejected the request", gotRv.Fields["error"].GetStringValue())
+}
+
+func TestPublishedOutcomeIsIsolatedFromHandler(t *testing.T) {
+	ctx := t.Context()
+	oa := NewOutstandingAction("id", "isolated")
+	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+
+	rv, err := structpb.NewStruct(map[string]any{"k": "v"})
+	require.NoError(t, err)
+	oa.setOutcome(ctx, rv, annotations.Annotations{}, nil)
+
+	// The handler owns what it returned and may keep mutating it; the
+	// published outcome must not change.
+	rv.Fields["mutated"] = structpb.NewBoolValue(true)
+
+	_, actionStatus, gotRv, _ := oa.Result()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.Nil(t, gotRv.Fields["mutated"])
+	require.Equal(t, "v", gotRv.Fields["k"].GetStringValue())
+
+	// Under -race: concurrent handler mutation against reader marshals.
+	stop := make(chan struct{})
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+				rv.Fields[fmt.Sprintf("m%d", i)] = structpb.NewBoolValue(true)
+			}
+		}
+	}()
+	for i := 0; i < 100; i++ {
+		_, _, snapshot, _ := oa.Result()
+		_, err := proto.Marshal(snapshot)
+		require.NoError(t, err)
+	}
+	close(stop)
+	<-writerDone
 }

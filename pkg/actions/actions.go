@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -48,21 +50,30 @@ func (oa *OutstandingAction) SetStatus(ctx context.Context, status v2.BatonActio
 	oa.setStatusLocked(ctx, status)
 }
 
-// setStatusLocked requires oa's mutex to be held.
-func (oa *OutstandingAction) setStatusLocked(ctx context.Context, status v2.BatonActionStatus) {
-	l := ctxzap.Extract(ctx).With(
-		zap.String("action_id", oa.Id),
-		zap.String("action_name", oa.Name),
-		zap.String("status", status.String()),
-	)
+// setStatusLocked applies a lifecycle transition and reports whether it was
+// accepted. Terminal statuses are final and RUNNING is only reachable from
+// PENDING; rejected transitions are dropped. These fire in normal operation
+// (a handler finishing after its request was cancelled), hence debug level.
+// It requires oa's mutex to be held.
+func (oa *OutstandingAction) setStatusLocked(ctx context.Context, status v2.BatonActionStatus) bool {
 	if oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
-		l.Error("cannot set status on completed action")
+		ctxzap.Extract(ctx).Debug("dropping status transition on terminal action",
+			zap.String("action_id", oa.Id),
+			zap.String("action_name", oa.Name),
+			zap.String("status", oa.Status.String()),
+			zap.String("requested_status", status.String()))
+		return false
 	}
 	if status == v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING && oa.Status != v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING {
-		l.Error("cannot set status to running unless action is pending")
+		ctxzap.Extract(ctx).Debug("dropping running transition on non-pending action",
+			zap.String("action_id", oa.Id),
+			zap.String("action_name", oa.Name),
+			zap.String("status", oa.Status.String()))
+		return false
 	}
 
 	oa.Status = status
+	return true
 }
 
 // setErrorLocked requires oa's mutex to be held.
@@ -84,21 +95,29 @@ func (oa *OutstandingAction) setErrorLocked(err error) {
 
 // SetError records the error and marks the action failed in one critical
 // section, so no snapshot can observe the error with a non-terminal status.
+// A FAILED action may refresh its error payload — a late handler error is a
+// richer account than an earlier cancellation — but a COMPLETE action stays
+// complete.
 func (oa *OutstandingAction) SetError(ctx context.Context, err error) {
 	oa.Lock()
 	defer oa.Unlock()
-	oa.setErrorLocked(err)
-	oa.setStatusLocked(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
+	if oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
+		oa.setErrorLocked(err)
+		return
+	}
+	if oa.setStatusLocked(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED) {
+		oa.setErrorLocked(err)
+	}
 }
 
-// Result returns the action's identity and current outcome as a consistent
-// snapshot; the handler goroutine may still be mutating the action.
+// Result returns the action's identity and current outcome. The snapshot is
+// internally consistent; the returned message and annotations are owned by
+// the action and must not be modified.
 func (oa *OutstandingAction) Result() (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations) {
 	return oa.result()
 }
 
-// result returns the action's identity and current outcome as a consistent
-// snapshot; the handler goroutine may still be mutating the action.
+// result is the unexported form of Result.
 func (oa *OutstandingAction) result() (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations) {
 	oa.Lock()
 	defer oa.Unlock()
@@ -106,18 +125,33 @@ func (oa *OutstandingAction) result() (string, v2.BatonActionStatus, *structpb.S
 }
 
 // setOutcome publishes the handler's result and terminal status in one
-// critical section, so no snapshot observes one without the other.
+// critical section, so no snapshot observes one without the other. The
+// values are cloned at this publication seam: the handler owns what it
+// returned and may keep mutating it. Terminal statuses are final — a late
+// completion after a cancellation is dropped, except that a FAILED action
+// takes a late handler failure as a replacement account.
 func (oa *OutstandingAction) setOutcome(ctx context.Context, rv *structpb.Struct, annos annotations.Annotations, err error) {
+	if rv != nil {
+		rv = proto.Clone(rv).(*structpb.Struct)
+	}
+	annos = slices.Clone(annos)
+
 	oa.Lock()
 	defer oa.Unlock()
-	oa.Rv = rv
-	oa.Annos = annos
+
 	if err != nil {
-		oa.setErrorLocked(err)
-		oa.setStatusLocked(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
+		if oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED || oa.setStatusLocked(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED) {
+			oa.Rv = rv
+			oa.Annos = annos
+			oa.setErrorLocked(err)
+		}
 		return
 	}
-	oa.setStatusLocked(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
+
+	if oa.setStatusLocked(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE) {
+		oa.Rv = rv
+		oa.Annos = annos
+	}
 }
 
 const maxOldActions = 1000
@@ -508,6 +542,14 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 		id, st, rv, annos := oa.result()
 		return id, st, rv, annos, nil
 	case <-ctx.Done():
+		// The handler may have finished in the same instant; prefer its
+		// completed result over a spurious cancellation return.
+		select {
+		case <-done:
+			id, st, rv, annos := oa.result()
+			return id, st, rv, annos, nil
+		default:
+		}
 		oa.SetError(ctx, ctx.Err())
 		id, st, rv, annos := oa.result()
 		return id, st, rv, annos, ctx.Err()
@@ -597,6 +639,14 @@ func (a *ActionManager) invokeResourceAction(
 		id, st, rv, annos := oa.result()
 		return id, st, rv, annos, nil
 	case <-ctx.Done():
+		// The handler may have finished in the same instant; prefer its
+		// completed result over a spurious cancellation return.
+		select {
+		case <-done:
+			id, st, rv, annos := oa.result()
+			return id, st, rv, annos, nil
+		default:
+		}
 		oa.SetError(ctx, ctx.Err())
 		id, st, rv, annos := oa.result()
 		return id, st, rv, annos, ctx.Err()
