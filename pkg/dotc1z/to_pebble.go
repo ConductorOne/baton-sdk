@@ -98,8 +98,8 @@ type syncIDPreservingStarter interface {
 	StartNewSyncWithID(ctx context.Context, syncType connectorstore.SyncType, syncID, parentSyncID string) (string, error)
 }
 
-// ToPebble converts a single finished sync from this SQLite store into a new
-// v3/Pebble .c1z written to outPath, which must not already exist.
+// ToPebble converts a single sync from this SQLite store into a new v3/Pebble
+// .c1z written to outPath, which must not already exist.
 //
 // It uses the engine's BulkSyncImport SST fast path: each record table is
 // streamed out of SQLite once, in primary-key order via `ORDER BY` on the
@@ -114,13 +114,15 @@ type syncIDPreservingStarter interface {
 // SQLite's UNIQUE(external_id, sync_id) indexes provide the no-duplicates
 // guarantee the importer requires.
 //
-// syncID selects the source sync to convert; "" prefers the latest finished
-// full sync and otherwise falls back to the latest full sync of any state.
-// ToPebble does NOT validate that the sync is a complete snapshot, nor that it
-// is ended — the caller owns that decision (e.g. compacting
-// targeted-partial/diff syncs into a complete snapshot beforehand, or
-// converting an in-progress/unexpanded sync to seed a fixture). It only
-// requires the sync to exist. The destination sync is always written ended.
+// syncID selects the source sync to convert; "" walks full, then partial, then
+// resources_only, preferring a finished sync of that type and falling back to
+// an unfinished one (subject to getLatestUnfinishedSync's one-week cutoff).
+// When the source has no sync runs at all, "" writes an empty Pebble c1z (so
+// convert-open succeeds on never-synced files). If sync runs exist but none
+// is convertible (typically finished/unfinished diff-only), "" returns an
+// error rather than discarding data. Pass an explicit syncID to convert a
+// specific sync (including diff syncs for fixture seeding); the destination
+// sync is always written ended.
 //
 // The Pebble engine is registered statically with dotc1z; no extra
 // imports are needed before calling.
@@ -148,12 +150,37 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	}
 
 	if syncID == "" {
-		syncID, err = c.resolveConvertSyncID(ctx)
-		if err != nil {
-			return nil, err
+		convertibleSyncTypes := []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly}
+		for _, syncType := range convertibleSyncTypes {
+			// Try to find a finished sync we can convert.
+			syncID, err = c.LatestSyncID(ctx, syncType)
+			if err != nil {
+				return nil, fmt.Errorf("to-pebble: get latest %s sync: %w", syncType, err)
+			}
+			if syncID != "" {
+				break
+			}
+			// Fall back to an unfinished sync we can convert.
+			syncRun, err := c.getLatestUnfinishedSync(ctx, syncType)
+			if err != nil {
+				return nil, fmt.Errorf("to-pebble: get latest %s sync: %w", syncType, err)
+			}
+			if syncRun != nil {
+				syncID = syncRun.ID
+				break
+			}
 		}
 		if syncID == "" {
-			return nil, fmt.Errorf("to-pebble: no full sync found to convert")
+			hasSyncs, err := c.hasAnySyncRun(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("to-pebble: check for any sync runs: %w", err)
+			}
+			if !hasSyncs {
+				// No syncs. Make an empty pebble c1z.
+				return c.convertEmptyToPebble(ctx, outPath, cfg)
+			}
+			// SQLite has syncs, but not one we can convert (e.g. diff-only).
+			return nil, fmt.Errorf("to-pebble: no convertible sync found (diff syncs require an explicit sync-id)")
 		}
 	}
 
@@ -295,38 +322,57 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	return stats, nil
 }
 
-// resolveConvertSyncID picks the source sync for a default ("") conversion.
-// It prefers the latest finished full sync (the normal case), and otherwise
-// falls back to the latest full sync of any state so an in-progress or
-// unexpanded sync can still be converted (e.g. to seed a benchmark fixture).
-// Unlike getLatestUnfinishedSync this has no recency cutoff, so old checked-in
-// fixtures resolve too.
-func (c *C1File) resolveConvertSyncID(ctx context.Context) (string, error) {
-	syncID, err := c.LatestSyncID(ctx, connectorstore.SyncTypeFull)
-	if err != nil {
-		return "", err
-	}
-	if syncID != "" {
-		return syncID, nil
-	}
-
-	q := c.db.From(syncRuns.Name()).Prepared(true).
-		Select("sync_id").
-		Where(goqu.C("sync_type").Eq(connectorstore.SyncTypeFull)).
-		Order(goqu.C("started_at").Desc()).
-		Limit(1)
+// hasAnySyncRun reports whether the SQLite source has at least one sync_runs row.
+func (c *C1File) hasAnySyncRun(ctx context.Context) (bool, error) {
+	q := c.db.From(syncRuns.Name()).Prepared(true).Select(goqu.L("1")).Limit(1)
 	query, args, err := q.ToSQL()
 	if err != nil {
-		return "", err
+		return false, err
 	}
-	var id string
-	if err := c.db.QueryRowContext(ctx, query, args...).Scan(&id); err != nil {
+	var one int
+	if err := c.db.QueryRowContext(ctx, query, args...).Scan(&one); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", nil
+			return false, nil
 		}
-		return "", err
+		return false, err
 	}
-	return id, nil
+	return true, nil
+}
+
+// convertEmptyToPebble writes a valid empty Pebble c1z (no sync runs).
+// Caller must ensure the source has no sync_runs rows.
+func (c *C1File) convertEmptyToPebble(ctx context.Context, outPath string, cfg *convertConfig) (*ConvertStats, error) {
+	start := time.Now()
+
+	dest, err := NewStore(ctx, outPath, WithEngine(c1zstore.EnginePebble), WithTmpDir(cfg.tmpDir))
+	if err != nil {
+		return nil, fmt.Errorf("to-pebble: open destination: %w", err)
+	}
+	cleanupDest := true
+	defer func() {
+		if cleanupDest {
+			_ = dest.Close(ctx)
+			_ = os.Remove(outPath) // #nosec G703 -- cleanup of caller-selected conversion output.
+		}
+	}()
+
+	// A fresh store is not dirty until something writes. Force the envelope
+	// save so Close materializes an empty v3 c1z at outPath.
+	if !pebble.MarkStoreDirty(dest) {
+		return nil, errors.New("to-pebble: destination does not support dirty marking")
+	}
+	if err = dest.Close(ctx); err != nil {
+		cleanupDest = false
+		_ = os.Remove(outPath) // #nosec G703 -- cleanup of caller-selected conversion output.
+		return nil, fmt.Errorf("to-pebble: close destination: %w", err)
+	}
+	cleanupDest = false
+
+	stats := &ConvertStats{Total: time.Since(start)}
+	ctxzap.Extract(ctx).Info("to-pebble: wrote empty pebble c1z (source had no sync runs)",
+		zap.Duration("total", stats.Total),
+	)
+	return stats, nil
 }
 
 // scanRows executes q and invokes fn for each row with the raw *sql.Rows
