@@ -119,18 +119,18 @@ func (e *LambdaInvokeFailure) Code() codes.Code {
 // to slip raw log text past that check.
 func (e *LambdaInvokeFailure) Error() string {
 	var b strings.Builder
-	b.WriteString("lambda_transport: ")
+	_, _ = b.WriteString("lambda_transport: ")
 
 	switch e.FailureClass {
 	case FailureClassOOM:
-		b.WriteString("function ran out of memory")
+		_, _ = b.WriteString("function ran out of memory")
 		if e.MemorySizeMB > 0 && e.MaxMemoryUsedMB > 0 {
 			fmt.Fprintf(&b, " (used %d MB of %d MB)", e.MaxMemoryUsedMB, e.MemorySizeMB)
 		}
 	case FailureClassTimeout:
-		b.WriteString("function timed out")
+		_, _ = b.WriteString("function timed out")
 	default:
-		b.WriteString("function returned error")
+		_, _ = b.WriteString("function returned error")
 	}
 
 	fmt.Fprintf(&b, ": %s", e.FunctionError)

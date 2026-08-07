@@ -458,21 +458,27 @@ type workerResult struct {
 	err     error
 }
 
-const maxSpawnedCursorsPerBatch = 100_000
-
 // parallelActionQueue is a dynamically extensible worker queue. outstanding
 // counts queued plus in-flight actions, so workers stop only after the whole
 // fan-out drains. An in-flight action may enqueue siblings before completing;
 // therefore outstanding cannot transiently reach zero between parent and child.
 type parallelActionQueue struct {
-	// mu guards every field below, including the fixed-size cursor digest set.
+	// mu guards every field below.
 	mu          native_sync.Mutex
 	cond        *native_sync.Cond
 	actions     []*Action
 	head        int
 	outstanding int
 	aborted     bool
-	seen        map[parallelActionKey]struct{}
+	// The queue keeps NO cursor identity history (RFC 0007 phase 1
+	// restored the pre-identity-machinery posture that prod ran on for
+	// years): no batch-lifetime seen set, no cap, no cross-commit dedup,
+	// no continuation re-convergence. Duplicate mentions of finished work
+	// re-run idempotently; spawned re-mentions are still skipped by the
+	// state layer's spawnedAdmitted guard (state.transitionAction); a
+	// cyclic continuation chain is a connector bug that runs until the
+	// run-duration budget expires. Phase 2 reintroduces bounded
+	// accounting as a working set over outstanding actions only.
 	// audit, when non-nil, records every queue event for the post-hoc
 	// contract checker (queue_audit.go). Nil in production.
 	audit      *queueAudit
@@ -509,12 +515,6 @@ func newParallelActionQueue(actions []*Action) *parallelActionQueue {
 	q := &parallelActionQueue{
 		actions:     append([]*Action(nil), actions...),
 		outstanding: len(actions),
-		seen:        make(map[parallelActionKey]struct{}, len(actions)),
-	}
-	for _, action := range actions {
-		if action != nil {
-			q.seen[makeParallelActionKey(action)] = struct{}{}
-		}
 	}
 	q.cond = native_sync.NewCond(&q.mu)
 	return q
@@ -537,28 +537,29 @@ func (q *parallelActionQueue) attachAudit(audit *queueAudit, batchOp ActionOp, b
 			continue
 		}
 		ev.actionIDs = append(ev.actionIDs, action.ID)
-		ev.keys = append(ev.keys, makeParallelActionKey(action))
 	}
 	audit.record(ev)
 }
 
-// transition atomically validates and commits a parent's pagination plus
-// its spawned children, then admits the same-op children to the queue.
-// commit receives the EFFECTIVE continuation and the ADMITTED children
-// only: an identity already seeded or admitted earlier in this batch is
-// handled idempotently rather than fatally, because connectors
-// legitimately re-converge on a cursor that is already scheduled
-// (DAG-shaped shard discovery, cyclic discovery graphs, or post-crash
-// answers that shifted under a resumed checkpoint) and a hard error here
-// is deterministic on every retry — it would wedge the sync permanently.
-// Concretely:
-//   - a CHILD whose identity is already scheduled is skipped (the
-//     identical work is admitted exactly once);
-//   - a CONTINUATION whose identity is already scheduled finishes the
-//     parent instead (the action owning that identity performs exactly
-//     the work the continuation would have — the tail is not lost);
-//   - the same cursor twice within ONE commit stays a loud failure: same
-//     call, same answer — a genuine connector protocol violation.
+// transition atomically commits a parent's pagination plus its spawned
+// children, then admits the same-op children to the queue.
+//
+// The queue performs NO cross-commit identity accounting (RFC 0007
+// phase 1). The former batch-lifetime seen set — and the 100k cursor cap
+// computed over it — bounded CUMULATIVE unique cursors rather than
+// in-flight width, so legitimate large fan-outs (>100k pages+spawns over a
+// batch's life) failed deterministically on every retry. Both were removed
+// to restore the posture prod ran on before that machinery existed:
+// duplicate mentions of finished work re-run idempotently (spawned
+// re-mentions are still skipped by state.transitionAction's
+// spawnedAdmitted guard), and cyclic continuation chains are connector
+// bugs that run until the run-duration budget expires. Phase 2
+// reintroduces bounded accounting over outstanding actions only.
+//
+// The one remaining check is commit-local and allocation-free across
+// commits: the same cursor twice within ONE commit (or a child identical
+// to the parent's own continuation) is a loud failure — same call, same
+// answer, a genuine connector protocol violation.
 func (q *parallelActionQueue) transition(
 	ctx context.Context,
 	batchOp ActionOp,
@@ -574,30 +575,15 @@ func (q *parallelActionQueue) transition(
 		return context.Canceled
 	}
 
-	effectiveNext := nextPageToken
+	// keys is COMMIT-LOCAL: it exists only to catch the same cursor twice
+	// within this one response and is discarded when transition returns.
 	keys := make(map[parallelActionKey]struct{}, len(childActions)+1)
 	if nextPageToken != "" && parent != nil && parent.Op == batchOp {
 		continuedParent := *parent
 		continuedParent.PageToken = nextPageToken
-		key := makeParallelActionKey(&continuedParent)
-		if _, ok := q.seen[key]; ok {
-			// Re-convergence: the continuation's identity is already
-			// scheduled in this batch (a resumed cursor holding this
-			// exact token, or a cyclic continuation that already walked
-			// it). Finish the parent — see the function comment.
-			effectiveNext = ""
-			ctxzap.Extract(ctx).Warn(
-				"parallel scheduler: parent continuation re-converged on an already-scheduled cursor; finishing parent",
-				zap.String("op", batchOp.String()),
-				zap.String("resource_type_id", parent.ResourceTypeID),
-				zap.String("resource_id", parent.ResourceID),
-			)
-		} else {
-			keys[key] = struct{}{}
-		}
+		keys[makeParallelActionKey(&continuedParent)] = struct{}{}
 	}
 	admitted := make([]Action, 0, len(childActions))
-	skipped := 0
 	for i := range childActions {
 		child := &childActions[i]
 		if child.Op != batchOp {
@@ -618,42 +604,20 @@ func (q *parallelActionQueue) transition(
 				child.PageToken,
 			)
 		}
-		if _, ok := q.seen[key]; ok {
-			// Already seeded or admitted earlier in this batch: the
-			// identical work is scheduled exactly once already. Skip
-			// idempotently — see the function comment for why this must
-			// not be an error.
-			skipped++
-			continue
-		}
 		keys[key] = struct{}{}
 		admitted = append(admitted, *child)
 	}
-	if skipped > 0 {
-		ctxzap.Extract(ctx).Warn("parallel scheduler: skipped re-mentioned spawned cursors already scheduled in this batch",
-			zap.Int("skipped_cursors", skipped),
-			zap.String("op", batchOp.String()),
-		)
-	}
-	if len(q.seen)+len(keys) > maxSpawnedCursorsPerBatch {
-		q.audit.record(queueAuditEvent{kind: auditReject, batch: q.auditBatch})
-		return fmt.Errorf("spawned cursor batch exceeded the maximum of %d unique cursors", maxSpawnedCursorsPerBatch)
-	}
 
-	pushed, err := commit(effectiveNext, admitted)
+	pushed, err := commit(nextPageToken, admitted)
 	if err != nil {
 		q.audit.record(queueAuditEvent{kind: auditReject, batch: q.auditBatch})
 		return err
-	}
-	for key := range keys {
-		q.seen[key] = struct{}{}
 	}
 	commitEv := queueAuditEvent{kind: auditCommit, batch: q.auditBatch}
 	for _, action := range pushed {
 		if action != nil && action.Op == batchOp {
 			if q.audit != nil {
 				commitEv.actionIDs = append(commitEv.actionIDs, action.ID)
-				commitEv.keys = append(commitEv.keys, makeParallelActionKey(action))
 			}
 			q.actions = append(q.actions, action)
 			q.outstanding++

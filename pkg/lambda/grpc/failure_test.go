@@ -403,12 +403,12 @@ func truncatedTail() (string, string) {
 		`"pageToken":"","query":{"limit":"50"},"url":"/v2/persons/1/employments"}`
 
 	var b strings.Builder
-	b.WriteString(firstLineFragment)
-	b.WriteString("\n")
+	_, _ = b.WriteString(firstLineFragment)
+	_, _ = b.WriteString("\n")
 	for b.Len() < lambdaLogTailTruncationThresholdBytes {
-		b.WriteString(`{"level":"debug","msg":"listing resources","duration_ms":12,"method":"GET"}` + "\n")
+		_, _ = b.WriteString(`{"level":"debug","msg":"listing resources","duration_ms":12,"method":"GET"}` + "\n")
 	}
-	b.WriteString(reportOOM + "\n")
+	_, _ = b.WriteString(reportOOM + "\n")
 
 	return firstLineFragment, b.String()
 }

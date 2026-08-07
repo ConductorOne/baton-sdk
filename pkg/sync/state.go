@@ -260,11 +260,11 @@ type state struct {
 	// idempotency guard for re-mentioned spawns: connectors legitimately
 	// re-mention a cursor another response already spawned (DAG-shaped
 	// shard discovery, or post-crash answers that shifted under a
-	// resumed checkpoint). The parallel queue's own dedup set is scoped
-	// to ONE batch, so an identity that completed in an earlier batch is
-	// invisible to it — without this process-lifetime set, two cursors
-	// mentioning each other across batch boundaries would re-admit each
-	// other forever. transitionAction skips a spawned child whose
+	// resumed checkpoint). This is the pipeline's ONLY spawn dedup: the
+	// parallel queue keeps no identity history (RFC 0007 phase 1), so
+	// without this process-lifetime set, two cursors mentioning each
+	// other would re-admit each other forever.
+	// transitionAction skips a spawned child whose
 	// identity is already here. Entries are deliberately NEVER pruned on
 	// finish — a completed spawn must stay skippable or cycles resume.
 	// Not serialized: after a crash the set rebuilds from the surviving
@@ -851,8 +851,8 @@ func (st *state) transitionAction(
 		// admitted in this process is the same work, already scheduled
 		// or done. Re-admitting it duplicates work at best; at worst it
 		// never terminates (mutual mentions re-admitting each other
-		// across batch boundaries, where the queue's per-batch dedup
-		// cannot see them). Skip it, loudly.
+		// forever — this is the pipeline's only spawn dedup; the queue
+		// keeps no identity history, RFC 0007 phase 1). Skip it, loudly.
 		if child.Spawned {
 			if priorID, dup := st.spawnedAdmitted[makeParallelActionKey(&child)]; dup {
 				ctxzap.Extract(ctx).Warn(

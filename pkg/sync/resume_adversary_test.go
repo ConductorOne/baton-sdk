@@ -72,10 +72,10 @@ func TestReMentionedSpawnsTerminateIdempotently(t *testing.T) {
 }
 
 // TestStateSkipsReAdmittedSpawnIdentity pins the state-level re-mention
-// guard at its own scope: the parallel queue's dedup set lives for ONE
-// batch, so an identity finished in an earlier batch is invisible to it —
-// the process-lifetime spawnedAdmitted set is what terminates mutual
-// mentions that span batches. The guard must hold across completion
+// guard: the process-lifetime spawnedAdmitted set is the pipeline's only
+// spawn dedup (the parallel queue keeps no identity history; RFC 0007
+// phase 1) and is what terminates mutual mentions, including those that
+// span batches. The guard must hold across completion
 // (never pruned on finish) and reset with a fresh state (rebuilt from the
 // surviving stack on resume).
 func TestStateSkipsReAdmittedSpawnIdentity(t *testing.T) {

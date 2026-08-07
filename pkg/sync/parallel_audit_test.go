@@ -15,9 +15,12 @@ package sync //nolint:revive,nolintlint // backwards-compatible package name
 //   C2  admission before execution: nothing is dequeued that was never
 //       seeded or committed.
 //   C3  no commits after abort: an aborted batch admits nothing further.
-//   C4  dedup soundness: no two actions in one batch share an identity
-//       digest (re-verified from the recorded keys, independent of the
-//       queue's own seen set).
+//   C4  (removed) dedup soundness — "no two actions in one batch share an
+//       identity digest" — was a property of the queue's identity history,
+//       deleted by RFC 0007 phase 1: duplicate identities across commits
+//       are now permitted (idempotent re-runs; spawned duplicates are
+//       skipped by the state layer before they reach the queue). The check
+//       returns with phase 2's working set.
 //   C5  accounting: dones never exceed dequeues, and on any batch end
 //       they match (every taken action was returned).
 //
@@ -34,7 +37,6 @@ import (
 type auditBatchState struct {
 	op        ActionOp
 	admitted  map[string]bool // actionID -> dequeued yet?
-	keys      map[parallelActionKey]string
 	dequeues  int
 	dones     int
 	aborted   bool
@@ -53,17 +55,12 @@ func verifyQueueAudit(t *testing.T, audit *queueAudit) {
 	t.Helper()
 	batches := map[int]*auditBatchState{}
 
-	admit := func(b *auditBatchState, batch int, ids []string, keys []parallelActionKey) {
-		for i, id := range ids {
+	admit := func(b *auditBatchState, ids []string) {
+		for _, id := range ids {
 			if _, ok := b.admitted[id]; ok {
 				b.violatef("action %s admitted twice", id)
 			}
 			b.admitted[id] = false
-			key := keys[i]
-			if prev, ok := b.keys[key]; ok {
-				b.violatef("actions %s and %s share identity digest in batch %d (dedup unsound)", prev, id, batch)
-			}
-			b.keys[key] = id
 		}
 	}
 
@@ -75,10 +72,9 @@ func verifyQueueAudit(t *testing.T, audit *queueAudit) {
 			b = &auditBatchState{
 				op:       ev.op,
 				admitted: map[string]bool{},
-				keys:     map[parallelActionKey]string{},
 			}
 			batches[ev.batch] = b
-			admit(b, ev.batch, ev.actionIDs, ev.keys)
+			admit(b, ev.actionIDs)
 			continue
 		}
 		if b.ended {
@@ -107,7 +103,7 @@ func verifyQueueAudit(t *testing.T, audit *queueAudit) {
 			if b.aborted {
 				b.violatef("transition committed after abort (C3)")
 			}
-			admit(b, ev.batch, ev.actionIDs, ev.keys)
+			admit(b, ev.actionIDs)
 		case auditReject:
 			// Rejections mutate nothing; post-abort rejections are the
 			// REQUIRED behavior (the abort path returning cancellation

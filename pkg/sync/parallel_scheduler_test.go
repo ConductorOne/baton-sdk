@@ -2,7 +2,6 @@ package sync //nolint:revive,nolintlint // backwards-compatible package name
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"reflect"
@@ -157,6 +156,11 @@ func TestSyncParallelDrainsMultipleSpawnedCursors(t *testing.T) {
 }
 
 func TestSyncParallelBreaksCyclicSpawnedCursorIdempotently(t *testing.T) {
+	t.Skip("pinned the queue's batch-lifetime seen-set cycle break, removed by RFC 0007 phase 1 " +
+		"(docs/rfcs/0007-scheduler-cursor-accounting.md): the queue keeps no identity history; " +
+		"spawn-cycle termination is owned by state.transitionAction's spawnedAdmitted guard " +
+		"(one extra idempotent re-run of the first re-mention), and queue-level detection " +
+		"returns with phase 2's working set")
 	// A cursor that re-mentions its own identity (the tightest cycle) is
 	// skipped, not fatal: the identical work is scheduled exactly once,
 	// so failing would wedge the sync deterministically — while skipping
@@ -254,6 +258,11 @@ func TestFailedSiblingAdmissionDoesNotAdvanceParentCursor(t *testing.T) {
 }
 
 func TestContinuationReconvergenceFinishesParent(t *testing.T) {
+	t.Skip("pinned seen-set re-convergence (finish a parent whose continuation lands on an " +
+		"already-scheduled identity), removed by RFC 0007 phase 1 " +
+		"(docs/rfcs/0007-scheduler-cursor-accounting.md): with no identity history the " +
+		"continuation proceeds and re-walks the pages idempotently; prompt re-convergence " +
+		"returns with phase 2's working set")
 	// A parent whose NEXT PAGE TOKEN re-converges on an identity already
 	// scheduled in the batch (e.g. a resumed cursor persisted with that
 	// exact token, re-mentioned because the API's answers shifted across
@@ -350,25 +359,12 @@ func TestAbortedQueueRejectsInFlightTransitionWithoutStateMutation(t *testing.T)
 	require.Empty(t, queue.actions)
 }
 
-func TestParallelActionQueueRejectsCursorLimitBeforeCommit(t *testing.T) {
-	queue := newParallelActionQueue(nil)
-	for i := 0; i < maxSpawnedCursorsPerBatch; i++ {
-		var key parallelActionKey
-		binary.BigEndian.PutUint64(key[:8], uint64(i))
-		queue.seen[key] = struct{}{}
-	}
-	committed := false
-	err := queue.transition(t.Context(), SyncGrantsOp, nil, "", []Action{{
-		Op:        SyncGrantsOp,
-		PageToken: "over-limit",
-	}}, func(string, []Action) ([]*Action, error) {
-		committed = true
-		return nil, nil
-	})
-	require.ErrorContains(t, err, "exceeded the maximum")
-	require.False(t, committed)
-	require.Len(t, queue.seen, maxSpawnedCursorsPerBatch)
-}
+// TestParallelActionQueueRejectsCursorLimitBeforeCommit was deleted with the
+// batch-lifetime cursor cap it pinned (RFC 0007 phase 1,
+// docs/rfcs/0007-scheduler-cursor-accounting.md): the cap bounded CUMULATIVE
+// unique cursors per batch, not in-flight width, so legitimate large fan-outs
+// failed deterministically mid-sync. Phase 2's bound on OUTSTANDING actions
+// is a different property and gets its own test.
 
 func TestNextPageOrFinishActionStateTransitions(t *testing.T) {
 	child := Action{
