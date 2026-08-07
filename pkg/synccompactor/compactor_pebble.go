@@ -900,6 +900,23 @@ func readCompactionInputFormat(path string) (dotc1z.C1ZFormat, error) {
 
 func resolveSQLiteCompactionSyncID(ctx context.Context, store *dotc1z.C1File, explicitSyncID string) (string, error) {
 	if explicitSyncID != "" {
+		// An explicit id is taken verbatim, so it can name an unfinished
+		// sync. ToPebble preserves that unfinished state (ended_at cleared,
+		// sync_token kept, so the sync stays resumable), and the merge's
+		// source selection only considers finished syncs — the converted
+		// file would fail later with "no finished compactable sync",
+		// pointing at a temp path instead of the input the caller named.
+		// Reject it here, where the message can say which input and why.
+		sr, err := sqliteSyncRunByID(ctx, store, explicitSyncID)
+		if err != nil {
+			return "", err
+		}
+		if sr == nil {
+			return "", fmt.Errorf("sync %s not found in sqlite input", explicitSyncID)
+		}
+		if sr.EndedAt == nil {
+			return "", fmt.Errorf("sync %s is unfinished; compaction requires a finished sync", explicitSyncID)
+		}
 		return explicitSyncID, nil
 	}
 
@@ -937,6 +954,36 @@ func resolveSQLiteCompactionSyncID(ctx context.Context, store *dotc1z.C1File, ex
 		)
 	}
 	return best.GetId(), nil
+}
+
+// sqliteSyncRunByID returns the sync_runs metadata for syncID, or nil when the
+// input holds no such sync.
+//
+// Deliberately not GetSync: that recomputes the stats blob whenever it is
+// absent, which is a full GROUP BY over the sync's records — and stats are only
+// cached when a sync ends, so the recompute would fire for exactly the
+// unfinished syncs this lookup exists to detect, then throw the result away
+// (the input is opened read-only, so nothing is persisted) and, if the
+// recompute failed, replace the caller's diagnosis with a stats error.
+// ListSyncRuns reads the rows and nothing else; the c1z sanitizer uses it the
+// same way.
+func sqliteSyncRunByID(ctx context.Context, store *dotc1z.C1File, syncID string) (*c1zstore.SyncRun, error) {
+	pageToken := ""
+	for {
+		runs, nextPageToken, err := store.ListSyncRuns(ctx, pageToken, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, sr := range runs {
+			if sr != nil && sr.ID == syncID {
+				return sr, nil
+			}
+		}
+		if nextPageToken == "" || nextPageToken == pageToken {
+			return nil, nil
+		}
+		pageToken = nextPageToken
+	}
 }
 
 // convertSQLiteInputToPebble converts a v1/SQLite compaction input into a

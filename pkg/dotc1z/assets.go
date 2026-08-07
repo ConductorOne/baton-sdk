@@ -87,7 +87,7 @@ func (c *C1File) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentTyp
 		"content_type":  contentType,
 		"data":          data,
 		"sync_id":       c.currentSyncID,
-		"discovered_at": time.Now().Format("2006-01-02 15:04:05.999999999"),
+		"discovered_at": time.Now().Format(sqliteTimeFormat),
 	}
 
 	q := c.db.Insert(assets.Name()).Prepared(true)

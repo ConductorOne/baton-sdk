@@ -28,6 +28,63 @@ const bulkPutParallelThreshold = 100
 const insertChunkSize = 1000
 const maxPageSize = 10000
 
+// sqliteTimeFormat is the layout every timestamp column in a v1 c1z is written
+// in: started_at / ended_at on sync_runs, discovered_at on the record tables and
+// assets. The value is local wall-clock with no zone suffix.
+//
+// Any SQL predicate on one of those columns must render its bound with this
+// layout, in local time. The columns hold TEXT and SQLite compares them
+// bytewise, so a bound in another shape silently compares wrong — binding a
+// time.Time makes goqu emit RFC3339Nano in UTC, whose 'T' separator sorts above
+// this layout's space and made every same-date row look older than the bound.
+const sqliteTimeFormat = "2006-01-02 15:04:05.999999999"
+
+// localizeSQLiteTimestamp reinterprets a timestamp scanned out of a v1 c1z as a
+// wall clock in loc, which for production callers is time.Local.
+//
+// The writers Format in local time with no zone suffix, and the driver parses
+// that layout with time.Parse, which assumes UTC (modernc only uses
+// ParseInLocation when the _timezone DSN param is set, and it is not). A scanned
+// value therefore carries the right wall clock in the wrong location: an instant
+// off by the writing host's UTC offset.
+//
+// Reading a column and writing it back as text is unaffected, wall clock in and
+// wall clock out, which is why the SQLite-only paths stay self-consistent. But
+// anything that turns the value into an absolute instant has to fix the location
+// first, because the comparisons downstream are real time comparisons: Pebble
+// checks started_at against time.Now() for the resume cutoff, and compaction
+// picks record winners by newest discovered_at.
+//
+// A value that came back with a real zone (a zone-ful layout, or a future
+// _timezone DSN) is already unambiguous and is left alone, as is a zero time so
+// callers can keep treating it as unset.
+//
+// The result is exact except across a DST transition, where a zone-less wall
+// clock is genuinely ambiguous and no reading of the stored text can recover the
+// instant: a fall-back hour names two instants and Go leaves the choice
+// unspecified, and a spring-forward hour names none and normalizes to a shifted
+// instant. Values written in such an hour can therefore be up to an hour off,
+// which for discovered_at means a cross-file compaction tiebreak can order them
+// wrong against a Pebble-native record. Fixing that would require storing the
+// zone.
+func localizeSQLiteTimestamp(t time.Time, loc *time.Location) time.Time {
+	if t.IsZero() || t.Location() != time.UTC {
+		return t
+	}
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
+}
+
+// localizeSQLiteTimestampPtr localizes an optional column, keeping nil as nil so
+// "never set" survives, and returning a new pointer so the caller's value is
+// left alone.
+func localizeSQLiteTimestampPtr(t *time.Time, loc *time.Location) *time.Time {
+	if t == nil {
+		return nil
+	}
+	localized := localizeSQLiteTimestamp(*t, loc)
+	return &localized
+}
+
 // Use worker pool to limit goroutines.
 var numWorkers = min(max(runtime.GOMAXPROCS(0), 1), 4)
 
@@ -332,7 +389,7 @@ func prepareSingleConnectorObjectRow[T proto.Message](
 		fields["data"] = messageBlob
 	}
 	fields["sync_id"] = c.currentSyncID
-	fields["discovered_at"] = time.Now().Format("2006-01-02 15:04:05.999999999")
+	fields["discovered_at"] = time.Now().Format(sqliteTimeFormat)
 
 	return &fields, nil
 }
@@ -376,7 +433,7 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 
 	// Capture values that are the same for all rows (avoid repeated access)
 	syncID := c.currentSyncID
-	discoveredAt := time.Now().Format("2006-01-02 15:04:05.999999999")
+	discoveredAt := time.Now().Format(sqliteTimeFormat)
 
 	chunkSize := (len(msgs) + numWorkers - 1) / numWorkers
 

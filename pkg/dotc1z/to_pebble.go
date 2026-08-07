@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -17,6 +18,8 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -24,6 +27,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -35,10 +39,51 @@ const defaultConvertBatchSize = 10000
 // ConvertOption configures ToPebble.
 type ConvertOption func(*convertConfig)
 
+// ConvertResolveBehavior selects which sync "" resolves to in ToPebble.
+type ConvertResolveBehavior string
+
+const (
+	// ConvertResolveBehaviorNewest picks the convertible sync (full,
+	// resources_only, or partial) with the latest started_at, finished or
+	// not. This is the default and is what convert-open uses so an in-progress
+	// sync can migrate without being dropped. The one exception: an unfinished
+	// sync past the resume cutoff loses to any finished sync, because it can
+	// neither be resumed nor read as a snapshot — see resolveConvertSyncID.
+	//
+	// A Pebble c1z holds one sync, so every other sync in the source is
+	// dropped — including an older finished full when a newer partial exists.
+	// See convertSQLiteC1ZToPebble for why that tradeoff is deliberate on the
+	// in-place path, where the dropped syncs cannot be recovered.
+	ConvertResolveBehaviorNewest ConvertResolveBehavior = "newest"
+	// ConvertResolveBehaviorFullFinished picks the latest finished full sync.
+	// Use this for tooling that reads full-sync snapshots (e.g. baton
+	// to-pebble): a newer partial/resources_only would otherwise be selected
+	// and omit entitlements/grants the tool expects.
+	ConvertResolveBehaviorFullFinished ConvertResolveBehavior = "full_finished"
+)
+
+var validConvertResolveBehaviors = []ConvertResolveBehavior{
+	ConvertResolveBehaviorNewest,
+	ConvertResolveBehaviorFullFinished,
+}
+
 type convertConfig struct {
-	batchSize   int
-	tmpDir      string
-	parallelism int
+	batchSize       int
+	tmpDir          string
+	parallelism     int
+	resolveBehavior ConvertResolveBehavior
+}
+
+// WithConvertResolveBehavior controls how syncID "" picks a source sync.
+// Defaults to ConvertResolveBehaviorNewest when unset (including the zero
+// value). Unrecognized values return an error.
+func WithConvertResolveBehavior(behavior ConvertResolveBehavior) ConvertOption {
+	return func(c *convertConfig) {
+		if behavior == "" {
+			behavior = ConvertResolveBehaviorNewest
+		}
+		c.resolveBehavior = behavior
+	}
 }
 
 // WithConvertBatchSize sets the per-batch size. Values <= 0 are ignored.
@@ -77,6 +122,24 @@ type ConvertStageStats struct {
 	Duration time.Duration
 }
 
+// DiscardedSync identifies a source sync that a conversion left behind. A
+// Pebble c1z holds exactly one sync, so every sync in the source other than the
+// selected one is dropped.
+//
+// Callers that overwrite the source (convert-open) should surface these: once
+// the v1 file is replaced, this is the only record of what the artifact lost.
+//
+// The timestamps are absolute instants, localized out of the zone-less columns
+// the same way the converted record's own timestamps are, so they can be
+// compared against time.Now() directly.
+type DiscardedSync struct {
+	ID        string
+	Type      connectorstore.SyncType
+	StartedAt *time.Time
+	// EndedAt is nil for a sync that never finished.
+	EndedAt *time.Time
+}
+
 // ConvertStats is the per-stage instrumentation returned by ToPebble so the
 // caller can see exactly where time and volume land on a real conversion.
 type ConvertStats struct {
@@ -88,7 +151,13 @@ type ConvertStats struct {
 	Grants        ConvertStageStats
 	Assets        ConvertStageStats
 	AssetBytes    int64
-	Total         time.Duration
+	// Sessions is zero for a finished source sync: its session rows are not
+	// copied. See ToPebble.
+	Sessions ConvertStageStats
+	// DiscardedSyncs lists every source sync the conversion dropped, in
+	// sync_runs order. Empty when the source held only the selected sync.
+	DiscardedSyncs []DiscardedSync
+	Total          time.Duration
 }
 
 // syncIDPreservingStarter is the optional destination capability ToPebble
@@ -98,8 +167,8 @@ type syncIDPreservingStarter interface {
 	StartNewSyncWithID(ctx context.Context, syncType connectorstore.SyncType, syncID, parentSyncID string) (string, error)
 }
 
-// ToPebble converts a single finished sync from this SQLite store into a new
-// v3/Pebble .c1z written to outPath, which must not already exist.
+// ToPebble converts a single sync from this SQLite store into a new v3/Pebble
+// .c1z written to outPath, which must not already exist.
 //
 // It uses the engine's BulkSyncImport SST fast path: each record table is
 // streamed out of SQLite once, in primary-key order via `ORDER BY` on the
@@ -114,13 +183,42 @@ type syncIDPreservingStarter interface {
 // SQLite's UNIQUE(external_id, sync_id) indexes provide the no-duplicates
 // guarantee the importer requires.
 //
-// syncID selects the source sync to convert; "" prefers the latest finished
-// full sync and otherwise falls back to the latest full sync of any state.
-// ToPebble does NOT validate that the sync is a complete snapshot, nor that it
-// is ended — the caller owns that decision (e.g. compacting
-// targeted-partial/diff syncs into a complete snapshot beforehand, or
-// converting an in-progress/unexpanded sync to seed a fixture). It only
-// requires the sync to exist. The destination sync is always written ended.
+// syncID selects the source sync to convert; the destination holds that one
+// sync and nothing else, so every other sync in the source is dropped. Those
+// are returned in ConvertStats.DiscardedSyncs and logged with the completion
+// line, so a caller that replaces the source can report what the artifact lost.
+// When syncID is "":
+//   - WithConvertResolveBehavior(ConvertResolveBehaviorNewest) (default):
+//     most recently started convertible sync (full, resources_only, or
+//     partial), finished or not, except that an unfinished sync past the resume
+//     cutoff is ranked behind every finished sync — see resolveConvertSyncID.
+//     This can drop an older finished full sync in favor of a newer partial;
+//     see convertSQLiteC1ZToPebble for why.
+//   - WithConvertResolveBehavior(ConvertResolveBehaviorFullFinished):
+//     latest finished full sync only (errors if none). Used by baton
+//     to-pebble so read-oriented tooling does not land on a newer partial.
+//
+// When the source has no sync runs at all, "" writes an empty Pebble c1z (so
+// convert-open succeeds on never-synced files). If sync runs exist but none
+// match the selected resolve behavior (e.g. diff-only under Newest), ""
+// returns an error rather than discarding data. Pass an explicit syncID to
+// convert a specific sync (including diff syncs for fixture seeding). The
+// destination sync is written ended when the source was finished; when the
+// source was unfinished, EndSync still runs (indexes/digests/stats/flush) but
+// ended_at is cleared and the source sync_token is preserved so the sync
+// stays resumable. In both cases the source started_at is copied so the
+// unfinished-sync age cutoff still applies after conversion (StartNewSync
+// would otherwise stamp now and resurrect abandoned syncs). An unfinished
+// source's connector_sessions rows are copied as well, so a resumed sync still
+// sees the session state it checkpointed against; a finished source's are not,
+// since nothing resumes a sealed sync and the connector lifecycle deletes them
+// at that point anyway.
+//
+// The sync's lineage columns — parent_sync_id, linked_sync_id, supports_diff —
+// are preserved too. They reference syncs that the single-sync destination
+// cannot hold, but those references are meaningful across files: dropping them
+// would make a converted partial read as a standalone snapshot and a
+// diff-capable sync read as non-diffable.
 //
 // The Pebble engine is registered statically with dotc1z; no extra
 // imports are needed before calling.
@@ -130,11 +228,15 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	cfg := &convertConfig{
-		batchSize: defaultConvertBatchSize,
-		tmpDir:    c.tempDir,
+		batchSize:       defaultConvertBatchSize,
+		tmpDir:          c.tempDir,
+		resolveBehavior: ConvertResolveBehaviorNewest,
 	}
 	for _, o := range opts {
 		o(cfg)
+	}
+	if !slices.Contains(validConvertResolveBehaviors, cfg.resolveBehavior) {
+		return nil, fmt.Errorf("to-pebble: unknown convert resolve behavior %q", cfg.resolveBehavior)
 	}
 
 	if err = c.validateDb(ctx); err != nil {
@@ -148,12 +250,34 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	}
 
 	if syncID == "" {
-		syncID, err = c.resolveConvertSyncID(ctx)
+		// If there are no syncs in the source, write an empty Pebble c1z.
+		var hasAnySyncRun bool
+		hasAnySyncRun, err = c.hasAnySyncRun(ctx)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("to-pebble: check for any sync runs: %w", err)
 		}
-		if syncID == "" {
-			return nil, fmt.Errorf("to-pebble: no full sync found to convert")
+		if !hasAnySyncRun {
+			var emptyStats *ConvertStats
+			emptyStats, err = c.convertEmptyToPebble(ctx, outPath, cfg)
+			return emptyStats, err
+		}
+
+		switch cfg.resolveBehavior {
+		case ConvertResolveBehaviorNewest:
+			syncID, err = c.resolveConvertSyncID(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("to-pebble: resolve convert sync id: %w", err)
+			}
+		case ConvertResolveBehaviorFullFinished:
+			syncID, err = c.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
+			if err != nil {
+				return nil, fmt.Errorf("to-pebble: resolve convert sync id: %w", err)
+			}
+			if syncID == "" {
+				return nil, status.Errorf(codes.NotFound, "no finished full sync found")
+			}
+		default:
+			return nil, fmt.Errorf("to-pebble: unknown convert resolve behavior %q", cfg.resolveBehavior)
 		}
 	}
 
@@ -168,6 +292,13 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	stats := &ConvertStats{SourceSyncID: syncID}
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
+
+	// Record what this conversion drops before touching the destination, so
+	// the caller can report it even though only the selected sync survives.
+	stats.DiscardedSyncs, err = c.discardedSyncs(ctx, syncID)
+	if err != nil {
+		return nil, fmt.Errorf("to-pebble: list discarded syncs: %w", err)
+	}
 
 	dest, err := NewStore(ctx, outPath, WithEngine(c1zstore.EnginePebble), WithTmpDir(cfg.tmpDir))
 	if err != nil {
@@ -193,7 +324,7 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	if !ok {
 		return nil, errors.New("to-pebble: destination does not support preserving the source sync id")
 	}
-	destSyncID, err := starter.StartNewSyncWithID(ctx, sync.Type, syncID, "")
+	destSyncID, err := starter.StartNewSyncWithID(ctx, sync.Type, syncID, sync.ParentSyncID)
 	if err != nil {
 		return nil, fmt.Errorf("to-pebble: start destination sync: %w", err)
 	}
@@ -235,6 +366,18 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 		return nil, fmt.Errorf("to-pebble: assets: %w", err)
 	}
 
+	// Sessions ride along only with a destination that stays resumable, which
+	// is the same ended_at == nil condition the metadata overlay below uses to
+	// decide that. On a finished sync they are scratch state no reader
+	// consults: the connector's Cleanup deletes them at that point precisely
+	// so they do not ship in the saved c1z (pkg/connectorbuilder), and nothing
+	// can resume a sealed sync to read them back.
+	if sync.EndedAt == nil {
+		if err = c.copySessions(ctx, destEng, syncID, destSyncID, &stats.Sessions); err != nil {
+			return nil, fmt.Errorf("to-pebble: sessions: %w", err)
+		}
+	}
+
 	// The import counted every record it wrote; stash that as the sync's
 	// stats sidecar so EndSync persists it directly instead of re-scanning
 	// the freshly ingested keyspaces.
@@ -242,16 +385,30 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	statsRec.SetAssets(stats.Assets.Rows)
 	destEng.StashComputedSyncStats(destSyncID, statsRec)
 
+	// EndSync always runs: bulk import still needs deferred indexes / grant
+	// digests / stats sidecar / durability flush. We then overlay source
+	// sync metadata: started_at (so the unfinished age cutoff still
+	// applies and finished syncs keep started_at <= ended_at), and when
+	// the source was unfinished, clear ended_at and restore sync_token
+	// so the converted file stays resumable.
 	endSyncStart := time.Now()
 	if err = dest.EndSync(ctx); err != nil {
 		return nil, fmt.Errorf("to-pebble: end destination sync: %w", err)
 	}
+	rec, err := destEng.GetSyncRunRecord(ctx, destSyncID)
+	if err != nil {
+		return nil, fmt.Errorf("to-pebble: load destination sync metadata: %w", err)
+	}
+	rec.SetLinkedSyncId(sync.LinkedSyncID)
+	rec.SetSupportsDiff(sync.SupportsDiff)
+	// Localized on the way in: these scanned wall clocks become absolute
+	// instants in the Pebble record, and Pebble's resume cutoff compares
+	// started_at against time.Now() (see localizeSQLiteTimestamp).
+	if sync.StartedAt != nil {
+		rec.SetStartedAt(timestamppb.New(localizeSQLiteTimestamp(*sync.StartedAt, time.Local)))
+	}
 	if sync.EndedAt != nil {
-		rec, err := destEng.GetSyncRunRecord(ctx, destSyncID)
-		if err != nil {
-			return nil, fmt.Errorf("to-pebble: load destination sync metadata: %w", err)
-		}
-		rec.SetEndedAt(timestamppb.New(*sync.EndedAt))
+		rec.SetEndedAt(timestamppb.New(localizeSQLiteTimestamp(*sync.EndedAt, time.Local)))
 		// Verification provenance only rides along with a FINISHED source:
 		// a marker on an unfinished source (impossible through the writer
 		// API, but representable in a hand-edited file) must not convert
@@ -261,9 +418,12 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 			rec.SetIngestInvariantCoverage(append([]string(nil), sync.Coverage...))
 			rec.SetIngestInvariantMode(string(sync.Mode))
 		}
-		if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
-			return nil, fmt.Errorf("to-pebble: preserve source sync metadata: %w", err)
-		}
+	} else {
+		rec.ClearEndedAt()
+		rec.SetSyncToken(sync.SyncToken)
+	}
+	if err = destEng.PutSyncRunRecord(ctx, rec); err != nil {
+		return nil, fmt.Errorf("to-pebble: preserve source sync metadata: %w", err)
 	}
 	endSyncDur := time.Since(endSyncStart)
 	closeStart := time.Now()
@@ -281,52 +441,187 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 
 	stats.Total = time.Since(start)
 	l.Info("to-pebble: conversion complete",
-		zap.String("source_sync_id", stats.SourceSyncID),
-		zap.String("dest_sync_id", stats.DestSyncID),
-		zap.Int64("resource_types", stats.ResourceTypes.Rows),
-		zap.Int64("resources", stats.Resources.Rows),
-		zap.Int64("entitlements", stats.Entitlements.Rows),
-		zap.Int64("grants", stats.Grants.Rows),
-		zap.Int64("assets", stats.Assets.Rows),
-		zap.Int64("asset_bytes", stats.AssetBytes),
-		zap.Duration("total", stats.Total),
+		append([]zap.Field{
+			zap.String("source_sync_id", stats.SourceSyncID),
+			zap.String("dest_sync_id", stats.DestSyncID),
+			zap.Int64("resource_types", stats.ResourceTypes.Rows),
+			zap.Int64("resources", stats.Resources.Rows),
+			zap.Int64("entitlements", stats.Entitlements.Rows),
+			zap.Int64("grants", stats.Grants.Rows),
+			zap.Int64("assets", stats.Assets.Rows),
+			zap.Int64("asset_bytes", stats.AssetBytes),
+			zap.Int64("sessions", stats.Sessions.Rows),
+			zap.Duration("total", stats.Total),
+		}, discardedSyncFields(stats.DiscardedSyncs)...)...,
 	)
 
 	return stats, nil
 }
 
-// resolveConvertSyncID picks the source sync for a default ("") conversion.
-// It prefers the latest finished full sync (the normal case), and otherwise
-// falls back to the latest full sync of any state so an in-progress or
-// unexpanded sync can still be converted (e.g. to seed a benchmark fixture).
-// Unlike getLatestUnfinishedSync this has no recency cutoff, so old checked-in
-// fixtures resolve too.
-func (c *C1File) resolveConvertSyncID(ctx context.Context) (string, error) {
-	syncID, err := c.LatestSyncID(ctx, connectorstore.SyncTypeFull)
-	if err != nil {
-		return "", err
+// discardedSyncs lists the source syncs a conversion that keeps keepSyncID
+// leaves behind, in sync_runs order. Diff-pair syncs are included: they are
+// dropped from the artifact too, and their absence is what an operator chasing
+// a missing delta needs to see.
+//
+// Metadata only. ListSyncRuns reads the sync_runs rows and parses the cached
+// stats blob when one is present; unlike GetSync it never recomputes stats, so
+// this cannot turn into an O(rows) scan on an unfinished sync.
+func (c *C1File) discardedSyncs(ctx context.Context, keepSyncID string) ([]DiscardedSync, error) {
+	var discarded []DiscardedSync
+	pageToken := ""
+	for {
+		runs, nextPageToken, err := c.ListSyncRuns(ctx, pageToken, maxPageSize)
+		if err != nil {
+			return nil, err
+		}
+		for _, run := range runs {
+			if run == nil || run.ID == keepSyncID {
+				continue
+			}
+			discarded = append(discarded, DiscardedSync{
+				ID:   run.ID,
+				Type: run.Type,
+				// Localized like the record timestamps written next
+				// door, so the log line and anything an SDK caller
+				// compares against time.Now() agree with them.
+				StartedAt: localizeSQLiteTimestampPtr(run.StartedAt, time.Local),
+				EndedAt:   localizeSQLiteTimestampPtr(run.EndedAt, time.Local),
+			})
+		}
+		if nextPageToken == "" {
+			return discarded, nil
+		}
+		pageToken = nextPageToken
 	}
-	if syncID != "" {
-		return syncID, nil
-	}
+}
 
+// discardedSyncFields renders the dropped syncs for a log line. The count is
+// always emitted so "nothing was dropped" is visible rather than inferred from
+// an absent field.
+func discardedSyncFields(discarded []DiscardedSync) []zap.Field {
+	descriptors := make([]string, 0, len(discarded))
+	for _, d := range discarded {
+		startedAt := "unknown"
+		if d.StartedAt != nil {
+			startedAt = d.StartedAt.Format(time.RFC3339)
+		}
+		finished := "false"
+		if d.EndedAt != nil {
+			finished = "true"
+		}
+		descriptors = append(descriptors, fmt.Sprintf("id=%s type=%s started_at=%s finished=%s", d.ID, d.Type, startedAt, finished))
+	}
+	return []zap.Field{
+		zap.Int("discarded_sync_count", len(discarded)),
+		zap.Strings("discarded_syncs", descriptors),
+	}
+}
+
+// resolveConvertSyncID implements ConvertResolveBehaviorNewest: the
+// convertible sync (full, resources_only, or partial) with the latest
+// started_at (sync_id DESC tie-break), whether finished or unfinished —
+// except that an unfinished sync past the resume cutoff ranks below every
+// other candidate.
+//
+// A sync that started more than unfinishedSyncMaxAge ago and never ended is
+// abandoned work: neither engine will resume it (getLatestUnfinishedSync here,
+// LatestUnfinishedSyncRecord in Pebble) and it has no ended_at to be read as a
+// snapshot. Converting one in preference to a finished sync would produce a
+// file that can be neither resumed nor read, so finished syncs win over stale
+// unfinished ones regardless of started_at. A stale unfinished sync is still
+// chosen when it is all there is (newest started_at among them), since
+// convert-open must not fail on such a file. Unfinished syncs within the
+// cutoff are live work and keep competing on started_at alone.
+//
+// The excluded types are the diff pair written by attached-file diffing,
+// partial_upserts and partial_deletions: each holds one side of a delta and
+// is meaningless converted alone. GenerateSyncDiff's delta sync is NOT
+// excluded — it is stored as a plain partial (diff.go), indistinguishable
+// from a targeted sync by type, parent_sync_id, or supports_diff — so on a
+// file that was just diffed and holds no newer sync, "" resolves to the
+// delta.
+func (c *C1File) resolveConvertSyncID(ctx context.Context) (string, error) {
 	q := c.db.From(syncRuns.Name()).Prepared(true).
 		Select("sync_id").
-		Where(goqu.C("sync_type").Eq(connectorstore.SyncTypeFull)).
-		Order(goqu.C("started_at").Desc()).
+		Where(goqu.C("sync_type").In(
+			connectorstore.SyncTypeFull,
+			connectorstore.SyncTypeResourcesOnly,
+			connectorstore.SyncTypePartial,
+		)).
+		Order(
+			// SQLite renders the boolean as 1/0, so DESC puts the
+			// still-useful candidates (finished, or unfinished and
+			// resumable) ahead of the abandoned ones.
+			goqu.L("(ended_at is not null or started_at >= ?)", unfinishedSyncCutoff()).Desc(),
+			goqu.C("started_at").Desc(),
+			goqu.C("sync_id").Desc(),
+		).
 		Limit(1)
 	query, args, err := q.ToSQL()
 	if err != nil {
 		return "", err
 	}
-	var id string
-	if err := c.db.QueryRowContext(ctx, query, args...).Scan(&id); err != nil {
+	var syncID string
+	if err := c.db.QueryRowContext(ctx, query, args...).Scan(&syncID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", nil
+			return "", status.Errorf(codes.NotFound, "no convertible sync found")
 		}
 		return "", err
 	}
-	return id, nil
+	return syncID, nil
+}
+
+// hasAnySyncRun reports whether the SQLite source has at least one sync_runs row.
+func (c *C1File) hasAnySyncRun(ctx context.Context) (bool, error) {
+	q := c.db.From(syncRuns.Name()).Prepared(true).Select(goqu.L("1")).Limit(1)
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return false, err
+	}
+	var one int
+	if err := c.db.QueryRowContext(ctx, query, args...).Scan(&one); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// convertEmptyToPebble writes a valid empty Pebble c1z (no sync runs).
+// Caller must ensure the source has no sync_runs rows.
+func (c *C1File) convertEmptyToPebble(ctx context.Context, outPath string, cfg *convertConfig) (*ConvertStats, error) {
+	start := time.Now()
+
+	dest, err := NewStore(ctx, outPath, WithEngine(c1zstore.EnginePebble), WithTmpDir(cfg.tmpDir))
+	if err != nil {
+		return nil, fmt.Errorf("to-pebble: open destination: %w", err)
+	}
+	cleanupDest := true
+	defer func() {
+		if cleanupDest {
+			_ = dest.Close(ctx)
+			_ = os.Remove(outPath) // #nosec G703 -- cleanup of caller-selected conversion output.
+		}
+	}()
+
+	// A fresh store is not dirty until something writes. Force the envelope
+	// save so Close materializes an empty v3 c1z at outPath.
+	if !pebble.MarkStoreDirty(dest) {
+		return nil, errors.New("to-pebble: destination does not support dirty marking")
+	}
+	if err = dest.Close(ctx); err != nil {
+		cleanupDest = false
+		_ = os.Remove(outPath) // #nosec G703 -- cleanup of caller-selected conversion output.
+		return nil, fmt.Errorf("to-pebble: close destination: %w", err)
+	}
+	cleanupDest = false
+
+	stats := &ConvertStats{Total: time.Since(start)}
+	ctxzap.Extract(ctx).Info("to-pebble: wrote empty pebble c1z (source had no sync runs)",
+		zap.Duration("total", stats.Total),
+	)
+	return stats, nil
 }
 
 // scanRows executes q and invokes fn for each row with the raw *sql.Rows
@@ -361,11 +656,15 @@ func (c *C1File) syncScope(table string, syncID string, cols ...any) *goqu.Selec
 // discoveredAtTimestamp converts a scanned discovered_at column value to
 // a per-record timestamp for the bulk import. A zero time yields nil so
 // the importer falls back to its own now-stamp.
+//
+// The scanned value is localized first: it becomes an absolute instant here, and
+// compaction compares those instants to pick record winners (see
+// localizeSQLiteTimestamp).
 func discoveredAtTimestamp(t time.Time) *timestamppb.Timestamp {
 	if t.IsZero() {
 		return nil
 	}
-	return timestamppb.New(t)
+	return timestamppb.New(localizeSQLiteTimestamp(t, time.Local))
 }
 
 func (c *C1File) convertResourceTypes(ctx context.Context, bi *pebble.BulkSyncImport, syncID string, batchSize int, stage *ConvertStageStats) error {
@@ -836,4 +1135,81 @@ func (c *C1File) copyAssets(ctx context.Context, dest connectorstore.Writer, syn
 		*totalBytes += int64(len(data))
 	}
 	return rows.Err()
+}
+
+// Bounds on one session write batch: session values are connector-controlled
+// blobs, so cap by bytes as well as key count to keep a single pebble batch
+// from ballooning.
+const (
+	convertSessionBatchKeys  = 500
+	convertSessionBatchBytes = 4 << 20
+)
+
+// copySessions copies the source sync's connector_sessions rows to the
+// destination under destSyncID. Only called for a source that never finished:
+// see the call site in ToPebble for why a finished sync's rows are left behind.
+//
+// Session rows are the connector's own resume scratchpad, keyed by
+// (sync_id, key), and nothing clears them when a sync resumes — a resumed
+// sync expects to read back what it wrote. Since ToPebble hands back an
+// unfinished destination with the source's sync_token (see ToPebble), the
+// session rows have to come along too: a sync_token that says "mid-sync"
+// against an empty session store makes a connector resume from a state it
+// never saved.
+func (c *C1File) copySessions(ctx context.Context, dest *pebble.Engine, syncID, destSyncID string, stage *ConvertStageStats) error {
+	start := time.Now()
+	defer func() { stage.Duration = time.Since(start) }()
+
+	q := c.db.From(sessionStore.Name()).Prepared(true).
+		Select("key", "value").
+		Where(goqu.C("sync_id").Eq(syncID)).
+		Order(goqu.C("key").Asc())
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return err
+	}
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	batch := make(map[string][]byte, convertSessionBatchKeys)
+	batchBytes := 0
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		// No WithPrefix: the scanned keys are already the stored keys, and
+		// the writer would otherwise prepend the prefix a second time.
+		if err := dest.SessionSetMany(ctx, batch, sessions.WithSyncID(destSyncID)); err != nil {
+			return err
+		}
+		stage.Rows += int64(len(batch))
+		batch = make(map[string][]byte, convertSessionBatchKeys)
+		batchBytes = 0
+		return nil
+	}
+
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var key string
+		var value []byte
+		if err := rows.Scan(&key, &value); err != nil {
+			return err
+		}
+		batch[key] = value
+		batchBytes += len(key) + len(value)
+		if len(batch) >= convertSessionBatchKeys || batchBytes >= convertSessionBatchBytes {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return flush()
 }

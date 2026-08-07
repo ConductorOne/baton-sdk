@@ -171,7 +171,7 @@ func (c *C1FileAttached) UpdateSync(ctx context.Context, baseSync *reader_v2.Syn
 	baseSyncID := baseSync.GetId()
 	q := c.file.db.Update(fmt.Sprintf("main.%s", syncRuns.Name()))
 	q = q.Set(goqu.Record{
-		"ended_at":  latestEndedAt.Format("2006-01-02 15:04:05.999999999"),
+		"ended_at":  latestEndedAt.Format(sqliteTimeFormat),
 		"sync_type": string(syncType),
 	})
 	q = q.Where(goqu.C("sync_id").Eq(baseSyncID))
@@ -261,7 +261,7 @@ func (c *C1FileAttached) GenerateSyncDiffFromFile(ctx context.Context, oldSyncID
 		}
 	}()
 
-	now := time.Now().Format("2006-01-02 15:04:05.999999999")
+	now := time.Now().Format(sqliteTimeFormat)
 
 	// Create the deletions sync first (so upserts is "latest")
 	// Link it to upserts sync bidirectionally
@@ -317,7 +317,7 @@ func (c *C1FileAttached) GenerateSyncDiffFromFile(ctx context.Context, oldSyncID
 	}
 
 	// End the syncs (deletions first, then upserts)
-	endedAt := time.Now().Format("2006-01-02 15:04:05.999999999")
+	endedAt := time.Now().Format(sqliteTimeFormat)
 
 	endDeletions := c.file.db.Update(syncRuns.Name()).
 		Set(goqu.Record{"ended_at": endedAt}).
