@@ -217,6 +217,17 @@ func (s *pebbleStore) StreamEntitlements(ctx context.Context, syncID string) ite
 	return s.Engine.StreamEntitlements(ctx, syncID)
 }
 
+// GrantsForEntitlementPrincipalSorted reports that ListGrantsForEntitlement
+// pages come back principal-sorted, which is what lets the expander use the
+// topological-merge path. The syncer discovers it by inline type assertion
+// (pkg/sync/syncer.go), so losing this forwarder does not fail anything —
+// every Pebble sync just silently falls back to the source-batched expander.
+// That exact regression shipped on this branch when the engine was
+// un-embedded, and only an independent review caught it.
+func (s *pebbleStore) GrantsForEntitlementPrincipalSorted() bool {
+	return s.Engine.GrantsForEntitlementPrincipalSorted()
+}
+
 // LatestFinishedSyncRecord exists so the fold compactor can pick its base
 // sync without extracting a raw engine from the destination store. Source
 // files still go through pebble.AsEngine — the merge pipeline consumes

@@ -52,6 +52,15 @@ var (
 		ListGrantPrincipalKeysForEntitlement(context.Context, *v2.Entitlement, string, uint32) ([]string, string, error)
 	} = (*pebbleStore)(nil)
 
+	// pkg/sync/syncer.go: gates the expander's topological-merge path.
+	// Losing it silently reroutes every Pebble sync onto the source-batched
+	// expander — no error, no failing test, just a whale-scale cost
+	// regression. This assertion was missing when the un-embedding landed
+	// and the regression shipped on the branch until review caught it.
+	_ interface {
+		GrantsForEntitlementPrincipalSorted() bool
+	} = (*pebbleStore)(nil)
+
 	// pkg/synccompactor/compactor_pebble.go: the fold compactor's base-sync
 	// read on the shared destination store. Losing it fails the fold loudly
 	// ("not a pebble engine"), but the assertion belongs here all the same.
