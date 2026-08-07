@@ -3570,10 +3570,12 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				// not the source grant is expandable: expandableAnno only
 				// controls whether the new grant also gets a remapped
 				// GrantExpandable annotation (see matchProfileAndExpand).
+				// No nil check: this case only fires when matchTraits[trait]
+				// is true, and indexByTrait is populated for every key of
+				// matchTraits. The guard in the TRAIT_USER case above is not
+				// the same situation -- that case fires on the trait named by
+				// the grant, which need not be a configured match trait.
 				idx := indexByTrait[trait]
-				if idx == nil {
-					break
-				}
 				for _, i := range idx.matchProfile(matchKey, matchValue) {
 					newGrant, err := s.matchProfileAndExpand(
 						ctx, l, grant, idx.principalAt(i),
