@@ -105,11 +105,19 @@ func (oa *OutstandingAction) result() (string, v2.BatonActionStatus, *structpb.S
 	return oa.Id, oa.Status, oa.Rv, oa.Annos
 }
 
-func (oa *OutstandingAction) setResult(rv *structpb.Struct, annos annotations.Annotations) {
+// setOutcome publishes the handler's result and terminal status in one
+// critical section, so no snapshot observes one without the other.
+func (oa *OutstandingAction) setOutcome(ctx context.Context, rv *structpb.Struct, annos annotations.Annotations, err error) {
 	oa.Lock()
 	defer oa.Unlock()
 	oa.Rv = rv
 	oa.Annos = annos
+	if err != nil {
+		oa.setErrorLocked(err)
+		oa.setStatusLocked(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
+		return
+	}
+	oa.setStatusLocked(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
 }
 
 const maxOldActions = 1000
@@ -489,12 +497,7 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 		handlerCtx, cancel := context.WithTimeoutCause(bgCtx, 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
 		rv, annos, oaErr := handler(handlerCtx, args)
-		oa.setResult(rv, annos)
-		if oaErr == nil {
-			oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
-		} else {
-			oa.SetError(ctx, oaErr)
-		}
+		oa.setOutcome(ctx, rv, annos, oaErr)
 	}()
 
 	select {
@@ -582,12 +585,7 @@ func (a *ActionManager) invokeResourceAction(
 		handlerCtx, cancel := context.WithTimeoutCause(bgCtx, 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
 		rv, annos, oaErr := handler(handlerCtx, args)
-		oa.setResult(rv, annos)
-		if oaErr == nil {
-			oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
-		} else {
-			oa.SetError(ctx, oaErr)
-		}
+		oa.setOutcome(ctx, rv, annos, oaErr)
 	}()
 
 	// Wait for completion or timeout

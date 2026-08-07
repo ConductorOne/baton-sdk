@@ -547,8 +547,10 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 	})
 }
 
-// This test asserts nothing; its failure mode is the race detector, and
-// `make race-check` is the gate that runs this package under -race.
+// The data race this test guards against is only detectable under -race,
+// which the plain CI go-test job does not enable for this package; `make
+// race-check` is the out-of-band gate that runs it. The assertions at the end
+// only cover the exported snapshot accessor.
 func TestCleanupOldActionsDuringConcurrentStatusWrites(t *testing.T) {
 	ctx := t.Context()
 	m := NewActionManager(ctx)
@@ -564,18 +566,28 @@ func TestCleanupOldActionsDuringConcurrentStatusWrites(t *testing.T) {
 	}
 
 	stop := make(chan struct{})
+	started := make(chan struct{})
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
+		first := true
 		for {
 			select {
 			case <-stop:
 				return
 			default:
 				oldest.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+				if first {
+					close(started)
+					first = false
+				}
 			}
 		}
 	}()
+
+	// Wait for the writer's first write: otherwise it may only be scheduled
+	// after close(stop), never race cleanup, and leave the action PENDING.
+	<-started
 
 	// Fails under -race if cleanup reads action status without the lock.
 	m.CleanupOldActions(ctx)
