@@ -31,6 +31,12 @@ import (
 // linearUserMatchPositions is a test-only reference model copied from the
 // phase-6a implementation. It deliberately does not share bucketing or merge
 // logic with externalPrincipalIndex.
+//
+// The email comparison is spelled out here rather than calling a production
+// helper. An oracle that borrows the code it is checking cannot report a
+// divergence in that code, and the relation being pinned -- strings.EqualFold,
+// the contract asserted by TestExternalResourceMatch*FoldingContract -- is the
+// whole point of the comparison, so the model states it directly.
 func linearUserMatchPositions(principals []*v2.Resource, key, value string) []int {
 	matches := make([]int, 0)
 	for i, principal := range principals {
@@ -38,7 +44,9 @@ func linearUserMatchPositions(principals []*v2.Resource, key, value string) []in
 		if err != nil {
 			continue
 		}
-		if key == "email" && userTraitContainsEmail(userTrait.GetEmails(), value) {
+		if key == "email" && slices.ContainsFunc(userTrait.GetEmails(), func(e *v2.UserTrait_Email) bool {
+			return strings.EqualFold(e.GetAddress(), value)
+		}) {
 			matches = append(matches, i)
 			continue
 		}
